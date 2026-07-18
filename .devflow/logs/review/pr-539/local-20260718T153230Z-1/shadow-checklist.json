@@ -1,0 +1,709 @@
+[
+ {
+  "id": "VC-1",
+  "category": "api_contract",
+  "claim": "The writing-skills routing trigger-glob list now includes skills/review-and-fix/references/*.md, and this glob list must be identical across all three carrying files (coupled-site invariant).",
+  "source_file": ".devflow/prompt-extensions/implement.md",
+  "verify_against": "The two other prompt-extension trigger-glob lists plus any lib/test/run.sh pin asserting the trigger globs.",
+  "verify_hint": "Compare the trigger-glob list across implement.md, review.md, review-and-fix.md; confirm all three include skills/review-and-fix/references/*.md.",
+  "verification_mode": "agent",
+  "claim_signature": "api_contract:implement.md:writing-skills-trigger-glob-coupled",
+  "merged_from": [
+   "batch1:VC-1"
+  ]
+ },
+ {
+  "id": "VC-2",
+  "category": "dependency_interaction",
+  "claim": "docs/DEVFLOW_SYSTEM_OVERVIEW.md and docs/review-and-fix-budget.md assert the step procedures live in exactly eight reference files under skills/review-and-fix/references/.",
+  "source_file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+  "verify_against": "The actual contents of skills/review-and-fix/references/.",
+  "verify_hint": "List the directory and confirm each of the eight named files exists with no missing or extra reference.",
+  "verification_mode": "agent",
+  "claim_signature": "dependency_interaction:DEVFLOW_SYSTEM_OVERVIEW.md:eight-reference-files-exist",
+  "merged_from": [
+   "batch1:VC-2"
+  ]
+ },
+ {
+  "id": "VC-3",
+  "category": "api_contract",
+  "claim": "docs/efficiency-trace.md claims the fix-commit subject template is WRITTEN by references/fixing.md Step 3 item 6 and PARSED by lib/efficiency-trace.sh (FIX_COMMIT_SUBJECT_PREFIX).",
+  "source_file": "docs/efficiency-trace.md",
+  "verify_against": "fixing.md Step 3 item 6 and lib/efficiency-trace.sh FIX_COMMIT_SUBJECT_PREFIX.",
+  "verify_hint": "Confirm fixing.md item 6 writes 'fix: address review findings (iteration {N})' and efficiency-trace.sh's prefix matches.",
+  "verification_mode": "agent",
+  "claim_signature": "api_contract:efficiency-trace.md:fix-commit-subject-in-fixing-ref",
+  "merged_from": [
+   "batch1:VC-3",
+   "batch2:VC-13"
+  ]
+ },
+ {
+  "id": "VC-4",
+  "category": "dependency_interaction",
+  "claim": "docs/efficiency-trace.md relocates the effectiveness-telemetry pointer to references/loop-exit.md (Loop Exit + Subagent effectiveness trace).",
+  "source_file": "docs/efficiency-trace.md",
+  "verify_against": "references/loop-exit.md content; absence from SKILL.md.",
+  "verify_hint": "Confirm loop-exit.md holds the Loop Exit procedure and the Subagent effectiveness trace section and the root no longer does.",
+  "verification_mode": "agent",
+  "claim_signature": "dependency_interaction:efficiency-trace.md:loop-exit-ref-holds-trace",
+  "merged_from": [
+   "batch1:VC-4"
+  ]
+ },
+ {
+  "id": "VC-5",
+  "category": "api_contract",
+  "claim": "CLAUDE.md and docs/implement-skill.md both re-point the behavioral-fix-pin mutation-check requirement to references/fixing.md Step 3; fixing.md must carry it.",
+  "source_file": "docs/implement-skill.md",
+  "verify_against": "fixing.md Step 3 mutation-check / assert_pin_red_under discipline; the CLAUDE.md pin.",
+  "verify_hint": "Confirm fixing.md Step 3 contains the assert_pin_red_under behavioral-fix-pin mutation-check step and both docs point there.",
+  "verification_mode": "agent",
+  "claim_signature": "api_contract:implement-skill.md:mutation-check-in-fixing-ref",
+  "merged_from": [
+   "batch1:VC-5"
+  ]
+ },
+ {
+  "id": "VC-6",
+  "category": "data_format_assumption",
+  "claim": "docs/review-and-fix-budget.md AFTER measured values \u2014 root 3,209 words, initial load 5,493, max active step 16,754 \u2014 must equal live python3 word counts and the #530 budget pins in lib/test/run.sh.",
+  "source_file": "docs/review-and-fix-budget.md",
+  "verify_against": "Live python3 bytes.split() counts + run.sh #530 budget block constants.",
+  "verify_hint": "Re-measure root (expect 3,209), root+ext (5,493), root+ext+shadow-review.md (16,754); confirm Measured cells and run.sh constants agree.",
+  "verification_mode": "agent",
+  "claim_signature": "data_format_assumption:review-and-fix-budget.md:measured-cells-match-runsh",
+  "merged_from": [
+   "batch1:VC-6"
+  ]
+ },
+ {
+  "id": "VC-7",
+  "category": "api_contract",
+  "claim": "docs/review-and-fix-budget.md declares the named justified-growth warning review-and-fix-split-cumulative-growth with delta +3,894 words (cumulative 42,379 vs 38,485) and net reduction 32,992 (38,485 -> 5,493); figures and label must match run.sh pins.",
+  "source_file": "docs/review-and-fix-budget.md",
+  "verify_against": "The growth-delta / net-reduction / warning-label pins in run.sh's #530 budget block.",
+  "verify_hint": "Confirm run.sh pins the label and that arithmetic 38,485-5,493=32,992 and 42,379-38,485=3,894 hold in the doc.",
+  "verification_mode": "agent",
+  "claim_signature": "api_contract:review-and-fix-budget.md:justified-growth-warning-pinned",
+  "merged_from": [
+   "batch1:VC-7"
+  ]
+ },
+ {
+  "id": "VC-8",
+  "category": "data_format_assumption",
+  "claim": "The changeset prose asserts the always-loaded prompt is reduced by 32,992 words and the thin root is <=3,500 words \u2014 must agree with the budget doc.",
+  "source_file": ".changeset/issue-530-review-and-fix-split.md",
+  "verify_against": "docs/review-and-fix-budget.md net-reduction and root ceiling figures.",
+  "verify_hint": "Confirm the changeset's 32,992 and <=3,500 claims match the budget doc.",
+  "verification_mode": "agent",
+  "claim_signature": "data_format_assumption:changeset:reduction-figure-matches-budget-doc",
+  "merged_from": [
+   "batch1:VC-8"
+  ]
+ },
+ {
+  "id": "VC-9",
+  "category": "data_format_assumption",
+  "claim": "docs/review-bundle-budget.md and CLAUDE.md both carry the re-measured Default per-pass unique path 28,688 / GNU 28,093; run.sh review-bundle pins must agree.",
+  "source_file": "docs/review-bundle-budget.md",
+  "verify_against": "CLAUDE.md figures and run.sh review-bundle pins.",
+  "verify_hint": "Confirm all sites state 28,688 / 28,093 and none was left at 28,687 / 28,092.",
+  "verification_mode": "agent",
+  "claim_signature": "data_format_assumption:review-bundle-budget.md:28688-figure-coupled",
+  "merged_from": [
+   "batch1:VC-9"
+  ]
+ },
+ {
+  "id": "VC-10",
+  "category": "api_contract",
+  "claim": "ISSUE AC: 'plugin root at most 3,000 words' \u2014 shipped root measures 3,209 against a 3,500 ceiling, exceeding the issue AC (justified by the #557 ceiling raise).",
+  "source_file": "docs/review-and-fix-budget.md",
+  "verify_against": "Issue #530 AC vs shipped measurement and documented justification.",
+  "verify_hint": "Compare AC 3,000 vs measured 3,209 / ceiling 3,500; determine if the deviation is documented and justified.",
+  "verification_mode": "agent",
+  "claim_signature": "api_contract:review-and-fix-budget.md:root-3000-vs-3500-ceiling",
+  "merged_from": [
+   "batch1:VC-10",
+   "batch2:VC-1"
+  ]
+ },
+ {
+  "id": "VC-11",
+  "category": "api_contract",
+  "claim": "ISSUE AC: 'root+ext+active-step at most 15,000 words' \u2014 shipped max step measures 16,754 against a 17,000 ceiling, exceeding the issue AC (justified by the #557 ceiling raise).",
+  "source_file": "docs/review-and-fix-budget.md",
+  "verify_against": "Issue #530 AC vs shipped measurement and documented justification.",
+  "verify_hint": "Compare AC 15,000 vs measured 16,754 / ceiling 17,000; determine if the deviation is documented and justified.",
+  "verification_mode": "agent",
+  "claim_signature": "api_contract:review-and-fix-budget.md:maxstep-15000-vs-17000-ceiling",
+  "merged_from": [
+   "batch1:VC-11",
+   "batch2:VC-2"
+  ]
+ },
+ {
+  "id": "VC-12",
+  "category": "absolute_claim",
+  "claim": "The changeset and DEVFLOW_SYSTEM_OVERVIEW.md assert that for EVERY unreadable loop-step reference the mapped fail-closed outcome never permits a clean approve.",
+  "source_file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+  "verify_against": "The per-reference failure map in skills/review-and-fix/SKILL.md.",
+  "verify_hint": "For each loop-step reference construct the unreadable case and confirm the mapped outcome blocks a clean approve; check how the prose scopes error-handling.md (best-effort guidance).",
+  "verification_mode": "agent",
+  "claim_signature": "absolute_claim:DEVFLOW_SYSTEM_OVERVIEW.md:unreadable-ref-never-clean-approve",
+  "merged_from": [
+   "batch1:VC-12"
+  ]
+ },
+ {
+  "id": "VC-13",
+  "category": "data_format_assumption",
+  "claim": "DEVFLOW_SYSTEM_OVERVIEW.md describes durable operands current_step/current_substep/pending_dispatch written into the run-scoped iter-<N>.json.",
+  "source_file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+  "verify_against": "The ### Schema block in skills/review-and-fix/SKILL.md.",
+  "verify_hint": "Confirm the three operands are present as schema fields matching the doc's resume-without-recall description.",
+  "verification_mode": "agent",
+  "claim_signature": "data_format_assumption:DEVFLOW_SYSTEM_OVERVIEW.md:durable-operands-in-schema",
+  "merged_from": [
+   "batch1:VC-13"
+  ]
+ },
+ {
+  "id": "VC-14",
+  "category": "api_contract",
+  "claim": "DEVFLOW_SYSTEM_OVERVIEW.md states the effective fix set includes REJECT drivers whether at/above verdict_severity_threshold OR via a threshold-independent REJECT class (self-contradicting-diff carve-out).",
+  "source_file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+  "verify_against": "The effective-fix-set / REJECT-driver widening logic in references/loop-control.md.",
+  "verify_hint": "Confirm loop-control.md's widening rule actually includes threshold-independent REJECT-class drivers as the overview claims.",
+  "verification_mode": "agent",
+  "claim_signature": "api_contract:DEVFLOW_SYSTEM_OVERVIEW.md:fixset-threshold-independent-reject",
+  "merged_from": [
+   "batch1:VC-14"
+  ]
+ },
+ {
+  "id": "VC-15",
+  "category": "data_format_assumption",
+  "claim": "The SKILL.md ### Schema block declares current_step, current_substep, pending_dispatch, which run.sh's LR_SCHEMA_ALL requires as members of the schema fence.",
+  "source_file": "skills/review-and-fix/SKILL.md",
+  "verify_against": "The ### Schema JSON block and run.sh's LR_SCHEMA_ALL nav-field membership loop.",
+  "verify_hint": "Confirm the three keys appear once each as top-level keys inside the ### Schema fence.",
+  "verification_mode": "agent",
+  "claim_signature": "data_format_assumption:SKILL.md:nav-operands-in-schema",
+  "merged_from": [
+   "batch2:VC-3"
+  ]
+ },
+ {
+  "id": "VC-16",
+  "category": "data_format_assumption",
+  "claim": "ITER_EXPECTED_FIELDS equals the unconditional schema fields minus {shadow, promotion_provenance, parked_class_sweep, park_calibration, current_step, current_substep, pending_dispatch}; the nav operands must NOT be in ITER_EXPECTED_FIELDS.",
+  "source_file": "lib/efficiency-trace.sh",
+  "verify_against": "ITER_EXPECTED_FIELDS vs the schema block, joined by run.sh's LR_CONST/LR_SCHEMA comparison.",
+  "verify_hint": "Confirm the exclusion set matches the -Ev filter in run.sh's LR_SCHEMA and the constant omits the nav operands.",
+  "verification_mode": "agent",
+  "claim_signature": "data_format_assumption:efficiency-trace.sh:iter-fields-schema-mirror",
+  "merged_from": [
+   "batch2:VC-4"
+  ]
+ },
+ {
+  "id": "VC-17",
+  "category": "api_contract",
+  "claim": "The 8-reference name set is consistent across run.sh RAF_EXPECTED_REFS, the module contract's RAF_EXPECTED_REFS, test_workflow_flight_recorder.py's hardcoded list, and disk.",
+  "source_file": "lib/test/run.sh",
+  "verify_against": "The four independent enumerations of the reference set.",
+  "verify_hint": "Confirm all four sources name exactly the same 8 references.",
+  "verification_mode": "agent",
+  "claim_signature": "api_contract:run.sh:eight-reference-set-consistency",
+  "merged_from": [
+   "batch2:VC-5"
+  ]
+ },
+ {
+  "id": "VC-18",
+  "category": "api_contract",
+  "claim": "The recorder registry adds the references glob under BOTH review-and-fix and implement with load_class reference and required false, exactly as the new flight-recorder test asserts.",
+  "source_file": "scripts/workflow-flight-recorder-registry.json",
+  "verify_against": "test_review_and_fix_reference_surfaces_resolve_to_the_shipped_files in lib/test/test_workflow_flight_recorder.py.",
+  "verify_hint": "Confirm exactly one surface row per workflow with the glob and load_class reference.",
+  "verification_mode": "agent",
+  "claim_signature": "api_contract:workflow-flight-recorder-registry.json:references-glob-both-parents",
+  "merged_from": [
+   "batch2:VC-6"
+  ]
+ },
+ {
+  "id": "VC-19",
+  "category": "api_contract",
+  "claim": "The review-and-fix-contract module minimum-assertion boundary is 68 in both run.sh's call and registry.json, and the module actually emits >=68 assertions.",
+  "source_file": "scripts/workflow-flight-recorder-registry.json",
+  "verify_against": "run.sh's devflow_run_full_suite_module call, registry minimum_assertions, actual module assertion count.",
+  "verify_hint": "Confirm 68 == 68 and the module emits at least 68 assertions.",
+  "verification_mode": "agent",
+  "claim_signature": "api_contract:workflow-flight-recorder-registry.json:module-boundary-68",
+  "merged_from": [
+   "batch2:VC-7"
+  ]
+ },
+ {
+  "id": "VC-20",
+  "category": "test_mock_alignment",
+  "claim": "run.sh contains exactly ONE top-level EXIT-trap installer (trap _suite_cleanup EXIT) as test_module_runner.py's exit_traps assertion requires; no later trap line replaces the registry.",
+  "source_file": "lib/test/run.sh",
+  "verify_against": "test_module_runner.py's exit_traps regex assertion vs actual trap lines in run.sh.",
+  "verify_hint": "grep -E '^trap\\s+\\S.*\\sEXIT\\s*$' over run.sh; confirm the sole match is trap _suite_cleanup EXIT.",
+  "verification_mode": "agent",
+  "claim_signature": "test_mock_alignment:run.sh:single-exit-trap",
+  "merged_from": [
+   "batch2:VC-8"
+  ]
+ },
+ {
+  "id": "VC-21",
+  "category": "test_mock_alignment",
+  "claim": "run.sh registers RESULTS_FILE, MODULE_FAILURES_FILE, SKIPS_FILE, IMPL_SKILL_BUNDLE, REVIEW_BUNDLE, MAXI_BUNDLE via _suite_tmp_file, exactly as the test loop asserts.",
+  "source_file": "lib/test/run.sh",
+  "verify_against": "test_module_runner.py's temp_file loop.",
+  "verify_hint": "Confirm each of the six registration lines exists in run.sh.",
+  "verification_mode": "agent",
+  "claim_signature": "test_mock_alignment:run.sh:suite-tmp-file-registrations",
+  "merged_from": [
+   "batch2:VC-9"
+  ]
+ },
+ {
+  "id": "VC-22",
+  "category": "string_presence",
+  "claim": "convergence.md complies with the completeness contract: canonical first heading and END marker, each exactly once.",
+  "source_file": "skills/review-and-fix/references/convergence.md",
+  "verify_against": "The completeness check in SKILL.md and run.sh's #530 marker loop.",
+  "verify_hint": "grep for the START heading and END marker.",
+  "verification_mode": "lite",
+  "lite_probe": {
+   "kind": "string_present",
+   "string": "<!-- END convergence.md -->",
+   "file": "skills/review-and-fix/references/convergence.md"
+  },
+  "claim_signature": "string_presence:convergence.md:canonical-end-marker",
+  "merged_from": [
+   "batch2:VC-10"
+  ]
+ },
+ {
+  "id": "VC-23",
+  "category": "api_contract",
+  "claim": "The SKILL.md Step-routing table names all seven step-routed references, matching run.sh's #530 routing pressure loop; error-handling.md deliberately not step-routed but failure-mapped.",
+  "source_file": "skills/review-and-fix/SKILL.md",
+  "verify_against": "run.sh's routing assertions and the Step routing table.",
+  "verify_hint": "Confirm the table has a references/<name>.md cell for each of the seven step references.",
+  "verification_mode": "agent",
+  "claim_signature": "api_contract:SKILL.md:step-routing-table-completeness",
+  "merged_from": [
+   "batch2:VC-11"
+  ]
+ },
+ {
+  "id": "VC-24",
+  "category": "api_contract",
+  "claim": "The SKILL.md Failure-map covers all 8 references with mapped fail-closed outcomes per AC6 (shadow row writes coverage not_verified; fix-delta row does NOT write shadow.coverage).",
+  "source_file": "skills/review-and-fix/SKILL.md",
+  "verify_against": "Issue #530 AC6 vs the Failure-map rows.",
+  "verify_hint": "Confirm one row per reference and the AC6 asymmetry.",
+  "verification_mode": "agent",
+  "claim_signature": "api_contract:SKILL.md:failure-map-covers-all-references",
+  "merged_from": [
+   "batch2:VC-12"
+  ]
+ },
+ {
+  "id": "VC-25",
+  "category": "dependency_interaction",
+  "claim": "efficiency-trace.sh's comment claims the RUN_ID composition lives in references/loop-control.md's RUN_ID= line; it must exist there.",
+  "source_file": "lib/efficiency-trace.sh",
+  "verify_against": "The RUN_ID= line in loop-control.md.",
+  "verify_hint": "Confirm loop-control.md composes ${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.",
+  "verification_mode": "agent",
+  "claim_signature": "dependency_interaction:efficiency-trace.sh:run-id-composition-ref",
+  "merged_from": [
+   "batch2:VC-14"
+  ]
+ },
+ {
+  "id": "VC-26",
+  "category": "dependency_interaction",
+  "claim": "Updated doc/skill cross-references point at genuinely relocated content: mutation-check + re-sweep in fixing.md Step 3; calibration gate pair in shadow-review.md.",
+  "source_file": "docs/shadow-review.md",
+  "verify_against": "The relocated content in the two references.",
+  "verify_hint": "Confirm the re-sweep and mutation-check rule live in fixing.md and the gates in shadow-review.md.",
+  "verification_mode": "agent",
+  "claim_signature": "dependency_interaction:shadow-review.md:relocated-content-cross-refs",
+  "merged_from": [
+   "batch2:VC-15"
+  ]
+ },
+ {
+  "id": "VC-27",
+  "category": "absolute_claim",
+  "claim": "convergence.md asserts the conditions-1-2 redefinition 'widens no exclusion' and 'The $MAX_ITERS cap, the REJECT paths, and the shadow triggers are unchanged' \u2014 a universal that the split preserves loop-control behavior.",
+  "source_file": "skills/review-and-fix/references/convergence.md",
+  "verify_against": "The convergence rule text, the Step 3.5 fix-delta gate, and the Step 2.6 shadow coverage guarantee.",
+  "verify_hint": "Construct a polish-only iteration and confirm the excluded delta is still covered by the 3.5 gate + shadow; construct a code-shaped 3b fold-in and confirm it tallies under conditions 1-2.",
+  "verification_mode": "agent",
+  "claim_signature": "absolute_claim:convergence.md:widens-no-exclusion-cap-unchanged",
+  "merged_from": [
+   "batch2:VC-16"
+  ]
+ },
+ {
+  "id": "VC-28",
+  "category": "api_contract",
+  "claim": "The routing-marker drift lint anchors 'fix-loop-mapping-table-start'/'-end' referenced by run.sh's p478_maptable must exist in the relocated item-3b mapping table in references/fixing.md.",
+  "source_file": "lib/test/run.sh",
+  "verify_against": "run.sh's p478_maptable awk anchors and the anchors in fixing.md item 3b.",
+  "verify_hint": "Confirm fixing.md contains both anchors bracketing the mapping table.",
+  "verification_mode": "agent",
+  "claim_signature": "api_contract:run.sh:fix-loop-mapping-table-anchors",
+  "merged_from": [
+   "batch2:VC-17",
+   "batch3:VC-8"
+  ]
+ },
+ {
+  "id": "VC-29",
+  "category": "api_contract",
+  "claim": "phase-3-agents.md's first-only block cites loop-control.md's per-iteration {N} fix-loop-iteration signal \u2014 that content must live in loop-control.md.",
+  "source_file": "skills/review/phases/phase-3-agents.md",
+  "verify_against": "loop-control.md Main Loop / Iteration Start section.",
+  "verify_hint": "Grep loop-control.md for the per-iteration {N} signal.",
+  "verification_mode": "agent",
+  "claim_signature": "api_contract:phase-3-agents.md:loop-control-iteration-signal-xref",
+  "merged_from": [
+   "batch3:VC-1"
+  ]
+ },
+ {
+  "id": "VC-30",
+  "category": "api_contract",
+  "claim": "phase-3-agents.md cites shadow-review.md for the expected-roster rule keeping the full roster regardless of iterations \u2014 it must live there.",
+  "source_file": "skills/review/phases/phase-3-agents.md",
+  "verify_against": "shadow-review.md's expected-roster rule.",
+  "verify_hint": "Grep shadow-review.md for the iterations-not-applied rule.",
+  "verification_mode": "agent",
+  "claim_signature": "api_contract:phase-3-agents.md:shadow-review-expected-roster-xref",
+  "merged_from": [
+   "batch3:VC-2"
+  ]
+ },
+ {
+  "id": "VC-31",
+  "category": "data_format_assumption",
+  "claim": "fixing.md item 3b resolves the Phase 2.3 sweep index from ../implement/phases/phase-2-implement.md and requires both the sweep-selection preamble and the ### 2.4 Test boundary in the returned content.",
+  "source_file": "skills/review-and-fix/references/fixing.md",
+  "verify_against": "phase-2-implement.md's preamble and ### 2.4 Test heading; the relative path resolution.",
+  "verify_hint": "Confirm both markers exist and the sibling path resolves.",
+  "verification_mode": "agent",
+  "claim_signature": "data_format_assumption:fixing.md:phase-2-implement-sweep-index-markers",
+  "merged_from": [
+   "batch3:VC-3"
+  ]
+ },
+ {
+  "id": "VC-32",
+  "category": "api_contract",
+  "claim": "The base_checkpoint producer/consumer contract agrees: fixing.md writes {token (bare word), behind_by}; loop-exit.md reads base_checkpoint.token == UPDATED.",
+  "source_file": "skills/review-and-fix/references/loop-exit.md",
+  "verify_against": "fixing.md item 6/7 write shape vs loop-exit.md's suite-rule read.",
+  "verify_hint": "Compare the shapes; confirm bare-token representation on both sides.",
+  "verification_mode": "agent",
+  "claim_signature": "api_contract:loop-exit.md:base-checkpoint-token-shape",
+  "merged_from": [
+   "batch3:VC-4"
+  ]
+ },
+ {
+  "id": "VC-33",
+  "category": "api_contract",
+  "claim": "The skip_category enum in fixing.md is single-source; loop-exit.md's downgrade gate and pre-fix-gates.md consume its downgrade column without divergent copies.",
+  "source_file": "skills/review-and-fix/references/fixing.md",
+  "verify_against": "loop-exit.md and pre-fix-gates.md references to the enum.",
+  "verify_hint": "Cross-check values and downgrade-eligibility across the three references.",
+  "verification_mode": "agent",
+  "claim_signature": "api_contract:fixing.md:skip-category-enum-single-source",
+  "merged_from": [
+   "batch3:VC-5"
+  ]
+ },
+ {
+  "id": "VC-34",
+  "category": "api_contract",
+  "claim": "The parking_evidence shape {basis, failing_input, source, finding_ref} is authoritative in loop-control.md and used identically in fixing.md item 5 and pre-fix-gates.md's two parking arms.",
+  "source_file": "skills/review-and-fix/references/loop-control.md",
+  "verify_against": "fixing.md item 5 and pre-fix-gates.md parking_evidence writes.",
+  "verify_hint": "Confirm every reference uses the same four fields with the same null semantics.",
+  "verification_mode": "agent",
+  "claim_signature": "api_contract:loop-control.md:parking-evidence-shape-consistency",
+  "merged_from": [
+   "batch3:VC-6"
+  ]
+ },
+ {
+  "id": "VC-35",
+  "category": "api_contract",
+  "claim": "shadow-review.md's phase3_dispatched schema-note references point at loop-control.md, which must carry the authoritative note (identifier strings, post-gating capture).",
+  "source_file": "skills/review-and-fix/references/shadow-review.md",
+  "verify_against": "loop-control.md Schema field semantics.",
+  "verify_hint": "Grep loop-control.md for the phase3_dispatched note.",
+  "verification_mode": "agent",
+  "claim_signature": "api_contract:shadow-review.md:phase3-dispatched-schema-note-xref",
+  "merged_from": [
+   "batch3:VC-7"
+  ]
+ },
+ {
+  "id": "VC-36",
+  "category": "absolute_claim",
+  "claim": "loop-control.md asserts the universal: 'no configuration combination produces a REJECT the fixer is configured to ignore' (REJECT-driver widening over all threshold combinations).",
+  "source_file": "skills/review-and-fix/references/loop-control.md",
+  "verify_against": "The REJECT-driver widening rule; adversarial threshold pairs including threshold-independent REJECT classes.",
+  "verify_hint": "Construct falsifying combos: verdict more inclusive than fix; a threshold-independent self-contradicting-diff driver below both thresholds. Confirm the widened effective fix set includes each driver.",
+  "verification_mode": "agent",
+  "claim_signature": "absolute_claim:loop-control.md:no-config-combo-unfixable-reject",
+  "merged_from": [
+   "batch3:VC-9"
+  ]
+ },
+ {
+  "id": "VC-37",
+  "category": "absolute_claim",
+  "claim": "shadow-review.md asserts the universal: the shadow never declares full coverage on a three-of-four roster (requesting-code-review is always-on).",
+  "source_file": "skills/review-and-fix/references/shadow-review.md",
+  "verify_against": "The coverage / 1:1-join / always-on-roster rules.",
+  "verify_hint": "Build the three-of-four falsifying case and trace to coverage: not_verified.",
+  "verification_mode": "agent",
+  "claim_signature": "absolute_claim:shadow-review.md:never-full-on-three-of-four",
+  "merged_from": [
+   "batch3:VC-10"
+  ]
+ },
+ {
+  "id": "VC-38",
+  "category": "absolute_claim",
+  "claim": "loop-exit.md's post-shadow edit gate asserts an empty/errored git diff can never clear the gate \u2014 fails closed, never falls to the delta-review arm.",
+  "source_file": "skills/review-and-fix/references/loop-exit.md",
+  "verify_against": "The post-shadow edit gate's empty/errored-diff handling.",
+  "verify_hint": "Construct HEAD_NOW != reviewed_sha with empty/errored diff; confirm fail-closed with no fallthrough.",
+  "verification_mode": "agent",
+  "claim_signature": "absolute_claim:loop-exit.md:empty-diff-never-clears-gate",
+  "merged_from": [
+   "batch3:VC-11"
+  ]
+ },
+ {
+  "id": "VC-39",
+  "category": "dependency_interaction",
+  "claim": "loop-exit.md/fixing.md/shadow-review.md cite lib/efficiency-trace.sh/.jq (--persist/--self-check/--mode trace) invoked directly with a committed +x bit; the helper and subcommands must exist as claimed.",
+  "source_file": "skills/review-and-fix/references/loop-exit.md",
+  "verify_against": "lib/efficiency-trace.sh flags and file mode; lib/efficiency-trace.jq.",
+  "verify_hint": "Check the arg parser and git ls-files -s mode 100755.",
+  "verification_mode": "agent",
+  "claim_signature": "dependency_interaction:loop-exit.md:efficiency-trace-helper-contract",
+  "merged_from": [
+   "batch3:VC-12"
+  ]
+ },
+ {
+  "id": "VC-40",
+  "category": "dependency_interaction",
+  "claim": "fixing.md item 6 and loop-exit.md invoke scripts/update-branch-checkpoint.sh and rely on its seven printed tokens; the helper's vocabulary must match.",
+  "source_file": "skills/review-and-fix/references/fixing.md",
+  "verify_against": "The helper's emitted token set and UPDATED <behind> shape.",
+  "verify_hint": "Check the seven tokens and the single-line UPDATED shape.",
+  "verification_mode": "agent",
+  "claim_signature": "dependency_interaction:fixing.md:update-branch-checkpoint-tokens",
+  "merged_from": [
+   "batch3:VC-13"
+  ]
+ },
+ {
+  "id": "VC-41",
+  "category": "dependency_interaction",
+  "claim": "fixing.md item 6a invokes scripts/stale-prose-lint.py --rev HEAD on stdin with exit arms 0/1/2 matching Phase 0.6; the helper's contract must match.",
+  "source_file": "skills/review-and-fix/references/fixing.md",
+  "verify_against": "stale-prose-lint.py's --rev, stdin read, exit codes.",
+  "verify_hint": "Check the argparse and exit sites.",
+  "verification_mode": "agent",
+  "claim_signature": "dependency_interaction:fixing.md:stale-prose-lint-exit-arms",
+  "merged_from": [
+   "batch3:VC-14"
+  ]
+ },
+ {
+  "id": "VC-42",
+  "category": "dependency_interaction",
+  "claim": "loop-control.md and loop-exit.md rely on config-get.sh returning the passed default on a missing key and rc!=0 with empty stdout on resolver failure.",
+  "source_file": "skills/review-and-fix/references/loop-control.md",
+  "verify_against": "scripts/config-get.sh's rc/stdout contract.",
+  "verify_hint": "Check missing-key vs resolver-failure behavior.",
+  "verification_mode": "agent",
+  "claim_signature": "dependency_interaction:loop-control.md:config-get-default-vs-failure",
+  "merged_from": [
+   "batch3:VC-15"
+  ]
+ },
+ {
+  "id": "VC-43",
+  "category": "string_presence",
+  "claim": "error-handling.md carries its canonical end-boundary marker.",
+  "source_file": "skills/review-and-fix/references/error-handling.md",
+  "verify_against": "The file's last line.",
+  "verify_hint": "grep the marker.",
+  "verification_mode": "lite",
+  "lite_probe": {
+   "kind": "string_present",
+   "string": "<!-- END error-handling.md -->",
+   "file": "skills/review-and-fix/references/error-handling.md"
+  },
+  "claim_signature": "string_presence:error-handling.md:end-boundary-marker",
+  "merged_from": [
+   "batch3:VC-16"
+  ]
+ },
+ {
+  "id": "VC-44",
+  "category": "string_presence",
+  "claim": "fix-delta-gate.md carries its canonical end-boundary marker.",
+  "source_file": "skills/review-and-fix/references/fix-delta-gate.md",
+  "verify_against": "The file's last line.",
+  "verify_hint": "grep the marker.",
+  "verification_mode": "lite",
+  "lite_probe": {
+   "kind": "string_present",
+   "string": "<!-- END fix-delta-gate.md -->",
+   "file": "skills/review-and-fix/references/fix-delta-gate.md"
+  },
+  "claim_signature": "string_presence:fix-delta-gate.md:end-boundary-marker",
+  "merged_from": [
+   "batch3:VC-17"
+  ]
+ },
+ {
+  "id": "VC-45",
+  "category": "string_presence",
+  "claim": "fixing.md carries its canonical end-boundary marker.",
+  "source_file": "skills/review-and-fix/references/fixing.md",
+  "verify_against": "The file's last line.",
+  "verify_hint": "grep the marker.",
+  "verification_mode": "lite",
+  "lite_probe": {
+   "kind": "string_present",
+   "string": "<!-- END fixing.md -->",
+   "file": "skills/review-and-fix/references/fixing.md"
+  },
+  "claim_signature": "string_presence:fixing.md:end-boundary-marker",
+  "merged_from": [
+   "batch3:VC-18"
+  ]
+ },
+ {
+  "id": "VC-46",
+  "category": "string_presence",
+  "claim": "loop-control.md carries its canonical end-boundary marker.",
+  "source_file": "skills/review-and-fix/references/loop-control.md",
+  "verify_against": "The file's last line.",
+  "verify_hint": "grep the marker.",
+  "verification_mode": "lite",
+  "lite_probe": {
+   "kind": "string_present",
+   "string": "<!-- END loop-control.md -->",
+   "file": "skills/review-and-fix/references/loop-control.md"
+  },
+  "claim_signature": "string_presence:loop-control.md:end-boundary-marker",
+  "merged_from": [
+   "batch3:VC-19"
+  ]
+ },
+ {
+  "id": "VC-47",
+  "category": "string_presence",
+  "claim": "loop-exit.md carries its canonical end-boundary marker.",
+  "source_file": "skills/review-and-fix/references/loop-exit.md",
+  "verify_against": "The file's last line.",
+  "verify_hint": "grep the marker.",
+  "verification_mode": "lite",
+  "lite_probe": {
+   "kind": "string_present",
+   "string": "<!-- END loop-exit.md -->",
+   "file": "skills/review-and-fix/references/loop-exit.md"
+  },
+  "claim_signature": "string_presence:loop-exit.md:end-boundary-marker",
+  "merged_from": [
+   "batch3:VC-20"
+  ]
+ },
+ {
+  "id": "VC-48",
+  "category": "string_presence",
+  "claim": "pre-fix-gates.md carries its canonical end-boundary marker.",
+  "source_file": "skills/review-and-fix/references/pre-fix-gates.md",
+  "verify_against": "The file's last line.",
+  "verify_hint": "grep the marker.",
+  "verification_mode": "lite",
+  "lite_probe": {
+   "kind": "string_present",
+   "string": "<!-- END pre-fix-gates.md -->",
+   "file": "skills/review-and-fix/references/pre-fix-gates.md"
+  },
+  "claim_signature": "string_presence:pre-fix-gates.md:end-boundary-marker",
+  "merged_from": [
+   "batch3:VC-21"
+  ]
+ },
+ {
+  "id": "VC-49",
+  "category": "string_presence",
+  "claim": "shadow-review.md carries its canonical end-boundary marker.",
+  "source_file": "skills/review-and-fix/references/shadow-review.md",
+  "verify_against": "The file's last line.",
+  "verify_hint": "grep the marker.",
+  "verification_mode": "lite",
+  "lite_probe": {
+   "kind": "string_present",
+   "string": "<!-- END shadow-review.md -->",
+   "file": "skills/review-and-fix/references/shadow-review.md"
+  },
+  "claim_signature": "string_presence:shadow-review.md:end-boundary-marker",
+  "merged_from": [
+   "batch3:VC-22"
+  ]
+ },
+ {
+  "id": "VC-50",
+  "category": "api_contract",
+  "claim": "loop-exit.md's renderers read the shadow block under its PERSISTED unprefixed key names, which shadow-review.md's field-name mapping declares; consumer keys must match producer keys.",
+  "source_file": "skills/review-and-fix/references/loop-exit.md",
+  "verify_against": "shadow-review.md's Shadow workpad record + field-name mapping vs loop-exit.md's reads.",
+  "verify_hint": "Confirm loop-exit.md reads unprefixed keys and shadow-review.md persists exactly those.",
+  "verification_mode": "agent",
+  "claim_signature": "api_contract:loop-exit.md:shadow-block-persisted-key-names",
+  "merged_from": [
+   "batch3:VC-23"
+  ]
+ },
+ {
+  "id": "VC-51",
+  "category": "api_contract",
+  "claim": "loop-control.md declares the three nav operands excluded from ITER_EXPECTED_FIELDS; the exclusion must be consistent with the actual producer/consumer.",
+  "source_file": "skills/review-and-fix/references/loop-control.md",
+  "verify_against": "ITER_EXPECTED_FIELDS in lib/efficiency-trace.sh.",
+  "verify_hint": "Confirm the constant excludes the three operands.",
+  "verification_mode": "agent",
+  "claim_signature": "api_contract:loop-control.md:continuation-operands-excluded-from-expected-fields",
+  "merged_from": [
+   "batch3:VC-24"
+  ]
+ }
+]
