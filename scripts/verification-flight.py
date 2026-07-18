@@ -320,13 +320,29 @@ def _apply_read_transitions(
         _atomic_replace(path, flight)
         return flight
 
-    if state == "claimed":
-        expiry = flight.get("lease_expiry_epoch")
-        if isinstance(expiry, (int, float)) and _now() > expiry:
-            flight["state"] = "incomplete"
-            flight["invalidation_reason"] = "lease_expired_before_running"
-            flight["finished_at"] = _iso(_now())
-            _atomic_replace(path, flight)
+    if state == "claimed" and _lease_expired(flight):
+        _expire_claim(path, flight)
+    return flight
+
+
+def _lease_expired(flight: dict) -> bool:
+    """True when a `claimed` handle's owner-token lease has elapsed."""
+    expiry = flight.get("lease_expiry_epoch")
+    return isinstance(expiry, (int, float)) and _now() > expiry
+
+
+def _expire_claim(path: Path, flight: dict) -> dict:
+    """Transition a lease-expired `claimed` handle to `incomplete` and persist.
+
+    The single writer of this transition — shared by the read-time path
+    (`_apply_read_transitions`) and the owner's own `mark-running` guard — so the
+    two can never drift on the mutation. The error *responses* stay distinct (a
+    read-transition vs. a CAS reject); only the mutation is shared.
+    """
+    flight["state"] = "incomplete"
+    flight["invalidation_reason"] = "lease_expired_before_running"
+    flight["finished_at"] = _iso(_now())
+    _atomic_replace(path, flight)
     return flight
 
 
@@ -338,10 +354,17 @@ def _satisfies(flight: dict) -> bool:
 def _public_view(flight: dict) -> dict:
     """A token-redacted view for status/wait output."""
     view = dict(flight)
-    view.pop("token_digest", None)
     view["token_digest"] = "REDACTED"
     view["satisfies_verification"] = _satisfies(flight)
     return view
+
+
+def _print_public(flight: dict, **extra) -> None:
+    """Emit a token-redacted public view with ok=True plus any extra fields."""
+    view = _public_view(flight)
+    view["ok"] = True
+    view.update(extra)
+    _print(view)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -356,17 +379,26 @@ def _print(obj: dict) -> None:
     sys.stdout.write(json.dumps(obj, sort_keys=True) + "\n")
 
 
-def cmd_descriptor(args) -> int:
+def _derive_arg(input_file: str):
+    """Load + derive a declaration file. Returns (derived, None) on success or
+    (None, (payload, exit_code)) on an unreadable input or invalid declaration —
+    the single shared preamble for `descriptor` and `claim`. An incomplete /
+    non-hermetic declaration disables reuse (EXIT_INVALID)."""
     try:
-        decl = _load_json_arg(args.input_file)
+        decl = _load_json_arg(input_file)
     except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
-        _print({"ok": False, "result": "invalid", "reason": f"input:{exc.__class__.__name__}"})
-        return EXIT_INVALID
+        return None, ({"ok": False, "result": "invalid", "reason": f"input:{exc.__class__.__name__}"}, EXIT_INVALID)
     try:
-        derived = _derive(decl)
+        return _derive(decl), None
     except DeclarationError as exc:
-        _print({"ok": False, "result": "invalid", "reason": exc.reason})
-        return EXIT_INVALID
+        return None, ({"ok": False, "result": "invalid", "reason": exc.reason}, EXIT_INVALID)
+
+
+def cmd_descriptor(args) -> int:
+    derived, err = _derive_arg(args.input_file)
+    if err:
+        _print(err[0])
+        return err[1]
     _print(
         {
             "ok": True,
@@ -378,17 +410,10 @@ def cmd_descriptor(args) -> int:
 
 
 def cmd_claim(args) -> int:
-    try:
-        decl = _load_json_arg(args.input_file)
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
-        _print({"ok": False, "result": "invalid", "reason": f"input:{exc.__class__.__name__}"})
-        return EXIT_INVALID
-    try:
-        derived = _derive(decl)
-    except DeclarationError as exc:
-        # Incomplete declaration / fingerprint / non-hermetic profile disables reuse.
-        _print({"ok": False, "result": "invalid", "reason": exc.reason})
-        return EXIT_INVALID
+    derived, err = _derive_arg(args.input_file)
+    if err:
+        _print(err[0])
+        return err[1]
 
     state_dir = _state_dir(args.state_dir)
     path = _flight_path(state_dir, derived["flight_key"])
@@ -459,10 +484,7 @@ def cmd_claim(args) -> int:
         args.logs_dir, "flight_attached",
         {"flight_key": derived["flight_key"], "attached_state": flight["state"]},
     )
-    view = _public_view(flight)
-    view["ok"] = True
-    view["role"] = "attacher"
-    _print(view)
+    _print_public(flight, role="attacher")
     return EXIT_OK
 
 
@@ -486,12 +508,9 @@ def cmd_mark_running(args) -> int:
         _print({"ok": False, "result": "rejected", "reason": reason})
         return code
     # Lease must still be valid at the transition; an expired lease is owner loss.
-    expiry = flight.get("lease_expiry_epoch")
-    if flight["state"] == "claimed" and isinstance(expiry, (int, float)) and _now() > expiry:
-        flight["state"] = "incomplete"
-        flight["invalidation_reason"] = "lease_expired_before_running"
-        flight["finished_at"] = _iso(_now())
-        _atomic_replace(path, flight)
+    # Shares the single _expire_claim mutation with the read-transition path.
+    if flight["state"] == "claimed" and _lease_expired(flight):
+        _expire_claim(path, flight)
         _print({"ok": False, "result": "rejected", "reason": "lease_expired", "state": "incomplete"})
         return EXIT_CAS_REJECT
     if flight["state"] != "claimed":
@@ -588,9 +607,7 @@ def cmd_status(args) -> int:
         # Missing/unreadable/malformed shapes: attributable non-pass, never pass.
         _print({"ok": False, "result": "non_pass", "reason": reason, "satisfies_verification": False})
         return code if code != EXIT_OK else EXIT_UNREADABLE
-    view = _public_view(flight)
-    view["ok"] = True
-    _print(view)
+    _print_public(flight)
     if _satisfies(flight):
         return EXIT_OK
     return EXIT_NON_PASS
@@ -615,9 +632,7 @@ def cmd_wait(args) -> int:
             flight = _read_flight(path)
             flight = _apply_read_transitions(path, flight, current_checkout)
             if flight["state"] in TERMINAL_STATES:
-                view = _public_view(flight)
-                view["ok"] = True
-                _print(view)
+                _print_public(flight)
                 _emit_telemetry(
                     args.logs_dir, "flight_wait_completed",
                     {"flight_key": args.flight, "terminal_state": flight["state"]},
@@ -628,9 +643,9 @@ def cmd_wait(args) -> int:
             last_reason = exc.reason
         if time.monotonic() >= deadline:
             break
+        # A caller-requested busy poll (--poll-interval 0) is floored to 50ms so
+        # the loop never spins hot; the top-of-loop deadline check terminates it.
         time.sleep(poll if poll > 0 else 0.05)
-        if poll == 0 and time.monotonic() >= deadline:
-            break
 
     # Wait bound elapsed with the flight still active/unreadable: a NON-mutating
     # observation. An active flight is left exactly as it was — the owner alone
