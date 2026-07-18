@@ -4,6 +4,37 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.14] — 2026-07-18
+
+### Changed
+create-issue: bind one successfully-writable canonical draft root per run (issue #562)
+
+The `scripts/issue-audit-state.py` audit-lifecycle state owner gains a tiered
+canonical-draft-root binding. A run records exactly one bound draft root (its absolute
+path, a bound-tier token from the closed set `main-root` / `worktree-root`, and the
+divergent non-bound root when both a resolver-answered main root and a divergent
+worktree root exist) via a new once-per-run `record-draft-binding` mutation; the draft
+digest, `approve`-mode eligibility, and body-emitting operations resolve the draft file
+from that recorded binding rather than trusting a caller-supplied path that a compacted
+context could drift.
+
+Two coordination deltas land alongside: revision records may carry the revised bytes'
+stdin digest (`record-revision --stdin-digest`), and a canonical-write failure at the
+bound path is recorded (`record-write-failure`). The file-arm `approve` eligibility
+ground now requires — beyond byte-digest equality — that no revision record postdates the
+clean round, so a recorded revision whose overwrite failed (the bound file still holding
+the prior round's byte-identical bytes) answers `not-eligible` / `unaudited-revision`
+instead of being waved through on stale byte-identity. A `query-draft-binding` query and
+new `query-summary` fields (`bound_root`, `bound_tier`, and the derived
+`draft bound to worktree root` marker) expose the binding so the display and the
+divergent-roots enumerations obtain their operands from the tool. The state
+`schema_version` is bumped to 2.
+
+## [2.15.13] — 2026-07-18
+
+### Changed
+- **`/devflow:create-issue` completion checklist is now runner-neutral on the task-tracking tool.** The Completion-checklist mandate no longer hard-codes `TodoWrite`: it names the runner's task-tracking tool generically (with `TodoWrite` as the canonical Claude Code example and `TaskCreate`/`TaskUpdate` / `update_plan` as example equivalents) and defines an inline markdown-checklist fallback — three status markers, a per-slug `.devflow/tmp/` state-file mirror, four fail-closed re-read anchors including a path-agnostic creation-time confirmation — for runners that expose no usable task tool. Claude Code sessions with `TodoWrite` are unchanged. Extends the issue #242 runner-neutralization pattern. (#560)
+
 ## [2.15.12] — 2026-07-17
 
 ### Added
