@@ -174,3 +174,26 @@ subagent. Judge the draft against each of these, in addition to the generic dime
   `assert_pin_unique` on new prose whose removal breaks no behavioral guarantee — are explicitly
   **outside this dimension's scope** and carry no mutation obligation, matching the suite's own
   precedent (this very issue's prose pins are that class).
+
+## Evidence axes
+
+DevFlow-specific evidence axes for the Step 2 evidence-bundle sub-pass. The skill appends this
+section to its generic axis floor when computing the effective axis list. Record a bundle entry
+for each of these, in addition to the generic axes:
+
+- **Per-profile cloud allowlists.** A skill/phase change that invokes a shell helper touches the
+  relevant `.github/workflows/` `TOOLS=`/`--allowed-tools` allowlist(s) — the read-only `review`
+  profile and the read-write `devflow-implement` profile are **separate, separately-probed**
+  allowlists (a shape proven on one tier is unproven on the other, #363/#455). Record which
+  profiles run the changed surface and whether each invoked head is granted.
+- **Install-channel skew.** Workflows reach consumers by `install.sh`'s file-copy loop while
+  skills reach them by the `devflow_version` vendor fetch — two independently-upgraded artifacts
+  (#455/#502). Record which artifact ships each half of the change and what happens when only one
+  side lands.
+- **Workpad and retrospective lifecycle surfaces.** The issue workpad's status/reflection
+  vocabulary, the `DevFlow`/`Documented`/`Deferred` label constants, and the weekly-retrospective
+  cheap-gate signals are lifecycle surfaces a change can perturb. Record which lifecycle states,
+  labels, or gate signals the change reads or writes.
+- **The `lib/test/run.sh` pin corpus.** A contract sentence, literal, or count this change ships
+  is likely mirrored by a `lib/test/run.sh` pin (or an extension count guard). Record the pins the
+  change adds, moves, or must keep byte-identical (enumerated with a whitespace-normalized search).
