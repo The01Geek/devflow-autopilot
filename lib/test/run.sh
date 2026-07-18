@@ -44065,6 +44065,16 @@ if [ -d "$DB_SB" ]; then
       --after-round 1 --stdin-digest > .dr-sd 2>&1
     printf '' | python3 "$IAS" record-revision dr --nonce "$NR" --after-round 1 \
       --stdin-digest > /dev/null 2> .dr-empty; printf '%s' "$?" > .dr-empty-rc
+    # Bound-branch `latest_revision_landed=no` (review Suggestion #5): every OTHER driving
+    # state has no revision, so the bound-branch string is only ever seen with a vacuous
+    # `yes`. Here `dr` carries a recorded revision with an stdin digest but NO subsequent
+    # landed write (only round 1 exists, predating the revision), so `latest_revision_landed`
+    # is genuinely False. Bind a root and query it: `query-draft-binding` must render the
+    # bound branch's `latest_revision_landed=no`. A regression hardcoding `yes` in the
+    # bound-branch assembly (the exact stale-file bug the flag exists to catch) fails RED here.
+    python3 "$IAS" record-draft-binding dr --nonce "$NR" \
+      --path "$DB_SB" --tier worktree-root > /dev/null 2>&1
+    python3 "$IAS" query-draft-binding dr --nonce "$NR" > .dr-unlanded 2>/dev/null
     # Bound-path source override: bind a root, put the canonical draft under it, and prove
     # emit-body reads the BOUND file, not a drifted --draft-file (the anti-drift property).
     python3 "$IAS" init do > /dev/null 2>&1
@@ -44094,6 +44104,19 @@ if [ -d "$DB_SB" ]; then
     python3 "$IAS" query-eligibility do --nonce "$NO" --mode approve --draft-file drift.md \
       > .do-elig 2>/dev/null
     python3 "$IAS" query-summary do --nonce "$NO" --draft-file drift.md > .do-summary 2>/dev/null
+    # Unbound-run reader fallback (review Suggestion #7): the bound `do` rows above prove the
+    # BOUND-first branch; the unbound arm (`_bound_draft_file` returns None → readers fall back
+    # to the caller `--draft-file`) is otherwise only covered transitively. Record NO binding,
+    # give emit-body a real draft on `--draft-file`, and prove it emits THAT file's body.
+    python3 "$IAS" init du > /dev/null 2>&1
+    NU="$(python3 "$IAS" query-nonce du | sed 's/nonce=//')"
+    printf '# Draft title\n\nUNBOUND BODY\n' > ub.md
+    python3 "$IAS" record-dispatch du --nonce "$NU" --round 1 --arm file \
+      --draft-file ub.md > /dev/null 2>&1
+    OIDU="$(git hash-object --stdin --no-filters < ub.md)"
+    python3 "$IAS" record-return du --nonce "$NU" --round 1 --verdict FILE \
+      --findings-count 0 --carriage-object-id "$OIDU" > /dev/null 2>&1
+    python3 "$IAS" emit-body du --nonce "$NU" --draft-file ub.md > .du-body 2>/dev/null
     # A REAL linked worktree: bind its own toplevel and confirm the query round-trips.
     git branch -q wt-562 2>/dev/null
     if git worktree add -q ../wt562 wt-562 2>/dev/null; then
@@ -44151,6 +44174,20 @@ if [ -d "$DB_SB" ]; then
   # desk by the mutation run). A live `token=<hex>` proves the summary grounded on the BOUND file.
   assert_eq "#562 draft_binding_cli_rows: query-summary grounds on the BOUND file — a LIVE presentation token, not stale-token/none (anti-drift)" \
     "0" "$(grep -cE 'token=(none|stale-token)' "$DB_SB/.do-summary" 2>/dev/null)"
+  # S#6: pin the query-summary `bound_root`/`bound_tier` substring AND its position — the
+  # single fixed string `bound_root=<path> bound_tier=main-root attestation=` proves both the
+  # values render and that they sit immediately before the trailing `attestation=` field
+  # (a re-order or a dropped field fails RED). $BR is the bound root for the `do` epoch.
+  assert_eq "#562 draft_binding_cli_rows: query-summary renders bound_root/bound_tier before the trailing attestation field (S#6)" \
+    "1" "$(grep -cF "bound_root=$DB_SB/boundroot bound_tier=main-root attestation=" "$DB_SB/.do-summary" 2>/dev/null)"
+  # S#5: a bound run whose latest revision has NOT landed renders the bound-branch
+  # `latest_revision_landed=no` — the string a `yes`-hardcoding regression would break.
+  assert_eq "#562 draft_binding_cli_rows: a bound run with an unlanded revision renders latest_revision_landed=no (S#5 — bound-branch 'no' was never exercised)" \
+    "bound=$DB_SB tier=worktree-root non_bound_root=none latest_revision_landed=no" \
+    "$(cat "$DB_SB/.dr-unlanded" 2>/dev/null)"
+  # S#7: an unbound run's readers fall back to the caller `--draft-file` (emit-body emits it).
+  assert_eq "#562 draft_binding_cli_rows: an UNBOUND run's readers fall back to the caller --draft-file (S#7)" \
+    "1" "$(grep -c '^UNBOUND BODY$' "$DB_SB/.du-body" 2>/dev/null)"
   # The real-worktree row runs only when `git worktree add` is available on the host.
   if [ -s "$DB_SB/.db-wt" ]; then
     assert_eq "#562 draft_binding_cli_rows: a REAL linked worktree binds its own toplevel and the query round-trips" \

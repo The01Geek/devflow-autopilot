@@ -151,9 +151,11 @@ _GROUNDS = ('file-identity', 'event-ordering', 'override')
 # successfully-writable draft root; `tier` names which ladder rung landed. The
 # non-bound root is recorded verbatim when a resolver-answered tier-1 main root and a
 # divergent tier-2 worktree root both exist, so the divergent-roots out-of-bounds
-# enumerations can name the non-bound same-slug draft path. A closed token set, like
-# every other vocabulary here — the import-time record-validation and `_validate`
-# reject any value outside it.
+# enumerations can name the non-bound same-slug draft path. A closed token set —
+# record-time validation (`record-draft-binding`) and `_validate` reject any value
+# outside it. Unlike the transition-token sets, no import-time assert covers this set:
+# it is not a transition-row column, so it is guarded at record time and in `_validate`
+# only (the same footing as the embed markers and override kinds).
 _DRAFT_TIERS = ('main-root', 'worktree-root')
 
 # Ported budgets and bounds. These are the prose's numbers, preserved verbatim.
@@ -1104,9 +1106,12 @@ def evaluate_eligibility(state, mode, current_digest=None, digest_failed=False):
             # clean round's byte-identical bytes — so `recorded == current_digest` holds
             # over bytes the user revised away. Require, in addition, that no revision
             # postdates the clean round (mirroring the event-ordering ground): a landed
-            # revision changes the file's bytes, so the equality already fails there; the
-            # only way equality holds WITH a postdating revision is the write-failure
-            # case this guard refuses (answered `unaudited-revision` below).
+            # revision normally changes the file's bytes, so the equality usually fails
+            # there. Equality can still hold WITH a postdating revision in two ways — the
+            # write-failure case (the overwrite never landed, so the file keeps the clean
+            # round's bytes) and a revise-back-to-clean case (the revision's bytes happen
+            # to equal the clean round's) — and this guard refuses BOTH by keying on the
+            # revision's existence, not its bytes (answered `unaudited-revision` below).
             if (current_digest is not None and recorded == current_digest
                     and not _revision_postdates(state, clean)):
                 return _yes(state, 'file-identity', current_digest)
