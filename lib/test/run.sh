@@ -31061,9 +31061,10 @@ WF289="$REPO_ROOT/.github/workflows/devflow-implement.yml"
 # branch itself now contains a NESTED `if ! … update …; then … fi`, so an fi-based
 # boundary would truncate the region at that inner fi and make the absence pin
 # below vacuous (a `create` added after it would go unseen).
-# The early-workpad step now splits `workpad.py id`'s exit 0/1/2 (issue #537), so the
-# region anchors on the id PROBE line (`python3 "$WP" id "$NUMBER"`) rather than the old
-# `if python3 "$WP" id …; then` guard, up to the fresh-create `BODY=` boundary.
+# The early-workpad step splits `workpad.py id`'s exit 0/1/2 (issue #537) via the
+# suite-tested classify-id-exit.sh helper feeding a `case` dispatch, so the region
+# anchors on the id PROBE line (`python3 "$WP" id "$NUMBER"`) rather than any guard
+# keyword, up to the fresh-create `BODY=` boundary.
 AE_REGION289="$(awk '/python3 "\$WP" id "\$NUMBER"/{f=1} f && /BODY=/{exit} f{print}' "$WF289")"
 assert_eq "#289: gate already-exists branch extracted (non-empty)" "yes" \
   "$([ -n "$AE_REGION289" ] && echo yes || echo no)"
@@ -31081,12 +31082,43 @@ assert_pin_unique "#537 AC1: early-workpad step initializes handoff=unknown befo
   'echo "handoff=unknown" >> "$GITHUB_OUTPUT"' "$WF289"
 assert_eq "#537 AC1: gate exposes the workpad_handoff job output" "yes" \
   "$(grep -qF 'workpad_handoff: ${{ steps.early_workpad.outputs.handoff }}' "$WF289" && echo yes || echo no)"  # raw-guard-ok: presence pin
-# AC2: the create is gated on id exit 2 specifically (the elif), and any other exit
-# (unreadable/crash) routes to a no-create breadcrumb — never a duplicate workpad.
-assert_eq "#537 AC2: the create is gated on id exit 2 specifically (elif \$? -eq 2)" "yes" \
-  "$(printf '%s\n' "$AE_REGION289" | grep -qF 'elif [ "$?" -eq 2 ]' && echo yes || echo no)"  # raw-guard-ok: region-scoped presence
+# AC2: the three-way `workpad.py id` exit dispatch (exit 0 -> adopt, exit 2 -> create,
+# anything else -> skip) is extracted into scripts/classify-id-exit.sh so the mapping —
+# the reorderable/invertible logic a workflow presence-pin cannot catch — is driven
+# behaviorally here per-arm (the describe-denial-count.sh / PR #367 precedent). A
+# reordered arm, an inverted exit code, or a typo'd digit turns one of these RED.
+CLS537="$REPO_ROOT/scripts/classify-id-exit.sh"
+assert_eq "#537 AC2: classify-id-exit.sh maps id exit 0 (found) -> adopt" "adopt" \
+  "$(bash "$CLS537" 0)"
+assert_eq "#537 AC2: classify-id-exit.sh maps id exit 2 (cleanly absent, SOLE create auth) -> create" "create" \
+  "$(bash "$CLS537" 2)"
+assert_eq "#537 AC2: classify-id-exit.sh maps id exit 1 (unreadable) -> skip (no create)" "skip" \
+  "$(bash "$CLS537" 1)"
+assert_eq "#537 AC2: classify-id-exit.sh maps a crash exit (127) -> skip (no create)" "skip" \
+  "$(bash "$CLS537" 127)"
+assert_eq "#537 AC2: classify-id-exit.sh maps an empty exit (arg absent) -> skip fail-closed" "skip" \
+  "$(bash "$CLS537" "")"
+assert_eq "#537 AC2: classify-id-exit.sh maps a non-digit exit -> skip fail-closed" "skip" \
+  "$(bash "$CLS537" x)"
+# The helper always exits 0 (best-effort, like describe-denial-count.sh) — a non-zero
+# would abort the gate's `case "$(bash "$CLS" …)"` under set -euo pipefail.
+assert_eq "#537 AC2: classify-id-exit.sh always exits 0 (best-effort)" "0" \
+  "$(bash "$CLS537" 2 >/dev/null; echo $?)"
+# The workflow wires the helper: the early-workpad step reads id's exit inline
+# (`|| id_exit=$?`, no cross-statement `$?`) and dispatches on the helper's output.
+assert_eq "#537 AC2: the workflow captures id's exit inline and dispatches via classify-id-exit.sh" "yes" \
+  "$(printf '%s\n' "$AE_REGION289" | grep -qF 'python3 "$WP" id "$NUMBER" >/dev/null 2>&1 || id_exit=$?' \
+     && printf '%s\n' "$AE_REGION289" | grep -qF 'case "$(bash "$CLS" "$id_exit")" in' && echo yes || echo no)"  # raw-guard-ok: region-scoped presence
 assert_pin_unique "#537 AC2: a non-absent id exit does NOT create a workpad (fail-closed breadcrumb)" \
   'NOT creating a workpad to avoid a duplicate' "$WF289"
+# AC2 mutation-proof: invert the create authorization in the helper (exit 2 -> skip) and
+# confirm the exit-2->create assertion goes RED — the guarded regression is a create arm
+# that no longer fires on cleanly-absent, i.e. a run that never posts its early workpad.
+CLS537_MUT="$(probe_tmp '#537 classify-id-exit.sh mutation setup')"
+sed -E 's/^  2\)/  9)/' "$CLS537" > "$CLS537_MUT"
+assert_eq "#537 AC2: mutating the exit-2 create arm away turns the create mapping RED (behavioral-fix proof)" \
+  "create->skip" "$(bash "$CLS537" 2)->$(bash "$CLS537_MUT" 2)"
+rm -f "$CLS537_MUT"
 # #537 AC3/AC25: the claude job validates the vendored workpad + writes the handoff record.
 assert_pin_unique "#537 AC25: claude job fails loud when the vendored workpad.py is missing (incomplete vendor)" \
   '::error::incomplete vendor:' "$WF289"
@@ -31100,17 +31132,19 @@ CI_LN537="$(grep -nF 'gha:${RUN_ID}:${RUN_ATTEMPT}:claude-invoke' "$WF289" | hea
 RCC_LN537="$(grep -nF 'name: Run Claude Code' "$WF289" | head -1 | cut -d: -f1)"                      # raw-guard-ok: line-number lookup
 assert_eq "#537 AC13: the claude-invoke checkpoint is ordered before Run Claude Code" "yes" \
   "$([ -n "$CI_LN537" ] && [ -n "$RCC_LN537" ] && [ "$CI_LN537" -lt "$RCC_LN537" ] && echo yes || echo no)"
-# #537 handoff-origin vocabulary is a COUPLED invariant across the literal sites below with
-# no shared source: scripts/workpad.py's _HANDOFF_ORIGINS tuple (the offline handoff-state
-# validator) and devflow-implement.yml's claude-job inline normalize tuple. The gate job
-# ALSO emits the raw `handoff=<token>` strings, but those are single tokens, not the tuple.
-# The vocabulary is self-healing (any drifted token degrades to `unknown`), so this is a
-# maintainability pin, not a correctness gate — renaming/dropping a token in one site
-# without the other turns these RED at the desk (removal-proof; literal-constant pins).
-assert_pin_unique "#537 handoff-origin vocabulary present in workpad.py _HANDOFF_ORIGINS (coupled site 1)" \
+# #537 handoff-origin vocabulary now lives in ONE place: scripts/workpad.py's
+# _HANDOFF_ORIGINS tuple, consumed by BOTH the offline handoff-state validator
+# (cmd_handoff_state, the reader) and the write-handoff-record producer
+# (cmd_write_handoff_record via _normalize_handoff_origin, the writer). The old inline
+# normalize tuple in devflow-implement.yml is gone — the claude job now calls
+# `workpad.py write-handoff-record`, so producer and consumer share the vocabulary by
+# construction and cannot drift. Pin the single source.
+assert_pin_unique "#537 handoff-origin vocabulary present in workpad.py _HANDOFF_ORIGINS (single source)" \
   "('created-current-run', 'adopted-existing', 'unknown')" "$REPO_ROOT/scripts/workpad.py"
-assert_pin_unique "#537 handoff-origin vocabulary present in devflow-implement.yml inline normalize (coupled site 2)" \
-  '("created-current-run", "adopted-existing", "unknown")' "$WF289"
+# The claude job invokes the extracted subcommand (not inline heredoc Python) so the
+# normalize is suite-tested — pin the wiring (a revert to inline Python drops this literal).
+assert_pin_unique "#537 AC3: claude job normalizes+writes the handoff record via workpad.py write-handoff-record" \
+  'python3 "$WP" write-handoff-record "$REC" "$NUMBER" "$RUN_ID" "$RUN_ATTEMPT" "${GATE_HANDOFF:-}"' "$WF289"
 # AC7: the already-exists branch refreshes the Run: link via workpad.py update --run-link.
 assert_eq "#289 AC7: gate already-exists branch refreshes Run link via workpad.py update --run-link" "1" \
   "$(printf '%s\n' "$AE_REGION289" | grep -cF 'update "$NUMBER" --run-link "[View run]($RUN_URL)"' || true)"  # raw-guard-ok: region-scoped presence count

@@ -4986,6 +4986,62 @@ assert_eq("#537 handoff AC4: bool schema_version degrades to unknown",
           (lambda r: (r[0], r[1], "resolving origin=unknown" in r[2]))(
               _handoff({**_VALID, "schema_version": True})))
 
+# ── write-handoff-record: origin normalization + record round-trip (AC3) ──────
+# The claude-job producer that writes the record cmd_handoff_state reads back. The
+# normalization (_normalize_handoff_origin) is the exact logic the #580 review flagged
+# as untested when it was inline heredoc Python — the empty-string (partially-upgraded
+# consumer) and bogus-value paths especially. Drive the subcommand end-to-end and read
+# the origin back through the paired reader so the write shape is verified by construction.
+
+def _write_handoff(gate, issue="537", run_id="29624899689", run_attempt="1"):
+    """Run cmd_write_handoff_record; return (exit_or_exc, written_origin_or_None)."""
+    d = tempfile.mkdtemp()
+    p = Path(d) / "rec.json"
+    ns = argparse.Namespace(file=str(p), issue=issue, run_id=run_id,
+                            run_attempt=run_attempt, gate=gate)
+    try:
+        workpad.cmd_write_handoff_record(ns)
+    except SystemExit as e:
+        if e.code not in (0, None):
+            return ("exit", None)
+    except Exception as e:  # noqa: BLE001 — a raise (e.g. non-int issue) is a valid outcome
+        return (type(e).__name__, None)
+    origin = _json.loads(p.read_text(encoding="utf-8"))["origin"]
+    return (0, origin)
+
+# _normalize_handoff_origin — the pure normalizer, exercised directly across the
+# vocabulary and the two degradation shapes the coupled-tuple pin alone could not catch.
+for _g in ("created-current-run", "adopted-existing", "unknown"):
+    assert_eq(f"#580 write-handoff AC3: valid gate {_g!r} normalizes to itself",
+              _g, workpad._normalize_handoff_origin(_g))
+assert_eq("#580 write-handoff AC3: an empty gate (partially-upgraded consumer) -> unknown",
+          "unknown", workpad._normalize_handoff_origin(""))
+assert_eq("#580 write-handoff AC3: a bogus gate token -> unknown",
+          "unknown", workpad._normalize_handoff_origin("garbage-value"))
+
+# End-to-end through the subcommand: the written record carries the normalized origin,
+# and it round-trips through the paired cmd_handoff_state reader (same _HANDOFF_ORIGINS).
+assert_eq("#580 write-handoff AC3: a valid gate is written verbatim as origin",
+          (0, "created-current-run"), _write_handoff("created-current-run"))
+assert_eq("#580 write-handoff AC3: adopted-existing is written verbatim",
+          (0, "adopted-existing"), _write_handoff("adopted-existing"))
+assert_eq("#580 write-handoff AC3: an empty gate is written as origin=unknown",
+          (0, "unknown"), _write_handoff(""))
+assert_eq("#580 write-handoff AC3: a bogus gate is written as origin=unknown",
+          (0, "unknown"), _write_handoff("garbage-value"))
+assert_eq("#580 write-handoff AC3: a valid handoff record round-trips through handoff-state",
+          (0, "adopted-existing"),
+          (lambda d: (lambda p: (
+              workpad.cmd_write_handoff_record(argparse.Namespace(
+                  file=str(p), issue="537", run_id="29624899689",
+                  run_attempt="1", gate="adopted-existing")),
+              _handoff(None, raw=Path(p).read_text(encoding="utf-8"))[:2])[1])(
+              Path(d) / "rt.json"))(tempfile.mkdtemp()))
+# Boundary: a non-integer issue raises (the workflow's `if !` wrapper turns that into a
+# best-effort ::warning:: and Phase 1 degrades to unknown) — never a silent bad record.
+assert_eq("#580 write-handoff AC3: a non-integer issue raises (best-effort warn upstream), no silent record",
+          ("ValueError", None), _write_handoff("unknown", issue="notanint"))
+
 # ── --checkpoint idempotent keyed Progress rows (AC14/15/16) ──────────────────
 _CP_BODY = """<!-- devflow:workpad -->
 # DevFlow Workpad — Issue #999

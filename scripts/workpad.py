@@ -1842,6 +1842,38 @@ def cmd_handoff_state(args):
     sys.exit(0)
 
 
+def _normalize_handoff_origin(gate: str) -> str:
+    """Normalize a gate-provided handoff token to exactly one of `_HANDOFF_ORIGINS`.
+
+    Any unrecognized value degrades to `unknown` — including the empty string a
+    partially-upgraded consumer emits (its gate job predates the `handoff` job output),
+    and any token the gate never wrote. The write-side counterpart to
+    `cmd_handoff_state`'s read-side `origin not in _HANDOFF_ORIGINS` degradation, sharing
+    the SAME `_HANDOFF_ORIGINS` vocabulary so producer and consumer cannot drift."""
+    return gate if gate in _HANDOFF_ORIGINS else 'unknown'
+
+
+def cmd_write_handoff_record(args):
+    """Write the five-field gate->claude handoff record (issue #537), normalizing the
+    gate-provided origin to one of `_HANDOFF_ORIGINS` first. Prints nothing.
+
+    The workflow-owned, gitignored, non-secret, advisory record that `cmd_handoff_state`
+    reads back offline. `origin` is normalized via `_normalize_handoff_origin` (an empty
+    or unrecognized gate token becomes `unknown`). A write/permission failure (or a
+    non-integer `issue`) raises — the workflow's `if ! python3 … ; then` wrapper turns
+    that into a best-effort ::warning::, and Phase 1 then degrades to unknown provenance
+    at read time. The JSON shape is the exact record `cmd_handoff_state` validates:
+    schema_version (int 1), issue (int), run_id/run_attempt (strings), origin (token)."""
+    origin = _normalize_handoff_origin(args.gate)
+    # Resolve the int BEFORE opening (truncating) the target, so a non-integer issue
+    # raises and the `if !` wrapper warns without leaving a zero-byte record behind.
+    issue = int(args.issue)
+    with open(args.file, 'w', encoding='utf-8') as fh:
+        json.dump({'schema_version': 1, 'issue': issue,
+                   'run_id': args.run_id, 'run_attempt': args.run_attempt,
+                   'origin': origin}, fh)
+
+
 def _apply_mutations(body: str, args, failed_ticks) -> str:
     """Apply all mutations from args and return the new body.
 
@@ -2390,6 +2422,21 @@ def main():
     s.add_argument('--run-attempt', required=True,
                    help='The current GITHUB_RUN_ATTEMPT (identity check).')
     s.set_defaults(func=cmd_handoff_state)
+
+    w = sub.add_parser(
+        'write-handoff-record',
+        help='Write the offline gate->claude handoff record (issue #537), normalizing '
+             'the gate origin to one of created-current-run/adopted-existing/unknown '
+             '(empty or unrecognized -> unknown). The write-side counterpart to '
+             'handoff-state. Prints nothing; no network access.',
+    )
+    w.add_argument('file', help='Path to write the handoff JSON record.')
+    w.add_argument('issue', help="The run's resolved issue number (written as int).")
+    w.add_argument('run_id', help='The current GITHUB_RUN_ID (written as a string).')
+    w.add_argument('run_attempt',
+                   help='The current GITHUB_RUN_ATTEMPT (written as a string).')
+    w.add_argument('gate', help='The gate-provided handoff token to normalize.')
+    w.set_defaults(func=cmd_write_handoff_record)
 
     args = p.parse_args()
     args.func(args)
