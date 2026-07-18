@@ -529,6 +529,23 @@ class TestTelemetry(Harness):
         self.assertIn("flight_claimed", ev)
         self.assertIn("flight_attached", ev)
 
+    def test_drift_emits_flight_invalidated(self):
+        _, owner = self.claim()
+        current = self._write({"checkout_id": "r1", "head": "DIFFERENT",
+                               "index_digest": "i1", "tracked_digest": "t1", "untracked_digest": "u1"})
+        self.run_cmd(["status", "--flight", owner["flight_key"],
+                      "--current-checkout-file", current, "--state-dir", self.state,
+                      "--logs-dir", self.logs])
+        self.assertIn("flight_invalidated", self._events())
+
+    def test_lease_expiry_emits_flight_invalidated(self):
+        os.environ["DEVFLOW_FLIGHT_NOW"] = "1000"
+        _, owner = self.claim(lease=5)
+        os.environ["DEVFLOW_FLIGHT_NOW"] = "2000"
+        self.run_cmd(["status", "--flight", owner["flight_key"],
+                      "--state-dir", self.state, "--logs-dir", self.logs])
+        self.assertIn("flight_invalidated", self._events())
+
     def test_finish_emits_terminal_event(self):
         _, owner = self.claim()
         k, t = owner["flight_key"], owner["token"]

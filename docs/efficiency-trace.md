@@ -948,6 +948,9 @@ relay step then harvests. Until then they remain local, per-checkout diagnostics
   command-descriptor digest).
 - **`flight_attached`** — a later same-checkout caller attached to a matching active flight rather
   than opening a second owner claim (carries the attached-at state).
+- **`flight_invalidated`** — a read-time transition invalidated an active flight (carries the
+  `invalidation_reason`: `checkout_drift` when a supplied current checkout no longer matches, or
+  `lease_expired_before_running` when a `claimed` handle's lease elapsed before `mark-running`).
 - **`flight_finished`** — the owner recorded a terminal state (carries the terminal state, the
   command duration, and the skipped-checks count).
 - **`flight_wait_completed`** — an attacher's `wait` observed a terminal state.

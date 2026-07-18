@@ -297,7 +297,8 @@ def _emit_telemetry(logs_dir: str | None, event: str, payload: dict) -> None:
 # Read-time transitions (lease expiry -> incomplete; checkout drift -> stale)
 # ─────────────────────────────────────────────────────────────────────────────
 def _apply_read_transitions(
-    path: Path, flight: dict, current_checkout: dict | None
+    path: Path, flight: dict, current_checkout: dict | None,
+    logs_dir: str | None = None,
 ) -> dict:
     """Apply the two non-owner read-transitions, persisting if either fires.
 
@@ -307,7 +308,8 @@ def _apply_read_transitions(
     * An active handle whose stored checkout no longer matches a supplied current
       checkout becomes `stale` (repository/environment drift invalidates reuse).
 
-    Terminal handles are immutable — never re-transitioned.
+    Either transition emits a `flight_invalidated` telemetry event. Terminal
+    handles are immutable — never re-transitioned.
     """
     state = flight["state"]
     if state not in ACTIVE_STATES:
@@ -319,10 +321,18 @@ def _apply_read_transitions(
         flight["invalidation_reason"] = "checkout_drift"
         flight["finished_at"] = _iso(_now())
         _atomic_replace(path, flight)
+        _emit_telemetry(
+            logs_dir, "flight_invalidated",
+            {"flight_key": flight.get("flight_key"), "invalidation_reason": "checkout_drift"},
+        )
         return flight
 
     if state == "claimed" and _lease_expired(flight):
         _expire_claim(path, flight)
+        _emit_telemetry(
+            logs_dir, "flight_invalidated",
+            {"flight_key": flight.get("flight_key"), "invalidation_reason": "lease_expired_before_running"},
+        )
     return flight
 
 
@@ -480,7 +490,7 @@ def cmd_claim(args) -> int:
     except ReadError as exc:
         _print({"ok": False, "result": "unreadable", "reason": exc.reason, "flight_key": derived["flight_key"]})
         return EXIT_UNREADABLE
-    flight = _apply_read_transitions(path, flight, None)
+    flight = _apply_read_transitions(path, flight, None, args.logs_dir)
     _emit_telemetry(
         args.logs_dir, "flight_attached",
         {"flight_key": derived["flight_key"], "attached_state": flight["state"]},
@@ -603,7 +613,7 @@ def _read_and_report(args) -> tuple[dict | None, int, str]:
         flight = _read_flight(path)
     except ReadError as exc:
         return None, EXIT_UNREADABLE, exc.reason
-    flight = _apply_read_transitions(path, flight, current_checkout)
+    flight = _apply_read_transitions(path, flight, current_checkout, args.logs_dir)
     return flight, EXIT_OK, ""
 
 
@@ -636,7 +646,7 @@ def cmd_wait(args) -> int:
     while True:
         try:
             flight = _read_flight(path)
-            flight = _apply_read_transitions(path, flight, current_checkout)
+            flight = _apply_read_transitions(path, flight, current_checkout, args.logs_dir)
             if flight["state"] in TERMINAL_STATES:
                 _print_public(flight)
                 _emit_telemetry(
