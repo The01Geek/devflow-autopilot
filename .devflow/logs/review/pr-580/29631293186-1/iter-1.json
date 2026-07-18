@@ -1,0 +1,42 @@
+{
+  "iter": 1,
+  "source": "review",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "detect_all_audit": true
+  },
+  "checklist": [
+    {"verification_mode": "lite", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"}
+  ],
+  "phase3_dispatched": ["code-reviewer", "silent-failure-hunter", "comment-analyzer", "pr-test-analyzer", "type-design-analyzer", "requesting-code-review"],
+  "phase3_findings": [
+    {"agent": "comment-analyzer", "corroboration_count": 1, "contributed_to_verdict": true},
+    {"agent": "pr-test-analyzer", "corroboration_count": 1, "contributed_to_verdict": false},
+    {"agent": "silent-failure-hunter", "corroboration_count": 1, "contributed_to_verdict": false},
+    {"agent": "type-design-analyzer", "corroboration_count": 1, "contributed_to_verdict": false},
+    {"agent": "requesting-code-review", "corroboration_count": 1, "contributed_to_verdict": false}
+  ],
+  "telemetry": "unavailable"
+}
