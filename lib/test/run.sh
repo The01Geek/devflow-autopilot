@@ -9064,6 +9064,12 @@ if [ "$field" = body ]; then
     # heading, so once the section exits it is NOT captured — a broken section-exit
     # (staying in-section, where every #N is captured) would grab the OPEN #10.
     110) printf '%s\n' '## Dependencies' '- blocked by #11' '## Notes' 'see #10 for background context' ;;
+    # #111 body carries invalid UTF-8 bytes (0xFF 0xFE) around a real OPEN
+    # declaration (#10). This is the gh-subprocess decode path (issue_body →
+    # _gh_issue_view) — the real GitHub-data path, distinct from the --body-file
+    # Path.read_text path covered below. printf's octal escapes emit the raw
+    # invalid bytes into stdout that Python captures via subprocess.run.
+    111) printf 'blocked by #10 \377\376 trailing invalid bytes\n' ;;
     200) exit 1 ;;
     *) exit 1 ;;
   esac
@@ -9147,6 +9153,17 @@ printf 'blocked by #10 \377\376 trailing invalid bytes' > "$P547R/badutf8.md"
 P547R_UTF8="$(PATH="$P547R/bin:$PATH" python3 "$P547R_HELPER" dependencies --body-file "$P547R/badutf8.md" 2>/dev/null)"; P547R_UTF8_RC=$?
 assert_eq "#547/#572 Important: an invalid-UTF-8 body decodes and still blocks on the OPEN #10" "BLOCKED 10" "$P547R_UTF8"
 assert_eq "#547/#572 Important: an invalid-UTF-8 body stays in the {0,2,3} exit contract (not exit 1)" "2" "$P547R_UTF8_RC"
+# UTF-8 hardening on the --issue/gh-subprocess decode path (issue_body →
+# _gh_issue_view), NOT just the --body-file Path.read_text path above — the real
+# GitHub-data path most likely to see invalid bytes. Issue #111's gh-stub body
+# emits raw 0xFF 0xFE around an OPEN #10. Without errors="replace" on the gh
+# subprocess.run decode, that raises UnicodeDecodeError (a ValueError the
+# issue_body except (OSError, CalledProcessError) does NOT catch), escaping the
+# {0,2,3} contract as an exit-1 traceback — so BLOCKED 10 + exit 2 is a
+# discriminating pin on the gh-decode errors="replace" (PR #572 review).
+P547R_ISSUE_UTF8="$(_p547r --issue 111)"; P547R_ISSUE_UTF8_RC=$?
+assert_eq "#547/#572 Important: an invalid-UTF-8 --issue/gh body decodes and still blocks on the OPEN #10" "BLOCKED 10" "$P547R_ISSUE_UTF8"
+assert_eq "#547/#572 Important: the invalid-UTF-8 gh-decoded body stays in the {0,2,3} exit contract (not exit 1)" "2" "$P547R_ISSUE_UTF8_RC"
 # Source pin (Important #5): the subparser inherits the exit-3 contract explicitly,
 # not via add_subparsers()'s implicit parser_class default.
 assert_pin_unique "#547/#572: the dependencies subparser sets parser_class=_Parser explicitly" \

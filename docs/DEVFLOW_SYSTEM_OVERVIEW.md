@@ -235,6 +235,9 @@ DevFlow maintains **exactly one** marker-tagged comment on the GitHub issue for 
 - **1.4** Create or detect the branch (`scripts/branch-for-issue.py`, off the config-driven `base_branch`). Branch creation is skipped when the run is already in a linked git worktree (naming-independent harness signal) or when the current branch matches a recognized feature-branch pattern — the existing branch is reused as-is.
 - **1.5** Push the branch.
 
+### Phase 1.3.5: Early declared-dependency preflight
+Between workpad hydration (**1.3**) and branch work (**1.4**), `/devflow:implement` runs an extracted declared-dependency preflight (`scripts/preflight.py`). It runs before branch adoption, creation, base reconciliation, and push, so open or unresolvable dependencies end the run Blocked **without a new branch side effect**. The cloud implementation requires both the vendored `scripts/preflight.py` helper and its explicit `devflow-implement.yml` allowlist grant.
+
 ### Phase 2: Discover, Plan & Implement
 - **2.1** Discovery via the first-party `devflow:code-explorer` subagent.
 - **2.1.5 Reproduce-First Gate** (fires when the recorded content classification is bug-report, not on the `bug` label): capture a reproduction signal (failing test / error log) *before* planning; if it can't reproduce → `Blocked`.
@@ -474,15 +477,6 @@ Doc paths are configurable (`docs.internal`, `docs.external`, `docs.release_note
 **Consistent discipline across all docs skills:** branch diffs use `git diff origin/main...HEAD` (three dots, branch-only changes); bare source paths only (no line numbers, which rot); the generation skills leave committing to the caller.
 
 ---
-
-## Phase 1 dependency preflight
-
-`/devflow:implement` hydrates its workpad before running an extracted
-declared-dependency preflight. The preflight runs before branch adoption,
-creation, base reconciliation, and push; open or unresolvable dependencies end
-the run Blocked without a new branch side effect. The cloud implementation
-requires both the vendored `scripts/preflight.py` helper and its explicit
-`devflow-implement.yml` allowlist grant.
 
 ## 11. Deep dive: `/devflow:create-issue`
 
