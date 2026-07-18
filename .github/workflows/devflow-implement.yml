@@ -942,6 +942,7 @@ jobs:
             Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*),
             Bash(.devflow/vendor/devflow/scripts/config-get.sh:*),
             Bash(.devflow/vendor/devflow/scripts/workpad.py:*),
+            Bash(.devflow/vendor/devflow/scripts/verification-flight.py:*),
             Bash(.devflow/vendor/devflow/scripts/parse-acs.py:*),
             Bash(.devflow/vendor/devflow/scripts/branch-for-issue.py:*),
             Bash(.devflow/vendor/devflow/scripts/update-branch-checkpoint.sh:*),

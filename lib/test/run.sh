@@ -42403,6 +42403,39 @@ assert_eq "verification baseline: registry has the cloud_mappings section" "1" \
 
 rm -rf "$VB_ROOT"
 
+VF_ROOT="$(mktemp -d)"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "single-flight verification coordination ledger (issue #528, Wave 2)"
+# ────────────────────────────────────────────────────────────────────────────
+python3 "$LIB/test/test_verification_flight.py" >"$VF_ROOT/vf-unit.out" 2>&1
+assert_eq "verification flight: focused Python tests pass" "0" "$?"
+# The coordinator is data-only (AC #528-1): it launches no subprocess, spawns no
+# shell, and runs no git — it never becomes a shell-command bypass. Pin the
+# absence of every subprocess / shell-out / exec spelling, the same widened
+# evasion sweep the Wave 1 analyzer carries.
+VF_SRC="$LIB/../scripts/verification-flight.py"
+assert_eq "verification flight: no subprocess / shell-out / exec spelling" "0" \
+  "$(grep -cE '(^|[^a-zA-Z_])(import subprocess|from subprocess import|subprocess\.|os\.system|os\.popen|os\.exec|getoutput|check_output|pty\.spawn|import pty)' "$VF_SRC" || true)"
+# The exact, exhaustive state set is a coupled invariant with the helper source
+# and the docs — pin the eight declared states so a dropped/renamed state goes RED.
+assert_eq "verification flight: ALL_STATES declares claimed" "1" "$(grep -cF '"claimed", "running"' "$VF_SRC" || true)"
+assert_eq "verification flight: TERMINAL_STATES lists the six terminal states" "1" \
+  "$(grep -cF '"passed", "failed", "timed_out", "cancelled", "stale", "incomplete"' "$VF_SRC" || true)"
+
+# Coupled grant invariant (issue #528 AC): the vendored-literal helper grant must
+# land in BOTH the implement profile (inline Implement review pass) and the light
+# manual-comment profile (manual Review-and-Fix), and must NOT be added to the
+# read-only reviewer profile (standalone CI-grounded Review creates no flight).
+assert_eq "#528 coupled: devflow-implement.yml grants verification-flight.py by vendored path" "1" \
+  "$(grep -cF 'Bash(.devflow/vendor/devflow/scripts/verification-flight.py:*)' "$LIB/../.github/workflows/devflow-implement.yml" || true)"
+assert_eq "#528 coupled: devflow.yml (manual review listener) grants verification-flight.py by vendored path" "1" \
+  "$(grep -cF 'Bash(.devflow/vendor/devflow/scripts/verification-flight.py:*)' "$LIB/../.github/workflows/devflow.yml" || true)"
+assert_eq "#528 coupled: devflow-runner.yml (read-only reviewer) grants NO verification-flight flight helper" "0" \
+  "$(grep -cF 'verification-flight.py' "$LIB/../.github/workflows/devflow-runner.yml" || true)"
+
+rm -rf "$VF_ROOT"
+
 # These integration tests live outside the module whose registration and source
 # boundary they pin, so deleting that boundary cannot delete the test execution.
 MODULE_RUNNER_OUT="$(python3 "$LIB/test/test_module_runner.py" 2>&1)"

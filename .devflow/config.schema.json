@@ -736,6 +736,82 @@
         }
       }
     },
+    "verification_flight": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Versioned verification-profile contract for the single-flight verification coordinator (issue #528, Wave 2). scripts/verification-flight.py is a NON-executing coordination ledger: it never launches the verification command and accepts no executable argv. Each profile DECLARES the command's identity and hermetic inputs; the helper canonicalizes {profile_version, argv, cwd, environment, toolchain, dependencies} as sorted-key compact UTF-8 JSON and derives the SHA-256 command descriptor itself (a caller cannot supply a static digest). A profile is reusable only when it is fully declared and `external_services` is `none`; an undeclared, secret-dependent, or external-service-dependent profile is non-reusable and never satisfies verification. State lives under .devflow/tmp/verification-flights/, is published atomically, and is durable only within the current checkout.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "When true, Implement and inline Review-and-Fix coordinate each same-checkout full-verification flight through scripts/verification-flight.py (claim/mark-running/finish, attach/wait/consume) instead of relaunching the command directly. When false, callers launch the verification command directly as before. Off never weakens a guarantee: a missing, partial, timed-out, unreadable, or stale handle always falls back to a direct launch and never becomes a pass.",
+          "default": true
+        },
+        "lease_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Bounded owner-token lease on a `claimed` handle. An attacher waits while the lease is valid; a lease that expires before the owner records `mark-running` transitions the handle to `incomplete` (owner loss at the claim boundary), which blocks reuse and never authorizes an automatic relaunch. Callers may override per invocation via --lease-seconds.",
+          "default": 900
+        },
+        "wait_timeout_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Default bound for an attacher's `wait` poll. A wait-bound expiry returns a non-mutating `wait_expired` observation and leaves an active flight unchanged; only the owner records a terminal `timed_out` after its command invocation reports a real timeout.",
+          "default": 600
+        },
+        "profiles": {
+          "type": "object",
+          "description": "Named verification profiles. Each profile is a data-only declaration of one verification command's identity and hermetic inputs. The default profile name is `full-suite`.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["profile_version", "argv", "external_services"],
+            "properties": {
+              "profile_version": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Monotonic version of this profile. A byte-distinct profile_version produces a distinct command descriptor and thus a distinct binding, so bumping it invalidates reuse of any prior flight."
+              },
+              "argv": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": "string" },
+                "description": "The exact argv of the already-authorized verification command, as a data descriptor operand. The helper NEVER executes this argv; the existing caller retains command ownership and allowlist enforcement. The leading token must be the same allowlisted literal head the caller invokes (e.g. `lib/test/run.sh`)."
+              },
+              "cwd": {
+                "type": "string",
+                "description": "Working directory the command runs in, as a descriptor operand."
+              },
+              "environment": {
+                "type": "object",
+                "additionalProperties": { "type": "string" },
+                "description": "Declared NONSECRET environment inputs that affect the command's output. Secret-dependent inputs must not appear here; a secret-dependent profile is non-reusable."
+              },
+              "toolchain": {
+                "type": "object",
+                "additionalProperties": { "type": "string" },
+                "description": "Toolchain identities (interpreter/tool -> version or path identity) the command's result depends on."
+              },
+              "dependencies": {
+                "type": "object",
+                "additionalProperties": { "type": "string" },
+                "description": "Dependency identities (dependency -> resolved identity) the command's result depends on. A relevant dependency change invalidates reuse."
+              },
+              "output_roots": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Roots the suite WRITES to. Generated verification outputs under these roots do not become inputs merely because the suite created them, so they never churn the flight key."
+              },
+              "external_services": {
+                "type": "string",
+                "enum": ["none"],
+                "description": "Must be `none`. A profile that depends on any external service is non-reusable and is rejected by the helper as non-hermetic."
+              }
+            }
+          },
+          "default": {}
+        }
+      }
+    },
     "devflow_retrospective": {
       "type": "object",
       "description": "DevFlow retrospective / self-improvement loop, consumed by the /devflow:retrospective-weekly orchestrator (a locally-run skill, not a GitHub Actions workflow).",

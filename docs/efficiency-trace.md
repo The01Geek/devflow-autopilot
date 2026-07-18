@@ -931,3 +931,25 @@ cloud run — the record file is gated out of cloud and the comment is disabled,
 put the trace. The skill emits a one-line `::warning::` in that case rather than silently
 computing-and-discarding, so the no-op is visible. (In a writable run that combination still writes
 the record file.)
+
+## Verification single-flight telemetry (issue #528)
+
+The single-flight verification coordinator (`scripts/verification-flight.py`) emits its own
+per-event JSON records under `.devflow/logs/verification-flight/`, alongside the effectiveness
+records above and carried by the same stage-then-relay telemetry path
+(`scripts/collect-staged-telemetry.sh` copies the whole `.devflow/logs` subtree, so no new relay
+plumbing is needed). The events are:
+
+- **`flight_claimed`** — a new owner claim published a `claimed` handle (carries the flight key and
+  command-descriptor digest).
+- **`flight_attached`** — a later same-checkout caller attached to a matching active flight rather
+  than opening a second owner claim (carries the attached-at state).
+- **`flight_finished`** — the owner recorded a terminal state (carries the terminal state, the
+  command duration, and the skipped-checks count).
+- **`flight_wait_completed`** — an attacher's `wait` observed a terminal state.
+
+Two honesty rules hold. A **stale or incomplete** handle is never counted as saved work — only a
+genuine attach-and-consume of a `passed` flight is a suppressed launch, so the suppressed-launch
+count the cross-run analyzer derives from these events excludes non-pass handles. And telemetry is
+**best-effort and hermetic**: the helper writes these records locally with no network or `git`, and a
+failure to write a record never fails the coordination operation or the verification run itself.
