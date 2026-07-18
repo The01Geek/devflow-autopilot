@@ -17,7 +17,8 @@ Subcommands:
   descriptor    Print the immutable command descriptor digest + flight key for an
                 input declaration (data only; callers cannot supply a static digest).
   claim         Atomically publish a `claimed` handle and mint a one-time owner
-                token, OR attach to a matching active flight without a second owner.
+                token, OR attach to an existing flight for the same key — active or
+                terminal (e.g. a `passed` flight to consume) — without a second owner.
   mark-running  Owner-only CAS: claimed -> running, recording logical owner evidence
                 immediately before the caller launches its authorized command.
   finish        Owner-only CAS: running -> passed/failed/timed_out/cancelled with
@@ -550,9 +551,14 @@ def cmd_finish(args) -> int:
         if isinstance(summary, dict) and isinstance(summary.get("skipped_checks"), list):
             skipped = summary["skipped_checks"]
 
-    # Missing terminal evidence on a `passed`/`failed` result is not inferred as a
-    # clean end — it becomes `incomplete` and blocks any automatic relaunch.
-    if args.result in ("passed", "failed") and summary is None:
+    # Terminal evidence on a `passed`/`failed` result is not inferred as a clean
+    # end from mere presence — the evidence gate is the one place the whole helper
+    # decides a pass, so a *malformed* summary (a non-dict scalar/array, or an
+    # empty `{}` carrying no command/exit/result fields) is the same unknown class
+    # as an absent one and must NOT be recorded as `passed`: it becomes
+    # `incomplete` and blocks any automatic relaunch. Only a non-empty object
+    # counts as present terminal evidence.
+    if args.result in ("passed", "failed") and not (isinstance(summary, dict) and summary):
         flight["state"] = "incomplete"
         flight["invalidation_reason"] = "missing_terminal_evidence"
         flight["finished_at"] = _iso(_now())

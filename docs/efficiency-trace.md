@@ -935,10 +935,14 @@ the record file.)
 ## Verification single-flight telemetry (issue #528)
 
 The single-flight verification coordinator (`scripts/verification-flight.py`) emits its own
-per-event JSON records under `.devflow/logs/verification-flight/`, alongside the effectiveness
-records above and carried by the same stage-then-relay telemetry path
-(`scripts/collect-staged-telemetry.sh` copies the whole `.devflow/logs` subtree, so no new relay
-plumbing is needed). The events are:
+per-event JSON records under `.devflow/logs/verification-flight/` (the default; a caller may
+redirect them with `--logs-dir`). These are **local** records in the effectiveness-record
+family. They are **not** relayed to the telemetry branch by the current plumbing: the trusted
+relay (`scripts/collect-staged-telemetry.sh`) harvests only the `.devflow/tmp/telemetry-stage-*/`
+staging roots the read-only reviewer stages, and the two workflows that actually run the
+coordinator (`devflow-implement.yml`, `devflow.yml`) carry no collect/upload step — so a caller
+that wants these records relayed must write them into a staging root (via `--logs-dir`) that a
+relay step then harvests. Until then they remain local, per-checkout diagnostics. The events are:
 
 - **`flight_claimed`** — a new owner claim published a `claimed` handle (carries the flight key and
   command-descriptor digest).

@@ -349,13 +349,22 @@ class TestStaleDrift(Harness):
 
 
 class TestSubdirAndWorktree(Harness):
-    def test_same_key_across_subdirectory_and_worktree(self):
-        # A subdirectory or a linked worktree that computes the SAME complete
-        # flight key attaches to the same flight; only the key match matters.
+    def test_same_key_attaches_from_a_different_working_directory(self):
+        # A subdirectory / linked-worktree caller that computes the SAME complete
+        # flight key attaches to the same flight regardless of the process cwd —
+        # the helper is cwd-independent (state dir is explicit, no git is run). Run
+        # the attach from a different cwd to actually exercise that independence.
         _, owner = self.claim()
-        _, att = self.claim()
-        self.assertEqual(att["flight_key"], owner["flight_key"])
+        subdir = os.path.join(self.tmp, "nested", "deep")
+        os.makedirs(subdir)
+        prev = os.getcwd()
+        try:
+            os.chdir(subdir)
+            _, att = self.claim()  # same absolute --state-dir, different cwd
+        finally:
+            os.chdir(prev)
         self.assertEqual(att["role"], "attacher")
+        self.assertEqual(att["flight_key"], owner["flight_key"])
 
     def test_different_checkout_id_does_not_attach(self):
         _, owner = self.claim()
@@ -400,6 +409,59 @@ class TestFinishPropagation(Harness):
                                              "skipped_checks": skipped})
         _, st = self.run_cmd(["status", "--flight", k, "--state-dir", self.state])
         self.assertEqual(st["skipped_checks"], skipped)
+
+    def test_timed_out_writable_without_evidence_and_non_pass(self):
+        # timed_out / cancelled are owner-recorded terminal outcomes that carry no
+        # suite summary — writable without evidence, never a pass, and immutable.
+        for result in ("timed_out", "cancelled"):
+            # distinct checkout per iteration → distinct flight key (avoids attach)
+            _, owner = self.claim(_decl(checkout={"head": f"head-{result}"}))
+            k, t = owner["flight_key"], owner["token"]
+            self.run_cmd(["mark-running", "--flight", k, "--token", t, "--state-dir", self.state])
+            code, out = self.run_cmd(["finish", "--flight", k, "--token", t, "--result", result,
+                                      "--state-dir", self.state, "--logs-dir", self.logs])
+            self.assertEqual(code, vf.EXIT_OK, f"{result} finish should succeed without evidence")
+            self.assertEqual(out["state"], result)
+            c, st = self.run_cmd(["status", "--flight", k, "--state-dir", self.state])
+            self.assertEqual(c, vf.EXIT_NON_PASS)
+            self.assertFalse(st["satisfies_verification"])
+            # immutable: a second finish is rejected
+            c2, _ = self.run_cmd(["finish", "--flight", k, "--token", t, "--result", "passed",
+                                  "--summary-file", self._write({"command": "x", "skipped_checks": []}),
+                                  "--state-dir", self.state])
+            self.assertEqual(c2, vf.EXIT_CAS_REJECT)
+
+    def test_malformed_summary_file_rejected(self):
+        # A truncated / undecodable evidence file is rejected before any terminal write.
+        _, owner = self.claim()
+        k, t = owner["flight_key"], owner["token"]
+        self.run_cmd(["mark-running", "--flight", k, "--token", t, "--state-dir", self.state])
+        bad = os.path.join(self.tmp, "bad-summary.json")
+        Path(bad).write_bytes(b'{"command": "run.sh", "exit')  # truncated JSON
+        code, out = self.run_cmd(["finish", "--flight", k, "--token", t, "--result", "passed",
+                                  "--summary-file", bad, "--state-dir", self.state])
+        self.assertEqual(code, vf.EXIT_INVALID)
+        self.assertTrue(out["reason"].startswith("summary:"))
+        # the flight is untouched — still running, never a false pass
+        _, st = self.run_cmd(["status", "--flight", k, "--state-dir", self.state])
+        self.assertEqual(st["state"], "running")
+
+    def test_present_but_malformed_summary_becomes_incomplete(self):
+        # The evidence gate is the one place a pass is decided: a present-but-malformed
+        # summary (a scalar / array / empty object) is the same unknown class as an
+        # absent one and must become `incomplete`, never a clean `passed`.
+        for i, payload in enumerate((42, "x", [], {})):
+            # distinct checkout per iteration → distinct flight key (avoids attach)
+            _, owner = self.claim(_decl(checkout={"head": f"head-mal-{i}"}))
+            k, t = owner["flight_key"], owner["token"]
+            self.run_cmd(["mark-running", "--flight", k, "--token", t, "--state-dir", self.state])
+            code, out = self.run_cmd(["finish", "--flight", k, "--token", t, "--result", "passed",
+                                      "--summary-file", self._write(payload), "--state-dir", self.state])
+            self.assertEqual(out["result"], "incomplete", f"summary {payload!r} must not be a pass")
+            self.assertEqual(code, vf.EXIT_CAS_REJECT)
+            _, st = self.run_cmd(["status", "--flight", k, "--state-dir", self.state])
+            self.assertEqual(st["state"], "incomplete")
+            self.assertFalse(st["satisfies_verification"])
 
     def test_command_duration_recorded(self):
         os.environ["DEVFLOW_FLIGHT_NOW"] = "5000"

@@ -42418,9 +42418,10 @@ VF_SRC="$LIB/../scripts/verification-flight.py"
 assert_eq "verification flight: no subprocess / shell-out / exec spelling" "0" \
   "$(grep -cE '(^|[^a-zA-Z_])(import subprocess|from subprocess import|subprocess\.|os\.system|os\.popen|os\.exec|getoutput|check_output|pty\.spawn|import pty)' "$VF_SRC" || true)"
 # The exact, exhaustive state set is a coupled invariant with the helper source
-# and the docs — pin the eight declared states so a dropped/renamed state goes RED.
-assert_eq "verification flight: ALL_STATES declares claimed" "1" "$(grep -cF '"claimed", "running"' "$VF_SRC" || true)"
-assert_eq "verification flight: TERMINAL_STATES lists the six terminal states" "1" \
+# and the docs — pin the full declared membership (the grep literals enforce exact
+# content) so a dropped/renamed state goes RED.
+assert_eq "verification flight: ALL_STATES declares the active set" "1" "$(grep -cF '"claimed", "running"' "$VF_SRC" || true)"
+assert_eq "verification flight: TERMINAL_STATES declares every terminal state" "1" \
   "$(grep -cF '"passed", "failed", "timed_out", "cancelled", "stale", "incomplete"' "$VF_SRC" || true)"
 
 # Coupled grant invariant (issue #528 AC): the vendored-literal helper grant must
