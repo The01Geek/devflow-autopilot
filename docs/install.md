@@ -139,6 +139,15 @@ See **[`cloud-setup.md`](cloud-setup.md)** for secrets, triggers, and the full g
 
 **Both tiers on one repo?** No conflict — the local marketplace copy is cached centrally; the cloud tier materializes its own copy under `.devflow/vendor/devflow/` at runtime (or commits one with `DEVFLOW_VENDOR=1`). Just don't run `/plugin marketplace add ./` there (it would activate two marketplaces named `devflow-marketplace`).
 
+**Choosing the runner (`DEVFLOW_RUNNER`, optional).** Every consumer-shipped workflow job resolves its `runs-on` from an optional GitHub **repository/organization variable** `DEVFLOW_RUNNER` (Settings → Actions → Variables — it is infrastructure, *not* a `.devflow/config.json` key):
+
+- **unset or empty** → `ubuntu-latest`, byte-for-byte the previous behavior (existing Linux adopters set nothing);
+- a **bare single label** (e.g. `windows-latest`) → that single-label runner;
+- a **JSON array** (e.g. `["self-hosted","windows","DevFlow"]`) → a runner matching that label set (match it exactly to a registered runner);
+- a value that begins with `[` but is not valid JSON → the job fails **loud** at evaluation time (a visible `fromJSON` error), rather than silently degrading to `ubuntu-latest`.
+
+Each workflow also forces `bash` for its `run:` steps, so a self-hosted Windows runner needs Git Bash on its PATH. Setting `DEVFLOW_RUNNER` **dispatch-enables** a self-hosted / Windows runner but does **not** certify that every inline bash body runs correctly on a Windows filesystem — an adopter must run at least one full consumer-shipped workflow end-to-end on the target runner before treating it as production-ready. See [`cloud-setup.md`](cloud-setup.md) for the full self-hosted-runner prerequisites (toolchain, the `python3` shim, `DEVFLOW_GH`/`DEVFLOW_JQ`/`DEVFLOW_BASH`, the `setup.services` Docker caveat) and the smoke-test boundary.
+
 ## Updating
 
 ### Local tier
