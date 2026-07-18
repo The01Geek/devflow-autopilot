@@ -10,5 +10,6 @@ type: Added
   `bash lib/test/run-module.sh create-issue-contract` and executed by the complete suite
   through the existing fail-closed module boundary. `lib/test/module-harness.sh` gains a shared
   namespaced pin API (`devflow_module_pin_count` / `devflow_module_pin_unique` /
-  `devflow_module_pin_red_under`) whose fixed-string counter uses checked `python3` and reports
-  an unestablished count as a failed assertion instead of a vacuous zero. (#584)
+  `devflow_module_pin_present` / `devflow_module_pin_red_under`) whose fixed-string counter uses
+  checked `python3` and reports an unestablished count as a failed assertion instead of a
+  vacuous zero. (#584)

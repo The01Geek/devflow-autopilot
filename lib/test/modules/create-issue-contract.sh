@@ -4,7 +4,8 @@
 # Sourceable create-issue contract module.
 # Contract: the caller sets LIB and RESULTS_FILE, defines assert_eq, and sources
 # lib/test/module-harness.sh first (which defines the namespaced module pin API:
-# devflow_module_pin_count / devflow_module_pin_unique / devflow_module_pin_red_under).
+# devflow_module_pin_count / devflow_module_pin_unique / devflow_module_pin_present /
+# devflow_module_pin_red_under).
 # The module owns its private fixture root and cleanup; it never invokes the runner
 # or the full-suite boundary, and it references NO monolith helper (no monolith temp
 # allocator, no pin machinery of its own) — it uses only assert_eq plus the namespaced module API,
@@ -43,13 +44,25 @@ trap _ci_cleanup EXIT
 
 # The implement-skill bundle backs the #467 D2 Phase-2.4 leg (the widened
 # best-effort-parser rule must appear exactly once across the implement skill's
-# root + phase references). Concatenated here from LIB, exactly as the review engine
-# bundle is assembled in review-and-fix-contract.sh, so a sentence that moves between
-# the root and a phase reference does not silently break its pin.
+# root + phase references). Assembled here from LIB, member by member. This restores
+# the monolith `_build_skill_bundle` fail-LOUD-per-member contract (NOT the sibling
+# review-and-fix-contract.sh's `cat … 2>/dev/null || :`, which silently swallows a
+# missing/empty/unreadable member): a member that is not a readable non-empty file
+# records a FAIL through the assertion channel naming that member, so a corrupt
+# implement engine file cannot pass the pin green just because the pinned sentence
+# survives in a different member. On the clean path no assertion is added (count
+# unchanged); a bad member adds exactly one FAIL.
 CI_IMPL_BUNDLE="$_ci_tmp_root/implement-skill-bundle.md"
 : > "$CI_IMPL_BUNDLE"
-cat "$CI_ROOT/skills/implement/SKILL.md" "$CI_ROOT"/skills/implement/phases/*.md \
-  >> "$CI_IMPL_BUNDLE" 2>/dev/null || :
+for _ci_bundle_member in "$CI_ROOT/skills/implement/SKILL.md" "$CI_ROOT"/skills/implement/phases/*.md; do
+  if [ -r "$_ci_bundle_member" ] && [ -s "$_ci_bundle_member" ]; then
+    cat "$_ci_bundle_member" >> "$CI_IMPL_BUNDLE"
+    printf '\n' >> "$CI_IMPL_BUNDLE"
+  else
+    assert_eq "ci module: implement-bundle member usable: $_ci_bundle_member" \
+      "usable" "missing-empty-or-unreadable"
+  fi
+done
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "create-issue contract: module surfaces and inventory"

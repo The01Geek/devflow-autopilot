@@ -459,9 +459,54 @@ class NamespacedModulePinHelperTests(unittest.TestCase):
             '# An unreadable file -> RED.\n'
             'devflow_module_pin_red_under "unreadable is RED" '
             '"x" "s/x//" "/no/such/file"\n'
+            '# A malformed sed program is never a vacuous pass -> RED.\n'
+            'devflow_module_pin_red_under "sed error is RED" '
+            '"operative sentence here" "s/(/" "$F"\n'
         )
         self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
-        self.assertEqual(verdicts, ["PASS", "FAIL", "FAIL"], process.stdout + process.stderr)
+        self.assertEqual(
+            verdicts, ["PASS", "FAIL", "FAIL", "FAIL"], process.stdout + process.stderr
+        )
+
+    def test_pin_red_under_mktemp_failure_is_red(self) -> None:
+        # The mktemp-failure branch records a RED verdict (never a false PASS) when a
+        # scratch copy cannot be allocated. Shadow `mktemp` with a fake that exits 1.
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            fake_bin = root / "fake-bin"
+            fake_bin.mkdir()
+            (fake_bin / "mktemp").write_text(
+                "#!/usr/bin/env bash\nexit 1\n", encoding="utf-8"
+            )
+            (fake_bin / "mktemp").chmod(0o755)
+            results = root / "results"
+            fixture = root / "fixture"
+            fixture.write_text("pinned line\nkeep\n", encoding="utf-8")
+            driver = root / "driver.sh"
+            driver.write_text(
+                "#!/usr/bin/env bash\n"
+                f'RESULTS_FILE="{results}"\n'
+                f'export PATH="{fake_bin}:$PATH"\n'
+                '> "$RESULTS_FILE"\n'
+                "assert_eq() {\n"
+                '  if [ "$2" = "$3" ]; then printf "PASS\\n" >> "$RESULTS_FILE";\n'
+                '  else printf "FAIL\\n" >> "$RESULTS_FILE"; fi\n'
+                "}\n"
+                f'. "{HARNESS}"\n'
+                f'devflow_module_pin_red_under "mktemp failure is RED" '
+                f'"pinned line" "s/pinned line//" "{fixture}"\n',
+                encoding="utf-8",
+            )
+            process = subprocess.run(
+                ["bash", str(driver)],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            verdicts = results.read_text(encoding="utf-8").split()
+        self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
+        self.assertEqual(verdicts, ["FAIL"], process.stdout + process.stderr)
 
     def test_pin_red_under_removes_its_scratch_on_every_return_path(self) -> None:
         # Run several return paths (flip, no-op, unreadable, sed-error) and confirm
