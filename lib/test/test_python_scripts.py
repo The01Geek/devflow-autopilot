@@ -104,6 +104,7 @@ def make_args(**overrides):
         note=[], reflection=[], reflection_kind=None, reflection_file=None,
         marker=None,
         reconcile_reproduction=None, record_classification=None,
+        checkpoint=[], expect_comment_id=None, expect_status=None,
     )
     base.update(overrides)
     return argparse.Namespace(**base)
@@ -4884,6 +4885,394 @@ with tempfile.TemporaryDirectory() as _td:
                       's', root=_rr_root)['rounds'][0]['findings_count'])
     finally:
         issue_audit_state._repo_root = _orig_repo_root
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Issue #537 — startup-lifecycle observability: handoff-state, --checkpoint,
+# --expect-comment-id / --expect-status.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _handoff(payload, issue=537, run_id="29624899689", run_attempt="1",
+             write=True, raw=None):
+    """Drive workpad.cmd_handoff_state offline and return (exit, stdout, stderr).
+    `payload` is a dict/list/scalar dumped as JSON, or `raw` is written verbatim;
+    write=False omits the file entirely (missing-file case)."""
+    d = tempfile.mkdtemp()
+    p = Path(d) / "handoff.json"
+    if write:
+        if raw is not None:
+            p.write_text(raw, encoding="utf-8")
+        else:
+            p.write_text(_json.dumps(payload), encoding="utf-8")
+    ns = argparse.Namespace(file=str(p), issue=issue, run_id=run_id,
+                            run_attempt=run_attempt)
+    out, err = io.StringIO(), io.StringIO()
+    code = None
+    try:
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            workpad.cmd_handoff_state(ns)
+    except SystemExit as e:
+        code = e.code
+    return code, out.getvalue().strip(), err.getvalue()
+
+
+_VALID = {"schema_version": 1, "issue": 537, "run_id": "29624899689",
+          "run_attempt": "1", "origin": "created-current-run"}
+
+# AC3: a valid record validates offline and prints its origin, exit 0, no breadcrumb.
+_c, _o, _e = _handoff(_VALID)
+assert_eq("#537 handoff AC3: valid created-current-run prints origin, exit 0",
+          (0, "created-current-run"), (_c, _o))
+assert_eq("#537 handoff AC3: a clean valid record emits no degradation breadcrumb",
+          "", _e)
+# AC11: a valid record whose origin is the explicit `unknown` token prints unknown
+# with NO breadcrumb — distinct from a degraded shape.
+_c, _o, _e = _handoff({**_VALID, "origin": "unknown"})
+assert_eq("#537 handoff AC11: explicit-unknown origin prints unknown cleanly",
+          (0, "unknown", ""), (_c, _o, _e))
+assert_eq("#537 handoff AC3: adopted-existing round-trips",
+          (0, "adopted-existing"),
+          _handoff({**_VALID, "origin": "adopted-existing"})[:2])
+
+# AC4: each degradation class below prints `unknown`, exits 0, WITH a breadcrumb.
+_deg = [
+    ("missing file", dict(write=False)),
+    ("unreadable/undecodable", dict(raw="\xff\xfe not utf8-ish \x80\x81")),
+    ("malformed JSON", dict(raw="{not json")),
+    ("array", dict(payload=[1, 2, 3])),
+    ("scalar", dict(raw='"hi"')),
+    ("null", dict(raw="null")),
+    ("unsupported schema version", dict(payload={**_VALID, "schema_version": 2})),
+    ("wrong field type (issue str)", dict(payload={**_VALID, "issue": "537"})),
+    ("identity mismatch (run_id)", dict(payload={**_VALID, "run_id": "999"})),
+    ("run_attempt mismatch", dict(payload={**_VALID, "run_attempt": "2"})),
+    ("unknown origin token", dict(payload={**_VALID, "origin": "bogus"})),
+]
+for _name, _kw in _deg:
+    # `payload=` passes a dict/list; a `raw=`/`write=` case passes no payload.
+    if "payload" in _kw:
+        _c, _o, _e = _handoff(_kw["payload"])
+    else:
+        _c, _o, _e = _handoff(None, **_kw)
+    assert_eq(f"#537 handoff AC4: {_name} -> unknown, exit 0, breadcrumb",
+              (0, "unknown", True),
+              (_c, _o, "resolving origin=unknown" in _e))
+
+# AC4 (type arms, breadcrumb-specific): a run_id that is not a digit STRING (a bare
+# int) and a run_attempt that is a non-digit string each degrade to unknown through
+# their OWN type guard — asserted on the branch-specific breadcrumb, since the
+# following identity-mismatch guard would also degrade the outcome (defense in
+# depth), so an outcome-only check cannot pin the type branch itself.
+_c, _o, _e = _handoff({**_VALID, "run_id": 29624899689})
+assert_eq("#537 handoff AC4: a non-string run_id degrades via its digit-string type guard",
+          (0, "unknown", True),
+          (_c, _o, "run_id must be a digit string" in _e))
+_c, _o, _e = _handoff({**_VALID, "run_attempt": "x"})
+assert_eq("#537 handoff AC4: a non-digit run_attempt degrades via its digit-string type guard",
+          (0, "unknown", True),
+          (_c, _o, "run_attempt must be a digit string" in _e))
+# The `issue` field's own type guard is likewise masked by the following identity
+# guard (a string "537" degrades to unknown via EITHER the type guard OR "537" != 537),
+# so pin the branch-specific breadcrumb, mirroring the run_id/run_attempt arms above —
+# the generic `_deg` row "wrong field type (issue str)" only asserts the shared
+# origin=unknown breadcrumb and cannot distinguish the type guard from the mismatch path.
+_c, _o, _e = _handoff({**_VALID, "issue": "537"})
+assert_eq("#537 handoff AC4: a non-int issue degrades via its own integer type guard",
+          (0, "unknown", True),
+          (_c, _o, "issue must be an integer" in _e))
+
+# AC4 (bool guard): schema_version:true must not sneak through isinstance(True, int).
+assert_eq("#537 handoff AC4: bool schema_version degrades to unknown",
+          (0, "unknown", True),
+          (lambda r: (r[0], r[1], "resolving origin=unknown" in r[2]))(
+              _handoff({**_VALID, "schema_version": True})))
+
+# ── write-handoff-record: origin normalization + record round-trip (AC3) ──────
+# The claude-job producer that writes the record cmd_handoff_state reads back. The
+# normalization (_normalize_handoff_origin) is the exact logic the #580 review flagged
+# as untested when it was inline heredoc Python — the empty-string (partially-upgraded
+# consumer) and bogus-value paths especially. Drive the subcommand end-to-end and read
+# the origin back through the paired reader so the write shape is verified by construction.
+
+def _write_handoff(gate, issue="537", run_id="29624899689", run_attempt="1"):
+    """Run cmd_write_handoff_record; return (exit_or_exc, written_origin_or_None)."""
+    d = tempfile.mkdtemp()
+    p = Path(d) / "rec.json"
+    ns = argparse.Namespace(file=str(p), issue=issue, run_id=run_id,
+                            run_attempt=run_attempt, gate=gate)
+    try:
+        workpad.cmd_write_handoff_record(ns)
+    except SystemExit as e:
+        if e.code not in (0, None):
+            return ("exit", None)
+    except Exception as e:  # noqa: BLE001 — a raise (e.g. non-int issue) is a valid outcome
+        return (type(e).__name__, None)
+    origin = _json.loads(p.read_text(encoding="utf-8"))["origin"]
+    return (0, origin)
+
+# _normalize_handoff_origin — the pure normalizer, exercised directly across the
+# vocabulary and the two degradation shapes the coupled-tuple pin alone could not catch.
+for _g in ("created-current-run", "adopted-existing", "unknown"):
+    assert_eq(f"#580 write-handoff AC3: valid gate {_g!r} normalizes to itself",
+              _g, workpad._normalize_handoff_origin(_g))
+assert_eq("#580 write-handoff AC3: an empty gate (partially-upgraded consumer) -> unknown",
+          "unknown", workpad._normalize_handoff_origin(""))
+assert_eq("#580 write-handoff AC3: a bogus gate token -> unknown",
+          "unknown", workpad._normalize_handoff_origin("garbage-value"))
+
+# End-to-end through the subcommand: the written record carries the normalized origin,
+# and it round-trips through the paired cmd_handoff_state reader (same _HANDOFF_ORIGINS).
+assert_eq("#580 write-handoff AC3: a valid gate is written verbatim as origin",
+          (0, "created-current-run"), _write_handoff("created-current-run"))
+assert_eq("#580 write-handoff AC3: adopted-existing is written verbatim",
+          (0, "adopted-existing"), _write_handoff("adopted-existing"))
+assert_eq("#580 write-handoff AC3: an empty gate is written as origin=unknown",
+          (0, "unknown"), _write_handoff(""))
+assert_eq("#580 write-handoff AC3: a bogus gate is written as origin=unknown",
+          (0, "unknown"), _write_handoff("garbage-value"))
+assert_eq("#580 write-handoff AC3: a valid handoff record round-trips through handoff-state",
+          (0, "adopted-existing"),
+          (lambda d: (lambda p: (
+              workpad.cmd_write_handoff_record(argparse.Namespace(
+                  file=str(p), issue="537", run_id="29624899689",
+                  run_attempt="1", gate="adopted-existing")),
+              _handoff(None, raw=Path(p).read_text(encoding="utf-8"))[:2])[1])(
+              Path(d) / "rt.json"))(tempfile.mkdtemp()))
+# Boundary: a non-integer issue raises (the workflow's `if !` wrapper turns that into a
+# best-effort ::warning:: and Phase 1 degrades to unknown) — never a silent bad record.
+assert_eq("#580 write-handoff AC3: a non-integer issue raises (best-effort warn upstream), no silent record",
+          ("ValueError", None), _write_handoff("unknown", issue="notanint"))
+
+# ── --checkpoint idempotent keyed Progress rows (AC14/15/16) ──────────────────
+_CP_BODY = """<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #999
+
+**Status:** 🚀 Setup
+**Branch:** `x`
+**Last updated:** 2026-05-15 00:00 UTC
+
+## Progress
+- [ ] **Setup** — branch & workpad
+  - 02:00:00 — /devflow:implement run started
+- [ ] **Implement**
+
+## Plan
+- [ ] step
+
+## Acceptance Criteria
+- [ ] AC1
+
+## Devflow Reflection
+<details>
+<summary>Devflow Reflection (click to expand)</summary>
+
+</details>
+"""
+_CPKEY = "gha:29624899689:1:claude-invoke"
+_MK = workpad._checkpoint_marker(_CPKEY)
+
+# AC14: a first checkpoint writes exactly one visible row carrying one hidden marker.
+_out = apply_mut(_CP_BODY, make_args(checkpoint=[[_CPKEY, "Claude job setup complete; invoking agent"]]))
+assert_eq("#537 checkpoint AC14: first write adds exactly one hidden marker",
+          1, _out.count(_MK))
+assert_eq("#537 checkpoint AC14: first write shows the visible text",
+          True, "Claude job setup complete; invoking agent" in _out)
+
+# AC14: a checkpoint-only exact-key replay is a pure no-op — _NoOpReplay, zero body change.
+assert_raises("#537 checkpoint AC14: checkpoint-only replay raises _NoOpReplay",
+              workpad._NoOpReplay,
+              lambda: apply_mut(_out, make_args(checkpoint=[[_CPKEY, "x"]])))
+
+# AC14: a replay COMBINED with another mutation applies that mutation once,
+# adds no duplicate checkpoint.
+_out2 = apply_mut(_out, make_args(checkpoint=[[_CPKEY, "x"]], status="Reviewing"))
+assert_eq("#537 checkpoint AC14: combined replay applies the other mutation",
+          True, "🚀 Reviewing" in _out2)
+assert_eq("#537 checkpoint AC14: combined replay does not duplicate the checkpoint",
+          1, _out2.count(_MK))
+
+# AC15: a distinct attempt key (same run, attempt 2) inserts a NEW row.
+_CPKEY2 = "gha:29624899689:2:claude-invoke"
+_out3 = apply_mut(_out, make_args(checkpoint=[[_CPKEY2, "attempt 2"]]))
+assert_eq("#537 checkpoint AC15: a distinct-attempt key inserts a new row",
+          (1, 1), (_out3.count(workpad._checkpoint_marker(_CPKEY2)), _out3.count(_MK)))
+
+# AC14/AC15 (mixed batch): a single --checkpoint call carrying BOTH an
+# already-present key (_CPKEY, a replay) and an absent key (_CPKEY2, an insert)
+# inserts ONLY the absent one and does not duplicate the present one — the partial
+# replay is not a whole-call no-op. `_out` already carries _CPKEY exactly once.
+_out_mix = apply_mut(_out, make_args(checkpoint=[[_CPKEY, "replayed"], [_CPKEY2, "inserted"]]))
+assert_eq("#537 checkpoint mixed batch: the absent key is inserted, the present key not duplicated",
+          (1, 1), (_out_mix.count(workpad._checkpoint_marker(_CPKEY2)), _out_mix.count(_MK)))
+assert_eq("#537 checkpoint mixed batch: the newly-inserted row's text is shown",
+          True, "inserted" in _out_mix)
+
+# AC14: key grammar — a key outside [A-Za-z0-9._:-]+ fails structurally (no PATCH).
+assert_raises("#537 checkpoint AC14: an invalid key is a structural failure",
+              workpad._UpdateError,
+              lambda: apply_mut(_CP_BODY, make_args(checkpoint=[["bad key!", "t"]])))
+# AC14: a trailing newline in a key is a structural failure — the grammar is anchored
+# with \A…\Z (not ^…$), so a key that would otherwise inject a newline into the marker
+# is rejected before any PATCH. (^…$ would admit it via $'s pre-newline match.)
+assert_raises("#537 checkpoint AC14: a trailing-newline key is a structural failure (\\Z anchor)",
+              workpad._UpdateError,
+              lambda: apply_mut(_CP_BODY, make_args(checkpoint=[[_CPKEY + "\n", "t"]])))
+# AC14: a key repeated within a SINGLE batch is structural (no PATCH) — both copies
+# would see in_prog==0 and be inserted, writing the marker twice and wedging every
+# future replay of that key; rejected up front instead.
+assert_raises("#537 checkpoint AC14: a within-batch duplicate key is a structural failure",
+              workpad._UpdateError,
+              lambda: apply_mut(_CP_BODY, make_args(checkpoint=[[_CPKEY, "a"], [_CPKEY, "b"]])))
+
+# AC14 structural shapes: absent/duplicate Progress, marker-outside-Progress, empty body.
+assert_raises("#537 checkpoint AC14: absent ## Progress is structural",
+              workpad._UpdateError,
+              lambda: apply_mut(_CP_BODY.replace("## Progress", "## Notprogress"),
+                                make_args(checkpoint=[[_CPKEY, "t"]])))
+assert_raises("#537 checkpoint AC14: duplicate ## Progress is structural",
+              workpad._UpdateError,
+              lambda: apply_mut(_CP_BODY.replace("## Plan", "## Progress\n- [ ] d\n\n## Plan"),
+                                make_args(checkpoint=[[_CPKEY, "t"]])))
+assert_raises("#537 checkpoint AC14: a marker outside ## Progress is structural",
+              workpad._UpdateError,
+              lambda: apply_mut(_CP_BODY.replace("- [ ] AC1", "- [ ] AC1 " + _MK),
+                                make_args(checkpoint=[[_CPKEY, "t"]])))
+assert_raises("#537 checkpoint AC14: a marker duplicated INSIDE ## Progress is structural",
+              workpad._UpdateError,
+              lambda: apply_mut(_CP_BODY.replace(
+                  "  - 02:00:00 — /devflow:implement run started",
+                  "  - 02:00:00 — a " + _MK + "\n  - 02:00:01 — b " + _MK),
+                  make_args(checkpoint=[[_CPKEY, "t"]])))
+assert_raises("#537 checkpoint AC14: an empty/whitespace body is structural",
+              workpad._UpdateError,
+              lambda: apply_mut("   ", make_args(checkpoint=[[_CPKEY, "t"]])))
+
+# AC16 (failure isolation at the process level): a checkpoint-only replay through
+# cmd_update makes NO PATCH and exits 0.
+_code, _err, _patched = _drive_cmd_update(_CP_BODY.replace(
+    "  - 02:00:00 — /devflow:implement run started",
+    "  - 02:00:00 — /devflow:implement run started\n  - 02:01:00 — invoke " + _MK),
+    checkpoint=[[_CPKEY, "x"]])
+assert_eq("#537 checkpoint AC16: a checkpoint-only replay makes no PATCH", None, _patched)
+assert_eq("#537 checkpoint AC16: a checkpoint-only replay exits 0", None, _code)
+
+# AC16 (positive control at the process level): an ABSENT-key checkpoint INSERT
+# through cmd_update DOES issue a PATCH carrying the new row — the counterpart to the
+# replay-makes-no-PATCH negative above, so a mutant that silently swallowed inserts
+# (never PATCHing) would be caught. `_CP_BODY` has ## Progress but not _MK.
+_code, _err, _patched = _drive_cmd_update(_CP_BODY, checkpoint=[[_CPKEY, "invoked"]])
+assert_eq("#537 checkpoint AC16: an absent-key checkpoint insert issues a PATCH carrying the new row",
+          (True, True),
+          (_patched is not None, _patched is not None and _MK in _patched and "invoked" in _patched))
+
+# AC16 (hydration seam): a phase1-hydrated INSERT combined with a matching
+# --expect-comment-id precondition + --status + --note lands in ONE PATCH — the
+# precondition-pass -> insert -> single-PATCH composition the isolated tests never
+# exercise together. The fake body-fetch returns comment id 7, so the precondition
+# passes and the insert rides the same PATCH.
+_code, _err, _patched = _drive_cmd_update(
+    _CP_BODY, checkpoint=[[_CPKEY, "hydrated"]], status="Setup",
+    note=["Phase 1 workpad hydrated"], expect_comment_id="7")
+assert_eq("#537 checkpoint AC16: a matching precondition + a checkpoint insert land in one PATCH",
+          (True, True),
+          (_patched is not None,
+           _patched is not None and _MK in _patched and "hydrated" in _patched))
+
+# AC13: a checkpoint on a legacy body lacking ## Progress fails structurally (no
+# PATCH) — the caller (Phase 1) migrates then retries, so the helper never aborts
+# the run here, it just declines to write.
+_code, _err, _patched = _drive_cmd_update(
+    """<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #999
+
+**Status:** 🚀 Setup
+**Last updated:** 2026-05-15 00:00 UTC
+
+## Plan
+- [ ] step
+""", checkpoint=[[_CPKEY, "entry"]])
+assert_eq("#537 checkpoint AC13: legacy no-Progress body -> structural, no PATCH",
+          (1, None), (_code, _patched))
+
+# AC16 (silent-drop guard): a checkpoint REPLAY combined with ANY other mutation flag
+# must NOT be treated as a pure no-op — otherwise that mutation is silently dropped.
+# This pins `_has_non_checkpoint_mutation` in sync with the mutation flags behaviorally:
+# if a flag is dropped from the enumeration, its row here raises _NoOpReplay and fails.
+# `_out` already carries the _CPKEY marker, so `--checkpoint _CPKEY` is a replay.
+# Every mutation flag `_has_non_checkpoint_mutation` enumerates gets a row, so a
+# dropped flag makes its row raise _NoOpReplay and fail — including the four
+# file-based flags (a nonexistent path still trips the truthiness check before any
+# read, so the structural _UpdateError is caught below as "not a no-op").
+_mut_flag_values = [
+    ("status", "Reviewing"), ("branch", "b"), ("run_link", "x"), ("pr_link", "x"),
+    ("tick_progress", ["Setup"]), ("tick_plan", ["step"]), ("tick_plan_n", [1]),
+    ("tick_ac", ["AC1"]), ("tick_ac_n", [1]), ("rewrite_ac", [["AC1", "AC1 tweak"]]),
+    ("note", ["n"]), ("reflection", ["r"]), ("record_classification", ["non-bug", "why"]),
+    ("reconcile_reproduction", "non-bug"),
+    ("replace_plan_file", "/nonexistent/devflow-537-x"),
+    ("replace_acs_file", "/nonexistent/devflow-537-x"),
+    ("set_reproduction_file", "/nonexistent/devflow-537-x"),
+    ("reflection_file", "/nonexistent/devflow-537-x"),
+]
+for _fname, _fval in _mut_flag_values:
+    _raised = False
+    try:
+        apply_mut(_out, make_args(checkpoint=[[_CPKEY, "x"]], **{_fname: _fval}))
+    except workpad._NoOpReplay:
+        _raised = True
+    except (workpad._UpdateError, workpad._TickMatchError):
+        pass  # a structural/volatile outcome still means the flag was NOT a no-op
+    assert_eq(f"#537 AC16: checkpoint-replay + --{_fname} is NOT a silent no-op "
+              "(mutation recognized)", False, _raised)
+
+# ── --expect-comment-id / --expect-status hydration-race preconditions (AC24) ──
+# _drive_cmd_update stubs the live comment as id 7 with a 🚀 Setup body.
+_RACE_BODY = _CP_BODY  # id 7, Status 🚀 Setup
+
+# Matching preconditions: the update proceeds and PATCHes.
+_code, _err, _patched = _drive_cmd_update(_RACE_BODY, expect_comment_id="7",
+                                          expect_status="Setup", note=["ok"])
+assert_eq("#537 AC24: matching comment-id + status precondition proceeds (PATCH ran)",
+          True, _patched is not None)
+
+# Changed comment id: abort before mutation/PATCH, exit 4.
+_code, _err, _patched = _drive_cmd_update(_RACE_BODY, expect_comment_id="999",
+                                          note=["should not land"])
+assert_eq("#537 AC24: a changed comment id aborts before PATCH (exit 4)",
+          (4, None), (_code, _patched))
+assert_eq("#537 AC24: the comment-id mismatch names the precondition",
+          True, "precondition mismatch" in _err and "comment" in _err)
+
+# Changed status (terminal backstop / operator flip): abort before mutation/PATCH.
+_code, _err, _patched = _drive_cmd_update(_RACE_BODY, expect_status="Reviewing",
+                                          note=["should not land"])
+assert_eq("#537 AC24: a changed Status aborts before PATCH (exit 4)",
+          (4, None), (_code, _patched))
+assert_eq("#537 AC24: the status mismatch names the precondition",
+          True, "precondition mismatch" in _err and "Status" in _err)
+
+# A body with NO Status line resolves the live word to '' (never the expected
+# word), so an --expect-status precondition aborts before PATCH (exit 4) — a
+# malformed/truncated live body cannot be mistaken for a match.
+_NO_STATUS_BODY = """<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #999
+**Branch:** `x`
+**Last updated:** 2026-05-15 00:00 UTC
+
+## Progress
+- [ ] **Setup** — branch & workpad
+"""
+_code, _err, _patched = _drive_cmd_update(_NO_STATUS_BODY, expect_status="Setup",
+                                          note=["should not land"])
+assert_eq("#537 AC24: --expect-status against a no-Status-line body aborts before PATCH (exit 4)",
+          (4, None), (_code, _patched))
+assert_eq("#537 AC24: the no-Status-line abort names the Status precondition",
+          True, "precondition mismatch" in _err and "Status" in _err)
+
+# AC23 (shared-helper compatibility): a plain update with neither new flag behaves
+# exactly as before — the default checkpoint=[]/expect_*=None never alter the path.
+_code, _err, _patched = _drive_cmd_update(_RACE_BODY, note=["plain"])
+assert_eq("#537 AC23: a plain update (no #537 flags) still PATCHes normally",
+          True, _patched is not None and "plain" in _patched)
 
 # ── issue #548: cmd_record_adjudication reject-path coverage (the agreement invariant is the
 #    feature's core new safety gate — every _fail guard is driven, plus the unestablished
