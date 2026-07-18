@@ -8402,6 +8402,11 @@ assert_eq "#484 recursive roster includes nested implement phase files" "yes" \
   "$(printf '%s\n' "$_impl_files" | grep -qxF "$LIB/../skills/implement/phases/phase-4-documentation.md" && echo yes || echo no)"
 assert_eq "#484 recursive roster includes the dispatched requesting-code-review skill" "yes" \
   "$(printf '%s\n' "$_impl_files" | grep -qxF "$LIB/../skills/requesting-code-review/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: roster membership assertion is scoped to the extractor input
+# #539 shadow (pr-test-analyzer): pin a review-and-fix references member too — a future
+# tightening of the find pattern (e.g. review* -> review) would silently drop all the
+# references from the implement-profile head audit while the two pins above stay green.
+assert_eq "#539 recursive roster includes the review-and-fix step references" "yes" \
+  "$(printf '%s\n' "$_impl_files" | grep -qxF "$LIB/../skills/review-and-fix/references/loop-control.md" && echo yes || echo no)"  # raw-guard-ok: roster membership assertion is scoped to the extractor input
 assert_eq "#484 every implement-tier head is granted or withheld (zero ungranted real heads)" "" \
   "$(for f in $_impl_files; do _impl_ungranted "$f" "$IMPL_YML" implement-block; done | sort -u | tr '\n' ' ' | sed 's/ *$//')"
 
@@ -21851,8 +21856,8 @@ assert_eq "loop_role #170: ITER_EXPECTED_FIELDS single-source == SKILL.md uncond
 #     future edit that DROPS a nav field from the schema leaves LR_SCHEMA excluding a field that
 #     no longer appears, so the equality test stays GREEN and the durable-resume contract (issue
 #     #530 — the whole point of the split) silently regresses. Pin each positively so a drop goes
-#     RED at the desk. `assert_pin_unique` cannot pass on zero matches, so it is non-vacuous by
-#     construction (each `"<field>":` literal appears exactly once in the reassembled bundle).
+#     RED at the desk. The `grep -qx` membership check below cannot pass on an absent field
+#     (empty membership -> "no" -> RED), so it is non-vacuous by construction.
 # Scope the presence check to the ### Schema fence itself, not the whole bundle: a future
 # edit that RELOCATED a nav field out of the schema block into prose elsewhere would keep a
 # bundle-wide grep green while silently desyncing the schema from ITER_EXPECTED_FIELDS via the
@@ -32985,7 +32990,7 @@ assert_eq "#529 shapes scans every source in the bundle (a violation in a refere
 #     locale a byte >= 0x80 is not printable — so a token made entirely of non-ASCII
 #     (every spaced ` — `, ` → `, ` ⇒ `) contains no printable byte and GNU does not
 #     count it AT ALL, while BSD counts it as a word. On this bundle that is 595
-#     dropped words on the default path (28,687 BSD vs 28,092 GNU) — a 2% silent
+#     dropped words on the default path (28,688 BSD vs 28,093 GNU at this HEAD) — a 2% silent
 #     undercount, measured on CI, not theorised.
 #   * a UTF-8 locale: BSD `wc` treats the `≠` (U+2260) in the root's `rc≠0` prose as a
 #     word separator and scores `rc≠0` as TWO words; GNU does not. Worth +12 words.
@@ -33329,7 +33334,7 @@ _rb_grouped() { python3 -c 'import sys; print(f"{int(sys.argv[1]):,}")' "$1"; }
 # dense with comma-grouped numbers, so a drifted value lands INSIDE an unrelated one —
 # a +427-byte edit to a gated reference moves growth to 8,610, a substring of the
 # published "−18,610", and the guard greens on the very scenario it exists for; (2) a
-# measured value that drifts ONTO its own ceiling (8,225 -> 8,500, 28,687 -> 28,700)
+# measured value that drifts ONTO its own ceiling (8,225 -> 8,500, 28,688 -> 28,700)
 # matches the ceiling literal sitting on the same line, so even row-anchoring cannot
 # separate them. The record's own spelling does: it BOLDS a measured value and leaves
 # ceilings plain, and it suffixes byte figures with their unit. Match that, and a
@@ -33587,8 +33592,9 @@ assert_eq "#401 shape-lint exits 0 on the clean review skill" "0" \
 # anchor-as-leading-token + redirect — source forms review-and-fix relies on and that ARE
 # permitted on the tiers it actually runs on (the implement-profile lint below is clean).
 # So the whole bundle is shape-linted under `--profile implement` (root + every reference).
-# The manual-command (devflow.yml) tier's SHAPES are unprobed — matcher-probe.yml has only a
-# review-probe and an implement-probe job, no manual-command job — so the implement profile
+# The manual-command (devflow.yml) tier's SHAPES are unprobed — matcher-probe.yml carries no
+# manual-command-tier shape-probe job (its review probe and implement-probe jobs cover the two
+# cloud allowlist tiers) — so the implement profile
 # stands in as the closest MEASURED proxy for the manual push path (probe-inference, not
 # measurement; if a shape denial ever surfaces there the real fix is a manual-probe job, not
 # more lint). The manual tier's HEADS are separately covered by the whole-bundle head scan
@@ -33697,15 +33703,16 @@ for _raf_ceil in "$RAF_ROOT_CEIL" "$RAF_LOAD_CEIL" "$RAF_MAXSTEP_CEIL"; do
     "$(case "$_raf_doc_nocommas" in *"≤ $_raf_ceil words |"*) echo yes;; *) echo no;; esac)"
 done
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +3,894 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +3,913 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute
 # the normal-cumulative-path words (root + extension + Σ references, same _raf_words counter)
 # and require (a) the doc's cumulative cell to equal the fresh measurement and (b) the pinned
 # growth delta to equal that measurement minus (36201 + RAF_EXT_W). 36201 is the pre-split
-# monolith's _raf_words count at the split's base commit — immutable history, safe to
-# freeze; the live extension term appears in both the cumulative and the baseline, so it
+# monolith's _raf_words count at the split's documented pre-#557 fork point on main (the
+# BEFORE basis in docs/review-and-fix-budget.md — NOT the PR's literal merge-base, which
+# already contains #557 and reads higher) — immutable history, safe to freeze; the live extension term appears in both the cumulative and the baseline, so it
 # CANCELS: the growth arm tracks exactly root + Σ references − monolith, the doc's
 # "isolates the split" definition, and a future extension edit moves the cumulative cell
 # (arm a) without perturbing the growth figure (arm b). Any word change in the root or ANY
@@ -33727,7 +33734,7 @@ assert_eq "#530 budget: pinned growth delta is arithmetically true (measured cum
 # Column-positional match (#539 shadow, silent-failure-hunter): pin the ceiling AND the measured
 # value in their ADJACENT columns — `| <ceiling> | <measured> |` — not a lone `| <measured> |`.
 # A whole-row `| <measured> |` match would pass VACUOUSLY the moment a measured count equals its
-# ceiling (e.g. root grows to exactly 3000): it would then match the Value/ceiling cell and go
+# ceiling (a measured cell drifting onto the ceiling value itself): it would then match the Value/ceiling cell and go
 # green even against a stale Measured cell — reopening the stale-cell hole precisely at the
 # boundary. The adjacency pattern cannot collide: a stale Measured cell breaks the pair → RED,
 # and it fails closed (missing row → empty → no match → RED).
@@ -33778,7 +33785,7 @@ assert_pin_unique "#530 continuation: pending dispatch is stamped before every d
   'Immediately before every `Agent`/`Task`/`Skill` dispatch, also write `pending_dispatch:' "$P530_ROOT"
 assert_pin_unique "#530 continuation: pending dispatch clears only after parse and join" \
   'Clear it after the returned attempt is joined or dispositioned, including failure, timeout, exhausted-retry, and not-verified outcomes' "$P530_ROOT"
-# #539 review (Suggestion 3): the 15 pressure pins are presence pins — they catch a scenario's
+# #539 review (Suggestion 3): the numbered pressure pins are presence pins — they catch a scenario's
 # operative sentence DISAPPEARING, but the reviewer asked the most load-bearing ones to also
 # prove they catch a behavioral REGRESSION that preserves the sentence's shape. Route the three
 # core loop-verdict scenarios (immediate-APPROVE arm, REJECT routing target, cap preservation)

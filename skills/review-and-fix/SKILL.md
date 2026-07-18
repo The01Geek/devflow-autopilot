@@ -8,7 +8,7 @@ argument-hint: "[pr-number] [--push-each-iteration]"
 
 You are the review-and-fix orchestrator. Run /devflow:review's review engine, fix the findings it surfaces, and re-run until the engine returns a clean verdict.
 
-**Input:** `$ARGUMENTS` may contain an optional PR number and/or the flag `--push-each-iteration`. Parse the two independently — either, both, or neither may be present (`863`, `--push-each-iteration`, `863 --push-each-iteration`, or empty). If no PR number is given, review and fix the current branch. The numeric token (if any) is `$PR_NUMBER` throughout this skill.
+**Input:** `$ARGUMENTS` may contain an optional PR number and/or the flag `--push-each-iteration`. Parse the two independently — either, both, or neither may be present. If no PR number is given, review and fix the current branch. The numeric token (if any) is `$PR_NUMBER`.
 
 **`--push-each-iteration` (default off).** When set, each fix and Loop Exit use the gated base checkpoint and push, keeping the PR and CI current. Otherwise fix commits stay local and the base is untouched. The flag never posts a GitHub verdict; mandatory telemetry persistence remains independent. Loop correctness uses local `HEAD` (with the PR head override), not pushed state.
 
@@ -22,12 +22,12 @@ You are the review-and-fix orchestrator. Run /devflow:review's review engine, fi
 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/load-prompt-extension.sh review-and-fix
 ```
 
-If the helper path is missing (`No such file`/exit 127), that is the **anchor-resolution** failure in the *Portable helper anchor* note above — fix the anchor, don't report a missing extension. Any other non-zero exit means a consumer extension exists but could not be loaded — surface its stderr and do not proceed silently. Exit 0 with output: treat the text as consumer-owned instructions appended to this skill's prompt (committed under `.devflow/prompt-extensions/`). Exit 0 with no output: proceed unchanged.
+A missing helper path (`No such file`/exit 127) is the **anchor-resolution** failure above — fix the anchor, don't report a missing extension. Any other non-zero exit means a consumer extension exists but could not be loaded — surface its stderr, never proceed silently. Exit 0 with output: append the text to this skill's prompt (consumer-owned, committed under `.devflow/prompt-extensions/`). Exit 0 empty: proceed unchanged.
 
 
 ## Engine source of truth
 
-This skill wraps /devflow:review's four-phase engine in a fix loop. Phases 0 through 4.3 — setup, diff classification, checklist generation, checklist verification, review agents (with the exact per-agent prompts and the `defect_signature` contract), and aggregation — live in `/devflow:review`'s SKILL.md and are authoritative. Read them on every Step 1; never improvise the engine or paraphrase the Phase 3 prompts. Drift between the two skills is the single biggest cause of /devflow:review-and-fix missing findings that /devflow:review caught.
+This skill wraps /devflow:review's four-phase engine in a fix loop. Phases 0 through 4.3 — setup, diff classification, checklist generation, checklist verification, review agents (with the exact per-agent prompts and the `defect_signature` contract), and aggregation — live in `/devflow:review`'s SKILL.md and are authoritative. Read them on every Step 1; never improvise the engine or paraphrase the Phase 3 prompts. Drift between the two is the biggest source of missed findings.
 
 This skill **skips** /devflow:review's Phase 4.4 entirely — no GitHub post. The final report is emitted to chat only; the human reviewer decides whether to convert it into a formal merge signal by running `/devflow:review <PR>` separately. On top of the engine it adds the loop wrapper documented in the references: a **fix-delta handoff** (Step 0.9), a run-scoped **persistent workpad** (`.devflow/tmp/review/<slug>/<run-id>/iter-<N>.json`), a **shadow review pass** (Step 2.6), a **`## Coverage` section** and **per-phase telemetry summary** at Loop Exit.
 
@@ -280,7 +280,7 @@ Every step reference loads at entry, **before any action in that step**, and a r
 
 **Entry-gate read shape** (mirrors `skills/implement/SKILL.md`'s phase entry-gates):
 
-1. **Stamp the position** (best-effort Write, non-blocking): set `current_step` (and `current_substep` when meaningful) in the active `iter-<N>.json` before reading, so a compacted/resumed run recovers its position from the record, not recall. Use `current_step: "loop-control"` while executing config resolution and Steps 0.5–2. Immediately before every `Agent`/`Task`/`Skill` dispatch, also write `pending_dispatch: {kind, roster, dispatched_at}`. Clear it after the returned attempt is joined or dispositioned, including failure, timeout, exhausted-retry, and not-verified outcomes; retain it only while the attempt is unresolved. A dispatch without those writes has not satisfied the continuation contract.
+1. **Stamp the position** (best-effort Write, non-blocking): set `current_step` (and `current_substep` when meaningful) in the active `iter-<N>.json` before reading, so a compacted/resumed run recovers its position from the record, not recall. **Exception — first `loop-control` entry:** its slug/`RUN_ID` recipe lives there; read it first, then stamp (may create a stamps-only `iter-<N>.json`, completed by item 6's Write). Use `current_step: "loop-control"` while executing config resolution and Steps 0.5–2. Immediately before every `Agent`/`Task`/`Skill` dispatch, also write `pending_dispatch: {kind, roster, dispatched_at}`. Clear it after the returned attempt is joined or dispositioned, including failure, timeout, exhausted-retry, and not-verified outcomes; retain it only while the attempt is unresolved. A dispatch without those writes has not satisfied the continuation contract.
 2. **Read the reference.** Resolve the skill directory per the *Portable helper anchor* rule above and `Read` `<skill-dir>/references/<name>.md` (the vendored layout resolves the same path).
 3. **Completeness check — the single ordered start/end boundary rule.** The returned content's first non-blank line MUST be the reference's canonical `# Reference: <title>` heading and its last non-blank line MUST be the canonical `<!-- END <name>.md -->` marker, **each occurring exactly once, in that order**. A `Read` failure, an empty result, a truncated result, a result missing either marker, a **duplicated** marker, a **reversed** order (END before START), or a marker at a **noncanonical** position (not at the document edge) all mean **reference unreadable** and take the failure-map row below.
 4. On success, execute the reference's procedure; on failure, apply the failure-map row — do not enter the step.
@@ -317,8 +317,8 @@ The externally-visible terminal contract that downstream callers (e.g. `/devflow
 | `APPROVE WITH ADVISORY NOTES` | approve, surfacing the parked advisory findings |
 | `APPROVE WITH CAVEAT` | approve, surfacing the verification-coverage caveat (incl. shadow `not_verified`) |
 | `APPROVE WITH UNRESOLVED SHADOW FINDINGS` | non-clean approve — iteration-cap outcome 2 |
-| `REJECT` | non-clean — cap exhausted, or the post-shadow edit gate found a new Critical |
+| `REJECT` | non-clean — cap exhausted, convergence exit still REJECT, or a post-shadow Critical |
 | incomplete / not-verified (any fail-closed reference outcome above) | a generic non-clean message; **never** an APPROVE-family template |
 
 
-See `references/error-handling.md` for *When NOT to use*, *Error Handling*, and *Common Mistakes*.
+Read `references/error-handling.md` at invocation, before the loop (*When NOT to use* gates applicability), and again on any tool/commit/test failure.
