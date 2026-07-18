@@ -17,7 +17,9 @@ content binding, reachability binding, and profile check:
   7  MISSING_KEY           a required top-level key is absent
   8  EXTRA_KEY             an unexpected top-level key is present
   9  DUPLICATE_KEY         a key is duplicated in the JSON source
-  10 WRONG_FIELD_TYPE      a field — or the top-level value — has the wrong JSON type
+  10 WRONG_FIELD_TYPE      a field — or the top-level value — has the wrong JSON type,
+                           or (fail-closed) the expected-contract dependencies could not
+                           be derived from the sibling reachability contract
   11 MALFORMED_DIGEST      a files digest is not lowercase 64-hex
   12 INVALID_PATH          a files key is absolute or escapes the vendored root
   13 MISSING_ASSET         a listed file does not exist on disk
@@ -47,6 +49,7 @@ import posixpath
 import re
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -85,11 +88,32 @@ REJECTION_CODES = frozenset({
 })
 
 
+class Violation(NamedTuple):
+    """A single validation failure: a rejection-class ``code`` and a human ``message``.
+
+    A self-documenting return type for ``validate()`` (``.code`` / ``.message``
+    instead of an anonymous 2-tuple), and — being a ``tuple`` subclass — it stays
+    unpackable as ``for code, message in violations`` at every existing call site.
+    The ``code`` is always one of ``REJECTION_CODES`` (the matrix is closed at
+    seventeen); ``_StopValidation`` enforces that at its raise boundary and the
+    suite pins it for the collected list.
+    """
+
+    code: str
+    message: str
+
+
 class _StopValidation(Exception):
     """Raised for a fatal load/shape failure — no further checks are meaningful."""
 
     def __init__(self, code, message):
         super().__init__(message)
+        # The matrix is closed at seventeen: a fatal code outside REJECTION_CODES
+        # is a programming error, caught here at the raise boundary rather than
+        # only by the suite (Python 3.14 forbids overriding __new__ on the
+        # Violation NamedTuple, so the collected-list codes stay suite-pinned).
+        if code not in REJECTION_CODES:
+            raise ValueError(f"_StopValidation code {code!r} not in REJECTION_CODES")
         self.code = code
         self.message = message
 
@@ -178,7 +202,7 @@ def validate(
     required_profiles=None,
     profile_grants=None,
 ):
-    """Validate the manifest. Return a list of (code, message) violations.
+    """Validate the manifest. Return a list of Violation(code, message) records.
 
     Dependencies are injectable so the closed rejection matrix is unit-testable:
       * expected_assets    — AC1-reached repo-relative asset paths (class 15)
@@ -208,46 +232,46 @@ def validate(
                     for p in contract.ROOTS
                 }
         except Exception as exc:  # noqa: BLE001 — fail closed on any derivation error
-            return [(WRONG_FIELD_TYPE,
-                     f"could not derive default validation dependencies from the "
-                     f"reachability contract: {exc}")]
+            return [Violation(WRONG_FIELD_TYPE,
+                              f"could not derive default validation dependencies from the "
+                              f"reachability contract: {exc}")]
 
     try:
         obj = _load(manifest_path)
         _check_top_level_shape(obj)
     except _StopValidation as stop:
-        return [(stop.code, stop.message)]
+        return [Violation(stop.code, stop.message)]
 
     violations = []
 
     # Classes 7/8: required and extra top-level keys.
     keys = set(obj)
     for missing in sorted(REQUIRED_KEYS - keys):
-        violations.append((MISSING_KEY, f"required top-level key absent: {missing}"))
+        violations.append(Violation(MISSING_KEY, f"required top-level key absent: {missing}"))
     for extra in sorted(keys - REQUIRED_KEYS):
-        violations.append((EXTRA_KEY, f"unexpected top-level key: {extra}"))
+        violations.append(Violation(EXTRA_KEY, f"unexpected top-level key: {extra}"))
 
     # Class 10: field types (and the exact protocol value).
     protocol = obj.get("protocol")
     if "protocol" in obj:
         if not isinstance(protocol, str):
-            violations.append((WRONG_FIELD_TYPE, "protocol is not a string"))
+            violations.append(Violation(WRONG_FIELD_TYPE, "protocol is not a string"))
         elif protocol != PROTOCOL:
             violations.append(
-                (WRONG_FIELD_TYPE, f"protocol is {protocol!r}, expected {PROTOCOL!r}")
+                Violation(WRONG_FIELD_TYPE, f"protocol is {protocol!r}, expected {PROTOCOL!r}")
             )
     if "legacy_profile_baseline" in obj and not isinstance(
         obj.get("legacy_profile_baseline"), str
     ):
-        violations.append((WRONG_FIELD_TYPE, "legacy_profile_baseline is not a string"))
+        violations.append(Violation(WRONG_FIELD_TYPE, "legacy_profile_baseline is not a string"))
 
     files = obj.get("files")
     if "files" in obj and not isinstance(files, dict):
-        violations.append((WRONG_FIELD_TYPE, "files is not an object"))
+        violations.append(Violation(WRONG_FIELD_TYPE, "files is not an object"))
         files = None
     heads = obj.get("required_helper_heads")
     if "required_helper_heads" in obj and not isinstance(heads, dict):
-        violations.append((WRONG_FIELD_TYPE, "required_helper_heads is not an object"))
+        violations.append(Violation(WRONG_FIELD_TYPE, "required_helper_heads is not an object"))
         heads = None
 
     # Classes 11/12/13/14: files content binding.
@@ -255,45 +279,45 @@ def validate(
         base_resolved = Path(base_dir).resolve()
         for rel, digest in sorted(files.items()):
             if not isinstance(digest, str) or not _HEX64.match(digest):
-                violations.append((MALFORMED_DIGEST, f"malformed digest for {rel}: {digest!r}"))
+                violations.append(Violation(MALFORMED_DIGEST, f"malformed digest for {rel}: {digest!r}"))
                 continue
             if not _path_is_safe(rel, base_resolved):
-                violations.append((INVALID_PATH, f"invalid or escaping relative path: {rel}"))
+                violations.append(Violation(INVALID_PATH, f"invalid or escaping relative path: {rel}"))
                 continue
             disk = base_resolved / rel
             if not disk.is_file():
-                violations.append((MISSING_ASSET, f"listed file does not exist: {rel}"))
+                violations.append(Violation(MISSING_ASSET, f"listed file does not exist: {rel}"))
                 continue
             actual = _sha256(disk)
             if actual != digest:
                 violations.append(
-                    (HASH_MISMATCH, f"hash mismatch for {rel}: manifest {digest}, disk {actual}")
+                    Violation(HASH_MISMATCH, f"hash mismatch for {rel}: manifest {digest}, disk {actual}")
                 )
 
         # Class 15: every AC1-reached asset must appear in files.
         for rel in expected_assets:
             if rel not in files:
                 violations.append(
-                    (REACHED_ASSET_OMITTED, f"AC1-reached asset omitted from files: {rel}")
+                    Violation(REACHED_ASSET_OMITTED, f"AC1-reached asset omitted from files: {rel}")
                 )
 
     # Classes 16/17: profile binding.
     if isinstance(heads, dict):
         for profile in required_profiles:
             if profile not in heads:
-                violations.append((PROFILE_OMITTED, f"required cloud profile omitted: {profile}"))
+                violations.append(Violation(PROFILE_OMITTED, f"required cloud profile omitted: {profile}"))
                 continue
             declared = heads.get(profile)
             if not isinstance(declared, list):
                 violations.append(
-                    (WRONG_FIELD_TYPE, f"required_helper_heads[{profile}] is not a list")
+                    Violation(WRONG_FIELD_TYPE, f"required_helper_heads[{profile}] is not a list")
                 )
                 continue
             granted = profile_grants.get(profile, set())
             for head in declared:
                 if head not in granted:
                     violations.append(
-                        (HEAD_ABSENT, f"required head absent from {profile} grants: {head}")
+                        Violation(HEAD_ABSENT, f"required head absent from {profile} grants: {head}")
                     )
 
     return violations

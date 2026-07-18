@@ -5304,6 +5304,151 @@ with tempfile.TemporaryDirectory() as _cw_base:
     assert_eq("#543 AC18: a nested duplicate key is caught (DUPLICATE_KEY)",
               [vcwc.DUPLICATE_KEY], _codes(_run(raw=_nested_dup)))
 
+# ─────────────────────────────────────────────────────────────────────────────
+# PR #578 review (Suggestion 3): drive the fail-closed guard branches the healthy
+# tree never exercises, so each is proven non-vacuous (it fires on the drift it
+# guards, not merely returns clean on the healthy tree).
+# ─────────────────────────────────────────────────────────────────────────────
+
+# validate()'s default-derivation `except` arm: a failure establishing the
+# expected-contract dependencies fails closed on the manifest channel
+# (broadened class-10 WRONG_FIELD_TYPE), never an uncaught traceback.
+_vcwc_orig_loader = vcwc._load_contract_module
+try:
+    def _boom():
+        raise RuntimeError("contract module unimportable")
+    vcwc._load_contract_module = _boom
+    _deriv = vcwc.validate("whatever.json", base_dir=SCRIPTS.parent)
+    assert_eq("#578-3: a dependency-derivation failure fails closed as WRONG_FIELD_TYPE",
+              [vcwc.WRONG_FIELD_TYPE], _codes(_deriv))
+    assert_eq("#578-3: the derivation-failure message names the reachability contract",
+              True, "could not derive" in _deriv[0].message)
+finally:
+    vcwc._load_contract_module = _vcwc_orig_loader
+
+# validate() returns Violation records (self-documenting .code/.message), still
+# unpackable as (code, message) — pin the type so a regression to a bare tuple
+# (losing the attribute access) goes RED.
+assert_eq("#578-5: validate() yields Violation records with .code/.message",
+          True, isinstance(_deriv[0], vcwc.Violation) and _deriv[0].code == vcwc.WRONG_FIELD_TYPE)
+# _StopValidation refuses a fatal code outside the closed matrix at the raise
+# boundary (previously test-enforced only for the collected list).
+try:
+    vcwc._StopValidation("NOT_A_REJECTION_CODE", "x")
+    assert_eq("#578-5: _StopValidation rejects an off-matrix code", True, False)
+except ValueError as _exc:
+    assert_eq("#578-5: _StopValidation rejects an off-matrix code at the raise boundary",
+              True, "REJECTION_CODES" in str(_exc))
+
+# _path_is_safe's backslash clause (a Windows-form separator is unsafe) is
+# undriven by the manifest fixtures — drive it directly, with a positive control.
+_psafe_base = Path(SCRIPTS.parent).resolve()
+assert_eq("#578-3: _path_is_safe rejects a backslash separator",
+          False, vcwc._path_is_safe("scripts\\foo.sh", _psafe_base))
+assert_eq("#578-3: _path_is_safe accepts a plain relative path (positive control)",
+          True, vcwc._path_is_safe("scripts/foo.sh", _psafe_base))
+
+# check_closure()'s on-disk / invalid-token / unknown-source / unclassified-root
+# branches — monkeypatch one module global into the failing shape at a time and
+# restore, asserting the specific branch fires (not merely that something did).
+_cc_o_roots = cwc.ROOTS
+_cc_o_edges = cwc.DISPATCH_EDGES
+_cc_o_assets = cwc.SKILL_ASSETS
+_cc_o_heads = cwc.REQUIRED_HELPER_HEADS
+try:
+    # (a) a root whose entry_skill is not classified (REQUIRED_HELPER_HEADS is
+    #     widened to the same profile set so the profile-mismatch branch does not
+    #     mask the entry_skill branch under test).
+    cwc.ROOTS = {**_cc_o_roots,
+                 "bogusroot": {"workflow": ".github/workflows/x.yml",
+                               "entry_skill": "unclassified-578-skill"}}
+    cwc.REQUIRED_HELPER_HEADS = {**_cc_o_heads, "bogusroot": []}
+    assert_eq("#578-3: check_closure catches an unclassified root entry_skill",
+              True, any("unclassified-578-skill" in e for e in cwc.check_closure()))
+    cwc.ROOTS = _cc_o_roots
+    cwc.REQUIRED_HELPER_HEADS = _cc_o_heads
+
+    # (b) a classified asset that does not exist on disk.
+    cwc.SKILL_ASSETS = {**_cc_o_assets,
+                        "implement": _cc_o_assets["implement"]
+                        + ["skills/implement/phases/does-not-exist-578.md"]}
+    assert_eq("#578-3: check_closure catches a classified asset missing on disk",
+              True, any("does-not-exist-578" in e and "missing on disk" in e
+                        for e in cwc.check_closure()))
+    cwc.SKILL_ASSETS = _cc_o_assets
+
+    # (c) a required helper token missing the vendor prefix (ValueError arm).
+    cwc.REQUIRED_HELPER_HEADS = {**_cc_o_heads,
+                                 "implement": _cc_o_heads["implement"]
+                                 + ["not-a-vendor-token-578.sh"]}
+    assert_eq("#578-3: check_closure catches a helper token missing the vendor prefix",
+              True, any("helper token invalid" in e for e in cwc.check_closure()))
+    cwc.REQUIRED_HELPER_HEADS = _cc_o_heads
+
+    # (d) a required helper whose (vendor-prefixed) source is absent on disk.
+    cwc.REQUIRED_HELPER_HEADS = {**_cc_o_heads,
+                                 "implement": _cc_o_heads["implement"]
+                                 + [".devflow/vendor/devflow/scripts/nonexistent-578.sh"]}
+    assert_eq("#578-3: check_closure catches a required helper source missing on disk",
+              True, any("nonexistent-578" in e and "missing on disk" in e
+                        for e in cwc.check_closure()))
+    cwc.REQUIRED_HELPER_HEADS = _cc_o_heads
+
+    # (e) a dispatch edge whose source is neither a classified skill nor a root id.
+    cwc.DISPATCH_EDGES = _cc_o_edges + [{"from": "ghost-source-578", "to": "review",
+                                         "kind": "nested"}]
+    assert_eq("#578-3: check_closure catches a dispatch edge with an unknown source",
+              True, any("ghost-source-578" in e and "unknown" in e
+                        for e in cwc.check_closure()))
+    cwc.DISPATCH_EDGES = _cc_o_edges
+finally:
+    cwc.ROOTS = _cc_o_roots
+    cwc.DISPATCH_EDGES = _cc_o_edges
+    cwc.SKILL_ASSETS = _cc_o_assets
+    cwc.REQUIRED_HELPER_HEADS = _cc_o_heads
+
+# main()'s check / generate / verify arms, and the generate/verify closure gate
+# (Suggestion 4): a closure `check` would reject fails cleanly instead of
+# crashing in build_manifest(). All manifest writes target a temp path, never the
+# checked-in manifest.
+assert_eq("#578-3: main(['check']) returns 0 on the healthy closure", 0, cwc.main(["check"]))
+_mp_orig = cwc.MANIFEST_PATH
+with tempfile.TemporaryDirectory() as _cw_main:
+    _tmp_manifest = str(Path(_cw_main) / "gen.json")
+    try:
+        cwc.MANIFEST_PATH = _tmp_manifest
+        assert_eq("#578-3: main(['generate']) returns 0 and writes the manifest", 0,
+                  cwc.main(["generate"]))
+        _written = Path(_tmp_manifest).read_text(encoding="utf-8")
+        assert_eq("#578-3: generated manifest equals canonical_json(build_manifest())",
+                  cwc.canonical_json(cwc.build_manifest()), _written)
+        assert_eq("#578-3: main(['verify']) returns 0 against the fresh temp manifest",
+                  0, cwc.main(["verify"]))
+        Path(_tmp_manifest).write_text("stale not the manifest\n", encoding="utf-8")
+        assert_eq("#578-3: main(['verify']) returns 1 on a stale manifest", 1,
+                  cwc.main(["verify"]))
+        cwc.MANIFEST_PATH = str(Path(_cw_main) / "absent.json")
+        assert_eq("#578-3: main(['verify']) returns 1 when the manifest is absent", 1,
+                  cwc.main(["verify"]))
+        # generate/verify closure gate: a bad helper token makes both fail cleanly
+        # (rc 1 with the check-style report) rather than crash in manifest_file_paths.
+        cwc.MANIFEST_PATH = str(Path(_cw_main) / "unused.json")
+        _mg_heads = cwc.REQUIRED_HELPER_HEADS
+        try:
+            cwc.REQUIRED_HELPER_HEADS = {**_mg_heads,
+                                         "implement": _mg_heads["implement"]
+                                         + ["not-a-vendor-token-578.sh"]}
+            assert_eq("#578-3+4: main(['generate']) fails closed (rc 1) on a bad closure",
+                      1, cwc.main(["generate"]))
+            assert_eq("#578-3+4: the bad closure did not write the manifest",
+                      False, Path(cwc.MANIFEST_PATH).exists())
+            assert_eq("#578-3+4: main(['verify']) fails closed (rc 1) on a bad closure",
+                      1, cwc.main(["verify"]))
+        finally:
+            cwc.REQUIRED_HELPER_HEADS = _mg_heads
+    finally:
+        cwc.MANIFEST_PATH = _mp_orig
+
 print()
 print(f"{PASS} passed, {FAIL} failed")
 sys.exit(0 if FAIL == 0 else 1)

@@ -62,11 +62,15 @@ ROOTS = {
         "entry_skill": "implement",
     },
     "light-command": {
-        # devflow.yml is the comment-listener that dispatches a writer command
-        # (/devflow:implement, /devflow:review-and-fix). Its writer entry is the
-        # implement skill; the review-and-fix path is covered via a dispatch edge.
+        # devflow.yml is the light command-listener. It fires on a bare
+        # /devflow:review, /devflow:review-and-fix, or /devflow:pr-description
+        # comment and NEVER on /devflow:implement — every trigger negates it
+        # (the partition invariant), and the heavy implement path lives in
+        # devflow-implement.yml under the "implement" root. Its writer entry is
+        # therefore review-and-fix (the command that pushes fixes); the other two
+        # dispatched commands (review, pr-description) are covered by direct edges.
         "workflow": ".github/workflows/devflow.yml",
-        "entry_skill": "implement",
+        "entry_skill": "review-and-fix",
     },
     "review": {
         "workflow": ".github/workflows/devflow-runner.yml",
@@ -86,11 +90,23 @@ DISPATCH_EDGES = [
     {"from": "implement", "to": "review-and-fix", "kind": "nested"},
     {"from": "implement", "to": "pr-description", "kind": "nested"},
     {"from": "implement", "to": "docs", "kind": "docs"},
+    # The docs Agent-tool subagent (implement Phase 4.1) invokes the docs skill,
+    # which in turn invokes docs-sync-internal / docs-sync-external /
+    # docs-release-notes via the Skill tool (skills/docs/SKILL.md). Those three
+    # sub-skills carry the ${CLAUDE_SKILL_DIR:-…} anchors this manifest exists to
+    # pin, so they are part of the reachable closure (they invoke no further
+    # skills). Omitting them would leave the "every reached asset" contract false.
+    {"from": "docs", "to": "docs-sync-internal", "kind": "nested"},
+    {"from": "docs", "to": "docs-sync-external", "kind": "nested"},
+    {"from": "docs", "to": "docs-release-notes", "kind": "nested"},
     {"from": "review", "to": "requesting-code-review", "kind": "nested"},
     {"from": "review-and-fix", "to": "review", "kind": "inline"},
     {"from": "review-and-fix", "to": "requesting-code-review", "kind": "nested"},
     {"from": "review-and-fix", "to": "receiving-code-review", "kind": "nested"},
+    # The three writer commands the light-command listener (devflow.yml) dispatches.
     {"from": "light-command", "to": "review-and-fix", "kind": "direct"},
+    {"from": "light-command", "to": "review", "kind": "direct"},
+    {"from": "light-command", "to": "pr-description", "kind": "direct"},
 ]
 
 # --- AC1: classified skill assets ----------------------------------------------
@@ -121,6 +137,9 @@ SKILL_ASSETS = {
     "requesting-code-review": ["skills/requesting-code-review/SKILL.md"],
     "receiving-code-review": ["skills/receiving-code-review/SKILL.md"],
     "docs": ["skills/docs/SKILL.md"],
+    "docs-sync-internal": ["skills/docs-sync-internal/SKILL.md"],
+    "docs-sync-external": ["skills/docs-sync-external/SKILL.md"],
+    "docs-release-notes": ["skills/docs-release-notes/SKILL.md"],
     "pr-description": ["skills/pr-description/SKILL.md"],
 }
 
@@ -151,6 +170,12 @@ REQUIRED_HELPER_HEADS = {
         ".devflow/vendor/devflow/scripts/extract-doc-needed-paths.sh",
         ".devflow/vendor/devflow/lib/efficiency-trace.sh",
     ],
+    # Note the absent apply-labels.sh / ensure-label.sh: those are implement-only
+    # (Phases 3.1/4.0/4.1). devflow.yml dispatches only review-and-fix /
+    # review / pr-description — none applies labels — and grants no label helper,
+    # so requiring one here would fail class 17 (HEAD_ABSENT) against a grant the
+    # profile correctly does not carry. (Completeness of this per-profile list vs.
+    # what the reached skills actually invoke is the deferred grant-sync work, AC9.)
     "light-command": [
         ".devflow/vendor/devflow/scripts/run-jq.sh",
         ".devflow/vendor/devflow/scripts/config-get.sh",
@@ -381,12 +406,18 @@ def main(argv=None):
     )
     args = parser.parse_args(argv)
 
+    # generate and verify both render the manifest from the closure, so a closure
+    # that `check` would reject (a helper token missing the vendor prefix, a
+    # classified asset absent on disk) must fail here with the same clean report
+    # rather than crashing later in manifest_file_paths()/sha256_of() with an
+    # uncaught ValueError/FileNotFoundError.
+    errors = check_closure()
+    if errors:
+        for e in errors:
+            print(f"cloud-writer-contract: {e}")
+        return 1
+
     if args.command == "check":
-        errors = check_closure()
-        if errors:
-            for e in errors:
-                print(f"cloud-writer-contract: {e}")
-            return 1
         print("cloud-writer-contract: closure OK")
         return 0
 
