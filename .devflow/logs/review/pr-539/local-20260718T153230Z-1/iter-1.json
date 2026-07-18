@@ -150,6 +150,49 @@
       {"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty during the run (this check grades committed HEAD); runs live on CI's full-history checkout — not a clean pass locally, surfaced here"}
     ]
   },
+  "shadow": {
+    "ran_at": "2026-07-18T17:55:00Z",
+    "trigger": "early (engine_self_modifying, after iteration 1)",
+    "reviewed_sha": "372061026cee5b988ec4543c80508b30dfbcb1d3",
+    "verdict": "REJECT",
+    "coverage": "full",
+    "prompt_addenda": ["consumer prompt extension .devflow/prompt-extensions/review-and-fix.md is part of the reviewed diff (provenance check 2: reviewed-diff membership) — extension loaded, recorded as addendum; attested-clean composition structurally unavailable on a PR that edits its own extension"],
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "shadow_checklist_tally": "51 items: 50 PASS (8 lite + 42 agent), 1 FAIL (VC-9 stale run.sh 28,687/28,092 comment mirrors), 0 INCONCLUSIVE",
+    "phase3_findings": [
+      {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "run.sh:33706-33708 diff-added comment: 36,201 attributed to 'the split's base commit' — false (merge-base measures 38,913; 36,201 is the pre-#557 fork point)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [33706, 33708], "kind": "documented_falsehood"}},
+      {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "run.sh:33729-33730 stale example 'root grows to exactly 3000' vs shipped RAF_ROOT_CEIL=3500", "defect_signature": {"file": "lib/test/run.sh", "line_range": [33729, 33730], "kind": "documented_falsehood"}},
+      {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "run.sh:33590-33591 'matcher-probe.yml has only a review-probe and an implement-probe job' — false (five jobs at HEAD)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [33590, 33591], "kind": "documented_falsehood"}},
+      {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "run.sh:21853-21855 comment names assert_pin_unique; shipped guard is assert_eq + grep -qx membership", "defect_signature": {"file": "lib/test/run.sh", "line_range": [21853, 21855], "kind": "documented_falsehood"}},
+      {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "'the Schema block above' locators in fixing.md:66 and pre-fix-gates.md:28 — no Schema block exists above in those files (moved to loop-control.md)", "defect_signature": {"file": "skills/review-and-fix/references/pre-fix-gates.md", "line_range": [28, 28], "kind": "documented_falsehood"}},
+      {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "loop-entry position stamp reads slug/RUN_ID operands defined only inside loop-control.md, the reference the stamp must precede; first stamp's iter-1.json creation unauthorized", "defect_signature": {"file": "skills/review-and-fix/SKILL.md", "line_range": [281, 284], "kind": "logic_error"}},
+      {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "error-handling.md has no load trigger on any execution path; 'When NOT to use' gate positioned after the loop it gates", "defect_signature": {"file": "skills/review-and-fix/SKILL.md", "line_range": [324, 324], "kind": "logic_error"}},
+      {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "trap-singleton guard regex is column-0 anchored; an indented installer evades it (corroborated by pr-test-analyzer + the iter-1 fix-delta gate advisory)", "defect_signature": {"file": "lib/test/test_module_runner.py", "line_range": [907, 925], "kind": "test_gap"}},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "_suite_tmp_dir registrations (E484/E363/S363/D363) have no textual guard in test_module_runner.py", "defect_signature": {"file": "lib/test/test_module_runner.py", "line_range": [900, 922], "kind": "test_gap"}},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "_suite_cleanup registry has no behavioral test (register->exit->assert-removed micro-harness)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [86, 95], "kind": "test_gap"}},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "#484 roster membership pins name no review-and-fix references member; a tightened find pattern could silently drop all eight from the audit", "defect_signature": {"file": "lib/test/run.sh", "line_range": [8399, 8407], "kind": "test_gap"}},
+      {"agent": "devflow:requesting-code-review", "severity": "Important", "description": "issue #530 workpad AC3/AC4 tick-lines + plan line still assert the unmet 3,000/15,000/33,134 literals; PR body carries superseded figures (3,202/5,486/16,747/+3,869/32,999)", "defect_signature": {"file": "issue-530-workpad-and-pr-body", "line_range": null, "kind": "comment_drift"}},
+      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "root REJECT row arm list incomplete (omits convergence-exit-still-REJECT arm) — introduced by the iteration-1 edit", "defect_signature": {"file": "skills/review-and-fix/SKILL.md", "line_range": [319, 319], "kind": "comment_drift"}},
+      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "budget doc BEFORE-basis fork point described but not pinned to a SHA", "defect_signature": {"file": "docs/review-and-fix-budget.md", "line_range": [39, 45], "kind": "other"}},
+      {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "'Persistent workpad -> Schema/Lifecycle/Run-scoping' cross-links (7 occurrences across references) name the monolith's heading path that no longer exists", "defect_signature": {"file": "skills/review-and-fix/references/shadow-review.md", "line_range": [22, 206], "kind": "comment_drift"}},
+      {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "run.sh:33781 'the 15 pressure pins' unpinned hand count (17 assertions carry the pressure name) — second instance of the class iteration 1 fixed at :1160", "defect_signature": {"file": "lib/test/run.sh", "line_range": [33781, 33781], "kind": "comment_drift"}}
+    ],
+    "phase2_fails": [
+      {"id": "VC-9", "claim_signature": "data_format_assumption:review-bundle-budget.md:28688-figure-coupled", "evidence": "run.sh:32988 and :33332 still carry 28,687/28,092 mirrors; CLAUDE.md + docs updated but run.sh comments not"}
+    ],
+    "comparison": {
+      "shadow_total": 17,
+      "overlap_with_iter_N": 1,
+      "new": 16,
+      "new_critical": 0,
+      "new_important": 8,
+      "notes": "overlap: the trap-test hardening (test_gap, test_module_runner.py, overlapping range/kind with iter-1 F-3 and Phase-3.2-paired to the iter-1 fix-delta gate's parked advisory). The five documented_falsehood findings + the VC-9 Phase-2 FAIL drive shadow_verdict REJECT (self-contradicting-diff carve-out, non-demotable)."
+    },
+    "promoted_to_iter_next": true
+  },
   "telemetry": {
     "phase_0": {"calls": 0, "tokens": 0, "wall_clock_s": 120},
     "phase_0_5": {"calls": 0, "tokens": 0, "wall_clock_s": 30},
