@@ -30,9 +30,10 @@ Subcommands:
                 returns a `wait_expired` observation and leaves an active flight
                 unchanged.
 
-State lives under .devflow/tmp/verification-flights/ (0700 dir, 0600 files),
-published atomically (O_CREAT|O_EXCL create for the single-owner guarantee; temp +
-os.replace for updates), and is durable only within the current checkout.
+State lives under .devflow/tmp/verification-flights/ (directory mode 0700,
+file mode 0600), published atomically (O_CREAT|O_EXCL create for the single-owner
+guarantee; temp + os.replace for updates), and is durable only within the current
+checkout.
 
 Determinism for tests: the wall clock is read through _now(), which honors the
 DEVFLOW_FLIGHT_NOW epoch-seconds override so lease-expiry and duration are testable
@@ -393,7 +394,10 @@ def cmd_claim(args) -> int:
     path = _flight_path(state_dir, derived["flight_key"])
     now = _now()
     lease = args.lease_seconds if args.lease_seconds is not None else DEFAULT_LEASE_SECONDS
-    token = secrets.token_urlsafe(32)
+    # token_hex (not token_urlsafe): 256 bits of entropy, unguessable, but drawn
+    # from [0-9a-f] only — so a minted token can never begin with '-' and be
+    # mis-parsed as an option flag when passed as `--token <value>` on the CLI.
+    token = secrets.token_hex(32)
     handle = {
         "schema_version": SCHEMA_VERSION,
         "flight_key": derived["flight_key"],
