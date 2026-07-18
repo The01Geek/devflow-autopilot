@@ -13896,10 +13896,22 @@ assert_eq "#332 fallback: resolved root gone from disk → specific (not generic
 CI_SKILL_332="$LIB/../skills/create-issue/SKILL.md"
 assert_pin_unique "#332 AC4: create-issue resolves the main root via resolve-main-root.sh (portable anchor)" \
   "$PORTABLE_ANCHOR_LITERAL"'scripts/resolve-main-root.sh' "$CI_SKILL_332"
-assert_pin_unique "#332 AC4: create-issue displays the draft at the main-root ABSOLUTE path" \
-  'Draft also saved to `<main-root>/.devflow/tmp/issue-draft-<slug>.md` for review.' "$CI_SKILL_332"
+assert_pin_unique "#332/#569 AC4: create-issue displays the draft at the bound-root ABSOLUTE path" \
+  'Draft also saved to `<bound-root>/.devflow/tmp/issue-draft-<slug>.md` for review.' "$CI_SKILL_332"
 assert_eq "#332 AC4: create-issue no longer shows a bare-relative draft-save note" "no" \
   "$(grep -qF 'Draft also saved to `.devflow/tmp/issue-draft-<slug>.md` for review.' "$CI_SKILL_332" && echo yes || echo no)"  # raw-guard-ok: absence pin (expects no) — the old cwd-relative displayed draft note must be gone
+# #569 behavioral-fix pins: the binding-reuse half of the tier ladder. Each pins a
+# load-bearing sentence and proves (via a sed mutation that re-introduces the bug) the
+# pin catches the regression, not merely the line vanishing.
+assert_pin_red_under "#569: the first landed write records the draft-root binding immutably" \
+  'records its resolved root through the state owner, immutably' \
+  's/immutably for the rest of the run/mutably for the rest of the run/' "$CI_SKILL_332"
+assert_pin_red_under "#569: later write sites read the bound root from query-draft-binding, never context recall" \
+  'never context recall and never a second' \
+  's/never context recall and never a second/via context recall or a second/' "$CI_SKILL_332"
+assert_pin_red_under "#569: the file arm forwards --write-path, cross-checked with write-path-mismatch on divergence" \
+  'cross-checks against the recorded binding and refuses with' \
+  's/and refuses with/and accepts on/' "$CI_SKILL_332"
 # The Step 2 derivation gate artifact deliberately STAYS cwd-anchored (internal, not shown
 # to the user) — assert it was not accidentally moved to the main root.
 assert_eq "#332 gotcha: Step 2 derivation artifact stays cwd-relative (not main-root)" "no" \
