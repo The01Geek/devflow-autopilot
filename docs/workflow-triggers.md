@@ -199,8 +199,9 @@ workpad's **live status**:
   was missing/malformed (e.g. a partially-upgraded consumer); the run continues
   without guessing.
 
-Four `## Progress` checkpoints timestamp the startup boundaries — the gate
-acknowledgment, `Claude job setup complete; invoking agent` (written immediately
+Up to four `## Progress` checkpoints timestamp the startup boundaries — the gate
+acknowledgment (only on the adopted/resume path, so a normal fresh run writes the
+other three), `Claude job setup complete; invoking agent` (written immediately
 before the action), `agent entered Phase 1 setup; workpad triage passed`, and the
 hydration event above — so startup latency is attributable from the workpad alone.
 Local runs read no cloud handoff record and select wording from live status only.

@@ -4553,6 +4553,7 @@ _deg = [
     ("unsupported schema version", dict(payload={**_VALID, "schema_version": 2})),
     ("wrong field type (issue str)", dict(payload={**_VALID, "issue": "537"})),
     ("identity mismatch (run_id)", dict(payload={**_VALID, "run_id": "999"})),
+    ("run_attempt mismatch", dict(payload={**_VALID, "run_attempt": "2"})),
     ("unknown origin token", dict(payload={**_VALID, "origin": "bogus"})),
 ]
 for _name, _kw in _deg:
@@ -4564,6 +4565,20 @@ for _name, _kw in _deg:
     assert_eq(f"#537 handoff AC4: {_name} -> unknown, exit 0, breadcrumb",
               (0, "unknown", True),
               (_c, _o, "resolving origin=unknown" in _e))
+
+# AC4 (type arms, breadcrumb-specific): a run_id that is not a digit STRING (a bare
+# int) and a run_attempt that is a non-digit string each degrade to unknown through
+# their OWN type guard — asserted on the branch-specific breadcrumb, since the
+# following identity-mismatch guard would also degrade the outcome (defense in
+# depth), so an outcome-only check cannot pin the type branch itself.
+_c, _o, _e = _handoff({**_VALID, "run_id": 29624899689})
+assert_eq("#537 handoff AC4: a non-string run_id degrades via its digit-string type guard",
+          (0, "unknown", True),
+          (_c, _o, "run_id must be a digit string" in _e))
+_c, _o, _e = _handoff({**_VALID, "run_attempt": "x"})
+assert_eq("#537 handoff AC4: a non-digit run_attempt degrades via its digit-string type guard",
+          (0, "unknown", True),
+          (_c, _o, "run_attempt must be a digit string" in _e))
 
 # AC4 (bool guard): schema_version:true must not sneak through isinstance(True, int).
 assert_eq("#537 handoff AC4: bool schema_version degrades to unknown",
@@ -4624,6 +4639,16 @@ _CPKEY2 = "gha:29624899689:2:claude-invoke"
 _out3 = apply_mut(_out, make_args(checkpoint=[[_CPKEY2, "attempt 2"]]))
 assert_eq("#537 checkpoint AC15: a distinct-attempt key inserts a new row",
           (1, 1), (_out3.count(workpad._checkpoint_marker(_CPKEY2)), _out3.count(_MK)))
+
+# AC14/AC15 (mixed batch): a single --checkpoint call carrying BOTH an
+# already-present key (_CPKEY, a replay) and an absent key (_CPKEY2, an insert)
+# inserts ONLY the absent one and does not duplicate the present one — the partial
+# replay is not a whole-call no-op. `_out` already carries _CPKEY exactly once.
+_out_mix = apply_mut(_out, make_args(checkpoint=[[_CPKEY, "replayed"], [_CPKEY2, "inserted"]]))
+assert_eq("#537 checkpoint mixed batch: the absent key is inserted, the present key not duplicated",
+          (1, 1), (_out_mix.count(workpad._checkpoint_marker(_CPKEY2)), _out_mix.count(_MK)))
+assert_eq("#537 checkpoint mixed batch: the newly-inserted row's text is shown",
+          True, "inserted" in _out_mix)
 
 # AC14: key grammar — a key outside [A-Za-z0-9._:-]+ fails structurally (no PATCH).
 assert_raises("#537 checkpoint AC14: an invalid key is a structural failure",
@@ -4733,6 +4758,24 @@ _code, _err, _patched = _drive_cmd_update(_RACE_BODY, expect_status="Reviewing",
 assert_eq("#537 AC24: a changed Status aborts before PATCH (exit 4)",
           (4, None), (_code, _patched))
 assert_eq("#537 AC24: the status mismatch names the precondition",
+          True, "precondition mismatch" in _err and "Status" in _err)
+
+# A body with NO Status line resolves the live word to '' (never the expected
+# word), so an --expect-status precondition aborts before PATCH (exit 4) — a
+# malformed/truncated live body cannot be mistaken for a match.
+_NO_STATUS_BODY = """<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #999
+**Branch:** `x`
+**Last updated:** 2026-05-15 00:00 UTC
+
+## Progress
+- [ ] **Setup** — branch & workpad
+"""
+_code, _err, _patched = _drive_cmd_update(_NO_STATUS_BODY, expect_status="Setup",
+                                          note=["should not land"])
+assert_eq("#537 AC24: --expect-status against a no-Status-line body aborts before PATCH (exit 4)",
+          (4, None), (_code, _patched))
+assert_eq("#537 AC24: the no-Status-line abort names the Status precondition",
           True, "precondition mismatch" in _err and "Status" in _err)
 
 # AC23 (shared-helper compatibility): a plain update with neither new flag behaves
