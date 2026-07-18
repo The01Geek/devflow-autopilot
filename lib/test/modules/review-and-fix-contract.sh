@@ -63,12 +63,27 @@ for _rm in "${_raf_bundle_members[@]}"; do
   fi
 done
 # 9 = thin root + 8 references. run.sh's #530 budget block pins the SAME 8-name set in its own
-# `RAF_EXPECTED_REFS` variable (~line 31841) — keep the two lists in lockstep. (run.sh's
-# MAXI_BUNDLE assembles its bundle via a `references/*.md` glob; this module instead builds from
-# the fixed RAF_EXPECTED_REFS list above, so its deletion guard is the per-member check, not a
-# shrinking glob — but the authoritative 8-name set is coupled to run.sh's RAF_EXPECTED_REFS.)
+# `RAF_EXPECTED_REFS` variable. Rather than couple the two lists by prose lockstep, both verify
+# their set directly against the shipped `references/*.md` directory: run.sh via its per-`_r`
+# existence check + `_raf_unexpected` guard, and this module via the per-member `[ -r ] && [ -s ]`
+# check above (list⊇disk) plus the disk⊇list cross-check below. Neither list can silently drift
+# from disk, so the two cannot silently drift from each other. (run.sh's MAXI_BUNDLE assembles
+# its bundle via the glob; this module builds from the fixed list, so its deletion guard is the
+# per-member check, not a shrinking glob.)
 assert_eq "raf module: bundle assembled all 9 members (thin root + 8 references)" "9" \
   "${#_raf_bundle_members[@]}"
+# disk⊇list: an on-disk references/*.md not named in RAF_EXPECTED_REFS (mirrors run.sh's #530
+# `_raf_unexpected`). Combined with the list⊇disk per-member check above, this pins the list
+# directly to the shipped directory instead of to run.sh's copy by prose lockstep.
+_raf_unexpected=""
+for _uf in "$RAF_REFS_DIR"/*.md; do
+  [ -e "$_uf" ] || continue
+  case " $RAF_EXPECTED_REFS " in
+    *" ${_uf##*/} "*) : ;;
+    *) _raf_unexpected="$_raf_unexpected ${_uf##*/}" ;;
+  esac
+done
+assert_eq "raf module: no references/*.md outside RAF_EXPECTED_REFS (disk⊇list cross-check)" "" "$_raf_unexpected"
 
 # #529: the review engine is a thin root plus gated phase references, so an engine
 # contract sentence may live in ANY member of the bundle (the shadow-roster rule

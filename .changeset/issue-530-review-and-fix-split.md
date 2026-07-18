@@ -4,7 +4,7 @@ type: Changed
 ---
 
 - **Split the `/devflow:review-and-fix` engine into a thin root + durable step references.**
-  `skills/review-and-fix/SKILL.md` is now a thin root (≤3,000 words) that keeps the invocation
+  `skills/review-and-fix/SKILL.md` is now a thin root (≤3,500 words) that keeps the invocation
   contract, the run-scoped `iter-<N>.json` schema, the lifecycle, a Step-routing table, a
   fail-closed reference-loading contract, and the terminal verdict→chat mapping. The step
   procedures (pre-fix gates, shadow review, fixing, fix-delta gate, convergence, Loop Exit, loop
