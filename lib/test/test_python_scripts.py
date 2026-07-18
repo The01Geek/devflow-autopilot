@@ -5038,6 +5038,143 @@ assert_eq("#548 summary: an open trailing round does not blank the last complete
           ('REVISE', 3),
           (lambda s: (s['adjudicated_verdict'], s['unresolved_must_revise']))(
               issue_audit_state.summary_fields(_open_after, 'D1')))
+# ─────────────────────────────────────────────────────────────────────────────
+# Cloud-writer reachability contract (AC1) + runtime-manifest validator (AC18),
+# issue #543. The validator's rejection matrix is closed at exactly 17 classes;
+# every class is driven below against an isolated fixture with injected deps.
+# ─────────────────────────────────────────────────────────────────────────────
+import hashlib  # noqa: E402
+import json  # noqa: E402
+
+_LIBTEST = Path(__file__).resolve().parent
+cwc = _load('cloud_writer_contract', _LIBTEST / 'cloud_writer_contract.py')
+vcwc = _load('validate_cloud_writer_contract', SCRIPTS / 'validate-cloud-writer-contract.py')
+
+
+def _codes(violations):
+    return sorted({code for code, _ in violations})
+
+
+# AC1 — the real closure is consistent and the checked-in manifest is fresh.
+assert_eq("#543 AC1: check_closure() reports no violations on the live closure",
+          [], cwc.check_closure())
+assert_eq("#543 AC1: reachable_skills() are all classified",
+          True, cwc.reachable_skills() <= set(cwc.SKILL_ASSETS))
+assert_eq("#543 AC18: checked-in manifest matches the generated closure (verify)",
+          0, cwc.main(["verify"]))
+assert_eq("#543 AC18: validator accepts the real checked-in manifest",
+          0, vcwc.main([]))
+
+# AC18 — 17-class rejection matrix against an isolated fixture.
+with tempfile.TemporaryDirectory() as _cw_base:
+    _base = Path(_cw_base)
+    (_base / "scripts").mkdir()
+    _asset = _base / "scripts" / "foo.sh"
+    _asset.write_text("echo hi\n", encoding="utf-8")
+    _good_hash = hashlib.sha256(b"echo hi\n").hexdigest()
+    _head = ".devflow/vendor/devflow/scripts/foo.sh"
+
+    def _valid_manifest():
+        return {
+            "protocol": "devflow-cloud-writer-contract-v1",
+            "legacy_profile_baseline": "2.15.13",
+            "files": {"scripts/foo.sh": _good_hash},
+            "required_helper_heads": {"implement": [_head]},
+        }
+
+    def _run(manifest_obj=None, *, raw=None, path=None,
+             expected_assets=("scripts/foo.sh",),
+             required_profiles=("implement",),
+             profile_grants=None):
+        if profile_grants is None:
+            profile_grants = {"implement": {_head}}
+        mpath = _base / "manifest.json" if path is None else path
+        if path is None:
+            if raw is not None:
+                mpath.write_text(raw, encoding="utf-8")
+            else:
+                mpath.write_text(json.dumps(manifest_obj), encoding="utf-8")
+        return vcwc.validate(
+            mpath, base_dir=_base,
+            expected_assets=list(expected_assets),
+            required_profiles=list(required_profiles),
+            profile_grants=profile_grants,
+        )
+
+    # Positive control: a valid manifest yields zero violations.
+    assert_eq("#543 AC18 valid: no violations", [], _run(_valid_manifest()))
+
+    # 1 ABSENT_FILE
+    assert_eq("#543 AC18 c1 ABSENT_FILE", [vcwc.ABSENT_FILE],
+              _codes(_run(path=_base / "nope.json")))
+    # 2 UNREADABLE_FILE (a directory is present-but-unreadable-as-text)
+    assert_eq("#543 AC18 c2 UNREADABLE_FILE", [vcwc.UNREADABLE_FILE],
+              _codes(_run(path=_base / "scripts")))
+    # 3 INVALID_JSON
+    assert_eq("#543 AC18 c3 INVALID_JSON", [vcwc.INVALID_JSON],
+              _codes(_run(raw="{ not json")))
+    # 4 TOP_LEVEL_ARRAY
+    assert_eq("#543 AC18 c4 TOP_LEVEL_ARRAY", [vcwc.TOP_LEVEL_ARRAY],
+              _codes(_run(raw="[]")))
+    # 5 TOP_LEVEL_STRING
+    assert_eq("#543 AC18 c5 TOP_LEVEL_STRING", [vcwc.TOP_LEVEL_STRING],
+              _codes(_run(raw='"hi"')))
+    # 6 TOP_LEVEL_FALSE (valid-falsy)
+    assert_eq("#543 AC18 c6 TOP_LEVEL_FALSE", [vcwc.TOP_LEVEL_FALSE],
+              _codes(_run(raw="false")))
+    # 7 MISSING_KEY
+    _m = _valid_manifest(); del _m["protocol"]
+    assert_eq("#543 AC18 c7 MISSING_KEY", True, vcwc.MISSING_KEY in _codes(_run(_m)))
+    # 8 EXTRA_KEY
+    _m = _valid_manifest(); _m["bogus"] = 1
+    assert_eq("#543 AC18 c8 EXTRA_KEY", [vcwc.EXTRA_KEY], _codes(_run(_m)))
+    # 9 DUPLICATE_KEY (only expressible in raw source)
+    _dup = ('{"protocol":"devflow-cloud-writer-contract-v1","protocol":"x",'
+            '"legacy_profile_baseline":"2.15.13","files":{},'
+            '"required_helper_heads":{}}')
+    assert_eq("#543 AC18 c9 DUPLICATE_KEY", [vcwc.DUPLICATE_KEY], _codes(_run(raw=_dup)))
+    # 10 WRONG_FIELD_TYPE
+    _m = _valid_manifest(); _m["files"] = "notanobject"
+    assert_eq("#543 AC18 c10 WRONG_FIELD_TYPE", True,
+              vcwc.WRONG_FIELD_TYPE in _codes(_run(_m)))
+    # 11 MALFORMED_DIGEST
+    _m = _valid_manifest(); _m["files"] = {"scripts/foo.sh": "notahash"}
+    assert_eq("#543 AC18 c11 MALFORMED_DIGEST", [vcwc.MALFORMED_DIGEST], _codes(_run(_m)))
+    # 12 INVALID_PATH (escaping relative path, well-formed digest)
+    _m = _valid_manifest(); _m["files"] = {"../escape.sh": _good_hash}
+    assert_eq("#543 AC18 c12 INVALID_PATH", True,
+              vcwc.INVALID_PATH in _codes(_run(_m, expected_assets=())))
+    # 13 MISSING_ASSET
+    _m = _valid_manifest(); _m["files"] = {"scripts/nope.sh": _good_hash}
+    assert_eq("#543 AC18 c13 MISSING_ASSET", True,
+              vcwc.MISSING_ASSET in _codes(_run(_m, expected_assets=("scripts/nope.sh",))))
+    # 14 HASH_MISMATCH
+    _m = _valid_manifest(); _m["files"] = {"scripts/foo.sh": "0" * 64}
+    assert_eq("#543 AC18 c14 HASH_MISMATCH", [vcwc.HASH_MISMATCH], _codes(_run(_m)))
+    # 15 REACHED_ASSET_OMITTED
+    assert_eq("#543 AC18 c15 REACHED_ASSET_OMITTED", True,
+              vcwc.REACHED_ASSET_OMITTED in _codes(
+                  _run(_valid_manifest(),
+                       expected_assets=("scripts/foo.sh", "scripts/bar.sh"))))
+    # 16 PROFILE_OMITTED
+    assert_eq("#543 AC18 c16 PROFILE_OMITTED", True,
+              vcwc.PROFILE_OMITTED in _codes(
+                  _run(_valid_manifest(),
+                       required_profiles=("implement", "review"),
+                       profile_grants={"implement": {_head}, "review": set()})))
+    # 17 HEAD_ABSENT
+    assert_eq("#543 AC18 c17 HEAD_ABSENT", [vcwc.HEAD_ABSENT],
+              _codes(_run(_valid_manifest(), profile_grants={"implement": set()})))
+
+    # Every one of the 17 classes is distinct and exercised above.
+    _seen = {
+        vcwc.ABSENT_FILE, vcwc.UNREADABLE_FILE, vcwc.INVALID_JSON, vcwc.TOP_LEVEL_ARRAY,
+        vcwc.TOP_LEVEL_STRING, vcwc.TOP_LEVEL_FALSE, vcwc.MISSING_KEY, vcwc.EXTRA_KEY,
+        vcwc.DUPLICATE_KEY, vcwc.WRONG_FIELD_TYPE, vcwc.MALFORMED_DIGEST, vcwc.INVALID_PATH,
+        vcwc.MISSING_ASSET, vcwc.HASH_MISMATCH, vcwc.REACHED_ASSET_OMITTED,
+        vcwc.PROFILE_OMITTED, vcwc.HEAD_ABSENT,
+    }
+    assert_eq("#543 AC18: rejection matrix is closed at exactly 17 classes", 17, len(_seen))
 
 print()
 print(f"{PASS} passed, {FAIL} failed")
