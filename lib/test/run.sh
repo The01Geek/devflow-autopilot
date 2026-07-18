@@ -20225,6 +20225,386 @@ assert_eq "et-synth(T5): a TRUNCATED synthesized record still warns on its minim
   "$(printf '%s' "$ETSC2_OUT3" | grep -qF "is missing expected field 'fix_commit_sha'" && echo yes || echo no)"
 rm -rf "$ETSC2_REPO"
 
+# ── issue #532: base-ref freshness before the synthesis floor selects commits ──
+# --persist refreshes origin/<base> into the remote-tracking cache BEFORE synthesis
+# selects any commit. The observable is (a) whether a synthesized iter-*.json exists
+# and its sha, and (b) the distinct persist_one/synthesize breadcrumb — NEVER the
+# exit code (--persist is always exit-0/best-effort, so $? cannot discriminate the
+# decline arm from found-none or success). Each fixture's `origin` is a LOCAL bare
+# repo or path; no network is required.
+echo "efficiency-trace.sh base-ref freshness (issue #532)"
+
+# et-fresh(R1) — stale refs/remotes/origin/<base> + reachable origin → the
+# pre-synthesis refresh advances the base ref and the FOREIGN merged fix commit
+# falls out of range, so the record carries the feature branch's OWN commit, not
+# the foreign one. Reproduces the defect: with the refresh removed, refs/remotes/
+# origin/main stays behind the foreign commit and it is attributed to this run.
+ETF1_ORIGIN="$(git_sandbox "et-fresh R1 origin")"; git -C "$ETF1_ORIGIN" init --bare -q
+ETF1_REPO="$(git_sandbox "et-fresh R1 repo")"
+git -C "$ETF1_REPO" init -q
+git -C "$ETF1_REPO" config user.email t@e.com; git -C "$ETF1_REPO" config user.name t
+git -C "$ETF1_REPO" commit --allow-empty -qm base
+git -C "$ETF1_REPO" branch -M main
+git -C "$ETF1_REPO" remote add origin "$ETF1_ORIGIN"
+git -C "$ETF1_REPO" push -q origin main                      # origin/main = B; refs/remotes/origin/main = B
+ETF1_B="$(git -C "$ETF1_REPO" rev-parse HEAD)"
+printf x > "$ETF1_REPO/foreign"; git -C "$ETF1_REPO" add foreign
+git -C "$ETF1_REPO" commit -qm "fix: address review findings (iteration 1)"   # FOREIGN
+ETF1_F="$(git -C "$ETF1_REPO" rev-parse HEAD)"
+git -C "$ETF1_REPO" push -q origin main                      # origin (bare) main = F
+git -C "$ETF1_REPO" update-ref refs/remotes/origin/main "$ETF1_B"   # make the remote-tracking cache STALE (at B)
+git -C "$ETF1_REPO" checkout -q -b feat
+# The foreign fix commit F was committed while HEAD was on `main`, so local refs/heads/main
+# is now at F. Reset it back to B so the LOCAL base branch is STRICTLY BEHIND origin's tip
+# (F) — this is what makes the R8 assertion below non-vacuous (see its comment).
+git -C "$ETF1_REPO" branch -f main "$ETF1_B"
+printf y > "$ETF1_REPO/own"; git -C "$ETF1_REPO" add own
+git -C "$ETF1_REPO" commit -qm "fix: address review findings (iteration 2)"   # the feature's OWN commit
+ETF1_OWN="$(git -C "$ETF1_REPO" rev-parse HEAD)"
+# R8 rides HERE (not R5): R5's fixture has local main == origin/main, so an
+# implementation that wrongly fast-forwarded the LOCAL ref would produce the identical
+# value and the assertion would pass vacuously. R1's fixture (after the `branch -f main
+# $ETF1_B` reset above) has the local base branch at B while origin's tip is F — origin
+# strictly AHEAD of the local ref — so asserting the LOCAL ref stayed at B (≠ F) while the
+# REMOTE-TRACKING ref advanced B→F genuinely exercises "the refresh advances the
+# remote-tracking cache only, never a local branch ref" (AC11): a buggy fast-forward of the
+# local ref would move it to F and the B≠F assertion would catch it.
+ETF1_LOCAL_MAIN_BEFORE="$(git -C "$ETF1_REPO" rev-parse refs/heads/main)"
+ETF1_WPD="$ETF1_REPO/.devflow/tmp/review/pr-777/run-z"; mkdir -p "$ETF1_WPD"
+( cd "$ETF1_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETF1_WPD" --slug pr-777 ) >/dev/null 2>&1; ETF1_RC=$?
+assert_eq "et-fresh(R1): --persist exits 0" "0" "$ETF1_RC"
+assert_eq "et-fresh(R1): the FOREIGN merged fix commit is NOT attributed to this run (refresh advanced the base ref)" "no" \
+  "$(grep -qF "$ETF1_F" "$ETF1_WPD"/iter-*.json 2>/dev/null && echo yes || echo no)"
+assert_eq "et-fresh(R1): the surviving synthesized record carries the feature's OWN commit" "$ETF1_OWN" \
+  "$(jq -r '.fix_commit_sha' "$ETF1_WPD/iter-2.json" 2>/dev/null)"
+assert_eq "et-fresh(R8/R1): the refresh advanced the remote-tracking ref to origin's tip (F)" "$ETF1_F" \
+  "$(git -C "$ETF1_REPO" rev-parse refs/remotes/origin/main 2>/dev/null)"
+assert_eq "et-fresh(R8/R1): the LOCAL base branch ref stayed at B (no local ref advanced) with origin AHEAD — non-vacuous" \
+  "$ETF1_LOCAL_MAIN_BEFORE" "$(git -C "$ETF1_REPO" rev-parse refs/heads/main)"
+rm -rf "$ETF1_ORIGIN" "$ETF1_REPO"
+
+# et-fresh(R2) — origin configured but UNREACHABLE → the base ref is UNESTABLISHED,
+# so synthesis declines: no iter-*.json is written and the unestablished-base
+# breadcrumb fires; --persist still exits 0. (Guarantee-class path: the mechanism
+# must hold precisely where the environment did not cooperate.)
+ETF2_REPO="$(git_sandbox "et-fresh R2 repo")"
+git -C "$ETF2_REPO" init -q
+git -C "$ETF2_REPO" config user.email t@e.com; git -C "$ETF2_REPO" config user.name t
+git -C "$ETF2_REPO" commit --allow-empty -qm base; git -C "$ETF2_REPO" branch -M main
+git -C "$ETF2_REPO" remote add origin /nonexistent/devflow/base-origin.git
+git -C "$ETF2_REPO" checkout -q -b feat
+printf a > "$ETF2_REPO/a"; git -C "$ETF2_REPO" add a
+git -C "$ETF2_REPO" commit -qm "fix: address review findings (iteration 1)"
+ETF2_WPD="$ETF2_REPO/.devflow/tmp/review/pr-2/run-u"; mkdir -p "$ETF2_WPD"
+ETF2_ERR="$( ( cd "$ETF2_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETF2_WPD" --slug pr-2 ) 2>&1 1>/dev/null )"; ETF2_RC=$?
+assert_eq "et-fresh(R2): unreachable origin still exits 0" "0" "$ETF2_RC"
+assert_eq "et-fresh(R2): unestablished base declines — NO iter-*.json written" "no" \
+  "$([ -e "$ETF2_WPD/iter-1.json" ] && echo yes || echo no)"
+assert_eq "et-fresh(R2): the unestablished-base breadcrumb fires" "yes" \
+  "$(printf '%s' "$ETF2_ERR" | grep -qF 'base ref is UNESTABLISHED' && echo yes || echo no)"
+rm -rf "$ETF2_REPO"
+
+# et-fresh(R3) — NO origin remote at all → synthesis PROCEEDS and writes its record;
+# exit 0. Pins the arm that keeps every no-origin et-synth fixture green (a revert to
+# a decline-on-missing-origin spec turns this RED).
+ETF3_REPO="$(git_sandbox "et-fresh R3 repo")"
+git -C "$ETF3_REPO" init -q
+git -C "$ETF3_REPO" config user.email t@e.com; git -C "$ETF3_REPO" config user.name t
+git -C "$ETF3_REPO" commit --allow-empty -qm base; git -C "$ETF3_REPO" branch -M main
+git -C "$ETF3_REPO" checkout -q -b feat
+printf a > "$ETF3_REPO/a"; git -C "$ETF3_REPO" add a
+git -C "$ETF3_REPO" commit -qm "fix: address review findings (iteration 1)"
+ETF3_OWN="$(git -C "$ETF3_REPO" rev-parse HEAD)"
+ETF3_WPD="$ETF3_REPO/.devflow/tmp/review/pr-3/run-n"; mkdir -p "$ETF3_WPD"
+ETF3_ERR="$( ( cd "$ETF3_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETF3_WPD" --slug pr-3 ) 2>&1 1>/dev/null )"; ETF3_RC=$?
+assert_eq "et-fresh(R3): no-origin exits 0" "0" "$ETF3_RC"
+assert_eq "et-fresh(R3): no-origin PROCEEDS and writes its record" "$ETF3_OWN" \
+  "$(jq -r '.fix_commit_sha' "$ETF3_WPD/iter-1.json" 2>/dev/null)"
+assert_eq "et-fresh(R3): no-origin breadcrumb records the base was accepted without a refresh" "yes" \
+  "$(printf '%s' "$ETF3_ERR" | grep -qF 'no origin remote configured; accepted the local base' && echo yes || echo no)"
+rm -rf "$ETF3_REPO"
+
+# et-fresh(R4) — established base (reachable, fresh) but NO matching fix commit →
+# no iter-*.json and the FOUND-NONE breadcrumb, which must be textually distinct
+# from R2's unestablished-base breadcrumb (both write no file and both exit 0, so
+# the breadcrumb is the only discriminator).
+ETF4_ORIGIN="$(git_sandbox "et-fresh R4 origin")"; git -C "$ETF4_ORIGIN" init --bare -q
+ETF4_REPO="$(git_sandbox "et-fresh R4 repo")"
+git -C "$ETF4_REPO" init -q
+git -C "$ETF4_REPO" config user.email t@e.com; git -C "$ETF4_REPO" config user.name t
+git -C "$ETF4_REPO" commit --allow-empty -qm base; git -C "$ETF4_REPO" branch -M main
+git -C "$ETF4_REPO" remote add origin "$ETF4_ORIGIN"; git -C "$ETF4_REPO" push -q origin main
+git -C "$ETF4_REPO" checkout -q -b feat
+git -C "$ETF4_REPO" commit --allow-empty -qm "feat: no fix commits here"
+ETF4_WPD="$ETF4_REPO/.devflow/tmp/review/pr-4/run-f"; mkdir -p "$ETF4_WPD"
+ETF4_ERR="$( ( cd "$ETF4_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETF4_WPD" --slug pr-4 ) 2>&1 1>/dev/null )"; ETF4_RC=$?
+assert_eq "et-fresh(R4): established+no-match exits 0" "0" "$ETF4_RC"
+assert_eq "et-fresh(R4): established+no-match writes no iter-*.json" "no" \
+  "$([ -e "$ETF4_WPD/iter-1.json" ] && echo yes || echo no)"
+assert_eq "et-fresh(R4): found-none breadcrumb fires" "yes" \
+  "$(printf '%s' "$ETF4_ERR" | grep -qF 'no unrecorded' && echo yes || echo no)"
+assert_eq "et-fresh(R4): found-none is textually DISTINCT from the unestablished-base breadcrumb" "no" \
+  "$(printf '%s' "$ETF4_ERR" | grep -qF 'base ref is UNESTABLISHED' && echo yes || echo no)"
+rm -rf "$ETF4_ORIGIN" "$ETF4_REPO"
+
+# et-fresh(R5) — established base + a matching fix commit → the record is written
+# with the correct sha AND the ITER_SYNTH_EXPECTED_FIELDS field set unchanged.
+# et-fresh(R8) rides the same fixture: the LOCAL base branch ref is byte-identical
+# before/after (the refresh advances only the remote-tracking cache).
+ETF5_ORIGIN="$(git_sandbox "et-fresh R5 origin")"; git -C "$ETF5_ORIGIN" init --bare -q
+ETF5_REPO="$(git_sandbox "et-fresh R5 repo")"
+git -C "$ETF5_REPO" init -q
+git -C "$ETF5_REPO" config user.email t@e.com; git -C "$ETF5_REPO" config user.name t
+git -C "$ETF5_REPO" commit --allow-empty -qm base; git -C "$ETF5_REPO" branch -M main
+git -C "$ETF5_REPO" remote add origin "$ETF5_ORIGIN"; git -C "$ETF5_REPO" push -q origin main
+git -C "$ETF5_REPO" checkout -q -b feat
+printf a > "$ETF5_REPO/a"; git -C "$ETF5_REPO" add a
+git -C "$ETF5_REPO" commit -qm "fix: address review findings (iteration 1)"
+ETF5_OWN="$(git -C "$ETF5_REPO" rev-parse HEAD)"
+ETF5_LOCAL_MAIN_BEFORE="$(git -C "$ETF5_REPO" rev-parse refs/heads/main)"
+ETF5_WPD="$ETF5_REPO/.devflow/tmp/review/pr-5/run-r"; mkdir -p "$ETF5_WPD"
+( cd "$ETF5_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETF5_WPD" --slug pr-5 ) >/dev/null 2>&1; ETF5_RC=$?
+assert_eq "et-fresh(R5): established+match exits 0" "0" "$ETF5_RC"
+assert_eq "et-fresh(R5): the record carries the correct fix_commit_sha" "$ETF5_OWN" \
+  "$(jq -r '.fix_commit_sha' "$ETF5_WPD/iter-1.json" 2>/dev/null)"
+assert_eq "et-fresh(R5): the synthesized record carries the full ITER_SYNTH_EXPECTED_FIELDS set" "yes" \
+  "$(jq -e 'has("iter") and has("fix_commit_sha") and has("fix_files") and has("loop_role") and has("synthesized")' "$ETF5_WPD/iter-1.json" >/dev/null 2>&1 && echo yes || echo no)"
+assert_eq "et-fresh(R8): the LOCAL base branch ref is byte-identical after a successful refresh" \
+  "$ETF5_LOCAL_MAIN_BEFORE" "$(git -C "$ETF5_REPO" rev-parse refs/heads/main)"
+# et-fresh(R6) — idempotency: a second --persist writes no second record and makes
+# no new telemetry-branch commit.
+ETF5_BC1="$(_et_branch_count "$ETF5_REPO")"
+( cd "$ETF5_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETF5_WPD" --slug pr-5 ) >/dev/null 2>&1; ETF5_RC2=$?
+assert_eq "et-fresh(R6): second --persist exits 0" "0" "$ETF5_RC2"
+assert_eq "et-fresh(R6): second --persist makes no new telemetry-branch commit (idempotent)" \
+  "$ETF5_BC1" "$(_et_branch_count "$ETF5_REPO")"
+rm -rf "$ETF5_ORIGIN" "$ETF5_REPO"
+
+# et-fresh(R7) — the refresh-failed decline path runs with tr/sed/wc/cut/head
+# removed from PATH and STILL declines (the guard's operand is derived with bash
+# builtins only — guard-class 2). Reuses R2's unreachable-origin shape.
+ETF7_STUB="$(git_sandbox "et-fresh R7 path-stubs")"
+for _t in tr sed wc cut head; do
+  printf '#!/bin/sh\necho "%s removed for R7" >&2\nexit 127\n' "$_t" > "$ETF7_STUB/$_t"
+  chmod +x "$ETF7_STUB/$_t"
+done
+ETF7_REPO="$(git_sandbox "et-fresh R7 repo")"
+git -C "$ETF7_REPO" init -q
+git -C "$ETF7_REPO" config user.email t@e.com; git -C "$ETF7_REPO" config user.name t
+git -C "$ETF7_REPO" commit --allow-empty -qm base; git -C "$ETF7_REPO" branch -M main
+git -C "$ETF7_REPO" remote add origin /nonexistent/devflow/base-origin.git
+git -C "$ETF7_REPO" checkout -q -b feat
+printf a > "$ETF7_REPO/a"; git -C "$ETF7_REPO" add a
+git -C "$ETF7_REPO" commit -qm "fix: address review findings (iteration 1)"
+ETF7_WPD="$ETF7_REPO/.devflow/tmp/review/pr-7/run-x"; mkdir -p "$ETF7_WPD"
+ETF7_ERR="$( ( cd "$ETF7_REPO" && PATH="$ETF7_STUB:$PATH" bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETF7_WPD" --slug pr-7 ) 2>&1 1>/dev/null )"; ETF7_RC=$?
+assert_eq "et-fresh(R7): decline path exits 0 with tr/sed/wc/cut/head removed from PATH" "0" "$ETF7_RC"
+assert_eq "et-fresh(R7): decline still fails CLOSED (no iter-*.json) with non-preflight tools absent" "no" \
+  "$([ -e "$ETF7_WPD/iter-1.json" ] && echo yes || echo no)"
+# Assert the DECLINE breadcrumb fired — distinguishes a genuine fail-closed decline from
+# an early abort under the stripped PATH (both leave no iter-*.json), so the guard-class-2
+# assertion is not satisfied vacuously by an unrelated crash.
+assert_eq "et-fresh(R7): the UNESTABLISHED decline breadcrumb still fires with non-preflight tools absent (genuine decline, not an abort)" "yes" \
+  "$(printf '%s' "$ETF7_ERR" | grep -qF 'base ref is UNESTABLISHED' && echo yes || echo no)"
+rm -rf "$ETF7_STUB" "$ETF7_REPO"
+
+# et-fresh(R10) — a SHALLOW fixture cloned --depth 1 via a file:// URL (a plain path
+# silently ignores --depth), with a succeeding refresh → synthesis PROCEEDS. Asserts
+# is-shallow-repository is true first, so the pass cannot be vacuous. Pins that a
+# graft NEVER becomes a decline (a revert to a shallow-declines spec would retire the
+# floor on every cloud tier → RED here).
+ETF10_ORIGIN="$(git_sandbox "et-fresh R10 origin")"; git -C "$ETF10_ORIGIN" init --bare -q
+ETF10_SEED="$(git_sandbox "et-fresh R10 seed")"
+git -C "$ETF10_SEED" init -q
+git -C "$ETF10_SEED" config user.email t@e.com; git -C "$ETF10_SEED" config user.name t
+git -C "$ETF10_SEED" commit --allow-empty -qm base; git -C "$ETF10_SEED" branch -M main
+git -C "$ETF10_SEED" remote add origin "$ETF10_ORIGIN"; git -C "$ETF10_SEED" push -q origin main
+git -C "$ETF10_SEED" checkout -q -b feat
+printf a > "$ETF10_SEED/a"; git -C "$ETF10_SEED" add a
+git -C "$ETF10_SEED" commit -qm "fix: address review findings (iteration 1)"
+ETF10_FIX="$(git -C "$ETF10_SEED" rev-parse HEAD)"
+git -C "$ETF10_SEED" push -q origin feat
+ETF10_REPO="$(git_sandbox "et-fresh R10 shallow")"; rm -rf "$ETF10_REPO"
+git clone -q --depth 1 --no-single-branch "file://$ETF10_ORIGIN" "$ETF10_REPO"
+git -C "$ETF10_REPO" config user.email t@e.com; git -C "$ETF10_REPO" config user.name t
+git -C "$ETF10_REPO" checkout -q feat
+assert_eq "et-fresh(R10): fixture is genuinely shallow (pass cannot be vacuous)" "true" \
+  "$(git -C "$ETF10_REPO" rev-parse --is-shallow-repository 2>/dev/null)"
+ETF10_WPD="$ETF10_REPO/.devflow/tmp/review/pr-10/run-s"; mkdir -p "$ETF10_WPD"
+( cd "$ETF10_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETF10_WPD" --slug pr-10 ) >/dev/null 2>&1; ETF10_RC=$?
+assert_eq "et-fresh(R10): shallow clone exits 0" "0" "$ETF10_RC"
+assert_eq "et-fresh(R10): a graft PROCEEDS to synthesis and writes its record" "$ETF10_FIX" \
+  "$(jq -r '.fix_commit_sha' "$ETF10_WPD/iter-1.json" 2>/dev/null)"
+rm -rf "$ETF10_ORIGIN" "$ETF10_SEED" "$ETF10_REPO"
+
+# et-fresh(R11) — source-shape pin: the base branch name has exactly ONE producer.
+assert_eq "et-fresh(R11): exactly one devflow_conf '.base_branch' call site in lib/efficiency-trace.sh (single producer)" "1" \
+  "$(grep -c "devflow_conf '\.base_branch'" "$LIB/efficiency-trace.sh")"
+
+# et-fresh(R12) — .base_branch is the wrong-type string "false" → the PRE-EXISTING
+# unresolvable-base-ref breadcrumb, textually distinct from the new unestablished-base
+# one (proves the new guard did not swallow the pre-existing arm). No origin → the
+# no-origin arm marks established, then synth_base_ref cannot resolve origin/false or
+# false → the pre-existing rc-3 unresolvable-base arm.
+ETF12_REPO="$(git_sandbox "et-fresh R12 repo")"
+git -C "$ETF12_REPO" init -q
+git -C "$ETF12_REPO" config user.email t@e.com; git -C "$ETF12_REPO" config user.name t
+git -C "$ETF12_REPO" commit --allow-empty -qm base; git -C "$ETF12_REPO" branch -M main
+git -C "$ETF12_REPO" checkout -q -b feat
+printf a > "$ETF12_REPO/a"; git -C "$ETF12_REPO" add a
+git -C "$ETF12_REPO" commit -qm "fix: address review findings (iteration 1)"
+mkdir -p "$ETF12_REPO/.devflow"; printf '{"base_branch":"false"}' > "$ETF12_REPO/.devflow/config.json"
+ETF12_WPD="$ETF12_REPO/.devflow/tmp/review/pr-12/run-w"; mkdir -p "$ETF12_WPD"
+ETF12_ERR="$( ( cd "$ETF12_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETF12_WPD" --slug pr-12 ) 2>&1 1>/dev/null )"; ETF12_RC=$?
+assert_eq "et-fresh(R12): wrong-type base exits 0" "0" "$ETF12_RC"
+assert_eq "et-fresh(R12): wrong-type base writes no iter-*.json" "no" \
+  "$([ -e "$ETF12_WPD/iter-1.json" ] && echo yes || echo no)"
+assert_eq "et-fresh(R12): the PRE-EXISTING unresolvable-base breadcrumb fires" "yes" \
+  "$(printf '%s' "$ETF12_ERR" | grep -qF 'could not resolve a base branch ref' && echo yes || echo no)"
+assert_eq "et-fresh(R12): the unresolvable-base arm is DISTINCT from the unestablished-base breadcrumb" "no" \
+  "$(printf '%s' "$ETF12_ERR" | grep -qF 'base ref is UNESTABLISHED' && echo yes || echo no)"
+rm -rf "$ETF12_REPO"
+
+# et-fresh(R13) — origin reachable but the bare origin has NO base branch pushed
+# (ls-remote succeeds, EMPTY) → synthesis PROCEEDS with the remote-has-no-such-branch
+# breadcrumb (the fresh-adopter / deleted-base shape must not collapse into decline).
+ETF13_ORIGIN="$(git_sandbox "et-fresh R13 origin")"; git -C "$ETF13_ORIGIN" init --bare -q
+ETF13_REPO="$(git_sandbox "et-fresh R13 repo")"
+git -C "$ETF13_REPO" init -q
+git -C "$ETF13_REPO" config user.email t@e.com; git -C "$ETF13_REPO" config user.name t
+git -C "$ETF13_REPO" commit --allow-empty -qm base; git -C "$ETF13_REPO" branch -M main
+git -C "$ETF13_REPO" remote add origin "$ETF13_ORIGIN"     # configured, but main is NOT pushed
+git -C "$ETF13_REPO" checkout -q -b feat
+printf a > "$ETF13_REPO/a"; git -C "$ETF13_REPO" add a
+git -C "$ETF13_REPO" commit -qm "fix: address review findings (iteration 1)"
+ETF13_OWN="$(git -C "$ETF13_REPO" rev-parse HEAD)"
+ETF13_WPD="$ETF13_REPO/.devflow/tmp/review/pr-13/run-e"; mkdir -p "$ETF13_WPD"
+ETF13_ERR="$( ( cd "$ETF13_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETF13_WPD" --slug pr-13 ) 2>&1 1>/dev/null )"; ETF13_RC=$?
+assert_eq "et-fresh(R13): empty ls-remote exits 0" "0" "$ETF13_RC"
+assert_eq "et-fresh(R13): empty ls-remote PROCEEDS and writes its record" "$ETF13_OWN" \
+  "$(jq -r '.fix_commit_sha' "$ETF13_WPD/iter-1.json" 2>/dev/null)"
+assert_eq "et-fresh(R13): the remote-has-no-such-branch breadcrumb fires" "yes" \
+  "$(printf '%s' "$ETF13_ERR" | grep -qF 'origin carries no branch' && echo yes || echo no)"
+rm -rf "$ETF13_ORIGIN" "$ETF13_REPO"
+
+# et-fresh(R14) — the residual-windows doc entry names the transient-failure window.
+assert_eq "et-fresh(R14): docs name the transient-failure residual window (offline / lost ref-lock race)" "yes" \
+  "$(grep -qF 'transient-failure' "$LIB/../docs/efficiency-trace.md" && grep -qF 'losing the' "$LIB/../docs/efficiency-trace.md" && echo yes || echo no)"
+
+# docs-fetch-scope(R9) — docs state the base-ref refresh, the fetch scope, AND the
+# PR-number cutoff clause (surface-presence contract pin).
+assert_eq "docs-fetch-scope(R9): docs state --persist refreshes the base ref before synthesis" "yes" \
+  "$(grep -qF 'refreshes the base ref before synthesis' "$LIB/../docs/efficiency-trace.md" && echo yes || echo no)"
+assert_eq "docs-fetch-scope(R9): docs state the fetch scope (refs/remotes/origin/<base> cache only)" "yes" \
+  "$(grep -qF 'refs/remotes/origin/<base>' "$LIB/../docs/efficiency-trace.md" && echo yes || echo no)"
+assert_eq "docs-fetch-scope(R9): docs record the PR-number cutoff clause" "yes" \
+  "$(grep -qF "predating this change's merge" "$LIB/../docs/efficiency-trace.md" && echo yes || echo no)"
+
+# p3r-enum(R16) — the failed-search enumeration in phase-3-review.md names the
+# unestablished-base cause. Behavioral-fix pin via assert_pin_red_under: a sed -E
+# mutation that removes the operative clause (restoring the two-cause list) must flip
+# the pin PASS->FAIL — a stale enumeration sends the agent to misattribute the new
+# arm to the pre-existing unresolvable-base cause, the named regression.
+assert_pin_red_under "p3r-enum(R16): phase-3-review.md failed-search enumeration names the unestablished-base cause" \
+  'a base ref left unestablished by a failed origin/<base> refresh (issue #532)' \
+  's/, a base ref left unestablished by a failed origin\/<base> refresh \(issue #532\), or a failed/ or a failed/' \
+  "$LIB/../skills/implement/phases/phase-3-review.md"
+
+# et-fresh(R15) — the DISTINCT fetch-fail arm: ls-remote SUCCEEDS with output (the
+# branch exists on origin) but the subsequent `git fetch` FAILS → unestablished →
+# decline, with the arm's own "could not refresh" breadcrumb (textually distinct
+# from R2's ls-remote-query-fail "could not query origin" breadcrumb). Without this
+# fixture the ls-remote-succeeds-then-fetch-fails arm — the contended-lock / partial-
+# transfer residual the issue documents — is exercised by no test, and a mis-wire that
+# set it `established` would proceed against a possibly-stale ref while the suite
+# stayed green (the fail-open class #532 exists to close). The fetch is made to fail
+# by advertising a ref whose object origin cannot deliver: a builder pushes a foreign
+# `main`, its objects are then deleted from the bare origin, and this run's repo has
+# its OWN main (never fetched the foreign object) — so `ls-remote --heads origin main`
+# lists the ref while `git fetch +main:refs/remotes/origin/main` fails to transfer it.
+ETF15_ORIGIN="$(git_sandbox "et-fresh R15 origin")"; git -C "$ETF15_ORIGIN" init --bare -q
+ETF15_BLD="$(git_sandbox "et-fresh R15 builder")"
+git -C "$ETF15_BLD" init -q
+git -C "$ETF15_BLD" config user.email t@e.com; git -C "$ETF15_BLD" config user.name t
+printf f > "$ETF15_BLD/f"; git -C "$ETF15_BLD" add f; git -C "$ETF15_BLD" commit -qm foreign
+git -C "$ETF15_BLD" branch -M main; git -C "$ETF15_BLD" remote add origin "$ETF15_ORIGIN"; git -C "$ETF15_BLD" push -q origin main
+find "$ETF15_ORIGIN/objects" -type f -delete   # origin advertises main but can no longer deliver its object
+ETF15_REPO="$(git_sandbox "et-fresh R15 repo")"
+git -C "$ETF15_REPO" init -q
+git -C "$ETF15_REPO" config user.email t@e.com; git -C "$ETF15_REPO" config user.name t
+printf s > "$ETF15_REPO/s"; git -C "$ETF15_REPO" add s; git -C "$ETF15_REPO" commit -qm base
+git -C "$ETF15_REPO" branch -M main; git -C "$ETF15_REPO" remote add origin "$ETF15_ORIGIN"
+git -C "$ETF15_REPO" checkout -q -b feat
+printf a > "$ETF15_REPO/a"; git -C "$ETF15_REPO" add a
+git -C "$ETF15_REPO" commit -qm "fix: address review findings (iteration 1)"
+ETF15_WPD="$ETF15_REPO/.devflow/tmp/review/pr-15/run-v"; mkdir -p "$ETF15_WPD"
+ETF15_ERR="$( ( cd "$ETF15_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETF15_WPD" --slug pr-15 ) 2>&1 1>/dev/null )"; ETF15_RC=$?
+assert_eq "et-fresh(R15): fetch-fail arm exits 0" "0" "$ETF15_RC"
+assert_eq "et-fresh(R15): fetch-fail arm declines — NO iter-*.json written" "no" \
+  "$([ -e "$ETF15_WPD/iter-1.json" ] && echo yes || echo no)"
+assert_eq "et-fresh(R15): the DISTINCT fetch-fail breadcrumb ('could not refresh') fires" "yes" \
+  "$(printf '%s' "$ETF15_ERR" | grep -qF 'could not refresh' && echo yes || echo no)"
+assert_eq "et-fresh(R15): fetch-fail arm is NOT the ls-remote-query-fail arm (distinct breadcrumb)" "no" \
+  "$(printf '%s' "$ETF15_ERR" | grep -qF 'could not query origin for base' && echo yes || echo no)"
+rm -rf "$ETF15_ORIGIN" "$ETF15_BLD" "$ETF15_REPO"
+
+# et-fresh(R17) — empty ls-remote + a STALE refs/remotes/origin/<base> cache ref →
+# the arm prunes that stale cache so synth_base_ref's `origin/<base>` iteration cannot
+# resolve to it (which would re-widen the range and contradict the arm's "accepted the
+# local base" breadcrumb). Asserts the stale ref is gone after the run, synthesis still
+# proceeds, and the prune breadcrumb fires. (R13 covers the no-stale-cache case where the
+# prune is a no-op.)
+ETF17_ORIGIN="$(git_sandbox "et-fresh R17 origin")"; git -C "$ETF17_ORIGIN" init --bare -q
+ETF17_REPO="$(git_sandbox "et-fresh R17 repo")"
+git -C "$ETF17_REPO" init -q
+git -C "$ETF17_REPO" config user.email t@e.com; git -C "$ETF17_REPO" config user.name t
+git -C "$ETF17_REPO" commit --allow-empty -qm base; git -C "$ETF17_REPO" branch -M main
+git -C "$ETF17_REPO" remote add origin "$ETF17_ORIGIN"     # origin configured, but main NOT pushed (empty ls-remote)
+git -C "$ETF17_REPO" update-ref refs/remotes/origin/main "$(git -C "$ETF17_REPO" rev-parse HEAD)"   # stale cache ref
+git -C "$ETF17_REPO" checkout -q -b feat
+printf a > "$ETF17_REPO/a"; git -C "$ETF17_REPO" add a
+git -C "$ETF17_REPO" commit -qm "fix: address review findings (iteration 1)"
+ETF17_OWN="$(git -C "$ETF17_REPO" rev-parse HEAD)"
+ETF17_WPD="$ETF17_REPO/.devflow/tmp/review/pr-17/run-p"; mkdir -p "$ETF17_WPD"
+ETF17_ERR="$( ( cd "$ETF17_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETF17_WPD" --slug pr-17 ) 2>&1 1>/dev/null )"; ETF17_RC=$?
+assert_eq "et-fresh(R17): empty-ls-remote+stale-cache exits 0" "0" "$ETF17_RC"
+assert_eq "et-fresh(R17): the stale refs/remotes/origin/<base> cache ref is PRUNED" "yes" \
+  "$(git -C "$ETF17_REPO" rev-parse --verify --quiet refs/remotes/origin/main >/dev/null 2>&1 && echo no || echo yes)"
+assert_eq "et-fresh(R17): synthesis still PROCEEDS against the local base and writes its record" "$ETF17_OWN" \
+  "$(jq -r '.fix_commit_sha' "$ETF17_WPD/iter-1.json" 2>/dev/null)"
+assert_eq "et-fresh(R17): the stale-cache-prune breadcrumb fires" "yes" \
+  "$(printf '%s' "$ETF17_ERR" | grep -qF 'pruned any stale remote-tracking cache' && echo yes || echo no)"
+rm -rf "$ETF17_ORIGIN" "$ETF17_REPO"
+
+# et-fresh(R18) — empty ls-remote + a stale cache ref whose prune FAILS → the arm is
+# FAIL-CLOSED: it does NOT proceed against the surviving stale cache (which synth_base_ref
+# would select over the local base and re-widen the range — the exact #532 corruption a
+# best-effort prune would have silently reintroduced). It declines (unestablished, no
+# record) with a distinct "cache could not be pruned" breadcrumb. The prune is made to
+# fail by making the loose ref's parent dir read-only, so `git update-ref -d` cannot
+# unlink it.
+ETF18_ORIGIN="$(git_sandbox "et-fresh R18 origin")"; git -C "$ETF18_ORIGIN" init --bare -q
+ETF18_REPO="$(git_sandbox "et-fresh R18 repo")"
+git -C "$ETF18_REPO" init -q
+git -C "$ETF18_REPO" config user.email t@e.com; git -C "$ETF18_REPO" config user.name t
+git -C "$ETF18_REPO" commit --allow-empty -qm base; git -C "$ETF18_REPO" branch -M main
+git -C "$ETF18_REPO" remote add origin "$ETF18_ORIGIN"     # origin configured, main NOT pushed (empty ls-remote)
+git -C "$ETF18_REPO" update-ref refs/remotes/origin/main "$(git -C "$ETF18_REPO" rev-parse HEAD)"   # stale cache ref
+git -C "$ETF18_REPO" checkout -q -b feat
+printf a > "$ETF18_REPO/a"; git -C "$ETF18_REPO" add a
+git -C "$ETF18_REPO" commit -qm "fix: address review findings (iteration 1)"
+ETF18_GD="$(git -C "$ETF18_REPO" rev-parse --absolute-git-dir)"
+chmod 500 "$ETF18_GD/refs/remotes/origin"   # block `update-ref -d` from unlinking the loose ref
+ETF18_WPD="$ETF18_REPO/.devflow/tmp/review/pr-18/run-pf"; mkdir -p "$ETF18_WPD"
+ETF18_ERR="$( ( cd "$ETF18_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETF18_WPD" --slug pr-18 ) 2>&1 1>/dev/null )"; ETF18_RC=$?
+chmod 700 "$ETF18_GD/refs/remotes/origin"   # restore before assertions / cleanup
+assert_eq "et-fresh(R18): prune-fail arm exits 0" "0" "$ETF18_RC"
+assert_eq "et-fresh(R18): prune-fail arm is FAIL-CLOSED — NO iter-*.json written (does not select the surviving stale cache)" "no" \
+  "$([ -e "$ETF18_WPD/iter-1.json" ] && echo yes || echo no)"
+assert_eq "et-fresh(R18): the distinct 'could not be pruned' decline breadcrumb fires" "yes" \
+  "$(printf '%s' "$ETF18_ERR" | grep -qF 'cache could not be pruned' && echo yes || echo no)"
+rm -rf "$ETF18_ORIGIN" "$ETF18_REPO"
+
 # T5 → AC5: the fix-commit subject literal is a coupled TWO-SITE invariant —
 # skills/review-and-fix/SKILL.md item 6 (the producer) ↔ lib/efficiency-trace.sh
 # (the parser). Both sites must carry it; a targeted edit to either turns RED.
