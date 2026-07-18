@@ -18,6 +18,15 @@ from typing import NoReturn
 
 
 GH = os.environ.get("DEVFLOW_GH") or "gh"
+# The §1.3.5 gate reads exactly three exit codes: 0 PROCEED, 2 BLOCKED (named
+# dependencies still open), 3 UNAVAILABLE (an unestablished measurement — bad
+# input, a failed read, or any unanticipated error). Naming them here makes the
+# "exit 2 is reserved for BLOCKED" invariant a single source of truth shared by
+# _Parser (usage errors route to UNAVAILABLE, never masquerade as BLOCKED),
+# dependencies() (its BLOCKED return), and main()'s top-level fail-closed catch.
+PROCEED_EXIT = 0
+BLOCKED_EXIT = 2
+UNAVAILABLE_EXIT = 3
 DEPENDENCY_HEADING = re.compile(r"^##\s+Dependencies\s*$", re.IGNORECASE)
 HEADING = re.compile(r"^#{1,6}\s+")
 ISSUE_REF = re.compile(r"#(\d+)")
@@ -142,19 +151,19 @@ def dependencies(args: argparse.Namespace) -> int:
         except OSError as exc:
             print(f"preflight.py: could not read dependency body: {exc}", file=sys.stderr)
             print("UNAVAILABLE body", flush=True)
-            return 3
+            return UNAVAILABLE_EXIT
     else:
         try:
             body = issue_body(args.issue)
         except RuntimeError as exc:
             print(f"preflight.py: {exc}", file=sys.stderr)
             print("UNAVAILABLE issue", flush=True)
-            return 3
+            return UNAVAILABLE_EXIT
 
     numbers = dependency_numbers(body)
     if not numbers:
         print("PROCEED")
-        return 0
+        return PROCEED_EXIT
 
     open_numbers: list[str] = []
     for number in numbers:
@@ -162,30 +171,32 @@ def dependencies(args: argparse.Namespace) -> int:
         if state is None:
             print(f"preflight.py: could not resolve declared dependency #{number}", file=sys.stderr)
             print(f"UNAVAILABLE {number}")
-            return 3
+            return UNAVAILABLE_EXIT
         if state == "OPEN":
             open_numbers.append(number)
 
     if open_numbers:
         print(f"BLOCKED {','.join(open_numbers)}")
-        return 2
+        return BLOCKED_EXIT
 
     print(f"PROCEED {','.join(numbers)}")
-    return 0
+    return PROCEED_EXIT
 
 
 class _Parser(argparse.ArgumentParser):
-    """Exit usage errors with code 3, not argparse's default 2.
+    """Exit usage errors with UNAVAILABLE_EXIT, not argparse's default 2.
 
-    Exit 2 is the `BLOCKED` contract code the Phase 1 §1.3.5 gate maps to "named
+    BLOCKED_EXIT (2) is the contract code the Phase 1 §1.3.5 gate maps to "named
     dependencies are still open". A malformed invocation (bad/empty --issue,
     neither input flag) must not masquerade as that verdict — it is an
-    unestablished measurement, so route it to the UNAVAILABLE class (exit 3).
+    unestablished measurement, so route it to the UNAVAILABLE class
+    (UNAVAILABLE_EXIT). The override is scoped to error()-routed failures; every
+    non-help exit today flows through error().
     """
 
     def error(self, message: str) -> NoReturn:
         self.print_usage(sys.stderr)
-        self.exit(3, f"{self.prog}: error: {message}\n")
+        self.exit(UNAVAILABLE_EXIT, f"{self.prog}: error: {message}\n")
 
 
 def main() -> int:
@@ -202,7 +213,17 @@ def main() -> int:
     input_group.add_argument("--body-file")
     dependency_parser.set_defaults(func=dependencies)
     args = parser.parse_args()
-    return args.func(args)
+    try:
+        return args.func(args)
+    except Exception as exc:  # noqa: BLE001 - fail closed: any unanticipated error
+        # An unanticipated exception would otherwise exit 1 — a fourth code
+        # outside the {0,2,3} contract the §1.3.5 gate reads, which enumerates no
+        # "other exit code" arm. Route it to UNAVAILABLE (never a silent PROCEED)
+        # so any failure stays inside the contract. SystemExit / argparse's own
+        # exit-2/3 are BaseException, not Exception, so they propagate untouched.
+        print(f"preflight.py: unexpected error: {exc}", file=sys.stderr)
+        print("UNAVAILABLE", flush=True)
+        return UNAVAILABLE_EXIT
 
 
 if __name__ == "__main__":

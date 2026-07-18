@@ -173,6 +173,12 @@ Read the helper's one-token stdout result and its exit code:
   dependency state could not be established. Take the same terminal Blocked
   path, naming the unestablished measurement and the remedy to restore GitHub
   access or correct the reference. Never treat this as a clean dependency set.
+- **Any exit code that is not 0 is a non-clean measurement — never PROCEED.**
+  Only exit 0 (`PROCEED`) continues to §1.4. Exit 2 is the Blocked path above;
+  **exit 3 and any other non-zero code** (the helper fails closed to
+  `UNAVAILABLE` on any unanticipated error rather than exiting 1) are treated
+  as UNAVAILABLE — take the same terminal Blocked path. A non-zero exit never
+  proceeds silently.
 
 The clean path is intentionally a Progress note rather than a reflection. The
 blocked paths make no history mutation: they do not rebase, reset, force-push,
@@ -489,6 +495,8 @@ Scan the issue's Acceptance Criteria for explicit policy directives — versioni
 When an AC claim contradicts the operative policy, do not proceed to Phase 2. Record the contradiction: `workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind blocked --reflection "issue-claim audit (policy): AC claims '{AC text}' but operative policy in {file} states '{policy text}' — contradiction requires user resolution before Phase 2"`, then emit the 👎 outcome reaction (see *Outcome reaction* in the Workpad Reference) and stop the run.
 
 When the AC claim matches the policy, record the confirmation: `--note "issue-claim audit (policy): AC aligns with {file}"`. If the issue's ACs contain no explicit policy directives, record: `--note "issue-claim audit (policy): no policy-referencing AC claims found — pass complete"`.
+
+> The former **Pass 4** (declared-dependency detection) was extracted to the early **§1.3.5 dependency preflight** (issue #547) so the gate runs before any branch side effect. Pass 5 keeps its number because it is referenced as "Pass 5" across Phase 2.2.5 / 2.3 / 4.0 and is not the extracted pass.
 
 #### Pass 5 — Execution-capability claims (workflow-resident ACs vs. the executing credential)
 

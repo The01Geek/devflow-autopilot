@@ -9168,7 +9168,76 @@ assert_eq "#547/#572 Important: the invalid-UTF-8 gh-decoded body stays in the {
 # not via add_subparsers()'s implicit parser_class default.
 assert_pin_unique "#547/#572: the dependencies subparser sets parser_class=_Parser explicitly" \
   'add_subparsers(dest="command", required=True, parser_class=_Parser)' "$P547R_HELPER"
+# ── PR #572 review (Approve-with-notes) minor test gaps ───────────────────────
+# OSError arms of issue_body/issue_state, exercised INDEPENDENTLY of the
+# CalledProcessError (exit-1 stub) arms already covered above. Point DEVFLOW_GH at
+# a non-existent binary so subprocess.run raises FileNotFoundError (an OSError
+# subclass, NOT CalledProcessError): issue_body's OSError arm → RuntimeError →
+# `UNAVAILABLE issue`/exit 3; issue_state's OSError arm → None → `UNAVAILABLE <n>`/
+# exit 3. --body-file isolates issue_state (issue_body is never called on that path).
+P547R_NOGH="$P547R/bin/nonexistent-gh"
+P547R_OSE_BODY="$(DEVFLOW_GH="$P547R_NOGH" python3 "$P547R_HELPER" dependencies --issue 1 2>/dev/null)"; P547R_OSE_BODY_RC=$?
+assert_eq "#547/#572 test-gap: issue_body OSError arm (missing gh) is UNAVAILABLE issue, distinct from CalledProcessError" "UNAVAILABLE issue" "$P547R_OSE_BODY"
+assert_eq "#547/#572 test-gap: the issue_body OSError arm returns the unavailable exit class" "3" "$P547R_OSE_BODY_RC"
+printf '%s\n' 'blocked by #10' > "$P547R/state-ose.md"
+P547R_OSE_STATE="$(DEVFLOW_GH="$P547R_NOGH" python3 "$P547R_HELPER" dependencies --body-file "$P547R/state-ose.md" 2>/dev/null)"; P547R_OSE_STATE_RC=$?
+assert_eq "#547/#572 test-gap: issue_state OSError arm (missing gh) is UNAVAILABLE <n>, distinct from CalledProcessError" "UNAVAILABLE 10" "$P547R_OSE_STATE"
+assert_eq "#547/#572 test-gap: the issue_state OSError arm returns the unavailable exit class" "3" "$P547R_OSE_STATE_RC"
+# Cross-line dedup: the SAME #N declared on two SEPARATE lines is recorded once
+# (the add() `if number not in found` guard), so the verdict is `BLOCKED 10`, never
+# `BLOCKED 10,10`. #10 is OPEN in the P547R stub, so both lines resolve to a block.
+printf '%s\n' 'blocked by #10' 'depends on #10' > "$P547R/dedup.md"
+P547R_DEDUP="$(PATH="$P547R/bin:$PATH" python3 "$P547R_HELPER" dependencies --body-file "$P547R/dedup.md" 2>/dev/null)"
+assert_eq "#547/#572 test-gap: the same #N on two separate lines is deduped (BLOCKED 10, not 10,10)" "BLOCKED 10" "$P547R_DEDUP"
 rm -rf "$P547R"
+
+# ── PR #572 review (Approve-with-notes): main() top-level fail-closed catch-all ─
+# main() wraps args.func(args) in `except Exception → UNAVAILABLE/exit 3`, so an
+# UNANTICIPATED exception (one no inner handler catches) stays inside the {0,2,3}
+# contract the §1.3.5 gate reads instead of exiting 1 — a fourth code the gate has
+# no arm for. Behavioral injection: monkeypatch issue_body to raise a KeyError (NOT
+# the RuntimeError `dependencies` catches), so it propagates out of dependencies()
+# to main()'s catch. The harness mirrors `raise SystemExit(main())`: a contained
+# error prints the exit code; an ESCAPED (uncaught) error aborts with empty stdout.
+P547C_HELPER="$LIB/../scripts/preflight.py"
+_p547c_run() {  # <helper-path> → stdout is main()'s exit code, or empty if the injected error escaped
+  python3 - "$1" <<'PY' 2>/dev/null
+import contextlib, importlib.util, os, sys
+spec = importlib.util.spec_from_file_location("pf_catchall_probe", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+def boom(_issue):
+    raise KeyError("injected unanticipated failure")
+mod.issue_body = boom  # not a RuntimeError → uncaught by dependencies()
+sys.argv = ["preflight.py", "dependencies", "--issue", "1"]
+# Redirect the module's own stdout token (`UNAVAILABLE`) to devnull so only the
+# exit code below reaches real stdout. On the mutated copy main() re-raises the
+# injected KeyError HERE (uncaught), aborting the process before the print — so
+# escaped runs emit empty stdout, contained runs emit the returned exit code.
+with open(os.devnull, "w") as _dn, contextlib.redirect_stdout(_dn):
+    code = mod.main()
+print(code)
+PY
+}
+P547C_OUT="$(_p547c_run "$P547C_HELPER")"
+assert_eq "#547/#572 catch-all: an unanticipated exception fails closed to UNAVAILABLE exit 3 (not 1)" "3" "$P547C_OUT"
+# Mutation discipline (behavioral, not a grep pin): on a /tmp copy with the catch-all
+# stripped to a bare `return args.func(args)`, the SAME injected KeyError is no longer
+# contained — it escapes uncaught (empty stdout). Proves the exit-3 above is the
+# catch-all's doing, not vacuous. The working tree is never touched (copy only).
+P547C_MUT="$(mktemp -d)"
+python3 - "$P547C_HELPER" "$P547C_MUT/preflight.py" <<'PY'
+import re, sys
+src = open(sys.argv[1]).read()
+pat = re.compile(r"    try:\n        return args\.func\(args\)\n    except Exception.*?return UNAVAILABLE_EXIT\n", re.S)
+new, n = pat.subn("    return args.func(args)\n", src)
+assert n == 1, f"expected exactly one main() catch-all block, replaced {n}"
+open(sys.argv[2], "w").write(new)
+PY
+P547C_MUT_OUT="$(_p547c_run "$P547C_MUT/preflight.py")"
+assert_eq "#547/#572 catch-all mutation: removing the catch-all lets the injected exception escape (contained→escaped)" "3->escaped" \
+  "$P547C_OUT->$([ -z "$P547C_MUT_OUT" ] && echo escaped || echo "$P547C_MUT_OUT")"
+rm -rf "$P547C_MUT"
 
 # ── issue #547 AC10: the §1.3.5 dependency gate precedes §1.4 branch work ──────
 # The gate must run before ANY §1.4 branch operation (resume-precheck checkout,
@@ -13614,7 +13683,6 @@ assert_pin_unique "#272 AC10: overview §11 mirrors the visual-specification beh
 CI446_TMPL="$LIB/../skills/create-issue/references/issue-template.md"
 CI446_SKILL="$LIB/../skills/create-issue/SKILL.md"
 CI446_P4="$LIB/../skills/implement/phases/phase-4-documentation.md"
-CI446_P1="$LIB/../skills/implement/phases/phase-1-setup.md"
 CI446_OVERVIEW="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 # AC1/AC2 — the optional ## Dependencies section in BOTH the template's structure guidance
 # and its bottom skeleton (coupled mirror sites: a one-sided edit turns one of these RED).
