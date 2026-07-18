@@ -1092,6 +1092,64 @@ class ModuleRunnerTests(unittest.TestCase):
                 f"false positive on namespaced API: {sanctioned!r}",
             )
 
+    def test_create_issue_bundle_records_fail_on_a_missing_implement_member(self) -> None:
+        # The module's implement-bundle build loop restores the fail-LOUD-per-member
+        # contract: a missing/empty/unreadable implement bundle member records a FAIL
+        # (never the sibling module's silent `cat 2>/dev/null || :`). Pin it with an
+        # automated mutation — point CI_ROOT at a scratch tree that symlinks every
+        # real surface the module reads (so its 206 genuine pins still pass) but whose
+        # implement `phases/` carries one EMPTY member (`[ -s ]` false → FAIL). The
+        # emptied member is NOT the one holding the #467 D2 pinned sentence, so only
+        # the bundle-member guard fires — isolating this branch.
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            scratch = Path(temporary_directory) / "root"
+            (scratch / "skills").mkdir(parents=True)
+            (scratch / "lib/test").mkdir(parents=True)
+            # Symlink every surface the module reads, except implement (partial copy).
+            (scratch / "skills/create-issue").symlink_to(ROOT / "skills/create-issue")
+            (scratch / "skills/review-and-fix").symlink_to(ROOT / "skills/review-and-fix")
+            (scratch / "docs").symlink_to(ROOT / "docs")
+            (scratch / ".devflow").symlink_to(ROOT / ".devflow")
+            (scratch / "CLAUDE.md").symlink_to(ROOT / "CLAUDE.md")
+            (scratch / "lib/test/modules").symlink_to(ROOT / "lib/test/modules")
+            # implement: real SKILL.md, real phases EXCEPT one emptied member.
+            impl = scratch / "skills/implement"
+            (impl / "phases").mkdir(parents=True)
+            (impl / "SKILL.md").symlink_to(ROOT / "skills/implement/SKILL.md")
+            sentence = "The governed surface is broader than config JSON"  # #467 D2 pin
+            emptied = None
+            for phase in sorted((ROOT / "skills/implement/phases").glob("*.md")):
+                text = phase.read_text(encoding="utf-8")
+                if sentence in text or emptied is not None:
+                    (impl / "phases" / phase.name).write_text(text, encoding="utf-8")
+                else:
+                    (impl / "phases" / phase.name).write_text("", encoding="utf-8")
+                    emptied = phase.name
+            self.assertIsNotNone(emptied, "no non-D2-pin phase to empty")
+
+            environment = os.environ.copy()
+            environment.pop("DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE", None)
+            environment["DEVFLOW_CREATE_ISSUE_CONTRACT_ROOT"] = str(scratch)
+            with tempfile.TemporaryDirectory() as log_dir:
+                result = subprocess.run(
+                    [
+                        "bash",
+                        str(RUNNER_SOURCE),
+                        "--log-dir",
+                        log_dir,
+                        "create-issue-contract",
+                    ],
+                    cwd=ROOT,
+                    env=environment,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+
+        self.assertEqual(result.returncode, 1, result.stdout[-4000:] + result.stderr[-4000:])
+        self.assertIn("implement-bundle member usable", result.stdout)
+        self.assertIn(emptied, result.stdout)
+
     def test_create_issue_module_runs_clean_under_nounset_with_legacy_vars_unset(self) -> None:
         # AC9: a clean-environment contract test. Source the module under `set -u`
         # with every legacy monolith variable explicitly unset, supplying only LIB,
