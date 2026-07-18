@@ -30617,9 +30617,38 @@ WF289="$REPO_ROOT/.github/workflows/devflow-implement.yml"
 # branch itself now contains a NESTED `if ! … update …; then … fi`, so an fi-based
 # boundary would truncate the region at that inner fi and make the absence pin
 # below vacuous (a `create` added after it would go unseen).
-AE_REGION289="$(awk '/if python3 "\$WP" id "\$NUMBER"/{f=1} f && /BODY=/{exit} f{print}' "$WF289")"
+# The early-workpad step now splits `workpad.py id`'s exit 0/1/2 (issue #537), so the
+# region anchors on the id PROBE line (`python3 "$WP" id "$NUMBER"`) rather than the old
+# `if python3 "$WP" id …; then` guard, up to the fresh-create `BODY=` boundary.
+AE_REGION289="$(awk '/python3 "\$WP" id "\$NUMBER"/{f=1} f && /BODY=/{exit} f{print}' "$WF289")"
 assert_eq "#289: gate already-exists branch extracted (non-empty)" "yes" \
   "$([ -n "$AE_REGION289" ] && echo yes || echo no)"
+# #537 AC13/AC19: the adopted-workpad Run-link refresh is COMBINED with the gate-adopted
+# startup checkpoint in one update call (bounded writes). Pin the checkpoint literal —
+# unique to the adopted branch (the create branch has no checkpoint) and removal-proof.
+assert_pin_unique "#537 AC13: the gate-adopted checkpoint rides the adopted-branch run-link update" \
+  'gha:${RUN_ID}:${RUN_ATTEMPT}:gate-adopted' "$WF289"
+# #537 AC1/AC2: the step initializes the provenance output to unknown before fallible work,
+# splits id exit 0/1/2 (never collapsing exit 1 into a create), and maps the gate output.
+assert_pin_unique "#537 AC1: early-workpad step initializes handoff=unknown before fallible work" \
+  'echo "handoff=unknown" >> "$GITHUB_OUTPUT"' "$WF289"
+assert_eq "#537 AC1: gate exposes the workpad_handoff job output" "yes" \
+  "$(grep -qF 'workpad_handoff: ${{ steps.early_workpad.outputs.handoff }}' "$WF289" && echo yes || echo no)"  # raw-guard-ok: presence pin
+assert_eq "#537 AC2: the early-workpad step branches on all three id exit codes (0/1/2)" "yes" \
+  "$(printf '%s\n' "$AE_REGION289" | grep -qF 'id_rc' && echo yes || echo no)"  # raw-guard-ok: region-scoped presence
+# #537 AC3/AC25: the claude job validates the vendored workpad + writes the handoff record.
+assert_pin_unique "#537 AC25: claude job fails loud when the vendored workpad.py is missing (incomplete vendor)" \
+  '::error::incomplete vendor:' "$WF289"
+assert_pin_unique "#537 AC3: claude job writes the handoff record path under .devflow/tmp" \
+  'implement-handoff-${NUMBER}-${RUN_ID}-${RUN_ATTEMPT}.json' "$WF289"
+# #537 AC13 boundary 2: the claude-invoke checkpoint is recorded immediately before the action.
+assert_pin_unique "#537 AC13: the claude-invoke checkpoint literal is present exactly once" \
+  'gha:${RUN_ID}:${RUN_ATTEMPT}:claude-invoke' "$WF289"
+# Positional: the claude-invoke checkpoint step precedes `Run Claude Code`.
+CI_LN537="$(grep -nF 'gha:${RUN_ID}:${RUN_ATTEMPT}:claude-invoke' "$WF289" | head -1 | cut -d: -f1)"  # raw-guard-ok: line-number lookup
+RCC_LN537="$(grep -nF 'name: Run Claude Code' "$WF289" | head -1 | cut -d: -f1)"                      # raw-guard-ok: line-number lookup
+assert_eq "#537 AC13: the claude-invoke checkpoint is ordered before Run Claude Code" "yes" \
+  "$([ -n "$CI_LN537" ] && [ -n "$RCC_LN537" ] && [ "$CI_LN537" -lt "$RCC_LN537" ] && echo yes || echo no)"
 # AC7: the already-exists branch refreshes the Run: link via workpad.py update --run-link.
 assert_eq "#289 AC7: gate already-exists branch refreshes Run link via workpad.py update --run-link" "1" \
   "$(printf '%s\n' "$AE_REGION289" | grep -cF 'update "$NUMBER" --run-link "[View run]($RUN_URL)"' || true)"  # raw-guard-ok: region-scoped presence count
