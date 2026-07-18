@@ -4112,6 +4112,32 @@ assert_eq("#548 t1_t2_rows: an un-adjudicated completed FILE round fires NEITHER
           (False, False, None),
           (lambda t: (t['t1'], t['t2'], t['reason']))(
               issue_audit_state.evaluate_triggers(_state([_round(1, 'file', 'FILE')]))))
+# Verdict-absent count fail-open (issue #548 re-review): a completed REVISE round hand-corrupted
+# to carry a SETTLED unresolved count (0) with NO adjudicated_verdict must be treated as an
+# un-adjudicated round — the count is meaningful only post-adjudication. Pre-fix `_unresolved_int`
+# read the 0 as established, so T1 saw it clean (0 < 1) AND the `unadjudicated-round` T2 arm
+# (guarded on `u is None`) did NOT fire → NO boundary offer on an un-adjudicated REVISE round, the
+# exact silent drop that arm exists to prevent. `_unresolved_int` now keys on the verdict first, so
+# both the direct read and the T2 arm agree the count is unestablished and the offer fires.
+assert_eq("#548 verdict-absent count: a REVISE round with unresolved=0 but adjudicated_verdict=None "
+          "reads as an unestablished count (_unresolved_int keys on the verdict, not the count alone)",
+          None,
+          issue_audit_state._unresolved_int(_round(1, 'file', 'REVISE', adj=None, unresolved=0)))
+assert_eq("#548 verdict-absent count: that corrupt REVISE round (unresolved=0, verdict=None) fires T2 "
+          "CLOSED with reason unadjudicated-round — no silent boundary-offer drop (regression pin: the "
+          "pre-fix count-only read left T1 clean AND this arm dark)",
+          (False, True, 'unadjudicated-round'),
+          (lambda t: (t['t1'], t['t2'], t['reason']))(
+              issue_audit_state.evaluate_triggers(_state([
+                  _round(1, 'file', 'REVISE', adj=None, unresolved=0)]))))
+# Convergence stays consistent on the same corrupt round — it gates on adjudicated_verdict first,
+# so a verdict-absent round is not-converged 'unadjudicated' regardless of the stored count.
+assert_eq("#548 verdict-absent count: convergence is not-converged 'unadjudicated' on the same "
+          "verdict-None round (agrees with _unresolved_int keying on the verdict)",
+          (False, 'unadjudicated'),
+          (lambda c: (c['converged'], c['reason']))(
+              issue_audit_state.evaluate_convergence(_state([
+                  _round(1, 'file', 'REVISE', adj=None, unresolved=0)]))))
 # Boolean-count guard (Suggestion #4): a JSON `true` in unresolved_must_revise must NOT be
 # read as the integer 1 (Python's isinstance(True, int) is True). _unresolved_int excludes it
 # explicitly, so it reads None → T1 does not hold on a bool count; and because the round is a
@@ -4326,6 +4352,14 @@ _malformed('a negative must_revise_count',
            dict(_GOOD, rounds=[dict(_round(1, 'file', 'FILE'), must_revise_count=-2)]))
 _malformed('a wrong-type advisory_count (a string)',
            dict(_GOOD, rounds=[dict(_round(1, 'file', 'FILE'), advisory_count='one')]))
+# Boolean at the _validate read boundary (issue #548 re-review, Suggestion #1): a JSON `true`
+# in a count field must be rejected, not read as int 1 (Python's isinstance(True, int) is True).
+# Exercises the isinstance(..., bool) exclusion inside _validate directly, so a regression
+# dropping it turns RED here rather than shipping green.
+_malformed('a boolean must_revise_count (true is not int 1)',
+           dict(_GOOD, rounds=[dict(_round(1, 'file', 'FILE'), must_revise_count=True)]))
+_malformed('a boolean unresolved_must_revise (true is not int 1)',
+           dict(_GOOD, rounds=[dict(_round(1, 'file', 'FILE'), unresolved_must_revise=True)]))
 
 # #548 valid controls: the literal 'unestablished' (paired with REVISE — the only legal
 # unestablished pairing) and a real zero (paired with FILE) are BOTH valid.

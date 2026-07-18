@@ -922,13 +922,29 @@ def _revision_postdates(state, rnd):
 def _unresolved_int(rnd):
     """The round's adjudicated unresolved-must-revise count as a concrete int, else None.
 
-    `None` covers every case that is NOT a settled integer: a round that was never
-    adjudicated (`unresolved_must_revise is None`) and one adjudicated but unestablished (the
-    literal `_UNESTABLISHED`). A bool is not an int here (Python's `isinstance(True, int)` is
-    True), so it is excluded explicitly. Non-negativity is enforced upstream by `_validate`
-    (and by `cmd_record_adjudication` at the write boundary), so any stored int reaching here
-    is already >= 0.
+    The count is meaningful ONLY post-adjudication, so a round whose `adjudicated_verdict`
+    is absent has no established count regardless of any stored `unresolved_must_revise`
+    value: `None` is returned first on that path. Keying on the verdict here — not solely on
+    the count field — closes a co-presence gap a hand-corrupted state could open: a completed
+    REVISE round hand-edited to carry `adjudicated_verdict = None` with a settled
+    `unresolved_must_revise` of 0 would otherwise return that 0 as established, making T1 read
+    it clean AND the `unadjudicated-round` T2 arm (guarded on `u is None`) NOT fire — the exact
+    silent boundary-offer drop that arm exists to prevent (issue #548 re-review). Deriving
+    "is the count established" from the verdict makes T1, the `unadjudicated-round` T2 arm, and
+    `evaluate_convergence` (which already gates on `adjudicated_verdict` first) agree that a
+    count without a verdict is unestablished — the write path never emits that pairing (an
+    un-adjudicated round carries a `None` count), so the guard bites only corruption.
+
+    Past that early return the round is adjudicated, and `None` still covers every remaining
+    case that is NOT a settled integer: a round adjudicated but unestablished (the literal
+    `_UNESTABLISHED`), or a stored `None`/non-int count. (A never-adjudicated round carries a
+    `None` verdict, so it is caught by the early return above, not here.) A bool is not an int
+    here (Python's `isinstance(True, int)` is True), so it is excluded explicitly. Non-negativity
+    is enforced upstream by `_validate` (and by `cmd_record_adjudication` at the write boundary),
+    so any stored int reaching here is already >= 0.
     """
+    if rnd.get('adjudicated_verdict') is None:
+        return None
     v = rnd.get('unresolved_must_revise')
     if isinstance(v, bool) or not isinstance(v, int):
         return None
