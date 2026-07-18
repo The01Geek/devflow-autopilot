@@ -592,7 +592,7 @@ real record carries, none of which is recoverable **from the fix commits**.
   refresh, a stale `origin/<base>` (shared across linked worktrees, which nobody pulls) widened
   `origin/<base>..HEAD` back into already-merged foreign history, so another PR's fix commits were
   booked against this run. **Cutoff:** because this fix is forward-only and the record's field set is
-  unchanged, synthesized records predating this change's merge (landed in **PR #532-pending** — the PR
+  unchanged, synthesized records predating this change's merge (landed in **PR #581** — the PR
   that shipped this base-ref refresh) are **untrusted** and are **not distinguishable by record shape**
   from records the fix produces; a consumer must treat every synthesized record older than that PR's
   merge as suspect (the existing corrupted records are left in place, fix-forward only). Adversarial
