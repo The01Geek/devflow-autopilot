@@ -306,17 +306,29 @@ SHADOW_SYNTH_EXPECTED_FIELDS="shadow_synthesized promoted_to_iter_next"
 # and this selector in the SAME commit.
 FIX_COMMIT_SUBJECT_PREFIX="fix: address review findings (iteration"
 
-# Resolve the ref the fix-commit range diffs against (config .base_branch,
-# default main). Prefer origin/<base> over the local ref: in this repo's linked-
-# worktree flow the local base branch is routinely BEHIND origin (nobody pulls it
-# in a worktree), and a stale local base widens base..HEAD to sweep already-merged
-# history — misattributing an old merged PR's fix commits to this run. Falls back
-# to the local ref (fixtures and offline clones with no origin). Echoes the
-# resolved ref, or returns non-zero when neither resolves (fail-closed).
+# Resolve the ref the fix-commit range diffs against. Prefer origin/<base> over
+# the local ref: in this repo's linked-worktree flow the local base branch is
+# routinely BEHIND origin (nobody pulls it in a worktree), and a stale local base
+# widens base..HEAD to sweep already-merged history — misattributing an old merged
+# PR's fix commits to this run. Falls back to the local ref (fixtures and offline
+# clones with no origin). Echoes the resolved ref, or returns non-zero when neither
+# resolves (fail-closed).
+#
+# SINGLE-PRODUCER CONTRACT (issue #532): the base BRANCH NAME has exactly one
+# producer in this file — do_persist resolves `.base_branch` ONCE into the
+# dynamically-scoped `_DEVFLOW_BASE_BRANCH` (with its empty-value fallback to
+# `main`) before it forks, and BOTH the pre-synthesis base-ref refresh in do_persist
+# AND this resolver consume that single resolution. This function therefore reads
+# `_DEVFLOW_BASE_BRANCH` and NEVER re-reads `.base_branch` via devflow_conf: a second
+# derivation would be a coupled site that fails OPEN if the two ever diverged (the
+# refresh certifies `origin/<base>` fresh while selection ran against a different,
+# unrefreshed ref). The `:-main` here is only a defensive fallback for a
+# hypothetical caller that reaches this function without do_persist having seeded
+# the local — in production the sole call path (do_persist → persist_one →
+# synthesize_iter_workpads) always seeds it.
 synth_base_ref() {
   local root="$1" base ref
-  base="$(devflow_conf '.base_branch' 'main')"
-  [ -n "$base" ] || base="main"
+  base="${_DEVFLOW_BASE_BRANCH:-main}"
   for ref in "origin/$base" "$base"; do
     if git -C "$root" rev-parse --verify --quiet "${ref}^{commit}" >/dev/null 2>&1; then
       printf '%s\n' "$ref"; return 0
@@ -455,10 +467,11 @@ select_fix_commits() {
 # enumerated below) so the caller's breadcrumb never collapses an unestablished measurement
 # onto "found none" (the repo's unknown-is-not-zero gotcha): returns 0 iff ≥1 record was
 # written; 2 when selection RAN and found no unrecorded matching commit; 3 when
-# the search could not run at all (an uncreatable target dir, no base ref
-# resolvable, OR the git log enumeration itself failed — either way, whether
-# matching commits could be synthesized was never established; the arm-specific
-# warning names which); 4 when commits WERE selected but every record write
+# the search could not run at all (an uncreatable target dir, a base ref left
+# UNESTABLISHED by a failed pre-synthesis origin/<base> refresh (issue #532), no
+# base ref resolvable, OR the git log enumeration itself failed — either way,
+# whether matching commits could be synthesized was never established; the
+# arm-specific warning names which); 4 when commits WERE selected but every record write
 # failed (per-commit warnings already emitted).
 synthesize_iter_workpads() {
   local dir="$1" root="$2" n sha files files_ok base excl log_out jq_err tab attempted=0 wrote=0
@@ -470,6 +483,24 @@ synthesize_iter_workpads() {
   # missing directory as a disk/write failure.
   if ! mkdir -p "$dir" 2>/dev/null; then
     echo "::warning::efficiency-trace.sh --persist: could not create workpad dir ${dir} (permissions/read-only fs, or on the cloud tier the sandbox's write denial into .devflow/tmp?); cannot synthesize into it" >&2
+    return 3
+  fi
+  # Base-ref freshness guard (issue #532): do_persist's pre-synthesis refresh sets
+  # _DEVFLOW_BASE_REF_STATUS. When it is `unestablished` (origin configured but the
+  # refresh did not succeed), the remote-tracking base ref may be arbitrarily stale,
+  # so `${base}..HEAD` could widen into already-merged foreign history and attribute
+  # another PR's fix commits to this run — the exact corruption #532 closes. Decline:
+  # write no record and take the "search never ran" outcome (rc 3), joining the
+  # existing rc-3 class alongside the unresolvable-base-ref and failed-git-log arms.
+  # This `::warning::` is textually distinct from BOTH the unresolvable-base-ref
+  # warning below (which fires when NEITHER origin/<base> nor <base> resolves) and
+  # the found-none breadcrumb persist_one emits for rc 2 — the breadcrumb is the only
+  # channel that discriminates decline from found-none, since both write no file and
+  # both exit 0. Default `established` when the var is unset guards a hypothetical
+  # caller that reaches synthesis without do_persist having seeded it (the sole
+  # production path always seeds it); it is never `established`-by-accident here.
+  if [ "${_DEVFLOW_BASE_REF_STATUS:-established}" = unestablished ]; then
+    echo "::warning::efficiency-trace.sh --persist: the base ref 'origin/${_DEVFLOW_BASE_BRANCH:-}' is UNESTABLISHED (its pre-synthesis refresh did not succeed — see the refresh warning above); commit selection is skipped, so no synthesized iter-*.json is written this run" >&2
     return 3
   fi
   if ! base="$(synth_base_ref "$root")"; then
@@ -809,7 +840,7 @@ persist_one() {
     case "$synth_rc" in
       0) : ;;
       3)
-        echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json and the fix-commit search could not run (an uncreatable target dir, an unresolvable base ref, or a failed git log enumeration — the warning above names which) — whether matching fix commits exist was never established; telemetry not synthesized" >&2
+        echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json and the fix-commit search could not run (an uncreatable target dir, an unresolvable base ref, a base ref left unestablished by a failed origin refresh, or a failed git log enumeration — the warning above names which) — whether matching fix commits exist was never established; telemetry not synthesized" >&2
         return 0 ;;
       4)
         echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json; matching fix commits were selected but every synthesized record write failed (see the per-commit warnings above — disk/permissions, or on the cloud tier the sandbox's redirect-write denial into .devflow/tmp) — telemetry not synthesized" >&2
@@ -1269,6 +1300,78 @@ do_persist() {
     # unestablished one — mark ok so list_blobs does not emit a misleading "synthesis may
     # re-attribute" warning on a local-only repo's first --persist (#469 review).
     _DEVFLOW_TELEMETRY_FETCH_STATUS=ok
+  fi
+
+  # ── Base-ref freshness before the synthesis floor selects commits (issue #532) ──
+  # synthesize_iter_workpads selects fix commits with `git log ${base}..HEAD`, where
+  # `base` prefers `origin/<base_branch>` (synth_base_ref). Remote-tracking refs are
+  # SHARED across linked worktrees, so a stale `origin/<base>` — which nothing on this
+  # path refreshed — widens the range back into already-merged foreign history and
+  # attributes another PR's fix commits to THIS run (the 57/86-record corruption #532
+  # documents). This block refreshes `origin/<base>` into the remote-tracking cache
+  # BEFORE any fork selects a commit, and records a two-valued status the synthesis
+  # guard reads. It borrows the MECHANICAL shape of the telemetry-branch block above
+  # (detect-remote → consult read-only → fetch into the cache → assert status AFTER
+  # establishing it) but NOT its no-origin reasoning: a base ref has no "authoritative
+  # and complete local source" analogue (a local base branch is the only AVAILABLE
+  # source, never an authoritative one, and refs/heads/<base> is itself shared across
+  # worktrees), so the no-origin arm here is unestablished-but-ACCEPTED on the separate
+  # ground that declining there would strip the floor from the offline and fixture runs
+  # synth_base_ref documents as supported — a recorded residual, not a closed window.
+  #
+  # `_DEVFLOW_BASE_BRANCH` is the SINGLE producer of the base branch name (issue #532
+  # AC2): resolved ONCE here, consumed by BOTH the ls-remote/fetch below AND
+  # synth_base_ref — never re-read via devflow_conf. Seed it (and the status) in the
+  # PARENT before anything forks, exactly like _DEVFLOW_TELEMETRY_FETCH_STATUS: a value
+  # resolved inside a subshell is re-resolved by every later fork, which would re-fetch
+  # and re-breadcrumb per run dir. dynamic-scope-visible to synthesize_iter_workpads /
+  # synth_base_ref below; not exported.
+  local _DEVFLOW_BASE_REF_STATUS=unestablished _DEVFLOW_BASE_BRANCH _base_remote_line
+  _DEVFLOW_BASE_BRANCH="$(devflow_conf '.base_branch' 'main')"
+  [ -n "$_DEVFLOW_BASE_BRANCH" ] || _DEVFLOW_BASE_BRANCH="main"
+  if git -C "$root" remote get-url origin >/dev/null 2>&1; then
+    # Query the remote READ-ONLY first (ls-remote — no object transfer), exactly as the
+    # telemetry block does. A SUCCEEDING ls-remote with EMPTY output is a positive answer
+    # — the remote genuinely carries no such branch (a fresh adopter before its first
+    # push, or a base deleted/renamed on origin) — so there is nothing to be stale
+    # against: ESTABLISHED, synth_base_ref falls back to the local base exactly as today,
+    # and a breadcrumb records it (issue #532). A SUCCEEDING ls-remote with output means
+    # the branch exists: refresh it into the remote-tracking CACHE
+    # (refs/remotes/origin/<base>, force-safe `+` refspec — a cache, never local history)
+    # and NO local ref is advanced (the base ref has no local counterpart to fast-forward,
+    # unlike the telemetry block). A fetch success is ESTABLISHED. A FAILED ls-remote query
+    # OR a FAILED fetch is UNESTABLISHED — the remote-tracking ref may be arbitrarily
+    # stale, which is the state this issue exists to stop trusting. This arm deliberately
+    # does NOT distinguish a stale ref from a transient failure (offline, a VPN reconnect,
+    # an expired credential, a contended refs/remotes/origin/<base>.lock from a sibling
+    # worktree's concurrent --persist): none is distinguishable from the failure alone, and
+    # the safe direction for a defect whose entire signature is a plausible-looking WRONG
+    # record is to write nothing. --persist fires from the Stop hook on every stop, so a
+    # transient failure's next re-attempt is seconds away; both are recorded residuals.
+    if _base_remote_line="$(GIT_TERMINAL_PROMPT=0 git -C "$root" ls-remote --heads origin "$_DEVFLOW_BASE_BRANCH" 2>/dev/null)"; then
+      if [ -z "$_base_remote_line" ]; then
+        _DEVFLOW_BASE_REF_STATUS=established           # established: remote carries no such branch — local base accepted
+        echo "efficiency-trace.sh --persist: base-ref refresh skipped — origin carries no branch '${_DEVFLOW_BASE_BRANCH}' (fresh adopter, or a deleted/renamed base); accepted the local base '${_DEVFLOW_BASE_BRANCH}' without a refresh" >&2
+      elif GIT_TERMINAL_PROMPT=0 git -C "$root" fetch -q --no-tags origin "+${_DEVFLOW_BASE_BRANCH}:refs/remotes/origin/${_DEVFLOW_BASE_BRANCH}" 2>/dev/null; then
+        _DEVFLOW_BASE_REF_STATUS=established           # established: refreshed origin/<base> into the remote-tracking cache
+      else
+        _DEVFLOW_BASE_REF_STATUS=unestablished
+        echo "::warning::efficiency-trace.sh --persist: could not refresh 'origin/${_DEVFLOW_BASE_BRANCH}' into refs/remotes/origin/${_DEVFLOW_BASE_BRANCH} (offline, auth, or a contended refs/remotes/origin/${_DEVFLOW_BASE_BRANCH} lock) — the base ref is UNESTABLISHED, so commit selection is skipped this run to avoid attributing another PR's fix commits to it" >&2
+      fi
+    else
+      _DEVFLOW_BASE_REF_STATUS=unestablished
+      echo "::warning::efficiency-trace.sh --persist: could not query origin for base branch '${_DEVFLOW_BASE_BRANCH}' (offline or auth) — the base ref is UNESTABLISHED, so commit selection is skipped this run to avoid attributing another PR's fix commits to it" >&2
+    fi
+  else
+    # No origin remote: no refresh mechanism exists at all, so — unlike the failed-refresh
+    # arm — synthesis PROCEEDS (declining here would break every no-origin et-synth fixture
+    # and strip the floor from the offline/fixture runs synth_base_ref supports). The status
+    # value is `established` because it is the CONTROL value the two-valued guard reads, not
+    # an epistemic claim that the local base is trustworthy: refs/heads/<base> is shared
+    # across linked worktrees and can be stale. That gap is a documented residual window
+    # (docs/efficiency-trace.md), recorded here rather than silently closed.
+    _DEVFLOW_BASE_REF_STATUS=established
+    echo "efficiency-trace.sh --persist: base-ref refresh skipped — no origin remote configured; accepted the local base '${_DEVFLOW_BASE_BRANCH}' without a refresh (recorded residual: the local base may be stale across linked worktrees)" >&2
   fi
   # Bounded cleanup policy for retained staging roots (issue #469 AC8): a degraded
   # or staging-only persist RETAINS its staging root under .devflow/tmp/ (below), so

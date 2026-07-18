@@ -582,7 +582,21 @@ real record carries, none of which is recoverable **from the fix commits**.
   `origin/<base>` over the local base branch (routinely stale in worktrees — a stale local base
   would widen the range to sweep already-merged history and misattribute an old PR's fix commits);
   `<base>` is config `.base_branch`, default `main`, and an unresolvable base fails closed with a
-  breadcrumb naming the tried value. Adversarial subject shapes are each breadcrumbed and skipped,
+  breadcrumb naming the tried value. **`--persist` refreshes the base ref before synthesis selects
+  any commit (issue #532):** when an `origin` remote is configured, it fetches `origin/<base>` into
+  `refs/remotes/origin/<base>` (the remote-tracking **cache** only — it advances no local branch
+  ref, and this is separate from the telemetry-branch fetch, which touches only
+  `refs/remotes/origin/<telemetry-branch>`). The base branch name has a **single producer** in
+  `lib/efficiency-trace.sh` — `do_persist` resolves `.base_branch` once and both the refresh and
+  `synth_base_ref` consume that one resolution. This closes the misattribution window: before the
+  refresh, a stale `origin/<base>` (shared across linked worktrees, which nobody pulls) widened
+  `origin/<base>..HEAD` back into already-merged foreign history, so another PR's fix commits were
+  booked against this run. **Cutoff:** because this fix is forward-only and the record's field set is
+  unchanged, synthesized records predating this change's merge (landed in **PR #532-pending** — the PR
+  that shipped this base-ref refresh) are **untrusted** and are **not distinguishable by record shape**
+  from records the fix produces; a consumer must treat every synthesized record older than that PR's
+  merge as suspect (the existing corrupted records are left in place, fix-forward only). Adversarial
+  subject shapes are each breadcrumbed and skipped,
   always exit 0: a fix-loop-family subject without the `(iteration N)` suffix, trailing text after
   the suffix or a missing `)`, and a non-numeric iteration token; a leading-zero token is normalized
   (`01` and `1` are the same iteration), and a duplicate N keeps the **earliest** commit
@@ -615,10 +629,22 @@ real record carries, none of which is recoverable **from the fix commits**.
   receives the record (right slug, wrong run-id; the sha exclusion still prevents any
   double-count); and a workpad-less dir left by a standalone `/devflow:review` run synthesizes
   under the default `source: "review-and-fix"` (a synthesized workpad carries no `source` field).
+  Two further residual windows come from the base-ref refresh (issue #532): (d) the **no-`origin`
+  stale-local-base window** — a repo with no `origin` remote has no refresh mechanism, so synthesis
+  proceeds against the **local** base branch (`refs/heads/<base>`), which is itself shared across
+  linked worktrees and can be stale; the floor is kept (so offline and fixture runs keep working)
+  and the residual is recorded here rather than silently closed; (e) the **transient-failure
+  window** — when `origin` is configured but the refresh fails for any reason (an offline session, a
+  VPN reconnect, an expired credential, or a run losing the `refs/remotes/origin/<base>.lock` race
+  to a sibling worktree's concurrent `--persist`), that run **declines synthesis** rather than
+  trusting a possibly-stale remote-tracking ref; a transient failure's next `--persist` (from the
+  Stop hook) re-attempts seconds later, while a persistently-offline session forfeits the floor for
+  that session.
 - *Honesty ladder (unknown is never collapsed onto "found none").* `synthesize_iter_workpads`
   returns **0** (wrote ≥1 record), **2** (the selection ran and found no unrecorded matching
   commit), **3** (the search **could not run** — an uncreatable target dir, an unresolvable base
-  ref, or a failed `git log` enumeration, each with its own producer breadcrumb naming the tried
+  ref, a base ref left **unestablished** by a failed pre-synthesis `origin/<base>` refresh (issue
+  #532), or a failed `git log` enumeration, each with its own producer breadcrumb naming the tried
   value), or **4** (commits *were* selected but every record write failed, with per-commit
   warnings). `persist_one` dispatches each arm to a distinct `::warning::`, plus an unknown-rc arm
   so a future rc drift is never reported as "no commits were found."
