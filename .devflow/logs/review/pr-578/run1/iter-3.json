@@ -1,0 +1,10 @@
+{
+  "iter": 3,
+  "fix_commit_sha": "f920d37726e2155aa51d1c4f674beedcf4c01be6",
+  "fix_files": [
+    "scripts/install-gh-wrapper.sh"
+  ],
+  "loop_role": "fix",
+  "synthesized": true,
+  "telemetry": "unavailable"
+}
