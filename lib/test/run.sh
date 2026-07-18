@@ -17326,6 +17326,58 @@ for f in devflow devflow-implement; do
 done
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "#582 — configurable cloud-tier runner via DEVFLOW_RUNNER"
+# ────────────────────────────────────────────────────────────────────────────
+# Every runs-on in the five CONSUMER-shipped workflows is parameterized on the
+# GitHub Actions variable DEVFLOW_RUNNER (unset/empty → ubuntu-latest; a value
+# starting with '[' → a fromJSON array of labels; any other value → a bare
+# label). Each of the five also declares a top-level `defaults: run: shell: bash`
+# so run: steps execute under bash on a non-Linux self-hosted runner. The
+# plugin-internal workflows (ci/matcher-probe/version-consolidate/pages) are OUT
+# of scope and keep the hardcoded ubuntu-latest literal — the out-of-scope guard
+# at the end of this block pins that they stay unparameterized.
+for f in devflow devflow-implement devflow-review devflow-runner telemetry-push; do
+  WFF="$WF/$f.yml"
+  # (a) No bare `runs-on: ubuntu-latest` line survives. The parameterized form
+  #     carries 'ubuntu-latest' only as a quoted fallback inside ${{ … }}, so
+  #     the fixed-string `runs-on: ubuntu-latest` (unquoted) no longer appears.
+  assert_eq "#582: $f.yml has no bare 'runs-on: ubuntu-latest'" "no" \
+    "$(grep -qF 'runs-on: ubuntu-latest' "$WFF" && echo yes || echo no)"  # raw-guard-ok: absence pin
+  # (b) Every runs-on uses the DEVFLOW_RUNNER expression: the count of runs-on
+  #     lines equals the count of lines naming vars.DEVFLOW_RUNNER (a
+  #     parameterized runs-on is the only site that names that variable).
+  assert_eq "#582: $f.yml every runs-on uses the DEVFLOW_RUNNER expression" \
+    "$(grep -cE '^[[:space:]]*runs-on:' "$WFF")" \
+    "$(grep -cF 'vars.DEVFLOW_RUNNER' "$WFF")"
+  # (c) Top-level `defaults: run: shell: bash`. The `defaults:` key is column-0
+  #     (top level) and its shell key nests at 4 spaces — distinct from the
+  #     8-space step-level `shell: bash` two of the five already carry.
+  assert_eq "#582: $f.yml declares a top-level 'defaults:' block" "1" \
+    "$(grep -c '^defaults:$' "$WFF")"
+  assert_eq "#582: $f.yml defaults.run.shell is bash" "1" \
+    "$(grep -c '^    shell: bash$' "$WFF")"
+done
+# Positive control (AC12): a sed -E mutation rewriting the parameterized runs-on
+# expression back to a literal `runs-on: ubuntu-latest` turns the presence pin
+# RED — proving the guard catches the guarded regression, not merely its own
+# line vanishing. Routed through the two single-runs-on workflows so the pinned
+# expression literal is unique in the file (assert_pin_red_under requires it).
+for f in devflow-runner telemetry-push; do
+  assert_pin_red_under "#582: $f.yml parameterized runs-on reverts to ubuntu-latest turns pin RED" \
+    'runs-on: ${{ vars.DEVFLOW_RUNNER && (startsWith(vars.DEVFLOW_RUNNER,' \
+    's/runs-on: \$\{\{.*DEVFLOW_RUNNER.*\}\}/runs-on: ubuntu-latest/' \
+    "$WF/$f.yml"
+done
+# Out-of-scope guard: the plugin-internal workflows keep the hardcoded literal
+# and must NOT be parameterized (they run on this repo's GitHub-hosted infra).
+for f in ci matcher-probe version-consolidate pages; do
+  assert_eq "#582: $f.yml (plugin-internal) still uses hardcoded ubuntu-latest" "yes" \
+    "$(grep -qF 'runs-on: ubuntu-latest' "$WF/$f.yml" && echo yes || echo no)"  # raw-guard-ok: presence pin
+  assert_eq "#582: $f.yml (plugin-internal) is NOT parameterized on DEVFLOW_RUNNER" "no" \
+    "$(grep -qF 'vars.DEVFLOW_RUNNER' "$WF/$f.yml" && echo yes || echo no)"  # raw-guard-ok: absence pin
+done
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "opt-in GitHub App tokens — writers full-scope + per-site downscoped (issues #201 + #269)"
 # ────────────────────────────────────────────────────────────────────────────
 # The opt-in PRIMARY GitHub App (vars.DEVFLOW_APP_ID + secrets.DEVFLOW_APP_PRIVATE_KEY)

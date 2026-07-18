@@ -136,9 +136,13 @@ permissions:
   # graph-build time (startup_failure), so these two land together or not at all.
   checks: read
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   run:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.DEVFLOW_RUNNER && (startsWith(vars.DEVFLOW_RUNNER, '[') && fromJSON(vars.DEVFLOW_RUNNER) || vars.DEVFLOW_RUNNER) || 'ubuntu-latest' }}
     outputs:
       engine_is_error: ${{ steps.engine.outputs.is_error }}
       # `|| 'unavailable'` is the load-bearing default: it covers EVERY path on which
