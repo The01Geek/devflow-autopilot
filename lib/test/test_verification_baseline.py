@@ -3176,8 +3176,11 @@ class Pr531RafLocalIter1Tests(_TmpDirTestCase):
         runs = sorted(out.iterdir())
         doc = json.loads((runs[-1] / "verification_baseline.json").read_text(encoding="utf-8"))
         self.assertEqual(len(doc["verification_process_launches"]), 1)
-        # Also prove the specific census row survived (PR #573 review): a len==1
-        # check alone would pass on some other row's launch.
+        # Prove the surviving launch is attributed to THIS session (PR #573
+        # review): a bare len==1 check does not confirm the launch belongs to
+        # sid. provenance.session_id cross-links the launch to its session, and
+        # the census check confirms the input inventory row survived too.
+        self.assertEqual(doc["verification_process_launches"][0]["provenance"]["session_id"], sid)
         self.assertIn(sid, {row["identity"]["session_id"] for row in doc["census"]["local"]})
 
     # AC #63: a compaction boundary event mid-lifecycle is tolerated.
@@ -3190,7 +3193,8 @@ class Pr531RafLocalIter1Tests(_TmpDirTestCase):
         )
         doc = self._run_doc("s-compact", b)
         self.assertEqual(len(doc["verification_process_launches"]), 1)
-        # Prove the specific census row survived (PR #573 review).
+        # Prove the surviving launch is attributed to THIS session (PR #573 review).
+        self.assertEqual(doc["verification_process_launches"][0]["provenance"]["session_id"], "s-compact")
         self.assertIn("s-compact", {row["identity"]["session_id"] for row in doc["census"]["local"]})
 
     # AC #63: two lifecycles in ONE transcript — extraction scopes to the
@@ -3246,7 +3250,8 @@ class Pr531RafLocalIter1Tests(_TmpDirTestCase):
         self.assertEqual(rc, 0)
         doc = json.loads((sorted(self.out.iterdir())[-1] / "verification_baseline.json").read_text(encoding="utf-8"))
         self.assertEqual(len(doc["verification_process_launches"]), 1)
-        # Prove the specific census row survived (PR #573 review).
+        # Prove the surviving launch is attributed to THIS session (PR #573 review).
+        self.assertEqual(doc["verification_process_launches"][0]["provenance"]["session_id"], sid)
         self.assertIn(sid, {row["identity"]["session_id"] for row in doc["census"]["local"]})
 
     def test_cloud_execution_file_is_not_analyzer_input_without_snapshot_flag(self) -> None:
@@ -3300,9 +3305,11 @@ class Pr531RafLocalIter1Tests(_TmpDirTestCase):
         # Not existence-only (PR #573 review): a mapped test gutted to a no-op
         # (or one that merely runs the analyzer without asserting anything) must
         # fail this guard. Parse each owner file and require the named function
-        # to carry at least one real assertion — either an `assert` statement or
-        # a call to a unittest `self.assert*` method — so a rename-guard AND a
-        # substance-guard both hold.
+        # to carry at least one real assertion — an `assert` statement, a call to
+        # a unittest `self.assert*` method, or a bare-name `assert*(...)` helper
+        # call (a module-level free assertion helper) — so a rename-guard AND a
+        # substance-guard both hold. Accepting the bare-name form avoids a
+        # false-FAIL on a mapped test that delegates its checks to such a helper.
         tree_cache: dict[Path, ast.Module] = {}
 
         def _has_real_assertion(fn: ast.FunctionDef) -> bool:
@@ -3315,6 +3322,8 @@ class Pr531RafLocalIter1Tests(_TmpDirTestCase):
                             and isinstance(func.value, ast.Name)
                             and func.value.id == "self"
                             and func.attr.startswith("assert")):
+                        return True
+                    if isinstance(func, ast.Name) and func.id.startswith("assert"):
                         return True
             return False
 
