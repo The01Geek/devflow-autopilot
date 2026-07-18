@@ -1,0 +1,25 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-18T02:07:00Z",
+  "fix_commit_sha": "b97f017946e8da2f642b1350111bc60e9fc5bf2e",
+  "fix_files": ["lib/efficiency-trace.sh", "docs/efficiency-trace.md", "lib/test/run.sh"],
+  "loop_role": "fix",
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": null},
+  "phase3_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+  "phase3_findings": [
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "the ls-remote-succeeds-then-fetch-fails arm (arm E) has a distinct breadcrumb pinned by no test — the fail-open class #532 exists to close", "defect_signature": {"file": "lib/efficiency-trace.sh", "line_range": [1359, 1362], "kind": "uncovered-state-machine-arm"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:code-reviewer", "severity": "Suggestion", "description": "empty-ls-remote arm + a lingering stale refs/remotes/origin/<base> cache ref: synth_base_ref picks the stale cache, contradicting the arm's 'accepted the local base' breadcrumb", "defect_signature": {"file": "lib/efficiency-trace.sh", "line_range": [1352, 1354], "kind": "missed_edge_case"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "docs telemetry-branch parenthetical misdescribes the telemetry flow, which does fast-forward a local ref", "defect_signature": {"file": "docs/efficiency-trace.md", "line_range": [588, 589], "kind": "doc_inaccuracy"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "exact 57/86 count mirrored in a code comment (rot risk)", "defect_signature": {"file": "lib/efficiency-trace.sh", "line_range": [1310, 1311], "kind": "mirror_fact_rot"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "b97f017946e8da2f642b1350111bc60e9fc5bf2e"},
+    {"finding_id": "F-2", "decision": "applied", "commit": "b97f017946e8da2f642b1350111bc60e9fc5bf2e"},
+    {"finding_id": "F-3", "decision": "applied", "commit": "b97f017946e8da2f642b1350111bc60e9fc5bf2e"},
+    {"finding_id": "F-4", "decision": "applied", "commit": "b97f017946e8da2f642b1350111bc60e9fc5bf2e"}
+  ],
+  "convergence_inputs": {"fixes_applied": 4, "fix_diff_lines": 60, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "verification_evidence": {"command": "lib/test/run.sh", "result": "pass", "duration_s": 120},
+  "telemetry": "unavailable"
+}
