@@ -230,6 +230,34 @@ restore the default-token behavior. The read-only review run has the same fail-l
 contract, but under its own `DEVFLOW_REVIEWER_APP_ID` (unset *that* to restore the
 review run's default token) — see the DevFlow-Reviewer section below.
 
+## Startup-lifecycle observability & consumer version skew (issue #537)
+
+The `/devflow:implement` startup lifecycle (see `docs/workflow-triggers.md` and
+`DEVFLOW_SYSTEM_OVERVIEW.md` for the full model) adds **zero** new configuration:
+no new config key, permission, secret, repository variable, service, or install
+mode. It reuses the existing issue-comment workpad, the job's existing token, and a
+gitignored ephemeral JSON handoff record under `.devflow/tmp/` (non-secret,
+advisory, never passed through Claude action settings). Thin cloud installs and
+committed-vendor installs behave identically at runtime.
+
+Because the fix spans **two independently-updated artifacts** — the workflow
+(`devflow-implement.yml`, shipped by `install.sh`) and the plugin/skill + `workpad.py`
+(materialized at the pinned `devflow_version`) — a partially-upgraded consumer sees
+graceful degradation, not breakage:
+
+- **Old workflow + new plugin** — no handoff record is written, so Phase 1 resolves
+  provenance to `unknown` and runs with the neutral "provenance unavailable" wording.
+  The old gate keeps its pre-fix `workpad.py id` duplicate-create risk until the
+  workflow is upgraded.
+- **New workflow + old pinned plugin** — the helper lacks `--checkpoint` /
+  `handoff-state`, so the checkpoint steps warn (`::warning::`) and continue and
+  Phase 1 keeps the legacy `run resumed` wording. The incomplete-vendor guard still
+  fails the job before the action if the vendored `workpad.py` is entirely absent.
+
+**Duplicate-read protection and the truthful lifecycle wording are complete only
+once both the shipped workflow and the pinned plugin carry this fix** — upgrade the
+two halves together (bump `devflow_version` when you update the workflow).
+
 ### Keeping writer-job credentials fresh past the token's 60-minute lifetime
 
 A GitHub App installation token expires **exactly one hour** after it is minted and
