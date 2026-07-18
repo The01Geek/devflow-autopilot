@@ -73,7 +73,27 @@ MODULE_FAILURES_FILE="$(mktemp)"
 # SKIP introduces no new tool into the selection) — so a gate that self-skips is visible in
 # the summary and can never be mistaken for a clean pass. The renderer is lib/test/summary.sh.
 SKIPS_FILE="$(mktemp)"
-trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE"' EXIT   # protect tally files immediately; widened below once the bundle temp exists
+# Whole-run temp cleanup is a single EXIT trap over an APPEND-ONLY registry: every whole-run
+# temp file/dir is registered at its creation site via _suite_tmp_file/_suite_tmp_dir. The
+# previous idiom — re-registering a longer `trap … EXIT` line at each later creation site —
+# REPLACES the whole handler each time, so any rewrite that forgot an earlier entry silently
+# un-covered it (PR #539 review: SKIPS_FILE and IMPL_SKILL_BUNDLE were dropped by later
+# rewrites and leaked on every run, and MAXI_BUNDLE was created ~31k lines before its trap
+# line, leaking on any early `exit 1` in between). Registered here, before the first
+# assertion, so no whole-run temp ever precedes its coverage.
+_SUITE_TMP_FILES=(); _SUITE_TMP_DIRS=()
+_suite_tmp_file() { _SUITE_TMP_FILES+=("$1"); }
+_suite_tmp_dir()  { _SUITE_TMP_DIRS+=("$1"); }
+_suite_cleanup() {
+  # Length guards keep the empty-array "${arr[@]}" expansions off bash 4.0–4.3's set -u trap.
+  [ "${#_SUITE_TMP_FILES[@]}" -gt 0 ] && rm -f "${_SUITE_TMP_FILES[@]}"
+  [ "${#_SUITE_TMP_DIRS[@]}" -gt 0 ] && rm -rf "${_SUITE_TMP_DIRS[@]}"
+  return 0
+}
+trap _suite_cleanup EXIT
+_suite_tmp_file "$RESULTS_FILE"
+_suite_tmp_file "$MODULE_FAILURES_FILE"
+_suite_tmp_file "$SKIPS_FILE"
 # shellcheck source=lib/test/summary.sh disable=SC1091
 . "$LIB/test/summary.sh"
 # shellcheck source=lib/test/module-harness.sh disable=SC1091
@@ -160,7 +180,7 @@ _build_skill_bundle() {
   done
 }
 IMPL_SKILL_BUNDLE="$(mktemp)" || { echo "run.sh: could not allocate the implement-skill bundle temp" >&2; exit 1; }
-trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE" "$IMPL_SKILL_BUNDLE"' EXIT
+_suite_tmp_file "$IMPL_SKILL_BUNDLE"
 # Build the member list as an ARRAY (not a space-joined string) so a checkout path
 # containing a space is preserved rather than word-split — the stems in IMPL_PHASE_STEMS
 # are space-free identifiers, but $LIB (the checkout dir) is not guaranteed to be.
@@ -192,7 +212,7 @@ REVIEW_GATED_PHASE_STEMS="phase-0-3-6-blocker-recheck phase-0-6-stale-prose-lint
 REVIEW_PHASE_STEMS="$REVIEW_DEFAULT_PHASE_STEMS $REVIEW_GATED_PHASE_STEMS"
 REVIEW_ROOT="$LIB/../skills/review/SKILL.md"
 REVIEW_BUNDLE="$(mktemp)" || { echo "run.sh: could not allocate the review-skill bundle temp" >&2; exit 1; }
-trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE" "$IMPL_SKILL_BUNDLE" "$REVIEW_BUNDLE"' EXIT
+_suite_tmp_file "$REVIEW_BUNDLE"   # registry, never a fresh `trap … EXIT` (it would REPLACE _suite_cleanup)
 _review_members=("$REVIEW_ROOT")
 for _s in $REVIEW_PHASE_STEMS; do
   _review_members+=("$LIB/../skills/review/phases/${_s}.md")
@@ -1054,10 +1074,134 @@ assert_eq "deferred.labels: SKILL routes a failed label-apply to a durable workp
 # when deferred work was filed but no issue numbers were captured).
 assert_pin_unique "deferred.labels: SKILL Phase 4.0 surfaces an empty-issue-numbers capture" 'captured no issue numbers' "$DEF_SKILL"
 
-# The focused review-and-fix contract module owns the max-iteration resolver and
-# clamp checks. The global suite keeps this path variable because later global
-# guard and mutation proofs still target the same shipped skill.
-MAXI_SKILL="$LIB/../skills/review-and-fix/SKILL.md"
+# ────────────────────────────────────────────────────────────────────────────
+echo "devflow_review_and_fix.max_iterations (schema + resolution)"
+# ────────────────────────────────────────────────────────────────────────────
+# The /devflow:review-and-fix fix-loop cap is read from config via config-get.sh
+# (default 5) and then clamped INLINE in skills/review-and-fix/references/loop-control.md: a value
+# below 1 → floor 1, a non-integer/empty/unparseable value (or a resolver failure)
+# → 5, with no upper bound. The clamp itself is prompt bash (not a script — AC3
+# mandates the SKILL read directly via config-get.sh), so we pin (a) the
+# schema/example contract, (b) the resolver read behavior that feeds the clamp,
+# and (c) the clamp logic via a function kept byte-aligned with the SKILL block.
+MAXI_SCHEMA="$LIB/../.devflow/config.schema.json"
+MAXI_EXAMPLE="$LIB/../.devflow/config.example.json"
+MAXI_PROP='.properties.devflow_review_and_fix.properties.max_iterations'
+assert_eq "max_iterations: schema type is integer" "integer" \
+  "$(jq -r "$MAXI_PROP.type" "$MAXI_SCHEMA")"
+assert_eq "max_iterations: schema minimum is 1" "1" \
+  "$(jq -r "$MAXI_PROP.minimum" "$MAXI_SCHEMA")"
+assert_eq "max_iterations: schema default is 5" "5" \
+  "$(jq -r "$MAXI_PROP.default" "$MAXI_SCHEMA")"
+assert_eq "max_iterations: schema has a non-empty description" "yes" \
+  "$(jq -e "$MAXI_PROP.description | type == \"string\" and (length > 0)" "$MAXI_SCHEMA" >/dev/null && echo yes || echo no)"
+assert_eq "max_iterations: example value matches schema default" \
+  "$(jq -r "$MAXI_PROP.default" "$MAXI_SCHEMA")" \
+  "$(jq -r '.devflow_review_and_fix.max_iterations' "$MAXI_EXAMPLE")"
+
+# Resolver-read behavior (the part the SKILL invokes; the clamp is downstream).
+MAXI_CFG="$(probe_tmp 'max_iterations resolver fixture temp')"
+printf '%s' '{"devflow_review_and_fix":{"max_iterations":9}}' > "$MAXI_CFG"
+assert_eq "max_iterations: configured integer read back verbatim" "9" \
+  "$("$CG" .devflow_review_and_fix.max_iterations 5 "$MAXI_CFG")"
+# Key absent → resolver emits the default 5 (the no-config / unset case; AC: default 5).
+printf '%s' '{"devflow_review_and_fix":{}}' > "$MAXI_CFG"
+assert_eq "max_iterations: unset key → resolver default 5" "5" \
+  "$("$CG" .devflow_review_and_fix.max_iterations 5 "$MAXI_CFG")"
+assert_eq "max_iterations: missing config file → resolver default 5" "5" \
+  "$("$CG" .devflow_review_and_fix.max_iterations 5 /no/such/config.json)"
+# A below-floor value (0) and a non-integer ("abc") are passed through verbatim by
+# the resolver — the review-and-fix inline clamp (references/loop-control.md) turns these into 1 and 5 respectively.
+printf '%s' '{"devflow_review_and_fix":{"max_iterations":0}}' > "$MAXI_CFG"
+assert_eq "max_iterations: below-floor value passed through to clamp (0)" "0" \
+  "$("$CG" .devflow_review_and_fix.max_iterations 5 "$MAXI_CFG")"
+printf '%s' '{"devflow_review_and_fix":{"max_iterations":"abc"}}' > "$MAXI_CFG"
+assert_eq "max_iterations: non-integer value passed through to clamp (abc)" "abc" \
+  "$("$CG" .devflow_review_and_fix.max_iterations 5 "$MAXI_CFG")"
+rm -f "$MAXI_CFG"
+
+# The review-and-fix inline clamp, applied to the resolver output above. Mirrors the exact
+# logic in skills/review-and-fix/references/loop-control.md so the floor/fallback/no-upper-bound ACs
+# are exercised, not just asserted in prose. Keep byte-aligned with the references/loop-control.md clamp block.
+maxi_clamp() {
+  local v="$1" rc="${2:-0}"
+  if [ "$rc" -ne 0 ] || ! printf '%s' "$v" | grep -Eq '^-?[0-9]+$'; then
+    printf '5\n'
+  elif [ "$v" -lt 1 ]; then
+    printf '1\n'
+  else
+    printf '%s\n' "$v"
+  fi
+}
+assert_eq "max_iterations clamp: valid value honored"          "9"  "$(maxi_clamp 9)"
+assert_eq "max_iterations clamp: large value honored (no cap)"  "42" "$(maxi_clamp 42)"
+assert_eq "max_iterations clamp: 0 → floor 1"                  "1"  "$(maxi_clamp 0)"
+assert_eq "max_iterations clamp: negative → floor 1"           "1"  "$(maxi_clamp -3)"
+assert_eq "max_iterations clamp: non-integer → 5"              "5"  "$(maxi_clamp abc)"
+assert_eq "max_iterations clamp: float → 5"                    "5"  "$(maxi_clamp 2.5)"
+assert_eq "max_iterations clamp: empty → 5"                    "5"  "$(maxi_clamp '')"
+assert_eq "max_iterations clamp: resolver failure (rc≠0) → 5"  "5"  "$(maxi_clamp '' 2)"
+
+# Drift guard: maxi_clamp above is a hand-maintained copy of the review-and-fix inline
+# clamp, so the clamp assertions would keep passing even if the *shipped* clamp in
+# references/loop-control.md were edited. Pin the load-bearing tokens in the real bundle so a change to
+# the regex (negative-aware), the below-1 floor, or the default-5 fallback fails here
+# instead of silently passing against the copy.
+# #530: review-and-fix is now a thin root + references/*.md. The literal-pin corpus below
+# targets the whole shipped bundle, so MAXI_SKILL/ST_RAF resolve against a byte-faithful
+# concatenation of the shipped root + every reference (the whole POST-split skill surface,
+# NOT a reconstruction of the pre-split monolith: the split deliberately rewrote content, and
+# the reassembled surface exceeds the monolith by a documented split-growth delta (the
+# `review-and-fix-split-cumulative-growth` figure in docs/review-and-fix-budget.md, pinned live in
+# the #530 budget block below), rebuilt once per run. New #530 pins that must be file-specific
+# pass an explicit reference-file arg.
+# #539 review (Important 1, over-graded shape 3): this bundle is content-pinned selectively (the
+# operative pins below + the #530 control-flow pressure pins + the live word-budget arithmetic),
+# NOT by a full reassembled-bundle-vs-baseline byte diff. A full byte diff has no valid baseline
+# to run against — the monolith is not byte-preserved (there is a documented split-growth delta), so a
+# diff would either be permanently RED or require a frozen expected-bundle snapshot that just
+# relocates the pinning problem and rots on every legitimate edit. Word-count equality is not
+# content equality, so an equal-length reword of an UNPINNED operative sentence can still ship
+# desk-green; that residual coverage ceiling is accepted (the reviewer annotated it a suspected
+# over-grade, single-source, no Phase-2 FAIL) and closed incrementally by pinning load-bearing
+# sentences as they are identified, not by an infeasible whole-bundle byte diff.
+# The concat carries a `.md` suffix so pin-corpus-lint infers markdown comment syntax.
+MAXI_ROOT="$LIB/../skills/review-and-fix/SKILL.md"
+MAXI_BUNDLE="$(mktemp)" || { echo "run.sh: could not allocate the review-and-fix bundle temp" >&2; exit 1; }
+_suite_tmp_file "$MAXI_BUNDLE"   # pre-rename path (covers an exit landing before the mv)
+# #539 review (Suggestion 1): guard the rename like the mktemp above. A failed mv would
+# leave $MAXI_BUNDLE pointing at a nonexistent .md path; the empty bundle then fails loudly
+# downstream (per-member FAILs) but with a misleading cause — surface the true cause here.
+mv "$MAXI_BUNDLE" "$MAXI_BUNDLE.md" || { echo "run.sh: could not rename the review-and-fix bundle temp to .md" >&2; exit 1; }
+MAXI_BUNDLE="$MAXI_BUNDLE.md"
+_suite_tmp_file "$MAXI_BUNDLE"   # the real .md path used for the rest of the run
+: > "$MAXI_BUNDLE"
+# Build the bundle through the SAME shared fail-closed builder the implement and review
+# bundles use (_build_skill_bundle → _bundle_member_usable): a missing / empty / unreadable
+# member records a suite FAIL instead of silently dropping — a silent partial bundle would turn
+# the absence/count pins that read $MAXI_BUNDLE (e.g. the #456 grep-and-echo-no guard, LR_SCHEMA)
+# into vacuous passes. The array preserves a $LIB path containing a space.
+_maxi_members=("$MAXI_ROOT")
+for _mf in "$LIB/../skills/review-and-fix/references"/*.md; do _maxi_members+=("$_mf"); done
+_build_skill_bundle "review-and-fix" "$MAXI_BUNDLE" "${_maxi_members[@]}"
+# #539 review (Suggestion, fail-open-glob-shrink): the fail-closed _bundle_member_usable
+# predicate above catches a present-but-empty/unreadable member, but a FULLY DELETED reference
+# just shrinks the references/*.md glob — the loop would assemble a smaller bundle and every
+# $MAXI_BUNDLE pin would still pass against the surviving content. The exact 8-name set is pinned
+# in the #530 budget block, but that coupling is remote; assert the member count
+# adjacent to the build so a dropped reference is caught where the bundle is built. 9 = thin root
+# + 8 references (kept in lockstep with RAF_EXPECTED_REFS in the #530 budget block).
+assert_eq "#530/#539 review-and-fix bundle assembled all 9 members (thin root + 8 references)" "9" \
+  "${#_maxi_members[@]}"
+MAXI_SKILL="$MAXI_BUNDLE"
+# max_iterations clamp presence pins (negative-aware regex, below-1 floor, default-5 fallback).
+# #539 review (Suggestion 5): these prove the tokens SURVIVE. assert_pin_red_under (the mutation
+# primitive that would prove a wiring regression — flipped comparison / dropped negative-awareness
+# / changed default — goes RED) is defined FAR LATER in this file than here, so the behavioral
+# mutation pins for this clamp live in the #530 pressure block below, after its definition.
+assert_pin_unique "max_iterations clamp: SKILL keeps the negative-aware integer regex" "'^-?[0-9]+\$'" "$MAXI_SKILL"
+assert_pin_unique "max_iterations clamp: SKILL keeps the below-1 floor" '"$MAX_ITERS" -lt 1' "$MAXI_SKILL"
+assert_pin_unique "max_iterations clamp: SKILL keeps the default-5 fallback" 'MAX_ITERS=5' "$MAXI_SKILL"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "severity thresholds (schema + example + config-get resolution + SKILL pins) (#251)"
@@ -1158,7 +1302,7 @@ assert_eq "sev e2e: receiving section configured value honored" "suggestion" "$(
 assert_eq "sev e2e: receiving section unset → default"      "critical"  "$(sev_resolve '{"receiving_review":{}}' .receiving_review.fix_severity_threshold critical)"
 
 # operative-sentence pins in the three SKILL.md files (the sentence carrying the behavior)
-ST_RAF="$LIB/../skills/review-and-fix/SKILL.md"
+ST_RAF="$MAXI_BUNDLE"   # #530: root+references bundle (see MAXI_BUNDLE above)
 ST_REV="$REVIEW_BUNDLE"
 ST_RCV="$LIB/../skills/receiving-code-review/SKILL.md"
 # each SKILL reads its key via config-get.sh (already cloud-allowlisted — no new helper)
@@ -1204,7 +1348,7 @@ assert_pin_unique "sev(rev): Verdict-Criteria summary REJECT line is threshold-d
 assert_pin_unique "sev(rev): Verdict-Criteria summary APPROVE-with-notes line is threshold-driven (mirror of rule 6)" 'Only findings below the verdict threshold → APPROVE with notes' "$ST_REV"
 # #425: agent_overrides `iterations: "first-only"` roster scoping. The engine's Phase 3.1
 # exclusion (skills/review/SKILL.md) and the Step-2.6 shadow-not-scoped boundary
-# (skills/review-and-fix/SKILL.md) are prose-driven dispatch contracts, pinned per the
+# (skills/review-and-fix/references/shadow-review.md) are prose-driven dispatch contracts, pinned per the
 # suite's SKILL.md convention. The shadow-not-scoped sentence is a behavioral-fix pin routed
 # through assert_pin_red_under: deleting the sentence must go RED (a thinned shadow is the
 # regression this exists to catch).
@@ -2931,7 +3075,7 @@ assert_pin_red_under "#557: survived-unfixed reconciliation is operative (stale-
 # definition — calling it up at the ST_RAF presence pins would be a silent command-not-found).
 # Operative sentence: the shadow always dispatches the FULL roster regardless of any iterations
 # value. Mutation deletes the sentence's line; the pin must flip PASS->FAIL (a thinned shadow is
-# the regression). $ST_RAF (skills/review-and-fix/SKILL.md) was set far above and persists.
+# the regression). $ST_RAF (the root+references bundle MAXI_BUNDLE; the pinned sentence lives in references/shadow-review.md) was set far above and persists.
 assert_pin_red_under "#425(raf): shadow-not-scoped sentence is operative (thinning the shadow goes RED)" \
   'the shadow always dispatches the **full** expected roster above regardless of any' \
   's/dispatches the \*\*full\*\* expected roster above regardless of any/dispatches a reduced roster on some/' "$ST_RAF"
@@ -5521,7 +5665,7 @@ assert_pin_red_on_removal "#194 (B) review-and-fix: deleting the named-assertion
 # operative line; the mutation pattern is a metachar-free sub-phrase of that line, so it
 # addresses it cleanly. NOTE these are self-referential *dogfood* pins, not a demonstration of
 # assert_pin_red_under's discrimination over assert_pin_red_on_removal: two of the three targets
-# (phase-2-implement.md, review-and-fix/SKILL.md) hold the whole rule on a single markdown line,
+# (phase-2-implement.md, review-and-fix/references/fixing.md) hold the whole rule on a single markdown line,
 # so `/phrase/d` there IS a whole-line strip byte-equivalent to assert_pin_red_on_removal's
 # grep -vF (only $EXT_IMPL, hard-wrapped across lines, splits operative from framing). The
 # operative-vs-framing discrimination the primitive adds is proven by the synthetic 'op'/'frame'
@@ -5752,7 +5896,7 @@ assert_pin_unique "#236 (B) phase-3.3: bounded re-review re-runs the observabili
 #   (2) the Phase 3.3 seam authors .devflow/tmp scratch with the Write tool, not `>`;
 #   (3) a cloud claude-code-action denial is NOT the local-tier classifier and NOT license
 #       to leave the instrumented loop.
-# The (1) obligation lives in review-and-fix/SKILL.md ($MAXI_SKILL) and is ALSO restated for
+# The (1) obligation lives in review-and-fix/references/fixing.md ($MAXI_SKILL bundle) and is ALSO restated for
 # the inline driver at the implement Phase 3.3 seam (phases/phase-3-review.md, inside
 # $DEF_SKILL); (2)+(3) live at that seam too. Each behavioral operative sentence is pinned
 # removal-proof (assert_pin_red_on_removal, PASS->FAIL on a targeted half-revert) — including
@@ -8146,7 +8290,7 @@ ECH="$LIB/test/extract-command-heads.py"
 E363=
 E484=
 E484="$(mktemp -d)" || { echo "FAIL  #484: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE" "$IMPL_SKILL_BUNDLE"; rm -rf "$E363" "$E484"' EXIT
+_suite_tmp_dir "$E484"
 
 # Heads deliberately left ungranted on the implement profile, each with a rationale:
 #   gh pr checkout — the inline engine is already on the branch; checking out a PR
@@ -8258,6 +8402,11 @@ assert_eq "#484 recursive roster includes nested implement phase files" "yes" \
   "$(printf '%s\n' "$_impl_files" | grep -qxF "$LIB/../skills/implement/phases/phase-4-documentation.md" && echo yes || echo no)"
 assert_eq "#484 recursive roster includes the dispatched requesting-code-review skill" "yes" \
   "$(printf '%s\n' "$_impl_files" | grep -qxF "$LIB/../skills/requesting-code-review/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: roster membership assertion is scoped to the extractor input
+# #539 shadow (pr-test-analyzer): pin a review-and-fix references member too — a future
+# tightening of the find pattern (e.g. review* -> review) would silently drop all the
+# references from the implement-profile head audit while the two pins above stay green.
+assert_eq "#539 recursive roster includes the review-and-fix step references" "yes" \
+  "$(printf '%s\n' "$_impl_files" | grep -qxF "$LIB/../skills/review-and-fix/references/loop-control.md" && echo yes || echo no)"  # raw-guard-ok: roster membership assertion is scoped to the extractor input
 assert_eq "#484 every implement-tier head is granted or withheld (zero ungranted real heads)" "" \
   "$(for f in $_impl_files; do _impl_ungranted "$f" "$IMPL_YML" implement-block; done | sort -u | tr '\n' ' ' | sed 's/ *$//')"
 
@@ -8265,14 +8414,18 @@ assert_pin_red_on_removal "#484 inline workpad shorthand must expand to the port
   'Every inline backtick instruction beginning with `workpad.py` in the phase references must be expanded before tool use' \
   "$LIB/../skills/implement/SKILL.md"
 
-# AC: review-and-fix/SKILL.md against devflow.yml's hoisted TOOLS — gh pr checkout is
-# granted there (the manual /devflow:review-and-fix path checks out the PR head), so
-# every head it emits is granted or suppressed.
-assert_eq "#484 every review-and-fix head is granted by devflow.yml TOOLS (gh pr checkout granted there)" "" \
-  "$(_manual_ungranted "$LIB/../skills/review-and-fix/SKILL.md" "$LIB/../.github/workflows/devflow.yml" tools-line | sort -u | tr '\n' ' ' | sed 's/ *$//')"
+# AC (#484 + #530): the WHOLE review-and-fix bundle — thin root + every references/*.md —
+# against devflow.yml's hoisted TOOLS. $MAXI_SKILL is the root+references concatenation
+# (see its definition), so this is now a whole-bundle head scan on the manual tier rather
+# than the pre-#530 single-SKILL.md check. gh pr checkout is granted there (the manual
+# /devflow:review-and-fix path checks out the PR head at Step 0.5, in
+# references/loop-control.md — part of the scanned bundle), so every head
+# any bundle file emits is granted or suppressed.
+assert_eq "#484/#530 every review-and-fix bundle (root+references) head is granted by devflow.yml TOOLS" "" \
+  "$(_manual_ungranted "$MAXI_SKILL" "$LIB/../.github/workflows/devflow.yml" tools-line | sort -u | tr '\n' ' ' | sed 's/ *$//')"
 sed -E 's/, Bash\(gh pr checkout:\*\)//' "$LIB/../.github/workflows/devflow.yml" > "$E484/manual-no-checkout.yml"
 assert_eq "#484 manual gh pr checkout grant is removal-proof" "yes" \
-  "$(_manual_ungranted "$LIB/../skills/review-and-fix/SKILL.md" "$E484/manual-no-checkout.yml" tools-line | grep -qxF 'gh pr checkout' && echo yes || echo no)"
+  "$(_manual_ungranted "$MAXI_SKILL" "$E484/manual-no-checkout.yml" tools-line | grep -qxF 'gh pr checkout' && echo yes || echo no)"
 
 # Skill-level recovery contracts: unit tests prove the helper behavior, while
 # these removal pins prove the orchestrator still requests a failure signal,
@@ -9485,7 +9638,8 @@ assert_pin_red_under "#376 w2-phase-five-kinds: phase-2-implement.md §2.3.4 ste
 # Two coupled skill edits, each new operative sentence pinned through assert_pin_red_under
 # (#375) with a mutation that removes ONLY that operative sentence — so a framing-only pin is
 # reported RED at the desk, per AC8. The default file for assert_pin_red_under is $MAXI_SKILL
-# (skills/review-and-fix/SKILL.md), so the Edit-1 (Step 3 item 3b) pins omit the file arg;
+# (the reassembled root+references bundle MAXI_BUNDLE; item 3b of Step 3 now lives in
+# references/fixing.md within it), so the Edit-1 (item 3b of Step 3) pins omit the file arg;
 # the Edit-2 (§3.2) pins target phase-3-review.md by path so AC5's count assertion reads the
 # owning phase file, not the merged bundle.
 P3_FILE="$IMPL_PHASES_DIR/phase-3-review.md"
@@ -9587,7 +9741,7 @@ assert_pin_unique "#377 w3-triage-carveout-intact: §3.2 #193 stale-AC carve-out
 # drift-guarded fix-loop mapping table, ignore-aware command forms, a termination rule, and the
 # verify half of a fix-authoring test-first gate; Step 3 gains the gate itself and Step 4.5 gains
 # one defining clause. The acceptance-criterion-bearing operative clauses below are pinned through assert_pin_red_under
-# (default file $MAXI_SKILL = skills/review-and-fix/SKILL.md). The retained #377 Wave-3 pins
+# (default file $MAXI_SKILL = the reassembled thin-root + references/*.md bundle, MAXI_BUNDLE). The retained #377 Wave-3 pins
 # (operative / frequency / delta-scope / trigger-gating / gate-umbrella / evidence-routing /
 # finding-disposition) stay above; the obsolete per-sweep-reference and negative-tail pins were
 # removed with the enumeration.
@@ -9757,7 +9911,8 @@ assert_pin_red_under "#478 AC10 step-4.5 clause: the recorded grade tallies unde
 
 # AC5 — routing-marker drift lint, driven from here with BOTH arms. Each closed-vocab marker present
 # in the §2.3 sweep bodies (phase-2-implement.md, "Sweep selection" preamble through "### 2.4 Test")
-# must have a mapping-table row in item 3b (skills/review-and-fix/SKILL.md, between the BEGIN/END
+# must have a mapping-table row in item 3b (skills/review-and-fix/references/fixing.md, read via the
+# $MAXI_SKILL bundle, between the BEGIN/END
 # fix-loop mapping table anchors). The lint echoes GREEN when every present marker is mapped, RED
 # when one is not. GREEN arm: the real files. RED arm: a scratch SKILL copy with every
 # '## Devflow Reflection' line stripped (including its mapping-table row) while the marker stays in
@@ -9780,8 +9935,8 @@ p478_sweep_bodies() {
 # a genuine dropped-row drift. (The BEGIN side was already fail-loud: no BEGIN -> empty table -> RED.)
 p478_maptable() {
   awk '
-    /BEGIN fix-loop mapping table/ { f=1; buf=""; next }
-    /END fix-loop mapping table/   { if (f) printf "%s", buf; f=0; next }
+    /fix-loop-mapping-table-start/ { f=1; buf=""; next }
+    /fix-loop-mapping-table-end/   { if (f) printf "%s", buf; f=0; next }
     f { buf = buf $0 "\n" }
   ' "$1"
 }
@@ -9833,7 +9988,7 @@ rm -f "$P478_MUT_DEST"
 # unmapped -> RED. This proves the routing lint's own END boundary fails LOUD on a rename/removal
 # rather than silently widening the table region to EOF and masking a real drift.
 P478_MUT_END="$(probe_tmp '#478 maptable END-anchor fail-closed setup')"
-grep -vF -- 'END fix-loop mapping table' "$MAXI_SKILL" > "$P478_MUT_END"
+grep -vF -- 'fix-loop-mapping-table-end' "$MAXI_SKILL" > "$P478_MUT_END"
 assert_eq "#478 maptable END-anchor fail-closed: removing the END anchor flips the routing lint RED (no silent widen to EOF)" \
   "RED" "$(p478_routing_lint "$P478_MUT_END" "$P478_P2")"
 rm -f "$P478_MUT_END"
@@ -11465,8 +11620,8 @@ for SKILL_DIR in "$LIB"/../skills/*/; do
   # The invocation line alone is half the contract — the step must also tell the
   # model to HONOR the helper's exit code (surface a non-zero exit, don't silently
   # proceed). Pin a BLOCK-UNIQUE fragment of that prose, NOT a generic one: the
-  # phrase "exits non-zero" recurs elsewhere in review/SKILL.md and
-  # review-and-fix/SKILL.md (their dismiss-stale / config-get prose), so a generic
+  # phrase "exits non-zero" recurs elsewhere in review/SKILL.md and the
+  # review-and-fix references (their dismiss-stale / config-get prose), so a generic
   # grep would false-pass for those two skills even if the prompt-extension block's
   # own exit-code prose were deleted. This fragment appears ONLY in the block, so
   # the guard goes red iff the block's exit-code handling is actually removed.
@@ -20606,11 +20761,11 @@ assert_eq "et-fresh(R18): the distinct 'could not be pruned' decline breadcrumb 
 rm -rf "$ETF18_ORIGIN" "$ETF18_REPO"
 
 # T5 → AC5: the fix-commit subject literal is a coupled TWO-SITE invariant —
-# skills/review-and-fix/SKILL.md item 6 (the producer) ↔ lib/efficiency-trace.sh
+# skills/review-and-fix/references/fixing.md item 6 (the producer) ↔ lib/efficiency-trace.sh
 # (the parser). Both sites must carry it; a targeted edit to either turns RED.
-ETSY_RAF="$LIB/../skills/review-and-fix/SKILL.md"
+ETSY_RAF="$MAXI_BUNDLE"   # #530: root+references bundle
 ETSY_ETSH="$LIB/efficiency-trace.sh"
-assert_eq "et-synth(T5): fix-commit subject literal present in SKILL.md item 6 (producer site)" "yes" \
+assert_eq "et-synth(T5): fix-commit subject literal present in fixing.md item 6 (producer site)" "yes" \
   "$([ "$(pin_count 'fix: address review findings (iteration' "$ETSY_RAF")" -ge 1 ] && echo yes || echo no)"
 assert_eq "et-synth(T5): fix-commit subject literal present in efficiency-trace.sh (parser site)" "yes" \
   "$([ "$(pin_count 'fix: address review findings (iteration' "$ETSY_ETSH")" -ge 1 ] && echo yes || echo no)"
@@ -20621,7 +20776,7 @@ assert_pin_red_on_removal "et-synth(T5): editing the commit-subject literal in e
 # no-deferral instruction and prove the pin catches the guarded regression — a
 # mutation that re-authorizes deferring the Write (the exact bug AC1 fixes) while
 # leaving the framing clause ("fused to this fix-commit moment") intact.
-assert_pin_red_under "et-synth(T1): SKILL.md item 6 operative no-deferral clause flips RED when deferral is re-authorized" \
+assert_pin_red_under "et-synth(T1): fixing.md item 6 operative no-deferral clause flips RED when deferral is re-authorized" \
   'do not defer this Write to a later "persist" step' \
   's/do not defer this Write to a later "persist" step/you may defer this Write to a later persist step/' \
   "$ETSY_RAF"
@@ -21685,13 +21840,35 @@ rm -rf "$LR_SC_REPO"
 #     unconditional top-level fields in SKILL.md minus `shadow` and
 #     `parked_class_sweep` (convergence-only), `park_calibration`
 #     (convergence-only — written by the Step 2.6 evidence gate, issue #557),
-#     and `promotion_provenance` (conditional on promoted iterations) — all four
+#     `promotion_provenance` (conditional on promoted iterations), and the #530
+#     navigation stamps `current_step`/`current_substep`/`pending_dispatch`
+#     (best-effort continuation operands, not effectiveness/cost telemetry) — all
 #     are subtracted by the `-Ev` filter below. FAILs if an unconditional field is
 #     added/removed on either side.
 LR_CONST="$(grep -E '^ITER_EXPECTED_FIELDS=' "$LIB/efficiency-trace.sh" | sed -E 's/^ITER_EXPECTED_FIELDS=//; s/"//g' | tr ' ' '\n' | grep -v '^$' | sort -u)"
-LR_SCHEMA="$(sed -n '/^### Schema$/,/^```$/p' "$MAXI_SKILL" | grep -E '^  "[A-Za-z0-9_]+":' | sed -E 's/^  "([A-Za-z0-9_]+)":.*/\1/' | grep -Ev '^(shadow|promotion_provenance|parked_class_sweep|park_calibration)$' | sort -u)"
+LR_SCHEMA="$(sed -n '/^### Schema$/,/^```$/p' "$MAXI_SKILL" | grep -E '^  "[A-Za-z0-9_]+":' | sed -E 's/^  "([A-Za-z0-9_]+)":.*/\1/' | grep -Ev '^(shadow|promotion_provenance|parked_class_sweep|park_calibration|current_step|current_substep|pending_dispatch)$' | sort -u)"
 assert_eq "loop_role #170: ITER_EXPECTED_FIELDS single-source == SKILL.md unconditional schema fields" \
   "$LR_SCHEMA" "$LR_CONST"
+
+# (5b) #539 review (Suggestion, test_gap): the three #530 navigation stamps are subtracted
+#     from LR_SCHEMA by the `-Ev` filter above — correctly, since they are best-effort
+#     continuation operands, not effectiveness/cost telemetry. But that subtraction means a
+#     future edit that DROPS a nav field from the schema leaves LR_SCHEMA excluding a field that
+#     no longer appears, so the equality test stays GREEN and the durable-resume contract (issue
+#     #530 — the whole point of the split) silently regresses. Pin each positively so a drop goes
+#     RED at the desk. The `grep -qx` membership check below cannot pass on an absent field
+#     (empty membership -> "no" -> RED), so it is non-vacuous by construction.
+# Scope the presence check to the ### Schema fence itself, not the whole bundle: a future
+# edit that RELOCATED a nav field out of the schema block into prose elsewhere would keep a
+# bundle-wide grep green while silently desyncing the schema from ITER_EXPECTED_FIELDS via the
+# `-Ev` subtraction above (issue #539 shadow, pr-test-analyzer). LR_SCHEMA_ALL is LR_SCHEMA
+# without the `-Ev` exclusion — exactly the schema-block field set — so asserting each nav field
+# is a member goes RED on a drop OR a relocation-out-of-block, the tighter guard the comment claims.
+LR_SCHEMA_ALL="$(sed -n '/^### Schema$/,/^```$/p' "$MAXI_SKILL" | grep -E '^  "[A-Za-z0-9_]+":' | sed -E 's/^  "([A-Za-z0-9_]+)":.*/\1/' | sort -u)"
+for _navf in current_step current_substep pending_dispatch; do
+  assert_eq "#530/#539 resume-state: $_navf nav field present in the ### Schema block (not just the bundle)" "yes" \
+    "$(printf '%s\n' "$LR_SCHEMA_ALL" | grep -qx "$_navf" && echo yes || echo no)"
+done
 
 # (6) --self-check NEVER ABORTS on an unparseable iter file (issue #170 AC: every
 #     new path exits 0 on an unparseable iter-N.json). The script runs under
@@ -22288,7 +22465,7 @@ rm -rf "$TB_MB_REPO"
 
 # Grep pins (AC1/AC19/AC22): the SKILL mirrors + workflows + docs carry the new
 # telemetry-branch contract; a revert turns the suite RED.
-TB_RAF="$LIB/../skills/review-and-fix/SKILL.md"; TB_REV="$REVIEW_BUNDLE"
+TB_RAF="$MAXI_BUNDLE"; TB_REV="$REVIEW_BUNDLE"   # #530: TB_RAF=root+references bundle
 assert_eq "tb(#441 AC1): review-and-fix Loop-Exit persists via --persist (single code path)" "yes" \
   "$([ "$(pin_count '/../../lib/efficiency-trace.sh --persist --workpad-dir ".devflow/tmp/review/<slug>/<run-id>" --slug "<slug>"' "$TB_RAF")" -ge 1 ] && echo yes || echo no)"
 assert_eq "tb(#441 AC1): review Phase 4.5 persists via --persist (unified store)" "yes" \
@@ -26963,7 +27140,7 @@ for a in $PRT_AGENTS; do
   # positively so a future edit that desyncs review-and-fix's example roster from the
   # engine's actual dispatch set turns this row red instead of shipping silently.
   assert_eq "#141 fix-loop skill references devflow:$a (review-and-fix roster rewired)" \
-    "yes" "$(grep -qF "devflow:$a" "$FDROOT/skills/review-and-fix/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: loop body: literal interpolates the $a loop variable, not a static pin
+    "yes" "$(grep -qF "devflow:$a" "$MAXI_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: loop body: literal interpolates the $a loop variable, not a static pin. #539 review (Suggestion): scan the whole root+references bundle so roster prose migrating into a reference stays covered.
   assert_eq "#141 agents/$a.md frontmatter declares name: $a (dispatch target resolves)" \
     "yes" "$(grep -qE "^name: $a\$" "$FDROOT/agents/$a.md" && echo yes || echo no)"
   assert_eq "#141 resolver allowlists devflow:$a (override key resolves)" \
@@ -27177,7 +27354,7 @@ assert_eq "#142 resolver allowlists devflow:requesting-code-review (override key
 assert_eq "#142 config schema declares the devflow:requesting-code-review override key" \
   "yes" "$(grep -qF '"devflow:requesting-code-review"' "$FDROOT/.devflow/config.schema.json" && echo yes || echo no)"
 assert_eq "#142 fix-loop skill applies devflow:receiving-code-review principles (call-site rewired)" \
-  "yes" "$(grep -qF 'devflow:receiving-code-review' "$FDROOT/skills/review-and-fix/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: non-unique: 'devflow:receiving-code-review' appears twice in the target SKILL
+  "yes" "$(grep -qF 'devflow:receiving-code-review' "$MAXI_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: non-unique: 'devflow:receiving-code-review' appears more than once in the root+references bundle (#539 review Suggestion: bundle, not thin root)
 
 # ── #506 prompt-surface edit routing evidence gate ───────────────────────────
 # Repo policy (extension-not-engine): editing a prompt-surface file (SKILL.md, an implement
@@ -27193,7 +27370,7 @@ WSR_RAF="$FDROOT/.devflow/prompt-extensions/review-and-fix.md"
 WSR_REV="$FDROOT/.devflow/prompt-extensions/review.md"
 WSR_CLAUDE="$FDROOT/CLAUDE.md"
 # The canonical trigger-glob list literal — must be byte-identical across all three extensions.
-WSR_TGL='`skills/*/SKILL.md`, `skills/implement/phases/*.md`, `skills/review/phases/*.md`, `.devflow/prompt-extensions/*.md`'
+WSR_TGL='`skills/*/SKILL.md`, `skills/implement/phases/*.md`, `skills/review/phases/*.md`, `skills/review-and-fix/references/*.md`, `.devflow/prompt-extensions/*.md`'
 # The evidence marker literal the routing evidence-contract writes and the gate criterion matches.
 WSR_MARK='Writing-skills evidence:'
 
@@ -32573,7 +32750,15 @@ _PCL_ARGS=( --lib "$LIB" --md "$DEF_SKILL" --md "$IMPL_SKILL_BUNDLE" --md "$REVI
   --var "MAXI_SKILL=$MAXI_SKILL" --var "DEF_SKILL=$DEF_SKILL"
   --var "IMPL_SKILL_BUNDLE=$IMPL_SKILL_BUNDLE"
   --var "REVIEW_BUNDLE=$REVIEW_BUNDLE" --var "REVIEW_ROOT=$REVIEW_ROOT"
-  --var "ST_RAF=$ST_RAF" --var "ST_REV=$ST_REV" --var "ST_RCV=$ST_RCV" )
+  --var "ST_RAF=$ST_RAF" --var "ST_REV=$ST_REV" --var "ST_RCV=$ST_RCV"
+  # #530: the review-and-fix pins now target the root+references bundle ($MAXI_BUNDLE).
+  # These vars all equal $MAXI_BUNDLE (some are defined later in run.sh than this line),
+  # so bind each to $MAXI_BUNDLE's value to keep their pins RESOLVABLE and under the
+  # pin-in-comment lint rather than silently exempt (the "reported, never skipped" contract).
+  --var "MAXI_BUNDLE=$MAXI_BUNDLE"
+  --var "ETSY_RAF=$MAXI_BUNDLE" --var "TB_RAF=$MAXI_BUNDLE" --var "SP_RAF=$MAXI_BUNDLE"
+  --var "RF_SKILL=$MAXI_BUNDLE" --var "UBC_RAF=$MAXI_BUNDLE" --var "RAF456=$MAXI_BUNDLE"
+  --var "I497_RAF=$MAXI_BUNDLE" )
 # (1) Real corpus: no pin literal collides with a comment of its target; a collision here is a
 # real defect to fix in this same PR (issue #375 AC). The scanner reports every unresolvable
 # call site on stderr (UNRESOLVED / UNRESOLVED-COUNT) — SURFACE that count to the run log rather
@@ -32796,7 +32981,7 @@ echo "#363 review-engine grounding: skill<->allowlist command-head contract pin"
 # is worth: it must cover EVERY prose-invoked head, or the audit is green over a gap.
 ECH="$LIB/test/extract-command-heads.py"
 E363="$(mktemp -d)" || { echo "FAIL  #363: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE" "$IMPL_SKILL_BUNDLE"; rm -rf "$E363" "$E484"' EXIT
+_suite_tmp_dir "$E363"
 
 assert_eq "#363 extractor helper exists" "yes" "$([ -f "$ECH" ] && echo yes || echo no)"
 
@@ -32886,7 +33071,7 @@ assert_eq "#529 shapes scans every source in the bundle (a violation in a refere
 #     locale a byte >= 0x80 is not printable — so a token made entirely of non-ASCII
 #     (every spaced ` — `, ` → `, ` ⇒ `) contains no printable byte and GNU does not
 #     count it AT ALL, while BSD counts it as a word. On this bundle that is 595
-#     dropped words on the default path (28,687 BSD vs 28,092 GNU) — a 2% silent
+#     dropped words on the default path (28,688 BSD vs 28,093 GNU at this HEAD) — a 2% silent
 #     undercount, measured on CI, not theorised.
 #   * a UTF-8 locale: BSD `wc` treats the `≠` (U+2260) in the root's `rc≠0` prose as a
 #     word separator and scores `rc≠0` as TWO words; GNU does not. Worth +12 words.
@@ -33230,7 +33415,7 @@ _rb_grouped() { python3 -c 'import sys; print(f"{int(sys.argv[1]):,}")' "$1"; }
 # dense with comma-grouped numbers, so a drifted value lands INSIDE an unrelated one —
 # a +427-byte edit to a gated reference moves growth to 8,610, a substring of the
 # published "−18,610", and the guard greens on the very scenario it exists for; (2) a
-# measured value that drifts ONTO its own ceiling (8,225 -> 8,500, 28,687 -> 28,700)
+# measured value that drifts ONTO its own ceiling (8,225 -> 8,500, 28,688 -> 28,700)
 # matches the ceiling literal sitting on the same line, so even row-anchoring cannot
 # separate them. The record's own spelling does: it BOLDS a measured value and leaves
 # ceilings plain, and it suffixes byte figures with their unit. Match that, and a
@@ -33476,6 +33661,364 @@ assert_eq "#401 skills/review/SKILL.md teaches no proven-denied command shape" "
   "$(python3 "$ECS" "${_review_members[@]}" 2>&1)"
 assert_eq "#401 shape-lint exits 0 on the clean review skill" "0" \
   "$(python3 "$ECS" "${_review_members[@]}" >/dev/null 2>&1; echo $?)"
+
+# ── #530 review-and-fix bundle shape lint (thin root + every references/*.md) ──
+# review-and-fix carried NO extract-command-shapes.py coverage before the #530 split.
+# The APPLICABLE shape gate is the IMPLEMENT profile: review-and-fix is dispatched inline
+# by /devflow:implement Phase 3 (implement tier) and via the manual /devflow:review-and-fix
+# comment path (devflow.yml) — it is NEVER dispatched on the read-only cloud `review`
+# profile (devflow-runner.yml). The default profile of extract-command-shapes.py encodes
+# that read-only review-runner matcher (R1–R4), which legitimately denies leading-`VAR=…$(…)`
+# assignments (e.g. the loop-start `RUN_ID=`) and the unexpanded `${CLAUDE_SKILL_DIR:-…}`
+# anchor-as-leading-token + redirect — source forms review-and-fix relies on and that ARE
+# permitted on the tiers it actually runs on (the implement-profile lint below is clean).
+# So the whole bundle is shape-linted under `--profile implement` (root + every reference).
+# The manual-command (devflow.yml) tier's SHAPES are unprobed — matcher-probe.yml carries no
+# manual-command-tier shape-probe job (its review probe and implement-probe jobs cover the two
+# cloud allowlist tiers) — so the implement profile
+# stands in as the closest MEASURED proxy for the manual push path (probe-inference, not
+# measurement; if a shape denial ever surfaces there the real fix is a manual-probe job, not
+# more lint). The manual tier's HEADS are separately covered by the whole-bundle head scan
+# against devflow.yml above. Grants are unchanged — desk-time coverage only.
+for f in "$LIB/../skills/review-and-fix/SKILL.md" "$LIB/../skills/review-and-fix/references"/*.md; do
+  assert_eq "#530 review-and-fix shape-lint (implement profile): $(basename "$f") teaches no denied shape" "" \
+    "$(python3 "$ECS" --profile implement "$f" 2>&1)"
+done
+
+# ── #530 prompt-budget guard (AC3/AC4): the split keeps the thin root and its initial/peak
+# load under the documented ceilings; docs/review-and-fix-budget.md is the checked-in table.
+# wc is a test-harness tool here (not a shipped selection), consistent with the rest of run.sh.
+# The word counter is python3 bytes.split() — deliberately NOT wc -w — because wc -w
+# disagrees with itself across platforms on this corpus in BOTH locales (PR #539 rounds
+# 1 and 2): BSD wc under a UTF-8 locale (macOS default) splits words on some multibyte
+# punctuation (U+2260 ≠, present in several references) that glibc does not, and GNU wc
+# under LC_ALL=C counts only whitespace-runs containing a printable ASCII byte, so the
+# corpus's ubiquitous standalone em-dash tokens (" — ") count as words on macOS/BSD but
+# not on Linux CI (observed: cumulative 39,826 vs 39,053 for identical bytes). python3 is
+# a preflight prerequisite, and bytes.split() — ASCII-whitespace-delimited byte tokens —
+# is byte-identical everywhere (it equals BSD `LC_ALL=C wc -w` on this corpus). The budget
+# doc's Counting method names this same counter.
+_raf_words() { python3 -c 'import sys; print(len(open(sys.argv[1],"rb").read().split()))' "$1"; }
+RAF_ROOT_W=$(_raf_words "$LIB/../skills/review-and-fix/SKILL.md")
+RAF_EXT_W=$(_raf_words "$LIB/../.devflow/prompt-extensions/review-and-fix.md")
+RAF_MAXREF_W=0
+RAF_MAXREF_NAME=""
+RAF_REFS_SUM_W=0
+for f in "$LIB/../skills/review-and-fix/references"/*.md; do
+  w=$(_raf_words "$f"); [ "$w" -gt "$RAF_MAXREF_W" ] && { RAF_MAXREF_W="$w"; RAF_MAXREF_NAME="${f##*/}"; }
+  RAF_REFS_SUM_W=$((RAF_REFS_SUM_W + w))
+done
+# Fail closed if the references glob matched nothing: RAF_MAXREF_W would stay 0 and the peak
+# assertion (root+ext+0) would pass VACUOUSLY while under-reporting. A healthy tree always has
+# 8 references (each with a positive wc), so 0 means the glob is empty / the dir is gone.
+assert_eq "#530 budget: at least one reference file was measured (references glob non-empty)" "yes" \
+  "$([ "$RAF_MAXREF_W" -gt 0 ] && echo yes || echo no)"
+# #539 review (Important): the reference SET was only incidentally asserted — every #530 loop
+# enumerates references/*.md by GLOB, so deleting a whole reference file (e.g.
+# error-handling.md, which carries no dedicated content pin) just shrinks the glob and ships
+# desk-green. Pin the exact expected set both ways: each expected name must exist, and no
+# unregistered references/*.md may appear (adding a reference must update this list — and with
+# it the budget table, the recorder registry, and the routing/marker surfaces the sibling #530
+# blocks assert).
+RAF_EXPECTED_REFS="convergence error-handling fix-delta-gate fixing loop-control loop-exit pre-fix-gates shadow-review"
+for _r in $RAF_EXPECTED_REFS; do
+  assert_eq "#530 budget: expected reference exists: references/${_r}.md" "yes" \
+    "$([ -f "$LIB/../skills/review-and-fix/references/${_r}.md" ] && echo yes || echo no)"
+done
+_raf_unexpected=""
+for f in "$LIB/../skills/review-and-fix/references"/*.md; do
+  _rb="$(basename "$f" .md)"
+  case " $RAF_EXPECTED_REFS " in
+    *" $_rb "*) : ;;
+    *) _raf_unexpected="$_raf_unexpected $_rb" ;;
+  esac
+done
+assert_eq "#530 budget: no references/*.md outside the pinned 8-name set" "" "$_raf_unexpected"
+# #539 review (Suggestion 2): the three ceilings are policy constants duplicated in this
+# suite and in docs/review-and-fix-budget.md's table. Name them ONCE here and (a) drive the
+# numeric checks below from the names, and (b) assert each doc "Value" cell equals the same
+# constant, so a ceiling changed on one side without the other turns the coupling RED instead
+# of the two artifacts silently disagreeing.
+RAF_ROOT_CEIL=3500
+RAF_LOAD_CEIL=5500
+RAF_MAXSTEP_CEIL=17000
+assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
+  "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"
+assert_eq "#530 budget: root + live extension (initial load) <= $RAF_LOAD_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W)))" "yes" \
+  "$([ "$((RAF_ROOT_W+RAF_EXT_W))" -le "$RAF_LOAD_CEIL" ] && echo yes || echo no)"
+assert_eq "#530 budget: root + extension + max active step <= $RAF_MAXSTEP_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W+RAF_MAXREF_W)))" "yes" \
+  "$([ "$((RAF_ROOT_W+RAF_EXT_W+RAF_MAXREF_W))" -le "$RAF_MAXSTEP_CEIL" ] && echo yes || echo no)"
+# #539 review (Important 2, over-graded shape 3): the peak-load ceiling above models
+# root + extension + the SINGLE largest reference, which is correct ONLY under the split's
+# single-residency premise — exactly one step reference resident at a time. Nothing above
+# measures that premise, so bind it to the two artifacts that STATE and ENFORCE it: (a) the
+# root's always-resident re-read contract that each reference is loaded on demand and not held
+# resident (the mechanism that keeps residency at one), and (b) the budget doc's explicit
+# statement of the peak assumption. If either drifts — a reference made resident, or the doc's
+# single-residency basis reworded away — the ceiling silently under-reports and this goes RED.
+# (Full runtime proof that no reference chain-loads a sibling is a prose property the suite
+# cannot execute; binding the stated + enforced premise is the achievable guard.)
+assert_pin_unique "#530/#539 budget: root enforces single-residency (reference loaded on demand, not held resident)" \
+  'loaded on demand, not held resident' "$LIB/../skills/review-and-fix/SKILL.md"
+assert_pin_unique "#530/#539 budget: doc states the peak single-residency assumption the ceiling depends on" \
+  'the peak when exactly one step reference is resident at a time' "$LIB/../docs/review-and-fix-budget.md"
+RAF_BUDGET_DOC="$LIB/../docs/review-and-fix-budget.md"
+assert_eq "#530 budget: checked-in budget table exists" "yes" \
+  "$([ -f "$RAF_BUDGET_DOC" ] && echo yes || echo no)"
+# Bind each doc ceiling to the suite constant above. The cells are comma-grouped (e.g.
+# "3,000"); strip commas with pure-bash expansion (no non-preflight PATH tool per CLAUDE.md)
+# before matching so a re-grouping never masks a drift. A ceiling edited in only one of the
+# two files goes RED here.
+# #539 review (Suggestion 4): match the ceilings-table LABEL column (`≤ <ceil> words |`), NOT
+# a bare `| <ceil> |`. The old bare form was satisfied by ANY doc cell equal to the ceiling —
+# including a Measured cell that happens to equal its ceiling — so it was nearly redundant with
+# the adjacent-column `| <ceil> | <measured> |` pins below and could pass vacuously at that
+# boundary. The `≤ <ceil> words |` form matches only the ceilings-summary-table label cell (the
+# prose maintainer note spells the same "≤ N words" but never with a trailing ` |`), giving this
+# check a distinct role: it asserts each ceiling is DOCUMENTED in the summary table's own row,
+# which the per-row Measured pins do not by themselves guarantee.
+_raf_doc_nocommas="$(< "$RAF_BUDGET_DOC")"
+_raf_doc_nocommas="${_raf_doc_nocommas//,/}"
+for _raf_ceil in "$RAF_ROOT_CEIL" "$RAF_LOAD_CEIL" "$RAF_MAXSTEP_CEIL"; do
+  assert_eq "#530 budget: ceilings-table row documents ceiling constant $_raf_ceil (bound to suite)" "yes" \
+    "$(case "$_raf_doc_nocommas" in *"≤ $_raf_ceil words |"*) echo yes;; *) echo no;; esac)"
+done
+assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +3,913 words' "$RAF_BUDGET_DOC"
+# #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
+# measurement, not merely textually self-consistent — the pin above passed while the
+# cumulative cell was stale because it matches the doc's own number, not reality. Recompute
+# the normal-cumulative-path words (root + extension + Σ references, same _raf_words counter)
+# and require (a) the doc's cumulative cell to equal the fresh measurement and (b) the pinned
+# growth delta to equal that measurement minus (36201 + RAF_EXT_W). 36201 is the pre-split
+# monolith's _raf_words count at the split's documented pre-#557 fork point on main (the
+# BEFORE basis in docs/review-and-fix-budget.md — NOT the PR's literal merge-base, which
+# already contains #557 and reads higher) — immutable history, safe to freeze; the live extension term appears in both the cumulative and the baseline, so it
+# CANCELS: the growth arm tracks exactly root + Σ references − monolith, the doc's
+# "isolates the split" definition, and a future extension edit moves the cumulative cell
+# (arm a) without perturbing the growth figure (arm b). Any word change in the root or ANY
+# reference shifts both and turns them RED until the doc is re-measured.
+RAF_CUM_W=$((RAF_ROOT_W + RAF_EXT_W + RAF_REFS_SUM_W))
+_raf_cum_row="$(grep -F '| **AFTER** — normal cumulative path |' "$RAF_BUDGET_DOC" || true)"
+assert_eq "#530 budget: doc cumulative-path words cell matches fresh measurement ($RAF_CUM_W)" "yes" \
+  "$(case "${_raf_cum_row//,/}" in *"| $RAF_CUM_W |"*) echo yes;; *) echo no;; esac)"
+_raf_doc_growth="$(grep -F 'named justified-growth warning): +' "$RAF_BUDGET_DOC" | head -n 1 || true)"
+_raf_doc_growth="${_raf_doc_growth##*warning): +}"
+_raf_doc_growth="${_raf_doc_growth%% words*}"
+_raf_doc_growth="${_raf_doc_growth//,/}"
+assert_eq "#530 budget: pinned growth delta is arithmetically true (measured cumulative $RAF_CUM_W − frozen monolith 36201 − extension $RAF_EXT_W)" \
+  "$((RAF_CUM_W - 36201 - RAF_EXT_W))" "${_raf_doc_growth:-unparsed}"
+# #539 review (silent-failure-hunter/code-reviewer/pr-test-analyzer): bind the three doc
+# "Measured" cells to the same live counts, closing the stale-Measured-cell class the
+# maintainer note now claims coverage of (previously only the cumulative cell + growth delta
+# were bound, so a stale Measured cell shipped desk-green).
+# Column-positional match (#539 shadow, silent-failure-hunter): pin the ceiling AND the measured
+# value in their ADJACENT columns — `| <ceiling> | <measured> |` — not a lone `| <measured> |`.
+# A whole-row `| <measured> |` match would pass VACUOUSLY the moment a measured count equals its
+# ceiling (a measured cell drifting onto the ceiling value itself): it would then match the Value/ceiling cell and go
+# green even against a stale Measured cell — reopening the stale-cell hole precisely at the
+# boundary. The adjacency pattern cannot collide: a stale Measured cell breaks the pair → RED,
+# and it fails closed (missing row → empty → no match → RED).
+_raf_root_row="$(grep -F '| Plugin root ≤' "$RAF_BUDGET_DOC" || true)"
+assert_eq "#530 budget: doc root Measured cell matches fresh measurement ($RAF_ROOT_W)" "yes" \
+  "$(case "${_raf_root_row//,/}" in *"| $RAF_ROOT_CEIL | $RAF_ROOT_W |"*) echo yes;; *) echo no;; esac)"
+_raf_load_row="$(grep -F 'Root + live extension (initial load) ≤' "$RAF_BUDGET_DOC" || true)"
+assert_eq "#530 budget: doc initial-load Measured cell matches fresh measurement ($((RAF_ROOT_W+RAF_EXT_W)))" "yes" \
+  "$(case "${_raf_load_row//,/}" in *"| $RAF_LOAD_CEIL | $((RAF_ROOT_W+RAF_EXT_W)) |"*) echo yes;; *) echo no;; esac)"
+_raf_maxstep_row="$(grep -F 'Root + extension + max active step ≤' "$RAF_BUDGET_DOC" || true)"
+assert_eq "#530 budget: doc max-step Measured cell matches fresh measurement ($((RAF_ROOT_W+RAF_EXT_W+RAF_MAXREF_W)))" "yes" \
+  "$(case "${_raf_maxstep_row//,/}" in *"| $RAF_MAXSTEP_CEIL | $((RAF_ROOT_W+RAF_EXT_W+RAF_MAXREF_W)) |"*) echo yes;; *) echo no;; esac)"
+# #539 shadow (code-reviewer): bind the primary net-mandatory-reduction figure to the live
+# measurement so the "Net mandatory-prompt reduction" bullet cannot go stale while the Measured
+# cells it summarizes are re-measured. The extension addend cancels, so the reduction equals the
+# frozen monolith (36201) minus the live root; a stale bullet no longer contains the fresh figure → RED.
+_raf_reduction_row="$(grep -F 'net reduction of' "$RAF_BUDGET_DOC" || true)"
+assert_eq "#530 budget: doc net-reduction figure matches fresh measurement ($((36201 - RAF_ROOT_W)))" "yes" \
+  "$(case "${_raf_reduction_row//,/}" in *"net reduction of $((36201 - RAF_ROOT_W)) words"*) echo yes;; *) echo no;; esac)"
+# #539 shadow (pr-test-analyzer): the max-step Measured cell's PROSE LABEL names the largest
+# reference (shadow-review.md). The numeric pin above catches a stale count, but not a stale
+# label if a different reference ever grows largest. Bind the label to the actual max-words
+# reference so a re-measure that fixes only the number can't leave the name wrong.
+assert_eq "#530 budget: shadow-review.md is the largest reference (doc max-step label is live)" "shadow-review.md" \
+  "$RAF_MAXREF_NAME"
+# The label lives in the AFTER — maximum active step table row (not the ceilings row grepped
+# above), which spells out `root + extension + <largest reference>`.
+_raf_maxstep_after_row="$(grep -F '| **AFTER** — maximum active step |' "$RAF_BUDGET_DOC" || true)"
+assert_eq "#530 budget: doc max-step row names the actual largest reference ($RAF_MAXREF_NAME)" "yes" \
+  "$(case "$_raf_maxstep_after_row" in *"$RAF_MAXREF_NAME"*) echo yes;; *) echo no;; esac)"
+
+# ── #530 pressure tests (AC16): the split preserves every named control-flow scenario ──
+# Each scenario's operative behavioral literal must survive the split AND land in the
+# correct reference file (asserted against the specific file, not the concat, so a
+# mis-placed move is RED), and the thin root's Step-routing table must name each routed
+# reference. This is the structural walkthrough that proves routing survived the split —
+# the regression net the architect flagged as more decisive than any single pin.
+P530_ROOT="$LIB/../skills/review-and-fix/SKILL.md"
+P530_LC="$LIB/../skills/review-and-fix/references/loop-control.md"
+P530_SH="$LIB/../skills/review-and-fix/references/shadow-review.md"
+P530_PFG="$LIB/../skills/review-and-fix/references/pre-fix-gates.md"
+P530_FDG="$LIB/../skills/review-and-fix/references/fix-delta-gate.md"
+P530_CV="$LIB/../skills/review-and-fix/references/convergence.md"
+P530_LE="$LIB/../skills/review-and-fix/references/loop-exit.md"
+assert_pin_unique "#530 continuation: loop-control has an explicit current_step route" \
+  '| `loop-control` — Iteration setup + Steps 0.5–2 | `references/loop-control.md` |' "$P530_ROOT"
+assert_pin_unique "#530 continuation: pending dispatch is stamped before every dispatch" \
+  'Immediately before every `Agent`/`Task`/`Skill` dispatch, also write `pending_dispatch:' "$P530_ROOT"
+assert_pin_unique "#530 continuation: pending dispatch clears only after parse and join" \
+  'Clear it after the returned attempt is joined or dispositioned, including failure, timeout, exhausted-retry, and not-verified outcomes' "$P530_ROOT"
+# #539 review (Suggestion 3): the numbered pressure pins are presence pins — they catch a scenario's
+# operative sentence DISAPPEARING, but the reviewer asked the most load-bearing ones to also
+# prove they catch a behavioral REGRESSION that preserves the sentence's shape. Route the three
+# core loop-verdict scenarios (immediate-APPROVE arm, REJECT routing target, cap preservation)
+# through assert_pin_red_under with a targeted meaning-flip mutation on a COPY (route (a) — the
+# working tree is never touched): the mutation flips the verdict/routing/cap semantics and the
+# presence pin must go RED, proving the pin is anchored to the behavior, not merely the wording.
+# 1. immediate APPROVE — Step 2 clean-APPROVE arm (loop-control)
+assert_pin_unique "#530 pressure(immediate APPROVE): Step 2 clean-APPROVE arm in loop-control" \
+  'tentative final verdict `APPROVE`' "$P530_LC"
+assert_pin_red_under "#530/#539 pressure(immediate APPROVE): clean-arm verdict flip goes RED" \
+  'tentative final verdict `APPROVE`' \
+  's/tentative final verdict `APPROVE`/tentative final verdict `REJECT`/' "$P530_LC"
+# 2. reject-fix-approve — REJECT routes to Step 2.5 (loop-control)
+assert_pin_unique "#530 pressure(reject-fix-approve): REJECT routes to Step 2.5 in loop-control" \
+  'Engine verdict **REJECT** → continue to Step 2.5' "$P530_LC"
+assert_pin_red_under "#530/#539 pressure(reject-fix-approve): REJECT mis-routed to Step 2.6 goes RED" \
+  'Engine verdict **REJECT** → continue to Step 2.5' \
+  's/continue to Step 2\.5/continue to Step 2.6/' "$P530_LC"
+# 3. cap exit — the $MAX_ITERS cap is preserved (convergence)
+assert_pin_unique "#530 pressure(cap exit): the \$MAX_ITERS cap is preserved in convergence" \
+  'The `$MAX_ITERS` cap, the REJECT paths, and the shadow triggers are unchanged.' "$P530_CV"
+assert_pin_red_under "#530/#539 pressure(cap exit): dropping the cap-unchanged guarantee goes RED" \
+  'The `$MAX_ITERS` cap, the REJECT paths, and the shadow triggers are unchanged.' \
+  's/shadow triggers are unchanged\./shadow triggers are removed./' "$P530_CV"
+# max_iterations clamp — behavioral mutation pins (#539 review Suggestion 5). The presence pins
+# for these three tokens live far above (they must be assert_pin_unique because this mutation
+# primitive is defined later in the file than they run); place the behavioral pins HERE, where the
+# primitive exists. Each mutation flips the clamp's actual behavior on a COPY (route (a), working
+# tree untouched) so the pinned token vanishes and the pin must go RED: the negative-aware `-?`
+# dropped from the regex, the `-lt` below-1 floor comparison flipped, the default 5 changed to 0.
+assert_pin_red_under "#539 max_iterations clamp: dropping negative-awareness from the regex goes RED" \
+  "'^-?[0-9]+\$'" 's/\^-\?\[/^[/' "$MAXI_SKILL"
+assert_pin_red_under "#539 max_iterations clamp: flipping the below-1 floor comparison goes RED" \
+  '"$MAX_ITERS" -lt 1' 's/-lt 1/-gt 1/' "$MAXI_SKILL"
+assert_pin_red_under "#539 max_iterations clamp: changing the default-5 fallback goes RED" \
+  'MAX_ITERS=5' 's/MAX_ITERS=5/MAX_ITERS=0/' "$MAXI_SKILL"
+# 4. shadow trigger (convergence-time fan-out) — shadow-review
+assert_pin_unique "#530 pressure(shadow trigger, convergence): parent-orchestrated fan-out in shadow-review" \
+  '#### Run the shadow fan-out (parent-orchestrated)' "$P530_SH"
+# 5. shadow trigger (early, engine_self_modifying after iter 1) — shadow-review
+assert_pin_unique "#530 pressure(shadow trigger, early engine_self_modifying): early trigger in shadow-review" \
+  '#### Early shadow trigger (`engine_self_modifying`, after iteration 1)' "$P530_SH"
+# 6. post-shadow edit gate — loop-exit
+assert_pin_unique "#530 pressure(post-shadow edit): post-shadow edit gate in loop-exit" \
+  'Post-shadow edit gate (no unreviewed final edits)' "$P530_LE"
+# 7. parked finding — parked-class sweep (pre-fix-gates)
+assert_pin_unique "#530 pressure(parked finding): parked-class sweep in pre-fix-gates" \
+  'Parked-class sweep (pre-shadow convergence gate)' "$P530_PFG"
+# 8/9. calibration — park-calibration + over-grade calibration gates (shadow-review)
+assert_pin_unique "#530 pressure(calibration, park): park-calibration gate in shadow-review" \
+  'Park-calibration gate (before any APPROVE-family conclusion)' "$P530_SH"
+assert_pin_unique "#530 pressure(calibration, over-grade): over-grade calibration gate in shadow-review" \
+  'Over-grade calibration gate (before any Decide outcome 2 promotion)' "$P530_SH"
+# 10. unreadable source — the fail-closed reference-loading contract (root)
+assert_pin_unique "#530 pressure(unreadable source): fail-closed reference-loading contract in root" \
+  'each degrades exactly as the engine already degrades' "$P530_ROOT"
+# 11. push — base-branch update checkpoint 3 (loop-exit)
+assert_pin_unique "#530 pressure(push): base-branch update checkpoint 3 in loop-exit" \
+  'Base-branch update checkpoint 3' "$P530_LE"
+# 12. persistence failure — persistence self-check backstop (loop-exit)
+assert_pin_unique "#530 pressure(persistence failure): persistence self-check in loop-exit" \
+  'Persistence self-check (Layer 2' "$P530_LE"
+# 13. inline recovery — the fused per-iteration emit that survives a dropped Loop Exit (root Lifecycle)
+assert_pin_unique "#530 pressure(inline recovery): fused per-iteration emit in root Lifecycle" \
+  'non-optional emit, fused to the fix commit' "$P530_ROOT"
+# 14. fix-delta gate present (fix-delta-gate) — the reject-fix regression net
+assert_pin_unique "#530 pressure(fix-delta): fix-delta verification gate in fix-delta-gate" \
+  'Fix-delta verification gate' "$P530_FDG"
+# 15. fixes applied (fixing) — #539 review: fixing.md (the largest reference) had no
+# file-targeted operative pin, so a partial content move OUT of it (full deletion is caught
+# by the 8-name set pin) shipped desk-green. Pin the fix-commit-fused iter-record Write —
+# the load-bearing contract that makes the per-iteration emit unloseable.
+P530_FIX="$LIB/../skills/review-and-fix/references/fixing.md"
+assert_pin_unique "#530 pressure(fix applied): fix-commit-fused iter record Write in fixing" \
+  'the workpad emit is fused to this fix-commit moment' "$P530_FIX"
+# Routing: the thin root's Step-routing table names every routed reference.
+for _r530 in pre-fix-gates shadow-review fixing fix-delta-gate convergence loop-exit loop-control; do
+  assert_eq "#530 pressure(routing): root Step-routing names references/$_r530.md" "yes" \
+    "$(grep_present "references/$_r530.md" "$P530_ROOT")"
+done
+# The contextual error-handling.md is NOT step-routed (it carries no loop step), so it is
+# absent from the routing loop above by design; pin its best-effort failure-map row and its
+# root pointer instead so the "every reference has a mapped outcome" invariant stays guarded.
+assert_pin_unique "#530 pressure(routing): root failure-map carries the loop-control.md STOP row" \
+  '| `loop-control.md` | The loop spine' "$P530_ROOT"
+assert_pin_unique "#530 pressure(routing): root failure-map carries the error-handling.md best-effort row" \
+  '| `error-handling.md` | Contextual guidance' "$P530_ROOT"
+assert_eq "#530 pressure(routing): root names references/error-handling.md (contextual pointer)" "yes" \
+  "$(grep_present "references/error-handling.md" "$P530_ROOT")"
+# #539 review (Suggestion, test_gap): error-handling.md's SET membership (the 8-name pin) and its
+# failure-map row are pinned above, but its GUIDANCE BODY had no content pin — a partial gutting of
+# the body (as opposed to a whole-file delete, which the 8-name set catches) shipped desk-green.
+# Pin one operative clause so the body cannot be silently emptied, symmetric with fixing.md's
+# P530_FIX content pin. (assert_pin_unique is non-vacuous: 0 matches → RED.)
+P530_ERRH="$LIB/../skills/review-and-fix/references/error-handling.md"
+assert_pin_unique "#530/#539 content: error-handling.md retains the engine-surface carve-out guidance" \
+  'an all-Markdown engine-surface PR is unambiguously a valid `review-and-fix` target' "$P530_ERRH"
+# #539 review (Important, test_gap): before this block ONLY the loop-control and error-handling
+# failure-map rows were pinned — the other six carried the load-bearing degradation outcomes
+# (STOP-before-mutation, not_verified, persistence backstop, non-convergence) with no operative
+# pin, so weakening any row body shipped desk-green. Pin each remaining row's operative outcome
+# clause against the root so a silent downgrade of the fail-closed contract goes RED at the desk.
+assert_pin_unique "#530/#539 failure-map: pre-fix-gates row STOPs before any mutation" \
+  '| `pre-fix-gates.md` | **STOP before any mutation.** No fix without gate coverage.' "$P530_ROOT"
+assert_pin_unique "#530/#539 failure-map: shadow-review row records not_verified (prohibits clean approve)" \
+  '| `shadow-review.md` | Record `shadow.coverage: "not_verified"`' "$P530_ROOT"
+assert_pin_unique "#530/#539 failure-map: fixing row STOPs before any mutation" \
+  '| `fixing.md` | **STOP before any mutation.** Never apply a fix blind.' "$P530_ROOT"
+assert_pin_unique "#530/#539 failure-map: fix-delta-gate row records a not-verified fix-delta outcome" \
+  '| `fix-delta-gate.md` | Record a not-verified fix-delta outcome' "$P530_ROOT"
+assert_pin_unique "#530/#539 failure-map: convergence row treats unreadable as a failed condition" \
+  '| `convergence.md` | Treat as "a convergence condition failed"' "$P530_ROOT"
+assert_pin_unique "#530/#539 failure-map: loop-exit row runs the persistence backstop directly" \
+  '| `loop-exit.md` | Run the persistence backstop directly' "$P530_ROOT"
+# #539 review (Suggestion 2, degradation-mapping-mismatch): the shadow-review unreadable row now
+# branches by trigger context — an EARLY engine_self_modifying trigger continues the loop rather
+# than terminating a non-converged loop early. Pin that branch so it cannot silently regress to a
+# blanket "proceed to Loop Exit".
+assert_pin_unique "#530/#539 failure-map: early engine_self_modifying shadow trigger continues the loop (not an early terminate)" \
+  'an **early** `engine_self_modifying` trigger (after iteration 1) instead continues the loop as in the `convergence.md` row' "$P530_ROOT"
+# #539 review (Suggestion 1, unverified-assumption): the always-resident re-read rule now defines
+# the ABSENT-operand path explicitly — fail closed, never fall back to conversational memory.
+assert_pin_unique "#530/#539 re-read rule: an absent durable operand fails closed, never falls back to recall" \
+  '**Absent operand → fail closed, never recall.**' "$P530_ROOT"
+# #539 review (Important 2): the runtime completeness-check contract sentence — the detection
+# rule that decides a reference is unreadable in the first place — was pinned nowhere; only its
+# per-file failure-map OUTCOMES were. A weakening edit (dropping the exactly-once/ordered
+# requirement, or the clause counting duplicated/reversed/noncanonical markers as unreadable)
+# would ship desk-green. Pin the two load-bearing phrases of Step 3's boundary rule.
+assert_pin_unique "#530/#539 completeness check: markers must each occur exactly once, in order" \
+  'each occurring exactly once, in that order' "$P530_ROOT"
+assert_pin_unique "#530/#539 completeness check: duplicated/reversed/noncanonical markers mean unreadable" \
+  'a **duplicated** marker, a **reversed** order (END before START), or a marker at a **noncanonical** position' "$P530_ROOT"
+# ── #530 (silent-failure review): pin the START/END markers the fail-closed Reference-loading
+# contract hinges on. The runtime completeness check treats a reference as unreadable unless its
+# first non-blank line is `# Reference: <title>` and its last non-blank line is the canonical
+# `<!-- END <name>.md -->` marker. Nothing else pins them, so a future edit that drops/mangles a
+# marker (or appends content after the END) would ship desk-green. Pin both edges per reference,
+# and (#539 review, Important 1, mirroring the #529 desk loop) count both markers: a duplicated
+# or interior marker keeps a valid first/last non-blank line, so the edge checks alone stay
+# green on exactly the shapes the runtime contract reads as unreadable.
+for _rf in "$LIB/../skills/review-and-fix/references"/*.md; do
+  _rb="$(basename "$_rf")"
+  assert_eq "#530 marker: references/$_rb first non-blank line is a canonical '# Reference:' heading" "yes" \
+    "$(grep -m1 -v '^[[:space:]]*$' "$_rf" | grep -q '^# Reference: ' && echo yes || echo no)"
+  # Extract the filename the END marker names and require it to equal this file's basename —
+  # this both asserts the marker is the last non-blank line AND that it names the right file.
+  assert_eq "#530 marker: references/$_rb last non-blank line is the canonical END marker naming it" "$_rb" \
+    "$(grep -v '^[[:space:]]*$' "$_rf" | tail -1 | sed -nE 's/^<!-- END (.+\.md) -->$/\1/p')"
+  assert_eq "#530 marker: references/$_rb carries exactly one Reference heading and one END marker (no duplicate)" "1|1" \
+    "$(grep -c '^# Reference: ' "$_rf" | tr -d ' ')|$(grep -cF -- '<!-- END ' "$_rf" | tr -d ' ')"
+done
 
 # ── Anti-vacuity: each rule flags its denied shape (fixtures under $E363's trap-cleaned dir).
 printf '%s\n' '```bash' 'M=x printf hi' '```' > "$E363/s-r1a.md"
@@ -34345,7 +34888,7 @@ echo "#363 scripts/summarize-ci-checks.sh (adversarial input-shape matrix, gh st
 # extraction would silently coerce into a passing result (the #312 bug class).
 SCC="$LIB/../scripts/summarize-ci-checks.sh"
 S363="$(mktemp -d)" || { echo "FAIL  #363 scc: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE" "$IMPL_SKILL_BUNDLE"; rm -rf "$E363" "$E484" "$S363"' EXIT
+_suite_tmp_dir "$S363"
 
 assert_eq "#363 summarize-ci-checks.sh exists and is executable" "yes" \
   "$([ -x "$SCC" ] && echo yes || echo no)"
@@ -34576,7 +35119,7 @@ echo "#363 observability: ::warning:: on denials + permission_denials_count plum
 # ────────────────────────────────────────────────────────────────────────────
 SED_SH="$LIB/../scripts/surface-execution-diagnostics.sh"
 D363="$(mktemp -d)" || { echo "FAIL  #363 diag: mktemp -d failed"; exit 1; }
-trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE" "$IMPL_SKILL_BUNDLE"; rm -rf "$E363" "$E484" "$S363" "$D363"' EXIT
+_suite_tmp_dir "$D363"
 
 _diag_run() {  # execution-file-json -> stdout+stderr; GITHUB_OUTPUT at $D363/out
   : > "$D363/out"
@@ -35812,7 +36355,7 @@ SP_SCHEMA="$LIB/../.devflow/config.schema.json"
 SP_EXAMPLE="$LIB/../.devflow/config.example.json"
 SP_CONFIG="$LIB/../.devflow/config.json"
 SP_REVIEW="$REVIEW_BUNDLE"
-SP_RAF="$LIB/../skills/review-and-fix/SKILL.md"
+SP_RAF="$MAXI_BUNDLE"   # #530: root+references bundle
 SP_RUNNER_YML="$LIB/../.github/workflows/devflow-runner.yml"
 SP_DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
 SP_CG="$LIB/../scripts/config-get.sh"
@@ -38481,7 +39024,7 @@ fi
 # operative addition, re-introducing the "not stamped / not recorded" state).
 ET_JQ="$LIB/efficiency-trace.jq"
 ET_SH="$LIB/efficiency-trace.sh"
-RF_SKILL="$LIB/../skills/review-and-fix/SKILL.md"
+RF_SKILL="$MAXI_BUNDLE"   # #530: root+references bundle
 DR_YML="$LIB/../.github/workflows/devflow-review.yml"
 OSP_SH="$LIB/open-state-pr.sh"
 
@@ -39229,7 +39772,7 @@ UBC_P1="$LIB/../skills/implement/phases/phase-1-setup.md"
 UBC_P2="$LIB/../skills/implement/phases/phase-2-implement.md"
 UBC_P3="$LIB/../skills/implement/phases/phase-3-review.md"
 UBC_P4="$LIB/../skills/implement/phases/phase-4-documentation.md"
-UBC_RAF="$LIB/../skills/review-and-fix/SKILL.md"
+UBC_RAF="$MAXI_BUNDLE"   # #530: root+references bundle
 UBC_INVOKE='/../../scripts/update-branch-checkpoint.sh'
 assert_pin_unique "#448 ubc-call-sites: checkpoint 1 invokes the helper in phase-1-setup.md" "$UBC_INVOKE" "$UBC_P1"
 assert_pin_unique "#448 ubc-call-sites: checkpoint 2 invokes the helper in phase-3-review.md" "$UBC_INVOKE" "$UBC_P3"
@@ -40872,7 +41415,7 @@ assert_eq "#456 ci.yml: shipped lib/test orchestrators are added to shellcheck s
 #
 # review-and-fix: verification_evidence gains a skipped_checks list, and the not-a-clean-pass
 # clause stays repo-agnostic (names no lib/test/run.sh / lib + python tests / --flag).
-RAF456="$LIB/../skills/review-and-fix/SKILL.md"
+RAF456="$MAXI_BUNDLE"   # #530: root+references bundle
 assert_eq "#456 review-and-fix: verification_evidence documents a skipped_checks list" "yes" \
   "$(grep -qF 'skipped_checks' "$RAF456" && echo yes || echo no)"
 assert_eq "#456 review-and-fix: the not-a-clean-pass clause is present and repo-agnostic" "yes" \
@@ -42358,8 +42901,8 @@ done
 # assert_pin_unique (the sanctioned unique-literal guard, not a raw echo-driven grep).
 assert_pin_unique "#487 fail-fast prose: skills/implement/SKILL.md carries the expired-credential two-strikes rule" \
   'Expired-credential fail-fast (two strikes' "$LIB/../skills/implement/SKILL.md"
-assert_pin_unique "#487 fail-fast prose: skills/review-and-fix/SKILL.md carries the expired-credential two-strikes rule" \
-  'Expired-credential fail-fast (two strikes' "$LIB/../skills/review-and-fix/SKILL.md"
+assert_pin_unique "#487 fail-fast prose: review-and-fix loop-control reference carries the expired-credential two-strikes rule" \
+  'Expired-credential fail-fast (two strikes' "$LIB/../skills/review-and-fix/references/loop-control.md"
 # The compaction-immune sibling signal (the wrapper diagnostic literal) is named in the prose.
 assert_pin_unique "#487 fail-fast prose: implement rule names the gh-fresh.sh diagnostic sibling" \
   'devflow-gh-fresh' "$LIB/../skills/implement/SKILL.md"
@@ -42843,7 +43386,7 @@ assert_eq "#499 union: classifier-unavailable retry refuses the remote write" "n
 assert_eq "#499 union: classifier-unavailable refusal is breadcrumbed" "yes" "$(printf '%s' "$T499_U_C_ERR" | grep -qF 'could not classify a colliding telemetry blob' && echo yes || echo no)"
 rm -rf "$T499_U_ROOT"
 # ── #497 shadow prompt-composition attestation pins ──────────────────────────
-I497_RAF="$LIB/../skills/review-and-fix/SKILL.md"
+I497_RAF="$MAXI_BUNDLE"   # #530: root+references bundle
 I497_SHADOW_DOC="$LIB/../docs/shadow-review.md"
 I497_OVERVIEW="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 
@@ -42882,6 +43425,7 @@ assert_pin_unique "#497 AC12 overview names topic-priming" \
 assert_pin_unique "#497 AC12 overview clean-signal guard includes prompt_addenda" \
   'a **prompt-composition attestation**' "$I497_OVERVIEW"
 
+# ────────────────────────────────────────────────────────────────────────────
 # The selected runner resolves this module from the registry before sourcing any
 # test body. The full suite uses a fail-closed boundary at the historical point:
 # a missing, crashing, malformed-tally, or below-floor module records a suite
@@ -42889,7 +43433,7 @@ assert_pin_unique "#497 AC12 overview clean-signal guard includes prompt_addenda
 # The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-and-fix-contract.sh" \
-  "review-and-fix-contract" 66; then
+  "review-and-fix-contract" 68; then
   printf 'ERROR: review-and-fix-contract boundary could not record its result\n'
   exit 1
 fi

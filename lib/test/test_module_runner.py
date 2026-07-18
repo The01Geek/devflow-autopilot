@@ -897,22 +897,59 @@ class ModuleRunnerTests(unittest.TestCase):
             "a failure recap whenever an assertion or module boundary fails",
             overview_text,
         )
-        trap_tail = run_text.split('IMPL_SKILL_BUNDLE="$(mktemp)"', maxsplit=1)[1]
-        result_tally_traps = [
-            line
-            for line in trap_tail.splitlines()
-            if line.startswith("trap ") and '"$RESULTS_FILE"' in line
+        self.assertIn("trap _suite_cleanup EXIT", run_text)
+        for temp_file in (
+            "RESULTS_FILE",
+            "MODULE_FAILURES_FILE",
+            "SKIPS_FILE",
+            "IMPL_SKILL_BUNDLE",
+            "REVIEW_BUNDLE",
+            "MAXI_BUNDLE",
+        ):
+            self.assertIn(f'_suite_tmp_file "${temp_file}"', run_text)
+        for temp_dir in ("E484", "E363", "S363", "D363"):
+            self.assertIn(f'_suite_tmp_dir "${temp_dir}"', run_text)
+        # Presence of the registry trap is not enough: bash keeps only the LAST
+        # `trap … EXIT` handler, so a later installer silently REPLACES
+        # `_suite_cleanup` and un-covers every registration made after it — the
+        # exact clobber the registry's own header comment bans. Assert the
+        # registry trap is the ONLY EXIT-trap installer in run.sh: strip each
+        # line before matching (an INDENTED installer inside an if/for body
+        # still replaces the global handler at run time) and exclude comments;
+        # quoted fixture literals do not start a stripped line with `trap `.
+        exit_traps = [
+            stripped
+            for stripped in (line.strip() for line in run_text.splitlines())
+            if not stripped.startswith("#")
+            and re.match(r"^trap\s+\S.*\sEXIT$", stripped)
         ]
-        self.assertTrue(result_tally_traps)
-        self.assertTrue(
-            all(
-                '"$IMPL_SKILL_BUNDLE"' in line
-                and '"$MODULE_FAILURES_FILE"' in line
-                and '"$SKIPS_FILE"' in line
-                for line in result_tally_traps
-            ),
-            result_tally_traps,
+        self.assertEqual(exit_traps, ["trap _suite_cleanup EXIT"])
+        # Behavioral proof the registry actually cleans: register a real temp
+        # file+dir in a bash micro-harness using run.sh's own function bodies,
+        # exit, and assert both are gone (textual presence of the trap cannot
+        # prove the cleanup path executes).
+        harness = (
+            "_SUITE_TMP_FILES=(); _SUITE_TMP_DIRS=()\n"
+            '_suite_tmp_file() { _SUITE_TMP_FILES+=("$1"); }\n'
+            '_suite_tmp_dir()  { _SUITE_TMP_DIRS+=("$1"); }\n'
+            "_suite_cleanup() {\n"
+            '  for _f in "${_SUITE_TMP_FILES[@]}"; do [ -n "$_f" ] && rm -f "$_f"; done\n'
+            '  for _d in "${_SUITE_TMP_DIRS[@]}"; do [ -n "$_d" ] && rm -rf "$_d"; done\n'
+            "}\n"
+            "trap _suite_cleanup EXIT\n"
+            'f="$(mktemp)"; d="$(mktemp -d)"\n'
+            '_suite_tmp_file "$f"; _suite_tmp_dir "$d"\n'
+            'printf "%s\\n%s\\n" "$f" "$d"\n'
         )
+        proc = subprocess.run(
+            ["bash", "-c", harness],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        registered_file, registered_dir = proc.stdout.splitlines()[:2]
+        self.assertFalse(os.path.exists(registered_file))
+        self.assertFalse(os.path.exists(registered_dir))
 
     def test_repository_registry_maps_the_review_and_fix_contract_module(self) -> None:
         registry = json.loads(
