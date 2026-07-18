@@ -5087,10 +5087,39 @@ try:
     assert_eq("#543 AC1: unlisted_phase_files flags an on-disk-but-unlisted phase "
               "(guard bites — not vacuous)",
               True, any("phase-3-agents" in e for e in cwc.unlisted_phase_files()))
+    # A malformed edge (missing from/to) is reported as a violation, never a crash.
+    cwc.DISPATCH_EDGES = _cw_orig_edges + [{"kind": "nested"}]
+    _me = cwc.check_closure()
+    assert_eq("#543 AC1: a from/to-less edge is reported, not a KeyError crash",
+              True, any("missing required field" in e for e in _me))
+    assert_eq("#543 AC1: reachable_skills() tolerates a malformed edge (no crash)",
+              True, isinstance(cwc.reachable_skills(), set))
 finally:
     cwc.DISPATCH_EDGES = _cw_orig_edges
     cwc.SKILL_ASSETS = _cw_orig_assets
     cwc.REQUIRED_HELPER_HEADS = _cw_orig_heads
+
+# The fail-open fix is pinned directly: only a real Bash(...) grant is counted; a
+# vendored path in a comment (full-line or a `# was:` grant) or a shell assignment
+# is NOT a grant (a regression to a bare-token regex would make this go RED).
+with tempfile.TemporaryDirectory() as _gd:
+    _wf = Path(_gd) / "wf.yml"
+    _wf.write_text(
+        "# was: Bash(.devflow/vendor/devflow/scripts/commented.sh:*)\n"
+        "CG=.devflow/vendor/devflow/scripts/assigned.sh\n"
+        "TOOLS='Bash(.devflow/vendor/devflow/scripts/real-grant.sh:*),Bash(git status:*)'\n",
+        encoding="utf-8",
+    )
+    _grants = vcwc.extract_profile_grants(_wf)
+    assert_eq("#543 AC18: extract_profile_grants counts the real Bash(...) grant",
+              True, ".devflow/vendor/devflow/scripts/real-grant.sh" in _grants)
+    assert_eq("#543 AC18: a commented-out grant is NOT counted (fail-open fix)",
+              False, ".devflow/vendor/devflow/scripts/commented.sh" in _grants)
+    assert_eq("#543 AC18: a shell assignment is NOT counted (fail-open fix)",
+              False, ".devflow/vendor/devflow/scripts/assigned.sh" in _grants)
+# Unreadable grant source → empty set (unknown-is-not-zero; HEAD_ABSENT follows).
+assert_eq("#543 AC18: extract_profile_grants on a nonexistent path returns set()",
+          set(), vcwc.extract_profile_grants("/nonexistent/wf-543.yml"))
 assert_eq("#543 AC18: checked-in manifest matches the generated closure (verify)",
           0, cwc.main(["verify"]))
 assert_eq("#543 AC18: validator accepts the real checked-in manifest",
@@ -5247,6 +5276,18 @@ with tempfile.TemporaryDirectory() as _cw_base:
     }
     assert_eq("#543 AC18: the driven classes are exactly the module's defined codes",
               _module_codes, _seen)
+    # REJECTION_CODES makes "closed by construction" a structural invariant, not
+    # only a docstring: it must equal both the driven set and the module constants.
+    assert_eq("#543 AC18: REJECTION_CODES == the driven classes", vcwc.REJECTION_CODES, _seen)
+    assert_eq("#543 AC18: REJECTION_CODES == the module's code constants",
+              vcwc.REJECTION_CODES, _module_codes)
+    # A nested duplicate key (inside `files`) is caught too, not only a top-level one.
+    _nested_dup = ('{"protocol":"devflow-cloud-writer-contract-v1",'
+                   '"legacy_profile_baseline":"2.15.13",'
+                   '"files":{"a":"'+("0"*64)+'","a":"'+("1"*64)+'"},'
+                   '"required_helper_heads":{}}')
+    assert_eq("#543 AC18: a nested duplicate key is caught (DUPLICATE_KEY)",
+              [vcwc.DUPLICATE_KEY], _codes(_run(raw=_nested_dup)))
 
 print()
 print(f"{PASS} passed, {FAIL} failed")

@@ -22,7 +22,7 @@ content binding, reachability binding, and profile check:
   12 INVALID_PATH          a files key is absolute or escapes the vendored root
   13 MISSING_ASSET         a listed file does not exist on disk
   14 HASH_MISMATCH         a listed file's recomputed hash differs
-  15 REACHED_ASSET_OMITTED an AC1-reached asset is absent from `files`
+  15 REACHED_ASSET_OMITTED a reached asset (AC1 skill asset or required-helper source) absent from `files`
   16 PROFILE_OMITTED       a required cloud profile is absent from required_helper_heads
   17 HEAD_ABSENT           a required helper head is absent from that profile's grants
 
@@ -74,6 +74,16 @@ REACHED_ASSET_OMITTED = "REACHED_ASSET_OMITTED"
 PROFILE_OMITTED = "PROFILE_OMITTED"
 HEAD_ABSENT = "HEAD_ABSENT"
 
+# The closed seventeen, as a set — so a test can assert validate() never emits a
+# code outside it (making "closed by construction" an enforced invariant, not
+# only a docstring claim). Mirrors the DISPATCH_KINDS frozenset in the contract.
+REJECTION_CODES = frozenset({
+    ABSENT_FILE, UNREADABLE_FILE, INVALID_JSON, TOP_LEVEL_ARRAY, TOP_LEVEL_STRING,
+    TOP_LEVEL_FALSE, MISSING_KEY, EXTRA_KEY, DUPLICATE_KEY, WRONG_FIELD_TYPE,
+    MALFORMED_DIGEST, INVALID_PATH, MISSING_ASSET, HASH_MISMATCH,
+    REACHED_ASSET_OMITTED, PROFILE_OMITTED, HEAD_ABSENT,
+})
+
 
 class _StopValidation(Exception):
     """Raised for a fatal load/shape failure — no further checks are meaningful."""
@@ -84,12 +94,18 @@ class _StopValidation(Exception):
         self.message = message
 
 
+class _DuplicateKeyError(ValueError):
+    """Raised by the JSON object hook on a duplicate key — caught by type, not by
+    a message-prefix match (so a future message reword cannot silently reclassify
+    a DUPLICATE_KEY manifest as INVALID_JSON)."""
+
+
 def _no_duplicate_keys(pairs):
     """object_pairs_hook that rejects a duplicate key at any nesting level."""
     seen = {}
     for key, value in pairs:
         if key in seen:
-            raise ValueError(f"duplicate key: {key!r}")
+            raise _DuplicateKeyError(f"duplicate key: {key!r}")
         seen[key] = value
     return seen
 
@@ -110,10 +126,9 @@ def _load(path):
         raise _StopValidation(UNREADABLE_FILE, f"manifest file not UTF-8: {exc}")
     try:
         return json.loads(raw, object_pairs_hook=_no_duplicate_keys)
+    except _DuplicateKeyError as exc:
+        raise _StopValidation(DUPLICATE_KEY, str(exc))
     except ValueError as exc:
-        msg = str(exc)
-        if msg.startswith("duplicate key:"):
-            raise _StopValidation(DUPLICATE_KEY, msg)
         raise _StopValidation(INVALID_JSON, f"manifest is not valid JSON: {exc}")
 
 
@@ -175,16 +190,27 @@ def validate(
     base_dir = base_dir if base_dir is not None else REPO_ROOT
 
     if expected_assets is None or required_profiles is None or profile_grants is None:
-        contract = _load_contract_module()
-        if expected_assets is None:
-            expected_assets = contract.manifest_file_paths()
-        if required_profiles is None:
-            required_profiles = list(contract.ROOTS.keys())
-        if profile_grants is None:
-            profile_grants = {
-                p: extract_profile_grants(base_dir / contract.ROOTS[p]["workflow"])
-                for p in contract.ROOTS
-            }
+        # The default derivation reads the sibling contract module and the
+        # workflows. A malformed contract constant (e.g. a helper token missing
+        # the vendor prefix → _helper_source_path raises) must surface as a clean
+        # single violation on the documented stdout channel, not an uncaught
+        # traceback — check_closure guards these constants, but validate()/main()
+        # can be called without it, so fail closed here too.
+        try:
+            contract = _load_contract_module()
+            if expected_assets is None:
+                expected_assets = contract.manifest_file_paths()
+            if required_profiles is None:
+                required_profiles = list(contract.ROOTS.keys())
+            if profile_grants is None:
+                profile_grants = {
+                    p: extract_profile_grants(base_dir / contract.ROOTS[p]["workflow"])
+                    for p in contract.ROOTS
+                }
+        except Exception as exc:  # noqa: BLE001 — fail closed on any derivation error
+            return [(WRONG_FIELD_TYPE,
+                     f"could not derive default validation dependencies from the "
+                     f"reachability contract: {exc}")]
 
     try:
         obj = _load(manifest_path)
@@ -312,7 +338,16 @@ def extract_profile_grants(workflow_path):
             file=sys.stderr,
         )
         return set()
-    return set(_GRANT_RE.findall(text))
+    # Drop full-line YAML comments before matching, so a `# was: Bash(.../x.sh:*)`
+    # commented-out grant is not counted. (This narrows, but does not fully close,
+    # the fail-open surface — an inline trailing `#` comment on a grant line, or a
+    # `Bash(...)` inside a quoted example, still matches. The authoritative
+    # comment-aware allowlist scoping is lib/test/extract-command-heads.py, wired
+    # by the deferred grant-synchronization work, AC9 of #543.)
+    scanned = "\n".join(
+        line for line in text.splitlines() if not line.lstrip().startswith("#")
+    )
+    return set(_GRANT_RE.findall(scanned))
 
 
 def main(argv=None):

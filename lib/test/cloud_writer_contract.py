@@ -125,9 +125,11 @@ SKILL_ASSETS = {
 }
 
 # --- AC18: per-profile required helper heads -----------------------------------
-# The exact vendored leading tokens each cloud profile grants (extracted from the
-# workflow `--allowed-tools` / TOOLS lines). These are the executable trust
-# boundary the runtime manifest pins.
+# The vendored leading tokens each cloud profile must grant — a *required subset*
+# of the workflow `--allowed-tools` / TOOLS grants (each profile grants a superset
+# of infrastructure helpers too). Validator class 17 (HEAD_ABSENT) asserts each of
+# these is actually granted. These are the executable trust boundary the runtime
+# manifest pins.
 REQUIRED_HELPER_HEADS = {
     "implement": [
         ".devflow/vendor/devflow/scripts/run-jq.sh",
@@ -187,16 +189,18 @@ def reachable_skills():
     root, e.g. the light-command listener) or an already-reached skill.
     """
     reached = {root["entry_skill"] for root in ROOTS.values()}
-    # Seed edges whose source is a root id (roots are not skills).
+    # Seed edges whose source is a root id (roots are not skills). Use .get() so a
+    # malformed edge missing `from`/`to` never crashes here — check_closure()
+    # reports it as a violation instead (a well-formed edge always has both).
     for edge in DISPATCH_EDGES:
-        if edge["from"] in ROOTS:
+        if edge.get("from") in ROOTS and edge.get("to") is not None:
             reached.add(edge["to"])
     # Fixpoint over skill->skill edges (edges are few; iterate to convergence).
     changed = True
     while changed:
         changed = False
         for edge in DISPATCH_EDGES:
-            if edge["from"] in reached and edge["to"] not in reached:
+            if edge.get("from") in reached and edge.get("to") not in reached and edge.get("to") is not None:
                 reached.add(edge["to"])
                 changed = True
     return reached
@@ -215,8 +219,13 @@ def check_closure():
     errors = []
     classified = set(SKILL_ASSETS)
 
-    # Every dispatch edge's kind must be one of the classified reach kinds.
+    # Every dispatch edge must carry from/to/kind, and kind must be a classified
+    # reach kind. Missing from/to is reported here (fail-soft) rather than crashing
+    # the guard with a KeyError in the subscript loops below.
     for edge in DISPATCH_EDGES:
+        for field in ("from", "to"):
+            if not edge.get(field):
+                errors.append(f"dispatch edge {edge!r} is missing required field '{field}'")
         if edge.get("kind") not in DISPATCH_KINDS:
             errors.append(
                 f"dispatch edge {edge.get('from')}->{edge.get('to')} has unknown "
@@ -239,17 +248,20 @@ def check_closure():
             )
 
     # Every edge's `to` must be a classified skill; its `from` must be a
-    # classified skill or a known root id.
+    # classified skill or a known root id. (A from/to-less edge was already
+    # reported above; skip it here so this loop never subscripts a missing key.)
     for edge in DISPATCH_EDGES:
-        if edge["from"] not in classified and edge["from"] not in ROOTS:
+        src, dst = edge.get("from"), edge.get("to")
+        if not src or not dst:
+            continue
+        if src not in classified and src not in ROOTS:
             errors.append(
-                f"dispatch edge {edge['from']}->{edge['to']} has unknown "
-                f"source '{edge['from']}' (not a classified skill or root id)"
+                f"dispatch edge {src}->{dst} has unknown "
+                f"source '{src}' (not a classified skill or root id)"
             )
-        if edge["to"] not in classified:
+        if dst not in classified:
             errors.append(
-                f"dispatch edge {edge['from']}->{edge['to']} names "
-                f"unclassified target skill '{edge['to']}'"
+                f"dispatch edge {src}->{dst} names unclassified target skill '{dst}'"
             )
 
     # Every reached skill must be classified (a root/edge added without
