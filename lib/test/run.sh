@@ -33838,11 +33838,23 @@ assert_pin_unique "#530/#539 failure-map: early engine_self_modifying shadow tri
 # the ABSENT-operand path explicitly — fail closed, never fall back to conversational memory.
 assert_pin_unique "#530/#539 re-read rule: an absent durable operand fails closed, never falls back to recall" \
   '**Absent operand → fail closed, never recall.**' "$P530_ROOT"
+# #539 review (Important 2): the runtime completeness-check contract sentence — the detection
+# rule that decides a reference is unreadable in the first place — was pinned nowhere; only its
+# per-file failure-map OUTCOMES were. A weakening edit (dropping the exactly-once/ordered
+# requirement, or the clause counting duplicated/reversed/noncanonical markers as unreadable)
+# would ship desk-green. Pin the two load-bearing phrases of Step 3's boundary rule.
+assert_pin_unique "#530/#539 completeness check: markers must each occur exactly once, in order" \
+  'each occurring exactly once, in that order' "$P530_ROOT"
+assert_pin_unique "#530/#539 completeness check: duplicated/reversed/noncanonical markers mean unreadable" \
+  'a **duplicated** marker, a **reversed** order (END before START), or a marker at a **noncanonical** position' "$P530_ROOT"
 # ── #530 (silent-failure review): pin the START/END markers the fail-closed Reference-loading
 # contract hinges on. The runtime completeness check treats a reference as unreadable unless its
 # first non-blank line is `# Reference: <title>` and its last non-blank line is the canonical
 # `<!-- END <name>.md -->` marker. Nothing else pins them, so a future edit that drops/mangles a
-# marker (or appends content after the END) would ship desk-green. Pin both edges per reference.
+# marker (or appends content after the END) would ship desk-green. Pin both edges per reference,
+# and (#539 review, Important 1, mirroring the #529 desk loop) count both markers: a duplicated
+# or interior marker keeps a valid first/last non-blank line, so the edge checks alone stay
+# green on exactly the shapes the runtime contract reads as unreadable.
 for _rf in "$LIB/../skills/review-and-fix/references"/*.md; do
   _rb="$(basename "$_rf")"
   assert_eq "#530 marker: references/$_rb first non-blank line is a canonical '# Reference:' heading" "yes" \
@@ -33851,6 +33863,8 @@ for _rf in "$LIB/../skills/review-and-fix/references"/*.md; do
   # this both asserts the marker is the last non-blank line AND that it names the right file.
   assert_eq "#530 marker: references/$_rb last non-blank line is the canonical END marker naming it" "$_rb" \
     "$(grep -v '^[[:space:]]*$' "$_rf" | tail -1 | sed -nE 's/^<!-- END (.+\.md) -->$/\1/p')"
+  assert_eq "#530 marker: references/$_rb carries exactly one Reference heading and one END marker (no duplicate)" "1|1" \
+    "$(grep -c '^# Reference: ' "$_rf" | tr -d ' ')|$(grep -cF -- '<!-- END ' "$_rf" | tr -d ' ')"
 done
 
 # ── Anti-vacuity: each rule flags its denied shape (fixtures under $E363's trap-cleaned dir).
