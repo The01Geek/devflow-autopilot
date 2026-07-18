@@ -422,6 +422,19 @@ jobs:
   # evidence. The exact capture-heredoc and computed-assignment rows necessarily combine
   # properties; their simpler neighboring rows are the attribution disambiguators.
   #
+  # OBSERVED 2026-07-18 UTC (issue #571): user-directed workflow_dispatch run
+  # 29622484994, implement-probe job 88020119742 (completed success before the
+  # workflow's intentional cancel-probe cancellation), at
+  # 82ff8a1f97134958cc669299762a44728177df1c. An autonomous implement run cannot
+  # discharge this evidence gate without explicit human direction. The execution-file
+  # verdict table was:
+  #   1 DENIED      2 PERMITTED   3 PERMITTED   4 DENIED
+  #   5 DENIED      6 DENIED      7 PERMITTED   8 PERMITTED
+  #   9 DENIED     10 DENIED     11 PERMITTED  12 PERMITTED
+  #  13 PERMITTED  14 DENIED     15 DENIED     16 DENIED
+  # Every row recorded tool_use=yes; rows with a shape discriminator recorded shape=ok.
+  # Thus none of the issue #571 rows was REFORMULATED or UNATTEMPTED.
+  #
   # RE-DERIVING THE I2/I3 ATTRIBUTION (what the retired split used to give you). The
   # shipped profile now carries BOTH the explicit grant and the `*/basename` glob for each
   # label helper, so a PERMITTED here proves the call RUNS but attributes to neither form.
