@@ -44106,6 +44106,190 @@ if [ -d "$I6_SB" ]; then
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
+# issue #562: the tiered draft-root binding, CLI-level. record-draft-binding round-trip
+# (re-queried in a FRESH process so nothing rests on in-context memory), the once-per-run
+# and validation breadcrumbs, record-write-failure, and a REAL linked-worktree binding.
+DB_SB="$(git_sandbox '#562 draft_binding_cli_rows')"
+if [ -d "$DB_SB" ]; then
+  (
+    cd "$DB_SB" || exit 1
+    git init -q .
+    git config user.email t@t; git config user.name t
+    mkdir -p .devflow/tmp
+    printf '# T\n\nB\n' > d.md
+    git add -A > /dev/null 2>&1; git commit -qm init > /dev/null 2>&1
+    N="$(python3 "$IAS" init db | sed 's/nonce=//')"
+    # Unbound query first: the fail-closed bound=none token.
+    python3 "$IAS" query-draft-binding db --nonce "$N" > .db-unbound
+    # Record a worktree-root binding with a divergent non-bound main root.
+    python3 "$IAS" record-draft-binding db --nonce "$N" \
+      --path "$DB_SB" --tier worktree-root --non-bound-root /main/root > .db-rec
+    # Re-query in a FRESH process (no in-context memory).
+    python3 "$IAS" query-draft-binding db --nonce "$N" > .db-bound
+    # A second binding is illegal.
+    python3 "$IAS" record-draft-binding db --nonce "$N" --path /x --tier main-root \
+      > /dev/null 2> .db-second; printf '%s' "$?" > .db-second-rc
+    # Validation breadcrumbs (fail closed).
+    python3 "$IAS" init dv > /dev/null 2>&1
+    NV="$(python3 "$IAS" query-nonce dv | sed 's/nonce=//')"
+    python3 "$IAS" record-draft-binding dv --nonce "$NV" --path rel/x --tier main-root \
+      > /dev/null 2> .dv-relpath; printf '%s' "$?" > .dv-relpath-rc
+    python3 "$IAS" record-draft-binding dv --nonce "$NV" --path /a --tier bogus \
+      > /dev/null 2> .dv-tier; printf '%s' "$?" > .dv-tier-rc
+    python3 "$IAS" record-draft-binding dv --nonce "$NV" --path /a \
+      > /dev/null 2> .dv-notier; printf '%s' "$?" > .dv-notier-rc
+    python3 "$IAS" record-draft-binding dv --nonce "$NV" --path /a --tier main-root \
+      --non-bound-root rel > /dev/null 2> .dv-nbr; printf '%s' "$?" > .dv-nbr-rc
+    # record-write-failure records an ordinal at the bound path.
+    python3 "$IAS" record-write-failure db --nonce "$N" --ordinal 1 > .db-wf
+    # query-draft-binding on a foreign nonce: exit 0 (query contract), fail-closed token.
+    python3 "$IAS" query-draft-binding db --nonce badnonce > .db-fn 2>/dev/null
+    printf '%s' "$?" > .db-fn-rc
+    # record-revision --stdin-digest producer: the emitted line carries the digest, and an
+    # empty stdin fails loud (a fresh run so the revision has a round to attach to).
+    python3 "$IAS" init dr > /dev/null 2>&1
+    NR="$(python3 "$IAS" query-nonce dr | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch dr --nonce "$NR" --round 1 --arm file \
+      --draft-file d.md > /dev/null 2>&1
+    OIDR="$(git hash-object --stdin --no-filters < d.md)"
+    python3 "$IAS" record-return dr --nonce "$NR" --round 1 --verdict REVISE \
+      --carriage-object-id "$OIDR" > /dev/null 2>&1
+    printf 'revised bytes\n' | python3 "$IAS" record-revision dr --nonce "$NR" \
+      --after-round 1 --stdin-digest > .dr-sd 2>&1
+    printf '' | python3 "$IAS" record-revision dr --nonce "$NR" --after-round 1 \
+      --stdin-digest > /dev/null 2> .dr-empty; printf '%s' "$?" > .dr-empty-rc
+    # Bound-branch `latest_revision_landed=no` (review Suggestion #5): every OTHER driving
+    # state has no revision, so the bound-branch string is only ever seen with a vacuous
+    # `yes`. Here `dr` carries a recorded revision with an stdin digest but NO subsequent
+    # landed write (only round 1 exists, predating the revision), so `latest_revision_landed`
+    # is genuinely False. Bind a root and query it: `query-draft-binding` must render the
+    # bound branch's `latest_revision_landed=no`. A regression hardcoding `yes` in the
+    # bound-branch assembly (the exact stale-file bug the flag exists to catch) fails RED here.
+    python3 "$IAS" record-draft-binding dr --nonce "$NR" \
+      --path "$DB_SB" --tier worktree-root > /dev/null 2>&1
+    python3 "$IAS" query-draft-binding dr --nonce "$NR" > .dr-unlanded 2>/dev/null
+    # Bound-path source override: bind a root, put the canonical draft under it, and prove
+    # emit-body reads the BOUND file, not a drifted --draft-file (the anti-drift property).
+    python3 "$IAS" init do > /dev/null 2>&1
+    NO="$(python3 "$IAS" query-nonce do | sed 's/nonce=//')"
+    BR="$DB_SB/boundroot"
+    mkdir -p "$BR/.devflow/tmp"
+    printf '# Draft title\n\nBOUND BODY\n' > "$BR/.devflow/tmp/issue-draft-do.md"
+    printf '# Draft title\n\nDRIFTED BODY\n' > drift.md
+    python3 "$IAS" record-draft-binding do --nonce "$NO" --path "$BR" --tier main-root \
+      > /dev/null 2>&1
+    python3 "$IAS" record-dispatch do --nonce "$NO" --round 1 --arm file \
+      --draft-file "$BR/.devflow/tmp/issue-draft-do.md" > /dev/null 2>&1
+    OIDO="$(git hash-object --stdin --no-filters < "$BR/.devflow/tmp/issue-draft-do.md")"
+    python3 "$IAS" record-return do --nonce "$NO" --round 1 --verdict FILE \
+      --findings-count 0 --carriage-object-id "$OIDO" > /dev/null 2>&1
+    # emit-body is handed the DRIFTED file, but must emit the BOUND file's body.
+    python3 "$IAS" emit-body do --nonce "$NO" --draft-file drift.md > .do-body 2>/dev/null
+    # The TWO merge-gating queries share emit-body's `_bound_draft_file(...) or --draft-file`
+    # resolution — but only emit-body's anti-drift was proven above. query-eligibility
+    # --mode approve is the answer the skill obeys at the merge gate; query-summary renders
+    # the presentation token. Both are handed the DRIFTED file and must ground on the BOUND
+    # one: eligibility answers `eligible=yes ground=file-identity` (the bound digest matches
+    # the clean round's recorded dispatch digest) and the summary emits a non-`none` token —
+    # a regression dropping the bound-first prefix from either query grounds on drift.md's
+    # digest instead, answering `eligible=no`/`token=none` and re-opening the compacted-
+    # context drift this feature closes (issue #562, review Important #1).
+    python3 "$IAS" query-eligibility do --nonce "$NO" --mode approve --draft-file drift.md \
+      > .do-elig 2>/dev/null
+    python3 "$IAS" query-summary do --nonce "$NO" --draft-file drift.md > .do-summary 2>/dev/null
+    # Unbound-run reader fallback (review Suggestion #7): the bound `do` rows above prove the
+    # BOUND-first branch; the unbound arm (`_bound_draft_file` returns None → readers fall back
+    # to the caller `--draft-file`) is otherwise only covered transitively. Record NO binding,
+    # give emit-body a real draft on `--draft-file`, and prove it emits THAT file's body.
+    python3 "$IAS" init du > /dev/null 2>&1
+    NU="$(python3 "$IAS" query-nonce du | sed 's/nonce=//')"
+    printf '# Draft title\n\nUNBOUND BODY\n' > ub.md
+    python3 "$IAS" record-dispatch du --nonce "$NU" --round 1 --arm file \
+      --draft-file ub.md > /dev/null 2>&1
+    OIDU="$(git hash-object --stdin --no-filters < ub.md)"
+    python3 "$IAS" record-return du --nonce "$NU" --round 1 --verdict FILE \
+      --findings-count 0 --carriage-object-id "$OIDU" > /dev/null 2>&1
+    python3 "$IAS" emit-body du --nonce "$NU" --draft-file ub.md > .du-body 2>/dev/null
+    # A REAL linked worktree: bind its own toplevel and confirm the query round-trips.
+    git branch -q wt-562 2>/dev/null
+    if git worktree add -q ../wt562 wt-562 2>/dev/null; then
+      WT="$(cd ../wt562 && pwd)"
+      ( cd ../wt562 && mkdir -p .devflow/tmp
+        NW="$(python3 "$IAS" init wtb | sed 's/nonce=//')"
+        python3 "$IAS" record-draft-binding wtb --nonce "$NW" \
+          --path "$WT" --tier worktree-root > /dev/null
+        python3 "$IAS" query-draft-binding wtb --nonce "$NW" ) > "$DB_SB/.db-wt"
+    fi
+  )
+  assert_eq "#562 draft_binding_cli_rows: an unbound run answers the fail-closed bound=none token" \
+    "bound=none tier=none non_bound_root=none latest_revision_landed=yes" \
+    "$(cat "$DB_SB/.db-unbound" 2>/dev/null)"
+  assert_eq "#562 draft_binding_cli_rows: a worktree-root binding round-trips (fresh process) with its non-bound root" \
+    "bound=$DB_SB tier=worktree-root non_bound_root=/main/root latest_revision_landed=yes" \
+    "$(cat "$DB_SB/.db-bound" 2>/dev/null)"
+  assert_eq "#562 draft_binding_cli_rows: a second record-draft-binding is illegal (exit non-zero)" \
+    "1" "$(cat "$DB_SB/.db-second-rc" 2>/dev/null)"
+  assert_eq "#562 draft_binding_cli_rows: ... named by the binding-already-recorded breadcrumb" \
+    "1" "$(grep -c 'binding-already-recorded' "$DB_SB/.db-second" 2>/dev/null)"
+  assert_eq "#562 draft_binding_cli_rows: a non-absolute bound path is refused (fail closed)" \
+    "1" "$(cat "$DB_SB/.dv-relpath-rc" 2>/dev/null)"
+  assert_eq "#562 draft_binding_cli_rows: ... named by the binding-path-not-absolute breadcrumb" \
+    "1" "$(grep -c 'binding-path-not-absolute' "$DB_SB/.dv-relpath" 2>/dev/null)"
+  assert_eq "#562 draft_binding_cli_rows: an unknown tier token is refused" \
+    "1" "$(grep -c 'binding-tier-unknown' "$DB_SB/.dv-tier" 2>/dev/null)"
+  assert_eq "#562 draft_binding_cli_rows: a missing tier token is refused" \
+    "1" "$(grep -c 'binding-tier-missing' "$DB_SB/.dv-notier" 2>/dev/null)"
+  assert_eq "#562 draft_binding_cli_rows: a non-absolute non-bound root is refused" \
+    "1" "$(grep -c 'binding-nonbound-not-absolute' "$DB_SB/.dv-nbr" 2>/dev/null)"
+  assert_eq "#562 draft_binding_cli_rows: record-write-failure records the ordinal at the bound path" \
+    "write_failure_recorded ordinal=1 count=1" "$(cat "$DB_SB/.db-wf" 2>/dev/null)"
+  assert_eq "#562 draft_binding_cli_rows: query-draft-binding on a foreign nonce keeps the query exit-0 contract" \
+    "0" "$(cat "$DB_SB/.db-fn-rc" 2>/dev/null)"
+  assert_eq "#562 draft_binding_cli_rows: ... and answers the fail-closed foreign-nonce token" \
+    "1" "$(grep -c '^bound=none .* reason=foreign-nonce$' "$DB_SB/.db-fn" 2>/dev/null)"
+  assert_eq "#562 draft_binding_cli_rows: record-revision --stdin-digest emits the recorded digest" \
+    "1" "$(grep -cE '^ordinal=1 stdin_digest=[0-9a-f]+$' "$DB_SB/.dr-sd" 2>/dev/null)"
+  assert_eq "#562 draft_binding_cli_rows: record-revision --stdin-digest with empty stdin fails non-zero" \
+    "1" "$(cat "$DB_SB/.dr-empty-rc" 2>/dev/null)"
+  assert_eq "#562 draft_binding_cli_rows: ... named by the no-bytes breadcrumb" \
+    "1" "$(grep -c 'no revised bytes were received on stdin' "$DB_SB/.dr-empty" 2>/dev/null)"
+  assert_eq "#562 draft_binding_cli_rows: emit-body reads the BOUND file, not a drifted --draft-file (anti-drift)" \
+    "1" "$(grep -c '^BOUND BODY$' "$DB_SB/.do-body" 2>/dev/null)"
+  assert_eq "#562 draft_binding_cli_rows: ... and does NOT emit the drifted file's body" \
+    "0" "$(grep -c 'DRIFTED BODY' "$DB_SB/.do-body" 2>/dev/null)"
+  # The merge-gating queries resolve the SAME bound-first way (review Important #1): a
+  # dropped prefix would ground on drift.md and answer eligible=no / token=none.
+  assert_eq "#562 draft_binding_cli_rows: query-eligibility --mode approve grounds on the BOUND file, not a drifted --draft-file (anti-drift)" \
+    "1" "$(grep -c '^eligible=yes ground=file-identity' "$DB_SB/.do-elig" 2>/dev/null)"
+  # Pin a LIVE presentable token (neither `none` NOR `stale-token`): grounding on drift.md
+  # yields a digest that mismatches the clean round, rendering `token=stale-token` — so a
+  # bare `token=none` check would pass vacuously against the drift regression (caught at the
+  # desk by the mutation run). A live `token=<hex>` proves the summary grounded on the BOUND file.
+  assert_eq "#562 draft_binding_cli_rows: query-summary grounds on the BOUND file — a LIVE presentation token, not stale-token/none (anti-drift)" \
+    "0" "$(grep -cE 'token=(none|stale-token)' "$DB_SB/.do-summary" 2>/dev/null)"
+  # S#6: pin the query-summary `bound_root`/`bound_tier` substring AND its position — the
+  # single fixed string `bound_root=<path> bound_tier=main-root attestation=` proves both the
+  # values render and that they sit immediately before the trailing `attestation=` field
+  # (a re-order or a dropped field fails RED). $BR is the bound root for the `do` epoch.
+  assert_eq "#562 draft_binding_cli_rows: query-summary renders bound_root/bound_tier before the trailing attestation field (S#6)" \
+    "1" "$(grep -cF "bound_root=$DB_SB/boundroot bound_tier=main-root attestation=" "$DB_SB/.do-summary" 2>/dev/null)"
+  # S#5: a bound run whose latest revision has NOT landed renders the bound-branch
+  # `latest_revision_landed=no` — the string a `yes`-hardcoding regression would break.
+  assert_eq "#562 draft_binding_cli_rows: a bound run with an unlanded revision renders latest_revision_landed=no (S#5 — bound-branch 'no' was never exercised)" \
+    "bound=$DB_SB tier=worktree-root non_bound_root=none latest_revision_landed=no" \
+    "$(cat "$DB_SB/.dr-unlanded" 2>/dev/null)"
+  # S#7: an unbound run's readers fall back to the caller `--draft-file` (emit-body emits it).
+  assert_eq "#562 draft_binding_cli_rows: an UNBOUND run's readers fall back to the caller --draft-file (S#7)" \
+    "1" "$(grep -c '^UNBOUND BODY$' "$DB_SB/.du-body" 2>/dev/null)"
+  # The real-worktree row runs only when `git worktree add` is available on the host.
+  if [ -s "$DB_SB/.db-wt" ]; then
+    assert_eq "#562 draft_binding_cli_rows: a REAL linked worktree binds its own toplevel and the query round-trips" \
+      "yes" "$(grep -qF 'tier=worktree-root' "$DB_SB/.db-wt" && echo yes || echo no)"
+  fi
+  git -C "$DB_SB" worktree remove -f ../wt562 > /dev/null 2>&1 || true
+  rm -rf "$DB_SB" "$DB_SB/../wt562"
+fi
+
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
 # SKIP tally (issue #456): derived with `grep -c` over SKIPS_FILE, the same mechanism as

@@ -67,7 +67,13 @@ if sys.version_info < (3, 11):
     )
     raise SystemExit(1)
 
-SCHEMA_VERSION = 1
+# Bumped 1 → 2 for issue #562: the additive `draft_binding` / `write_failures` /
+# revision-`stdin_digest` fields. The bump is deliberate even though those fields are
+# additive-optional — a pre-change v1 state file answers through the existing
+# schema-version-mismatch fail-closed matrix row (#546's matrix; no new versioning
+# discipline is invented), forcing a re-init of any in-flight v1 run. Blast radius is
+# small: these state files are ephemeral per-run scratch under .devflow/tmp/.
+SCHEMA_VERSION = 2
 
 # ── Canonical token sets ────────────────────────────────────────────────────────
 # The transition table below may reference no token outside these sets; the
@@ -76,7 +82,7 @@ SCHEMA_VERSION = 1
 
 _EVENTS = (
     'init', 'dispatch', 'return', 'revision', 'override', 'degraded',
-    'creation-epoch', 'creation-attestation',
+    'creation-epoch', 'creation-attestation', 'draft-binding', 'write-failure',
 )
 # These are bare-string tuples, not Enums — a deliberate, recorded trade-off (raised on
 # PR #552 and deferred). The cost is real but narrow: because arms and verdicts are both
@@ -115,6 +121,7 @@ _RESULTS = _CLASSIFICATIONS + (
     'illegal-return', 'ordinal-incremented', 'illegal-revision',
     'override-recorded', 'degraded-recorded', 'epoch-recorded', 'illegal-epoch',
     'match', 'mismatch', 'attestation-unavailable', 'illegal-attestation',
+    'draft-binding-recorded', 'illegal-draft-binding', 'write-failure-recorded',
 )
 
 # The three embed-arm entry markers, preserved verbatim from the prose this module
@@ -148,6 +155,17 @@ _ELIGIBILITY_REASONS = (
     'no-digest-supplied',
 )
 _GROUNDS = ('file-identity', 'event-ordering', 'override')
+
+# The tiered canonical-draft-root binding (issue #562). A run binds exactly one
+# successfully-writable draft root; `tier` names which ladder rung landed. The
+# non-bound root is recorded verbatim when a resolver-answered tier-1 main root and a
+# divergent tier-2 worktree root both exist, so the divergent-roots out-of-bounds
+# enumerations can name the non-bound same-slug draft path. A closed token set —
+# record-time validation (`record-draft-binding`) and `_validate` reject any value
+# outside it. Unlike the transition-token sets, no import-time assert covers this set:
+# it is not a transition-row column, so it is guarded at record time and in `_validate`
+# only (the same footing as the embed markers and override kinds).
+_DRAFT_TIERS = ('main-root', 'worktree-root')
 
 # Ported budgets and bounds. These are the prose's numbers, preserved verbatim.
 _MAX_AUTOMATIC_REAUDITS = 1
@@ -273,6 +291,31 @@ TRANSITIONS = (
          result='illegal-attestation', reason='attestation-already-recorded'),
     _row('creation-epoch', 'rebind-after-attestation', legal=False,
          result='illegal-epoch', reason='attestation-already-recorded'),
+
+    # draft-binding (issue #562) — the tiered canonical-draft-root binding, recorded
+    # exactly once per run by the first landed write. A second record is illegal (the
+    # forced-reinit path stays the only route to a fresh binding); a non-absolute bound
+    # path, a missing or unknown tier token, and a present-but-non-absolute non-bound
+    # root each fail closed.
+    _row('draft-binding', 'first-landed-write', result='draft-binding-recorded'),
+    _row('draft-binding', 'already-recorded', legal=False,
+         result='illegal-draft-binding', reason='binding-already-recorded'),
+    _row('draft-binding', 'bound-path-not-absolute', legal=False,
+         result='illegal-draft-binding', reason='binding-path-not-absolute'),
+    _row('draft-binding', 'tier-missing', legal=False,
+         result='illegal-draft-binding', reason='binding-tier-missing'),
+    _row('draft-binding', 'tier-unknown', legal=False,
+         result='illegal-draft-binding', reason='binding-tier-unknown'),
+    _row('draft-binding', 'nonbound-not-absolute', legal=False,
+         result='illegal-draft-binding', reason='binding-nonbound-not-absolute'),
+
+    # write-failure (issue #562) — a canonical-draft overwrite that failed to land at
+    # the bound path is recorded, so `latest_revision_landed` reports the latest revision
+    # as unlanded and the presentation renders from the in-context revision bytes rather
+    # than the stale file. (The dispatch write-path cross-check is a separate, strict
+    # enforcement deferred to the skill-side follow-up; no dead row is declared for it
+    # here.)
+    _row('write-failure', 'recorded', result='write-failure-recorded'),
 )
 
 
@@ -325,6 +368,9 @@ _TRANSITION_REASONS = (
     'reinit-requires-force', 'foreign-nonce', 'round-not-open', 'duplicate-return',
     'unreadable-illegal-on-arm', 'no-round-to-revise', 'no-round-to-bind',
     'no-epoch-to-attest', 'attestation-already-recorded',
+    # issue #562 draft-binding / write-failure legality breadcrumbs
+    'binding-already-recorded', 'binding-path-not-absolute', 'binding-tier-missing',
+    'binding-tier-unknown', 'binding-nonbound-not-absolute',
 )
 _ALL_REASONS = set(_ELIGIBILITY_REASONS) | set(_TRANSITION_REASONS)
 
@@ -385,6 +431,24 @@ def state_path(slug, root=None):
                          f'([A-Za-z0-9][A-Za-z0-9._-]*)')
     base = root if root is not None else (_repo_root() or Path.cwd())
     return Path(base) / '.devflow' / 'tmp' / f'issue-audit-state-{slug}.json'
+
+
+def _is_bound_path(p):
+    """True iff `p` is a non-empty absolute path string with no embedded newline or CR.
+
+    The binding is recorded and compared as an opaque string (Windows-safe, #275/#295):
+    the tool never execs a `.sh` helper and never touches the filesystem to validate it.
+    Absoluteness is the one structural check — a relative bound path would resolve
+    differently at each write site and defeat the whole point of a bound root. An
+    embedded newline OR carriage return is rejected: `recorded verbatim` means no
+    normalization, not acceptance of record-splitting bytes that could forge a second
+    field on readback. A space is NOT rejected — a real absolute path legitimately
+    contains one (e.g. macOS `/Users/jo/My Repos/...`), so consumers of the space-
+    delimited query lines must extract path fields by their `key=` anchor, never by a
+    positional whitespace split.
+    """
+    return (isinstance(p, str) and bool(p) and os.path.isabs(p)
+            and '\n' not in p and '\r' not in p)
 
 
 # ── Digests ────────────────────────────────────────────────────────────────────
@@ -675,6 +739,14 @@ def _validate(doc, slug):
                 f'below the floor {rev["floor_round"]} recorded with it (a value below '
                 f'the last completed round fails the event-ordering staleness guard '
                 f'open)')
+        # issue #562: the revision bytes' stdin digest, when the revision was recorded
+        # with its bytes. Non-empty-when-present (the round `digest` rule): the
+        # post-revision `approve` ground compares it against a later landed dispatch
+        # digest, and an empty one would compare equal to nothing meaningfully.
+        sd = rev.get('stdin_digest')
+        if sd is not None and (not isinstance(sd, str) or not sd):
+            raise StateError(f'revision {rev["ordinal"]} stdin_digest is present but not '
+                             f'a non-empty string')
     for key in ('automatic_reaudits_used', 'user_rounds_used'):
         val = doc.get(key, 0)
         if not isinstance(val, int) or isinstance(val, bool):
@@ -710,6 +782,40 @@ def _validate(doc, slug):
         if att is not None and att not in _ATTESTATIONS:
             raise StateError(f'the creation record names an attestation status outside '
                              f'the canonical set: {att!r}')
+    # issue #562: the tiered draft-root binding. Read by the digest/eligibility/
+    # body-emission operations and by the binding/summary queries, so a hand-corrupted
+    # record must fail closed HERE (a named breadcrumb collapsing the whole state to
+    # unestablished), never surface later as a KeyError/AttributeError in a query that
+    # is contractually always-exit-0.
+    binding = doc.get('draft_binding')
+    if binding is not None:
+        if not isinstance(binding, dict):
+            raise StateError('the draft_binding record is not an object')
+        if not _is_bound_path(binding.get('path')):
+            raise StateError('the draft_binding record path is missing or not an '
+                             'absolute, single-line string')
+        if binding.get('tier') not in _DRAFT_TIERS:
+            raise StateError(f'the draft_binding record names a tier outside the '
+                             f'canonical set: {binding.get("tier")!r}')
+        nbr = binding.get('non_bound_root')
+        # Absent (recorded None) is legal — the breadcrumb/no-answer/failed-.git-test
+        # arm records no non-bound root; present-but-non-absolute is corrupt.
+        if nbr is not None and not _is_bound_path(nbr):
+            raise StateError('the draft_binding record non_bound_root is present but not '
+                             'an absolute, single-line string')
+    # issue #562: the canonical-write-failure log at the bound path. Each entry names the
+    # revision ordinal whose overwrite failed (an int) — a bare integer list is enough
+    # for the post-revision `approve` ground, which only asks "did the latest revision's
+    # overwrite land".
+    wf = doc.get('write_failures')
+    # Absent is legal (a pre-binding or legacy record has none); present-but-non-list is
+    # corrupt and fails closed like every other read-surface field.
+    if wf is not None:
+        if not isinstance(wf, list):
+            raise StateError(f'write_failures is not a list (found {type(wf).__name__})')
+        for entry in wf:
+            if not isinstance(entry, int) or isinstance(entry, bool):
+                raise StateError(f'a write_failures entry {entry!r} is not an integer')
     return doc
 
 
@@ -827,6 +933,89 @@ def _unresolved_int(rnd):
     if isinstance(v, bool) or not isinstance(v, int):
         return None
     return v
+
+
+# ── Draft-root binding (issue #562) ──────────────────────────────────────────────
+
+def _binding(state):
+    """The recorded draft-root binding dict, or None when no write has bound one yet."""
+    return (state or {}).get('draft_binding')
+
+
+def _bound_path(state):
+    """The absolute bound draft ROOT, or None when unbound. `_validate` proved it
+    absolute at load. This is the root the display and `bound_root` report and the tier
+    token classifies — NOT the draft file itself (see `_bound_draft_file`)."""
+    b = _binding(state)
+    return b['path'] if b else None
+
+
+def _bound_draft_file(state, slug):
+    """The absolute bound canonical draft FILE, or None when unbound.
+
+    The binding records the bound *root* (`_bound_path`); the canonical draft file is
+    that root joined with the fixed `.devflow/tmp/issue-draft-<slug>.md` subpath — the
+    same path the skill writes and displays. The digest / eligibility / body-emitting
+    readers resolve THIS from the recorded binding so a compacted context that hands a
+    drifted `--draft-file` cannot redirect them; they fall back to the caller-supplied
+    `--draft-file` only on an unbound run.
+    """
+    root = _bound_path(state)
+    if root is None:
+        return None
+    return str(Path(root) / '.devflow' / 'tmp' / f'issue-draft-{slug}.md')
+
+
+def latest_revision_landed(state):
+    """True when the latest recorded revision's bytes have landed at the bound path.
+
+    Vacuously true when no revision is recorded (nothing is unlanded). Otherwise the
+    latest revision counts as landed once a **subsequent** recorded landed write at the
+    bound path (a round-initiating file-arm dispatch record qualifies) carries a digest
+    equal to that revision's recorded stdin digest — the clearing predicate that lets a
+    recovered run re-enter the full file-arm contract (issue #562).
+
+    Two fail-closed conditions, both load-bearing:
+      - A recorded overwrite failure for the latest revision (its ordinal in
+        `write_failures`) means the bound file does NOT hold the revised bytes, so the
+        revision has NOT landed — even if its stdin digest coincidentally equals some
+        earlier audited dispatch's digest (the user revised back to bytes a prior round
+        already saw). Without this the write-failure log and this predicate would be
+        disconnected and a known-failed write could still read as landed. This check is
+        deliberately checked BEFORE the clearing scan, so a recorded write-failure is
+        **terminal for that ordinal**: the general clearing clause above does NOT re-fire
+        for it — not even a genuinely subsequent matching dispatch clears a write-failed
+        ordinal (the flag stays `not landed` until a *fresh* revision without a recorded
+        failure supersedes it). This flag governs presentation source only; the `approve`
+        eligibility ground recovers independently through its fresh-clean-round staleness
+        gate (`_revision_postdates`): a subsequent clean round that no revision postdates
+        re-enables the eligibility ground, so a recovered run still re-enters file-sourced
+        creation there even while this flag stays conservatively `not landed`.
+      - The matching dispatch must be **subsequent** — recorded in a round whose number
+        is greater than the revision's `after_round` — so a *predating* dispatch that
+        happens to share the digest never satisfies the clearing predicate. A revision
+        with NO stdin digest (a legacy/embed-epoch revision) cannot be proven landed and
+        fails closed to `not landed`, the conservative presentation choice.
+    """
+    revs = state['revisions']
+    if not revs:
+        return True
+    latest = revs[-1]
+    # The latest revision's ordinal is len(revs) (the 1..N chain). A recorded overwrite
+    # failure for it means it never landed.
+    if len(revs) in (state.get('write_failures') or []):
+        return False
+    want = latest.get('stdin_digest')
+    if not want:
+        return False
+    after = latest.get('after_round', 0)
+    for rnd in state['rounds']:
+        if rnd['round'] <= after:
+            continue  # only a write recorded AFTER the revision proves it landed
+        for att in rnd['attempts']:
+            if att['arm'] == 'file' and att.get('digest') == want:
+                return True
+    return False
 
 
 def evaluate_triggers(state):
@@ -1031,7 +1220,20 @@ def evaluate_eligibility(state, mode, current_digest=None, digest_failed=False):
         arm = clean['attempts'][-1]['arm']
         if arm == 'file':
             recorded = clean['attempts'][-1].get('digest')
-            if current_digest is not None and recorded == current_digest:
+            # issue #562 post-revision write-failure closure: byte-digest equality is no
+            # longer sufficient on its own. A recorded revision that postdates the clean
+            # round and whose overwrite FAILED leaves the bound file still holding the
+            # clean round's byte-identical bytes — so `recorded == current_digest` holds
+            # over bytes the user revised away. Require, in addition, that no revision
+            # postdates the clean round (mirroring the event-ordering ground): a landed
+            # revision normally changes the file's bytes, so the equality usually fails
+            # there. Equality can still hold WITH a postdating revision in two ways — the
+            # write-failure case (the overwrite never landed, so the file keeps the clean
+            # round's bytes) and a revise-back-to-clean case (the revision's bytes happen
+            # to equal the clean round's) — and this guard refuses BOTH by keying on the
+            # revision's existence, not its bytes (answered `unaudited-revision` below).
+            if (current_digest is not None and recorded == current_digest
+                    and not _revision_postdates(state, clean)):
                 return _yes(state, 'file-identity', current_digest)
         elif not _revision_postdates(state, clean):
             return _yes(state, 'event-ordering', str(revision_ordinal(state)))
@@ -1198,6 +1400,10 @@ _SUMMARY_FIELDS = (
     # adjudicated verdict, the per-class counts, and the unresolved-must-revise count.
     'adjudicated_verdict', 'must_revise', 'advisory', 'invalid',
     'unresolved_must_revise',
+    # issue #562: the bound draft root + its tier token, so the display renders the
+    # `draft bound to worktree root` marker from the tool-emitted token rather than
+    # from the orchestrator's recall.
+    'bound_root', 'bound_tier',
 )
 
 
@@ -1229,7 +1435,8 @@ def summary_fields(state, current_digest=None, digest_failed=False):
                         degraded=False, user_declined=False, cap_reached=False,
                         markers=[], token=None, stale_token=False, reinit_forced=False,
                         attestation=None, adjudicated_verdict=None, must_revise=None,
-                        advisory=None, invalid=None, unresolved_must_revise=None)
+                        advisory=None, invalid=None, unresolved_must_revise=None,
+                        bound_root=None, bound_tier=None)
     done = completed_rounds(state)
     # Cumulative across every round this run: "how many things did the auditors
     # collectively flag", not merely the last round's tally.
@@ -1311,6 +1518,10 @@ def summary_fields(state, current_digest=None, digest_failed=False):
         advisory=(last.get('advisory_count') if last else None),
         invalid=(last.get('invalid_count') if last else None),
         unresolved_must_revise=(last.get('unresolved_must_revise') if last else None),
+        # issue #562: the bound root + tier token (None on an unbound run — an
+        # embed/inline epoch that never bound a canonical file).
+        bound_root=(_binding(state) or {}).get('path'),
+        bound_tier=(_binding(state) or {}).get('tier'),
     )
 
 
@@ -1319,7 +1530,10 @@ def summary_fields(state, current_digest=None, digest_failed=False):
 def _new_doc(slug, nonce):
     return {'schema_version': SCHEMA_VERSION, 'slug': slug, 'nonce': nonce,
             'reinit_forced': False, 'automatic_reaudits_used': 0, 'user_rounds_used': 0,
-            'rounds': [], 'revisions': [], 'overrides': [], 'creation': None}
+            'rounds': [], 'revisions': [], 'overrides': [], 'creation': None,
+            # issue #562: the tiered draft-root binding (recorded once) and the
+            # per-run canonical-write-failure log at the bound path.
+            'draft_binding': None, 'write_failures': []}
 
 
 def cmd_init(args):
@@ -1778,14 +1992,162 @@ def cmd_record_revision(args):
     # when this revision was recorded, and re-deriving it would wrongly reject a
     # legitimately-older revision (recorded when only round 1 was complete, now with
     # round 3 complete). Recording it is what makes the invariant checkable later.
-    doc['revisions'].append({'ordinal': len(doc['revisions']) + 1,
-                             'after_round': args.after_round,
-                             'floor_round': floor})
+    # issue #562: when the revised bytes are piped on stdin (gated by an explicit flag so
+    # a legacy caller that pipes nothing never blocks on a read), record their digest.
+    # The post-revision `approve` closure and the landed-clearing predicate compare it
+    # against a later landed file-arm dispatch digest, so a revision whose overwrite
+    # failed cannot masquerade as audited bytes.
+    stdin_digest = None
+    if getattr(args, 'stdin_digest', False):
+        if sys.stdin is None:
+            _fail('record-revision', 'could not read revised bytes from stdin: no stdin '
+                                     'is attached (fd 0 is closed)')
+        try:
+            data = sys.stdin.buffer.read()
+        except OSError as exc:
+            _fail('record-revision', f'could not read revised bytes from stdin: {exc}')
+        if not data:
+            _fail('record-revision', '--stdin-digest was given but no revised bytes were '
+                                     'received on stdin')
+        try:
+            stdin_digest = hash_bytes(data)
+        except _DigestError as exc:
+            _fail('record-revision', str(exc))
+    rev = {'ordinal': len(doc['revisions']) + 1, 'after_round': args.after_round,
+           'floor_round': floor}
+    if stdin_digest is not None:
+        rev['stdin_digest'] = stdin_digest
+    doc['revisions'].append(rev)
     try:
         save_state(doc, args.slug)
     except StateError as exc:
         _fail('record-revision', str(exc))
-    print(f'ordinal={len(doc["revisions"])}')
+    # The bare `ordinal=N` form is preserved for the no-byte-binding path (the legacy
+    # contract); the stdin_digest field is appended only when a digest was recorded.
+    out = f'ordinal={len(doc["revisions"])}'
+    if stdin_digest is not None:
+        out += f' stdin_digest={stdin_digest}'
+    print(out)
+
+
+def cmd_record_draft_binding(args):
+    """Record the tiered draft-root binding, once per run (issue #562).
+
+    The first landed canonical-draft write binds one absolute root for the rest of the
+    run. Recorded two-rooted: the bound absolute ROOT (the readers join
+    `.devflow/tmp/issue-draft-<slug>.md` onto it — see `_bound_draft_file`), its tier
+    token, and the non-bound root (absolute when a resolver-answered tier-1 main root and
+    a divergent tier-2 worktree root both exist; absent otherwise). Immutable — a second
+    record is illegal, the forced-reinit path staying the only route to a fresh binding.
+    """
+    doc = _load_for_mutation('record-draft-binding', args.slug, args.nonce)
+    if doc.get('draft_binding') is not None:
+        _fail('record-draft-binding',
+              'a draft-root binding is already recorded for this run '
+              '(binding-already-recorded); it is immutable — a fresh binding requires the '
+              'forced-reinit path (init --nonce --force)')
+    if not _is_bound_path(args.path):
+        _fail('record-draft-binding',
+              f'the bound draft path {args.path!r} is not an absolute, single-line path '
+              '(binding-path-not-absolute)')
+    if not args.tier:
+        _fail('record-draft-binding',
+              'a bound-tier token is required (binding-tier-missing): one of '
+              f'{", ".join(_DRAFT_TIERS)}')
+    if args.tier not in _DRAFT_TIERS:
+        _fail('record-draft-binding',
+              f'the bound-tier token {args.tier!r} is outside the canonical set '
+              f'(binding-tier-unknown): one of {", ".join(_DRAFT_TIERS)}')
+    # An empty (or omitted) --non-bound-root is treated as "recorded absent" (the
+    # breadcrumb/no-answer/failed-.git-test arm), so the skill can pass it unconditionally;
+    # normalize once here.
+    non_bound = args.non_bound_root or None
+    if non_bound is not None and not _is_bound_path(non_bound):
+        _fail('record-draft-binding',
+              f'the non-bound root {non_bound!r} is present but not an absolute, '
+              'single-line path (binding-nonbound-not-absolute)')
+    doc['draft_binding'] = {
+        'path': args.path,
+        'tier': args.tier,
+        'non_bound_root': non_bound,
+    }
+    try:
+        save_state(doc, args.slug)
+    except StateError as exc:
+        _fail('record-draft-binding', str(exc))
+    b = doc['draft_binding']
+    print(f'bound_path={b["path"]} tier={b["tier"]} '
+          f'non_bound_root={b["non_bound_root"] or "none"}')
+
+
+def cmd_record_write_failure(args):
+    """Record a canonical-draft overwrite that failed to land at the bound path (#562).
+
+    Each entry names the revision ordinal whose overwrite failed. `latest_revision_landed`
+    reads this log: a recorded failure for the latest revision's ordinal makes it report
+    unlanded, so the skill renders the presentation from the in-context revision bytes
+    rather than the stale file — even when the revised bytes coincidentally hash to some
+    earlier audited dispatch's digest. (The `approve` eligibility ground refuses the same
+    write-failure shape independently, via `_revision_postdates`.)
+    """
+    doc = _load_for_mutation('record-write-failure', args.slug, args.nonce)
+    # DEFERRED (issue #562 review, Suggestion): `--ordinal` is intentionally NOT validated
+    # against the current revision chain here. A bogus/non-latest ordinal is recorded and
+    # reported as success — but the effect is bounded and fails safe: `latest_revision_landed`
+    # only consults `len(revs)`, and the `approve` eligibility gate backstops independently
+    # via `_revision_postdates`, so a mis-supplied ordinal is a silent no-op, never a
+    # fail-open. Strict chain-validation is withheld deliberately because the valid range is
+    # not settled — a canonical-write failure at a round-initiating (non-revision) site is
+    # also conceptually recordable here — so a `1..len(revisions)` guard risks over-rejecting
+    # a legitimate entry. Revisit if a non-revision write-failure consumer is added.
+    doc.setdefault('write_failures', []).append(args.ordinal)
+    try:
+        save_state(doc, args.slug)
+    except StateError as exc:
+        _fail('record-write-failure', str(exc))
+    print(f'write_failure_recorded ordinal={args.ordinal} '
+          f'count={len(doc["write_failures"])}')
+
+
+def _binding_line(state):
+    """The binding query's single-line answer, from recorded facts (fail-closed).
+
+    A crash is never the answer (the query exit contract): with no binding recorded it
+    answers the decided `bound=none` token so the enumerations and fallback marker read
+    a token, never a traceback.
+    """
+    b = _binding(state) if state is not None else None
+    if not b:
+        # `latest_revision_landed=yes` here is vacuous by construction, NOT a dropped
+        # `latest_revision_landed(state)` call: an unbound run is an embed/inline epoch
+        # that never bound a canonical file, so there is no bound-path write that could
+        # fail to land. The bound branch below emits the real predicate.
+        return 'bound=none tier=none non_bound_root=none latest_revision_landed=yes'
+    return (f'bound={b["path"]} tier={b["tier"]} '
+            f'non_bound_root={b["non_bound_root"] or "none"} '
+            f'latest_revision_landed={_yn(latest_revision_landed(state))}')
+
+
+def cmd_query_draft_binding(args):
+    """Emit the recorded binding: bound path, tier token, non-bound root, landed flag."""
+    state = _query_state(args.slug)
+    # Nonce check inline like the sibling queries: a foreign-nonce query answers the
+    # fail-closed token rather than a foreign run's binding.
+    if state is not None and args.nonce and state.get('nonce') != args.nonce:
+        sys.stderr.write('issue-audit-state.py query-draft-binding: nonce mismatch — '
+                         'answering fail-closed\n')
+        # Reuse the unbound answer shape (never drift a second copy) + the reason.
+        print(f'{_binding_line(None)} reason=foreign-nonce')
+        return
+    # DEFERRED (issue #562 review, Suggestion): a genuinely-unbound run and an unestablished
+    # (corrupt/unreadable) state both answer the identical fail-closed `bound=none …` token —
+    # `_query_state` collapses "no state file" and "state failed validation" to the same None
+    # (a pre-existing property shared by every sibling query). Distinguishing them with a
+    # `reason=state-unestablished` clause would require reworking that shared `_query_state`
+    # contract to signal absent-vs-corrupt to all callers, out of proportion for this
+    # state-owner foundation. Both cases are correct and fail-closed today (bound=none);
+    # revisit as a shared-query-surface seam if the caller needs the distinction.
+    print(_binding_line(state))
 
 
 def cmd_record_override(args):
@@ -1980,8 +2342,14 @@ def cmd_emit_body(args):
         _check_nonce(doc, args.nonce)
     except StateError as exc:
         _fail('emit-body', str(exc))
+    # issue #562: resolve the draft file from the recorded binding when one exists — the
+    # bound root is the single source of truth for which file is canonical, so a compacted
+    # context that hands a drifted --draft-file cannot redirect the emit. Fall back to the
+    # caller-supplied --draft-file only on an unbound run (an embed/inline epoch that never
+    # bound a canonical file).
+    source = _bound_draft_file(doc, args.slug) or args.draft_file
     try:
-        raw = Path(args.draft_file).read_bytes()
+        raw = Path(source).read_bytes()
         digest = hash_bytes(raw)
     except (OSError, _DigestError) as exc:
         _fail('emit-body', f'could not hash the draft file: {exc}')
@@ -2079,14 +2447,18 @@ def cmd_query_eligibility(args):
         return
     digest = None
     digest_failed = False
-    if args.draft_file:
+    # issue #562: prefer the recorded bound draft file over the caller's --draft-file, so
+    # a compacted context cannot drift which file eligibility grounds on. Fall back to
+    # --draft-file only when unbound.
+    source = _bound_draft_file(state, args.slug) or args.draft_file
+    if source:
         try:
-            digest = hash_file(args.draft_file)
+            digest = hash_file(source)
         except _DigestError as exc:
             # Surface the real cause — a swallowed digest failure would misattribute
             # the refusal as unaudited-revision. Queries stay exit-0; this is a
             # breadcrumb, not a failure exit.
-            print(f'query: could not hash draft file {args.draft_file}: {exc}',
+            print(f'query: could not hash draft file {source}: {exc}',
                   file=sys.stderr)
             digest_failed = True
     r = evaluate_eligibility(state, args.mode, digest, digest_failed=digest_failed)
@@ -2113,14 +2485,17 @@ def cmd_query_summary(args):
         state = None
     digest = None
     digest_failed = False
-    if args.draft_file:
+    # issue #562: prefer the recorded bound draft file (consistency with query-eligibility,
+    # whose derivation this summary shares) over the caller's --draft-file.
+    source = _bound_draft_file(state, args.slug) or args.draft_file
+    if source:
         try:
-            digest = hash_file(args.draft_file)
+            digest = hash_file(source)
         except _DigestError as exc:
             # Same breadcrumb discipline as query-eligibility: never a silent swallow —
             # and the failure threads into the eligibility derivation so the summary can
             # never render a live token the approve gate would refuse.
-            print(f'query: could not hash draft file {args.draft_file}: {exc}',
+            print(f'query: could not hash draft file {source}: {exc}',
                   file=sys.stderr)
             digest_failed = True
     f = summary_fields(state, digest, digest_failed=digest_failed)
@@ -2134,6 +2509,15 @@ def cmd_query_summary(args):
     adv = 'none' if f['advisory'] is None else str(f['advisory'])
     inv = 'none' if f['invalid'] is None else str(f['invalid'])
     umr = 'none' if f['unresolved_must_revise'] is None else str(f['unresolved_must_revise'])
+    # issue #562: the tool emits the bound root + the bound-tier TOKEN; the skill derives
+    # the human `draft bound to worktree root` marker from `bound_tier=worktree-root`.
+    # A space-containing marker value is deliberately NOT emitted here. bound_root itself
+    # can contain a space (a real absolute path may — see _is_bound_path), so consumers
+    # extract each field by its `key=` anchor, never by a positional whitespace split;
+    # bound_tier and attestation stay space-free tokens found that way. These render
+    # BEFORE `attestation`: attestation is the contractually-trailing final field (the
+    # skill and the #546 suite anchor `attestation=<token>$` to end-of-line), so nothing
+    # may follow it.
     print(f'state={f["state"]} findings_count={fc} '
           f'revisions_applied={f["revisions_applied"]} verdict={f["verdict"] or "none"} '
           f'rounds_run={f["rounds_run"]} '
@@ -2141,10 +2525,12 @@ def cmd_query_summary(args):
           f'degraded={_yn(f["degraded"])} user_declined={_yn(f["user_declined"])} '
           f'cap_reached={_yn(f["cap_reached"])} markers={markers} token={token} '
           f'reinit_forced={_yn(f["reinit_forced"])} '
-          # Post-adjudication actionability fields precede `attestation` so that field stays
-          # the trailing token the #546 CLI pins anchor on (`attestation=…$`).
+          # Post-adjudication actionability fields (#548) and the bound-root fields (#562)
+          # both precede `attestation` so that field stays the trailing token the #546 CLI
+          # pins anchor on (`attestation=…$`).
           f'adjudicated_verdict={adj_v} must_revise={mr} advisory={adv} invalid={inv} '
           f'unresolved_must_revise={umr} '
+          f'bound_root={f["bound_root"] or "none"} bound_tier={f["bound_tier"] or "none"} '
           f'attestation={f["attestation"] or "none"}')
 
 
@@ -2233,7 +2619,36 @@ def main():
     s.add_argument('slug')
     s.add_argument('--nonce', required=True)
     s.add_argument('--after-round', type=int, required=True)
+    s.add_argument('--stdin-digest', action='store_true',
+                   help='Read the revised bytes on stdin and record their digest (#562); '
+                        'used by the post-revision write-failure closure. Omit to record a '
+                        'revision with no byte binding (a legacy/embed-epoch revision).')
     s.set_defaults(func=cmd_record_revision)
+
+    s = sub.add_parser('record-draft-binding',
+                       help='Record the tiered canonical-draft-root binding, once per run '
+                            '(#562): the bound absolute path, its tier token, and the '
+                            'non-bound root.')
+    s.add_argument('slug')
+    s.add_argument('--nonce', required=True)
+    s.add_argument('--path', required=True,
+                   help='The absolute root directory under which the canonical draft '
+                        '.devflow/tmp/issue-draft-<slug>.md was written (the landed root).')
+    s.add_argument('--tier', help='The bound-tier token: main-root or worktree-root.')
+    s.add_argument('--non-bound-root',
+                   help='The divergent non-bound root, absolute, when both a '
+                        'resolver-answered main root and a divergent worktree root exist; '
+                        'pass empty or omit to record it absent.')
+    s.set_defaults(func=cmd_record_draft_binding)
+
+    s = sub.add_parser('record-write-failure',
+                       help='Record a canonical-draft overwrite that failed to land at '
+                            'the bound path (#562).')
+    s.add_argument('slug')
+    s.add_argument('--nonce', required=True)
+    s.add_argument('--ordinal', type=int, required=True,
+                   help='The revision ordinal whose overwrite failed.')
+    s.set_defaults(func=cmd_record_write_failure)
 
     s = sub.add_parser('record-override', help='Record an override permitting '
                                                'presentation without a clean verdict.')
@@ -2330,6 +2745,14 @@ def main():
     s.add_argument('--nonce', required=True)
     s.add_argument('--draft-file')
     s.set_defaults(func=cmd_query_summary)
+
+    s = sub.add_parser('query-draft-binding',
+                       help='Emit the recorded tiered draft-root binding (#562): bound '
+                            'path, tier token, non-bound root, and the latest-revision '
+                            'landed flag. Fail-closed bound=none when unbound.')
+    s.add_argument('slug')
+    s.add_argument('--nonce', required=True)
+    s.set_defaults(func=cmd_query_draft_binding)
 
     s = sub.add_parser('query-nonce', help='Re-read this run nonce from state (recovery '
                                            'after context compaction).')
