@@ -1,0 +1,57 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-18T21:45:00Z",
+  "fix_commit_sha": "c07e6bb",
+  "fix_files": ["lib/test/run.sh"],
+  "loop_role": "fix",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "Negative probe did not independently isolate command-scope (GIT_CONFIG_KEY_0/VALUE_0 left set)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [22225, 22233], "kind": "test_robustness"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "'one row per source' imprecise (inherited-vars source has two rows)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [22150, 22151], "kind": "comment_accuracy"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "'disabling the other three' hard-codes a count (mirror-fact drift risk)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [22151, 22151], "kind": "comment_drift"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "Negative probe exit-status fail-open (advisory; backstopped by positive-control rows using the same invocation shape)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [22225, 22233], "kind": "fail_open"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "advisory"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "c07e6bb"},
+    {"finding_id": "F-2", "decision": "applied", "commit": "c07e6bb"},
+    {"finding_id": "F-3", "decision": "applied", "commit": "c07e6bb"},
+    {"finding_id": "F-4", "decision": "advisory", "source_file": "lib/test/run.sh", "claim_text": "negative probe exit-status fail-open", "skip_category": "advisory-parked", "evidence": "backstopped by positive-control rows exercising the same git var shape; the applied KEY_0/VALUE_0 unset further hardens command-scope isolation", "parking_evidence": {"basis": "advisory hardening nicety, not a defect; same-shape positive-control rows prevent a systematic vacuous pass", "failing_input": "an unrelated git var failure yielding 'unresolved'", "source": "lib/test/run.sh:22225-22233", "finding_ref": {"iter": 1, "index": 3}}}
+  ],
+  "convergence_inputs": {"fixes_applied": 3, "fix_diff_lines": 8, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "base_checkpoint": {"token": "UP_TO_DATE", "behind_by": null},
+  "verification_evidence": {"command": "lib/test/run.sh", "result": "pass", "duration_s": null, "skipped_checks": [{"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty (grades committed HEAD; runs on CI)"}]},
+  "telemetry": "unavailable",
+  "shadow": {
+    "ran_at": "2026-07-18T21:55:00Z",
+    "reviewed_sha": "c07e6bb2a9cc11e3f64f34e50b56f7e2e8e1ac36",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "Telemetry commit author (%an) not asserted, only committer (%cn) — a regression dropping only GIT_AUTHOR_* injection would leak HostileAuthor undetected (completeness beyond AC7)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [22245, 22250], "kind": "test_completeness"}},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "_id2 single-token name assumption is latent/untested", "defect_signature": {"file": "lib/test/run.sh", "line_range": [22170, 22171], "kind": "test_robustness"}}
+    ],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 2, "overlap_with_iter_1": 0, "new": 2, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false
+  },
+  "park_calibration": {"evidence_comparisons": []}
+}
