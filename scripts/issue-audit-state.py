@@ -1029,12 +1029,13 @@ def evaluate_triggers(state):
     T2 provides the fail-closed unknown-state coverage: it holds when a revision record
     postdates the last completed round's record; when the last completed round hit the
     verdict-less (`no-verdict`) terminal (the content is effectively unaudited); when a
-    completed **REVISE** round has NOT been adjudicated yet (the pre-#548 raw-REVISE token used
-    to fire the offer, so an un-adjudicated REVISE round must not silently drop it — the offer
-    fires rather than being skipped, exactly the absent-comparand fail-closed the guard would
-    otherwise fail open on); and whenever state is unestablishable (unknown is not zero). A
-    naming `reason` is surfaced on exactly the three fail-closed arms that need one —
-    `state-unestablished`, `no-verdict-round`, and `unadjudicated-round` — and is `None` when
+    completed **REVISE** round's post-adjudication unresolved-must-revise count (T1's comparand)
+    is absent — whether the round was never adjudicated OR was adjudicated with an `unestablished`
+    count (the pre-#548 raw-REVISE token fired the offer, so either low-evidence path must not
+    silently drop it — the offer fires rather than being skipped, exactly the absent-comparand
+    fail-closed the guard would otherwise fail open on); and whenever state is unestablishable
+    (unknown is not zero). A naming `reason` is surfaced on exactly the three fail-closed arms
+    that need one — `state-unestablished`, `no-verdict-round`, and `unadjudicated-round` — and is `None` when
     T2 holds purely because a revision postdates a known, audited last round (the offer fires,
     but there is no anomaly to name). An un-adjudicated *FILE* round is NOT any of these — its
     raw signal is clean and pre-#548 it fired no offer, so T2's behavior on it is unchanged.
@@ -1054,14 +1055,18 @@ def evaluate_triggers(state):
         # treated as holding and the boundary offer fires naming the state.
         t2 = True
         reason = 'no-verdict-round'
-    elif last.get('outcome') == 'REVISE' and last.get('adjudicated_verdict') is None:
-        # An accepted REVISE round that was never adjudicated: T1's comparand
-        # (`unresolved_must_revise`) is absent, so T1 reads None → not-hold. Pre-#548 the raw
-        # REVISE token fired T1 unconditionally, so without this arm the boundary offer would be
-        # SILENTLY dropped on exactly the un-adjudicated REVISE round it exists to catch — a
-        # guard failing open where it claims to fail closed. The adjudication lifecycle is
-        # unknown here, so fail closed to the offer and surface the reason. A clean FILE round
-        # left un-adjudicated is deliberately NOT this case (pre-#548 it fired no offer either).
+    elif last.get('outcome') == 'REVISE' and u is None:
+        # A completed REVISE round whose POST-ADJUDICATION unresolved-must-revise count (T1's
+        # comparand) is absent — `_unresolved_int` returned None. That covers BOTH low-evidence
+        # paths: the round was never adjudicated (`adjudicated_verdict is None`), OR it was
+        # adjudicated with the literal `unestablished` count (a legal REVISE+unestablished
+        # pairing `cmd_record_adjudication`/`_validate` both accept). Pre-#548 the raw REVISE
+        # token fired T1 unconditionally, so on EITHER path the boundary offer would be SILENTLY
+        # dropped without this arm — a guard failing open on exactly the unknown-count path it
+        # exists to catch (unknown is not zero). Fail closed to the offer and surface the reason.
+        # A clean FILE round left un-adjudicated is deliberately NOT this case (pre-#548 it fired
+        # no offer either); a REVISE round adjudicated with a settled count >= 1 is caught by T1
+        # above (u is not None), never here.
         t2 = True
         reason = 'unadjudicated-round'
     return {'t1': t1, 't2': t2, 'reason': reason}

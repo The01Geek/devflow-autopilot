@@ -4096,11 +4096,37 @@ assert_eq("#548 t1_t2_rows: a raw-REVISE round with NO adjudication no longer fi
           (False, True, 'unadjudicated-round'),
           (lambda t: (t['t1'], t['t2'], t['reason']))(
               issue_audit_state.evaluate_triggers(_state([_round(1, 'file', 'REVISE')]))))
+assert_eq("#548 t1_t2_rows: a REVISE round ADJUDICATED with an 'unestablished' unresolved "
+          "count also fails T2 CLOSED (fired offer, reason unadjudicated-round) — the "
+          "post-adjudication comparand is absent exactly as on the un-adjudicated path, so "
+          "adjudicating a low-evidence REVISE round must not silently drop the boundary offer "
+          "(unknown is not zero). Regression pin: the arm keyed on adjudicated_verdict is None "
+          "left this legal REVISE+unestablished pairing firing NO offer (fail-open).",
+          (False, True, 'unadjudicated-round'),
+          (lambda t: (t['t1'], t['t2'], t['reason']))(
+              issue_audit_state.evaluate_triggers(_state([
+                  _round(1, 'file', 'REVISE', adj='REVISE', unresolved='unestablished',
+                         must_revise=2)]))))
 assert_eq("#548 t1_t2_rows: an un-adjudicated completed FILE round fires NEITHER trigger "
           "(a clean FILE signal fired no offer pre-#548 — T2 behavior on it is unchanged)",
           (False, False, None),
           (lambda t: (t['t1'], t['t2'], t['reason']))(
               issue_audit_state.evaluate_triggers(_state([_round(1, 'file', 'FILE')]))))
+# Boolean-count guard (Suggestion #4): a JSON `true` in unresolved_must_revise must NOT be
+# read as the integer 1 (Python's isinstance(True, int) is True). _unresolved_int excludes it
+# explicitly, so it reads None → T1 does not hold on a bool count; and because the round is a
+# REVISE with an absent comparand, T2 fails closed rather than firing T1 on a phantom count.
+assert_eq("#548 boolean-count guard: unresolved_must_revise=True is NOT read as 1 "
+          "(_unresolved_int returns None for a bool)",
+          None,
+          issue_audit_state._unresolved_int(
+              _round(1, 'file', 'REVISE', adj='REVISE', unresolved=True)))
+assert_eq("#548 boolean-count guard: a bool unresolved count does not fire T1 (no phantom "
+          "count); the REVISE round's absent comparand fails T2 closed instead",
+          (False, True),
+          (lambda t: (t['t1'], t['t2']))(
+              issue_audit_state.evaluate_triggers(_state([
+                  _round(1, 'file', 'REVISE', adj='REVISE', unresolved=True)]))))
 assert_eq("#546 t1_t2_rows: T1 does not hold on a clean FILE round",
           False,
           issue_audit_state.evaluate_triggers(_clean_file)['t1'])
