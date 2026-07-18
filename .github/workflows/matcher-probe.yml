@@ -712,9 +712,6 @@ jobs:
           if parsed is not None:
               walk(parsed)
 
-          denial_text = "\n".join(denials)
-          tooluse_text = "\n".join(tool_uses)
-
           # (num, description, marker, shape_discriminator) — the marker (a unique
           # dummy arg) identifies WHICH row a recorded call belongs to; the
           # shape_discriminator is a substring the intended VERBATIM command carries
@@ -784,8 +781,16 @@ jobs:
                   return None
               if not isinstance(value, dict):
                   return None
+              tool_input = value.get("tool_input")
+              if isinstance(tool_input, dict):
+                  value = tool_input
               command = value.get("command")
               return command.strip() if isinstance(command, str) else None
+
+          def entry_matches_shape(entry, num, discrim):
+              if num in exact_commands:
+                  return recorded_command(entry) == exact_commands[num]
+              return discrim is None or discrim in entry
 
           out = []
           out.append("## Implement-profile matcher-probe results")
@@ -809,29 +814,29 @@ jobs:
           out.append("|---|-------|---------|----------|")
 
           for num, desc, marker, discrim in rows:
-              denied = marker in denial_text
               # Entries in the tool_use stream that carry THIS row's marker; the shape
               # discriminator must appear in the SAME entry (not merely somewhere in
               # the joined stream) for the intended shape to count as confirmed.
               marker_entries = [t for t in tool_uses if marker in t]
+              denial_entries = [d for d in denials if marker in d]
               attempted = bool(marker_entries)
-              if num in exact_commands:
-                  shape_ok = any(
-                      recorded_command(t) == exact_commands[num]
-                      for t in marker_entries
-                  )
-              else:
-                  shape_ok = (discrim is None) or any(discrim in t for t in marker_entries)
-              if denied:
+              tool_shape_ok = any(
+                  entry_matches_shape(t, num, discrim) for t in marker_entries
+              )
+              denial_shape_ok = any(
+                  entry_matches_shape(d, num, discrim) for d in denial_entries
+              )
+              shape_ok = tool_shape_ok or denial_shape_ok
+              if denial_shape_ok:
                   verdict = "DENIED"
-              elif attempted and shape_ok:
+              elif attempted and tool_shape_ok:
                   verdict = "PERMITTED"
-              elif attempted:
+              elif attempted or denial_entries:
                   verdict = "REFORMULATED"
               else:
                   verdict = "UNATTEMPTED"
               ev = "denial=%s; tool_use=%s; shape=%s" % (
-                  "yes" if denied else "no",
+                  "yes" if denial_entries else "no",
                   "yes" if attempted else "no",
                   "n/a" if discrim is None else ("ok" if shape_ok else "MISMATCH"),
               )
