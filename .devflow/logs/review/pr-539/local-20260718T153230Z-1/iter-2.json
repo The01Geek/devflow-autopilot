@@ -1,12 +1,62 @@
 {
   "iter": 2,
-  "fix_commit_sha": "22390148f83898c462d2c569257330af53c135ca",
-  "fix_files": [
-    "docs/review-and-fix-budget.md",
-    "lib/test/modules/review-and-fix-contract.sh",
-    "lib/test/run.sh"
+  "started_at": "2026-07-18T18:20:00Z",
+  "fix_commit_sha": "819564714ce99e0527de07de0c93f054f3eceb75",
+  "fix_files": [".changeset/issue-530-review-and-fix-split.md", "docs/review-and-fix-budget.md", "lib/test/run.sh", "lib/test/test_module_runner.py", "skills/review-and-fix/SKILL.md", "skills/review-and-fix/references/fixing.md", "skills/review-and-fix/references/loop-exit.md", "skills/review-and-fix/references/pre-fix-gates.md", "skills/review-and-fix/references/shadow-review.md"],
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "current_step": "fixing",
+  "current_substep": "item-6-complete",
+  "pending_dispatch": null,
+  "checklist": [],
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": "intentional (promoted iteration — Phase 1+2 skipped by Decide outcome 2; inputs are the early shadow's own Phase 1+2+3 results)"},
+  "phase3_dispatched": [],
+  "phase3_findings": [],
+  "promoted_findings_fixed": [
+    {"id": "S1", "fix": "run.sh 36,201 provenance comment reworded to the pre-#557 fork-point basis (names the budget doc's BEFORE basis, warns off the merge-base)", "decision": "applied"},
+    {"id": "S2", "fix": "run.sh 'exactly 3000' stale ceiling example -> count-free 'a measured cell drifting onto the ceiling value itself'", "decision": "applied"},
+    {"id": "S3", "fix": "run.sh matcher-probe job inventory reworded to the operative fact (no manual-command-tier shape-probe job) without the false 'has only' universal", "decision": "applied"},
+    {"id": "S4", "fix": "run.sh nav-field pin comment now describes the shipped grep -qx membership mechanism, not assert_pin_unique", "decision": "applied"},
+    {"id": "S5", "fix": "'the Schema block above' locators in fixing.md + pre-fix-gates.md rewritten to name references/loop-control.md *Schema field semantics*", "decision": "applied"},
+    {"id": "S6", "fix": "root entry-gate: first loop-control entry reads the reference before stamping (slug/RUN_ID recipe lives there); stamps-only partial iter-<N>.json authorized, completed by item 6's Write", "decision": "applied", "severity_evaluation": "over-grade gate shape 3 flag (single-source silent-failure-hunter): upheld at Important — the absent-operand arm could produce a spurious fail-closed stop on a healthy resumed run, a real functional degradation of the split's resume-without-recall deliverable, not diagnostic-only"},
+    {"id": "S7", "fix": "root now mandates reading references/error-handling.md at invocation (before the loop) and again on any tool/commit/test failure", "decision": "applied", "severity_evaluation": "severity-calibrated: original Important -> Suggestion (observable blast radius is guidance/applicability only — the echoed contracts are independently fail-closed at their owners, per the reporting agent's own verification); fixed anyway (threshold=suggestion)"},
+    {"id": "S8", "fix": "trap-singleton guard hardened: strips lines before matching (indented installers caught), excludes comments; asserts survivors == the sanctioned line", "decision": "applied"},
+    {"id": "S9", "fix": "test_module_runner asserts the four _suite_tmp_dir registrations (E484/E363/S363/D363)", "decision": "applied"},
+    {"id": "S10", "fix": "behavioral micro-harness test added: registry cleans a real temp file+dir on EXIT (register -> exit -> assert absent)", "decision": "applied"},
+    {"id": "S11", "fix": "#484 roster membership pin added for skills/review-and-fix/references/loop-control.md (find-pattern-tightening guard)", "decision": "applied"},
+    {"id": "S12", "fix": "issue #530 workpad AC3/AC4 lines reworded to the shipped raised ceilings via workpad.py --rewrite-ac; PR body figures refreshed to the final measured values via REST PATCH", "decision": "applied"},
+    {"id": "S13", "fix": "root REJECT row now lists all three arms (cap exhausted / convergence exit still REJECT / post-shadow Critical)", "decision": "applied"},
+    {"id": "S14", "fix": "budget doc BEFORE basis now pins the fork-point SHA a263f9ab (parent of the #557 merge de9d74f0); 36,201 re-verified at that commit", "decision": "applied"},
+    {"id": "S15", "fix": "all seven 'Persistent workpad ->' monolith heading-path pointers across references rewritten to post-split targets (root ### Schema/### Lifecycle; loop-control.md Schema field semantics / Run-scoping)", "decision": "applied"},
+    {"id": "S16", "fix": "run.sh 'the 15 pressure pins' -> count-free 'the numbered pressure pins' (second instance of the PR #553 class)", "decision": "applied"},
+    {"id": "VC-9-shadow-phase2-fail", "fix": "run.sh 28,687/28,092 comment mirrors updated to 28,688/28,093 (with 'at this HEAD' anchoring); drift-example 28,687->28,700 updated to 28,688->28,700", "decision": "applied"}
   ],
-  "loop_role": "fix",
-  "synthesized": true,
-  "telemetry": "unavailable"
+  "fix_decisions": [
+    {"finding_id": "S1..S16 + VC-9", "decision": "applied", "commit": "81956471"},
+    {"finding_id": "S6", "decision": "severity-calibrated", "source_file": "skills/review-and-fix/SKILL.md", "claim_text": "loop-entry stamp operand gap", "original_severity": "Important", "calibrated_severity": "Important", "evidence": "upheld — see promoted_findings_fixed.S6"},
+    {"finding_id": "S7", "decision": "severity-calibrated", "source_file": "skills/review-and-fix/SKILL.md", "claim_text": "error-handling.md load trigger absent", "original_severity": "Important", "calibrated_severity": "Suggestion", "evidence": "guidance-only blast radius; echoed contracts independently fail-closed at their owners (verified by the reporting agent itself); fixed regardless"}
+  ],
+  "budget_note": "root/references word changes forced a full budget re-measure: final root 3,209 / load 5,493 (margin 7) / max-step 16,755 / bundle 40,114 / cumulative 42,398 / growth +3,913 / reduction 32,992 — doc cells, changeset figure, and the run.sh growth-pin literal updated same-commit; one intermediate trim removed the pinned lpe-coverage exit-code fragment and the suite caught it RED (restored before commit)",
+  "convergence_inputs": {"fixes_applied": 17, "fix_diff_lines": 125, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "sweep_defs_read": ["skills/implement/phases/phase-2-implement.md#2.3 (read complete at iteration 1; per-iteration heading re-read performed — no new warranted sweep absent from the record)"],
+  "sweep_evidence": {"status": "run", "classification": "prose contract fixes + doc-figure reconciliation + test hardenings (no deletions, no new enumerated-set values beyond the reconciled verdict row)", "sweeps_run": ["2.3.0", "2.3.3", "2.3.4", "2.3.4a", "2.3.5", "2.3.6"], "results": "2.3.0: post-merge (UPDATED 13) re-checks — trap singleton intact, load 5,493 intact, focused module OK. 2.3.4a: every reworded comment re-verified against shipped code/history (36,201 verified at a263f9ab; grep -qx mechanism description matches the shipped guard; matcher-probe job claim now names only the operative fact). 2.3.3: count-free comments; ruff/shellcheck clean. 2.3.6: no new error-handling sites. 2.3.5: trims verified against pins (one pinned fragment initially over-trimmed — suite RED caught it, restored)."},
+  "test_first_gate": "hardened trap test: mutation evidence carried from iteration 1 (in-REPL singleton mutation proof) extended — stripped-line matching verified against the indented-installer shape in-REPL; behavioral registry harness IS the executable proof (register->exit->assert-removed)",
+  "base_checkpoint": {"token": "UPDATED", "behind_by": 13},
+  "stale_prose_check": "exit 0 at post-fix HEAD 81956471 against origin/main three-dot diff (no STALE rows); post-checkpoint merge commit 621015a5; post-merge 2.3.0 spot-checks clean",
+  "verification_evidence": {
+    "command": "lib/test/run.sh (full suite, direct leading token); python3 lib/test/test_module_runner.py; python3 lib/test/test_workflow_flight_recorder.py; shellcheck sweep; ruff check",
+    "result": "pass",
+    "duration_s": 600,
+    "skipped_checks": [
+      {"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty during the run (grades committed HEAD); runs live on CI — surfaced, not a clean pass locally"}
+    ]
+  },
+  "telemetry": {
+    "phase_0": {"calls": 0, "tokens": 0, "wall_clock_s": 60},
+    "phase_3": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "step_2_6_early_shadow": {"calls": 52, "tokens": 4400000, "wall_clock_s": 3600},
+    "fixing": {"calls": 0, "tokens": 0, "wall_clock_s": 1800},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 60}
+  }
 }
