@@ -8964,6 +8964,92 @@ PATH="$P547D/bin:$PATH" python3 "$P547_HELPER" dependencies >/dev/null 2>&1; P54
 assert_eq "#547: a usage error exits UNAVAILABLE(3), not the BLOCKED code (2)" "3" "$P547_USAGE_RC"
 rm -rf "$P547D"
 
+# ── issue #547 review fixes: recognizer fail-direction + untested-path gaps ────
+# PR #572 review (REJECT) findings on scripts/preflight.py::dependency_numbers:
+#   Critical  — single-capture declaration forms drop all but the first number
+#               (`blocked by #10 and #11` → only #10; the open #11 fails OPEN).
+#   Important — a per-line `break` drops a second same-line declaration;
+#               bare `after #N` over-matches narrative provenance prose;
+#               the production `--issue` path (happy + body-fetch-fail) and the
+#               `--issue notanint` subparser type-coercion exit-3 arm are untested.
+# Stub gh keyed on both the queried field ($5: body|state) and the number ($3):
+#   issue 100 body → a multi-number free-prose declaration; 200 body → fetch fail;
+#   dependency numbers resolve their state (10 OPEN, 11/12 landed, 13 unresolvable).
+P547R="$(mktemp -d)"
+mkdir -p "$P547R/bin"
+cat > "$P547R/bin/gh" <<'EOF'
+#!/usr/bin/env bash
+# argv: issue view <number> --json <field> -q .<field>
+num="${3:-}"; field="${5:-}"
+if [ "$field" = body ]; then
+  case "$num" in
+    100) printf '%s\n' 'blocked by #10 and #11' ;;
+    101) printf '%s\n' 'depends on #11, blocked by #10' ;;
+    102) printf '%s\n' 'cleanup after #10 was merged' ;;
+    103) printf '%s\n' 'After #10 lands, ship this' ;;
+    104) printf '%s\n' 'requires #11 first' ;;
+    200) exit 1 ;;
+    *) exit 1 ;;
+  esac
+  exit 0
+fi
+# field = state
+case "$num" in
+  10) printf '%s\n' OPEN ;;
+  11) printf '%s\n' CLOSED ;;
+  12) printf '%s\n' MERGED ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$P547R/bin/gh"
+P547R_HELPER="$LIB/../scripts/preflight.py"
+_p547r() { PATH="$P547R/bin:$PATH" python3 "$P547R_HELPER" dependencies "$@" 2>/dev/null; }
+# Critical: a multi-number free-prose declaration must surface BOTH numbers, so the
+# OPEN #10 blocks even though the CLOSED #11 that follows it would proceed alone.
+P547R_CRIT="$(_p547r --issue 100)"; P547R_CRIT_RC=$?
+assert_eq "#547/#572 Critical: multi-number free-prose declaration keeps every number (OPEN #10 blocks)" "BLOCKED 10" "$P547R_CRIT"
+assert_eq "#547/#572 Critical: the multi-number block returns the BLOCKED exit class" "2" "$P547R_CRIT_RC"
+# Important #2: two declarations on one line — no early `break` — record both, so the
+# OPEN #10 in the SECOND declaration still blocks (a bare `break` would drop it).
+P547R_BREAK="$(_p547r --issue 101)"; P547R_BREAK_RC=$?
+assert_eq "#547/#572 Important: a second same-line declaration is not dropped (OPEN #10 blocks)" "BLOCKED 10" "$P547R_BREAK"
+assert_eq "#547/#572 Important: the second-declaration block returns the BLOCKED exit class" "2" "$P547R_BREAK_RC"
+# Important #3: bare `after #N` mid-sentence is narrative provenance, not a dependency —
+# it must NOT block; but a line-opening `After #N` is a genuine declaration and DOES.
+P547R_AFTERNARR="$(_p547r --issue 102)"; P547R_AFTERNARR_RC=$?
+assert_eq "#547/#572 Important: mid-sentence `after #N` provenance does not block" "PROCEED" "$P547R_AFTERNARR"
+assert_eq "#547/#572 Important: the narrative-`after` line proceeds (exit 0)" "0" "$P547R_AFTERNARR_RC"
+P547R_AFTERDECL="$(_p547r --issue 103)"; P547R_AFTERDECL_RC=$?
+assert_eq "#547/#572 Important: a line-opening `After #N` stays a recognized declaration (OPEN #10 blocks)" "BLOCKED 10" "$P547R_AFTERDECL"
+# Important #4: the production --issue path — happy body reaching PROCEED, and a
+# body-fetch failure reaching the third UNAVAILABLE arm (`UNAVAILABLE issue`/exit 3).
+printf '%s\n' 'no dependencies here' > "$P547R/clean.md"
+P547R_ISSUE_OK="$(PATH="$P547R/bin:$PATH" python3 "$P547R_HELPER" dependencies --body-file "$P547R/clean.md" 2>/dev/null)"; P547R_ISSUE_OK_RC=$?
+assert_eq "#547/#572 Important: a body with no declared dependencies proceeds" "PROCEED" "$P547R_ISSUE_OK"
+assert_eq "#547/#572 Important: the clean-body proceed returns exit 0" "0" "$P547R_ISSUE_OK_RC"
+P547R_ISSUE_FAIL="$(_p547r --issue 200)"; P547R_ISSUE_FAIL_RC=$?
+assert_eq "#547/#572 Important: a --issue body-fetch failure is the UNAVAILABLE-issue arm" "UNAVAILABLE issue" "$P547R_ISSUE_FAIL"
+assert_eq "#547/#572 Important: the --issue body-fetch failure returns the unavailable exit class" "3" "$P547R_ISSUE_FAIL_RC"
+# Important #5: the subparser now carries parser_class=_Parser explicitly, so a
+# `--issue notanint` type-coercion error routes to UNAVAILABLE(3), never argparse's
+# default 2 (which the §1.3.5 gate would misread as a real BLOCKED verdict).
+PATH="$P547R/bin:$PATH" python3 "$P547R_HELPER" dependencies --issue notanint >/dev/null 2>&1; P547R_COERCE_RC=$?
+assert_eq "#547/#572 Important: `--issue notanint` exits UNAVAILABLE(3), not the BLOCKED code (2)" "3" "$P547R_COERCE_RC"
+# Important #6: a dependency-flavoured phrasing outside the recognized vocabulary
+# proceeds (exit 0, observability not a new block) BUT emits a stderr breadcrumb so a
+# missed declaration is observable — the breadcrumb must name the referenced number.
+P547R_SOFT_ERR="$(PATH="$P547R/bin:$PATH" python3 "$P547R_HELPER" dependencies --issue 104 2>&1 >/dev/null)"
+P547R_SOFT_OUT="$(_p547r --issue 104)"; P547R_SOFT_RC=$?
+assert_eq "#547/#572 Important: an unrecognized dependency-flavoured phrasing still proceeds" "PROCEED" "$P547R_SOFT_OUT"
+assert_eq "#547/#572 Important: the unrecognized-phrasing proceed returns exit 0" "0" "$P547R_SOFT_RC"
+assert_eq "#547/#572 Important: an unrecognized `#N` near a dependency keyword emits a stderr breadcrumb" "yes" \
+  "$(printf '%s' "$P547R_SOFT_ERR" | grep -qF 'unrecognized dependency-flavoured reference to #11' && echo yes || echo no)"
+# Source pin (Important #5): the subparser inherits the exit-3 contract explicitly,
+# not via add_subparsers()'s implicit parser_class default.
+assert_pin_unique "#547/#572: the dependencies subparser sets parser_class=_Parser explicitly" \
+  'add_subparsers(dest="command", required=True, parser_class=_Parser)' "$P547R_HELPER"
+rm -rf "$P547R"
+
 # ── issue #547 AC10: the §1.3.5 dependency gate precedes §1.4 branch work ──────
 # The gate must run before ANY §1.4 branch operation (resume-precheck checkout,
 # fetch, checkpoint merge, fresh-branch creation, push) on every entry path.

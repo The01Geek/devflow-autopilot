@@ -20,12 +20,34 @@ from typing import NoReturn
 GH = os.environ.get("DEVFLOW_GH") or "gh"
 DEPENDENCY_HEADING = re.compile(r"^##\s+Dependencies\s*$", re.IGNORECASE)
 HEADING = re.compile(r"^#{1,6}\s+")
-DECLARATIONS = (
-    re.compile(r"\bdepends on\s+#(\d+)(?:\s+and\s+#(\d+))?\b", re.IGNORECASE),
-    re.compile(r"\bmust merge after\s+#(\d+)\b", re.IGNORECASE),
-    re.compile(r"\bblocked by\s+#(\d+)\b", re.IGNORECASE),
-    re.compile(r"\bfollow-up to\s+#(\d+)\b", re.IGNORECASE),
-    re.compile(r"\bafter\s+#(\d+)(?:\s+and\s+#(\d+))?\b", re.IGNORECASE),
+ISSUE_REF = re.compile(r"#(\d+)")
+# Each declaration keyword may be followed by a run of additional numbers joined
+# by "and"/",", so a single declaration can name several dependencies:
+# `blocked by #10 and #11`, `depends on #1, #2`. The number run is captured by a
+# uniform `re.findall(ISSUE_REF, match.group(0))` over the whole matched span
+# rather than per-pattern capture groups (issue #547 Critical + Important #2) —
+# so no declaration form silently drops all but its first number.
+_NUMBER_RUN = r"#\d+(?:\s*(?:,|and)\s+#\d+)*"
+DECLARATIONS = tuple(
+    re.compile(rf"\b{keyword}\s+{_NUMBER_RUN}", re.IGNORECASE)
+    for keyword in (r"depends on", r"must merge after", r"blocked by", r"follow-up to")
+)
+# The bare `after #N` form is the weakest declaration: `cleanup after #5 was
+# merged` / `renamed after #5` are provenance, not sequencing dependencies
+# (issue #547 Important #3). Anchor it to the start of the line/bullet so an
+# incidental mid-sentence "after #N" no longer spuriously BLOCKs; a genuine
+# free-prose declaration ("After #5 lands, …") opens its line, and the
+# `## Dependencies` section scan below still catches an in-section `after #N`
+# regardless of position.
+AFTER_DECLARATION = re.compile(rf"^[ \t>*\-]*after\s+{_NUMBER_RUN}", re.IGNORECASE)
+# Dependency-flavoured phrasings the fixed vocabulary does NOT recognize. When a
+# `#N` sits next to one of these and no declaration matched the line, emit a
+# stderr breadcrumb so a missed declaration is observable (issue #547 Important
+# #6) — observability only, never a new BLOCK (the line still yields no number).
+SOFT_KEYWORDS = re.compile(
+    r"\b(?:requires|require|needs|need|waiting on|gated on|predicated on|"
+    r"prerequisite|depends upon|built on top of|built upon|based on)\b",
+    re.IGNORECASE,
 )
 
 
@@ -45,16 +67,28 @@ def dependency_numbers(body: str) -> list[str]:
         if in_dependencies and HEADING.match(line):
             in_dependencies = False
         if in_dependencies:
-            for number in re.findall(r"#(\d+)\b", line):
+            for number in ISSUE_REF.findall(line):
                 add(number)
             continue
-        for declaration in DECLARATIONS:
-            match = declaration.search(line)
-            if match:
-                for number in match.groups():
-                    if number:
-                        add(number)
-                break
+        # Accumulate every declaration match on the line (no early `break`): a
+        # line can carry more than one declaration — `depends on #1, blocked by
+        # #2` names both (issue #547 Important #2).
+        spans = [m.group(0) for pattern in DECLARATIONS for m in pattern.finditer(line)]
+        after_match = AFTER_DECLARATION.match(line)
+        if after_match:
+            spans.append(after_match.group(0))
+        for span in spans:
+            for number in ISSUE_REF.findall(span):
+                add(number)
+        if not spans and SOFT_KEYWORDS.search(line):
+            for number in ISSUE_REF.findall(line):
+                print(
+                    f"preflight.py: unrecognized dependency-flavoured reference to "
+                    f"#{number} — not a declared sequencing dependency; if it is one, "
+                    f"restate it as `depends on #{number}` / `blocked by #{number}` "
+                    f"or list it under a `## Dependencies` section",
+                    file=sys.stderr,
+                )
     return found
 
 
@@ -144,7 +178,12 @@ class _Parser(argparse.ArgumentParser):
 
 def main() -> int:
     parser = _Parser(description=__doc__)
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    # Make the exit-3 (UNAVAILABLE) contract explicit rather than relying on
+    # add_subparsers() defaulting parser_class to type(self): the subparser is
+    # what raises `--issue notanint` / both-flags usage errors, so its exit code
+    # must route through _Parser.error() → exit 3, not argparse's default 2
+    # (which is the BLOCKED contract code). Issue #547 Important #5.
+    subparsers = parser.add_subparsers(dest="command", required=True, parser_class=_Parser)
     dependency_parser = subparsers.add_parser("dependencies")
     input_group = dependency_parser.add_mutually_exclusive_group(required=True)
     input_group.add_argument("--issue", type=int)
