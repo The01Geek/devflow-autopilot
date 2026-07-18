@@ -4425,8 +4425,8 @@ assert_pin_unique "#548: Quiet-Killer becomes an assessed one-or-none slot" \
   'report at most one qualifying Quiet Killer, or explicitly report' "$CI443_SKILL"
 assert_pin_unique "#548: post-adjudication T1 sentence" \
   "T1 consumes the latest completed round's post-adjudication unresolved must-revise findings" "$CI443_SKILL"
-assert_pin_unique "#548: fail-closed T2 unchanged sentence" \
-  'T2 keeps its fail-closed coverage unchanged: it holds when a revision postdates the latest completed round' "$CI443_SKILL"
+assert_pin_unique "#548: fail-closed T2 gains the unadjudicated-round arm" \
+  'T2 gains one new fail-closed arm (the `unadjudicated-round` arm)' "$CI443_SKILL"
 assert_pin_unique "#548: convergence-definition sentence" \
   'a converged run is one whose final accepted, post-adjudication verdict is' "$CI443_SKILL"
 assert_pin_unique "#548: Step 3.5 summary reports the evidence bundle's coverage" \

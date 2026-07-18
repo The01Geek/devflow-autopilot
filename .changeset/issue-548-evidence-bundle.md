@@ -14,6 +14,7 @@ type: Added
   `## Evidence axes` prompt-extension section extends the generic floor. Step 3.6 now adjudicates
   every audit finding into must-revise / advisory / invalid-unverified classes; the T1 offer
   trigger and a new convergence query consume the post-adjudication unresolved-must-revise count
-  instead of the raw `VERDICT: REVISE` token (T2's fail-closed coverage is unchanged), and the
+  instead of the raw `VERDICT: REVISE` token (T2 gains one new `unadjudicated-round` fail-closed
+  arm that preserves the offer the raw-REVISE T1 token used to fire; its other arms are unchanged), and the
   `issue-audit-state.py` state owner gains `record-adjudication` / `query-convergence`
   subcommands and extended summary fields. (#548)
