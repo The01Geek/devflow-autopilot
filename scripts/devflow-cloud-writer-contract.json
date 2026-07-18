@@ -1,6 +1,6 @@
 {
   "files": {
-    "lib/efficiency-trace.sh": "b14120970b4bff56c0ac00feb71cb94920a198f109cf0c5fe2fa5715edb2fbb3",
+    "lib/efficiency-trace.sh": "28d83d56bb1564461085a3e04b8c9c8b2bdeb2a84d56cbcbeb4a6e7430150c84",
     "scripts/apply-labels.sh": "1a19b88602745ea4644857e9bb37a2986212e96de3c83984aa752f14745d0e0f",
     "scripts/branch-for-issue.py": "e44aa7e0d8e743c9ea6c0b650e39376b91cefb5ce7eaca22803f3f50f5a0f1a9",
     "scripts/config-get.sh": "a418b2e05a7a2205ae8f7495b3c05f65660694a96c580895048b4688b0fa195e",
@@ -22,7 +22,7 @@
     "skills/implement/SKILL.md": "e33acf8e63f474885f4583d7f216449e188f8cb8f98dd418a24188cea3466ddf",
     "skills/implement/phases/phase-1-setup.md": "9453db59f8bd29d0b9dbcad7212900ea886e0d698ff9d74d29808189e304ebe2",
     "skills/implement/phases/phase-2-implement.md": "5d3f1164065b24888dabdd6a8a207e55331105cce3b2e1231bf0ede3794974a1",
-    "skills/implement/phases/phase-3-review.md": "1121958fbcd2350b2e84ce526260b431a4982f527f3ac31f8d917b070c287478",
+    "skills/implement/phases/phase-3-review.md": "c3e259f7969dd8e49ac79bd57e4e168b15894b36be9dac2c6a250c3cec463185",
     "skills/implement/phases/phase-4-documentation.md": "cb51a4797e97759b032d495062e4e6d3b88120fb145a0f58597d55d5bc9ffd4f",
     "skills/pr-description/SKILL.md": "ecf671de27455203fa4e75124bdd1eb7a9b7f0c59d99e538bc85235a324e0346",
     "skills/receiving-code-review/SKILL.md": "f38cbb6d3c26da2601d54d09249608fabf4c3a84746b25e051b42fd4019efbc7",

@@ -5183,10 +5183,12 @@ with tempfile.TemporaryDirectory() as _cw_base:
     assert_eq("#543 AC18 c6 TOP_LEVEL_FALSE", [vcwc.TOP_LEVEL_FALSE],
               _codes(_run(raw="false")))
     # 7 MISSING_KEY
-    _m = _valid_manifest(); del _m["protocol"]
+    _m = _valid_manifest()
+    del _m["protocol"]
     assert_eq("#543 AC18 c7 MISSING_KEY", True, vcwc.MISSING_KEY in _codes(_run(_m)))
     # 8 EXTRA_KEY
-    _m = _valid_manifest(); _m["bogus"] = 1
+    _m = _valid_manifest()
+    _m["bogus"] = 1
     assert_eq("#543 AC18 c8 EXTRA_KEY", [vcwc.EXTRA_KEY], _codes(_run(_m)))
     # 9 DUPLICATE_KEY (only expressible in raw source)
     _dup = ('{"protocol":"devflow-cloud-writer-contract-v1","protocol":"x",'
@@ -5194,22 +5196,27 @@ with tempfile.TemporaryDirectory() as _cw_base:
             '"required_helper_heads":{}}')
     assert_eq("#543 AC18 c9 DUPLICATE_KEY", [vcwc.DUPLICATE_KEY], _codes(_run(raw=_dup)))
     # 10 WRONG_FIELD_TYPE
-    _m = _valid_manifest(); _m["files"] = "notanobject"
+    _m = _valid_manifest()
+    _m["files"] = "notanobject"
     assert_eq("#543 AC18 c10 WRONG_FIELD_TYPE", True,
               vcwc.WRONG_FIELD_TYPE in _codes(_run(_m)))
     # 11 MALFORMED_DIGEST
-    _m = _valid_manifest(); _m["files"] = {"scripts/foo.sh": "notahash"}
+    _m = _valid_manifest()
+    _m["files"] = {"scripts/foo.sh": "notahash"}
     assert_eq("#543 AC18 c11 MALFORMED_DIGEST", [vcwc.MALFORMED_DIGEST], _codes(_run(_m)))
     # 12 INVALID_PATH (escaping relative path, well-formed digest)
-    _m = _valid_manifest(); _m["files"] = {"../escape.sh": _good_hash}
+    _m = _valid_manifest()
+    _m["files"] = {"../escape.sh": _good_hash}
     assert_eq("#543 AC18 c12 INVALID_PATH", True,
               vcwc.INVALID_PATH in _codes(_run(_m, expected_assets=())))
     # 13 MISSING_ASSET
-    _m = _valid_manifest(); _m["files"] = {"scripts/nope.sh": _good_hash}
+    _m = _valid_manifest()
+    _m["files"] = {"scripts/nope.sh": _good_hash}
     assert_eq("#543 AC18 c13 MISSING_ASSET", True,
               vcwc.MISSING_ASSET in _codes(_run(_m, expected_assets=("scripts/nope.sh",))))
     # 14 HASH_MISMATCH
-    _m = _valid_manifest(); _m["files"] = {"scripts/foo.sh": "0" * 64}
+    _m = _valid_manifest()
+    _m["files"] = {"scripts/foo.sh": "0" * 64}
     assert_eq("#543 AC18 c14 HASH_MISMATCH", [vcwc.HASH_MISMATCH], _codes(_run(_m)))
     # 15 REACHED_ASSET_OMITTED
     assert_eq("#543 AC18 c15 REACHED_ASSET_OMITTED", True,
@@ -5229,30 +5236,38 @@ with tempfile.TemporaryDirectory() as _cw_base:
     # Class 10 (WRONG_FIELD_TYPE) is emitted by several distinct triggers — cover
     # the ones the single c10 fixture above did not, especially the protocol
     # identity check (the contract's own version binding).
-    _m = _valid_manifest(); _m["protocol"] = "wrong-protocol"
+    _m = _valid_manifest()
+    _m["protocol"] = "wrong-protocol"
     assert_eq("#543 AC18 c10 protocol wrong value", True,
               vcwc.WRONG_FIELD_TYPE in _codes(_run(_m)))
-    _m = _valid_manifest(); _m["protocol"] = 5
+    _m = _valid_manifest()
+    _m["protocol"] = 5
     assert_eq("#543 AC18 c10 protocol non-string", True,
               vcwc.WRONG_FIELD_TYPE in _codes(_run(_m)))
-    _m = _valid_manifest(); _m["legacy_profile_baseline"] = 5
+    _m = _valid_manifest()
+    _m["legacy_profile_baseline"] = 5
     assert_eq("#543 AC18 c10 legacy_profile_baseline non-string", True,
               vcwc.WRONG_FIELD_TYPE in _codes(_run(_m)))
-    _m = _valid_manifest(); _m["required_helper_heads"] = "notobj"
+    _m = _valid_manifest()
+    _m["required_helper_heads"] = "notobj"
     assert_eq("#543 AC18 c10 required_helper_heads non-object", True,
               vcwc.WRONG_FIELD_TYPE in _codes(_run(_m)))
-    _m = _valid_manifest(); _m["required_helper_heads"] = {"implement": "notalist"}
+    _m = _valid_manifest()
+    _m["required_helper_heads"] = {"implement": "notalist"}
     assert_eq("#543 AC18 c10 profile heads non-list", True,
               vcwc.WRONG_FIELD_TYPE in _codes(_run(_m)))
     assert_eq("#543 AC18 c10 top-level number (non-object scalar)",
               [vcwc.WRONG_FIELD_TYPE], _codes(_run(raw="5")))
     # Class 12 also covers an absolute (non-escaping-but-unsafe) path.
-    _m = _valid_manifest(); _m["files"] = {"/etc/passwd": _good_hash}
+    _m = _valid_manifest()
+    _m["files"] = {"/etc/passwd": _good_hash}
     assert_eq("#543 AC18 c12 absolute path", True,
               vcwc.INVALID_PATH in _codes(_run(_m, expected_assets=())))
     # Independent violations accumulate — the validator collects, it does not
     # short-circuit after the first (only fatal load/shape errors stop early).
-    _m = _valid_manifest(); _m["bogus"] = 1; _m["files"] = {"scripts/foo.sh": "notahash"}
+    _m = _valid_manifest()
+    _m["bogus"] = 1
+    _m["files"] = {"scripts/foo.sh": "notahash"}
     _mv = _codes(_run(_m))
     assert_eq("#543 AC18 multi-violation accumulates (EXTRA_KEY + MALFORMED_DIGEST)",
               True, vcwc.EXTRA_KEY in _mv and vcwc.MALFORMED_DIGEST in _mv)
