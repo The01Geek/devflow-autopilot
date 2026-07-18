@@ -30623,19 +30623,26 @@ WF289="$REPO_ROOT/.github/workflows/devflow-implement.yml"
 AE_REGION289="$(awk '/python3 "\$WP" id "\$NUMBER"/{f=1} f && /BODY=/{exit} f{print}' "$WF289")"
 assert_eq "#289: gate already-exists branch extracted (non-empty)" "yes" \
   "$([ -n "$AE_REGION289" ] && echo yes || echo no)"
-# #537 AC13/AC19: the adopted-workpad Run-link refresh is COMBINED with the gate-adopted
-# startup checkpoint in one update call (bounded writes). Pin the checkpoint literal —
-# unique to the adopted branch (the create branch has no checkpoint) and removal-proof.
-assert_pin_unique "#537 AC13: the gate-adopted checkpoint rides the adopted-branch run-link update" \
+# #537 AC13: the adopted-workpad branch records the gate-adopted startup checkpoint.
+# It is a SEPARATE best-effort call from the Run-link refresh (issue #537 review: a
+# combined call would abort structurally on a legacy workpad lacking ## Progress and
+# drop the link refresh too). Pin the checkpoint literal — unique to the adopted
+# branch (the create branch has no checkpoint) and removal-proof.
+assert_pin_unique "#537 AC13: the adopted branch records the gate-adopted checkpoint (separate best-effort call)" \
   'gha:${RUN_ID}:${RUN_ATTEMPT}:gate-adopted' "$WF289"
 # #537 AC1/AC2: the step initializes the provenance output to unknown before fallible work,
-# splits id exit 0/1/2 (never collapsing exit 1 into a create), and maps the gate output.
+# gates create on id exit 2 SPECIFICALLY (never a non-{0,2} exit → no duplicate create),
+# and maps the gate output.
 assert_pin_unique "#537 AC1: early-workpad step initializes handoff=unknown before fallible work" \
   'echo "handoff=unknown" >> "$GITHUB_OUTPUT"' "$WF289"
 assert_eq "#537 AC1: gate exposes the workpad_handoff job output" "yes" \
   "$(grep -qF 'workpad_handoff: ${{ steps.early_workpad.outputs.handoff }}' "$WF289" && echo yes || echo no)"  # raw-guard-ok: presence pin
-assert_eq "#537 AC2: the early-workpad step branches on all three id exit codes (0/1/2)" "yes" \
-  "$(printf '%s\n' "$AE_REGION289" | grep -qF 'id_rc' && echo yes || echo no)"  # raw-guard-ok: region-scoped presence
+# AC2: the create is gated on id exit 2 specifically (the elif), and any other exit
+# (unreadable/crash) routes to a no-create breadcrumb — never a duplicate workpad.
+assert_eq "#537 AC2: the create is gated on id exit 2 specifically (elif \$? -eq 2)" "yes" \
+  "$(printf '%s\n' "$AE_REGION289" | grep -qF 'elif [ "$?" -eq 2 ]' && echo yes || echo no)"  # raw-guard-ok: region-scoped presence
+assert_pin_unique "#537 AC2: a non-absent id exit does NOT create a workpad (fail-closed breadcrumb)" \
+  'NOT creating a workpad to avoid a duplicate' "$WF289"
 # #537 AC3/AC25: the claude job validates the vendored workpad + writes the handoff record.
 assert_pin_unique "#537 AC25: claude job fails loud when the vendored workpad.py is missing (incomplete vendor)" \
   '::error::incomplete vendor:' "$WF289"

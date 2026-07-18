@@ -4643,6 +4643,12 @@ assert_raises("#537 checkpoint AC14: a marker outside ## Progress is structural"
               workpad._UpdateError,
               lambda: apply_mut(_CP_BODY.replace("- [ ] AC1", "- [ ] AC1 " + _MK),
                                 make_args(checkpoint=[[_CPKEY, "t"]])))
+assert_raises("#537 checkpoint AC14: a marker duplicated INSIDE ## Progress is structural",
+              workpad._UpdateError,
+              lambda: apply_mut(_CP_BODY.replace(
+                  "  - 02:00:00 — /devflow:implement run started",
+                  "  - 02:00:00 — a " + _MK + "\n  - 02:00:01 — b " + _MK),
+                  make_args(checkpoint=[[_CPKEY, "t"]])))
 assert_raises("#537 checkpoint AC14: an empty/whitespace body is structural",
               workpad._UpdateError,
               lambda: apply_mut("   ", make_args(checkpoint=[[_CPKEY, "t"]])))
@@ -4677,12 +4683,20 @@ assert_eq("#537 checkpoint AC13: legacy no-Progress body -> structural, no PATCH
 # This pins `_has_non_checkpoint_mutation` in sync with the mutation flags behaviorally:
 # if a flag is dropped from the enumeration, its row here raises _NoOpReplay and fails.
 # `_out` already carries the _CPKEY marker, so `--checkpoint _CPKEY` is a replay.
+# Every mutation flag `_has_non_checkpoint_mutation` enumerates gets a row, so a
+# dropped flag makes its row raise _NoOpReplay and fail — including the four
+# file-based flags (a nonexistent path still trips the truthiness check before any
+# read, so the structural _UpdateError is caught below as "not a no-op").
 _mut_flag_values = [
     ("status", "Reviewing"), ("branch", "b"), ("run_link", "x"), ("pr_link", "x"),
     ("tick_progress", ["Setup"]), ("tick_plan", ["step"]), ("tick_plan_n", [1]),
     ("tick_ac", ["AC1"]), ("tick_ac_n", [1]), ("rewrite_ac", [["AC1", "AC1 tweak"]]),
     ("note", ["n"]), ("reflection", ["r"]), ("record_classification", ["non-bug", "why"]),
     ("reconcile_reproduction", "non-bug"),
+    ("replace_plan_file", "/nonexistent/devflow-537-x"),
+    ("replace_acs_file", "/nonexistent/devflow-537-x"),
+    ("set_reproduction_file", "/nonexistent/devflow-537-x"),
+    ("reflection_file", "/nonexistent/devflow-537-x"),
 ]
 for _fname, _fval in _mut_flag_values:
     _raised = False
