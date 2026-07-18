@@ -763,6 +763,30 @@ jobs:
               (16, "computed leading `VAR=\"$(head)\"` assignment before a granted head", "iprobe16capture",      "$(echo iprobe16capture)"),
           ]
 
+          # Rows 10–16 cover everyday ad-hoc command forms. Their evidence must
+          # establish the whole requested command, not just a characteristic
+          # fragment: a fragment-only match could silently bless a reformulation
+          # that moved an assignment, removed quoting, or changed heredoc shape.
+          exact_commands = {
+              10: "echo iprobe10tmp > /tmp/iprobe10tmp",
+              11: "echo iprobe11workspace > .devflow/tmp/iprobe11workspace",
+              12: "tee .devflow/tmp/iprobe12heredoc <<'EOF'\niprobe12heredoc\nEOF",
+              13: "IPROBE13=\"$(cat <<'EOF'\niprobe13captureheredoc\nEOF\n)\"",
+              14: 'echo iprobe14expansion "$GITHUB_ACTIONS"',
+              15: "IPROBE15=iprobe15literal echo iprobe15literal",
+              16: 'IPROBE16="$(echo iprobe16capture)" echo iprobe16capture',
+          }
+
+          def recorded_command(entry):
+              try:
+                  value = json.loads(entry)
+              except (TypeError, ValueError):
+                  return None
+              if not isinstance(value, dict):
+                  return None
+              command = value.get("command")
+              return command.strip() if isinstance(command, str) else None
+
           out = []
           out.append("## Implement-profile matcher-probe results")
           out.append("")
@@ -791,7 +815,13 @@ jobs:
               # the joined stream) for the intended shape to count as confirmed.
               marker_entries = [t for t in tool_uses if marker in t]
               attempted = bool(marker_entries)
-              shape_ok = (discrim is None) or any(discrim in t for t in marker_entries)
+              if num in exact_commands:
+                  shape_ok = any(
+                      recorded_command(t) == exact_commands[num]
+                      for t in marker_entries
+                  )
+              else:
+                  shape_ok = (discrim is None) or any(discrim in t for t in marker_entries)
               if denied:
                   verdict = "DENIED"
               elif attempted and shape_ok:
