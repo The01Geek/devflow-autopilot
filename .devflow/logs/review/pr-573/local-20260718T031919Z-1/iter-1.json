@@ -1,0 +1,43 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-18T03:19:19Z",
+  "fix_commit_sha": "1d493380",
+  "fix_files": ["lib/test/test_verification_baseline.py"],
+  "loop_role": "fix",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "detect_all_audit": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer"
+  ],
+  "phase3_findings": [
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "AST substance guard verifies assertion presence, not relevance (self.assertTrue(True) would pass)", "defect_signature": {"file": "lib/test/test_verification_baseline.py", "line_range": [3287, 3300], "kind": "guard-presence-not-relevance"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "pushed_back"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "_has_real_assertion over-approximate (nested closures) and would false-FAIL a free-function assert_* helper", "defect_signature": {"file": "lib/test/test_verification_baseline.py", "line_range": [3305, 3316], "kind": "over-approximate-substance-guard"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "session_id assertions check census row, not launch provenance; comment's 'some other row's launch' wording does not hold for single-session fixtures", "defect_signature": {"file": "lib/test/test_verification_baseline.py", "line_range": [3179, 3251], "kind": "assertion-weaker-than-claimed"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-2", "decision": "applied", "commit": "1d493380"},
+    {"finding_id": "F-3", "decision": "applied", "commit": "1d493380"},
+    {"finding_id": "F-1", "decision": "pushed_back", "source_file": "lib/test/test_verification_baseline.py", "claim_text": "AST substance guard verifies presence not relevance; ast.walk descends into nested closures", "skip_category": "claim-quality", "evidence": "Statically deciding assertion relevance is undecidable; the nested-closure over-permissiveness is implausible for the current 18 owner tests (all use direct self.assert*/assert). The guard is documented as a rename+substance guard, not a semantic-relevance guard. The bare-name assert_*() acceptance added by F-2 covers the actionable false-FAIL margin.", "parking_evidence": {"basis": "inherent limit of a static substance check; relevance is not statically decidable", "failing_input": "a mapped test reduced to self.assertTrue(True)", "source": "lib/test/test_verification_baseline.py:3313-3323", "finding_ref": {"iter": 1, "index": 0}}}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 2,
+    "fix_diff_lines": 14,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "verification_evidence": {"command": "python3 lib/test/test_verification_baseline.py", "result": "pass", "duration_s": 1, "skipped_checks": []},
+  "test_first_gate": [],
+  "sweep_defs_read": [],
+  "sweep_evidence": {"status": "not-run", "reason": "suggestion-only fix delta; delta is test-assertion strengthening, no product/runtime-code mechanism change triggering §2.3 sweeps"},
+  "telemetry": "unavailable",
+  "shadow": null
+}
