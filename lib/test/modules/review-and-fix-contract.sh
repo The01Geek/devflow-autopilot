@@ -43,7 +43,7 @@ trap _raf_cleanup EXIT
 
 # Build the shipped review-and-fix bundle (#539): thin root + every reference, in a
 # stable order, into a single .md the content pins grep. Members come from the FIXED
-# RAF_EXPECTED_REFS list (this module builds no glob — unlike run.sh's MAXI_BUNDLE),
+# RAF_EXPECTED_REFS list (this module builds its member list from no glob — unlike run.sh's MAXI_BUNDLE),
 # so the deletion/emptiness guard is the per-member `[ -r ] && [ -s ]` check below,
 # which records a suite FAIL (fail-closed) when a named reference is missing, empty, or
 # unreadable — a partial bundle would otherwise turn absence/count pins into vacuous passes.

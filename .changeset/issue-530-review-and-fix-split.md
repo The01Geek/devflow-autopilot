@@ -15,4 +15,4 @@ type: Changed
   record let a compacted or resumed run recover its position from the record rather than recall,
   and an always-resident root rule re-reads the active reference after every subagent/skill
   return. Full lifecycle and shadow behavior are preserved; the always-loaded prompt is reduced
-  by 32,999 words. (#539)
+  by 32,992 words. (#539)

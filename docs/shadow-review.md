@@ -17,8 +17,9 @@ resolved once at loop start — before exiting with its latest verdict; the shad
 counted toward that cap. Which findings the loop routes to the fixer is itself configurable via
 `devflow_review_and_fix.fix_severity_threshold` (default `important`): every finding at or above the
 threshold (`critical` > `important` > `suggestion`) is fixed and the rest are parked as advisory,
-except that every finding that drove the engine's REJECT (under
-`devflow_review.verdict_severity_threshold`) is always in the fix set — so no configuration produces
+except that every finding that drove the engine's REJECT (at or above
+`devflow_review.verdict_severity_threshold`, or via a threshold-independent REJECT class such as the
+self-contradicting-diff carve-out) is always in the fix set — so no configuration produces
 a REJECT the fixer is configured to ignore. Iterations
 inside that loop **share state**: the orchestrator's context window carries prior findings, fix
 decisions, and pushback history forward across iterations. That shared state is useful for fixing

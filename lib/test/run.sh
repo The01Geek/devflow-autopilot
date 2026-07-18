@@ -212,7 +212,7 @@ REVIEW_GATED_PHASE_STEMS="phase-0-3-6-blocker-recheck phase-0-6-stale-prose-lint
 REVIEW_PHASE_STEMS="$REVIEW_DEFAULT_PHASE_STEMS $REVIEW_GATED_PHASE_STEMS"
 REVIEW_ROOT="$LIB/../skills/review/SKILL.md"
 REVIEW_BUNDLE="$(mktemp)" || { echo "run.sh: could not allocate the review-skill bundle temp" >&2; exit 1; }
-trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE" "$IMPL_SKILL_BUNDLE" "$REVIEW_BUNDLE"' EXIT
+_suite_tmp_file "$REVIEW_BUNDLE"   # registry, never a fresh `trap … EXIT` (it would REPLACE _suite_cleanup)
 _review_members=("$REVIEW_ROOT")
 for _s in $REVIEW_PHASE_STEMS; do
   _review_members+=("$LIB/../skills/review/phases/${_s}.md")
@@ -1100,7 +1100,7 @@ assert_eq "max_iterations: example value matches schema default" \
   "$(jq -r '.devflow_review_and_fix.max_iterations' "$MAXI_EXAMPLE")"
 
 # Resolver-read behavior (the part the SKILL invokes; the clamp is downstream).
-MAXI_CFG="$(mktemp)"
+MAXI_CFG="$(probe_tmp 'max_iterations resolver fixture temp')"
 printf '%s' '{"devflow_review_and_fix":{"max_iterations":9}}' > "$MAXI_CFG"
 assert_eq "max_iterations: configured integer read back verbatim" "9" \
   "$("$CG" .devflow_review_and_fix.max_iterations 5 "$MAXI_CFG")"
@@ -1156,7 +1156,7 @@ assert_eq "max_iterations clamp: resolver failure (rc≠0) → 5"  "5"  "$(maxi_
 # the #530 budget block below), rebuilt once per run. New #530 pins that must be file-specific
 # pass an explicit reference-file arg.
 # #539 review (Important 1, over-graded shape 3): this bundle is content-pinned selectively (the
-# ~40 operative pins below + the 15 #530 control-flow pins + the live word-budget arithmetic),
+# operative pins below + the #530 control-flow pressure pins + the live word-budget arithmetic),
 # NOT by a full reassembled-bundle-vs-baseline byte diff. A full byte diff has no valid baseline
 # to run against — the monolith is not byte-preserved (there is a documented split-growth delta), so a
 # diff would either be permanently RED or require a frozen expected-bundle snapshot that just
@@ -1188,7 +1188,7 @@ _build_skill_bundle "review-and-fix" "$MAXI_BUNDLE" "${_maxi_members[@]}"
 # predicate above catches a present-but-empty/unreadable member, but a FULLY DELETED reference
 # just shrinks the references/*.md glob — the loop would assemble a smaller bundle and every
 # $MAXI_BUNDLE pin would still pass against the surviving content. The exact 8-name set is pinned
-# in the #530 budget block ~30k lines below, but that coupling is remote; assert the member count
+# in the #530 budget block, but that coupling is remote; assert the member count
 # adjacent to the build so a dropped reference is caught where the bundle is built. 9 = thin root
 # + 8 references (kept in lockstep with RAF_EXPECTED_REFS in the #530 budget block).
 assert_eq "#530/#539 review-and-fix bundle assembled all 9 members (thin root + 8 references)" "9" \
@@ -8354,7 +8354,8 @@ assert_pin_red_on_removal "#484 inline workpad shorthand must expand to the port
 # against devflow.yml's hoisted TOOLS. $MAXI_SKILL is the root+references concatenation
 # (see its definition), so this is now a whole-bundle head scan on the manual tier rather
 # than the pre-#530 single-SKILL.md check. gh pr checkout is granted there (the manual
-# /devflow:review-and-fix path checks out the PR head, Step 0.5 in the root), so every head
+# /devflow:review-and-fix path checks out the PR head at Step 0.5, in
+# references/loop-control.md — part of the scanned bundle), so every head
 # any bundle file emits is granted or suppressed.
 assert_eq "#484/#530 every review-and-fix bundle (root+references) head is granted by devflow.yml TOOLS" "" \
   "$(_manual_ungranted "$MAXI_SKILL" "$LIB/../.github/workflows/devflow.yml" tools-line | sort -u | tr '\n' ' ' | sed 's/ *$//')"
@@ -33632,7 +33633,7 @@ for _raf_ceil in "$RAF_ROOT_CEIL" "$RAF_LOAD_CEIL" "$RAF_MAXSTEP_CEIL"; do
     "$(case "$_raf_doc_nocommas" in *"≤ $_raf_ceil words |"*) echo yes;; *) echo no;; esac)"
 done
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +3,869 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +3,894 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute

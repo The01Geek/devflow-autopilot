@@ -903,8 +903,23 @@ class ModuleRunnerTests(unittest.TestCase):
             "MODULE_FAILURES_FILE",
             "SKIPS_FILE",
             "IMPL_SKILL_BUNDLE",
+            "REVIEW_BUNDLE",
+            "MAXI_BUNDLE",
         ):
             self.assertIn(f'_suite_tmp_file "${temp_file}"', run_text)
+        # Presence of the registry trap is not enough: bash keeps only the LAST
+        # `trap … EXIT` handler, so a later installer silently REPLACES
+        # `_suite_cleanup` and un-covers every registration made after it — the
+        # exact clobber the registry's own header comment bans. Assert the
+        # registry trap is the ONLY top-level EXIT-trap installer in run.sh
+        # (quoted fixture literals and comments are not line-anchored installers,
+        # so they never match).
+        exit_traps = [
+            line.strip()
+            for line in run_text.splitlines()
+            if re.match(r"^trap\s+\S.*\sEXIT\s*$", line)
+        ]
+        self.assertEqual(exit_traps, ["trap _suite_cleanup EXIT"])
 
     def test_repository_registry_maps_the_review_and_fix_contract_module(self) -> None:
         registry = json.loads(

@@ -309,14 +309,15 @@ Output: `Fixed {N} issues, skipped {M}. Re-running review...`
 
 ## Terminal verdict → chat output (mapping)
 
-The externally-visible terminal contract — which converged verdict produces which chat outcome — that downstream callers (e.g. `/devflow:implement` Phase 3.3) rely on. The authoritative rendering (headlines, counts, deferrals manifest, coverage/telemetry appendix) lives in `references/loop-exit.md` under *Verdict → chat output*, and may only be rendered **after** its Pre-mapping gates have run (see the *Step routing* `loop-exit` row).
+The externally-visible terminal contract that downstream callers (e.g. `/devflow:implement` Phase 3.3) rely on. The authoritative rendering (headlines, counts, deferrals manifest, coverage/telemetry appendix) lives in `references/loop-exit.md` under *Verdict → chat output*, and may only be rendered **after** its Pre-mapping gates have run (see the *Step routing* `loop-exit` row).
 
 | Converged verdict | Terminal chat outcome |
 | --- | --- |
 | `APPROVE` | clean approve — only when shadow `coverage: "full"` and no gate prohibits it |
 | `APPROVE WITH ADVISORY NOTES` | approve, surfacing the parked advisory findings |
 | `APPROVE WITH CAVEAT` | approve, surfacing the verification-coverage caveat (incl. shadow `not_verified`) |
-| `REJECT` | non-clean — cap exhausted without converging, or a Pre-mapping gate downgraded |
+| `APPROVE WITH UNRESOLVED SHADOW FINDINGS` | non-clean approve — iteration-cap outcome 2 |
+| `REJECT` | non-clean — cap exhausted, or the post-shadow edit gate found a new Critical |
 | incomplete / not-verified (any fail-closed reference outcome above) | a generic non-clean message; **never** an APPROVE-family template |
 
 
