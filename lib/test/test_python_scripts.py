@@ -4723,7 +4723,7 @@ assert_eq("#537 handoff AC3: adopted-existing round-trips",
           (0, "adopted-existing"),
           _handoff({**_VALID, "origin": "adopted-existing"})[:2])
 
-# AC4: the ten degradation classes each print `unknown`, exit 0, WITH a breadcrumb.
+# AC4: each degradation class below prints `unknown`, exits 0, WITH a breadcrumb.
 _deg = [
     ("missing file", dict(write=False)),
     ("unreadable/undecodable", dict(raw="\xff\xfe not utf8-ish \x80\x81")),
