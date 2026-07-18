@@ -1,0 +1,70 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-18T03:43:31Z",
+  "fix_commit_sha": "0f24a11c501c8fc83aff20fd456c6dd3b5a95213",
+  "fix_files": [
+    ".changeset/issue-537-startup-lifecycle-observability.md",
+    "lib/test/run.sh",
+    "lib/test/test_python_scripts.py",
+    "scripts/workpad.py"
+  ],
+  "loop_role": "fix",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:type-design-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {"agent": "devflow:code-reviewer", "severity": "Suggestion", "description": "changeset prose 'Four ## Progress checkpoints' — coupled sibling of the docs four->up-to-four fix; ships as CHANGELOG prose", "defect_signature": {"file": ".changeset/issue-537-startup-lifecycle-observability.md", "line_range": [6, 6], "kind": "coupled_site_phrasing_drift"}, "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "_deg 'wrong field type (issue str)' row asserts only the shared origin=unknown breadcrumb, masking the issue type guard", "defect_signature": {"file": "lib/test/test_python_scripts.py", "line_range": [4554, 4567], "kind": "misattributed-test"}, "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "_plan_checkpoints has no within-batch duplicate-key guard: two identical absent keys write the marker twice and wedge future replays", "defect_signature": {"file": "scripts/workpad.py", "line_range": [822, 878], "kind": "missing-guard"}, "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "no positive process-level control that a checkpoint INSERT issues a PATCH; combined hydration call shape untested", "defect_signature": {"file": "lib/test/test_python_scripts.py", "line_range": [4683, 4696], "kind": "missing-test"}, "fix_decision": "applied"},
+    {"agent": "devflow:type-design-analyzer", "severity": "Suggestion", "description": "3-site handoff-origin vocabulary has no coupling guard/single-source", "defect_signature": {"file": "scripts/workpad.py", "line_range": [1744, 1744], "kind": "coupled-invariant-no-single-source"}, "fix_decision": "applied"},
+    {"agent": "devflow:type-design-analyzer", "severity": "Suggestion", "description": "_CHECKPOINT_KEY_RE used ^...$ which admits a trailing newline (marker injection); prefer \\A...\\Z", "defect_signature": {"file": "scripts/workpad.py", "line_range": [1650, 1650], "kind": "regex-anchor-trailing-newline"}, "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "IT1-F1", "decision": "applied", "commit": "0f24a11c", "source_file": ".changeset/issue-537-startup-lifecycle-observability.md", "evidence": "changeset 'Four'->'Up to four ... a normal fresh run writes three'"},
+    {"finding_id": "IT1-F2", "decision": "applied", "commit": "0f24a11c", "source_file": "lib/test/test_python_scripts.py", "evidence": "added dedicated 'issue must be an integer' branch-specific assert"},
+    {"finding_id": "IT1-F3", "decision": "applied", "commit": "0f24a11c", "source_file": "scripts/workpad.py", "evidence": "within-batch duplicate-key raises _UpdateError (fail-closed); mutation-checked RED on copy"},
+    {"finding_id": "IT1-F4", "decision": "applied", "commit": "0f24a11c", "source_file": "lib/test/test_python_scripts.py", "evidence": "added INSERT->PATCH positive control + hydration-seam test"},
+    {"finding_id": "IT1-F5", "decision": "applied", "commit": "0f24a11c", "source_file": "lib/test/run.sh", "evidence": "added 2 assert_pin_unique coupling pins for the origin vocabulary (workpad.py + workflow); the finding offered pin-or-comment, chose the idiomatic pin"},
+    {"finding_id": "IT1-F6", "decision": "applied", "commit": "0f24a11c", "source_file": "scripts/workpad.py", "evidence": "_CHECKPOINT_KEY_RE ^...$ -> \\A...\\Z + trailing-newline-rejection test; mutation-checked RED on copy"}
+  ],
+  "convergence_inputs": {"fixes_applied": 6, "fix_diff_lines": 73, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "verification_evidence": {"command": "lib/test/run.sh", "result": "pass", "duration_s": 340, "skipped_checks": [{"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty (grades committed HEAD); runs live in CI, and shadow code-reviewer confirmed 0 skipped at committed HEAD 0f24a11c"}]},
+  "telemetry": "unavailable",
+  "shadow": {
+    "ran_at": "2026-07-18T04:05:00Z",
+    "reviewed_sha": "0f24a11c501c8fc83aff20fd456c6dd3b5a95213",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:type-design-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:type-design-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:type-design-analyzer", "severity": "Suggestion", "description": "stage vocabulary (gate-adopted/claude-invoke/phase1-entered/phase1-hydrated) is prose-only, not a _CHECKPOINT_STAGES constant; a stage typo passes the key grammar (self-healing, and already caught at the workflow site by run.sh literal checkpoint pins)", "defect_signature": {"file": "scripts/workpad.py", "line_range": [1655, 1658], "kind": "unenforced-closed-vocabulary-invariant"}},
+      {"agent": "devflow:type-design-analyzer", "severity": "Suggestion", "description": "5-field handoff record has no single source of truth (workflow writer + cmd_handoff_state reader duplicate the shape); self-healing to unknown", "defect_signature": {"file": "scripts/workpad.py", "line_range": [1786, 1840], "kind": "schema-no-single-source-of-truth"}},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "inline workflow Python handoff-writer has no behavioral test (presence pins only); degrades to unknown", "defect_signature": {"file": ".github/workflows/devflow-implement.yml", "line_range": [164, 172], "kind": "untested-producer-of-tested-contract"}},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "checkpoint structural-rejection tests assert against broad _UpdateError type only, not the message; correct by construction today", "defect_signature": {"file": "lib/test/test_python_scripts.py", "line_range": [4653, 4680], "kind": "type-only-rejection-assertion-no-message-attribution"}}
+    ],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 4, "overlap_with_iter_N": 0, "new": 4, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false,
+    "park_calibration": "clean: no parked finding matched a mis-grade shape (all 4 are self-healing/fail-soft maintainability or test-hardening notes; none is a fail-open guard, overclaiming breadcrumb, or dishonorable deferral)",
+    "over_grade_calibration": "n/a: no promote-path Critical/Important finding",
+    "fix_delta_gate": "clean: operand-contract subset verified for both new guards; input-shape matrix fails closed; no vacuous tests"
+  }
+}
