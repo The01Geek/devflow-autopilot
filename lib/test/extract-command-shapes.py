@@ -56,9 +56,11 @@ Rule table (each keyed to a probe row / run — see .github/workflows/matcher-pr
       `review` profile grants no interpreter (run 29105381021 denials).
 
 CLI:
-    extract-command-shapes.py [--profile review|implement] FILE
-        -> one `FILE:LINE  RULE  statement` per denied-shape hit; exit 1 if any hit,
-           exit 0 when the file is clean. The default `review` profile applies R1-R4
+    extract-command-shapes.py [--profile review|implement] FILE...
+        -> one `FILE:LINE  RULE  statement` per denied-shape hit, across every FILE
+           (a reviewed surface is a BUNDLE — a skill root plus its phase references,
+           issue #529 — and each hit stays attributed to the file it came from);
+           exit 1 if any hit, exit 0 when every file is clean. The `review` profile applies R1-R4
            (read-only review allowlist). `--profile implement` applies the implement-
            tier rules (issue #455), keyed to the SEPARATE devflow-implement matcher
            probe (matcher-probe.yml's implement-probe job):
@@ -1020,7 +1022,7 @@ def find_implement_violations(text: str) -> list[tuple[int, str, str]]:
     return hits
 
 
-_USAGE = "usage: extract-command-shapes.py [--profile review|implement] FILE"
+_USAGE = "usage: extract-command-shapes.py [--profile review|implement] FILE..."
 
 
 def main(argv: list[str]) -> int:
@@ -1032,14 +1034,18 @@ def main(argv: list[str]) -> int:
             return 2
         profile = args[1]
         args = args[2:]
-    if len(args) != 1 or profile not in ("review", "implement"):
+    if len(args) < 1 or profile not in ("review", "implement"):
         print(_USAGE, file=sys.stderr)
         return 2
-    path = args[0]
-    with open(path, encoding="utf-8") as handle:
-        text = handle.read()
-    hits = find_implement_violations(text) if profile == "implement" else find_violations(text)
-    for lineno, rule, statement in hits:
+    # The reviewed surface is a bundle (a skill root plus its phase references),
+    # so every source is scanned in one call and each hit stays attributed to the
+    # file it came from — a moved fence must not escape the scan (issue #529).
+    finder = find_implement_violations if profile == "implement" else find_violations
+    hits: list[tuple[str, int, str, str]] = []
+    for path in args:
+        with open(path, encoding="utf-8") as handle:
+            hits += [(path, *hit) for hit in finder(handle.read())]
+    for path, lineno, rule, statement in hits:
         oneline = " ".join(statement.split())
         if len(oneline) > 160:
             oneline = oneline[:157] + "..."

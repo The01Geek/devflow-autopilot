@@ -140,7 +140,25 @@ IMPL_PHASE_STEMS="phase-1-setup phase-2-implement phase-3-review phase-4-documen
 # logic — a replica would risk drifting from the real check. A member must be readable AND
 # non-empty to contribute; the `cat` exit status (read errors mid-stream) is checked
 # separately at the call site since it performs the actual append.
-_impl_bundle_member_usable() { [ -r "$1" ] && [ -s "$1" ]; }
+_bundle_member_usable() { [ -r "$1" ] && [ -s "$1" ]; }
+# Shared fail-closed bundle builder (#529). Factored so the implement bundle and the
+# review bundle cannot drift: a replica would inevitably lose one of the hardening
+# properties the header above promises (per-member usability, a CHECKED `cat` rc,
+# a newline separator). The mktemp guard stays at each call site by design — the
+# builder takes a pre-allocated out-file and cannot name the caller's variable. Members are passed as an array so a
+# checkout path containing a space is preserved rather than word-split.
+#   _build_skill_bundle <label> <out-file> <member>...
+_build_skill_bundle() {
+  _bsb_label="$1"; _bsb_out="$2"; shift 2
+  for _bsb_m in "$@"; do
+    if _bundle_member_usable "$_bsb_m" && cat "$_bsb_m" >> "$_bsb_out"; then
+      printf '\n' >> "$_bsb_out"
+    else
+      printf '  FAIL  %s bundle member missing, empty, or unreadable: %s\n' "$_bsb_label" "$_bsb_m"
+      echo FAIL >> "$RESULTS_FILE"
+    fi
+  done
+}
 IMPL_SKILL_BUNDLE="$(mktemp)" || { echo "run.sh: could not allocate the implement-skill bundle temp" >&2; exit 1; }
 trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE" "$IMPL_SKILL_BUNDLE"' EXIT
 # Build the member list as an ARRAY (not a space-joined string) so a checkout path
@@ -150,18 +168,36 @@ _bundle_members=("$LIB/../skills/implement/SKILL.md")
 for _s in $IMPL_PHASE_STEMS; do
   _bundle_members+=("$LIB/../skills/implement/phases/${_s}.md")
 done
-for _m in "${_bundle_members[@]}"; do
-  # A member that is missing, empty, OR unreadable (or whose read errors mid-stream) records
-  # a FAIL instead of silently contributing nothing — the fail-closed property the header
-  # comment promises. The predicate covers missing/empty/unreadable; `&& cat` covers a
-  # mid-stream read error.
-  if _impl_bundle_member_usable "$_m" && cat "$_m" >> "$IMPL_SKILL_BUNDLE"; then
-    printf '\n' >> "$IMPL_SKILL_BUNDLE"
-  else
-    printf '  FAIL  implement-skill bundle member missing, empty, or unreadable: %s\n' "$_m"
-    echo FAIL >> "$RESULTS_FILE"
-  fi
+_build_skill_bundle "implement-skill" "$IMPL_SKILL_BUNDLE" "${_bundle_members[@]}"
+
+# ── #529 the Review engine is a BUNDLE too ───────────────────────────────────
+# `/devflow:review` is now a thin root plus gated phase references, exactly like
+# `/devflow:implement` above — so it gets the SAME fail-closed bundle treatment,
+# through the same builder. An engine contract sentence lives in exactly one of
+# those sources, and which one is an implementation detail that may change as
+# phases are re-partitioned, so a content pin asserts against the CONCATENATED
+# bundle: "present-and-unique" becomes a bundle-wide claim (the semantically
+# correct one) rather than a bet on which file currently hosts the text. The
+# mutation-taking assertions still work — they copy their target, and the bundle
+# is rebuilt from the real files every run, so deleting a pinned sentence from a
+# reference still turns its pin RED.
+# REVIEW_PHASE_STEMS is the single source of the review phase set: the bundle
+# members AND the AC3 default-path measurement derive from it, so a reference can
+# never be registered in one place and silently dropped from another (the
+# IMPL_PHASE_STEMS precedent). It is split into DEFAULT and GATED because the AC3
+# budget counts only the sources a pass with no blocker fast path and no
+# stale-prose predicate must read — the gated three are excluded BY the split.
+REVIEW_DEFAULT_PHASE_STEMS="phase-0-setup phase-1-checklist phase-2-verification phase-3-agents phase-4-verdict phase-4-4-github-post"
+REVIEW_GATED_PHASE_STEMS="phase-0-3-6-blocker-recheck phase-0-6-stale-prose-lint phase-4-1-7-stale-adjudication"
+REVIEW_PHASE_STEMS="$REVIEW_DEFAULT_PHASE_STEMS $REVIEW_GATED_PHASE_STEMS"
+REVIEW_ROOT="$LIB/../skills/review/SKILL.md"
+REVIEW_BUNDLE="$(mktemp)" || { echo "run.sh: could not allocate the review-skill bundle temp" >&2; exit 1; }
+trap 'rm -f "$RESULTS_FILE" "$MODULE_FAILURES_FILE" "$SKIPS_FILE" "$IMPL_SKILL_BUNDLE" "$REVIEW_BUNDLE"' EXIT
+_review_members=("$REVIEW_ROOT")
+for _s in $REVIEW_PHASE_STEMS; do
+  _review_members+=("$LIB/../skills/review/phases/${_s}.md")
 done
+_build_skill_bundle "review-skill" "$REVIEW_BUNDLE" "${_review_members[@]}"
 
 PASS=0
 FAIL=0
@@ -1123,7 +1159,7 @@ assert_eq "sev e2e: receiving section unset → default"      "critical"  "$(sev
 
 # operative-sentence pins in the three SKILL.md files (the sentence carrying the behavior)
 ST_RAF="$LIB/../skills/review-and-fix/SKILL.md"
-ST_REV="$LIB/../skills/review/SKILL.md"
+ST_REV="$REVIEW_BUNDLE"
 ST_RCV="$LIB/../skills/receiving-code-review/SKILL.md"
 # each SKILL reads its key via config-get.sh (already cloud-allowlisted — no new helper)
 assert_pin_unique "sev(raf): reads fix_severity_threshold via config-get.sh" '/../../scripts/config-get.sh .devflow_review_and_fix.fix_severity_threshold important' "$ST_RAF"
@@ -2983,7 +3019,7 @@ assert_pin_unique "over-grade: engine gate keeps the never-auto-demote contract 
 # (/devflow:review Phase 4.1.5) — issue #195. Pin the canonical shapes against review/SKILL.md,
 # pin that review-and-fix REFERENCES (does NOT fork) them, and pin the advisory-annotation
 # contract (advisory only; verdict unchanged; never auto-demote).
-OG_REVIEW_SKILL="$LIB/../skills/review/SKILL.md"
+OG_REVIEW_SKILL="$REVIEW_BUNDLE"
 assert_pin_unique "over-grade: shared engine carries the single-source annotation heading (#291-reconciled: title states the cap exception)" \
   '### 4.1.5 Over-grade advisory annotation (advisory for shapes 1/3 + non-comment shape 2; a deterministic verdict cap for the in-code-comment sub-case)' "$OG_REVIEW_SKILL"
 assert_pin_unique "over-grade: shared engine declares itself the single source of truth for the shapes" \
@@ -4447,6 +4483,195 @@ assert_pin_unique "#464 AC7: overview §11 documents the two new create-issue se
 assert_pin_unique "#464 AC6: overview §11 records the deliberate Stage-B auditor-side deferral" \
   'extending the audit seams into Stage B is a separate change' "$CI464_OVERVIEW"
 
+# ── issue #559: Revision-delta verification — coverage guard + prose pins ──
+#    The shared "Revision-delta verification" procedure is stated once in the
+#    create-issue skill and referenced by every revise-and-re-gate sentence. This
+#    guard is the PERSISTENT wiring enforcement (not a one-shot enumeration): it
+#    whitespace-normalizes the skill and classifies EVERY `no-options gate`
+#    occurrence into wired-site hit / definition-block occurrence / enumerated
+#    non-command allowlist entry, RED on any unresolved occurrence, and RED when the
+#    wired-site bin is empty (zero-hit floor). A gate-mentioning revise sentence
+#    added/moved/reworded — or a novel-verb variant — arrives RED until wired or
+#    knowingly allowlisted. Reuses the #312/#443 create-issue file var CI312_SKILL
+#    and the shared overview-doc var OG_OVERVIEW_DOC.
+CI559_SKILL="$CI312_SKILL"
+
+# ci559_classify FILE -> prints "bin1=N bin2=N bin3=N unresolved=N" on stdout
+# (per-unresolved diagnostics to stderr). The two key phrases, the by-name
+# reference token, the per-hit adjacency window, the definition-block heading, and
+# the enumerated non-command allowlist (the drafting-time explanatory
+# `no-options gate` mentions — the ALLOW list below is the source of truth for that
+# set) are all defined verbatim below.
+ci559_classify() {  # skill-file -> summary line on stdout
+  python3 - "$1" <<'PY'
+import sys, re
+src = open(sys.argv[1], encoding='utf-8').read()
+norm = re.sub(r'\s+', ' ', src)
+TARGET = 'no-options gate'
+KEY_PREFIXES = ['re-run the Step 3 ', 're-run the ']   # the two key phrases (prefix + TARGET)
+REF = 'Revision-delta verification'                    # the by-name procedure reference
+WINDOW = 64                                            # fixed fail-closed positional contract
+DEF_HEAD = '### Revision-delta verification'           # definition-block heading
+ALLOW = [                                              # full-context non-command allowlist
+    'Draft the issue and pass the **no-options gate** (Step 3)',
+    'Steelman the draft against the code, revise, and re-pass the no-options gate (Step 3.5)',
+    'the no-options gate (Step 3) still governs the final body',
+    '### Step 3: Draft the issue and pass the no-options gate',
+    'immediately after the no-options gate passes and before Step 4 presents anything',
+    'and neither is a clean no-options gate',
+]
+ds = norm.find(DEF_HEAD)
+de = -1 if ds == -1 else norm.find('### ', ds + len(DEF_HEAD))
+if ds != -1 and de == -1:
+    de = len(norm)
+allow_idx = set()
+for e in ALLOW:
+    off = e.find(TARGET); start = 0
+    while True:
+        p = norm.find(e, start)
+        if p == -1: break
+        allow_idx.add(p + off); start = p + 1
+L = len(TARGET)
+bin1 = bin2 = bin3 = unresolved = 0
+i = 0
+while True:
+    idx = norm.find(TARGET, i)
+    if idx == -1: break
+    i = idx + 1; end = idx + L
+    if ds != -1 and ds <= idx < de:       # bin 2: definition-block occurrence
+        bin2 += 1; continue
+    is_kp = any(idx-len(p) >= 0 and norm[idx-len(p):idx] == p for p in KEY_PREFIXES)
+    if is_kp:                             # bin 1 candidate: a key-phrase occurrence
+        if REF in norm[end:end+WINDOW]:
+            bin1 += 1
+        else:                            # a wired site missing its adjacent reference
+            unresolved += 1
+            sys.stderr.write('UNRESOLVED-KEYPHRASE: ...%s...\n' % norm[max(0,idx-25):end+WINDOW])
+        continue
+    if idx in allow_idx:                  # bin 3: enumerated non-command allowlist entry
+        bin3 += 1; continue
+    unresolved += 1                       # anything else is unresolved -> RED
+    sys.stderr.write('UNRESOLVED-OTHER: ...%s...\n' % norm[max(0,idx-25):end+25])
+print('bin1=%d bin2=%d bin3=%d unresolved=%d' % (bin1, bin2, bin3, unresolved))
+PY
+}
+
+# Extract the integer value of field $2 from a "binN=.. unresolved=.." summary with
+# bash builtins. This value decides assertions, so no grep/sed pipeline may silently
+# empty it when a non-preflight PATH tool is absent.
+ci559_field() {
+  local field
+  for field in $1; do
+    case "$field" in
+      "$2="*) printf '%s' "${field#*=}"; return 0 ;;
+    esac
+  done
+  return 1
+}
+
+CI559_SUM="$(ci559_classify "$CI559_SKILL")"
+CI559_B1="$(ci559_field "$CI559_SUM" bin1)"
+CI559_B2="$(ci559_field "$CI559_SUM" bin2)"
+CI559_U="$(ci559_field "$CI559_SUM" unresolved)"
+# Total classification: no `no-options gate` occurrence is left unresolved.
+assert_eq "#559: every no-options gate occurrence is classified (0 unresolved)" "0" "$CI559_U"
+# Zero-hit floor: the wired-site bin is non-empty — a restructure that eliminates
+# every wired site is a loud failure, never a vacuous green.
+assert_eq "#559: zero-hit floor — the wired-site bin is non-empty" "ok" \
+  "$([ "${CI559_B1:-0}" -ge 1 ] && echo ok || echo empty)"
+# The six canonical revise-and-re-gate sites and the one definition-block occurrence
+# are exact. These pins close whole-site deletion: deleting a complete command and its
+# adjacent reference cannot hide behind the non-empty floor or unresolved=0.
+assert_eq "#559: all six canonical revise-and-re-gate sites remain wired" "6" "$CI559_B1"
+assert_eq "#559: the definition block contributes exactly one classified occurrence" "1" "$CI559_B2"
+# Mutation rows intentionally use probe_tmp's suite-RED allocation contract rather
+# than `skip host-capability`: inability to allocate the proof means the detector was
+# not exercised, so reporting a skip would weaken the issue's planted-defect AC.
+# Planted-defect positive control: an unwired key-phrase sentence planted in a
+# mutated copy is an UNRESOLVED occurrence — the guard's detection claim exercised,
+# not attested (recorded observed RED in the PR).
+CI559_PLANT="$(probe_tmp '#559 planted-defect setup')" || CI559_PLANT=/dev/null
+{ cat "$CI559_SKILL"; printf '\nThen re-run the Step 3 no-options gate and stop.\n'; } > "$CI559_PLANT"
+assert_eq "#559: planted-defect positive control — an unwired key-phrase sentence is unresolved (guard RED)" \
+  "1" "$(ci559_field "$(ci559_classify "$CI559_PLANT")" unresolved)"
+rm -f "$CI559_PLANT"
+# Novel-verb control: a revise sentence phrased with a different verb ('pass the
+# revised draft through the no-options gate') is unresolved until wired/allowlisted
+# — total classification closes the variant-verb gap.
+CI559_NOVEL="$(probe_tmp '#559 novel-verb setup')" || CI559_NOVEL=/dev/null
+printf 'x pass the revised draft through the no-options gate now.\n' > "$CI559_NOVEL"
+assert_eq "#559: total classification flags a novel-verb gate mention as unresolved" \
+  "1" "$(ci559_field "$(ci559_classify "$CI559_NOVEL")" unresolved)"
+rm -f "$CI559_NOVEL"
+# Allowlist-collision control: the live explanatory `re-pass` wording is allowlisted
+# only in its full list-item context. Reusing the short phrase as a revision command
+# must remain unresolved rather than silently falling into bin 3.
+CI559_COLLIDE="$(probe_tmp '#559 allowlist-collision setup')" || CI559_COLLIDE=/dev/null
+printf 'Revise the draft and re-pass the no-options gate.\n' > "$CI559_COLLIDE"
+assert_eq "#559: a command reusing an allowlisted verb does not evade adjacency wiring" \
+  "1" "$(ci559_field "$(ci559_classify "$CI559_COLLIDE")" unresolved)"
+rm -f "$CI559_COLLIDE"
+
+# Input-shape matrix rows (issue #559 Testing Strategy — the mutable-markdown
+# malformed-shape matrix per CLAUDE.md's best-effort-parser convention: the guard is
+# a reader of agent-mutable markdown, so each degenerate input shape is asserted to
+# fail closed).
+# (a) Empty input → the wired-site bin is empty → the zero-hit floor goes RED.
+CI559_EMPTY="$(probe_tmp '#559 empty-input setup')" || CI559_EMPTY=/dev/null
+: > "$CI559_EMPTY"
+assert_eq "#559 shape: empty input → the wired-site bin is empty (zero-hit floor RED)" \
+  "0" "$(ci559_field "$(ci559_classify "$CI559_EMPTY")" bin1)"
+rm -f "$CI559_EMPTY"
+# (b) Absent target file → the classifier prints an empty summary, so the total-
+# classification assert compares "0" against "" and goes RED (fail-closed, never a
+# vacuous pass) — asserted here as the empty-summary signal that drives that RED.
+assert_eq "#559 shape: absent target file → empty summary (total-classification assert would go RED)" \
+  "" "$(ci559_field "$(ci559_classify /nonexistent/no-options-gate-file.md 2>/dev/null)" unresolved)"
+# (c) Allowlist-bin positive control: the enumerated non-command mentions land in
+# bin3 on the live skill. The exact count is deliberate, not a lower bound: every
+# allowlist entry must match one live occurrence so stale or duplicate exemptions
+# cannot accumulate and silently reclassify a future command.
+assert_eq "#559 shape: the enumerated allowlist mentions land in bin3 on the live skill" \
+  "6" "$(ci559_field "$CI559_SUM" bin3)"
+# (d) Boundary-hostile: a correctly-wired gate mention whose key phrase and by-name
+# reference are separated by a period-bearing path literal still classifies as a
+# wired site (unresolved=0), proving the contract is positional adjacency — not
+# sentence-boundary recovery, which a period-bearing path literal defeats (the reason
+# the wiring is adjacency-based).
+CI559_BND="$(probe_tmp '#559 boundary-hostile setup')" || CI559_BND=/dev/null
+printf 'x revise, then re-run the no-options gate (see e.g. lib/foo.sh). Then run **Revision-delta verification** now.\n' > "$CI559_BND"
+assert_eq "#559 shape: a period-bearing literal between the gate phrase and the reference still classifies as wired (adjacency, not sentence-boundary)" \
+  "0" "$(ci559_field "$(ci559_classify "$CI559_BND")" unresolved)"
+rm -f "$CI559_BND"
+
+# Prose pins (AC 14). The always-run trigger sentence is a behavioral-fix pin:
+# removing the "at every revision event" qualifier re-introduces the #555-class
+# regression (a revision reaching filing with only the no-options gate), so it is
+# expressed through assert_pin_red_under with a mutation that strips that qualifier.
+assert_pin_red_under "#559: always-run trigger carries the at-every-revision-event qualifier" \
+  'runs **at every revision event** — before any re-audit dispatch at that site and before any presentation of the revised draft' \
+  's/at every revision event/sometimes/' "$CI559_SKILL"
+# The remaining new load-bearing sentences carry surface-presence pins.
+assert_pin_unique "#559: the Revision-delta verification procedure is stated once as a named block" \
+  '### Revision-delta verification (shared procedure — referenced by every revise-and-re-gate site)' "$CI559_SKILL"
+assert_pin_unique "#559: per-class walk records one entry per class, else a stated falsifiable zero" \
+  "one compact entry per class — the class's enumerated items, else a stated falsifiable zero" "$CI559_SKILL"
+assert_pin_unique "#559: an all-zeros walk ends the batch's work at the walk record" \
+  "An all-zeros walk ends the batch's work at the walk record." "$CI559_SKILL"
+assert_pin_unique "#559: the inline fix loop walks the fix and terminates on an all-zeros walk" \
+  'walk the fix as its own edit-batch; a batch whose walk is all-zeros ends the loop.' "$CI559_SKILL"
+assert_pin_unique "#559: closing evidence line — enumerated/verified/fixed format literal" \
+  'revision-delta check: <N> enumerated, <V> verified, <F> fixed' "$CI559_SKILL"
+assert_pin_unique "#559: closing evidence line — no-verifiable-delta format literal" \
+  'revision-delta check: no verifiable delta' "$CI559_SKILL"
+assert_pin_unique "#559: the five per-site evidence-line anchors are enumerated" \
+  "at Step 3.5's item 5, immediately after that item's gate re-run; at Step 3.5's item 6, immediately before the initial Step 3.6 dispatch's pre-dispatch draft write" "$CI559_SKILL"
+# SYSTEM_OVERVIEW §11 documents the procedure in both revise-loop descriptions (AC 13).
+assert_pin_unique "#559: overview §11 (Step 3.5 loop) documents the Revision-delta verification procedure" \
+  "walks the revision's edit-batch delta across six classes" "$OG_OVERVIEW_DOC"
+assert_pin_unique "#559: overview §11 (Step 3.6/Step 4 loop) documents the Revision-delta verification procedure" \
+  "runs the shared **Revision-delta verification** procedure over the revision's delta" "$OG_OVERVIEW_DOC"
+
 # Drift guard (issue #199): the Step 2.6 EARLY shadow trigger. On an
 # `engine_self_modifying` PR the shadow fan-out runs once after iteration 1
 # regardless of that iteration's verdict (including REJECT), feeding new blinded
@@ -5057,7 +5282,7 @@ fi
 # CLAUDE.md single-quote gotcha), so assert_pin_unique fails closed on a deleted OR
 # duplicated literal. REVIEW_SKILL is the shared engine; the two checks must NOT be
 # paraphrased across the two skills (the fix loop inherits the engine by reference).
-REVIEW_SKILL="$LIB/../skills/review/SKILL.md"
+REVIEW_SKILL="$REVIEW_BUNDLE"
 SHADOW_DOC="$LIB/../docs/shadow-review.md"
 # AC1: Phase 0.5 classifies the detect-all-audit shape with a concrete, twice-applicable rule
 # (the enumerate-a-population AND assert-completeness combination is the load-bearing signal).
@@ -6055,17 +6280,17 @@ assert_eq "429/T7: devflow.allowed_tools adds no merge-base/pr-view grant" "0" \
 #     replica drift) fails CLOSED on missing / empty / unreadable, and PASSES on a real file.
 _f1_missing="$IMPL_PHASES_DIR/.f1-nonexistent-$$"
 assert_eq "F1: bundle-member predicate fails closed on a MISSING member" "no" \
-  "$(_impl_bundle_member_usable "$_f1_missing" && echo yes || echo no)"
+  "$(_bundle_member_usable "$_f1_missing" && echo yes || echo no)"
 _f1_empty=$(probe_tmp "F1 empty-member proof"); : > "$_f1_empty"
 assert_eq "F1: bundle-member predicate fails closed on an EMPTY member" "no" \
-  "$(_impl_bundle_member_usable "$_f1_empty" && echo yes || echo no)"
+  "$(_bundle_member_usable "$_f1_empty" && echo yes || echo no)"
 assert_eq "F1: bundle-member predicate PASSES on a real readable non-empty phase file (not trivially false)" "yes" \
-  "$(_impl_bundle_member_usable "$IMPL_PHASES_DIR/phase-1-setup.md" && echo yes || echo no)"
+  "$(_bundle_member_usable "$IMPL_PHASES_DIR/phase-1-setup.md" && echo yes || echo no)"
 # the unreadable arm (S1's specific case) only when non-root — `[ -r ]` is always true as root.
 if [ "$(id -u)" != 0 ]; then
   _f1_unreadable=$(probe_tmp "F1 unreadable-member proof"); printf 'x\n' > "$_f1_unreadable"; chmod a-r "$_f1_unreadable"
   assert_eq "F1: bundle-member predicate fails closed on an UNREADABLE member" "no" \
-    "$(_impl_bundle_member_usable "$_f1_unreadable" && echo yes || echo no)"
+    "$(_bundle_member_usable "$_f1_unreadable" && echo yes || echo no)"
   chmod u+rw "$_f1_unreadable" 2>/dev/null || true
 fi
 # (b) the directory-reconciliation pipeline detects an unregistered stem — a synthetic dir
@@ -7679,7 +7904,7 @@ assert_eq "#356 flip: no-Status breadcrumb names its own arm" "yes" \
 # literal — a seed drift to e.g. `**Status**:` would silently route every flip to the
 # NOSTATUS no-op arm above while every other pin stayed green.
 assert_pin_unique "#356 pin: skills/review/SKILL.md seeds the '**Status:** 🚀 Reviewing' line the helper matches" \
-  '**Status:** 🚀 Reviewing' "$LIB/../skills/review/SKILL.md"
+  '**Status:** 🚀 Reviewing' "$REVIEW_BUNDLE"
 
 # (non-numeric pr) `workpad.py id` declares its issue arg type=int, so ARGPARSE also
 # exits 2 on a usage error — the same rc cmd_id uses for "scanned cleanly, no match".
@@ -7763,7 +7988,7 @@ assert_eq "#356 flip: helper routes GitHub access through workpad.py (no bare gh
 # the `❌ Review failed` literal must match. Pin the SKILL side uniquely (a rename
 # there goes RED); assert the helper carries the matching literal via grep_present.
 assert_pin_unique "#356 flip: skills/review/SKILL.md carries the '❌ Review failed' literal the helper mirrors" \
-  '❌ Review failed' "$LIB/../skills/review/SKILL.md"
+  '❌ Review failed' "$REVIEW_BUNDLE"
 assert_eq "#356 flip: helper carries the matching '❌ Review failed' literal" "yes" \
   "$(grep -qF '❌ Review failed' "$FLIP_SH" && echo yes || echo no)"
 
@@ -7786,10 +8011,10 @@ M356_REVIEW_YML="$LIB/../.github/workflows/devflow-review.yml"
 M356_DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
 assert_pin_unique "#356 marker: skills/review/SKILL.md seeds the run-keyed review-progress marker" \
   'MARKER=$(printf '"'"'%s'"'"' "<!-- devflow:review-progress run=${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1} -->")' \
-  "$LIB/../skills/review/SKILL.md"
+  "$REVIEW_BUNDLE"
 assert_pin_red_on_removal "#356 marker: the SKILL.md seed-marker line flips RED on removal" \
   'MARKER=$(printf '"'"'%s'"'"' "<!-- devflow:review-progress run=${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1} -->")' \
-  "$LIB/../skills/review/SKILL.md"
+  "$REVIEW_BUNDLE"
 assert_pin_unique "#356 marker: devflow-review.yml rebuilds the identical run-keyed marker" \
   'FLIP_MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"' "$M356_REVIEW_YML"
 assert_pin_unique "#356 marker: devflow.yml rebuilds the identical run-keyed marker" \
@@ -7802,7 +8027,7 @@ assert_eq "#356 marker: both workflows' FLIP_MARKER literals are byte-identical"
      = "$(grep -oF 'FLIP_MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"' "$M356_DEVFLOW_YML")" ] \
      && [ -n "$(grep -oF 'FLIP_MARKER="<!-- devflow:review-progress run=' "$M356_REVIEW_YML")" ] && echo yes || echo no)"
 assert_eq "#356 marker: the marker prefix the skill seeds is the prefix both workflows rebuild" "yes" \
-  "$(grep -qF '<!-- devflow:review-progress run=' "$LIB/../skills/review/SKILL.md" \
+  "$(grep -qF '<!-- devflow:review-progress run=' "$REVIEW_BUNDLE" \
      && grep -qF '<!-- devflow:review-progress run=' "$M356_REVIEW_YML" \
      && grep -qF '<!-- devflow:review-progress run=' "$M356_DEVFLOW_YML" && echo yes || echo no)"
 
@@ -8057,7 +8282,7 @@ assert_pin_red_under "#484 pin: the stale-prose-lint.py grant is removal-proof (
   "$IMPL_YML"
 sed -E '/Bash\(\.devflow\/vendor\/devflow\/scripts\/stale-prose-lint\.py:\*\)/d' "$IMPL_YML" > "$E484/impl-no-spl.yml"
 assert_eq "#484 guard-behavior: with the stale-prose-lint.py grant removed the extractor reports it ungranted over review/SKILL.md" \
-  "yes" "$(python3 "$ECH" ungranted "$LIB/../skills/review/SKILL.md" "$E484/impl-no-spl.yml" implement-block 2>/dev/null | grep -qF 'stale-prose-lint.py' && echo yes || echo no)"
+  "yes" "$(python3 "$ECH" ungranted "$REVIEW_BUNDLE" "$E484/impl-no-spl.yml" implement-block 2>/dev/null | grep -qF 'stale-prose-lint.py' && echo yes || echo no)"
 
 # Implement flip: the function + each of its fail-loud call sites (at least the four
 # pinned below), guarded on interim. Each pin quotes that site's unique cause string,
@@ -21619,7 +21844,7 @@ rm -rf "$TB_MB_REPO"
 
 # Grep pins (AC1/AC19/AC22): the SKILL mirrors + workflows + docs carry the new
 # telemetry-branch contract; a revert turns the suite RED.
-TB_RAF="$LIB/../skills/review-and-fix/SKILL.md"; TB_REV="$LIB/../skills/review/SKILL.md"
+TB_RAF="$LIB/../skills/review-and-fix/SKILL.md"; TB_REV="$REVIEW_BUNDLE"
 assert_eq "tb(#441 AC1): review-and-fix Loop-Exit persists via --persist (single code path)" "yes" \
   "$([ "$(pin_count '/../../lib/efficiency-trace.sh --persist --workpad-dir ".devflow/tmp/review/<slug>/<run-id>" --slug "<slug>"' "$TB_RAF")" -ge 1 ] && echo yes || echo no)"
 assert_eq "tb(#441 AC1): review Phase 4.5 persists via --persist (unified store)" "yes" \
@@ -26287,7 +26512,7 @@ for a in $PRT_AGENTS; do
   # dispatch block), so this tracks the dispatch, not any mention. (Twin of the #139
   # `subagent_type: devflow:$fdagent` pin, adapted to this engine's bold-header convention.)
   assert_eq "#141 review engine dispatches devflow:$a via its **devflow:$a** prompt block (load-bearing call-site present)" \
-    "yes" "$(grep -qF "**devflow:$a**" "$FDROOT/skills/review/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: loop body: literal interpolates the $a loop variable, not a static pin
+    "yes" "$(grep -qF "**devflow:$a**" "$REVIEW_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: loop body: literal interpolates the $a loop variable, not a static pin
   # Peer-completeness (AC3 names BOTH skills): the fix-loop skill carries the same roster
   # in its phase3_dispatched / shadow-roster / reviewers_dispatched examples, and (1)'s
   # negative scan only catches a leftover OLD id — not a DROPPED devflow: id. Pin it
@@ -26502,7 +26727,7 @@ done
 # key; receiving-code-review: the fix-loop applies its principles. (writing-skills has no call-
 # site here — it is external; its CLAUDE.md reference is pinned in (1c).)
 assert_eq "#142 review engine dispatches /devflow:requesting-code-review (final-pass call-site rewired)" \
-  "yes" "$(grep -qF '/devflow:requesting-code-review' "$FDROOT/skills/review/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: non-unique: '/devflow:requesting-code-review' appears twice in the target SKILL
+  "yes" "$(grep -qF '/devflow:requesting-code-review' "$REVIEW_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: non-unique: '/devflow:requesting-code-review' appears twice in the target SKILL
 assert_eq "#142 resolver allowlists devflow:requesting-code-review (override key resolves)" \
   "yes" "$(grep -qF '"devflow:requesting-code-review"' "$FDROOT/scripts/resolve-review-overrides.py" && echo yes || echo no)"
 assert_eq "#142 config schema declares the devflow:requesting-code-review override key" \
@@ -26524,7 +26749,7 @@ WSR_RAF="$FDROOT/.devflow/prompt-extensions/review-and-fix.md"
 WSR_REV="$FDROOT/.devflow/prompt-extensions/review.md"
 WSR_CLAUDE="$FDROOT/CLAUDE.md"
 # The canonical trigger-glob list literal — must be byte-identical across all three extensions.
-WSR_TGL='`skills/*/SKILL.md`, `skills/implement/phases/*.md`, `.devflow/prompt-extensions/*.md`'
+WSR_TGL='`skills/*/SKILL.md`, `skills/implement/phases/*.md`, `skills/review/phases/*.md`, `.devflow/prompt-extensions/*.md`'
 # The evidence marker literal the routing evidence-contract writes and the gate criterion matches.
 WSR_MARK='Writing-skills evidence:'
 
@@ -26699,7 +26924,7 @@ assert_eq "#142 no operative surface references the retired using-git-worktrees 
 # A missing file returns the distinct MISSING-FILE sentinel, which is != "no" and fails loud.
 assert_eq "#142 review engine no longer assumes the final-pass reviewer is an installed companion plugin" \
   "no" "$([ -f "$FDROOT/skills/review/SKILL.md" ] \
-          && grep_present 'plugin is installed in the executing environment' "$FDROOT/skills/review/SKILL.md" \
+          && grep_present 'plugin is installed in the executing environment' "$REVIEW_BUNDLE" \
           || echo MISSING-FILE)"
 
 # (7) Positive roster-doc rewire (AC8): the docs that describe the final-pass reviewer must
@@ -28746,7 +28971,7 @@ assert_eq "#271 coupled: devflow.yml (manual-comment review listener) allowlists
 # no regression guard). Target-unique: `--argjson findings` follows run-jq.sh only in the
 # trace example, so assert_pin_unique proves PASS-with-the-literal → FAIL-without-it.
 assert_pin_unique "#271 coupled: skills/review/SKILL.md trace example invokes the run-jq.sh wrapper (not bare jq -n)" \
-  'scripts/run-jq.sh -n --argjson findings' "$LIB/../skills/review/SKILL.md"
+  'scripts/run-jq.sh -n --argjson findings' "$REVIEW_BUNDLE"
 # The implement/SKILL.md reaction-comment read and the phase-4 deferrals merge are
 # fenced-block sites covered by the awk absence pin above, but that pin is *negative*
 # only — it goes RED on a reintroduced BARE jq, yet stays GREEN if the site is
@@ -30751,7 +30976,7 @@ assert_pin_red_under "#408 grounding: deleting the ScheduleWakeup-unavailable ru
 # Skill-prose behavioral-fix pins — the two operative directives of the headless-wait
 # rule (one pin per operative sentence, per the behavioral-fix-pin rule). Each mutation
 # removes the operative sentence and must flip its pin RED.
-REVIEW_SKILL408="$REPO_ROOT/skills/review/SKILL.md"
+REVIEW_SKILL408="$REVIEW_BUNDLE"
 assert_pin_red_under "#408 skill: removing the never-end-turn-with-pending-agent rule flips its pin RED" \
   'Never end your turn while any dispatched agent' \
   '/Never end your turn while any dispatched agent/d' "$REVIEW_SKILL408"
@@ -31819,9 +32044,10 @@ assert_eq "#375 pin-corpus-lint helper exists" "yes" "$([ -f "$PCL" ] && echo ye
 # Runtime-resolved target-file bindings the static scanner cannot derive itself: DEF_SKILL /
 # IMPL_SKILL_BUNDLE are the mktemp'd implement-skill bundle (markdown, no extension → --md);
 # the $LIB-relative ones the helper resolves on its own, but binding them explicitly is harmless.
-_PCL_ARGS=( --lib "$LIB" --md "$DEF_SKILL"
+_PCL_ARGS=( --lib "$LIB" --md "$DEF_SKILL" --md "$IMPL_SKILL_BUNDLE" --md "$REVIEW_BUNDLE"
   --var "MAXI_SKILL=$MAXI_SKILL" --var "DEF_SKILL=$DEF_SKILL"
   --var "IMPL_SKILL_BUNDLE=$IMPL_SKILL_BUNDLE"
+  --var "REVIEW_BUNDLE=$REVIEW_BUNDLE" --var "REVIEW_ROOT=$REVIEW_ROOT"
   --var "ST_RAF=$ST_RAF" --var "ST_REV=$ST_REV" --var "ST_RCV=$ST_RCV" )
 # (1) Real corpus: no pin literal collides with a comment of its target; a collision here is a
 # real defect to fix in this same PR (issue #375 AC). The scanner reports every unresolvable
@@ -32051,11 +32277,33 @@ assert_eq "#363 extractor helper exists" "yes" "$([ -f "$ECH" ] && echo yes || e
 
 # ── The contract itself: every extracted head is granted by BOTH allowlists. ──
 assert_eq "#363 every review-skill bash head is granted by devflow-runner.yml review profile" \
-  "" "$(python3 "$ECH" ungranted "$LIB/../skills/review/SKILL.md" \
+  "" "$(python3 "$ECH" ungranted "$REVIEW_BUNDLE" \
         "$LIB/../.github/workflows/devflow-runner.yml" tools-line 2>&1 | tr '\n' ' ' | sed 's/ *$//')"
 assert_eq "#363 every review-skill bash head is granted by devflow.yml command allowlist" \
-  "" "$(python3 "$ECH" ungranted "$LIB/../skills/review/SKILL.md" \
+  "" "$(python3 "$ECH" ungranted "$REVIEW_BUNDLE" \
         "$LIB/../.github/workflows/devflow.yml" tools-line 2>&1 | tr '\n' ' ' | sed 's/ *$//')"
+
+# ── #540 exercise the file-union loop over the REAL member paths, not the
+# ── concatenated bundle. The two contract pins above pass a single temp file, so
+# ── a regression in `_heads_of_all` (reading only the first FILE, dropping the
+# ── rest) would still see every head — the concatenation hides the bug. Passing
+# ── the real root + phase references as separate FILE args drives the multi-file
+# ── loop that the shipped review/manual-command/implement scans actually use.
+assert_eq "#540 the multi-file union over the REAL review members is granted by devflow-runner.yml review profile" \
+  "" "$(python3 "$ECH" ungranted "${_review_members[@]}" \
+        "$LIB/../.github/workflows/devflow-runner.yml" tools-line 2>&1 | tr '\n' ' ' | sed 's/ *$//')"
+assert_eq "#540 the multi-file union over the REAL review members is granted by devflow.yml command allowlist" \
+  "" "$(python3 "$ECH" ungranted "${_review_members[@]}" \
+        "$LIB/../.github/workflows/devflow.yml" tools-line 2>&1 | tr '\n' ' ' | sed 's/ *$//')"
+assert_eq "#540 the multi-file heads union over the REAL members equals the concatenated-bundle head set" \
+  "$(python3 "$ECH" heads "$REVIEW_BUNDLE" | tr '\n' ' ' | sed 's/ *$//')" \
+  "$(python3 "$ECH" heads "${_review_members[@]}" | tr '\n' ' ' | sed 's/ *$//')"
+# Shapes scanner over the real members too — its `--profile review` scan drives
+# the same per-FILE loop, so a union regression there is caught over the real
+# surface, not only the synthetic bundle-badshape fixture below.
+assert_eq "#540 the shapes scanner reports no denied shape across the REAL review members (review profile)" \
+  "" "$(python3 "$LIB/test/extract-command-shapes.py" --profile review \
+        "${_review_members[@]}" 2>&1 | tr '\n' ' ' | sed 's/ *$//')"
 
 # ── Anti-vacuity: the pin must actually be able to go RED. A fixture skill whose
 # ── head no fixture profile grants must be REPORTED, or the two pins above are
@@ -32067,6 +32315,449 @@ assert_eq "#363 pin goes RED on an ungranted head (anti-vacuity)" "somecmd" \
 assert_eq "#363 pin is silent when that same head IS granted (discriminates)" "" \
   "$(printf "%s\n" "TOOLS='Read,Bash(somecmd:*)'" > "$E363/green-profile.yml"; \
      python3 "$ECH" ungranted "$E363/red.md" "$E363/green-profile.yml" tools-line)"
+
+# ── #529 whole-bundle scanning: the reviewed surface is a skill ROOT plus its
+# ── phase references, so both extractors take every source in one call. Before
+# ── #529 they took a single FILE and SILENTLY IGNORED the rest, exiting 0 — a
+# ── moved fence escaped the scan with no signal (the issue's named gotcha). The
+# ── aggregation assertions below are what make that regression impossible.
+printf '%s\n' '```bash' 'alpha --x' '```' > "$E363/bundle-root.md"
+printf '%s\n' '```bash' 'beta --y' '```' > "$E363/bundle-ref.md"
+printf "%s\n" "TOOLS='Read,Bash(alpha:*)'" > "$E363/bundle-profile.yml"
+assert_eq "#529 heads unions every source in the bundle (a later file is not ignored)" \
+  "alpha beta" \
+  "$(python3 "$ECH" heads "$E363/bundle-root.md" "$E363/bundle-ref.md" | tr '\n' ' ' | sed 's/ *$//')"
+assert_eq "#529 ungranted reports an ungranted head living in a REFERENCE, not just the root" \
+  "beta" \
+  "$(python3 "$ECH" ungranted "$E363/bundle-root.md" "$E363/bundle-ref.md" \
+        "$E363/bundle-profile.yml" tools-line)"
+# Anti-vacuity for the aggregation itself: the reference's head must be the thing
+# reported. If the extractor silently dropped the reference (the pre-#529 bug),
+# the assertion above would print nothing and pass a `""` expectation — so pin
+# that the SINGLE-file call over the root alone is silent, proving `beta` above
+# came from the reference and not from the root.
+assert_eq "#529 the root alone is clean (so 'beta' above provably came from the reference)" \
+  "" "$(python3 "$ECH" ungranted "$E363/bundle-root.md" "$E363/bundle-profile.yml" tools-line)"
+# Backward compatibility: the pre-#529 single-file arg shapes still behave.
+assert_eq "#529 single-file ungranted with a parse mode still works (back-compat)" \
+  "beta" "$(python3 "$ECH" ungranted "$E363/bundle-ref.md" "$E363/bundle-profile.yml" tools-line)"
+# A botched parse-mode word falls through to the allowlist slot; it must fail
+# CLOSED naming both possibilities, never scan with an empty allowlist.
+assert_eq "#529 a botched parse mode fails closed and names both possibilities" "yes" \
+  "$(python3 "$ECH" ungranted "$E363/bundle-root.md" "$E363/bundle-profile.yml" misspelled-mode 2>&1 \
+       | grep -qF 'if a parse mode was intended' && echo yes || echo no)"
+assert_eq "#529 shapes scans every source in the bundle (a violation in a reference is reported)" \
+  "yes" \
+  "$(printf '%s\n' '```bash' 'cd /tmp && echo hi' '```' > "$E363/bundle-badshape.md"; \
+     python3 "$LIB/test/extract-command-shapes.py" --profile review \
+        "$E363/bundle-root.md" "$E363/bundle-badshape.md" 2>/dev/null \
+       | grep -qF 'bundle-badshape.md' && echo yes || echo no)"
+
+# ── #529 AC2/AC3 budget contract ─────────────────────────────────────────────
+# WORDS ARE COUNTED BY python3, NEVER BY `wc -w`. This is not a style preference —
+# `wc -w` does not have one answer on this bundle. GNU and BSD `wc` disagree, and NO
+# locale reconciles them, because they disagree in two different directions:
+#   * LC_ALL=C: GNU `wc` counts a word as a run of PRINTABLE characters, and in the C
+#     locale a byte >= 0x80 is not printable — so a token made entirely of non-ASCII
+#     (every spaced ` — `, ` → `, ` ⇒ `) contains no printable byte and GNU does not
+#     count it AT ALL, while BSD counts it as a word. On this bundle that is 595
+#     dropped words on the default path (28,687 BSD vs 28,092 GNU) — a 2% silent
+#     undercount, measured on CI, not theorised.
+#   * a UTF-8 locale: BSD `wc` treats the `≠` (U+2260) in the root's `rc≠0` prose as a
+#     word separator and scores `rc≠0` as TWO words; GNU does not. Worth +12 words.
+# So `wc -w` measures the bundle PLUS the host, and every figure this record published
+# before 2026-07-17 was a macOS-BSD reading that reproduced at one desk and nowhere
+# else. CI counted the same BYTES (its byte rows passed throughout) and a different
+# number of words, and the AC4 loop below correctly reported the record as stale
+# against a record that was right about the bundle and wrong about the host.
+# python3's str.split() is one deterministic implementation on every host, and unlike
+# `wc` it is preflight-GUARANTEED (CLAUDE.md: python3 is a hard prerequisite; `wc` is
+# named as a tool a value must NOT depend on precisely because a host may differ).
+# It counts whitespace-delimited tokens — the natural reading, and the one BSD `wc`
+# agrees with in the C locale, which is why the published figures are unchanged by
+# this switch: only the method that produces them is now host-independent.
+_rb_words() {
+  # Replicates `cat "$@" | <count>`: raw concatenation, no separator inserted, so a
+  # member with no trailing newline joins exactly as `cat` would join it.
+  python3 -c 'import sys
+print(len("".join(open(f, encoding="utf-8").read() for f in sys.argv[1:]).split()))' "$@"
+}
+# The default-path member list derives from REVIEW_DEFAULT_PHASE_STEMS — the same
+# single source the bundle is built from. A hardcoded path list here would let a
+# newly-added reference join the bundle while silently escaping the AC3
+# measurement, and the ceiling would keep passing while under-measuring.
+RB_EXT="$LIB/../.devflow/prompt-extensions/review.md"
+RB_ROOT_W=$(_rb_words "$REVIEW_ROOT")
+RB_EXT_W=$(_rb_words "$RB_EXT")
+_rb_default=("$REVIEW_ROOT" "$RB_EXT")
+for _s in $REVIEW_DEFAULT_PHASE_STEMS; do
+  _rb_default+=("$LIB/../skills/review/phases/${_s}.md")
+done
+RB_DEFAULT_W=$(_rb_words "${_rb_default[@]}")
+# ── AC5's execution-weighted sets are NOT the AC3 default set ─────────────────
+# AC3 measures a hypothetical path ("no blocker fast path and no stale-prose
+# predicate"); AC5 measures paths that REALLY execute. Conflating them published a
+# -34401 standalone reduction that overstated the real one by the whole stale-lint
+# reference (~16k bytes) and pinned a decrease to a set nobody runs:
+#   standalone  = default set + the stale-lint reference. Its gate
+#     `devflow_review.stale_prose.enabled` defaults TRUE in the shipped config, so
+#     an ORDINARY standalone pass reads it. Includes 4.4 (standalone posts to GitHub).
+#   normal+shadow (/devflow:review-and-fix) = the same, MINUS the standalone-only 4.4
+#     (the root routes it "standalone only"), read TWICE — its own membership, not a
+#     doubling of the standalone row.
+# The blocker re-check is in NEITHER: its predicate needs a prior REJECT driven
+# solely by carve-out blockers, so an ordinary pass never loads it, and on a hit it
+# REPLACES phases 1-3 rather than adding to them — never a sum term.
+REVIEW_STALE_LINT_STEM="phase-0-6-stale-prose-lint"
+REVIEW_STANDALONE_ONLY_STEM="phase-4-4-github-post"
+# Fail closed on a rename: these two stems are SELECTORS over the stem sets, so if
+# either stops naming a real member the standalone set silently collapses onto the
+# default set — resurrecting the very bug this block fixes, vacuously green.
+assert_eq "#529 AC5: the stale-lint selector names a real GATED stem (a rename cannot silently empty the standalone set)" \
+  "yes" "$(case " $REVIEW_GATED_PHASE_STEMS " in *" $REVIEW_STALE_LINT_STEM "*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#529 AC5: the standalone-only selector names a real DEFAULT stem (a rename cannot silently keep 4.4 in the shadow set)" \
+  "yes" "$(case " $REVIEW_DEFAULT_PHASE_STEMS " in *" $REVIEW_STANDALONE_ONLY_STEM "*) echo yes ;; *) echo no ;; esac)"
+_rb_standalone=("${_rb_default[@]}" "$LIB/../skills/review/phases/${REVIEW_STALE_LINT_STEM}.md")
+_rb_raf=("$REVIEW_ROOT" "$RB_EXT")
+for _s in $REVIEW_DEFAULT_PHASE_STEMS; do
+  [ "$_s" = "$REVIEW_STANDALONE_ONLY_STEM" ] && continue
+  _rb_raf+=("$LIB/../skills/review/phases/${_s}.md")
+done
+_rb_raf+=("$LIB/../skills/review/phases/${REVIEW_STALE_LINT_STEM}.md")
+# Directory reconciliation (the IMPL_PHASE_STEMS precedent): the real phases/*.md
+# set must equal REVIEW_PHASE_STEMS, so a reference added on disk but not
+# registered — or registered but deleted — turns the suite RED here instead of
+# silently escaping the bundle and the budget.
+assert_eq "#529 the phases/ directory matches REVIEW_PHASE_STEMS (no unregistered or missing reference)" \
+  "$(printf '%s\n' $REVIEW_PHASE_STEMS | sort | tr '\n' ' ' | sed 's/ *$//')" \
+  "$(for _f in "$LIB"/../skills/review/phases/*.md; do basename "$_f" .md; done | sort | tr '\n' ' ' | sed 's/ *$//')"
+# ── #529 AC15 pressure tests: every scenario's outcome survives the split ─────
+# The engine is agent-executed prose, so a scenario's "outcome" is decided by two
+# things and both must hold after a text move: (1) the governing contract still
+# EXISTS somewhere in the bundle — the move did not drop it — and (2) the root can
+# still REACH it, i.e. the reference that owns it is routed. A contract that
+# survives in a file the root never routes to is dead text, and a routing row to a
+# file that lost its contract is a dangling gate; either breaks the scenario while
+# every other pin stays green. Each row below asserts both halves.
+#   scenario|literal that decides it|reference stem that must own + route it
+while IFS='|' read -r _ps_name _ps_lit _ps_stem; do
+  [ -n "$_ps_name" ] || continue
+  assert_eq "#529 AC15 pressure: the '$_ps_name' contract survives in the bundle" "yes" \
+    "$(grep -qF -- "$_ps_lit" "$REVIEW_BUNDLE" && echo yes || echo no)"
+  # OWNERSHIP only. The bare `phases/<stem>.md` spelling canNOT witness routing — it
+  # also matches the AC7 hash fence, so it stays green with the routing row deleted
+  # (the vacuity the backticked loop below was written to close). Naming it "routed"
+  # here would claim coverage this half does not provide; the routing witness is that
+  # loop, which runs over every stem.
+  assert_eq "#529 AC15 pressure: '$_ps_name' is OWNED by ${_ps_stem}.md (routing is witnessed separately)" "yes" \
+    "$(grep -qF -- "$_ps_lit" "$LIB/../skills/review/phases/${_ps_stem}.md" && echo yes || echo no)"
+done <<'PRESSURE'
+standalone (4.4 posts the verdict)|Record the verdict as a formal GitHub review|phase-4-4-github-post
+current-branch (no PR number)|CURRENT_BRANCH_BASE_CAPTURE|phase-0-setup
+small-config (0.5 five-flag profile)|config_only|phase-0-setup
+engine-self-modifying (0.5 flag)|engine_self_modifying|phase-0-setup
+fix-loop (head_override = local)|head_override|phase-0-setup
+shadow (Step 2.6 re-entry is blinded)|detect_all_audit|phase-3-agents
+inline Implement (shared engine, per-agent prompts)|defect_signature|phase-3-agents
+blocker (0.3.6 fast path)|Blocker-recheck fast path|phase-0-3-6-blocker-recheck
+stale-prose (0.6 lint + 4.1.7 adjudication)|Stale counted-prose lint|phase-0-6-stale-prose-lint
+PRESSURE
+# Every registered reference must be routed from the root — not just the five the
+# scenario table happens to name. A reference the root never routes to is dead text:
+# the file exists, the dir-reconciliation passes, its contracts still sit in the
+# bundle and still count toward the budget, yet no pass would ever load it. The
+# scenario rows above prove the CONTRACTS survive; this proves every FILE is reachable.
+# Assert the ROUTING TABLE row, not the bare path: the AC7 hash fence also names every
+# `phases/<stem>.md`, so a `grep -qF "phases/<stem>.md"` matches that fence and stays
+# GREEN with the routing row deleted — vacuous, and the very defect this closes. The
+# routing table spells each reference in backticks, so pin that form and require the
+# hash fence separately (both must name every reference, for different reasons).
+for _s in $REVIEW_PHASE_STEMS; do
+  assert_eq "#529 AC15 pressure: ${_s}.md has a ROUTING TABLE row in the root (an unrouted reference is dead text)" "yes" \
+    "$(grep -qF '`'"${_s}.md"'`' "$REVIEW_ROOT" && echo yes || echo no)"
+  assert_eq "#529 AC7: ${_s}.md is named in the root's bundle-identity hash fence" "yes" \
+    "$(grep -qF "phases/${_s}.md" "$REVIEW_ROOT" && echo yes || echo no)"
+done
+
+# The two scenarios the ROOT itself must decide (they pick which reference runs, so
+# their routing rule cannot live in a reference — that would be unreachable).
+assert_pin_unique "#529 AC15 pressure: the root routes 4.4 as standalone-only (review-and-fix skips it)" \
+  'skips 4.4 entirely' "$REVIEW_ROOT"
+assert_eq "#529 AC15 pressure: the root gates 0.3.6 to standalone PR mode and 0.6 on its config key" "yes|yes" \
+  "$(grep -qF 'standalone PR mode only' "$REVIEW_ROOT" && echo yes || echo no)|$(grep -qF 'devflow_review.stale_prose.enabled' "$REVIEW_ROOT" && echo yes || echo no)"
+# The pin above CANNOT carry 0.3.6's real predicate: the under-specified row it
+# replaced ("standalone PR mode only") contains that literal verbatim, so reverting
+# the correction leaves it green. That under-specification is not cosmetic — it led a
+# blinded reviewer to conclude an ordinary standalone pass loads the blocker
+# reference, and to file a REJECT over a growth figure that does not exist. Pin the
+# two facts the row was missing, each of which the revert deletes.
+assert_pin_unique "#529 the root's 0.3.6 row carries its PRECONDITION (a prior REJECT driven solely by carve-out blockers)" \
+  'only over a prior REJECT driven **solely** by carve-out blockers' "$REVIEW_ROOT"
+assert_pin_unique "#529 the root's 0.3.6 row states the fast path REPLACES phases 1-3 (it is never a sum term)" \
+  'replaces Phases 1–3' "$REVIEW_ROOT"
+# 4.1.7 PRODUCES the adjudications 4.2 CONSUMES. Pre-split, physical adjacency
+# enforced that order; the split let a pass reach 4.2 first and REJECT on a
+# stale-prose false positive at severity: critical. The ordering now lives at two
+# sites — the root's routing row and the seam in the verdict reference — so pin BOTH:
+# a lockstep pair, and either half alone would leave the other free to drift.
+assert_pin_unique "#529 the root's 4.1.7 routing row carries the ordering cue (after 4.1.6, before 4.2)" \
+  'runs after 4.1.6 and **before** 4.2' "$REVIEW_ROOT"
+assert_pin_unique "#529 the verdict reference points at 4.1.7 AT the 4.1.6->4.2 seam (the split dropped this)" \
+  'Phase 4.1.7 runs at this seam' "$LIB/../skills/review/phases/phase-4-verdict.md"
+# 0.3.6 is the SIBLING of the 4.1.7 seam defect, and the same lockstep pair closes it.
+# Its execution point is INTERIOR to phase-0-setup (between 0.3.5 and 0.4), but the
+# reference flowed 0.3.5 -> 0.4 -> 0.5 uninterrupted while the root routes 0.3.6 after
+# row 0 — so a pass ran 0.4/0.5 and only then noticed the gate whose whole purpose is
+# to be evaluated BEFORE them. Observed, not theorised: fresh readers of the real
+# reference listed 0.3.5 -> 0.4 -> 0.5 and relegated 0.3.6 to a trailing note.
+assert_pin_unique "#529 the setup reference points at 0.3.6 AT the 0.3.5->0.4 seam (sibling of the 4.1.7 defect)" \
+  'Phase 0.3.6 runs at this seam' "$LIB/../skills/review/phases/phase-0-setup.md"
+# The identity table's own fail-open fix. Every other row fires on a value being
+# present-and-wrong, so an absent hash made nothing differ and the gate passed on an
+# unverified bundle. Nothing pinned any identity label, so the whole table could be
+# deleted green.
+assert_pin_unique "#529 the root's identity table fires on an UNDERIVED hash, not only a present-and-wrong one" \
+  '`identity: underived`' "$REVIEW_ROOT"
+# A shadow entry is a phase entry — the identity re-derivation must bind it, or a
+# compacted shadow pass would read the bundle without re-checking it.
+assert_pin_unique "#529 AC15 pressure: the root binds shadow entry to the identity re-derivation" \
+  'every shadow entry' "$REVIEW_ROOT"
+
+# ── #529 AC6 boundary markers — the DESK-TIME half ───────────────────────────
+# The root's 7-row boundary table is executed by an LLM at every phase entry, and it
+# covers what only runtime can see (a Read that is denied, empty, or truncated). But
+# duplicate / reversed / noncanonical / missing markers are ON-DISK properties of nine
+# checked-in files: only an edit can break them, so they are cheap to enforce here and
+# must not rest on an agent noticing at review time. Without this, a commit dropping a
+# marker ships green and surfaces as a `boundary:` stop in a production review.
+for _s in $REVIEW_PHASE_STEMS; do
+  _rbf="$LIB/../skills/review/phases/${_s}.md"
+  # The check is structural — exactly one start as line 1 and one end as line N, each
+  # naming THIS file — which is what the runtime table's marker rows assert on disk.
+  assert_eq "#529 AC6 desk: ${_s}.md start marker is the literal FIRST line and names its own path" "yes" \
+    "$(head -1 "$_rbf" | grep -qF -- "<!-- devflow:review-ref phase=" \
+        && head -1 "$_rbf" | grep -qF -- "file=skills/review/phases/${_s}.md start -->" && echo yes || echo no)"
+  assert_eq "#529 AC6 desk: ${_s}.md end marker is the literal LAST line and names its own path" "yes" \
+    "$(tail -1 "$_rbf" | grep -qF -- "file=skills/review/phases/${_s}.md end -->" && echo yes || echo no)"
+  assert_eq "#529 AC6 desk: ${_s}.md carries exactly one start and one end marker (no duplicate)" "1|1" \
+    "$(grep -cF -- 'start -->' "$_rbf" | tr -d ' ')|$(grep -cF -- 'end -->' "$_rbf" | tr -d ' ')"
+done
+assert_eq "#529 AC2: root + shipped extension is within the 8,500-word ceiling" "yes" \
+  "$([ "$((RB_ROOT_W + RB_EXT_W))" -le 8500 ] && echo yes || echo no)"
+# The baseline is the frozen pre-split root+extension at rev 4e2ae406 (its 237,113
+# bytes are the RB_BASELINE_BYTES literal below, which is how that rev is identified).
+# 33,815 is that rev re-measured with _rb_words. Issue #529 states the baseline as
+# 33,827: that is the SAME bytes read by BSD `wc` in a UTF-8 locale (the +12 `≠`
+# artifact described above), not a different baseline. Both operands of a reduction
+# must be counted the same way or the difference is meaningless, so the frozen half is
+# restated in the pinned method rather than left at the issue's figure.
+# The AC's own >= 25,327 threshold is unchanged — it is the contract, not a measurement
+# — and the split clears it either way (25,590 measured; 25,599 under the old method).
+assert_eq "#529 AC2: the split is at least 25,327 words below the 33,815 baseline" "yes" \
+  "$([ "$((33815 - RB_ROOT_W - RB_EXT_W))" -ge 25327 ] && echo yes || echo no)"
+assert_eq "#529 AC3: the default per-pass unique path is within the 28,700-word ceiling" "yes" \
+  "$([ "$RB_DEFAULT_W" -le 28700 ] && echo yes || echo no)"
+# Anti-vacuity: the ceilings above are only meaningful if every operand was really
+# measured. `cat` SKIPS an unreadable member and keeps going, so a wrong path does
+# NOT zero the count — it merely shrinks it, and a ceiling then passes MORE easily
+# on an under-measurement. A magic floor cannot catch that (dropping the largest
+# default member still cleared 20,000), and RB_EXT_W is consumed only inside `$(( ))`,
+# where an empty value silently becomes 0. So check each operand at its source
+# instead: every member usable and word-bearing, and the member set the expected size.
+# Every set that feeds a published figure is swept, not just the default one: the AC5
+# rows sum _rb_standalone / _rb_raf, and an unreadable member there SHRINKS the count,
+# which makes their "decreased by" assertions pass MORE easily.
+assert_eq "#529 every budget operand was really measured (no member silently skipped)" "yes" \
+  "$(_rb_ok=yes
+     for _m in "${_rb_default[@]}" "${_rb_standalone[@]}" "${_rb_raf[@]}"; do
+       _bundle_member_usable "$_m" || _rb_ok=no
+       [ "$(_rb_words "$_m" 2>/dev/null)" -gt 0 ] 2>/dev/null || _rb_ok=no
+     done
+     printf '%s' "$_rb_ok")"
+assert_eq "#529 the default-path member set is the expected size (root + ext + 6 non-gated)" "8" \
+  "${#_rb_default[@]}"
+# RB_EXT_W has no range check of its own anywhere else, and an empty value would be
+# invisible inside the `$(( ))` sums above — pin it non-empty and word-bearing here.
+assert_eq "#529 RB_EXT_W is really measured (an absent extension cannot silently sum as 0)" "yes" \
+  "$([ -n "$RB_EXT_W" ] && [ "$RB_EXT_W" -gt 0 ] 2>/dev/null && echo yes || echo no)"
+# The checked-in record must exist and carry the ceilings it claims (AC4).
+assert_pin_unique "#529 AC4: the budget table records the python3 measurement method (never wc -w)" \
+  'Words are counted by `python3`' "$LIB/../docs/review-bundle-budget.md"
+assert_pin_unique "#529 AC4: the budget table states the default-path formula's exactly-once rule" \
+  'each counted **exactly once**' "$LIB/../docs/review-bundle-budget.md"
+assert_pin_unique "#529 AC4: the budget table disclaims any retained-context reading" \
+  '**This metric makes no retained-context claim**' "$LIB/../docs/review-bundle-budget.md"
+
+# ── #529 AC5 justified-growth reporter — every arm, and the ARM ORDER ─────────
+# Extracted to a helper per CLAUDE.md's inline-shell rule: a grep-pin on a message
+# literal is not coverage of the selection that chooses it.
+RB_DBD="$LIB/test/describe-budget-delta.sh"
+assert_eq "#529 AC5: a grown row emits the NAMED justified-growth warning with its delta" "yes" \
+  "$("$RB_DBD" 'r' 100 137 | grep -qF '::warning::devflow budget: justified-growth: r grew by 37 (before 100, after 137)' && echo yes || echo no)"
+# One invocation, captured once. `grep -qv` would mean "SOME line lacks the literal" —
+# true even when a warning IS present — so the no-warning half uses `! grep -q`.
+RB_SHRUNK="$("$RB_DBD" 'r' 137 100)"
+assert_eq "#529 AC5: a shrunk row reports a decrease and emits NO warning" "yes" \
+  "$(printf '%s' "$RB_SHRUNK" | grep -qF 'decreased by 37' && ! printf '%s' "$RB_SHRUNK" | grep -qF '::warning::' && echo yes || echo no)"
+assert_eq "#529 AC5: an unchanged row emits no warning" "yes" \
+  "$("$RB_DBD" 'r' 50 50 | grep -qF 'unchanged (50)' && echo yes || echo no)"
+# Unknown is not zero: an unestablished measurement must NOT render as "no growth".
+assert_eq "#529 AC5: an unestablished measurement reports unavailable, never 0/no-growth" "yes" \
+  "$("$RB_DBD" 'r' '' 5 | grep -qF 'delta unavailable' && echo yes || echo no)"
+assert_eq "#529 AC5: a non-numeric measurement reports unavailable, never a bogus delta" "yes" \
+  "$("$RB_DBD" 'r' abc 5 | grep -qF 'delta unavailable' && echo yes || echo no)"
+# All-digits is not representable: a value past the shell's integer range makes BOTH
+# comparisons fail (to stderr, which a stdout-capturing caller never sees) and the
+# chain falls through to the EQUAL arm — so a vast decrease renders as "unchanged",
+# which is "Unknown is not zero" exactly. Assert stdout only, as the suite does.
+assert_eq "#529 AC5: an out-of-range measurement reports unavailable, never 'unchanged'" "yes" \
+  "$(RB_BIG="$("$RB_DBD" 'r' 99999999999999999999 1 2>/dev/null)"
+     printf '%s' "$RB_BIG" | grep -qF 'delta unavailable' \
+       && ! printf '%s' "$RB_BIG" | grep -qF 'unchanged' && echo yes || echo no)"
+# The missing-row-NAME arm — the block header claims "every arm, and the ARM ORDER",
+# but nothing pinned that arm's message or its precedence: deleting it, or folding it
+# into the unestablished-operand arm below it, left every assertion GREEN. Both halves
+# below are needed, and neither subsumes the other — weakening the arm's condition is
+# caught only by the second, reordering it below its neighbour only by the first.
+# This half pins the message AND its precedence over the unavailable arm: BOTH arms
+# match this all-empty input, so arm ORDER alone decides which one fires.
+assert_eq "#529 AC5: a missing row NAME is reported as a caller bug, not as a missing measurement" "yes" \
+  "$("$RB_DBD" '' '' '' | grep -qF 'delta not reported: the caller passed no row name' && echo yes || echo no)"
+# This half pins precedence over the GROWTH arm, and here the misreport would be a
+# falsehood rather than a mere mislabel: both measurements are established, so an arm
+# reporting "delta unavailable" would name a cause the code observed to be FALSE.
+# Deleting the arm instead emits an unattributable "justified-growth:  grew by 37"
+# naming no row — the warning AC5 exists to make actionable, fired at nobody.
+assert_eq "#529 AC5: the missing-row-name arm PRECEDES the growth arm (a nameless growth warning is never emitted)" "yes" \
+  "$(RB_A1="$("$RB_DBD" '' 100 137)"; printf '%s' "$RB_A1" | grep -qF 'the caller passed no row name' \
+     && ! printf '%s' "$RB_A1" | grep -qF '::warning::' && echo yes || echo no)"
+assert_eq "#529 AC5: the reporter never gates the suite (exit 0 on every arm)" "0|0|0|0" \
+  "$("$RB_DBD" r 1 2 >/dev/null; printf '%s' $?; printf '|'; "$RB_DBD" r 2 1 >/dev/null; printf '%s' $?; printf '|'; \
+     "$RB_DBD" r '' 1 >/dev/null; printf '%s' $?; printf '|'; "$RB_DBD" >/dev/null 2>&1; printf '%s' $?)"
+# The two AC5-named rows must actually DECREASE against baseline — measured LIVE, not
+# asserted over literals. Feeding the reporter two constants would only prove that
+# `after < before` for those constants and would stay green however much the real
+# bundle grew, leaving the justified-growth warning wired to nothing.
+# ── The baseline is HISTORY, and must not be re-derived from a moving ref ─────
+# It was `git show origin/main:…` — correct only while origin/main was still the
+# pre-split monolith. The moment this work merges, origin/main IS the split: the
+# baseline collapses 237113 -> 55524, both decrease rows INVERT into a growth
+# warning, and because both operands stay non-empty and >0 they FAIL rather than
+# self-skip. Green in the PR, red on main and on every PR after it — the
+# changeset-pin consolidation hazard, in a required check.
+# The LIVE half that carries the anti-vacuity weight is the AFTER: it is re-measured
+# from the real member sets every run, so a bundle that grows past the baseline still
+# turns these red. Only the BEFORE is frozen, because a historical measurement cannot
+# change. The doc publishes the same number as its "before" column, and the growth pin
+# already uses this literal, and the AC4 record loop below asserts the two agree, so
+# code and record cannot drift apart.
+RB_BASELINE_BYTES=237113
+# The AC5 rows measure the sets that REALLY execute, never the AC3 default set.
+RB_STANDALONE_BYTES=$(cat "${_rb_standalone[@]}" | wc -c | tr -d ' ')
+RB_RAF_BYTES=$(cat "${_rb_raf[@]}" | wc -c | tr -d ' ')
+# ── Bind each selector to its PRODUCER, not merely to the stem list ───────────
+# The membership guards above prove a selector names a REAL stem. They do NOT prove
+# it names the RIGHT one, and the stem list cannot: point the standalone-only
+# selector at `phase-3-agents` and it is still a real default stem, so that guard
+# stays green while _rb_raf drops the wrong 43KB member and the decrease row — which
+# only asks "did it shrink?" — stays green too, publishing a silently wrong figure.
+# The fact each selector encodes is produced by the ROOT's routing table, so assert
+# it there: 4.4 is the reference the root routes standalone-only, and the stale-lint
+# gate is the one the root documents as defaulting true (which is WHY standalone
+# must carry it). These fail closed if a routing row is reworded away.
+assert_eq "#529 AC5: the standalone-only selector names the phase the ROOT routes standalone-only (bound to its producer)" \
+  "yes" "$(grep -F "\`${REVIEW_STANDALONE_ONLY_STEM}.md\`" "$REVIEW_ROOT" | grep -qF '**standalone only' && echo yes || echo no)"
+assert_eq "#529 AC5: the stale-lint selector names the phase whose gate the ROOT documents as defaulting true" \
+  "yes" "$(grep -F "\`${REVIEW_STALE_LINT_STEM}.md\`" "$REVIEW_ROOT" | grep -qF 'defaults **true**' && echo yes || echo no)"
+# ── Anti-vacuity backstops ───────────────────────────────────────────────────
+# These compare two LIVE measurements against each other and read no baseline at all,
+# so they hold on every host.
+# The standalone set must really CARRY the stale-lint reference: if it collapses onto
+# the default set the -34401 overstatement is back, and both rows below would still
+# read "decreased by" — green, and wrong.
+assert_eq "#529 AC5: the standalone set is strictly LARGER than the AC3 default set (it carries the stale-lint reference)" \
+  "yes" "$([ "$RB_STANDALONE_BYTES" -gt "$(cat "${_rb_default[@]}" | wc -c | tr -d ' ')" ] && echo yes || echo no)"
+# _rb_raf's DEFINING property is that it EXCLUDES the standalone-only reference.
+# Delete the `continue` that implements the exclusion and raf becomes standalone —
+# both still shrink against the baseline, so the decrease row cannot notice. Pin the
+# exclusion by its size: the two sets must differ by exactly that file.
+assert_eq "#529 AC5: the raf set really EXCLUDES the standalone-only reference (the sets differ by exactly that file)" \
+  "yes" "$([ "$((RB_STANDALONE_BYTES - RB_RAF_BYTES))" -eq "$(wc -c < "$LIB/../skills/review/phases/${REVIEW_STANDALONE_ONLY_STEM}.md" | tr -d ' ')" ] && echo yes || echo no)"
+# ── The RECORD must reconcile with the live bundle ────────────────────────────
+# The AC4 pins above check the record's METHOD prose; nothing checked its NUMBERS.
+# During #529 a prose edit moved the figures three separate times, and each time the
+# record was corrected only where the author happened to look. The nastiest shape is a
+# WORD-NEUTRAL edit: AC3 stays green while every byte/line/token column silently rots,
+# and the suite reports "0 failed" over a false record — which is exactly what shipped
+# in 08030506. CLAUDE.md names this file THE record, so a stale row is a
+# documented_falsehood that reaches a reader. These compare the PUBLISHED constants
+# against what the bundle measures right now: each must appear in the doc, comma-
+# grouped as the table writes it. Deliberately placed after the measurements above so
+# the comparands are real values, never an empty `set -u` casualty.
+# The growth row sums the MEMBER FILES, never $REVIEW_BUNDLE: the builder appends a
+# newline separator per member, so the bundle temp runs a byte-per-member heavier than
+# the sources the doc measures. This pin failed on its first run for exactly that
+# reason — the doc was right and the comparand was wrong.
+RB_DOC="$LIB/../docs/review-bundle-budget.md"
+_rb_grouped() { python3 -c 'import sys; print(f"{int(sys.argv[1]):,}")' "$1"; }
+# Each row asserts the figure AS THE RECORD SPELLS IT, not as a bare number anywhere
+# in the file. A bare match fails open two ways, both demonstrated: (1) the record is
+# dense with comma-grouped numbers, so a drifted value lands INSIDE an unrelated one —
+# a +427-byte edit to a gated reference moves growth to 8,610, a substring of the
+# published "−18,610", and the guard greens on the very scenario it exists for; (2) a
+# measured value that drifts ONTO its own ceiling (8,225 -> 8,500, 28,687 -> 28,700)
+# matches the ceiling literal sitting on the same line, so even row-anchoring cannot
+# separate them. The record's own spelling does: it BOLDS a measured value and leaves
+# ceilings plain, and it suffixes byte figures with their unit. Match that, and a
+# stale figure has nowhere to hide.
+_rb_ceil4() { echo $(( ($1 + 3) / 4 )); }
+_rb_growth_bytes=$(( $(cat "${_review_members[@]}" "$RB_EXT" | wc -c | tr -d ' ') - RB_BASELINE_BYTES ))
+_rb_shipped_w=$(_rb_words "${_rb_standalone[@]}")
+# #540: the "Max incremental phase read" row published two figures — the largest
+# single reference by WORDS (phase-4-verdict.md, 6,051) and, in the prose, by BYTES
+# (phase-3-agents.md, 43,397 B) — that were the only new budget numbers not tied to a
+# live measurement, so a future edit to either file could silently falsify them.
+# Measure both maxima live over the real reference set (the nine phases/, never the
+# root) and let the RECORD rows below assert the doc still spells them. The two
+# maxima are different files by construction, so each is measured independently.
+RB_MAXPHASE_WORDS=$(python3 -c 'import sys
+print(max(len(open(f, encoding="utf-8").read().split()) for f in sys.argv[1:]))' "$LIB"/../skills/review/phases/*.md)
+RB_MAXPHASE_BYTES=$(python3 -c 'import os, sys
+print(max(os.path.getsize(f) for f in sys.argv[1:]))' "$LIB"/../skills/review/phases/*.md)
+while IFS='~' read -r _rbn _rbe; do
+  [ -n "$_rbn" ] || continue
+  assert_eq "#529 AC4: the budget record and the code agree on $_rbn (a stale figure cannot ship green)" "yes" \
+    "$(grep -qF -- "$_rbe" "$RB_DOC" && echo yes || echo "no — the record does not carry the LIVE figure, which measures HERE as: $_rbe")"
+done <<RECORD
+frozen pre-split baseline, as the record's "before" column spells it~$(_rb_grouped "$RB_BASELINE_BYTES") / $(_rb_grouped "$(_rb_ceil4 "$RB_BASELINE_BYTES")")
+AC3 default-path words~**$(_rb_grouped "$RB_DEFAULT_W")**
+AC2 root+extension words~**$(_rb_grouped "$((RB_ROOT_W + RB_EXT_W))")**
+standalone execution-weighted bytes~$(_rb_grouped "$RB_STANDALONE_BYTES") B
+normal-plus-shadow execution-weighted bytes (and its per-pass token rounding)~$(_rb_grouped "$((RB_RAF_BYTES * 2))") / $(_rb_grouped "$(( $(_rb_ceil4 "$RB_RAF_BYTES") * 2 ))")
+complete-bundle growth in bytes~$(_rb_grouped "$_rb_growth_bytes") bytes
+shipped-default path words (the non-gating honest row)~**$(_rb_grouped "$_rb_shipped_w")**
+max incremental phase read words (largest single reference by words)~ $(_rb_grouped "$RB_MAXPHASE_WORDS") /
+max incremental phase read bytes (largest single reference by bytes, prose row)~$(_rb_grouped "$RB_MAXPHASE_BYTES") B
+RECORD
+# Captured once: the SAME emitted line is asserted to shrink AND to have been fed the
+# standalone set. Re-invoking would let the two assertions diverge. No skip arm is
+# needed any more — the baseline is a frozen constant, so there is no external ref
+# whose absence could make this unmeasurable.
+RB_SA_OUT="$("$RB_DBD" 'standalone execution-weighted bytes' "$RB_BASELINE_BYTES" "$RB_STANDALONE_BYTES")"
+RB_RAF_OUT="$("$RB_DBD" 'normal+shadow bytes' "$((RB_BASELINE_BYTES * 2))" "$((RB_RAF_BYTES * 2))")"
+assert_eq "#529 AC5: standalone execution-weighted traffic decreased against the pre-split baseline" "yes" \
+  "$(printf '%s' "$RB_SA_OUT" | grep -qF 'decreased by' && echo yes || echo no)"
+assert_eq "#529 AC5: one normal-plus-shadow pass decreased against the pre-split baseline" "yes" \
+  "$(printf '%s' "$RB_RAF_OUT" | grep -qF 'decreased by' && echo yes || echo no)"
+# THE original defect was the row being fed the AC3 default set. Asserting the
+# CONSTRUCTION of _rb_standalone cannot catch that — it is larger by construction, so
+# it proves nothing about what the row above actually passed. Assert the operand the
+# reporter ECHOES instead: revert either row to the default bytes and this turns RED
+# while "decreased by" stays green.
+assert_eq "#529 AC5: the standalone row is FED the standalone set (not the AC3 default set — the original defect)" \
+  "yes" "$(printf '%s' "$RB_SA_OUT" | grep -qF "after $RB_STANDALONE_BYTES)" && echo yes || echo no)"
+assert_eq "#529 AC5: the normal-plus-shadow row is FED the raf set, doubled" \
+  "yes" "$(printf '%s' "$RB_RAF_OUT" | grep -qF "after $((RB_RAF_BYTES * 2)))" && echo yes || echo no)"
 
 # ── The extractor discriminates BETWEEN the two allowlists (it is not a
 # ── fail-always / pass-always stub): the same skill head is ungranted by one
@@ -32209,19 +32900,21 @@ ARMSHAPES
 assert_eq "#363 every already-pinned arm shape (incl. optional-leading-paren) still yields no head" \
   "aa bb cc dd ee ff" "$(python3 "$ECH" heads "$E363/armshapes.md" | tr '\n' ' ' | sed 's/ *$//')"
 
-# Regression guard: the arm-position fix is a NO-OP on today's skills/review/SKILL.md.
+# Regression guard: the arm-position fix is a NO-OP on today's Review engine BUNDLE
+# (root + skills/review/phases/*.md — #529 split the engine, so the reviewed surface
+# is every source, not just the root).
 # Assert BOTH the occurrence count and the distinct-name count — the distinct count
 # alone would not catch a duplicate head silently gained (or lost). Whoever next adds
 # a command to a review-skill fence updates these two numbers in the same commit,
 # per CLAUDE.md's coupled-invariant rule.
-assert_eq "#363 the review-skill head set matches the reviewed count (occurrences; last changes: #484 authenticates fixed-path snapshots + rejects truncated records, then #503 rejected-review hardening added empty-base handling plus the checked head-override candidate/promote producer — which stages via >-redirect candidates + awk/sed filter and a cat publish, adding no tee head)" \
-  "134" "$(python3 -c 'import importlib.util,sys
+assert_eq "#363 the review-skill head set matches the reviewed count (occurrences over the whole bundle; last change: #529 split the engine into a thin root + gated phase references and added the AC7 bundle-identity fence, whose git hash-object call and anchor echo take 134 -> 136; both heads were already granted and already in the distinct set, so the distinct count is unchanged)" \
+  "136" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
-print(len(m.extract_heads(open(sys.argv[2],encoding="utf-8").read())))' "$ECH" "$LIB/../skills/review/SKILL.md")"
-assert_eq "#363 the review-skill head set matches the reviewed count (32 distinct names; #484 adds granted git hash-object while removing touch and sort)" \
+print(len(m.extract_heads(open(sys.argv[2],encoding="utf-8").read())))' "$ECH" "$REVIEW_BUNDLE")"
+assert_eq "#363 the review-skill head set matches the reviewed count (32 distinct names over the whole bundle; #529 moved fences into references and added only already-counted heads (git hash-object, echo), so the distinct set is unchanged)" \
   "32" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
-h=m.extract_heads(open(sys.argv[2],encoding="utf-8").read());print(len({m.name_of(x) for x in h}))' "$ECH" "$LIB/../skills/review/SKILL.md")"
+h=m.extract_heads(open(sys.argv[2],encoding="utf-8").read());print(len({m.name_of(x) for x in h}))' "$ECH" "$REVIEW_BUNDLE")"
 
 # #426 no-skew property: Phase 1.1's awk >-redirect batch-slice authoring and its
 # &&-chained rc gate reuse heads (awk, test, echo) already granted in BOTH cloud
@@ -32255,9 +32948,9 @@ assert_eq "#401 shape-lint helper exists" "yes" "$([ -f "$ECS" ] && echo yes || 
 
 # The contract: the real review skill teaches NO proven-denied command shape (exit 0, empty).
 assert_eq "#401 skills/review/SKILL.md teaches no proven-denied command shape" "" \
-  "$(python3 "$ECS" "$ST_REV" 2>&1)"
+  "$(python3 "$ECS" "${_review_members[@]}" 2>&1)"
 assert_eq "#401 shape-lint exits 0 on the clean review skill" "0" \
-  "$(python3 "$ECS" "$ST_REV" >/dev/null 2>&1; echo $?)"
+  "$(python3 "$ECS" "${_review_members[@]}" >/dev/null 2>&1; echo $?)"
 
 # ── Anti-vacuity: each rule flags its denied shape (fixtures under $E363's trap-cleaned dir).
 printf '%s\n' '```bash' 'M=x printf hi' '```' > "$E363/s-r1a.md"
@@ -33765,10 +34458,10 @@ assert_pin_unique "#504 AC5 summarize called in exactly one step (ci_summary, re
 assert_pin_unique "#504 AC5 compose forwards HARDENED_PATHS from harden" 'HARDENED_PATHS: ${{ steps.harden_hooks.outputs.displaced_paths }}' "$RUNNER_YML"
 
 # ── #504 AC6 routing rule on the 7 claim-verification surfaces.
-assert_pin_unique "#504 AC6 SKILL defect_signature routing" "Displaced-path routing (issue #504)" "$LIB/../skills/review/SKILL.md"
-assert_pin_unique "#504 AC6 SKILL Phase 4.1.6 routing" "displaced-path routing (this sweep)" "$LIB/../skills/review/SKILL.md"
-assert_pin_unique "#504 AC6 SKILL Phase 2.1a lite-probe routing" "grep the \`git show <head>:<path>\` output" "$LIB/../skills/review/SKILL.md"
-assert_pin_unique "#504 AC6 SKILL Phase 2.1b dispatch routing" "displaced-path routing: for any referenced file" "$LIB/../skills/review/SKILL.md"
+assert_pin_unique "#504 AC6 SKILL defect_signature routing" "Displaced-path routing (issue #504)" "$REVIEW_BUNDLE"
+assert_pin_unique "#504 AC6 SKILL Phase 4.1.6 routing" "displaced-path routing (this sweep)" "$REVIEW_BUNDLE"
+assert_pin_unique "#504 AC6 SKILL Phase 2.1a lite-probe routing" "grep the \`git show <head>:<path>\` output" "$REVIEW_BUNDLE"
+assert_pin_unique "#504 AC6 SKILL Phase 2.1b dispatch routing" "displaced-path routing: for any referenced file" "$REVIEW_BUNDLE"
 assert_pin_unique "#504 AC6 code-reviewer agent mirror routing" "#504 displaced-path routing." "$LIB/../agents/code-reviewer.md"
 assert_pin_unique "#504 AC6 comment-analyzer agent mirror routing" "#504 displaced-path routing." "$LIB/../agents/comment-analyzer.md"
 assert_pin_unique "#504 AC6 checklist-verifier agent mirror routing" "#504 displaced-path routing." "$LIB/../agents/checklist-verifier.md"
@@ -33794,12 +34487,12 @@ assert_pin_unique "#504 AC6 code-reviewer mirror reads the displaced scratch fil
 assert_pin_unique "#504 AC6 comment-analyzer mirror reads the displaced scratch file" ".devflow/tmp/displaced-paths.txt" "$LIB/../agents/comment-analyzer.md"
 assert_pin_unique "#504 AC6 checklist-verifier mirror reads the displaced scratch file" ".devflow/tmp/displaced-paths.txt" "$LIB/../agents/checklist-verifier.md"
 assert_pin_unique "#504 AC6 Phase-3 truthfulness-contract dispatch reads the displaced scratch file" \
-  "you receive this contract, not the orchestrator's engine-ground-truth block" "$LIB/../skills/review/SKILL.md"
+  "you receive this contract, not the orchestrator's engine-ground-truth block" "$REVIEW_BUNDLE"
 assert_pin_unique "#504 AC6 Phase 2.1b dispatch reads the displaced scratch file" \
-  "you receive this dispatch prompt, not the orchestrator's engine-ground-truth block" "$LIB/../skills/review/SKILL.md"
+  "you receive this dispatch prompt, not the orchestrator's engine-ground-truth block" "$REVIEW_BUNDLE"
 # AC7: Phase 0.1 attribution + Phase 0.1.5 scratch persistence.
-assert_pin_unique "#504 AC7 Phase 0.1 displaced-path attribution" "#504 displaced-path attribution" "$LIB/../skills/review/SKILL.md"
-assert_pin_unique "#504 AC6 Phase 0.1.5 scratch persistence" "Persist the displaced-path list" "$LIB/../skills/review/SKILL.md"
+assert_pin_unique "#504 AC7 Phase 0.1 displaced-path attribution" "#504 displaced-path attribution" "$REVIEW_BUNDLE"
+assert_pin_unique "#504 AC6 Phase 0.1.5 scratch persistence" "Persist the displaced-path list" "$REVIEW_BUNDLE"
 
 # ── #504 AC10 stale-prose corrections.
 assert_pin_unique "#504 AC10 devflow-runner relevance-gate says ten" "ten DevFlow-layout paths would clobber" "$RUNNER_YML"
@@ -33925,7 +34618,7 @@ assert_eq "#363 devflow-runner.yml prepends the grounding block in BOTH prompt b
 # ────────────────────────────────────────────────────────────────────────────
 echo "#363 skills/review/SKILL.md engine-grounding instructions"
 # ────────────────────────────────────────────────────────────────────────────
-REVIEW_SKILL="$LIB/../skills/review/SKILL.md"
+REVIEW_SKILL="$REVIEW_BUNDLE"
 
 # Each pin below targets the OPERATIVE sentence — the minimal text whose removal
 # alone re-introduces the behavior observed in the pre-skill baseline (an engine
@@ -34546,7 +35239,7 @@ assert_pin_red_under "#405 AC3 phase-3.4: gate never waits for / polls / re-chec
 # AC4: the shared review engine, executed inline, takes its test evidence from the
 # orchestrator's in-env suite/lint results — never a CI conclusion. Behavioral pin on the
 # inline-tier evidence sentence in the engine's grounding-block section:
-I405_REVIEW="$LIB/../skills/review/SKILL.md"
+I405_REVIEW="$REVIEW_BUNDLE"
 assert_pin_red_under "#405 AC4 review/SKILL.md: inline-tier test evidence is the orchestrator's in-env suite/lint, never CI" \
   "On the inline tier the test evidence is the orchestrator's own in-environment suite/lint results for the current HEAD" \
   '/On the inline tier the test evidence is the/d' \
@@ -34593,7 +35286,7 @@ SPL="$LIB/../scripts/stale-prose-lint.py"
 SP_SCHEMA="$LIB/../.devflow/config.schema.json"
 SP_EXAMPLE="$LIB/../.devflow/config.example.json"
 SP_CONFIG="$LIB/../.devflow/config.json"
-SP_REVIEW="$LIB/../skills/review/SKILL.md"
+SP_REVIEW="$REVIEW_BUNDLE"
 SP_RAF="$LIB/../skills/review-and-fix/SKILL.md"
 SP_RUNNER_YML="$LIB/../.github/workflows/devflow-runner.yml"
 SP_DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"

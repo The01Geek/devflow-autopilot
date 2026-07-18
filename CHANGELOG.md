@@ -4,6 +4,30 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.12] — 2026-07-17
+
+### Added
+- **`/devflow:create-issue` now verifies the content a revision itself introduces.** A new
+  shared **Revision-delta verification** procedure is stated once in `skills/create-issue/SKILL.md`
+  and referenced by every revise-and-re-gate site (Step 3.5's items 5 and 6, Step 3.6's `VERDICT:
+  REVISE` handling and its user-chosen rounds, and Step 4 sub-step 4's two revision sentences).
+  At every revision event it walks the edit-batch delta across six classes (mechanisms, lifecycle
+  rules, execution-tier assumptions, dependencies, universal guarantees, and a total-making
+  residual class), verifies each non-empty class against the code via the two existing Step 3.5
+  disciplines, fixes findings inline, and closes with a per-site evidence line — so audit rounds
+  are spent on genuinely fresh defects and a revision reaching filing on a declined re-audit has
+  had its delta walked and verified rather than only language-gated. A persistent `lib/test/run.sh`
+  coverage guard classifies every `no-options gate` occurrence into wired-site / definition-block /
+  allowlist bins and turns RED on any unwired revise sentence or an empty wired-site set. (#559)
+
+## [2.15.11] — 2026-07-17
+
+### Changed
+- **Split the `/devflow:review` engine into a thin orchestrator with gated phase references.** `skills/review/SKILL.md` was a 1,559-line monolith every caller read in full — standalone `/devflow:review`, `/devflow:review-and-fix` (normal *and* shadow passes), and `/devflow:implement`'s inline Phase 3 — so blocker recheck, stale-prose adjudication, reviewer dispatch, verdict, posting, and telemetry all competed with repository context before the active phase was even known. The root now retains only the shared state, cross-phase invariants, extension load, routing, and fail-closed entry; each phase's authoritative procedure lives in its own reference under `skills/review/phases/`, reached through an entry gate that re-derives the bundle's identity, reads the reference, and clears its boundary contract on **every** entry — including a Step 2.6 shadow entry. Behavior is unchanged: every existing predicate still decides what runs, and each phase's text is carried over verbatim apart from the divergences this PR records: two meaning-preserving rewords in `phase-1-checklist.md` (a checklist cap and a slice-authoring recipe, which the move re-presented to the stale-prose lint as newly-authored prose), one redundant sentence trimmed from `phase-0-setup.md` whose facts survive operatively earlier in that same file, and two net-new seam pointers that restore orderings the move had dropped.
+- **Conditional protocols now load only when their predicates hold.** The blocker-recheck fast path (a prior REJECT driven solely by carve-out blockers, standalone PR mode) and the stale-prose adjudication producer (PR mode) are separate references, so an ordinary pass never pays for them. That is what moves the numbers: the root drops from 33,378 to 7,787 words and root-plus-shipped-extension lands at 8,225. For the paths that really execute, a standalone review reads **18,610 bytes / ~4,653 tokens less** than the monolith, and one normal-plus-shadow pass **50,194 bytes / ~12,550 tokens less** — the shadow path gains more than twice the standalone saving because it also skips the standalone-only GitHub-post reference. The complete bundle grows by 1,077 words, which is stated rather than hidden: it is the cost of the identity and boundary contracts, and it is what buys the reduction on every path that actually runs. Note the stale-prose lint (`devflow_review.stale_prose.enabled`) is a gated reference but its gate **defaults on**, so an ordinary pass does read it and these figures count it. Full before/after table, formulas, included paths, and the ceiling the shipped default does not meet: `docs/review-bundle-budget.md`.
+- **A moved fence can no longer escape the command scans.** `extract-command-heads.py` and `extract-command-shapes.py` previously took a single file and **silently ignored** any others, exiting 0 — so scanning a root-plus-references bundle would have reported a clean pass while never reading the references. Both now take every source in one call, under the review, manual-command, and implement profiles. Grants are unchanged.
+- **Editing a Review phase reference is now covered by the same discipline as editing the skill.** The shared prompt-edit trigger list in `.devflow/prompt-extensions/implement.md`, `review.md`, and `review-and-fix.md` gains `skills/review/phases/*.md`; the existing `skills/*/SKILL.md` glob does not match a `phases/` path, so without it every future phase edit would have slipped the writing-skills routing rule and its review-time evidence gate. The recorder registry gains a standalone `review` entry and enumerates the references plus each outer extension on the review-and-fix and implement paths, so mutating a reference moves the right prompt fingerprint instead of none. (#529)
+
 ## [2.15.10] — 2026-07-17
 
 ### Changed
