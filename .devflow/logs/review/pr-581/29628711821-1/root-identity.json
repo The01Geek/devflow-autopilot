@@ -1,0 +1,15 @@
+{
+  "canonical_root": ".devflow/vendor/devflow/skills/review/SKILL.md",
+  "root_hash": "cbd2b29890fd7f01f981f02765e6b6fc4838b77b",
+  "refs": {
+    "phase-0-setup.md": "7259614de9df11de5b80c77865abeb9418199602",
+    "phase-0-3-6-blocker-recheck.md": "c2605ee9e081fb5af8966407ae9d9cc8399af23c",
+    "phase-0-6-stale-prose-lint.md": "93927ffc575c82f190d27cc544c4d4216611f44c",
+    "phase-1-checklist.md": "8b1a539dd6ebe12a18dbe9e58fcb94b7c12b8bd5",
+    "phase-2-verification.md": "63c6ae376c21bce584aa0556688feeb485cfc230",
+    "phase-3-agents.md": "8ea06c6993812b3c4b9062ef681423771ee0fdab",
+    "phase-4-verdict.md": "d02e45336e1751cd6c5953540f4ac64323e89e67",
+    "phase-4-1-7-stale-adjudication.md": "a250b9b6e42cbb1cd32b9f8a8c5cca944855f8b9",
+    "phase-4-4-github-post.md": "4146e06e8d11f6b5655a2ad18560ef4116e751b9"
+  }
+}
