@@ -179,8 +179,9 @@ else
     # retry. On failure only the temp is removed; the guarded path is untouched.
     pe_tmp="$pe_target.tmp"
     # The body is written in three grouped printf calls so the create-issue example can
-    # carry an INERT `## Audit dimensions` sample (the Step 3.6 fresh-context audit's
-    # forwarding hook) between the boilerplate and the closing `-->`. The sample stays
+    # carry INERT `## Audit dimensions` (Step 3.6 audit forwarding) and `## Evidence axes`
+    # (Step 2 evidence-bundle forwarding, issue #548) samples between the boilerplate and the
+    # closing `-->`. The samples stay
     # INSIDE the comment block, so the whole body is still a single HTML comment (the
     # scaffold-pe AC3 single-comment-block invariant holds) and a misrename injects nothing.
     # No bash array is used (`"${arr[@]}"` on an empty array errors under macOS bash 3.2 +
@@ -216,7 +217,14 @@ else
              'section (inert until you activate this file):' \
              '' \
              '## Audit dimensions' \
-             '- A repo-specific invariant every issue must respect, named with what would falsify it.'; } &&
+             '- A repo-specific invariant every issue must respect, named with what would falsify it.' \
+             '' \
+             'Step 2 (the independent-derivation evidence-bundle sub-pass) reads an optional' \
+             '"## Evidence axes" section and appends it to the generic evidence-axis floor.' \
+             'Example section (inert until you activate this file):' \
+             '' \
+             '## Evidence axes' \
+             '- A repo-specific evidence axis every issue must record, named with what to check.'; } &&
          printf '%s\n' '-->'
        } > "$pe_tmp" && mv "$pe_tmp" "$pe_target"; then
       pe_created=$((pe_created + 1))

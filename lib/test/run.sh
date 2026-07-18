@@ -4366,14 +4366,73 @@ assert_pin_unique "#467 D2 (review-and-fix leg): fix-delta matrix widened to mut
   'widens to a parser over agent- or human-mutable markdown and a reader of a new external structured format' "$MAXI_SKILL"
 assert_pin_unique "#467 D3: extension authoring-discipline dimension demands the input-type-appropriate matrix" \
   'input-type analogue** for the widened surfaces' "$CI443_EXT"
-# D3 count guard — the extension's whole-file dimension-bullet count is guard-locked. It is 9:
-# 7 base + #464's "Mutation evidence for behavioral-fix pins" dimension + the
-# "Deployment-variance silence" dimension main commit 760c0902 appended; #467 sharpened the
-# existing case-matrix bullet in place, adding no row.
+# D3 count guard — the extension's dimension-bullet count is guard-locked. Since issue #548
+# added a separate `## Evidence axes` section (whose axis bullets are also `- **`), this guard
+# is scoped to the `## Audit dimensions` section ONLY (heading line to the next `## ` heading),
+# so future `## Evidence axes` edits do not re-break it. It is 9: 7 base + #464's "Mutation
+# evidence for behavioral-fix pins" dimension + the "Deployment-variance silence" dimension main
+# commit 760c0902 appended; #467 sharpened the existing case-matrix bullet in place, adding no row.
 assert_pin_unique "base-update: create-issue extension carries the deployment-variance dimension" \
   'Deployment-variance silence.' "$CI443_EXT"
-assert_eq "#467 D3: create-issue extension is 9 dimension bullets (7 base + #464's + 760c0902's deployment-variance dimension)" "9" \
-  "$(grep -c '^- \*\*' "$CI443_EXT")"
+assert_eq "#467 D3 (re-scoped by #548): create-issue extension ## Audit dimensions section is 9 dimension bullets" "9" \
+  "$(awk '/^## Audit dimensions/{f=1;next} /^## /{f=0} f' "$CI443_EXT" | grep -c '^- \*\*')"
+# #548 Guard-reconciliation: the new `## Evidence axes` section carries the four DevFlow axis
+# bullets, and the whole-file count is now 13 (9 dimensions + 4 axes) — the old whole-file guard
+# form would have broken here, which is exactly why it was re-scoped above.
+assert_eq "#548 Evidence-axes: create-issue extension ## Evidence axes section is 4 axis bullets" "4" \
+  "$(awk '/^## Evidence axes/{f=1;next} /^## /{f=0} f' "$CI443_EXT" | grep -c '^- \*\*')"
+
+# ── issue #548: evidence-bundle sub-pass + actionability/convergence contracts (prose pins).
+#    All surface-presence contract pins on new feature prose (assert_pin_unique) — NOT
+#    behavioral-fix pins, so no assert_pin_red_under mutation obligation attaches (matching the
+#    suite's precedent for this pin class; the #546/#548 state-owner behavior is covered
+#    behaviorally in lib/test/test_python_scripts.py and the CLI block below).
+assert_pin_unique "#548: evidence-bundle axis floor sentence" \
+  'covering **at minimum** these generic axes: authoritative producers and the values they emit' "$CI443_SKILL"
+assert_pin_unique "#548: entry-form — an axis with no entry is not a legal bundle state" \
+  'an axis with no entry is not a legal bundle state' "$CI443_SKILL"
+assert_pin_unique "#548: proportionality scope-inference clause" \
+  'N/A — checked: scope inference' "$CI443_SKILL"
+assert_pin_unique "#548: self-describing header sentence" \
+  'opens with a compact fixed header restating the three entry forms' "$CI443_SKILL"
+assert_pin_unique "#548: bundle-coverage gate fires at the same two sites" \
+  'The bundle-coverage gate fires at the **same two sites**' "$CI443_SKILL"
+assert_pin_unique "#548: bundle-currency three-triggers sentence" \
+  'additionally re-checks bundle currency against **three triggers**' "$CI443_SKILL"
+assert_pin_unique "#548: approach-fork (Recommended)-citation sentence" \
+  'one-line why cites at least one bundle entry by axis name' "$CI443_SKILL"
+assert_pin_unique "#548: unestablished-axes disclosure sentence" \
+  'discloses by name every effective-list axis that is' "$CI443_SKILL"
+assert_pin_unique "#548: no-citation-grade arm withholds the marking visibly" \
+  'marking and its rationale states that no citation-grade evidence exists' "$CI443_SKILL"
+assert_pin_unique "#548: heading-extraction rule (defined once, both hooks)" \
+  'duplicate same-heading sections are concatenated in file order' "$CI443_SKILL"
+assert_pin_unique "#548: dual-heading independence — each hook at its own site" \
+  'The two hooks are extracted independently at their own consumption sites' "$CI443_SKILL"
+assert_pin_unique "#548: loader-failure arm records the dedicated line" \
+  'consumer axes: unestablished — loader denied or failed' "$CI443_SKILL"
+assert_pin_unique "#548: ## Evidence axes forwarding sentence (SKILL contract, exact heading)" \
+  'appends any section headed exactly' "$CI443_SKILL"
+assert_pin_unique "#548: ## Evidence axes forwarding (live extension carries the exact heading)" \
+  '## Evidence axes' "$CI443_EXT"
+assert_pin_unique "#548: bounded actionability definitions (must-revise)" \
+  'a verified correctness, safety, implementability, unresolved-decision, or load-bearing-premise defect' "$CI443_SKILL"
+assert_pin_unique "#548: VERDICT: FILE may carry advisory findings" \
+  'may carry advisory findings' "$CI443_SKILL"
+assert_pin_unique "#548: VERDICT: REVISE requires a verified unresolved must-revise finding" \
+  'requires at least one verified unresolved must-revise finding' "$CI443_SKILL"
+assert_pin_unique "#548: Quiet-Killer becomes an assessed one-or-none slot" \
+  'report at most one qualifying Quiet Killer, or explicitly report' "$CI443_SKILL"
+assert_pin_unique "#548: post-adjudication T1 sentence" \
+  "T1 consumes the latest completed round's post-adjudication unresolved must-revise findings" "$CI443_SKILL"
+assert_pin_unique "#548: fail-closed T2 gains the unadjudicated-round arm" \
+  'T2 gains one new fail-closed arm (the `unadjudicated-round` arm)' "$CI443_SKILL"
+assert_pin_unique "#548: convergence-definition sentence" \
+  'a converged run is one whose final accepted, post-adjudication verdict is' "$CI443_SKILL"
+assert_pin_unique "#548: Step 3.5 summary reports the evidence bundle's coverage" \
+  "The summary additionally reports the evidence bundle's coverage" "$CI443_SKILL"
+assert_pin_unique "#548: Step 4 audit summary reports the bundle's coverage + actionability" \
+  "The Step 4 audit summary line reports the bundle's coverage" "$CI443_SKILL"
 # ── issue #465: within-text multi-state-contract reconciliation (prose + pins). Reuses the
 #    #312/#443 create-issue file vars (CI312_SKILL, CI312_TMPL, CI443_EXT) + OG_OVERVIEW_DOC.
 #    Each pin is a behavioral-fix pin: its literal IS an operative sentence whose removal
@@ -11008,6 +11067,11 @@ assert_eq "scaffold-pe: emits a creation log line on a fresh scaffold (AC 9)" "y
 assert_eq "scaffold-pe: emitted create-issue example matches the committed copy (#443 coupled mirror)" \
   "$(cat "$LIB/../.devflow/prompt-extensions/create-issue.md.example")" \
   "$(cat "$SC_PE_DIR/create-issue.md.example")"
+# #548: the generated create-issue example carries the inert `## Evidence axes` sample (the
+# Step 2 evidence-bundle forwarding hook), mirroring the `## Audit dimensions` sample. Assert
+# the emitted example (driven by the generator, not just the committed copy) contains it.
+assert_eq "scaffold-pe: emitted create-issue example carries the inert ## Evidence axes sample (#548)" "yes" \
+  "$(grep -qF '## Evidence axes' "$SC_PE_DIR/create-issue.md.example" && echo yes || echo no)"
 
 # AC 7 + AC 9 (no-op half): a second run rewrites nothing (every example
 # byte-identical) and emits NO creation log line.
@@ -30997,9 +31061,90 @@ WF289="$REPO_ROOT/.github/workflows/devflow-implement.yml"
 # branch itself now contains a NESTED `if ! … update …; then … fi`, so an fi-based
 # boundary would truncate the region at that inner fi and make the absence pin
 # below vacuous (a `create` added after it would go unseen).
-AE_REGION289="$(awk '/if python3 "\$WP" id "\$NUMBER"/{f=1} f && /BODY=/{exit} f{print}' "$WF289")"
+# The early-workpad step splits `workpad.py id`'s exit 0/1/2 (issue #537) via the
+# suite-tested classify-id-exit.sh helper feeding a `case` dispatch, so the region
+# anchors on the id PROBE line (`python3 "$WP" id "$NUMBER"`) rather than any guard
+# keyword, up to the fresh-create `BODY=` boundary.
+AE_REGION289="$(awk '/python3 "\$WP" id "\$NUMBER"/{f=1} f && /BODY=/{exit} f{print}' "$WF289")"
 assert_eq "#289: gate already-exists branch extracted (non-empty)" "yes" \
   "$([ -n "$AE_REGION289" ] && echo yes || echo no)"
+# #537 AC13: the adopted-workpad branch records the gate-adopted startup checkpoint.
+# It is a SEPARATE best-effort call from the Run-link refresh (issue #537 review: a
+# combined call would abort structurally on a legacy workpad lacking ## Progress and
+# drop the link refresh too). Pin the checkpoint literal — unique to the adopted
+# branch (the create branch has no checkpoint) and removal-proof.
+assert_pin_unique "#537 AC13: the adopted branch records the gate-adopted checkpoint (separate best-effort call)" \
+  'gha:${RUN_ID}:${RUN_ATTEMPT}:gate-adopted' "$WF289"
+# #537 AC1/AC2: the step initializes the provenance output to unknown before fallible work,
+# gates create on id exit 2 SPECIFICALLY (never a non-{0,2} exit → no duplicate create),
+# and maps the gate output.
+assert_pin_unique "#537 AC1: early-workpad step initializes handoff=unknown before fallible work" \
+  'echo "handoff=unknown" >> "$GITHUB_OUTPUT"' "$WF289"
+assert_eq "#537 AC1: gate exposes the workpad_handoff job output" "yes" \
+  "$(grep -qF 'workpad_handoff: ${{ steps.early_workpad.outputs.handoff }}' "$WF289" && echo yes || echo no)"  # raw-guard-ok: presence pin
+# AC2: the three-way `workpad.py id` exit dispatch (exit 0 -> adopt, exit 2 -> create,
+# anything else -> skip) is extracted into scripts/classify-id-exit.sh so the mapping —
+# the reorderable/invertible logic a workflow presence-pin cannot catch — is driven
+# behaviorally here per-arm (the describe-denial-count.sh / PR #367 precedent). A
+# reordered arm, an inverted exit code, or a typo'd digit turns one of these RED.
+CLS537="$REPO_ROOT/scripts/classify-id-exit.sh"
+assert_eq "#537 AC2: classify-id-exit.sh maps id exit 0 (found) -> adopt" "adopt" \
+  "$(bash "$CLS537" 0)"
+assert_eq "#537 AC2: classify-id-exit.sh maps id exit 2 (cleanly absent, SOLE create auth) -> create" "create" \
+  "$(bash "$CLS537" 2)"
+assert_eq "#537 AC2: classify-id-exit.sh maps id exit 1 (unreadable) -> skip (no create)" "skip" \
+  "$(bash "$CLS537" 1)"
+assert_eq "#537 AC2: classify-id-exit.sh maps a crash exit (127) -> skip (no create)" "skip" \
+  "$(bash "$CLS537" 127)"
+assert_eq "#537 AC2: classify-id-exit.sh maps an empty exit (arg absent) -> skip fail-closed" "skip" \
+  "$(bash "$CLS537" "")"
+assert_eq "#537 AC2: classify-id-exit.sh maps a non-digit exit -> skip fail-closed" "skip" \
+  "$(bash "$CLS537" x)"
+# The helper always exits 0 (best-effort, like describe-denial-count.sh) — a non-zero
+# would abort the gate's `case "$(bash "$CLS" …)"` under set -euo pipefail.
+assert_eq "#537 AC2: classify-id-exit.sh always exits 0 (best-effort)" "0" \
+  "$(bash "$CLS537" 2 >/dev/null; echo $?)"
+# The workflow wires the helper: the early-workpad step reads id's exit inline
+# (`|| id_exit=$?`, no cross-statement `$?`) and dispatches on the helper's output.
+assert_eq "#537 AC2: the workflow captures id's exit inline and dispatches via classify-id-exit.sh" "yes" \
+  "$(printf '%s\n' "$AE_REGION289" | grep -qF 'python3 "$WP" id "$NUMBER" >/dev/null 2>&1 || id_exit=$?' \
+     && printf '%s\n' "$AE_REGION289" | grep -qF 'case "$(bash "$CLS" "$id_exit")" in' && echo yes || echo no)"  # raw-guard-ok: region-scoped presence
+assert_pin_unique "#537 AC2: a non-absent id exit does NOT create a workpad (fail-closed breadcrumb)" \
+  'NOT creating a workpad to avoid a duplicate' "$WF289"
+# AC2 mutation-proof: invert the create authorization in the helper (exit 2 -> skip) and
+# confirm the exit-2->create assertion goes RED — the guarded regression is a create arm
+# that no longer fires on cleanly-absent, i.e. a run that never posts its early workpad.
+CLS537_MUT="$(probe_tmp '#537 classify-id-exit.sh mutation setup')"
+sed -E 's/^  2\)/  9)/' "$CLS537" > "$CLS537_MUT"
+assert_eq "#537 AC2: mutating the exit-2 create arm away turns the create mapping RED (behavioral-fix proof)" \
+  "create->skip" "$(bash "$CLS537" 2)->$(bash "$CLS537_MUT" 2)"
+rm -f "$CLS537_MUT"
+# #537 AC3/AC25: the claude job validates the vendored workpad + writes the handoff record.
+assert_pin_unique "#537 AC25: claude job fails loud when the vendored workpad.py is missing (incomplete vendor)" \
+  '::error::incomplete vendor:' "$WF289"
+assert_pin_unique "#537 AC3: claude job writes the handoff record path under .devflow/tmp" \
+  'implement-handoff-${NUMBER}-${RUN_ID}-${RUN_ATTEMPT}.json' "$WF289"
+# #537 AC13 boundary 2: the claude-invoke checkpoint is recorded immediately before the action.
+assert_pin_unique "#537 AC13: the claude-invoke checkpoint literal is present exactly once" \
+  'gha:${RUN_ID}:${RUN_ATTEMPT}:claude-invoke' "$WF289"
+# Positional: the claude-invoke checkpoint step precedes `Run Claude Code`.
+CI_LN537="$(grep -nF 'gha:${RUN_ID}:${RUN_ATTEMPT}:claude-invoke' "$WF289" | head -1 | cut -d: -f1)"  # raw-guard-ok: line-number lookup
+RCC_LN537="$(grep -nF 'name: Run Claude Code' "$WF289" | head -1 | cut -d: -f1)"                      # raw-guard-ok: line-number lookup
+assert_eq "#537 AC13: the claude-invoke checkpoint is ordered before Run Claude Code" "yes" \
+  "$([ -n "$CI_LN537" ] && [ -n "$RCC_LN537" ] && [ "$CI_LN537" -lt "$RCC_LN537" ] && echo yes || echo no)"
+# #537 handoff-origin vocabulary now lives in ONE place: scripts/workpad.py's
+# _HANDOFF_ORIGINS tuple, consumed by BOTH the offline handoff-state validator
+# (cmd_handoff_state, the reader) and the write-handoff-record producer
+# (cmd_write_handoff_record via _normalize_handoff_origin, the writer). The old inline
+# normalize tuple in devflow-implement.yml is gone — the claude job now calls
+# `workpad.py write-handoff-record`, so producer and consumer share the vocabulary by
+# construction and cannot drift. Pin the single source.
+assert_pin_unique "#537 handoff-origin vocabulary present in workpad.py _HANDOFF_ORIGINS (single source)" \
+  "('created-current-run', 'adopted-existing', 'unknown')" "$REPO_ROOT/scripts/workpad.py"
+# The claude job invokes the extracted subcommand (not inline heredoc Python) so the
+# normalize is suite-tested — pin the wiring (a revert to inline Python drops this literal).
+assert_pin_unique "#537 AC3: claude job normalizes+writes the handoff record via workpad.py write-handoff-record" \
+  'python3 "$WP" write-handoff-record "$REC" "$NUMBER" "$RUN_ID" "$RUN_ATTEMPT" "${GATE_HANDOFF:-}"' "$WF289"
 # AC7: the already-exists branch refreshes the Run: link via workpad.py update --run-link.
 assert_eq "#289 AC7: gate already-exists branch refreshes Run link via workpad.py update --run-link" "1" \
   "$(printf '%s\n' "$AE_REGION289" | grep -cF 'update "$NUMBER" --run-link "[View run]($RUN_URL)"' || true)"  # raw-guard-ok: region-scoped presence count
@@ -42901,7 +43046,14 @@ if [ -d "$IAS_SB" ]; then
     PATH="$RESTRICTED" python3 "$IAS" record-return rt --nonce "$NONCE" --round 1 \
       --verdict REVISE --findings-count 2 --carriage-object-id "$OID" > .rt-return
     PATH="$RESTRICTED" python3 "$IAS" query-next-action rt --nonce "$NONCE" --round 1 > .rt-next
+    # #548: adjudicate the REVISE round (2 unresolved must-revise) — T1 now consumes the
+    # post-adjudication unresolved count, so it holds only after this record, not on the raw
+    # REVISE token. Also capture the pre-adjudication convergence (unadjudicated) beforehand.
+    PATH="$RESTRICTED" python3 "$IAS" query-convergence rt --nonce "$NONCE" > .rt-conv-preadj
+    PATH="$RESTRICTED" python3 "$IAS" record-adjudication rt --nonce "$NONCE" --round 1 \
+      --verdict REVISE --must-revise 2 --advisory 0 --invalid 0 --unresolved-must-revise 2 > .rt-adj
     PATH="$RESTRICTED" python3 "$IAS" query-triggers rt --nonce "$NONCE" > .rt-trig
+    PATH="$RESTRICTED" python3 "$IAS" query-convergence rt --nonce "$NONCE" > .rt-conv-revise
 
     # Revise the draft, record it, then assert approve mode refuses the unaudited bytes.
     printf '# Draft title\n\nBody line one (revised).\nBody line two.\n' > draft.md
@@ -42917,6 +43069,16 @@ if [ -d "$IAS_SB" ]; then
     OID2="$(PATH="$RESTRICTED" git hash-object --stdin --no-filters < draft.md)"
     PATH="$RESTRICTED" python3 "$IAS" record-return rt --nonce "$NONCE" --round 2 \
       --verdict FILE --findings-count 0 --carriage-object-id "$OID2" > /dev/null
+    # #548: adjudicate the clean round (FILE, 0 unresolved must-revise) — the run now converges.
+    PATH="$RESTRICTED" python3 "$IAS" record-adjudication rt --nonce "$NONCE" --round 2 \
+      --verdict FILE --must-revise 0 --advisory 1 --invalid 0 --unresolved-must-revise 0 > /dev/null
+    PATH="$RESTRICTED" python3 "$IAS" query-convergence rt --nonce "$NONCE" > .rt-conv-file
+    # #548: query-convergence must fail closed on a FOREIGN nonce over this SAME converged
+    # state — a foreign caller must never read a converged verdict off another run. Every
+    # sibling query class already has a foreign-nonce row; convergence was the one omitted.
+    # The `.rt-conv-file` assertion (correct nonce, converged=yes) is the positive control on
+    # the identical fixture, so this refusal cannot be an unrelated precondition firing.
+    PATH="$RESTRICTED" python3 "$IAS" query-convergence rt --nonce badnonce > .rt-conv-fn 2>/dev/null
     PATH="$RESTRICTED" python3 "$IAS" query-eligibility rt --nonce "$NONCE" \
       --mode approve --draft-file draft.md > .rt-elig-ok
     PATH="$RESTRICTED" python3 "$IAS" query-summary rt --nonce "$NONCE" \
@@ -42931,8 +43093,20 @@ if [ -d "$IAS_SB" ]; then
     "classification=accept-revise outcome=REVISE" "$(cat "$IAS_SB/.rt-return" 2>/dev/null)"
   assert_eq "#546 cli_roundtrip_restricted_path: the automatic re-audit is the next action" \
     "action=revise-and-reaudit" "$(cat "$IAS_SB/.rt-next" 2>/dev/null)"
-  assert_eq "#546 cli_roundtrip_restricted_path: T1 holds after a REVISE round" \
+  assert_eq "#548 cli_roundtrip_restricted_path: T1 holds after a REVISE round is ADJUDICATED (not on the raw token)" \
     "1" "$(grep -c 't1=hold' "$IAS_SB/.rt-trig" 2>/dev/null)"
+  assert_eq "#548 cli_roundtrip_restricted_path: an un-adjudicated REVISE round is not converged" \
+    "converged=no reason=unadjudicated" "$(cat "$IAS_SB/.rt-conv-preadj" 2>/dev/null)"
+  assert_eq "#548 cli_roundtrip_restricted_path: an adjudicated REVISE with unresolved must-revise is not converged" \
+    "converged=no reason=unresolved-must-revise-remain" "$(cat "$IAS_SB/.rt-conv-revise" 2>/dev/null)"
+  assert_eq "#548 cli_roundtrip_restricted_path: adjudicated FILE with 0 unresolved converges" \
+    "converged=yes reason=" "$(cat "$IAS_SB/.rt-conv-file" 2>/dev/null)"
+  assert_eq "#548 cli_roundtrip_restricted_path: query-convergence fails closed on a foreign nonce (never reads a converged verdict off another run)" \
+    "converged=no reason=foreign-nonce" "$(cat "$IAS_SB/.rt-conv-fn" 2>/dev/null)"
+  assert_eq "#548 cli_roundtrip_restricted_path: query-summary RENDERS the latest round's adjudicated tokens at the CLI (round 2: FILE, 0 unresolved)" \
+    "1" "$(grep -c 'adjudicated_verdict=FILE must_revise=0 advisory=1 invalid=0 unresolved_must_revise=0' "$IAS_SB/.rt-summary" 2>/dev/null)"
+  assert_eq "#548 cli_roundtrip_restricted_path: record-adjudication echoes the adjudicated payload" \
+    "adjudicated=REVISE unresolved=2 must_revise=2 advisory=0 invalid=0" "$(cat "$IAS_SB/.rt-adj" 2>/dev/null)"
   assert_eq "#546 cli_roundtrip_restricted_path: approve mode refuses just-revised, not-yet-re-audited bytes" \
     "eligible=no reason=unaudited-revision" "$(cat "$IAS_SB/.rt-elig-bad" 2>/dev/null)"
   assert_eq "#546 cli_roundtrip_restricted_path: iterate mode answers ok for the same bytes" \
