@@ -240,7 +240,29 @@ def check_closure():
             if not (REPO_ROOT / rel).is_file():
                 errors.append(f"classified asset for '{skill}' missing on disk: {rel}")
 
+    # Every phase file on disk under a classified skill's phases/ dir must be
+    # listed. The listed-assets-exist check above is one-directional (it never
+    # notices a NEW phase file), so a reachable phase asset added without
+    # classifying would otherwise leave the closure green — exactly the AC1 drift
+    # this guard exists to catch.
+    errors.extend(unlisted_phase_files())
+
     return errors
+
+
+def unlisted_phase_files():
+    """Phase .md files on disk under a classified skill that are not listed."""
+    missing = []
+    for skill, assets in SKILL_ASSETS.items():
+        phases_dir = REPO_ROOT / "skills" / skill / "phases"
+        if not phases_dir.is_dir():
+            continue
+        listed = set(assets)
+        for phase_file in sorted(phases_dir.glob("*.md")):
+            rel = phase_file.relative_to(REPO_ROOT).as_posix()
+            if rel not in listed:
+                missing.append(f"skill '{skill}' has an unclassified phase asset on disk: {rel}")
+    return missing
 
 
 def _helper_source_path(vendored_token):

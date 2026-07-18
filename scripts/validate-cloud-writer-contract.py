@@ -121,16 +121,19 @@ def _check_top_level_shape(obj):
     )
 
 
-def _path_is_safe(key, base_dir):
-    """A files key must be a relative path that stays beneath base_dir."""
+def _path_is_safe(key, base_resolved):
+    """A files key must be a relative path that stays beneath base_resolved.
+
+    base_resolved is a pre-resolved Path so the caller resolves the base once
+    instead of per manifest entry.
+    """
     if key.startswith("/") or "\\" in key or posixpath.isabs(key):
         return False
     normalized = posixpath.normpath(key)
     if normalized == ".." or normalized.startswith("../"):
         return False
-    resolved = (Path(base_dir) / normalized).resolve()
-    base = Path(base_dir).resolve()
-    return base == resolved or base in resolved.parents
+    resolved = (base_resolved / normalized).resolve()
+    return base_resolved == resolved or base_resolved in resolved.parents
 
 
 def _sha256(path):
@@ -212,14 +215,15 @@ def validate(
 
     # Classes 11/12/13/14: files content binding.
     if isinstance(files, dict):
+        base_resolved = Path(base_dir).resolve()
         for rel, digest in sorted(files.items()):
             if not isinstance(digest, str) or not _HEX64.match(digest):
                 violations.append((MALFORMED_DIGEST, f"malformed digest for {rel}: {digest!r}"))
                 continue
-            if not _path_is_safe(rel, base_dir):
+            if not _path_is_safe(rel, base_resolved):
                 violations.append((INVALID_PATH, f"invalid or escaping relative path: {rel}"))
                 continue
-            disk = Path(base_dir) / rel
+            disk = base_resolved / rel
             if not disk.is_file():
                 violations.append((MISSING_ASSET, f"listed file does not exist: {rel}"))
                 continue

@@ -5060,6 +5060,9 @@ assert_eq("#543 AC1: check_closure() reports no violations on the live closure",
           [], cwc.check_closure())
 assert_eq("#543 AC1: reachable_skills() are all classified",
           True, cwc.reachable_skills() <= set(cwc.SKILL_ASSETS))
+assert_eq("#543 AC1: every on-disk phase file of a classified skill is listed "
+          "(a new reachable phase asset would go RED)",
+          [], cwc.unlisted_phase_files())
 assert_eq("#543 AC18: checked-in manifest matches the generated closure (verify)",
           0, cwc.main(["verify"]))
 assert_eq("#543 AC18: validator accepts the real checked-in manifest",
