@@ -62,6 +62,19 @@ devflow_module_pin_unique() { # name literal file
   assert_eq "$1" "1" "$(devflow_module_pin_count "$2" "$3")"
 }
 
+# devflow_module_pin_present NAME LITERAL FILE
+#   At-least-one presence pin: PASS iff LITERAL occurs one or more times in FILE
+#   (for values that legitimately recur, where an exactly-one pin would be wrong).
+#   Folds an unestablished count to "no" so it fails closed (RED), never vacuously.
+devflow_module_pin_present() { # name literal file
+  local n
+  n="$(devflow_module_pin_count "$2" "$3")"
+  case "$n" in
+    ''|*[!0-9]*) assert_eq "$1" "yes" "no"; return 0 ;;
+  esac
+  [ "$n" -ge 1 ] && assert_eq "$1" "yes" "yes" || assert_eq "$1" "yes" "no"
+}
+
 # devflow_module_pin_red_under NAME LITERAL MUTATION FILE
 #   Mutation-taking scratch-copy RED proof: copies FILE to a private scratch, applies
 #   the `sed -E` MUTATION to the copy (never editing the tracked FILE), and asserts

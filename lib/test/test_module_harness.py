@@ -305,15 +305,14 @@ class FullSuiteModuleHarnessTests(unittest.TestCase):
 class NamespacedModulePinHelperTests(unittest.TestCase):
     """AC11/AC12: the shared devflow_module_* pin/count/mutation helpers."""
 
-    def _drive(self, body: str, *, tmpdir_name: str = "tmp") -> tuple[
-        subprocess.CompletedProcess[str], list[str], Path
-    ]:
+    def _drive(self, body: str) -> tuple[subprocess.CompletedProcess[str], list[str]]:
         # Runs BODY with RESULTS_FILE + a minimal assert_eq + the sourced harness,
-        # under a controlled TMPDIR so scratch-cleanup is observable. Returns the
-        # process, the RESULTS_FILE verdicts, and the controlled TMPDIR path.
+        # under a controlled TMPDIR. Returns the process and the RESULTS_FILE
+        # verdicts. (Tests that must inspect the TMPDIR after the run keep their own
+        # driver open — a helper cannot outlive its TemporaryDirectory.)
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
-            controlled_tmp = root / tmpdir_name
+            controlled_tmp = root / "tmp"
             controlled_tmp.mkdir()
             results = root / "results"
             driver = root / "driver.sh"
@@ -342,10 +341,10 @@ class NamespacedModulePinHelperTests(unittest.TestCase):
                 if results.exists()
                 else []
             )
-            return process, verdicts, controlled_tmp
+            return process, verdicts
 
     def test_pin_count_counts_fixed_string_occurrences(self) -> None:
-        process, _, _ = self._drive(
+        process, _ = self._drive(
             'F="$(mktemp)"; printf "alpha beta alpha\\nalpha\\n" > "$F"\n'
             'C="$(devflow_module_pin_count "alpha" "$F")"; RC=$?\n'
             'echo "COUNT:$C RC:$RC"\n'
@@ -357,7 +356,7 @@ class NamespacedModulePinHelperTests(unittest.TestCase):
         # A readable file with zero matches returns "0" (rc 0); unreadable input
         # returns "unestablished" (rc 1), never "0" — so a zero-expected assertion
         # PASSES on the readable-zero and turns RED on the unestablished input.
-        process, verdicts, _ = self._drive(
+        process, verdicts = self._drive(
             'F="$(mktemp)"; printf "nothing to see\\n" > "$F"\n'
             'Z="$(devflow_module_pin_count "absent" "$F")"; ZRC=$?\n'
             'echo "ZERO:$Z ZRC:$ZRC"\n'
@@ -425,7 +424,7 @@ class NamespacedModulePinHelperTests(unittest.TestCase):
         )
 
     def test_pin_unique_passes_on_exactly_one_and_reds_otherwise(self) -> None:
-        process, verdicts, _ = self._drive(
+        process, verdicts = self._drive(
             'ONE="$(mktemp)"; printf "the marker line\\nother\\n" > "$ONE"\n'
             'devflow_module_pin_unique "unique present" "the marker line" "$ONE"\n'
             'TWO="$(mktemp)"; printf "dup\\ndup\\n" > "$TWO"\n'
@@ -435,8 +434,21 @@ class NamespacedModulePinHelperTests(unittest.TestCase):
         self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
         self.assertEqual(verdicts, ["PASS", "FAIL", "FAIL"], process.stdout + process.stderr)
 
+    def test_pin_present_passes_on_one_or_more_and_reds_on_zero_or_unestablished(self) -> None:
+        process, verdicts = self._drive(
+            'F="$(mktemp)"; printf "recurs\\nrecurs\\nother\\n" > "$F"\n'
+            'devflow_module_pin_present "recurring value present" "recurs" "$F"\n'
+            'devflow_module_pin_present "single present" "other" "$F"\n'
+            'devflow_module_pin_present "absent -> RED" "nope" "$F"\n'
+            'devflow_module_pin_present "unreadable -> RED" "x" "/no/such/file"\n'
+        )
+        self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
+        self.assertEqual(
+            verdicts, ["PASS", "PASS", "FAIL", "FAIL"], process.stdout + process.stderr
+        )
+
     def test_pin_red_under_flips_on_operative_mutation_and_cleans_scratch(self) -> None:
-        process, verdicts, _ = self._drive(
+        process, verdicts = self._drive(
             'F="$(mktemp)"; printf "operative sentence here\\nkeep\\n" > "$F"\n'
             '# Operative mutation removes the pinned sentence -> PASS->FAIL -> PASS.\n'
             'devflow_module_pin_red_under "operative mutation flips" '

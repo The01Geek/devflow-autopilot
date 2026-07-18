@@ -51,18 +51,6 @@ CI_IMPL_BUNDLE="$_ci_tmp_root/implement-skill-bundle.md"
 cat "$CI_ROOT/skills/implement/SKILL.md" "$CI_ROOT"/skills/implement/phases/*.md \
   >> "$CI_IMPL_BUNDLE" 2>/dev/null || :
 
-# Thin >=1 presence adapter: delegates to the shared devflow_module_pin_count and
-# folds an unestablished count to "no" (fail-closed). It carries no counting
-# machinery of its own — the count comes from the shared namespaced helper.
-_ci_present() { # literal file -> "yes" (>=1 occurrence) | "no" (fail-closed)
-  local n
-  n="$(devflow_module_pin_count "$1" "$2")"
-  case "$n" in
-    ''|*[!0-9]*) printf 'no\n'; return 0 ;;
-  esac
-  [ "$n" -ge 1 ] && printf 'yes\n' || printf 'no\n'
-}
-
 # ────────────────────────────────────────────────────────────────────────────
 echo "create-issue contract: module surfaces and inventory"
 # ────────────────────────────────────────────────────────────────────────────
@@ -103,16 +91,16 @@ echo "create-issue contract: issue #443 Step 3.6 fresh-context audit"
 # guts the FILE/REVISE/DRAFT-UNREADABLE verdict contract (issue #522 widened it to three values).
 devflow_module_pin_red_under "#443: Step 3.6 mandates the FILE/REVISE/DRAFT-UNREADABLE verdict line" \
   'whose only three legal values are exactly' 's/legal values are exactly//' "$CI_SKILL"
-assert_eq "#522: Step 3.6 names the VERDICT: DRAFT-UNREADABLE legal value" "yes" \
-  "$(_ci_present 'VERDICT: DRAFT-UNREADABLE' "$CI_SKILL")"
+devflow_module_pin_present "#522: Step 3.6 names the VERDICT: DRAFT-UNREADABLE legal value" \
+  'VERDICT: DRAFT-UNREADABLE' "$CI_SKILL"
 # Presence (not uniqueness): the FILE/REVISE verdict values recur across the template, the
 # summary example, and the act-on-the-verdict prose (the third value DRAFT-UNREADABLE is pinned
 # separately below) — the verdict-line CONTRACT is pinned uniquely above. Use the >=1
-# presence adapter, not the exactly-one unique pin, because these values legitimately recur.
-assert_eq "#443: Step 3.6 names the VERDICT: FILE legal value" "yes" \
-  "$(_ci_present 'VERDICT: FILE' "$CI_SKILL")"
-assert_eq "#443: Step 3.6 names the VERDICT: REVISE legal value" "yes" \
-  "$(_ci_present 'VERDICT: REVISE' "$CI_SKILL")"
+# presence pin, not the exactly-one unique pin, because these values legitimately recur.
+devflow_module_pin_present "#443: Step 3.6 names the VERDICT: FILE legal value" \
+  'VERDICT: FILE' "$CI_SKILL"
+devflow_module_pin_present "#443: Step 3.6 names the VERDICT: REVISE legal value" \
+  'VERDICT: REVISE' "$CI_SKILL"
 # Information-diet exclusion clause (maps to the information-diet AC): removing it re-anchors
 # the auditor on the drafting context — the exact regression the fresh-context mechanism prevents.
 devflow_module_pin_red_under "#443: audit prompt omits conversation, Step 1 findings, and the derivation artifact" \
