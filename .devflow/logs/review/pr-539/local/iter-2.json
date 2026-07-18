@@ -1,0 +1,11 @@
+{
+  "iter": 2,
+  "fix_commit_sha": "f1fb1621fd262b16b581515c930e39d472ccdb03",
+  "fix_files": [
+    ".devflow/prompt-extensions/review-and-fix.md",
+    ".devflow/prompt-extensions/review.md"
+  ],
+  "loop_role": "fix",
+  "synthesized": true,
+  "telemetry": "unavailable"
+}
