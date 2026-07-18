@@ -22143,9 +22143,10 @@ rm -rf "$TB_LK_REPO"
 # GIT_{AUTHOR,COMMITTER}_{NAME,EMAIL} environment variables. The old empty-commit "positive
 # control" therefore gave a FALSE suite failure on any host whose global/system config (or
 # inherited identity vars) supplied an identity. This block instead:
-#   (1) proves each identity source is individually effective — a positive-control matrix with
-#       one row per source (system config, global config, inherited identity vars, command-scope
-#       config), each row activating its own source and disabling the other three;
+#   (1) proves each identity source is individually effective — a positive-control matrix that
+#       activates each identity source (system config, global config, inherited identity vars,
+#       command-scope config) in turn, each row enabling its own source and disabling every other
+#       (the inherited-vars source carries an extra row proving committer resolution, AC2);
 #   (2) isolates every source for the negative probe and asserts, via git's own identity-
 #       resolution command `git var` (not version-dependent commit diagnostics), that neither
 #       author nor committer identity resolves; and
@@ -22232,12 +22233,15 @@ TB_HOSTILE_SYS="$(mktemp)";  printf '[user]\n\tname = HostileSystem\n\temail = h
   # ── Negative probe (AC4): isolate EVERY source; neither author nor committer resolves. This
   # replaces the old empty-commit "positive control", which relied on version-dependent commit
   # diagnostics and leaked host identity.
-  TB_NEG_A="$( env -u GIT_CONFIG_NOSYSTEM -u GIT_CONFIG_COUNT -u GIT_CONFIG_PARAMETERS \
+  # AC4 unsets NOSYSTEM/COUNT/PARAMETERS + the four identity vars; also unset the inherited
+  # command-scope KEY_0/VALUE_0 so command-scope is isolated by the probe itself (not merely
+  # incidentally, because COUNT is unset and the outer hostile command-scope carries no email).
+  TB_NEG_A="$( env -u GIT_CONFIG_NOSYSTEM -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 -u GIT_CONFIG_PARAMETERS \
         -u GIT_AUTHOR_NAME -u GIT_AUTHOR_EMAIL -u GIT_COMMITTER_NAME -u GIT_COMMITTER_EMAIL \
         GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
         git -C "$TB_ID_REPO" var GIT_AUTHOR_IDENT >/dev/null 2>&1 && echo resolved || echo unresolved )"
   assert_eq "tb(#575 AC4): isolated negative probe — author identity does NOT resolve" "unresolved" "$TB_NEG_A"
-  TB_NEG_C="$( env -u GIT_CONFIG_NOSYSTEM -u GIT_CONFIG_COUNT -u GIT_CONFIG_PARAMETERS \
+  TB_NEG_C="$( env -u GIT_CONFIG_NOSYSTEM -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 -u GIT_CONFIG_PARAMETERS \
         -u GIT_AUTHOR_NAME -u GIT_AUTHOR_EMAIL -u GIT_COMMITTER_NAME -u GIT_COMMITTER_EMAIL \
         GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
         git -C "$TB_ID_REPO" var GIT_COMMITTER_IDENT >/dev/null 2>&1 && echo resolved || echo unresolved )"
