@@ -8,8 +8,13 @@
     },
     "review-and-fix-contract": {
       "path": "lib/test/modules/review-and-fix-contract.sh",
-      "minimum_assertions": 66,
+      "minimum_assertions": 68,
       "description": "Focused review-and-fix iteration, guardrail, convergence, telemetry, and prompt-composition contracts"
+    },
+    "create-issue-contract": {
+      "path": "lib/test/modules/create-issue-contract.sh",
+      "minimum_assertions": 206,
+      "description": "Focused create-issue Step 3.6 audit, state-owner cutover, authoring-discipline, and revision-delta contracts"
     }
   },
   "workflows": {
@@ -25,6 +30,7 @@
         {"glob": "skills/review/SKILL.md", "load_class": "nested", "required": true},
         {"glob": "skills/review/phases/*.md", "load_class": "nested", "required": true},
         {"glob": "skills/review-and-fix/SKILL.md", "load_class": "nested", "required": true},
+        {"glob": "skills/review-and-fix/references/*.md", "load_class": "reference", "required": false},
         {"glob": "skills/docs/SKILL.md", "load_class": "nested", "required": false},
         {"glob": ".devflow/prompt-extensions/implement.md", "load_class": "extension", "required": false},
         {"glob": ".devflow/prompt-extensions/review-and-fix.md", "load_class": "extension", "required": false},
@@ -62,6 +68,7 @@
       "allowed_parents": ["implement"],
       "surfaces": [
         {"glob": "skills/review-and-fix/SKILL.md", "load_class": "always", "required": true},
+        {"glob": "skills/review-and-fix/references/*.md", "load_class": "reference", "required": false},
         {"glob": "skills/review/SKILL.md", "load_class": "nested", "required": true},
         {"glob": "skills/review/phases/*.md", "load_class": "nested", "required": true},
         {"glob": "skills/receiving-code-review/SKILL.md", "load_class": "nested", "required": true},
