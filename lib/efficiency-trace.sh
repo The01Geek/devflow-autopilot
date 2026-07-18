@@ -1350,17 +1350,29 @@ do_persist() {
     # transient failure's next re-attempt is seconds away; both are recorded residuals.
     if _base_remote_line="$(GIT_TERMINAL_PROMPT=0 git -C "$root" ls-remote --heads origin "$_DEVFLOW_BASE_BRANCH" 2>/dev/null)"; then
       if [ -z "$_base_remote_line" ]; then
-        _DEVFLOW_BASE_REF_STATUS=established           # established: remote carries no such branch — local base accepted
         # The remote AUTHORITATIVELY carries no such branch, so any lingering
         # refs/remotes/origin/<base> is a stale cache from a prior fetch (the base was
-        # deleted or renamed on origin). Prune it best-effort so synth_base_ref's
-        # `origin/<base>` iteration does NOT resolve to that stale tip and re-widen the
-        # range — without this, the "accepted the local base" breadcrumb would overclaim
-        # (synth_base_ref tries origin/<base> first). A no-op when no such cache ref
-        # exists (the fresh-adopter case). Best-effort: a failure to delete leaves the
-        # pre-existing behavior, never aborts (the whole helper is exit-0/best-effort).
+        # deleted or renamed on origin). Prune it so synth_base_ref's `origin/<base>`
+        # iteration does NOT resolve to that stale tip and re-widen the range —
+        # synth_base_ref tries `origin/<base>` BEFORE the local base, so an un-pruned
+        # stale cache would be selected over the local base and sweep already-merged
+        # history (the exact #532 corruption). The prune is best-effort at the command
+        # level, but its OUTCOME is verified and the status is FAIL-CLOSED on it: if the
+        # ref still resolves after the delete attempt (a contended
+        # refs/remotes/origin/<base>.lock from a sibling worktree, a read-only .git), the
+        # stale cache survives and would be selected, so DECLINE (unestablished) rather
+        # than proceed against it — never mark `established` on an unverified prune, and
+        # never emit the "accepted the local base" breadcrumb the prune did not earn. A
+        # no-op prune when no such cache ref exists (the fresh-adopter case) leaves the
+        # ref absent, so the else arm marks established and proceeds — exactly R13.
         git -C "$root" update-ref -d "refs/remotes/origin/${_DEVFLOW_BASE_BRANCH}" 2>/dev/null || true
-        echo "efficiency-trace.sh --persist: base-ref refresh skipped — origin carries no branch '${_DEVFLOW_BASE_BRANCH}' (fresh adopter, or a deleted/renamed base); pruned any stale remote-tracking cache and accepted the local base '${_DEVFLOW_BASE_BRANCH}' without a refresh" >&2
+        if git -C "$root" rev-parse --verify --quiet "refs/remotes/origin/${_DEVFLOW_BASE_BRANCH}" >/dev/null 2>&1; then
+          _DEVFLOW_BASE_REF_STATUS=unestablished       # prune FAILED and the stale cache survives — decline, do not select it
+          echo "::warning::efficiency-trace.sh --persist: origin carries no branch '${_DEVFLOW_BASE_BRANCH}' but a stale refs/remotes/origin/${_DEVFLOW_BASE_BRANCH} cache could not be pruned (a contended ref lock or a read-only .git) — the base ref is UNESTABLISHED, so commit selection is skipped this run to avoid selecting that stale cache" >&2
+        else
+          _DEVFLOW_BASE_REF_STATUS=established         # established: remote carries no such branch and no stale cache remains — local base accepted
+          echo "efficiency-trace.sh --persist: base-ref refresh skipped — origin carries no branch '${_DEVFLOW_BASE_BRANCH}' (fresh adopter, or a deleted/renamed base); pruned any stale remote-tracking cache and accepted the local base '${_DEVFLOW_BASE_BRANCH}' without a refresh" >&2
+        fi
       elif GIT_TERMINAL_PROMPT=0 git -C "$root" fetch -q --no-tags origin "+${_DEVFLOW_BASE_BRANCH}:refs/remotes/origin/${_DEVFLOW_BASE_BRANCH}" 2>/dev/null; then
         _DEVFLOW_BASE_REF_STATUS=established           # established: refreshed origin/<base> into the remote-tracking cache
       else

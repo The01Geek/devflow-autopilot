@@ -15,9 +15,10 @@ Establish base-ref freshness before the synthesis floor selects commits (#532).
   documents). When `origin` is configured but the refresh fails (offline, auth, or a
   contended `refs/remotes/origin/<base>.lock`), synthesis now **declines** — writing no
   record and emitting a `::warning::` naming the base ref as unestablished — rather than
-  trusting a possibly-stale ref. Repos with no `origin`, and origins that carry no such
-  branch, proceed against the local base with a breadcrumb (both recorded residual
-  windows in `docs/efficiency-trace.md`). The base branch name now has a single producer
+  trusting a possibly-stale ref. Repos with no `origin` proceed against the local base
+  with a breadcrumb (recorded residual window (d) in `docs/efficiency-trace.md`); an
+  origin that carries no such branch prunes any stale remote-tracking cache and accepts
+  the local base as established. The base branch name now has a single producer
   in `lib/efficiency-trace.sh` (resolved once, consumed by both the refresh and
   `synth_base_ref`). The refresh advances no local branch ref. This is fix-forward only:
   existing misattributed records are left in place and are not distinguishable by record

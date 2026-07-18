@@ -20193,6 +20193,13 @@ git -C "$ETF1_REPO" checkout -q -b feat
 printf y > "$ETF1_REPO/own"; git -C "$ETF1_REPO" add own
 git -C "$ETF1_REPO" commit -qm "fix: address review findings (iteration 2)"   # the feature's OWN commit
 ETF1_OWN="$(git -C "$ETF1_REPO" rev-parse HEAD)"
+# R8 rides HERE (not R5): R5's fixture has local main == origin/main, so an
+# implementation that wrongly fast-forwarded the LOCAL ref would produce the identical
+# value and the assertion would pass vacuously. R1's fixture has origin/main strictly
+# AHEAD of the local ref (local refs/heads/main = B, origin main = F), so asserting the
+# LOCAL ref stayed at B while the REMOTE-TRACKING ref advanced to F genuinely exercises
+# "the refresh advances the remote-tracking cache only, never a local branch ref" (AC11).
+ETF1_LOCAL_MAIN_BEFORE="$(git -C "$ETF1_REPO" rev-parse refs/heads/main)"
 ETF1_WPD="$ETF1_REPO/.devflow/tmp/review/pr-777/run-z"; mkdir -p "$ETF1_WPD"
 ( cd "$ETF1_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETF1_WPD" --slug pr-777 ) >/dev/null 2>&1; ETF1_RC=$?
 assert_eq "et-fresh(R1): --persist exits 0" "0" "$ETF1_RC"
@@ -20200,6 +20207,10 @@ assert_eq "et-fresh(R1): the FOREIGN merged fix commit is NOT attributed to this
   "$(grep -qF "$ETF1_F" "$ETF1_WPD"/iter-*.json 2>/dev/null && echo yes || echo no)"
 assert_eq "et-fresh(R1): the surviving synthesized record carries the feature's OWN commit" "$ETF1_OWN" \
   "$(jq -r '.fix_commit_sha' "$ETF1_WPD/iter-2.json" 2>/dev/null)"
+assert_eq "et-fresh(R8/R1): the refresh advanced the remote-tracking ref to origin's tip (F)" "$ETF1_F" \
+  "$(git -C "$ETF1_REPO" rev-parse refs/remotes/origin/main 2>/dev/null)"
+assert_eq "et-fresh(R8/R1): the LOCAL base branch ref stayed at B (no local ref advanced) with origin AHEAD — non-vacuous" \
+  "$ETF1_LOCAL_MAIN_BEFORE" "$(git -C "$ETF1_REPO" rev-parse refs/heads/main)"
 rm -rf "$ETF1_ORIGIN" "$ETF1_REPO"
 
 # et-fresh(R2) — origin configured but UNREACHABLE → the base ref is UNESTABLISHED,
@@ -20316,10 +20327,15 @@ git -C "$ETF7_REPO" checkout -q -b feat
 printf a > "$ETF7_REPO/a"; git -C "$ETF7_REPO" add a
 git -C "$ETF7_REPO" commit -qm "fix: address review findings (iteration 1)"
 ETF7_WPD="$ETF7_REPO/.devflow/tmp/review/pr-7/run-x"; mkdir -p "$ETF7_WPD"
-( cd "$ETF7_REPO" && PATH="$ETF7_STUB:$PATH" bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETF7_WPD" --slug pr-7 ) >/dev/null 2>&1; ETF7_RC=$?
+ETF7_ERR="$( ( cd "$ETF7_REPO" && PATH="$ETF7_STUB:$PATH" bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETF7_WPD" --slug pr-7 ) 2>&1 1>/dev/null )"; ETF7_RC=$?
 assert_eq "et-fresh(R7): decline path exits 0 with tr/sed/wc/cut/head removed from PATH" "0" "$ETF7_RC"
 assert_eq "et-fresh(R7): decline still fails CLOSED (no iter-*.json) with non-preflight tools absent" "no" \
   "$([ -e "$ETF7_WPD/iter-1.json" ] && echo yes || echo no)"
+# Assert the DECLINE breadcrumb fired — distinguishes a genuine fail-closed decline from
+# an early abort under the stripped PATH (both leave no iter-*.json), so the guard-class-2
+# assertion is not satisfied vacuously by an unrelated crash.
+assert_eq "et-fresh(R7): the UNESTABLISHED decline breadcrumb still fires with non-preflight tools absent (genuine decline, not an abort)" "yes" \
+  "$(printf '%s' "$ETF7_ERR" | grep -qF 'base ref is UNESTABLISHED' && echo yes || echo no)"
 rm -rf "$ETF7_STUB" "$ETF7_REPO"
 
 # et-fresh(R10) — a SHALLOW fixture cloned --depth 1 via a file:// URL (a plain path
@@ -20489,6 +20505,35 @@ assert_eq "et-fresh(R17): synthesis still PROCEEDS against the local base and wr
 assert_eq "et-fresh(R17): the stale-cache-prune breadcrumb fires" "yes" \
   "$(printf '%s' "$ETF17_ERR" | grep -qF 'pruned any stale remote-tracking cache' && echo yes || echo no)"
 rm -rf "$ETF17_ORIGIN" "$ETF17_REPO"
+
+# et-fresh(R18) — empty ls-remote + a stale cache ref whose prune FAILS → the arm is
+# FAIL-CLOSED: it does NOT proceed against the surviving stale cache (which synth_base_ref
+# would select over the local base and re-widen the range — the exact #532 corruption a
+# best-effort prune would have silently reintroduced). It declines (unestablished, no
+# record) with a distinct "cache could not be pruned" breadcrumb. The prune is made to
+# fail by making the loose ref's parent dir read-only, so `git update-ref -d` cannot
+# unlink it.
+ETF18_ORIGIN="$(git_sandbox "et-fresh R18 origin")"; git -C "$ETF18_ORIGIN" init --bare -q
+ETF18_REPO="$(git_sandbox "et-fresh R18 repo")"
+git -C "$ETF18_REPO" init -q
+git -C "$ETF18_REPO" config user.email t@e.com; git -C "$ETF18_REPO" config user.name t
+git -C "$ETF18_REPO" commit --allow-empty -qm base; git -C "$ETF18_REPO" branch -M main
+git -C "$ETF18_REPO" remote add origin "$ETF18_ORIGIN"     # origin configured, main NOT pushed (empty ls-remote)
+git -C "$ETF18_REPO" update-ref refs/remotes/origin/main "$(git -C "$ETF18_REPO" rev-parse HEAD)"   # stale cache ref
+git -C "$ETF18_REPO" checkout -q -b feat
+printf a > "$ETF18_REPO/a"; git -C "$ETF18_REPO" add a
+git -C "$ETF18_REPO" commit -qm "fix: address review findings (iteration 1)"
+ETF18_GD="$(git -C "$ETF18_REPO" rev-parse --absolute-git-dir)"
+chmod 500 "$ETF18_GD/refs/remotes/origin"   # block `update-ref -d` from unlinking the loose ref
+ETF18_WPD="$ETF18_REPO/.devflow/tmp/review/pr-18/run-pf"; mkdir -p "$ETF18_WPD"
+ETF18_ERR="$( ( cd "$ETF18_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETF18_WPD" --slug pr-18 ) 2>&1 1>/dev/null )"; ETF18_RC=$?
+chmod 700 "$ETF18_GD/refs/remotes/origin"   # restore before assertions / cleanup
+assert_eq "et-fresh(R18): prune-fail arm exits 0" "0" "$ETF18_RC"
+assert_eq "et-fresh(R18): prune-fail arm is FAIL-CLOSED — NO iter-*.json written (does not select the surviving stale cache)" "no" \
+  "$([ -e "$ETF18_WPD/iter-1.json" ] && echo yes || echo no)"
+assert_eq "et-fresh(R18): the distinct 'could not be pruned' decline breadcrumb fires" "yes" \
+  "$(printf '%s' "$ETF18_ERR" | grep -qF 'cache could not be pruned' && echo yes || echo no)"
+rm -rf "$ETF18_ORIGIN" "$ETF18_REPO"
 
 # T5 → AC5: the fix-commit subject literal is a coupled TWO-SITE invariant —
 # skills/review-and-fix/SKILL.md item 6 (the producer) ↔ lib/efficiency-trace.sh
