@@ -74,6 +74,30 @@ from verification_baseline import (  # noqa: E402
 
 REGISTRY = ROOT / "scripts/workflow-flight-recorder-registry.json"
 
+# Issue #535's compatibility matrix has analyzer-owned and recorder-owned rows.
+# The latter stay at the recorder boundary because the analyzer deliberately
+# never invokes Git or inspects the execution platform.
+COMPATIBILITY_FIXTURE_OWNERS = {
+    "absent manifests": "test_verification_baseline.py::test_absent_manifests_dir_is_announced_not_silently_empty",
+    "legacy manifests": "test_verification_baseline.py::test_legacy_manifest_missing_candidate_is_counted_unknown",
+    "zero command launches": "test_verification_baseline.py::test_empty_successful_result_is_start_unknown",
+    "multiple launches": "test_verification_baseline.py::test_relationship_end_to_end",
+    "linked worktrees": "test_verification_baseline.py::test_shared_worktree_detached_manifest_processes_locally",
+    "nested repositories": "test_verification_baseline.py::test_platform_and_repository_manifest_shapes_process_normally",
+    "shallow clones": "test_verification_baseline.py::test_platform_and_repository_manifest_shapes_process_normally",
+    "detached HEAD": "test_verification_baseline.py::test_detached_no_remote_manifest_processes",
+    "no remote": "test_verification_baseline.py::test_detached_no_remote_manifest_processes",
+    "Unicode and spaced paths": "test_verification_baseline.py::test_unicode_and_spaced_paths_process_normally",
+    "Linux/macOS/WSL/Git Bash/MSYS2": "test_verification_baseline.py::test_platform_and_repository_manifest_shapes_process_normally",
+    "local native sessions": "test_verification_baseline.py::test_relationship_end_to_end",
+    "cloud execution files": "test_verification_baseline.py::test_main_with_valid_cloud_census",
+    "missing tool results": "test_verification_baseline.py::test_authorization_start_classes",
+    "compaction": "test_verification_baseline.py::test_compaction_event_mid_lifecycle_is_tolerated",
+    "cancellation": "test_verification_baseline.py::test_authorization_start_classes",
+    "concurrent lifecycles": "test_verification_baseline.py::test_concurrent_lifecycles_in_one_transcript_scope_correctly",
+    "corrupted sources": "test_verification_baseline.py::test_non_utf8_bundle_metadata_is_unreadable",
+}
+
 
 # --------------------------------------------------------------------------- #
 # Transcript/manifest/bundle builders.
@@ -461,6 +485,20 @@ class CandidateFailsClosedTests(unittest.TestCase):
         # Pin the resulting class too (a misroute into a wrong-but-non-candidate
         # class must not pass — same discipline as the five sibling mutations).
         self.assertEqual(groups[0].relationship, REL_UNCLASSIFIABLE)
+
+    def test_every_non_missing_start_class_fails_closed_for_candidates(self) -> None:
+        """Only a prior missing result can support the candidate-retry rule."""
+        for start_class in (value for value in START_CLASSES if value != START_CONFIRMED_RESULT_MISSING):
+            with self.subTest(start_class=start_class):
+                a, b = candidate_pair()
+                a = dataclasses.replace(a, start_authorization=start_class, result_presence=False)
+                groups = group_launches([a, b])
+                self.assertNotEqual(groups[0].relationship, REL_CANDIDATE_TRANSPORT_RETRY)
+                # Pin the resulting class too (a misroute into a wrong-but-non-
+                # candidate class must not pass — same discipline as
+                # test_mutation_missing_response_removed). With no prior missing
+                # response, the group falls through to unclassifiable.
+                self.assertEqual(groups[0].relationship, REL_UNCLASSIFIABLE)
 
     def test_mutation_boundary_removed(self) -> None:
         a, b = candidate_pair()
@@ -3138,6 +3176,12 @@ class Pr531RafLocalIter1Tests(_TmpDirTestCase):
         runs = sorted(out.iterdir())
         doc = json.loads((runs[-1] / "verification_baseline.json").read_text(encoding="utf-8"))
         self.assertEqual(len(doc["verification_process_launches"]), 1)
+        # Prove the surviving launch is attributed to THIS session (PR #573
+        # review): a bare len==1 check does not confirm the launch belongs to
+        # sid. provenance.session_id cross-links the launch to its session, and
+        # the census check confirms the input inventory row survived too.
+        self.assertEqual(doc["verification_process_launches"][0]["provenance"]["session_id"], sid)
+        self.assertIn(sid, {row["identity"]["session_id"] for row in doc["census"]["local"]})
 
     # AC #63: a compaction boundary event mid-lifecycle is tolerated.
     def test_compaction_event_mid_lifecycle_is_tolerated(self) -> None:
@@ -3149,6 +3193,9 @@ class Pr531RafLocalIter1Tests(_TmpDirTestCase):
         )
         doc = self._run_doc("s-compact", b)
         self.assertEqual(len(doc["verification_process_launches"]), 1)
+        # Prove the surviving launch is attributed to THIS session (PR #573 review).
+        self.assertEqual(doc["verification_process_launches"][0]["provenance"]["session_id"], "s-compact")
+        self.assertIn("s-compact", {row["identity"]["session_id"] for row in doc["census"]["local"]})
 
     # AC #63: two lifecycles in ONE transcript — extraction scopes to the
     # manifest consumer's root occurrence and never attributes the sibling
@@ -3183,6 +3230,116 @@ class Pr531RafLocalIter1Tests(_TmpDirTestCase):
         runs = sorted(self.out.iterdir())
         doc = json.loads((runs[-1] / "verification_baseline.json").read_text(encoding="utf-8"))
         self.assertEqual(len(doc["verification_process_launches"]), 1)
+
+    def test_shared_worktree_detached_manifest_processes_locally(self) -> None:
+        """Recorder-owned git topology remains inert analyzer metadata."""
+        sid = "s-shared-worktree"
+        doc_manifest = manifest(sid)
+        doc_manifest["cwd"] = "/worktrees/linked copy"
+        doc_manifest["repository_root"] = "/repo"
+        doc_manifest["storage_root"] = "/repo/.git"
+        doc_manifest["storage_root_source"] = "git_common_dir"
+        doc_manifest["git"] = {"head_sha": "abc", "branch": None, "dirty_tree": False}
+        (self.manifests / f"{sid}.json").write_text(json.dumps(doc_manifest), encoding="utf-8")
+        write_bundle(self.bundles, sid, transcript(
+            user("/devflow:implement 527"),
+            bash_call("lib/test/run.sh", "t1"),
+            tool_result("t1", "ok; exit code 0"),
+        ))
+        rc = main(["--manifests-dir", str(self.manifests), "--bundles-dir", str(self.bundles), "--registry", str(REGISTRY), "--out-dir", str(self.out)])
+        self.assertEqual(rc, 0)
+        doc = json.loads((sorted(self.out.iterdir())[-1] / "verification_baseline.json").read_text(encoding="utf-8"))
+        self.assertEqual(len(doc["verification_process_launches"]), 1)
+        # Prove the surviving launch is attributed to THIS session (PR #573 review).
+        self.assertEqual(doc["verification_process_launches"][0]["provenance"]["session_id"], sid)
+        self.assertIn(sid, {row["identity"]["session_id"] for row in doc["census"]["local"]})
+
+    def test_cloud_execution_file_is_not_analyzer_input_without_snapshot_flag(self) -> None:
+        """Cloud execution artifacts cannot create launch claims by proximity."""
+        sid = "s-local-only"
+        write_manifest(self.manifests, sid)
+        write_bundle(self.bundles, sid, transcript(user("/devflow:implement 527")))
+        (self.bundles / "cloud-execution.json").write_text(
+            json.dumps({"runs": [{"id": "fictitious-cloud-launch"}]}), encoding="utf-8"
+        )
+        rc = main(["--manifests-dir", str(self.manifests), "--bundles-dir", str(self.bundles), "--registry", str(REGISTRY), "--out-dir", str(self.out)])
+        self.assertEqual(rc, 0)
+        doc = json.loads((sorted(self.out.iterdir())[-1] / "verification_baseline.json").read_text(encoding="utf-8"))
+        self.assertTrue(doc["cloud_coverage"]["unavailable"])
+        self.assertNotIn("fictitious-cloud-launch", json.dumps(doc))
+
+    def test_platform_and_repository_manifest_shapes_process_normally(self) -> None:
+        """Platform and repository topology paths are opaque analyzer evidence."""
+        shapes = {
+            "nested": ("/repo/vendor/nested", "/repo", "/repo/.git"),
+            "shallow": ("/repo", "/repo", "/repo/.git/shallow"),
+            "linux": ("/home/dev/repo", "/home/dev/repo", "/home/dev/repo/.git"),
+            "macos": ("/Users/dev/repo", "/Users/dev/repo", "/Users/dev/repo/.git"),
+            "wsl": ("/mnt/c/Users/dev/repo", "/mnt/c/Users/dev/repo", "/mnt/c/Users/dev/repo/.git"),
+            "git-bash": ("/c/Users/dev/repo", "/c/Users/dev/repo", "/c/Users/dev/repo/.git"),
+            "msys2": ("/mingw64/home/dev/repo", "/mingw64/home/dev/repo", "/mingw64/home/dev/repo/.git"),
+        }
+        for name, (cwd, repository_root, storage_root) in shapes.items():
+            sid = f"s-{name}"
+            doc_manifest = manifest(sid)
+            doc_manifest.update({"cwd": cwd, "repository_root": repository_root, "storage_root": storage_root})
+            if name == "shallow":
+                doc_manifest["git"]["is_shallow"] = True
+            (self.manifests / f"{sid}.json").write_text(json.dumps(doc_manifest), encoding="utf-8")
+            write_bundle(self.bundles, sid, transcript(user("/devflow:implement 527")))
+        rc = main(["--manifests-dir", str(self.manifests), "--bundles-dir", str(self.bundles), "--registry", str(REGISTRY), "--out-dir", str(self.out)])
+        self.assertEqual(rc, 0)
+        doc = json.loads((sorted(self.out.iterdir())[-1] / "verification_baseline.json").read_text(encoding="utf-8"))
+        self.assertEqual(doc["metrics"]["eligible_lifecycles"], len(shapes))
+        self.assertEqual({row["identity"]["session_id"] for row in doc["census"]["local"]}, {f"s-{name}" for name in shapes})
+
+    def test_compatibility_fixture_inventory_names_every_matrix_row(self) -> None:
+        import ast
+        self.assertEqual(set(COMPATIBILITY_FIXTURE_OWNERS), {
+            "absent manifests", "legacy manifests", "zero command launches", "multiple launches",
+            "linked worktrees", "nested repositories", "shallow clones", "detached HEAD", "no remote",
+            "Unicode and spaced paths", "Linux/macOS/WSL/Git Bash/MSYS2", "local native sessions",
+            "cloud execution files", "missing tool results", "compaction", "cancellation",
+            "concurrent lifecycles", "corrupted sources",
+        })
+        # Not existence-only (PR #573 review): a mapped test gutted to a no-op
+        # (or one that merely runs the analyzer without asserting anything) must
+        # fail this guard. Parse each owner file and require the named function
+        # to carry at least one real assertion — an `assert` statement, a call to
+        # a unittest `self.assert*` method, or a bare-name `assert*(...)` helper
+        # call (a module-level free assertion helper) — so a rename-guard AND a
+        # substance-guard both hold. Accepting the bare-name form avoids a
+        # false-FAIL on a mapped test that delegates its checks to such a helper.
+        tree_cache: dict[Path, ast.Module] = {}
+
+        def _has_real_assertion(fn: ast.FunctionDef) -> bool:
+            for node in ast.walk(fn):
+                if isinstance(node, ast.Assert):
+                    return True
+                if isinstance(node, ast.Call):
+                    func = node.func
+                    if (isinstance(func, ast.Attribute)
+                            and isinstance(func.value, ast.Name)
+                            and func.value.id == "self"
+                            and func.attr.startswith("assert")):
+                        return True
+                    if isinstance(func, ast.Name) and func.id.startswith("assert"):
+                        return True
+            return False
+
+        for owner in COMPATIBILITY_FIXTURE_OWNERS.values():
+            path, test_name = owner.split("::")
+            owner_path = ROOT / "lib/test" / path
+            self.assertTrue(owner_path.is_file())
+            if owner_path not in tree_cache:
+                tree_cache[owner_path] = ast.parse(
+                    owner_path.read_text(encoding="utf-8"), filename=str(owner_path))
+            fns = [n for n in ast.walk(tree_cache[owner_path])
+                   if isinstance(n, ast.FunctionDef) and n.name == test_name]
+            self.assertEqual(len(fns), 1, f"{owner}: exactly one def {test_name} expected")
+            self.assertTrue(
+                _has_real_assertion(fns[0]),
+                f"{owner}: mapped test must carry at least one real assertion, not just a def")
 
     # TD-1: the source/source_status pair is guarded in BOTH directions —
     # reassigning `source` re-validates the already-bound source_status.
