@@ -39,5 +39,34 @@
   "sweep_defs_read": [],
   "sweep_evidence": {"status": "not-run", "reason": "suggestion-only fix delta; delta is test-assertion strengthening, no product/runtime-code mechanism change triggering §2.3 sweeps"},
   "telemetry": "unavailable",
-  "shadow": null
+  "shadow": {
+    "ran_at": "2026-07-18T03:45:00Z",
+    "reviewed_sha": "1d493380",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "AST substance guard accepts any self.assert*, including analyzer-ran-only checks (weak-substance-guard)", "defect_signature": {"file": "lib/test/test_verification_baseline.py", "line_range": [3290, 3310], "kind": "weak-substance-guard"}},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "COMPATIBILITY_FIXTURE_OWNERS multiplexes matrix rows onto shared tests; inventory guard does not machine-enforce that a shared test distinguishes the rows it is credited with", "defect_signature": {"file": "lib/test/test_verification_baseline.py", "line_range": [79, 97], "kind": "coverage-claim-not-enforced"}},
+      {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "Several matrix rows map to tests that only assert the analyzer processes without error (runs clean), not behaves-correctly-under-condition", "defect_signature": {"file": "lib/test/test_verification_baseline.py", "line_range": [77, 95], "kind": "weak-coverage-traceability"}}
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 3,
+      "overlap_with_iter_N": 1,
+      "new": 2,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
+  "park_calibration": {
+    "evidence_comparisons": [
+      {"parked_finding_ref": {"iter": 1, "index": 0}, "parked_finding_id": "F-1", "shadow_finding_index": 0, "relation": "equivalent", "rationale": "shadow re-raises the inherent presence-not-relevance limit of the static substance guard at Suggestion (at/below the parked Suggestion severity), adding no new failing input", "operands_present": true, "disposition": "preserved"}
+    ]
+  }
 }
