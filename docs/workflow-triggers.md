@@ -178,6 +178,34 @@ that runs *before* authorization and number resolution: it declines any
 > **default** marker and any repo-customized `devflow.workpad_marker` are protected
 > out of the box, with no manual edit required.
 
+## Startup lifecycle: "resumed" means an earlier execution, not the normal handoff
+
+The cloud `/devflow:implement` path has two stages — a lean `gate` job that posts
+the workpad the moment a command is authorized, and a heavy `claude` job that boots
+and enters Phase 1 minutes later. The normal same-run handoff from `gate` to
+`claude` is **not** a resume, and (since issue #537) the workpad no longer labels it
+one. The lifecycle wording is decided from **provenance** (a workflow-owned handoff
+record naming whether the gate *created* or *adopted* the workpad) crossed with the
+workpad's **live status**:
+
+- **`agent initialized; Phase 1 workpad hydrated`** — the ordinary first run (the
+  gate created the workpad this run). No "resumed" claim.
+- **`/devflow:implement run resumed; Phase 1 workpad hydrated`** — the gate adopted
+  an **interim** (still-in-progress) workpad from an earlier execution (a re-trigger
+  or a stall-backstop auto-resume). This is the only case that says "resumed".
+- **`/devflow:implement new run initialized from terminal workpad; …`** — the
+  adopted workpad was already terminal (🎉/👎/💥/🛑); a fresh run starts from it.
+- **`agent initialized; workpad provenance unavailable; …`** — the handoff record
+  was missing/malformed (e.g. a partially-upgraded consumer); the run continues
+  without guessing.
+
+Up to four `## Progress` checkpoints timestamp the startup boundaries — the gate
+acknowledgment (only on the adopted/resume path, so a normal fresh run writes the
+other three), `Claude job setup complete; invoking agent` (written immediately
+before the action), `agent entered Phase 1 setup; workpad triage passed`, and the
+hydration event above — so startup latency is attributable from the workpad alone.
+Local runs read no cloud handoff record and select wording from live status only.
+
 ## A light `/devflow:*` command fires only when *issued*, never when *quoted*
 
 The light command path (`/devflow:review`, `/devflow:review-and-fix`,
