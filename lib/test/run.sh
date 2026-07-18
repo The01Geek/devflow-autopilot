@@ -20188,17 +20188,23 @@ printf x > "$ETF1_REPO/foreign"; git -C "$ETF1_REPO" add foreign
 git -C "$ETF1_REPO" commit -qm "fix: address review findings (iteration 1)"   # FOREIGN
 ETF1_F="$(git -C "$ETF1_REPO" rev-parse HEAD)"
 git -C "$ETF1_REPO" push -q origin main                      # origin (bare) main = F
-git -C "$ETF1_REPO" update-ref refs/remotes/origin/main "$ETF1_B"   # make the remote-tracking ref STALE
+git -C "$ETF1_REPO" update-ref refs/remotes/origin/main "$ETF1_B"   # make the remote-tracking cache STALE (at B)
 git -C "$ETF1_REPO" checkout -q -b feat
+# The foreign fix commit F was committed while HEAD was on `main`, so local refs/heads/main
+# is now at F. Reset it back to B so the LOCAL base branch is STRICTLY BEHIND origin's tip
+# (F) — this is what makes the R8 assertion below non-vacuous (see its comment).
+git -C "$ETF1_REPO" branch -f main "$ETF1_B"
 printf y > "$ETF1_REPO/own"; git -C "$ETF1_REPO" add own
 git -C "$ETF1_REPO" commit -qm "fix: address review findings (iteration 2)"   # the feature's OWN commit
 ETF1_OWN="$(git -C "$ETF1_REPO" rev-parse HEAD)"
 # R8 rides HERE (not R5): R5's fixture has local main == origin/main, so an
 # implementation that wrongly fast-forwarded the LOCAL ref would produce the identical
-# value and the assertion would pass vacuously. R1's fixture has origin/main strictly
-# AHEAD of the local ref (local refs/heads/main = B, origin main = F), so asserting the
-# LOCAL ref stayed at B while the REMOTE-TRACKING ref advanced to F genuinely exercises
-# "the refresh advances the remote-tracking cache only, never a local branch ref" (AC11).
+# value and the assertion would pass vacuously. R1's fixture (after the `branch -f main
+# $ETF1_B` reset above) has the local base branch at B while origin's tip is F — origin
+# strictly AHEAD of the local ref — so asserting the LOCAL ref stayed at B (≠ F) while the
+# REMOTE-TRACKING ref advanced B→F genuinely exercises "the refresh advances the
+# remote-tracking cache only, never a local branch ref" (AC11): a buggy fast-forward of the
+# local ref would move it to F and the B≠F assertion would catch it.
 ETF1_LOCAL_MAIN_BEFORE="$(git -C "$ETF1_REPO" rev-parse refs/heads/main)"
 ETF1_WPD="$ETF1_REPO/.devflow/tmp/review/pr-777/run-z"; mkdir -p "$ETF1_WPD"
 ( cd "$ETF1_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETF1_WPD" --slug pr-777 ) >/dev/null 2>&1; ETF1_RC=$?
