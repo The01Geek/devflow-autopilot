@@ -4579,6 +4579,15 @@ _c, _o, _e = _handoff({**_VALID, "run_attempt": "x"})
 assert_eq("#537 handoff AC4: a non-digit run_attempt degrades via its digit-string type guard",
           (0, "unknown", True),
           (_c, _o, "run_attempt must be a digit string" in _e))
+# The `issue` field's own type guard is likewise masked by the following identity
+# guard (a string "537" degrades to unknown via EITHER the type guard OR "537" != 537),
+# so pin the branch-specific breadcrumb, mirroring the run_id/run_attempt arms above —
+# the generic `_deg` row "wrong field type (issue str)" only asserts the shared
+# origin=unknown breadcrumb and cannot distinguish the type guard from the mismatch path.
+_c, _o, _e = _handoff({**_VALID, "issue": "537"})
+assert_eq("#537 handoff AC4: a non-int issue degrades via its own integer type guard",
+          (0, "unknown", True),
+          (_c, _o, "issue must be an integer" in _e))
 
 # AC4 (bool guard): schema_version:true must not sneak through isinstance(True, int).
 assert_eq("#537 handoff AC4: bool schema_version degrades to unknown",
@@ -4654,6 +4663,18 @@ assert_eq("#537 checkpoint mixed batch: the newly-inserted row's text is shown",
 assert_raises("#537 checkpoint AC14: an invalid key is a structural failure",
               workpad._UpdateError,
               lambda: apply_mut(_CP_BODY, make_args(checkpoint=[["bad key!", "t"]])))
+# AC14: a trailing newline in a key is a structural failure — the grammar is anchored
+# with \A…\Z (not ^…$), so a key that would otherwise inject a newline into the marker
+# is rejected before any PATCH. (^…$ would admit it via $'s pre-newline match.)
+assert_raises("#537 checkpoint AC14: a trailing-newline key is a structural failure (\\Z anchor)",
+              workpad._UpdateError,
+              lambda: apply_mut(_CP_BODY, make_args(checkpoint=[[_CPKEY + "\n", "t"]])))
+# AC14: a key repeated within a SINGLE batch is structural (no PATCH) — both copies
+# would see in_prog==0 and be inserted, writing the marker twice and wedging every
+# future replay of that key; rejected up front instead.
+assert_raises("#537 checkpoint AC14: a within-batch duplicate key is a structural failure",
+              workpad._UpdateError,
+              lambda: apply_mut(_CP_BODY, make_args(checkpoint=[[_CPKEY, "a"], [_CPKEY, "b"]])))
 
 # AC14 structural shapes: absent/duplicate Progress, marker-outside-Progress, empty body.
 assert_raises("#537 checkpoint AC14: absent ## Progress is structural",
@@ -4686,6 +4707,28 @@ _code, _err, _patched = _drive_cmd_update(_CP_BODY.replace(
     checkpoint=[[_CPKEY, "x"]])
 assert_eq("#537 checkpoint AC16: a checkpoint-only replay makes no PATCH", None, _patched)
 assert_eq("#537 checkpoint AC16: a checkpoint-only replay exits 0", None, _code)
+
+# AC16 (positive control at the process level): an ABSENT-key checkpoint INSERT
+# through cmd_update DOES issue a PATCH carrying the new row — the counterpart to the
+# replay-makes-no-PATCH negative above, so a mutant that silently swallowed inserts
+# (never PATCHing) would be caught. `_CP_BODY` has ## Progress but not _MK.
+_code, _err, _patched = _drive_cmd_update(_CP_BODY, checkpoint=[[_CPKEY, "invoked"]])
+assert_eq("#537 checkpoint AC16: an absent-key checkpoint insert issues a PATCH carrying the new row",
+          (True, True),
+          (_patched is not None, _patched is not None and _MK in _patched and "invoked" in _patched))
+
+# AC16 (hydration seam): a phase1-hydrated INSERT combined with a matching
+# --expect-comment-id precondition + --status + --note lands in ONE PATCH — the
+# precondition-pass -> insert -> single-PATCH composition the isolated tests never
+# exercise together. The fake body-fetch returns comment id 7, so the precondition
+# passes and the insert rides the same PATCH.
+_code, _err, _patched = _drive_cmd_update(
+    _CP_BODY, checkpoint=[[_CPKEY, "hydrated"]], status="Setup",
+    note=["Phase 1 workpad hydrated"], expect_comment_id="7")
+assert_eq("#537 checkpoint AC16: a matching precondition + a checkpoint insert land in one PATCH",
+          (True, True),
+          (_patched is not None,
+           _patched is not None and _MK in _patched and "hydrated" in _patched))
 
 # AC13: a checkpoint on a legacy body lacking ## Progress fails structurally (no
 # PATCH) — the caller (Phase 1) migrates then retries, so the helper never aborts

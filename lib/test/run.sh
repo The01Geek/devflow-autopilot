@@ -30656,6 +30656,17 @@ CI_LN537="$(grep -nF 'gha:${RUN_ID}:${RUN_ATTEMPT}:claude-invoke' "$WF289" | hea
 RCC_LN537="$(grep -nF 'name: Run Claude Code' "$WF289" | head -1 | cut -d: -f1)"                      # raw-guard-ok: line-number lookup
 assert_eq "#537 AC13: the claude-invoke checkpoint is ordered before Run Claude Code" "yes" \
   "$([ -n "$CI_LN537" ] && [ -n "$RCC_LN537" ] && [ "$CI_LN537" -lt "$RCC_LN537" ] && echo yes || echo no)"
+# #537 handoff-origin vocabulary is a COUPLED invariant across the literal sites below with
+# no shared source: scripts/workpad.py's _HANDOFF_ORIGINS tuple (the offline handoff-state
+# validator) and devflow-implement.yml's claude-job inline normalize tuple. The gate job
+# ALSO emits the raw `handoff=<token>` strings, but those are single tokens, not the tuple.
+# The vocabulary is self-healing (any drifted token degrades to `unknown`), so this is a
+# maintainability pin, not a correctness gate — renaming/dropping a token in one site
+# without the other turns these RED at the desk (removal-proof; literal-constant pins).
+assert_pin_unique "#537 handoff-origin vocabulary present in workpad.py _HANDOFF_ORIGINS (coupled site 1)" \
+  "('created-current-run', 'adopted-existing', 'unknown')" "$REPO_ROOT/scripts/workpad.py"
+assert_pin_unique "#537 handoff-origin vocabulary present in devflow-implement.yml inline normalize (coupled site 2)" \
+  '("created-current-run", "adopted-existing", "unknown")' "$WF289"
 # AC7: the already-exists branch refreshes the Run: link via workpad.py update --run-link.
 assert_eq "#289 AC7: gate already-exists branch refreshes Run link via workpad.py update --run-link" "1" \
   "$(printf '%s\n' "$AE_REGION289" | grep -cF 'update "$NUMBER" --run-link "[View run]($RUN_URL)"' || true)"  # raw-guard-ok: region-scoped presence count

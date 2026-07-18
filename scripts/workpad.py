@@ -1647,7 +1647,12 @@ def _terminal_complete_gate(sections) -> list[str]:
 #   * `handoff-state FILE …` validates the workflow-owned gate→claude handoff record
 #     OFFLINE (no gh, no network) and prints one of three origin tokens, degrading
 #     every malformed/mismatched shape to `unknown` with a targeted breadcrumb.
-_CHECKPOINT_KEY_RE = re.compile(r'^[A-Za-z0-9._:-]+$')
+# `\A…\Z` (not `^…$`): this grammar is the injection boundary for the HTML-comment
+# marker `<!-- devflow:checkpoint KEY -->`, and Python's `$` also matches just before a
+# single trailing newline — so `^…$` would admit a key like "gha:1:1:stage\n" and inject
+# a newline into the marker/Progress bullet. `\Z` matches only at the true end of string,
+# keeping the key strictly single-line.
+_CHECKPOINT_KEY_RE = re.compile(r'\A[A-Za-z0-9._:-]+\Z')
 
 
 def _checkpoint_marker(key: str) -> str:
@@ -1690,17 +1695,29 @@ def _plan_checkpoints(body: str, checkpoint_reqs) -> list[tuple[str, str]]:
     on every invalid shape, so validation completes before any mutation:
 
       * a key not matching `[A-Za-z0-9._:-]+`,
+      * a key repeated within a single batch,
       * an empty/whitespace-only body,
       * zero or more-than-one `## Progress` section,
       * a key marker present outside ## Progress,
       * a key marker present more than once inside ## Progress."""
     # 1. Key grammar — checked first so a bad key fails before any body inspection.
+    #    A key repeated within one batch is also structural: both copies would see
+    #    in_prog==0 (the body is read once, before any insert) and be appended, so
+    #    _apply_mutations would write the marker twice — wedging every future replay
+    #    of that key on the `in_prog > 1` check below. Reject it up front instead.
+    _seen_keys: set[str] = set()
     for key, _text in checkpoint_reqs:
         if not _CHECKPOINT_KEY_RE.match(key):
             raise _UpdateError(
                 f"--checkpoint key {key!r} is invalid; keys must match "
                 f"[A-Za-z0-9._:-]+ . No PATCH was made."
             )
+        if key in _seen_keys:
+            raise _UpdateError(
+                f"--checkpoint key {key!r} appears more than once in a single "
+                f"batch; keys must be unique per call. No PATCH was made."
+            )
+        _seen_keys.add(key)
     # 2. Canonical ## Progress: non-empty body + exactly one Progress heading.
     # Split the body's sections ONCE and both count and locate Progress from that
     # single parse (rather than a separate finditer scan) — the canonical
