@@ -151,7 +151,13 @@ def main(argv):
 
     # ---- region matrix --------------------------------------------------
     elif mut == "anchor-absent":
-        edit_wf(root, "matcher-probe.yml", lambda s: s.replace("REVIEW='", "ZREVIEW='", 1))
+        # Rename the ASSIGNMENT (line-start after indent), not a REVIEW=' mention in a
+        # maintenance comment, so the generator genuinely loses its anchor.
+        edit_wf(
+            root,
+            "matcher-probe.yml",
+            lambda s: re.sub(r"(?m)^([ \t]*)REVIEW='", r"\1ZREVIEW='", s, count=1),
+        )
     elif mut == "anchor-duplicated":
         def dup(text):
             m = re.search(r"^[ \t]*TOOLS='[^']*'\n", text, re.M)
