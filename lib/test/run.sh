@@ -22133,28 +22133,127 @@ assert_eq "tb(#442 Sug-3): held ref .lock → no telemetry ref created" "no" \
   "$(git -C "$TB_LK_REPO" rev-parse --verify --quiet refs/heads/devflow-telemetry >/dev/null 2>&1 && echo yes || echo no)"
 rm -rf "$TB_LK_REPO"
 
-# AC8 (PR #442 review Suggestion-4 — was deferred, now covered): a persist on a checkout
-# with NO configured committer identity still writes, because the helper exports its own
-# GIT_AUTHOR/COMMITTER identity into commit-tree. Fixture is made deterministically
-# identity-less with `user.useConfigOnly` (git then refuses to auto-detect an identity
-# from the host), and the positive control proves the fixture really is identity-less —
-# so a passing persist attributes to the exported identity, not to an ambient fallback.
+# AC8 (PR #442 review Suggestion-4): a persist on a checkout with NO configured committer
+# identity still writes, because the helper exports its OWN GIT_AUTHOR/COMMITTER identity
+# into `commit-tree` — so a passing persist must attribute to that exported identity, not
+# to an ambient host fallback.
+#
+# issue #575: `user.useConfigOnly=true` stops git from *auto-detecting* an identity from
+# gecos/hostname, but it does NOT stop git from reading GLOBAL config, SYSTEM config, or the
+# GIT_{AUTHOR,COMMITTER}_{NAME,EMAIL} environment variables. The old empty-commit "positive
+# control" therefore gave a FALSE suite failure on any host whose global/system config (or
+# inherited identity vars) supplied an identity. This block instead:
+#   (1) proves each identity source is individually effective — a positive-control matrix with
+#       one row per source (system config, global config, inherited identity vars, command-scope
+#       config), each row activating its own source and disabling the other three;
+#   (2) isolates every source for the negative probe and asserts, via git's own identity-
+#       resolution command `git var` (not version-dependent commit diagnostics), that neither
+#       author nor committer identity resolves; and
+#   (3) runs the whole thing under a HOSTILE outer environment (synthetic global+system config
+#       files, inherited identity vars, command-scope config, and GIT_CONFIG_NOSYSTEM=1), so the
+#       suite result no longer depends on the host's git identity.
 TB_ID_REPO="$(git_sandbox "tb no-identity repo")"
 git -C "$TB_ID_REPO" init -q
-git -C "$TB_ID_REPO" config user.useConfigOnly true   # no user.name / user.email at all
+git -C "$TB_ID_REPO" config user.useConfigOnly true   # no local user.name / user.email at all
 mkdir -p "$TB_ID_REPO/.devflow"; printf 'tmp/\n' > "$TB_ID_REPO/.devflow/.gitignore"
 git -C "$TB_ID_REPO" add -A
+# AC6: the seed commit stays deterministic via ONE-SHOT identity (never the host's).
 git -C "$TB_ID_REPO" -c user.email=seed@e.com -c user.name=seed commit -qm seed
-assert_eq "tb(#441 AC8): positive control — the fixture repo really has NO usable identity" "no" \
-  "$(git -C "$TB_ID_REPO" commit -q --allow-empty -m probe >/dev/null 2>&1 && echo yes || echo no)"
-mkdir -p "$TB_ID_REPO/.devflow/tmp/review/pr-1/run-a"
-printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
-  > "$TB_ID_REPO/.devflow/tmp/review/pr-1/run-a/iter-1.json"
-( cd "$TB_ID_REPO" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
-assert_eq "tb(#441 AC8): persist SUCCEEDS on an identity-less checkout (record is on the branch)" "yes" \
-  "$(git -C "$TB_ID_REPO" cat-file -e refs/heads/devflow-telemetry:.devflow/logs/efficiency/pr-1-run-a.json >/dev/null 2>&1 && echo yes || echo no)"
-assert_eq "tb(#441 AC8): the telemetry commit carries the helper's explicit committer identity" "github-actions[bot]" \
-  "$(git -C "$TB_ID_REPO" log -1 --format='%cn' refs/heads/devflow-telemetry 2>/dev/null)"
+
+# Synthetic per-source identity files, each carrying a DISTINCT identity so a matrix row
+# proves its source (and only its source) resolved.
+TB_SYS_CFG="$(mktemp)";  printf '[user]\n\tname = SysName\n\temail = sys@e.com\n'   > "$TB_SYS_CFG"
+TB_GLOB_CFG="$(mktemp)"; printf '[user]\n\tname = GlobName\n\temail = glob@e.com\n' > "$TB_GLOB_CFG"
+# The HOSTILE outer environment (AC5/AC9): global + system identity files a contributor's host
+# would supply. Distinct from the per-source files above so a leak would be visible.
+TB_HOSTILE_GLOB="$(mktemp)"; printf '[user]\n\tname = HostileGlobal\n\temail = hostile-glob@e.com\n' > "$TB_HOSTILE_GLOB"
+TB_HOSTILE_SYS="$(mktemp)";  printf '[user]\n\tname = HostileSystem\n\temail = hostile-sys@e.com\n'  > "$TB_HOSTILE_SYS"
+
+# AC5/AC9: run the identity-sensitive block under a hostile invoking environment — global and
+# system config files that resolve identity, inherited author/committer vars, command-scope
+# config, and an inherited GIT_CONFIG_NOSYSTEM=1 (which the system row overrides). The block's
+# own per-check isolation is what keeps the suite green under this hostility.
+(
+  export GIT_CONFIG_GLOBAL="$TB_HOSTILE_GLOB"
+  export GIT_CONFIG_SYSTEM="$TB_HOSTILE_SYS"
+  export GIT_CONFIG_NOSYSTEM=1
+  export GIT_AUTHOR_NAME=HostileAuthor GIT_AUTHOR_EMAIL=hostile-author@e.com
+  export GIT_COMMITTER_NAME=HostileCommitter GIT_COMMITTER_EMAIL=hostile-committer@e.com
+  export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=user.name GIT_CONFIG_VALUE_0=HostileCmd
+
+  # first two whitespace fields of a `git var *_IDENT` line ("Name <email>"); builtins only.
+  _id2() { read -r _n _e _rest; printf '%s %s' "$_n" "$_e"; }
+
+  # ── Matrix row: SYSTEM config only (AC1/AC3) ──
+  # Enable system by UNSETTING the inherited GIT_CONFIG_NOSYSTEM=1 and pointing GIT_CONFIG_SYSTEM
+  # at our file; disable global (/dev/null), inherited vars (unset), command-scope (unset). That
+  # the row resolves SysName despite the outer NOSYSTEM=1 is the AC3 demonstration.
+  TB_M_SYS="$( env -u GIT_CONFIG_NOSYSTEM \
+        -u GIT_AUTHOR_NAME -u GIT_AUTHOR_EMAIL -u GIT_COMMITTER_NAME -u GIT_COMMITTER_EMAIL \
+        -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 -u GIT_CONFIG_PARAMETERS \
+        GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM="$TB_SYS_CFG" \
+        git -C "$TB_ID_REPO" var GIT_AUTHOR_IDENT 2>/dev/null | _id2 )"
+  assert_eq "tb(#575 AC1/AC3): system-config row resolves its own identity (inherited NOSYSTEM=1, row unsets it)" \
+    "SysName <sys@e.com>" "$TB_M_SYS"
+
+  # ── Matrix row: GLOBAL config only (AC1) ──
+  TB_M_GLOB="$( env -u GIT_AUTHOR_NAME -u GIT_AUTHOR_EMAIL -u GIT_COMMITTER_NAME -u GIT_COMMITTER_EMAIL \
+        -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 -u GIT_CONFIG_PARAMETERS \
+        GIT_CONFIG_GLOBAL="$TB_GLOB_CFG" GIT_CONFIG_SYSTEM=/dev/null \
+        git -C "$TB_ID_REPO" var GIT_AUTHOR_IDENT 2>/dev/null | _id2 )"
+  assert_eq "tb(#575 AC1): global-config row resolves its own identity" \
+    "GlobName <glob@e.com>" "$TB_M_GLOB"
+
+  # ── Matrix row: inherited identity VARIABLES only (AC1/AC2 — distinct author vs committer) ──
+  TB_M_VAR_A="$( env -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 -u GIT_CONFIG_PARAMETERS \
+        GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+        GIT_AUTHOR_NAME=VarAuthor GIT_AUTHOR_EMAIL=var-author@e.com \
+        GIT_COMMITTER_NAME=VarCommitter GIT_COMMITTER_EMAIL=var-committer@e.com \
+        git -C "$TB_ID_REPO" var GIT_AUTHOR_IDENT 2>/dev/null | _id2 )"
+  assert_eq "tb(#575 AC1/AC2): inherited-variable row resolves its author identity" \
+    "VarAuthor <var-author@e.com>" "$TB_M_VAR_A"
+  TB_M_VAR_C="$( env -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 -u GIT_CONFIG_PARAMETERS \
+        GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+        GIT_AUTHOR_NAME=VarAuthor GIT_AUTHOR_EMAIL=var-author@e.com \
+        GIT_COMMITTER_NAME=VarCommitter GIT_COMMITTER_EMAIL=var-committer@e.com \
+        git -C "$TB_ID_REPO" var GIT_COMMITTER_IDENT 2>/dev/null | _id2 )"
+  assert_eq "tb(#575 AC2): inherited-variable row resolves a DISTINCT committer identity" \
+    "VarCommitter <var-committer@e.com>" "$TB_M_VAR_C"
+
+  # ── Matrix row: command-scope config only (AC1) ──
+  TB_M_CMD="$( env -u GIT_AUTHOR_NAME -u GIT_AUTHOR_EMAIL -u GIT_COMMITTER_NAME -u GIT_COMMITTER_EMAIL \
+        GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+        GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=user.name GIT_CONFIG_VALUE_0=CmdName \
+        GIT_CONFIG_KEY_1=user.email GIT_CONFIG_VALUE_1=cmd@e.com \
+        git -C "$TB_ID_REPO" var GIT_AUTHOR_IDENT 2>/dev/null | _id2 )"
+  assert_eq "tb(#575 AC1): command-scope config row resolves its own identity" \
+    "CmdName <cmd@e.com>" "$TB_M_CMD"
+
+  # ── Negative probe (AC4): isolate EVERY source; neither author nor committer resolves. This
+  # replaces the old empty-commit "positive control", which relied on version-dependent commit
+  # diagnostics and leaked host identity.
+  TB_NEG_A="$( env -u GIT_CONFIG_NOSYSTEM -u GIT_CONFIG_COUNT -u GIT_CONFIG_PARAMETERS \
+        -u GIT_AUTHOR_NAME -u GIT_AUTHOR_EMAIL -u GIT_COMMITTER_NAME -u GIT_COMMITTER_EMAIL \
+        GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+        git -C "$TB_ID_REPO" var GIT_AUTHOR_IDENT >/dev/null 2>&1 && echo resolved || echo unresolved )"
+  assert_eq "tb(#575 AC4): isolated negative probe — author identity does NOT resolve" "unresolved" "$TB_NEG_A"
+  TB_NEG_C="$( env -u GIT_CONFIG_NOSYSTEM -u GIT_CONFIG_COUNT -u GIT_CONFIG_PARAMETERS \
+        -u GIT_AUTHOR_NAME -u GIT_AUTHOR_EMAIL -u GIT_COMMITTER_NAME -u GIT_COMMITTER_EMAIL \
+        GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+        git -C "$TB_ID_REPO" var GIT_COMMITTER_IDENT >/dev/null 2>&1 && echo resolved || echo unresolved )"
+  assert_eq "tb(#575 AC4): isolated negative probe — committer identity does NOT resolve" "unresolved" "$TB_NEG_C"
+
+  # ── Persistence under the hostile outer environment (AC5/AC7) ──
+  mkdir -p "$TB_ID_REPO/.devflow/tmp/review/pr-1/run-a"
+  printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
+    > "$TB_ID_REPO/.devflow/tmp/review/pr-1/run-a/iter-1.json"
+  ( cd "$TB_ID_REPO" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+  assert_eq "tb(#441 AC8 / #575 AC5): persist SUCCEEDS under a hostile identity env (record on the branch)" "yes" \
+    "$(git -C "$TB_ID_REPO" cat-file -e refs/heads/devflow-telemetry:.devflow/logs/efficiency/pr-1-run-a.json >/dev/null 2>&1 && echo yes || echo no)"
+  assert_eq "tb(#441 AC8 / #575 AC7): the telemetry commit carries the helper's explicit committer identity" "github-actions[bot]" \
+    "$(git -C "$TB_ID_REPO" log -1 --format='%cn' refs/heads/devflow-telemetry 2>/dev/null)"
+)
+rm -f "$TB_SYS_CFG" "$TB_GLOB_CFG" "$TB_HOSTILE_GLOB" "$TB_HOSTILE_SYS"
 rm -rf "$TB_ID_REPO"
 
 TB_CFG_REPO="$(git_sandbox "tb config override repo")"
