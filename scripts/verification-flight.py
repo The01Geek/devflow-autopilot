@@ -144,7 +144,8 @@ def _validate_reason_code(
 class DeclarationError(Exception):
     """An incomplete / non-hermetic declaration — reuse is disabled."""
 
-    # The closed reason vocabulary — coupled to the raise sites in _validate_*.
+    # The closed reason vocabulary — coupled to every DeclarationError raise site
+    # in the derive/validation path (_derive + _validate_profile + _validate_checkout).
     # A new raise site adds its code here in the same change (a construction-time
     # ValueError otherwise catches the omission at the desk).
     _EXACT_REASONS = frozenset({
