@@ -109,9 +109,11 @@ def _gh_issue_view(number: object, field: str) -> str:
 
     encoding="utf-8" with errors="replace" so non-ASCII issue bodies decode and a
     body carrying invalid UTF-8 bytes never raises UnicodeDecodeError (a ValueError
-    subclass none of the callers' except-clauses catch — it would otherwise escape
-    the {0,2,3} exit contract as a traceback/exit-1, issue #547 review). The caller
-    owns the error policy (issue_body raises, issue_state swallows).
+    subclass none of the callers' except-clauses catch). Left unreplaced, that error
+    would propagate to main()'s catch-all handler and be converted to a spurious
+    UNAVAILABLE/exit 3 — a contained WRONG verdict that would REPLACE the true
+    BLOCKED/PROCEED result, not a crash or exit-1 escape (issue #547 review).
+    The caller owns the error policy (issue_body raises, issue_state swallows).
     """
     result = subprocess.run(
         [GH, "issue", "view", str(number), "--json", field, "-q", f".{field}"],
@@ -145,8 +147,9 @@ def dependencies(args: argparse.Namespace) -> int:
             # errors="replace": a body file with invalid UTF-8 bytes decodes to
             # replacement chars and is still scanned for real #N declarations,
             # rather than raising UnicodeDecodeError (a ValueError the `except
-            # OSError` below does not catch) and escaping the {0,2,3} exit
-            # contract as an exit-1 traceback (issue #547 review).
+            # OSError` below does not catch) — which main()'s catch-all would then
+            # convert to a spurious UNAVAILABLE/exit 3, REPLACING the true
+            # BLOCKED/PROCEED verdict (a contained wrong verdict, issue #547 review).
             body = Path(args.body_file).read_text(encoding="utf-8", errors="replace")
         except OSError as exc:
             print(f"preflight.py: could not read dependency body: {exc}", file=sys.stderr)

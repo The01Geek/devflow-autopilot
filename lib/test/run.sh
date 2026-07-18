@@ -9146,9 +9146,11 @@ assert_eq "#547/#572 Important: a same-line declaration emits NO soft-keyword br
 # narrative `after #10` under a LATER heading is NOT (section already exited), so a
 # broken section-exit would capture the OPEN #10 and flip this to BLOCKED 10.
 assert_eq "#547/#572 Important: the section scan exits at the next heading (out-of-section narrative not captured)" "PROCEED 11" "$(_p547r --issue 110)"
-# UTF-8 hardening: a --body-file carrying invalid UTF-8 bytes must stay within the
-# {0,2,3} exit contract (decode with errors=replace, still scan for #N) rather than
-# raising UnicodeDecodeError and escaping as an exit-1 traceback.
+# UTF-8 hardening: a --body-file carrying invalid UTF-8 bytes must decode (errors=
+# replace) and still scan for #N, yielding the TRUE BLOCKED 10 verdict. Without
+# errors=replace the UnicodeDecodeError would propagate to main()'s catch-all and be
+# converted to a spurious UNAVAILABLE/exit 3 — a contained wrong verdict REPLACING the
+# real one — so pinning rc 2 discriminates the true verdict from that wrong exit-3.
 printf 'blocked by #10 \377\376 trailing invalid bytes' > "$P547R/badutf8.md"
 P547R_UTF8="$(PATH="$P547R/bin:$PATH" python3 "$P547R_HELPER" dependencies --body-file "$P547R/badutf8.md" 2>/dev/null)"; P547R_UTF8_RC=$?
 assert_eq "#547/#572 Important: an invalid-UTF-8 body decodes and still blocks on the OPEN #10" "BLOCKED 10" "$P547R_UTF8"
@@ -9158,9 +9160,10 @@ assert_eq "#547/#572 Important: an invalid-UTF-8 body stays in the {0,2,3} exit 
 # GitHub-data path most likely to see invalid bytes. Issue #111's gh-stub body
 # emits raw 0xFF 0xFE around an OPEN #10. Without errors="replace" on the gh
 # subprocess.run decode, that raises UnicodeDecodeError (a ValueError the
-# issue_body except (OSError, CalledProcessError) does NOT catch), escaping the
-# {0,2,3} contract as an exit-1 traceback — so BLOCKED 10 + exit 2 is a
-# discriminating pin on the gh-decode errors="replace" (PR #572 review).
+# issue_body except (OSError, CalledProcessError) does NOT catch), which main()'s
+# catch-all would then convert to a spurious UNAVAILABLE/exit 3 REPLACING the true
+# verdict — so BLOCKED 10 + exit 2 is a discriminating pin (true verdict, not that
+# wrong exit-3) on the gh-decode errors="replace" (PR #572 review).
 P547R_ISSUE_UTF8="$(_p547r --issue 111)"; P547R_ISSUE_UTF8_RC=$?
 assert_eq "#547/#572 Important: an invalid-UTF-8 --issue/gh body decodes and still blocks on the OPEN #10" "BLOCKED 10" "$P547R_ISSUE_UTF8"
 assert_eq "#547/#572 Important: the invalid-UTF-8 gh-decoded body stays in the {0,2,3} exit contract (not exit 1)" "2" "$P547R_ISSUE_UTF8_RC"
