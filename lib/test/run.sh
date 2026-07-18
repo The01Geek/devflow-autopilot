@@ -17336,6 +17336,12 @@ echo "#582 — configurable cloud-tier runner via DEVFLOW_RUNNER"
 # plugin-internal workflows (ci/matcher-probe/version-consolidate/pages) are OUT
 # of scope and keep the hardcoded ubuntu-latest literal — the out-of-scope guard
 # at the end of this block pins that they stay unparameterized.
+# The canonical parameterized runs-on expression. Every consumer runs-on line
+# must be BYTE-IDENTICAL to this: a mere count/mention check would pass a
+# divergent-but-still-parameterized copy (a typo that keeps `vars.DEVFLOW_RUNNER`
+# but garbles the rest, silently reverting that job to a different runner), so
+# pin (b) below asserts fixed-string identity, not just that the variable is named.
+_582_CANON="runs-on: \${{ vars.DEVFLOW_RUNNER && (startsWith(vars.DEVFLOW_RUNNER, '[') && fromJSON(vars.DEVFLOW_RUNNER) || vars.DEVFLOW_RUNNER) || 'ubuntu-latest' }}"
 for f in devflow devflow-implement devflow-review devflow-runner telemetry-push; do
   WFF="$WF/$f.yml"
   # (a) No bare `runs-on: ubuntu-latest` line survives. The parameterized form
@@ -17343,12 +17349,12 @@ for f in devflow devflow-implement devflow-review devflow-runner telemetry-push;
   #     the fixed-string `runs-on: ubuntu-latest` (unquoted) no longer appears.
   assert_eq "#582: $f.yml has no bare 'runs-on: ubuntu-latest'" "no" \
     "$(grep -qF 'runs-on: ubuntu-latest' "$WFF" && echo yes || echo no)"  # raw-guard-ok: absence pin
-  # (b) Every runs-on uses the DEVFLOW_RUNNER expression: the count of runs-on
-  #     lines equals the count of lines naming vars.DEVFLOW_RUNNER (a
-  #     parameterized runs-on is the only site that names that variable).
-  assert_eq "#582: $f.yml every runs-on uses the DEVFLOW_RUNNER expression" \
+  # (b) Every runs-on line is byte-identical to the canonical DEVFLOW_RUNNER
+  #     expression: the count of lines carrying the exact canonical fixed string
+  #     equals the count of runs-on lines, so no parameterized runs-on diverges.
+  assert_eq "#582: $f.yml every runs-on is the canonical DEVFLOW_RUNNER expression" \
     "$(grep -cE '^[[:space:]]*runs-on:' "$WFF")" \
-    "$(grep -cF 'vars.DEVFLOW_RUNNER' "$WFF")"
+    "$(grep -cF "$_582_CANON" "$WFF")"
   # (c) Top-level `defaults: run: shell: bash`. The `defaults:` key is column-0
   #     (top level) and its shell key nests at 4 spaces — distinct from the
   #     8-space step-level `shell: bash` two of the five already carry.
