@@ -30,7 +30,10 @@ CI_TMPL="$CI_ROOT/skills/create-issue/references/issue-template.md"
 CI_EXT="$CI_ROOT/.devflow/prompt-extensions/create-issue.md"
 CI_OVERVIEW="$CI_ROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 CI_CLAUDE="$CI_ROOT/CLAUDE.md"
-CI_MAXI_SKILL="$CI_ROOT/skills/review-and-fix/SKILL.md"
+# review-and-fix is a BUNDLE since #530 (thin SKILL.md root + phases in
+# references/*.md); the #467 D2 fix-delta-gate sentence now lives in a reference
+# member, so the leg pins against the assembled CI_MAXI_BUNDLE (built below,
+# after _ci_tmp_root exists) — never the root alone.
 CI_INVENTORY="$CI_ROOT/lib/test/modules/create-issue-contract.inventory.md"
 
 _ci_tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/devflow-create-issue-contract.XXXXXX")" || {
@@ -60,6 +63,25 @@ for _ci_bundle_member in "$CI_ROOT/skills/implement/SKILL.md" "$CI_ROOT"/skills/
     printf '\n' >> "$CI_IMPL_BUNDLE"
   else
     assert_eq "ci module: implement-bundle member usable: $_ci_bundle_member" \
+      "usable" "missing-empty-or-unreadable"
+  fi
+done
+
+# The review-and-fix bundle backs the #467 D2 review-and-fix leg. Since #530 the
+# skill is a thin SKILL.md root plus step references (phases in references/*.md),
+# so the widened fix-delta-gate sentence lives in a reference member, not the
+# root. Assemble root + references member by member with the SAME fail-LOUD-per-
+# member contract as the implement bundle above: a missing/empty/unreadable
+# member records a FAIL naming that member, so a corrupt engine file cannot pass
+# the pin green just because the pinned sentence survives elsewhere.
+CI_MAXI_BUNDLE="$_ci_tmp_root/review-and-fix-skill-bundle.md"
+: > "$CI_MAXI_BUNDLE"
+for _ci_maxi_member in "$CI_ROOT/skills/review-and-fix/SKILL.md" "$CI_ROOT"/skills/review-and-fix/references/*.md; do
+  if [ -r "$_ci_maxi_member" ] && [ -s "$_ci_maxi_member" ]; then
+    cat "$_ci_maxi_member" >> "$CI_MAXI_BUNDLE"
+    printf '\n' >> "$CI_MAXI_BUNDLE"
+  else
+    assert_eq "ci module: review-and-fix-bundle member usable: $_ci_maxi_member" \
       "usable" "missing-empty-or-unreadable"
   fi
 done
@@ -706,7 +728,7 @@ devflow_module_pin_unique "#467 D2 (CLAUDE.md leg): best-effort-parser gotcha wi
 devflow_module_pin_unique "#467 D2 (Phase 2.4 leg): dry-trace rule widened to mutable-markdown/external-format" \
   'The governed surface is broader than config JSON' "$CI_IMPL_BUNDLE"
 devflow_module_pin_unique "#467 D2 (review-and-fix leg): fix-delta matrix widened to mutable-markdown/external-format" \
-  'widens to a parser over agent- or human-mutable markdown and a reader of a new external structured format' "$CI_MAXI_SKILL"
+  'widens to a parser over agent- or human-mutable markdown and a reader of a new external structured format' "$CI_MAXI_BUNDLE"
 devflow_module_pin_unique "#467 D3: extension authoring-discipline dimension demands the input-type-appropriate matrix" \
   'input-type analogue** for the widened surfaces' "$CI_EXT"
 # D3 count guard — the extension's dimension-bullet count is guard-locked. Since issue #548
