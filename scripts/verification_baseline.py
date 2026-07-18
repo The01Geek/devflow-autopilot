@@ -1042,10 +1042,12 @@ class VerificationProcessLaunch:
 
     @property
     def is_prior_missing_evidence(self) -> bool:
-        # A launch is prior-missing-result evidence when its result went missing
-        # (confirmed) or its response was absent. Denied/cancelled/unknown starts
-        # do NOT prove a missing response and must fail closed. Single authoritative
-        # definition shared by both _classify_relationship candidate sites.
+        # A launch is prior-missing-result evidence ONLY when its start was
+        # confirmed but its result went missing (START_CONFIRMED_RESULT_MISSING).
+        # result_presence is deliberately NOT consulted here — the start class is
+        # the single discriminator. Denied/cancelled/unknown starts do NOT prove a
+        # missing response and must fail closed. Single authoritative definition
+        # shared by both _classify_relationship candidate sites.
         return self.start_authorization == START_CONFIRMED_RESULT_MISSING
 
     def to_dict(self) -> dict[str, Any]:

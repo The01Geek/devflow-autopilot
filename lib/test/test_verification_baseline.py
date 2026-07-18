@@ -494,6 +494,11 @@ class CandidateFailsClosedTests(unittest.TestCase):
                 a = dataclasses.replace(a, start_authorization=start_class, result_presence=False)
                 groups = group_launches([a, b])
                 self.assertNotEqual(groups[0].relationship, REL_CANDIDATE_TRANSPORT_RETRY)
+                # Pin the resulting class too (a misroute into a wrong-but-non-
+                # candidate class must not pass — same discipline as
+                # test_mutation_missing_response_removed). With no prior missing
+                # response, the group falls through to unclassifiable.
+                self.assertEqual(groups[0].relationship, REL_UNCLASSIFIABLE)
 
     def test_mutation_boundary_removed(self) -> None:
         a, b = candidate_pair()
@@ -3171,6 +3176,9 @@ class Pr531RafLocalIter1Tests(_TmpDirTestCase):
         runs = sorted(out.iterdir())
         doc = json.loads((runs[-1] / "verification_baseline.json").read_text(encoding="utf-8"))
         self.assertEqual(len(doc["verification_process_launches"]), 1)
+        # Also prove the specific census row survived (PR #573 review): a len==1
+        # check alone would pass on some other row's launch.
+        self.assertIn(sid, {row["identity"]["session_id"] for row in doc["census"]["local"]})
 
     # AC #63: a compaction boundary event mid-lifecycle is tolerated.
     def test_compaction_event_mid_lifecycle_is_tolerated(self) -> None:
@@ -3182,6 +3190,8 @@ class Pr531RafLocalIter1Tests(_TmpDirTestCase):
         )
         doc = self._run_doc("s-compact", b)
         self.assertEqual(len(doc["verification_process_launches"]), 1)
+        # Prove the specific census row survived (PR #573 review).
+        self.assertIn("s-compact", {row["identity"]["session_id"] for row in doc["census"]["local"]})
 
     # AC #63: two lifecycles in ONE transcript — extraction scopes to the
     # manifest consumer's root occurrence and never attributes the sibling
@@ -3236,6 +3246,8 @@ class Pr531RafLocalIter1Tests(_TmpDirTestCase):
         self.assertEqual(rc, 0)
         doc = json.loads((sorted(self.out.iterdir())[-1] / "verification_baseline.json").read_text(encoding="utf-8"))
         self.assertEqual(len(doc["verification_process_launches"]), 1)
+        # Prove the specific census row survived (PR #573 review).
+        self.assertIn(sid, {row["identity"]["session_id"] for row in doc["census"]["local"]})
 
     def test_cloud_execution_file_is_not_analyzer_input_without_snapshot_flag(self) -> None:
         """Cloud execution artifacts cannot create launch claims by proximity."""
@@ -3277,6 +3289,7 @@ class Pr531RafLocalIter1Tests(_TmpDirTestCase):
         self.assertEqual({row["identity"]["session_id"] for row in doc["census"]["local"]}, {f"s-{name}" for name in shapes})
 
     def test_compatibility_fixture_inventory_names_every_matrix_row(self) -> None:
+        import ast
         self.assertEqual(set(COMPATIBILITY_FIXTURE_OWNERS), {
             "absent manifests", "legacy manifests", "zero command launches", "multiple launches",
             "linked worktrees", "nested repositories", "shallow clones", "detached HEAD", "no remote",
@@ -3284,14 +3297,40 @@ class Pr531RafLocalIter1Tests(_TmpDirTestCase):
             "cloud execution files", "missing tool results", "compaction", "cancellation",
             "concurrent lifecycles", "corrupted sources",
         })
-        source_cache: dict[Path, str] = {}
+        # Not existence-only (PR #573 review): a mapped test gutted to a no-op
+        # (or one that merely runs the analyzer without asserting anything) must
+        # fail this guard. Parse each owner file and require the named function
+        # to carry at least one real assertion — either an `assert` statement or
+        # a call to a unittest `self.assert*` method — so a rename-guard AND a
+        # substance-guard both hold.
+        tree_cache: dict[Path, ast.Module] = {}
+
+        def _has_real_assertion(fn: ast.FunctionDef) -> bool:
+            for node in ast.walk(fn):
+                if isinstance(node, ast.Assert):
+                    return True
+                if isinstance(node, ast.Call):
+                    func = node.func
+                    if (isinstance(func, ast.Attribute)
+                            and isinstance(func.value, ast.Name)
+                            and func.value.id == "self"
+                            and func.attr.startswith("assert")):
+                        return True
+            return False
+
         for owner in COMPATIBILITY_FIXTURE_OWNERS.values():
             path, test_name = owner.split("::")
             owner_path = ROOT / "lib/test" / path
             self.assertTrue(owner_path.is_file())
-            if owner_path not in source_cache:
-                source_cache[owner_path] = owner_path.read_text(encoding="utf-8")
-            self.assertIn(f"def {test_name}(", source_cache[owner_path])
+            if owner_path not in tree_cache:
+                tree_cache[owner_path] = ast.parse(
+                    owner_path.read_text(encoding="utf-8"), filename=str(owner_path))
+            fns = [n for n in ast.walk(tree_cache[owner_path])
+                   if isinstance(n, ast.FunctionDef) and n.name == test_name]
+            self.assertEqual(len(fns), 1, f"{owner}: exactly one def {test_name} expected")
+            self.assertTrue(
+                _has_real_assertion(fns[0]),
+                f"{owner}: mapped test must carry at least one real assertion, not just a def")
 
     # TD-1: the source/source_status pair is guarded in BOTH directions —
     # reassigning `source` re-validates the already-bound source_status.
