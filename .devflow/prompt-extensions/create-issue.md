@@ -102,8 +102,8 @@ Step 4 revise-and-re-gate sites — additionally scan the rendered body for **se
 counts and ordinals**: a count or ordinal referring to the draft's own mutable content ("all 23
 defects above", "the four axes", "the third check"), the #553 rot class — such text drifts the
 moment a revision adds or removes an item it counts. Each found instance is rewritten count-free,
-or grounded by a named pin or an external record cited adjacently. Counts inside verbatim-quoted
-external text are exempt (they are data, not the draft's own assertions).
+or grounded by a named pin or an external record cited adjacently.
+Counts inside verbatim-quoted external text are exempt (they are data, not the draft's own assertions).
 
 ## Audit dimensions
 

@@ -18,8 +18,8 @@ kind: growth
   instead of the pre-merge implementing run, measurement assertions observable only on their
   failure path, and self-referential counts that rot on revision.
 - The growth rides the extension's existing sections rather than new bullets: the two evidence
-  rules are `## Evidence axes` section prose, three disciplines are appended inside the existing
-  authoring-discipline `## Audit dimensions` bullet, and only the no-options-gate scan is a new
+  rules are `## Evidence axes` section prose, the remaining disciplines are appended inside the
+  existing authoring-discipline `## Audit dimensions` bullet, and only the no-options-gate scan is a new
   section — which sits outside both hook sections, so neither hook's extracted payload grows by a
   bullet. The two section bullet-count pins (9 dimensions, 5 axes) are byte-unchanged.
 - Ownership does not transfer and no prose is superseded: every rule is a new obligation with no

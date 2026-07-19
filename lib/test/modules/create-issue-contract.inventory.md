@@ -25,7 +25,7 @@ coverage (issue #199) after it stay in the monolith.
 | Revision-delta verification coverage guard | `4545–4732` | issue-#559 section | every `no-options gate` occurrence classified; the shared Revision-delta verification block |
 | Shift-left evidence disciplines | _(none — never lived in the monolith)_ | issue-#613 section | the Consumers-axis evidence floor and closed-set complement entries; the self-referential-count gate scan and the negative sweep retiring the overview's axis enumeration |
 
-The issue-#613 group also plants one pin outside its own section: a
+The issue-#613 group also plants at least one pin outside its own section: a
 `devflow_module_pin_unique` on the Consumers-axis floor's sweep-leg paraphrase, placed
 beside the issue-#593 exactly-3 repo-wide-scope-sentence count with a comment recording
 why that count deliberately excludes the paraphrase. Read the two together — the count and

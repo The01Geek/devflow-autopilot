@@ -1222,15 +1222,23 @@ devflow_module_pin_unique "#559: overview §11 (Step 3.6/Step 4 loop) documents 
 # ── issue #613: shift-left evidence disciplines in the live create-issue extension —
 #    an executed-sweep floor on the consumers axis, closed-set complement entries, a
 #    pre-merge obligation walk, success-path channels, and a self-referential-count gate
-#    scan. All SURFACE-PRESENCE contract pins (plain devflow_module_pin_unique on new
-#    prose), the same class as the #548/#464/#593 blocks above: none pins a behavioral
-#    guarantee whose half-revert re-introduces a named bug, so no devflow_module_pin_red_under
-#    mutation obligation attaches.
+#    scan. Surface-presence contract pins on new prose, plus one negative repo-wide sweep
+#    (AC10) and its rc-class anti-vacuity rows. Same disposition as the #548/#464/#593 blocks
+#    above: none pins a behavioral guarantee whose half-revert re-introduces a named bug, so
+#    no devflow_module_pin_red_under mutation obligation attaches.
 # AC1 — Consumers-axis evidence floor (## Evidence axes section prose).
 devflow_module_pin_unique "#613 AC1: extension ## Evidence axes carries the Consumers-axis evidence floor" \
   'Consumers-axis evidence floor (this repo).' "$CI_EXT"
+# Pin the WHOLE verdict phrase, not just the trailing state: `unestablished` is the operative
+# token that makes this arm fail closed. A literal of `consumers not swept` alone would stay
+# GREEN if the arm were inverted to `Verified: consumers not swept` — the exact
+# evidence-laundering the floor exists to prevent.
 devflow_module_pin_unique "#613 AC1: the floor's unestablished arm names the un-swept consumers state" \
-  'consumers not swept' "$CI_EXT"
+  'unestablished — consumers not swept' "$CI_EXT"
+# The floor is a CONJUNCTION; this clause is what stops a drafter discharging it with reads
+# alone. Softening it to "or" would leave the two sweep-leg pins green.
+devflow_module_pin_unique "#613 AC1: the floor's two legs are non-substitutable (conjunction, not either-or)" \
+  'so neither leg substitutes for the other' "$CI_EXT"
 # AC2 — Closed-set complement entries (## Evidence axes section prose).
 devflow_module_pin_unique "#613 AC2: extension ## Evidence axes carries the closed-set complement entry rule" \
   'Closed-set complement entries (this repo).' "$CI_EXT"
@@ -1257,25 +1265,67 @@ devflow_module_pin_unique "#613 AC6: extension carries the no-options-gate self-
   '## No-options gate — self-referential count scan (this repo)' "$CI_EXT"
 devflow_module_pin_unique "#613 AC6: the gate scan states the drift the count class exhibits" \
   'moment a revision adds or removes an item it counts' "$CI_EXT"
+# The gate scan defines a closed set (the draft's own self-referential counts); this sentence is
+# its COMPLEMENT — the sole false-positive suppressor separating "rewrite the draft's own counts"
+# from "rewrite counts in quoted evidence". Leaving it unpinned would ship exactly the unguarded
+# complement that AC2/AC3's own closed-set rule, shipped in this same change, forbids.
+devflow_module_pin_unique "#613 AC6: the gate scan's complement — quoted external counts are exempt" \
+  'Counts inside verbatim-quoted external text are exempt' "$CI_EXT"
 # AC10 — the overview's stale axis enumeration is retired repo-wide. The module itself
 # necessarily carries the phrase as this grep's own needle, so the sweep excludes this
 # file by pathspec; an unexcluded sweep could never reach zero. Any OTHER tracked hit is
 # a surviving stale mirror and turns the module RED.
-# FAIL-CLOSED, and deliberately not `cd "$CI_ROOT" && git grep … | grep -c . || true`: that
-# form passes VACUOUSLY on a zero-expected assertion, because a failed cd short-circuits the
-# `&&` and a bad pathspec exits 128 — both leave empty stdout, which the counter renders as
-# the very `0` the assertion expects (the rc-1-masquerade hole lib/test/run.sh's rgb_scan
-# documents). So: `git -C` keeps git the only rc-bearing command, the expected value is the
-# empty file LIST (naming the offending path on failure, not the digit 1), and an rc > 1
-# scan error becomes a non-numeric sentinel that can never equal "". `grep` is also gone
-# from the derivation — it is not preflight-guaranteed, and this value decides an assertion.
-_ci613_hits=$(git -C "$CI_ROOT" grep -F -l 'per-profile cloud allowlists, install-channel skew' \
-  -- . ':(exclude)lib/test/modules/create-issue-contract.sh' 2>/dev/null)
-_ci613_rc=$?
-[ "$_ci613_rc" -gt 1 ] && _ci613_hits='<ac10-sweep-errored>'
-assert_eq "#613 AC10: the retired overview axis enumeration has no tracked-tree hits outside this module" "" \
-  "$_ci613_hits"
-unset _ci613_hits _ci613_rc
+# FAIL-CLOSED, and deliberately not `cd "$CI_ROOT" && git grep … | grep -c . || true`. In that
+# form a bad pathspec (or any git fatal) exits 128 while the pipeline still runs, so `grep -c`
+# prints the very `0` a zero-expected assertion wants and `|| true` hides the rc — a VACUOUS
+# pass, the rc-masquerade hole lib/test/run.sh's rgb_scan documents. (A failed `cd` is not that
+# hole: `&&` binds looser than `|`, so the pipeline never runs and the substitution yields ""
+# rather than "0" — measured, not assumed. Only the git-fatal arm was vacuous.) So: `git -C`
+# keeps git the only rc-bearing command, the expected value is the empty file LIST (naming the
+# offending path on failure, not a digit), and an rc > 1 becomes a non-numeric sentinel that can
+# never equal "". `grep` is absent from THIS derivation — it is not preflight-guaranteed and
+# this value decides an assertion. (Scoped claim: the sibling awk|grep bullet counters above
+# predate this block; they fail closed, so they are consistent, not covered by this sentence.)
+# Both pathspecs are repo-root-anchored (`:/`, `:(exclude,top)`) so a CI_ROOT override pointing
+# inside a repo subtree cannot silently narrow a "repo-wide" sweep to a subdirectory — the very
+# thing the extension's own repo-wide-scope sentence forbids.
+_ci613_classify() {  # <rc> <hits> -> hits, or the sentinel when the scan itself errored
+  if [ "$1" -gt 1 ]; then printf '%s' '<ac10-sweep-errored>'; else printf '%s' "$2"; fi
+}
+_ci613_scan() {  # <root> <needle> -> the tracked-tree hit list, fail-closed via _ci613_classify
+  _ci613_out=$(git -C "$1" grep -F -l "$2" \
+    -- ':/' ':(exclude,top)lib/test/modules/create-issue-contract.sh' 2>/dev/null)
+  _ci613_rc=$?
+  [ "$_ci613_rc" -le 1 ] || printf 'devflow: #613 AC10 sweep errored under %s (git rc=%s)\n' "$1" "$_ci613_rc" >&2
+  _ci613_classify "$_ci613_rc" "$_ci613_out"
+}
+# TWO needles, head and tail: the retired parenthetical was "per-profile cloud allowlists,
+# install-channel skew, workpad/retrospective lifecycle surfaces, and the `lib/test/run.sh` pin
+# corpus". A head-only needle would let a future mirror quoting just the tail pass, so the tail
+# fragment gets its own row. (The trailing "`lib/test/run.sh` pin corpus" is deliberately NOT a
+# needle: it is that axis bullet's own title in the extension — the source of truth, not a mirror
+# of the enumeration — so a sweep for it would report a permanent false hit.)
+assert_eq "#613 AC10: the retired overview axis enumeration (head) has no tracked-tree hits outside this module" "" \
+  "$(_ci613_scan "$CI_ROOT" 'per-profile cloud allowlists, install-channel skew')"
+assert_eq "#613 AC10: the retired overview axis enumeration (tail) has no tracked-tree hits outside this module" "" \
+  "$(_ci613_scan "$CI_ROOT" 'workpad/retrospective lifecycle surfaces, and the')"
+# ANTI-VACUITY (CLAUDE.md's hardening rule): the guard above is only worth its comment if its
+# removal is detectable. Deleting the `-gt 1` arm leaves a healthy repo green forever, because a
+# clean sweep and an errored one both yield empty output — so drive the classifier across the rc
+# CLASSES, pinning the threshold itself and not merely "rc 128 fails closed". Mirrors the four
+# rc-class rows lib/test/run.sh gives rgb_classify, plus one live non-repo scan end-to-end.
+assert_eq "#613 AC10 anti-vacuity: rc 0 (hits found) passes the hit list through" "docs/x.md" \
+  "$(_ci613_classify 0 'docs/x.md')"
+assert_eq "#613 AC10 anti-vacuity: rc 1 (clean no-match) yields the empty expected value" "" \
+  "$(_ci613_classify 1 '')"
+assert_eq "#613 AC10 anti-vacuity: rc 2 (smallest error rc) yields the sentinel at the -gt 1 boundary" "<ac10-sweep-errored>" \
+  "$(_ci613_classify 2 '')"
+assert_eq "#613 AC10 anti-vacuity: rc 128 (git fatal) yields the sentinel" "<ac10-sweep-errored>" \
+  "$(_ci613_classify 128 '')"
+assert_eq "#613 AC10 anti-vacuity: a live scan of a non-repo path yields the sentinel, never a vacuous pass" "<ac10-sweep-errored>" \
+  "$(_ci613_scan "$CI_ROOT/nonexistent-ac10-probe-$$" 'per-profile cloud allowlists' 2>/dev/null)"
+unset -f _ci613_classify _ci613_scan
+unset _ci613_out _ci613_rc
 devflow_module_pin_unique "#613 AC10: overview evidence-axes hook points at the live extension instead of enumerating" \
   'see the live extension'"'"'s `## Evidence axes` section for the current axis list' "$CI_OVERVIEW"
 
