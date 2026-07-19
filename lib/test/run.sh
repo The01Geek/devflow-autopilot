@@ -8123,29 +8123,372 @@ assert_pin_red_on_removal "#184: deleting the negative-scope type literal turns 
   'explicit surface exclusions' "$IMPL_SKILL"
 assert_pin_red_on_removal "#184: deleting the policy-referencing type literal turns its pin RED" \
   'Policy-referencing claims in ACs' "$IMPL_SKILL"
-# ── issue #254: Phase 1.6 gains Pass 4 — declared sequencing-dependency claims.
+# ── issue #547 RED: early declared-dependency preflight helper ──────────────
+# The gate must distinguish explicit dependency declarations from ordinary
+# provenance references before Phase 1 touches a branch.  Keep this executable
+# contract beside the legacy #254 pins while the procedure moves to §1.3.5.
+P547D="$(mktemp -d)"
+mkdir -p "$P547D/bin"
+cat > "$P547D/bin/gh" <<'EOF'
+#!/usr/bin/env bash
+case "${3:-}" in
+  10) printf '%s\n' OPEN ;;
+  11) printf '%s\n' CLOSED ;;
+  12) printf '%s\n' MERGED ;;
+  13) exit 1 ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$P547D/bin/gh"
+printf '%s\n' 'Blocked by #10 — prerequisite' > "$P547D/open.md"
+printf '%s\n' 'Depends on #11 and #12' > "$P547D/landed.md"
+printf '%s\n' 'Related work: #10 is provenance only' > "$P547D/provenance.md"
+printf '%s\n' '## Dependencies' '- #13 — unresolved' > "$P547D/unresolved.md"
+P547_HELPER="$LIB/../scripts/preflight.py"
+P547_OPEN="$(PATH="$P547D/bin:$PATH" python3 "$P547_HELPER" dependencies --body-file "$P547D/open.md" 2>/dev/null)"; P547_OPEN_RC=$?
+P547_LANDED="$(PATH="$P547D/bin:$PATH" python3 "$P547_HELPER" dependencies --body-file "$P547D/landed.md" 2>/dev/null)"; P547_LANDED_RC=$?
+P547_PROVENANCE="$(PATH="$P547D/bin:$PATH" python3 "$P547_HELPER" dependencies --body-file "$P547D/provenance.md" 2>/dev/null)"; P547_PROVENANCE_RC=$?
+P547_UNRESOLVED="$(PATH="$P547D/bin:$PATH" python3 "$P547_HELPER" dependencies --body-file "$P547D/unresolved.md" 2>/dev/null)"; P547_UNRESOLVED_RC=$?
+assert_eq "#547 RED: OPEN dependency blocks before branch setup" "BLOCKED 10" "$P547_OPEN"
+assert_eq "#547 RED: OPEN dependency returns the blocked exit class" "2" "$P547_OPEN_RC"
+assert_eq "#547 RED: closed and merged dependencies proceed" "PROCEED 11,12" "$P547_LANDED"
+assert_eq "#547 RED: landed dependencies return success" "0" "$P547_LANDED_RC"
+assert_eq "#547 RED: provenance references are not dependencies" "PROCEED" "$P547_PROVENANCE"
+assert_eq "#547 RED: provenance references return success" "0" "$P547_PROVENANCE_RC"
+assert_eq "#547 RED: unresolvable dependency is unavailable" "UNAVAILABLE 13" "$P547_UNRESOLVED"
+assert_eq "#547 RED: unresolvable dependency returns unavailable exit class" "3" "$P547_UNRESOLVED_RC"
+# An unreadable --body-file is the read-failure UNAVAILABLE arm (distinct from the
+# state-resolution UNAVAILABLE above): the helper must fail closed to the same
+# terminal-Blocked class, never read as a clean dependency set.
+P547_BADFILE="$(PATH="$P547D/bin:$PATH" python3 "$P547_HELPER" dependencies --body-file "$P547D/does-not-exist.md" 2>/dev/null)"; P547_BADFILE_RC=$?
+assert_eq "#547 RED: unreadable --body-file is unavailable (read-failure arm)" "UNAVAILABLE body" "$P547_BADFILE"
+assert_eq "#547 RED: unreadable --body-file returns the unavailable exit class" "3" "$P547_BADFILE_RC"
+# A malformed invocation (missing input flag) must NOT exit with argparse's default
+# code 2 — that is the BLOCKED contract code the §1.3.5 gate maps to "open
+# dependencies", which would misdiagnose a bad argument as a real blocker. The
+# _Parser override routes usage errors to the UNAVAILABLE class (exit 3) instead.
+PATH="$P547D/bin:$PATH" python3 "$P547_HELPER" dependencies >/dev/null 2>&1; P547_USAGE_RC=$?
+assert_eq "#547: a usage error exits UNAVAILABLE(3), not the BLOCKED code (2)" "3" "$P547_USAGE_RC"
+rm -rf "$P547D"
+
+# ── issue #547 review fixes: recognizer fail-direction + untested-path gaps ────
+# PR #572 review (REJECT) findings on scripts/preflight.py::dependency_numbers:
+#   Critical  — single-capture declaration forms drop all but the first number
+#               (`blocked by #10 and #11` → only #10; the open #11 fails OPEN).
+#   Important — a per-line `break` drops a second same-line declaration;
+#               bare `after #N` over-matches narrative provenance prose;
+#               the production `--issue` path (happy + body-fetch-fail) and the
+#               `--issue notanint` subparser type-coercion exit-3 arm are untested.
+# Stub gh keyed on both the queried field ($5: body|state) and the number ($3):
+#   issue 100 body → a multi-number free-prose declaration; 200 body → fetch fail;
+#   dependency numbers resolve their state (10 OPEN, 11/12 landed, 13 unresolvable).
+P547R="$(mktemp -d)"
+mkdir -p "$P547R/bin"
+cat > "$P547R/bin/gh" <<'EOF'
+#!/usr/bin/env bash
+# argv: issue view <number> --json <field> -q .<field>
+num="${3:-}"; field="${5:-}"
+if [ "$field" = body ]; then
+  case "$num" in
+    # #100 orders the OPEN number (#10) SECOND behind the CLOSED #11 so a
+    # single-capture regression (dropping all but the first number) yields
+    # PROCEED 11, not BLOCKED 10 — the assertion is discriminating, not vacuous.
+    100) printf '%s\n' 'blocked by #11 and #10' ;;
+    101) printf '%s\n' 'depends on #11, blocked by #10' ;;
+    102) printf '%s\n' 'cleanup after #10 was merged' ;;
+    103) printf '%s\n' 'After #10 lands, ship this' ;;
+    104) printf '%s\n' 'requires #11 first' ;;
+    105) printf '%s\n' 'no dependencies here' ;;
+    # Non-canonical number-run separators (Oxford comma, semicolon, ampersand):
+    # each orders the OPEN #10 second so a dropped separator yields PROCEED 11.
+    106) printf '%s\n' 'blocked by #11, and #10' ;;
+    107) printf '%s\n' 'blocked by #11; #10' ;;
+    108) printf '%s\n' 'blocked by #11 & #10' ;;
+    # A recognized declaration and a soft keyword on the SAME line: the declaration
+    # blocks on the OPEN #10, and the soft-keyword breadcrumb must NOT fire.
+    109) printf '%s\n' 'blocked by #10 requires #11' ;;
+    # Section-exit: the in-section #11 (CLOSED) is captured; the plain cross-reference
+    # `see #10` (not a declaration, not a line-opening `after`) sits under a LATER
+    # heading, so once the section exits it is NOT captured — a broken section-exit
+    # (staying in-section, where every #N is captured) would grab the OPEN #10.
+    110) printf '%s\n' '## Dependencies' '- blocked by #11' '## Notes' 'see #10 for background context' ;;
+    # #111 body carries invalid UTF-8 bytes (0xFF 0xFE) around a real OPEN
+    # declaration (#10). This is the gh-subprocess decode path (issue_body →
+    # _gh_issue_view) — the real GitHub-data path, distinct from the --body-file
+    # Path.read_text path covered below. printf's octal escapes emit the raw
+    # invalid bytes into stdout that Python captures via subprocess.run.
+    111) printf 'blocked by #10 \377\376 trailing invalid bytes\n' ;;
+    # #112/#113: the two DECLARATIONS keywords with no prior coverage — `must merge
+    # after` and `follow-up to` — each on the OPEN #10, so a keyword dropped from the
+    # DECLARATIONS tuple would stop recognizing it and flip BLOCKED 10 → PROCEED.
+    112) printf '%s\n' 'must merge after #10' ;;
+    113) printf '%s\n' 'follow-up to #10' ;;
+    # #114: _NUMBER_RUN non-joiner over-match negative. `superseded by` is NOT a run
+    # joiner, so only the CLOSED #11 is captured and the trailing OPEN #10 is left
+    # out → PROCEED 11. A regression widening _NUMBER_RUN to sweep any trailing #N
+    # would grab the OPEN #10 and flip this to BLOCKED 10.
+    114) printf '%s\n' 'depends on #11 superseded by #10' ;;
+    # #115: drives issue_state's value-filter `else None` arm — the declared #13
+    # resolves via a SUCCESSFUL (exit 0) state fetch that returns a word outside
+    # {OPEN,CLOSED,MERGED}, distinct from the CalledProcessError arm (unknown number
+    # → exit 1) already exercised. A non-set state must map to None → UNAVAILABLE.
+    115) printf '%s\n' 'blocked by #13' ;;
+    200) exit 1 ;;
+    *) exit 1 ;;
+  esac
+  exit 0
+fi
+# field = state
+case "$num" in
+  10) printf '%s\n' OPEN ;;
+  11) printf '%s\n' CLOSED ;;
+  12) printf '%s\n' MERGED ;;
+  # #115: a SUCCESSFUL fetch returning an unrecognized state word — exercises
+  # issue_state's `state in {...} else None` filter, not the exception arm.
+  13) printf '%s\n' DRAFT ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$P547R/bin/gh"
+P547R_HELPER="$LIB/../scripts/preflight.py"
+_p547r() { PATH="$P547R/bin:$PATH" python3 "$P547R_HELPER" dependencies "$@" 2>/dev/null; }
+# Critical: a multi-number free-prose declaration must surface BOTH numbers. The
+# OPEN #10 is ordered SECOND (behind the CLOSED #11), so a single-capture regression
+# drops #10 and yields PROCEED 11 — this assertion catches the exact bug, not vacuously.
+P547R_CRIT="$(_p547r --issue 100)"; P547R_CRIT_RC=$?
+assert_eq "#547/#572 Critical: multi-number free-prose declaration keeps every number (OPEN #10 blocks)" "BLOCKED 10" "$P547R_CRIT"
+assert_eq "#547/#572 Critical: the multi-number block returns the BLOCKED exit class" "2" "$P547R_CRIT_RC"
+# Non-canonical number-run separators (Oxford comma, semicolon, ampersand): each
+# must keep the OPEN #10 that trails the joiner, so a dropped separator alternative
+# (the same fail-open class as the base multi-number bug) blocks-to-proceeds and is
+# caught. Each body orders #10 second so the drop changes the verdict.
+assert_eq "#547/#572 Important: an Oxford-comma number run keeps the trailing OPEN #10" "BLOCKED 10" "$(_p547r --issue 106)"
+assert_eq "#547/#572 Important: a semicolon number run keeps the trailing OPEN #10" "BLOCKED 10" "$(_p547r --issue 107)"
+assert_eq "#547/#572 Important: an ampersand number run keeps the trailing OPEN #10" "BLOCKED 10" "$(_p547r --issue 108)"
+# Important #2: two declarations on one line — no early `break` — record both, so the
+# OPEN #10 in the SECOND declaration still blocks (a bare `break` would drop it).
+P547R_BREAK="$(_p547r --issue 101)"; P547R_BREAK_RC=$?
+assert_eq "#547/#572 Important: a second same-line declaration is not dropped (OPEN #10 blocks)" "BLOCKED 10" "$P547R_BREAK"
+assert_eq "#547/#572 Important: the second-declaration block returns the BLOCKED exit class" "2" "$P547R_BREAK_RC"
+# Important #3: bare `after #N` mid-sentence is narrative provenance, not a dependency —
+# it must NOT block; but a line-opening `After #N` is a genuine declaration and DOES.
+P547R_AFTERNARR="$(_p547r --issue 102)"; P547R_AFTERNARR_RC=$?
+assert_eq "#547/#572 Important: mid-sentence `after #N` provenance does not block" "PROCEED" "$P547R_AFTERNARR"
+assert_eq "#547/#572 Important: the narrative-`after` line proceeds (exit 0)" "0" "$P547R_AFTERNARR_RC"
+P547R_AFTERDECL="$(_p547r --issue 103)"; P547R_AFTERDECL_RC=$?
+assert_eq "#547/#572 Important: a line-opening `After #N` stays a recognized declaration (OPEN #10 blocks)" "BLOCKED 10" "$P547R_AFTERDECL"
+# Important #4: the production --issue path — a happy body reaching PROCEED via the
+# real `--issue` → issue_body() → _gh_issue_view fetch (not --body-file), and a
+# body-fetch failure reaching the third UNAVAILABLE arm (`UNAVAILABLE issue`/exit 3).
+P547R_ISSUE_OK="$(_p547r --issue 105)"; P547R_ISSUE_OK_RC=$?
+assert_eq "#547/#572 Important: a --issue-fetched body with no declared dependencies proceeds" "PROCEED" "$P547R_ISSUE_OK"
+assert_eq "#547/#572 Important: the clean --issue-fetched body proceeds (exit 0)" "0" "$P547R_ISSUE_OK_RC"
+P547R_ISSUE_FAIL="$(_p547r --issue 200)"; P547R_ISSUE_FAIL_RC=$?
+assert_eq "#547/#572 Important: a --issue body-fetch failure is the UNAVAILABLE-issue arm" "UNAVAILABLE issue" "$P547R_ISSUE_FAIL"
+assert_eq "#547/#572 Important: the --issue body-fetch failure returns the unavailable exit class" "3" "$P547R_ISSUE_FAIL_RC"
+# Important #5: the subparser now carries parser_class=_Parser explicitly, so a
+# `--issue notanint` type-coercion error routes to UNAVAILABLE(3), never argparse's
+# default 2 (which the §1.3.5 gate would misread as a real BLOCKED verdict).
+PATH="$P547R/bin:$PATH" python3 "$P547R_HELPER" dependencies --issue notanint >/dev/null 2>&1; P547R_COERCE_RC=$?
+assert_eq "#547/#572 Important: `--issue notanint` exits UNAVAILABLE(3), not the BLOCKED code (2)" "3" "$P547R_COERCE_RC"
+# Important #6: a dependency-flavoured phrasing outside the recognized vocabulary
+# proceeds (exit 0, observability not a new block) BUT emits a stderr breadcrumb so a
+# missed declaration is observable — the breadcrumb must name the referenced number.
+P547R_SOFT_ERR="$(PATH="$P547R/bin:$PATH" python3 "$P547R_HELPER" dependencies --issue 104 2>&1 >/dev/null)"
+P547R_SOFT_OUT="$(_p547r --issue 104)"; P547R_SOFT_RC=$?
+assert_eq "#547/#572 Important: an unrecognized dependency-flavoured phrasing still proceeds" "PROCEED" "$P547R_SOFT_OUT"
+assert_eq "#547/#572 Important: the unrecognized-phrasing proceed returns exit 0" "0" "$P547R_SOFT_RC"
+assert_eq "#547/#572 Important: an unrecognized `#N` near a dependency keyword emits a stderr breadcrumb" "yes" \
+  "$(printf '%s' "$P547R_SOFT_ERR" | grep -qF 'unrecognized dependency-flavoured reference to #11' && echo yes || echo no)"
+# Soft-keyword SUPPRESSION: when a recognized declaration IS present on the same
+# line as a soft keyword, the breadcrumb must NOT fire (the `not spans` guard) and
+# the declaration still blocks on its OPEN #10 — removing the guard would spam
+# breadcrumbs on legitimate declaration lines.
+P547R_SUP_ERR="$(PATH="$P547R/bin:$PATH" python3 "$P547R_HELPER" dependencies --issue 109 2>&1 >/dev/null)"
+assert_eq "#547/#572 Important: a same-line declaration blocks and suppresses the soft breadcrumb (verdict)" "BLOCKED 10" "$(_p547r --issue 109)"
+assert_eq "#547/#572 Important: a same-line declaration emits NO soft-keyword breadcrumb" "yes" \
+  "$(printf '%s' "$P547R_SUP_ERR" | grep -qF 'unrecognized dependency-flavoured' && echo no || echo yes)"
+# `## Dependencies` section-exit: the in-section CLOSED #11 is captured, and the
+# narrative `after #10` under a LATER heading is NOT (section already exited), so a
+# broken section-exit would capture the OPEN #10 and flip this to BLOCKED 10.
+assert_eq "#547/#572 Important: the section scan exits at the next heading (out-of-section narrative not captured)" "PROCEED 11" "$(_p547r --issue 110)"
+# UTF-8 hardening: a --body-file carrying invalid UTF-8 bytes must decode (errors=
+# replace) and still scan for #N, yielding the TRUE BLOCKED 10 verdict. Without
+# errors=replace the UnicodeDecodeError would propagate to main()'s catch-all and be
+# converted to a spurious UNAVAILABLE/exit 3 — a contained wrong verdict REPLACING the
+# real one — so pinning rc 2 discriminates the true verdict from that wrong exit-3.
+printf 'blocked by #10 \377\376 trailing invalid bytes' > "$P547R/badutf8.md"
+P547R_UTF8="$(PATH="$P547R/bin:$PATH" python3 "$P547R_HELPER" dependencies --body-file "$P547R/badutf8.md" 2>/dev/null)"; P547R_UTF8_RC=$?
+assert_eq "#547/#572 Important: an invalid-UTF-8 body decodes and still blocks on the OPEN #10" "BLOCKED 10" "$P547R_UTF8"
+assert_eq "#547/#572 Important: an invalid-UTF-8 body stays in the {0,2,3} exit contract (not exit 1)" "2" "$P547R_UTF8_RC"
+# UTF-8 hardening on the --issue/gh-subprocess decode path (issue_body →
+# _gh_issue_view), NOT just the --body-file Path.read_text path above — the real
+# GitHub-data path most likely to see invalid bytes. Issue #111's gh-stub body
+# emits raw 0xFF 0xFE around an OPEN #10. Without errors="replace" on the gh
+# subprocess.run decode, that raises UnicodeDecodeError (a ValueError the
+# issue_body except (OSError, CalledProcessError) does NOT catch), which main()'s
+# catch-all would then convert to a spurious UNAVAILABLE/exit 3 REPLACING the true
+# verdict — so BLOCKED 10 + exit 2 is a discriminating pin (true verdict, not that
+# wrong exit-3) on the gh-decode errors="replace" (PR #572 review).
+P547R_ISSUE_UTF8="$(_p547r --issue 111)"; P547R_ISSUE_UTF8_RC=$?
+assert_eq "#547/#572 Important: an invalid-UTF-8 --issue/gh body decodes and still blocks on the OPEN #10" "BLOCKED 10" "$P547R_ISSUE_UTF8"
+assert_eq "#547/#572 Important: the invalid-UTF-8 gh-decoded body stays in the {0,2,3} exit contract (not exit 1)" "2" "$P547R_ISSUE_UTF8_RC"
+# Source pin (Important #5): the subparser inherits the exit-3 contract explicitly,
+# not via add_subparsers()'s implicit parser_class default.
+assert_pin_unique "#547/#572: the dependencies subparser sets parser_class=_Parser explicitly" \
+  'add_subparsers(dest="command", required=True, parser_class=_Parser)' "$P547R_HELPER"
+# ── PR #572 review (Approve-with-notes) minor test gaps ───────────────────────
+# OSError arms of issue_body/issue_state, exercised INDEPENDENTLY of the
+# CalledProcessError (exit-1 stub) arms already covered above. Point DEVFLOW_GH at
+# a non-existent binary so subprocess.run raises FileNotFoundError (an OSError
+# subclass, NOT CalledProcessError): issue_body's OSError arm → RuntimeError →
+# `UNAVAILABLE issue`/exit 3; issue_state's OSError arm → None → `UNAVAILABLE <n>`/
+# exit 3. --body-file isolates issue_state (issue_body is never called on that path).
+P547R_NOGH="$P547R/bin/nonexistent-gh"
+P547R_OSE_BODY="$(DEVFLOW_GH="$P547R_NOGH" python3 "$P547R_HELPER" dependencies --issue 1 2>/dev/null)"; P547R_OSE_BODY_RC=$?
+assert_eq "#547/#572 test-gap: issue_body OSError arm (missing gh) is UNAVAILABLE issue, distinct from CalledProcessError" "UNAVAILABLE issue" "$P547R_OSE_BODY"
+assert_eq "#547/#572 test-gap: the issue_body OSError arm returns the unavailable exit class" "3" "$P547R_OSE_BODY_RC"
+printf '%s\n' 'blocked by #10' > "$P547R/state-ose.md"
+P547R_OSE_STATE="$(DEVFLOW_GH="$P547R_NOGH" python3 "$P547R_HELPER" dependencies --body-file "$P547R/state-ose.md" 2>/dev/null)"; P547R_OSE_STATE_RC=$?
+assert_eq "#547/#572 test-gap: issue_state OSError arm (missing gh) is UNAVAILABLE <n>, distinct from CalledProcessError" "UNAVAILABLE 10" "$P547R_OSE_STATE"
+assert_eq "#547/#572 test-gap: the issue_state OSError arm returns the unavailable exit class" "3" "$P547R_OSE_STATE_RC"
+# Cross-line dedup: the SAME #N declared on two SEPARATE lines is recorded once
+# (the add() `if number not in found` guard), so the verdict is `BLOCKED 10`, never
+# `BLOCKED 10,10`. #10 is OPEN in the P547R stub, so both lines resolve to a block.
+printf '%s\n' 'blocked by #10' 'depends on #10' > "$P547R/dedup.md"
+P547R_DEDUP="$(PATH="$P547R/bin:$PATH" python3 "$P547R_HELPER" dependencies --body-file "$P547R/dedup.md" 2>/dev/null)"
+assert_eq "#547/#572 test-gap: the same #N on two separate lines is deduped (BLOCKED 10, not 10,10)" "BLOCKED 10" "$P547R_DEDUP"
+# ── PR #572 review (run -3) Suggestion 5: untested DECLARATIONS keywords ───────
+# `must merge after` and `follow-up to` had no coverage; each names the OPEN #10, so
+# a keyword dropped from the DECLARATIONS tuple would stop recognizing it and flip
+# BLOCKED 10 → PROCEED (discriminating, not vacuous).
+assert_eq "#547/#572 Suggestion 5: the `must merge after` keyword is recognized (OPEN #10 blocks)" "BLOCKED 10" "$(_p547r --issue 112)"
+assert_eq "#547/#572 Suggestion 5: the `follow-up to` keyword is recognized (OPEN #10 blocks)" "BLOCKED 10" "$(_p547r --issue 113)"
+# Suggestion 5: _NUMBER_RUN non-joiner over-match NEGATIVE. `superseded by` is not a
+# run joiner, so only the CLOSED #11 is captured; the trailing OPEN #10 stays out →
+# PROCEED 11. A regression widening _NUMBER_RUN to sweep any trailing #N would grab
+# the OPEN #10 and flip this to BLOCKED 10.
+assert_eq "#547/#572 Suggestion 5: a non-joiner word does not sweep the trailing OPEN #10 (PROCEED 11)" "PROCEED 11" "$(_p547r --issue 114)"
+# Suggestion 5: issue_state value-filter `else None` arm — a SUCCESSFUL (exit 0)
+# state fetch returning a word outside {OPEN,CLOSED,MERGED} maps to None →
+# `UNAVAILABLE <n>`/exit 3, distinct from the CalledProcessError (exit-1 stub) arm.
+# #13's stub returns DRAFT; a regression accepting any non-empty state as OPEN would
+# flip this to BLOCKED 13.
+P547R_STATEFILTER="$(_p547r --issue 115)"; P547R_STATEFILTER_RC=$?
+assert_eq "#547/#572 Suggestion 5: a successful non-set state word maps to None → UNAVAILABLE" "UNAVAILABLE 13" "$P547R_STATEFILTER"
+assert_eq "#547/#572 Suggestion 5: the non-set state UNAVAILABLE stays in the {0,2,3} exit contract" "3" "$P547R_STATEFILTER_RC"
+# ── PR #572 review (run -3) Suggestion 2: empty `--body-file ""` (falsy) ───────
+# An explicit empty --body-file must read the (empty) file path and fail closed on
+# THAT path's read error → `UNAVAILABLE body`/exit 3, not fall through to the issue
+# branch and call issue_body(None) (`gh issue view None`, misreporting the surface).
+# The `is not None` guard is what routes it here; reverting to `if args.body_file:`
+# flips the output to `UNAVAILABLE issue`, so this pins the diagnostic surface.
+P547R_EMPTYBF="$(PATH="$P547R/bin:$PATH" python3 "$P547R_HELPER" dependencies --body-file "" 2>/dev/null)"; P547R_EMPTYBF_RC=$?
+assert_eq "#547/#572 Suggestion 2: empty `--body-file \"\"` fails closed on the body path (UNAVAILABLE body)" "UNAVAILABLE body" "$P547R_EMPTYBF"
+assert_eq "#547/#572 Suggestion 2: the empty-body-file failure returns the unavailable exit class" "3" "$P547R_EMPTYBF_RC"
+rm -rf "$P547R"
+
+# ── PR #572 review (Approve-with-notes): main() top-level fail-closed catch-all ─
+# main() wraps args.func(args) in `except Exception → UNAVAILABLE/exit 3`, so an
+# UNANTICIPATED exception (one no inner handler catches) stays inside the {0,2,3}
+# contract the §1.3.5 gate reads instead of exiting 1 — a fourth code the gate has
+# no arm for. Behavioral injection: monkeypatch issue_body to raise a KeyError (NOT
+# the RuntimeError `dependencies` catches), so it propagates out of dependencies()
+# to main()'s catch. The harness mirrors `raise SystemExit(main())`: a contained
+# error prints the exit code; an ESCAPED (uncaught) error aborts with empty stdout.
+P547C_HELPER="$LIB/../scripts/preflight.py"
+_p547c_run() {  # <helper-path> → stdout is main()'s exit code, or empty if the injected error escaped
+  python3 - "$1" <<'PY' 2>/dev/null
+import contextlib, importlib.util, os, sys
+spec = importlib.util.spec_from_file_location("pf_catchall_probe", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+def boom(_issue):
+    raise KeyError("injected unanticipated failure")
+mod.issue_body = boom  # not a RuntimeError → uncaught by dependencies()
+sys.argv = ["preflight.py", "dependencies", "--issue", "1"]
+# Redirect the module's own stdout token (`UNAVAILABLE`) to devnull so only the
+# exit code below reaches real stdout. On the mutated copy main() re-raises the
+# injected KeyError HERE (uncaught), aborting the process before the print — so
+# escaped runs emit empty stdout, contained runs emit the returned exit code.
+with open(os.devnull, "w") as _dn, contextlib.redirect_stdout(_dn):
+    code = mod.main()
+print(code)
+PY
+}
+P547C_OUT="$(_p547c_run "$P547C_HELPER")"
+assert_eq "#547/#572 catch-all: an unanticipated exception fails closed to UNAVAILABLE exit 3 (not 1)" "3" "$P547C_OUT"
+# Mutation discipline (behavioral, not a grep pin): on a /tmp copy with the catch-all
+# stripped to a bare `return args.func(args)`, the SAME injected KeyError is no longer
+# contained — it escapes uncaught (empty stdout). Proves the exit-3 above is the
+# catch-all's doing, not vacuous. The working tree is never touched (copy only).
+P547C_MUT="$(mktemp -d)"
+# Apply the strip as a CHECKED step: the writer aborts (assert n==1) if the anchor regex
+# ever stops matching after a reformat of the catch-all block. Capture its exit status.
+if python3 - "$P547C_HELPER" "$P547C_MUT/preflight.py" <<'PY' 2>/dev/null
+import re, sys
+src = open(sys.argv[1]).read()
+pat = re.compile(r"    try:\n        return args\.func\(args\)\n    except Exception.*?return UNAVAILABLE_EXIT\n", re.S)
+new, n = pat.subn("    return args.func(args)\n", src)
+assert n == 1, f"expected exactly one main() catch-all block, replaced {n}"
+open(sys.argv[2], "w").write(new)
+PY
+then P547C_MUT_APPLIED=yes; else P547C_MUT_APPLIED=no; fi
+# Guard the escape check against a false-green: an empty mutated-run stdout reads as
+# "escaped", but an UNWRITTEN mutated file (writer aborted → _p547c_run loads a missing
+# path → empty stdout) produces the identical empty. So first prove the strip was really
+# applied — writer succeeded AND the copy exists AND its sole `except Exception` (the
+# catch-all) is gone — so the escape assertion below cannot pass on a mutation that never
+# ran (PR #572 review: mutation-vacuity hole).
+P547C_MUT_STRIPPED="$([ "$P547C_MUT_APPLIED" = yes ] && [ -f "$P547C_MUT/preflight.py" ] && ! grep -q 'except Exception' "$P547C_MUT/preflight.py" && echo yes || echo no)"
+assert_eq "#547/#572 catch-all mutation: the strip was actually applied (not an absent-file/no-op vacuity)" "yes" "$P547C_MUT_STRIPPED"
+P547C_MUT_OUT="$(_p547c_run "$P547C_MUT/preflight.py")"
+assert_eq "#547/#572 catch-all mutation: removing the catch-all lets the injected exception escape (contained→escaped)" "3->escaped" \
+  "$P547C_OUT->$([ -z "$P547C_MUT_OUT" ] && echo escaped || echo "$P547C_MUT_OUT")"
+rm -rf "$P547C_MUT"
+
+# ── issue #547 AC10: the §1.3.5 dependency gate precedes §1.4 branch work ──────
+# The gate must run before ANY §1.4 branch operation (resume-precheck checkout,
+# fetch, checkpoint merge, fresh-branch creation, push) on every entry path.
+# Assert it positionally in the owning file (single coordinate space), mirroring
+# the "backstop precedes the publish gate" idiom elsewhere in this file.
+P547_ORD_FILE="$IMPL_PHASES_DIR/phase-1-setup.md"
+P547_GATE_LN=$(grep -nF 'preflight.py dependencies --issue $ISSUE_NUMBER' "$P547_ORD_FILE" | head -1 | cut -d: -f1)
+P547_14_LN=$(grep -nF '### 1.4 Create or Detect Feature Branch' "$P547_ORD_FILE" | head -1 | cut -d: -f1)
+assert_eq "#547 AC10: the early dependency gate precedes §1.4 branch work (all entry paths)" "yes" \
+  "$([ -n "$P547_GATE_LN" ] && [ -n "$P547_14_LN" ] && [ "$P547_GATE_LN" -lt "$P547_14_LN" ] && echo yes || echo no)"
+# Mutation evidence (AC10): a sed -E reorder that moves the gate invocation to
+# after the §1.4 heading (copy-to-hold `h`, then append `G` at the heading — a
+# genuine relocation, not a mere-removal strip) makes the unique gate literal
+# appear in the post-branch position too, breaking its uniqueness. assert_pin_red_under
+# proves that reorder turns the invocation pin RED (present-and-unique → non-unique).
+assert_pin_red_under "#547 AC10: a sed -E reorder placing the gate after §1.4 turns its pin RED" \
+  'preflight.py dependencies --issue $ISSUE_NUMBER' \
+  '/preflight\.py dependencies --issue/h;/^### 1\.4 Create or Detect Feature Branch/G' "$P547_ORD_FILE"
+
+# ── issue #254: declared sequencing-dependency vocabulary stays coupled. ───
 # An issue stating it "must merge after #N" is verified deterministically: each
 # declared dependency's state is read via gh issue view; all-closed records a
 # confirmation note, an OPEN (or unresolvable) dependency routes to the Blocked
 # path with the 👎 outcome reaction. Pin the pass heading removal-proof, and the
 # two operative contracts (the state read and the Blocked-on-open path).
-assert_pin_red_on_removal "#254: deleting the Pass 4 dependency-claims heading turns its pin RED" \
-  'Declared sequencing-dependency claims' "$IMPL_SKILL"
-assert_pin_unique "#254: Pass 4 checks each declared dependency's state via gh issue view" \
-  "gh issue view N --json state,title --jq '.state'" "$IMPL_SKILL"
-assert_pin_unique "#254: Pass 4 routes an OPEN declared dependency to the Blocked path" \
-  'issue-claim audit (dependency): declared dependency #N is still OPEN' "$IMPL_SKILL"
+assert_pin_red_on_removal "#254: deleting the early dependency preflight heading turns its pin RED" \
+  'Early declared-dependency preflight' "$IMPL_SKILL"
+assert_pin_unique "#254: Phase 1 invokes the extracted dependency preflight helper" \
+  'preflight.py dependencies --issue $ISSUE_NUMBER' "$IMPL_SKILL"
+assert_pin_unique "#254: Phase 1 routes an OPEN dependency to the Blocked path" \
+  'The named dependencies are still open' "$IMPL_SKILL"
 # Review iter 3: the unresolvable-dependency → Blocked arm is the most safety-relevant
 # route (fail-closed on a `gh issue view` failure that says nothing about state); pin it
 # removal-proof too, not just the heading and the OPEN arm.
-assert_pin_unique "#254: Pass 4 fails closed (Blocked) when a declared dependency cannot be resolved" \
-  'issue-claim audit (dependency): could not resolve declared dependency #N state' "$IMPL_SKILL"
+assert_pin_unique "#254: Phase 1 fails closed when a declared dependency cannot be resolved" \
+  'Never treat this as a clean dependency set' "$IMPL_SKILL"
 # Review iter (PR #255): `gh issue view` returns MERGED (not CLOSED) for a merged PR
 # dependency — the satisfied case. Pin the operative clause that a landed prerequisite is
 # CLOSED **or** MERGED so a later edit cannot silently drop MERGED and mis-Block a merged
 # prerequisite (the fail-closed-but-wrong direction the review flagged).
-assert_pin_unique "#254: Pass 4 treats a MERGED dependency as satisfied (landed = CLOSED or MERGED)" \
-  'when it is `CLOSED` **or** `MERGED`' "$IMPL_SKILL"
+assert_pin_unique "#254: helper recognizes CLOSED and MERGED as landed states" \
+  'state in {"OPEN", "CLOSED", "MERGED"}' "$LIB/../scripts/preflight.py"
 # ── issue #346 (+ #350): Phase 1.6 gains Pass 5 — execution-capability claims. ─
 # A cloud-tier bot implement run whose credential is the built-in GITHUB_TOKEN
 # fallback (DEVFLOW_APP_ID empty) cannot push .github/workflows/, so an AC that is
@@ -12550,7 +12893,6 @@ assert_pin_unique "#272 AC10: overview §11 mirrors the visual-specification beh
 CI446_TMPL="$LIB/../skills/create-issue/references/issue-template.md"
 CI446_SKILL="$LIB/../skills/create-issue/SKILL.md"
 CI446_P4="$LIB/../skills/implement/phases/phase-4-documentation.md"
-CI446_P1="$LIB/../skills/implement/phases/phase-1-setup.md"
 CI446_OVERVIEW="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 # AC1/AC2 — the optional ## Dependencies section in BOTH the template's structure guidance
 # and its bottom skeleton (coupled mirror sites: a one-sided edit turns one of these RED).
@@ -12560,10 +12902,10 @@ assert_pin_unique "#446 AC1: issue-template Dependencies entry form is the Block
   'Blocked by #N — <one-line reason it must land first>' "$CI446_TMPL"
 assert_pin_unique "#446 AC2: issue-template bottom skeleton mirrors the Dependencies section (above Problem Statement)" \
   '(include this section, above Problem Statement, ONLY when a prerequisite is still open at' "$CI446_TMPL"
-# Coupled producer↔consumer contract: the template's dependency vocabulary and phase-1 Pass 4's
+# Coupled producer↔consumer contract: the template's dependency vocabulary and the extracted
 # recognized forms are pinned together — RED if either side's heading or phrasing drifts.
-assert_eq "#446: template Dependencies vocabulary matches phase-1 Pass 4's recognized forms (producer/consumer coupled)" "yes" \
-  "$(grep -qF '## Dependencies' "$CI446_TMPL" && grep -qF 'Blocked by #N' "$CI446_TMPL" && grep -qF '## Dependencies' "$CI446_P1" && grep -qiF 'blocked by #N' "$CI446_P1" && echo yes || echo no)"  # raw-guard-ok: compound coupled producer/consumer vocabulary check across template + Pass 4
+assert_eq "#446: template Dependencies vocabulary matches the extracted preflight recognizer (producer/consumer coupled)" "yes" \
+  "$(grep -qF '## Dependencies' "$CI446_TMPL" && grep -qF 'Blocked by #N' "$CI446_TMPL" && grep -qF 'DEPENDENCY_HEADING' "$LIB/../scripts/preflight.py" && grep -qF 'blocked by' "$LIB/../scripts/preflight.py" && echo yes || echo no)"  # raw-guard-ok: compound coupled producer/consumer vocabulary check across template + helper
 # AC4 — phase-4 Phase 4.0 renders ## Dependencies above Problem Statement (Sections-in-order
 # list + the render bullet + the heredoc line).
 assert_pin_unique "#446 AC4: phase-4 Phase 4.0 Sections-in-order list leads with ## Dependencies" \
@@ -28299,15 +28641,17 @@ DGH_BARE="$(grep -rnE '(^|[[:space:]`;|&(])gh[[:space:]]+(api|pr|issue|label|rep
   "$DGH_ROOT/scripts" "$DGH_ROOT/lib" --include='*.sh' 2>/dev/null \
   | grep -v '/test/' | grep -v 'resolve-gh\.sh:' | grep -vE ':[[:space:]]*#' | grep -vE '(echo|printf) ' | grep -c . || true)"
 assert_eq "#245 peer-completeness: no non-comment bare gh <subcommand> call survives outside the resolver" "0" "$DGH_BARE"
-# Per-script Python routing pins: each of the six Python gh-callers reads the
+# Per-script Python routing pins: each enumerated Python gh-caller reads the
 # documented DEVFLOW_GH override and keeps no bare-"gh" argv0 literal. T4/T8
 # exercise parse-acs.py dynamically; these static pins keep a revert in any of
 # the others (the silent-label-loss regression of #3493) from staying green.
 # export-workflow-lifecycle-census.py joined the set in PR #531 (issue #527);
-# build-experiment-records.py was the pre-existing sixth the PR #531
+# build-experiment-records.py was the pre-existing member the PR #531
 # early-shadow completeness critic's independent enumeration surfaced
-# (grep -l DEVFLOW_GH over scripts/*.py) — the loop had under-counted it.
-for DGH_PY in workpad.py file-deferrals.py match-deferrals.py parse-acs.py export-workflow-lifecycle-census.py build-experiment-records.py; do
+# (grep -l DEVFLOW_GH over scripts/*.py) — the loop had under-counted it;
+# preflight.py (issue #547) is the newest — the early dependency-preflight gate's
+# `gh issue view` state/body reads route through the same DEVFLOW_GH pattern.
+for DGH_PY in workpad.py file-deferrals.py match-deferrals.py parse-acs.py export-workflow-lifecycle-census.py build-experiment-records.py preflight.py; do
   assert_eq "#245 python routing: $DGH_PY reads DEVFLOW_GH (or-\"gh\" form)" "1" \
     "$(grep -cF 'os.environ.get("DEVFLOW_GH") or "gh"' "$DGH_ROOT/scripts/$DGH_PY" || true)"
   assert_eq "#245 python routing: $DGH_PY keeps no bare-\"gh\" argv0 literal" "0" \
