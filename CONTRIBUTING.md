@@ -42,6 +42,21 @@ tests (`lib/test/test_python_scripts.py`). CI runs the same suite on every PR
 (`.github/workflows/ci.yml`). Tests use `gh` **stubs** — no network or GitHub
 auth is required to run them.
 
+Some coverage is factored into **selectable modules** under `lib/test/modules/`
+(registered in `scripts/workflow-flight-recorder-registry.json`), which you can run
+in isolation while iterating on their area:
+
+```bash
+bash lib/test/run-module.sh create-issue-contract
+```
+
+Each module is also executed by the full suite through the fail-closed
+`devflow_run_full_suite_module` boundary, and shares the namespaced pin helpers in
+`lib/test/module-harness.sh` (`devflow_module_pin_count` / `pin_unique` /
+`pin_present` / `pin_red_under`) so a module carries no private pin machinery.
+A per-module inventory (e.g. `lib/test/modules/create-issue-contract.inventory.md`)
+records what it covers.
+
 The suite reports passed, failed, and *skipped* tallies (issue
 #456) — so `0 failed` is never mistaken for "everything ran." A check can
 **self-skip** when the environment cannot run it or express its condition; with

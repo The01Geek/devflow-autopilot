@@ -22,6 +22,19 @@ RUNNER_SOURCE = ROOT / "lib/test/run-module.sh"
 HARNESS_SOURCE = ROOT / "lib/test/module-harness.sh"
 WORKFLOW_MODULE_SOURCE = ROOT / "lib/test/modules/workflow-flight-recorder.sh"
 REVIEW_AND_FIX_MODULE_SOURCE = ROOT / "lib/test/modules/review-and-fix-contract.sh"
+CREATE_ISSUE_MODULE_SOURCE = ROOT / "lib/test/modules/create-issue-contract.sh"
+
+# The extracted create-issue module must reference NO monolith run.sh helper — it
+# uses only assert_eq plus the namespaced devflow_module_* API and its own private
+# helpers. This matches each banned helper as a standalone token, so the namespaced
+# names (devflow_module_pin_count, …) whose `pin_count` substring is preceded by `_`
+# never trip it.
+MONOLITH_HELPER_RE = re.compile(
+    r"(?:^|[^A-Za-z0-9_])"
+    r"(pin_count|probe_tmp|probe_assert|grep_present"
+    r"|assert_pin_unique|assert_pin_red_under|assert_pin_red_on_removal)"
+    r"(?:[^A-Za-z0-9_]|$)"
+)
 
 
 class ModuleRunnerTests(unittest.TestCase):
@@ -897,22 +910,59 @@ class ModuleRunnerTests(unittest.TestCase):
             "a failure recap whenever an assertion or module boundary fails",
             overview_text,
         )
-        trap_tail = run_text.split('IMPL_SKILL_BUNDLE="$(mktemp)"', maxsplit=1)[1]
-        result_tally_traps = [
-            line
-            for line in trap_tail.splitlines()
-            if line.startswith("trap ") and '"$RESULTS_FILE"' in line
+        self.assertIn("trap _suite_cleanup EXIT", run_text)
+        for temp_file in (
+            "RESULTS_FILE",
+            "MODULE_FAILURES_FILE",
+            "SKIPS_FILE",
+            "IMPL_SKILL_BUNDLE",
+            "REVIEW_BUNDLE",
+            "MAXI_BUNDLE",
+        ):
+            self.assertIn(f'_suite_tmp_file "${temp_file}"', run_text)
+        for temp_dir in ("E484", "E363", "S363", "D363"):
+            self.assertIn(f'_suite_tmp_dir "${temp_dir}"', run_text)
+        # Presence of the registry trap is not enough: bash keeps only the LAST
+        # `trap … EXIT` handler, so a later installer silently REPLACES
+        # `_suite_cleanup` and un-covers every registration made after it — the
+        # exact clobber the registry's own header comment bans. Assert the
+        # registry trap is the ONLY EXIT-trap installer in run.sh: strip each
+        # line before matching (an INDENTED installer inside an if/for body
+        # still replaces the global handler at run time) and exclude comments;
+        # quoted fixture literals do not start a stripped line with `trap `.
+        exit_traps = [
+            stripped
+            for stripped in (line.strip() for line in run_text.splitlines())
+            if not stripped.startswith("#")
+            and re.match(r"^trap\s+\S.*\sEXIT$", stripped)
         ]
-        self.assertTrue(result_tally_traps)
-        self.assertTrue(
-            all(
-                '"$IMPL_SKILL_BUNDLE"' in line
-                and '"$MODULE_FAILURES_FILE"' in line
-                and '"$SKIPS_FILE"' in line
-                for line in result_tally_traps
-            ),
-            result_tally_traps,
+        self.assertEqual(exit_traps, ["trap _suite_cleanup EXIT"])
+        # Behavioral proof the registry actually cleans: register a real temp
+        # file+dir in a bash micro-harness using run.sh's own function bodies,
+        # exit, and assert both are gone (textual presence of the trap cannot
+        # prove the cleanup path executes).
+        harness = (
+            "_SUITE_TMP_FILES=(); _SUITE_TMP_DIRS=()\n"
+            '_suite_tmp_file() { _SUITE_TMP_FILES+=("$1"); }\n'
+            '_suite_tmp_dir()  { _SUITE_TMP_DIRS+=("$1"); }\n'
+            "_suite_cleanup() {\n"
+            '  for _f in "${_SUITE_TMP_FILES[@]}"; do [ -n "$_f" ] && rm -f "$_f"; done\n'
+            '  for _d in "${_SUITE_TMP_DIRS[@]}"; do [ -n "$_d" ] && rm -rf "$_d"; done\n'
+            "}\n"
+            "trap _suite_cleanup EXIT\n"
+            'f="$(mktemp)"; d="$(mktemp -d)"\n'
+            '_suite_tmp_file "$f"; _suite_tmp_dir "$d"\n'
+            'printf "%s\\n%s\\n" "$f" "$d"\n'
         )
+        proc = subprocess.run(
+            ["bash", "-c", harness],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        registered_file, registered_dir = proc.stdout.splitlines()[:2]
+        self.assertFalse(os.path.exists(registered_file))
+        self.assertFalse(os.path.exists(registered_dir))
 
     def test_repository_registry_maps_the_review_and_fix_contract_module(self) -> None:
         registry = json.loads(
@@ -956,6 +1006,326 @@ class ModuleRunnerTests(unittest.TestCase):
             "lib/test/modules/review-and-fix-contract.sh",
             (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"),
         )
+
+    def test_repository_registry_maps_the_create_issue_contract_module(self) -> None:
+        registry = json.loads(
+            (ROOT / "scripts/workflow-flight-recorder-registry.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        mapping = registry["test_modules"]["create-issue-contract"]
+        self.assertEqual(
+            mapping["path"], "lib/test/modules/create-issue-contract.sh"
+        )
+        floor = mapping["minimum_assertions"]
+        self.assertIsInstance(floor, int)
+        self.assertGreater(floor, 0)
+        self.assertTrue(CREATE_ISSUE_MODULE_SOURCE.is_file())
+
+        run_text = (ROOT / "lib/test/run.sh").read_text(encoding="utf-8")
+        self.assertIn(
+            'devflow_run_full_suite_module "$LIB/test/modules/create-issue-contract.sh"',
+            run_text,
+        )
+        # The full-suite call operand and the registry floor are one coupled contract.
+        floor_match = re.search(
+            r'"create-issue-contract" ([0-9]+); then', run_text
+        )
+        self.assertIsNotNone(floor_match)
+        self.assertEqual(int(floor_match.group(1)), floor)
+        self.assertIn('python3 "$LIB/test/test_module_runner.py"', run_text)
+
+        module_text = CREATE_ISSUE_MODULE_SOURCE.read_text(encoding="utf-8")
+        self.assertTrue(
+            module_text.startswith(
+                "# SPDX-FileCopyrightText: 2026 Daniel Radman\n"
+                "# SPDX-License-Identifier: MIT\n"
+            )
+        )
+        self.assertIn("Contract: the caller sets LIB and RESULTS_FILE", module_text)
+        # A module never invokes the runner or the full-suite boundary itself.
+        self.assertNotIn("devflow_run_full_suite_module", module_text)
+        self.assertIn("create-issue-contract.inventory.md", module_text)
+        self.assertIn(
+            "lib/test/modules/create-issue-contract.sh",
+            (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"),
+        )
+        # The provenance inventory exists and is not a second behavioral source.
+        inventory = ROOT / "lib/test/modules/create-issue-contract.inventory.md"
+        self.assertTrue(inventory.is_file())
+
+    def test_create_issue_contract_module_runs_green_through_the_real_runner(self) -> None:
+        """The documented local create-issue path uses the real registry + module API."""
+        registry = json.loads(
+            (ROOT / "scripts/workflow-flight-recorder-registry.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        floor = registry["test_modules"]["create-issue-contract"][
+            "minimum_assertions"
+        ]
+        environment = os.environ.copy()
+        environment.pop("DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE", None)
+        with tempfile.TemporaryDirectory() as log_dir:
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(RUNNER_SOURCE),
+                    "--log-dir",
+                    log_dir,
+                    "create-issue-contract",
+                ],
+                cwd=ROOT,
+                env=environment,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(
+                result.returncode,
+                0,
+                result.stdout[-4000:] + result.stderr[-4000:],
+            )
+            self.assertIn(
+                f"Module create-issue-contract: {floor} passed, 0 failed",
+                result.stdout,
+            )
+            self.assertTrue(list(Path(log_dir).iterdir()))
+
+    def test_create_issue_module_references_no_monolith_helper(self) -> None:
+        # AC7: the extracted assertions use only assert_eq plus the namespaced module
+        # API — a reference to pin_count / probe_tmp / another monolith helper (which
+        # would not exist when the runner or the full-suite boundary source the module)
+        # must make this contract test fail.
+        text = CREATE_ISSUE_MODULE_SOURCE.read_text(encoding="utf-8")
+        hits = sorted({match.group(1) for match in MONOLITH_HELPER_RE.finditer(text)})
+        self.assertEqual(
+            hits, [], f"create-issue module references monolith helper(s): {hits}"
+        )
+
+    def test_monolith_helper_contract_check_is_non_vacuous(self) -> None:
+        # The check FAILS on a planted monolith-helper reference (so the test above
+        # is a real guard, not a vacuous pass) …
+        for planted in (
+            "x=$(pin_count 'a' \"$F\")\n",
+            "t=$(probe_tmp 'a')\n",
+            "assert_pin_unique n l f\n",
+            "assert_pin_red_under n l m f\n",
+            "b=$(probe_assert assert_pin_unique p l f)\n",
+        ):
+            self.assertIsNotNone(
+                MONOLITH_HELPER_RE.search(planted), f"missed planted ref: {planted!r}"
+            )
+        # … and it does NOT false-positive on the sanctioned namespaced API, whose
+        # `pin_count` substring is preceded by `_`.
+        for sanctioned in (
+            "devflow_module_pin_count 'a' \"$F\"\n",
+            "devflow_module_pin_unique n l f\n",
+            "devflow_module_pin_red_under n l m f\n",
+        ):
+            self.assertIsNone(
+                MONOLITH_HELPER_RE.search(sanctioned),
+                f"false positive on namespaced API: {sanctioned!r}",
+            )
+
+    def test_create_issue_bundle_records_fail_on_a_missing_implement_member(self) -> None:
+        # The module's implement-bundle build loop restores the fail-LOUD-per-member
+        # contract: a missing/empty/unreadable implement bundle member records a FAIL
+        # (never the sibling module's silent `cat 2>/dev/null || :`). Pin it with an
+        # automated mutation — point CI_ROOT at a scratch tree that symlinks every
+        # real surface the module reads (so its 206 genuine pins still pass) but whose
+        # implement `phases/` carries one EMPTY member (`[ -s ]` false → FAIL). The
+        # emptied member is NOT the one holding the #467 D2 pinned sentence, so only
+        # the bundle-member guard fires — isolating this branch.
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            scratch = Path(temporary_directory) / "root"
+            (scratch / "skills").mkdir(parents=True)
+            (scratch / "lib/test").mkdir(parents=True)
+            # Symlink every surface the module reads, except implement (partial copy).
+            (scratch / "skills/create-issue").symlink_to(ROOT / "skills/create-issue")
+            (scratch / "skills/review-and-fix").symlink_to(ROOT / "skills/review-and-fix")
+            (scratch / "docs").symlink_to(ROOT / "docs")
+            (scratch / ".devflow").symlink_to(ROOT / ".devflow")
+            (scratch / "CLAUDE.md").symlink_to(ROOT / "CLAUDE.md")
+            (scratch / "lib/test/modules").symlink_to(ROOT / "lib/test/modules")
+            # implement: real SKILL.md, real phases EXCEPT one emptied member.
+            impl = scratch / "skills/implement"
+            (impl / "phases").mkdir(parents=True)
+            (impl / "SKILL.md").symlink_to(ROOT / "skills/implement/SKILL.md")
+            sentence = "The governed surface is broader than config JSON"  # #467 D2 pin
+            emptied = None
+            for phase in sorted((ROOT / "skills/implement/phases").glob("*.md")):
+                text = phase.read_text(encoding="utf-8")
+                if sentence in text or emptied is not None:
+                    (impl / "phases" / phase.name).write_text(text, encoding="utf-8")
+                else:
+                    (impl / "phases" / phase.name).write_text("", encoding="utf-8")
+                    emptied = phase.name
+            self.assertIsNotNone(emptied, "no non-D2-pin phase to empty")
+
+            environment = os.environ.copy()
+            environment.pop("DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE", None)
+            environment["DEVFLOW_CREATE_ISSUE_CONTRACT_ROOT"] = str(scratch)
+            with tempfile.TemporaryDirectory() as log_dir:
+                result = subprocess.run(
+                    [
+                        "bash",
+                        str(RUNNER_SOURCE),
+                        "--log-dir",
+                        log_dir,
+                        "create-issue-contract",
+                    ],
+                    cwd=ROOT,
+                    env=environment,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+
+        self.assertEqual(result.returncode, 1, result.stdout[-4000:] + result.stderr[-4000:])
+        self.assertIn("implement-bundle member usable", result.stdout)
+        self.assertIn(emptied, result.stdout)
+
+    def test_create_issue_module_runs_clean_under_nounset_with_legacy_vars_unset(self) -> None:
+        # AC9: a clean-environment contract test. Source the module under `set -u`
+        # with every legacy monolith variable explicitly unset, supplying only LIB,
+        # RESULTS_FILE, assert_eq, and the namespaced harness API. The module must
+        # derive every path from LIB and run without an unbound-variable exit.
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            work = Path(temporary_directory)
+            results = work / "results"
+            driver = work / "driver.sh"
+            driver.write_text(
+                "#!/usr/bin/env bash\n"
+                "set -u\n"
+                "unset CI312_SKILL CI312_TMPL CI443_SKILL CI443_EXT CI522_OVERVIEW \\\n"
+                "  CI464_OVERVIEW CI559_SKILL OG_OVERVIEW_DOC IMPL_SKILL_BUNDLE \\\n"
+                "  MAXI_SKILL 2>/dev/null || true\n"
+                f'LIB="{ROOT}/lib"\n'
+                f'RESULTS_FILE="{results}"\n'
+                '> "$RESULTS_FILE"\n'
+                "assert_eq() {\n"
+                '  if [ "$2" = "$3" ]; then printf "PASS\\n" >> "$RESULTS_FILE";\n'
+                '  else printf "FAIL\\n" >> "$RESULTS_FILE"; fi\n'
+                "}\n"
+                f'. "{ROOT}/lib/test/module-harness.sh"\n'
+                f'. "{ROOT}/lib/test/modules/create-issue-contract.sh"\n',
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                ["bash", str(driver)],
+                cwd=work,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertNotIn("unbound variable", result.stderr)
+            verdicts = results.read_text(encoding="utf-8").split()
+
+        self.assertNotIn("FAIL", verdicts, result.stdout + result.stderr)
+        self.assertGreater(len(verdicts), 0)
+
+    def _write_mutant_create_issue_module(self, destination: Path) -> None:
+        # A controlled create-issue module mutation: the real module plus one
+        # deterministic failing assertion. DEVFLOW_CREATE_ISSUE_CONTRACT_ROOT points
+        # the copy at the real repository so its genuine pins all pass and only the
+        # planted assertion fails — isolating the mutation's single-FAIL delta.
+        text = CREATE_ISSUE_MODULE_SOURCE.read_text(encoding="utf-8")
+        text += '\nassert_eq "controlled create-issue mutation" "expected" "mutated"\n'
+        destination.write_text(text, encoding="utf-8")
+
+    def test_create_issue_focused_run_fails_closed_on_a_controlled_failure(self) -> None:
+        # AC16: a create-issue module run whose assertion fails is caught and recapped
+        # by the REAL focused runner (fail-closed, non-zero) — proving the runner's
+        # crash/failure handling applies to the create-issue module, not only to the
+        # synthetic sample/crash/empty modules exercised above.
+        environment = os.environ.copy()
+        environment["DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE"] = "1"
+        with tempfile.TemporaryDirectory() as log_dir:
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(RUNNER_SOURCE),
+                    "--log-dir",
+                    log_dir,
+                    "create-issue-contract",
+                ],
+                cwd=ROOT,
+                env=environment,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 1, result.stdout[-4000:] + result.stderr[-4000:])
+        self.assertIn("controlled experimental failure injection", result.stdout)
+        self.assertRegex(
+            result.stdout, r"Module create-issue-contract: [0-9]+ passed, 1 failed"
+        )
+
+    def test_controlled_mutation_fails_on_both_focused_and_full_suite_boundaries(self) -> None:
+        # AC17: the focused runner and the complete-suite boundary observe the SAME
+        # failing outcome from one controlled create-issue module mutation.
+        mutant = self.modules_dir / "create-issue-mutant.sh"
+        self._write_mutant_create_issue_module(mutant)
+        self._write_registry(
+            {
+                "create-issue-mutant": {
+                    "path": "lib/test/modules/create-issue-mutant.sh",
+                    "minimum_assertions": 1,
+                }
+            }
+        )
+        base_env = {"DEVFLOW_CREATE_ISSUE_CONTRACT_ROOT": str(ROOT)}
+
+        # Focused runner boundary.
+        focused = self._run("create-issue-mutant", extra_env=base_env)
+        self.assertEqual(focused.returncode, 1, focused.stdout + focused.stderr)
+        self.assertIn("controlled create-issue mutation", focused.stdout)
+
+        # Full-suite module boundary (module-harness.sh's devflow_run_full_suite_module).
+        # A failing assertion lands in the shared RESULTS_FILE tally the way run.sh's own
+        # FAIL loop counts it (the boundary's MODULE_FAILURES_FILE fold is reserved for
+        # crash/floor/tally faults), so the boundary's observed failure is the FAIL record
+        # the module appended to RESULTS_FILE — count that.
+        with tempfile.TemporaryDirectory() as work_name:
+            work = Path(work_name)
+            results = work / "results"
+            driver = work / "driver.sh"
+            driver.write_text(
+                "#!/usr/bin/env bash\n"
+                f'RESULTS_FILE="{results}"\n'
+                f'MODULE_FAILURES_FILE="{work / "module-failures"}"\n'
+                '> "$RESULTS_FILE"\n'
+                '> "$MODULE_FAILURES_FILE"\n'
+                "assert_eq() {\n"
+                '  if [ "$2" = "$3" ]; then printf "PASS\\n" >> "$RESULTS_FILE";\n'
+                '  else printf "FAIL\\n" >> "$RESULTS_FILE"; fi\n'
+                "}\n"
+                f'. "{HARNESS_SOURCE}"\n'
+                f'devflow_run_full_suite_module "{mutant}" "create-issue-mutant" 1\n',
+                encoding="utf-8",
+            )
+            environment = os.environ.copy()
+            environment.update(base_env)
+            full_suite = subprocess.run(
+                ["bash", str(driver)],
+                cwd=work,
+                env=environment,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(
+                full_suite.returncode, 0, full_suite.stdout + full_suite.stderr
+            )
+            boundary_verdicts = results.read_text(encoding="utf-8").split()
+
+        # Same outcome: the full-suite boundary's tally carries the mutation's FAIL,
+        # exactly as the focused runner reported it non-zero above.
+        self.assertIn("FAIL", boundary_verdicts, full_suite.stdout + full_suite.stderr)
 
 
 if __name__ == "__main__":

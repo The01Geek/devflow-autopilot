@@ -3,6 +3,114 @@
 # SPDX-License-Identifier: MIT
 # Fail-closed boundary for sourceable modules used by the complete test suite.
 
+# ── Namespaced module pin/count/mutation helpers (issue #577) ────────────────
+# Shared reusable pin machinery for sourceable contract modules, so a module
+# carries NO private copy of it. Caller contract: RESULTS_FILE is set and assert_eq
+# is defined (both runner paths — run-module.sh and the full-suite boundary below —
+# provide them). These helpers perform synchronous cleanup and install NO traps
+# (the sourcing module owns the sole EXIT trap over its private temp root).
+#
+# devflow_module_pin_count LITERAL FILE
+#   Fixed-string occurrence counter over FILE, via CHECKED python3 (a hard preflight
+#   prerequisite). Prints an established non-negative integer and returns 0 ONLY
+#   after a successful readable scan. On ANY failure — an unreadable file, a missing
+#   or failed python3 interpreter, or malformed counter output — it prints the
+#   sentinel `unestablished` (NEVER `0`) to stdout, writes a specific breadcrumb to
+#   stderr, and returns 1. Returning `unestablished` rather than `0` is the whole
+#   point: a fail-open `grep … || n=0` counter returns 0 on failure, so a
+#   zero-expected assertion (`assert_eq … 0 "$(counter …)"`) passes vacuously; here
+#   the failure value is not a number, so every consuming assertion — assert_eq or
+#   the pin helpers below — records a FAIL through the assertion channel and a
+#   zero-expected assertion turns RED. That is how read/interpreter/malformed-output
+#   failures are recorded through the assertion channel instead of returning zero.
+devflow_module_pin_count() { # literal file
+  local literal="$1" file="$2" out rc
+  if [ ! -f "$file" ] || [ ! -r "$file" ]; then
+    printf 'unestablished\n'
+    printf 'devflow-module-count: unreadable file: %s\n' "$file" >&2
+    return 1
+  fi
+  # Literal + path pass as argv (never interpolated into the program text), so a
+  # literal containing quotes, `$`, or backticks cannot re-enter shell or Python
+  # parsing. A non-UTF-8 read or any interpreter fault surfaces as rc != 0 below.
+  out="$(python3 -c '
+import sys
+with open(sys.argv[1], encoding="utf-8") as fh:
+    text = fh.read()
+print(sum(line.count(sys.argv[2]) for line in text.splitlines()))
+' "$file" "$literal" 2>/dev/null)"
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    printf 'unestablished\n'
+    printf 'devflow-module-count: python3 counter failed (rc=%s) on: %s\n' "$rc" "$file" >&2
+    return 1
+  fi
+  case "$out" in
+    ''|*[!0-9]*)
+      printf 'unestablished\n'
+      printf 'devflow-module-count: malformed counter output %s on: %s\n' "${out:-(empty)}" "$file" >&2
+      return 1
+      ;;
+  esac
+  printf '%s\n' "$out"
+}
+
+# devflow_module_pin_unique NAME LITERAL FILE
+#   Exactly-one presence pin: PASS iff LITERAL occurs exactly once in FILE. An
+#   unestablished count fails the assert_eq (RED), never passes as a bare "1".
+devflow_module_pin_unique() { # name literal file
+  assert_eq "$1" "1" "$(devflow_module_pin_count "$2" "$3")"
+}
+
+# devflow_module_pin_present NAME LITERAL FILE
+#   At-least-one presence pin: PASS iff LITERAL occurs one or more times in FILE
+#   (for values that legitimately recur, where an exactly-one pin would be wrong).
+#   Folds an unestablished count to "no" so it fails closed (RED), never vacuously.
+devflow_module_pin_present() { # name literal file
+  local n
+  n="$(devflow_module_pin_count "$2" "$3")"
+  case "$n" in
+    ''|*[!0-9]*) assert_eq "$1" "yes" "no"; return 0 ;;
+  esac
+  [ "$n" -ge 1 ] && assert_eq "$1" "yes" "yes" || assert_eq "$1" "yes" "no"
+}
+
+# devflow_module_pin_red_under NAME LITERAL MUTATION FILE
+#   Mutation-taking scratch-copy RED proof: copies FILE to a private scratch, applies
+#   the `sed -E` MUTATION to the copy (never editing the tracked FILE), and asserts
+#   the pin flips PASS (exactly one occurrence in FILE) -> FAIL (not exactly one in
+#   the mutated copy). A framing-only pin that survives the operative mutation reports
+#   RED. An unreadable file, a mktemp failure, a sed error, or a no-op mutation each
+#   record a RED verdict. Cleanup is synchronous on EVERY return path (no trap).
+devflow_module_pin_red_under() { # name literal mutation file
+  local name="$1" literal="$2" mutation="$3" file="$4" scratch before after b a
+  if [ ! -f "$file" ] || [ ! -r "$file" ]; then
+    assert_eq "$name" "PASS->FAIL" "unreadable-file:$file"
+    return 0
+  fi
+  if ! scratch="$(mktemp "${TMPDIR:-/tmp}/devflow-module-mut.XXXXXX")"; then
+    assert_eq "$name" "PASS->FAIL" "mktemp-failed"
+    return 0
+  fi
+  if ! sed -E "$mutation" "$file" > "$scratch" 2>/dev/null; then
+    assert_eq "$name" "PASS->FAIL" "mutation-errored"
+    rm -f "$scratch"
+    return 0
+  fi
+  if cmp -s "$file" "$scratch"; then
+    assert_eq "$name" "PASS->FAIL" "mutation-noop"
+    rm -f "$scratch"
+    return 0
+  fi
+  b="$(devflow_module_pin_count "$literal" "$file")"
+  a="$(devflow_module_pin_count "$literal" "$scratch")"
+  before="$([ "$b" = 1 ] && printf 'PASS' || printf 'FAIL')"
+  after="$([ "$a" = 1 ] && printf 'PASS' || printf 'FAIL')"
+  assert_eq "$name" "PASS->FAIL" "$before->$after"
+  rm -f "$scratch"
+}
+
+
 _devflow_valid_result_count() {
   local tally_file="${1:-$RESULTS_FILE}" invalid_count count grep_rc
   [ -f "$tally_file" ] && [ -r "$tally_file" ] || return 1
