@@ -19,16 +19,20 @@ It declares, as checked-in data:
   dispatch, nested skill invocation, inline engine reuse, and documentation
   subagents.
 * ``SKILL_ASSETS`` — for every skill in the closure, the repository-owned
-  ``SKILL.md`` + ``phases/*.md`` assets a cloud writer session can reach.
+  reachable assets a cloud writer session can read: the ``SKILL.md`` plus
+  whichever asset family a skill actually uses — ``phases/*.md`` (implement,
+  review), ``references/*.md`` (review-and-fix's fix-loop procedure), or
+  top-level reviewer prose (``requesting-code-review/code-reviewer.md``).
 * ``REQUIRED_HELPER_HEADS`` — per cloud profile, the exact vendored leading
   tokens the profile grants (the executable trust boundary).
 
 ``check_closure()`` is the AC1 guard: it fails when a root or a dispatch edge
 names a skill that is not classified in ``SKILL_ASSETS``, when a dispatch edge
 carries an unknown ``kind``, when a classified asset (or a required helper's
-source file) does not exist on disk, when a ``phases/*.md`` file exists on disk
-under a classified skill but is not listed (the reverse-drift check), or when
-``REQUIRED_HELPER_HEADS`` and ``ROOTS`` name different profile sets.
+source file) does not exist on disk, when a reachable ``*.md`` asset exists on
+disk under a classified skill but is not listed (the reverse-drift check, which
+covers ``phases/``, ``references/``, and top-level reviewer prose alike), or
+when ``REQUIRED_HELPER_HEADS`` and ``ROOTS`` name different profile sets.
 ``build_manifest()`` renders the AC18
 ``devflow-cloud-writer-contract-v1`` manifest from this same data, so the manifest
 can never silently drift from the closure it claims to describe.
@@ -133,8 +137,27 @@ SKILL_ASSETS = {
         "skills/review/phases/phase-4-1-7-stale-adjudication.md",
         "skills/review/phases/phase-4-4-github-post.md",
     ],
-    "review-and-fix": ["skills/review-and-fix/SKILL.md"],
-    "requesting-code-review": ["skills/requesting-code-review/SKILL.md"],
+    # review-and-fix has NO phases/ dir — its fix-loop procedure lives in
+    # references/*.md that skills/review-and-fix/SKILL.md reads at runtime (and
+    # several carry the ${CLAUDE_SKILL_DIR:-…} anchors this manifest exists to
+    # pin), so they are reachable assets and must be classified/pinned.
+    "review-and-fix": [
+        "skills/review-and-fix/SKILL.md",
+        "skills/review-and-fix/references/convergence.md",
+        "skills/review-and-fix/references/error-handling.md",
+        "skills/review-and-fix/references/fix-delta-gate.md",
+        "skills/review-and-fix/references/fixing.md",
+        "skills/review-and-fix/references/loop-control.md",
+        "skills/review-and-fix/references/loop-exit.md",
+        "skills/review-and-fix/references/pre-fix-gates.md",
+        "skills/review-and-fix/references/shadow-review.md",
+    ],
+    # requesting-code-review's SKILL.md dispatches the reviewer persona prose in
+    # code-reviewer.md — a reachable top-level (non-phases) asset.
+    "requesting-code-review": [
+        "skills/requesting-code-review/SKILL.md",
+        "skills/requesting-code-review/code-reviewer.md",
+    ],
     "receiving-code-review": ["skills/receiving-code-review/SKILL.md"],
     "docs": ["skills/docs/SKILL.md"],
     "docs-sync-internal": ["skills/docs-sync-internal/SKILL.md"],
@@ -316,28 +339,39 @@ def check_closure():
                     f"profile '{profile}' required helper missing on disk: {rel}"
                 )
 
-    # Every phase file on disk under a classified skill's phases/ dir must be
-    # listed. The listed-assets-exist check above is one-directional (it never
-    # notices a NEW phase file), so a reachable phase asset added without
-    # classifying would otherwise leave the closure green — exactly the AC1 drift
-    # this guard exists to catch.
-    errors.extend(unlisted_phase_files())
+    # Every reachable .md asset on disk under a classified skill must be listed.
+    # The listed-assets-exist check above is one-directional (it never notices a
+    # NEW on-disk asset), so a reachable asset added without classifying would
+    # otherwise leave the closure green — exactly the AC1 drift this guard exists
+    # to catch.
+    errors.extend(unlisted_skill_assets())
 
     return errors
 
 
-def unlisted_phase_files():
-    """Phase .md files on disk under a classified skill that are not listed."""
+def unlisted_skill_assets():
+    """Reachable ``*.md`` assets on disk under a classified skill that are not listed.
+
+    Globs every ``*.md`` under ``skills/<skill>/`` (recursively) other than the
+    skill's own ``SKILL.md`` — so ``phases/*.md`` (implement, review),
+    ``references/*.md`` (review-and-fix), and top-level reviewer prose
+    (``requesting-code-review/code-reviewer.md``) are all covered. Globbing a
+    single asset family (the old phases-only check) left every other reachable
+    family structurally invisible to the reverse-drift guard.
+    """
     missing = []
     for skill, assets in SKILL_ASSETS.items():
-        phases_dir = REPO_ROOT / "skills" / skill / "phases"
-        if not phases_dir.is_dir():
+        skill_dir = REPO_ROOT / "skills" / skill
+        if not skill_dir.is_dir():
             continue
+        skill_md = f"skills/{skill}/SKILL.md"
         listed = set(assets)
-        for phase_file in sorted(phases_dir.glob("*.md")):
-            rel = phase_file.relative_to(REPO_ROOT).as_posix()
+        for md_file in sorted(skill_dir.rglob("*.md")):
+            rel = md_file.relative_to(REPO_ROOT).as_posix()
+            if rel == skill_md:
+                continue
             if rel not in listed:
-                missing.append(f"skill '{skill}' has an unclassified phase asset on disk: {rel}")
+                missing.append(f"skill '{skill}' has an unclassified reachable asset on disk: {rel}")
     return missing
 
 

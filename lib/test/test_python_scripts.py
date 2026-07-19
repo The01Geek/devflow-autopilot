@@ -5449,9 +5449,17 @@ assert_eq("#543 AC1: check_closure() reports no violations on the live closure",
           [], cwc.check_closure())
 assert_eq("#543 AC1: reachable_skills() are all classified",
           True, cwc.reachable_skills() <= set(cwc.SKILL_ASSETS))
-assert_eq("#543 AC1: every on-disk phase file of a classified skill is listed "
-          "(a new reachable phase asset would go RED)",
-          [], cwc.unlisted_phase_files())
+assert_eq("#543 AC1: every on-disk reachable asset of a classified skill is listed "
+          "(a new reachable phase/reference/reviewer asset would go RED)",
+          [], cwc.unlisted_skill_assets())
+# #578: the reverse-drift guard must cover NON-phases reachable assets — the gap
+# that left review-and-fix's references/*.md and requesting-code-review's
+# code-reviewer.md unclassified and unpinned. Assert they are now classified.
+assert_eq("#578: review-and-fix references/*.md are classified (fix-loop procedure pinned)",
+          True, "skills/review-and-fix/references/fixing.md" in cwc.SKILL_ASSETS["review-and-fix"])
+assert_eq("#578: requesting-code-review code-reviewer.md is classified",
+          True, "skills/requesting-code-review/code-reviewer.md"
+                 in cwc.SKILL_ASSETS["requesting-code-review"])
 
 # AC1 guard failure branches — drive each with a monkeypatched module global and
 # restore, so the guard is proven non-vacuous (it fires on the drift it exists to
@@ -5473,9 +5481,24 @@ try:
     cwc.REQUIRED_HELPER_HEADS = _cw_orig_heads
     cwc.SKILL_ASSETS = dict(_cw_orig_assets)
     cwc.SKILL_ASSETS["review"] = [a for a in _cw_orig_assets["review"] if "phase-3-agents" not in a]
-    assert_eq("#543 AC1: unlisted_phase_files flags an on-disk-but-unlisted phase "
+    assert_eq("#543 AC1: unlisted_skill_assets flags an on-disk-but-unlisted phase "
               "(guard bites — not vacuous)",
-              True, any("phase-3-agents" in e for e in cwc.unlisted_phase_files()))
+              True, any("phase-3-agents" in e for e in cwc.unlisted_skill_assets()))
+    # #578: prove the guard now bites on a NON-phases reachable asset too — a
+    # references/*.md dropped from the classification must go RED (the exact
+    # drift the old phases-only glob was structurally blind to).
+    cwc.SKILL_ASSETS = dict(_cw_orig_assets)
+    cwc.SKILL_ASSETS["review-and-fix"] = [
+        a for a in _cw_orig_assets["review-and-fix"] if "references/fixing.md" not in a]
+    assert_eq("#578: unlisted_skill_assets flags an unlisted references/*.md asset "
+              "(reverse-drift guard covers non-phases families)",
+              True, any("references/fixing.md" in e for e in cwc.unlisted_skill_assets()))
+    # And on code-reviewer.md (a top-level, non-subdir reachable asset).
+    cwc.SKILL_ASSETS = dict(_cw_orig_assets)
+    cwc.SKILL_ASSETS["requesting-code-review"] = [
+        a for a in _cw_orig_assets["requesting-code-review"] if "code-reviewer.md" not in a]
+    assert_eq("#578: unlisted_skill_assets flags an unlisted top-level reviewer asset",
+              True, any("code-reviewer.md" in e for e in cwc.unlisted_skill_assets()))
     # A malformed edge (missing from/to) is reported as a violation, never a crash.
     cwc.DISPATCH_EDGES = _cw_orig_edges + [{"kind": "nested"}]
     _me = cwc.check_closure()
@@ -5556,9 +5579,15 @@ with tempfile.TemporaryDirectory() as _cw_base:
     # 1 ABSENT_FILE
     assert_eq("#543 AC18 c1 ABSENT_FILE", [vcwc.ABSENT_FILE],
               _codes(_run(path=_base / "nope.json")))
-    # 2 UNREADABLE_FILE (a directory is present-but-unreadable-as-text)
+    # 2 UNREADABLE_FILE (a directory is present-but-unreadable-as-text → OSError arm)
     assert_eq("#543 AC18 c2 UNREADABLE_FILE", [vcwc.UNREADABLE_FILE],
               _codes(_run(path=_base / "scripts")))
+    # #578: the other UNREADABLE_FILE arm — a present file that is not valid UTF-8
+    # (the UnicodeDecodeError path, distinct from the directory/OSError path above).
+    _bad_utf8 = _base / "bad-utf8.json"
+    _bad_utf8.write_bytes(b"\xff\xfe\x00 not utf-8 \x80\x81")
+    assert_eq("#578 AC18 c2 UNREADABLE_FILE (non-UTF-8 file, decode arm)",
+              [vcwc.UNREADABLE_FILE], _codes(_run(path=_bad_utf8)))
     # 3 INVALID_JSON
     assert_eq("#543 AC18 c3 INVALID_JSON", [vcwc.INVALID_JSON],
               _codes(_run(raw="{ not json")))
