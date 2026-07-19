@@ -79,16 +79,40 @@ esac
 SELECTOR_STDERR=""
 RESULTS_FILE=""
 DETAILS_FILE=""
+MODULE_PID=""
+RUNNER_CLEANUP_DONE=0
 cleanup() {
+  [ "$RUNNER_CLEANUP_DONE" -eq 0 ] || return 0
+  RUNNER_CLEANUP_DONE=1
   [ -z "$SELECTOR_STDERR" ] || rm -f "$SELECTOR_STDERR"
   [ -z "$RESULTS_FILE" ] || rm -f "$RESULTS_FILE"
   [ -z "$DETAILS_FILE" ] || rm -f "$DETAILS_FILE"
+  _devflow_test_append_cleanup_marker \
+    "${DEVFLOW_TEST_RUNNER_CLEANUP_MARKER:-}" || :
+}
+cleanup_on_signal() {
+  local signal_name="$1"
+  # Process-group delivery can reach the runner and module concurrently. Ignore
+  # duplicates while the runner forwards, reaps, and cleans exactly once.
+  trap '' HUP INT TERM
+  if [ -n "$MODULE_PID" ]; then
+    # Job control gives the module a distinct process group, so forwarding also
+    # reaches any foreground helper the module shell is waiting for.
+    kill -s "$signal_name" -- "-$MODULE_PID" 2>/dev/null || :
+    wait "$MODULE_PID" 2>/dev/null || :
+    MODULE_PID=""
+  fi
+  cleanup
+  trap - EXIT
+  exit 1
 }
 trap cleanup EXIT
 # Trap HUP/INT/TERM explicitly so cleanup runs at a deterministic point and the
-# runner exits 1 (not 128+sig), independent of any shell-version variation in
-# EXIT-trap-on-signal behavior.
-trap 'cleanup; trap - EXIT HUP INT TERM; exit 1' HUP INT TERM
+# runner exits 1 (not 128+sig). The module is supervised in the background below,
+# so a parent-only signal can forward to and reap it before removing the tallies.
+trap 'cleanup_on_signal HUP' HUP
+trap 'cleanup_on_signal INT' INT
+trap 'cleanup_on_signal TERM' TERM
 
 # Explicit ${TMPDIR:-/tmp}-rooted templates: bare `mktemp` does not honor a
 # runtime TMPDIR override on macOS/BSD (it uses the Darwin confstr temp dir),
@@ -240,7 +264,14 @@ DETAILS_FILE="$(mktemp "${TMPDIR:-/tmp}/devflow-module-details.XXXXXX")" || {
 mkdir -p "$LOG_DIR" || selector_error "could not create log directory: $LOG_DIR"
 LOG_FILE="$(mktemp "$LOG_DIR/$MODULE_ID.log.XXXXXX")" || \
   selector_error "could not allocate module log in: $LOG_DIR"
+_devflow_test_write_pid "${DEVFLOW_TEST_RUNNER_PID_FILE:-}" "$$" \
+  "focused runner" || :
 
+RUNNER_MONITOR_WAS_ON=0
+case "$-" in
+  *m*) RUNNER_MONITOR_WAS_ON=1 ;;
+  *) set -m ;;
+esac
 (
   set -u
   # Consumed by the dynamically selected module sourced below.
@@ -292,8 +323,17 @@ LOG_FILE="$(mktemp "$LOG_DIR/$MODULE_ID.log.XXXXXX")" || \
 
   # shellcheck source=/dev/null disable=SC1090
   . "$MODULE_PATH"
-) > "$LOG_FILE" 2>&1
-MODULE_RC=$?
+) > "$LOG_FILE" 2>&1 &
+MODULE_PID=$!
+[ "$RUNNER_MONITOR_WAS_ON" -eq 1 ] || set +m
+_devflow_test_write_pid "${DEVFLOW_TEST_MODULE_PID_FILE:-}" "$MODULE_PID" \
+  "focused module" || :
+if wait "$MODULE_PID"; then
+  MODULE_RC=0
+else
+  MODULE_RC=$?
+fi
+MODULE_PID=""
 
 PASS_COUNT=0
 ASSERT_FAIL_COUNT=0

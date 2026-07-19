@@ -84,11 +84,12 @@ devflow_module_pin_present() { # name literal file
 #   record a RED verdict. Cleanup is synchronous on EVERY return path (no trap).
 devflow_module_pin_red_under() { # name literal mutation file
   local name="$1" literal="$2" mutation="$3" file="$4" scratch before after b a
+  local scratch_root="${DEVFLOW_MODULE_SCRATCH_ROOT:-${TMPDIR:-/tmp}}"
   if [ ! -f "$file" ] || [ ! -r "$file" ]; then
     assert_eq "$name" "PASS->FAIL" "unreadable-file:$file"
     return 0
   fi
-  if ! scratch="$(mktemp "${TMPDIR:-/tmp}/devflow-module-mut.XXXXXX")"; then
+  if ! scratch="$(mktemp "$scratch_root/devflow-module-mut.XXXXXX")"; then
     assert_eq "$name" "PASS->FAIL" "mktemp-failed"
     return 0
   fi
@@ -173,13 +174,70 @@ devflow_fold_module_failures() { # current-failure-count
   printf '%s\n' "$((current_failures + module_failures))"
 }
 
+_devflow_test_write_pid() { # path pid owner
+  local path="$1" pid="$2" owner="$3"
+  [ -n "$path" ] || return 0
+  if ! printf '%s\n' "$pid" > "$path"; then
+    printf 'devflow-test: could not record %s PID in %s\n' "$owner" "$path" >&2
+    return 1
+  fi
+}
+
+_devflow_test_append_cleanup_marker() { # path
+  local path="$1"
+  [ -n "$path" ] || return 0
+  if ! printf 'runner-cleanup\n' >> "$path"; then
+    printf 'devflow-test: could not append runner cleanup marker to %s\n' "$path" >&2
+    return 1
+  fi
+}
+
+_devflow_cleanup_full_suite_tally() { # tally-path
+  local tally_path="$1"
+  [ -n "$tally_path" ] || return 0
+  if ! rm -f "$tally_path"; then
+    printf 'devflow: could not remove private module tally: %s\n' "$tally_path" >&2
+    return 1
+  fi
+  _devflow_test_append_cleanup_marker \
+    "${DEVFLOW_TEST_RUNNER_CLEANUP_MARKER:-}" || return 1
+}
+
+_devflow_restore_signal_traps() { # saved-hup saved-int saved-term
+  local saved_hup="$1" saved_int="$2" saved_term="$3"
+  trap - HUP INT TERM
+  # `trap -p` produced these commands in this shell; evaluating that shell-owned
+  # representation preserves the caller's exact quoting and action text.
+  [ -z "$saved_hup" ] || eval "$saved_hup"
+  [ -z "$saved_int" ] || eval "$saved_int"
+  [ -z "$saved_term" ] || eval "$saved_term"
+}
+
+_devflow_full_suite_signal() { # signal module-pid tally-path
+  local signal_name="$1" module_pid="$2" tally_path="$3"
+  # Process-group delivery can reach this handler and the module concurrently;
+  # ignore duplicate signals while forwarding, reaping, and cleaning.
+  trap '' HUP INT TERM
+  if [ -n "$module_pid" ]; then
+    # The supervised module is its own job-control process group, so forwarding
+    # reaches both the shell and any foreground helper it is waiting for.
+    kill -s "$signal_name" -- "-$module_pid" 2>/dev/null || :
+    wait "$module_pid" 2>/dev/null || :
+  fi
+  _devflow_cleanup_full_suite_tally "$tally_path" || :
+  # The boundary owns only these temporary signal traps. Leave the caller's EXIT
+  # trap installed so its top-level registry cleanup still runs on this exit.
+  exit 1
+}
+
 # Return contract: rc 0 means the boundary HANDLED the module (including a
 # failing module — the failure is recorded in MODULE_FAILURES_FILE); rc 1 means
 # the boundary-failure channel itself is unusable and the caller must abort.
 # rc 0 is NOT "module passed" — always fold MODULE_FAILURES_FILE afterwards.
 devflow_run_full_suite_module() { # module-path module-name minimum-assertions
   local module_path="$1" module_name="$2" minimum_assertions="$3"
-  local module_results_file="" module_rc assertion_count
+  local module_results_file="" module_pid="" module_rc assertion_count
+  local saved_hup saved_int saved_term monitor_was_on=0
 
   case "$minimum_assertions" in
     ''|*[!0-9]*|????????*)
@@ -215,6 +273,19 @@ devflow_run_full_suite_module() { # module-path module-name minimum-assertions
     return 0
   fi
 
+  saved_hup="$(trap -p HUP)"
+  saved_int="$(trap -p INT)"
+  saved_term="$(trap -p TERM)"
+  trap '_devflow_full_suite_signal HUP "$module_pid" "$module_results_file"' HUP
+  trap '_devflow_full_suite_signal INT "$module_pid" "$module_results_file"' INT
+  trap '_devflow_full_suite_signal TERM "$module_pid" "$module_results_file"' TERM
+  _devflow_test_write_pid "${DEVFLOW_TEST_RUNNER_PID_FILE:-}" "$$" \
+    "full-suite runner" || :
+
+  case "$-" in
+    *m*) monitor_was_on=1 ;;
+    *) set -m ;;
+  esac
   (
     # Keep the full-suite boundary's fail direction identical to the focused
     # runner even when a future caller does not enable nounset globally.
@@ -232,24 +303,37 @@ devflow_run_full_suite_module() { # module-path module-name minimum-assertions
     unset SKIPS_FILE
     # shellcheck source=/dev/null disable=SC1090
     . "$module_path"
-  )
-  module_rc=$?
+  ) &
+  module_pid=$!
+  [ "$monitor_was_on" -eq 1 ] || set +m
+  _devflow_test_write_pid "${DEVFLOW_TEST_MODULE_PID_FILE:-}" "$module_pid" \
+    "full-suite module" || :
+  if wait "$module_pid"; then
+    module_rc=0
+  else
+    module_rc=$?
+  fi
+  module_pid=""
+  _devflow_restore_signal_traps "$saved_hup" "$saved_int" "$saved_term"
 
   if ! assertion_count="$(_devflow_valid_result_count "$module_results_file")"; then
-    rm -f "$module_results_file"
+    _devflow_cleanup_full_suite_tally "$module_results_file" || :
+    module_results_file=""
     _devflow_record_module_failure || return 1
     printf '  FAIL  test module %s — result tally unreadable after module execution\n' "$module_name" >&2
     return 0
   fi
 
   if ! cat "$module_results_file" >> "$RESULTS_FILE"; then
-    rm -f "$module_results_file"
+    _devflow_cleanup_full_suite_tally "$module_results_file" || :
+    module_results_file=""
     _devflow_record_module_failure || return 1
     printf '  FAIL  test module %s — could not append private result tally\n' \
       "$module_name" >&2
     return 0
   fi
-  rm -f "$module_results_file"
+  _devflow_cleanup_full_suite_tally "$module_results_file" || :
+  module_results_file=""
 
   if [ "$module_rc" -ne 0 ]; then
     _devflow_record_module_failure || return 1

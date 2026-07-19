@@ -125,6 +125,14 @@ class ModuleRunnerTests(unittest.TestCase):
     ) -> subprocess.CompletedProcess[str]:
         environment = os.environ.copy()
         environment.pop("DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE", None)
+        for name in (
+            "DEVFLOW_TEST_RUNNER_PID_FILE",
+            "DEVFLOW_TEST_MODULE_PID_FILE",
+            "DEVFLOW_TEST_RUNNER_CLEANUP_MARKER",
+            "DEVFLOW_TEST_MODULE_CLEANUP_MARKER",
+            "DEVFLOW_TEST_MODULE_STATE_FILE",
+        ):
+            environment.pop(name, None)
         environment["SOURCE_MARKER"] = str(self.marker)
         if extra_env:
             environment.update(extra_env)
@@ -817,12 +825,11 @@ class ModuleRunnerTests(unittest.TestCase):
             self.assertTrue(ready.exists(), "blocking module did not start")
             self.assertEqual(len(list(controlled_tmp.iterdir())), 2)
         finally:
-            # The runner's HUP/INT/TERM trap runs only after the module's
-            # foreground command (sleep 5) returns, so give SIGTERM time to be
-            # honored and fall back to SIGKILL rather than hanging the test.
+            # Parent-only TERM is forwarded to the supervised module and must be
+            # bounded; retain SIGKILL only as a test-harness leak backstop.
             process.terminate()
             try:
-                process.communicate(timeout=8)
+                process.communicate(timeout=3)
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.communicate()

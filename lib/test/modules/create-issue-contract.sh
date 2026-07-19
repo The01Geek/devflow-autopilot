@@ -12,11 +12,11 @@
 # plus its two domain-private classifiers below). The inventory in
 # create-issue-contract.inventory.md maps the extracted coverage to its former
 # run.sh locations. Modules may not self-skip.
-# The `trap _ci_cleanup EXIT` below relies on a sourcing contract: both callers
+# The cleanup handlers below rely on a sourcing contract: both callers
 # (module-harness.sh's full-suite boundary and run-module.sh) source this module
-# inside a ( ... ) subshell, so the trap fires at subshell exit and cannot clobber
-# the runner's own EXIT handling. Do not source this module directly in a runner's
-# top-level shell without restoring the trap.
+# inside a ( ... ) subshell, so its EXIT/HUP/INT/TERM traps cannot clobber the
+# runner's handlers. Do not source this module directly in a runner's top-level
+# shell without restoring those traps.
 
 # A caller may point DEVFLOW_CREATE_ISSUE_CONTRACT_ROOT at a scratch repository copy
 # for mutation evidence; the normal focused and full-suite paths default to the
@@ -40,10 +40,35 @@ _ci_tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/devflow-create-issue-contract.XXXXXX"
   printf 'could not allocate create-issue-contract fixture\n' >&2
   return 1
 }
+# Consumed dynamically by devflow_module_pin_red_under from the sourced harness.
+# shellcheck disable=SC2034
+DEVFLOW_MODULE_SCRATCH_ROOT="$_ci_tmp_root"
+_ci_cleanup_done=0
 _ci_cleanup() {
-  rm -rf "$_ci_tmp_root"
+  [ "$_ci_cleanup_done" -eq 0 ] || return 0
+  _ci_cleanup_done=1
+  if ! rm -rf "$_ci_tmp_root"; then
+    printf 'devflow: could not remove create-issue-contract fixture: %s\n' \
+      "$_ci_tmp_root" >&2
+    return 1
+  fi
+  if [ -n "${DEVFLOW_TEST_MODULE_CLEANUP_MARKER:-}" ]; then
+    if ! printf 'module-cleanup\n' >> "$DEVFLOW_TEST_MODULE_CLEANUP_MARKER"; then
+      printf 'devflow-test: could not append module cleanup marker to %s\n' \
+        "$DEVFLOW_TEST_MODULE_CLEANUP_MARKER" >&2
+    fi
+  fi
+}
+_ci_cleanup_on_signal() {
+  # The boundary may forward a signal already delivered to the process group.
+  # Ignore duplicates while the idempotent cleanup removes the private root.
+  trap '' HUP INT TERM
+  _ci_cleanup || :
+  trap - EXIT
+  exit 1
 }
 trap _ci_cleanup EXIT
+trap _ci_cleanup_on_signal HUP INT TERM
 
 # The implement-skill bundle backs the #467 D2 Phase-2.4 leg (the widened
 # best-effort-parser rule must appear exactly once across the implement skill's
