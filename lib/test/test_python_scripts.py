@@ -5427,6 +5427,445 @@ assert_eq("#548 summary: an open trailing round does not blank the last complete
           ('REVISE', 3),
           (lambda s: (s['adjudicated_verdict'], s['unresolved_must_revise']))(
               issue_audit_state.summary_fields(_open_after, 'D1')))
+# ─────────────────────────────────────────────────────────────────────────────
+# Cloud-writer reachability contract (AC1) + runtime-manifest validator (AC18),
+# issue #543. The validator's rejection matrix is closed at exactly 17 classes;
+# every class is driven below against an isolated fixture with injected deps.
+# ─────────────────────────────────────────────────────────────────────────────
+import hashlib  # noqa: E402
+import json  # noqa: E402
+
+_LIBTEST = Path(__file__).resolve().parent
+cwc = _load('cloud_writer_contract', _LIBTEST / 'cloud_writer_contract.py')
+vcwc = _load('validate_cloud_writer_contract', SCRIPTS / 'validate-cloud-writer-contract.py')
+
+
+def _codes(violations):
+    return sorted({code for code, _ in violations})
+
+
+# AC1 — the real closure is consistent and the checked-in manifest is fresh.
+assert_eq("#543 AC1: check_closure() reports no violations on the live closure",
+          [], cwc.check_closure())
+assert_eq("#543 AC1: reachable_skills() are all classified",
+          True, cwc.reachable_skills() <= set(cwc.SKILL_ASSETS))
+assert_eq("#543 AC1: every on-disk reachable asset of a classified skill is listed "
+          "(a new reachable phase/reference/reviewer asset would go RED)",
+          [], cwc.unlisted_skill_assets())
+# #578: the reverse-drift guard must cover NON-phases reachable assets — the gap
+# that left review-and-fix's references/*.md and requesting-code-review's
+# code-reviewer.md unclassified and unpinned. Assert they are now classified.
+assert_eq("#578: review-and-fix references/*.md are classified (fix-loop procedure pinned)",
+          True, "skills/review-and-fix/references/fixing.md" in cwc.SKILL_ASSETS["review-and-fix"])
+assert_eq("#578: requesting-code-review code-reviewer.md is classified",
+          True, "skills/requesting-code-review/code-reviewer.md"
+                 in cwc.SKILL_ASSETS["requesting-code-review"])
+
+# AC1 guard failure branches — drive each with a monkeypatched module global and
+# restore, so the guard is proven non-vacuous (it fires on the drift it exists to
+# catch, not merely returns [] on the healthy tree).
+_cw_orig_edges = cwc.DISPATCH_EDGES
+_cw_orig_assets = cwc.SKILL_ASSETS
+_cw_orig_heads = cwc.REQUIRED_HELPER_HEADS
+try:
+    cwc.DISPATCH_EDGES = _cw_orig_edges + [{"from": "implement", "to": "nonesuch", "kind": "nested"}]
+    assert_eq("#543 AC1: an edge to an unclassified skill is caught",
+              True, any("nonesuch" in e for e in cwc.check_closure()))
+    cwc.DISPATCH_EDGES = _cw_orig_edges + [{"from": "implement", "to": "review", "kind": "boguskind"}]
+    assert_eq("#543 AC1: an edge with an unknown kind is caught",
+              True, any("boguskind" in e for e in cwc.check_closure()))
+    cwc.DISPATCH_EDGES = _cw_orig_edges
+    cwc.REQUIRED_HELPER_HEADS = {"implement": _cw_orig_heads["implement"]}
+    assert_eq("#543 AC1: REQUIRED_HELPER_HEADS profiles != ROOTS is caught",
+              True, any("REQUIRED_HELPER_HEADS profiles" in e for e in cwc.check_closure()))
+    cwc.REQUIRED_HELPER_HEADS = _cw_orig_heads
+    cwc.SKILL_ASSETS = dict(_cw_orig_assets)
+    cwc.SKILL_ASSETS["review"] = [a for a in _cw_orig_assets["review"] if "phase-3-agents" not in a]
+    assert_eq("#543 AC1: unlisted_skill_assets flags an on-disk-but-unlisted phase "
+              "(guard bites — not vacuous)",
+              True, any("phase-3-agents" in e for e in cwc.unlisted_skill_assets()))
+    # #578: prove the guard now bites on a NON-phases reachable asset too — a
+    # references/*.md dropped from the classification must go RED (the exact
+    # drift the old phases-only glob was structurally blind to).
+    cwc.SKILL_ASSETS = dict(_cw_orig_assets)
+    cwc.SKILL_ASSETS["review-and-fix"] = [
+        a for a in _cw_orig_assets["review-and-fix"] if "references/fixing.md" not in a]
+    assert_eq("#578: unlisted_skill_assets flags an unlisted references/*.md asset "
+              "(reverse-drift guard covers non-phases families)",
+              True, any("references/fixing.md" in e for e in cwc.unlisted_skill_assets()))
+    # And on code-reviewer.md (a top-level, non-subdir reachable asset).
+    cwc.SKILL_ASSETS = dict(_cw_orig_assets)
+    cwc.SKILL_ASSETS["requesting-code-review"] = [
+        a for a in _cw_orig_assets["requesting-code-review"] if "code-reviewer.md" not in a]
+    assert_eq("#578: unlisted_skill_assets flags an unlisted top-level reviewer asset",
+              True, any("code-reviewer.md" in e for e in cwc.unlisted_skill_assets()))
+    # A malformed edge (missing from/to) is reported as a violation, never a crash.
+    cwc.DISPATCH_EDGES = _cw_orig_edges + [{"kind": "nested"}]
+    _me = cwc.check_closure()
+    assert_eq("#543 AC1: a from/to-less edge is reported, not a KeyError crash",
+              True, any("missing required field" in e for e in _me))
+    assert_eq("#543 AC1: reachable_skills() tolerates a malformed edge (no crash)",
+              True, isinstance(cwc.reachable_skills(), set))
+finally:
+    cwc.DISPATCH_EDGES = _cw_orig_edges
+    cwc.SKILL_ASSETS = _cw_orig_assets
+    cwc.REQUIRED_HELPER_HEADS = _cw_orig_heads
+
+# The fail-open fix is pinned directly: only a real Bash(...) grant is counted; a
+# vendored path in a comment (full-line or a `# was:` grant) or a shell assignment
+# is NOT a grant (a regression to a bare-token regex would make this go RED).
+with tempfile.TemporaryDirectory() as _gd:
+    _wf = Path(_gd) / "wf.yml"
+    _wf.write_text(
+        "# was: Bash(.devflow/vendor/devflow/scripts/commented.sh:*)\n"
+        "CG=.devflow/vendor/devflow/scripts/assigned.sh\n"
+        "TOOLS='Bash(.devflow/vendor/devflow/scripts/real-grant.sh:*),Bash(git status:*)'\n",
+        encoding="utf-8",
+    )
+    _grants = vcwc.extract_profile_grants(_wf)
+    assert_eq("#543 AC18: extract_profile_grants counts the real Bash(...) grant",
+              True, ".devflow/vendor/devflow/scripts/real-grant.sh" in _grants)
+    assert_eq("#543 AC18: a commented-out grant is NOT counted (fail-open fix)",
+              False, ".devflow/vendor/devflow/scripts/commented.sh" in _grants)
+    assert_eq("#543 AC18: a shell assignment is NOT counted (fail-open fix)",
+              False, ".devflow/vendor/devflow/scripts/assigned.sh" in _grants)
+# Unreadable grant source → empty set (unknown-is-not-zero; HEAD_ABSENT follows).
+assert_eq("#543 AC18: extract_profile_grants on a nonexistent path returns set()",
+          set(), vcwc.extract_profile_grants("/nonexistent/wf-543.yml"))
+assert_eq("#543 AC18: checked-in manifest matches the generated closure (verify)",
+          0, cwc.main(["verify"]))
+assert_eq("#543 AC18: validator accepts the real checked-in manifest",
+          0, vcwc.main([]))
+
+# AC18 — 17-class rejection matrix against an isolated fixture.
+with tempfile.TemporaryDirectory() as _cw_base:
+    _base = Path(_cw_base)
+    (_base / "scripts").mkdir()
+    _asset = _base / "scripts" / "foo.sh"
+    _asset.write_text("echo hi\n", encoding="utf-8")
+    _good_hash = hashlib.sha256(b"echo hi\n").hexdigest()
+    _head = ".devflow/vendor/devflow/scripts/foo.sh"
+
+    def _valid_manifest():
+        return {
+            "protocol": "devflow-cloud-writer-contract-v1",
+            "legacy_profile_baseline": "2.15.13",
+            "files": {"scripts/foo.sh": _good_hash},
+            "required_helper_heads": {"implement": [_head]},
+        }
+
+    def _run(manifest_obj=None, *, raw=None, path=None,
+             expected_assets=("scripts/foo.sh",),
+             required_profiles=("implement",),
+             profile_grants=None):
+        if profile_grants is None:
+            profile_grants = {"implement": {_head}}
+        mpath = _base / "manifest.json" if path is None else path
+        if path is None:
+            if raw is not None:
+                mpath.write_text(raw, encoding="utf-8")
+            else:
+                mpath.write_text(json.dumps(manifest_obj), encoding="utf-8")
+        return vcwc.validate(
+            mpath, base_dir=_base,
+            expected_assets=list(expected_assets),
+            required_profiles=list(required_profiles),
+            profile_grants=profile_grants,
+        )
+
+    # Positive control: a valid manifest yields zero violations.
+    assert_eq("#543 AC18 valid: no violations", [], _run(_valid_manifest()))
+
+    # 1 ABSENT_FILE
+    assert_eq("#543 AC18 c1 ABSENT_FILE", [vcwc.ABSENT_FILE],
+              _codes(_run(path=_base / "nope.json")))
+    # 2 UNREADABLE_FILE (a directory is present-but-unreadable-as-text → OSError arm)
+    assert_eq("#543 AC18 c2 UNREADABLE_FILE", [vcwc.UNREADABLE_FILE],
+              _codes(_run(path=_base / "scripts")))
+    # #578: the other UNREADABLE_FILE arm — a present file that is not valid UTF-8
+    # (the UnicodeDecodeError path, distinct from the directory/OSError path above).
+    _bad_utf8 = _base / "bad-utf8.json"
+    _bad_utf8.write_bytes(b"\xff\xfe\x00 not utf-8 \x80\x81")
+    assert_eq("#578 AC18 c2 UNREADABLE_FILE (non-UTF-8 file, decode arm)",
+              [vcwc.UNREADABLE_FILE], _codes(_run(path=_bad_utf8)))
+    # 3 INVALID_JSON
+    assert_eq("#543 AC18 c3 INVALID_JSON", [vcwc.INVALID_JSON],
+              _codes(_run(raw="{ not json")))
+    # 4 TOP_LEVEL_ARRAY
+    assert_eq("#543 AC18 c4 TOP_LEVEL_ARRAY", [vcwc.TOP_LEVEL_ARRAY],
+              _codes(_run(raw="[]")))
+    # 5 TOP_LEVEL_STRING
+    assert_eq("#543 AC18 c5 TOP_LEVEL_STRING", [vcwc.TOP_LEVEL_STRING],
+              _codes(_run(raw='"hi"')))
+    # 6 TOP_LEVEL_FALSE (valid-falsy)
+    assert_eq("#543 AC18 c6 TOP_LEVEL_FALSE", [vcwc.TOP_LEVEL_FALSE],
+              _codes(_run(raw="false")))
+    # 7 MISSING_KEY
+    _m = _valid_manifest()
+    del _m["protocol"]
+    assert_eq("#543 AC18 c7 MISSING_KEY", True, vcwc.MISSING_KEY in _codes(_run(_m)))
+    # 8 EXTRA_KEY
+    _m = _valid_manifest()
+    _m["bogus"] = 1
+    assert_eq("#543 AC18 c8 EXTRA_KEY", [vcwc.EXTRA_KEY], _codes(_run(_m)))
+    # 9 DUPLICATE_KEY (only expressible in raw source)
+    _dup = ('{"protocol":"devflow-cloud-writer-contract-v1","protocol":"x",'
+            '"legacy_profile_baseline":"2.15.13","files":{},'
+            '"required_helper_heads":{}}')
+    assert_eq("#543 AC18 c9 DUPLICATE_KEY", [vcwc.DUPLICATE_KEY], _codes(_run(raw=_dup)))
+    # 10 WRONG_FIELD_TYPE
+    _m = _valid_manifest()
+    _m["files"] = "notanobject"
+    assert_eq("#543 AC18 c10 WRONG_FIELD_TYPE", True,
+              vcwc.WRONG_FIELD_TYPE in _codes(_run(_m)))
+    # 11 MALFORMED_DIGEST
+    _m = _valid_manifest()
+    _m["files"] = {"scripts/foo.sh": "notahash"}
+    assert_eq("#543 AC18 c11 MALFORMED_DIGEST", [vcwc.MALFORMED_DIGEST], _codes(_run(_m)))
+    # 12 INVALID_PATH (escaping relative path, well-formed digest)
+    _m = _valid_manifest()
+    _m["files"] = {"../escape.sh": _good_hash}
+    assert_eq("#543 AC18 c12 INVALID_PATH", True,
+              vcwc.INVALID_PATH in _codes(_run(_m, expected_assets=())))
+    # 13 MISSING_ASSET
+    _m = _valid_manifest()
+    _m["files"] = {"scripts/nope.sh": _good_hash}
+    assert_eq("#543 AC18 c13 MISSING_ASSET", True,
+              vcwc.MISSING_ASSET in _codes(_run(_m, expected_assets=("scripts/nope.sh",))))
+    # 14 HASH_MISMATCH
+    _m = _valid_manifest()
+    _m["files"] = {"scripts/foo.sh": "0" * 64}
+    assert_eq("#543 AC18 c14 HASH_MISMATCH", [vcwc.HASH_MISMATCH], _codes(_run(_m)))
+    # 15 REACHED_ASSET_OMITTED
+    assert_eq("#543 AC18 c15 REACHED_ASSET_OMITTED", True,
+              vcwc.REACHED_ASSET_OMITTED in _codes(
+                  _run(_valid_manifest(),
+                       expected_assets=("scripts/foo.sh", "scripts/bar.sh"))))
+    # 16 PROFILE_OMITTED
+    assert_eq("#543 AC18 c16 PROFILE_OMITTED", True,
+              vcwc.PROFILE_OMITTED in _codes(
+                  _run(_valid_manifest(),
+                       required_profiles=("implement", "review"),
+                       profile_grants={"implement": {_head}, "review": set()})))
+    # 17 HEAD_ABSENT
+    assert_eq("#543 AC18 c17 HEAD_ABSENT", [vcwc.HEAD_ABSENT],
+              _codes(_run(_valid_manifest(), profile_grants={"implement": set()})))
+
+    # Class 10 (WRONG_FIELD_TYPE) is emitted by several distinct triggers — cover
+    # the ones the single c10 fixture above did not, especially the protocol
+    # identity check (the contract's own version binding).
+    _m = _valid_manifest()
+    _m["protocol"] = "wrong-protocol"
+    assert_eq("#543 AC18 c10 protocol wrong value", True,
+              vcwc.WRONG_FIELD_TYPE in _codes(_run(_m)))
+    _m = _valid_manifest()
+    _m["protocol"] = 5
+    assert_eq("#543 AC18 c10 protocol non-string", True,
+              vcwc.WRONG_FIELD_TYPE in _codes(_run(_m)))
+    _m = _valid_manifest()
+    _m["legacy_profile_baseline"] = 5
+    assert_eq("#543 AC18 c10 legacy_profile_baseline non-string", True,
+              vcwc.WRONG_FIELD_TYPE in _codes(_run(_m)))
+    _m = _valid_manifest()
+    _m["required_helper_heads"] = "notobj"
+    assert_eq("#543 AC18 c10 required_helper_heads non-object", True,
+              vcwc.WRONG_FIELD_TYPE in _codes(_run(_m)))
+    _m = _valid_manifest()
+    _m["required_helper_heads"] = {"implement": "notalist"}
+    assert_eq("#543 AC18 c10 profile heads non-list", True,
+              vcwc.WRONG_FIELD_TYPE in _codes(_run(_m)))
+    assert_eq("#543 AC18 c10 top-level number (non-object scalar)",
+              [vcwc.WRONG_FIELD_TYPE], _codes(_run(raw="5")))
+    # Class 12 also covers an absolute (non-escaping-but-unsafe) path.
+    _m = _valid_manifest()
+    _m["files"] = {"/etc/passwd": _good_hash}
+    assert_eq("#543 AC18 c12 absolute path", True,
+              vcwc.INVALID_PATH in _codes(_run(_m, expected_assets=())))
+    # Independent violations accumulate — the validator collects, it does not
+    # short-circuit after the first (only fatal load/shape errors stop early).
+    _m = _valid_manifest()
+    _m["bogus"] = 1
+    _m["files"] = {"scripts/foo.sh": "notahash"}
+    _mv = _codes(_run(_m))
+    assert_eq("#543 AC18 multi-violation accumulates (EXTRA_KEY + MALFORMED_DIGEST)",
+              True, vcwc.EXTRA_KEY in _mv and vcwc.MALFORMED_DIGEST in _mv)
+
+    # Every one of the 17 classes is distinct and exercised above.
+    _seen = {
+        vcwc.ABSENT_FILE, vcwc.UNREADABLE_FILE, vcwc.INVALID_JSON, vcwc.TOP_LEVEL_ARRAY,
+        vcwc.TOP_LEVEL_STRING, vcwc.TOP_LEVEL_FALSE, vcwc.MISSING_KEY, vcwc.EXTRA_KEY,
+        vcwc.DUPLICATE_KEY, vcwc.WRONG_FIELD_TYPE, vcwc.MALFORMED_DIGEST, vcwc.INVALID_PATH,
+        vcwc.MISSING_ASSET, vcwc.HASH_MISMATCH, vcwc.REACHED_ASSET_OMITTED,
+        vcwc.PROFILE_OMITTED, vcwc.HEAD_ABSENT,
+    }
+    assert_eq("#543 AC18: rejection matrix is closed at exactly 17 classes", 17, len(_seen))
+    # Bind "closed at 17" to the module, not to a hand-copied literal set: the 17
+    # driven classes must be exactly the module's defined rejection-code constants
+    # (a NAME = "NAME" string, upper-case). An 18th class added to validate() with
+    # a new constant fails this unless a matching fixture drives it into _seen.
+    _module_codes = {
+        v for k, v in vars(vcwc).items()
+        if isinstance(v, str) and k == v and k.isupper()
+    }
+    assert_eq("#543 AC18: the driven classes are exactly the module's defined codes",
+              _module_codes, _seen)
+    # REJECTION_CODES makes "closed by construction" a structural invariant, not
+    # only a docstring: it must equal both the driven set and the module constants.
+    assert_eq("#543 AC18: REJECTION_CODES == the driven classes", vcwc.REJECTION_CODES, _seen)
+    assert_eq("#543 AC18: REJECTION_CODES == the module's code constants",
+              vcwc.REJECTION_CODES, _module_codes)
+    # A nested duplicate key (inside `files`) is caught too, not only a top-level one.
+    _nested_dup = ('{"protocol":"devflow-cloud-writer-contract-v1",'
+                   '"legacy_profile_baseline":"2.15.13",'
+                   '"files":{"a":"'+("0"*64)+'","a":"'+("1"*64)+'"},'
+                   '"required_helper_heads":{}}')
+    assert_eq("#543 AC18: a nested duplicate key is caught (DUPLICATE_KEY)",
+              [vcwc.DUPLICATE_KEY], _codes(_run(raw=_nested_dup)))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PR #578 review (Suggestion 3): drive the fail-closed guard branches the healthy
+# tree never exercises, so each is proven non-vacuous (it fires on the drift it
+# guards, not merely returns clean on the healthy tree).
+# ─────────────────────────────────────────────────────────────────────────────
+
+# validate()'s default-derivation `except` arm: a failure establishing the
+# expected-contract dependencies fails closed on the manifest channel
+# (broadened class-10 WRONG_FIELD_TYPE), never an uncaught traceback.
+_vcwc_orig_loader = vcwc._load_contract_module
+try:
+    def _boom():
+        raise RuntimeError("contract module unimportable")
+    vcwc._load_contract_module = _boom
+    _deriv = vcwc.validate("whatever.json", base_dir=SCRIPTS.parent)
+    assert_eq("#578-3: a dependency-derivation failure fails closed as WRONG_FIELD_TYPE",
+              [vcwc.WRONG_FIELD_TYPE], _codes(_deriv))
+    assert_eq("#578-3: the derivation-failure message names the reachability contract",
+              True, "could not derive" in _deriv[0].message)
+finally:
+    vcwc._load_contract_module = _vcwc_orig_loader
+
+# validate() returns Violation records (self-documenting .code/.message), still
+# unpackable as (code, message) — pin the type so a regression to a bare tuple
+# (losing the attribute access) goes RED.
+assert_eq("#578-5: validate() yields Violation records with .code/.message",
+          True, isinstance(_deriv[0], vcwc.Violation) and _deriv[0].code == vcwc.WRONG_FIELD_TYPE)
+# _StopValidation refuses a fatal code outside the closed matrix at the raise
+# boundary (previously test-enforced only for the collected list).
+try:
+    vcwc._StopValidation("NOT_A_REJECTION_CODE", "x")
+    assert_eq("#578-5: _StopValidation rejects an off-matrix code", True, False)
+except ValueError as _exc:
+    assert_eq("#578-5: _StopValidation rejects an off-matrix code at the raise boundary",
+              True, "REJECTION_CODES" in str(_exc))
+
+# _path_is_safe's backslash clause (a Windows-form separator is unsafe) is
+# undriven by the manifest fixtures — drive it directly, with a positive control.
+_psafe_base = Path(SCRIPTS.parent).resolve()
+assert_eq("#578-3: _path_is_safe rejects a backslash separator",
+          False, vcwc._path_is_safe("scripts\\foo.sh", _psafe_base))
+assert_eq("#578-3: _path_is_safe accepts a plain relative path (positive control)",
+          True, vcwc._path_is_safe("scripts/foo.sh", _psafe_base))
+
+# check_closure()'s on-disk / invalid-token / unknown-source / unclassified-root
+# branches — monkeypatch one module global into the failing shape at a time and
+# restore, asserting the specific branch fires (not merely that something did).
+_cc_o_roots = cwc.ROOTS
+_cc_o_edges = cwc.DISPATCH_EDGES
+_cc_o_assets = cwc.SKILL_ASSETS
+_cc_o_heads = cwc.REQUIRED_HELPER_HEADS
+try:
+    # (a) a root whose entry_skill is not classified (REQUIRED_HELPER_HEADS is
+    #     widened to the same profile set so the profile-mismatch branch does not
+    #     mask the entry_skill branch under test).
+    cwc.ROOTS = {**_cc_o_roots,
+                 "bogusroot": {"workflow": ".github/workflows/x.yml",
+                               "entry_skill": "unclassified-578-skill"}}
+    cwc.REQUIRED_HELPER_HEADS = {**_cc_o_heads, "bogusroot": []}
+    assert_eq("#578-3: check_closure catches an unclassified root entry_skill",
+              True, any("unclassified-578-skill" in e for e in cwc.check_closure()))
+    cwc.ROOTS = _cc_o_roots
+    cwc.REQUIRED_HELPER_HEADS = _cc_o_heads
+
+    # (b) a classified asset that does not exist on disk.
+    cwc.SKILL_ASSETS = {**_cc_o_assets,
+                        "implement": _cc_o_assets["implement"]
+                        + ["skills/implement/phases/does-not-exist-578.md"]}
+    assert_eq("#578-3: check_closure catches a classified asset missing on disk",
+              True, any("does-not-exist-578" in e and "missing on disk" in e
+                        for e in cwc.check_closure()))
+    cwc.SKILL_ASSETS = _cc_o_assets
+
+    # (c) a required helper token missing the vendor prefix (ValueError arm).
+    cwc.REQUIRED_HELPER_HEADS = {**_cc_o_heads,
+                                 "implement": _cc_o_heads["implement"]
+                                 + ["not-a-vendor-token-578.sh"]}
+    assert_eq("#578-3: check_closure catches a helper token missing the vendor prefix",
+              True, any("helper token invalid" in e for e in cwc.check_closure()))
+    cwc.REQUIRED_HELPER_HEADS = _cc_o_heads
+
+    # (d) a required helper whose (vendor-prefixed) source is absent on disk.
+    cwc.REQUIRED_HELPER_HEADS = {**_cc_o_heads,
+                                 "implement": _cc_o_heads["implement"]
+                                 + [".devflow/vendor/devflow/scripts/nonexistent-578.sh"]}
+    assert_eq("#578-3: check_closure catches a required helper source missing on disk",
+              True, any("nonexistent-578" in e and "missing on disk" in e
+                        for e in cwc.check_closure()))
+    cwc.REQUIRED_HELPER_HEADS = _cc_o_heads
+
+    # (e) a dispatch edge whose source is neither a classified skill nor a root id.
+    cwc.DISPATCH_EDGES = _cc_o_edges + [{"from": "ghost-source-578", "to": "review",
+                                         "kind": "nested"}]
+    assert_eq("#578-3: check_closure catches a dispatch edge with an unknown source",
+              True, any("ghost-source-578" in e and "unknown" in e
+                        for e in cwc.check_closure()))
+    cwc.DISPATCH_EDGES = _cc_o_edges
+finally:
+    cwc.ROOTS = _cc_o_roots
+    cwc.DISPATCH_EDGES = _cc_o_edges
+    cwc.SKILL_ASSETS = _cc_o_assets
+    cwc.REQUIRED_HELPER_HEADS = _cc_o_heads
+
+# main()'s check / generate / verify arms, and the generate/verify closure gate
+# (Suggestion 4): a closure `check` would reject fails cleanly instead of
+# crashing in build_manifest(). All manifest writes target a temp path, never the
+# checked-in manifest.
+assert_eq("#578-3: main(['check']) returns 0 on the healthy closure", 0, cwc.main(["check"]))
+_mp_orig = cwc.MANIFEST_PATH
+with tempfile.TemporaryDirectory() as _cw_main:
+    _tmp_manifest = str(Path(_cw_main) / "gen.json")
+    try:
+        cwc.MANIFEST_PATH = _tmp_manifest
+        assert_eq("#578-3: main(['generate']) returns 0 and writes the manifest", 0,
+                  cwc.main(["generate"]))
+        _written = Path(_tmp_manifest).read_text(encoding="utf-8")
+        assert_eq("#578-3: generated manifest equals canonical_json(build_manifest())",
+                  cwc.canonical_json(cwc.build_manifest()), _written)
+        assert_eq("#578-3: main(['verify']) returns 0 against the fresh temp manifest",
+                  0, cwc.main(["verify"]))
+        Path(_tmp_manifest).write_text("stale not the manifest\n", encoding="utf-8")
+        assert_eq("#578-3: main(['verify']) returns 1 on a stale manifest", 1,
+                  cwc.main(["verify"]))
+        cwc.MANIFEST_PATH = str(Path(_cw_main) / "absent.json")
+        assert_eq("#578-3: main(['verify']) returns 1 when the manifest is absent", 1,
+                  cwc.main(["verify"]))
+        # generate/verify closure gate: a bad helper token makes both fail cleanly
+        # (rc 1 with the check-style report) rather than crash in manifest_file_paths.
+        cwc.MANIFEST_PATH = str(Path(_cw_main) / "unused.json")
+        _mg_heads = cwc.REQUIRED_HELPER_HEADS
+        try:
+            cwc.REQUIRED_HELPER_HEADS = {**_mg_heads,
+                                         "implement": _mg_heads["implement"]
+                                         + ["not-a-vendor-token-578.sh"]}
+            assert_eq("#578-3+4: main(['generate']) fails closed (rc 1) on a bad closure",
+                      1, cwc.main(["generate"]))
+            assert_eq("#578-3+4: the bad closure did not write the manifest",
+                      False, Path(cwc.MANIFEST_PATH).exists())
+            assert_eq("#578-3+4: main(['verify']) fails closed (rc 1) on a bad closure",
+                      1, cwc.main(["verify"]))
+        finally:
+            cwc.REQUIRED_HELPER_HEADS = _mg_heads
+    finally:
+        cwc.MANIFEST_PATH = _mp_orig
 
 print()
 print(f"{PASS} passed, {FAIL} failed")
