@@ -20,8 +20,10 @@ prior work. It is READ-ONLY with respect to history: it derives via
 `git rev-list` / `git rev-parse` / `git check-ref-format` / `git merge-base` and,
 on a shallow repository, a single `git fetch --unshallow` to deepen history — it
 never resets, rebases, checks out, commits, merges, pushes, or deletes a branch,
-so a stop verdict leaves the working tree unchanged and moves no ref tip (a
-shallow deepen only backfills history behind origin/<base>, never moving a tip).
+so a stop verdict moves no local branch tip and leaves the working tree
+unchanged. (The shallow deepen's refspec +refs/heads/<base>:refs/remotes/origin/
+<base> does force-update that remote-tracking ref, which can advance if origin's
+base moved; no local branch and no tracked file is touched.)
 """
 
 import argparse
@@ -275,22 +277,52 @@ def parse_recorded_branch(body: str) -> tuple[str | None, bool]:
     return (name, False)
 
 
+def _is_shallow() -> bool | None:
+    """Shallowness probe. True/False, or None when it could not be established.
+
+    `git rev-parse --is-shallow-repository` is the only signal, and reading it as
+    `stdout == "true"` alone fails OPEN: on git < 2.15 the option is unrecognized
+    and on a subprocess failure stdout is empty, so a genuinely shallow repository
+    would read as not-shallow and its unreliable pre-deepen count would be adopted
+    — the exact spurious-PROCEED direction this subcommand exists to close. So a
+    non-zero returncode, or any stdout outside {true,false}, is UNESTABLISHED
+    (None) and the caller fails closed to UNAVAILABLE, never to not-shallow.
+    """
+    result = _run_git(["rev-parse", "--is-shallow-repository"])
+    value = result.stdout.strip()
+    if result.returncode != 0 or value not in ("true", "false"):
+        return None
+    return value == "true"
+
+
 def _derive_ahead(base: str) -> tuple[int | None, str]:
     """Ahead-of-base count for HEAD, with shallow unshallow-once-then-rederive.
 
     Returns (ahead, "") on success, or (None, reason) on an unestablished
     measurement: reason "base" when origin/<base> does not resolve (the caller's
-    fetch never landed it), "count" when rev-list cannot produce an integer, or
-    "shallow-undeepened" when the repository is shallow and could not be deepened.
-    Mirrors update-branch-checkpoint.sh: a shallow view can UNDERcount
-    ahead-of-base (the merge base may lie beyond the shallow boundary), so on a
-    shallow repository deepen the base ref exactly once and re-derive — the
-    post-unshallow count is authoritative. A shallow view that CANNOT be deepened
-    is fail-closed to UNAVAILABLE rather than trusted: the pre-deepen count is, by
-    this function's own contract, unreliable — it can undercount ahead-of-base to
-    0, which would fall through to a spurious FRESH/PROCEED and reopen the exact
-    ahead-only blind spot this subcommand closes. So it joins the base/count arms
-    as an unestablished measurement, not an authoritative shallow count.
+    fetch never landed it), "count" when rev-list cannot produce an integer,
+    "shallow-probe" when the shallowness of the repository could not be
+    established, or "shallow-undeepened" when the repository is shallow and could
+    not be deepened.
+
+    Shallow-miscount direction (do NOT copy update-branch-checkpoint.sh's wording
+    here — it describes the OPPOSITE computation). This count is
+    `rev-list --count refs/remotes/origin/<base>..HEAD`, which excludes everything
+    reachable from the base. A shallow view truncates the base's history, so
+    FEWER commits are reachable from it, so FEWER are excluded: the shallow count
+    can only OVERcount ahead-of-base, never undercount it to 0. (The behind-by
+    count in update-branch-checkpoint.sh is `HEAD..base`, whose operands are
+    reversed — that one undercounts, which is why its wording does not transfer.)
+    So on a shallow repository deepen the base ref exactly once and re-derive —
+    the post-unshallow count is authoritative.
+
+    A shallow view that CANNOT be deepened is fail-closed to UNAVAILABLE rather
+    than trusted. The reason is that the count is simply unreliable, NOT that it
+    could read 0: an overcount lands on the ahead>0 classification arms, which is
+    the fail-closed direction, but it selects those arms on a fabricated count and
+    can turn a genuinely-fresh branch into a spurious stop, and nothing in this
+    function's contract bounds the error. So it joins the base/count arms as an
+    unestablished measurement, not an authoritative shallow count.
     """
     base_ref = f"refs/remotes/origin/{base}"
     if not _ref_resolves(base_ref):
@@ -304,11 +336,17 @@ def _derive_ahead(base: str) -> tuple[int | None, str]:
         return int(value)
 
     ahead = count()
-    if _run_git(["rev-parse", "--is-shallow-repository"]).stdout.strip() == "true":
+    shallow = _is_shallow()
+    if shallow is None:
+        return (None, "shallow-probe")
+    if shallow:
         # Deepen the base ref specifically (fetch-depth cloud checkouts download
         # only the feature ref's history), then re-derive.
         _run_git(["fetch", "--unshallow", "origin", f"+refs/heads/{base}:{base_ref}"])
-        if _run_git(["rev-parse", "--is-shallow-repository"]).stdout.strip() == "true":
+        redeepened = _is_shallow()
+        if redeepened is None:
+            return (None, "shallow-probe")
+        if redeepened:
             # The deepen did not take (offline/auth/remote failure). Trusting the
             # still-shallow count here would fail OPEN on exactly the ahead-only
             # case this feature guards, so treat it as unestablished.
@@ -517,8 +555,21 @@ def branch_state(args: argparse.Namespace) -> int:
     if verdict in ("FRESH", "VALIDATED_RESUME"):
         print(verdict, flush=True)
         return PROCEED_EXIT
-    # AMBIGUOUS / DECISION_BLOCKED — a stop with a payload for the human.
-    payload = _write_payload(verdict, reason, state, derived)
+    # AMBIGUOUS / DECISION_BLOCKED — a stop with a payload for the human. The
+    # classification is already established at this point, so a payload-write
+    # failure must NOT reach main()'s catch-all: that would downgrade a computed
+    # stop (exit 2, with its reason slug) to a bare UNAVAILABLE (exit 3), losing
+    # the classification the caller acts on. Both are stops, so nothing fails
+    # open — but the specific verdict survives, with the lost payload named.
+    try:
+        payload = _write_payload(verdict, reason, state, derived)
+    except OSError as exc:
+        print(
+            f"preflight.py: branch-state {verdict} ({reason}); payload could not be written: {exc}",
+            file=sys.stderr,
+        )
+        print(f"{verdict} {reason}", flush=True)
+        return BLOCKED_EXIT
     print(f"preflight.py: branch-state {verdict} ({reason}); state written to {payload}", file=sys.stderr)
     print(f"{verdict} {payload}", flush=True)
     return BLOCKED_EXIT

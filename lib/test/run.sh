@@ -8566,7 +8566,20 @@ git(["config", "user.email", "a@b.c"], shal); git(["config", "user.name", "t"], 
 git(["fetch", "-q", "--depth=1", "origin", "+refs/heads/main:refs/remotes/origin/main"], shal)
 naive = git(["rev-list", "--count", "refs/remotes/origin/main..HEAD"], shal).stdout.strip()
 lines.append(f"shallow_naive {naive or 'ERR'}")
+# Tip-invariance across the ONE path that issues a network git command
+# (fetch --unshallow). The published contract is narrow and this snapshot matches
+# it exactly: no LOCAL branch tip moves and the working tree is unchanged. The
+# remote-tracking ref origin/main is deliberately EXCLUDED — the deepen's refspec
+# force-updates it by design, so snapshotting `show-ref` wholesale here would pin
+# a claim the code does not make (and the non-shallow `nomut` arm above, which
+# runs no fetch, already covers the all-refs case).
+shb = git(["show-ref", "--heads"], shal).stdout
+stb = git(["status", "--porcelain"], shal).stdout
 word, rc, out = run(shal, {"base": "main", "current_branch": "feat", "provenance_established": False}, cwd=shal)
+sha_ = git(["show-ref", "--heads"], shal).stdout
+sta_ = git(["status", "--porcelain"], shal).stdout
+lines.append(f"shallow_nomut {'yes' if shb == sha_ and stb == sta_ else 'no'}")
+lines.append(f"shallow_deepened {git(['rev-parse', '--is-shallow-repository'], shal).stdout.strip()}")
 lines.append(f"shallow {word} {rc}")
 payload = out.split()[-1] if word in ("AMBIGUOUS", "DECISION_BLOCKED") else ""
 derived = str(json.load(open(payload)).get("derived", {}).get("ahead")) if payload and os.path.exists(payload) else ""
@@ -8580,11 +8593,46 @@ git(["config", "user.email", "a@b.c"], shal2); git(["config", "user.name", "t"],
 git(["fetch", "-q", "--depth=1", "origin", "+refs/heads/main:refs/remotes/origin/main"], shal2)
 git(["remote", "set-url", "origin", os.path.join(ROOT, "does-not-exist.git")], shal2)
 emit("shallow_undeepened", shal2, {"base": "main", "current_branch": "feat", "provenance_established": False}, cwd=shal2)
+# ── branch-state input-validation matrix (best-effort parser over agent-written
+# JSON). Every arm asserts BOTH the fail-closed contract (`UNAVAILABLE state`,
+# exit 3) AND a SPECIFIC stderr cause — a bare exit-code assertion could not tell
+# these six guards apart, since they all reject to the same token. `bad()` takes
+# argv directly so the absent/empty --state-file arms are reachable at all (they
+# cannot be expressed through run(), which always writes a well-formed file).
+# Positive control: the same fixture repo yields FRESH on a well-formed file, so a
+# rejection here cannot be an unrelated precondition (e.g. a broken sandbox).
+_, vwork = base_repo("inputval"); git(["checkout", "-qb", "feat", "main"], vwork)
+def bad(arm, argv, cwd):
+    r = subprocess.run(["python3", HELPER, "branch-state"] + argv, cwd=cwd,
+                       capture_output=True, text=True)
+    lines.append(f"{arm} {(r.stdout.split() or ['-'])[0]}_{(r.stdout.split() + ['-'])[1]} {r.returncode}")
+    # One whitespace-collapsed stderr line, so the cause can be substring-matched.
+    lines.append(f"err_{arm} {' '.join(r.stderr.split()) or '-'}")
+def bad_file(arm, content, cwd):
+    p = os.path.join(ROOT, f"iv_{arm}.json"); open(p, "w").write(content)
+    bad(arm, ["--state-file", p], cwd)
+emit("iv_control", vwork, {"base": "main", "current_branch": "feat"})
+bad("iv_noflag", [], vwork)
+bad("iv_emptypath", ["--state-file", ""], vwork)
+bad("iv_missing", ["--state-file", os.path.join(ROOT, "iv_absent.json")], vwork)
+_ivdir = os.path.join(ROOT, "iv_dir"); os.makedirs(_ivdir)
+bad("iv_unreadable", ["--state-file", _ivdir], vwork)
+bad_file("iv_notjson", "{not json", vwork)
+bad_file("iv_notdict", '["a"]', vwork)
+bad_file("iv_nobase", json.dumps({"current_branch": "feat"}), vwork)
+bad_file("iv_emptybase", json.dumps({"base": "", "current_branch": "feat"}), vwork)
+bad_file("iv_nocur", json.dumps({"base": "main"}), vwork)
+bad_file("iv_emptycur", json.dumps({"base": "main", "current_branch": ""}), vwork)
+bad_file("iv_wrongtype", json.dumps({"base": 7, "current_branch": "feat"}), vwork)
 open(OUT, "w").write("\n".join(lines) + "\n")
 import shutil; shutil.rmtree(ROOT)
 PY
 _bs576() { awk -v k="$1" '$1==k{print $2, $3; f=1} END{if(!f)print "MISSING"}' "$BS576_OUT"; }
 _bs576v() { awk -v k="$1" '$1==k{print $2; f=1} END{if(!f)print "MISSING"}' "$BS576_OUT"; }
+# Whole-line-tail accessor for the stderr causes the input-validation matrix records.
+_bs576e() { awk -v k="$1" '$1==k{$1=""; sub(/^ /,""); print; f=1} END{if(!f)print "MISSING"}' "$BS576_OUT"; }
+# Substring match of a recorded stderr cause → yes/no (attributes WHICH guard rejected).
+_bs576err() { case "$(_bs576e "err_$1")" in *"$2"*) echo yes;; *) echo no;; esac; }
 assert_eq "#576: fresh branch (ahead 0) → FRESH/proceed" "FRESH 0" "$(_bs576 ahead0)"
 assert_eq "#576: warm-start (ahead 0, workpad present) → FRESH/proceed" "FRESH 0" "$(_bs576 warmstart)"
 assert_eq "#576: ahead>0 under unverified provenance → DECISION_BLOCKED/stop" "DECISION_BLOCKED 2" "$(_bs576 ahead1_noprov)"
@@ -8614,9 +8662,20 @@ assert_eq "#576 shallow: the naive shallow ahead count differs from the post-uns
   "$([ "$BS576_NAIVE" != "$BS576_DERIVED" ] && echo differ || echo same)"
 assert_eq "#576 shallow: the helper re-derives the correct post-unshallow ahead count" "1" "$BS576_DERIVED"
 assert_eq "#576 shallow: a shallow repo still yields a well-formed stop verdict" "DECISION_BLOCKED 2" "$(_bs576 shallow)"
+# Tip-invariance on the ONE network-git path (fetch --unshallow). Scoped to the
+# published claim: no LOCAL branch tip moves, working tree unchanged. origin/main
+# is excluded because the deepen's refspec force-updates it by design.
+assert_eq "#576 shallow: the deepen moves no local branch tip and leaves the tree unchanged" "yes" \
+  "$(_bs576v shallow_nomut)"
+# Positive control: the fetch really did run, so the invariance above is not vacuous.
+assert_eq "#576 shallow: the fixture was genuinely deepened (tip-invariance is not vacuous)" "false" \
+  "$(_bs576v shallow_deepened)"
 # A shallow repo that CANNOT be deepened (broken origin) fails closed to UNAVAILABLE
-# rather than trusting the unreliable shallow count (which could undercount to a
-# spurious FRESH) — the fail-open the shadow review surfaced.
+# rather than trusting the unreliable shallow count. Direction note (the helper's
+# docstring is authoritative): `origin/<base>..HEAD` excludes base-reachable
+# commits, so a truncated base excludes FEWER and the shallow count can only
+# OVERcount — it cannot undercount to a spurious FRESH. The count is simply
+# fabricated, which is why it is refused rather than adopted in either direction.
 assert_eq "#576 shallow-undeepened: an un-deepenable shallow repo fails closed to UNAVAILABLE/3" "UNAVAILABLE 3" "$(_bs576 shallow_undeepened)"
 assert_eq "#576 shallow-undeepened: carries the 'shallow-undeepened' reason slug" "shallow-undeepened" "$(_bs576v reason_shallow_undeepened)"
 # Reason slugs (the operator-facing remedy routing) are distinct even where the
@@ -8631,6 +8690,69 @@ assert_eq "#576 reason: matching branch without a verdict carries 'matching-with
 assert_eq "#576 reason: a duplicate Branch line carries 'duplicate-branch-line'" "duplicate-branch-line" "$(_bs576v reason_wp_duplicate)"
 assert_eq "#576 reason: divergent existing branch without a verdict carries 'divergent-without-verdict'" "divergent-without-verdict" "$(_bs576v reason_wp_divergent_noverdict)"
 assert_eq "#576 reason: divergent nonexistent branch carries 'divergent-nonexistent'" "divergent-nonexistent" "$(_bs576v reason_wp_divergent_nonexistent)"
+# The remaining three AMBIGUOUS arms collapse onto the same `AMBIGUOUS 2` verdict as
+# the two above, so verdict-only assertions cannot tell them apart — pin their slugs too.
+assert_eq "#576 reason: absent Branch line without a verdict carries 'no-recorded-branch'" "no-recorded-branch" "$(_bs576v reason_wp_absent)"
+assert_eq "#576 reason: matching branch + verdict but unreachable tip carries 'matching-verdict-tip-unreachable'" \
+  "matching-verdict-tip-unreachable" "$(_bs576v reason_wp_matching_verdict_notip)"
+assert_eq "#576 reason: divergent existing branch WITH a verdict carries 'divergent-existing-with-verdict'" \
+  "divergent-existing-with-verdict" "$(_bs576v reason_wp_divergent_exist_verdict)"
+
+# ── branch-state input-validation matrix (#576 Important #2). Every shape fails
+# closed to the SAME `UNAVAILABLE state` / exit 3 contract, so each arm also pins
+# the specific stderr cause that attributes WHICH guard rejected it — a bare
+# exit-code assertion would stay green against a mutant that collapsed the ladder.
+assert_eq "#576 input-val: positive control — a well-formed state file on the same fixture proceeds" \
+  "FRESH 0" "$(_bs576 iv_control)"
+assert_eq "#576 input-val: absent --state-file → UNAVAILABLE state/3" "UNAVAILABLE_state 3" "$(_bs576 iv_noflag)"
+assert_eq "#576 input-val: absent --state-file names the missing flag" "yes" "$(_bs576err iv_noflag "requires --state-file")"
+assert_eq "#576 input-val: empty --state-file '' → UNAVAILABLE state/3" "UNAVAILABLE_state 3" "$(_bs576 iv_emptypath)"
+assert_eq "#576 input-val: empty --state-file fails on the READ, never a phantom default" "yes" \
+  "$(_bs576err iv_emptypath "could not read branch-state file")"
+assert_eq "#576 input-val: nonexistent path → UNAVAILABLE state/3" "UNAVAILABLE_state 3" "$(_bs576 iv_missing)"
+assert_eq "#576 input-val: nonexistent path names the read failure" "yes" "$(_bs576err iv_missing "could not read branch-state file")"
+assert_eq "#576 input-val: unreadable path (a directory) → UNAVAILABLE state/3" "UNAVAILABLE_state 3" "$(_bs576 iv_unreadable)"
+assert_eq "#576 input-val: unreadable path names the read failure" "yes" "$(_bs576err iv_unreadable "could not read branch-state file")"
+assert_eq "#576 input-val: non-JSON content → UNAVAILABLE state/3" "UNAVAILABLE_state 3" "$(_bs576 iv_notjson)"
+assert_eq "#576 input-val: non-JSON names the JSON decode cause (not the read cause)" "yes" \
+  "$(_bs576err iv_notjson "not valid JSON")"
+assert_eq "#576 input-val: non-dict top-level (a JSON array) → UNAVAILABLE state/3" "UNAVAILABLE_state 3" "$(_bs576 iv_notdict)"
+assert_eq "#576 input-val: non-dict top-level names the object requirement" "yes" \
+  "$(_bs576err iv_notdict "must be a JSON object")"
+assert_eq "#576 input-val: missing 'base' → UNAVAILABLE state/3" "UNAVAILABLE_state 3" "$(_bs576 iv_nobase)"
+assert_eq "#576 input-val: missing 'base' names the required-keys cause" "yes" \
+  "$(_bs576err iv_nobase "non-empty string 'base' and 'current_branch'")"
+assert_eq "#576 input-val: valid-falsy empty 'base' is rejected, not defaulted" "UNAVAILABLE_state 3" "$(_bs576 iv_emptybase)"
+assert_eq "#576 input-val: empty 'base' names the required-keys cause" "yes" \
+  "$(_bs576err iv_emptybase "non-empty string 'base' and 'current_branch'")"
+assert_eq "#576 input-val: missing 'current_branch' → UNAVAILABLE state/3" "UNAVAILABLE_state 3" "$(_bs576 iv_nocur)"
+assert_eq "#576 input-val: valid-falsy empty 'current_branch' is rejected, not defaulted" "UNAVAILABLE_state 3" "$(_bs576 iv_emptycur)"
+assert_eq "#576 input-val: empty 'current_branch' names the required-keys cause" "yes" \
+  "$(_bs576err iv_emptycur "non-empty string 'base' and 'current_branch'")"
+assert_eq "#576 input-val: wrong-type 'base' (a number) → UNAVAILABLE state/3" "UNAVAILABLE_state 3" "$(_bs576 iv_wrongtype)"
+assert_eq "#576 input-val: wrong-type 'base' names the required-keys cause" "yes" \
+  "$(_bs576err iv_wrongtype "non-empty string 'base' and 'current_branch'")"
+# ── _is_shallow probe (#576 Important #1). The probe's failure modes cannot be
+# provoked through a real repository (git >= 2.15 always answers), so drive it
+# directly with a stubbed _run_git. Reading `stdout == "true"` alone would fail
+# OPEN — an unrecognized option (git < 2.15) or a subprocess error prints nothing,
+# which would read as NOT shallow and adopt the unreliable pre-deepen count. Every
+# unestablished shape must return None so the caller fails closed to UNAVAILABLE.
+BS576_SHP="$(python3 - "$PWD/scripts/preflight.py" <<'PY'
+import importlib.util, subprocess, sys
+spec = importlib.util.spec_from_file_location("pf_shallow_probe", sys.argv[1])
+mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+def stub(rc, out):
+    mod._run_git = lambda argv: subprocess.CompletedProcess(argv, rc, out, "")
+    return mod._is_shallow()
+cases = [("true", 0, "true\n"), ("false", 0, "false\n"),
+         ("rc_nonzero", 129, "true\n"), ("empty", 0, "\n"),
+         ("unknown_word", 0, "maybe\n"), ("rc_and_empty", 128, "")]
+print(" ".join(f"{n}={stub(rc, out)}" for n, rc, out in cases))
+PY
+)"
+assert_eq "#576 shallow-probe: every established/unestablished probe shape maps as specified" \
+  "true=True false=False rc_nonzero=None empty=None unknown_word=None rc_and_empty=None" "$BS576_SHP"
 rm -f "$BS576_OUT"
 
 # ── issue #576: Phase 1 §1.4 integration — ordering + no-history-mutation pins ──
