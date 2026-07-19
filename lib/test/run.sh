@@ -44339,7 +44339,9 @@ fi
 # canonical-draft root and the skill reports its landed write path, the tool cross-checks
 # that path against `<bound-root>/.devflow/tmp/issue-draft-<slug>.md` (the path it derives
 # from the recorded binding) and fails closed with `write-path-mismatch` on divergence. The
-# check is additive: an unbound run and a bound run that omits --write-path both proceed.
+# check is additive: an unbound run and a bound run that omits --write-path both proceed — but
+# a present-but-EMPTY --write-path is an unestablished report, refused as `write-path-empty`
+# rather than collapsed onto the omitted case. The check is scoped inside the file arm.
 WP_SB="$(git_sandbox '#569 write_path_crosscheck_rows')"
 if [ -d "$WP_SB" ]; then
   (
@@ -44353,8 +44355,9 @@ if [ -d "$WP_SB" ]; then
     python3 "$IAS" record-dispatch wp --nonce "$N" --round 1 --arm file \
       --write-path "$WP_SB/.devflow/tmp/issue-draft-wp.md" --draft-file d.md > .wp-match 2>&1
     printf '%s' "$?" > .wp-match-rc
-    # A NEW run (a drifted write path under the same binding, round 1) is refused. The bound
-    # canonical file for slug wp2 is $WP_SB/.devflow/tmp/issue-draft-wp2.md; report a
+    # A NEW run (its own binding at the same root; a drifted write path, round 1) is refused.
+    # Bindings are per-slug and immutable — wp2 records its own, it does not share wp's. The
+    # bound canonical file for slug wp2 is $WP_SB/.devflow/tmp/issue-draft-wp2.md; report a
     # divergent /elsewhere path and expect the named breadcrumb + non-zero exit.
     N2="$(python3 "$IAS" init wp2 | sed 's/nonce=//')"
     python3 "$IAS" record-draft-binding wp2 --nonce "$N2" --path "$WP_SB" --tier worktree-root > /dev/null
@@ -44371,6 +44374,30 @@ if [ -d "$WP_SB" ]; then
     N4="$(python3 "$IAS" init wp4 | sed 's/nonce=//')"
     python3 "$IAS" record-dispatch wp4 --nonce "$N4" --round 1 --arm file \
       --write-path /any/where.md --draft-file d.md > /dev/null 2>&1; printf '%s' "$?" > .wp-unbound-rc
+    # An EMPTY --write-path is an unestablished report, NOT an opt-out: a truthiness test would
+    # collapse it onto "caller omitted the flag" and silently disarm the cross-check on exactly
+    # the drift it exists to catch (the skill composes this value in shell, so an unresolved
+    # root yields ""). It is refused by name, distinctly from the omitted case above.
+    N5="$(python3 "$IAS" init wp5 | sed 's/nonce=//')"
+    python3 "$IAS" record-draft-binding wp5 --nonce "$N5" --path "$WP_SB" --tier main-root > /dev/null
+    python3 "$IAS" record-dispatch wp5 --nonce "$N5" --round 1 --arm file \
+      --write-path "" --draft-file d.md > /dev/null 2> .wp-empty; printf '%s' "$?" > .wp-empty-rc
+    # The shipped skill binds --tier main-root (tier-2/tier-3 selection is the deferred half),
+    # so pin the tier the production path actually uses, not only worktree-root: a matching
+    # write-path under a main-root binding is accepted.
+    N6="$(python3 "$IAS" init wp6 | sed 's/nonce=//')"
+    python3 "$IAS" record-draft-binding wp6 --nonce "$N6" --path "$WP_SB" --tier main-root > /dev/null
+    python3 "$IAS" record-dispatch wp6 --nonce "$N6" --round 1 --arm file \
+      --write-path "$WP_SB/.devflow/tmp/issue-draft-wp6.md" --draft-file d.md > /dev/null 2>&1
+    printf '%s' "$?" > .wp-mainroot-rc
+    # The cross-check is deliberately scoped INSIDE the file arm: an embed-arm dispatch ignores
+    # --write-path entirely. Pin that scoping so a later refactor that hoists the check out of
+    # the file-arm branch (or narrows it further) cannot change behavior with the suite green.
+    N7="$(python3 "$IAS" init wp7 | sed 's/nonce=//')"
+    python3 "$IAS" record-draft-binding wp7 --nonce "$N7" --path "$WP_SB" --tier main-root > /dev/null
+    printf '# T\n\nB\n' | python3 "$IAS" record-dispatch wp7 --nonce "$N7" --round 1 --arm embed \
+      --marker write-failed --write-path /totally/bogus.md > /dev/null 2>&1
+    printf '%s' "$?" > .wp-embed-rc
   )
   assert_eq "#569 write_path_crosscheck_rows: a matching write-path is accepted (exit 0)" \
     "0" "$(cat "$WP_SB/.wp-match-rc" 2>/dev/null)"
@@ -44382,6 +44409,14 @@ if [ -d "$WP_SB" ]; then
     "0" "$(cat "$WP_SB/.wp-nowp-rc" 2>/dev/null)"
   assert_eq "#569 write_path_crosscheck_rows: an unbound file-arm dispatch still proceeds (binding-required half deferred)" \
     "0" "$(cat "$WP_SB/.wp-unbound-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: an EMPTY --write-path is refused, not read as an opt-out" \
+    "1" "$(cat "$WP_SB/.wp-empty-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: ... named by the write-path-empty breadcrumb" \
+    "1" "$(grep -c 'write-path-empty' "$WP_SB/.wp-empty" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: the shipped main-root tier is covered (matching path accepted)" \
+    "0" "$(cat "$WP_SB/.wp-mainroot-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: an embed-arm dispatch ignores --write-path (check is file-arm scoped)" \
+    "0" "$(cat "$WP_SB/.wp-embed-rc" 2>/dev/null)"
   rm -rf "$WP_SB"
 fi
 

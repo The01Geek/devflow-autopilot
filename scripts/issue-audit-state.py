@@ -1705,10 +1705,21 @@ def cmd_record_dispatch(args):
         # canonical file) and a caller that omits --write-path both proceed unchanged, so
         # the cross-check is additive, never a new mandatory field on the file arm.
         #
+        # An OMITTED --write-path is an opt-out; a PRESENT-BUT-EMPTY one is not. The skill
+        # composes this value in shell ("$MAIN_ROOT/.devflow/tmp/..."), so an unresolved root
+        # yields an empty string — an *unestablished* report, which a truthiness test would
+        # silently collapse onto "caller opted out" and disarm the check on exactly the drift
+        # it exists to catch (the repo's unknown-is-not-zero rule). Refuse it by name instead.
+        #
         # NOTE (issue #569 scope split): making the binding itself REQUIRED on every file-arm
         # dispatch (fail-closed `binding-required-on-file-arm` when absent) is the strict half
         # deferred to a follow-up — it ripples into every pre-binding file-arm unit test's
         # bound-first reader setup and must land with that reconciliation, not this pass.
+        if args.write_path is not None and not args.write_path.strip():
+            _fail('record-dispatch',
+                  'an empty --write-path is an unestablished report, not an opt-out '
+                  '(write-path-empty): omit the flag entirely to skip the cross-check, or '
+                  'report the absolute canonical-draft path the write landed at')
         if doc.get('draft_binding') is not None and args.write_path:
             expected_write_path = _bound_draft_file(doc, args.slug)
             if args.write_path != expected_write_path:
@@ -2618,10 +2629,14 @@ def main():
     s.add_argument('--nonce', required=True)
     s.add_argument('--round', type=int, required=True)
     s.add_argument('--arm', choices=_ARMS, required=True)
-    s.add_argument('--write-path', help='Required on the file arm (issue #569): the '
+    s.add_argument('--write-path', help='Optional on the file arm (issue #569): the '
                    'absolute canonical-draft file path the skill observed its write land '
-                   'at, cross-checked against the recorded draft-root binding '
-                   '(write-path-mismatch on divergence).')
+                   'at. When the run has a recorded draft-root binding and this is '
+                   'passed, it is cross-checked against the bound canonical file '
+                   '(write-path-mismatch on divergence). Omitted, or on an unbound run, '
+                   'the dispatch proceeds unchanged; an empty value is refused '
+                   '(write-path-empty) rather than read as an opt-out. Ignored on the '
+                   'embed and inline arms.')
     s.add_argument('--draft-file', help='Required on the file arm; bytes on stdin '
                                         'otherwise.')
     s.add_argument('--marker', choices=_EMBED_MARKER_TOKENS,
