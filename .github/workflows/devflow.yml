@@ -94,9 +94,11 @@ jobs:
             # self-hosted runners (typically Windows) whose OS the action's Unix-only
             # bundled installer cannot serve. `// empty` → empty string when the key is
             # absent, which the action treats as "not provided" (auto-install unchanged).
-            # `try … catch` guards a hand-corrupted non-object `setup`, so the config job
-            # never aborts on a malformed setup block.
-            echo "claude_code_executable=$(echo "$CONFIG_JSON" | jq -r 'try (.setup.claude_code_executable // empty) catch empty')"
+            # `try … catch` guards a hand-corrupted non-object `setup` (so the config job
+            # never aborts on a malformed setup block); `| strings` drops a non-string
+            # leaf value (array/object/number) to empty rather than letting jq -r
+            # pretty-print it multi-line and corrupt this GITHUB_OUTPUT line.
+            echo "claude_code_executable=$(echo "$CONFIG_JSON" | jq -r 'try (.setup.claude_code_executable // empty | strings) catch empty')"
           } >> "$GITHUB_OUTPUT"
 
   # Dedupe a MANUAL bare `/devflow:review` comment against the AUTOMATED

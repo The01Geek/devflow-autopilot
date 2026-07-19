@@ -457,9 +457,10 @@ jobs:
           # arbitrary-code-execution vector; the trusted-source read is the security
           # boundary. `// empty` → empty string when the key is absent (the action's
           # auto-install path is then unchanged); `try … catch` guards a non-object
-          # base-config `setup` so this read never aborts the review job. A file path
-          # is single-line, so a plain key=value echo is safe here.
-          CLAUDE_CODE_EXECUTABLE=$(printf '%s' "$BASE_JSON" | jq -r 'try (.setup.claude_code_executable // empty) catch empty')
+          # base-config `setup` so this read never aborts the review job; `| strings`
+          # drops a non-string leaf value to empty (a string path is single-line, so
+          # the plain key=value echo below is then always safe).
+          CLAUDE_CODE_EXECUTABLE=$(printf '%s' "$BASE_JSON" | jq -r 'try (.setup.claude_code_executable // empty | strings) catch empty')
           echo "claude_code_executable=$CLAUDE_CODE_EXECUTABLE" >> "$GITHUB_OUTPUT"
 
       - name: Resolve allowed-tools profile
