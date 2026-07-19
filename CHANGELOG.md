@@ -4,6 +4,13 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.16.4] — 2026-07-19
+
+### Added
+- **Audit mandatory prompt growth and executable-helper cutovers.** Add an exact byte census,
+  schema-validated cutover records, and a shared Review gate for same-change prose ownership
+  transfers. (#551)
+
 ## [2.16.3] — 2026-07-19
 
 ### Added

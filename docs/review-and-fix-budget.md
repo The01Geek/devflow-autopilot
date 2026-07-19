@@ -60,16 +60,16 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
 | Row | Included paths | Lines | Words | Bytes | ≈Tokens |
 | --- | --- | ---: | ---: | ---: | ---: |
 | **BEFORE** — monolith | `skills/review-and-fix/SKILL.md` (pre-split) | 1,134 | 36,201 | 250,928 | 47,061 |
-| **BEFORE** — always-loaded | monolith + live extension | 1,325 | 38,491 | 266,207 | 50,038 |
-| live extension | `.devflow/prompt-extensions/review-and-fix.md` | 191 | 2,290 | 15,279 | 2,977 |
+| **BEFORE** — always-loaded | monolith + live extension | 1,327 | 38,492 | 266,248 | 50,040 |
+| live extension | `.devflow/prompt-extensions/review-and-fix.md` | 193 | 2,291 | 15,320 | 2,978 |
 | **AFTER** — plugin root | `skills/review-and-fix/SKILL.md` (thin) | 324 | **3,209** | 25,618 | 4,172 |
-| **AFTER** — actual initial load | root + live extension | 515 | **5,499** | 40,897 | 7,149 |
+| **AFTER** — actual initial load | root + live extension | 517 | **5,500** | 40,938 | 7,150 |
 | **AFTER** — bundle | root + all `references/*.md` | 1,306 | 40,520 | 284,638 | 52,676 |
-| **AFTER** — normal cumulative path | root + extension + Σ references | — | 42,810 | — | 55,653 |
-| **AFTER** — maximum active step | root + extension + `shadow-review.md` | — | **16,761** | — | 21,789 |
+| **AFTER** — normal cumulative path | root + extension + Σ references | — | 42,811 | — | 55,654 |
+| **AFTER** — maximum active step | root + extension + `shadow-review.md` | — | **16,762** | — | 21,791 |
 | reference: `shadow-review.md` | Step 2.6 | 235 | 11,262 | 79,276 | 14,641 |
-| reference: `fixing.md` | Step 3 | 156 | 8,845 | 60,302 | 11,561 |
-| reference: `loop-exit.md` | Loop Exit | 273 | 6,594 | 45,216 | 8,576 |
+| reference: `fixing.md` | Step 3 | 156 | 8,845 | 60,302 | 11,498 |
+| reference: `loop-exit.md` | Loop Exit | 273 | 6,594 | 45,216 | 8,572 |
 | reference: `loop-control.md` | workpad + field semantics + Main Loop + Steps 0.5–2 | 188 | 5,189 | 36,686 | 6,746 |
 | reference: `pre-fix-gates.md` | Step 2.5 + parked-class sweep | 51 | 2,220 | 16,231 | 2,886 |
 | reference: `fix-delta-gate.md` | Step 3.5 | 27 | 1,379 | 9,349 | 1,793 |
@@ -81,19 +81,19 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
 | Ceiling | Value | Measured | Result |
 | --- | --- | ---: | :--: |
 | Plugin root ≤ 3,500 words | 3,500 | 3,209 | ✅ |
-| Root + live extension (initial load) ≤ 5,500 words | 5,500 | 5,499 | ✅ |
-| Root + extension + max active step ≤ 17,000 words | 17,000 | 16,761 | ✅ |
+| Root + live extension (initial load) ≤ 5,500 words | 5,500 | 5,500 | ✅ |
+| Root + extension + max active step ≤ 17,000 words | 17,000 | 16,762 | ✅ |
 
 ## Net mandatory-prompt reduction, and the named justified-growth warning
 
-- **Mandatory (always-loaded) prompt: net reduction of 32,992 words** — from 38,491 (monolith +
-  extension, *all* of it loaded on every invocation) to 5,499 (thin root + extension). This is the
+- **Mandatory (always-loaded) prompt: net reduction of 32,992 words** — from 38,492 (monolith +
+  extension, *all* of it loaded on every invocation) to 5,500 (thin root + extension). This is the
   reduction the split exists to deliver: everything else now loads on demand, one step reference
   at a time.
 
 - **⚠️ `review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,319 words.**
   The *normal cumulative path* (root + extension + every reference a full run loads in sequence)
-  is 42,810 words vs. 38,491 before — a net **growth of +4,319 words** (+11.2%). Two things drive
+  is 42,811 words vs. 38,492 before — a net **growth of +4,319 words** (+11.2%). Two things drive
   it: the routing text the split itself adds (the *Step routing* table, the *Reference-loading
   contract* — entry-gate, canonical-boundary rule, per-reference failure map, always-resident
   re-read rule — the condensed terminal verdict→chat mapping, the durable-operand schema fields,
@@ -102,6 +102,6 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
   fields and the below-verdict-threshold evidence-classification prose in `shadow-review.md`, the
   bulk of the increase). It is **justified**: the split trades this cumulative increase for a
   32,992-word reduction in the *mandatory* prompt, on-demand sequential loading (only one step
-  reference resident at a time — peak 16,761 words, not 42,810), and fail-closed reference handling.
+  reference resident at a time — peak 16,762 words, not 42,811), and fail-closed reference handling.
   Cumulative token spend on a full run is not the metric the split optimizes; peak-context and
   per-step focus are.

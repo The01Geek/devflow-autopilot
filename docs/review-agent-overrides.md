@@ -232,7 +232,7 @@ override parameter but **no effort parameter**, and an already-running session h
 - a resolved per-agent **`model`** override IS delivered — supplied as the Agent tool's `model`
   override parameter at dispatch;
 - a resolved per-agent **`effort`** override is **NOT** deliverable per-agent on this in-session path
-  — the subagent inherits the **session effort**. This is reported honestly (a once-per-run
+  — the subagent inherits the **session effort**. This is reported honestly (a per-resolve
   `::notice::` summary from the resolver, distinct from `::warning::`), never claimed as applied.
 
 Earlier releases of this doc and the engine described both model and effort as riding a per-run
@@ -281,6 +281,19 @@ The provider `effort_supported` capability is a **caller-supplied** input (`--ef
 `true` — the Anthropic path): the in-session engine cannot introspect the routed provider's capability,
 so the model-level Haiku restriction (read from the resolved model) is the capability guard active by
 default, and a caller that knows the provider capability passes it in.
+
+> **Scope of the Haiku guard: the *resolved override entry's* model, not the session model.** The
+> guard reads the `model` of the entry `resolve-review-overrides.py` resolved for that agent. Because
+> resolution is **entry-level**, a `default`-supplied Haiku *is* covered — an agent with no entry of
+> its own resolves to the `default` entry, so the guard sees that Haiku id, exactly as the dispatch
+> would. The one uncovered case is the **global** `claude_model` (or a per-section
+> `devflow_runner.claude_model`) being a Haiku id while the agent's resolved entry carries `effort`
+> but **no** `model`: the resolver reads only `.devflow_review.agent_overrides.*`, so it cannot see
+> that session model and classifies the fallback as the benign `::notice::` rather than a capability
+> `::warning::`. **The outcome message stays honest either way** — both arms report the effort as NOT
+> applied and the agent as inheriting the session effort; only the *cause* bucket is imprecise.
+> Closing it needs a caller-supplied session model (the tier decides which section supplies it, so
+> the resolver cannot derive it alone) and is deferred follow-up work, not a silent gap.
 
 > **Spike-gated applied arm (`agent-definition`).** A per-agent *applied* arm — composing the
 > resolved effort into a process-start agent-definition the platform reads at launch — exists only
