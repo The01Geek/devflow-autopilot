@@ -216,8 +216,20 @@ def _read_verdict_bytes(pair):
     return None, "none"
 
 
+def _verdict_defect(result, item_id, defect):
+    """Stamp a verdict-defect result and its full-re-dispatch retry entry.
+    Returns ``(result, retry, False)`` — a verdict defect is never a
+    field-defect-fail (it has no established raw verdict)."""
+    result["defect"] = defect
+    result["defect_class"] = "verdict"
+    result["normalization_ineligible"] = f"verdict defect: {defect}"
+    return result, {"id": item_id, "kind": "verdict", "defect": defect}, False
+
+
 def _process_pair(pair):
-    """Return ``(result_dict, retry_entry_or_None)`` for one pair."""
+    """Return ``(result_dict, retry_entry_or_None, is_field_defect_fail)`` for one
+    pair. ``is_field_defect_fail`` is decided here from the structured blocker
+    lists (never re-derived from the rendered ``normalization_ineligible`` string)."""
     item = pair.get("item") if isinstance(pair.get("item"), dict) else {}
     item_id = item.get("id")
     mode = item.get("verification_mode")
@@ -242,31 +254,19 @@ def _process_pair(pair):
 
     # --- verdict-defect arm: keep no verdict, flag for a full re-dispatch --------
     if defect is not None:
-        result["defect"] = defect
-        result["defect_class"] = "verdict"
-        result["normalization_ineligible"] = f"verdict defect: {defect}"
-        return result, {"id": item_id, "kind": "verdict", "defect": defect}
+        return _verdict_defect(result, item_id, defect)
 
     # object well-formed enough to inspect; validate the mandatory verdict field
     if "verdict" not in obj:
-        result["defect"] = "missing_verdict_field"
-        result["defect_class"] = "verdict"
-        result["normalization_ineligible"] = "verdict defect: missing_verdict_field"
-        return result, {"id": item_id, "kind": "verdict", "defect": "missing_verdict_field"}
+        return _verdict_defect(result, item_id, "missing_verdict_field")
 
     raw = obj.get("verdict")
     if not isinstance(raw, str) or raw not in VERDICT_ENUM:
-        result["defect"] = "non_enum_verdict"
-        result["defect_class"] = "verdict"
-        result["normalization_ineligible"] = "verdict defect: non_enum_verdict"
-        return result, {"id": item_id, "kind": "verdict", "defect": "non_enum_verdict"}
+        return _verdict_defect(result, item_id, "non_enum_verdict")
 
     obj_id = obj.get("id")
     if item_id is not None and obj_id is not None and obj_id != item_id:
-        result["defect"] = "id_mismatch"
-        result["defect_class"] = "verdict"
-        result["normalization_ineligible"] = "verdict defect: id_mismatch"
-        return result, {"id": item_id, "kind": "verdict", "defect": "id_mismatch"}
+        return _verdict_defect(result, item_id, "id_mismatch")
 
     # Pinned-first-verdict rule: for a field-completion re-ask the raw FAIL is
     # pinned to the first response; any verdict token the re-ask returns is ignored.
@@ -321,7 +321,7 @@ def _process_pair(pair):
         result["normalized"] = True
         base = result["evidence"] or ""
         result["evidence"] = NORMALIZED_PREFIX + base
-        return result, None
+        return result, None, False
 
     # not normalized: record the ineligibility reason(s)
     if raw == "FAIL":
@@ -329,51 +329,28 @@ def _process_pair(pair):
         if blockers:
             result["normalization_ineligible"] = "; ".join(blockers)
 
-    # auxiliary re-ask: only for a raw FAIL + generated_paraphrase item whose sole
-    # remaining blocker is a field defect (never re-roll a PASS/INCONCLUSIVE).
-    retry = None
-    if (
+    # Exact membership for ``field_defect_fail_count``, decided from the STRUCTURED
+    # blocker lists (never re-parsed from the rendered string): a raw byte-exact
+    # FAIL whose SOLE normalization blocker is a field defect — a real-value blocker
+    # (source_authored provenance, property-not-proven, lite item) disqualifies it.
+    is_field_defect_fail = (
         raw == "FAIL"
-        and provenance == "generated_paraphrase"
-        and mode == "agent"
-        and aux_defects
-    ):
-        result["defect"] = "aux:" + ",".join(aux_defects)
-        result["defect_class"] = "auxiliary"
-        retry = {"id": item_id, "kind": "auxiliary", "defect": ",".join(aux_defects)}
-    elif aux_defects:
-        # a defective auxiliary field on a non-eligible item is noted but never
-        # re-dispatched (a bookkeeping defect must not re-roll a decided verdict).
-        result["defect"] = "aux:" + ",".join(aux_defects)
-        result["defect_class"] = "auxiliary"
-
-    return result, retry
-
-
-def _is_field_defect_fail(result):
-    """Exact membership for ``field_defect_fail_count``: raw verdict byte-exact
-    FAIL, not normalized, and the SOLE normalization-ineligibility is a field
-    defect (an item-side ``claim_provenance`` miss or a response-side auxiliary
-    defect) — a real-value blocker disqualifies it."""
-    if result.get("raw_verdict") != "FAIL" or result.get("normalized"):
-        return False
-    reason = result.get("normalization_ineligible") or ""
-    if not reason:
-        return False
-    blockers = [b.strip() for b in reason.split(";") if b.strip()]
-    field_defect_markers = (
-        "claim_provenance absent",
-        "claim_provenance invalid",
-        "property_proven field defect",
-        "inaccuracy_scope field defect",
+        and bool(field_defect_blockers)
+        and not real_blockers
     )
-    has_field_defect = False
-    for b in blockers:
-        if b in field_defect_markers:
-            has_field_defect = True
-        else:
-            return False  # a real-value blocker (or an unrecognized one) disqualifies
-    return has_field_defect
+
+    # auxiliary re-ask: only for a raw FAIL + generated_paraphrase agent item with a
+    # defective auxiliary field (never re-roll a PASS/INCONCLUSIVE — a bookkeeping
+    # defect must not re-roll a decided verdict). The common defect stamp is hoisted;
+    # only the retry entry is gated on the re-ask population.
+    retry = None
+    if aux_defects:
+        result["defect"] = "aux:" + ",".join(aux_defects)
+        result["defect_class"] = "auxiliary"
+        if raw == "FAIL" and provenance == "generated_paraphrase" and mode == "agent":
+            retry = {"id": item_id, "kind": "auxiliary", "defect": ",".join(aux_defects)}
+
+    return result, retry, is_field_defect_fail
 
 
 def run(pairs_file):
@@ -397,16 +374,18 @@ def run(pairs_file):
 
     results = []
     needs_retry = []
+    field_defect_fail_count = 0
     for pair in payload["pairs"]:
         if not isinstance(pair, dict):
             continue
-        result, retry = _process_pair(pair)
+        result, retry, is_field_defect_fail = _process_pair(pair)
         results.append(result)
         if retry is not None:
             needs_retry.append(retry)
+        if is_field_defect_fail:
+            field_defect_fail_count += 1
 
     normalized_count = sum(1 for r in results if r.get("normalized"))
-    field_defect_fail_count = sum(1 for r in results if _is_field_defect_fail(r))
 
     return {
         "results": results,
