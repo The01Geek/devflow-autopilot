@@ -312,9 +312,9 @@ TRANSITIONS = (
     # write-failure (issue #562) — a canonical-draft overwrite that failed to land at
     # the bound path is recorded, so `latest_revision_landed` reports the latest revision
     # as unlanded and the presentation renders from the in-context revision bytes rather
-    # than the stale file. (The dispatch write-path cross-check is a separate, strict
-    # enforcement deferred to the skill-side follow-up; no dead row is declared for it
-    # here.)
+    # than the stale file. (The dispatch write-path cross-check landed in issue #569 as an
+    # additive guard in cmd_record_dispatch — it is not a transition row, so none is declared
+    # for it here. The STRICT half — `binding-required-on-file-arm` — remains deferred.)
     _row('write-failure', 'recorded', result='write-failure-recorded'),
 )
 
@@ -1693,6 +1693,49 @@ def cmd_record_dispatch(args):
     if args.arm == 'file':
         if not args.draft_file:
             _fail('record-dispatch', '--draft-file is required on the file arm')
+        # Tiered-draft-root binding cross-check (issue #569): when the run has bound a
+        # canonical-draft root (the first landed write records it via record-draft-binding)
+        # and the skill reports where its write landed via --write-path, the reported path
+        # MUST match the file the tool derives from the recorded binding
+        # (`<bound-root>/.devflow/tmp/issue-draft-<slug>.md`, via _bound_draft_file). A
+        # divergence is a strong signal that a compacted context drifted which file the
+        # dispatch audits, so fail closed with the write-path-mismatch breadcrumb.
+        #
+        # SCOPE (do not overstate this guard): it validates the REPORTED path only. The bytes
+        # digested below still come from the caller's --draft-file, which this command does
+        # NOT resolve from the binding — unlike its siblings emit-body / query-eligibility /
+        # query-summary, which all read through _bound_draft_file. So a caller that reports a
+        # correct --write-path while passing a drifted --draft-file is still recorded. Closing
+        # that is the bound-first reader reconciliation deferred with the strict half below.
+        # The check is scoped to a bound run with
+        # a reported write path — an unbound run (an embed/inline epoch that never bound a
+        # canonical file) and a caller that omits --write-path both proceed unchanged, so
+        # the cross-check is additive, never a new mandatory field on the file arm.
+        #
+        # An OMITTED --write-path is an opt-out; a PRESENT-BUT-EMPTY one is not. A caller that
+        # composes this value from a shell-resolved root yields an empty string when that root
+        # is unresolved — an *unestablished* report, which a truthiness test would silently
+        # collapse onto "caller opted out" and disarm the check on exactly the drift it exists
+        # to catch (the repo's unknown-is-not-zero rule). Refuse it by name instead. (This is
+        # defense in depth, not a description of the shipped skill: create-issue substitutes an
+        # already-resolved literal path here, so it is a hazard for other callers and runners.)
+        #
+        # NOTE (issue #569 scope split): making the binding itself REQUIRED on every file-arm
+        # dispatch (fail-closed `binding-required-on-file-arm` when absent) is the strict half
+        # deferred to a follow-up — it ripples into every pre-binding file-arm unit test's
+        # bound-first reader setup and must land with that reconciliation, not this pass.
+        if args.write_path is not None and not args.write_path.strip():
+            _fail('record-dispatch',
+                  'an empty --write-path is an unestablished report, not an opt-out '
+                  '(write-path-empty): omit the flag entirely to skip the cross-check, or '
+                  'report the absolute canonical-draft path the write landed at')
+        if doc.get('draft_binding') is not None and args.write_path:
+            expected_write_path = _bound_draft_file(doc, args.slug)
+            if args.write_path != expected_write_path:
+                _fail('record-dispatch',
+                      f'the reported write path {args.write_path!r} does not match the bound '
+                      f'canonical-draft file {expected_write_path!r} (write-path-mismatch): '
+                      'the file arm must write and audit the draft at the bound root')
         try:
             data = Path(args.draft_file).read_bytes()
         except OSError as exc:
@@ -2595,6 +2638,14 @@ def main():
     s.add_argument('--nonce', required=True)
     s.add_argument('--round', type=int, required=True)
     s.add_argument('--arm', choices=_ARMS, required=True)
+    s.add_argument('--write-path', help='Optional on the file arm (issue #569): the '
+                   'absolute canonical-draft file path the skill observed its write land '
+                   'at. When the run has a recorded draft-root binding and this is '
+                   'passed, it is cross-checked against the bound canonical file '
+                   '(write-path-mismatch on divergence). Omitted, or on an unbound run, '
+                   'the dispatch proceeds unchanged; an empty value is refused '
+                   '(write-path-empty) rather than read as an opt-out. Ignored on the '
+                   'embed and inline arms.')
     s.add_argument('--draft-file', help='Required on the file arm; bytes on stdin '
                                         'otherwise.')
     s.add_argument('--marker', choices=_EMBED_MARKER_TOKENS,

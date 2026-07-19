@@ -13064,15 +13064,35 @@ assert_eq "#332 fallback: resolved root gone from disk → specific (not generic
   "$(printf '%s' "$RMR_STALE_ERR" | grep -q 'resolve-main-root' && echo yes || echo no)"  # raw-guard-ok: breadcrumb specificity probe on captured stderr
 
 # create-issue SKILL.md contract pins (coupled with the SKILL.md edit — reconciled in the
-# same change per the AC). The draft is written to AND displayed at the main-root absolute
-# path; no bare-relative displayed draft-save note remains.
+# same change per the AC). The draft is written at the resolved main root and displayed at
+# the BOUND-root absolute path (issue #569: the display reads the root back from
+# query-draft-binding's `bound=` field); no bare-relative displayed draft-save note remains.
 CI_SKILL_332="$LIB/../skills/create-issue/SKILL.md"
 assert_pin_unique "#332 AC4: create-issue resolves the main root via resolve-main-root.sh (portable anchor)" \
-  "$PORTABLE_ANCHOR_LITERAL"'scripts/resolve-main-root.sh' "$CI_SKILL_332"
-assert_pin_unique "#332 AC4: create-issue displays the draft at the main-root ABSOLUTE path" \
-  'Draft also saved to `<main-root>/.devflow/tmp/issue-draft-<slug>.md` for review.' "$CI_SKILL_332"
+  'MAIN_ROOT="$('"$PORTABLE_ANCHOR_LITERAL"'scripts/resolve-main-root.sh)"' "$CI_SKILL_332"
+# #569: the record-draft-binding statement is a SEPARATE bash fence, so it cannot read the
+# fence-local $MAIN_ROOT — it re-resolves the deterministic root inline (anchor expanded inline,
+# never captured). That is why the binding site has its own resolve-main-root.sh invocation,
+# pinned here distinctly from the write site's MAIN_ROOT= form above. (Count-free by design: a
+# comment asserting how many call sites exist rots on the next SKILL.md edit — PR #553.)
+assert_pin_unique "#332/#569 AC4: the record-draft-binding --path re-resolves the root inline (self-contained fence)" \
+  '--path "$('"$PORTABLE_ANCHOR_LITERAL"'scripts/resolve-main-root.sh)" --tier main-root' "$CI_SKILL_332"
+assert_pin_unique "#332/#569 AC4: create-issue displays the draft at the bound-root ABSOLUTE path" \
+  'Draft also saved to `<bound-root>/.devflow/tmp/issue-draft-<slug>.md` for review.' "$CI_SKILL_332"
 assert_eq "#332 AC4: create-issue no longer shows a bare-relative draft-save note" "no" \
   "$(grep -qF 'Draft also saved to `.devflow/tmp/issue-draft-<slug>.md` for review.' "$CI_SKILL_332" && echo yes || echo no)"  # raw-guard-ok: absence pin (expects no) — the old cwd-relative displayed draft note must be gone
+# #569 behavioral-fix pins: the binding-reuse half of the tier ladder. Each pins a
+# load-bearing sentence and proves (via a sed mutation that re-introduces the bug) the
+# pin catches the regression, not merely the line vanishing.
+assert_pin_red_under "#569: the first landed write records the draft-root binding immutably" \
+  'records its resolved root through the state owner, immutably' \
+  's/immutably for the rest of the run/mutably for the rest of the run/' "$CI_SKILL_332"
+assert_pin_red_under "#569: later write sites read the bound root from query-draft-binding, never context recall" \
+  'never context recall and never a second' \
+  's/never context recall and never a second/via context recall or a second/' "$CI_SKILL_332"
+assert_pin_red_under "#569: the file arm forwards --write-path, cross-checked with write-path-mismatch on divergence" \
+  'cross-checks against the recorded binding and refuses with' \
+  's/and refuses with/and accepts on/' "$CI_SKILL_332"
 # The Step 2 derivation gate artifact deliberately STAYS cwd-anchored (internal, not shown
 # to the user) — assert it was not accidentally moved to the main root.
 assert_eq "#332 gotcha: Step 2 derivation artifact stays cwd-relative (not main-root)" "no" \
@@ -21328,28 +21348,226 @@ assert_eq "tb(#442 Sug-3): held ref .lock → no telemetry ref created" "no" \
   "$(git -C "$TB_LK_REPO" rev-parse --verify --quiet refs/heads/devflow-telemetry >/dev/null 2>&1 && echo yes || echo no)"
 rm -rf "$TB_LK_REPO"
 
-# AC8 (PR #442 review Suggestion-4 — was deferred, now covered): a persist on a checkout
-# with NO configured committer identity still writes, because the helper exports its own
-# GIT_AUTHOR/COMMITTER identity into commit-tree. Fixture is made deterministically
-# identity-less with `user.useConfigOnly` (git then refuses to auto-detect an identity
-# from the host), and the positive control proves the fixture really is identity-less —
-# so a passing persist attributes to the exported identity, not to an ambient fallback.
+# AC8 (PR #442 review Suggestion-4): a persist on a checkout with NO configured committer
+# identity still writes, because the helper exports its OWN GIT_AUTHOR/COMMITTER identity
+# into `commit-tree` — so a passing persist must attribute to that exported identity, not
+# to an ambient host fallback.
+#
+# issue #575: `user.useConfigOnly=true` stops git from *auto-detecting* an identity from
+# gecos/hostname, but it does NOT stop git from reading GLOBAL config, SYSTEM config, or the
+# GIT_{AUTHOR,COMMITTER}_{NAME,EMAIL} environment variables. The old empty-commit "positive
+# control" therefore gave a FALSE suite failure on any host whose global/system config (or
+# inherited identity vars) supplied an identity. This block instead:
+#   (1) proves each identity source is individually effective — a positive-control matrix that
+#       activates each identity source (system config, global config, inherited identity vars,
+#       command-scope config) in turn, each row enabling its own source and disabling every other
+#       (the inherited-vars source carries an extra row proving committer resolution, AC2);
+#   (2) isolates every source for the negative probe and asserts, via git's own identity-
+#       resolution command `git var` (not version-dependent commit diagnostics), that neither
+#       author nor committer identity resolves; and
+#   (3) runs every identity-sensitive check under a HOSTILE outer environment (synthetic global
+#       config, inherited identity vars, command-scope config incl. GIT_CONFIG_PARAMETERS, and
+#       GIT_CONFIG_NOSYSTEM=1), so the suite result no longer depends on the host's git identity.
+#       The fixture is BUILT before that subshell opens, so any identity-sensitive setup step
+#       must isolate itself (the seed commit below does) rather than rely on the subshell.
 TB_ID_REPO="$(git_sandbox "tb no-identity repo")"
 git -C "$TB_ID_REPO" init -q
-git -C "$TB_ID_REPO" config user.useConfigOnly true   # no user.name / user.email at all
+git -C "$TB_ID_REPO" config user.useConfigOnly true   # no local user.name / user.email at all
 mkdir -p "$TB_ID_REPO/.devflow"; printf 'tmp/\n' > "$TB_ID_REPO/.devflow/.gitignore"
 git -C "$TB_ID_REPO" add -A
-git -C "$TB_ID_REPO" -c user.email=seed@e.com -c user.name=seed commit -qm seed
-assert_eq "tb(#441 AC8): positive control — the fixture repo really has NO usable identity" "no" \
-  "$(git -C "$TB_ID_REPO" commit -q --allow-empty -m probe >/dev/null 2>&1 && echo yes || echo no)"
-mkdir -p "$TB_ID_REPO/.devflow/tmp/review/pr-1/run-a"
-printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
-  > "$TB_ID_REPO/.devflow/tmp/review/pr-1/run-a/iter-1.json"
-( cd "$TB_ID_REPO" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
-assert_eq "tb(#441 AC8): persist SUCCEEDS on an identity-less checkout (record is on the branch)" "yes" \
-  "$(git -C "$TB_ID_REPO" cat-file -e refs/heads/devflow-telemetry:.devflow/logs/efficiency/pr-1-run-a.json >/dev/null 2>&1 && echo yes || echo no)"
-assert_eq "tb(#441 AC8): the telemetry commit carries the helper's explicit committer identity" "github-actions[bot]" \
-  "$(git -C "$TB_ID_REPO" log -1 --format='%cn' refs/heads/devflow-telemetry 2>/dev/null)"
+# AC6: the seed commit stays deterministic via ONE-SHOT identity (never the host's). The `env -u`
+# is load-bearing, NOT decoration: GIT_AUTHOR_*/GIT_COMMITTER_* outrank EVERY config scope,
+# including `-c`, so on a host exporting them the `-c` pair would be a mere success-fallback and
+# the commit would attribute to the host. Unsetting them is what makes "never the host's" true.
+# The ambient SeedHostile pair is staged deliberately so the assertion below is DISCRIMINATING:
+# drop the `env -u` and the seed attributes to SeedHostile and the assertion goes RED.
+GIT_AUTHOR_NAME=SeedHostile GIT_AUTHOR_EMAIL=seed-hostile@e.com \
+GIT_COMMITTER_NAME=SeedHostile GIT_COMMITTER_EMAIL=seed-hostile@e.com \
+  env -u GIT_AUTHOR_NAME -u GIT_AUTHOR_EMAIL -u GIT_COMMITTER_NAME -u GIT_COMMITTER_EMAIL \
+  git -C "$TB_ID_REPO" -c user.email=seed@e.com -c user.name=seed commit -qm seed
+assert_eq "tb(#575 AC6): the seed commit attributes to its ONE-SHOT identity, not an ambient one" \
+  "seed <seed@e.com>" "$(git -C "$TB_ID_REPO" log -1 --format='%an <%ae>' 2>/dev/null)"
+
+# Synthetic per-source identity files, each carrying a DISTINCT identity so a matrix row
+# proves its source (and only its source) resolved.
+# `mktemp` is not preflight-guaranteed, so allocate fail-closed with a NAMED diagnostic. Without
+# the guard an allocation failure leaves the var empty and the `printf` below writes nothing; git
+# then reads the empty GIT_CONFIG_* path as "no such config file" (NOT as unset — an unset value
+# would fall back to the host's real ~/.gitconfig, so empty is the safer of the two), and the
+# fixture a row depends on is silently absent. That already fails CLOSED — a matrix row resolves
+# the wrong identity and goes RED — so this guard buys a clear "could not allocate" message
+# instead of a confusing identity mismatch several hundred lines later, not closure of a
+# fail-open. The persistence assertions' hostility comes from the exported identity VARS below,
+# not from these files, so they stay discriminating either way.
+TB_SYS_CFG="$(mktemp)"  || { echo "run.sh(#575): could not allocate the system-source identity fixture" >&2; exit 1; }
+printf '[user]\n\tname = SysName\n\temail = sys@e.com\n'   > "$TB_SYS_CFG"
+TB_GLOB_CFG="$(mktemp)" || { echo "run.sh(#575): could not allocate the global-source identity fixture" >&2; exit 1; }
+printf '[user]\n\tname = GlobName\n\temail = glob@e.com\n' > "$TB_GLOB_CFG"
+# The HOSTILE outer environment (AC5/AC9): identity files a contributor's host would supply.
+# Distinct from the per-source files above so a leak would be visible.
+TB_HOSTILE_GLOB="$(mktemp)" || { echo "run.sh(#575): could not allocate the hostile global identity fixture" >&2; exit 1; }
+printf '[user]\n\tname = HostileGlobal\n\temail = hostile-glob@e.com\n' > "$TB_HOSTILE_GLOB"
+TB_HOSTILE_SYS="$(mktemp)"  || { echo "run.sh(#575): could not allocate the hostile system identity fixture" >&2; exit 1; }
+printf '[user]\n\tname = HostileSystem\n\temail = hostile-sys@e.com\n'  > "$TB_HOSTILE_SYS"
+
+# AC5/AC9: run the identity-sensitive block under a hostile invoking environment — a global config
+# file that resolves identity, inherited author/committer vars, BOTH command-scope channels
+# (GIT_CONFIG_COUNT and GIT_CONFIG_PARAMETERS), and an inherited GIT_CONFIG_NOSYSTEM=1 that each
+# system-config row clears with `env -u` to reach system config. Because that
+# NOSYSTEM=1 is in force, TB_HOSTILE_SYS never resolves anywhere in this block — it is an inert
+# distinct-valued placeholder, not an active hostile source. Its only purpose is attribution: if a
+# future edit ever made system config reachable here, the leaked value would name its own origin.
+# The block's own per-check isolation is what keeps the suite green under this hostility.
+(
+  export GIT_CONFIG_GLOBAL="$TB_HOSTILE_GLOB"
+  export GIT_CONFIG_SYSTEM="$TB_HOSTILE_SYS"
+  export GIT_CONFIG_NOSYSTEM=1
+  export GIT_AUTHOR_NAME=HostileAuthor GIT_AUTHOR_EMAIL=hostile-author@e.com
+  export GIT_COMMITTER_NAME=HostileCommitter GIT_COMMITTER_EMAIL=hostile-committer@e.com
+  export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=user.name GIT_CONFIG_VALUE_0=HostileCmd
+  # GIT_CONFIG_PARAMETERS is git's OTHER command-scope channel and it OUTRANKS
+  # GIT_CONFIG_COUNT/KEY_n/VALUE_n. Exporting it hostilely here is what makes the
+  # `-u GIT_CONFIG_PARAMETERS` flag load-bearing on every row whose identity comes from CONFIG —
+  # every row whose identity comes from CONFIG rather than from the identity variables, and the
+  # negative probes: drop the flag there and
+  # the row resolves ParamLeak and goes RED. On the inherited-VARIABLE rows the flag is
+  # symmetry/defence-in-depth rather than load-bearing, because their own GIT_AUTHOR_*/
+  # GIT_COMMITTER_* outrank every config scope and win over ParamLeak regardless.
+  export GIT_CONFIG_PARAMETERS="'user.name=ParamLeak' 'user.email=param-leak@e.com'"
+
+  # leading name and email fields of a `git var *_IDENT` line; yields "Name <email>" ONLY for
+  # SINGLE-TOKEN names — every fixture identity in this block is deliberately one word. A
+  # multi-word name would split across _n/_e and mis-compare (loudly). Builtins only.
+  _id2() { read -r _n _e _rest; printf '%s %s' "$_n" "$_e"; }
+
+  # ── Matrix row: SYSTEM config only (AC1/AC3) ──
+  # Enable system by UNSETTING the inherited GIT_CONFIG_NOSYSTEM=1 and pointing GIT_CONFIG_SYSTEM
+  # at our file; disable global (/dev/null), inherited vars (unset), command-scope (unset). That
+  # the row resolves SysName once NOSYSTEM is unset — under an outer env that sets it — is the
+  # AC3 demonstration. (`GIT_CONFIG_NOSYSTEM=0` would also work — git parses it as a bool, so any
+  # bool-false value re-enables system config — but unsetting keeps this row's isolation uniform
+  # with its siblings, which all clear competing sources with `env -u` rather than by re-valuing.)
+  TB_M_SYS="$( env -u GIT_CONFIG_NOSYSTEM \
+        -u GIT_AUTHOR_NAME -u GIT_AUTHOR_EMAIL -u GIT_COMMITTER_NAME -u GIT_COMMITTER_EMAIL \
+        -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 -u GIT_CONFIG_PARAMETERS \
+        GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM="$TB_SYS_CFG" \
+        git -C "$TB_ID_REPO" var GIT_AUTHOR_IDENT 2>/dev/null | _id2 )"
+  assert_eq "tb(#575 AC1/AC3): system-config row resolves its own identity (inherited NOSYSTEM=1, row unsets it)" \
+    "SysName <sys@e.com>" "$TB_M_SYS"
+
+  # ── Matrix row: GLOBAL config only (AC1) ──
+  TB_M_GLOB="$( env -u GIT_AUTHOR_NAME -u GIT_AUTHOR_EMAIL -u GIT_COMMITTER_NAME -u GIT_COMMITTER_EMAIL \
+        -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 -u GIT_CONFIG_PARAMETERS \
+        GIT_CONFIG_GLOBAL="$TB_GLOB_CFG" GIT_CONFIG_SYSTEM=/dev/null \
+        git -C "$TB_ID_REPO" var GIT_AUTHOR_IDENT 2>/dev/null | _id2 )"
+  assert_eq "tb(#575 AC1): global-config row resolves its own identity" \
+    "GlobName <glob@e.com>" "$TB_M_GLOB"
+
+  # ── Matrix row: inherited identity VARIABLES only (AC1/AC2 — distinct author vs committer) ──
+  TB_M_VAR_A="$( env -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 -u GIT_CONFIG_PARAMETERS \
+        GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+        GIT_AUTHOR_NAME=VarAuthor GIT_AUTHOR_EMAIL=var-author@e.com \
+        GIT_COMMITTER_NAME=VarCommitter GIT_COMMITTER_EMAIL=var-committer@e.com \
+        git -C "$TB_ID_REPO" var GIT_AUTHOR_IDENT 2>/dev/null | _id2 )"
+  assert_eq "tb(#575 AC1/AC2): inherited-variable row resolves its author identity" \
+    "VarAuthor <var-author@e.com>" "$TB_M_VAR_A"
+  TB_M_VAR_C="$( env -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 -u GIT_CONFIG_PARAMETERS \
+        GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+        GIT_AUTHOR_NAME=VarAuthor GIT_AUTHOR_EMAIL=var-author@e.com \
+        GIT_COMMITTER_NAME=VarCommitter GIT_COMMITTER_EMAIL=var-committer@e.com \
+        git -C "$TB_ID_REPO" var GIT_COMMITTER_IDENT 2>/dev/null | _id2 )"
+  assert_eq "tb(#575 AC2): inherited-variable row resolves a DISTINCT committer identity" \
+    "VarCommitter <var-committer@e.com>" "$TB_M_VAR_C"
+
+  # ── Matrix row: command-scope config only (AC1) ──
+  # `-u GIT_CONFIG_PARAMETERS` is required here exactly as in the sibling rows above: it is the
+  # higher-precedence command-scope channel, so without this flag the outer hostile ParamLeak
+  # value beats this row's own GIT_CONFIG_KEY_n/VALUE_n and the row asserts the wrong source.
+  TB_M_CMD="$( env -u GIT_AUTHOR_NAME -u GIT_AUTHOR_EMAIL -u GIT_COMMITTER_NAME -u GIT_COMMITTER_EMAIL \
+        -u GIT_CONFIG_PARAMETERS \
+        GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+        GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=user.name GIT_CONFIG_VALUE_0=CmdName \
+        GIT_CONFIG_KEY_1=user.email GIT_CONFIG_VALUE_1=cmd@e.com \
+        git -C "$TB_ID_REPO" var GIT_AUTHOR_IDENT 2>/dev/null | _id2 )"
+  assert_eq "tb(#575 AC1): command-scope config row resolves its own identity" \
+    "CmdName <cmd@e.com>" "$TB_M_CMD"
+
+  # ── Negative probe (AC4): isolate every environment and config-file source; neither author nor
+  # committer resolves. This replaces the old empty-commit "positive control", which relied on
+  # version-dependent commit diagnostics and leaked host identity.
+  # LOCAL repo config is the one source the probe does NOT isolate — the fixture does, by setting
+  # user.useConfigOnly=true and never writing a local user.name/user.email (that same option also
+  # blocks git's gecos/hostname fallback). Do not add local identity to TB_ID_REPO: the
+  # negative-probe checks below would flip to `resolved`, with nothing to warn you.
+  # `-u EMAIL` is belt-and-braces rather than load-bearing while useConfigOnly is in force (that
+  # option blocks the $EMAIL fallback too) — but it is what keeps this probe from depending on
+  # useConfigOnly for a channel it can isolate directly, so removing useConfigOnly can no longer
+  # turn a contributor's exported EMAIL into a host-dependent false failure here.
+  # AC4 unsets NOSYSTEM/COUNT/PARAMETERS + the four identity vars, and also unsets the inherited
+  # command-scope KEY_0/VALUE_0, so command-scope is isolated by the probe itself. (It would also
+  # have been incidentally safe — COUNT is unset and the outer hostile KEY_0 carries no email —
+  # but the probe deliberately does not rely on that.)
+  # Assert git's OWN identity-unknown exit status (128), not merely "non-zero": `env` is not
+  # preflight-guaranteed, and a missing `env` exits 127 — which a bare non-zero test would score
+  # as "identity did not resolve" while `git var` never ran at all, the vacuous-negative shape.
+  # This discriminates on an EXIT CODE, deliberately not on git's diagnostic TEXT: matching the
+  # message is the version-dependent coupling issue #575 removed from this fixture.
+  TB_NEG_A_RC=0
+  env -u GIT_CONFIG_NOSYSTEM -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 -u GIT_CONFIG_PARAMETERS \
+        -u GIT_AUTHOR_NAME -u GIT_AUTHOR_EMAIL -u GIT_COMMITTER_NAME -u GIT_COMMITTER_EMAIL -u EMAIL \
+        GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+        git -C "$TB_ID_REPO" var GIT_AUTHOR_IDENT >/dev/null 2>&1 || TB_NEG_A_RC=$?
+  assert_eq "tb(#575 AC4): isolated negative probe — author identity does NOT resolve (git rc 128, not a harness rc)" \
+    "128" "$TB_NEG_A_RC"
+  TB_NEG_C_RC=0
+  env -u GIT_CONFIG_NOSYSTEM -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 -u GIT_CONFIG_PARAMETERS \
+        -u GIT_AUTHOR_NAME -u GIT_AUTHOR_EMAIL -u GIT_COMMITTER_NAME -u GIT_COMMITTER_EMAIL -u EMAIL \
+        GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+        git -C "$TB_ID_REPO" var GIT_COMMITTER_IDENT >/dev/null 2>&1 || TB_NEG_C_RC=$?
+  assert_eq "tb(#575 AC4): isolated negative probe — committer identity does NOT resolve (git rc 128, not a harness rc)" \
+    "128" "$TB_NEG_C_RC"
+
+  # ── Persistence under the hostile outer environment (AC5/AC7) ──
+  mkdir -p "$TB_ID_REPO/.devflow/tmp/review/pr-1/run-a"
+  printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
+    > "$TB_ID_REPO/.devflow/tmp/review/pr-1/run-a/iter-1.json"
+  ( cd "$TB_ID_REPO" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+  assert_eq "tb(#441 AC8 / #575 AC5): persist SUCCEEDS under a hostile identity env (record on the branch)" "yes" \
+    "$(git -C "$TB_ID_REPO" cat-file -e refs/heads/devflow-telemetry:.devflow/logs/efficiency/pr-1-run-a.json >/dev/null 2>&1 && echo yes || echo no)"
+  # Both halves the helper exports are checked. Committer alone would stay green if the helper
+  # dropped its GIT_AUTHOR_* pair, since the hostile HostileAuthor would then be inherited —
+  # which is precisely what makes the author assertion discriminating rather than redundant.
+  assert_eq "tb(#441 AC8 / #575 AC7): the telemetry commit carries the helper's explicit committer identity" "github-actions[bot]" \
+    "$(git -C "$TB_ID_REPO" log -1 --format='%cn' refs/heads/devflow-telemetry 2>/dev/null)"
+  assert_eq "tb(#441 AC8 / #575 AC7): the telemetry commit carries the helper's explicit AUTHOR identity" "github-actions[bot]" \
+    "$(git -C "$TB_ID_REPO" log -1 --format='%an' refs/heads/devflow-telemetry 2>/dev/null)"
+
+  # ── Persistence with NO resolvable identity at all (the original #441 AC8 property) ──
+  # The hostile-env arm above proves the helper's identity WINS over an ambient one; it cannot
+  # prove the helper supplies one at all, because a helper that exported nothing would still
+  # commit successfully by inheriting the hostile vars. This arm restores the original property:
+  # under the AC4 isolation (where `git var` resolves nothing), the persist must STILL write.
+  mkdir -p "$TB_ID_REPO/.devflow/tmp/review/pr-1/run-b"
+  printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
+    > "$TB_ID_REPO/.devflow/tmp/review/pr-1/run-b/iter-1.json"
+  ( cd "$TB_ID_REPO" && env -u GIT_CONFIG_NOSYSTEM -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 -u GIT_CONFIG_PARAMETERS \
+        -u GIT_AUTHOR_NAME -u GIT_AUTHOR_EMAIL -u GIT_COMMITTER_NAME -u GIT_COMMITTER_EMAIL -u EMAIL \
+        GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+        bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+  assert_eq "tb(#441 AC8 / #575 AC5): persist SUCCEEDS on an identity-LESS checkout (helper supplies its own)" "yes" \
+    "$(git -C "$TB_ID_REPO" cat-file -e refs/heads/devflow-telemetry:.devflow/logs/efficiency/pr-1-run-b.json >/dev/null 2>&1 && echo yes || echo no)"
+
+  # Arrival sentinel: every assertion above lives in this subshell, which runs without `set -e`
+  # but under `set -u`. An early abort (an unbound-variable expansion) records ZERO FAILs and
+  # would leave the suite green with the whole #575 block silently unexecuted. Writing a sentinel
+  # as the LAST in-subshell statement, and asserting it from OUTSIDE, is what turns that silence
+  # into a visible failure — an in-subshell assertion could not, because an early abort simply
+  # never reaches it and a never-run assertion records nothing at all.
+  printf 'reached\n' > "$TB_ID_REPO/block-complete"
+)
+assert_eq "tb(#575): the identity-matrix block ran to completion (subshell did not abort early)" "reached" \
+  "$(<"$TB_ID_REPO/block-complete")"
+rm -f "$TB_SYS_CFG" "$TB_GLOB_CFG" "$TB_HOSTILE_GLOB" "$TB_HOSTILE_SYS"
 rm -rf "$TB_ID_REPO"
 
 TB_CFG_REPO="$(git_sandbox "tb config override repo")"
@@ -44320,6 +44538,129 @@ if [ -d "$DB_SB" ]; then
   fi
   git -C "$DB_SB" worktree remove -f ../wt562 > /dev/null 2>&1 || true
   rm -rf "$DB_SB" "$DB_SB/../wt562"
+fi
+
+# ────────────────────────────────────────────────────────────────────────────
+# issue #569: the record-dispatch file-arm --write-path cross-check. When a run has bound a
+# canonical-draft root and the skill reports its landed write path, the tool cross-checks
+# that path against `<bound-root>/.devflow/tmp/issue-draft-<slug>.md` (the path it derives
+# from the recorded binding) and fails closed with `write-path-mismatch` on divergence. The
+# check is additive: an unbound run and a bound run that omits --write-path both proceed — but
+# a present-but-EMPTY --write-path is an unestablished report, refused as `write-path-empty`
+# rather than collapsed onto the omitted case. The check is scoped inside the file arm.
+WP_SB="$(git_sandbox '#569 write_path_crosscheck_rows')"
+if [ -d "$WP_SB" ]; then
+  (
+    cd "$WP_SB" || exit 1
+    git init -q .
+    mkdir -p .devflow/tmp
+    printf '# T\n\nB\n' > d.md
+    # A bound run: the matching write-path is accepted; a drifted one is refused.
+    N="$(python3 "$IAS" init wp | sed 's/nonce=//')"
+    python3 "$IAS" record-draft-binding wp --nonce "$N" --path "$WP_SB" --tier worktree-root > /dev/null
+    python3 "$IAS" record-dispatch wp --nonce "$N" --round 1 --arm file \
+      --write-path "$WP_SB/.devflow/tmp/issue-draft-wp.md" --draft-file d.md > .wp-match 2>&1
+    printf '%s' "$?" > .wp-match-rc
+    # A NEW run (its own binding at the same root; a drifted write path, round 1) is refused.
+    # Bindings are per-slug and immutable — wp2 records its own, it does not share wp's. The
+    # bound canonical file for slug wp2 is $WP_SB/.devflow/tmp/issue-draft-wp2.md; report a
+    # divergent /elsewhere path and expect the named breadcrumb + non-zero exit.
+    N2="$(python3 "$IAS" init wp2 | sed 's/nonce=//')"
+    python3 "$IAS" record-draft-binding wp2 --nonce "$N2" --path "$WP_SB" --tier worktree-root > /dev/null
+    python3 "$IAS" record-dispatch wp2 --nonce "$N2" --round 1 --arm file \
+      --write-path /elsewhere/.devflow/tmp/issue-draft-wp2.md --draft-file d.md \
+      > /dev/null 2> .wp-mismatch; printf '%s' "$?" > .wp-mismatch-rc
+    # A bound run that OMITS --write-path proceeds unchanged (the cross-check is additive).
+    N3="$(python3 "$IAS" init wp3 | sed 's/nonce=//')"
+    python3 "$IAS" record-draft-binding wp3 --nonce "$N3" --path "$WP_SB" --tier worktree-root > /dev/null
+    python3 "$IAS" record-dispatch wp3 --nonce "$N3" --round 1 --arm file \
+      --draft-file d.md > /dev/null 2>&1; printf '%s' "$?" > .wp-nowp-rc
+    # An UNBOUND run's file arm still dispatches (the binding-required half is deferred); the
+    # cross-check is scoped to a bound run, so no binding means no cross-check.
+    N4="$(python3 "$IAS" init wp4 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch wp4 --nonce "$N4" --round 1 --arm file \
+      --write-path /any/where.md --draft-file d.md > /dev/null 2>&1; printf '%s' "$?" > .wp-unbound-rc
+    # An EMPTY --write-path is an unestablished report, NOT an opt-out: a truthiness test would
+    # collapse it onto "caller omitted the flag" and silently disarm the cross-check on exactly
+    # the drift it exists to catch (the skill composes this value in shell, so an unresolved
+    # root yields ""). It is refused by name, distinctly from the omitted case above.
+    N5="$(python3 "$IAS" init wp5 | sed 's/nonce=//')"
+    python3 "$IAS" record-draft-binding wp5 --nonce "$N5" --path "$WP_SB" --tier main-root > /dev/null
+    python3 "$IAS" record-dispatch wp5 --nonce "$N5" --round 1 --arm file \
+      --write-path "" --draft-file d.md > /dev/null 2> .wp-empty; printf '%s' "$?" > .wp-empty-rc
+    # ARM ORDER, not just the two arms: the empty refusal sits ABOVE the binding guard, so it
+    # fires on an UNBOUND run too. Without this row, scoping the empty check under the binding
+    # guard keeps every other row green while an unbound run with --write-path "" flips from
+    # refused to accepted — the unestablished report silently proceeding. (An empty value
+    # reaches the tool from a caller that composes the path from a shell-resolved root; the
+    # shipped skill substitutes an already-resolved literal, so this is defense in depth.)
+    N8="$(python3 "$IAS" init wp8 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch wp8 --nonce "$N8" --round 1 --arm file \
+      --write-path "" --draft-file d.md > /dev/null 2> .wp-empty-unbound
+    printf '%s' "$?" > .wp-empty-unbound-rc
+    # WHITESPACE-only is empty too: the guard is `.strip()`-based, so a "simplification" to a
+    # bare falsiness test (`not args.write_path`) would keep every other row green while an
+    # unbound run with "   " flips from refused to accepted.
+    N9="$(python3 "$IAS" init wp9 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch wp9 --nonce "$N9" --round 1 --arm file \
+      --write-path "   " --draft-file d.md > /dev/null 2> .wp-ws; printf '%s' "$?" > .wp-ws-rc
+    # The mismatch rows above diverge the ROOT. Cover the other half of _bound_draft_file's
+    # join: the correct bound root with a drifted <slug> — the compacted-context shape where a
+    # run reuses a prior draft's slug — must also be refused.
+    NA="$(python3 "$IAS" init wpa | sed 's/nonce=//')"
+    python3 "$IAS" record-draft-binding wpa --nonce "$NA" --path "$WP_SB" --tier main-root > /dev/null
+    python3 "$IAS" record-dispatch wpa --nonce "$NA" --round 1 --arm file \
+      --write-path "$WP_SB/.devflow/tmp/issue-draft-otherslug.md" --draft-file d.md \
+      > /dev/null 2> .wp-slug; printf '%s' "$?" > .wp-slug-rc
+    # The shipped skill binds --tier main-root (tier-2/tier-3 selection is the deferred half),
+    # so pin the tier the production path actually uses, not only worktree-root: a matching
+    # write-path under a main-root binding is accepted.
+    N6="$(python3 "$IAS" init wp6 | sed 's/nonce=//')"
+    python3 "$IAS" record-draft-binding wp6 --nonce "$N6" --path "$WP_SB" --tier main-root > /dev/null
+    python3 "$IAS" record-dispatch wp6 --nonce "$N6" --round 1 --arm file \
+      --write-path "$WP_SB/.devflow/tmp/issue-draft-wp6.md" --draft-file d.md > /dev/null 2>&1
+    printf '%s' "$?" > .wp-mainroot-rc
+    # The cross-check is deliberately scoped INSIDE the file arm: an embed-arm dispatch ignores
+    # --write-path entirely. Pin that scoping so a later refactor that HOISTS the check out of
+    # the file-arm branch cannot change behavior with the suite green. (A refactor that narrows
+    # or removes the check is caught by the .wp-mismatch row, not by this one.)
+    N7="$(python3 "$IAS" init wp7 | sed 's/nonce=//')"
+    python3 "$IAS" record-draft-binding wp7 --nonce "$N7" --path "$WP_SB" --tier main-root > /dev/null
+    printf '# T\n\nB\n' | python3 "$IAS" record-dispatch wp7 --nonce "$N7" --round 1 --arm embed \
+      --marker write-failed --write-path /totally/bogus.md > /dev/null 2>&1
+    printf '%s' "$?" > .wp-embed-rc
+  )
+  assert_eq "#569 write_path_crosscheck_rows: a matching write-path is accepted (exit 0)" \
+    "0" "$(cat "$WP_SB/.wp-match-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: a drifted write-path is refused (exit non-zero)" \
+    "1" "$(cat "$WP_SB/.wp-mismatch-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: ... named by the write-path-mismatch breadcrumb" \
+    "1" "$(grep -c 'write-path-mismatch' "$WP_SB/.wp-mismatch" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: a bound run that omits --write-path proceeds (cross-check is additive)" \
+    "0" "$(cat "$WP_SB/.wp-nowp-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: an unbound file-arm dispatch still proceeds (binding-required half deferred)" \
+    "0" "$(cat "$WP_SB/.wp-unbound-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: an EMPTY --write-path is refused, not read as an opt-out" \
+    "1" "$(cat "$WP_SB/.wp-empty-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: ... named by the write-path-empty breadcrumb" \
+    "1" "$(grep -c 'write-path-empty' "$WP_SB/.wp-empty" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: the EMPTY refusal is binding-INDEPENDENT (unbound run refused too)" \
+    "1" "$(cat "$WP_SB/.wp-empty-unbound-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: ... the unbound empty refusal names write-path-empty" \
+    "1" "$(grep -c 'write-path-empty' "$WP_SB/.wp-empty-unbound" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: a WHITESPACE-only --write-path is refused (strip-based, not bare falsiness)" \
+    "1" "$(cat "$WP_SB/.wp-ws-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: ... the whitespace refusal names write-path-empty" \
+    "1" "$(grep -c 'write-path-empty' "$WP_SB/.wp-ws" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: right root + WRONG SLUG is refused (the other half of the join)" \
+    "1" "$(cat "$WP_SB/.wp-slug-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: ... the wrong-slug refusal names write-path-mismatch" \
+    "1" "$(grep -c 'write-path-mismatch' "$WP_SB/.wp-slug" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: the shipped main-root tier is covered (matching path accepted)" \
+    "0" "$(cat "$WP_SB/.wp-mainroot-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: an embed-arm dispatch ignores --write-path (check is file-arm scoped)" \
+    "0" "$(cat "$WP_SB/.wp-embed-rc" 2>/dev/null)"
+  rm -rf "$WP_SB"
 fi
 
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
