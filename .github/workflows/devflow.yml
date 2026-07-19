@@ -30,9 +30,13 @@ on:
   pull_request_review:
     types: [submitted]
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   config:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.DEVFLOW_RUNNER && (startsWith(vars.DEVFLOW_RUNNER, '[') && fromJSON(vars.DEVFLOW_RUNNER) || vars.DEVFLOW_RUNNER) || 'ubuntu-latest' }}
     outputs:
       enabled: ${{ steps.extract.outputs.enabled }}
       base_branch: ${{ steps.extract.outputs.base_branch }}
@@ -108,7 +112,7 @@ jobs:
   review_dedupe:
     needs: config
     if: ${{ needs.config.outputs.enabled == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.DEVFLOW_RUNNER && (startsWith(vars.DEVFLOW_RUNNER, '[') && fromJSON(vars.DEVFLOW_RUNNER) || vars.DEVFLOW_RUNNER) || 'ubuntu-latest' }}
     permissions:
       contents: read
       pull-requests: write
@@ -322,7 +326,7 @@ jobs:
         (github.event_name == 'pull_request_review_comment' && (contains(github.event.comment.body, '/devflow:review') || contains(github.event.comment.body, '/devflow:pr-description')) && !contains(github.event.comment.body, '@claude') && !contains(github.event.comment.body, '/devflow:implement')) ||
         (github.event_name == 'pull_request_review' && (contains(github.event.review.body, '/devflow:review') || contains(github.event.review.body, '/devflow:pr-description')) && !contains(github.event.review.body, '@claude') && !contains(github.event.review.body, '/devflow:implement'))
       )
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.DEVFLOW_RUNNER && (startsWith(vars.DEVFLOW_RUNNER, '[') && fromJSON(vars.DEVFLOW_RUNNER) || vars.DEVFLOW_RUNNER) || 'ubuntu-latest' }}
     permissions:
       contents: read        # checkout the resolver; collaborator check uses GITHUB_TOKEN
       issues: write         # react step: ack reaction on issue comments
@@ -404,7 +408,7 @@ jobs:
   command:
     needs: [config, review_dedupe, gate]
     if: ${{ needs.gate.outputs.should_run == 'true' && needs.review_dedupe.outputs.suppress != 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.DEVFLOW_RUNNER && (startsWith(vars.DEVFLOW_RUNNER, '[') && fromJSON(vars.DEVFLOW_RUNNER) || vars.DEVFLOW_RUNNER) || 'ubuntu-latest' }}
     permissions:
       contents: write
       pull-requests: write
