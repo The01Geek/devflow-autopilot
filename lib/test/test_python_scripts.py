@@ -5537,6 +5537,123 @@ assert_eq("#543 AC18: checked-in manifest matches the generated closure (verify)
 assert_eq("#543 AC18: validator accepts the real checked-in manifest",
           0, vcwc.main([]))
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Cloud-writer trust-closure dependency classification (issue #583, AC5).
+# The classification is import/source-derived + exec-declared; the guard rejects
+# a repo-owned edge that escapes the vendored tree and an external edge that
+# names no preflight guarantee. Positive fixtures pin workpad.py's
+# subprocess/stdlib deps and run-jq.sh's jq delegation; non-vacuity is proven by
+# injecting one crafted edge at a time into check_dependencies(edges=...).
+# ─────────────────────────────────────────────────────────────────────────────
+cwd = _load('cloud_writer_deps', _LIBTEST / 'cloud_writer_deps.py')
+
+# The live closure classifies cleanly and every AC1 entry point is covered.
+assert_eq("#583 AC5: check_dependencies() reports no violations on the live closure",
+          [], cwd.check_dependencies())
+_cwd_all = cwd.classify_all()
+_cwd_helpers = {e.helper for e in _cwd_all}
+assert_eq("#583 AC5: every AC1-closure entry point is classified",
+          True, set(cwd.entry_points()) <= _cwd_helpers)
+
+
+def _cwd_edges(helper, kind=None):
+    return [e for e in _cwd_all
+            if e.helper == helper and (kind is None or e.kind == kind)]
+
+
+# Positive fixture 1 — workpad.py: subprocess (gh/git) + standard-library deps.
+_wp_exec = {e.target: e for e in _cwd_edges("scripts/workpad.py", "exec")}
+assert_eq("#583 AC5: workpad.py's gh subprocess edge is external, authorized by the gh preflight guarantee",
+          (True, "external", True),
+          ("gh" in _wp_exec, _wp_exec["gh"].klass if "gh" in _wp_exec else None,
+           bool(_wp_exec.get("gh") and "gh (preflight guarantee)" == _wp_exec["gh"].auth)))
+assert_eq("#583 AC5: workpad.py's git subprocess edge is external, git-preflight-authorized",
+          (True, "external"),
+          ("git" in _wp_exec, _wp_exec["git"].klass if "git" in _wp_exec else None))
+assert_eq("#583 AC5: workpad.py's standard-library imports are all external and preflight-authorized",
+          True,
+          all(e.klass == "external" and e.auth and "python3 standard library" in e.auth
+              for e in _cwd_edges("scripts/workpad.py", "import")))
+
+# Positive fixture 2 — run-jq.sh: the sourced resolver (repo-owned, beneath the
+# vendored tree) and the jq delegation (external, jq-preflight-authorized).
+_rj_source = {e.target for e in _cwd_edges("scripts/run-jq.sh", "source")}
+_rj_exec = {e.target: e for e in _cwd_edges("scripts/run-jq.sh", "exec")}
+assert_eq("#583 AC5: run-jq.sh sources lib/resolve-jq.sh as a repo-owned edge beneath the vendored tree",
+          (True, True),
+          ("lib/resolve-jq.sh" in _rj_source,
+           cwd.resolves_beneath_vendor("lib/resolve-jq.sh")))
+assert_eq("#583 AC5: run-jq.sh's jq delegation is an external edge authorized by the jq preflight guarantee",
+          (True, "external", "jq (preflight guarantee)"),
+          ("jq" in _rj_exec, _rj_exec["jq"].klass if "jq" in _rj_exec else None,
+           _rj_exec["jq"].auth if "jq" in _rj_exec else None))
+
+# Non-vacuity — the vendored-boundary predicate itself.
+assert_eq("#583 AC5: a repo-owned target beneath the vendored tree resolves beneath vendor",
+          True, cwd.resolves_beneath_vendor("lib/resolve-jq.sh"))
+assert_eq("#583 AC5: a repo-root '../../scripts/…' escape does NOT resolve beneath vendor",
+          False, cwd.resolves_beneath_vendor("../scripts/evil.sh"))
+
+# Non-vacuity — inject one crafted edge at a time and confirm the guard bites.
+_escape = cwd.Edge("scripts/run-jq.sh", "source", "../scripts/evil.sh", "repo-owned")
+assert_eq("#583 AC5: a repo-root '../../scripts/…' repo-owned edge is rejected (escapes the vendored tree)",
+          True, any("does not resolve beneath" in v
+                    for v in cwd.check_dependencies([_escape])))
+_ghost = cwd.Edge("scripts/run-jq.sh", "source", "lib/does-not-exist.sh", "repo-owned")
+assert_eq("#583 AC5: a repo-owned edge whose target is absent on disk is rejected",
+          True, any("missing on disk" in v for v in cwd.check_dependencies([_ghost])))
+_unauth_bin = cwd.Edge("scripts/workpad.py", "exec", "curl", "external", None)
+assert_eq("#583 AC5: an external edge naming no preflight guarantee/grant is rejected",
+          True, any("names no preflight guarantee" in v
+                    for v in cwd.check_dependencies([_unauth_bin])))
+_unauth_import = cwd.Edge("scripts/workpad.py", "import", "requests", "external", None)
+assert_eq("#583 AC5: an unvetted third-party import (no preflight guarantee) is rejected",
+          True, any("names no preflight guarantee" in v
+                    for v in cwd.check_dependencies([_unauth_import])))
+
+# Non-vacuity — the DERIVED scanners bite on drift, proven against synthetic
+# sources: a new unvetted import and a repo-root-escaping source are classified
+# into a violation without any declaration change (reverse-drift is structural).
+with tempfile.TemporaryDirectory() as _cwd_td:
+    _pyf = Path(_cwd_td) / "probe.py"
+    _pyf.write_text("import os\nimport requests\n", encoding="utf-8")
+    _orig_read = cwd._read
+    try:
+        cwd._read = lambda rel: _pyf.read_text(encoding="utf-8")  # noqa: E731
+        _probe_imports = cwd._scan_python_imports("scripts/probe.py")
+    finally:
+        cwd._read = _orig_read
+    _probe_by_target = {e.target: e for e in _probe_imports}
+    assert_eq("#583 AC5: the import scanner classifies a stdlib import as authorized-external",
+              (True, "external"),
+              ("os" in _probe_by_target, _probe_by_target["os"].klass if "os" in _probe_by_target else None))
+    assert_eq("#583 AC5: the import scanner leaves an unvetted import unauthorized (auth is None → guard bites)",
+              (True, None),
+              ("requests" in _probe_by_target,
+               _probe_by_target["requests"].auth if "requests" in _probe_by_target else "MISSING"))
+    _shf = Path(_cwd_td) / "probe.sh"
+    _shf.write_text('. "$HERE/../../scripts/evil.sh"\n', encoding="utf-8")
+    try:
+        cwd._read = lambda rel: _shf.read_text(encoding="utf-8")  # noqa: E731
+        _probe_src = cwd._scan_shell_sources("scripts/probe.sh")
+    finally:
+        cwd._read = _orig_read
+    assert_eq("#583 AC5: the source scanner recovers a `.`-command include target relative to the helper dir",
+              ["../scripts/evil.sh"], [e.target for e in _probe_src])
+    assert_eq("#583 AC5: that escaping derived source edge is rejected by the guard",
+              True, any("does not resolve beneath" in v
+                        for v in cwd.check_dependencies(_probe_src)))
+
+# Non-vacuity — the exec-edge forward-verification bites on a stale declaration.
+_cwd_orig_exec = cwd.EXEC_EDGES
+try:
+    cwd.EXEC_EDGES = dict(_cwd_orig_exec)
+    cwd.EXEC_EDGES["scripts/run-jq.sh"] = _cwd_orig_exec["scripts/run-jq.sh"] + [("nonesuchbin", cwd._EXT)]
+    assert_eq("#583 AC5: a declared exec edge whose target is absent from the source is rejected",
+              True, any("not found in source" in v for v in cwd.check_dependencies()))
+finally:
+    cwd.EXEC_EDGES = _cwd_orig_exec
+
 # AC18 — 17-class rejection matrix against an isolated fixture.
 with tempfile.TemporaryDirectory() as _cw_base:
     _base = Path(_cw_base)
