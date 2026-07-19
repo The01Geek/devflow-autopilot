@@ -42789,10 +42789,13 @@ COVERAGE_GUARD_OUT="$(python3 "$LIB/test/coverage_map_guard.py" "$LIB/.." 2>&1)"
 COVERAGE_GUARD_RC=$?
 assert_eq "#591 coverage-map guard: shipped tree + map is clean" "0" "$COVERAGE_GUARD_RC"
 [ "$COVERAGE_GUARD_RC" -eq 0 ] || while IFS= read -r _cg_line || [ -n "$_cg_line" ]; do printf '    %s\n' "$_cg_line"; done <<< "$COVERAGE_GUARD_OUT"
-COVERAGE_GUARD_UNIT_OUT="$(python3 "$LIB/test/test_coverage_map_guard.py" 2>&1)"
-COVERAGE_GUARD_UNIT_RC=$?
-assert_eq "#591 coverage-map guard: focused Python tests pass (all 8 arms)" "0" "$COVERAGE_GUARD_UNIT_RC"
-[ "$COVERAGE_GUARD_UNIT_RC" -eq 0 ] || while IFS= read -r _cgu_line || [ -n "$_cgu_line" ]; do printf '    %s\n' "$_cgu_line"; done <<< "$COVERAGE_GUARD_UNIT_OUT"
+# Reuse the shared focused-Python-test runner (module-harness.sh, sourced above)
+# rather than re-implementing its capture/assert/indent idiom — it also applies the
+# PYTHON_COLORS=0 determinism guard the hand-rolled form dropped.
+_CG_UNIT_OUT="$(mktemp)"
+devflow_run_focused_python_test "#591 coverage-map guard: focused Python tests pass (all 8 arms)" \
+  "$LIB/test/test_coverage_map_guard.py" "$_CG_UNIT_OUT"
+rm -f "$_CG_UNIT_OUT"
 
 # ────────────────────────────────────────────────────────────────────────────
 # ────────────────────────────────────────────────────────────────────────────

@@ -49,9 +49,11 @@ CAP_CHECK_OUT="$(python3 "$CAPGEN" --check 2>/dev/null)"; CAP_CHECK_RC=$?
 assert_eq "#561 --check on the committed tree exits 0" "0" "$CAP_CHECK_RC"
 assert_eq "#561 --check on the committed tree prints empty stdout" "" "$CAP_CHECK_OUT"
 
-# T11 — the generator is python3 stdlib-only (imports no yaml module).
+# T11 — the generator is python3 stdlib-only (imports no yaml module). Count through the
+# module's fail-closed devflow_module_pin_count (an unreadable read → `unestablished` → the
+# 0-expected assert_eq goes RED) rather than a raw `grep -c` that fails open to 0.
 assert_eq "#561 T11 generator imports no 'yaml' module (stdlib-only)" "0" \
-  "$(grep -c 'import yaml' "$CAPGEN")"
+  "$(devflow_module_pin_count 'import yaml' "$CAPGEN")"
 
 # Build an isolated fixture mirroring the repo layout; the generator resolves its paths
 # from __file__, so a copy under <root>/lib runs against <root>/.github/workflows. Every
