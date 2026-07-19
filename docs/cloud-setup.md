@@ -729,6 +729,14 @@ the execution path — invoked by their **direct leading-token** form (the
   the run can verify in-env, then re-run. There is never a silent stall, and
   never a verdict resting on a CI result the run never saw.
 
+- **A grant a PR ships is post-merge-only — never rely on a grant that same PR
+  adds.** A grant added to `devflow_implement.allowed_tools` (and equally to
+  `devflow.allowed_tools`, which this same section instructs populating) inside a PR
+  takes effect only after that PR merges, because the workflows resolve grants at trigger time from the default branch — never from the PR's own head.
+  So a criterion that must run a *newly*-granted command cannot verify in-env
+  during that PR's own implementing run; grant the command in a prior (merged)
+  change, or defer that verification to after merge.
+
 (This repo's own `.devflow/config.json` grants `Bash(lib/test/run.sh:*)`,
 `Bash(lib/preflight.sh:*)`, and `Bash(shellcheck:*)` under both keys for exactly
 this reason.) See [`implement-skill.md`](implement-skill.md) for the Phase 3.4
