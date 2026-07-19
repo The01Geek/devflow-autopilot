@@ -1,0 +1,431 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 Daniel Radman
+# SPDX-License-Identifier: MIT
+"""DevFlow checklist-verdict parse + wording-only normalization helper (Phase 2.2).
+
+The checklist-verifier is a strict measuring instrument: it grades
+partially-correct claims FAIL and reports structured operands
+(``property_proven``, ``inaccuracy_scope``) without ever self-normalizing. This
+helper owns the parse contract and the single normalization decision, so the
+review-engine prose only assembles inputs, runs the helper, and renders outputs
+(the ``match-lint-adjudications.py`` / ``match-deferrals.py`` helper-owns-the-join
+idiom). It is stdlib-only, reads no config, and makes no ``gh``/network/``git``
+calls — unit-testable exactly like ``consolidate-changesets.py`` (issue #556).
+
+Input — one pairs file (a JSON object) named as ``argv[1]``. The orchestrator
+Writes it into the run-scoped ``.devflow/tmp/`` tree. Shape::
+
+    {
+      "pairs": [
+        {
+          "item": { "id": "VC-3", "verification_mode": "agent",
+                    "claim_provenance": "generated_paraphrase", ... },
+          "verdict_path": ".devflow/tmp/review/<slug>/<run>/verdicts/iter-1/VC-3-<nonce>.json",
+          "response_text": "...transcribed verifier response (fallback channel)...",
+          "pinned_verdict": "FAIL"   # optional: field-completion re-ask — the raw
+                                      # FAIL is pinned to the first response; any
+                                      # verdict token the re-ask returns is ignored.
+        },
+        ...
+      ]
+    }
+
+The verdict bytes for each pair are read from **exactly** the ``verdict_path``
+named in that pair entry (every file the pairs file does not name is ignored, so
+a compromised verifier can affect only its own item — the nonce binding). When no
+readable file exists at that path, the pair's transcribed ``response_text`` is the
+fallback channel; when neither exists the item carries a verdict defect.
+
+Output — one JSON object on stdout, rc 0 whenever the helper ran::
+
+    {
+      "results": [ { "id", "raw_verdict", "verdict", "normalized",
+                     "evidence", "file_checked", "source",
+                     "defect", "defect_class",
+                     "normalization_ineligible" }, ... ],
+      "needs_retry": [ { "id", "kind": "verdict"|"auxiliary", "defect" }, ... ],
+      "counts": { "normalized_count", "field_defect_fail_count" }
+    }
+
+A malformed pairs file (unparseable / truncated / wrong-shape) instead prints the
+structured **bad-input report** — ``{"bad_input": true, "error": ...}`` — to
+stdout with rc 0, so a transcription failure is an outcome distinguishable from
+results, from error text, and from silence (a matcher denial prints nothing).
+
+Verdict defect shapes (item keeps its raw verdict, is normalization-ineligible,
+and enters ``needs_retry`` with kind ``verdict``): ``missing_fence`` (no ``json``
+fence and the body does not contain exactly one parseable object),
+``unparseable_json``, ``missing_verdict_field``, ``non_enum_verdict``,
+``id_mismatch``, ``no_verdict`` (neither file nor response_text). More than one
+``json`` fence reads the LAST fence as authoritative (final-answer convention).
+
+Auxiliary-field defects (an absent / unknown-token / wrong-typed
+``property_proven`` or ``inaccuracy_scope``) never invalidate a well-formed
+verdict: the item keeps its raw verdict and is normalization-ineligible. Only when
+the raw verdict is the byte-exact token ``FAIL`` and the item carries
+``claim_provenance: "generated_paraphrase"`` (the sole population conjuncts 3-5
+can ever admit) does an auxiliary defect enter ``needs_retry`` with kind
+``auxiliary`` for a field-completion re-ask; a PASS or INCONCLUSIVE with a
+defective auxiliary field is never re-dispatched.
+
+The five-conjunct normalization predicate (raw FAIL -> stored PASS) holds exactly
+when ALL hold: (1) ``verification_mode == "agent"``; (2)
+``claim_provenance == "generated_paraphrase"``; (3) raw verdict byte-exact
+``FAIL``; (4) ``property_proven`` is JSON boolean ``true`` (a JSON string
+``"true"`` does not qualify — a real type check); (5)
+``inaccuracy_scope == "generated_claim_text"``. No malformed shape of any class
+ever resolves to a stored PASS.
+
+Exit codes:
+    0  Helper ran (results OR bad-input report printed).
+    1  Unsupported Python (< 3.11).
+    2  Bad arguments (no pairs-file path given).
+"""
+
+import json
+import sys
+
+if sys.version_info < (3, 11):  # fail fast, before any PEP 604 annotation below
+    sys.stderr.write(
+        "devflow: Python 3.11+ required (found %s.%s.%s).\n" % sys.version_info[:3]
+    )
+    sys.exit(1)
+
+VERDICT_ENUM = ("PASS", "FAIL", "INCONCLUSIVE")
+SCOPE_ENUM = ("generated_claim_text", "source_authored_text", "none")
+NORMALIZED_PREFIX = "NORMALIZED (wording-only): "
+
+
+def _brace_objects(text):
+    """Return every top-level balanced ``{...}`` substring of ``text`` that parses
+    as a JSON dict, in order. String contents (and escaped quotes/braces inside
+    them) are respected so a ``{`` inside a JSON string never opens a candidate."""
+    objs = []
+    depth = 0
+    start = -1
+    in_str = False
+    esc = False
+    for i, ch in enumerate(text):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            if depth > 0:
+                depth -= 1
+                if depth == 0 and start != -1:
+                    candidate = text[start:i + 1]
+                    try:
+                        parsed = json.loads(candidate)
+                    except (json.JSONDecodeError, ValueError):
+                        parsed = None
+                    if isinstance(parsed, dict):
+                        objs.append(parsed)
+                    start = -1
+    return objs
+
+
+def _json_fences(text):
+    """Return the inner text of each ```` ```json ... ``` ```` fence, in order."""
+    fences = []
+    marker = "```json"
+    idx = 0
+    while True:
+        open_at = text.find(marker, idx)
+        if open_at == -1:
+            break
+        body_start = open_at + len(marker)
+        close_at = text.find("```", body_start)
+        if close_at == -1:
+            break
+        fences.append(text[body_start:close_at])
+        idx = close_at + 3
+    return fences
+
+
+def extract_verdict_object(text):
+    """Parse the verdict object out of verifier bytes (a file's content or a
+    transcribed response). Returns ``(obj, defect)`` — exactly one is None.
+
+    Parse contract: prefer ``json`` fences (LAST fence authoritative when more
+    than one); with no fence, tolerate a body that contains exactly one parseable
+    JSON object; otherwise ``missing_fence``."""
+    if text is None:
+        return None, "no_verdict"
+    fences = _json_fences(text)
+    if fences:
+        chosen = fences[-1].strip()
+        try:
+            obj = json.loads(chosen)
+        except (json.JSONDecodeError, ValueError):
+            return None, "unparseable_json"
+        if not isinstance(obj, dict):
+            return None, "unparseable_json"
+        return obj, None
+    objs = _brace_objects(text)
+    if len(objs) == 1:
+        return objs[0], None
+    # zero parseable objects, or an ambiguous multiple — neither is a verdict.
+    return None, "missing_fence"
+
+
+def _aux_state(obj, field):
+    """Classify an auxiliary field. Returns one of ``"ok"``, ``"real"``
+    (present, correct type, a legitimate non-normalizing value), or ``"defect"``
+    (absent / wrong type / unknown token — a field-emission miss)."""
+    present = field in obj
+    val = obj.get(field)
+    if field == "property_proven":
+        if not present:
+            return "defect"
+        if not isinstance(val, bool):  # a JSON string "true" is NOT a boolean
+            return "defect"
+        return "ok" if val is True else "real"
+    if field == "inaccuracy_scope":
+        if not present or not isinstance(val, str) or val not in SCOPE_ENUM:
+            return "defect"
+        return "ok" if val == "generated_claim_text" else "real"
+    return "defect"
+
+
+def _read_verdict_bytes(pair):
+    """Return ``(text, source)`` — the verdict bytes and their channel. Reads ONLY
+    the exact ``verdict_path`` named in this pair (ignoring every unnamed file);
+    falls back to the transcribed ``response_text`` when no readable file exists."""
+    path = pair.get("verdict_path")
+    if isinstance(path, str) and path:
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                return fh.read(), "file"
+        except (OSError, UnicodeDecodeError):
+            pass  # no readable file at the nonce path -> fall to response_text
+    rt = pair.get("response_text")
+    if isinstance(rt, str):
+        return rt, "response_text"
+    return None, "none"
+
+
+def _process_pair(pair):
+    """Return ``(result_dict, retry_entry_or_None)`` for one pair."""
+    item = pair.get("item") if isinstance(pair.get("item"), dict) else {}
+    item_id = item.get("id")
+    mode = item.get("verification_mode")
+    provenance = item.get("claim_provenance")
+    pinned = pair.get("pinned_verdict")
+
+    text, source = _read_verdict_bytes(pair)
+    obj, defect = extract_verdict_object(text)
+
+    result = {
+        "id": item_id,
+        "raw_verdict": None,
+        "verdict": None,
+        "normalized": False,
+        "evidence": None,
+        "file_checked": None,
+        "source": source,
+        "defect": None,
+        "defect_class": None,
+        "normalization_ineligible": None,
+    }
+
+    # --- verdict-defect arm: keep no verdict, flag for a full re-dispatch --------
+    if defect is not None:
+        result["defect"] = defect
+        result["defect_class"] = "verdict"
+        result["normalization_ineligible"] = f"verdict defect: {defect}"
+        return result, {"id": item_id, "kind": "verdict", "defect": defect}
+
+    # object well-formed enough to inspect; validate the mandatory verdict field
+    if "verdict" not in obj:
+        result["defect"] = "missing_verdict_field"
+        result["defect_class"] = "verdict"
+        result["normalization_ineligible"] = "verdict defect: missing_verdict_field"
+        return result, {"id": item_id, "kind": "verdict", "defect": "missing_verdict_field"}
+
+    raw = obj.get("verdict")
+    if not isinstance(raw, str) or raw not in VERDICT_ENUM:
+        result["defect"] = "non_enum_verdict"
+        result["defect_class"] = "verdict"
+        result["normalization_ineligible"] = "verdict defect: non_enum_verdict"
+        return result, {"id": item_id, "kind": "verdict", "defect": "non_enum_verdict"}
+
+    obj_id = obj.get("id")
+    if item_id is not None and obj_id is not None and obj_id != item_id:
+        result["defect"] = "id_mismatch"
+        result["defect_class"] = "verdict"
+        result["normalization_ineligible"] = "verdict defect: id_mismatch"
+        return result, {"id": item_id, "kind": "verdict", "defect": "id_mismatch"}
+
+    # Pinned-first-verdict rule: for a field-completion re-ask the raw FAIL is
+    # pinned to the first response; any verdict token the re-ask returns is ignored.
+    if isinstance(pinned, str) and pinned in VERDICT_ENUM:
+        raw = pinned
+
+    evidence = obj.get("evidence")
+    result["raw_verdict"] = raw
+    result["verdict"] = raw  # stored verdict defaults to raw; normalization may flip it
+    result["evidence"] = evidence if isinstance(evidence, str) else None
+    fc = obj.get("file_checked")
+    result["file_checked"] = fc if isinstance(fc, str) else None
+
+    # --- auxiliary-field classification ----------------------------------------
+    pp_state = _aux_state(obj, "property_proven")
+    scope_state = _aux_state(obj, "inaccuracy_scope")
+    aux_defects = []
+    if pp_state == "defect":
+        aux_defects.append("property_proven")
+    if scope_state == "defect":
+        aux_defects.append("inaccuracy_scope")
+
+    # --- five-conjunct normalization predicate ---------------------------------
+    real_blockers = []
+    field_defect_blockers = []
+    if mode != "agent":
+        real_blockers.append("not agent")
+    if provenance != "generated_paraphrase":
+        if provenance == "source_authored":
+            real_blockers.append("source_authored provenance")
+        elif provenance is None:
+            field_defect_blockers.append("claim_provenance absent")
+        else:
+            field_defect_blockers.append("claim_provenance invalid")
+    if pp_state == "real":
+        real_blockers.append("property not proven")
+    elif pp_state == "defect":
+        field_defect_blockers.append("property_proven field defect")
+    if scope_state == "real":
+        real_blockers.append("inaccuracy_scope not generated_claim_text")
+    elif scope_state == "defect":
+        field_defect_blockers.append("inaccuracy_scope field defect")
+
+    can_normalize = (
+        raw == "FAIL"
+        and not real_blockers
+        and not field_defect_blockers
+    )
+
+    if can_normalize:
+        result["verdict"] = "PASS"
+        result["normalized"] = True
+        base = result["evidence"] or ""
+        result["evidence"] = NORMALIZED_PREFIX + base
+        return result, None
+
+    # not normalized: record the ineligibility reason(s)
+    if raw == "FAIL":
+        blockers = real_blockers + field_defect_blockers
+        if blockers:
+            result["normalization_ineligible"] = "; ".join(blockers)
+
+    # auxiliary re-ask: only for a raw FAIL + generated_paraphrase item whose sole
+    # remaining blocker is a field defect (never re-roll a PASS/INCONCLUSIVE).
+    retry = None
+    if (
+        raw == "FAIL"
+        and provenance == "generated_paraphrase"
+        and mode == "agent"
+        and aux_defects
+    ):
+        result["defect"] = "aux:" + ",".join(aux_defects)
+        result["defect_class"] = "auxiliary"
+        retry = {"id": item_id, "kind": "auxiliary", "defect": ",".join(aux_defects)}
+    elif aux_defects:
+        # a defective auxiliary field on a non-eligible item is noted but never
+        # re-dispatched (a bookkeeping defect must not re-roll a decided verdict).
+        result["defect"] = "aux:" + ",".join(aux_defects)
+        result["defect_class"] = "auxiliary"
+
+    return result, retry
+
+
+def _is_field_defect_fail(result):
+    """Exact membership for ``field_defect_fail_count``: raw verdict byte-exact
+    FAIL, not normalized, and the SOLE normalization-ineligibility is a field
+    defect (an item-side ``claim_provenance`` miss or a response-side auxiliary
+    defect) — a real-value blocker disqualifies it."""
+    if result.get("raw_verdict") != "FAIL" or result.get("normalized"):
+        return False
+    reason = result.get("normalization_ineligible") or ""
+    if not reason:
+        return False
+    blockers = [b.strip() for b in reason.split(";") if b.strip()]
+    field_defect_markers = (
+        "claim_provenance absent",
+        "claim_provenance invalid",
+        "property_proven field defect",
+        "inaccuracy_scope field defect",
+    )
+    has_field_defect = False
+    for b in blockers:
+        if b in field_defect_markers:
+            has_field_defect = True
+        else:
+            return False  # a real-value blocker (or an unrecognized one) disqualifies
+    return has_field_defect
+
+
+def run(pairs_file):
+    try:
+        with open(pairs_file, "r", encoding="utf-8") as fh:
+            raw = fh.read()
+    except (OSError, UnicodeDecodeError) as e:
+        return {"bad_input": True, "error": "pairs_file_unreadable", "detail": str(e)}
+
+    if not raw.strip():
+        return {"bad_input": True, "error": "pairs_file_empty",
+                "detail": "the pairs file was empty"}
+    try:
+        payload = json.loads(raw)
+    except (json.JSONDecodeError, ValueError) as e:
+        return {"bad_input": True, "error": "pairs_file_unparseable",
+                "detail": f"not valid JSON (truncated or mis-escaped transcription?): {e}"}
+    if not isinstance(payload, dict) or not isinstance(payload.get("pairs"), list):
+        return {"bad_input": True, "error": "pairs_file_wrong_shape",
+                "detail": "expected a JSON object with a 'pairs' array"}
+
+    results = []
+    needs_retry = []
+    for pair in payload["pairs"]:
+        if not isinstance(pair, dict):
+            continue
+        result, retry = _process_pair(pair)
+        results.append(result)
+        if retry is not None:
+            needs_retry.append(retry)
+
+    normalized_count = sum(1 for r in results if r.get("normalized"))
+    field_defect_fail_count = sum(1 for r in results if _is_field_defect_fail(r))
+
+    return {
+        "results": results,
+        "needs_retry": needs_retry,
+        "counts": {
+            "normalized_count": normalized_count,
+            "field_defect_fail_count": field_defect_fail_count,
+        },
+    }
+
+
+def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if not argv:
+        sys.stderr.write("normalize-verdicts.py: a pairs-file path argument is required\n")
+        return 2
+    out = run(argv[0])
+    print(json.dumps(out, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
