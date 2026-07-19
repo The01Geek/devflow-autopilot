@@ -313,9 +313,12 @@ def _derive_ahead(base: str) -> tuple[int | None, str]:
             # still-shallow count here would fail OPEN on exactly the ahead-only
             # case this feature guards, so treat it as unestablished.
             return (None, "shallow-undeepened")
-        redone = count()
-        if redone is not None:
-            ahead = redone
+        # Deepen took: the post-deepen count is authoritative — adopt it
+        # UNCONDITIONALLY. Reverting to the pre-deepen `ahead` when the
+        # re-derivation fails would fall back to the value the docstring declares
+        # unreliable (a possible spurious 0 → FRESH); instead let a failed
+        # re-count fall through to the (None → "count") fail-closed arm below.
+        ahead = count()
     if ahead is None:
         return (None, "count")
     return (ahead, "")
