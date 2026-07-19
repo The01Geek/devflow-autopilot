@@ -43124,6 +43124,10 @@ MODULE_HARNESS_OUT="$(python3 "$LIB/test/test_module_harness.py" 2>&1)"
 MODULE_HARNESS_RC=$?
 assert_eq "test module full-suite boundary: focused Python tests pass" "0" "$MODULE_HARNESS_RC"
 [ "$MODULE_HARNESS_RC" -eq 0 ] || while IFS= read -r _mh_line || [ -n "$_mh_line" ]; do printf '    %s\n' "$_mh_line"; done <<< "$MODULE_HARNESS_OUT"
+if ! MODULE_SIGNAL_MATRIX_CAPABILITY="$(python3 "$LIB/test/test_module_harness.py" --signal-matrix-capability 2>&1)"; then
+  skip "test module signal cleanup matrix" host-capability \
+    "${MODULE_SIGNAL_MATRIX_CAPABILITY:-POSIX signals and process groups are unavailable}"
+fi
 
 # ────────────────────────────────────────────────────────────────────────────
 # ────────────────────────────────────────────────────────────────────────────
