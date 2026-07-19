@@ -403,6 +403,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/verification-flight.py": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "scripts/verification_baseline.py": {
       "note": "",
       "owner": "unmodularized"

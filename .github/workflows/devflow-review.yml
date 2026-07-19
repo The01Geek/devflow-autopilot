@@ -79,11 +79,21 @@ on:
   # GitHub Actions (recursion prevention), so it only covers EXTERNAL CI apps
   # — which is also why it cannot self-trigger off this workflow. Actions CI
   # is covered by `workflow_run`, which REQUIRES an explicit workflow-name
-  # list (no wildcards). Consumer repos with differently-named CI workflows
-  # must add their names to this list when installing the workflow; the
+  # list (no wildcards). This list must name EVERY first-party workflow that
+  # runs on PR events and so gates the review, not merely the primary CI one:
+  # `require_ci_green` waits on ALL other Actions runs on the head, but a
+  # deferred review re-fires only when a *listed* workflow completes. A gating
+  # workflow left off the list that finishes AFTER the listed ones wedges the
+  # review at the neutral "waiting: other CI not green" check with no event
+  # left to clear it (issue #579: `Matcher probe` — path-filtered to
+  # allowlist/workflow changes — completed ~6 min after `CI` and stranded the
+  # review). For THIS repo the gating set is `CI` + `Matcher probe`; a
+  # `run.sh` self-sync assertion (lib/test/check-review-retrigger-coverage.py)
+  # keeps this list ⊇ every PR-triggering first-party workflow. Consumer repos
+  # replace this with their own PR-gating workflow names on install; the
   # precondition EVALUATION itself stays fully generic (no job names).
   workflow_run:
-    workflows: [CI]
+    workflows: [CI, Matcher probe]
     types: [completed]
   check_suite:
     types: [completed]

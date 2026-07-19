@@ -118,5 +118,11 @@
   "workflows": {
     "devflow": true,
     "devflow-review": true
+  },
+  "verification_flight": {
+    "enabled": true,
+    "lease_seconds": 900,
+    "wait_timeout_seconds": 600,
+    "profiles": {}
   }
 }

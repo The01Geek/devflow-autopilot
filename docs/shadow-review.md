@@ -537,6 +537,8 @@ fan-out. The cost is intentional: it matches the manual `/devflow:review`-after-
 experienced users already pay (net-zero for them, now mechanical), and it buys a credible audit
 rather than a self-check that re-derives the loop's own answer.
 
+A separate, orthogonal component of a converging run's spend is **repeated full-suite verification**: each fix iteration re-runs the project's test suite, and a timeout, lost tool result, or compacted context can force yet another launch of the same unchanged suite. Issue #528 makes that launch **single-flight** via `scripts/verification-flight.py` (see [`implement-skill.md`](implement-skill.md#single-flight-verification-issue-528) and the system overview): a same-checkout caller whose descriptor + checkout fingerprint match an already-`passed` flight **attaches and consumes** that terminal evidence instead of relaunching, while a missing / partial / timed-out / unreadable / stale handle never counts as a pass and never authorizes an automatic relaunch (the loop falls back to a direct launch, and a `wait_expired` takes the existing terminal arm). The helper coordinates only — it launches nothing itself — so the loop's failure text, exit status, pass/fail/skip totals, and loop-exit re-run rules keep their meaning. The shadow pass launches no verification of its own (its review agents never mutate the tree and run no build/test), so it neither claims nor consumes a flight.
+
 One component of that spend was **redundant context transit** the audit did not need: Phase 1's
 checklist-generator prompts carried their batch-sliced diff **inline** through the orchestrator's
 context on every engine pass — a cost the shadow re-paid on top of every main-pass iteration. That

@@ -960,3 +960,39 @@ cloud run — the record file is gated out of cloud and the comment is disabled,
 put the trace. The skill emits a one-line `::warning::` in that case rather than silently
 computing-and-discarding, so the no-op is visible. (In a writable run that combination still writes
 the record file.)
+
+## Verification single-flight telemetry (issue #528)
+
+The single-flight verification coordinator (`scripts/verification-flight.py`) emits its own
+per-event JSON records under `.devflow/logs/verification-flight/` (the default; a caller may
+redirect them with `--logs-dir`). These are **local** records in the effectiveness-record
+family. They are **not** relayed to the telemetry branch by the current plumbing: the trusted
+relay (`scripts/collect-staged-telemetry.sh`) harvests only the `.devflow/tmp/telemetry-stage-*/`
+staging roots the read-only reviewer stages, and the two workflows that actually run the
+coordinator (`devflow-implement.yml`, `devflow.yml`) carry no collect/upload step — so a caller
+that wants these records relayed must write them into a staging root (via `--logs-dir`) that a
+relay step then harvests. Until then they remain local, per-checkout diagnostics. The events are:
+
+- **`flight_claimed`** — a new owner claim published a `claimed` handle (carries the flight key and
+  command-descriptor digest).
+- **`flight_attached`** — a later same-checkout caller attached to a matching existing flight —
+  **active, or terminal to consume its result** — rather than opening a second owner claim (carries
+  the attached-at state, which is what the honesty rule below keys on).
+- **`flight_invalidated`** — a read-time transition invalidated an active flight (carries the
+  `invalidation_reason`: `checkout_drift` when a supplied current checkout no longer matches, or
+  `lease_expired_before_running` when a `claimed` handle's lease elapsed before `mark-running`).
+- **`flight_finished`** — the owner recorded a terminal state (carries the terminal state, the
+  command duration, and the skipped-checks count).
+- **`flight_wait_completed`** — an attacher's `wait` observed a terminal state.
+
+One further record shares this directory and shape without being a coordination event:
+**`state_dir_chmod_failed`** — the diagnostic breadcrumb written when the state directory could not
+be chmod-ed to `0700` (the flight files are still `0600`; a host that also cannot take this record
+gets a stderr line instead). It is a degradation record, not a lifecycle event, so a cross-run
+analyzer counting coordination events should exclude it.
+
+Two honesty rules hold. A **stale or incomplete** handle is never counted as saved work — only a
+genuine attach-and-consume of a `passed` flight is a suppressed launch, so the suppressed-launch
+count the cross-run analyzer derives from these events excludes non-pass handles. And telemetry is
+**best-effort and hermetic**: the helper writes these records locally with no network or `git`, and a
+failure to write a record never fails the coordination operation or the verification run itself.

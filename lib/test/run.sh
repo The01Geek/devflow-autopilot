@@ -13163,6 +13163,38 @@ for PA_FILE in "$LIB"/../skills/*/SKILL.md "$LIB"/../skills/implement/phases/pha
 done
 assert_eq "#275 pin (P0): portable-anchor coverage spans every skill + implement phase file (enumeration reconciled)" \
   "22" "$PA_FILE_COUNT"
+# The #529/#530 bundle splits moved authoritative procedure — helper call sites included —
+# out of the two SKILL.md roots and into skills/review/phases/*.md and
+# skills/review-and-fix/references/*.md. Those families were outside the loop above, so a
+# fragile anchor introduced in a reference file was unguarded (issue #528 added a new
+# `${CLAUDE_SKILL_DIR:-…}` call site to references/fixing.md with no pin covering it).
+# They get the same absence + completeness pins. The P3 PRESENCE pin is deliberately
+# CONDITIONAL here — unlike a SKILL.md root, a phase/reference file legitimately carries no
+# helper call at all (most files in both families carry none) —
+# so it fires only on a file that references the anchor, where dropping the sanctioned form
+# is a real regression.
+PA_REF_COUNT=0
+for PA_FILE in "$LIB"/../skills/review/phases/*.md "$LIB"/../skills/review-and-fix/references/*.md; do
+  PA_NAME="skills/${PA_FILE#"$LIB"/../skills/}"
+  PA_REF_COUNT=$((PA_REF_COUNT + 1))
+  assert_eq "#275 pin (R1): $PA_NAME has no bare \$CLAUDE_SKILL_DIR/../../ expansion" "yes" \
+    "$(! grep -qE "$PA_BARE_ERE" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: absence pin over the enumerated $PA_FILE loop variable, not a static pin
+  assert_eq "#275 pin (R2): $PA_NAME has no cross-statement \$CLAUDE_SKILL_DIR anchor assignment" "yes" \
+    "$(! grep -qE "$PA_XSTMT_ERE" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: absence pin over the enumerated $PA_FILE loop variable, not a static pin
+  assert_eq "#275 pin (R1c): $PA_NAME has no wrong-fallback (non-placeholder) CLAUDE_SKILL_DIR expansion" "yes" \
+    "$(! grep -qE "$PA_WRONGFB_ERE" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: absence pin over the enumerated $PA_FILE loop variable
+  # R3c — per-occurrence completeness, identical to P3c: every `${CLAUDE_SKILL_DIR:`
+  # expansion carries the FULL sanctioned placeholder. On a file with zero occurrences this
+  # is 0 == 0 (vacuously true), which is why R3 below supplies the non-vacuous half.
+  assert_eq "#275 pin (R3c): $PA_NAME: every CLAUDE_SKILL_DIR expansion carries the full sanctioned placeholder" "yes" \
+    "$([ "$(grep -oF '${CLAUDE_SKILL_DIR:' "$PA_FILE" | grep -c .)" = "$(grep -oF '${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}' "$PA_FILE" | grep -c .)" ] && echo yes || echo no)"  # raw-guard-ok: loop body: count-equality check over the enumerated $PA_FILE loop variable
+  # R3 — conditional presence: a file that mentions the anchor at all must carry the
+  # sanctioned inline literal (a file with no helper call is exempt, by design).
+  assert_eq "#275 pin (R3): $PA_NAME: any anchor mention uses the portable single-statement inline form" "yes" \
+    "$(if grep -qF 'CLAUDE_SKILL_DIR' "$PA_FILE"; then grep -qF "$PORTABLE_ANCHOR_LITERAL" "$PA_FILE" && echo yes || echo no; else echo yes; fi)"  # raw-guard-ok: loop body: conditional presence pin over the enumerated $PA_FILE loop variable
+done
+assert_eq "#275 pin (R0): portable-anchor coverage spans every review phase + fix-loop reference file (enumeration reconciled)" \
+  "17" "$PA_REF_COUNT"
 # Mutation proof (PASS->FAIL, self-contained): the absence EREs must actually MATCH the
 # two fragile forms they exist to reject — an ERE typo would leave P1/P2 green forever
 # (vacuous absence pins). Inject each fragile form into a temp copy of a migrated file
@@ -17495,13 +17527,33 @@ assert_eq "#304 unverifiable deferral maps to the honest 'preconditions unverifi
   "$(grep -qF "Devflow review waiting: preconditions unverifiable" "$LIB/../scripts/describe-skip-title.sh" && echo yes || echo no)"
 assert_eq "#304 CI-completion path guards PR state == OPEN" "yes" \
   "$(grep -qF '"$PR_STATE" != "OPEN"' "$REVIEW_WF" && echo yes || echo no)"
-# (c10) Coupled literals: the workflow_run workflows list must name ci.yml's
-# actual workflow name (rename ci.yml and the CI-completion re-trigger
-# silently never fires), and the script's SELF_WORKFLOW_NAME default must
-# byte-match this workflow's name: (a rename desyncs the fallback and the
-# gate would count its own run as other-CI-pending on default invocations).
-assert_eq "#304 ci.yml workflow name matches the workflow_run trigger list entry" "yes" \
-  "$(grep -qE '^name: CI$' "$WF/ci.yml" && grep -qF 'workflows: [CI]' "$REVIEW_WF" && echo yes || echo no)"
+# (c10) Coupled literals: ci.yml is named "CI" (the re-trigger list and the
+# checker below match by workflow name), and the script's SELF_WORKFLOW_NAME
+# default must byte-match this workflow's name: (a rename desyncs the fallback
+# and the gate would count its own run as other-CI-pending on default
+# invocations).
+assert_eq "#304 ci.yml is named CI (the name the re-trigger list and coverage checker key on)" "yes" \
+  "$(grep -qE '^name: CI$' "$WF/ci.yml" && echo yes || echo no)"
+# (c10b) The workflow_run re-trigger list must cover EVERY first-party
+# PR-gating workflow (issue #579): require_ci_green waits on all other Actions
+# runs on the head, but a deferred review re-fires only when a listed workflow
+# completes — a gating workflow left off the list that finishes last strands
+# the review at the neutral "waiting: other CI not green" check. The self-sync
+# checker enumerates the PR-triggering workflows and asserts the list is a
+# superset; here it must pass on the real tree, and (behavioral proof) FAIL
+# on a tree whose list was narrowed back to CI-only.
+assert_eq "#579 review re-trigger list covers every PR-gating workflow" "yes" \
+  "$(python3 "$LIB/test/check-review-retrigger-coverage.py" "$WF" >/dev/null 2>&1 && echo yes || echo no)"
+if ! _r579_d="$(mktemp -d)"; then
+  printf '  FAIL  #579 re-trigger coverage mutation — mktemp -d failed (behavioral proof not run)\n' >&2
+  FAIL=$((FAIL + 1))
+else
+  cp "$WF"/*.yml "$_r579_d"/
+  sed -E 's/workflows: \[CI, Matcher probe\]/workflows: [CI]/' "$REVIEW_WF" > "$_r579_d/devflow-review.yml"
+  assert_eq "#579 MUTATION: dropping a gating workflow from the re-trigger list trips the checker" "no" \
+    "$(python3 "$LIB/test/check-review-retrigger-coverage.py" "$_r579_d" >/dev/null 2>&1 && echo yes || echo no)"
+  rm -rf "$_r579_d"
+fi
 assert_eq "#304 script SELF_WORKFLOW_NAME default matches the workflow name:" "yes" \
   "$(grep -qF ':-Devflow Review (auto-trigger)}' "$LIB/../scripts/derive-review-preconditions.sh" && grep -qE '^name: Devflow Review \(auto-trigger\)$' "$REVIEW_WF" && echo yes || echo no)"
 # (c11) The compare operand ORDER is load-bearing and the test stub is
@@ -33480,7 +33532,7 @@ for _raf_ceil in "$RAF_ROOT_CEIL" "$RAF_LOAD_CEIL" "$RAF_MAXSTEP_CEIL"; do
     "$(case "$_raf_doc_nocommas" in *"≤ $_raf_ceil words |"*) echo yes;; *) echo no;; esac)"
 done
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +3,913 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,319 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute
@@ -43186,6 +43238,104 @@ assert_eq "verification baseline: registry has the cloud_mappings section" "1" \
   "$(grep -cF '"cloud_mappings"' "$LIB/../scripts/workflow-flight-recorder-registry.json" || true)"
 
 rm -rf "$VB_ROOT"
+
+VF_ROOT="$(mktemp -d)"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "single-flight verification coordination ledger (issue #528, Wave 2)"
+# ────────────────────────────────────────────────────────────────────────────
+python3 "$LIB/test/test_verification_flight.py" >"$VF_ROOT/vf-unit.out" 2>&1
+assert_eq "verification flight: focused Python tests pass" "0" "$?"
+# The coordinator is data-only (AC #528-1): it launches no subprocess, spawns no
+# shell, and runs no git — it never becomes a shell-command bypass. Pin the
+# absence of every subprocess / shell-out / exec spelling.
+#
+# The spelling list is NOT written here. It is read from the single source of
+# truth — BANNED_EXEC_SPELLINGS in lib/test/test_verification_flight.py — so this
+# shell sweep and the Python guard cannot drift into disagreeing coverage (the
+# earlier hand-copied 10-alternative regex was a strict subset of the Python-side
+# list, so each guard certified the contract against the other's blind spot).
+# python3 is a hard preflight prerequisite, so deriving the list is safe here.
+VF_SRC="$LIB/../scripts/verification-flight.py"
+VF_SPELLINGS="$(python3 - "$LIB/test/test_verification_flight.py" <<'VFEOF'
+import ast, sys
+
+# Derive ATOMICALLY: collect the whole tuple first, and only then print. A
+# print-as-you-go loop fails OPEN on a partial derivation — a tuple element that is
+# not a bare string literal (a concatenation, an f-string, a name) raises partway
+# through, the elements already printed survive in the caller's variable, and a
+# non-empty check waves the truncated list through as if coverage were complete.
+# Anything unexpected exits non-zero with an empty stdout instead, so the caller's
+# fail-closed check fires.
+spellings = []
+found = False
+tree = ast.parse(open(sys.argv[1], encoding="utf-8").read())
+for node in tree.body:
+    if isinstance(node, ast.Assign) and any(
+        getattr(t, "id", "") == "BANNED_EXEC_SPELLINGS" for t in node.targets
+    ):
+        found = True
+        if not isinstance(node.value, ast.Tuple):
+            sys.exit("BANNED_EXEC_SPELLINGS is not a tuple literal")
+        for elt in node.value.elts:
+            if not (isinstance(elt, ast.Constant) and isinstance(elt.value, str)):
+                sys.exit("BANNED_EXEC_SPELLINGS holds a non-string-literal element")
+            spellings.append(elt.value)
+if not found:
+    sys.exit("BANNED_EXEC_SPELLINGS assignment not found")
+print("\n".join(spellings))
+VFEOF
+)"
+# Fail closed: an empty derivation would make every membership test below vacuous.
+assert_eq "verification flight: banned-spelling list derived from its single source" "yes" \
+  "$([ -n "$VF_SPELLINGS" ] && echo yes || echo no)"
+# Fail closed on a PARTIAL derivation too: the derived line count must equal the
+# tuple's own element count, so a silently-truncated list cannot pass the non-empty
+# check above. (Deriving the expected count independently, from a plain literal
+# count over the source, keeps this from being a self-referential tautology.)
+VF_TUPLE_LEN="$(python3 - "$LIB/test/test_verification_flight.py" <<'VFLEN'
+import ast, sys
+tree = ast.parse(open(sys.argv[1], encoding="utf-8").read())
+for node in tree.body:
+    if isinstance(node, ast.Assign) and any(
+        getattr(t, "id", "") == "BANNED_EXEC_SPELLINGS" for t in node.targets
+    ):
+        print(len(node.value.elts))
+        break
+VFLEN
+)"
+assert_eq "verification flight: banned-spelling derivation is complete (no partial truncation)" \
+  "$VF_TUPLE_LEN" "$(printf '%s\n' "$VF_SPELLINGS" | grep -c .)"
+VF_EXEC_HITS=0
+while IFS= read -r _vf_spelling; do
+  [ -n "$_vf_spelling" ] || continue
+  case "$(grep -cF -- "$_vf_spelling" "$VF_SRC" || true)" in
+    0) : ;;
+    *) VF_EXEC_HITS=$((VF_EXEC_HITS + 1)); echo "  exec-sweep hit: $_vf_spelling" ;;  # RED-path diagnostic only; deliberately NOT the ' NOTE ' skip channel
+  esac
+done <<VFHITS
+$VF_SPELLINGS
+VFHITS
+assert_eq "verification flight: no subprocess / shell-out / exec spelling" "0" "$VF_EXEC_HITS"
+# The exact, exhaustive state set is a coupled invariant with the helper source
+# and the docs — pin the full declared membership (the grep literals enforce exact
+# content) so a dropped/renamed state goes RED.
+assert_eq "verification flight: ALL_STATES declares the active set" "1" "$(grep -cF '"claimed", "running"' "$VF_SRC" || true)"
+assert_eq "verification flight: TERMINAL_STATES declares every terminal state" "1" \
+  "$(grep -cF '"passed", "failed", "timed_out", "cancelled", "stale", "incomplete"' "$VF_SRC" || true)"
+
+# Coupled grant invariant (issue #528 AC): the vendored-literal helper grant must
+# land in BOTH the implement profile (inline Implement review pass) and the light
+# manual-comment profile (manual Review-and-Fix), and must NOT be added to the
+# read-only reviewer profile (standalone CI-grounded Review creates no flight).
+assert_eq "#528 coupled: devflow-implement.yml grants verification-flight.py by vendored path" "1" \
+  "$(grep -cF 'Bash(.devflow/vendor/devflow/scripts/verification-flight.py:*)' "$LIB/../.github/workflows/devflow-implement.yml" || true)"
+assert_eq "#528 coupled: devflow.yml (manual review listener) grants verification-flight.py by vendored path" "1" \
+  "$(grep -cF 'Bash(.devflow/vendor/devflow/scripts/verification-flight.py:*)' "$LIB/../.github/workflows/devflow.yml" || true)"
+assert_eq "#528 coupled: devflow-runner.yml (read-only reviewer) grants NO verification-flight flight helper" "0" \
+  "$(grep -cF 'verification-flight.py' "$LIB/../.github/workflows/devflow-runner.yml" || true)"
+
+rm -rf "$VF_ROOT"
 
 # These integration tests live outside the module whose registration and source
 # boundary they pin, so deleting that boundary cannot delete the test execution.
