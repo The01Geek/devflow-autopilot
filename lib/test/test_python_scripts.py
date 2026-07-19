@@ -39,7 +39,6 @@ import contextlib
 import importlib.util
 import io
 import re
-import subprocess as _sp603
 import sys
 import tempfile
 import types
@@ -5909,7 +5908,7 @@ class _Run603:
         args = [sys.executable, _IAS603, *argv]
         if nonce:
             args += ['--nonce', self.nonce]
-        return _sp603.run(args, cwd=self.tmp, input=stdin, capture_output=True,
+        return _subprocess.run(args, cwd=self.tmp, input=stdin, capture_output=True,
                           text=True)
 
     def open_round(self, n, verdict='REVISE', findings=1):

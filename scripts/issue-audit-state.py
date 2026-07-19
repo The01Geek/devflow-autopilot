@@ -185,9 +185,10 @@ _LEDGER_INGESTED_RESOLVED = 'resolved-at-adjudication'
 # before any revision was recorded. The staleness comparison counts it as 0.
 _PRE_REVISION = 'pre-revision'
 
-# The two legal status prefixes on a `--ledger-stdin` line, mapped to the status they
-# ingest as.
-_LEDGER_PREFIXES = (('unresolved: ', 'unresolved'), ('resolved: ', 'resolved'))
+# The two statuses a `--ledger-stdin` line may ingest as. The line prefix IS the status
+# followed by ": ", so the prefix is derived rather than stored beside it — one spelling,
+# no way for the two halves to disagree.
+_LEDGER_PREFIXES = ('unresolved', 'resolved')
 
 # Every `key=` token this tool's queries and mutations PRINT. Ledger summaries and
 # invalidation reasons are refused when they contain a word of the form `<token>=` drawn
@@ -1115,6 +1116,19 @@ def _ledger(rnd):
     return led if isinstance(led, list) else None
 
 
+def _all_entries(state):
+    """Every recorded ledger entry in the run, as `(round, entry)` pairs.
+
+    The single run-wide traversal. Four consumers walk the ledgers — the effective
+    count, the convergence basis, the FILE-supersession sweep, and `query-findings` —
+    and stating "what is a ledger, and which rounds contribute" once here is what keeps
+    them from drifting apart as the status set grows.
+    """
+    for rnd in state['rounds']:
+        for entry in (_ledger(rnd) or []):
+            yield rnd, entry
+
+
 def _settling_ordinal(entry):
     """The revision ordinal an entry's post-close settling change was verified against.
 
@@ -1167,8 +1181,7 @@ def _effective_unresolved(state):
     frozen = _unresolved_int(last)
     if frozen is None:
         return None
-    total = sum(1 for rnd in state['rounds']
-                for entry in (_ledger(rnd) or [])
+    total = sum(1 for _, entry in _all_entries(state)
                 if entry.get('status') == 'unresolved')
     if last.get('adjudicated_verdict') == 'REVISE' and _ledger(last) is None:
         total += frozen
@@ -1199,11 +1212,10 @@ def _convergence_basis(state, converged):
     if last is not None and last.get('adjudicated_verdict') == 'FILE':
         return 'adjudicated'
     latest_revision = revision_ordinal(state)
-    for rnd in state['rounds']:
-        for entry in (_ledger(rnd) or []):
-            settled_at = _settling_ordinal(entry)
-            if settled_at is not None and settled_at < latest_revision:
-                return 'resolution-stale'
+    for _, entry in _all_entries(state):
+        settled_at = _settling_ordinal(entry)
+        if settled_at is not None and settled_at < latest_revision:
+            return 'resolution-stale'
     return 'resolution'
 
 
@@ -1368,25 +1380,33 @@ def evaluate_convergence(state):
     a budget clause this function does not compute (issue #603 AC7).
     """
     if state is None:
-        return {'converged': False, 'reason': 'state-unestablished', 'basis': 'none'}
+        return {'converged': False, 'reason': 'state-unestablished', 'basis': 'none',
+                'effective': None}
     last = last_completed(state)
     if last is None:
-        return {'converged': False, 'reason': 'no-completed-round', 'basis': 'none'}
+        return {'converged': False, 'reason': 'no-completed-round', 'basis': 'none',
+                'effective': None}
     adjudicated = last.get('adjudicated_verdict')
     if adjudicated is None:
-        return {'converged': False, 'reason': 'unadjudicated', 'basis': 'none'}
+        return {'converged': False, 'reason': 'unadjudicated', 'basis': 'none',
+                'effective': None}
     eff = _effective_unresolved(state)
     if eff is None:
         # Adjudicated but the count is the literal _UNESTABLISHED (or otherwise not a
         # settled int): unknown is not zero, so this is not a converged run.
-        return {'converged': False, 'reason': 'unresolved-unestablished', 'basis': 'none'}
+        return {'converged': False, 'reason': 'unresolved-unestablished',
+                'basis': 'none', 'effective': None}
     # issue #603: the count is the run-wide EFFECTIVE one, so a REVISE-latest run whose
     # ledgers were all settled post-close converges too — reported on a basis token that
     # keeps it distinguishable from an auditor-accepted FILE convergence.
     converged = eff == 0
+    # `effective` rides along so a caller wanting BOTH the count and the basis — the
+    # summary line does — derives them from ONE evaluation. Two independent call sites
+    # could otherwise render two fields describing different states.
     return {'converged': converged,
             'reason': None if converged else 'unresolved-must-revise-remain',
-            'basis': _convergence_basis(state, converged)}
+            'basis': _convergence_basis(state, converged),
+            'effective': eff}
 
 
 def issue_token(nonce, ground, key):
@@ -2333,16 +2353,12 @@ def cmd_record_adjudication(args):
     # an earlier round's stale bookkeeping would hold a clean re-audit hostage.
     superseded = 0
     if args.verdict == 'FILE':
-        for other in doc['rounds']:
-            for entry in (_ledger(other) or []):
-                if entry.get('status') == 'unresolved':
-                    entry['status'] = 'superseded'
-                    entry['supersession_round'] = args.round
-                    superseded += 1
-    try:
-        save_state(doc, args.slug)
-    except StateError as exc:
-        _fail('record-adjudication', str(exc))
+        for _, entry in _all_entries(doc):
+            if entry.get('status') == 'unresolved':
+                entry['status'] = 'superseded'
+                entry['supersession_round'] = args.round
+                superseded += 1
+    _save_or_fail('record-adjudication', doc, args.slug)
     print(f'adjudicated={args.verdict} unresolved={unresolved} '
           f'must_revise={args.must_revise} advisory={args.advisory} '
           f'invalid={args.invalid} superseded={superseded}')
@@ -2381,15 +2397,16 @@ def _ingest_ledger(must_revise, unresolved):
     ledger = []
     for idx, line in enumerate(lines, start=1):
         status = None
-        for prefix, mapped in _LEDGER_PREFIXES:
+        for candidate in _LEDGER_PREFIXES:
+            prefix = f'{candidate}: '
             if line.startswith(prefix):
-                status, summary = mapped, line[len(prefix):]
+                status, summary = candidate, line[len(prefix):]
                 break
         if status is None:
             _fail('record-adjudication',
                   f'ledger line {idx} carries no status prefix (ledger-status-prefix); '
-                  f'each line must begin with {_LEDGER_PREFIXES[0][0]!r} or '
-                  f'{_LEDGER_PREFIXES[1][0]!r}')
+                  f'each line must begin with '
+                  + ' or '.join(repr(f'{c}: ') for c in _LEDGER_PREFIXES))
         summary = summary.strip()
         if not summary:
             _fail('record-adjudication',
@@ -2465,10 +2482,18 @@ def _named_entries(prefix, ledger, raw_ids, flag):
     return resolved
 
 
+def _render_count(eff):
+    """Render an effective count: the integer, else the literal `unestablished`.
+
+    The single None -> token mapping, so the mutation echo lines and `query-summary`
+    can never disagree about how an unestablished effective count prints.
+    """
+    return _UNESTABLISHED if eff is None else str(eff)
+
+
 def _remaining(doc):
     """The run-wide effective remaining count, rendered for a mutation's echo line."""
-    eff = _effective_unresolved(doc)
-    return _UNESTABLISHED if eff is None else str(eff)
+    return _render_count(_effective_unresolved(doc))
 
 
 def _save_or_fail(prefix, doc, slug):
@@ -2476,6 +2501,36 @@ def _save_or_fail(prefix, doc, slug):
         save_state(doc, slug)
     except StateError as exc:
         _fail(prefix, str(exc))
+
+
+def _find_revision(doc, ordinal):
+    """The recorded revision with this ordinal, or None. The `_find_round` sibling."""
+    for rev in doc['revisions']:
+        if rev.get('ordinal') == ordinal:
+            return rev
+    return None
+
+
+def _settling_provenance(doc):
+    """The provenance stamp a post-close status change carries: the current revision
+    ordinal, else the `pre-revision` token when no revision is recorded yet."""
+    return revision_ordinal(doc) or _PRE_REVISION
+
+
+def _clear_settling(entry):
+    """Drop every provenance key a previous settling left, so a status change never
+    leaves a stale ordinal behind for `_settling_ordinal` to read. Stated once here
+    because a new provenance key must be cleared by all three post-close channels."""
+    for key in ('resolution_ordinal', 'ingest_provenance'):
+        entry.pop(key, None)
+
+
+def _refuse_terminal(prefix, entry):
+    """Refuse a post-close mutation on a superseded entry (terminal by construction)."""
+    if entry['status'] == 'superseded':
+        _fail(prefix,
+              f'entry {entry["id"]} is superseded by a FILE-adjudicated round '
+              f'(entry-superseded); supersession is terminal')
 
 
 def cmd_record_resolution(args):
@@ -2490,16 +2545,15 @@ def cmd_record_resolution(args):
     rnd, ledger = _ledgered_round('record-resolution', doc, args.round)
     entries = _named_entries('record-resolution', ledger, args.resolved_ids,
                              '--resolved-ids')
-    revisions = doc['revisions']
-    if not revisions:
+    if not doc['revisions']:
         _fail('record-resolution',
               'no revision is recorded for this run (no-revision-recorded); a resolution '
               'binds the fix to the revision that landed it')
-    if not any(rev['ordinal'] == args.revision_ordinal for rev in revisions):
+    named = _find_revision(doc, args.revision_ordinal)
+    if named is None:
         _fail('record-resolution',
               f'--revision-ordinal {args.revision_ordinal} names no recorded revision '
               f'(unknown-revision-ordinal)')
-    named = next(rev for rev in revisions if rev['ordinal'] == args.revision_ordinal)
     if named['after_round'] < args.round:
         _fail('record-resolution',
               f'--revision-ordinal {args.revision_ordinal} names a revision recorded '
@@ -2515,14 +2569,11 @@ def cmd_record_resolution(args):
             _fail('record-resolution',
                   f'entry {entry["id"]} is invalidated (entry-invalidated); an entry '
                   f'retired as misclassified is not resolved as a fix that happened')
-        if status == 'superseded':
-            _fail('record-resolution',
-                  f'entry {entry["id"]} is superseded by a FILE-adjudicated round '
-                  f'(entry-superseded); supersession is terminal')
+        _refuse_terminal('record-resolution', entry)
     for entry in entries:
+        _clear_settling(entry)
         entry['status'] = 'resolved'
         entry['resolution_ordinal'] = args.revision_ordinal
-        entry.pop('ingest_provenance', None)
     _save_or_fail('record-resolution', doc, args.slug)
     frozen = rnd.get('unresolved_must_revise')
     print(f'round={args.round} revision_ordinal={args.revision_ordinal} '
@@ -2547,12 +2598,11 @@ def cmd_record_reopen(args):
             _fail('record-reopen',
                   f'entry {entry["id"]} is {entry["status"]}, not resolved '
                   f'(not-resolved); only a resolved entry can regress')
-    ordinal = revision_ordinal(doc) or _PRE_REVISION
+    ordinal = _settling_provenance(doc)
     for entry in entries:
+        _clear_settling(entry)
         entry['status'] = 'unresolved'
         entry['reopen_provenance'] = ordinal
-        entry.pop('resolution_ordinal', None)
-        entry.pop('ingest_provenance', None)
     _save_or_fail('record-reopen', doc, args.slug)
     print(f'round={args.round} reopened={len(entries)} remaining={_remaining(doc)}')
 
@@ -2583,17 +2633,13 @@ def cmd_record_invalidate(args):
         if entry['status'] == 'invalidated':
             _fail('record-invalidate', f'entry {entry["id"]} is already invalidated '
                                        f'(already-invalidated)')
-        if entry['status'] == 'superseded':
-            _fail('record-invalidate',
-                  f'entry {entry["id"]} is superseded by a FILE-adjudicated round '
-                  f'(entry-superseded); supersession is terminal')
-    ordinal = revision_ordinal(doc) or _PRE_REVISION
+        _refuse_terminal('record-invalidate', entry)
+    ordinal = _settling_provenance(doc)
     for entry in entries:
+        _clear_settling(entry)
         entry['status'] = 'invalidated'
         entry['invalidation_reason'] = reason
         entry['invalidation_provenance'] = ordinal
-        entry.pop('resolution_ordinal', None)
-        entry.pop('ingest_provenance', None)
     _save_or_fail('record-invalidate', doc, args.slug)
     print(f'round={args.round} invalidated={len(entries)} remaining={_remaining(doc)}')
 
@@ -3111,11 +3157,9 @@ def cmd_query_findings(args):
     if state is None:
         print('findings=none reason=state-unestablished')
         return
-    lines = []
-    for rnd in state['rounds']:
-        for entry in (_ledger(rnd) or []):
-            lines.append(f'round={rnd["round"]} id={entry["id"]} '
-                         f'status={entry["status"]} summary={entry["summary"]}')
+    lines = [f'round={rnd["round"]} id={entry["id"]} '
+             f'status={entry["status"]} summary={entry["summary"]}'
+             for rnd, entry in _all_entries(state)]
     print('\n'.join(lines) if lines else 'findings=none')
 
 
@@ -3191,8 +3235,7 @@ def cmd_query_summary(args):
     # issue #603: `none` before any completed round; `unestablished` when the latest
     # round's count could not be established (unknown is not zero, exactly as `umr`).
     eff_v = f['effective_unresolved']
-    eff = 'none' if eff_v is None and f['adjudicated_verdict'] is None else (
-        _UNESTABLISHED if eff_v is None else str(eff_v))
+    eff = 'none' if eff_v is None and f['adjudicated_verdict'] is None else _render_count(eff_v)
     # issue #562: the tool emits the bound root + the bound-tier TOKEN; the skill derives
     # the human `draft bound to worktree root` marker from `bound_tier=worktree-root`.
     # A space-containing marker value is deliberately NOT emitted here. bound_root itself
