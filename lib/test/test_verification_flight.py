@@ -651,14 +651,43 @@ class TestNoExecutionContract(unittest.TestCase):
         for banned in BANNED_EXEC_SPELLINGS:
             self.assertNotIn(banned, src, f"helper must not use {banned}")
 
+    @staticmethod
+    def _dotted_call_target(fn):
+        """Resolve a call target to its full dotted path, or None.
+
+        Walks the WHOLE attribute chain rather than a single level. A one-level
+        `isinstance(fn.value, ast.Name)` test silently skips every chained call
+        (`os.path.join`, `os.environ.get`, and equally
+        `asyncio.subprocess.create_subprocess_exec`), which would make a guard that
+        claims to inspect every called attribute blind to exactly the multi-level
+        spellings an evasion would reach for.
+        """
+        import ast
+
+        parts = []
+        node = fn
+        while isinstance(node, ast.Attribute):
+            parts.append(node.attr)
+            node = node.value
+        if isinstance(node, ast.Name):
+            parts.append(node.id)
+            return ".".join(reversed(parts))
+        return None  # a call on a call/subscript result — not a module-qualified target
+
     def test_no_execution_contract_holds_by_ast_not_only_by_substring(self):
         """An independent signal from the substring sweep.
 
         A substring list can only ban spellings someone thought to enumerate. This
-        check derives the same property structurally — every `import` and every
-        called attribute in the parsed module — so a spelling absent from
-        BANNED_EXEC_SPELLINGS is still caught. The two guards are deliberately
-        different signals; agreeing is what makes the contract credible.
+        check derives the same property structurally — every `import`, and every
+        module-qualified call target resolved through its FULL dotted chain — so a
+        spelling absent from BANNED_EXEC_SPELLINGS is still caught. The two guards
+        are deliberately different signals; agreeing is what makes the contract
+        credible.
+
+        Scope, stated honestly: a call whose target is not module-qualified (a call
+        on a call's result, a subscript, or a local alias) resolves to None here and
+        is not classified — the substring sweep and the import allowlist are the
+        cover for that residue, since an evasion still has to import something.
         """
         import ast
 
@@ -669,6 +698,7 @@ class TestNoExecutionContract(unittest.TestCase):
         }
         allowed_os_calls = {
             "os.chmod", "os.close", "os.getpid", "os.open", "os.replace", "os.write",
+            "os.environ.get", "os.path.join",
         }
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
@@ -680,14 +710,38 @@ class TestNoExecutionContract(unittest.TestCase):
                               f"unexpected from-import {node.module}")
             elif isinstance(node, ast.Call):
                 fn = node.func
-                if isinstance(fn, ast.Attribute) and isinstance(fn.value, ast.Name):
-                    dotted = f"{fn.value.id}.{fn.attr}"
-                    if fn.value.id == "os":
-                        self.assertIn(dotted, allowed_os_calls,
-                                      f"unexpected os call {dotted}")
-                elif isinstance(fn, ast.Name):
+                if isinstance(fn, ast.Name):
                     self.assertNotIn(fn.id, {"eval", "exec", "compile", "__import__"},
                                      f"dynamic code execution via {fn.id}()")
+                    continue
+                dotted = self._dotted_call_target(fn)
+                if dotted is None:
+                    continue
+                if dotted.split(".")[0] == "os":
+                    self.assertIn(dotted, allowed_os_calls,
+                                  f"unexpected os call {dotted}")
+                for banned in BANNED_EXEC_SPELLINGS:
+                    self.assertNotIn(banned, dotted,
+                                     f"call target {dotted} matches banned spelling {banned}")
+
+    def test_ast_guard_resolves_chained_call_targets(self):
+        """Mutation-proof for the guard above: a CHAINED dangerous call must resolve.
+
+        The one-level predicate this replaced returned nothing for a two-level
+        target, so `asyncio.subprocess.create_subprocess_exec(...)` would have been
+        waved through by the AST guard entirely.
+        """
+        import ast
+
+        chained = ast.parse("asyncio.subprocess.create_subprocess_exec(x)").body[0].value
+        self.assertEqual(
+            self._dotted_call_target(chained.func),
+            "asyncio.subprocess.create_subprocess_exec",
+        )
+        single = ast.parse("os.posix_spawn(x)").body[0].value
+        self.assertEqual(self._dotted_call_target(single.func), "os.posix_spawn")
+        opaque = ast.parse("f()(y).z(w)").body[0].value
+        self.assertIsNone(self._dotted_call_target(opaque.func))
 
     def test_states_are_exactly_the_declared_set(self):
         self.assertEqual(

@@ -12851,7 +12851,7 @@ assert_eq "#275 pin (P0): portable-anchor coverage spans every skill + implement
 # `${CLAUDE_SKILL_DIR:-…}` call site to references/fixing.md with no pin covering it).
 # They get the same absence + completeness pins. The P3 PRESENCE pin is deliberately
 # CONDITIONAL here — unlike a SKILL.md root, a phase/reference file legitimately carries no
-# helper call at all (7 of the 9 review phases and 5 of the 8 fix-loop references do not) —
+# helper call at all (most files in both families carry none) —
 # so it fires only on a file that references the anchor, where dropping the sanctioned form
 # is a real regression.
 PA_REF_COUNT=0
@@ -32834,7 +32834,7 @@ for _raf_ceil in "$RAF_ROOT_CEIL" "$RAF_LOAD_CEIL" "$RAF_MAXSTEP_CEIL"; do
     "$(case "$_raf_doc_nocommas" in *"≤ $_raf_ceil words |"*) echo yes;; *) echo no;; esac)"
 done
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,166 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,215 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute
@@ -42551,18 +42551,53 @@ assert_eq "verification flight: focused Python tests pass" "0" "$?"
 VF_SRC="$LIB/../scripts/verification-flight.py"
 VF_SPELLINGS="$(python3 - "$LIB/test/test_verification_flight.py" <<'VFEOF'
 import ast, sys
+
+# Derive ATOMICALLY: collect the whole tuple first, and only then print. A
+# print-as-you-go loop fails OPEN on a partial derivation — a tuple element that is
+# not a bare string literal (a concatenation, an f-string, a name) raises partway
+# through, the elements already printed survive in the caller's variable, and a
+# non-empty check waves the truncated list through as if coverage were complete.
+# Anything unexpected exits non-zero with an empty stdout instead, so the caller's
+# fail-closed check fires.
+spellings = []
+found = False
 tree = ast.parse(open(sys.argv[1], encoding="utf-8").read())
 for node in tree.body:
     if isinstance(node, ast.Assign) and any(
         getattr(t, "id", "") == "BANNED_EXEC_SPELLINGS" for t in node.targets
     ):
+        found = True
+        if not isinstance(node.value, ast.Tuple):
+            sys.exit("BANNED_EXEC_SPELLINGS is not a tuple literal")
         for elt in node.value.elts:
-            print(elt.value)
+            if not (isinstance(elt, ast.Constant) and isinstance(elt.value, str)):
+                sys.exit("BANNED_EXEC_SPELLINGS holds a non-string-literal element")
+            spellings.append(elt.value)
+if not found:
+    sys.exit("BANNED_EXEC_SPELLINGS assignment not found")
+print("\n".join(spellings))
 VFEOF
 )"
 # Fail closed: an empty derivation would make every membership test below vacuous.
 assert_eq "verification flight: banned-spelling list derived from its single source" "yes" \
   "$([ -n "$VF_SPELLINGS" ] && echo yes || echo no)"
+# Fail closed on a PARTIAL derivation too: the derived line count must equal the
+# tuple's own element count, so a silently-truncated list cannot pass the non-empty
+# check above. (Deriving the expected count independently, from a plain literal
+# count over the source, keeps this from being a self-referential tautology.)
+VF_TUPLE_LEN="$(python3 - "$LIB/test/test_verification_flight.py" <<'VFLEN'
+import ast, sys
+tree = ast.parse(open(sys.argv[1], encoding="utf-8").read())
+for node in tree.body:
+    if isinstance(node, ast.Assign) and any(
+        getattr(t, "id", "") == "BANNED_EXEC_SPELLINGS" for t in node.targets
+    ):
+        print(len(node.value.elts))
+        break
+VFLEN
+)"
+assert_eq "verification flight: banned-spelling derivation is complete (no partial truncation)" \
+  "$VF_TUPLE_LEN" "$(printf '%s\n' "$VF_SPELLINGS" | grep -c .)"
 VF_EXEC_HITS=0
 while IFS= read -r _vf_spelling; do
   [ -n "$_vf_spelling" ] || continue

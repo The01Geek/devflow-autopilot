@@ -27,9 +27,12 @@ Subcommands:
                 verification. Applies lease-expiry (-> incomplete) and checkout
                 drift (-> stale) read-transitions. Any unreadable/malformed shape is
                 an attributable non-pass, never a pass.
-  wait          Bounded, non-mutating poll for a terminal state; a wait-bound expiry
-                returns a `wait_expired` observation and leaves an active flight
-                unchanged.
+  wait          Bounded poll for a terminal state. It never records a terminal
+                result of its own — a wait-bound expiry returns a `wait_expired`
+                observation and leaves an active flight unchanged — but it is NOT
+                side-effect-free: like `status` it applies the two read-time
+                invalidations (lease expiry -> incomplete, checkout drift -> stale)
+                and persists them.
 
 State lives under .devflow/tmp/verification-flights/ (directory mode 0700,
 file mode 0600), published atomically (O_CREAT|O_EXCL create for the single-owner
@@ -289,10 +292,20 @@ def _state_dir(root: str | None, logs_dir: str | None = None) -> Path:
         # left an operator auditing that discrepancy with nothing to find. Each
         # flight file is still individually 0600; it is the directory listing whose
         # protection is degraded, so record it rather than swallow it.
-        _emit_telemetry(
+        recorded = _emit_telemetry(
             logs_dir, "state_dir_chmod_failed",
             {"path": str(base), "error": f"{type(exc).__name__}: {exc}"},
         )
+        if not recorded:
+            # The host that cannot chmod the state dir is often the same host that
+            # cannot write the logs dir, so the breadcrumb meant to replace the old
+            # silent `pass` could itself be silently lost. stderr is the floor.
+            print(
+                f"devflow verification-flight: could not chmod {base} to 0700 "
+                f"({type(exc).__name__}: {exc}); directory-listing protection is "
+                f"degraded on this host (flight files remain 0600)",
+                file=sys.stderr,
+            )
     return base
 
 
@@ -363,7 +376,7 @@ def _read_flight(path: Path) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 # Telemetry (best-effort, local, hermetic)
 # ─────────────────────────────────────────────────────────────────────────────
-def _emit_telemetry(logs_dir: str | None, event: str, payload: dict) -> None:
+def _emit_telemetry(logs_dir: str | None, event: str, payload: dict) -> bool:
     """Append a per-event JSON record under .devflow/logs/verification-flight/.
 
     Best-effort and hermetic: a stale/incomplete handle is never recorded as
@@ -372,7 +385,10 @@ def _emit_telemetry(logs_dir: str | None, event: str, payload: dict) -> None:
     only for `attached_state == "passed"`, so an attach to a stale/incomplete
     handle is visibly not saved work. (There is no `suppressed_launch` field;
     `attached_state` is the operand.)
-    A failure to write telemetry never fails the coordination operation.
+    A failure to write telemetry never fails the coordination operation. It does
+    RETURN that failure (False) so a caller whose breadcrumb is load-bearing — e.g.
+    _state_dir's chmod failure, where the same host condition often breaks both
+    writes — can fall back to stderr instead of losing the record entirely.
     """
     try:
         base = Path(logs_dir) if logs_dir else Path.cwd() / LOGS_DIRNAME
@@ -380,8 +396,9 @@ def _emit_telemetry(logs_dir: str | None, event: str, payload: dict) -> None:
         rec = {"event": event, "recorded_at": _iso(_now()), **payload}
         name = f"{event}-{secrets.token_hex(8)}.json"
         _atomic_replace(base / name, rec)
+        return True
     except OSError:
-        pass
+        return False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -801,7 +818,7 @@ def cmd_wait(args) -> int:
         if time.monotonic() >= deadline:
             break
         # A caller-requested busy poll (--poll-interval 0) is floored to 50ms so
-        # the loop never spins hot; the top-of-loop deadline check terminates it.
+        # the loop never spins hot; the deadline check below terminates it.
         time.sleep(poll if poll > 0 else 0.05)
 
     # Wait bound elapsed with the flight still active/unreadable: a NON-mutating
@@ -814,13 +831,32 @@ def cmd_wait(args) -> int:
 # ─────────────────────────────────────────────────────────────────────────────
 # CLI
 # ─────────────────────────────────────────────────────────────────────────────
+class _FlightArgumentParser(argparse.ArgumentParser):
+    """An ArgumentParser that reports a usage error as EXIT_INVALID, not exit 2.
+
+    argparse's default usage-error status is 2, which is this CLI's documented
+    EXIT_NON_PASS ("read succeeded but the flight does NOT satisfy verification").
+    A shell caller branching on 2 would read a typo'd flag or an unknown subcommand
+    as a successful read of a non-passing flight — the "unknown collapsed onto a
+    real value" failure this repo treats as a first-class defect. A usage error is
+    an invalid *argument*, so it exits EXIT_INVALID and emits the same JSON shape
+    every other invalid path emits, keeping the `reason` field a caller is told to
+    read actually present.
+    """
+
+    def error(self, message: str):  # noqa: D102 - argparse override
+        _print({"ok": False, "result": "invalid",
+                "reason": f"usage_error:{message}", "satisfies_verification": False})
+        self.exit(EXIT_INVALID)
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = _FlightArgumentParser(
         prog="verification-flight.py",
         description="Single-flight verification coordination ledger (issue #528). "
         "Data-only: launches no subprocess and accepts no executable argv.",
     )
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command", required=True, parser_class=_FlightArgumentParser)
 
     def add_common(p):
         p.add_argument("--state-dir", default=None, help="Override the flight state directory (default: <cwd>/.devflow/tmp/verification-flights).")
@@ -858,7 +894,11 @@ def build_parser() -> argparse.ArgumentParser:
     add_common(p_stat)
     p_stat.set_defaults(func=cmd_status)
 
-    p_wait = sub.add_parser("wait", help="Bounded, non-mutating poll for a terminal state.")
+    p_wait = sub.add_parser(
+        "wait",
+        help="Bounded poll for a terminal state; never records a terminal result of "
+             "its own (it does apply the read-time stale/incomplete invalidations).",
+    )
     p_wait.add_argument("--flight", required=True)
     p_wait.add_argument("--timeout", type=float, required=True)
     p_wait.add_argument("--poll-interval", type=float, default=2.0)
