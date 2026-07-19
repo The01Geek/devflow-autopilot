@@ -149,5 +149,36 @@
     "count": 0,
     "by_category": {}
   },
+  "shadow": {
+    "ran_at": "2026-07-19T05:10:00Z",
+    "reviewed_sha": "64ec6c94",
+    "verdict": "clean",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter"
+    ],
+    "reason": "convergence/shadow re-review of the iteration-1 fix delta by both original finders",
+    "phase3_findings": [
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Medium",
+        "description": "claimed 19 create-issue pins uncovered (RESOLVED 157/UNRESOLVED 21)",
+        "fix_decision": "pushed_back",
+        "parking_evidence": {
+          "basis": "measurement error: measured with 2 --vars, not the committed 6; both shadow reviewers independently confirmed 176 resolved / 2 unresolved against the actual committed CI_MOD_VARS invocation",
+          "source": "lib/test/run.sh CI_MOD_VARS (all 6 vars) + direct re-measurement"
+        }
+      }
+    ],
+    "comparison": {
+      "shadow_total": 1,
+      "overlap_with_iter_N": 0,
+      "new": 1,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
   "telemetry": "unavailable"
 }
