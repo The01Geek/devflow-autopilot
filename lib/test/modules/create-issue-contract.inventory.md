@@ -36,5 +36,7 @@ boundary, and module-runner tests stay global so deleting this module cannot als
 delete the checks that prove it is selected and executed. The shared pin/count/
 mutation machinery lives in `module-harness.sh` (the namespaced `devflow_module_*`
 API), so this module carries no private copy of it — it uses only `assert_eq`, that
-namespaced API, and two domain-private classifiers (`ci559_classify` /
-`ci559_field`) for the revision-delta coverage guard.
+namespaced API, and a small set of domain-private helpers: `ci559_classify` /
+`ci559_field` for the revision-delta coverage guard, and `_ci613_classify` /
+`_ci613_scan` for the issue-#613 negative repo-wide sweep (the latter pair is
+`unset` immediately after its assertions, so it does not outlive its block).
