@@ -975,14 +975,21 @@ relay step then harvests. Until then they remain local, per-checkout diagnostics
 
 - **`flight_claimed`** — a new owner claim published a `claimed` handle (carries the flight key and
   command-descriptor digest).
-- **`flight_attached`** — a later same-checkout caller attached to a matching active flight rather
-  than opening a second owner claim (carries the attached-at state).
+- **`flight_attached`** — a later same-checkout caller attached to a matching existing flight —
+  **active, or terminal to consume its result** — rather than opening a second owner claim (carries
+  the attached-at state, which is what the honesty rule below keys on).
 - **`flight_invalidated`** — a read-time transition invalidated an active flight (carries the
   `invalidation_reason`: `checkout_drift` when a supplied current checkout no longer matches, or
   `lease_expired_before_running` when a `claimed` handle's lease elapsed before `mark-running`).
 - **`flight_finished`** — the owner recorded a terminal state (carries the terminal state, the
   command duration, and the skipped-checks count).
 - **`flight_wait_completed`** — an attacher's `wait` observed a terminal state.
+
+One further record shares this directory and shape without being a coordination event:
+**`state_dir_chmod_failed`** — the diagnostic breadcrumb written when the state directory could not
+be chmod-ed to `0700` (the flight files are still `0600`; a host that also cannot take this record
+gets a stderr line instead). It is a degradation record, not a lifecycle event, so a cross-run
+analyzer counting coordination events should exclude it.
 
 Two honesty rules hold. A **stale or incomplete** handle is never counted as saved work — only a
 genuine attach-and-consume of a `passed` flight is a suppressed launch, so the suppressed-launch

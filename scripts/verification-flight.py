@@ -39,9 +39,11 @@ file mode 0600), published atomically (O_CREAT|O_EXCL create for the single-owne
 guarantee; temp + os.replace for updates), and is durable only within the current
 checkout.
 
-Determinism for tests: the wall clock is read through _now(), which honors the
-DEVFLOW_FLIGHT_NOW epoch-seconds override so lease-expiry and duration are testable
-without real sleeping.
+Determinism for tests: the LOGICAL clock is read through _now(), which honors the
+DEVFLOW_FLIGHT_NOW epoch-seconds override, so lease-expiry and recorded durations are
+testable without real sleeping. That override does NOT drive `wait`'s poll deadline —
+cmd_wait bounds itself with real time.monotonic() — so a wait test spends real time and
+should use a small --timeout rather than the override.
 """
 
 from __future__ import annotations
@@ -166,7 +168,21 @@ class _CodedError(Exception):
     def __init__(self, reason: str):
         _validate_reason_code(reason, self._EXACT_REASONS, self._REASON_PREFIXES)
         super().__init__(reason)
-        self._reason = reason
+        # object.__setattr__ bypasses the seal below, which is exactly what
+        # construction needs — and nothing after construction gets to do it.
+        object.__setattr__(self, "_reason", reason)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        # Seal the instance AFTER construction. A read-only `reason` property alone
+        # is not the guarantee the docstring makes: `__slots__` does not remove the
+        # `__dict__` an Exception subclass inherits, so without this both
+        # `exc._reason = "typo"` (the backing field) and an arbitrary new attribute
+        # still succeed — and the first of those defeats the closed-vocabulary
+        # invariant just as completely as assigning `.reason` would.
+        raise AttributeError(
+            f"{type(self).__name__} is immutable after construction "
+            f"(attempted to set {name!r}); build a new error instead"
+        )
 
     @property
     def reason(self) -> str:

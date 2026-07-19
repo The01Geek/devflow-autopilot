@@ -132,6 +132,18 @@ class Harness(unittest.TestCase):
                 parsed = None
         return code, parsed
 
+    def run_cmd_expecting_exit(self, argv):
+        """Run the CLI for a path that exits via SystemExit (argparse usage errors)."""
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                code = vf.main(argv)
+        except SystemExit as exc:
+            code = exc.code
+        out = buf.getvalue().strip()
+        parsed = json.loads(out.splitlines()[-1]) if out else None
+        return code, parsed
+
     def claim(self, decl=None, lease=None):
         decl = decl if decl is not None else _decl()
         argv = ["claim", "--input-file", self._write(decl),
@@ -881,6 +893,18 @@ class TestReasonCodeImmutability(Harness):
             exc.reason = "malfrmed_json"
         self.assertEqual(exc.reason, "malformed_json")
 
+    def test_reason_backing_field_is_also_immutable(self):
+        """The docstring's guarantee is LIFETIME immutability, so blocking only the
+        `exc.reason = ...` spelling is not enough — the backing field must be sealed
+        too, or the invariant is defeated by `exc._reason = "typo"`."""
+        for exc in (vf.DeclarationError("profile_not_object"), vf.ReadError("empty")):
+            with self.assertRaises(AttributeError):
+                exc._reason = "typo"
+            with self.assertRaises(AttributeError):
+                exc.some_new_attribute = "x"
+        self.assertEqual(vf.DeclarationError("profile_not_object").reason,
+                         "profile_not_object")
+
     def test_both_coded_errors_share_one_validating_base(self):
         """A third coded-reason exception must inherit the wiring structurally,
         not by copy-paste convention."""
@@ -999,6 +1023,46 @@ class TestTerminalHandleIsOneShotPerKey(Harness):
         self.assertEqual(again["state"], "incomplete")
         self.assertNotIn("token", again)
         self.assertFalse(again["satisfies_verification"])
+
+
+class TestUsageErrorsAreAttributable(Harness):
+    """A usage error must NOT collide with EXIT_NON_PASS.
+
+    argparse's default usage-error status is 2, which this CLI documents as
+    EXIT_NON_PASS ("read succeeded but the flight does NOT satisfy verification").
+    A shell caller branching on 2 would read a typo'd flag as a real non-passing
+    read, and would find no `reason` field to explain it.
+    """
+
+    def test_unknown_subcommand_is_invalid_not_non_pass(self):
+        code, out = self.run_cmd_expecting_exit(["bogus-subcommand"])
+        self.assertEqual(code, vf.EXIT_INVALID)
+        self.assertNotEqual(code, vf.EXIT_NON_PASS)
+        self.assertTrue(out["reason"].startswith("usage_error:"))
+        self.assertIs(out["satisfies_verification"], False)
+
+    def test_missing_flag_value_is_invalid_not_non_pass(self):
+        code, out = self.run_cmd_expecting_exit(["status", "--flight"])
+        self.assertEqual(code, vf.EXIT_INVALID)
+        self.assertTrue(out["reason"].startswith("usage_error:"))
+
+    def test_every_invalid_path_emits_the_same_key_set(self):
+        """The _FlightArgumentParser docstring claims exactly this."""
+        keys = set()
+        code, out = self.run_cmd_expecting_exit(["bogus"])
+        keys.add(frozenset(out))
+        _, out2 = self.run_cmd(["descriptor", "--input-file",
+                                os.path.join(self.tmp, "does-not-exist.json")])
+        keys.add(frozenset(out2))
+        _, out3 = self.run_cmd(["descriptor", "--input-file",
+                                self._write({"schema_version": 1, "profile": {},
+                                             "checkout": {}})])
+        keys.add(frozenset(out3))
+        self.assertEqual(len(keys), 1, f"invalid paths emit differing key sets: {keys}")
+        self.assertEqual(
+            next(iter(keys)),
+            frozenset({"ok", "result", "reason", "satisfies_verification"}),
+        )
 
 
 if __name__ == "__main__":
