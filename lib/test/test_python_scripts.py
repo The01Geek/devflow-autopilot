@@ -2835,22 +2835,78 @@ assert_eq("effort-app(#554): no in-session decision ever claims agent-definition
 assert_eq("effort-app(#554): every EA application_point is a known value",
           True, _ea5_points <= set(_rro.EFFORT_APPLICATION_POINTS))
 
-# EA6: the fallback report is ONE `::notice::` summary (distinct from `::warning::`),
-# not one line per agent — and it is None when nothing fell back.
-_ea6_notice = _rro.format_effort_fallback_notice(_rro.decide_effort_applications(
-    {"devflow:code-reviewer": {"effort": "low"},
-     "devflow:silent-failure-hunter": {"effort": "high"}},
-    ["devflow:code-reviewer", "devflow:silent-failure-hunter",
-     "devflow:comment-analyzer"],
-))
-assert_eq("effort-app(#554): fallback report is a ::notice:: (not ::warning::)",
-          True, _ea6_notice.startswith("::notice::"))
-assert_eq("effort-app(#554): fallback report is a single summary line",
-          1, len(_ea6_notice.splitlines()))
-assert_eq("effort-app(#554): fallback report names the fell-back agent count",
-          True, "2 agent(s)" in _ea6_notice)
-assert_eq("effort-app(#554): no fallback → no notice",
-          None, _rro.format_effort_fallback_notice(_ea2))
+# EA6: the benign in-session no-seam fallbacks collapse into ONE `::notice::`
+# summary (distinct from `::warning::`), not one line per agent — and no report
+# line at all when nothing fell back.
+_ea6_resolved = {"devflow:code-reviewer": {"effort": "low"},
+                 "devflow:silent-failure-hunter": {"effort": "high"}}
+_ea6_lines = _rro.format_effort_reports(
+    _rro.decide_effort_applications(
+        _ea6_resolved,
+        ["devflow:code-reviewer", "devflow:silent-failure-hunter",
+         "devflow:comment-analyzer"]),
+    _ea6_resolved)
+assert_eq("effort-app(#554): benign fallbacks are ONE ::notice:: summary (not ::warning::)",
+          [True], [len(_ea6_lines) == 1 and _ea6_lines[0].startswith("::notice::")])
+assert_eq("effort-app(#554): the ::notice:: summary names the fell-back agent count",
+          True, "2 agent(s)" in _ea6_lines[0])
+assert_eq("effort-app(#554): no fallback → no report lines",
+          [], _rro.format_effort_reports(_ea2, {}))
+
+# EA7 (silent-failure-hunter HIGH fix): a capability-restricted fallback (Haiku
+# model / effort_supported=false) is a genuine misconfiguration surfaced as its
+# OWN `::warning::` naming the model/provider — NOT laundered into the benign
+# "not a failure" notice. The named reason (computed in the decision) is emitted.
+_ea7_haiku_resolved = {"devflow:code-reviewer":
+                       {"model": "claude-haiku-4-5-20251001", "effort": "low"},
+                       "devflow:silent-failure-hunter": {"effort": "low"}}
+_ea7_lines = _rro.format_effort_reports(
+    _rro.decide_effort_applications(
+        _ea7_haiku_resolved,
+        ["devflow:code-reviewer", "devflow:silent-failure-hunter"]),
+    _ea7_haiku_resolved)
+# One ::warning:: for the Haiku agent (naming the model), one ::notice:: for the
+# benign agent — the capability restriction is never in the benign bucket.
+_ea7_warn = [ln for ln in _ea7_lines if ln.startswith("::warning::")]
+_ea7_note = [ln for ln in _ea7_lines if ln.startswith("::notice::")]
+assert_eq("effort-app(#554): Haiku capability restriction is a ::warning:: (not the benign notice)",
+          1, len(_ea7_warn))
+assert_eq("effort-app(#554): the capability ::warning:: names the Haiku model",
+          True, "haiku" in _ea7_warn[0].lower() and "devflow:code-reviewer" in _ea7_warn[0])
+assert_eq("effort-app(#554): the benign agent still gets the ::notice:: (only it, count 1)",
+          True, len(_ea7_note) == 1 and "1 agent(s)" in _ea7_note[0])
+# A provider with effort_supported=false is likewise a ::warning:: naming the provider.
+_ea7_prov_resolved = {"devflow:code-reviewer": {"effort": "low"}}
+_ea7_prov = _rro.format_effort_reports(
+    _rro.decide_effort_applications(_ea7_prov_resolved, ["devflow:code-reviewer"],
+                                    effort_supported=False),
+    _ea7_prov_resolved, effort_supported=False)
+assert_eq("effort-app(#554): effort_supported=false is a ::warning:: naming the provider",
+          True, len(_ea7_prov) == 1 and _ea7_prov[0].startswith("::warning::")
+          and "effort_supported" in _ea7_prov[0])
+
+# EA8 (pr-test-analyzer #3): decide_effort_applications iterates the DISPATCHED
+# roster, so an override resolved for an agent NOT dispatched is silently ignored
+# (never fabricates a fallback report for an undispatched agent).
+_ea8 = _rro.decide_effort_applications(
+    {"devflow:code-reviewer": {"effort": "low"}}, ["devflow:silent-failure-hunter"])
+assert_eq("effort-app(#554): a resolved-but-undispatched agent gets no decision",
+          ["devflow:silent-failure-hunter"], list(_ea8.keys()))
+assert_eq("effort-app(#554): the dispatched no-override agent is session-inheritance",
+          "session-inheritance", _ea8["devflow:silent-failure-hunter"]["application_point"])
+
+# EA9 (pr-test-analyzer #4): Haiku + effort_supported=false — the Haiku reason is
+# preferred (names the concrete model), a deterministic precedence.
+_ea9 = _rro.decide_effort_applications(
+    {"a": {"model": "claude-haiku-4-5", "effort": "low"}}, ["a"], effort_supported=False)
+assert_eq("effort-app(#554): Haiku reason wins over provider reason (deterministic precedence)",
+          True, "haiku" in _ea9["a"]["fallback_reason"].lower())
+
+# EA10 (pr-test-analyzer #5): the empty-roster boundary.
+assert_eq("effort-app(#554): empty dispatched → empty decision map",
+          {}, _rro.decide_effort_applications({}, []))
+assert_eq("effort-app(#554): empty decisions → no report lines",
+          [], _rro.format_effort_reports({}, {}))
 
 # read_raw integration (exercises the real config-get.sh I/O path, not just the
 # pure resolver). The empty-own-entry contract must hold END-TO-END: the leaf
@@ -3087,6 +3143,45 @@ try:
               1, len(_eff_lines))
 finally:
     _os.unlink(_def_cfg)
+
+# main() effort-report wiring (issue #554, pr-test-analyzer #1/#2): a config that
+# produces a VALID per-agent effort override must route its fallback report to
+# STDERR while stdout stays pure JSON (the load-bearing engine contract — the
+# review engine json-parses stdout). The existing main() tests run against a
+# nonexistent config (no overrides → no report), so this is the only coverage
+# that a regression writing the report to stdout would corrupt the engine parse.
+with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _e554f:
+    _e554f.write('{"devflow_review":{"agent_overrides":'
+                 '{"devflow:code-reviewer":{"effort":"low"}}}}')
+    _e554_cfg = _e554f.name
+try:
+    _o554, _e554 = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(_o554), contextlib.redirect_stderr(_e554):
+        _rc554 = _rro.main(["devflow:code-reviewer", "--config", _e554_cfg])
+    assert_eq("main(#554): valid effort override exits 0", 0, _rc554)
+    # stdout is pure JSON — no ::notice::/::warning:: leaked onto it.
+    assert_eq("main(#554): stdout stays pure JSON (report never on stdout)",
+              {"devflow:code-reviewer": {"effort": "low"}},
+              json.loads(_o554.getvalue()))
+    assert_eq("main(#554): the ::notice:: fallback report is on stderr",
+              True, "::notice::" in _e554.getvalue()
+              and "per-agent effort was NOT applied" in _e554.getvalue())
+    # --effort-supported false wiring: the SAME override now reports a
+    # capability-restricted ::warning:: naming the provider (the CLI flag is
+    # threaded to decide/format, not just the pure functions).
+    _o554b, _e554b = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(_o554b), contextlib.redirect_stderr(_e554b):
+        _rc554b = _rro.main(["devflow:code-reviewer", "--config", _e554_cfg,
+                             "--effort-supported", "false"])
+    assert_eq("main(#554): --effort-supported false exits 0", 0, _rc554b)
+    assert_eq("main(#554): --effort-supported false → capability ::warning:: on stderr",
+              True, "::warning::" in _e554b.getvalue()
+              and "effort_supported" in _e554b.getvalue())
+    assert_eq("main(#554): stdout still pure JSON under --effort-supported false",
+              {"devflow:code-reviewer": {"effort": "low"}},
+              json.loads(_o554b.getvalue()))
+finally:
+    _os.unlink(_e554_cfg)
 
 # A non-object `default` on the real read_raw path: the warning must name the real
 # consequence (no fallback for no-entry agents), NOT the nonsensical "default still

@@ -160,9 +160,10 @@ late ones) with no measured loss.
   — not `high`.)
 - **Explicit empty entry opts out of `default`.** An explicit empty entry (`"devflow:code-reviewer": {}`) counts as "has an entry": it sets neither model nor effort **and** does not inherit `default`. Use it to deliberately exclude one subagent from a broad `default` override.
 - **No-entry fallback.** A subagent with **neither its own entry nor a `default`** is dispatched
-  exactly as today — the global `claude_model` and the session effort — with **no `--agents`
-  override emitted for it**. Existing configs (which have no `agent_overrides` block at all) are
-  therefore completely unaffected.
+  exactly as today — the global `claude_model` and the session effort — with **no per-agent
+  `model` override supplied at dispatch** (a `session-inheritance` in the per-tier matrix above).
+  Existing configs (which have no `agent_overrides` block at all) are therefore completely
+  unaffected.
 - **Invalid effort → warn + fall back.** An `effort` value outside the enum produces a
   `::warning::` and falls back to the session effort rather than aborting the run. A non-blank
   `model` string is forwarded as given; an empty, whitespace-only, or non-string `model` is dropped
@@ -264,6 +265,22 @@ the session effort, and the run states the limitation and the fallback reason at
 **effective** effort is recorded only when it can be read back from an applied/composed artifact — on
 every in-session arm the engine cannot introspect its own session effort, so `effective` is **null**
 (unknown is not zero), never guessed. Model overrides are delivered exactly as before on every tier.
+
+**How the fallback is reported (per resolve, i.e. per dispatch phase).** `resolve-review-overrides.py`
+distinguishes the *cause* so a genuine misconfiguration is never laundered into steady-state noise:
+
+- a **benign** in-session no-seam fallback (a valid override the tier simply has no per-agent effort
+  seam for — the permanent local/unproven-cloud steady state) is reported as **one informational
+  `::notice::` summary** over all such agents (never one line per agent), distinct from `::warning::`;
+- a **capability-restricted** fallback (the resolved model is a Claude Haiku id that rejects `effort`,
+  or the routed provider's `effort_supported` is `false`) is a genuine unusable-model/provider
+  misconfiguration, so it is a **`::warning::` naming the model/provider** — the same channel the
+  resolver already uses for an invalid effort value or an unusable model.
+
+The provider `effort_supported` capability is a **caller-supplied** input (`--effort-supported`, default
+`true` — the Anthropic path): the in-session engine cannot introspect the routed provider's capability,
+so the model-level Haiku restriction (read from the resolved model) is the capability guard active by
+default, and a caller that knows the provider capability passes it in.
 
 > **Spike-gated applied arm (`agent-definition`).** A per-agent *applied* arm — composing the
 > resolved effort into a process-start agent-definition the platform reads at launch — exists only

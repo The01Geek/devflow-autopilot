@@ -14,10 +14,12 @@ On the in-session dispatch path both tiers use today there is NO per-dispatch
 tool's `model` override parameter, while a per-agent `effort` override is NOT
 deliverable per-agent (the Agent tool exposes no effort parameter). So this
 helper additionally exposes a per-agent effort-application DECISION
-(`decide_effort_applications`) and an honest once-per-run fallback report
-(`format_effort_fallback_notice`) — a `::notice::` summary, distinct from
-`::warning::` — so a resolved-but-unapplied effort is reported at resolution
-time rather than silently claimed as applied (issue #554).
+(`decide_effort_applications`) and an honest per-resolve fallback report
+(`format_effort_reports`) — a `::notice::` summary for a benign in-session
+no-seam fallback, and a `::warning::` naming the model/provider for a
+capability-restricted one (a Haiku model, an `effort_supported: false`
+provider) — so a resolved-but-unapplied effort is reported at resolution time
+rather than silently claimed as applied (issue #554).
 
 Resolution rules (mirroring the schema + docs/review-agent-overrides.md):
   - `iterations` (issue #425): an optional per-entry key whose only valid value is
@@ -209,6 +211,26 @@ def _is_haiku_model(model):
     return isinstance(model, str) and "haiku" in model.lower()
 
 
+def _effort_capability_block(model, effort_supported):
+    """The capability restriction (if any) that blocks a per-agent effort override.
+
+    Single source of truth for the capability decision, shared by
+    `decide_effort_applications` (which picks the fallback_reason) and
+    `format_effort_reports` (which routes capability-restricted agents to a
+    `::warning::` rather than the benign `::notice::`) — so the two never
+    disagree. Returns:
+      - "haiku"    — the resolved model is a Claude Haiku id (rejects effort);
+      - "provider" — the routed provider's effort_supported is false (#313);
+      - None       — no capability restriction (a benign in-session no-seam
+                     fallback: the tier simply has no per-agent effort seam).
+    """
+    if _is_haiku_model(model):
+        return "haiku"
+    if not effort_supported:
+        return "provider"
+    return None
+
+
 def decide_effort_applications(resolved, dispatched, *, effort_supported=True):
     """Per-agent in-session effort-application decision (issue #554).
 
@@ -248,13 +270,14 @@ def decide_effort_applications(resolved, dispatched, *, effort_supported=True):
         # A resolved per-agent effort exists. In-session it is never applied; pick
         # the fallback reason, preferring the capability restriction when present
         # (it names the concrete model/provider that would reject the parameter).
-        if _is_haiku_model(model):
+        cause = _effort_capability_block(model, effort_supported)
+        if cause == "haiku":
             reason = (
                 f"per-agent effort {effort!r} not emitted: resolved model {model!r} "
                 "is a Claude Haiku model that rejects the effort parameter (HTTP 400); "
                 "the agent inherits the session effort"
             )
-        elif not effort_supported:
+        elif cause == "provider":
             reason = (
                 f"per-agent effort {effort!r} not emitted: the routed provider's "
                 "effort_supported is false; the agent inherits the session effort"
@@ -274,29 +297,53 @@ def decide_effort_applications(resolved, dispatched, *, effort_supported=True):
     return decisions
 
 
-def format_effort_fallback_notice(decisions):
-    """One `::notice::` summary line for the run's session-fallback agents, or None.
+def format_effort_reports(decisions, resolved, *, effort_supported=True):
+    """Honest per-resolve effort-fallback report lines (issue #554).
 
-    Distinct from `::warning::` (reserved for genuine misconfiguration — invalid
-    effort, unusable model): this is a steady-state, informational report that a
-    valid per-agent effort override could not be applied on this tier, emitted
-    ONCE per run as a summary (never one line per agent). Returns None when no
-    dispatched agent took the `session-fallback` arm (nothing to report).
+    Splits the `session-fallback` agents by CAUSE so a genuine misconfiguration
+    is never laundered into a benign "not a failure" notice:
+
+      - **Capability-restricted** (a Haiku model that rejects `effort`, or a
+        provider whose `effort_supported` is false) is a genuine
+        unusable-model/provider misconfiguration — the project reserves
+        `::warning::` for exactly that — so each such agent gets its OWN
+        `::warning::` line carrying the concrete `fallback_reason` (which names
+        the model/provider). The cause is re-derived from `resolved` +
+        `effort_supported` through the SAME `_effort_capability_block` helper
+        `decide_effort_applications` used, so the two never disagree (no
+        substring matching of the reason string, no split-brain).
+      - **Benign in-session no-seam** (a valid override the tier simply has no
+        per-agent effort seam for) is steady-state, not a failure — those
+        collapse into ONE informational `::notice::` summary (never one line per
+        agent), emitted once per resolve (per dispatch phase).
+
+    Returns the ordered list of report lines (warnings first, then the single
+    notice), or `[]` when no dispatched agent took the `session-fallback` arm.
     """
-    fell_back = [
-        a for a, d in decisions.items()
-        if d.get("application_point") == "session-fallback"
-    ]
-    if not fell_back:
-        return None
-    names = ", ".join(fell_back)
-    return (
-        "::notice::resolve-review-overrides: per-agent effort was NOT applied for "
-        f"{len(fell_back)} agent(s) ({names}) — this tier's in-session Agent-tool "
-        "dispatch cannot apply a per-agent effort override, so each inherits the "
-        "session effort (a session-fallback, not a failure; see "
-        "docs/review-agent-overrides.md for the per-tier application-point matrix)."
-    )
+    warnings = []
+    benign = []
+    for agent, d in decisions.items():
+        if d.get("application_point") != "session-fallback":
+            continue
+        model = (resolved.get(agent) or {}).get("model")
+        if _effort_capability_block(model, effort_supported) is not None:
+            # Capability-restricted: surface the named reason as a warning.
+            warnings.append(
+                f"::warning::resolve-review-overrides: {agent}: {d.get('fallback_reason')}"
+            )
+        else:
+            benign.append(agent)
+    lines = list(warnings)
+    if benign:
+        names = ", ".join(benign)
+        lines.append(
+            "::notice::resolve-review-overrides: per-agent effort was NOT applied for "
+            f"{len(benign)} agent(s) ({names}) — this tier's in-session Agent-tool "
+            "dispatch cannot apply a per-agent effort override, so each inherits the "
+            "session effort (a session-fallback, not a failure; see "
+            "docs/review-agent-overrides.md for the per-tier application-point matrix)."
+        )
+    return lines
 
 
 def _config_get(config_get, config_file, dotted_key, warnings):
@@ -428,7 +475,12 @@ def main(argv=None):
         help=(
             "the routed provider's effort_supported capability (#313); when "
             "'false', a resolved per-agent effort is reported as a "
-            "capability-restricted fallback. Default 'true' (the Anthropic path)."
+            "capability-restricted fallback. Default 'true' (the Anthropic path). "
+            "This is a caller-supplied forward seam: the in-session engine cannot "
+            "itself introspect the routed provider's capability, so the model-level "
+            "Haiku restriction (read from the resolved model) is the capability "
+            "guard active by default; a caller that knows the provider capability "
+            "passes it here."
         ),
     )
     args = parser.parse_args(argv)
@@ -453,15 +505,16 @@ def main(argv=None):
     for w in dict.fromkeys(read_warnings + resolve_warnings):
         sys.stderr.write(f"::warning::resolve-review-overrides: {w}\n")
     # Honest fallback report (issue #554): decide the per-agent effort-application
-    # outcome and emit a single informational `::notice::` summary (distinct from
-    # the `::warning::` lines above) when any resolved per-agent effort could not
-    # be applied on this in-session tier. Never claims an unearned success.
+    # outcome and emit report lines to stderr (stdout stays pure JSON). A benign
+    # in-session no-seam fallback is one informational `::notice::` summary; a
+    # capability-restricted one (Haiku model / effort_supported=false) is a
+    # `::warning::` naming the model/provider. Never claims an unearned success.
+    effort_supported = (args.effort_supported == "true")
     decisions = decide_effort_applications(
-        result, args.agents, effort_supported=(args.effort_supported == "true")
+        result, args.agents, effort_supported=effort_supported
     )
-    notice = format_effort_fallback_notice(decisions)
-    if notice is not None:
-        sys.stderr.write(notice + "\n")
+    for line in format_effort_reports(decisions, result, effort_supported=effort_supported):
+        sys.stderr.write(line + "\n")
     sys.stdout.write(json.dumps(result) + "\n")
     return 0
 

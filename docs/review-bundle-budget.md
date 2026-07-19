@@ -62,9 +62,9 @@ budget contract later changes are held to.
 
 | Row | Before — lines / words / bytes / ~tokens | After — lines / words / bytes / ~tokens |
 |---|---|---|
-| Root (`skills/review/SKILL.md`) | 1,559 / 33,378 / 233,903 / 58,476 | 375 / 7,784 / 52,340 / 13,085 |
-| Complete bundle | 1,604 / 33,815 / 237,113 / 59,279 | 1,681 / 34,899 / 245,446 / 61,362 |
-| Default per-pass unique path | 1,604 / 33,815 / 237,113 / 59,279 | 1,543 / 28,694 / 202,764 / 50,691 |
+| Root (`skills/review/SKILL.md`) | 1,559 / 33,378 / 233,903 / 58,476 | 375 / 7,782 / 52,317 / 13,080 |
+| Complete bundle | 1,604 / 33,815 / 237,113 / 59,279 | 1,681 / 34,897 / 245,423 / 61,356 |
+| Default per-pass unique path | 1,604 / 33,815 / 237,113 / 59,279 | 1,543 / 28,692 / 202,741 / 50,686 |
 | Max incremental phase read | 1,559 / 33,378 / 233,903 / 58,476 | 245 / 6,051 / 42,753 / 10,689 |
 | Consumer extension (shipped repo copy) | 45 / 437 / 3,210 / 803 | 45 / 439 / 3,280 / 820 |
 
@@ -72,13 +72,13 @@ budget contract later changes are held to.
 
 - **Root** — `skills/review/SKILL.md` alone.
 - **Complete bundle** — root + shipped extension + all nine references, each once. It **grows**
-  against baseline (+1,084 words); see *Justified growth* below.
+  against baseline (+1,082 words); see *Justified growth* below.
 - **Default per-pass unique path** — root + shipped extension + each source a pass requires when
   **no blocker fast path** and **no stale-prose predicate** holds, each counted **exactly once**:
   the six always/standalone references, *excluding* the three gated ones (6,205 words). This is the
   conservative reading — it counts `phase-4-4-github-post.md`, which a standalone pass loads and a
   `/devflow:review-and-fix` pass does not, so the review-and-fix default path is *smaller* still
-  (27,699 words). **This metric makes no retained-context claim**: it counts what a pass must read,
+  (27,697 words). **This metric makes no retained-context claim**: it counts what a pass must read,
   not what stays resident.
 - **Max incremental phase read** — the largest single reference **by words** (`phase-4-verdict.md`,
   6,051). By *bytes* the largest is `phase-3-agents.md` (43,416 B) — the two maxima are different
@@ -91,9 +91,9 @@ budget contract later changes are held to.
 
 | Contract | Ceiling | Measured | Margin |
 |---|---|---|---|
-| Root + shipped extension (AC2) | ≤ 8,500 words | **8,223** | 277 |
-| Reduction vs the 33,815 baseline (AC2) | ≥ 25,327 words | **25,592** | 265 |
-| Default per-pass unique path (AC3) | ≤ 28,700 words | **28,694** | 6 |
+| Root + shipped extension (AC2) | ≤ 8,500 words | **8,221** | 279 |
+| Reduction vs the 33,815 baseline (AC2) | ≥ 25,327 words | **25,594** | 267 |
+| Default per-pass unique path (AC3) | ≤ 28,700 words | **28,692** | 8 |
 
 AC3's margin is **thin by construction** — the ceiling sits just above what the split can achieve.
 Adding words to the root or to any non-gated reference spends that margin directly. Re-measure with
@@ -109,8 +109,8 @@ than the gated one:
 
 | Path | Gating | Measured | vs the 28,700 ceiling |
 |---|---|---|---|
-| AC3 default path (no stale-prose predicate) | **gates this repo** | 28,694 | 6 under |
-| Shipped-default path (stale-lint gate at its `true` default) | *non-gating — recorded only* | **30,951** | **2,251 OVER** |
+| AC3 default path (no stale-prose predicate) | **gates this repo** | 28,692 | 8 under |
+| Shipped-default path (stale-lint gate at its `true` default) | *non-gating — recorded only* | **30,949** | **2,249 OVER** |
 
 AC3 is implemented **as written**: its literal wording governs the gate, and the number above it is the
 one the suite asserts. This second row is published so that the gap between the metric's *name* and the
@@ -128,10 +128,10 @@ reads repeatedly**. Baseline is the monolith, which every pass read in full.
 a hypothetical configuration; AC5 measures reality, so each row carries the references its own path
 actually loads:
 
-- **`standalone_path`** (218,653 B / 54,664 tok) — the AC3 default set **plus**
+- **`standalone_path`** (218,630 B / 54,658 tok) — the AC3 default set **plus**
   `phases/phase-0-6-stale-prose-lint.md`, whose gate defaults **true**, so an ordinary standalone pass
   reads it. Includes `phases/phase-4-4-github-post.md` (a standalone pass posts to GitHub).
-- **`raf_path`** (212,166 B / 53,042 tok) — the same, **minus** the standalone-only
+- **`raf_path`** (212,143 B / 53,036 tok) — the same, **minus** the standalone-only
   `phase-4-4-github-post.md`, which `/devflow:review-and-fix` skips entirely.
 - `phases/phase-0-3-6-blocker-recheck.md` is in **neither**: its predicate needs a prior REJECT driven
   solely by carve-out blockers, so an ordinary pass never loads it — and on a hit it *replaces* Phases
@@ -139,10 +139,10 @@ actually loads:
 
 | Path | Formula | Before (bytes / ~tokens) | After (bytes / ~tokens) | Delta |
 |---|---|---|---|---|
-| Standalone review (1 pass) | `standalone_path × 1` | 237,113 / 59,279 | 218,653 / 54,664 | **−18,460 / −4,615** |
-| One normal + shadow pass | `raf_path × 2` | 474,226 / 118,558 | 424,332 / 106,084 | **−49,894 / −12,474** |
-| Bounded multi-iteration (2 iters + shadow) | `raf_path × (N+1)`, N=2 | 711,339 / 177,837 | 636,498 / 159,126 | **−74,841 / −18,711** |
-| Bounded multi-iteration (3 iters + shadow) | `raf_path × (N+1)`, N=3 | 948,452 / 237,116 | 848,664 / 212,168 | **−99,788 / −24,948** |
+| Standalone review (1 pass) | `standalone_path × 1` | 237,113 / 59,279 | 218,630 / 54,658 | **−18,483 / −4,621** |
+| One normal + shadow pass | `raf_path × 2` | 474,226 / 118,558 | 424,286 / 106,072 | **−49,940 / −12,486** |
+| Bounded multi-iteration (2 iters + shadow) | `raf_path × (N+1)`, N=2 | 711,339 / 177,837 | 636,429 / 159,108 | **−74,910 / −18,729** |
+| Bounded multi-iteration (3 iters + shadow) | `raf_path × (N+1)`, N=3 | 948,452 / 237,116 | 848,572 / 212,144 | **−99,880 / −24,972** |
 
 **Repeated reads are reported explicitly, not amortized.** The multipliers above *are* the repeat
 count: a normal-plus-shadow pass reads its path twice (the shadow re-enters the engine at
@@ -170,7 +170,7 @@ against the figure this page publishes, so the two cannot drift apart.
 
 ## Justified growth
 
-The **complete bundle** grows by **1,084 words / 8,333 bytes** against baseline. That is the
+The **complete bundle** grows by **1,082 words / 8,310 bytes** against baseline. That is the
 expected cost of the split and is stated rather than hidden: the root gained the bundle-identity
 contract, the boundary contract, and the routing table (~960 words), and each reference carries a
 start/end boundary marker pair. The growth buys the AC3 reduction — the gated references
