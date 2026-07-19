@@ -13064,15 +13064,35 @@ assert_eq "#332 fallback: resolved root gone from disk → specific (not generic
   "$(printf '%s' "$RMR_STALE_ERR" | grep -q 'resolve-main-root' && echo yes || echo no)"  # raw-guard-ok: breadcrumb specificity probe on captured stderr
 
 # create-issue SKILL.md contract pins (coupled with the SKILL.md edit — reconciled in the
-# same change per the AC). The draft is written to AND displayed at the main-root absolute
-# path; no bare-relative displayed draft-save note remains.
+# same change per the AC). The draft is written at the resolved main root and displayed at
+# the BOUND-root absolute path (issue #569: the display reads the root back from
+# query-draft-binding's `bound=` field); no bare-relative displayed draft-save note remains.
 CI_SKILL_332="$LIB/../skills/create-issue/SKILL.md"
 assert_pin_unique "#332 AC4: create-issue resolves the main root via resolve-main-root.sh (portable anchor)" \
-  "$PORTABLE_ANCHOR_LITERAL"'scripts/resolve-main-root.sh' "$CI_SKILL_332"
-assert_pin_unique "#332 AC4: create-issue displays the draft at the main-root ABSOLUTE path" \
-  'Draft also saved to `<main-root>/.devflow/tmp/issue-draft-<slug>.md` for review.' "$CI_SKILL_332"
+  'MAIN_ROOT="$('"$PORTABLE_ANCHOR_LITERAL"'scripts/resolve-main-root.sh)"' "$CI_SKILL_332"
+# #569: the record-draft-binding statement is a SEPARATE bash fence, so it cannot read the
+# fence-local $MAIN_ROOT — it re-resolves the deterministic root inline (anchor expanded inline,
+# never captured). That is why the binding site has its own resolve-main-root.sh invocation,
+# pinned here distinctly from the write site's MAIN_ROOT= form above. (Count-free by design: a
+# comment asserting how many call sites exist rots on the next SKILL.md edit — PR #553.)
+assert_pin_unique "#332/#569 AC4: the record-draft-binding --path re-resolves the root inline (self-contained fence)" \
+  '--path "$('"$PORTABLE_ANCHOR_LITERAL"'scripts/resolve-main-root.sh)" --tier main-root' "$CI_SKILL_332"
+assert_pin_unique "#332/#569 AC4: create-issue displays the draft at the bound-root ABSOLUTE path" \
+  'Draft also saved to `<bound-root>/.devflow/tmp/issue-draft-<slug>.md` for review.' "$CI_SKILL_332"
 assert_eq "#332 AC4: create-issue no longer shows a bare-relative draft-save note" "no" \
   "$(grep -qF 'Draft also saved to `.devflow/tmp/issue-draft-<slug>.md` for review.' "$CI_SKILL_332" && echo yes || echo no)"  # raw-guard-ok: absence pin (expects no) — the old cwd-relative displayed draft note must be gone
+# #569 behavioral-fix pins: the binding-reuse half of the tier ladder. Each pins a
+# load-bearing sentence and proves (via a sed mutation that re-introduces the bug) the
+# pin catches the regression, not merely the line vanishing.
+assert_pin_red_under "#569: the first landed write records the draft-root binding immutably" \
+  'records its resolved root through the state owner, immutably' \
+  's/immutably for the rest of the run/mutably for the rest of the run/' "$CI_SKILL_332"
+assert_pin_red_under "#569: later write sites read the bound root from query-draft-binding, never context recall" \
+  'never context recall and never a second' \
+  's/never context recall and never a second/via context recall or a second/' "$CI_SKILL_332"
+assert_pin_red_under "#569: the file arm forwards --write-path, cross-checked with write-path-mismatch on divergence" \
+  'cross-checks against the recorded binding and refuses with' \
+  's/and refuses with/and accepts on/' "$CI_SKILL_332"
 # The Step 2 derivation gate artifact deliberately STAYS cwd-anchored (internal, not shown
 # to the user) — assert it was not accidentally moved to the main root.
 assert_eq "#332 gotcha: Step 2 derivation artifact stays cwd-relative (not main-root)" "no" \
@@ -44518,6 +44538,129 @@ if [ -d "$DB_SB" ]; then
   fi
   git -C "$DB_SB" worktree remove -f ../wt562 > /dev/null 2>&1 || true
   rm -rf "$DB_SB" "$DB_SB/../wt562"
+fi
+
+# ────────────────────────────────────────────────────────────────────────────
+# issue #569: the record-dispatch file-arm --write-path cross-check. When a run has bound a
+# canonical-draft root and the skill reports its landed write path, the tool cross-checks
+# that path against `<bound-root>/.devflow/tmp/issue-draft-<slug>.md` (the path it derives
+# from the recorded binding) and fails closed with `write-path-mismatch` on divergence. The
+# check is additive: an unbound run and a bound run that omits --write-path both proceed — but
+# a present-but-EMPTY --write-path is an unestablished report, refused as `write-path-empty`
+# rather than collapsed onto the omitted case. The check is scoped inside the file arm.
+WP_SB="$(git_sandbox '#569 write_path_crosscheck_rows')"
+if [ -d "$WP_SB" ]; then
+  (
+    cd "$WP_SB" || exit 1
+    git init -q .
+    mkdir -p .devflow/tmp
+    printf '# T\n\nB\n' > d.md
+    # A bound run: the matching write-path is accepted; a drifted one is refused.
+    N="$(python3 "$IAS" init wp | sed 's/nonce=//')"
+    python3 "$IAS" record-draft-binding wp --nonce "$N" --path "$WP_SB" --tier worktree-root > /dev/null
+    python3 "$IAS" record-dispatch wp --nonce "$N" --round 1 --arm file \
+      --write-path "$WP_SB/.devflow/tmp/issue-draft-wp.md" --draft-file d.md > .wp-match 2>&1
+    printf '%s' "$?" > .wp-match-rc
+    # A NEW run (its own binding at the same root; a drifted write path, round 1) is refused.
+    # Bindings are per-slug and immutable — wp2 records its own, it does not share wp's. The
+    # bound canonical file for slug wp2 is $WP_SB/.devflow/tmp/issue-draft-wp2.md; report a
+    # divergent /elsewhere path and expect the named breadcrumb + non-zero exit.
+    N2="$(python3 "$IAS" init wp2 | sed 's/nonce=//')"
+    python3 "$IAS" record-draft-binding wp2 --nonce "$N2" --path "$WP_SB" --tier worktree-root > /dev/null
+    python3 "$IAS" record-dispatch wp2 --nonce "$N2" --round 1 --arm file \
+      --write-path /elsewhere/.devflow/tmp/issue-draft-wp2.md --draft-file d.md \
+      > /dev/null 2> .wp-mismatch; printf '%s' "$?" > .wp-mismatch-rc
+    # A bound run that OMITS --write-path proceeds unchanged (the cross-check is additive).
+    N3="$(python3 "$IAS" init wp3 | sed 's/nonce=//')"
+    python3 "$IAS" record-draft-binding wp3 --nonce "$N3" --path "$WP_SB" --tier worktree-root > /dev/null
+    python3 "$IAS" record-dispatch wp3 --nonce "$N3" --round 1 --arm file \
+      --draft-file d.md > /dev/null 2>&1; printf '%s' "$?" > .wp-nowp-rc
+    # An UNBOUND run's file arm still dispatches (the binding-required half is deferred); the
+    # cross-check is scoped to a bound run, so no binding means no cross-check.
+    N4="$(python3 "$IAS" init wp4 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch wp4 --nonce "$N4" --round 1 --arm file \
+      --write-path /any/where.md --draft-file d.md > /dev/null 2>&1; printf '%s' "$?" > .wp-unbound-rc
+    # An EMPTY --write-path is an unestablished report, NOT an opt-out: a truthiness test would
+    # collapse it onto "caller omitted the flag" and silently disarm the cross-check on exactly
+    # the drift it exists to catch (the skill composes this value in shell, so an unresolved
+    # root yields ""). It is refused by name, distinctly from the omitted case above.
+    N5="$(python3 "$IAS" init wp5 | sed 's/nonce=//')"
+    python3 "$IAS" record-draft-binding wp5 --nonce "$N5" --path "$WP_SB" --tier main-root > /dev/null
+    python3 "$IAS" record-dispatch wp5 --nonce "$N5" --round 1 --arm file \
+      --write-path "" --draft-file d.md > /dev/null 2> .wp-empty; printf '%s' "$?" > .wp-empty-rc
+    # ARM ORDER, not just the two arms: the empty refusal sits ABOVE the binding guard, so it
+    # fires on an UNBOUND run too. Without this row, scoping the empty check under the binding
+    # guard keeps every other row green while an unbound run with --write-path "" flips from
+    # refused to accepted — the unestablished report silently proceeding. (An empty value
+    # reaches the tool from a caller that composes the path from a shell-resolved root; the
+    # shipped skill substitutes an already-resolved literal, so this is defense in depth.)
+    N8="$(python3 "$IAS" init wp8 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch wp8 --nonce "$N8" --round 1 --arm file \
+      --write-path "" --draft-file d.md > /dev/null 2> .wp-empty-unbound
+    printf '%s' "$?" > .wp-empty-unbound-rc
+    # WHITESPACE-only is empty too: the guard is `.strip()`-based, so a "simplification" to a
+    # bare falsiness test (`not args.write_path`) would keep every other row green while an
+    # unbound run with "   " flips from refused to accepted.
+    N9="$(python3 "$IAS" init wp9 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch wp9 --nonce "$N9" --round 1 --arm file \
+      --write-path "   " --draft-file d.md > /dev/null 2> .wp-ws; printf '%s' "$?" > .wp-ws-rc
+    # The mismatch rows above diverge the ROOT. Cover the other half of _bound_draft_file's
+    # join: the correct bound root with a drifted <slug> — the compacted-context shape where a
+    # run reuses a prior draft's slug — must also be refused.
+    NA="$(python3 "$IAS" init wpa | sed 's/nonce=//')"
+    python3 "$IAS" record-draft-binding wpa --nonce "$NA" --path "$WP_SB" --tier main-root > /dev/null
+    python3 "$IAS" record-dispatch wpa --nonce "$NA" --round 1 --arm file \
+      --write-path "$WP_SB/.devflow/tmp/issue-draft-otherslug.md" --draft-file d.md \
+      > /dev/null 2> .wp-slug; printf '%s' "$?" > .wp-slug-rc
+    # The shipped skill binds --tier main-root (tier-2/tier-3 selection is the deferred half),
+    # so pin the tier the production path actually uses, not only worktree-root: a matching
+    # write-path under a main-root binding is accepted.
+    N6="$(python3 "$IAS" init wp6 | sed 's/nonce=//')"
+    python3 "$IAS" record-draft-binding wp6 --nonce "$N6" --path "$WP_SB" --tier main-root > /dev/null
+    python3 "$IAS" record-dispatch wp6 --nonce "$N6" --round 1 --arm file \
+      --write-path "$WP_SB/.devflow/tmp/issue-draft-wp6.md" --draft-file d.md > /dev/null 2>&1
+    printf '%s' "$?" > .wp-mainroot-rc
+    # The cross-check is deliberately scoped INSIDE the file arm: an embed-arm dispatch ignores
+    # --write-path entirely. Pin that scoping so a later refactor that HOISTS the check out of
+    # the file-arm branch cannot change behavior with the suite green. (A refactor that narrows
+    # or removes the check is caught by the .wp-mismatch row, not by this one.)
+    N7="$(python3 "$IAS" init wp7 | sed 's/nonce=//')"
+    python3 "$IAS" record-draft-binding wp7 --nonce "$N7" --path "$WP_SB" --tier main-root > /dev/null
+    printf '# T\n\nB\n' | python3 "$IAS" record-dispatch wp7 --nonce "$N7" --round 1 --arm embed \
+      --marker write-failed --write-path /totally/bogus.md > /dev/null 2>&1
+    printf '%s' "$?" > .wp-embed-rc
+  )
+  assert_eq "#569 write_path_crosscheck_rows: a matching write-path is accepted (exit 0)" \
+    "0" "$(cat "$WP_SB/.wp-match-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: a drifted write-path is refused (exit non-zero)" \
+    "1" "$(cat "$WP_SB/.wp-mismatch-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: ... named by the write-path-mismatch breadcrumb" \
+    "1" "$(grep -c 'write-path-mismatch' "$WP_SB/.wp-mismatch" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: a bound run that omits --write-path proceeds (cross-check is additive)" \
+    "0" "$(cat "$WP_SB/.wp-nowp-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: an unbound file-arm dispatch still proceeds (binding-required half deferred)" \
+    "0" "$(cat "$WP_SB/.wp-unbound-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: an EMPTY --write-path is refused, not read as an opt-out" \
+    "1" "$(cat "$WP_SB/.wp-empty-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: ... named by the write-path-empty breadcrumb" \
+    "1" "$(grep -c 'write-path-empty' "$WP_SB/.wp-empty" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: the EMPTY refusal is binding-INDEPENDENT (unbound run refused too)" \
+    "1" "$(cat "$WP_SB/.wp-empty-unbound-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: ... the unbound empty refusal names write-path-empty" \
+    "1" "$(grep -c 'write-path-empty' "$WP_SB/.wp-empty-unbound" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: a WHITESPACE-only --write-path is refused (strip-based, not bare falsiness)" \
+    "1" "$(cat "$WP_SB/.wp-ws-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: ... the whitespace refusal names write-path-empty" \
+    "1" "$(grep -c 'write-path-empty' "$WP_SB/.wp-ws" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: right root + WRONG SLUG is refused (the other half of the join)" \
+    "1" "$(cat "$WP_SB/.wp-slug-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: ... the wrong-slug refusal names write-path-mismatch" \
+    "1" "$(grep -c 'write-path-mismatch' "$WP_SB/.wp-slug" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: the shipped main-root tier is covered (matching path accepted)" \
+    "0" "$(cat "$WP_SB/.wp-mainroot-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: an embed-arm dispatch ignores --write-path (check is file-arm scoped)" \
+    "0" "$(cat "$WP_SB/.wp-embed-rc" 2>/dev/null)"
+  rm -rf "$WP_SB"
 fi
 
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
