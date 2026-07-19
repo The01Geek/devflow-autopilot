@@ -506,11 +506,14 @@ def _derive_arg(input_file: str):
     try:
         decl = _load_json_arg(input_file)
     except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
-        return None, ({"ok": False, "result": "invalid", "reason": f"input:{exc.__class__.__name__}"}, EXIT_INVALID)
+        return None, ({"ok": False, "result": "invalid",
+                       "reason": f"input:{exc.__class__.__name__}",
+                       "satisfies_verification": False}, EXIT_INVALID)
     try:
         return _derive(decl), None
     except DeclarationError as exc:
-        return None, ({"ok": False, "result": "invalid", "reason": exc.reason}, EXIT_INVALID)
+        return None, ({"ok": False, "result": "invalid", "reason": exc.reason,
+                       "satisfies_verification": False}, EXIT_INVALID)
 
 
 def cmd_descriptor(args) -> int:
@@ -817,8 +820,10 @@ def cmd_wait(args) -> int:
             last_reason = exc.reason
         if time.monotonic() >= deadline:
             break
-        # A caller-requested busy poll (--poll-interval 0) is floored to 50ms so
-        # the loop never spins hot; the deadline check below terminates it.
+        # A caller-requested busy poll (--poll-interval 0) is floored to 50ms so the
+        # loop never spins hot. Termination is the deadline check guarding this
+        # sleep: the bound is tested before every sleep, so the loop cannot outlive
+        # it by more than one poll interval.
         time.sleep(poll if poll > 0 else 0.05)
 
     # Wait bound elapsed with the flight still active/unreadable: a NON-mutating
