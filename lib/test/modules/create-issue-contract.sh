@@ -853,8 +853,17 @@ devflow_module_pin_unique "#593: extension ## Evidence axes carries the Grant-ti
 # (3) Shared repo-wide-scope sentence — legitimately occurs at three enumeration-mandating sites,
 #     so an exactly-once pin cannot hold; a count-equals-3 guard is the harness idiom for a value
 #     that recurs. A dropped or wrapped-across-lines site makes this RED (below-3), fail-closed.
+#     SEMANTIC SIBLING the count deliberately EXCLUDES (#613): the Consumers-axis evidence floor's
+#     sweep leg states the same repo-wide-enumeration contract in PARAPHRASE, not with the canonical
+#     sentence above — a recorded decision, because carrying the canonical sentence would break this
+#     exactly-3 count. A textual sweep for the canonical sentence therefore cannot find the
+#     paraphrase, so the linkage is recorded here instead: an edit to the canonical sentence must
+#     reconcile the paraphrase in the same change. The paraphrase's operative scope clause is pinned
+#     separately below so it cannot be dropped silently.
 assert_eq "#593: extension repo-wide-scope sentence present at exactly 3 enumeration sites" "3" \
   "$(devflow_module_pin_count 'a directory-scoped sweep does not discharge enumeration' "$CI_EXT")"
+devflow_module_pin_unique "#613: Consumers-axis floor's sweep-leg paraphrase of the repo-wide-scope contract" \
+  'executed repo-wide whitespace-normalized sweep' "$CI_EXT"
 # (4) docs/cloud-setup.md consumer timing sentence.
 devflow_module_pin_unique "#593: docs/cloud-setup.md states in-PR grants take effect only post-merge" \
   'takes effect only after that PR merges, because the workflows resolve grants at trigger time' "$CI_CLOUD_SETUP"
@@ -1209,6 +1218,53 @@ devflow_module_pin_unique "#559: overview §11 (Step 3.5 loop) documents the Rev
   "walks the revision's edit-batch delta across six classes" "$CI_OVERVIEW"
 devflow_module_pin_unique "#559: overview §11 (Step 3.6/Step 4 loop) documents the Revision-delta verification procedure" \
   "runs the shared **Revision-delta verification** procedure over the revision's delta" "$CI_OVERVIEW"
+
+# ── issue #613: shift-left evidence disciplines in the live create-issue extension —
+#    an executed-sweep floor on the consumers axis, closed-set complement entries, a
+#    pre-merge obligation walk, success-path channels, and a self-referential-count gate
+#    scan. All SURFACE-PRESENCE contract pins (plain devflow_module_pin_unique on new
+#    prose), the same class as the #548/#464/#593 blocks above: none pins a behavioral
+#    guarantee whose half-revert re-introduces a named bug, so no devflow_module_pin_red_under
+#    mutation obligation attaches.
+# AC1 — Consumers-axis evidence floor (## Evidence axes section prose).
+devflow_module_pin_unique "#613 AC1: extension ## Evidence axes carries the Consumers-axis evidence floor" \
+  'Consumers-axis evidence floor (this repo).' "$CI_EXT"
+devflow_module_pin_unique "#613 AC1: the floor's unestablished arm names the un-swept consumers state" \
+  'consumers not swept' "$CI_EXT"
+# AC2 — Closed-set complement entries (## Evidence axes section prose).
+devflow_module_pin_unique "#613 AC2: extension ## Evidence axes carries the closed-set complement entry rule" \
+  'Closed-set complement entries (this repo).' "$CI_EXT"
+devflow_module_pin_unique "#613 AC2: the complement rule names its six-shape-matrix sibling relation" \
+  'the set-membership sibling of the six-shape JSON matrix' "$CI_EXT"
+# AC5 — authoring-discipline shape (1) gains the success-path-channel check.
+devflow_module_pin_unique "#613 AC5: shape (1) flags a measurement AC naming no success-path channel" \
+  'measurement or equality AC that names no success-path channel' "$CI_EXT"
+# AC3 — authoring-discipline shape (2) gains the closed-set complement flag.
+devflow_module_pin_unique "#613 AC3: shape (2) flags a closed set whose complement is never analyzed" \
+  'closed set the draft'"'"'s mechanism defines' "$CI_EXT"
+# AC4 — authoring-discipline shape (4) gains the pre-merge temporal walk.
+devflow_module_pin_unique "#613 AC4: shape (4) walks the obligation as the pre-merge implementing run resolves it" \
+  'as the pre-merge implementing run resolves it' "$CI_EXT"
+# AC7 — the self-referential-count defect class, and the count-free parenthetical rewrite.
+devflow_module_pin_unique "#613 AC7: authoring-discipline bullet carries defect class (5), self-referential counts" \
+  'self-referential count or ordinal' "$CI_EXT"
+devflow_module_pin_unique "#613 AC7: the cross-cutting parenthetical is count-free" \
+  'not an additional defect class' "$CI_EXT"
+assert_eq "#613 AC7: the rotted 'fourth defect class' ordinal is gone from the extension" "0" \
+  "$(devflow_module_pin_count 'not a fourth defect class' "$CI_EXT")"
+# AC6 — the new no-options-gate scan section, outside both hook sections.
+devflow_module_pin_unique "#613 AC6: extension carries the no-options-gate self-referential count scan heading" \
+  '## No-options gate — self-referential count scan (this repo)' "$CI_EXT"
+devflow_module_pin_unique "#613 AC6: the gate scan exempts counts inside verbatim-quoted external text" \
+  'Counts inside verbatim-quoted external text are exempt' "$CI_EXT"
+# AC10 — the overview's stale axis enumeration is retired repo-wide. The module itself
+# necessarily carries the phrase as this grep's own needle, so the sweep excludes this
+# file by pathspec; an unexcluded sweep could never reach zero. Any OTHER tracked hit is
+# a surviving stale mirror and turns the module RED.
+assert_eq "#613 AC10: the retired overview axis enumeration has no tracked-tree hits outside this module" "0" \
+  "$(cd "$CI_ROOT" && git grep -F -l 'per-profile cloud allowlists, install-channel skew' -- . ':(exclude)lib/test/modules/create-issue-contract.sh' | grep -c . || true)"
+devflow_module_pin_unique "#613 AC10: overview evidence-axes hook points at the live extension instead of enumerating" \
+  'see the live extension'"'"'s `## Evidence axes` section for the current axis list' "$CI_OVERVIEW"
 
 # Complete normal cleanup explicitly so a removal or marker failure changes the
 # module status. EXIT remains a fallback for earlier returns and shell errors.
