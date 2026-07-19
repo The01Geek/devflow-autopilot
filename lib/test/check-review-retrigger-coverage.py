@@ -17,6 +17,18 @@ must not re-trigger on its own completion), and asserts each remaining
 workflow's `name:` appears in the re-trigger list. Exit 0 when the list is a
 superset of the gating set; exit 1 (naming the missing workflows) otherwise.
 
+Scope limit (deliberate): `require_ci_green` waits on *every* other Actions run
+on the PR head, but this checker only enumerates `pull_request`-triggered
+workflows. A `push`-triggered workflow also produces a run on a same-repo PR
+branch's head, and if it were absent from the re-trigger list it could wedge a
+deferred review identically. Today every `push`-triggered first-party workflow
+(`pages.yml`, `version-consolidate.yml`, and `ci.yml`'s push arm) is
+`branches: [main]`-gated, so none runs on a PR feature branch and the
+`pull_request` enumeration is complete in practice. If a future push-triggered
+workflow is added WITHOUT a `main`-only branch filter, broaden `_triggers_on_pr`
+(or its caller) to include it — it would run on the PR head and this checker
+would be blind to it.
+
 Usage: check-review-retrigger-coverage.py [<workflows-dir>]
 Default dir: .github/workflows relative to the repo root (two levels up from lib/test/).
 """

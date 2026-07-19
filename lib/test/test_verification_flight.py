@@ -174,17 +174,24 @@ class TestDescriptorAndKey(Harness):
         self.assertEqual(base["descriptor_digest"], moved["descriptor_digest"])
         self.assertNotEqual(base["flight_key"], moved["flight_key"])
 
-    def test_output_roots_and_external_services_excluded_from_descriptor(self):
+    def test_output_roots_excluded_from_descriptor(self):
         # Negative pin (issue #528, S8): the descriptor is derived ONLY from the
         # identity operands {profile_version, argv, cwd, environment, toolchain,
-        # dependencies}. `output_roots` and `external_services` are validated but
-        # deliberately NOT part of the descriptor — they are hermeticity gates, not
-        # identity. If a regression added either to `_descriptor_bytes`, byte-varying
-        # it would churn the descriptor (and thus the flight key), silently defeating
-        # ALL reuse for callers that differ only in those fields. Assert exclusion so
-        # that regression fails RED here.
+        # dependencies}. `output_roots` is validated but deliberately NOT part of the
+        # descriptor — it is a declared surface, not identity. If a regression added
+        # it to `_descriptor_bytes`, byte-varying it would churn the descriptor (and
+        # thus the flight key), silently defeating ALL reuse for callers that differ
+        # only in `output_roots`. Assert exclusion so that regression fails RED here.
+        #
+        # SCOPE (issue #579 review): this pins ONLY `output_roots`, because it is the
+        # only excluded field that can be *varied* in a valid declaration.
+        # `external_services` is also excluded from the descriptor, but a valid
+        # profile can only ever carry `external_services: "none"` (`_validate_profile`
+        # rejects every other value), so a constant field cannot churn the key and no
+        # differential test can falsify its exclusion — `test_external_services_only_none`
+        # pins that invariant instead. Do not re-widen this test's name/claim to imply
+        # a guard it cannot provide.
         base = self.run_cmd(["descriptor", "--input-file", self._write(_decl())])[1]
-        # output_roots varies; external_services stays "none" (the only reusable value).
         moved_roots = self.run_cmd([
             "descriptor", "--input-file",
             self._write(_decl(profile={"output_roots": [".devflow/tmp", "build/"]})),
@@ -197,6 +204,16 @@ class TestDescriptorAndKey(Harness):
             base["flight_key"], moved_roots["flight_key"],
             "an output_roots-only difference must not churn the flight key",
         )
+
+    def test_external_services_only_none(self):
+        # The reason `test_output_roots_excluded_from_descriptor` cannot also pin
+        # `external_services` exclusion differentially: a valid profile's
+        # `external_services` is invariantly "none". Any other value is rejected at
+        # declaration time, so it can never reach `_descriptor_bytes` as a varying
+        # operand. Pin that gate directly.
+        code, out = self.claim(_decl(profile={"external_services": "local"}))
+        self.assertEqual(code, vf.EXIT_INVALID)
+        self.assertEqual(out["reason"], "non_hermetic_profile")
 
     def test_each_descriptor_operand_shifts_digest(self):
         base = self.run_cmd(["descriptor", "--input-file", self._write(_decl())])[1]["descriptor_digest"]
@@ -249,6 +266,57 @@ class TestClaimAndAttach(Harness):
         _, owner = self.claim()
         _, st = self.run_cmd(["status", "--flight", owner["flight_key"], "--state-dir", self.state])
         self.assertEqual(st["token_digest"], "REDACTED")
+
+    def test_status_on_claimed_is_non_pass(self):
+        # The two ACTIVE states (claimed/running) must NEVER satisfy verification —
+        # the exact "unknown becomes a pass" regression this ledger exists to prevent.
+        # Every terminal non-pass state is asserted elsewhere; these pin the active
+        # ones, so a mutation widening `_satisfies` to an active state fails RED
+        # (issue #579 review).
+        _, owner = self.claim()
+        code, st = self.run_cmd(["status", "--flight", owner["flight_key"], "--state-dir", self.state])
+        self.assertEqual(st["state"], "claimed")
+        self.assertFalse(st["satisfies_verification"], "a claimed flight must not satisfy verification")
+        self.assertFalse(st["reuse_ready"], "a claimed flight is never reuse_ready")
+        self.assertEqual(code, vf.EXIT_NON_PASS)
+
+    def test_status_on_running_is_non_pass(self):
+        _, owner = self.claim()
+        k, t = owner["flight_key"], owner["token"]
+        self.run_cmd(["mark-running", "--flight", k, "--token", t, "--state-dir", self.state])
+        code, st = self.run_cmd(["status", "--flight", k, "--state-dir", self.state])
+        self.assertEqual(st["state"], "running")
+        self.assertFalse(st["satisfies_verification"], "a running flight must not satisfy verification")
+        self.assertFalse(st["reuse_ready"], "a running flight is never reuse_ready")
+        self.assertEqual(code, vf.EXIT_NON_PASS)
+
+    def test_reuse_ready_mirrors_satisfies_and_checkout_verified_operands(self):
+        # issue #579 review (S2/S3): status exposes two machine operands so a caller
+        # never branches on the role-only attach exit code. `reuse_ready` mirrors
+        # `satisfies_verification`; `checkout_verified` is True only when a matching
+        # --current-checkout-file was supplied, so a safe consume is
+        # `reuse_ready and checkout_verified`.
+        _, owner = self.claim()
+        k, t = owner["flight_key"], owner["token"]
+        chk = self._write({
+            "checkout_id": "r1", "head": "abc", "index_digest": "i1",
+            "tracked_digest": "t1", "untracked_digest": "u1",
+        })
+        self.run_cmd(["mark-running", "--flight", k, "--token", t, "--state-dir", self.state])
+        self.run_cmd(["finish", "--flight", k, "--token", t, "--result", "passed",
+                      "--summary-file", self._write({"command": "x", "skipped_checks": []}),
+                      "--state-dir", self.state, "--logs-dir", self.logs])
+        # No current-checkout: passed handle, but checkout_verified must be False.
+        code, st = self.run_cmd(["status", "--flight", k, "--state-dir", self.state])
+        self.assertEqual(code, vf.EXIT_OK)
+        self.assertTrue(st["reuse_ready"])
+        self.assertEqual(st["reuse_ready"], st["satisfies_verification"])
+        self.assertFalse(st["checkout_verified"], "a bare status verifies no checkout")
+        # Matching current-checkout: checkout_verified flips True.
+        _, st2 = self.run_cmd(["status", "--flight", k, "--state-dir", self.state,
+                               "--current-checkout-file", chk])
+        self.assertTrue(st2["checkout_verified"])
+        self.assertTrue(st2["reuse_ready"])
 
     def test_attach_to_passed_flight_consumes_prior_pass(self):
         # The ledger's raison d'être: a later same-checkout caller attaches to a
@@ -678,6 +746,18 @@ class TestTelemetry(Harness):
                       "--state-dir", self.state, "--logs-dir", self.logs])
         self.assertIn("flight_finished", self._events())
 
+    def test_non_serializable_payload_never_hardens_into_a_failure(self):
+        # issue #579 review + changeset: `_emit_telemetry` widened its swallow to
+        # (OSError, TypeError, ValueError) precisely so a non-serializable payload
+        # (a value `_canonical`/json.dumps cannot encode -> TypeError/ValueError)
+        # can never propagate out and fail the enclosing coordination op. Narrowing
+        # the except back to `except OSError` is the exact regression this pins:
+        # drive a set() (json-unserializable) through and assert it returns False,
+        # raises nothing, and writes no record.
+        result = vf._emit_telemetry(self.logs, "bad_event", {"unserializable": {1, 2, 3}})
+        self.assertFalse(result, "a non-serializable payload must return False, not raise")
+        self.assertNotIn("bad_event", self._events())
+
 
 class TestNoExecutionContract(unittest.TestCase):
     """Static guard mirrored by run.sh: the helper is data-only."""
@@ -1087,6 +1167,54 @@ class TestUsageErrorsAreAttributable(Harness):
             next(iter(keys)),
             frozenset({"ok", "result", "reason", "satisfies_verification"}),
         )
+
+
+class TestLedgerWriteFailure(Harness):
+    """issue #579 review (S4): an owner-write OSError on the coordination path is an
+    attributable `write_failed:<class>` JSON + non-zero exit, never an uncaught
+    traceback. Fail-safe throughout: a non-zero exit means no attacher reuses the
+    handle, so a write failure degrades to duplicate work, never a false pass."""
+
+    def test_claim_write_failure_is_attributable_not_a_traceback(self):
+        # Win the O_EXCL create, then fail os.write: the reviewer's exact case —
+        # a zero-byte handle with the owner token never printed. Must emit JSON.
+        orig_write = vf.os.write
+
+        def boom(fd, data):
+            raise OSError(28, "No space left on device")
+
+        vf.os.write = boom
+        try:
+            code, out = self.claim()
+        finally:
+            vf.os.write = orig_write
+        self.assertEqual(out["result"], "write_failed")
+        self.assertTrue(out["reason"].startswith("write_failed:"))
+        self.assertFalse(out["satisfies_verification"])
+        self.assertNotEqual(code, vf.EXIT_OK)
+        self.assertNotIn("token", out, "a failed create must never print an owner token")
+
+    def test_finish_write_failure_is_attributable(self):
+        _, owner = self.claim()
+        k, t = owner["flight_key"], owner["token"]
+        self.run_cmd(["mark-running", "--flight", k, "--token", t, "--state-dir", self.state])
+        orig = vf._atomic_replace
+
+        def boom(path, body):
+            raise OSError(28, "No space left on device")
+
+        vf._atomic_replace = boom
+        try:
+            code, out = self.run_cmd([
+                "finish", "--flight", k, "--token", t, "--result", "passed",
+                "--summary-file", self._write({"command": "x", "skipped_checks": []}),
+                "--state-dir", self.state, "--logs-dir", self.logs,
+            ])
+        finally:
+            vf._atomic_replace = orig
+        self.assertEqual(out["result"], "write_failed")
+        self.assertFalse(out["satisfies_verification"])
+        self.assertNotEqual(code, vf.EXIT_OK)
 
 
 if __name__ == "__main__":

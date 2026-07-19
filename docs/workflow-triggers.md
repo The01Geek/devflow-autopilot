@@ -83,13 +83,18 @@ PR. Its trigger policy (issue #304):
   pre-review window; the exactly-once gate ends it once a review lands). This is
   the accepted cost of an unconditional trigger. `workflow_run` **requires an
   explicit workflow-name list**
-  (a GitHub platform constraint — no wildcards): it ships as `workflows: [CI]`, so
-  **a consumer repo whose CI workflow is named anything other than `CI` must add
-  that name to the `workflow_run:` list in `.github/workflows/devflow-review.yml`
-  when installing**, or the CI-completion re-trigger silently never fires for a
-  deferred review (the installer prints a reminder to this effect; see also
-  `docs/cloud-setup.md`). The precondition *evaluation* itself stays fully generic
-  (no job names).
+  (a GitHub platform constraint — no wildcards): it ships naming **every**
+  first-party workflow that runs on PR events (`[CI, Matcher probe]`), because a
+  review deferred behind `require_ci_green` waits on *all* other head runs to
+  complete but re-fires only on a *listed* one's completion — so a gating workflow
+  omitted from the list can strand a deferred review at the neutral "waiting:
+  other CI not green" check with no event left to clear it (issue #579).
+  **A consumer repo must list every workflow that runs on its pull requests — not
+  just the primary CI one — in the `workflow_run:` list in
+  `.github/workflows/devflow-review.yml` when installing**, or the CI-completion
+  re-trigger silently never fires for a deferred review (the installer prints a
+  reminder to this effect; see also `docs/cloud-setup.md`). The precondition
+  *evaluation* itself stays fully generic (no job names).
 
 ### The injected block reports *observed* CI conclusions, never a green assumption
 

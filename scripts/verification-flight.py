@@ -340,6 +340,25 @@ def _atomic_replace(path: Path, body: dict) -> None:
     os.replace(tmp, path)
 
 
+def _ledger_write(path: Path, flight: dict) -> str | None:
+    """Persist a ledger handle, converting a write-path OSError into an
+    attributable `write_failed:<errno-class>` reason instead of an uncaught
+    traceback. Returns None on success, or the reason string on failure.
+
+    Every other error surface in this module emits the `{"ok": false, "reason": …}`
+    JSON shape and one of the documented exit codes; a bare `os.write`/`os.replace`
+    OSError on the coordination path (ENOSPC/EACCES on the state dir) would instead
+    crash with exit 1 and no attributable record. This keeps an owner-write failure
+    auditable. It still fails SAFE for reuse gating: the caller emits a non-zero
+    exit, so no attacher ever consumes the half-written handle as a pass.
+    """
+    try:
+        _atomic_replace(path, flight)
+        return None
+    except OSError as exc:
+        return f"write_failed:{exc.__class__.__name__}"
+
+
 class ReadError(_CodedError):
     """A flight file that is missing, empty, truncated, or malformed — a
     non-pass with an attributable reason, never inferred as terminal."""
@@ -509,10 +528,18 @@ def _satisfies(flight: dict) -> bool:
 
 
 def _public_view(flight: dict) -> dict:
-    """A token-redacted view for status/wait output."""
+    """A token-redacted view for status/wait/attach output."""
     view = dict(flight)
     view["token_digest"] = "REDACTED"
     view["satisfies_verification"] = _satisfies(flight)
+    # `reuse_ready` is the explicit, unambiguously-named operand a caller reads to
+    # decide reuse (issue #579 review): it mirrors `satisfies_verification` so no
+    # caller is tempted to branch on the process exit code — which is deliberately
+    # role-only on `claim`/attach (EXIT_OK regardless of the attached state). A SAFE
+    # consume additionally requires `checkout_verified` (surfaced by status/wait),
+    # true only when the read was given `--current-checkout-file` and the stored
+    # checkout matched — i.e. reuse iff `reuse_ready and checkout_verified`.
+    view["reuse_ready"] = _satisfies(flight)
     return view
 
 
@@ -621,10 +648,34 @@ def cmd_claim(args) -> int:
     # a strictly worse trade than the fail-closed empty-read it would remove.
     try:
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        fd = None  # a flight already exists for this key — attach below
+    except OSError as exc:
+        # Winning-side create failed (ENOSPC/EACCES on the state dir). Emit the same
+        # attributable JSON shape every other error path uses instead of an uncaught
+        # traceback; non-zero exit fails SAFE (no owner, no attacher reuse).
+        _print({"ok": False, "result": "write_failed",
+                "reason": f"write_failed:{exc.__class__.__name__}",
+                "satisfies_verification": False})
+        return EXIT_UNREADABLE
+    if fd is not None:
+        write_err = None
         try:
             os.write(fd, data)
+        except OSError as exc:
+            write_err = exc
         finally:
             os.close(fd)
+        if write_err is not None:
+            # We won the O_EXCL create but the write failed — the handle is a
+            # zero-byte file and the owner token was never printed. Surface it as an
+            # auditable write_failed rather than a bare traceback with no JSON to
+            # parse; a later attacher reads the empty file -> `unreadable` -> its own
+            # direct launch, so this is fail-safe (duplicate work, never a false pass).
+            _print({"ok": False, "result": "write_failed",
+                    "reason": f"write_failed:{write_err.__class__.__name__}",
+                    "satisfies_verification": False})
+            return EXIT_UNREADABLE
         _emit_telemetry(
             args.logs_dir, "flight_claimed",
             {"flight_key": derived["flight_key"], "descriptor_digest": derived["descriptor_digest"]},
@@ -641,8 +692,6 @@ def cmd_claim(args) -> int:
             }
         )
         return EXIT_OK
-    except FileExistsError:
-        pass
 
     # A flight already exists for this exact key — attach without a second owner.
     #
@@ -674,12 +723,16 @@ def cmd_claim(args) -> int:
         args.logs_dir, "flight_attached",
         {"flight_key": derived["flight_key"], "attached_state": flight["state"]},
     )
-    _print_public(flight, role="attacher")
+    # Attach never supplies a current checkout, so it cannot verify the tree —
+    # checkout_verified is always False here; a consume must re-anchor via
+    # status/wait with --current-checkout-file (see phase-3-review.md).
+    _print_public(flight, role="attacher", checkout_verified=False)
     # Attach ALWAYS exits EXIT_OK — the exit status here is role-only ("I attached
     # to an existing flight"), NOT a verdict. Whether the attached flight is a
     # consumable pass is carried in the JSON (`role`, `state`,
-    # `satisfies_verification`); a caller must read those, never branch on this
-    # exit code, to decide reuse. (status/wait DO encode pass/non-pass in the code.)
+    # `satisfies_verification`/`reuse_ready`); a caller must read those, never branch
+    # on this exit code, to decide reuse. (status/wait DO encode pass/non-pass in the
+    # code, and add `checkout_verified` for the tree-match dimension.)
     return EXIT_OK
 
 
@@ -721,7 +774,10 @@ def cmd_mark_running(args) -> int:
     flight["running_at"] = _iso(now)
     flight["running_at_epoch"] = now
     flight["owner_evidence"] = args.evidence or "owner running verification command"
-    _atomic_replace(path, flight)
+    werr = _ledger_write(path, flight)
+    if werr:
+        _print({"ok": False, "result": "write_failed", "reason": werr, "satisfies_verification": False})
+        return EXIT_UNREADABLE
     _print({"ok": True, "state": "running", "flight_key": args.flight})
     return EXIT_OK
 
@@ -760,7 +816,10 @@ def cmd_finish(args) -> int:
         flight["state"] = "incomplete"
         flight["invalidation_reason"] = "missing_terminal_evidence"
         flight["finished_at"] = _iso(_now())
-        _atomic_replace(path, flight)
+        werr = _ledger_write(path, flight)
+        if werr:
+            _print({"ok": False, "result": "write_failed", "reason": werr, "satisfies_verification": False})
+            return EXIT_UNREADABLE
         _print({"ok": False, "result": "incomplete", "reason": "missing_terminal_evidence"})
         # Exit-code note: this reuses EXIT_CAS_REJECT rather than minting a code of
         # its own. The owner's transition WAS rejected, so the code is honest at the
@@ -780,7 +839,10 @@ def cmd_finish(args) -> int:
     running_epoch = flight.get("running_at_epoch")
     if isinstance(running_epoch, (int, float)):
         flight["command_duration_s"] = max(0.0, now - running_epoch)
-    _atomic_replace(path, flight)
+    werr = _ledger_write(path, flight)
+    if werr:
+        _print({"ok": False, "result": "write_failed", "reason": werr, "satisfies_verification": False})
+        return EXIT_UNREADABLE
     _emit_telemetry(
         args.logs_dir, "flight_finished",
         {
@@ -794,7 +856,7 @@ def cmd_finish(args) -> int:
     return EXIT_OK
 
 
-def _read_and_report(args) -> tuple[dict | None, int, str]:
+def _read_and_report(args) -> tuple[dict | None, int, str, bool]:
     state_dir = _state_dir(args.state_dir, args.logs_dir)
     path = _flight_path(state_dir, args.flight)
     current_checkout = None
@@ -804,7 +866,7 @@ def _read_and_report(args) -> tuple[dict | None, int, str]:
                 _load_json_arg(args.current_checkout_file)
             )
         except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
-            return None, EXIT_INVALID, f"current_checkout:{exc.__class__.__name__}"
+            return None, EXIT_INVALID, f"current_checkout:{exc.__class__.__name__}", False
         except DeclarationError as exc:
             # Share the contract: validate the caller-supplied current checkout with
             # the SAME operation the stored checkout was validated by, so the two
@@ -812,17 +874,24 @@ def _read_and_report(args) -> tuple[dict | None, int, str]:
             # payload (array, scalar, missing fingerprint field) reached the drift
             # comparison unvalidated and was reported as `checkout_drift` — an
             # attributable-looking but WRONG cause for a malformed operand.
-            return None, EXIT_INVALID, f"current_checkout:{exc.reason}"
+            return None, EXIT_INVALID, f"current_checkout:{exc.reason}", False
     try:
         flight = _read_flight(path)
     except ReadError as exc:
-        return None, EXIT_UNREADABLE, exc.reason
+        return None, EXIT_UNREADABLE, exc.reason, False
     flight = _apply_read_transitions(path, flight, current_checkout, args.logs_dir)
-    return flight, EXIT_OK, ""
+    # checkout_verified: this read actually confirmed the working tree matches the
+    # flight's recorded checkout. True only when a current checkout was supplied AND
+    # it matched (a drift would already have flipped the handle to `stale`). A bare
+    # `status`/`wait` with no `--current-checkout-file` leaves this False, so a
+    # caller that requires `reuse_ready and checkout_verified` cannot consume a
+    # `passed` handle whose tree it never verified (issue #579 review).
+    checkout_verified = current_checkout is not None and flight.get("checkout") == current_checkout
+    return flight, EXIT_OK, "", checkout_verified
 
 
 def cmd_status(args) -> int:
-    flight, code, reason = _read_and_report(args)
+    flight, code, reason, checkout_verified = _read_and_report(args)
     if flight is None:
         # Missing/unreadable/malformed shapes: attributable non-pass, never pass.
         _print({"ok": False, "result": "non_pass", "reason": reason, "satisfies_verification": False})
@@ -832,7 +901,7 @@ def cmd_status(args) -> int:
         # that a future edit introducing a (None, EXIT_OK) path degrades to a non-pass
         # instead of returning success with no flight. No test can cover it by design.
         return code if code != EXIT_OK else EXIT_UNREADABLE
-    _print_public(flight)
+    _print_public(flight, checkout_verified=checkout_verified)
     if _satisfies(flight):
         return EXIT_OK
     return EXIT_NON_PASS
@@ -863,7 +932,11 @@ def cmd_wait(args) -> int:
             flight = _read_flight(path)
             flight = _apply_read_transitions(path, flight, current_checkout, args.logs_dir)
             if flight["state"] in TERMINAL_STATES:
-                _print_public(flight)
+                checkout_verified = (
+                    current_checkout is not None
+                    and flight.get("checkout") == current_checkout
+                )
+                _print_public(flight, checkout_verified=checkout_verified)
                 _emit_telemetry(
                     args.logs_dir, "flight_wait_completed",
                     {"flight_key": args.flight, "terminal_state": flight["state"]},
@@ -951,7 +1024,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_stat = sub.add_parser("status", help="Read a flight; report whether it satisfies verification.")
     p_stat.add_argument("--flight", required=True)
-    p_stat.add_argument("--current-checkout-file", default=None)
+    p_stat.add_argument(
+        "--current-checkout-file", default=None,
+        help="A fresh checkout fingerprint for the CURRENT tree. Required to make a "
+             "consume decision safe: without it `checkout_verified` is False and a "
+             "`passed` handle whose tree has since drifted is not caught here. A "
+             "consume must require `reuse_ready and checkout_verified` (issue #528/#579).",
+    )
     add_common(p_stat)
     p_stat.set_defaults(func=cmd_status)
 
@@ -963,7 +1042,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_wait.add_argument("--flight", required=True)
     p_wait.add_argument("--timeout", type=float, required=True)
     p_wait.add_argument("--poll-interval", type=float, default=2.0)
-    p_wait.add_argument("--current-checkout-file", default=None)
+    p_wait.add_argument(
+        "--current-checkout-file", default=None,
+        help="A fresh checkout fingerprint for the CURRENT tree. Required to make a "
+             "consume decision safe: without it `checkout_verified` is False and a "
+             "`passed` handle whose tree has since drifted is not caught here. A "
+             "consume must require `reuse_ready and checkout_verified` (issue #528/#579).",
+    )
     add_common(p_wait)
     p_wait.set_defaults(func=cmd_wait)
 
