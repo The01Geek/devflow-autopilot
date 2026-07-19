@@ -1235,7 +1235,7 @@ devflow_module_pin_unique "#613 AC1: the floor's unestablished arm names the un-
 devflow_module_pin_unique "#613 AC2: extension ## Evidence axes carries the closed-set complement entry rule" \
   'Closed-set complement entries (this repo).' "$CI_EXT"
 devflow_module_pin_unique "#613 AC2: the complement rule names its six-shape-matrix sibling relation" \
-  'the set-membership sibling of the six-shape JSON matrix' "$CI_EXT"
+  'set-membership sibling of the six-shape JSON matrix' "$CI_EXT"
 # AC5 — authoring-discipline shape (1) gains the success-path-channel check.
 devflow_module_pin_unique "#613 AC5: shape (1) flags a measurement AC naming no success-path channel" \
   'measurement or equality AC that names no success-path channel' "$CI_EXT"
@@ -1255,8 +1255,8 @@ assert_eq "#613 AC7: the rotted 'fourth defect class' ordinal is gone from the e
 # AC6 — the new no-options-gate scan section, outside both hook sections.
 devflow_module_pin_unique "#613 AC6: extension carries the no-options-gate self-referential count scan heading" \
   '## No-options gate — self-referential count scan (this repo)' "$CI_EXT"
-devflow_module_pin_unique "#613 AC6: the gate scan exempts counts inside verbatim-quoted external text" \
-  'Counts inside verbatim-quoted external text are exempt' "$CI_EXT"
+devflow_module_pin_unique "#613 AC6: the gate scan states the drift the count class exhibits" \
+  'moment a revision adds or removes an item it counts' "$CI_EXT"
 # AC10 — the overview's stale axis enumeration is retired repo-wide. The module itself
 # necessarily carries the phrase as this grep's own needle, so the sweep excludes this
 # file by pathspec; an unexcluded sweep could never reach zero. Any OTHER tracked hit is

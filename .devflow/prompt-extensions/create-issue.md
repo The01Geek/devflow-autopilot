@@ -95,6 +95,16 @@ is an unexamined premise.
    standalone `/devflow:review` that gates every PR before merge, so a draft must not cheapen that
    reviewer as a side effect of tuning something else (#425).
 
+## No-options gate — self-referential count scan (this repo)
+
+When running the Step 3 no-options gate — and every later re-gate at the Step 3.5, Step 3.6, and
+Step 4 revise-and-re-gate sites — additionally scan the rendered body for **self-referential
+counts and ordinals**: a count or ordinal referring to the draft's own mutable content ("all 23
+defects above", "the four axes", "the third check"), the #553 rot class — such text drifts the
+moment a revision adds or removes an item it counts. Each found instance is rewritten count-free,
+or grounded by a named pin or an external record cited adjacently. Counts inside verbatim-quoted
+external text are exempt (they are data, not the draft's own assertions).
+
 ## Audit dimensions
 
 DevFlow-engine-specific audit dimensions for the Step 3.6 fresh-context auditor. The skill
@@ -139,19 +149,38 @@ subagent. Judge the draft against each of these, in addition to the generic dime
   authoring-discipline dimension for this repo: (1) a **value-comparison** AC/assertion ungrounded
   on the type axis — check the cited probe actually exercises the **type-boundary fixture** (a JSON
   string `"true"` vs. a boolean `true`, the exact #446 shape), not merely that the resolver prints
-  strings; (2) a Testing-Strategy **case matrix** for a best-effort parser or reader of hand-corruptible
+  strings — and a **measurement or equality AC that names no success-path channel**: the
+  comparison must name the observable channel that reports the measured value when the check
+  *passes* (the emitted tally line, summary field, or recorded artifact), not only the failure-path
+  error — a green run of a breach-only assertion leaves the claimed value evidence-free; (2) a
+  Testing-Strategy **case matrix** for a best-effort parser or reader of hand-corruptible
   input that narrows below the **governing matrix appropriate to that surface's input type**
   without an explicit named-and-justified narrowing — **CLAUDE.md's six-shape adversarial matrix**
   (`{object, array, scalar, valid-falsy, missing, wrong-type}`) for a config-JSON consumer, and the
   **input-type analogue** for the widened surfaces (a parser over agent/human-mutable markdown, a
   reader of a new external structured format) — independently re-run the bounded search behind any
-  `governing conventions consulted:` line and flag a governing matrix at a path the line omits; (3) an **unstated mechanism dependency** resting on a
+  `governing conventions consulted:` line and flag a governing matrix at a path the line omits — and, the
+  set-membership analogue of that matrix check, a **closed set the draft's mechanism defines** (a
+  glob, a guard-arm list, an exempt/suppression list, a registry's arms) whose **complement is
+  never analyzed**: flag a draft that does not name what falls outside the set and which path
+  handles it; (3) an **unstated mechanism dependency** resting on a
   **preflight-guaranteed helper contract** (only `git`/`gh`/`jq`/`python3`/PyYAML are guaranteed; a
   resolver's output shape, a gate's exit-code semantics) that the body never asserts as a claim; and — the cross-cutting obligation-arm check on shapes (1)
-  and (3), not a fourth defect class — (4) an **execution-shaped obligation AC** whose discharge runs an in-repo command — confirm it
+  and (3), not an additional defect class — (4) an **execution-shaped obligation AC** whose discharge runs an in-repo command — confirm it
   names a command already granted in **`devflow_implement.allowed_tools`** (or is a code-reading
   obligation citing the producer), never one that would send a consumer's cloud implement run
-  Blocked on an ungranted helper.
+  Blocked on an ungranted helper — and walk each such obligation
+  **as the pre-merge implementing run resolves it**, operand by operand, classifying each
+  operand by the Grant-timing bootstrap axis's channel rule — the Grant-timing bootstrap
+  bullet in the Evidence-axes section of
+  `.devflow/prompt-extensions/create-issue.md`, that file's single statement of which state is
+  trigger-time-resolved vs runtime-live (read it there; do not restate it): flag an obligation
+  whose discharge needs trigger-time-resolved state the same PR ships (in-PR-inert, #593) — it
+  must be rewritten per that same bullet's rewrite arms (read them there; this dimension does not
+  restate them); and (5) a **self-referential count or ordinal** — a count or ordinal in the
+  draft, or in rule text the draft ships, referring to its own mutable content ("all N defects
+  above", "the fourth check") with no pin or external record grounding it (the #553 rot class):
+  flag it for a count-free rewrite or a grounding pin.
 - **Deployment-variance silence.** A draft amending a *shipped* surface (`skills/`, `agents/`,
   `scripts/`, `lib/`, workflows, config schema, `install.sh`) rests on four axes of variance the
   drafting environment hides: **consumer-repo shape** (no repo-root `scripts/`, the vendored path,
@@ -181,8 +210,30 @@ subagent. Judge the draft against each of these, in addition to the generic dime
 ## Evidence axes
 
 DevFlow-specific evidence axes for the Step 2 evidence-bundle sub-pass. The skill appends this
-section to its generic axis floor when computing the effective axis list. Record a bundle entry
-for each of these, in addition to the generic axes:
+section to its generic axis floor when computing the effective axis list.
+
+**Consumers-axis evidence floor (this repo).** On the generic **consumers** axis, a `Verified:`
+entry covering a contract sentence or value the mechanism amends is grounded by a **conjunction**:
+the Interaction-surface map part 2 call-site reads (each consumer named with the quoted sentence
+that reads it) **plus an executed repo-wide whitespace-normalized sweep** for the amended sentence
+or value, the command and its hit list recorded in the entry. The read leg means reads in the
+part-2 *form* — the form defined in the Interaction-surface map section of
+`.devflow/prompt-extensions/create-issue.md`, part 2 (read the form there rather than restating
+it) — produced at this floor when the Interaction-surface map did not fire for the mechanism (the
+map fires only on engine-decision surfaces, while this floor fires on any amended contract
+sentence or value, a wider population). The sweep catches the mirror sites the reads missed; the
+reads catch the semantic consumers a textual sweep can never find (a sweep matches copies of the
+text, not code that reads the value) — so neither leg substitutes for the other. A consumers entry
+whose required sweep was not executed is recorded `unestablished — consumers not swept`, never
+`Verified:`. A mechanism amending no contract sentence or value leaves the sweep leg untriggered.
+
+**Closed-set complement entries (this repo).** Every closed set the mechanism defines — a glob
+pattern, a guard's arm list, an exempt or suppression list, a registry's arms — gets one bundle
+line naming its **complement**: what falls outside the set and which path handles it (the
+set-membership sibling of the six-shape JSON matrix). A mechanism defining no closed set records
+nothing here.
+
+Record a bundle entry for each of these, in addition to the generic axes:
 
 - **Per-profile cloud allowlists.** A skill/phase change that invokes a shell helper touches the
   relevant `.github/workflows/` `TOOLS=`/`--allowed-tools` allowlist(s) — the read-only `review`
