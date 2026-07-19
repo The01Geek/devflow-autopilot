@@ -1213,27 +1213,31 @@ def stale_override_remedy(state, current_digest):
         if ov.get('recorded_at_ordinal') == now:
             current = ov
             break
-    if current is not None:
-        want = current.get('draft_digest')
-        if want is not None and want != current_digest:
-            return ('the recorded override was digest-bound to draft bytes that have '
-                    'since changed, so it no longer grounds eligibility; record the '
-                    'revision with `record-revision`, then ' + _STALE_OVERRIDE_ELECTION)
+    newest = overrides[-1] if overrides else None
+    # Four peer arms, in the docstring's order. Each selects only its CAUSE clause; the
+    # shared election clause is appended once below, so "every arm ends in the election"
+    # is structural rather than a convention four return sites must each remember.
+    if current is not None and current.get('draft_digest') not in (None, current_digest):
+        cause = ('the recorded override was digest-bound to draft bytes that have '
+                 'since changed, so it no longer grounds eligibility; record the '
+                 'revision with `record-revision`, then ')
+    elif current is not None:
         # A current-ordinal override that is not digest-staled reached the refusal by
         # the absent-comparand skip (no digest on a file-arm epoch) — an unestablished
         # cause, so claim nothing about the revision state.
-        return ('the recorded override could not be validated against the draft bytes, '
-                'so it no longer grounds eligibility; ' + _STALE_OVERRIDE_ELECTION)
-    newest = overrides[-1] if overrides else None
-    if newest is not None and isinstance(newest.get('recorded_at_ordinal'), int) \
-            and newest['recorded_at_ordinal'] < now:
-        return ('the revision is already recorded, which invalidated the earlier '
-                'override; ' + _STALE_OVERRIDE_ELECTION)
-    return ('no recorded override is still current, so none grounds eligibility; '
-            + _STALE_OVERRIDE_ELECTION)
+        cause = ('the recorded override could not be validated against the draft bytes, '
+                 'so it no longer grounds eligibility; ')
+    elif (newest is not None
+            and isinstance(newest.get('recorded_at_ordinal'), int)
+            and newest['recorded_at_ordinal'] < now):
+        cause = ('the revision is already recorded, which invalidated the earlier '
+                 'override; ')
+    else:
+        cause = 'no recorded override is still current, so none grounds eligibility; '
+    return cause + _STALE_OVERRIDE_ELECTION
 
 
-def _emit_stale_override_remedy(prefix, state, current_digest):
+def _emit_stale_override_remedy(prefix, elig, state, current_digest):
     """Write the arm-selected remedy to stderr beside a `stale-override` refusal.
 
     Called from the two REFUSAL surfaces only — `cmd_query_eligibility` and
@@ -1241,7 +1245,13 @@ def _emit_stale_override_remedy(prefix, state, current_digest):
     reason token's third reader, `summary_fields` (rendering `query-summary`), is a
     RENDERING surface, not a refusal: emitting from the shared evaluation would grow an
     unplanned stderr line on every summary render of a stale-override-shaped state.
+
+    The `stale-override` test lives HERE rather than at each call site so the guard
+    cannot be forgotten: a refusal surface added later calls this unconditionally and
+    gets the remedy for free, instead of silently shipping without one.
     """
+    if elig.get('reason') != 'stale-override':
+        return
     sys.stderr.write(
         f'issue-audit-state.py {prefix}: {stale_override_remedy(state, current_digest)}\n')
 
@@ -2498,9 +2508,9 @@ def cmd_emit_body(args):
     if elig['answer'] != 'eligible':
         # issue #611: name the recovery at this refusal too. This is the costliest
         # point to rediscover it by trial — the creation epoch is already recorded —
-        # so the remedy is emitted BEFORE _fail, which does not return.
-        if elig['reason'] == 'stale-override':
-            _emit_stale_override_remedy('emit-body', doc, digest)
+        # so the remedy is emitted BEFORE _fail, which does not return. The helper
+        # self-guards on the reason, so this call is unconditional.
+        _emit_stale_override_remedy('emit-body', elig, doc, digest)
         _fail('emit-body', 'refusing to emit an unaudited body: eligibility answered '
                            f'not-eligible ({elig["reason"]})')
     body = split_body(raw)
@@ -2621,8 +2631,8 @@ def cmd_query_eligibility(args):
         # issue #611: the stdout token line above is the closed one-token contract and
         # stays byte-identical; the remedy is additive on stderr, matching this tool's
         # existing breadcrumb idiom (the `query: could not hash draft file ...` line).
-        if r['reason'] == 'stale-override':
-            _emit_stale_override_remedy('query-eligibility', state, digest)
+        # The helper self-guards on the reason, so this call is unconditional.
+        _emit_stale_override_remedy('query-eligibility', r, state, digest)
 
 
 def cmd_query_summary(args):

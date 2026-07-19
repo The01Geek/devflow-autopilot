@@ -34,6 +34,17 @@
 # be derived through a tool `lib/preflight.sh` does not guarantee: such a tool going
 # missing would empty the selection silently rather than failing loudly.
 #
+# Two sibling '## '-heading scanners live in scripts/, and their terminator rules
+# DIFFER deliberately — do not "unify" them without re-reading all three contracts:
+#   * scripts/parse-acs.py `_extract_section` terminates on the next heading of the
+#     SAME-OR-HIGHER level, so a '###' sub-heading DOES end its section there.
+#   * scripts/workpad.py `_split_sections` splits on '## ' and matches the heading
+#     name case-INsensitively.
+#   * this one terminates only on '## ' (a '###' line is section content) and matches
+#     the heading line EXACTLY after a trailing-whitespace strip, because it feeds
+#     agent-executed prompt prose where a sub-heading is part of the section body and
+#     a case-drifted heading must be reported rather than silently accepted.
+#
 # Reads .devflow/prompt-extensions/<SKILL_NAME>.md anchored to the git repo root
 # (git rev-parse --show-toplevel, falling back to pwd when not in a git tree —
 # mirroring lib/config-source.sh; issue #295) and writes it byte-for-byte to
@@ -286,11 +297,10 @@ if [ -f "$ext_file" ]; then
                 fi
             fi
             if [ "$_in_section" -eq 1 ]; then
-                if [ "$_partial" -eq 1 ]; then
-                    _out="${_out}${_line}"
-                else
-                    _out="${_out}${_line}"$'\n'
-                fi
+                # One append; the unterminated final line just skips the newline the
+                # source file never had.
+                _out="${_out}${_line}"
+                [ "$_partial" -eq 1 ] || _out="${_out}"$'\n'
                 if [ "$_is_heading" -eq 0 ]; then
                     # Any non-whitespace content below a heading makes the section
                     # non-empty. Checked with a bash pattern, never `grep`/`tr`.
@@ -300,26 +310,31 @@ if [ -f "$ext_file" ]; then
             [ "$_partial" -eq 1 ] && break
         done < "$ext_file"
 
-        if [ "$_found" -eq 1 ] && [ "$_has_body" -eq 1 ]; then
-            printf '%s' "$_out"
-        elif [ "$_found" -eq 0 ] && [ -n "$_headings" ]; then
-            # The heading is absent from a non-empty extension. The no-op itself is
-            # DESIGNED (a single-hook extension carrying only the other heading is the
-            # routine case, and it must not fail), so this stays exit 0 — but a silent
-            # no-op is indistinguishable from a heading the consumer typo'd, so name
-            # what was asked for and what is actually there. Only headings the
-            # extractor genuinely recognizes are listed: advertising a heading inside a
-            # comment block or a fence would send the caller chasing one it can never
-            # select.
-            echo "load-prompt-extension.sh: no section headed '$section' in '$ext_file'; headings present: ${_headings}" >&2
-        elif [ "$_found" -eq 0 ]; then
-            # A non-empty file carrying no '## ' heading at all: still the designed
-            # no-op, but say so rather than emitting nothing with no account.
-            echo "load-prompt-extension.sh: no section headed '$section' in '$ext_file'; the file carries no '## '-prefixed headings" >&2
+        if [ "$_found" -eq 1 ]; then
+            # Found-but-empty emits nothing and stays breadcrumb-FREE on purpose — the
+            # rule's "an empty section is equivalent to an absent heading" clause. The
+            # heading WAS found, so the consumer's hook is wired correctly and there is
+            # nothing for a reader to fix.
+            # An explicit `if`, NOT `[ … ] && printf`: under `set -e` that AND-list is
+            # the last statement of this branch, so a false test would propagate a
+            # non-zero status out of the script and turn the designed empty-section
+            # no-op into an exit-1 failure.
+            if [ "$_has_body" -eq 1 ]; then
+                printf '%s' "$_out"
+            fi
+        else
+            # The heading is absent from the extension. The no-op itself is DESIGNED (a
+            # single-hook extension carrying only the other heading is the routine case,
+            # and it must not fail), so this stays exit 0 — but a silent no-op is
+            # indistinguishable from a heading the consumer typo'd, so name what was
+            # asked for and what is actually there. Only headings the extractor
+            # genuinely recognizes are listed: advertising a heading inside a comment
+            # block or a fence would send the caller chasing one it can never select.
+            # The two arms share one message prefix rather than spelling it twice, so
+            # the wording cannot drift between them.
+            _detail="the file carries no '## '-prefixed headings"
+            [ -n "$_headings" ] && _detail="headings present: ${_headings}"
+            echo "load-prompt-extension.sh: no section headed '$section' in '$ext_file'; ${_detail}" >&2
         fi
-        # The remaining case — found but empty — is the rule's "an empty section is
-        # equivalent to an absent heading" clause. It emits nothing and stays
-        # breadcrumb-FREE on purpose: the heading WAS found, so the consumer's hook is
-        # wired correctly and there is nothing for a reader to fix.
     fi
 fi

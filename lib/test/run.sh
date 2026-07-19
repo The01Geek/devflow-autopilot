@@ -11361,19 +11361,19 @@ assert_eq "lpe --section: a repeated --section takes its last occurrence" \
 # no-op is preserved) PLUS a stderr breadcrumb naming the requested heading and the
 # headings actually present — the clause that makes a near-miss heading (case drift,
 # a typo) observable instead of silently contributing nothing.
-LPE_SEC_MISS="$(cd "$LPE_SEC_DIR" && bash "$LPE" sectioned --section '## Nope' 2>/tmp/devflow-lpe-miss.err)"; LPE_SEC_MISS_RC=$?
+LPE_SEC_MISS="$(cd "$LPE_SEC_DIR" && bash "$LPE" sectioned --section '## Nope' 2>"$LPE_SEC_DIR/err-miss")"; LPE_SEC_MISS_RC=$?
 assert_eq "lpe --section: absent heading in a non-empty file → empty stdout" "" "$LPE_SEC_MISS"
 assert_eq "lpe --section: absent heading in a non-empty file → exit 0 (designed no-op preserved)" \
   "0" "$LPE_SEC_MISS_RC"
 assert_eq "lpe --section: absent-heading breadcrumb names the REQUESTED heading" "yes" \
-  "$(grep -qF '## Nope' /tmp/devflow-lpe-miss.err && echo yes || echo no)"
+  "$(grep -qF '## Nope' "$LPE_SEC_DIR/err-miss" && echo yes || echo no)"
 assert_eq "lpe --section: absent-heading breadcrumb lists the headings PRESENT" "yes" \
-  "$(grep -qF '## Alpha' /tmp/devflow-lpe-miss.err && grep -qF '## Beta' /tmp/devflow-lpe-miss.err && echo yes || echo no)"
+  "$(grep -qF '## Alpha' "$LPE_SEC_DIR/err-miss" && grep -qF '## Beta' "$LPE_SEC_DIR/err-miss" && echo yes || echo no)"
 # The breadcrumb lists REAL headings only — a heading the extractor itself refuses to
 # recognize must not be advertised as available, or the report would send a caller
 # chasing a heading that can never be selected.
 assert_eq "lpe --section: absent-heading breadcrumb omits comment-block and fenced pseudo-headings" "yes" \
-  "$(grep -qF '## Commented' /tmp/devflow-lpe-miss.err || grep -qF '## NotAHeading' /tmp/devflow-lpe-miss.err && echo no || echo yes)"
+  "$(grep -qF '## Commented' "$LPE_SEC_DIR/err-miss" || grep -qF '## NotAHeading' "$LPE_SEC_DIR/err-miss" && echo no || echo yes)"
 
 # (5) an EMPTY section (heading present, no body before the next heading) emits
 # NOTHING on stdout at exit 0 — not even its own heading line. This is the
@@ -11384,12 +11384,12 @@ assert_eq "lpe --section: absent-heading breadcrumb omits comment-block and fenc
 # absent-heading breadcrumb, because the heading WAS found. Distinguishing the two
 # is the point — one is a missing hook, the other a present-but-empty one.
 printf 'body\n\n## Empty\n## After\nafter body\n' > "$LPE_SEC_DIR/.devflow/prompt-extensions/emptysec.md"
-LPE_SEC_EMPTY="$(cd "$LPE_SEC_DIR" && bash "$LPE" emptysec --section '## Empty' 2>/tmp/devflow-lpe-empty.err)"; LPE_SEC_EMPTY_RC=$?
+LPE_SEC_EMPTY="$(cd "$LPE_SEC_DIR" && bash "$LPE" emptysec --section '## Empty' 2>"$LPE_SEC_DIR/err-empty")"; LPE_SEC_EMPTY_RC=$?
 assert_eq "lpe --section: empty section → empty stdout (equivalent to an absent heading)" \
   "" "$LPE_SEC_EMPTY"
 assert_eq "lpe --section: empty section → exit 0" "0" "$LPE_SEC_EMPTY_RC"
 assert_eq "lpe --section: empty section carries NO absent-heading breadcrumb (the heading was found)" \
-  "" "$(grep -F 'not found' /tmp/devflow-lpe-empty.err || true)"
+  "" "$(grep -F 'not found' "$LPE_SEC_DIR/err-empty" || true)"
 # A whitespace-only body is the same shape as a wholly-absent one — a blank line is
 # not consumer content — so it takes the empty-section arm too.
 printf '## Blank\n\n   \n\n## After\nafter body\n' > "$LPE_SEC_DIR/.devflow/prompt-extensions/blanksec.md"
@@ -11420,7 +11420,7 @@ assert_eq "lpe --section: final line with no terminating newline is emitted in f
 # exit 0 under --section — and an empty file gets no absent-heading breadcrumb, since
 # the clause is scoped to a NON-empty file (there are no headings to report).
 : > "$LPE_SEC_DIR/.devflow/prompt-extensions/emptyfile.md"
-LPE_SEC_EF="$(cd "$LPE_SEC_DIR" && bash "$LPE" emptyfile --section '## Anything' 2>/tmp/devflow-lpe-ef.err)"; LPE_SEC_EF_RC=$?
+LPE_SEC_EF="$(cd "$LPE_SEC_DIR" && bash "$LPE" emptyfile --section '## Anything' 2>"$LPE_SEC_DIR/err-ef")"; LPE_SEC_EF_RC=$?
 assert_eq "lpe --section: empty extension file → empty stdout" "" "$LPE_SEC_EF"
 assert_eq "lpe --section: empty extension file → exit 0" "0" "$LPE_SEC_EF_RC"
 LPE_SEC_AF="$(cd "$LPE_SEC_DIR" && bash "$LPE" no-such-skill --section '## Anything' 2>/dev/null)"; LPE_SEC_AF_RC=$?
@@ -11456,34 +11456,34 @@ assert_eq "lpe --section: live extension → the two hooks do not leak into each
 # revert to the full dump would hand the caller the whole extension where it asked
 # for one section — the opposite of the context saving the flag exists for.
 # (16) unrecognized `--`-prefixed argument.
-LPE_BAD1="$(cd "$LPE_SEC_DIR" && bash "$LPE" sectioned --bogus 2>/tmp/devflow-lpe-bad1.err)"; LPE_BAD1_RC=$?
+LPE_BAD1="$(cd "$LPE_SEC_DIR" && bash "$LPE" sectioned --bogus 2>"$LPE_SEC_DIR/err-bad1")"; LPE_BAD1_RC=$?
 assert_eq "lpe --section: unrecognized '--' argument → exit 2" "2" "$LPE_BAD1_RC"
 assert_eq "lpe --section: unrecognized '--' argument → empty stdout (never the full dump)" "" "$LPE_BAD1"
 assert_eq "lpe --section: unrecognized '--' argument → breadcrumb names it" "yes" \
-  "$(grep -qF -- '--bogus' /tmp/devflow-lpe-bad1.err && echo yes || echo no)"
+  "$(grep -qF -- '--bogus' "$LPE_SEC_DIR/err-bad1" && echo yes || echo no)"
 # (17) `--section` missing its value.
-LPE_BAD2="$(cd "$LPE_SEC_DIR" && bash "$LPE" sectioned --section 2>/tmp/devflow-lpe-bad2.err)"; LPE_BAD2_RC=$?
+LPE_BAD2="$(cd "$LPE_SEC_DIR" && bash "$LPE" sectioned --section 2>"$LPE_SEC_DIR/err-bad2")"; LPE_BAD2_RC=$?
 assert_eq "lpe --section: --section with no value → exit 2" "2" "$LPE_BAD2_RC"
 assert_eq "lpe --section: --section with no value → empty stdout" "" "$LPE_BAD2"
 assert_eq "lpe --section: --section with no value → breadcrumb says it requires a value" "yes" \
-  "$(grep -qF 'requires a value' /tmp/devflow-lpe-bad2.err && echo yes || echo no)"
+  "$(grep -qF 'requires a value' "$LPE_SEC_DIR/err-bad2" && echo yes || echo no)"
 # (19) `--section` whose value is EMPTY after trailing-whitespace stripping. Without
 # this guard a whitespace-only value would compare equal to no heading at all and
 # silently select nothing, which reads exactly like a legitimate absent-heading no-op.
-LPE_BAD3="$(cd "$LPE_SEC_DIR" && bash "$LPE" sectioned --section '   ' 2>/tmp/devflow-lpe-bad3.err)"; LPE_BAD3_RC=$?
+LPE_BAD3="$(cd "$LPE_SEC_DIR" && bash "$LPE" sectioned --section '   ' 2>"$LPE_SEC_DIR/err-bad3")"; LPE_BAD3_RC=$?
 assert_eq "lpe --section: whitespace-only --section value → exit 2" "2" "$LPE_BAD3_RC"
 assert_eq "lpe --section: whitespace-only --section value → empty stdout" "" "$LPE_BAD3"
 assert_eq "lpe --section: whitespace-only --section value → breadcrumb says the value is empty" "yes" \
-  "$(grep -qF 'empty' /tmp/devflow-lpe-bad3.err && echo yes || echo no)"
+  "$(grep -qF 'empty' "$LPE_SEC_DIR/err-bad3" && echo yes || echo no)"
 # (21) a `--`-prefixed argument in the SKILL-NAME positional slot — a transposed
 # `--section '## X' <skill>`. Without this guard the helper looks up a skill literally
 # named `--section`, finds no such extension, and exits 0 printing nothing: a silent
 # no-op indistinguishable from a consumer who simply has no extension.
-LPE_BAD4="$(cd "$LPE_SEC_DIR" && bash "$LPE" --section '## Alpha' 2>/tmp/devflow-lpe-bad4.err)"; LPE_BAD4_RC=$?
+LPE_BAD4="$(cd "$LPE_SEC_DIR" && bash "$LPE" --section '## Alpha' 2>"$LPE_SEC_DIR/err-bad4")"; LPE_BAD4_RC=$?
 assert_eq "lpe --section: '--'-prefixed skill-name positional (transposed flag) → exit 2" "2" "$LPE_BAD4_RC"
 assert_eq "lpe --section: transposed flag → empty stdout (never a silent no-op)" "" "$LPE_BAD4"
 assert_eq "lpe --section: transposed flag → breadcrumb names the offending positional" "yes" \
-  "$(grep -qF -- '--section' /tmp/devflow-lpe-bad4.err && echo yes || echo no)"
+  "$(grep -qF -- '--section' "$LPE_SEC_DIR/err-bad4" && echo yes || echo no)"
 # Bare NON-flag extra arguments keep today's ignored-argument behavior, so a caller
 # that has always passed a stray word is not newly broken by the flag's arrival.
 LPE_EXTRA="$(cd "$LPE_SEC_DIR" && bash "$LPE" sectioned stray-extra-word 2>/dev/null)"; LPE_EXTRA_RC=$?
