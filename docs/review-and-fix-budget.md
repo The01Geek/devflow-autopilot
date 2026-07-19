@@ -64,8 +64,8 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
 | live extension | `.devflow/prompt-extensions/review-and-fix.md` | 192 | 2,284 | 15,250 | 2,969 |
 | **AFTER** — plugin root | `skills/review-and-fix/SKILL.md` (thin) | 324 | **3,209** | 25,618 | 4,172 |
 | **AFTER** — actual initial load | root + live extension | 516 | **5,493** | 40,868 | 7,141 |
-| **AFTER** — bundle | root + all `references/*.md` | 1,306 | 40,519 | 284,622 | 52,675 |
-| **AFTER** — normal cumulative path | root + extension + Σ references | — | 42,803 | — | 55,644 |
+| **AFTER** — bundle | root + all `references/*.md` | 1,306 | 40,520 | 284,638 | 52,676 |
+| **AFTER** — normal cumulative path | root + extension + Σ references | — | 42,804 | — | 55,645 |
 | **AFTER** — maximum active step | root + extension + `shadow-review.md` | — | **16,755** | — | 21,782 |
 | reference: `shadow-review.md` | Step 2.6 | 235 | 11,262 | 79,276 | 14,641 |
 | reference: `fixing.md` | Step 3 | 154 | 8,461 | 57,369 | 10,999 |
@@ -91,9 +91,9 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
   reduction the split exists to deliver: everything else now loads on demand, one step reference
   at a time.
 
-- **⚠️ `review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,318 words.**
+- **⚠️ `review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,319 words.**
   The *normal cumulative path* (root + extension + every reference a full run loads in sequence)
-  is 42,803 words vs. 38,485 before — a net **growth of +4,318 words** (+11.2%). Two things drive
+  is 42,804 words vs. 38,485 before — a net **growth of +4,319 words** (+11.2%). Two things drive
   it: the routing text the split itself adds (the *Step routing* table, the *Reference-loading
   contract* — entry-gate, canonical-boundary rule, per-reference failure map, always-resident
   re-read rule — the condensed terminal verdict→chat mapping, the durable-operand schema fields,
@@ -102,6 +102,6 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
   fields and the below-verdict-threshold evidence-classification prose in `shadow-review.md`, the
   bulk of the increase). It is **justified**: the split trades this cumulative increase for a
   32,992-word reduction in the *mandatory* prompt, on-demand sequential loading (only one step
-  reference resident at a time — peak 16,755 words, not 42,803), and fail-closed reference handling.
+  reference resident at a time — peak 16,755 words, not 42,804), and fail-closed reference handling.
   Cumulative token spend on a full run is not the metric the split optimizes; peak-context and
   per-step focus are.
