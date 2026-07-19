@@ -11389,13 +11389,20 @@ assert_eq "lpe --section: a heading with a trailing inline HTML comment is still
 # merged both sections into one).
 assert_eq "lpe --section: an inline-comment heading terminates the preceding section" "yes" \
   "$(case "$LPE_SEC_INLINE" in *'after inline'*) echo no ;; *) echo yes ;; esac)"
-# A heading that OPENS an unclosed comment still governs the lines after it, so the
-# commented-out remainder is not emitted as section content.
-printf '## Opener <!--\nswallowed by the comment the heading opened\n' \
+# A heading that OPENS an unclosed comment still puts the block it opened into effect
+# for the lines that follow. What that buys is HEADING suppression, not content
+# suppression: a comment block sitting inside a section is section CONTENT (the
+# `## Comment Host` case above establishes that), so the commented lines are still
+# emitted — but a `## ` line inside the opened block is inert and cannot terminate the
+# section. Without the comment-state update on the heading line, that `## Later` would
+# terminate here and silently truncate the section.
+printf '## Opener <!--\nstill inside the opened comment\n## Later\nafter the inert pseudo-heading\n' \
   > "$LPE_SEC_DIR/.devflow/prompt-extensions/opener.md"
 LPE_SEC_OPENER="$(cd "$LPE_SEC_DIR" && bash "$LPE" opener --section '## Opener <!--' 2>/dev/null)"
-assert_eq "lpe --section: a heading that opens an unclosed comment still governs the lines after it" \
-  "yes" "$(case "$LPE_SEC_OPENER" in *swallowed*) echo no ;; *) echo yes ;; esac)"
+assert_eq "lpe --section: a heading opening an unclosed comment makes a later '## ' line inert (no truncation)" \
+  "yes" "$(case "$LPE_SEC_OPENER" in *'after the inert pseudo-heading'*) echo yes ;; *) echo no ;; esac)"
+assert_eq "lpe --section: ...and the commented lines are still emitted as section content" \
+  "yes" "$(case "$LPE_SEC_OPENER" in *'still inside the opened comment'*) echo yes ;; *) echo no ;; esac)"
 
 # A '--'-prefixed --section VALUE is a dropped heading argument, refused loudly rather
 # than searched for as a literal section name (which would take the silent
