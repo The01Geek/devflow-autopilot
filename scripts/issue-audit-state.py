@@ -2421,9 +2421,11 @@ def _ingest_ledger(must_revise, unresolved):
     stream, which the `ledger-line-count` refusal below catches; the decided recovery for that and
     for a vocabulary refusal is the same — reword the summary and re-issue the call.
 
-    The fail-closed stdin checks mirror record-revision's: a closed fd (CPython sets
-    `sys.stdin` to None, so an attribute access would otherwise leak a raw traceback), a
-    read error, an undecodable payload, and an empty read.
+    The byte read and its two fail-closed checks mirror record-revision's — a closed fd
+    (CPython sets `sys.stdin` to None, so an attribute access would otherwise leak a raw
+    traceback) and a read error. The undecodable-payload and empty-payload arms are this
+    command's own: record-revision hashes the bytes and never decodes them, so it has no
+    decode step to mirror.
     """
     if sys.stdin is None:
         _fail('record-adjudication', 'could not read the finding ledger from stdin: no '
@@ -2432,7 +2434,8 @@ def _ingest_ledger(must_revise, unresolved):
         data = sys.stdin.buffer.read()
     except OSError as exc:
         _fail('record-adjudication', f'could not read the finding ledger from stdin: {exc}')
-    # Read BYTES and decode explicitly, exactly as record-revision does. Reading the text
+    # Read BYTES like record-revision, then decode explicitly (record-revision hashes the
+    # bytes and never decodes, so the decode arm below is this command's own). Reading the text
     # wrapper instead would decode INSIDE the try, where a UnicodeDecodeError (a ValueError,
     # not an OSError) escapes as a raw traceback — breaking the mutation contract's
     # named-breadcrumb half on routine input (a summary lifted from a terminal transcript
@@ -2582,7 +2585,8 @@ def _clear_settling(entry):
 
     Only the resolution keys need clearing today: `invalidation_provenance` sits on
     `invalidated`, which all three post-close channels refuse, and `reopen_provenance` sits
-    on `unresolved`, which `_settling_ordinal` ignores — so neither can be read stale. A
+    on `unresolved` (and on `superseded`, where a later FILE sweep can promote a reopened
+    entry) — statuses `_settling_ordinal` ignores. So neither key can be read stale. A
     channel that breaks either property must add its key here.
     """
     for key in ('resolution_ordinal', 'ingest_provenance'):
