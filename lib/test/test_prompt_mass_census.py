@@ -260,6 +260,9 @@ class PromptMassCensusTests(unittest.TestCase):
         self.write_json("manifest.json", self.manifest(files))
         self.write_json("baseline.json", self.baseline(files))
         self.git("init", "-q")
+        # Pin the unborn branch name: a bare `git init` honors the host's
+        # init.defaultBranch, so the later checkout must not guess it.
+        self.git("checkout", "-qb", "trunk")
         self.git("config", "user.email", "fixture@example.invalid")
         self.git("config", "user.name", "Fixture")
         self.git("add", ".")
@@ -276,7 +279,7 @@ class PromptMassCensusTests(unittest.TestCase):
         self.write_json("baseline.json", self.baseline(files))
         self.git("add", ".")
         self.git("commit", "-qm", "branch b")
-        self.git("checkout", "-q", "master")
+        self.git("checkout", "-q", "trunk")
         merged = self.git("merge", "--no-edit", "branch-b", check=False)
         self.assertEqual(merged.returncode, 0, merged.stderr)
         self.assertEqual(self.run_census().returncode, 0)
