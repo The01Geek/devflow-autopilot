@@ -122,7 +122,7 @@ All four are used by the core skills; none is optional. Shell helpers avoid GNU-
 
 On **Windows** any POSIX **bash** works — **WSL bash**, **Git Bash**, or **MSYS2 bash** (DevFlow mandates none); point DevFlow at the one you want with **`DEVFLOW_BASH`**, and `bash lib/preflight.sh` prints a `devflow-bash:` breadcrumb confirming which bash is in use (a host with *no* POSIX bash at all is out of scope). A non-executable `gh` or `jq` shim can also shadow the real binary on `PATH`; DevFlow resolves the first `gh`/`gh.exe` (and `jq`/`jq.exe`) that actually runs (execution-verified via the shared `lib/resolve-bin.sh` resolver), and you can force a specific binary by setting **`DEVFLOW_GH`** / **`DEVFLOW_JQ`** to the working one. Windows-form paths are normalized to the running shell's POSIX form by `lib/normalize-path.sh`. See [Windows: choosing the bash DevFlow runs under](docs/install.md#windows-choosing-the-bash-devflow-runs-under-devflow_bash), [Windows: resolving `gh`](docs/install.md#windows-resolving-gh), and [Windows: resolving `jq`](docs/install.md#windows-resolving-jq).
 
-**Cloud tier** — nothing to install on your machine; the GitHub Actions runner provisions its own toolchain. See [`docs/cloud-setup.md`](docs/cloud-setup.md).
+**Cloud tier** — nothing to install on your machine; the GitHub Actions runner provisions its own toolchain. By default every job runs on `ubuntu-latest`, but the runner is configurable via the `DEVFLOW_RUNNER` repository/organization variable (a bare label or a JSON label array), which dispatch-enables **self-hosted / Windows runners** — read the prerequisites and the smoke-test boundary in [`docs/cloud-setup.md`](docs/cloud-setup.md) before treating a non-Linux runner as production-ready.
 
 ## Skills and agents
 
