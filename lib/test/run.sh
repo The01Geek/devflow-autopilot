@@ -21408,7 +21408,8 @@ printf '[user]\n\tname = HostileSystem\n\temail = hostile-sys@e.com\n'  > "$TB_H
   # GIT_CONFIG_PARAMETERS is git's OTHER command-scope channel and it OUTRANKS
   # GIT_CONFIG_COUNT/KEY_n/VALUE_n. Exporting it hostilely here is what makes the
   # `-u GIT_CONFIG_PARAMETERS` flag load-bearing on every row whose identity comes from CONFIG —
-  # the system, global and command-scope rows, and both negative probes: drop the flag there and
+  # every row whose identity comes from CONFIG rather than from the identity variables, and the
+  # negative probes: drop the flag there and
   # the row resolves ParamLeak and goes RED. On the inherited-VARIABLE rows the flag is
   # symmetry/defence-in-depth rather than load-bearing, because their own GIT_AUTHOR_*/
   # GIT_COMMITTER_* outrank every config scope and win over ParamLeak regardless.
@@ -21545,7 +21546,7 @@ printf '[user]\n\tname = HostileSystem\n\temail = hostile-sys@e.com\n'  > "$TB_H
   printf 'reached\n' > "$TB_ID_REPO/block-complete"
 )
 assert_eq "tb(#575): the identity-matrix block ran to completion (subshell did not abort early)" "reached" \
-  "$(cat "$TB_ID_REPO/block-complete" 2>/dev/null)"
+  "$(<"$TB_ID_REPO/block-complete")"
 rm -f "$TB_SYS_CFG" "$TB_GLOB_CFG" "$TB_HOSTILE_GLOB" "$TB_HOSTILE_SYS"
 rm -rf "$TB_ID_REPO"
 
