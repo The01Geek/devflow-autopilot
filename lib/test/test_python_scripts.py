@@ -5588,6 +5588,35 @@ assert_eq("#583 AC5: run-jq.sh's jq delegation is an external edge authorized by
           ("jq" in _rj_exec, _rj_exec["jq"].klass if "jq" in _rj_exec else None,
            _rj_exec["jq"].auth if "jq" in _rj_exec else None))
 
+# Positive fixture 3 — non-preflight runtime tools must name the helper-head
+# profile grant that authorizes their execution, rather than disappearing from
+# the classification merely because they are ordinary host utilities.
+_lpe_exec = {e.target: e for e in _cwd_edges("scripts/load-prompt-extension.sh", "exec")}
+assert_eq("#583 AC5: load-prompt-extension.sh classifies cat with explicit profile-grant provenance",
+          (True, True, True),
+          ("cat" in _lpe_exec,
+           bool(_lpe_exec.get("cat") and "profile grant" in _lpe_exec["cat"].auth),
+           bool(_lpe_exec.get("cat") and cwd.VENDOR_PREFIX + "scripts/load-prompt-extension.sh"
+                in _lpe_exec["cat"].auth)))
+
+_docs_exec = {e.target for e in _cwd_edges("scripts/extract-doc-needed-paths.sh", "exec")}
+assert_eq("#583 AC5: extract-doc-needed-paths.sh classifies every external runtime dependency",
+          {"cat", "awk", "grep", "git", "sort"}, _docs_exec)
+
+_checkpoint_exec = {e.target: e for e in _cwd_edges("scripts/update-branch-checkpoint.sh", "exec")}
+assert_eq("#583 AC5: update-branch-checkpoint.sh classifies config-get.sh as a repo-owned exec edge",
+          (True, "repo-owned", True),
+          ("scripts/config-get.sh" in _checkpoint_exec,
+           _checkpoint_exec["scripts/config-get.sh"].klass
+           if "scripts/config-get.sh" in _checkpoint_exec else None,
+           cwd.resolves_beneath_vendor("scripts/config-get.sh")))
+
+_eff_exec_targets = {e.target for e in _cwd_edges("lib/efficiency-trace.sh", "exec")}
+assert_eq("#583 AC5: efficiency-trace.sh classifies its preflight, profile-granted, and repo-owned exec edges",
+          {"jq", "git", "python3", "dirname", "sort", "wc", "date", "mkdir",
+           "rm", "basename", "mv", "cp", "scripts/config_fingerprint.py"},
+          _eff_exec_targets)
+
 # Non-vacuity — the vendored-boundary predicate itself.
 assert_eq("#583 AC5: a repo-owned target beneath the vendored tree resolves beneath vendor",
           True, cwd.resolves_beneath_vendor("lib/resolve-jq.sh"))

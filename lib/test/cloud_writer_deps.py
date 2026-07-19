@@ -92,12 +92,16 @@ def entry_points():
 # --- AC5: declared exec edges (external binaries + repo-owned script execs) -----
 # Each entry point maps to the binaries/scripts it *runs* (subprocess/exec), the
 # one edge kind a static import/source scan cannot deterministically recover. An
-# external target names a preflight-guaranteed binary; a repo-owned target is a
-# repo-relative script path (resolved beneath the vendored tree by the guard).
-# Every target here is forward-verified present in the helper source, so a stale
-# declaration fails closed rather than vouching for an edge that no longer exists.
+# external target either names a preflight-guaranteed binary or carries the
+# `_PROFILE_GRANT` marker: the cloud permission matcher authorizes that runtime
+# transitively through the helper's explicit vendored-head grant. A repo-owned
+# target is a repo-relative script path (resolved beneath the vendored tree by
+# the guard). Every target here is forward-verified present in the helper source,
+# so a stale declaration fails closed rather than vouching for an edge that no
+# longer exists.
 _EXT = "external"
 _REPO = "repo-owned"
+_PROFILE_GRANT = "profile-grant"
 EXEC_EDGES = {
     "scripts/run-jq.sh": [("jq", _EXT)],
     "scripts/config-get.sh": [("git", _EXT), ("python3", _EXT)],
@@ -111,19 +115,53 @@ EXEC_EDGES = {
     "scripts/resolve-review-overrides.py": [("scripts/config-get.sh", _REPO)],
     "scripts/stale-prose-lint.py": [("git", _EXT)],
     "scripts/match-lint-adjudications.py": [("git", _EXT)],
-    "scripts/apply-labels.sh": [("gh", _EXT)],
-    "scripts/ensure-label.sh": [("gh", _EXT)],
-    "scripts/dismiss-stale-rejections.sh": [("gh", _EXT)],
-    "scripts/load-prompt-extension.sh": [("git", _EXT)],
-    "scripts/react-to-trigger.sh": [("gh", _EXT)],
-    "scripts/extract-doc-needed-paths.sh": [("git", _EXT)],
-    "scripts/update-branch-checkpoint.sh": [("git", _EXT)],
+    "scripts/apply-labels.sh": [
+        ("dirname", _EXT, _PROFILE_GRANT),
+        ("gh", _EXT),
+    ],
+    "scripts/ensure-label.sh": [
+        ("dirname", _EXT, _PROFILE_GRANT),
+        ("gh", _EXT),
+        ("grep", _EXT, _PROFILE_GRANT),
+    ],
+    "scripts/dismiss-stale-rejections.sh": [
+        ("dirname", _EXT, _PROFILE_GRANT),
+        ("gh", _EXT),
+    ],
+    "scripts/load-prompt-extension.sh": [
+        ("git", _EXT),
+        ("cat", _EXT, _PROFILE_GRANT),
+    ],
+    "scripts/react-to-trigger.sh": [
+        ("dirname", _EXT, _PROFILE_GRANT),
+        ("gh", _EXT),
+    ],
+    "scripts/extract-doc-needed-paths.sh": [
+        ("cat", _EXT, _PROFILE_GRANT),
+        ("awk", _EXT, _PROFILE_GRANT),
+        ("grep", _EXT, _PROFILE_GRANT),
+        ("git", _EXT),
+        ("sort", _EXT, _PROFILE_GRANT),
+    ],
+    "scripts/update-branch-checkpoint.sh": [
+        ("scripts/config-get.sh", _REPO),
+        ("git", _EXT),
+    ],
     # efficiency-trace.sh runs its jq program, a git history walk, and the
     # config_fingerprint.py helper (a repository-owned exec edge).
     "lib/efficiency-trace.sh": [
         ("jq", _EXT),
         ("git", _EXT),
         ("python3", _EXT),
+        ("dirname", _EXT, _PROFILE_GRANT),
+        ("sort", _EXT, _PROFILE_GRANT),
+        ("wc", _EXT, _PROFILE_GRANT),
+        ("date", _EXT, _PROFILE_GRANT),
+        ("mkdir", _EXT, _PROFILE_GRANT),
+        ("rm", _EXT, _PROFILE_GRANT),
+        ("basename", _EXT, _PROFILE_GRANT),
+        ("mv", _EXT, _PROFILE_GRANT),
+        ("cp", _EXT, _PROFILE_GRANT),
         ("scripts/config_fingerprint.py", _REPO),
     ],
 }
@@ -134,8 +172,8 @@ class Edge:
 
     ``target`` is a binary name (external) or a repo-relative path (repo-owned).
     ``auth`` names the authorization for an external edge (a preflight guarantee
-    or a ``grant:<token>`` string); it is ``None`` for a repo-owned edge and for
-    an *unauthorized* external edge (which the guard rejects).
+    or explicit helper-head profile grant); it is ``None`` for a repo-owned edge
+    and for an *unauthorized* external edge (which the guard rejects).
     """
 
     __slots__ = ("helper", "kind", "target", "klass", "auth")
@@ -280,12 +318,37 @@ def _scan_shell_sources(helper):
     return edges
 
 
+def _profile_grant_auth(helper):
+    """Authorization provenance for a helper's non-preflight child runtime.
+
+    The Bash matcher grants the vendored helper as one command head and does not
+    separately match binaries that helper starts. Name every cloud profile whose
+    explicit required-head set contains this helper, so the transitive authority
+    is auditable rather than being inferred from a generic host-tool allowlist.
+    """
+    token = VENDOR_PREFIX + helper
+    profiles = sorted(
+        profile
+        for profile, heads in cwc.REQUIRED_HELPER_HEADS.items()
+        if token in heads
+    )
+    if not profiles:
+        return None
+    grants = ", ".join(f"{profile}=Bash({token}:*)" for profile in profiles)
+    return f"explicit profile grant via helper head: {grants}"
+
+
 def _declared_exec_edges(helper):
     edges = []
-    for target, klass in EXEC_EDGES.get(helper, []):
+    for spec in EXEC_EDGES.get(helper, []):
+        target, klass, *auth_source = spec
         if klass == _EXT:
-            auth = (f"{target} (preflight guarantee)"
-                    if target in PREFLIGHT_GUARANTEES else None)
+            if target in PREFLIGHT_GUARANTEES:
+                auth = f"{target} (preflight guarantee)"
+            elif auth_source == [_PROFILE_GRANT]:
+                auth = _profile_grant_auth(helper)
+            else:
+                auth = None
             edges.append(Edge(helper, "exec", target, "external", auth))
         else:
             edges.append(Edge(helper, "exec", target, "repo-owned"))
