@@ -57,6 +57,8 @@ This skill **skips** /devflow:review's Phase 4.4 entirely — no GitHub post. Th
       "verification_mode": "lite",
       "claim_signature": "api_contract:foo.py:spdx-header-present",
       "verdict": "PASS",
+      "raw_verdict": "FAIL",
+      "normalized": true,
       "evidence": "...",
       "reused_from_iter_prev": false
     }
