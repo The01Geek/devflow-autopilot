@@ -139,6 +139,15 @@ See **[`cloud-setup.md`](cloud-setup.md)** for secrets, triggers, and the full g
 
 **Both tiers on one repo?** No conflict — the local marketplace copy is cached centrally; the cloud tier materializes its own copy under `.devflow/vendor/devflow/` at runtime (or commits one with `DEVFLOW_VENDOR=1`). Just don't run `/plugin marketplace add ./` there (it would activate two marketplaces named `devflow-marketplace`).
 
+**Choosing the runner (`DEVFLOW_RUNNER`, optional).** Every consumer-shipped workflow job resolves its `runs-on` from an optional GitHub **repository/organization variable** `DEVFLOW_RUNNER` (Settings → Actions → Variables — it is infrastructure, *not* a `.devflow/config.json` key):
+
+- **unset or empty** → `ubuntu-latest`, byte-for-byte the previous behavior (existing Linux adopters set nothing);
+- a **bare single label** (e.g. `windows-latest`) → that single-label runner;
+- a **JSON array** (e.g. `["self-hosted","windows","DevFlow"]`) → a runner matching that label set (match it exactly to a registered runner);
+- a value that begins with `[` but is not valid JSON → the job fails **loud** at evaluation time (a visible `fromJSON` error), rather than silently degrading to `ubuntu-latest`.
+
+Each workflow also forces `bash` for its `run:` steps, so a self-hosted Windows runner needs Git Bash on its PATH. Setting `DEVFLOW_RUNNER` **dispatch-enables** a self-hosted / Windows runner but does **not** certify that every inline bash body runs correctly on a Windows filesystem — an adopter must run at least one full consumer-shipped workflow end-to-end on the target runner before treating it as production-ready. See [`cloud-setup.md`](cloud-setup.md) for the full self-hosted-runner prerequisites (toolchain, the `python3` shim, `DEVFLOW_GH`/`DEVFLOW_JQ`/`DEVFLOW_BASH`, the `setup.services` Docker caveat) and the smoke-test boundary.
+
 ## Updating
 
 ### Local tier
@@ -175,6 +184,8 @@ Bash(.devflow/vendor/devflow/scripts/match-lint-adjudications.py:*)
 ```
 
 Until you do, Phase 0.6 emits the **named-remedy degradation note** (harness-refused arm — it names the missing grant and remedy key) rather than silently skipping: the review still completes, but the affected step (the stale-prose lint, or the adjudication carry-forward) does not run — a missing adjudication grant leaves every STALE row at its configured severity.
+
+**Skew diagnostic — read the region banner.** As of DevFlow's capability-profile manifest (issue #561), each generated allowlist literal in the shipped workflows carries a banner comment immediately above it — `# devflow-capability-manifest: region=<id> manifest_version=<N> sha256=<hex>` (for the `devflow-implement.yml` base list the banner sits above the `claude_args:` key that contains the literal, where it is syntactically inert). When you report or debug a grant mismatch, quote that `manifest_version` + `sha256` from your installed `.github/workflows/*.yml` copy: it identifies exactly which policy version your workflows were generated at, so a skew against the current release is diagnosable at a glance. Consumers do **not** run the generator (their tree carries no runnable copy) — the remedy stays the consumer-executable one above (hand-add the grant to your installed workflow copy, or re-run `install.sh` to refresh the workflow files); the banner is only the diagnostic that tells you a refresh is needed.
 
 **Config bridge — only on a provisioned reviewer.** `devflow-runner.yml` does append `devflow_runner.allowed_tools` to the review profile post-floor (after the reviewer deny-list floor strips tree-mutation tools), so adding the same `Bash(.devflow/vendor/devflow/scripts/stale-prose-lint.py:*)` and `Bash(.devflow/vendor/devflow/scripts/match-lint-adjudications.py:*)` entries to `devflow_runner.allowed_tools` in `.devflow/config.json` grants the helpers — **but that append sits inside the `devflow_runner.provision_env` gate, and `provision_env` defaults to `false`.** On a default (read-only, unprovisioned) reviewer the config entry is therefore never appended, and Phase 0.6 keeps reporting the harness-refused degradation note. So: if you already run the reviewer with `devflow_runner.provision_env: true`, the config entry bridges a lagging installed workflow; otherwise it changes nothing and **re-syncing the workflow `TOOLS` line above is the only remedy** (it is the durable fix either way). Do not turn `provision_env` on merely to bridge this grant — it is a security-sensitive opt-in that runs untrusted PR build code under a write token.
 

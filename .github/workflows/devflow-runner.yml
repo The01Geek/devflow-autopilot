@@ -136,9 +136,13 @@ permissions:
   # graph-build time (startup_failure), so these two land together or not at all.
   checks: read
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   run:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.DEVFLOW_RUNNER && (startsWith(vars.DEVFLOW_RUNNER, '[') && fromJSON(vars.DEVFLOW_RUNNER) || vars.DEVFLOW_RUNNER) || 'ubuntu-latest' }}
     outputs:
       engine_is_error: ${{ steps.engine.outputs.is_error }}
       # `|| 'unavailable'` is the load-bearing default: it covers EVERY path on which
@@ -519,6 +523,13 @@ jobs:
               # `git checkout`/`mktemp`/`cmp`/`rm -f` back Phase 3.1's dirty-tree backstop.
               # `git checkout` mutates the worktree, which is exactly what that backstop
               # restores; the reviewer's `contents: read` token still makes a push impossible.
+              # The TOOLS='…' literal below is a GENERATED region (compiled from the
+              # `review` profile in lib/capability-profiles.json by
+              # lib/generate-capability-profiles.py) and is locked as the reviewer security
+              # boundary by lib/review-profile.tokens — do NOT hand-edit it; change the
+              # manifest and regenerate, and widening the reviewer requires a visible diff
+              # to that lock. lib/test/run.sh's --check turns any drift RED.
+              # devflow-capability-manifest: region=runner-review manifest_version=2 sha256=35061bb7c37215b44adb4f77ca13c339c20e4cc001d9c54af0b93fc104209900
               TOOLS='Read,Glob,Grep,LS,Skill,Agent,TodoWrite,WebFetch,WebSearch,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git blame:*),Bash(git branch:*),Bash(git cat-file:*),Bash(git hash-object:*),Bash(git checkout:*),Bash(mkdir:*),Bash(tee:*),Bash(mktemp:*),Bash(cmp:*),Bash(rm -f:*),Bash(*/load-prompt-extension.sh:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr review:*),Bash(gh pr comment:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue list:*),Bash(gh search:*),Bash(gh repo view:*),Bash(gh run view:*),Bash(gh run list:*),Bash(gh api:*),Bash(jq:*),Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(wc:*),Bash(sort:*),Bash(uniq:*),Bash(cut:*),Bash(tr:*),Bash(xargs:*),Bash(awk:*),Bash(sed:*),Bash(diff:*),Bash(comm:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(ls:*),Bash(tree:*),Bash(file:*),Bash(stat:*),Bash(date:*),Bash(pwd:*),Bash(realpath:*),Bash(dirname:*),Bash(basename:*),Bash(which:*),Bash(type:*),Bash(env:*),Bash(echo:*),Bash(printf:*),Bash(test:*),Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*),Bash(.devflow/vendor/devflow/scripts/match-lint-adjudications.py:*),Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*),Bash(.devflow/vendor/devflow/scripts/workpad.py:*),Bash(.devflow/vendor/devflow/scripts/config-get.sh:*),Bash(.devflow/vendor/devflow/scripts/load-prompt-extension.sh:*),Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*),Bash(.devflow/vendor/devflow/scripts/stale-prose-lint.py:*),Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*),Write(.devflow/tmp/**)'
               # When the trusted base config opted into provisioning, the runner
               # has a built env (setup-project-env ran below), so grant the

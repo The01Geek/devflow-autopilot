@@ -140,6 +140,74 @@ one purely so a bot-authored "implement this" comment could re-trigger the
 workflow; a human `/devflow:implement <#>` comment is itself a native user event,
 so that need is gone.)
 
+## Choosing the runner (`DEVFLOW_RUNNER`)
+
+By default every job in the five consumer-shipped workflows (`devflow.yml`,
+`devflow-implement.yml`, `devflow-review.yml`, `devflow-runner.yml`,
+`telemetry-push.yml`) runs on `ubuntu-latest`. An optional GitHub
+**repository or organization variable** — `DEVFLOW_RUNNER` — selects the runner
+for all of those jobs uniformly. Set it under **Settings → Secrets and variables
+→ Actions → Variables** (a *variable*, not a secret). Runner selection is
+**infrastructure** — which machine runs the job — so it lives in GitHub Settings,
+deliberately **not** in the versioned `.devflow/config.json` (which governs how
+DevFlow behaves).
+
+| `DEVFLOW_RUNNER` value | Rendered `runs-on` |
+|---|---|
+| unset **or** empty string | `ubuntu-latest` (byte-for-byte the previous behavior — existing Linux adopters set nothing and see no change) |
+| a bare single label, e.g. `windows-latest` | that single-label runner |
+| a JSON array, e.g. `["self-hosted","windows","DevFlow"]` | a runner matching that label set |
+| begins with `[` but is **not** valid JSON | the job fails **loud** at evaluation time (a visible `fromJSON` error), not a silent fallback to `ubuntu-latest` — a mis-set variable surfaces as an error |
+
+Each of the five workflows also declares a top-level `defaults: run: shell: bash`,
+so `run:` steps execute under **bash** even on a non-Linux runner (a self-hosted
+Windows runner otherwise defaults to PowerShell/cmd). On Linux this changes nothing
+observable.
+
+### Self-hosted-runner prerequisites
+
+`ubuntu-latest` supplies `git`, `gh`, `jq`, `python3`, bash, and Docker for free.
+A self-hosted runner **owns its own toolchain** — it must provide them. DevFlow's
+`lib/preflight.sh` *checks* for the required tools but does **not** install them.
+Before pointing `DEVFLOW_RUNNER` at a self-hosted runner:
+
+- Install `git`, `gh`, `jq`, and a POSIX **bash** on the runner. `defaults: run:
+  shell: bash` requires **Git Bash** (or equivalent) on the runner's PATH.
+- On a **Windows / Git-Bash** runner, make `python3` resolve via the existing
+  `scripts/provision-python3-shim.sh --apply` (a one-time runner-provisioning step,
+  not a workflow change).
+- Use `DEVFLOW_GH` / `DEVFLOW_JQ` / `DEVFLOW_BASH` to point DevFlow at tools in
+  non-standard locations (see [Installing & updating](install.md) for the local-tier
+  binary overrides — the same env vars apply on the runner).
+
+### The `setup.services` Docker caveat
+
+`setup.services` (see [Service containers](#php-service-containers-and-dependency-caching)
+below) provisions databases/caches via `docker run`, and any `Bash(docker:*)` path
+relies on Docker being present. Docker is **preinstalled on `ubuntu-latest`** but is
+**not** guaranteed on a self-hosted non-ubuntu runner — so on such a runner
+`setup.services` and Docker-dependent build steps can break unless you install
+Docker on the runner yourself.
+
+### Gotcha: a mismatched label array queues forever
+
+If a JSON-array `DEVFLOW_RUNNER` value's label set does **not exactly match** a
+registered runner's labels, GitHub does not raise an error — the job sits
+**queued indefinitely** with no failure. Match the label set exactly to a
+registered runner.
+
+### Dispatch-enabled, not certified — run a smoke test first
+
+Setting `DEVFLOW_RUNNER` makes a self-hosted / Windows runner **selectable** and
+forces bash for `run:` steps. It does **not** certify that every inline bash body
+runs correctly on a Windows filesystem — DevFlow carries an extensive
+Windows-portability contract (`[WinError 193]` on `.sh` exec, `wslpath`/`cygpath`
+path normalization, the `python3` shim) precisely because Windows bash is not
+drop-in, and full inline-step Windows correctness is a separate, larger hardening
+effort. **Before treating a non-Linux runner as production-ready, run at least one
+full consumer-shipped workflow end-to-end on the target self-hosted runner** and
+confirm it completes.
+
 ### Optional: a GitHub App for workflow-file pushes and a single DevFlow identity
 
 DevFlow's cloud writers — `/devflow:implement` (`devflow-implement.yml`) and the

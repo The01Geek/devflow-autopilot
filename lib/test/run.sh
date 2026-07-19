@@ -7261,28 +7261,214 @@ IMPL_YML="$LIB/../.github/workflows/devflow-implement.yml"
 REVIEW_YML="$LIB/../.github/workflows/devflow-review.yml"
 DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
 
-# #450 coupled-mirror pin: matcher-probe.yml's implement-probe job hand-copies
-# devflow-implement.yml's baked --allowed-tools TOOLS literal into its IMPLEMENT='…'
-# compose var (a deliberate second copy so the probe measures the REAL implement
-# profile, like the review probe's REVIEW literal). A drift between the two would make
-# the probe silently measure a stale profile, so assert comma-split token-list identity
-# (order + content) here — the repo's coupled-mirror discipline applied to the new mirror
-# site. The two literals are NOT byte-identical (the baked one is newline+indent-wrapped,
-# the probe copy single-line); the extractor flattens
-# both literals to comma-split tokens and compares order + content; it prints DRIFT (fail)
-# on any divergence and EXTRACT-FAIL if either literal can't be located.
-MPROBE_YML="$LIB/../.github/workflows/matcher-probe.yml"
-assert_eq "#450 pin: matcher-probe IMPLEMENT literal is token-synced with devflow-implement.yml TOOLS" "SYNCED" \
-  "$(python3 -c '
-import re,sys
-b=re.search(r"--allowed-tools\s*\n\s*\"(.*?)Bash\(tee:\*\)\$\{\{", open(sys.argv[1]).read(), re.S)
-p=re.search(r"IMPLEMENT=\x27(.*?)\x27", open(sys.argv[2]).read(), re.S)
-if not b or not p:
-    print("EXTRACT-FAIL"); sys.exit(0)
-bt=[t.strip() for t in (b.group(1)+"Bash(tee:*)").split(",") if t.strip()]
-pt=[t.strip() for t in p.group(1).split(",") if t.strip()]
-print("SYNCED" if bt==pt else "DRIFT")
-' "$IMPL_YML" "$MPROBE_YML")"
+# ── #561 capability-profile manifest generator (REPLACES the #450 token-sync pin) ──
+# The #450 coupled-mirror pin (matcher-probe IMPLEMENT ↔ devflow-implement.yml baked
+# TOOLS token-sync) is DELETED here under the coupled-invariant same-change rule: both
+# that equality AND the previously-unpinned review-tier equality (runner review ↔ probe
+# REVIEW) are now covered by lib/generate-capability-profiles.py --check, which byte-
+# compares every generated region (banner included) against lib/capability-profiles.json.
+# The generator is the single source of truth; run.sh drives its --check so the required
+# `lib + python tests` CI job gates every PR, and the same gate runs locally.
+CAPGEN="$LIB/generate-capability-profiles.py"
+CAPMUT="$LIB/test/cap-mutate.py"
+CAP_WF_DIR="$LIB/../.github/workflows"
+
+# T2/T10 — --check on the REAL committed tree is a clean pass: exit 0, empty stdout
+# (python3 as the leading token, per the AC). A drifted region turns THIS suite RED.
+CAP_CHECK_OUT="$(python3 "$CAPGEN" --check 2>/dev/null)"; CAP_CHECK_RC=$?
+assert_eq "#561 --check on the committed tree exits 0" "0" "$CAP_CHECK_RC"
+assert_eq "#561 --check on the committed tree prints empty stdout" "" "$CAP_CHECK_OUT"
+
+# T11 — the generator is python3 stdlib-only (imports no yaml module).
+assert_eq "#561 T11 generator imports no 'yaml' module (stdlib-only)" "0" \
+  "$(grep -c 'import yaml' "$CAPGEN")"
+
+# Build an isolated fixture mirroring the repo layout; the generator resolves its paths
+# from __file__, so a copy under <root>/lib runs against <root>/.github/workflows.
+_cap_fixture() {  # <root>
+  mkdir -p "$1/lib" "$1/.github/workflows"
+  cp "$CAPGEN" "$LIB/capability-profiles.json" "$LIB/review-profile.tokens" "$1/lib/"
+  cp "$CAP_WF_DIR/devflow-runner.yml" "$CAP_WF_DIR/devflow.yml" \
+     "$CAP_WF_DIR/devflow-implement.yml" "$CAP_WF_DIR/matcher-probe.yml" "$1/.github/workflows/"
+}
+_cap_wf_snap() { cat "$1/.github/workflows/"*.yml 2>/dev/null; }
+
+# Fail-closed matrix + planted-defect driver: apply a named mutation (the visible
+# "mutation command" per the behavioral-fix-pin evidence rule), run the generator in
+# <mode> (check|generate), and assert rc!=0 AND the stderr breadcrumb contains <substr>
+# AND (when <unchanged> is passed) the target workflow bytes are byte-unchanged.
+_cap_fail() {  # name mutation mode substr [unchanged]
+  local name="$1" mut="$2" mode="$3" sub="$4" chk="${5:-}" root rc before after v=yes
+  root="$(mktemp -d)" || { echo FAIL >> "$RESULTS_FILE"; printf '  FAIL  %s (mktemp)\n' "$name"; return; }
+  _cap_fixture "$root"
+  if ! python3 "$CAPMUT" "$root" "$mut" 2>"$root/.muterr"; then
+    echo FAIL >> "$RESULTS_FILE"
+    printf '  FAIL  %s (mutation itself failed: %s)\n' "$name" "$(cat "$root/.muterr")"
+    rm -rf "$root"; return
+  fi
+  before="$(_cap_wf_snap "$root")"
+  if [ "$mode" = check ]; then
+    python3 "$root/lib/generate-capability-profiles.py" --check >/dev/null 2>"$root/.err"; rc=$?
+  else
+    python3 "$root/lib/generate-capability-profiles.py" >/dev/null 2>"$root/.err"; rc=$?
+  fi
+  after="$(_cap_wf_snap "$root")"
+  [ "$rc" -ne 0 ] || v="no(rc=0, expected non-zero)"
+  grep -qF "$sub" "$root/.err" || v="no(breadcrumb '$sub' missing; stderr: $(tr '\n' '|' <"$root/.err"))"
+  if [ "$chk" = unchanged ] && [ "$before" != "$after" ]; then v="no(target bytes changed by a failed run)"; fi
+  assert_eq "$name" "yes" "$v"
+  rm -rf "$root"
+}
+
+# T6 — the 14-row manifest matrix (config-JSON-consumer six-shape convention + surface
+# rows). Each asserts non-zero + a defect-naming breadcrumb + target bytes unchanged.
+_cap_fail "#561 T6 manifest: top-level array"                 top-array          generate "top-level must be a JSON object" unchanged
+_cap_fail "#561 T6 manifest: top-level scalar"               top-scalar         generate "top-level must be a JSON object" unchanged
+_cap_fail "#561 T6 manifest: profiles missing"               profiles-missing   generate "'profiles' must be a JSON object" unchanged
+_cap_fail "#561 T6 manifest: profiles wrong-type"            profiles-wrongtype generate "'profiles' must be a JSON object" unchanged
+_cap_fail "#561 T6 manifest: unknown group reference"        unknown-group      generate "references unknown group" unchanged
+_cap_fail "#561 T6 manifest: duplicate resolved token"       dup-token          generate "duplicate resolved token" unchanged
+_cap_fail "#561 T6 manifest: empty resolved profile"         empty-profile      generate "empty token list" unchanged
+_cap_fail "#561 T6 manifest: valid-falsy node (group=false)" falsy-group        generate "must be a list" unchanged
+_cap_fail "#561 T6 manifest: manifest_version string-typed"  version-string     generate "'manifest_version' must be an integer" unchanged
+_cap_fail "#561 T6 manifest: review widens beyond the lock"  review-widen       generate "lib/review-profile.tokens" unchanged
+_cap_fail "#561 T6 manifest: review-profile lock absent"     lock-absent        generate "lock absent" unchanged
+_cap_fail "#561 T6 manifest: review leading tokens != Read,Glob,Grep" review-leading generate "leading-token contract" unchanged
+_cap_fail "#561 T6 manifest: malformed JSON"                 malformed-json     generate "malformed JSON" unchanged
+_cap_fail "#561 T6 manifest: manifest file absent"           manifest-absent    generate "manifest absent" unchanged
+# The review-widen row is also the reviewer-boundary planted defect: the added token is
+# named and the lock is named as the boundary (proving a group-content edit cannot widen
+# the reviewer silently).
+_cap_fail "#561 reviewer boundary: widening token is named in the breadcrumb" review-widen generate "Bash(WIDEN_REVIEWER:*)" unchanged
+
+# T7 — the 7-row region matrix (parser over hand-corruptible workflow text). Each asserts
+# non-zero + breadcrumb + the target files left byte-unchanged after the failed run.
+_cap_fail "#561 T7 region: anchor absent"                anchor-absent          generate "anchor REVIEW=' not found" unchanged
+_cap_fail "#561 T7 region: anchor duplicated"            anchor-duplicated      generate "is duplicated" unchanged
+_cap_fail "#561 T7 region: implement quote unterminated" implement-unterminated generate "unterminated quote or missing" unchanged
+_cap_fail "#561 T7 region: splice expression absent"     splice-absent          generate "unterminated quote or missing" unchanged
+_cap_fail "#561 T7 region: CRLF line ending in a region" crlf-in-region         generate "CRLF line ending" unchanged
+_cap_fail "#561 T7 region: target workflow file absent"  target-file-absent     generate "target workflow file absent" unchanged
+_cap_fail "#561 T7 region: banner present but malformed" banner-malformed       generate "banner line for this region is present but malformed" unchanged
+
+# T3 — planted-defect positive controls: one token deleted from EACH of the five
+# generated regions → --check RED naming that exact region.
+_cap_fail "#561 T3 planted: token deleted from runner-review region"   del-runner-review   check "region=runner-review"
+_cap_fail "#561 T3 planted: token deleted from command region"        del-command         check "region=command"
+_cap_fail "#561 T3 planted: token deleted from implement region"      del-implement       check "region=implement"
+_cap_fail "#561 T3 planted: token deleted from probe-review region"    del-probe-review    check "region=probe-review"
+_cap_fail "#561 T3 planted: token deleted from probe-implement region" del-probe-implement check "region=probe-implement"
+# T4 — a token added to the manifest without regenerating → --check RED.
+_cap_fail "#561 T4 planted: manifest token added without regenerating" manifest-add-nonreview check "region=command"
+# T5 — one banner checksum hex digit flipped → --check RED.
+_cap_fail "#561 T5 planted: banner checksum digit flipped" banner-flip check "region=runner-review"
+
+# T12 — directional --check output on a token HAND-ADDED to a generated region: the
+# stderr must name that exact workflow-side token AND print the add-to-manifest remedy
+# (steering away from blind regeneration, which would silently revert the grant).
+CAP_T12="$(mktemp -d)"; _cap_fixture "$CAP_T12"
+python3 "$CAPMUT" "$CAP_T12" region-add-token >/dev/null 2>&1
+python3 "$CAP_T12/lib/generate-capability-profiles.py" --check >/dev/null 2>"$CAP_T12/.err"; CAP_T12_RC=$?
+assert_eq "#561 T12 directional: --check rc non-zero on a hand-added region token" "yes" \
+  "$([ "$CAP_T12_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "#561 T12 directional: --check names the exact workflow-side token" "yes" \
+  "$(grep -qF 'Bash(HANDADDED:*)' "$CAP_T12/.err" && echo yes || echo no)"
+assert_eq "#561 T12 directional: --check prints the add-to-manifest remedy (not blind regenerate)" "yes" \
+  "$(grep -qF 'add it to lib/capability-profiles.json' "$CAP_T12/.err" && echo yes || echo no)"
+rm -rf "$CAP_T12"
+
+# T1 — idempotency + locale/cwd determinism: strip the banners, generate under LC_ALL=C,
+# then generate again under a different LC_ALL AND cwd; cmp every workflow byte-identical.
+# Also assert the committed workflows equal the generator's output (committed == generated).
+CAP_IDEM="$(mktemp -d)"; _cap_fixture "$CAP_IDEM"
+python3 "$CAPMUT" "$CAP_IDEM" strip-banners >/dev/null 2>&1
+( cd "$CAP_IDEM" && LC_ALL=C python3 lib/generate-capability-profiles.py >/dev/null 2>&1 )
+mkdir -p "$CAP_IDEM/after1"; cp "$CAP_IDEM/.github/workflows/"*.yml "$CAP_IDEM/after1/"
+( cd "$CAP_IDEM/lib" && LC_ALL=C.UTF-8 python3 generate-capability-profiles.py >/dev/null 2>&1 ); CAP_IDEM_RC=$?
+assert_eq "#561 T1 second generation exits 0" "0" "$CAP_IDEM_RC"
+CAP_IDEM_V=yes
+for f in devflow-runner.yml devflow.yml devflow-implement.yml matcher-probe.yml; do
+  cmp -s "$CAP_IDEM/after1/$f" "$CAP_IDEM/.github/workflows/$f" || CAP_IDEM_V="no($f differs across runs)"
+done
+assert_eq "#561 T1 generator idempotent + locale/cwd-deterministic (cmp per file)" "yes" "$CAP_IDEM_V"
+CAP_IDEM_MATCH=yes
+for f in devflow-runner.yml devflow.yml devflow-implement.yml matcher-probe.yml; do
+  cmp -s "$CAP_IDEM/.github/workflows/$f" "$CAP_WF_DIR/$f" || CAP_IDEM_MATCH="no($f != committed)"
+done
+assert_eq "#561 committed workflows are byte-identical to the generator's output" "yes" "$CAP_IDEM_MATCH"
+rm -rf "$CAP_IDEM"
+
+# T8 — no-runtime-read: none of the 6 workflows reads policy from the manifest at run
+# time. The assertion greps for the two policy-source filenames in NON-COMMENT content
+# only (comment lines — the banner comments and the maintenance comments that now name
+# the manifest — are stripped first, so a workflow may reference the manifest in prose
+# without tripping this). A hit in run:/uses: content is an actual invocation. The
+# positive control proves it fires on an invocation line; the negative control proves a
+# comment line that DOES name the manifest is NOT flagged (comment-awareness).
+_cap_noncomment_hits() {  # <file> -> prints "yes" if a non-comment line names a policy source
+  grep -vE '^[[:space:]]*#' "$1" \
+    | grep -qE 'generate-capability-profiles\.py|capability-profiles\.json' && echo yes || echo no
+}
+CAP_RT_HITS=0
+for f in devflow.yml devflow-runner.yml devflow-implement.yml devflow-review.yml telemetry-push.yml matcher-probe.yml; do
+  [ "$(_cap_noncomment_hits "$CAP_WF_DIR/$f")" = yes ] && CAP_RT_HITS=$((CAP_RT_HITS+1))
+done
+assert_eq "#561 T8 no workflow reads policy from the manifest at run time (6 workflows, zero non-comment hits)" "0" "$CAP_RT_HITS"
+CAP_RT_POS="$(mktemp)"; printf '      - run: python3 lib/generate-capability-profiles.py --check\n' > "$CAP_RT_POS"
+assert_eq "#561 T8 assertion fires on a real invocation line (positive control)" "yes" \
+  "$(_cap_noncomment_hits "$CAP_RT_POS")"
+CAP_RT_NEG="$(mktemp)"; printf '              # see lib/capability-profiles.json — generated by generate-capability-profiles.py\n' > "$CAP_RT_NEG"
+assert_eq "#561 T8 assertion does NOT fire on a comment naming the manifest (negative control, comment-aware)" "no" \
+  "$(_cap_noncomment_hits "$CAP_RT_NEG")"
+rm -f "$CAP_RT_POS" "$CAP_RT_NEG"
+
+# T13 — #561 review-follow-up hardening (PR #588 review-and-fix).
+# T13a/b: an injected DUPLICATE anchor (a second `TOOLS='…widened…'` assign, or a second
+# `--allowed-tools` marker) wins at bash/action runtime while a first-match parse would
+# inspect only the canonical leading copy. generate already refuses this ("refusing to
+# guess"); --check must refuse it too or the reviewer boundary widens past the gate. Both
+# region kinds (assign + implement) are exercised so neither dup-guard branch is vacuous.
+_cap_fail "#561 T13a --check refuses a duplicated assign anchor (reviewer-boundary vector)" anchor-duplicated    check "is duplicated"
+_cap_fail "#561 T13b --check refuses a duplicated implement marker"                        implement-marker-dup check "is duplicated"
+# T13c: manifest_version bumped without regenerating → token lists still match and the
+# banner sha still matches, so ONLY the found_ver==version conjunct catches it. Without
+# this row that conjunct is vacuously covered (a regression dropping it would stay green).
+_cap_fail "#561 T13c --check flags a stale banner when manifest_version is bumped w/o regen" version-bump check "banner is stale"
+# T13d: a present-but-unreadable lock (a directory in its place) → the read must fail
+# closed with the documented breadcrumb, not an uncaught OSError traceback.
+_cap_fail "#561 T13d review-profile lock unreadable (fail-closed breadcrumb, not traceback)" lock-unreadable generate "lock unreadable" unchanged
+# T13e: manifest_version boolean-typed → the explicit isinstance(ver, bool) guard rejects
+# it (bool is an int subclass, so a bare isinstance(int) would wrongly accept it).
+_cap_fail "#561 T13e manifest_version boolean-typed is rejected as a non-integer"            version-bool    generate "'manifest_version' must be an integer" unchanged
+# T13f: review NARROWS below the lock (a review-referenced group loses a non-leading token
+# while the lock keeps it) → the boundary check's missing-direction ('would NARROW') arm,
+# the sibling of the review-widen row, observes RED.
+_cap_fail "#561 T13f review narrows below the lock (missing-direction boundary drift)"       review-narrow   generate "would NARROW the reviewer" unchanged
+# T13g/p/q: an injected second assignment that WINS at bash runtime (last-assignment-wins)
+# must be refused by --check regardless of how it is separated or quoted — the reviewer-
+# boundary widening vector. A statement-position assignment wins whether separated by `;`
+# (T13g), plain WHITESPACE (T13p — a bare second assignment word on one simple command),
+# or placed on a fresh line in a DIFFERENT quote style (T13q — a double-quoted literal that
+# leaves the canonical single-quote line, and thus the banner sha/lock/parse, intact). The
+# pre-fix line-anchored single-quote count missed all three; the quote/separator-agnostic
+# replacement counter (excluding only the self-referencing `TOOLS="$TOOLS,…"` append)
+# refuses each (PR #588 shadow: code-reviewer + silent-failure-hunter).
+_cap_fail "#561 T13g --check refuses a SAME-LINE ;-separated duplicated assign (reviewer-boundary vector)" anchor-dup-sameline check "is duplicated"
+_cap_fail "#561 T13p --check refuses a WHITESPACE-separated duplicated assign word"                        anchor-dup-space    check "is duplicated"
+_cap_fail "#561 T13q --check refuses a DOUBLE-QUOTED literal replacement assignment"                       anchor-dup-dquote   check "is duplicated"
+# T13h–n: the manifest-validation adversarial matrix arms that had no mutation — a
+# regression deleting any of these fail-closed guards would otherwise ship green (the
+# CLAUDE.md best-effort-parser six-shape convention over every manifest read, PR #588).
+_cap_fail "#561 T13h manifest_version missing"                    version-missing        generate "'manifest_version' is missing" unchanged
+_cap_fail "#561 T13i groups missing / non-object"                 groups-missing         generate "'groups' must be a JSON object" unchanged
+_cap_fail "#561 T13j group contains a non-string token"           group-nonstring-token  generate "contains a non-string token" unchanged
+_cap_fail "#561 T13k profiles key-set != review/implement/command" profiles-extra-key    generate "must contain exactly review/implement/command" unchanged
+_cap_fail "#561 T13l profile spec is not a list"                  profile-spec-nonlist   generate "profile 'command' must be a list" unchanged
+_cap_fail "#561 T13m profile contains a non-string entry"         profile-nonstring-entry generate "contains a non-string entry" unchanged
+_cap_fail "#561 T13n manifest present-but-unreadable (breadcrumb, not traceback)" manifest-unreadable generate "manifest unreadable" unchanged
+# T13o: a present-but-unreadable target workflow → read_wf must fail closed with a named
+# breadcrumb, not an uncaught OSError traceback (the lock/manifest reads already do).
+_cap_fail "#561 T13o target workflow unreadable (breadcrumb, not traceback)"      workflow-unreadable generate "target workflow unreadable" unchanged
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "implement-profile head guard (#484)"
@@ -13360,15 +13546,35 @@ assert_eq "#332 fallback: resolved root gone from disk → specific (not generic
   "$(printf '%s' "$RMR_STALE_ERR" | grep -q 'resolve-main-root' && echo yes || echo no)"  # raw-guard-ok: breadcrumb specificity probe on captured stderr
 
 # create-issue SKILL.md contract pins (coupled with the SKILL.md edit — reconciled in the
-# same change per the AC). The draft is written to AND displayed at the main-root absolute
-# path; no bare-relative displayed draft-save note remains.
+# same change per the AC). The draft is written at the resolved main root and displayed at
+# the BOUND-root absolute path (issue #569: the display reads the root back from
+# query-draft-binding's `bound=` field); no bare-relative displayed draft-save note remains.
 CI_SKILL_332="$LIB/../skills/create-issue/SKILL.md"
 assert_pin_unique "#332 AC4: create-issue resolves the main root via resolve-main-root.sh (portable anchor)" \
-  "$PORTABLE_ANCHOR_LITERAL"'scripts/resolve-main-root.sh' "$CI_SKILL_332"
-assert_pin_unique "#332 AC4: create-issue displays the draft at the main-root ABSOLUTE path" \
-  'Draft also saved to `<main-root>/.devflow/tmp/issue-draft-<slug>.md` for review.' "$CI_SKILL_332"
+  'MAIN_ROOT="$('"$PORTABLE_ANCHOR_LITERAL"'scripts/resolve-main-root.sh)"' "$CI_SKILL_332"
+# #569: the record-draft-binding statement is a SEPARATE bash fence, so it cannot read the
+# fence-local $MAIN_ROOT — it re-resolves the deterministic root inline (anchor expanded inline,
+# never captured). That is why the binding site has its own resolve-main-root.sh invocation,
+# pinned here distinctly from the write site's MAIN_ROOT= form above. (Count-free by design: a
+# comment asserting how many call sites exist rots on the next SKILL.md edit — PR #553.)
+assert_pin_unique "#332/#569 AC4: the record-draft-binding --path re-resolves the root inline (self-contained fence)" \
+  '--path "$('"$PORTABLE_ANCHOR_LITERAL"'scripts/resolve-main-root.sh)" --tier main-root' "$CI_SKILL_332"
+assert_pin_unique "#332/#569 AC4: create-issue displays the draft at the bound-root ABSOLUTE path" \
+  'Draft also saved to `<bound-root>/.devflow/tmp/issue-draft-<slug>.md` for review.' "$CI_SKILL_332"
 assert_eq "#332 AC4: create-issue no longer shows a bare-relative draft-save note" "no" \
   "$(grep -qF 'Draft also saved to `.devflow/tmp/issue-draft-<slug>.md` for review.' "$CI_SKILL_332" && echo yes || echo no)"  # raw-guard-ok: absence pin (expects no) — the old cwd-relative displayed draft note must be gone
+# #569 behavioral-fix pins: the binding-reuse half of the tier ladder. Each pins a
+# load-bearing sentence and proves (via a sed mutation that re-introduces the bug) the
+# pin catches the regression, not merely the line vanishing.
+assert_pin_red_under "#569: the first landed write records the draft-root binding immutably" \
+  'records its resolved root through the state owner, immutably' \
+  's/immutably for the rest of the run/mutably for the rest of the run/' "$CI_SKILL_332"
+assert_pin_red_under "#569: later write sites read the bound root from query-draft-binding, never context recall" \
+  'never context recall and never a second' \
+  's/never context recall and never a second/via context recall or a second/' "$CI_SKILL_332"
+assert_pin_red_under "#569: the file arm forwards --write-path, cross-checked with write-path-mismatch on divergence" \
+  'cross-checks against the recorded binding and refuses with' \
+  's/and refuses with/and accepts on/' "$CI_SKILL_332"
 # The Step 2 derivation gate artifact deliberately STAYS cwd-anchored (internal, not shown
 # to the user) — assert it was not accidentally moved to the main root.
 assert_eq "#332 gotcha: Step 2 derivation artifact stays cwd-relative (not main-root)" "no" \
@@ -16792,6 +16998,67 @@ for f in devflow devflow-implement; do
   # 3. Invoked via `bash` (no exec-bit dependency on the vendored copy).
   bad="$(printf '%s\n' "$blk" | grep -nE 'run:.*react-to-trigger\.sh' | grep -v 'bash ' || true)"
   assert_eq "react: $f.yml invokes react-to-trigger.sh via bash" "" "$bad"
+done
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "#582 — configurable cloud-tier runner via DEVFLOW_RUNNER"
+# ────────────────────────────────────────────────────────────────────────────
+# Every runs-on in the five CONSUMER-shipped workflows is parameterized on the
+# GitHub Actions variable DEVFLOW_RUNNER (unset/empty → ubuntu-latest; a value
+# starting with '[' → a fromJSON array of labels; any other value → a bare
+# label). Each of the five also declares a top-level `defaults: run: shell: bash`
+# so run: steps execute under bash on a non-Linux self-hosted runner. The
+# plugin-internal workflows (ci/matcher-probe/version-consolidate/pages) are OUT
+# of scope and keep the hardcoded ubuntu-latest literal — the out-of-scope guard
+# at the end of this block pins that they stay unparameterized.
+# The canonical parameterized runs-on expression. Every consumer runs-on line
+# must be BYTE-IDENTICAL to this: a mere count/mention check would pass a
+# divergent-but-still-parameterized copy (a typo that keeps `vars.DEVFLOW_RUNNER`
+# but garbles the rest, silently reverting that job to a different runner), so
+# pin (b) below asserts fixed-string identity, not just that the variable is named.
+_582_CANON="runs-on: \${{ vars.DEVFLOW_RUNNER && (startsWith(vars.DEVFLOW_RUNNER, '[') && fromJSON(vars.DEVFLOW_RUNNER) || vars.DEVFLOW_RUNNER) || 'ubuntu-latest' }}"
+for f in devflow devflow-implement devflow-review devflow-runner telemetry-push; do
+  WFF="$WF/$f.yml"
+  # (a) No bare `runs-on: ubuntu-latest` line survives. The parameterized form
+  #     carries 'ubuntu-latest' only as a quoted fallback inside ${{ … }}, so
+  #     the fixed-string `runs-on: ubuntu-latest` (unquoted) no longer appears.
+  assert_eq "#582: $f.yml has no bare 'runs-on: ubuntu-latest'" "no" \
+    "$(grep -qF 'runs-on: ubuntu-latest' "$WFF" && echo yes || echo no)"  # raw-guard-ok: absence pin
+  # (b) Every runs-on line is byte-identical to the canonical DEVFLOW_RUNNER
+  #     expression: the count of lines carrying the exact canonical fixed string
+  #     equals the count of runs-on lines, so no parameterized runs-on diverges.
+  assert_eq "#582: $f.yml every runs-on is the canonical DEVFLOW_RUNNER expression" \
+    "$(grep -cE '^[[:space:]]*runs-on:' "$WFF")" \
+    "$(grep -cF "$_582_CANON" "$WFF")"
+  # (c) Top-level `defaults: run: shell: bash`. The `defaults:` key is column-0
+  #     (top level); the shell key nests at 4 spaces — distinct from the 8-space
+  #     step-level `shell: bash` two of the five already carry. Assert the exact
+  #     CONTIGUOUS `defaults:` → `  run:` → `    shell: bash` nesting (not two
+  #     independent line-counts, which would both pass on a malformed interleaving
+  #     — a column-0 `defaults:` and an unrelated 4-space `shell: bash` elsewhere).
+  assert_eq "#582: $f.yml declares exactly one top-level 'defaults:' block" "1" \
+    "$(grep -c '^defaults:$' "$WFF")"
+  assert_eq "#582: $f.yml top-level defaults is the contiguous 'run: shell: bash' block" "1" \
+    "$(awk 'p2=="defaults:"&&p1=="  run:"&&$0=="    shell: bash"{c++}{p2=p1;p1=$0}END{print c+0}' "$WFF")"
+done
+# Positive control (AC12): a sed -E mutation rewriting the parameterized runs-on
+# expression back to a literal `runs-on: ubuntu-latest` turns the presence pin
+# RED — proving the guard catches the guarded regression, not merely its own
+# line vanishing. Routed through the two single-runs-on workflows so the pinned
+# expression literal is unique in the file (assert_pin_red_under requires it).
+for f in devflow-runner telemetry-push; do
+  assert_pin_red_under "#582: $f.yml parameterized runs-on reverts to ubuntu-latest turns pin RED" \
+    'runs-on: ${{ vars.DEVFLOW_RUNNER && (startsWith(vars.DEVFLOW_RUNNER,' \
+    's/runs-on: \$\{\{.*DEVFLOW_RUNNER.*\}\}/runs-on: ubuntu-latest/' \
+    "$WF/$f.yml"
+done
+# Out-of-scope guard: the plugin-internal workflows keep the hardcoded literal
+# and must NOT be parameterized (they run on this repo's GitHub-hosted infra).
+for f in ci matcher-probe version-consolidate pages; do
+  assert_eq "#582: $f.yml (plugin-internal) still uses hardcoded ubuntu-latest" "yes" \
+    "$(grep -qF 'runs-on: ubuntu-latest' "$WF/$f.yml" && echo yes || echo no)"  # raw-guard-ok: presence pin
+  assert_eq "#582: $f.yml (plugin-internal) is NOT parameterized on DEVFLOW_RUNNER" "no" \
+    "$(grep -qF 'vars.DEVFLOW_RUNNER' "$WF/$f.yml" && echo yes || echo no)"  # raw-guard-ok: absence pin
 done
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -44816,6 +45083,129 @@ if [ -d "$DB_SB" ]; then
   fi
   git -C "$DB_SB" worktree remove -f ../wt562 > /dev/null 2>&1 || true
   rm -rf "$DB_SB" "$DB_SB/../wt562"
+fi
+
+# ────────────────────────────────────────────────────────────────────────────
+# issue #569: the record-dispatch file-arm --write-path cross-check. When a run has bound a
+# canonical-draft root and the skill reports its landed write path, the tool cross-checks
+# that path against `<bound-root>/.devflow/tmp/issue-draft-<slug>.md` (the path it derives
+# from the recorded binding) and fails closed with `write-path-mismatch` on divergence. The
+# check is additive: an unbound run and a bound run that omits --write-path both proceed — but
+# a present-but-EMPTY --write-path is an unestablished report, refused as `write-path-empty`
+# rather than collapsed onto the omitted case. The check is scoped inside the file arm.
+WP_SB="$(git_sandbox '#569 write_path_crosscheck_rows')"
+if [ -d "$WP_SB" ]; then
+  (
+    cd "$WP_SB" || exit 1
+    git init -q .
+    mkdir -p .devflow/tmp
+    printf '# T\n\nB\n' > d.md
+    # A bound run: the matching write-path is accepted; a drifted one is refused.
+    N="$(python3 "$IAS" init wp | sed 's/nonce=//')"
+    python3 "$IAS" record-draft-binding wp --nonce "$N" --path "$WP_SB" --tier worktree-root > /dev/null
+    python3 "$IAS" record-dispatch wp --nonce "$N" --round 1 --arm file \
+      --write-path "$WP_SB/.devflow/tmp/issue-draft-wp.md" --draft-file d.md > .wp-match 2>&1
+    printf '%s' "$?" > .wp-match-rc
+    # A NEW run (its own binding at the same root; a drifted write path, round 1) is refused.
+    # Bindings are per-slug and immutable — wp2 records its own, it does not share wp's. The
+    # bound canonical file for slug wp2 is $WP_SB/.devflow/tmp/issue-draft-wp2.md; report a
+    # divergent /elsewhere path and expect the named breadcrumb + non-zero exit.
+    N2="$(python3 "$IAS" init wp2 | sed 's/nonce=//')"
+    python3 "$IAS" record-draft-binding wp2 --nonce "$N2" --path "$WP_SB" --tier worktree-root > /dev/null
+    python3 "$IAS" record-dispatch wp2 --nonce "$N2" --round 1 --arm file \
+      --write-path /elsewhere/.devflow/tmp/issue-draft-wp2.md --draft-file d.md \
+      > /dev/null 2> .wp-mismatch; printf '%s' "$?" > .wp-mismatch-rc
+    # A bound run that OMITS --write-path proceeds unchanged (the cross-check is additive).
+    N3="$(python3 "$IAS" init wp3 | sed 's/nonce=//')"
+    python3 "$IAS" record-draft-binding wp3 --nonce "$N3" --path "$WP_SB" --tier worktree-root > /dev/null
+    python3 "$IAS" record-dispatch wp3 --nonce "$N3" --round 1 --arm file \
+      --draft-file d.md > /dev/null 2>&1; printf '%s' "$?" > .wp-nowp-rc
+    # An UNBOUND run's file arm still dispatches (the binding-required half is deferred); the
+    # cross-check is scoped to a bound run, so no binding means no cross-check.
+    N4="$(python3 "$IAS" init wp4 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch wp4 --nonce "$N4" --round 1 --arm file \
+      --write-path /any/where.md --draft-file d.md > /dev/null 2>&1; printf '%s' "$?" > .wp-unbound-rc
+    # An EMPTY --write-path is an unestablished report, NOT an opt-out: a truthiness test would
+    # collapse it onto "caller omitted the flag" and silently disarm the cross-check on exactly
+    # the drift it exists to catch (the skill composes this value in shell, so an unresolved
+    # root yields ""). It is refused by name, distinctly from the omitted case above.
+    N5="$(python3 "$IAS" init wp5 | sed 's/nonce=//')"
+    python3 "$IAS" record-draft-binding wp5 --nonce "$N5" --path "$WP_SB" --tier main-root > /dev/null
+    python3 "$IAS" record-dispatch wp5 --nonce "$N5" --round 1 --arm file \
+      --write-path "" --draft-file d.md > /dev/null 2> .wp-empty; printf '%s' "$?" > .wp-empty-rc
+    # ARM ORDER, not just the two arms: the empty refusal sits ABOVE the binding guard, so it
+    # fires on an UNBOUND run too. Without this row, scoping the empty check under the binding
+    # guard keeps every other row green while an unbound run with --write-path "" flips from
+    # refused to accepted — the unestablished report silently proceeding. (An empty value
+    # reaches the tool from a caller that composes the path from a shell-resolved root; the
+    # shipped skill substitutes an already-resolved literal, so this is defense in depth.)
+    N8="$(python3 "$IAS" init wp8 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch wp8 --nonce "$N8" --round 1 --arm file \
+      --write-path "" --draft-file d.md > /dev/null 2> .wp-empty-unbound
+    printf '%s' "$?" > .wp-empty-unbound-rc
+    # WHITESPACE-only is empty too: the guard is `.strip()`-based, so a "simplification" to a
+    # bare falsiness test (`not args.write_path`) would keep every other row green while an
+    # unbound run with "   " flips from refused to accepted.
+    N9="$(python3 "$IAS" init wp9 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch wp9 --nonce "$N9" --round 1 --arm file \
+      --write-path "   " --draft-file d.md > /dev/null 2> .wp-ws; printf '%s' "$?" > .wp-ws-rc
+    # The mismatch rows above diverge the ROOT. Cover the other half of _bound_draft_file's
+    # join: the correct bound root with a drifted <slug> — the compacted-context shape where a
+    # run reuses a prior draft's slug — must also be refused.
+    NA="$(python3 "$IAS" init wpa | sed 's/nonce=//')"
+    python3 "$IAS" record-draft-binding wpa --nonce "$NA" --path "$WP_SB" --tier main-root > /dev/null
+    python3 "$IAS" record-dispatch wpa --nonce "$NA" --round 1 --arm file \
+      --write-path "$WP_SB/.devflow/tmp/issue-draft-otherslug.md" --draft-file d.md \
+      > /dev/null 2> .wp-slug; printf '%s' "$?" > .wp-slug-rc
+    # The shipped skill binds --tier main-root (tier-2/tier-3 selection is the deferred half),
+    # so pin the tier the production path actually uses, not only worktree-root: a matching
+    # write-path under a main-root binding is accepted.
+    N6="$(python3 "$IAS" init wp6 | sed 's/nonce=//')"
+    python3 "$IAS" record-draft-binding wp6 --nonce "$N6" --path "$WP_SB" --tier main-root > /dev/null
+    python3 "$IAS" record-dispatch wp6 --nonce "$N6" --round 1 --arm file \
+      --write-path "$WP_SB/.devflow/tmp/issue-draft-wp6.md" --draft-file d.md > /dev/null 2>&1
+    printf '%s' "$?" > .wp-mainroot-rc
+    # The cross-check is deliberately scoped INSIDE the file arm: an embed-arm dispatch ignores
+    # --write-path entirely. Pin that scoping so a later refactor that HOISTS the check out of
+    # the file-arm branch cannot change behavior with the suite green. (A refactor that narrows
+    # or removes the check is caught by the .wp-mismatch row, not by this one.)
+    N7="$(python3 "$IAS" init wp7 | sed 's/nonce=//')"
+    python3 "$IAS" record-draft-binding wp7 --nonce "$N7" --path "$WP_SB" --tier main-root > /dev/null
+    printf '# T\n\nB\n' | python3 "$IAS" record-dispatch wp7 --nonce "$N7" --round 1 --arm embed \
+      --marker write-failed --write-path /totally/bogus.md > /dev/null 2>&1
+    printf '%s' "$?" > .wp-embed-rc
+  )
+  assert_eq "#569 write_path_crosscheck_rows: a matching write-path is accepted (exit 0)" \
+    "0" "$(cat "$WP_SB/.wp-match-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: a drifted write-path is refused (exit non-zero)" \
+    "1" "$(cat "$WP_SB/.wp-mismatch-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: ... named by the write-path-mismatch breadcrumb" \
+    "1" "$(grep -c 'write-path-mismatch' "$WP_SB/.wp-mismatch" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: a bound run that omits --write-path proceeds (cross-check is additive)" \
+    "0" "$(cat "$WP_SB/.wp-nowp-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: an unbound file-arm dispatch still proceeds (binding-required half deferred)" \
+    "0" "$(cat "$WP_SB/.wp-unbound-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: an EMPTY --write-path is refused, not read as an opt-out" \
+    "1" "$(cat "$WP_SB/.wp-empty-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: ... named by the write-path-empty breadcrumb" \
+    "1" "$(grep -c 'write-path-empty' "$WP_SB/.wp-empty" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: the EMPTY refusal is binding-INDEPENDENT (unbound run refused too)" \
+    "1" "$(cat "$WP_SB/.wp-empty-unbound-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: ... the unbound empty refusal names write-path-empty" \
+    "1" "$(grep -c 'write-path-empty' "$WP_SB/.wp-empty-unbound" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: a WHITESPACE-only --write-path is refused (strip-based, not bare falsiness)" \
+    "1" "$(cat "$WP_SB/.wp-ws-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: ... the whitespace refusal names write-path-empty" \
+    "1" "$(grep -c 'write-path-empty' "$WP_SB/.wp-ws" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: right root + WRONG SLUG is refused (the other half of the join)" \
+    "1" "$(cat "$WP_SB/.wp-slug-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: ... the wrong-slug refusal names write-path-mismatch" \
+    "1" "$(grep -c 'write-path-mismatch' "$WP_SB/.wp-slug" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: the shipped main-root tier is covered (matching path accepted)" \
+    "0" "$(cat "$WP_SB/.wp-mainroot-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: an embed-arm dispatch ignores --write-path (check is file-arm scoped)" \
+    "0" "$(cat "$WP_SB/.wp-embed-rc" 2>/dev/null)"
+  rm -rf "$WP_SB"
 fi
 
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)

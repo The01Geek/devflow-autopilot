@@ -4,6 +4,49 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.24] — 2026-07-19
+
+### Added
+- **Configurable cloud-tier runner via the `DEVFLOW_RUNNER` variable.** Every job in the
+  consumer-shipped workflows (`devflow.yml`, `devflow-implement.yml`, `devflow-review.yml`,
+  `devflow-runner.yml`, `telemetry-push.yml`) now resolves its `runs-on` from a GitHub
+  repository/organization variable `DEVFLOW_RUNNER`: unset or empty keeps `ubuntu-latest`
+  (byte-for-byte the previous behavior for existing Linux adopters), a bare value selects a
+  single-label runner (e.g. `windows-latest`), and a JSON array selects a multi-label
+  self-hosted runner (e.g. `["self-hosted","windows","DevFlow"]`). Each of the five workflows
+  also declares a top-level `defaults: run: shell: bash` so `run:` steps execute under bash on
+  a non-Linux runner. Self-hosted / Windows runners are dispatch-enabled but not certified —
+  run the documented smoke test on the target runner before treating it as production-ready.
+  (#585)
+
+## [2.15.23] — 2026-07-19
+
+### Changed
+- **Generate the runner allowlists and matcher-probe baselines from a versioned capability manifest.** The five hand-maintained allowlist literals (the `devflow-runner.yml` review `TOOLS`, the `devflow.yml` command `TOOLS`, the `devflow-implement.yml` `--allowed-tools` base list, and the `matcher-probe.yml` `REVIEW`/`IMPLEMENT` baselines) are now compiled from a single source of truth, `lib/capability-profiles.json`, by the stdlib-only `lib/generate-capability-profiles.py`. Each generated region carries a banner with the manifest version and a per-region sha256, and a `--check` mode wired into `lib/test/run.sh` turns any manifest↔literal drift RED before merge (retiring the per-pair #450 token-sync pin and covering the review-tier equality that never had one). The review profile is locked as a security boundary by `lib/review-profile.tokens`, so widening the read-only reviewer always requires a deliberate, visible diff, and `--check` refuses a region with a duplicated anchor (an injected second assignment that would win at runtime) rather than verifying only the canonical copy. This wave also eliminates the live runner↔probe review-pair drift (the probe `REVIEW` baseline was missing two vendored-helper grants). Maintainers now edit one manifest and regenerate instead of hand-syncing up to five literals; consumers are unaffected (they keep receiving the generated workflows by file-copy and never run the generator). (#561)
+
+## [2.15.22] — 2026-07-19
+
+### Changed
+create-issue: bind the canonical draft root once and cross-check the file-arm write path (issue #569, follow-up to #562).
+
+The `/devflow:create-issue` skill now **binds the canonical-draft root at its first landed write** and reuses it for the rest of the run: that write records the root immutably through the state owner (`record-draft-binding … --tier main-root`), and the write sites that run in a **later turn** — a Step 3.6 re-dispatch write and the sub-step 4 overwrite — read the bound path back from `query-draft-binding` (its `bound=` field) rather than re-resolving it or recalling it from context, so a compacted context cannot drift which file the run writes and displays. (The cross-check validates the *reported* path; `record-dispatch` still digests the caller's `--draft-file`, so resolving that read through the binding too is part of the deferred half below.) The bind itself is conditional and detected rather than assumed (query first, bind only on `bound=none`), `binding-already-recorded` is treated as a benign expected outcome, and an unbound run stays legal and safe: `bound=none` is a decided token, never composed into a path. On the file arm the skill forwards the bound canonical path to `scripts/issue-audit-state.py record-dispatch --write-path`, which cross-checks it against the recorded binding and fails closed with `write-path-mismatch` on divergence (an empty value is refused as an unestablished report; the check is otherwise additive — an unbound run, and a bound run that omits the flag, both proceed). The sub-step 3 display note now reads `<bound-root>` (was `<main-root>`) and is omitted entirely on `bound=none`, and `docs/DEVFLOW_SYSTEM_OVERVIEW.md` §11 is reconciled to describe the shipped behavior.
+
+Deferred to a follow-up: the full tier-2 active-worktree (`git rev-parse --show-toplevel`) / tier-3 embed selection ladder and the tier-1 clean-answer gate; the strict `binding-required-on-file-arm` enforcement (which requires reconciling every pre-binding file-arm test's bound-first reader setup); the divergent-roots out-of-bounds enumerations; and the `draft bound to worktree root` display marker. A `main-root`-tier binding is what the skill selects today, so the bound root equals the resolved main root and the write still degrades to the embed arm on a write failure.
+
+## [2.15.21] — 2026-07-19
+
+### Added
+- **Cloud-writer reachability contract + runtime manifest (AC1 + AC18 of #543).** Add
+  `lib/test/cloud_writer_contract.py`, a machine-auditable source of truth for the three
+  cloud execution roots (implement / light-command / review) and their transitive skill/phase
+  closure, with a `check_closure()` guard that fails when a root or dispatch edge names an
+  unclassified reached asset. Generate the checked-in `devflow-cloud-writer-contract-v1`
+  runtime manifest from that same closure, and add `scripts/validate-cloud-writer-contract.py`,
+  a pre-agent Python 3 validator whose rejection matrix is closed at exactly seventeen classes.
+  This is the first, self-contained slice of #533's deferred half; the remaining acceptance
+  criteria (call-site rework, profile-shape sweeps, portability/skew/provisioning fixtures,
+  grant synchronization) are tracked in follow-up issues. (#543)
+
 ## [2.15.20] — 2026-07-18
 
 ### Added
