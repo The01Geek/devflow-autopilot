@@ -129,7 +129,7 @@ def load_manifest():
         )
 
     resolved = {name: resolve_profile(name, profiles[name], groups) for name in expected}
-    return ver, groups, resolved
+    return ver, resolved
 
 
 def resolve_profile(name, spec, groups):
@@ -274,6 +274,13 @@ REGIONS = [
 ]
 
 
+def _strip_banner_line(text, span):
+    """Remove the banner line covering `span`, including its trailing newline."""
+    b0, b1 = span
+    nl = text.find("\n", b1)
+    return text[:b0] + text[b1 if nl == -1 else nl + 1:]
+
+
 def _check_no_crlf(segment, rid):
     if "\r" in segment:
         die(
@@ -331,15 +338,9 @@ def process_assign(text, region, tokens, version):
     ban_span = _existing_banner(text, indent, rid)
     new_lines = banner + "\n" + new_assign
     if ban_span is not None:
-        # Banner may or may not be immediately above; splice both out and rebuild.
-        # Remove the banner line (plus its trailing newline).
-        b0, b1 = ban_span
-        # Extend to consume the trailing newline after the banner line.
-        nl = text.find("\n", b1)
-        if nl != -1:
-            b1 = nl + 1
-        # Recompute anchor position relative to removal.
-        without = text[:b0] + text[b1:]
+        # Splice any existing banner out (it may sit anywhere in the file), then
+        # re-locate the anchor before inserting the fresh banner + assignment.
+        without = _strip_banner_line(text, ban_span)
         m2 = anchor_re.search(without)
         a0, a1 = m2.start(), m2.end()
         return without[:a0] + new_lines + without[a1:]
@@ -407,11 +408,7 @@ def process_implement(text, region, tokens, version):
     banner = bindent + banner_text(rid, version, tokens)
     ban_span = _existing_banner(text, bindent, rid)
     if ban_span is not None:
-        b0, b1 = ban_span
-        nl = text.find("\n", b1)
-        if nl != -1:
-            b1 = nl + 1
-        text = text[:b0] + text[b1:]
+        text = _strip_banner_line(text, ban_span)
         cm = claude_re.search(text)
     return text[: cm.start()] + banner + "\n" + text[cm.start():]
 
@@ -544,7 +541,7 @@ def main(argv):
             print(f"unknown argument: {a}", file=sys.stderr)
             return 2
     try:
-        version, groups, resolved = load_manifest()
+        version, resolved = load_manifest()
         check_review_boundary(resolved["review"])
         if check:
             return do_check(version, resolved)
