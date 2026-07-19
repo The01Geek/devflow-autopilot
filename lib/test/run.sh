@@ -13064,8 +13064,9 @@ assert_eq "#332 fallback: resolved root gone from disk → specific (not generic
   "$(printf '%s' "$RMR_STALE_ERR" | grep -q 'resolve-main-root' && echo yes || echo no)"  # raw-guard-ok: breadcrumb specificity probe on captured stderr
 
 # create-issue SKILL.md contract pins (coupled with the SKILL.md edit — reconciled in the
-# same change per the AC). The draft is written to AND displayed at the main-root absolute
-# path; no bare-relative displayed draft-save note remains.
+# same change per the AC). The draft is written at the resolved main root and displayed at
+# the BOUND-root absolute path (issue #569: the display reads the root back from
+# query-draft-binding's `bound=` field); no bare-relative displayed draft-save note remains.
 CI_SKILL_332="$LIB/../skills/create-issue/SKILL.md"
 assert_pin_unique "#332 AC4: create-issue resolves the main root via resolve-main-root.sh (portable anchor)" \
   'MAIN_ROOT="$('"$PORTABLE_ANCHOR_LITERAL"'scripts/resolve-main-root.sh)"' "$CI_SKILL_332"
@@ -44387,6 +44388,14 @@ if [ -d "$WP_SB" ]; then
     python3 "$IAS" record-draft-binding wp5 --nonce "$N5" --path "$WP_SB" --tier main-root > /dev/null
     python3 "$IAS" record-dispatch wp5 --nonce "$N5" --round 1 --arm file \
       --write-path "" --draft-file d.md > /dev/null 2> .wp-empty; printf '%s' "$?" > .wp-empty-rc
+    # ARM ORDER, not just the two arms: the empty refusal sits ABOVE the binding guard, so it
+    # fires on an UNBOUND run too. Without this row, scoping the empty check under the binding
+    # guard keeps every other row green while an unbound run with --write-path "" flips from
+    # refused to accepted — the unestablished report silently proceeding.
+    N8="$(python3 "$IAS" init wp8 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch wp8 --nonce "$N8" --round 1 --arm file \
+      --write-path "" --draft-file d.md > /dev/null 2> .wp-empty-unbound
+    printf '%s' "$?" > .wp-empty-unbound-rc
     # The shipped skill binds --tier main-root (tier-2/tier-3 selection is the deferred half),
     # so pin the tier the production path actually uses, not only worktree-root: a matching
     # write-path under a main-root binding is accepted.
@@ -44396,8 +44405,9 @@ if [ -d "$WP_SB" ]; then
       --write-path "$WP_SB/.devflow/tmp/issue-draft-wp6.md" --draft-file d.md > /dev/null 2>&1
     printf '%s' "$?" > .wp-mainroot-rc
     # The cross-check is deliberately scoped INSIDE the file arm: an embed-arm dispatch ignores
-    # --write-path entirely. Pin that scoping so a later refactor that hoists the check out of
-    # the file-arm branch (or narrows it further) cannot change behavior with the suite green.
+    # --write-path entirely. Pin that scoping so a later refactor that HOISTS the check out of
+    # the file-arm branch cannot change behavior with the suite green. (A refactor that narrows
+    # or removes the check is caught by the .wp-mismatch row, not by this one.)
     N7="$(python3 "$IAS" init wp7 | sed 's/nonce=//')"
     python3 "$IAS" record-draft-binding wp7 --nonce "$N7" --path "$WP_SB" --tier main-root > /dev/null
     printf '# T\n\nB\n' | python3 "$IAS" record-dispatch wp7 --nonce "$N7" --round 1 --arm embed \
@@ -44418,6 +44428,10 @@ if [ -d "$WP_SB" ]; then
     "1" "$(cat "$WP_SB/.wp-empty-rc" 2>/dev/null)"
   assert_eq "#569 write_path_crosscheck_rows: ... named by the write-path-empty breadcrumb" \
     "1" "$(grep -c 'write-path-empty' "$WP_SB/.wp-empty" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: the EMPTY refusal is binding-INDEPENDENT (unbound run refused too)" \
+    "1" "$(cat "$WP_SB/.wp-empty-unbound-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: ... the unbound empty refusal names write-path-empty" \
+    "1" "$(grep -c 'write-path-empty' "$WP_SB/.wp-empty-unbound" 2>/dev/null)"
   assert_eq "#569 write_path_crosscheck_rows: the shipped main-root tier is covered (matching path accepted)" \
     "0" "$(cat "$WP_SB/.wp-mainroot-rc" 2>/dev/null)"
   assert_eq "#569 write_path_crosscheck_rows: an embed-arm dispatch ignores --write-path (check is file-arm scoped)" \
