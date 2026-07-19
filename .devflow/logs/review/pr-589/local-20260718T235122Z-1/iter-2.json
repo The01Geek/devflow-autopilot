@@ -1,0 +1,167 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-19T00:25:00Z",
+  "fix_commit_sha": "5cd801d5",
+  "fix_files": ["lib/test/run.sh", "skills/create-issue/SKILL.md", ".changeset/issue-569-tiered-draft-root-binding-tier-ladder.md"],
+  "loop_role": "fix",
+  "current_step": "loop-exit",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "phase3_dispatched": [
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "roster_note": "devflow:code-reviewer excluded on iteration >=2 by its resolved override iterations: \"first-only\" (config agent_overrides). Recovered by the Step 2.6 shadow, which is never scoped by iterations.",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Critical",
+      "description": "bound=none has no arm. The skill tells later sites to compose <bound-root>/... from the bound= field, but the tool returns the literal token bound=none on an unbound run AND on a foreign-nonce query — both of which this PR keeps legal. Following the prose literally writes and DISPLAYS the draft at a relative none/.devflow/tmp/... under cwd.",
+      "defect_signature": {"file": "skills/create-issue/SKILL.md", "line_range": [338, 346], "kind": "logic_error"},
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Critical",
+      "description": "The sub-step 2 bind fence is unconditional with no mechanism to detect an existing binding; on the normal path Step 3.6 already bound, so executing it yields binding-already-recorded (rc 1) at the user-presentation step. The documented 'else this presentation write when Step 3.6 was skipped' arm is unreachable (no state file, no nonce).",
+      "defect_signature": {"file": "skills/create-issue/SKILL.md", "line_range": [331, 338], "kind": "logic_error"},
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Important",
+      "description": "Sub-step 2 contradicts itself: the read-back enumeration lists 'this presentation write' among sites that must never do a second resolve-main-root.sh resolution, while the fence directly above it is exactly that.",
+      "defect_signature": {"file": "skills/create-issue/SKILL.md", "line_range": [327, 338], "kind": "documented_falsehood"},
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "The write-path-empty refusal's binding-INDEPENDENCE is unpinned. Proven by mutation: scoping the empty check under the binding guard keeps every row green while an unbound run with --write-path \"\" flips from rc 1 to rc 0.",
+      "defect_signature": {"file": "lib/test/run.sh", "line_range": [44378, 44384], "kind": "test_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "_bound_draft_file re-renders separators via Path, so on native Windows Python the comparand uses backslashes while the skill composes forward slashes — the new string equality could never match on that host.",
+      "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [1723, 1729], "kind": "logic_error"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    }
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-7", "decision": "applied", "commit": "5e90cdb9"},
+    {"finding_id": "F-8", "decision": "applied", "commit": "5e90cdb9"},
+    {"finding_id": "F-9", "decision": "applied", "commit": "5e90cdb9"},
+    {"finding_id": "F-10", "decision": "applied", "commit": "5cd801d5"},
+    {
+      "finding_id": "F-11",
+      "decision": "deferred",
+      "source_file": "scripts/issue-audit-state.py",
+      "claim_text": "Path-rendered comparand uses native separators, breaking equality on Windows Python",
+      "skip_category": "uncategorized",
+      "evidence": "single-source, and not reproducible at this desk (macOS/POSIX) — a speculative cross-platform patch to a comparand shared with the pre-existing #562 readers is higher risk than the recorded deferral",
+      "parking_evidence": {
+        "basis": "the claim is plausible but unverifiable in this environment; no Windows host was available to establish it, and unknown is not zero either direction",
+        "failing_input": "a bound run on native Windows Python where Path renders backslashes and the caller reports forward slashes",
+        "source": "scripts/issue-audit-state.py _bound_draft_file (Path join); reviewer reasoning, no live probe",
+        "finding_ref": {"iter": 2, "index": 4}
+      }
+    }
+  ],
+  "convergence_inputs": {"fixes_applied": 4, "fix_diff_lines": 96, "new_corroborated_critical_count": 2},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "shadow": {
+    "ran_at": "2026-07-19T01:05:00Z",
+    "reviewed_sha": "5e90cdb9",
+    "verdict": "REJECT",
+    "coverage": "full",
+    "prompt_addenda": "none — provenance-clean canonical Phase 3 prompts, no prior-findings handoff, no focus/scope clauses",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {
+        "agent": "devflow:code-reviewer",
+        "severity": "Important",
+        "description": "UNANIMOUS (5/5): Step 3.6 is declared the binding site but ships no runnable bind fence — the only fence is in Step 4 sub-step 2, which runs after every audit round dispatches. So at the Step 3.6 file-arm dispatch draft_binding is None, the --write-path cross-check short-circuits, and the guard fails open at its primary site.",
+        "defect_signature": {"file": "skills/create-issue/SKILL.md", "line_range": [206, 330], "kind": "documented_falsehood"},
+        "corroboration_count": 5
+      },
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Important",
+        "description": "bound=none reason=foreign-nonce is conflated with a genuinely unbound run. Foreign-nonce means the run IS bound and only the nonce drifted; the tool still resolves emit-body from the recorded binding, so the skill would overwrite file A while the tool files from file B — silently publishing stale bytes.",
+        "defect_signature": {"file": "skills/create-issue/SKILL.md", "line_range": [341, 348], "kind": "logic_error"},
+        "corroboration_count": 1
+      },
+      {
+        "agent": "devflow:comment-analyzer",
+        "severity": "Important",
+        "description": "§11's 'every later ... site (never re-resolving or recalling it)' is contradicted by two documented exceptions in the same diff: the same-turn presentation write, and the bound=none fallback which deliberately re-resolves.",
+        "defect_signature": {"file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md", "line_range": [504, 504], "kind": "documented_falsehood"},
+        "corroboration_count": 2
+      },
+      {
+        "agent": "devflow:requesting-code-review",
+        "severity": "Important",
+        "description": "The cross-check validates a self-reported string while the audited bytes still come from an unvalidated --draft-file, and the diff-added comment, changeset, and §11 all claim otherwise.",
+        "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [1696, 1731], "kind": "documented_falsehood"},
+        "corroboration_count": 2
+      },
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Suggestion",
+        "description": "Coverage gaps: whitespace-only --write-path (the .strip() arm), right-root/wrong-slug (the other half of _bound_draft_file's join), the inline arm, and a no-state-mutation assertion on the refused dispatch.",
+        "defect_signature": {"file": "lib/test/run.sh", "line_range": [44351, 44394], "kind": "test_gap"},
+        "corroboration_count": 2
+      },
+      {
+        "agent": "devflow:requesting-code-review",
+        "severity": "Suggestion",
+        "description": "A self-referential ordinal count ('a second resolve-main-root.sh call site') in a run.sh comment — the PR #553 ordinal-rot pattern, which the pending Step 3.6 move would have rotted immediately.",
+        "defect_signature": {"file": "lib/test/run.sh", "line_range": [13073, 13076], "kind": "comment_drift"},
+        "corroboration_count": 1
+      }
+    ],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 6, "overlap_with_iter_N": 1, "new": 5, "new_critical": 0, "new_important": 4},
+    "promoted_to_iter_next": true
+  },
+  "telemetry": {
+    "phase_3": {"calls": 4, "tokens": 386000, "wall_clock_s": 237},
+    "step_2_6": {"calls": 5, "tokens": 484000, "wall_clock_s": 372}
+  }
+}

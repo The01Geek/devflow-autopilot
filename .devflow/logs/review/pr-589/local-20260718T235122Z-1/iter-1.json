@@ -1,0 +1,114 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-18T23:51:22Z",
+  "fix_commit_sha": "66bfe5d3",
+  "fix_files": [
+    ".changeset/issue-569-tiered-draft-root-binding-tier-ladder.md",
+    "scripts/issue-audit-state.py",
+    "lib/test/run.sh",
+    "skills/create-issue/SKILL.md"
+  ],
+  "loop_role": "fix",
+  "current_step": "loop-exit",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Critical",
+      "description": "The changeset describes three DEFERRED features as shipped: the tier-2/tier-3 selection ladder, binding-required-on-file-arm strict enforcement, and the divergent-roots out-of-bounds enumerations. All three false against HEAD; the token binding-required-on-file-arm exists only inside the deferral comment. This prose is prepended verbatim into CHANGELOG.md.",
+      "defect_signature": {"file": ".changeset/issue-569-tiered-draft-root-binding-tier-ladder.md", "line_range": [7, 7], "kind": "documented_falsehood"},
+      "corroboration_count": 5,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Critical",
+      "description": "The --write-path argparse help says 'Required on the file arm'; the flag has no required=True and no presence check, and this PR's own row asserts the omitted case exits 0. Verified on the RENDERED --help surface per the #375 wrapped-literal rule.",
+      "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [2621, 2624], "kind": "documented_falsehood"},
+      "corroboration_count": 5,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Critical",
+      "description": "`and args.write_path` is a truthiness test, so --write-path \"\" silently disarms the cross-check (probed live: rc 0). An empty value is an unestablished report, not an opt-out.",
+      "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [1712, 1712], "kind": "logic_error"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Important",
+      "description": "The record-draft-binding fence reads $MAIN_ROOT assigned in a DIFFERENT bash fence. Each fence is a separate shell invocation, so it expands empty and the bind fails closed (binding-path-not-absolute) on every runner — defeating the feature. CLAUDE.md #275.",
+      "defect_signature": {"file": "skills/create-issue/SKILL.md", "line_range": [322, 333], "kind": "api_misuse"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "Sub-step 3 display rationale sourced the path from $MAIN_ROOT context recall; becomes false when tier-2 lands.",
+      "defect_signature": {"file": "skills/create-issue/SKILL.md", "line_range": [343, 343], "kind": "comment_drift"},
+      "corroboration_count": 3,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "record-dispatch digests the caller's --draft-file, which it does not resolve from the binding, unlike emit-body/query-eligibility/query-summary. A correct --write-path with a drifted --draft-file is still recorded.",
+      "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [1712, 1722], "kind": "logic_error"},
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    }
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "66bfe5d3"},
+    {"finding_id": "F-2", "decision": "applied", "commit": "66bfe5d3"},
+    {"finding_id": "F-3", "decision": "applied", "commit": "66bfe5d3"},
+    {"finding_id": "F-4", "decision": "applied", "commit": "477a5a24"},
+    {"finding_id": "F-5", "decision": "applied", "commit": "477a5a24"},
+    {
+      "finding_id": "F-6",
+      "decision": "deferred",
+      "source_file": "scripts/issue-audit-state.py",
+      "claim_text": "record-dispatch should read --draft-file through the binding",
+      "skip_category": "out-of-scope",
+      "evidence": "this is the bound-first reader reconciliation the PR's Phase-2.2.5 scope split explicitly defers; the overstating comment/changeset/§11 prose was corrected instead",
+      "parking_evidence": {
+        "basis": "the deferral is a recorded, documented scope split predating this review; the review corrected the prose that overstated the guard rather than expanding scope",
+        "failing_input": "a caller reporting a correct --write-path while passing a drifted --draft-file",
+        "source": "scripts/issue-audit-state.py NOTE (issue #569 scope split); workpad Acceptance Criteria deferred list",
+        "finding_ref": {"iter": 1, "index": 5}
+      }
+    }
+  ],
+  "convergence_inputs": {"fixes_applied": 5, "fix_diff_lines": 118, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "shadow": {"ran_at": null, "verdict": null, "coverage": null, "promoted_to_iter_next": false},
+  "telemetry": {
+    "phase_0": {"calls": 0, "tokens": 0, "wall_clock_s": 40},
+    "phase_3": {"calls": 6, "tokens": 493000, "wall_clock_s": 152},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 5}
+  }
+}
