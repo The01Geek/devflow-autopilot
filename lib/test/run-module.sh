@@ -272,6 +272,7 @@ DETAILS_FILE="$(mktemp "${TMPDIR:-/tmp}/devflow-module-details.XXXXXX")" || {
 MODULE_SCRATCH_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/devflow-module-scratch.XXXXXX")" || \
   selector_error "could not allocate the module scratch root"
 if ! _devflow_validate_module_scratch "$MODULE_SCRATCH_ROOT"; then
+  _devflow_discard_unvalidated_module_scratch "$MODULE_SCRATCH_ROOT" || :
   MODULE_SCRATCH_ROOT=""
   selector_error "allocated an unsafe module scratch root"
 fi
@@ -293,6 +294,10 @@ MODULE_LAUNCHING=1
   # Consumed by the sourced module in the worker.
   # shellcheck disable=SC2034
   DEVFLOW_MODULE_OWNED_SCRATCH_ROOT="$MODULE_SCRATCH_ROOT"
+  # Contain ordinary module/helper TMPDIR allocations inside the boundary root
+  # so forced group termination still has a complete cleanup fallback.
+  TMPDIR="$MODULE_SCRATCH_ROOT"
+  export TMPDIR
   # Invoked indirectly by the supervisor helper.
   # shellcheck disable=SC2329
   _devflow_focused_module_body() {
@@ -361,10 +366,11 @@ else
   MODULE_RC=$?
 fi
 MODULE_PID=""
+MODULE_CLEANUP_FAILED=0
 if _devflow_cleanup_module_scratch "$MODULE_SCRATCH_ROOT"; then
   MODULE_SCRATCH_ROOT=""
 else
-  MODULE_RC=1
+  MODULE_CLEANUP_FAILED=1
 fi
 
 PASS_COUNT=0
@@ -381,6 +387,7 @@ done < "$RESULTS_FILE"
 EXTRA_FAIL_COUNT=0
 [ "$INVALID_RESULT_COUNT" -eq 0 ] || EXTRA_FAIL_COUNT=$((EXTRA_FAIL_COUNT + 1))
 [ "$MODULE_RC" -eq 0 ] || EXTRA_FAIL_COUNT=$((EXTRA_FAIL_COUNT + 1))
+[ "$MODULE_CLEANUP_FAILED" -eq 0 ] || EXTRA_FAIL_COUNT=$((EXTRA_FAIL_COUNT + 1))
 ASSERTION_COUNT=$((PASS_COUNT + ASSERT_FAIL_COUNT))
 if [ "$ASSERTION_COUNT" -eq 0 ]; then
   EXTRA_FAIL_COUNT=$((EXTRA_FAIL_COUNT + 1))
@@ -401,6 +408,9 @@ FAIL_COUNT=$((ASSERT_FAIL_COUNT + EXTRA_FAIL_COUNT))
     fi
     if [ "$MODULE_RC" -ne 0 ]; then
       printf '  - module process exited with status %s\n' "$MODULE_RC"
+    fi
+    if [ "$MODULE_CLEANUP_FAILED" -ne 0 ]; then
+      printf '  - module scratch cleanup failed\n'
     fi
     if [ "$ASSERTION_COUNT" -eq 0 ]; then
       printf '  - module executed zero assertions\n'

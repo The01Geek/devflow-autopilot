@@ -12,6 +12,7 @@ from pathlib import Path
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 from dataclasses import dataclass
@@ -32,7 +33,13 @@ POSIX_SIGNAL_MATRIX_AVAILABLE = os.name == "posix" and all(
 ) and hasattr(os, "killpg")
 
 
-@dataclass(frozen=True)
+def signal_matrix_capability_skip_reason(available: bool) -> str | None:
+    if available:
+        return None
+    return "POSIX signals and process groups are required"
+
+
+@dataclass(frozen=True, kw_only=True)
 class SignalRowState:
     process: subprocess.Popen[str]
     boundary: SignalBoundary
@@ -42,6 +49,7 @@ class SignalRowState:
     worker_pid_file: Path
     helper_pid_file: Path
     module_state_file: Path
+    generic_scratch_file: Path
     runner_cleanup_marker: Path
     module_cleanup_marker: Path
     caller_exit_marker: Path
@@ -141,6 +149,38 @@ class FullSuiteModuleHarnessTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(result.stdout.splitlines(), ["PASS"])
+
+    def test_rejected_relative_scratch_allocation_is_removed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            relative_tmp = root / "relative-tmp"
+            relative_tmp.mkdir()
+            module = root / "module.sh"
+            module.write_text('printf "PASS\\n" >> "$RESULTS_FILE"\n', encoding="utf-8")
+            driver = root / "driver.sh"
+            driver.write_text(
+                "#!/usr/bin/env bash\n"
+                'export TMPDIR="relative-tmp"\n'
+                'RESULTS_FILE="results"\n'
+                'MODULE_FAILURES_FILE="failures"\n'
+                '> "$RESULTS_FILE"\n'
+                '> "$MODULE_FAILURES_FILE"\n'
+                "assert_eq() { :; }\n"
+                f'. "{HARNESS}"\n'
+                f'devflow_run_full_suite_module "{module}" "sample" 1\n',
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                ["bash", str(driver)],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            leftovers = list(relative_tmp.glob("devflow-module-scratch.*"))
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(leftovers, [])
 
     def test_module_cannot_rewrite_prior_suite_verdicts(self) -> None:
         result = self._run(
@@ -336,6 +376,15 @@ class FullSuiteModuleHarnessTests(unittest.TestCase):
         self.assertIn("MODULE_SOURCED", result.stdout.splitlines())
 
 
+class SignalCapabilityReportingTests(unittest.TestCase):
+    def test_unavailable_matrix_has_a_host_capability_reason(self) -> None:
+        self.assertIsNone(signal_matrix_capability_skip_reason(True))
+        self.assertEqual(
+            signal_matrix_capability_skip_reason(False),
+            "POSIX signals and process groups are required",
+        )
+
+
 @unittest.skipUnless(
     POSIX_SIGNAL_MATRIX_AVAILABLE,
     "host-capability: POSIX signals and process groups are required",
@@ -394,6 +443,10 @@ class SignalCleanupMatrixTests(unittest.TestCase):
         sed_helper = fake_bin / "sed"
         sed_helper.write_text(
             "#!/usr/bin/env bash\n"
+            '_generic_scratch="$(mktemp -d "${TMPDIR:-/tmp}/devflow-generic-module.XXXXXX")" '
+            "|| exit 1\n"
+            'printf "%s\\n" "$_generic_scratch" '
+            '> "$DEVFLOW_TEST_GENERIC_SCRATCH_FILE"\n'
             'printf "%s\\n" "$DEVFLOW_MODULE_SCRATCH_ROOT" '
             '> "$DEVFLOW_TEST_MODULE_STATE_FILE"\n'
             'printf "%s\\n" "$$" > "$DEVFLOW_TEST_HELPER_PID_FILE"\n'
@@ -452,6 +505,7 @@ class SignalCleanupMatrixTests(unittest.TestCase):
         worker_pid_file = row / "worker.pid"
         helper_pid_file = row / "helper.pid"
         module_state_file = row / "module.state"
+        generic_scratch_file = row / "generic-scratch.state"
         runner_cleanup_marker = row / "runner-cleanup.marker"
         module_cleanup_marker = row / "module-cleanup.marker"
         caller_exit_marker = row / "caller-exit.marker"
@@ -467,6 +521,7 @@ class SignalCleanupMatrixTests(unittest.TestCase):
             "DEVFLOW_TEST_RUNNER_CLEANUP_MARKER",
             "DEVFLOW_TEST_MODULE_CLEANUP_MARKER",
             "DEVFLOW_TEST_MODULE_STATE_FILE",
+            "DEVFLOW_TEST_GENERIC_SCRATCH_FILE",
             "DEVFLOW_TEST_SIGNAL_RESISTANT_HELPER",
             "DEVFLOW_TEST_LAUNCH_WINDOW_FILE",
         ):
@@ -483,6 +538,7 @@ class SignalCleanupMatrixTests(unittest.TestCase):
                 "DEVFLOW_TEST_RUNNER_CLEANUP_MARKER": str(runner_cleanup_marker),
                 "DEVFLOW_TEST_MODULE_CLEANUP_MARKER": str(module_cleanup_marker),
                 "DEVFLOW_TEST_MODULE_STATE_FILE": str(module_state_file),
+                "DEVFLOW_TEST_GENERIC_SCRATCH_FILE": str(generic_scratch_file),
                 "DEVFLOW_TEST_SIGNAL_RESISTANT_HELPER": (
                     "1" if resistant_helper else "0"
                 ),
@@ -537,20 +593,21 @@ class SignalCleanupMatrixTests(unittest.TestCase):
             start_new_session=True,
         )
         return SignalRowState(
-            process,
-            boundary,
-            controlled_tmp,
-            runner_pid_file,
-            module_pid_file,
-            worker_pid_file,
-            helper_pid_file,
-            module_state_file,
-            runner_cleanup_marker,
-            module_cleanup_marker,
-            caller_exit_marker,
-            results_file,
-            failures_file,
-            launch_window_file,
+            process=process,
+            boundary=boundary,
+            controlled_tmp=controlled_tmp,
+            runner_pid_file=runner_pid_file,
+            module_pid_file=module_pid_file,
+            worker_pid_file=worker_pid_file,
+            helper_pid_file=helper_pid_file,
+            module_state_file=module_state_file,
+            generic_scratch_file=generic_scratch_file,
+            runner_cleanup_marker=runner_cleanup_marker,
+            module_cleanup_marker=module_cleanup_marker,
+            caller_exit_marker=caller_exit_marker,
+            results_file=results_file,
+            failures_file=failures_file,
+            launch_window_file=launch_window_file,
         )
 
     @staticmethod
@@ -619,6 +676,7 @@ class SignalCleanupMatrixTests(unittest.TestCase):
                         state.worker_pid_file,
                         state.helper_pid_file,
                         state.module_state_file,
+                        state.generic_scratch_file,
                         module_int_trap_file,
                     ),
                 )
@@ -637,15 +695,22 @@ class SignalCleanupMatrixTests(unittest.TestCase):
                 module_root = Path(
                     state.module_state_file.read_text(encoding="utf-8").strip()
                 )
+                generic_scratch = Path(
+                    state.generic_scratch_file.read_text(encoding="utf-8").strip()
+                )
                 helper_scratches = list(module_root.glob("devflow-module-mut.*"))
                 self.assertEqual(runner_pid, process.pid)
                 self.assertNotEqual(module_pid, runner_pid)
                 self.assertNotEqual(worker_pid, module_pid)
                 self.assertNotIn(helper_pid, (runner_pid, module_pid, worker_pid))
+                self.assertEqual(os.getpgid(module_pid), module_pid)
+                self.assertEqual(os.getpgid(worker_pid), module_pid)
+                self.assertEqual(os.getpgid(helper_pid), module_pid)
                 module_int_trap = module_int_trap_file.read_text(encoding="utf-8")
                 self.assertIn("SIGINT", module_int_trap)
                 self.assertNotIn("trap -- '' SIGINT", module_int_trap)
                 self.assertTrue(module_root.is_dir())
+                self.assertTrue(generic_scratch.is_dir())
                 self.assertEqual(len(helper_scratches), 1)
                 helper_scratch = helper_scratches[0]
                 self.assertTrue(helper_scratch.is_file())
@@ -699,6 +764,7 @@ class SignalCleanupMatrixTests(unittest.TestCase):
                 for pid in supervised_pids:
                     self.assertFalse(self._pid_exists(pid), f"subprocess survived: {pid}")
                 self.assertFalse(module_root.exists(), "module scratch root survived")
+                self.assertFalse(generic_scratch.exists(), "generic module scratch survived")
                 self.assertFalse(helper_scratch.exists(), "module helper scratch survived")
                 self._assert_no_signal_leaks(state)
                 self.assertEqual(
@@ -742,9 +808,15 @@ class SignalCleanupMatrixTests(unittest.TestCase):
                 self._exercise_row(boundary, signal_name, scope)
 
     def test_signal_resistant_foreground_helper_is_escalated(self) -> None:
-        self._exercise_row(
-            "focused", "SIGTERM", "module-only", resistant_helper=True
-        )
+        for boundary, scope in (
+            ("focused", "module-only"),
+            ("focused", "parent-only"),
+            ("full-suite", "parent-only"),
+        ):
+            with self.subTest(boundary=boundary, scope=scope):
+                self._exercise_row(
+                    boundary, "SIGTERM", scope, resistant_helper=True
+                )
 
     def test_signal_during_launch_window_is_not_lost(self) -> None:
         for boundary in self.boundaries:
@@ -764,9 +836,6 @@ class SignalCleanupMatrixTests(unittest.TestCase):
                             state.runner_pid_file.read_text(encoding="utf-8").strip()
                         )
                         os.kill(runner_pid, signal.SIGTERM)
-                        state.launch_window_file.with_name(
-                            f"{state.launch_window_file.name}.release"
-                        ).touch()
                         stdout, stderr = state.process.communicate(timeout=5)
                         self.assertEqual(
                             state.process.returncode,
@@ -790,6 +859,62 @@ class SignalCleanupMatrixTests(unittest.TestCase):
                         self._terminate_state(state)
                         if state.process.poll() is None:
                             state.process.communicate(timeout=2)
+
+    def test_worker_stays_in_supervisor_group_with_a_controlling_tty(self) -> None:
+        import pty
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            supervisor_pid_file = root / "supervisor.pid"
+            worker_pid_file = root / "worker.pid"
+            release = root / "release"
+            driver = root / "driver.sh"
+            driver.write_text(
+                "#!/usr/bin/env bash\n"
+                "set -m\n"
+                f'. "{HARNESS}"\n'
+                f'RELEASE="{release}"\n'
+                'body() { while [ ! -e "$RELEASE" ]; do sleep 0.01; done; }\n'
+                f'printf "%s\\n" "$BASHPID" > "{supervisor_pid_file}"\n'
+                f'_devflow_supervise_module body "{supervisor_pid_file}" '
+                f'"{worker_pid_file}"\n',
+                encoding="utf-8",
+            )
+            child_pid, master_fd = pty.fork()
+            if child_pid == 0:
+                os.execvp("bash", ["bash", str(driver)])
+            try:
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    if (
+                        supervisor_pid_file.is_file()
+                        and worker_pid_file.is_file()
+                        and worker_pid_file.stat().st_size > 0
+                    ):
+                        break
+                    time.sleep(0.02)
+                self.assertTrue(worker_pid_file.is_file(), "worker PID was not published")
+                supervisor_pid = int(
+                    supervisor_pid_file.read_text(encoding="utf-8").strip()
+                )
+                worker_pid = int(worker_pid_file.read_text(encoding="utf-8").strip())
+                self.assertEqual(os.getpgid(supervisor_pid), supervisor_pid)
+                self.assertEqual(os.getpgid(worker_pid), supervisor_pid)
+            finally:
+                release.touch()
+                deadline = time.monotonic() + 3
+                while time.monotonic() < deadline:
+                    waited, _ = os.waitpid(child_pid, os.WNOHANG)
+                    if waited == child_pid:
+                        break
+                    time.sleep(0.02)
+                else:
+                    try:
+                        os.killpg(child_pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    os.waitpid(child_pid, 0)
+                os.close(master_fd)
 
     def test_full_suite_cleanup_failures_record_boundary_failure(self) -> None:
         for target, pattern in (
@@ -1161,4 +1286,12 @@ class NamespacedModulePinHelperTests(unittest.TestCase):
 
 
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--signal-matrix-capability"]:
+        capability_reason = signal_matrix_capability_skip_reason(
+            POSIX_SIGNAL_MATRIX_AVAILABLE
+        )
+        if capability_reason is not None:
+            print(capability_reason)
+            raise SystemExit(1)
+        raise SystemExit(0)
     unittest.main()

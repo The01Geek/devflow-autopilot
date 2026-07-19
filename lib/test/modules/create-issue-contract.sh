@@ -36,7 +36,9 @@ CI_CLAUDE="$CI_ROOT/CLAUDE.md"
 # after _ci_tmp_root exists) — never the root alone.
 CI_INVENTORY="$CI_ROOT/lib/test/modules/create-issue-contract.inventory.md"
 
+_ci_tmp_root_kind="self"
 if [ -n "${DEVFLOW_MODULE_OWNED_SCRATCH_ROOT:-}" ]; then
+  _ci_tmp_root_kind="boundary"
   _ci_tmp_root="$DEVFLOW_MODULE_OWNED_SCRATCH_ROOT"
   if [ ! -d "$_ci_tmp_root" ] || [ -L "$_ci_tmp_root" ]; then
     printf 'invalid boundary-owned create-issue-contract fixture: %s\n' \
@@ -49,6 +51,26 @@ else
     return 1
   }
 fi
+_ci_tmp_root_is_safe() {
+  local expected_parent="" actual_parent=""
+  [ -d "$_ci_tmp_root" ] && [ ! -L "$_ci_tmp_root" ] || return 1
+  case "$_ci_tmp_root_kind:$_ci_tmp_root" in
+    boundary:/*/devflow-module-scratch.??????) return 0 ;;
+    self:/*/devflow-create-issue-contract.??????) ;;
+    *) return 1 ;;
+  esac
+  expected_parent="$(cd "${TMPDIR:-/tmp}" 2>/dev/null && pwd -P)" || return 1
+  actual_parent="$(cd "$_ci_tmp_root/.." 2>/dev/null && pwd -P)" || return 1
+  [ "$actual_parent" = "$expected_parent" ]
+}
+if ! _ci_tmp_root_is_safe; then
+  # The value failed the recursive-cleanup contract. The directory was just
+  # allocated, so an empty-leaf removal is safe; never apply rm -rf here.
+  [ "$_ci_tmp_root_kind" != "self" ] || rmdir -- "$_ci_tmp_root" 2>/dev/null || :
+  printf 'invalid create-issue-contract fixture root: %s\n' "$_ci_tmp_root" >&2
+  _ci_tmp_root=""
+  return 1
+fi
 # Consumed dynamically by devflow_module_pin_red_under from the sourced harness.
 # shellcheck disable=SC2034
 DEVFLOW_MODULE_SCRATCH_ROOT="$_ci_tmp_root"
@@ -59,6 +81,11 @@ _ci_cleanup_marker_done=0
 _ci_cleanup() {
   [ "$_ci_cleanup_done" -eq 0 ] || return 0
   if [ "$_ci_cleanup_root_done" -eq 0 ]; then
+    if ! _ci_tmp_root_is_safe; then
+      printf 'devflow: refusing invalid create-issue-contract fixture: %s\n' \
+        "$_ci_tmp_root" >&2
+      return 1
+    fi
     if ! rm -rf "$_ci_tmp_root"; then
       printf 'devflow: could not remove create-issue-contract fixture: %s\n' \
         "$_ci_tmp_root" >&2

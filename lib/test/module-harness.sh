@@ -237,6 +237,19 @@ _devflow_validate_module_scratch() { # scratch-root
   [ "$actual_parent" = "$expected_parent" ]
 }
 
+_devflow_discard_unvalidated_module_scratch() { # scratch-root
+  local scratch_root="$1"
+  [ -n "$scratch_root" ] || return 0
+  # The path failed the recursive-cleanup contract, so only remove the fresh,
+  # empty directory itself. Never widen an unsafe value into rm -rf.
+  if [ -d "$scratch_root" ] && [ ! -L "$scratch_root" ] && \
+    ! rmdir -- "$scratch_root"; then
+    printf 'devflow: could not discard unsafe module scratch root: %s\n' \
+      "$scratch_root" >&2
+    return 1
+  fi
+}
+
 _devflow_test_read_pid() { # path
   local path="$1" pid=""
   [ -n "$path" ] && [ -r "$path" ] || return 1
@@ -336,8 +349,12 @@ _devflow_supervise_module() { # body-function supervisor-pid-file worker-pid-fil
   done
   case "$-" in
     *m*) monitor_was_on=1 ;;
-    *) set -m ;;
+    *) : ;;
   esac
+  # Launch the worker while nested job control is disabled. Otherwise a shell
+  # with a controlling TTY assigns the worker a second PGID before its body can
+  # run set +m, outside the supervisor group used for forwarding and escalation.
+  set +m
   _devflow_module_worker_entry() {
     # The supervisor needs one worker process group containing both the shell
     # and every foreground helper it starts. Disable nested job control inside
@@ -348,7 +365,7 @@ _devflow_supervise_module() { # body-function supervisor-pid-file worker-pid-fil
   _devflow_module_worker_entry &
   worker_pid=$!
   worker_launching=0
-  [ "$monitor_was_on" -eq 1 ] || set +m
+  [ "$monitor_was_on" -eq 0 ] || set -m
   _devflow_test_write_pid "$worker_pid_file" "$worker_pid" "module worker" || :
   _devflow_test_write_pid "${DEVFLOW_TEST_MODULE_WORKER_PID_FILE:-}" \
     "$worker_pid" "module worker" || :
@@ -373,7 +390,14 @@ _devflow_test_pause_before_pid_capture() { # state-file
       "$state_file" >&2
     return 1
   fi
-  while [ ! -e "$state_file.release" ]; do :; done
+  while [ ! -e "$state_file.release" ]; do
+    # The hook must not become a second launch barrier after the runner has
+    # already captured a pending signal for immediate replay.
+    if [ -n "${MODULE_PENDING_SIGNAL:-}" ] || \
+      [ -n "${module_pending_signal:-}" ]; then
+      return 0
+    fi
+  done
 }
 
 _devflow_cleanup_full_suite_tally() { # tally-path
@@ -471,6 +495,7 @@ devflow_run_full_suite_module() { # module-path module-name minimum-assertions
     return 0
   fi
   if ! _devflow_validate_module_scratch "$module_scratch_root"; then
+    _devflow_discard_unvalidated_module_scratch "$module_scratch_root" || :
     module_scratch_root=""
     _devflow_cleanup_full_suite_tally "$module_results_file" || :
     _devflow_record_module_failure || return 1
@@ -499,6 +524,10 @@ devflow_run_full_suite_module() { # module-path module-name minimum-assertions
     # Consumed by the sourced module in the worker.
     # shellcheck disable=SC2034
     DEVFLOW_MODULE_OWNED_SCRATCH_ROOT="$module_scratch_root"
+    # Nest every module's ordinary TMPDIR allocations below the boundary root,
+    # including modules that do not consume the DevFlow-specific ownership hint.
+    TMPDIR="$module_scratch_root"
+    export TMPDIR
     # Invoked indirectly by the supervisor helper.
     # shellcheck disable=SC2329
     _devflow_full_suite_module_body() {

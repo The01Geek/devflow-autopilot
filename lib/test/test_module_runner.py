@@ -15,6 +15,7 @@ import subprocess
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -128,9 +129,14 @@ class ModuleRunnerTests(unittest.TestCase):
         for name in (
             "DEVFLOW_TEST_RUNNER_PID_FILE",
             "DEVFLOW_TEST_MODULE_PID_FILE",
+            "DEVFLOW_TEST_MODULE_WORKER_PID_FILE",
+            "DEVFLOW_TEST_HELPER_PID_FILE",
             "DEVFLOW_TEST_RUNNER_CLEANUP_MARKER",
             "DEVFLOW_TEST_MODULE_CLEANUP_MARKER",
             "DEVFLOW_TEST_MODULE_STATE_FILE",
+            "DEVFLOW_TEST_GENERIC_SCRATCH_FILE",
+            "DEVFLOW_TEST_SIGNAL_RESISTANT_HELPER",
+            "DEVFLOW_TEST_LAUNCH_WINDOW_FILE",
         ):
             environment.pop(name, None)
         environment["SOURCE_MARKER"] = str(self.marker)
@@ -676,6 +682,41 @@ class ModuleRunnerTests(unittest.TestCase):
         self.assertIn("Module sample: 1 passed, 1 failed", result.stdout)
         self.assertIn("module executed 1 assertions; minimum is 2", result.stdout)
 
+    def test_rejected_relative_boundary_scratch_is_removed(self) -> None:
+        relative_tmp = self.root / "relative-tmp"
+        relative_tmp.mkdir()
+
+        result = self._run("sample", extra_env={"TMPDIR": "relative-tmp"})
+
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertEqual(list(relative_tmp.glob("devflow-module-scratch.*")), [])
+
+    def test_focused_scratch_cleanup_failure_is_not_a_module_exit(self) -> None:
+        fake_bin = self.root / "fake-rm-bin"
+        fake_bin.mkdir()
+        fake_rm = fake_bin / "rm"
+        real_rm = shutil.which("rm")
+        self.assertIsNotNone(real_rm)
+        fake_rm.write_text(
+            "#!/usr/bin/env bash\n"
+            'if [ "${1:-}" = "-rf" ] && '
+            'case "${2:-}" in *devflow-module-scratch.*) true ;; *) false ;; esac; '
+            "then exit 1; fi\n"
+            f'exec "{real_rm}" "$@"\n',
+            encoding="utf-8",
+        )
+        fake_rm.chmod(0o755)
+
+        result = self._run(
+            "sample",
+            extra_env={"PATH": f"{fake_bin}:{os.environ['PATH']}"},
+        )
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("Module sample: 1 passed, 1 failed", result.stdout)
+        self.assertIn("module scratch cleanup failed", result.stdout)
+        self.assertNotIn("module process exited with status", result.stdout)
+
     def _run_with_fake_directory_mktemp(
         self, fake_directory_result: str
     ) -> subprocess.CompletedProcess[str]:
@@ -864,6 +905,19 @@ class ModuleRunnerTests(unittest.TestCase):
         self.assertNotIn(
             "controlled experimental failure injection", unforced.stdout
         )
+
+    def test_inherited_launch_hook_is_scrubbed_from_normal_runs(self) -> None:
+        inherited_launch = self.root / "inherited-launch-window"
+        Path(f"{inherited_launch}.release").touch()
+
+        with mock.patch.dict(
+            os.environ,
+            {"DEVFLOW_TEST_LAUNCH_WINDOW_FILE": str(inherited_launch)},
+        ):
+            result = self._run("sample")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(inherited_launch.exists())
 
     def test_repository_registry_maps_the_extracted_recorder_module(self) -> None:
         registry = json.loads(
@@ -1111,6 +1165,55 @@ class ModuleRunnerTests(unittest.TestCase):
                 result.stdout,
             )
             self.assertTrue(list(Path(log_dir).iterdir()))
+
+    def test_create_issue_self_allocated_root_rejects_unsafe_mktemp_output(self) -> None:
+        source = CREATE_ISSUE_MODULE_SOURCE.read_text(encoding="utf-8")
+        boundary = "# The implement-skill bundle backs the #467 D2 Phase-2.4 leg"
+        self.assertEqual(source.count(boundary), 1)
+        short_module = self.root / "short-create-issue.sh"
+        short_module.write_text(
+            source.split(boundary, 1)[0]
+            + "_ci_cleanup\n"
+            + "trap - EXIT HUP INT TERM\n"
+            + "return 0\n",
+            encoding="utf-8",
+        )
+        victim = self.root / "must-survive"
+        victim.mkdir()
+        sentinel = victim / "sentinel"
+        sentinel.write_text("keep\n", encoding="utf-8")
+        fake_bin = self.root / "unsafe-mktemp-bin"
+        fake_bin.mkdir()
+        fake_mktemp = fake_bin / "mktemp"
+        fake_mktemp.write_text(
+            "#!/usr/bin/env bash\n"
+            f'printf "%s\\n" "{victim}"\n',
+            encoding="utf-8",
+        )
+        fake_mktemp.chmod(0o755)
+        driver = self.root / "unsafe-create-issue-driver.sh"
+        driver.write_text(
+            "#!/usr/bin/env bash\n"
+            f'LIB="{ROOT / "lib"}"\n'
+            f'RESULTS_FILE="{self.root / "results"}"\n'
+            'unset DEVFLOW_MODULE_OWNED_SCRATCH_ROOT\n'
+            f'export TMPDIR="{self.root}"\n'
+            f'export PATH="{fake_bin}:$PATH"\n'
+            f'. "{short_module}"\n'
+            'printf "SOURCE_RC:%s\\n" "$?"\n',
+            encoding="utf-8",
+        )
+
+        result = subprocess.run(
+            ["bash", str(driver)],
+            cwd=self.root,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertIn("SOURCE_RC:1", result.stdout)
+        self.assertTrue(sentinel.is_file(), result.stdout + result.stderr)
 
     def test_create_issue_module_references_no_monolith_helper(self) -> None:
         # AC7: the extracted assertions use only assert_eq plus the namespaced module
