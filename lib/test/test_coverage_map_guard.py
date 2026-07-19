@@ -292,6 +292,21 @@ class CoverageMapGuardTest(unittest.TestCase):
             self.assertIn("lib/planted.sh", out.getvalue())
             self.assertIn("[arm1]", out.getvalue())
 
+    # ── main() fail-closed git branch: git ls-files failing → rc 1 + the named
+    # breadcrumb (the only advertised fail-closed arm without a positive control).
+    # Point main() at a non-existent directory under a fresh tempdir so `git -C <path>`
+    # fails deterministically (cannot chdir) — independent of any ambient repo around
+    # the test's cwd. Assert the breadcrumb, not just rc, so a silenced branch is caught.
+    def test_cli_main_git_failure_fails_closed(self):
+        with tempfile.TemporaryDirectory() as d:
+            missing = Path(d) / "no-such-dir"
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                rc = guard.main(["coverage_map_guard.py", str(missing)])
+            self.assertEqual(rc, 1)
+            self.assertIn("[input-error]", out.getvalue())
+            self.assertIn("git ls-files failed", out.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -155,7 +155,15 @@ rm -rf "$CAP_T12"
 # then generate again under a different LC_ALL AND cwd; cmp every workflow byte-identical.
 # Also assert the committed workflows equal the generator's output (committed == generated).
 CAP_IDEM="$(mktemp -d "$_cap_tmp_root/idem.XXXXXX")"; _cap_fixture "$CAP_IDEM"
-python3 "$CAPMUT" "$CAP_IDEM" strip-banners >/dev/null 2>&1
+# Assert the strip-banners precondition was actually exercised. strip-banners uses
+# expect_change=False (it sweeps every workflow), so a silent no-op — e.g. the banner
+# format drifting out from under its regex — returns rc 0 and would leave T1 green while
+# its "regenerate onto banner-less workflows" premise never happened. Guard both arms:
+# the mutation must exit 0 AND it must have actually removed bytes (snapshot changed).
+CAP_IDEM_PRE="$(_cap_wf_snap "$CAP_IDEM")"
+python3 "$CAPMUT" "$CAP_IDEM" strip-banners >/dev/null 2>"$CAP_IDEM/.muterr"; CAP_IDEM_STRIP_RC=$?
+assert_eq "#561 T1 strip-banners precondition exercised (rc 0 AND banners actually removed)" "yes" \
+  "$([ "$CAP_IDEM_STRIP_RC" -eq 0 ] && [ "$CAP_IDEM_PRE" != "$(_cap_wf_snap "$CAP_IDEM")" ] && echo yes || echo no)"
 ( cd "$CAP_IDEM" && LC_ALL=C python3 lib/generate-capability-profiles.py >/dev/null 2>&1 )
 mkdir -p "$CAP_IDEM/after1"; cp "$CAP_IDEM/.github/workflows/"*.yml "$CAP_IDEM/after1/"
 ( cd "$CAP_IDEM/lib" && LC_ALL=C.UTF-8 python3 generate-capability-profiles.py >/dev/null 2>&1 ); CAP_IDEM_RC=$?
