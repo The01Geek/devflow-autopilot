@@ -505,7 +505,14 @@ def _source_tail(raw_target, allowed_dir_vars=frozenset()):
                 # helper. Keep it absolute-looking so the trust-boundary check
                 # rejects it instead of rebasing it into the vendor directory.
                 return "/" + tok[m.end():].lstrip("/")
-            tok = tok[m.end():]
+            rest = tok[m.end():]
+            if not rest.startswith("/"):
+                # No `/` separator after the proved dir var (`${HERE}x.sh`,
+                # `$HERE../x.sh`): the runtime expansion CONCATENATES, so a
+                # separator-assuming literal tail would not describe it. Empty
+                # tail routes the caller to the fail-closed unresolved edge.
+                return ""
+            tok = rest
     return tok.lstrip("/")
 
 
@@ -583,6 +590,11 @@ def _scan_shell_sources(helper):
     treated as a visible binding — a scoped assignment may therefore classify a
     source edge the runtime would not source (the runtime include then fails
     loudly on the unset variable; the misattribution is static-side only).
+    Two further disclosed boundaries of the same static-side-misattribution
+    class: the word tokenizer drops ``\\`` (so an escaped ``\\$VAR`` — a literal,
+    non-expanding path at runtime — is scanned as if it expanded), and a bare
+    relative include (``. x.sh``) is classified helper-dir-relative although
+    bash resolves it via ``$PATH`` first.
     """
     edges = []
     seen = set()
@@ -641,11 +653,11 @@ def _scan_shell_sources(helper):
             # Whole-operand accounting: the resolved token must account for the
             # ENTIRE operand — the token alone, or a full anchor + the token as
             # its tail. Unaccounted bytes (an interposed substitution, a glob
-            # star, junk between an anchor and a bare filename) fail closed —
-            # and accounting alone is necessary, not sufficient: a tail with a
-            # residual `$` (an embedded expansion) is rejected below too, so a
-            # byte-accounted operand whose runtime expansion still differs from
-            # the literal tail never resolves either.
+            # star, junk between an anchor and a bare filename) fail closed.
+            # Accounting is necessary, not sufficient: the tail checks below
+            # additionally reject residual `$`/`[`/`]` (embedded expansions,
+            # globs) and a separator-less var remnant (`${HERE}x.sh`), the
+            # known expansion-differing shapes among byte-accounted operands.
             if raw_target == operand:
                 pass
             elif (
@@ -660,9 +672,14 @@ def _scan_shell_sources(helper):
                 continue
             tail = _source_tail(raw_target, allowed_dir_vars)
             # A residual `$` in the tail is an unexpanded runtime substitution
-            # (an embedded `${VAR}` past the leading dir var), so the literal
-            # tail does NOT describe the runtime expansion — fail closed.
-            if not tail or not tail.endswith((".sh", ".bash")) or "$" in tail:
+            # (an embedded `${VAR}` past the leading dir var), and `[`/`]` are
+            # glob metacharacters in an unquoted include — either way the
+            # literal tail does NOT describe the runtime expansion; fail closed.
+            if (
+                not tail
+                or not tail.endswith((".sh", ".bash"))
+                or any(ch in tail for ch in "$[]")
+            ):
                 _unresolved(operand)
                 continue
             repo_rel = _source_repo_path(helper_dir, tail)

@@ -7082,6 +7082,15 @@ for _wo_name, _wo_src, in (
      '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n. "$HERE/x.sh.bak"\n'),
     ("suffix bytes after .sh in an anchored operand",
      '#!/usr/bin/env bash\n. "$(cd "$(dirname "$0")" && pwd)/x.sh.bak"\n'),
+    ("missing separator after the proved var (brace form, existing target)",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+     '. "${HERE}config-get.sh"\n'),
+    ("dot-concatenated remnant after the proved var",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n. "$HERE../x.sh"\n'),
+    ("dash-concatenated remnant after the proved var",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n. "$HERE-x.sh"\n'),
+    ("glob bracket inside the tail",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n. "$HERE/x[ab].sh"\n'),
 ):
     try:
         cwd._read = lambda rel, _s=_wo_src: _s
