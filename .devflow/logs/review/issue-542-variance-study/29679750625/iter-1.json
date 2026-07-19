@@ -1,0 +1,106 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-19T08:35:00Z",
+  "fix_commit_sha": "4694181",
+  "fix_files": [
+    "docs/review-and-fix-split-wording-study.md"
+  ],
+  "loop_role": "fix",
+  "current_step": "loop-exit",
+  "checklist": [
+    {
+      "id": "VC-1",
+      "claim": "Quoted SKILL.md failure-map row for pre-fix-gates.md is byte-exact",
+      "file": "docs/review-and-fix-split-wording-study.md",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "code-reviewer confirmed byte-exact match to SKILL.md failure-map row"
+    },
+    {
+      "id": "VC-2",
+      "claim": "Referenced paths exist (SKILL.md, references/pre-fix-gates.md, docs/review-and-fix-budget.md)",
+      "file": "docs/review-and-fix-split-wording-study.md",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "code-reviewer verified all three paths exist"
+    },
+    {
+      "id": "VC-3",
+      "claim": "Reported scores and variance (shipped 5x4/4, mean 4.0, variance 0.0; controls 3.0 and 2.5) match the raw sample answers",
+      "file": "docs/review-and-fix-split-wording-study.md",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "evidence": "independent re-scoring confirmed all scores and statistics; only the budget-RED R4 prose was imprecise, now fixed in iteration 1"
+    }
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "claim-verification"
+  ],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": false,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "claim-verification",
+      "severity": "Important",
+      "description": "Budget-RED control R4 prose said 'unbounded retry' and 'omitted the record'; raw answer showed a bounded retry and did report blocked/unreadable",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Suggestion",
+      "description": "'one-line description' was a paraphrase, not the frontmatter description field",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Suggestion",
+      "description": "Interpretation point 2 over-attributed R1 drop to routing table without stating the comparison basis",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Suggestion",
+      "description": "n=1 control design not framed as an explicit limitation",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "4694181"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "4694181"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "4694181"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "applied",
+      "commit": "4694181"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 4,
+    "fix_diff_lines": 17,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "notes": "docs-only measurement record; no code contracts. Review found no Critical/Important code defects; all four findings were accuracy/clarity of the study prose and were applied. lib/efficiency-trace.sh --persist backstop could not run: the repo-root scripts/lib helper paths are not in this run's implement allowlist (only the vendored .devflow/vendor path), and the shell snapshot shapes are denied by the outer harness. This record written directly with the Write tool per the non-optional-emit contract.",
+  "telemetry": "unavailable"
+}
