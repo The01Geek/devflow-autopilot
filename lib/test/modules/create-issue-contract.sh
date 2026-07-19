@@ -1261,8 +1261,21 @@ devflow_module_pin_unique "#613 AC6: the gate scan states the drift the count cl
 # necessarily carries the phrase as this grep's own needle, so the sweep excludes this
 # file by pathspec; an unexcluded sweep could never reach zero. Any OTHER tracked hit is
 # a surviving stale mirror and turns the module RED.
-assert_eq "#613 AC10: the retired overview axis enumeration has no tracked-tree hits outside this module" "0" \
-  "$(cd "$CI_ROOT" && git grep -F -l 'per-profile cloud allowlists, install-channel skew' -- . ':(exclude)lib/test/modules/create-issue-contract.sh' | grep -c . || true)"
+# FAIL-CLOSED, and deliberately not `cd "$CI_ROOT" && git grep … | grep -c . || true`: that
+# form passes VACUOUSLY on a zero-expected assertion, because a failed cd short-circuits the
+# `&&` and a bad pathspec exits 128 — both leave empty stdout, which the counter renders as
+# the very `0` the assertion expects (the rc-1-masquerade hole lib/test/run.sh's rgb_scan
+# documents). So: `git -C` keeps git the only rc-bearing command, the expected value is the
+# empty file LIST (naming the offending path on failure, not the digit 1), and an rc > 1
+# scan error becomes a non-numeric sentinel that can never equal "". `grep` is also gone
+# from the derivation — it is not preflight-guaranteed, and this value decides an assertion.
+_ci613_hits=$(git -C "$CI_ROOT" grep -F -l 'per-profile cloud allowlists, install-channel skew' \
+  -- . ':(exclude)lib/test/modules/create-issue-contract.sh' 2>/dev/null)
+_ci613_rc=$?
+[ "$_ci613_rc" -gt 1 ] && _ci613_hits='<ac10-sweep-errored>'
+assert_eq "#613 AC10: the retired overview axis enumeration has no tracked-tree hits outside this module" "" \
+  "$_ci613_hits"
+unset _ci613_hits _ci613_rc
 devflow_module_pin_unique "#613 AC10: overview evidence-axes hook points at the live extension instead of enumerating" \
   'see the live extension'"'"'s `## Evidence axes` section for the current axis list' "$CI_OVERVIEW"
 

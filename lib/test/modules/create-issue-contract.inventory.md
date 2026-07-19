@@ -23,7 +23,7 @@ coverage (issue #199) after it stay in the monolith.
 | Evidence-bundle sub-pass and actionability | `4385–4435` | issue-#548 section | the evidence-bundle axis floor and the bounded-actionability verdict definitions |
 | Multi-state reconciliation, adversarial input, floor rule | `4436–4543` | issue-#465 and #464 sections | within-text multi-state-contract reconciliation; the adversarial-third-party-input dimension |
 | Revision-delta verification coverage guard | `4545–4732` | issue-#559 section | every `no-options gate` occurrence classified; the shared Revision-delta verification block |
-| Shift-left evidence disciplines | _(new in this module)_ | issue-#613 section | the Consumers-axis evidence floor and closed-set complement entries; the self-referential-count gate scan and the negative sweep retiring the overview's axis enumeration |
+| Shift-left evidence disciplines | _(none — never lived in the monolith)_ | issue-#613 section | the Consumers-axis evidence floor and closed-set complement entries; the self-referential-count gate scan and the negative sweep retiring the overview's axis enumeration |
 
 The issue-#613 group also plants one pin outside its own section: a
 `devflow_module_pin_unique` on the Consumers-axis floor's sweep-leg paraphrase, placed
