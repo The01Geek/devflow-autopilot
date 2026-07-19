@@ -4,6 +4,65 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.23] — 2026-07-19
+
+### Changed
+- **Generate the runner allowlists and matcher-probe baselines from a versioned capability manifest.** The five hand-maintained allowlist literals (the `devflow-runner.yml` review `TOOLS`, the `devflow.yml` command `TOOLS`, the `devflow-implement.yml` `--allowed-tools` base list, and the `matcher-probe.yml` `REVIEW`/`IMPLEMENT` baselines) are now compiled from a single source of truth, `lib/capability-profiles.json`, by the stdlib-only `lib/generate-capability-profiles.py`. Each generated region carries a banner with the manifest version and a per-region sha256, and a `--check` mode wired into `lib/test/run.sh` turns any manifest↔literal drift RED before merge (retiring the per-pair #450 token-sync pin and covering the review-tier equality that never had one). The review profile is locked as a security boundary by `lib/review-profile.tokens`, so widening the read-only reviewer always requires a deliberate, visible diff, and `--check` refuses a region with a duplicated anchor (an injected second assignment that would win at runtime) rather than verifying only the canonical copy. This wave also eliminates the live runner↔probe review-pair drift (the probe `REVIEW` baseline was missing two vendored-helper grants). Maintainers now edit one manifest and regenerate instead of hand-syncing up to five literals; consumers are unaffected (they keep receiving the generated workflows by file-copy and never run the generator). (#561)
+
+## [2.15.22] — 2026-07-19
+
+### Changed
+create-issue: bind the canonical draft root once and cross-check the file-arm write path (issue #569, follow-up to #562).
+
+The `/devflow:create-issue` skill now **binds the canonical-draft root at its first landed write** and reuses it for the rest of the run: that write records the root immutably through the state owner (`record-draft-binding … --tier main-root`), and the write sites that run in a **later turn** — a Step 3.6 re-dispatch write and the sub-step 4 overwrite — read the bound path back from `query-draft-binding` (its `bound=` field) rather than re-resolving it or recalling it from context, so a compacted context cannot drift which file the run writes and displays. (The cross-check validates the *reported* path; `record-dispatch` still digests the caller's `--draft-file`, so resolving that read through the binding too is part of the deferred half below.) The bind itself is conditional and detected rather than assumed (query first, bind only on `bound=none`), `binding-already-recorded` is treated as a benign expected outcome, and an unbound run stays legal and safe: `bound=none` is a decided token, never composed into a path. On the file arm the skill forwards the bound canonical path to `scripts/issue-audit-state.py record-dispatch --write-path`, which cross-checks it against the recorded binding and fails closed with `write-path-mismatch` on divergence (an empty value is refused as an unestablished report; the check is otherwise additive — an unbound run, and a bound run that omits the flag, both proceed). The sub-step 3 display note now reads `<bound-root>` (was `<main-root>`) and is omitted entirely on `bound=none`, and `docs/DEVFLOW_SYSTEM_OVERVIEW.md` §11 is reconciled to describe the shipped behavior.
+
+Deferred to a follow-up: the full tier-2 active-worktree (`git rev-parse --show-toplevel`) / tier-3 embed selection ladder and the tier-1 clean-answer gate; the strict `binding-required-on-file-arm` enforcement (which requires reconciling every pre-binding file-arm test's bound-first reader setup); the divergent-roots out-of-bounds enumerations; and the `draft bound to worktree root` display marker. A `main-root`-tier binding is what the skill selects today, so the bound root equals the resolved main root and the write still degrades to the embed arm on a write failure.
+
+## [2.15.21] — 2026-07-19
+
+### Added
+- **Cloud-writer reachability contract + runtime manifest (AC1 + AC18 of #543).** Add
+  `lib/test/cloud_writer_contract.py`, a machine-auditable source of truth for the three
+  cloud execution roots (implement / light-command / review) and their transitive skill/phase
+  closure, with a `check_closure()` guard that fails when a root or dispatch edge names an
+  unclassified reached asset. Generate the checked-in `devflow-cloud-writer-contract-v1`
+  runtime manifest from that same closure, and add `scripts/validate-cloud-writer-contract.py`,
+  a pre-agent Python 3 validator whose rejection matrix is closed at exactly seventeen classes.
+  This is the first, self-contained slice of #533's deferred half; the remaining acceptance
+  criteria (call-site rework, profile-shape sweeps, portability/skew/provisioning fixtures,
+  grant synchronization) are tracked in follow-up issues. (#543)
+
+## [2.15.20] — 2026-07-18
+
+### Added
+- **Focused `create-issue-contract` test module for fast local RED/GREEN iteration.** The
+  create-issue contract coverage (Step 3.6 fresh-context audit, the state-owner cutover,
+  the authoring-discipline rules, and the revision-delta verification guard) is now a
+  selectable module at `lib/test/modules/create-issue-contract.sh`, runnable on its own with
+  `bash lib/test/run-module.sh create-issue-contract` and executed by the complete suite
+  through the existing fail-closed module boundary. `lib/test/module-harness.sh` gains a shared
+  namespaced pin API (`devflow_module_pin_count` / `devflow_module_pin_unique` /
+  `devflow_module_pin_present` / `devflow_module_pin_red_under`) whose fixed-string counter uses
+  checked `python3` and reports an unestablished count as a failed assertion instead of a
+  vacuous zero. (#584)
+
+## [2.15.19] — 2026-07-18
+
+### Changed
+- **Split the `/devflow:review-and-fix` engine into a thin root + durable step references.**
+  `skills/review-and-fix/SKILL.md` is now a thin root (≤3,500 words) that keeps the invocation
+  contract, the run-scoped `iter-<N>.json` schema, the lifecycle, a Step-routing table, a
+  fail-closed reference-loading contract, and the terminal verdict→chat mapping. The step
+  procedures (pre-fix gates, shadow review, fixing, fix-delta gate, convergence, Loop Exit, loop
+  control, error handling) are extracted, with routing and durable-continuation adaptations, into reloadable references under
+  `skills/review-and-fix/references/`, each loaded at step entry behind a single ordered
+  boundary; an unreadable reference takes a mapped fail-closed outcome that never permits a clean
+  approve. Durable `current_step`/`current_substep`/`pending_dispatch` operands in the run-scoped
+  record let a compacted or resumed run recover its position from the record rather than recall,
+  and an always-resident root rule re-reads the active reference after every subagent/skill
+  return. Full lifecycle and shadow behavior are preserved; the always-loaded prompt is reduced
+  by 32,992 words. (#539)
+
 ## [2.15.18] — 2026-07-18
 
 ### Added

@@ -146,7 +146,9 @@ command you actually ran and its observed output, or be explicitly flagged unver
 Before choosing an iteration test, use the task context or test plan to identify a candidate
 module, then confirm its exact ID in `scripts/workflow-flight-recorder-registry.json` and inspect
 the registered module when needed to establish coverage. Explicitly record the selected ID and
-use `bash lib/test/run-module.sh <module-id>` for RED/GREEN iteration. If the classifier denies
+use `bash lib/test/run-module.sh <module-id>` for RED/GREEN iteration. For **local create-issue
+contract iteration only**, select `create-issue-contract` and run exactly
+`bash lib/test/run-module.sh create-issue-contract` for the RED/GREEN loop. If the classifier denies
 the `bash` wrapper, retry the same command with the runner path as the leading token:
 `lib/test/run-module.sh <module-id>`. Do not infer or automate changed-file-to-module routing.
 When no registered module covers the change, use the full suite during iteration.
@@ -243,9 +245,9 @@ routes the discipline through a context-isolated **Agent-tool subagent**, where 
 `writing-skills` invocation is safe because the skill's flow *is* the subagent's whole task.
 
 **The trigger globs.** The routing fires on an edit to any path matching one of:
-`skills/*/SKILL.md`, `skills/implement/phases/*.md`, `skills/review/phases/*.md`, `.devflow/prompt-extensions/*.md`.
-(`agents/*.md` and skill companion/reference files stay under the base skill's Phase 2 §2.4
-discipline — out of scope for this routing.)
+`skills/*/SKILL.md`, `skills/implement/phases/*.md`, `skills/review/phases/*.md`, `skills/review-and-fix/references/*.md`, `.devflow/prompt-extensions/*.md`.
+(`agents/*.md` and skill companion/reference files *other than* the `skills/review-and-fix/references/*.md`
+step references named above stay under the base skill's Phase 2 §2.4 discipline — out of scope for this routing.)
 
 **The routing rule (edit-intent time).** Before making any edit to a path matching a trigger
 glob, the orchestrator dispatches a context-isolated Agent-tool subagent whose prompt instructs
