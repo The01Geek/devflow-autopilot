@@ -13068,7 +13068,12 @@ assert_eq "#332 fallback: resolved root gone from disk → specific (not generic
 # path; no bare-relative displayed draft-save note remains.
 CI_SKILL_332="$LIB/../skills/create-issue/SKILL.md"
 assert_pin_unique "#332 AC4: create-issue resolves the main root via resolve-main-root.sh (portable anchor)" \
-  "$PORTABLE_ANCHOR_LITERAL"'scripts/resolve-main-root.sh' "$CI_SKILL_332"
+  'MAIN_ROOT="$('"$PORTABLE_ANCHOR_LITERAL"'scripts/resolve-main-root.sh)"' "$CI_SKILL_332"
+# #569: the record-draft-binding statement is a SEPARATE bash fence, so it cannot read the
+# fence-local $MAIN_ROOT — it re-resolves the deterministic root inline (anchor expanded inline,
+# never captured), which is why a second resolve-main-root.sh call site exists and is pinned here.
+assert_pin_unique "#332/#569 AC4: the record-draft-binding --path re-resolves the root inline (self-contained fence)" \
+  '--path "$('"$PORTABLE_ANCHOR_LITERAL"'scripts/resolve-main-root.sh)" --tier main-root' "$CI_SKILL_332"
 assert_pin_unique "#332/#569 AC4: create-issue displays the draft at the bound-root ABSOLUTE path" \
   'Draft also saved to `<bound-root>/.devflow/tmp/issue-draft-<slug>.md` for review.' "$CI_SKILL_332"
 assert_eq "#332 AC4: create-issue no longer shows a bare-relative draft-save note" "no" \
