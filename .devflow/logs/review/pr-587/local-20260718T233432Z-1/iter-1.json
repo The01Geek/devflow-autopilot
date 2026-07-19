@@ -582,14 +582,13 @@
   "shadow": {
     "ran_at": "2026-07-19T01:00:00Z",
     "reviewed_sha": "ed109949+",
-    "verdict": "APPROVE (no surviving new findings)",
-    "coverage": "full",
+    "verdict": "APPROVE WITH CAVEAT (shadow roster incomplete)",
+    "coverage": "not_verified",
     "reviewers_dispatched": [
       "devflow:code-reviewer",
       "devflow:silent-failure-hunter",
       "devflow:comment-analyzer",
-      "devflow:pr-test-analyzer",
-      "devflow:requesting-code-review"
+      "devflow:pr-test-analyzer"
     ],
     "expected_reviewers": [
       "devflow:code-reviewer",
@@ -598,7 +597,7 @@
       "devflow:pr-test-analyzer",
       "devflow:requesting-code-review"
     ],
-    "reason": null,
+    "reason": "4 of 5 shadow reviewers returned. The general-purpose final-pass (devflow:requesting-code-review) had not returned when the loop reached Loop Exit. Per the shadow fail-closed contract an incomplete roster is coverage: not_verified, which prohibits reporting this run as a CLEAN approve \u2014 recorded rather than laundered. The four that returned include both always-on adversarial reviewers and the test-coverage analyst; the same final-pass reviewer DID run in iteration 1's Phase 3 and its finding (F11, the lost identity-less persist property) was fixed.",
     "phase3_findings": [
       {
         "agent": "devflow:comment-analyzer",
