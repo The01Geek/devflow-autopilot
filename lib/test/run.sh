@@ -1360,6 +1360,15 @@ assert_pin_unique "#425(rev): the iterations exclusion is never applied to the S
 # be built from model/effort only. Pin the sentence that forbids forwarding it to dispatch.
 assert_pin_unique "#425(rev): iterations is not forwarded to the --agents dispatch block" \
   'you use only its resolved `model`/`effort` and ignore `iterations`' "$ST_REV"
+# #554: the engine no longer overclaims that per-agent EFFORT is applied via a
+# fictional per-dispatch --agents block. Positively pin the honest reconciled
+# claim (per-agent effort is NOT deliverable in-session; model rides the Agent
+# tool's model parameter). The behavioral-fix pin that reintroducing the overclaim
+# flips RED is routed through assert_pin_red_under below (search "#554(rev): overclaim").
+assert_pin_unique "#554(rev): per-agent effort is not deliverable per-agent in-session (honest claim)" \
+  'not deliverable per-agent' "$ST_REV"
+assert_pin_unique "#554(rev): per-agent model rides the Agent tool's model override parameter" \
+  "delivered via the **Agent tool's \`model\` override parameter**" "$ST_REV"
 # The default-off guarantee (AC #3): iteration 1, standalone /devflow:review, and an
 # absent/unresolvable signal all exclude nothing. Pin the no-op sentence so deleting it
 # (which would drop an opted-in agent on the FIRST pass, breaking byte-identical-when-absent)
@@ -3079,6 +3088,15 @@ assert_pin_red_under "#557: survived-unfixed reconciliation is operative (stale-
 assert_pin_red_under "#425(raf): shadow-not-scoped sentence is operative (thinning the shadow goes RED)" \
   'the shadow always dispatches the **full** expected roster above regardless of any' \
   's/dispatches the \*\*full\*\* expected roster above regardless of any/dispatches a reduced roster on some/' "$ST_RAF"
+# #554 behavioral-fix pin: the engine must NOT reassert that per-agent effort is applied via a
+# fictional per-dispatch --agents block. The operative correction is the phrase "not deliverable
+# per-agent" (in-session effort is a reported session-fallback, not an applied success). A mutation
+# that reintroduces the overclaim (effort IS deliverable per-agent via a --agents block) removes
+# that phrase, so this pin flips PASS->FAIL — proving it guards the named regression (the #533
+# silent-drop-plus-overclaim), not merely its own line's presence. $ST_REV is skills/review/SKILL.md.
+assert_pin_red_under "#554(rev): overclaim reintroduction (per-agent effort applied via --agents) goes RED" \
+  'not deliverable per-agent' \
+  's/not deliverable per-agent/deliverable per-agent via a per-run --agents block/' "$ST_REV"
 # The N≥2 iteration threshold is the operative half of the default-off invariant: relaxing it
 # to N≥1 would exclude an opted-in agent on the FIRST pass (and, since standalone review is a
 # single pass, silently thin it too). Semantic mutation N≥2 → N≥1 re-introduces exactly that
