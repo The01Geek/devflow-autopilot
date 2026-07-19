@@ -8538,6 +8538,15 @@ _, work = base_repo("resume"); git(["checkout", "-qb", "feat", "main"], work); c
 git(["push", "-q", "-u", "origin", "feat"], work)
 emit("wp_matching_verdict", work, {"base": "main", "current_branch": "feat", "provenance_established": True, "workpad_body": "**Branch:** `feat`", "has_proceed_verdict": True})
 emit("wp_absent_verdict_tip", work, {"base": "main", "current_branch": "feat", "provenance_established": True, "workpad_body": "no branch line", "has_proceed_verdict": True})
+# Published tip EXISTS but no longer reaches HEAD (pushed, then committed locally).
+# The sibling wp_matching_verdict_notip arm reaches the same slug through the
+# ref-ABSENT early return, leaving `merge-base --is-ancestor` — the actual
+# divergence check — unexercised: a regression returning True once the ref merely
+# resolves would still pass that arm, and hand a diverged branch a VALIDATED_RESUME
+# (exit 0, proceed to push). This arm is what fails on that regression.
+commit(work, "local-only")
+emit("wp_matching_verdict_tipdiverged", work, {"base": "main", "current_branch": "feat", "provenance_established": True,
+     "workpad_body": "**Branch:** `feat`", "has_proceed_verdict": True})
 # aheadN + mixed ahead/behind
 _, work = base_repo("mixed"); git(["checkout", "-qb", "feat", "main"], work)
 for i in range(3): commit(work, f"a{i}")
@@ -8573,11 +8582,18 @@ lines.append(f"shallow_naive {naive or 'ERR'}")
 # force-updates it by design, so snapshotting `show-ref` wholesale here would pin
 # a claim the code does not make (and the non-shallow `nomut` arm above, which
 # runs no fetch, already covers the all-refs case).
+# `--untracked-files=no` (TRACKED files only) is the operand the published claim
+# names: "no local branch and no tracked file is touched". A raw `--porcelain`
+# here would compare UNTRACKED state too and so trip on the helper's OWN documented
+# stop-verdict payload, which `_payload_dir()` writes into `<repo>/.devflow/tmp/`
+# on exactly this DECISION_BLOCKED arm — grading a legitimate artifact as a tree
+# mutation. Tracked-only still fails on any real working-tree modification, which
+# is what the guarantee is about.
 shb = git(["show-ref", "--heads"], shal).stdout
-stb = git(["status", "--porcelain"], shal).stdout
+stb = git(["status", "--porcelain", "--untracked-files=no"], shal).stdout
 word, rc, out = run(shal, {"base": "main", "current_branch": "feat", "provenance_established": False}, cwd=shal)
 sha_ = git(["show-ref", "--heads"], shal).stdout
-sta_ = git(["status", "--porcelain"], shal).stdout
+sta_ = git(["status", "--porcelain", "--untracked-files=no"], shal).stdout
 lines.append(f"shallow_nomut {'yes' if shb == sha_ and stb == sta_ else 'no'}")
 lines.append(f"shallow_deepened {git(['rev-parse', '--is-shallow-repository'], shal).stdout.strip()}")
 lines.append(f"shallow {word} {rc}")
@@ -8596,7 +8612,7 @@ emit("shallow_undeepened", shal2, {"base": "main", "current_branch": "feat", "pr
 # ── branch-state input-validation matrix (best-effort parser over agent-written
 # JSON). Every arm asserts BOTH the fail-closed contract (`UNAVAILABLE state`,
 # exit 3) AND a SPECIFIC stderr cause — a bare exit-code assertion could not tell
-# these six guards apart, since they all reject to the same token. `bad()` takes
+# these guards apart, since they all reject to the same token. `bad()` takes
 # argv directly so the absent/empty --state-file arms are reachable at all (they
 # cannot be expressed through run(), which always writes a well-formed file).
 # Positive control: the same fixture repo yields FRESH on a well-formed file, so a
@@ -8624,6 +8640,19 @@ bad_file("iv_emptybase", json.dumps({"base": "", "current_branch": "feat"}), vwo
 bad_file("iv_nocur", json.dumps({"base": "main"}), vwork)
 bad_file("iv_emptycur", json.dumps({"base": "main", "current_branch": ""}), vwork)
 bad_file("iv_wrongtype", json.dumps({"base": 7, "current_branch": "feat"}), vwork)
+# The two gate flags, exercised on an ahead>0 repo — the state where a truthy-string
+# coercion would actually fail OPEN. A quoted "false" is truthy in Python, so before
+# the type check these sailed past `unverified-provenance` (letting a forged workpad
+# vouch for foreign ahead history) or manufactured a proceed verdict. Each arm pins
+# the SPECIFIC flag name in the cause, so one flag's guard cannot pass for the other's;
+# the bool_ok control proves real booleans still classify (the guard is not blanket).
+_, bwork = base_repo("boolflags"); git(["checkout", "-qb", "feat", "main"], bwork); commit(bwork, "a1")
+_B = {"base": "main", "current_branch": "feat"}
+bad_file("iv_provstr", json.dumps({**_B, "provenance_established": "false"}), bwork)
+bad_file("iv_verdictstr", json.dumps({**_B, "provenance_established": True,
+         "workpad_body": "**Branch:** `feat`", "has_proceed_verdict": "false"}), bwork)
+bad_file("iv_provnum", json.dumps({**_B, "provenance_established": 1}), bwork)
+emit("iv_bool_ok", bwork, {**_B, "provenance_established": False})
 open(OUT, "w").write("\n".join(lines) + "\n")
 import shutil; shutil.rmtree(ROOT)
 PY
@@ -8729,6 +8758,24 @@ assert_eq "#576 input-val: missing 'current_branch' → UNAVAILABLE state/3" "UN
 assert_eq "#576 input-val: valid-falsy empty 'current_branch' is rejected, not defaulted" "UNAVAILABLE_state 3" "$(_bs576 iv_emptycur)"
 assert_eq "#576 input-val: empty 'current_branch' names the required-keys cause" "yes" \
   "$(_bs576err iv_emptycur "non-empty string 'base' and 'current_branch'")"
+assert_eq "#576 tip-reachability: an EXISTING but diverged published tip is not a validated resume" \
+  "AMBIGUOUS 2" "$(_bs576 wp_matching_verdict_tipdiverged)"
+assert_eq "#576 tip-reachability: the diverged-tip arm carries the tip-unreachable slug (via is-ancestor, not ref-absent)" \
+  "matching-verdict-tip-unreachable" "$(_bs576v reason_wp_matching_verdict_tipdiverged)"
+assert_eq "#576 input-val: truthy-string 'provenance_established' is refused, not coerced (fail-open guard)" \
+  "UNAVAILABLE_state 3" "$(_bs576 iv_provstr)"
+assert_eq "#576 input-val: the truthy-string provenance cause names that specific flag" "yes" \
+  "$(_bs576err iv_provstr "'provenance_established' must be a JSON boolean")"
+assert_eq "#576 input-val: truthy-string 'has_proceed_verdict' is refused, not coerced (fail-open guard)" \
+  "UNAVAILABLE_state 3" "$(_bs576 iv_verdictstr)"
+assert_eq "#576 input-val: the truthy-string verdict cause names that specific flag" "yes" \
+  "$(_bs576err iv_verdictstr "'has_proceed_verdict' must be a JSON boolean")"
+assert_eq "#576 input-val: non-bool 'provenance_established' (a number) → UNAVAILABLE state/3" \
+  "UNAVAILABLE_state 3" "$(_bs576 iv_provnum)"
+# Positive control: the same ahead>0 fixture still classifies on REAL booleans, so the
+# arms above are the flag guard firing, not a blanket rejection of the fixture.
+assert_eq "#576 input-val: real JSON booleans still classify (guard is not blanket)" \
+  "DECISION_BLOCKED 2" "$(_bs576 iv_bool_ok)"
 assert_eq "#576 input-val: wrong-type 'base' (a number) → UNAVAILABLE state/3" "UNAVAILABLE_state 3" "$(_bs576 iv_wrongtype)"
 assert_eq "#576 input-val: wrong-type 'base' names the required-keys cause" "yes" \
   "$(_bs576err iv_wrongtype "non-empty string 'base' and 'current_branch'")"

@@ -546,6 +546,23 @@ def branch_state(args: argparse.Namespace) -> int:
     current_branch = state.get("current_branch")
     if not isinstance(base, str) or not base or not isinstance(current_branch, str) or not current_branch:
         return _unavailable_state("branch-state requires non-empty string 'base' and 'current_branch'")
+    # The two flags below GATE the ahead-history validation, so they get the same
+    # type discipline as `base`/`current_branch` above — never raw truthiness.
+    # Python truthiness on a JSON *string* fails OPEN on exactly the shape the
+    # producer is most likely to emit: this state file is hand-composed by an LLM
+    # agent (phase-1-setup.md §1.4.0.5) writing prose-to-JSON, and a quoted
+    # `"false"` is truthy — `not "false"` is False, `bool("false")` is True. That
+    # would skip the `unverified-provenance` DECISION_BLOCKED entirely and let a
+    # forged workpad vouch for foreign ahead history (the PR #524 publish), or
+    # manufacture a proceed verdict the run never earned. Both are silent: no
+    # exception, no exit-code deviation, just the unsafe verdict. So a present
+    # non-bool is refused here rather than coerced downstream.
+    for _flag in ("provenance_established", "has_proceed_verdict"):
+        if _flag in state and not isinstance(state[_flag], bool):
+            return _unavailable_state(
+                f"branch-state '{_flag}' must be a JSON boolean (true/false), not "
+                f"{type(state[_flag]).__name__} — a quoted \"false\" is truthy and would fail open"
+            )
 
     verdict, reason, derived = _classify_branch_state(state)
     if verdict == "UNAVAILABLE":
