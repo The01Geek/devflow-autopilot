@@ -5737,7 +5737,7 @@ assert_eq("#583 AC5: classification stays one hop from AC1 entry points",
           set(cwd.entry_points()), _cwd_helpers)
 
 # Machine-pin the preflight authorization vocabulary to the live implementation,
-# including the four guarantees whose probes are more specialized than `_need`.
+# including the guarantees whose probes are more specialized than `_need`.
 _preflight_source = (SCRIPTS.parent / "lib/preflight.sh").read_text(encoding="utf-8")
 _preflight_code = "\n".join(
     line for line in _preflight_source.splitlines()
@@ -6962,6 +6962,145 @@ finally:
 assert_eq("#583 AC5: main(['check']) reports violations and returns failure",
           (1, "cloud-writer-deps: synthetic CLI violation"),
           (_bad_check_rc, _bad_check_out.getvalue().strip()))
+
+# ── #598 review hardening ────────────────────────────────────────────────────
+# Fail-closed unresolvable shell includes: an include the source scan cannot
+# resolve to a .sh/.bash tail (extensionless target, unresolved variable,
+# for-loop variable) must emit an unresolved-source edge the guard rejects —
+# never a silent drop that lets a sourced sibling escape the trust closure.
+_unres_cases = {
+    "extensionless include":
+        '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+        '. "$HERE/../../scripts/evil"\n',
+    "unresolved-variable include":
+        '#!/usr/bin/env bash\n. "$CONFIG_HELPER"\n',
+    "for-loop-variable include":
+        '#!/usr/bin/env bash\nfor f in a.sh b.sh; do . "$f"; done\n',
+}
+_orig_cwd_read = cwd._read
+for _uc_name, _uc_src in _unres_cases.items():
+    try:
+        cwd._read = lambda rel, _s=_uc_src: _s
+        _uc_edges = cwd._scan_shell_sources("scripts/fake-unres.sh")
+    finally:
+        cwd._read = _orig_cwd_read
+    assert_eq(f"#598: {_uc_name} yields exactly one unresolved-source edge",
+              ["unresolved-source"], [e.kind for e in _uc_edges])
+    _uc_errors = cwd.check_dependencies(edges=_uc_edges)
+    assert_eq(f"#598: the guard rejects the {_uc_name} (fail closed, attributed)",
+              (1, True),
+              (len(_uc_errors),
+               bool(_uc_errors and "unresolvable source include" in _uc_errors[0])))
+# Positive control on the same fixture shape: a resolvable helper-dir include
+# still derives a clean repo-owned source edge (the rejection above is the
+# unresolvable operand's, not a precondition tripping on the fixture shape).
+try:
+    cwd._read = lambda rel: (
+        '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+        '. "$HERE/../lib/resolve-jq.sh"\n')
+    _uc_ctrl = cwd._scan_shell_sources("scripts/fake-unres.sh")
+finally:
+    cwd._read = _orig_cwd_read
+assert_eq("#598: positive control — a resolvable include still derives a clean source edge",
+          [("source", "lib/resolve-jq.sh", "repo-owned")],
+          [(e.kind, e.target, e.klass) for e in _uc_ctrl])
+
+# A parent-directory anchor ($(cd "$(dirname "$0")/.." && pwd)) must NOT prove
+# the helper directory: resolving include tails against it would rebase them one
+# level too deep and could launder a repo-root escape in-repo. The variable is
+# rejected as a dir anchor, so the tail stays absolute-looking and the guard
+# rejects the edge.
+assert_eq("#598: a parent-dir anchor value does not prove the helper directory",
+          False, cwd._helper_dir_value('$(cd "$(dirname "$0")/.." && pwd)'))
+try:
+    cwd._read = lambda rel: (
+        '#!/usr/bin/env bash\nUP="$(cd "$(dirname "$0")/.." && pwd)"\n'
+        '. "$UP/../scripts/evil.sh"\n')
+    _pa_edges = cwd._scan_shell_sources("scripts/fake-parent.sh")
+finally:
+    cwd._read = _orig_cwd_read
+assert_eq("#598: a parent-anchored include is rejected by the guard, never rebased in-repo",
+          True,
+          bool(_pa_edges) and bool(cwd.check_dependencies(edges=_pa_edges)))
+
+# Broken-import preserve-missing behavior (documented in _module_paths /
+# _sibling_module_paths): a broken relative import and a dotted import through a
+# flat module each emit a deterministic missing-leaf repo-owned edge the guard
+# flags "missing on disk" — never a silent drop.
+try:
+    cwd._read = lambda rel: "from . import definitely_missing_sibling_598\n"
+    _bi_rel = cwd._scan_python_imports("scripts/fake-broken-rel.py")
+finally:
+    cwd._read = _orig_cwd_read
+assert_eq("#598: a broken relative import emits the missing-leaf repo-owned edge",
+          [("scripts/definitely_missing_sibling_598.py", "repo-owned")],
+          [(e.target, e.klass) for e in _bi_rel])
+assert_eq("#598: the guard flags the broken relative import's missing leaf on disk",
+          True,
+          any("missing on disk" in err for err in cwd.check_dependencies(edges=_bi_rel)))
+try:
+    cwd._read = lambda rel: "import cloud_writer_deps.nonexistent_leaf_598\n"
+    _bi_flat = cwd._scan_python_imports("lib/test/fake-broken-flat.py")
+finally:
+    cwd._read = _orig_cwd_read
+assert_eq("#598: a dotted import through a flat module preserves the broken leaf edge",
+          True,
+          any(e.klass == "repo-owned" and e.target.endswith("nonexistent_leaf_598.py")
+              for e in _bi_flat))
+assert_eq("#598: the guard flags the dotted-through-flat broken leaf on disk",
+          True,
+          any("missing on disk" in err for err in cwd.check_dependencies(edges=_bi_flat)))
+
+# _declared_preflight_guarantees fail-closed arms: zero/two declarations,
+# duplicate tokens, and malformed tokens each raise rather than silently
+# widening or narrowing the authorization vocabulary.
+_pg_cases = {
+    "no declaration": "#!/usr/bin/env bash\n_need git\n",
+    "two declarations":
+        "readonly -a _DEVFLOW_PREFLIGHT_GUARANTEES=(git)\n"
+        "readonly -a _DEVFLOW_PREFLIGHT_GUARANTEES=(gh)\n",
+    "duplicate token": "readonly -a _DEVFLOW_PREFLIGHT_GUARANTEES=(git git)\n",
+    "malformed token": "readonly -a _DEVFLOW_PREFLIGHT_GUARANTEES=(g!t)\n",
+}
+for _pg_name, _pg_src in _pg_cases.items():
+    with tempfile.TemporaryDirectory() as _pg_tmp:
+        _pg_root = Path(_pg_tmp)
+        (_pg_root / "lib").mkdir()
+        (_pg_root / "lib/preflight.sh").write_text(_pg_src, encoding="utf-8")
+        _pg_orig_root = cwd.REPO_ROOT
+        try:
+            cwd.REPO_ROOT = _pg_root
+            assert_raises(f"#598: _declared_preflight_guarantees fails closed on {_pg_name}",
+                          RuntimeError, cwd._declared_preflight_guarantees)
+        finally:
+            cwd.REPO_ROOT = _pg_orig_root
+
+# _profile_grant_auth fail-closed passthrough: a helper granted in no profile
+# yields None, which leaves auth=None on the edge and the guard rejects it.
+assert_eq("#598: _profile_grant_auth returns None for a helper in no cloud profile",
+          None, cwd._profile_grant_auth("scripts/not-in-any-profile-598.sh"))
+
+# Synthetic-edge mode skips forward-verification by contract: an injected exec
+# edge whose target is absent from any source produces ONLY its own intended
+# violation, never a spurious "not found in source" (the live-only gate the
+# injection proofs depend on).
+_syn_errors = cwd.check_dependencies(edges=[
+    cwd.Edge("scripts/ghost-helper-598.sh", "exec", "made-up-binary-598", "external", None)])
+assert_eq("#598: synthetic exec edge yields only its intended violation (no forward-verify)",
+          (1, True, False),
+          (len(_syn_errors),
+           "names no preflight guarantee" in _syn_errors[0],
+           any("not found in source" in err for err in _syn_errors)))
+
+# Duck-typed edge validation covers all three Edge constructor invariants: a
+# synthetic repo-owned edge smuggling an authorization string is rejected by the
+# guard itself, not only by Edge.__post_init__.
+_duck_errors = cwd.check_dependencies(edges=[types.SimpleNamespace(
+    helper="scripts/duck-598.sh", kind="source", target="lib/resolve-jq.sh",
+    klass="repo-owned", auth="smuggled-authorization")])
+assert_eq("#598: the guard rejects a duck-typed repo-owned edge carrying authorization",
+          True,
+          any("carries external authorization" in err for err in _duck_errors))
 
 # AC18 — 17-class rejection matrix against an isolated fixture.
 with tempfile.TemporaryDirectory() as _cw_base:

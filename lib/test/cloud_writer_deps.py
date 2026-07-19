@@ -18,8 +18,11 @@ The classification is derived-plus-declared, mirroring the AC1 design
 
 * **import edges** (``.py`` entry points) and **source edges** (``.sh`` ``.``/
   ``source`` includes) are **derived** by static scan of the real source, so an
-  added import or sourced sibling cannot silently escape the classification
-  (reverse-drift is structural).
+  added import or sourced sibling cannot silently escape the classification: a
+  resolvable include/import is derived as its edge, and an include the scan
+  cannot resolve (an extensionless operand, an untracked variable) is emitted as
+  an ``unresolved-source`` edge the guard rejects — fail closed, never a silent
+  drop (reverse-drift is structural).
 * **exec edges** (an external binary or a repository-owned script the helper
   runs) are **declared** in ``EXEC_EDGES`` and **forward-verified** in executable
   command context (an external target counts the ``DEVFLOW_<TOOL>`` override
@@ -29,12 +32,18 @@ The classification is derived-plus-declared, mirroring the AC1 design
   undeclared exec still escapes — the same disclosed tradeoff AC1's
   hand-declared ``DISPATCH_EDGES`` accepts.
 
-``check_dependencies()`` is the AC5 guard. It fails when:
+``check_dependencies()`` is the AC5 guard. It fails when, among other checks:
 
-* an AC1-closure entry point is not classified (coverage gap);
-* a **repository-owned** edge does not resolve *beneath*
+* an AC1-closure entry point is not classified (coverage gap), or a ``.py``
+  entry point yields zero import edges (an AST import-scan regression);
+* a source include could not be resolved (an ``unresolved-source`` edge —
+  rejected unconditionally, fail closed);
+* an edge carries an unknown kind or class, or a repo-owned edge carries an
+  authorization string;
+* a **repository-owned** edge does not resolve beneath
   ``.devflow/vendor/devflow/`` (a repo-root ``../../scripts/…`` form escapes the
-  vendored tree and is rejected) or its target file is absent on disk;
+  vendored tree and is rejected), resolves outside the repository via a symlink,
+  or its target file is absent on disk;
 * an **external** runtime edge names no preflight guarantee (``lib/preflight.sh``
   guarantees ``git``/``gh``/``jq``/``python3``/PyYAML) or explicit profile grant;
 * a declared exec edge's target token is absent from the helper source.
@@ -91,7 +100,7 @@ def _declared_preflight_guarantees():
 # so a prerequisite cannot drift between the enforcer and this classifier.
 PREFLIGHT_GUARANTEES = _declared_preflight_guarantees()
 
-EDGE_KINDS = frozenset({"source", "exec", "import"})
+EDGE_KINDS = frozenset({"source", "exec", "import", "unresolved-source"})
 EDGE_CLASSES = frozenset({"repo-owned", "external"})
 
 # The Python module name PyYAML installs (its import edge maps to the PyYAML
@@ -501,13 +510,24 @@ def _source_tail(raw_target, allowed_dir_vars=frozenset()):
 
 
 def _helper_dir_value(value):
-    """Whether a shell value proves the current helper directory."""
+    """Whether a shell value proves the current helper directory.
+
+    A parent-directory anchor (``$(cd "$(dirname "$0")/.." && pwd)``) is
+    rejected: it resolves to the helper's *parent*, so treating it as the helper
+    directory would rebase include tails one level too deep and could launder a
+    repo-root escape into an in-repo path. Rejecting it leaves the variable
+    unproved, so its include tails stay absolute-looking and the vendor guard
+    rejects the edge instead.
+    """
     compact = " ".join(value.split())
     return (
         "cd" in compact
         and ("dirname" in compact or "%/*" in compact)
         and "pwd" in compact
         and ("BASH_SOURCE" in compact or "$0" in compact or "${0}" in compact)
+        # Only a parent hop *inside* the cd argument (before `pwd`) re-anchors
+        # the value; a `/..` after `pwd` is an include tail, not the anchor.
+        and "/.." not in compact.split("pwd", 1)[0]
     )
 
 
@@ -517,9 +537,25 @@ def _source_repo_path(helper_dir, tail):
 
 
 def _scan_shell_sources(helper):
-    """Derive source edges from a `.sh` entry point's `.`/`source` includes."""
+    """Derive source edges from a `.sh` entry point's `.`/`source` includes.
+
+    Fail closed on an include the scan cannot resolve: an operand with no
+    ``.sh``/``.bash``-suffixed token, or a variable operand with no tracked
+    binding (including a ``for``-loop variable), emits an ``unresolved-source``
+    edge that ``check_dependencies()`` rejects unconditionally — never a silent
+    drop that would let a sourced sibling escape the trust closure.
+    """
     edges = []
     seen = set()
+
+    def _unresolved(target):
+        key = ("unresolved", target)
+        if key not in seen:
+            seen.add(key)
+            # The class is presumptive (the operand could not be resolved at
+            # all); the guard rejects the edge before any class-specific check.
+            edges.append(Edge(helper, "unresolved-source", target, "repo-owned"))
+
     helper_dir = str(Path(helper).parent.as_posix())
     code = _strip_shell_structural_data(_strip_line_comments(_read(helper)))
     variable = re.compile(r"^\$\{?([A-Za-z_]\w*)\}?$")
@@ -531,6 +567,10 @@ def _scan_shell_sources(helper):
         if bound:
             for state in states:
                 operands.extend(sorted(state.get(bound.group(1), set())))
+            if not operands:
+                # A variable include whose binding the tracker cannot resolve
+                # (e.g. a `for`-loop variable) — fail closed, never drop.
+                _unresolved(args[0])
         else:
             operands.append(args[0])
         possible_bindings = {}
@@ -552,6 +592,7 @@ def _scan_shell_sources(helper):
         for operand in operands:
             tok = _SH_TOKEN.search(operand)
             if not tok:
+                _unresolved(operand)
                 continue
             raw_target = tok.group()
             if (
@@ -562,6 +603,7 @@ def _scan_shell_sources(helper):
                 raw_target = raw_target.lstrip("/")
             tail = _source_tail(raw_target, allowed_dir_vars)
             if not tail or not tail.endswith((".sh", ".bash")):
+                _unresolved(operand)
                 continue
             repo_rel = _source_repo_path(helper_dir, tail)
             if repo_rel in seen:
@@ -623,7 +665,7 @@ def classify_all():
 
 
 def resolves_beneath_vendor(repo_rel):
-    """True iff ``repo_rel`` vendors to a path *beneath* ``.devflow/vendor/devflow/``.
+    """True iff ``repo_rel`` vendors to a path beneath (or equal to) ``.devflow/vendor/devflow/``.
 
     A source edge written as ``../../scripts/foo`` from a ``scripts/`` helper
     reaches this predicate already helper-relative-normalized as
@@ -2847,7 +2889,21 @@ def check_dependencies(edges=None):
             errors.append(f"{e.helper}: edge to {e.target!r} has unknown kind {e.kind!r}")
         if e.klass not in EDGE_CLASSES:
             errors.append(f"{e.helper}: edge to {e.target!r} has unknown class {e.klass!r}")
-        if e.klass == "repo-owned":
+        if e.kind == "unresolved-source":
+            # A source include the scanner could not resolve — rejected
+            # unconditionally, before any class-specific check (fail closed).
+            errors.append(
+                f"{e.helper}: unresolvable source include {e.target!r} — the "
+                f"operand could not be resolved to a .sh/.bash include (fail closed)"
+            )
+        elif e.klass == "repo-owned":
+            if getattr(e, "auth", None):
+                # Duck-typed edges bypass Edge.__post_init__, so re-assert its
+                # third invariant here (repo-owned edges carry no authorization).
+                errors.append(
+                    f"{e.helper}: repo-owned {e.kind} edge {e.target!r} "
+                    f"carries external authorization"
+                )
             if not resolves_beneath_vendor(e.target):
                 errors.append(
                     f"{e.helper}: repo-owned {e.kind} edge {e.target!r} does not "
