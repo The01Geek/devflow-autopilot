@@ -7444,12 +7444,18 @@ _cap_fail "#561 T13e manifest_version boolean-typed is rejected as a non-integer
 # while the lock keeps it) → the boundary check's missing-direction ('would NARROW') arm,
 # the sibling of the review-widen row, observes RED.
 _cap_fail "#561 T13f review narrows below the lock (missing-direction boundary drift)"       review-narrow   generate "would NARROW the reviewer" unchanged
-# T13g: a SAME-LINE second assignment (`TOOLS='…'; TOOLS='…widened…'`) wins at bash runtime
-# but is NOT line-leading, so the pre-fix line-anchored dup count returned 1 and --check
-# passed clean — silently widening the reviewer past the gate. The statement-position dup
-# guard (line-leading OR after ;/&&/||) must refuse it. This is the T13a sibling for the
-# same-line vector the line-anchored count missed (PR #588 silent-failure/code-reviewer).
-_cap_fail "#561 T13g --check refuses a SAME-LINE duplicated assign anchor (reviewer-boundary vector)" anchor-dup-sameline check "is duplicated"
+# T13g/p/q: an injected second assignment that WINS at bash runtime (last-assignment-wins)
+# must be refused by --check regardless of how it is separated or quoted — the reviewer-
+# boundary widening vector. A statement-position assignment wins whether separated by `;`
+# (T13g), plain WHITESPACE (T13p — a bare second assignment word on one simple command),
+# or placed on a fresh line in a DIFFERENT quote style (T13q — a double-quoted literal that
+# leaves the canonical single-quote line, and thus the banner sha/lock/parse, intact). The
+# pre-fix line-anchored single-quote count missed all three; the quote/separator-agnostic
+# replacement counter (excluding only the self-referencing `TOOLS="$TOOLS,…"` append)
+# refuses each (PR #588 shadow: code-reviewer + silent-failure-hunter).
+_cap_fail "#561 T13g --check refuses a SAME-LINE ;-separated duplicated assign (reviewer-boundary vector)" anchor-dup-sameline check "is duplicated"
+_cap_fail "#561 T13p --check refuses a WHITESPACE-separated duplicated assign word"                        anchor-dup-space    check "is duplicated"
+_cap_fail "#561 T13q --check refuses a DOUBLE-QUOTED literal replacement assignment"                       anchor-dup-dquote   check "is duplicated"
 # T13h–n: the manifest-validation adversarial matrix arms that had no mutation — a
 # regression deleting any of these fail-closed guards would otherwise ship green (the
 # CLAUDE.md best-effort-parser six-shape convention over every manifest read, PR #588).

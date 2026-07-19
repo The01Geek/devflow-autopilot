@@ -279,6 +279,36 @@ def main(argv):
                 count=1,
             ),
         )
+    elif mut == "anchor-dup-space":
+        # A WHITESPACE-separated second assignment word — bash accepts several assignment
+        # words on one simple command (last wins, persists with no command word), so this
+        # wins at runtime with NO ;/&&/|| separator at all. The quote/separator-agnostic
+        # replacement counter must still refuse it.
+        edit_wf(
+            root,
+            "devflow-runner.yml",
+            lambda s: re.sub(
+                r"(?m)^([ \t]*TOOLS='[^']*')",
+                r"\1 TOOLS='Read,Glob,Grep,Bash(SPACE_WIDEN:*)'",
+                s,
+                count=1,
+            ),
+        )
+    elif mut == "anchor-dup-dquote":
+        # A DOUBLE-QUOTED literal replacement on a fresh statement line — keeps the
+        # canonical single-quote line intact (banner sha / lock / single-quote parse all
+        # still validate) while winning at runtime by last-assignment-wins. A single-quote-
+        # scoped guard misses it; the replacement counter (which excludes only the
+        # self-referencing `TOOLS="$TOOLS,…"` append) must count and refuse it.
+        def inject_dquote(text):
+            m = re.search(r"(?m)^([ \t]*)TOOLS='[^']*'", text)
+            if not m:
+                return text
+            indent = m.group(1)
+            inject = "\n" + indent + 'TOOLS="Read,Glob,Grep,Bash(DQUOTE_WIDEN:*)"'
+            return text[: m.end()] + inject + text[m.end():]
+
+        edit_wf(root, "devflow-runner.yml", inject_dquote)
     elif mut == "version-missing":
         d = load_manifest(root)
         del d["manifest_version"]

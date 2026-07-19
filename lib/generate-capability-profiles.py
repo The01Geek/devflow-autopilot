@@ -298,21 +298,33 @@ def _assign_anchor_re(var):
     return re.compile(r"^([ \t]*)" + re.escape(var) + r"='[^']*'", re.M)
 
 
-def _assign_dup_re(var):
-    # Counts region assignments in STATEMENT position for the duplicate-anchor refusal —
-    # NOT only line-leading ones. bash's last-assignment-wins means a second `VAR='…'`
-    # placed on the SAME line after a `;`/`&&`/`||` separator (a valid statement in the
-    # `run:` block) would win at runtime while a line-anchored count returned 1 and
-    # `--check` passed clean, silently widening the reviewer past the gate. So match a
-    # single-quoted assignment wherever a statement may begin: at a line start (after
-    # indent) OR immediately after `;`/`&&`/`||`. A comment mention (`# … VAR='…'`) is
-    # preceded by prose, never a statement separator, so it is not counted — keeping the
-    # count at 1 on the canonical tree; a legitimate `VAR="$VAR,…"` provisioning append
-    # is double-quoted and never matches the single-quote anchor.
-    return re.compile(
-        r"(?:^[ \t]*|;[ \t]*|&&[ \t]*|\|\|[ \t]*)" + re.escape(var) + r"='",
-        re.M,
+def _count_replacement_assignments(text, var):
+    # Count statement-position value-REPLACEMENT assignments to `var` on non-comment lines
+    # — the duplicate/injection guard. bash's last-assignment-wins means the LAST
+    # statement-position assignment word is what the reviewer runs with, and a
+    # statement-position assignment wins REGARDLESS of how it is separated (whitespace, ;,
+    # &, &&, ||, |, newline — a simple command accepts several assignment words, and with
+    # no command word they persist in the current shell) and REGARDLESS of quote style. So
+    # a separator- or quote-scoped count fails open on the vectors it does not enumerate.
+    # Instead count every `var=` in assignment-word position (`var=` not preceded by a word
+    # char, so RUNNER_TOOLS= is not a TOOLS= match), and EXCLUDE only a self-referencing
+    # derivation (`var=$var…` / `var="$var…"` / `var="${var}…"`) — the one legitimate such
+    # shape is devflow-runner.yml's `TOOLS="$TOOLS,$FILTERED"` provisioning append, which
+    # derives from (does not replace) the canonical value. Comment lines are stripped so a
+    # `# … var='…'` mention is never counted. On the canonical tree every region has
+    # exactly one replacement (its single-quoted generated literal); any injected second
+    # assignment — however separated, single- or double-quoted — makes it > 1 and is
+    # refused, so an injected widening cannot pass --check while winning at runtime.
+    noncomment = "\n".join(
+        ln for ln in text.split("\n") if not re.match(r"^[ \t]*#", ln)
     )
+    self_deriv = re.compile(r'"?\$\{?' + re.escape(var) + r"\b")
+    count = 0
+    for m in re.finditer(r"(?<![\w])" + re.escape(var) + r"=", noncomment):
+        if self_deriv.match(noncomment[m.end():]):
+            continue  # a derivation of the existing value, not a replacement
+        count += 1
+    return count
 
 
 IMPLEMENT_MARKER_RE = re.compile(r'--allowed-tools\n[ \t]*"')
@@ -361,19 +373,21 @@ def process_assign(text, region, tokens, version):
     rid = region["id"]
     var = region["var"]
     anchor_re = _assign_anchor_re(var)
-    # Duplicate refusal counts STATEMENT-position assignments (line-leading OR same-line
-    # after ;/&&/||), so a same-line injected second assignment — which wins at bash
-    # runtime — cannot slip past as it would with a line-anchored count. Positioning
-    # still uses the line-leading canonical match below.
-    ndup = len(_assign_dup_re(var).findall(text))
+    # Duplicate/injection refusal counts every statement-position value-REPLACEMENT
+    # assignment (any separator, any quote style; the legitimate self-referencing append
+    # is excluded), so an injected second assignment — which wins at bash runtime however
+    # it is separated or quoted — cannot slip past. Positioning still uses the line-leading
+    # canonical single-quote match below.
+    ndup = _count_replacement_assignments(text, var)
     matches = list(anchor_re.finditer(text))
     if not matches:
         die(f"region {rid}: anchor {var}=' not found in {region['file'].name}")
     if ndup > 1:
         die(
-            f"region {rid}: anchor {var}=' is duplicated "
-            f"({ndup} matches, incl. any same-line ;/&&/|| second assignment) "
-            f"in {region['file'].name} — refusing to guess"
+            f"region {rid}: anchor {var}= is duplicated "
+            f"({ndup} replacement assignments, incl. any whitespace/;/&/&&/||-separated "
+            f"or double-quoted second assignment) in {region['file'].name} — "
+            "refusing to guess"
         )
     m = matches[0]
     indent = m.group(1)
@@ -537,7 +551,7 @@ def do_check(version, resolved):
         # region exactly as generate refuses to write one, so an injected duplicate cannot
         # silently widen the reviewer boundary past the --check gate.
         if region["kind"] == "assign":
-            ndup = len(_assign_dup_re(region["var"]).findall(text))
+            ndup = _count_replacement_assignments(text, region["var"])
         else:
             ndup = len(IMPLEMENT_MARKER_RE.findall(text))
         if ndup > 1:
