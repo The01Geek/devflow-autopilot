@@ -1,0 +1,720 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-18T23:34:32Z",
+  "fix_commit_sha": "HEAD (5 fix commits: 4e7fafce, 101e5117, ed109949, 3fbfac3b, +run-b alignment)",
+  "fix_files": [
+    "lib/test/run.sh"
+  ],
+  "loop_role": "fix",
+  "current_step": "loop-exit",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "detect_all_audit_forced_critic": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "checklist_summary": {
+    "total": 17,
+    "pass": 15,
+    "fail": 2,
+    "inconclusive": 0,
+    "lite": 0,
+    "agent": 17,
+    "note": "both FAILs adjudicated as claim-quality pushbacks (VC-3, VC-14)"
+  },
+  "phase3_findings": [
+    {
+      "id": "F1",
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "command-scope matrix row omits -u GIT_CONFIG_PARAMETERS; that channel outranks GIT_CONFIG_COUNT/KEY_n, so an ambient value flips the row (AC1 not discharged; reintroduces host-dependence)",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          21419,
+          21426
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 5,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F2",
+      "agent": "devflow:code-reviewer",
+      "severity": "Important",
+      "description": "AC6 comment '(never the host's)' false: GIT_AUTHOR_*/GIT_COMMITTER_* outrank -c config",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          21356,
+          21357
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F3",
+      "agent": "devflow:comment-analyzer",
+      "severity": "Important",
+      "description": "'runs the whole thing under a HOSTILE outer environment' \u2014 fixture setup runs outside the subshell",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          21348,
+          21351
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F4",
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "four unguarded mktemp calls; empty GIT_CONFIG_GLOBAL/SYSTEM reads as unset and silently disarms the hostility (fail-open)",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          21361,
+          21366
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 3,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F5",
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "temp files not registered with _suite_tmp_file",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          21361,
+          21366
+        ],
+        "kind": "leak"
+      },
+      "corroboration_count": 3,
+      "step25_classification": "codebase",
+      "fix_decision": "pushed_back"
+    },
+    {
+      "id": "F6",
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "hostile system config file is inert under NOSYSTEM=1; comment overstates the environment",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          21363,
+          21374
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F7",
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "AC7 asserts committer only; author half unguarded",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          21452,
+          21453
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F8",
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "negative probe conflates any git failure with 'identity unresolved'",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          21434,
+          21443
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "pushed_back"
+    },
+    {
+      "id": "F9",
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "no arrival guard: an early subshell abort records zero FAILs and leaves the suite green",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          21372,
+          21454
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F10",
+      "agent": "orchestrator:completeness-critic",
+      "severity": "Important",
+      "description": "GIT_CONFIG_PARAMETERS never activated by the hostile env, so every row's -u guard is unproven-necessary (detect-all self-certification)",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          21372,
+          21379
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F11",
+      "agent": "devflow:requesting-code-review",
+      "severity": "Important",
+      "description": "persist now runs only under an identity-RICH env; #441 AC8's original identity-less property lost its guard",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          21445,
+          21453
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F12",
+      "agent": "orchestrator:checklist",
+      "severity": "Suggestion",
+      "description": "no git version floor for GIT_CONFIG_GLOBAL/SYSTEM/COUNT (>=2.31/2.32)",
+      "defect_signature": {
+        "file": "lib/preflight.sh",
+        "line_range": null,
+        "kind": "other"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "id": "F13",
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "_id2's single-token-name constraint undocumented",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          21380,
+          21381
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 4,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F14",
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "'isolate EVERY source' absolute; local repo config isolated by the fixture, not the probe",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          21428,
+          21429
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F15",
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "NOSYSTEM 'overrides'/'despite' implies a mechanism git does not offer",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          21370,
+          21386
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F16",
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "AC4 parenthetical is a garden-path sentence",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          21431,
+          21433
+        ],
+        "kind": "style"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F17",
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "AC9 has no in-tree regression guard; suggests harness-entry normalization of GIT_CONFIG_*/identity vars",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": null,
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "id": "F18",
+      "agent": "orchestrator:stale-prose-precheck",
+      "severity": "Suggestion",
+      "description": "five count-locked claims authored by this iteration's own fix delta",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          21375,
+          21493
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F1",
+      "decision": "applied",
+      "commit": "4e7fafce"
+    },
+    {
+      "finding_id": "F2",
+      "decision": "applied",
+      "commit": "4e7fafce"
+    },
+    {
+      "finding_id": "F3",
+      "decision": "applied",
+      "commit": "4e7fafce"
+    },
+    {
+      "finding_id": "F4",
+      "decision": "applied",
+      "commit": "4e7fafce"
+    },
+    {
+      "finding_id": "F6",
+      "decision": "applied",
+      "commit": "4e7fafce"
+    },
+    {
+      "finding_id": "F7",
+      "decision": "applied",
+      "commit": "4e7fafce"
+    },
+    {
+      "finding_id": "F9",
+      "decision": "applied",
+      "commit": "4e7fafce"
+    },
+    {
+      "finding_id": "F10",
+      "decision": "applied",
+      "commit": "4e7fafce"
+    },
+    {
+      "finding_id": "F11",
+      "decision": "applied",
+      "commit": "4e7fafce"
+    },
+    {
+      "finding_id": "F13",
+      "decision": "applied",
+      "commit": "4e7fafce"
+    },
+    {
+      "finding_id": "F14",
+      "decision": "applied",
+      "commit": "4e7fafce"
+    },
+    {
+      "finding_id": "F15",
+      "decision": "applied",
+      "commit": "4e7fafce"
+    },
+    {
+      "finding_id": "F16",
+      "decision": "applied",
+      "commit": "4e7fafce"
+    },
+    {
+      "finding_id": "F18",
+      "decision": "applied",
+      "commit": "4e7fafce"
+    },
+    {
+      "finding_id": "F5",
+      "decision": "pushed_back",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "the four new temp config files should be registered with the _suite_tmp_file cleanup registry",
+      "skip_category": "claim-quality",
+      "evidence": "lib/test/run.sh:76-83 scopes the registry explicitly to WHOLE-RUN temps ('every whole-run temp file/dir is registered at its creation site'); these four are block-local, and the file's documented convention for block-local temps is bare allocation + trailing rm -f (dozens of precedents: GS_PROBE, CG_BAD, DEF_CFG, MAXI_CFG, ST_CFG). Registering block-locals contradicts the documented design. The real defect \u2014 the unguarded allocation (fail-open) \u2014 is fixed under F4.",
+      "parking_evidence": {
+        "basis": "the prescription contradicts the registry's documented whole-run scope; the underlying fail-open it cited is fixed separately under F4",
+        "failing_input": "an mktemp failure leaving GIT_CONFIG_GLOBAL/SYSTEM empty",
+        "source": "lib/test/run.sh:76-83 (registry scope comment)",
+        "finding_ref": {
+          "iter": 1,
+          "index": 4
+        }
+      }
+    },
+    {
+      "finding_id": "F8",
+      "decision": "pushed_back",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "the negative probe should assert on git's stderr text ('unable to auto-detect' / 'Please tell me who you are') rather than bare exit status",
+      "skip_category": "claim-quality",
+      "evidence": "Matching git's diagnostic strings is exactly the version-dependent commit-diagnostic coupling issue #575 removed (the issue's Desired Behavior states the negative control must use git's identity-resolution commands INSTEAD of matching version-dependent diagnostics). The four matrix rows are a positive control on the same fixture and same repo path, so a bogus-path/missing-git failure turns them RED first; the probe is not vacuous in situ.",
+      "parking_evidence": {
+        "basis": "the prescription reintroduces the version-dependent diagnostic coupling the issue explicitly removed",
+        "failing_input": "an unrelated non-zero git exit under the probe's isolated env",
+        "source": "issue #575 Desired Behavior paragraph",
+        "finding_ref": {
+          "iter": 1,
+          "index": 7
+        }
+      }
+    },
+    {
+      "finding_id": "F12",
+      "decision": "deferred",
+      "source_file": "lib/preflight.sh",
+      "claim_text": "no minimum git version is enforced for GIT_CONFIG_GLOBAL/GIT_CONFIG_SYSTEM (2.32) and GIT_CONFIG_COUNT (2.31)",
+      "skip_category": "out-of-scope",
+      "evidence": "Adding a git version floor changes lib/preflight.sh, outside issue #575's Architecture Alignment ('Keep the correction local to identity-sensitive fixture execution'). Degradation is loud, not silent: on an identity-configured host an old git turns the AC4 probe RED. The false-green case needs old git AND a host with no identity at all.",
+      "parking_evidence": {
+        "basis": "a preflight version floor is outside the issue's stated local-to-the-fixture scope, and the degradation is loud on the realistic host",
+        "failing_input": "git < 2.31 on a host with no configured identity",
+        "source": "issue #575 Technical Context / Architecture Alignment",
+        "finding_ref": {
+          "iter": 1,
+          "index": 11
+        }
+      }
+    },
+    {
+      "finding_id": "F17",
+      "decision": "deferred",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "AC9 should be enforced by a harness-entry normalization of GIT_CONFIG_*/identity variables, per the issue #533 precedent",
+      "skip_category": "out-of-scope",
+      "evidence": "A suite-wide harness-entry normalization changes behavior for ~165 other git-commit sites, contradicting issue #575's Architecture Alignment ('Keep the correction local to identity-sensitive fixture execution'). AC9 was verified empirically this run instead (see verification_evidence.ac9_hostile_run).",
+      "parking_evidence": {
+        "basis": "a suite-wide harness change exceeds the issue's stated local scope; AC9 discharged empirically this run",
+        "failing_input": "a future identity-sensitive fixture reintroducing host dependence",
+        "source": "issue #575 Technical Context / Architecture Alignment",
+        "finding_ref": {
+          "iter": 1,
+          "index": 16
+        }
+      }
+    },
+    {
+      "finding_id": "S-leak",
+      "decision": "pushed_back",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "register the four mktemp fixtures with a trap 'rm -f ...' EXIT so a later guard's exit 1 does not leak the earlier three",
+      "skip_category": "claim-quality",
+      "evidence": "lib/test/run.sh:76-83 documents that re-registering a `trap ... EXIT` REPLACES the suite's single _suite_cleanup handler \u2014 the exact defect PR #539 found (SKIPS_FILE/IMPL_SKILL_BUNDLE silently un-covered). Adding a local EXIT trap here would disarm whole-run cleanup, a strictly worse leak than the three temp files it saves on a path that only fires when mktemp is already failing.",
+      "parking_evidence": {
+        "basis": "the prescribed remedy would replace the suite's single EXIT cleanup handler, the documented PR #539 defect",
+        "failing_input": "a mktemp failure on the fourth allocation after three succeeded",
+        "source": "lib/test/run.sh:76-83",
+        "finding_ref": {
+          "iter": 1,
+          "index": 18
+        }
+      }
+    }
+  ],
+  "test_first_gate": [
+    {
+      "decision": "mutation-check (behavioral-fix pin, F1)",
+      "command": "cp lib/test/run.sh lib/test/_mut1.sh; sed -i '' '21456d' lib/test/_mut1.sh  # delete the cmd row's -u GIT_CONFIG_PARAMETERS; bash lib/test/_mut1.sh",
+      "result": "RED as required",
+      "evidence": "9343 passed, 1 failed \u2014 the single FAIL was 'tb(#575 AC1): command-scope config row resolves its own identity'. Guard proven non-vacuous. Mutant run on a COPY; copy deleted."
+    },
+    {
+      "decision": "mutation-check (behavioral-fix pin, F2/AC6)",
+      "command": "copy with the seed commit's `env -u GIT_AUTHOR_NAME ...` wrapper removed; bash lib/test/_mut2.sh",
+      "result": "RED as required",
+      "evidence": "9343 passed, 1 failed \u2014 the single FAIL was 'tb(#575 AC6): the seed commit attributes to its ONE-SHOT identity, not an ambient one'. Guard proven non-vacuous. Mutant run on a COPY; copy deleted."
+    },
+    {
+      "decision": "empirical precedence probes (pre-fix, scratch repos only)",
+      "command": "git var GIT_AUTHOR_IDENT under crafted GIT_CONFIG_PARAMETERS / GIT_AUTHOR_* environments",
+      "result": "pass",
+      "evidence": "GIT_CONFIG_PARAMETERS resolved 'Leak <leak@e.com>' over GIT_CONFIG_COUNT's CmdName (F1 confirmed); GIT_AUTHOR_* resolved 'HostLeak' over `-c user.name=seed` (F2 confirmed); EMAIL fallback correctly blocked by user.useConfigOnly (no gap)."
+    }
+  ],
+  "sweep_defs_read": [],
+  "sweep_evidence": {
+    "status": "class-swept-inline",
+    "note": "F1's class (an identity-source channel a row fails to isolate) swept across all four matrix rows and both negative probes: only the command-scope row was missing -u GIT_CONFIG_PARAMETERS; the other six env invocations already carried it. Comment-claim class (F2/F3/F6/F13/F14/F15/F16) swept across the whole added comment block."
+  },
+  "stale_prose_check": {
+    "rc": 0,
+    "stale_rows": 0,
+    "unresolvable_rows_initial": 5,
+    "outcome": "all five count-locked claims were authored by this iteration's own fix delta and were reworded drift-proof (pin-or-don't-write policy); re-run is clean with zero rows"
+  },
+  "base_checkpoint": {
+    "token": "UP_TO_DATE",
+    "behind_by": null
+  },
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "duration_s": 560,
+    "skipped_checks": [],
+    "clean_tree_final": "9345 passed, 0 failed, 0 skipped",
+    "ac9_hostile_final": "9345 passed, 0 failed, 0 skipped (global+system config, GIT_CONFIG_PARAMETERS, all four identity vars, EMAIL)",
+    "pre_fix_baseline": "9341 passed, 0 failed, 0 skipped",
+    "mutation_checks": "M1 -u GIT_CONFIG_PARAMETERS removed -> AC1 cmd row RED; M2 seed env -u removed -> AC6 RED; M3 unbound-var abort -> arrival sentinel RED (12 assertions unexecuted); M4 env shadowed rc127 -> both AC4 probes RED"
+  },
+  "convergence_inputs": {
+    "fixes_applied": 14,
+    "fix_diff_lines": 78,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": {
+    "phase_0": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 40
+    },
+    "phase_1": {
+      "calls": 1,
+      "tokens": 75316,
+      "wall_clock_s": 117
+    },
+    "phase_2": {
+      "calls": 17,
+      "tokens": 1053000,
+      "wall_clock_s": 540
+    },
+    "phase_3": {
+      "calls": 5,
+      "tokens": 357000,
+      "wall_clock_s": 265
+    },
+    "step_2_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 60,
+      "webfetches": 0
+    },
+    "phase_4_x": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 5
+    }
+  },
+  "shadow": {
+    "ran_at": "2026-07-19T01:00:00Z",
+    "reviewed_sha": "ed109949+",
+    "verdict": "APPROVE (no surviving new findings)",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": null,
+    "phase3_findings": [
+      {
+        "agent": "devflow:comment-analyzer",
+        "severity": "Critical",
+        "description": "'no GIT_CONFIG_NOSYSTEM value re-enables system config' false (0/no/false re-enable it) \u2014 two sites",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            21395,
+            21426
+          ],
+          "kind": "documented_falsehood"
+        },
+        "disposition": "fixed in-loop (ed109949); orchestrator adjudicated the direct contradiction with silent-failure-hunter by measurement"
+      },
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Important",
+        "description": "AC4 probes vacuous when env unavailable (rc 127 conflated with git's 128)",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            21484,
+            21495
+          ],
+          "kind": "test_gap"
+        },
+        "disposition": "fixed in-loop (ed109949); mutation-proven RED under env=rc127"
+      },
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Important",
+        "description": "sentinel comment's 'a missing env' example false \u2014 127 continues, does not abort",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            21524,
+            21529
+          ],
+          "kind": "documented_falsehood"
+        },
+        "disposition": "fixed in-loop (ed109949); verified by probe"
+      },
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Important",
+        "description": "$EMAIL identity channel neither enumerated nor isolated; only user.useConfigOnly blocked it and nothing asserts that option",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            21473,
+            21505
+          ],
+          "kind": "test_gap"
+        },
+        "disposition": "fixed in-loop (ed109949 + run-b alignment); -u EMAIL proven load-bearing without useConfigOnly"
+      },
+      {
+        "agent": "devflow:comment-analyzer",
+        "severity": "Suggestion",
+        "description": "'each row must UNSET' overstates \u2014 only system row + negative probes do",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            21395,
+            21396
+          ],
+          "kind": "comment_drift"
+        },
+        "disposition": "fixed in-loop"
+      },
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Suggestion",
+        "description": "TB_HOSTILE_SYS 'leak canary' cannot fire under any reachable config",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            21398,
+            21404
+          ],
+          "kind": "style"
+        },
+        "disposition": "fixed in-loop (reworded to inert attribution placeholder)"
+      },
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Suggestion",
+        "description": "the four mktemp fixtures leak if a LATER allocation guard fires exit 1",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            21382,
+            21396
+          ],
+          "kind": "leak"
+        },
+        "disposition": "pushed_back"
+      },
+      {
+        "agent": "devflow:code-reviewer",
+        "severity": null,
+        "description": "no findings at confidence >=80; independently confirmed all seven git-behavior claims and both fixes",
+        "defect_signature": null,
+        "disposition": "clean"
+      }
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 7,
+      "overlap_with_iter_N": 1,
+      "new": 6,
+      "new_critical": 1,
+      "new_important": 3
+    },
+    "promoted_to_iter_next": false,
+    "note": "All six new shadow findings were fixed or adjudicated within iteration 1 rather than promoted, because each was a one-token or comment-only reconciliation on the same changed surface. The Critical was a direct reviewer disagreement (comment-analyzer vs silent-failure-hunter on GIT_CONFIG_NOSYSTEM bool semantics) resolved by orchestrator measurement, not by vote."
+  }
+}
