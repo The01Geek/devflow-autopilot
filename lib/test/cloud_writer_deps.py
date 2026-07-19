@@ -509,26 +509,41 @@ def _source_tail(raw_target, allowed_dir_vars=frozenset()):
     return tok.lstrip("/")
 
 
+# The exact self-directory anchor shapes a closure helper may use, matched
+# structurally after quote-stripping and whitespace-compaction: `$(cd
+# $(dirname <self>) && pwd)` or `$(cd ${<self>%/*} && pwd)`, where <self> is
+# `$0` / `${0}` / `$BASH_SOURCE` / `${BASH_SOURCE[0]}`. A whitelist — not a
+# substring heuristic — so every equivalent parent-anchor spelling (`/..` inside
+# the cd argument, a second `cd ..`, a nested double-`dirname`, a `/..` suffix
+# after `pwd)`, prefix junk) fails the full match and the value stays unproved.
+_HELPER_DIR_ANCHOR = re.compile(
+    r"\$\(cd (?:"
+    r"\$\(dirname \$(?:0|\{0\}|BASH_SOURCE|\{BASH_SOURCE\[0\]\})\)"
+    r"|\$\{(?:0|BASH_SOURCE\[0\])%/\*\}"
+    r") && pwd\)"
+)
+
+
+def _quote_stripped_compact(value):
+    return " ".join(value.replace('"', "").split())
+
+
 def _helper_dir_value(value):
     """Whether a shell value proves the current helper directory.
 
-    A parent-directory anchor (``$(cd "$(dirname "$0")/.." && pwd)``) is
-    rejected: it resolves to the helper's *parent*, so treating it as the helper
-    directory would rebase include tails one level too deep and could launder a
-    repo-root escape into an in-repo path. Rejecting it leaves the variable
-    unproved, so its include tails stay absolute-looking and the vendor guard
-    rejects the edge instead.
+    Strict structural whitelist (see ``_HELPER_DIR_ANCHOR``): the entire value
+    must be exactly one self-directory anchor. Anything else — in particular any
+    parent-directory spelling, which resolves to the helper's *parent* and would
+    rebase include tails so a repo-root escape could launder into an in-repo
+    path — leaves the variable unproved, so its include tails stay
+    absolute-looking and the vendor guard rejects the edge instead.
     """
-    compact = " ".join(value.split())
-    return (
-        "cd" in compact
-        and ("dirname" in compact or "%/*" in compact)
-        and "pwd" in compact
-        and ("BASH_SOURCE" in compact or "$0" in compact or "${0}" in compact)
-        # Only a parent hop *inside* the cd argument (before `pwd`) re-anchors
-        # the value; a `/..` after `pwd` is an include tail, not the anchor.
-        and "/.." not in compact.split("pwd", 1)[0]
-    )
+    return _HELPER_DIR_ANCHOR.fullmatch(_quote_stripped_compact(value)) is not None
+
+
+def _helper_dir_anchored_operand(operand):
+    """Whether an include operand *begins with* a helper-dir anchor (tail follows)."""
+    return _HELPER_DIR_ANCHOR.match(_quote_stripped_compact(operand)) is not None
 
 
 def _source_repo_path(helper_dir, tail):
@@ -549,6 +564,10 @@ def _scan_shell_sources(helper):
     seen = set()
 
     def _unresolved(target):
+        # An empty/whitespace operand still emits the edge (Edge requires a
+        # non-empty target, and a crash here would detonate classify_all()
+        # instead of producing the designed violation).
+        target = target.strip() or "<empty operand>"
         key = ("unresolved", target)
         if key not in seen:
             seen.add(key)
@@ -598,7 +617,7 @@ def _scan_shell_sources(helper):
             if (
                 operand.startswith("$(")
                 and raw_target.startswith("/")
-                and _helper_dir_value(operand)
+                and _helper_dir_anchored_operand(operand)
             ):
                 raw_target = raw_target.lstrip("/")
             tail = _source_tail(raw_target, allowed_dir_vars)

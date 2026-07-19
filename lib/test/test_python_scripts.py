@@ -7005,23 +7005,57 @@ assert_eq("#598: positive control — a resolvable include still derives a clean
           [("source", "lib/resolve-jq.sh", "repo-owned")],
           [(e.kind, e.target, e.klass) for e in _uc_ctrl])
 
-# A parent-directory anchor ($(cd "$(dirname "$0")/.." && pwd)) must NOT prove
-# the helper directory: resolving include tails against it would rebase them one
-# level too deep and could launder a repo-root escape in-repo. The variable is
-# rejected as a dir anchor, so the tail stays absolute-looking and the guard
-# rejects the edge.
-assert_eq("#598: a parent-dir anchor value does not prove the helper directory",
-          False, cwd._helper_dir_value('$(cd "$(dirname "$0")/.." && pwd)'))
+# A non-helper-dir anchor must NOT prove the helper directory: resolving include
+# tails against it would rebase them and could launder a repo-root escape into an
+# in-repo path. The predicate is a strict structural whitelist, so every
+# equivalent parent-anchor spelling is rejected — not just the literal `/..`
+# form (fix-delta gate finding, iteration 1).
+for _pa_spelling in (
+    '$(cd "$(dirname "$0")/.." && pwd)',                # /.. inside the cd argument
+    '$(cd "$(dirname "$0")" && cd .. && pwd)',          # parent hop as a second cd
+    '$(cd "$(dirname "$(dirname "$0")")" && pwd)',      # double-dirname grandparent
+    '$(cd "$(dirname "$0")" && pwd)/..',                # /.. suffix after pwd)
+    '$pwdd$(cd "$(dirname "$0")/.." && pwd)',           # pwd-substring prefix junk
+):
+    assert_eq(f"#598: anchor spelling does not prove the helper directory: {_pa_spelling}",
+              False, cwd._helper_dir_value(_pa_spelling))
+for _ok_spelling in (
+    '$(cd "$(dirname "$0")" && pwd)',
+    '$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)',
+    '$(cd "${0%/*}" && pwd)',
+):
+    assert_eq(f"#598: legitimate helper-dir anchor is accepted: {_ok_spelling}",
+              True, cwd._helper_dir_value(_ok_spelling))
+# End-to-end: a cd..-parent-anchored include on an EXISTING target must be
+# rejected as a vendor-tree escape — the laundering shape where the rebased
+# in-repo path happens to exist and every downstream check would pass.
 try:
     cwd._read = lambda rel: (
-        '#!/usr/bin/env bash\nUP="$(cd "$(dirname "$0")/.." && pwd)"\n'
-        '. "$UP/../scripts/evil.sh"\n')
+        '#!/usr/bin/env bash\nUP="$(cd "$(dirname "$0")" && cd .. && pwd)"\n'
+        '. "$UP/../scripts/config-get.sh"\n')
     _pa_edges = cwd._scan_shell_sources("scripts/fake-parent.sh")
 finally:
     cwd._read = _orig_cwd_read
-assert_eq("#598: a parent-anchored include is rejected by the guard, never rebased in-repo",
+assert_eq("#598: a cd..-anchored include of an existing target is rejected as a vendor escape",
           True,
-          bool(_pa_edges) and bool(cwd.check_dependencies(edges=_pa_edges)))
+          bool(_pa_edges) and any(
+              "does not resolve beneath" in err
+              for err in cwd.check_dependencies(edges=_pa_edges)))
+
+# An include of a variable bound to the empty string must emit the
+# unresolved-source edge (placeholder target), never crash Edge construction.
+try:
+    cwd._read = lambda rel: '#!/usr/bin/env bash\nX=""\n. "$X"\n'
+    _eo_edges = cwd._scan_shell_sources("scripts/fake-empty.sh")
+finally:
+    cwd._read = _orig_cwd_read
+assert_eq("#598: an empty-string include operand yields the unresolved-source placeholder edge",
+          [("unresolved-source", "<empty operand>")],
+          [(e.kind, e.target) for e in _eo_edges])
+assert_eq("#598: the guard rejects the empty-operand include (fail closed, no crash)",
+          True,
+          any("unresolvable source include" in err
+              for err in cwd.check_dependencies(edges=_eo_edges)))
 
 # Broken-import preserve-missing behavior (documented in _module_paths /
 # _sibling_module_paths): a broken relative import and a dotted import through a
