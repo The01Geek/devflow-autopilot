@@ -349,6 +349,26 @@ def _branch_exists(name: str) -> bool | None:
     return False
 
 
+def _payload_dir() -> str | None:
+    """The repo's `.devflow/tmp/` when resolvable/writable, else None (system temp).
+
+    A cloud agent's Read tool is scoped to the workspace, so a stop-verdict payload
+    under `.devflow/tmp/` stays readable (and consistent with where the caller
+    writes the state file), whereas a system-`/tmp` path may not be. Falls back to
+    None (NamedTemporaryFile's default temp dir) when the git root is unresolvable
+    or the directory cannot be created — the payload still writes, just elsewhere.
+    """
+    top = _run_git(["rev-parse", "--show-toplevel"])
+    if top.returncode == 0 and top.stdout.strip():
+        candidate = os.path.join(top.stdout.strip(), ".devflow", "tmp")
+        try:
+            os.makedirs(candidate, exist_ok=True)
+            return candidate
+        except OSError:
+            pass
+    return None
+
+
 def _write_payload(verdict: str, reason: str, state: dict, derived: dict) -> str:
     """Write the stop-verdict payload file and return its path.
 
@@ -358,7 +378,8 @@ def _write_payload(verdict: str, reason: str, state: dict, derived: dict) -> str
     the caller/human to read; the caller owns its lifetime.
     """
     handle = tempfile.NamedTemporaryFile(
-        mode="w", encoding="utf-8", prefix="devflow-branch-state-", suffix=".json", delete=False
+        mode="w", encoding="utf-8", prefix="devflow-branch-state-", suffix=".json",
+        dir=_payload_dir(), delete=False,
     )
     with handle:
         json.dump({"verdict": verdict, "reason": reason, "state": state, "derived": derived}, handle, indent=2)

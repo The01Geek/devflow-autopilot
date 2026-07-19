@@ -8487,8 +8487,22 @@ def run(work, state, cwd=None):
     r = subprocess.run(["python3", HELPER, "branch-state", "--state-file", sf],
                        cwd=cwd or work, capture_output=True, text=True)
     return (r.stdout.split() or [""])[0], r.returncode, r.stdout.strip()
+def reason_of(word, out):
+    # UNAVAILABLE prints `UNAVAILABLE <reason>` on stdout; the two stop verdicts
+    # print `<verdict> <payload-path>` and carry the reason slug inside the payload.
+    parts = out.split()
+    if word == "UNAVAILABLE":
+        return parts[1] if len(parts) > 1 else "-"
+    if word in ("AMBIGUOUS", "DECISION_BLOCKED") and len(parts) > 1:
+        try:
+            return json.load(open(parts[-1])).get("reason") or "-"
+        except Exception:
+            return "-"
+    return "-"
 def emit(arm, work, state, cwd=None):
-    word, rc, _ = run(work, state, cwd); lines.append(f"{arm} {word} {rc}")
+    word, rc, out = run(work, state, cwd)
+    lines.append(f"{arm} {word} {rc}")
+    lines.append(f"reason_{arm} {reason_of(word, out)}")
 # FRESH (ahead 0) + warm-start (ahead 0 with a workpad present)
 _, work = base_repo("fresh"); git(["checkout", "-qb", "feat", "main"], work)
 emit("ahead0", work, {"base": "main", "current_branch": "feat"})
@@ -8591,6 +8605,18 @@ assert_eq "#576 shallow: the naive shallow ahead count differs from the post-uns
   "$([ "$BS576_NAIVE" != "$BS576_DERIVED" ] && echo differ || echo same)"
 assert_eq "#576 shallow: the helper re-derives the correct post-unshallow ahead count" "1" "$BS576_DERIVED"
 assert_eq "#576 shallow: a shallow repo still yields a well-formed stop verdict" "DECISION_BLOCKED 2" "$(_bs576 shallow)"
+# Reason slugs (the operator-facing remedy routing) are distinct even where the
+# verdict word + rc collapse: the three UNAVAILABLE causes and the three
+# DECISION_BLOCKED causes each assert their own slug, so a mis-routed reason is caught.
+assert_eq "#576 reason: base-fetch failure carries the 'base' slug" "base" "$(_bs576v reason_basefail)"
+assert_eq "#576 reason: underivable count carries the 'count' slug" "count" "$(_bs576v reason_count)"
+assert_eq "#576 reason: malformed recorded name carries the 'existence-probe' slug" "existence-probe" "$(_bs576v reason_wp_probe_fail)"
+assert_eq "#576 reason: ahead>0 under unverified provenance carries the 'unverified-provenance' slug" "unverified-provenance" "$(_bs576v reason_ahead1_noprov)"
+assert_eq "#576 reason: a forged workpad still routes to 'unverified-provenance'" "unverified-provenance" "$(_bs576v reason_wp_forged)"
+assert_eq "#576 reason: matching branch without a verdict carries 'matching-without-verdict'" "matching-without-verdict" "$(_bs576v reason_wp_matching_noverdict)"
+assert_eq "#576 reason: a duplicate Branch line carries 'duplicate-branch-line'" "duplicate-branch-line" "$(_bs576v reason_wp_duplicate)"
+assert_eq "#576 reason: divergent existing branch without a verdict carries 'divergent-without-verdict'" "divergent-without-verdict" "$(_bs576v reason_wp_divergent_noverdict)"
+assert_eq "#576 reason: divergent nonexistent branch carries 'divergent-nonexistent'" "divergent-nonexistent" "$(_bs576v reason_wp_divergent_nonexistent)"
 rm -f "$BS576_OUT"
 
 # ── issue #576: Phase 1 §1.4 integration — ordering + no-history-mutation pins ──
