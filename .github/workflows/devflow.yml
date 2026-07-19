@@ -96,9 +96,11 @@ jobs:
             # absent, which the action treats as "not provided" (auto-install unchanged).
             # `try … catch` guards a hand-corrupted non-object `setup` (so the config job
             # never aborts on a malformed setup block); `| strings` drops a non-string
-            # leaf value (array/object/number) to empty rather than letting jq -r
-            # pretty-print it multi-line and corrupt this GITHUB_OUTPUT line.
-            echo "claude_code_executable=$(echo "$CONFIG_JSON" | jq -r 'try (.setup.claude_code_executable // empty | strings) catch empty')"
+            # leaf value (array/object/number) to empty; `select(test("[\n\r]") | not)`
+            # drops even a *valid* string that carries an embedded newline/CR — all three
+            # would otherwise make jq -r emit a multi-line value that corrupts this
+            # key=value GITHUB_OUTPUT line. Any rejected shape falls back to empty (auto-install).
+            echo "claude_code_executable=$(echo "$CONFIG_JSON" | jq -r 'try (.setup.claude_code_executable // empty | strings | select(test("[\n\r]") | not)) catch empty')"
           } >> "$GITHUB_OUTPUT"
 
   # Dedupe a MANUAL bare `/devflow:review` comment against the AUTOMATED

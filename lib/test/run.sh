@@ -7645,21 +7645,24 @@ assert_eq "#601 AC3: runner sources path_to_claude_code_executable from trusted 
 assert_eq "#601 AC3: runner with:-input does NOT source it from a PR-head config (cfg.outputs/needs.config)" "yes" \
   "$(printf '%s' "$I601_RUNNER_INPUT_LINE" | grep -Eq 'cfg\.outputs|needs\.config' && echo no || echo yes)"
 
-# AC4 — empty/malformed default resolves to an EMPTY, SINGLE-LINE string (auto-install path,
-# Linux unchanged). Two layers: (1) a behavioral-fix PRESENCE pin that the `| strings` type
-# guard is in each workflow's extraction — removing it (regressing to the wrong-type
-# GITHUB_OUTPUT-corruption bug the #601 silent-failure review found) makes the extraction below
-# return empty → the positive control goes RED; (2) an EXECUTABLE sweep of the SHIPPED filter
-# (extracted from devflow.yml) across the config-JSON adversarial shape matrix.
+# AC4 — empty/malformed/multi-line default resolves to an EMPTY, SINGLE-LINE string
+# (auto-install path, Linux unchanged). Two layers: (1) a behavioral-fix PRESENCE pin that
+# BOTH the `| strings` non-string guard AND the `select(test("[\n\r]") | not)` embedded-newline
+# guard are in each workflow's extraction — removing either regresses to a multi-line
+# GITHUB_OUTPUT-corruption bug the #601 silent-failure review found (a non-string leaf, or a
+# valid string carrying an escaped newline), and makes the extraction below fail its sweep;
+# (2) an EXECUTABLE sweep of the SHIPPED filter (extracted from devflow.yml) across the
+# config-JSON adversarial shape matrix.
 for _f in "$I601_DEVFLOW_YML" "$I601_IMPL_YML" "$I601_RUNNER_YML"; do
   assert_eq "#601 AC4: $(basename "$_f") extraction carries the '| strings' non-string type guard" "yes" \
-    "$(grep -qF '// empty | strings) catch empty' "$_f" && echo yes || echo no)"
+    "$(grep -qF '| strings | select(test("[\n\r]") | not)' "$_f" && echo yes || echo no)"
 done
 # Extract the exact jq program shipped in devflow.yml and drive it against the matrix, so the
-# sweep tests the REAL filter (not a hardcoded copy). If `| strings` were removed the grep
-# below (which requires `strings`) returns empty and the positive control fails RED.
-I601_FILTER="$(grep -oE "try \(\.setup\.claude_code_executable[^']*strings\) catch empty" "$I601_DEVFLOW_YML" | head -1)"
-assert_eq "#601 AC4: the strings-guarded jq filter is extractable from devflow.yml (positive control)" "yes" \
+# sweep tests the REAL filter (not a hardcoded copy). The filter contains no single-quote, so
+# `[^']*` safely spans it up to the closing `) catch empty`. If the guards were removed the
+# behavioral sweep rows below (array-leaf and newline-string → empty) go RED.
+I601_FILTER="$(grep -oE "try \(\.setup\.claude_code_executable[^']*\) catch empty" "$I601_DEVFLOW_YML" | head -1)"
+assert_eq "#601 AC4: the guarded jq filter is extractable from devflow.yml (positive control)" "yes" \
   "$([ -n "$I601_FILTER" ] && echo yes || echo no)"
 if [ -n "$I601_FILTER" ]; then
   assert_eq "#601 AC4: absent key → empty" "" \
@@ -7670,13 +7673,23 @@ if [ -n "$I601_FILTER" ]; then
     "$(printf '%s' '{"setup":{"claude_code_executable":""}}' | jq -r "$I601_FILTER")"
   assert_eq "#601 AC4: valid string path → passed through verbatim" "/opt/claude" \
     "$(printf '%s' '{"setup":{"claude_code_executable":"/opt/claude"}}' | jq -r "$I601_FILTER")"
-  # The Finding-1 regression guard: a non-string leaf (array) must collapse to empty, NOT
-  # pretty-print multi-line and corrupt the GITHUB_OUTPUT key=value line. Assert both empty
-  # AND single-line (zero output lines).
+  # Regression guard A (non-string leaf): an array must collapse to empty, NOT pretty-print
+  # multi-line and corrupt the GITHUB_OUTPUT key=value line. Assert empty AND zero lines.
   assert_eq "#601 AC4: non-string (array) leaf → empty (no GITHUB_OUTPUT corruption)" "" \
     "$(printf '%s' '{"setup":{"claude_code_executable":["a","b"]}}' | jq -r "$I601_FILTER")"
   assert_eq "#601 AC4: non-string (array) leaf → zero output lines (single-line-safe)" "0" \
     "$(printf '%s' '{"setup":{"claude_code_executable":["a","b"]}}' | jq -r "$I601_FILTER" | grep -c .)"
+  # Regression guard B (valid string with an embedded newline — the #601 iteration-2 finding):
+  # a VALID JSON string carrying an ESCAPED newline (the two source chars backslash-n, exactly
+  # how json.load in read-project-config round-trips one) passes `| strings` but would make jq -r
+  # emit a multi-line value; the select(test("[\n\r]")|not) guard must drop it to empty. Use
+  # `printf '%s'` on the single-quoted literal so the `\n` reaches jq as an ESCAPE inside VALID
+  # JSON (a bare `printf '…\n…'` would expand it into a raw newline → INVALID JSON → a parse
+  # error caught by try/catch, which would pass this pin VACUOUSLY even with the guard removed).
+  assert_eq "#601 AC4: valid string with embedded newline → empty (newline guard)" "" \
+    "$(printf '%s' '{"setup":{"claude_code_executable":"a\ntrailing"}}' | jq -r "$I601_FILTER")"
+  assert_eq "#601 AC4: valid string with embedded newline → zero output lines (single-line-safe)" "0" \
+    "$(printf '%s' '{"setup":{"claude_code_executable":"a\ntrailing"}}' | jq -r "$I601_FILTER" | grep -c .)"
 fi
 
 # AC5 — schema documents the optional string key; example carries it (empty default).
