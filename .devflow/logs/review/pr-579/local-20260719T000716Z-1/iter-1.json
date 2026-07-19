@@ -1,0 +1,103 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-19T00:07:16Z",
+  "loop_role": "fix",
+  "current_step": "3.5",
+  "current_substep": "fix_delta_gate",
+  "pending_dispatch": null,
+  "fix_commit_sha": "f486e086",
+  "fix_files": [
+    ".devflow/config.schema.json",
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+    "lib/test/run.sh",
+    "lib/test/test_verification_flight.py",
+    "scripts/verification-flight.py"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "detect_all_audit": true,
+    "checklist_skipped": null
+  },
+  "config": {
+    "max_iterations": 5,
+    "fix_severity_threshold": "suggestion",
+    "verdict_severity_threshold": "critical",
+    "push_each_iteration": true,
+    "run_id": "local-20260719T000716Z-1",
+    "slug": "pr-579"
+  },
+  "stale_prose_check": {"exit_code": 0, "stale_rows": 0},
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:type-design-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "checklist_summary": {"total": 24, "pass": 23, "fail": 1, "inconclusive": 0, "lite": 4, "agent": 20},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "verdict_iter_1": "REJECT",
+  "reject_drivers": [
+    "Phase-2 FAIL VC-18 (#275 anchor pin loop does not cover references/*.md)",
+    "self-contradicting-diff carve-out x4 (documented_falsehood)"
+  ],
+  "fix_decisions": [
+    {"finding_id": "CR-1", "decision": "applied", "commit": "f486e086", "note": "system-overview CAS absolute claim corrected"},
+    {"finding_id": "CR-2", "decision": "applied", "commit": "f486e086", "note": "schema full-suite default-name falsehood removed"},
+    {"finding_id": "CA-1", "decision": "applied", "commit": "f486e086", "note": "schema required 3 -> 8, mirrors _PROFILE_REQUIRED"},
+    {"finding_id": "CR-3", "decision": "applied", "commit": "f486e086", "note": "suppressed_launch -> attached_state"},
+    {"finding_id": "VC-18", "decision": "applied", "commit": "f486e086", "note": "#275 R0-R3c pin family; mutation-checked RED"},
+    {"finding_id": "CC-1", "decision": "applied", "commit": "f486e086", "note": "exec-population single-sourced + AST guard; mutation-checked"},
+    {"finding_id": "VC-20", "decision": "applied", "commit": "f486e086", "note": "guard divergence closed by the same single-sourcing"},
+    {"finding_id": "FP-2", "decision": "applied", "commit": "f486e086", "note": "hmac.compare_digest"},
+    {"finding_id": "SFH-1", "decision": "applied", "commit": "f486e086", "note": "chmod failure telemetry breadcrumb"},
+    {"finding_id": "PTA-1", "decision": "applied", "commit": "f486e086", "note": "wait drift test"},
+    {"finding_id": "PTA-2", "decision": "applied", "commit": "f486e086", "note": "malformed/wrong-typed current-checkout-file; share-the-contract guard"},
+    {"finding_id": "PTA-3", "decision": "applied", "commit": "f486e086", "note": "mark-running/finish absent-flight tests"},
+    {"finding_id": "TD-1", "decision": "applied", "commit": "f486e086", "note": ".reason read-only property"},
+    {"finding_id": "TD-2", "decision": "applied", "commit": "f486e086", "note": "_CodedError shared base"},
+    {"finding_id": "CR-4", "decision": "applied", "commit": "f486e086", "note": "one-shot-per-key documented + test added (documentation was the reviewer's own stated alternative)"},
+    {"finding_id": "PTA-4", "decision": "applied", "commit": "f486e086", "note": "cmd_status defensive floor documented as unreachable"},
+    {"finding_id": "FP-3", "decision": "applied", "commit": "f486e086", "note": "EXIT_CAS_REJECT overload documented"},
+    {
+      "finding_id": "FP-1",
+      "decision": "severity-calibrated",
+      "source_file": "scripts/verification-flight.py",
+      "claim_text": "Critical: the running state has no lease/expiry, so a crashed owner wedges the flight permanently",
+      "original_severity": "Critical",
+      "calibrated_severity": "Suggestion",
+      "evidence": "Observable fail-direction is fail-CLOSED: a wedged running handle makes every attacher take wait_expired and launch directly, so the cost is duplicate work, never a false pass. More decisively, the prescribed fix contradicts the issue's own AC: 'the ledger never infers that an unobserved process ended' - auto-expiring a running handle IS that inference. Recorded evaluation, not an auto-demotion; the deliberate design is now documented in-source at the attach seam."
+    },
+    {
+      "finding_id": "SFH-2",
+      "decision": "pushed_back",
+      "source_file": "scripts/verification-flight.py",
+      "claim_text": "cmd_claim's winning-owner write should use the temp-file + os.replace pattern like every other mutation, to avoid a torn read by a concurrent attacher",
+      "skip_category": "claim-quality",
+      "evidence": "The prescribed fix would break the single-owner guarantee it sits next to. O_CREAT|O_EXCL on the FINAL path IS the mutual-exclusion primitive that grants exactly one owner; os.replace overwrites unconditionally, so a temp+replace claim would let two concurrent callers both believe they own the flight. The torn-read window is real but already fail-closed: _read_flight classifies a partial read as ReadError('empty'/'malformed_json'), which is a non-pass and routes the attacher to a direct launch. Trading a bounded, safe, low-probability duplicate launch for a possible double-owner is the wrong direction.",
+      "parking_evidence": {
+        "basis": "the prescription contradicts the single-owner invariant the same function implements",
+        "failing_input": "two concurrent claim callers on one flight key",
+        "source": "scripts/verification-flight.py cmd_claim O_CREAT|O_EXCL branch and _read_flight's empty/malformed_json arms",
+        "finding_ref": {"iter": 1, "index": 1}
+      }
+    }
+  ],
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "assertions": 9428,
+    "failed": 0,
+    "skipped_checks": [],
+    "note": "0 failed, 0 skipped on the committed tree; shellcheck + ruff clean"
+  },
+  "mutation_evidence": [
+    {"pin": "#275 R1 bare-anchor absence over references/fixing.md", "mutation": "append a ${CLAUDE_SKILL_DIR}/../../ bare form to a copy", "observed": "RED on mutant, clean on real file"},
+    {"pin": "verification flight: no subprocess / shell-out / exec spelling", "mutation": "append os.posix_spawn to a copy", "observed": "old 10-alternative regex 0 hits (blind); new single-sourced sweep 1 hit (RED)"}
+  ],
+  "telemetry": "unavailable"
+}

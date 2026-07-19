@@ -1,0 +1,108 @@
+{
+  "iter": 5,
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "current_step": "loop-exit",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "fix_commit_sha": "903e20b6",
+  "fix_files": [
+    "docs/efficiency-trace.md",
+    "docs/review-and-fix-budget.md",
+    "lib/test/run.sh",
+    "lib/test/test_verification_flight.py",
+    "scripts/verification-flight.py",
+    "skills/implement/phases/phase-3-review.md",
+    "skills/review-and-fix/references/fixing.md"
+  ],
+  "diff_profile": {
+    "small_diff": false, "config_only": false, "has_new_types": true,
+    "engine_self_modifying": true, "detect_all_audit": true, "checklist_skipped": null
+  },
+  "shadow": {
+    "ran_at": "2026-07-19T01:40:00Z",
+    "reviewed_sha": "e48ed5e057d27b3e06958a766ff7f2324620bf2f",
+    "verdict": "REJECT",
+    "coverage": "full",
+    "prompt_addenda": null,
+    "reviewers_dispatched": [
+      "devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer", "devflow:type-design-analyzer", "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer", "devflow:type-design-analyzer", "devflow:requesting-code-review"
+    ],
+    "comparison": {"shadow_total": 8, "overlap_with_iter_N": 0, "new": 8, "new_critical": 0, "new_important": 5},
+    "promoted_to_iter_next": true
+  },
+  "post_shadow_delta_review": {
+    "range": "e48ed5e0..HEAD",
+    "result": "clean",
+    "note": "First fix commit in the run that introduced no new false claim. Mutation-checked the new key-set test (RED under an identically-broken triple)."
+  },
+  "fix_decisions": [
+    {"finding_id": "SH-1", "decision": "applied", "commit": "382cb325", "note": "efficiency-trace flight_attached: active -> active-or-terminal"},
+    {"finding_id": "SH-2", "decision": "applied", "commit": "382cb325", "note": "efficiency-trace event list missing state_dir_chmod_failed (loop's own coupled-site miss)"},
+    {"finding_id": "SH-3", "decision": "applied", "commit": "382cb325", "note": "_CodedError lifetime-immutability claim made TRUE via __setattr__ seal; exception protocols verified intact"},
+    {"finding_id": "SH-4", "decision": "applied", "commit": "382cb325", "note": "module docstring: DEVFLOW_FLIGHT_NOW does not drive wait's poll deadline"},
+    {"finding_id": "SH-5", "decision": "applied", "commit": "382cb325", "note": "owner-token lifetime across tool calls documented at both skill call sites"},
+    {"finding_id": "SH-6", "decision": "applied", "commit": "382cb325", "note": "argparse usage-error remap tests + identical-key-set assertion"},
+    {"finding_id": "SH-7", "decision": "applied", "commit": "903e20b6", "note": "token-carrying call enumeration made exact"},
+    {
+      "finding_id": "SH-8", "decision": "advisory",
+      "source_file": "scripts/verification-flight.py",
+      "claim_text": "the flight domain object is a bare untyped dict mutated in place across ~10 functions rather than through a small typed API",
+      "skip_category": "advisory-parked",
+      "evidence": "type-design-analyzer graded it advisory itself ('flagged for awareness rather than as a bug'); every write site independently gates on current state and _read_flight re-validates state on every read. A typed-API refactor is a design change beyond this issue's ACs.",
+      "parking_evidence": {
+        "basis": "single-source advisory the producing agent itself declined to grade as a defect",
+        "failing_input": null,
+        "source": "scripts/verification-flight.py write sites + _read_flight state validation",
+        "finding_ref": {"iter": 5, "index": 7}
+      }
+    },
+    {
+      "finding_id": "SH-9", "decision": "advisory",
+      "source_file": "scripts/verification-flight.py",
+      "claim_text": "--evidence defaults to a fixed low-information string; consider requiring concrete evidence (PID/host)",
+      "skip_category": "advisory-parked",
+      "evidence": "Graded Suggestion/style by its own producer. The field is logical owner evidence, not a forensic record, and the AC only requires that it be recorded.",
+      "parking_evidence": {
+        "basis": "style suggestion with no behavioral fail-direction",
+        "failing_input": null,
+        "source": "scripts/verification-flight.py --evidence default",
+        "finding_ref": {"iter": 5, "index": 8}
+      }
+    },
+    {
+      "finding_id": "SH-10", "decision": "deferred",
+      "source_file": "lib/test/test_verification_flight.py",
+      "claim_text": "the default invocation path (no --state-dir override) is untested",
+      "skip_category": "out-of-scope",
+      "evidence": "Testing the default path means writing into the repo's real .devflow/tmp/verification-flights/ during the suite, which the suite otherwise never does; doing it safely needs a cwd-isolation fixture. Every behavior is covered through the explicit --state-dir path.",
+      "parking_evidence": {
+        "basis": "covering it needs a test-isolation fixture this PR does not introduce",
+        "failing_input": "a run with no --state-dir argument",
+        "source": "lib/test/test_verification_flight.py Harness (always passes --state-dir)",
+        "finding_ref": {"iter": 5, "index": 9}
+      }
+    }
+  ],
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "assertions": 9430,
+    "failed": 0,
+    "skipped_checks": [],
+    "note": "0 failed, 0 skipped on the committed tree — the #434 stale-prose self-scan ran rather than self-skipping"
+  },
+  "convergence_inputs": {"fixes_applied": 7, "new_corroborated_critical_count": 0},
+  "terminal_verdict": "APPROVE WITH ADVISORY NOTES",
+  "reflections": [
+    "The engine_self_modifying EARLY shadow trigger (after iteration 1) was not run; only the convergence-time shadow ran. That early audit would likely have surfaced the four documented falsehoods sooner and saved iterations 2-4. Recorded as a real coverage deviation, not a clean pass.",
+    "Documented-falsehood recurrence is this run's dominant defect class: five of six fix commits introduced at least one fresh false claim while correcting older ones. The blinded shadow, not the iterating loop, is what caught the last four.",
+    "Two of the shadow's findings were coupled-site misses created by the loop itself (a telemetry event added without updating its doc list; an immutability claim stronger than the code enforced)."
+  ],
+  "telemetry": "unavailable"
+}
