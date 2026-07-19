@@ -1,0 +1,14 @@
+{
+  "iter": 1,
+  "fix_commit_sha": "19ab7b0eaf8371d9036628d4abd85a87e7eb2642",
+  "fix_files": [
+    ".github/workflows/devflow-implement.yml",
+    ".github/workflows/devflow.yml",
+    "docs/install.md",
+    "lib/test/run.sh",
+    "scripts/install-gh-wrapper.sh"
+  ],
+  "loop_role": "fix",
+  "synthesized": true,
+  "telemetry": "unavailable"
+}
