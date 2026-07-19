@@ -1,0 +1,173 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-19T23:20:00Z",
+  "loop_role": "fix",
+  "current_step": "4.5",
+  "current_substep": "loop-back-iteration-3",
+  "pending_dispatch": null,
+  "reviewed_head": "a2512945ba7e1d4ec265daf590906550d2b0d5ec",
+  "fix_commit_sha": "3da147dfac6f14018504a56598c194b8aadc38c3",
+  "fix_files": [
+    "lib/test/cloud_writer_deps.py",
+    "lib/test/test_python_scripts.py"
+  ],
+  "handoff": {
+    "fix_files_prev": [
+      "lib/test/cloud_writer_deps.py",
+      "lib/test/test_python_scripts.py",
+      ".changeset/issue-583-ac5-trust-closure-deps.md"
+    ],
+    "prior_checklist_items": 18,
+    "prior_phase3_findings": 23
+  },
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "detect_all_audit": true,
+    "checklist_skipped": null
+  },
+  "checklist": [
+    {
+      "id": "VC-19",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "data_format_assumption:cloud_writer_deps.py:anchor-regex-matches-real-helper-spelling",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-20",
+      "verification_mode": "agent",
+      "verdict": "FAIL",
+      "claim_signature": "absolute_claim:cloud_writer_deps.py:anchored-operand-rejects-all-junk-laundering",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-21",
+      "verification_mode": "agent",
+      "verdict": "FAIL",
+      "claim_signature": "absolute_claim:cloud_writer_deps.py:scan-shell-sources-never-silent-drop",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-22",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "test_mock_alignment:cloud_writer_deps.py:duck-edge-attr-names-match-guard",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-23",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:cloud_writer_deps.py:allowed-dir-vars-pwd-tolerance",
+      "reused_from_iter_prev": false
+    }
+  ],
+  "checklist_note": "Variance-recovery mode: generator emitted only the 5 new items; prior 18 PASS items were dedup inputs, not re-verified (per Phase 1.2 contract). VC-23 PASS = claim about the inherited $(pwd) tolerance verified accurate (introduced pre-loop in 5e9ac0ee, within this PR's diff \u2014 recorded as fix-set finding below).",
+  "verdict_iter2_pre_fix": "REJECT (VC-20 + VC-21 checklist FAILs)",
+  "fix_decisions": [
+    {
+      "finding_id": "VC-20",
+      "decision": "applied",
+      "commit": "bb9ee2fc"
+    },
+    {
+      "finding_id": "VC-21",
+      "decision": "applied",
+      "commit": "bb9ee2fc",
+      "note": "glob + junk shapes fixed via whole-operand accounting; subshell/pipeline flat-scope over-approximation disclosed in docstring (static-side misattribution only; runtime fails loudly on unset var)"
+    },
+    {
+      "finding_id": "VC-23-followon",
+      "decision": "deferred",
+      "source_file": "lib/test/cloud_writer_deps.py",
+      "claim_text": "allowed_dir_vars $(pwd) tolerance can classify an edge that a runtime $(pwd) branch would resolve differently",
+      "skip_category": "uncategorized",
+      "evidence": "inherited from pre-loop commit 5e9ac0ee within this PR; the tolerance exists to accept a legitimate mixed-binding pattern; the verifier confirmed the description but the reachable live closure carries no such mixed binding \u2014 candidate for a follow-up hardening with the flat-scope tracker work"
+    }
+  ],
+  "stale_prose_check": {
+    "stale": 0,
+    "rc": 0
+  },
+  "base_checkpoint": {
+    "token": "UPDATED",
+    "behind_by": 19
+  },
+  "push": {
+    "pushed": true,
+    "range": "a2512945..3da147df",
+    "note": "includes main merge 70442608 (user-requested branch update; UPDATED 19)"
+  },
+  "verification_evidence": {
+    "command": "python3 lib/test/test_python_scripts.py (focused module per user instruction; full suite at loop end)",
+    "result": "pass",
+    "duration_s": 35,
+    "skipped_checks": []
+  },
+  "test_first_gate": [
+    {
+      "decision": "test-first: whole-operand accounting (new behavior)",
+      "command": "python3 lib/test/test_python_scripts.py",
+      "result": "RED-then-GREEN",
+      "evidence": "6 new assertions (3 shapes x edge-kind + guard-rejection) plus reconciled dynamic-absolute-prefix fixture; 1228 passed 0 failed after; live closure OK"
+    }
+  ],
+  "sweep_defs_read": [],
+  "sweep_evidence": {
+    "status": "degraded",
+    "reason": "same as iter-1: focused class-sweep run inline (all silent-resolve paths in the operand loop audited under whole-operand rule); Step 3.5 + shadow named as backstop"
+  },
+  "convergence_inputs": {
+    "fixes_applied": 2,
+    "fix_diff_lines": 61,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": {
+    "phase_1": {
+      "calls": 1,
+      "tokens": 125003,
+      "wall_clock_s": 180
+    },
+    "phase_2": {
+      "calls": 5,
+      "tokens": 399016,
+      "wall_clock_s": 200
+    },
+    "phase_3": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 0
+    },
+    "step_2_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 2,
+      "webfetches": 0
+    }
+  },
+  "fix_delta_gate": {
+    "iter_fix_base": "a2512945ba7e1d4ec265daf590906550d2b0d5ec",
+    "attempt_1": {
+      "result": "1 Important (embedded-variable tail laundered clean with decoy file) + 1 Suggestion (endswith conjunct unpinned)",
+      "action": "re-fix (eda4d477): residual-$-in-tail rejection + suffix-bytes pins"
+    },
+    "attempt_2": {
+      "result": "1 Important (separator-less var remnant laundered clean, probe-confirmed) + comment overclaim + 2 Suggestions (glob bracket; bare-include $PATH boundary)",
+      "action": "re-fix (3da147df): separator-required remnants, [ ] rejection, comment/docstring reconciliation"
+    },
+    "inner_attempts_exhausted": true,
+    "residue_routing": "iteration 3 full engine re-review"
+  },
+  "reflections": [
+    "fix-delta gate iterated twice; each attempt surfaced a real probe-confirmed laundering shape; all closed with RED-first pins",
+    "phase-3 fan-out deferred from iteration 2 to iteration 3 (REJECT short-circuit on checklist FAILs); full roster runs there",
+    "Checkpoint-3 UPDATED merge landed after last suite run \u2014 full suite must run before loop exit"
+  ]
+}

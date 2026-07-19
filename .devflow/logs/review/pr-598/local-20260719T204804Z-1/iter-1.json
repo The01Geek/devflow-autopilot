@@ -2,28 +2,23 @@
   "iter": 1,
   "started_at": "2026-07-19T20:48:04Z",
   "loop_role": "fix",
-  "current_step": "loop-control",
-  "current_substep": "phase-3-agent-fanout-await",
-  "pending_dispatch": {
-    "kind": "phase3_reviewer_fanout",
-    "roster": [
-      "devflow:code-reviewer",
-      "devflow:silent-failure-hunter",
-      "devflow:comment-analyzer",
-      "devflow:requesting-code-review",
-      "devflow:pr-test-analyzer"
-    ],
-    "dispatched_at": "2026-07-19T21:15:00Z",
-    "note": "rate-limit interruption mid-fanout; type-design-analyzer returned complete; silent-failure-hunter/comment-analyzer/pr-test-analyzer resumed via SendMessage; code-reviewer + requesting-code-review re-dispatched fresh; all 5 pending in background"
-  },
+  "current_step": "4.5",
+  "current_substep": "loop-back-iteration-2",
+  "pending_dispatch": null,
   "config": {
     "max_iterations": 5,
     "fix_severity_threshold": "suggestion",
-    "push_each_iteration": true
+    "push_each_iteration": true,
+    "verdict_severity_threshold": "critical"
   },
   "reviewed_head": "98cf8daf34bd59fcd355a367569ceb0a240f1a1f",
   "wp_comment_id": "5017330793",
-  "git_snap_before_oid": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+  "fix_commit_sha": "a2512945ba7e1d4ec265daf590906550d2b0d5ec",
+  "fix_files": [
+    "lib/test/cloud_writer_deps.py",
+    "lib/test/test_python_scripts.py",
+    ".changeset/issue-583-ac5-trust-closure-deps.md"
+  ],
   "diff_profile": {
     "small_diff": false,
     "config_only": false,
@@ -32,21 +27,134 @@
     "detect_all_audit": true,
     "checklist_skipped": null
   },
-  "checklist_summary": {
-    "items": 18,
-    "pass": 18,
-    "fail": 0,
-    "inconclusive": 0,
-    "lite": 1,
-    "agent": 17
-  },
-  "checklist_notes": [
-    "VC-14 evidence: engine-surface PR (lib/preflight.sh) carries no .changeset/*.md — changeset convention violation, carried to Phase 4"
+  "checklist": [
+    {
+      "id": "VC-1",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "data_format_assumption:cloud_writer_deps.py:preflight-guarantees-regex-match",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-2",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:preflight.sh:guarantee-tokens-match-probes",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-3",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:cloud_writer_deps.py:cwc-symbols-exist",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-4",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:cloud_writer_deps.py:workpad-exec-gh-git",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-5",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:cloud_writer_deps.py:runjq-source-resolvejq-exec-jq",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-6",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:cloud_writer_deps.py:config-get-delegations",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-7",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:cloud_writer_deps.py:efficiency-trace-exec-set",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-8",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:cloud_writer_deps.py:extract-doc-needed-exec-set",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-9",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:cloud_writer_deps.py:entry-points-equal-exec-keys",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-10",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "test_mock_alignment:test_python_scripts.py:cwd-api-surface",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-11",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "test_mock_alignment:test_python_scripts.py:preflight-reextraction-agrees",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-12",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:cloud_writer_deps.py:spdx-header-present",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-13",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:preflight.sh:cloud-writer-manifest-regenerated",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-14",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:preflight.sh:changeset-present",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-15",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "absolute_claim:cloud_writer_deps.py:resolves-beneath-vendor-rejects-all-escapes",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-16",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "absolute_claim:cloud_writer_deps.py:exec-verification-comment-string-aware",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-17",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "absolute_claim:cloud_writer_deps.py:coverage-guard-not-masked-by-exec",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-18",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "data_format_assumption:cloud_writer_deps.py:import-stdlib-pyyaml-classification",
+      "reused_from_iter_prev": false
+    }
   ],
-  "cap_drops": {
-    "count": 0,
-    "by_category": {}
-  },
   "phase3_dispatched": [
     "devflow:code-reviewer",
     "devflow:silent-failure-hunter",
@@ -55,11 +163,203 @@
     "devflow:type-design-analyzer",
     "devflow:pr-test-analyzer"
   ],
-  "phase3_findings_partial": [
+  "phase3_findings": [
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "_scan_shell_sources silently drops unresolvable source includes",
+      "defect_signature": {
+        "file": "lib/test/cloud_writer_deps.py",
+        "line_range": [
+          519,
+          595
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "docstring claim 'sourced sibling cannot silently escape' false against HEAD",
+      "defect_signature": {
+        "file": "lib/test/cloud_writer_deps.py",
+        "line_range": [
+          19,
+          22
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "constant_truth catches MemoryError/RecursionError",
+      "defect_signature": {
+        "file": "lib/test/cloud_writer_deps.py",
+        "line_range": [
+          1519,
+          1523
+        ],
+        "kind": "other"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "pushed_back"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "guard violations print to stdout not stderr",
+      "defect_signature": {
+        "file": "lib/test/cloud_writer_deps.py",
+        "line_range": [
+          2900,
+          2910
+        ],
+        "kind": "style"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "unpinned ordinal count 'the four guarantees'",
+      "defect_signature": {
+        "file": "lib/test/test_python_scripts.py",
+        "line_range": [
+          5739,
+          5740
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "check_dependencies docstring failure list incomplete",
+      "defect_signature": {
+        "file": "lib/test/cloud_writer_deps.py",
+        "line_range": [
+          32,
+          41
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "resolves_beneath_vendor 'iff beneath' vs equality",
+      "defect_signature": {
+        "file": "lib/test/cloud_writer_deps.py",
+        "line_range": [
+          625,
+          646
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "broken-relative-import preserve-missing untested",
+      "defect_signature": {
+        "file": "lib/test/cloud_writer_deps.py",
+        "line_range": [
+          271,
+          377
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "_declared_preflight_guarantees fail-closed arms untested",
+      "defect_signature": {
+        "file": "lib/test/cloud_writer_deps.py",
+        "line_range": [
+          67,
+          85
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "_profile_grant_auth None untested",
+      "defect_signature": {
+        "file": "lib/test/cloud_writer_deps.py",
+        "line_range": [
+          574,
+          591
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "synthetic-edge live-skip unasserted",
+      "defect_signature": {
+        "file": "lib/test/cloud_writer_deps.py",
+        "line_range": [
+          2876,
+          2887
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "heavy monkeypatching of private internals",
+      "defect_signature": {
+        "file": "lib/test/test_python_scripts.py",
+        "line_range": [
+          5720,
+          6969
+        ],
+        "kind": "style"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
     {
       "agent": "devflow:type-design-analyzer",
       "severity": "Suggestion",
-      "description": "check_dependencies() duck-typed edge validation duplicates only 2 of Edge's 3 constructor invariants (misses repo-owned=>auth None)",
+      "description": "duck-typed edge validation misses repo-owned=>auth-None invariant",
       "defect_signature": {
         "file": "lib/test/cloud_writer_deps.py",
         "line_range": [
@@ -67,12 +367,15 @@
           2855
         ],
         "kind": "type_design"
-      }
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
     },
     {
       "agent": "devflow:type-design-analyzer",
       "severity": "Suggestion",
-      "description": "Edge.auth carries authorization semantics as free-form prose; tests substring-match it",
+      "description": "Edge.auth free-form prose semantics",
       "defect_signature": {
         "file": "lib/test/cloud_writer_deps.py",
         "line_range": [
@@ -80,12 +383,15 @@
           263
         ],
         "kind": "type_design"
-      }
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
     },
     {
       "agent": "devflow:type-design-analyzer",
       "severity": "Suggestion",
-      "description": "ExecSpec does not constrain target shape per class (bare-name repo-owned constructs fine)",
+      "description": "ExecSpec target shape unconstrained per class",
       "defect_signature": {
         "file": "lib/test/cloud_writer_deps.py",
         "line_range": [
@@ -93,12 +399,15 @@
           151
         ],
         "kind": "type_design"
-      }
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
     },
     {
       "agent": "devflow:type-design-analyzer",
       "severity": "Suggestion",
-      "description": "scope record in _python_command_evidence is a stringly-keyed 9-field mutable dict",
+      "description": "stringly-keyed scope dict",
       "defect_signature": {
         "file": "lib/test/cloud_writer_deps.py",
         "line_range": [
@@ -106,12 +415,15 @@
           1467
         ],
         "kind": "type_design"
-      }
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
     },
     {
       "agent": "devflow:type-design-analyzer",
       "severity": "Suggestion",
-      "description": "module-import side effects: PREFLIGHT_GUARANTEES computed at import (file I/O + possible RuntimeError at import time)",
+      "description": "module-import side effects (PREFLIGHT_GUARANTEES at import)",
       "defect_signature": {
         "file": "lib/test/cloud_writer_deps.py",
         "line_range": [
@@ -119,18 +431,357 @@
           92
         ],
         "kind": "type_design"
-      }
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Important",
+      "description": "missing .changeset for engine-surface change",
+      "defect_signature": {
+        "file": "lib/preflight.sh",
+        "line_range": [
+          39,
+          45
+        ],
+        "kind": "other"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "_helper_dir_value accepts parent-directory anchor",
+      "defect_signature": {
+        "file": "lib/test/cloud_writer_deps.py",
+        "line_range": [
+          527,
+          540
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "second bespoke shell lexer beside extract-command-heads.py",
+      "defect_signature": {
+        "file": "lib/test/cloud_writer_deps.py",
+        "line_range": [
+          751,
+          1416
+        ],
+        "kind": "type_design"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "undeclared exec edges escape (disclosed tradeoff)",
+      "defect_signature": {
+        "file": "lib/test/cloud_writer_deps.py",
+        "line_range": [
+          139,
+          177
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "private cross-module API cwc._helper_source_path",
+      "defect_signature": {
+        "file": "lib/test/cloud_writer_deps.py",
+        "line_range": [
+          126,
+          137
+        ],
+        "kind": "api_misuse"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
     },
     {
       "agent": "completeness-critic",
       "severity": "Suggestion",
-      "description": "Phase 3.1.5 completeness critic: independent enumeration of vendored helper grants from lib/capability-profiles.json yields 2 members the audit's population (cwc.REQUIRED_HELPER_HEADS via entry_points()) does not cover: scripts/preflight.py and scripts/verification-flight.py. The gap is in the pre-existing AC1 closure (cloud_writer_contract.py, unchanged by this PR, both absent on main) — the AC5 audit faithfully covers its stated population; the uncovered helpers' dependencies are never classified. Independent signal used: capability-profiles vendored Bash grant literals.",
+      "description": "AC1 closure omits scripts/preflight.py + scripts/verification-flight.py granted in capability profiles",
       "defect_signature": {
         "file": "lib/test/cloud_writer_contract.py",
         "line_range": null,
         "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-0",
+      "decision": "applied",
+      "commit": "28e67501"
+    },
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "28e67501"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "pushed_back",
+      "source_file": "lib/test/cloud_writer_deps.py",
+      "claim_text": "constant_truth catching MemoryError/RecursionError suppresses host failure",
+      "skip_category": "claim-quality",
+      "evidence": "Python's ast.literal_eval documentation explicitly states it may raise ValueError, TypeError, SyntaxError, MemoryError and RecursionError on crafted input and recommends catching them; the catch matches the documented contract of the wrapped call",
+      "parking_evidence": {
+        "basis": "the catch set matches ast.literal_eval's documented exception contract; suppressing them there is the intended conservative both-branches-unknown direction",
+        "failing_input": "a crafted deeply-nested literal driving literal_eval to RecursionError/MemoryError",
+        "source": "python stdlib docs, ast.literal_eval exception contract",
+        "finding_ref": {
+          "iter": 1,
+          "index": 2
+        }
+      }
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "deferred",
+      "source_file": "lib/test/cloud_writer_deps.py",
+      "claim_text": "guard violations print to stdout not stderr",
+      "skip_category": "uncategorized",
+      "evidence": "real but minor CLI-contract choice; the suite pins the stdout text and exit code 1 is the loud signal; changing the stream is a contract change not worth a fix-loop iteration"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "applied",
+      "commit": "28e67501"
+    },
+    {
+      "finding_id": "F-5",
+      "decision": "applied",
+      "commit": "28e67501"
+    },
+    {
+      "finding_id": "F-6",
+      "decision": "applied",
+      "commit": "28e67501"
+    },
+    {
+      "finding_id": "F-7",
+      "decision": "applied",
+      "commit": "28e67501"
+    },
+    {
+      "finding_id": "F-8",
+      "decision": "applied",
+      "commit": "28e67501"
+    },
+    {
+      "finding_id": "F-9",
+      "decision": "applied",
+      "commit": "28e67501"
+    },
+    {
+      "finding_id": "F-10",
+      "decision": "applied",
+      "commit": "28e67501"
+    },
+    {
+      "finding_id": "F-11",
+      "decision": "deferred",
+      "source_file": "lib/test/test_python_scripts.py",
+      "claim_text": "heavy monkeypatching couples assertions to private names",
+      "skip_category": "uncategorized",
+      "evidence": "deliberate non-vacuity strategy the analyzer itself judged largely justified; a public test seam is a refactor beyond this loop"
+    },
+    {
+      "finding_id": "F-12",
+      "decision": "applied",
+      "commit": "28e67501"
+    },
+    {
+      "finding_id": "F-13",
+      "decision": "deferred",
+      "source_file": "lib/test/cloud_writer_deps.py",
+      "claim_text": "Edge.auth free-form prose",
+      "skip_category": "uncategorized",
+      "evidence": "design refinement (structured auth union); not trivial, no behavioral defect"
+    },
+    {
+      "finding_id": "F-14",
+      "decision": "deferred",
+      "source_file": "lib/test/cloud_writer_deps.py",
+      "claim_text": "ExecSpec target shape unconstrained",
+      "skip_category": "uncategorized",
+      "evidence": "design refinement; downstream guards catch the mismatch classes"
+    },
+    {
+      "finding_id": "F-15",
+      "decision": "deferred",
+      "source_file": "lib/test/cloud_writer_deps.py",
+      "claim_text": "stringly-keyed scope dict",
+      "skip_category": "uncategorized",
+      "evidence": "private analysis pass with heavy test coverage; Scope dataclass is a refactor beyond this loop"
+    },
+    {
+      "finding_id": "F-16",
+      "decision": "deferred",
+      "source_file": "lib/test/cloud_writer_deps.py",
+      "claim_text": "import-time side effects",
+      "skip_category": "uncategorized",
+      "evidence": "fail-closed direction is right; lazy accessor is a refinement; sole importer is the test suite"
+    },
+    {
+      "finding_id": "F-17",
+      "decision": "applied",
+      "commit": "28e67501"
+    },
+    {
+      "finding_id": "F-18",
+      "decision": "applied",
+      "commit": "28e67501"
+    },
+    {
+      "finding_id": "F-19",
+      "decision": "deferred",
+      "source_file": "lib/test/cloud_writer_deps.py",
+      "claim_text": "second bespoke shell lexer",
+      "skip_category": "uncategorized",
+      "evidence": "follow-up-grade unification; the reviewer itself recommended a follow-up, not this PR"
+    },
+    {
+      "finding_id": "F-20",
+      "decision": "deferred",
+      "source_file": "lib/test/cloud_writer_deps.py",
+      "claim_text": "undeclared exec edges escape",
+      "skip_category": "uncategorized",
+      "evidence": "disclosed tradeoff mirroring AC1's DISPATCH_EDGES; reviewer graded it not-a-defect, follow-up material"
+    },
+    {
+      "finding_id": "F-21",
+      "decision": "deferred",
+      "source_file": "lib/test/cloud_writer_deps.py",
+      "claim_text": "private cross-module API cwc._helper_source_path",
+      "skip_category": "uncategorized",
+      "evidence": "promoting the name is a cloud_writer_contract.py change outside this PR's diff; fail-closed on rename (import breaks loudly)"
+    },
+    {
+      "finding_id": "F-22",
+      "decision": "deferred",
+      "source_file": "lib/test/cloud_writer_contract.py",
+      "claim_text": "AC1 closure omits preflight.py/verification-flight.py",
+      "skip_category": "out-of-scope",
+      "evidence": "cloud_writer_contract.py is unchanged by this PR's diff and both helpers are absent from REQUIRED_HELPER_HEADS on origin/main too \u2014 pre-existing AC1 scope, not this PR's AC5 audit",
+      "parking_evidence": {
+        "basis": "the gap lives in the pre-existing AC1 closure this PR does not touch; the AC5 audit faithfully covers its stated population",
+        "failing_input": "dependencies of scripts/preflight.py and scripts/verification-flight.py are never classified",
+        "source": "git diff origin/main...HEAD touches only lib/preflight.sh + two lib/test files; grep of origin/main:lib/test/cloud_writer_contract.py shows both helpers absent",
+        "finding_ref": {
+          "iter": 1,
+          "index": 22
+        }
       }
     }
   ],
-  "telemetry": "unavailable"
+  "test_first_gate": "see iter-1-gate-evidence.json (consumed): RED-then-GREEN for 8 new-behavior assertions; GREEN-first for 12 gap assertions",
+  "sweep_defs_read": [],
+  "sweep_evidence": {
+    "status": "degraded",
+    "reason": "phase-2 source sweep definitions not re-read this iteration (vendored implement phases sibling available; classification recorded in gate-evidence item 3); Step 3.5 + shadow named as backstop"
+  },
+  "verification_evidence": {
+    "command": "python3 lib/test/test_python_scripts.py (focused module per user instruction; full suite deferred to loop end)",
+    "result": "pass",
+    "duration_s": 30,
+    "skipped_checks": []
+  },
+  "convergence_inputs": {
+    "fixes_applied": 12,
+    "fix_diff_lines": 226,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": {
+    "phase_0": {
+      "calls": 6,
+      "tokens": 0,
+      "wall_clock_s": 60
+    },
+    "phase_1": {
+      "calls": 1,
+      "tokens": 116629,
+      "wall_clock_s": 163
+    },
+    "phase_2": {
+      "calls": 17,
+      "tokens": 1207254,
+      "wall_clock_s": 700
+    },
+    "phase_3": {
+      "calls": 8,
+      "tokens": 995243,
+      "wall_clock_s": 900
+    },
+    "step_2_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 5,
+      "webfetches": 0
+    },
+    "phase_4_x": {
+      "calls": 2,
+      "tokens": 0,
+      "wall_clock_s": 120
+    }
+  },
+  "base_checkpoint": {
+    "token": "UP_TO_DATE",
+    "behind_by": null
+  },
+  "stale_prose_check": {
+    "rows": [
+      "VERIFIED\tR4\tlib/test/cloud_writer_deps.py\t468\tdeny-absolute on `||`: no contradicting permit found"
+    ],
+    "stale": 0,
+    "rc": 0
+  },
+  "push": {
+    "pushed": true,
+    "range": "98cf8daf..a2512945"
+  },
+  "fix_delta_gate": {
+    "iter_fix_base": "98cf8daf34bd59fcd355a367569ceb0a240f1a1f",
+    "attempt_1": {
+      "result": "1 Important (parent-anchor heuristic bypassable, probe-confirmed fail-open) + 2 Suggestions (empty-operand ValueError; regression-permeable e2e test)",
+      "action": "re-fix 1 (28e67501\u2192e3ff7008): structural whitelist + placeholder + strengthened tests"
+    },
+    "attempt_2": {
+      "result": "2 Important residual bypasses (operand-prefix junk laundering; $\" quote-strip collision), both probe-confirmed",
+      "action": "re-fix 2 (a2512945): quote-tolerant regex + operand fullmatch; all probe shapes verified closed"
+    },
+    "inner_attempts_exhausted": true,
+    "residue_routing": "iteration 2 full engine re-review (REJECT already mandates it); bypass shapes re-probed closed post-fix"
+  },
+  "reflections": [
+    "fix-delta gate: 2 inner re-fix attempts used; attempt-2 fixes probe-verified closed; iteration 2 full re-review is the independent verification",
+    "parked-class sweep not yet run (REJECT path this iteration; runs at convergence entry)"
+  ]
 }
