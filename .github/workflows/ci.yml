@@ -79,7 +79,8 @@ jobs:
             lib/test/module-harness.sh lib/test/run-module.sh lib/test/summary.sh \
             lib/test/modules/workflow-flight-recorder.sh \
             lib/test/modules/review-and-fix-contract.sh \
-            lib/test/modules/create-issue-contract.sh
+            lib/test/modules/create-issue-contract.sh \
+            lib/test/modules/capability-profiles.sh
           # lib/test/describe-budget-delta.sh is the #529 budget-delta reporter the suite
           # drives (a branch-selecting message composer, extracted per CLAUDE.md's
           # inline-shell rule). Same carve-out: real shell, so it is linted even

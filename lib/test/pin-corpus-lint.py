@@ -62,6 +62,13 @@ HELPERS = {
     "pin_count": (0, 1, None),
     "assert_pin_red_on_removal": (1, 2, "MAXI_SKILL"),
     "assert_pin_red_under": (1, 3, "MAXI_SKILL"),
+    # Namespaced module pin API (module-harness.sh, issue #577) so the meta-lints
+    # cover pins that extraction moves out of run.sh into lib/test/modules/*.sh
+    # (issue #591). Module pins always pass the target file explicitly — no default.
+    "devflow_module_pin_count": (0, 1, None),
+    "devflow_module_pin_unique": (1, 2, None),
+    "devflow_module_pin_present": (1, 2, None),
+    "devflow_module_pin_red_under": (1, 3, None),
 }
 
 COMMENT_HASH_EXTS = {".sh", ".py", ".jq", ".yml", ".yaml"}
