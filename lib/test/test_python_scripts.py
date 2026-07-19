@@ -7162,6 +7162,43 @@ assert_eq("#598 iter-3: the anchor+$(pwd) co-binding (run-jq fallback shape) sti
           ([("source", "lib/resolve-jq.sh", "repo-owned")], []),
           ([(e.kind, e.target, e.klass) for e in _pw_edges],
            cwd.check_dependencies(edges=_pw_edges)))
+# Substitution-body assignments never prove a parent variable: a binding that
+# exists only inside a $( ) body is subshell-scoped, so the parent var stays
+# unproved and the include is rejected (fix-delta gate, iteration 3).
+try:
+    cwd._read = lambda rel: (
+        '#!/usr/bin/env bash\n'
+        'X="$(HERE=$(cd "$(dirname "$0")" && pwd); echo "$HERE")"\n'
+        '. "$HERE/../lib/resolve-jq.sh"\n')
+    _sb_edges = cwd._scan_shell_sources("scripts/fake-subst.sh")
+finally:
+    cwd._read = _orig_cwd_read
+assert_eq("#598 iter-3: a substitution-body-only anchor binding never proves the parent var",
+          True,
+          bool(_sb_edges) and bool(cwd.check_dependencies(edges=_sb_edges)))
+# Rebind channels invisible to NAME=value assignment events (for/read/+=)
+# poison the variable's provedness: an anchor-bound var later rebound through
+# any of them stays unproved.
+for _rb_name, _rb_src in (
+    ("for-loop rebind",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+     'for HERE in /evil; do :; done\n. "$HERE/../lib/resolve-jq.sh"\n'),
+    ("read rebind",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+     'read -r HERE\n. "$HERE/../lib/resolve-jq.sh"\n'),
+    ("append rebind",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+     'HERE+=/evil\n. "$HERE/../lib/resolve-jq.sh"\n'),
+):
+    try:
+        cwd._read = lambda rel, _s=_rb_src: _s
+        _rb_edges = cwd._scan_shell_sources("scripts/fake-rebindch.sh")
+    finally:
+        cwd._read = _orig_cwd_read
+    assert_eq(f"#598 iter-3: a {_rb_name} poisons the var's provedness (include rejected)",
+              True,
+              bool(_rb_edges) and bool(cwd.check_dependencies(edges=_rb_edges)))
+
 # Duck-typed EXTERNAL edge missing its auth attribute: the guard reports the
 # designed violation instead of detonating with AttributeError.
 _duck_ext_errors = cwd.check_dependencies(edges=[types.SimpleNamespace(

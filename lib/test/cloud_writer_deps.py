@@ -634,18 +634,29 @@ def _scan_shell_sources(helper):
     # the dir var held a non-anchor binding must never be resolved against the
     # var's later anchor binding. The tracker stores bare value strings (no
     # per-assignment state snapshot), so provedness is computed conservatively
-    # over EVERY binding the variable takes anywhere in the file: one
+    # over every top-level `NAME=value` assignment event in the file (plus
+    # poisoning for the for/read/+= rebind channels, which emit none): one
     # non-anchor binding (other than the accepted `$(pwd)` co-binding — the
     # run-jq.sh case-fallback shape, where the runtime miss is loud) leaves the
     # variable unproved and its include tails absolute-looking for the vendor
     # guard to reject.
-    # Collect the raw assignment-event history (not the per-command states,
-    # whose replace-on-assignment semantics forget the earlier binding that an
-    # intermediate capture may have frozen).
+    # Collect the raw top-level `NAME=value` assignment-event history (not the
+    # per-command states, whose replace-on-assignment semantics forget the
+    # earlier binding an intermediate capture may have frozen; and never
+    # substitution-body events, which are subshell-scoped). Rebind channels
+    # that emit no assignment event — a `for` target, a `read` target, a
+    # `NAME+=` append — POISON the name so it can never be proved.
     file_wide_bindings = {}
-    for _kind, _first, _second in _shell_events(code):
+    for _kind, _first, _second in _shell_events(code, include_substitutions=False):
         if _kind == "assignment":
             file_wide_bindings.setdefault(_first, set()).add(_second)
+    for _m in re.finditer(r"\bfor[ \t]+([A-Za-z_]\w*)\b", code):
+        file_wide_bindings.setdefault(_m.group(1), set()).add("<rebound>")
+    for _m in re.finditer(r"\bread\b((?:[ \t]+-\w+)*(?:[ \t]+[A-Za-z_]\w*)+)", code):
+        for _name in re.findall(r"[A-Za-z_]\w*", _m.group(1)):
+            file_wide_bindings.setdefault(_name, set()).add("<rebound>")
+    for _m in re.finditer(r"\b([A-Za-z_]\w*)\+=", code):
+        file_wide_bindings.setdefault(_m.group(1), set()).add("<rebound>")
     allowed_dir_vars = {
         name
         for name, values in file_wide_bindings.items()
@@ -1430,8 +1441,13 @@ def _shell_tokens(code):
     return tokens
 
 
-def _shell_events(code):
-    """Return assignment/control/command events from preprocessed shell code."""
+def _shell_events(code, include_substitutions=True):
+    """Return assignment/control/command events from preprocessed shell code.
+
+    With ``include_substitutions=False``, events inside ``$( )`` bodies are
+    omitted — a binding made only inside a substitution is subshell-scoped and
+    must never prove a parent-scope variable (the provedness consumer's mode).
+    """
     events = []
     segment = []
     controls = {"if", "then", "elif", "else", "fi", "while", "until",
@@ -1487,8 +1503,9 @@ def _shell_events(code):
         else:
             emit()
     emit()
-    for body in _shell_substitution_bodies(code):
-        events.extend(_shell_events(body))
+    if include_substitutions:
+        for body in _shell_substitution_bodies(code):
+            events.extend(_shell_events(body))
     return events
 
 
