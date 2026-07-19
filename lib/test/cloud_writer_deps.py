@@ -321,40 +321,60 @@ def _sibling_module_paths(helper, module, *, preserve_broken=True):
     """
     own_parent = Path(helper).parent
     parents = [own_parent, *(Path(name) for name in ("scripts", "lib"))]
-    seen = set()
-    search_parents = []
-    for parent in parents:
-        if parent in seen:
-            continue
-        seen.add(parent)
-        top = parent / module.split(".", 1)[0]
-        if (
-            (REPO_ROOT / top / "__init__.py").is_file()
-            or (REPO_ROOT / Path(str(top) + ".py")).is_file()
-        ):
-            paths = _module_paths(parent, module)
-            if paths or module.count(".") == 0:
+    locations = list(dict.fromkeys(parents))
+    paths = []
+    local_prefix = False
+
+    for index, part in enumerate(module.split(".")):
+        regular = None
+        namespaces = []
+        for location in locations:
+            package_dir = location / part
+            package = package_dir / "__init__.py"
+            flat = Path(str(package_dir) + ".py")
+            if (REPO_ROOT / package).is_file():
+                regular = ("package", package, package_dir)
+                break
+            if (REPO_ROOT / flat).is_file():
+                regular = ("module", flat, None)
+                break
+            if (REPO_ROOT / package_dir).is_dir():
+                namespaces.append(package_dir)
+
+        if regular is not None:
+            local_prefix = True
+            kind, path, next_location = regular
+            paths.append(path.as_posix())
+            if kind == "module":
+                if index < len(module.split(".")) - 1:
+                    if not preserve_broken:
+                        return None
+                    missing = Path(str(path.with_suffix("")) + "/"
+                                   + "/".join(module.split(".")[index + 1:]) + ".py")
+                    paths.append(missing.as_posix())
                 return paths
-            return (
-                _module_paths(parent, module, preserve_missing=True)
-                if preserve_broken
-                else None
-            )
-        if (REPO_ROOT / top).is_dir():
-            search_parents.append(parent)
-    for parent in search_parents:
-        paths = _module_paths(parent, module)
-        if paths:
-            return paths
-    if search_parents:
-        if module.count(".") == 0:
-            return []
-        return (
-            _module_paths(search_parents[0], module, preserve_missing=True)
-            if preserve_broken
-            else None
-        )
-    return None
+            locations = [next_location]
+            continue
+
+        if namespaces:
+            local_prefix = True
+            locations = namespaces
+            continue
+
+        if not local_prefix:
+            return None
+        if not preserve_broken:
+            return None
+        missing_parent = locations[0] if locations else Path(helper).parent
+        missing = missing_parent / part
+        suffix = module.split(".")[index + 1:]
+        if suffix:
+            missing = missing.joinpath(*suffix, "__init__.py")
+        else:
+            missing = missing.with_suffix(".py")
+        paths.append(missing.as_posix())
+        return paths
+    return paths
 
 
 def _scan_python_imports(helper):
@@ -454,7 +474,7 @@ _SH_TOKEN = re.compile(r'[\w./${}\[\]\-]*\.(?:sh|bash)')
 # helper dir (see the call sites in run-jq/apply-labels/efficiency-trace).
 
 
-def _source_tail(raw_target):
+def _source_tail(raw_target, allowed_dir_vars=frozenset()):
     """Extract the helper-dir-relative include tail from a `.`/`source` operand.
 
     Strips a leading `$VAR` / `${VAR}` directory expression, leaving e.g.
@@ -469,10 +489,26 @@ def _source_tail(raw_target):
     if tok.startswith("/"):
         return tok
     if tok.startswith("$"):
-        m = re.match(r'\$\{?\w+\}?', tok)
+        m = re.match(r'\$\{?([A-Za-z_]\w*)\}?', tok)
         if m:
+            if m.group(1) not in allowed_dir_vars:
+                # An unproved prefix (for example $HOME) is not relative to the
+                # helper. Keep it absolute-looking so the trust-boundary check
+                # rejects it instead of rebasing it into the vendor directory.
+                return "/" + tok[m.end():].lstrip("/")
             tok = tok[m.end():]
     return tok.lstrip("/")
+
+
+def _helper_dir_value(value):
+    """Whether a shell value proves the current helper directory."""
+    compact = " ".join(value.split())
+    return (
+        "cd" in compact
+        and ("dirname" in compact or "%/*" in compact)
+        and "pwd" in compact
+        and ("BASH_SOURCE" in compact or "$0" in compact or "${0}" in compact)
+    )
 
 
 def _source_repo_path(helper_dir, tail):
@@ -497,14 +533,34 @@ def _scan_shell_sources(helper):
                 operands.extend(sorted(state.get(bound.group(1), set())))
         else:
             operands.append(args[0])
+        possible_bindings = {}
+        for state in states:
+            for name, values in state.items():
+                possible_bindings.setdefault(name, set()).update(values)
+        allowed_dir_vars = {
+            name
+            for name, values in possible_bindings.items()
+            if (
+                values
+                and any(_helper_dir_value(value) for value in values)
+                and all(
+                    _helper_dir_value(value) or value.strip() == "$(pwd)"
+                    for value in values
+                )
+            )
+        }
         for operand in operands:
             tok = _SH_TOKEN.search(operand)
             if not tok:
                 continue
             raw_target = tok.group()
-            if operand.startswith("$(") and raw_target.startswith("/"):
+            if (
+                operand.startswith("$(")
+                and raw_target.startswith("/")
+                and _helper_dir_value(operand)
+            ):
                 raw_target = raw_target.lstrip("/")
-            tail = _source_tail(raw_target)
+            tail = _source_tail(raw_target, allowed_dir_vars)
             if not tail or not tail.endswith((".sh", ".bash")):
                 continue
             repo_rel = _source_repo_path(helper_dir, tail)
@@ -613,7 +669,9 @@ def _shell_substitution_bodies(text):
             # executable command substitutions.
             index += 3
             continue
-        if quote != "'" and text.startswith("$(", index):
+        if quote != "'" and any(
+            text.startswith(opener, index) for opener in ("$(", "<(", ">(")
+        ):
             start = index + 2
             cursor = start
             frames = [{"depth": 1, "quote": None}]
@@ -630,7 +688,10 @@ def _shell_substitution_bodies(text):
                         frame["quote"] = inner
                     cursor += 1
                     continue
-                if frame["quote"] != "'" and text.startswith("$(", cursor):
+                if frame["quote"] != "'" and any(
+                    text.startswith(opener, cursor)
+                    for opener in ("$(", "<(", ">(")
+                ):
                     frames.append({"depth": 1, "quote": None})
                     cursor += 2
                     continue
@@ -671,66 +732,83 @@ def _strip_line_comments(source):
     AST-derived instead.
     """
     stripped = []
-    quote = None
+    # Each command-substitution frame has its own quote context. This matters
+    # for constructs such as `value="$(awk 'multiline program')"`: quotes inside
+    # the substitution do not close the surrounding double-quoted shell word.
+    frames = [{"quote": None, "depth": None, "arithmetic": False}]
     parameter_depth = 0
     heredoc_tags = []
-    arithmetic_depth = 0
+    heredoc_buffers = []
     for line in source.splitlines():
         if heredoc_tags:
             tag, quoted = heredoc_tags[0]
             if line.strip() == tag:
+                body = "\n".join(heredoc_buffers.pop(0))
                 heredoc_tags.pop(0)
-                stripped.append("")
-            elif quoted:
-                stripped.append("")
+                stripped.append(
+                    "" if quoted else "\n".join(_shell_substitution_bodies(body))
+                )
             else:
-                stripped.append("\n".join(_shell_substitution_bodies(line)))
+                heredoc_buffers[0].append(line)
+                stripped.append("")
             continue
-        escaped = False
+
         keep = []
-        continued_quote = quote is not None
         index = 0
         while index < len(line):
+            frame = frames[-1]
             char = line[index]
-            if escaped:
-                keep.append(" " if continued_quote else char)
-                escaped = False
-                index += 1
+            if char == "\\" and frame["quote"] != "'":
+                keep.append(line[index:index + 2])
+                index += 2
                 continue
-            if char == "\\" and quote != "'":
-                keep.append(" " if continued_quote else char)
-                escaped = True
-                index += 1
-                continue
-            if quote:
-                keep.append(char if char == quote else (" " if continued_quote else char))
-                if char == quote:
-                    quote = None
-                    continued_quote = False
-                index += 1
-                continue
-            if arithmetic_depth:
+            if frame["quote"]:
+                if frame["quote"] == '"' and line.startswith("$(", index):
+                    opener = "$((" if line.startswith("$((", index) else "$("
+                    keep.append(opener)
+                    frames.append({
+                        "quote": None,
+                        "depth": 2 if opener == "$((" else 1,
+                        "arithmetic": opener == "$((",
+                    })
+                    index += len(opener)
+                    continue
                 keep.append(char)
-                if char == "(":
-                    arithmetic_depth += 1
-                elif char == ")":
-                    arithmetic_depth -= 1
+                if char == frame["quote"]:
+                    frame["quote"] = None
                 index += 1
                 continue
             if char in ("'", '"'):
-                quote = char
+                frame["quote"] = char
                 keep.append(char)
                 index += 1
                 continue
-            if not parameter_depth and line.startswith("$((", index):
-                keep.extend("$((")
-                arithmetic_depth = 1
-                index += 3
+            if line.startswith("$(", index):
+                opener = "$((" if line.startswith("$((", index) else "$("
+                keep.append(opener)
+                frames.append({
+                    "quote": None,
+                    "depth": 2 if opener == "$((" else 1,
+                    "arithmetic": opener == "$((",
+                })
+                index += len(opener)
                 continue
-            if char == "$" and index + 1 < len(line) and line[index + 1] == "{":
+            if line.startswith("((", index):
+                keep.append("((")
+                frames.append({"quote": None, "depth": 2, "arithmetic": True})
+                index += 2
+                continue
+            if frame["depth"] is not None and char in "()":
+                keep.append(char)
+                frame["depth"] += 1 if char == "(" else -1
+                if frame["depth"] == 0:
+                    frames.pop()
+                index += 1
+                continue
+            if line.startswith("${", index):
                 parameter_depth += 1
-                keep.append(char)
-                index += 1
+                keep.append("${")
+                index += 2
                 continue
             if char == "}" and parameter_depth:
                 parameter_depth -= 1
@@ -738,34 +816,28 @@ def _strip_line_comments(source):
                 index += 1
                 continue
             if char == "#" and not parameter_depth and (
-                index == 0 or line[index - 1].isspace()
+                index == 0
+                or line[index - 1].isspace()
                 or line[index - 1] in ";|&(){}"
             ):
                 break
             if (
                 not parameter_depth
+                and not frame["arithmetic"]
                 and line.startswith("<<", index)
                 and (index == 0 or line[index - 1] != "<")
             ):
                 heredoc = re.match(
-                    r"<<-?(?!<)[ \t]*(?:\\(?P<escaped>[\w.-]+)|"
-                    r"(?P<quote>['\"])(?P<quoted>[\w.-]+)(?P=quote)|"
-                    r"(?P<bare>[\w.-]+))",
-                    line[index:],
+                    r"<<-?(?!<)[ \t]*(?P<word>[^\s;&|()]+)", line[index:]
                 )
                 if heredoc:
-                    tag = (
-                        heredoc.group("escaped")
-                        or heredoc.group("quoted")
-                        or heredoc.group("bare")
-                    )
-                    heredoc_tags.append(
-                        (tag, bool(heredoc.group("escaped") or heredoc.group("quoted")))
-                    )
+                    word = heredoc.group("word")
+                    tag = re.sub(r"[\"']", "", re.sub(r"\\(.)", r"\1", word))
+                    heredoc_tags.append((tag, bool(re.search(r"[\\\"']", word))))
+                    heredoc_buffers.append([])
             keep.append(char)
             index += 1
-        cleaned = "".join(keep)
-        stripped.append(cleaned)
+        stripped.append("".join(keep))
     return "\n".join(stripped)
 
 
@@ -784,11 +856,81 @@ def _strip_shell_structural_data(code):
         line = re.sub(r"\$\(\(.*?\)\)", preserve_nested, line)
         return re.sub(r"(?<!\$)\(\(.*?\)\)", preserve_nested, line)
 
+    def mask_multiline_arithmetic(text):
+        """Mask balanced arithmetic commands/expansions that span lines."""
+        output = []
+        index = 0
+        quote = None
+        while index < len(text):
+            char = text[index]
+            if char == "\\" and quote != "'":
+                output.append(text[index:index + 2])
+                index += 2
+                continue
+            if char in ("'", '"'):
+                if quote == char:
+                    quote = None
+                elif quote is None:
+                    quote = char
+                output.append(char)
+                index += 1
+                continue
+            opener = None
+            if quote != "'" and text.startswith("$((", index):
+                opener = 3
+            elif quote is None and text.startswith("((", index):
+                opener = 2
+            if opener is None:
+                output.append(char)
+                index += 1
+                continue
+            cursor = index + opener
+            depth = 2
+            inner_quote = None
+            while cursor < len(text) and depth:
+                inner = text[cursor]
+                if inner == "\\" and inner_quote != "'":
+                    cursor += 2
+                    continue
+                if inner in ("'", '"'):
+                    if inner_quote == inner:
+                        inner_quote = None
+                    elif inner_quote is None:
+                        inner_quote = inner
+                    cursor += 1
+                    continue
+                if inner_quote is None and inner == "(":
+                    depth += 1
+                elif inner_quote is None and inner == ")":
+                    depth -= 1
+                cursor += 1
+            if depth:
+                output.append(text[index:])
+                break
+            executable = substitutions(text[index:cursor])
+            output.append(f"\n{executable}\n" if executable else "")
+            index = cursor
+        return "".join(output)
+
     def pattern_end(line):
         """Index after a case-pattern `)`, ignoring command substitutions."""
         depth = 0
         index = 0
+        quote = None
         while index < len(line):
+            if line[index] == "\\" and quote != "'":
+                index += 2
+                continue
+            if line[index] in ("'", '"'):
+                if quote == line[index]:
+                    quote = None
+                elif quote is None:
+                    quote = line[index]
+                index += 1
+                continue
+            if quote is not None:
+                index += 1
+                continue
             if line.startswith("$(", index):
                 depth += 1
                 index += 2
@@ -803,11 +945,162 @@ def _strip_shell_structural_data(code):
             index += 1
         return None
 
+    array_start = re.compile(
+        r"(?:(?:declare|local|readonly|typeset)(?:\s+-[A-Za-z]+)*\s+)?"
+        r"[A-Za-z_]\w*\s*\+?=\s*\("
+    )
+
+    def expose_inline_arrays(line):
+        """Put command-position array assignments at a physical line start."""
+        output = []
+        index = 0
+        quote = None
+        controls = re.compile(r"(?:then|do|else|elif)\b")
+
+        def array_follows(cursor):
+            cursor += len(line[cursor:]) - len(line[cursor:].lstrip())
+            return array_start.match(line, cursor) is not None
+
+        while index < len(line):
+            char = line[index]
+            if char == "\\" and quote != "'":
+                output.append(line[index:index + 2])
+                index += 2
+                continue
+            if quote:
+                output.append(char)
+                if char == quote:
+                    quote = None
+                index += 1
+                continue
+            if char in ("'", '"'):
+                quote = char
+                output.append(char)
+                index += 1
+                continue
+            if line.startswith("${", index) or line.startswith("$(", index):
+                opener = "${" if line.startswith("${", index) else "$("
+                closer = "}" if opener == "${" else ")"
+                depth = 1
+                cursor = index + 2
+                inner_quote = None
+                while cursor < len(line) and depth:
+                    if line[cursor] == "\\" and inner_quote != "'":
+                        cursor += 2
+                        continue
+                    if line[cursor] in ("'", '"'):
+                        if inner_quote == line[cursor]:
+                            inner_quote = None
+                        elif inner_quote is None:
+                            inner_quote = line[cursor]
+                        cursor += 1
+                        continue
+                    if inner_quote is None and line.startswith(opener, cursor):
+                        depth += 1
+                        cursor += 2
+                        continue
+                    if inner_quote is None and line[cursor] == closer:
+                        depth -= 1
+                    cursor += 1
+                output.append(line[index:cursor])
+                index = cursor
+                continue
+            if char in "{;" and not line.startswith(";;", index):
+                output.append(char)
+                if array_follows(index + 1):
+                    output.append("\n")
+                index += 1
+                continue
+            control = controls.match(line, index)
+            if control and (index == 0 or not (line[index - 1].isalnum()
+                                               or line[index - 1] == "_")):
+                output.append(control.group())
+                if array_follows(control.end()):
+                    output.append("\n")
+                index = control.end()
+                continue
+            output.append(char)
+            index += 1
+        return "".join(output)
+
+    def active_lines(text):
+        """Whether each physical line starts in executable shell syntax."""
+        frames = [{"quote": None, "depth": None}]
+        active = []
+        at_line_start = True
+        index = 0
+        while index < len(text):
+            if at_line_start:
+                active.append(frames[-1]["quote"] is None)
+                at_line_start = False
+            frame = frames[-1]
+            char = text[index]
+            if char == "\n":
+                at_line_start = True
+                index += 1
+                continue
+            if char == "\\" and frame["quote"] != "'":
+                if index + 1 < len(text) and text[index + 1] == "\n":
+                    at_line_start = True
+                index += 2
+                continue
+            if frame["quote"]:
+                if frame["quote"] == '"' and text.startswith("$(", index):
+                    frames.append({"quote": None, "depth": 1})
+                    index += 2
+                    continue
+                if char == frame["quote"]:
+                    frame["quote"] = None
+                index += 1
+                continue
+            if char in ("'", '"'):
+                frame["quote"] = char
+                index += 1
+                continue
+            if text.startswith("$(", index):
+                frames.append({"quote": None, "depth": 1})
+                index += 2
+                continue
+            if frame["depth"] is not None:
+                if char == "(":
+                    frame["depth"] += 1
+                elif char == ")":
+                    frame["depth"] -= 1
+                    if frame["depth"] == 0:
+                        frames.pop()
+                index += 1
+                continue
+            index += 1
+        if at_line_start and (not text or text.endswith("\n")):
+            active.append(frames[-1]["quote"] is None)
+        return active
+
+    code = mask_multiline_arithmetic(code)
+
+    # Make inline structural constructs visible to the line state machine, but
+    # never reinterpret embedded-language text inside a multiline quoted word.
+    expanded = []
+    activity = active_lines(code)
+    for line, is_active in zip(code.splitlines(), activity):
+        if is_active:
+            line = expose_inline_arrays(line)
+            line = re.sub(
+                r";(?=\s*(?:(?:declare|local|readonly|typeset)"
+                r"(?:\s+-[A-Za-z]+)*\s+)?[A-Za-z_]\w*\s*\+?=\s*\()",
+                ";\n",
+                line,
+            )
+            line = re.sub(r";(?=\s*case\b)", ";\n", line)
+        expanded.extend((part, is_active) for part in line.split("\n"))
+
     output = []
     array_depth = 0
     in_case = False
     arm_expected = False
-    for line in code.splitlines():
+    for line, is_active in expanded:
+        if not is_active:
+            output.append(line)
+            continue
         if array_depth:
             array_depth += line.count("(") - line.count(")")
             array_depth = max(array_depth, 0)
@@ -835,6 +1128,7 @@ def _strip_shell_structural_data(code):
             # Preserve command substitutions in the selector; its other tokens
             # and the arm patterns following `in` are data.
             output.append(substitutions(case.group(1)))
+            output.append("if")
             line = case.group(2) or ""
             in_case = True
             arm_expected = True
@@ -842,6 +1136,7 @@ def _strip_shell_structural_data(code):
         while in_case:
             line = line.lstrip()
             if re.match(r"^esac\b", line):
+                output.append("fi")
                 in_case = False
                 arm_expected = False
                 break
@@ -858,6 +1153,7 @@ def _strip_shell_structural_data(code):
             end_case = re.search(r"\besac\b", line)
             if end_case and (not terminator or end_case.start() < terminator.start()):
                 output.append(line[:end_case.start()])
+                output.append("fi")
                 in_case = False
                 arm_expected = False
                 break
@@ -865,6 +1161,7 @@ def _strip_shell_structural_data(code):
                 output.append(line)
                 break
             output.append(line[:terminator.start()])
+            output.append("elif")
             line = line[terminator.end():]
             arm_expected = True
     return "\n".join(output)
@@ -874,55 +1171,67 @@ def _shell_tokens(code):
     """Quote-aware shell words/operators for command-head analysis."""
     tokens = []
     word = []
+    protected = False
     index = 0
     quote = None
 
     def finish_word():
+        nonlocal protected
         if word:
-            tokens.append(("word", "".join(word)))
+            tokens.append(("word", "".join(word), protected))
             word.clear()
+            protected = False
 
     while index < len(code):
         char = code[index]
         if char == "\\" and quote != "'":
+            protected = True
             if index + 1 < len(code):
                 word.append(code[index + 1])
             index += 2
             continue
-        if quote:
-            if char == "\n":
-                quote = None
-                finish_word()
-                tokens.append(("op", "\n"))
-                index += 1
-                continue
-            if char == quote:
-                quote = None
-            else:
-                word.append(char)
-            index += 1
-            continue
-        if char in ("'", '"'):
-            quote = char
-            index += 1
-            continue
-        if code.startswith("$((", index) or code.startswith("$(", index):
-            opener = "$((" if code.startswith("$((", index) else "$("
+        if quote != "'" and code.startswith("${", index):
             start = index
-            depth = 2 if opener == "$((" else 1
-            index += len(opener)
+            depth = 1
+            index += 2
             while index < len(code) and depth:
                 if code[index] == "\\":
                     index += 2
                     continue
-                if code[index] == "(":
+                if code.startswith("${", index):
                     depth += 1
-                elif code[index] == ")":
+                    index += 2
+                    continue
+                if code[index] == "}":
                     depth -= 1
                 index += 1
             word.append(code[start:index])
             continue
-        if char == "`":
+        if quote != "'" and (code.startswith("$((", index) or code.startswith("$(", index)):
+            opener = "$((" if code.startswith("$((", index) else "$("
+            start = index
+            depth = 2 if opener == "$((" else 1
+            inner_quote = None
+            index += len(opener)
+            while index < len(code) and depth:
+                if code[index] == "\\" and inner_quote != "'":
+                    index += 2
+                    continue
+                if code[index] in ("'", '"'):
+                    if inner_quote == code[index]:
+                        inner_quote = None
+                    elif inner_quote is None:
+                        inner_quote = code[index]
+                    index += 1
+                    continue
+                if inner_quote is None and code[index] == "(":
+                    depth += 1
+                elif inner_quote is None and code[index] == ")":
+                    depth -= 1
+                index += 1
+            word.append(code[start:index])
+            continue
+        if quote != "'" and char == "`":
             start = index
             index += 1
             while index < len(code):
@@ -935,10 +1244,22 @@ def _shell_tokens(code):
                 index += 1
             word.append(code[start:index])
             continue
+        if quote:
+            if char == quote:
+                quote = None
+            else:
+                word.append(char)
+            index += 1
+            continue
+        if char in ("'", '"'):
+            protected = True
+            quote = char
+            index += 1
+            continue
         if char.isspace():
             finish_word()
             if char == "\n":
-                tokens.append(("op", "\n"))
+                tokens.append(("op", "\n", False))
             index += 1
             continue
         operator = next(
@@ -947,12 +1268,12 @@ def _shell_tokens(code):
         )
         if operator is not None:
             finish_word()
-            tokens.append(("op", operator))
+            tokens.append(("op", operator, False))
             index += len(operator)
             continue
         if char in ";|&(){}":
             finish_word()
-            tokens.append(("op", char))
+            tokens.append(("op", char, False))
             index += 1
             continue
         word.append(char)
@@ -975,17 +1296,21 @@ def _shell_events(code):
             return
         words = list(segment)
         segment.clear()
-        while words and words[0] in controls:
-            events.append(("control", words.pop(0), None))
+        while words and not words[0][1] and words[0][0] in controls:
+            events.append(("control", words.pop(0)[0], None))
         declarations = False
-        if words and words[0] in {"export", "readonly", "local", "declare", "typeset"}:
+        if (
+            words
+            and not words[0][1]
+            and words[0][0] in {"export", "readonly", "local", "declare", "typeset"}
+        ):
             declarations = True
             words.pop(0)
-            while words and words[0].startswith("-"):
+            while words and words[0][0].startswith("-"):
                 words.pop(0)
         assignments = []
         while words:
-            match = assignment.match(words[0])
+            match = assignment.match(words[0][0])
             if not match:
                 break
             assignments.append((match.group(1), match.group(2)))
@@ -995,14 +1320,22 @@ def _shell_events(code):
                 events.append(("assignment", name, value))
         if not words:
             return
-        while words and words[0] in wrappers:
+        while words and not words[0][1] and words[0][0] in wrappers:
             words.pop(0)
+        redirection = re.compile(r"^\d*(?:<<<|<<|>>|<>|>&|<&|>|<)(.*)$", re.DOTALL)
+        while words:
+            redirect = redirection.fullmatch(words[0][0])
+            if not redirect:
+                break
+            words.pop(0)
+            if not redirect.group(1) and words:
+                words.pop(0)
         if words:
-            events.append(("command", words[0], tuple(words[1:])))
+            events.append(("command", words[0][0], tuple(word for word, _ in words[1:])))
 
-    for kind, token in _shell_tokens(code):
+    for kind, token, protected in _shell_tokens(code):
         if kind == "word":
-            segment.append(token)
+            segment.append((token, protected))
         else:
             emit()
     emit()
@@ -1015,6 +1348,7 @@ def _shell_commands_with_bindings(code):
     """Yield command records with possible variable bindings at that point."""
     state = {}
     branches = []
+    loops = []
     commands = []
 
     def copy_state(value):
@@ -1030,14 +1364,26 @@ def _shell_commands_with_bindings(code):
     for kind, first, second in _shell_events(code):
         if kind == "control":
             if first == "if":
-                branches.append((copy_state(state), None))
+                branches.append({
+                    "before": copy_state(state),
+                    "completed": [],
+                    "else": False,
+                })
             elif first in {"else", "elif"} and branches:
-                before, _then = branches[-1]
-                branches[-1] = (before, copy_state(state))
-                state = copy_state(before)
+                branch = branches[-1]
+                branch["completed"].append(copy_state(state))
+                branch["else"] = first == "else"
+                state = copy_state(branch["before"])
             elif first == "fi" and branches:
-                before, then_states = branches.pop()
-                state = merge_state(state, then_states or before)
+                branch = branches.pop()
+                alternatives = [*branch["completed"], copy_state(state)]
+                if not branch["else"]:
+                    alternatives.append(branch["before"])
+                state = merge_state(*alternatives)
+            elif first in {"while", "until"}:
+                loops.append(copy_state(state))
+            elif first == "done" and loops:
+                state = merge_state(loops.pop(), state)
             continue
         if kind == "assignment":
             state[first] = {second}
@@ -1195,6 +1541,7 @@ def _python_command_evidence(source, filename):
         bind_target(state, target, (value, snapshot(state), scope))
 
     subprocess_module_marker = "__devflow_subprocess_module__"
+    os_module_marker = "__devflow_os_module__"
 
     def subprocess_function_marker(name):
         return f"__devflow_subprocess_function__:{name}"
@@ -1203,8 +1550,10 @@ def _python_command_evidence(source, filename):
         if name in scope["locals"]:
             values = state.get(name, [])
         elif scope["parent"] is not None:
-            return marker_bound(
-                scope["parent"], scope["parent"]["final"], name, marker
+            parent_states = scope["entry_states"] or [scope["parent"]["final"]]
+            return any(
+                marker_bound(scope["parent"], parent_state, name, marker)
+                for parent_state in parent_states
             )
         else:
             return False
@@ -1214,6 +1563,17 @@ def _python_command_evidence(source, filename):
         )
 
     def record_calls(node, state, scope):
+        def callable_names(name, current_state, resolving=frozenset()):
+            if name in resolving:
+                return set()
+            names = {name}
+            for binding, bound_state, _bound_scope in current_state.get(name, []):
+                if isinstance(binding, ast.Name):
+                    names |= callable_names(
+                        binding.id, bound_state, resolving | {name}
+                    )
+            return names
+
         class Calls(ast.NodeVisitor):
             def visit_FunctionDef(self, child):  # noqa: N802
                 return
@@ -1227,6 +1587,7 @@ def _python_command_evidence(source, filename):
             def visit_Call(self, call):  # noqa: N802
                 scope["call_events"].append((call, snapshot(state)))
                 if isinstance(call.func, ast.Name):
+                    possible_names = callable_names(call.func.id, state)
                     for child_scope in scope["children"]:
                         child_node = child_scope["node"]
                         if (
@@ -1234,12 +1595,19 @@ def _python_command_evidence(source, filename):
                                 child_node,
                                 (ast.FunctionDef, ast.AsyncFunctionDef),
                             )
-                            and child_node.name == call.func.id
+                            and child_node.name in possible_names
                         ):
                             child_scope["entry_states"].append(snapshot(state))
                 command = call.args[0] if call.args else next(
                     (kw.value for kw in call.keywords if kw.arg == "args"), None
                 )
+                executable = next(
+                    (kw.value for kw in call.keywords if kw.arg == "executable"), None
+                )
+                if executable is not None and not (
+                    isinstance(executable, ast.Constant) and executable.value is None
+                ):
+                    command = executable
                 if command is not None:
                     is_module_call = (
                         isinstance(call.func, ast.Attribute)
@@ -1267,6 +1635,41 @@ def _python_command_evidence(source, filename):
 
         Calls().visit(node)
 
+    def apply_named_expressions(node, state, scope):
+        if isinstance(node, ast.NamedExpr):
+            apply_named_expressions(node.value, state, scope)
+            bind_assignment(state, node.target, node.value, scope)
+            return
+        if isinstance(node, ast.BoolOp):
+            for value in node.values:
+                apply_named_expressions(value, state, scope)
+                truth = constant_truth(value)
+                if (
+                    isinstance(node.op, ast.And) and truth is False
+                    or isinstance(node.op, ast.Or) and truth is True
+                ):
+                    break
+            return
+        if isinstance(node, ast.IfExp):
+            apply_named_expressions(node.test, state, scope)
+            truth = constant_truth(node.test)
+            if truth is not None:
+                apply_named_expressions(
+                    node.body if truth else node.orelse, state, scope
+                )
+            else:
+                body_state = snapshot(state)
+                else_state = snapshot(state)
+                apply_named_expressions(node.body, body_state, scope)
+                apply_named_expressions(node.orelse, else_state, scope)
+                state.clear()
+                state.update(merge_states(body_state, else_state))
+            return
+        if isinstance(node, (ast.Lambda, ast.FunctionDef, ast.AsyncFunctionDef)):
+            return
+        for child in ast.iter_child_nodes(node):
+            apply_named_expressions(child, state, scope)
+
     def process_block(statements, incoming, scope):
         state = snapshot(incoming)
         for statement in statements:
@@ -1275,9 +1678,12 @@ def _python_command_evidence(source, filename):
                     *getattr(statement, "decorator_list", []),
                     *getattr(getattr(statement, "args", None), "defaults", []),
                     *getattr(getattr(statement, "args", None), "kw_defaults", []),
+                    *getattr(statement, "bases", []),
+                    *(keyword.value for keyword in getattr(statement, "keywords", [])),
                 ):
                     if expression_node is not None:
                         record_calls(expression_node, state, scope)
+                        apply_named_expressions(expression_node, state, scope)
                 continue
             if isinstance(statement, (ast.Import, ast.ImportFrom)):
                 aliases = statement.names
@@ -1287,6 +1693,8 @@ def _python_command_evidence(source, filename):
                     marker = None
                     if isinstance(statement, ast.Import) and alias.name == "subprocess":
                         marker = subprocess_module_marker
+                    elif isinstance(statement, ast.Import) and alias.name == "os":
+                        marker = os_module_marker
                     elif (
                         isinstance(statement, ast.ImportFrom)
                         and statement.module == "subprocess"
@@ -1304,6 +1712,7 @@ def _python_command_evidence(source, filename):
                 continue
             if isinstance(statement, ast.Assign):
                 record_calls(statement.value, state, scope)
+                apply_named_expressions(statement.value, state, scope)
                 for target_node in statement.targets:
                     bind_assignment(state, target_node, statement.value, scope)
                 continue
@@ -1326,6 +1735,7 @@ def _python_command_evidence(source, filename):
                 continue
             if isinstance(statement, ast.If):
                 record_calls(statement.test, state, scope)
+                apply_named_expressions(statement.test, state, scope)
                 truth = constant_truth(statement.test)
                 if truth is True:
                     state = process_block(statement.body, state, scope)
@@ -1357,12 +1767,12 @@ def _python_command_evidence(source, filename):
                         statement.orelse, merge_states(state, body_state), scope
                     )
                 continue
-            if isinstance(statement, ast.Try):
+            if isinstance(statement, (ast.Try, ast.TryStar)):
                 body_state = process_block(statement.body, state, scope)
                 normal_state = process_block(statement.orelse, body_state, scope)
                 branches = [normal_state]
                 for handler in statement.handlers:
-                    handler_state = snapshot(state)
+                    handler_state = merge_states(state, body_state)
                     if handler.name:
                         handler_state[handler.name] = []
                     branches.append(process_block(handler.body, handler_state, scope))
@@ -1381,7 +1791,13 @@ def _python_command_evidence(source, filename):
                 continue
             if isinstance(statement, ast.Match):
                 record_calls(statement.subject, state, scope)
-                branches = [state]
+                exhaustive = any(
+                    isinstance(case.pattern, ast.MatchAs)
+                    and case.pattern.pattern is None
+                    and case.guard is None
+                    for case in statement.cases
+                )
+                branches = [] if exhaustive else [state]
                 for case in statement.cases:
                     case_state = snapshot(state)
                     for pattern_node in ast.walk(case.pattern):
@@ -1395,6 +1811,7 @@ def _python_command_evidence(source, filename):
                 state = merge_states(*branches)
                 continue
             record_calls(statement, state, scope)
+            apply_named_expressions(statement, state, scope)
         return state
 
     def analyze(scope):
@@ -1409,27 +1826,82 @@ def _python_command_evidence(source, filename):
 
     analyze(module_scope)
 
-    valid_wrappers = set()
+    method_owners = {
+        id(statement): class_node.name
+        for class_node in ast.walk(tree)
+        if isinstance(class_node, ast.ClassDef)
+        for statement in class_node.body
+        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    valid_wrappers = {}
     for scope in scopes:
         node = scope["node"]
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
-        if any(
-            isinstance(head, ast.Name) and head.id in scope["parameters"]
-            for head, _state in scope["calls"]
+        key = (
+            ("attribute", method_owners[id(node)], node.name)
+            if id(node) in method_owners
+            else ("name", node.name)
+        )
+        for head, _state in scope["calls"]:
+            if isinstance(head, ast.Name) and head.id in scope["parameters"]:
+                valid_wrappers.setdefault(key, []).append((scope, head.id))
+    class_names = {
+        node.name for node in ast.walk(tree) if isinstance(node, ast.ClassDef)
+    }
+
+    def receiver_classes(node, state, resolving=frozenset()):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in class_names
         ):
-            valid_wrappers.add(node.name)
+            return {node.func.id}
+        if isinstance(node, ast.Name) and node.id not in resolving:
+            classes = set()
+            for value, bound_state, _bound_scope in state.get(node.id, []):
+                classes |= receiver_classes(
+                    value, bound_state, resolving | {node.id}
+                )
+            return classes
+        return set()
+
     for scope in scopes:
         for call, state in scope["call_events"]:
-            if (
-                isinstance(call.func, ast.Name)
-                and call.func.id in valid_wrappers
-            ):
-                command = call.args[0] if call.args else next(
-                    (kw.value for kw in call.keywords if kw.arg == "args"), None
-                )
-                if command is not None:
-                    scope["calls"].append((command, state))
+            if isinstance(call.func, ast.Name):
+                keys = [("name", call.func.id)]
+            elif isinstance(call.func, ast.Attribute):
+                keys = [
+                    ("attribute", owner, call.func.attr)
+                    for owner in receiver_classes(call.func.value, state)
+                ]
+            else:
+                continue
+            candidates = [
+                candidate
+                for key in keys
+                for candidate in valid_wrappers.get(key, [])
+            ]
+            for wrapper_scope, sink_parameter in candidates:
+                wrapper = wrapper_scope["node"]
+                positional = [
+                    argument.arg
+                    for argument in (*wrapper.args.posonlyargs, *wrapper.args.args)
+                ]
+                argument = None
+                if sink_parameter in positional:
+                    index = positional.index(sink_parameter)
+                    if keys[0][0] == "attribute" and positional[:1] in (["self"], ["cls"]):
+                        index -= 1
+                    if 0 <= index < len(call.args):
+                        argument = call.args[index]
+                if argument is None:
+                    argument = next(
+                        (kw.value for kw in call.keywords if kw.arg == sink_parameter),
+                        None,
+                    )
+                if argument is not None:
+                    scope["calls"].append((argument, state))
 
     def lookup(scope, state, name):
         if name in scope["locals"]:
@@ -1506,7 +1978,12 @@ def _python_command_evidence(source, filename):
                 and isinstance(node.func.value, ast.Attribute)
                 and node.func.value.attr == "environ"
                 and isinstance(node.func.value.value, ast.Name)
-                and node.func.value.value.id == "os"
+                and marker_bound(
+                    scope,
+                    state,
+                    node.func.value.value.id,
+                    os_module_marker,
+                )
             ):
                 if (
                     node.args
@@ -1549,6 +2026,9 @@ def _shell_repo_exec_present(source, target):
         r"^" + _shell_variable_form("DEVFLOW_PYTHON3") + r"$"
     )
     variable_head = re.compile(r"^\$\{?([A-Za-z_]\w*)\}?$")
+    fallback_head = re.compile(
+        r"^\$\{([A-Za-z_]\w*)(?::?[-=])([^}]*)\}$", re.DOTALL
+    )
 
     def target_value(value):
         return re.search(r'(?:^|/)' + re.escape(basename) + r'$', value) is not None
@@ -1570,6 +2050,16 @@ def _shell_repo_exec_present(source, target):
                     for value in state.get(variable.group(1), set())
                 ):
                     return True
+        fallback = fallback_head.fullmatch(head)
+        if fallback:
+            if target_value(fallback.group(2)):
+                return True
+            for state in states:
+                if any(
+                    target_value(value)
+                    for value in state.get(fallback.group(1), set())
+                ):
+                    return True
     return False
 
 
@@ -1581,14 +2071,43 @@ def _python_repo_exec_present(source, target, evidence):
     symbolic = re.sub(r"\W+", "_", Path(target).stem)
 
     tree = ast.parse(source)
+    named_defaults = {}
+    for assignment_node in ast.walk(tree):
+        if isinstance(assignment_node, ast.Assign):
+            for target_node in assignment_node.targets:
+                if isinstance(target_node, ast.Name):
+                    named_defaults.setdefault(target_node.id, []).append(
+                        (
+                            (assignment_node.lineno, assignment_node.col_offset),
+                            assignment_node.value,
+                        )
+                    )
     option = "--" + symbolic.replace("_", "-")
     cli_options = []
 
-    def default_targets(node):
+    def default_targets(node, position=(float("inf"), float("inf")), resolving=frozenset()):
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             return {Path(node.value).name}
+        if isinstance(node, ast.Name) and node.id not in resolving:
+            candidates = [
+                (at, value)
+                for at, value in named_defaults.get(node.id, [])
+                if at < position
+            ]
+            if candidates:
+                at, value = max(candidates, key=lambda item: item[0])
+                return default_targets(value, at, resolving | {node.id})
+            return set()
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            left = default_targets(node.left, position, resolving)
+            right = default_targets(node.right, position, resolving)
+            return {
+                Path(left_part + right_part).name
+                for left_part in left
+                for right_part in right
+            }
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
-            return default_targets(node.right)
+            return default_targets(node.right, position, resolving)
         if isinstance(node, ast.IfExp):
             truth = None
             try:
@@ -1596,10 +2115,12 @@ def _python_repo_exec_present(source, target, evidence):
             except (ValueError, TypeError, SyntaxError):
                 pass
             if truth is True:
-                return default_targets(node.body)
+                return default_targets(node.body, position, resolving)
             if truth is False:
-                return default_targets(node.orelse)
-            return default_targets(node.body) | default_targets(node.orelse)
+                return default_targets(node.orelse, position, resolving)
+            return default_targets(node.body, position, resolving) | default_targets(
+                node.orelse, position, resolving
+            )
         if isinstance(node, ast.BoolOp):
             targets = set()
             for index, value in enumerate(node.values):
@@ -1607,7 +2128,7 @@ def _python_repo_exec_present(source, target, evidence):
                     truth = bool(ast.literal_eval(value))
                 except (ValueError, TypeError, SyntaxError):
                     truth = None
-                current = default_targets(value)
+                current = default_targets(value, position, resolving)
                 is_last = index == len(node.values) - 1
                 if isinstance(node.op, ast.And):
                     if truth is False or is_last:
@@ -1626,9 +2147,9 @@ def _python_repo_exec_present(source, target, evidence):
             return targets
         if isinstance(node, ast.Call) and node.args:
             if isinstance(node.func, ast.Name) and node.func.id in {"str", "Path"}:
-                return default_targets(node.args[-1])
+                return default_targets(node.args[-1], position, resolving)
             if isinstance(node.func, ast.Attribute) and node.func.attr == "join":
-                return default_targets(node.args[-1])
+                return default_targets(node.args[-1], position, resolving)
         return set()
 
     for node in ast.walk(tree):
@@ -1643,7 +2164,9 @@ def _python_repo_exec_present(source, target, evidence):
         ):
             continue
         default = next((kw.value for kw in node.keywords if kw.arg == "default"), None)
-        target_is_default = default is not None and basename in default_targets(default)
+        target_is_default = default is not None and basename in default_targets(
+            default, (node.lineno, node.col_offset)
+        )
         if target_is_default:
             dest = next((kw.value for kw in node.keywords if kw.arg == "dest"), None)
             dest_name = (
@@ -1655,11 +2178,29 @@ def _python_repo_exec_present(source, target, evidence):
     if not cli_options:
         return False
 
-    functions = {"<module>": tree, **{
-        node.name: node
-        for node in ast.walk(tree)
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-    }}
+    method_owners = {
+        id(statement): class_node.name
+        for class_node in ast.walk(tree)
+        if isinstance(class_node, ast.ClassDef)
+        for statement in class_node.body
+        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    functions = {"<module>": tree}
+    function_targets = {}
+    method_targets = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if id(node) in method_owners:
+            owner = method_owners[id(node)]
+            key = f"{owner}.{node.name}@{node.lineno}"
+            method_targets[(owner, node.name)] = key
+        else:
+            key = node.name
+            if key in functions:
+                key = f"{node.name}@{node.lineno}"
+            function_targets.setdefault(node.name, key)
+        functions[key] = node
 
     class LocalFlow(ast.NodeVisitor):
         """Assignments and calls in one function, excluding nested scopes."""
@@ -1687,6 +2228,32 @@ def _python_repo_exec_present(source, target, evidence):
 
         def visit_ClassDef(self, node):  # noqa: N802
             return
+
+        def _bind_symbol(self, name, value, node):
+            self.assignments.setdefault(name, []).append(
+                (
+                    self.binding_position or (node.lineno, node.col_offset),
+                    ast.Constant(value),
+                )
+            )
+
+        def visit_Import(self, node):  # noqa: N802
+            for alias in node.names:
+                if alias.name == "subprocess":
+                    self._bind_symbol(
+                        alias.asname or "subprocess", "subprocess:module", node
+                    )
+
+        def visit_ImportFrom(self, node):  # noqa: N802
+            if node.module != "subprocess":
+                return
+            for alias in node.names:
+                if alias.name in _PYTHON_SUBPROCESS_CALLS:
+                    self._bind_symbol(
+                        alias.asname or alias.name,
+                        f"subprocess:function:{alias.name}",
+                        node,
+                    )
 
         def visit_Assign(self, node):  # noqa: N802
             for target_node in node.targets:
@@ -1724,8 +2291,19 @@ def _python_repo_exec_present(source, target, evidence):
                 return
             previous = self.binding_position
             self.binding_position = (node.lineno, node.col_offset)
+            before = {
+                name: list(values) for name, values in self.assignments.items()
+            }
             for statement in (*node.body, *node.orelse):
                 self.visit(statement)
+            if not node.orelse:
+                for name, values in self.assignments.items():
+                    prior_values = before.get(name, [])
+                    if len(values) > len(prior_values) and prior_values:
+                        prior_position = max(at for at, _value in prior_values)
+                        for _at, value in prior_values:
+                            if _at == prior_position:
+                                values.append((self.binding_position, value))
             self.binding_position = previous
 
     flows = {}
@@ -1768,6 +2346,38 @@ def _python_repo_exec_present(source, target, evidence):
         for name, flow in flows.items()
         for call in flow.calls
     }
+    def receiver_class(node, caller, position):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            return node.func.id
+        if isinstance(node, ast.Name):
+            bindings = latest_bindings(flows[caller], node.id, position)
+            classes = {
+                value.func.id
+                for _at, value in bindings
+                if isinstance(value, ast.Call) and isinstance(value.func, ast.Name)
+            }
+            if len(classes) == 1:
+                return next(iter(classes))
+        return None
+
+    def callee_identity(call, caller):
+        if isinstance(call.func, ast.Name):
+            return function_targets.get(call.func.id)
+        if isinstance(call.func, ast.Attribute):
+            owner = receiver_class(
+                call.func.value, caller, (call.lineno, call.col_offset)
+            )
+            return method_targets.get((owner, call.func.attr))
+        return None
+
+    function_entry_positions = {}
+    for caller, flow in flows.items():
+        for call in flow.calls:
+            callee = callee_identity(call, caller)
+            if callee is not None:
+                function_entry_positions.setdefault(callee, []).append(
+                    (caller, (call.lineno, call.col_offset))
+                )
 
     def parser_identities(node, function_name, position, resolving=frozenset()):
         if isinstance(node, ast.Name):
@@ -1779,9 +2389,16 @@ def _python_repo_exec_present(source, target, evidence):
                 if node.id in parameters[function_name]:
                     return {("parameter", function_name, node.id)}
                 if function_name != "<module>":
-                    return parser_identities(
-                        node, "<module>", (float("inf"), float("inf")), resolving
-                    )
+                    entries = function_entry_positions.get(function_name, [])
+                    module_positions = [
+                        at for caller, at in entries if caller == "<module>"
+                    ] or [(float("inf"), float("inf"))]
+                    identities = set()
+                    for module_position in module_positions:
+                        identities |= parser_identities(
+                            node, "<module>", module_position, resolving
+                        )
+                    return identities
                 return {("unbound", function_name, node.id)}
             identities = set()
             for at, value in bindings:
@@ -1794,6 +2411,7 @@ def _python_repo_exec_present(source, target, evidence):
         return {("expression", id(node))}
 
     cli_parsers = {}
+    cli_declarations = {}
     for dest, declaration in cli_options:
         owner = call_owner.get(id(declaration))
         if owner is None:
@@ -1803,7 +2421,9 @@ def _python_repo_exec_present(source, target, evidence):
             owner,
             (declaration.lineno, declaration.col_offset),
         )
-        cli_parsers.setdefault(dest, set()).update(identities)
+        shared = cli_parsers.setdefault(dest, set())
+        shared.update(identities)
+        cli_declarations.setdefault(dest, []).append((owner, declaration, shared))
     if not cli_parsers:
         return False
 
@@ -1812,11 +2432,7 @@ def _python_repo_exec_present(source, target, evidence):
         changed = False
         for caller, flow in flows.items():
             for call in flow.calls:
-                callee = None
-                if isinstance(call.func, ast.Name) and call.func.id in functions:
-                    callee = call.func.id
-                elif isinstance(call.func, ast.Attribute) and call.func.attr in functions:
-                    callee = call.func.attr
+                callee = callee_identity(call, caller)
                 if callee is None:
                     continue
                 for dest, identities in cli_parsers.items():
@@ -1847,10 +2463,65 @@ def _python_repo_exec_present(source, target, evidence):
                             caller,
                             (call.lineno, call.col_offset),
                         )
+                        parsed_before = any(
+                            isinstance(prior.func, ast.Attribute)
+                            and prior.func.attr == "parse_args"
+                            and (prior.lineno, prior.col_offset)
+                            < (call.lineno, call.col_offset)
+                            and bool(
+                                parser_identities(
+                                    prior.func.value,
+                                    caller,
+                                    (prior.lineno, prior.col_offset),
+                                )
+                                & concrete
+                            )
+                            for prior in flow.calls
+                        )
+                        if parsed_before:
+                            # Configuration after parsing the *same parser*
+                            # cannot authorize that earlier Namespace. Parsing
+                            # an unrelated parser is immaterial.
+                            continue
                         new_identities = concrete - identities
                         if new_identities:
                             identities.update(new_identities)
                             changed = True
+
+    def module_execution_positions(function_name, position, resolving=frozenset()):
+        """Module positions whose execution can reach this function point."""
+        if function_name == "<module>":
+            return {position}
+        if function_name in resolving:
+            return set()
+        positions = set()
+        for caller, call_position in function_entry_positions.get(function_name, []):
+            positions |= module_execution_positions(
+                caller, call_position, resolving | {function_name}
+            )
+        # An uncalled helper is still a statically possible entry point for this
+        # forward-verification pass; model it after module initialization. A
+        # concretely called helper instead keeps its exact invocation timing.
+        return positions or {(float("inf"), float("inf"))}
+
+    def parser_configured_before(dest, identities, function_name, position):
+        sink_positions = module_execution_positions(function_name, position)
+        for owner, declaration, declaration_identities in cli_declarations[dest]:
+            if not (identities & declaration_identities):
+                continue
+            declaration_position = (declaration.lineno, declaration.col_offset)
+            if owner == function_name and declaration_position < position:
+                return True
+            configured_positions = module_execution_positions(
+                owner, declaration_position
+            )
+            if any(
+                configured < sink
+                for configured in configured_positions
+                for sink in sink_positions
+            ):
+                return True
+        return False
 
     def is_parse_args(
         node, dest, function_name, position, resolving=frozenset()
@@ -1860,20 +2531,40 @@ def _python_repo_exec_present(source, target, evidence):
             and isinstance(node.func, ast.Attribute)
             and node.func.attr == "parse_args"
         ):
-            return bool(
-                parser_identities(
-                    node.func.value, function_name, position
-                ) & cli_parsers[dest]
+            identities = parser_identities(
+                node.func.value, function_name, position
+            )
+            return bool(identities & cli_parsers[dest]) and parser_configured_before(
+                dest, identities, function_name, position
             )
         if isinstance(node, ast.Name) and node.id not in resolving:
-            return any(
+            bindings = latest_bindings(
+                flows[function_name], node.id, position
+            )
+            if any(
                 is_parse_args(
                     value, dest, function_name, at, resolving | {node.id}
                 )
-                for at, value in latest_bindings(
-                    flows[function_name], node.id, position
+                for at, value in bindings
+            ):
+                return True
+            if not bindings and function_name != "<module>":
+                return any(
+                    is_parse_args(
+                        value,
+                        dest,
+                        "<module>",
+                        at,
+                        resolving | {(function_name, node.id)},
+                    )
+                    for module_position in module_execution_positions(
+                        function_name, position
+                    )
+                    for at, value in latest_bindings(
+                        flows["<module>"], node.id, module_position
+                    )
                 )
-            )
+            return False
         return False
 
     def origins(node, function_name, position, resolving=frozenset()):
@@ -1891,10 +2582,24 @@ def _python_repo_exec_present(source, target, evidence):
             if node.id in resolving:
                 return set()
             found = set()
-            for at, value in latest_bindings(flow, node.id, position):
+            bindings = latest_bindings(flow, node.id, position)
+            for at, value in bindings:
                 found |= origins(
                     value, function_name, at, resolving | {node.id}
                 )
+            if not bindings and function_name != "<module>":
+                for module_position in module_execution_positions(
+                    function_name, position
+                ):
+                    for at, value in latest_bindings(
+                        flows["<module>"], node.id, module_position
+                    ):
+                        found |= origins(
+                            value,
+                            "<module>",
+                            at,
+                            resolving | {(function_name, node.id)},
+                        )
             return found
         if isinstance(node, ast.Attribute) and node.attr in cli_parsers:
             if is_parse_args(
@@ -1940,6 +2645,14 @@ def _python_repo_exec_present(source, target, evidence):
                         found |= current
             return found
         if isinstance(node, ast.IfExp):
+            try:
+                truth = bool(ast.literal_eval(node.test))
+            except (ValueError, TypeError, SyntaxError):
+                truth = None
+            if truth is True:
+                return origins(node.body, function_name, position, resolving)
+            if truth is False:
+                return origins(node.orelse, function_name, position, resolving)
             return origins(node.body, function_name, position, resolving) | origins(
                 node.orelse, function_name, position, resolving
             )
@@ -1966,17 +2679,66 @@ def _python_repo_exec_present(source, target, evidence):
         return set()
 
     sink_parameters = {name: set() for name in functions}
+
+    def symbol_markers(function_name, bound_name, position):
+        bindings = latest_bindings(flows[function_name], bound_name, position)
+        if not bindings and function_name != "<module>":
+            bindings = [
+                binding
+                for module_position in module_execution_positions(
+                    function_name, position
+                )
+                for binding in latest_bindings(
+                    flows["<module>"], bound_name, module_position
+                )
+            ]
+        return {
+            value.value
+            for _at, value in bindings
+            if isinstance(value, ast.Constant) and isinstance(value.value, str)
+        }
+
+    def official_subprocess_call(call, function_name):
+        position = (call.lineno, call.col_offset)
+        if isinstance(call.func, ast.Attribute):
+            if not isinstance(call.func.value, ast.Name):
+                return False
+            bound_name = call.func.value.id
+            if call.func.attr not in _PYTHON_SUBPROCESS_CALLS:
+                return False
+            expected_marker = "subprocess:module"
+        elif isinstance(call.func, ast.Name):
+            bound_name = call.func.id
+            expected_marker = f"subprocess:function:{call.func.id}"
+        else:
+            return False
+        markers = symbol_markers(function_name, bound_name, position)
+        if expected_marker in markers:
+            return True
+        # An imported function may be renamed; the marker retains its original
+        # subprocess API name while the bound name is the alias.
+        return (
+            isinstance(call.func, ast.Name)
+            and any(
+                marker.startswith("subprocess:function:") for marker in markers
+            )
+        )
+
     for name, flow in flows.items():
         for call in flow.calls:
             command = call.args[0] if call.args else next(
                 (kw.value for kw in call.keywords if kw.arg == "args"), None
             )
+            executable = next(
+                (kw.value for kw in call.keywords if kw.arg == "executable"), None
+            )
+            if executable is not None and not (
+                isinstance(executable, ast.Constant) and executable.value is None
+            ):
+                command = executable
             if not (
                 command is not None
-                and isinstance(call.func, ast.Attribute)
-                and call.func.attr in _PYTHON_SUBPROCESS_CALLS
-                and isinstance(call.func.value, ast.Name)
-                and call.func.value.id == "subprocess"
+                and official_subprocess_call(call, name)
             ):
                 continue
             for kind, value in origins(
@@ -1991,13 +2753,8 @@ def _python_repo_exec_present(source, target, evidence):
         changed = False
         for caller, flow in flows.items():
             for call in flow.calls:
-                if isinstance(call.func, ast.Name):
-                    callee = call.func.id
-                elif isinstance(call.func, ast.Attribute):
-                    callee = call.func.attr
-                else:
-                    continue
-                if callee not in functions:
+                callee = callee_identity(call, caller)
+                if callee is None:
                     continue
                 for sink_name in sink_parameters[callee]:
                     argument = None
@@ -2096,10 +2853,24 @@ def check_dependencies(edges=None):
                     f"{e.helper}: repo-owned {e.kind} edge {e.target!r} does not "
                     f"resolve beneath {VENDOR_PREFIX} (repo-root escape)"
                 )
-            elif not (REPO_ROOT / e.target).is_file():
-                errors.append(
-                    f"{e.helper}: repo-owned {e.kind} edge target missing on disk: {e.target}"
-                )
+            else:
+                disk_target = REPO_ROOT / e.target
+                try:
+                    resolved_inside_repo = disk_target.resolve().is_relative_to(
+                        REPO_ROOT.resolve()
+                    )
+                except (OSError, RuntimeError):
+                    resolved_inside_repo = False
+                if not resolved_inside_repo:
+                    errors.append(
+                        f"{e.helper}: repo-owned {e.kind} edge {e.target!r} resolves "
+                        "outside the repository (symlink escape)"
+                    )
+                elif not disk_target.is_file():
+                    errors.append(
+                        f"{e.helper}: repo-owned {e.kind} edge target missing on disk: "
+                        f"{e.target}"
+                    )
         elif e.klass == "external":
             if not e.auth:
                 errors.append(

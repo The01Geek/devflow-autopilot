@@ -5739,7 +5739,8 @@ with tempfile.TemporaryDirectory() as _cwd_td:
     (_repo_root / "scripts" / "probe.py").write_text(
         "import local_dep\nimport absolute_pkg.tool\n"
         "from . import relative_dep\nfrom .relative_pkg import other\n"
-        "import namespace_pkg.tool\nimport lone_namespace\n",
+        "import namespace_pkg.tool\nimport nested_ns.sub.tool\n"
+        "import lone_namespace\n",
         encoding="utf-8",
     )
     (_repo_root / "scripts" / "local_dep.py").write_text("VALUE = 1\n", encoding="utf-8")
@@ -5767,6 +5768,17 @@ with tempfile.TemporaryDirectory() as _cwd_td:
         "VALUE = 6\n", encoding="utf-8")
     (_repo_root / "lib" / "namespace_pkg" / "tool.py").write_text(
         "VALUE = 61\n", encoding="utf-8")
+    # Both roots contribute namespace portions at the top level. At the nested
+    # component, the later lib/ regular package must beat scripts/' namespace
+    # portion, exactly as PathFinder resolves each dotted component.
+    (_repo_root / "scripts" / "nested_ns" / "sub").mkdir(parents=True)
+    (_repo_root / "scripts" / "nested_ns" / "sub" / "tool.py").write_text(
+        "VALUE = 'must-not-win-over-later-regular-package'\n", encoding="utf-8")
+    (_repo_root / "lib" / "nested_ns" / "sub").mkdir(parents=True)
+    (_repo_root / "lib" / "nested_ns" / "sub" / "__init__.py").write_text(
+        "VALUE = 7\n", encoding="utf-8")
+    (_repo_root / "lib" / "nested_ns" / "sub" / "tool.py").write_text(
+        "VALUE = 71\n", encoding="utf-8")
     _orig_root = cwd.REPO_ROOT
     try:
         cwd.REPO_ROOT = _repo_root
@@ -5780,13 +5792,33 @@ with tempfile.TemporaryDirectory() as _cwd_td:
                "scripts/absolute_pkg/tool.py", "scripts/relative_dep.py",
                "scripts/relative_pkg/__init__.py",
                "scripts/relative_pkg/other.py", "lib/namespace_pkg/__init__.py",
-               "lib/namespace_pkg/tool.py"},
+               "lib/namespace_pkg/tool.py", "lib/nested_ns/sub/__init__.py",
+               "lib/nested_ns/sub/tool.py"},
               {e.target for e in _repo_imports if e.klass == "repo-owned"})
     assert_eq("#583 AC5: a local namespace-only root is not classified external",
               False, any(e.target == "lone_namespace" and e.klass == "external"
                          for e in _repo_imports))
+    assert_eq("#583 AC5: nested namespace resolution honors a later regular package",
+              False, any(e.target == "scripts/nested_ns/sub/tool.py"
+                         for e in _repo_imports))
+    _outside_target = Path(_cwd_td) / "outside.sh"
+    _outside_target.write_text("#!/bin/sh\n", encoding="utf-8")
+    (_repo_root / "scripts" / "linked.sh").symlink_to(_outside_target)
+    try:
+        cwd.REPO_ROOT = _repo_root
+        _symlink_errors = cwd.check_dependencies([
+            cwd.Edge("scripts/probe.sh", "source", "scripts/linked.sh", "repo-owned")
+        ])
+    finally:
+        cwd.REPO_ROOT = _orig_root
+    assert_eq("#583 AC5: a repo-owned symlink cannot escape the repository",
+              True, any("symlink escape" in error for error in _symlink_errors))
     _shf = Path(_cwd_td) / "probe.sh"
-    _shf.write_text('. "$HERE/../../scripts/evil.sh"\n', encoding="utf-8")
+    _shf.write_text(
+        'HERE="$(cd "$(dirname "$0")" && pwd)"\n'
+        '. "$HERE/../../scripts/evil.sh"\n',
+        encoding="utf-8",
+    )
     try:
         cwd._read = lambda rel: _shf.read_text(encoding="utf-8")  # noqa: E731
         _probe_src = cwd._scan_shell_sources("scripts/probe.sh")
@@ -6277,6 +6309,139 @@ with tempfile.TemporaryDirectory() as _cwd_ctd:
     assert_eq("#583 AC5: dead/path-parent/condition-only CLI defaults do not verify",
               False, _dead_cli_defaults)
 
+    # Exact adversarial shapes from the second review pass. Keep these compact
+    # and table-driven so every data-flow semantic is pinned independently.
+    _python_sink_cases = {
+        "import-after-invocation": (
+            "def f():\n subprocess.run(['git'])\nf()\nimport subprocess\n", False),
+        "aliased-closure-invocation": (
+            "import subprocess\ndef outer():\n cmd=['git']\n"
+            " def inner(): subprocess.run(cmd)\n alias=inner\n alias()\nouter()\n", True),
+        "wrapper-uses-second-parameter": (
+            "import subprocess\ndef wrap(x, cmd): subprocess.run(cmd)\n"
+            "wrap('git', 'echo')\n", False),
+        "keyword-only-wrapper": (
+            "import subprocess\ndef wrap(*, cmd): subprocess.run(cmd)\n"
+            "wrap(cmd='git')\n", True),
+        "module-function-vs-method-name": (
+            "import subprocess\ndef run(cmd): pass\nclass X:\n"
+            " def run(self, cmd): subprocess.run(cmd)\nrun('git')\n", False),
+        "exhaustive-match-overwrite": (
+            "import subprocess\ncmd=['git']\nmatch 1:\n case _:\n  cmd=['echo']\n"
+            "subprocess.run(cmd)\n", False),
+        "try-handler-sees-body-binding": (
+            "import subprocess\ntry:\n cmd=['git']; raise ValueError\n"
+            "except ValueError:\n subprocess.run(cmd)\n", True),
+        "try-star-handler": (
+            "import subprocess\ntry:\n cmd=['git']; "
+            "raise ExceptionGroup('x',[ValueError()])\n"
+            "except* ValueError:\n subprocess.run(cmd)\n", True),
+        "walrus-binding": (
+            "import subprocess\nif (cmd := ['git']): subprocess.run(cmd)\n", True),
+        "unreachable-walrus-and": (
+            "import subprocess\ncmd='echo'\nFalse and (cmd := 'git')\n"
+            "subprocess.run([cmd])\n", False),
+        "unreachable-walrus-if-expression": (
+            "import subprocess\ncmd='echo'\n"
+            "(cmd := 'git') if False else None\nsubprocess.run([cmd])\n", False),
+        "multi-hop-closure-alias": (
+            "import subprocess\ndef outer():\n cmd='git'\n"
+            " def inner(): subprocess.run([cmd])\n a=inner; b=a; b(); cmd='echo'\n"
+            "outer()\n", True),
+        "executable-class-base": (
+            "import subprocess\nclass C(factory(subprocess.run(['git']))): pass\n",
+            True),
+        "unrelated-same-name-method": (
+            "import subprocess\nclass A:\n"
+            " def go(self,cmd): subprocess.run(cmd)\nclass B:\n"
+            " def go(self,cmd): pass\nB().go(['git'])\n", False),
+        "executable-overrides-argv-false": (
+            "import subprocess\nsubprocess.run(['git'], executable='echo')\n", False),
+        "executable-overrides-argv-true": (
+            "import subprocess\nsubprocess.run(['echo'], executable='git')\n", True),
+        "shadowed-os-environment": (
+            "import subprocess\nclass O: pass\nos=O(); os.environ=O(); "
+            "os.environ.get=lambda *x:'git'\n"
+            "subprocess.run([os.environ.get('DEVFLOW_GIT','echo')])\n", False),
+    }
+    for _case, (_source, _expected) in _python_sink_cases.items():
+        assert_eq(f"#583 AC5 reviewer exact Python sink: {_case}", _expected,
+                  "git" in cwd._python_command_evidence(_source, f"{_case}.py"))
+
+    def _repo_python_evidence(_source):
+        return cwd._python_repo_exec_present(
+            _source, "scripts/config-get.sh",
+            cwd._python_command_evidence(_source, "cli-probe.py"),
+        )
+
+    _python_cli_cases = {
+        "subprocess-alias": (
+            "import argparse,subprocess as sp\np=argparse.ArgumentParser();"
+            "p.add_argument('--config-get',default='config-get.sh');"
+            "a=p.parse_args();sp.run([a.config_get])\n", True),
+        "shadowed-subprocess": (
+            "import argparse\nclass X:\n def run(self,*x): pass\nsubprocess=X();"
+            "p=argparse.ArgumentParser();p.add_argument('--config-get',"
+            "default='config-get.sh');a=p.parse_args();"
+            "subprocess.run([a.config_get])\n", False),
+        "global-config-after-invocation": (
+            "import argparse,subprocess\np=argparse.ArgumentParser()\ndef f():\n"
+            " a=p.parse_args(); subprocess.run([a.config_get])\nf();"
+            "p.add_argument('--config-get',default='config-get.sh')\n", False),
+        "setup-after-parse": (
+            "import argparse,subprocess\ndef setup(p):"
+            "p.add_argument('--config-get',default='config-get.sh')\n"
+            "p=argparse.ArgumentParser();a=p.parse_args();setup(p);"
+            "subprocess.run([a.config_get])\n", False),
+        "one-branch-overwrite": (
+            "import argparse,subprocess\np=argparse.ArgumentParser();"
+            "p.add_argument('--config-get',default='config-get.sh');"
+            "a=p.parse_args();x=a.config_get\nif flag:x='echo'\n"
+            "subprocess.run([x])\n", True),
+        "constant-if-expression": (
+            "import argparse,subprocess\np=argparse.ArgumentParser();"
+            "p.add_argument('--config-get',default='config-get.sh');"
+            "a=p.parse_args();subprocess.run([a.config_get if False else 'echo'])\n",
+            False),
+        "named-concatenated-default": (
+            "import argparse,subprocess\nPART='config-';DEFAULT=PART+'get.sh';"
+            "p=argparse.ArgumentParser();p.add_argument('--config-get',default=DEFAULT);"
+            "a=p.parse_args();subprocess.run([a.config_get])\n", True),
+        "executable-overrides-cli": (
+            "import argparse,subprocess\np=argparse.ArgumentParser();"
+            "p.add_argument('--config-get',default='config-get.sh');"
+            "a=p.parse_args();subprocess.run([a.config_get],executable='echo')\n",
+            False),
+        "unrelated-parser-parsed-before-setup": (
+            "import argparse,subprocess\nq=argparse.ArgumentParser();q.parse_args([])\n"
+            "def setup(p):p.add_argument('--config-get',default='config-get.sh')\n"
+            "p=argparse.ArgumentParser();setup(p);a=p.parse_args([]);"
+            "subprocess.run([a.config_get])\n", True),
+        "subprocess-shadowed-after-call": (
+            "import argparse,subprocess\np=argparse.ArgumentParser();"
+            "p.add_argument('--config-get',default='config-get.sh');a=p.parse_args([])\n"
+            "def f():subprocess.run([a.config_get])\nf();subprocess=Logger()\n",
+            True),
+        "unused-local-subprocess-import": (
+            "import argparse\np=argparse.ArgumentParser();"
+            "p.add_argument('--config-get',default='config-get.sh');a=p.parse_args([])\n"
+            "def unused():import subprocess as sp\n"
+            "def f():sp.run([a.config_get])\nf()\n", False),
+        "global-parsed-args-in-function": (
+            "import argparse,subprocess\np=argparse.ArgumentParser();"
+            "p.add_argument('--config-get',default='config-get.sh');a=p.parse_args([])\n"
+            "def f():subprocess.run([a.config_get])\nf()\n", True),
+        "unrelated-same-name-sink-method": (
+            "import argparse,subprocess\nclass A:\n"
+            " def go(self,x):subprocess.run([x])\nclass B:\n"
+            " def go(self,x):pass\np=argparse.ArgumentParser();"
+            "p.add_argument('--config-get',default='config-get.sh');a=p.parse_args([]);"
+            "B().go(a.config_get)\n", False),
+    }
+    for _case, (_source, _expected) in _python_cli_cases.items():
+        assert_eq(f"#583 AC5 reviewer exact argparse flow: {_case}", _expected,
+                  _repo_python_evidence(_source))
+
     _shell_string = Path(_cwd_ctd) / "probe-string.sh"
     _shell_string.write_text('message="git rev-parse is documentation data"\necho "$message"\n',
                              encoding="utf-8")
@@ -6475,8 +6640,55 @@ with tempfile.TemporaryDirectory() as _cwd_ctd:
     assert_eq("#583 AC5: a repo target used only as a shell data argument is not exec evidence",
               False, _shell_repo_data_only)
 
+    _shell_sink_cases = {
+        "multiline-heredoc-substitution": (
+            "cat <<EOF\n$(\ngit status\n)\nEOF\n", True),
+        "partially-quoted-heredoc": (
+            "cat <<E'O'F\ngit status\nEOF\n", False),
+        "multiline-double-quoted-data": (
+            'value="first\ngit status\nlast"\n', False),
+        "multiline-double-quoted-substitution": (
+            'value="first\n$(git status)\nlast"\n', True),
+        "inline-array-data": ("echo ok; values=(git)\n", False),
+        "multiline-array-data": ("values=(\ngit\n)\n", False),
+        "multiline-arithmetic-data": ("((\ngit + 1\n))\n", False),
+        "bare-arithmetic-shift-followed-by-command": (
+            "((\n1 << 2\n))\ngit status\n", True),
+        "inline-case-pattern-data": (
+            "echo ok; case x in git) echo data;; esac\n", False),
+        "function-inline-array-data": (
+            "f() { local values=(git echo); }\n", False),
+        "control-inline-array-data": (
+            "if true; then local values=(git); fi\n", False),
+        "quoted-control-word": ('"if" git status\n', False),
+        "escaped-control-word": ("\\if git status\n", False),
+        "attached-leading-redirection": (">/tmp/out git status\n", True),
+        "separate-leading-redirection": ("2> /tmp/out git status\n", True),
+        "process-substitution-in-array": ("values=(<(git status))\n", True),
+        "output-process-substitution-in-declared-array": (
+            "declare -a values=(>(git status))\n", True),
+        "inline-process-substitution-in-array": (
+            "f() { local values=(<(git status)); }\n", True),
+    }
+    for _case, (_source, _expected) in _shell_sink_cases.items():
+        assert_eq(f"#583 AC5 reviewer exact shell sink: {_case}", _expected,
+                  cwd._shell_external_present(_source, "git"))
+
+    _shell_repo_cases = {
+        "elif-binding-union": (
+            "if x; then TOOL=echo; elif y; then TOOL=config-get.sh; "
+            "else TOOL=echo; fi; \"$TOOL\"\n", True),
+        "loop-zero-or-more-union": (
+            "TOOL=echo; while x; do TOOL=config-get.sh; done; \"$TOOL\"\n", True),
+        "parameter-default-command": ("${TOOL:-config-get.sh} x\n", True),
+    }
+    for _case, (_source, _expected) in _shell_repo_cases.items():
+        assert_eq(f"#583 AC5 reviewer exact shell repo flow: {_case}", _expected,
+                  cwd._shell_repo_exec_present(_source, "scripts/config-get.sh"))
+
     _shell_source_context = Path(_cwd_ctd) / "probe-source-context.sh"
     _shell_source_context.write_text(
+        'HERE="$(cd "$(dirname "$0")" && pwd)"\n'
         'if true; then . "$HERE/extra.sh"; fi\n'
         'if . "$HERE/if-source.sh"; then :; fi\n'
         'while . "$HERE/while-source.sh"; do :; done\n'
@@ -6529,6 +6741,23 @@ with tempfile.TemporaryDirectory() as _cwd_ctd:
     assert_eq("#583 AC5: an absolute derived source is rejected by the vendor guard",
               True, any("does not resolve beneath" in v
                         for v in cwd.check_dependencies(_absolute_edges)))
+
+    for _case, _source in {
+        "dynamic-absolute-prefix": '. "$(echo /etc)/evil.sh"\n',
+        "unknown-variable-prefix": '. "$HOME/evil.sh"\n',
+    }.items():
+        _source_probe = Path(_cwd_ctd) / f"probe-{_case}.sh"
+        _source_probe.write_text(_source, encoding="utf-8")
+        try:
+            cwd._read = lambda rel, p=_source_probe: p.read_text(encoding="utf-8")
+            _source_edges = cwd._scan_shell_sources(f"scripts/probe-{_case}.sh")
+        finally:
+            cwd._read = _orig_read2
+        assert_eq(f"#583 AC5 reviewer exact source prefix rejected: {_case}",
+                  True, bool(_source_edges) and all(
+                      not cwd.resolves_beneath_vendor(edge.target)
+                      for edge in _source_edges
+                  ))
 
 # The public AC5 CLI contract: both modes and the check failure path are driven.
 _show_out = io.StringIO()
