@@ -41,6 +41,7 @@ edge) — the AC5 deliverable — and ``main(["show"])`` prints it as JSON.
 from __future__ import annotations
 
 import ast
+import functools
 import json
 import re
 import sys
@@ -155,7 +156,10 @@ class Edge:
         return f"Edge({self.as_dict()!r})"
 
 
+@functools.lru_cache(maxsize=None)
 def _read(rel):
+    # Sources are read-only within a run and each entry point is read by both the
+    # scanner and exec-edge forward-verification, so memoize to one read per file.
     return (REPO_ROOT / rel).read_text(encoding="utf-8")
 
 
@@ -233,33 +237,20 @@ _SH_TOKEN = re.compile(r'[\w./${}\[\]\-]*\.(?:sh|bash)')
 def _source_tail(raw_target):
     """Extract the helper-dir-relative include tail from a `.`/`source` operand.
 
-    Strips the leading directory expression (`$(…)`, `$HERE`, `${VAR}`) and outer
-    quotes, leaving e.g. `../lib/resolve-gh.sh`, `resolve-jq.sh`, or
-    `config-source.sh` — each relative to the sourcing helper's directory.
+    Strips a leading `$VAR` / `${VAR}` directory expression, leaving e.g.
+    `../lib/resolve-gh.sh`, `resolve-jq.sh`, or `config-source.sh` — each
+    relative to the sourcing helper's directory.
     """
-    tok = raw_target.strip().strip('"').strip("'")
-    # Drop a leading command-substitution `$(… )` (the `$(cd … && pwd)` idiom).
-    if tok.startswith("$("):
-        depth = 0
-        i = 0
-        while i < len(tok):
-            if tok[i] == "(":
-                depth += 1
-            elif tok[i] == ")":
-                depth -= 1
-                if depth == 0:
-                    i += 1
-                    break
-            i += 1
-        tok = tok[i:]
-    # Drop a leading `$VAR` / `${VAR}` directory expression.
-    elif tok.startswith("$"):
+    # The operand comes from `_SH_TOKEN`, whose character class excludes parens
+    # and quotes, so any `$(cd … && pwd)` prefix and surrounding quotes are
+    # already gone — only a leading `$VAR` / `${VAR}` directory expression can
+    # remain. Drop it, then the leading `/`.
+    tok = raw_target.strip()
+    if tok.startswith("$"):
         m = re.match(r'\$\{?\w+\}?', tok)
         if m:
             tok = tok[m.end():]
-    tok = tok.lstrip("/")
-    tok = tok.strip('"').strip("'")
-    return tok
+    return tok.lstrip("/")
 
 
 def _scan_shell_sources(helper):
