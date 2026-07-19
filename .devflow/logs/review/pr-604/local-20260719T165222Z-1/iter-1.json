@@ -1,0 +1,83 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-19T16:52:22Z",
+  "fix_commit_sha": "c0fc8e5e",
+  "fix_files": [
+    ".github/workflows/devflow.yml",
+    ".github/workflows/devflow-implement.yml",
+    ".github/workflows/devflow-runner.yml",
+    ".devflow/config.schema.json",
+    "lib/test/run.sh"
+  ],
+  "loop_role": "fix",
+  "current_step": "3",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "checklist": [
+    {"id": "VC-1", "claim": "all 3 workflows pass path_to_claude_code_executable", "file": ".github/workflows/*.yml", "verification_mode": "lite", "claim_signature": "workflow_input:path_to_claude_code_executable:all-three", "verdict": "PASS", "evidence": "grep confirms input present in devflow.yml, devflow-implement.yml, devflow-runner.yml", "reused_from_iter_prev": false},
+    {"id": "VC-2", "claim": "runner sources value only from trusted steps.baseprovision ($BASE_JSON), never PR-head", "file": ".github/workflows/devflow-runner.yml", "verification_mode": "agent", "claim_signature": "trust_boundary:runner:baseprovision-only", "verdict": "PASS", "evidence": "extraction pipes $BASE_JSON; with: references steps.baseprovision; no cfg.outputs/needs.config on the input line", "reused_from_iter_prev": false},
+    {"id": "VC-3", "claim": "empty/absent/non-object/non-string setup.claude_code_executable resolves to empty string (auto-install)", "file": ".github/workflows/devflow.yml", "verification_mode": "agent", "claim_signature": "empty_default:jq-strings-guard", "verdict": "PASS", "evidence": "executable jq sweep over shape matrix; array leaf -> empty + single-line (post-fix)", "reused_from_iter_prev": false},
+    {"id": "VC-4", "claim": "action treats empty path_to_claude_code_executable as absent (auto-install)", "file": "external:anthropics/claude-code-action action.yml", "verification_mode": "agent", "claim_signature": "boundary:action:empty-as-absent", "verdict": "PASS", "evidence": "action.yml: default '', empty string treated as not provided -> automatic installation (WebFetch verified)", "reused_from_iter_prev": false},
+    {"id": "VC-5", "claim": "schema+example carry setup.claude_code_executable (string)", "file": ".devflow/config.schema.json", "verification_mode": "lite", "claim_signature": "schema:setup.claude_code_executable:string", "verdict": "PASS", "evidence": "schema type string with description; example value \"\"", "reused_from_iter_prev": false}
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer"
+  ],
+  "phase3_findings": [
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "non-string setup.claude_code_executable leaf (array/object) makes jq -r pretty-print multi-line, corrupting the key=value GITHUB_OUTPUT line; neither // empty nor try/catch fires", "defect_signature": {"file": ".github/workflows/devflow.yml", "line_range": [99, 99], "kind": "output_corruption_wrong_type"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "AC3 trust-boundary negative pin was a two-token blocklist trippable by a comment line; no positive pin that the runner extraction reads the trusted $BASE_JSON", "defect_signature": {"file": "lib/test/run.sh", "line_range": [7628, 7634], "kind": "weak_test_pin"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:code-reviewer", "severity": "Suggestion", "description": "schema/docs say 'absolute path' but the action accepts any path (over-specification)", "defect_signature": {"file": ".devflow/config.schema.json", "line_range": [678, 678], "kind": "doc_overspecification"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "no stderr breadcrumb when a present non-string value is dropped; on a Windows runner auto-install then aborts, masking the config typo", "defect_signature": {"file": ".github/workflows/devflow.yml", "line_range": [99, 99], "kind": "missing_breadcrumb"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "advisory"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "c0fc8e5e"},
+    {"finding_id": "F-2", "decision": "applied", "commit": "c0fc8e5e"},
+    {"finding_id": "F-3", "decision": "applied", "commit": "c0fc8e5e"},
+    {
+      "finding_id": "F-4",
+      "decision": "advisory",
+      "source_file": ".github/workflows/devflow.yml",
+      "claim_text": "no stderr breadcrumb when a present non-string value is dropped to empty",
+      "skip_category": "advisory-parked",
+      "evidence": "below the important fix threshold (defense-in-depth); the | strings fix already prevents the real GITHUB_OUTPUT-corruption bug. Adding a stderr breadcrumb to the workflow config-extraction line adds complexity to a hot config path for a clear misconfiguration (a documented string key set to a non-string) whose auto-install fallback already fails loud on the Windows runner it targets.",
+      "parking_evidence": {
+        "basis": "advisory defense-in-depth below the important fix threshold; the primary corruption bug is fixed by | strings",
+        "failing_input": "a hand-edited config setting setup.claude_code_executable to a non-string value on a self-hosted Windows runner",
+        "source": ".github/workflows/devflow.yml:99",
+        "finding_ref": {"iter": 1, "index": 3}
+      }
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 3,
+    "fix_diff_lines": 40,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "shadow": {
+    "ran_at": null, "reviewed_sha": null, "verdict": null, "coverage": null,
+    "prompt_addenda": null, "reviewers_dispatched": [], "expected_reviewers": [],
+    "reason": null, "checklist_skipped": null, "phase3_findings": [], "phase2_fails": [],
+    "comparison": {"shadow_total": 0, "overlap_with_iter_N": 0, "new": 0, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false
+  },
+  "telemetry": {
+    "phase_0": {"calls": 0, "tokens": 0, "wall_clock_s": 1},
+    "phase_1": {"calls": 0, "tokens": 0, "wall_clock_s": 1},
+    "phase_2": {"calls": 0, "tokens": 0, "wall_clock_s": 1},
+    "phase_3": {"calls": 4, "tokens": 260000, "wall_clock_s": 210},
+    "step_2_5": {"calls": 0, "tokens": 0, "wall_clock_s": 2, "webfetches": 1},
+    "step_2_6": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 1}
+  }
+}
