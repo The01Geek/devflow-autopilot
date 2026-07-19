@@ -32226,8 +32226,8 @@ done
 # create-issue-contract.sh carries the module corpus's namespaced pins whose targets need
 # --var resolution, so a regression breaking that resolution would leave every pin
 # UNRESOLVED (surfaced, not asserted) and the wrapped guard would scan nothing while still
-# reading clean. Pin a RESOLVED-COUNT floor over its wrapped scan (176 resolve today; the
-# 2 unresolved are runtime bundle temps) so a resolution regression turns RED, not green.
+# reading clean. Pin a RESOLVED-COUNT floor over its wrapped scan (today only the two
+# runtime bundle temps stay unresolved) so a resolution regression turns RED, not green.
 _CI_WRAP_ERR="$(mktemp)"
 python3 "$PCL" wrapped "$LIB/test/modules/create-issue-contract.sh" --lib "$LIB" "${CI_MOD_VARS[@]}" >/dev/null 2>"$_CI_WRAP_ERR" || true
 _CI_WRAP_RESOLVED="$(grep '^RESOLVED-COUNT' "$_CI_WRAP_ERR" 2>/dev/null | tail -1)"; _CI_WRAP_RESOLVED="${_CI_WRAP_RESOLVED##*$'\t'}"
