@@ -1460,7 +1460,7 @@ class ModuleRunnerTests(unittest.TestCase):
         # contract: a missing/empty/unreadable implement bundle member records a FAIL
         # (never the sibling module's silent `cat 2>/dev/null || :`). Pin it with an
         # automated mutation — point CI_ROOT at a scratch tree that symlinks every
-        # real surface the module reads (so its 206 genuine pins still pass) but whose
+        # real surface the module reads (so its genuine pins still pass) but whose
         # implement `phases/` carries one EMPTY member (`[ -s ]` false → FAIL). The
         # emptied member is NOT the one holding the #467 D2 pinned sentence, so only
         # the bundle-member guard fires — isolating this branch.
