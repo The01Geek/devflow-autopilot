@@ -18,15 +18,14 @@ precondition.
 
 ## Focused test modules accelerate fix iteration only
 
-Before choosing an iteration test, use the finding context or test plan to identify a candidate
-module, then confirm its exact ID in `scripts/workflow-flight-recorder-registry.json` and inspect
-the registered module when needed to establish coverage. Explicitly record the selected ID and
+Before choosing an iteration test, use the finding context, test plan, or coverage map
+(`lib/test/modules/coverage-map.json`) to identify a candidate module, then confirm its ID
+in `scripts/workflow-flight-recorder-registry.json`. Explicitly record the selected ID and
 use `bash lib/test/run-module.sh <module-id>` for the RED/GREEN loop. Selection is explicit:
+consulting the coverage map counts (record the entry, confirm the ID).
 Do not infer or automate changed-file-to-module routing. For **local review-and-fix contract iteration only**,
-select `review-and-fix-contract` and run exactly `bash lib/test/run-module.sh review-and-fix-contract` for the RED/GREEN loop. If the local classifier denies the `bash` wrapper, retry the same command with the runner path as the leading token:
-`lib/test/run-module.sh review-and-fix-contract`. When no registered module covers the fix, use
-the full suite during iteration. Cloud-tier runs continue using the already-permitted complete
-suite without requesting new permissions.
+run exactly `bash lib/test/run-module.sh review-and-fix-contract`; if the `bash` wrapper is denied, use the runner path as leading token instead. When no module covers the fix, use
+the full suite during iteration. Cloud-tier runs use `lib/test/run-module.sh <module-id>` (direct leading-token form) when the tier grants it and a registered module covers the fix; otherwise they use the already-permitted complete suite without requesting new permissions.
 
 A focused result never discharges a review/fix gate. Before a commit, phase completion, push,
 or completion claim, run `bash lib/test/run.sh` plus every lint gate required by `CLAUDE.md`

@@ -65,7 +65,7 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
 | **AFTER** — plugin root | `skills/review-and-fix/SKILL.md` (thin) | 324 | **3,209** | 25,618 | 4,172 |
 | **AFTER** — actual initial load | root + live extension | 516 | **5,493** | 40,868 | 7,141 |
 | **AFTER** — bundle | root + all `references/*.md` | 1,304 | 40,114 | 281,534 | 52,148 |
-| **AFTER** — normal cumulative path | root + extension + Σ references | — | 42,398 | — | 55,117 |
+| **AFTER** — normal cumulative path | root + extension + Σ references | — | 42,404 | — | 55,117 |
 | **AFTER** — maximum active step | root + extension + `shadow-review.md` | — | **16,755** | — | 21,782 |
 | reference: `shadow-review.md` | Step 2.6 | 235 | 11,262 | 79,276 | 14,641 |
 | reference: `fixing.md` | Step 3 | 154 | 8,461 | 57,369 | 10,999 |
@@ -81,8 +81,8 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
 | Ceiling | Value | Measured | Result |
 | --- | --- | ---: | :--: |
 | Plugin root ≤ 3,500 words | 3,500 | 3,209 | ✅ |
-| Root + live extension (initial load) ≤ 5,500 words | 5,500 | 5,493 | ✅ |
-| Root + extension + max active step ≤ 17,000 words | 17,000 | 16,755 | ✅ |
+| Root + live extension (initial load) ≤ 5,500 words | 5,500 | 5,499 | ✅ |
+| Root + extension + max active step ≤ 17,000 words | 17,000 | 16,761 | ✅ |
 
 ## Net mandatory-prompt reduction, and the named justified-growth warning
 

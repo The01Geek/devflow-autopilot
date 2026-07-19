@@ -23,6 +23,7 @@ HARNESS_SOURCE = ROOT / "lib/test/module-harness.sh"
 WORKFLOW_MODULE_SOURCE = ROOT / "lib/test/modules/workflow-flight-recorder.sh"
 REVIEW_AND_FIX_MODULE_SOURCE = ROOT / "lib/test/modules/review-and-fix-contract.sh"
 CREATE_ISSUE_MODULE_SOURCE = ROOT / "lib/test/modules/create-issue-contract.sh"
+CAPABILITY_PROFILES_MODULE_SOURCE = ROOT / "lib/test/modules/capability-profiles.sh"
 
 # The extracted create-issue module must reference NO monolith run.sh helper — it
 # uses only assert_eq plus the namespaced devflow_module_* API and its own private
@@ -1053,6 +1054,82 @@ class ModuleRunnerTests(unittest.TestCase):
         # The provenance inventory exists and is not a second behavioral source.
         inventory = ROOT / "lib/test/modules/create-issue-contract.inventory.md"
         self.assertTrue(inventory.is_file())
+
+    def test_every_registered_module_floor_matches_its_run_sh_call_site(self) -> None:
+        # Issue #591: generalized coupling cross-check. Iterating every test_modules
+        # entry (instead of a hand-written per-module test) covers current AND future
+        # modules — the registry floor, the run.sh full-suite call-site floor literal,
+        # the module path, its ci.yml shellcheck listing, and its provenance inventory
+        # are one coupled contract, so the authoring checklist needs no cross-check item.
+        registry = json.loads(
+            (ROOT / "scripts/workflow-flight-recorder-registry.json").read_text(encoding="utf-8")
+        )
+        run_text = (ROOT / "lib/test/run.sh").read_text(encoding="utf-8")
+        ci_text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        modules = registry["test_modules"]
+        self.assertIsInstance(modules, dict)
+        self.assertGreaterEqual(len(modules), 4)  # the 4 modules registered as of #591
+        for module_id, mapping in modules.items():
+            with self.subTest(module=module_id):
+                expected_path = f"lib/test/modules/{module_id}.sh"
+                self.assertEqual(mapping["path"], expected_path)
+                floor = mapping["minimum_assertions"]
+                self.assertIsInstance(floor, int)
+                self.assertGreater(floor, 0)
+                self.assertTrue((ROOT / expected_path).is_file())
+                # run.sh full-suite call + coupled floor literal
+                self.assertIn(
+                    f'devflow_run_full_suite_module "$LIB/test/modules/{module_id}.sh"',
+                    run_text,
+                )
+                floor_match = re.search(rf'"{re.escape(module_id)}" ([0-9]+); then', run_text)
+                self.assertIsNotNone(floor_match, f"no run.sh call-site floor for {module_id}")
+                self.assertEqual(int(floor_match.group(1)), floor)
+                # ci.yml shellcheck listing (explicit, not globbed)
+                self.assertIn(expected_path, ci_text)
+                # provenance inventory exists for every registered module
+                self.assertTrue((ROOT / f"lib/test/modules/{module_id}.inventory.md").is_file())
+                # module contract header, and never self-invokes the boundary
+                module_text = (ROOT / expected_path).read_text(encoding="utf-8")
+                self.assertTrue(
+                    module_text.startswith(
+                        "# SPDX-FileCopyrightText: 2026 Daniel Radman\n"
+                        "# SPDX-License-Identifier: MIT\n"
+                    )
+                )
+                self.assertIn("Contract: the caller sets LIB and RESULTS_FILE", module_text)
+                self.assertNotIn("devflow_run_full_suite_module", module_text)
+
+    def test_capability_profiles_module_runs_green_through_the_real_runner(self) -> None:
+        """Issue #591 T-module: the seed module runs green through the real runner
+        (a subprocess exec inside the already-granted suite — not matcher-gated), at
+        or above its registry floor."""
+        registry = json.loads(
+            (ROOT / "scripts/workflow-flight-recorder-registry.json").read_text(encoding="utf-8")
+        )
+        floor = registry["test_modules"]["capability-profiles"]["minimum_assertions"]
+        environment = os.environ.copy()
+        environment.pop("DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE", None)
+        with tempfile.TemporaryDirectory() as log_dir:
+            result = subprocess.run(
+                ["bash", str(RUNNER_SOURCE), "--log-dir", log_dir, "capability-profiles"],
+                cwd=ROOT,
+                env=environment,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout[-4000:] + result.stderr[-4000:])
+            self.assertIn(f"Module capability-profiles: {floor} passed, 0 failed", result.stdout)
+            self.assertTrue(list(Path(log_dir).iterdir()))
+
+    def test_capability_profiles_module_references_no_monolith_helper(self) -> None:
+        # Issue #591: the seed module uses only assert_eq plus its own private helpers
+        # (_cap_fail, _cap_noncomment_hits) — a monolith run.sh helper reference would
+        # not exist when the runner or the full-suite boundary source it.
+        text = CAPABILITY_PROFILES_MODULE_SOURCE.read_text(encoding="utf-8")
+        hits = sorted({match.group(1) for match in MONOLITH_HELPER_RE.finditer(text)})
+        self.assertEqual(hits, [], f"capability-profiles module references monolith helper(s): {hits}")
 
     def test_create_issue_contract_module_runs_green_through_the_real_runner(self) -> None:
         """The documented local create-issue path uses the real registry + module API."""

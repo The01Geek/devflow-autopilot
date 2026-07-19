@@ -514,7 +514,7 @@ jobs:
           # retired, the probe once
           # again measures the REAL shipped profile end-to-end: IMPLEMENT (now
           # carrying the explicit label grants) + the config extras verbatim.
-          EXTRAS='Bash(lib/test/run.sh:*),Bash(lib/preflight.sh:*),Bash(shellcheck:*),Bash(chmod:*),Bash(git ls-remote:*),Bash(git check-ignore:*)'
+          EXTRAS='Bash(lib/test/run.sh:*),Bash(lib/test/run-module.sh:*),Bash(lib/preflight.sh:*),Bash(shellcheck:*),Bash(chmod:*),Bash(git ls-remote:*),Bash(git check-ignore:*)'
           TOOLS="$IMPLEMENT,$EXTRAS"
           delim="TOOLS_EOF_$(date +%s%N)_$$"
           {
