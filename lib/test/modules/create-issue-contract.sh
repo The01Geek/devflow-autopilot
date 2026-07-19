@@ -917,11 +917,12 @@ devflow_module_pin_unique "#603: round funding named as the budget-enforcement s
   '**Budget legality is not read here** — round funding is where it is enforced' "$CI_SKILL"
 
 # ── issue #603: the per-finding ledger, the post-close channels, and the reconciliation
-#    discipline. Surface-presence contract pins over agent-executed prose; every behavioral
-#    guarantee behind them is carried by an executable suite row in
-#    lib/test/test_python_scripts.py and the lib/test/run.sh restricted-PATH roundtrip, so
-#    the monolith's mutation-evidence obligation for behavioral-fix pins does not attach
-#    to these rows.
+#    discipline. Surface-presence contract pins over agent-executed prose. Where a pinned
+#    sentence has a mechanical counterpart, that counterpart is separately covered by an
+#    executable row in lib/test/test_python_scripts.py or the lib/test/run.sh
+#    restricted-PATH roundtrip; the remaining pins guard orchestrator-judgment prose with no
+#    code behavior to mutate. Either way these are presence pins, not behavioral-fix pins,
+#    so the mutation-evidence obligation does not attach.
 devflow_module_pin_unique "#603/AC14: query-findings is the one multi-line query" \
   "**\`query-findings\` prints one decided line per ledger entry, and is the tool's one multi-line query**" "$CI_SKILL"
 devflow_module_pin_unique "#603/AC1: the ledger fence uses a QUOTED heredoc delimiter" \

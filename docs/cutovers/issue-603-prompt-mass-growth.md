@@ -11,7 +11,7 @@ kind: growth
 
 - Issue #603 makes post-revision finding resolution a recorded lifecycle fact, and the new
   mandatory bytes are the orchestrator-executed half of that mechanism: the quoted-delimiter
-  `--ledger-stdin` transport, the four-arm reconciliation classification keyed on the
+  `--ledger-stdin` transport, the reconciliation classification keyed on the
   `query-findings` read-back, the shared ledger-maintenance procedure both revision-producing
   sites call, the resolution-basis boundary-offer wording, and the no-amend-path disclosure.
 - None of it is relocatable to a reference: every rule fires at an execution point the

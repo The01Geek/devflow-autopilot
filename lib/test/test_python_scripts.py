@@ -5993,9 +5993,16 @@ def _row2(r):
     assert_eq("#603-2/AC5: it derives an effective count of 1",
               'converged=no reason=unresolved-must-revise-remain basis=none',
               r('query-convergence', r.slug, nonce=True).stdout.strip())
+    # Read the recorded state, not query-findings: that query prints only
+    # round/id/status/summary, so an stdout check could not observe this stamp at all and
+    # would pass unchanged if _ingest_ledger stopped writing it. The stamp is load-bearing —
+    # _validate_ledger uses it to excuse a resolved entry from naming a revision ordinal, and
+    # _settling_ordinal reads it as ordinal 0.
+    _st = issue_audit_state.load_state(r.slug, root=r.tmp)
     assert_eq("#603-2/AC1: an ingested-resolved entry carries resolved-at-adjudication",
-              True,
-              'status=resolved' in r('query-findings', r.slug, nonce=True).stdout)
+              ('resolved', 'resolved-at-adjudication'),
+              (lambda e: (e['ingested_status'], e.get('ingest_provenance')))(
+                  _st['rounds'][0]['findings'][0]))
 
 
 _with_run603(_row2)
@@ -6006,9 +6013,11 @@ def _row3(r):
     r.open_round(1, 'REVISE', 2)
     r.adjudicate(1, 'REVISE', 2, '2', 'unresolved: a\nunresolved: b\n')
     dup = r.adjudicate(1, 'REVISE', 2, '2', 'unresolved: a\nunresolved: b\n')
-    assert_eq("#603-8/AC9: a second record-adjudication for the round is refused",
-              (1, True),
-              (dup.returncode, 'adjudication-already-recorded' in dup.stderr))
+    assert_eq("#603-8/AC9: a second record-adjudication for the round is refused, naming "
+              "every post-close channel",
+              (1, True, True, True),
+              (dup.returncode, 'adjudication-already-recorded' in dup.stderr,
+               'record-reopen' in dup.stderr, 'record-invalidate' in dup.stderr))
     for name, argv, token in (
         ('an unknown round', ('record-resolution', r.slug, '--round', '9',
                               '--revision-ordinal', '1', '--resolved-ids', '1'),
@@ -6144,7 +6153,7 @@ assert_eq("#603-4/AC5: an earlier round's unresolved entry holds the aggregate a
                         ledger=[_entry603(1, 'b', 'resolved', resolution_ordinal=1)])],
               revisions=(1,))))
 
-# Row 5/AC6 — the four pre-existing trigger arms survive the comparand switch.
+# Row 5/AC6 — the pre-existing trigger arms survive the comparand switch.
 assert_eq("#603-5/AC6: state-unestablished still answers t1 not-hold / t2 hold",
           {'t1': False, 't2': True, 'reason': 'state-unestablished'},
           issue_audit_state.evaluate_triggers(None))
@@ -6264,6 +6273,282 @@ def _row12(r):
 
 
 _with_run603(_row12)
+
+# Row 3b/AC3 — the post-close spine's remaining refusal arms, each asserted by its own
+# breadcrumb token. These are the guards that keep a resolution from being credited to a
+# fix that predates the finding, and keep any mutation off a round that carries no ledger.
+def _row3b(r):
+    r.open_round(1, 'REVISE', 2)
+    r.adjudicate(1, 'REVISE', 2, '2', 'unresolved: a\nunresolved: b\n')
+    absent = r('record-resolution', r.slug, '--round', '9', '--revision-ordinal', '1',
+               '--resolved-ids', '1', nonce=True)
+    assert_eq("#603-3b/AC3: an absent round is refused as unknown-round",
+              (1, True), (absent.returncode, 'unknown-round' in absent.stderr))
+    r('record-revision', r.slug, '--after-round', '1', nonce=True)
+    # A round that EXISTS but has not closed takes the round-not-completed arm (an absent
+    # round takes unknown-round above, so the two arms need different fixtures).
+    Path(r.tmp, 'd.md').write_text('draft 2\n', encoding='utf-8')
+    r('record-dispatch', r.slug, '--round', '2', '--arm', 'file', '--draft-file', 'd.md',
+      nonce=True)
+    open_rnd = r('record-resolution', r.slug, '--round', '2', '--revision-ordinal', '1',
+                 '--resolved-ids', '1', nonce=True)
+    assert_eq("#603-3b/AC3: a round later than the latest completed round is refused",
+              (1, True), (open_rnd.returncode, 'round-not-completed' in open_rnd.stderr))
+    # revision-predates-round: the causality guard's positive control.
+    pre = r('record-resolution', r.slug, '--round', '1', '--revision-ordinal', '1',
+            '--resolved-ids', '1', nonce=True)
+    assert_eq("#603-3b/AC3: a revision whose after_round equals the round is accepted "
+              "(the positive control for the causality guard)", 0, pre.returncode)
+    unknown = r('record-resolution', r.slug, '--round', '1', '--revision-ordinal', '9',
+                '--resolved-ids', '2', nonce=True)
+    assert_eq("#603-3b/AC3: a --revision-ordinal naming no recorded revision is refused",
+              (1, True), (unknown.returncode, 'unknown-revision-ordinal' in unknown.stderr))
+    assert_eq("#603-3b/AC3: ... and the refusal left the state loadable (no half-write)",
+              True, issue_audit_state.load_state(r.slug, root=r.tmp) is not None)
+    again = r('record-resolution', r.slug, '--round', '1', '--revision-ordinal', '1',
+              '--resolved-ids', '1', nonce=True)
+    assert_eq("#603-3b/AC3: an already-resolved entry is refused",
+              (1, True), (again.returncode, 'already-resolved' in again.stderr))
+    r('record-invalidate', r.slug, '--round', '1', '--ids', '2',
+      '--reason', 'misclassified', nonce=True)
+    launder = r('record-resolution', r.slug, '--round', '1', '--revision-ordinal', '1',
+                '--resolved-ids', '2', nonce=True)
+    assert_eq("#603-3b/AC3: an invalidated entry is not resolvable as a fix that happened",
+              (1, True), (launder.returncode, 'entry-invalidated' in launder.stderr))
+    reinv = r('record-invalidate', r.slug, '--round', '1', '--ids', '2',
+              '--reason', 'again', nonce=True)
+    assert_eq("#603-3b/AC3: an already-invalidated entry is refused",
+              (1, True), (reinv.returncode, 'already-invalidated' in reinv.stderr))
+    bad = r('record-reopen', r.slug, '--round', '1', '--ids', 'abc', nonce=True)
+    assert_eq("#603-3b/AC3: a non-integer id is refused as unknown-id",
+              (1, True), (bad.returncode, 'unknown-id' in bad.stderr))
+
+
+# The unadjudicated-round and unledgered-round arms need their own fixtures: each requires a
+# CLOSED round that carries no ledger, which the round-1 fixture above cannot also be.
+def _row3b2(r):
+    r.open_round(1, 'REVISE', 1)
+    unadj = r('record-reopen', r.slug, '--round', '1', '--ids', '1', nonce=True)
+    assert_eq("#603-3b/AC3: an unadjudicated round is refused",
+              (1, True), (unadj.returncode, 'round-unadjudicated' in unadj.stderr))
+    r.adjudicate(1, 'REVISE', 1, 'unestablished')
+    unled = r('record-invalidate', r.slug, '--round', '1', '--ids', '1',
+              '--reason', 'no ledger on this round', nonce=True)
+    assert_eq("#603-3b/AC3: a REVISE + unestablished round carries no ledger and is refused",
+              (1, True), (unled.returncode, 'round-unledgered' in unled.stderr))
+
+
+_with_run603(_row3b2)
+
+
+_with_run603(_row3b)
+
+
+# Row 3c/AC3 — multi-id ATOMICITY. All three mutations validate in a first pass and mutate
+# in a second; collapsing those loops would leave the suite green while half-writing.
+def _row3c(r):
+    r.open_round(1, 'REVISE', 2)
+    r.adjudicate(1, 'REVISE', 2, '2', 'unresolved: a\nunresolved: b\n')
+    r('record-invalidate', r.slug, '--round', '1', '--ids', '2',
+      '--reason', 'misclassified', nonce=True)
+    r('record-revision', r.slug, '--after-round', '1', nonce=True)
+    got = r('record-resolution', r.slug, '--round', '1', '--revision-ordinal', '1',
+            '--resolved-ids', '1,2', nonce=True)
+    assert_eq("#603-3c/AC3: a batch naming one illegal entry is refused",
+              (1, True), (got.returncode, 'entry-invalidated' in got.stderr))
+    entries = issue_audit_state.load_state(r.slug, root=r.tmp)['rounds'][0]['findings']
+    assert_eq("#603-3c/AC3: ... and the LEGAL entry in that batch was not written "
+              "(all-or-nothing, no partial mutation)",
+              ('unresolved', 'invalidated'),
+              (entries[0]['status'], entries[1]['status']))
+
+
+_with_run603(_row3c)
+
+
+# Row 2b/AC1 — the two remaining ingestion refusals.
+def _row2b(r):
+    r.open_round(1, 'FILE', 0)
+    notapp = r.adjudicate(1, 'FILE', 0, '0', 'unresolved: a\n')
+    assert_eq("#603-2b/AC1: --ledger-stdin on a shape that records no ledger is refused",
+              (1, True), (notapp.returncode, 'ledger-not-applicable' in notapp.stderr))
+    empty = r.adjudicate(1, 'FILE', 0, '0', '   \n')
+    assert_eq("#603-2b/AC1: ... and an empty payload is refused before the shape check "
+              "reaches it only when the shape is otherwise legal", True,
+              empty.returncode != 0)
+
+
+_with_run603(_row2b)
+
+
+def _row2c(r):
+    r.open_round(1, 'REVISE', 1)
+    empty = r.adjudicate(1, 'REVISE', 1, '1', '   \n')
+    assert_eq("#603-2c/AC1: --ledger-stdin with a whitespace-only payload is refused",
+              (1, True), (empty.returncode, 'ledger-empty' in empty.stderr))
+    bad = _subprocess.run(
+        [sys.executable, _IAS603, 'record-adjudication', r.slug, '--nonce', r.nonce,
+         '--round', '1', '--verdict', 'REVISE', '--must-revise', '1', '--advisory', '0',
+         '--invalid', '0', '--unresolved-must-revise', '1', '--ledger-stdin'],
+        cwd=r.tmp, input=b'unresolved: caf\xff\n', capture_output=True)
+    assert_eq("#603-2c/AC1: an undecodable payload is refused with a NAMED breadcrumb, "
+              "never a raw traceback",
+              (1, True, False),
+              (bad.returncode, b'ledger-undecodable' in bad.stderr,
+               b'Traceback' in bad.stderr))
+
+
+_with_run603(_row2c)
+
+
+# Row 6c/AC7 — the pre-revision-counts-as-zero arm, named in the issue's testing strategy.
+# An entry ingested ALREADY resolved has no revision behind it, so a later revision makes
+# the run's convergence stale on that entry's account.
+def _row6c(r):
+    r.open_round(1, 'REVISE', 2)
+    r.adjudicate(1, 'REVISE', 2, '1', 'resolved: a\nunresolved: b\n')
+    r('record-revision', r.slug, '--after-round', '1', nonce=True)
+    r('record-resolution', r.slug, '--round', '1', '--revision-ordinal', '1',
+      '--resolved-ids', '2', nonce=True)
+    assert_eq("#603-6c/AC7: an ingested-resolved entry counts as ordinal zero, so a later "
+              "revision leaves the run stale on its account",
+              'converged=yes reason= basis=resolution-stale',
+              r('query-convergence', r.slug, nonce=True).stdout.strip())
+
+
+_with_run603(_row6c)
+
+
+# Row 6d/AC7 — a reopen records that the prior settling did not hold, so re-resolving
+# against the SAME already-disproven ordinal is not fresh evidence.
+def _row6d(r):
+    r.open_round(1, 'REVISE', 1)
+    r.adjudicate(1, 'REVISE', 1, '1', 'unresolved: a\n')
+    r('record-revision', r.slug, '--after-round', '1', nonce=True)
+    r('record-resolution', r.slug, '--round', '1', '--revision-ordinal', '1',
+      '--resolved-ids', '1', nonce=True)
+    assert_eq("#603-6d/AC7: the first resolution converges on a plain resolution basis",
+              'converged=yes reason= basis=resolution',
+              r('query-convergence', r.slug, nonce=True).stdout.strip())
+    r('record-reopen', r.slug, '--round', '1', '--ids', '1', nonce=True)
+    r('record-resolution', r.slug, '--round', '1', '--revision-ordinal', '1',
+      '--resolved-ids', '1', nonce=True)
+    assert_eq("#603-6d/AC7: re-resolving against the ordinal the reopen just disproved is "
+              "reported stale, not clean",
+              'converged=yes reason= basis=resolution-stale',
+              r('query-convergence', r.slug, nonce=True).stdout.strip())
+
+
+_with_run603(_row6d)
+
+
+# Row 3d/AC3 — cross-round resolution's POSITIVE path (the refusal path is row 6).
+def _row3d(r):
+    r.open_round(1, 'REVISE', 1)
+    r.adjudicate(1, 'REVISE', 1, '1', 'unresolved: shared defect\n')
+    r('record-revision', r.slug, '--after-round', '1', nonce=True)
+    r.open_round(2, 'REVISE', 1)
+    r.adjudicate(2, 'REVISE', 1, '1', 'unresolved: shared defect\n')
+    assert_eq("#603-3d/AC5: a defect listed on two rounds' ledgers counts per listing",
+              'converged=no reason=unresolved-must-revise-remain basis=none',
+              r('query-convergence', r.slug, nonce=True).stdout.strip())
+    r('record-revision', r.slug, '--after-round', '2', nonce=True)
+    one = r('record-resolution', r.slug, '--round', '2', '--revision-ordinal', '2',
+            '--resolved-ids', '1', nonce=True)
+    assert_eq("#603-3d/AC5: resolving only the later listing leaves the earlier one holding",
+              (0, 'round=2 revision_ordinal=2 frozen=1 remaining=1'),
+              (one.returncode, one.stdout.strip()))
+    two = r('record-resolution', r.slug, '--round', '1', '--revision-ordinal', '2',
+            '--resolved-ids', '1', nonce=True)
+    assert_eq("#603-3d/AC3: cross-round resolution clears the EARLIER round's entry",
+              (0, 'round=1 revision_ordinal=2 frozen=1 remaining=0'),
+              (two.returncode, two.stdout.strip()))
+
+
+_with_run603(_row3d)
+
+
+# Row 4b/AC9+AC21 — a FILE adjudication may not be recorded BEHIND a later completed round,
+# where its run-wide supersession sweep would retire findings raised after it.
+def _row4b(r):
+    r.open_round(1, 'FILE', 0)
+    r('record-revision', r.slug, '--after-round', '1', nonce=True)
+    # A round following a FILE round is not automatically funded — the user-chosen offer is.
+    r('record-offer', r.slug, '--accepted', nonce=True)
+    r.open_round(2, 'REVISE', 1)
+    r.adjudicate(2, 'REVISE', 1, '1', 'unresolved: raised after round 1\n')
+    out = r.adjudicate(1, 'FILE', 0, '0')
+    assert_eq("#603-4b/AC21: a FILE adjudication behind a later completed round is refused",
+              (1, True), (out.returncode, 'adjudication-out-of-order' in out.stderr))
+    assert_eq("#603-4b/AC21: ... and the later round's finding still holds T1",
+              't1=hold', r('query-triggers', r.slug, nonce=True).stdout.split()[0])
+
+
+_with_run603(_row4b)
+
+
+# Row 7b/AC8 — query-findings across TWO rounds: ordering and the per-round id restart.
+def _row7b(r):
+    r.open_round(1, 'REVISE', 1)
+    r.adjudicate(1, 'REVISE', 1, '1', 'unresolved: first round finding\n')
+    r('record-revision', r.slug, '--after-round', '1', nonce=True)
+    r.open_round(2, 'REVISE', 1)
+    r.adjudicate(2, 'REVISE', 1, '1', 'unresolved: second round finding\n')
+    lines = r('query-findings', r.slug, nonce=True).stdout.strip().splitlines()
+    assert_eq("#603-7b/AC8: entries print in round order, ids restarting per round",
+              ['round=1 id=1 status=unresolved summary=first round finding',
+               'round=2 id=1 status=unresolved summary=second round finding'], lines)
+
+
+_with_run603(_row7b)
+
+
+# Row 10b/AC11 — the RENDERED summary line, not just summary_fields(). The three-way `eff`
+# selection is the repo's unknown-is-not-zero rule at a rendering boundary.
+def _row10b(r):
+    r.open_round(1, 'REVISE', 1)
+    none_line = r('query-summary', r.slug, nonce=True).stdout
+    assert_eq("#603-10b/AC11: an unadjudicated latest round renders effective_unresolved=none",
+              True, 'effective_unresolved=none convergence_basis=none bound_root=' in none_line)
+    r.adjudicate(1, 'REVISE', 1, 'unestablished')
+    unest = r('query-summary', r.slug, nonce=True).stdout
+    assert_eq("#603-10b/AC11: an adjudicated-but-unestablished count renders "
+              "effective_unresolved=unestablished, never 0",
+              True,
+              'effective_unresolved=unestablished convergence_basis=none bound_root=' in unest)
+    assert_eq("#603-10b/AC11: ... and attestation= stays the trailing field",
+              True, unest.strip().endswith('attestation=none'))
+
+
+_with_run603(_row10b)
+
+
+# Row 11b/AC12 — the read-boundary arms the corrupt-state matrix did not reach, including
+# the forged-ingest-provenance shape that would otherwise drop a finding from the count.
+for _n11, _mut11 in (
+    ('a forged ingest provenance on an ingested-unresolved entry',
+     lambda r: r.update(findings=[_entry603(1, 'a', 'resolved',
+                                            ingest_provenance='resolved-at-adjudication')])),
+    ('an unresolved entry retaining a settling provenance key',
+     lambda r: r.update(findings=[_entry603(1, 'a', 'unresolved', resolution_ordinal=1)])),
+    ('an ingested_status outside the ingestion set',
+     lambda r: r.update(findings=[_entry603(1, 'a', ingested_status='superseded')])),
+    ('a reopen provenance naming no recorded revision',
+     lambda r: r.update(findings=[_entry603(1, 'a', 'unresolved', reopen_provenance=9)])),
+    ('a protocol token inside an invalidation reason',
+     lambda r: r.update(findings=[_entry603(1, 'a', 'invalidated',
+                                            invalidation_reason='wrong basis=resolution',
+                                            invalidation_provenance='pre-revision')])),
+):
+    _c11 = _state([_round603(1, unresolved=1, must_revise=1,
+                             ledger=[_entry603(1, 'a')])], revisions=(1,))
+    _mut11(_c11['rounds'][0])
+    try:
+        issue_audit_state._validate(_c11, 's')
+        _r11 = False
+    except issue_audit_state.StateError:
+        _r11 = True
+    assert_eq(f"#603-11b/AC12: {_n11} collapses to StateError", True, _r11)
 
 print()
 print(f"{PASS} passed, {FAIL} failed")
