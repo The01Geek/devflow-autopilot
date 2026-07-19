@@ -1,0 +1,43 @@
+{
+  "iter": 1,
+  "source": "review",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "detect_all_audit": true
+  },
+  "checklist": [
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"},
+    {"verification_mode": "agent", "verdict": "PASS"}
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:type-design-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {"agent": "devflow:pr-test-analyzer", "corroboration_count": 1, "contributed_to_verdict": true},
+    {"agent": "devflow:silent-failure-hunter", "corroboration_count": 1, "contributed_to_verdict": true},
+    {"agent": "devflow:comment-analyzer", "corroboration_count": 2, "contributed_to_verdict": true},
+    {"agent": "devflow:type-design-analyzer", "corroboration_count": 1, "contributed_to_verdict": true},
+    {"agent": "devflow:requesting-code-review", "corroboration_count": 2, "contributed_to_verdict": true}
+  ],
+  "telemetry": "unavailable"
+}
