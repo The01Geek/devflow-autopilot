@@ -33126,7 +33126,7 @@ assert_eq "#529 AC2: the split is at least 25,327 words below the 33,815 baselin
 # Phase 4.1/4.2 amendments in phase-4-verdict.md) runs unconditionally on every pass,
 # so parking it behind a config gate would be metric-gaming (the gated exemption is for
 # genuinely conditional references only). Per docs/review-bundle-budget.md's sanctioned
-# escape valve, the ceiling is widened to the new measured figure (30,023 words) plus a
+# escape valve, the ceiling is widened to the new measured figure (30,042 words) plus a
 # thin margin, matching the pre-#556 posture. Re-measure with _rb_words before adding
 # prose to the default path.
 assert_eq "#529 AC3: the default per-pass unique path is within the 30,100-word ceiling" "yes" \
@@ -33606,7 +33606,7 @@ assert_eq "#530 budget: no references/*.md outside the pinned 8-name set" "" "$_
 RAF_ROOT_CEIL=3500
 # #556 raised the initial-load ceiling 5500->5510: AC8 requires the iter-<N>.json
 # checklist entry to carry the optional raw_verdict/normalized fields, and adding
-# them to the record-shape example in the root pushed root+extension to 5,503 words.
+# them to the record-shape example in the root pushed root+extension to 5,504 words.
 # The small documented widening mirrors the #529 AC3 renegotiation; update
 # docs/review-and-fix-budget.md's ceilings-table cell in lockstep.
 RAF_LOAD_CEIL=5510

@@ -57,17 +57,26 @@ Verdict defect shapes (item keeps its raw verdict, is normalization-ineligible,
 and enters ``needs_retry`` with kind ``verdict``): ``missing_fence`` (no ``json``
 fence and the body does not contain exactly one parseable object),
 ``unparseable_json``, ``missing_verdict_field``, ``non_enum_verdict``,
-``id_mismatch``, ``no_verdict`` (neither file nor response_text). More than one
-``json`` fence reads the LAST fence as authoritative (final-answer convention).
+``id_mismatch``, ``no_verdict`` (neither file nor response_text),
+``pair_processing_error`` (an unexpected exception while processing that one
+pair — contained so a single corrupt element never aborts the batch).
+More than one ``json`` fence reads the LAST fence as authoritative
+(final-answer convention).
 
 Auxiliary-field defects (an absent / unknown-token / wrong-typed
 ``property_proven`` or ``inaccuracy_scope``) never invalidate a well-formed
-verdict: the item keeps its raw verdict and is normalization-ineligible. Only when
-the raw verdict is the byte-exact token ``FAIL`` and the item carries
-``claim_provenance: "generated_paraphrase"`` (the sole population conjuncts 3-5
-can ever admit) does an auxiliary defect enter ``needs_retry`` with kind
-``auxiliary`` for a field-completion re-ask; a PASS or INCONCLUSIVE with a
-defective auxiliary field is never re-dispatched.
+verdict: the item keeps its raw verdict and is normalization-ineligible. An
+auxiliary defect enters ``needs_retry`` with kind ``auxiliary`` for a
+field-completion re-ask only on an item that is an agent-mode
+(``verification_mode == "agent"``), ``claim_provenance: "generated_paraphrase"``
+pair whose raw verdict is the byte-exact token ``FAIL`` **and** that is not
+itself already a pinned re-ask (the re-ask fires at most once); a PASS or
+INCONCLUSIVE with a defective auxiliary field is never re-dispatched.
+
+Reading the verdict bytes off the fallback ``response_text`` channel when the
+named nonce file was PRESENT but unreadable is a real-value normalization blocker
+(the trusted binding was abandoned), distinct from the legitimate absent-file
+fallback, which is not.
 
 The five-conjunct normalization predicate (raw FAIL -> stored PASS) holds exactly
 when ALL hold: (1) ``verification_mode == "agent"``; (2)
@@ -217,7 +226,12 @@ def _read_verdict_bytes(pair):
                 return fh.read(), "file"
         except FileNotFoundError:
             pass  # file genuinely absent -> the legitimate silent fallback
-        except (OSError, UnicodeDecodeError):
+        except (OSError, UnicodeDecodeError, ValueError):
+            # ValueError is NOT an OSError subclass: an embedded NUL in the
+            # LLM-transcribed path (json.loads accepts it) makes open() raise
+            # `ValueError: embedded null byte`. Uncaught it aborts the whole batch
+            # with EMPTY stdout — which this helper's own contract reads as a
+            # matcher denial, steering a debugger at a non-existent grant problem.
             downgraded = True  # present but unreadable -> surface the downgrade
     rt = pair.get("response_text")
     if isinstance(rt, str):
@@ -323,6 +337,14 @@ def _process_pair(pair):
         real_blockers.append("inaccuracy_scope not generated_claim_text")
     elif scope_state == "defect":
         field_defect_blockers.append("inaccuracy_scope field defect")
+    if source in ("response_text_file_unreadable", "none_file_unreadable"):
+        # The named nonce file EXISTED but could not be read, so the verdict bytes
+        # came off the untrusted fallback channel — the very binding the nonce
+        # forgery guard rests on was abandoned. That is a real-value blocker, not a
+        # field defect: a raw FAIL read over an abandoned trusted channel must never
+        # silently store as PASS. (A genuinely ABSENT file is the legitimate
+        # fallback and does not reach here.)
+        real_blockers.append("trusted verdict file present but unreadable")
 
     can_normalize = (
         raw == "FAIL"
@@ -410,7 +432,29 @@ def run(pairs_file):
             needs_retry.append({"id": None, "kind": "verdict",
                                 "defect": "malformed_pair", "pair_index": idx})
             continue
-        result, retry, is_field_defect_fail = _process_pair(pair)
+        try:
+            result, retry, is_field_defect_fail = _process_pair(pair)
+        except Exception as e:  # noqa: BLE001 — blast-radius containment, deliberate
+            # One corrupt element must never abort the batch. An uncaught exception
+            # here exits non-zero with EMPTY stdout, and empty stdout is exactly what
+            # this helper's contract reads as a matcher denial — so every OTHER pair's
+            # verdict is lost AND the failure is misattributed to a missing grant.
+            # Degrade to the same observable per-item defect a non-dict element takes.
+            results.append({
+                "id": (pair.get("item") or {}).get("id")
+                      if isinstance(pair.get("item"), dict) else None,
+                "raw_verdict": None, "verdict": None, "normalized": False,
+                "evidence": None, "file_checked": None, "source": "none",
+                "defect": "pair_processing_error", "defect_class": "verdict",
+                "normalization_ineligible":
+                    f"verdict defect: pair_processing_error ({type(e).__name__}: {e})",
+                "pair_index": idx,
+            })
+            needs_retry.append({"id": (pair.get("item") or {}).get("id")
+                                if isinstance(pair.get("item"), dict) else None,
+                                "kind": "verdict", "defect": "pair_processing_error",
+                                "pair_index": idx})
+            continue
         results.append(result)
         if retry is not None:
             needs_retry.append(retry)

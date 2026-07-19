@@ -210,5 +210,48 @@ with tempfile.TemporaryDirectory() as _td:
 check("T-3 mutation control: conjunct-2 drop applied", _ctrl_ok)
 check("T-3 mutation control: mutant WRONGLY normalizes AC11 (guard bites)", _mut_normalizes, str(_mo["results"][0]))
 
+# --- PR #607 review round: three gaps the posted review named -------------------
+# (a) The present-but-unreadable downgrade off the trusted nonce channel. Asserted
+#     nowhere before, so a regression collapsing it back onto the plain response_text
+#     source — defeating the "observable, never silent" purpose — passed green. It is
+#     now also a REAL-value normalization blocker: a raw FAIL read over an abandoned
+#     trusted file must never store as PASS (the fail-open the review flagged).
+o,rc=run("vfile-unreadable-downgrade.json")
+r=res0(o)
+check("unreadable trusted file -> observable downgrade source",
+      r["source"]=="response_text_file_unreadable", str(r["source"]))
+check("unreadable trusted file -> FAIL does NOT normalize (fail-open closed)",
+      r["verdict"]=="FAIL" and r["normalized"] is False, str(r))
+check("unreadable trusted file -> real-value blocker, not a field defect",
+      r["normalization_ineligible"]=="trusted verdict file present but unreadable"
+      and o["counts"]["field_defect_fail_count"]==0, str(r["normalization_ineligible"]))
+
+# (b) An embedded NUL in the LLM-transcribed verdict_path makes open() raise
+#     ValueError — NOT an OSError subclass. Uncaught it aborted the WHOLE batch with
+#     empty stdout, which the engine's own contract reads as a matcher denial. The
+#     sibling pair surviving is the blast-radius assertion.
+o,rc=run("vfile-nul-path.json")
+check("embedded-NUL verdict_path does not abort the batch", rc==0 and len(o["results"])==2, str(rc))
+check("embedded-NUL pair degrades to the observable downgrade",
+      o["results"][0]["source"]=="response_text_file_unreadable", str(o["results"][0]["source"]))
+check("embedded-NUL pair does not cost the sibling its verdict",
+      o["results"][1]["id"]=="VC-SIB" and o["results"][1]["normalized"] is True, str(o["results"][1]))
+
+# (c) A pinned pair whose re-ask STILL carries a defective aux field: the defect is
+#     stamped, but the item is never re-dispatched again. Dropping the `not is_pinned`
+#     guard would re-introduce an unbounded re-ask loop undetected.
+o,rc=run("pinned-aux-persisting.json")
+r=res0(o)
+check("pinned re-ask with persisting aux defect keeps the raw FAIL",
+      r["raw_verdict"]=="FAIL" and r["verdict"]=="FAIL" and r["normalized"] is False, str(r))
+check("pinned re-ask fires at most once (no second dispatch)",
+      o["needs_retry"]==[], str(o["needs_retry"]))
+
+# (d) The pairs_file_unreadable bad-input arm — the one bad-input branch with no
+#     fixture. A directory path is the portable unreadable-input shape (IsADirectoryError).
+_o = json.loads(subprocess.run(["python3", H, D], capture_output=True, text=True).stdout)
+check("pairs_file_unreadable bad-input arm", _o.get("bad_input") is True
+      and _o.get("error")=="pairs_file_unreadable", str(_o.get("error")))
+
 print("\nFAILURES:", fails if fails else "NONE")
 sys.exit(1 if fails else 0)
