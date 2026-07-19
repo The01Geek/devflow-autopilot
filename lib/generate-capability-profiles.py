@@ -55,15 +55,25 @@ class GenError(Exception):
 def read_wf(path):
     # newline="" disables universal-newline translation so a CRLF (or lone CR) in a
     # region survives to _check_no_crlf instead of being silently collapsed to LF.
-    with open(path, encoding="utf-8", newline="") as fh:
-        return fh.read()
+    # A present-but-unreadable target (permission bit, or a directory in its place after
+    # a bad checkout) must fail closed with a named breadcrumb, not an uncaught OSError
+    # traceback — the same discipline load_manifest/load_lock already apply.
+    try:
+        with open(path, encoding="utf-8", newline="") as fh:
+            return fh.read()
+    except OSError as exc:
+        die(f"target workflow unreadable: {path}: {exc}")
 
 
 def write_wf(path, text):
     # newline="" leaves the LF bytes we emit exactly as authored (no os.linesep
-    # translation), so generation is deterministic across platforms.
-    with open(path, "w", encoding="utf-8", newline="") as fh:
-        fh.write(text)
+    # translation), so generation is deterministic across platforms. An unwritable target
+    # fails closed with a named breadcrumb rather than a traceback.
+    try:
+        with open(path, "w", encoding="utf-8", newline="") as fh:
+            fh.write(text)
+    except OSError as exc:
+        die(f"target workflow unwritable: {path}: {exc}")
 
 
 def die(msg):
@@ -282,7 +292,27 @@ REGIONS = [
 # across the write path (process_*) and the verification path (do_check) keeps the two
 # from drifting — a duplicate anchor must be refused identically on both.
 def _assign_anchor_re(var):
+    # Locates the CANONICAL region assignment for replacement positioning: a
+    # single-quoted assignment that BEGINS a line (after indent). The generated banner +
+    # assignment are spliced at this match, so it must stay line-anchored.
     return re.compile(r"^([ \t]*)" + re.escape(var) + r"='[^']*'", re.M)
+
+
+def _assign_dup_re(var):
+    # Counts region assignments in STATEMENT position for the duplicate-anchor refusal —
+    # NOT only line-leading ones. bash's last-assignment-wins means a second `VAR='…'`
+    # placed on the SAME line after a `;`/`&&`/`||` separator (a valid statement in the
+    # `run:` block) would win at runtime while a line-anchored count returned 1 and
+    # `--check` passed clean, silently widening the reviewer past the gate. So match a
+    # single-quoted assignment wherever a statement may begin: at a line start (after
+    # indent) OR immediately after `;`/`&&`/`||`. A comment mention (`# … VAR='…'`) is
+    # preceded by prose, never a statement separator, so it is not counted — keeping the
+    # count at 1 on the canonical tree; a legitimate `VAR="$VAR,…"` provisioning append
+    # is double-quoted and never matches the single-quote anchor.
+    return re.compile(
+        r"(?:^[ \t]*|;[ \t]*|&&[ \t]*|\|\|[ \t]*)" + re.escape(var) + r"='",
+        re.M,
+    )
 
 
 IMPLEMENT_MARKER_RE = re.compile(r'--allowed-tools\n[ \t]*"')
@@ -331,13 +361,19 @@ def process_assign(text, region, tokens, version):
     rid = region["id"]
     var = region["var"]
     anchor_re = _assign_anchor_re(var)
+    # Duplicate refusal counts STATEMENT-position assignments (line-leading OR same-line
+    # after ;/&&/||), so a same-line injected second assignment — which wins at bash
+    # runtime — cannot slip past as it would with a line-anchored count. Positioning
+    # still uses the line-leading canonical match below.
+    ndup = len(_assign_dup_re(var).findall(text))
     matches = list(anchor_re.finditer(text))
     if not matches:
         die(f"region {rid}: anchor {var}=' not found in {region['file'].name}")
-    if len(matches) > 1:
+    if ndup > 1:
         die(
             f"region {rid}: anchor {var}=' is duplicated "
-            f"({len(matches)} matches) in {region['file'].name} — refusing to guess"
+            f"({ndup} matches, incl. any same-line ;/&&/|| second assignment) "
+            f"in {region['file'].name} — refusing to guess"
         )
     m = matches[0]
     indent = m.group(1)
@@ -501,7 +537,7 @@ def do_check(version, resolved):
         # region exactly as generate refuses to write one, so an injected duplicate cannot
         # silently widen the reviewer boundary past the --check gate.
         if region["kind"] == "assign":
-            ndup = len(_assign_anchor_re(region["var"]).findall(text))
+            ndup = len(_assign_dup_re(region["var"]).findall(text))
         else:
             ndup = len(IMPLEMENT_MARKER_RE.findall(text))
         if ndup > 1:

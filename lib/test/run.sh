@@ -7444,6 +7444,25 @@ _cap_fail "#561 T13e manifest_version boolean-typed is rejected as a non-integer
 # while the lock keeps it) → the boundary check's missing-direction ('would NARROW') arm,
 # the sibling of the review-widen row, observes RED.
 _cap_fail "#561 T13f review narrows below the lock (missing-direction boundary drift)"       review-narrow   generate "would NARROW the reviewer" unchanged
+# T13g: a SAME-LINE second assignment (`TOOLS='…'; TOOLS='…widened…'`) wins at bash runtime
+# but is NOT line-leading, so the pre-fix line-anchored dup count returned 1 and --check
+# passed clean — silently widening the reviewer past the gate. The statement-position dup
+# guard (line-leading OR after ;/&&/||) must refuse it. This is the T13a sibling for the
+# same-line vector the line-anchored count missed (PR #588 silent-failure/code-reviewer).
+_cap_fail "#561 T13g --check refuses a SAME-LINE duplicated assign anchor (reviewer-boundary vector)" anchor-dup-sameline check "is duplicated"
+# T13h–n: the manifest-validation adversarial matrix arms that had no mutation — a
+# regression deleting any of these fail-closed guards would otherwise ship green (the
+# CLAUDE.md best-effort-parser six-shape convention over every manifest read, PR #588).
+_cap_fail "#561 T13h manifest_version missing"                    version-missing        generate "'manifest_version' is missing" unchanged
+_cap_fail "#561 T13i groups missing / non-object"                 groups-missing         generate "'groups' must be a JSON object" unchanged
+_cap_fail "#561 T13j group contains a non-string token"           group-nonstring-token  generate "contains a non-string token" unchanged
+_cap_fail "#561 T13k profiles key-set != review/implement/command" profiles-extra-key    generate "must contain exactly review/implement/command" unchanged
+_cap_fail "#561 T13l profile spec is not a list"                  profile-spec-nonlist   generate "profile 'command' must be a list" unchanged
+_cap_fail "#561 T13m profile contains a non-string entry"         profile-nonstring-entry generate "contains a non-string entry" unchanged
+_cap_fail "#561 T13n manifest present-but-unreadable (breadcrumb, not traceback)" manifest-unreadable generate "manifest unreadable" unchanged
+# T13o: a present-but-unreadable target workflow → read_wf must fail closed with a named
+# breadcrumb, not an uncaught OSError traceback (the lock/manifest reads already do).
+_cap_fail "#561 T13o target workflow unreadable (breadcrumb, not traceback)"      workflow-unreadable generate "target workflow unreadable" unchanged
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "implement-profile head guard (#484)"

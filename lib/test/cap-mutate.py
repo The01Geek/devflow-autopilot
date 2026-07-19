@@ -263,6 +263,59 @@ def main(argv):
                 ),
                 expect_change=False,
             )
+
+    # ---- #561 review follow-up (PR #588) --------------------------------
+    elif mut == "anchor-dup-sameline":
+        # A SAME-LINE second assignment after `;` — wins at bash runtime (last-assignment-
+        # wins) but is NOT line-leading, so a line-anchored dup count misses it. The
+        # statement-position dup guard must refuse it on both generate and --check.
+        edit_wf(
+            root,
+            "devflow-runner.yml",
+            lambda s: re.sub(
+                r"(?m)^([ \t]*TOOLS='[^']*')",
+                r"\1; TOOLS='Read,Glob,Grep,Bash(SAMELINE_WIDEN:*)'",
+                s,
+                count=1,
+            ),
+        )
+    elif mut == "version-missing":
+        d = load_manifest(root)
+        del d["manifest_version"]
+        dump_manifest(root, d)
+    elif mut == "groups-missing":
+        d = load_manifest(root)
+        del d["groups"]
+        dump_manifest(root, d)
+    elif mut == "group-nonstring-token":
+        d = load_manifest(root)
+        d["groups"]["core_review"].append(5)
+        dump_manifest(root, d)
+    elif mut == "profiles-extra-key":
+        d = load_manifest(root)
+        d["profiles"]["extra_profile"] = ["Read"]
+        dump_manifest(root, d)
+    elif mut == "profile-spec-nonlist":
+        d = load_manifest(root)
+        d["profiles"]["command"] = "not-a-list"
+        dump_manifest(root, d)
+    elif mut == "profile-nonstring-entry":
+        d = load_manifest(root)
+        d["profiles"]["command"].append(5)
+        dump_manifest(root, d)
+    elif mut == "manifest-unreadable":
+        # Present-but-unreadable manifest (a directory in its place): read_text raises
+        # OSError, which the generator must turn into a fail-closed breadcrumb.
+        p = manifest_path(root)
+        p.unlink()
+        p.mkdir()
+    elif mut == "workflow-unreadable":
+        # Present-but-unreadable target workflow (a directory in its place): read_wf's
+        # open() raises OSError, which must fail closed with a named breadcrumb, not a
+        # traceback (the discipline load_manifest/load_lock already apply).
+        p = wf(root, "devflow.yml")
+        p.unlink()
+        p.mkdir()
     else:
         die(f"unknown mutation: {mut}")
     return 0
