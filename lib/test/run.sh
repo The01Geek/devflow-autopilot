@@ -13072,7 +13072,9 @@ assert_pin_unique "#332 AC4: create-issue resolves the main root via resolve-mai
   'MAIN_ROOT="$('"$PORTABLE_ANCHOR_LITERAL"'scripts/resolve-main-root.sh)"' "$CI_SKILL_332"
 # #569: the record-draft-binding statement is a SEPARATE bash fence, so it cannot read the
 # fence-local $MAIN_ROOT — it re-resolves the deterministic root inline (anchor expanded inline,
-# never captured), which is why a second resolve-main-root.sh call site exists and is pinned here.
+# never captured). That is why the binding site has its own resolve-main-root.sh invocation,
+# pinned here distinctly from the write site's MAIN_ROOT= form above. (Count-free by design: a
+# comment asserting how many call sites exist rots on the next SKILL.md edit — PR #553.)
 assert_pin_unique "#332/#569 AC4: the record-draft-binding --path re-resolves the root inline (self-contained fence)" \
   '--path "$('"$PORTABLE_ANCHOR_LITERAL"'scripts/resolve-main-root.sh)" --tier main-root' "$CI_SKILL_332"
 assert_pin_unique "#332/#569 AC4: create-issue displays the draft at the bound-root ABSOLUTE path" \
@@ -44396,6 +44398,20 @@ if [ -d "$WP_SB" ]; then
     python3 "$IAS" record-dispatch wp8 --nonce "$N8" --round 1 --arm file \
       --write-path "" --draft-file d.md > /dev/null 2> .wp-empty-unbound
     printf '%s' "$?" > .wp-empty-unbound-rc
+    # WHITESPACE-only is empty too: the guard is `.strip()`-based, so a "simplification" to a
+    # bare falsiness test (`not args.write_path`) would keep every other row green while an
+    # unbound run with "   " flips from refused to accepted.
+    N9="$(python3 "$IAS" init wp9 | sed 's/nonce=//')"
+    python3 "$IAS" record-dispatch wp9 --nonce "$N9" --round 1 --arm file \
+      --write-path "   " --draft-file d.md > /dev/null 2> .wp-ws; printf '%s' "$?" > .wp-ws-rc
+    # The mismatch rows above diverge the ROOT. Cover the other half of _bound_draft_file's
+    # join: the correct bound root with a drifted <slug> — the compacted-context shape where a
+    # run reuses a prior draft's slug — must also be refused.
+    NA="$(python3 "$IAS" init wpa | sed 's/nonce=//')"
+    python3 "$IAS" record-draft-binding wpa --nonce "$NA" --path "$WP_SB" --tier main-root > /dev/null
+    python3 "$IAS" record-dispatch wpa --nonce "$NA" --round 1 --arm file \
+      --write-path "$WP_SB/.devflow/tmp/issue-draft-otherslug.md" --draft-file d.md \
+      > /dev/null 2> .wp-slug; printf '%s' "$?" > .wp-slug-rc
     # The shipped skill binds --tier main-root (tier-2/tier-3 selection is the deferred half),
     # so pin the tier the production path actually uses, not only worktree-root: a matching
     # write-path under a main-root binding is accepted.
@@ -44432,6 +44448,14 @@ if [ -d "$WP_SB" ]; then
     "1" "$(cat "$WP_SB/.wp-empty-unbound-rc" 2>/dev/null)"
   assert_eq "#569 write_path_crosscheck_rows: ... the unbound empty refusal names write-path-empty" \
     "1" "$(grep -c 'write-path-empty' "$WP_SB/.wp-empty-unbound" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: a WHITESPACE-only --write-path is refused (strip-based, not bare falsiness)" \
+    "1" "$(cat "$WP_SB/.wp-ws-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: ... the whitespace refusal names write-path-empty" \
+    "1" "$(grep -c 'write-path-empty' "$WP_SB/.wp-ws" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: right root + WRONG SLUG is refused (the other half of the join)" \
+    "1" "$(cat "$WP_SB/.wp-slug-rc" 2>/dev/null)"
+  assert_eq "#569 write_path_crosscheck_rows: ... the wrong-slug refusal names write-path-mismatch" \
+    "1" "$(grep -c 'write-path-mismatch' "$WP_SB/.wp-slug" 2>/dev/null)"
   assert_eq "#569 write_path_crosscheck_rows: the shipped main-root tier is covered (matching path accepted)" \
     "0" "$(cat "$WP_SB/.wp-mainroot-rc" 2>/dev/null)"
   assert_eq "#569 write_path_crosscheck_rows: an embed-arm dispatch ignores --write-path (check is file-arm scoped)" \

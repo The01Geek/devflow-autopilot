@@ -312,9 +312,9 @@ TRANSITIONS = (
     # write-failure (issue #562) — a canonical-draft overwrite that failed to land at
     # the bound path is recorded, so `latest_revision_landed` reports the latest revision
     # as unlanded and the presentation renders from the in-context revision bytes rather
-    # than the stale file. (The dispatch write-path cross-check is a separate, strict
-    # enforcement deferred to the skill-side follow-up; no dead row is declared for it
-    # here.)
+    # than the stale file. (The dispatch write-path cross-check landed in issue #569 as an
+    # additive guard in cmd_record_dispatch — it is not a transition row, so none is declared
+    # for it here. The STRICT half — `binding-required-on-file-arm` — remains deferred.)
     _row('write-failure', 'recorded', result='write-failure-recorded'),
 )
 
@@ -1699,8 +1699,15 @@ def cmd_record_dispatch(args):
         # MUST match the file the tool derives from the recorded binding
         # (`<bound-root>/.devflow/tmp/issue-draft-<slug>.md`, via _bound_draft_file). A
         # divergence is a strong signal that a compacted context drifted which file the
-        # dispatch audits, so fail closed with the write-path-mismatch breadcrumb rather
-        # than record an audit over a drifted path. The check is scoped to a bound run with
+        # dispatch audits, so fail closed with the write-path-mismatch breadcrumb.
+        #
+        # SCOPE (do not overstate this guard): it validates the REPORTED path only. The bytes
+        # digested below still come from the caller's --draft-file, which this command does
+        # NOT resolve from the binding — unlike its siblings emit-body / query-eligibility /
+        # query-summary, which all read through _bound_draft_file. So a caller that reports a
+        # correct --write-path while passing a drifted --draft-file is still recorded. Closing
+        # that is the bound-first reader reconciliation deferred with the strict half below.
+        # The check is scoped to a bound run with
         # a reported write path — an unbound run (an embed/inline epoch that never bound a
         # canonical file) and a caller that omits --write-path both proceed unchanged, so
         # the cross-check is additive, never a new mandatory field on the file arm.
