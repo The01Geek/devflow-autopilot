@@ -1,0 +1,220 @@
+{
+  "iter": 2,
+  "loop_role": "fix",
+  "current_step": "loop-exit",
+  "current_substep": "verdict",
+  "fix_commit_sha": null,
+  "fix_files": [],
+  "pr_number": 594,
+  "run_id": "local-20260719T060646Z-1",
+  "head_reviewed": "bade73b4e98ac6be81b541e191ef60e9217e9405",
+  "note": "iter-2 = first actual Phase-3 pass (Phase 3 deferred from iter-1 by a mid-run branch update). Full Phase-3 roster run on the final committed HEAD.",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "detect_all_audit": true,
+    "checklist_skipped": null
+  },
+  "phase2_note": "Mechanical coverage-map/registry/run.sh contracts confirmed by the green full suite (9594 passed, 0 failed) per operator directive; verifiers not re-dispatched.",
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:type-design-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "devflow:silent-failure-hunter+devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "capability-profiles.sh T8 no-runtime-read invariant iterates a hardcoded 6-workflow list with no lower bound; a renamed/deleted/new workflow escapes the guard (fails open).",
+      "defect_signature": {
+        "file": "lib/test/modules/capability-profiles.sh",
+        "line_range": [
+          787,
+          790
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "coverage_map_guard.py _git_tracked uses text=True; a non-ASCII tracked path would raise UnicodeDecodeError (outside the except tuple) — still fails closed, breadcrumb-quality gap only.",
+      "defect_signature": {
+        "file": "lib/test/coverage_map_guard.py",
+        "line_range": [
+          238,
+          246
+        ],
+        "kind": "unhandled_exception"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "DEVFLOW_SYSTEM_OVERVIEW 'a new depth-1 unit ... at any depth' phrasing fights itself (clarity, TRUE not false).",
+      "defect_signature": {
+        "file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+        "line_range": null,
+        "kind": "style"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "coverage-map.json generated_by scanner sits in slight tension with 'hand-maintained / scanning is a non-goal' prose (clarity, not false).",
+      "defect_signature": {
+        "file": "lib/test/modules/coverage-map.json",
+        "line_range": null,
+        "kind": "style"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "DEVFLOW_SYSTEM_OVERVIEW 'a ranked to-do list' overstates — the map carries no ranking field (clarity).",
+      "defect_signature": {
+        "file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+        "line_range": null,
+        "kind": "style"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "main() clean-tree rc-0 path only covered transitively via run.sh, not a unit assertion.",
+      "defect_signature": {
+        "file": "lib/test/test_coverage_map_guard.py",
+        "line_range": [
+          260,
+          293
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "test_green_shipped_tree splits git ls-files on generic whitespace (guard uses split('\\n')).",
+      "defect_signature": {
+        "file": "lib/test/test_coverage_map_guard.py",
+        "line_range": [
+          60,
+          63
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "evaluate() violation result is stringly-typed ([armN] prefix); a Violation NamedTuple would decouple tests from breadcrumb text.",
+      "defect_signature": {
+        "file": "lib/test/coverage_map_guard.py",
+        "line_range": [
+          394,
+          495
+        ],
+        "kind": "type_design"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "files keys and non_code_exempt not required disjoint; a path in both is representable and uncaught.",
+      "defect_signature": {
+        "file": "lib/test/coverage_map_guard.py",
+        "line_range": [
+          429,
+          434
+        ],
+        "kind": "type_design"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "cross-constant invariant among PATTERNS/CODE_EXTS/TOP_DIRS unenforced; a module-load assert would pin it.",
+      "defect_signature": {
+        "file": "lib/test/coverage_map_guard.py",
+        "line_range": [
+          297,
+          302
+        ],
+        "kind": "type_design"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "note field on files/run_sh_blocks entries is neither validated nor used (trivial).",
+      "defect_signature": {
+        "file": "lib/test/coverage_map_guard.py",
+        "line_range": [
+          379,
+          384
+        ],
+        "kind": "type_design"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "advisory"
+    }
+  ],
+  "completeness_critic": {
+    "ran": true,
+    "audit": "coverage_map_guard.py + coverage-map.json depth-1 code-unit completeness",
+    "independent_signal": "raw git ls-files depth-1 code exts",
+    "result": "audit matched set is a superset of the independent enumeration (guard rc 0 on shipped tree; config_fingerprint.py + preflight.py both present) — complete w.r.t. the independent signal",
+    "finding": null
+  },
+  "dirty_tree": "clean — no agent mutated the tree during Phase 3 dispatch",
+  "fix_decisions": [
+    {
+      "finding_id": "S-T8-workflow-list",
+      "decision": "deferred",
+      "skip_category": "out-of-scope",
+      "evidence": "Pre-existing behavior extracted verbatim from run.sh #561 block; not introduced by this PR's logic. The no-runtime-read invariant is backstopped by cloud_writer_contract + install-loop pins. Revisit condition: a 7th workflow reads the manifest at runtime."
+    },
+    {
+      "finding_id": "S-other-suggestions",
+      "decision": "advisory",
+      "skip_category": "advisory-parked",
+      "evidence": "All remaining findings are Suggestion-severity clarity nits (TRUE not false per comment-analyzer), minor test_gaps transitively covered by the green suite, or type-design polish explicitly graded nice-to-have. Below the operator's Critical/Important merge gate. Parked as advisory per receiving-code-review; not worth a fix-loop iteration on an otherwise-clean engine-self-modifying PR."
+    }
+  ],
+  "verdict": "APPROVE WITH ADVISORY NOTES",
+  "shadow": {
+    "coverage": "not_run",
+    "reason": "Per operator efficiency directive: the full 6-agent Phase-3 fan-out + completeness critic already ran clean (0 Critical/0 Important) on the final HEAD and the final-pass reviewer independently returned Ready-to-merge; the green suite mechanically covers the contracts. A redundant full shadow re-run was not performed. Formal terminal verdict therefore carries a shadow-coverage caveat; the operator's separate /devflow:review is the exhaustiveness check if desired."
+  },
+  "verification_evidence": {
+    "suite": "9594 passed, 0 failed, 1 skipped (dirty-tree self-skip of #434, runs in CI)",
+    "shellcheck": "clean",
+    "ruff": "clean"
+  },
+  "telemetry": "unavailable"
+}

@@ -1,0 +1,79 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-19T06:06:46Z",
+  "loop_role": "fix",
+  "current_step": "3",
+  "current_substep": "fix_committed",
+  "fix_commit_sha": "bade73b4",
+  "fix_files": [
+    "lib/test/modules/coverage-map.json",
+    "lib/test/run.sh",
+    "scripts/workflow-flight-recorder-registry.json"
+  ],
+  "pr_number": 594,
+  "run_id": "local-20260719T060646Z-1",
+  "config": {"max_iters": 5, "fix_threshold": "suggestion"},
+  "head_at_iter_start": "4a3ed465fbd9d5ca07301e4ca099422b31c8981b",
+  "head_after_branch_update_and_fix": "bade73b4e98ac6be81b541e191ef60e9217e9405",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "detect_all_audit": true,
+    "checklist_skipped": null
+  },
+  "checklist": [
+    {"id": "VC-1", "verdict": "PASS", "claim_signature": "api_contract:matcher-probe.yml:extras-mirrors-config-run-module"},
+    {"id": "VC-2", "verdict": "FAIL", "claim_signature": "api_contract:config.json:run-module-grant-reaches-runner", "note": "checklist-claim mischaracterization; PR correctly does NOT grant run-module to read-only review tier"},
+    {"id": "VC-3", "verdict": "PASS", "verification_mode": "lite"},
+    {"id": "VC-4", "verdict": "PASS"},
+    {"id": "VC-5", "verdict": "PASS"},
+    {"id": "VC-6", "verdict": "PASS"},
+    {"id": "VC-7", "verdict": "PASS", "verification_mode": "lite"},
+    {"id": "VC-8", "verdict": "PASS", "verification_mode": "lite"},
+    {"id": "VC-9", "verdict": "PASS", "note": "budget-doc self-contradiction fix verified consistent"},
+    {"id": "VC-10", "verdict": "PASS"},
+    {"id": "VC-11", "verdict": "FAIL", "claim_signature": "absolute_claim:CONTRIBUTING.md:ratchet-catches-every-uncovered-unit", "note": "over-universal generated claim; CONTRIBUTING already scopes to five patterns + guides on out-of-pattern code exts. Doc accurate, no fix."},
+    {"id": "VC-12", "verdict": "PASS"},
+    {"id": "VC-13", "verdict": "PASS"},
+    {"id": "VC-14", "verdict": "FAIL", "claim_signature": "test_mock_alignment:capability-profiles.sh:emits-exactly-58-assertions", "note": "REAL defect: module emits 59, floor was 58. FIXED by floor bump to 59."},
+    {"id": "VC-15", "verdict": "PASS"},
+    {"id": "VC-16", "verdict": "PASS"},
+    {"id": "VC-17", "verdict": "PASS"},
+    {"id": "VC-18", "verdict": "PASS", "note": "run_sh_blocks==generated_by verified (582+591 present) pre-merge; re-reconciled post-merge for 10/547/572"},
+    {"id": "VC-19", "verdict": "PASS"},
+    {"id": "VC-20", "verdict": "PASS", "verification_mode": "lite"},
+    {"id": "VC-21", "verdict": "PASS", "verification_mode": "lite"},
+    {"id": "VC-22", "verdict": "PASS"},
+    {"id": "VC-23", "verdict": "PASS"},
+    {"id": "VC-24", "verdict": "PASS"},
+    {"id": "VC-25", "verdict": "PASS"},
+    {"id": "VC-26", "verdict": "PASS"}
+  ],
+  "phase2_summary": {"passed": 23, "failed": 3, "inconclusive": 0, "lite": 5, "agent": 21},
+  "phase3_dispatched": [],
+  "phase3_findings": [],
+  "phase3_note": "Phase 3 review agents deferred to iter 2: a user-requested branch update (origin/main merge) landed mid-iteration-1, changing HEAD. Phase 3 runs on the final committed HEAD bade73b4 in iter 2 rather than the soon-stale iter-1 HEAD.",
+  "fix_decisions": [
+    {"finding_id": "VC-14", "decision": "applied", "commit": "bade73b4", "evidence": "capability-profiles floor 58->59 at registry minimum_assertions + run.sh call-site (coupled); module emits 59 after T1 idempotency hardening"},
+    {"finding_id": "merge-preflight", "decision": "applied", "commit": "bade73b4", "evidence": "scripts/preflight.py (new depth-1 unit merged from main) added to coverage-map files owner unmodularized; was tripping ratchet arm1 RED"},
+    {"finding_id": "merge-run_sh_blocks", "decision": "applied", "commit": "bade73b4", "evidence": "run_sh_blocks 10/547/572 (merged run.sh blocks) added so run_sh_blocks==generated_by against HEAD"},
+    {"finding_id": "VC-2", "decision": "pushed_back", "source_file": ".devflow/config.json", "skip_category": "claim-quality", "evidence": "The PR correctly grants run-module only to implement+command tiers, not the read-only review tier (devflow_runner.allowed_tools=[]). The claim mischaracterized this as 'review profile gained it'; code is correct."},
+    {"finding_id": "VC-11", "decision": "pushed_back", "source_file": "CONTRIBUTING.md", "skip_category": "claim-quality", "evidence": "CONTRIBUTING item 6 already scopes the ratchet claim to the five depth-1 patterns and instructs 'never list a code file in non_code_exempt' / 'extend the pattern set' for out-of-pattern code extensions. The verifier's .rb example is exactly the case the doc addresses; guard and doc are consistent."}
+  ],
+  "convergence_inputs": {"fixes_applied": 3, "fix_diff_lines": 6, "new_corroborated_critical_count": 0},
+  "verification_evidence": {
+    "suite": "9594 passed, 0 failed, 1 skipped",
+    "skipped_checks": ["#434 stale-prose self-scan [blocking-gate] — working-tree-dirty self-skip; grades committed HEAD, runs live in CI post-commit"],
+    "shellcheck": "clean",
+    "ruff": "clean",
+    "focused": "test_module_runner.py 58 OK, test_coverage_map_guard.py 23 OK, capability-profiles module 59 passed"
+  },
+  "telemetry": {
+    "phase_1": {"calls": 2, "note": "2 checklist-generator batches"},
+    "phase_1_5": {"calls": 1, "note": "checklist-deduper"},
+    "phase_2": {"calls": 21, "note": "21 verifier agents + 5 lite probes"},
+    "phase_3": {"calls": 0, "note": "deferred to iter 2 after branch update"}
+  }
+}
