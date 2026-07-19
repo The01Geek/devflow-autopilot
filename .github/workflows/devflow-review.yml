@@ -154,6 +154,10 @@ concurrency:
   group: devflow-review-${{ github.event.pull_request.number || github.event.check_run.pull_requests[0].number || github.event.workflow_run.pull_requests[0].number || github.event.check_suite.pull_requests[0].number || github.run_id }}-${{ github.event_name }}
   cancel-in-progress: true
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   precheck:
     # Cheap trigger filter: drop workflow_run completions whose underlying
@@ -173,7 +177,7 @@ jobs:
     # PR-CI event incl. push; status → state == success). For a status event
     # github.event.workflow_run.event is empty, so those clauses are false.
     if: (github.event_name != 'workflow_run' && github.event_name != 'status') || github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.event == 'pull_request_target' || github.event.workflow_run.event == 'push' || (github.event_name == 'status' && github.event.state == 'success')
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.DEVFLOW_RUNNER && (startsWith(vars.DEVFLOW_RUNNER, '[') && fromJSON(vars.DEVFLOW_RUNNER) || vars.DEVFLOW_RUNNER) || 'ubuntu-latest' }}
     # Explicit (plan §4 matrix): the first-ready gate reads check-runs and PR
     # commits. On a public repo these are unauth-readable (verified: the gate
     # query succeeded in self-test), but pinning checks/pull-requests: read
@@ -820,7 +824,7 @@ jobs:
     # `success` and the exactly-once gates would read the deferral as an
     # already-run review, permanently wedging the CI-completion re-trigger.
     if: needs.precheck.outputs.enabled == 'true' && (needs.precheck.outputs.should_run == 'true' || needs.precheck.outputs.skip_reason != '')
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.DEVFLOW_RUNNER && (startsWith(vars.DEVFLOW_RUNNER, '[') && fromJSON(vars.DEVFLOW_RUNNER) || vars.DEVFLOW_RUNNER) || 'ubuntu-latest' }}
     permissions:
       checks: write
       contents: read
@@ -1055,7 +1059,7 @@ jobs:
     # permanently wedge the CI-completion re-trigger. Skipped, the job
     # check-run concludes `skipped`, which the gates exclude.
     if: always() && needs.create_check.outputs.check_run_id != '' && needs.precheck.outputs.skip_reason == ''
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.DEVFLOW_RUNNER && (startsWith(vars.DEVFLOW_RUNNER, '[') && fromJSON(vars.DEVFLOW_RUNNER) || vars.DEVFLOW_RUNNER) || 'ubuntu-latest' }}
     permissions:
       # Job-level permissions REPLACE workflow-level (they do not merge), so
       # contents:read must be re-declared here or actions/checkout below

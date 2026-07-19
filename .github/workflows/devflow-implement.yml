@@ -39,13 +39,17 @@ on:
   issue_comment:
     types: [created]
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   # Duplicates the config job in devflow.yml verbatim except for the
   # `effort` source (`devflow_implement.effort` vs `devflow.effort`). A
   # workflow_call indirection would buy nothing here — the config is
   # ~15 lines and the call would be more.
   config:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.DEVFLOW_RUNNER && (startsWith(vars.DEVFLOW_RUNNER, '[') && fromJSON(vars.DEVFLOW_RUNNER) || vars.DEVFLOW_RUNNER) || 'ubuntu-latest' }}
     outputs:
       enabled: ${{ steps.extract.outputs.enabled }}
       base_branch: ${{ steps.extract.outputs.base_branch }}
@@ -113,7 +117,7 @@ jobs:
       github.event_name == 'issue_comment' &&
       github.event.issue.pull_request == null &&
       contains(github.event.comment.body, '/devflow:implement') && !contains(github.event.comment.body, '@claude')
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.DEVFLOW_RUNNER && (startsWith(vars.DEVFLOW_RUNNER, '[') && fromJSON(vars.DEVFLOW_RUNNER) || vars.DEVFLOW_RUNNER) || 'ubuntu-latest' }}
     permissions:
       contents: read        # checkout the resolver script; collaborator check uses GITHUB_TOKEN
       issues: write         # react step + duplicate notice on issue comments
@@ -393,7 +397,7 @@ jobs:
   claude:
     needs: [config, gate]
     if: needs.gate.outputs.should_run == 'true' && needs.gate.outputs.duplicate != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.DEVFLOW_RUNNER && (startsWith(vars.DEVFLOW_RUNNER, '[') && fromJSON(vars.DEVFLOW_RUNNER) || vars.DEVFLOW_RUNNER) || 'ubuntu-latest' }}
     permissions:
       contents: write
       pull-requests: write
