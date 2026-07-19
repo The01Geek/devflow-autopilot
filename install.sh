@@ -361,11 +361,14 @@ done
 # devflow-review.yml's CI-completion re-trigger (issue #304) re-fires a review
 # that was deferred behind the branch-freshness / other-CI-green preconditions
 # once your CI completes. The `workflow_run:` trigger REQUIRES an explicit
-# workflow-name list (a GitHub platform constraint — no wildcards) and ships as
-# `[CI]`. If your CI workflow is named anything else, that re-trigger silently
-# never fires until you add its name. Prompt for it prominently here.
+# workflow-name list (a GitHub platform constraint — no wildcards) and ships
+# naming this repo's own gating workflows. It must list EVERY workflow of yours
+# that runs on PR events (not just your primary CI): the review waits on all of
+# them, but re-fires only when a listed one completes, so a gating workflow left
+# off the list that finishes last strands the review at a neutral "waiting"
+# check (issue #579). Prompt for it prominently here.
 if [ -f ".github/workflows/devflow-review.yml" ]; then
-  log "ACTION REQUIRED: edit '.github/workflows/devflow-review.yml' — set the 'workflow_run:' 'workflows:' list (ships as [CI]) to your repo's actual CI workflow name(s), or the auto-review's CI-completion re-trigger will not fire for deferred reviews. External non-Actions CI is covered by 'check_suite', and legacy commit-status-only CI (classic Jenkins, legacy CircleCI) by the 'status' trigger — both need no naming. See docs/workflow-triggers.md."
+  log "ACTION REQUIRED: edit '.github/workflows/devflow-review.yml' — set the 'workflow_run:' 'workflows:' list to the name(s) of EVERY workflow in your repo that runs on pull requests (not just your primary CI), or the auto-review's CI-completion re-trigger will not fire for reviews deferred behind a workflow you omitted. External non-Actions CI is covered by 'check_suite', and legacy commit-status-only CI (classic Jenkins, legacy CircleCI) by the 'status' trigger — both need no naming. See docs/workflow-triggers.md."
 fi
 # Drop DevFlow's superseded claude*.yml on upgrade (signature-guarded so an
 # Anthropic-owned claude.yml is never touched).

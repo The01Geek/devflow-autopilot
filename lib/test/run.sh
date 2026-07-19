@@ -17333,13 +17333,33 @@ assert_eq "#304 unverifiable deferral maps to the honest 'preconditions unverifi
   "$(grep -qF "Devflow review waiting: preconditions unverifiable" "$LIB/../scripts/describe-skip-title.sh" && echo yes || echo no)"
 assert_eq "#304 CI-completion path guards PR state == OPEN" "yes" \
   "$(grep -qF '"$PR_STATE" != "OPEN"' "$REVIEW_WF" && echo yes || echo no)"
-# (c10) Coupled literals: the workflow_run workflows list must name ci.yml's
-# actual workflow name (rename ci.yml and the CI-completion re-trigger
-# silently never fires), and the script's SELF_WORKFLOW_NAME default must
-# byte-match this workflow's name: (a rename desyncs the fallback and the
-# gate would count its own run as other-CI-pending on default invocations).
-assert_eq "#304 ci.yml workflow name matches the workflow_run trigger list entry" "yes" \
-  "$(grep -qE '^name: CI$' "$WF/ci.yml" && grep -qF 'workflows: [CI]' "$REVIEW_WF" && echo yes || echo no)"
+# (c10) Coupled literals: ci.yml is named "CI" (the re-trigger list and the
+# checker below match by workflow name), and the script's SELF_WORKFLOW_NAME
+# default must byte-match this workflow's name: (a rename desyncs the fallback
+# and the gate would count its own run as other-CI-pending on default
+# invocations).
+assert_eq "#304 ci.yml is named CI (the name the re-trigger list and coverage checker key on)" "yes" \
+  "$(grep -qE '^name: CI$' "$WF/ci.yml" && echo yes || echo no)"
+# (c10b) The workflow_run re-trigger list must cover EVERY first-party
+# PR-gating workflow (issue #579): require_ci_green waits on all other Actions
+# runs on the head, but a deferred review re-fires only when a listed workflow
+# completes — a gating workflow left off the list that finishes last strands
+# the review at the neutral "waiting: other CI not green" check. The self-sync
+# checker enumerates the PR-triggering workflows and asserts the list is a
+# superset; here it must pass on the real tree, and (behavioral proof) FAIL
+# on a tree whose list was narrowed back to CI-only.
+assert_eq "#579 review re-trigger list covers every PR-gating workflow" "yes" \
+  "$(python3 "$LIB/test/check-review-retrigger-coverage.py" "$WF" >/dev/null 2>&1 && echo yes || echo no)"
+if ! _r579_d="$(mktemp -d)"; then
+  printf '  FAIL  #579 re-trigger coverage mutation — mktemp -d failed (behavioral proof not run)\n' >&2
+  FAIL=$((FAIL + 1))
+else
+  cp "$WF"/*.yml "$_r579_d"/
+  sed -E 's/workflows: \[CI, Matcher probe\]/workflows: [CI]/' "$REVIEW_WF" > "$_r579_d/devflow-review.yml"
+  assert_eq "#579 MUTATION: dropping a gating workflow from the re-trigger list trips the checker" "no" \
+    "$(python3 "$LIB/test/check-review-retrigger-coverage.py" "$_r579_d" >/dev/null 2>&1 && echo yes || echo no)"
+  rm -rf "$_r579_d"
+fi
 assert_eq "#304 script SELF_WORKFLOW_NAME default matches the workflow name:" "yes" \
   "$(grep -qF ':-Devflow Review (auto-trigger)}' "$LIB/../scripts/derive-review-preconditions.sh" && grep -qE '^name: Devflow Review \(auto-trigger\)$' "$REVIEW_WF" && echo yes || echo no)"
 # (c11) The compare operand ORDER is load-bearing and the test stub is
