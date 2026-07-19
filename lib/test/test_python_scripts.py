@@ -3928,7 +3928,7 @@ def _state(rounds, revisions=(), overrides=(), nonce='n0', reinit=False):
     return {'schema_version': issue_audit_state.SCHEMA_VERSION, 'slug': 's',
             'nonce': nonce, 'reinit_forced': reinit, 'automatic_reaudits_used': 0,
             'user_rounds_used': 0, 'rounds': list(rounds),
-            'revisions': [{'ordinal': i + 1, 'after_round': r}
+            'revisions': [{'ordinal': i + 1, 'after_round': r, 'floor_round': r}
                           for i, r in enumerate(revisions)],
             'overrides': list(overrides), 'creation': None}
 
@@ -6440,6 +6440,21 @@ assert_eq("#603/AC1: _PROTOCOL_TOKENS covers every key= token the printers emit"
           set(), _printed603 - set(issue_audit_state._PROTOCOL_TOKENS))
 
 # Row 11/AC12 — the corrupt-state matrix over the hand-corruptible ledger fields.
+# POSITIVE CONTROL, first: every row below asserts only that _validate RAISES, which a
+# fixture rejected by an unrelated precondition satisfies without ever reaching the arm it
+# names. It happened — `_state`'s revision records omitted `floor_round`, so the whole
+# matrix was green against a disabled guard (PR #612 review). This control fails the moment
+# the shared fixture stops validating, so the rows above it can never go vacuous silently.
+_pc603 = _state([_round603(1, unresolved=1, must_revise=1, ledger=[_entry603(1, 'a')])],
+                revisions=(1,))
+try:
+    issue_audit_state._validate(_pc603, 's')
+    _pc603_ok = True
+except issue_audit_state.StateError:
+    _pc603_ok = False
+assert_eq("#603-11/AC12 positive control: the uncorrupted matrix fixture validates, so "
+          "each row below is rejected by the arm it names", True, _pc603_ok)
+
 for _name, _mutate in (
     ('a wrong-type ledger container (object)', lambda r: r.update(findings={})),
     ('a wrong-type ledger container (scalar)', lambda r: r.update(findings=3)),
@@ -6772,8 +6787,10 @@ for _n11, _mut11 in (
     # re-enforces the splitter refusal on both carriers — a summary reaches the trailing
     # summary= field of query-findings, and an embedded LF is reachable here but not
     # through the \n-split ingest path.
+    # Splitter-only text: a forged `round=`/`status=` here would be rejected by the
+    # protocol guard first, leaving this row green against a disabled splitter guard.
     ('a record-splitting newline inside a summary',
-     lambda r: r.update(findings=[_entry603(1, 'a\nround=9 id=1 status=resolved b')])),
+     lambda r: r.update(findings=[_entry603(1, 'first half\nsecond half')])),
     ('a record-splitting carriage return inside a summary',
      lambda r: r.update(findings=[_entry603(1, 'first half\rsecond half')])),
     ('a record-splitting newline inside an invalidation reason',
