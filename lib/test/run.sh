@@ -7646,21 +7646,26 @@ assert_eq "#601 AC3: runner with:-input does NOT source it from a PR-head config
   "$(printf '%s' "$I601_RUNNER_INPUT_LINE" | grep -Eq 'cfg\.outputs|needs\.config' && echo no || echo yes)"
 
 # AC4 — empty/malformed/multi-line default resolves to an EMPTY, SINGLE-LINE string
-# (auto-install path, Linux unchanged). Two layers: (1) a behavioral-fix PRESENCE pin that
-# BOTH the `| strings` non-string guard AND the `select(test("[\n\r]") | not)` embedded-newline
-# guard are in each workflow's extraction — removing either regresses to a multi-line
-# GITHUB_OUTPUT-corruption bug the #601 silent-failure review found (a non-string leaf, or a
-# valid string carrying an escaped newline), and makes the extraction below fail its sweep;
-# (2) an EXECUTABLE sweep of the SHIPPED filter (extracted from devflow.yml) across the
-# config-JSON adversarial shape matrix.
+# (auto-install path, Linux unchanged). Two complementary layers, with DIFFERENT reach:
+#   (1) a PRESENCE pin that BOTH the `| strings` non-string guard AND the
+#       `select(test("[\n\r]") | not)` embedded-newline guard are in each workflow's extraction.
+#       This is the ONLY layer that catches removal of `| strings`: with it removed, a non-string
+#       leaf flows into `select(test(...))`, whose `test()` errors on a non-string and is swallowed
+#       by the surrounding `try … catch` back to empty — so the sweep's array row still passes.
+#       The `| strings` guard is therefore defense-in-depth (the catch already yields empty), and
+#       its removal is caught by literal presence here, NOT behaviorally by the sweep below.
+#   (2) an EXECUTABLE sweep of the SHIPPED filter (extracted from devflow.yml) across the
+#       config-JSON adversarial matrix. This layer DOES behaviorally catch removal of the
+#       newline guard: removing `select(test("[\n\r]") | not)` makes the escaped-newline row emit
+#       a multi-line value (2 lines) → that sweep row goes RED (mutation-verified).
 for _f in "$I601_DEVFLOW_YML" "$I601_IMPL_YML" "$I601_RUNNER_YML"; do
   assert_eq "#601 AC4: $(basename "$_f") extraction carries the '| strings' non-string type guard" "yes" \
     "$(grep -qF '| strings | select(test("[\n\r]") | not)' "$_f" && echo yes || echo no)"
 done
 # Extract the exact jq program shipped in devflow.yml and drive it against the matrix, so the
 # sweep tests the REAL filter (not a hardcoded copy). The filter contains no single-quote, so
-# `[^']*` safely spans it up to the closing `) catch empty`. If the guards were removed the
-# behavioral sweep rows below (array-leaf and newline-string → empty) go RED.
+# `[^']*` safely spans it up to the closing `) catch empty`; the positive-control assertion
+# below fails RED if a future filter edit breaks that extraction (e.g. introduces a quote).
 I601_FILTER="$(grep -oE "try \(\.setup\.claude_code_executable[^']*\) catch empty" "$I601_DEVFLOW_YML" | head -1)"
 assert_eq "#601 AC4: the guarded jq filter is extractable from devflow.yml (positive control)" "yes" \
   "$([ -n "$I601_FILTER" ] && echo yes || echo no)"
