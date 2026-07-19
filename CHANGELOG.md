@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.23] — 2026-07-19
+
+### Changed
+- **Generate the runner allowlists and matcher-probe baselines from a versioned capability manifest.** The five hand-maintained allowlist literals (the `devflow-runner.yml` review `TOOLS`, the `devflow.yml` command `TOOLS`, the `devflow-implement.yml` `--allowed-tools` base list, and the `matcher-probe.yml` `REVIEW`/`IMPLEMENT` baselines) are now compiled from a single source of truth, `lib/capability-profiles.json`, by the stdlib-only `lib/generate-capability-profiles.py`. Each generated region carries a banner with the manifest version and a per-region sha256, and a `--check` mode wired into `lib/test/run.sh` turns any manifest↔literal drift RED before merge (retiring the per-pair #450 token-sync pin and covering the review-tier equality that never had one). The review profile is locked as a security boundary by `lib/review-profile.tokens`, so widening the read-only reviewer always requires a deliberate, visible diff, and `--check` refuses a region with a duplicated anchor (an injected second assignment that would win at runtime) rather than verifying only the canonical copy. This wave also eliminates the live runner↔probe review-pair drift (the probe `REVIEW` baseline was missing two vendored-helper grants). Maintainers now edit one manifest and regenerate instead of hand-syncing up to five literals; consumers are unaffected (they keep receiving the generated workflows by file-copy and never run the generator). (#561)
+
 ## [2.15.22] — 2026-07-19
 
 ### Changed
