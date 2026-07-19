@@ -57,7 +57,7 @@ Record the result in the same JSON shape as agent verdicts:
 
 Split the *agent* items into batches of up to 8. For each batch, launch all agents in parallel using multiple Agent tool calls in a single message.
 
-Use the **Agent tool** with `subagent_type: "devflow:checklist-verifier"` for each item. Resolve overrides for `devflow:checklist-verifier` once per Phase 2 (the verdict is identical across the batch) per **Per-Subagent Model/Effort Overrides** above, and dispatch every verifier through the materialized `--agents` block when one applies.
+Use the **Agent tool** with `subagent_type: "devflow:checklist-verifier"` for each item. Resolve overrides for `devflow:checklist-verifier` once per Phase 2 (the verdict is identical across the batch) per **Per-Subagent Model/Effort Overrides** above, applying a resolved `model` as each verifier dispatch's Agent-tool `model` override when one applies.
 
 Pass the following prompt for each:
 ```

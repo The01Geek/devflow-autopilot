@@ -63,7 +63,7 @@ where `M` is the total dropped count (`N - 100`) and the per-category counts sum
 
 ### 1.2 Launch checklist-generator agent(s)
 
-Use the **Agent tool** with `subagent_type: "devflow:checklist-generator"`. First resolve overrides for the agents about to be dispatched (`devflow:checklist-generator`) per **Per-Subagent Model/Effort Overrides** above, and dispatch through the materialized `--agents` block when one applies.
+Use the **Agent tool** with `subagent_type: "devflow:checklist-generator"`. First resolve overrides for the agents about to be dispatched (`devflow:checklist-generator`) per **Per-Subagent Model/Effort Overrides** above, applying a resolved `model` as the Agent tool's `model` override when one applies.
 
 Pass the following prompt — carrying the slice's **file path** (from Phase 1.1), never the inline diff content:
 ```
@@ -129,7 +129,7 @@ Output: `Phase 1.5/4: Deduping checklist across {B} batches...`
 
 ### 1.5.1 Launch the deduper agent
 
-Use the **Agent tool** with `subagent_type: "devflow:checklist-deduper"`. Resolve overrides for `devflow:checklist-deduper` per **Per-Subagent Model/Effort Overrides** above and dispatch through the materialized `--agents` block when one applies.
+Use the **Agent tool** with `subagent_type: "devflow:checklist-deduper"`. Resolve overrides for `devflow:checklist-deduper` per **Per-Subagent Model/Effort Overrides** above, applying a resolved `model` as the Agent tool's `model` override when one applies.
 
 Concatenate the raw checklist items from all batches into a single JSON array. Preserve each item's original `id` and tag it with its source batch so traceability survives the merge — prefix each `id` with `batch{K}:` (e.g. `batch1:VC-3`, `batch2:VC-1`) before passing to the deduper.
 
