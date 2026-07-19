@@ -2769,6 +2769,146 @@ assert_eq("resolve(#425): default iterations applies to a no-entry agent",
 assert_eq("resolve(#425): own entry does NOT inherit default iterations (entry-level precedence)",
           {"model": "m"}, _itd_res["devflow:code-reviewer"])
 
+# --- effort-application decision (issue #554): honest fallback, no overclaim ---
+# The resolver runs IN-SESSION, so a per-agent effort override is NEVER applied
+# here: decide_effort_applications must report a `session-fallback` (with a
+# non-null reason and null `effective`) for a resolved effort, and a
+# `session-inheritance` (all-null) for a dispatched agent with no override.
+
+# EA1: a resolved per-agent effort → session-fallback, effective=None (unknown is
+# not zero — the in-session engine cannot introspect its own session effort), and
+# a non-null fallback_reason. This is the exact silent-drop the issue exists to kill.
+_ea1 = _rro.decide_effort_applications(
+    {"devflow:code-reviewer": {"model": "claude-opus-4-8", "effort": "low"}},
+    ["devflow:code-reviewer"],
+)
+assert_eq("effort-app(#554): resolved in-session effort → session-fallback",
+          "session-fallback", _ea1["devflow:code-reviewer"]["application_point"])
+assert_eq("effort-app(#554): session-fallback effective is null (never inferred)",
+          None, _ea1["devflow:code-reviewer"]["effective"])
+assert_eq("effort-app(#554): session-fallback has a non-null fallback_reason",
+          True, _ea1["devflow:code-reviewer"]["fallback_reason"] is not None)
+
+# EA2: a dispatched agent with NO per-agent effort override → session-inheritance,
+# all-null (nothing was resolved-but-dropped, so no fallback reason). This is the
+# completeness arm — the block is populated over the full dispatched roster.
+_ea2 = _rro.decide_effort_applications(
+    {}, ["devflow:silent-failure-hunter"],
+)
+assert_eq("effort-app(#554): no override → session-inheritance",
+          "session-inheritance",
+          _ea2["devflow:silent-failure-hunter"]["application_point"])
+assert_eq("effort-app(#554): session-inheritance fallback_reason is null",
+          None, _ea2["devflow:silent-failure-hunter"]["fallback_reason"])
+assert_eq("effort-app(#554): session-inheritance effective is null",
+          None, _ea2["devflow:silent-failure-hunter"]["effective"])
+
+# EA3: capability-restricted — a Claude Haiku model rejects the effort parameter.
+# The outcome is a session-fallback whose reason names the model (never emitted).
+_ea3 = _rro.decide_effort_applications(
+    {"devflow:code-reviewer": {"model": "claude-haiku-4-5-20251001", "effort": "low"}},
+    ["devflow:code-reviewer"],
+)
+assert_eq("effort-app(#554): Haiku model → session-fallback (capability-restricted)",
+          "session-fallback", _ea3["devflow:code-reviewer"]["application_point"])
+assert_eq("effort-app(#554): Haiku fallback_reason names the model",
+          True, "haiku" in _ea3["devflow:code-reviewer"]["fallback_reason"].lower())
+
+# EA4: capability-restricted — a provider whose effort_supported is false (#313).
+# The reason names the provider capability; effort is not emitted.
+_ea4 = _rro.decide_effort_applications(
+    {"devflow:code-reviewer": {"model": "claude-opus-4-8", "effort": "low"}},
+    ["devflow:code-reviewer"],
+    effort_supported=False,
+)
+assert_eq("effort-app(#554): effort_supported=false → session-fallback",
+          "session-fallback", _ea4["devflow:code-reviewer"]["application_point"])
+assert_eq("effort-app(#554): provider-restricted reason names effort_supported",
+          True, "effort_supported" in _ea4["devflow:code-reviewer"]["fallback_reason"])
+
+# EA5: split-brain guard — the recorder NEVER emits `agent-definition` or a
+# non-null `effective` for an in-session decision (it observed nothing applied).
+_ea5_points = {d["application_point"] for d in _ea1.values()} \
+    | {d["application_point"] for d in _ea3.values()} \
+    | {d["application_point"] for d in _ea4.values()}
+assert_eq("effort-app(#554): no in-session decision ever claims agent-definition",
+          False, "agent-definition" in _ea5_points)
+assert_eq("effort-app(#554): every EA application_point is a known value",
+          True, _ea5_points <= set(_rro.EFFORT_APPLICATION_POINTS))
+
+# EA6: the benign in-session no-seam fallbacks collapse into ONE `::notice::`
+# summary (distinct from `::warning::`), not one line per agent — and no report
+# line at all when nothing fell back.
+_ea6_resolved = {"devflow:code-reviewer": {"effort": "low"},
+                 "devflow:silent-failure-hunter": {"effort": "high"}}
+_ea6_lines = _rro.format_effort_reports(
+    _rro.decide_effort_applications(
+        _ea6_resolved,
+        ["devflow:code-reviewer", "devflow:silent-failure-hunter",
+         "devflow:comment-analyzer"]),
+    _ea6_resolved)
+assert_eq("effort-app(#554): benign fallbacks are ONE ::notice:: summary (not ::warning::)",
+          [True], [len(_ea6_lines) == 1 and _ea6_lines[0].startswith("::notice::")])
+assert_eq("effort-app(#554): the ::notice:: summary names the fell-back agent count",
+          True, "2 agent(s)" in _ea6_lines[0])
+assert_eq("effort-app(#554): no fallback → no report lines",
+          [], _rro.format_effort_reports(_ea2, {}))
+
+# EA7 (silent-failure-hunter HIGH fix): a capability-restricted fallback (Haiku
+# model / effort_supported=false) is a genuine misconfiguration surfaced as its
+# OWN `::warning::` naming the model/provider — NOT laundered into the benign
+# "not a failure" notice. The named reason (computed in the decision) is emitted.
+_ea7_haiku_resolved = {"devflow:code-reviewer":
+                       {"model": "claude-haiku-4-5-20251001", "effort": "low"},
+                       "devflow:silent-failure-hunter": {"effort": "low"}}
+_ea7_lines = _rro.format_effort_reports(
+    _rro.decide_effort_applications(
+        _ea7_haiku_resolved,
+        ["devflow:code-reviewer", "devflow:silent-failure-hunter"]),
+    _ea7_haiku_resolved)
+# One ::warning:: for the Haiku agent (naming the model), one ::notice:: for the
+# benign agent — the capability restriction is never in the benign bucket.
+_ea7_warn = [ln for ln in _ea7_lines if ln.startswith("::warning::")]
+_ea7_note = [ln for ln in _ea7_lines if ln.startswith("::notice::")]
+assert_eq("effort-app(#554): Haiku capability restriction is a ::warning:: (not the benign notice)",
+          1, len(_ea7_warn))
+assert_eq("effort-app(#554): the capability ::warning:: names the Haiku model",
+          True, "haiku" in _ea7_warn[0].lower() and "devflow:code-reviewer" in _ea7_warn[0])
+assert_eq("effort-app(#554): the benign agent still gets the ::notice:: (only it, count 1)",
+          True, len(_ea7_note) == 1 and "1 agent(s)" in _ea7_note[0])
+# A provider with effort_supported=false is likewise a ::warning:: naming the provider.
+_ea7_prov_resolved = {"devflow:code-reviewer": {"effort": "low"}}
+_ea7_prov = _rro.format_effort_reports(
+    _rro.decide_effort_applications(_ea7_prov_resolved, ["devflow:code-reviewer"],
+                                    effort_supported=False),
+    _ea7_prov_resolved, effort_supported=False)
+assert_eq("effort-app(#554): effort_supported=false is a ::warning:: naming the provider",
+          True, len(_ea7_prov) == 1 and _ea7_prov[0].startswith("::warning::")
+          and "effort_supported" in _ea7_prov[0])
+
+# EA8 (pr-test-analyzer #3): decide_effort_applications iterates the DISPATCHED
+# roster, so an override resolved for an agent NOT dispatched is silently ignored
+# (never fabricates a fallback report for an undispatched agent).
+_ea8 = _rro.decide_effort_applications(
+    {"devflow:code-reviewer": {"effort": "low"}}, ["devflow:silent-failure-hunter"])
+assert_eq("effort-app(#554): a resolved-but-undispatched agent gets no decision",
+          ["devflow:silent-failure-hunter"], list(_ea8.keys()))
+assert_eq("effort-app(#554): the dispatched no-override agent is session-inheritance",
+          "session-inheritance", _ea8["devflow:silent-failure-hunter"]["application_point"])
+
+# EA9 (pr-test-analyzer #4): Haiku + effort_supported=false — the Haiku reason is
+# preferred (names the concrete model), a deterministic precedence.
+_ea9 = _rro.decide_effort_applications(
+    {"a": {"model": "claude-haiku-4-5", "effort": "low"}}, ["a"], effort_supported=False)
+assert_eq("effort-app(#554): Haiku reason wins over provider reason (deterministic precedence)",
+          True, "haiku" in _ea9["a"]["fallback_reason"].lower())
+
+# EA10 (pr-test-analyzer #5): the empty-roster boundary.
+assert_eq("effort-app(#554): empty dispatched → empty decision map",
+          {}, _rro.decide_effort_applications({}, []))
+assert_eq("effort-app(#554): empty decisions → no report lines",
+          [], _rro.format_effort_reports({}, {}))
+
 # read_raw integration (exercises the real config-get.sh I/O path, not just the
 # pure resolver). The empty-own-entry contract must hold END-TO-END: the leaf
 # reads alone can't tell {} from an absent key, so read_raw probes the entry
@@ -3004,6 +3144,45 @@ try:
               1, len(_eff_lines))
 finally:
     _os.unlink(_def_cfg)
+
+# main() effort-report wiring (issue #554, pr-test-analyzer #1/#2): a config that
+# produces a VALID per-agent effort override must route its fallback report to
+# STDERR while stdout stays pure JSON (the load-bearing engine contract — the
+# review engine json-parses stdout). The existing main() tests run against a
+# nonexistent config (no overrides → no report), so this is the only coverage
+# that a regression writing the report to stdout would corrupt the engine parse.
+with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _e554f:
+    _e554f.write('{"devflow_review":{"agent_overrides":'
+                 '{"devflow:code-reviewer":{"effort":"low"}}}}')
+    _e554_cfg = _e554f.name
+try:
+    _o554, _e554 = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(_o554), contextlib.redirect_stderr(_e554):
+        _rc554 = _rro.main(["devflow:code-reviewer", "--config", _e554_cfg])
+    assert_eq("main(#554): valid effort override exits 0", 0, _rc554)
+    # stdout is pure JSON — no ::notice::/::warning:: leaked onto it.
+    assert_eq("main(#554): stdout stays pure JSON (report never on stdout)",
+              {"devflow:code-reviewer": {"effort": "low"}},
+              json.loads(_o554.getvalue()))
+    assert_eq("main(#554): the ::notice:: fallback report is on stderr",
+              True, "::notice::" in _e554.getvalue()
+              and "per-agent effort was NOT applied" in _e554.getvalue())
+    # --effort-supported false wiring: the SAME override now reports a
+    # capability-restricted ::warning:: naming the provider (the CLI flag is
+    # threaded to decide/format, not just the pure functions).
+    _o554b, _e554b = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(_o554b), contextlib.redirect_stderr(_e554b):
+        _rc554b = _rro.main(["devflow:code-reviewer", "--config", _e554_cfg,
+                             "--effort-supported", "false"])
+    assert_eq("main(#554): --effort-supported false exits 0", 0, _rc554b)
+    assert_eq("main(#554): --effort-supported false → capability ::warning:: on stderr",
+              True, "::warning::" in _e554b.getvalue()
+              and "effort_supported" in _e554b.getvalue())
+    assert_eq("main(#554): stdout still pure JSON under --effort-supported false",
+              {"devflow:code-reviewer": {"effort": "low"}},
+              json.loads(_o554b.getvalue()))
+finally:
+    _os.unlink(_e554_cfg)
 
 # A non-object `default` on the real read_raw path: the warning must name the real
 # consequence (no fallback for no-entry agents), NOT the nonsensical "default still

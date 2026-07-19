@@ -36,8 +36,3 @@ bump: patch
 - The convergence definition no longer claims to be evaluated "within the existing
   automatic audit budget" — a clause `evaluate_convergence` never computed; budget
   legality is enforced upstream at round funding.
-
-### Fixed
-
-- The `#551` prompt-mass census fixture pinned its scratch repo's initial branch, so a
-  desk whose `init.defaultBranch` is `main` no longer sees an unrelated RED.

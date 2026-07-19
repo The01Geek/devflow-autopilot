@@ -39,6 +39,8 @@ For each merge group with >1 item, pick ONE representative item to keep. Selecti
 
 Do NOT merge an `agent` item's `verification_mode` down to `lite`, and do NOT promote a `lite` item to `agent`. Carry the representative's mode through as-is.
 
+**Provenance reconciliation on merge.** When the items in a merge group **disagree on `claim_provenance`** — some carry `generated_paraphrase` and some carry `source_authored` — the merged item takes **`source_authored`** and carries the `source_excerpt` of the `source_authored` duplicate (fail-closed: a group holding any source-authored assertion is never treated as a pure wording paraphrase downstream, so it is never normalization-eligible). When every item in the group agrees on `claim_provenance`, that value (and the representative's `source_excerpt`, if any) passes through unchanged under the ordinary representative-selection rules.
+
 ### Step 3: Renumber and record provenance
 
 After picking representatives:
@@ -64,6 +66,8 @@ Return the deduped JSON array, wrapped in a markdown code fence tagged `json`. S
     "verification_mode": "lite | agent",
     "lite_probe": { ... },
     "claim_signature": "...",
+    "claim_provenance": "generated_paraphrase | source_authored",
+    "source_excerpt": "verbatim authored text (source_authored items only)",
     "merged_from": ["batch1:VC-3", "batch2:VC-1"]
   }
 ]
@@ -73,7 +77,7 @@ The `merged_from` entries are strings of the form `<batch-label>:<original-id>` 
 
 ## Rules
 
-- Do NOT rewrite claims. Do NOT re-tag `category`, `verification_mode`, or `claim_signature`. Do NOT add or remove fields beyond `id` (renumbered) and `merged_from` (added).
+- Do NOT rewrite claims. Do NOT re-tag `category`, `verification_mode`, or `claim_signature`. Do NOT add or remove fields beyond `id` (renumbered), `merged_from` (added), and — on a merge group that disagrees on `claim_provenance` — reconciling `claim_provenance` to `source_authored` and carrying that duplicate's `source_excerpt` per the provenance-reconciliation rule in Step 2 (the sole `claim_provenance`/`source_excerpt` change you may make; on an agreeing group these two fields pass through unchanged).
 - When in doubt about whether two items match, **leave them separate.** Over-merging hides distinct defects; under-merging just costs a few extra verifier slots.
 - Preserve original ordering as much as possible — verifiers downstream are calibrated to the generator's emission order.
 - Wrap the output JSON array in a markdown code fence tagged `json`.

@@ -4,6 +4,28 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.17.0] — 2026-07-19
+
+### Changed
+- **Reconciled the checklist-verifier verdict contract with a structured, executable wording-only normalizer.** The verifier now grades strictly and reports structured operands (`property_proven`, `inaccuracy_scope`) instead of self-normalizing, and a new stdlib-only helper `scripts/normalize-verdicts.py` owns the parse contract and the five-conjunct FAIL→PASS predicate. Checklist items carry `claim_provenance` (`generated_paraphrase`/`source_authored`) and, on source-authored items, `source_excerpt`, so a generator-wording artifact whose underlying property is proven no longer hard-rejects a `/devflow:review` or `/devflow:review-and-fix` run, while a false source-authored assertion still FAILs. The raw verdict, the normalization marker, and the evidence prefix survive for audit, and the helper's degraded paths fail closed with a named remedy. (#607)
+
+## [2.16.5] — 2026-07-19
+
+### Fixed
+- **Review engine no longer overclaims that a per-agent `effort` override is applied.** On the
+  in-session Agent-tool dispatch path both tiers use today, a per-agent `model` override is
+  delivered (via the Agent tool's `model` parameter) but a per-agent `effort` override is **not**
+  deliverable per-agent — no Agent-tool effort parameter and no per-dispatch `--agents` injection
+  exist. `scripts/resolve-review-overrides.py` now decides the per-agent effort-application outcome
+  (`session-fallback` for a resolved-but-unapplied override, `session-inheritance` for none) and
+  emits a single honest `::notice::` summary (distinct from `::warning::`), so a configured effort
+  is reported as a fallback rather than silently dropped while success is claimed. `effective` is
+  null unless read back (unknown is not zero); a Haiku model or a provider with `effort_supported:
+  false` is recorded as a capability-restricted fallback. The engine (`skills/review/SKILL.md`) and
+  docs (`docs/review-agent-overrides.md`, `docs/DEVFLOW_SYSTEM_OVERVIEW.md`, `docs/efficiency-trace.md`)
+  are reconciled to the per-tier application-point matrix; the fictional per-dispatch `--agents`
+  mechanism description is removed for model as well as effort. Model delivery is unchanged. (#554)
+
 ## [2.16.4] — 2026-07-19
 
 ### Added

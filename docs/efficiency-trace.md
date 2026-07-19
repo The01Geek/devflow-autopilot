@@ -294,6 +294,14 @@ throughout this doc, while the three checklist-phase keys (Phases 1/1.5/2) run e
 appear in `phase3_dispatched`. Either way the trace and the override config stay aligned. See
 [review-agent-overrides.md](review-agent-overrides.md).
 
+> **Effort lever caveat (issue #554).** A per-agent **model** override reaches the subagent, but a
+> per-agent **effort** override is **not** applied per-agent on the in-session Agent-tool dispatch
+> path both tiers use today (the Agent tool has no effort parameter) — the subagent inherits the
+> session effort, reported honestly as a `session-fallback`. Only the section-level session effort
+> (`process-start-session`) is composed today. The per-tier application-point matrix is in
+> [review-agent-overrides.md](review-agent-overrides.md); a per-agent effort observability field in
+> this trace (and the applied arm that would populate it) is a spike-gated deferred follow-up.
+
 ## Non-fatal by design
 
 Derivation and persistence are best-effort: a missing or unreadable workpad, an absent
