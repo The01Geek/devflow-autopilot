@@ -46,7 +46,8 @@ if [ -n "${DEVFLOW_MODULE_OWNED_SCRATCH_ROOT:-}" ]; then
     return 1
   fi
 else
-  _ci_tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/devflow-create-issue-contract.XXXXXX")" || {
+  _ci_tmp_root="$(devflow_module_allocate_owned_directory \
+    "${TMPDIR:-/tmp}/devflow-create-issue-contract.XXXXXX")" || {
     printf 'could not allocate create-issue-contract fixture\n' >&2
     return 1
   }

@@ -269,7 +269,8 @@ RESULTS_FILE="$(mktemp "${TMPDIR:-/tmp}/devflow-module-results.XXXXXX")" || \
 DETAILS_FILE="$(mktemp "${TMPDIR:-/tmp}/devflow-module-details.XXXXXX")" || {
   selector_error "could not allocate failure details"
 }
-MODULE_SCRATCH_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/devflow-module-scratch.XXXXXX")" || \
+MODULE_SCRATCH_ROOT="$(devflow_module_allocate_owned_directory \
+  "${TMPDIR:-/tmp}/devflow-module-scratch.XXXXXX")" || \
   selector_error "could not allocate the module scratch root"
 if ! _devflow_validate_module_scratch "$MODULE_SCRATCH_ROOT"; then
   _devflow_discard_unvalidated_module_scratch "$MODULE_SCRATCH_ROOT" || :

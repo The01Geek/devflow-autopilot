@@ -182,6 +182,69 @@ class FullSuiteModuleHarnessTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(leftovers, [])
 
+    def test_preexisting_well_shaped_scratch_is_never_claimed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            controlled_tmp = root / "tmp"
+            controlled_tmp.mkdir()
+            victim = controlled_tmp / "devflow-module-scratch.ABC123"
+            victim.mkdir()
+            sentinel = victim / "sentinel"
+            sentinel.write_text("keep\n", encoding="utf-8")
+            fake_bin = root / "fake-bin"
+            fake_bin.mkdir()
+            real_mktemp = shutil.which("mktemp")
+            self.assertIsNotNone(real_mktemp)
+            fake_mktemp = fake_bin / "mktemp"
+            fake_mktemp.write_text(
+                "#!/usr/bin/env bash\n"
+                'if [ "${1:-}" = "-d" ] && '
+                'case "${2:-}" in *devflow-module-scratch.*) true ;; '
+                "*) false ;; esac; then\n"
+                f'  printf "%s\\n" "{victim}"\n'
+                "  exit 0\n"
+                "fi\n"
+                f'exec "{real_mktemp}" "$@"\n',
+                encoding="utf-8",
+            )
+            fake_mktemp.chmod(0o755)
+            module = root / "module.sh"
+            marker = root / "module-sourced"
+            module.write_text(
+                f'printf "sourced\\n" > "{marker}"\n'
+                'printf "PASS\\n" >> "$RESULTS_FILE"\n',
+                encoding="utf-8",
+            )
+            driver = root / "driver.sh"
+            driver.write_text(
+                "#!/usr/bin/env bash\n"
+                f'export TMPDIR="{controlled_tmp}"\n'
+                f'export PATH="{fake_bin}:$PATH"\n'
+                f'RESULTS_FILE="{root / "results"}"\n'
+                f'MODULE_FAILURES_FILE="{root / "failures"}"\n'
+                '> "$RESULTS_FILE"\n'
+                '> "$MODULE_FAILURES_FILE"\n'
+                "assert_eq() { :; }\n"
+                f'. "{HARNESS}"\n'
+                f'devflow_run_full_suite_module "{module}" "sample" 1\n',
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                ["bash", str(driver)],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            sentinel_survived = sentinel.is_file()
+            module_was_sourced = marker.exists()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("could not allocate private scratch root", result.stderr)
+        self.assertTrue(sentinel_survived, result.stdout + result.stderr)
+        self.assertFalse(module_was_sourced, result.stdout + result.stderr)
+
     def test_module_cannot_rewrite_prior_suite_verdicts(self) -> None:
         result = self._run(
             'printf "PASS\\n" > "$RESULTS_FILE"\n', initial_results="FAIL\n"

@@ -202,6 +202,44 @@ _devflow_test_append_cleanup_marker() { # path
   _devflow_test_ensure_cleanup_marker "$1" "runner-cleanup" "runner"
 }
 
+devflow_module_allocate_owned_directory() { # mktemp-template
+  local template="$1" candidate="" candidate_physical="" existing=""
+  local existing_physical=""
+  local -a preexisting=()
+  case "$template" in
+    *XXXXXX) ;;
+    *)
+      printf 'devflow: invalid private-directory template: %s\n' "$template" >&2
+      return 1
+      ;;
+  esac
+
+  # Snapshot the template namespace before allocation. Standard mktemp creates
+  # a fresh directory atomically; a shadowed or broken implementation must not
+  # be allowed to hand cleanup a caller-owned directory that merely has the
+  # expected name and parent.
+  for existing in "${template%XXXXXX}"??????; do
+    [ -d "$existing" ] && [ ! -L "$existing" ] || continue
+    existing_physical="$(cd "$existing" 2>/dev/null && pwd -P)" || continue
+    preexisting+=("$existing_physical")
+  done
+
+  candidate="$(mktemp -d "$template")" || return 1
+  if [ -d "$candidate" ] && [ ! -L "$candidate" ]; then
+    candidate_physical="$(cd "$candidate" 2>/dev/null && pwd -P)" || \
+      candidate_physical=""
+    for existing_physical in "${preexisting[@]}"; do
+      if [ -n "$candidate_physical" ] && \
+        [ "$candidate_physical" = "$existing_physical" ]; then
+        printf 'devflow: allocator returned a pre-existing directory: %s\n' \
+          "$candidate" >&2
+        return 1
+      fi
+    done
+  fi
+  printf '%s\n' "$candidate"
+}
+
 _devflow_cleanup_module_scratch() { # scratch-root
   local scratch_root="$1"
   [ -n "$scratch_root" ] || return 0
@@ -487,7 +525,8 @@ devflow_run_full_suite_module() { # module-path module-name minimum-assertions
       "$module_name" >&2
     return 0
   fi
-  if ! module_scratch_root="$(mktemp -d "${TMPDIR:-/tmp}/devflow-module-scratch.XXXXXX")"; then
+  if ! module_scratch_root="$(devflow_module_allocate_owned_directory \
+    "${TMPDIR:-/tmp}/devflow-module-scratch.XXXXXX")"; then
     _devflow_cleanup_full_suite_tally "$module_results_file" || :
     _devflow_record_module_failure || return 1
     printf '  FAIL  test module %s — could not allocate private scratch root\n' \

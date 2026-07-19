@@ -691,6 +691,43 @@ class ModuleRunnerTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
         self.assertEqual(list(relative_tmp.glob("devflow-module-scratch.*")), [])
 
+    def test_preexisting_well_shaped_boundary_scratch_is_never_claimed(self) -> None:
+        controlled_tmp = self.root / "controlled-tmp"
+        controlled_tmp.mkdir()
+        victim = controlled_tmp / "devflow-module-scratch.ABC123"
+        victim.mkdir()
+        sentinel = victim / "sentinel"
+        sentinel.write_text("keep\n", encoding="utf-8")
+        fake_bin = self.root / "fake-module-scratch-bin"
+        fake_bin.mkdir()
+        real_mktemp = shutil.which("mktemp")
+        self.assertIsNotNone(real_mktemp)
+        fake_mktemp = fake_bin / "mktemp"
+        fake_mktemp.write_text(
+            "#!/usr/bin/env bash\n"
+            'if [ "${1:-}" = "-d" ] && '
+            'case "${2:-}" in *devflow-module-scratch.*) true ;; '
+            "*) false ;; esac; then\n"
+            f'  printf "%s\\n" "{victim}"\n'
+            "  exit 0\n"
+            "fi\n"
+            f'exec "{real_mktemp}" "$@"\n',
+            encoding="utf-8",
+        )
+        fake_mktemp.chmod(0o755)
+
+        result = self._run(
+            "sample",
+            extra_env={
+                "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                "TMPDIR": str(controlled_tmp),
+            },
+        )
+
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("could not allocate the module scratch root", result.stderr)
+        self.assertTrue(sentinel.is_file(), result.stdout + result.stderr)
+
     def test_focused_scratch_cleanup_failure_is_not_a_module_exit(self) -> None:
         fake_bin = self.root / "fake-rm-bin"
         fake_bin.mkdir()
@@ -1178,7 +1215,7 @@ class ModuleRunnerTests(unittest.TestCase):
             + "return 0\n",
             encoding="utf-8",
         )
-        victim = self.root / "must-survive"
+        victim = self.root / "devflow-create-issue-contract.ABC123"
         victim.mkdir()
         sentinel = victim / "sentinel"
         sentinel.write_text("keep\n", encoding="utf-8")
@@ -1196,6 +1233,7 @@ class ModuleRunnerTests(unittest.TestCase):
             "#!/usr/bin/env bash\n"
             f'LIB="{ROOT / "lib"}"\n'
             f'RESULTS_FILE="{self.root / "results"}"\n'
+            f'. "{HARNESS_SOURCE}"\n'
             'unset DEVFLOW_MODULE_OWNED_SCRATCH_ROOT\n'
             f'export TMPDIR="{self.root}"\n'
             f'export PATH="{fake_bin}:$PATH"\n'
