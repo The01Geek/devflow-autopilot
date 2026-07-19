@@ -36,32 +36,50 @@ CI_CLAUDE="$CI_ROOT/CLAUDE.md"
 # after _ci_tmp_root exists) — never the root alone.
 CI_INVENTORY="$CI_ROOT/lib/test/modules/create-issue-contract.inventory.md"
 
-_ci_tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/devflow-create-issue-contract.XXXXXX")" || {
-  printf 'could not allocate create-issue-contract fixture\n' >&2
-  return 1
-}
-# Consumed dynamically by devflow_module_pin_red_under from the sourced harness.
-# shellcheck disable=SC2034
-DEVFLOW_MODULE_SCRATCH_ROOT="$_ci_tmp_root"
-_ci_cleanup_done=0
-_ci_cleanup() {
-  [ "$_ci_cleanup_done" -eq 0 ] || return 0
-  _ci_cleanup_done=1
-  if ! rm -rf "$_ci_tmp_root"; then
-    printf 'devflow: could not remove create-issue-contract fixture: %s\n' \
+if [ -n "${DEVFLOW_MODULE_OWNED_SCRATCH_ROOT:-}" ]; then
+  _ci_tmp_root="$DEVFLOW_MODULE_OWNED_SCRATCH_ROOT"
+  if [ ! -d "$_ci_tmp_root" ] || [ -L "$_ci_tmp_root" ]; then
+    printf 'invalid boundary-owned create-issue-contract fixture: %s\n' \
       "$_ci_tmp_root" >&2
     return 1
   fi
-  if [ -n "${DEVFLOW_TEST_MODULE_CLEANUP_MARKER:-}" ]; then
+else
+  _ci_tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/devflow-create-issue-contract.XXXXXX")" || {
+    printf 'could not allocate create-issue-contract fixture\n' >&2
+    return 1
+  }
+fi
+# Consumed dynamically by devflow_module_pin_red_under from the sourced harness.
+# shellcheck disable=SC2034
+DEVFLOW_MODULE_SCRATCH_ROOT="$_ci_tmp_root"
+export DEVFLOW_MODULE_SCRATCH_ROOT
+_ci_cleanup_done=0
+_ci_cleanup_root_done=0
+_ci_cleanup_marker_done=0
+_ci_cleanup() {
+  [ "$_ci_cleanup_done" -eq 0 ] || return 0
+  if [ "$_ci_cleanup_root_done" -eq 0 ]; then
+    if ! rm -rf "$_ci_tmp_root"; then
+      printf 'devflow: could not remove create-issue-contract fixture: %s\n' \
+        "$_ci_tmp_root" >&2
+      return 1
+    fi
+    _ci_cleanup_root_done=1
+  fi
+  if [ "$_ci_cleanup_marker_done" -eq 0 ] && \
+    [ -n "${DEVFLOW_TEST_MODULE_CLEANUP_MARKER:-}" ]; then
     if ! printf 'module-cleanup\n' >> "$DEVFLOW_TEST_MODULE_CLEANUP_MARKER"; then
       printf 'devflow-test: could not append module cleanup marker to %s\n' \
         "$DEVFLOW_TEST_MODULE_CLEANUP_MARKER" >&2
+      return 1
     fi
+    _ci_cleanup_marker_done=1
   fi
+  _ci_cleanup_done=1
 }
 _ci_cleanup_on_signal() {
-  # The boundary may forward a signal already delivered to the process group.
-  # Ignore duplicates while the idempotent cleanup removes the private root.
+  # The module process group includes the worker and foreground helpers, so the
+  # supervisor's delivery releases Bash's deferred trap before this cleanup runs.
   trap '' HUP INT TERM
   _ci_cleanup || :
   trap - EXIT
@@ -1119,3 +1137,11 @@ devflow_module_pin_unique "#559: overview §11 (Step 3.5 loop) documents the Rev
   "walks the revision's edit-batch delta across six classes" "$CI_OVERVIEW"
 devflow_module_pin_unique "#559: overview §11 (Step 3.6/Step 4 loop) documents the Revision-delta verification procedure" \
   "runs the shared **Revision-delta verification** procedure over the revision's delta" "$CI_OVERVIEW"
+
+# Complete normal cleanup explicitly so a removal or marker failure changes the
+# module status. EXIT remains a fallback for earlier returns and shell errors.
+if ! _ci_cleanup; then
+  trap - EXIT HUP INT TERM
+  return 1
+fi
+trap - EXIT HUP INT TERM

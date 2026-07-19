@@ -688,7 +688,8 @@ class ModuleRunnerTests(unittest.TestCase):
         self.assertIsNotNone(real_mktemp)
         fake_mktemp.write_text(
             "#!/usr/bin/env bash\n"
-            'if [ "${1:-}" = "-d" ]; then '
+            'if [ "${1:-}" = "-d" ] && '
+            'case "${2:-}" in *devflow-wfr.*) true ;; *) false ;; esac; then '
             + fake_directory_result
             + "; fi\n"
             f'exec "{real_mktemp}" "$@"\n',
@@ -823,7 +824,18 @@ class ModuleRunnerTests(unittest.TestCase):
             while not ready.exists() and process.poll() is None and time.monotonic() < deadline:
                 time.sleep(0.02)
             self.assertTrue(ready.exists(), "blocking module did not start")
-            self.assertEqual(len(list(controlled_tmp.iterdir())), 2)
+            entries = list(controlled_tmp.iterdir())
+            self.assertEqual(len(entries), 3)
+            self.assertFalse(
+                any(path.name.startswith("devflow-module-selector.") for path in entries)
+            )
+            self.assertEqual(
+                sum(
+                    path.name.startswith("devflow-module-scratch.")
+                    for path in entries
+                ),
+                1,
+            )
         finally:
             # Parent-only TERM is forwarded to the supervised module and must be
             # bounded; retain SIGKILL only as a test-harness leak backstop.
