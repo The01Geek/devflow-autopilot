@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.25] — 2026-07-19
+
+### Fixed
+- **Make selectable test-module runs clean up reliably when interrupted.** On POSIX hosts with signal and process-group support, both focused and full-suite boundaries now supervise, forward, boundedly escalate, and reap HUP, INT, and TERM across the module process group, while the boundary fallback removes owned scratch artifacts for every selectable module; an explicitly reported host-capability skip covers unsupported hosts, and the signal matrix covers parent-only, module-only, and process-group delivery. (#592)
+
 ## [2.15.24] — 2026-07-19
 
 ### Added
