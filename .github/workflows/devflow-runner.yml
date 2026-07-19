@@ -1596,10 +1596,9 @@ jobs:
           # --permission-mode / --allowed-tools tail is preserved verbatim.
           # Optional pre-installed Claude Code executable (issue #601): sourced ONLY
           # from the trusted base-ref config (steps.baseprovision), never a PR-head
-          # config, because this write-token job executes the resolved path. Empty
-          # (the default) → the action treats it as absent and auto-installs, so Linux
-          # consumers are unaffected — the same empty-as-absent idiom as
-          # claude_code_oauth_token above.
+          # config — this write-token job executes the resolved path (see the
+          # extraction step for the full ACE-boundary rationale). Empty (the default)
+          # is the empty-as-absent idiom of claude_code_oauth_token above: auto-install.
           path_to_claude_code_executable: ${{ steps.baseprovision.outputs.claude_code_executable }}
           claude_args: >-
             ${{ steps.cargs.outputs.args }}
