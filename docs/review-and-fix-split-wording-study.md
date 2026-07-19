@@ -50,7 +50,7 @@ The three groups differ only in the **wording** each was given:
 | --- | --- |
 | **Shipped variant** (5 samples) | Engine-source-of-truth + full Step-routing table + full fail-closed Reference-loading contract (the shipped prose). |
 | **Budget-RED control** (1 sample) | Same, but with the load-bearing prose **removed**: the routing table kept, but the fail-closed map, the "never an improvised step from memory", and the "never improvise the engine" clauses deleted. Establishes whether the assertion is non-vacuous (does behavior degrade when the wording is gone?). |
-| **No-guidance control** (1 sample) | Only the skill's one-line description ("run the engine, fix the findings, re-run"). No routing table, no fail-closed contract. Establishes the unguided baseline. |
+| **No-guidance control** (1 sample) | Only a one-line paraphrase of the skill's purpose ("run the engine, fix the findings, re-run"). No routing table, no fail-closed contract. Establishes the unguided baseline. |
 
 ### Manual scoring rubric (0–4 per sample)
 
@@ -64,6 +64,12 @@ The three groups differ only in the **wording** each was given:
 Half-points are awarded where an answer partially satisfies a criterion (e.g. names "a verification
 gate" without the exact reference path). Scoring is manual and by a single rater (the orchestrator),
 consistent with the AC's "manual scores".
+
+**Design limitation.** The two controls are single-sample (n = 1 each): they anchor the shipped
+variant's 5-sample distribution against a degraded-wording and an unguided baseline, but a single
+sample cannot itself exhibit variance, so the controls establish a *point* comparison, not a
+distribution. Only the shipped variant carries the five samples the AC calls for and therefore the
+only measured variance.
 
 ## Results
 
@@ -91,7 +97,7 @@ fresh contexts.
 
 | Control | R1 | R2 | R3 | R4 | Score | Behavior observed |
 | --- | --- | --- | --- | --- | --- | --- |
-| **Budget-RED** (fail-closed prose removed) | 1 | 1 | 1 | 0 | **3.0** | Still routed and failed closed, but **improvised an unbounded "retry the read"** and reported only "blocked" — omitted the specified non-convergence record. |
+| **Budget-RED** (fail-closed prose removed) | 1 | 1 | 1 | 0 | **3.0** | Still routed and failed closed, but **added a bounded retry step** (retry once → halt on a second failure) and reported the gate as "unreadable/blocked" rather than the specified blocked-reflection + non-convergence outcome. |
 | **No-guidance** (description only) | 0.5 | 1 | 1 | 0 | **2.5** | Inferred that *some* verification gate existed and refused to fix blind, but **could not name the reference** and produced only a vague "surface that it's unavailable" — not the specified recorded outcome. |
 
 ## Interpretation
@@ -105,9 +111,12 @@ fresh contexts.
    the wording stripped. The wording's measured marginal value is in **precision and consistency**,
    not in flipping catastrophic behavior:
    - the **routing table** is the higher-value fragment — removing it (no-guidance, 2.5) cost the
-     agent the ability to name the exact reference (R1 → 0.5);
+     agent the ability to name the exact reference (R1 → 0.5). The budget-RED-vs-no-guidance
+     contrast isolates this: budget-RED *kept* the table and held R1 = 1, while no-guidance dropped
+     the table and lost it — so the R1 drop tracks the table specifically, not the wording in general;
    - the **fail-closed map** buys the *exact recorded outcome* — removing it (budget-RED, 3.0) let
-     the agent improvise an unbounded retry and drop the non-convergence record (R4 → 0).
+     the agent add a bounded retry step and report a generic blocked/unreadable outcome rather than
+     the specified blocked-reflection + non-convergence record (R4 → 0).
    The shipped combination is the only configuration that reached 4/4 with zero variance.
 
 3. **Study-method caveat (for the next iteration).** Because the base model fails closed from priors,
