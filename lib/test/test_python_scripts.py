@@ -5654,6 +5654,58 @@ try:
 finally:
     cwd.EXEC_EDGES = _cwd_orig_exec
 
+# Non-vacuity — the vendored-boundary predicate rejects a prefix-collision sibling
+# and an absolute target (both would fail open if the `root + "/"` / absolute
+# guards regressed, and every other test would still pass — #583 review findings).
+assert_eq("#583 AC5: a prefix-collision sibling '.devflow/vendor/devflowX/…' does NOT resolve beneath vendor",
+          False, cwd.resolves_beneath_vendor("../devflowX/foo.sh"))
+assert_eq("#583 AC5: an absolute target does NOT resolve beneath vendor (no pathlib reset fail-open)",
+          False, cwd.resolves_beneath_vendor("/etc/passwd"))
+
+# Positive control — a repo-owned EXEC edge (basename-forward-verified _REPO arm),
+# distinct from the source-edge and external-exec fixtures above.
+_eff_exec = {e.target: e for e in _cwd_edges("lib/efficiency-trace.sh", "exec")}
+assert_eq("#583 AC5: efficiency-trace.sh's config_fingerprint.py exec edge is repo-owned, beneath vendor, on disk",
+          (True, "repo-owned", True, True),
+          ("scripts/config_fingerprint.py" in _eff_exec,
+           _eff_exec["scripts/config_fingerprint.py"].klass if "scripts/config_fingerprint.py" in _eff_exec else None,
+           cwd.resolves_beneath_vendor("scripts/config_fingerprint.py"),
+           (cwd.REPO_ROOT / "scripts/config_fingerprint.py").is_file()))
+
+# Non-vacuity — the strengthened coverage guard: a `.py` entry point that produced
+# no import edge (a silent AST-scan regression) is now caught, no longer masked by
+# its declared exec edges (#583 review finding).
+_cwd_orig_pyscan = cwd._scan_python_imports
+try:
+    cwd._scan_python_imports = lambda helper: []  # noqa: E731 — simulate an import-scan regression
+    assert_eq("#583 AC5: a .py entry point yielding zero import edges is caught (coverage not masked by exec edges)",
+              True, any("import scan gap" in v for v in cwd.check_dependencies()))
+finally:
+    cwd._scan_python_imports = _cwd_orig_pyscan
+
+# Non-vacuity — exec forward-verification is comment-aware: a token that appears
+# ONLY in a comment does not vouch for a declared edge (#583 review finding).
+with tempfile.TemporaryDirectory() as _cwd_ctd:
+    _cmt = Path(_cwd_ctd) / "probe.sh"
+    _cmt.write_text("# this helper no longer shells out to git\necho done\n", encoding="utf-8")
+    _orig_read2 = cwd._read
+    try:
+        cwd._read = lambda rel: _cmt.read_text(encoding="utf-8")  # noqa: E731
+        _comment_only = cwd._exec_target_present("scripts/probe.sh", "git", cwd._EXT)
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: a declared exec token present only in a comment fails forward-verification",
+              False, _comment_only)
+    _code = Path(_cwd_ctd) / "probe2.sh"
+    _code.write_text('# runs the tool\ngit rev-parse HEAD\n', encoding="utf-8")
+    try:
+        cwd._read = lambda rel: _code.read_text(encoding="utf-8")  # noqa: E731
+        _code_present = cwd._exec_target_present("scripts/probe2.sh", "git", cwd._EXT)
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: a declared exec token present in code passes forward-verification (positive control)",
+              True, _code_present)
+
 # AC18 — 17-class rejection matrix against an isolated fixture.
 with tempfile.TemporaryDirectory() as _cw_base:
     _base = Path(_cw_base)

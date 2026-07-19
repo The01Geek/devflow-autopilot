@@ -21,9 +21,13 @@ The classification is derived-plus-declared, mirroring the AC1 design
   added import or sourced sibling cannot silently escape the classification
   (reverse-drift is structural).
 * **exec edges** (an external binary or a repository-owned script the helper
-  runs) are **declared** in ``EXEC_EDGES`` and **forward-verified**: every
-  declared edge's target token must actually appear in the helper source, so a
-  stale or typo'd declaration goes RED.
+  runs) are **declared** in ``EXEC_EDGES`` and **forward-verified** against the
+  *comment-stripped* source (an external target counts the ``DEVFLOW_<TOOL>``
+  override form as evidence too): an invented, typo'd, or comment-only declared
+  token goes RED. This liveness check does not give exec edges the structural
+  reverse-drift the derived kinds have — a newly-added, undeclared exec still
+  escapes — the same disclosed tradeoff AC1's hand-declared ``DISPATCH_EDGES``
+  accepts.
 
 ``check_dependencies()`` is the AC5 guard. It fails when:
 
@@ -310,16 +314,51 @@ def resolves_beneath_vendor(repo_rel):
     normalizes to ``.devflow/vendor/scripts/foo`` — outside the vendored tree —
     and is rejected. This is the executable trust boundary the AC5 guard enforces.
     """
+    # An absolute target would reset the join (`.devflow/vendor/devflow/` + `/x`
+    # normalizes to `.devflow/vendor/devflow/x`, and `REPO_ROOT / "/x"` resets to
+    # `/x`), so reject it up front — no legitimate edge is absolute (derived tails
+    # are `lstrip("/")`-ed; declared repo-owned targets are repo-relative).
+    if repo_rel.startswith("/"):
+        return False
     vendored = normpath(VENDOR_PREFIX + repo_rel)
     root = VENDOR_PREFIX.rstrip("/")
     return vendored == root or vendored.startswith(root + "/")
 
 
+def _strip_line_comments(source):
+    """Drop the `#`-to-EOL portion of each line (shell and python line comments).
+
+    A heuristic for forward-verification only: it over-strips a `#` inside a string
+    literal, which can only make the presence check *stricter* (a false "not
+    found"), never falsely pass — acceptable, and the point is to stop a token that
+    lives only in a comment from vouching for a declared edge. It does NOT strip a
+    python triple-quoted docstring, so forward-verification catches an invented or
+    typo'd token and a comment-only stale mention, but is not a guarantee against a
+    declaration whose token survives only in a docstring — the same disclosed
+    liveness limitation as the exec dimension's lack of reverse-drift.
+    """
+    return "\n".join(line.split("#", 1)[0] for line in source.splitlines())
+
+
+def _external_evidence_tokens(bin_name):
+    """Whole-word tokens that count as a live invocation of an external binary.
+
+    The closure helpers invoke resolvable externals through the documented
+    `DEVFLOW_<TOOL>` override (`"${DEVFLOW_GH:=…}"`, `os.environ.get("DEVFLOW_GH")`)
+    as well as the bare name / `.exe`, so any of the three counts as evidence.
+    """
+    return {bin_name, bin_name + ".exe", "DEVFLOW_" + bin_name.upper()}
+
+
 def _exec_target_present(helper, target, klass):
-    """Forward-verification: a declared exec target actually appears in the source."""
-    source = _read(helper)
-    token = Path(target).name if klass == _REPO else target
-    return re.search(r'(?<!\w)' + re.escape(token) + r'(?!\w)', source) is not None
+    """Forward-verification: a declared exec target actually appears in code.
+
+    Searches the comment-stripped source so a token that lives only in a comment
+    cannot vouch for a stale declaration (see `_strip_line_comments`).
+    """
+    code = _strip_line_comments(_read(helper))
+    tokens = {Path(target).name} if klass == _REPO else _external_evidence_tokens(target)
+    return any(re.search(r'(?<!\w)' + re.escape(t) + r'(?!\w)', code) for t in tokens)
 
 
 def check_dependencies(edges=None):
@@ -335,12 +374,28 @@ def check_dependencies(edges=None):
     errors = []
 
     if live:
-        # Coverage: every AC1-closure entry point must be classified. An entry
-        # point that produced no edge at all is a scan gap, not a clean pass.
-        classified = {e.helper for e in edges}
+        # Coverage, per derived-scan kind — not merely per-helper. Checking only
+        # "the helper appears in some edge" is defeated by its declared exec edges:
+        # a silent import/source-scan regression that drops every derived edge
+        # still leaves the helper present via its exec edge, masking the exact scan
+        # gap this check exists to catch. So require the derived scanner's output
+        # where a helper must have one: a `.py` entry point always imports at least
+        # argparse/sys, so zero import edges means the AST import scan regressed.
+        # A `.sh` helper may legitimately source no sibling (config-get.sh sources
+        # nothing), so its floor stays "at least one edge of any kind"; a dropped
+        # source edge on a helper that does source (run-jq.sh) is caught by that
+        # helper's positive fixture instead.
+        kinds_by_helper = {}
+        for e in edges:
+            kinds_by_helper.setdefault(e.helper, set()).add(e.kind)
         for helper in entry_points():
-            if helper not in classified:
+            kinds = kinds_by_helper.get(helper, set())
+            if not kinds:
                 errors.append(f"entry point not classified (no edges scanned): {helper}")
+            elif helper.endswith(".py") and "import" not in kinds:
+                errors.append(
+                    f"entry point produced no import edges (AST import scan gap?): {helper}"
+                )
 
     for e in edges:
         if e.kind not in EDGE_KINDS:
