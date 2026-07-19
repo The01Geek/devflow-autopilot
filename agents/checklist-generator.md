@@ -84,6 +84,8 @@ Return a JSON array of checklist items. Each item:
     "id": "VC-1",
     "category": "dependency_interaction | test_mock_alignment | data_format_assumption | api_contract | string_presence | absolute_claim",
     "claim": "Human-readable description of what the code assumes",
+    "claim_provenance": "generated_paraphrase | source_authored",
+    "source_excerpt": "verbatim authored text under scrutiny (source_authored items only)",
     "source_file": "path/to/file.py",
     "source_line": 111,
     "source_line_end": 115,
@@ -142,6 +144,15 @@ Examples:
 - `test_mock_alignment:chroma_memory.py:save-tool-usage-mock-shape:188`
 - `dependency_interaction:postgres.py:engine-url-key-name`
 - `absolute_claim:SKILL.md:multi-pair-caught-by-same-rule`
+
+### claim_provenance and source_excerpt (required on every item)
+
+Every item MUST carry `claim_provenance`, one of exactly two values, so a downstream executable normalizer can tell a wording artifact apart from a source-authored assertion:
+
+- **`generated_paraphrase`** — the `claim` text is YOUR OWN rewording of what the code assumes or does. This is the default for the enumeration categories (`dependency_interaction`, `test_mock_alignment`, `data_format_assumption`, `api_contract`, `string_presence`), where you distill code behavior into a human-readable sentence. Omit `source_excerpt` on these items.
+- **`source_authored`** — the claim's *subject* is text authored in the source itself: a comment, a documentation line, a test assertion, an example, or a help string whose literal wording is what is under scrutiny. **Every `absolute_claim` item is `source_authored`** (the universal it asserts is authored in the diff). On a `source_authored` item, `source_excerpt` is **required** and MUST carry the verbatim authored text under scrutiny (copied exactly, not paraphrased).
+
+The decision rule: ask "is the `claim` my rewording of code behavior, or is it about a specific piece of text a human wrote in the source?" The former is `generated_paraphrase`; the latter is `source_authored` and carries the `source_excerpt`.
 
 ## Rules
 

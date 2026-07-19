@@ -160,9 +160,10 @@ late ones) with no measured loss.
   — not `high`.)
 - **Explicit empty entry opts out of `default`.** An explicit empty entry (`"devflow:code-reviewer": {}`) counts as "has an entry": it sets neither model nor effort **and** does not inherit `default`. Use it to deliberately exclude one subagent from a broad `default` override.
 - **No-entry fallback.** A subagent with **neither its own entry nor a `default`** is dispatched
-  exactly as today — the global `claude_model` and the session effort — with **no `--agents`
-  override emitted for it**. Existing configs (which have no `agent_overrides` block at all) are
-  therefore completely unaffected.
+  exactly as today — the global `claude_model` and the session effort — with **no per-agent
+  `model` override supplied at dispatch** (a `session-inheritance` in the per-tier matrix above).
+  Existing configs (which have no `agent_overrides` block at all) are therefore completely
+  unaffected.
 - **Invalid effort → warn + fall back.** An `effort` value outside the enum produces a
   `::warning::` and falls back to the session effort rather than aborting the run. A non-blank
   `model` string is forwarded as given; an empty, whitespace-only, or non-string `model` is dropped
@@ -213,20 +214,95 @@ consumer's vendored resolver/schema and its `.devflow/config.json`, in **both** 
   `iterations` key outright. The fix is to ship the schema version that declares it — the key requires
   the schema that ships it. (An unvalidated config is unaffected; validation is opt-in.)
 
-## Mechanism
+## Mechanism — how model and effort actually reach a subagent (issue #554)
 
-All nine subagents are now **first-party DevFlow assets** (the three `devflow:checklist-*` and the
+All nine subagents are **first-party DevFlow assets** (the three `devflow:checklist-*` and the
 five vendored `devflow:` review agents under `agents/`, plus the vendored `devflow:requesting-code-review`
-skill under `skills/`, dispatched via `general-purpose`).
-**effort is not a dispatch-time `Agent`/`Task` parameter, and per-run operator overrides
-must not require editing committed agent frontmatter** — both model and effort must therefore ride
-on a per-run `--agents` JSON block for every subagent. The engine resolves the overrides with
-`scripts/resolve-review-overrides.py` (which reads
-the config through `config-get.sh`) and materializes that block at each dispatch phase; each
-agent's own `description`/`prompt`/`tools` come from its committed first-party definition (under
-`agents/`, or `skills/` for the final-pass reviewer), with only the configured `model`/`effort`
-layered on per run. DevFlow never edits committed agent/skill frontmatter to apply an override —
-it rides on the per-run `--agents` block.
+skill under `skills/`, dispatched via `general-purpose`). The engine resolves the overrides with
+`scripts/resolve-review-overrides.py` (which reads the config through `config-get.sh`); each agent's
+own `description`/`prompt`/`tools` come from its committed first-party definition (under `agents/`, or
+`skills/` for the final-pass reviewer), with only the configured `model`/`effort` considered per run.
+
+**Model and effort do NOT reach the subagent by the same path, and effort is not applied per-agent
+on the path both tiers use today.** The review engine dispatches its subagents from an
+**already-running session** via the **Agent tool**. That tool exposes a per-dispatch **`model`**
+override parameter but **no effort parameter**, and an already-running session has **no per-dispatch
+`--agents` injection**. So:
+
+- a resolved per-agent **`model`** override IS delivered — supplied as the Agent tool's `model`
+  override parameter at dispatch;
+- a resolved per-agent **`effort`** override is **NOT** deliverable per-agent on this in-session path
+  — the subagent inherits the **session effort**. This is reported honestly (a per-resolve
+  `::notice::` summary from the resolver, distinct from `::warning::`), never claimed as applied.
+
+Earlier releases of this doc and the engine described both model and effort as riding a per-run
+`--agents` JSON block "for every subagent". That mechanism does **not** exist in an already-running
+session — it was fictional for **model as well as effort** (model happens to be delivered by the
+Agent tool's `model` parameter, a different, unstated mechanism). The description is corrected here;
+"model behavior preserved" refers to model *delivery* (unchanged), not that old (false) description.
+
+### Per-tier effort application-point matrix
+
+Each dispatched review agent's effort decision carries an **application point** — one of four values:
+
+| Application point | Meaning |
+|---|---|
+| `agent-definition` | The resolved per-agent effort was composed into a **proven** process-start agent-definition seam (an applied arm). This arm exists **only if** an empirical cloud-action seam spike proves the seam is reachable — see below; it is **not** shipped today. |
+| `process-start-session` | The section-level session effort (`devflow.effort` / `devflow_implement.effort` / `devflow_runner.effort`) composed into `--effort` at process start — session-wide, inherited by all subagents, capability-gated by `providers.*.effort_supported` (#313). Not per-agent. |
+| `session-fallback` | A resolved **per-agent** effort override the tier **cannot apply** (or a capability-restricted one). The override is not emitted; the agent inherits the session effort; the resolver reports the fallback with a reason. |
+| `session-inheritance` | A dispatched agent with **no** per-agent effort override — it simply inherits the session effort. All-null effort block, no fallback reason. |
+
+Per execution tier:
+
+| Tier / dispatch context | Per-agent effort application point | Per-agent effort applied? |
+|---|---|---|
+| **Cloud** review — fresh `claude-code-action` process per run | `session-fallback` (see spike note) | **No** — the process-start `--agents` effort seam is **hypothesized but unproven** (no `--agents` usage exists in `.github/`); until a seam spike proves it, the cloud per-agent row is honest fallback identical to local. |
+| **Cloud/local session effort** — `devflow.effort` / `devflow_implement.effort` / `devflow_runner.effort` | `process-start-session` | Session-wide, not per-agent — capability-gated by `effort_supported` (#313). |
+| **Local** review — already-running interactive session dispatching via the Agent tool | `session-fallback` | **No** — the Agent tool carries `model` but no effort, and no per-dispatch `--agents` injection exists; the run reports the limitation and effective fallback with a reason. |
+
+On any `session-fallback` arm the resolved per-agent effort is **not** applied; the subagent inherits
+the session effort, and the run states the limitation and the fallback reason at resolution time. The
+**effective** effort is recorded only when it can be read back from an applied/composed artifact — on
+every in-session arm the engine cannot introspect its own session effort, so `effective` is **null**
+(unknown is not zero), never guessed. Model overrides are delivered exactly as before on every tier.
+
+**How the fallback is reported (per resolve, i.e. per dispatch phase).** `resolve-review-overrides.py`
+distinguishes the *cause* so a genuine misconfiguration is never laundered into steady-state noise:
+
+- a **benign** in-session no-seam fallback (a valid override the tier simply has no per-agent effort
+  seam for — the permanent local/unproven-cloud steady state) is reported as **one informational
+  `::notice::` summary** over all such agents (never one line per agent), distinct from `::warning::`;
+- a **capability-restricted** fallback (the resolved model is a Claude Haiku id that rejects `effort`,
+  or the routed provider's `effort_supported` is `false`) is a genuine unusable-model/provider
+  misconfiguration, so it is a **`::warning::` naming the model/provider** — the same channel the
+  resolver already uses for an invalid effort value or an unusable model.
+
+The provider `effort_supported` capability is a **caller-supplied** input (`--effort-supported`, default
+`true` — the Anthropic path): the in-session engine cannot introspect the routed provider's capability,
+so the model-level Haiku restriction (read from the resolved model) is the capability guard active by
+default, and a caller that knows the provider capability passes it in.
+
+> **Scope of the Haiku guard: the *resolved override entry's* model, not the session model.** The
+> guard reads the `model` of the entry `resolve-review-overrides.py` resolved for that agent. Because
+> resolution is **entry-level**, a `default`-supplied Haiku *is* covered — an agent with no entry of
+> its own resolves to the `default` entry, so the guard sees that Haiku id, exactly as the dispatch
+> would. The one uncovered case is the **global** `claude_model` (or a per-section
+> `devflow_runner.claude_model`) being a Haiku id while the agent's resolved entry carries `effort`
+> but **no** `model`: the resolver reads only `.devflow_review.agent_overrides.*`, so it cannot see
+> that session model and classifies the fallback as the benign `::notice::` rather than a capability
+> `::warning::`. **The outcome message stays honest either way** — both arms report the effort as NOT
+> applied and the agent as inheriting the session effort; only the *cause* bucket is imprecise.
+> Closing it needs a caller-supplied session model (the tier decides which section supplies it, so
+> the resolver cannot derive it alone) and is deferred follow-up work, not a silent gap.
+
+> **Spike-gated applied arm (`agent-definition`).** A per-agent *applied* arm — composing the
+> resolved effort into a process-start agent-definition the platform reads at launch — exists only
+> where an empirical spike in the real `claude-code-action` proves the startup `--agents` effort seam
+> is reachable AND governs a runtime Agent-tool dispatch. That spike is a deferred follow-up; until it
+> proves the seam, **no per-agent effort application code ships** and every tier records honest
+> fallback. On a proven applied arm the recorded `effective` would be the effort *composed into* the
+> agent-definition — a spike-grounded proxy for the effort the dispatch reasons at, re-established by
+> re-running the spike after a `claude-code-action` upgrade, **not** a per-run measurement.
 
 The helper must be the command's **leading token** (the same cloud allow-list rule that governs
 `workpad.py`); `OVERRIDES=$(…/resolve-review-overrides.py …)` is fine — the path is the leading

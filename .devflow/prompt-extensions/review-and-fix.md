@@ -16,9 +16,11 @@ precondition.
 > `#247`/`PR #340` reproduction walkthroughs were trimmed for prompt budget (issue #530) to at
 > most a one-line summary (some carry none). Full context: issue #247 / PR #340 history.
 
+Template: [Prose cutover](implement.md#prose-cutover).
+
 ## Focused test modules accelerate fix iteration only
 
-Before choosing an iteration test, use the finding context, test plan, or coverage map
+Before choosing a test, use finding context, test plan, or coverage map
 (`lib/test/modules/coverage-map.json`) to identify a candidate module, then confirm its ID
 in `scripts/workflow-flight-recorder-registry.json`. Explicitly record the selected ID and
 use `bash lib/test/run-module.sh <module-id>` for the RED/GREEN loop. Selection is explicit:

@@ -60,13 +60,14 @@ Construct the report in this format:
 ## Verification Checklist Results
 {a plain-text line, not a bullet, no surrounding parentheses:} {pass} passed, {fail} failed, {inconclusive} inconclusive — {lite_count} via lite probe, {agent_count} via agent.
 {for each FAIL or INCONCLUSIVE item: "- VC-N: VERDICT — claim [source_file:source_line]"}
-{when {pass} > 0, emit the PASS items inside a collapsed block — `{pass}` MUST equal the number of `- VC-N` lines listed inside it. Leave a blank line before `<details>` so GitHub renders the collapsible correctly after the preceding list:}
+{when {pass} > 0, emit the PASS items inside a collapsed block — `{pass}` − `{normalized_count}` MUST equal the number of `- VC-N` lines listed inside it (normalized items render outside the block, so they are excluded from this equality). Leave a blank line before `<details>` so GitHub renders the collapsible correctly after the preceding list:}
 
-<details><summary>✅ Passed items ({pass} of {total}) — click to expand</summary>
+<details><summary>✅ Passed items ({pass} − {normalized_count} of {total}) — click to expand</summary>
 
-{for each PASS item: "- VC-N: claim [source_file:source_line]"}
+{for each PASS item not carrying `normalized: true`: "- VC-N: claim [source_file:source_line]"}
 
 </details>
+{for each item carrying `normalized: true`, render it visibly OUTSIDE the `<details>` block: "- VC-N: NORMALIZED (wording-only) — claim [source_file:source_line]"}
 {when {pass} == 0, omit the `<details>` block entirely — never emit an empty collapsible.}
 
 FAIL and INCONCLUSIVE items stay listed outside the `<details>` block so they remain visible. The block renders collapsibly on GitHub; in a chat-only `/devflow:review-and-fix` run it renders as inline HTML, which stays readable.
@@ -172,6 +173,8 @@ Severity ordering: `critical` > `important` > `suggestion`; "at or above `$VERDI
 **Complement — the deterministic in-code-comment cap (Phase 4.1.5).** The mirror case — a finding whose sole observable impact is an inaccurate/stale in-code comment the diff did **not** add or modify — is capped at Suggestion/Minor by 4.1.5, so it does **not** drive REJECT here. The cap and this carve-out **partition the comment-only space by whether the diff touched the comment**: a diff-added/modified untrue comment is a self-contradicting diff (REJECT above, non-demotable), a pre-existing diff-untouched inaccurate comment is capped (≤ Minor, no REJECT). The two never collide, and the cap **never overrides** this carve-out — a diff-added or diff-modified untrue comment still REJECTs at every threshold regardless of the cap.
 
 Apply these rules in order (first match wins). For every rule that counts findings by severity, **exclude findings demoted to Informational by Phase 4.0's deferral match** — they appear in the report under the "Informational — Deferred" sub-heading but do not contribute to verdict computation. (Rejected-deferral entries do *not* demote their corresponding finding; those flow through at their original severity.)
+
+Rules 1 and 2 below read each checklist item's **stored (post-normalization) verdict** — a wording-only FAIL that `scripts/normalize-verdicts.py` normalized to PASS is a stored PASS here and does not drive REJECT, while its raw FAIL survives only in the item's `raw_verdict` audit trail.
 
 1. Any verification checklist item with verdict FAIL → **REJECT**
 2. Any verification checklist item with verdict INCONCLUSIVE → **REJECT** (add "manual check needed" note)

@@ -26,6 +26,7 @@
       "Bash(lib/test/run.sh:*)",
       "Bash(lib/test/run-module.sh:*)",
       "Bash(lib/preflight.sh:*)",
+      "Bash(lib/test/prompt-mass-census.py:*)",
       "Bash(shellcheck:*)"
     ],
     "execution_diagnostics_enabled": true,
@@ -38,6 +39,7 @@
       "Bash(lib/test/run.sh:*)",
       "Bash(lib/test/run-module.sh:*)",
       "Bash(lib/preflight.sh:*)",
+      "Bash(lib/test/prompt-mass-census.py:*)",
       "Bash(shellcheck:*)",
       "Bash(chmod:*)",
       "Bash(git ls-remote:*)",

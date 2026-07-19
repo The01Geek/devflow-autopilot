@@ -208,7 +208,7 @@ _build_skill_bundle "implement-skill" "$IMPL_SKILL_BUNDLE" "${_bundle_members[@]
 # budget counts only the sources a pass with no blocker fast path and no
 # stale-prose predicate must read — the gated three are excluded BY the split.
 REVIEW_DEFAULT_PHASE_STEMS="phase-0-setup phase-1-checklist phase-2-verification phase-3-agents phase-4-verdict phase-4-4-github-post"
-REVIEW_GATED_PHASE_STEMS="phase-0-3-6-blocker-recheck phase-0-6-stale-prose-lint phase-4-1-7-stale-adjudication"
+REVIEW_GATED_PHASE_STEMS="phase-0-3-6-blocker-recheck phase-0-6-stale-prose-lint phase-4-1-7-stale-adjudication phase-4-1-8-prose-cutover"
 REVIEW_PHASE_STEMS="$REVIEW_DEFAULT_PHASE_STEMS $REVIEW_GATED_PHASE_STEMS"
 REVIEW_ROOT="$LIB/../skills/review/SKILL.md"
 REVIEW_BUNDLE="$(mktemp)" || { echo "run.sh: could not allocate the review-skill bundle temp" >&2; exit 1; }
@@ -1360,6 +1360,15 @@ assert_pin_unique "#425(rev): the iterations exclusion is never applied to the S
 # be built from model/effort only. Pin the sentence that forbids forwarding it to dispatch.
 assert_pin_unique "#425(rev): iterations is not forwarded to the --agents dispatch block" \
   'you use only its resolved `model`/`effort` and ignore `iterations`' "$ST_REV"
+# #554: the engine no longer overclaims that per-agent EFFORT is applied via a
+# fictional per-dispatch --agents block. Positively pin the honest reconciled
+# claim (per-agent effort is NOT deliverable in-session; model rides the Agent
+# tool's model parameter). The behavioral-fix pin that reintroducing the overclaim
+# flips RED is routed through assert_pin_red_under below (search "#554(rev): overclaim").
+assert_pin_unique "#554(rev): per-agent effort is not deliverable per-agent in-session (honest claim)" \
+  'not deliverable per-agent' "$ST_REV"
+assert_pin_unique "#554(rev): per-agent model rides the Agent tool's model override parameter" \
+  "delivered via the **Agent tool's \`model\` override parameter**" "$ST_REV"
 # The default-off guarantee (AC #3): iteration 1, standalone /devflow:review, and an
 # absent/unresolvable signal all exclude nothing. Pin the no-op sentence so deleting it
 # (which would drop an opted-in agent on the FIRST pass, breaking byte-identical-when-absent)
@@ -2250,6 +2259,96 @@ printf 'operative token a.c/[x] on this line\nunrelated framing line\n' > "$PRU_
 assert_eq "#375 assert_pin_red_under: a pinned literal carrying regex+sed-delimiter metachars round-trips (fixed-string match; mutation flips it PASS->FAIL)" \
   "PASS" "$(probe_assert assert_pin_red_under 'meta' 'a.c/[x]' '/a\.c/d' "$PRU_META")"
 rm -f "$PRU_META"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# #556: checklist-verifier verdict-contract reconciliation.
+#   - T-1/T-3/T-6: the executable helper unit tests (real CLI over the fixture
+#     matrix, incl. the T-3 conjunct-2 mutation positive control).
+#   - T-2/T-4/T-5/T-6a/T-7/T-8/T-10/T-11/T-12: prose pins (presence + mutation).
+NV_HELPER="$LIB/../scripts/normalize-verdicts.py"
+NV_TEST="$LIB/test/normalize-verdicts-test.py"
+NV_GEN="$LIB/../agents/checklist-generator.md"
+NV_DED="$LIB/../agents/checklist-deduper.md"
+NV_VER="$LIB/../agents/checklist-verifier.md"
+NV_P2="$LIB/../skills/review/phases/phase-2-verification.md"
+NV_P4="$LIB/../skills/review/phases/phase-4-verdict.md"
+
+# T-1/T-3/T-6 — drive the real helper over the fixture matrix (exit 0 == all green).
+if python3 "$NV_TEST" >/dev/null 2>&1; then _NV_UNIT=ok; else _NV_UNIT=FAILED; fi
+assert_eq "#556 T-1/T-3/T-6: normalize-verdicts helper unit tests pass over the fixture matrix" "ok" "$_NV_UNIT"
+
+# T-2 (AC4) — the verifier's source_authored_text-takes-precedence sentence, mutation deletes the precedence clause.
+assert_pin_red_under "#556 T-2(AC4): verifier source_authored_text precedence sentence" \
+  'This value takes precedence** whenever a source-authored assertion is false' \
+  's|whenever a source-authored assertion is false at the same time as a generated-wording mismatch||' "$NV_VER"
+
+# T-4 (AC5) — the removed PASS-with-note softener must be ABSENT from the 2.1b dispatch prompt.
+assert_eq "#556 T-4(AC5): the 'Reserve FAIL' softener is gone from phase-2-verification.md" \
+  "0" "$(pin_count 'Reserve FAIL for cases where the code itself is wrong' "$NV_P2")"
+
+# T-5 (AC1/AC3/AC5) — claim_provenance / source_excerpt present at each mirror site + helper input contract.
+assert_pin_unique "#556 T-5: claim_provenance decision rule in generator schema" \
+  'Every item MUST carry `claim_provenance`, one of exactly two values' "$NV_GEN"
+assert_pin_unique "#556 T-5: source_excerpt required in generator schema" \
+  'On a `source_authored` item, `source_excerpt` is **required**' "$NV_GEN"
+assert_pin_unique "#556 T-5: claim_provenance in verifier Input" \
+  '"claim_provenance": "generated_paraphrase | source_authored",' "$NV_VER"
+assert_pin_unique "#556 T-5: source_excerpt in verifier Input" \
+  '"source_excerpt": "verbatim authored text under scrutiny (source_authored items only)",' "$NV_VER"
+assert_pin_unique "#556 T-5: claim_provenance + source_excerpt in 2.1b dispatch prompt" \
+  'The checklist item you receive carries `claim_provenance` and, on `source_authored` items, `source_excerpt`' "$NV_P2"
+assert_pin_unique "#556 T-5: claim_provenance in helper input contract" \
+  '"claim_provenance": "generated_paraphrase",' "$NV_HELPER"
+assert_pin_unique "#556 T-5: source_excerpt in helper input contract" \
+  '"source_excerpt": "<verbatim authored text, source_authored items only>", ...' "$NV_HELPER"
+
+# T-6a (AC7/AC7a) — degradation-split mutation on the possible-denial clause + invocation-recipe presence pins.
+assert_pin_red_under "#556 T-6a(AC7a): the 'a possible denial, never an empty value' clause" \
+  'no output at all — a possible denial, never an empty value' \
+  's|a possible denial, never an empty value||' "$NV_P2"
+assert_pin_unique "#556 T-6a(AC7): helper invoked as the single leading token" \
+  'single leading token** — the portable' "$NV_P2"
+assert_pin_unique "#556 T-6a(AC7): local-tier python3 second rung" \
+  'python3 <resolved helper path> <pairs-file>' "$NV_P2"
+assert_pin_unique "#556 T-6a(AC7a): bad-input arm one re-Write and re-invoke" \
+  'a second bad-input report ends the attempt' "$NV_P2"
+assert_pin_unique "#556 T-6a(AC7): in-context recovery arm" \
+  'recovered via in-context parse (helper-defect: <shape>)' "$NV_P2"
+assert_pin_unique "#556 T-6a(AC7): one-repair (re-dispatch once) sentence" \
+  're-dispatch that item once** and re-run the helper' "$NV_P2"
+
+# T-7 (AC2) — deduper carve-out clause mutation + disagreement->source_authored merge-rule presence.
+assert_pin_red_under "#556 T-7(AC2): deduper Rules carve-out clause" \
+  'reconciling `claim_provenance` to `source_authored`' \
+  's|reconciling .claim_provenance. to .source_authored.||' "$NV_DED"
+assert_pin_unique "#556 T-7(AC2): disagreement->source_authored merge rule present" \
+  'the merged item takes **`source_authored`**' "$NV_DED"
+
+# T-8 (AC9) — the two Phase 4.2 rule literals stay byte-identical.
+assert_pin_unique "#556 T-8(AC9): Phase 4.2 rule 1 literal (FAIL -> REJECT)" \
+  '1. Any verification checklist item with verdict FAIL → **REJECT**' "$NV_P4"
+assert_pin_unique "#556 T-8(AC9): Phase 4.2 rule 2 literal (INCONCLUSIVE -> REJECT)" \
+  '2. Any verification checklist item with verdict INCONCLUSIVE → **REJECT** (add "manual check needed" note)' "$NV_P4"
+
+# T-10 (AC8a) — Phase 2.0.5 extended copy sentence, mutation strips raw_verdict/normalized.
+assert_pin_red_under "#556 T-10(AC8a): 2.0.5 copy-list extension" \
+  'and — when present — `raw_verdict` and `normalized`' \
+  's|, and — when present — .raw_verdict. and .normalized.||' "$NV_P2"
+
+# T-11 (AC8) — the amended 4.1 equality sentence, mutation drops the − {normalized_count} term; + iteration/label presence.
+assert_pin_red_under "#556 T-11(AC8): 4.1 equality sentence carries the − {normalized_count} term" \
+  '`{pass}` − `{normalized_count}` MUST equal the number of `- VC-N` lines' \
+  's|normalized_count\}. MUST equal|MUST equal|' "$NV_P4"
+assert_pin_unique "#556 T-11(AC8): 4.1 PASS-item iteration line excludes normalized items" \
+  'for each PASS item not carrying `normalized: true`' "$NV_P4"
+assert_pin_unique "#556 T-11(AC8): 4.1 summary label counts the inside population" \
+  '✅ Passed items ({pass} − {normalized_count} of {total})' "$NV_P4"
+
+# T-12 (AC17) — Phase 2.0 field-completion re-ask sentence, mutation deletes the re-ask arm.
+assert_pin_red_under "#556 T-12(AC17): 2.0 item-side field-completion re-ask" \
+  'into **one field-completion re-ask** to the `checklist-generator`' \
+  's|into ..one field-completion re-ask.. to the .checklist-generator.||' "$NV_P2"
+
 # ── #536: probe_two_line — the two-line-verdict probe (count-shaped sibling of probe_assert).
 # assert_count_red_under (below) writes a bare verdict line plus, on FAIL, a DISTINCT cause
 # token on the FOLLOWING line, so the suite's whole-line tally (`grep -c '^FAIL$'`) still
@@ -3079,6 +3178,15 @@ assert_pin_red_under "#557: survived-unfixed reconciliation is operative (stale-
 assert_pin_red_under "#425(raf): shadow-not-scoped sentence is operative (thinning the shadow goes RED)" \
   'the shadow always dispatches the **full** expected roster above regardless of any' \
   's/dispatches the \*\*full\*\* expected roster above regardless of any/dispatches a reduced roster on some/' "$ST_RAF"
+# #554 behavioral-fix pin: the engine must NOT reassert that per-agent effort is applied via a
+# fictional per-dispatch --agents block. The operative correction is the phrase "not deliverable
+# per-agent" (in-session effort is a reported session-fallback, not an applied success). A mutation
+# that reintroduces the overclaim (effort IS deliverable per-agent via a --agents block) removes
+# that phrase, so this pin flips PASS->FAIL — proving it guards the named regression (the #533
+# silent-drop-plus-overclaim), not merely its own line's presence. $ST_REV is skills/review/SKILL.md.
+assert_pin_red_under "#554(rev): overclaim reintroduction (per-agent effort applied via --agents) goes RED" \
+  'not deliverable per-agent' \
+  's/not deliverable per-agent/deliverable per-agent via a per-run --agents block/' "$ST_REV"
 # The N≥2 iteration threshold is the operative half of the default-off invariant: relaxing it
 # to N≥1 would exclude an opted-in agent on the FIRST pass (and, since standalone review is a
 # single pass, silently thin it too). Semantic mutation N≥2 → N≥1 re-introduces exactly that
@@ -13309,7 +13417,7 @@ for PA_FILE in "$LIB"/../skills/review/phases/*.md "$LIB"/../skills/review-and-f
     "$(if grep -qF 'CLAUDE_SKILL_DIR' "$PA_FILE"; then grep -qF "$PORTABLE_ANCHOR_LITERAL" "$PA_FILE" && echo yes || echo no; else echo yes; fi)"  # raw-guard-ok: loop body: conditional presence pin over the enumerated $PA_FILE loop variable
 done
 assert_eq "#275 pin (R0): portable-anchor coverage spans every review phase + fix-loop reference file (enumeration reconciled)" \
-  "17" "$PA_REF_COUNT"
+  "18" "$PA_REF_COUNT"
 # Mutation proof (PASS->FAIL, self-contained): the absence EREs must actually MATCH the
 # two fragile forms they exist to reject — an ERE typo would leave P1/P2 green forever
 # (vacuous absence pins). Inject each fragile form into a temp copy of a migrated file
@@ -33128,8 +33236,16 @@ assert_eq "#529 AC2: root + shipped extension is within the 8,500-word ceiling" 
 # — and the split clears it either way (25,590 measured; 25,599 under the old method).
 assert_eq "#529 AC2: the split is at least 25,327 words below the 33,815 baseline" "yes" \
   "$([ "$((33815 - RB_ROOT_W - RB_EXT_W))" -ge 25327 ] && echo yes || echo no)"
-assert_eq "#529 AC3: the default per-pass unique path is within the 28,700-word ceiling" "yes" \
-  "$([ "$RB_DEFAULT_W" -le 28700 ] && echo yes || echo no)"
+# #556 renegotiated the ceiling from 28,700 to 30,100: the always-on wording-only
+# normalization prose (Phase 2.0/2.0.5/2.1b/2.2 in phase-2-verification.md and the
+# Phase 4.1/4.2 amendments in phase-4-verdict.md) runs unconditionally on every pass,
+# so parking it behind a config gate would be metric-gaming (the gated exemption is for
+# genuinely conditional references only). Per docs/review-bundle-budget.md's sanctioned
+# escape valve, the ceiling is widened to the new measured figure (30,042 words) plus a
+# thin margin, matching the pre-#556 posture. Re-measure with _rb_words before adding
+# prose to the default path.
+assert_eq "#529 AC3: the default per-pass unique path is within the 30,100-word ceiling" "yes" \
+  "$([ "$RB_DEFAULT_W" -le 30100 ] && echo yes || echo no)"
 # Anti-vacuity: the ceilings above are only meaningful if every operand was really
 # measured. `cat` SKIPS an unreadable member and keeps going, so a wrong path does
 # NOT zero the count — it merely shrinks it, and a ceiling then passes MORE easily
@@ -33603,7 +33719,12 @@ assert_eq "#530 budget: no references/*.md outside the pinned 8-name set" "" "$_
 # constant, so a ceiling changed on one side without the other turns the coupling RED instead
 # of the two artifacts silently disagreeing.
 RAF_ROOT_CEIL=3500
-RAF_LOAD_CEIL=5500
+# #556 raised the initial-load ceiling 5500->5510: AC8 requires the iter-<N>.json
+# checklist entry to carry the optional raw_verdict/normalized fields, and adding
+# them to the record-shape example in the root pushed root+extension to 5,504 words.
+# The small documented widening mirrors the #529 AC3 renegotiation; update
+# docs/review-and-fix-budget.md's ceilings-table cell in lockstep.
+RAF_LOAD_CEIL=5510
 RAF_MAXSTEP_CEIL=17000
 assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
   "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"
@@ -33647,7 +33768,7 @@ for _raf_ceil in "$RAF_ROOT_CEIL" "$RAF_LOAD_CEIL" "$RAF_MAXSTEP_CEIL"; do
     "$(case "$_raf_doc_nocommas" in *"≤ $_raf_ceil words |"*) echo yes;; *) echo no;; esac)"
 done
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,319 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,323 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute
@@ -34484,15 +34605,21 @@ assert_eq "#480 a NESTED substitution inside the heredoc body does not unbalance
 { printf '%s\n' '```bash' 'echo \\"a << EOF"' 'cd /tmp' 'EOF' '```'; } > "$E363/i-esc-parity.md"
 assert_eq "#480 an ESCAPED backslash before a quote does not flip the mask's parity (R2 still flags the leading cd)" "yes" \
   "$(python3 "$ECS" "$E363/i-esc-parity.md" | grep -q '  R2  ' && echo yes || echo no)"
-# ── matcher-probe's EXTRAS is claimed to mirror the config VERBATIM; the IMPLEMENT half of that
-# ── mirror is pinned but EXTRAS was not, so a future config edit would silently make the
-# ── evidence-of-record probe measure a profile the repo does not ship (#480 review).
-assert_eq "#480 matcher-probe EXTRAS mirrors .devflow/config.json devflow_implement.allowed_tools verbatim" "SYNCED" \
+# ── matcher-probe's EXTRAS mirrors every probe-eligible config grant. The prompt-mass
+# ── census grant is intentionally config-only in its introducing PR: the Prose cutover policy
+# ── treats that direct command shape as unproven until a later matcher-probe run, and #551
+# ── explicitly changes no workflow TOOLS. Keep that one named exception closed and visible.
+assert_eq "#480 matcher-probe EXTRAS mirrors probe-eligible devflow_implement.allowed_tools" "SYNCED" \
   "$(python3 - "$LIB/../.github/workflows/matcher-probe.yml" "$LIB/../.devflow/config.json" <<'PY'
 import json, re, sys
 yml = open(sys.argv[1], encoding="utf-8").read()
 cfg = json.load(open(sys.argv[2], encoding="utf-8"))
-want = list(cfg.get("devflow_implement", {}).get("allowed_tools", []))
+unproven_post_merge = {"Bash(lib/test/prompt-mass-census.py:*)"}
+want = [
+    token
+    for token in cfg.get("devflow_implement", {}).get("allowed_tools", [])
+    if token not in unproven_post_merge
+]
 m = re.search(r"EXTRAS='([^']*)'", yml)
 if not m:
     print("EXTRAS-NOT-FOUND")
@@ -45421,6 +45548,91 @@ if [ -d "$WP_SB" ]; then
     "0" "$(cat "$WP_SB/.wp-embed-rc" 2>/dev/null)"
   rm -rf "$WP_SB"
 fi
+
+# ── issue #551: mandatory prompt-byte census + prose-cutover policy ──────────
+PMC="$LIB/test/prompt-mass-census.py"
+PMC_TEST="$LIB/test/test_prompt_mass_census.py"
+PMC_MANIFEST="$LIB/test/prompt-mass-manifest.json"
+PMC_BASELINE="$LIB/test/prompt-mass-baseline.json"
+PMC_CLAUDE="$LIB/../CLAUDE.md"
+PMC_EXT_IMPL="$LIB/../.devflow/prompt-extensions/implement.md"
+PMC_EXT_RAF="$LIB/../.devflow/prompt-extensions/review-and-fix.md"
+
+# The helper's behavioral boundary carries the issue's T1–T18 fixture matrix. Run it from
+# the suite rather than relying on a standalone developer command, then run the helper itself
+# over the real checkout so a stale committed mirror turns this required gate RED.
+if PMC_TEST_OUT="$(python3 "$PMC_TEST" 2>&1)"; then
+  echo PASS >> "$RESULTS_FILE"
+  printf '  PASS  #551 prompt-mass census behavioral fixtures (T1–T18)\n'
+else
+  echo FAIL >> "$RESULTS_FILE"
+  printf '  FAIL  #551 prompt-mass census behavioral fixtures (T1–T18)\n%s\n' "$PMC_TEST_OUT"
+fi
+if PMC_REAL_OUT="$("$PMC" 2>&1)"; then
+  echo PASS >> "$RESULTS_FILE"
+  printf '  PASS  #551 prompt-mass census exact mirror over the real tree\n'
+else
+  echo FAIL >> "$RESULTS_FILE"
+  printf '  FAIL  #551 prompt-mass census exact mirror over the real tree\n%s\n' "$PMC_REAL_OUT"
+fi
+
+# Implementation-shape pins: byte values come from Python in-process; the manifest states
+# the classification rule; config exposes the direct form only as a post-merge convenience.
+assert_pin_unique "#551 census derives bytes in-process with os.path.getsize" \
+  'measured[relative] = os.path.getsize(path)' "$PMC"
+assert_eq "#551 census value path imports no subprocess module" "0" \
+  "$(grep -cE '^(from subprocess|import subprocess)' "$PMC" 2>/dev/null)"
+assert_pin_unique "#551 manifest states the mandatory-vs-reference classification rule" \
+  "A file loaded unconditionally on any flow's normal path, including mandatory-at-entry phase and step references, is mandatory; reference is reserved for genuinely conditional rare-path files." "$PMC_MANIFEST"
+assert_eq "#551 direct census grant appears in both writable cloud config profiles" "2" \
+  "$(grep -cF 'Bash(lib/test/prompt-mass-census.py:*)' "$LIB/../.devflow/config.json")"
+assert_eq "#551 only one committed prompt-mass baseline exists" "1" \
+  "$(python3 -c 'from pathlib import Path; import sys; print(sum(1 for p in Path(sys.argv[1]).rglob("prompt-mass-baseline.json") if p.is_file()))' "$LIB/..")"
+assert_pin_unique "#551 baseline is a per-file mirror with no committed totals key" \
+  '"files": {' "$PMC_BASELINE"
+assert_eq "#551 baseline carries no group-total rows" "0" \
+  "$(grep -c 'total' "$PMC_BASELINE" 2>/dev/null)"
+
+# Rule/procedure pins. These are surface-presence guards; the behavioral census contract is
+# proven by the T1–T18 fixtures above rather than by prose-removal assertions.
+assert_pin_unique "#551 CLAUDE helper-cutover operative sentence is present" \
+  'When an executable helper becomes the sole tested owner of a workflow decision on every path that previously consumed the prose' "$PMC_CLAUDE"
+assert_pin_unique "#551 implement extension carries the Prose cutover section" \
+  '## Prose cutover' "$PMC_EXT_IMPL"
+assert_pin_unique "#551 extension carries the complete five-condition bar" \
+  'All five conditions below must hold **for each consuming path** before its decision-owning' "$PMC_EXT_IMPL"
+assert_pin_unique "#551 extension judges ownership per consuming path" \
+  'Ownership is judged **per consuming path**.' "$PMC_EXT_IMPL"
+assert_pin_unique "#551 extension says relocation is not removal" \
+  'Relocating decision-owning prose is not a' "$PMC_EXT_IMPL"
+assert_pin_unique "#551 extension conserves removed prose pins" \
+  'List every removed prose pin in the cutover artifact.' "$PMC_EXT_IMPL"
+assert_pin_unique "#551 extension prohibits deletion before sole ownership" \
+  'sole tested owner satisfies all five conditions is unauthorized.' "$PMC_EXT_IMPL"
+assert_pin_unique "#551 extension carries the schema-1 artifact template" \
+  '### Cutover artifact template (schema 1)' "$PMC_EXT_IMPL"
+assert_pin_unique "#551 review-and-fix extension points to the authoritative template" \
+  '[Prose cutover](implement.md#prose-cutover).' "$PMC_EXT_RAF"
+
+# Shared-engine gate pins. The criterion is a gated review reference: every engine caller
+# reaches it when repo policy declares the template, while consumer repos without that policy
+# inherit no internal-census obligation. It intentionally contains no fenced command.
+assert_pin_unique "#551 gate is conditioned on the repo's Prose cutover policy" \
+  'Run this gate only when the reviewed repository' "$REVIEW_BUNDLE"
+assert_pin_unique "#551 gate restates the complete five-condition bar" \
+  '**Sole tested owner means all five conditions hold, per consuming path:**' "$REVIEW_BUNDLE"
+assert_pin_unique "#551 gate carries the incoherent-cutover arm" \
+  '**Incoherent cutover:**' "$REVIEW_BUNDLE"
+assert_pin_unique "#551 gate carries the unjustified-reduction arm" \
+  '**Unjustified reduction:**' "$REVIEW_BUNDLE"
+assert_pin_unique "#551 gate carries the unjustified-growth arm" \
+  '**Unjustified growth:**' "$REVIEW_BUNDLE"
+assert_pin_unique "#551 gate keys the rename carve-out to the PR diff" \
+  'backing file the PR diff itself reports as a rename' "$REVIEW_BUNDLE"
+assert_pin_unique "#551 gate states the keep-both mechanical residual" \
+  'The mechanical residual is explicit:' "$REVIEW_BUNDLE"
+assert_eq "#551 gated criterion adds no fenced command" "0" \
+  "$(grep -c '^```' "$LIB/../skills/review/phases/phase-4-1-8-prose-cutover.md" 2>/dev/null)"
 
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
