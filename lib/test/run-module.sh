@@ -79,16 +79,48 @@ esac
 SELECTOR_STDERR=""
 RESULTS_FILE=""
 DETAILS_FILE=""
+MODULE_PID=""
+MODULE_SCRATCH_ROOT=""
+MODULE_GROUP_PID_FILE=""
+MODULE_WORKER_PID_FILE=""
+MODULE_LAUNCHING=0
+MODULE_PENDING_SIGNAL=""
+RUNNER_CLEANUP_DONE=0
 cleanup() {
-  [ -z "$SELECTOR_STDERR" ] || rm -f "$SELECTOR_STDERR"
-  [ -z "$RESULTS_FILE" ] || rm -f "$RESULTS_FILE"
-  [ -z "$DETAILS_FILE" ] || rm -f "$DETAILS_FILE"
+  local cleanup_rc=0
+  [ "$RUNNER_CLEANUP_DONE" -eq 0 ] || return 0
+  [ -z "$SELECTOR_STDERR" ] || rm -f "$SELECTOR_STDERR" || cleanup_rc=1
+  [ -z "$RESULTS_FILE" ] || rm -f "$RESULTS_FILE" || cleanup_rc=1
+  [ -z "$DETAILS_FILE" ] || rm -f "$DETAILS_FILE" || cleanup_rc=1
+  _devflow_cleanup_module_scratch "$MODULE_SCRATCH_ROOT" || cleanup_rc=1
+  _devflow_test_append_cleanup_marker \
+    "${DEVFLOW_TEST_RUNNER_CLEANUP_MARKER:-}" || cleanup_rc=1
+  [ "$cleanup_rc" -ne 0 ] || RUNNER_CLEANUP_DONE=1
+  return "$cleanup_rc"
+}
+cleanup_on_signal() {
+  local signal_name="$1"
+  if [ "$MODULE_LAUNCHING" -eq 1 ]; then
+    MODULE_PENDING_SIGNAL="$signal_name"
+    return 0
+  fi
+  # Ignore a second delivery while forwarding, boundedly reaping, and cleaning.
+  trap '' HUP INT TERM
+  if [ -n "$MODULE_PID" ]; then
+    _devflow_terminate_process_group "$signal_name" "$MODULE_PID" 3 || :
+    MODULE_PID=""
+  fi
+  cleanup || :
+  trap - EXIT
+  exit 1
 }
 trap cleanup EXIT
 # Trap HUP/INT/TERM explicitly so cleanup runs at a deterministic point and the
-# runner exits 1 (not 128+sig), independent of any shell-version variation in
-# EXIT-trap-on-signal behavior.
-trap 'cleanup; trap - EXIT HUP INT TERM; exit 1' HUP INT TERM
+# runner exits 1 (not 128+sig). The module is supervised in the background below,
+# so a parent-only signal can forward to and reap it before removing the tallies.
+trap 'cleanup_on_signal HUP' HUP
+trap 'cleanup_on_signal INT' INT
+trap 'cleanup_on_signal TERM' TERM
 
 # Explicit ${TMPDIR:-/tmp}-rooted templates: bare `mktemp` does not honor a
 # runtime TMPDIR override on macOS/BSD (it uses the Darwin confstr temp dir),
@@ -237,63 +269,110 @@ RESULTS_FILE="$(mktemp "${TMPDIR:-/tmp}/devflow-module-results.XXXXXX")" || \
 DETAILS_FILE="$(mktemp "${TMPDIR:-/tmp}/devflow-module-details.XXXXXX")" || {
   selector_error "could not allocate failure details"
 }
+MODULE_SCRATCH_ROOT="$(devflow_module_allocate_owned_directory \
+  "${TMPDIR:-/tmp}/devflow-module-scratch.XXXXXX")" || \
+  selector_error "could not allocate the module scratch root"
+if ! _devflow_validate_module_scratch "$MODULE_SCRATCH_ROOT"; then
+  _devflow_discard_unvalidated_module_scratch "$MODULE_SCRATCH_ROOT" || :
+  MODULE_SCRATCH_ROOT=""
+  selector_error "allocated an unsafe module scratch root"
+fi
+MODULE_GROUP_PID_FILE="$MODULE_SCRATCH_ROOT/supervisor.pid"
+MODULE_WORKER_PID_FILE="$MODULE_SCRATCH_ROOT/worker.pid"
 mkdir -p "$LOG_DIR" || selector_error "could not create log directory: $LOG_DIR"
 LOG_FILE="$(mktemp "$LOG_DIR/$MODULE_ID.log.XXXXXX")" || \
   selector_error "could not allocate module log in: $LOG_DIR"
+_devflow_test_write_pid "${DEVFLOW_TEST_RUNNER_PID_FILE:-}" "$$" \
+  "focused runner" || :
 
+RUNNER_MONITOR_WAS_ON=0
+case "$-" in
+  *m*) RUNNER_MONITOR_WAS_ON=1 ;;
+  *) set -m ;;
+esac
+MODULE_LAUNCHING=1
 (
-  set -u
-  # Consumed by the dynamically selected module sourced below.
+  # Consumed by the sourced module in the worker.
   # shellcheck disable=SC2034
-  LIB="$REPO_ROOT/lib"
+  DEVFLOW_MODULE_OWNED_SCRATCH_ROOT="$MODULE_SCRATCH_ROOT"
+  # Contain ordinary module/helper TMPDIR allocations inside the boundary root
+  # so forced group termination still has a complete cleanup fallback.
+  TMPDIR="$MODULE_SCRATCH_ROOT"
+  export TMPDIR
+  # Invoked indirectly by the supervisor helper.
+  # shellcheck disable=SC2329
+  _devflow_focused_module_body() {
+    set -u
+    # Consumed by the dynamically selected module sourced below.
+    # shellcheck disable=SC2034
+    LIB="$REPO_ROOT/lib"
 
-  sanitize_result_field() {
-    local value="$1"
-    value="${value//$'\t'/ }"
-    value="${value//$'\r'/ }"
-    value="${value//$'\n'/\\n}"
-    printf '%s' "${value:-(empty)}"
-  }
+    sanitize_result_field() {
+      local value="$1"
+      value="${value//$'\t'/ }"
+      value="${value//$'\r'/ }"
+      value="${value//$'\n'/\\n}"
+      printf '%s' "${value:-(empty)}"
+    }
 
-  # Enforce the module contract's no-self-skip rule on THIS tier too: without
-  # this stub a stray `skip` is a non-fatal rc-127 mid-module (no set -e), so
-  # the focused run would stay green while the full-suite boundary fails the
-  # same module closed — a focused-vs-full-suite verdict divergence.
-  skip() {
-    printf 'FATAL: modules may not self-skip (module contract) — keep skippable gates in the full suite\n' >&2
-    exit 1
-  }
+    skip() {
+      printf 'FATAL: modules may not self-skip (module contract) — keep skippable gates in the full suite\n' >&2
+      exit 1
+    }
 
-  assert_eq() {
-    local name="$1" expected="$2" actual="$3"
-    # Tally appends are checked (mirrors _devflow_record_module_failure's
-    # contract): a lost record must abort the module process loudly, never
-    # silently thin the count the floor is graded on.
-    if [ "$expected" = "$actual" ]; then
-      printf 'PASS\n' >> "$RESULTS_FILE" || {
-        printf 'FATAL: could not record assertion result\n' >&2; exit 1; }
-      printf '  PASS  %s\n' "$name"
-    else
-      printf 'FAIL\n' >> "$RESULTS_FILE" || {
-        printf 'FATAL: could not record assertion result\n' >&2; exit 1; }
-      printf '%s\t%s\t%s\n' \
-        "$(sanitize_result_field "$name")" \
-        "$(sanitize_result_field "$expected")" \
-        "$(sanitize_result_field "$actual")" >> "$DETAILS_FILE" || {
-        printf 'FATAL: could not record failure details\n' >&2; exit 1; }
-      printf '  FAIL  %s\n         expected: %s\n         actual:   %s\n' \
-        "$name" "$expected" "$actual"
+    assert_eq() {
+      local name="$1" expected="$2" actual="$3"
+      if [ "$expected" = "$actual" ]; then
+        printf 'PASS\n' >> "$RESULTS_FILE" || {
+          printf 'FATAL: could not record assertion result\n' >&2; exit 1; }
+        printf '  PASS  %s\n' "$name"
+      else
+        printf 'FAIL\n' >> "$RESULTS_FILE" || {
+          printf 'FATAL: could not record assertion result\n' >&2; exit 1; }
+        printf '%s\t%s\t%s\n' \
+          "$(sanitize_result_field "$name")" \
+          "$(sanitize_result_field "$expected")" \
+          "$(sanitize_result_field "$actual")" >> "$DETAILS_FILE" || {
+          printf 'FATAL: could not record failure details\n' >&2; exit 1; }
+        printf '  FAIL  %s\n         expected: %s\n         actual:   %s\n' \
+          "$name" "$expected" "$actual"
+      fi
+    }
+
+    if [ "${DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE:-}" = "1" ]; then
+      assert_eq "controlled experimental failure injection" "disabled" "enabled"
     fi
+
+    # shellcheck source=/dev/null disable=SC1090
+    . "$MODULE_PATH"
   }
-
-  if [ "${DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE:-}" = "1" ]; then
-    assert_eq "controlled experimental failure injection" "disabled" "enabled"
-  fi
-
-  # shellcheck source=/dev/null disable=SC1090
-  . "$MODULE_PATH"
-) > "$LOG_FILE" 2>&1
-MODULE_RC=$?
+  _devflow_supervise_module _devflow_focused_module_body \
+    "$MODULE_GROUP_PID_FILE" "$MODULE_WORKER_PID_FILE"
+) > "$LOG_FILE" 2>&1 &
+_devflow_test_pause_before_pid_capture \
+  "${DEVFLOW_TEST_LAUNCH_WINDOW_FILE:-}" || :
+MODULE_PID=$!
+_devflow_test_write_pid "$MODULE_GROUP_PID_FILE" "$MODULE_PID" \
+  "module supervisor" || :
+MODULE_LAUNCHING=0
+[ "$RUNNER_MONITOR_WAS_ON" -eq 1 ] || set +m
+_devflow_test_write_pid "${DEVFLOW_TEST_MODULE_PID_FILE:-}" "$MODULE_PID" \
+  "focused module" || :
+if [ -n "$MODULE_PENDING_SIGNAL" ]; then
+  cleanup_on_signal "$MODULE_PENDING_SIGNAL"
+fi
+if wait "$MODULE_PID"; then
+  MODULE_RC=0
+else
+  MODULE_RC=$?
+fi
+MODULE_PID=""
+MODULE_CLEANUP_FAILED=0
+if _devflow_cleanup_module_scratch "$MODULE_SCRATCH_ROOT"; then
+  MODULE_SCRATCH_ROOT=""
+else
+  MODULE_CLEANUP_FAILED=1
+fi
 
 PASS_COUNT=0
 ASSERT_FAIL_COUNT=0
@@ -309,6 +388,7 @@ done < "$RESULTS_FILE"
 EXTRA_FAIL_COUNT=0
 [ "$INVALID_RESULT_COUNT" -eq 0 ] || EXTRA_FAIL_COUNT=$((EXTRA_FAIL_COUNT + 1))
 [ "$MODULE_RC" -eq 0 ] || EXTRA_FAIL_COUNT=$((EXTRA_FAIL_COUNT + 1))
+[ "$MODULE_CLEANUP_FAILED" -eq 0 ] || EXTRA_FAIL_COUNT=$((EXTRA_FAIL_COUNT + 1))
 ASSERTION_COUNT=$((PASS_COUNT + ASSERT_FAIL_COUNT))
 if [ "$ASSERTION_COUNT" -eq 0 ]; then
   EXTRA_FAIL_COUNT=$((EXTRA_FAIL_COUNT + 1))
@@ -330,6 +410,9 @@ FAIL_COUNT=$((ASSERT_FAIL_COUNT + EXTRA_FAIL_COUNT))
     if [ "$MODULE_RC" -ne 0 ]; then
       printf '  - module process exited with status %s\n' "$MODULE_RC"
     fi
+    if [ "$MODULE_CLEANUP_FAILED" -ne 0 ]; then
+      printf '  - module scratch cleanup failed\n'
+    fi
     if [ "$ASSERTION_COUNT" -eq 0 ]; then
       printf '  - module executed zero assertions\n'
     elif [ "$ASSERTION_COUNT" -lt "$MIN_ASSERTIONS" ]; then
@@ -340,5 +423,9 @@ FAIL_COUNT=$((ASSERT_FAIL_COUNT + EXTRA_FAIL_COUNT))
   printf 'Log: %s\n' "$LOG_FILE"
 } >> "$LOG_FILE"
 
-cat "$LOG_FILE" || exit 1
-[ "$FAIL_COUNT" -eq 0 ]
+RUN_RC=0
+cat "$LOG_FILE" || RUN_RC=1
+[ "$FAIL_COUNT" -eq 0 ] || RUN_RC=1
+cleanup || RUN_RC=1
+trap - EXIT
+exit "$RUN_RC"
