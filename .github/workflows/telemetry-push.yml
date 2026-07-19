@@ -37,10 +37,14 @@ concurrency:
   group: telemetry-push
   cancel-in-progress: false
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   push:
     name: Push auto-review telemetry
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.DEVFLOW_RUNNER && (startsWith(vars.DEVFLOW_RUNNER, '[') && fromJSON(vars.DEVFLOW_RUNNER) || vars.DEVFLOW_RUNNER) || 'ubuntu-latest' }}
     # Only run where a workflow-capable DevFlow App is configured — the mint below needs it, and
     # a bare consumer (no DEVFLOW_APP_ID) has no write-capable credential to push with anyway.
     if: ${{ vars.DEVFLOW_APP_ID != '' }}
