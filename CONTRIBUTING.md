@@ -57,6 +57,47 @@ Each module is also executed by the full suite through the fail-closed
 A per-module inventory (e.g. `lib/test/modules/create-issue-contract.inventory.md`)
 records what it covers.
 
+### Authoring a new focused module
+
+When you extract a cohesive block of `lib/test/run.sh` coverage into a new
+selectable module, complete all of the following in the same PR:
+
+1. **Registry entry** — add the module to `test_modules` in
+   `scripts/workflow-flight-recorder-registry.json` with its `path`,
+   `minimum_assertions` floor, and a `description`.
+2. **Floor from the extraction-time count** — establish the floor with the
+   over-floor probe under the already-granted direct `lib/test/run.sh`
+   invocation: set the registry and call-site floor to a deliberately over-high
+   value, run the suite, read the boundary's below-floor line
+   (`executed N assertions; minimum is M`) to obtain the true executed count `N`,
+   then set the floor to `N` (the boundary's success path prints no count, so a
+   floor seeded without the probe is unverified).
+3. **Mirror the floor at the call site** — the same floor literal appears at the
+   `run.sh` `devflow_run_full_suite_module` boundary call. The registry floor and
+   the call-site literal are one coupled contract, cross-checked for every module
+   by `lib/test/test_module_runner.py`.
+4. **Per-module inventory** — add `lib/test/modules/<module-id>.inventory.md`
+   recording the module's provenance (source baseline + coverage groups).
+5. **CI shellcheck list** — add the module's `.sh` path to the explicit
+   shellcheck file list in `.github/workflows/ci.yml` (module files are not
+   globbed there).
+6. **Coverage-map ownership** — update `lib/test/modules/coverage-map.json` so
+   each `lib/`/`scripts/` depth-1 unit the module now owns names it as `owner`
+   (the coverage ratchet, `lib/test/coverage_map_guard.py`, fails the suite RED
+   on a stale, misfiled, or unlisted unit). If the ratchet fires on a code
+   extension outside the five depth-1 patterns, extend the pattern set (a map +
+   guard + this convention change in one PR) — never list a code file in
+   `non_code_exempt`. The `run_sh_blocks` half of the map is hand-maintained
+   (mechanical `run.sh` block scanning is a disclosed non-goal), and ownership is
+   a curated claim the guard checks for referential validity, not semantic
+   correctness.
+7. **Module-contract compliance** — the module must satisfy the module contract
+   documented in `lib/test/module-harness.sh`'s header (private fixture root and
+   cleanup, caller-provided `LIB`/`RESULTS_FILE`/`assert_eq`, no self-skip, no
+   monolith helper). Comply **by reference** to that header — do not restate its
+   cleanup/trap terms here, so this checklist cannot go stale as the contract
+   evolves.
+
 The suite reports passed, failed, and *skipped* tallies (issue
 #456) — so `0 failed` is never mistaken for "everything ran." A check can
 **self-skip** when the environment cannot run it or express its condition; with
