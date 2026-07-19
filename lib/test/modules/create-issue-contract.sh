@@ -832,9 +832,10 @@ devflow_module_pin_unique "base-update: create-issue extension carries the deplo
 assert_eq "#467 D3 (re-scoped by #548): create-issue extension ## Audit dimensions section is 9 dimension bullets" "9" \
   "$(awk '/^## Audit dimensions/{f=1;next} /^## /{f=0} f' "$CI_EXT" | grep -c '^- \*\*')"
 # #548 Guard-reconciliation (count moved 4->5 by #593): the `## Evidence axes` section carries the
-# DevFlow axis bullets, and the whole-file count is now 14 (9 dimensions + 5 axes) — the old
-# whole-file guard form would have broken here, which is exactly why it was re-scoped above. #593
-# added the "Grant-timing bootstrap" axis bullet, moving this section guard from 4 to 5.
+# DevFlow axis bullets; the old whole-file guard form would have broken here, which is exactly why
+# it was re-scoped to this section only. #593 added the "Grant-timing bootstrap" axis bullet,
+# moving this section guard from 4 to 5. (No whole-file total is restated here — it is un-pinned
+# and would rot on the next dimension/axis add, the PR-553 stale-ordinal class.)
 assert_eq "#548 Evidence-axes (count moved to 5 by #593): create-issue extension ## Evidence axes section is 5 axis bullets" "5" \
   "$(awk '/^## Evidence axes/{f=1;next} /^## /{f=0} f' "$CI_EXT" | grep -c '^- \*\*')"
 
