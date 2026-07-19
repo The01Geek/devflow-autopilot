@@ -1,0 +1,136 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-19T20:48:04Z",
+  "loop_role": "fix",
+  "current_step": "loop-control",
+  "current_substep": "phase-3-agent-fanout-await",
+  "pending_dispatch": {
+    "kind": "phase3_reviewer_fanout",
+    "roster": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:requesting-code-review",
+      "devflow:pr-test-analyzer"
+    ],
+    "dispatched_at": "2026-07-19T21:15:00Z",
+    "note": "rate-limit interruption mid-fanout; type-design-analyzer returned complete; silent-failure-hunter/comment-analyzer/pr-test-analyzer resumed via SendMessage; code-reviewer + requesting-code-review re-dispatched fresh; all 5 pending in background"
+  },
+  "config": {
+    "max_iterations": 5,
+    "fix_severity_threshold": "suggestion",
+    "push_each_iteration": true
+  },
+  "reviewed_head": "98cf8daf34bd59fcd355a367569ceb0a240f1a1f",
+  "wp_comment_id": "5017330793",
+  "git_snap_before_oid": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "detect_all_audit": true,
+    "checklist_skipped": null
+  },
+  "checklist_summary": {
+    "items": 18,
+    "pass": 18,
+    "fail": 0,
+    "inconclusive": 0,
+    "lite": 1,
+    "agent": 17
+  },
+  "checklist_notes": [
+    "VC-14 evidence: engine-surface PR (lib/preflight.sh) carries no .changeset/*.md — changeset convention violation, carried to Phase 4"
+  ],
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:requesting-code-review",
+    "devflow:type-design-analyzer",
+    "devflow:pr-test-analyzer"
+  ],
+  "phase3_findings_partial": [
+    {
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "check_dependencies() duck-typed edge validation duplicates only 2 of Edge's 3 constructor invariants (misses repo-owned=>auth None)",
+      "defect_signature": {
+        "file": "lib/test/cloud_writer_deps.py",
+        "line_range": [
+          2845,
+          2855
+        ],
+        "kind": "type_design"
+      }
+    },
+    {
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "Edge.auth carries authorization semantics as free-form prose; tests substring-match it",
+      "defect_signature": {
+        "file": "lib/test/cloud_writer_deps.py",
+        "line_range": [
+          226,
+          263
+        ],
+        "kind": "type_design"
+      }
+    },
+    {
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "ExecSpec does not constrain target shape per class (bare-name repo-owned constructs fine)",
+      "defect_signature": {
+        "file": "lib/test/cloud_writer_deps.py",
+        "line_range": [
+          131,
+          151
+        ],
+        "kind": "type_design"
+      }
+    },
+    {
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "scope record in _python_command_evidence is a stringly-keyed 9-field mutable dict",
+      "defect_signature": {
+        "file": "lib/test/cloud_writer_deps.py",
+        "line_range": [
+          1457,
+          1467
+        ],
+        "kind": "type_design"
+      }
+    },
+    {
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "module-import side effects: PREFLIGHT_GUARANTEES computed at import (file I/O + possible RuntimeError at import time)",
+      "defect_signature": {
+        "file": "lib/test/cloud_writer_deps.py",
+        "line_range": [
+          59,
+          92
+        ],
+        "kind": "type_design"
+      }
+    },
+    {
+      "agent": "completeness-critic",
+      "severity": "Suggestion",
+      "description": "Phase 3.1.5 completeness critic: independent enumeration of vendored helper grants from lib/capability-profiles.json yields 2 members the audit's population (cwc.REQUIRED_HELPER_HEADS via entry_points()) does not cover: scripts/preflight.py and scripts/verification-flight.py. The gap is in the pre-existing AC1 closure (cloud_writer_contract.py, unchanged by this PR, both absent on main) — the AC5 audit faithfully covers its stated population; the uncovered helpers' dependencies are never classified. Independent signal used: capability-profiles vendored Bash grant literals.",
+      "defect_signature": {
+        "file": "lib/test/cloud_writer_contract.py",
+        "line_range": null,
+        "kind": "test_gap"
+      }
+    }
+  ],
+  "telemetry": "unavailable"
+}
