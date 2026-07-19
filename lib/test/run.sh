@@ -43190,7 +43190,7 @@ fi
 # The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/create-issue-contract.sh" \
-  "create-issue-contract" 211; then
+  "create-issue-contract" 234; then
   printf 'ERROR: create-issue-contract boundary could not record its result\n'
   exit 1
 fi
@@ -43449,8 +43449,17 @@ if [ -d "$IAS_SB" ]; then
     # post-adjudication unresolved count, so it holds only after this record, not on the raw
     # REVISE token. Also capture the pre-adjudication convergence (unadjudicated) beforehand.
     PATH="$RESTRICTED" python3 "$IAS" query-convergence rt --nonce "$NONCE" > .rt-conv-preadj
+    # #603: a REVISE adjudication with a settled count now REQUIRES the per-finding
+    # ledger on stdin. The QUOTED-delimiter heredoc is the decided transport — the second
+    # summary carries `$(…)` and a backtick precisely so this row proves the shell
+    # performs no expansion on auditor-derived text (query-findings re-emits it verbatim
+    # below).
     PATH="$RESTRICTED" python3 "$IAS" record-adjudication rt --nonce "$NONCE" --round 1 \
-      --verdict REVISE --must-revise 2 --advisory 0 --invalid 0 --unresolved-must-revise 2 > .rt-adj
+      --verdict REVISE --must-revise 2 --advisory 0 --invalid 0 --unresolved-must-revise 2 \
+      --ledger-stdin > .rt-adj <<'LEDGER-EOF'
+unresolved: first finding
+unresolved: second finding $(not expanded) `nor this`
+LEDGER-EOF
     PATH="$RESTRICTED" python3 "$IAS" query-triggers rt --nonce "$NONCE" > .rt-trig
     PATH="$RESTRICTED" python3 "$IAS" query-convergence rt --nonce "$NONCE" > .rt-conv-revise
 
@@ -43461,6 +43470,13 @@ if [ -d "$IAS_SB" ]; then
       --mode approve --draft-file draft.md > .rt-elig-bad
     PATH="$RESTRICTED" python3 "$IAS" query-eligibility rt --nonce "$NONCE" \
       --mode iterate --draft-file draft.md > .rt-elig-iter
+    # #603: the durable reconciliation read-back, then a post-revision resolution that
+    # clears the round the findings were raised on, then the convergence answer that now
+    # rests on a self-verified resolution basis rather than on an auditor FILE verdict.
+    PATH="$RESTRICTED" python3 "$IAS" query-findings rt --nonce "$NONCE" > .rt-findings
+    PATH="$RESTRICTED" python3 "$IAS" record-resolution rt --nonce "$NONCE" \
+      --round 1 --revision-ordinal 1 --resolved-ids 1,2 > .rt-resolution
+    PATH="$RESTRICTED" python3 "$IAS" query-convergence rt --nonce "$NONCE" > .rt-conv-resolved
 
     # A clean round on the revised bytes, then approve mode must ground eligible.
     PATH="$RESTRICTED" python3 "$IAS" record-dispatch rt --nonce "$NONCE" \
@@ -43495,17 +43511,24 @@ if [ -d "$IAS_SB" ]; then
   assert_eq "#548 cli_roundtrip_restricted_path: T1 holds after a REVISE round is ADJUDICATED (not on the raw token)" \
     "1" "$(grep -c 't1=hold' "$IAS_SB/.rt-trig" 2>/dev/null)"
   assert_eq "#548 cli_roundtrip_restricted_path: an un-adjudicated REVISE round is not converged" \
-    "converged=no reason=unadjudicated" "$(cat "$IAS_SB/.rt-conv-preadj" 2>/dev/null)"
+    "converged=no reason=unadjudicated basis=none" "$(cat "$IAS_SB/.rt-conv-preadj" 2>/dev/null)"
   assert_eq "#548 cli_roundtrip_restricted_path: an adjudicated REVISE with unresolved must-revise is not converged" \
-    "converged=no reason=unresolved-must-revise-remain" "$(cat "$IAS_SB/.rt-conv-revise" 2>/dev/null)"
+    "converged=no reason=unresolved-must-revise-remain basis=none" "$(cat "$IAS_SB/.rt-conv-revise" 2>/dev/null)"
   assert_eq "#548 cli_roundtrip_restricted_path: adjudicated FILE with 0 unresolved converges" \
-    "converged=yes reason=" "$(cat "$IAS_SB/.rt-conv-file" 2>/dev/null)"
+    "converged=yes reason= basis=adjudicated" "$(cat "$IAS_SB/.rt-conv-file" 2>/dev/null)"
   assert_eq "#548 cli_roundtrip_restricted_path: query-convergence fails closed on a foreign nonce (never reads a converged verdict off another run)" \
-    "converged=no reason=foreign-nonce" "$(cat "$IAS_SB/.rt-conv-fn" 2>/dev/null)"
+    "converged=no reason=foreign-nonce basis=none" "$(cat "$IAS_SB/.rt-conv-fn" 2>/dev/null)"
   assert_eq "#548 cli_roundtrip_restricted_path: query-summary RENDERS the latest round's adjudicated tokens at the CLI (round 2: FILE, 0 unresolved)" \
     "1" "$(grep -c 'adjudicated_verdict=FILE must_revise=0 advisory=1 invalid=0 unresolved_must_revise=0' "$IAS_SB/.rt-summary" 2>/dev/null)"
   assert_eq "#548 cli_roundtrip_restricted_path: record-adjudication echoes the adjudicated payload" \
-    "adjudicated=REVISE unresolved=2 must_revise=2 advisory=0 invalid=0" "$(cat "$IAS_SB/.rt-adj" 2>/dev/null)"
+    "adjudicated=REVISE unresolved=2 must_revise=2 advisory=0 invalid=0 superseded=0" "$(cat "$IAS_SB/.rt-adj" 2>/dev/null)"
+  assert_eq "#603 cli_roundtrip_restricted_path: query-findings re-emits an auditor summary byte-verbatim (the quoted-delimiter heredoc performed no expansion)" \
+    "round=1 id=2 status=unresolved summary=second finding \$(not expanded) \`nor this\`" \
+    "$(sed -n 2p "$IAS_SB/.rt-findings" 2>/dev/null)"
+  assert_eq "#603 cli_roundtrip_restricted_path: record-resolution derives the run-wide remaining count (no caller-supplied tally)" \
+    "round=1 revision_ordinal=1 frozen=2 remaining=0" "$(cat "$IAS_SB/.rt-resolution" 2>/dev/null)"
+  assert_eq "#603 cli_roundtrip_restricted_path: a REVISE-latest run cleared by resolution converges on the resolution basis" \
+    "converged=yes reason= basis=resolution" "$(cat "$IAS_SB/.rt-conv-resolved" 2>/dev/null)"
   assert_eq "#546 cli_roundtrip_restricted_path: approve mode refuses just-revised, not-yet-re-audited bytes" \
     "eligible=no reason=unaudited-revision" "$(cat "$IAS_SB/.rt-elig-bad" 2>/dev/null)"
   assert_eq "#546 cli_roundtrip_restricted_path: iterate mode answers ok for the same bytes" \
