@@ -27,29 +27,167 @@
     "devflow:requesting-code-review"
   ],
   "phase3_findings": [
-    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "same-line duplicate-anchor bypasses --check (widens read-only reviewer)", "defect_signature": {"file": "lib/generate-capability-profiles.py", "line_range": [284, 512], "kind": "security"}, "corroboration_count": 2, "fix_decision": "applied"},
-    {"agent": "devflow:code-reviewer", "severity": "Important", "description": "same-line ;-separated second assignment silently widens reviewer past --check", "defect_signature": {"file": "lib/generate-capability-profiles.py", "line_range": [284, 285], "kind": "security"}, "corroboration_count": 2, "fix_decision": "applied"},
-    {"agent": "devflow:comment-analyzer", "severity": "Critical", "description": "install.md banner 'on the line above it' false for implement region (documented_falsehood)", "defect_signature": {"file": "docs/install.md", "line_range": [153, 153], "kind": "documented_falsehood"}, "corroboration_count": 2, "fix_decision": "applied"},
-    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "manifest-validation adversarial matrix incomplete (~7 unpinned fail-closed guards)", "defect_signature": {"file": "lib/test/cap-mutate.py", "line_range": [98, 175], "kind": "test_gap"}, "corroboration_count": 1, "fix_decision": "applied"},
-    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "read_wf/write_wf unguarded OSError -> traceback not breadcrumb", "defect_signature": {"file": "lib/generate-capability-profiles.py", "line_range": [55, 66], "kind": "unhandled_exception"}, "corroboration_count": 1, "fix_decision": "applied"},
-    {"agent": "devflow:type-design-analyzer", "severity": "Suggestion", "description": "REGIONS discriminated-union-by-convention with else-based dispatch", "defect_signature": {"file": "lib/generate-capability-profiles.py", "line_range": [238, 277], "kind": "type_design"}, "corroboration_count": 1, "fix_decision": "advisory"},
-    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "strip-banners expect_change=False weakens anti-vacuous guarantee; partial-write atomicity", "defect_signature": {"file": "lib/test/cap-mutate.py", "line_range": [256, 265], "kind": "test_gap"}, "corroboration_count": 1, "fix_decision": "advisory"}
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "same-line duplicate-anchor bypasses --check (widens read-only reviewer)",
+      "defect_signature": {
+        "file": "lib/generate-capability-profiles.py",
+        "line_range": [
+          284,
+          512
+        ],
+        "kind": "security"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Important",
+      "description": "same-line ;-separated second assignment silently widens reviewer past --check",
+      "defect_signature": {
+        "file": "lib/generate-capability-profiles.py",
+        "line_range": [
+          284,
+          285
+        ],
+        "kind": "security"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Critical",
+      "description": "install.md banner 'on the line above it' false for implement region (documented_falsehood)",
+      "defect_signature": {
+        "file": "docs/install.md",
+        "line_range": [
+          153,
+          153
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "manifest-validation adversarial matrix incomplete (~7 unpinned fail-closed guards)",
+      "defect_signature": {
+        "file": "lib/test/cap-mutate.py",
+        "line_range": [
+          98,
+          175
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "read_wf/write_wf unguarded OSError -> traceback not breadcrumb",
+      "defect_signature": {
+        "file": "lib/generate-capability-profiles.py",
+        "line_range": [
+          55,
+          66
+        ],
+        "kind": "unhandled_exception"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "REGIONS discriminated-union-by-convention with else-based dispatch",
+      "defect_signature": {
+        "file": "lib/generate-capability-profiles.py",
+        "line_range": [
+          238,
+          277
+        ],
+        "kind": "type_design"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "strip-banners expect_change=False weakens anti-vacuous guarantee; partial-write atomicity",
+      "defect_signature": {
+        "file": "lib/test/cap-mutate.py",
+        "line_range": [
+          256,
+          265
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "advisory"
+    }
   ],
   "fix_decisions": [
-    {"finding_id": "F-1", "decision": "applied", "commit": "e43cbf25"},
-    {"finding_id": "F-2", "decision": "applied", "commit": "e43cbf25"},
-    {"finding_id": "F-3", "decision": "applied", "commit": "e43cbf25"},
-    {"finding_id": "F-4", "decision": "applied", "commit": "e43cbf25"},
-    {"finding_id": "F-5", "decision": "applied", "commit": "e43cbf25"},
-    {"finding_id": "F-6", "decision": "advisory", "skip_category": "below-threshold-parked", "evidence": "type-design nit; REGIONS is a static suite-guarded constant; author advised not to over-engineer"},
-    {"finding_id": "F-7", "decision": "advisory", "skip_category": "below-threshold-parked", "evidence": "Minor test-hardening nits (M3/M4); partial-write is an unlikely disk-full edge with disproportionate fix"}
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "e43cbf25"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "e43cbf25"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "e43cbf25"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "applied",
+      "commit": "e43cbf25"
+    },
+    {
+      "finding_id": "F-5",
+      "decision": "applied",
+      "commit": "e43cbf25"
+    },
+    {
+      "finding_id": "F-6",
+      "decision": "advisory",
+      "skip_category": "below-threshold-parked",
+      "evidence": "type-design nit; REGIONS is a static suite-guarded constant; author advised not to over-engineer"
+    },
+    {
+      "finding_id": "F-7",
+      "decision": "advisory",
+      "skip_category": "below-threshold-parked",
+      "evidence": "Minor test-hardening nits (M3/M4); partial-write is an unlikely disk-full edge with disproportionate fix"
+    }
   ],
   "verification_evidence": {
     "suite_postfix": "9470 passed, 0 failed, 1 skipped (#434 dirty-tree self-skip, pre-commit)",
     "suite_postmerge": "9490 passed, 0 failed, 0 skipped (#434 stale-prose ran clean on committed HEAD)",
     "generator_check": "rc=0 on committed tree post-fix and post-merge",
     "skipped_checks": [],
-    "new_pins": ["T13g anchor-dup-sameline", "T13h version-missing", "T13i groups-missing", "T13j group-nonstring-token", "T13k profiles-extra-key", "T13l profile-spec-nonlist", "T13m profile-nonstring-entry", "T13n manifest-unreadable", "T13o workflow-unreadable"]
+    "new_pins": [
+      "T13g anchor-dup-sameline",
+      "T13h version-missing",
+      "T13i groups-missing",
+      "T13j group-nonstring-token",
+      "T13k profiles-extra-key",
+      "T13l profile-spec-nonlist",
+      "T13m profile-nonstring-entry",
+      "T13n manifest-unreadable",
+      "T13o workflow-unreadable"
+    ]
   },
   "convergence_inputs": {
     "fixes_applied": 5,
@@ -61,5 +199,9 @@
     "pushed_to": "issue-561-capability-profile-manifest",
     "pushed_sha": "061b058c"
   },
-  "telemetry": "unavailable"
+  "telemetry": "unavailable",
+  "shadow": {
+    "shadow_synthesized": true,
+    "promoted_to_iter_next": true
+  }
 }

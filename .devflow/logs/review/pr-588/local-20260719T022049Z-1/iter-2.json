@@ -1,0 +1,30 @@
+{
+  "iter": 2,
+  "source": "review-and-fix",
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "current_step": "loop-exit",
+  "fix_commit_sha": "39aecc8a",
+  "fix_files": ["lib/generate-capability-profiles.py", "lib/test/cap-mutate.py", "lib/test/run.sh"],
+  "shadow_origin": {
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter"],
+    "scope": "fix-delta (commit e43cbf25)",
+    "findings_promoted": [
+      {"agent": "devflow:code-reviewer", "severity": "Important", "description": "iter-1 _assign_dup_re only closed ;/&&/|| single-quote vector; whitespace- and &-separated assignment words still win at runtime and bypass --check", "defect_signature": {"file": "lib/generate-capability-profiles.py", "line_range": [301, 315], "kind": "incomplete_guard"}, "corroboration_count": 2},
+      {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "a double-quoted statement-position literal replacement (TOOLS=\"widened\") leaves the canonical single-quote line intact and passes --check while winning at runtime", "defect_signature": {"file": "lib/generate-capability-profiles.py", "line_range": [301, 315], "kind": "fail-open-guard"}, "corroboration_count": 1}
+    ]
+  },
+  "fix_decisions": [
+    {"finding_id": "S-1", "decision": "applied", "commit": "39aecc8a", "note": "replaced separator/quote-scoped regex with _count_replacement_assignments (word-boundary var=, comment lines stripped, self-derivation excluded); quote- and separator-agnostic by construction"}
+  ],
+  "verification_evidence": {
+    "pristine_check": "rc=0, count==1 per region (self-deriv TOOLS=\"$TOOLS,$FILTERED\" excluded)",
+    "vectors_caught": ["; -separated (T13g)", "whitespace (T13p)", "double-quote literal (T13q)", "& -separated (same mechanism, separator-agnostic)"],
+    "suite_fix2": "9491 passed, 0 failed, 1 skipped (#434 dirty-tree self-skip, pre-commit)",
+    "ruff": "clean",
+    "new_pins": ["T13p anchor-dup-space", "T13q anchor-dup-dquote"]
+  },
+  "convergence_inputs": {"fixes_applied": 1, "new_corroborated_critical_count": 0},
+  "pushed": {"sha": "39aecc8a", "ref": "issue-561-capability-profile-manifest"},
+  "telemetry": "unavailable"
+}
