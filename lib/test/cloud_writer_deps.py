@@ -608,9 +608,9 @@ def _scan_shell_sources(helper):
     the word tokenizer drops ``\\`` (so an escaped ``\\$VAR`` — a literal,
     non-expanding path at runtime — is scanned as if it expanded); a bare
     relative include (``. x.sh``) is classified helper-dir-relative although
-    bash resolves it via ``$PATH`` first; and an ``eval``- or
-    ``unset``-mediated rebind of a dir variable is out of static reach (a var
-    rebound only that way keeps its provedness).
+    bash resolves it via ``$PATH`` first; and an ``eval``-mediated rebind of a
+    dir variable is out of static reach (a var rebound only inside an ``eval``
+    string keeps its provedness).
     """
     edges = []
     seen = set()
@@ -653,21 +653,37 @@ def _scan_shell_sources(helper):
         if _kind == "assignment":
             file_wide_bindings.setdefault(_first, set()).add(_second)
     # Deliberate OVER-poisoning: every name-shaped token to end-of-segment
-    # after read/mapfile/readarray/getopts (option arguments included) is
-    # poisoned — a false poison is fail-closed, an escaped rebind target is
+    # after read/mapfile/readarray/getopts/unset (option arguments included)
+    # is poisoned — a false poison is fail-closed, an escaped rebind target is
     # not. This also means a name inside a quoted string on such a line (or
-    # anywhere for `for`/`+=`) poisons; disclosed here as the accepted
-    # direction. `eval`- and `unset`-mediated rebinds are out of static reach
-    # (see the docstring's disclosed boundaries).
-    for _m in re.finditer(r"\bfor[ \t]+([A-Za-z_]\w*)\b", code):
+    # anywhere for `for`/`select`/`+=`/`${NAME=…}`) poisons; disclosed here as
+    # the accepted direction. Backslash-newline continuations are joined first
+    # so a continuation-line target still poisons. A `declare/local/typeset
+    # -n` nameref poisons both the ref and its referent. Only `eval`-mediated
+    # rebinds remain out of static reach (see the docstring's disclosed
+    # boundaries).
+    poison_code = code.replace("\\\n", " ")
+    for _m in re.finditer(r"\b(?:for|select)[ \t]+([A-Za-z_]\w*)\b", poison_code):
         file_wide_bindings.setdefault(_m.group(1), set()).add("<rebound>")
-    for _m in re.finditer(r"\b(?:read|mapfile|readarray|getopts)\b([^\n;|&]*)", code):
+    for _m in re.finditer(
+        r"\b(?:read|mapfile|readarray|getopts|unset)\b([^\n;|&]*)", poison_code
+    ):
         for _name in re.findall(r"[A-Za-z_]\w*", _m.group(1)):
             file_wide_bindings.setdefault(_name, set()).add("<rebound>")
-    for _m in re.finditer(r"\bprintf[ \t]+-v[ \t]+([A-Za-z_]\w*)", code):
+    for _m in re.finditer(r'\bprintf[ \t]+-v[ \t]+"?([A-Za-z_]\w*)', poison_code):
         file_wide_bindings.setdefault(_m.group(1), set()).add("<rebound>")
-    for _m in re.finditer(r"\b([A-Za-z_]\w*)\+=", code):
+    for _m in re.finditer(r"\b([A-Za-z_]\w*)\+=", poison_code):
         file_wide_bindings.setdefault(_m.group(1), set()).add("<rebound>")
+    # ${NAME:=…} / ${NAME=…} assign-default expansions rebind at expansion time.
+    for _m in re.finditer(r"\$\{([A-Za-z_]\w*):?=", poison_code):
+        file_wide_bindings.setdefault(_m.group(1), set()).add("<rebound>")
+    # A nameref makes the referent writable through the ref — poison both.
+    for _m in re.finditer(
+        r"\b(?:declare|local|typeset)\b[^\n;|&]*-[A-Za-z]*n[A-Za-z]*[ \t]+"
+        r'"?([A-Za-z_]\w*)=([A-Za-z_]\w*)', poison_code
+    ):
+        file_wide_bindings.setdefault(_m.group(1), set()).add("<rebound>")
+        file_wide_bindings.setdefault(_m.group(2), set()).add("<rebound>")
     allowed_dir_vars = {
         name
         for name, values in file_wide_bindings.items()
@@ -705,9 +721,10 @@ def _scan_shell_sources(helper):
             # its tail. Unaccounted bytes (an interposed substitution, a glob
             # star, junk between an anchor and a bare filename) fail closed.
             # Accounting is necessary, not sufficient: the tail checks below
-            # additionally reject residual `$`/`[`/`]` (embedded expansions,
-            # globs) and a separator-less var remnant (`${HERE}x.sh`), the
-            # known expansion-differing shapes among byte-accounted operands.
+            # additionally reject residual `$`/`[`/`]`/`{`/`}` (embedded
+            # expansions, globs, braces) and a separator-less var remnant
+            # (`${HERE}x.sh`), the known expansion-differing shapes among
+            # byte-accounted operands.
             if raw_target == operand:
                 pass
             elif (
@@ -1452,7 +1469,7 @@ def _shell_tokens(code):
     return tokens
 
 
-def _shell_events(code, include_substitutions=True):
+def _shell_events(code, *, include_substitutions=True):
     """Return assignment/control/command events from preprocessed shell code.
 
     With ``include_substitutions=False``, events inside ``$( )`` bodies are

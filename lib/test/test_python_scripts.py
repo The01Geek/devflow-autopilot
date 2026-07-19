@@ -7126,8 +7126,9 @@ assert_eq("#598: positive control — a plain inline-operand anchor include deri
 # Expansion-timing laundering (#598 iter-3): the shell expands $HERE inside a
 # double-quoted ASSIGNMENT immediately, so an operand captured while the dir
 # var held a non-anchor value must never be resolved against the var's LATER
-# anchor binding. Any non-anchor binding of the var anywhere in the file leaves
-# it unproved (fail closed).
+# anchor binding. Any non-anchor binding of the var anywhere in the file
+# (other than the accepted `$(pwd)` co-binding, tested below) leaves it
+# unproved (fail closed).
 try:
     cwd._read = lambda rel: (
         '#!/usr/bin/env bash\nHERE=/evil\nF="$HERE/../lib/resolve-jq.sh"\n'
@@ -7195,6 +7196,30 @@ for _rb_name, _rb_src in (
     ("printf -v rebind",
      '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
      'printf -v HERE /evil\n. "$HERE/../lib/resolve-jq.sh"\n'),
+    ("quoted printf -v rebind",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+     'printf -v "HERE" %s /evil\n. "$HERE/../lib/resolve-jq.sh"\n'),
+    ("select rebind",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+     'select HERE in /evil; do break; done\n. "$HERE/../lib/resolve-jq.sh"\n'),
+    ("nameref rebind",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+     'declare -n REF=HERE\nREF=/evil\n. "$HERE/../lib/resolve-jq.sh"\n'),
+    ("assign-default rebind",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+     ': "${HERE:=/evil}"\n. "$HERE/../lib/resolve-jq.sh"\n'),
+    ("backslash-continuation read rebind",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+     'read -r \\\n  HERE\n. "$HERE/../lib/resolve-jq.sh"\n'),
+    ("readarray rebind",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+     'readarray -t HERE\n. "$HERE/../lib/resolve-jq.sh"\n'),
+    ("getopts rebind",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+     'getopts a: HERE\n. "$HERE/../lib/resolve-jq.sh"\n'),
+    ("unset rebind",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+     'unset HERE\n. "$HERE/../lib/resolve-jq.sh"\n'),
     ("append rebind",
      '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
      'HERE+=/evil\n. "$HERE/../lib/resolve-jq.sh"\n'),
@@ -7263,15 +7288,18 @@ assert_eq("#598: the guard flags the dotted-through-flat broken leaf on disk",
 # duplicate tokens, and malformed tokens each raise rather than silently
 # widening or narrowing the authorization vocabulary.
 _pg_cases = {
-    "no declaration": "#!/usr/bin/env bash\n_need git\n",
-    "two declarations":
+    "no declaration": ("#!/usr/bin/env bash\n_need git\n", "found 0"),
+    "two declarations": (
         "readonly -a _DEVFLOW_PREFLIGHT_GUARANTEES=(git)\n"
-        "readonly -a _DEVFLOW_PREFLIGHT_GUARANTEES=(gh)\n",
-    "duplicate token": "readonly -a _DEVFLOW_PREFLIGHT_GUARANTEES=(git git)\n",
-    "malformed token": "readonly -a _DEVFLOW_PREFLIGHT_GUARANTEES=(g!t)\n",
-    "empty declaration": "readonly -a _DEVFLOW_PREFLIGHT_GUARANTEES=( )\n",
+        "readonly -a _DEVFLOW_PREFLIGHT_GUARANTEES=(gh)\n", "found 2"),
+    "duplicate token": ("readonly -a _DEVFLOW_PREFLIGHT_GUARANTEES=(git git)\n",
+                        "duplicate token"),
+    "malformed token": ("readonly -a _DEVFLOW_PREFLIGHT_GUARANTEES=(g!t)\n",
+                        "malformed token"),
+    "empty declaration": ("readonly -a _DEVFLOW_PREFLIGHT_GUARANTEES=( )\n",
+                          "empty _DEVFLOW_PREFLIGHT_GUARANTEES"),
 }
-for _pg_name, _pg_src in _pg_cases.items():
+for _pg_name, (_pg_src, _pg_want) in _pg_cases.items():
     with tempfile.TemporaryDirectory() as _pg_tmp:
         _pg_root = Path(_pg_tmp)
         (_pg_root / "lib").mkdir()
@@ -7279,10 +7307,43 @@ for _pg_name, _pg_src in _pg_cases.items():
         _pg_orig_root = cwd.REPO_ROOT
         try:
             cwd.REPO_ROOT = _pg_root
-            assert_raises(f"#598: _declared_preflight_guarantees fails closed on {_pg_name}",
-                          RuntimeError, cwd._declared_preflight_guarantees)
+            try:
+                cwd._declared_preflight_guarantees()
+                _pg_msg = "<no raise>"
+            except RuntimeError as _pg_exc:
+                _pg_msg = str(_pg_exc)
         finally:
             cwd.REPO_ROOT = _pg_orig_root
+        # Pin the ARM's own diagnostic, not merely that some RuntimeError fired
+        # (attribute the rejection — guard-class shape 3).
+        assert_eq(f"#598: _declared_preflight_guarantees fails closed on {_pg_name} with its arm's diagnostic",
+                  (True, True), (_pg_msg != "<no raise>", _pg_want in _pg_msg))
+
+# The poison sentinel can never satisfy the co-binding acceptance predicate —
+# pins the in-band "<rebound>" marker against a future widening of the
+# accepted-value set.
+assert_eq("#598: the '<rebound>' poison sentinel never proves a helper dir",
+          (False, False),
+          (cwd._helper_dir_value("<rebound>"), "<rebound>".strip() == "$(pwd)"))
+
+# The resolve_error exception arm fails closed with its OWN diagnostic (never
+# the symlink-escape diagnosis for a condition that was not established).
+_orig_resolve_598 = Path.resolve
+def _boom_resolve_598(self, *a, **k):
+    if "resolve-boom-598" in str(self):
+        raise OSError("boom-598")
+    return _orig_resolve_598(self, *a, **k)
+try:
+    Path.resolve = _boom_resolve_598
+    _re_errors = cwd.check_dependencies(edges=[
+        cwd.Edge("scripts/x-598.sh", "source", "scripts/resolve-boom-598.sh", "repo-owned")])
+finally:
+    Path.resolve = _orig_resolve_598
+assert_eq("#598: a Path.resolve() exception draws the fail-closed could-not-be-resolved arm",
+          (1, True, False),
+          (len(_re_errors),
+           "could not be resolved" in _re_errors[0],
+           "symlink escape" in _re_errors[0]))
 
 # _profile_grant_auth fail-closed passthrough: a helper granted in no profile
 # yields None, which leaves auth=None on the edge and the guard rejects it.
