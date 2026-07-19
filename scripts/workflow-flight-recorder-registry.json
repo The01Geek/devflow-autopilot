@@ -18,7 +18,7 @@
     },
     "capability-profiles": {
       "path": "lib/test/modules/capability-profiles.sh",
-      "minimum_assertions": 58,
+      "minimum_assertions": 59,
       "description": "Focused #561 capability-profile manifest generator: --check clean pass, manifest and region adversarial matrices, planted-defect controls, idempotency/determinism, no-runtime-read, and PR #588 hardening"
     }
   },

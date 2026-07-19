@@ -291,6 +291,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/preflight.py": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "scripts/prepare-harness-floor.sh": {
       "note": "",
       "owner": "unmodularized"
@@ -421,6 +425,10 @@
     "scripts/workflow-flight-recorder-registry.json"
   ],
   "run_sh_blocks": {
+    "10": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "100": {
       "note": "",
       "owner": "unmodularized"
@@ -1117,6 +1125,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "547": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "548": {
       "note": "",
       "owner": "unmodularized"
@@ -1150,6 +1162,10 @@
       "owner": "unmodularized"
     },
     "569": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "572": {
       "note": "",
       "owner": "unmodularized"
     },
