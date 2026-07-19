@@ -55,9 +55,23 @@ fi
 _ci_tmp_root_is_safe() {
   local expected_parent="" actual_parent=""
   [ -d "$_ci_tmp_root" ] && [ ! -L "$_ci_tmp_root" ] || return 1
-  case "$_ci_tmp_root_kind:$_ci_tmp_root" in
-    boundary:/*/devflow-module-scratch.??????) return 0 ;;
-    self:/*/devflow-create-issue-contract.??????) ;;
+  case "$_ci_tmp_root" in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  case "$_ci_tmp_root_kind" in
+    boundary)
+      case "${_ci_tmp_root##*/}" in
+        devflow-module-scratch.??????) return 0 ;;
+        *) return 1 ;;
+      esac
+      ;;
+    self)
+      case "${_ci_tmp_root##*/}" in
+        devflow-create-issue-contract.??????) ;;
+        *) return 1 ;;
+      esac
+      ;;
     *) return 1 ;;
   esac
   expected_parent="$(cd "${TMPDIR:-/tmp}" 2>/dev/null && pwd -P)" || return 1
@@ -66,8 +80,11 @@ _ci_tmp_root_is_safe() {
 }
 if ! _ci_tmp_root_is_safe; then
   # The value failed the recursive-cleanup contract. The directory was just
-  # allocated, so an empty-leaf removal is safe; never apply rm -rf here.
-  [ "$_ci_tmp_root_kind" != "self" ] || rmdir -- "$_ci_tmp_root" 2>/dev/null || :
+  # allocated, but remove even an empty leaf only when its generated name and
+  # physical parent still prove it belongs to this allocation attempt.
+  [ "$_ci_tmp_root_kind" != "self" ] || \
+    _devflow_discard_unvalidated_owned_directory "$_ci_tmp_root" \
+      "devflow-create-issue-contract." "${TMPDIR:-/tmp}" || :
   printf 'invalid create-issue-contract fixture root: %s\n' "$_ci_tmp_root" >&2
   _ci_tmp_root=""
   return 1

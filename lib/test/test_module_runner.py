@@ -728,6 +728,40 @@ class ModuleRunnerTests(unittest.TestCase):
         self.assertIn("could not allocate the module scratch root", result.stderr)
         self.assertTrue(sentinel.is_file(), result.stdout + result.stderr)
 
+    def test_invalid_preexisting_boundary_directory_is_not_discarded(self) -> None:
+        controlled_tmp = self.root / "controlled-tmp"
+        controlled_tmp.mkdir()
+        victim = controlled_tmp / "caller-empty-directory"
+        victim.mkdir()
+        fake_bin = self.root / "fake-invalid-scratch-bin"
+        fake_bin.mkdir()
+        real_mktemp = shutil.which("mktemp")
+        self.assertIsNotNone(real_mktemp)
+        fake_mktemp = fake_bin / "mktemp"
+        fake_mktemp.write_text(
+            "#!/usr/bin/env bash\n"
+            'if [ "${1:-}" = "-d" ] && '
+            'case "${2:-}" in *devflow-module-scratch.*) true ;; '
+            "*) false ;; esac; then\n"
+            f'  printf "%s\\n" "{victim}"\n'
+            "  exit 0\n"
+            "fi\n"
+            f'exec "{real_mktemp}" "$@"\n',
+            encoding="utf-8",
+        )
+        fake_mktemp.chmod(0o755)
+
+        result = self._run(
+            "sample",
+            extra_env={
+                "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                "TMPDIR": str(controlled_tmp),
+            },
+        )
+
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertTrue(victim.is_dir(), result.stdout + result.stderr)
+
     def test_focused_scratch_cleanup_failure_is_not_a_module_exit(self) -> None:
         fake_bin = self.root / "fake-rm-bin"
         fake_bin.mkdir()
@@ -1229,6 +1263,61 @@ class ModuleRunnerTests(unittest.TestCase):
         )
         fake_mktemp.chmod(0o755)
         driver = self.root / "unsafe-create-issue-driver.sh"
+        driver.write_text(
+            "#!/usr/bin/env bash\n"
+            f'LIB="{ROOT / "lib"}"\n'
+            f'RESULTS_FILE="{self.root / "results"}"\n'
+            f'. "{HARNESS_SOURCE}"\n'
+            'unset DEVFLOW_MODULE_OWNED_SCRATCH_ROOT\n'
+            f'export TMPDIR="{self.root}"\n'
+            f'export PATH="{fake_bin}:$PATH"\n'
+            f'. "{short_module}"\n'
+            'printf "SOURCE_RC:%s\\n" "$?"\n',
+            encoding="utf-8",
+        )
+
+        result = subprocess.run(
+            ["bash", str(driver)],
+            cwd=self.root,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertIn("SOURCE_RC:1", result.stdout)
+        self.assertTrue(sentinel.is_file(), result.stdout + result.stderr)
+
+    def test_create_issue_self_root_rejects_traversal_shaped_allocator_output(
+        self,
+    ) -> None:
+        source = CREATE_ISSUE_MODULE_SOURCE.read_text(encoding="utf-8")
+        boundary = "# The implement-skill bundle backs the #467 D2 Phase-2.4 leg"
+        self.assertEqual(source.count(boundary), 1)
+        short_module = self.root / "short-create-issue-traversal.sh"
+        short_module.write_text(
+            source.split(boundary, 1)[0]
+            + "_ci_cleanup\n"
+            + "trap - EXIT HUP INT TERM\n"
+            + "return 0\n",
+            encoding="utf-8",
+        )
+        intermediate = self.root / "devflow-create-issue-contract.a"
+        intermediate.mkdir()
+        victim = self.root / "x"
+        victim.mkdir()
+        sentinel = victim / "sentinel"
+        sentinel.write_text("keep\n", encoding="utf-8")
+        traversal = intermediate / ".." / victim.name
+        fake_bin = self.root / "traversal-mktemp-bin"
+        fake_bin.mkdir()
+        fake_mktemp = fake_bin / "mktemp"
+        fake_mktemp.write_text(
+            "#!/usr/bin/env bash\n"
+            f'printf "%s\\n" "{traversal}"\n',
+            encoding="utf-8",
+        )
+        fake_mktemp.chmod(0o755)
+        driver = self.root / "traversal-create-issue-driver.sh"
         driver.write_text(
             "#!/usr/bin/env bash\n"
             f'LIB="{ROOT / "lib"}"\n'

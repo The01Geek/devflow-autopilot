@@ -266,7 +266,11 @@ _devflow_cleanup_module_scratch() { # scratch-root
 _devflow_validate_module_scratch() { # scratch-root
   local scratch_root="$1" expected_parent actual_parent
   case "$scratch_root" in
-    /*/devflow-module-scratch.??????) ;;
+    /*) ;;
+    *) return 1 ;;
+  esac
+  case "${scratch_root##*/}" in
+    devflow-module-scratch.??????) ;;
     *) return 1 ;;
   esac
   [ -d "$scratch_root" ] && [ ! -L "$scratch_root" ] || return 1
@@ -275,17 +279,32 @@ _devflow_validate_module_scratch() { # scratch-root
   [ "$actual_parent" = "$expected_parent" ]
 }
 
-_devflow_discard_unvalidated_module_scratch() { # scratch-root
-  local scratch_root="$1"
-  [ -n "$scratch_root" ] || return 0
-  # The path failed the recursive-cleanup contract, so only remove the fresh,
-  # empty directory itself. Never widen an unsafe value into rm -rf.
-  if [ -d "$scratch_root" ] && [ ! -L "$scratch_root" ] && \
-    ! rmdir -- "$scratch_root"; then
-    printf 'devflow: could not discard unsafe module scratch root: %s\n' \
-      "$scratch_root" >&2
+_devflow_discard_unvalidated_owned_directory() { # path leaf-prefix expected-parent
+  local path="$1" leaf_prefix="$2" expected_parent="$3"
+  local expected_physical="" actual_physical=""
+  [ -n "$path" ] || return 0
+  case "${path##*/}" in
+    "${leaf_prefix}"??????) ;;
+    *) return 0 ;;
+  esac
+  [ -d "$path" ] && [ ! -L "$path" ] || return 0
+  expected_physical="$(cd "$expected_parent" 2>/dev/null && pwd -P)" || return 0
+  actual_physical="$(cd "$path/.." 2>/dev/null && pwd -P)" || return 0
+  [ "$actual_physical" = "$expected_physical" ] || return 0
+  if ! rmdir -- "$path"; then
+    printf 'devflow: could not discard unsafe private directory: %s\n' \
+      "$path" >&2
     return 1
   fi
+}
+
+_devflow_discard_unvalidated_module_scratch() { # scratch-root
+  local scratch_root="$1"
+  # A rejected allocator value is removed only when it still has the exact
+  # generated leaf shape and physical parent. Invalid names and traversal-shaped
+  # paths are left untouched because the boundary cannot prove ownership.
+  _devflow_discard_unvalidated_owned_directory "$scratch_root" \
+    "devflow-module-scratch." "${TMPDIR:-/tmp}"
 }
 
 _devflow_test_read_pid() { # path
