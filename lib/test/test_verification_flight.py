@@ -174,6 +174,30 @@ class TestDescriptorAndKey(Harness):
         self.assertEqual(base["descriptor_digest"], moved["descriptor_digest"])
         self.assertNotEqual(base["flight_key"], moved["flight_key"])
 
+    def test_output_roots_and_external_services_excluded_from_descriptor(self):
+        # Negative pin (issue #528, S8): the descriptor is derived ONLY from the
+        # identity operands {profile_version, argv, cwd, environment, toolchain,
+        # dependencies}. `output_roots` and `external_services` are validated but
+        # deliberately NOT part of the descriptor — they are hermeticity gates, not
+        # identity. If a regression added either to `_descriptor_bytes`, byte-varying
+        # it would churn the descriptor (and thus the flight key), silently defeating
+        # ALL reuse for callers that differ only in those fields. Assert exclusion so
+        # that regression fails RED here.
+        base = self.run_cmd(["descriptor", "--input-file", self._write(_decl())])[1]
+        # output_roots varies; external_services stays "none" (the only reusable value).
+        moved_roots = self.run_cmd([
+            "descriptor", "--input-file",
+            self._write(_decl(profile={"output_roots": [".devflow/tmp", "build/"]})),
+        ])[1]
+        self.assertEqual(
+            base["descriptor_digest"], moved_roots["descriptor_digest"],
+            "output_roots must NOT be part of the command descriptor",
+        )
+        self.assertEqual(
+            base["flight_key"], moved_roots["flight_key"],
+            "an output_roots-only difference must not churn the flight key",
+        )
+
     def test_each_descriptor_operand_shifts_digest(self):
         base = self.run_cmd(["descriptor", "--input-file", self._write(_decl())])[1]["descriptor_digest"]
         for over in (

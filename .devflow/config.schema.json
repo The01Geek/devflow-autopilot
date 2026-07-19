@@ -749,13 +749,13 @@
         "lease_seconds": {
           "type": "integer",
           "minimum": 0,
-          "description": "Bounded owner-token lease on a `claimed` handle. An attacher waits while the lease is valid; a lease that expires before the owner records `mark-running` transitions the handle to `incomplete` (owner loss at the claim boundary), which blocks reuse and never authorizes an automatic relaunch. Callers may override per invocation via --lease-seconds.",
+          "description": "Bounded owner-token lease on a `claimed` handle. An attacher waits while the lease is valid; a lease that expires before the owner records `mark-running` transitions the handle to `incomplete` (owner loss at the claim boundary), which blocks reuse and never authorizes an automatic relaunch. The helper's runtime default is the same 900s (DEFAULT_LEASE_SECONDS); callers may override per invocation via --lease-seconds. DECLARATIVE in Wave 2: the Implement / Review-and-Fix skill prose resolves only `.verification_flight.enabled` and does not yet thread this scalar into its `claim` call, so editing this key alone has no effect on a coordinated flight today — it documents the intended default and forward-compatible override surface.",
           "default": 900
         },
         "wait_timeout_seconds": {
           "type": "integer",
           "minimum": 0,
-          "description": "Default bound for an attacher's `wait` poll. A wait-bound expiry returns a non-mutating `wait_expired` observation and leaves an active flight unchanged; only the owner records a terminal `timed_out` after its command invocation reports a real timeout.",
+          "description": "Default bound for an attacher's `wait` poll. A wait-bound expiry returns a non-mutating `wait_expired` observation and leaves an active flight unchanged; only the owner records a terminal `timed_out` after its command invocation reports a real timeout. DECLARATIVE in Wave 2: the skill prose passes `wait`'s bound via its own `--timeout`, and does not yet thread this config scalar, so editing this key alone has no effect on a coordinated flight today — like `lease_seconds` it documents the intended default and forward-compatible override surface.",
           "default": 600
         },
         "profiles": {

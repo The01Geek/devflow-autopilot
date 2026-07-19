@@ -413,7 +413,13 @@ def _emit_telemetry(logs_dir: str | None, event: str, payload: dict) -> bool:
         name = f"{event}-{secrets.token_hex(8)}.json"
         _atomic_replace(base / name, rec)
         return True
-    except OSError:
+    except (OSError, TypeError, ValueError):
+        # Best-effort telemetry must never harden into a coordination failure. A
+        # non-serializable payload (a value _canonical can't encode) raises
+        # TypeError/ValueError, not OSError — catching only OSError would let a bad
+        # payload propagate out and fail the enclosing coordination op. Every write
+        # failure mode returns False so a caller with a load-bearing breadcrumb can
+        # fall back to stderr.
         return False
 
 
@@ -434,6 +440,14 @@ def _apply_read_transitions(
 
     Either transition emits a `flight_invalidated` telemetry event. Terminal
     handles are immutable — never re-transitioned.
+
+    Non-CAS write, deliberately (race acknowledged): these read-transitions persist
+    without re-checking that the on-disk handle is unchanged, so a concurrent owner
+    CAS (`mark-running`/`finish`) landing in the same instant can be clobbered by
+    this read-time write. The blast radius is bounded and safe: this path only ever
+    moves an ACTIVE handle to a non-pass terminal (`stale`/`incomplete`) — it can
+    never overwrite or manufacture a `passed`, so the worst case is a spurious
+    invalidation that costs one duplicate launch, never a false reuse.
     """
     state = flight["state"]
     if state not in ACTIVE_STATES:
@@ -461,7 +475,15 @@ def _apply_read_transitions(
 
 
 def _lease_expired(flight: dict) -> bool:
-    """True when a `claimed` handle's owner-token lease has elapsed."""
+    """True when a `claimed` handle's owner-token lease has elapsed.
+
+    A missing / non-numeric `lease_expiry_epoch` (only possible via out-of-band
+    corruption — `claim` always writes a float) is treated as NOT expired, so such
+    a `claimed` handle pins as `claimed` rather than becoming `incomplete`. This is
+    a fail-safe, not a false pass: `claimed` never satisfies verification, so the
+    cost is a handle that lingers until its own owner finishes (or an attacher's
+    `wait` bound elapses) — the fail direction is duplicate work, never reuse.
+    """
     expiry = flight.get("lease_expiry_epoch")
     return isinstance(expiry, (int, float)) and _now() > expiry
 
@@ -586,6 +608,17 @@ def cmd_claim(args) -> int:
     data = _canonical(handle)
     # Single-owner guarantee: O_CREAT|O_EXCL means at most one concurrent caller
     # wins the create; every other caller falls through to attach.
+    #
+    # Single-owner-atomic but NOT content-atomic (accepted, fails closed): between
+    # this exclusive create and the os.write below there is a tiny window in which a
+    # concurrent attacher can read a zero-byte file → `_read_flight` returns `empty`
+    # → the attacher takes the `unreadable` non-pass and launches directly. That is
+    # the correct fail-safe direction (a transient duplicate launch, never a false
+    # pass), so this deliberately keeps O_CREAT|O_EXCL rather than a temp+os.replace
+    # publish: os.replace has no exclusive-create semantics, so switching to it to
+    # buy content-atomicity would forfeit the single-owner guarantee this create is
+    # here to provide (two racing callers could each replace, minting two owners) —
+    # a strictly worse trade than the fail-closed empty-read it would remove.
     try:
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         try:
@@ -642,6 +675,11 @@ def cmd_claim(args) -> int:
         {"flight_key": derived["flight_key"], "attached_state": flight["state"]},
     )
     _print_public(flight, role="attacher")
+    # Attach ALWAYS exits EXIT_OK — the exit status here is role-only ("I attached
+    # to an existing flight"), NOT a verdict. Whether the attached flight is a
+    # consumable pass is carried in the JSON (`role`, `state`,
+    # `satisfies_verification`); a caller must read those, never branch on this
+    # exit code, to decide reuse. (status/wait DO encode pass/non-pass in the code.)
     return EXIT_OK
 
 
