@@ -1468,6 +1468,18 @@ class ModuleRunnerTests(unittest.TestCase):
             scratch = Path(temporary_directory) / "root"
             (scratch / "skills").mkdir(parents=True)
             (scratch / "lib/test").mkdir(parents=True)
+            # `git init` the scratch so it is a real (empty) work tree: the module's #613 AC10
+            # repo-wide sweep runs `git -C "$CI_ROOT" grep`, which exits 128 — its fail-closed
+            # sentinel — against a NON-repo root. That would fire a second, unrelated FAIL here
+            # and silently break the single-guard isolation this test's comment claims (the
+            # returncode/assertIn assertions would still pass, hiding it). An empty repo makes
+            # that sweep a clean rc-1 no-match, so only the bundle-member guard fires.
+            subprocess.run(
+                ["git", "init", "-q", "."],
+                cwd=scratch,
+                check=True,
+                capture_output=True,
+            )
             # Symlink every surface the module reads, except implement (partial copy).
             (scratch / "skills/create-issue").symlink_to(ROOT / "skills/create-issue")
             (scratch / "skills/review-and-fix").symlink_to(ROOT / "skills/review-and-fix")
