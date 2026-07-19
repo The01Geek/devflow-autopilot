@@ -11352,6 +11352,60 @@ LPE_SEC_TRAILARG="$(cd "$LPE_SEC_DIR" && bash "$LPE" sectioned --section '## Bet
 assert_eq "lpe --section: a --section value carrying trailing whitespace still matches" \
   "$(printf '## Beta\nbeta body\n')" "$LPE_SEC_TRAILARG"
 
+# (14) a CRLF-terminated heading line still selects its section. The fixture is written
+# with real `\r` bytes: the trailing-space case above cannot stand in for it, because
+# `\r` is the byte a CRLF-authored consumer extension actually carries and a strip that
+# handles spaces but not `\r` would pass that case while failing this one.
+printf '## CRLF Heading\r\nbody under a CRLF heading\r\n\r\n## After\r\nafter\r\n' \
+  > "$LPE_SEC_DIR/.devflow/prompt-extensions/crlf.md"
+LPE_SEC_CRLF="$(cd "$LPE_SEC_DIR" && bash "$LPE" crlf --section '## CRLF Heading' 2>/dev/null)"
+assert_eq "lpe --section: a CRLF-terminated heading line still selects its section" "yes" \
+  "$(case "$LPE_SEC_CRLF" in *'body under a CRLF heading'*) echo yes ;; *) echo no ;; esac)"
+assert_eq "lpe --section: a CRLF section stops at the next heading (does not run to EOF)" "yes" \
+  "$(case "$LPE_SEC_CRLF" in *after*) echo no ;; *) echo yes ;; esac)"
+
+# Heading matching is EXACT (case-sensitive) — a deliberate divergence from
+# workpad.py's case-insensitive `_find_section`, justified in the helper header as
+# "a case-drifted heading must be reported rather than silently accepted". Without this
+# row a mutation to case-insensitive matching passes the whole block, silently
+# accepting the drift the contract says to report.
+LPE_SEC_CASE="$(cd "$LPE_SEC_DIR" && bash "$LPE" sectioned --section '## alpha' 2>"$LPE_SEC_DIR/err-case")"
+assert_eq "lpe --section: heading match is case-SENSITIVE ('## alpha' does not select '## Alpha')" \
+  "" "$LPE_SEC_CASE"
+assert_eq "lpe --section: a case-drifted heading is REPORTED, not silently accepted" "yes" \
+  "$(grep -qF '## Alpha' "$LPE_SEC_DIR/err-case" && echo yes || echo no)"
+
+# A heading line carrying a TRAILING INLINE HTML COMMENT is still a heading. The
+# comment-block arm must not swallow it: doing so made the section unselectable AND made
+# the breadcrumb enumerate the file as though the heading were absent — telling the
+# caller a heading it can plainly see does not exist. The `<!-- ## Commented -->` case
+# above is the contrast: that line does not BEGIN with '## ', so it stays inert.
+printf '## Inline <!-- note -->\ninline body\n\n## AfterInline\nafter inline\n' \
+  > "$LPE_SEC_DIR/.devflow/prompt-extensions/inline.md"
+LPE_SEC_INLINE="$(cd "$LPE_SEC_DIR" && bash "$LPE" inline --section '## Inline <!-- note -->' 2>/dev/null)"
+assert_eq "lpe --section: a heading with a trailing inline HTML comment is still a heading" \
+  "$(printf '## Inline <!-- note -->\ninline body\n')" "$LPE_SEC_INLINE"
+# ...and it does not bleed into the following section (the swallowed-heading shape
+# merged both sections into one).
+assert_eq "lpe --section: an inline-comment heading terminates the preceding section" "yes" \
+  "$(case "$LPE_SEC_INLINE" in *'after inline'*) echo no ;; *) echo yes ;; esac)"
+# A heading that OPENS an unclosed comment still governs the lines after it, so the
+# commented-out remainder is not emitted as section content.
+printf '## Opener <!--\nswallowed by the comment the heading opened\n' \
+  > "$LPE_SEC_DIR/.devflow/prompt-extensions/opener.md"
+LPE_SEC_OPENER="$(cd "$LPE_SEC_DIR" && bash "$LPE" opener --section '## Opener <!--' 2>/dev/null)"
+assert_eq "lpe --section: a heading that opens an unclosed comment still governs the lines after it" \
+  "yes" "$(case "$LPE_SEC_OPENER" in *swallowed*) echo no ;; *) echo yes ;; esac)"
+
+# A '--'-prefixed --section VALUE is a dropped heading argument, refused loudly rather
+# than searched for as a literal section name (which would take the silent
+# absent-heading no-op — the shape the positional guard already refuses).
+LPE_BAD5="$(cd "$LPE_SEC_DIR" && bash "$LPE" sectioned --section --bogus 2>"$LPE_SEC_DIR/err-bad5")"; LPE_BAD5_RC=$?
+assert_eq "lpe --section: a flag-shaped --section value → exit 2" "2" "$LPE_BAD5_RC"
+assert_eq "lpe --section: a flag-shaped --section value → empty stdout" "" "$LPE_BAD5"
+assert_eq "lpe --section: a flag-shaped --section value → breadcrumb names it" "yes" \
+  "$(grep -qF -- '--bogus' "$LPE_SEC_DIR/err-bad5" && echo yes || echo no)"
+
 # (15) a repeated `--section` takes its LAST occurrence.
 LPE_SEC_REPEAT="$(cd "$LPE_SEC_DIR" && bash "$LPE" sectioned --section '## Alpha' --section '## Beta' 2>/dev/null)"
 assert_eq "lpe --section: a repeated --section takes its last occurrence" \
@@ -11388,8 +11442,16 @@ LPE_SEC_EMPTY="$(cd "$LPE_SEC_DIR" && bash "$LPE" emptysec --section '## Empty' 
 assert_eq "lpe --section: empty section → empty stdout (equivalent to an absent heading)" \
   "" "$LPE_SEC_EMPTY"
 assert_eq "lpe --section: empty section → exit 0" "0" "$LPE_SEC_EMPTY_RC"
+# Byte-empty, NOT a grep for some literal: the previous form grepped a string the
+# helper never emits, so it passed unconditionally and could not have caught the arm
+# it exists to police. The positive control below proves the same fixture DOES
+# breadcrumb on a genuine absent heading, so this pair discriminates the two arms.
 assert_eq "lpe --section: empty section carries NO absent-heading breadcrumb (the heading was found)" \
-  "" "$(grep -F 'not found' "$LPE_SEC_DIR/err-empty" || true)"
+  "" "$(cat "$LPE_SEC_DIR/err-empty")"
+LPE_SEC_EMPTY_CTL="$(cd "$LPE_SEC_DIR" && bash "$LPE" emptysec --section '## NoSuchHeading' 2>"$LPE_SEC_DIR/err-empty-ctl")"
+assert_eq "lpe --section: positive control — the SAME fixture does breadcrumb on a genuinely absent heading" \
+  "yes" "$(grep -qF 'no section headed' "$LPE_SEC_DIR/err-empty-ctl" && echo yes || echo no)"
+assert_eq "lpe --section: positive control emits no stdout either" "" "$LPE_SEC_EMPTY_CTL"
 # A whitespace-only body is the same shape as a wholly-absent one — a blank line is
 # not consumer content — so it takes the empty-section arm too.
 printf '## Blank\n\n   \n\n## After\nafter body\n' > "$LPE_SEC_DIR/.devflow/prompt-extensions/blanksec.md"
@@ -11423,6 +11485,11 @@ assert_eq "lpe --section: final line with no terminating newline is emitted in f
 LPE_SEC_EF="$(cd "$LPE_SEC_DIR" && bash "$LPE" emptyfile --section '## Anything' 2>"$LPE_SEC_DIR/err-ef")"; LPE_SEC_EF_RC=$?
 assert_eq "lpe --section: empty extension file → empty stdout" "" "$LPE_SEC_EF"
 assert_eq "lpe --section: empty extension file → exit 0" "0" "$LPE_SEC_EF_RC"
+# The captured stderr is ASSERTED, not merely captured: an unread capture beside a
+# comment stating the contract is the fail-open shape that let the empty-file
+# breadcrumb ship in the first place.
+assert_eq "lpe --section: empty extension file → NO absent-heading breadcrumb (the clause is scoped to a non-empty file)" \
+  "" "$(cat "$LPE_SEC_DIR/err-ef")"
 LPE_SEC_AF="$(cd "$LPE_SEC_DIR" && bash "$LPE" no-such-skill --section '## Anything' 2>/dev/null)"; LPE_SEC_AF_RC=$?
 assert_eq "lpe --section: absent extension file → empty stdout" "" "$LPE_SEC_AF"
 assert_eq "lpe --section: absent extension file → exit 0" "0" "$LPE_SEC_AF_RC"

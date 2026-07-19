@@ -37,9 +37,12 @@
 # Two sibling '## '-heading scanners live in scripts/, and their terminator rules
 # DIFFER deliberately — do not "unify" them without re-reading all three contracts:
 #   * scripts/parse-acs.py `_extract_section` terminates on the next heading of the
-#     SAME-OR-HIGHER level, so a '###' sub-heading DOES end its section there.
-#   * scripts/workpad.py `_split_sections` splits on '## ' and matches the heading
-#     name case-INsensitively.
+#     SAME-OR-HIGHER level. For the level-2 sections it is actually called with, a
+#     '###' sub-heading is therefore NOT a terminator either — it differs from this
+#     helper in dropping heading lines from the returned content, not in the terminator.
+#   * scripts/workpad.py splits on '## ' in `_split_sections` and matches the heading
+#     name case-INsensitively in its sibling `_find_section` (the split and the match
+#     are two functions; `_split_sections` performs no name comparison of its own).
 #   * this one terminates only on '## ' (a '###' line is section content) and matches
 #     the heading line EXACTLY after a trailing-whitespace strip, because it feeds
 #     agent-executed prompt prose where a sub-heading is part of the section body and
@@ -141,6 +144,17 @@ while [ "$#" -gt 0 ]; do
                 echo "load-prompt-extension.sh: --section requires a value (the exact '## '-prefixed heading line)" >&2
                 exit 2
             fi
+            # A '--'-prefixed VALUE is a dropped heading argument (`--section --bogus`,
+            # or `--section` immediately followed by the next flag). Binding it as the
+            # heading would search for a section literally named '--bogus', find none,
+            # and take the designed absent-heading no-op — the silent shape the sibling
+            # positional guard already refuses. Refuse it the same way.
+            case "$2" in
+                --*)
+                    echo "load-prompt-extension.sh: --section value '$2' looks like a flag, not a '## '-prefixed heading line (a dropped heading argument would otherwise select nothing silently)" >&2
+                    exit 2
+                    ;;
+            esac
             section="$2"
             section_requested=1
             shift 2
@@ -271,16 +285,34 @@ if [ -f "$ext_file" ]; then
                         # — the truncation shape a hand-edited extension can leave.
                         _in_fence=1
                         ;;
-                    *'<!--'*)
-                        # A comment that also closes on the same line leaves the block
-                        # state alone; either way this line is not a heading.
-                        case "$_line" in *'-->'*) : ;; *) _in_comment=1 ;; esac
-                        ;;
                     '## '*)
                         # Two hashes PLUS A SPACE. '### Foo' fails this pattern (its
                         # third character is '#', not a space), so a sub-heading is
                         # section content and terminates nothing.
+                        #
+                        # This arm is tested BEFORE the HTML-comment arm on purpose: a
+                        # line that BEGINS with '## ' is a heading whatever follows it,
+                        # including a trailing inline comment
+                        # (`## Evidence axes <!-- consumer note -->`). Ordering the
+                        # comment arm first made such a heading unselectable AND made
+                        # the absent-heading breadcrumb enumerate the file as though the
+                        # heading were not there — telling the caller a heading it can
+                        # plainly see does not exist. A line that merely CONTAINS '<!--'
+                        # without starting '## ' still falls through to the comment arm,
+                        # so `<!-- ## Commented -->` is unaffected.
                         _is_heading=1
+                        # A heading line may itself OPEN an unclosed comment block
+                        # (`## X <!--`). It is still this section's heading, but the
+                        # block it opened must govern the lines that follow, or the
+                        # commented-out remainder would be emitted as section content.
+                        case "$_line" in
+                            *'<!--'*) case "$_line" in *'-->'*) : ;; *) _in_comment=1 ;; esac ;;
+                        esac
+                        ;;
+                    *'<!--'*)
+                        # A comment that also closes on the same line leaves the block
+                        # state alone; either way this line is not a heading.
+                        case "$_line" in *'-->'*) : ;; *) _in_comment=1 ;; esac
                         ;;
                 esac
             fi
@@ -322,16 +354,22 @@ if [ -f "$ext_file" ]; then
             if [ "$_has_body" -eq 1 ]; then
                 printf '%s' "$_out"
             fi
-        else
-            # The heading is absent from the extension. The no-op itself is DESIGNED (a
-            # single-hook extension carrying only the other heading is the routine case,
-            # and it must not fail), so this stays exit 0 — but a silent no-op is
-            # indistinguishable from a heading the consumer typo'd, so name what was
-            # asked for and what is actually there. Only headings the extractor
+        elif [ -s "$ext_file" ]; then
+            # The heading is absent from a NON-EMPTY extension. The no-op itself is
+            # DESIGNED (a single-hook extension carrying only the other heading is the
+            # routine case, and it must not fail), so this stays exit 0 — but a silent
+            # no-op is indistinguishable from a heading the consumer typo'd, so name
+            # what was asked for and what is actually there. Only headings the extractor
             # genuinely recognizes are listed: advertising a heading inside a comment
             # block or a fence would send the caller chasing one it can never select.
             # The two arms share one message prefix rather than spelling it twice, so
             # the wording cannot drift between them.
+            #
+            # The `-s` guard is what scopes this to a non-empty file, as the contract
+            # states at every site that documents it. An EMPTY extension is already the
+            # documented silent no-op (byte-identical to having no extension at all), so
+            # breadcrumbing it would report a "missing heading" for a consumer who has
+            # opted out entirely — noise on the one shape that is unambiguously fine.
             _detail="the file carries no '## '-prefixed headings"
             [ -n "$_headings" ] && _detail="headings present: ${_headings}"
             echo "load-prompt-extension.sh: no section headed '$section' in '$ext_file'; ${_detail}" >&2

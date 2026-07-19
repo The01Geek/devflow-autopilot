@@ -4257,6 +4257,23 @@ assert_eq("#611 stale-override remedy (c1): the fail-safe arm makes no already-r
 assert_eq("#611 stale-override remedy (c1): the fail-safe arm still names the "
           "fresh-election step",
           True, 'fresh explicit user election' in _so_remedy(_so_c1, 'D9'))
+# Pin c1's OWN cause clause, not just the shared election suffix every arm carries.
+# Negative assertions plus the shared clause discriminate nothing: deleting the
+# absent-comparand branch so c1 falls through to the generic else keeps all of them
+# green while changing the emitted cause, which is the vacuous-negative-test shape.
+assert_eq("#611 stale-override remedy (c1): names the absent-comparand cause, "
+          "distinguishing it from the generic no-current-override arm",
+          True, 'could not be validated against the draft bytes' in _so_remedy(_so_c1, 'D9'))
+# A digest-bound override queried with NO digest supplied is the same unestablished
+# shape: the comparand was never obtained, so no arm may assert the bytes changed.
+_so_c3 = _state([_round(1, 'file', 'REVISE', 'D1')], revisions=(1,), overrides=[
+    {'kind': 'user-decline', 'surface': 'step4-offer', 'recorded_at_ordinal': 1,
+     'draft_digest': 'D2'}])
+assert_eq("#611 stale-override remedy (c3): a digest-bound override queried with NO "
+          "digest takes the fail-safe arm — never asserts the bytes changed",
+          (False, True),
+          ('since changed' in _so_remedy(_so_c3, None),
+           'could not be validated against the draft bytes' in _so_remedy(_so_c3, None)))
 
 # (c2) a FUTURE-ordinal override (recorded ordinal ahead of the current revision
 # ordinal — a hand-edited or older-build record). Arm b's "the revision is already
@@ -4271,6 +4288,11 @@ assert_eq("#611 stale-override remedy (c2): a future-ordinal override takes the 
 assert_eq("#611 stale-override remedy (c2): the fail-safe arm names no record-revision "
           "step",
           False, 'record-revision' in _so_remedy(_so_c2, 'D9'))
+# c2's own distinct cause clause — the sibling of c1's pin above, for the branch where
+# no current-ordinal override exists at all.
+assert_eq("#611 stale-override remedy (c2): names the no-current-override cause, "
+          "distinguishing it from c1's absent-comparand arm",
+          True, 'no recorded override is still current' in _so_remedy(_so_c2, 'D9'))
 
 # No arm may name a bare re-record sequence: `record-revision` immediately followed by
 # `record-override` would re-arm a user election the user never made, which is the very

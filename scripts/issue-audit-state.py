@@ -1214,10 +1214,14 @@ def stale_override_remedy(state, current_digest):
             current = ov
             break
     newest = overrides[-1] if overrides else None
-    # Four peer arms, in the docstring's order. Each selects only its CAUSE clause; the
-    # shared election clause is appended once below, so "every arm ends in the election"
-    # is structural rather than a convention four return sites must each remember.
-    if current is not None and current.get('draft_digest') not in (None, current_digest):
+    # Each branch selects only its CAUSE clause; the shared election clause is appended
+    # once below, so "every arm ends in the election" is structural rather than a
+    # convention each return site must separately remember. Arm c of the docstring is
+    # implemented as two branches with distinct causes (an unvalidatable current-ordinal
+    # override, and no current override at all) — deliberately not renumbered here, so
+    # no count or ordering claim in this comment can rot against the docstring.
+    if (current is not None and current_digest is not None
+            and current.get('draft_digest') not in (None, current_digest)):
         cause = ('the recorded override was digest-bound to draft bytes that have '
                  'since changed, so it no longer grounds eligibility; record the '
                  'revision with `record-revision`, then ')
