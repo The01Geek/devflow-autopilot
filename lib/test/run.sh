@@ -21393,9 +21393,10 @@ printf '[user]\n\tname = HostileSystem\n\temail = hostile-sys@e.com\n'  > "$TB_H
 # AC5/AC9: run the identity-sensitive block under a hostile invoking environment — a global config
 # file that resolves identity, inherited author/committer vars, BOTH command-scope channels
 # (GIT_CONFIG_COUNT and GIT_CONFIG_PARAMETERS), and an inherited GIT_CONFIG_NOSYSTEM=1 that each
-# row must UNSET to reach system config (git offers no value that re-enables it). Because that
-# NOSYSTEM=1 is in force, TB_HOSTILE_SYS never resolves anywhere in this block: it is a LEAK
-# CANARY (a leaked "HostileSystem" would name its own source), not an active hostile source.
+# system-config row clears with `env -u` to reach system config. Because that
+# NOSYSTEM=1 is in force, TB_HOSTILE_SYS never resolves anywhere in this block — it is an inert
+# distinct-valued placeholder, not an active hostile source. Its only purpose is attribution: if a
+# future edit ever made system config reachable here, the leaked value would name its own origin.
 # The block's own per-check isolation is what keeps the suite green under this hostility.
 (
   export GIT_CONFIG_GLOBAL="$TB_HOSTILE_GLOB"
@@ -21408,7 +21409,7 @@ printf '[user]\n\tname = HostileSystem\n\temail = hostile-sys@e.com\n'  > "$TB_H
   # GIT_CONFIG_COUNT/KEY_n/VALUE_n. Exporting it hostilely here is what makes the
   # `-u GIT_CONFIG_PARAMETERS` flag load-bearing on every row whose identity comes from CONFIG —
   # the system, global and command-scope rows, and both negative probes: drop the flag there and
-  # the row resolves ParamLeak and goes RED. On the two inherited-VARIABLE rows the flag is
+  # the row resolves ParamLeak and goes RED. On the inherited-VARIABLE rows the flag is
   # symmetry/defence-in-depth rather than load-bearing, because their own GIT_AUTHOR_*/
   # GIT_COMMITTER_* outrank every config scope and win over ParamLeak regardless.
   export GIT_CONFIG_PARAMETERS="'user.name=ParamLeak' 'user.email=param-leak@e.com'"
@@ -21422,8 +21423,9 @@ printf '[user]\n\tname = HostileSystem\n\temail = hostile-sys@e.com\n'  > "$TB_H
   # Enable system by UNSETTING the inherited GIT_CONFIG_NOSYSTEM=1 and pointing GIT_CONFIG_SYSTEM
   # at our file; disable global (/dev/null), inherited vars (unset), command-scope (unset). That
   # the row resolves SysName once NOSYSTEM is unset — under an outer env that sets it — is the
-  # AC3 demonstration. Unsetting is the ONLY way in: there is no GIT_CONFIG_NOSYSTEM value that
-  # re-enables system config, so this is never an "override".
+  # AC3 demonstration. (`GIT_CONFIG_NOSYSTEM=0` would also work — git parses it as a bool, so any
+  # bool-false value re-enables system config — but unsetting keeps this row's isolation uniform
+  # with its siblings, which all clear competing sources with `env -u` rather than by re-valuing.)
   TB_M_SYS="$( env -u GIT_CONFIG_NOSYSTEM \
         -u GIT_AUTHOR_NAME -u GIT_AUTHOR_EMAIL -u GIT_COMMITTER_NAME -u GIT_COMMITTER_EMAIL \
         -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 -u GIT_CONFIG_PARAMETERS \
@@ -21469,27 +21471,40 @@ printf '[user]\n\tname = HostileSystem\n\temail = hostile-sys@e.com\n'  > "$TB_H
   assert_eq "tb(#575 AC1): command-scope config row resolves its own identity" \
     "CmdName <cmd@e.com>" "$TB_M_CMD"
 
-  # ── Negative probe (AC4): isolate every ENVIRONMENT and CONFIG-FILE source; neither author nor
+  # ── Negative probe (AC4): isolate every environment and config-file source; neither author nor
   # committer resolves. This replaces the old empty-commit "positive control", which relied on
   # version-dependent commit diagnostics and leaked host identity.
   # LOCAL repo config is the one source the probe does NOT isolate — the fixture does, by setting
-  # user.useConfigOnly=true and never writing a local user.name/user.email (that same option is
-  # also what blocks git's gecos/hostname and $EMAIL fallbacks). Do not add local identity to
-  # TB_ID_REPO: the negative-probe checks below would flip to `resolved`, with nothing to warn you.
+  # user.useConfigOnly=true and never writing a local user.name/user.email (that same option also
+  # blocks git's gecos/hostname fallback). Do not add local identity to TB_ID_REPO: the
+  # negative-probe checks below would flip to `resolved`, with nothing to warn you.
+  # `-u EMAIL` is belt-and-braces rather than load-bearing while useConfigOnly is in force (that
+  # option blocks the $EMAIL fallback too) — but it is what keeps this probe from depending on
+  # useConfigOnly for a channel it can isolate directly, so removing useConfigOnly can no longer
+  # turn a contributor's exported EMAIL into a host-dependent false failure here.
   # AC4 unsets NOSYSTEM/COUNT/PARAMETERS + the four identity vars, and also unsets the inherited
   # command-scope KEY_0/VALUE_0, so command-scope is isolated by the probe itself. (It would also
   # have been incidentally safe — COUNT is unset and the outer hostile KEY_0 carries no email —
   # but the probe deliberately does not rely on that.)
-  TB_NEG_A="$( env -u GIT_CONFIG_NOSYSTEM -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 -u GIT_CONFIG_PARAMETERS \
-        -u GIT_AUTHOR_NAME -u GIT_AUTHOR_EMAIL -u GIT_COMMITTER_NAME -u GIT_COMMITTER_EMAIL \
+  # Assert git's OWN identity-unknown exit status (128), not merely "non-zero": `env` is not
+  # preflight-guaranteed, and a missing `env` exits 127 — which a bare non-zero test would score
+  # as "identity did not resolve" while `git var` never ran at all, the vacuous-negative shape.
+  # This discriminates on an EXIT CODE, deliberately not on git's diagnostic TEXT: matching the
+  # message is the version-dependent coupling issue #575 removed from this fixture.
+  TB_NEG_A_RC=0
+  env -u GIT_CONFIG_NOSYSTEM -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 -u GIT_CONFIG_PARAMETERS \
+        -u GIT_AUTHOR_NAME -u GIT_AUTHOR_EMAIL -u GIT_COMMITTER_NAME -u GIT_COMMITTER_EMAIL -u EMAIL \
         GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
-        git -C "$TB_ID_REPO" var GIT_AUTHOR_IDENT >/dev/null 2>&1 && echo resolved || echo unresolved )"
-  assert_eq "tb(#575 AC4): isolated negative probe — author identity does NOT resolve" "unresolved" "$TB_NEG_A"
-  TB_NEG_C="$( env -u GIT_CONFIG_NOSYSTEM -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 -u GIT_CONFIG_PARAMETERS \
-        -u GIT_AUTHOR_NAME -u GIT_AUTHOR_EMAIL -u GIT_COMMITTER_NAME -u GIT_COMMITTER_EMAIL \
+        git -C "$TB_ID_REPO" var GIT_AUTHOR_IDENT >/dev/null 2>&1 || TB_NEG_A_RC=$?
+  assert_eq "tb(#575 AC4): isolated negative probe — author identity does NOT resolve (git rc 128, not a harness rc)" \
+    "128" "$TB_NEG_A_RC"
+  TB_NEG_C_RC=0
+  env -u GIT_CONFIG_NOSYSTEM -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 -u GIT_CONFIG_PARAMETERS \
+        -u GIT_AUTHOR_NAME -u GIT_AUTHOR_EMAIL -u GIT_COMMITTER_NAME -u GIT_COMMITTER_EMAIL -u EMAIL \
         GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
-        git -C "$TB_ID_REPO" var GIT_COMMITTER_IDENT >/dev/null 2>&1 && echo resolved || echo unresolved )"
-  assert_eq "tb(#575 AC4): isolated negative probe — committer identity does NOT resolve" "unresolved" "$TB_NEG_C"
+        git -C "$TB_ID_REPO" var GIT_COMMITTER_IDENT >/dev/null 2>&1 || TB_NEG_C_RC=$?
+  assert_eq "tb(#575 AC4): isolated negative probe — committer identity does NOT resolve (git rc 128, not a harness rc)" \
+    "128" "$TB_NEG_C_RC"
 
   # ── Persistence under the hostile outer environment (AC5/AC7) ──
   mkdir -p "$TB_ID_REPO/.devflow/tmp/review/pr-1/run-a"
@@ -21522,7 +21537,7 @@ printf '[user]\n\tname = HostileSystem\n\temail = hostile-sys@e.com\n'  > "$TB_H
     "$(git -C "$TB_ID_REPO" cat-file -e refs/heads/devflow-telemetry:.devflow/logs/efficiency/pr-1-run-b.json >/dev/null 2>&1 && echo yes || echo no)"
 
   # Arrival sentinel: every assertion above lives in this subshell, which runs without `set -e`
-  # but under `set -u`. An early abort (an unbound var, a missing `env`) records ZERO FAILs and
+  # but under `set -u`. An early abort (an unbound-variable expansion) records ZERO FAILs and
   # would leave the suite green with the whole #575 block silently unexecuted. Writing a sentinel
   # as the LAST in-subshell statement, and asserting it from OUTSIDE, is what turns that silence
   # into a visible failure — an in-subshell assertion could not, because an early abort simply
