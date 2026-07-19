@@ -289,6 +289,12 @@ gate:
 `devflow.allowed_tools` for the command path) and the run verifies them in-env; leave them ungranted and a
 verification-command AC goes **`Blocked`**, its message naming `devflow_implement.allowed_tools` as the
 exact remedy. See [`cloud-setup.md`](cloud-setup.md#extending-the-tool-allowlist) for the config surface.
+
+**Grant-timing bootstrap — a grant a PR ships is post-merge-only.** A grant added to
+`devflow_implement.allowed_tools` (or `devflow.allowed_tools`) inside a PR
+is live only after that PR merges, because the workflows resolve config grants at trigger time from the default branch, not from the PR's own head.
+So a run must not rely on a grant its own PR ships: grant the command in a prior merged change, or
+leave that verification for after merge.
 The shared review engine, executed inline by Phase 3.3, takes its **test evidence from the orchestrator's
 own in-env suite/lint results** for the current HEAD — never a CI conclusion. (The read-only `review`
 runner is a separate, unchanged case: its wait-for-CI-then-review posture is the correct *post-PR*

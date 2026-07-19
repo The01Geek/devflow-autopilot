@@ -30,6 +30,8 @@ CI_TMPL="$CI_ROOT/skills/create-issue/references/issue-template.md"
 CI_EXT="$CI_ROOT/.devflow/prompt-extensions/create-issue.md"
 CI_OVERVIEW="$CI_ROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 CI_CLAUDE="$CI_ROOT/CLAUDE.md"
+CI_CLOUD_SETUP="$CI_ROOT/docs/cloud-setup.md"       # #593 grant-timing bootstrap consumer doc
+CI_IMPL_DOC="$CI_ROOT/docs/implement-skill.md"      # #593 grant-timing bootstrap consumer doc
 # review-and-fix is a BUNDLE since #530 (thin SKILL.md root + phases in
 # references/*.md); the #467 D2 fix-delta-gate sentence now lives in a reference
 # member, so the leg pins against the assembled CI_MAXI_BUNDLE (built below,
@@ -829,11 +831,35 @@ devflow_module_pin_unique "base-update: create-issue extension carries the deplo
   'Deployment-variance silence.' "$CI_EXT"
 assert_eq "#467 D3 (re-scoped by #548): create-issue extension ## Audit dimensions section is 9 dimension bullets" "9" \
   "$(awk '/^## Audit dimensions/{f=1;next} /^## /{f=0} f' "$CI_EXT" | grep -c '^- \*\*')"
-# #548 Guard-reconciliation: the new `## Evidence axes` section carries the four DevFlow axis
-# bullets, and the whole-file count is now 13 (9 dimensions + 4 axes) — the old whole-file guard
-# form would have broken here, which is exactly why it was re-scoped above.
-assert_eq "#548 Evidence-axes: create-issue extension ## Evidence axes section is 4 axis bullets" "4" \
+# #548 Guard-reconciliation (count moved 4->5 by #593): the `## Evidence axes` section carries the
+# DevFlow axis bullets, and the whole-file count is now 14 (9 dimensions + 5 axes) — the old
+# whole-file guard form would have broken here, which is exactly why it was re-scoped above. #593
+# added the "Grant-timing bootstrap" axis bullet, moving this section guard from 4 to 5.
+assert_eq "#548 Evidence-axes (count moved to 5 by #593): create-issue extension ## Evidence axes section is 5 axis bullets" "5" \
   "$(awk '/^## Evidence axes/{f=1;next} /^## /{f=0} f' "$CI_EXT" | grep -c '^- \*\*')"
+
+# ── issue #593: grant-timing bootstrap (in-PR tool grants are post-merge-only) + repo-wide
+#    mirror-sweep scope. Five surface-presence contract pins (devflow_module_pin_unique / a
+#    count-equals-3 guard) on new prose — NOT behavioral-fix pins, so no mutation obligation
+#    attaches (matching the #548/#464 surface-presence precedent: these pin sentence *presence*,
+#    not a behavioral guarantee whose half-revert re-introduces a named bug).
+# (1) CLAUDE.md gotcha operative phrase.
+devflow_module_pin_unique "#593: CLAUDE.md grant-timing gotcha states the in-PR-inert rule" \
+  'in-PR-inert and post-merge-only' "$CI_CLAUDE"
+# (2) Extension's new Grant-timing bootstrap evidence axis.
+devflow_module_pin_unique "#593: extension ## Evidence axes carries the Grant-timing bootstrap axis" \
+  'Record whether any proposed in-run obligation, probe, or verification command' "$CI_EXT"
+# (3) Shared repo-wide-scope sentence — legitimately occurs at three enumeration-mandating sites,
+#     so an exactly-once pin cannot hold; a count-equals-3 guard is the harness idiom for a value
+#     that recurs. A dropped or wrapped-across-lines site makes this RED (below-3), fail-closed.
+assert_eq "#593: extension repo-wide-scope sentence present at exactly 3 enumeration sites" "3" \
+  "$(devflow_module_pin_count 'a directory-scoped sweep does not discharge enumeration' "$CI_EXT")"
+# (4) docs/cloud-setup.md consumer timing sentence.
+devflow_module_pin_unique "#593: docs/cloud-setup.md states in-PR grants take effect only post-merge" \
+  'takes effect only after that PR merges, because the workflows resolve grants at trigger time' "$CI_CLOUD_SETUP"
+# (5) docs/implement-skill.md consumer timing sentence.
+devflow_module_pin_unique "#593: docs/implement-skill.md states in-PR grants take effect only post-merge" \
+  'is live only after that PR merges, because the workflows resolve config grants at trigger time' "$CI_IMPL_DOC"
 
 # ── issue #548: evidence-bundle sub-pass + actionability/convergence contracts (prose pins).
 #    All surface-presence contract pins on new feature prose (devflow_module_pin_unique) — NOT

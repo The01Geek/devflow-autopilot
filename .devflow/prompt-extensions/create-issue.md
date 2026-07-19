@@ -30,6 +30,7 @@ text:
 4. **Every pinned literal and sentinel in the blast radius** — each `lib/test/run.sh` pin, enum
    value, and mirror site whose text your change would touch, enumerated with a
    **whitespace-normalized** search (a contract phrase wrapped across lines lives on no single line).
+   This sweep is repo-wide: enumeration covers the whole tracked tree for every contract sentence the draft amends, and a directory-scoped sweep does not discharge enumeration.
 
 **Quote, never paraphrase — this is the part that carries the weight.** A contract sentence is where
 the design error is born, and it is born in the summary of it. A sentence of the form *"an X in state
@@ -116,7 +117,9 @@ subagent. Judge the draft against each of these, in addition to the generic dime
   identically (a label literal, a config-key name, a `SKILL.md` pin a `run.sh` grep asserts, a
   self-record) is a coupled site: it must be edited in every mirror in the *same* change.
   Enumerate mirrors with a **whitespace-normalized** search (a phrase wrapped across adjacent
-  string literals defeats line-based `git grep`). Flag any draft that touches one half of a
+  string literals defeats line-based `git grep`).
+  This sweep is repo-wide: enumeration covers the whole tracked tree for every contract sentence the draft amends, and a directory-scoped sweep does not discharge enumeration.
+  Flag any draft that touches one half of a
   coupled invariant without naming the other. **A mirror is only as correct as its source:**
   the source form must itself be internally reconciled before it is propagated to its mirror
   sites (the within-text multi-state-contract reconciliation the Step 3.5 hunt performs).
@@ -197,3 +200,14 @@ for each of these, in addition to the generic axes:
 - **The `lib/test/run.sh` pin corpus.** A contract sentence, literal, or count this change ships
   is likely mirrored by a `lib/test/run.sh` pin (or an extension count guard). Record the pins the
   change adds, moves, or must keep byte-identical (enumerated with a whitespace-normalized search).
+  This sweep is repo-wide: enumeration covers the whole tracked tree for every contract sentence the draft amends, and a directory-scoped sweep does not discharge enumeration.
+- **Grant-timing bootstrap.** Record whether any proposed in-run obligation, probe, or verification command
+  relies on a **trigger-time-resolved** `.devflow/config.json` change the same PR ships — a tool grant in
+  `devflow_implement.allowed_tools` or `devflow.allowed_tools`, a `devflow_version` bump, or any other key
+  the workflow `config` job resolves at trigger time from the default branch (`devflow-implement.yml`'s
+  `config` job checks out the default-branch tip and reads config from it, so a grant a PR ships is inert
+  for that PR's own implementing run — post-merge-only). Keys skills read at runtime through `config-get.sh`
+  resolve from the checked-out working tree and **are** live in the same run (e.g. `deferred.labels` in
+  implement Phase 4.0), so they are out of this axis's scope. Record the reliance, and rewrite it as one of:
+  a code-reading obligation citing the producer, a command already granted on the consuming tier, or a
+  post-merge follow-up.
