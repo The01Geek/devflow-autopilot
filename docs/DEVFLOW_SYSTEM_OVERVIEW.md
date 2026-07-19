@@ -433,6 +433,42 @@ The `devflow_review.agent_overrides` config maps any of the **nine** review suba
 - **Convergence check:** exits early when fixes are small and no new corroborated Critical/Important finding appears.
 - **Loop Exit:** runs a **widens-surface guard** and emits a run-scoped **deferrals manifest**; renders a `## Coverage` section and the run/effectiveness telemetry.
 
+### Prompt mass and prose cutovers
+
+DevFlow treats mandatory agent instructions as a measured runtime surface. The policy is
+simple: once an executable helper is the sole tested owner of a workflow decision on every
+consuming path, the same change removes the superseded mandatory prose, branch/enum mirrors,
+and obsolete prose pins. Policy, human decisions, invocation and fail-closed contracts, and
+essential stop conditions stay in the skill. Rare-path explanation may move into a gated
+reference, but operative logic does not disappear before tested helper ownership exists.
+
+`lib/test/prompt-mass-census.py` enforces the committed inventory in
+`lib/test/prompt-mass-manifest.json` and the exact per-file byte mirror in
+`lib/test/prompt-mass-baseline.json`. A file loaded unconditionally on any normal flow path —
+including mandatory-at-entry phase or step references — is `mandatory`; only genuinely
+conditional rare-path files are `reference`. Both classes have baseline rows, so every byte
+movement is visible, while only mandatory rows incur the Review artifact toll. Group totals
+are derived rather than committed, allowing non-adjacent per-file baseline edits from
+concurrent PRs to merge without a shared total-row hot spot. The existing Review and
+Review-and-Fix word ceilings remain complementary and unchanged: ceilings cap traffic; the
+byte census audits movement.
+
+Every mandatory-row-moving PR adds one or more append-only records under `docs/cutovers/`.
+Schema 1 recognizes `cutover` (tested ownership transfer plus pin disposition), `trim`
+(editorial reduction), `growth` (justified mandatory bytes), and `relocate` (source rows and
+destinations). The census validates the frontmatter, kind-specific headings, and non-empty
+body; later template revisions mint a new schema instead of changing historical validation.
+The complete sole-owner bar and artifact template live in
+`.devflow/prompt-extensions/implement.md` under **Prose cutover**.
+
+The shared Review engine loads its prose-cutover criterion only when that repo policy section
+exists, so consumer repos that receive the vendored engine but not DevFlow's internal census
+remain unaffected. In this repo the gate rejects incoherent cutovers, unexplained mandatory
+reductions, and unjustified mandatory growth; it treats malformed and pre-existing artifacts
+as absent, cross-checks named files against moved rows, and recognizes only git-reported
+renames as artifact-free relocation. Issue #551 is the candidate-cutover register: each child
+cutover records the old prose owner, new helper owner, artifact, and measured byte reduction.
+
 ### Direct invocation of `devflow:receiving-code-review`: the Reception Preflight (issue #545)
 
 The fix loop above applies the `devflow:receiving-code-review` principles inside its own machinery — the loop's mechanics establish PR context themselves. A **direct** invocation of the skill (an interactive maintainer session, or an operator flow dispatching it outside the loop) instead has a defined startup contract, the **Reception Preflight** in `skills/receiving-code-review/SKILL.md`: after the consumer-prompt-extension load and before the Step 0 branch update, before triage of any finding, before any file edit, and before any test-suite execution, the skill renders **one in-chat block of exactly nine context facts** — subject, PR head/base, checkout (with a head-match verdict), working-tree cleanliness, freshness, linked-issue requirements (each linked issue's body re-read in this run), consumer-prompt-extension outcome, severity threshold, and commit/path scope — each fact carrying **exactly one of six statuses**: `established`, `caller-supplied`, `missing`, `stale`, `ambiguous`, `not-applicable`. No rule in the contract assigns `stale` — an unobservable or un-re-measured fact renders `missing`, never `stale` (the status is reserved for a render that must carry a knowingly-superseded value, and it is never an input to the editing gate). A fact renders `established` only when its value was directly observed from a command output or a file read in the current run; anything else renders a degraded status with a one-line reason — never an assumed value (a failed fetch records divergence as *unknown, never zero-behind*; a shallow clone's undecidable ancestry renders the head-match `missing`, never a guessed verdict). The preflight's prescribed command set is **strictly read-only** — one exit-status-checked `git fetch` (remote-tracking refs only), `git rev-parse`, `git status`, `git merge-base --is-ancestor`, `git rev-list`, `gh pr view` (including its `files` scope read), `gh issue view`, the extension loader, and the threshold read, and nothing else; it never switches branches and never merges.

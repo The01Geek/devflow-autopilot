@@ -303,7 +303,7 @@ Treat the printed path as `<skill-dir>` — a **textual** substitution you make 
 At engine entry (Phase 0), hash the root and its references:
 
 ```bash
-git hash-object <skill-dir>/SKILL.md <skill-dir>/phases/phase-0-setup.md <skill-dir>/phases/phase-0-3-6-blocker-recheck.md <skill-dir>/phases/phase-0-6-stale-prose-lint.md <skill-dir>/phases/phase-1-checklist.md <skill-dir>/phases/phase-2-verification.md <skill-dir>/phases/phase-3-agents.md <skill-dir>/phases/phase-4-verdict.md <skill-dir>/phases/phase-4-1-7-stale-adjudication.md <skill-dir>/phases/phase-4-4-github-post.md
+git hash-object <skill-dir>/SKILL.md <skill-dir>/phases/phase-0-setup.md <skill-dir>/phases/phase-0-3-6-blocker-recheck.md <skill-dir>/phases/phase-0-6-stale-prose-lint.md <skill-dir>/phases/phase-1-checklist.md <skill-dir>/phases/phase-2-verification.md <skill-dir>/phases/phase-3-agents.md <skill-dir>/phases/phase-4-verdict.md <skill-dir>/phases/phase-4-1-7-stale-adjudication.md <skill-dir>/phases/phase-4-1-8-prose-cutover.md <skill-dir>/phases/phase-4-4-github-post.md
 ```
 
 **Fail closed:** if it errors, is refused, prints empty, or prints fewer hashes than paths, report identity as underived, author no manifest, and run no phase.
@@ -354,8 +354,9 @@ After the `Read`: **quote the body's literal first and last lines**, and let `S`
 | 1 | `phase-1-checklist.md` | always | checklist generation, then 1.5 dedup |
 | 2 | `phase-2-verification.md` | always | checklist verification |
 | 3 | `phase-3-agents.md` | always | review agents, per-agent prompts, `defect_signature` contract |
-| 4 | `phase-4-verdict.md` | always | 4.0–4.1.6, 4.2 verdict, 4.3 present report, 4.5 telemetry |
+| 4 | `phase-4-verdict.md` | always | verdict, report, telemetry |
 | 4.1.7 | `phase-4-1-7-stale-adjudication.md` | **PR mode only**, and only over STALE findings from 0.6 being adjudicated false positives | stale-finding adjudication; runs after 4.1.6 and **before** 4.2 |
+| 4.1.8 | `phase-4-1-8-prose-cutover.md` | implement extension contains `## Prose cutover` | prompt-mass/cutover audit |
 | 4.4 | `phase-4-4-github-post.md` | **standalone only, PR mode only** (`$ARGUMENTS` is a PR number) | post the verdict to GitHub. `/devflow:review-and-fix` **skips 4.4 entirely** — shadow passes included |
 
 A gated phase whose condition is unmet is neither loaded nor run; evaluate each gate from the state earlier phases established, never from a guess.
