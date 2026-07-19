@@ -460,9 +460,23 @@ jobs:
           # base-config `setup` so this read never aborts the review job; `| strings`
           # drops a non-string leaf value to empty; `select(test("[\n\r]") | not)` drops
           # even a valid string carrying an embedded newline/CR — so the value is always
-          # single-line and the plain key=value echo below is safe (any rejected shape
-          # falls back to empty → auto-install).
-          CLAUDE_CODE_EXECUTABLE=$(printf '%s' "$BASE_JSON" | jq -r 'try (.setup.claude_code_executable // empty | strings | select(test("[\n\r]") | not)) catch empty')
+          # single-line and the plain key=value echo below is safe;
+          # `select(test("^[[:space:]]*$") | not)` drops a whitespace-only string, which
+          # is never a usable executable path and whose intended meaning is "unset"
+          # (any rejected shape falls back to empty → auto-install). Because "rejected"
+          # and "unset" both resolve to empty, a *non-empty* raw value that resolves to
+          # empty emits a `::warning::` — otherwise a mistyped path on the one platform
+          # where this key is load-bearing silently reverts to the broken auto-install
+          # path and the operator debugs the installer's misleading "Windows is not
+          # supported" error instead of their own typo (the repo's breadcrumb-on-fallback
+          # convention; an explicit `""` is a deliberate unset and warns nothing). The
+          # raw probe reads the SAME trusted $BASE_JSON — it never widens the trust
+          # boundary, and it is used only for this emptiness test, never emitted.
+          CLAUDE_CODE_EXECUTABLE_RAW=$(printf '%s' "$BASE_JSON" | jq -r 'try (.setup.claude_code_executable // empty | tostring) catch empty')
+          CLAUDE_CODE_EXECUTABLE=$(printf '%s' "$BASE_JSON" | jq -r 'try (.setup.claude_code_executable // empty | strings | select(test("[\n\r]") | not) | select(test("^[[:space:]]*$") | not)) catch empty')
+          if [ -n "$CLAUDE_CODE_EXECUTABLE_RAW" ] && [ -z "$CLAUDE_CODE_EXECUTABLE" ]; then
+            echo "::warning::setup.claude_code_executable is set in the trusted base-ref config but was rejected (non-string leaf, embedded newline/CR, or whitespace-only); falling back to the action's automatic Claude Code install."
+          fi
           echo "claude_code_executable=$CLAUDE_CODE_EXECUTABLE" >> "$GITHUB_OUTPUT"
 
       - name: Resolve allowed-tools profile

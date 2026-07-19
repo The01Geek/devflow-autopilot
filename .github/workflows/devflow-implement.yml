@@ -106,18 +106,32 @@ jobs:
             echo "devflow_version=$(echo "$CONFIG_JSON" | jq -r '.devflow_version // empty')"
             # Effective workpad marker, passed to the resolver's self-trigger guard.
             echo "workpad_marker=$(echo "$CONFIG_JSON" | jq -r '.devflow.workpad_marker // "<!-- devflow:workpad -->"')"
-            # Optional pre-installed Claude Code executable path (issue #601). For
-            # self-hosted runners (typically Windows) whose OS the action's Unix-only
-            # bundled installer cannot serve. `// empty` → empty string when the key is
-            # absent, which the action treats as "not provided" (auto-install unchanged).
-            # `try … catch` guards a hand-corrupted non-object `setup` (so the config job
-            # never aborts on a malformed setup block); `| strings` drops a non-string
-            # leaf value (array/object/number) to empty; `select(test("[\n\r]") | not)`
-            # drops even a *valid* string that carries an embedded newline/CR — all three
-            # would otherwise make jq -r emit a multi-line value that corrupts this
-            # key=value GITHUB_OUTPUT line. Any rejected shape falls back to empty (auto-install).
-            echo "claude_code_executable=$(echo "$CONFIG_JSON" | jq -r 'try (.setup.claude_code_executable // empty | strings | select(test("[\n\r]") | not)) catch empty')"
           } >> "$GITHUB_OUTPUT"
+          # Optional pre-installed Claude Code executable path (issue #601). For
+          # self-hosted runners (typically Windows) whose OS the action's Unix-only
+          # bundled installer cannot serve. `// empty` → empty string when the key is
+          # absent, which the action treats as "not provided" (auto-install unchanged).
+          # `try … catch` guards a hand-corrupted non-object `setup` (so the config job
+          # never aborts on a malformed setup block); `| strings` drops a non-string
+          # leaf value (array/object/number) to empty; `select(test("[\n\r]") | not)`
+          # drops even a *valid* string that carries an embedded newline/CR — those
+          # would otherwise make jq -r emit a multi-line value that corrupts the
+          # key=value GITHUB_OUTPUT line; `select(test("^[[:space:]]*$") | not)` drops a
+          # whitespace-only string, which is never a usable executable path and whose
+          # intended meaning is "unset" (auto-install). Any rejected shape falls back to
+          # empty. Because "rejected" and "unset" both resolve to empty, a *non-empty*
+          # raw value that resolves to empty emits a `::warning::` — otherwise a mistyped
+          # path on the one platform where this key is load-bearing silently reverts to
+          # the broken auto-install path and the operator debugs the installer's
+          # misleading "Windows is not supported" error instead of their own typo
+          # (the repo's breadcrumb-on-fallback convention; an explicit `""` is a
+          # deliberate unset and warns nothing).
+          CLAUDE_CODE_EXECUTABLE_RAW=$(echo "$CONFIG_JSON" | jq -r 'try (.setup.claude_code_executable // empty | tostring) catch empty')
+          CLAUDE_CODE_EXECUTABLE=$(echo "$CONFIG_JSON" | jq -r 'try (.setup.claude_code_executable // empty | strings | select(test("[\n\r]") | not) | select(test("^[[:space:]]*$") | not)) catch empty')
+          if [ -n "$CLAUDE_CODE_EXECUTABLE_RAW" ] && [ -z "$CLAUDE_CODE_EXECUTABLE" ]; then
+            echo "::warning::setup.claude_code_executable is set but was rejected (non-string leaf, embedded newline/CR, or whitespace-only); falling back to the action's automatic Claude Code install."
+          fi
+          echo "claude_code_executable=$CLAUDE_CODE_EXECUTABLE" >> "$GITHUB_OUTPUT"
 
   # Authorization + target-number gate. The action runs in AGENT mode below
   # (explicit prompt), which executes for ANY actor, so this job is the cost

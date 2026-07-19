@@ -207,6 +207,15 @@ installer and uses the named executable**; when it is **unset or empty (the defa
 and every Linux consumer)** the input resolves to an empty string and the action's
 automatic-install path runs unchanged — Linux consumers are unaffected.
 
+**A rejected value falls back to auto-install and says so.** The extraction accepts only a
+single-line, non-blank string: a non-string leaf (array/object/number), a string carrying an
+embedded newline or carriage return, and a whitespace-only string are each rejected and resolve
+to empty — the same result as leaving the key unset. Because a mistyped path would otherwise
+revert *silently* to the Windows-fatal auto-install path (leaving you debugging the installer's
+misleading `Windows is not supported` error rather than your own typo), a **set-but-rejected**
+value emits a workflow `::warning::` naming the key. An explicit `""` is a deliberate unset and
+warns nothing.
+
 **Effect is post-merge-only.** Like every `setup.*` value, this key is resolved at
 **trigger time** (the workflows' `config` job — and, for `devflow-runner.yml`, the
 trusted base-ref `baseprovision` step — read config from the default/base branch), so
