@@ -7,8 +7,17 @@ The shared review engine (skills/review/SKILL.md) dispatches up to nine
 subagents. Operators tune each one's model/effort via the
 `devflow_review.agent_overrides` block in .devflow/config.json. This helper
 reads that block (through config-get.sh — DevFlow's single config reader) for
-the subagents about to be dispatched and materializes the per-run `--agents`
-JSON override map the engine passes at dispatch.
+the subagents about to be dispatched and prints the resolved model/effort map.
+
+On the in-session dispatch path both tiers use today there is NO per-dispatch
+`--agents` injection: a per-agent `model` override is delivered via the Agent
+tool's `model` override parameter, while a per-agent `effort` override is NOT
+deliverable per-agent (the Agent tool exposes no effort parameter). So this
+helper additionally exposes a per-agent effort-application DECISION
+(`decide_effort_applications`) and an honest once-per-run fallback report
+(`format_effort_fallback_notice`) — a `::notice::` summary, distinct from
+`::warning::` — so a resolved-but-unapplied effort is reported at resolution
+time rather than silently claimed as applied (issue #554).
 
 Resolution rules (mirroring the schema + docs/review-agent-overrides.md):
   - `iterations` (issue #425): an optional per-entry key whose only valid value is
@@ -173,6 +182,123 @@ def resolve_overrides(raw, dispatched):
     return result, warnings
 
 
+# The four effort application-point values (issue #554). Only two are reachable
+# in-session — this resolver runs inside an already-running review session, whose
+# effort was fixed at its own process start, so a per-agent effort override can
+# only ever be a `session-fallback` (a resolved override the tier cannot apply)
+# or a `session-inheritance` (a dispatched agent with no per-agent effort). The
+# other two — `agent-definition` (a proven per-agent startup seam) and
+# `process-start-session` (the section-level session effort composed at launch) —
+# are process-start application points a pre-launch component owns, never this
+# in-session resolver.
+EFFORT_APPLICATION_POINTS = (
+    "agent-definition",
+    "process-start-session",
+    "session-fallback",
+    "session-inheritance",
+)
+
+
+def _is_haiku_model(model):
+    """True when `model` is a Claude Haiku id (which rejects the `effort` param).
+
+    Case-insensitive substring match on `haiku` — the same model-API fact the
+    docs (`docs/review-agent-overrides.md`) and the scaffold-config.sh Haiku-effort
+    strip key on. A non-string model is never a Haiku id.
+    """
+    return isinstance(model, str) and "haiku" in model.lower()
+
+
+def decide_effort_applications(resolved, dispatched, *, effort_supported=True):
+    """Per-agent in-session effort-application decision (issue #554).
+
+    Pure: `resolved` is the `resolve_overrides` map (agent id -> {model?, effort?,
+    iterations?}); `dispatched` is the list of agent ids about to be dispatched;
+    `effort_supported` is the routed provider's capability flag (#313 — false when
+    the provider rejects the `effort` parameter). Returns an ordered dict mapping
+    every dispatched agent to `{application_point, effective, fallback_reason}`.
+
+    This resolver runs IN-SESSION, so a per-agent effort override is never applied
+    here: `effective` is ALWAYS None (unknown is not zero — the in-session engine
+    cannot introspect its own session effort, so it never guesses a value). The
+    decision is only which fallback:
+      - a resolved per-agent effort under a Haiku model, or a provider whose
+        `effort_supported` is false -> `session-fallback` with a capability
+        fallback_reason naming the model/provider (effort is not emitted);
+      - any other resolved per-agent effort -> `session-fallback` with the
+        no-in-session-seam fallback_reason (the subagent inherits session effort);
+      - no per-agent effort override -> `session-inheritance`, all-null (the agent
+        inherits the session effort, and there is nothing to fall back FROM, so
+        fallback_reason is None).
+    """
+    decisions = {}
+    for agent in dispatched:
+        entry = resolved.get(agent) or {}
+        effort = entry.get("effort")
+        model = entry.get("model")
+        if effort is None:
+            # No per-agent effort override — the agent simply inherits the session
+            # effort. Nothing was resolved-but-dropped, so no fallback reason.
+            decisions[agent] = {
+                "application_point": "session-inheritance",
+                "effective": None,
+                "fallback_reason": None,
+            }
+            continue
+        # A resolved per-agent effort exists. In-session it is never applied; pick
+        # the fallback reason, preferring the capability restriction when present
+        # (it names the concrete model/provider that would reject the parameter).
+        if _is_haiku_model(model):
+            reason = (
+                f"per-agent effort {effort!r} not emitted: resolved model {model!r} "
+                "is a Claude Haiku model that rejects the effort parameter (HTTP 400); "
+                "the agent inherits the session effort"
+            )
+        elif not effort_supported:
+            reason = (
+                f"per-agent effort {effort!r} not emitted: the routed provider's "
+                "effort_supported is false; the agent inherits the session effort"
+            )
+        else:
+            reason = (
+                f"per-agent effort {effort!r} resolved but not applied: an "
+                "already-running session's Agent-tool dispatch has no per-agent "
+                "effort parameter and no per-dispatch --agents injection exists; "
+                "the agent inherits the session effort"
+            )
+        decisions[agent] = {
+            "application_point": "session-fallback",
+            "effective": None,
+            "fallback_reason": reason,
+        }
+    return decisions
+
+
+def format_effort_fallback_notice(decisions):
+    """One `::notice::` summary line for the run's session-fallback agents, or None.
+
+    Distinct from `::warning::` (reserved for genuine misconfiguration — invalid
+    effort, unusable model): this is a steady-state, informational report that a
+    valid per-agent effort override could not be applied on this tier, emitted
+    ONCE per run as a summary (never one line per agent). Returns None when no
+    dispatched agent took the `session-fallback` arm (nothing to report).
+    """
+    fell_back = [
+        a for a, d in decisions.items()
+        if d.get("application_point") == "session-fallback"
+    ]
+    if not fell_back:
+        return None
+    names = ", ".join(fell_back)
+    return (
+        "::notice::resolve-review-overrides: per-agent effort was NOT applied for "
+        f"{len(fell_back)} agent(s) ({names}) — this tier's in-session Agent-tool "
+        "dispatch cannot apply a per-agent effort override, so each inherits the "
+        "session effort (a session-fallback, not a failure; see "
+        "docs/review-agent-overrides.md for the per-tier application-point matrix)."
+    )
+
+
 def _config_get(config_get, config_file, dotted_key, warnings):
     """Read one scalar via config-get.sh, returning '' on absent/empty.
 
@@ -295,6 +421,16 @@ def main(argv=None):
         default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "config-get.sh"),
         help="path to config-get.sh (default: alongside this script)",
     )
+    parser.add_argument(
+        "--effort-supported",
+        choices=("true", "false"),
+        default="true",
+        help=(
+            "the routed provider's effort_supported capability (#313); when "
+            "'false', a resolved per-agent effort is reported as a "
+            "capability-restricted fallback. Default 'true' (the Anthropic path)."
+        ),
+    )
     args = parser.parse_args(argv)
 
     # A dispatched id not in the known roster is almost always a drift between
@@ -316,6 +452,16 @@ def main(argv=None):
     # can also overlap. One actionable line per distinct problem.
     for w in dict.fromkeys(read_warnings + resolve_warnings):
         sys.stderr.write(f"::warning::resolve-review-overrides: {w}\n")
+    # Honest fallback report (issue #554): decide the per-agent effort-application
+    # outcome and emit a single informational `::notice::` summary (distinct from
+    # the `::warning::` lines above) when any resolved per-agent effort could not
+    # be applied on this in-session tier. Never claims an unearned success.
+    decisions = decide_effort_applications(
+        result, args.agents, effort_supported=(args.effort_supported == "true")
+    )
+    notice = format_effort_fallback_notice(decisions)
+    if notice is not None:
+        sys.stderr.write(notice + "\n")
     sys.stdout.write(json.dumps(result) + "\n")
     return 0
 

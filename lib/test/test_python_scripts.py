@@ -2768,6 +2768,90 @@ assert_eq("resolve(#425): default iterations applies to a no-entry agent",
 assert_eq("resolve(#425): own entry does NOT inherit default iterations (entry-level precedence)",
           {"model": "m"}, _itd_res["devflow:code-reviewer"])
 
+# --- effort-application decision (issue #554): honest fallback, no overclaim ---
+# The resolver runs IN-SESSION, so a per-agent effort override is NEVER applied
+# here: decide_effort_applications must report a `session-fallback` (with a
+# non-null reason and null `effective`) for a resolved effort, and a
+# `session-inheritance` (all-null) for a dispatched agent with no override.
+
+# EA1: a resolved per-agent effort → session-fallback, effective=None (unknown is
+# not zero — the in-session engine cannot introspect its own session effort), and
+# a non-null fallback_reason. This is the exact silent-drop the issue exists to kill.
+_ea1 = _rro.decide_effort_applications(
+    {"devflow:code-reviewer": {"model": "claude-opus-4-8", "effort": "low"}},
+    ["devflow:code-reviewer"],
+)
+assert_eq("effort-app(#554): resolved in-session effort → session-fallback",
+          "session-fallback", _ea1["devflow:code-reviewer"]["application_point"])
+assert_eq("effort-app(#554): session-fallback effective is null (never inferred)",
+          None, _ea1["devflow:code-reviewer"]["effective"])
+assert_eq("effort-app(#554): session-fallback has a non-null fallback_reason",
+          True, _ea1["devflow:code-reviewer"]["fallback_reason"] is not None)
+
+# EA2: a dispatched agent with NO per-agent effort override → session-inheritance,
+# all-null (nothing was resolved-but-dropped, so no fallback reason). This is the
+# completeness arm — the block is populated over the full dispatched roster.
+_ea2 = _rro.decide_effort_applications(
+    {}, ["devflow:silent-failure-hunter"],
+)
+assert_eq("effort-app(#554): no override → session-inheritance",
+          "session-inheritance",
+          _ea2["devflow:silent-failure-hunter"]["application_point"])
+assert_eq("effort-app(#554): session-inheritance fallback_reason is null",
+          None, _ea2["devflow:silent-failure-hunter"]["fallback_reason"])
+assert_eq("effort-app(#554): session-inheritance effective is null",
+          None, _ea2["devflow:silent-failure-hunter"]["effective"])
+
+# EA3: capability-restricted — a Claude Haiku model rejects the effort parameter.
+# The outcome is a session-fallback whose reason names the model (never emitted).
+_ea3 = _rro.decide_effort_applications(
+    {"devflow:code-reviewer": {"model": "claude-haiku-4-5-20251001", "effort": "low"}},
+    ["devflow:code-reviewer"],
+)
+assert_eq("effort-app(#554): Haiku model → session-fallback (capability-restricted)",
+          "session-fallback", _ea3["devflow:code-reviewer"]["application_point"])
+assert_eq("effort-app(#554): Haiku fallback_reason names the model",
+          True, "haiku" in _ea3["devflow:code-reviewer"]["fallback_reason"].lower())
+
+# EA4: capability-restricted — a provider whose effort_supported is false (#313).
+# The reason names the provider capability; effort is not emitted.
+_ea4 = _rro.decide_effort_applications(
+    {"devflow:code-reviewer": {"model": "claude-opus-4-8", "effort": "low"}},
+    ["devflow:code-reviewer"],
+    effort_supported=False,
+)
+assert_eq("effort-app(#554): effort_supported=false → session-fallback",
+          "session-fallback", _ea4["devflow:code-reviewer"]["application_point"])
+assert_eq("effort-app(#554): provider-restricted reason names effort_supported",
+          True, "effort_supported" in _ea4["devflow:code-reviewer"]["fallback_reason"])
+
+# EA5: split-brain guard — the recorder NEVER emits `agent-definition` or a
+# non-null `effective` for an in-session decision (it observed nothing applied).
+_ea5_points = {d["application_point"] for d in _ea1.values()} \
+    | {d["application_point"] for d in _ea3.values()} \
+    | {d["application_point"] for d in _ea4.values()}
+assert_eq("effort-app(#554): no in-session decision ever claims agent-definition",
+          False, "agent-definition" in _ea5_points)
+assert_eq("effort-app(#554): every EA application_point is a known value",
+          True, _ea5_points <= set(_rro.EFFORT_APPLICATION_POINTS))
+
+# EA6: the fallback report is ONE `::notice::` summary (distinct from `::warning::`),
+# not one line per agent — and it is None when nothing fell back.
+_ea6_notice = _rro.format_effort_fallback_notice(_rro.decide_effort_applications(
+    {"devflow:code-reviewer": {"effort": "low"},
+     "devflow:silent-failure-hunter": {"effort": "high"}},
+    ["devflow:code-reviewer", "devflow:silent-failure-hunter",
+     "devflow:comment-analyzer"],
+))
+assert_eq("effort-app(#554): fallback report is a ::notice:: (not ::warning::)",
+          True, _ea6_notice.startswith("::notice::"))
+assert_eq("effort-app(#554): fallback report is a single summary line",
+          1, len(_ea6_notice.splitlines()))
+assert_eq("effort-app(#554): fallback report names the fell-back agent count",
+          True, "2 agent(s)" in _ea6_notice)
+assert_eq("effort-app(#554): no fallback → no notice",
+          None, _rro.format_effort_fallback_notice(_ea2))
+
 # read_raw integration (exercises the real config-get.sh I/O path, not just the
 # pure resolver). The empty-own-entry contract must hold END-TO-END: the leaf
 # reads alone can't tell {} from an absent key, so read_raw probes the entry
