@@ -7073,6 +7073,15 @@ for _wo_name, _wo_src, in (
      '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n. "$HERE/x$(true)y.sh"\n'),
     ("glob include",
      '#!/usr/bin/env bash\ndir=/some/dir\n. "$dir"/*.sh\n'),
+    ("embedded variable inside the tail",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n. "$HERE/x${EVIL}y.sh"\n'),
+    ("embedded variable via the binding channel",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+     'F="$HERE/lib${EVIL}.sh"\n. "$F"\n'),
+    ("suffix bytes after .sh in a var tail",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n. "$HERE/x.sh.bak"\n'),
+    ("suffix bytes after .sh in an anchored operand",
+     '#!/usr/bin/env bash\n. "$(cd "$(dirname "$0")" && pwd)/x.sh.bak"\n'),
 ):
     try:
         cwd._read = lambda rel, _s=_wo_src: _s

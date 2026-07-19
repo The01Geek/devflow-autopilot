@@ -639,11 +639,13 @@ def _scan_shell_sources(helper):
                 continue
             raw_target = tok.group()
             # Whole-operand accounting: the resolved token must account for the
-            # ENTIRE operand — the token alone (literal or $VAR-prefixed form),
-            # or a full anchor + the token as its tail. Unaccounted bytes (an
-            # interposed substitution, a glob star, junk between an anchor and
-            # a bare filename) mean the operand's runtime expansion is NOT what
-            # the token describes — fail closed, never resolve a fragment.
+            # ENTIRE operand — the token alone, or a full anchor + the token as
+            # its tail. Unaccounted bytes (an interposed substitution, a glob
+            # star, junk between an anchor and a bare filename) fail closed —
+            # and accounting alone is necessary, not sufficient: a tail with a
+            # residual `$` (an embedded expansion) is rejected below too, so a
+            # byte-accounted operand whose runtime expansion still differs from
+            # the literal tail never resolves either.
             if raw_target == operand:
                 pass
             elif (
@@ -657,7 +659,10 @@ def _scan_shell_sources(helper):
                 _unresolved(operand)
                 continue
             tail = _source_tail(raw_target, allowed_dir_vars)
-            if not tail or not tail.endswith((".sh", ".bash")):
+            # A residual `$` in the tail is an unexpanded runtime substitution
+            # (an embedded `${VAR}` past the leading dir var), so the literal
+            # tail does NOT describe the runtime expansion — fail closed.
+            if not tail or not tail.endswith((".sh", ".bash")) or "$" in tail:
                 _unresolved(operand)
                 continue
             repo_rel = _source_repo_path(helper_dir, tail)
