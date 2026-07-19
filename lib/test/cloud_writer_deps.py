@@ -571,10 +571,18 @@ def _scan_shell_sources(helper):
     """Derive source edges from a `.sh` entry point's `.`/`source` includes.
 
     Fail closed on an include the scan cannot resolve: an operand with no
-    ``.sh``/``.bash``-suffixed token, or a variable operand with no tracked
-    binding (including a ``for``-loop variable), emits an ``unresolved-source``
-    edge that ``check_dependencies()`` rejects unconditionally — never a silent
-    drop that would let a sourced sibling escape the trust closure.
+    ``.sh``/``.bash``-suffixed token, an operand the resolved token does not
+    fully account for (interposed substitutions, globs, junk), or a variable
+    operand with no tracked binding (including a ``for``-loop variable), emits
+    an ``unresolved-source`` edge that ``check_dependencies()`` rejects
+    unconditionally — never a silent drop that would let a sourced sibling
+    escape the trust closure.
+
+    Known scoping over-approximation: the binding tracker models flat scope, so
+    an assignment made only inside a subshell ``(...)`` or pipeline group is
+    treated as a visible binding — a scoped assignment may therefore classify a
+    source edge the runtime would not source (the runtime include then fails
+    loudly on the unset variable; the misattribution is static-side only).
     """
     edges = []
     seen = set()
@@ -630,12 +638,24 @@ def _scan_shell_sources(helper):
                 _unresolved(operand)
                 continue
             raw_target = tok.group()
-            if (
+            # Whole-operand accounting: the resolved token must account for the
+            # ENTIRE operand — the token alone (literal or $VAR-prefixed form),
+            # or a full anchor + the token as its tail. Unaccounted bytes (an
+            # interposed substitution, a glob star, junk between an anchor and
+            # a bare filename) mean the operand's runtime expansion is NOT what
+            # the token describes — fail closed, never resolve a fragment.
+            if raw_target == operand:
+                pass
+            elif (
                 operand.startswith("$(")
                 and raw_target.startswith("/")
+                and operand.endswith(raw_target)
                 and _helper_dir_anchored_operand(operand)
             ):
                 raw_target = raw_target.lstrip("/")
+            else:
+                _unresolved(operand)
+                continue
             tail = _source_tail(raw_target, allowed_dir_vars)
             if not tail or not tail.endswith((".sh", ".bash")):
                 _unresolved(operand)

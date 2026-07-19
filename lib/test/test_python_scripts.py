@@ -6932,9 +6932,13 @@ with tempfile.TemporaryDirectory() as _cwd_ctd:
             _source_edges = cwd._scan_shell_sources(f"scripts/probe-{_case}.sh")
         finally:
             cwd._read = _orig_read2
+        # Either fail-closed route is a rejection: an absolute-looking target
+        # the vendor boundary refuses, or (post whole-operand accounting) an
+        # unresolved-source edge the guard rejects unconditionally.
         assert_eq(f"#583 AC5 reviewer exact source prefix rejected: {_case}",
                   True, bool(_source_edges) and all(
-                      not cwd.resolves_beneath_vendor(edge.target)
+                      edge.kind == "unresolved-source"
+                      or not cwd.resolves_beneath_vendor(edge.target)
                       for edge in _source_edges
                   ))
 
@@ -7058,6 +7062,31 @@ finally:
 assert_eq("#598: operand junk between anchor and .sh token is rejected, never laundered clean",
           True,
           bool(_oj_edges) and bool(cwd.check_dependencies(edges=_oj_edges)))
+# Whole-operand accounting (#598 iter-2): the resolved token must account for
+# the ENTIRE operand. Unaccounted bytes — junk between anchor and a bare
+# filename, junk inside a $VAR tail, a glob — all route to unresolved-source,
+# never to a laundered clean edge.
+for _wo_name, _wo_src, in (
+    ("anchor+junk+bare filename",
+     '#!/usr/bin/env bash\n. "$(cd "$(dirname "$0")" && pwd)$(true)config-get.sh"\n'),
+    ("var tail with interposed substitution",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n. "$HERE/x$(true)y.sh"\n'),
+    ("glob include",
+     '#!/usr/bin/env bash\ndir=/some/dir\n. "$dir"/*.sh\n'),
+):
+    try:
+        cwd._read = lambda rel, _s=_wo_src: _s
+        _wo_edges = cwd._scan_shell_sources("scripts/fake-whole.sh")
+    finally:
+        cwd._read = _orig_cwd_read
+    assert_eq(f"#598 iter-2: {_wo_name} yields only unresolved-source edges",
+              (True, {"unresolved-source"}),
+              (bool(_wo_edges), {e.kind for e in _wo_edges}))
+    assert_eq(f"#598 iter-2: the guard rejects the {_wo_name} (fail closed)",
+              True,
+              any("unresolvable source include" in err
+                  for err in cwd.check_dependencies(edges=_wo_edges)))
+
 # Positive control: the plain inline-operand anchor form still derives cleanly.
 try:
     cwd._read = lambda rel: (
