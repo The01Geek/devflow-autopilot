@@ -8427,6 +8427,21 @@ if [ "$field" = body ]; then
     # Path.read_text path covered below. printf's octal escapes emit the raw
     # invalid bytes into stdout that Python captures via subprocess.run.
     111) printf 'blocked by #10 \377\376 trailing invalid bytes\n' ;;
+    # #112/#113: the two DECLARATIONS keywords with no prior coverage — `must merge
+    # after` and `follow-up to` — each on the OPEN #10, so a keyword dropped from the
+    # DECLARATIONS tuple would stop recognizing it and flip BLOCKED 10 → PROCEED.
+    112) printf '%s\n' 'must merge after #10' ;;
+    113) printf '%s\n' 'follow-up to #10' ;;
+    # #114: _NUMBER_RUN non-joiner over-match negative. `superseded by` is NOT a run
+    # joiner, so only the CLOSED #11 is captured and the trailing OPEN #10 is left
+    # out → PROCEED 11. A regression widening _NUMBER_RUN to sweep any trailing #N
+    # would grab the OPEN #10 and flip this to BLOCKED 10.
+    114) printf '%s\n' 'depends on #11 superseded by #10' ;;
+    # #115: drives issue_state's value-filter `else None` arm — the declared #13
+    # resolves via a SUCCESSFUL (exit 0) state fetch that returns a word outside
+    # {OPEN,CLOSED,MERGED}, distinct from the CalledProcessError arm (unknown number
+    # → exit 1) already exercised. A non-set state must map to None → UNAVAILABLE.
+    115) printf '%s\n' 'blocked by #13' ;;
     200) exit 1 ;;
     *) exit 1 ;;
   esac
@@ -8437,6 +8452,9 @@ case "$num" in
   10) printf '%s\n' OPEN ;;
   11) printf '%s\n' CLOSED ;;
   12) printf '%s\n' MERGED ;;
+  # #115: a SUCCESSFUL fetch returning an unrecognized state word — exercises
+  # issue_state's `state in {...} else None` filter, not the exception arm.
+  13) printf '%s\n' DRAFT ;;
   *) exit 1 ;;
 esac
 EOF
@@ -8549,6 +8567,34 @@ assert_eq "#547/#572 test-gap: the issue_state OSError arm returns the unavailab
 printf '%s\n' 'blocked by #10' 'depends on #10' > "$P547R/dedup.md"
 P547R_DEDUP="$(PATH="$P547R/bin:$PATH" python3 "$P547R_HELPER" dependencies --body-file "$P547R/dedup.md" 2>/dev/null)"
 assert_eq "#547/#572 test-gap: the same #N on two separate lines is deduped (BLOCKED 10, not 10,10)" "BLOCKED 10" "$P547R_DEDUP"
+# ── PR #572 review (run -3) Suggestion 5: untested DECLARATIONS keywords ───────
+# `must merge after` and `follow-up to` had no coverage; each names the OPEN #10, so
+# a keyword dropped from the DECLARATIONS tuple would stop recognizing it and flip
+# BLOCKED 10 → PROCEED (discriminating, not vacuous).
+assert_eq "#547/#572 Suggestion 5: the `must merge after` keyword is recognized (OPEN #10 blocks)" "BLOCKED 10" "$(_p547r --issue 112)"
+assert_eq "#547/#572 Suggestion 5: the `follow-up to` keyword is recognized (OPEN #10 blocks)" "BLOCKED 10" "$(_p547r --issue 113)"
+# Suggestion 5: _NUMBER_RUN non-joiner over-match NEGATIVE. `superseded by` is not a
+# run joiner, so only the CLOSED #11 is captured; the trailing OPEN #10 stays out →
+# PROCEED 11. A regression widening _NUMBER_RUN to sweep any trailing #N would grab
+# the OPEN #10 and flip this to BLOCKED 10.
+assert_eq "#547/#572 Suggestion 5: a non-joiner word does not sweep the trailing OPEN #10 (PROCEED 11)" "PROCEED 11" "$(_p547r --issue 114)"
+# Suggestion 5: issue_state value-filter `else None` arm — a SUCCESSFUL (exit 0)
+# state fetch returning a word outside {OPEN,CLOSED,MERGED} maps to None →
+# `UNAVAILABLE <n>`/exit 3, distinct from the CalledProcessError (exit-1 stub) arm.
+# #13's stub returns DRAFT; a regression accepting any non-empty state as OPEN would
+# flip this to BLOCKED 13.
+P547R_STATEFILTER="$(_p547r --issue 115)"; P547R_STATEFILTER_RC=$?
+assert_eq "#547/#572 Suggestion 5: a successful non-set state word maps to None → UNAVAILABLE" "UNAVAILABLE 13" "$P547R_STATEFILTER"
+assert_eq "#547/#572 Suggestion 5: the non-set state UNAVAILABLE stays in the {0,2,3} exit contract" "3" "$P547R_STATEFILTER_RC"
+# ── PR #572 review (run -3) Suggestion 2: empty `--body-file ""` (falsy) ───────
+# An explicit empty --body-file must read the (empty) file path and fail closed on
+# THAT path's read error → `UNAVAILABLE body`/exit 3, not fall through to the issue
+# branch and call issue_body(None) (`gh issue view None`, misreporting the surface).
+# The `is not None` guard is what routes it here; reverting to `if args.body_file:`
+# flips the output to `UNAVAILABLE issue`, so this pins the diagnostic surface.
+P547R_EMPTYBF="$(PATH="$P547R/bin:$PATH" python3 "$P547R_HELPER" dependencies --body-file "" 2>/dev/null)"; P547R_EMPTYBF_RC=$?
+assert_eq "#547/#572 Suggestion 2: empty `--body-file \"\"` fails closed on the body path (UNAVAILABLE body)" "UNAVAILABLE body" "$P547R_EMPTYBF"
+assert_eq "#547/#572 Suggestion 2: the empty-body-file failure returns the unavailable exit class" "3" "$P547R_EMPTYBF_RC"
 rm -rf "$P547R"
 
 # ── PR #572 review (Approve-with-notes): main() top-level fail-closed catch-all ─

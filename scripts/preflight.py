@@ -142,7 +142,13 @@ def issue_state(number: str) -> str | None:
 
 
 def dependencies(args: argparse.Namespace) -> int:
-    if args.body_file:
+    # `is not None`, not truthiness: an explicit empty `--body-file ""` must read
+    # the (empty) file path and fail closed on that path's own read error, not fall
+    # through to the issue branch and call `issue_body(None)` — which would run
+    # `gh issue view None` and misreport the failure as an issue-fetch problem
+    # (PR #572 review). Both arms still fail closed to UNAVAILABLE; this keeps the
+    # diagnostic pointed at the surface the caller actually named.
+    if args.body_file is not None:
         try:
             # errors="replace": a body file with invalid UTF-8 bytes decodes to
             # replacement chars and is still scanned for real #N declarations,
