@@ -12844,6 +12844,38 @@ for PA_FILE in "$LIB"/../skills/*/SKILL.md "$LIB"/../skills/implement/phases/pha
 done
 assert_eq "#275 pin (P0): portable-anchor coverage spans every skill + implement phase file (enumeration reconciled)" \
   "22" "$PA_FILE_COUNT"
+# The #529/#530 bundle splits moved authoritative procedure — helper call sites included —
+# out of the two SKILL.md roots and into skills/review/phases/*.md and
+# skills/review-and-fix/references/*.md. Those families were outside the loop above, so a
+# fragile anchor introduced in a reference file was unguarded (issue #528 added a new
+# `${CLAUDE_SKILL_DIR:-…}` call site to references/fixing.md with no pin covering it).
+# They get the same absence + completeness pins. The P3 PRESENCE pin is deliberately
+# CONDITIONAL here — unlike a SKILL.md root, a phase/reference file legitimately carries no
+# helper call at all (7 of the 9 review phases and 5 of the 8 fix-loop references do not) —
+# so it fires only on a file that references the anchor, where dropping the sanctioned form
+# is a real regression.
+PA_REF_COUNT=0
+for PA_FILE in "$LIB"/../skills/review/phases/*.md "$LIB"/../skills/review-and-fix/references/*.md; do
+  PA_NAME="skills/${PA_FILE#"$LIB"/../skills/}"
+  PA_REF_COUNT=$((PA_REF_COUNT + 1))
+  assert_eq "#275 pin (R1): $PA_NAME has no bare \$CLAUDE_SKILL_DIR/../../ expansion" "yes" \
+    "$(! grep -qE "$PA_BARE_ERE" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: absence pin over the enumerated $PA_FILE loop variable, not a static pin
+  assert_eq "#275 pin (R2): $PA_NAME has no cross-statement \$CLAUDE_SKILL_DIR anchor assignment" "yes" \
+    "$(! grep -qE "$PA_XSTMT_ERE" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: absence pin over the enumerated $PA_FILE loop variable, not a static pin
+  assert_eq "#275 pin (R1c): $PA_NAME has no wrong-fallback (non-placeholder) CLAUDE_SKILL_DIR expansion" "yes" \
+    "$(! grep -qE "$PA_WRONGFB_ERE" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: absence pin over the enumerated $PA_FILE loop variable
+  # R3c — per-occurrence completeness, identical to P3c: every `${CLAUDE_SKILL_DIR:`
+  # expansion carries the FULL sanctioned placeholder. On a file with zero occurrences this
+  # is 0 == 0 (vacuously true), which is why R3 below supplies the non-vacuous half.
+  assert_eq "#275 pin (R3c): $PA_NAME: every CLAUDE_SKILL_DIR expansion carries the full sanctioned placeholder" "yes" \
+    "$([ "$(grep -oF '${CLAUDE_SKILL_DIR:' "$PA_FILE" | grep -c .)" = "$(grep -oF '${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}' "$PA_FILE" | grep -c .)" ] && echo yes || echo no)"  # raw-guard-ok: loop body: count-equality check over the enumerated $PA_FILE loop variable
+  # R3 — conditional presence: a file that mentions the anchor at all must carry the
+  # sanctioned inline literal (a file with no helper call is exempt, by design).
+  assert_eq "#275 pin (R3): $PA_NAME: any anchor mention uses the portable single-statement inline form" "yes" \
+    "$(if grep -qF 'CLAUDE_SKILL_DIR' "$PA_FILE"; then grep -qF "$PORTABLE_ANCHOR_LITERAL" "$PA_FILE" && echo yes || echo no; else echo yes; fi)"  # raw-guard-ok: loop body: conditional presence pin over the enumerated $PA_FILE loop variable
+done
+assert_eq "#275 pin (R0): portable-anchor coverage spans every review phase + fix-loop reference file (enumeration reconciled)" \
+  "17" "$PA_REF_COUNT"
 # Mutation proof (PASS->FAIL, self-contained): the absence EREs must actually MATCH the
 # two fragile forms they exist to reject — an ERE typo would leave P1/P2 green forever
 # (vacuous absence pins). Inject each fragile form into a temp copy of a migrated file
@@ -42508,11 +42540,40 @@ python3 "$LIB/test/test_verification_flight.py" >"$VF_ROOT/vf-unit.out" 2>&1
 assert_eq "verification flight: focused Python tests pass" "0" "$?"
 # The coordinator is data-only (AC #528-1): it launches no subprocess, spawns no
 # shell, and runs no git — it never becomes a shell-command bypass. Pin the
-# absence of every subprocess / shell-out / exec spelling, the same widened
-# evasion sweep the Wave 1 analyzer carries.
+# absence of every subprocess / shell-out / exec spelling.
+#
+# The spelling list is NOT written here. It is read from the single source of
+# truth — BANNED_EXEC_SPELLINGS in lib/test/test_verification_flight.py — so this
+# shell sweep and the Python guard cannot drift into disagreeing coverage (the
+# earlier hand-copied 10-alternative regex was a strict subset of the Python-side
+# list, so each guard certified the contract against the other's blind spot).
+# python3 is a hard preflight prerequisite, so deriving the list is safe here.
 VF_SRC="$LIB/../scripts/verification-flight.py"
-assert_eq "verification flight: no subprocess / shell-out / exec spelling" "0" \
-  "$(grep -cE '(^|[^a-zA-Z_])(import subprocess|from subprocess import|subprocess\.|os\.system|os\.popen|os\.exec|getoutput|check_output|pty\.spawn|import pty)' "$VF_SRC" || true)"
+VF_SPELLINGS="$(python3 - "$LIB/test/test_verification_flight.py" <<'VFEOF'
+import ast, sys
+tree = ast.parse(open(sys.argv[1], encoding="utf-8").read())
+for node in tree.body:
+    if isinstance(node, ast.Assign) and any(
+        getattr(t, "id", "") == "BANNED_EXEC_SPELLINGS" for t in node.targets
+    ):
+        for elt in node.value.elts:
+            print(elt.value)
+VFEOF
+)"
+# Fail closed: an empty derivation would make every membership test below vacuous.
+assert_eq "verification flight: banned-spelling list derived from its single source" "yes" \
+  "$([ -n "$VF_SPELLINGS" ] && echo yes || echo no)"
+VF_EXEC_HITS=0
+while IFS= read -r _vf_spelling; do
+  [ -n "$_vf_spelling" ] || continue
+  case "$(grep -cF -- "$_vf_spelling" "$VF_SRC" || true)" in
+    0) : ;;
+    *) VF_EXEC_HITS=$((VF_EXEC_HITS + 1)); echo "  exec-sweep hit: $_vf_spelling" ;;  # RED-path diagnostic only; deliberately NOT the ' NOTE ' skip channel
+  esac
+done <<VFHITS
+$VF_SPELLINGS
+VFHITS
+assert_eq "verification flight: no subprocess / shell-out / exec spelling" "0" "$VF_EXEC_HITS"
 # The exact, exhaustive state set is a coupled invariant with the helper source
 # and the docs — pin the full declared membership (the grep literals enforce exact
 # content) so a dropped/renamed state goes RED.

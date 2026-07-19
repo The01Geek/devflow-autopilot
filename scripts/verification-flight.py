@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import hmac
 import json
 import os
 import secrets
@@ -141,7 +142,35 @@ def _validate_reason_code(
         raise ValueError(f"unknown reason code: {reason!r}")
 
 
-class DeclarationError(Exception):
+class _CodedError(Exception):
+    """Shared base for the closed-reason-vocabulary errors.
+
+    Subclasses declare `_EXACT_REASONS` / `_REASON_PREFIXES`; this base owns the
+    construction-time validation and makes `.reason` **read-only for the object's
+    lifetime**. The lifetime part is load-bearing, not stylistic: `.reason` is the
+    machine code distant assertions key on, so a post-construction
+    `exc.reason = "typo"` would rebuild exactly the valid-but-wrong error the
+    construction-time check exists to prevent. Sharing the wiring here also means a
+    future third coded-reason error inherits it structurally rather than by
+    copy-paste convention.
+    """
+
+    _EXACT_REASONS: frozenset[str] = frozenset()
+    _REASON_PREFIXES: frozenset[str] = frozenset()
+
+    __slots__ = ("_reason",)
+
+    def __init__(self, reason: str):
+        _validate_reason_code(reason, self._EXACT_REASONS, self._REASON_PREFIXES)
+        super().__init__(reason)
+        self._reason = reason
+
+    @property
+    def reason(self) -> str:
+        return self._reason
+
+
+class DeclarationError(_CodedError):
     """An incomplete / non-hermetic declaration — reuse is disabled."""
 
     # The closed reason vocabulary — coupled to every DeclarationError raise site
@@ -168,10 +197,6 @@ class DeclarationError(Exception):
         "checkout_incomplete_fingerprint",
     })
 
-    def __init__(self, reason: str):
-        _validate_reason_code(reason, self._EXACT_REASONS, self._REASON_PREFIXES)
-        super().__init__(reason)
-        self.reason = reason
 
 
 def _validate_profile(profile: Any) -> dict:
@@ -252,13 +277,22 @@ def _derive(declaration: Any) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 # Ledger IO — atomic, owner-only-permission
 # ─────────────────────────────────────────────────────────────────────────────
-def _state_dir(root: str | None) -> Path:
+def _state_dir(root: str | None, logs_dir: str | None = None) -> Path:
     base = Path(root) if root else Path.cwd() / STATE_DIRNAME
     base.mkdir(parents=True, exist_ok=True)
     try:
         os.chmod(base, 0o700)
-    except OSError:
-        pass
+    except OSError as exc:
+        # Best-effort by design (a read-only mount or a foreign-uid directory must
+        # not break coordination), but NEVER silent: the module's own 0700
+        # directory-mode claim is false on this host, and a bare `except: pass`
+        # left an operator auditing that discrepancy with nothing to find. Each
+        # flight file is still individually 0600; it is the directory listing whose
+        # protection is degraded, so record it rather than swallow it.
+        _emit_telemetry(
+            logs_dir, "state_dir_chmod_failed",
+            {"path": str(base), "error": f"{type(exc).__name__}: {exc}"},
+        )
     return base
 
 
@@ -277,7 +311,7 @@ def _atomic_replace(path: Path, body: dict) -> None:
     os.replace(tmp, path)
 
 
-class ReadError(Exception):
+class ReadError(_CodedError):
     """A flight file that is missing, empty, truncated, or malformed — a
     non-pass with an attributable reason, never inferred as terminal."""
 
@@ -295,10 +329,6 @@ class ReadError(Exception):
         "missing_field",
     })
 
-    def __init__(self, reason: str):
-        _validate_reason_code(reason, self._EXACT_REASONS, self._REASON_PREFIXES)
-        super().__init__(reason)
-        self.reason = reason
 
 
 def _read_flight(path: Path) -> dict:
@@ -337,7 +367,11 @@ def _emit_telemetry(logs_dir: str | None, event: str, payload: dict) -> None:
     """Append a per-event JSON record under .devflow/logs/verification-flight/.
 
     Best-effort and hermetic: a stale/incomplete handle is never recorded as
-    saved work (callers pass suppressed_launch only on a genuine pass attach).
+    saved work. The honesty property rides on `flight_attached`'s own
+    `attached_state` field — a cross-run analyzer counts a suppressed launch
+    only for `attached_state == "passed"`, so an attach to a stale/incomplete
+    handle is visibly not saved work. (There is no `suppressed_launch` field;
+    `attached_state` is the operand.)
     A failure to write telemetry never fails the coordination operation.
     """
     try:
@@ -483,7 +517,7 @@ def cmd_claim(args) -> int:
         _print(err[0])
         return err[1]
 
-    state_dir = _state_dir(args.state_dir)
+    state_dir = _state_dir(args.state_dir, args.logs_dir)
     path = _flight_path(state_dir, derived["flight_key"])
     now = _now()
     lease = args.lease_seconds if args.lease_seconds is not None else DEFAULT_LEASE_SECONDS
@@ -542,6 +576,25 @@ def cmd_claim(args) -> int:
         pass
 
     # A flight already exists for this exact key — attach without a second owner.
+    #
+    # ONE-SHOT PER KEY (deliberate). A terminal handle is never re-owned: a later
+    # caller for the same key attaches to it, reads a non-pass, and falls back to its
+    # own direct launch. There is intentionally no `reclaim`/`--force`/delete
+    # subcommand, because minting a second owner over a terminal record is exactly the
+    # unsound move the single-owner guarantee exists to prevent. The cost is bounded
+    # and safe: coordination for that key degrades to today's uncoordinated behavior
+    # (every caller launches its own suite) until any declared input changes, which
+    # mints a fresh key. The fail direction is duplicate work, never a false pass.
+    #
+    # NO `running` LEASE (deliberate — issue #528 AC). A `claimed` handle carries a
+    # bounded lease because a claim made and abandoned before `mark-running` proves
+    # nothing was ever launched. A `running` handle deliberately carries NO expiry:
+    # the AC requires that "the ledger never infers that an unobserved process ended",
+    # and auto-expiring `running` is precisely that inference — it would let a suite
+    # still executing be re-declared abandoned. An owner lost mid-run therefore leaves
+    # `running` until its own `finish`; attachers bound their exposure with `wait`'s
+    # non-mutating `wait_expired` and launch directly. Liveness is traded for the
+    # never-a-false-pass invariant, on purpose.
     try:
         flight = _read_flight(path)
     except ReadError as exc:
@@ -562,14 +615,18 @@ def _cas_load(path: Path, token: str) -> tuple[dict | None, int, str]:
         flight = _read_flight(path)
     except ReadError as exc:
         return None, EXIT_UNREADABLE, exc.reason
-    if _sha256(token.encode("utf-8")) != flight.get("token_digest"):
+    # Constant-time: this is the sole ownership gate for mark-running/finish, so a
+    # naive `!=` leaks digest-prefix information through comparison timing.
+    if not hmac.compare_digest(
+        _sha256(token.encode("utf-8")), str(flight.get("token_digest") or "")
+    ):
         # attacher / stale-token / replay-with-wrong-token
         return None, EXIT_CAS_REJECT, "token_mismatch"
     return flight, EXIT_OK, ""
 
 
 def cmd_mark_running(args) -> int:
-    state_dir = _state_dir(args.state_dir)
+    state_dir = _state_dir(args.state_dir, args.logs_dir)
     path = _flight_path(state_dir, args.flight)
     flight, code, reason = _cas_load(path, args.token)
     if flight is None:
@@ -596,7 +653,7 @@ def cmd_mark_running(args) -> int:
 
 
 def cmd_finish(args) -> int:
-    state_dir = _state_dir(args.state_dir)
+    state_dir = _state_dir(args.state_dir, args.logs_dir)
     path = _flight_path(state_dir, args.flight)
     flight, code, reason = _cas_load(path, args.token)
     if flight is None:
@@ -631,6 +688,12 @@ def cmd_finish(args) -> int:
         flight["finished_at"] = _iso(_now())
         _atomic_replace(path, flight)
         _print({"ok": False, "result": "incomplete", "reason": "missing_terminal_evidence"})
+        # Exit-code note: this reuses EXIT_CAS_REJECT rather than minting a code of
+        # its own. The owner's transition WAS rejected, so the code is honest at the
+        # "did my transition land?" granularity every shell caller gates on; callers
+        # needing the finer distinction read the JSON `reason` field, which is
+        # `missing_terminal_evidence` here and `token_mismatch` for a real ownership
+        # failure. Documented deliberately so the overload is not read as an oversight.
         return EXIT_CAS_REJECT
 
     now = _now()
@@ -658,14 +721,24 @@ def cmd_finish(args) -> int:
 
 
 def _read_and_report(args) -> tuple[dict | None, int, str]:
-    state_dir = _state_dir(args.state_dir)
+    state_dir = _state_dir(args.state_dir, args.logs_dir)
     path = _flight_path(state_dir, args.flight)
     current_checkout = None
     if getattr(args, "current_checkout_file", None):
         try:
-            current_checkout = _load_json_arg(args.current_checkout_file)
+            current_checkout = _validate_checkout(
+                _load_json_arg(args.current_checkout_file)
+            )
         except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
             return None, EXIT_INVALID, f"current_checkout:{exc.__class__.__name__}"
+        except DeclarationError as exc:
+            # Share the contract: validate the caller-supplied current checkout with
+            # the SAME operation the stored checkout was validated by, so the two
+            # accepted sets cannot drift. Without this, a valid-JSON-but-wrong-type
+            # payload (array, scalar, missing fingerprint field) reached the drift
+            # comparison unvalidated and was reported as `checkout_drift` — an
+            # attributable-looking but WRONG cause for a malformed operand.
+            return None, EXIT_INVALID, f"current_checkout:{exc.reason}"
     try:
         flight = _read_flight(path)
     except ReadError as exc:
@@ -679,6 +752,11 @@ def cmd_status(args) -> int:
     if flight is None:
         # Missing/unreadable/malformed shapes: attributable non-pass, never pass.
         _print({"ok": False, "result": "non_pass", "reason": reason, "satisfies_verification": False})
+        # The `else EXIT_UNREADABLE` arm is an unreachable defensive floor, not live
+        # logic: _read_and_report pairs a None flight only with EXIT_INVALID or
+        # EXIT_UNREADABLE (its EXIT_OK return always carries a flight). It is kept so
+        # that a future edit introducing a (None, EXIT_OK) path degrades to a non-pass
+        # instead of returning success with no flight. No test can cover it by design.
         return code if code != EXIT_OK else EXIT_UNREADABLE
     _print_public(flight)
     if _satisfies(flight):
@@ -687,16 +765,22 @@ def cmd_status(args) -> int:
 
 
 def cmd_wait(args) -> int:
-    state_dir = _state_dir(args.state_dir)
+    state_dir = _state_dir(args.state_dir, args.logs_dir)
     path = _flight_path(state_dir, args.flight)
     deadline = time.monotonic() + max(0.0, args.timeout)
     poll = max(0.0, args.poll_interval)
     current_checkout = None
     if args.current_checkout_file:
         try:
-            current_checkout = _load_json_arg(args.current_checkout_file)
+            current_checkout = _validate_checkout(
+                _load_json_arg(args.current_checkout_file)
+            )
         except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
             _print({"ok": False, "result": "non_pass", "reason": f"current_checkout:{exc.__class__.__name__}", "satisfies_verification": False})
+            return EXIT_INVALID
+        except DeclarationError as exc:
+            # Same share-the-contract guard as _read_and_report's — see the note there.
+            _print({"ok": False, "result": "non_pass", "reason": f"current_checkout:{exc.reason}", "satisfies_verification": False})
             return EXIT_INVALID
 
     last_reason = "missing"

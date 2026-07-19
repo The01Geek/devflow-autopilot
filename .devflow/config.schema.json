@@ -760,11 +760,20 @@
         },
         "profiles": {
           "type": "object",
-          "description": "Named verification profiles. Each profile is a data-only declaration of one verification command's identity and hermetic inputs. The default profile name is `full-suite`.",
+          "description": "Named verification profiles. Each profile is a data-only declaration of one verification command's identity and hermetic inputs. This namespace is DECLARATIVE ONLY in Wave 2: the helper takes its profile inline via `--input-file` and implements no lookup-by-name, so no profile name here is resolved by scripts/verification-flight.py today. The `required` list below mirrors the helper's own `_PROFILE_REQUIRED` tuple exactly, so a schema-valid profile is also declaration-valid at runtime.",
           "additionalProperties": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["profile_version", "argv", "external_services"],
+            "required": [
+              "profile_version",
+              "argv",
+              "cwd",
+              "environment",
+              "toolchain",
+              "dependencies",
+              "output_roots",
+              "external_services"
+            ],
             "properties": {
               "profile_version": {
                 "type": "integer",

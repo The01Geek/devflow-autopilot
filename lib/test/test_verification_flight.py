@@ -27,6 +27,46 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 
+#: Single source of truth for the no-execution sweep (issue #528).
+#:
+#: The helper's headline contract is that it "launches no subprocess, accepts no
+#: executable argv, and cannot become a shell-command bypass". A guard that
+#: enumerates only *some* spellings certifies that contract against its own blind
+#: spot: the original sweep listed 10 spellings, so a future edit reaching for
+#: `os.posix_spawn`, `os.fork`, `multiprocessing`, `ctypes`, `runpy`, or
+#: `asyncio.create_subprocess_exec` would have passed both guards while breaking
+#: the contract outright. This tuple is the *population* — the process-spawn and
+#: dynamic-code-execution surface of the CPython standard library — not a sample.
+#:
+#: `lib/test/run.sh` builds its own grep sweep by reading THIS tuple (python3 is a
+#: hard preflight prerequisite), so the shell guard and the Python guard are
+#: structurally single-sourced and cannot drift into disagreeing coverage.
+BANNED_EXEC_SPELLINGS = (
+    "import subprocess",
+    "from subprocess import",
+    "subprocess.",
+    "os.system",
+    "os.popen",
+    "os.exec",
+    "os.spawn",
+    "os.posix_spawn",
+    "os.fork",
+    "os.forkpty",
+    "import pty",
+    "pty.spawn",
+    "pty.fork",
+    "import multiprocessing",
+    "multiprocessing.",
+    "asyncio.create_subprocess",
+    "import ctypes",
+    "ctypes.",
+    "import runpy",
+    "runpy.",
+    "getoutput",
+    "check_output",
+    "__import__",
+)
+
 ROOT = Path(__file__).resolve().parents[2]
 _SPEC = importlib.util.spec_from_file_location(
     "verification_flight", ROOT / "scripts" / "verification-flight.py"
@@ -608,8 +648,46 @@ class TestNoExecutionContract(unittest.TestCase):
 
     def test_no_subprocess_or_git_import(self):
         src = (ROOT / "scripts" / "verification-flight.py").read_text()
-        for banned in ("import subprocess", "subprocess.", "os.system(", "os.exec"):
+        for banned in BANNED_EXEC_SPELLINGS:
             self.assertNotIn(banned, src, f"helper must not use {banned}")
+
+    def test_no_execution_contract_holds_by_ast_not_only_by_substring(self):
+        """An independent signal from the substring sweep.
+
+        A substring list can only ban spellings someone thought to enumerate. This
+        check derives the same property structurally — every `import` and every
+        called attribute in the parsed module — so a spelling absent from
+        BANNED_EXEC_SPELLINGS is still caught. The two guards are deliberately
+        different signals; agreeing is what makes the contract credible.
+        """
+        import ast
+
+        tree = ast.parse((ROOT / "scripts" / "verification-flight.py").read_text())
+        allowed_imports = {
+            "__future__", "argparse", "hashlib", "hmac", "json", "os",
+            "secrets", "sys", "time", "pathlib", "typing",
+        }
+        allowed_os_calls = {
+            "os.chmod", "os.close", "os.getpid", "os.open", "os.replace", "os.write",
+        }
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    self.assertIn(alias.name.split(".")[0], allowed_imports,
+                                  f"unexpected import {alias.name}")
+            elif isinstance(node, ast.ImportFrom):
+                self.assertIn((node.module or "").split(".")[0], allowed_imports,
+                              f"unexpected from-import {node.module}")
+            elif isinstance(node, ast.Call):
+                fn = node.func
+                if isinstance(fn, ast.Attribute) and isinstance(fn.value, ast.Name):
+                    dotted = f"{fn.value.id}.{fn.attr}"
+                    if fn.value.id == "os":
+                        self.assertIn(dotted, allowed_os_calls,
+                                      f"unexpected os call {dotted}")
+                elif isinstance(fn, ast.Name):
+                    self.assertNotIn(fn.id, {"eval", "exec", "compile", "__import__"},
+                                     f"dynamic code execution via {fn.id}()")
 
     def test_states_are_exactly_the_declared_set(self):
         self.assertEqual(
@@ -729,6 +807,144 @@ class TestReasonVocabulary(unittest.TestCase):
     def test_read_error_unknown_prefix_rejected(self):
         with self.assertRaises(ValueError):
             vf.ReadError("unreadble:OSError")  # typo'd prefix
+
+
+class TestReasonCodeImmutability(Harness):
+    """`.reason` is the machine-readable operand distant assertions key on, so the
+    closed-vocabulary invariant must hold for the object's LIFETIME, not only at
+    construction — otherwise a later `exc.reason = "typo"` reintroduces exactly the
+    valid-but-wrong error the construction-time check exists to prevent."""
+
+    def test_declaration_error_reason_is_read_only(self):
+        exc = vf.DeclarationError("profile_not_object")
+        with self.assertRaises(AttributeError):
+            exc.reason = "profile_not_an_object"
+        self.assertEqual(exc.reason, "profile_not_object")
+
+    def test_read_error_reason_is_read_only(self):
+        exc = vf.ReadError("malformed_json")
+        with self.assertRaises(AttributeError):
+            exc.reason = "malfrmed_json"
+        self.assertEqual(exc.reason, "malformed_json")
+
+    def test_both_coded_errors_share_one_validating_base(self):
+        """A third coded-reason exception must inherit the wiring structurally,
+        not by copy-paste convention."""
+        self.assertTrue(issubclass(vf.DeclarationError, vf._CodedError))
+        self.assertTrue(issubclass(vf.ReadError, vf._CodedError))
+
+
+class TestStateDirChmodBreadcrumb(Harness):
+    """A silently-swallowed chmod failure makes the module's own 0700 directory-mode
+    claim false on that host with nothing recording it. It stays best-effort (never
+    fatal) but must leave an auditable breadcrumb."""
+
+    def test_chmod_failure_emits_telemetry_breadcrumb(self):
+        real_chmod = os.chmod
+
+        def boom(path, mode, *a, **kw):
+            if str(path).endswith("state"):
+                raise PermissionError("EPERM")
+            return real_chmod(path, mode, *a, **kw)
+
+        os.chmod = boom
+        try:
+            vf._state_dir(self.state, logs_dir=self.logs)
+        finally:
+            os.chmod = real_chmod
+        events = [json.loads(p.read_text(encoding="utf-8"))
+                  for p in Path(self.logs).glob("*.json")]
+        kinds = [e["event"] for e in events]
+        self.assertIn("state_dir_chmod_failed", kinds)
+
+
+class TestWaitDriftAndInvalidCheckoutFile(Harness):
+    """`wait` is the one command whose whole purpose is polling ACROSS a window in
+    which another process can mutate the checkout — its own drift path must be
+    exercised, not just `status`'."""
+
+    def test_wait_detects_checkout_drift_mid_poll(self):
+        _, owner = self.claim()
+        drifted = self._write({"checkout_id": "r1", "head": "MOVED",
+                               "index_digest": "i1", "tracked_digest": "t1",
+                               "untracked_digest": "u1"})
+        code, out = self.run_cmd([
+            "wait", "--flight", owner["flight_key"], "--state-dir", self.state,
+            "--logs-dir", self.logs, "--timeout", "0",
+            "--current-checkout-file", drifted,
+        ])
+        self.assertEqual(out["state"], "stale")
+        self.assertFalse(out["satisfies_verification"])
+        self.assertNotEqual(code, vf.EXIT_OK)
+
+    def test_wait_malformed_current_checkout_file_is_invalid(self):
+        _, owner = self.claim()
+        bad = os.path.join(self.tmp, "bad.json")
+        Path(bad).write_text("{not json", encoding="utf-8")
+        code, _ = self.run_cmd([
+            "wait", "--flight", owner["flight_key"], "--state-dir", self.state,
+            "--timeout", "0", "--current-checkout-file", bad,
+        ])
+        self.assertEqual(code, vf.EXIT_INVALID)
+
+    def test_status_malformed_current_checkout_file_is_invalid(self):
+        _, owner = self.claim()
+        bad = os.path.join(self.tmp, "bad2.json")
+        Path(bad).write_text("[]", encoding="utf-8")
+        code, _ = self.run_cmd([
+            "status", "--flight", owner["flight_key"], "--state-dir", self.state,
+            "--current-checkout-file", bad,
+        ])
+        self.assertEqual(code, vf.EXIT_INVALID)
+
+
+class TestOwnerCommandsAgainstAbsentFlight(Harness):
+    """`mark-running`/`finish` drive `_cas_load`'s ReadError arm through a DIFFERENT
+    output shape than `status` — a regression that collapsed 'no such flight' into
+    'wrong token' would be invisible to the status-only shape matrix."""
+
+    def test_mark_running_on_absent_flight_is_unreadable(self):
+        code, out = self.run_cmd([
+            "mark-running", "--flight", "0" * 64, "--token", "deadbeef",
+            "--state-dir", self.state,
+        ])
+        self.assertEqual(code, vf.EXIT_UNREADABLE)
+        self.assertEqual(out["reason"], "missing")
+
+    def test_finish_on_absent_flight_is_unreadable(self):
+        summary = self._write({"command": "lib/test/run.sh", "exit_status": 0})
+        code, out = self.run_cmd([
+            "finish", "--flight", "0" * 64, "--token", "deadbeef",
+            "--result", "passed", "--summary-file", summary,
+            "--state-dir", self.state,
+        ])
+        self.assertEqual(code, vf.EXIT_UNREADABLE)
+        self.assertEqual(out["reason"], "missing")
+
+
+class TestTerminalHandleIsOneShotPerKey(Harness):
+    """Documented deliberate behavior: a terminal handle is never re-owned. A later
+    caller attaches to it and falls back to a direct launch — it never mints a second
+    owner over a terminal record, and never reads one as a pass."""
+
+    def test_claim_over_terminal_incomplete_attaches_and_never_passes(self):
+        os.environ["DEVFLOW_FLIGHT_NOW"] = "1000"
+        _, owner = self.claim(lease=10)
+        os.environ["DEVFLOW_FLIGHT_NOW"] = "2000"
+        code, out = self.run_cmd([
+            "status", "--flight", owner["flight_key"], "--state-dir", self.state,
+            "--logs-dir", self.logs,
+        ])
+        self.assertEqual(out["state"], "incomplete")
+        os.environ.pop("DEVFLOW_FLIGHT_NOW", None)
+        code2, again = self.run_cmd([
+            "claim", "--input-file", self._write(_decl()),
+            "--state-dir", self.state, "--logs-dir", self.logs,
+        ])
+        self.assertEqual(again["role"], "attacher")
+        self.assertEqual(again["state"], "incomplete")
+        self.assertNotIn("token", again)
+        self.assertFalse(again["satisfies_verification"])
 
 
 if __name__ == "__main__":
