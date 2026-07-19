@@ -366,9 +366,13 @@ def _write_payload(verdict: str, reason: str, state: dict, derived: dict) -> str
 
 
 def _classify_branch_state(state: dict) -> tuple[str, str, dict]:
-    """Return (verdict, reason, derived). Pure decision logic over gathered state.
+    """Return (verdict, reason, derived). The branch-state decision orchestrator.
 
-    Verdict vocabulary: FRESH, VALIDATED_RESUME, AMBIGUOUS, DECISION_BLOCKED,
+    Reads the caller-gathered `state` and derives the git-side facts it needs
+    lazily (ahead-of-base count, published-tip reachability, recorded-branch
+    existence) — each git helper is invoked only on the paths that consume it, so
+    this is not a pure function of `state`; it touches the current checkout via
+    git. Verdict vocabulary: FRESH, VALIDATED_RESUME, AMBIGUOUS, DECISION_BLOCKED,
     UNAVAILABLE. The reason is a stable slug (empty for the proceed verdicts).
     """
     base = state["base"]
@@ -398,19 +402,25 @@ def _classify_branch_state(state: dict) -> tuple[str, str, dict]:
         return ("AMBIGUOUS", "duplicate-branch-line", derived)
 
     has_verdict = bool(state.get("has_proceed_verdict", False))
-    tip_reachable = _published_tip_reachable(current_branch)
-    derived["published_tip_reachable"] = tip_reachable
 
+    # Published-tip reachability is only consulted on the absent and matching
+    # arms below; the divergent arm never reads it, so it is derived inside those
+    # arms rather than eagerly (avoids a wasted rev-parse + merge-base pair on the
+    # divergent path).
     if recorded is None:
         # Absent / placeholder / truncated Branch line. A prior proceed verdict
         # PLUS a published tip still vouches for the ahead history even without a
         # recorded name; anything less is a human decision.
+        tip_reachable = _published_tip_reachable(current_branch)
+        derived["published_tip_reachable"] = tip_reachable
         if has_verdict and tip_reachable:
             return ("VALIDATED_RESUME", "", derived)
         return ("AMBIGUOUS", "no-recorded-branch", derived)
 
     if recorded == current_branch:
         if has_verdict:
+            tip_reachable = _published_tip_reachable(current_branch)
+            derived["published_tip_reachable"] = tip_reachable
             if tip_reachable:
                 return ("VALIDATED_RESUME", "", derived)
             return ("AMBIGUOUS", "matching-verdict-tip-unreachable", derived)
@@ -430,36 +440,39 @@ def _classify_branch_state(state: dict) -> tuple[str, str, dict]:
     return ("DECISION_BLOCKED", "divergent-without-verdict", derived)
 
 
+def _unavailable_state(message: str) -> int:
+    """Emit a state-input UNAVAILABLE: a specific stderr cause + the fixed token.
+
+    Every branch-state input-validation failure fails closed to the SAME contract
+    — `UNAVAILABLE state` on stdout, `UNAVAILABLE_EXIT` — with only the stderr
+    cause varying; routing them through one helper keeps that contract single-sited
+    (the classify-path `UNAVAILABLE <reason>` emit stays separate: its token varies).
+    """
+    print(f"preflight.py: {message}", file=sys.stderr)
+    print("UNAVAILABLE state", flush=True)
+    return UNAVAILABLE_EXIT
+
+
 def branch_state(args: argparse.Namespace) -> int:
     # `is not None`: an explicit `--state-file ""` reads the (empty) path and fails
     # closed on that read, never falls through to a phantom default (mirrors the
     # dependency subcommand's body-file discipline).
     if args.state_file is None:
-        print("preflight.py: branch-state requires --state-file", file=sys.stderr)
-        print("UNAVAILABLE state", flush=True)
-        return UNAVAILABLE_EXIT
+        return _unavailable_state("branch-state requires --state-file")
     try:
         raw = Path(args.state_file).read_text(encoding="utf-8")
     except OSError as exc:
-        print(f"preflight.py: could not read branch-state file: {exc}", file=sys.stderr)
-        print("UNAVAILABLE state", flush=True)
-        return UNAVAILABLE_EXIT
+        return _unavailable_state(f"could not read branch-state file: {exc}")
     try:
         state = json.loads(raw)
     except json.JSONDecodeError as exc:
-        print(f"preflight.py: branch-state file is not valid JSON: {exc}", file=sys.stderr)
-        print("UNAVAILABLE state", flush=True)
-        return UNAVAILABLE_EXIT
+        return _unavailable_state(f"branch-state file is not valid JSON: {exc}")
     if not isinstance(state, dict):
-        print("preflight.py: branch-state file must be a JSON object", file=sys.stderr)
-        print("UNAVAILABLE state", flush=True)
-        return UNAVAILABLE_EXIT
+        return _unavailable_state("branch-state file must be a JSON object")
     base = state.get("base")
     current_branch = state.get("current_branch")
     if not isinstance(base, str) or not base or not isinstance(current_branch, str) or not current_branch:
-        print("preflight.py: branch-state requires non-empty string 'base' and 'current_branch'", file=sys.stderr)
-        print("UNAVAILABLE state", flush=True)
-        return UNAVAILABLE_EXIT
+        return _unavailable_state("branch-state requires non-empty string 'base' and 'current_branch'")
 
     verdict, reason, derived = _classify_branch_state(state)
     if verdict == "UNAVAILABLE":
