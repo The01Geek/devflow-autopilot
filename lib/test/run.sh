@@ -208,7 +208,7 @@ _build_skill_bundle "implement-skill" "$IMPL_SKILL_BUNDLE" "${_bundle_members[@]
 # budget counts only the sources a pass with no blocker fast path and no
 # stale-prose predicate must read — the gated three are excluded BY the split.
 REVIEW_DEFAULT_PHASE_STEMS="phase-0-setup phase-1-checklist phase-2-verification phase-3-agents phase-4-verdict phase-4-4-github-post"
-REVIEW_GATED_PHASE_STEMS="phase-0-3-6-blocker-recheck phase-0-6-stale-prose-lint phase-4-1-7-stale-adjudication"
+REVIEW_GATED_PHASE_STEMS="phase-0-3-6-blocker-recheck phase-0-6-stale-prose-lint phase-4-1-7-stale-adjudication phase-4-1-8-prose-cutover"
 REVIEW_PHASE_STEMS="$REVIEW_DEFAULT_PHASE_STEMS $REVIEW_GATED_PHASE_STEMS"
 REVIEW_ROOT="$LIB/../skills/review/SKILL.md"
 REVIEW_BUNDLE="$(mktemp)" || { echo "run.sh: could not allocate the review-skill bundle temp" >&2; exit 1; }
@@ -1360,6 +1360,15 @@ assert_pin_unique "#425(rev): the iterations exclusion is never applied to the S
 # be built from model/effort only. Pin the sentence that forbids forwarding it to dispatch.
 assert_pin_unique "#425(rev): iterations is not forwarded to the --agents dispatch block" \
   'you use only its resolved `model`/`effort` and ignore `iterations`' "$ST_REV"
+# #554: the engine no longer overclaims that per-agent EFFORT is applied via a
+# fictional per-dispatch --agents block. Positively pin the honest reconciled
+# claim (per-agent effort is NOT deliverable in-session; model rides the Agent
+# tool's model parameter). The behavioral-fix pin that reintroducing the overclaim
+# flips RED is routed through assert_pin_red_under below (search "#554(rev): overclaim").
+assert_pin_unique "#554(rev): per-agent effort is not deliverable per-agent in-session (honest claim)" \
+  'not deliverable per-agent' "$ST_REV"
+assert_pin_unique "#554(rev): per-agent model rides the Agent tool's model override parameter" \
+  "delivered via the **Agent tool's \`model\` override parameter**" "$ST_REV"
 # The default-off guarantee (AC #3): iteration 1, standalone /devflow:review, and an
 # absent/unresolvable signal all exclude nothing. Pin the no-op sentence so deleting it
 # (which would drop an opted-in agent on the FIRST pass, breaking byte-identical-when-absent)
@@ -3079,6 +3088,15 @@ assert_pin_red_under "#557: survived-unfixed reconciliation is operative (stale-
 assert_pin_red_under "#425(raf): shadow-not-scoped sentence is operative (thinning the shadow goes RED)" \
   'the shadow always dispatches the **full** expected roster above regardless of any' \
   's/dispatches the \*\*full\*\* expected roster above regardless of any/dispatches a reduced roster on some/' "$ST_RAF"
+# #554 behavioral-fix pin: the engine must NOT reassert that per-agent effort is applied via a
+# fictional per-dispatch --agents block. The operative correction is the phrase "not deliverable
+# per-agent" (in-session effort is a reported session-fallback, not an applied success). A mutation
+# that reintroduces the overclaim (effort IS deliverable per-agent via a --agents block) removes
+# that phrase, so this pin flips PASS->FAIL — proving it guards the named regression (the #533
+# silent-drop-plus-overclaim), not merely its own line's presence. $ST_REV is skills/review/SKILL.md.
+assert_pin_red_under "#554(rev): overclaim reintroduction (per-agent effort applied via --agents) goes RED" \
+  'not deliverable per-agent' \
+  's/not deliverable per-agent/deliverable per-agent via a per-run --agents block/' "$ST_REV"
 # The N≥2 iteration threshold is the operative half of the default-off invariant: relaxing it
 # to N≥1 would exclude an opted-in agent on the FIRST pass (and, since standalone review is a
 # single pass, silently thin it too). Semantic mutation N≥2 → N≥1 re-introduces exactly that
@@ -13569,7 +13587,7 @@ for PA_FILE in "$LIB"/../skills/review/phases/*.md "$LIB"/../skills/review-and-f
     "$(if grep -qF 'CLAUDE_SKILL_DIR' "$PA_FILE"; then grep -qF "$PORTABLE_ANCHOR_LITERAL" "$PA_FILE" && echo yes || echo no; else echo yes; fi)"  # raw-guard-ok: loop body: conditional presence pin over the enumerated $PA_FILE loop variable
 done
 assert_eq "#275 pin (R0): portable-anchor coverage spans every review phase + fix-loop reference file (enumeration reconciled)" \
-  "17" "$PA_REF_COUNT"
+  "18" "$PA_REF_COUNT"
 # Mutation proof (PASS->FAIL, self-contained): the absence EREs must actually MATCH the
 # two fragile forms they exist to reject — an ERE typo would leave P1/P2 green forever
 # (vacuous absence pins). Inject each fragile form into a temp copy of a migrated file
@@ -34744,15 +34762,21 @@ assert_eq "#480 a NESTED substitution inside the heredoc body does not unbalance
 { printf '%s\n' '```bash' 'echo \\"a << EOF"' 'cd /tmp' 'EOF' '```'; } > "$E363/i-esc-parity.md"
 assert_eq "#480 an ESCAPED backslash before a quote does not flip the mask's parity (R2 still flags the leading cd)" "yes" \
   "$(python3 "$ECS" "$E363/i-esc-parity.md" | grep -q '  R2  ' && echo yes || echo no)"
-# ── matcher-probe's EXTRAS is claimed to mirror the config VERBATIM; the IMPLEMENT half of that
-# ── mirror is pinned but EXTRAS was not, so a future config edit would silently make the
-# ── evidence-of-record probe measure a profile the repo does not ship (#480 review).
-assert_eq "#480 matcher-probe EXTRAS mirrors .devflow/config.json devflow_implement.allowed_tools verbatim" "SYNCED" \
+# ── matcher-probe's EXTRAS mirrors every probe-eligible config grant. The prompt-mass
+# ── census grant is intentionally config-only in its introducing PR: the Prose cutover policy
+# ── treats that direct command shape as unproven until a later matcher-probe run, and #551
+# ── explicitly changes no workflow TOOLS. Keep that one named exception closed and visible.
+assert_eq "#480 matcher-probe EXTRAS mirrors probe-eligible devflow_implement.allowed_tools" "SYNCED" \
   "$(python3 - "$LIB/../.github/workflows/matcher-probe.yml" "$LIB/../.devflow/config.json" <<'PY'
 import json, re, sys
 yml = open(sys.argv[1], encoding="utf-8").read()
 cfg = json.load(open(sys.argv[2], encoding="utf-8"))
-want = list(cfg.get("devflow_implement", {}).get("allowed_tools", []))
+unproven_post_merge = {"Bash(lib/test/prompt-mass-census.py:*)"}
+want = [
+    token
+    for token in cfg.get("devflow_implement", {}).get("allowed_tools", [])
+    if token not in unproven_post_merge
+]
 m = re.search(r"EXTRAS='([^']*)'", yml)
 if not m:
     print("EXTRAS-NOT-FOUND")
@@ -45681,6 +45705,91 @@ if [ -d "$WP_SB" ]; then
     "0" "$(cat "$WP_SB/.wp-embed-rc" 2>/dev/null)"
   rm -rf "$WP_SB"
 fi
+
+# ── issue #551: mandatory prompt-byte census + prose-cutover policy ──────────
+PMC="$LIB/test/prompt-mass-census.py"
+PMC_TEST="$LIB/test/test_prompt_mass_census.py"
+PMC_MANIFEST="$LIB/test/prompt-mass-manifest.json"
+PMC_BASELINE="$LIB/test/prompt-mass-baseline.json"
+PMC_CLAUDE="$LIB/../CLAUDE.md"
+PMC_EXT_IMPL="$LIB/../.devflow/prompt-extensions/implement.md"
+PMC_EXT_RAF="$LIB/../.devflow/prompt-extensions/review-and-fix.md"
+
+# The helper's behavioral boundary carries the issue's T1–T18 fixture matrix. Run it from
+# the suite rather than relying on a standalone developer command, then run the helper itself
+# over the real checkout so a stale committed mirror turns this required gate RED.
+if PMC_TEST_OUT="$(python3 "$PMC_TEST" 2>&1)"; then
+  echo PASS >> "$RESULTS_FILE"
+  printf '  PASS  #551 prompt-mass census behavioral fixtures (T1–T18)\n'
+else
+  echo FAIL >> "$RESULTS_FILE"
+  printf '  FAIL  #551 prompt-mass census behavioral fixtures (T1–T18)\n%s\n' "$PMC_TEST_OUT"
+fi
+if PMC_REAL_OUT="$("$PMC" 2>&1)"; then
+  echo PASS >> "$RESULTS_FILE"
+  printf '  PASS  #551 prompt-mass census exact mirror over the real tree\n'
+else
+  echo FAIL >> "$RESULTS_FILE"
+  printf '  FAIL  #551 prompt-mass census exact mirror over the real tree\n%s\n' "$PMC_REAL_OUT"
+fi
+
+# Implementation-shape pins: byte values come from Python in-process; the manifest states
+# the classification rule; config exposes the direct form only as a post-merge convenience.
+assert_pin_unique "#551 census derives bytes in-process with os.path.getsize" \
+  'measured[relative] = os.path.getsize(path)' "$PMC"
+assert_eq "#551 census value path imports no subprocess module" "0" \
+  "$(grep -cE '^(from subprocess|import subprocess)' "$PMC" 2>/dev/null)"
+assert_pin_unique "#551 manifest states the mandatory-vs-reference classification rule" \
+  "A file loaded unconditionally on any flow's normal path, including mandatory-at-entry phase and step references, is mandatory; reference is reserved for genuinely conditional rare-path files." "$PMC_MANIFEST"
+assert_eq "#551 direct census grant appears in both writable cloud config profiles" "2" \
+  "$(grep -cF 'Bash(lib/test/prompt-mass-census.py:*)' "$LIB/../.devflow/config.json")"
+assert_eq "#551 only one committed prompt-mass baseline exists" "1" \
+  "$(python3 -c 'from pathlib import Path; import sys; print(sum(1 for p in Path(sys.argv[1]).rglob("prompt-mass-baseline.json") if p.is_file()))' "$LIB/..")"
+assert_pin_unique "#551 baseline is a per-file mirror with no committed totals key" \
+  '"files": {' "$PMC_BASELINE"
+assert_eq "#551 baseline carries no group-total rows" "0" \
+  "$(grep -c 'total' "$PMC_BASELINE" 2>/dev/null)"
+
+# Rule/procedure pins. These are surface-presence guards; the behavioral census contract is
+# proven by the T1–T18 fixtures above rather than by prose-removal assertions.
+assert_pin_unique "#551 CLAUDE helper-cutover operative sentence is present" \
+  'When an executable helper becomes the sole tested owner of a workflow decision on every path that previously consumed the prose' "$PMC_CLAUDE"
+assert_pin_unique "#551 implement extension carries the Prose cutover section" \
+  '## Prose cutover' "$PMC_EXT_IMPL"
+assert_pin_unique "#551 extension carries the complete five-condition bar" \
+  'All five conditions below must hold **for each consuming path** before its decision-owning' "$PMC_EXT_IMPL"
+assert_pin_unique "#551 extension judges ownership per consuming path" \
+  'Ownership is judged **per consuming path**.' "$PMC_EXT_IMPL"
+assert_pin_unique "#551 extension says relocation is not removal" \
+  'Relocating decision-owning prose is not a' "$PMC_EXT_IMPL"
+assert_pin_unique "#551 extension conserves removed prose pins" \
+  'List every removed prose pin in the cutover artifact.' "$PMC_EXT_IMPL"
+assert_pin_unique "#551 extension prohibits deletion before sole ownership" \
+  'sole tested owner satisfies all five conditions is unauthorized.' "$PMC_EXT_IMPL"
+assert_pin_unique "#551 extension carries the schema-1 artifact template" \
+  '### Cutover artifact template (schema 1)' "$PMC_EXT_IMPL"
+assert_pin_unique "#551 review-and-fix extension points to the authoritative template" \
+  '[Prose cutover](implement.md#prose-cutover).' "$PMC_EXT_RAF"
+
+# Shared-engine gate pins. The criterion is a gated review reference: every engine caller
+# reaches it when repo policy declares the template, while consumer repos without that policy
+# inherit no internal-census obligation. It intentionally contains no fenced command.
+assert_pin_unique "#551 gate is conditioned on the repo's Prose cutover policy" \
+  'Run this gate only when the reviewed repository' "$REVIEW_BUNDLE"
+assert_pin_unique "#551 gate restates the complete five-condition bar" \
+  '**Sole tested owner means all five conditions hold, per consuming path:**' "$REVIEW_BUNDLE"
+assert_pin_unique "#551 gate carries the incoherent-cutover arm" \
+  '**Incoherent cutover:**' "$REVIEW_BUNDLE"
+assert_pin_unique "#551 gate carries the unjustified-reduction arm" \
+  '**Unjustified reduction:**' "$REVIEW_BUNDLE"
+assert_pin_unique "#551 gate carries the unjustified-growth arm" \
+  '**Unjustified growth:**' "$REVIEW_BUNDLE"
+assert_pin_unique "#551 gate keys the rename carve-out to the PR diff" \
+  'backing file the PR diff itself reports as a rename' "$REVIEW_BUNDLE"
+assert_pin_unique "#551 gate states the keep-both mechanical residual" \
+  'The mechanical residual is explicit:' "$REVIEW_BUNDLE"
+assert_eq "#551 gated criterion adds no fenced command" "0" \
+  "$(grep -c '^```' "$LIB/../skills/review/phases/phase-4-1-8-prose-cutover.md" 2>/dev/null)"
 
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
