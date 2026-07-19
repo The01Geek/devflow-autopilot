@@ -6,14 +6,56 @@
 
 from __future__ import annotations
 
+import json
+import os
 from pathlib import Path
+import shutil
+import signal
 import subprocess
+import sys
 import tempfile
+import time
+from dataclasses import dataclass
+from typing import Literal, TypeAlias
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
 HARNESS = ROOT / "lib/test/module-harness.sh"
+RUNNER = ROOT / "lib/test/run-module.sh"
+CREATE_ISSUE_MODULE = ROOT / "lib/test/modules/create-issue-contract.sh"
+
+SignalBoundary: TypeAlias = Literal["focused", "full-suite"]
+SignalName: TypeAlias = Literal["SIGHUP", "SIGINT", "SIGTERM"]
+SignalScope: TypeAlias = Literal["parent-only", "module-only", "process-group"]
+POSIX_SIGNAL_MATRIX_AVAILABLE = os.name == "posix" and all(
+    hasattr(signal, name) for name in ("SIGHUP", "SIGINT", "SIGTERM")
+) and hasattr(os, "killpg")
+
+
+def signal_matrix_capability_skip_reason(available: bool) -> str | None:
+    if available:
+        return None
+    return "POSIX signals and process groups are required"
+
+
+@dataclass(frozen=True, kw_only=True)
+class SignalRowState:
+    process: subprocess.Popen[str]
+    boundary: SignalBoundary
+    controlled_tmp: Path
+    runner_pid_file: Path
+    module_pid_file: Path
+    worker_pid_file: Path
+    helper_pid_file: Path
+    module_state_file: Path
+    generic_scratch_file: Path
+    runner_cleanup_marker: Path
+    module_cleanup_marker: Path
+    caller_exit_marker: Path
+    results_file: Path
+    failures_file: Path
+    launch_window_file: Path
 
 
 class FullSuiteModuleHarnessTests(unittest.TestCase):
@@ -107,6 +149,101 @@ class FullSuiteModuleHarnessTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(result.stdout.splitlines(), ["PASS"])
+
+    def test_rejected_relative_scratch_allocation_is_removed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            relative_tmp = root / "relative-tmp"
+            relative_tmp.mkdir()
+            module = root / "module.sh"
+            module.write_text('printf "PASS\\n" >> "$RESULTS_FILE"\n', encoding="utf-8")
+            driver = root / "driver.sh"
+            driver.write_text(
+                "#!/usr/bin/env bash\n"
+                'export TMPDIR="relative-tmp"\n'
+                'RESULTS_FILE="results"\n'
+                'MODULE_FAILURES_FILE="failures"\n'
+                '> "$RESULTS_FILE"\n'
+                '> "$MODULE_FAILURES_FILE"\n'
+                "assert_eq() { :; }\n"
+                f'. "{HARNESS}"\n'
+                f'devflow_run_full_suite_module "{module}" "sample" 1\n',
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                ["bash", str(driver)],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            leftovers = list(relative_tmp.glob("devflow-module-scratch.*"))
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(leftovers, [])
+
+    def test_preexisting_well_shaped_scratch_is_never_claimed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            controlled_tmp = root / "tmp"
+            controlled_tmp.mkdir()
+            victim = controlled_tmp / "devflow-module-scratch.ABC123"
+            victim.mkdir()
+            sentinel = victim / "sentinel"
+            sentinel.write_text("keep\n", encoding="utf-8")
+            fake_bin = root / "fake-bin"
+            fake_bin.mkdir()
+            real_mktemp = shutil.which("mktemp")
+            self.assertIsNotNone(real_mktemp)
+            fake_mktemp = fake_bin / "mktemp"
+            fake_mktemp.write_text(
+                "#!/usr/bin/env bash\n"
+                'if [ "${1:-}" = "-d" ] && '
+                'case "${2:-}" in *devflow-module-scratch.*) true ;; '
+                "*) false ;; esac; then\n"
+                f'  printf "%s\\n" "{victim}"\n'
+                "  exit 0\n"
+                "fi\n"
+                f'exec "{real_mktemp}" "$@"\n',
+                encoding="utf-8",
+            )
+            fake_mktemp.chmod(0o755)
+            module = root / "module.sh"
+            marker = root / "module-sourced"
+            module.write_text(
+                f'printf "sourced\\n" > "{marker}"\n'
+                'printf "PASS\\n" >> "$RESULTS_FILE"\n',
+                encoding="utf-8",
+            )
+            driver = root / "driver.sh"
+            driver.write_text(
+                "#!/usr/bin/env bash\n"
+                f'export TMPDIR="{controlled_tmp}"\n'
+                f'export PATH="{fake_bin}:$PATH"\n'
+                f'RESULTS_FILE="{root / "results"}"\n'
+                f'MODULE_FAILURES_FILE="{root / "failures"}"\n'
+                '> "$RESULTS_FILE"\n'
+                '> "$MODULE_FAILURES_FILE"\n'
+                "assert_eq() { :; }\n"
+                f'. "{HARNESS}"\n'
+                f'devflow_run_full_suite_module "{module}" "sample" 1\n',
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                ["bash", str(driver)],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            sentinel_survived = sentinel.is_file()
+            module_was_sourced = marker.exists()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("could not allocate private scratch root", result.stderr)
+        self.assertTrue(sentinel_survived, result.stdout + result.stderr)
+        self.assertFalse(module_was_sourced, result.stdout + result.stderr)
 
     def test_module_cannot_rewrite_prior_suite_verdicts(self) -> None:
         result = self._run(
@@ -300,6 +437,668 @@ class FullSuiteModuleHarnessTests(unittest.TestCase):
 
         self.assertIn("result tally unreadable after module execution", result.stderr)
         self.assertIn("MODULE_SOURCED", result.stdout.splitlines())
+
+
+class SignalCapabilityReportingTests(unittest.TestCase):
+    def test_unavailable_matrix_has_a_host_capability_reason(self) -> None:
+        self.assertIsNone(signal_matrix_capability_skip_reason(True))
+        self.assertEqual(
+            signal_matrix_capability_skip_reason(False),
+            "POSIX signals and process groups are required",
+        )
+
+
+@unittest.skipUnless(
+    POSIX_SIGNAL_MATRIX_AVAILABLE,
+    "host-capability: POSIX signals and process groups are required",
+)
+class SignalCleanupMatrixTests(unittest.TestCase):
+    """Signal cleanup is symmetric across focused and complete-suite boundaries."""
+
+    signal_names: tuple[SignalName, ...] = ("SIGHUP", "SIGINT", "SIGTERM")
+    scopes: tuple[SignalScope, ...] = (
+        "parent-only",
+        "module-only",
+        "process-group",
+    )
+    boundaries: tuple[SignalBoundary, ...] = ("focused", "full-suite")
+
+    @staticmethod
+    def _pid_exists(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        return True
+
+    def _wait_for_signal_state(
+        self, process: subprocess.Popen[str], required: tuple[Path, ...]
+    ) -> None:
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if all(path.is_file() and path.stat().st_size > 0 for path in required):
+                return
+            if process.poll() is not None:
+                break
+            time.sleep(0.02)
+        missing = [
+            str(path)
+            for path in required
+            if not path.is_file() or path.stat().st_size == 0
+        ]
+        self.fail(
+            "signal fixture did not publish its PID/state files; "
+            f"missing={missing}, rc={process.poll()}"
+        )
+
+    def _build_signal_fixture(self, row: Path) -> tuple[Path, Path, Path, Path]:
+        repo = row / "repo"
+        test_dir = repo / "lib/test"
+        modules_dir = test_dir / "modules"
+        scripts_dir = repo / "scripts"
+        fake_bin = row / "fake-bin"
+        modules_dir.mkdir(parents=True)
+        scripts_dir.mkdir()
+        fake_bin.mkdir()
+        shutil.copy2(RUNNER, test_dir / "run-module.sh")
+        shutil.copy2(HARNESS, test_dir / "module-harness.sh")
+
+        sed_helper = fake_bin / "sed"
+        sed_helper.write_text(
+            "#!/usr/bin/env bash\n"
+            '_generic_scratch="$(mktemp -d "${TMPDIR:-/tmp}/devflow-generic-module.XXXXXX")" '
+            "|| exit 1\n"
+            'printf "%s\\n" "$_generic_scratch" '
+            '> "$DEVFLOW_TEST_GENERIC_SCRATCH_FILE"\n'
+            'printf "%s\\n" "$DEVFLOW_MODULE_SCRATCH_ROOT" '
+            '> "$DEVFLOW_TEST_MODULE_STATE_FILE"\n'
+            'printf "%s\\n" "$$" > "$DEVFLOW_TEST_HELPER_PID_FILE"\n'
+            'if [ "${DEVFLOW_TEST_SIGNAL_RESISTANT_HELPER:-0}" = "1" ]; then\n'
+            "  trap '' HUP INT TERM\n"
+            "fi\n"
+            "while :; do sleep 1; done\n",
+            encoding="utf-8",
+        )
+        sed_helper.chmod(0o755)
+
+        module = modules_dir / "signal-create-issue.sh"
+        module_text = CREATE_ISSUE_MODULE.read_text(encoding="utf-8")
+        insertion_point = "# The implement-skill bundle backs the #467 D2 Phase-2.4 leg"
+        signal_pause = (
+            "# Test-only signal fixture: exercise a real foreground helper process.\n"
+            'trap -p INT > "$DEVFLOW_TEST_MODULE_STATE_FILE.trap"\n'
+            '_ci_signal_fixture="$_ci_tmp_root/signal-source"\n'
+            'printf \'operative\\n\' > "$_ci_signal_fixture"\n'
+            'devflow_module_pin_red_under "signal helper" "operative" '
+            '"s/operative//" "$_ci_signal_fixture"\n\n'
+        )
+        self.assertIn(insertion_point, module_text)
+        module.write_text(
+            module_text.replace(insertion_point, signal_pause + insertion_point, 1),
+            encoding="utf-8",
+        )
+        registry = {
+            "schema_version": 1,
+            "workflows": {"placeholder": {}},
+            "test_modules": {
+                "signal-create-issue": {
+                    "path": "lib/test/modules/signal-create-issue.sh",
+                    "description": "signal cleanup fixture",
+                    "minimum_assertions": 1,
+                }
+            },
+        }
+        registry_path = scripts_dir / "workflow-flight-recorder-registry.json"
+        registry_path.write_text(json.dumps(registry), encoding="utf-8")
+        return repo, module, registry_path, fake_bin
+
+    def _start_row(
+        self,
+        boundary: SignalBoundary,
+        row: Path,
+        *,
+        resistant_helper: bool = False,
+        launch_window: bool = False,
+    ) -> SignalRowState:
+        repo, module, registry, fake_bin = self._build_signal_fixture(row)
+        controlled_tmp = row / "tmp"
+        controlled_tmp.mkdir()
+        runner_pid_file = row / "runner.pid"
+        module_pid_file = row / "module.pid"
+        worker_pid_file = row / "worker.pid"
+        helper_pid_file = row / "helper.pid"
+        module_state_file = row / "module.state"
+        generic_scratch_file = row / "generic-scratch.state"
+        runner_cleanup_marker = row / "runner-cleanup.marker"
+        module_cleanup_marker = row / "module-cleanup.marker"
+        caller_exit_marker = row / "caller-exit.marker"
+        results_file = row / "suite-results"
+        failures_file = row / "module-failures"
+        launch_window_file = row / "launch-window"
+        environment = os.environ.copy()
+        for name in (
+            "DEVFLOW_TEST_RUNNER_PID_FILE",
+            "DEVFLOW_TEST_MODULE_PID_FILE",
+            "DEVFLOW_TEST_MODULE_WORKER_PID_FILE",
+            "DEVFLOW_TEST_HELPER_PID_FILE",
+            "DEVFLOW_TEST_RUNNER_CLEANUP_MARKER",
+            "DEVFLOW_TEST_MODULE_CLEANUP_MARKER",
+            "DEVFLOW_TEST_MODULE_STATE_FILE",
+            "DEVFLOW_TEST_GENERIC_SCRATCH_FILE",
+            "DEVFLOW_TEST_SIGNAL_RESISTANT_HELPER",
+            "DEVFLOW_TEST_LAUNCH_WINDOW_FILE",
+        ):
+            environment.pop(name, None)
+        environment.update(
+            {
+                "PATH": f"{fake_bin}{os.pathsep}{environment['PATH']}",
+                "TMPDIR": str(controlled_tmp),
+                "DEVFLOW_CREATE_ISSUE_CONTRACT_ROOT": str(ROOT),
+                "DEVFLOW_TEST_RUNNER_PID_FILE": str(runner_pid_file),
+                "DEVFLOW_TEST_MODULE_PID_FILE": str(module_pid_file),
+                "DEVFLOW_TEST_MODULE_WORKER_PID_FILE": str(worker_pid_file),
+                "DEVFLOW_TEST_HELPER_PID_FILE": str(helper_pid_file),
+                "DEVFLOW_TEST_RUNNER_CLEANUP_MARKER": str(runner_cleanup_marker),
+                "DEVFLOW_TEST_MODULE_CLEANUP_MARKER": str(module_cleanup_marker),
+                "DEVFLOW_TEST_MODULE_STATE_FILE": str(module_state_file),
+                "DEVFLOW_TEST_GENERIC_SCRATCH_FILE": str(generic_scratch_file),
+                "DEVFLOW_TEST_SIGNAL_RESISTANT_HELPER": (
+                    "1" if resistant_helper else "0"
+                ),
+            }
+        )
+        if launch_window:
+            environment["DEVFLOW_TEST_LAUNCH_WINDOW_FILE"] = str(launch_window_file)
+
+        if boundary == "focused":
+            command = [
+                "bash",
+                str(repo / "lib/test/run-module.sh"),
+                "--registry",
+                str(registry),
+                "--log-dir",
+                str(row / "logs"),
+                "signal-create-issue",
+            ]
+            cwd = repo
+        elif boundary == "full-suite":
+            driver = row / "full-suite-driver.sh"
+            driver.write_text(
+                "#!/usr/bin/env bash\n"
+                "set -u\n"
+                f'LIB="{ROOT / "lib"}"\n'
+                f'RESULTS_FILE="{results_file}"\n'
+                f'MODULE_FAILURES_FILE="{failures_file}"\n'
+                f'CALLER_EXIT_MARKER="{caller_exit_marker}"\n'
+                '> "$RESULTS_FILE"\n'
+                '> "$MODULE_FAILURES_FILE"\n'
+                'trap \'printf "caller-exit\\n" >> "$CALLER_EXIT_MARKER"\' EXIT\n'
+                "assert_eq() {\n"
+                '  if [ "$2" = "$3" ]; then printf "PASS\\n" >> "$RESULTS_FILE";\n'
+                '  else printf "FAIL\\n" >> "$RESULTS_FILE"; fi\n'
+                "}\n"
+                f'. "{repo / "lib/test/module-harness.sh"}"\n'
+                f'devflow_run_full_suite_module "{module}" "signal-create-issue" 1\n',
+                encoding="utf-8",
+            )
+            command = ["bash", str(driver)]
+            cwd = row
+        else:
+            self.fail(f"unsupported boundary: {boundary}")
+
+        process = subprocess.Popen(
+            command,
+            cwd=cwd,
+            env=environment,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+        )
+        return SignalRowState(
+            process=process,
+            boundary=boundary,
+            controlled_tmp=controlled_tmp,
+            runner_pid_file=runner_pid_file,
+            module_pid_file=module_pid_file,
+            worker_pid_file=worker_pid_file,
+            helper_pid_file=helper_pid_file,
+            module_state_file=module_state_file,
+            generic_scratch_file=generic_scratch_file,
+            runner_cleanup_marker=runner_cleanup_marker,
+            module_cleanup_marker=module_cleanup_marker,
+            caller_exit_marker=caller_exit_marker,
+            results_file=results_file,
+            failures_file=failures_file,
+            launch_window_file=launch_window_file,
+        )
+
+    @staticmethod
+    def _read_pid(path: Path) -> int | None:
+        if not path.is_file():
+            return None
+        value = path.read_text(encoding="utf-8").strip()
+        return int(value) if value.isdigit() else None
+
+    def _terminate_state(self, state: SignalRowState) -> None:
+        for path in (state.worker_pid_file, state.module_pid_file):
+            pid = self._read_pid(path)
+            if pid is None:
+                continue
+            try:
+                os.killpg(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        if state.process.poll() is None:
+            try:
+                os.killpg(state.process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+    def _assert_no_signal_leaks(self, state: SignalRowState) -> None:
+        leftovers = sorted(path.name for path in state.controlled_tmp.iterdir())
+        leaked = [
+            name
+            for name in leftovers
+            if name.startswith(
+                (
+                    "devflow-module-results.",
+                    "devflow-module-details.",
+                    "devflow-module-tally.",
+                    "devflow-module-scratch.",
+                    "devflow-create-issue-contract.",
+                    "devflow-module-mut.",
+                )
+            )
+        ]
+        self.assertEqual(leaked, [], f"cleanup artifacts survived: {leaked}")
+
+    def _exercise_row(
+        self,
+        boundary: SignalBoundary,
+        signal_name: SignalName,
+        scope: SignalScope,
+        *,
+        resistant_helper: bool = False,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            row = Path(temporary_directory)
+            state = self._start_row(
+                boundary, row, resistant_helper=resistant_helper
+            )
+            process = state.process
+            stdout = ""
+            stderr = ""
+            try:
+                module_int_trap_file = Path(f"{state.module_state_file}.trap")
+                self._wait_for_signal_state(
+                    process,
+                    (
+                        state.runner_pid_file,
+                        state.module_pid_file,
+                        state.worker_pid_file,
+                        state.helper_pid_file,
+                        state.module_state_file,
+                        state.generic_scratch_file,
+                        module_int_trap_file,
+                    ),
+                )
+                runner_pid = int(
+                    state.runner_pid_file.read_text(encoding="utf-8").strip()
+                )
+                module_pid = int(
+                    state.module_pid_file.read_text(encoding="utf-8").strip()
+                )
+                worker_pid = int(
+                    state.worker_pid_file.read_text(encoding="utf-8").strip()
+                )
+                helper_pid = int(
+                    state.helper_pid_file.read_text(encoding="utf-8").strip()
+                )
+                module_root = Path(
+                    state.module_state_file.read_text(encoding="utf-8").strip()
+                )
+                generic_scratch = Path(
+                    state.generic_scratch_file.read_text(encoding="utf-8").strip()
+                )
+                helper_scratches = list(module_root.glob("devflow-module-mut.*"))
+                self.assertEqual(runner_pid, process.pid)
+                self.assertNotEqual(module_pid, runner_pid)
+                self.assertNotEqual(worker_pid, module_pid)
+                self.assertNotIn(helper_pid, (runner_pid, module_pid, worker_pid))
+                self.assertEqual(os.getpgid(module_pid), module_pid)
+                self.assertEqual(os.getpgid(worker_pid), module_pid)
+                self.assertEqual(os.getpgid(helper_pid), module_pid)
+                module_int_trap = module_int_trap_file.read_text(encoding="utf-8")
+                self.assertIn("SIGINT", module_int_trap)
+                self.assertNotIn("trap -- '' SIGINT", module_int_trap)
+                self.assertTrue(module_root.is_dir())
+                self.assertTrue(generic_scratch.is_dir())
+                self.assertEqual(len(helper_scratches), 1)
+                helper_scratch = helper_scratches[0]
+                self.assertTrue(helper_scratch.is_file())
+
+                signal_number = getattr(signal, signal_name)
+                if scope == "parent-only":
+                    os.kill(runner_pid, signal_number)
+                elif scope == "module-only":
+                    os.kill(module_pid, signal_number)
+                elif scope == "process-group":
+                    os.killpg(module_pid, signal_number)
+                else:
+                    self.fail(f"unsupported signal scope: {scope}")
+
+                started = time.monotonic()
+                bounded = True
+                try:
+                    stdout, stderr = process.communicate(timeout=5)
+                except subprocess.TimeoutExpired:
+                    bounded = False
+                elapsed = time.monotonic() - started
+                if not bounded:
+                    self._terminate_state(state)
+                    stdout, stderr = process.communicate(timeout=2)
+                self.assertTrue(
+                    bounded,
+                    f"row exceeded cleanup bound: {boundary}/{signal_name}/{scope}\n"
+                    f"stdout={stdout[-2000:]}\nstderr={stderr[-2000:]}",
+                )
+                self.assertLess(elapsed, 5)
+
+                expected_rc = 1 if boundary == "focused" or scope == "parent-only" else 0
+                self.assertEqual(
+                    process.returncode,
+                    expected_rc,
+                    f"stdout={stdout[-2000:]}\nstderr={stderr[-2000:]}",
+                )
+                if boundary == "full-suite" and scope != "parent-only":
+                    failure_records = state.failures_file.read_text(
+                        encoding="utf-8"
+                    ).splitlines()
+                    self.assertGreaterEqual(len(failure_records), 1)
+                    self.assertEqual(set(failure_records), {"FAIL"})
+
+                deadline = time.monotonic() + 2
+                supervised_pids = (module_pid, worker_pid, helper_pid)
+                while any(self._pid_exists(pid) for pid in supervised_pids) and (
+                    time.monotonic() < deadline
+                ):
+                    time.sleep(0.02)
+                for pid in supervised_pids:
+                    self.assertFalse(self._pid_exists(pid), f"subprocess survived: {pid}")
+                self.assertFalse(module_root.exists(), "module scratch root survived")
+                self.assertFalse(generic_scratch.exists(), "generic module scratch survived")
+                self.assertFalse(helper_scratch.exists(), "module helper scratch survived")
+                self._assert_no_signal_leaks(state)
+                self.assertEqual(
+                    state.runner_cleanup_marker.read_text(
+                        encoding="utf-8"
+                    ).splitlines(),
+                    ["runner-cleanup"],
+                )
+                self.assertEqual(
+                    state.module_cleanup_marker.read_text(
+                        encoding="utf-8"
+                    ).splitlines(),
+                    ["module-cleanup"],
+                )
+                if boundary == "full-suite":
+                    self.assertEqual(
+                        state.caller_exit_marker.read_text(
+                            encoding="utf-8"
+                        ).splitlines(),
+                        ["caller-exit"],
+                    )
+            finally:
+                self._terminate_state(state)
+                if process.poll() is None:
+                    process.communicate(timeout=2)
+
+    def test_signal_cleanup_matrix(self) -> None:
+        rows = [
+            (boundary, signal_name, scope)
+            for boundary in self.boundaries
+            for signal_name in self.signal_names
+            for scope in self.scopes
+        ]
+        self.assertEqual(len(rows), 18)
+        for boundary, signal_name, scope in rows:
+            with self.subTest(
+                boundary=boundary,
+                signal=signal_name,
+                scope=scope,
+            ):
+                self._exercise_row(boundary, signal_name, scope)
+
+    def test_signal_resistant_foreground_helper_is_escalated(self) -> None:
+        for boundary, scope in (
+            ("focused", "module-only"),
+            ("focused", "parent-only"),
+            ("full-suite", "parent-only"),
+        ):
+            with self.subTest(boundary=boundary, scope=scope):
+                self._exercise_row(
+                    boundary, "SIGTERM", scope, resistant_helper=True
+                )
+
+    def test_signal_during_launch_window_is_not_lost(self) -> None:
+        for boundary in self.boundaries:
+            with self.subTest(boundary=boundary):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    state = self._start_row(
+                        boundary,
+                        Path(temporary_directory),
+                        launch_window=True,
+                    )
+                    try:
+                        self._wait_for_signal_state(
+                            state.process,
+                            (state.runner_pid_file, state.launch_window_file),
+                        )
+                        runner_pid = int(
+                            state.runner_pid_file.read_text(encoding="utf-8").strip()
+                        )
+                        os.kill(runner_pid, signal.SIGTERM)
+                        stdout, stderr = state.process.communicate(timeout=5)
+                        self.assertEqual(
+                            state.process.returncode,
+                            1,
+                            f"stdout={stdout[-2000:]}\nstderr={stderr[-2000:]}",
+                        )
+                        self._assert_no_signal_leaks(state)
+                        self.assertEqual(
+                            state.runner_cleanup_marker.read_text(
+                                encoding="utf-8"
+                            ).splitlines(),
+                            ["runner-cleanup"],
+                        )
+                        self.assertEqual(
+                            state.module_cleanup_marker.read_text(
+                                encoding="utf-8"
+                            ).splitlines(),
+                            ["module-cleanup"],
+                        )
+                    finally:
+                        self._terminate_state(state)
+                        if state.process.poll() is None:
+                            state.process.communicate(timeout=2)
+
+    def test_worker_stays_in_supervisor_group_with_a_controlling_tty(self) -> None:
+        import pty
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            supervisor_pid_file = root / "supervisor.pid"
+            worker_pid_file = root / "worker.pid"
+            release = root / "release"
+            driver = root / "driver.sh"
+            driver.write_text(
+                "#!/usr/bin/env bash\n"
+                "set -m\n"
+                f'. "{HARNESS}"\n'
+                f'RELEASE="{release}"\n'
+                'body() { while [ ! -e "$RELEASE" ]; do sleep 0.01; done; }\n'
+                f'printf "%s\\n" "$BASHPID" > "{supervisor_pid_file}"\n'
+                f'_devflow_supervise_module body "{supervisor_pid_file}" '
+                f'"{worker_pid_file}"\n',
+                encoding="utf-8",
+            )
+            child_pid, master_fd = pty.fork()
+            if child_pid == 0:
+                os.execvp("bash", ["bash", str(driver)])
+            try:
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    if (
+                        supervisor_pid_file.is_file()
+                        and worker_pid_file.is_file()
+                        and worker_pid_file.stat().st_size > 0
+                    ):
+                        break
+                    time.sleep(0.02)
+                self.assertTrue(worker_pid_file.is_file(), "worker PID was not published")
+                supervisor_pid = int(
+                    supervisor_pid_file.read_text(encoding="utf-8").strip()
+                )
+                worker_pid = int(worker_pid_file.read_text(encoding="utf-8").strip())
+                self.assertEqual(os.getpgid(supervisor_pid), supervisor_pid)
+                self.assertEqual(os.getpgid(worker_pid), supervisor_pid)
+            finally:
+                release.touch()
+                deadline = time.monotonic() + 3
+                while time.monotonic() < deadline:
+                    waited, _ = os.waitpid(child_pid, os.WNOHANG)
+                    if waited == child_pid:
+                        break
+                    time.sleep(0.02)
+                else:
+                    try:
+                        os.killpg(child_pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    os.waitpid(child_pid, 0)
+                os.close(master_fd)
+
+    def test_full_suite_cleanup_failures_record_boundary_failure(self) -> None:
+        for target, pattern in (
+            ("scratch", "*devflow-module-scratch.*"),
+            ("tally", "*devflow-module-tally.*"),
+        ):
+            with self.subTest(target=target):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    root = Path(temporary_directory)
+                    module = root / "module.sh"
+                    module.write_text(
+                        'printf "PASS\\n" >> "$RESULTS_FILE"\n', encoding="utf-8"
+                    )
+                    results = root / "results"
+                    failures = root / "failures"
+                    driver = root / "driver.sh"
+                    driver.write_text(
+                        "#!/usr/bin/env bash\n"
+                        f'RESULTS_FILE="{results}"\n'
+                        f'MODULE_FAILURES_FILE="{failures}"\n'
+                        '> "$RESULTS_FILE"\n'
+                        '> "$MODULE_FAILURES_FILE"\n'
+                        "assert_eq() { :; }\n"
+                        "rm() {\n"
+                        f'  case "$*" in {pattern}) return 1 ;; esac\n'
+                        '  command rm "$@"\n'
+                        "}\n"
+                        f'. "{HARNESS}"\n'
+                        f'devflow_run_full_suite_module "{module}" "sample" 1\n',
+                        encoding="utf-8",
+                    )
+                    process = subprocess.run(
+                        ["bash", str(driver)],
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                    )
+                    self.assertEqual(process.returncode, 0)
+                    self.assertEqual(
+                        failures.read_text(encoding="utf-8").splitlines(), ["FAIL"]
+                    )
+                    self.assertIn("could not remove private", process.stderr)
+
+    def test_missing_supervisor_pid_rendezvous_fails_boundedly(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            driver = root / "driver.sh"
+            driver.write_text(
+                "#!/usr/bin/env bash\n"
+                "body() { :; }\n"
+                f'. "{HARNESS}"\n'
+                f'_devflow_supervise_module body "{root / "missing.pid"}" '
+                f'"{root / "worker.pid"}"\n',
+                encoding="utf-8",
+            )
+            started = time.monotonic()
+            process = subprocess.run(
+                ["bash", str(driver)],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=5,
+            )
+            elapsed = time.monotonic() - started
+
+        self.assertEqual(process.returncode, 1)
+        self.assertLess(elapsed, 5)
+        self.assertIn("supervisor PID rendezvous timed out", process.stderr)
+
+    def test_full_suite_boundary_restores_caller_signal_traps(self) -> None:
+        for initial_monitor in ("off", "on"):
+            with self.subTest(initial_monitor=initial_monitor):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    root = Path(temporary_directory)
+                    module = root / "module.sh"
+                    marker = root / "marker"
+                    monitor = root / "monitor"
+                    module.write_text(
+                        'printf "PASS\\n" >> "$RESULTS_FILE"\n', encoding="utf-8"
+                    )
+                    driver = root / "driver.sh"
+                    driver.write_text(
+                        "#!/usr/bin/env bash\n"
+                        f'RESULTS_FILE="{root / "results"}"\n'
+                        f'MODULE_FAILURES_FILE="{root / "failures"}"\n'
+                        '> "$RESULTS_FILE"\n'
+                        '> "$MODULE_FAILURES_FILE"\n'
+                        f'MARKER="{marker}"\n'
+                        f'MONITOR="{monitor}"\n'
+                        + ("set -m\n" if initial_monitor == "on" else "set +m\n")
+                        + 'case "$-" in *m*) printf "on\\n" ;; *) printf "off\\n" ;; esac > "$MONITOR"\n'
+                        'trap \'printf "caller-exit\\n" >> "$MARKER"\' EXIT\n'
+                        'trap \'printf "caller-hup\\n" >> "$MARKER"\' HUP\n'
+                        'trap \'printf "caller-int\\n" >> "$MARKER"\' INT\n'
+                        'trap \'printf "caller-term\\n" >> "$MARKER"\' TERM\n'
+                        "assert_eq() { :; }\n"
+                        f'. "{HARNESS}"\n'
+                        f'devflow_run_full_suite_module "{module}" "sample" 1\n'
+                        'case "$-" in *m*) printf "on\\n" ;; *) printf "off\\n" ;; esac >> "$MONITOR"\n'
+                        'kill -s HUP "$$"\n'
+                        'kill -s INT "$$"\n'
+                        'kill -s TERM "$$"\n',
+                        encoding="utf-8",
+                    )
+                    process = subprocess.run(
+                        ["bash", str(driver)],
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                    )
+                    records = marker.read_text(encoding="utf-8").splitlines()
+                    monitor_records = monitor.read_text(encoding="utf-8").splitlines()
+
+                self.assertEqual(
+                    process.returncode, 0, process.stdout + process.stderr
+                )
+                self.assertEqual(
+                    records,
+                    ["caller-hup", "caller-int", "caller-term", "caller-exit"],
+                )
+                self.assertEqual(monitor_records, [initial_monitor, initial_monitor])
 
 
 class NamespacedModulePinHelperTests(unittest.TestCase):
@@ -550,4 +1349,12 @@ class NamespacedModulePinHelperTests(unittest.TestCase):
 
 
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--signal-matrix-capability"]:
+        capability_reason = signal_matrix_capability_skip_reason(
+            POSIX_SIGNAL_MATRIX_AVAILABLE
+        )
+        if capability_reason is not None:
+            print(capability_reason)
+            raise SystemExit(1)
+        raise SystemExit(0)
     unittest.main()

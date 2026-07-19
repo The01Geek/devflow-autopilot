@@ -12,11 +12,11 @@
 # plus its two domain-private classifiers below). The inventory in
 # create-issue-contract.inventory.md maps the extracted coverage to its former
 # run.sh locations. Modules may not self-skip.
-# The `trap _ci_cleanup EXIT` below relies on a sourcing contract: both callers
+# The cleanup handlers below rely on a sourcing contract: both callers
 # (module-harness.sh's full-suite boundary and run-module.sh) source this module
-# inside a ( ... ) subshell, so the trap fires at subshell exit and cannot clobber
-# the runner's own EXIT handling. Do not source this module directly in a runner's
-# top-level shell without restoring the trap.
+# inside a ( ... ) subshell, so its EXIT/HUP/INT/TERM traps cannot clobber the
+# runner's handlers. Do not source this module directly in a runner's top-level
+# shell without restoring those traps.
 
 # A caller may point DEVFLOW_CREATE_ISSUE_CONTRACT_ROOT at a scratch repository copy
 # for mutation evidence; the normal focused and full-suite paths default to the
@@ -36,14 +36,102 @@ CI_CLAUDE="$CI_ROOT/CLAUDE.md"
 # after _ci_tmp_root exists) — never the root alone.
 CI_INVENTORY="$CI_ROOT/lib/test/modules/create-issue-contract.inventory.md"
 
-_ci_tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/devflow-create-issue-contract.XXXXXX")" || {
-  printf 'could not allocate create-issue-contract fixture\n' >&2
-  return 1
+_ci_tmp_root_kind="self"
+if [ -n "${DEVFLOW_MODULE_OWNED_SCRATCH_ROOT:-}" ]; then
+  _ci_tmp_root_kind="boundary"
+  _ci_tmp_root="$DEVFLOW_MODULE_OWNED_SCRATCH_ROOT"
+  if [ ! -d "$_ci_tmp_root" ] || [ -L "$_ci_tmp_root" ]; then
+    printf 'invalid boundary-owned create-issue-contract fixture: %s\n' \
+      "$_ci_tmp_root" >&2
+    return 1
+  fi
+else
+  _ci_tmp_root="$(devflow_module_allocate_owned_directory \
+    "${TMPDIR:-/tmp}/devflow-create-issue-contract.XXXXXX")" || {
+    printf 'could not allocate create-issue-contract fixture\n' >&2
+    return 1
+  }
+fi
+_ci_tmp_root_is_safe() {
+  local expected_parent="" actual_parent=""
+  [ -d "$_ci_tmp_root" ] && [ ! -L "$_ci_tmp_root" ] || return 1
+  case "$_ci_tmp_root" in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  case "$_ci_tmp_root_kind" in
+    boundary)
+      case "${_ci_tmp_root##*/}" in
+        devflow-module-scratch.??????) return 0 ;;
+        *) return 1 ;;
+      esac
+      ;;
+    self)
+      case "${_ci_tmp_root##*/}" in
+        devflow-create-issue-contract.??????) ;;
+        *) return 1 ;;
+      esac
+      ;;
+    *) return 1 ;;
+  esac
+  expected_parent="$(cd "${TMPDIR:-/tmp}" 2>/dev/null && pwd -P)" || return 1
+  actual_parent="$(cd "$_ci_tmp_root/.." 2>/dev/null && pwd -P)" || return 1
+  [ "$actual_parent" = "$expected_parent" ]
 }
+if ! _ci_tmp_root_is_safe; then
+  # The value failed the recursive-cleanup contract. The directory was just
+  # allocated, but remove even an empty leaf only when its generated name and
+  # physical parent still prove it belongs to this allocation attempt.
+  [ "$_ci_tmp_root_kind" != "self" ] || \
+    _devflow_discard_unvalidated_owned_directory "$_ci_tmp_root" \
+      "devflow-create-issue-contract." "${TMPDIR:-/tmp}" || :
+  printf 'invalid create-issue-contract fixture root: %s\n' "$_ci_tmp_root" >&2
+  _ci_tmp_root=""
+  return 1
+fi
+# Consumed dynamically by devflow_module_pin_red_under from the sourced harness.
+# shellcheck disable=SC2034
+DEVFLOW_MODULE_SCRATCH_ROOT="$_ci_tmp_root"
+export DEVFLOW_MODULE_SCRATCH_ROOT
+_ci_cleanup_done=0
+_ci_cleanup_root_done=0
+_ci_cleanup_marker_done=0
 _ci_cleanup() {
-  rm -rf "$_ci_tmp_root"
+  [ "$_ci_cleanup_done" -eq 0 ] || return 0
+  if [ "$_ci_cleanup_root_done" -eq 0 ]; then
+    if ! _ci_tmp_root_is_safe; then
+      printf 'devflow: refusing invalid create-issue-contract fixture: %s\n' \
+        "$_ci_tmp_root" >&2
+      return 1
+    fi
+    if ! rm -rf "$_ci_tmp_root"; then
+      printf 'devflow: could not remove create-issue-contract fixture: %s\n' \
+        "$_ci_tmp_root" >&2
+      return 1
+    fi
+    _ci_cleanup_root_done=1
+  fi
+  if [ "$_ci_cleanup_marker_done" -eq 0 ] && \
+    [ -n "${DEVFLOW_TEST_MODULE_CLEANUP_MARKER:-}" ]; then
+    if ! printf 'module-cleanup\n' >> "$DEVFLOW_TEST_MODULE_CLEANUP_MARKER"; then
+      printf 'devflow-test: could not append module cleanup marker to %s\n' \
+        "$DEVFLOW_TEST_MODULE_CLEANUP_MARKER" >&2
+      return 1
+    fi
+    _ci_cleanup_marker_done=1
+  fi
+  _ci_cleanup_done=1
+}
+_ci_cleanup_on_signal() {
+  # The module process group includes the worker and foreground helpers, so the
+  # supervisor's delivery releases Bash's deferred trap before this cleanup runs.
+  trap '' HUP INT TERM
+  _ci_cleanup || :
+  trap - EXIT
+  exit 1
 }
 trap _ci_cleanup EXIT
+trap _ci_cleanup_on_signal HUP INT TERM
 
 # The implement-skill bundle backs the #467 D2 Phase-2.4 leg (the widened
 # best-effort-parser rule must appear exactly once across the implement skill's
@@ -1094,3 +1182,11 @@ devflow_module_pin_unique "#559: overview §11 (Step 3.5 loop) documents the Rev
   "walks the revision's edit-batch delta across six classes" "$CI_OVERVIEW"
 devflow_module_pin_unique "#559: overview §11 (Step 3.6/Step 4 loop) documents the Revision-delta verification procedure" \
   "runs the shared **Revision-delta verification** procedure over the revision's delta" "$CI_OVERVIEW"
+
+# Complete normal cleanup explicitly so a removal or marker failure changes the
+# module status. EXIT remains a fallback for earlier returns and shell errors.
+if ! _ci_cleanup; then
+  trap - EXIT HUP INT TERM
+  return 1
+fi
+trap - EXIT HUP INT TERM
