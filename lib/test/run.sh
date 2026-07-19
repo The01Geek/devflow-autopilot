@@ -8571,6 +8571,15 @@ lines.append(f"shallow {word} {rc}")
 payload = out.split()[-1] if word in ("AMBIGUOUS", "DECISION_BLOCKED") else ""
 derived = str(json.load(open(payload)).get("derived", {}).get("ahead")) if payload and os.path.exists(payload) else ""
 lines.append(f"shallow_derived {derived}")
+# shallow-undeepened: a fresh shallow clone whose origin is then broken, so the
+# unshallow fetch fails and the repo stays shallow — the count is unreliable and
+# must fail closed to UNAVAILABLE rather than trust a possibly-spurious value.
+shal2 = os.path.join(ROOT, "shallow_undeepenable")
+subprocess.run(["git", "clone", "-q", "--branch", "feat", "file://" + bare_s, shal2], check=True)
+git(["config", "user.email", "a@b.c"], shal2); git(["config", "user.name", "t"], shal2)
+git(["fetch", "-q", "--depth=1", "origin", "+refs/heads/main:refs/remotes/origin/main"], shal2)
+git(["remote", "set-url", "origin", os.path.join(ROOT, "does-not-exist.git")], shal2)
+emit("shallow_undeepened", shal2, {"base": "main", "current_branch": "feat", "provenance_established": False}, cwd=shal2)
 open(OUT, "w").write("\n".join(lines) + "\n")
 import shutil; shutil.rmtree(ROOT)
 PY
@@ -8605,6 +8614,11 @@ assert_eq "#576 shallow: the naive shallow ahead count differs from the post-uns
   "$([ "$BS576_NAIVE" != "$BS576_DERIVED" ] && echo differ || echo same)"
 assert_eq "#576 shallow: the helper re-derives the correct post-unshallow ahead count" "1" "$BS576_DERIVED"
 assert_eq "#576 shallow: a shallow repo still yields a well-formed stop verdict" "DECISION_BLOCKED 2" "$(_bs576 shallow)"
+# A shallow repo that CANNOT be deepened (broken origin) fails closed to UNAVAILABLE
+# rather than trusting the unreliable shallow count (which could undercount to a
+# spurious FRESH) — the fail-open the shadow review surfaced.
+assert_eq "#576 shallow-undeepened: an un-deepenable shallow repo fails closed to UNAVAILABLE/3" "UNAVAILABLE 3" "$(_bs576 shallow_undeepened)"
+assert_eq "#576 shallow-undeepened: carries the 'shallow-undeepened' reason slug" "shallow-undeepened" "$(_bs576v reason_shallow_undeepened)"
 # Reason slugs (the operator-facing remedy routing) are distinct even where the
 # verdict word + rc collapse: the three UNAVAILABLE causes and the three
 # DECISION_BLOCKED causes each assert their own slug, so a mis-routed reason is caught.

@@ -20,7 +20,8 @@ prior work. It is READ-ONLY with respect to history: it derives via
 `git rev-list` / `git rev-parse` / `git check-ref-format` / `git merge-base` and,
 on a shallow repository, a single `git fetch --unshallow` to deepen history — it
 never resets, rebases, checks out, commits, merges, pushes, or deletes a branch,
-so a stop verdict leaves the tree and every ref exactly as it found them.
+so a stop verdict leaves the working tree unchanged and moves no ref tip (a
+shallow deepen only backfills history behind origin/<base>, never moving a tip).
 """
 
 import argparse
@@ -279,11 +280,17 @@ def _derive_ahead(base: str) -> tuple[int | None, str]:
 
     Returns (ahead, "") on success, or (None, reason) on an unestablished
     measurement: reason "base" when origin/<base> does not resolve (the caller's
-    fetch never landed it), "count" when rev-list cannot produce an integer even
-    after deepening a shallow history. Mirrors update-branch-checkpoint.sh: a
-    shallow view can UNDERcount ahead-of-base (the merge base may lie beyond the
-    shallow boundary), so on a shallow repository deepen the base ref exactly once
-    and re-derive — the post-unshallow count is authoritative.
+    fetch never landed it), "count" when rev-list cannot produce an integer, or
+    "shallow-undeepened" when the repository is shallow and could not be deepened.
+    Mirrors update-branch-checkpoint.sh: a shallow view can UNDERcount
+    ahead-of-base (the merge base may lie beyond the shallow boundary), so on a
+    shallow repository deepen the base ref exactly once and re-derive — the
+    post-unshallow count is authoritative. A shallow view that CANNOT be deepened
+    is fail-closed to UNAVAILABLE rather than trusted: the pre-deepen count is, by
+    this function's own contract, unreliable — it can undercount ahead-of-base to
+    0, which would fall through to a spurious FRESH/PROCEED and reopen the exact
+    ahead-only blind spot this subcommand closes. So it joins the base/count arms
+    as an unestablished measurement, not an authoritative shallow count.
     """
     base_ref = f"refs/remotes/origin/{base}"
     if not _ref_resolves(base_ref):
@@ -299,9 +306,13 @@ def _derive_ahead(base: str) -> tuple[int | None, str]:
     ahead = count()
     if _run_git(["rev-parse", "--is-shallow-repository"]).stdout.strip() == "true":
         # Deepen the base ref specifically (fetch-depth cloud checkouts download
-        # only the feature ref's history), then re-derive. A fetch failure leaves
-        # the shallow count in place rather than erroring — best-effort deepening.
+        # only the feature ref's history), then re-derive.
         _run_git(["fetch", "--unshallow", "origin", f"+refs/heads/{base}:{base_ref}"])
+        if _run_git(["rev-parse", "--is-shallow-repository"]).stdout.strip() == "true":
+            # The deepen did not take (offline/auth/remote failure). Trusting the
+            # still-shallow count here would fail OPEN on exactly the ahead-only
+            # case this feature guards, so treat it as unestablished.
+            return (None, "shallow-undeepened")
         redone = count()
         if redone is not None:
             ahead = redone
