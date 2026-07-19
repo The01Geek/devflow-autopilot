@@ -73,7 +73,7 @@ Compare the claim against the source of truth. Report your verdict as JSON:
 
 **`inaccuracy_scope` (enum token, required).** Report *where* any claim-vs-reality mismatch lives:
 - `generated_claim_text` — the ONLY mismatch is in the item's generated `claim` wording (the code is correct; the paraphrase oversimplifies it).
-- `source_authored_text` — some source-authored assertion in the verified scope (a comment, documentation line, test, example, or help string — the item's `source_excerpt` when present) is itself false. **This value takes precedence** whenever a mismatch exists in both the generated wording and a source-authored assertion.
+- `source_authored_text` — some source-authored assertion in the verified scope (a comment, documentation line, test, example, or help string — the item's `source_excerpt` when present) is itself false. **This value takes precedence** whenever a source-authored assertion is false at the same time as a generated-wording mismatch.
 - `none` — nothing mismatches.
 
 **Report the facts; never self-normalize.** You grade strictly (see Rules) and report these structured operands. Do **not** soften a FAIL to a PASS because the wording is merely inaccurate — an executable downstream helper owns that decision from your `property_proven` / `inaccuracy_scope` fields. Your job is to measure and report, not to normalize.

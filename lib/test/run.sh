@@ -2270,44 +2270,50 @@ assert_eq "#556 T-1/T-3/T-6: normalize-verdicts helper unit tests pass over the 
 
 # T-2 (AC4) — the verifier's source_authored_text-takes-precedence sentence, mutation deletes the precedence clause.
 assert_pin_red_under "#556 T-2(AC4): verifier source_authored_text precedence sentence" \
-  'This value takes precedence** whenever a mismatch exists in both' \
-  's|whenever a mismatch exists in both the generated wording and a source-authored assertion||' "$NV_VER"
+  'This value takes precedence** whenever a source-authored assertion is false' \
+  's|whenever a source-authored assertion is false at the same time as a generated-wording mismatch||' "$NV_VER"
 
 # T-4 (AC5) — the removed PASS-with-note softener must be ABSENT from the 2.1b dispatch prompt.
 assert_eq "#556 T-4(AC5): the 'Reserve FAIL' softener is gone from phase-2-verification.md" \
-  "no" "$(grep_present 'Reserve FAIL for cases where the code itself is wrong' "$NV_P2")"
+  "0" "$(pin_count 'Reserve FAIL for cases where the code itself is wrong' "$NV_P2")"
 
 # T-5 (AC1/AC3/AC5) — claim_provenance / source_excerpt present at each mirror site + helper input contract.
-assert_eq "#556 T-5: claim_provenance in generator schema"   "yes" "$(grep_present 'claim_provenance' "$NV_GEN")"
-assert_eq "#556 T-5: source_excerpt in generator schema"     "yes" "$(grep_present 'source_excerpt' "$NV_GEN")"
-assert_eq "#556 T-5: claim_provenance in verifier Input"     "yes" "$(grep_present 'claim_provenance' "$NV_VER")"
-assert_eq "#556 T-5: source_excerpt in verifier Input"       "yes" "$(grep_present 'source_excerpt' "$NV_VER")"
-assert_eq "#556 T-5: claim_provenance in 2.1b dispatch prompt" "yes" "$(grep_present 'claim_provenance' "$NV_P2")"
-assert_eq "#556 T-5: source_excerpt in 2.1b dispatch prompt"   "yes" "$(grep_present 'source_excerpt' "$NV_P2")"
-assert_eq "#556 T-5: claim_provenance in helper input contract" "yes" "$(grep_present 'claim_provenance' "$NV_HELPER")"
-assert_eq "#556 T-5: source_excerpt in helper input contract"   "yes" "$(grep_present 'source_excerpt' "$NV_HELPER")"
+assert_pin_unique "#556 T-5: claim_provenance decision rule in generator schema" \
+  'Every item MUST carry `claim_provenance`, one of exactly two values' "$NV_GEN"
+assert_pin_unique "#556 T-5: source_excerpt required in generator schema" \
+  'On a `source_authored` item, `source_excerpt` is **required**' "$NV_GEN"
+assert_pin_unique "#556 T-5: claim_provenance in verifier Input" \
+  '"claim_provenance": "generated_paraphrase | source_authored",' "$NV_VER"
+assert_pin_unique "#556 T-5: source_excerpt in verifier Input" \
+  '"source_excerpt": "verbatim authored text under scrutiny (source_authored items only)",' "$NV_VER"
+assert_pin_unique "#556 T-5: claim_provenance + source_excerpt in 2.1b dispatch prompt" \
+  'The checklist item you receive carries `claim_provenance` and, on `source_authored` items, `source_excerpt`' "$NV_P2"
+assert_pin_unique "#556 T-5: claim_provenance in helper input contract" \
+  '"claim_provenance": "generated_paraphrase",' "$NV_HELPER"
+assert_pin_unique "#556 T-5: source_excerpt in helper input contract" \
+  '"source_excerpt": "<verbatim authored text, source_authored items only>", ...' "$NV_HELPER"
 
 # T-6a (AC7/AC7a) — degradation-split mutation on the possible-denial clause + invocation-recipe presence pins.
 assert_pin_red_under "#556 T-6a(AC7a): the 'a possible denial, never an empty value' clause" \
   'no output at all — a possible denial, never an empty value' \
   's|a possible denial, never an empty value||' "$NV_P2"
-assert_eq "#556 T-6a(AC7): helper invoked as the single leading token" "yes" \
-  "$(grep_present 'as the command'"'"'s single leading token' "$NV_P2")"
-assert_eq "#556 T-6a(AC7): local-tier python3 second rung" "yes" \
-  "$(grep_present 'python3 <resolved helper path> <pairs-file>' "$NV_P2")"
-assert_eq "#556 T-6a(AC7a): bad-input arm one re-Write and re-invoke" "yes" \
-  "$(grep_present 'a second bad-input report ends the attempt' "$NV_P2")"
-assert_eq "#556 T-6a(AC7): in-context recovery arm" "yes" \
-  "$(grep_present 'recovered via in-context parse (helper-defect: <shape>)' "$NV_P2")"
-assert_eq "#556 T-6a(AC7): one-repair (re-dispatch once) sentence" "yes" \
-  "$(grep_present 're-dispatch that item once** and re-run the helper' "$NV_P2")"
+assert_pin_unique "#556 T-6a(AC7): helper invoked as the single leading token" \
+  'single leading token** — the portable' "$NV_P2"
+assert_pin_unique "#556 T-6a(AC7): local-tier python3 second rung" \
+  'python3 <resolved helper path> <pairs-file>' "$NV_P2"
+assert_pin_unique "#556 T-6a(AC7a): bad-input arm one re-Write and re-invoke" \
+  'a second bad-input report ends the attempt' "$NV_P2"
+assert_pin_unique "#556 T-6a(AC7): in-context recovery arm" \
+  'recovered via in-context parse (helper-defect: <shape>)' "$NV_P2"
+assert_pin_unique "#556 T-6a(AC7): one-repair (re-dispatch once) sentence" \
+  're-dispatch that item once** and re-run the helper' "$NV_P2"
 
 # T-7 (AC2) — deduper carve-out clause mutation + disagreement->source_authored merge-rule presence.
 assert_pin_red_under "#556 T-7(AC2): deduper Rules carve-out clause" \
   'reconciling `claim_provenance` to `source_authored`' \
   's|reconciling .claim_provenance. to .source_authored.||' "$NV_DED"
-assert_eq "#556 T-7(AC2): disagreement->source_authored merge rule present" "yes" \
-  "$(grep_present 'the merged item takes **`source_authored`**' "$NV_DED")"
+assert_pin_unique "#556 T-7(AC2): disagreement->source_authored merge rule present" \
+  'the merged item takes **`source_authored`**' "$NV_DED"
 
 # T-8 (AC9) — the two Phase 4.2 rule literals stay byte-identical.
 assert_pin_unique "#556 T-8(AC9): Phase 4.2 rule 1 literal (FAIL -> REJECT)" \
@@ -2324,10 +2330,10 @@ assert_pin_red_under "#556 T-10(AC8a): 2.0.5 copy-list extension" \
 assert_pin_red_under "#556 T-11(AC8): 4.1 equality sentence carries the − {normalized_count} term" \
   '`{pass}` − `{normalized_count}` MUST equal the number of `- VC-N` lines' \
   's|normalized_count\}. MUST equal|MUST equal|' "$NV_P4"
-assert_eq "#556 T-11(AC8): 4.1 PASS-item iteration line excludes normalized items" "yes" \
-  "$(grep_present 'for each PASS item not carrying `normalized: true`' "$NV_P4")"
-assert_eq "#556 T-11(AC8): 4.1 summary label counts the inside population" "yes" \
-  "$(grep_present '✅ Passed items ({pass} − {normalized_count} of {total})' "$NV_P4")"
+assert_pin_unique "#556 T-11(AC8): 4.1 PASS-item iteration line excludes normalized items" \
+  'for each PASS item not carrying `normalized: true`' "$NV_P4"
+assert_pin_unique "#556 T-11(AC8): 4.1 summary label counts the inside population" \
+  '✅ Passed items ({pass} − {normalized_count} of {total})' "$NV_P4"
 
 # T-12 (AC17) — Phase 2.0 field-completion re-ask sentence, mutation deletes the re-ask arm.
 assert_pin_red_under "#556 T-12(AC17): 2.0 item-side field-completion re-ask" \
@@ -33580,7 +33586,12 @@ assert_eq "#530 budget: no references/*.md outside the pinned 8-name set" "" "$_
 # constant, so a ceiling changed on one side without the other turns the coupling RED instead
 # of the two artifacts silently disagreeing.
 RAF_ROOT_CEIL=3500
-RAF_LOAD_CEIL=5500
+# #556 raised the initial-load ceiling 5500->5510: AC8 requires the iter-<N>.json
+# checklist entry to carry the optional raw_verdict/normalized fields, and adding
+# them to the record-shape example in the root pushed root+extension to 5,503 words.
+# The small documented widening mirrors the #529 AC3 renegotiation; update
+# docs/review-and-fix-budget.md's ceilings-table cell in lockstep.
+RAF_LOAD_CEIL=5510
 RAF_MAXSTEP_CEIL=17000
 assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
   "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"
@@ -33624,7 +33635,7 @@ for _raf_ceil in "$RAF_ROOT_CEIL" "$RAF_LOAD_CEIL" "$RAF_MAXSTEP_CEIL"; do
     "$(case "$_raf_doc_nocommas" in *"≤ $_raf_ceil words |"*) echo yes;; *) echo no;; esac)"
 done
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,319 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,323 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute
