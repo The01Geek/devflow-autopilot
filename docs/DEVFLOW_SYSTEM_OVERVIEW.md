@@ -417,7 +417,7 @@ Two **gated** reviewers:
 - **4.4** (PR mode only, `/devflow:review`) records a formal GitHub review: **REJECT → `--request-changes`** (blocks merge), clean → `--approve`. GitHub forbids requesting-changes-on / approving **your own** PR, so the review agent must run under an identity distinct from the PR author. The cloud tier provides this with a **dedicated `DevFlow-Reviewer` GitHub App** (repository variable `DEVFLOW_REVIEWER_APP_ID` + secret `DEVFLOW_REVIEWER_PRIVATE_KEY`): every review path — the automated runner (`devflow-runner.yml`) and the manual `/devflow:review` command (`devflow.yml`) — runs under the `DevFlow-Reviewer` token when that variable is set, else `github-actions[bot]` (`GITHUB_TOKEN`), and **never** the primary `devflow-autopilot` App token that authors PRs. Since implement authors PRs as the primary app (or `github-actions[bot]` when no app is configured), the review identity is structurally distinct from the author on every configured setup, so 4.4's formal review posts instead of failing self-review. See [`docs/cloud-setup.md`](cloud-setup.md) for setup and the single-app upgrade note.
 
 ### Per-subagent model & effort overrides
-The `devflow_review.agent_overrides` config maps any of the **nine** review subagents (or a `default`) to a `{model, effort, iterations}`. Because effort isn't a dispatch-time parameter and per-run overrides must not require editing committed agent/skill frontmatter, DevFlow materializes a per-run `--agents` JSON block at each dispatch (via `scripts/resolve-review-overrides.py`). Effort enum: `low/medium/high/xhigh/max`. The optional `iterations` key (default-off; only value `first-only`) is a roster-scoping lever, not a dispatch parameter: an agent carrying it is excluded from the Phase-3 review roster on `/devflow:review-and-fix` fix-loop iterations ≥ 2 (a no-op in standalone `/devflow:review` and never applied to the Step 2.6 shadow) — see [review-agent-overrides.md](review-agent-overrides.md).
+The `devflow_review.agent_overrides` config maps any of the **nine** review subagents (or a `default`) to a `{model, effort, iterations}`. The engine dispatches its subagents from an already-running session via the **Agent tool**, which carries a per-dispatch **`model`** override parameter but **no effort parameter**, and there is no per-dispatch `--agents` injection in an already-running session. So a resolved per-agent **model** override IS delivered (as the Agent tool's `model` parameter), while a resolved per-agent **effort** override is **not** applied per-agent on this in-session path — the subagent inherits the session effort, and `scripts/resolve-review-overrides.py` reports this honestly as a `session-fallback` (a `::notice::` per resolve for the benign no-seam case, or a `::warning::` naming the model/provider for a capability-restricted one), never as an applied success (issue #554). The per-tier effort application-point matrix (`agent-definition` / `process-start-session` / `session-fallback` / `session-inheritance`) is documented in [review-agent-overrides.md](review-agent-overrides.md); a per-agent applied arm and its telemetry carrier are a spike-gated deferred follow-up. Effort enum: `low/medium/high/xhigh/max`. The optional `iterations` key (default-off; only value `first-only`) is a roster-scoping lever, not a dispatch parameter: an agent carrying it is excluded from the Phase-3 review roster on `/devflow:review-and-fix` fix-loop iterations ≥ 2 (a no-op in standalone `/devflow:review` and never applied to the Step 2.6 shadow) — see [review-agent-overrides.md](review-agent-overrides.md).
 
 ### The fix loop (`/devflow:review-and-fix`)
 - **Thin root + reloadable step references (issue #530).** `skills/review-and-fix/SKILL.md` is a thin root (≤3,500 words — see [`docs/review-and-fix-budget.md`](review-and-fix-budget.md)) that retains the invocation contract, the run-scoped `### Schema`, `### Lifecycle`, the Main-Loop control pointer, a **Step-routing** table, a fail-closed **Reference-loading contract**, and the terminal verdict→chat mapping. The step procedures live in reloadable references under `skills/review-and-fix/references/` (`loop-control.md`, `pre-fix-gates.md`, `shadow-review.md`, `fixing.md`, `fix-delta-gate.md`, `convergence.md`, `loop-exit.md`, `error-handling.md`), each loaded at step entry behind a single ordered `# Reference:` / `<!-- END … -->` boundary; an unreadable **loop-step** reference takes a mapped fail-closed outcome (engine-gate/fixing → stop before mutation; shadow → `coverage: not_verified`; convergence → non-convergence; Loop Exit → persistence backstop + incomplete terminal state — none of those permits a clean approve; `error-handling.md` alone is best-effort contextual guidance, not a loop step — its absence degrades only guidance, per the root's failure map). The **durable state** that lets a compacted or resumed run recover its position — `current_step`, `current_substep`, `pending_dispatch` — is written into the run-scoped `iter-<N>.json`, and an always-resident root rule re-reads the active reference after every subagent/skill return rather than trusting recall (the record, not agent memory, is the step predicate). This mirrors the `skills/implement/` thin-orchestrator + `phases/*.md` split. The reliability of the split's routing + fail-closed wording was measured empirically (5 fresh-context samples + a budget-RED and a no-guidance control) in [`docs/review-and-fix-split-wording-study.md`](review-and-fix-split-wording-study.md).
@@ -432,6 +432,42 @@ The `devflow_review.agent_overrides` config maps any of the **nine** review suba
 - **Fix-delta verification gate (Step 3.5):** after **every** iteration's fix commit, a **blinded subagent** re-reviews **only that iteration's cumulative fix delta** (prior findings/fix decisions/fixer reasoning withheld) to catch a fix-introduced regression — most often a #62/#98 guard whose accepted-input set is wider than its consumer's contract — in the **same** iteration. A surviving Critical/Important finding (after over-grade calibration) routes back into that iteration's fix step (capped at 2 inner attempts, then promoted); the gate and its inner attempts do **not** count toward the cap. Complements the shadow (which audits the whole diff at convergence, and on an `engine_self_modifying` PR also once after iteration 1 via the early trigger); the shadow + post-shadow gate are unchanged by it.
 - **Convergence check:** exits early when fixes are small and no new corroborated Critical/Important finding appears.
 - **Loop Exit:** runs a **widens-surface guard** and emits a run-scoped **deferrals manifest**; renders a `## Coverage` section and the run/effectiveness telemetry.
+
+### Prompt mass and prose cutovers
+
+DevFlow treats mandatory agent instructions as a measured runtime surface. The policy is
+simple: once an executable helper is the sole tested owner of a workflow decision on every
+consuming path, the same change removes the superseded mandatory prose, branch/enum mirrors,
+and obsolete prose pins. Policy, human decisions, invocation and fail-closed contracts, and
+essential stop conditions stay in the skill. Rare-path explanation may move into a gated
+reference, but operative logic does not disappear before tested helper ownership exists.
+
+`lib/test/prompt-mass-census.py` enforces the committed inventory in
+`lib/test/prompt-mass-manifest.json` and the exact per-file byte mirror in
+`lib/test/prompt-mass-baseline.json`. A file loaded unconditionally on any normal flow path —
+including mandatory-at-entry phase or step references — is `mandatory`; only genuinely
+conditional rare-path files are `reference`. Both classes have baseline rows, so every byte
+movement is visible, while only mandatory rows incur the Review artifact toll. Group totals
+are derived rather than committed, allowing non-adjacent per-file baseline edits from
+concurrent PRs to merge without a shared total-row hot spot. The existing Review and
+Review-and-Fix word ceilings remain complementary and unchanged: ceilings cap traffic; the
+byte census audits movement.
+
+Every mandatory-row-moving PR adds one or more append-only records under `docs/cutovers/`.
+Schema 1 recognizes `cutover` (tested ownership transfer plus pin disposition), `trim`
+(editorial reduction), `growth` (justified mandatory bytes), and `relocate` (source rows and
+destinations). The census validates the frontmatter, kind-specific headings, and non-empty
+body; later template revisions mint a new schema instead of changing historical validation.
+The complete sole-owner bar and artifact template live in
+`.devflow/prompt-extensions/implement.md` under **Prose cutover**.
+
+The shared Review engine loads its prose-cutover criterion only when that repo policy section
+exists, so consumer repos that receive the vendored engine but not DevFlow's internal census
+remain unaffected. In this repo the gate rejects incoherent cutovers, unexplained mandatory
+reductions, and unjustified mandatory growth; it treats malformed and pre-existing artifacts
+as absent, cross-checks named files against moved rows, and recognizes only git-reported
+renames as artifact-free relocation. Issue #551 is the candidate-cutover register: each child
+cutover records the old prose owner, new helper owner, artifact, and measured byte reduction.
 
 ### Direct invocation of `devflow:receiving-code-review`: the Reception Preflight (issue #545)
 
