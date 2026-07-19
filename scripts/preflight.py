@@ -23,7 +23,9 @@ never resets, rebases, checks out, commits, merges, pushes, or deletes a branch,
 so a stop verdict moves no local branch tip and leaves the working tree
 unchanged. (The shallow deepen's refspec +refs/heads/<base>:refs/remotes/origin/
 <base> does force-update that remote-tracking ref, which can advance if origin's
-base moved; no local branch and no tracked file is touched.)
+base moved, and git's tag auto-following can additionally create refs/tags/*
+entries for tags reachable from the newly-deepened history; both are ref changes
+outside refs/heads — no local branch and no tracked file is touched.)
 """
 
 import argparse
