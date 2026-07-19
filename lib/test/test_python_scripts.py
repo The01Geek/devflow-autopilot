@@ -7016,6 +7016,9 @@ for _pa_spelling in (
     '$(cd "$(dirname "$(dirname "$0")")" && pwd)',      # double-dirname grandparent
     '$(cd "$(dirname "$0")" && pwd)/..',                # /.. suffix after pwd)
     '$pwdd$(cd "$(dirname "$0")/.." && pwd)',           # pwd-substring prefix junk
+    '$(cd $(dirname $"0") && pwd)',                     # $"…" locale-string collision
+    '$(cd ${0%/*"} && pwd)',                            # stray quote inside ${…%…}
+    "$(cd '$(dirname $0)' && pwd)",                     # single-quoted (unmodeled quoting)
 ):
     assert_eq(f"#598: anchor spelling does not prove the helper directory: {_pa_spelling}",
               False, cwd._helper_dir_value(_pa_spelling))
@@ -7041,6 +7044,32 @@ assert_eq("#598: a cd..-anchored include of an existing target is rejected as a 
           bool(_pa_edges) and any(
               "does not resolve beneath" in err
               for err in cwd.check_dependencies(edges=_pa_edges)))
+# Inline-operand path: junk between the anchor and the .sh token (a second
+# command substitution) must not be laundered into a clean edge — the operand
+# either full-matches anchor + plain-path tail or stays unproved and is
+# rejected by the guard.
+try:
+    cwd._read = lambda rel: (
+        '#!/usr/bin/env bash\n'
+        '. "$(cd "$(dirname "$0")" && pwd)$(printf /../..)/../lib/resolve-jq.sh"\n')
+    _oj_edges = cwd._scan_shell_sources("scripts/fake-operand-junk.sh")
+finally:
+    cwd._read = _orig_cwd_read
+assert_eq("#598: operand junk between anchor and .sh token is rejected, never laundered clean",
+          True,
+          bool(_oj_edges) and bool(cwd.check_dependencies(edges=_oj_edges)))
+# Positive control: the plain inline-operand anchor form still derives cleanly.
+try:
+    cwd._read = lambda rel: (
+        '#!/usr/bin/env bash\n'
+        '. "$(cd "$(dirname "$0")" && pwd)/../lib/resolve-jq.sh"\n')
+    _oi_edges = cwd._scan_shell_sources("scripts/fake-operand-inline.sh")
+finally:
+    cwd._read = _orig_cwd_read
+assert_eq("#598: positive control — a plain inline-operand anchor include derives cleanly",
+          ([("source", "lib/resolve-jq.sh", "repo-owned")], []),
+          ([(e.kind, e.target, e.klass) for e in _oi_edges],
+           cwd.check_dependencies(edges=_oi_edges)))
 
 # An include of a variable bound to the empty string must emit the
 # unresolved-source edge (placeholder target), never crash Edge construction.

@@ -510,22 +510,37 @@ def _source_tail(raw_target, allowed_dir_vars=frozenset()):
 
 
 # The exact self-directory anchor shapes a closure helper may use, matched
-# structurally after quote-stripping and whitespace-compaction: `$(cd
-# $(dirname <self>) && pwd)` or `$(cd ${<self>%/*} && pwd)`, where <self> is
-# `$0` / `${0}` / `$BASH_SOURCE` / `${BASH_SOURCE[0]}`. A whitelist — not a
-# substring heuristic — so every equivalent parent-anchor spelling (`/..` inside
-# the cd argument, a second `cd ..`, a nested double-`dirname`, a `/..` suffix
-# after `pwd)`, prefix junk) fails the full match and the value stays unproved.
+# structurally against the whitespace-compacted value with QUOTE-TOLERANT
+# optional `"` at the structural positions (never blanket quote-stripping,
+# which conflates bash `$"…"` locale strings and stray quotes inside `${…%…}`
+# with grouping quotes): `$(cd "$(dirname "<self>")" && pwd)` or
+# `$(cd "${<self>%/*}" && pwd)`, where <self> is `$0` / `${0}` /
+# `$BASH_SOURCE` / `${BASH_SOURCE[0]}`. A whitelist — not a substring
+# heuristic — so every equivalent parent-anchor spelling (`/..` inside the cd
+# argument, a second `cd ..`, a nested double-`dirname`, a `/..` suffix after
+# `pwd)`, prefix junk) and every unmodeled quoting form (`$"`, `'`, `\`, a
+# quote inside `${…%…}`) simply fails the match and the value stays unproved.
 _HELPER_DIR_ANCHOR = re.compile(
-    r"\$\(cd (?:"
-    r"\$\(dirname \$(?:0|\{0\}|BASH_SOURCE|\{BASH_SOURCE\[0\]\})\)"
-    r"|\$\{(?:0|BASH_SOURCE\[0\])%/\*\}"
-    r") && pwd\)"
+    r'\$\(cd "?(?:'
+    r'\$\(dirname "?\$(?:0|\{0\}|BASH_SOURCE|\{BASH_SOURCE\[0\]\})"?\)'
+    r'|\$\{(?:0|BASH_SOURCE\[0\])%/\*\}'
+    r')"? && pwd\)'
+)
+
+# An inline include operand: exactly one anchor followed by a plain-path tail
+# ending in .sh/.bash — full-matched, so junk between the anchor and the token
+# (a second command substitution, say) can never be laundered into a clean edge.
+_ANCHORED_OPERAND = re.compile(
+    r"(?:" + _HELPER_DIR_ANCHOR.pattern + r")"
+    r'(?:/[\w.\-]+)*/[\w.\-]+\.(?:sh|bash)"?'
 )
 
 
-def _quote_stripped_compact(value):
-    return " ".join(value.replace('"', "").split())
+def _compact(value):
+    compact = " ".join(value.split())
+    if len(compact) >= 2 and compact[0] == '"' and compact[-1] == '"':
+        compact = compact[1:-1]
+    return compact
 
 
 def _helper_dir_value(value):
@@ -535,15 +550,16 @@ def _helper_dir_value(value):
     must be exactly one self-directory anchor. Anything else — in particular any
     parent-directory spelling, which resolves to the helper's *parent* and would
     rebase include tails so a repo-root escape could launder into an in-repo
-    path — leaves the variable unproved, so its include tails stay
-    absolute-looking and the vendor guard rejects the edge instead.
+    path, and any unmodeled quoting form — leaves the variable unproved, so its
+    include tails stay absolute-looking and the vendor guard rejects the edge
+    instead.
     """
-    return _HELPER_DIR_ANCHOR.fullmatch(_quote_stripped_compact(value)) is not None
+    return _HELPER_DIR_ANCHOR.fullmatch(_compact(value)) is not None
 
 
 def _helper_dir_anchored_operand(operand):
-    """Whether an include operand *begins with* a helper-dir anchor (tail follows)."""
-    return _HELPER_DIR_ANCHOR.match(_quote_stripped_compact(operand)) is not None
+    """Whether an include operand is exactly one anchor + a plain-path tail."""
+    return _ANCHORED_OPERAND.fullmatch(_compact(operand)) is not None
 
 
 def _source_repo_path(helper_dir, tail):
