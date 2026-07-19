@@ -6,13 +6,30 @@
 The dependency subcommand owns the declared sequencing-dependency recognizer.
 It prints one machine-readable outcome so the Phase 1 procedure can decide
 before any branch setup begins.
+
+The branch-state subcommand (issue #576, "Verdict B") classifies the
+adopted/working branch against the base and emits a one-token verdict + matching
+exit code, mirroring scripts/update-branch-checkpoint.sh's one-token-stdout
+contract. It closes the ahead-of-base blind spot the §1.4 freshness guard leaves:
+the freshness guard derives only the *behind*-by count, so a branch forked from
+an unpushed local-main commit reads "behind-by-0 / up to date" while carrying
+unrelated *ahead-only* history that every downstream step then treats as the
+run's own (the PR #524 incident). branch-state derives the ahead-of-base count
+and refuses to proceed when ahead history cannot be validated as the run's own
+prior work. It is READ-ONLY with respect to history: it derives via
+`git rev-list` / `git rev-parse` / `git check-ref-format` / `git merge-base` and,
+on a shallow repository, a single `git fetch --unshallow` to deepen history — it
+never resets, rebases, checks out, commits, merges, pushes, or deletes a branch,
+so a stop verdict leaves the tree and every ref exactly as it found them.
 """
 
 import argparse
+import json
 import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import NoReturn
 
@@ -192,6 +209,273 @@ def dependencies(args: argparse.Namespace) -> int:
     return PROCEED_EXIT
 
 
+# ── branch-state (Verdict B, issue #576) ─────────────────────────────────────
+# Exit codes reuse the dependency contract's three classes so the §1.4 caller
+# reads ONE exit vocabulary across both subcommands:
+#   FRESH / VALIDATED_RESUME      → PROCEED_EXIT (0)   proceed to §1.4.1/§1.5
+#   AMBIGUOUS / DECISION_BLOCKED  → BLOCKED_EXIT (2)   stop before push/checkpoint
+#   UNAVAILABLE <reason>          → UNAVAILABLE_EXIT (3) unestablished measurement
+# The two-payload verdicts (AMBIGUOUS/DECISION_BLOCKED) additionally print a
+# `<verdict> <payload-file>` where the payload file captures the gathered +
+# derived state and the classification reason for the human deciding the stop.
+
+# The workpad front-matter Branch line: `**Branch:** `<name>`` (a real branch)
+# or `**Branch:** _(creating…)_` (the 1.3 placeholder, no backticks). Match the
+# LABEL to enumerate every Branch line (duplicate detection), then extract the
+# first fully-closed backtick span as the recorded name. A line with no closed
+# backtick span (the placeholder, or a truncated body that lost its closing
+# backtick) yields no recorded name — treated as absent, never as a partial name.
+_BRANCH_LABEL = re.compile(r"^\s*\*\*Branch:\*\*", re.MULTILINE)
+_BRANCH_BACKTICK = re.compile(r"`([^`]+)`")
+
+
+def _run_git(args: list[str]) -> subprocess.CompletedProcess[str]:
+    """Run a git subcommand on the current checkout, capturing text output.
+
+    encoding/errors mirror _gh_issue_view so an exotic ref name or commit message
+    never raises UnicodeDecodeError into main()'s catch-all (a spurious UNAVAILABLE
+    that would REPLACE a real verdict). check=False: every caller inspects
+    returncode explicitly — a non-zero git exit is data here (a ref that does not
+    resolve, a non-ancestor), not an error to raise.
+    """
+    return subprocess.run(
+        ["git", *args],
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+
+
+def _ref_resolves(ref: str) -> bool:
+    """True when `ref` names a resolvable commit."""
+    return _run_git(["rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"]).returncode == 0
+
+
+def parse_recorded_branch(body: str) -> tuple[str | None, bool]:
+    """Parse the workpad Branch line. Returns (recorded_name_or_None, duplicate).
+
+    A missing/placeholder/truncated Branch line yields (None, False) — absent.
+    More than one Branch line yields (None, True) — the body is ambiguous and no
+    single recorded name can be trusted (a marker-forged or corrupted workpad).
+    """
+    lines = [line for line in body.splitlines() if _BRANCH_LABEL.match(line)]
+    if not lines:
+        return (None, False)
+    if len(lines) > 1:
+        return (None, True)
+    match = _BRANCH_BACKTICK.search(lines[0])
+    if not match:
+        return (None, False)  # placeholder or truncated — no closed backtick span
+    name = match.group(1).strip()
+    # A backtick span holding only a placeholder-shaped value is still "absent".
+    if not name or name.startswith("_("):
+        return (None, False)
+    return (name, False)
+
+
+def _derive_ahead(base: str) -> tuple[int | None, str]:
+    """Ahead-of-base count for HEAD, with shallow unshallow-once-then-rederive.
+
+    Returns (ahead, "") on success, or (None, reason) on an unestablished
+    measurement: reason "base" when origin/<base> does not resolve (the caller's
+    fetch never landed it), "count" when rev-list cannot produce an integer even
+    after deepening a shallow history. Mirrors update-branch-checkpoint.sh: a
+    shallow view can UNDERcount ahead-of-base (the merge base may lie beyond the
+    shallow boundary), so on a shallow repository deepen the base ref exactly once
+    and re-derive — the post-unshallow count is authoritative.
+    """
+    base_ref = f"refs/remotes/origin/{base}"
+    if not _ref_resolves(base_ref):
+        return (None, "base")
+
+    def count() -> int | None:
+        result = _run_git(["rev-list", "--count", f"{base_ref}..HEAD"])
+        value = result.stdout.strip()
+        if result.returncode != 0 or not value.isdigit():
+            return None
+        return int(value)
+
+    ahead = count()
+    if _run_git(["rev-parse", "--is-shallow-repository"]).stdout.strip() == "true":
+        # Deepen the base ref specifically (fetch-depth cloud checkouts download
+        # only the feature ref's history), then re-derive. A fetch failure leaves
+        # the shallow count in place rather than erroring — best-effort deepening.
+        _run_git(["fetch", "--unshallow", "origin", f"+refs/heads/{base}:{base_ref}"])
+        redone = count()
+        if redone is not None:
+            ahead = redone
+    if ahead is None:
+        return (None, "count")
+    return (ahead, "")
+
+
+def _published_tip_reachable(current_branch: str) -> bool:
+    """True when HEAD is reachable from the branch's published tip.
+
+    origin/<current_branch> reaching HEAD means the branch's ahead commits are
+    published under this branch's own name — the strong "this is our own prior
+    work" signal a validated resume needs. A branch not yet pushed (no such
+    remote ref) is not reachable, so this stays False and the caller cannot reach
+    VALIDATED_RESUME on it.
+    """
+    tip = f"refs/remotes/origin/{current_branch}"
+    if not _ref_resolves(tip):
+        return False
+    return _run_git(["merge-base", "--is-ancestor", "HEAD", tip]).returncode == 0
+
+
+def _branch_exists(name: str) -> bool | None:
+    """Existence probe for a recorded branch name. True/False, or None on error.
+
+    None distinguishes a PROBE FAILURE (git cannot evaluate the ref because the
+    recorded NAME is malformed — a space, empty, or otherwise ref-invalid value a
+    corrupted/forged workpad can carry) from a CLEAN-EMPTY result (a well-formed
+    name that simply is not a ref → False). The caller routes a probe failure to
+    UNAVAILABLE and a clean-empty divergent name to DECISION_BLOCKED, so the two
+    must never collapse. `git check-ref-format` owns the name-validity contract
+    (a malformed name → non-zero) and `git rev-parse` owns existence — because
+    both `show-ref --verify` (with --quiet) and `rev-parse --verify` report a
+    malformed name and a well-formed-but-absent name with the SAME exit code, so
+    neither alone can make this distinction.
+    """
+    local, remote = f"refs/heads/{name}", f"refs/remotes/origin/{name}"
+    for ref in (local, remote):
+        if _run_git(["check-ref-format", ref]).returncode != 0:
+            return None  # malformed name — existence is unestablishable, not "absent"
+    for ref in (local, remote):
+        if _ref_resolves(ref):
+            return True
+    return False
+
+
+def _write_payload(verdict: str, reason: str, state: dict, derived: dict) -> str:
+    """Write the stop-verdict payload file and return its path.
+
+    Captures the gathered state, the internally-derived values, and the
+    classification reason so the human deciding the AMBIGUOUS/DECISION_BLOCKED
+    stop has the full picture. delete=False: the file outlives this process for
+    the caller/human to read; the caller owns its lifetime.
+    """
+    handle = tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", prefix="devflow-branch-state-", suffix=".json", delete=False
+    )
+    with handle:
+        json.dump({"verdict": verdict, "reason": reason, "state": state, "derived": derived}, handle, indent=2)
+    return handle.name
+
+
+def _classify_branch_state(state: dict) -> tuple[str, str, dict]:
+    """Return (verdict, reason, derived). Pure decision logic over gathered state.
+
+    Verdict vocabulary: FRESH, VALIDATED_RESUME, AMBIGUOUS, DECISION_BLOCKED,
+    UNAVAILABLE. The reason is a stable slug (empty for the proceed verdicts).
+    """
+    base = state["base"]
+    current_branch = state["current_branch"]
+    ahead, ahead_err = _derive_ahead(base)
+    derived: dict = {"ahead": ahead}
+    if ahead is None:
+        return ("UNAVAILABLE", ahead_err, derived)
+    if ahead == 0:
+        # No commits ahead of base: a fresh branch, or an adopted branch
+        # fast-forwarded to base. Nothing unrelated to validate — proceed. This is
+        # also the warm-start case (a gate-pre-created workpad, no work committed).
+        return ("FRESH", "", derived)
+
+    # ahead > 0: the branch carries commits not on the base. They are legitimate
+    # only if they are this run's own prior work; otherwise §1.5 would publish
+    # foreign history into the PR (the PR #524 incident). Validate before proceed.
+    if not state.get("provenance_established", False):
+        # The workpad's recorded branch / verdict are the only signals that could
+        # vouch for the ahead history, and unestablished provenance means they may
+        # be marker-forged — so they cannot be trusted to validate anything.
+        return ("DECISION_BLOCKED", "unverified-provenance", derived)
+
+    recorded, duplicate = parse_recorded_branch(state.get("workpad_body", ""))
+    derived["recorded_branch"] = recorded
+    if duplicate:
+        return ("AMBIGUOUS", "duplicate-branch-line", derived)
+
+    has_verdict = bool(state.get("has_proceed_verdict", False))
+    tip_reachable = _published_tip_reachable(current_branch)
+    derived["published_tip_reachable"] = tip_reachable
+
+    if recorded is None:
+        # Absent / placeholder / truncated Branch line. A prior proceed verdict
+        # PLUS a published tip still vouches for the ahead history even without a
+        # recorded name; anything less is a human decision.
+        if has_verdict and tip_reachable:
+            return ("VALIDATED_RESUME", "", derived)
+        return ("AMBIGUOUS", "no-recorded-branch", derived)
+
+    if recorded == current_branch:
+        if has_verdict:
+            if tip_reachable:
+                return ("VALIDATED_RESUME", "", derived)
+            return ("AMBIGUOUS", "matching-verdict-tip-unreachable", derived)
+        return ("AMBIGUOUS", "matching-without-verdict", derived)
+
+    # Divergent: the recorded branch is not the working branch.
+    exists = _branch_exists(recorded)
+    derived["recorded_branch_exists"] = exists
+    if exists is None:
+        return ("UNAVAILABLE", "existence-probe", derived)
+    if not exists:
+        # The workpad names a branch that does not exist — a corrupted or forged
+        # record; refuse rather than adopt ahead history against a phantom.
+        return ("DECISION_BLOCKED", "divergent-nonexistent", derived)
+    if has_verdict:
+        return ("AMBIGUOUS", "divergent-existing-with-verdict", derived)
+    return ("DECISION_BLOCKED", "divergent-without-verdict", derived)
+
+
+def branch_state(args: argparse.Namespace) -> int:
+    # `is not None`: an explicit `--state-file ""` reads the (empty) path and fails
+    # closed on that read, never falls through to a phantom default (mirrors the
+    # dependency subcommand's body-file discipline).
+    if args.state_file is None:
+        print("preflight.py: branch-state requires --state-file", file=sys.stderr)
+        print("UNAVAILABLE state", flush=True)
+        return UNAVAILABLE_EXIT
+    try:
+        raw = Path(args.state_file).read_text(encoding="utf-8")
+    except OSError as exc:
+        print(f"preflight.py: could not read branch-state file: {exc}", file=sys.stderr)
+        print("UNAVAILABLE state", flush=True)
+        return UNAVAILABLE_EXIT
+    try:
+        state = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        print(f"preflight.py: branch-state file is not valid JSON: {exc}", file=sys.stderr)
+        print("UNAVAILABLE state", flush=True)
+        return UNAVAILABLE_EXIT
+    if not isinstance(state, dict):
+        print("preflight.py: branch-state file must be a JSON object", file=sys.stderr)
+        print("UNAVAILABLE state", flush=True)
+        return UNAVAILABLE_EXIT
+    base = state.get("base")
+    current_branch = state.get("current_branch")
+    if not isinstance(base, str) or not base or not isinstance(current_branch, str) or not current_branch:
+        print("preflight.py: branch-state requires non-empty string 'base' and 'current_branch'", file=sys.stderr)
+        print("UNAVAILABLE state", flush=True)
+        return UNAVAILABLE_EXIT
+
+    verdict, reason, derived = _classify_branch_state(state)
+    if verdict == "UNAVAILABLE":
+        print(f"preflight.py: branch-state could not establish '{reason}' — no verdict", file=sys.stderr)
+        print(f"UNAVAILABLE {reason}", flush=True)
+        return UNAVAILABLE_EXIT
+    if verdict in ("FRESH", "VALIDATED_RESUME"):
+        print(verdict, flush=True)
+        return PROCEED_EXIT
+    # AMBIGUOUS / DECISION_BLOCKED — a stop with a payload for the human.
+    payload = _write_payload(verdict, reason, state, derived)
+    print(f"preflight.py: branch-state {verdict} ({reason}); state written to {payload}", file=sys.stderr)
+    print(f"{verdict} {payload}", flush=True)
+    return BLOCKED_EXIT
+
+
 class _Parser(argparse.ArgumentParser):
     """Exit usage errors with UNAVAILABLE_EXIT, not argparse's default 2.
 
@@ -221,6 +505,9 @@ def main() -> int:
     input_group.add_argument("--issue", type=int)
     input_group.add_argument("--body-file")
     dependency_parser.set_defaults(func=dependencies)
+    branch_state_parser = subparsers.add_parser("branch-state")
+    branch_state_parser.add_argument("--state-file")
+    branch_state_parser.set_defaults(func=branch_state)
     args = parser.parse_args()
     try:
         return args.func(args)

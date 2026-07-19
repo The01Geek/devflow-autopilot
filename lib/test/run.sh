@@ -8447,6 +8447,172 @@ assert_eq "#547/#572 catch-all mutation: removing the catch-all lets the injecte
   "$P547C_OUT->$([ -z "$P547C_MUT_OUT" ] && echo escaped || echo "$P547C_MUT_OUT")"
 rm -rf "$P547C_MUT"
 
+# ── issue #576: branch-state (Verdict B) ahead-of-base classification ─────────
+# The §1.4 freshness guard derives only the BEHIND-by count, so a branch carrying
+# unrelated AHEAD-only history reads "up to date" while §1.5 publishes foreign
+# commits (the PR #524 incident). branch-state derives the ahead-of-base count and
+# emits a one-token verdict + matching exit code, mirroring update-branch-checkpoint.sh:
+#   FRESH / VALIDATED_RESUME     exit 0  proceed
+#   AMBIGUOUS / DECISION_BLOCKED exit 2  stop before push/checkpoint (no history mutation)
+#   UNAVAILABLE <reason>         exit 3  unestablished measurement
+# The driver below builds throwaway git repos (bare origin + work tree) and exercises
+# every arm AC4 enumerates, writing `<arm> <verdict-word> <rc>` lines to a file.
+BS576_HELPER="$LIB/../scripts/preflight.py"
+BS576_OUT="$(mktemp)"
+python3 - "$BS576_HELPER" "$BS576_OUT" >/dev/null 2>&1 <<'PY'
+import json, os, subprocess, sys, tempfile
+HELPER, OUT = sys.argv[1], sys.argv[2]
+ROOT = tempfile.mkdtemp()
+lines = []
+def git(args, cwd):
+    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+def commit(work, name, content="x"):
+    open(os.path.join(work, name), "w").write(content + "\n")
+    git(["add", "-A"], work); git(["commit", "-qm", name], work)
+def new_repo(tag):
+    d = os.path.join(ROOT, tag); bare = os.path.join(d, "origin.git"); work = os.path.join(d, "work")
+    os.makedirs(d)
+    subprocess.run(["git", "init", "-q", "--bare", bare], check=True)
+    subprocess.run(["git", "init", "-q", work], check=True)
+    git(["config", "user.email", "a@b.c"], work); git(["config", "user.name", "t"], work)
+    git(["remote", "add", "origin", bare], work)
+    return bare, work
+def base_repo(tag):
+    bare, work = new_repo(tag)
+    commit(work, "base0"); git(["branch", "-M", "main"], work)
+    git(["push", "-q", "-u", "origin", "main"], work)
+    return bare, work
+def run(work, state, cwd=None):
+    sf = os.path.join(ROOT, "state.json"); open(sf, "w").write(json.dumps(state))
+    r = subprocess.run(["python3", HELPER, "branch-state", "--state-file", sf],
+                       cwd=cwd or work, capture_output=True, text=True)
+    return (r.stdout.split() or [""])[0], r.returncode, r.stdout.strip()
+def emit(arm, work, state, cwd=None):
+    word, rc, _ = run(work, state, cwd); lines.append(f"{arm} {word} {rc}")
+# FRESH (ahead 0) + warm-start (ahead 0 with a workpad present)
+_, work = base_repo("fresh"); git(["checkout", "-qb", "feat", "main"], work)
+emit("ahead0", work, {"base": "main", "current_branch": "feat"})
+emit("warmstart", work, {"base": "main", "current_branch": "feat", "provenance_established": True,
+     "workpad_body": "**Branch:** `feat`", "has_proceed_verdict": True})
+# ahead>0 on an unpushed feat (tip NOT reachable)
+_, work = base_repo("ahead1"); git(["checkout", "-qb", "feat", "main"], work); commit(work, "a1")
+S = {"base": "main", "current_branch": "feat"}
+emit("ahead1_noprov", work, {**S, "provenance_established": False})
+emit("wp_forged", work, {**S, "provenance_established": False, "workpad_body": "**Branch:** `feat`", "has_proceed_verdict": True})
+emit("wp_matching_noverdict", work, {**S, "provenance_established": True, "workpad_body": "**Branch:** `feat`", "has_proceed_verdict": False})
+emit("wp_matching_verdict_notip", work, {**S, "provenance_established": True, "workpad_body": "**Branch:** `feat`", "has_proceed_verdict": True})
+emit("wp_absent", work, {**S, "provenance_established": True, "workpad_body": "no branch line here", "has_proceed_verdict": False})
+emit("wp_placeholder", work, {**S, "provenance_established": True, "workpad_body": "**Branch:** _(creating…)_", "has_proceed_verdict": True})
+emit("wp_duplicate", work, {**S, "provenance_established": True, "workpad_body": "**Branch:** `feat`\n**Branch:** `other`"})
+emit("wp_truncated", work, {**S, "provenance_established": True, "workpad_body": "**Branch:** `feat", "has_proceed_verdict": False})
+emit("wp_probe_fail", work, {**S, "provenance_established": True, "workpad_body": "**Branch:** `bad ref name`", "has_proceed_verdict": False})
+emit("wp_divergent_nonexistent", work, {**S, "provenance_established": True, "workpad_body": "**Branch:** `ghost`", "has_proceed_verdict": False})
+# no-history-mutation: HEAD sha + ref snapshot unchanged across a stop verdict
+hb = git(["rev-parse", "HEAD"], work).stdout.strip(); rb = git(["show-ref"], work).stdout
+run(work, {**S, "provenance_established": False})
+ha = git(["rev-parse", "HEAD"], work).stdout.strip(); ra = git(["show-ref"], work).stdout
+lines.append(f"nomut {'yes' if hb == ha and rb == ra else 'no'}")
+# divergent-existing (a real 'other' branch off base)
+_, work = base_repo("divergent")
+git(["checkout", "-qb", "other", "main"], work); commit(work, "o1"); git(["push", "-q", "-u", "origin", "other"], work)
+git(["checkout", "-qb", "feat", "main"], work); commit(work, "a1")
+D = {"base": "main", "current_branch": "feat", "provenance_established": True, "workpad_body": "**Branch:** `other`"}
+emit("wp_divergent_exist_verdict", work, {**D, "has_proceed_verdict": True})
+emit("wp_divergent_noverdict", work, {**D, "has_proceed_verdict": False})
+# VALIDATED_RESUME: ahead>0, pushed (tip reachable), matching + verdict; and absent+verdict+tip
+_, work = base_repo("resume"); git(["checkout", "-qb", "feat", "main"], work); commit(work, "a1")
+git(["push", "-q", "-u", "origin", "feat"], work)
+emit("wp_matching_verdict", work, {"base": "main", "current_branch": "feat", "provenance_established": True, "workpad_body": "**Branch:** `feat`", "has_proceed_verdict": True})
+emit("wp_absent_verdict_tip", work, {"base": "main", "current_branch": "feat", "provenance_established": True, "workpad_body": "no branch line", "has_proceed_verdict": True})
+# aheadN + mixed ahead/behind
+_, work = base_repo("mixed"); git(["checkout", "-qb", "feat", "main"], work)
+for i in range(3): commit(work, f"a{i}")
+emit("aheadN_noprov", work, {"base": "main", "current_branch": "feat", "provenance_established": False})
+git(["checkout", "-q", "main"], work); commit(work, "m2"); git(["push", "-q", "origin", "main"], work)
+git(["fetch", "-q", "origin"], work); git(["checkout", "-q", "feat"], work)
+emit("mixed", work, {"base": "main", "current_branch": "feat", "provenance_established": False})
+# base-fetch failure
+_, work = base_repo("basefail"); git(["checkout", "-qb", "feat", "main"], work); commit(work, "a1")
+emit("basefail", work, {"base": "nope", "current_branch": "feat"})
+# underivable count: origin/main resolvable but HEAD unborn
+bare, work2 = new_repo("count"); _, seed = base_repo("count_seed")
+git(["push", "-q", os.path.join(ROOT, "count", "origin.git"), "main"], seed)
+git(["fetch", "-q", "origin", "+refs/heads/main:refs/remotes/origin/main"], work2)
+emit("count", work2, {"base": "main", "current_branch": "feat"})
+# shallow wrong-digit vs post-unshallow: full clone of feat + shallow main fetch
+bare_s, deep = new_repo("shallow_src")
+commit(deep, "b0"); git(["branch", "-M", "main"], deep)
+git(["checkout", "-qb", "feat", "main"], deep); commit(deep, "f1")
+git(["checkout", "-q", "main"], deep)
+for i in range(4): commit(deep, f"b{i+1}")
+git(["push", "-q", "-u", "origin", "main"], deep); git(["push", "-q", "-u", "origin", "feat"], deep)
+shal = os.path.join(ROOT, "shallow_clone")
+subprocess.run(["git", "clone", "-q", "--branch", "feat", "file://" + bare_s, shal], check=True)
+git(["config", "user.email", "a@b.c"], shal); git(["config", "user.name", "t"], shal)
+git(["fetch", "-q", "--depth=1", "origin", "+refs/heads/main:refs/remotes/origin/main"], shal)
+naive = git(["rev-list", "--count", "refs/remotes/origin/main..HEAD"], shal).stdout.strip()
+lines.append(f"shallow_naive {naive or 'ERR'}")
+word, rc, out = run(shal, {"base": "main", "current_branch": "feat", "provenance_established": False}, cwd=shal)
+lines.append(f"shallow {word} {rc}")
+payload = out.split()[-1] if word in ("AMBIGUOUS", "DECISION_BLOCKED") else ""
+derived = str(json.load(open(payload)).get("derived", {}).get("ahead")) if payload and os.path.exists(payload) else ""
+lines.append(f"shallow_derived {derived}")
+open(OUT, "w").write("\n".join(lines) + "\n")
+import shutil; shutil.rmtree(ROOT)
+PY
+_bs576() { awk -v k="$1" '$1==k{print $2, $3; f=1} END{if(!f)print "MISSING"}' "$BS576_OUT"; }
+_bs576v() { awk -v k="$1" '$1==k{print $2; f=1} END{if(!f)print "MISSING"}' "$BS576_OUT"; }
+assert_eq "#576: fresh branch (ahead 0) → FRESH/proceed" "FRESH 0" "$(_bs576 ahead0)"
+assert_eq "#576: warm-start (ahead 0, workpad present) → FRESH/proceed" "FRESH 0" "$(_bs576 warmstart)"
+assert_eq "#576: ahead>0 under unverified provenance → DECISION_BLOCKED/stop" "DECISION_BLOCKED 2" "$(_bs576 ahead1_noprov)"
+assert_eq "#576: aheadN under unverified provenance → DECISION_BLOCKED/stop" "DECISION_BLOCKED 2" "$(_bs576 aheadN_noprov)"
+assert_eq "#576: mixed ahead+behind still classifies on ahead → DECISION_BLOCKED/stop" "DECISION_BLOCKED 2" "$(_bs576 mixed)"
+assert_eq "#576: marker-forged hostile workpad (ahead>0, provenance false) → DECISION_BLOCKED" "DECISION_BLOCKED 2" "$(_bs576 wp_forged)"
+assert_eq "#576: recorded branch matches, no verdict → AMBIGUOUS/stop" "AMBIGUOUS 2" "$(_bs576 wp_matching_noverdict)"
+assert_eq "#576: recorded matches + verdict but tip unreachable → AMBIGUOUS/stop" "AMBIGUOUS 2" "$(_bs576 wp_matching_verdict_notip)"
+assert_eq "#576: recorded matches + verdict + tip reachable → VALIDATED_RESUME/proceed" "VALIDATED_RESUME 0" "$(_bs576 wp_matching_verdict)"
+assert_eq "#576: no recorded branch, no verdict → AMBIGUOUS/stop" "AMBIGUOUS 2" "$(_bs576 wp_absent)"
+assert_eq "#576: no recorded branch + verdict + tip reachable → VALIDATED_RESUME/proceed" "VALIDATED_RESUME 0" "$(_bs576 wp_absent_verdict_tip)"
+assert_eq "#576: placeholder Branch line resolves to absent → AMBIGUOUS/stop" "AMBIGUOUS 2" "$(_bs576 wp_placeholder)"
+assert_eq "#576: duplicate Branch line (ambiguous workpad) → AMBIGUOUS/stop" "AMBIGUOUS 2" "$(_bs576 wp_duplicate)"
+assert_eq "#576: truncated Branch line (no closing backtick) → absent → AMBIGUOUS/stop" "AMBIGUOUS 2" "$(_bs576 wp_truncated)"
+assert_eq "#576: divergent recorded branch that EXISTS + verdict → AMBIGUOUS/stop" "AMBIGUOUS 2" "$(_bs576 wp_divergent_exist_verdict)"
+assert_eq "#576: divergent recorded branch that EXISTS, no verdict → DECISION_BLOCKED/stop" "DECISION_BLOCKED 2" "$(_bs576 wp_divergent_noverdict)"
+assert_eq "#576: divergent recorded branch that does NOT exist (clean-empty) → DECISION_BLOCKED/stop" "DECISION_BLOCKED 2" "$(_bs576 wp_divergent_nonexistent)"
+assert_eq "#576: malformed recorded branch name (existence-probe failure) → UNAVAILABLE/3" "UNAVAILABLE 3" "$(_bs576 wp_probe_fail)"
+assert_eq "#576: base ref unresolvable (base-fetch failure) → UNAVAILABLE/3" "UNAVAILABLE 3" "$(_bs576 basefail)"
+assert_eq "#576: underivable ahead count (unborn HEAD) → UNAVAILABLE/3" "UNAVAILABLE 3" "$(_bs576 count)"
+# no-history-mutation (behavioral): a DECISION_BLOCKED stop leaves HEAD + every ref untouched.
+assert_eq "#576 no-history-mutation: a stop verdict leaves HEAD and all refs unchanged" "yes" "$(_bs576v nomut)"
+# shallow wrong-digit vs post-unshallow: the naive shallow count is inflated; the helper
+# unshallows once and re-derives the correct ahead count (1) recorded in the payload.
+BS576_NAIVE="$(_bs576v shallow_naive)"; BS576_DERIVED="$(_bs576v shallow_derived)"
+assert_eq "#576 shallow: the naive shallow ahead count differs from the post-unshallow count" "differ" \
+  "$([ "$BS576_NAIVE" != "$BS576_DERIVED" ] && echo differ || echo same)"
+assert_eq "#576 shallow: the helper re-derives the correct post-unshallow ahead count" "1" "$BS576_DERIVED"
+assert_eq "#576 shallow: a shallow repo still yields a well-formed stop verdict" "DECISION_BLOCKED 2" "$(_bs576 shallow)"
+rm -f "$BS576_OUT"
+
+# ── issue #576: Phase 1 §1.4 integration — ordering + no-history-mutation pins ──
+BS576_PHASE="$IMPL_PHASES_DIR/phase-1-setup.md"
+# Ordering (positional): the branch-state invocation precedes the §1.4.1 checkpoint
+# heading, so a stop verdict aborts before any history-mutating step (AC2).
+BS576_INV_LN=$(grep -nF 'scripts/preflight.py branch-state --state-file .devflow/tmp/branch-state-$ISSUE_NUMBER.json' "$BS576_PHASE" | head -1 | cut -d: -f1)
+BS576_141_LN=$(grep -nF '#### 1.4.1 Base-branch update checkpoint 1' "$BS576_PHASE" | head -1 | cut -d: -f1)
+assert_eq "#576 AC2: the branch-state classification precedes the §1.4.1 checkpoint (before any history mutation)" "yes" \
+  "$([ -n "$BS576_INV_LN" ] && [ -n "$BS576_141_LN" ] && [ "$BS576_INV_LN" -lt "$BS576_141_LN" ] && echo yes || echo no)"
+# Ordering (mutation evidence): a sed -E reorder that copies the invocation to hold space
+# and appends it after the §1.4.1 heading makes the unique invocation literal appear a
+# second time (present→non-unique), so its pin flips PASS→FAIL (the AC10 reorder idiom).
+assert_pin_red_under "#576 AC2: a reorder placing branch-state after §1.4.1 turns its pin RED" \
+  'scripts/preflight.py branch-state --state-file .devflow/tmp/branch-state-$ISSUE_NUMBER.json' \
+  '/scripts\/preflight\.py branch-state --state-file/h;/^#### 1\.4\.1 Base-branch update checkpoint 1/G' "$BS576_PHASE"
+# No-history-mutation (prose contract): the operative guarantee sentence is present; a
+# mutation flipping it to a mutation-permitting claim removes the literal → pin RED.
+assert_pin_red_under "#576: the no-history-mutation guarantee sentence is present (operative, not framing)" \
+  'a stop verdict makes no history mutation' \
+  's/a stop verdict makes no history mutation/a stop verdict may rewrite history/' "$BS576_PHASE"
+
 # ── issue #547 AC10: the §1.3.5 dependency gate precedes §1.4 branch work ──────
 # The gate must run before ANY §1.4 branch operation (resume-precheck checkout,
 # fetch, checkpoint merge, fresh-branch creation, push) on every entry path.
