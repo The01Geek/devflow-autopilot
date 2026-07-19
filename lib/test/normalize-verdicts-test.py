@@ -117,6 +117,50 @@ check("prose reflection bad_input", o.get("bad_input") is True)
 o,_=run("ac11-only-conj2.json"); r=res0(o)
 check("AC11 source_authored not normalized", not r["normalized"] and r["verdict"]=="FAIL", str(r))
 
+# ── #556 Phase 3 review-finding regressions (code-reviewer / silent-failure / pr-test) ──
+# code-reviewer (Important): a compliant pinned field-completion re-ask returning ONLY the
+# two aux fields (no verdict) applies the pinned FAIL and completes the fields -> normalizes,
+# instead of being mis-classified as a missing_verdict_field verdict defect.
+o,rc=run("pinned-aux-only.json"); r=res0(o)
+check("pinned aux-only re-ask normalizes (not missing_verdict_field)",
+      r["normalized"] and r["verdict"]=="PASS" and r["raw_verdict"]=="FAIL", str(r))
+check("pinned aux-only re-ask not re-dispatched", not o["needs_retry"], str(o["needs_retry"]))
+
+# silent-failure (HIGH) / pr-test: a non-dict pair element is an observable malformed_pair
+# verdict defect, never a silent drop; the sibling valid pair still processes.
+o,rc=run("malformed-pair.json")
+check("malformed pair emits a result (not silently dropped)", len(o["results"])==2, str(len(o["results"])))
+check("malformed pair -> malformed_pair verdict defect", any(x["defect"]=="malformed_pair" for x in o["results"]))
+check("malformed pair enters needs_retry", any(x.get("defect")=="malformed_pair" for x in o["needs_retry"]))
+check("sibling valid pair still normalizes", any(x["normalized"] for x in o["results"]))
+
+# pr-test (sev 6): multi-pair aggregation across N>1 pairs.
+o,rc=run("multi-pair.json")
+check("multi-pair: 3 results", len(o["results"])==3)
+check("multi-pair: normalized_count 1", o["counts"]["normalized_count"]==1, str(o["counts"]))
+check("multi-pair: field_defect_fail_count 2", o["counts"]["field_defect_fail_count"]==2, str(o["counts"]))
+check("multi-pair: one aux needs_retry (VC-C)",
+      bool([x for x in o["needs_retry"] if x["kind"]=="auxiliary" and x["id"]=="VC-C"]), str(o["needs_retry"]))
+
+# pr-test (sev 4): file-absent + present response_text reads the fallback channel.
+o,rc=run("absent-file-with-response.json"); r=res0(o)
+check("absent file falls back to response_text channel", r["source"]=="response_text" and r["normalized"], str(r))
+
+# pr-test/code-reviewer: wire the previously-orphan v2b pre-schema fixture (combined aux defect).
+o,rc=run("v2b-preschema-cvc17.json"); r=res0(o)
+check("v2b pre-schema: combined aux defect string", r["defect"]=="aux:property_proven,inaccuracy_scope", str(r["defect"]))
+check("v2b pre-schema: field_defect_fail_count 1", o["counts"]["field_defect_fail_count"]==1)
+
+# pr-test (sev 3): id_mismatch no-fire when the item carries no id (absent-operand guard).
+o,rc=run("id-nofire-item-noid.json"); r=res0(o)
+check("id_mismatch no-fire when item has no id", r["defect"] is None and r["normalized"], str(r))
+
+# pr-test (sev 3): rc contract — a normal run exits 0; argv-empty exits rc 2.
+o,rc=run("norm-basic.json")
+check("normal run exits rc 0", rc==0, str(rc))
+_rc = subprocess.run(["python3", H], capture_output=True, text=True).returncode
+check("argv-empty exits rc 2", _rc==2, str(_rc))
+
 # T-3 planted-defect positive control: a helper mutation dropping conjunct 2 (the
 # claim_provenance == generated_paraphrase check) must turn the AC11 arm RED — i.e.
 # the mutant WRONGLY normalizes the source_authored item. Proves the guard, not the

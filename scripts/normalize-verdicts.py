@@ -202,18 +202,27 @@ def _aux_state(obj, field):
 def _read_verdict_bytes(pair):
     """Return ``(text, source)`` — the verdict bytes and their channel. Reads ONLY
     the exact ``verdict_path`` named in this pair (ignoring every unnamed file);
-    falls back to the transcribed ``response_text`` when no readable file exists."""
+    falls back to the transcribed ``response_text`` when no readable file exists.
+
+    An ABSENT file is the legitimate fallback and yields ``source == "response_text"``.
+    A file that is PRESENT but unreadable (permission error or invalid UTF-8) is an
+    anomaly — the trusted channel was abandoned — so it yields
+    ``source == "response_text_file_unreadable"`` (still a response_text read) so the
+    downgrade off the authoritative nonce file is observable, never silent."""
+    downgraded = False
     path = pair.get("verdict_path")
     if isinstance(path, str) and path:
         try:
             with open(path, "r", encoding="utf-8") as fh:
                 return fh.read(), "file"
+        except FileNotFoundError:
+            pass  # file genuinely absent -> the legitimate silent fallback
         except (OSError, UnicodeDecodeError):
-            pass  # no readable file at the nonce path -> fall to response_text
+            downgraded = True  # present but unreadable -> surface the downgrade
     rt = pair.get("response_text")
     if isinstance(rt, str):
-        return rt, "response_text"
-    return None, "none"
+        return rt, ("response_text_file_unreadable" if downgraded else "response_text")
+    return None, ("none_file_unreadable" if downgraded else "none")
 
 
 def _verdict_defect(result, item_id, defect):
@@ -238,6 +247,7 @@ def _process_pair(pair):
 
     text, source = _read_verdict_bytes(pair)
     obj, defect = extract_verdict_object(text)
+    is_pinned = isinstance(pinned, str) and pinned in VERDICT_ENUM
 
     result = {
         "id": item_id,
@@ -252,26 +262,30 @@ def _process_pair(pair):
         "normalization_ineligible": None,
     }
 
-    # --- verdict-defect arm: keep no verdict, flag for a full re-dispatch --------
-    if defect is not None:
-        return _verdict_defect(result, item_id, defect)
-
-    # object well-formed enough to inspect; validate the mandatory verdict field
-    if "verdict" not in obj:
-        return _verdict_defect(result, item_id, "missing_verdict_field")
-
-    raw = obj.get("verdict")
-    if not isinstance(raw, str) or raw not in VERDICT_ENUM:
-        return _verdict_defect(result, item_id, "non_enum_verdict")
-
-    obj_id = obj.get("id")
-    if item_id is not None and obj_id is not None and obj_id != item_id:
-        return _verdict_defect(result, item_id, "id_mismatch")
-
-    # Pinned-first-verdict rule: for a field-completion re-ask the raw FAIL is
-    # pinned to the first response; any verdict token the re-ask returns is ignored.
-    if isinstance(pinned, str) and pinned in VERDICT_ENUM:
+    if is_pinned:
+        # Pinned-first-verdict rule (field-completion re-ask): the raw verdict is
+        # PINNED to the first response's FAIL, and the re-ask response is parsed ONLY
+        # for the two auxiliary fields — any verdict token it returns, OR its absence
+        # (a compliant re-ask returns only the aux fields), is ignored. The re-ask
+        # fires at most once, so a verdict-less / unparseable response never
+        # re-dispatches: the pinned raw stands and the item resolves through the
+        # predicate below. (Ordered before the verdict-defect arms so a compliant
+        # aux-only response is never mis-classified as missing_verdict_field.)
         raw = pinned
+        obj = obj if isinstance(obj, dict) else {}
+    else:
+        # --- verdict-defect arm: keep no verdict, flag for a full re-dispatch ----
+        if defect is not None:
+            return _verdict_defect(result, item_id, defect)
+        # object well-formed enough to inspect; validate the mandatory verdict field
+        if "verdict" not in obj:
+            return _verdict_defect(result, item_id, "missing_verdict_field")
+        raw = obj.get("verdict")
+        if not isinstance(raw, str) or raw not in VERDICT_ENUM:
+            return _verdict_defect(result, item_id, "non_enum_verdict")
+        obj_id = obj.get("id")
+        if item_id is not None and obj_id is not None and obj_id != item_id:
+            return _verdict_defect(result, item_id, "id_mismatch")
 
     evidence = obj.get("evidence")
     result["raw_verdict"] = raw
@@ -347,7 +361,10 @@ def _process_pair(pair):
     if aux_defects:
         result["defect"] = "aux:" + ",".join(aux_defects)
         result["defect_class"] = "auxiliary"
-        if raw == "FAIL" and provenance == "generated_paraphrase" and mode == "agent":
+        # A pinned pair IS the field-completion re-ask (fires at most once), so it is
+        # never re-dispatched again — its persisting aux defect leaves the raw FAIL
+        # standing with the marker.
+        if not is_pinned and raw == "FAIL" and provenance == "generated_paraphrase" and mode == "agent":
             retry = {"id": item_id, "kind": "auxiliary", "defect": ",".join(aux_defects)}
 
     return result, retry, is_field_defect_fail
@@ -375,8 +392,23 @@ def run(pairs_file):
     results = []
     needs_retry = []
     field_defect_fail_count = 0
-    for pair in payload["pairs"]:
+    for idx, pair in enumerate(payload["pairs"]):
         if not isinstance(pair, dict):
+            # A non-dict element (a stray null/string/number/list from a corrupt
+            # transcription) is a verdict defect, NOT a silent no-op: emit an
+            # observable result + retry so a single-element corruption cannot drop a
+            # verdict unnoticed (the pairs file is LLM-transcribed, so this is the
+            # per-element analogue of the whole-file bad-input report).
+            malformed = {
+                "id": None, "raw_verdict": None, "verdict": None, "normalized": False,
+                "evidence": None, "file_checked": None, "source": "none",
+                "defect": "malformed_pair", "defect_class": "verdict",
+                "normalization_ineligible": "verdict defect: malformed_pair",
+                "pair_index": idx,
+            }
+            results.append(malformed)
+            needs_retry.append({"id": None, "kind": "verdict",
+                                "defect": "malformed_pair", "pair_index": idx})
             continue
         result, retry, is_field_defect_fail = _process_pair(pair)
         results.append(result)
