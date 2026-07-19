@@ -449,6 +449,18 @@ jobs:
             printf '%s\n' "$BASE_JSON"
             printf '%s\n' "$delim"
           } >> "$GITHUB_OUTPUT"
+          # Optional pre-installed Claude Code executable path (issue #601), read
+          # from setup.claude_code_executable in the SAME trusted base-ref config
+          # ($BASE_JSON) as provision_env / runner_tools above — never the PR-head
+          # checkout. This job runs under a write token and the action executes the
+          # resolved path, so a PR-author-controllable value would be an
+          # arbitrary-code-execution vector; the trusted-source read is the security
+          # boundary. `// empty` → empty string when the key is absent (the action's
+          # auto-install path is then unchanged); `try … catch` guards a non-object
+          # base-config `setup` so this read never aborts the review job. A file path
+          # is single-line, so a plain key=value echo is safe here.
+          CLAUDE_CODE_EXECUTABLE=$(printf '%s' "$BASE_JSON" | jq -r 'try (.setup.claude_code_executable // empty) catch empty')
+          echo "claude_code_executable=$CLAUDE_CODE_EXECUTABLE" >> "$GITHUB_OUTPUT"
 
       - name: Resolve allowed-tools profile
         id: tools
@@ -1582,6 +1594,13 @@ jobs:
           # --effort conditional on effort_supported (issue #313). --model now comes
           # from the provider resolver (the dead `model` input was removed). The
           # --permission-mode / --allowed-tools tail is preserved verbatim.
+          # Optional pre-installed Claude Code executable (issue #601): sourced ONLY
+          # from the trusted base-ref config (steps.baseprovision), never a PR-head
+          # config, because this write-token job executes the resolved path. Empty
+          # (the default) → the action treats it as absent and auto-installs, so Linux
+          # consumers are unaffected — the same empty-as-absent idiom as
+          # claude_code_oauth_token above.
+          path_to_claude_code_executable: ${{ steps.baseprovision.outputs.claude_code_executable }}
           claude_args: >-
             ${{ steps.cargs.outputs.args }}
             --permission-mode acceptEdits

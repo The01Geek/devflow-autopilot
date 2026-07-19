@@ -7590,6 +7590,57 @@ assert_eq "#356 pin: devflow.yml surfaces the engine execution result as steps.e
   "$(grep -q 'id: engine' "$DEVFLOW_YML" && grep -q 'parse-engine-error.sh' "$DEVFLOW_YML" && grep -q 'is_error=\$IS_ERROR' "$DEVFLOW_YML" && echo yes || echo no)"
 rm -rf "$S356"
 
+# ── issue #601: self-hosted Windows runner support — path_to_claude_code_executable ──
+# Each of the three shipped workflows that invoke claude-code-action must pass the
+# action's `path_to_claude_code_executable` input, sourced from a new optional config
+# key `setup.claude_code_executable`, defaulting to an EMPTY string (action auto-install
+# path, unchanged for Linux consumers) when the key is absent. devflow.yml and
+# devflow-implement.yml source it from their own `config` job; devflow-runner.yml sources
+# it ONLY from the trusted base-ref config (steps.baseprovision) — never a PR-head-checked-out
+# config, because that job runs under a write token and the resolved path is executed (an
+# arbitrary-code-execution boundary). These are literal-presence guards; a plain removal
+# mutation-check (the input line deleted → RED) is the appropriate proof for each.
+I601_DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
+I601_IMPL_YML="$LIB/../.github/workflows/devflow-implement.yml"
+I601_RUNNER_YML="$LIB/../.github/workflows/devflow-runner.yml"
+I601_SCHEMA="$LIB/../.devflow/config.schema.json"
+I601_EXAMPLE="$LIB/../.devflow/config.example.json"
+
+# AC1 — devflow.yml: extraction (// empty default) + config-job output + with: input.
+assert_eq "#601 AC1: devflow.yml extracts setup.claude_code_executable with // empty default" "yes" \
+  "$(grep -qF '.setup.claude_code_executable // empty' "$I601_DEVFLOW_YML" && echo yes || echo no)"
+assert_eq "#601 AC1: devflow.yml config job exposes the claude_code_executable output" "yes" \
+  "$(grep -qF 'claude_code_executable: ${{ steps.extract.outputs.claude_code_executable }}' "$I601_DEVFLOW_YML" && echo yes || echo no)"
+assert_eq "#601 AC1: devflow.yml Run Claude Code passes path_to_claude_code_executable from the config job" "yes" \
+  "$(grep -qF 'path_to_claude_code_executable: ${{ needs.config.outputs.claude_code_executable }}' "$I601_DEVFLOW_YML" && echo yes || echo no)"
+
+# AC2 — devflow-implement.yml: same pattern, its own config-job resolution.
+assert_eq "#601 AC2: devflow-implement.yml extracts setup.claude_code_executable with // empty default" "yes" \
+  "$(grep -qF '.setup.claude_code_executable // empty' "$I601_IMPL_YML" && echo yes || echo no)"
+assert_eq "#601 AC2: devflow-implement.yml config job exposes the claude_code_executable output" "yes" \
+  "$(grep -qF 'claude_code_executable: ${{ steps.extract.outputs.claude_code_executable }}' "$I601_IMPL_YML" && echo yes || echo no)"
+assert_eq "#601 AC2: devflow-implement.yml Run Claude Code passes path_to_claude_code_executable from the config job" "yes" \
+  "$(grep -qF 'path_to_claude_code_executable: ${{ needs.config.outputs.claude_code_executable }}' "$I601_IMPL_YML" && echo yes || echo no)"
+
+# AC3 — devflow-runner.yml: trusted base-ref source ONLY (trust boundary). The extraction
+# reads $BASE_JSON (the base-ref config materialized by baseprovision), and the with: value
+# references steps.baseprovision — never a PR-head config (steps.cfg.outputs / needs.config).
+assert_eq "#601 AC3: devflow-runner.yml extracts setup.claude_code_executable from the trusted base config" "yes" \
+  "$(grep -qF '.setup.claude_code_executable // empty' "$I601_RUNNER_YML" && echo yes || echo no)"
+I601_RUNNER_LINE="$(grep 'path_to_claude_code_executable' "$I601_RUNNER_YML" || true)"
+assert_eq "#601 AC3: runner sources path_to_claude_code_executable from trusted baseprovision" "yes" \
+  "$(printf '%s' "$I601_RUNNER_LINE" | grep -qF 'steps.baseprovision.outputs.claude_code_executable' && echo yes || echo no)"
+assert_eq "#601 AC3: runner does NOT source it from a PR-head config (cfg.outputs/needs.config)" "yes" \
+  "$(printf '%s' "$I601_RUNNER_LINE" | grep -Eq 'cfg\.outputs|needs\.config' && echo no || echo yes)"
+
+# AC5 — schema documents the optional string key; example carries it (empty default).
+assert_eq "#601 AC5: schema setup.claude_code_executable type is string" "string" \
+  "$(jq -r '.properties.setup.properties.claude_code_executable.type' "$I601_SCHEMA")"
+assert_eq "#601 AC5: schema setup.claude_code_executable has a non-empty description" "yes" \
+  "$(jq -e '.properties.setup.properties.claude_code_executable.description | type == "string" and (length > 0)' "$I601_SCHEMA" >/dev/null && echo yes || echo no)"
+assert_eq "#601 AC5: example config carries setup.claude_code_executable (empty default)" "" \
+  "$(jq -r '.setup.claude_code_executable' "$I601_EXAMPLE")"
+
 # ── issue #338: --rewrite-ac (post-merge) retag requires a --note rationale ────
 # scripts/workpad.py: an `update` call in which any --rewrite-ac pair APPENDS the
 # trailing (post-merge) tag (NEW ends with it after rstrip; neither OLD nor the row

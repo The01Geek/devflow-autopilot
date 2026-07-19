@@ -46,6 +46,11 @@ jobs:
       allowed_tools_extra: ${{ steps.extract.outputs.allowed_tools_extra }}
       allowed_users: ${{ steps.extract.outputs.allowed_users }}
       devflow_version: ${{ steps.extract.outputs.devflow_version }}
+      # Optional path to a pre-installed Claude Code executable (issue #601),
+      # sourced from setup.claude_code_executable. Passed to claude-code-action's
+      # path_to_claude_code_executable input in the command job below. Empty (the
+      # default) leaves the action's automatic-install path unchanged.
+      claude_code_executable: ${{ steps.extract.outputs.claude_code_executable }}
     steps:
       - uses: actions/checkout@v6
       - id: cfg
@@ -85,6 +90,13 @@ jobs:
             echo "allowed_tools_extra=$(echo "$CONFIG_JSON" | jq -r '.devflow.allowed_tools // [] | if length > 0 then "," + join(",") else "" end')"
             # Pinned plugin ref for the vendor-plugin fetch branch (thin installs).
             echo "devflow_version=$(echo "$CONFIG_JSON" | jq -r '.devflow_version // empty')"
+            # Optional pre-installed Claude Code executable path (issue #601). For
+            # self-hosted runners (typically Windows) whose OS the action's Unix-only
+            # bundled installer cannot serve. `// empty` → empty string when the key is
+            # absent, which the action treats as "not provided" (auto-install unchanged).
+            # `try … catch` guards a hand-corrupted non-object `setup`, so the config job
+            # never aborts on a malformed setup block.
+            echo "claude_code_executable=$(echo "$CONFIG_JSON" | jq -r 'try (.setup.claude_code_executable // empty) catch empty')"
           } >> "$GITHUB_OUTPUT"
 
   # Dedupe a MANUAL bare `/devflow:review` comment against the AUTOMATED
@@ -1031,6 +1043,13 @@ jobs:
           plugins: ${{ steps.plugins.outputs.plugins }}
 
           base_branch: ${{ needs.config.outputs.base_branch }}
+          # Optional pre-installed Claude Code executable (issue #601): when
+          # setup.claude_code_executable is set (typically on a self-hosted Windows
+          # runner lacking the action's Unix-only installer) the action uses it and
+          # skips installation. Empty (the default) → the action treats it as absent
+          # and its auto-install path runs unchanged, so Linux consumers are
+          # unaffected — the same empty-as-absent idiom as claude_code_oauth_token.
+          path_to_claude_code_executable: ${{ needs.config.outputs.claude_code_executable }}
           # claude_args head is a COMPUTED string (steps.cargs): --model always,
           # --effort conditional on effort_supported (issue #313). The
           # --allowed-tools tail is the steps.tools computed string (issue #363).

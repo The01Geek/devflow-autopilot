@@ -672,6 +672,10 @@
             "type": "string"
           },
           "description": "Shell lines run verbatim (joined with newlines) after the language setups and service-container start. Put devflow's own deps first, then your project's (e.g. 'composer install --no-interaction'). Empty array \u2192 skipped."
+        },
+        "claude_code_executable": {
+          "type": "string",
+          "description": "Optional absolute path to a pre-installed Claude Code executable, passed to anthropics/claude-code-action's `path_to_claude_code_executable` input. Set it on a self-hosted runner whose OS the action's bundled installer cannot serve \u2014 notably a self-hosted WINDOWS runner (the installer is Unix-only), where you pre-install the CLI (e.g. `irm https://claude.ai/install.ps1 | iex`) and point this at the resulting `claude.exe`. When set, the action skips installation and uses this executable; when unset or empty (the default, and every Linux consumer) the input resolves to an empty string and the action's automatic-install path runs unchanged. Read from config at TRIGGER time (the config/base-ref jobs), so its effect is post-merge-only \u2014 a PR that adds the key cannot exercise it in that PR's own run."
         }
       }
     },

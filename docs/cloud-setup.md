@@ -180,6 +180,42 @@ Before pointing `DEVFLOW_RUNNER` at a self-hosted runner:
   non-standard locations (see [Installing & updating](install.md) for the local-tier
   binary overrides — the same env vars apply on the runner).
 
+### Windows: point the action at a pre-installed Claude Code (`setup.claude_code_executable`)
+
+`anthropics/claude-code-action@v1` installs the Claude Code CLI with a **Unix-only**
+bundled installer. On a self-hosted **Windows** runner that installer aborts before
+Claude ever starts (`Windows is not supported by this script … Failed to install
+Claude Code after 3 attempts`), so a `/devflow:*` cloud job fails immediately even
+when the runner is otherwise correctly provisioned.
+
+To run DevFlow cloud jobs on such a runner, **pre-install the Claude Code CLI on the
+runner** (e.g. `irm https://claude.ai/install.ps1 | iex`) and set the optional config
+key `setup.claude_code_executable` to the resulting executable's path:
+
+```jsonc
+{
+  "setup": {
+    "claude_code_executable": "C:\\Users\\runner\\.local\\bin\\claude.exe"
+  }
+}
+```
+
+All three DevFlow workflows (`devflow.yml`, `devflow-implement.yml`,
+`devflow-runner.yml`) forward this value to the action's
+`path_to_claude_code_executable` input. When it is set, the action **skips its
+installer and uses the named executable**; when it is **unset or empty (the default,
+and every Linux consumer)** the input resolves to an empty string and the action's
+automatic-install path runs unchanged — Linux consumers are unaffected.
+
+**Effect is post-merge-only.** Like every `setup.*` value, this key is resolved at
+**trigger time** (the workflows' `config` job — and, for `devflow-runner.yml`, the
+trusted base-ref `baseprovision` step — read config from the default/base branch), so
+a PR that *adds* the key cannot exercise it in that PR's own cloud run. It takes effect
+only after the change merges to the default branch. (For `devflow-runner.yml` the value
+is read **only** from the trusted base-ref config, never a PR-head-checked-out config,
+because that job runs under a write token and the action executes the resolved path — a
+PR-author-controllable path would be an arbitrary-code-execution vector.)
+
 ### The `setup.services` Docker caveat
 
 `setup.services` (see [Service containers](#php-service-containers-and-dependency-caching)
