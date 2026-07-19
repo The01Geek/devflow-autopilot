@@ -219,10 +219,34 @@ def _forged_protocol_token(text):
     Shared by ledger-summary ingestion and the invalidation-reason guard so one closed
     vocabulary governs both. The decided recovery on a hit is to reword without the
     `<field>=` form and re-issue the call.
+
+    The match is deliberately CASE-SENSITIVE: the capture is case-insensitive by character
+    class, but `_PROTOCOL_TOKENS` holds the printers' exact lowercase spellings, so only a
+    byte-identical token forges a field. `Status=x` prints as literal text and forges
+    nothing, so refusing it would cost a legitimate summary for no safety gain.
     """
     for tok in re.findall(r'([A-Za-z_][A-Za-z0-9_]*)=', text or ''):
         if tok in _PROTOCOL_TOKENS:
             return tok
+    return None
+
+
+def _record_splitting_char(text):
+    """The first record-splitting byte (`\\n` or `\\r`) in `text`, else None.
+
+    The sibling of `_forged_protocol_token`: that guard stops auditor-derived text from
+    forging a FIELD of the printed surface, this one stops it from forging a LINE. Both
+    ledger summaries and invalidation reasons land in `query-findings`' `summary=<text>`
+    trailing field (and in state a later round reconciles against), so an embedded CR or
+    LF could visually clobber or split the reconciliation surface — the same reason
+    `_is_bound_path` refuses both bytes in a bound path. Callers check the STRIPPED text,
+    so a trailing CRLF from a Windows-shell heredoc is normalized away rather than
+    refused; only an INTERIOR splitter is a hit. The decided recovery mirrors the
+    vocabulary refusal: reword the text onto one line and re-issue the call.
+    """
+    for ch in ('\n', '\r'):
+        if ch in (text or ''):
+            return ch
     return None
 
 # Ported budgets and bounds. These are the prose's numbers, preserved verbatim.
@@ -649,6 +673,10 @@ def _validate_ledger(doc, rnd, num):
         if not isinstance(summary, str) or not summary.strip():
             raise StateError(f'round {num} findings entry {pos} summary {summary!r} is '
                              f'not a non-empty string')
+        splitter = _record_splitting_char(summary)
+        if splitter is not None:
+            raise StateError(f'round {num} findings entry {pos} summary contains the '
+                             f'record-splitting character {splitter!r}')
         forged = _forged_protocol_token(summary)
         if forged is not None:
             raise StateError(f'round {num} findings entry {pos} summary contains the '
@@ -689,6 +717,9 @@ def _validate_ledger(doc, rnd, num):
             if not isinstance(reason, str) or not reason.strip():
                 raise StateError(f'round {num} findings entry {pos} is invalidated but '
                                  f'carries no non-empty reason')
+            if _record_splitting_char(reason) is not None:
+                raise StateError(f'round {num} findings entry {pos} invalidation reason '
+                                 f'contains a record-splitting character')
             if _forged_protocol_token(reason) is not None:
                 raise StateError(f'round {num} findings entry {pos} invalidation reason '
                                  f'contains a protocol token')
@@ -1159,10 +1190,9 @@ def _settling_ordinal(entry):
     """The revision ordinal an entry's post-close settling change was verified against.
 
     Only a post-close-settled entry has one: `resolved` (via record-resolution, or the
-    ingestion provenance, which predates every revision) or `invalidated`. The
-    `_PRE_REVISION` token counts as ordinal 0, so a settling change made before any
-    revision existed is correctly older than every recorded revision. Returns None for an
-    entry that is not post-close-settled (`unresolved`, and `superseded`, which rests on
+    ingestion provenance, which predates every revision) or `invalidated`. Stamps are
+    compared through `_provenance_ordinal`, which owns the `_PRE_REVISION`-is-ordinal-0
+    rationale. Returns None for an entry that is not post-close-settled (`unresolved`, and `superseded`, which rests on
     the auditor's own FILE verdict rather than on a self-attested change).
     """
     status = entry.get('status')
@@ -2418,8 +2448,10 @@ def _ingest_ledger(must_revise, unresolved):
     skill's fence pipes the lines through a QUOTED-delimiter heredoc (`<<'LEDGER-EOF'`),
     so the shell never expands the `$(…)`, backticks, and quotes that auditor-derived
     summaries routinely contain. A summary line byte-equal to the delimiter truncates the
-    stream, which the `ledger-line-count` refusal below catches; the decided recovery for that and
-    for a vocabulary refusal is the same — reword the summary and re-issue the call.
+    stream, which is caught downstream (typically by the `ledger-line-count` refusal below,
+    though a truncation leaving the count intact trips a different arm); the decided
+    recovery for that and for a vocabulary refusal is the same — reword the summary and
+    re-issue the call.
 
     The byte read and its two fail-closed checks mirror record-revision's — a closed fd
     (CPython sets `sys.stdin` to None, so an attribute access would otherwise leak a raw
@@ -2474,6 +2506,13 @@ def _ingest_ledger(must_revise, unresolved):
             _fail('record-adjudication',
                   f'ledger line {idx} carries an empty finding summary '
                   f'(ledger-empty-summary); a summary is the entry\'s identity anchor')
+        splitter = _record_splitting_char(summary)
+        if splitter is not None:
+            _fail('record-adjudication',
+                  f'ledger line {idx} contains the record-splitting character '
+                  f'{splitter!r} (ledger-summary-control-char); a summary is one line of '
+                  f'identity data — reword it without the embedded newline or carriage '
+                  f'return and re-issue the call')
         forged = _forged_protocol_token(summary)
         if forged is not None:
             _fail('record-adjudication',
@@ -2580,16 +2619,19 @@ def _settling_provenance(doc):
 
 
 def _clear_settling(entry):
-    """Drop the provenance keys a previous RESOLUTION left, so a later status change never
-    leaves a stale ordinal behind for `_settling_ordinal` to read.
+    """Drop EVERY settling-provenance key a previous status change left, so a later change
+    never leaves a stale ordinal behind for `_settling_ordinal` to read.
 
-    Only the resolution keys need clearing today: `invalidation_provenance` sits on
-    `invalidated`, which all three post-close channels refuse, and `reopen_provenance` sits
-    on `unresolved` (and on `superseded`, where a later FILE sweep can promote a reopened
-    entry) — statuses `_settling_ordinal` ignores. So neither key can be read stale. A
-    channel that breaks either property must add its key here.
+    Deliberately not "only the keys reachable today". The invalidation keys are a no-op on
+    the current channels (all three refuse an `invalidated` entry), but clearing them
+    unconditionally is what makes this helper's sufficiency independent of which statuses a
+    future post-close channel can act on — the alternative is a comment-enforced obligation
+    on every such channel to remember to add its key here. `reopen_provenance` is
+    deliberately NOT cleared: it sits on statuses `_settling_ordinal` ignores, so it can
+    never be read stale, and it is the entry's genuine regression history.
     """
-    for key in ('resolution_ordinal', 'ingest_provenance'):
+    for key in ('resolution_ordinal', 'ingest_provenance',
+                'invalidation_provenance', 'invalidation_reason'):
         entry.pop(key, None)
 
 
@@ -2691,6 +2733,15 @@ def cmd_record_invalidate(args):
     if not reason:
         _fail('record-invalidate', '--reason is empty (empty-reason); retiring a finding '
                                    'as misclassified requires a recorded rationale')
+    # argv carries what a heredoc cannot: --reason reaches this guard with an embedded
+    # newline intact, so the splitter check is not redundant with _ingest_ledger's.
+    splitter = _record_splitting_char(reason)
+    if splitter is not None:
+        _fail('record-invalidate',
+              f'--reason contains the record-splitting character {splitter!r} '
+              f'(reason-control-char); the rationale is one line of identity data — '
+              f'reword it without the embedded newline or carriage return and re-issue '
+              f'the call')
     forged = _forged_protocol_token(reason)
     if forged is not None:
         _fail('record-invalidate',

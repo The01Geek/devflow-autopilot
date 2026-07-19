@@ -6,11 +6,15 @@ bump: patch
 
 - `/devflow:create-issue`'s audit lifecycle records a **per-finding ledger** at REVISE
   adjudication, so a drafter who revised and verified every finding fixed can clear the
-  round instead of reading `t1=hold` / `converged=no` forever (PR #612).
+  round instead of reading `t1=hold` / `converged=no` forever (PR #612). What this fixes
+  is the *reporting* deadlock, not the boundary offer itself: a run cleared this way still
+  fires the offer through T2, now carrying a self-verified-resolution message that says the
+  revised bytes were never re-audited.
   `record-adjudication` gains a required `--ledger-stdin` on a REVISE verdict with a
   settled count, reading one status-prefixed summary per must-revise finding through a
   quoted-delimiter heredoc; summaries that forge a `<field>=` token of the tool's printed
-  protocol vocabulary are refused, because ledger text is identity data, never protocol.
+  protocol vocabulary, or that embed a record-splitting newline or carriage return, are
+  refused, because ledger text is identity data, never protocol.
 - Three post-close channels on `scripts/issue-audit-state.py`: `record-resolution` (binds
   named entries to a recorded revision ordinal, cross-round), `record-reopen` (an
   honest regression channel), and `record-invalidate` (retires a misclassified finding

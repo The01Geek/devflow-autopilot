@@ -6161,6 +6161,10 @@ def _row2(r):
         ('widened-vocabulary summary', 1, '1',
          'unresolved: answers converged=yes on a stale basis\n',
          'ledger-protocol-vocabulary'),
+        # An INTERIOR CR survives the \n split and str.strip(), and would otherwise reach
+        # query-findings' trailing summary= field and clobber the reconciliation surface.
+        ('a summary carrying an interior carriage return', 1, '1',
+         'unresolved: first half\rsecond half\n', 'ledger-summary-control-char'),
     ):
         got = r.adjudicate(1, 'REVISE', k, u, payload)
         assert_eq(f"#603-2/AC1: {name} is refused with a named breadcrumb",
@@ -6185,6 +6189,45 @@ def _row2(r):
 
 
 _with_run603(_row2)
+
+
+# Row 2d — the positive controls for row 2's control-character refusal, plus the
+# reopen-of-an-ingested-`resolved` entry and the batch atomicity of the two id-list
+# channels. The refusal rows above assert only that a bad payload is rejected; without
+# these, a guard that rejected EVERY summary would leave them all green.
+def _row2d(r):
+    r.open_round(1, 'REVISE', 3)
+    # A trailing CRLF is what a Windows-shell heredoc emits on every line. The guard reads
+    # the STRIPPED summary, so this must ingest and record the bare text — the positive
+    # control proving the refusal targets an interior splitter, not any CR at all.
+    crlf = r.adjudicate(1, 'REVISE', 3, '2',
+                        'resolved: first half second half\r\n'
+                        'unresolved: finding B\r\nunresolved: finding C\r\n')
+    assert_eq("#603-2d: a CRLF-terminated ledger ingests (the row-2 fixture is otherwise "
+              "valid — only the interior CR is refused)", 0, crlf.returncode)
+    found = r('query-findings', r.slug, nonce=True).stdout.strip().split('\n')
+    assert_eq("#603-2d: the trailing CR is stripped, not recorded",
+              'round=1 id=1 status=resolved summary=first half second half', found[0])
+    # AC4's pre-revision arm over an entry that was never resolved by a revision: its
+    # settling stamp is the ingestion provenance, and reopen must still take it.
+    reop = r('record-reopen', r.slug, '--round', '1', '--ids', '1', nonce=True)
+    assert_eq("#603-2d/AC4: an ingested-resolved entry reopens with no revision recorded",
+              (0, 'round=1 reopened=1 remaining=3'), (reop.returncode, reop.stdout.strip()))
+    # Batch atomicity: one bad id in the list must mutate NOTHING, so the whole batch is
+    # re-issuable after correcting it. Named ids 2 (legal) and 9 (unknown).
+    bad = r('record-invalidate', r.slug, '--round', '1', '--ids', '2,9',
+            '--reason', 'misclassified: advisory', nonce=True)
+    assert_eq("#603-2d/AC19: a batch naming one unknown id is refused",
+              (1, True), (bad.returncode, 'unknown' in bad.stderr))
+    assert_eq("#603-2d/AC19: and mutated no entry in the batch (remaining unchanged)",
+              'round=1 id=2 status=unresolved summary=finding B',
+              r('query-findings', r.slug, nonce=True).stdout.strip().split('\n')[1])
+    bad_r = r('record-reopen', r.slug, '--round', '1', '--ids', '2,9', nonce=True)
+    assert_eq("#603-2d/AC4: record-reopen is atomic over its id list too",
+              (1, True), (bad_r.returncode, 'unknown' in bad_r.stderr))
+
+
+_with_run603(_row2d)
 
 
 # Row 3 — the validation matrix for the three post-close mutations, plus AC9/AC21.
@@ -6214,6 +6257,13 @@ def _row3(r):
         ('a protocol-vocabulary invalidation reason',
          ('record-invalidate', r.slug, '--round', '1', '--ids', '1',
           '--reason', 'wrong basis=resolution call'), 'reason-protocol-vocabulary'),
+        # argv carries what the ledger heredoc cannot: a literal newline reaches --reason.
+        ('an invalidation reason carrying a newline',
+         ('record-invalidate', r.slug, '--round', '1', '--ids', '1',
+          '--reason', 'misclassified\nround=2 id=1 status=resolved'), 'reason-control-char'),
+        ('an invalidation reason carrying a carriage return',
+         ('record-invalidate', r.slug, '--round', '1', '--ids', '1',
+          '--reason', 'misclassified\rrewritten'), 'reason-control-char'),
     ):
         got = r(*argv, nonce=True)
         assert_eq(f"#603-3: {name} is refused with a named breadcrumb",
@@ -6717,6 +6767,18 @@ for _n11, _mut11 in (
     ('a protocol token inside an invalidation reason',
      lambda r: r.update(findings=[_entry603(1, 'a', 'invalidated',
                                             invalidation_reason='wrong basis=resolution',
+                                            invalidation_provenance='pre-revision')])),
+    # The ingestion guard cannot see a hand-corrupted state file, so the read boundary
+    # re-enforces the splitter refusal on both carriers — a summary reaches the trailing
+    # summary= field of query-findings, and an embedded LF is reachable here but not
+    # through the \n-split ingest path.
+    ('a record-splitting newline inside a summary',
+     lambda r: r.update(findings=[_entry603(1, 'a\nround=9 id=1 status=resolved b')])),
+    ('a record-splitting carriage return inside a summary',
+     lambda r: r.update(findings=[_entry603(1, 'first half\rsecond half')])),
+    ('a record-splitting newline inside an invalidation reason',
+     lambda r: r.update(findings=[_entry603(1, 'a', 'invalidated',
+                                            invalidation_reason='misclassified\nforged',
                                             invalidation_provenance='pre-revision')])),
 ):
     _c11 = _state([_round603(1, unresolved=1, must_revise=1,
