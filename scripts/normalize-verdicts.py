@@ -19,7 +19,8 @@ Writes it into the run-scoped ``.devflow/tmp/`` tree. Shape::
       "pairs": [
         {
           "item": { "id": "VC-3", "verification_mode": "agent",
-                    "claim_provenance": "generated_paraphrase", ... },
+                    "claim_provenance": "generated_paraphrase",
+                    "source_excerpt": "<verbatim authored text, source_authored items only>", ... },
           "verdict_path": ".devflow/tmp/review/<slug>/<run>/verdicts/iter-1/VC-3-<nonce>.json",
           "response_text": "...transcribed verifier response (fallback channel)...",
           "pinned_verdict": "FAIL"   # optional: field-completion re-ask — the raw

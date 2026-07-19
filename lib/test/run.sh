@@ -2250,6 +2250,90 @@ printf 'operative token a.c/[x] on this line\nunrelated framing line\n' > "$PRU_
 assert_eq "#375 assert_pin_red_under: a pinned literal carrying regex+sed-delimiter metachars round-trips (fixed-string match; mutation flips it PASS->FAIL)" \
   "PASS" "$(probe_assert assert_pin_red_under 'meta' 'a.c/[x]' '/a\.c/d' "$PRU_META")"
 rm -f "$PRU_META"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# #556: checklist-verifier verdict-contract reconciliation.
+#   - T-1/T-3/T-6: the executable helper unit tests (real CLI over the fixture
+#     matrix, incl. the T-3 conjunct-2 mutation positive control).
+#   - T-2/T-4/T-5/T-6a/T-7/T-8/T-10/T-11/T-12: prose pins (presence + mutation).
+NV_HELPER="$LIB/../scripts/normalize-verdicts.py"
+NV_TEST="$LIB/test/normalize-verdicts-test.py"
+NV_GEN="$LIB/../agents/checklist-generator.md"
+NV_DED="$LIB/../agents/checklist-deduper.md"
+NV_VER="$LIB/../agents/checklist-verifier.md"
+NV_P2="$LIB/../skills/review/phases/phase-2-verification.md"
+NV_P4="$LIB/../skills/review/phases/phase-4-verdict.md"
+
+# T-1/T-3/T-6 — drive the real helper over the fixture matrix (exit 0 == all green).
+if python3 "$NV_TEST" >/dev/null 2>&1; then _NV_UNIT=ok; else _NV_UNIT=FAILED; fi
+assert_eq "#556 T-1/T-3/T-6: normalize-verdicts helper unit tests pass over the fixture matrix" "ok" "$_NV_UNIT"
+
+# T-2 (AC4) — the verifier's source_authored_text-takes-precedence sentence, mutation deletes the precedence clause.
+assert_pin_red_under "#556 T-2(AC4): verifier source_authored_text precedence sentence" \
+  'This value takes precedence** whenever a mismatch exists in both' \
+  's|whenever a mismatch exists in both the generated wording and a source-authored assertion||' "$NV_VER"
+
+# T-4 (AC5) — the removed PASS-with-note softener must be ABSENT from the 2.1b dispatch prompt.
+assert_eq "#556 T-4(AC5): the 'Reserve FAIL' softener is gone from phase-2-verification.md" \
+  "no" "$(grep_present 'Reserve FAIL for cases where the code itself is wrong' "$NV_P2")"
+
+# T-5 (AC1/AC3/AC5) — claim_provenance / source_excerpt present at each mirror site + helper input contract.
+assert_eq "#556 T-5: claim_provenance in generator schema"   "yes" "$(grep_present 'claim_provenance' "$NV_GEN")"
+assert_eq "#556 T-5: source_excerpt in generator schema"     "yes" "$(grep_present 'source_excerpt' "$NV_GEN")"
+assert_eq "#556 T-5: claim_provenance in verifier Input"     "yes" "$(grep_present 'claim_provenance' "$NV_VER")"
+assert_eq "#556 T-5: source_excerpt in verifier Input"       "yes" "$(grep_present 'source_excerpt' "$NV_VER")"
+assert_eq "#556 T-5: claim_provenance in 2.1b dispatch prompt" "yes" "$(grep_present 'claim_provenance' "$NV_P2")"
+assert_eq "#556 T-5: source_excerpt in 2.1b dispatch prompt"   "yes" "$(grep_present 'source_excerpt' "$NV_P2")"
+assert_eq "#556 T-5: claim_provenance in helper input contract" "yes" "$(grep_present 'claim_provenance' "$NV_HELPER")"
+assert_eq "#556 T-5: source_excerpt in helper input contract"   "yes" "$(grep_present 'source_excerpt' "$NV_HELPER")"
+
+# T-6a (AC7/AC7a) — degradation-split mutation on the possible-denial clause + invocation-recipe presence pins.
+assert_pin_red_under "#556 T-6a(AC7a): the 'a possible denial, never an empty value' clause" \
+  'no output at all — a possible denial, never an empty value' \
+  's|a possible denial, never an empty value||' "$NV_P2"
+assert_eq "#556 T-6a(AC7): helper invoked as the single leading token" "yes" \
+  "$(grep_present 'as the command'"'"'s single leading token' "$NV_P2")"
+assert_eq "#556 T-6a(AC7): local-tier python3 second rung" "yes" \
+  "$(grep_present 'python3 <resolved helper path> <pairs-file>' "$NV_P2")"
+assert_eq "#556 T-6a(AC7a): bad-input arm one re-Write and re-invoke" "yes" \
+  "$(grep_present 'a second bad-input report ends the attempt' "$NV_P2")"
+assert_eq "#556 T-6a(AC7): in-context recovery arm" "yes" \
+  "$(grep_present 'recovered via in-context parse (helper-defect: <shape>)' "$NV_P2")"
+assert_eq "#556 T-6a(AC7): one-repair (re-dispatch once) sentence" "yes" \
+  "$(grep_present 're-dispatch that item once** and re-run the helper' "$NV_P2")"
+
+# T-7 (AC2) — deduper carve-out clause mutation + disagreement->source_authored merge-rule presence.
+assert_pin_red_under "#556 T-7(AC2): deduper Rules carve-out clause" \
+  'reconciling `claim_provenance` to `source_authored`' \
+  's|reconciling .claim_provenance. to .source_authored.||' "$NV_DED"
+assert_eq "#556 T-7(AC2): disagreement->source_authored merge rule present" "yes" \
+  "$(grep_present 'the merged item takes **`source_authored`**' "$NV_DED")"
+
+# T-8 (AC9) — the two Phase 4.2 rule literals stay byte-identical.
+assert_pin_unique "#556 T-8(AC9): Phase 4.2 rule 1 literal (FAIL -> REJECT)" \
+  '1. Any verification checklist item with verdict FAIL → **REJECT**' "$NV_P4"
+assert_pin_unique "#556 T-8(AC9): Phase 4.2 rule 2 literal (INCONCLUSIVE -> REJECT)" \
+  '2. Any verification checklist item with verdict INCONCLUSIVE → **REJECT** (add "manual check needed" note)' "$NV_P4"
+
+# T-10 (AC8a) — Phase 2.0.5 extended copy sentence, mutation strips raw_verdict/normalized.
+assert_pin_red_under "#556 T-10(AC8a): 2.0.5 copy-list extension" \
+  'and — when present — `raw_verdict` and `normalized`' \
+  's|, and — when present — .raw_verdict. and .normalized.||' "$NV_P2"
+
+# T-11 (AC8) — the amended 4.1 equality sentence, mutation drops the − {normalized_count} term; + iteration/label presence.
+assert_pin_red_under "#556 T-11(AC8): 4.1 equality sentence carries the − {normalized_count} term" \
+  '`{pass}` − `{normalized_count}` MUST equal the number of `- VC-N` lines' \
+  's|normalized_count\}. MUST equal|MUST equal|' "$NV_P4"
+assert_eq "#556 T-11(AC8): 4.1 PASS-item iteration line excludes normalized items" "yes" \
+  "$(grep_present 'for each PASS item not carrying `normalized: true`' "$NV_P4")"
+assert_eq "#556 T-11(AC8): 4.1 summary label counts the inside population" "yes" \
+  "$(grep_present '✅ Passed items ({pass} − {normalized_count} of {total})' "$NV_P4")"
+
+# T-12 (AC17) — Phase 2.0 field-completion re-ask sentence, mutation deletes the re-ask arm.
+assert_pin_red_under "#556 T-12(AC17): 2.0 item-side field-completion re-ask" \
+  'into **one field-completion re-ask** to the `checklist-generator`' \
+  's|into ..one field-completion re-ask.. to the .checklist-generator.||' "$NV_P2"
+
 # ── #536: probe_two_line — the two-line-verdict probe (count-shaped sibling of probe_assert).
 # assert_count_red_under (below) writes a bare verdict line plus, on FAIL, a DISTINCT cause
 # token on the FOLLOWING line, so the suite's whole-line tally (`grep -c '^FAIL$'`) still
@@ -33013,8 +33097,16 @@ assert_eq "#529 AC2: root + shipped extension is within the 8,500-word ceiling" 
 # — and the split clears it either way (25,590 measured; 25,599 under the old method).
 assert_eq "#529 AC2: the split is at least 25,327 words below the 33,815 baseline" "yes" \
   "$([ "$((33815 - RB_ROOT_W - RB_EXT_W))" -ge 25327 ] && echo yes || echo no)"
-assert_eq "#529 AC3: the default per-pass unique path is within the 28,700-word ceiling" "yes" \
-  "$([ "$RB_DEFAULT_W" -le 28700 ] && echo yes || echo no)"
+# #556 renegotiated the ceiling from 28,700 to 30,100: the always-on wording-only
+# normalization prose (Phase 2.0/2.0.5/2.1b/2.2 in phase-2-verification.md and the
+# Phase 4.1/4.2 amendments in phase-4-verdict.md) runs unconditionally on every pass,
+# so parking it behind a config gate would be metric-gaming (the gated exemption is for
+# genuinely conditional references only). Per docs/review-bundle-budget.md's sanctioned
+# escape valve, the ceiling is widened to the new measured figure (30,023 words) plus a
+# thin margin, matching the pre-#556 posture. Re-measure with _rb_words before adding
+# prose to the default path.
+assert_eq "#529 AC3: the default per-pass unique path is within the 30,100-word ceiling" "yes" \
+  "$([ "$RB_DEFAULT_W" -le 30100 ] && echo yes || echo no)"
 # Anti-vacuity: the ceilings above are only meaningful if every operand was really
 # measured. `cat` SKIPS an unreadable member and keeps going, so a wrong path does
 # NOT zero the count — it merely shrinks it, and a ceiling then passes MORE easily
