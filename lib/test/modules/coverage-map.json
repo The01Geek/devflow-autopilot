@@ -275,6 +275,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/normalize-verdicts.py": {
+      "note": "#556 helper unit tests: lib/test/normalize-verdicts-test.py driven by run.sh (T-1/T-3/T-6)",
+      "owner": "unmodularized"
+    },
     "scripts/parse-acs.py": {
       "note": "",
       "owner": "unmodularized"
