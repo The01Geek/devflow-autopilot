@@ -7734,7 +7734,7 @@ assert_eq "#601 AC2: devflow-implement.yml Run Claude Code passes path_to_claude
 # property is two-sided: (a) the extraction pipes the TRUSTED $BASE_JSON (the base-ref config
 # materialized by baseprovision), and (b) the with: value references steps.baseprovision —
 # never a PR-head config (steps.cfg.outputs / needs.config). The positive baseprovision pin is
-# the authoritative guard (it goes RED for ANY re-source); the $BASE_JSON-source pin and the
+# the authoritative guard (it goes RED for ANY re-source); the $BASE_JSON-source pins and the
 # input-line-scoped negative pin harden the two ways a re-source could slip a differently-spelled
 # PR-head value past the positive pin (per the #601 pr-test-analyzer review).
 assert_eq "#601 AC3: devflow-runner.yml extracts setup.claude_code_executable from the trusted base config" "yes" \
@@ -7742,8 +7742,15 @@ assert_eq "#601 AC3: devflow-runner.yml extracts setup.claude_code_executable fr
 # (a) The extraction line pipes $BASE_JSON specifically — pins that the value comes from the
 # trusted base-ref config, not a head-checked-out config JSON. Removing $BASE_JSON from the
 # extraction (e.g. switching the pipe source to a head var) goes RED.
-assert_eq "#601 AC3: runner extraction pipes the trusted \$BASE_JSON (not a PR-head config)" "yes" \
-  "$(grep -E 'BASE_JSON.*claude_code_executable|claude_code_executable.*BASE_JSON' "$I601_RUNNER_YML" | grep -qF '.setup.claude_code_executable' && echo yes || echo no)"
+# Anchored on `| strings` so it pins the GUARDED extraction line specifically: the raw
+# probe is co-located and also pipes $BASE_JSON, so an unanchored match was satisfiable by
+# the probe line alone — a re-source switching only the guarded line to a PR-head var would
+# have slipped past the AC3 pins.
+assert_eq "#601 AC3: runner guarded extraction pipes the trusted \$BASE_JSON (not a PR-head config)" "yes" \
+  "$(grep -E 'BASE_JSON.*claude_code_executable.*\| strings' "$I601_RUNNER_YML" | grep -qF '.setup.claude_code_executable' && echo yes || echo no)"
+# The raw probe must read the same trusted source (it never widens the trust boundary).
+assert_eq "#601 AC3: runner raw probe also pipes the trusted \$BASE_JSON" "yes" \
+  "$(grep -E 'BASE_JSON.*claude_code_executable.*\| tostring' "$I601_RUNNER_YML" | grep -qF '.setup.claude_code_executable' && echo yes || echo no)"
 # (b) Scope the with:-input pins to the YAML key line itself (leading-token, colon-terminated),
 # NOT `grep path_to_claude_code_executable` over the whole file — that would also match the
 # comment lines above the input and make the negative pin trippable by a comment edit.
@@ -7794,7 +7801,7 @@ done
 for _f in "$I601_DEVFLOW_YML" "$I601_IMPL_YML" "$I601_RUNNER_YML"; do
   _b="$(basename "$_f")"
   I601_FILTER="$(grep -oE "try \(\.setup\.claude_code_executable // empty \| strings[^']*\) catch empty" "$_f" | head -1)"
-  I601_RAW_FILTER="$(grep -oE "try \(\.setup\.claude_code_executable // empty \| tostring\) catch empty" "$_f" | head -1)"
+  I601_RAW_FILTER="$(grep -oE "try \(\.setup\.claude_code_executable // empty \| tostring[^']*\) catch empty" "$_f" | head -1)"
   assert_eq "#601 AC4: $_b guarded jq filter is extractable (positive control)" "yes" \
     "$([ -n "$I601_FILTER" ] && echo yes || echo no)"
   assert_eq "#601 AC4: $_b raw-probe jq filter is extractable (positive control)" "yes" \
@@ -7859,6 +7866,42 @@ for _f in "$I601_DEVFLOW_YML" "$I601_IMPL_YML" "$I601_RUNNER_YML"; do
       "$([ -n "$(printf '%s' '{"setup":{"claude_code_executable":"   "}}' | jq -r "$I601_RAW_FILTER")" ] && echo yes || echo no)"
     assert_eq "#601 AC4 [$_b]: raw probe — rejected embedded-newline value is non-empty (warning fires)" 'yes' \
       "$([ -n "$(printf '%s' '{"setup":{"claude_code_executable":"a\ntrailing"}}' | jq -r "$I601_RAW_FILTER")" ] && echo yes || echo no)"
+    # A value composed ENTIRELY of newline(s) is a rejected shape too, and it is the reason
+    # the probe emits a sentinel instead of the value: `$(…)` strips trailing newlines, so a
+    # value-emitting probe collapsed this row to the empty string and the ::warning:: silently
+    # never fired. Capture through a command substitution (as the workflow does) so the pin
+    # goes RED if the sentinel is reverted to a bare `tostring`.
+    assert_eq "#601 AC4 [$_b]: raw probe — pure-newline value survives \$(…) stripping (warning fires)" 'yes' \
+      "$([ -n "$(printf '%s' '{"setup":{"claude_code_executable":"\n"}}' | jq -r "$I601_RAW_FILTER")" ] && echo yes || echo no)"
+    # A VALID path must yield a NON-EMPTY raw probe — the other half of the warning branch.
+    # Without this, a probe that always returned empty would pass every "unset" row above.
+    assert_eq "#601 AC4 [$_b]: raw probe — valid path is non-empty (warning branch operand)" 'yes' \
+      "$([ -n "$(printf '%s' '{"setup":{"claude_code_executable":"/opt/claude"}}' | jq -r "$I601_RAW_FILTER")" ] && echo yes || echo no)"
+  fi
+  if [ -n "$I601_FILTER" ] && [ -n "$I601_RAW_FILTER" ]; then
+    # Drive the COMPOSED warning selection — `[ -n RAW ] && [ -z RESOLVED ]` — not just its two
+    # operands separately. A reversed test, or a regression that warns on a valid path, now goes
+    # RED. `_i601_warns` mirrors the workflow's shell condition exactly.
+    _i601_warns() {
+      local _json="$1" _raw _res
+      _raw="$(printf '%s' "$_json" | jq -r "$I601_RAW_FILTER")"
+      _res="$(printf '%s' "$_json" | jq -r "$I601_FILTER")"
+      if [ -n "$_raw" ] && [ -z "$_res" ]; then echo warn; else echo silent; fi
+    }
+    assert_eq "#601 AC4 [$_b]: composed branch — valid path does NOT warn" "silent" \
+      "$(_i601_warns '{"setup":{"claude_code_executable":"/opt/claude"}}')"
+    assert_eq "#601 AC4 [$_b]: composed branch — absent key does NOT warn (unset)" "silent" \
+      "$(_i601_warns '{}')"
+    assert_eq "#601 AC4 [$_b]: composed branch — explicit empty string does NOT warn (deliberate unset)" "silent" \
+      "$(_i601_warns '{"setup":{"claude_code_executable":""}}')"
+    assert_eq "#601 AC4 [$_b]: composed branch — array leaf warns" "warn" \
+      "$(_i601_warns '{"setup":{"claude_code_executable":["a","b"]}}')"
+    assert_eq "#601 AC4 [$_b]: composed branch — whitespace-only value warns" "warn" \
+      "$(_i601_warns '{"setup":{"claude_code_executable":"   "}}')"
+    assert_eq "#601 AC4 [$_b]: composed branch — embedded-newline value warns" "warn" \
+      "$(_i601_warns '{"setup":{"claude_code_executable":"a\ntrailing"}}')"
+    assert_eq "#601 AC4 [$_b]: composed branch — pure-newline value warns (\$(…)-stripping regression)" "warn" \
+      "$(_i601_warns '{"setup":{"claude_code_executable":"\n"}}')"
   fi
 done
 

@@ -93,8 +93,8 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           # Optional pre-installed Claude Code executable path (issue #601). For
           # self-hosted runners (typically Windows) whose OS the action's Unix-only
-          # bundled installer cannot serve. `// empty` → empty string when the key is
-          # absent, which the action treats as "not provided" (auto-install unchanged).
+          # bundled installer cannot serve. `// empty` emits an empty *stream* when the key
+          # is absent, so the substitution yields the empty string, which the action treats as "not provided" (auto-install unchanged).
           # `try … catch` guards a hand-corrupted non-object `setup` (so the config job
           # never aborts on a malformed setup block); `| strings` drops a non-string
           # leaf value (array/object/number) to empty; `select(test("[\n\r]") | not)`
@@ -109,8 +109,12 @@ jobs:
           # the broken auto-install path and the operator debugs the installer's
           # misleading "Windows is not supported" error instead of their own typo
           # (the repo's breadcrumb-on-fallback convention; an explicit `""` is a
-          # deliberate unset and warns nothing).
-          CLAUDE_CODE_EXECUTABLE_RAW=$(echo "$CONFIG_JSON" | jq -r 'try (.setup.claude_code_executable // empty | tostring) catch empty')
+          # deliberate unset and warns nothing). The raw
+          # probe emits the SENTINEL "set" rather than the value itself: command
+          # substitution strips trailing newlines, so a value composed entirely of
+          # newlines would collapse to the empty string and be misread as "unset",
+          # silently skipping the warning for exactly one rejected shape.
+          CLAUDE_CODE_EXECUTABLE_RAW=$(echo "$CONFIG_JSON" | jq -r 'try (.setup.claude_code_executable // empty | tostring | select(. != "") | "set") catch empty')
           CLAUDE_CODE_EXECUTABLE=$(echo "$CONFIG_JSON" | jq -r 'try (.setup.claude_code_executable // empty | strings | select(test("[\n\r]") | not) | select(test("^[[:space:]]*$") | not)) catch empty')
           if [ -n "$CLAUDE_CODE_EXECUTABLE_RAW" ] && [ -z "$CLAUDE_CODE_EXECUTABLE" ]; then
             echo "::warning::setup.claude_code_executable is set but was rejected (non-string leaf, embedded newline/CR, or whitespace-only); falling back to the action's automatic Claude Code install."
