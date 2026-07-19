@@ -21513,12 +21513,16 @@ printf '[user]\n\tname = HostileSystem\n\temail = hostile-sys@e.com\n'  > "$TB_H
   assert_eq "tb(#441 AC8 / #575 AC5): persist SUCCEEDS on an identity-LESS checkout (helper supplies its own)" "yes" \
     "$(git -C "$TB_ID_REPO" cat-file -e refs/heads/devflow-telemetry:.devflow/logs/efficiency/pr-1-run-b.json >/dev/null 2>&1 && echo yes || echo no)"
 
-  # Arrival guard: every assertion above lives in this subshell, which runs without `set -e` but
-  # under `set -u`. An early abort (an unbound var, a missing `env`) would record ZERO FAILs and
-  # leave the suite green with the whole #575 block silently unexecuted. This assertion is the
-  # only thing that turns that silence into a visible failure.
-  assert_eq "tb(#575): the identity-matrix block ran to completion" "reached" "reached"
+  # Arrival sentinel: every assertion above lives in this subshell, which runs without `set -e`
+  # but under `set -u`. An early abort (an unbound var, a missing `env`) records ZERO FAILs and
+  # would leave the suite green with the whole #575 block silently unexecuted. Writing a sentinel
+  # as the LAST in-subshell statement, and asserting it from OUTSIDE, is what turns that silence
+  # into a visible failure — an in-subshell assertion could not, because an early abort simply
+  # never reaches it and a never-run assertion records nothing at all.
+  printf 'reached\n' > "$TB_ID_REPO/block-complete"
 )
+assert_eq "tb(#575): the identity-matrix block ran to completion (subshell did not abort early)" "reached" \
+  "$(cat "$TB_ID_REPO/block-complete" 2>/dev/null)"
 rm -f "$TB_SYS_CFG" "$TB_GLOB_CFG" "$TB_HOSTILE_GLOB" "$TB_HOSTILE_SYS"
 rm -rf "$TB_ID_REPO"
 
