@@ -822,8 +822,10 @@ def cmd_wait(args) -> int:
             break
         # A caller-requested busy poll (--poll-interval 0) is floored to 50ms so the
         # loop never spins hot. Termination is the deadline check guarding this
-        # sleep: the bound is tested before every sleep, so the loop cannot outlive
-        # it by more than one poll interval.
+        # sleep: the bound is tested before every sleep, so the overshoot is at most
+        # one EFFECTIVE sleep — the caller's --poll-interval, or the 50ms floor when
+        # that value is 0 (the floor can therefore exceed the value the caller asked
+        # for, which is the point of flooring it).
         time.sleep(poll if poll > 0 else 0.05)
 
     # Wait bound elapsed with the flight still active/unreadable: a NON-mutating
