@@ -21370,10 +21370,15 @@ assert_eq "tb(#575 AC6): the seed commit attributes to its ONE-SHOT identity, no
 
 # Synthetic per-source identity files, each carrying a DISTINCT identity so a matrix row
 # proves its source (and only its source) resolved.
-# Guarded like every other identity-determining allocation: an unguarded `mktemp` failure would
-# leave the var empty, and an empty GIT_CONFIG_GLOBAL/GIT_CONFIG_SYSTEM reads to git as "unset",
-# silently DISARMING the hostility the persistence assertions claim to run under (they would still
-# pass, proving nothing) — a fail-OPEN. `mktemp` is not preflight-guaranteed, so fail closed.
+# `mktemp` is not preflight-guaranteed, so allocate fail-closed with a NAMED diagnostic. Without
+# the guard an allocation failure leaves the var empty and the `printf` below writes nothing; git
+# then reads the empty GIT_CONFIG_* path as "no such config file" (NOT as unset — an unset value
+# would fall back to the host's real ~/.gitconfig, so empty is the safer of the two), and the
+# fixture a row depends on is silently absent. That already fails CLOSED — a matrix row resolves
+# the wrong identity and goes RED — so this guard buys a clear "could not allocate" message
+# instead of a confusing identity mismatch several hundred lines later, not closure of a
+# fail-open. The persistence assertions' hostility comes from the exported identity VARS below,
+# not from these files, so they stay discriminating either way.
 TB_SYS_CFG="$(mktemp)"  || { echo "run.sh(#575): could not allocate the system-source identity fixture" >&2; exit 1; }
 printf '[user]\n\tname = SysName\n\temail = sys@e.com\n'   > "$TB_SYS_CFG"
 TB_GLOB_CFG="$(mktemp)" || { echo "run.sh(#575): could not allocate the global-source identity fixture" >&2; exit 1; }
@@ -21400,9 +21405,12 @@ printf '[user]\n\tname = HostileSystem\n\temail = hostile-sys@e.com\n'  > "$TB_H
   export GIT_COMMITTER_NAME=HostileCommitter GIT_COMMITTER_EMAIL=hostile-committer@e.com
   export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=user.name GIT_CONFIG_VALUE_0=HostileCmd
   # GIT_CONFIG_PARAMETERS is git's OTHER command-scope channel and it OUTRANKS
-  # GIT_CONFIG_COUNT/KEY_n/VALUE_n. Exporting it hostilely here is what makes every row's
-  # `-u GIT_CONFIG_PARAMETERS` a PROVEN-necessary guard rather than an unexercised precaution:
-  # drop that flag from any row below and the row resolves ParamLeak and goes RED.
+  # GIT_CONFIG_COUNT/KEY_n/VALUE_n. Exporting it hostilely here is what makes the
+  # `-u GIT_CONFIG_PARAMETERS` flag load-bearing on every row whose identity comes from CONFIG —
+  # the system, global and command-scope rows, and both negative probes: drop the flag there and
+  # the row resolves ParamLeak and goes RED. On the two inherited-VARIABLE rows the flag is
+  # symmetry/defence-in-depth rather than load-bearing, because their own GIT_AUTHOR_*/
+  # GIT_COMMITTER_* outrank every config scope and win over ParamLeak regardless.
   export GIT_CONFIG_PARAMETERS="'user.name=ParamLeak' 'user.email=param-leak@e.com'"
 
   # leading name and email fields of a `git var *_IDENT` line; yields "Name <email>" ONLY for
