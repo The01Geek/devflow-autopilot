@@ -148,6 +148,42 @@ mkdir -p "$DEVFLOW_ROOT/.devflow/tmp" && : > "$DEVFLOW_ROOT/.devflow/tmp/impleme
 
 This is best-effort: if the write fails, note it and continue — a missing marker only means the Stop-hook backstop stays silent for this run. A marker whose run reached a terminal `Status` — or whose workpad no longer exists — self-heals, because the guard deletes it on the next Stop event. A marker left by a run that *died with its workpad still interim* does **not** self-heal: that is the state the backstop exists to surface, so it keeps blocking one stop per new session until the workpad is driven to a terminal `Status` or the marker is removed by hand.
 
+### 1.3.5 Early declared-dependency preflight
+
+Before any §1.4 branch operation — including the resume pre-check, a checkout,
+fetch, checkpoint merge, branch creation, or push — run the single executable
+declared-dependency gate. `scripts/preflight.py` owns the recognizer and state
+semantics; do not duplicate them in this procedure.
+
+```bash
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/preflight.py dependencies --issue $ISSUE_NUMBER
+```
+
+On a local runner that refuses the direct helper path, use the documented
+fallback `python3 <resolved helper path> dependencies --issue $ISSUE_NUMBER`.
+Read the helper's one-token stdout result and its exit code:
+
+- `PROCEED` (including a listed set of landed dependencies) exits 0. Record a
+  `--note` that the early dependency preflight passed, then continue to §1.4.
+- `BLOCKED <numbers>` exits 2. The named dependencies are still open. Set the
+  workpad to `Blocked` with a `blocked` reflection naming the numbers and the
+  remedy (merge/close them, or amend a stale dependency), emit the 👎 outcome
+  reaction, remove the run marker, and stop. Do not start §1.4.
+- `UNAVAILABLE <reason-or-number>` exits 3. The dependency set or a declared
+  dependency state could not be established. Take the same terminal Blocked
+  path, naming the unestablished measurement and the remedy to restore GitHub
+  access or correct the reference. Never treat this as a clean dependency set.
+- **Any exit code that is not 0 is a non-clean measurement — never PROCEED.**
+  Only exit 0 (`PROCEED`) continues to §1.4. Exit 2 is the Blocked path above;
+  **exit 3 and any other non-zero code** (the helper fails closed to
+  `UNAVAILABLE` on any unanticipated error rather than exiting 1) are treated
+  as UNAVAILABLE — take the same terminal Blocked path. A non-zero exit never
+  proceeds silently.
+
+The clean path is intentionally a Progress note rather than a reflection. The
+blocked paths make no history mutation: they do not rebase, reset, force-push,
+delete a branch, or create a PR.
+
 ### 1.4 Create or Detect Feature Branch
 
 #### Resume pre-check (runs BEFORE Signal 1)
@@ -414,7 +450,7 @@ Before Phase 2 begins, operationalise the Phase 2.1 principle that "the issue bo
 Every pass below *reads the tree* to adjudicate a claim, and a stale checkout answers about the wrong snapshot while every read succeeds — the failure is invisible. Two rules govern any read here that adjudicates a claim about **already-shipped work** (a "shipped/landed in PR #N" annotation, a "this artifact already exists on the base" premise). Both rules also live at Phase 2.1 (phase-2-implement.md) — **they are coupled mirror sites: the same rule stated at both, edited and pinned together; do not paraphrase one from the other.**
 
 - **Read-target rule.** When the adopted branch is behind `origin/$BASE` (per Phase 1.4's recorded behind-by count) — **unconditionally when Phase 1.4 marked freshness unverified, and equally when no freshness record is present at all** (Phase 1.4's workpad write is best-effort, so an absent record means freshness was **never established**, not that the tree is fresh: **a missing record reads as unverified**, never as behind-by-0) — a verification read that adjudicates a shipped-work claim targets `origin/$BASE` state (`git show origin/$BASE:<path>`, and tree reads only after reconciling with the fetched base), **never the unfetched fork point**. This rule governs which ref verification *reads*; the working branch is instead **reconciled at the Phase 1.4 update-branch checkpoint** (`scripts/update-branch-checkpoint.sh`, the sanctioned reconciliation point — issue #448, §1.4.1 above), and this read-target rule (with the cross-pass-coherence rule below) remains in force whenever that checkpoint's outcome is neither `UPDATED` nor `UP_TO_DATE` — i.e. the branch is still behind or its freshness is unverified.
-- **Cross-pass coherence rule.** Before any claim of the form "shipped/landed in PR #N" is **REFUTED** on the basis of tree reads, resolve PR #N's merge state and `merge_commit_sha` (the SHA is the response's `.mergeCommit.oid`) with a read-only `gh pr view N --json state,mergeCommit` (no tree mutation); when the PR is **MERGED** and `git merge-base --is-ancestor <merge_commit_sha> HEAD` reports the merge commit is **not** an ancestor of the current checkout, the verdict is **"checkout stale — refresh and re-verify"**, never "code wins". Every **indeterminate** outcome — a shallow history where the ancestor check errors, a failed `gh pr view` — takes the **same** stale-suspect verdict (the fail-closed shape Pass 4's dependency arms use): a refutation **requires a positively-fresh tree**. The canonical failure this prevents is the **#322→#325 false refutation** — a true "already shipped in PR #319" claim REFUTED against a 43-hours-stale adopted checkout ("PR #319 MERGED" plus "its artifact is not in my tree" logically resolves to *my checkout is stale*, but nothing forced that resolution), which re-implemented merged work into a human-resolved dirty merge.
+- **Cross-pass coherence rule.** Before any claim of the form "shipped/landed in PR #N" is **REFUTED** on the basis of tree reads, resolve PR #N's merge state and `merge_commit_sha` (the SHA is the response's `.mergeCommit.oid`) with a read-only `gh pr view N --json state,mergeCommit` (no tree mutation); when the PR is **MERGED** and `git merge-base --is-ancestor <merge_commit_sha> HEAD` reports the merge commit is **not** an ancestor of the current checkout, the verdict is **"checkout stale — refresh and re-verify"**, never "code wins". Every **indeterminate** outcome — a shallow history where the ancestor check errors, a failed `gh pr view` — takes the **same** stale-suspect verdict (the fail-closed shape the early dependency preflight uses): a refutation **requires a positively-fresh tree**. The canonical failure this prevents is the **#322→#325 false refutation** — a true "already shipped in PR #319" claim REFUTED against a 43-hours-stale adopted checkout ("PR #319 MERGED" plus "its artifact is not in my tree" logically resolves to *my checkout is stale*, but nothing forced that resolution), which re-implemented merged work into a human-resolved dirty merge.
 
 #### Pass 1 — Count or enumeration claims
 
@@ -460,29 +496,13 @@ When an AC claim contradicts the operative policy, do not proceed to Phase 2. Re
 
 When the AC claim matches the policy, record the confirmation: `--note "issue-claim audit (policy): AC aligns with {file}"`. If the issue's ACs contain no explicit policy directives, record: `--note "issue-claim audit (policy): no policy-referencing AC claims found — pass complete"`.
 
-#### Pass 4 — Declared sequencing-dependency claims
-
-Scan the issue body for explicit claims that this work **depends on** or **must land after** another issue/PR — the phrasings `depends on #N`, `must merge after #N`, `blocked by #N`, `follow-up to #N`, `after #N and #M`, or a dedicated `## Dependencies` section listing `#N` references. Building on unmerged prerequisite work is the failure this pass catches deterministically (the #157 retrospective flagged the absence of any such verification, and the #247 run re-confirmed it).
-
-**Scope:** only *explicit* dependency directives. A `#N` that is a plain cross-reference ("as in #247", "the #157 retrospective flagged this", "carried from #241") is **not** a declared dependency — it is provenance/context, not a sequencing constraint. Do not treat every `#N` in the body as a dependency; extract only those attached to a depends-on / must-merge-after / blocked-by / follow-up-to phrasing (or living under a `## Dependencies` heading).
-
-For each declared dependency `#N`, check its state via `gh issue view` (works for both issues and PRs — a PR number resolves too):
-
-```bash
-gh issue view N --json state,title --jq '.state'   # OPEN | CLOSED | MERGED
-```
-
-Note the state domain: an **issue** resolves to `OPEN` or `CLOSED`, but a **PR** resolves to `OPEN`, `CLOSED`, or `MERGED`. A prerequisite has *landed* — the condition this pass verifies — when it is `CLOSED` **or** `MERGED`; only `OPEN` means it has not landed. Treat `MERGED` exactly like `CLOSED` (a merged PR is the canonical "prerequisite shipped" case); do **not** route a `MERGED` dependency to the Blocked path.
-
-- **All declared dependencies are `CLOSED` or `MERGED`** (or the issue declares none) → the prerequisites have landed; record the confirmation: `--note "issue-claim audit (dependency): declared dependencies {#N, #M} all landed (closed/merged) — safe to build on"` (or, when none were declared, `--note "issue-claim audit (dependency): no declared sequencing dependencies found — pass complete"`).
-- **Any declared dependency is still `OPEN`** → do not proceed to Phase 2. Building on unmerged prerequisite work is exactly the mistake this pass exists to stop. Record the block and stop the run: `workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind blocked --reflection "issue-claim audit (dependency): declared dependency #N is still OPEN — this issue states it must land after #N; building now would build on unmerged work. Resolve/merge #N (or amend the issue if the dependency is stale) before re-running Phase 1"`, then emit the 👎 outcome reaction (see *Outcome reaction* in the Workpad Reference) and stop.
-- **A dependency reference cannot be resolved** (a non-zero `gh issue view` — the number is wrong, or gh/network failed) → this is a *command failure* that says nothing about the dependency's state, so do **not** treat it as closed. Record it as actionable and take the Blocked path rather than fail open: `workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind blocked --reflection "issue-claim audit (dependency): could not resolve declared dependency #N state (gh issue view failed — wrong number or gh/network); cannot confirm it merged before building. Verify #N and re-run Phase 1"`, then emit the 👎 outcome reaction and stop.
+> The former **Pass 4** (declared-dependency detection) was extracted to the early **§1.3.5 dependency preflight** (issue #547) so the gate runs before any branch side effect. Pass 5 keeps its number because it is referenced as "Pass 5" across Phase 2.2.5 / 2.3 / 4.0 and is not the extracted pass.
 
 #### Pass 5 — Execution-capability claims (workflow-resident ACs vs. the executing credential)
 
 Scan the Acceptance Criteria for any criterion whose satisfaction requires **editing a file under the repo's own `.github/workflows/`** — a workflow YAML, or a file coupled to that edit that cannot ship without it (most commonly a `lib/test/run.sh` pin that asserts workflow content and turns CI red the moment the workflow change is missing). This pass converts the CLAUDE.md-documented credential boundary — "workflow changes land via a human/PAT, not an agent run" — into a plan-time routing decision, so a workflow-resident AC is deferred here rather than discovered at push time after a full commit has already been built (the #318/#319 mid-run-revert thrash this pass exists to stop).
 
-**Static, never a live probe.** Like the four passes above, this pass is best-effort and static: match each AC's target surface against the repo's `.github/workflows/` by reading the **AC text and the surfaces it implies** — do **not** run a `gh`/API probe to test the token's actual scope. The interactive-tier classifier can deny `gh`, and a probe would turn a diagnostic into a new Phase 1 failure mode.
+**Static, never a live probe.** Like the passes above, this pass is best-effort and static: match each AC's target surface against the repo's `.github/workflows/` by reading the **AC text and the surfaces it implies** — do **not** run a `gh`/API probe to test the token's actual scope. The interactive-tier classifier can deny `gh`, and a probe would turn a diagnostic into a new Phase 1 failure mode.
 
 **Mechanism — read the two routing signals from the environment (this is required, and it is NOT the forbidden probe).** The routing below keys on two environment values the runner has already set, so you must actually **read** them: `GITHUB_ACTIONS` (cloud-tier detector) and `DEVFLOW_APP_ID` (workflow-capable-credential detector) — e.g. `[ "${GITHUB_ACTIONS:-}" = "true" ]` and `[ -n "${DEVFLOW_APP_ID:-}" ]`. Reading an already-exported environment variable is **not** the live `gh`/API probe the previous paragraph bans: that ban is specifically about a *network call that tests the token's scope*, whereas inspecting env values the runner already exported is offline, auth-free, and cannot fail the way a `gh` probe can. Do **not** read "static, never a live probe" as "inspect nothing" — without reading these two values the pass has no signal to key on and silently no-ops toward *proceed*, reintroducing the push-time thrash this pass exists to prevent.
 
