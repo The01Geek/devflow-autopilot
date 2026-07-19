@@ -210,12 +210,11 @@ with tempfile.TemporaryDirectory() as _td:
 check("T-3 mutation control: conjunct-2 drop applied", _ctrl_ok)
 check("T-3 mutation control: mutant WRONGLY normalizes AC11 (guard bites)", _mut_normalizes, str(_mo["results"][0]))
 
-# --- PR #607 review round: three gaps the posted review named -------------------
-# (a) The present-but-unreadable downgrade off the trusted nonce channel. Asserted
-#     nowhere before, so a regression collapsing it back onto the plain response_text
-#     source — defeating the "observable, never silent" purpose — passed green. It is
-#     now also a REAL-value normalization blocker: a raw FAIL read over an abandoned
-#     trusted file must never store as PASS (the fail-open the review flagged).
+# --- PR #607 review rounds: the abandoned-trusted-channel contract ---------------
+# The named nonce file EXISTS but cannot be read, so the verdict bytes came off the
+# untrusted fallback. Previously recorded ONLY as a soft `source` string that no
+# consumer reads. Now stamped into defect/defect_class/needs_retry — the fields Phase
+# 2.2 actually consumes — in EVERY verdict direction.
 o,rc=run("vfile-unreadable-downgrade.json")
 r=res0(o)
 check("unreadable trusted file -> observable downgrade source",
@@ -225,11 +224,36 @@ check("unreadable trusted file -> FAIL does NOT normalize (fail-open closed)",
 check("unreadable trusted file -> real-value blocker, not a field defect",
       r["normalization_ineligible"]=="trusted verdict file present but unreadable"
       and o["counts"]["field_defect_fail_count"]==0, str(r["normalization_ineligible"]))
+check("unreadable trusted file -> channel defect stamped (FAIL direction)",
+      r["defect"]=="trusted_file_unreadable" and r["defect_class"]=="channel", str(r))
 
-# (b) An embedded NUL in the LLM-transcribed verdict_path makes open() raise
-#     ValueError — NOT an OSError subclass. Uncaught it aborted the WHOLE batch with
-#     empty stdout, which the engine's own contract reads as a matcher denial. The
-#     sibling pair surviving is the blast-radius assertion.
+# The PASS direction is the one that matters: a forged PASS is the payload the nonce
+# binding exists to stop, so gating the signal on a raw FAIL left it silent.
+o,rc=run("vfile-unreadable-pass.json")
+r=res0(o)
+check("unreadable trusted file -> a clean PASS is NOT silent",
+      r["defect"]=="trusted_file_unreadable" and r["defect_class"]=="channel"
+      and r["normalization_ineligible"]=="trusted verdict file present but unreadable",
+      str(r))
+check("unreadable trusted file -> PASS direction enters needs_retry",
+      [x for x in o["needs_retry"] if x["kind"]=="channel"], str(o["needs_retry"]))
+
+# Unreadable file AND no response_text: the resulting no_verdict must be discriminated
+# from "the verifier produced nothing anywhere" — the engine's kind-`verdict` remedy is
+# a re-dispatch, which cannot fix a filesystem fault.
+o,rc=run("vfile-none-unreadable.json")
+r=res0(o)
+check("unreadable + no response_text -> discriminated no_verdict",
+      r["defect"]=="no_verdict_trusted_file_unreadable", str(r["defect"]))
+o,rc=run("vfile-pinned-none-unreadable.json")
+r=res0(o)
+check("pinned + none_file_unreadable reaches the blocker's second arm",
+      r["source"]=="none_file_unreadable" and r["defect"]=="trusted_file_unreadable"
+      and r["normalized"] is False, str(r))
+
+# An embedded NUL in the LLM-transcribed verdict_path makes open() raise ValueError —
+# NOT an OSError subclass. The read guard absorbs it into the observable downgrade;
+# the containment arm in run() is the second line of defence, pinned separately below.
 o,rc=run("vfile-nul-path.json")
 check("embedded-NUL verdict_path does not abort the batch", rc==0 and len(o["results"])==2, str(rc))
 check("embedded-NUL pair degrades to the observable downgrade",
@@ -237,21 +261,64 @@ check("embedded-NUL pair degrades to the observable downgrade",
 check("embedded-NUL pair does not cost the sibling its verdict",
       o["results"][1]["id"]=="VC-SIB" and o["results"][1]["normalized"] is True, str(o["results"][1]))
 
-# (c) A pinned pair whose re-ask STILL carries a defective aux field: the defect is
-#     stamped, but the item is never re-dispatched again. Dropping the `not is_pinned`
-#     guard would re-introduce an unbounded re-ask loop undetected.
+# A pinned pair whose re-ask STILL carries a defective aux field: the defect is stamped,
+# but the item is never re-dispatched again. Dropping the `not is_pinned` guard would
+# re-introduce an unbounded re-ask loop undetected.
 o,rc=run("pinned-aux-persisting.json")
 r=res0(o)
 check("pinned re-ask with persisting aux defect keeps the raw FAIL",
       r["raw_verdict"]=="FAIL" and r["verdict"]=="FAIL" and r["normalized"] is False, str(r))
+check("pinned re-ask stamps the aux defect's own signal",
+      r["defect"]=="aux:property_proven,inaccuracy_scope" and r["defect_class"]=="auxiliary",
+      str(r["defect"]))
 check("pinned re-ask fires at most once (no second dispatch)",
       o["needs_retry"]==[], str(o["needs_retry"]))
 
-# (d) The pairs_file_unreadable bad-input arm — the one bad-input branch with no
-#     fixture. A directory path is the portable unreadable-input shape (IsADirectoryError).
-_o = json.loads(subprocess.run(["python3", H, D], capture_output=True, text=True).stdout)
-check("pairs_file_unreadable bad-input arm", _o.get("bad_input") is True
+# The pairs_file_unreadable bad-input arm. A directory path is the portable
+# unreadable-input shape (IsADirectoryError on POSIX, PermissionError on Windows —
+# both OSError). rc 0 is part of the contract: the helper RAN.
+_r = subprocess.run(["python3", H, D], capture_output=True, text=True)
+_o = json.loads(_r.stdout)
+check("pairs_file_unreadable bad-input arm", _r.returncode==0 and _o.get("bad_input") is True
       and _o.get("error")=="pairs_file_unreadable", str(_o.get("error")))
+
+# A malformed invocation must never exit with byte-EMPTY stdout: empty stdout is what
+# the engine's contract reads as a matcher denial, so the operator would be sent at the
+# cloud grant keys for what is actually a bad argv.
+_r = subprocess.run(["python3", H], capture_output=True, text=True)
+check("argv-empty still prints a bad-input object on stdout (not silence)",
+      _r.stdout.strip() != "" and json.loads(_r.stdout).get("error")=="no_pairs_file_argument",
+      repr(_r.stdout[:80]))
+
+# Containment-arm mutation control (T-3 idiom). No fixture can reach the arm — every
+# operand in _process_pair is isinstance-guarded and open() is fully wrapped — so its
+# guarded regression is proven by PLANTING the defect: remove ValueError from the read
+# guard and the embedded-NUL pair detonates inside _process_pair. The arm must contain
+# it (observable per-item defect + surviving sibling), not abort the batch. This is what
+# makes the three embedded-NUL assertions above non-vacuous: each guard now has an
+# assertion that goes RED under its own removal alone.
+_mut2 = _re.sub(r'except \(OSError, UnicodeDecodeError, ValueError\):',
+                'except (OSError, UnicodeDecodeError):', _src, count=1)
+check("containment control: ValueError-drop mutation applied", _mut2 != _src)
+with tempfile.TemporaryDirectory() as _td:
+    _mp2 = os.path.join(_td, "mutant2.py")
+    open(_mp2, "w", encoding="utf-8").write(_mut2)
+    _r2 = subprocess.run(["python3", _mp2, os.path.join(D, "vfile-nul-path.json")],
+                         capture_output=True, text=True)
+    _mo2 = json.loads(_r2.stdout) if _r2.stdout.strip() else {}
+check("containment control: mutant does not abort the batch",
+      _r2.returncode==0 and len(_mo2.get("results", []))==2, str(_r2.returncode))
+check("containment control: mutant stamps pair_processing_error as a HELPER defect",
+      _mo2["results"][0]["defect"]=="pair_processing_error"
+      and _mo2["results"][0]["defect_class"]=="helper_internal",
+      str(_mo2.get("results", [{}])[0].get("defect")))
+check("containment control: mutant still delivers the sibling's verdict",
+      _mo2["results"][1]["id"]=="VC-SIB" and _mo2["results"][1]["normalized"] is True,
+      str(_mo2["results"][1]))
+check("containment control: helper defect is not routed to the verifier-retry channel",
+      all(x["kind"]!="verdict" for x in _mo2["needs_retry"]), str(_mo2["needs_retry"]))
+check("containment control: mutant writes a real traceback to stderr",
+      "Traceback" in _r2.stderr and "helper defect" in _r2.stderr, repr(_r2.stderr[:120]))
 
 print("\nFAILURES:", fails if fails else "NONE")
 sys.exit(1 if fails else 0)

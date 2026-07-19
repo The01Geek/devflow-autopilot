@@ -58,10 +58,19 @@ and enters ``needs_retry`` with kind ``verdict``): ``missing_fence`` (no ``json`
 fence and the body does not contain exactly one parseable object),
 ``unparseable_json``, ``missing_verdict_field``, ``non_enum_verdict``,
 ``id_mismatch``, ``no_verdict`` (neither file nor response_text),
-``pair_processing_error`` (an unexpected exception while processing that one
-pair — contained so a single corrupt element never aborts the batch).
+``no_verdict_trusted_file_unreadable`` (same, but the named nonce file existed
+and could not be read — a filesystem fault a verifier re-dispatch cannot fix).
 More than one ``json`` fence reads the LAST fence as authoritative
 (final-answer convention).
+
+Two defect classes are NOT verifier defects and are reported under their own
+``needs_retry`` kinds so the engine does not re-dispatch a verifier at them:
+``defect_class: "channel"`` / kind ``channel`` — ``trusted_file_unreadable``,
+stamped in EVERY verdict direction when the named nonce file was present but
+unreadable, because a forged PASS is the payload the nonce binding exists to
+stop; and ``defect_class: "helper_internal"`` / kind ``helper_internal`` —
+``pair_processing_error``, an unexpected exception contained per-pair (with a
+real traceback on stderr) so a single corrupt element never aborts the batch.
 
 Auxiliary-field defects (an absent / unknown-token / wrong-typed
 ``property_proven`` or ``inaccuracy_scope``) never invalidate a well-formed
@@ -94,8 +103,17 @@ Exit codes:
 
 import json
 import sys
+import traceback
 
 if sys.version_info < (3, 11):  # fail fast, before any PEP 604 annotation below
+    # Print the bad-input-shaped object on STDOUT too. A non-zero exit with byte-empty
+    # stdout lands in the engine's "everything-else" arm, whose prescribed warning names
+    # the cloud GRANT keys as the remedy — so a Python-version mismatch would be
+    # reported to the operator as a permission problem. Emitting on stdout routes it to
+    # the bad-input arm, where the remedy quoted is the real one.
+    print(json.dumps({"bad_input": True, "error": "unsupported_python",
+                      "detail": "Python 3.11+ required (found %s.%s.%s)"
+                                % sys.version_info[:3]}, indent=2))
     sys.stderr.write(
         "devflow: Python 3.11+ required (found %s.%s.%s).\n" % sys.version_info[:3]
     )
@@ -262,6 +280,13 @@ def _process_pair(pair):
     text, source = _read_verdict_bytes(pair)
     obj, defect = extract_verdict_object(text)
     is_pinned = isinstance(pinned, str) and pinned in VERDICT_ENUM
+    # The named nonce file EXISTED but could not be read, so the verdict bytes came off
+    # the untrusted fallback channel — the binding the forgery guard rests on was
+    # abandoned. Stamped unconditionally below, in EVERY verdict direction: a forged
+    # PASS is the payload the nonce guard exists to stop, so gating the signal on a raw
+    # FAIL would leave the direction that actually matters silent.
+    trusted_channel_lost = source in ("response_text_file_unreadable",
+                                      "none_file_unreadable")
 
     result = {
         "id": item_id,
@@ -290,6 +315,14 @@ def _process_pair(pair):
     else:
         # --- verdict-defect arm: keep no verdict, flag for a full re-dispatch ----
         if defect is not None:
+            if defect == "no_verdict" and trusted_channel_lost:
+                # Discriminate "the verifier produced nothing anywhere" from "the named
+                # nonce file EXISTS but this process cannot read it" (permission fault,
+                # corrupt mount, invalid UTF-8). Collapsing them onto a bare no_verdict
+                # sends the engine's kind-`verdict` remedy at a re-dispatch that will
+                # re-produce a file it still cannot read — burning a retry on a
+                # filesystem fault the verifier cannot fix.
+                defect = "no_verdict_trusted_file_unreadable"
             return _verdict_defect(result, item_id, defect)
         # object well-formed enough to inspect; validate the mandatory verdict field
         if "verdict" not in obj:
@@ -337,13 +370,10 @@ def _process_pair(pair):
         real_blockers.append("inaccuracy_scope not generated_claim_text")
     elif scope_state == "defect":
         field_defect_blockers.append("inaccuracy_scope field defect")
-    if source in ("response_text_file_unreadable", "none_file_unreadable"):
-        # The named nonce file EXISTED but could not be read, so the verdict bytes
-        # came off the untrusted fallback channel — the very binding the nonce
-        # forgery guard rests on was abandoned. That is a real-value blocker, not a
-        # field defect: a raw FAIL read over an abandoned trusted channel must never
-        # silently store as PASS. (A genuinely ABSENT file is the legitimate
-        # fallback and does not reach here.)
+    if trusted_channel_lost:
+        # A real-value blocker, not a field defect: a raw FAIL read over an abandoned
+        # trusted channel must never silently store as PASS. (A genuinely ABSENT file
+        # is the legitimate fallback and does not reach here.)
         real_blockers.append("trusted verdict file present but unreadable")
 
     can_normalize = (
@@ -385,9 +415,24 @@ def _process_pair(pair):
         result["defect_class"] = "auxiliary"
         # A pinned pair IS the field-completion re-ask (fires at most once), so it is
         # never re-dispatched again — its persisting aux defect leaves the raw FAIL
-        # standing with the marker.
-        if not is_pinned and raw == "FAIL" and provenance == "generated_paraphrase" and mode == "agent":
+        # standing with the marker. A real-value blocker also disqualifies the re-ask:
+        # completing the fields cannot make an item normalize that a real blocker
+        # already refuses, so dispatching one would only burn budget.
+        if (not is_pinned and raw == "FAIL" and provenance == "generated_paraphrase"
+                and mode == "agent" and not real_blockers):
             retry = {"id": item_id, "kind": "auxiliary", "defect": ",".join(aux_defects)}
+
+    if trusted_channel_lost:
+        # Stamped LAST so it takes precedence over an auxiliary stamp, and stamped in
+        # every verdict direction (not only raw FAIL) — a clean PASS read off the
+        # abandoned trusted channel was previously recorded ONLY as a soft `source`
+        # string that no consumer reads, which is the forged-PASS case the nonce
+        # binding exists to stop. `defect`/`defect_class`/`needs_retry` are the fields
+        # the engine's Phase 2.2 actually consumes; `source` stays diagnostic-only.
+        result["defect"] = "trusted_file_unreadable"
+        result["defect_class"] = "channel"
+        result["normalization_ineligible"] = "trusted verdict file present but unreadable"
+        retry = {"id": item_id, "kind": "channel", "defect": "trusted_file_unreadable"}
 
     return result, retry, is_field_defect_fail
 
@@ -396,7 +441,10 @@ def run(pairs_file):
     try:
         with open(pairs_file, "r", encoding="utf-8") as fh:
             raw = fh.read()
-    except (OSError, UnicodeDecodeError) as e:
+    except (OSError, UnicodeDecodeError, ValueError) as e:
+        # ValueError for symmetry with _read_verdict_bytes' embedded-NUL arm. Not
+        # reachable from argv (execve cannot carry a NUL), but this open() is the same
+        # shape one level up and the asymmetry would read as an oversight.
         return {"bad_input": True, "error": "pairs_file_unreadable", "detail": str(e)}
 
     if not raw.strip():
@@ -439,20 +487,37 @@ def run(pairs_file):
             # here exits non-zero with EMPTY stdout, and empty stdout is exactly what
             # this helper's contract reads as a matcher denial — so every OTHER pair's
             # verdict is lost AND the failure is misattributed to a missing grant.
-            # Degrade to the same observable per-item defect a non-dict element takes.
+            # DEFENCE IN DEPTH: no known input reaches this arm (every operand in
+            # _process_pair is isinstance-guarded and open() is fully wrapped), so its
+            # realistic trigger is a future programming error in THIS file — which is
+            # why it writes a real traceback to stderr rather than only a JSON field,
+            # and why its defect_class is `helper_internal`, NOT `verdict`: the engine's
+            # kind-`verdict` remedy re-dispatches the verifier subagent, which cannot
+            # fix a bug in this helper. Proven live by the mutation control in
+            # lib/test/normalize-verdicts-test.py.
+            sys.stderr.write(
+                "normalize-verdicts.py: internal error processing pair index "
+                f"{idx} — this is a helper defect, not a verifier defect:\n"
+                + traceback.format_exc()
+            )
             results.append({
                 "id": (pair.get("item") or {}).get("id")
                       if isinstance(pair.get("item"), dict) else None,
                 "raw_verdict": None, "verdict": None, "normalized": False,
                 "evidence": None, "file_checked": None, "source": "none",
-                "defect": "pair_processing_error", "defect_class": "verdict",
+                "defect": "pair_processing_error", "defect_class": "helper_internal",
+                # The detail is exception-derived and the pairs file is LLM-transcribed
+                # from PR-author-controlled source, so it is bounded and repr-delimited
+                # before it can reach a rendered report.
                 "normalization_ineligible":
-                    f"verdict defect: pair_processing_error ({type(e).__name__}: {e})",
+                    "helper internal error: pair_processing_error "
+                    f"(detail: {f'{type(e).__name__}: {e}'[:200]!r})",
                 "pair_index": idx,
             })
             needs_retry.append({"id": (pair.get("item") or {}).get("id")
                                 if isinstance(pair.get("item"), dict) else None,
-                                "kind": "verdict", "defect": "pair_processing_error",
+                                "kind": "helper_internal",
+                                "defect": "pair_processing_error",
                                 "pair_index": idx})
             continue
         results.append(result)
@@ -476,9 +541,22 @@ def run(pairs_file):
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv:
+        # Emit on stdout as well as stderr, for the same reason as the version guard
+        # above: byte-empty stdout is read as a matcher denial and misattributes a
+        # malformed invocation to a missing grant. rc stays 2 (the documented contract).
+        print(json.dumps({"bad_input": True, "error": "no_pairs_file_argument",
+                          "detail": "a pairs-file path argument is required"}, indent=2))
         sys.stderr.write("normalize-verdicts.py: a pairs-file path argument is required\n")
         return 2
-    out = run(argv[0])
+    try:
+        out = run(argv[0])
+    except Exception as e:  # noqa: BLE001 — top-level containment, same rationale
+        sys.stderr.write(
+            "normalize-verdicts.py: internal error — this is a helper defect:\n"
+            + traceback.format_exc()
+        )
+        out = {"bad_input": True, "error": "helper_internal_error",
+               "detail": f"{type(e).__name__}: {e}"[:200]}
     print(json.dumps(out, indent=2))
     return 0
 
