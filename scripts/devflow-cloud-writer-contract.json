@@ -8,7 +8,7 @@
     "scripts/ensure-label.sh": "4bd23c2b9d7d018d17cf1f9c34815753b36a2fb3acaaaf0f291aabaae12355b9",
     "scripts/extract-doc-needed-paths.sh": "d08b77990efdb18ed04795ff56897da4c8ae01b314550f702cd32fd42f98b67f",
     "scripts/file-deferrals.py": "cbb5f5c00c4754a9b87852ead1bd283fb0c67ffeafb65e0d985a75433828b1f5",
-    "scripts/load-prompt-extension.sh": "488ef84f84b4fe927140556234d2e2b85b6f89a134193a144e2fe85f68919e28",
+    "scripts/load-prompt-extension.sh": "0d180afb80bcd1e9998c86372d35b43c1de99bb518e95dd024a269a4ff0dfdf6",
     "scripts/match-deferrals.py": "1dcface3f8c56f230dafee6f375a9041e56ae8d4e3518cf925955725c22a20ae",
     "scripts/match-lint-adjudications.py": "709cba5b935bf515a6d91c4d5697a8d66623bfb4cf13aa02312837596bd83608",
     "scripts/parse-acs.py": "9b2ed94e4d430beb5200f1b543e27e45b7a6e2f8fe63675a5fc47aeecfe7699a",

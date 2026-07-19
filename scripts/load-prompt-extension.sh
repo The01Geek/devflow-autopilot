@@ -3,9 +3,36 @@
 # SPDX-License-Identifier: MIT
 # Print a consumer-owned prompt-extension file verbatim, if present.
 #
-# Usage: load-prompt-extension.sh SKILL_NAME
+# Usage: load-prompt-extension.sh SKILL_NAME [--section '<## heading>']
 #   SKILL_NAME   the skill's directory name under skills/ (e.g. create-issue,
-#                implement, review). This is the ONLY argument.
+#                implement, review). This is the only POSITIONAL argument.
+#   --section    optional; emit only the named section of the extension instead of
+#                the whole file. Its value is the exact '## '-prefixed heading line.
+#                At most one section per invocation; a repeated flag takes its LAST
+#                occurrence. Omitting the flag keeps the byte-identical full-file
+#                behavior every pre-existing caller depends on.
+#
+# The --section extraction rule (issue #611) is SPECIFIED in
+# skills/create-issue/SKILL.md (Step 2's `## Evidence axes` forwarding paragraph)
+# and IMPLEMENTED here; that skill sentence is the specification of record and this
+# helper is its single implementation — a coupled pair, edited together. The rule:
+#   * a section spans its heading line to the next line beginning '## ' (two hashes
+#     PLUS A SPACE, so a '###' sub-heading line is section content, not a
+#     terminator), else to end of file;
+#   * duplicate same-heading sections are concatenated in file order;
+#   * an empty section is equivalent to an absent heading (both emit nothing);
+#   * a heading line inside an HTML comment block is never a heading;
+#   * a '##' line inside a fenced code block neither starts nor terminates a
+#     section, and an unclosed fence runs to end of file;
+#   * trailing whitespace is stripped from both the candidate heading line and the
+#     --section value before comparison, so a CRLF-authored extension and a heading
+#     hand-authored with trailing spaces both still extract.
+#
+# Section bytes are selected and emitted with bash builtins only (read/printf/case
+# parameter expansion) — never awk/sed/tr/head. The emitted section decides what a
+# consumer skill sees, so under the repo's non-preflight-PATH-tool rule it must not
+# be derived through a tool `lib/preflight.sh` does not guarantee: such a tool going
+# missing would empty the selection silently rather than failing loudly.
 #
 # Reads .devflow/prompt-extensions/<SKILL_NAME>.md anchored to the git repo root
 # (git rev-parse --show-toplevel, falling back to pwd when not in a git tree —
@@ -40,8 +67,14 @@
 # trailing newline beyond the file's own.
 #
 # Exit codes:
-#   0  file printed verbatim, or absent/empty (no-op)
-#   2  bad arguments (missing SKILL_NAME, or it contains '/' or '..'), OR the named
+#   0  file printed verbatim (or the selected section), or absent/empty (no-op) —
+#      including the designed no-op of an absent heading or an empty section under
+#      --section, which additionally emits a stderr breadcrumb when the heading is
+#      absent from a NON-empty extension (the no-op stays exit 0; the breadcrumb
+#      only makes it observable, so a near-miss heading is never silent)
+#   2  bad arguments (missing SKILL_NAME, a SKILL_NAME containing '/' or '..' or
+#      given as a '--'-prefixed token, an unrecognized '--' argument, a --section
+#      missing its value, or a --section whose value is empty after stripping), OR the named
 #      extension exists but cannot be delivered as a Markdown file (unreadable, a
 #      symlink whose target is missing, or not a regular file — a directory or a
 #      symlink resolving to one) — refused loudly rather than left to masquerade as
@@ -50,11 +83,76 @@
 
 set -euo pipefail
 
+# Strip trailing whitespace (spaces, tabs, and a CR from a CRLF-authored file) with
+# pure parameter expansion — no `tr`/`sed`. Used on both sides of the heading
+# comparison, so a CRLF extension and a heading typed with trailing spaces both match.
+_lpe_rstrip() {
+    _lpe_rstripped="$1"
+    while [ "${_lpe_rstripped%[[:space:]]}" != "$_lpe_rstripped" ]; do
+        _lpe_rstripped="${_lpe_rstripped%[[:space:]]}"
+    done
+}
+
 skill="${1:-}"
 
 if [ -z "$skill" ]; then
-    echo "load-prompt-extension.sh: usage: load-prompt-extension.sh SKILL_NAME" >&2
+    echo "load-prompt-extension.sh: usage: load-prompt-extension.sh SKILL_NAME [--section '<## heading>']" >&2
     exit 2
+fi
+
+# A '--'-prefixed token in the SKILL-NAME slot is a transposed invocation
+# (`--section '## X' <skill>`). Refuse it loudly: without this guard the helper would
+# look up a skill literally named `--section`, find no such extension, and exit 0
+# printing nothing — a silent no-op indistinguishable from a consumer who genuinely
+# has no extension, which is precisely the silent-drop class the guards below exist
+# to close.
+case "$skill" in
+    --*)
+        echo "load-prompt-extension.sh: SKILL_NAME must be the first argument, but got the flag '$skill' (usage: load-prompt-extension.sh SKILL_NAME [--section '<## heading>'])" >&2
+        exit 2
+        ;;
+esac
+
+# Parse the optional flags after the positional. A repeated --section takes its LAST
+# occurrence; bare non-flag extra arguments stay ignored, preserving the pre-flag
+# behavior for any caller that already passed a stray word. An unrecognized
+# '--'-prefixed argument is refused rather than ignored: silently reverting to the
+# full-file dump would hand a caller the entire extension where it asked for one
+# section — the opposite of the context saving --section exists to provide, and
+# invisible at the call site.
+section=""
+section_requested=0
+shift || true
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --section)
+            if [ "$#" -lt 2 ]; then
+                echo "load-prompt-extension.sh: --section requires a value (the exact '## '-prefixed heading line)" >&2
+                exit 2
+            fi
+            section="$2"
+            section_requested=1
+            shift 2
+            ;;
+        --*)
+            echo "load-prompt-extension.sh: unrecognized argument '$1' (usage: load-prompt-extension.sh SKILL_NAME [--section '<## heading>'])" >&2
+            exit 2
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
+
+if [ "$section_requested" -eq 1 ]; then
+    _lpe_rstrip "$section"
+    section="$_lpe_rstripped"
+    # A whitespace-only value would compare equal to no heading at all and silently
+    # select nothing, reading exactly like a legitimate absent-heading no-op. Refuse it.
+    if [ -z "$section" ]; then
+        echo "load-prompt-extension.sh: --section value is empty after stripping trailing whitespace (expected the exact '## '-prefixed heading line)" >&2
+        exit 2
+    fi
 fi
 
 # Reject path-traversal vectors before touching the filesystem. '*/*' matches any
@@ -126,5 +224,102 @@ if [ -f "$ext_file" ]; then
         echo "load-prompt-extension.sh: '$ext_file' exists but is not readable; refusing to silently skip a consumer extension (fix its permissions)" >&2
         exit 2
     fi
-    cat "$ext_file"
+    if [ "$section_requested" -eq 0 ]; then
+        cat "$ext_file"
+    else
+        # One pass over the file, tracking three pieces of state: whether we are
+        # inside a fenced code block, inside an HTML comment block, and inside the
+        # requested section. Fence and comment state are tracked GLOBALLY (not only
+        # while inside the section) because a fence opened before the heading and
+        # closed after it still governs whether the lines between them are headings.
+        _in_fence=0
+        _in_comment=0
+        _in_section=0
+        _found=0
+        _has_body=0
+        _out=""
+        _headings=""
+        _partial=0
+        # The `|| { [ -n "$_line" ] && _partial=1; }` clause is what makes a final
+        # line with NO terminating newline survive: `read` returns non-zero on it
+        # while still assigning it, so a bare `while read` silently DROPS that line.
+        # The flag also records that the line was unterminated, so it is re-emitted
+        # without inventing a newline the source file never had.
+        while IFS= read -r _line || { [ -n "$_line" ] && _partial=1; }; do
+            _is_heading=0
+            if [ "$_in_fence" -eq 1 ]; then
+                # Inside a fence nothing is a heading; only the closing fence matters.
+                case "$_line" in '```'*) _in_fence=0 ;; esac
+            elif [ "$_in_comment" -eq 1 ]; then
+                # Inside a comment block nothing is a heading; only the close matters.
+                case "$_line" in *'-->'*) _in_comment=0 ;; esac
+            else
+                case "$_line" in
+                    '```'*)
+                        # An unclosed fence is never reset, so it runs to end of file
+                        # — the truncation shape a hand-edited extension can leave.
+                        _in_fence=1
+                        ;;
+                    *'<!--'*)
+                        # A comment that also closes on the same line leaves the block
+                        # state alone; either way this line is not a heading.
+                        case "$_line" in *'-->'*) : ;; *) _in_comment=1 ;; esac
+                        ;;
+                    '## '*)
+                        # Two hashes PLUS A SPACE. '### Foo' fails this pattern (its
+                        # third character is '#', not a space), so a sub-heading is
+                        # section content and terminates nothing.
+                        _is_heading=1
+                        ;;
+                esac
+            fi
+            if [ "$_is_heading" -eq 1 ]; then
+                _lpe_rstrip "$_line"
+                _headings="${_headings}${_headings:+, }${_lpe_rstripped}"
+                if [ "$_lpe_rstripped" = "$section" ]; then
+                    # A duplicate same-heading section re-enters rather than
+                    # restarting, so the sections concatenate in file order.
+                    _in_section=1
+                    _found=1
+                else
+                    _in_section=0
+                fi
+            fi
+            if [ "$_in_section" -eq 1 ]; then
+                if [ "$_partial" -eq 1 ]; then
+                    _out="${_out}${_line}"
+                else
+                    _out="${_out}${_line}"$'\n'
+                fi
+                if [ "$_is_heading" -eq 0 ]; then
+                    # Any non-whitespace content below a heading makes the section
+                    # non-empty. Checked with a bash pattern, never `grep`/`tr`.
+                    case "$_line" in *[![:space:]]*) _has_body=1 ;; esac
+                fi
+            fi
+            [ "$_partial" -eq 1 ] && break
+        done < "$ext_file"
+
+        if [ "$_found" -eq 1 ] && [ "$_has_body" -eq 1 ]; then
+            printf '%s' "$_out"
+        elif [ "$_found" -eq 0 ] && [ -n "$_headings" ]; then
+            # The heading is absent from a non-empty extension. The no-op itself is
+            # DESIGNED (a single-hook extension carrying only the other heading is the
+            # routine case, and it must not fail), so this stays exit 0 — but a silent
+            # no-op is indistinguishable from a heading the consumer typo'd, so name
+            # what was asked for and what is actually there. Only headings the
+            # extractor genuinely recognizes are listed: advertising a heading inside a
+            # comment block or a fence would send the caller chasing one it can never
+            # select.
+            echo "load-prompt-extension.sh: no section headed '$section' in '$ext_file'; headings present: ${_headings}" >&2
+        elif [ "$_found" -eq 0 ]; then
+            # A non-empty file carrying no '## ' heading at all: still the designed
+            # no-op, but say so rather than emitting nothing with no account.
+            echo "load-prompt-extension.sh: no section headed '$section' in '$ext_file'; the file carries no '## '-prefixed headings" >&2
+        fi
+        # The remaining case — found but empty — is the rule's "an empty section is
+        # equivalent to an absent heading" clause. It emits nothing and stays
+        # breadcrumb-FREE on purpose: the heading WAS found, so the consumer's hook is
+        # wired correctly and there is nothing for a reader to fix.
+    fi
 fi

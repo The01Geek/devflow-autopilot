@@ -1169,6 +1169,83 @@ def _valid_override(state, current_digest):
     return None
 
 
+_STALE_OVERRIDE_ELECTION = (
+    're-present the revised draft and record a new override only on a fresh explicit '
+    'user election through the offer surfaces (a fresh clean audit round is the other '
+    'eligibility ground)'
+)
+
+
+def stale_override_remedy(state, current_digest):
+    """The arm-selected recovery text for a `stale-override` refusal.
+
+    The refusal itself is fail-closed and correct; what it lacked was a remedy, so an
+    agent that hit it rediscovered the recovery by trial — costliest at `emit-body`,
+    after the creation epoch is already recorded.
+
+    **The arm is selected by the staling operand observed on the newest CURRENT-ORDINAL
+    override, never by the epoch's query-time arm.** An override's digest binding is
+    fixed at record time while the epoch arm is keyed at query time, so the two
+    legitimately diverge — a file-write failure and embed retry landing between the
+    record and the query leaves a digest-bound override on an embed-arm epoch. Keying
+    on the epoch arm would name the wrong remedy on exactly that divergence.
+
+      * arm a — a current-ordinal override whose recorded digest differs from the draft:
+        the revision is NOT yet recorded, so lead with `record-revision`.
+      * arm b — no current-ordinal override AND the newest override's recorded ordinal
+        is LESS than the current revision ordinal: the revision is already recorded, so
+        naming it again would send the caller to re-record state it already holds.
+        Absence of a current-ordinal override does not select this arm on its own.
+      * arm c (fail-safe) — every other skipped shape: a current-ordinal override
+        carrying no digest on a file-arm epoch (the absent-comparand fail-closed skip),
+        a future-ordinal record, or any further hand-edited / older-build shape. It
+        makes NO claim about the revision state, because none was established.
+
+    No arm names a bare `record-revision`-then-`record-override` pair: that sequence
+    would re-arm a user election the user never made, which is the defect the skill's
+    edit-sequencing rule exists to prevent. Arm a names `record-revision` only as a
+    step that must be followed by a fresh election.
+    """
+    now = revision_ordinal(state)
+    overrides = state.get('overrides') or []
+    current = None
+    for ov in reversed(overrides):
+        if ov.get('recorded_at_ordinal') == now:
+            current = ov
+            break
+    if current is not None:
+        want = current.get('draft_digest')
+        if want is not None and want != current_digest:
+            return ('the recorded override was digest-bound to draft bytes that have '
+                    'since changed, so it no longer grounds eligibility; record the '
+                    'revision with `record-revision`, then ' + _STALE_OVERRIDE_ELECTION)
+        # A current-ordinal override that is not digest-staled reached the refusal by
+        # the absent-comparand skip (no digest on a file-arm epoch) — an unestablished
+        # cause, so claim nothing about the revision state.
+        return ('the recorded override could not be validated against the draft bytes, '
+                'so it no longer grounds eligibility; ' + _STALE_OVERRIDE_ELECTION)
+    newest = overrides[-1] if overrides else None
+    if newest is not None and isinstance(newest.get('recorded_at_ordinal'), int) \
+            and newest['recorded_at_ordinal'] < now:
+        return ('the revision is already recorded, which invalidated the earlier '
+                'override; ' + _STALE_OVERRIDE_ELECTION)
+    return ('no recorded override is still current, so none grounds eligibility; '
+            + _STALE_OVERRIDE_ELECTION)
+
+
+def _emit_stale_override_remedy(prefix, state, current_digest):
+    """Write the arm-selected remedy to stderr beside a `stale-override` refusal.
+
+    Called from the two REFUSAL surfaces only — `cmd_query_eligibility` and
+    `cmd_emit_body` — never from the shared `evaluate_eligibility` they both call. The
+    reason token's third reader, `summary_fields` (rendering `query-summary`), is a
+    RENDERING surface, not a refusal: emitting from the shared evaluation would grow an
+    unplanned stderr line on every summary render of a stale-override-shaped state.
+    """
+    sys.stderr.write(
+        f'issue-audit-state.py {prefix}: {stale_override_remedy(state, current_digest)}\n')
+
+
 def evaluate_eligibility(state, mode, current_digest=None, digest_failed=False):
     """Presentation eligibility.
 
@@ -2419,6 +2496,11 @@ def cmd_emit_body(args):
         _fail('emit-body', f'could not hash the draft file: {exc}')
     elig = evaluate_eligibility(doc, 'approve', digest)
     if elig['answer'] != 'eligible':
+        # issue #611: name the recovery at this refusal too. This is the costliest
+        # point to rediscover it by trial — the creation epoch is already recorded —
+        # so the remedy is emitted BEFORE _fail, which does not return.
+        if elig['reason'] == 'stale-override':
+            _emit_stale_override_remedy('emit-body', doc, digest)
         _fail('emit-body', 'refusing to emit an unaudited body: eligibility answered '
                            f'not-eligible ({elig["reason"]})')
     body = split_body(raw)
@@ -2536,6 +2618,11 @@ def cmd_query_eligibility(args):
         print(f'eligible=yes ground={r["ground"]} token={r["token"]} key={r["key"]}')
     else:
         print(f'eligible=no reason={r["reason"]}')
+        # issue #611: the stdout token line above is the closed one-token contract and
+        # stays byte-identical; the remedy is additive on stderr, matching this tool's
+        # existing breadcrumb idiom (the `query: could not hash draft file ...` line).
+        if r['reason'] == 'stale-override':
+            _emit_stale_override_remedy('query-eligibility', state, digest)
 
 
 def cmd_query_summary(args):

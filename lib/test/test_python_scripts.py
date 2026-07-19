@@ -4189,6 +4189,185 @@ assert_eq("#546 override_epoch_rows: an override whose recorded digest no longer
           'not-eligible',
           issue_audit_state.evaluate_eligibility(_cur_override, 'approve', 'D9')['answer'])
 
+# ── issue #611: the state-aware stale-override recovery breadcrumb ───────────
+# `stale-override` is a fail-closed refusal with no remedy attached today, so an agent
+# that hits it rediscovers the recovery by trial — costliest at `emit-body`, after the
+# creation epoch is recorded. The breadcrumb names the remedy, and its ARM is selected
+# by the staling operand observed on the newest CURRENT-ORDINAL override, never by the
+# epoch's query-time arm: an override's digest binding is fixed at RECORD time while
+# the epoch arm is keyed at QUERY time, so the two legitimately diverge (a file-write
+# failure and embed retry between recording and querying produces exactly that state).
+# Selecting on the epoch arm would name the wrong remedy on precisely that divergence.
+_so_remedy = issue_audit_state.stale_override_remedy
+
+# (a1) a digest-bound override at the current ordinal whose recorded digest no longer
+# matches the draft: the revision is NOT yet recorded, so the remedy leads with it.
+_so_a1 = _state([_round(1, 'file', 'REVISE', 'D1')], revisions=(1,), overrides=[
+    {'kind': 'user-decline', 'surface': 'step4-offer', 'recorded_at_ordinal': 1,
+     'draft_digest': 'D2'}])
+assert_eq("#611 stale-override remedy (a1): a digest-staled current-ordinal override "
+          "instructs record-revision first",
+          True, 'record-revision' in _so_remedy(_so_a1, 'D9'))
+assert_eq("#611 stale-override remedy (a1): names the fresh-election precondition",
+          True, 'fresh explicit user election' in _so_remedy(_so_a1, 'D9'))
+assert_eq("#611 stale-override remedy (a1): names the alternative eligibility ground",
+          True, 'audit round' in _so_remedy(_so_a1, 'D9'))
+
+# (a2) the SAME digest-bound override queried on an epoch whose last attempt arm is
+# `embed` (a file-write failure and embed retry landed after the override was
+# recorded). Arm a must still be selected — this is the case that proves the selection
+# reads the override's own staling operand and not the epoch arm.
+_so_a2 = _state([_round(1, 'embed', 'REVISE', 'D1')], revisions=(1,), overrides=[
+    {'kind': 'user-decline', 'surface': 'step4-offer', 'recorded_at_ordinal': 1,
+     'draft_digest': 'D2'}])
+assert_eq("#611 stale-override remedy (a2): arm a is selected on an EMBED-arm epoch too "
+          "(the operand keys it, not the epoch arm)",
+          _so_remedy(_so_a1, 'D9'), _so_remedy(_so_a2, 'D9'))
+
+# (b) an override followed by a `record-revision`: the revision IS already recorded, so
+# instructing it again would send the agent to re-record state it already holds.
+_so_b_file = _state([_round(1, 'file', 'REVISE', 'D1')], revisions=(1, 1), overrides=[
+    {'kind': 'user-decline', 'surface': 'step4-offer', 'recorded_at_ordinal': 1,
+     'draft_digest': 'D2'}])
+_so_b_embed = _state([_round(1, 'embed', 'REVISE', 'D1')], revisions=(1, 1), overrides=[
+    {'kind': 'user-decline', 'surface': 'step4-offer', 'recorded_at_ordinal': 1,
+     'draft_digest': 'D2'}])
+for _label, _st in (('file-arm', _so_b_file), ('embed-arm', _so_b_embed)):
+    assert_eq("#611 stale-override remedy (b, %s epoch): does NOT instruct "
+              "record-revision again" % _label,
+              False, 'record-revision' in _so_remedy(_st, 'D3'))
+    assert_eq("#611 stale-override remedy (b, %s epoch): states the revision is already "
+              "recorded" % _label,
+              True, 'already recorded' in _so_remedy(_st, 'D3'))
+    assert_eq("#611 stale-override remedy (b, %s epoch): still names the fresh-election "
+              "step" % _label,
+              True, 'fresh explicit user election' in _so_remedy(_st, 'D3'))
+
+# (c1) a CURRENT-ordinal override carrying NO digest on a file-arm epoch — the
+# absent-comparand fail-closed skip. It is neither digest-staled nor ordinal-postdated,
+# so the fail-safe arm must make no claim about the revision state either way.
+_so_c1 = _state([_round(1, 'file', 'REVISE', 'D1')], revisions=(1,), overrides=[
+    {'kind': 'user-decline', 'surface': 'step4-offer', 'recorded_at_ordinal': 1}])
+assert_eq("#611 stale-override remedy (c1): a digest-unbound current-ordinal override on "
+          "a file-arm epoch takes the fail-safe arm (no record-revision instruction)",
+          False, 'record-revision' in _so_remedy(_so_c1, 'D9'))
+assert_eq("#611 stale-override remedy (c1): the fail-safe arm makes no already-recorded "
+          "claim about the revision state",
+          False, 'already recorded' in _so_remedy(_so_c1, 'D9'))
+assert_eq("#611 stale-override remedy (c1): the fail-safe arm still names the "
+          "fresh-election step",
+          True, 'fresh explicit user election' in _so_remedy(_so_c1, 'D9'))
+
+# (c2) a FUTURE-ordinal override (recorded ordinal ahead of the current revision
+# ordinal — a hand-edited or older-build record). Arm b's "the revision is already
+# recorded" claim would be FALSE here, which is exactly why absence of a current-ordinal
+# override cannot select arm b on its own.
+_so_c2 = _state([_round(1, 'file', 'REVISE', 'D1')], revisions=(1,), overrides=[
+    {'kind': 'user-decline', 'surface': 'step4-offer', 'recorded_at_ordinal': 5,
+     'draft_digest': 'D2'}])
+assert_eq("#611 stale-override remedy (c2): a future-ordinal override takes the fail-safe "
+          "arm, NOT arm b (whose already-recorded claim would be false)",
+          False, 'already recorded' in _so_remedy(_so_c2, 'D9'))
+assert_eq("#611 stale-override remedy (c2): the fail-safe arm names no record-revision "
+          "step",
+          False, 'record-revision' in _so_remedy(_so_c2, 'D9'))
+
+# No arm may name a bare re-record sequence: `record-revision` immediately followed by
+# `record-override` would re-arm a user election the user never made, which is the very
+# defect the edit-sequencing rule exists to prevent. Arm a names `record-revision`, but
+# never as the first half of that pair.
+for _label, _st, _dg in (('a1', _so_a1, 'D9'), ('a2', _so_a2, 'D9'),
+                         ('b', _so_b_file, 'D3'), ('c1', _so_c1, 'D9'),
+                         ('c2', _so_c2, 'D9')):
+    assert_eq("#611 stale-override remedy (%s): never instructs a bare "
+              "record-revision-then-record-override pair" % _label,
+              False, 'record-override' in _so_remedy(_st, _dg))
+
+# Every arm accompanies a refusal whose STDOUT contract is unchanged — the breadcrumb is
+# additive on stderr, never a new token or a changed one.
+for _label, _st, _dg in (('a1', _so_a1, 'D9'), ('b', _so_b_file, 'D3'),
+                         ('c1', _so_c1, 'D9'), ('c2', _so_c2, 'D9')):
+    assert_eq("#611 stale-override remedy (%s): the underlying reason token is still "
+              "stale-override" % _label,
+              'stale-override',
+              issue_audit_state.evaluate_eligibility(_st, 'approve', _dg)['reason'])
+
+
+# The breadcrumb is emitted at the two REFUSAL surfaces and nowhere else. The three
+# fixtures below pin that placement decision from both directions — present at each
+# refusal, absent from the rendering surface — which is what forces the emission into
+# the two `cmd_*` call sites instead of the shared `evaluate_eligibility` they call.
+def _so_capture(fn, args, state):
+    """Run a cmd_* entry point against a fixture state, returning (stdout, stderr, rc)."""
+    _saved_load, _saved_query = issue_audit_state.load_state, issue_audit_state._query_state
+    _out, _err = io.StringIO(), io.StringIO()
+    issue_audit_state.load_state = lambda _slug: state
+    issue_audit_state._query_state = lambda _slug: state
+    _rc = 0
+    try:
+        with contextlib.redirect_stdout(_out), contextlib.redirect_stderr(_err):
+            try:
+                fn(args)
+            except SystemExit as exc:
+                _rc = exc.code if isinstance(exc.code, int) else 1
+    finally:
+        issue_audit_state.load_state = _saved_load
+        issue_audit_state._query_state = _saved_query
+    return _out.getvalue(), _err.getvalue(), _rc
+
+
+# A REAL draft file is supplied to every case below: the refusal precedence answers
+# `no-digest-supplied` ahead of `stale-override` whenever no digest is supplied, so a
+# fixture that omitted the file would never reach the arm under test. Its bytes hash to
+# something other than the fixture's recorded 'D2', which is exactly the digest-staled
+# shape arm a selects on.
+_so_draft = Path(tempfile.mkdtemp()) / 'issue-draft-s.md'
+_so_draft.write_text('# Title\n\nbody bytes\n', encoding='utf-8')
+
+# query-eligibility: the stdout token line stays byte-identical while the remedy rides
+# on stderr — so a caller parsing the closed one-token vocabulary is unaffected.
+_so_q_out, _so_q_err, _so_q_rc = _so_capture(
+    issue_audit_state.cmd_query_eligibility,
+    argparse.Namespace(slug='s', nonce='n0', mode='approve',
+                       draft_file=str(_so_draft)), _so_a1)
+assert_eq("#611 query-eligibility on stale-override: stdout token line unchanged",
+          'eligible=no reason=stale-override\n', _so_q_out)
+assert_eq("#611 query-eligibility on stale-override: query stays exit 0", 0, _so_q_rc)
+assert_eq("#611 query-eligibility on stale-override: the arm-selected remedy rides on "
+          "stderr",
+          True, 'fresh explicit user election' in _so_q_err)
+
+# (d) emit-body: the costliest discovery point (the creation epoch is already recorded),
+# so the same remedy must be named here. Its existing _fail message and exit code are
+# unchanged — the breadcrumb is purely additive.
+_so_e_out, _so_e_err, _so_e_rc = _so_capture(
+    issue_audit_state.cmd_emit_body,
+    argparse.Namespace(slug='s', nonce='n0', draft_file=str(_so_draft)), _so_a1)
+assert_eq("#611 emit-body on stale-override: refusal keeps its existing _fail message",
+          True,
+          'refusing to emit an unaudited body: eligibility answered not-eligible '
+          '(stale-override)' in _so_e_err)
+assert_eq("#611 emit-body on stale-override: refusal keeps its non-zero exit and EMPTY "
+          "stdout",
+          (True, ''), (_so_e_rc != 0, _so_e_out))
+assert_eq("#611 emit-body on stale-override: the arm-selected remedy accompanies the "
+          "refusal",
+          True, 'fresh explicit user election' in _so_e_err)
+
+# (e) query-summary is the reason token's THIRD reader — a RENDERING surface, not a
+# refusal. It must stay byte-unchanged: emitting the breadcrumb from the shared
+# evaluate_eligibility would grow an unplanned stderr line on every summary render of a
+# stale-override-shaped state. This assertion is what pins the emission-site decision.
+_so_s_out, _so_s_err, _so_s_rc = _so_capture(
+    issue_audit_state.cmd_query_summary,
+    argparse.Namespace(slug='s', nonce='n0', draft_file=str(_so_draft)), _so_a1)
+assert_eq("#611 query-summary on a stale-override state: stderr stays EMPTY (the "
+          "breadcrumb lives at the two refusal sites, never in evaluate_eligibility)",
+          '', _so_s_err)
+assert_eq("#611 query-summary on a stale-override state: still exit 0 with a rendered "
+          "line on stdout",
+          (0, True), (_so_s_rc, _so_s_out != ''))
+
 # approval_override_row — the accepted-re-audit -> REVISE -> revise terminal: an explicit
 # user approval recorded as the third user-decline surface grounds eligible.
 _approval_terminal = _state([_round(1, 'file', 'REVISE', 'D1')], revisions=(1,), overrides=[
