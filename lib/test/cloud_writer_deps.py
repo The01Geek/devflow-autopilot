@@ -84,13 +84,26 @@ def _declared_preflight_guarantees():
     if len(matches) != 1:
         raise RuntimeError(
             "lib/preflight.sh must declare exactly one "
-            "_DEVFLOW_PREFLIGHT_GUARANTEES array"
+            f"_DEVFLOW_PREFLIGHT_GUARANTEES array (found {len(matches)})"
         )
     tokens = matches[0].split()
-    if not tokens or len(tokens) != len(set(tokens)) or any(
-        not re.fullmatch(r"[A-Za-z0-9_.+-]+", token) for token in tokens
-    ):
-        raise RuntimeError("lib/preflight.sh has an invalid preflight guarantee declaration")
+    if not tokens:
+        raise RuntimeError(
+            "lib/preflight.sh has an invalid preflight guarantee declaration: "
+            "empty _DEVFLOW_PREFLIGHT_GUARANTEES array"
+        )
+    if len(tokens) != len(set(tokens)):
+        dup = sorted({t for t in tokens if tokens.count(t) > 1})
+        raise RuntimeError(
+            "lib/preflight.sh has an invalid preflight guarantee declaration: "
+            f"duplicate token(s) {dup}"
+        )
+    bad = [t for t in tokens if not re.fullmatch(r"[A-Za-z0-9_.+-]+", t)]
+    if bad:
+        raise RuntimeError(
+            "lib/preflight.sh has an invalid preflight guarantee declaration: "
+            f"malformed token(s) {bad}"
+        )
     return frozenset(tokens)
 
 
@@ -274,6 +287,8 @@ class Edge:
 def _read(rel):
     # Sources are read-only within a run and each entry point is read by both the
     # scanner and exec-edge forward-verification, so memoize to one read per file.
+    # NOTE: the cache is keyed by `rel` only — a test that swaps REPO_ROOT must
+    # also replace/patch `_read` (the existing test idiom) or it reads stale bytes.
     return (REPO_ROOT / rel).read_text(encoding="utf-8")
 
 
@@ -462,15 +477,13 @@ def _scan_python_imports(helper):
     return edges
 
 
-# A `.`/`source` command in a closure `.sh` helper — matched at any *command
-# position* (line start, or after `&&`/`||`/`;`/`{`/`(`), because closure helpers
-# source their resolver siblings inside compounds (`[ -f X ] && . X`, run-jq.sh)
-# and `||`-guarded includes (efficiency-trace.sh), not only at line start. `.`
-# must be followed by whitespace, so a `../parent` path never false-matches.
-_SRC_CMD = re.compile(
-    r'(?:^|[;&|{}!()]|\b(?:if|then|elif|else|while|until|do)\b)'
-    r'[ \t]*(?:\.|source)[ \t]'
-)
+# Include detection recognizes a `.`/`source` command at any *command
+# position* (line start, or after `&&`/`||`/`;`/`{`/`(`), because closure
+# helpers source their resolver siblings inside compounds (`[ -f X ] && . X`,
+# run-jq.sh) and `||`-guarded includes (efficiency-trace.sh), not only at line
+# start. The recognition is performed by `_shell_commands_with_bindings`' head
+# extraction (the `head in {".", "source"}` filter in `_scan_shell_sources`),
+# which tokenizes real command positions rather than pattern-matching text.
 # The sourced-file operand: a path token ending in `.sh`/`.bash`, allowing the
 # `$VAR` / `${VAR}` / `$(…)`-substitution chars the include expressions carry. The
 # `$(cd … && pwd)` prefix is stripped naturally (parens/quotes are not in the
@@ -520,9 +533,10 @@ def _source_tail(raw_target, allowed_dir_vars=frozenset()):
 # structurally against the whitespace-compacted value with QUOTE-TOLERANT
 # optional `"` at the structural positions (never blanket quote-stripping,
 # which conflates bash `$"…"` locale strings and stray quotes inside `${…%…}`
-# with grouping quotes): `$(cd "$(dirname "<self>")" && pwd)` or
-# `$(cd "${<self>%/*}" && pwd)`, where <self> is `$0` / `${0}` /
-# `$BASH_SOURCE` / `${BASH_SOURCE[0]}`. A whitelist — not a substring
+# with grouping quotes): `$(cd "$(dirname "<self>")" && pwd)` where <self> is
+# `$0` / `${0}` / `$BASH_SOURCE` / `${BASH_SOURCE[0]}`, or
+# `$(cd "${<self>%/*}" && pwd)` where <self> is `0` / `BASH_SOURCE[0]`
+# (the `%/*` alternative accepts only those two spellings). A whitelist — not a substring
 # heuristic — so every equivalent parent-anchor spelling (`/..` inside the cd
 # argument, a second `cd ..`, a nested double-`dirname`, a `/..` suffix after
 # `pwd)`, prefix junk) and every unmodeled quoting form (`$"`, `'`, `\`, a
@@ -614,7 +628,37 @@ def _scan_shell_sources(helper):
     helper_dir = str(Path(helper).parent.as_posix())
     code = _strip_shell_structural_data(_strip_line_comments(_read(helper)))
     variable = re.compile(r"^\$\{?([A-Za-z_]\w*)\}?$")
-    for head, args, states in _shell_commands_with_bindings(code):
+    commands = list(_shell_commands_with_bindings(code))
+    # Expansion-timing fail-closed: the shell expands `$HERE` inside a
+    # double-quoted ASSIGNMENT immediately, so an operand value captured while
+    # the dir var held a non-anchor binding must never be resolved against the
+    # var's later anchor binding. The tracker stores bare value strings (no
+    # per-assignment state snapshot), so provedness is computed conservatively
+    # over EVERY binding the variable takes anywhere in the file: one
+    # non-anchor binding (other than the accepted `$(pwd)` co-binding — the
+    # run-jq.sh case-fallback shape, where the runtime miss is loud) leaves the
+    # variable unproved and its include tails absolute-looking for the vendor
+    # guard to reject.
+    # Collect the raw assignment-event history (not the per-command states,
+    # whose replace-on-assignment semantics forget the earlier binding that an
+    # intermediate capture may have frozen).
+    file_wide_bindings = {}
+    for _kind, _first, _second in _shell_events(code):
+        if _kind == "assignment":
+            file_wide_bindings.setdefault(_first, set()).add(_second)
+    allowed_dir_vars = {
+        name
+        for name, values in file_wide_bindings.items()
+        if (
+            values
+            and any(_helper_dir_value(value) for value in values)
+            and all(
+                _helper_dir_value(value) or value.strip() == "$(pwd)"
+                for value in values
+            )
+        )
+    }
+    for head, args, states in commands:
         if head not in {".", "source"} or not args:
             continue
         operands = []
@@ -628,22 +672,6 @@ def _scan_shell_sources(helper):
                 _unresolved(args[0])
         else:
             operands.append(args[0])
-        possible_bindings = {}
-        for state in states:
-            for name, values in state.items():
-                possible_bindings.setdefault(name, set()).update(values)
-        allowed_dir_vars = {
-            name
-            for name, values in possible_bindings.items()
-            if (
-                values
-                and any(_helper_dir_value(value) for value in values)
-                and all(
-                    _helper_dir_value(value) or value.strip() == "$(pwd)"
-                    for value in values
-                )
-            )
-        }
         for operand in operands:
             tok = _SH_TOKEN.search(operand)
             if not tok:
@@ -672,13 +700,14 @@ def _scan_shell_sources(helper):
                 continue
             tail = _source_tail(raw_target, allowed_dir_vars)
             # A residual `$` in the tail is an unexpanded runtime substitution
-            # (an embedded `${VAR}` past the leading dir var), and `[`/`]` are
-            # glob metacharacters in an unquoted include — either way the
-            # literal tail does NOT describe the runtime expansion; fail closed.
+            # (an embedded `${VAR}` past the leading dir var), and `[`/`]`/
+            # `{`/`}` are glob/brace metacharacters in an unquoted include —
+            # either way the literal tail does NOT describe the runtime
+            # expansion; fail closed.
             if (
                 not tail
                 or not tail.endswith((".sh", ".bash"))
-                or any(ch in tail for ch in "$[]")
+                or any(ch in tail for ch in "$[]{}")
             ):
                 _unresolved(operand)
                 continue
@@ -2976,7 +3005,7 @@ def check_dependencies(edges=None):
         elif e.klass == "repo-owned":
             if getattr(e, "auth", None):
                 # Duck-typed edges bypass Edge.__post_init__, so re-assert its
-                # third invariant here (repo-owned edges carry no authorization).
+                # repo-owned-carries-no-authorization invariant here too.
                 errors.append(
                     f"{e.helper}: repo-owned {e.kind} edge {e.target!r} "
                     f"carries external authorization"
@@ -2988,24 +3017,39 @@ def check_dependencies(edges=None):
                 )
             else:
                 disk_target = REPO_ROOT / e.target
+                resolve_error = None
                 try:
                     resolved_inside_repo = disk_target.resolve().is_relative_to(
                         REPO_ROOT.resolve()
                     )
-                except (OSError, RuntimeError):
+                except (OSError, RuntimeError) as exc:
+                    # Fail closed, but never assert the symlink-escape diagnosis
+                    # for a condition that was not established (unknown is not
+                    # a diagnosis): the exception arm gets its own message.
                     resolved_inside_repo = False
+                    resolve_error = exc
                 if not resolved_inside_repo:
-                    errors.append(
-                        f"{e.helper}: repo-owned {e.kind} edge {e.target!r} resolves "
-                        "outside the repository (symlink escape)"
-                    )
+                    if resolve_error is not None:
+                        errors.append(
+                            f"{e.helper}: repo-owned {e.kind} edge {e.target!r} could "
+                            f"not be resolved ({resolve_error}); treating as outside "
+                            "the repository (fail closed)"
+                        )
+                    else:
+                        errors.append(
+                            f"{e.helper}: repo-owned {e.kind} edge {e.target!r} resolves "
+                            "outside the repository (symlink escape)"
+                        )
                 elif not disk_target.is_file():
                     errors.append(
                         f"{e.helper}: repo-owned {e.kind} edge target missing on disk: "
                         f"{e.target}"
                     )
         elif e.klass == "external":
-            if not e.auth:
+            # getattr for duck-typed symmetry with the repo-owned arm: a
+            # synthetic edge without the attribute draws the designed
+            # violation, never an AttributeError.
+            if not getattr(e, "auth", None):
                 errors.append(
                     f"{e.helper}: external {e.kind} edge {e.target!r} names no "
                     f"preflight guarantee or explicit profile grant"

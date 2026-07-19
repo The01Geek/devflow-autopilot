@@ -6023,7 +6023,7 @@ finally:
 
 # Non-vacuity — the vendored-boundary predicate rejects a prefix-collision sibling
 # and an absolute target (both would fail open if the `root + "/"` / absolute
-# guards regressed, and every other test would still pass — #583 review findings).
+# guards regressed — #583 review findings).
 assert_eq("#583 AC5: a prefix-collision sibling '.devflow/vendor/devflowX/…' does NOT resolve beneath vendor",
           False, cwd.resolves_beneath_vendor("../devflowX/foo.sh"))
 assert_eq("#583 AC5: an absolute target does NOT resolve beneath vendor (no pathlib reset fail-open)",
@@ -7028,8 +7028,11 @@ for _pa_spelling in (
               False, cwd._helper_dir_value(_pa_spelling))
 for _ok_spelling in (
     '$(cd "$(dirname "$0")" && pwd)',
+    '$(cd "$(dirname "${0}")" && pwd)',
+    '$(cd "$(dirname "$BASH_SOURCE")" && pwd)',
     '$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)',
     '$(cd "${0%/*}" && pwd)',
+    '$(cd "${BASH_SOURCE[0]%/*}" && pwd)',
 ):
     assert_eq(f"#598: legitimate helper-dir anchor is accepted: {_ok_spelling}",
               True, cwd._helper_dir_value(_ok_spelling))
@@ -7091,6 +7094,8 @@ for _wo_name, _wo_src, in (
      '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n. "$HERE-x.sh"\n'),
     ("glob bracket inside the tail",
      '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n. "$HERE/x[ab].sh"\n'),
+    ("brace expansion inside the tail",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n. "$HERE/x{2..5}.sh"\n'),
 ):
     try:
         cwd._read = lambda rel, _s=_wo_src: _s
@@ -7117,6 +7122,53 @@ assert_eq("#598: positive control — a plain inline-operand anchor include deri
           ([("source", "lib/resolve-jq.sh", "repo-owned")], []),
           ([(e.kind, e.target, e.klass) for e in _oi_edges],
            cwd.check_dependencies(edges=_oi_edges)))
+
+# Expansion-timing laundering (#598 iter-3): the shell expands $HERE inside a
+# double-quoted ASSIGNMENT immediately, so an operand captured while the dir
+# var held a non-anchor value must never be resolved against the var's LATER
+# anchor binding. Any non-anchor binding of the var anywhere in the file leaves
+# it unproved (fail closed).
+try:
+    cwd._read = lambda rel: (
+        '#!/usr/bin/env bash\nHERE=/evil\nF="$HERE/../lib/resolve-jq.sh"\n'
+        'HERE="$(cd "$(dirname "$0")" && pwd)"\n. "$F"\n')
+    _et_edges = cwd._scan_shell_sources("scripts/fake-rebind.sh")
+finally:
+    cwd._read = _orig_cwd_read
+assert_eq("#598 iter-3: a rebound dir var never launders a pre-anchor capture into a clean edge",
+          True,
+          bool(_et_edges) and bool(cwd.check_dependencies(edges=_et_edges)))
+# Mixed-binding fail-closed conjunct: a var bound to an anchor in one branch
+# and an untrusted path in another stays unproved; the anchor+$(pwd) mix (the
+# run-jq.sh fallback shape) remains the one accepted co-binding.
+try:
+    cwd._read = lambda rel: (
+        '#!/usr/bin/env bash\nif [ -n "$X" ]; then HERE="$(cd "$(dirname "$0")" && pwd)"; '
+        'else HERE=/tmp; fi\n. "$HERE/../lib/resolve-jq.sh"\n')
+    _mb_edges = cwd._scan_shell_sources("scripts/fake-mixed.sh")
+finally:
+    cwd._read = _orig_cwd_read
+assert_eq("#598 iter-3: an anchor+untrusted mixed binding stays unproved and is rejected",
+          True,
+          bool(_mb_edges) and bool(cwd.check_dependencies(edges=_mb_edges)))
+try:
+    cwd._read = lambda rel: (
+        '#!/usr/bin/env bash\nif [ -n "$X" ]; then HERE="$(cd "$(dirname "$0")" && pwd)"; '
+        'else HERE="$(pwd)"; fi\n. "$HERE/../lib/resolve-jq.sh"\n')
+    _pw_edges = cwd._scan_shell_sources("scripts/fake-pwdmix.sh")
+finally:
+    cwd._read = _orig_cwd_read
+assert_eq("#598 iter-3: the anchor+$(pwd) co-binding (run-jq fallback shape) still derives cleanly",
+          ([("source", "lib/resolve-jq.sh", "repo-owned")], []),
+          ([(e.kind, e.target, e.klass) for e in _pw_edges],
+           cwd.check_dependencies(edges=_pw_edges)))
+# Duck-typed EXTERNAL edge missing its auth attribute: the guard reports the
+# designed violation instead of detonating with AttributeError.
+_duck_ext_errors = cwd.check_dependencies(edges=[types.SimpleNamespace(
+    helper="scripts/duck-ext-598.sh", kind="exec", target="made-up-bin", klass="external")])
+assert_eq("#598 iter-3: a duck-typed external edge without auth draws the designed violation",
+          True,
+          any("names no preflight guarantee" in err for err in _duck_ext_errors))
 
 # An include of a variable bound to the empty string must emit the
 # unresolved-source edge (placeholder target), never crash Edge construction.
@@ -7171,6 +7223,7 @@ _pg_cases = {
         "readonly -a _DEVFLOW_PREFLIGHT_GUARANTEES=(gh)\n",
     "duplicate token": "readonly -a _DEVFLOW_PREFLIGHT_GUARANTEES=(git git)\n",
     "malformed token": "readonly -a _DEVFLOW_PREFLIGHT_GUARANTEES=(g!t)\n",
+    "empty declaration": "readonly -a _DEVFLOW_PREFLIGHT_GUARANTEES=( )\n",
 }
 for _pg_name, _pg_src in _pg_cases.items():
     with tempfile.TemporaryDirectory() as _pg_tmp:
@@ -7202,7 +7255,7 @@ assert_eq("#598: synthetic exec edge yields only its intended violation (no forw
            "names no preflight guarantee" in _syn_errors[0],
            any("not found in source" in err for err in _syn_errors)))
 
-# Duck-typed edge validation covers all three Edge constructor invariants: a
+# Duck-typed edge validation mirrors the guard-relevant Edge invariants: a
 # synthetic repo-owned edge smuggling an authorization string is rejected by the
 # guard itself, not only by Edge.__post_init__.
 _duck_errors = cwd.check_dependencies(edges=[types.SimpleNamespace(
