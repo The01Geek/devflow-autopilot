@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.16.0] — 2026-07-19
+
+### Added
+- **Add an early implement dependency preflight.** Declared open or unresolvable prerequisites now stop before Phase 1 creates or updates a feature branch. (#547)
+
 ## [2.15.25] — 2026-07-19
 
 ### Fixed
