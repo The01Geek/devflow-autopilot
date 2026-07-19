@@ -1,0 +1,19 @@
+{
+  "iter": 1,
+  "fix_commit_sha": "c59e3598f080092c17e3624a0fed8fa68109e088",
+  "fix_files": [
+    ".changeset/pr-563-selectable-test-modules.md",
+    ".github/workflows/ci.yml",
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+    "lib/test/module-harness.sh",
+    "lib/test/modules/workflow-flight-recorder.sh",
+    "lib/test/run-module.sh",
+    "lib/test/run.sh",
+    "lib/test/test_module_harness.py",
+    "lib/test/test_module_runner.py",
+    "scripts/workflow-flight-recorder-registry.json"
+  ],
+  "loop_role": "fix",
+  "synthesized": true,
+  "telemetry": "unavailable"
+}
