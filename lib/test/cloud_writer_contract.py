@@ -135,6 +135,7 @@ SKILL_ASSETS = {
         "skills/review/phases/phase-3-agents.md",
         "skills/review/phases/phase-4-verdict.md",
         "skills/review/phases/phase-4-1-7-stale-adjudication.md",
+        "skills/review/phases/phase-4-1-8-prose-cutover.md",
         "skills/review/phases/phase-4-4-github-post.md",
     ],
     # review-and-fix has NO phases/ dir — its fix-loop procedure lives in

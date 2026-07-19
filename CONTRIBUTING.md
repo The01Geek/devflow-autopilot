@@ -163,6 +163,9 @@ fails the suite. The summary renderer lives in `lib/test/summary.sh`.
   `skills/*/SKILL.md` and fails if a skill omits the standardized step, and the
   prompt-extension scaffold test derives the expected example set from `skills/*/` and
   fails if the scaffolder's list forgets one.
+- Prompt cutovers, trims, relocations, and mandatory-surface growth follow the artifact
+  procedure in [`.devflow/prompt-extensions/implement.md`](.devflow/prompt-extensions/implement.md)
+  under **Prose cutover**.
 
 ## Cloud-tier workflows
 
