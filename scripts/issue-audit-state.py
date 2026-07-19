@@ -23,8 +23,10 @@ TWO-CLASS CLI CONTRACT (the skill branches on exactly this):
   * Query subcommands ALWAYS exit 0 once their arguments parse (an argparse usage
     error — a missing required flag or an unknown one — exits 2 before the query logic
     runs) and answer on stdout with a decided single-line
-    token — fail-closed answers included. A crashed read is never presented as a
-    value. Queries are strictly READ-ONLY: the tool-unavailability fallback depends
+    token — fail-closed answers included — with exactly one exception: `query-findings`
+    prints one decided line per ledger entry and is the tool's one multi-line query (a
+    run with no ledger prints the single line `findings=none`). A crashed read is never
+    presented as a value. Queries are strictly READ-ONLY: the tool-unavailability fallback depends
     on a mutation-persistence failure still leaving the queries answering, so no
     query may write. This is why the eligibility token is *derived* on demand rather
     than persisted at issue time.
@@ -211,6 +213,20 @@ _PROTOCOL_TOKENS = (
     'stdin_digest', 'summary', 'superseded', 't1', 't2', 'tier', 'token', 'unresolved',
     'unresolved_must_revise', 'user_declined', 'user_rounds_used', 'verdict',
 )
+
+
+# The settling-provenance keys `_clear_settling` drops, and the set each status may
+# legally carry at the read boundary. Stated once so `_validate_ledger`'s residual-key
+# arm and that helper cannot drift apart: `_clear_settling` clears all four, so any key
+# a status is not listed with here is a shape the writer never emits.
+_SETTLING_KEYS = ('resolution_ordinal', 'ingest_provenance',
+                  'invalidation_provenance', 'invalidation_reason')
+_LEGAL_SETTLING_KEYS = {
+    'unresolved': frozenset(),
+    'superseded': frozenset(),
+    'resolved': frozenset(('resolution_ordinal', 'ingest_provenance')),
+    'invalidated': frozenset(('invalidation_provenance', 'invalidation_reason')),
+}
 
 
 def _forged_protocol_token(text):
@@ -701,10 +717,18 @@ def _validate_ledger(doc, rnd, num):
         if prov is not None and (prov != _LEDGER_INGESTED_RESOLVED or ingested != 'resolved'):
             raise StateError(f'round {num} findings entry {pos} carries ingest provenance '
                              f'{prov!r} but was ingested {ingested!r}')
-        if status in ('unresolved', 'superseded') and (
-                'resolution_ordinal' in entry or 'invalidation_provenance' in entry):
-            raise StateError(f'round {num} findings entry {pos} is {status} but retains a '
-                             f'settling provenance key')
+        # Read-boundary mirror of `_clear_settling`'s writer set. It re-enforces the FULL
+        # four-key set that helper clears, keyed on the status, rather than the two keys
+        # a resolved/invalidated entry happens to read back: a partial check leaves a
+        # reader/writer asymmetry where a residual `invalidation_reason` (or an
+        # `ingest_provenance` a reopen should have popped) survives load on a status the
+        # writer never emits it for. Coupled site — a key added to `_clear_settling`
+        # belongs in `_LEGAL_SETTLING_KEYS` in the same change.
+        residual = sorted(k for k in _SETTLING_KEYS
+                          if k in entry and k not in _LEGAL_SETTLING_KEYS[status])
+        if residual:
+            raise StateError(f'round {num} findings entry {pos} is {status} but retains '
+                             f'the settling provenance key {residual[0]!r}')
         if status == 'resolved':
             if entry.get('ingest_provenance') != _LEDGER_INGESTED_RESOLVED:
                 ordinal = entry.get('resolution_ordinal')
@@ -1222,10 +1246,20 @@ def _effective_unresolved(state):
     `unadjudicated-round` T2 arm keeps its comparand. Unknown is not zero: a ledger that
     happens to sum to 0 never launders an unestablished latest round into a clean answer.
 
-    Disclosed limitation of the additive migration: a PRE-CHANGE **earlier** round
-    without a ledger contributes nothing. Only the latest completed round's count is
-    passed through, so unresolved findings from an older ledger-less round are invisible
-    to the aggregate. This is stated rather than silently widened.
+    Disclosed limitation, mandated by AC5: only the LATEST completed round's count is
+    passed through, so unresolved findings from any **earlier** ledger-less round are
+    invisible to the aggregate. Two distinct shapes reach that state, and the second is
+    NOT a migration artifact — do not read this as legacy-only:
+      * a PRE-CHANGE earlier round, written before ledgers existed; and
+      * a post-change round adjudicated `REVISE` with an `unestablished` count, which
+        `cmd_record_adjudication` accepts WITHOUT a ledger (the `--ledger-stdin`
+        requirement is keyed on a SETTLED count), and which stops being the latest
+        completed round as soon as a further round completes.
+    So a run whose earlier round holds unestablished findings can report `converged=yes
+    basis=resolution` once a later ledgered round settles. AC5 fixes this passthrough
+    ("returns not-established exactly where `_unresolved_int` does today"), so the
+    boundary is stated rather than silently widened here; re-auditing re-surfaces a
+    genuinely unfixed defect onto a later ledgered round, which bounds the residual.
     """
     last = last_completed(state)
     if last is None:
@@ -2564,12 +2598,21 @@ def _ledgered_round(prefix, doc, round_no):
 
 
 def _named_entries(prefix, ledger, raw_ids, flag):
-    """Resolve a comma-separated id list against a ledger, or fail closed."""
+    """Resolve a comma-separated id list against a ledger, or fail closed.
+
+    Repeated ids collapse to ONE entry, first occurrence winning, so the order the
+    caller named survives. The mutations are idempotent per entry, so a duplicate never
+    corrupted state — but the three channels print `resolved=`/`reopened=`/`invalidated=`
+    from this list's length, and the skill parses those echoes, so an un-deduped list
+    reported more entries moved than exist. Shared by all three channels, so the
+    de-duplication holds for every id flag rather than the ones a caller happened to hit.
+    """
     ids = [tok.strip() for tok in (raw_ids or '').split(',') if tok.strip()]
     if not ids:
         _fail(prefix, f'{flag} named no ledger entries (empty-id-list)')
     by_id = {entry['id']: entry for entry in ledger}
     resolved = []
+    seen = set()
     for tok in ids:
         try:
             eid = int(tok)
@@ -2579,6 +2622,9 @@ def _named_entries(prefix, ledger, raw_ids, flag):
         if eid not in by_id:
             _fail(prefix, f'{flag} names entry id {eid}, which is not on the round\'s '
                           f'ledger (unknown-id)')
+        if eid in seen:
+            continue
+        seen.add(eid)
         resolved.append(by_id[eid])
     return resolved
 
@@ -2629,9 +2675,11 @@ def _clear_settling(entry):
     on every such channel to remember to add its key here. `reopen_provenance` is
     deliberately NOT cleared: it sits on statuses `_settling_ordinal` ignores, so it can
     never be read stale, and it is the entry's genuine regression history.
+
+    The cleared set is `_SETTLING_KEYS`, shared with `_validate_ledger`'s residual-key
+    arm, so the writer and the read boundary cannot drift apart.
     """
-    for key in ('resolution_ordinal', 'ingest_provenance',
-                'invalidation_provenance', 'invalidation_reason'):
+    for key in _SETTLING_KEYS:
         entry.pop(key, None)
 
 
@@ -3268,6 +3316,12 @@ def cmd_query_findings(args):
     may contain spaces; the AC1 vocabulary refusal is what keeps that unambiguous, since
     no summary can carry a `<field>=` word of the tool's own printed surface. This is the
     tool's one multi-line query.
+
+    INVARIANT for any future field: `summary=` must REMAIN trailing. A field appended
+    after it would end the unambiguous split — the reader could no longer tell a space
+    inside the summary from the delimiter before the next field — and the vocabulary
+    refusal does not rescue that, since it bars a summary from forging a field NAME, not
+    from containing spaces. Pinned by the `#603-17/AC8` suite row.
     """
     state = _query_state(args.slug)
     if state is not None and state['nonce'] != args.nonce:

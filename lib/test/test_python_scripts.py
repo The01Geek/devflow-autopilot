@@ -6808,6 +6808,158 @@ for _n11, _mut11 in (
         _r11 = True
     assert_eq(f"#603-11b/AC12: {_n11} collapses to StateError", True, _r11)
 
+# Row 11c/AC12 — the residual-settling-key arm, the read-boundary mirror of
+# `_clear_settling`'s writer set. Each row plants ONE key the writer pops on a status it
+# never emits it for; the shared positive control above (`_pc603`) is what proves these
+# reach the arm they name rather than an earlier precondition.
+# Each fixture plants EXACTLY ONE illegal key and is otherwise a legal entry, so the arm
+# named is the arm that fires — the assertion pins the residual-key message, and the
+# planted key itself, precisely because a second stray key would be reported instead and
+# the row would pass while proving nothing about the key it names.
+for _n11c, _key11c, _e11c, _files11c in (
+    ('a residual invalidation_reason on an unresolved entry',
+     'invalidation_reason',
+     _entry603(1, 'a', invalidation_reason='stale reason'), False),
+    ('a residual resolution_ordinal on an unresolved entry',
+     'resolution_ordinal', _entry603(1, 'a', resolution_ordinal=1), False),
+    # This one needs a companion unresolved entry: a REVISE round must carry at least one
+    # unresolved must-revise finding, which an ingested-`resolved` entry cannot supply, so
+    # a lone corrupt entry would be rejected by that precondition instead of this arm.
+    ('a residual ingest_provenance a reopen should have popped',
+     'ingest_provenance',
+     _entry603(2, 'a', ingested_status='resolved',
+               ingest_provenance='resolved-at-adjudication'), False),
+    ('a residual invalidation_reason on a superseded entry',
+     'invalidation_reason',
+     _entry603(1, 'a', 'superseded', supersession_round=2,
+               invalidation_reason='stale reason'), True),
+    ('a residual resolution_ordinal on a superseded entry',
+     'resolution_ordinal',
+     _entry603(1, 'a', 'superseded', supersession_round=2, resolution_ordinal=1), True),
+    ('a residual invalidation_provenance on a resolved entry',
+     'invalidation_provenance',
+     _entry603(1, 'a', 'resolved', resolution_ordinal=1,
+               invalidation_provenance='pre-revision'), False),
+    ('a residual resolution_ordinal on an invalidated entry',
+     'resolution_ordinal',
+     _entry603(1, 'a', 'invalidated', invalidation_reason='misclassified',
+               invalidation_provenance='pre-revision', resolution_ordinal=1), False),
+):
+    # An entry ingested `resolved` does not count toward unresolved_must_revise, so such a
+    # row rides behind a legal unresolved entry 1 that supplies the round's count.
+    _led11c = ([_entry603(1, 'still open'), _e11c] if _e11c['id'] == 2 else [_e11c])
+    _rounds11c = [_round603(1, unresolved=1, must_revise=len(_led11c), ledger=_led11c)]
+    if _files11c:
+        _rounds11c.append(_round(2, 'file', 'FILE', digest='D2', adj='FILE', unresolved=0,
+                                 must_revise=0, advisory=0, invalid=0))
+    _c11c = _state(_rounds11c, revisions=(1,))
+    try:
+        issue_audit_state._validate(_c11c, 's')
+        _r11c = 'no rejection at all'
+    except issue_audit_state.StateError as _exc11c:
+        _r11c = str(_exc11c)
+    assert_eq(f"#603-11c/AC12: {_n11c} is refused BY THE RESIDUAL-KEY ARM, naming that key",
+              True, 'settling provenance key' in _r11c and repr(_key11c) in _r11c)
+
+# Row 13 — `_forged_protocol_token` case-sensitivity carries a POSITIVE control. Every
+# other vocabulary row asserts a refusal, so a flip to case-insensitive matching would
+# keep them all green while silently over-refusing legitimate summaries. This row is the
+# one that fails on that flip.
+assert_eq("#603-13/AC1: an uppercase `Status=` forges nothing and is ACCEPTED",
+          None, issue_audit_state._forged_protocol_token('the Status=x line is prose'))
+assert_eq("#603-13/AC1: the lowercase spelling of the same token is still refused",
+          'status', issue_audit_state._forged_protocol_token('a status=x word'))
+
+# Row 14 — `_effective_unresolved`'s disclosed AC5 boundary, pinned as the CONTRACT it is
+# rather than left as a docstring caveat: an EARLIER round adjudicated REVISE with an
+# `unestablished` count carries no ledger, so its findings do not reach the run-wide
+# aggregate once a later ledgered round becomes latest. Post-change-reachable, not a
+# migration artifact — a behavior change here needs AC5 renegotiated, not a quiet edit.
+# The fixture carries a SETTLED count on the ledger-less earlier round, deliberately: an
+# `unestablished` count contributes nothing under ANY summing rule, so a fixture built on
+# it would stay green against a widened derivation and pin nothing. A settled count is the
+# shape that actually distinguishes the boundary.
+_ll603 = _state([_round(1, 'file', 'REVISE', digest='D1', adj='REVISE',
+                        unresolved=2, must_revise=2, advisory=0, invalid=0),
+                 _round603(2, unresolved=1, must_revise=1,
+                           ledger=[_entry603(1, 'fixed', 'resolved',
+                                             resolution_ordinal=1)])],
+                revisions=(1,))
+assert_eq("#603-14/AC5: an earlier ledger-less REVISE round with a SETTLED count "
+          "contributes nothing to the run-wide effective count (disclosed AC5 boundary)",
+          0, issue_audit_state._effective_unresolved(_ll603))
+# The post-change-reachable shape the docstring now names explicitly: REVISE with an
+# `unestablished` count is adjudicated WITHOUT a ledger, and goes invisible the moment a
+# further round completes. Pinned so the disclosure cannot quietly stop being true.
+_ll603u = _state([_round(1, 'file', 'REVISE', digest='D1', adj='REVISE',
+                         unresolved='unestablished', must_revise=2, advisory=0, invalid=0),
+                  _round603(2, unresolved=1, must_revise=1,
+                            ledger=[_entry603(1, 'fixed', 'resolved',
+                                              resolution_ordinal=1)])],
+                 revisions=(1,))
+assert_eq("#603-14/AC5: an earlier REVISE round with an unestablished count is likewise "
+          "invisible once a later ledgered round is latest",
+          0, issue_audit_state._effective_unresolved(_ll603u))
+
+# Row 15/AC11 — a POSITIVE effective count renders as its integer through query-summary.
+# The existing row pins the zero case, which cannot distinguish the integer render from
+# the unestablished token.
+_pos603 = _state([_round603(1, unresolved=2, must_revise=2,
+                            ledger=[_entry603(1, 'a'), _entry603(2, 'b')])],
+                 revisions=(1,))
+assert_eq("#603-15/AC11: a positive effective count renders as its integer, not a token",
+          2, issue_audit_state.summary_fields(_pos603, 'D1')['effective_unresolved'])
+
+
+# Row 16 — de-duplicated id lists, across all three post-close channels. The mutations are
+# idempotent per entry, so a repeat never corrupted state; what it corrupted is the
+# `resolved=`/`reopened=`/`invalidated=` echo the SKILL parses.
+def _row16(r):
+    r.open_round(1, 'REVISE', 2)
+    r.adjudicate(1, 'REVISE', 2, '2', 'unresolved: a\nunresolved: b\n')
+    r('record-revision', r.slug, '--after-round', '1', nonce=True)
+    dup = r('record-resolution', r.slug, '--round', '1', '--revision-ordinal', '1',
+            '--resolved-ids', '1,1,1', nonce=True)
+    # record-resolution echoes no per-entry count, so a repeat has nothing to inflate
+    # here — this row pins the idempotence, and the reopen/invalidate rows below are the
+    # ones that pin the de-duplication itself (they DO echo a count).
+    assert_eq("#603-16/AC3: a repeated id leaves record-resolution's echo unchanged",
+              (0, 'round=1 revision_ordinal=1 frozen=2 remaining=1'),
+              (dup.returncode, dup.stdout.strip()))
+    dupre = r('record-reopen', r.slug, '--round', '1', '--ids', '1,1', nonce=True)
+    assert_eq("#603-16/AC4: record-reopen echoes the de-duplicated count",
+              (0, 'round=1 reopened=1 remaining=2'),
+              (dupre.returncode, dupre.stdout.strip()))
+    dupinv = r('record-invalidate', r.slug, '--round', '1', '--ids', '2,2',
+               '--reason', 'misclassified', nonce=True)
+    assert_eq("#603-16/AC19: record-invalidate echoes the de-duplicated count",
+              (0, 'round=1 invalidated=1 remaining=1'),
+              (dupinv.returncode, dupinv.stdout.strip()))
+    # De-duplication must not swallow validation: an unknown id still fails closed even
+    # when a legal id precedes it and a duplicate surrounds it.
+    bad = r('record-reopen', r.slug, '--round', '1', '--ids', '1,1,9', nonce=True)
+    assert_eq("#603-16: a duplicate list still fails closed on an unknown id",
+              (1, True), (bad.returncode, 'unknown-id' in bad.stderr))
+
+
+_with_run603(_row16)
+
+
+# Row 17/AC8 — `summary=` is the TRAILING field of every query-findings line. The
+# reconciliation surface is only unambiguous because nothing follows the one field whose
+# value may carry spaces; a field appended after it would silently break that. This pins
+# the invariant against a future addition rather than trusting the docstring.
+def _row17(r):
+    r.open_round(1, 'REVISE', 1)
+    r.adjudicate(1, 'REVISE', 1, '1', 'unresolved: a b c\n')
+    line = r('query-findings', r.slug, nonce=True).stdout.strip()
+    assert_eq("#603-17/AC8: nothing follows summary= on a query-findings line",
+              ('round=1 id=1 status=unresolved summary=', 'a b c'),
+              (line[:line.index('summary=') + 8], line.split('summary=', 1)[1]))
+
+
+_with_run603(_row17)
+
 print()
 print(f"{PASS} passed, {FAIL} failed")
 sys.exit(0 if FAIL == 0 else 1)
