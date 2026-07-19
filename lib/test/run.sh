@@ -44393,7 +44393,9 @@ if [ -d "$WP_SB" ]; then
     # ARM ORDER, not just the two arms: the empty refusal sits ABOVE the binding guard, so it
     # fires on an UNBOUND run too. Without this row, scoping the empty check under the binding
     # guard keeps every other row green while an unbound run with --write-path "" flips from
-    # refused to accepted — the unestablished report silently proceeding.
+    # refused to accepted — the unestablished report silently proceeding. (An empty value
+    # reaches the tool from a caller that composes the path from a shell-resolved root; the
+    # shipped skill substitutes an already-resolved literal, so this is defense in depth.)
     N8="$(python3 "$IAS" init wp8 | sed 's/nonce=//')"
     python3 "$IAS" record-dispatch wp8 --nonce "$N8" --round 1 --arm file \
       --write-path "" --draft-file d.md > /dev/null 2> .wp-empty-unbound

@@ -1712,11 +1712,13 @@ def cmd_record_dispatch(args):
         # canonical file) and a caller that omits --write-path both proceed unchanged, so
         # the cross-check is additive, never a new mandatory field on the file arm.
         #
-        # An OMITTED --write-path is an opt-out; a PRESENT-BUT-EMPTY one is not. The skill
-        # composes this value in shell ("$MAIN_ROOT/.devflow/tmp/..."), so an unresolved root
-        # yields an empty string — an *unestablished* report, which a truthiness test would
-        # silently collapse onto "caller opted out" and disarm the check on exactly the drift
-        # it exists to catch (the repo's unknown-is-not-zero rule). Refuse it by name instead.
+        # An OMITTED --write-path is an opt-out; a PRESENT-BUT-EMPTY one is not. A caller that
+        # composes this value from a shell-resolved root yields an empty string when that root
+        # is unresolved — an *unestablished* report, which a truthiness test would silently
+        # collapse onto "caller opted out" and disarm the check on exactly the drift it exists
+        # to catch (the repo's unknown-is-not-zero rule). Refuse it by name instead. (This is
+        # defense in depth, not a description of the shipped skill: create-issue substitutes an
+        # already-resolved literal path here, so it is a hazard for other callers and runners.)
         #
         # NOTE (issue #569 scope split): making the binding itself REQUIRED on every file-arm
         # dispatch (fail-closed `binding-required-on-file-arm` when absent) is the strict half
