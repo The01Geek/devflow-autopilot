@@ -7186,6 +7186,15 @@ for _rb_name, _rb_src in (
     ("read rebind",
      '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
      'read -r HERE\n. "$HERE/../lib/resolve-jq.sh"\n'),
+    ("read rebind with option argument",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+     'read -p "path: " HERE\n. "$HERE/../lib/resolve-jq.sh"\n'),
+    ("mapfile rebind",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+     'mapfile -t HERE\n. "$HERE/../lib/resolve-jq.sh"\n'),
+    ("printf -v rebind",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+     'printf -v HERE /evil\n. "$HERE/../lib/resolve-jq.sh"\n'),
     ("append rebind",
      '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
      'HERE+=/evil\n. "$HERE/../lib/resolve-jq.sh"\n'),

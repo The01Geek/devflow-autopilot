@@ -604,11 +604,13 @@ def _scan_shell_sources(helper):
     treated as a visible binding — a scoped assignment may therefore classify a
     source edge the runtime would not source (the runtime include then fails
     loudly on the unset variable; the misattribution is static-side only).
-    Two further disclosed boundaries of the same static-side-misattribution
-    class: the word tokenizer drops ``\\`` (so an escaped ``\\$VAR`` — a literal,
-    non-expanding path at runtime — is scanned as if it expanded), and a bare
+    Further disclosed boundaries of the same static-side-misattribution class:
+    the word tokenizer drops ``\\`` (so an escaped ``\\$VAR`` — a literal,
+    non-expanding path at runtime — is scanned as if it expanded); a bare
     relative include (``. x.sh``) is classified helper-dir-relative although
-    bash resolves it via ``$PATH`` first.
+    bash resolves it via ``$PATH`` first; and an ``eval``- or
+    ``unset``-mediated rebind of a dir variable is out of static reach (a var
+    rebound only that way keeps its provedness).
     """
     edges = []
     seen = set()
@@ -650,11 +652,20 @@ def _scan_shell_sources(helper):
     for _kind, _first, _second in _shell_events(code, include_substitutions=False):
         if _kind == "assignment":
             file_wide_bindings.setdefault(_first, set()).add(_second)
+    # Deliberate OVER-poisoning: every name-shaped token to end-of-segment
+    # after read/mapfile/readarray/getopts (option arguments included) is
+    # poisoned — a false poison is fail-closed, an escaped rebind target is
+    # not. This also means a name inside a quoted string on such a line (or
+    # anywhere for `for`/`+=`) poisons; disclosed here as the accepted
+    # direction. `eval`- and `unset`-mediated rebinds are out of static reach
+    # (see the docstring's disclosed boundaries).
     for _m in re.finditer(r"\bfor[ \t]+([A-Za-z_]\w*)\b", code):
         file_wide_bindings.setdefault(_m.group(1), set()).add("<rebound>")
-    for _m in re.finditer(r"\bread\b((?:[ \t]+-\w+)*(?:[ \t]+[A-Za-z_]\w*)+)", code):
+    for _m in re.finditer(r"\b(?:read|mapfile|readarray|getopts)\b([^\n;|&]*)", code):
         for _name in re.findall(r"[A-Za-z_]\w*", _m.group(1)):
             file_wide_bindings.setdefault(_name, set()).add("<rebound>")
+    for _m in re.finditer(r"\bprintf[ \t]+-v[ \t]+([A-Za-z_]\w*)", code):
+        file_wide_bindings.setdefault(_m.group(1), set()).add("<rebound>")
     for _m in re.finditer(r"\b([A-Za-z_]\w*)\+=", code):
         file_wide_bindings.setdefault(_m.group(1), set()).add("<rebound>")
     allowed_dir_vars = {
