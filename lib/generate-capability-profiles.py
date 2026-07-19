@@ -170,7 +170,10 @@ def load_lock():
             f"reviewer security boundary lock absent: {LOCK_PATH} does not exist "
             "(the review profile's resolved token list, one per line)"
         )
-    text = LOCK_PATH.read_text(encoding="utf-8")
+    try:
+        text = LOCK_PATH.read_text(encoding="utf-8")
+    except OSError as exc:
+        die(f"reviewer security boundary lock unreadable: {LOCK_PATH}: {exc}")
     return [ln for ln in text.split("\n") if ln != ""]
 
 
@@ -274,6 +277,17 @@ REGIONS = [
 ]
 
 
+# The `VAR='…'` assignment anchor and the `--allowed-tools`-then-quote marker are the
+# single source of each region's uniqueness contract. Defining them once and sharing them
+# across the write path (process_*) and the verification path (do_check) keeps the two
+# from drifting — a duplicate anchor must be refused identically on both.
+def _assign_anchor_re(var):
+    return re.compile(r"^([ \t]*)" + re.escape(var) + r"='[^']*'", re.M)
+
+
+IMPLEMENT_MARKER_RE = re.compile(r'--allowed-tools\n[ \t]*"')
+
+
 def _strip_banner_line(text, span):
     """Remove the banner line covering `span`, including its trailing newline."""
     b0, b1 = span
@@ -316,7 +330,7 @@ def _existing_banner(text, indent, rid):
 def process_assign(text, region, tokens, version):
     rid = region["id"]
     var = region["var"]
-    anchor_re = re.compile(r"^([ \t]*)" + re.escape(var) + r"='[^']*'", re.M)
+    anchor_re = _assign_anchor_re(var)
     matches = list(anchor_re.finditer(text))
     if not matches:
         die(f"region {rid}: anchor {var}=' not found in {region['file'].name}")
@@ -368,7 +382,7 @@ def process_implement(text, region, tokens, version):
     rid = region["id"]
     # Anchor uniqueness on the --allowed-tools marker (the flag on its own line
     # immediately followed by the opening quote — NOT a mention in a comment).
-    marker_count = len(re.findall(r'--allowed-tools\n[ \t]*"', text))
+    marker_count = len(IMPLEMENT_MARKER_RE.findall(text))
     if marker_count == 0:
         die(f"region {rid}: anchor '--allowed-tools' not found in {region['file'].name}")
     if marker_count > 1:
@@ -478,6 +492,24 @@ def do_check(version, resolved):
         tokens = resolved[region["profile"]]
         expected_sha = region_sha(tokens)
         rid = region["id"]
+
+        # Mirror generate's fail-closed duplicate-anchor refusal on the verification
+        # side. A second injected `VAR='…widened…'` assignment (or `--allowed-tools`
+        # marker) WINS at bash runtime — the last assignment in the step is what the
+        # reviewer actually runs with — while a first-match parse here would inspect only
+        # the still-canonical leading copy and pass clean. Refuse to verify an ambiguous
+        # region exactly as generate refuses to write one, so an injected duplicate cannot
+        # silently widen the reviewer boundary past the --check gate.
+        if region["kind"] == "assign":
+            ndup = len(_assign_anchor_re(region["var"]).findall(text))
+        else:
+            ndup = len(IMPLEMENT_MARKER_RE.findall(text))
+        if ndup > 1:
+            die(
+                f"region {rid}: anchor is duplicated ({ndup} matches) in {fp.name} during "
+                "--check — refusing to verify against an ambiguous region (a later "
+                "duplicate assignment would win at bash runtime)"
+            )
 
         if region["kind"] == "assign":
             found_tokens = parse_assign_tokens(text, region)

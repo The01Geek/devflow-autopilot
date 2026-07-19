@@ -134,6 +134,30 @@ def main(argv):
         d = load_manifest(root)
         d["manifest_version"] = "2"
         dump_manifest(root, d)
+    elif mut == "version-bool":
+        # bool is an int subclass; the generator's explicit isinstance(ver, bool) guard
+        # must reject it as a non-integer.
+        d = load_manifest(root)
+        d["manifest_version"] = True
+        dump_manifest(root, d)
+    elif mut == "version-bump":
+        # Bump manifest_version but regenerate NOTHING — the banners still embed the old
+        # version, so --check must flag stale banners even though the token lists match.
+        d = load_manifest(root)
+        d["manifest_version"] = int(d["manifest_version"]) + 1
+        dump_manifest(root, d)
+    elif mut == "lock-unreadable":
+        # Present-but-unreadable lock (a directory in its place): read_text raises OSError,
+        # which the generator must turn into a fail-closed breadcrumb, not a traceback.
+        p = lock_path(root)
+        p.unlink()
+        p.mkdir()
+    elif mut == "review-narrow":
+        # Drop a NON-leading token from a review-referenced group while the lock keeps it →
+        # resolved review NARROWS below the lock (the missing-direction boundary drift).
+        d = load_manifest(root)
+        d["groups"]["core_review"].pop()
+        dump_manifest(root, d)
     elif mut == "review-widen":
         # Add a token to a review-referenced GROUP → resolved review drifts from the
         # lock (the reviewer-boundary planted defect); leading three tokens unchanged.
@@ -166,6 +190,17 @@ def main(argv):
             return text[: m.end()] + m.group(0) + text[m.end() :]
 
         edit_wf(root, "devflow-runner.yml", dup)
+    elif mut == "implement-marker-dup":
+        # Inject a SECOND `--allowed-tools\n  "…"` marker above the real one. At action
+        # runtime a later duplicate could win; --check must refuse the ambiguity, not
+        # verify only the first (still-canonical) copy.
+        def dup_marker(text):
+            m = re.search(r'--allowed-tools\n[ \t]*"', text)
+            if not m:
+                return text
+            return text[: m.start()] + '--allowed-tools\n          "Bash(INJECTED:*)"\n' + text[m.start() :]
+
+        edit_wf(root, "devflow-implement.yml", dup_marker)
     elif mut == "implement-unterminated":
         edit_wf(
             root,

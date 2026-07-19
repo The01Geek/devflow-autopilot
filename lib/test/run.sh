@@ -8260,6 +8260,29 @@ assert_eq "#561 T8 assertion does NOT fire on a comment naming the manifest (neg
   "$(_cap_noncomment_hits "$CAP_RT_NEG")"
 rm -f "$CAP_RT_POS" "$CAP_RT_NEG"
 
+# T13 — #561 review-follow-up hardening (PR #588 review-and-fix).
+# T13a/b: an injected DUPLICATE anchor (a second `TOOLS='…widened…'` assign, or a second
+# `--allowed-tools` marker) wins at bash/action runtime while a first-match parse would
+# inspect only the canonical leading copy. generate already refuses this ("refusing to
+# guess"); --check must refuse it too or the reviewer boundary widens past the gate. Both
+# region kinds (assign + implement) are exercised so neither dup-guard branch is vacuous.
+_cap_fail "#561 T13a --check refuses a duplicated assign anchor (reviewer-boundary vector)" anchor-duplicated    check "is duplicated"
+_cap_fail "#561 T13b --check refuses a duplicated implement marker"                        implement-marker-dup check "is duplicated"
+# T13c: manifest_version bumped without regenerating → token lists still match and the
+# banner sha still matches, so ONLY the found_ver==version conjunct catches it. Without
+# this row that conjunct is vacuously covered (a regression dropping it would stay green).
+_cap_fail "#561 T13c --check flags a stale banner when manifest_version is bumped w/o regen" version-bump check "banner is stale"
+# T13d: a present-but-unreadable lock (a directory in its place) → the read must fail
+# closed with the documented breadcrumb, not an uncaught OSError traceback.
+_cap_fail "#561 T13d review-profile lock unreadable (fail-closed breadcrumb, not traceback)" lock-unreadable generate "lock unreadable" unchanged
+# T13e: manifest_version boolean-typed → the explicit isinstance(ver, bool) guard rejects
+# it (bool is an int subclass, so a bare isinstance(int) would wrongly accept it).
+_cap_fail "#561 T13e manifest_version boolean-typed is rejected as a non-integer"            version-bool    generate "'manifest_version' must be an integer" unchanged
+# T13f: review NARROWS below the lock (a review-referenced group loses a non-leading token
+# while the lock keeps it) → the boundary check's missing-direction ('would NARROW') arm,
+# the sibling of the review-widen row, observes RED.
+_cap_fail "#561 T13f review narrows below the lock (missing-direction boundary drift)"       review-narrow   generate "would NARROW the reviewer" unchanged
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "implement-profile head guard (#484)"
 # ────────────────────────────────────────────────────────────────────────────
