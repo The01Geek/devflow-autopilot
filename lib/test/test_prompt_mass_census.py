@@ -259,7 +259,11 @@ class PromptMassCensusTests(unittest.TestCase):
             self.write(relative, "base\n")
         self.write_json("manifest.json", self.manifest(files))
         self.write_json("baseline.json", self.baseline(files))
-        self.git("init", "-q")
+        # Pin the initial branch name rather than inheriting the host's
+        # `init.defaultBranch`: a desk configured to `main` (the modern git default)
+        # made the `checkout master` below fail, turning this fixture RED for a
+        # reason that has nothing to do with the census under test.
+        self.git("init", "-q", "-b", "master")
         self.git("config", "user.email", "fixture@example.invalid")
         self.git("config", "user.name", "Fixture")
         self.git("add", ".")
