@@ -15,7 +15,7 @@ shallow-clone-safe, reads no history), and all shape/membership logic is Python.
 
 The guard is importable — `evaluate(...)` is a pure function over
 (tracked_files, map value, registry value) so `test_coverage_map_guard.py` can
-drive every one of its 8 arms with synthetic fixtures — and runnable as a CLI:
+drive every one of its arms with synthetic fixtures — and runnable as a CLI:
 `python3 lib/test/coverage_map_guard.py [repo_root]` prints one violation per
 line to stdout and exits non-zero on any violation (or a fail-closed input
 error), 0 when clean.
@@ -30,7 +30,7 @@ from pathlib import Path
 MAP_REL = "lib/test/modules/coverage-map.json"
 REGISTRY_REL = "scripts/workflow-flight-recorder-registry.json"
 
-# The five depth-1 patterns, as (top-level dir, extension) pairs. Complete by
+# The depth-1 patterns, as (top-level dir, extension) pairs. Complete by
 # construction at seeding time (issue #591 AC). Note scripts/*.jq is deliberately
 # NOT a pattern — a depth-1 scripts/*.jq is a code unit outside the set, caught by
 # arm 5 (absent from non_code_exempt) so the pattern set itself is ratcheted.
@@ -100,7 +100,11 @@ def _map_shape_error(map_value: object) -> "str | None":
     caught non-vacuously by arm 1), so it is NOT a shape error here."""
     if not isinstance(map_value, dict):
         return f"coverage-map is not a JSON object; {MAP_REMEDY}"
-    if map_value.get("schema_version") != 1 or not isinstance(map_value.get("schema_version"), int):
+    # bool is an int subclass, so `isinstance(True, int)` is True and `True == 1`; reject
+    # bool explicitly (mirrors the sibling generator's T13e manifest_version guard) so a
+    # `"schema_version": true` is not accepted as integer 1.
+    schema_version = map_value.get("schema_version")
+    if isinstance(schema_version, bool) or not isinstance(schema_version, int) or schema_version != 1:
         return f"coverage-map schema_version must be integer 1; {MAP_REMEDY}"
     if not isinstance(map_value.get("files"), dict):
         return f"coverage-map 'files' must be a JSON object; {MAP_REMEDY}"
@@ -137,7 +141,7 @@ def evaluate(
 ):
     """Return a list of violation breadcrumbs (empty ⇒ clean). Never raises.
 
-    Each of the 8 arms records a FAIL line. `map_read_error` / `registry_read_error`
+    Each arm records a FAIL line. `map_read_error` / `registry_read_error`
     carry a read/parse failure the CLI already hit (arms 4 / 8 fail closed on an
     absent/unreadable file too, not only a wrong shape)."""
     violations = []
@@ -185,13 +189,16 @@ def evaluate(
                 else ""
             )
             violations.append(
-                f"[arm5] git-tracked depth-1 file {path!r} matches none of the five patterns and is absent from non_code_exempt{hint}"
+                f"[arm5] git-tracked depth-1 file {path!r} matches none of the coverage patterns and is absent from non_code_exempt{hint}"
             )
 
     # ── Arm 6: a git-tracked code file deeper than depth-1, outside every exempt subtree
+    # Compare against a slash-terminated subtree prefix so an entry `lib/test` (no trailing
+    # slash) matches `lib/test/x.sh` but NOT a sibling like `lib/testfoo/x.sh`.
+    exempt_prefixes = [sub if sub.endswith("/") else sub + "/" for sub in exempt_subtrees]
     for path in sorted(tracked):
         if _under_lib_or_scripts(path) and not _depth1(path) and _ext(path) in CODE_EXTS:
-            if not any(path.startswith(sub) for sub in exempt_subtrees):
+            if not any(path.startswith(pref) for pref in exempt_prefixes):
                 violations.append(
                     f"[arm6] git-tracked code file {path!r} is deeper than depth-1 and outside every exempt_subtrees entry — cover it or add its subtree to exempt_subtrees"
                 )
@@ -253,7 +260,17 @@ def _load_json(path: Path):
 
 def main(argv):
     repo_root = Path(argv[1]).resolve() if len(argv) > 1 else Path.cwd()
-    tracked = _git_tracked(repo_root)
+    # git is preflight-guaranteed, but honor the file's fail-closed-with-a-named-breadcrumb
+    # posture (the JSON reads do the same via _load_json) rather than letting a git failure
+    # surface as a raw traceback.
+    try:
+        tracked = _git_tracked(repo_root)
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError) as error:
+        print(
+            f"[input-error] git ls-files failed under {repo_root} ({error}); cannot "
+            "enumerate the tracked lib/scripts surface — run from a git repo with git on PATH"
+        )
+        return 1
     map_value, map_error = _load_json(repo_root / MAP_REL)
     registry_value, registry_error = _load_json(repo_root / REGISTRY_REL)
     violations = evaluate(

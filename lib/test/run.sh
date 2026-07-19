@@ -32196,8 +32196,10 @@ echo "#591: pin-corpus meta-lints cover registered module files"
 # and pin-in-comment meta-lints must keep covering them (issue #591). The corpus is
 # extended by running BOTH meta-lints over each registered module file (its
 # devflow_module_pin_* call sites are now recognized helpers). create-issue-contract.sh
-# is the module carrying namespaced pins today; its file vars resolve via --var so the
-# meta-guard checks the rendered surfaces (runtime bundle temps stay unresolved/surfaced).
+# is the only module today whose pin TARGETS need --var resolution (its file paths are
+# CI_ROOT-derived template vars); other modules pin repo-fixed paths that --lib resolves.
+# The CI_MOD_VARS let the meta-guard check create-issue's rendered surfaces (runtime
+# bundle temps stay unresolved/surfaced).
 CI_MOD_VARS=(
   --var "CI_SKILL=skills/create-issue/SKILL.md"
   --var "CI_TMPL=skills/create-issue/references/issue-template.md"
@@ -32211,13 +32213,27 @@ for _mod in "$LIB"/test/modules/*.sh; do
     */create-issue-contract.sh) _mod_vars=( "${CI_MOD_VARS[@]}" ) ;;
     *) _mod_vars=() ;;
   esac
+  # pin-corpus-lint.py emits findings to STDOUT and returns rc!=0 ONLY on an arg-parse
+  # error — never on a COLLISION/WRAPPED/ABSENT/HELP finding. So a bare rc check passes
+  # VACUOUSLY on a real finding (the #375-documented fail-open). Fold rc AND stdout into
+  # the comparand exactly as the #375 real-corpus scan does: clean == rc 0 AND empty stdout.
   _MOD_LINT_OUT="$(python3 "$PCL" lint "$_mod" --lib "$LIB" "${_mod_vars[@]}" 2>/dev/null)"; _MOD_LINT_RC=$?
-  assert_eq "#591 pin-corpus lint clean over module $(basename "$_mod")" "0" "$_MOD_LINT_RC"
-  [ "$_MOD_LINT_RC" -eq 0 ] || printf '    %s\n' "$_MOD_LINT_OUT"
+  assert_eq "#591 pin-corpus lint clean over module $(basename "$_mod")" "rc=0|" "rc=$_MOD_LINT_RC|$_MOD_LINT_OUT"
   _MOD_WRAP_OUT="$(python3 "$PCL" wrapped "$_mod" --lib "$LIB" "${_mod_vars[@]}" 2>/dev/null)"; _MOD_WRAP_RC=$?
-  assert_eq "#591 pin-corpus wrapped clean over module $(basename "$_mod")" "0" "$_MOD_WRAP_RC"
-  [ "$_MOD_WRAP_RC" -eq 0 ] || printf '    %s\n' "$_MOD_WRAP_OUT"
+  assert_eq "#591 pin-corpus wrapped clean over module $(basename "$_mod")" "rc=0|" "rc=$_MOD_WRAP_RC|$_MOD_WRAP_OUT"
 done
+# Resolution floor: the meta-guards only actually CHECK a pin whose target file resolves.
+# create-issue-contract.sh carries the module corpus's namespaced pins whose targets need
+# --var resolution, so a regression breaking that resolution would leave every pin
+# UNRESOLVED (surfaced, not asserted) and the wrapped guard would scan nothing while still
+# reading clean. Pin a RESOLVED-COUNT floor over its wrapped scan (176 resolve today; the
+# 2 unresolved are runtime bundle temps) so a resolution regression turns RED, not green.
+_CI_WRAP_ERR="$(mktemp)"
+python3 "$PCL" wrapped "$LIB/test/modules/create-issue-contract.sh" --lib "$LIB" "${CI_MOD_VARS[@]}" >/dev/null 2>"$_CI_WRAP_ERR" || true
+_CI_WRAP_RESOLVED="$(grep '^RESOLVED-COUNT' "$_CI_WRAP_ERR" 2>/dev/null | tail -1)"; _CI_WRAP_RESOLVED="${_CI_WRAP_RESOLVED##*$'\t'}"
+assert_eq "#591 pin-corpus: create-issue module pin targets still resolve (>=150 for the wrapped meta-guard)" \
+  "yes" "$({ [ -n "$_CI_WRAP_RESOLVED" ] && [ "$_CI_WRAP_RESOLVED" -ge 150 ]; } 2>/dev/null && echo yes || echo no)"
+rm -f "$_CI_WRAP_ERR"
 
 # T-pinlint: a MODULE-file pin source carrying an off-line (wrapped) devflow_module_pin_*
 # pin is reported by the wrapped meta-guard — proving both that module sources join the
@@ -42783,7 +42799,7 @@ echo "issue #591: coverage-map ratchet guard"
 # Live-tree ratchet: the guard enumerates git-tracked depth-1 lib/scripts units
 # and cross-references lib/test/modules/coverage-map.json + the registry. A new code
 # unit shipped without a coverage decision — or a stale/misfiled/wrong-shape map —
-# turns THIS suite RED (git + python3 only; guard-class 2). Its 8 arms are exercised
+# turns THIS suite RED (git + python3 only; guard-class 2). Its arms are exercised
 # with synthetic fixtures by test_coverage_map_guard.py below.
 COVERAGE_GUARD_OUT="$(python3 "$LIB/test/coverage_map_guard.py" "$LIB/.." 2>&1)"
 COVERAGE_GUARD_RC=$?
@@ -42793,7 +42809,7 @@ assert_eq "#591 coverage-map guard: shipped tree + map is clean" "0" "$COVERAGE_
 # rather than re-implementing its capture/assert/indent idiom — it also applies the
 # PYTHON_COLORS=0 determinism guard the hand-rolled form dropped.
 _CG_UNIT_OUT="$(mktemp)"
-devflow_run_focused_python_test "#591 coverage-map guard: focused Python tests pass (all 8 arms)" \
+devflow_run_focused_python_test "#591 coverage-map guard: focused Python tests pass" \
   "$LIB/test/test_coverage_map_guard.py" "$_CG_UNIT_OUT"
 rm -f "$_CG_UNIT_OUT"
 

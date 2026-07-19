@@ -94,7 +94,7 @@ _cap_fail() {  # name mutation mode substr [unchanged]
   rm -rf "$root"
 }
 
-# T6 — the 14-row manifest matrix (config-JSON-consumer six-shape convention + surface
+# T6 — the manifest adversarial matrix (config-JSON-consumer six-shape convention + surface
 # rows). Each asserts non-zero + a defect-naming breadcrumb + target bytes unchanged.
 _cap_fail "#561 T6 manifest: top-level array"                 top-array          generate "top-level must be a JSON object" unchanged
 _cap_fail "#561 T6 manifest: top-level scalar"               top-scalar         generate "top-level must be a JSON object" unchanged
@@ -115,7 +115,7 @@ _cap_fail "#561 T6 manifest: manifest file absent"           manifest-absent    
 # the reviewer silently).
 _cap_fail "#561 reviewer boundary: widening token is named in the breadcrumb" review-widen generate "Bash(WIDEN_REVIEWER:*)" unchanged
 
-# T7 — the 7-row region matrix (parser over hand-corruptible workflow text). Each asserts
+# T7 — the region matrix (parser over hand-corruptible workflow text). Each asserts
 # non-zero + breadcrumb + the target files left byte-unchanged after the failed run.
 _cap_fail "#561 T7 region: anchor absent"                anchor-absent          generate "anchor REVIEW=' not found" unchanged
 _cap_fail "#561 T7 region: anchor duplicated"            anchor-duplicated      generate "is duplicated" unchanged
@@ -125,8 +125,8 @@ _cap_fail "#561 T7 region: CRLF line ending in a region" crlf-in-region         
 _cap_fail "#561 T7 region: target workflow file absent"  target-file-absent     generate "target workflow file absent" unchanged
 _cap_fail "#561 T7 region: banner present but malformed" banner-malformed       generate "banner line for this region is present but malformed" unchanged
 
-# T3 — planted-defect positive controls: one token deleted from EACH of the five
-# generated regions → --check RED naming that exact region.
+# T3 — planted-defect positive controls: one token deleted from EACH
+# generated region → --check RED naming that exact region.
 _cap_fail "#561 T3 planted: token deleted from runner-review region"   del-runner-review   check "region=runner-review"
 _cap_fail "#561 T3 planted: token deleted from command region"        del-command         check "region=command"
 _cap_fail "#561 T3 planted: token deleted from implement region"      del-implement       check "region=implement"
@@ -172,7 +172,7 @@ done
 assert_eq "#561 committed workflows are byte-identical to the generator's output" "yes" "$CAP_IDEM_MATCH"
 rm -rf "$CAP_IDEM"
 
-# T8 — no-runtime-read: none of the 6 workflows reads policy from the manifest at run
+# T8 — no-runtime-read: no workflow reads policy from the manifest at run
 # time. The assertion greps for the two policy-source filenames in NON-COMMENT content
 # only (comment lines — the banner comments and the maintenance comments that now name
 # the manifest — are stripped first, so a workflow may reference the manifest in prose
@@ -187,7 +187,7 @@ CAP_RT_HITS=0
 for f in devflow.yml devflow-runner.yml devflow-implement.yml devflow-review.yml telemetry-push.yml matcher-probe.yml; do
   [ "$(_cap_noncomment_hits "$CAP_WF_DIR/$f")" = yes ] && CAP_RT_HITS=$((CAP_RT_HITS+1))
 done
-assert_eq "#561 T8 no workflow reads policy from the manifest at run time (6 workflows, zero non-comment hits)" "0" "$CAP_RT_HITS"
+assert_eq "#561 T8 no workflow reads policy from the manifest at run time (zero non-comment hits)" "0" "$CAP_RT_HITS"
 CAP_RT_POS="$(mktemp "$_cap_tmp_root/rtpos.XXXXXX")"; printf '      - run: python3 lib/generate-capability-profiles.py --check\n' > "$CAP_RT_POS"
 assert_eq "#561 T8 assertion fires on a real invocation line (positive control)" "yes" \
   "$(_cap_noncomment_hits "$CAP_RT_POS")"

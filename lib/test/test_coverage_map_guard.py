@@ -3,16 +3,19 @@
 # SPDX-License-Identifier: MIT
 """Unit tests for the coverage-map ratchet guard (issue #591).
 
-Each of the guard's 8 arms is driven with a synthetic (tracked_files, map,
+Each of the guard's arms is driven with a synthetic (tracked_files, map,
 registry) fixture, following test_module_runner.py's fixture style. T-green
 confirms the shipped tree + map passes; the named controls (T-planted, T-stale,
 T-owner, T-shape, T-shape-registry, T-extension, T-subdir, T-misfile) each prove
 the arm records a FAIL naming the offending path/entry."""
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import json
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -196,6 +199,98 @@ class CoverageMapGuardTest(unittest.TestCase):
         arms = self._arms(v)
         self.assertIn("arm4", arms)
         self.assertIn("arm8", arms)
+
+    # ── Arm 4 sub-shape controls: each structural guard in _map_shape_error fires. ──
+    def test_shape_matrix_map_subshapes(self):
+        tracked = ["lib/real.sh"]
+        reg = _registry()
+
+        def mutated(**overrides):
+            m = _map(files={"lib/real.sh": _owned()})
+            m.update(overrides)
+            return m
+
+        cases = [
+            mutated(schema_version=2),  # schema_version != 1
+            mutated(schema_version=True),  # bool is an int subclass; True == 1 must NOT pass
+            mutated(run_sh_blocks=[]),  # run_sh_blocks not a dict
+            mutated(run_sh_blocks={"561": {"owner": 7, "note": ""}}),  # non-string owner
+            mutated(non_code_exempt=[7]),  # non_code_exempt non-string item
+            mutated(exempt_subtrees=[7]),  # exempt_subtrees non-string item
+            mutated(generated_by=7),  # generated_by not a string
+        ]
+        for m in cases:
+            self.assertEqual(self._arms(guard.evaluate(tracked, m, reg)), {"arm4"})
+
+    # ── Arm 3 registry-unavailable suppression: a wrong-shape registry records arm 8 only,
+    # and does NOT double-report arm 3 on an owner that would otherwise be invalid. ──
+    def test_arm3_suppressed_when_registry_unreadable(self):
+        tracked = ["lib/real.sh"]
+        m = _map(files={"lib/real.sh": _owned("would-be-invalid")})
+        # wrong-shape registry (test_modules non-object) → arm8, arm3 suppressed
+        self.assertEqual(self._arms(guard.evaluate(tracked, m, {"test_modules": ["x"]})), {"arm8"})
+        # registry read error → same suppression
+        self.assertEqual(
+            self._arms(guard.evaluate(tracked, m, None, registry_read_error="gone")), {"arm8"}
+        )
+
+    # ── Cardinality: a violation loop names EVERY offender, not just the first (a `break`
+    # regression would still pass a set-keyed assertion). ──
+    def test_arm1_reports_every_offender(self):
+        tracked = ["lib/one.sh", "lib/two.sh"]
+        v = guard.evaluate(tracked, _map(files={}), _registry())
+        self.assertEqual(self._arms(v), {"arm1"})
+        joined = "".join(v)
+        self.assertIn("lib/one.sh", joined)
+        self.assertIn("lib/two.sh", joined)
+
+    # ── Arm 6 boundary: an exempt_subtrees entry without a trailing slash exempts its own
+    # subtree but NOT a sibling sharing the prefix (lib/test exempts lib/test/x, not
+    # lib/testfoo/x). ──
+    def test_arm6_prefix_is_slash_bounded(self):
+        tracked = ["lib/testfoo/x.sh"]
+        # exempt entry "lib/test" (no slash) must NOT exempt lib/testfoo/x.sh
+        v = guard.evaluate(tracked, _map(exempt_subtrees=["lib/test"]), _registry())
+        self.assertEqual(self._arms(v), {"arm6"})
+        # but it DOES exempt its own subtree
+        self.assertEqual(guard.evaluate(["lib/test/x.sh"], _map(exempt_subtrees=["lib/test"]), _registry()), [])
+
+    # ── CLI / IO layer: main() returns non-zero and prints the arm on a violating tree,
+    # and _load_json produces (not just consumes) each read-error breadcrumb. ──
+    def test_cli_main_and_load_json_error_arms(self):
+        # _load_json error arms — the breadcrumbs arms 4/8 rely on are actually PRODUCED here.
+        with tempfile.TemporaryDirectory() as d:
+            dp = Path(d)
+            self.assertEqual(guard._load_json(dp / "missing.json")[0], None)
+            self.assertIn("not found", guard._load_json(dp / "missing.json")[1])
+            bad = dp / "bad.json"
+            bad.write_text("{ not json", encoding="utf-8")
+            self.assertEqual(guard._load_json(bad)[0], None)
+            self.assertIn("malformed JSON", guard._load_json(bad)[1])
+            adir = dp / "adir.json"
+            adir.mkdir()
+            self.assertEqual(guard._load_json(adir)[0], None)  # a directory is unreadable, not parsed
+        # main() negative control: a real git tree with a planted unlisted depth-1 unit +
+        # a map that doesn't list it → rc 1 and the arm-1 line on stdout.
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            (root / "lib" / "test" / "modules").mkdir(parents=True)
+            (root / "scripts").mkdir()
+            (root / "lib" / "planted.sh").write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+            (root / "lib" / "test" / "modules" / "coverage-map.json").write_text(
+                json.dumps(_map(files={})), encoding="utf-8"
+            )
+            (root / "scripts" / "workflow-flight-recorder-registry.json").write_text(
+                json.dumps(_registry()), encoding="utf-8"
+            )
+            subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                rc = guard.main(["coverage_map_guard.py", str(root)])
+            self.assertEqual(rc, 1)
+            self.assertIn("lib/planted.sh", out.getvalue())
+            self.assertIn("[arm1]", out.getvalue())
 
 
 if __name__ == "__main__":
