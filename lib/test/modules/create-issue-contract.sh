@@ -895,6 +895,72 @@ devflow_module_pin_unique "#548: ## Evidence axes forwarding sentence (SKILL con
   'appends any section headed exactly' "$CI_SKILL"
 devflow_module_pin_unique "#548: ## Evidence axes forwarding (live extension carries the exact heading)" \
   '## Evidence axes' "$CI_EXT"
+
+# ── issue #611: Step 3.6 ergonomics bundle — surface-presence pins ───────────
+# Surface-presence class: these pin that a decided sentence is PRESENT in the prompt
+# surface, which is the only property a prose contract has. They carry no mutation
+# obligation — the behavioral halves of this
+# bundle (the loader's extraction and the tool's arm-selected breadcrumb) are pinned
+# by executable tests in lib/test/run.sh and lib/test/test_python_scripts.py, where a
+# planted defect really can be driven.
+
+# AC1 — `--round` is required on EVERY record-dispatch arm, not just the inline pair.
+# The prose used to state the requirement only in the Degraded/inline bullet, so a run
+# following the file-arm or embed-retry sentence verbatim burned a turn on an argparse
+# usage error. Pin both amended call sites and the widened note.
+devflow_module_pin_unique "#611 AC1: the file-arm dispatch-recording sentence shows --round" \
+  'record-dispatch --arm <the answered arm> --round "<round>"' "$CI_SKILL"
+devflow_module_pin_unique "#611 AC1: the DRAFT-UNREADABLE embed-retry variant shows --round" \
+  'record-dispatch --arm embed --marker file-unreadable --round "<round>"' "$CI_SKILL"
+devflow_module_pin_unique "#611 AC1: the flag-requirement note spans every arm, not just the inline pair" \
+  'required** on **every** `record-dispatch` arm' "$CI_SKILL"
+
+# AC2 — the edit-sequencing rule, stated ONCE at the digest-binding paragraph. Its
+# load-bearing clause is the prohibition: a bare record-revision-then-record-override
+# pair would re-arm a user election the user never made, so eligibility would be
+# grounded on consent that was never given.
+devflow_module_pin_unique "#611 AC2: edit-sequencing rule is stated once, scoped to digest-bound overrides" \
+  'Edit-sequencing rule (stated once, here, for digest-bound overrides only)' "$CI_SKILL"
+devflow_module_pin_unique "#611 AC2: the recovery never sanctions a bare re-record pair" \
+  'never a bare record-revision-then-record-override pair' "$CI_SKILL"
+# The two Step 4 override sites must keep REFERENCING the digest binding without
+# restating the rule — one specification of record, per AC2.
+assert_eq "#611 AC2: the sequencing rule is not restated at the Step 4 override sites" \
+  "1" "$(devflow_module_pin_count 'completes **before** a digest-bound override is recorded' "$CI_SKILL")"
+
+# AC6 — the Step 2 sentence stays the specification of record, now carrying the
+# terminator precision and naming its single implementation. The '## '-plus-space
+# precision is what makes a `###` sub-heading section CONTENT rather than a
+# terminator; the older bare-`##` wording admitted the opposite reading.
+devflow_module_pin_unique "#611 AC6: the terminator is '## ' — two hashes plus a space" \
+  'two hashes PLUS A SPACE' "$CI_SKILL"
+devflow_module_pin_unique "#611 AC6: an unclosed fence runs to end of file" \
+  'an unclosed fence runs to end of file' "$CI_SKILL"
+devflow_module_pin_unique "#611 AC6: the rule names the loader as its single implementation (coupled pair)" \
+  'is its single implementation (a coupled pair, edited together)' "$CI_SKILL"
+devflow_module_pin_unique "#611 AC6: empty-section vs absent-heading now differ by the stderr breadcrumb" \
+  'an empty section stays breadcrumb-free' "$CI_SKILL"
+# The four re-load sites name the sectioned form. Two hooks, two sites each.
+assert_eq "#611 AC6: two re-load sites request the '## Evidence axes' section" \
+  "2" "$(devflow_module_pin_count "load-prompt-extension.sh create-issue --section '## Evidence axes'" "$CI_SKILL")"
+assert_eq "#611 AC6: two re-load sites request the '## Audit dimensions' section" \
+  "2" "$(devflow_module_pin_count "load-prompt-extension.sh create-issue --section '## Audit dimensions'" "$CI_SKILL")"
+# The shared wiring sentence is present at ALL FOUR sites — a report-then-proceed step
+# stated at only some of them is exactly the peer-asymmetry defect the repo's
+# peer-checkpoint sweep exists to catch, and it would read as correct in a diff.
+assert_eq "#611 AC6: the report-then-proceed wiring is present at all four re-load sites" \
+  "4" "$(devflow_module_pin_count 'a **report-then-proceed** step, never a stall, a user question, or a degraded-arm claim' "$CI_SKILL")"
+assert_eq "#611 AC6: the exit-2-is-unestablished wiring is present at all four re-load sites" \
+  "4" "$(devflow_module_pin_count 'never laundered into the designed absent-heading no-op' "$CI_SKILL")"
+# The amended no-op sentence, at both of its occurrences (Step 2 and Step 3.6).
+assert_eq "#611 AC6: both no-op sentences state the absent heading is now breadcrumbed" \
+  "2" "$(devflow_module_pin_count 'that absent heading is now breadcrumbed and reported rather than invisible' "$CI_SKILL")"
+# AC8 names this one specifically: the Step 3.6 parenthetical is reduced to a pure
+# reference, so no second full statement of the rule survives anywhere in the file.
+devflow_module_pin_unique "#611 AC6/AC8: the Step 3.6 restatement is reduced to a pure reference" \
+  'that sentence is the specification of record for both hooks and is not restated here' "$CI_SKILL"
+assert_eq "#611 AC6: no second full statement of the extraction rule remains" \
+  "0" "$(devflow_module_pin_count 'an empty section equals an absent heading' "$CI_SKILL")"
 devflow_module_pin_unique "#548: bounded actionability definitions (must-revise)" \
   'a verified correctness, safety, implementability, unresolved-decision, or load-bearing-premise defect' "$CI_SKILL"
 devflow_module_pin_unique "#548: VERDICT: FILE may carry advisory findings" \
