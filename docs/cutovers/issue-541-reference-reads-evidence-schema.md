@@ -10,7 +10,7 @@ kind: growth
   conditional field; the `fix-delta-gate.md` failure-map row's stale "the formal
   `reference_reads.fix_delta` field is the #541 follow-up" parenthetical is rewritten to
   state what now ships.
-- `skills/review-and-fix/references/fixing.md` (+1361 bytes) — item 7's "Conditional
+- `skills/review-and-fix/references/fixing.md` (+1737 bytes) — item 7's "Conditional
   gate/sweep fields" paragraph gains the authoritative `reference_reads` specification
   (conditional contract, registry keying, shape, the `status`/`outcome`/`reason` semantics
   with both `not_verified` arms named, and the APPROVE-family prohibition).
