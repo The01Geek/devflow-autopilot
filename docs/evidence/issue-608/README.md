@@ -87,11 +87,16 @@ uses to repoint a subagent's model).
 
 **Per-dispatch fields (verbatim from the nonce verdict files):**
 
-| Item | Model | `verdict` | `property_proven` (JSON type) | `inaccuracy_scope` (enum) |
-| --- | --- | --- | --- | --- |
-| VC-C1 | sonnet (default) | FAIL | `true` (bool) | `generated_claim_text` |
-| VC-C2 | sonnet (default) | FAIL | `true` (bool) | `generated_claim_text` |
-| VC-C3 | **haiku (override)** | FAIL | `true` (bool) | `generated_claim_text` |
+| Item | Model | `claim_provenance` | `verdict` | `property_proven` (JSON type) | `inaccuracy_scope` (enum) |
+| --- | --- | --- | --- | --- | --- |
+| VC-C1 | sonnet (default) | `generated_paraphrase` | FAIL | `true` (bool) | `generated_claim_text` |
+| VC-C2 | sonnet (default) | `generated_paraphrase` | FAIL | `true` (bool) | `generated_claim_text` |
+| VC-C3 | **haiku (override)** | `generated_paraphrase` | FAIL | `true` (bool) | `generated_claim_text` |
+
+(`claim_provenance: generated_paraphrase` is the second of the five normalization
+conjuncts, so the table above establishes all five per item — the other four are
+`verification_mode: agent`, raw `FAIL`, `property_proven === true`, and
+`inaccuracy_scope === generated_claim_text`.)
 
 Every dispatch emitted `property_proven` as a real JSON boolean (confirmed with a
 `type()` check on the parsed bytes) and `inaccuracy_scope` as an enum token — never
