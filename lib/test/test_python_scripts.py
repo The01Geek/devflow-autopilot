@@ -3883,7 +3883,9 @@ assert_eq("#636: the summary follows the per-row breadcrumbs (end-of-run, not in
 # hermetic (no repo fixture); examine_file is stubbed to inject one demoted row + one
 # VERIFIED row, which is exactly what exercises the run() wiring (stream separation + the
 # STALE-only exit gate) this feature adds. A mutant passing sys.stdout to the breadcrumb
-# call, or moving the call into the TSV loop, breaks the byte-identical stdout assertion.
+# call breaks the byte-identical stdout assertion; a mutant moving the call into the TSV
+# loop is caught by the stderr single-summary count assertion below (it would duplicate the
+# per-row + summary breadcrumbs once per row) even if it kept writing to sys.stderr.
 
 
 def _run_e2e_demotion():
@@ -3920,6 +3922,10 @@ assert_eq("#636 e2e (AC2): run() writes the per-row demotion breadcrumb to stder
           True, "f.md:5 STALE demoted to non-gating" in _e2e_err)
 assert_eq("#636 e2e (AC2): run() writes the demotion summary line to stderr",
           True, "1 STALE row(s) demoted to non-gating UNRESOLVABLE" in _e2e_err)
+# Exactly ONE summary on stderr at the run() call site — catches a mutant that moves the
+# breadcrumb call into the TSV loop (which would re-emit per row) even if it kept stderr.
+assert_eq("#636 e2e (AC2): run() emits the demotion summary exactly once (call is not in the row loop)",
+          1, _e2e_err.count("row(s) demoted to non-gating UNRESOLVABLE"))
 # AC3: a demotion is UNRESOLVABLE, so it does NOT gate — run() still returns 0.
 assert_eq("#636 e2e (AC3): a demoted (UNRESOLVABLE) row does not gate — run() returns 0", 0, _e2e_rc)
 
