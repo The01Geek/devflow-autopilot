@@ -34618,6 +34618,14 @@ _rb_doc_nocommas="$(< "$RB_DOC")"
 _rb_doc_nocommas="${_rb_doc_nocommas//,/}"
 assert_eq "#618: the budget doc's ceilings-table cell documents RB_SHIPPED_CEIL (bound to the suite constant)" "yes" \
   "$(case "$_rb_doc_nocommas" in *"≤ $RB_SHIPPED_CEIL words |"*) echo yes;; *) echo no;; esac)"
+# #618 (shadow pr-test-analyzer): the ceiling appears in the budget doc a SECOND time — the
+# DECISION-RECORD prose (`… = **≤ N words**.`), distinct from the table cell above (which ends
+# ` |`). The self-apply procedure MANDATES editing that record on every renegotiation, so a
+# partial edit that updates the table cell but leaves the prose stale would ship a
+# self-contradicting doc green (the documented_falsehood class #618 exists to prevent). Bind the
+# prose form too — the bold `**` suffix keys it to the decision-record occurrence, not the cell.
+assert_eq "#618: the budget doc's decision-record prose renders RB_SHIPPED_CEIL (bound to the suite constant)" "yes" \
+  "$(case "$_rb_doc_nocommas" in *"≤ $RB_SHIPPED_CEIL words**"*) echo yes;; *) echo no;; esac)"
 # Captured once: the SAME emitted line is asserted to shrink AND to have been fed the
 # standalone set. Re-invoking would let the two assertions diverge. No skip arm is
 # needed any more — the baseline is a frozen constant, so there is no external ref
