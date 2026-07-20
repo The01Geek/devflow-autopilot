@@ -3643,6 +3643,62 @@ assert_eq("#424: parse_diff attributes nothing to a /dev/null target",
           {}, stale_prose_lint.parse_diff(
               "--- a/f.md\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-gone\n"))
 
+# ── #629 move-awareness: the removed-line half of the diff parse ──────────────────────────
+# `parse_diff_full` is the boundary the exemption's multiplicity rule reads, so its removed
+# tally gets the unified-diff format's own boundary rows. The PURE-DELETION hunk is the
+# load-bearing one: its post-image budget is 0 from the start, so a post-image-only "in a
+# hunk?" test drops its `-` lines onto the between-hunks arm — and a wholly deleted source
+# file is the COMMONEST extraction shape, so that drop would make the exemption inert on the
+# very move it exists for (the exit code would stay 1 and the fix would read as not working).
+assert_eq("#629: parse_diff_full tallies removed lines from a PURE-DELETION hunk "
+          "(post-image budget 0 — the wholly-deleted move-source shape)",
+          {"moved claim": 1, "Case 1 alpha": 1},
+          dict(stale_prose_lint.parse_diff_full(
+              "--- a/src.md\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-moved claim\n-Case 1 alpha\n")[1]))
+
+# The post-image half is unchanged by that bookkeeping: the same diff still attributes no
+# added lines, so the /dev/null contract above and the removed tally coexist.
+assert_eq("#629: the pure-deletion hunk still contributes no ADDED lines",
+          {}, stale_prose_lint.parse_diff_full(
+              "--- a/src.md\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-moved claim\n-Case 1 alpha\n")[0])
+
+# A mixed hunk: removals are tallied by RAW text (identity, not the `_norm_line` scoping
+# normalisation), and a context line spends both budgets without being tallied either way.
+assert_eq("#629: parse_diff_full tallies only `-` lines, by raw text, across a mixed hunk",
+          ({"f.md": {1: "added", 3: "moved"}}, {"dropped": 1}),
+          (lambda r: (r[0], dict(r[1])))(stale_prose_lint.parse_diff_full(
+              "--- a/f.md\n+++ b/f.md\n@@ -1,2 +1,3 @@\n+added\n kept\n-dropped\n+moved\n")))
+
+# The multiplicity rule in isolation, at its three decisive points. The SURPLUS row is what
+# keeps the exemption from degrading to bare set-membership: with additions outnumbering
+# removals, EVERY occurrence of that text grades as authored, not just the surplus one.
+_R_FILES = {"a.md": {1: "moved", 2: "copied"}, "b.md": {5: "copied", 9: "authored"}}
+assert_eq("#629: relocated_texts exempts an equal-count text, refuses a surplus one, "
+          "and refuses a text with no removal at all",
+          {"moved"},
+          stale_prose_lint.relocated_texts(_R_FILES, {"moved": 1, "copied": 1}))
+assert_eq("#629: a text removed MORE often than added is still exempt (a partial move)",
+          {"moved", "copied"},
+          stale_prose_lint.relocated_texts(_R_FILES, {"moved": 3, "copied": 2}))
+# An additions-only diff is the cross-diff-relocation non-goal: the exemption is inert by
+# design, so grading falls back to today's behavior rather than failing open.
+assert_eq("#629: an additions-only diff yields an EMPTY exemption set (the exemption is "
+          "inert by design on a cross-diff relocation, failing toward gating)",
+          set(), stale_prose_lint.relocated_texts(_R_FILES, {}))
+
+# The referent rule in isolation. A referent line the diff did NOT add is pre-existing
+# content and imposes no obligation; a diff-added one must itself be relocated, which is
+# what makes the split-then-extend shape gate.
+assert_eq("#629: _referents_relocated permits an exemption whose referents are pre-existing",
+          True, stale_prose_lint._referents_relocated({1: "hdr"}, {"hdr"}, [4, 7]))
+assert_eq("#629: _referents_relocated permits an exemption whose added referents are relocated",
+          True, stale_prose_lint._referents_relocated(
+              {1: "hdr", 5: "Case 2"}, {"hdr", "Case 2"}, [4]))
+assert_eq("#629: _referents_relocated REFUSES when a diff-added referent is authored "
+          "(the split-then-extend shape — PR-authored referent growth is authored staleness)",
+          False, stale_prose_lint._referents_relocated(
+              {1: "hdr", 5: "Case 3"}, {"hdr"}, [4]))
+
 # main()'s exit-2 catch-all must cover the WHOLE body. Before the #424 fix the stream
 # reconfigure and the argparse construction sat OUTSIDE the guard, so an exception there
 # escaped and Python exited 1 — and 1 is a contracted helper arm ("at least one STALE row"),

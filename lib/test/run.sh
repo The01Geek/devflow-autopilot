@@ -37402,7 +37402,7 @@ assert_eq "#423 T4/R4 named-token scope mismatch emits NO R4 row" "no" "$(spl_ha
 # Positive control (parity with T1/T2/T3): an operator deny-absolute with NO contradicting
 # permit elsewhere must emit a VERIFIED R4 row and exit 0 — this is the ONLY test that
 # exercises R4's VERIFIED arm, so without it a mutant forcing R4 to STALE on every operator
-# deny-absolute (e.g. _permitted_elsewhere hardcoded True, or the VERIFIED arm dropped) would
+# deny-absolute (e.g. _permitted_elsewhere hardcoded to a permit index, or the VERIFIED arm dropped) would
 # ship GREEN and emit false-positive Important findings on legit "never use `>` here" prose.
 printf '%s\n' 'The skill must never emit ANY `>` redirect anywhere.' 'Some other unrelated prose line.' > "$SPF"
 SPR="$(spl_repo "$SPF")"
@@ -38458,7 +38458,7 @@ SP629_HDR='Cases 1-2 cover the fixture corpus.'
 # AC1/AC10 — the reported defect: a byte-for-byte block relocation into a file whose existing
 # tail carries a wrong-sized referent. RED today (STALE R1, exit 1); after the change the row
 # is demoted to a non-gating UNRESOLVABLE naming the relocation and the exit code is 0.
-SP629_B="$(probe_tmp_dir '#629 ac1 before')"; SP629_A="$(probe_tmp_dir '#629 ac1 after')"
+SP629_B="$(git_sandbox '#629 ac1 before')"; SP629_A="$(git_sandbox '#629 ac1 after')"
 printf '%s\n' "$SP629_HDR" 'Case 1 alpha' 'Case 2 beta' > "$SP629_B/src.md"
 printf '%s\n' 'Intro paragraph.' 'Case 5 epsilon' > "$SP629_B/dest.md"
 printf '%s\n' "$SP629_HDR" 'Case 1 alpha' 'Case 2 beta' 'Intro paragraph.' 'Case 5 epsilon' > "$SP629_A/dest.md"
@@ -38473,7 +38473,7 @@ assert_eq "#629 AC10 the demoted row still carries the co-located contradiction 
 
 # AC2 — no over-suppression, new prose: a genuinely new stale claim in the SAME diff as a pure
 # relocation still gates. `new.md`'s `Case 9` pre-exists; only its header is authored here.
-SP629_B="$(probe_tmp_dir '#629 ac2 before')"; SP629_A="$(probe_tmp_dir '#629 ac2 after')"
+SP629_B="$(git_sandbox '#629 ac2 before')"; SP629_A="$(git_sandbox '#629 ac2 after')"
 printf '%s\n' "$SP629_HDR" 'Case 1 alpha' 'Case 2 beta' > "$SP629_B/src.md"
 printf '%s\n' 'Intro paragraph.' 'Case 5 epsilon' > "$SP629_B/dest.md"
 printf '%s\n' 'Case 9 zeta' > "$SP629_B/new.md"
@@ -38485,7 +38485,7 @@ assert_eq "#629 AC2 the new claim emits its STALE R1 row" "yes" "$(sp629_has "$S
 
 # AC3 — no over-suppression, edited relocation: one byte changed in the moved line ('.' -> '!'),
 # so its full text is NOT a removed line of the same diff and it grades as authored.
-SP629_B="$(probe_tmp_dir '#629 ac3 before')"; SP629_A="$(probe_tmp_dir '#629 ac3 after')"
+SP629_B="$(git_sandbox '#629 ac3 before')"; SP629_A="$(git_sandbox '#629 ac3 after')"
 printf '%s\n' "$SP629_HDR" 'Case 1 alpha' 'Case 2 beta' > "$SP629_B/src.md"
 printf '%s\n' 'Intro paragraph.' 'Case 5 epsilon' > "$SP629_B/dest.md"
 printf '%s\n' 'Cases 1-2 cover the fixture corpus!' 'Case 1 alpha' 'Case 2 beta' 'Intro paragraph.' 'Case 5 epsilon' > "$SP629_A/dest.md"
@@ -38496,7 +38496,7 @@ assert_eq "#629 AC3 the edited relocation emits its STALE R1 row" "yes" "$(sp629
 # AC4 — no over-suppression, copy amplification: one removal, TWO byte-identical additions.
 # Additions outnumbering removals grade EVERY occurrence of that text as authored, so the
 # exemption can never ship as bare set-membership.
-SP629_B="$(probe_tmp_dir '#629 ac4 before')"; SP629_A="$(probe_tmp_dir '#629 ac4 after')"
+SP629_B="$(git_sandbox '#629 ac4 before')"; SP629_A="$(git_sandbox '#629 ac4 after')"
 printf '%s\n' "$SP629_HDR" 'Case 1 alpha' 'Case 2 beta' > "$SP629_B/src.md"
 printf '%s\n' 'Intro paragraph.' 'Case 5 epsilon' > "$SP629_B/dest.md"
 printf '%s\n' "$SP629_HDR" 'Case 1 alpha' 'Case 2 beta' 'Intro paragraph.' "$SP629_HDR" 'Case 5 epsilon' > "$SP629_A/dest.md"
@@ -38508,7 +38508,7 @@ assert_eq "#629 AC4 copy amplification emits a STALE R1 row" "yes" "$(sp629_has 
 # the SAME diff adds genuinely new referent content in its resolution region. PR-authored
 # referent growth is authored staleness (the PR #328 shape the caller-supplied-diff contract
 # exists to keep detectable), so the referent rule denies the exemption.
-SP629_B="$(probe_tmp_dir '#629 ac5 before')"; SP629_A="$(probe_tmp_dir '#629 ac5 after')"
+SP629_B="$(git_sandbox '#629 ac5 before')"; SP629_A="$(git_sandbox '#629 ac5 after')"
 printf '%s\n' "$SP629_HDR" 'Case 1 alpha' 'Case 2 beta' > "$SP629_B/src.md"
 printf '%s\n' 'Intro paragraph.' > "$SP629_B/dest.md"
 printf '%s\n' "$SP629_HDR" 'Case 1 alpha' 'Case 2 beta' 'Case 3 gamma' 'Intro paragraph.' > "$SP629_A/dest.md"
@@ -38534,7 +38534,7 @@ assert_eq "#629 AC6 a whole-file git mv emits no rows at all" "0" "$(sp629_rowco
 # referent. The removal side of the diff is untrusted PR content, so the exemption fires here
 # exactly as on the accidental shape — and the compensating visibility (the demoted
 # UNRESOLVABLE row naming the relocation) is what keeps the manufacture auditable.
-SP629_B="$(probe_tmp_dir '#629 hostile before')"; SP629_A="$(probe_tmp_dir '#629 hostile after')"
+SP629_B="$(git_sandbox '#629 hostile before')"; SP629_A="$(git_sandbox '#629 hostile after')"
 printf '%s\n' "$SP629_HDR" > "$SP629_B/bait.md"
 printf '%s\n' 'Intro paragraph.' 'Case 5 epsilon' > "$SP629_B/dest.md"
 printf '%s\n' "$SP629_HDR" 'Intro paragraph.' 'Case 5 epsilon' > "$SP629_A/dest.md"
@@ -38549,7 +38549,7 @@ assert_eq "#629 AC10 hostile: the demoted row names the relocation (compensating
 # at HEAD, so any claim the diff attributes to it lands on that arm; this fixture proves the
 # new removed-line bookkeeping did not disturb it. `bare.md` carries no claim, so the only
 # rows come from the resolvable destination.
-SP629_B="$(probe_tmp_dir '#629 deleted-src before')"; SP629_A="$(probe_tmp_dir '#629 deleted-src after')"
+SP629_B="$(git_sandbox '#629 deleted-src before')"; SP629_A="$(git_sandbox '#629 deleted-src after')"
 printf '%s\n' 'Case 1 alpha' > "$SP629_B/bare.md"
 printf '%s\n' 'Intro paragraph.' > "$SP629_B/dest.md"
 printf '%s\n' "$SP629_HDR" 'Intro paragraph.' > "$SP629_A/dest.md"
@@ -38560,7 +38560,7 @@ assert_eq "#629 boundary: a diff deleting the move SOURCE file resolves cleanly 
 # CR, so byte-identity across the diff's two sides is preserved and the exemption still fires;
 # the `_norm_line` discipline (which strips CR for SCOPING) must not be applied to the identity
 # comparison, or a CRLF consumer repo would lose the exemption entirely.
-SP629_B="$(probe_tmp_dir '#629 crlf before')"; SP629_A="$(probe_tmp_dir '#629 crlf after')"
+SP629_B="$(git_sandbox '#629 crlf before')"; SP629_A="$(git_sandbox '#629 crlf after')"
 printf '%s\r\n' "$SP629_HDR" 'Case 1 alpha' 'Case 2 beta' > "$SP629_B/src.md"
 printf '%s\r\n' 'Intro paragraph.' 'Case 5 epsilon' > "$SP629_B/dest.md"
 printf '%s\r\n' "$SP629_HDR" 'Case 1 alpha' 'Case 2 beta' 'Intro paragraph.' 'Case 5 epsilon' > "$SP629_A/dest.md"
@@ -38571,7 +38571,7 @@ assert_eq "#629 adversarial: the CRLF relocation emits the demoted UNRESOLVABLE 
 # Adversarial — a move INTO a fenced code block. The destination scoping mask still decides
 # examinability, so the claim is not examined at all (no row, exit 0) regardless of the
 # exemption: move-awareness is layered over #434 scoping, it does not bypass it.
-SP629_B="$(probe_tmp_dir '#629 fenced before')"; SP629_A="$(probe_tmp_dir '#629 fenced after')"
+SP629_B="$(git_sandbox '#629 fenced before')"; SP629_A="$(git_sandbox '#629 fenced after')"
 printf '%s\n' "$SP629_HDR" 'Case 1 alpha' 'Case 2 beta' > "$SP629_B/src.md"
 printf '%s\n' '```' 'existing fenced line' '```' 'Case 5 epsilon' > "$SP629_B/dest.md"
 printf '%s\n' '```' "$SP629_HDR" 'Case 1 alpha' 'Case 2 beta' 'existing fenced line' '```' 'Case 5 epsilon' > "$SP629_A/dest.md"
