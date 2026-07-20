@@ -28122,6 +28122,13 @@ assert_pin_unique "#628 architect Output Guidance carries the quantitative-claim
 # T2 (AC2): explorer calibration sentence (same core phrase, adapted to analysis output).
 assert_pin_unique "#628 explorer carries the quantitative-claim calibration sentence" \
   'did not read directly from tool output in the current session' "$CE_628"
+# T1b/T2b (AC1/AC2): the operands-and-counting-rule sub-clause of each calibration
+# sentence — a load-bearing clause that could be deleted while the T1/T2 core phrase
+# still passed, so pin it too (both agents ship this to consumers).
+assert_pin_unique "#628 architect calibration states operands + counting rule inline" \
+  'state its operands and counting rule inline' "$CA_628"
+assert_pin_unique "#628 explorer calibration states operands + counting rule inline" \
+  'state its operands and counting rule inline' "$CE_628"
 # T3 (AC3): explorer file:line scoping sentence after the line-numbers mandate.
 assert_pin_unique "#628 explorer scopes file:line precision to ephemeral analysis, bare paths in committed docs" \
   'committed documentation instead references bare paths and symbol names' "$CE_628"
@@ -28137,6 +28144,15 @@ assert_pin_unique "#628 phase-2 §2.2 obliges orchestrator to re-derive a subage
 # byte-identity check reuses the captured lines rather than re-grepping both files.
 CE_TOOLS_628="$(grep -E '^tools:[[:space:]]' "$CE_628" | head -1)"
 CA_TOOLS_628="$(grep -E '^tools:[[:space:]]' "$CA_628" | head -1)"
+# Fail CLOSED when a capture is empty (tools: line absent, renamed, or reformatted into a
+# block sequence): an empty capture would otherwise make the omission checks and the
+# byte-identity assertion pass VACUOUSLY (printf '' | grep -qw → "no"; [ "" = "" ] → "yes"),
+# exactly the "guard whose comparand can be absent fails open" class. These two guards make
+# such a reformat RED instead of a false pass.
+assert_eq "#628 code-explorer.md tools: line was captured (non-empty)" \
+  "yes" "$([ -n "$CE_TOOLS_628" ] && echo yes || echo no)"
+assert_eq "#628 code-architect.md tools: line was captured (non-empty)" \
+  "yes" "$([ -n "$CA_TOOLS_628" ] && echo yes || echo no)"
 assert_eq "#628 code-explorer.md tools: line omits KillShell" \
   "no" "$(printf '%s' "$CE_TOOLS_628" | grep -qw 'KillShell' && echo yes || echo no)"
 assert_eq "#628 code-explorer.md tools: line omits BashOutput" \
