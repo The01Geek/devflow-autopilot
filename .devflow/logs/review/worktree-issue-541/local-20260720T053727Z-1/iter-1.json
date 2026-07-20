@@ -1,0 +1,102 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-20T05:37:27Z",
+  "loop_role": "fix",
+  "current_step": "2.5",
+  "current_substep": "pre_fix_verification_gate",
+  "pending_dispatch": {
+    "kind": "phase3_reviewer_fanout",
+    "roster": ["devflow:requesting-code-review"],
+    "dispatched_at": "2026-07-20T05:40:00Z"
+  },
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "sweep_defs_read": [],
+  "sweep_evidence": {"status": "not-run", "reason": "no fixes applied yet at this stamp"},
+  "checklist": [],
+  "phase3_findings": [
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Critical",
+      "description": "Cutover doc states the pin inventory backwards: claims 'presence pin, and three assert_pin_red_under behavioral-fix pins' but HEAD carries 1 assert_pin_red_under and 2 assert_pin_unique. The same diff added the run.sh comment documenting that demotion, so the diff self-contradicts.",
+      "defect_signature": {"file": "docs/cutovers/issue-541-reference-reads-evidence-schema.md", "line_range": [55, 56], "kind": "documented_falsehood"},
+      "corroboration_count": 2,
+      "step25_classification": "codebase"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Critical",
+      "description": "Changeset claims --self-check 'enforces the provenance, so a synthesizer that stopped stamping it fails loudly rather than silently'. do_self_check is warn-only and returns 0 unconditionally, and its jq is a key-set difference, so a regression to [] / not-run keeps every key present and passes silently.",
+      "defect_signature": {"file": ".changeset/issue-541-reference-reads-evidence-schema.md", "line_range": [19, 21], "kind": "documented_falsehood"},
+      "corroboration_count": 2,
+      "step25_classification": "codebase"
+    },
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Important",
+      "description": "Three surviving 5-field enumerations of the synthesized record contradict the changeset's 'reconciled across every surface' claim: fixing.md:149 (same paragraph the diff edits), error-handling.md, implement/phases/phase-3-review.md.",
+      "defect_signature": {"file": "skills/review-and-fix/references/fixing.md", "line_range": [149, 149], "kind": "documented_falsehood"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase"
+    },
+    {
+      "agent": "devflow:requesting-code-review-completeness-critic",
+      "severity": "Important",
+      "description": "ITER_SYNTH_EXPECTED_FIELDS is self-certifying: no divergence guard, and 'synthesized' appears in no schema block so no LR-style comparand exists. Every test derives its expectation from the constant, so a silently dropped member passes by construction.",
+      "defect_signature": {"file": "lib/test/run.sh", "line_range": [21173, 21190], "kind": "test_gap"},
+      "corroboration_count": 2,
+      "step25_classification": "codebase"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "The loop_role #170 assert_eq can pass vacuously: both operands are derived through sed/tr and an empty extraction yields assert_eq '' '' which passes, retiring the single-source guard. The PR added exactly this positive control for the sibling synth extraction 1,300 lines earlier.",
+      "defect_signature": {"file": "lib/test/run.sh", "line_range": [22574, 22578], "kind": "test_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase"
+    },
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Suggestion",
+      "description": "Schema block reference_reads example omits the mandatory reason key, and encodes JSON null as the string 'null' in the outcome enum. sweep_evidence example uses status 'run', a value no writer spec defines (specs define not-run / unrunnable).",
+      "defect_signature": {"file": "skills/review-and-fix/SKILL.md", "line_range": [53, 201], "kind": "comment_drift"},
+      "corroboration_count": 2,
+      "step25_classification": "codebase"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "The three unrec() reason assertions check only non-emptiness, so a regression collapsing all three onto one shared $what keeps every assertion green while the record stops saying which evidence was unrecoverable.",
+      "defect_signature": {"file": "lib/test/run.sh", "line_range": [21205, 21224], "kind": "test_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase"
+    },
+    {
+      "agent": "devflow:requesting-code-review-completeness-critic",
+      "severity": "Suggestion",
+      "description": "LR_CONDITIONAL_FIELDS presence pins assert membership but not conditionality: nothing asserts each excluded field is genuinely absent from ITER_EXPECTED_FIELDS.",
+      "defect_signature": {"file": "lib/test/run.sh", "line_range": [22587, 22607], "kind": "test_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase"
+    }
+  ],
+  "fix_decisions": [],
+  "convergence_inputs": {"fixes_applied": 0, "fix_diff_lines": 0, "new_corroborated_critical_count": 2},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "telemetry": {
+    "phase_0": {"calls": 0, "tokens": 0, "wall_clock_s": 60},
+    "phase_3": {"calls": 6, "tokens": 365932, "wall_clock_s": 92}
+  }
+}
