@@ -389,14 +389,28 @@ _devflow_supervise_module() { # body-function supervisor-pid-file worker-pid-fil
   local body_function="$1" supervisor_pid_file="$2" worker_pid_file="$3"
   local supervisor_pid=""
   local worker_pid="" worker_pending_signal="" worker_launching=1
-  local monitor_was_on=0 rendezvous_attempts=0 worker_rc=0
+  local monitor_was_on=0 worker_rc=0
+  # Bound the supervisor-PID rendezvous by WALL-CLOCK time, not an iteration
+  # count. The former cap of 300 attempts consumed ~3s of `sleep 0.01`, but each
+  # iteration also forks twice (the $() poll subshell and the `sleep` process),
+  # so the real wall-clock cost scaled with per-fork overhead: ~3.5s on Linux and
+  # enough slower on macOS (where fork/exec is costlier) to exceed the harness
+  # test's 5s ceiling even though the rendezvous still failed boundedly — a
+  # desk-only RED for macOS contributors, green on Linux CI (issue #641). A time
+  # budget makes the bound platform-independent: on any host the loop exits
+  # ~3s after starting regardless of how many polls fit in that window. SECONDS
+  # is a bash builtin timer that costs no per-poll fork; the supervisor runs
+  # inside a backgrounded ( ) subshell in both production callers
+  # (module-harness.sh full-suite and run-module.sh focused), so resetting it
+  # here has no caller-visible effect.
+  local rendezvous_deadline_seconds=3
 
   trap '_devflow_module_supervisor_signal HUP' HUP
   trap '_devflow_module_supervisor_signal INT' INT
   trap '_devflow_module_supervisor_signal TERM' TERM
+  SECONDS=0
   while ! supervisor_pid="$(_devflow_test_read_pid "$supervisor_pid_file" 2>/dev/null)"; do
-    rendezvous_attempts=$((rendezvous_attempts + 1))
-    if [ "$rendezvous_attempts" -ge 300 ]; then
+    if [ "$SECONDS" -ge "$rendezvous_deadline_seconds" ]; then
       printf 'devflow: module supervisor PID rendezvous timed out: %s\n' \
         "$supervisor_pid_file" >&2
       trap - HUP INT TERM
