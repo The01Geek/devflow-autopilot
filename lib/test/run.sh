@@ -7778,7 +7778,11 @@ assert_eq "#601 AC3: runner with:-input does NOT source it from a PR-head config
 #       abort the assignment and fail the whole config/baseprovision job — the exact abort
 #       try/catch exists to prevent. This layer DOES behaviorally catch removal of the newline
 #       guard: removing `select(test("[\n\r]") | not)` makes the escaped-newline row emit a
-#       multi-line value (2 lines) → that sweep row goes RED (mutation-verified).
+#       multi-line value (2 lines) → that sweep row goes RED.
+#   The two presence-only pins in layer (1) have NO behavioral backstop, so each is routed
+#   through assert_pin_red_under below with a `sed -E` mutation that re-introduces the exact
+#   guarded regression (the guard dropped from the shipped filter) — evidence the pin catches
+#   the defect, not merely that its own line vanished (the behavioral-fix-pin rule).
 for _f in "$I601_DEVFLOW_YML" "$I601_IMPL_YML" "$I601_RUNNER_YML"; do
   assert_eq "#601 AC4: $(basename "$_f") extraction carries the '| strings' non-string type guard" "yes" \
     "$(grep -qF '| strings | select(test("[\n\r]") | not)' "$_f" && echo yes || echo no)"
@@ -7790,6 +7794,18 @@ for _f in "$I601_DEVFLOW_YML" "$I601_IMPL_YML" "$I601_RUNNER_YML"; do
   # breadcrumb rather than silently reverting to the (Windows-fatal) auto-install path.
   assert_eq "#601 AC4: $(basename "$_f") warns when a set value is rejected (rejected != unset)" "yes" \
     "$(grep -qF '::warning::setup.claude_code_executable is set' "$_f" && echo yes || echo no)"
+  # Mutation proofs for the three presence-only pins above: each sed program re-introduces the
+  # guarded regression in the shipped filter (guard dropped / warning removed) and the pin must
+  # go RED under it — evidence rather than an attestation in a comment.
+  assert_pin_red_under "#601 AC4: $(basename "$_f") '| strings' pin is RED when the type guard is dropped" \
+    '| strings | select(test("[\n\r]") | not)' 's/\| strings \| select\(test\("\[\\n\\r\]"\) \| not\)/| select(test("[\\n\\r]") | not)/' "$_f"
+  # Anchored on the filter-unique tail (`… ) catch empty`), NOT the bare guard: that shorter
+  # literal also appears in the explanatory comment above the filter, so assert_pin_unique
+  # would refuse it (the pin-in-comment count-inflation class).
+  assert_pin_red_under "#601 AC4: $(basename "$_f") whitespace-only pin is RED when that guard is dropped" \
+    'select(test("^[[:space:]]*$") | not)) catch empty' 's/ \| select\(test\("\^\[\[:space:\]\]\*\$"\) \| not\)\) catch empty/) catch empty/' "$_f"
+  assert_pin_red_under "#601 AC4: $(basename "$_f") rejected-value warning pin is RED when the warning is dropped" \
+    '::warning::setup.claude_code_executable is set' 's/::warning::setup\.claude_code_executable is set/::notice::silently ignored/' "$_f"
 done
 # Extract the exact jq programs shipped in EACH workflow and drive them against the matrix, so
 # the sweep tests the REAL filters (not a hardcoded copy, and not one file standing in for three).
@@ -7801,8 +7817,13 @@ done
 # match would take whichever appears first in the file).
 for _f in "$I601_DEVFLOW_YML" "$I601_IMPL_YML" "$I601_RUNNER_YML"; do
   _b="$(basename "$_f")"
-  I601_FILTER="$(grep -oE "try \(\.setup\.claude_code_executable // empty \| strings[^']*\) catch empty" "$_f" | head -1)"
-  I601_RAW_FILTER="$(grep -oE "try \(\.setup\.claude_code_executable \| select[^']*\| tostring[^']*\) catch \"set\"" "$_f" | head -1)"
+  # Strip comment lines BEFORE extracting: `head -1` takes the first match in the file, so a
+  # future edit that quoted the filter text in a `#` comment above the real one would silently
+  # select the comment — every positive control would still pass while the whole sweep tested a
+  # non-shipped string (a fully-green sweep testing nothing shipped, the costliest vacuity here).
+  I601_SRC="$(grep -v '^[[:space:]]*#' "$_f")"
+  I601_FILTER="$(printf '%s' "$I601_SRC" | grep -oE "try \(\.setup\.claude_code_executable // empty \| strings[^']*\) catch empty" | head -1)"
+  I601_RAW_FILTER="$(printf '%s' "$I601_SRC" | grep -oE "try \(\.setup\.claude_code_executable \| select[^']*\| tostring[^']*\) catch \"set\"" | head -1)"
   # Pin the three files' extracted programs EQUAL to one another. The per-file sweep below
   # proves each behaves correctly, but without this a future edit to one workflow's filter
   # that still satisfies every matrix row would drift silently — and the next untested shape
@@ -7888,6 +7909,30 @@ for _f in "$I601_DEVFLOW_YML" "$I601_IMPL_YML" "$I601_RUNNER_YML"; do
       "$([ -n "$(printf '%s' '{"setup":"scalar"}' | jq -r "$I601_RAW_FILTER")" ] && echo yes || echo no)"
     assert_eq "#601 AC4 [$_b]: raw probe — array setup is rejected, not unset (warning fires)" 'yes' \
       "$([ -n "$(printf '%s' '{"setup":["a"]}' | jq -r "$I601_RAW_FILTER")" ] && echo yes || echo no)"
+    # `setup`-level valid-falsy + null rows. `{"setup":null}` is the only OTHER path to silent:
+    # indexing null yields null (no jq error), so the probe's `select(. != null)` drops it. It is
+    # the intended behavior (nulling the block ≈ not setting it) and nothing else pins it, so a
+    # future probe edit flipping it to a spurious warning on a merely-nulled block would go RED.
+    assert_eq "#601 AC4 [$_b]: raw probe — null setup is a deliberate unset (no warning)" "" \
+      "$(printf '%s' '{"setup":null}' | jq -r "$I601_RAW_FILTER")"
+    assert_eq "#601 AC4 [$_b]: raw probe — empty-object setup is an unset (no warning)" "" \
+      "$(printf '%s' '{"setup":{}}' | jq -r "$I601_RAW_FILTER")"
+    assert_eq "#601 AC4 [$_b]: raw probe — valid-falsy false setup is rejected (warning fires)" 'yes' \
+      "$([ -n "$(printf '%s' '{"setup":false}' | jq -r "$I601_RAW_FILTER")" ] && echo yes || echo no)"
+    assert_eq "#601 AC4 [$_b]: raw probe — numeric setup is rejected (warning fires)" 'yes' \
+      "$([ -n "$(printf '%s' '{"setup":0}' | jq -r "$I601_RAW_FILTER")" ] && echo yes || echo no)"
+    # Top-level wrong-type rows: `.setup` on a non-object document raises, so BOTH filters land
+    # in `catch` — guarded empty, raw "set" → a rejection verdict on a config malformed above
+    # this key. The try/catch wrapper is the only reason this survives `set -eo pipefail`.
+    assert_eq "#601 AC4 [$_b]: raw probe — top-level array document is rejected (warning fires)" 'yes' \
+      "$([ -n "$(printf '%s' '[]' | jq -r "$I601_RAW_FILTER")" ] && echo yes || echo no)"
+    assert_eq "#601 AC4 [$_b]: raw probe — top-level string document is rejected (warning fires)" 'yes' \
+      "$([ -n "$(printf '%s' '"str"' | jq -r "$I601_RAW_FILTER")" ] && echo yes || echo no)"
+    # Contract pin: surrounding whitespace around real content is NOT trimmed — the value is
+    # forwarded verbatim (a path may legitimately contain spaces, as the Windows row proves).
+    # Pinning the direction makes trim-vs-no-trim explicit rather than incidental.
+    assert_eq "#601 AC4 [$_b]: padded valid path is forwarded verbatim (NOT trimmed)" " /opt/claude " \
+      "$(printf '%s' '{"setup":{"claude_code_executable":" /opt/claude "}}' | jq -r "$I601_FILTER")"
     assert_eq "#601 AC4 [$_b]: raw probe — explicit empty string is a deliberate unset (no warning)" "" \
       "$(printf '%s' '{"setup":{"claude_code_executable":""}}' | jq -r "$I601_RAW_FILTER")"
     assert_eq "#601 AC4 [$_b]: raw probe — rejected array leaf is non-empty (warning fires)" 'yes' \

@@ -211,14 +211,15 @@ automatic-install path runs unchanged — Linux consumers are unaffected.
 single-line, non-blank string: a non-string leaf (array/object/number/boolean), a non-object
 `setup` block, a string carrying an embedded newline or carriage return, and a whitespace-only
 string are each rejected and resolve to empty — the same result as leaving the key unset.
-An absent key, a JSON `null`, and an explicit `""` are deliberate unsets and warn nothing. Because a mistyped path would otherwise
+Because a mistyped path would otherwise
 revert *silently* to the Windows-fatal auto-install path (leaving you debugging the installer's
 misleading `Windows is not supported` error rather than your own typo), a **set-but-rejected**
-value emits a workflow `::warning::` naming the key. An explicit `""` is a deliberate unset and
-warns nothing.
+value emits a workflow `::warning::` naming the key. An absent key, a JSON `null`, and an
+explicit `""` are deliberate unsets and warn nothing.
 
-**Effect is post-merge-only.** Like every `setup.*` value, this key is resolved at
-**trigger time** (the workflows' `config` job — and, for `devflow-runner.yml`, the
+**Effect is post-merge-only.** Unlike the `setup.*` keys the implement job reads at
+**runtime** from the checked-out working tree (`setup.install`, `setup.node_version`,
+`setup.services` — live in the same run), this key is resolved at **trigger time** (the workflows' `config` job — and, for `devflow-runner.yml`, the
 trusted base-ref `baseprovision` step — read config from the default/base branch), so
 a PR that *adds* the key cannot exercise it in that PR's own cloud run. It takes effect
 only after the change merges to the default branch. (For `devflow-runner.yml` the value
