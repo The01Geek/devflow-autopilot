@@ -71,7 +71,7 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
 | live extension | `.devflow/prompt-extensions/review-and-fix.md` | 203 | 2,473 | 16,546 | 3,215 |
 | **AFTER** — plugin root | `skills/review-and-fix/SKILL.md` (thin) | 329 | **3,197** | 25,707 | 4,156 |
 | **AFTER** — actual initial load | root + live extension | 532 | **5,670** | 42,253 | 7,371 |
-| **AFTER** — bundle | root + all `references/*.md` | 1313 | 40,893 | 287,811 | 53,161 |
+| **AFTER** — bundle | root + all `references/*.md` | 1,313 | 40,893 | 287,811 | 53,161 |
 | **AFTER** — normal cumulative path | root + extension + Σ references | — | 43,366 | — | 56,376 |
 | **AFTER** — maximum active step | root + extension + `shadow-review.md` | — | **16,932** | — | 22,012 |
 | reference: `shadow-review.md` | Step 2.6 | 235 | 11,262 | 79,276 | 14,641 |

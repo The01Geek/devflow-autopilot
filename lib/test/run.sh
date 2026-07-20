@@ -21509,6 +21509,11 @@ for _f541m in '"oops"' '["oops"]' '5' 'null' '{"fix_delta":5}' '{"fix_delta":{"s
   ETF5_MAL_OUT="$( ( cd "$ETF5_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$ETF5_WPD" --slug pr-5 ) 2>&1 )"
   assert_eq "et-fresh(#541 malformed): reference_reads=$_f541m does not suppress the sweep_defs_read provenance warning (guard does not fail open)" "yes" \
     "$(printf '%s\n' "$ETF5_MAL_OUT" | grep -qF "iter-4.json' carries field 'sweep_defs_read' WITHOUT unrecoverable provenance" && echo yes || echo no)"
+  # ...and the malformed value is itself flagged under its OWN field name. Without this the
+  # rows would stay green under a refactor that kept the abort-safety type guard but stopped
+  # the `select` emitting `reference_reads.fix_delta`, leaving a clearly-bad record unflagged.
+  assert_eq "et-fresh(#541 malformed): reference_reads=$_f541m is itself flagged with reference_reads.fix_delta provenance" "yes" \
+    "$(printf '%s\n' "$ETF5_MAL_OUT" | grep -qF "iter-4.json' carries field 'reference_reads.fix_delta' WITHOUT unrecoverable provenance" && echo yes || echo no)"
   rm -f "$ETF5_WPD/iter-4.json"
 done
 # An unrecoverable stamp with a MISSING reason is rejected too: the producer is asserted to

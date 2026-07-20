@@ -16,12 +16,12 @@ kind: growth
 - `skills/review-and-fix/references/error-handling.md` (+66 bytes) — the synthesized-record
   enumeration now points at `ITER_SYNTH_EXPECTED_FIELDS` instead of restating a field list
   that the evidence-field addition had made stale.
-- `skills/review-and-fix/references/loop-exit.md` (−78 bytes) and
+- `skills/review-and-fix/references/loop-exit.md` (−39 bytes) and
   `skills/implement/phases/phase-3-review.md` (+85 bytes) — the same stale five-field
   enumeration, replaced by the same pointer. Both were already stale before this change;
   they are reconciled here because the changeset claims the schema is reconciled across
   every surface that defines it, and a surviving mirror would make that claim false.
-- `skills/review-and-fix/references/fixing.md` (+2108 bytes) — item 7's "Conditional
+- `skills/review-and-fix/references/fixing.md` (+2102 bytes) — item 7's "Conditional
   gate/sweep fields" paragraph gains the authoritative `reference_reads` specification
   (conditional contract, registry keying, shape, the `status`/`outcome`/`reason` semantics
   with both `not_verified` arms named, and the APPROVE-family prohibition).
