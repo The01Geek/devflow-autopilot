@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "slug": "issue-602-set-git-dir-git-work-tree-on-the-claude-code",
-  "generated_at": "2026-07-20T11:37:10Z",
+  "generated_at": "2026-07-20T11:54:03Z",
   "config_fingerprint": {
     "sha256": "80ed30710c2433c0bd37b90acdb304f27826dd65309e063f370449347db25eac",
     "partial": false,
