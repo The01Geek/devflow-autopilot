@@ -1,0 +1,20 @@
+[
+  {
+    "decision": "no-automated-test arm does not apply — the added guards ARE tests; mutation-check is the applicable verification",
+    "command": "cp skills/review-and-fix/SKILL.md <tmp>/m1.md && sed -E -i 's/the \\*\\*most recent\\*\\* edit alone/the edits recorded/' <tmp>/m1.md && diff -q",
+    "result": "pass",
+    "evidence": "iteration-1 mutations MUT1/MUT2 both applied non-vacuously against a temp copy (files differed); pin literals unique (grep -c = 1)"
+  },
+  {
+    "decision": "re-fix after Step 3.5 gate finding: the recency mutation applied but did NOT reconstruct the regression — strengthened to strip the whole recency span",
+    "command": "cp skills/review-and-fix/SKILL.md <tmp>/m3.md && sed -E -i 's/the \\*\\*most recent\\*\\* edit alone — the node with the latest `editedAt`, never any privileged login merely present in the list/the edits recorded/' <tmp>/m3.md",
+    "result": "pass",
+    "evidence": "mutant reads 'else authority follows the edits recorded — treating an empty or page-full (10) node list as unestablished' — genuine set-semantics fail-open; 'most recent' count in mutant = 0"
+  },
+  {
+    "decision": "suite re-run post-commit on merged HEAD to confirm every new/strengthened assertion registers",
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "evidence": "11258 passed, 0 failed, zero skips; the four #620 recency/truncated/maintainer-note assertions each observed PASS by name"
+  }
+]
