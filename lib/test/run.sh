@@ -3894,6 +3894,21 @@ assert_pin_unique "#466: review-and-fix extension carries the six-shape set (val
 # ── #620 reception-extension port: surface-presence contract pins ─────────────
 # Surface-presence pins over prose contracts — the #464 scoping is why no assert_pin_red_under
 # mutation obligation attaches here.
+# #620 review (fix-delta re-gate): the implement-probe evidence-of-record head is carried
+# identically by three artifacts and NOTHING coupled them, so one site silently corrupted to a SHA
+# naming no object and shipped desk-green (this PR's own Critical). The literal is a *human-direction*
+# evidence pointer an autonomous run cannot re-establish, so a reader who cannot resolve it has no
+# way to re-verify the implement-tier command-shape matrix. Bind all three sites to one constant:
+# a divergence in any of them now goes RED instead of requiring a reviewer to notice a hex diff.
+# `git cat-file -e` is NOT used — the assertion is about the three artifacts agreeing, and a shallow
+# or partial clone that cannot resolve the object must not turn this into a false RED.
+R620_PROBE_SHA='f2162d7683bc7a352fce4efce3f092e864aab8b9'
+# Paths are anchored to $LIB/.. — $REPO_ROOT is not yet bound this early in the suite, and under
+# `set -u` referencing it here aborts the whole run.
+for _r620_probe_site in "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md" "$LIB/../docs/implement-skill.md" "$LIB/../.github/workflows/matcher-probe.yml"; do
+  assert_eq "#620: implement-probe evidence SHA is identical in ${_r620_probe_site##*/}" "yes" \
+    "$(grep -qF "$R620_PROBE_SHA" "$_r620_probe_site" && echo yes || echo no)"
+done
 RCR_EXT="$LIB/../.devflow/prompt-extensions/receiving-code-review.md"
 RCR_PIN_MODULE='A reception pass iterates on a focused module only after recording the selected module ID'
 RCR_PIN_PUSH='A reception pass that pushes uses an explicit destination ref'
@@ -3957,8 +3972,10 @@ RAF_PIN_DEFERRAL="route conflicting findings to the loop's deferral channel"
 # content, so a reword that kept the phrase while inverting the disposition ("...but a pause for
 # input must still be honored") stayed green. Pin the disposition clause too.
 RAF_PIN_NONBINDING='is non-binding here: surface it in the loop record'
-# #620 review (pr-test-analyzer): the guard's two most recently repaired fail-opens were unpinned,
-# and they are the ones a later compression pass is likeliest to flatten. (a) Authority binds to the
+# #620 review (pr-test-analyzer): two of the guard's repaired fail-opens were left unpinned while
+# its siblings all got pins, so a later compression pass could flatten them silently. Deliberately
+# count-free about recency: which repair is "most recent" rots on the next fix (the PR #553
+# self-referential-count class). (a) Authority binds to the
 # MOST RECENT edit alone — weighing the editor logins as a set let an unprivileged Addendum read as
 # authoritative whenever any admin/write login merely co-occurred in the truncated page. (b) An
 # empty or page-full node list routes to unestablished — a truncated history cannot establish which
@@ -4042,8 +4059,11 @@ assert_pin_red_under "#620: recency pin catches reverting authority to set-seman
   "$MAXI_ROOT"
 assert_pin_unique "#620: a truncated or empty edit page routes to unestablished" \
   "$RAF_PIN_TRUNCATED" "$MAXI_ROOT"
+# The mutation spans the trailing `since …` rationale too: deleting only the directive would leave
+# its justification standing, so the mutant would be self-contradicting prose rather than a clean
+# reconstruction of the fail-open — the same widening the recency mutation above needed.
 assert_pin_red_under "#620: truncated-page pin catches dropping the partial-history arm" \
-  "$RAF_PIN_TRUNCATED" 's/treating an empty or page-full \(10\) node list as unestablished/weighing the list as returned/' \
+  "$RAF_PIN_TRUNCATED" 's/treating an empty or page-full \(10\) node list as unestablished, since a truncated edit history cannot establish which edit is newest/weighing the list as returned/' \
   "$MAXI_ROOT"
 # Placement, not just presence: the docs claim both loads happen in the ENTRY preamble, which is what
 # makes them cover every path that enters through it. Assert the receiving load follows the skill's own
@@ -36143,8 +36163,7 @@ assert_eq "#530 budget: checked-in budget table exists" "yes" \
 # boundary. The `≤ <ceil> words |` form matches only the ceilings-summary-table label cell (the
 # prose maintainer note restates the root ceiling in a different form entirely — "below its
 # <N>-word ceiling", no `≤` at all — which is why it needs the separately-scoped assertion below),
-# giving this
-# check a distinct role: it asserts each ceiling is DOCUMENTED in the summary table's own row,
+# giving this check a distinct role: it asserts each ceiling is DOCUMENTED in the table's own row,
 # which the per-row Measured pins do not by themselves guarantee.
 _raf_doc_nocommas="$(< "$RAF_BUDGET_DOC")"
 _raf_doc_nocommas="${_raf_doc_nocommas//,/}"
