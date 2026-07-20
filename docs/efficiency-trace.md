@@ -642,7 +642,10 @@ real record carries, none of which is recoverable **from the fix commits**.
   now emits a missing-field `::warning::` for each. That is the intended fail-loud behavior (a
   truncated synthesized record must still warn) rather than a regression; the blast radius is narrow
   because `--workpad-dir` is a per-run ephemeral directory, so a pre-change record only appears when
-  a run directory survives a tool upgrade. `lib/efficiency-trace.jq` surfaces the marker at every level: per-iteration
+  a run directory survives a tool upgrade. The same boundary applies to **ordinary** (non-synthesized)
+  records: `ITER_EXPECTED_FIELDS` gained `sweep_defs_read` and `sweep_evidence` in the same change, so
+  a pre-change agent-written workpad warns for those two on the identical rationale — this is not a
+  synthesized-record-only boundary. `lib/efficiency-trace.jq` surfaces the marker at every level: per-iteration
   and in each `per_iteration[]` entry as a strict `== true` (an absent or malformed field reads
   `false` — agent-written workpads carry no such field, so real records read `synthesized: false`),
   and record-level as `any(…)` — `true` when **any** iteration was reconstructed, the key a

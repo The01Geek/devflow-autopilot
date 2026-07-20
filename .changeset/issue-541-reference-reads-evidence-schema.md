@@ -17,5 +17,8 @@ type: Added
   commits — which carry no trace of which sweeps ran or whether the fix-delta gate ran. That evidence
   is now stamped `{"status": "unrecoverable", "reason": …}` instead of the plausible-looking `[]` and
   `{"status": "not-run"}`, which are the *legitimate* values of a real no-fix iteration and would
-  otherwise assert something about an iteration the floor never observed. `--self-check` enforces the
-  provenance, so a synthesizer that stopped stamping it fails loudly rather than silently. (#625)
+  otherwise assert something about an iteration the floor never observed. `--self-check` validates
+  both the presence and the `unrecoverable` shape of that provenance, so a synthesizer that stopped
+  stamping it — or that regressed to a real-looking `[]` / `not-run` — emits a warning instead of
+  validating in silence. (`--self-check` is warn-only by contract: it never writes and never fails
+  the run; the `lib/test/run.sh` assertions are what turn the same regression RED at the desk.) (#625)

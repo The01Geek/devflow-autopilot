@@ -291,8 +291,11 @@ ITER_EXPECTED_FIELDS="iter started_at fix_commit_sha fix_files loop_role sweep_d
 # The run-scoped evidence fields (issue #541) are members because the synthesizer writes an
 # explicit unrecoverable-provenance object for each: absent evidence is recorded AS
 # absent, never serialized as a real `[]` / `not-run` / omitted value. Their presence
-# here is the producer<->consumer coupling — a synthesizer that stopped stamping
-# provenance would go RED against this set instead of silently regressing.
+# here is the producer<->consumer coupling — this set catches a DROPPED field, while
+# the evidence-provenance shape check in do_self_check catches the sibling regression
+# this set structurally cannot see: a field still present but carrying a real-looking
+# `[]` / `not-run` value. Both are warn-only (do_self_check never fails); the
+# lib/test/run.sh #541 assertions are what turn either regression RED at the desk.
 ITER_SYNTH_EXPECTED_FIELDS="iter fix_commit_sha fix_files loop_role synthesized sweep_defs_read sweep_evidence reference_reads"
 # The synthesized SHADOW-marker minimal field set (issue #426): what
 # synthesize_shadow_markers writes into an iter's `shadow` block when provenance
@@ -776,6 +779,30 @@ do_self_check() {
     for field in $missing; do
       echo "::warning::devflow review-and-fix self-check: iter workpad '$(basename "$iter")' is missing expected field '${field}'" >&2
     done
+    # Evidence-provenance SHAPE validation (issue #541). ITER_SYNTH_EXPECTED_FIELDS
+    # membership above proves only that the KEY is present, while the invariant this
+    # issue exists to protect is about the VALUE: a synthesizer that regressed to
+    # stamping `[]` / `{"status":"not-run"}` — the LEGITIMATE values of a real no-fix
+    # iteration — keeps every key present and so passes a presence-only check in
+    # silence, which is the unknown-collapsed-onto-a-real-value defect itself. Scoped
+    # to keys that ARE present, so a dropped field warns once (above) rather than
+    # twice, and the two conditions stay separately attributable. Mirrors the
+    # promotion_provenance arm below rather than re-deriving a new predicate.
+    if evidence_bad="$("$DEVFLOW_JQ" -r '
+      if (.synthesized != true) then empty
+      else
+        (["sweep_defs_read", "sweep_evidence"][] as $f
+          | select(has($f))
+          | select(((.[$f] | type) != "object") or ((.[$f].status // "") != "unrecoverable"))
+          | $f),
+        (select(has("reference_reads"))
+          | select(((.reference_reads.fix_delta.status // "") != "unrecoverable"))
+          | "reference_reads.fix_delta")
+      end' "$iter" 2>/dev/null)"; then
+      for field in $evidence_bad; do
+        echo "::warning::devflow review-and-fix self-check: synthesized iter workpad '$(basename "$iter")' carries field '${field}' WITHOUT unrecoverable provenance — a fix-commit-only record cannot establish this evidence, so a real-looking value here asserts something the synthesis floor never observed" >&2
+      done
+    fi
     # Producer-drop advisory (issue #501): provenance is conditional, so it does
     # not belong in ITER_EXPECTED_FIELDS. Validate it only on non-synthesized
     # promoted records and stay advisory for legacy data.

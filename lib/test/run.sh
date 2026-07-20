@@ -21185,6 +21185,18 @@ assert_eq "et-fresh(R5): the ITER_SYNTH_EXPECTED_FIELDS extraction itself resolv
   "$(case "$ETF5_SYNTH_FIELDS" in *synthesized*) echo yes ;; *) echo no ;; esac)"
 assert_eq "et-fresh(R5): the synthesized record carries every ITER_SYNTH_EXPECTED_FIELDS member (set derived, not hard-coded)" "" \
   "$(jq -r --arg f "$ETF5_SYNTH_FIELDS" '(($f | split(" ")) - keys) | join(",")' "$ETF5_WPD/iter-1.json" 2>/dev/null)"
+# CONVERSE direction (#541 review, completeness critic). The assertion above derives its
+# expectation FROM the constant, so it is blind in the deletion direction: drop a member and
+# the expectation drops with it, leaving the difference empty and the test green. That is the
+# self-certification a "detect-all" audit must not rest on. The independent signal here is the
+# record the producer ACTUALLY synthesized — not the constant — so asserting `keys - constant`
+# is also empty makes the two sets mutually pinning: a member dropped from the constant while
+# the writer still stamps it now goes RED. (Scoped precisely: the three evidence fields and
+# `synthesized` were already covered — by the hard-coded consumer greps and the extraction
+# control respectively — so this closes the residual for `iter`/`fix_commit_sha`/`fix_files`/
+# `loop_role`, which no assertion previously pinned against a constant-side deletion.)
+assert_eq "et-fresh(R5): ITER_SYNTH_EXPECTED_FIELDS covers every key the synthesizer actually wrote (converse — catches a constant-side deletion)" "" \
+  "$(jq -r --arg f "$ETF5_SYNTH_FIELDS" '(keys - ($f | split(" "))) | join(",")' "$ETF5_WPD/iter-1.json" 2>/dev/null)"
 assert_eq "et-fresh(R8): the LOCAL base branch ref is byte-identical after a successful refresh" \
   "$ETF5_LOCAL_MAIN_BEFORE" "$(git -C "$ETF5_REPO" rev-parse refs/heads/main)"
 # et-fresh(R6) — idempotency: a second --persist writes no second record and makes
@@ -21224,6 +21236,12 @@ assert_eq "et-fresh(#541): synthesized reference_reads.fix_delta carries a non-e
   "$(jq -r 'if ((.reference_reads.fix_delta.reason // "") | length) > 0 then "yes" else "no" end' "$ETF5_WPD/iter-1.json" 2>/dev/null)"
 assert_eq "et-fresh(#541): the documented .reference_reads.fix_delta read does NOT return null (the shape a top-level stamp would produce)" "no" \
   "$(jq -r 'if .reference_reads.fix_delta == null then "yes" else "no" end' "$ETF5_WPD/iter-1.json" 2>/dev/null)"
+# The three reason strings must stay DISTINCT (#541 review). Asserting only non-emptiness
+# above would stay green against a regression that collapsed all three unrec() calls onto one
+# shared $what — plausible precisely BECAUSE unrec() exists to share the framing — leaving the
+# record unable to say WHICH evidence was unrecoverable. Compare the deduplicated count to 3.
+assert_eq "et-fresh(#541): the three unrecoverable reason strings are pairwise DISTINCT" "3" \
+  "$(jq -r '[.sweep_defs_read.reason, .sweep_evidence.reason, .reference_reads.fix_delta.reason] | unique | length' "$ETF5_WPD/iter-1.json" 2>/dev/null)"
 assert_eq "et-fresh(#541): synthesized sweep_defs_read is NOT the real no-fix value []" "no" \
   "$(jq -r 'if .sweep_defs_read == [] then "yes" else "no" end' "$ETF5_WPD/iter-1.json" 2>/dev/null)"
 assert_eq "et-fresh(#541): synthesized sweep_evidence is NOT the real no-fix status not-run" "no" \
@@ -21243,6 +21261,25 @@ for _f541 in sweep_defs_read sweep_evidence reference_reads; do
     "$(printf '%s\n' "$ETF5_SC_OUT" | grep -qF "iter-2.json' is missing expected field '$_f541'" && echo yes || echo no)"
 done
 rm -f "$ETF5_WPD/iter-2.json"
+# #541 review (Critical): the set difference above observes only KEY PRESENCE, so it is
+# structurally blind to the regression this issue exists to prevent — a synthesizer that keeps
+# every key but stamps `[]` / `{"status":"not-run"}`, the LEGITIMATE values of a real no-fix
+# iteration. Drive that exact regression and assert the value-shape check names each field.
+# The positive control is the fixture itself: it is the record --persist actually synthesized,
+# mutated in the three evidence values ALONE, so a warning can only be attributed to the bad
+# provenance and not to some unrelated invalidity. The final assertion pins ATTRIBUTION — the
+# missing-field warning must NOT also fire, so the present-but-wrong and absent conditions stay
+# separately diagnosable rather than either masking the other.
+jq '.sweep_defs_read = [] | .sweep_evidence = {"status":"not-run","reason":"no fixes applied"} | .reference_reads = {"fix_delta":{"status":"verified","outcome":"clean","reason":null}}' \
+  "$ETF5_WPD/iter-1.json" > "$ETF5_WPD/iter-3.json" 2>/dev/null
+ETF5_BAD_OUT="$( ( cd "$ETF5_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$ETF5_WPD" --slug pr-5 ) 2>&1 )"
+for _f541v in sweep_defs_read sweep_evidence reference_reads.fix_delta; do
+  assert_eq "et-fresh(#541): --self-check flags present-but-real-looking $_f541v on a synthesized record" "yes" \
+    "$(printf '%s\n' "$ETF5_BAD_OUT" | grep -qF "iter-3.json' carries field '$_f541v' WITHOUT unrecoverable provenance" && echo yes || echo no)"
+done
+assert_eq "et-fresh(#541): the value-shape warning is NOT misreported as a missing field (attribution)" "no" \
+  "$(printf '%s\n' "$ETF5_BAD_OUT" | grep -qF "iter-3.json' is missing expected field" && echo yes || echo no)"
+rm -f "$ETF5_WPD/iter-3.json"
 rm -rf "$ETF5_ORIGIN" "$ETF5_REPO"
 
 # et-fresh(R7) — the refresh-failed decline path runs with tr/sed/wc/cut/head
@@ -22576,8 +22613,28 @@ LR_CONDITIONAL_FIELDS="shadow promotion_provenance parked_class_sweep park_calib
 # PATH tool the preflight does not guarantee (a missing `tr` would empty the alternation).
 LR_COND_RE="^(${LR_CONDITIONAL_FIELDS// /|})$"
 LR_SCHEMA="$(sed -n '/^### Schema$/,/^```$/p' "$MAXI_SKILL" | grep -E '^  "[A-Za-z0-9_]+":' | sed -E 's/^  "([A-Za-z0-9_]+)":.*/\1/' | grep -Ev "$LR_COND_RE" | sort -u)"
+# Positive control (#541 review): BOTH operands are derived through grep/sed/tr, none of
+# which the preflight guarantees. An emptied extraction on either side makes the comparison
+# `assert_eq "" ""`, which PASSES while checking nothing — silently retiring this
+# single-source guard. That is the same vacuity the ETF5_SYNTH_FIELDS control prevents for
+# the sibling synthesized-set extraction; this assertion is its missing counterpart here.
+# `telemetry` is a stable member of both sides, so a non-vacuous extraction must contain it.
+assert_eq "loop_role #170 control: LR_CONST extraction is non-vacuous (carries telemetry)" "yes" \
+  "$(printf '%s\n' "$LR_CONST" | grep -qx 'telemetry' && echo yes || echo no)"
+assert_eq "loop_role #170 control: LR_SCHEMA extraction is non-vacuous (carries telemetry)" "yes" \
+  "$(printf '%s\n' "$LR_SCHEMA" | grep -qx 'telemetry' && echo yes || echo no)"
 assert_eq "loop_role #170: ITER_EXPECTED_FIELDS single-source == SKILL.md unconditional schema fields" \
   "$LR_SCHEMA" "$LR_CONST"
+# Conditionality converse (#541 review): the presence pins further down assert each
+# conditional field IS in the schema block, but nothing asserted the property that makes the
+# `-Ev` subtraction SAFE — that each subtracted field is genuinely ABSENT from
+# ITER_EXPECTED_FIELDS. A field declared in BOTH lists is subtracted from LR_SCHEMA while the
+# constant still requires it, so the equality above goes RED for the wrong reason; two such
+# mis-declarations could even balance out and stay green.
+for _c541 in $LR_CONDITIONAL_FIELDS; do
+  assert_eq "#541: conditional field $_c541 is absent from ITER_EXPECTED_FIELDS (the -Ev subtraction is safe)" "yes" \
+    "$(printf '%s\n' "$LR_CONST" | grep -qx "$_c541" && echo no || echo yes)"
+done
 
 # (5b) #539 review (Suggestion, test_gap): the three #530 navigation stamps are subtracted
 #     from LR_SCHEMA by the `-Ev` filter above — correctly, since they are best-effort
@@ -34832,7 +34889,7 @@ for _raf_ceil in "$RAF_ROOT_CEIL" "$RAF_LOAD_CEIL" "$RAF_MAXSTEP_CEIL"; do
     "$(case "$_raf_doc_nocommas" in *"≤ $_raf_ceil words |"*) echo yes;; *) echo no;; esac)"
 done
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,671 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,700 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute

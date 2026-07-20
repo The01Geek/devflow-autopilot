@@ -198,7 +198,7 @@ This skill **skips** /devflow:review's Phase 4.4 entirely — no GitHub post. Th
     "truncation": null,
     "dispatch": "verified"
   },
-  "reference_reads": {"fix_delta": {"status": "verified|not_verified", "outcome": "clean|refixed|promoted|null"}},
+  "reference_reads": {"fix_delta": {"status": "verified|not_verified", "outcome": "clean|refixed|promoted", "reason": null}},
   "shadow": {
     "ran_at": null,
     "reviewed_sha": null,
@@ -225,7 +225,7 @@ This skill **skips** /devflow:review's Phase 4.4 entirely — no GitHub post. Th
       {
         "parked_finding_ref": {"iter": 1, "index": 4},
         "parked_finding_id": "F-15",
-        "shadow_finding_index": 0, /* indexes THIS iteration's shadow.phase3_findings, shown here as the empty null-template above; in a real preservation run that array holds the paired re-raise at index 0 */
+        "shadow_finding_index": 0, /* see loop-control.md's park_calibration shape */
         "relation": "equivalent",
         "rationale": "shadow re-raises the same Postgres lock-mode claim on the same evidentiary basis, adding no new failing input",
         "operands_present": true,
