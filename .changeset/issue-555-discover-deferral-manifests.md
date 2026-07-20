@@ -11,7 +11,8 @@ bump: patch
   `scripts/discover-deferral-manifests.py`, which searches each candidate root independently,
   classifies it `ok`/`absent`/`failed` (including a mid-traversal `OSError`), and reports discovery
   status through both channels: an exit code (0 clean, 3 partial, 4 all-failed, 2 no roots) and a
-  fixed stderr marker per outcome. The §4.0.5 fence consumes zero-vs-non-zero from the exit and
+  fixed stderr marker on each degraded outcome (partial and all-failed only — a clean run and the
+  zero-argument usage error emit none). The §4.0.5 fence consumes zero-vs-non-zero from the exit and
   discriminates partial from failed on the stderr marker — the same idiom it already uses for
   `file-deferrals.py` —
   gates filing on a successful discovery, surfaces the helper's per-root roots-echo into the tool
