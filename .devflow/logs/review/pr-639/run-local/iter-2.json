@@ -1,0 +1,16 @@
+{
+  "iter": 2,
+  "fix_commit_sha": "681ea30f118ff50f9b0fd684101418b8668deba1",
+  "fix_files": [
+    ".changeset/issue-586-signal-cleanup-matrix.md",
+    "lib/test/module-harness.sh",
+    "lib/test/modules/create-issue-contract.sh",
+    "lib/test/run-module.sh",
+    "lib/test/run.sh",
+    "lib/test/test_module_harness.py",
+    "lib/test/test_module_runner.py"
+  ],
+  "loop_role": "fix",
+  "synthesized": true,
+  "telemetry": "unavailable"
+}
