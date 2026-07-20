@@ -1,0 +1,19 @@
+{
+  "iter": 1,
+  "fix_commit_sha": "e5b82587f73080dbdfae93bf4891e2bd31bd8b99",
+  "fix_files": [
+    ".changeset/issue-530-review-and-fix-split.md",
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+    "docs/review-and-fix-budget.md",
+    "docs/shadow-review.md",
+    "lib/test/modules/review-and-fix-contract.sh",
+    "lib/test/run.sh",
+    "lib/test/test_module_runner.py",
+    "lib/test/test_workflow_flight_recorder.py",
+    "skills/review-and-fix/SKILL.md",
+    "skills/review-and-fix/references/loop-control.md"
+  ],
+  "loop_role": "fix",
+  "synthesized": true,
+  "telemetry": "unavailable"
+}
