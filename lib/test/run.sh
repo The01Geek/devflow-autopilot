@@ -8243,7 +8243,7 @@ for _f in "$I602_DEVFLOW_YML" "$I602_IMPL_YML" "$I602_RUNNER_YML"; do
   # The invocation is `bash "$HELPER" …` (HELPER resolved by the step's own trusted-source
   # ladder on the review tier), so the operative pin is that line, not a bare path literal.
   assert_eq "#645 A-2 [$_b]: the helper step invokes the resolved helper with a workspace and a tier" "1" \
-    "$(grep -cF 'bash "$HELPER" --workspace "$DEVFLOW_GITENV_WORKSPACE" --config-file "$CFG" --tier' "$_f")"
+    "$(grep -cF 'bash "$HELPER" --workspace "$GITENV_WS" --config-file "$CFG" --tier' "$_f")"
   assert_eq "#645 A-2 [$_b]: the helper the step resolves is emit-git-env.sh" "yes" \
     "$(grep -q 'emit-git-env\.sh' "$_f" && echo yes || echo no)"
   # Positional: the helper step must come BEFORE the action step, so the append to
@@ -8269,7 +8269,7 @@ for _f in "$I602_DEVFLOW_YML" "$I602_IMPL_YML" "$I602_RUNNER_YML"; do
   assert_pin_red_under "#645 A-3 [$_b]: the helper-step pin is RED when the step name is deleted" \
     'name: Resolve git-env pins' '/name: Resolve git-env pins/d' "$_f"
   assert_pin_red_under "#645 A-3 [$_b]: the helper-invocation pin is RED when the invocation line is deleted" \
-    'bash "$HELPER" --workspace "$DEVFLOW_GITENV_WORKSPACE" --config-file "$CFG" --tier' \
+    'bash "$HELPER" --workspace "$GITENV_WS" --config-file "$CFG" --tier' \
     '/bash "\$HELPER" --workspace/d' "$_f"
 done
 # Tier wiring: each workflow passes the tier its population requires. The implement tier
@@ -8279,7 +8279,7 @@ done
 # Pin the tier on the INVOCATION LINE itself, not a bare `--tier X` substring: the step's
 # explanatory comment also names its tier, so a bare-substring count would be 2 and would
 # drift on any comment edit.
-I645_INVOC='bash "$HELPER" --workspace "$DEVFLOW_GITENV_WORKSPACE" --config-file "$CFG" --tier'
+I645_INVOC='bash "$HELPER" --workspace "$GITENV_WS" --config-file "$CFG" --tier'
 assert_eq "#645 A-5: devflow-implement.yml invokes the helper with --tier implement" "1" \
   "$(grep -cF "$I645_INVOC implement" "$I602_IMPL_YML")"
 assert_eq "#645: devflow.yml invokes the helper with --tier command" "1" \
@@ -8290,16 +8290,16 @@ assert_eq "#645: devflow-runner.yml invokes the helper with --tier review" "1" \
 # materializes, never the PR-head checkout — the security boundary. Negative pin: the step
 # must not source its config from a workspace-relative path.
 assert_eq "#645 A-7: the review tier reads the git-env keys from the trusted base-ref config" "1" \
-  "$(grep -cF 'DEVFLOW_GITENV_CONFIG_JSON: ${{ steps.baseprovision.outputs.config_json }}' "$I602_RUNNER_YML")"
+  "$(grep -cF 'GITENV_CFGJSON: ${{ steps.baseprovision.outputs.config_json }}' "$I602_RUNNER_YML")"
 assert_eq "#645 A-7: the review tier materializes the helper from a trusted source only" "1" \
   "$(grep -cF 'gitenv_helper_dir=$GITENV_HELPER_DIR' "$I602_RUNNER_YML")"
 assert_eq "#645 A-7: the review tier's rank-2 fallback is gated on vendor_source == fetch" "1" \
-  "$(grep -cF "DEVFLOW_GITENV_VENDOR_SOURCE\" = 'fetch' ]" "$I602_RUNNER_YML")"
+  "$(grep -cF "GITENV_VENDORSRC\" = 'fetch' ]" "$I602_RUNNER_YML")"
 # The two trigger-time tiers read the whole trusted config document forwarded by their
 # `config` job, which checks out the DEFAULT BRANCH — so a key set only in a PR head is inert.
 for _f in "$I602_DEVFLOW_YML" "$I602_IMPL_YML"; do
   assert_eq "#645 [$(basename "$_f")]: the git-env keys are read from the trigger-time config job" "1" \
-    "$(grep -cF 'DEVFLOW_GITENV_CONFIG_JSON: ${{ needs.config.outputs.config_json }}' "$_f")"
+    "$(grep -cF 'GITENV_CFGJSON: ${{ needs.config.outputs.config_json }}' "$_f")"
 done
 # The two keys are declared in the schema, both defaulting to false, and mirrored in the
 # example config as explicit falses (the documented-off-switch class: a valid-falsy value

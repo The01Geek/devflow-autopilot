@@ -36,17 +36,26 @@
 #   setup.git_dir_pin         → GIT_DIR=<workspace>/.git
 #   setup.git_work_tree_pin   → GIT_WORK_TREE=<workspace>
 #
-# A key is ENABLED only when it resolves to the exact string "true" — which is
-# what the shared resolver prints for both a JSON boolean `true` and the JSON
-# string "true". Every other shape resolves to disabled: absent, JSON null, an
-# explicit `false`, a number, an array, an object, a non-object `setup` container,
-# an unreadable or malformed config file. That is deliberate and is the whole
-# safety property: a hand-corrupted config yields the WORKING DEFAULT (neither
-# variable set) rather than a partially-set environment that reproduces the
-# outage. Config reading goes through scripts/config-get.sh — DevFlow's single
-# config resolver — rather than an ad-hoc parse, so the six-shape adversarial
-# matrix (object, array, scalar, valid-falsy, missing, wrong-type) is handled by
-# the one implementation the rest of the repo already relies on.
+# A key is ENABLED only when its JSON leaf is the boolean `true` or the string
+# "true" — the two shapes the platform gate accepts, since the existing workflow
+# extractions stringify values and a string "true" reads as enabled. Every other
+# shape resolves to disabled: absent, JSON null, an explicit `false`, a number, an
+# array, an object, a non-object `setup` container, an unreadable or malformed
+# config file. That is deliberate and is the whole safety property: a
+# hand-corrupted config yields the WORKING DEFAULT (neither variable set) rather
+# than a partially-set environment that reproduces the outage.
+#
+# Why this reads the JSON directly instead of delegating to scripts/config-get.sh.
+# The shared resolver reproduces Node's `String()`/`Array.join()` coercion
+# byte-for-byte, so a single-element ARRAY `[true]` joins to the string "true" —
+# indistinguishable, at the resolver's output, from the boolean `true` it must NOT
+# be treated as. A wrapper cannot recover the leaf's type from that output, and
+# accepting `[true]` would enable a pin from a shape the schema rejects. So the
+# leaf's TYPE is what decides here, read with python3 — the same stdlib `json`
+# module and the same hard preflight prerequisite config-get.sh itself uses, not a
+# new dependency or a hand-rolled parser. Everything else about the read matches
+# the resolver's contract: the dot-path walk aborts on any non-object container,
+# and every failure resolves to disabled.
 #
 # The implement-tier GIT_DIR exclusion. The implement tier stages and pushes
 # commits, and ambient GIT_DIR makes a `git add` issued from a NON-ROOT working
@@ -117,35 +126,53 @@ case "$_tier" in
         ;;
 esac
 
-# Locate the shared resolver as a sibling of this script, so the helper works
-# identically from the repo-root scripts/ copy and from the vendored
-# .devflow/vendor/devflow/scripts/ copy the cloud tiers invoke.
-_here="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)" || _here=''
-_resolver="${_here}/config-get.sh"
+# Resolve the config path the same way DevFlow's shared resolver does when no
+# explicit file is given: anchored to the git repo ROOT (issue #295), falling back
+# to the working directory. A non-empty explicit --config-file is honored verbatim.
+if [ -z "$_cfg" ]; then
+    _root="$(git rev-parse --show-toplevel 2>/dev/null)" || _root=''
+    [ -n "$_root" ] || _root="$(pwd)"
+    _cfg="${_root}/.devflow/config.json"
+fi
 
-# Resolve one key to the literal string the shared resolver prints. Any failure —
-# resolver absent, resolver non-zero, malformed JSON — collapses to "false", the
-# working default. `|| true` keeps each read set -e-safe even if this script is
-# later sourced under -e.
+# Print `true` iff the leaf at the given dot-path is the JSON boolean true or the
+# JSON string "true"; print `false` for every other shape, including a malformed
+# or unreadable file, a non-object container anywhere along the path, and a
+# single-element array whose element is true. Any failure — python3 absent,
+# interpreter error — collapses to `false`, the working default.
 _read_key() {
     _rk_out=''
-    if [ -n "$_here" ] && [ -x "$_resolver" ]; then
-        if [ -n "$_cfg" ]; then
-            _rk_out="$("$_resolver" "$1" "false" "$_cfg" 2>/dev/null)" || _rk_out='false'
-        else
-            _rk_out="$("$_resolver" "$1" "false" 2>/dev/null)" || _rk_out='false'
-        fi
+    if command -v python3 >/dev/null 2>&1; then
+        _rk_out="$(DEVFLOW_GITENV_KEY="${1#.}" DEVFLOW_GITENV_CFG="$_cfg" python3 -c '
+import json, os, sys
+try:
+    with open(os.environ["DEVFLOW_GITENV_CFG"], encoding="utf-8") as f:
+        data = json.load(f)
+except Exception:
+    sys.stdout.write("false")
+    sys.exit(0)
+cur = data
+for part in os.environ["DEVFLOW_GITENV_KEY"].split("."):
+    if not isinstance(cur, dict) or part not in cur:
+        sys.stdout.write("false")
+        sys.exit(0)
+    cur = cur[part]
+# isinstance(True, int) is True in Python, so test bool BEFORE any numeric
+# interpretation; a bare 1 must never read as enabled.
+if cur is True or (isinstance(cur, str) and cur == "true"):
+    sys.stdout.write("true")
+else:
+    sys.stdout.write("false")
+' 2>/dev/null)" || _rk_out='false'
     else
-        echo "emit-git-env.sh: config resolver not found at '${_resolver:-<unresolved>}'; treating every git-env pin key as disabled (the working default)" >&2
+        echo "emit-git-env.sh: python3 not found; treating every git-env pin key as disabled (the working default)" >&2
         _rk_out='false'
     fi
     printf '%s' "$_rk_out"
 }
 
-# Enabled iff the resolved value is exactly "true" — what config-get.sh prints for
-# a JSON boolean true AND for the JSON string "true" (its coerce() lowercases
-# booleans). A `case` comparison, not an external tool: this decides an EMITTED
-# result. Everything else, including an explicit valid-falsy `false`, is disabled.
+# A `case` comparison, not an external tool: this decides an EMITTED result, and a
+# missing non-preflight PATH tool must never be able to change it.
 _enabled() {
     case "$(_read_key "$1")" in
         true) return 0 ;;

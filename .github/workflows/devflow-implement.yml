@@ -1007,8 +1007,8 @@ jobs:
         env:
           # The trigger-time `config` job's default-branch checkout — a trusted
           # tree, never the PR head. That is what makes these keys post-merge-only.
-          DEVFLOW_GITENV_CONFIG_JSON: ${{ needs.config.outputs.config_json }}
-          DEVFLOW_GITENV_WORKSPACE: ${{ github.workspace }}
+          GITENV_CFGJSON: ${{ needs.config.outputs.config_json }}
+          GITENV_WS: ${{ github.workspace }}
         run: |
           set -uo pipefail
           HELPER='.devflow/vendor/devflow/scripts/emit-git-env.sh'
@@ -1017,11 +1017,11 @@ jobs:
             exit 0
           fi
           CFG="${RUNNER_TEMP}/devflow-gitenv-config.json"
-          if ! printf '%s' "$DEVFLOW_GITENV_CONFIG_JSON" > "$CFG" 2>/dev/null; then
+          if ! printf '%s' "$GITENV_CFGJSON" > "$CFG" 2>/dev/null; then
             echo "::warning::devflow git-env pins: could not materialize the trigger-time config into RUNNER_TEMP; failing open to the working default (neither variable exported)."
             exit 0
           fi
-          bash "$HELPER" --workspace "$DEVFLOW_GITENV_WORKSPACE" --config-file "$CFG" --tier implement >> "$GITHUB_ENV"
+          bash "$HELPER" --workspace "$GITENV_WS" --config-file "$CFG" --tier implement >> "$GITHUB_ENV"
 
       - name: Run Claude Code
         id: claude

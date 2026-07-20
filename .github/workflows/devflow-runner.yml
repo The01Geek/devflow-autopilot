@@ -1656,28 +1656,28 @@ jobs:
           # The TRUSTED base-ref config baseprovision materialized — never the
           # PR-head checkout. That is what makes these keys post-merge-only and
           # makes a key set only in a PR head inert on this tier.
-          DEVFLOW_GITENV_CONFIG_JSON: ${{ steps.baseprovision.outputs.config_json }}
-          DEVFLOW_GITENV_HELPER_DIR: ${{ steps.baseprovision.outputs.gitenv_helper_dir }}
-          DEVFLOW_GITENV_VENDOR_SOURCE: ${{ steps.vendor.outputs.vendor_source }}
-          DEVFLOW_GITENV_WORKSPACE: ${{ github.workspace }}
+          GITENV_CFGJSON: ${{ steps.baseprovision.outputs.config_json }}
+          GITENV_HELPERDIR: ${{ steps.baseprovision.outputs.gitenv_helper_dir }}
+          GITENV_VENDORSRC: ${{ steps.vendor.outputs.vendor_source }}
+          GITENV_WS: ${{ github.workspace }}
         run: |
           set -uo pipefail
           HELPER=''
-          if [ -n "$DEVFLOW_GITENV_HELPER_DIR" ] && [ -f "$DEVFLOW_GITENV_HELPER_DIR/emit-git-env.sh" ]; then
-            HELPER="$DEVFLOW_GITENV_HELPER_DIR/emit-git-env.sh"
-          elif [ "$DEVFLOW_GITENV_VENDOR_SOURCE" = 'fetch' ] && [ -f '.devflow/vendor/devflow/scripts/emit-git-env.sh' ]; then
+          if [ -n "$GITENV_HELPERDIR" ] && [ -f "$GITENV_HELPERDIR/emit-git-env.sh" ]; then
+            HELPER="$GITENV_HELPERDIR/emit-git-env.sh"
+          elif [ "$GITENV_VENDORSRC" = 'fetch' ] && [ -f '.devflow/vendor/devflow/scripts/emit-git-env.sh' ]; then
             HELPER='.devflow/vendor/devflow/scripts/emit-git-env.sh'
           fi
           if [ -z "$HELPER" ]; then
-            echo "::warning::devflow git-env pins: no TRUSTED copy of emit-git-env.sh is available — neither materialized from the base ref (baseprovision) nor runtime-fetched at the pinned devflow_version (vendor_source='${DEVFLOW_GITENV_VENDOR_SOURCE:-unknown}'). The PR-head checkout's own copy is deliberately not consulted, because a PR author must not be able to write assignments into the reviewer's job environment. Failing closed: neither GIT_DIR nor GIT_WORK_TREE is exported (which is also the working default)."
+            echo "::warning::devflow git-env pins: no TRUSTED copy of emit-git-env.sh is available — neither materialized from the base ref (baseprovision) nor runtime-fetched at the pinned devflow_version (vendor_source='${GITENV_VENDORSRC:-unknown}'). The PR-head checkout's own copy is deliberately not consulted, because a PR author must not be able to write assignments into the reviewer's job environment. Failing closed: neither GIT_DIR nor GIT_WORK_TREE is exported (which is also the working default)."
             exit 0
           fi
           CFG="${RUNNER_TEMP}/devflow-gitenv-config.json"
-          if ! printf '%s' "$DEVFLOW_GITENV_CONFIG_JSON" > "$CFG" 2>/dev/null; then
+          if ! printf '%s' "$GITENV_CFGJSON" > "$CFG" 2>/dev/null; then
             echo "::warning::devflow git-env pins: could not materialize the trusted base-ref config into RUNNER_TEMP; failing open to the working default (neither variable exported)."
             exit 0
           fi
-          bash "$HELPER" --workspace "$DEVFLOW_GITENV_WORKSPACE" --config-file "$CFG" --tier review >> "$GITHUB_ENV"
+          bash "$HELPER" --workspace "$GITENV_WS" --config-file "$CFG" --tier review >> "$GITHUB_ENV"
 
       - name: Run Claude Code
         id: claude
