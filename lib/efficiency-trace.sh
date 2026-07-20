@@ -790,17 +790,21 @@ do_self_check() {
     # twice, and the two conditions stay separately attributable.
     # Every deref is TYPE-GUARDED before it is taken — the same discipline the
     # promotion_provenance arm below applies, whose first predicate is likewise a type
-    # check — and the `reason` is required
-    # non-empty so the validator demands exactly the shape the producer is tested to
-    # write (a one-sided invariant would accept `{"status":"unrecoverable"}` with no
-    # reason — "unknown" without saying what is unknown, the same information loss one
-    # level down). An untyped `.reference_reads.fix_delta` deref made jq ABORT (rc 5) on
+    # check — and the `reason` is required non-empty so the validator demands exactly the
+    # shape the producer is tested to write (a one-sided invariant would accept
+    # `{"status":"unrecoverable"}` with no reason — "unknown" without saying what is
+    # unknown, the same information loss one level down). An untyped `.reference_reads.fix_delta` deref made jq ABORT (rc 5) on
     # an agent-mutable workpad whose `reference_reads` was a string/array, and because
     # the emit is gated on this `if`, the abort discarded the sweep violations jq had
     # ALREADY printed on the same run — the guard failing open on exactly the record it
-    # exists to catch. Hence also the `else` arm: this is a best-effort parser over
-    # agent-mutable JSON, so a check that could not run must say so rather than read as
-    # a clean record. `2>&1` keeps jq's own diagnostic as the breadcrumb text.
+    # exists to catch. The `else` arm is a DEFENSIVE BACKSTOP, not a reachable path on
+    # today's inputs: an unreadable/non-object record is already caught by the missing-
+    # field block above (which `continue`s before reaching here), and with every deref
+    # type-guarded the filter cannot abort on any valid-JSON object — probing malformed
+    # JSON, `[]`, `null`, `"x"`, and an empty file fires it zero times. It is kept so a
+    # FUTURE predicate added here that can abort degrades loudly instead of silently
+    # reading as clean, which is the failure this arm's absence originally produced.
+    # `2>&1` keeps jq's own diagnostic as the breadcrumb text.
     if evidence_bad="$("$DEVFLOW_JQ" -r '
       if (.synthesized != true) then empty
       else

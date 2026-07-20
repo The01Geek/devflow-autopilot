@@ -21496,6 +21496,13 @@ rm -f "$ETF5_WPD/iter-3.json"
 # Each row therefore pairs the malformed value with a genuinely-regressed `sweep_defs_read`
 # and asserts the sweep warning STILL fires: that is the attribution property, and it is what
 # a bare "does it warn about reference_reads" assertion would miss.
+# Which rows carry the ABORT rationale, stated precisely so the comment does not overclaim:
+# the string / array / number / scalar-`fix_delta` rows are the ones that make the UNTYPED
+# filter abort, and each was confirmed to go RED against a mutant reverting the type guard.
+# The `null` and missing-`status` rows do NOT abort under that mutant (jq yields `null`
+# through the deref rather than erroring), so they survive it — they are here for the
+# separate, still-real property that a non-`unrecoverable` value must be flagged, not as
+# abort coverage. Reading "each row kills the untyped mutant" would be wrong.
 for _f541m in '"oops"' '["oops"]' '5' 'null' '{"fix_delta":5}' '{"fix_delta":{"status":"verified"}}'; do
   printf '%s' "{\"iter\":1,\"fix_commit_sha\":\"a\",\"fix_files\":[\"f\"],\"loop_role\":\"fix\",\"synthesized\":true,\"sweep_defs_read\":{\"status\":\"not-run\"},\"sweep_evidence\":{\"status\":\"unrecoverable\",\"reason\":\"y\"},\"reference_reads\":$_f541m}" \
     > "$ETF5_WPD/iter-4.json"
