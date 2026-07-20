@@ -38591,7 +38591,7 @@ assert_eq "#629 adversarial: the fenced move emits no R1 row at all (in ANY verd
   "$(sp629_rulecount "$SPR" R1)"
 
 # ── #629 per-rule demotion wiring: R1 is NOT representative, so every rule site is driven ──
-# The exemption is applied at five sites across four rules. R1 and R4 inline their demote
+# The exemption is applied at every rule site, not just R1. R1 and R4 inline their demote
 # branch; R2/R3b/R3 route through `_emit_count(demote=…)`. An R1-only corpus therefore leaves
 # the `_emit_count` demote arm and R4's branch with NO executing test — a mutant dropping
 # `demote=` from the three `_emit_count` call sites, or inverting R4's condition, would ship

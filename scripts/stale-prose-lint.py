@@ -203,8 +203,8 @@ flags (``count-locked: … pin or drift-proof this claim``):
    caller-supplied-diff contract (the helper grades the diff it is handed and derives no other)
    and is the correct failure direction.
 10. **Referent deletion** — the claim relocates byte-for-byte while the same diff *removes* a
-    line from its resolution region (a legend's ``Expected total = 3`` moved into a file whose
-    adjacent enumeration the same diff shrinks to two bullets). *Disclosed non-goal —
+    line from its resolution region (an ``Expected total`` legend moved into a file whose
+    adjacent enumeration the same diff shrinks). *Disclosed non-goal —
     exempted.* The referent rule examines diff-**added** referent lines; a deletion changes
     referent content too, and the PR authored that change, so this is genuine over-suppression.
     It is not fixed because the operand is not available: the rules resolve referents by
