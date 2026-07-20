@@ -42,15 +42,25 @@ kind: growth
 - **Second review round (PR #612, review iteration 1) — +1842 bytes, three increments.** Each
   is again a conditional keyed to an observable predicate, which is the form this file has
   used throughout; none adds a new standing caution.
-  - *The AC5 observable was itself defective and is restated over two operands.* The predicate
-    recorded in the bullet above — "a gap in the round numbers `query-findings` returns" —
-    only fires on an **interior** gap, and the residual's base case has none: round 1
-    adjudicated `REVISE … unestablished` with round 2 ledgered returns only `round=2` lines,
-    so the missing number is *leading* and invisible in the returned set. The predicate now
-    compares those distinct round numbers against `query-summary`'s `rounds_run=`, making
-    **any** completed round contributing no ledger line the trigger. This is a correction to a
-    prior increment, not new scope — the growth buys a predicate that fires on the shape the
-    residual most commonly takes rather than only on the rarer interior one.
+  - *The AC5 observable was itself defective, twice, and is now a decided tool answer rather
+    than an inference.* The predicate that increment shipped into the skill — a gap in the
+    round numbers `query-findings` returns — only fires on an **interior** gap, and the
+    residual's base case has none: round 1 adjudicated `REVISE … unestablished` with round 2
+    ledgered returns only `round=2` lines, so the missing number is *leading* and invisible in
+    the returned set. Its replacement (compare those round numbers against `query-summary`'s
+    `rounds_run=`) was wrong in the other direction, and was caught by two independent
+    reviewers in the same round: `rounds_run=` is `len(state['rounds'])` — every **recorded**
+    round, since `record-dispatch` adds one before any outcome exists — and a FILE round and a
+    `no-verdict` round each record no ledger by design, so the comparison fires on runs with no
+    unestablished round at all and instructs the orchestrator to name a round that does not
+    exist, spending one of the three capped user rounds. **The lesson is that the operand did
+    not exist:** the predicate the arm wants is *completed ∧ adjudicated REVISE ∧ no ledger*,
+    which no query exposed, so every prose formulation was an approximation of something
+    unobservable. `query-convergence` now answers it directly as `unledgered_revise=`, and the
+    prose keys on that field. The mandatory-surface cost is roughly unchanged — one predicate
+    swapped for another — and it buys an arm that is exact instead of approximate in either
+    direction. This is the case for preferring a tool answer over orchestrator inference
+    whenever the inference needs an operand the tool could publish.
   - *The `query-findings` read-back gained a readability arm at both consuming sites.* The
     prose made that read-back the sole input to the reconciliation classification and to every
     ledger-maintenance decision, and stated the read-back-is-truth policy hard — but supplied

@@ -44013,13 +44013,13 @@ LEDGER-EOF
   assert_eq "#548 cli_roundtrip_restricted_path: T1 holds after a REVISE round is ADJUDICATED (not on the raw token)" \
     "1" "$(grep -c 't1=hold' "$IAS_SB/.rt-trig" 2>/dev/null)"
   assert_eq "#548 cli_roundtrip_restricted_path: an un-adjudicated REVISE round is not converged" \
-    "converged=no reason=unadjudicated basis=none" "$(cat "$IAS_SB/.rt-conv-preadj" 2>/dev/null)"
+    "converged=no reason=unadjudicated basis=none unledgered_revise=none" "$(cat "$IAS_SB/.rt-conv-preadj" 2>/dev/null)"
   assert_eq "#548 cli_roundtrip_restricted_path: an adjudicated REVISE with unresolved must-revise is not converged" \
-    "converged=no reason=unresolved-must-revise-remain basis=none" "$(cat "$IAS_SB/.rt-conv-revise" 2>/dev/null)"
+    "converged=no reason=unresolved-must-revise-remain basis=none unledgered_revise=none" "$(cat "$IAS_SB/.rt-conv-revise" 2>/dev/null)"
   assert_eq "#548 cli_roundtrip_restricted_path: adjudicated FILE with 0 unresolved converges" \
-    "converged=yes reason= basis=adjudicated" "$(cat "$IAS_SB/.rt-conv-file" 2>/dev/null)"
+    "converged=yes reason= basis=adjudicated unledgered_revise=none" "$(cat "$IAS_SB/.rt-conv-file" 2>/dev/null)"
   assert_eq "#548 cli_roundtrip_restricted_path: query-convergence fails closed on a foreign nonce (never reads a converged verdict off another run)" \
-    "converged=no reason=foreign-nonce basis=none" "$(cat "$IAS_SB/.rt-conv-fn" 2>/dev/null)"
+    "converged=no reason=foreign-nonce basis=none unledgered_revise=none" "$(cat "$IAS_SB/.rt-conv-fn" 2>/dev/null)"
   assert_eq "#548 cli_roundtrip_restricted_path: query-summary RENDERS the latest round's adjudicated tokens at the CLI (round 2: FILE, 0 unresolved)" \
     "1" "$(grep -c 'adjudicated_verdict=FILE must_revise=0 advisory=1 invalid=0 unresolved_must_revise=0' "$IAS_SB/.rt-summary" 2>/dev/null)"
   assert_eq "#548 cli_roundtrip_restricted_path: record-adjudication echoes the adjudicated payload" \
@@ -44030,7 +44030,7 @@ LEDGER-EOF
   assert_eq "#603 cli_roundtrip_restricted_path: record-resolution derives the run-wide remaining count (no caller-supplied tally)" \
     "round=1 revision_ordinal=1 frozen=2 remaining=0" "$(cat "$IAS_SB/.rt-resolution" 2>/dev/null)"
   assert_eq "#603 cli_roundtrip_restricted_path: a REVISE-latest run cleared by resolution converges on the resolution basis" \
-    "converged=yes reason= basis=resolution" "$(cat "$IAS_SB/.rt-conv-resolved" 2>/dev/null)"
+    "converged=yes reason= basis=resolution unledgered_revise=none" "$(cat "$IAS_SB/.rt-conv-resolved" 2>/dev/null)"
   assert_eq "#546 cli_roundtrip_restricted_path: approve mode refuses just-revised, not-yet-re-audited bytes" \
     "eligible=no reason=unaudited-revision" "$(cat "$IAS_SB/.rt-elig-bad" 2>/dev/null)"
   assert_eq "#546 cli_roundtrip_restricted_path: iterate mode answers ok for the same bytes" \

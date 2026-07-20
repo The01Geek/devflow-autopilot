@@ -7796,7 +7796,7 @@ def _row1(r):
               't1=hold t2=hold reason=',
               r('query-triggers', r.slug, nonce=True).stdout.strip())
     assert_eq("#603-1 regression: convergence refuses while entries are unresolved",
-              'converged=no reason=unresolved-must-revise-remain basis=none',
+              'converged=no reason=unresolved-must-revise-remain basis=none unledgered_revise=none',
               r('query-convergence', r.slug, nonce=True).stdout.strip())
     res = r('record-resolution', r.slug, '--round', '1', '--revision-ordinal', '1',
             '--resolved-ids', '1,2,3', nonce=True)
@@ -7807,7 +7807,7 @@ def _row1(r):
               't1=not-hold t2=hold reason=',
               r('query-triggers', r.slug, nonce=True).stdout.strip())
     assert_eq("#603-1/AC7 regression: the run converges on a resolution basis",
-              'converged=yes reason= basis=resolution',
+              'converged=yes reason= basis=resolution unledgered_revise=none',
               r('query-convergence', r.slug, nonce=True).stdout.strip())
 
 
@@ -7846,7 +7846,7 @@ def _row2(r):
     assert_eq("#603-2/AC1: the divergent must-revise 3 / unresolved 1 shape ingests",
               0, ok.returncode)
     assert_eq("#603-2/AC5: it derives an effective count of 1",
-              'converged=no reason=unresolved-must-revise-remain basis=none',
+              'converged=no reason=unresolved-must-revise-remain basis=none unledgered_revise=none',
               r('query-convergence', r.slug, nonce=True).stdout.strip())
     # Read the recorded state, not query-findings: that query prints only
     # round/id/status/summary, so an stdout check could not observe this stamp at all and
@@ -7973,7 +7973,7 @@ def _row6(r):
     assert_eq("#603-6/AC21: a FILE adjudication supersedes prior unresolved entries",
               (0, True), (got.returncode, 'superseded=2' in got.stdout))
     assert_eq("#603-6/AC7: it converges on the auditor-accepted basis",
-              'converged=yes reason= basis=adjudicated',
+              'converged=yes reason= basis=adjudicated unledgered_revise=none',
               r('query-convergence', r.slug, nonce=True).stdout.strip())
     assert_eq("#603-5/AC6: supersession releases T1",
               'not-hold', r('query-triggers', r.slug, nonce=True).stdout.split()[0]
@@ -8009,20 +8009,20 @@ def _row6(r):
     # The refusals must have written NOTHING: a half-write would surface here as the
     # state collapsing to unestablished on the next read.
     assert_eq("#603-3/AC21: the refused terminal mutations left the state loadable",
-              'converged=yes reason= basis=adjudicated',
+              'converged=yes reason= basis=adjudicated unledgered_revise=none',
               r('query-convergence', r.slug, nonce=True).stdout.strip())
 
 
 _with_run603(_row6)
 
 
-# Row 6c/AC21 — `_clear_settling` on the INVALIDATE channel, proven directly rather than
+# Row 6e/AC21 — `_clear_settling` on the INVALIDATE channel, proven directly rather than
 # by side effect. Row 3 invalidates an entry that carries no settling key, so the
 # `_clear_settling` call on that channel is a no-op in every prior row and deleting it left
 # the suite green (PR #612 review). Here the entry arrives carrying `resolution_ordinal`;
 # if the call is dropped the key survives onto an `invalidated` status, which
 # `_validate_ledger`'s residual arm then refuses on the NEXT load.
-def _row6c(r):
+def _row6e(r):
     r.open_round(1, 'REVISE', 2)
     r.adjudicate(1, 'REVISE', 2, '2', 'unresolved: a\nunresolved: b\n')
     r('record-revision', r.slug, '--after-round', '1', nonce=True)
@@ -8030,18 +8030,49 @@ def _row6c(r):
       '--resolved-ids', '1', nonce=True)
     inv = r('record-invalidate', r.slug, '--round', '1', '--ids', '1',
             '--reason', 'misclassified after all', nonce=True)
-    assert_eq("#603-6c/AC21: a resolved entry can be invalidated", 0, inv.returncode)
+    assert_eq("#603-6e/AC21: a resolved entry can be invalidated", 0, inv.returncode)
     _st6c = json.loads(Path(issue_audit_state.state_path(r.slug, r.tmp))
                        .read_text(encoding='utf-8'))
     _e6c = _st6c['rounds'][0]['findings'][0]
-    assert_eq("#603-6c/AC21: the invalidate channel cleared the stale resolution ordinal",
+    assert_eq("#603-6e/AC21: the invalidate channel cleared the stale resolution ordinal",
               ('invalidated', False),
               (_e6c['status'], 'resolution_ordinal' in _e6c))
-    assert_eq("#603-6c/AC21: and the state still loads after the transition",
+    assert_eq("#603-6e/AC21: and the state still loads after the transition",
               0, r('query-findings', r.slug, nonce=True).returncode)
 
 
-_with_run603(_row6c)
+_with_run603(_row6e)
+
+
+# Row 6f/AC7 — the retained `reopen_provenance` really IS read after a later status
+# change. The exemption's original rationale claimed the key "sits on statuses
+# _settling_ordinal ignores, so it can never be read stale"; that was false against HEAD
+# (PR #612 review iteration 2) — `_convergence_basis` reads it for every entry whose
+# `_settling_ordinal` is non-None, `invalidated` included. This row pins the behavior the
+# corrected docstring now describes, so neither the claim nor the outcome can drift again.
+def _row6f(r):
+    r.open_round(1, 'REVISE', 2)
+    r.adjudicate(1, 'REVISE', 2, '2', 'unresolved: a\nunresolved: b\n')
+    r('record-revision', r.slug, '--after-round', '1', nonce=True)
+    r('record-resolution', r.slug, '--round', '1', '--revision-ordinal', '1',
+      '--resolved-ids', '1,2', nonce=True)
+    r('record-reopen', r.slug, '--round', '1', '--ids', '1', nonce=True)
+    inv = r('record-invalidate', r.slug, '--round', '1', '--ids', '1',
+            '--reason', 'reclassified after the regression', nonce=True)
+    assert_eq("#603-6f/AC7: a reopened entry can then be invalidated", 0, inv.returncode)
+    _e6f = json.loads(Path(issue_audit_state.state_path(r.slug, r.tmp))
+                      .read_text(encoding='utf-8'))['rounds'][0]['findings'][0]
+    assert_eq("#603-6f/AC7: the reopen provenance is RETAINED across the invalidation "
+              "(it is the entry's regression history, deliberately not cleared)",
+              ('invalidated', True),
+              (_e6f['status'], 'reopen_provenance' in _e6f))
+    assert_eq("#603-6f/AC7: and _convergence_basis READS that retained key — the basis "
+              "is stale, which is why the exemption is not 'it can never be read'",
+              'converged=yes reason= basis=resolution-stale unledgered_revise=none',
+              r('query-convergence', r.slug, nonce=True).stdout.strip())
+
+
+_with_run603(_row6f)
 
 
 # Row 6 (stale variant)/AC7 — a revision recorded after an entry's settling change
@@ -8057,7 +8088,7 @@ def _row6b(r):
       '--resolved-ids', '2', nonce=True)
     assert_eq("#603-6/AC7: an interleaved resolve/revise/resolve run stays stale on the "
               "earlier entry's account",
-              'converged=yes reason= basis=resolution-stale',
+              'converged=yes reason= basis=resolution-stale unledgered_revise=none',
               r('query-convergence', r.slug, nonce=True).stdout.strip())
 
 
@@ -8170,29 +8201,71 @@ def _tok603(node):
     return out
 
 
+# Map every node to its enclosing module-level function, so a Name can be resolved
+# against the assignments that are actually in scope for it.
+_owner603 = {}
+for _fn603 in _funcs603.values():
+    for _n603 in ast.walk(_fn603):
+        _owner603.setdefault(_n603, _fn603)
+
+# TRANSITIVE harvest, to a fixed point. Earlier revisions of this row special-cased one
+# emission shape at a time and were wrong three times running (PR #612 review): the
+# original saw only literals inside the `print` arg, so `_binding_line`'s RETURNED line
+# was invisible and `bound=`/`latest_revision_landed=` shipped emitted, unlisted, and
+# therefore unrefused by `_forged_protocol_token` while their siblings on the same line
+# were refused. Adding a helper-descent arm then missed `out += f' stdin_digest={…}';
+# print(out)`. Adding a Name arm then still missed `print('\n'.join(lines) …)`, where the
+# arg is an IfExp and the literals live in a comprehension — which is `query-findings`'
+# own line, the exact surface the vocabulary refusal exists to protect. Chasing shapes is
+# the wrong move: follow the DATA instead. Seed with the print args and close over both
+# name-binding and one-level calls until nothing new appears, so a new emission shape is
+# covered by construction rather than by another arm here.
 _printed603 = set()
 for _node in ast.walk(_tree603):
-    if (isinstance(_node, ast.Call) and isinstance(_node.func, ast.Name)
+    if not (isinstance(_node, ast.Call) and isinstance(_node.func, ast.Name)
             and _node.func.id == 'print'):
-        for _arg in _node.args:
-            _printed603 |= _tok603(_arg)
-            # A printer that hands the line off to a helper — `print(_binding_line(state))`
-            # — keeps its protocol fields in the HELPER's own literals, which are not in
-            # the print call's arg subtree at all. Without this descent the audit certifies
-            # coverage over an emission channel it is structurally blind to: PR #612's
-            # review found `bound=` and `latest_revision_landed=` emitted by `_binding_line`,
-            # absent from `_PROTOCOL_TOKENS`, and therefore NOT refused by
-            # `_forged_protocol_token` — while their siblings on the very same emitted line
-            # (`tier=`, `non_bound_root=`) were refused. Only `return`ed values are harvested,
-            # since a helper's internal breadcrumbs are not what the printer emits.
-            for _sub in ast.walk(_arg):
-                if (isinstance(_sub, ast.Call) and isinstance(_sub.func, ast.Name)
-                        and _sub.func.id in _funcs603):
-                    for _ret in ast.walk(_funcs603[_sub.func.id]):
-                        if isinstance(_ret, ast.Return) and _ret.value is not None:
-                            _printed603 |= _tok603(_ret.value)
+        continue
+    _work603 = list(_node.args)
+    _seen603 = set()
+    while _work603:
+        _cur603 = _work603.pop()
+        if id(_cur603) in _seen603:
+            continue
+        _seen603.add(id(_cur603))
+        _printed603 |= _tok603(_cur603)
+        _fn603 = _owner603.get(_cur603)
+        for _sub603 in ast.walk(_cur603):
+            # a name → every value bound to it in the enclosing function
+            if isinstance(_sub603, ast.Name) and _fn603 is not None:
+                for _st603 in ast.walk(_fn603):
+                    if (isinstance(_st603, ast.Assign)
+                            and any(isinstance(_t603, ast.Name)
+                                    and _t603.id == _sub603.id
+                                    for _t603 in _st603.targets)):
+                        _work603.append(_st603.value)
+                    elif (isinstance(_st603, (ast.AugAssign, ast.AnnAssign))
+                          and isinstance(_st603.target, ast.Name)
+                          and _st603.target.id == _sub603.id
+                          and _st603.value is not None):
+                        _work603.append(_st603.value)
+                    elif (isinstance(_st603, ast.comprehension)
+                          and isinstance(_st603.target, ast.Name)
+                          and _st603.target.id == _sub603.id):
+                        _work603.append(_st603.iter)
+            # a call to a module-level function → everything it returns
+            if (isinstance(_sub603, ast.Call) and isinstance(_sub603.func, ast.Name)
+                    and _sub603.func.id in _funcs603):
+                for _ret603 in ast.walk(_funcs603[_sub603.func.id]):
+                    if isinstance(_ret603, ast.Return) and _ret603.value is not None:
+                        _work603.append(_ret603.value)
 assert_eq("#603/AC1: _PROTOCOL_TOKENS covers every key= token the printers emit",
           set(), _printed603 - set(issue_audit_state._PROTOCOL_TOKENS))
+# Anti-vacuity control: the harvest must actually reach `query-findings`' own line, which
+# every earlier revision of this row missed. Without this, the assertion above stays green
+# on a harvester that reaches nothing at all.
+assert_eq("#603/AC1 control: the harvest reaches query-findings' own emitted fields",
+          {'id', 'status', 'summary', 'round'},
+          {'id', 'status', 'summary', 'round'} & _printed603)
 
 # Row 11/AC12 — the corrupt-state matrix over the hand-corruptible ledger fields.
 # POSITIVE CONTROL, first: every row below asserts only that _validate RAISES, which a
@@ -8418,7 +8491,7 @@ def _row6c(r):
       '--resolved-ids', '2', nonce=True)
     assert_eq("#603-6c/AC7: an ingested-resolved entry counts as ordinal zero, so a later "
               "revision leaves the run stale on its account",
-              'converged=yes reason= basis=resolution-stale',
+              'converged=yes reason= basis=resolution-stale unledgered_revise=none',
               r('query-convergence', r.slug, nonce=True).stdout.strip())
 
 
@@ -8434,14 +8507,14 @@ def _row6d(r):
     r('record-resolution', r.slug, '--round', '1', '--revision-ordinal', '1',
       '--resolved-ids', '1', nonce=True)
     assert_eq("#603-6d/AC7: the first resolution converges on a plain resolution basis",
-              'converged=yes reason= basis=resolution',
+              'converged=yes reason= basis=resolution unledgered_revise=none',
               r('query-convergence', r.slug, nonce=True).stdout.strip())
     r('record-reopen', r.slug, '--round', '1', '--ids', '1', nonce=True)
     r('record-resolution', r.slug, '--round', '1', '--revision-ordinal', '1',
       '--resolved-ids', '1', nonce=True)
     assert_eq("#603-6d/AC7: re-resolving against the ordinal the reopen just disproved is "
               "reported stale, not clean",
-              'converged=yes reason= basis=resolution-stale',
+              'converged=yes reason= basis=resolution-stale unledgered_revise=none',
               r('query-convergence', r.slug, nonce=True).stdout.strip())
 
 
@@ -8456,7 +8529,7 @@ def _row3d(r):
     r.open_round(2, 'REVISE', 1)
     r.adjudicate(2, 'REVISE', 1, '1', 'unresolved: shared defect\n')
     assert_eq("#603-3d/AC5: a defect listed on two rounds' ledgers counts per listing",
-              'converged=no reason=unresolved-must-revise-remain basis=none',
+              'converged=no reason=unresolved-must-revise-remain basis=none unledgered_revise=none',
               r('query-convergence', r.slug, nonce=True).stdout.strip())
     r('record-revision', r.slug, '--after-round', '2', nonce=True)
     one = r('record-resolution', r.slug, '--round', '2', '--revision-ordinal', '2',

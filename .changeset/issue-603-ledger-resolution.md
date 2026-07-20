@@ -43,8 +43,8 @@ bump: patch
 - The boundary offer gains one arm no trigger can fire: a `REVISE` round adjudicated with an
   `unestablished` count records no ledger, so once a later ledgered round becomes the latest
   completed round its findings are invisible to both T1 and T2. The skill now directs the
-  orchestrator to detect that itself — a gap in the round numbers `query-findings` returns,
-  alongside a `basis=resolution` convergence answer — and offer one more audit round on that
+  orchestrator to detect that itself — `query-convergence` now names those rounds directly in
+  a new `unledgered_revise=` field, alongside a `basis=resolution` answer — and offer one more audit round on that
   ground. `record-invalidate --reason`'s help and the skill's ledger-summary refusal list
   additionally now name the record-splitting newline/carriage-return refusal both already
   enforced, so a caller meeting `reason-control-char` is no longer met by an undocumented
@@ -58,9 +58,12 @@ bump: patch
   hand, and on it the ingest short-circuit skipped the recorded-revision check entirely.
 - `supersession_round` joined the shared settling-key set, so the read boundary's residual-key
   arm covers it and `_clear_settling` is genuinely status-agnostic as documented.
-- The boundary-offer arm above now keys on a two-operand predicate — the round numbers
-  `query-findings` returns compared against `query-summary`'s `rounds_run=` — because the
-  gap-only form missed the residual's base case, where the unledgered round is the *first*
-  one and its absence leaves no gap to see. The skill also now treats a `findings=none`
+- `query-convergence` gains an `unledgered_revise=` field naming the completed `REVISE`
+  rounds that recorded no ledger, so the boundary-offer arm above keys on a decided tool
+  answer instead of an inference. Two inferences were tried and both were wrong: a gap in
+  the round numbers `query-findings` returns cannot see the base case, where the unledgered
+  round is the *first* one and leaves no gap; and comparing against `query-summary`'s
+  `rounds_run=` over-fires, since that field counts every *recorded* round and FILE and
+  no-verdict rounds each record no ledger by design. The skill also now treats a `findings=none`
   carrying any `reason=` as an unreadable ledger rather than an empty one at both sites that
   consume the read-back, and names the `ledger-unresolved-count` refusal in its enumeration.
