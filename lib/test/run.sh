@@ -19632,6 +19632,87 @@ assert_eq "et: invalid --mode → exit 2" "2" "$ET_MODE_RC"
 
 rm -rf "$ET_DIR" "$ET_DEG" "$ET_EMPTY"; rm -f "$ET_CFG"
 
+# ── #609 agent_effort[]: per-agent effort observability in the per-run record ─
+# The record carries, per dispatched agent, agent id + exactly the five effort
+# observability fields (requested/resolved/application_point/effective/
+# fallback_reason), populated over the FULL dispatched roster — phase3_dispatched
+# ∪ the agents in the new `dispatched_effort` iter-workpad field — never the
+# resolver map alone. `dispatched_effort` is the field that captures the
+# Phase-1/1.5/2 dispatch roster (a checklist-phase agent never appears in
+# phase3_dispatched), so the checklist-generator assertion below FAILS against a
+# Phase-3-only implementation by construction (AC4), and the no-override
+# code-reviewer assertion is the full-roster arm (AC5).
+AE_DIR="$(mktemp -d)"
+cat > "$AE_DIR/iter-1.json" <<'EOF'
+{
+  "iter": 1,
+  "checklist": [],
+  "dispatched_effort": [
+    {"agent":"devflow:checklist-generator","phase":"1","requested":"low","resolved":"low","application_point":"session-fallback","effective":null,"fallback_reason":"per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"}
+  ],
+  "phase3_dispatched": ["devflow:code-reviewer"],
+  "phase3_findings": [],
+  "convergence_inputs": {"fixes_applied": 0},
+  "telemetry": "unavailable"
+}
+EOF
+AE_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$AE_DIR" --slug "pr-609" --mode record)"
+AE_field() { echo "$AE_REC" | jq -r --arg a "$1" --arg f "$2" '.per_iteration[0].agent_effort[]? | select(.agent==$a) | .[$f]'; }
+AE_field_type() { echo "$AE_REC" | jq -r --arg a "$1" --arg f "$2" '.per_iteration[0].agent_effort[]? | select(.agent==$a) | .[$f] | type'; }
+# AC4: the Phase-1 agent is routed through dispatched_effort into agent_effort.
+assert_eq "#609 agent_effort: checklist-generator (Phase-1) block carries session-fallback" \
+  "session-fallback" "$(AE_field 'devflow:checklist-generator' 'application_point')"
+assert_eq "#609 agent_effort: checklist-generator requested rides through" \
+  "low" "$(AE_field 'devflow:checklist-generator' 'requested')"
+assert_eq "#609 agent_effort: checklist-generator resolved rides through" \
+  "low" "$(AE_field 'devflow:checklist-generator' 'resolved')"
+assert_eq "#609 agent_effort: checklist-generator fallback_reason is a string" \
+  "string" "$(AE_field_type 'devflow:checklist-generator' 'fallback_reason')"
+# AC5: a dispatched Phase-3 agent with NO dispatched_effort entry still gets a
+# block — all-null effort, session-inheritance, fallback_reason null.
+assert_eq "#609 agent_effort: no-override phase3 agent → session-inheritance" \
+  "session-inheritance" "$(AE_field 'devflow:code-reviewer' 'application_point')"
+assert_eq "#609 agent_effort: no-override requested is JSON null" \
+  "null" "$(AE_field_type 'devflow:code-reviewer' 'requested')"
+assert_eq "#609 agent_effort: no-override resolved is JSON null" \
+  "null" "$(AE_field_type 'devflow:code-reviewer' 'resolved')"
+assert_eq "#609 agent_effort: no-override fallback_reason is JSON null" \
+  "null" "$(AE_field_type 'devflow:code-reviewer' 'fallback_reason')"
+assert_eq "#609 agent_effort: effective is JSON null (never inferred)" \
+  "null" "$(AE_field_type 'devflow:checklist-generator' 'effective')"
+# Complete by construction: each block is agent + exactly the five effort fields.
+assert_eq "#609 agent_effort: block keys are agent + the five effort fields exactly" \
+  "agent,application_point,effective,fallback_reason,requested,resolved" \
+  "$(echo "$AE_REC" | jq -r '.per_iteration[0].agent_effort[0] | keys | sort | join(",")')"
+# Unknown-vs-zero honesty: the roster field's presence is recorded, mirroring
+# phase3_dispatched_present.
+assert_eq "#609 agent_effort: dispatched_effort_present true when the field exists" \
+  "true" "$(echo "$AE_REC" | jq -r '.per_iteration[0].dispatched_effort_present')"
+rm -rf "$AE_DIR"
+# Degradation: an iter with NO dispatched_effort field (an older workpad) still
+# yields agent_effort over phase3_dispatched (all session-inheritance), with the
+# presence flag false — additive and nullable, no schema_version bump.
+AE_OLD="$(mktemp -d)"
+printf '{"iter":1,"checklist":[],"phase3_dispatched":["devflow:comment-analyzer"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":"unavailable"}' > "$AE_OLD/iter-1.json"
+AE_OLD_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$AE_OLD" --slug "pr-609" --mode record)"
+assert_eq "#609 agent_effort: absent dispatched_effort → blocks still cover phase3_dispatched" \
+  "session-inheritance" \
+  "$(echo "$AE_OLD_REC" | jq -r '.per_iteration[0].agent_effort[]? | select(.agent=="devflow:comment-analyzer") | .application_point')"
+assert_eq "#609 agent_effort: absent dispatched_effort → presence flag false" \
+  "false" "$(echo "$AE_OLD_REC" | jq -r '.per_iteration[0].dispatched_effort_present')"
+assert_eq "#609 agent_effort: schema_version stays 1 (additive, no bump)" \
+  "1" "$(echo "$AE_OLD_REC" | jq -r '.schema_version')"
+# Malformed shape: a scalar dispatched_effort is treated as no usable entries
+# (blocks still derived from phase3_dispatched; the filter never aborts).
+AE_BAD="$(mktemp -d)"
+printf '{"iter":1,"checklist":[],"dispatched_effort":"bogus","phase3_dispatched":["devflow:code-reviewer"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":"unavailable"}' > "$AE_BAD/iter-1.json"
+AE_BAD_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$AE_BAD" --slug "pr-609" --mode record)"; AE_BAD_RC=$?
+assert_eq "#609 agent_effort: scalar dispatched_effort never aborts the filter" "0" "$AE_BAD_RC"
+assert_eq "#609 agent_effort: scalar dispatched_effort degrades to roster-only blocks" \
+  "session-inheritance" \
+  "$(echo "$AE_BAD_REC" | jq -r '.per_iteration[0].agent_effort[]? | select(.agent=="devflow:code-reviewer") | .application_point')"
+rm -rf "$AE_OLD" "$AE_BAD"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "efficiency-trace.sh --persist / --self-check (issue #80)"
 # ────────────────────────────────────────────────────────────────────────────
@@ -22582,7 +22663,7 @@ assert_eq "loop_role #170: non-string persisted loop_role (numeric) falls back t
 rm -rf "$LR_N"
 
 # (11) --self-check emits NO field-validation ::warning:: on a fully-complete iter
-#      (all 13 expected fields present; no shadow key — shadow is exempt from
+#      (every ITER_EXPECTED_FIELDS member present; no shadow key — shadow is exempt from
 #      ITER_EXPECTED_FIELDS, so a complete iter lacking shadow must still produce
 #      no field warnings). The effectiveness-record warning is suppressed by
 #      pre-creating the record so only field-validation output can appear. Guards
@@ -22596,8 +22677,8 @@ mkdir -p "$LR_CLEAN_RUN"
 # only field-validation output can then appear.
 mkdir -p "$LR_CLEAN/.devflow/logs/efficiency"
 printf '{}' > "$LR_CLEAN/.devflow/logs/efficiency/pr-80-run-n.json"
-# All 13 ITER_EXPECTED_FIELDS present; no shadow key (shadow is exempt).
-printf '%s' '{"iter":1,"started_at":"t","fix_commit_sha":"abc","fix_files":[],"loop_role":"fix","checklist":[],"phase3_dispatched":3,"diff_profile":"x","phase3_findings":[],"fix_decisions":[],"convergence_inputs":{},"cap_drops":[],"telemetry":{}}' \
+# Every ITER_EXPECTED_FIELDS member present; no shadow key (shadow is exempt).
+printf '%s' '{"iter":1,"started_at":"t","fix_commit_sha":"abc","fix_files":[],"loop_role":"fix","checklist":[],"dispatched_effort":[],"phase3_dispatched":3,"diff_profile":"x","phase3_findings":[],"fix_decisions":[],"convergence_inputs":{},"cap_drops":[],"telemetry":{}}' \
   > "$LR_CLEAN_RUN/iter-1.json"
 LR_CLEAN_OUT="$( ( cd "$LR_CLEAN" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$LR_CLEAN_RUN" --slug pr-80 ) 2>&1 )"; LR_CLEAN_RC=$?
 assert_eq "loop_role #177: --self-check exits 0 on a complete iter (all fields present)" "0" "$LR_CLEAN_RC"

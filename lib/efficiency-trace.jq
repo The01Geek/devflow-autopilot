@@ -170,6 +170,19 @@ def iter_view:
      end) as $verification_posture
   # Roster = dispatched ∪ agents-seen-in-findings (degradation safety).
   | (($dispatched + ($findings | map(finding_agent))) | unique) as $roster
+  # dispatched_effort (issue #609): the iter-workpad field capturing every
+  # dispatch phase's roster with its per-agent effort decision — including the
+  # Phase-1/1.5/2 checklist agents that never appear in phase3_dispatched.
+  # Type-guarded: a non-array field, or a non-object/agent-less entry, yields no
+  # usable entries (the filter never aborts on a malformed producer value).
+  | (($it.dispatched_effort) // []) as $de_raw
+  | (if ($de_raw | type) == "array"
+     then [$de_raw[] | select(type == "object" and ((.agent) | type) == "string")]
+     else [] end) as $de
+  # The effort roster is the FULL dispatched set (phase3_dispatched ∪ the
+  # dispatched_effort agents), never the resolver map: an agent with no entry
+  # still gets an all-null session-inheritance block below.
+  | (($dispatched + ($de | map(.agent))) | unique) as $effort_roster
   | {
       iter: ($it.iter // null),
       phase3_dispatched: $dispatched,
@@ -188,6 +201,29 @@ def iter_view:
       # roster ("phase3_dispatched": []) is still present — only a genuinely
       # absent field triggers the degradation warning in the trace.
       phase3_dispatched_present: ($it | has("phase3_dispatched")),
+      # Presence mirror for the #609 roster field, same unknown-vs-zero honesty
+      # as phase3_dispatched_present: an empty array is present; only a
+      # genuinely absent field reads false (an older workpad).
+      dispatched_effort_present: ($it | has("dispatched_effort")),
+      # Per-agent effort observability (issue #609): agent id + exactly the five
+      # effort fields, complete by construction. An agent with no
+      # dispatched_effort entry records the all-null session-inheritance block;
+      # `effective` is carried verbatim (null unless genuinely read back —
+      # unknown is not zero). With multiple entries for one agent the last wins.
+      agent_effort: [
+        $effort_roster[] as $agent
+        | ([$de[] | select(.agent == $agent)] | last) as $entry
+        | {
+            agent: $agent,
+            requested: $entry.requested,
+            resolved: $entry.resolved,
+            application_point:
+              (if $entry == null then "session-inheritance"
+               else $entry.application_point end),
+            effective: $entry.effective,
+            fallback_reason: $entry.fallback_reason
+          }
+      ],
       agent_verdicts: [
         $roster[] as $agent
         | {
@@ -290,6 +326,11 @@ def iter_view:
         # genuinely zero-dispatch iteration from one degraded by an absent roster
         # (both show count 0) — the chat-only trace warning does not survive teardown.
         phase3_dispatched_present: .phase3_dispatched_present,
+        # Issue #609: the per-agent effort observability block and its roster
+        # field's presence flag, carried into the durable record (additive and
+        # nullable — schema_version stays 1, mirroring config_fingerprint).
+        dispatched_effort_present: .dispatched_effort_present,
+        agent_effort: .agent_effort,
         # Phase 0.5 diff classification + the orchestrator's verification posture,
         # so the analyzer never penalizes an agent for being correctly silent on
         # an out-of-domain diff and can see when subagents were intentionally skipped.

@@ -297,6 +297,41 @@ def decide_effort_applications(resolved, dispatched, *, effort_supported=True):
     return decisions
 
 
+def build_effort_observability(raw, resolved, dispatched, *, effort_supported=True):
+    """Per-agent five-field effort observability block (issue #609).
+
+    Composes, for every DISPATCHED agent, the block the iter workpad's
+    `dispatched_effort` entries persist into the per-run efficiency record:
+    `requested` (the raw configured effort BEFORE validation — read with the
+    same entry-level precedence `resolve_overrides` applies: an own entry wins
+    outright and `default` never backfills it, so a dropped-invalid effort stays
+    visible as requested != resolved), `resolved` (the validated effort from the
+    `resolve_overrides` map, None when dropped or absent), and the
+    `decide_effort_applications` trio (`application_point`, `effective`,
+    `fallback_reason` — `effective` is ALWAYS None in-session; unknown is not
+    zero). Complete by construction: every block carries all five keys.
+    """
+    decisions = decide_effort_applications(
+        resolved, dispatched, effort_supported=effort_supported
+    )
+    default_entry = raw.get("default")
+    if not isinstance(default_entry, dict):
+        default_entry = {}
+    blocks = {}
+    for agent in dispatched:
+        entry = raw[agent] if agent in raw else default_entry
+        requested = entry.get("effort") if isinstance(entry, dict) else None
+        decision = decisions[agent]
+        blocks[agent] = {
+            "requested": requested,
+            "resolved": (resolved.get(agent) or {}).get("effort"),
+            "application_point": decision["application_point"],
+            "effective": decision["effective"],
+            "fallback_reason": decision["fallback_reason"],
+        }
+    return blocks
+
+
 def format_effort_reports(decisions, resolved, *, effort_supported=True):
     """Honest per-resolve effort-fallback report lines (issue #554).
 
@@ -483,6 +518,18 @@ def main(argv=None):
             "passes it here."
         ),
     )
+    parser.add_argument(
+        "--effort-json",
+        action="store_true",
+        help=(
+            "print the per-agent five-field effort observability map (issue "
+            "#609: requested/resolved/application_point/effective/"
+            "fallback_reason per dispatched agent) as pure JSON on stdout, "
+            "INSTEAD of the override map. The #554 effort report lines are not "
+            "re-emitted (the phase's normal resolve call already reported "
+            "them); config-shape warnings still go to stderr."
+        ),
+    )
     args = parser.parse_args(argv)
 
     # A dispatched id not in the known roster is almost always a drift between
@@ -510,6 +557,20 @@ def main(argv=None):
     # capability-restricted one (Haiku model / effort_supported=false) is a
     # `::warning::` naming the model/provider. Never claims an unearned success.
     effort_supported = (args.effort_supported == "true")
+    if args.effort_json:
+        # Observability mode (issue #609): stdout is the five-field map, and the
+        # #554 report lines are deliberately NOT re-emitted — this is a second
+        # call in the same dispatch phase, whose normal resolve call already
+        # reported the fallback once.
+        sys.stdout.write(
+            json.dumps(
+                build_effort_observability(
+                    raw, result, args.agents, effort_supported=effort_supported
+                )
+            )
+            + "\n"
+        )
+        return 0
     decisions = decide_effort_applications(
         result, args.agents, effort_supported=effort_supported
     )

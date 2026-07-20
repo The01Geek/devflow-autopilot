@@ -278,7 +278,7 @@ emit_jq() {
 # ran no shadow pass. --self-check warns (best-effort) when any of these is missing
 # from a persisted iter workpad. Plain (non-readonly) single-line assignment so the
 # run.sh divergence guard can grep `^ITER_EXPECTED_FIELDS=` to extract it.
-ITER_EXPECTED_FIELDS="iter started_at fix_commit_sha fix_files loop_role checklist phase3_dispatched diff_profile phase3_findings fix_decisions convergence_inputs cap_drops telemetry"
+ITER_EXPECTED_FIELDS="iter started_at fix_commit_sha fix_files loop_role checklist dispatched_effort phase3_dispatched diff_profile phase3_findings fix_decisions convergence_inputs cap_drops telemetry"
 # The synthesized-record minimal field set (issue #381): what synthesize_iter_workpads
 # writes, and what --self-check validates a synthesized:true record against (a
 # synthesized record is a recognized degraded class, exempt from the full set above
