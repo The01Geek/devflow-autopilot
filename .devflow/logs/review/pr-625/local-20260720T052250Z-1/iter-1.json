@@ -1,0 +1,44 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-20T05:22:50Z",
+  "loop_role": "fix",
+  "current_step": "loop-control",
+  "current_substep": "phase3_fanout",
+  "pending_dispatch": {
+    "kind": "phase3_reviewer_fanout",
+    "roster": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review",
+      "devflow:completeness-critic-3.1.5"
+    ],
+    "dispatched_at": "2026-07-20T05:35:00Z"
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "detect_all_audit": true,
+    "checklist_skipped": null
+  },
+  "resolved_config": {
+    "max_iterations": 5,
+    "fix_severity_threshold": "suggestion"
+  },
+  "reviewed_head": "436eff90ffa2171a5650a46423bef52912489161",
+  "base": "origin/main@f87944eb5d8efa171c609bfa803b8fcc3f2a3995",
+  "self_review": true,
+  "phase3_findings": [],
+  "fix_decisions": [],
+  "telemetry": "unavailable"
+}
