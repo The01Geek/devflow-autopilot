@@ -6048,26 +6048,49 @@ assert_pin_red_under "#555: the clean-no-op arm requires discovery=[ok] (removin
 # way this issue exists to stop. discover-deferral-manifests.py shipped 100644 and was caught
 # in review; assert the class, not the instance — every scripts/ helper the implement profile
 # grants by vendored literal must be executable in the index.
-_EXECBIT_MISSING=""
-while IFS= read -r _tok; do
-  _rel="scripts/${_tok##*/scripts/}"
-  _rel="${_rel%:\*)}"
-  [ -f "$LIB/../$_rel" ] || continue
-  case "$(git -C "$LIB/.." ls-files -s -- "$_rel" | cut -c1-6)" in
-    100755) : ;;
-    *) _EXECBIT_MISSING="$_EXECBIT_MISSING $_rel" ;;
-  esac
-done <<EOF
-$(python3 -c "
-import json,sys
-m=json.load(open('$LIB/capability-profiles.json'))
+# The guard reads a human-editable JSON file, so it must not repeat the very shape it
+# exists to catch: EVERY producer failure (malformed JSON, a renamed profiles/implement key,
+# a scalar/empty profile, a missing python3) yields empty stdout, and an empty derived list
+# would make the loop body never run and the assertion pass VACUOUSLY. So the producer's own
+# exit status is checked, the derived list carries a non-empty floor, and a token that parses
+# to a path not present in the index is RED (an unparseable or dangling grant), never a silent
+# `continue` — the fail-open arms the blinded fix-delta gate flagged. The assertion also
+# checks the shebang, because mode 100755 alone does not make a leading-token exec work.
+_EXECBIT_TOKENS="$(probe_tmp '#555 exec-bit guard token list')" || _EXECBIT_TOKENS=""
+_EXECBIT_STATE=""
+if [ -z "$_EXECBIT_TOKENS" ]; then
+  _EXECBIT_STATE="could-not-allocate-scratch"
+elif ! python3 -c "
+import json
+m = json.load(open('$LIB/capability-profiles.json'))
 for t in m['profiles']['implement']:
     if '/scripts/' in t and t.startswith('Bash(.devflow/vendor/devflow/'):
         print(t)
-")
-EOF
-assert_eq "#555 every vendored-literal-granted scripts/ helper on the implement profile is executable (a leading-token exec has no interpreter fallback)" \
-  "" "$_EXECBIT_MISSING"
+" > "$_EXECBIT_TOKENS" 2>/dev/null; then
+  _EXECBIT_STATE="manifest-read-failed"
+elif [ ! -s "$_EXECBIT_TOKENS" ]; then
+  _EXECBIT_STATE="derived-zero-tokens"
+else
+  while IFS= read -r _tok; do
+    [ -n "$_tok" ] || continue
+    _rel="scripts/${_tok##*/scripts/}"
+    _rel="${_rel%:\*)}"
+    _rel="${_rel%)}"
+    case "$(git -C "$LIB/.." ls-files -s -- "$_rel" | cut -c1-6)" in
+      100755)
+        # 100755 is necessary, not sufficient: a leading-token exec also needs a shebang.
+        case "$(head -c 2 "$LIB/../$_rel" 2>/dev/null)" in
+          '#!') : ;;
+          *) _EXECBIT_STATE="$_EXECBIT_STATE no-shebang:$_rel" ;;
+        esac ;;
+      '') _EXECBIT_STATE="$_EXECBIT_STATE not-in-index:$_rel" ;;
+      *)  _EXECBIT_STATE="$_EXECBIT_STATE not-executable:$_rel" ;;
+    esac
+  done < "$_EXECBIT_TOKENS"
+fi
+rm -f "$_EXECBIT_TOKENS" 2>/dev/null
+assert_eq "#555 every vendored-literal-granted scripts/ helper on the implement profile is executable with a shebang (a leading-token exec has no interpreter fallback), and the guard's own manifest read resolved" \
+  "" "$_EXECBIT_STATE"
 
 assert_pin_unique "sweep 2.3.6: implement SKILL keeps the sweep body" '#### 2.3.6 Error-handling & silent-failure sweep' "$IMPL_SKILL"
 assert_pin_unique "sweep 2.3.6: implement SKILL lists it in the always-run index" '**2.3.6** (error-handling & silent-failure)' "$IMPL_SKILL"
