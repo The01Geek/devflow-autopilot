@@ -55,6 +55,13 @@ def pairs:
     # wrong-typed value) so a malformed line contributes nothing and the reader stays
     # exit-0, honoring the "never throws" invariant documented above.
     | objects
+    # #626: `skip` marker entries (kind: "skip" — PR number + skip reason, no
+    # suggested_interventions) are NOT retrospective analyses; they are processed-PR
+    # bookkeeping. Exclude them by kind explicitly (this reader had no kind filter
+    # before). A skip marker would contribute no pairs anyway (no candidate_targets),
+    # but the explicit filter makes the exclusion a deliberate, pinned contract rather
+    # than an accident of the missing-field guards.
+    | select((.kind // "") != "skip")
     # `numbers` keeps only a number-typed `.pr` (drops missing/null AND a wrong-typed
     # string/bool `pr`), so a stray string `"42"` never counts as a PR distinct from 42.
     | select(.pr | numbers)
