@@ -45565,10 +45565,10 @@ assert_pin_unique "#487 fail-fast prose: review-and-fix loop-control reference c
 assert_pin_unique "#487 fail-fast prose: implement rule names the gh-fresh.sh diagnostic sibling" \
   'devflow-gh-fresh' "$LIB/../skills/implement/SKILL.md"
 
-# ── issue #599 AC21: five preserved producer safety contracts ────────────────
+# ── issue #599 AC21: preserved producer safety contracts (numbered (1)–(5) below) ──
 # The deferred cloud-writer call-site rework (the other ACs of #599) reworks helper
-# instructions and tool grants across the writer skill/workflow graph. These five
-# pins ensure that rework cannot SILENTLY break the producer-side safety contracts it
+# instructions and tool grants across the writer skill/workflow graph. These pins
+# ensure that rework cannot SILENTLY break the producer-side safety contracts it
 # rides on — each guards a distinct workflow/wrapper safety surface. Where the
 # operative text is a single file-unique literal the pin is a behavioral-fix pin
 # (assert_pin_red_under) whose sed mutation re-introduces the NAMED regression; where
