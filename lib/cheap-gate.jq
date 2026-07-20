@@ -46,7 +46,11 @@
 #     • ci_failures_during_pr    == 0
 #     • post_bot_commits         == 0
 #     • review_comments_count    == 0
-#     • workpad_final_status     is "Complete", "", or null
+#     • workpad_final_status     is "Complete" (an absent workpad — "", null, or
+#                                 an absent key — fails closed with the reason
+#                                 "workpad absent or status unknown"; any other
+#                                 non-"Complete" string keeps "workpad status not
+#                                 Complete")
 #     • no FRICTION reflections  (reflections_friction_count == 0; or, when that
 #                                 field is absent, reflections is empty)
 #
@@ -68,15 +72,21 @@
 # missing signal over-analyzes rather than reading as zero friction.
 | (if (.reflections_friction_count == null) then $reflection_count
    else .reflections_friction_count end) as $friction_count
-| (($s.workpad_final_status == "Complete")
-   or ($s.workpad_final_status == "")
-   or ($s.workpad_final_status == null)) as $workpad_ok
+# The clean set is "Complete" ONLY (issue #626). An absent workpad — the empty
+# string "" or JSON null (or an absent key, which jq reads as null) — is NOT
+# clean: it fails closed with a distinct reason, symmetric with the present-but-
+# corrupt `Unparsed` case, so a run that left no audit trail is surfaced rather
+# than laundered past analysis. A non-empty non-"Complete" string (Unparsed /
+# Blocked / Failed / Cancelled / any future word) keeps the existing reason.
+| ($s.workpad_final_status == "Complete") as $workpad_ok
+| (($s.workpad_final_status == "") or ($s.workpad_final_status == null)) as $workpad_absent
 |
   if   $s.review_reject_outstanding               then { clean: false, reason: "outstanding /review REJECT" }
   elif ($s.ci_status_unknown // false)            then { clean: false, reason: "CI status could not be read" }
   elif $s.ci_failures_during_pr   > 0             then { clean: false, reason: "CI failures during PR" }
   elif $s.post_bot_commits        > 0             then { clean: false, reason: "human commits after the bot" }
   elif $s.review_comments_count   > 0             then { clean: false, reason: "review comments present" }
+  elif $workpad_absent                            then { clean: false, reason: "workpad absent or status unknown" }
   elif ($workpad_ok | not)                        then { clean: false, reason: "workpad status not Complete" }
   elif $friction_count            > 0             then { clean: false, reason: "friction reflections present" }
   else                                                 { clean: true,  reason: "all clean signals" }

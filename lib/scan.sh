@@ -236,7 +236,12 @@ fi
 # file is the 404 path above (never an empty 200), so zero records from real
 # content is corruption, not an empty backlog. (If a record type WITHOUT a `.pr`
 # field is ever added to the file, revisit this guard — it would fire on a
-# legitimately pr-less record.) Swallowing a collapse into an empty EXISTING
+# legitimately pr-less record.) The #626 `skip` marker entry (kind: "skip") DOES
+# carry a `.pr` field, so it is compatible with this guard by construction — a
+# skip-marked PR is intentionally counted into the processed-PR set here (its
+# whole purpose is to mark that PR handled so it is not re-scanned), and it is the
+# one record type deliberately kept in the processed set rather than excluded.
+# Swallowing a collapse into an empty EXISTING
 # would re-queue the whole backlog and create duplicate retrospectives. BOTH call
 # sites (the inline <=1 MB content and the >1 MB download_url body) share this
 # guard, so neither transport can collapse silently. Called in the current shell
