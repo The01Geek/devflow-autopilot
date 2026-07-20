@@ -10,11 +10,11 @@ You are the review engine orchestrator. Run a four-phase review and present an A
 
 **Input:** Optional PR number as `$ARGUMENTS`. If omitted, review current branch vs its configured `base_branch`.
 
-**Engine sharing.** Phases 0 through 4.3 are also executed verbatim by `/devflow:review-and-fix` (which wraps them in a fix loop and skips Phase 4.4 — no GitHub post; its report goes to chat only). When modifying engine behavior here — Phase 3 agent prompts, Phase 1 batching, Phase 0.5 classification, Phase 4 verdict criteria — verify `/devflow:review-and-fix` still produces the same findings; that's where divergence has historically slipped in. `/devflow:review-and-fix`'s SKILL.md keeps no paraphrase of these phases, so changes here propagate automatically as long as the file is reachable at `**/devflow/skills/review/SKILL.md`.
+**Engine sharing.** Phases 0 through 4.3 are executed verbatim by `/devflow:review-and-fix` (which wraps them in a fix loop and skips Phase 4.4 — its report goes to chat only). When modifying engine behavior here — Phase 3 agent prompts, Phase 1 batching, Phase 0.5 classification, Phase 4 verdict criteria — verify `/devflow:review-and-fix` still produces the same findings; that's where divergence has historically slipped in. Its SKILL.md keeps no paraphrase of these phases, so changes here propagate automatically as long as the file is reachable at `**/devflow/skills/review/SKILL.md`.
 
 ## Engine ground truth (only when the injected block is present)
 
-Some runs prepend a `> [!IMPORTANT]` **engine ground truth** block to this prompt, stating the CI results observed for the reviewed commit and the exact `--allowed-tools` string the run resolved. Everything in this section is **conditioned on that block being present in your prompt.** If it is absent — as it is on the **inline tier** (`/devflow:review-and-fix`, and the review engine as executed by an implement run's review phase, both under a write-enabled profile) — this section does not apply and nothing about your behavior changes. **On the inline tier the test evidence is the orchestrator's own in-environment suite/lint results for the current HEAD** — the checks it ran and reported in this run's environment — **never a CI conclusion.** No inline-tier arm waits for, requires, or cites a CI conclusion to reach its verdict: CI is the post-PR merge gate, not an in-run verification channel. Where it observed the suite/lint pass in-env, that is the discharged test evidence; where it could not run them, the verdict says the test evidence is missing rather than deferring to CI.
+Some runs prepend a `> [!IMPORTANT]` **engine ground truth** block to this prompt, stating the CI results observed for the reviewed commit and the exact `--allowed-tools` string the run resolved. Everything in this section is **conditioned on that block being present in your prompt.** If it is absent — as it is on the **inline tier** (`/devflow:review-and-fix`, and the review engine as executed by an implement run's review phase, both under a write-enabled profile) — this section does not apply and nothing about your behavior changes. **On the inline tier the test evidence is the orchestrator's own in-environment suite/lint results for the current HEAD** — the checks it ran and reported in this run's environment — **never a CI conclusion.** No inline-tier arm waits for, requires, or cites a CI conclusion: CI is the post-PR merge gate, not an in-run verification channel. Where it observed the suite/lint pass in-env, that is the discharged test evidence; where it could not run them, the verdict says the test evidence is missing rather than deferring to CI.
 
 When the block IS present:
 
@@ -53,8 +53,8 @@ When the block IS present:
 
 **Cloud headless-wait discipline (load-bearing — the residual no-verdict cause).** The cloud `review` runner is **headless** (`claude -p`): **ending your turn ends the process.** There is no re-invocation — the harness does not wake you back up, so any work deferred to "after I'm re-invoked" never happens and the run ends success-with-no-verdict (the required `Devflow Review` check then fails "incomplete — re-run needed"). Two absolute rules follow:
 
-- **Never end your turn while any dispatched agent (a `Task`/subagent you launched) has not returned.** With a Phase-3 agent still pending, ending the turn kills it mid-flight and discards its findings — the verdict is then computed from an incomplete review, or not at all. **Keep the turn alive by polling** (re-check, re-read, or otherwise stay active) until every dispatched agent has returned, THEN compute and post the verdict.
-- **Treat `ScheduleWakeup` and any future task-notification as UNAVAILABLE.** Their tool results promise "you'll be re-invoked when the wakeup fires / the task completes" — **false under `claude -p`**: ending the turn terminates the process and no wakeup or notification re-invokes you. Never call `ScheduleWakeup` to defer work, and never rely on a task-notification to resume it; do the waiting inline, within the live turn.
+- **Never end your turn while any dispatched agent (a `Task`/subagent you launched) has not returned.** With a Phase-3 agent still pending, ending the turn kills it mid-flight and discards its findings — the verdict is then computed from an incomplete review, or not at all. **Keep the turn alive by polling** until every dispatched agent has returned, THEN compute and post the verdict.
+- **Treat `ScheduleWakeup` and any future task-notification as UNAVAILABLE.** Their tool results promise re-invocation "when the wakeup fires / the task completes" — **false under `claude -p`**: ending the turn terminates the process and no wakeup or notification re-invokes you. Never call `ScheduleWakeup` to defer work, and never rely on a task-notification to resume it; do the waiting inline, within the live turn.
 
 This discipline reduces the early-quit frequency; the workflow-level `devflow_review.stall_backstop` is the deterministic backstop guaranteeing convergence when a run stalls anyway (a bounded, App-token-authored `/devflow:review` re-trigger — see `docs/DEVFLOW_SYSTEM_OVERVIEW.md`).
 
@@ -85,69 +85,58 @@ This is the review-side analogue of `/devflow:implement`'s workpad and reuses th
 
 Invoke the helper inline by its portable skill-dir-anchored path (cwd-independent, resolving to the `.devflow/vendor/devflow/scripts/workpad.py` form the cloud allow-list grants). **Do not route the *executable* through a shell variable (`WP_PY="…"; "$WP_PY" …`) or a leading `VAR=value` env-assignment** — either breaks the leading-token match, so every call is silently denied under the read-only cloud `review` profile and the live comment never appears. Pass the marker with `--marker "$MARKER"` instead — a variable in *argument* position is fine; only the leading token and an env-assignment prefix break the match:
 
-**Author the workpad body with the Write tool, never a shell redirect.** Before seeding, author the review body into the run-scoped scratch file `.devflow/tmp/review/<slug>/<run-id>/review-wp.md` — the same `<slug>`/`<run-id>` Phase 0.2 resolves, whose directory Phase 0.2 already created with `mkdir -p` (this step runs at Phase 0.3.5, after Phase 0.2; the fence below still opens with its own idempotent `mkdir -p` so its `2>` stderr captures can never become shell redirect failures if that earlier step was skipped). Use the **Write tool**, with the run-keyed marker (`$MARKER`, derived in the fence below — hold that exact literal) as the file's **first line**, followed by the `# Devflow Review` template (from its H1 down). Write-tool authoring under `.devflow/tmp/` is the probe-permitted shape (matcher-probe row 9 — `Write(.devflow/tmp/**)` is granted in the read-only `review` profile); a `/tmp`-targeted redirect and a `cat`-headed heredoc write are probe-denied, which is why the former `printf … > /tmp` / `cat >> /tmp <<'EOF'` recipe was silently refused and the live comment never appeared (evidence: `.github/workflows/matcher-probe.yml`; an in-workspace redirect of a granted head is fine, per the Cloud command-shape discipline above). A runner with **no** Write tool authors the same file with a `tee` heredoc — `tee .devflow/tmp/review/<slug>/<run-id>/review-wp.md <<'EOF'` … `EOF`, the marker as the heredoc's first body line (probe row 6 — `tee` heredocs are permitted). That `tee` form is the portable fallback only: Claude Code uses the Write tool; only a runner lacking it falls back to `tee`.
+**Author the workpad body with the Write tool, never a shell redirect.** Before seeding, author the review body into the run-scoped scratch file `.devflow/tmp/review/<slug>/<run-id>/review-wp.md` — the same `<slug>`/`<run-id>` Phase 0.2 resolves and whose directory it created with `mkdir -p` (this step runs at Phase 0.3.5; the fence below re-opens with its own idempotent `mkdir -p` so its `2>` captures never become redirect failures if that step was skipped). Use the **Write tool**, with the run-keyed marker (`$MARKER`, derived in the fence below — hold that exact literal) as the file's **first line**, followed by the `# Devflow Review` template (from its H1 down). Write-tool authoring under `.devflow/tmp/` is the probe-permitted shape (matcher-probe row 9 — `Write(.devflow/tmp/**)` is granted in the read-only `review` profile); a `/tmp`-targeted redirect and a `cat`-headed heredoc write are probe-denied, which is why the former `printf … > /tmp` / `cat >> /tmp <<'EOF'` recipe was silently refused and the comment never appeared (an in-workspace redirect of a granted head is fine). A runner with **no** Write tool authors the same file with a `tee` heredoc — `tee .devflow/tmp/review/<slug>/<run-id>/review-wp.md <<'EOF'` … `EOF`, the marker as the heredoc's first body line (probe row 6). That `tee` form is the portable fallback only: Claude Code uses the Write tool.
 
 ```bash
-# One progress comment PER REVIEW RUN. The marker carries a run discriminator so a
-# later run never re-discovers (and overwrites) an earlier run's comment. In cloud the
-# key is the workflow run id + attempt; locally there is no run id, so it falls back to
-# a UTC timestamp (NOT a constant — a constant would collapse every local review of one
-# PR onto a single comment, defeating per-run isolation). Compute $MARKER ONCE and reuse
-# that exact literal for every call in this run; do not let it drift between phases.
-# (Re-deriving in cloud yields the same string since env vars persist; locally the
-# timestamp would change, so reuse the held literal, never recompute.)
-# Capture form `VAR=$(printf …)`: the matcher descends into the substitution and matches
-# the granted `printf` head, so this is permitted; a bare `MARKER="…"` computed-literal
-# assignment is a probe-denied shape (.github/workflows/matcher-probe.yml). The runtime
-# string is identical, so the #356 marker parity with the workflows' FLIP_MARKER holds:
+# One progress comment PER REVIEW RUN. The marker carries a run discriminator so a later
+# run never re-discovers (and overwrites) an earlier run's comment. In cloud the key is
+# the workflow run id + attempt; locally it falls back to a UTC timestamp (NOT a constant,
+# which would collapse every local review of one PR onto one comment). Compute $MARKER
+# ONCE and reuse that exact literal for every call; do not let it drift between phases.
+# Capture form `VAR=$(printf …)` is permitted (the matcher descends into the substitution
+# to the granted `printf` head); a bare `MARKER="…"` assignment is a probe-denied shape.
+# The runtime string is identical, so #356 marker parity with FLIP_MARKER holds:
 MARKER=$(printf '%s' "<!-- devflow:review-progress run=${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1} -->")
-# Human-facing indicator: a link to THIS run's job, rendered as the comment's `Run`
-# line (same convention as the /devflow:implement workpad). The "/actions/runs/"
-# segment is literal; empty env (a local run outside Actions) → use a plain
-# "_(local run)_" placeholder instead of a broken link (capture form, same probe
-# rationale as $MARKER above):
+# Link to THIS run's job, rendered as the comment's `Run` line. Empty env (a local run
+# outside Actions) → use a plain "_(local run)_" placeholder instead of a broken link
+# (capture form, same probe rationale as $MARKER above):
 RUN_URL=$(printf '%s' "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")
-# The body file was authored ABOVE, via the Write tool, into the run-scoped scratch dir
-# at .devflow/tmp/review/<slug>/<run-id>/review-wp.md — the marker ($MARKER, held above)
-# is its FIRST line; the create/patch calls below read that file. (Write-tool authoring
-# under .devflow/tmp/ is probe-permitted; /tmp redirects and cat-heredocs are denied —
-# see the shape discipline above. In-workspace 2> captures of a granted head are fine.)
-# find-or-resume THIS run's comment by its run-keyed marker (a prior run's comment has
-# a different key and is never matched). `id` exit codes FROM cmd_id: 0 = found (resume —
-# e.g. a mid-run retry after context loss), 2 = scanned cleanly but absent (this run's
-# first write → create), 1 = a real gh-api/parse failure. Branch on the code so a
-# transient API error is NOT mistaken for "first write" (which would post a duplicate).
+# The body file was authored ABOVE via the Write tool into .devflow/tmp/review/<slug>/
+# <run-id>/review-wp.md — $MARKER is its FIRST line; the create/patch calls below read it.
+# (Write-tool authoring under .devflow/tmp/ is probe-permitted; /tmp redirects and
+# cat-heredocs are denied. In-workspace 2> captures of a granted head are fine.)
+# find-or-resume THIS run's comment by its run-keyed marker (a prior run's has a different
+# key and is never matched). `id` exit codes FROM cmd_id: 0 = found (resume), 2 = scanned
+# cleanly but absent (this run's first write → create), 1 = a real gh-api/parse failure.
+# Branch on the code so a transient API error is NOT mistaken for "first write" (a duplicate).
 #
 # BUT rc 2 is not cmd_id's alone (issue #384): `python3` ALSO exits 2 when it cannot open
-# the script (`[Errno 2]` on a partial vendor copy; `[Errno 13]` on an unreadable one),
-# and `argparse` exits 2 on a usage error (`id` declares `issue` as `type=int`, so a
-# non-numeric PR number lands there). Misread as cmd_id's clean-absence rc 2, any of those
-# would wrongly take the `create` arm — and the old code DISCARDED that arm's stderr, so
-# an operator debugging a missing comment was told nothing. Three coupled screens keep the
-# "first write" arm reachable ONLY from cmd_id's own exit (the issue #384 fix pattern):
+# the script (`[Errno 2]` on a partial vendor copy; `[Errno 13]` on an unreadable one), and
+# `argparse` exits 2 on a usage error (`id` declares `issue` as `type=int`). Misread as
+# cmd_id's clean-absence rc 2, any would wrongly take the `create` arm — and the old code
+# DISCARDED that arm's stderr. Three coupled screens keep the "first write" arm reachable
+# ONLY from cmd_id's own exit (the issue #384 fix pattern):
 #   (S1) Refuse a non-numeric $PR_NUMBER BEFORE the id call, so argparse's own rc 2
 #        (`type=int` on `issue`) can never reach the arm split.
-#   (S2) Guard on the consumer's own operation: verify the workpad.py path about to exec
-#        is a readable file — never re-derive python3's open contract — with a distinct
-#        breadcrumb naming missing ([Errno 2]) vs. unreadable ([Errno 13]).
+#   (S2) Verify the workpad.py path about to exec is a readable file — never re-derive
+#        python3's open contract — with a distinct breadcrumb naming missing ([Errno 2])
+#        vs. unreadable ([Errno 13]).
 #   (S3) Backstop on the observable separating the rc-2 sources: cmd_id exits 2 SILENTLY
 #        (`sys.exit(2)`); every interpreter-level rc 2 writes a diagnostic. So `rc == 2`
 #        with NON-EMPTY captured stderr is never a clean scan. This relies on the caller
 #        always passing an explicit `--marker` (it does), short-circuiting `_workpad_marker`
 #        before the `.devflow/config.json` read that could breadcrumb to stderr and spoil it.
-# Capture id's stderr to a temp file (NOT /dev/null) so EVERY failure arm — not only the
-# `else` — surfaces the *actual* error rather than a generic "it failed".
-# Branch on the command's OWN exit status via a single-statement `if`/`elif [ "$?" … ]`
-# chain — never a captured rc read in a later statement (an inline-bash runner that strips
-# such cross-statement variable reads — Copilot CLI / Cursor / Codex CLI / Gemini CLI —
-# leaves it empty and collapses the three-way). The `elif` reads `$?` from the failed `if`
-# condition (the `id` call) inline, as this repo's sanctioned `else RC=$?` idiom does.
-# Resolve the skill-dir anchor INLINE at each call site (never captured into a shell
-# variable a later statement reads — issue #275), same as elsewhere in this skill.
-# Defensive re-create of the run-scoped scratch dir (idempotent; `mkdir` is granted). The
-# `2>` stderr captures below target this dir; without it, a skipped/denied Phase 0.2 mkdir
-# would turn each capture into a shell redirect FAILURE whose rc≠2 lands in the generic
-# else arm with an empty error file — a misdirected breadcrumb, not a live comment.
+# Capture id's stderr to a temp file (NOT /dev/null) so EVERY failure arm surfaces the
+# actual error. Branch on the command's OWN exit status via a single-statement
+# `if`/`elif [ "$?" … ]` chain — never a captured rc read in a later statement (an
+# inline-bash runner — Copilot CLI / Cursor / Codex CLI / Gemini CLI — strips such
+# cross-statement reads and collapses the three-way). The `elif` reads `$?` from the failed
+# `if` condition (the `id` call) inline. Resolve the skill-dir anchor INLINE at each call
+# site (never captured into a shell variable a later statement reads — issue #275).
+# Defensive re-create of the run-scoped scratch dir (idempotent; `mkdir` is granted): the
+# `2>` captures below target it; without it, a skipped Phase 0.2 mkdir turns each capture
+# into a shell redirect FAILURE whose rc≠2 lands in the generic else arm — a misdirected
+# breadcrumb, not a live comment.
 mkdir -p .devflow/tmp/review/<slug>/<run-id>
 case "$PR_NUMBER" in
   ''|*[!0-9]*)
@@ -194,7 +183,7 @@ if [ -n "$WP" ]; then
 fi
 ```
 
-The review body uses its **own section template** (the orchestrator authors it; `workpad.py` only carries it). Rebuild the body from your held state (re-author `.devflow/tmp/review/<slug>/<run-id>/review-wp.md` with the **Write tool**: the `$MARKER` literal as the first line, then the template below from its `# Devflow Review` H1 down — same probe-permitted shape as the seed above; a runner without a Write tool uses the `tee` heredoc fallback) and `patch` at each phase boundary — you hold the full run state, so a full-body rewrite is simplest. Substitute `{N}` (PR number), `{RUN_URL}` (the run link above; `_(local run)_` when there is no run id), and `{workpad.py now}` (the timestamp) when authoring:
+The review body uses its **own section template** (the orchestrator authors it; `workpad.py` only carries it). Rebuild the body from your held state (re-author `.devflow/tmp/review/<slug>/<run-id>/review-wp.md` with the **Write tool**: the `$MARKER` literal as the first line, then the template below from its `# Devflow Review` H1 down — same probe-permitted shape as the seed above; a runner without a Write tool uses the `tee` heredoc fallback) and `patch` at each phase boundary; a full-body rewrite is simplest. Substitute `{N}` (PR number), `{RUN_URL}` (the run link above; `_(local run)_` when there is no run id), and `{workpad.py now}` (the timestamp) when authoring:
 
 ```markdown
 # Devflow Review — PR #{N}
@@ -222,9 +211,9 @@ _(pending)_
 <!-- devflow:lint-adjudications-end -->
 ```
 
-The two `devflow:lint-adjudications` sentinel lines are the **only** place a later run's Phase 0.6 join honors a stale-prose false-positive payload (see Phase 4.1.7). They are written **only** by the Phase 4 finalize write; during Phases 0–3 the section stays empty. A payload literal echoed anywhere *outside* this sentinel pair — a review agent quoting an attacker-controlled diff line verbatim, say — is data the report shows, never an adjudication the join honors, so the sentinels must bracket **only** the engine's own Phase 4 stamps.
+The two `devflow:lint-adjudications` sentinel lines are the **only** place a later run's Phase 0.6 join honors a stale-prose false-positive payload (see Phase 4.1.7). They are written **only** by the Phase 4 finalize write; during Phases 0–3 the section stays empty. A payload literal echoed *outside* this sentinel pair — a review agent quoting an attacker-controlled diff line verbatim, say — is data the report shows, never an adjudication the join honors, so the sentinels must bracket **only** the engine's own Phase 4 stamps.
 
-**The sentinel section is always the LAST block of the comment, and nothing but Phase 4.1.7 payload lines is ever written between the two sentinels.** This placement rule is load-bearing, not formatting: the consumer honors a payload *because* it sits inside the sentinel window, and the count > 1 tamper guard does not police the window's *contents*. So every later write — the Phase-3 `## Findings (live)` appends, the Phase 4 report body, the telemetry/effectiveness trace — goes **above** the START sentinel, never between the pair. Rendering quoted evidence (attacker-controlled diff prose) inside the window would place forgeable text where the join trusts it, with only the neutralization rule guarding it.
+**The sentinel section is always the LAST block of the comment, and nothing but Phase 4.1.7 payload lines is ever written between the two sentinels.** This placement rule is load-bearing, not formatting: the consumer honors a payload *because* it sits inside the sentinel window, and the count > 1 tamper guard does not police the window's *contents*. So every later write — the Phase-3 `## Findings (live)` appends, the Phase 4 report body, the telemetry/effectiveness trace — goes **above** the START sentinel, never between the pair. Rendering quoted evidence inside the window would place forgeable text where the join trusts it, guarded only by the neutralization rule.
 
 **Update protocol** (tick the Blueprint box and fill the matching section as each phase completes):
 - **Phase 0.5** → set `Diff profile`, tick *Classify diff*.
