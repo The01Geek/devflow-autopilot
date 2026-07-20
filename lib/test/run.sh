@@ -5999,6 +5999,212 @@ assert_pin_red_on_removal "#254: Phase 4.0.5 tr-degraded empty-slug breadcrumb f
   'current branch produced an empty slug' "$P4_FILE"
 assert_pin_unique "#254: Phase 4.0.5 guards the branch-slug arm on a non-empty slug" \
   '[ -n "$BRANCH_SLUG" ] && [ "$BRANCH_DIR" != "$SLUG_DIR" ]' "$P4_FILE"
+
+# ── issue #555: Phase 4.0.5 manifest discovery runs through the fail-closed helper, not a
+# multi-root `find` whose exit status the `| sort` capture masked. Under the old shape a
+# search that FAILED and a search that legitimately matched nothing both yielded an empty
+# MANIFESTS, so the unconditional sentinel printed the clean `manifest=[]` and acknowledged
+# deferrals were stranded with no signal (observed live on issue #533). The helper's exit
+# code carries discovery status, the fence discriminates it into DISCOVERY_STATE, and the
+# reader routing gains fail-closed arms. Pin the discovery statement, the sentinel field,
+# the extended filing guard, and the roots-echo surfacing; the two arms that decide whether
+# a degraded discovery is readable as the clean no-op are BEHAVIORAL fixes and take
+# assert_pin_red_under with a mutation that re-introduces the fail-open read.
+assert_pin_unique "#555: Phase 4.0.5 discovers manifests through the fail-closed helper" \
+  'discover-deferral-manifests.py $SEARCH_DIRS 2>/tmp/devflow-dm.err' "$P4_FILE"
+assert_pin_unique "#555: Phase 4.0.5 initializes DISCOVERY_STATE empty before the discovery statement (the #480 sentinel-operand rule)" \
+  'DISCOVERY_STATE=""' "$P4_FILE"
+assert_pin_unique "#555: Phase 4.0.5 discriminates the partial marker with the file-deferrals.py grep idiom" \
+  "elif grep -q 'devflow: discovery partial:' /tmp/devflow-dm.err; then" "$P4_FILE"
+assert_pin_unique "#555: the failed/refused arm blanks MANIFESTS so the merge guard is unambiguously false" \
+  'DISCOVERY_STATE=failed' "$P4_FILE"
+assert_pin_unique "#555: the sentinel carries the discovery= field, guarded with :- like filing=" \
+  'discovery=[${DISCOVERY_STATE:-}]' "$P4_FILE"
+assert_pin_unique "#555: the filing guard requires a successful discovery (a persisted prior aggregate must not drive filing on a failed/refused discovery)" \
+  '{ [ "$DISCOVERY_STATE" = ok ] || [ "$DISCOVERY_STATE" = partial ]; } && [ -n "$AGG" ] && [ -s "$AGG" ]' "$P4_FILE"
+assert_pin_unique "#555: the fence surfaces the helper roots-echo into the tool result on every path" \
+  "grep 'devflow: discovery roots:' /tmp/devflow-dm.err || true" "$P4_FILE"
+# Behavioral-fix pin 1 (#464 mutation evidence): the `discovery=[failed]` routing arm's operative
+# sentence is the instruction NOT to read the accompanying `manifest=[]` as the clean no-op.
+# Delete that one sentence and the reader is back to the #533 fail-open read while the bullet's
+# framing survives — which is exactly why this is assert_pin_red_under, not _red_on_removal.
+assert_pin_red_under "#555: discovery=[failed] routes fail-closed (removing the do-not-read-as-clean-no-op sentence goes RED)" \
+  'Do **not** read that `manifest=[]` as the clean no-op: no manifest could be discovered.' \
+  's/Do \*\*not\*\* read that `manifest=\[\]` as the clean no-op: no manifest could be discovered\. //' \
+  "$P4_FILE"
+# Behavioral-fix pin 2 (#464 mutation evidence): the clean-no-op arm is narrowed to REQUIRE
+# `discovery=[ok]`. Strip that requirement from the arm header and a failed/partial discovery
+# that also printed `manifest=[]` matches the clean-no-op arm again — the exact silent loss.
+assert_pin_red_under "#555: the clean-no-op arm requires discovery=[ok] (removing the requirement goes RED)" \
+  '- **Sentinel present with `discovery=[ok]`, `pr=[<n>]` and `manifest=[]`**' \
+  's/Sentinel present with `discovery=\[ok\]`, `pr=\[<n>\]`/Sentinel present with `pr=[<n>]`/' \
+  "$P4_FILE"
+
+# ── issue #555 (review finding): a bundled helper granted as a vendored-literal LEADING
+# TOKEN is exec'd by path — no `python3`/`bash` wrapper is available, because an interpreter
+# head is ungranted on the cloud tiers. Without the exec bit such a call dies rc 126 on every
+# run, and for a fail-closed fence that lands in the arm that looks like legitimate
+# degradation (discovery=[failed] → "nothing to file"), so the loss is silent in exactly the
+# way this issue exists to stop. discover-deferral-manifests.py shipped 100644 and was caught
+# in review; assert the class, not the instance — every scripts/ helper the implement profile
+# grants by vendored literal must be executable in the index.
+# The guard reads a human-editable JSON file, so it must not repeat the very shape it
+# exists to catch: EVERY producer failure (malformed JSON, a renamed profiles/implement key,
+# a scalar/empty profile, a missing python3) yields empty stdout, and an empty derived list
+# would make the loop body never run and the assertion pass VACUOUSLY. So the producer's own
+# exit status is checked, the derived list carries a non-empty floor, and a token that parses
+# to a path not present in the index is RED (an unparseable or dangling grant), never a silent
+# `continue` — the fail-open arms the blinded fix-delta gate flagged. The assertion also
+# checks the shebang, because mode 100755 alone does not make a leading-token exec work.
+# The guard body is a FUNCTION taking the manifest path, so the same code that runs over
+# the real manifest can be driven over fixtures. Asserted-by-construction fail-closed arms
+# are the class this repo keeps finding fails open (CLAUDE.md's "trace every operand back to
+# its producer"): each arm below is exercised by a planted-defect fixture at the end of this
+# block, so a rewrite that turns one of them into a silent `continue` goes RED at the desk.
+_execbit_state() {
+  _EXECBIT_MANIFEST="$1"
+_EXECBIT_TOKENS="$(probe_tmp '#555 exec-bit guard token list')" || _EXECBIT_TOKENS=""
+_EXECBIT_STATE=""
+if [ -z "$_EXECBIT_TOKENS" ]; then
+  _EXECBIT_STATE="could-not-allocate-scratch"
+elif ! python3 -c "
+import json, sys
+# A profile entry may be an inline token OR an '@group' reference the generator
+# expands against manifest['groups'] (lib/generate-capability-profiles.py's
+# resolve_profile). Iterating the RAW spec would silently drop every helper that a
+# later refactor moves into a shared group — the derived list would shrink, the
+# non-empty floor would still pass, and the guard would go green while asserting
+# nothing about the moved helpers. Expand the same way the generator does; an
+# unknown group raises KeyError and rides the non-zero -> manifest-read-failed arm.
+# Every failure is reported as ONE compact cause line on stderr rather than a
+# traceback: the shell reads the FIRST stderr line as the breadcrumb, and a
+# traceback's first line is the constant 'Traceback (most recent call last):',
+# which would make every distinct producer failure carry the identical opaque
+# breadcrumb the arm below promises not to emit.
+try:
+    m = json.load(open('$_EXECBIT_MANIFEST'))
+    for entry in m['profiles']['implement']:
+        tokens = m['groups'][entry[1:]] if entry.startswith('@') else [entry]
+        for t in tokens:
+            if '/scripts/' in t and t.startswith('Bash(.devflow/vendor/devflow/'):
+                print(t)
+except Exception as exc:
+    sys.stderr.write('%s: %s\n' % (type(exc).__name__, exc))
+    sys.exit(1)
+" > "$_EXECBIT_TOKENS" 2>"$_EXECBIT_TOKENS.err"; then
+  # Keep the cause: malformed JSON, a renamed profiles/implement key, an unknown
+  # group ref, and an absent python3 all fail closed here, but they are different
+  # repairs — an opaque breadcrumb makes the maintainer re-derive which one it was.
+  # (An absent python3 emits no stderr of ours at all; the arm still fires, with an
+  # empty cause, because the exit status is what selects it.)
+  _EXECBIT_STATE="manifest-read-failed:$(head -n 1 "$_EXECBIT_TOKENS.err" 2>/dev/null)"
+elif [ ! -s "$_EXECBIT_TOKENS" ]; then
+  _EXECBIT_STATE="derived-zero-tokens"
+else
+  while IFS= read -r _tok; do
+    [ -n "$_tok" ] || continue
+    _rel="scripts/${_tok##*/scripts/}"
+    _rel="${_rel%:\*)}"
+    _rel="${_rel%)}"
+    case "$(git -C "$LIB/.." ls-files -s -- "$_rel" | cut -c1-6)" in
+      100755)
+        # 100755 is necessary, not sufficient: a leading-token exec also needs a shebang.
+        case "$(head -c 2 "$LIB/../$_rel" 2>/dev/null)" in
+          '#!') : ;;
+          *) _EXECBIT_STATE="$_EXECBIT_STATE no-shebang:$_rel" ;;
+        esac ;;
+      '') _EXECBIT_STATE="$_EXECBIT_STATE not-in-index:$_rel" ;;
+      *)  _EXECBIT_STATE="$_EXECBIT_STATE not-executable:$_rel" ;;
+    esac
+  done < "$_EXECBIT_TOKENS"
+fi
+rm -f "$_EXECBIT_TOKENS" "$_EXECBIT_TOKENS.err" 2>/dev/null
+  printf '%s' "$_EXECBIT_STATE"
+}
+
+_EXECBIT_STATE="$(_execbit_state "$LIB/capability-profiles.json")"
+assert_eq "#555 every vendored-literal-granted scripts/ helper on the implement profile is executable with a shebang (a leading-token exec has no interpreter fallback), and the guard's own manifest read resolved" \
+  "" "$_EXECBIT_STATE"
+
+# Planted-defect fixtures for the guard's own fail-closed arms. Each asserts the SPECIFIC
+# state string, not merely "non-empty" — a bare non-empty check cannot tell the arm under
+# test from the one ten lines away, and every one of these arms produces an empty token
+# list, which is exactly the vacuity that would make the live assertion above pass while
+# asserting nothing. The clean-manifest positive control is the live call above: the same
+# function over the real manifest returns "", so a fixture's non-empty state can only come
+# from the planted defect and not from the function being broken outright.
+_EXECBIT_FIX="$(probe_tmp '#555 exec-bit guard fixture manifest')" || _EXECBIT_FIX=""
+if [ -n "$_EXECBIT_FIX" ]; then
+  # 1. Malformed JSON — json.load raises, python3 exits non-zero.
+  printf '%s' '{"profiles": {"implement": [' > "$_EXECBIT_FIX"
+  case "$(_execbit_state "$_EXECBIT_FIX")" in
+    manifest-read-failed:*) _EXECBIT_ARM=malformed-json-detected ;;
+    *) _EXECBIT_ARM="malformed-json-MISSED:$(_execbit_state "$_EXECBIT_FIX")" ;;
+  esac
+  assert_eq "#555 exec-bit guard fail-closed arm: malformed manifest JSON routes to manifest-read-failed, never a vacuous pass" \
+    "malformed-json-detected" "$_EXECBIT_ARM"
+
+  # 2. Renamed profiles/implement key — a KeyError, the shape a manifest refactor produces.
+  printf '%s' '{"groups": {}, "profiles": {"implement_tier": ["Bash(.devflow/vendor/devflow/scripts/x.py:*)"]}}' > "$_EXECBIT_FIX"
+  case "$(_execbit_state "$_EXECBIT_FIX")" in
+    manifest-read-failed:*KeyError*) _EXECBIT_ARM=renamed-key-detected ;;
+    *) _EXECBIT_ARM="renamed-key-MISSED:$(_execbit_state "$_EXECBIT_FIX")" ;;
+  esac
+  assert_eq "#555 exec-bit guard fail-closed arm: a renamed profiles/implement key routes to manifest-read-failed carrying the KeyError cause" \
+    "renamed-key-detected" "$_EXECBIT_ARM"
+
+  # 3. An unknown '@group' reference — the arm the group expansion added; it must raise,
+  #    not silently drop every helper the group holds.
+  printf '%s' '{"groups": {}, "profiles": {"implement": ["@no-such-group"]}}' > "$_EXECBIT_FIX"
+  case "$(_execbit_state "$_EXECBIT_FIX")" in
+    manifest-read-failed:*KeyError*) _EXECBIT_ARM=unknown-group-detected ;;
+    *) _EXECBIT_ARM="unknown-group-MISSED:$(_execbit_state "$_EXECBIT_FIX")" ;;
+  esac
+  assert_eq "#555 exec-bit guard fail-closed arm: an unknown @group reference routes to manifest-read-failed, never a silently shrunken token list" \
+    "unknown-group-detected" "$_EXECBIT_ARM"
+
+  # 4. An empty implement profile — parses fine, derives zero tokens. This is THE vacuity
+  #    arm: without the non-empty floor the loop body never runs and the guard passes.
+  printf '%s' '{"groups": {}, "profiles": {"implement": []}}' > "$_EXECBIT_FIX"
+  assert_eq "#555 exec-bit guard fail-closed arm: an empty implement profile derives zero tokens and is RED, not a vacuous pass" \
+    "derived-zero-tokens" "$(_execbit_state "$_EXECBIT_FIX")"
+
+  # 5. A scalar profile — parses fine; iterating a string would yield characters, none of
+  #    which match, so this also lands on the floor rather than a silent empty pass.
+  printf '%s' '{"groups": {}, "profiles": {"implement": "Bash(.devflow/vendor/devflow/scripts/x.py:*)"}}' > "$_EXECBIT_FIX"
+  assert_eq "#555 exec-bit guard fail-closed arm: a scalar implement profile derives zero tokens and is RED" \
+    "derived-zero-tokens" "$(_execbit_state "$_EXECBIT_FIX")"
+
+  # 6. A DANGLING grant — a well-formed vendored-literal token naming a helper that is not
+  #    in the index. `git ls-files` prints nothing, and the guard must report it rather than
+  #    `continue` past it (the fail-open arm the fix-delta gate flagged).
+  printf '%s' '{"groups": {}, "profiles": {"implement": ["Bash(.devflow/vendor/devflow/scripts/no-such-helper.py:*)"]}}' > "$_EXECBIT_FIX"
+  assert_eq "#555 exec-bit guard fail-closed arm: a dangling vendored-literal grant is reported as not-in-index, never skipped" \
+    " not-in-index:scripts/no-such-helper.py" "$(_execbit_state "$_EXECBIT_FIX")"
+
+  # 7. A granted helper that IS in the index but is not executable — the original defect
+  #    class (discover-deferral-manifests.py shipped 100644). Any tracked non-exec scripts/
+  #    file serves; assert the state names it so a reworded arm cannot mask the mode.
+  printf '%s' '{"groups": {}, "profiles": {"implement": ["Bash(.devflow/vendor/devflow/scripts/devflow-cloud-writer-contract.json:*)"]}}' > "$_EXECBIT_FIX"
+  assert_eq "#555 exec-bit guard fail-closed arm: a granted-but-non-executable helper is reported as not-executable" \
+    " not-executable:scripts/devflow-cloud-writer-contract.json" "$(_execbit_state "$_EXECBIT_FIX")"
+
+  rm -f "$_EXECBIT_FIX" 2>/dev/null
+else
+  skip "#555 exec-bit guard fail-closed arms" host-capability "could not allocate a fixture manifest under this host's scratch policy"
+fi
+
+# ── issue #555 (review finding): the §4.0.5 routing header is count-locked ON PURPOSE — the
+# block's whole value is that "a rework must not lose them", and this repo treats a stale
+# self-referential count as a non-demotable REJECT (PR #553). But a prose count guards nothing
+# on its own: two review passes read the header's numerals as an off-by-one before the bullets
+# were classified into exits and qualifiers. Pin the population mechanically so a later rework
+# that adds or drops a bullet turns the suite RED at the desk instead of rotting the header.
+# The region is the routing list between the count-locked header and the label-apply prose.
+_P4_ROUTING_BULLETS="$(awk '/further exits before any label is applied/,/^If the printed/' "$P4_FILE" | grep -c '^- \*\*')"
+assert_eq "#555 the §4.0.5 reader-routing list still carries exactly 8 bullets (6 exits + 2 qualifiers) — the count-locked header's numerals are only true at this population" \
+  "8" "$_P4_ROUTING_BULLETS"
+
 assert_pin_unique "sweep 2.3.6: implement SKILL keeps the sweep body" '#### 2.3.6 Error-handling & silent-failure sweep' "$IMPL_SKILL"
 assert_pin_unique "sweep 2.3.6: implement SKILL lists it in the always-run index" '**2.3.6** (error-handling & silent-failure)' "$IMPL_SKILL"
 assert_eq "sweep 2.3.6: docs/implement-skill.md keeps the rationale table row" "yes" \
@@ -7999,6 +8205,32 @@ assert_eq "#601 AC5: schema setup.claude_code_executable has a non-empty descrip
   "$(jq -e '.properties.setup.properties.claude_code_executable.description | type == "string" and (length > 0)' "$I601_SCHEMA" >/dev/null && echo yes || echo no)"
 assert_eq "#601 AC5: example config carries setup.claude_code_executable (empty default)" "" \
   "$(jq -r '.setup.claude_code_executable' "$I601_EXAMPLE")"
+
+# ── issue #602: GIT_DIR/GIT_WORK_TREE on the Run Claude Code step (self-hosted Windows) ──
+# Each of the three shipped workflows that invoke claude-code-action must set step-scoped
+# GIT_DIR/GIT_WORK_TREE env on the 'Run Claude Code' step so the action's configureGitAuth
+# git-identity config succeeds independent of the inherited CWD (the reporter's
+# `fatal: not in a git directory` / exit 128 on a self-hosted Windows runner). AC2 requires
+# STEP scope (not job/workflow scope, which would leak into other steps' git ops), so the
+# awk extraction scopes each grep to the step block (between the step name: and its with:) —
+# a var stranded at job/workflow scope would not appear here and the count-1 check fails.
+# The assert_pin_red_under mutation proofs re-introduce the guarded regression (env line
+# dropped → CWD-dependent git identity again) and each pin must go RED under it.
+I602_DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
+I602_IMPL_YML="$LIB/../.github/workflows/devflow-implement.yml"
+I602_RUNNER_YML="$LIB/../.github/workflows/devflow-runner.yml"
+for _f in "$I602_DEVFLOW_YML" "$I602_IMPL_YML" "$I602_RUNNER_YML"; do
+  _b="$(basename "$_f")"
+  I602_STEP_BLK="$(awk '/name: Run Claude Code/{f=1} f{print} f&&/^        with:/{exit}' "$_f")"
+  assert_eq "#602 AC1/AC2 [$_b]: GIT_DIR set on the Run Claude Code step (step scope)" "1" \
+    "$(printf '%s\n' "$I602_STEP_BLK" | grep -cF 'GIT_DIR: ${{ github.workspace }}/.git')"
+  assert_eq "#602 AC1/AC2 [$_b]: GIT_WORK_TREE set on the Run Claude Code step (step scope)" "1" \
+    "$(printf '%s\n' "$I602_STEP_BLK" | grep -cF 'GIT_WORK_TREE: ${{ github.workspace }}')"
+  assert_pin_red_under "#602 AC5 [$_b]: GIT_DIR pin is RED when the env line is dropped" \
+    'GIT_DIR: ${{ github.workspace }}/.git' '/GIT_DIR:/d' "$_f"
+  assert_pin_red_under "#602 AC5 [$_b]: GIT_WORK_TREE pin is RED when the env line is dropped" \
+    'GIT_WORK_TREE: ${{ github.workspace }}' '/GIT_WORK_TREE:/d' "$_f"
+done
 
 # ── issue #338: --rewrite-ac (post-merge) retag requires a --note rationale ────
 # scripts/workpad.py: an `update` call in which any --rewrite-ac pair APPENDS the
@@ -27899,6 +28131,66 @@ assert_eq "#139 no cloud workflow installs the feature-dev companion plugin" \
 # tracked_scan aggregate below; no per-workflow loop is needed for either companion.)
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "#628 code-explorer/code-architect quantitative-claim calibration + inert-grant removal"
+# ────────────────────────────────────────────────────────────────────────────
+# The two discovery/planning agents gained a two-sided calibration contract (a
+# quantitative claim not read from tool output this session is marked an unverified
+# estimate) and lost their inert KillShell/BashOutput grants (no Bash → no shell
+# session for either to act on). Surface-presence pins on the new sentences (T1–T4)
+# plus live structural assertions computed against the tracked files (T5).
+CE_628="$FDROOT/agents/code-explorer.md"
+CA_628="$FDROOT/agents/code-architect.md"
+P2_628="$FDROOT/skills/implement/phases/phase-2-implement.md"
+
+# T1 (AC1): architect calibration sentence in its Output Guidance.
+assert_pin_unique "#628 architect Output Guidance carries the quantitative-claim calibration sentence" \
+  'did not read directly from tool output in the current session' "$CA_628"
+# T2 (AC2): explorer calibration sentence (same core phrase, adapted to analysis output).
+assert_pin_unique "#628 explorer carries the quantitative-claim calibration sentence" \
+  'did not read directly from tool output in the current session' "$CE_628"
+# T1b/T2b (AC1/AC2): the operands-and-counting-rule sub-clause of each calibration
+# sentence — a load-bearing clause that could be deleted while the T1/T2 core phrase
+# still passed, so pin it too (both agents ship this to consumers).
+assert_pin_unique "#628 architect calibration states operands + counting rule inline" \
+  'state its operands and counting rule inline' "$CA_628"
+assert_pin_unique "#628 explorer calibration states operands + counting rule inline" \
+  'state its operands and counting rule inline' "$CE_628"
+# T3 (AC3): explorer file:line scoping sentence after the line-numbers mandate.
+assert_pin_unique "#628 explorer scopes file:line precision to ephemeral analysis, bare paths in committed docs" \
+  'committed documentation instead references bare paths and symbol names' "$CE_628"
+# T4 (AC4): phase-2 §2.2 re-derivation obligation.
+assert_pin_unique "#628 phase-2 §2.2 obliges orchestrator to re-derive a subagent quantitative claim" \
+  'Independently re-derive any quantitative claim a Phase-2 subagent produced' "$P2_628"
+
+# T5 (AC5): live structural assertions — each agent tools: line omits KillShell and
+# BashOutput (exactly the two inert tokens removed), and the two files' tools: lines
+# are byte-identical (the channel that keeps AC5's identity criterion from rotting
+# when one file's line is later edited alone).
+# Capture each agent's tools: line ONCE and feed all three assertions from it — the
+# byte-identity check reuses the captured lines rather than re-grepping both files.
+CE_TOOLS_628="$(grep -E '^tools:[[:space:]]' "$CE_628" | head -1)"
+CA_TOOLS_628="$(grep -E '^tools:[[:space:]]' "$CA_628" | head -1)"
+# Fail CLOSED when a capture is empty (tools: line absent, renamed, or reformatted into a
+# block sequence): an empty capture would otherwise make the omission checks and the
+# byte-identity assertion pass VACUOUSLY (printf '' | grep -qw → "no"; [ "" = "" ] → "yes"),
+# exactly the "guard whose comparand can be absent fails open" class. These two guards make
+# such a reformat RED instead of a false pass.
+assert_eq "#628 code-explorer.md tools: line was captured (non-empty)" \
+  "yes" "$([ -n "$CE_TOOLS_628" ] && echo yes || echo no)"
+assert_eq "#628 code-architect.md tools: line was captured (non-empty)" \
+  "yes" "$([ -n "$CA_TOOLS_628" ] && echo yes || echo no)"
+assert_eq "#628 code-explorer.md tools: line omits KillShell" \
+  "no" "$(printf '%s' "$CE_TOOLS_628" | grep -qw 'KillShell' && echo yes || echo no)"
+assert_eq "#628 code-explorer.md tools: line omits BashOutput" \
+  "no" "$(printf '%s' "$CE_TOOLS_628" | grep -qw 'BashOutput' && echo yes || echo no)"
+assert_eq "#628 code-architect.md tools: line omits KillShell" \
+  "no" "$(printf '%s' "$CA_TOOLS_628" | grep -qw 'KillShell' && echo yes || echo no)"
+assert_eq "#628 code-architect.md tools: line omits BashOutput" \
+  "no" "$(printf '%s' "$CA_TOOLS_628" | grep -qw 'BashOutput' && echo yes || echo no)"
+assert_eq "#628 the two agents' tools: lines are byte-identical" \
+  "yes" "$([ "$CE_TOOLS_628" = "$CA_TOOLS_628" ] && echo yes || echo no)"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "pr-review-toolkit internalization (#141)"
 # ────────────────────────────────────────────────────────────────────────────
 # This PR vendors the five external pr-review-toolkit review agents (code-reviewer,
@@ -35453,10 +35745,17 @@ import sys
 lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
 def first(pred):
     return next((i for i, l in enumerate(lines) if pred(l)), None)
-guard = first(lambda l: l.strip().startswith('if [ -n "$AGG" ] && [ -s "$AGG" ]; then'))
+# The filing guard's leading condition moved in #555 (it now also requires a successful
+# discovery), so match it on the aggregate test that is its stable tail rather than on the
+# statement's opening bytes — a `startswith('if [ -n "$AGG" ]')` probe silently found NOTHING
+# after that rework and the placement pin would have reported "no" for the wrong reason.
+guard = first(lambda l: '[ -n "$AGG" ] && [ -s "$AGG" ]; then' in l and l.strip().startswith('if '))
 fs = first(lambda l: l.strip() == 'FILED_STATE=""')
 fn = first(lambda l: l.strip() == 'FILED_NUMBERS=""')
-print("yes" if None not in (guard, fs, fn) and fs < guard and fn < guard else "no")
+# #555: DISCOVERY_STATE is a sentinel operand too and is read by the guard itself, so it takes
+# the same before-the-guard placement contract.
+ds = first(lambda l: l.strip() == 'DISCOVERY_STATE=""')
+print("yes" if None not in (guard, fs, fn, ds) and fs < guard and fn < guard and ds < guard else "no")
 PY
 )"
 # ── FALSE-POSITIVE control for the idiom the guarded fences actually write (#480 review):
@@ -37178,17 +37477,244 @@ assert_eq "#362 settings.json: guard has no cwd-relative launcher" "no" \
 assert_eq "#362 settings.json: efficiency trace has no cwd-relative launcher" "no" \
   "$(printf '%s' "$ISG_ET_CMD" | grep -qF 'bash lib/efficiency-trace.sh' && echo yes || echo no)"
 
-# Execute the tracked guard command from a nested directory. The current test
-# checkout may itself be a linked worktree, which reproduces the reported path
-# failure while keeping the fixture free of active implement markers.
+# Execute the tracked launcher from a nested directory of a SCRATCH git fixture,
+# never the live checkout (issue #627). The retired form `cd "$LIB/../skills"`
+# ran inside the live tree, so an in-flight implement run (a live
+# implement-active-* marker + interim workpad) would make the tracked launcher's
+# guard BLOCK (exit 2) and false-RED this scenario, then write a session-keyed
+# stop-guard-* sentinel that nothing deletes — converting the false RED into
+# permanent vacuous passes. Running against a scratch fixture places every guard
+# marker/sentinel outside the live read path; lib/implement-stop-guard.sh stays
+# byte-unchanged (no test-only backdoor).
+# isg_repo builds the git-inited sandbox with scripts/ + .devflow/tmp/ already present;
+# the fixture only adds the committed lib/ closure, a nested/ dir, and the linked worktree.
+ISG_FX="$(isg_repo "isg: nested-dir launch fixture")"
+mkdir -p "$ISG_FX/lib" "$ISG_FX/nested"
+cp "$LIB/implement-stop-guard.sh" "$LIB/config-source.sh" "$ISG_FX/lib/"
+# A linked worktree checks out only COMMITTED content, so commit the lib/ copies
+# before `git worktree add`. Inline identity so a host with no global git user passes.
+# (isg_repo's empty scripts/ and .devflow/tmp/ dirs are untracked, so they are not committed.)
+git -C "$ISG_FX" -c user.email=devflow-test@example.invalid -c user.name=devflow-test add -A >/dev/null 2>&1
+git -C "$ISG_FX" -c user.email=devflow-test@example.invalid -c user.name=devflow-test commit -q -m fixture >/dev/null 2>&1
+git -C "$ISG_FX" worktree add -q "$ISG_FX-wt" >/dev/null 2>&1
+mkdir -p "$ISG_FX-wt/nested"
+
+# Collision-resistant session id (bash builtins; disjoint from the retired literal),
+# so sequential and concurrent suite runs never share a sentinel key.
+ISG_SID="isg-nested-$$-$RANDOM"
+
+# isg_launch DIR ERRFILE — run the tracked launcher ($ISG_GUARD_CMD) from DIR, capturing
+# stderr to ERRFILE and returning the guard's exit code. Centralizing the env scrub here
+# keeps the three arms from drifting (AC6): every guard execution scrubs GITHUB_ACTIONS +
+# CLAUDE_PROJECT_DIR (so the guard takes the same deterministic path locally and in CI) and
+# the git-env trio GIT_DIR / GIT_WORK_TREE / GIT_CEILING_DIRECTORIES (git rev-parse
+# --show-toplevel honors ambient GIT_DIR/GIT_WORK_TREE over the working directory — a suite
+# run from a git hook would otherwise resolve every "fixture" execution at the LIVE root and
+# silently defeat the isolation). None can reach gh: the no-marker arms exit before the
+# workpad fork, and the heal-proof arm's workpad is the rc-2 stub (no gh call).
+isg_launch() {
+  ( cd "$1" && printf '%s' '{"session_id":"'"$ISG_SID"'"}' \
+    | env -u GITHUB_ACTIONS -u CLAUDE_PROJECT_DIR -u GIT_DIR -u GIT_WORK_TREE -u GIT_CEILING_DIRECTORIES sh -c "$ISG_GUARD_CMD" ) \
+    2>"$2"
+}
+
+# ── No-marker arm — fixture repo, nested directory.
 ISG_NESTED_ERR="$(mktemp)"
-(cd "$LIB/../skills" && printf '%s' '{"session_id":"nested-launch"}' | sh -c "$ISG_GUARD_CMD") \
-  2>"$ISG_NESTED_ERR"
+isg_launch "$ISG_FX/nested" "$ISG_NESTED_ERR"
 ISG_NESTED_RC=$?
-assert_eq "#362 settings.json: guard launches successfully from a nested directory/worktree" "0" "$ISG_NESTED_RC"
-assert_eq "#362 settings.json: nested launch emits no missing-file error" "no" \
+assert_eq "#362 settings.json: guard launches successfully from a nested directory (fixture repo)" "0" "$ISG_NESTED_RC"
+assert_eq "#362 settings.json: nested launch emits no missing-file error (repo)" "no" \
   "$(grep -qF 'No such file or directory' "$ISG_NESTED_ERR" && echo yes || echo no)"
-rm -f "$ISG_NESTED_ERR"
+
+# ── No-marker arm — linked worktree, nested directory (preserves the linked-worktree
+# coverage the retired fence's comment named).
+ISG_NESTED_WT_ERR="$(mktemp)"
+isg_launch "$ISG_FX-wt/nested" "$ISG_NESTED_WT_ERR"
+ISG_NESTED_WT_RC=$?
+assert_eq "#362 settings.json: guard launches successfully from a nested directory (fixture linked worktree)" "0" "$ISG_NESTED_WT_RC"
+assert_eq "#362 settings.json: nested launch emits no missing-file error (worktree)" "no" \
+  "$(grep -qF 'No such file or directory' "$ISG_NESTED_WT_ERR" && echo yes || echo no)"
+
+# ── Heal-proof arm (AC11): AFTER the no-marker arms — it plants a marker in the MAIN
+# fixture, and running it first would flip the repo no-marker arm onto the marker path.
+# A network-free observable, every suite run, that the tracked launcher resolved the
+# FIXTURE root: plant implement-active-999 + an rc-2 stub workpad (isg_repo already created
+# .devflow/tmp/ and scripts/), run the launcher from the fixture's nested directory, and
+# assert the guard HEALED the fixture marker (exit 0, marker gone). A future edit reverting
+# the execution to the live checkout would leave this fixture marker in place → RED.
+: > "$ISG_FX/.devflow/tmp/implement-active-999"
+# Precondition (self-sufficiency): the "marker healed" assertion below is [ ! -e marker ],
+# which cannot by itself distinguish "the guard healed it" from "it was never planted" — so
+# pin that the plant actually landed first. Without this, a failed `: >` (e.g. .devflow/tmp
+# absent) would make the launcher take the no-marker path and BOTH heal-proof assertions pass
+# with zero healing (the CLAUDE.md "guard whose comparand can be absent fails open" class).
+assert_eq "#362 settings.json: heal-proof: fixture marker planted before the launch" "yes" \
+  "$([ -e "$ISG_FX/.devflow/tmp/implement-active-999" ] && echo yes || echo no)"
+isg_stub_workpad "$ISG_FX" 2
+ISG_HEAL_ERR="$(mktemp)"
+isg_launch "$ISG_FX/nested" "$ISG_HEAL_ERR"
+ISG_HEAL_RC=$?
+assert_eq "#362 settings.json: heal-proof: launcher resolves the fixture root (exit 0)" "0" "$ISG_HEAL_RC"
+assert_eq "#362 settings.json: heal-proof: launcher resolves the fixture root (marker healed)" "yes" \
+  "$([ ! -e "$ISG_FX/.devflow/tmp/implement-active-999" ] && echo yes || echo no)"
+
+# ── Footprint-hygiene (AC5): this scenario's executions left NO session-keyed residue in
+# the LIVE checkout's .devflow/tmp/. A pure-bash glob (no PATH tool deciding the value),
+# matched to THIS run's session id, so a parallel session's UUID-keyed guard writes cannot
+# trip it. NOT the live-root-revert detector — that is the heal-proof arm above.
+shopt -s nullglob
+ISG_LIVE_HITS=("$LIB/../.devflow/tmp/"*"$ISG_SID"*)
+shopt -u nullglob
+assert_eq "#362 settings.json: nested launch writes no session-keyed state under the live .devflow/tmp" "0" \
+  "${#ISG_LIVE_HITS[@]}"
+
+# ── Cleanup (AC8): remove the linked worktree and the fixture on both the passing and the
+# failing path (assert_eq records a FAIL, it never aborts, so this straight-line removal
+# always runs). The worktree metadata lives inside "$ISG_FX/.git", which the removal deletes.
+rm -f "$ISG_NESTED_ERR" "$ISG_NESTED_WT_ERR" "$ISG_HEAL_ERR"
+rm -rf "$ISG_FX-wt" "$ISG_FX"
+
+# ── Doc-fence equality pin (issue #627, AC10): the docs/efficiency-trace.md "Stop hook
+# (local-tier only)" example is pinned EQUAL to the tracked .claude/settings.json Stop
+# entries (command strings + timeouts, in order), so ANY wiring drift — a dropped
+# stop-hook-probe.sh entry, a helper-path typo, a lost `|| echo` diagnostic tail, a
+# reintroduced `|| true` on the guard entry, a missing timeout, a wrong entry count —
+# turns this RED, making the doc fence a coupled mirror of the tracked Stop entries.
+# python3 is preflight-guaranteed. The extractor FAILS CLOSED (non-zero) on a missing or
+# duplicated bullet heading, zero fences, more than one fence, an unparseable fence, or an
+# empty extraction — never a vacuous pass on empty input.
+ISG_DOCPIN_PY='
+import json, sys
+mode = sys.argv[1]
+path = sys.argv[2]
+def fail(msg):
+    sys.stderr.write("docpin: " + msg + "\n")
+    sys.exit(3)
+try:
+    text = open(path, encoding="utf-8").read()
+except Exception as e:
+    fail("cannot read " + path + ": " + str(e))
+if mode == "json":
+    try:
+        data = json.loads(text)
+    except Exception as e:
+        fail("not valid JSON: " + str(e))
+elif mode == "md":
+    lines = text.splitlines()
+    head = "`Stop` hook (local-tier only)"
+    heads = [i for i, l in enumerate(lines) if head in l]
+    if len(heads) != 1:
+        fail("expected exactly one bullet heading, found " + str(len(heads)))
+    start = heads[0]
+    end = len(lines)
+    for i in range(start + 1, len(lines)):
+        if lines[i].startswith("- "):
+            end = i
+            break
+    fences = []
+    cur = None
+    for l in lines[start + 1:end]:
+        if l.lstrip().startswith("```"):
+            if cur is None:
+                cur = []
+            else:
+                fences.append("\n".join(cur))
+                cur = None
+        elif cur is not None:
+            cur.append(l)
+    if len(fences) != 1:
+        fail("expected exactly one fenced block in the bullet, found " + str(len(fences)))
+    try:
+        data = json.loads(fences[0])
+    except Exception as e:
+        fail("fenced block is not valid JSON: " + str(e))
+else:
+    fail("unknown mode " + str(mode))
+try:
+    entries = [[h["command"], h.get("timeout")] for b in data["hooks"]["Stop"] for h in b["hooks"]]
+except Exception as e:
+    fail("cannot extract Stop entries: " + str(e))
+if not entries:
+    fail("no Stop entries extracted")
+sys.stdout.write(json.dumps(entries, ensure_ascii=False))
+'
+ISG_DOC="$LIB/../docs/efficiency-trace.md"
+ISG_DOC_ENTRIES="$(python3 -c "$ISG_DOCPIN_PY" md "$ISG_DOC" 2>/dev/null)"; ISG_DOC_RC=$?
+ISG_REAL_ENTRIES="$(python3 -c "$ISG_DOCPIN_PY" json "$ISG_SETTINGS" 2>/dev/null)"; ISG_REAL_RC=$?
+assert_eq "#362 efficiency-trace doc: Stop example extraction succeeds (fail-closed contract)" "0" "$ISG_DOC_RC"
+assert_eq "#362 efficiency-trace doc: tracked settings.json Stop extraction succeeds" "0" "$ISG_REAL_RC"
+# Assert both operands are non-empty BEFORE the equality, so the equality is self-sufficient
+# rather than vacuous-safe only via the two RC-0 guards above: a fail-closed extraction prints
+# nothing, and "" == "" would otherwise pass. (Defense-in-depth: the RC-0 asserts already fire
+# RED first, but the equality should not silently trust a double-empty match.)
+assert_eq "#362 efficiency-trace doc: extracted Stop entries are non-empty" "yes" \
+  "$([ -n "$ISG_DOC_ENTRIES" ] && [ -n "$ISG_REAL_ENTRIES" ] && echo yes || echo no)"
+assert_eq "#362 efficiency-trace settings example matches the tracked Stop-hook wiring shape" "$ISG_REAL_ENTRIES" "$ISG_DOC_ENTRIES"
+
+# Permanent fail-closed arms over synthetic malformed markdown (the mutable-markdown
+# malformed-shape matrix): each must turn the extractor RED (non-zero), never a vacuous pass.
+ISG_DOCFX="$(git_sandbox "isg: doc-pin malformed fixtures")"
+cat > "$ISG_DOCFX/no-heading.md" <<'MD'
+- *Some other bullet.*
+  ```json
+  { "hooks": { "Stop": [ { "matcher": "", "hooks": [ { "type": "command", "command": "x" } ] } ] } }
+  ```
+- *Next bullet.*
+MD
+cat > "$ISG_DOCFX/zero-fences.md" <<'MD'
+- *`Stop` hook (local-tier only).* prose only, no fenced block here.
+- *Next bullet.*
+MD
+cat > "$ISG_DOCFX/two-fences.md" <<'MD'
+- *`Stop` hook (local-tier only).*
+  ```json
+  { "hooks": { "Stop": [] } }
+  ```
+  ```json
+  { "hooks": { "Stop": [] } }
+  ```
+- *Next bullet.*
+MD
+cat > "$ISG_DOCFX/truncated.md" <<'MD'
+- *`Stop` hook (local-tier only).*
+  ```json
+  { "hooks":
+MD
+# duplicate-heading — the mutable-markdown matrix's "duplicate sections/markers" row; the
+# extractor's len(heads) != 1 guard must reject > 1 head, not only 0.
+cat > "$ISG_DOCFX/dup-heading.md" <<'MD'
+- *`Stop` hook (local-tier only).*
+  ```json
+  { "hooks": { "Stop": [ { "matcher": "", "hooks": [ { "type": "command", "command": "x" } ] } ] } }
+  ```
+- *`Stop` hook (local-tier only).* a second, duplicate heading.
+- *Next bullet.*
+MD
+# missing-Stop-key — a single valid fence whose JSON has no hooks.Stop path; the
+# list-comprehension `except` (cannot extract Stop entries) must fire.
+cat > "$ISG_DOCFX/no-stop-key.md" <<'MD'
+- *`Stop` hook (local-tier only).*
+  ```json
+  { "hooks": {} }
+  ```
+- *Next bullet.*
+MD
+# empty-Stop-list — a valid fence with an empty Stop array; the `if not entries` empty-input
+# sentinel must fail closed (AC10's "never a vacuous pass on empty input").
+cat > "$ISG_DOCFX/empty-stop.md" <<'MD'
+- *`Stop` hook (local-tier only).*
+  ```json
+  { "hooks": { "Stop": [] } }
+  ```
+- *Next bullet.*
+MD
+for ISG_MF in no-heading zero-fences two-fences truncated dup-heading no-stop-key empty-stop; do
+  python3 -c "$ISG_DOCPIN_PY" md "$ISG_DOCFX/$ISG_MF.md" >/dev/null 2>&1
+  ISG_MF_RC=$?
+  assert_eq "#362 efficiency-trace doc: extractor fails closed on $ISG_MF" "yes" \
+    "$([ "$ISG_MF_RC" -ne 0 ] && echo yes || echo no)"
+done
+rm -rf "$ISG_DOCFX"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "#405 cloud implement self-contained: in-env verification, denial-proof resume"
@@ -44718,7 +45244,7 @@ fi
 # lower-bound contract; test_module_runner.py parses this operand and rejects any
 # coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/capability-profiles.sh" \
-  "capability-profiles" 59; then
+  "capability-profiles" 61; then
   printf 'ERROR: capability-profiles boundary could not record its result\n'
   exit 1
 fi

@@ -978,6 +978,16 @@ jobs:
           # pass reads a definite signal rather than an absent one. Coupled to Pass 5's
           # keying in skills/implement/phases/phase-1-setup.md and its lib/test/run.sh pins.
           DEVFLOW_APP_ID: ${{ vars.DEVFLOW_APP_ID }}
+          # Pin the repository location so claude-code-action's configureGitAuth startup
+          # (repo-local `git config user.name/user.email`) resolves .git independent of the
+          # inherited CWD. Without these, a self-hosted Windows runner fails
+          # `fatal: not in a git directory` (exit 128) before the agent does any work
+          # (issue #602). STEP scope only — not job/workflow — so other steps' git ops are
+          # unaffected. git honors these on every platform; on a plain branch checkout
+          # (this tier's actual state, never a linked worktree) --git-dir == --git-common-dir,
+          # so phase-1-setup.md's worktree detection is not perturbed.
+          GIT_DIR: ${{ github.workspace }}/.git
+          GIT_WORK_TREE: ${{ github.workspace }}
         with:
           # Anthropic-default path only: pass the OAuth token when no provider is
           # active. A provider-routed section passes '' here (the action treats
@@ -1044,7 +1054,7 @@ jobs:
           # lib/test/run.sh #484 guard deliberately audits all shared fenced source,
           # including standalone-only Phase 4.4, so every audited head is granted or
           # withheld with rationale even when normal inline control flow cannot reach it.
-          # devflow-capability-manifest: region=implement manifest_version=4 sha256=2ee65af06d41dafc6f7b0ad2f6c45b1cc66b81a9f2eacc71fcc221b631893b02
+          # devflow-capability-manifest: region=implement manifest_version=5 sha256=604aee0a84e33f43bc280efec981cdf0333865b19cb294ff8566fc1a5a35ceda
           claude_args: >-
             ${{ steps.cargs.outputs.args }}
             --allowed-tools
@@ -1120,6 +1130,7 @@ jobs:
             Bash(.devflow/vendor/devflow/scripts/branch-for-issue.py:*),
             Bash(.devflow/vendor/devflow/scripts/update-branch-checkpoint.sh:*),
             Bash(.devflow/vendor/devflow/scripts/file-deferrals.py:*),
+            Bash(.devflow/vendor/devflow/scripts/discover-deferral-manifests.py:*),
             Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*),
             Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*),
             Bash(.devflow/vendor/devflow/scripts/apply-labels.sh:*),
