@@ -36,6 +36,13 @@ else
   exit 1
 fi
 
+# Canonical machine-readable runtime vocabulary consumed by
+# lib/test/cloud_writer_deps.py. Keep semantic package names (PyYAML) alongside
+# executable names; the probes below remain the enforcement mechanism. This
+# declaration must stay below the non-Bash guard above because `readonly -a` is
+# itself Bash-only syntax.
+readonly -a _DEVFLOW_PREFLIGHT_GUARANTEES=(git gh jq python3 PyYAML)
+
 # Share the interpreter-selection contract with scripts/provision-python3-shim.sh so the
 # two can never disagree on which Python DevFlow uses (see lib/resolve-python.sh).
 _PREFLIGHT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
