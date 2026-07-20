@@ -3854,14 +3854,74 @@ assert_eq("#636: the summary reflects the demotion count", True, "2 STALE row(s)
 
 # Non-demoted rows are IGNORED: a plain UNRESOLVABLE (no prefix), a STALE, a VERIFIED all
 # contribute nothing — so an ordinary run with no demotion prints NOTHING and returns 0.
+# The last row pins the *verdict half* of the signature: a STALE row that (impossibly in
+# production, but a mutant-catcher here) carries RELOCATED_PREFIX must NOT count — dropping
+# the `verdict == UNRESOLVABLE` conjunct would wrongly count it and this row would go RED.
 _n0, _out0 = _demote_bc([
     stale_prose_lint.Row(_U, "R3", "p.md", 1, "no block found — plain UNRESOLVABLE"),
     stale_prose_lint.Row(stale_prose_lint.STALE, "R2", "p.md", 2, "a real stale"),
     stale_prose_lint.Row(stale_prose_lint.VERIFIED, "R2", "p.md", 3, "verified"),
+    stale_prose_lint.Row(stale_prose_lint.STALE, "R2", "p.md", 4, _RP + "STALE, not a demotion"),
 ])
-assert_eq("#636: no demoted rows ⇒ count 0", 0, _n0)
+assert_eq("#636: no demoted rows ⇒ count 0 (incl. a STALE row carrying the prefix — the "
+          "verdict==UNRESOLVABLE conjunct excludes it)", 0, _n0)
 assert_eq("#636: no demoted rows ⇒ NO stderr output (no false positive on plain UNRESOLVABLE/"
-          "STALE/VERIFIED)", "", _out0)
+          "STALE/VERIFIED, nor a prefixed STALE)", "", _out0)
+
+# Exactly ONE summary line, emitted AFTER the per-row breadcrumbs — pins the `if n:` block
+# sitting after the loop (a mutant emitting the summary inside the per-row loop would print
+# N summaries and/or interleave them before a later per-row line).
+assert_eq("#636: exactly one summary line is emitted (not one per demoted row)",
+          1, _out2.count("row(s) demoted to non-gating UNRESOLVABLE"))
+assert_eq("#636: the summary follows the per-row breadcrumbs (end-of-run, not interleaved)",
+          True, _out1.index("docs/x.md:42") < _out1.index("1 STALE row(s) demoted"))
+
+# End-to-end through run() on a DEMOTING input — the headline AC2/AC3 contract that unit
+# tests on the helper alone cannot reach: on a real run() emit path, the breadcrumbs must
+# land on STDERR while the stdout TSV stays byte-identical, and a demotion (an UNRESOLVABLE
+# row) must NOT gate the exit code. run()'s git-touching helpers are stubbed so the test is
+# hermetic (no repo fixture); examine_file is stubbed to inject one demoted row + one
+# VERIFIED row, which is exactly what exercises the run() wiring (stream separation + the
+# STALE-only exit gate) this feature adds. A mutant passing sys.stdout to the breadcrumb
+# call, or moving the call into the TSV loop, breaks the byte-identical stdout assertion.
+
+
+def _run_e2e_demotion():
+    _saved = {k: getattr(stale_prose_lint, k) for k in
+              ('_run_git', 'parse_diff_full', 'build_move_index', 'post_file_lines', 'examine_file')}
+    stale_prose_lint._run_git = lambda *a, **k: (0, "", "")
+    stale_prose_lint.parse_diff_full = lambda dt: ({"f.md": {5: "claim"}}, {}, {})
+    stale_prose_lint.build_move_index = lambda f, r, rbf: stale_prose_lint.MoveIndex(frozenset(), {})
+    stale_prose_lint.post_file_lines = lambda rev, path: ["claim"]
+
+    def _fake_examine(path, added, lines, rows, move=None):
+        rows.append(stale_prose_lint.Row(_U, "R2", path, 5, _RP + "count claims 3 but region reaches 4"))
+        rows.append(stale_prose_lint.Row(stale_prose_lint.VERIFIED, "R2", path, 6, "count matches"))
+
+    stale_prose_lint.examine_file = _fake_examine
+    _o, _e = io.StringIO(), io.StringIO()
+    try:
+        with contextlib.redirect_stdout(_o), contextlib.redirect_stderr(_e):
+            _rc = stale_prose_lint.run("HEAD", "dummy-diff")
+    finally:
+        for _k, _v in _saved.items():
+            setattr(stale_prose_lint, _k, _v)
+    return _rc, _o.getvalue(), _e.getvalue()
+
+
+_e2e_rc, _e2e_out, _e2e_err = _run_e2e_demotion()
+# AC2: stdout is EXACTLY the two TSV rows — the breadcrumb/summary lines are NOT in it.
+assert_eq("#636 e2e (AC2): run() stdout is byte-identical TSV — breadcrumbs do NOT leak to stdout",
+          "UNRESOLVABLE\tR2\tf.md\t5\t" + _RP + "count claims 3 but region reaches 4\n"
+          "VERIFIED\tR2\tf.md\t6\tcount matches\n",
+          _e2e_out)
+# AC2: the breadcrumbs land on stderr (both the per-row and the summary).
+assert_eq("#636 e2e (AC2): run() writes the per-row demotion breadcrumb to stderr",
+          True, "f.md:5 STALE demoted to non-gating" in _e2e_err)
+assert_eq("#636 e2e (AC2): run() writes the demotion summary line to stderr",
+          True, "1 STALE row(s) demoted to non-gating UNRESOLVABLE" in _e2e_err)
+# AC3: a demotion is UNRESOLVABLE, so it does NOT gate — run() still returns 0.
+assert_eq("#636 e2e (AC3): a demoted (UNRESOLVABLE) row does not gate — run() returns 0", 0, _e2e_rc)
 
 # ── #629: pre_budget accounting for a removal that TRAILS the additions in a mixed hunk ────
 # The hunk's post-image budget (2) is exhausted by the two `+` lines, but the hunk is still

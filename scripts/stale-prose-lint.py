@@ -1210,9 +1210,10 @@ def _demotion_breadcrumbs(rows, err):
 
     The demotion signature is exact: a row is demoted iff its verdict is ``UNRESOLVABLE``
     AND its detail begins with ``RELOCATED_PREFIX`` — that prefix is prepended at, and only
-    at, the demotion sites (``_emit_count``'s demote arm, R1, R4), so scanning for it here
-    covers every current site and any future one at one altitude, rather than emitting from
-    each site. Additive on stderr only: ``rows`` and stdout are untouched.
+    at, the demotion sites (currently ``_emit_count``'s demote arm, R1, and R4; the scan
+    needs no update when a site is added), so scanning for it here covers every current site
+    and any future one at one altitude, rather than emitting from each site. Additive on
+    stderr only: ``rows`` and stdout are untouched.
     """
     n = 0
     for row in rows:
