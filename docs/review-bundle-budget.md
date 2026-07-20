@@ -127,7 +127,7 @@ margin** (the maintainer's recorded choice; #556's precedent was 58) = **≤ 32,
 stays outside this gate by decision; its execution-weighted AC5 record is unchanged.
 
 Because Arm B marks this ceiling **interim**, the same change files a **follow-up prose-reduction issue**
-— sized as its own project, carrying behavioral-preservation ACs (the engine-content pins over
+(#642) — sized as its own project, carrying behavioral-preservation ACs (the engine-content pins over
 `$REVIEW_BUNDLE`, the prose-cutover procedure, and the frozen merge-gating-judge economics of #425) —
 whose completion sheds ~2,239 words from the shipped-default path and lowers this ceiling to **at most
 30,100 words**.
