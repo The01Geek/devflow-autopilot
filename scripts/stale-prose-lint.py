@@ -369,12 +369,10 @@ _RECOG_MOD_DISQUALIFY = frozenset({"of", "per", "and", "or"})
 _TWO_ITEM_RE = re.compile(r"(?i)\ba\b\s+\S.*\band\b\s+\ba\b\s+\S")
 _BOTH_RE = re.compile(r"(?i)\bboth\b")
 _BACKTICK_RE = re.compile(r"`([^`]+)`")
-# Illustrative-example opt-out (issue #635). A prose/comment line carrying this marker is a
-# DESCRIPTION of a claim shape (a design-record example, a fixture-comment idiom), not an
-# ASSERTION of one, so `examine_file` skips ALL rules for it. Matched as a plain substring of the
-# raw line (whitespace after the colon optional), so it is language-agnostic: it fires the same
-# inside a Markdown `<!-- … -->` comment, a Python `#`/docstring line, or a shell `#` comment,
-# never depending on comment syntax. See the module header's #635 design record for the non-goals.
+# Illustrative-example opt-out (issue #635). A prose/comment line carrying this marker DESCRIBES a
+# claim shape rather than asserting it, so `examine_file` skips all rules for it. Matched as a plain
+# substring (optional whitespace after the colon) so it is language-agnostic. See the module
+# header's #635 design record for the mechanism and disclosed non-goals.
 _EXAMPLE_MARKER_RE = re.compile(r"stale-prose-lint:\s*example", re.IGNORECASE)
 
 # Verdict tokens as module constants, referenced by every emit site AND the exit-code gate
