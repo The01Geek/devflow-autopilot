@@ -23,8 +23,9 @@ review convention of the same class as the capability manifest's `manifest_versi
 bump rule. The suite pins the current rows through `--list`.
 
 INCLUSION CRITERION for a row: a checked-in record whose suite gate goes RED on
-loop-induced edits AND which has a standalone non-writing check command (a
-regeneration command, for a mechanical row).
+loop-induced edits AND whose state this helper can establish without writing it — either
+a standalone non-writing check command (a regeneration command, for a mechanical row) or
+an in-helper git-derived staleness check (a budget row, which launches no command).
 
 DELIBERATELY EXCLUDED as artifact rows, because they are REDUNDANT — not because they
 are uncovered: `scripts/workflow-flight-recorder-registry.json` and
@@ -35,21 +36,13 @@ arm covers the prompt-mass manifest, and the coverage guard's `[arm8]` arm cover
 flight-recorder registry. A row of their own could only re-report what
 `prompt-mass-baseline` and `coverage-map-ratchet` already report.
 
-KNOWN UNCOVERED SIBLING (disclosed, not a claim of completeness):
-`docs/review-and-fix-budget.md` meets the drift half of the inclusion criterion — its
-suite-bound Measured/cumulative cells go stale the moment a loop edits the
-review-and-fix root or its extension — but it has no row here. The registry is the
-closed set issue #619 specified, not an exhaustive sweep of every stale-able record;
-adding this sibling (as a second git-staleness row) is deliberately left to a follow-up
-rather than widened in silence.
-
 WRITE SCOPE: the only file under the target root this helper writes is
 `scripts/devflow-cloud-writer-contract.json` (the mechanical row's output). Every
 judgment row runs a non-writing check and never writes its artifact.
 
 EXIT CONTRACT (exactly three states):
   0 — every row resolved in its declared clean state (for a command-backed row, its
-      command exited in that state; the command-less budget row has no command and
+      command exited in that state; a command-less budget row has no command and
       resolves clean, informational, or judgment on its own git-derived arms), the
       mechanical regeneration changed nothing, and no exit-1-forcing judgment item
       was printed.
@@ -89,12 +82,13 @@ from pathlib import Path, PurePosixPath
 
 MECHANICAL_ARTIFACT = "scripts/devflow-cloud-writer-contract.json"
 
-# The review-bundle watch list: the members whose prose the suite measures with
-# `_rb_words` for the budget record. `skills/review/phases/*.md` is a glob so a new
-# phase reference joins the watch list the moment it lands on disk.
-BUDGET_RECORD = "docs/review-bundle-budget.md"
-BUDGET_WATCH_LITERALS = ("skills/review/SKILL.md", ".devflow/prompt-extensions/review.md")
-BUDGET_WATCH_GLOBS = ("skills/review/phases/*.md",)
+# A budget row's watch list is carried by the ROW (`record` / `watch_literals` /
+# `watch_globs`), not by module-level constants: with more than one such row the registry
+# stays the single enumeration point, which is the property issue #619 established and
+# issue #624 preserved when the second row landed. Each row's glob member joins its watch
+# list the moment the file lands on disk. `is_budget_row` keys on `watch_literals` as the
+# single spelling of that membership test — see its docstring for why the "has no argv"
+# proxy is not used.
 
 # Ordered registry. `argv` is resolved under the target root and run with that root as
 # the working directory, so a fixture root exercises the fixture's own generators.
@@ -194,6 +188,31 @@ ROWS = (
             "docs/review-bundle-budget.md — re-measure with lib/test/run.sh's _rb_words "
             "(python3, never wc -w) and update the record"
         ),
+        "record": "docs/review-bundle-budget.md",
+        "watch_literals": ("skills/review/SKILL.md", ".devflow/prompt-extensions/review.md"),
+        "watch_globs": ("skills/review/phases/*.md",),
+    },
+    {
+        "name": "review-and-fix-budget",
+        "kind": "judgment",
+        "check": None,  # bound to budget_row below (defined after this table).
+        "argv": None,  # git-derived staleness detection, not a launched command.
+        "policy": (
+            "docs/review-and-fix-budget.md — re-measure with lib/test/run.sh's _raf_words "
+            "(python3 bytes.split(), never wc -w) and update the record"
+        ),
+        # The sibling git-staleness row (issue #624). It meets the same inclusion criterion
+        # as review-bundle-budget: PR #622 showed that editing the review-and-fix root
+        # or its extension moves this record's suite-bound Measured/cumulative cells and
+        # turns the suite RED — the discover-drift-a-full-suite-run-later cost this helper
+        # exists to remove. Like its sibling it measures NOTHING: re-deriving `_raf_words`
+        # here would be a second implementation of a measurement the suite already owns.
+        "record": "docs/review-and-fix-budget.md",
+        "watch_literals": (
+            "skills/review-and-fix/SKILL.md",
+            ".devflow/prompt-extensions/review-and-fix.md",
+        ),
+        "watch_globs": ("skills/review-and-fix/references/*.md",),
     },
     {
         "name": "coverage-map-ratchet",
@@ -261,26 +280,26 @@ def default_repo_root():
     return here
 
 
-def watch_list(root):
-    """The review-bundle watch list expanded against disk under `root`.
+def watch_list(row, root):
+    """One budget row's watch list expanded against disk under `root`.
 
     Returns `(members, missing)`. Expansion (rather than a literal glob string) is what
     lets the suite compare this against the disk-derived bundle membership, so a new
-    phase reference cannot make the budget row silently fail open on ADDITIONS.
+    reference cannot make the row silently fail open on ADDITIONS.
 
     `missing` closes the opposite direction, for BOTH legs. Filtering by existence alone
     is a guard standing in for membership: a renamed or moved member would simply vanish
-    from the list, and the row would then report "no review-bundle member changed" for
-    the very change that moved it. That holds for a literal (`is_file()` false) and
-    equally for a glob whose PARENT directory is gone — `Path.glob` over a nonexistent
-    directory yields nothing and raises nothing, so a renamed `phases/` would empty the
-    list in silence. Both are reported as UNESTABLISHED, never silently dropped — the
-    same unknown-is-not-zero discipline the git legs follow.
+    from the list, and the row would then report "no bundle member changed" for the very
+    change that moved it. That holds for a literal (`is_file()` false) and equally for a
+    glob whose PARENT directory is gone — `Path.glob` over a nonexistent directory yields
+    nothing and raises nothing, so a renamed reference directory would empty the list in
+    silence. Both are reported as UNESTABLISHED, never silently dropped — the same
+    unknown-is-not-zero discipline the git legs follow.
     """
     members, missing = [], []
-    for rel in BUDGET_WATCH_LITERALS:
+    for rel in row["watch_literals"]:
         (members if (root / rel).is_file() else missing).append(rel)
-    for pattern in BUDGET_WATCH_GLOBS:
+    for pattern in row["watch_globs"]:
         parent, _, leaf = pattern.rpartition("/")
         if not (root / parent).is_dir():
             missing.append(pattern)
@@ -324,19 +343,41 @@ def _git_paths(root, argv):
     return None if text is None else {line for line in text.splitlines() if line}
 
 
+def is_budget_row(row):
+    """Whether `row` is a git-staleness budget row.
+
+    ONE spelling of this predicate, used by both the check-strategy binding below and
+    `emit_list`. Keyed on the watch list the callers actually consume, never on the proxy
+    "has no argv": those coincide only because every command-less row today is a budget
+    row. Keying on the real property means a misregistered row is classified by what the
+    callers consume rather than by a stand-in: a command-less non-budget row (a pure-Python
+    check, a placeholder) is False here and reaches `run_row`, where `row["argv"][1:]` on
+    None raises TypeError — measured: the top-level net routes it to the INFRASTRUCTURE
+    exit-2 state, so it fails closed, though as a traceback naming the exception rather
+    than the row or the key. Under the proxy the same row would be True and handed to
+    `budget_row`/`watch_list` as if it carried a watch list it never declared. Neither
+    keying yields an attributed message, so the *named* catch is the module's A4b
+    registry-invariant arm, which pins both this coincidence and the budget-row key set.
+    """
+    return "watch_literals" in row
+
+
 def budget_row(row, root, report):
-    """Detect a stale review-bundle budget record.
+    """Detect a stale budget record for whichever budget row is passed in.
 
     Returns `(forces_exit_1, infrastructure)`, like every other row's check callable —
     `budget_row` never selects the infrastructure state, so its second element is
     always False, but the arity is the uniform one `main()` dispatches through.
 
-    This row measures nothing: re-deriving `_rb_words` here would be a second
-    implementation of a measurement the suite already owns. It only answers "did the
-    bundle prose change while the record stayed untouched?", which is the staleness a
-    loop induces and the suite then discovers a full run later.
+    Every record/watch-list value is read from `row`, never from module-level constants,
+    so a second budget row is a registry entry rather than a second copy of this
+    function. This row measures nothing: re-deriving the suite's word counter here would
+    be a second implementation of a measurement the suite already owns. It only answers
+    "did the bundle prose change while the record stayed untouched?", which is the
+    staleness a loop induces and the suite then discovers a full run later.
     """
     name = row["name"]
+    record = row["record"]
     uncommitted = _git_paths(root, ("git", "diff", "--name-only", "HEAD"))
     untracked = _git_paths(
         root, ("git", "ls-files", "--others", "--exclude-standard")
@@ -358,7 +399,7 @@ def budget_row(row, root, report):
         )
         return False, False
 
-    members, missing = watch_list(root)
+    members, missing = watch_list(row, root)
     if missing:
         report.append(
             f"[{name}] INFO unestablished — watch-list member(s) absent from the tree: "
@@ -383,17 +424,17 @@ def budget_row(row, root, report):
         # Path.glob leg never yields. The two legs must accept the same set, or this
         # one over-reports on a tree the other cannot produce.
         or any(
-            PurePosixPath(path).match(pattern) for pattern in BUDGET_WATCH_GLOBS
+            PurePosixPath(path).match(pattern) for pattern in row["watch_globs"]
         )
     )
     if not touched:
-        report.append(f"[{name}] clean — no review-bundle member changed in this change set")
+        report.append(f"[{name}] clean — no bundle member changed in this change set")
         return False, False
-    if BUDGET_RECORD in union:
+    if record in union:
         report.append(
             f"[{name}] INFO bundle members changed ({', '.join(touched)}) and "
-            f"{BUDGET_RECORD} is already in this change set — figure correctness is "
-            "deferred to the suite's own _rb_words measurement. No action forced."
+            f"{record} is already in this change set — figure correctness is "
+            "deferred to the suite's own word measurement. No action forced."
         )
         return False, False
     report.append(
@@ -401,7 +442,7 @@ def budget_row(row, root, report):
         f"    changed members: {', '.join(touched)}\n"
         f"    governing policy: {row['policy']}\n"
         f"    Re-measure the affected figures in one pass and apply one edit to "
-        f"{BUDGET_RECORD}."
+        f"{record}."
     )
     return True, False
 
@@ -563,18 +604,26 @@ def _mechanical_outcome(row, proc, output, changed, after, report):
 # Bind each row's check strategy now that both callables exist. Done here rather than
 # in the table because the table is defined above the functions it names.
 for _row in ROWS:
-    _row["check"] = budget_row if _row["argv"] is None else run_row
+    _row["check"] = budget_row if is_budget_row(_row) else run_row
 
 
 def emit_list(root):
     for row in ROWS:
         command = " ".join(row["argv"]) if row["argv"] else "(git-derived staleness check)"
         print(f"artifact\t{row['name']}\t{row['kind']}\t{command}")
-    members, missing = watch_list(root)
-    for member in members:
-        print(f"budget-watch\t{member}")
-    for absent in missing:
-        print(f"budget-watch-missing\t{absent}")
+    # Row-attributed since issue #624: with more than one budget row a bare
+    # `budget-watch\t<path>` line cannot say WHICH row's watch list a member belongs to,
+    # so a member silently migrating between rows — or a row losing its list entirely
+    # while the other still emits — would read identically. The row name is the second
+    # field precisely so a consumer keys on (row, member), never on the path alone.
+    for row in ROWS:
+        if not is_budget_row(row):
+            continue
+        members, missing = watch_list(row, root)
+        for member in members:
+            print(f"budget-watch\t{row['name']}\t{member}")
+        for absent in missing:
+            print(f"budget-watch-missing\t{row['name']}\t{absent}")
     return 0
 
 
