@@ -42,7 +42,7 @@ failure: a rule that reaches the loop only when someone remembers to route it th
 ## Bounded-growth target
 
 The issue targeted 450 `_raf_words` for the two new sections plus the scoping prose.
-**Shipped: 630.** The target was renegotiated twice, and both moves are recorded here rather than
+**Shipped: 648.** The target was renegotiated twice, and both moves are recorded here rather than
 folded away, because a bound that silently tracks its subject has stopped bounding anything.
 
 1. **450 → 600.** The prose reached 590 after two compression passes from 649, and every remaining
@@ -54,20 +54,22 @@ folded away, because a bound that silently tracks its subject has stopped boundi
    obtain: it keyed authority on the *editor's* `author_association`, but GitHub exposes no
    association for an edit — `gh issue view --json` has no such field at all, and the REST payload's
    `author_association` describes the **issue author**. Verified directly against the live API.
-3. **A third expansion, and the only root-ceiling move (3,500 → 3,501).** The review's own checklist
+3. **630 → 650, and the only root-ceiling move (3,500 → 3,519).** The review's own checklist
    verifier and `silent-failure-hunter` then showed the *repaired* guard still had no mechanism for
    the predicate gating it — nothing told the run how to determine whether a body edit was made by a
    third party — so the routing was undetermined and the guard could fail open on exactly the input
    it exists to catch. The fix names a verified mechanism (`lastEditedAt` plus
-   `userContentEdits{editor{login}}` via `gh api graphql`, then
-   `collaborators/<login>/permission`) and an explicit permission mapping, since `author_association`
-   values do not denote write access — `MEMBER` in particular does not. Both API shapes were checked
-   live before being named. After repeated compression this left the root at exactly its 3,500
-   ceiling, so the ceiling moved to 3,501, restoring a margin.
+   `userContentEdits{editor{login}}` via `gh api graphql`, then `collaborators/<login>/permission`)
+   and an explicit permission mapping, since `author_association` values do not denote write access
+   — `MEMBER` in particular does not. A second review iteration then found the repaired mechanism
+   still had an open arm: a non-null `lastEditedAt` with an empty or page-full (truncated) editor
+   list would have read as authority established from a partial history, so that state now routes to
+   the unestablished arm. Every API shape named was checked live before being written. The
+   accumulated prose no longer fit under the 3,500 root ceiling, which moved to 3,519.
 
 Every move after the first is correctness winning over a word target, and each is recorded with its
 cause rather than folded away. Compression absorbed the first two entirely; only the third required
-touching the root ceiling, and then by four words. The root now sits at 3,497 of 3,501 — the same
+touching the root ceiling, and then by four words. The root now sits at 3,515 of 3,519 — the same
 ~4-word margin the other two ceilings carry, so a future addition to this preamble meets all three
 at once rather than any one of them first.
 
@@ -78,9 +80,9 @@ measures became three-term sums.
 
 | Quantity | Before | After | Ceiling before → after |
 | --- | ---: | ---: | --- |
-| Plugin root | 3,213 | 3,497 | 3,500 → 3,501 |
-| Initial load | 5,686 (root + extension) | 7,401 (root + always-loaded extensions) | 5,690 → 7,405 |
-| Max active step | 16,948 | 18,663 | 17,000 → 18,667 |
+| Plugin root | 3,213 | 3,515 | 3,500 → 3,519 |
+| Initial load | 5,686 (root + extension) | 7,419 (root + always-loaded extensions) | 5,690 → 7,423 |
+| Max active step | 16,948 | 18,681 | 17,000 → 18,685 |
 
 All three ceilings now carry ~4 words over their measurements — recorded in
 `docs/review-and-fix-budget.md`'s maintainer note. Each renegotiated ceiling carries roughly four words of headroom over its
@@ -89,7 +91,7 @@ next one-sentence edit a budget breach.
 
 The **cumulative-path** and **growth-delta** arithmetic excludes the receiving extension —
 rationale in the budget doc's Counting method, mirrored in `lib/test/run.sh`'s `#530 budget`
-block. Those figures still move (43,281 and +4,607) because the root itself grew by the loader
+block. Those figures still move (43,299 and +4,625) because the root itself grew by the loader
 call and its scoping prose.
 
 Growth is bounded by design: the two new sections state rules and cite their sources of record

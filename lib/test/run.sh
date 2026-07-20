@@ -3920,6 +3920,18 @@ assert_pin_unique "#620: supersession guard names a retrievable authority operan
   "$RAF_PIN_AUTHORITY" "$MAXI_ROOT"
 assert_pin_red_on_removal "#620: authority-operand pin is removal-sensitive" \
   "$RAF_PIN_AUTHORITY" "$MAXI_ROOT"
+# Pin the DETECTION half too. Pinning only the permission read would let a later edit delete the
+# editor-identity calls and leave a policy over a signal nobody reads — the exact prior-art defect.
+RAF_PIN_DETECT='userContentEdits(last: 10)'
+RAF_PIN_NOTASSOC='not `author_association`'
+assert_pin_unique "#620: supersession guard reads the editor identity it weighs" \
+  "$RAF_PIN_DETECT" "$MAXI_ROOT"
+assert_pin_red_on_removal "#620: editor-identity pin is removal-sensitive" \
+  "$RAF_PIN_DETECT" "$MAXI_ROOT"
+assert_pin_unique "#620: supersession guard excludes author_association as the authority term" \
+  "$RAF_PIN_NOTASSOC" "$MAXI_ROOT"
+assert_pin_red_on_removal "#620: author_association-exclusion pin is removal-sensitive" \
+  "$RAF_PIN_NOTASSOC" "$MAXI_ROOT"
 assert_pin_unique "#620: supersession guard keeps its surface-as-data fail-safe arm" \
   "$RAF_PIN_SAFEARM" "$MAXI_ROOT"
 assert_pin_red_on_removal "#620: surface-as-data arm pin is removal-sensitive" \
@@ -3931,12 +3943,25 @@ assert_pin_red_on_removal "#620: non-binding-directive pin is removal-sensitive"
 # Placement, not just presence: the docs claim both loads happen in the ENTRY preamble, which is what
 # makes them cover every path that enters through it. Assert the receiving load follows the skill's own
 # load and both precede the first section heading, so relocating the fence past entry goes RED.
-_r620_own=$(grep -n 'load-prompt-extension.sh review-and-fix' "$MAXI_ROOT" | head -n 1 | cut -d: -f1)
-_r620_rcv=$(grep -n 'load-prompt-extension.sh receiving-code-review' "$MAXI_ROOT" | head -n 1 | cut -d: -f1)
-_r620_hdr=$(grep -n '^## Engine source of truth' "$MAXI_ROOT" | head -n 1 | cut -d: -f1)
+# The three line numbers decide this assertion's outcome, so they are derived with `read` (a
+# builtin, which takes the first match) and `%%:*` (a builtin expansion) rather than piped through
+# `head`/`cut` — neither is preflight-guaranteed, and a value that decides a result must not depend
+# on a tool whose absence would silently empty it (CLAUDE.md's non-preflight-PATH-tool rule).
+# The own-load literal needs its own uniqueness pin: `read` takes the FIRST match, so a later prose
+# mention of the same command earlier in the root would silently retarget the ordering check.
+assert_pin_unique "#620: the skill's own extension load is a single unambiguous fence" \
+  'load-prompt-extension.sh review-and-fix' "$MAXI_ROOT"
+IFS= read -r _r620_own < <(grep -n 'load-prompt-extension.sh review-and-fix' "$MAXI_ROOT") || _r620_own=""   # raw-guard-ok: line-number lookup
+IFS= read -r _r620_rcv < <(grep -n 'load-prompt-extension.sh receiving-code-review' "$MAXI_ROOT") || _r620_rcv=""   # raw-guard-ok: line-number lookup
+IFS= read -r _r620_hdr < <(grep -n '^## Engine source of truth' "$MAXI_ROOT") || _r620_hdr=""   # raw-guard-ok: line-number lookup
+_r620_own="${_r620_own%%:*}"; _r620_rcv="${_r620_rcv%%:*}"; _r620_hdr="${_r620_hdr%%:*}"
+# Fail closed on a non-numeric/absent operand: an unresolved line number must read "no", never
+# slip through an arithmetic comparison on an empty string.
 assert_eq "#620: both extension loads sit in the entry preamble, own load first" "yes" \
-  "$([ -n "$_r620_own" ] && [ -n "$_r620_rcv" ] && [ -n "$_r620_hdr" ] && \
-     [ "$_r620_own" -lt "$_r620_rcv" ] && [ "$_r620_rcv" -lt "$_r620_hdr" ] && echo yes || echo no)"
+  "$(case "$_r620_own$_r620_rcv$_r620_hdr" in
+       ''|*[!0-9]*) echo no ;;
+       *) [ "$_r620_own" -lt "$_r620_rcv" ] && [ "$_r620_rcv" -lt "$_r620_hdr" ] && echo yes || echo no ;;
+     esac)"
 
 # ── #312 remaining-item prose pins (the sharpenings this issue lands; each fails if its
 #    rule is reworded away). File vars: $MAXI_SKILL (review-and-fix), $IMPL_SKILL (implement
@@ -34901,11 +34926,11 @@ assert_eq "#530 budget: no references/*.md outside the pinned 8-name set" "" "$_
 # numeric checks below from the names, and (b) assert each doc "Value" cell equals the same
 # constant, so a ceiling changed on one side without the other turns the coupling RED instead
 # of the two artifacts silently disagreeing.
-# #620 raised the root ceiling 3500->3501, the only root renegotiation in this issue: three
-# successive correctness fixes to the supersession guard (a named producer for its authority
-# operand, then a retrievable editor identity, then an explicit permission mapping) left the
-# scoping prose at exactly 3,500 after repeated compression. Carries the repo's usual ~4 words.
-RAF_ROOT_CEIL=3501
+# #620 raised the root ceiling 3500->3519 for the supersession-guard scoping prose, which grew
+# across three correctness fixes: a named producer for its authority operand, a retrievable editor
+# identity, and an explicit permission mapping plus its partial-history arm. Carries the repo's
+# usual ~4 words. The measurement is deliberately not restated here — the assertion prints it live.
+RAF_ROOT_CEIL=3519
 # #556 raised the initial-load ceiling 5500->5510: AC8 requires the iter-<N>.json
 # checklist entry to carry the optional raw_verdict/normalized fields, and adding
 # them to the record-shape example in the root pushed root+extension to 5,504 words.
@@ -34920,14 +34945,14 @@ RAF_ROOT_CEIL=3501
 # exactly at the measurement makes the next one-sentence edit a budget breach. The growth is the
 # audited decision recorded in docs/cutovers/issue-619-batched-artifact-regeneration.md;
 # update docs/review-and-fix-budget.md's ceilings-table cell in lockstep.
-# #620 raised it again 5690->7405 — the new RAF_RCR_W term plus this issue's root-prose growth — with ~4 words
+# #620 raised it again 5690->7423 — the new RAF_RCR_W term plus this issue's root-prose growth — with ~4 words
 # of headroom over the measurement per #619's convention. Update docs/review-and-fix-budget.md's
 # ceilings-table cell in lockstep; the audited decision is
 # docs/cutovers/issue-620-reception-extension-port.md.
-RAF_LOAD_CEIL=7405
-# #620: renegotiated because the new always-loaded term and this issue's own root-prose growth
-# together push the measured peak past the previous 17,000 ceiling — neither alone explains it.
-RAF_MAXSTEP_CEIL=18667
+RAF_LOAD_CEIL=7423
+# #620: renegotiated because the measured peak passed the previous 17,000 ceiling. Two independent
+# causes, either sufficient on its own: the new always-loaded term, and this issue's root-prose growth.
+RAF_MAXSTEP_CEIL=18685
 assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
   "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"
 assert_eq "#530 budget: root + always-loaded extensions (initial load) <= $RAF_LOAD_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W)))" "yes" \
@@ -34970,7 +34995,7 @@ for _raf_ceil in "$RAF_ROOT_CEIL" "$RAF_LOAD_CEIL" "$RAF_MAXSTEP_CEIL"; do
     "$(case "$_raf_doc_nocommas" in *"≤ $_raf_ceil words |"*) echo yes;; *) echo no;; esac)"
 done
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,607 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,625 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute
@@ -35011,6 +35036,22 @@ assert_eq "#530 budget: doc root Measured cell matches fresh measurement ($RAF_R
 _raf_load_row="$(grep -F 'Root + always-loaded extensions (initial load) ≤' "$RAF_BUDGET_DOC" || true)"
 assert_eq "#530 budget: doc initial-load Measured cell matches fresh measurement ($((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W)))" "yes" \
   "$(case "${_raf_load_row//,/}" in *"| $RAF_LOAD_CEIL | $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W)) |"*) echo yes;; *) echo no;; esac)"
+# #620 (pr-test-analyzer): the Lines/Bytes/Tokens columns carried NO live binding, so a byte cell
+# drifted 34 bytes from the shipped file and shipped desk-green past a block whose note claims to
+# have closed the stale-Measured-cell class. Bind the bytes column of the three AFTER rows. python3
+# (a preflight prerequisite) does the counting, like _raf_words — never `wc -c`.
+_raf_bytes() { python3 -c 'import sys; print(len(open(sys.argv[1],"rb").read()))' "$1"; }
+RAF_ROOT_B=$(_raf_bytes "$LIB/../skills/review-and-fix/SKILL.md")
+RAF_EXT_B=$(_raf_bytes "$LIB/../.devflow/prompt-extensions/review-and-fix.md")
+RAF_RCR_B=$(_raf_bytes "$LIB/../.devflow/prompt-extensions/receiving-code-review.md")
+_raf_root_after_row="$(grep -F '| **AFTER** — plugin root |' "$RAF_BUDGET_DOC" || true)"
+assert_eq "#620 budget: doc plugin-root Bytes cell matches fresh measurement ($RAF_ROOT_B)" "yes" \
+  "$(case "${_raf_root_after_row//,/}" in *" | $RAF_ROOT_B | "*) echo yes;; *) echo no;; esac)"
+_raf_load_after_row="$(grep -F '| **AFTER** — actual initial load |' "$RAF_BUDGET_DOC" || true)"
+assert_eq "#620 budget: doc initial-load Bytes cell matches fresh measurement ($((RAF_ROOT_B+RAF_EXT_B+RAF_RCR_B)))" "yes" \
+  "$(case "${_raf_load_after_row//,/}" in *" | $((RAF_ROOT_B+RAF_EXT_B+RAF_RCR_B)) | "*) echo yes;; *) echo no;; esac)"
+assert_eq "#620 budget: doc receiving-extension Bytes cell matches fresh measurement ($RAF_RCR_B)" "yes" \
+  "$(case "$(grep -F '| receiving extension |' "$RAF_BUDGET_DOC" | tr -d ',')" in *" | $RAF_RCR_B | "*) echo yes;; *) echo no;; esac)"
 _raf_maxstep_row="$(grep -F 'Root + always-loaded extensions + max active step ≤' "$RAF_BUDGET_DOC" || true)"
 assert_eq "#530 budget: doc max-step Measured cell matches fresh measurement ($((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W+RAF_MAXREF_W)))" "yes" \
   "$(case "${_raf_maxstep_row//,/}" in *"| $RAF_MAXSTEP_CEIL | $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W+RAF_MAXREF_W)) |"*) echo yes;; *) echo no;; esac)"
