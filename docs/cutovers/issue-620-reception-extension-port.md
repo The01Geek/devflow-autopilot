@@ -41,16 +41,29 @@ failure: a rule that reaches the loop only when someone remembers to route it th
 
 ## Bounded-growth target
 
-The issue targeted 450 `_raf_words`. Shipped: **592**, down from 649 over three compression
-passes — including a late correctness addition the operand-trace sweep required (the supersession
-policy needed a named producer for its authority operand and a route for the unestablished case),
-paid for by trimming connective tissue rather than by re-pegging the target. Every remaining
-clause is mandated by AC1, AC2, AC4 or AC12's at-minimum lists, so 450 is unreachable without
-dropping mandated content. The target was reconciled once to **600** under the implement skill's
-Phase 2.2.6 rule — ten above the 590 measured at reconciliation, eight above the 592 shipped —
-preserving what the target exists for: a recorded, falsifiable number the review gate can fail an
-addition against. The rationale is in the issue workpad as an AC-rewrite note and an
-`issue-accuracy` reflection.
+The issue targeted 450 `_raf_words` for the two new sections plus the scoping prose. **Shipped:
+626.** The target was renegotiated twice, and both moves are recorded here rather than folded away,
+because a bound that silently tracks its subject has stopped bounding anything.
+
+1. **450 → 600.** The prose reached 590 after two compression passes from 649, and every remaining
+   clause is mandated by AC1, AC2, AC4 or AC12's at-minimum lists — 450 is unreachable without
+   dropping mandated content. Reconciled under the implement skill's Phase 2.2.6 rule; recorded in
+   the issue workpad as an AC-rewrite note and an `issue-accuracy` reflection.
+2. **600 → 630, for a correctness fix.** The external `writing-skills` RED/GREEN pass this
+   repo's prompt-surface routing mandates found that the supersession guard named an operand it
+   could not obtain: it keyed authority on the *editor's* `author_association`, but GitHub exposes
+   no association for an edit — `gh issue view --json` has no such field at all, and the REST
+   payload's `author_association` describes the **issue author**. Verified directly against the
+   live API. As written the write-permission arm was dead and every run would have taken the safe
+   arm silently — the operand-trace defect class, in the very prose that adds a guard. The fix
+   names the retrievable call, states whose association the field actually is, and routes the
+   third-party-editor case to the unestablished arm. It cost 36 words after compression.
+
+The second move is a deliberate choice to let correctness win over a word target. The **root
+ceiling was not** renegotiated to absorb it: the scoping prose was compressed instead, leaving the
+root at 3,493 of 3,500 — a **7-word margin**, now by far the tightest budget in
+`docs/review-and-fix-budget.md`, and the real constraint any future addition to this preamble
+meets first.
 
 ## Budget renegotiation
 
@@ -59,11 +72,11 @@ measures became three-term sums.
 
 | Quantity | Before | After | Ceiling before → after |
 | --- | ---: | ---: | --- |
-| Plugin root | 3,213 | 3,459 | 3,500 → 3,500 (unchanged) |
-| Initial load | 5,686 (root + extension) | 7,363 (root + always-loaded extensions) | 5,690 → 7,367 |
-| Max active step | 16,948 | 18,625 | 17,000 → 18,629 |
+| Plugin root | 3,213 | 3,493 | 3,500 → 3,500 (unchanged) |
+| Initial load | 5,686 (root + extension) | 7,397 (root + always-loaded extensions) | 5,690 → 7,401 |
+| Max active step | 16,948 | 18,659 | 17,000 → 18,663 |
 
-The scoping prose fits under the unchanged root ceiling with 41 words to spare, which makes the
+The scoping prose fits under the unchanged root ceiling with 7 words to spare, which makes the
 root the tightest budget in the table — recorded as such in `docs/review-and-fix-budget.md`'s
 maintainer note. Each renegotiated ceiling carries roughly four words of headroom over its
 measurement, following issues #556 and #619 — a ceiling set exactly at the measurement makes the
@@ -71,7 +84,7 @@ next one-sentence edit a budget breach.
 
 The **cumulative-path** and **growth-delta** arithmetic excludes the receiving extension —
 rationale in the budget doc's Counting method, mirrored in `lib/test/run.sh`'s `#530 budget`
-block. Those figures still move (43,243 and +4,569) because the root itself grew by the loader
+block. Those figures still move (43,277 and +4,603) because the root itself grew by the loader
 call and its scoping prose.
 
 Growth is bounded by design: the two new sections state rules and cite their sources of record

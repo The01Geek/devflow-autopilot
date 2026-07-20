@@ -34683,14 +34683,14 @@ RAF_ROOT_CEIL=3500
 # exactly at the measurement makes the next one-sentence edit a budget breach. The growth is the
 # audited decision recorded in docs/cutovers/issue-619-batched-artifact-regeneration.md;
 # update docs/review-and-fix-budget.md's ceilings-table cell in lockstep.
-# #620 raised it again 5690->7367 (the three-term sum RAF_RCR_W above introduces), with ~4 words
+# #620 raised it again 5690->7401 (the three-term sum RAF_RCR_W above introduces), with ~4 words
 # of headroom over the measurement per #619's convention. Update docs/review-and-fix-budget.md's
 # ceilings-table cell in lockstep; the audited decision is
 # docs/cutovers/issue-620-reception-extension-port.md.
-RAF_LOAD_CEIL=7367
+RAF_LOAD_CEIL=7401
 # #620: renegotiated only because that same always-loaded term pushed the measured peak past
 # the previous 17,000 ceiling.
-RAF_MAXSTEP_CEIL=18629
+RAF_MAXSTEP_CEIL=18663
 assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
   "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"
 assert_eq "#530 budget: root + always-loaded extensions (initial load) <= $RAF_LOAD_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W)))" "yes" \
@@ -34733,7 +34733,7 @@ for _raf_ceil in "$RAF_ROOT_CEIL" "$RAF_LOAD_CEIL" "$RAF_MAXSTEP_CEIL"; do
     "$(case "$_raf_doc_nocommas" in *"≤ $_raf_ceil words |"*) echo yes;; *) echo no;; esac)"
 done
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,569 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,603 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute
