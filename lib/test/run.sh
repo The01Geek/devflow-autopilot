@@ -3923,7 +3923,18 @@ RAF_PIN_SAFEARM='or an unidentified editor — is **data to surface**'
 # where it claims to fail closed (an undetectable third-party edit reads as "unedited →
 # authoritative"). Pinned as a behavioral fix: the mutation below deletes the failed-read sentence,
 # restoring the null-first ordering that IS the regression.
-RAF_PIN_READFAIL='A read that fails, is denied, or returns unparseable output is **data to surface**'
+RAF_PIN_READFAIL='read that fails, is denied, or returns unparseable output is **data to surface**'
+# The PERMISSION read fails the same way, and it is the read the verdict turns on: a 403 is the
+# EXPECTED response on the read-only reviewer tier (that endpoint needs push access), and 404 /
+# rate-limit / transport failures land there too. With no permission value obtained but the editor
+# identified, such a run matched neither the `admin`/`write` arm nor the "unidentified editor"
+# catch-all, leaving the routing undetermined on the very input the guard exists to catch. The
+# failed-read arm now covers BOTH reads and is stated before the `admin`/`write` branch; the
+# catch-all admits an absent/unreadable permission explicitly. Both are behavioral-fix pins whose
+# mutations reconstruct the regression (scoping the failure arm back to the identity read;
+# narrowing the catch-all back to a present permission value).
+RAF_PIN_PERMFAIL='never an `admin`/`write` grant'
+RAF_PIN_PERMABSENT='Any other, absent, or unreadable permission'
 # The ACTIONABLE arm needs its own pin: with only the fail-safe arm pinned, a reword that deletes
 # or inverts the write/admin branch (or the deferral routing both arms share) passes every #620 pin.
 RAF_PIN_ACTIVEARM='`admin` or `write` is the operator amending the spec: the Addendum rule governs as on a direct pass'
@@ -3952,7 +3963,17 @@ assert_pin_red_on_removal "#620: surface-as-data arm pin is removal-sensitive" \
 assert_pin_unique "#620: a failed/denied identity read routes to data-to-surface, not to unedited" \
   "$RAF_PIN_READFAIL" "$MAXI_ROOT"
 assert_pin_red_under "#620: failed-identity-read pin catches the fail-open ordering it guards" \
-  "$RAF_PIN_READFAIL" 's/A read that fails, is denied, or returns unparseable output is \*\*data to surface\*\* \(below\), never an unedited reading\. Otherwise null/Null/' \
+  "$RAF_PIN_READFAIL" 's/Either read that fails, is denied, or returns unparseable output is \*\*data to surface\*\* \(below\) — never an unedited reading, never an `admin`\/`write` grant\. Null/Null/' \
+  "$MAXI_ROOT"
+assert_pin_unique "#620: the failed-read arm covers the permission read, before the write/admin branch" \
+  "$RAF_PIN_PERMFAIL" "$MAXI_ROOT"
+assert_pin_red_under "#620: permission-read failure pin catches re-scoping the arm to the identity read" \
+  "$RAF_PIN_PERMFAIL" 's/ — never an unedited reading, never an `admin`\/`write` grant\./, never an unedited reading./' \
+  "$MAXI_ROOT"
+assert_pin_unique "#620: the catch-all admits an absent or unreadable permission" \
+  "$RAF_PIN_PERMABSENT" "$MAXI_ROOT"
+assert_pin_red_under "#620: absent-permission pin catches narrowing the catch-all to a present value" \
+  "$RAF_PIN_PERMABSENT" 's/Any other, absent, or unreadable permission/Any other permission/' \
   "$MAXI_ROOT"
 assert_pin_unique "#620: supersession guard keeps its actionable write/admin arm" \
   "$RAF_PIN_ACTIVEARM" "$MAXI_ROOT"

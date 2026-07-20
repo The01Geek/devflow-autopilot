@@ -80,9 +80,9 @@ extensions + max active step ≤ 18,697 words).
 | **BEFORE** — always-loaded | monolith + live extension | 1,337 | 38,674 | 267,474 | 50,271 |
 | live extension | `.devflow/prompt-extensions/review-and-fix.md` | 203 | 2,473 | 16,546 | 3,210 |
 | receiving extension | `.devflow/prompt-extensions/receiving-code-review.md` | 89 | 1,431 | 9,602 | 1,860 |
-| **AFTER** — plugin root | `skills/review-and-fix/SKILL.md` (thin) | 336 | **3,527** | 27,967 | 4,585 |
-| **AFTER** — actual initial load | root + always-loaded extensions | 628 | **7,431** | 54,115 | 9,660 |
-| **AFTER** — bundle | root + all `references/*.md` | 1,318 | 40,838 | 286,987 | 53,089 |
+| **AFTER** — plugin root | `skills/review-and-fix/SKILL.md` (thin) | 336 | **3,527** | 27,986 | 4,585 |
+| **AFTER** — actual initial load | root + always-loaded extensions | 628 | **7,431** | 54,134 | 9,660 |
+| **AFTER** — bundle | root + all `references/*.md` | 1,318 | 40,838 | 287,006 | 53,089 |
 | **AFTER** — normal cumulative path | root + live extension + Σ references | — | 43,311 | — | 56,304 |
 | **AFTER** — maximum active step | root + always-loaded extensions + `shadow-review.md` | — | **18,693** | — | 24,301 |
 | reference: `shadow-review.md` | Step 2.6 | 235 | 11,262 | 79,276 | 14,641 |

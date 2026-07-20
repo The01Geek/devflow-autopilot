@@ -71,6 +71,16 @@ folded away, because a bound that silently tracks its subject has stopped boundi
    ordering the guard failed open exactly where it claimed to fail closed. Every API shape named was
    checked live before being written. The accumulated prose no longer fit under the 3,500 root
    ceiling, which moved to 3,531.
+4. **The failed-read arm was widened to cover the PERMISSION read too, word-neutrally (no ceiling
+   move).** The prior wording's failure arm reached only the identity read, so a failed permission
+   read — a 403 is the *expected* response on the read-only reviewer tier, whose token lacks the push
+   access that endpoint requires; 404 and rate-limit/transport failures land there too — matched
+   neither the `admin`/`write` arm nor the "unidentified editor" catch-all, leaving the routing
+   undetermined on exactly the input the guard exists to catch. The arm now names both reads and is
+   stated before the `admin`/`write` branch, and the catch-all admits an absent or unreadable
+   permission explicitly. Paid for by compression elsewhere in the same paragraph: the root stayed at
+   3,527 words (+19 bytes, an audited mandatory-prose growth reflected in
+   `lib/test/prompt-mass-baseline.json`), so no ceiling moved.
 
 Every move after the first is correctness winning over a word target, and each is recorded with its
 cause rather than folded away. Compression absorbed the first two entirely; only the third required
