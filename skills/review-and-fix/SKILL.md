@@ -63,6 +63,9 @@ This skill **skips** /devflow:review's Phase 4.4 entirely — no GitHub post. Th
       "reused_from_iter_prev": false
     }
   ],
+  "dispatched_effort": [
+    {"agent": "devflow:checklist-generator", "phase": "1", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"}
+  ],
   "phase3_dispatched": [
     "devflow:code-reviewer",
     "devflow:silent-failure-hunter",
@@ -244,7 +247,7 @@ This skill **skips** /devflow:review's Phase 4.4 entirely — no GitHub post. Th
 }
 ```
 
-**Field semantics** — `loop_role`, `phase3_dispatched`, `diff_profile`, `cap_drops`, `shadow`, and the durable operands `current_step`/`current_substep`/`pending_dispatch` — are documented in `references/loop-control.md` (*Schema field semantics*). `ITER_EXPECTED_FIELDS` in `lib/efficiency-trace.sh` is the single-source set the unconditional top-level fields mirror.
+**Field semantics** — `loop_role`, `dispatched_effort`, `phase3_dispatched`, `diff_profile`, `cap_drops`, `shadow`, and the durable operands `current_step`/`current_substep`/`pending_dispatch` — are documented in `references/loop-control.md` (*Schema field semantics*). `ITER_EXPECTED_FIELDS` in `lib/efficiency-trace.sh` is the single-source set the unconditional top-level fields mirror.
 
 ### Lifecycle
 

@@ -34727,9 +34727,11 @@ RAF_ROOT_CEIL=3500
 # #556 raised the initial-load ceiling 5500->5510: AC8 requires the iter-<N>.json
 # checklist entry to carry the optional raw_verdict/normalized fields, and adding
 # them to the record-shape example in the root pushed root+extension to 5,504 words.
-# The small documented widening mirrors the #529 AC3 renegotiation; update
+# #609 raised it 5510->5540: the `dispatched_effort` effort-observability schema key
+# added to the root's record-shape example pushed root+extension to 5,533 words.
+# Each small documented widening mirrors the #529 AC3 renegotiation; update
 # docs/review-and-fix-budget.md's ceilings-table cell in lockstep.
-RAF_LOAD_CEIL=5510
+RAF_LOAD_CEIL=5540
 RAF_MAXSTEP_CEIL=17000
 assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
   "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"
@@ -34773,7 +34775,7 @@ for _raf_ceil in "$RAF_ROOT_CEIL" "$RAF_LOAD_CEIL" "$RAF_MAXSTEP_CEIL"; do
     "$(case "$_raf_doc_nocommas" in *"≤ $_raf_ceil words |"*) echo yes;; *) echo no;; esac)"
 done
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,323 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,520 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute
