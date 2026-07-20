@@ -1,0 +1,348 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-20T00:08:10Z",
+  "fix_commit_sha": "3df892f4f4e59d0048302598c45c103555d016ec",
+  "fix_files": [
+    "scripts/issue-audit-state.py",
+    "lib/test/test_python_scripts.py",
+    "lib/test/run.sh",
+    "scripts/workflow-flight-recorder-registry.json",
+    "skills/create-issue/SKILL.md",
+    "lib/test/prompt-mass-baseline.json",
+    "docs/cutovers/issue-603-prompt-mass-growth.md",
+    ".changeset/issue-603-ledger-resolution.md"
+  ],
+  "loop_role": "fix",
+  "current_step": "4.5",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "checklist": [],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:type-design-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "detect_all_audit_note": "set — forced the Phase 3.1.5 completeness-critic pass",
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Important",
+      "description": "_named_entries docstring claims all three post-close channels print a count derived from the id list; cmd_record_resolution prints no resolved= field.",
+      "defect_signature": {
+        "file": "scripts/issue-audit-state.py",
+        "line_range": [
+          2616,
+          2624
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Critical",
+      "description": "Same docstring falsehood, independently raised; graded Critical by this agent.",
+      "defect_signature": {
+        "file": "scripts/issue-audit-state.py",
+        "line_range": [
+          2616,
+          2624
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "orchestrator:completeness-critic",
+      "severity": "Important",
+      "description": "AC1 detect-all audit blind to the helper-returned emission channel; bound= and latest_revision_landed= emitted, unlisted, and unrefused by _forged_protocol_token.",
+      "defect_signature": {
+        "file": "scripts/issue-audit-state.py",
+        "line_range": [
+          203,
+          215
+        ],
+        "kind": "other"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "query-findings reason= fail-closed answers have no handling arm at the two consuming skill sites; an unreadable ledger reads as empty and the reopen arm can never fire.",
+      "defect_signature": {
+        "file": "skills/create-issue/SKILL.md",
+        "line_range": [
+          324,
+          331
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "AC5-residual observable detects only an interior round-number gap, never the base case where the unledgered round is first.",
+      "defect_signature": {
+        "file": "skills/create-issue/SKILL.md",
+        "line_range": [
+          343,
+          343
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "_refuse_terminal's record-invalidate call site untested; deleting it exits 0 while writing keys the read boundary then refuses on every later load.",
+      "defect_signature": {
+        "file": "lib/test/test_python_scripts.py",
+        "line_range": [
+          6320,
+          6330
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Important",
+      "description": "Branch 31 commits behind main; minimum_assertions 234 collides with #613's already-merged 234, and because the operand is a MINIMUM the drift passes unnoticed.",
+      "defect_signature": {
+        "file": "scripts/workflow-flight-recorder-registry.json",
+        "line_range": [
+          16,
+          16
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "_LEGAL_SETTLING_KEYS['resolved'] is a permissive superset; an entry with both provenance keys disables the recorded-revision check.",
+      "defect_signature": {
+        "file": "scripts/issue-audit-state.py",
+        "line_range": [
+          224,
+          229
+        ],
+        "kind": "type_design"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "_clear_settling's status-agnostic sufficiency claim omits supersession_round. Corroborated by the final-pass reviewer's suggestion 3.",
+      "defect_signature": {
+        "file": "scripts/issue-audit-state.py",
+        "line_range": [
+          2683,
+          2699
+        ],
+        "kind": "type_design"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "_validate_ledger docstring claims to re-enforce every invariant; absence-shape is unenforced for two keys.",
+      "defect_signature": {
+        "file": "scripts/issue-audit-state.py",
+        "line_range": [
+          667,
+          676
+        ],
+        "kind": "type_design"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "record-reopen not-resolved arm covered only for the unresolved case.",
+      "defect_signature": {
+        "file": "lib/test/test_python_scripts.py",
+        "line_range": null,
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "_clear_settling proven on the reopen channel only by side effect, not at all on invalidate.",
+      "defect_signature": {
+        "file": "lib/test/test_python_scripts.py",
+        "line_range": [
+          6286,
+          6300
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "SKILL.md refusal enumeration omits the ledger-unresolved-count rule.",
+      "defect_signature": {
+        "file": "skills/create-issue/SKILL.md",
+        "line_range": [
+          322,
+          322
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "aefc1be7"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "aefc1be7"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "aefc1be7"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "applied",
+      "commit": "3df892f4"
+    },
+    {
+      "finding_id": "F-5",
+      "decision": "applied",
+      "commit": "3df892f4"
+    },
+    {
+      "finding_id": "F-6",
+      "decision": "applied",
+      "commit": "aefc1be7"
+    },
+    {
+      "finding_id": "F-7",
+      "decision": "applied",
+      "commit": "42e96c23"
+    },
+    {
+      "finding_id": "F-8",
+      "decision": "applied",
+      "commit": "aefc1be7"
+    },
+    {
+      "finding_id": "F-9",
+      "decision": "applied",
+      "commit": "aefc1be7"
+    },
+    {
+      "finding_id": "F-10",
+      "decision": "applied",
+      "commit": "aefc1be7"
+    },
+    {
+      "finding_id": "F-11",
+      "decision": "applied",
+      "commit": "aefc1be7"
+    },
+    {
+      "finding_id": "F-12",
+      "decision": "applied",
+      "commit": "aefc1be7"
+    },
+    {
+      "finding_id": "F-13",
+      "decision": "applied",
+      "commit": "3df892f4"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 13,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "shadow": {
+    "ran_at": null,
+    "reviewed_sha": null,
+    "verdict": null,
+    "coverage": null,
+    "prompt_addenda": null,
+    "reviewers_dispatched": [],
+    "expected_reviewers": [],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 0,
+      "overlap_with_iter_N": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
+  "notes": {
+    "verdict": "REJECT — corroborated documented_falsehood (non-demotable self-contradicting diff)",
+    "fix_threshold": "suggestion (every severity routed to the fixer)",
+    "live_progress_comment": "deliberately not posted: local fix loop under a human account; a human-authored lookalike would land in the marker-detected review-progress surface",
+    "verification": "full suite 10292 passed, 0 failed, 0 skipped on the committed tree (the #434 self-scan armed)",
+    "checklist_note": "Phase 1/2 checklist not separately generated this iteration; mechanical claim-verification discharged by the in-env full-suite run plus the orchestrator's direct verification of each fixed guard, with mutation evidence recorded for the new behavioral pins"
+  },
+  "telemetry": "unavailable"
+}
