@@ -183,6 +183,16 @@ fails the suite. The summary renderer lives in `lib/test/summary.sh`.
   `skills/*/SKILL.md` and fails if a skill omits the standardized step, and the
   prompt-extension scaffold test derives the expected example set from `skills/*/` and
   fails if the scaffolder's list forgets one.
+- **A skill loads the extensions its behavior draws on — usually one, sometimes more
+  (issue #620).** The step above is a floor, not a cap: a skill that applies *another*
+  skill's principles without invoking that skill loads that skill's extension too, so the
+  policy follows the behavior rather than the invocation. `/devflow:review-and-fix` is the
+  instance — its preamble loads `review-and-fix` and then `receiving-code-review`, because
+  the fix loop applies those principles without ever invoking that skill. When you add or
+  change a skill, ask which other skills' principles it applies un-invoked. The rule and
+  its coverage are stated in
+  [`docs/DEVFLOW_SYSTEM_OVERVIEW.md`](docs/DEVFLOW_SYSTEM_OVERVIEW.md) under *Extending
+  skills with prompt extensions*.
 - Prompt cutovers, trims, relocations, and mandatory-surface growth follow the artifact
   procedure in [`.devflow/prompt-extensions/implement.md`](.devflow/prompt-extensions/implement.md)
   under **Prose cutover**.
