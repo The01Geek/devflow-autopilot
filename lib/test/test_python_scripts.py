@@ -6326,9 +6326,66 @@ def _row6(r):
                 '--resolved-ids', '1', nonce=True)
     assert_eq("#603-3/AC21: a superseded entry refuses resolution (terminal)",
               (1, True), (blocked.returncode, 'superseded' in blocked.stderr))
+    # `_refuse_terminal` has THREE call sites; only the resolution one was exercised, so
+    # deleting either of the other two left the suite green while bricking the state file:
+    # the channel would write its settling keys onto a `superseded` entry, which
+    # `_validate_ledger`'s residual arm then refuses on EVERY later load — a permanently
+    # unrecoverable run from a CLI call that exited 0 (PR #612 review). Attribute by the
+    # `entry-superseded` breadcrumb, not a bare rc, so a rejection from some other guard
+    # cannot satisfy these rows.
+    blocked_inv = r('record-invalidate', r.slug, '--round', '1', '--ids', '1',
+                    '--reason', 'misclassified on review', nonce=True)
+    assert_eq("#603-3/AC21: a superseded entry refuses invalidation (terminal)",
+              (1, True),
+              (blocked_inv.returncode, 'entry-superseded' in blocked_inv.stderr))
+    # Reopen refuses a superseded entry too, but via a DIFFERENT guard: it has no
+    # `_refuse_terminal` call site — its own `not-resolved` arm subsumes the case, since
+    # `superseded != resolved`. Asserting `entry-superseded` here would have been a
+    # vacuous row that passed on the exit code while naming a guard that never fires on
+    # this path. Pin the arm that actually rejects it; this is also the only row that
+    # reopens a non-`unresolved` entry, so it is what covers the `not-resolved` arm
+    # beyond its one previously-tested case.
+    blocked_re = r('record-reopen', r.slug, '--round', '1', '--ids', '1', nonce=True)
+    assert_eq("#603-3/AC21: a superseded entry refuses reopen, by the not-resolved arm",
+              (1, True, True),
+              (blocked_re.returncode, 'not-resolved' in blocked_re.stderr,
+               'superseded' in blocked_re.stderr))
+    # The refusals must have written NOTHING: a half-write would surface here as the
+    # state collapsing to unestablished on the next read.
+    assert_eq("#603-3/AC21: the refused terminal mutations left the state loadable",
+              'converged=yes reason= basis=adjudicated',
+              r('query-convergence', r.slug, nonce=True).stdout.strip())
 
 
 _with_run603(_row6)
+
+
+# Row 6c/AC21 — `_clear_settling` on the INVALIDATE channel, proven directly rather than
+# by side effect. Row 3 invalidates an entry that carries no settling key, so the
+# `_clear_settling` call on that channel is a no-op in every prior row and deleting it left
+# the suite green (PR #612 review). Here the entry arrives carrying `resolution_ordinal`;
+# if the call is dropped the key survives onto an `invalidated` status, which
+# `_validate_ledger`'s residual arm then refuses on the NEXT load.
+def _row6c(r):
+    r.open_round(1, 'REVISE', 2)
+    r.adjudicate(1, 'REVISE', 2, '2', 'unresolved: a\nunresolved: b\n')
+    r('record-revision', r.slug, '--after-round', '1', nonce=True)
+    r('record-resolution', r.slug, '--round', '1', '--revision-ordinal', '1',
+      '--resolved-ids', '1', nonce=True)
+    inv = r('record-invalidate', r.slug, '--round', '1', '--ids', '1',
+            '--reason', 'misclassified after all', nonce=True)
+    assert_eq("#603-6c/AC21: a resolved entry can be invalidated", 0, inv.returncode)
+    _st6c = json.loads(Path(issue_audit_state.state_path(r.slug, r.tmp))
+                       .read_text(encoding='utf-8'))
+    _e6c = _st6c['rounds'][0]['findings'][0]
+    assert_eq("#603-6c/AC21: the invalidate channel cleared the stale resolution ordinal",
+              ('invalidated', False),
+              (_e6c['status'], 'resolution_ordinal' in _e6c))
+    assert_eq("#603-6c/AC21: and the state still loads after the transition",
+              0, r('query-findings', r.slug, nonce=True).returncode)
+
+
+_with_run603(_row6c)
 
 
 # Row 6 (stale variant)/AC7 — a revision recorded after an entry's settling change
@@ -6444,14 +6501,40 @@ assert_eq("#603-10/AC11: summary_fields carries convergence_basis",
           'resolution', _sf603['convergence_basis'])
 
 # AC1 coverage row — the protocol-vocabulary constant covers every token the printers emit.
+_tree603 = ast.parse(Path(_IAS603).read_text(encoding='utf-8'))
+_funcs603 = {_n.name: _n for _n in ast.walk(_tree603) if isinstance(_n, ast.FunctionDef)}
+
+
+def _tok603(node):
+    """Every `key=` token in the string literals under `node`."""
+    out = set()
+    for sub in ast.walk(node):
+        if isinstance(sub, ast.Constant) and isinstance(sub.value, str):
+            out.update(re.findall(r'([a-z_][a-z0-9_]*)=', sub.value))
+    return out
+
+
 _printed603 = set()
-for _node in ast.walk(ast.parse(Path(_IAS603).read_text(encoding='utf-8'))):
+for _node in ast.walk(_tree603):
     if (isinstance(_node, ast.Call) and isinstance(_node.func, ast.Name)
             and _node.func.id == 'print'):
         for _arg in _node.args:
+            _printed603 |= _tok603(_arg)
+            # A printer that hands the line off to a helper — `print(_binding_line(state))`
+            # — keeps its protocol fields in the HELPER's own literals, which are not in
+            # the print call's arg subtree at all. Without this descent the audit certifies
+            # coverage over an emission channel it is structurally blind to: PR #612's
+            # review found `bound=` and `latest_revision_landed=` emitted by `_binding_line`,
+            # absent from `_PROTOCOL_TOKENS`, and therefore NOT refused by
+            # `_forged_protocol_token` — while their siblings on the very same emitted line
+            # (`tier=`, `non_bound_root=`) were refused. Only `return`ed values are harvested,
+            # since a helper's internal breadcrumbs are not what the printer emits.
             for _sub in ast.walk(_arg):
-                if isinstance(_sub, ast.Constant) and isinstance(_sub.value, str):
-                    _printed603.update(re.findall(r'([a-z_][a-z0-9_]*)=', _sub.value))
+                if (isinstance(_sub, ast.Call) and isinstance(_sub.func, ast.Name)
+                        and _sub.func.id in _funcs603):
+                    for _ret in ast.walk(_funcs603[_sub.func.id]):
+                        if isinstance(_ret, ast.Return) and _ret.value is not None:
+                            _printed603 |= _tok603(_ret.value)
 assert_eq("#603/AC1: _PROTOCOL_TOKENS covers every key= token the printers emit",
           set(), _printed603 - set(issue_audit_state._PROTOCOL_TOKENS))
 
@@ -6867,6 +6950,13 @@ for _n11c, _key11c, _e11c, _files11c in (
      'resolution_ordinal',
      _entry603(1, 'a', 'invalidated', invalidation_reason='misclassified',
                invalidation_provenance='pre-revision', resolution_ordinal=1), False),
+    # `supersession_round` joined `_SETTLING_KEYS` in PR #612's review round: it is written
+    # by a status change exactly like the other four, so leaving it out made
+    # `_clear_settling`'s status-agnostic sufficiency false in precisely the way its own
+    # docstring claims it is not. This row is what makes that membership load-bearing —
+    # drop the key from `_SETTLING_KEYS` and the residual arm stops examining it.
+    ('a residual supersession_round on an unresolved entry',
+     'supersession_round', _entry603(1, 'a', supersession_round=2), False),
 ):
     # An entry ingested `resolved` does not count toward unresolved_must_revise, so such a
     # row rides behind a legal unresolved entry 1 that supplies the round's count.
@@ -6883,6 +6973,48 @@ for _n11c, _key11c, _e11c, _files11c in (
         _r11c = str(_exc11c)
     assert_eq(f"#603-11c/AC12: {_n11c} is refused BY THE RESIDUAL-KEY ARM, naming that key",
               True, 'settling provenance key' in _r11c and repr(_key11c) in _r11c)
+
+# Row 11d/AC12 — the resolved-provenance mutual-exclusion arm. `_LEGAL_SETTLING_KEYS` is a
+# MEMBERSHIP test, so an entry carrying BOTH resolved keys clears the residual arm above;
+# on such an entry the ingest short-circuit skipped the recorded-revision check entirely,
+# so a hand-written `resolution_ordinal` naming no recorded revision loaded clean
+# (PR #612 review). Attributed BY MESSAGE, not by a bare "raises": the residual arm and the
+# names-no-recorded-revision arm both raise on neighbouring fixtures, so an unattributed
+# assertion would pass against a deleted mutual-exclusion arm.
+_both603 = _state(
+    [_round603(1, unresolved=1, must_revise=2,
+               ledger=[_entry603(1, 'still open'),
+                       _entry603(2, 'a', 'resolved', ingested_status='resolved',
+                                 ingest_provenance='resolved-at-adjudication',
+                                 resolution_ordinal=99)])],
+    revisions=(1,))
+try:
+    issue_audit_state._validate(_both603, 's')
+    _both603_r = 'no rejection at all'
+except issue_audit_state.StateError as _exc_both:
+    _both603_r = str(_exc_both)
+assert_eq("#603-11d/AC12: a resolved entry carrying BOTH settling-provenance keys is "
+          "refused by the mutual-exclusion arm, which names both keys",
+          True,
+          'mutually exclusive' in _both603_r and 'ingest_provenance' in _both603_r
+          and 'resolution_ordinal' in _both603_r)
+# POSITIVE CONTROL on the same fixture: with only the ingest provenance (the writer-
+# reachable shape), the identical entry validates — so the row above cannot be passing
+# because some unrelated precondition rejects this ledger.
+_one603 = _state(
+    [_round603(1, unresolved=1, must_revise=2,
+               ledger=[_entry603(1, 'still open'),
+                       _entry603(2, 'a', 'resolved', ingested_status='resolved',
+                                 ingest_provenance='resolved-at-adjudication')])],
+    revisions=(1,))
+try:
+    issue_audit_state._validate(_one603, 's')
+    _one603_ok = True
+except issue_audit_state.StateError:
+    _one603_ok = False
+assert_eq("#603-11d/AC12 positive control: the same fixture with only ingest_provenance "
+          "validates, so the mutual-exclusion row is not riding a broken precondition",
+          True, _one603_ok)
 
 # Row 13 — `_forged_protocol_token` case-sensitivity carries a POSITIVE control. Every
 # other vocabulary row asserts a refusal, so a flip to case-insensitive matching would

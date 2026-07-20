@@ -202,11 +202,12 @@ _LEDGER_PREFIXES = ('unresolved', 'resolved')
 # never-protocol property must hold for the whole printed surface, not one line of it.
 _PROTOCOL_TOKENS = (
     'action', 'adjudicated', 'adjudicated_verdict', 'advisory', 'arm', 'attestation',
-    'basis', 'body_digest', 'bound_path', 'bound_root', 'bound_tier', 'cap',
+    'basis', 'body_digest', 'bound', 'bound_path', 'bound_root', 'bound_tier', 'cap',
     'cap_reached', 'classification', 'consumer_dimensions_appended', 'converged',
     'convergence_basis', 'count', 'degraded', 'digest', 'effective_unresolved',
     'eligible', 'epoch_round', 'findings', 'findings_count', 'frozen', 'ground', 'id',
-    'invalid', 'invalidated', 'iterate', 'key', 'kind', 'marker', 'markers',
+    'invalid', 'invalidated', 'iterate', 'key', 'kind', 'latest_revision_landed',
+    'marker', 'markers',
     'must_revise', 'non_bound_root', 'nonce', 'ordinal', 'outcome', 'reason',
     'reinit_forced', 'remaining', 'reopened', 'revision_ordinal', 'revisions_applied',
     'round', 'rounds_run', 'sentinel_close', 'sentinel_open', 'state', 'status',
@@ -217,13 +218,20 @@ _PROTOCOL_TOKENS = (
 
 # The settling-provenance keys `_clear_settling` drops, and the set each status may
 # legally carry at the read boundary. Stated once so `_validate_ledger`'s residual-key
-# arm and that helper cannot drift apart: `_clear_settling` clears all four, so any key
-# a status is not listed with here is a shape the writer never emits.
+# arm and that helper cannot drift apart: `_clear_settling` clears every member, so any
+# settling key a status is not listed with here is a shape the writer never emits.
+# `supersession_round` is a member: it is written by a status change (the FILE sweep in
+# `cmd_record_adjudication`) exactly like the others, so excluding it would have made
+# `_clear_settling`'s status-agnostic sufficiency false in precisely the way its own
+# docstring claims it is not — a future channel able to act on a `superseded` entry would
+# carry the key onto the new status and the residual arm, which iterates this tuple,
+# would not catch it (PR #612 review).
 _SETTLING_KEYS = ('resolution_ordinal', 'ingest_provenance',
-                  'invalidation_provenance', 'invalidation_reason')
+                  'invalidation_provenance', 'invalidation_reason',
+                  'supersession_round')
 _LEGAL_SETTLING_KEYS = {
     'unresolved': frozenset(),
-    'superseded': frozenset(),
+    'superseded': frozenset(('supersession_round',)),
     'resolved': frozenset(('resolution_ordinal', 'ingest_provenance')),
     'invalidated': frozenset(('invalidation_provenance', 'invalidation_reason')),
 }
@@ -665,7 +673,15 @@ _REQUIRED_TOP = ('schema_version', 'slug', 'nonce', 'rounds', 'revisions', 'over
 
 
 def _validate_ledger(doc, rnd, num):
-    """Re-enforce every per-finding-ledger invariant at the READ boundary (issue #603).
+    """Re-enforce the per-finding-ledger invariants at the READ boundary (issue #603).
+
+    Scope, stated exactly: every invariant the ingestion boundary enforces is re-enforced
+    here, over the settling-provenance surface `_SETTLING_KEYS` names. The one key outside
+    that surface is `reopen_provenance`, which is deliberately exempt (see
+    `_clear_settling`) — it sits on statuses `_settling_ordinal` ignores, so a residual
+    copy can never be read stale — and its absence-shape is therefore NOT enforced. Read
+    "every invariant" as bounded by that stated exemption, not as coverage of every key an
+    entry could physically carry.
 
     Absent is legal (a FILE round, a `REVISE … unestablished` round, and every
     pre-change round record no ledger) — present-but-wrong-shape is corrupt, the same
@@ -746,6 +762,18 @@ def _validate_ledger(doc, rnd, num):
             raise StateError(f'round {num} findings entry {pos} is {status} but retains '
                              f'the settling provenance key {residual[0]!r}')
         if status == 'resolved':
+            # `_LEGAL_SETTLING_KEYS` is a MEMBERSHIP test, so it cannot express that the
+            # two resolved-provenance keys are mutually exclusive. They are: the writer
+            # pops `ingest_provenance` (via `_clear_settling`) before setting
+            # `resolution_ordinal`, so an entry carrying both is writer-unreachable — but
+            # representable by hand, and on such an entry the ingest short-circuit below
+            # would skip the recorded-revision check entirely (PR #612 review). Refuse the
+            # combination rather than silently disabling the check it bypasses.
+            if ('ingest_provenance' in entry and 'resolution_ordinal' in entry):
+                raise StateError(f'round {num} findings entry {pos} is resolved but '
+                                 f'carries both settling-provenance keys '
+                                 f'(ingest_provenance and resolution_ordinal); they are '
+                                 f'mutually exclusive by construction')
             if entry.get('ingest_provenance') != _LEDGER_INGESTED_RESOLVED:
                 ordinal = entry.get('resolution_ordinal')
                 if ordinal not in revision_ordinals:
@@ -2618,10 +2646,14 @@ def _named_entries(prefix, ledger, raw_ids, flag):
 
     Repeated ids collapse to ONE entry, first occurrence winning, so the order the
     caller named survives. The mutations are idempotent per entry, so a duplicate never
-    corrupted state — but the three channels print `resolved=`/`reopened=`/`invalidated=`
-    from this list's length, and the skill parses those echoes, so an un-deduped list
-    reported more entries moved than exist. Shared by all three channels, so the
-    de-duplication holds for every id flag rather than the ones a caller happened to hit.
+    corrupted state — but `record-reopen` and `record-invalidate` print
+    `reopened=`/`invalidated=` from this list's length, and the skill parses those
+    echoes, so an un-deduped list reported more entries moved than exist.
+    `record-resolution` echoes no such count: it prints the frozen at-close tally and
+    the run-wide re-derived `remaining=`, neither of which varies with `len(entries)`,
+    so that channel is insensitive to duplicates. The de-duplication is nonetheless
+    shared by all three channels, so the property holds for every id flag rather than
+    only the ones whose echo happens to expose it.
     """
     ids = [tok.strip() for tok in (raw_ids or '').split(',') if tok.strip()]
     if not ids:
@@ -2685,11 +2717,13 @@ def _clear_settling(entry):
     never leaves a stale ordinal behind for `_settling_ordinal` to read.
 
     Deliberately not "only the keys reachable today". The invalidation keys are a no-op on
-    the current channels (all three refuse an `invalidated` entry), but clearing them
-    unconditionally is what makes this helper's sufficiency independent of which statuses a
-    future post-close channel can act on — the alternative is a comment-enforced obligation
-    on every such channel to remember to add its key here. `reopen_provenance` is
-    deliberately NOT cleared: it sits on statuses `_settling_ordinal` ignores, so it can
+    the current channels (all three refuse an `invalidated` entry), and `supersession_round`
+    is likewise unreachable today (supersession is terminal, so `_refuse_terminal` rejects
+    a superseded entry before it ever arrives here) — but clearing them unconditionally is
+    what makes this helper's sufficiency independent of which statuses a future post-close
+    channel can act on — the alternative is a comment-enforced obligation on every such
+    channel to remember to add its key here. `reopen_provenance` is the one deliberate
+    exemption and is NOT cleared: it sits on statuses `_settling_ordinal` ignores, so it can
     never be read stale, and it is the entry's genuine regression history.
 
     The cleared set is `_SETTLING_KEYS`, shared with `_validate_ledger`'s residual-key
