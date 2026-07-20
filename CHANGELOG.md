@@ -4,6 +4,99 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.18.9] — 2026-07-20
+
+### Changed
+### Fixed
+
+- **The `GIT_DIR`/`GIT_WORK_TREE` pins on the `Run Claude Code` step are now two independent opt-in config keys, both default off — restoring cloud runs that were dying at plugin install.** The pins were set unconditionally on all three shipped cloud workflows so `claude-code-action`'s `configureGitAuth` startup would resolve the repository on a self-hosted Windows runner. But `GIT_WORK_TREE` also reaches the Claude Code CLI subprocess that installs plugins, where it makes `git clone` refuse an existing working tree, so **every** DevFlow cloud run on the review, implement and command tiers died during plugin install (`fatal: working tree '<path>' already exists.`) before the agent did any work — producing not a wrong verdict but no verdict at all, and presenting as a checkless run rather than an engine error. The two variables serve different populations and carry different costs, so they are decoupled into `setup.git_dir_pin` and `setup.git_work_tree_pin`, **both defaulting to `false`**, so the default configuration is the one that works everywhere and no consumer needs to change anything. A new bundled helper, `scripts/emit-git-env.sh`, owns the resolution and emits the enabled assignments for a step that appends them to `$GITHUB_ENV` immediately before the action runs; the action step now carries neither variable in its own `env:` block. The helper exits 0 and emits nothing for every malformed config shape, so a hand-corrupted config yields the working default rather than a partially-set environment, and an absent helper fails open the same way — which is what makes the two-channel upgrade skew safe, since the workflows ship via `install.sh`'s file-copy while the helper ships via the `devflow_version` vendor fetch. On the review tier the helper is a security boundary: it is executed only from a trusted source (base-ref-materialized, or the vendored copy when `vendor_source` is `fetch`), never the PR-head checkout, and the keys themselves are read from the trusted base-ref config, so a pull request cannot enable a key that would suppress its own review. The implement tier ignores `git_dir_pin` and records that it did, because that tier stages and pushes commits and ambient `GIT_DIR` makes a stage issued from a non-root working directory record deletions across the rest of the tree. `docs/cloud-setup.md` and `docs/install.md` document both keys, the cost of each of the four combinations, and the silent-miss hazard ambient `GIT_DIR` creates for the repo-root config readers. (#645)
+
+## [2.18.8] — 2026-07-20
+
+### Changed
+Retrospective cheap-gate now fails closed on an absent workpad. `lib/fetch-pr-context.sh`
+emits non-empty `workpad_final_status` sentinels — `NoIssue` (no linked issue resolved) and
+`Absent` (issue resolved but no workpad comment) — alongside the existing `Unparsed`, plus a
+new top-level `pr_devflow_provenance` boolean (true iff the `DevFlow` label is on the PR or the
+resolved issue; a provenance value that cannot be established fails closed to `false` with a
+`::warning::` breadcrumb, so it is never mistaken for "no DevFlow label"). `lib/cheap-gate.jq` shrinks its clean set to `Complete` only: `""`/`null`/an
+absent key now gate non-clean with the reason `workpad absent or status unknown`. A new
+suite-driven helper `lib/dispatch-disposition.jq` mechanically decides skip-vs-dispatch for
+non-clean bundles before any LLM dispatch — a foreign, non-DevFlow PR whose only
+non-clean signal is an absent workpad is skipped (with a visible one-line report record and a
+`kind: "skip"` marker entry), while a DevFlow run that merely lost its audit trail is analyzed.
+Stage A (`skills/retrospective/SKILL.md`) gains a workpad-absent analysis rule and re-keys its
+two defined skips (interim, `Cancelled`) to a `"skip"` key distinct from a genuine `"error"`.
+The marker-entry consumers of `retrospectives.jsonl` are reconciled to the new record type.
+
+## [2.18.7] — 2026-07-20
+
+### Changed
+- **Calibrated quantitative claims in the `code-explorer`/`code-architect` discovery agents and removed their inert `KillShell`/`BashOutput` grants.** Both agent bodies now state a calibration rule — a quantitative claim (count, size, word count, percentage, arithmetic total) not read directly from tool output in the current session, or derived from truncated/limited/count-mode output, is marked `(unverified estimate)`, and a tool-derived claim states its operands and counting rule inline. The explorer additionally scopes its `file:line` precision to ephemeral in-context analysis, noting that committed documentation references bare paths and symbol names. `/devflow:implement` Phase 2 §2.2 now obliges the orchestrator to independently re-derive a Phase-2 subagent quantitative claim through a preflight-guaranteed channel before it feeds a plan step, gate, or budget decision, recording the re-derived-or-unverified status in the workpad. The two agents' `tools:` lines drop the two inert grants (no `Bash`, so neither could act on them). (#628)
+
+## [2.18.6] — 2026-07-20
+
+### Changed
+### Added
+
+- `lib/test/regenerate-artifacts.py` now covers `docs/review-and-fix-budget.md` as a sixth
+  registry row, so a loop that edits the review-and-fix root, its prompt extension, or any
+  `skills/review-and-fix/references/*.md` learns the budget record went stale from the batched
+  pass instead of a full suite run later. The row is git-staleness only — it measures nothing,
+  deferring figure correctness to the suite's own word counter, exactly like its review-bundle
+  sibling.
+
+### Changed
+
+- The budget row's record and watch list are now read from the registry row itself
+  (`record` / `watch_literals` / `watch_globs`) rather than module-level constants, so the
+  registry stays the single enumeration point with more than one budget row.
+- `--list`'s `budget-watch` and `budget-watch-missing` lines carry the owning row name as their
+  second field. A consumer keying on the bare path must now key on `(row, member)`.
+
+### Removed
+
+- The helper header's `KNOWN UNCOVERED SIBLING` disclosure, which became false once the sibling
+  record gained a row.
+
+### Fixed
+
+- The `[arm8] ` (module registry unreadable) and `: unreadable:` (census JSON read failure)
+  `infra_markers` literals were declared but unpinned: deleting either left the focused module
+  green while the corresponding generator input failure would have been reported as a resolvable
+  judgment item rather than an unchecked artifact. Both are now driven by their own module arm.
+
+## [2.18.5] — 2026-07-20
+
+### Fixed
+- **Set `GIT_DIR`/`GIT_WORK_TREE` on the `Run Claude Code` step of the generated workflows so bot git-identity config succeeds on self-hosted Windows runners.** `devflow.yml`, `devflow-implement.yml`, and `devflow-runner.yml` now declare step-scoped `GIT_DIR: ${{ github.workspace }}/.git` and `GIT_WORK_TREE: ${{ github.workspace }}` on the `anthropics/claude-code-action@v1` step, so the action's `configureGitAuth` startup resolves the repository independent of the inherited working directory. This fixes the `fatal: not in a git directory` (exit 128) job abort that self-hosted Windows adopters hit at startup; GitHub-hosted Linux runners are unaffected (on a plain branch checkout `--git-dir` equals `--git-common-dir`, so worktree detection is unchanged). The vars are step-scoped so other steps' git operations are untouched, and ship to every consumer via `install.sh`. (#643)
+
+## [2.18.4] — 2026-07-20
+
+### Changed
+### Fixed
+
+- Phase 4.0.5 of `/devflow:implement` no longer silently discards deferred review findings when
+  manifest discovery degrades. Discovery moved out of a single multi-root `find … | sort` pipeline —
+  whose exit status was masked by the pipe and discarded by the command substitution, so a failed
+  search and a genuine no-match search were indistinguishable — into the new stdlib-only helper
+  `scripts/discover-deferral-manifests.py`, which searches each candidate root independently,
+  classifies it `ok`/`absent`/`failed` (including a mid-traversal `OSError`), and reports discovery
+  status through both channels: an exit code (0 clean, 3 partial, 4 all-failed, 2 no roots) and a
+  fixed stderr marker on each degraded outcome (partial and all-failed only — a clean run and the
+  zero-argument usage error emit none). The §4.0.5 fence consumes zero-vs-non-zero from the exit and
+  discriminates partial from failed on the stderr marker — the same idiom it already uses for
+  `file-deferrals.py` —
+  gates filing on a successful discovery, surfaces the helper's per-root roots-echo into the tool
+  result on every path, publishes a new `discovery=` field on its unconditional sentinel, and the
+  reader-routing arms fail closed so a degraded discovery can no longer be read as the clean no-op.
+
+### Added
+
+- `scripts/discover-deferral-manifests.py` and its implement-tier grant, authored through the
+  `lib/capability-profiles.json` capability manifest so `devflow-implement.yml` and
+  `matcher-probe.yml`'s `IMPLEMENT` baseline are regenerated in lockstep.
+
 ## [2.18.3] — 2026-07-20
 
 ### Changed

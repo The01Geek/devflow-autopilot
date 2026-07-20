@@ -27,6 +27,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "lib/dispatch-disposition.jq": {
+      "note": "issue #626 mechanical skip-or-dispatch classifier; driven directly in lib/test/run.sh cheap-gate/dispatch block",
+      "owner": "unmodularized"
+    },
     "lib/efficiency-trace.jq": {
       "note": "",
       "owner": "unmodularized"
@@ -203,8 +207,16 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/discover-deferral-manifests.py": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "scripts/dismiss-stale-rejections.sh": {
       "note": "",
+      "owner": "unmodularized"
+    },
+    "scripts/emit-git-env.sh": {
+      "note": "#645 git-env pin flag resolver; driven directly from lib/test/run.sh's #645 block over the 4-combination set, the adversarial config-JSON shape matrix, and the implement-tier GIT_DIR suppression.",
       "owner": "unmodularized"
     },
     "scripts/ensure-label.sh": {

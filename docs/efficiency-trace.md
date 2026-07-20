@@ -446,12 +446,18 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
   there is **non-blocking by construction**. `--persist`'s discovery + presence-based idempotency *is*
   the "review-and-fix activity detected but no committed record exists" gate: it is a clean no-op when
   there is nothing unpersisted. It is best-effort (`|| true`); a failure never fails the session. The
-  hook config (for this repo; adopters point the command at the vendored
-  `.devflow/vendor/devflow/lib/efficiency-trace.sh`). The `Stop` array carries a **second,
-  unrelated** command — `lib/implement-stop-guard.sh`, the local-tier terminal-status backstop
-  documented in [`implement-skill.md`](implement-skill.md). The two are independent: only the
-  `--persist` entry takes `|| true`, and the guard deliberately does **not**, because its
-  blocking exit code 2 must reach the harness:
+  hook config (for this repo). Besides the `--persist` step, the `Stop` array carries the
+  local-tier terminal-status guard (`lib/implement-stop-guard.sh`, the backstop documented in
+  [`implement-skill.md`](implement-skill.md)) and the `Stop`-hook transcript probe
+  (`scripts/stop-hook-probe.sh`). Every entry resolves its target through the same git-root
+  anchor — `bash "$(git rev-parse --show-toplevel 2>/dev/null || printf '%s' "${CLAUDE_PROJECT_DIR:-.}")/…"` —
+  so each launches correctly from any nested directory or linked worktree (a bare
+  `bash lib/…` cwd-relative launcher would fail from a subdirectory). The entries are
+  independent: only the `--persist` entry takes `|| true`; the guard deliberately does **not**,
+  because its blocking exit code 2 must reach the harness; and the probe's `|| echo …` tail only
+  surfaces a launch/path fault as a stderr diagnostic (the probe itself promises exit 0). This
+  example is pinned equal to the tracked `.claude/settings.json` Stop entries by
+  `lib/test/run.sh`, so it stays in lockstep with the real wiring:
 
   ```json
   {
@@ -460,14 +466,32 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
         {
           "matcher": "",
           "hooks": [
-            { "type": "command", "command": "bash lib/efficiency-trace.sh --persist || true" },
-            { "type": "command", "command": "bash lib/implement-stop-guard.sh", "timeout": 15 }
+            {
+              "type": "command",
+              "command": "bash \"$(git rev-parse --show-toplevel 2>/dev/null || printf '%s' \"${CLAUDE_PROJECT_DIR:-.}\")/lib/efficiency-trace.sh\" --persist || true"
+            },
+            {
+              "type": "command",
+              "command": "bash \"$(git rev-parse --show-toplevel 2>/dev/null || printf '%s' \"${CLAUDE_PROJECT_DIR:-.}\")/lib/implement-stop-guard.sh\"",
+              "timeout": 15
+            },
+            {
+              "type": "command",
+              "command": "bash \"$(git rev-parse --show-toplevel 2>/dev/null || printf '%s' \"${CLAUDE_PROJECT_DIR:-.}\")/scripts/stop-hook-probe.sh\" || echo \"devflow stop-hook-probe: exited rc=$? (the script promises exit 0, so this is a launch/path or hard-crash problem; CLAUDE_PROJECT_DIR='${CLAUDE_PROJECT_DIR:-}')\" >&2",
+              "timeout": 15
+            }
           ]
         }
       ]
     }
   }
   ```
+
+  **Adopter note.** The guard (`lib/implement-stop-guard.sh`) and probe
+  (`scripts/stop-hook-probe.sh`) entries are **this-repo-local** — they ship to no consumer, so an
+  adopter does not wire them. What an adopter adapts is only the `efficiency-trace.sh` entry,
+  pointing it at the vendored copy `.devflow/vendor/devflow/lib/efficiency-trace.sh` (keeping the
+  same git-root anchor form).
 
   > **Note on this repo's `.claude/settings.json`.** Writing `.claude/` is a privileged,
   > self-modifying action. The boundary an agent cannot cross is widening its own

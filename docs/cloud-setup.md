@@ -227,6 +227,99 @@ is read **only** from the trusted base-ref config, never a PR-head-checked-out c
 because that job runs under a write token and the action executes the resolved path — a
 PR-author-controllable path would be an arbitrary-code-execution vector.)
 
+### Windows: the two opt-in git-env pins (`setup.git_dir_pin`, `setup.git_work_tree_pin`)
+
+Two **independent** boolean keys, **both defaulting to `false`**, govern whether
+DevFlow exports `GIT_DIR` and `GIT_WORK_TREE` into the cloud job environment before
+the `Run Claude Code` (`anthropics/claude-code-action@v1`) step. With both off — the
+default, and the configuration that works everywhere — neither variable is present
+in the action's environment and all three tiers behave exactly as they did before
+these variables were introduced.
+
+```jsonc
+{
+  "setup": {
+    "git_dir_pin": false,        // export GIT_DIR=<workspace>/.git
+    "git_work_tree_pin": false   // export GIT_WORK_TREE=<workspace>
+  }
+}
+```
+
+**Why they are opt-in and separate.** An earlier release set both variables
+unconditionally, so the action's `configureGitAuth` startup would resolve the
+repository on a self-hosted Windows runner (otherwise it aborts
+`fatal: not in a git directory`, exit 128, before the agent does any work). But
+`GIT_WORK_TREE` also reaches the Claude Code CLI subprocess that installs plugins,
+where it makes `git clone` refuse an existing working tree — so **every** cloud run
+died at plugin install with `fatal: working tree '<path>' already exists.`,
+producing not a wrong verdict but no verdict at all. The two variables serve
+different populations and carry different costs, so they are now decoupled.
+
+**What each of the four combinations costs.** The two keys are independent, so this
+set is closed by construction:
+
+| `git_dir_pin` | `git_work_tree_pin` | `configureGitAuth` | Plugin install | `git rev-parse --show-toplevel` from a subdirectory |
+| --- | --- | --- | --- | --- |
+| `false` | `false` (**the default**) | fails on self-hosted Windows | succeeds | repository root |
+| `true` | `false` | succeeds | succeeds | **the subdirectory** — see the silent-miss hazard below |
+| `false` | `true` | succeeds | **fails** unless your marketplace list is local-only | repository root |
+| `true` | `true` | succeeds | **fails** unless your marketplace list is local-only | repository root |
+
+The `configureGitAuth` column is **inferred** from the pinned action's upstream
+source plus a local `git config` proxy — **no cell of it has been observed on a
+self-hosted Windows runner**. The other two columns are measured. Treat the
+`git_dir_pin`-on path as **unverified on Windows**.
+
+**`git_work_tree_pin` serves a narrow population: adopters whose composed
+marketplace list is local-only.** Such a run never performs the remote clone the
+variable breaks, so for them it fixes `configureGitAuth` while keeping working-tree
+resolution correct — the one combination that avoids the `git_dir_pin` relocation
+hazard entirely. **Enabling it outside that population reproduces the outage above.**
+
+**`git_dir_pin` is not honored on the implement tier.** That tier stages and pushes
+commits, and ambient `GIT_DIR` makes a stage issued from a non-root working
+directory record deletions across the rest of the tree. `devflow-implement.yml`
+ignores the key and the helper prints a breadcrumb naming that it did; only
+`git_work_tree_pin` can be opted into there.
+
+**Silent-miss hazard when `git_dir_pin` is enabled.** Under ambient `GIT_DIR`,
+`git rev-parse --show-toplevel` returns the *current subdirectory* rather than the
+repository root. DevFlow's repo-root config readers — `config-get.sh`,
+`workpad.py`, `load-prompt-extension.sh`, `match-deferrals.py` and
+`match-lint-adjudications.py` — all anchor `.devflow/` on that command, so whenever
+one of them runs from a non-root working directory it resolves a `.devflow/` that
+**does not exist**. The resulting failure is a **silent miss**, not an error: the
+reader falls back to its default and nothing says so. **A run with `git_dir_pin`
+enabled is therefore not a config-faithful run.** Because that failure mode is
+otherwise undetectable, the helper emits a loud stderr warning naming it on every
+run that exports `GIT_DIR`.
+
+**The export is job-scoped, not step-scoped.** The mechanism appends assignments to
+`$GITHUB_ENV`, which offers no removal verb, and the empty-value form that would
+approximate one is fatal to git (`GIT_DIR=` yields `fatal: not a git repository: ''`).
+GitHub's workflow syntax accepts no expression evaluating to a whole `env:` mapping,
+so a variable's *key* cannot be made conditionally absent through an `env:`
+expression — hence the append. Consequently an enabled variable is in force for
+`Run Claude Code` **and every step after it**, including the agent's own git
+operations.
+
+**Both keys are read at trigger time from a trusted tree**, so their effect is
+**post-merge-only**: `devflow.yml` and `devflow-implement.yml` resolve them in their
+`config` job (which checks out the default branch), and `devflow-runner.yml`
+resolves them from the trusted base-ref config its `baseprovision` step
+materializes — never the PR-head checkout. A key set only in a PR head has no effect
+on that PR's own run, and on the review tier the helper itself is executed only from
+a trusted source (base-ref-materialized, or the vendored copy when the vendor step
+reports `vendor_source: fetch`), else the step fails closed and warns.
+
+**Two-channel upgrade ordering.** The workflows reach you through `install.sh`'s
+file-copy, while the helper reaches you through the `devflow_version` vendor fetch.
+A consumer who re-runs `install.sh` **without advancing `devflow_version`** therefore
+gets the step before the helper. That is safe: an absent helper makes the step emit
+no assignment and exit 0 — it **fails open to the working default** rather than
+failing the job — which is exactly what keeps that skew from reproducing the
+checkless-run outage.
+
 ### The `setup.services` Docker caveat
 
 `setup.services` (see [Service containers](#php-service-containers-and-dependency-caching)

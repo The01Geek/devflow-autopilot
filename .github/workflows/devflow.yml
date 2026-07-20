@@ -51,6 +51,13 @@ jobs:
       # path_to_claude_code_executable input in the command job below. Empty (the
       # default) leaves the action's automatic-install path unchanged.
       claude_code_executable: ${{ steps.extract.outputs.claude_code_executable }}
+      # The whole trigger-time config document, forwarded verbatim so the command
+      # job's git-env pin step (issue #645) can resolve setup.git_dir_pin /
+      # setup.git_work_tree_pin through the bundled helper rather than re-parsing
+      # them inline here. This job checks out the DEFAULT BRANCH at trigger time,
+      # so the forwarded document is the trusted tree's — never the PR head's —
+      # which is what makes those keys post-merge-only.
+      config_json: ${{ steps.cfg.outputs.json }}
     steps:
       - uses: actions/checkout@v6
       - id: cfg
@@ -591,7 +598,7 @@ jobs:
           EXTRA: ${{ needs.config.outputs.allowed_tools_extra }}
         run: |
           set -euo pipefail
-          # devflow-capability-manifest: region=command manifest_version=4 sha256=472dde4c9b826a4d46c484c93166d4ecc04f29ee162fa8fac209cd56899e2ae5
+          # devflow-capability-manifest: region=command manifest_version=5 sha256=472dde4c9b826a4d46c484c93166d4ecc04f29ee162fa8fac209cd56899e2ae5
           TOOLS='Read, Write, Edit, Glob, Grep, LS, Skill, Agent, TodoWrite, EnterPlanMode, ExitPlanMode, WebFetch, WebSearch, Bash(git add:*), Bash(git commit:*), Bash(git push:*), Bash(git pull:*), Bash(git fetch:*), Bash(git ls-remote:*), Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git show:*), Bash(git checkout:*), Bash(git cat-file:*), Bash(git hash-object:*), Bash(git branch:*), Bash(git stash:*), Bash(git rm:*), Bash(git mv:*), Bash(git restore:*), Bash(git revert:*), Bash(git blame:*), Bash(git ls-files:*), Bash(git rev-parse:*), Bash(git merge-base:*), Bash(git merge:*), Bash(gh pr create:*), Bash(gh pr edit:*), Bash(gh pr comment:*), Bash(gh pr diff:*), Bash(gh pr view:*), Bash(gh pr review:*), Bash(gh pr ready:*), Bash(gh pr list:*), Bash(gh pr checks:*), Bash(gh pr status:*), Bash(gh pr reopen:*), Bash(gh pr checkout:*), Bash(gh issue view:*), Bash(gh issue comment:*), Bash(gh issue list:*), Bash(gh issue edit:*), Bash(gh issue create:*), Bash(gh issue reopen:*), Bash(gh issue status:*), Bash(gh search:*), Bash(gh label list:*), Bash(gh repo view:*), Bash(gh run view:*), Bash(gh run list:*), Bash(gh workflow view:*), Bash(gh workflow list:*), Bash(gh api:*), Bash(jq:*), Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*), Bash(.devflow/vendor/devflow/scripts/config-get.sh:*), Bash(.devflow/vendor/devflow/scripts/workpad.py:*), Bash(.devflow/vendor/devflow/scripts/verification-flight.py:*), Bash(.devflow/vendor/devflow/scripts/parse-acs.py:*), Bash(.devflow/vendor/devflow/scripts/branch-for-issue.py:*), Bash(.devflow/vendor/devflow/scripts/update-branch-checkpoint.sh:*), Bash(.devflow/vendor/devflow/scripts/file-deferrals.py:*), Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*), Bash(.devflow/vendor/devflow/scripts/match-lint-adjudications.py:*), Bash(.devflow/vendor/devflow/scripts/normalize-verdicts.py:*), Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*), Bash(.devflow/vendor/devflow/scripts/stale-prose-lint.py:*), Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*), Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*), Bash(pip install:*), Bash(pip:*), Bash(python:*), Bash(python3:*), Bash(python -m:*), Bash(python3 -m:*), Bash(ruff:*), Bash(ruff check:*), Bash(ruff format:*), Bash(pytest:*), Bash(mypy:*), Bash(grep:*), Bash(rg:*), Bash(find:*), Bash(wc:*), Bash(sort:*), Bash(uniq:*), Bash(cut:*), Bash(tr:*), Bash(xargs:*), Bash(awk:*), Bash(sed:*), Bash(diff:*), Bash(comm:*), Bash(cat:*), Bash(head:*), Bash(tail:*), Bash(less:*), Bash(ls:*), Bash(tree:*), Bash(file:*), Bash(stat:*), Bash(date:*), Bash(pwd:*), Bash(realpath:*), Bash(dirname:*), Bash(basename:*), Bash(which:*), Bash(type:*), Bash(env:*), Bash(echo:*), Bash(printf:*), Bash(test:*), Bash(touch:*), Bash(mkdir:*), Bash(rmdir:*), Bash(rm:*), Bash(mv:*), Bash(cp:*), Bash(mktemp:*), Bash(cmp:*), Bash(.devflow/vendor/devflow/scripts/load-prompt-extension.sh:*), Bash(*/load-prompt-extension.sh:*), Bash(tee:*)'
           printf 'tools=%s\n' "${TOOLS}${EXTRA}" >> "$GITHUB_OUTPUT"
 
@@ -1013,6 +1020,53 @@ jobs:
               echo "::notice::Composed plugin/marketplace entries beyond the baked baseline (describe-plugin-compose.sh unavailable): $_splice"
             fi
           fi
+
+      # Resolve the two DEFAULT-OFF git-env pin flags and export the enabled ones
+      # (issue #645). Both keys default to false, so on a stock consumer this step
+      # emits NOTHING and neither GIT_DIR nor GIT_WORK_TREE is present in the
+      # action's environment — the pre-#643 behavior, which is the configuration
+      # that works everywhere. #643 set both unconditionally so configureGitAuth
+      # would resolve the repo on a self-hosted Windows runner (issue #602), but
+      # GIT_WORK_TREE also reaches the Claude Code CLI subprocess that installs
+      # plugins, where it makes `git clone` refuse an existing working tree — so
+      # every run died at plugin install with `fatal: working tree '<path>'
+      # already exists.`, before the agent did any work, producing no verdict at
+      # all. The helper is now the SINGLE producer of both variables; the action
+      # step below deliberately carries neither in its own `env:` block.
+      #
+      # JOB-SCOPED, not step-scoped: `$GITHUB_ENV` appends assignments and offers
+      # no removal verb, and the empty-value form that would approximate one is
+      # measured fatal (`GIT_DIR=` → `fatal: not a git repository: ''`), which is
+      # precisely why the mechanism is an append rather than an `env:` expression
+      # (GitHub's workflow syntax accepts no expression evaluating to a whole
+      # `env:` mapping, so a variable's KEY cannot be made conditionally absent
+      # there). So an enabled variable is in force for `Run Claude Code` AND every
+      # step after it, including the agent's own git operations.
+      #
+      # Fails OPEN to the working default. An absent helper emits nothing and
+      # exits 0 rather than failing the job: this workflow reaches consumers via
+      # install.sh's file-copy while the helper reaches them via the
+      # devflow_version vendor fetch, so a consumer can carry this step before it
+      # carries the helper, and that skew must not reproduce the outage above.
+      - name: Resolve git-env pins
+        env:
+          # The trigger-time `config` job's default-branch checkout — a trusted
+          # tree, never the PR head. That is what makes these keys post-merge-only.
+          GITENV_CFGJSON: ${{ needs.config.outputs.config_json }}
+          GITENV_WS: ${{ github.workspace }}
+        run: |
+          set -uo pipefail
+          HELPER='.devflow/vendor/devflow/scripts/emit-git-env.sh'
+          if [ ! -f "$HELPER" ]; then
+            echo "::notice::devflow git-env pins: bundled helper '$HELPER' is absent (this workflow ships via install.sh's file-copy, the helper via the devflow_version vendor fetch, so a consumer can carry the step first). Failing open to the working default: neither GIT_DIR nor GIT_WORK_TREE is exported."
+            exit 0
+          fi
+          CFG="${RUNNER_TEMP}/devflow-gitenv-config.json"
+          if ! printf '%s' "$GITENV_CFGJSON" > "$CFG" 2>/dev/null; then
+            echo "::warning::devflow git-env pins: could not materialize the trigger-time config into RUNNER_TEMP; failing open to the working default (neither variable exported)."
+            exit 0
+          fi
+          bash "$HELPER" --workspace "$GITENV_WS" --config-file "$CFG" --tier command >> "$GITHUB_ENV"
 
       - name: Run Claude Code
         id: claude

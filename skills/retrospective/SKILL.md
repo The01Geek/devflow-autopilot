@@ -77,7 +77,8 @@ Schema of `.devflow/tmp/pr-<n>.context.json` produced by `fetch-pr-context.sh`:
 | `review_comments_count` | number | Total inline review comments |
 | `post_bot_commits` | number | Substantive commits by a human AFTER the bot's last commit — pure merge commits (`Merge branch 'main'` etc.) are not counted |
 | `ci_failures_during_pr` | number | Non-success check-runs on the head SHA |
-| `workpad_final_status` | string | Parsed Status line from the workpad, e.g. `"Complete"`, `"Blocked"`, `"Cancelled"`, `""` |
+| `workpad_final_status` | string | Parsed Status line from the workpad, e.g. `"Complete"`, `"Blocked"`, `"Cancelled"`, or one of the three absent/corrupt sentinels `"Unparsed"` / `"Absent"` / `"NoIssue"` (issue #626). The producer always emits a non-empty value — `""` no longer appears. |
+| `pr_devflow_provenance` | boolean | True iff the literal `DevFlow` label is on the PR or the resolved linked issue — i.e. this was one of DevFlow's own runs (issue #626). Drives the workpad-absent analysis rule below. |
 | `ttm_hours` | number | Time from PR creation to merge, in decimal hours |
 | `review_reject_outstanding` | boolean | True when the chronologically-last `/devflow:review` verdict is REJECT |
 
@@ -122,14 +123,40 @@ handled those mechanically.)
 **Interim workpad states** (`Setup`, `Discovering`, `Reproducing`, `Planning`,
 `Implementing`, `Reviewing`, `Documenting`) mean the run never reached Phase 4
 — it is an incomplete run, not a quality issue. If `workpad_final_status` is one
-of those, print `{"error": "incomplete run — workpad_final_status is <status>; skipping"}` and stop.
+of those, print `{"skip": "incomplete run — workpad_final_status is <status>; skipping"}` and stop.
 
 A **`Cancelled`** final status is a deliberate stop, not a quality issue — the run
 was cancelled (an operator stop or a platform-initiated teardown, issue #498), not
-abandoned mid-task. It takes a defined skip mirroring the interim error-skip: print
-`{"error": "operator-cancelled run — workpad_final_status is Cancelled; a deliberate stop, not a quality signal; skipping"}`
+abandoned mid-task. It takes a defined skip mirroring the interim skip: print
+`{"skip": "operator-cancelled run — workpad_final_status is Cancelled; a deliberate stop, not a quality signal; skipping"}`
 and stop. A deliberate cancel is never improvised into a `blocked` verdict feeding
 the pattern loop.
+
+**Defined-skip vs. genuine-failure key (issue #626).** These two defined skips —
+the interim-state skip and the `Cancelled` skip — emit a dedicated top-level
+`"skip"` key carrying the reason. A **genuine failure** (you could not analyze the
+bundle at all — a malformed bundle, a crash) still prints `{"error": "<reason>"}`.
+The orchestrator recognizes a defined skip **by the presence of the `"skip"` key
+only**, never by matching substrings of error text — so the two keys must stay
+distinct and a skip must never be emitted under `"error"`.
+
+**Workpad-absent analysis rule (issue #626).** The absent-workpad sentinels
+`"Absent"` (the linked issue resolved but carried no workpad comment) and
+`"NoIssue"` (no linked issue resolved at all) are **NOT** added to the incomplete-run
+skip arms — a bundle carrying one of them reaches you only because the orchestrator's
+mechanical pre-dispatch disposition decided it warranted analysis. When
+`workpad_final_status` is `"Absent"` or `"NoIssue"`:
+- If `pr_devflow_provenance` is `true`, this was one of DevFlow's own runs that lost
+  its audit trail (and, for `"NoIssue"`, its issue linkage). Analyze from the remaining
+  evidence — the PR diff and commits, the reviews, and the issue thread when one
+  resolved — and record the missing workpad (and, for `"NoIssue"`, the broken linkage)
+  as friction in the entry's `descriptors`. Follow the existing `imperfect` / `blocked`
+  verdict definitions; when neither strictly fits, **default to `imperfect`** with a
+  descriptor naming the absent workpad.
+- A dispatched sentinel bundle *without* provenance (reachable only via a non-workpad
+  gate reason such as a CI failure or outstanding REJECT) is analyzed under the same
+  rule, minus the lost-audit-trail framing.
+Neither sentinel is ever improvised into a defined skip here.
 
 ### categories
 

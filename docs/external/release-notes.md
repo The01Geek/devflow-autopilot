@@ -1,5 +1,9 @@
 # Release Notes
 
+## July 20, 2026
+
+- **Fix — Bot git-identity setup on self-hosted Windows runners is now an opt-in setting** — DevFlow's cloud jobs could abort at startup on a self-hosted Windows runner with `fatal: not in a git directory` (exit 128) before the agent did any work, because the underlying action's git-identity setup could not locate the repository from its inherited working directory. The three generated cloud workflows can pin the repository location on the Claude Code action step so git identity configures reliably regardless of the working directory. This is governed by two new configuration keys, `setup.git_dir_pin` and `setup.git_work_tree_pin`, **both off by default** — self-hosted Windows adopters enable `setup.git_dir_pin` to get this behavior, and `docs/cloud-setup.md` records what each combination costs. The default leaves GitHub-hosted Linux runners unaffected. (#643, #645)
+
 ## July 19, 2026
 
 - **Feature — Run DevFlow cloud jobs on self-hosted Windows runners** — DevFlow's cloud tier previously could not run on a self-hosted Windows runner because the underlying action's bundled Claude Code installer supports Unix only, so every cloud job failed before it started. A new optional configuration key, `setup.claude_code_executable`, lets you point DevFlow at a Claude Code executable you pre-install on the runner; all three DevFlow cloud workflows then use that executable instead of trying to install one. The key is unset by default, so Linux consumers are unaffected. See `docs/cloud-setup.md` for the full walkthrough. (#604)

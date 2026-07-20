@@ -38,6 +38,7 @@ import ast
 import contextlib
 import importlib.util
 import io
+import os
 import re
 import sys
 import tempfile
@@ -63,6 +64,8 @@ resolve_review_overrides = _load(
     'resolve_review_overrides', SCRIPTS / 'resolve-review-overrides.py')
 stale_prose_lint = _load('stale_prose_lint', SCRIPTS / 'stale-prose-lint.py')
 issue_audit_state = _load('issue_audit_state', SCRIPTS / 'issue-audit-state.py')
+discover_deferrals = _load(
+    'discover_deferrals', SCRIPTS / 'discover-deferral-manifests.py')
 
 
 PASS = 0
@@ -3612,13 +3615,15 @@ assert_eq("#222: importing a hardened module leaves stream encodings unchanged",
           (getattr(sys.stdout, "encoding", None), getattr(sys.stderr, "encoding", None)))
 # Each hardened module DOES expose the entry-path helper (so main() can call it).
 # branch-for-issue.py is loaded here (it is not used elsewhere in this file) so all
-# six hardened scripts are covered, not five.
+# seven hardened scripts are covered — discover-deferral-manifests.py (#555) joined
+# this coverage list, so the count is seven, not the earlier six.
 _branch_for_issue = _load('branch_for_issue', SCRIPTS / 'branch-for-issue.py')
 for _modname, _mod in (
     ('workpad', workpad), ('parse_acs', parse_acs), ('file_deferrals', file_deferrals),
     ('match_deferrals', match_deferrals),
     ('resolve_review_overrides', resolve_review_overrides),
     ('branch_for_issue', _branch_for_issue),
+    ('discover_deferrals', discover_deferrals),
 ):
     assert_eq(f"#222: {_modname} defines _force_utf8_streams (entry-path helper)",
               True, hasattr(_mod, '_force_utf8_streams'))
@@ -8078,6 +8083,369 @@ with tempfile.TemporaryDirectory() as _cw_main:
             cwc.REQUIRED_HELPER_HEADS = _mg_heads
     finally:
         cwc.MANIFEST_PATH = _mp_orig
+
+
+# ── issue #555: scripts/discover-deferral-manifests.py — fail-closed Phase 4.0.5
+# ── deferrals-manifest discovery. The retired inline `find $SEARCH_DIRS … | sort`
+# ── collapsed a FAILED search and a CLEAN no-match search onto the same empty
+# ── output, so a degraded search read as the clean no-op and stranded deferrals.
+# ── These fixtures drive the helper's CLI contract at module level (main(argv)
+# ── returns the exit code and writes to sys.stdout/stderr, so no subprocess is
+# ── needed) — the automated boundary the extraction exists to create, since a
+# ── markdown fence cannot be executed by the suite.
+print("discover-deferral-manifests.py (#555): per-root classification + exit contract")
+
+
+def _dm_run(argv):
+    """Run the helper's main() with argv, returning (rc, stdout, stderr)."""
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        rc = discover_deferrals.main(list(argv))
+    return rc, out.getvalue(), err.getvalue()
+
+
+def _dm_manifest(root, run_id, content='{"deferrals": []}'):
+    """Create <root>/<run_id>/deferrals.json with the given content and return
+    its POSIX-form path (the shape the helper prints)."""
+    d = Path(root) / run_id
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / 'deferrals.json'
+    p.write_text(content, encoding='utf-8')
+    return p.as_posix()
+
+
+with tempfile.TemporaryDirectory() as _dm_base:
+    _base = Path(_dm_base)
+    # A populated slug root with TWO distinct run-id manifests (the #68 F1 shape:
+    # a first review-and-fix run plus its bounded re-review write two manifests
+    # under one slug dir — the primary production multiplicity).
+    _pop = _base / 'pr-500'
+    _m1 = _dm_manifest(_pop, 'run-aaa', '{"deferrals": [{"file": "a.py"}]}')
+    _m2 = _dm_manifest(_pop, 'run-bbb', '{"deferrals": [{"file": "b.py"}]}')
+    _absent = str(_base / 'pr-nonexistent-slug')
+    # A regular file supplied as a root → the deterministic ENOTDIR traversal
+    # failure (a chmod-000 fixture would pass vacuously under a root-privileged runner).
+    _regfile = _base / 'not-a-dir'
+    _regfile.write_text('x', encoding='utf-8')
+
+    # #533 regression: one absent root + one populated root → both paths printed, exit 0.
+    _rc, _so, _se = _dm_run([_absent, str(_pop)])
+    assert_eq("#555 #533-regression: absent + populated → exit 0", 0, _rc)
+    assert_eq("#555 #533-regression: the populated root's manifests are printed",
+              sorted([_m1, _m2]), sorted(_so.split()))
+
+    # Masking regression: one failed root + one populated root → found path printed
+    # AND exit 3. Output production/sorting cannot alter the exit status (the
+    # property whose absence let #533's degraded search print as a clean no-op).
+    _rc, _so, _se = _dm_run([str(_regfile), str(_pop)])
+    assert_eq("#555 masking-regression: failed + populated → exit 3 (partial)", 3, _rc)
+    assert_eq("#555 masking-regression: the found manifests are STILL printed",
+              sorted([_m1, _m2]), sorted(_so.split()))
+    assert_eq("#555 masking-regression: partial marker present", True,
+              'devflow: discovery partial:' in _se)
+    assert_eq("#555 masking-regression: failed marker ABSENT (markers mutually exclusive)",
+              False, 'devflow: discovery failed:' in _se)
+
+    # Root-level traversal failure: a single regular-file root → exit 4, failed
+    # marker present, partial marker absent.
+    _rc, _so, _se = _dm_run([str(_regfile)])
+    assert_eq("#555 ENOTDIR root: single regular-file root → exit 4", 4, _rc)
+    assert_eq("#555 ENOTDIR root: failed marker present", True,
+              'devflow: discovery failed:' in _se)
+    assert_eq("#555 ENOTDIR root: partial marker ABSENT (exclusivity)", False,
+              'devflow: discovery partial:' in _se)
+    # Target the PER-ROOT line specifically: the aggregate marker line also contains
+    # 'failed traversal', so a bare substring test would pass even with no per-root
+    # breadcrumb at all (it did — the non-directory arm emitted none until #555 review).
+    assert_eq("#555 ENOTDIR root: per-root breadcrumb names the failed root", True,
+              any(ln.startswith('devflow: discovery: root ')
+                  and str(_regfile) in ln and 'failed traversal' in ln
+                  for ln in _se.splitlines()))
+
+    # Every root failed (two regular files) → exit 4 with the same marker assertions.
+    _rc, _so, _se = _dm_run([str(_regfile), str(_regfile)])
+    assert_eq("#555 all-failed: two regular-file roots → exit 4", 4, _rc)
+    assert_eq("#555 all-failed: failed marker present", True,
+              'devflow: discovery failed:' in _se)
+    assert_eq("#555 all-failed: partial marker ABSENT", False,
+              'devflow: discovery partial:' in _se)
+
+    # All roots absent → exit 0, empty stdout.
+    _rc, _so, _se = _dm_run([_absent, str(_base / 'pr-also-absent')])
+    assert_eq("#555 all-absent: exit 0", 0, _rc)
+    assert_eq("#555 all-absent: empty stdout", "", _so)
+    assert_eq("#555 all-absent: roots-echo classifies both absent", 2,
+              _se.count('=absent'))
+
+    # Zero arguments → exit 2 with a usage message, NO discovery-failed marker.
+    _rc, _so, _se = _dm_run([])
+    assert_eq("#555 zero-args: exit 2", 2, _rc)
+    assert_eq("#555 zero-args: failed marker ABSENT (a usage message, not a failure)",
+              False, 'devflow: discovery failed:' in _se)
+    assert_eq("#555 zero-args: usage breadcrumb emitted", True, 'usage:' in _se)
+
+    # A 0-byte deferrals.json is excluded (mirrors find -size +0c).
+    _z = _base / 'zbyte'
+    (_z / 'run-z').mkdir(parents=True)
+    (_z / 'run-z' / 'deferrals.json').write_text('', encoding='utf-8')
+    _rc, _so, _se = _dm_run([str(_z)])
+    assert_eq("#555 0-byte manifest excluded → exit 0, empty stdout", (0, ""), (_rc, _so))
+
+    # Wrong-depth manifests excluded: one at depth 1 (directly in root) and one at
+    # depth 3 (root/a/b/deferrals.json) — only depth-2 matches.
+    _wd = _base / 'wrongdepth'
+    (_wd / 'a' / 'b').mkdir(parents=True)
+    (_wd / 'deferrals.json').write_text('d1', encoding='utf-8')
+    (_wd / 'a' / 'b' / 'deferrals.json').write_text('d3', encoding='utf-8')
+    _rc, _so, _se = _dm_run([str(_wd)])
+    assert_eq("#555 wrong-depth (depth-1 and depth-3) excluded → empty stdout",
+              (0, ""), (_rc, _so))
+
+    # Identical duplicate roots → de-duplicated output.
+    _rc, _so, _se = _dm_run([str(_pop), str(_pop)])
+    assert_eq("#555 duplicate roots → de-duplicated, sorted output",
+              sorted([_m1, _m2]), _so.split())
+
+    # Two populated roots → all paths printed, sorted (multiplicity across roots).
+    _pop2 = _base / 'branch-slug'
+    _m3 = _dm_manifest(_pop2, 'run-ccc', '{"deferrals": [{"file": "c.py"}]}')
+    _rc, _so, _se = _dm_run([str(_pop), str(_pop2)])
+    assert_eq("#555 two populated roots → all manifests printed, sorted",
+              sorted([_m1, _m2, _m3]), _so.split())
+
+    # Roots-echo on a mixed run names both absolute resolved paths with classifications.
+    _rc, _so, _se = _dm_run([_absent, str(_pop)])
+    assert_eq("#555 roots-echo: line present naming absolute paths + classifications",
+              True, 'devflow: discovery roots:' in _se
+              and os.path.abspath(_absent) + '=absent' in _se
+              and os.path.abspath(str(_pop)) + '=ok' in _se)
+
+    # POSIX-form output: no backslash appears in emitted paths (#275 host shape).
+    # NOTE this assertion alone is structurally vacuous wherever os.sep == '/': the
+    # `.replace(os.sep, "/")` is an identity there, so deleting it keeps this green.
+    # The non-vacuous half is below — drive the separator the contract exists for.
+    _rc, _so, _se = _dm_run([str(_pop)])
+    assert_eq("#555 POSIX-form: no backslash in emitted paths", False, '\\' in _so)
+
+    # Non-vacuous POSIX-form pin: drive the extracted `_posix` normalizer directly with
+    # os.sep set to the native-Windows separator the contract exists for (#275). Going
+    # through classify_root cannot work — on a POSIX host os.path.join still joins with
+    # '/', so `.replace(os.sep, "/")` stays an identity and the assertion passes for the
+    # wrong reason; that vacuity was caught by mutation, which is why the normalizer is
+    # a callable rather than an inline expression.
+    _saved_sep = discover_deferrals.os.sep
+    try:
+        discover_deferrals.os.sep = '\\'
+        assert_eq("#555 POSIX-form (non-vacuous): _posix rewrites a backslash-separated path to POSIX form",
+                  'root/run-1/deferrals.json',
+                  discover_deferrals._posix('root\\run-1\\deferrals.json'))
+    finally:
+        discover_deferrals.os.sep = _saved_sep
+
+    # Roots-echo abspath: every fixture root above is ALREADY absolute, so
+    # os.path.abspath is an identity there and the assertion passes for the wrong
+    # reason. Drive a RELATIVE root from inside _base so abspath has real work.
+    _saved_cwd = os.getcwd()
+    try:
+        os.chdir(str(_base))
+        _rc, _so, _se = _dm_run(['pr-500'])
+        assert_eq("#555 roots-echo (non-vacuous): a RELATIVE root is echoed as its absolute path",
+                  (True, False),
+                  (os.path.join(str(_base), 'pr-500') + '=ok' in _se,
+                   'devflow: discovery roots: pr-500=' in _se))
+    finally:
+        os.chdir(_saved_cwd)
+
+    # A root argument containing a space is handled at the helper's own boundary
+    # (the fence never produces one, but the contract must not crash on one).
+    _spaced = _base / 'a b slug'
+    _ms = _dm_manifest(_spaced, 'run-sp', '{"deferrals": [{"file": "s.py"}]}')
+    _rc, _so, _se = _dm_run([str(_spaced)])
+    assert_eq("#555 spaced root: classified ok, its manifest printed",
+              (0, [_ms]), (_rc, _so.splitlines()))
+
+# A MID-TRAVERSAL OSError (raised INSIDE an otherwise-populated root, not at the
+# root itself) must classify that root `failed` — the helper must NOT rely on
+# os.walk's default error-swallowing. Monkeypatch os.walk at module level (the
+# importlib _load pattern makes this deterministic and immune to the
+# root-privilege hazard a chmod fixture carries).
+with tempfile.TemporaryDirectory() as _dm_mt:
+    _dm_manifest(_dm_mt, 'run-x', '{"deferrals": [{"file": "x.py"}]}')
+    _saved_walk = discover_deferrals.os.walk
+
+    # Drive the onerror CALLBACK rather than raising directly. A stub that raises
+    # unconditionally exercises the `except OSError` handler but never the onerror
+    # channel — so it stays GREEN when `onerror=_raise` is dropped, which is the
+    # exact regression (os.walk's default silently skips an unreadable subtree and
+    # classifies the root `ok`) the argument exists to prevent. Calling onerror
+    # makes the assertion fail closed: with `onerror=None` the callback is absent
+    # and no OSError ever reaches classify_root.
+    def _boom_walk(path, onerror=None):
+        exc = OSError(5, "simulated mid-traversal I/O error")
+        if onerror is not None:
+            onerror(exc)
+        return iter(())
+
+    try:
+        discover_deferrals.os.walk = _boom_walk
+        _status, _matches = discover_deferrals.classify_root(_dm_mt)
+        assert_eq("#555 mid-traversal OSError inside a populated root → classified 'failed'",
+                  ('failed', []), (_status, _matches))
+    finally:
+        discover_deferrals.os.walk = _saved_walk
+    _status2, _ = discover_deferrals.classify_root(_dm_mt)
+    assert_eq("#555 mid-traversal: after restore the same root classifies 'ok'",
+              'ok', _status2)
+
+# Marker-exclusivity is what makes the fence's `grep -q 'devflow: discovery partial:'`
+# discrimination sound, and the PER-ROOT breadcrumb is the one line that could break it:
+# it is emitted on BOTH the partial and the all-failed path, so a reword that let it carry
+# either aggregate marker substring would route an all-failed run into the fence's partial
+# arm — a fail-open reroute the source comment asserts but nothing mechanically enforced.
+# Pin it: a single failed root emits the per-root breadcrumb, and stripping the aggregate
+# marker line from that stderr must leave no marker substring behind.
+with tempfile.TemporaryDirectory() as _dm_excl:
+    _dm_notdir = os.path.join(_dm_excl, 'regular-file-root')
+    with open(_dm_notdir, 'w', encoding='utf-8') as _fh:
+        _fh.write('not a directory\n')
+    _, _, _dm_excl_err = _dm_run([_dm_notdir])
+    _dm_perroot = [ln for ln in _dm_excl_err.splitlines()
+                   if ln.startswith('devflow: discovery: root ')]
+    assert_eq("#555 marker-exclusivity: the per-root failure breadcrumb is emitted",
+              1, len(_dm_perroot))
+    assert_eq("#555 marker-exclusivity: the per-root breadcrumb carries NEITHER aggregate marker",
+              (False, False),
+              (discover_deferrals.MARKER_PARTIAL in _dm_perroot[0],
+               discover_deferrals.MARKER_FAILED in _dm_perroot[0]))
+
+# The fixture above reaches only the NON-DIRECTORY arm. The OSError arm is a second,
+# independently-worded per-root breadcrumb — and it is the higher-risk one, because it
+# interpolates the OSError text. Rewording it to carry a marker substring would reroute an
+# all-failed run into the fence's partial arm while the fixture above stayed green, so pin
+# both arms rather than one. Driven through the onerror channel, like the mid-traversal test.
+with tempfile.TemporaryDirectory() as _dm_excl2:
+    _dm_manifest(_dm_excl2, 'run-y', '{"deferrals": [{"file": "y.py"}]}')
+    _saved_walk2 = discover_deferrals.os.walk
+
+    def _boom_walk2(path, onerror=None):
+        exc = OSError(5, "simulated mid-traversal I/O error")
+        if onerror is not None:
+            onerror(exc)
+        return iter(())
+
+    _err2 = io.StringIO()
+    try:
+        discover_deferrals.os.walk = _boom_walk2
+        with contextlib.redirect_stderr(_err2):
+            discover_deferrals.classify_root(_dm_excl2)
+    finally:
+        discover_deferrals.os.walk = _saved_walk2
+    _dm_perroot2 = [ln for ln in _err2.getvalue().splitlines()
+                    if ln.startswith('devflow: discovery: root ')]
+    assert_eq("#555 marker-exclusivity (OSError arm): the per-root breadcrumb is emitted",
+              1, len(_dm_perroot2))
+    assert_eq("#555 marker-exclusivity (OSError arm): the per-root breadcrumb carries NEITHER aggregate marker",
+              (False, False),
+              (discover_deferrals.MARKER_PARTIAL in _dm_perroot2[0],
+               discover_deferrals.MARKER_FAILED in _dm_perroot2[0]))
+
+# The `os.path.getsize` OSError arm (a manifest vanishing between the os.walk yield and
+# the size probe) is a THIRD way into the `except OSError` handler, and the two fixtures
+# above cannot reach it: both stub os.walk to `return iter(())`, so the loop body — and
+# the getsize call inside it — never executes. Without this fixture the source comment
+# "getsize can itself raise OSError … handled by the except" is asserted by construction
+# only, and hoisting the probe outside the try (or guarding it with a bare `except:
+# pass`) would silently turn a vanished manifest into a CLEAN `ok` with the manifest
+# missing — the exact silent-loss shape #555 exists to remove, one level down.
+# Positive control first: the same fixture classifies `ok` and yields the manifest, so a
+# `failed` below can only come from the getsize probe and not from an earlier guard.
+with tempfile.TemporaryDirectory() as _dm_gs:
+    _gs_manifest = _dm_manifest(_dm_gs, 'run-gs', '{"deferrals": [{"file": "g.py"}]}')
+    assert_eq("#555 getsize arm (positive control): the un-patched fixture classifies 'ok' with its manifest",
+              ('ok', [_gs_manifest]), discover_deferrals.classify_root(_dm_gs))
+
+    _saved_getsize = discover_deferrals.os.path.getsize
+
+    def _boom_getsize(path):
+        raise OSError(2, "simulated vanished manifest")
+
+    _gs_err = io.StringIO()
+    try:
+        discover_deferrals.os.path.getsize = _boom_getsize
+        with contextlib.redirect_stderr(_gs_err):
+            _gs_status, _gs_matches = discover_deferrals.classify_root(_dm_gs)
+    finally:
+        discover_deferrals.os.path.getsize = _saved_getsize
+    assert_eq("#555 getsize OSError mid-walk → the root classifies 'failed', matches dropped",
+              ('failed', []), (_gs_status, _gs_matches))
+    # Attribute the rejection: it must be the OSError per-root breadcrumb naming this
+    # root, not some other failure path, and it must carry neither aggregate marker.
+    _gs_perroot = [ln for ln in _gs_err.getvalue().splitlines()
+                   if ln.startswith('devflow: discovery: root ')]
+    assert_eq("#555 getsize OSError arm: attributed by the OSError per-root breadcrumb naming this root",
+              (1, True, True, False, False),
+              (len(_gs_perroot),
+               os.path.abspath(_dm_gs) in _gs_perroot[0] if _gs_perroot else False,
+               'simulated vanished manifest' in _gs_perroot[0] if _gs_perroot else False,
+               discover_deferrals.MARKER_PARTIAL in _gs_perroot[0] if _gs_perroot else True,
+               discover_deferrals.MARKER_FAILED in _gs_perroot[0] if _gs_perroot else True))
+
+# The "regular files only" narrowing is the ONE claimed behavioral difference from the
+# retired `find -mindepth 2 -maxdepth 2 -name deferrals.json -size +0c` (which had no
+# `-type f` and would have matched a DIRECTORY named deferrals.json). It rests entirely
+# on os.walk splitting its yield into dirnames/filenames and the membership test reading
+# `filenames` — a rewrite reading `dirnames + filenames` would re-admit the directory and
+# hand file-deferrals.py a path it cannot read, with nothing to catch it. Positive control
+# on the same root: a sibling REGULAR manifest at the same depth IS matched, so a
+# directory's absence from the output cannot be an artifact of the root matching nothing.
+with tempfile.TemporaryDirectory() as _dm_dirname:
+    (Path(_dm_dirname) / 'run-dir' / 'deferrals.json').mkdir(parents=True)
+    _dn_sibling = _dm_manifest(_dm_dirname, 'run-file', '{"deferrals": [{"file": "f.py"}]}')
+    _dn_status, _dn_matches = discover_deferrals.classify_root(_dm_dirname)
+    assert_eq("#555 regular files only: a DIRECTORY named deferrals.json at depth 2 never matches, while its regular sibling does",
+              ('ok', [_dn_sibling]), (_dn_status, _dn_matches))
+
+# Symlink roots. The docstring claims the roots-echo path is `os.path.abspath` —
+# "normalized, NOT symlink-resolved" — and nothing pinned it, so a swap to
+# os.path.realpath would silently start echoing a path the operator never supplied,
+# breaking the documented cwd-drift heuristic (which compares the echoed paths against
+# where Phase 3.3 executed). Two arms: a symlink TO a populated dir searches through the
+# link and echoes the LINK path, and a DANGLING symlink takes os.path.exists's
+# follow-the-link False and classifies `absent` (benign) rather than `failed`.
+with tempfile.TemporaryDirectory() as _dm_sym:
+    _sym_real = Path(_dm_sym) / 'real-slug'
+    _sym_manifest = _dm_manifest(_sym_real, 'run-sym', '{"deferrals": [{"file": "s.py"}]}')
+    _sym_link = Path(_dm_sym) / 'link-slug'
+    _sym_dangling = Path(_dm_sym) / 'dangling-slug'
+    try:
+        _sym_link.symlink_to(_sym_real, target_is_directory=True)
+        _sym_dangling.symlink_to(Path(_dm_sym) / 'no-such-target', target_is_directory=True)
+        _sym_supported = True
+    except (OSError, NotImplementedError):
+        # A host without symlink privilege (native Windows without developer mode).
+        # Recorded rather than silently skipped; CI runs on Linux where it is supported.
+        _sym_supported = False
+        print("  #555 symlink-root fixture unavailable: this host cannot create symlinks")
+    if _sym_supported:
+        # The emitted match is rendered under the LINK path, not the resolved target —
+        # os.walk descends the link without rewriting the prefix, and the helper joins
+        # onto the supplied root. That is the stronger form of the "NOT symlink-resolved"
+        # contract: a swap to realpath anywhere in this path would change the emitted
+        # manifest paths themselves, not merely the echo, and file-deferrals.py would be
+        # handed a path the run never named.
+        assert_eq("#555 symlink root: a symlink to a populated dir is searched through the link, and matches are emitted under the LINK path (not the resolved target)",
+                  ('ok', [(_sym_link / 'run-sym' / 'deferrals.json').as_posix()], True),
+                  discover_deferrals.classify_root(str(_sym_link))
+                  + (_sym_manifest == (_sym_real / 'run-sym' / 'deferrals.json').as_posix(),))
+        _rc, _so, _se = _dm_run([str(_sym_link)])
+        assert_eq("#555 symlink root: the roots-echo carries the LINK path (abspath, NOT symlink-resolved)",
+                  (True, False),
+                  (os.path.abspath(str(_sym_link)) + '=ok' in _se,
+                   os.path.abspath(str(_sym_real)) + '=ok' in _se))
+        assert_eq("#555 dangling symlink root: classified 'absent' (benign), never 'failed'",
+                  ('absent', []),
+                  discover_deferrals.classify_root(str(_sym_dangling)))
+
 
 # ── issue #603: the per-finding ledger, post-revision resolution, and convergence basis ──
 #

@@ -244,6 +244,12 @@ jobs:
           # fails closed — never to the PR-head checkout.
           FLOOR_HELPER=''
           FLOOR_SOURCE='absent'
+          # Git-env pin helper (issue #645) trusted-materialization state. Empty is
+          # the fail-closed default, so the fetch-failed / empty-base-ref branches
+          # (which skip the materialization inside the fetch-success branch) leave
+          # this SET rather than unset under `set -u`; the consuming step then emits
+          # no assignment, which is also the working default.
+          GITENV_HELPER_DIR=''
           # Plugin-parity compose (issue #505) trusted-materialization state.
           # Initialized to fail-closed defaults so the fetch-failed / empty-base-ref
           # branches below (which skip the materialization in the fetch-success
@@ -323,6 +329,51 @@ jobs:
                 else
                   echo "::warning::could not write the base-ref deny-floor helper into RUNNER_TEMP; the tools step will fall back to a runtime-fetched vendored copy or fail closed."
                   FLOOR_SOURCE='absent'
+                fi
+              fi
+              # Git-env pin helper (issue #645): materialize emit-git-env.sh AND its
+              # sibling resolver config-get.sh from the SAME trusted base-ref tip
+              # (FETCH_HEAD is still the base ref inside this fetch-success branch).
+              # This is a SECURITY BOUNDARY: the helper's stdout is appended to
+              # `$GITHUB_ENV` in a token-bearing job, so it is executed only from a
+              # trusted source — the same rank-1 base-ref / rank-2
+              # `vendor_source == fetch` / else fail-closed ladder filter-runner-tools.sh
+              # uses — NEVER the PR-head checkout, which this job checks out. Both
+              # files must land: emit-git-env.sh locates its resolver as a sibling, so
+              # a half-materialized pair would silently resolve every key to disabled.
+              # Candidate paths mirror the floor helper's: the committed vendor copy,
+              # then the repo's own scripts/ copy gated on the base ref actually being
+              # the DevFlow plugin repo. Best-effort: any failure leaves
+              # GITENV_HELPER_DIR empty and the consuming step fails closed (emits
+              # nothing, warns) — which is also the working default, so failing closed
+              # here and failing open there converge on the same safe state.
+              if mkdir -p "$RUNNER_TEMP/devflow-trusted-gitenv" 2>/dev/null; then
+                _gitenv_ok=1
+                for _g in emit-git-env.sh config-get.sh; do
+                  _g_raw=''
+                  if _g_raw=$(git show "FETCH_HEAD:.devflow/vendor/devflow/scripts/$_g" 2>/dev/null); then
+                    :
+                  elif git show "FETCH_HEAD:.claude-plugin/plugin.json" 2>/dev/null | grep -Eq '"name"[[:space:]]*:[[:space:]]*"devflow"' \
+                    && _g_raw=$(git show "FETCH_HEAD:scripts/$_g" 2>/dev/null); then
+                    :
+                  else
+                    _g_raw=''
+                  fi
+                  if [ -n "$_g_raw" ]; then
+                    if printf '%s\n' "$_g_raw" > "$RUNNER_TEMP/devflow-trusted-gitenv/$_g" 2>/dev/null; then
+                      chmod +x "$RUNNER_TEMP/devflow-trusted-gitenv/$_g" 2>/dev/null || true
+                    else
+                      rm -f "$RUNNER_TEMP/devflow-trusted-gitenv/$_g" 2>/dev/null || true
+                      _gitenv_ok=0
+                    fi
+                  else
+                    _gitenv_ok=0
+                  fi
+                done
+                if [ "$_gitenv_ok" -eq 1 ] \
+                  && [ -f "$RUNNER_TEMP/devflow-trusted-gitenv/emit-git-env.sh" ] \
+                  && [ -f "$RUNNER_TEMP/devflow-trusted-gitenv/config-get.sh" ]; then
+                  GITENV_HELPER_DIR="$RUNNER_TEMP/devflow-trusted-gitenv"
                 fi
               fi
               # Plugin-parity compose (issue #505): materialize the trusted base-ref
@@ -422,6 +473,10 @@ jobs:
             echo "compose_settings_source=$COMPOSE_SETTINGS_SOURCE"
             echo "compose_helper_dir=$COMPOSE_HELPER_DIR"
             echo "compose_helper_source=$COMPOSE_HELPER_SOURCE"
+            # Git-env pins (issue #645) — the TRUSTED helper directory materialized
+            # by the fetch-success branch above; empty on a fetch failure or empty
+            # base ref, which makes the consuming step fail closed.
+            echo "gitenv_helper_dir=$GITENV_HELPER_DIR"
           } >> "$GITHUB_OUTPUT"
           # Freeform reviewer build allowlist, read from the SAME trusted base ref
           # as provision_env above (so a PR cannot grant itself tools). Emitted as
@@ -569,7 +624,7 @@ jobs:
               # boundary by lib/review-profile.tokens — do NOT hand-edit it; change the
               # manifest and regenerate, and widening the reviewer requires a visible diff
               # to that lock. lib/test/run.sh's --check turns any drift RED.
-              # devflow-capability-manifest: region=runner-review manifest_version=4 sha256=a2632da7e855d7dfef9e7982cec8132a5b2ee960d6826fac462373ef33372225
+              # devflow-capability-manifest: region=runner-review manifest_version=5 sha256=a2632da7e855d7dfef9e7982cec8132a5b2ee960d6826fac462373ef33372225
               TOOLS='Read,Glob,Grep,LS,Skill,Agent,TodoWrite,WebFetch,WebSearch,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git blame:*),Bash(git branch:*),Bash(git cat-file:*),Bash(git hash-object:*),Bash(git checkout:*),Bash(mkdir:*),Bash(tee:*),Bash(mktemp:*),Bash(cmp:*),Bash(rm -f:*),Bash(*/load-prompt-extension.sh:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr review:*),Bash(gh pr comment:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue list:*),Bash(gh search:*),Bash(gh repo view:*),Bash(gh run view:*),Bash(gh run list:*),Bash(gh api:*),Bash(jq:*),Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(wc:*),Bash(sort:*),Bash(uniq:*),Bash(cut:*),Bash(tr:*),Bash(xargs:*),Bash(awk:*),Bash(sed:*),Bash(diff:*),Bash(comm:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(ls:*),Bash(tree:*),Bash(file:*),Bash(stat:*),Bash(date:*),Bash(pwd:*),Bash(realpath:*),Bash(dirname:*),Bash(basename:*),Bash(which:*),Bash(type:*),Bash(env:*),Bash(echo:*),Bash(printf:*),Bash(test:*),Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*),Bash(.devflow/vendor/devflow/scripts/match-lint-adjudications.py:*),Bash(.devflow/vendor/devflow/scripts/normalize-verdicts.py:*),Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*),Bash(.devflow/vendor/devflow/scripts/workpad.py:*),Bash(.devflow/vendor/devflow/scripts/config-get.sh:*),Bash(.devflow/vendor/devflow/scripts/load-prompt-extension.sh:*),Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*),Bash(.devflow/vendor/devflow/scripts/stale-prose-lint.py:*),Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*),Write(.devflow/tmp/**)'
               # When the trusted base config opted into provisioning, the runner
               # has a built env (setup-project-env ran below), so grant the
@@ -1561,6 +1616,68 @@ jobs:
             # the observable-output arm is not silently dropped.
             echo "::warning::Could not read the trusted base-ref .claude/settings.json; base-declared plugins were not composed this run — proceeding with the baked baseline."
           fi
+
+      # Resolve the two DEFAULT-OFF git-env pin flags and export the enabled ones
+      # (issue #645). Both keys default to false, so on a stock consumer this step
+      # emits NOTHING and neither GIT_DIR nor GIT_WORK_TREE is present in the
+      # action's environment — the pre-#643 behavior, which is the configuration
+      # that works everywhere. #643 set both unconditionally so configureGitAuth
+      # would resolve the repo on a self-hosted Windows runner (issue #602), but
+      # GIT_WORK_TREE also reaches the Claude Code CLI subprocess that installs
+      # plugins, where it makes `git clone` refuse an existing working tree — so
+      # every run died at plugin install with `fatal: working tree '<path>'
+      # already exists.`, before the agent did any work, producing no verdict at
+      # all. The helper is now the SINGLE producer of both variables; the action
+      # step below deliberately carries neither in its own `env:` block.
+      #
+      # TRUSTED SOURCE ONLY — this is a security boundary. This job checks out the
+      # PR HEAD, and the helper's stdout is appended to `$GITHUB_ENV` in a
+      # token-bearing job, so the helper is executed only from the copy
+      # `baseprovision` materialized out of the base ref into RUNNER_TEMP (rank 1),
+      # or from the vendored copy when the vendor step reports
+      # `vendor_source == fetch` — a fresh clone of the official repo at the pinned
+      # devflow_version (rank 2). Otherwise this step FAILS CLOSED: it emits
+      # nothing and warns. The PR-head checkout's own copy is never consulted, and
+      # the keys themselves are read from the trusted base-ref config, so a pull
+      # request author can neither make the helper write assignments into the
+      # reviewer's job environment nor enable a key that would suppress its own
+      # review.
+      #
+      # JOB-SCOPED, not step-scoped: `$GITHUB_ENV` appends assignments and offers
+      # no removal verb, and the empty-value form that would approximate one is
+      # measured fatal (`GIT_DIR=` → `fatal: not a git repository: ''`), which is
+      # precisely why the mechanism is an append rather than an `env:` expression
+      # (GitHub's workflow syntax accepts no expression evaluating to a whole
+      # `env:` mapping, so a variable's KEY cannot be made conditionally absent
+      # there). So an enabled variable is in force for `Run Claude Code` AND every
+      # step after it.
+      - name: Resolve git-env pins
+        env:
+          # The TRUSTED base-ref config baseprovision materialized — never the
+          # PR-head checkout. That is what makes these keys post-merge-only and
+          # makes a key set only in a PR head inert on this tier.
+          GITENV_CFGJSON: ${{ steps.baseprovision.outputs.config_json }}
+          GITENV_HELPERDIR: ${{ steps.baseprovision.outputs.gitenv_helper_dir }}
+          GITENV_VENDORSRC: ${{ steps.vendor.outputs.vendor_source }}
+          GITENV_WS: ${{ github.workspace }}
+        run: |
+          set -uo pipefail
+          HELPER=''
+          if [ -n "$GITENV_HELPERDIR" ] && [ -f "$GITENV_HELPERDIR/emit-git-env.sh" ]; then
+            HELPER="$GITENV_HELPERDIR/emit-git-env.sh"
+          elif [ "$GITENV_VENDORSRC" = 'fetch' ] && [ -f '.devflow/vendor/devflow/scripts/emit-git-env.sh' ]; then
+            HELPER='.devflow/vendor/devflow/scripts/emit-git-env.sh'
+          fi
+          if [ -z "$HELPER" ]; then
+            echo "::warning::devflow git-env pins: no TRUSTED copy of emit-git-env.sh is available — neither materialized from the base ref (baseprovision) nor runtime-fetched at the pinned devflow_version (vendor_source='${GITENV_VENDORSRC:-unknown}'). The PR-head checkout's own copy is deliberately not consulted, because a PR author must not be able to write assignments into the reviewer's job environment. Failing closed: neither GIT_DIR nor GIT_WORK_TREE is exported (which is also the working default)."
+            exit 0
+          fi
+          CFG="${RUNNER_TEMP}/devflow-gitenv-config.json"
+          if ! printf '%s' "$GITENV_CFGJSON" > "$CFG" 2>/dev/null; then
+            echo "::warning::devflow git-env pins: could not materialize the trusted base-ref config into RUNNER_TEMP; failing open to the working default (neither variable exported)."
+            exit 0
+          fi
+          bash "$HELPER" --workspace "$GITENV_WS" --config-file "$CFG" --tier review >> "$GITHUB_ENV"
 
       - name: Run Claude Code
         id: claude
