@@ -45528,6 +45528,23 @@ if ! devflow_run_full_suite_module "$LIB/test/modules/create-issue-contract.sh" 
   exit 1
 fi
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "#600 create-issue audit-prompt renderer (render-audit-prompt.py)"
+# ────────────────────────────────────────────────────────────────────────────
+# R1..R12 are unit-driven in lib/test/test_render_audit_prompt.py (renderer over
+# mktemp fixture trees + a delivery-equivalence matrix that drives the real
+# load-prompt-extension.sh). These shell pins add the statelessness guards
+# (guard-class 1: verify the outcome — no file write, no stdin read — not merely
+# that the module imports look pure).
+RAP_ROOT="$(mktemp -d)"
+python3 "$LIB/test/test_render_audit_prompt.py" >"$RAP_ROOT/rap-unit.out" 2>&1
+assert_eq "#600 render-audit-prompt: focused Python tests pass" "0" "$?"
+assert_eq "#600 render-audit-prompt writes no file (stateless)" "0" \
+  "$(grep -cE "open\([^)]*['\"][wax]|\.write_text\(|\.write_bytes\(" "$LIB/../scripts/render-audit-prompt.py" || true)"
+assert_eq "#600 render-audit-prompt reads no stdin (stateless)" "0" \
+  "$(grep -cE 'sys\.stdin|(^|[^a-zA-Z_])input\(' "$LIB/../scripts/render-audit-prompt.py" || true)"
+rm -rf "$RAP_ROOT"
+
 if ! devflow_run_full_suite_module "$LIB/test/modules/workflow-flight-recorder.sh" \
   "workflow-flight-recorder" 68; then
   printf 'ERROR: workflow-flight-recorder boundary could not record its result\n'
