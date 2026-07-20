@@ -69,7 +69,8 @@
     "node_version": "",
     "install": [
       "python -m pip install pyyaml"
-    ]
+    ],
+    "claude_code_executable": ""
   },
   "docs": {
     "internal": "docs/internal/",
