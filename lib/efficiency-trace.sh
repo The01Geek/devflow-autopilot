@@ -273,17 +273,27 @@ emit_jq() {
 
 # Single source of truth for the iter-<N>.json expected field set (issue #170).
 # Kept in sync with the iter-<N>.json schema block in skills/review-and-fix/SKILL.md;
-# a lib/test/run.sh assertion FAILs if the two diverge. `shadow` is intentionally
-# excluded — Step 2.6 appends it later, so it is legitimately absent on iters that
-# ran no shadow pass. --self-check warns (best-effort) when any of these is missing
-# from a persisted iter workpad. Plain (non-readonly) single-line assignment so the
-# run.sh divergence guard can grep `^ITER_EXPECTED_FIELDS=` to extract it.
-ITER_EXPECTED_FIELDS="iter started_at fix_commit_sha fix_files loop_role checklist phase3_dispatched diff_profile phase3_findings fix_decisions convergence_inputs cap_drops telemetry"
+# a lib/test/run.sh assertion FAILs if the two diverge. The CONDITIONAL schema
+# fields are intentionally excluded — `shadow` (Step 2.6 appends it later, so it is
+# legitimately absent on iters that ran no shadow pass) and `reference_reads` (issue
+# #541: Step 3.5's fix-delta gate appends it, so it is legitimately absent on iters
+# where that gate did not run). `sweep_defs_read`/`sweep_evidence` are NOT conditional:
+# fixing.md item 7 mandates them on every iteration (a no-fix iteration writes the
+# explicit `[]` / `not-run` pair rather than omitting them), which is why they belong
+# in this unconditional set. --self-check warns (best-effort) when any of these is
+# missing from a persisted iter workpad. Plain (non-readonly) single-line assignment so
+# the run.sh divergence guard can grep `^ITER_EXPECTED_FIELDS=` to extract it.
+ITER_EXPECTED_FIELDS="iter started_at fix_commit_sha fix_files loop_role sweep_defs_read sweep_evidence checklist phase3_dispatched diff_profile phase3_findings fix_decisions convergence_inputs cap_drops telemetry"
 # The synthesized-record minimal field set (issue #381): what synthesize_iter_workpads
 # writes, and what --self-check validates a synthesized:true record against (a
 # synthesized record is a recognized degraded class, exempt from the full set above
 # but NOT from its own — a truncated synthesized record must still warn).
-ITER_SYNTH_EXPECTED_FIELDS="iter fix_commit_sha fix_files loop_role synthesized"
+# The three evidence fields (issue #541) are members because the synthesizer writes an
+# explicit unrecoverable-provenance object for each: absent evidence is recorded AS
+# absent, never serialized as a real `[]` / `not-run` / omitted value. Their presence
+# here is the producer<->consumer coupling — a synthesizer that stopped stamping
+# provenance would go RED against this set instead of silently regressing.
+ITER_SYNTH_EXPECTED_FIELDS="iter fix_commit_sha fix_files loop_role synthesized sweep_defs_read sweep_evidence reference_reads"
 # The synthesized SHADOW-marker minimal field set (issue #426): what
 # synthesize_shadow_markers writes into an iter's `shadow` block when provenance
 # establishes that a shadow ran (or leaves that fact unestablished for a legacy
@@ -542,10 +552,26 @@ synthesize_iter_workpads() {
     # stdout goes to the record file, so stderr is free to capture — unlike the
     # git log/diff-tree data streams above, keeping the failure CAUSE
     # (ENOENT/EACCES/ENOSPC/argjson rejection) costs no data purity here.
+    # Run-scoped evidence provenance (issue #541). This floor reconstructs a record
+    # from a FIX COMMIT — and a fix commit carries no trace of which sweep definitions
+    # the iteration read, what those sweeps found, or whether Step 3.5's fix-delta gate
+    # ran. That evidence is UNRECOVERABLE here, and the one thing this writer must never
+    # do is launder it into a value that reads as a real observation: `sweep_defs_read: []`
+    # is the legitimate no-fix-iteration value meaning "no sweep definitions were read",
+    # and `sweep_evidence: {"status":"not-run",...}` is the legitimate one meaning "no
+    # fixes were applied, so no sweep ran" — both are POSITIVE claims about an iteration
+    # this floor never observed. Stamping the uniform unrecoverable-provenance object
+    # instead keeps "we don't know" distinguishable from "we know it was empty" (the
+    # repo's unknown-is-not-zero rule, applied to evidence rather than a count).
+    # These keys are members of ITER_SYNTH_EXPECTED_FIELDS, so --self-check enforces
+    # that a synthesized record actually carries the provenance.
     if jq_err="$("$DEVFLOW_JQ" -n --argjson iter "$n" --arg sha "$sha" --arg files "$files" --arg files_ok "$files_ok" \
          '{iter: $iter, fix_commit_sha: $sha,
            fix_files: (if $files_ok == "1" then ($files | split("\n") | map(select(length > 0))) else null end),
-           loop_role: "fix", synthesized: true}' 2>&1 > "$dir/iter-$n.json")"; then
+           loop_role: "fix", synthesized: true,
+           sweep_defs_read: {status: "unrecoverable", reason: "fix-commit-only synthesis: the iteration record was never persisted, and a fix commit carries no trace of which sweep definitions were read"},
+           sweep_evidence: {status: "unrecoverable", reason: "fix-commit-only synthesis: the iteration record was never persisted, and a fix commit carries no trace of the sweep outcomes"},
+           reference_reads: {status: "unrecoverable", reason: "fix-commit-only synthesis: the iteration record was never persisted, and a fix commit carries no trace of whether the Step 3.5 fix-delta gate ran"}}' 2>&1 > "$dir/iter-$n.json")"; then
       wrote=$((wrote + 1))
     else
       echo "::warning::efficiency-trace.sh --persist: failed to write synthesized iter-${n}.json for ${sha} (${jq_err:-no error text}); skipping" >&2
@@ -721,8 +747,9 @@ do_self_check() {
   for iter in "$WORKPAD_DIR"/iter-*.json; do
     [ -e "$iter" ] || continue
     # A synthesized record (issue #381) is a recognized degraded class — it
-    # legitimately carries only iter/fix_commit_sha/fix_files/loop_role/synthesized,
-    # so it is validated against THAT minimal set (ITER_SYNTH_EXPECTED_FIELDS),
+    # legitimately carries only what the fix-commit floor can establish plus the
+    # issue-#541 unrecoverable-provenance stamps, so it is validated against THAT
+    # minimal set (ITER_SYNTH_EXPECTED_FIELDS — see its definition for the members),
     # not the full ITER_EXPECTED_FIELDS (a wave of spurious warnings would train
     # operators to ignore the self-check) — and not against nothing, or a
     # truncated/hand-edited synthesized record would validate silently (the

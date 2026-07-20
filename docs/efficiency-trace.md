@@ -403,13 +403,16 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
   refs/heads/<branch>:.devflow/logs/efficiency/<slug>-<run-id>.json`), it emits a loud
   `::warning::` naming exactly what was not persisted (and points at `--persist` as the recovery).
   It **additionally validates each `iter-<N>.json`'s field set**: for every iter workpad missing a
-  field in the single-source `ITER_EXPECTED_FIELDS` set (the iter schema's top-level fields minus
-  `shadow`, which Step 2.6 appends later and is legitimately absent), it emits a `::warning::` naming
+  field in the single-source `ITER_EXPECTED_FIELDS` set (the iter schema's top-level fields minus the
+  conditional ones — `shadow`, which Step 2.6 appends later, and `reference_reads`, which Step 3.5's
+  fix-delta gate appends; both are legitimately absent), it emits a `::warning::` naming
   the field and the iter file — turning a silently-dropped inline-persist field into a visible signal.
   A workpad carrying `synthesized: true` (written by the Layer-3+ synthesis floor, below) is a
-  recognized degraded class validated against its **own** minimal set (`ITER_SYNTH_EXPECTED_FIELDS`:
-  `iter`, `fix_commit_sha`, `fix_files`, `loop_role`, `synthesized`) rather than the full set — so a
-  truncated synthesized record still warns instead of validating silently. And the zero-workpad
+  recognized degraded class validated against its **own** minimal set (`ITER_SYNTH_EXPECTED_FIELDS`
+  — see that variable in `lib/efficiency-trace.sh` for the members) rather than the full set — so a
+  truncated synthesized record still warns instead of validating silently. That minimal set includes
+  the three run-scoped evidence fields, which is what makes `--self-check` **enforce** that a
+  synthesized record actually carries its unrecoverable-provenance stamps. And the zero-workpad
   warning names the **targeted** recovery command (`--persist --workpad-dir DIR --slug SLUG` — the
   form immune to discovery-mode synthesis skips) rather than implying there is nothing left to
   persist.
@@ -614,8 +617,15 @@ real record carries, none of which is recoverable **from the fix commits**.
   (`git log --reverse`).
 - *Synthesized-record shape.* Each synthesized `iter-<N>.json` carries exactly `iter`,
   `fix_commit_sha`, `fix_files` (from `git diff-tree`; **`null` when that derivation fails** —
-  unestablished, deliberately distinct from a genuine empty commit's `[]`), `loop_role: "fix"`, and
-  `synthesized: true`. `lib/efficiency-trace.jq` surfaces the marker at every level: per-iteration
+  unestablished, deliberately distinct from a genuine empty commit's `[]`), `loop_role: "fix"`,
+  `synthesized: true`, and the three run-scoped evidence fields `sweep_defs_read`, `sweep_evidence`,
+  and `reference_reads`. A fix commit carries no trace of which sweep definitions an iteration read,
+  what its sweeps found, or whether the fix-delta gate ran, so each of those three is stamped with an
+  explicit `{"status": "unrecoverable", "reason": …}` object rather than a real-looking value. This is
+  deliberate and load-bearing: `sweep_defs_read: []` and `sweep_evidence: {"status": "not-run", …}`
+  are the *legitimate* values of a real no-fix iteration, so emitting either here would assert
+  something about an iteration this floor never observed. A consumer must read `status:
+  "unrecoverable"` as *unknown*, never as *empty*. `lib/efficiency-trace.jq` surfaces the marker at every level: per-iteration
   and in each `per_iteration[]` entry as a strict `== true` (an absent or malformed field reads
   `false` — agent-written workpads carry no such field, so real records read `synthesized: false`),
   and record-level as `any(…)` — `true` when **any** iteration was reconstructed, the key a
