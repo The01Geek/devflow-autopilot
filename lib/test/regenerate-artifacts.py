@@ -340,6 +340,19 @@ def _git_paths(root, argv):
     return None if text is None else {line for line in text.splitlines() if line}
 
 
+def is_budget_row(row):
+    """Whether `row` is a git-staleness budget row.
+
+    ONE spelling of this predicate, used by both the check-strategy binding below and
+    `emit_list`. Keyed on the watch list the callers actually consume, never on the proxy
+    "has no argv": those coincide only because today's two command-less rows happen to be
+    the two budget rows, so a future command-less non-budget row (a pure-Python check, a
+    placeholder) would dispatch `budget_row` at one site and be skipped at the other —
+    opposite directions, and `--list` would drop a row's members with nothing failing.
+    """
+    return "watch_literals" in row
+
+
 def budget_row(row, root, report):
     """Detect a stale budget record for whichever budget row is passed in.
 
@@ -582,7 +595,7 @@ def _mechanical_outcome(row, proc, output, changed, after, report):
 # Bind each row's check strategy now that both callables exist. Done here rather than
 # in the table because the table is defined above the functions it names.
 for _row in ROWS:
-    _row["check"] = budget_row if _row["argv"] is None else run_row
+    _row["check"] = budget_row if is_budget_row(_row) else run_row
 
 
 def emit_list(root):
@@ -595,7 +608,7 @@ def emit_list(root):
     # while the other still emits — would read identically. The row name is the second
     # field precisely so a consumer keys on (row, member), never on the path alone.
     for row in ROWS:
-        if row["argv"] is not None:
+        if not is_budget_row(row):
             continue
         members, missing = watch_list(row, root)
         for member in members:

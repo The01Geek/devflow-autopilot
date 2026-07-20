@@ -320,18 +320,43 @@ _ra_watch_check() {  # row-name glob-dir literal-member...
   esac
   assert_eq "#624 A4 --list watch list equals the disk-derived bundle membership: $_row" \
     "$_disk" "$_helper"
+  # Publish the (already non-empty-guarded) helper list for the disjointness check below,
+  # so that check reuses THIS extraction instead of re-deriving it — which also means the
+  # two guards above cover it and it cannot pass vacuously.
+  RA_WATCH_LAST="$_helper"
 }
 _ra_watch_check review-bundle-budget "skills/review/phases" \
   "skills/review/SKILL.md" ".devflow/prompt-extensions/review.md"
+RA_WATCH_REV="$RA_WATCH_LAST"
 _ra_watch_check review-and-fix-budget "skills/review-and-fix/references" \
   "skills/review-and-fix/SKILL.md" ".devflow/prompt-extensions/review-and-fix.md"
+RA_WATCH_RAF="$RA_WATCH_LAST"
 # The two rows' lists must be DISJOINT. Without this, a watch_globs typo that pointed the
 # new row at the review bundle's phases/ would leave both per-row equalities RED-or-green
 # on their own terms but silently double-count a member across rows; more importantly a
 # future member moved between rows would satisfy both lists only if one of them is wrong.
-_ra_watch_overlap="$(printf '%s\n' "$RA_LIST" | sed -n 's/^budget-watch	review-bundle-budget	//p' | sort > "$_ra_tmp_root/.w1"
-  printf '%s\n' "$RA_LIST" | sed -n 's/^budget-watch	review-and-fix-budget	//p' | sort > "$_ra_tmp_root/.w2"
-  comm -12 "$_ra_tmp_root/.w1" "$_ra_tmp_root/.w2")"
+#
+# Computed from the two lists _ra_watch_check ALREADY extracted and already asserted
+# non-empty, with bash builtins only (`read` + `case`) — never `comm`, which lib/preflight.sh
+# does not guarantee and whose absence would empty the result and make this assertion pass
+# VACUOUSLY, defeating the very non-empty guards above (CLAUDE.md's un-guaranteed-tool rule:
+# a value that decides an emitted result must fail closed). The newline sentinels around
+# both the haystack and the needle make `case` match a WHOLE line, so a member could not
+# register as overlapping merely by being another member's path prefix.
+_ra_watch_overlap=""
+_ra_watch_raf_nl="
+$RA_WATCH_RAF
+"
+while IFS= read -r _ra_wm; do
+  [ -n "$_ra_wm" ] || continue
+  case "$_ra_watch_raf_nl" in
+    *"
+$_ra_wm
+"*) _ra_watch_overlap="$_ra_watch_overlap $_ra_wm" ;;
+  esac
+done <<RA_WATCH_EOF
+$RA_WATCH_REV
+RA_WATCH_EOF
 assert_eq "#624 A4 the two budget rows' watch lists are disjoint" "" "$_ra_watch_overlap"
 
 # ── A5 — exit 2 on an ABSENT generator, and exit 2 wins over a judgment item ─
