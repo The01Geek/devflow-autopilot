@@ -108,5 +108,27 @@
     "count": 0,
     "by_category": {}
   },
+  "shadow": {
+    "ran_at": "2026-07-20T23:05:00Z",
+    "reviewed_sha": "f80392cf",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter"
+    ],
+    "comparison": {
+      "shadow_total": 0,
+      "overlap_with_iter_N": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
   "telemetry": "unavailable"
 }
