@@ -267,7 +267,7 @@ _ra_cmp "#619 A3 write scope: the budget record is byte-unchanged" "$RA_A3_BUDGE
 # equally in the never-written set — omitting it would leave the newly-registered row's
 # write scope unasserted, the same gap the coverage map's line below closed.
 _ra_cmp "#624 A3 write scope: the review-and-fix budget record is byte-unchanged" "$RA_A3_RAFBUDGET" docs/review-and-fix-budget.md
-# The coverage-map ratchet is a judgment row like the other three, so its artifact is
+# The coverage-map ratchet is a judgment row like every other, so its artifact is
 # equally in the never-written set — omitting it left one registered judgment row's
 # write scope unasserted.
 _ra_cmp "#619 A3 write scope: the coverage map is byte-unchanged" "$RA_A3_COVMAP" lib/test/modules/coverage-map.json
@@ -295,6 +295,8 @@ done
 # field, so each row's list is extracted by its own attributed prefix. Extracting by the
 # bare `budget-watch` prefix would concatenate both rows' members into one blob, and the
 # equality below would then still pass if a member migrated from one row to the other.
+RA_WATCH_CHECKED=""      # rows _ra_watch_check was actually invoked for
+RA_WATCH_ALL_MEMBERS=""  # every checked row's members, for the cross-row overlap test
 _ra_watch_check() {  # row-name glob-dir literal-member...
   local _row="$1" _dir="$2" _helper _disk
   shift 2
@@ -320,44 +322,73 @@ _ra_watch_check() {  # row-name glob-dir literal-member...
   esac
   assert_eq "#624 A4 --list watch list equals the disk-derived bundle membership: $_row" \
     "$_disk" "$_helper"
-  # Publish the (already non-empty-guarded) helper list for the disjointness check below,
-  # so that check reuses THIS extraction instead of re-deriving it — which also means the
-  # two guards above cover it and it cannot pass vacuously.
-  RA_WATCH_LAST="$_helper"
+  # Accumulate for the two registry-derived assertions below: which rows were checked, and
+  # every checked row's members. Both reuse THIS extraction rather than re-deriving it, so
+  # the non-empty guards above cover them and neither can pass vacuously. Accumulating
+  # inside the function also removes the ordering-dependent out-parameter a per-call
+  # capture would need — a reordered or inserted call site cannot bind the wrong row's list.
+  RA_WATCH_CHECKED="$RA_WATCH_CHECKED$_row
+"
+  RA_WATCH_ALL_MEMBERS="$RA_WATCH_ALL_MEMBERS$_helper
+"
 }
 _ra_watch_check review-bundle-budget "skills/review/phases" \
   "skills/review/SKILL.md" ".devflow/prompt-extensions/review.md"
-RA_WATCH_REV="$RA_WATCH_LAST"
 _ra_watch_check review-and-fix-budget "skills/review-and-fix/references" \
   "skills/review-and-fix/SKILL.md" ".devflow/prompt-extensions/review-and-fix.md"
-RA_WATCH_RAF="$RA_WATCH_LAST"
-# The two rows' lists must be DISJOINT. Without this, a watch_globs typo that pointed the
-# new row at the review bundle's phases/ would leave both per-row equalities RED-or-green
-# on their own terms but silently double-count a member across rows; more importantly a
-# future member moved between rows would satisfy both lists only if one of them is wrong.
-#
-# Computed from the two lists _ra_watch_check ALREADY extracted and already asserted
-# non-empty, with bash builtins only (`read` + `case`) — never `comm`, which lib/preflight.sh
-# does not guarantee and whose absence would empty the result and make this assertion pass
-# VACUOUSLY, defeating the very non-empty guards above (CLAUDE.md's un-guaranteed-tool rule:
-# a value that decides an emitted result must fail closed). The newline sentinels around
-# both the haystack and the needle make `case` match a WHOLE line, so a member could not
-# register as overlapping merely by being another member's path prefix.
+
+# ── Registry-derived coverage: every budget row --list emits is actually checked ──
+# The call sites above are a hand-maintained enumeration of the budget-row population,
+# while the REGISTRY is that population's single enumeration point (the property #619
+# established and #624 preserved). Left uncoupled, a newly-registered budget row would get
+# no watch-list equality assertion and no overlap comparison, and every arm above would
+# stay green — the audit would certify its own completeness from its own enumeration, which
+# is exactly the blind spot a detect-all audit cannot self-certify away. So derive the
+# roster from --list's own row-name field and require it to equal the set actually checked:
+# a registered row nobody checks, and a check naming a row --list does not emit, both go RED.
+RA_WATCH_EMITTED="$(printf '%s\n' "$RA_LIST" | sed -n 's/^budget-watch	\([^	]*\)	.*$/\1/p' | sort -u)"
+RA_WATCH_COVERED="$(printf '%s' "$RA_WATCH_CHECKED" | sort -u)"
+# Both sides route through `sed`/`sort`, which lib/preflight.sh does not guarantee; a
+# missing tool empties BOTH and the equality would pass comparing "" to "". Assert
+# non-empty first so tool absence surfaces as a named RED, never a vacuous pass.
+case "$RA_WATCH_EMITTED" in
+  '') assert_eq "#624 A4 the --list-derived budget-row roster is non-empty" yes \
+        "no(empty — sed/sort absent, or --list emitted no budget-watch rows at all)" ;;
+  *)  assert_eq "#624 A4 the --list-derived budget-row roster is non-empty" yes yes ;;
+esac
+assert_eq "#624 A4 every budget row --list emits has a watch-list check (registry-derived)" \
+  "$RA_WATCH_EMITTED" "$RA_WATCH_COVERED"
+
+# ── Cross-row overlap: no member may belong to two budget rows ──
+# Data-driven over EVERY checked row's members rather than a fixed pair, so it keeps
+# holding as rows are added. Without it, a watch_globs typo aiming one row at another's
+# bundle would leave each per-row equality green on its own terms while both rows silently
+# watched the same files. Pure bash builtins (`read` + `case`) — never `comm`/`uniq`, whose
+# absence would empty the result and pass VACUOUSLY, defeating the guards above (CLAUDE.md's
+# un-guaranteed-tool rule: a value deciding an emitted result must fail closed). The newline
+# sentinels make `case` match a WHOLE line, so one member cannot register as overlapping
+# merely by being another's path prefix.
+case "$RA_WATCH_ALL_MEMBERS" in
+  '') assert_eq "#624 A4 the cross-row member set is non-empty (overlap test is live)" yes \
+        "no(empty — no checked row contributed members, so the overlap test below would pass vacuously)" ;;
+  *)  assert_eq "#624 A4 the cross-row member set is non-empty (overlap test is live)" yes yes ;;
+esac
+_ra_watch_seen=""
 _ra_watch_overlap=""
-_ra_watch_raf_nl="
-$RA_WATCH_RAF
-"
 while IFS= read -r _ra_wm; do
   [ -n "$_ra_wm" ] || continue
-  case "$_ra_watch_raf_nl" in
+  case "$_ra_watch_seen" in
     *"
 $_ra_wm
 "*) _ra_watch_overlap="$_ra_watch_overlap $_ra_wm" ;;
+    *)  _ra_watch_seen="$_ra_watch_seen
+$_ra_wm
+" ;;
   esac
 done <<RA_WATCH_EOF
-$RA_WATCH_REV
+$RA_WATCH_ALL_MEMBERS
 RA_WATCH_EOF
-assert_eq "#624 A4 the two budget rows' watch lists are disjoint" "" "$_ra_watch_overlap"
+assert_eq "#624 A4 no watch-list member belongs to more than one budget row" "" "$_ra_watch_overlap"
 
 # ── A5 — exit 2 on an ABSENT generator, and exit 2 wins over a judgment item ─
 # An absent script is reported by the INTERPRETER as exit 2 ("can't open file"), which
@@ -617,6 +648,24 @@ _ra_has "#619 A5i2 the deleted member is named as the changed member" "$RA_A5I2"
   "changed members: skills/review/phases/phase-4-1-8-prose-cutover.md"
 _ra_live_unchanged "#619 A5i2 live manifest byte-unchanged after the deleted-member run"
 
+# ── A5i3 — the NEW row's renamed glob parent reports unestablished + attributed ──
+# A5i covers the review-bundle row's glob leg. The review-and-fix row's `missing` leg was
+# reached by no arm: emit_list builds its budget-watch-missing line from the same
+# row['name'] in the same loop, so it is very likely correct — but "very likely correct"
+# is what an unpinned leg always looks like, and a renamed references/ directory would
+# leave this row silently reporting unestablished with nobody watching.
+RA_A5I3="$_ra_tmp_root/a5i3"; _ra_fixture "$RA_A5I3"
+mv "$RA_A5I3/skills/review-and-fix/references" "$RA_A5I3/skills/review-and-fix/references-renamed"
+python3 "$RA_HELPER" --list --repo-root "$RA_A5I3" > "$RA_A5I3/.ra.list" 2>&1
+assert_eq "#624 A5i3 --list discloses the renamed references parent under its OWN row" "1" \
+  "$(devflow_module_pin_count 'budget-watch-missing	review-and-fix-budget	skills/review-and-fix/references/*.md' "$RA_A5I3/.ra.list")"
+_ra_run "$RA_A5I3"
+_ra_has "#624 A5i3 the renamed references parent reports unestablished, never a false clean" "$RA_A5I3" \
+  "absent from the tree: skills/review-and-fix/references/*.md"
+_ra_has "#624 A5i3 the unestablished line is attributed to the review-and-fix row" "$RA_A5I3" \
+  "[review-and-fix-budget] INFO unestablished"
+_ra_live_unchanged "#624 A5i3 live manifest byte-unchanged after the renamed-references run"
+
 # ── A5j — an UNREADABLE coverage-map is infrastructure, not "add the missing rows" ──
 # A5g covers the guard's [input-error] (git) path. An absent/malformed coverage-map
 # takes a DIFFERENT path ([arm4]/[arm8]) and arm 4 RETURNS before every map-dependent
@@ -800,6 +849,12 @@ printf '\n<!-- #624 raf record updated -->\n' >> "$RA_A6E/docs/review-and-fix-bu
 _ra_run "$RA_A6E"
 _ra_has "#624 A6e a branch that updated the review-and-fix record gets an informational line" "$RA_A6E" \
   "[review-and-fix-budget] INFO bundle members changed"
+# The sibling row must stay clean here too — same anti-vacuity control A6d carries. Without
+# it this arm's only corroboration is rc 0, which a fixture where NEITHER row noticed
+# anything also produces, so the pair would be asymmetric in exactly the direction that
+# hides a mis-aimed watch list.
+_ra_has "#624 A6e the review-bundle row stays clean when only review-and-fix moved" "$RA_A6E" \
+  "[review-bundle-budget] clean"
 assert_eq "#624 A6e a branch that updated the review-and-fix record runs clean" "0" "$(_ra_rc "$RA_A6E")"
 _ra_live_unchanged "#624 A6e live manifest byte-unchanged after the resolved-record run"
 
@@ -840,6 +895,22 @@ _ra_has "#624 A5p2 the unreadable census input is attributed to its own row" "$R
 _ra_has "#624 A5p2 the unreadable census input is matched by its own marker" "$RA_A5P2" \
   "matched ': unreadable:'"
 _ra_live_unchanged "#624 A5p2 live manifest byte-unchanged after the unreadable-census-input run"
+
+# ── #624 registry invariant — is_budget_row's documented coincidence, pinned ──────
+# `is_budget_row` keys on `watch_literals` rather than the "has no argv" proxy, and its
+# docstring says the two coincide only because every command-less row today IS a budget
+# row. That is a claim about the registry, and nothing asserted it: the predicate's own
+# arms are driven by every other arm here, but the coincidence it warns about is not. Pin
+# it so the day a command-less non-budget row (or a budget row that gains an argv) lands,
+# the suite says so — rather than the docstring quietly becoming false.
+RA_INVARIANT="$(python3 -c '
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ra", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+bad = [r["name"] for r in m.ROWS if m.is_budget_row(r) != (r["argv"] is None)]
+print(",".join(bad))
+' "$RA_HELPER" 2>&1)"
+assert_eq "#624 every registry row satisfies is_budget_row(row) == (row['argv'] is None)" "" "$RA_INVARIANT"
 
 # ── Helper-content contracts (the registration rule and the disclosed non-goals) ─
 devflow_module_pin_unique "#619 the helper header carries the registration rule" 'A PR that adds a checked-in generated artifact gated by the suite adds a row to this registry in the same PR.' "$RA_HELPER"

@@ -23,8 +23,9 @@ review convention of the same class as the capability manifest's `manifest_versi
 bump rule. The suite pins the current rows through `--list`.
 
 INCLUSION CRITERION for a row: a checked-in record whose suite gate goes RED on
-loop-induced edits AND which has a standalone non-writing check command (a
-regeneration command, for a mechanical row).
+loop-induced edits AND whose state this helper can establish without writing it — either
+a standalone non-writing check command (a regeneration command, for a mechanical row) or
+an in-helper git-derived staleness check (a budget row, which launches no command).
 
 DELIBERATELY EXCLUDED as artifact rows, because they are REDUNDANT — not because they
 are uncovered: `scripts/workflow-flight-recorder-registry.json` and
@@ -85,7 +86,9 @@ MECHANICAL_ARTIFACT = "scripts/devflow-cloud-writer-contract.json"
 # `watch_globs`), not by module-level constants: with more than one such row the registry
 # stays the single enumeration point, which is the property issue #619 established and
 # issue #624 preserved when the second row landed. Each row's glob member joins its watch
-# list the moment the file lands on disk.
+# list the moment the file lands on disk. `is_budget_row` keys on `watch_literals` as the
+# single spelling of that membership test — see its docstring for why the "has no argv"
+# proxy is not used.
 
 # Ordered registry. `argv` is resolved under the target root and run with that root as
 # the working directory, so a fixture root exercises the fixture's own generators.
@@ -345,10 +348,12 @@ def is_budget_row(row):
 
     ONE spelling of this predicate, used by both the check-strategy binding below and
     `emit_list`. Keyed on the watch list the callers actually consume, never on the proxy
-    "has no argv": those coincide only because today's two command-less rows happen to be
-    the two budget rows, so a future command-less non-budget row (a pure-Python check, a
-    placeholder) would dispatch `budget_row` at one site and be skipped at the other —
-    opposite directions, and `--list` would drop a row's members with nothing failing.
+    "has no argv": those coincide only because every command-less row today is a budget
+    row, so a future command-less non-budget row (a pure-Python check, a placeholder)
+    would dispatch `budget_row` at one site and be skipped at the other — opposite
+    directions, and `--list` would drop a row's members with nothing failing. The module's
+    `#624 registry invariant` arm pins that coincidence, so the day it breaks the suite
+    says so rather than this docstring silently going stale.
     """
     return "watch_literals" in row
 
