@@ -34733,28 +34733,40 @@ assert_eq "#618: the review-and-fix extension's self-apply ceiling phrase render
 _rb_ac3_row="$(grep -F '| Shipped-default per-pass path (AC3' "$RB_DOC" || true)"
 assert_eq "#618: the budget doc's AC3 row pins ceiling and measured in adjacent columns (positional, not presence)" "yes" \
   "$(case "${_rb_ac3_row//,/}" in *"| ≤ $RB_SHIPPED_CEIL words | **$_rb_shipped_w** |"*) echo yes;; *) echo no;; esac)"
-# #618 (PR #639 review, pr-test-analyzer stale-OLD-value blind spot): every mirror pin above is
-# a POSITIVE presence match on the CURRENT ceiling phrase. A single occurrence carrying a stale
-# OLD value is already caught (the current value would be absent → the positive pin REDs), but a
-# surviving DUPLICATE occurrence carrying an old value — a leftover `shipped-default per-pass
-# path ≤ 30100 words` while the canonical `≤ 32399 words` remains — slips every positive pin.
-# That matters most for the extension: the self-apply procedure designates it as the file a fix
-# loop READS while renegotiating, so a stale copy there misdirects the very procedure this gate
-# protects, suite still green. Negative scan over the two phrase-carrying mirrors (CLAUDE.md +
-# the extension): every occurrence of the `shipped-default per-pass path ≤ <n> words` phrase MUST
-# render the current RB_SHIPPED_CEIL. Comma-strip (pure-bash — no non-preflight PATH tool) so the
-# grouped (`32,399`) and ungrouped (`32399`) forms unify, then require prefix-count == current-
-# value-count; a stale duplicate makes the prefix count exceed → RED. Fails closed: the files are
-# guaranteed non-empty by the positive pins above, and `grep -cF` prints 0 on no match (|| true
-# keeps that a count, not a set -e abort). The `≤ 30,100` future-target text in both files does
-# NOT carry the `shipped-default per-pass path ≤` prefix, so it never false-positives.
+# #618 (PR #639 review, pr-test-analyzer stale-OLD-value blind spot; iter-2 corroboration): every
+# mirror pin above is a POSITIVE presence match on the CURRENT ceiling phrase. A single occurrence
+# carrying a stale OLD value is already caught (the current value would be absent → the positive
+# pin REDs), but a surviving DUPLICATE occurrence carrying an old value — a leftover `shipped-
+# default per-pass path ≤ 30100 words` while the canonical `≤ 32399 words` remains — slips every
+# positive pin. That matters most for the extension (the file the self-apply loop READS while
+# renegotiating) and the budget doc's decision record (the record CLAUDE.md names authoritative,
+# hand-edited during the self-apply loop). Negative scan: count OCCURRENCES — `grep -oF` emits one
+# line PER match, so a stale duplicate on the SAME physical line (the realistic case: both mirrors
+# carry the phrase on a single markdown bullet/paragraph line, and the most likely leftover is in
+# the very bullet just edited) is caught; a plain `grep -c` counts matching LINES and would miss
+# it. Require prefix-occurrence-count == current-value-occurrence-count; a stale duplicate makes
+# the prefix count exceed → RED. Comma-strip (pure-bash — no non-preflight PATH tool in the
+# selection) so grouped (`32,399`) and ungrouped (`32399`) forms unify; `grep -c '^' || true`
+# keeps a zero-match a count, not a set -e abort. Fails closed: the files are guaranteed non-empty
+# by the positive pins above. The `≤ 30,100` future-target text carries no `shipped-default per-
+# pass path ≤` prefix, so it never false-positives.
 _rb_claudemd_nocommas="$(< "$RB_CLAUDEMD")"; _rb_claudemd_nocommas="${_rb_claudemd_nocommas//,/}"
 assert_eq "#618: CLAUDE.md carries no stale-value copy of the ceiling phrase (every occurrence renders the current RB_SHIPPED_CEIL)" \
-  "$(printf '%s\n' "$_rb_claudemd_nocommas" | grep -cF 'shipped-default per-pass path ≤ ' || true)" \
-  "$(printf '%s\n' "$_rb_claudemd_nocommas" | grep -cF "shipped-default per-pass path ≤ $RB_SHIPPED_CEIL words" || true)"
+  "$(printf '%s\n' "$_rb_claudemd_nocommas" | grep -oF 'shipped-default per-pass path ≤ ' | grep -c '^' || true)" \
+  "$(printf '%s\n' "$_rb_claudemd_nocommas" | grep -oF "shipped-default per-pass path ≤ $RB_SHIPPED_CEIL words" | grep -c '^' || true)"
 assert_eq "#618: the review-and-fix extension carries no stale-value copy of the ceiling phrase (fourth mirror; every occurrence renders the current RB_SHIPPED_CEIL)" \
-  "$(printf '%s\n' "$_rb_rafext_nocommas" | grep -cF 'shipped-default per-pass path ≤ ' || true)" \
-  "$(printf '%s\n' "$_rb_rafext_nocommas" | grep -cF "shipped-default per-pass path ≤ $RB_SHIPPED_CEIL words" || true)"
+  "$(printf '%s\n' "$_rb_rafext_nocommas" | grep -oF 'shipped-default per-pass path ≤ ' | grep -c '^' || true)" \
+  "$(printf '%s\n' "$_rb_rafext_nocommas" | grep -oF "shipped-default per-pass path ≤ $RB_SHIPPED_CEIL words" | grep -c '^' || true)"
+# The budget doc carries the shipped-default ceiling in a DECISION-RECORD prose shape `≤ <n> words**`
+# (bold) that is UNIQUE to it (the AC2 root+extension ceiling uses `≤ N words |`, no bold), so an
+# occurrence count of every `≤ <digits> words**` vs the current-value form catches a stale bold
+# duplicate in the record the self-apply loop hand-edits. The `≤ N words |` TABLE-cell shape is
+# deliberately NOT count-scanned — it is shared with the AC2 8,500 row, so a count-equality would
+# false-positive; that cell is guarded instead by the positional AC3-row pin below (ceiling AND
+# measured adjacent). Same fail-closed/occurrence-count discipline as the two mirrors above.
+assert_eq "#618: the budget doc's decision-record prose carries no stale-value bold ceiling (every ≤…words** renders the current RB_SHIPPED_CEIL)" \
+  "$(printf '%s\n' "$_rb_doc_nocommas" | grep -oE '≤ [0-9]+ words\*\*' | grep -c '^' || true)" \
+  "$(printf '%s\n' "$_rb_doc_nocommas" | grep -oF "≤ $RB_SHIPPED_CEIL words**" | grep -c '^' || true)"
 # Captured once: the SAME emitted line is asserted to shrink AND to have been fed the
 # standalone set. Re-invoking would let the two assertions diverge. No skip arm is
 # needed any more — the baseline is a frozen constant, so there is no external ref
