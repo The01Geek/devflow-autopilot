@@ -1,0 +1,43 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-20T21:05:00Z",
+  "fix_commit_sha": null,
+  "fix_files": [],
+  "loop_role": "fix",
+  "current_step": "2.6",
+  "current_substep": "converged",
+  "pending_dispatch": null,
+  "checklist": [],
+  "phase3_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter"],
+  "diff_profile": {"small_diff": true, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": null},
+  "phase3_findings": [
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "the timeout breadcrumb does not distinguish which bound tripped (wall-clock deadline vs the poll-count clock-stall backstop); advisory only, masks no error",
+      "defect_signature": {"file": "lib/test/module-harness.sh", "line_range": [427, 429], "kind": "undistinguished_breadcrumb"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "below-threshold"
+    }
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-5", "decision": "below-threshold", "source_file": "lib/test/module-harness.sh", "claim_text": "breadcrumb does not name which bound fired", "skip_category": "below-threshold-parked", "evidence": "parked-origin: below-threshold"}
+  ],
+  "convergence_inputs": {"fixes_applied": 0, "fix_diff_lines": 0, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "shadow": {
+    "ran_at": "2026-07-20T21:05:00Z",
+    "reviewed_sha": "b1a9f6e8d5ce0f65a5adb5d8c2e1b0f6f3eaff69",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter"],
+    "reason": "convergence re-review of the iteration-1 fix delta; both reviewers confirmed the fixes correct with no new Critical/Important findings",
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 1, "overlap_with_iter_N": 0, "new": 1, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false
+  },
+  "telemetry": {"phase_3": {"calls": 2, "tokens": 100000, "wall_clock_s": 30}}
+}
