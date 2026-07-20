@@ -27,6 +27,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "lib/dispatch-disposition.jq": {
+      "note": "issue #626 mechanical skip-or-dispatch classifier; driven directly in lib/test/run.sh cheap-gate/dispatch block",
+      "owner": "unmodularized"
+    },
     "lib/efficiency-trace.jq": {
       "note": "",
       "owner": "unmodularized"
