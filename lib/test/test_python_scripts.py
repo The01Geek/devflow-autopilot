@@ -2912,6 +2912,126 @@ assert_eq("effort-app(#554): empty dispatched → empty decision map",
 assert_eq("effort-app(#554): empty decisions → no report lines",
           [], _rro.format_effort_reports({}, {}))
 
+# --- effort observability blocks (issue #609): requested/resolved + decision ---
+# build_effort_observability composes, per DISPATCHED agent, the five-field
+# block the iter workpad's `dispatched_effort` entries carry: `requested` (the
+# raw configured effort before validation — entry-level precedence, no default
+# backfill), `resolved` (the validated effort from the resolve_overrides map),
+# and the decide_effort_applications trio. Complete by construction: every block
+# carries all five keys.
+
+_EO_KEYS = {"requested", "resolved", "application_point", "effective",
+            "fallback_reason"}
+
+# EO1: own-entry valid effort → requested == resolved, session-fallback.
+_eo1_raw = {"devflow:checklist-generator": {"effort": "low"}}
+_eo1_res, _ = _rro.resolve_overrides(_eo1_raw, ["devflow:checklist-generator"])
+_eo1 = _rro.build_effort_observability(
+    _eo1_raw, _eo1_res, ["devflow:checklist-generator"])
+assert_eq("effort-obs(#609): own-entry requested carries the configured value",
+          "low", _eo1["devflow:checklist-generator"]["requested"])
+assert_eq("effort-obs(#609): own-entry resolved carries the validated value",
+          "low", _eo1["devflow:checklist-generator"]["resolved"])
+assert_eq("effort-obs(#609): resolved effort → session-fallback",
+          "session-fallback",
+          _eo1["devflow:checklist-generator"]["application_point"])
+assert_eq("effort-obs(#609): effective is null unless read back",
+          None, _eo1["devflow:checklist-generator"]["effective"])
+assert_eq("effort-obs(#609): every block carries exactly the five effort keys",
+          _EO_KEYS, set(_eo1["devflow:checklist-generator"].keys()))
+
+# EO2: no override anywhere → all-null block with session-inheritance.
+_eo2 = _rro.build_effort_observability({}, {}, ["devflow:code-reviewer"])
+assert_eq("effort-obs(#609): no override → session-inheritance all-null block",
+          {"requested": None, "resolved": None,
+           "application_point": "session-inheritance",
+           "effective": None, "fallback_reason": None},
+          _eo2["devflow:code-reviewer"])
+
+# EO3: an INVALID configured effort is visible as requested != resolved — the
+# silent-drop signal the observability block exists to expose. The resolver
+# dropped it, so the decision is session-inheritance (nothing resolved), but
+# requested still records what the config asked for.
+_eo3_raw = {"devflow:code-reviewer": {"effort": "ultra"}}
+_eo3_res, _ = _rro.resolve_overrides(_eo3_raw, ["devflow:code-reviewer"])
+_eo3 = _rro.build_effort_observability(
+    _eo3_raw, _eo3_res, ["devflow:code-reviewer"])
+assert_eq("effort-obs(#609): invalid effort keeps requested='ultra'",
+          "ultra", _eo3["devflow:code-reviewer"]["requested"])
+assert_eq("effort-obs(#609): invalid effort resolves to null",
+          None, _eo3["devflow:code-reviewer"]["resolved"])
+assert_eq("effort-obs(#609): invalid-dropped effort → session-inheritance",
+          "session-inheritance",
+          _eo3["devflow:code-reviewer"]["application_point"])
+
+# EO4: default-entry effort supplies a no-entry agent (requested follows the
+# same entry-level precedence resolve_overrides applies).
+_eo4_raw = {"default": {"effort": "medium"}}
+_eo4_res, _ = _rro.resolve_overrides(_eo4_raw, ["devflow:checklist-verifier"])
+_eo4 = _rro.build_effort_observability(
+    _eo4_raw, _eo4_res, ["devflow:checklist-verifier"])
+assert_eq("effort-obs(#609): default supplies requested for a no-entry agent",
+          "medium", _eo4["devflow:checklist-verifier"]["requested"])
+assert_eq("effort-obs(#609): default-supplied effort resolves and falls back",
+          "session-fallback",
+          _eo4["devflow:checklist-verifier"]["application_point"])
+
+# EO5: an own entry WITHOUT effort blocks default backfill — requested is null
+# even though default carries an effort (entry-level precedence, mirrored).
+_eo5_raw = {"default": {"effort": "medium"},
+            "devflow:code-reviewer": {"model": "claude-opus-4-8"}}
+_eo5_res, _ = _rro.resolve_overrides(_eo5_raw, ["devflow:code-reviewer"])
+_eo5 = _rro.build_effort_observability(
+    _eo5_raw, _eo5_res, ["devflow:code-reviewer"])
+assert_eq("effort-obs(#609): own entry without effort → requested null (no backfill)",
+          None, _eo5["devflow:code-reviewer"]["requested"])
+assert_eq("effort-obs(#609): own entry without effort → session-inheritance",
+          "session-inheritance",
+          _eo5["devflow:code-reviewer"]["application_point"])
+
+# EO6: capability-restricted (Haiku) — the block's fallback_reason names the
+# model, same decision the #554 report path computes (single source).
+_eo6_raw = {"devflow:code-reviewer":
+            {"model": "claude-haiku-4-5-20251001", "effort": "low"}}
+_eo6_res, _ = _rro.resolve_overrides(_eo6_raw, ["devflow:code-reviewer"])
+_eo6 = _rro.build_effort_observability(
+    _eo6_raw, _eo6_res, ["devflow:code-reviewer"])
+assert_eq("effort-obs(#609): Haiku block is session-fallback",
+          "session-fallback",
+          _eo6["devflow:code-reviewer"]["application_point"])
+assert_eq("effort-obs(#609): Haiku block's fallback_reason names the model",
+          True,
+          "haiku" in _eo6["devflow:code-reviewer"]["fallback_reason"].lower())
+
+# EO7: the CLI seam — `--effort-json` prints the observability map (NOT the
+# override map) as pure JSON on stdout, and does not re-emit the #554 effort
+# report lines (the normal resolve call already reported them).
+_saved_read_raw = _rro.read_raw
+_rro.read_raw = lambda agents, config_get, config: (
+    {"devflow:checklist-generator": {"effort": "low"}}, [])
+try:
+    _eo7_out, _eo7_err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(_eo7_out), \
+         contextlib.redirect_stderr(_eo7_err):
+        _eo7_rc = _rro.main(["devflow:checklist-generator", "--effort-json"])
+    _eo7_map = _json.loads(_eo7_out.getvalue())
+    assert_eq("effort-obs(#609): --effort-json exits 0", 0, _eo7_rc)
+    assert_eq("effort-obs(#609): --effort-json stdout is the five-field map",
+              {"requested": "low", "resolved": "low",
+               "application_point": "session-fallback",
+               "effective": None,
+               "fallback_reason": _eo7_map
+               ["devflow:checklist-generator"]["fallback_reason"]},
+              _eo7_map["devflow:checklist-generator"])
+    assert_eq("effort-obs(#609): --effort-json fallback_reason is non-null",
+              True,
+              _eo7_map["devflow:checklist-generator"]["fallback_reason"]
+              is not None)
+    assert_eq("effort-obs(#609): --effort-json does not re-emit the effort report",
+              False, "::notice::" in _eo7_err.getvalue())
+finally:
+    _rro.read_raw = _saved_read_raw
+
 # read_raw integration (exercises the real config-get.sh I/O path, not just the
 # pure resolver). The empty-own-entry contract must hold END-TO-END: the leaf
 # reads alone can't tell {} from an absent key, so read_raw probes the entry
@@ -3647,6 +3767,189 @@ assert_eq("#424: an overstated hunk count does not swallow the next hunk header"
 assert_eq("#424: parse_diff attributes nothing to a /dev/null target",
           {}, stale_prose_lint.parse_diff(
               "--- a/f.md\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-gone\n"))
+
+# ── #629 move-awareness: the removed-line half of the diff parse ──────────────────────────
+# `parse_diff_full` is the boundary the exemption's multiplicity rule reads, so its removed
+# tally gets the unified-diff format's own boundary rows. The PURE-DELETION hunk is the
+# load-bearing one: its post-image budget is 0 from the start, so a post-image-only "in a
+# hunk?" test drops its `-` lines onto the between-hunks arm — and a wholly deleted source
+# file is the COMMONEST extraction shape, so that drop would make the exemption inert on the
+# very move it exists for (the exit code would stay 1 and the fix would read as not working).
+assert_eq("#629: parse_diff_full tallies removed lines from a PURE-DELETION hunk "
+          "(post-image budget 0 — the wholly-deleted move-source shape)",
+          {"moved claim": 1, "Case 1 alpha": 1},
+          dict(stale_prose_lint.parse_diff_full(
+              "--- a/src.md\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-moved claim\n-Case 1 alpha\n")[1]))
+
+# The post-image half is unchanged by that bookkeeping: the same diff still attributes no
+# added lines, so the /dev/null contract above and the removed tally coexist.
+assert_eq("#629: the pure-deletion hunk still contributes no ADDED lines",
+          {}, stale_prose_lint.parse_diff_full(
+              "--- a/src.md\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-moved claim\n-Case 1 alpha\n")[0])
+
+# A mixed hunk: removals are tallied by RAW text (identity, not the `_norm_line` scoping
+# normalisation), and a context line spends both budgets without being tallied either way.
+assert_eq("#629: parse_diff_full tallies only `-` lines, by raw text, across a mixed hunk, "
+          "and records each removal's SOURCE path (the provenance operand)",
+          ({"f.md": {1: "added", 3: "moved"}}, {"dropped": 1}, {"f.md": {"dropped": 1}}),
+          (lambda r: (r[0], dict(r[1]), {k: dict(v) for k, v in r[2].items()}))(
+              stale_prose_lint.parse_diff_full(
+                  "--- a/f.md\n+++ b/f.md\n@@ -1,2 +1,3 @@\n+added\n kept\n-dropped\n+moved\n")))
+
+# `--- /dev/null` (a NEW file) attributes nothing: there is no source file to attribute to.
+assert_eq("#629: parse_diff_full attributes no provenance for a `--- /dev/null` new-file hunk",
+          {}, stale_prose_lint.parse_diff_full(
+              "--- /dev/null\n+++ b/new.md\n@@ -0,0 +1,1 @@\n+fresh\n")[2])
+
+# A second file entry must NOT inherit the previous entry's source path. Before the
+# `diff --git ` reset, removals under a header-less section were attributed to the PREVIOUS
+# file — a FALSE provenance record, which is worse than a missing one because the referent
+# rule's intersection can be satisfied by it.
+assert_eq("#629: parse_diff_full resets the source path at a `diff --git ` boundary so a "
+          "header-less section's removals are never MISattributed to the previous file",
+          {"x.md": {"gone": 1}},
+          {k: dict(v) for k, v in stale_prose_lint.parse_diff_full(
+              "diff --git a/x.md b/x.md\n--- a/x.md\n+++ b/x.md\n@@ -1,1 +1,0 @@\n-gone\n"
+              "diff --git a/y.md b/y.md\n+++ b/y.md\n@@ -1,1 +1,0 @@\n-alsogone\n")[2].items()})
+
+# An unparseable POST-IMAGE hunk header must shut the hunk, not let a parsed pre-image side
+# hold it open and record added lines at fabricated numbers from 0 (which would anchor claims
+# on arbitrary lines AND undercount occurrences, biasing multiplicity toward exemption).
+assert_eq("#629: an unparseable post-image hunk header records NO added lines (fails closed "
+          "rather than numbering them from 0 off the pre-image side)",
+          {}, stale_prose_lint.parse_diff_full(
+              "--- a/f.md\n+++ b/f.md\n@@ -1,5 +?? @@\n+claimed\n")[0].get("f.md", {}))
+
+# Provenance across a two-file move: the claim leaves src.md, so `sources` must attribute it
+# to src.md and NOT to the unrelated other.md removal. This is the operand the referent rule
+# intersects against; without it a boilerplate collision anywhere in the diff reads as a move.
+assert_eq("#629: build_move_index attributes each relocated text to the file it was removed FROM",
+          {"claim": frozenset({"src.md"}), "boiler": frozenset({"other.md"})},
+          (lambda r: stale_prose_lint.build_move_index(r[0], r[1], r[2]).sources)(
+              stale_prose_lint.parse_diff_full(
+                  "--- a/src.md\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-claim\n"
+                  "--- a/other.md\n+++ b/other.md\n@@ -1,1 +1,0 @@\n-boiler\n")))
+
+# The multiplicity rule in isolation, at its three decisive points. The SURPLUS row is what
+# keeps the exemption from degrading to bare set-membership: with additions outnumbering
+# removals, EVERY occurrence of that text grades as authored, not just the surplus one.
+_R_FILES = {"a.md": {1: "moved", 2: "copied"}, "b.md": {5: "copied", 9: "authored"}}
+assert_eq("#629: relocated_texts exempts an equal-count text, refuses a surplus one, "
+          "and refuses a text with no removal at all",
+          {"moved"},
+          stale_prose_lint.relocated_texts(_R_FILES, {"moved": 1, "copied": 1}))
+assert_eq("#629: a text removed MORE often than added is still exempt (a partial move), alongside an equal-count one in the same call",
+          {"moved", "copied"},
+          stale_prose_lint.relocated_texts(_R_FILES, {"moved": 3, "copied": 2}))
+# An additions-only diff is the cross-diff-relocation non-goal: the exemption is inert by
+# design, so grading falls back to today's behavior rather than failing open.
+assert_eq("#629: an additions-only diff yields an EMPTY exemption set (the exemption is "
+          "inert by design on a cross-diff relocation, failing toward gating)",
+          set(), stale_prose_lint.relocated_texts(_R_FILES, {}))
+
+# The referent rule in isolation. A referent line the diff did NOT add is pre-existing
+# content and imposes no obligation; a diff-added one must itself be relocated, which is
+# what makes the split-then-extend shape gate.
+_MV = stale_prose_lint.MoveIndex(
+    frozenset({"hdr", "Case 2"}),
+    {"hdr": frozenset({"src.md"}), "Case 2": frozenset({"src.md"})})
+_SRC = frozenset({"src.md"})
+assert_eq("#629: _referents_relocated permits an exemption whose referents are pre-existing",
+          True, stale_prose_lint._referents_relocated({1: "hdr"}, _MV, _SRC, [4, 7]))
+assert_eq("#629: _referents_relocated permits an exemption whose added referents are relocated",
+          True, stale_prose_lint._referents_relocated(
+              {1: "hdr", 5: "Case 2"}, _MV, _SRC, [4]))
+assert_eq("#629: _referents_relocated REFUSES when a diff-added referent is authored "
+          "(the split-then-extend shape — PR-authored referent growth is authored staleness)",
+          False, stale_prose_lint._referents_relocated(
+              {1: "hdr", 5: "Case 3"}, _MV, _SRC, [4]))
+
+# PROVENANCE: a referent whose text IS relocated but whose source file is disjoint from the
+# claim's is refused. This is the boilerplate-coincidence fail-open the shared-source-file
+# requirement closes — the referent rule's operand, not a refinement of it.
+_MV_X = stale_prose_lint.MoveIndex(
+    frozenset({"hdr", "boiler"}),
+    {"hdr": frozenset({"src.md"}), "boiler": frozenset({"other.md"})})
+assert_eq("#629: _referents_relocated REFUSES a relocated referent whose provenance shares no "
+          "source file with the claim (authored referent colliding with an unrelated removal)",
+          False, stale_prose_lint._referents_relocated(
+              {1: "hdr", 5: "boiler"}, _MV_X, _SRC, [4]))
+
+# The CORRESPONDENCE-MISMATCH arm (distinct from the out-of-range arm below): the diff records
+# an added text at this post-image number, but the post-diff file's line there is DIFFERENT.
+# The numbering is skewed, so the "relocated" verdict was read off the wrong line. Shadow
+# review mutation-proved this arm had no covering test — removing it flipped only this shape.
+assert_eq("#629: _referents_relocated fails CLOSED when the diff's added text does not MATCH "
+          "the post-diff file's line at that index (a skewed post-image join is not innocence)",
+          False, stale_prose_lint._referents_relocated(
+              {1: "hdr", 5: "Case 2"}, _MV, _SRC, [4],
+              ["a", "b", "c", "d", "SOMETHING ELSE ENTIRELY"]))
+
+# The absent operand fails CLOSED: an out-of-range referent index means the post-image/file
+# numberings do not correspond, so the "pre-existing, no obligation" arm must NOT be taken.
+assert_eq("#629: _referents_relocated fails CLOSED on an out-of-range referent index "
+          "(an unresolvable join is not innocence)",
+          False, stale_prose_lint._referents_relocated({1: "hdr"}, _MV, _SRC, [99], ["hdr"]))
+
+# Correspondence is compared through _norm_line so a CRLF file — whose diff keeps the CR but
+# whose `git show` read has it stripped by universal-newline translation — is not denied
+# wholesale. Identity stays raw; only this join absorbs the channel difference.
+assert_eq("#629: _referents_relocated tolerates the CRLF channel difference in the "
+          "correspondence check (diff keeps the CR, the file read does not)",
+          True, stale_prose_lint._referents_relocated(
+              {1: "hdr", 5: "Case 2\r"},
+              stale_prose_lint.MoveIndex(frozenset({"hdr", "Case 2\r"}),
+                                         {"hdr": _SRC, "Case 2\r": _SRC}),
+              _SRC, [4], ["a", "b", "c", "d", "Case 2"]))
+
+# DEFERRED (issue #629 review, pr-test-analyzer Suggestion 6): no pinning characterization
+# test for disclosed non-goal cases 10 (referent deletion) / 11 (block merge). WHY: neither
+# case has behavior of its own to pin — both are the *already-pinned* multiplicity and
+# referent rules resolving to the demotion, and the design record above declares the outcome
+# accepted. A characterization test would restate those two rules through a longer fixture
+# and would go red on any deliberate re-tuning of them, pinning the accepted residual as if
+# it were a contract. REVISIT WHEN: either case is promoted from disclosed non-goal to a
+# gating requirement, or a rule change makes their outcome differ from the general rules.
+
+# ── #629: _emit_count's three arms under demote=True ──────────────────────────────────────
+# R2/R3/R3b differ only in their per-verdict detail strings and all resolve to this one
+# helper, so driving the helper directly covers every rule that reaches it. Without the
+# VERIFIED and UNRESOLVABLE arms asserted under demote=True, a mutant that let `demote`
+# leak past the STALE arm — rewriting an exempt-but-MATCHING claim's verdict, or prefixing
+# a no-block row — would ship green: only R1 carried an equivalent guard.
+
+
+def _emit_arm(n, c, demote):
+    rows = []
+    stale_prose_lint._emit_count(rows, "R2", "f.md", 7, n, c,
+                                 "U-detail", "S-detail", "V-detail", demote=demote)
+    return (rows[0].verdict, rows[0].detail)
+
+
+assert_eq("#629: _emit_count VERIFIED arm is UNTOUCHED by demote=True (an exempt claim whose "
+          "referent MATCHES stays a plain VERIFIED, unprefixed)",
+          (stale_prose_lint.VERIFIED, "V-detail"), _emit_arm(3, 3, True))
+assert_eq("#629: _emit_count UNRESOLVABLE (no-block) arm is UNTOUCHED by demote=True — it is "
+          "already non-gating and must NOT acquire the relocation prefix",
+          (stale_prose_lint.UNRESOLVABLE, "U-detail"), _emit_arm(3, 0, True))
+assert_eq("#629: _emit_count STALE arm under demote=True becomes non-gating UNRESOLVABLE and "
+          "carries the original diagnostic VERBATIM behind the prefix (deletion-free)",
+          (stale_prose_lint.UNRESOLVABLE, stale_prose_lint.RELOCATED_PREFIX + "S-detail"),
+          _emit_arm(3, 4, True))
+assert_eq("#629: _emit_count STALE arm without demote still GATES as STALE",
+          (stale_prose_lint.STALE, "S-detail"), _emit_arm(3, 4, False))
+
+# ── #629: pre_budget accounting for a removal that TRAILS the additions in a mixed hunk ────
+# The hunk's post-image budget (2) is exhausted by the two `+` lines, but the hunk is still
+# open because the pre-image budget is not — so the trailing `-` must still be tallied. A
+# parser closing the hunk on the post-image budget alone would drop it, silently starving the
+# exemption of the very removal that licenses the move.
+assert_eq("#629: parse_diff_full tallies a removal that TRAILS the additions in a mixed hunk, "
+          "after the post-image budget is already spent",
+          {"gone": 1},
+          dict(stale_prose_lint.parse_diff_full(
+              "diff --git a/s.md b/s.md\n--- a/s.md\n+++ b/s.md\n"
+              "@@ -1,2 +1,3 @@\n ctx\n+one\n+two\n-gone\n")[1]))
 
 # main()'s exit-2 catch-all must cover the WHOLE body. Before the #424 fix the stream
 # reconfigure and the argparse construction sat OUTSIDE the guard, so an exception there

@@ -20541,6 +20541,87 @@ assert_eq "et: invalid --mode → exit 2" "2" "$ET_MODE_RC"
 
 rm -rf "$ET_DIR" "$ET_DEG" "$ET_EMPTY"; rm -f "$ET_CFG"
 
+# ── #609 agent_effort[]: per-agent effort observability in the per-run record ─
+# The record carries, per dispatched agent, agent id + exactly the five effort
+# observability fields (requested/resolved/application_point/effective/
+# fallback_reason), populated over the FULL dispatched roster — phase3_dispatched
+# ∪ the agents in the new `dispatched_effort` iter-workpad field — never the
+# resolver map alone. `dispatched_effort` is the field that captures the
+# Phase-1/1.5/2 dispatch roster (a checklist-phase agent never appears in
+# phase3_dispatched), so the checklist-generator assertion below FAILS against a
+# Phase-3-only implementation by construction (AC4), and the no-override
+# code-reviewer assertion is the full-roster arm (AC5).
+AE_DIR="$(mktemp -d)"
+cat > "$AE_DIR/iter-1.json" <<'EOF'
+{
+  "iter": 1,
+  "checklist": [],
+  "dispatched_effort": [
+    {"agent":"devflow:checklist-generator","phase":"1","requested":"low","resolved":"low","application_point":"session-fallback","effective":null,"fallback_reason":"per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"}
+  ],
+  "phase3_dispatched": ["devflow:code-reviewer"],
+  "phase3_findings": [],
+  "convergence_inputs": {"fixes_applied": 0},
+  "telemetry": "unavailable"
+}
+EOF
+AE_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$AE_DIR" --slug "pr-609" --mode record)"
+AE_field() { echo "$AE_REC" | jq -r --arg a "$1" --arg f "$2" '.per_iteration[0].agent_effort[]? | select(.agent==$a) | .[$f]'; }
+AE_field_type() { echo "$AE_REC" | jq -r --arg a "$1" --arg f "$2" '.per_iteration[0].agent_effort[]? | select(.agent==$a) | .[$f] | type'; }
+# AC4: the Phase-1 agent is routed through dispatched_effort into agent_effort.
+assert_eq "#609 agent_effort: checklist-generator (Phase-1) block carries session-fallback" \
+  "session-fallback" "$(AE_field 'devflow:checklist-generator' 'application_point')"
+assert_eq "#609 agent_effort: checklist-generator requested rides through" \
+  "low" "$(AE_field 'devflow:checklist-generator' 'requested')"
+assert_eq "#609 agent_effort: checklist-generator resolved rides through" \
+  "low" "$(AE_field 'devflow:checklist-generator' 'resolved')"
+assert_eq "#609 agent_effort: checklist-generator fallback_reason is a string" \
+  "string" "$(AE_field_type 'devflow:checklist-generator' 'fallback_reason')"
+# AC5: a dispatched Phase-3 agent with NO dispatched_effort entry still gets a
+# block — all-null effort, session-inheritance, fallback_reason null.
+assert_eq "#609 agent_effort: no-override phase3 agent → session-inheritance" \
+  "session-inheritance" "$(AE_field 'devflow:code-reviewer' 'application_point')"
+assert_eq "#609 agent_effort: no-override requested is JSON null" \
+  "null" "$(AE_field_type 'devflow:code-reviewer' 'requested')"
+assert_eq "#609 agent_effort: no-override resolved is JSON null" \
+  "null" "$(AE_field_type 'devflow:code-reviewer' 'resolved')"
+assert_eq "#609 agent_effort: no-override fallback_reason is JSON null" \
+  "null" "$(AE_field_type 'devflow:code-reviewer' 'fallback_reason')"
+assert_eq "#609 agent_effort: effective is JSON null (never inferred)" \
+  "null" "$(AE_field_type 'devflow:checklist-generator' 'effective')"
+# Complete by construction: each block is agent + exactly the five effort fields.
+assert_eq "#609 agent_effort: block keys are agent + the five effort fields exactly" \
+  "agent,application_point,effective,fallback_reason,requested,resolved" \
+  "$(echo "$AE_REC" | jq -r '.per_iteration[0].agent_effort[0] | keys | sort | join(",")')"
+# Unknown-vs-zero honesty: the roster field's presence is recorded, mirroring
+# phase3_dispatched_present.
+assert_eq "#609 agent_effort: dispatched_effort_present true when the field exists" \
+  "true" "$(echo "$AE_REC" | jq -r '.per_iteration[0].dispatched_effort_present')"
+rm -rf "$AE_DIR"
+# Degradation: an iter with NO dispatched_effort field (an older workpad) still
+# yields agent_effort over phase3_dispatched (all session-inheritance), with the
+# presence flag false — additive and nullable, no schema_version bump.
+AE_OLD="$(mktemp -d)"
+printf '{"iter":1,"checklist":[],"phase3_dispatched":["devflow:comment-analyzer"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":"unavailable"}' > "$AE_OLD/iter-1.json"
+AE_OLD_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$AE_OLD" --slug "pr-609" --mode record)"
+assert_eq "#609 agent_effort: absent dispatched_effort → blocks still cover phase3_dispatched" \
+  "session-inheritance" \
+  "$(echo "$AE_OLD_REC" | jq -r '.per_iteration[0].agent_effort[]? | select(.agent=="devflow:comment-analyzer") | .application_point')"
+assert_eq "#609 agent_effort: absent dispatched_effort → presence flag false" \
+  "false" "$(echo "$AE_OLD_REC" | jq -r '.per_iteration[0].dispatched_effort_present')"
+assert_eq "#609 agent_effort: schema_version stays 1 (additive, no bump)" \
+  "1" "$(echo "$AE_OLD_REC" | jq -r '.schema_version')"
+# Malformed shape: a scalar dispatched_effort is treated as no usable entries
+# (blocks still derived from phase3_dispatched; the filter never aborts).
+AE_BAD="$(mktemp -d)"
+printf '{"iter":1,"checklist":[],"dispatched_effort":"bogus","phase3_dispatched":["devflow:code-reviewer"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":"unavailable"}' > "$AE_BAD/iter-1.json"
+AE_BAD_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$AE_BAD" --slug "pr-609" --mode record)"; AE_BAD_RC=$?
+assert_eq "#609 agent_effort: scalar dispatched_effort never aborts the filter" "0" "$AE_BAD_RC"
+assert_eq "#609 agent_effort: scalar dispatched_effort degrades to roster-only blocks" \
+  "session-inheritance" \
+  "$(echo "$AE_BAD_REC" | jq -r '.per_iteration[0].agent_effort[]? | select(.agent=="devflow:code-reviewer") | .application_point')"
+rm -rf "$AE_OLD" "$AE_BAD"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "efficiency-trace.sh --persist / --self-check (issue #80)"
 # ────────────────────────────────────────────────────────────────────────────
@@ -23680,7 +23761,7 @@ assert_eq "loop_role #170: non-string persisted loop_role (numeric) falls back t
 rm -rf "$LR_N"
 
 # (11) --self-check emits NO field-validation ::warning:: on a fully-complete iter
-#      (every expected field present; no shadow key — shadow is exempt from
+#      (every ITER_EXPECTED_FIELDS member present; no shadow key — shadow is exempt from
 #      ITER_EXPECTED_FIELDS, so a complete iter lacking shadow must still produce
 #      no field warnings). The effectiveness-record warning is suppressed by
 #      pre-creating the record so only field-validation output can appear. Guards
@@ -23703,7 +23784,7 @@ printf '{}' > "$LR_CLEAN/.devflow/logs/efficiency/pr-80-run-n.json"
 # assertion below cover that path, and turns RED if the evidence-shape arm is ever
 # widened past `.synthesized == true` "for symmetry" and starts warning on every
 # ordinary iteration that ran the gate.
-printf '%s' '{"iter":1,"started_at":"t","fix_commit_sha":"abc","fix_files":[],"loop_role":"fix","sweep_defs_read":[],"sweep_evidence":{"status":"not-run","reason":"no fixes applied"},"reference_reads":{"fix_delta":{"status":"verified","outcome":"clean","reason":null}},"checklist":[],"phase3_dispatched":3,"diff_profile":"x","phase3_findings":[],"fix_decisions":[],"convergence_inputs":{},"cap_drops":[],"telemetry":{}}' \
+printf '%s' '{"iter":1,"started_at":"t","fix_commit_sha":"abc","fix_files":[],"loop_role":"fix","sweep_defs_read":[],"sweep_evidence":{"status":"not-run","reason":"no fixes applied"},"reference_reads":{"fix_delta":{"status":"verified","outcome":"clean","reason":null}},"checklist":[],"phase3_dispatched":3,"dispatched_effort":[],"diff_profile":"x","phase3_findings":[],"fix_decisions":[],"convergence_inputs":{},"cap_drops":[],"telemetry":{}}' \
   > "$LR_CLEAN_RUN/iter-1.json"
 LR_CLEAN_OUT="$( ( cd "$LR_CLEAN" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$LR_CLEAN_RUN" --slug pr-80 ) 2>&1 )"; LR_CLEAN_RC=$?
 assert_eq "loop_role #177: --self-check exits 0 on a complete iter (all fields present)" "0" "$LR_CLEAN_RC"
@@ -35998,8 +36079,6 @@ RAF_ROOT_CEIL=3500
 # #556 raised the initial-load ceiling 5500->5510: AC8 requires the iter-<N>.json
 # checklist entry to carry the optional raw_verdict/normalized fields, and adding
 # them to the record-shape example in the root pushed root+extension to 5,504 words.
-# The small documented widening mirrors the #529 AC3 renegotiation; update
-# docs/review-and-fix-budget.md's ceilings-table cell in lockstep.
 # #619 raised it again 5510->5690: the extension was sitting six words below the 5510
 # ceiling (root 3,213 + extension 2,291 = 5,504), so the
 # batched-regeneration instruction the issue requires on this surface could not fit
@@ -36023,8 +36102,19 @@ RAF_ROOT_CEIL=3500
 # cancels). This is the audited growth decision recorded in
 # docs/cutovers/issue-618-self-apply-authorization.md; update docs/review-and-fix-budget.md's
 # ceilings-table and Measured cells in lockstep.
-RAF_LOAD_CEIL=5865
-RAF_MAXSTEP_CEIL=17127
+# #609 raised the initial-load ceiling 5865->5877 and the max-step ceiling 17127->17139:
+# the `dispatched_effort` effort-observability schema key (a branch concurrent with #618/#619)
+# added to the root's record-shape example and to fixing.md's item-7 record shape. On the
+# merged tree (which also carries PR #625's root trim) the root measures 3,226 and the
+# extension 2,646, so the initial load is 3,226 + 2,646 = 5,872 words and the peak step is
+# root + extension + shadow-review.md 11,262 = 17,134. Each ceiling carries ~5 words of
+# headroom over its merged measurement (mirroring #556's 6), deliberately: a ceiling set
+# exactly at the measurement makes the next one-sentence edit a budget breach. Each widening
+# mirrors the #529 AC3 renegotiation and is the audited decision recorded in
+# docs/cutovers/issue-609-agent-effort-observability.md; update
+# docs/review-and-fix-budget.md's ceilings-table and Measured cells in lockstep.
+RAF_LOAD_CEIL=5877
+RAF_MAXSTEP_CEIL=17139
 assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
   "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"
 assert_eq "#530 budget: root + live extension (initial load) <= $RAF_LOAD_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W)))" "yes" \
@@ -36067,7 +36157,7 @@ for _raf_ceil in "$RAF_ROOT_CEIL" "$RAF_LOAD_CEIL" "$RAF_MAXSTEP_CEIL"; do
     "$(case "$_raf_doc_nocommas" in *"≤ $_raf_ceil words |"*) echo yes;; *) echo no;; esac)"
 done
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,692 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,889 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute
@@ -38981,7 +39071,7 @@ assert_eq "#423 T3c/R2 count claim with NO adjacent enumeration block exits 0 (U
 assert_eq "#423 T3c/R2 c==0 arm emits an UNRESOLVABLE R2 row (not a false-positive STALE)" "yes" "$(spl_has "$SPR" UNRESOLVABLE R2)"
 assert_eq "#423 T3c/R2 c==0 arm emits NO STALE R2 row" "no" "$(spl_has "$SPR" STALE R2)"
 # NB: the prose below must contain neither the word "assert" nor a list-marker prefix, or
-# _adjacent_assert_count would count it and the c==0 arm would not be reached.
+# _adjacent_assert_idxs would collect it and the c==0 arm would not be reached.
 printf '%s\n' 'This header locks in 3 assertions below:' 'first plain descriptive sentence' 'second plain descriptive sentence' > "$SPF"
 SPR="$(spl_repo "$SPF")"
 assert_eq "#423 T3c/R3 numeric count claim with NO adjacent assertion block exits 0 (UNRESOLVABLE, non-gating)" "0" "$(spl_rc "$SPR")"
@@ -39002,7 +39092,7 @@ assert_eq "#423 T4/R4 named-token scope mismatch emits NO R4 row" "no" "$(spl_ha
 # Positive control (parity with T1/T2/T3): an operator deny-absolute with NO contradicting
 # permit elsewhere must emit a VERIFIED R4 row and exit 0 — this is the ONLY test that
 # exercises R4's VERIFIED arm, so without it a mutant forcing R4 to STALE on every operator
-# deny-absolute (e.g. _permitted_elsewhere hardcoded True, or the VERIFIED arm dropped) would
+# deny-absolute (e.g. _permits_elsewhere hardcoded to a permit index, or the VERIFIED arm dropped) would
 # ship GREEN and emit false-positive Important findings on legit "never use `>` here" prose.
 printf '%s\n' 'The skill must never emit ANY `>` redirect anywhere.' 'Some other unrelated prose line.' > "$SPF"
 SPR="$(spl_repo "$SPF")"
@@ -39556,7 +39646,7 @@ assert_pin_red_under "#424 T12b: dropping the producer-empty guard re-introduces
 # T2b → R2 on the #320 shape AS IT HISTORICALLY OCCURRED (#424 audit, BLOCKING). The T2 fixture
 # above uses BARE `- one` bullets — a shape the real defect never had. PR #320's legend bullets
 # are COMMENT-PREFIXED (`#   - inline_missing: …`), and `_LIST_ITEM_RE` is anchored, so before
-# the `_uncomment` referent-strip `_adjacent_list_count` returned 0 on the genuine defect: a
+# the `_uncomment` referent-strip `_adjacent_list_idxs` returned empty on the genuine defect: a
 # non-gating UNRESOLVABLE and exit 0. R2 therefore never caught the one historical escape that
 # was an in-loop Critical, while T2 shipped GREEN. This fixture pins the real shape.
 SPF="$(probe_tmp '#424 t2b comment legend stale')"
@@ -40003,6 +40093,343 @@ SPF="$(probe_tmp '#439 non-gating exit')"
 printf '%s\n' 'Three tags mean the opposite:' 'Twelve files below the fold.' > "$SPF"
 SPR="$(spl_repo "$SPF")"
 assert_eq "#439 recognition rows never gate: multi-claim fixture still exits 0" "0" "$(spl_rc "$SPR")"
+
+# ── #629 move-awareness: byte-identical RELOCATED prose must not produce a gating STALE ──
+# An extraction refactor relocates prose without authoring it, but a relocated line is an
+# ADDED line in the unified diff, so the lint re-graded it as newly authored and resolved its
+# claims against the DESTINATION file's context — manufacturing a contradiction from a move.
+# The exemption is multiset-scoped (added occurrences must not outnumber removed) and
+# referent-scoped (every diff-added referent line must itself be relocated), and it DEMOTES
+# rather than deletes: the would-be STALE is emitted as a non-gating UNRESOLVABLE naming the
+# relocation, so the co-located contradiction stays visible without enforcing.
+#
+# These fixtures need a TWO-commit sandbox diffed HEAD~1..HEAD — the `spl_repo` harness above
+# diffs the empty tree, which carries no `-` lines at all, so no move is observable there
+# (which is also why every #423/#434/#439 fixture is untouched by this change).
+sp629_repo() {  # before_dir after_dir -> repo dir (commit1 = before, commit2 = after)
+  local d; d="$(git_sandbox '#629 spl move repo')"
+  git -C "$d" init -q >/dev/null 2>&1
+  cp "$1"/* "$d"/ >/dev/null 2>&1
+  git -C "$d" -c user.email=t@t -c user.name=t add -A >/dev/null 2>&1
+  git -C "$d" -c user.email=t@t -c user.name=t commit -qm c1 >/dev/null 2>&1
+  rm -f "$d"/*.md
+  cp "$2"/* "$d"/ >/dev/null 2>&1
+  git -C "$d" -c user.email=t@t -c user.name=t add -A >/dev/null 2>&1
+  git -C "$d" -c user.email=t@t -c user.name=t commit -qm c2 >/dev/null 2>&1
+  printf '%s\n' "$d"
+}
+# ONE producer; every reader below routes through it. Rename detection is pinned ON in the
+# diff command (AC6 measures
+# the local-git producer's documented default explicitly rather than inheriting an ambient
+# `diff.renames`), and pinning it in a single place is why the readers below cannot drift from
+# each other — a fixture that later needs a different diff invocation has exactly one site.
+sp629_out() {  # repo_dir -> the lint's TSV stdout over `git -c diff.renames=true diff HEAD~1 HEAD`
+  ( cd "$1" 2>/dev/null || exit
+    git -c diff.renames=true diff HEAD~1 HEAD 2>/dev/null | python3 "$SPL" --rev HEAD 2>/dev/null )
+}
+sp629_rc() {  # repo_dir -> the lint's exit code, from the SAME invocation sp629_out publishes
+  # Routed through the producer deliberately. A second independent `git diff | lint` pipeline
+  # here would mean the exit-code assertions and the row assertions describe two different
+  # runs under two independently-parameterised invocations — and would falsify the
+  # single-site claim above. `set -o pipefail` is what makes `$?` the LINT's status rather
+  # than the tail of the pipeline inside the producer.
+  ( set -o pipefail; sp629_out "$1" >/dev/null 2>&1; echo $? )
+}
+sp629_has() {  # repo_dir verdict rule -> yes/no
+  printf '%s\n' "$(sp629_out "$1")" \
+    | awk -F '\t' -v v="$2" -v r="$3" '$1==v && $2==r{f=1} END{exit f?0:1}' \
+    && echo yes || echo no
+}
+sp629_rowcount() {  # repo_dir -> number of TSV rows emitted
+  sp629_out "$1" | awk 'END{print NR}'
+}
+sp629_rulecount() {  # repo_dir rule -> rows carrying that rule id, in ANY verdict
+  sp629_out "$1" | awk -F '\t' -v r="$2" '$2==r{c++} END{print c+0}'
+}
+sp629_detail() {  # repo_dir verdict rule -> the detail field of the first matching row
+  sp629_out "$1" | awk -F '\t' -v v="$2" -v r="$3" '$1==v && $2==r{print $5; exit}'
+}
+sp629_detail_has() {  # repo_dir verdict rule substring -> yes/no (the demoted row's wording)
+  case "$(sp629_detail "$1" "$2" "$3")" in *"$4"*) echo yes ;; *) echo no ;; esac
+}
+# Shared fixture texts. `dest.md`'s `Case 5` tail PRE-EXISTS at commit 1, so it is the
+# wrong-sized referent the move co-locates — never a diff-added one (that is AC5's shape).
+SP629_HDR='Cases 1-2 cover the fixture corpus.'
+
+# AC1/AC10 — the reported defect: a byte-for-byte block relocation into a file whose existing
+# tail carries a wrong-sized referent. RED today (STALE R1, exit 1); after the change the row
+# is demoted to a non-gating UNRESOLVABLE naming the relocation and the exit code is 0.
+SP629_B="$(git_sandbox '#629 ac1 before')"; SP629_A="$(git_sandbox '#629 ac1 after')"
+printf '%s\n' "$SP629_HDR" 'Case 1 alpha' 'Case 2 beta' > "$SP629_B/src.md"
+printf '%s\n' 'Intro paragraph.' 'Case 5 epsilon' > "$SP629_B/dest.md"
+printf '%s\n' "$SP629_HDR" 'Case 1 alpha' 'Case 2 beta' 'Intro paragraph.' 'Case 5 epsilon' > "$SP629_A/dest.md"
+SPR="$(sp629_repo "$SP629_B" "$SP629_A")"
+assert_eq "#629 AC1 byte-identical relocation into a wrong-sized-referent file exits 0 (was STALE)" "0" "$(sp629_rc "$SPR")"
+assert_eq "#629 AC1 the relocated claim emits NO STALE R1 row" "no" "$(sp629_has "$SPR" STALE R1)"
+assert_eq "#629 AC10 the exempted claim is DEMOTED, not deleted — an UNRESOLVABLE R1 row is emitted" "yes" "$(sp629_has "$SPR" UNRESOLVABLE R1)"
+assert_eq "#629 AC10 the demoted row's detail names the relocation" "yes" \
+  "$(sp629_detail_has "$SPR" UNRESOLVABLE R1 relocated)"
+assert_eq "#629 AC10 the demoted row still carries the co-located contradiction it suppressed" "yes" \
+  "$(sp629_detail_has "$SPR" UNRESOLVABLE R1 "reaches Case 5")"
+
+# AC2 — no over-suppression, new prose: a genuinely new stale claim in the SAME diff as a pure
+# relocation still gates. `new.md`'s `Case 9` pre-exists; only its header is authored here.
+SP629_B="$(git_sandbox '#629 ac2 before')"; SP629_A="$(git_sandbox '#629 ac2 after')"
+printf '%s\n' "$SP629_HDR" 'Case 1 alpha' 'Case 2 beta' > "$SP629_B/src.md"
+printf '%s\n' 'Intro paragraph.' 'Case 5 epsilon' > "$SP629_B/dest.md"
+printf '%s\n' 'Case 9 zeta' > "$SP629_B/new.md"
+printf '%s\n' "$SP629_HDR" 'Case 1 alpha' 'Case 2 beta' 'Intro paragraph.' 'Case 5 epsilon' > "$SP629_A/dest.md"
+printf '%s\n' 'Cases 7-8 are covered here.' 'Case 9 zeta' > "$SP629_A/new.md"
+SPR="$(sp629_repo "$SP629_B" "$SP629_A")"
+assert_eq "#629 AC2 a genuinely NEW stale claim alongside a pure relocation still exits 1" "1" "$(sp629_rc "$SPR")"
+assert_eq "#629 AC2 the new claim emits its STALE R1 row" "yes" "$(sp629_has "$SPR" STALE R1)"
+
+# AC3 — no over-suppression, edited relocation: one byte changed in the moved line ('.' -> '!'),
+# so its full text is NOT a removed line of the same diff and it grades as authored.
+SP629_B="$(git_sandbox '#629 ac3 before')"; SP629_A="$(git_sandbox '#629 ac3 after')"
+printf '%s\n' "$SP629_HDR" 'Case 1 alpha' 'Case 2 beta' > "$SP629_B/src.md"
+printf '%s\n' 'Intro paragraph.' 'Case 5 epsilon' > "$SP629_B/dest.md"
+printf '%s\n' 'Cases 1-2 cover the fixture corpus!' 'Case 1 alpha' 'Case 2 beta' 'Intro paragraph.' 'Case 5 epsilon' > "$SP629_A/dest.md"
+SPR="$(sp629_repo "$SP629_B" "$SP629_A")"
+assert_eq "#629 AC3 a relocated line whose text CHANGED in the move exits 1 (graded as authored)" "1" "$(sp629_rc "$SPR")"
+assert_eq "#629 AC3 the edited relocation emits its STALE R1 row" "yes" "$(sp629_has "$SPR" STALE R1)"
+
+# AC4 — no over-suppression, copy amplification: one removal, TWO byte-identical additions.
+# Additions outnumbering removals grade EVERY occurrence of that text as authored, so the
+# exemption can never ship as bare set-membership.
+SP629_B="$(git_sandbox '#629 ac4 before')"; SP629_A="$(git_sandbox '#629 ac4 after')"
+printf '%s\n' "$SP629_HDR" 'Case 1 alpha' 'Case 2 beta' > "$SP629_B/src.md"
+printf '%s\n' 'Intro paragraph.' 'Case 5 epsilon' > "$SP629_B/dest.md"
+printf '%s\n' "$SP629_HDR" 'Case 1 alpha' 'Case 2 beta' 'Intro paragraph.' "$SP629_HDR" 'Case 5 epsilon' > "$SP629_A/dest.md"
+SPR="$(sp629_repo "$SP629_B" "$SP629_A")"
+assert_eq "#629 AC4 copy amplification (1 removed, 2 added) exits 1" "1" "$(sp629_rc "$SPR")"
+assert_eq "#629 AC4 copy amplification emits a STALE R1 row" "yes" "$(sp629_has "$SPR" STALE R1)"
+
+# AC5 — no over-suppression, split-then-extend: the claim line relocates byte-for-byte while
+# the SAME diff adds genuinely new referent content in its resolution region. PR-authored
+# referent growth is authored staleness (the PR #328 shape the caller-supplied-diff contract
+# exists to keep detectable), so the referent rule denies the exemption.
+SP629_B="$(git_sandbox '#629 ac5 before')"; SP629_A="$(git_sandbox '#629 ac5 after')"
+printf '%s\n' "$SP629_HDR" 'Case 1 alpha' 'Case 2 beta' > "$SP629_B/src.md"
+printf '%s\n' 'Intro paragraph.' > "$SP629_B/dest.md"
+printf '%s\n' "$SP629_HDR" 'Case 1 alpha' 'Case 2 beta' 'Case 3 gamma' 'Intro paragraph.' > "$SP629_A/dest.md"
+SPR="$(sp629_repo "$SP629_B" "$SP629_A")"
+assert_eq "#629 AC5 split-then-extend (relocated header + diff-added Case 3) exits 1" "1" "$(sp629_rc "$SPR")"
+assert_eq "#629 AC5 split-then-extend emits its STALE R1 row" "yes" "$(sp629_has "$SPR" STALE R1)"
+
+# AC6 — whole-file move non-regression on the local-git producer: with rename detection pinned
+# ON, a `git mv` emits zero added lines, so the lint sees no claim at all. This is the
+# already-working behavior the issue is careful NOT to describe as "no rename detection".
+SP629_D="$(git_sandbox '#629 git mv repo')"
+git -C "$SP629_D" init -q >/dev/null 2>&1
+printf '%s\n' "$SP629_HDR" 'Case 1 alpha' 'Case 2 beta' 'Case 5 epsilon' > "$SP629_D/doc.md"
+git -C "$SP629_D" -c user.email=t@t -c user.name=t add -A >/dev/null 2>&1
+git -C "$SP629_D" -c user.email=t@t -c user.name=t commit -qm c1 >/dev/null 2>&1
+git -C "$SP629_D" mv doc.md moved.md >/dev/null 2>&1
+git -C "$SP629_D" -c user.email=t@t -c user.name=t commit -qm c2 >/dev/null 2>&1
+assert_eq "#629 AC6 a whole-file git mv (rename detection ON) exits 0" "0" "$(sp629_rc "$SP629_D")"
+assert_eq "#629 AC6 a whole-file git mv emits no rows at all" "0" "$(sp629_rowcount "$SP629_D")"
+
+# AC10 hostile shape — the DELIBERATELY MANUFACTURED equal-count case: a removal planted in a
+# bait file solely to license a byte-identical added claim above a PRE-EXISTING wrong-sized
+# referent. The removal side of the diff is untrusted PR content, so the exemption fires here
+# exactly as on the accidental shape — and the compensating visibility (the demoted
+# UNRESOLVABLE row naming the relocation) is what keeps the manufacture auditable.
+SP629_B="$(git_sandbox '#629 hostile before')"; SP629_A="$(git_sandbox '#629 hostile after')"
+printf '%s\n' "$SP629_HDR" > "$SP629_B/bait.md"
+printf '%s\n' 'Intro paragraph.' 'Case 5 epsilon' > "$SP629_B/dest.md"
+printf '%s\n' "$SP629_HDR" 'Intro paragraph.' 'Case 5 epsilon' > "$SP629_A/dest.md"
+SPR="$(sp629_repo "$SP629_B" "$SP629_A")"
+assert_eq "#629 AC10 hostile: a planted equal-count removal licenses the exemption (exit 0)" "0" "$(sp629_rc "$SPR")"
+assert_eq "#629 AC10 hostile: the manufactured shape still emits the demoted UNRESOLVABLE R1 row" "yes" "$(sp629_has "$SPR" UNRESOLVABLE R1)"
+assert_eq "#629 AC10 hostile: the demoted row names the relocation (compensating visibility)" "yes" \
+  "$(sp629_detail_has "$SPR" UNRESOLVABLE R1 relocated)"
+
+# Boundary — a relocation whose SOURCE file is deleted at --rev must still resolve through the
+# existing post_file_lines None arm (an UNRESOLVABLE `-` row), never a crash. `src.md` is gone
+# at HEAD, so any claim the diff attributes to it lands on that arm; this fixture proves the
+# new removed-line bookkeeping did not disturb it. `bare.md` carries no claim, so the only
+# rows come from the resolvable destination.
+SP629_B="$(git_sandbox '#629 deleted-src before')"; SP629_A="$(git_sandbox '#629 deleted-src after')"
+printf '%s\n' 'Case 1 alpha' > "$SP629_B/bare.md"
+printf '%s\n' 'Intro paragraph.' > "$SP629_B/dest.md"
+printf '%s\n' "$SP629_HDR" 'Intro paragraph.' > "$SP629_A/dest.md"
+SPR="$(sp629_repo "$SP629_B" "$SP629_A")"
+assert_eq "#629 boundary: a diff deleting the move SOURCE file resolves cleanly (exit 0, no crash)" "0" "$(sp629_rc "$SPR")"
+
+# Adversarial — a CRLF-terminated moved line. Both sides of the diff carry the same trailing
+# CR, so byte-identity across the diff's two sides is preserved and the exemption still fires;
+# the `_norm_line` discipline (which strips CR for SCOPING) must not be applied to the identity
+# comparison, or a CRLF consumer repo would lose the exemption entirely.
+SP629_B="$(git_sandbox '#629 crlf before')"; SP629_A="$(git_sandbox '#629 crlf after')"
+printf '%s\r\n' "$SP629_HDR" 'Case 1 alpha' 'Case 2 beta' > "$SP629_B/src.md"
+printf '%s\r\n' 'Intro paragraph.' 'Case 5 epsilon' > "$SP629_B/dest.md"
+printf '%s\r\n' "$SP629_HDR" 'Case 1 alpha' 'Case 2 beta' 'Intro paragraph.' 'Case 5 epsilon' > "$SP629_A/dest.md"
+SPR="$(sp629_repo "$SP629_B" "$SP629_A")"
+assert_eq "#629 adversarial: a CRLF-terminated relocated line keeps the exemption (exit 0)" "0" "$(sp629_rc "$SPR")"
+assert_eq "#629 adversarial: the CRLF relocation emits the demoted UNRESOLVABLE R1 row" "yes" "$(sp629_has "$SPR" UNRESOLVABLE R1)"
+
+# Adversarial — a move INTO a fenced code block. The destination scoping mask still decides
+# examinability, so the claim is not examined at all (no row, exit 0) regardless of the
+# exemption: move-awareness is layered over #434 scoping, it does not bypass it.
+SP629_B="$(git_sandbox '#629 fenced before')"; SP629_A="$(git_sandbox '#629 fenced after')"
+printf '%s\n' "$SP629_HDR" 'Case 1 alpha' 'Case 2 beta' > "$SP629_B/src.md"
+printf '%s\n' '```' 'existing fenced line' '```' 'Case 5 epsilon' > "$SP629_B/dest.md"
+printf '%s\n' '```' "$SP629_HDR" 'Case 1 alpha' 'Case 2 beta' 'existing fenced line' '```' 'Case 5 epsilon' > "$SP629_A/dest.md"
+SPR="$(sp629_repo "$SP629_B" "$SP629_A")"
+assert_eq "#629 adversarial: a move INTO a fenced block is still un-examined by #434 scoping (exit 0)" "0" "$(sp629_rc "$SPR")"
+assert_eq "#629 adversarial: the fenced move emits no R1 row at all (in ANY verdict)" "0" \
+  "$(sp629_rulecount "$SPR" R1)"
+
+# ── #629 per-rule demotion wiring: R1 is NOT representative, so every rule site is driven ──
+# The exemption is applied at every rule site, not just R1. R1 and R4 inline their demote
+# branch; R2/R3b/R3 route through `_emit_count(demote=…)`. An R1-only corpus therefore leaves
+# the `_emit_count` demote arm and R4's branch with NO executing test — a mutant dropping
+# `demote=` from the three `_emit_count` call sites, or inverting R4's condition, would ship
+# GREEN. The failure directions differ and both matter: at R2/R3 it is toward gating (the fix
+# silently does not work), at R4 toward fail-open (a real contradiction demoted). Each rule
+# gets a demote fixture AND an authored-referent negative control.
+
+# R2 — a relocated `Expected total = N` legend over a PRE-EXISTING wrong-sized enumeration.
+SP629_B="$(git_sandbox '#629 r2 before')"; SP629_A="$(git_sandbox '#629 r2 after')"
+printf '%s\n' 'Expected total = 3 items.' > "$SP629_B/src.md"
+printf '%s\n' '- one' '- two' > "$SP629_B/dest.md"
+printf '%s\n' '- one' '- two' 'Expected total = 3 items.' > "$SP629_A/dest.md"
+SPR="$(sp629_repo "$SP629_B" "$SP629_A")"
+assert_eq "#629 R2 relocated legend-sum over a pre-existing wrong-sized block exits 0" "0" "$(sp629_rc "$SPR")"
+assert_eq "#629 R2 drives the shared _emit_count demote arm (UNRESOLVABLE R2, not STALE)" "yes" "$(sp629_has "$SPR" UNRESOLVABLE R2)"
+assert_eq "#629 R2 emits no STALE R2 row" "no" "$(sp629_has "$SPR" STALE R2)"
+
+# R2 negative control — the same relocation, but the diff AUTHORS enumeration items.
+SP629_B="$(git_sandbox '#629 r2neg before')"; SP629_A="$(git_sandbox '#629 r2neg after')"
+printf '%s\n' 'Expected total = 3 items.' > "$SP629_B/src.md"
+printf '%s\n' '- one' '- two' > "$SP629_B/dest.md"
+printf '%s\n' '- one' '- two' '- three-authored' '- four-authored' 'Expected total = 3 items.' > "$SP629_A/dest.md"
+SPR="$(sp629_repo "$SP629_B" "$SP629_A")"
+assert_eq "#629 R2 authored referent growth still gates (exit 1)" "1" "$(sp629_rc "$SPR")"
+assert_eq "#629 R2 authored referent growth emits its STALE R2 row" "yes" "$(sp629_has "$SPR" STALE R2)"
+
+# R3 — a relocated `N assertions` count-locked claim over a PRE-EXISTING wrong-sized block.
+SP629_B="$(git_sandbox '#629 r3 before')"; SP629_A="$(git_sandbox '#629 r3 after')"
+printf '%s\n' 'This block has 5 assertions.' > "$SP629_B/src.md"
+printf '%s\n' 'assert one' 'assert two' > "$SP629_B/dest.md"
+printf '%s\n' 'This block has 5 assertions.' 'assert one' 'assert two' > "$SP629_A/dest.md"
+SPR="$(sp629_repo "$SP629_B" "$SP629_A")"
+assert_eq "#629 R3 relocated count-locked claim over a pre-existing wrong-sized block exits 0" "0" "$(sp629_rc "$SPR")"
+assert_eq "#629 R3 drives the shared _emit_count demote arm (UNRESOLVABLE R3)" "yes" "$(sp629_has "$SPR" UNRESOLVABLE R3)"
+
+# R3 negative control — an AUTHORED assertion in the resolution region.
+SP629_B="$(git_sandbox '#629 r3neg before')"; SP629_A="$(git_sandbox '#629 r3neg after')"
+printf '%s\n' 'This block has 5 assertions.' > "$SP629_B/src.md"
+printf '%s\n' 'assert one' 'assert two' > "$SP629_B/dest.md"
+printf '%s\n' 'This block has 5 assertions.' 'assert one' 'assert two' 'assert three-authored' > "$SP629_A/dest.md"
+SPR="$(sp629_repo "$SP629_B" "$SP629_A")"
+assert_eq "#629 R3 authored assertion still gates (exit 1)" "1" "$(sp629_rc "$SPR")"
+assert_eq "#629 R3 authored assertion emits its STALE R3 row" "yes" "$(sp629_has "$SPR" STALE R3)"
+
+# R4 — a relocated deny-absolute whose ONLY contradicting permit is pre-existing.
+# The permit sits at index 0, which also pins the `is not None` / non-empty-list contract:
+# a regression to a truthiness test on the first index would read index 0 as "no permit".
+SP629_B="$(git_sandbox '#629 r4 before')"; SP629_A="$(git_sandbox '#629 r4 after')"
+printf '%s\n' 'A `>` redirect is never allowed here.' > "$SP629_B/src.md"
+printf '%s\n' 'An in-workspace `>` redirect is permitted.' > "$SP629_B/dest.md"
+printf '%s\n' 'An in-workspace `>` redirect is permitted.' 'A `>` redirect is never allowed here.' > "$SP629_A/dest.md"
+SPR="$(sp629_repo "$SP629_B" "$SP629_A")"
+assert_eq "#629 R4 relocated deny-absolute over a pre-existing index-0 permit exits 0" "0" "$(sp629_rc "$SPR")"
+assert_eq "#629 R4 drives its demote branch (UNRESOLVABLE R4)" "yes" "$(sp629_has "$SPR" UNRESOLVABLE R4)"
+
+# R4 negative control — the FAIL-OPEN this rule's referent set was widened to close. A
+# pre-existing permit precedes a PR-AUTHORED second one; collecting only the FIRST permit
+# (the shape this replaced) let the authored permit escape the referent rule entirely and
+# demoted a contradiction the PR itself authored.
+SP629_B="$(git_sandbox '#629 r4neg before')"; SP629_A="$(git_sandbox '#629 r4neg after')"
+printf '%s\n' 'A `>` redirect is never allowed here.' > "$SP629_B/src.md"
+printf '%s\n' 'An in-workspace `>` redirect is permitted.' > "$SP629_B/dest.md"
+printf '%s\n' 'An in-workspace `>` redirect is permitted.' 'A `>` redirect is never allowed here.' 'A second `>` form is also permitted.' > "$SP629_A/dest.md"
+SPR="$(sp629_repo "$SP629_B" "$SP629_A")"
+assert_eq "#629 R4 a PR-AUTHORED second permit still gates (exit 1) — R4's referent set is every permit, not the first" "1" "$(sp629_rc "$SPR")"
+assert_eq "#629 R4 the authored permit emits its STALE R4 row" "yes" "$(sp629_has "$SPR" STALE R4)"
+
+# Provenance — an AUTHORED referent whose full text byte-identically matches an UNRELATED
+# removal in a DIFFERENT file. Text identity alone reads it as relocated and disarms the
+# referent rule on the PR #336 count-locked shape; the shared-source-file requirement is what
+# denies it. `other.md` gives up `assert boiler` while the claim moves out of `src.md`, so the
+# provenance sets are disjoint and the exemption must not fire.
+SP629_B="$(git_sandbox '#629 provenance before')"; SP629_A="$(git_sandbox '#629 provenance after')"
+printf '%s\n' 'This block has 3 assertions.' > "$SP629_B/src.md"
+printf '%s\n' 'assert one' 'assert two' 'assert three' > "$SP629_B/dest.md"
+printf '%s\n' 'assert boiler' 'keep' > "$SP629_B/other.md"
+printf '%s\n' 'This block has 3 assertions.' 'assert one' 'assert two' 'assert three' 'assert boiler' > "$SP629_A/dest.md"
+printf '%s\n' 'keep' > "$SP629_A/other.md"
+SPR="$(sp629_repo "$SP629_B" "$SP629_A")"
+assert_eq "#629 provenance: an authored referent matching an unrelated removal in ANOTHER file still gates (exit 1)" "1" "$(sp629_rc "$SPR")"
+assert_eq "#629 provenance: the boilerplate-coincidence shape emits its STALE R3 row" "yes" "$(sp629_has "$SPR" STALE R3)"
+
+# A VERIFIED resolution is never demoted. `_emit_count`'s docstring states this as a contract
+# and it is structurally true today (demote guards only the `c != n` arm), but a refactor
+# hoisting the prefix would corrupt every VERIFIED row's detail while the suite stayed green.
+SP629_B="$(git_sandbox '#629 verified before')"; SP629_A="$(git_sandbox '#629 verified after')"
+printf '%s\n' "$SP629_HDR" 'Case 1 alpha' 'Case 2 beta' > "$SP629_B/src.md"
+printf '%s\n' 'Intro paragraph.' > "$SP629_B/dest.md"
+printf '%s\n' "$SP629_HDR" 'Case 1 alpha' 'Case 2 beta' 'Intro paragraph.' > "$SP629_A/dest.md"
+SPR="$(sp629_repo "$SP629_B" "$SP629_A")"
+assert_eq "#629 a relocated claim whose referent MATCHES stays VERIFIED (exit 0)" "0" "$(sp629_rc "$SPR")"
+assert_eq "#629 the VERIFIED row is emitted, not demoted" "yes" "$(sp629_has "$SPR" VERIFIED R1)"
+assert_eq "#629 the VERIFIED row's detail carries NO relocation prefix (demotion touches only the STALE arm)" "no" \
+  "$(sp629_detail_has "$SPR" VERIFIED R1 relocated)"
+
+# R3b — the two-item shape (see `_TWO_ITEM_RE` / `_BOTH_RE`) is a SEPARATE `_emit_count`
+# call site from R3. Deliberately NOT spelled out here: writing the idiom in prose makes
+# this comment itself a two-item claim, which the lint then grades against the following
+# lines (it did, and emitted a gating STALE on this very file).
+# It emits the same `R3` rule token, so no rule-id assertion distinguishes them: a mutant
+# dropping `demote=` from the R3b site alone ships green under every R3 fixture above. Driven
+# here directly, with its own authored-referent negative control.
+SP629_B="$(git_sandbox '#629 r3b before')"; SP629_A="$(git_sandbox '#629 r3b after')"
+printf '%s\n' 'The block covers a header and a footer, both of them.' > "$SP629_B/src.md"
+printf '%s\n' 'assert one' 'assert two' 'assert three' > "$SP629_B/dest.md"
+printf '%s\n' 'The block covers a header and a footer, both of them.' 'assert one' 'assert two' 'assert three' > "$SP629_A/dest.md"
+SPR="$(sp629_repo "$SP629_B" "$SP629_A")"
+assert_eq "#629 R3b relocated two-item claim over a pre-existing wrong-sized block exits 0" "0" "$(sp629_rc "$SPR")"
+assert_eq "#629 R3b drives its own _emit_count demote arm (UNRESOLVABLE R3)" "yes" "$(sp629_has "$SPR" UNRESOLVABLE R3)"
+
+SP629_B="$(git_sandbox '#629 r3bneg before')"; SP629_A="$(git_sandbox '#629 r3bneg after')"
+printf '%s\n' 'The block covers a header and a footer, both of them.' > "$SP629_B/src.md"
+printf '%s\n' 'assert one' > "$SP629_B/dest.md"
+printf '%s\n' 'The block covers a header and a footer, both of them.' 'assert one' 'assert two-authored' 'assert three-authored' > "$SP629_A/dest.md"
+SPR="$(sp629_repo "$SP629_B" "$SP629_A")"
+assert_eq "#629 R3b authored assertions still gate (exit 1)" "1" "$(sp629_rc "$SPR")"
+
+# `located_by_text` — the claim-anchor guard. Shadow review mutation-proved it had NO covering
+# test: removing `and not located_by_text` left the whole suite green, so a later refactor
+# could silently reintroduce a demotion decided off text-search indices that bear no defined
+# relationship to the referent indices the rules resolve. This fixture makes the post-image
+# number stop naming the claim: the graded diff is c1..c2 (where the claim lands at post-image
+# line 1), while `--rev HEAD` is c3, which prepends two lines so line 1 is padding. The anchor
+# check then routes to `_locate`, `located_by_text` denies the exemption, and the row must
+# stay a gating STALE rather than being demoted.
+SP629_D="$(git_sandbox '#629 located-by-text repo')"
+git -C "$SP629_D" init -q >/dev/null 2>&1
+printf '%s\n' "$SP629_HDR" 'Case 1 alpha' 'Case 2 beta' > "$SP629_D/src.md"
+printf '%s\n' 'Intro paragraph.' 'Case 5 epsilon' > "$SP629_D/dest.md"
+git -C "$SP629_D" -c user.email=t@t -c user.name=t add -A >/dev/null 2>&1
+git -C "$SP629_D" -c user.email=t@t -c user.name=t commit -qm c1 >/dev/null 2>&1
+rm -f "$SP629_D/src.md"
+printf '%s\n' "$SP629_HDR" 'Case 1 alpha' 'Case 2 beta' 'Intro paragraph.' 'Case 5 epsilon' > "$SP629_D/dest.md"
+git -C "$SP629_D" -c user.email=t@t -c user.name=t add -A >/dev/null 2>&1
+git -C "$SP629_D" -c user.email=t@t -c user.name=t commit -qm c2 >/dev/null 2>&1
+printf '%s\n' 'PAD ONE' 'PAD TWO' "$SP629_HDR" 'Case 1 alpha' 'Case 2 beta' 'Intro paragraph.' 'Case 5 epsilon' > "$SP629_D/dest.md"
+git -C "$SP629_D" -c user.email=t@t -c user.name=t add -A >/dev/null 2>&1
+git -C "$SP629_D" -c user.email=t@t -c user.name=t commit -qm c3 >/dev/null 2>&1
+SP629_LBT_RC="$( ( cd "$SP629_D" 2>/dev/null || { echo 99; exit; }
+  git diff HEAD~2 HEAD~1 2>/dev/null | python3 "$SPL" --rev HEAD >/dev/null 2>&1; echo $? ) )"
+SP629_LBT_ROWS="$( ( cd "$SP629_D" 2>/dev/null || exit
+  git diff HEAD~2 HEAD~1 2>/dev/null | python3 "$SPL" --rev HEAD 2>/dev/null ) )"
+assert_eq "#629 located_by_text: a claim whose post-image number no longer names it denies the exemption (exit 1)" "1" "$SP629_LBT_RC"
+assert_eq "#629 located_by_text: the text-located claim stays a gating STALE, never a demotion" "yes" \
+  "$(printf '%s\n' "$SP629_LBT_ROWS" | awk -F '\t' '$1=="STALE" && $2=="R1"{f=1} END{exit f?0:1}' && echo yes || echo no)"
+assert_eq "#629 located_by_text: no relocation-demoted row is emitted for it" "no" \
+  "$(printf '%s\n' "$SP629_LBT_ROWS" | awk -F '\t' '$1=="UNRESOLVABLE" && $2=="R1"{f=1} END{exit f?0:1}' && echo yes || echo no)"
 
 
 # Tally the shell assertions from the results file (authoritative — includes the
@@ -45429,6 +45856,73 @@ assert_pin_unique "#487 fail-fast prose: review-and-fix loop-control reference c
 # The compaction-immune sibling signal (the wrapper diagnostic literal) is named in the prose.
 assert_pin_unique "#487 fail-fast prose: implement rule names the gh-fresh.sh diagnostic sibling" \
   'devflow-gh-fresh' "$LIB/../skills/implement/SKILL.md"
+
+# ── issue #599 AC21: preserved producer safety contracts (numbered (1)–(5) below) ──
+# The deferred cloud-writer call-site rework (the other ACs of #599) reworks helper
+# instructions and tool grants across the writer skill/workflow graph. These pins
+# ensure that rework cannot SILENTLY break the producer-side safety contracts it
+# rides on — each guards a distinct workflow/wrapper safety surface. Where the
+# operative text is a single file-unique literal the pin is a behavioral-fix pin
+# (assert_pin_red_under) whose sed mutation re-introduces the NAMED regression; where
+# the property is a scoped presence/absence (an always()-guard inside one step, or a
+# credential absent from one step block) it is a scoped count guard — the copy-based
+# mutation evidence for those two is recorded in the issue #599 workpad.
+
+# (1) Workflow token permissions — the version-consolidate bump-commit push must
+# authenticate as the DevFlow App (a ruleset bypass actor), NOT the default
+# GITHUB_TOKEN (github-actions[bot], which main's required-checks ruleset rejects,
+# GH013). This file is outside the #357 checkout-token loop above, so pin it here:
+# unseeding the App token from checkout reintroduces the rejected bump push (#294/#357).
+assert_pin_red_under "#599 AC21(1) workflow token permissions: version-consolidate.yml seeds the App token into checkout (unseeding it runs the bump push as github-actions[bot], rejected by main's ruleset)" \
+  'token: ${{ steps.app-token.outputs.token }}' \
+  's/token: \$\{\{ steps\.app-token\.outputs\.token \}\}/token: \$\{\{ secrets.GITHUB_TOKEN \}\}/' \
+  "$WF/version-consolidate.yml"
+
+# (2) Refresh/cleanup steps — the detached credential refresher (issue #487) is
+# retired on EVERY exit path. The existing #487 wiring pin asserts the Stop step
+# EXISTS; this pins the always() guard that makes cleanup run even when the claude
+# step failed/cancelled. Dropping always() leaks the background refresher.
+_ac21_stopblk="$(mint_blk 'Stop credential refresher (optional)' "$WF/devflow-implement.yml")"
+assert_eq "#599 AC21(2) refresh/cleanup steps: devflow-implement.yml Stop step is always()-guarded (retires the refresher on every exit path)" "1" \
+  "$(printf '%s\n' "$_ac21_stopblk" | grep -cF 'if: ${{ always() && ')"
+
+# (3) Secret-file permissions — the mode-0600 token file the gh wrapper reads is
+# written under umask 077 (issue #487/#491). No prior pin covered this surface;
+# relaxing the umask leaks the App installation token to same-uid readers.
+assert_pin_red_under "#599 AC21(3) secret-file permissions: refresh-app-credentials.sh writes the token file under umask 077 (relaxing it leaks the token to same-uid readers)" \
+  '( umask 077; printf '"'"'%s'"'"' "$token" > "$tmp" )' \
+  's/umask 077/umask 022/' \
+  "$LIB/../scripts/refresh-app-credentials.sh"
+
+# (4) Bad-credential two-strike diagnostics — the gh-fresh.sh wrapper (issue #487)
+# recognizes the expired/bad-credential signature that drives the two-strike stop and
+# the compaction-immune diagnostic. Existing arms pin the DIAG_LINE EMISSION; this
+# pins the SIG signature that triggers it — weakening it silences the whole surface.
+assert_pin_red_under "#599 AC21(4) bad-credential two-strike diagnostics: gh-fresh.sh SIG matches HTTP 401 / Bad credentials / Authentication failed (weakening it silences the fail-fast signal)" \
+  "SIG='HTTP 401|Bad credentials|fatal: Authentication failed for'" \
+  's/Bad credentials\|fatal: Authentication failed for/NEVER_MATCHES/' \
+  "$LIB/../scripts/gh-fresh.sh"
+
+# (5) Direct-review identity split — the read-only DevFlow-Reviewer token (issue
+# #300/#402) is handed to the review action's github_token, but is NEVER seeded into
+# checkout as a write credential. (a) the action consumes the downscoped reviewer
+# token; (b) the review job's checkout step block carries no reviewer-token at all.
+assert_pin_red_under "#599 AC21(5a) direct-review identity split: devflow-runner.yml review action consumes the downscoped reviewer token (dropping it collapses review posts back onto github-actions)" \
+  'github_token: ${{ steps.reviewer-token.outputs.token || secrets.GITHUB_TOKEN }}' \
+  's/steps\.reviewer-token\.outputs\.token \|\| //' \
+  "$WF/devflow-runner.yml"
+# Precise checkout-step extraction (NOT mint_blk, which exits only on the next
+# `- name:` step and would over-span the runner's `- id:`-only follow-on steps):
+# print from the checkout step name until the next 6-space step boundary.
+_ac21_coblk="$(awk '
+    index($0, "- name: Checkout repository"){f=1; print; next}
+    f && /^      - /{exit}
+    f{print}' "$WF/devflow-runner.yml")"
+# Fail CLOSED: require the checkout step to be FOUND (carries actions/checkout@) AND
+# to carry no reviewer-token. If the step is ever renamed the extraction goes empty,
+# which must read as RED (a missed check), not a vacuous pass on a zero count.
+assert_eq "#599 AC21(5b) direct-review identity split: devflow-runner.yml checkout step is present and never consumes the read-only reviewer token (it is not a write/checkout credential)" "yes" \
+  "$(printf '%s\n' "$_ac21_coblk" | grep -qF 'actions/checkout@' && ! printf '%s\n' "$_ac21_coblk" | grep -qF 'reviewer-token' && echo yes || echo no)"
 
 # ── issue #533: workflow CLI scoping — single validated installer, PATH-scoped
 # wrapper selection, no process-global DEVFLOW_GH, harness isolation ──────────

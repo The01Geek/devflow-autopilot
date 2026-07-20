@@ -104,6 +104,24 @@ KNOWN_AGENTS = (
 )
 
 
+def _entry_for(raw, agent, default_entry=None):
+    """Precedence-selected raw entry for `agent`, with its source key.
+
+    The single source of the entry-level precedence rule ("an own entry wins
+    outright — even `{}` or a non-dict — and `default` applies only to an agent
+    with no entry of its own"), shared by `resolve_overrides` and
+    `build_effort_observability` so `requested` can never be sourced through a
+    different precedence than `resolved`. `default_entry` lets a caller supply
+    a pre-sanitized default (resolve_overrides warns once and blanks a non-dict
+    default); when omitted, the raw `default` value is returned as-is.
+    """
+    if agent in raw:
+        return raw[agent], agent
+    if default_entry is None:
+        default_entry = raw.get("default")
+    return default_entry, "default"
+
+
 def resolve_overrides(raw, dispatched):
     """Pure resolution: raw config -> (override_map, warnings).
 
@@ -125,9 +143,9 @@ def resolve_overrides(raw, dispatched):
     for agent in dispatched:
         # Entry-level precedence: own entry wins outright; else fall back to
         # `default`. A present-but-empty own entry ({}) still counts as "has an
-        # entry", so `default` does NOT apply to it.
-        entry = raw[agent] if agent in raw else default_entry
-        source = agent if agent in raw else "default"
+        # entry", so `default` does NOT apply to it. Selection lives in the
+        # shared _entry_for so build_effort_observability reads the same rule.
+        entry, source = _entry_for(raw, agent, default_entry)
         # A non-object entry (hand-edited config bypassing schema validation,
         # e.g. `"agent": "high"` or a list) must not crash resolution — the
         # engine never aborts on config shape. Warn and treat it as no override.
@@ -295,6 +313,44 @@ def decide_effort_applications(resolved, dispatched, *, effort_supported=True):
             "fallback_reason": reason,
         }
     return decisions
+
+
+def build_effort_observability(raw, resolved, dispatched, *, effort_supported=True):
+    """Per-agent five-field effort observability block (issue #609).
+
+    Composes, for every DISPATCHED agent, the block the iter workpad's
+    `dispatched_effort` entries persist into the per-run efficiency record:
+    `requested` (the raw configured effort BEFORE validation — read with the
+    same entry-level precedence `resolve_overrides` applies: an own entry wins
+    outright and `default` never backfills it, so a dropped-invalid effort stays
+    visible as requested != resolved), `resolved` (the validated effort from the
+    `resolve_overrides` map, None when dropped or absent), and the
+    `decide_effort_applications` trio (`application_point`, `effective`,
+    `fallback_reason` — `effective` is ALWAYS None in-session; unknown is not
+    zero). Complete by construction: every block carries all five keys.
+    """
+    decisions = decide_effort_applications(
+        resolved, dispatched, effort_supported=effort_supported
+    )
+    blocks = {}
+    for agent in dispatched:
+        # Same precedence as resolve_overrides, via the shared _entry_for; a
+        # non-dict entry (own or default) yields requested=None, matching the
+        # resolver's ignore-with-warning treatment of that shape. The no-entry
+        # all-null session-inheritance block below is mirrored by the jq
+        # degradation arm in lib/efficiency-trace.jq (an agent with no
+        # dispatched_effort entry) — a coupled pair, edit together.
+        entry, _ = _entry_for(raw, agent)
+        requested = entry.get("effort") if isinstance(entry, dict) else None
+        decision = decisions[agent]
+        blocks[agent] = {
+            "requested": requested,
+            "resolved": (resolved.get(agent) or {}).get("effort"),
+            "application_point": decision["application_point"],
+            "effective": decision["effective"],
+            "fallback_reason": decision["fallback_reason"],
+        }
+    return blocks
 
 
 def format_effort_reports(decisions, resolved, *, effort_supported=True):
@@ -483,6 +539,18 @@ def main(argv=None):
             "passes it here."
         ),
     )
+    parser.add_argument(
+        "--effort-json",
+        action="store_true",
+        help=(
+            "print the per-agent five-field effort observability map (issue "
+            "#609: requested/resolved/application_point/effective/"
+            "fallback_reason per dispatched agent) as pure JSON on stdout, "
+            "INSTEAD of the override map. The #554 effort report lines are not "
+            "re-emitted (the phase's normal resolve call already reported "
+            "them); config-shape warnings still go to stderr."
+        ),
+    )
     args = parser.parse_args(argv)
 
     # A dispatched id not in the known roster is almost always a drift between
@@ -510,6 +578,20 @@ def main(argv=None):
     # capability-restricted one (Haiku model / effort_supported=false) is a
     # `::warning::` naming the model/provider. Never claims an unearned success.
     effort_supported = (args.effort_supported == "true")
+    if args.effort_json:
+        # Observability mode (issue #609): stdout is the five-field map, and the
+        # #554 report lines are deliberately NOT re-emitted — this is a second
+        # call in the same dispatch phase, whose normal resolve call already
+        # reported the fallback once.
+        sys.stdout.write(
+            json.dumps(
+                build_effort_observability(
+                    raw, result, args.agents, effort_supported=effort_supported
+                )
+            )
+            + "\n"
+        )
+        return 0
     decisions = decide_effort_applications(
         result, args.agents, effort_supported=effort_supported
     )
