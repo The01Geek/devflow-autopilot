@@ -97,6 +97,18 @@ def _raise(err):
     raise err
 
 
+def _posix(path):
+    """Render a filesystem path in POSIX separator form.
+
+    Extracted so the suite can drive it directly: on a POSIX host `os.sep` is
+    already "/", so exercising this through the walk is an identity and any
+    assertion over it passes for the wrong reason. The contract exists for the
+    native-Windows python3 host (#275), so the only non-vacuous test is one that
+    drives the separator — which needs this as a callable, not an inline expression.
+    """
+    return path.replace(os.sep, "/")
+
+
 def _depth_below(root, dirpath):
     # Number of path segments `dirpath` lies below `root`. The root itself is 0.
     rel = os.path.relpath(dirpath, root)
@@ -141,7 +153,7 @@ def classify_root(root):
                 # getsize can itself raise OSError (a file vanishing mid-walk) —
                 # that is a traversal failure of this root, handled by the except.
                 if os.path.getsize(candidate) > 0:
-                    matches.append(candidate.replace(os.sep, "/"))
+                    matches.append(_posix(candidate))
     except OSError as exc:
         sys.stderr.write(
             "devflow: discovery: root %s failed traversal (%s)\n"

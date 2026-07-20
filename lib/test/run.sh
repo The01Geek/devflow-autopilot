@@ -6063,11 +6063,23 @@ if [ -z "$_EXECBIT_TOKENS" ]; then
 elif ! python3 -c "
 import json
 m = json.load(open('$LIB/capability-profiles.json'))
-for t in m['profiles']['implement']:
-    if '/scripts/' in t and t.startswith('Bash(.devflow/vendor/devflow/'):
-        print(t)
-" > "$_EXECBIT_TOKENS" 2>/dev/null; then
-  _EXECBIT_STATE="manifest-read-failed"
+# A profile entry may be an inline token OR an '@group' reference the generator
+# expands against manifest['groups'] (lib/generate-capability-profiles.py's
+# resolve_profile). Iterating the RAW spec would silently drop every helper that a
+# later refactor moves into a shared group — the derived list would shrink, the
+# non-empty floor would still pass, and the guard would go green while asserting
+# nothing about the moved helpers. Expand the same way the generator does; an
+# unknown group raises KeyError and rides the non-zero -> manifest-read-failed arm.
+for entry in m['profiles']['implement']:
+    tokens = m['groups'][entry[1:]] if entry.startswith('@') else [entry]
+    for t in tokens:
+        if '/scripts/' in t and t.startswith('Bash(.devflow/vendor/devflow/'):
+            print(t)
+" > "$_EXECBIT_TOKENS" 2>"$_EXECBIT_TOKENS.err"; then
+  # Keep the cause: malformed JSON, a renamed profiles/implement key, an unknown
+  # group ref, and an absent python3 all fail closed here, but they are different
+  # repairs — an opaque breadcrumb makes the maintainer re-derive which one it was.
+  _EXECBIT_STATE="manifest-read-failed:$(head -n 1 "$_EXECBIT_TOKENS.err" 2>/dev/null)"
 elif [ ! -s "$_EXECBIT_TOKENS" ]; then
   _EXECBIT_STATE="derived-zero-tokens"
 else
@@ -6088,9 +6100,20 @@ else
     esac
   done < "$_EXECBIT_TOKENS"
 fi
-rm -f "$_EXECBIT_TOKENS" 2>/dev/null
+rm -f "$_EXECBIT_TOKENS" "$_EXECBIT_TOKENS.err" 2>/dev/null
 assert_eq "#555 every vendored-literal-granted scripts/ helper on the implement profile is executable with a shebang (a leading-token exec has no interpreter fallback), and the guard's own manifest read resolved" \
   "" "$_EXECBIT_STATE"
+
+# ── issue #555 (review finding): the §4.0.5 routing header is count-locked ON PURPOSE — the
+# block's whole value is that "a rework must not lose them", and this repo treats a stale
+# self-referential count as a non-demotable REJECT (PR #553). But a prose count guards nothing
+# on its own: two review passes read the header's numerals as an off-by-one before the bullets
+# were classified into exits and qualifiers. Pin the population mechanically so a later rework
+# that adds or drops a bullet turns the suite RED at the desk instead of rotting the header.
+# The region is the routing list between the count-locked header and the label-apply prose.
+_P4_ROUTING_BULLETS="$(awk '/further exits before any label is applied/,/^If the printed/' "$P4_FILE" | grep -c '^- \*\*')"
+assert_eq "#555 the §4.0.5 reader-routing list still carries exactly 8 bullets (6 exits + 2 qualifiers) — the count-locked header's numerals are only true at this population" \
+  "8" "$_P4_ROUTING_BULLETS"
 
 assert_pin_unique "sweep 2.3.6: implement SKILL keeps the sweep body" '#### 2.3.6 Error-handling & silent-failure sweep' "$IMPL_SKILL"
 assert_pin_unique "sweep 2.3.6: implement SKILL lists it in the always-run index" '**2.3.6** (error-handling & silent-failure)' "$IMPL_SKILL"

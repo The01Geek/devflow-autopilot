@@ -7844,8 +7844,40 @@ with tempfile.TemporaryDirectory() as _dm_base:
               and os.path.abspath(str(_pop)) + '=ok' in _se)
 
     # POSIX-form output: no backslash appears in emitted paths (#275 host shape).
+    # NOTE this assertion alone is structurally vacuous wherever os.sep == '/': the
+    # `.replace(os.sep, "/")` is an identity there, so deleting it keeps this green.
+    # The non-vacuous half is below — drive the separator the contract exists for.
     _rc, _so, _se = _dm_run([str(_pop)])
     assert_eq("#555 POSIX-form: no backslash in emitted paths", False, '\\' in _so)
+
+    # Non-vacuous POSIX-form pin: drive the extracted `_posix` normalizer directly with
+    # os.sep set to the native-Windows separator the contract exists for (#275). Going
+    # through classify_root cannot work — on a POSIX host os.path.join still joins with
+    # '/', so `.replace(os.sep, "/")` stays an identity and the assertion passes for the
+    # wrong reason; that vacuity was caught by mutation, which is why the normalizer is
+    # a callable rather than an inline expression.
+    _saved_sep = discover_deferrals.os.sep
+    try:
+        discover_deferrals.os.sep = '\\'
+        assert_eq("#555 POSIX-form (non-vacuous): _posix rewrites a backslash-separated path to POSIX form",
+                  'root/run-1/deferrals.json',
+                  discover_deferrals._posix('root\\run-1\\deferrals.json'))
+    finally:
+        discover_deferrals.os.sep = _saved_sep
+
+    # Roots-echo abspath: every fixture root above is ALREADY absolute, so
+    # os.path.abspath is an identity there and the assertion passes for the wrong
+    # reason. Drive a RELATIVE root from inside _base so abspath has real work.
+    _saved_cwd = os.getcwd()
+    try:
+        os.chdir(str(_base))
+        _rc, _so, _se = _dm_run(['pr-500'])
+        assert_eq("#555 roots-echo (non-vacuous): a RELATIVE root is echoed as its absolute path",
+                  (True, False),
+                  (os.path.join(str(_base), 'pr-500') + '=ok' in _se,
+                   'devflow: discovery roots: pr-500=' in _se))
+    finally:
+        os.chdir(_saved_cwd)
 
     # A root argument containing a space is handled at the helper's own boundary
     # (the fence never produces one, but the contract must not crash on one).
@@ -7908,6 +7940,37 @@ with tempfile.TemporaryDirectory() as _dm_excl:
               (False, False),
               (discover_deferrals.MARKER_PARTIAL in _dm_perroot[0],
                discover_deferrals.MARKER_FAILED in _dm_perroot[0]))
+
+# The fixture above reaches only the NON-DIRECTORY arm. The OSError arm is a second,
+# independently-worded per-root breadcrumb — and it is the higher-risk one, because it
+# interpolates the OSError text. Rewording it to carry a marker substring would reroute an
+# all-failed run into the fence's partial arm while the fixture above stayed green, so pin
+# both arms rather than one. Driven through the onerror channel, like the mid-traversal test.
+with tempfile.TemporaryDirectory() as _dm_excl2:
+    _dm_manifest(_dm_excl2, 'run-y', '{"deferrals": [{"file": "y.py"}]}')
+    _saved_walk2 = discover_deferrals.os.walk
+
+    def _boom_walk2(path, onerror=None):
+        exc = OSError(5, "simulated mid-traversal I/O error")
+        if onerror is not None:
+            onerror(exc)
+        return iter(())
+
+    _err2 = io.StringIO()
+    try:
+        discover_deferrals.os.walk = _boom_walk2
+        with contextlib.redirect_stderr(_err2):
+            discover_deferrals.classify_root(_dm_excl2)
+    finally:
+        discover_deferrals.os.walk = _saved_walk2
+    _dm_perroot2 = [ln for ln in _err2.getvalue().splitlines()
+                    if ln.startswith('devflow: discovery: root ')]
+    assert_eq("#555 marker-exclusivity (OSError arm): the per-root breadcrumb is emitted",
+              1, len(_dm_perroot2))
+    assert_eq("#555 marker-exclusivity (OSError arm): the per-root breadcrumb carries NEITHER aggregate marker",
+              (False, False),
+              (discover_deferrals.MARKER_PARTIAL in _dm_perroot2[0],
+               discover_deferrals.MARKER_FAILED in _dm_perroot2[0]))
 
 
 print()

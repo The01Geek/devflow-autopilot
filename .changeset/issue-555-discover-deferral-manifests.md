@@ -9,9 +9,11 @@ bump: patch
   whose exit status was masked by the pipe and discarded by the command substitution, so a failed
   search and a genuine no-match search were indistinguishable — into the new stdlib-only helper
   `scripts/discover-deferral-manifests.py`, which searches each candidate root independently,
-  classifies it `ok`/`absent`/`failed` (including a mid-traversal `OSError`), and carries discovery
-  status in its exit code (0 clean, 3 partial, 4 all-failed, 2 no roots). The §4.0.5 fence
-  discriminates that exit with the same stderr-marker idiom it already uses for `file-deferrals.py`,
+  classifies it `ok`/`absent`/`failed` (including a mid-traversal `OSError`), and reports discovery
+  status through both channels: an exit code (0 clean, 3 partial, 4 all-failed, 2 no roots) and a
+  fixed stderr marker per outcome. The §4.0.5 fence consumes zero-vs-non-zero from the exit and
+  discriminates partial from failed on the stderr marker — the same idiom it already uses for
+  `file-deferrals.py` —
   gates filing on a successful discovery, surfaces the helper's per-root roots-echo into the tool
   result on every path, publishes a new `discovery=` field on its unconditional sentinel, and the
   reader-routing arms fail closed so a degraded discovery can no longer be read as the clean no-op.
