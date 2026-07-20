@@ -41,9 +41,9 @@ failure: a rule that reaches the loop only when someone remembers to route it th
 
 ## Bounded-growth target
 
-The issue targeted 450 `_raf_words` for the two new sections plus the scoping prose. **Shipped:
-626.** The target was renegotiated twice, and both moves are recorded here rather than folded away,
-because a bound that silently tracks its subject has stopped bounding anything.
+The issue targeted 450 `_raf_words` for the two new sections plus the scoping prose.
+**Shipped: 626.** The target was renegotiated twice, and both moves are recorded here rather than
+folded away, because a bound that silently tracks its subject has stopped bounding anything.
 
 1. **450 → 600.** The prose reached 590 after two compression passes from 649, and every remaining
    clause is mandated by AC1, AC2, AC4 or AC12's at-minimum lists — 450 is unreachable without
