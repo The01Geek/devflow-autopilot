@@ -60,6 +60,11 @@ jobs:
       allowed_tools_extra: ${{ steps.extract.outputs.allowed_tools_extra }}
       devflow_version: ${{ steps.extract.outputs.devflow_version }}
       workpad_marker: ${{ steps.extract.outputs.workpad_marker }}
+      # Optional path to a pre-installed Claude Code executable (issue #601),
+      # sourced from setup.claude_code_executable. Passed to claude-code-action's
+      # path_to_claude_code_executable input in the claude job below. Empty (the
+      # default) leaves the action's automatic-install path unchanged.
+      claude_code_executable: ${{ steps.extract.outputs.claude_code_executable }}
     steps:
       - uses: actions/checkout@v6
       - id: cfg
@@ -102,6 +107,41 @@ jobs:
             # Effective workpad marker, passed to the resolver's self-trigger guard.
             echo "workpad_marker=$(echo "$CONFIG_JSON" | jq -r '.devflow.workpad_marker // "<!-- devflow:workpad -->"')"
           } >> "$GITHUB_OUTPUT"
+          # Optional pre-installed Claude Code executable path (issue #601). For
+          # self-hosted runners (typically Windows) whose OS the action's Unix-only
+          # bundled installer cannot serve. `// empty` emits an empty *stream* when the key
+          # is absent, so the substitution yields the empty string, which the action treats as "not provided" (auto-install unchanged).
+          # `try … catch` guards a hand-corrupted non-object `setup` (so the config job
+          # never aborts on a malformed setup block); `| strings` drops a non-string
+          # leaf value (array/object/number) to empty; `select(test("[\n\r]") | not)`
+          # drops even a *valid* string that carries an embedded newline/CR — those
+          # would otherwise make jq -r emit a multi-line value that corrupts the
+          # key=value GITHUB_OUTPUT line; `select(test("^[[:space:]]*$") | not)` drops a
+          # whitespace-only string, which is never a usable executable path and whose
+          # intended meaning is "unset" (auto-install). Any rejected shape falls back to
+          # empty. Because "rejected" and "unset" both resolve to empty, a *non-empty*
+          # raw value that resolves to empty emits a `::warning::` — otherwise a mistyped
+          # path on the one platform where this key is load-bearing silently reverts to
+          # the broken auto-install path and the operator debugs the installer's
+          # misleading "Windows is not supported" error instead of their own typo
+          # (the repo's breadcrumb-on-fallback convention; an explicit `""` is a
+          # deliberate unset and warns nothing). The raw
+          # probe emits the SENTINEL "set" rather than the value itself: command
+          # substitution strips trailing newlines, so a value composed entirely of
+          # newlines would collapse to the empty string and be misread as "unset",
+          # silently skipping the warning for a rejected shape. The probe filters on
+          # `!= null` rather than `// empty` because `//` is FALSY-triggered: `// empty`
+          # would swallow a valid-falsy `false` leaf, rejecting it to auto-install with
+          # no breadcrumb (the documented-off-switch class). JSON `null` stays an unset,
+          # like an absent key. `catch "set"` (not `catch empty`) makes a NON-OBJECT
+          # `setup` — which raises a jq index error in BOTH filters, so the guarded one
+          # cannot resolve a value — warn rather than fail open silently.
+          CLAUDE_CODE_EXECUTABLE_RAW=$(echo "$CONFIG_JSON" | jq -r 'try (.setup.claude_code_executable | select(. != null) | tostring | select(. != "") | "set") catch "set"')
+          CLAUDE_CODE_EXECUTABLE=$(echo "$CONFIG_JSON" | jq -r 'try (.setup.claude_code_executable // empty | strings | select(test("[\n\r]") | not) | select(test("^[[:space:]]*$") | not)) catch empty')
+          if [ -n "$CLAUDE_CODE_EXECUTABLE_RAW" ] && [ -z "$CLAUDE_CODE_EXECUTABLE" ]; then
+            echo "::warning::setup.claude_code_executable is set but was rejected (non-string leaf, embedded newline/CR, or whitespace-only); falling back to the action's automatic Claude Code install."
+          fi
+          echo "claude_code_executable=$CLAUDE_CODE_EXECUTABLE" >> "$GITHUB_OUTPUT"
 
   # Authorization + target-number gate. The action runs in AGENT mode below
   # (explicit prompt), which executes for ANY actor, so this job is the cost
@@ -983,6 +1023,11 @@ jobs:
           plugins: ${{ steps.plugins.outputs.plugins }}
 
           base_branch: ${{ needs.config.outputs.base_branch }}
+          # Optional pre-installed Claude Code executable (issue #601). Empty (the
+          # default) is the empty-as-absent idiom of claude_code_oauth_token above:
+          # the action auto-installs, unchanged for Linux. Full rationale + the
+          # self-hosted-Windows use case are on the config-job extraction above.
+          path_to_claude_code_executable: ${{ needs.config.outputs.claude_code_executable }}
           # claude_args head is a COMPUTED string (steps.cargs): --model always,
           # --effort conditional on effort_supported (issue #313). The --allowed-tools
           # tail below is a GENERATED region — do NOT hand-edit it. It is compiled from

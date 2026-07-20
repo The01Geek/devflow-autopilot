@@ -449,6 +449,46 @@ jobs:
             printf '%s\n' "$BASE_JSON"
             printf '%s\n' "$delim"
           } >> "$GITHUB_OUTPUT"
+          # Optional pre-installed Claude Code executable path (issue #601), read
+          # from setup.claude_code_executable in the SAME trusted base-ref config
+          # ($BASE_JSON) as provision_env / runner_tools above — never the PR-head
+          # checkout. This job runs under a write token and the action executes the
+          # resolved path, so a PR-author-controllable value would be an
+          # arbitrary-code-execution vector; the trusted-source read is the security
+          # boundary. `// empty` emits an empty *stream* when the key is absent (the
+          # substitution then yields the empty string and the action's auto-install path
+          # is unchanged); `try … catch` guards a non-object
+          # base-config `setup` so this read never aborts the review job; `| strings`
+          # drops a non-string leaf value to empty; `select(test("[\n\r]") | not)` drops
+          # even a valid string carrying an embedded newline/CR — so the value is always
+          # single-line and the plain key=value echo below is safe;
+          # `select(test("^[[:space:]]*$") | not)` drops a whitespace-only string, which
+          # is never a usable executable path and whose intended meaning is "unset"
+          # (any rejected shape falls back to empty → auto-install). Because "rejected"
+          # and "unset" both resolve to empty, a *non-empty* raw value that resolves to
+          # empty emits a `::warning::` — otherwise a mistyped path on the one platform
+          # where this key is load-bearing silently reverts to the broken auto-install
+          # path and the operator debugs the installer's misleading "Windows is not
+          # supported" error instead of their own typo (the repo's breadcrumb-on-fallback
+          # convention; an explicit `""` is a deliberate unset and warns nothing). The raw
+          # probe emits the SENTINEL "set" rather than the value itself: command
+          # substitution strips trailing newlines, so a value composed entirely of
+          # newlines would collapse to the empty string and be misread as "unset",
+          # silently skipping the warning for a rejected shape. The probe filters on
+          # `!= null` rather than `// empty` because `//` is FALSY-triggered: `// empty`
+          # would swallow a valid-falsy `false` leaf, rejecting it to auto-install with
+          # no breadcrumb (the documented-off-switch class). JSON `null` stays an unset,
+          # like an absent key. `catch "set"` (not `catch empty`) makes a NON-OBJECT
+          # `setup` — which raises a jq index error in BOTH filters, so the guarded one
+          # cannot resolve a value — warn rather than fail open silently. The
+          # raw probe reads the SAME trusted $BASE_JSON — it never widens the trust
+          # boundary, and it is used only for this emptiness test, never emitted.
+          CLAUDE_CODE_EXECUTABLE_RAW=$(printf '%s' "$BASE_JSON" | jq -r 'try (.setup.claude_code_executable | select(. != null) | tostring | select(. != "") | "set") catch "set"')
+          CLAUDE_CODE_EXECUTABLE=$(printf '%s' "$BASE_JSON" | jq -r 'try (.setup.claude_code_executable // empty | strings | select(test("[\n\r]") | not) | select(test("^[[:space:]]*$") | not)) catch empty')
+          if [ -n "$CLAUDE_CODE_EXECUTABLE_RAW" ] && [ -z "$CLAUDE_CODE_EXECUTABLE" ]; then
+            echo "::warning::setup.claude_code_executable is set in the trusted base-ref config but was rejected (non-string leaf, embedded newline/CR, or whitespace-only); falling back to the action's automatic Claude Code install."
+          fi
+          echo "claude_code_executable=$CLAUDE_CODE_EXECUTABLE" >> "$GITHUB_OUTPUT"
 
       - name: Resolve allowed-tools profile
         id: tools
@@ -1582,6 +1622,12 @@ jobs:
           # --effort conditional on effort_supported (issue #313). --model now comes
           # from the provider resolver (the dead `model` input was removed). The
           # --permission-mode / --allowed-tools tail is preserved verbatim.
+          # Optional pre-installed Claude Code executable (issue #601): sourced ONLY
+          # from the trusted base-ref config (steps.baseprovision), never a PR-head
+          # config — this write-token job executes the resolved path (see the
+          # extraction step for the full ACE-boundary rationale). Empty (the default)
+          # is the empty-as-absent idiom of claude_code_oauth_token above: auto-install.
+          path_to_claude_code_executable: ${{ steps.baseprovision.outputs.claude_code_executable }}
           claude_args: >-
             ${{ steps.cargs.outputs.args }}
             --permission-mode acceptEdits

@@ -4,6 +4,25 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.18.0] — 2026-07-20
+
+### Added
+- **Self-hosted Windows runner support via `setup.claude_code_executable`.** All three cloud
+  workflows that invoke `anthropics/claude-code-action` (`devflow.yml`, `devflow-implement.yml`,
+  `devflow-runner.yml`) now pass the action's `path_to_claude_code_executable` input, sourced
+  from a new optional config key `setup.claude_code_executable`. Set it (typically on a
+  self-hosted Windows runner, whose OS the action's Unix-only bundled installer cannot serve) to
+  the path of a pre-installed Claude Code executable and the action skips installation and uses
+  it; unset or empty (the default, and every Linux consumer) resolves the input to an empty
+  string and leaves the action's automatic-install path unchanged. `devflow-runner.yml` reads the
+  key only from the trusted base-ref config, never a PR-head config, because that write-token job
+  executes the resolved path. The key is trigger-time-resolved, so its effect is post-merge-only.
+  A value that is set but unusable — a non-string leaf (including a valid-falsy `false`), a
+  non-object `setup` block, a string with an embedded newline/CR, or a whitespace-only string —
+  is rejected to empty (auto-install) and emits a workflow `::warning::` naming the key, so a
+  mistyped path does not silently revert to the Windows-fatal installer path. An absent key,
+  a JSON `null`, and an explicit `""` are deliberate unsets and warn nothing. (#604)
+
 ## [2.17.2] — 2026-07-20
 
 ### Changed
