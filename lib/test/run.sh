@@ -3892,23 +3892,20 @@ assert_pin_unique "#466: review-and-fix extension carries the six-shape set (val
   "$SIXSHAPE_SET" "$LIB/../.devflow/prompt-extensions/review-and-fix.md"
 
 # ── #620 reception-extension port: surface-presence contract pins ─────────────
-# The reception extension gains two sections porting rules already proven on the loop path
-# (focused-module iteration, explicit push destination ref), and review-and-fix loads that
-# extension at entry so both reach the fix loop. These are surface-presence pins over prose
-# contracts, so per the #464 scoping each carries a whole-line removal proof and no
-# assert_pin_red_under mutation obligation.
-RCR_EXT_620="$LIB/../.devflow/prompt-extensions/receiving-code-review.md"
+# Surface-presence pins over prose contracts: per the #464 scoping each carries a whole-line
+# removal proof and no assert_pin_red_under mutation obligation.
+RCR_EXT="$LIB/../.devflow/prompt-extensions/receiving-code-review.md"
 RCR_PIN_MODULE='A reception pass iterates on a focused module only after recording the selected module ID'
 RCR_PIN_PUSH='A reception pass that pushes uses an explicit destination ref'
 RAF_PIN_LOAD='load-prompt-extension.sh receiving-code-review'
 assert_pin_unique "#620: reception extension carries the focused-test-module iteration rule" \
-  "$RCR_PIN_MODULE" "$RCR_EXT_620"
+  "$RCR_PIN_MODULE" "$RCR_EXT"
 assert_pin_red_on_removal "#620: focused-test-module rule pin is removal-sensitive" \
-  "$RCR_PIN_MODULE" "$RCR_EXT_620"
+  "$RCR_PIN_MODULE" "$RCR_EXT"
 assert_pin_unique "#620: reception extension carries the explicit push-destination-ref rule" \
-  "$RCR_PIN_PUSH" "$RCR_EXT_620"
+  "$RCR_PIN_PUSH" "$RCR_EXT"
 assert_pin_red_on_removal "#620: push-destination-ref rule pin is removal-sensitive" \
-  "$RCR_PIN_PUSH" "$RCR_EXT_620"
+  "$RCR_PIN_PUSH" "$RCR_EXT"
 assert_pin_unique "#620: review-and-fix loads the receiving-code-review extension at entry" \
   "$RAF_PIN_LOAD" "$MAXI_ROOT"
 assert_pin_red_on_removal "#620: receiving-extension loader-call pin is removal-sensitive" \
@@ -34632,7 +34629,7 @@ RAF_EXT_W=$(_raf_words "$LIB/../.devflow/prompt-extensions/review-and-fix.md")
 # It is deliberately NOT added to RAF_CUM_W below: the cumulative/growth-delta arithmetic
 # isolates the #530 split against a frozen monolith basis, and folding an unrelated extension
 # into it would pollute that comparison (docs/review-and-fix-budget.md states the exclusion).
-RAF_RCR_W=$(_raf_words "$LIB/../.devflow/prompt-extensions/receiving-code-review.md")
+RAF_RCR_W=$(_raf_words "$RCR_EXT")
 RAF_MAXREF_W=0
 RAF_MAXREF_NAME=""
 RAF_REFS_SUM_W=0
@@ -34686,22 +34683,19 @@ RAF_ROOT_CEIL=3500
 # exactly at the measurement makes the next one-sentence edit a budget breach. The growth is the
 # audited decision recorded in docs/cutovers/issue-619-batched-artifact-regeneration.md;
 # update docs/review-and-fix-budget.md's ceilings-table cell in lockstep.
-# #620 raised it again 5690->7374 and widened the measure itself: the root now loads the
-# receiving-code-review extension at entry (so the fix loop runs under the same repo reception
-# policy a direct pass does), making the initial load a THREE-term sum — root + review-and-fix
-# extension + receiving-code-review extension. The ceiling carries ~4 words of headroom over the
-# measured 7,370, matching #619's convention. Update docs/review-and-fix-budget.md's
+# #620 raised it again 5690->7367 (the three-term sum RAF_RCR_W above introduces), with ~4 words
+# of headroom over the measurement per #619's convention. Update docs/review-and-fix-budget.md's
 # ceilings-table cell in lockstep; the audited decision is
 # docs/cutovers/issue-620-reception-extension-port.md.
-RAF_LOAD_CEIL=7374
-# #620: the max-active-step ceiling is renegotiated only because the same always-loaded term
-# pushed the measured peak past 17,000 (root + both extensions + shadow-review.md = 18,632).
-RAF_MAXSTEP_CEIL=18636
+RAF_LOAD_CEIL=7367
+# #620: renegotiated only because that same always-loaded term pushed the measured peak past
+# the previous 17,000 ceiling.
+RAF_MAXSTEP_CEIL=18629
 assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
   "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"
-assert_eq "#530 budget: root + both live extensions (initial load) <= $RAF_LOAD_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W)))" "yes" \
+assert_eq "#530 budget: root + always-loaded extensions (initial load) <= $RAF_LOAD_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W)))" "yes" \
   "$([ "$((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W))" -le "$RAF_LOAD_CEIL" ] && echo yes || echo no)"
-assert_eq "#530 budget: root + both extensions + max active step <= $RAF_MAXSTEP_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W+RAF_MAXREF_W)))" "yes" \
+assert_eq "#530 budget: root + always-loaded extensions + max active step <= $RAF_MAXSTEP_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W+RAF_MAXREF_W)))" "yes" \
   "$([ "$((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W+RAF_MAXREF_W))" -le "$RAF_MAXSTEP_CEIL" ] && echo yes || echo no)"
 # #539 review (Important 2, over-graded shape 3): the peak-load ceiling above models
 # root + extension + the SINGLE largest reference, which is correct ONLY under the split's
@@ -34739,7 +34733,7 @@ for _raf_ceil in "$RAF_ROOT_CEIL" "$RAF_LOAD_CEIL" "$RAF_MAXSTEP_CEIL"; do
     "$(case "$_raf_doc_nocommas" in *"≤ $_raf_ceil words |"*) echo yes;; *) echo no;; esac)"
 done
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,574 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,569 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute
@@ -34777,10 +34771,10 @@ assert_eq "#530 budget: pinned growth delta is arithmetically true (measured cum
 _raf_root_row="$(grep -F '| Plugin root ≤' "$RAF_BUDGET_DOC" || true)"
 assert_eq "#530 budget: doc root Measured cell matches fresh measurement ($RAF_ROOT_W)" "yes" \
   "$(case "${_raf_root_row//,/}" in *"| $RAF_ROOT_CEIL | $RAF_ROOT_W |"*) echo yes;; *) echo no;; esac)"
-_raf_load_row="$(grep -F 'Root + both live extensions (initial load) ≤' "$RAF_BUDGET_DOC" || true)"
+_raf_load_row="$(grep -F 'Root + always-loaded extensions (initial load) ≤' "$RAF_BUDGET_DOC" || true)"
 assert_eq "#530 budget: doc initial-load Measured cell matches fresh measurement ($((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W)))" "yes" \
   "$(case "${_raf_load_row//,/}" in *"| $RAF_LOAD_CEIL | $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W)) |"*) echo yes;; *) echo no;; esac)"
-_raf_maxstep_row="$(grep -F 'Root + both extensions + max active step ≤' "$RAF_BUDGET_DOC" || true)"
+_raf_maxstep_row="$(grep -F 'Root + always-loaded extensions + max active step ≤' "$RAF_BUDGET_DOC" || true)"
 assert_eq "#530 budget: doc max-step Measured cell matches fresh measurement ($((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W+RAF_MAXREF_W)))" "yes" \
   "$(case "${_raf_maxstep_row//,/}" in *"| $RAF_MAXSTEP_CEIL | $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W+RAF_MAXREF_W)) |"*) echo yes;; *) echo no;; esac)"
 # #539 shadow (code-reviewer): bind the primary net-mandatory-reduction figure to the live

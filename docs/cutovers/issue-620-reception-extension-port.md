@@ -9,8 +9,7 @@ kind: growth
 
 `.devflow/prompt-extensions/receiving-code-review.md` gains two sections. **Focused test modules
 in direct reception passes** ports the module-iteration rule that already governs the loop path,
-adapted for direct passes (direct leading-token runner form first, because the local-tier
-classifier routinely denies the `bash <path>` wrapper) and explicitly deferring to the
+adapted for direct passes (the direct leading-token runner form leads) and deferring to the
 review-and-fix extension's own section on loop runs. **Push form in reception passes** ports the
 explicit-destination-ref rule and names the two non-conforming forms with their rationales,
 including the operator record that `git push -u origin <branch>` has pushed straight to main from
@@ -42,43 +41,38 @@ failure: a rule that reaches the loop only when someone remembers to route it th
 
 ## Bounded-growth target
 
-The issue set a target of 450 `_raf_words` for the two new sections plus the scoping prose. The
-shipped prose measures **599** after three compression passes from an initial 649 — including a
-late correctness addition the operand-trace sweep required (the supersession policy needed a
-named producer for its authority operand and a route for the unestablished case), which was paid
-for by trimming connective tissue rather than by re-pegging the target. Every remaining clause is mandated by AC1, AC2,
-AC4 or AC12's at-minimum lists, so 450 is not reachable without dropping mandated content; the
-target was reconciled once to **600** under the implement skill's Phase 2.2.6 rule, preserving the
-property the target exists for — a recorded, justified, falsifiable number the review gate can
-fail an addition against. Its magnitude was set to 600 — ten words above the 590 measured when
-the target was reconciled, and one above the 599 finally shipped. The
-rationale is recorded in the issue workpad as an AC-rewrite note and as an `issue-accuracy`
-reflection.
+The issue targeted 450 `_raf_words`. Shipped: **592**, down from 649 over three compression
+passes — including a late correctness addition the operand-trace sweep required (the supersession
+policy needed a named producer for its authority operand and a route for the unestablished case),
+paid for by trimming connective tissue rather than by re-pegging the target. Every remaining
+clause is mandated by AC1, AC2, AC4 or AC12's at-minimum lists, so 450 is unreachable without
+dropping mandated content. The target was reconciled once to **600** under the implement skill's
+Phase 2.2.6 rule — ten above the 590 measured at reconciliation, eight above the 592 shipped —
+preserving what the target exists for: a recorded, falsifiable number the review gate can fail an
+addition against. The rationale is in the issue workpad as an AC-rewrite note and an
+`issue-accuracy` reflection.
 
 ## Budget renegotiation
 
-Issue #620 widens two measures, not merely their ceilings: the receiving extension is now part of
-the always-loaded surface, so the **initial-load** and **max-active-step** measures became
-three-term sums.
+The receiving extension is now always-loaded, so the **initial-load** and **max-active-step**
+measures became three-term sums.
 
 | Quantity | Before | After | Ceiling before → after |
 | --- | ---: | ---: | --- |
-| Plugin root | 3,213 | 3,464 | 3,500 → 3,500 (unchanged) |
-| Initial load | 5,686 (root + extension) | 7,370 (root + both extensions) | 5,690 → 7,374 |
-| Max active step | 16,948 | 18,632 | 17,000 → 18,636 |
+| Plugin root | 3,213 | 3,459 | 3,500 → 3,500 (unchanged) |
+| Initial load | 5,686 (root + extension) | 7,363 (root + always-loaded extensions) | 5,690 → 7,367 |
+| Max active step | 16,948 | 18,625 | 17,000 → 18,629 |
 
-The root ceiling was deliberately **not** renegotiated: the scoping prose fits under it with 36
-words to spare, which makes the root the tightest budget in the table and is recorded as such in
-`docs/review-and-fix-budget.md`'s maintainer note. Each renegotiated ceiling carries roughly four
-words of headroom over its measurement, following the precedent set by issues #556 and #619 — a
-ceiling set exactly at the measurement makes the next one-sentence edit a budget breach.
+The scoping prose fits under the unchanged root ceiling with 41 words to spare, which makes the
+root the tightest budget in the table — recorded as such in `docs/review-and-fix-budget.md`'s
+maintainer note. Each renegotiated ceiling carries roughly four words of headroom over its
+measurement, following issues #556 and #619 — a ceiling set exactly at the measurement makes the
+next one-sentence edit a budget breach.
 
-The **cumulative-path** and **growth-delta** arithmetic deliberately excludes the receiving
-extension. Those figures isolate the #530 split against a frozen pre-split monolith basis that
-never loaded this file, so folding it in would pollute the comparison rather than measure the
-split. The exclusion is stated in the budget doc's Counting method and in the `#530 budget` block
-in `lib/test/run.sh`. The cumulative and growth figures still move (43,248 and +4,574) because the
-root itself grew by the loader call and its scoping prose.
+The **cumulative-path** and **growth-delta** arithmetic excludes the receiving extension —
+rationale in the budget doc's Counting method, mirrored in `lib/test/run.sh`'s `#530 budget`
+block. Those figures still move (43,243 and +4,569) because the root itself grew by the loader
+call and its scoping prose.
 
 Growth is bounded by design: the two new sections state rules and cite their sources of record
 rather than restating them, and neither duplicates an artifact or module inventory into prose.

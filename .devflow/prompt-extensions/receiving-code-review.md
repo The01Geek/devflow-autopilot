@@ -76,7 +76,7 @@ Iterate with the direct leading-token form `lib/test/run-module.sh <module-id>` 
 
 A focused result discharges no gate: before every commit, push, and completion claim run the full `lib/test/run.sh` plus every lint gate `CLAUDE.md` requires; a nonempty skip tally is not clean. A fix no registered module covers iterates on the full suite.
 
-On loop runs this section defers to `.devflow/prompt-extensions/review-and-fix.md`'s "Focused test modules accelerate fix iteration only" section, which already governs and loads there. That section is this one's source of record — an adaptation, not a lockstep mirror.
+On loop runs `.devflow/prompt-extensions/review-and-fix.md`'s "Focused test modules accelerate fix iteration only" section governs and this one defers — that section already loads there, and it is this section's source of record, adapted rather than mirrored in lockstep.
 
 ## Push form in reception passes
 
@@ -84,6 +84,6 @@ A reception pass that pushes uses an explicit destination ref — `git push orig
 
 Two forms are non-conforming **within a reception pass**. A bare `git push` refuses under `push.default=simple` when the upstream ref name differs from the local branch (the shepherd-worktree shape: a `worktree-pr-N` checkout tracking an `issue-N-…` head). `git push -u origin <branch>` is worse — from a `.claude/worktrees/` checkout under `push.default=upstream` it has pushed straight to main here, the operator record issue #620 carries.
 
-This covers reception-pass pushes only; it never governs skill or phase prose, or helpers, whose push form is pinned, documented, or load-bearing by design — a class including `lib/open-state-pr.sh`'s `git push -u origin` for new state branches and implement Phase 1.5's `git push -u origin HEAD` in `skills/implement/phases/phase-1-setup.md`, which `scripts/update-branch-checkpoint.sh` documents itself as relying on. A class-sweeping fix pass does not strip those.
+This covers reception-pass pushes only. It never governs skill or phase prose, or helpers, whose push form is pinned, documented, or load-bearing by design — including `lib/open-state-pr.sh`'s `git push -u origin` for new state branches, and implement Phase 1.5's `git push -u origin HEAD` in `skills/implement/phases/phase-1-setup.md`, which `scripts/update-branch-checkpoint.sh` documents itself as relying on. A class-sweeping fix pass does not strip those.
 
 Whether a push happens stays governed by the surrounding workflow. Source of record for the explicit-destination-ref form and the bare-push refusal: `skills/review-and-fix/references/fixing.md` Step 3 item 6.

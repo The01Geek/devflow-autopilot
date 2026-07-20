@@ -4,8 +4,8 @@ This table records the prompt-surface budget of `/devflow:review-and-fix` before
 issue #530 split of its monolithic `SKILL.md` into a thin root + step references under
 `skills/review-and-fix/references/`. It is the checked-in artifact for the #530 word-budget
 acceptance criteria; the live regression guard is the `#530 budget` block in `lib/test/run.sh`
-(root ≤ 3,500 words; root + both live extensions ≤ 7,374 words; root + both extensions + max
-active step ≤ 18,636 words).
+(root ≤ 3,500 words; root + always-loaded extensions ≤ 7,367 words; root + always-loaded
+extensions + max active step ≤ 18,629 words).
 
 > **Maintainer note — the root is the tightest budget.** The root sits below its 3,500-word
 > ceiling (see the **AFTER — plugin root** row and the ceilings table below; the `#530 budget`
@@ -21,13 +21,12 @@ active step ≤ 18,636 words).
 > the park-calibration evidence gate (issue #557) merged in from `main`: that feature adds the
 > `parking_evidence`/`park_calibration` schema fields to the root and the below-verdict-threshold
 > evidence-classification prose to `shadow-review.md`, enlarging both the always-loaded root and
-> the peak step — see the justified-growth warning below. Issue #620 then **widened two of the
-> measures themselves**, not just their ceilings: the root now loads
-> `.devflow/prompt-extensions/receiving-code-review.md` at entry, so the initial-load and
-> max-active-step rows became three-term sums (initial load 5,690 → 7,374; max active step
-> 17,000 → 18,636). The root ceiling was *not* renegotiated — the scoping prose that call carries
-> left it at 3,464 of 3,500, and that remaining 36-word margin is now the tightest budget in this
-> table. The audited decision is `docs/cutovers/issue-620-reception-extension-port.md`.
+> the peak step — see the justified-growth warning below. Issue #620 then widened two of the
+> *measures* themselves, not just their ceilings — the root now loads
+> `.devflow/prompt-extensions/receiving-code-review.md` at entry (see the ceilings table). The
+> root ceiling was *not* renegotiated: the scoping prose that call carries left it at 3,459 of
+> 3,500, and that 41-word margin is now the tightest budget here. Audited decision:
+> `docs/cutovers/issue-620-reception-extension-port.md`.
 
 ## Counting method & formulas
 
@@ -60,13 +59,15 @@ active step ≤ 18,636 words).
   growth-delta arithmetic below**, whose whole job is to isolate the #530 split against a frozen
   pre-split monolith basis that never loaded this file; folding it in would pollute that
   comparison rather than measure the split.
-- **actual initial load** = plugin root + live extension + receiving extension (what is *always*
-  loaded at invocation).
+- **always-loaded extensions** = the live extension plus the receiving extension (the set the root
+  loads at entry; naming the set here keeps the row labels below free of a member count).
+- **actual initial load** = plugin root + always-loaded extensions (what is *always* loaded at
+  invocation).
 - **bundle** = plugin root + every `references/*.md` (the whole shipped skill surface).
 - **normal cumulative path** = root + live extension + every reference a converging run loads in
   sequence (Σ references; the maximal case — a clean immediate-APPROVE run loads fewer). The
   receiving extension is excluded, per its definition above.
-- **maximum active step** = root + both extensions + the single largest step reference
+- **maximum active step** = root + always-loaded extensions + the single largest step reference
   (`shadow-review.md`), the peak when exactly one step reference is resident at a time (the
   always-resident re-read rule loads each reference on demand — none is held resident).
 
@@ -77,12 +78,12 @@ active step ≤ 18,636 words).
 | **BEFORE** — monolith | `skills/review-and-fix/SKILL.md` (pre-split) | 1,134 | 36,201 | 250,928 | 47,061 |
 | **BEFORE** — always-loaded | monolith + live extension | 1,337 | 38,674 | 267,474 | 50,271 |
 | live extension | `.devflow/prompt-extensions/review-and-fix.md` | 203 | 2,473 | 16,546 | 3,210 |
-| receiving extension | `.devflow/prompt-extensions/receiving-code-review.md` | 89 | 1,433 | 9,607 | 1,863 |
-| **AFTER** — plugin root | `skills/review-and-fix/SKILL.md` (thin) | 336 | **3,464** | 27,459 | 4,503 |
-| **AFTER** — actual initial load | root + both live extensions | 628 | **7,370** | 53,612 | 9,581 |
-| **AFTER** — bundle | root + all `references/*.md` | 1,318 | 40,775 | 286,479 | 53,008 |
-| **AFTER** — normal cumulative path | root + live extension + Σ references | — | 43,248 | — | 56,222 |
-| **AFTER** — maximum active step | root + both extensions + `shadow-review.md` | — | **18,632** | — | 24,222 |
+| receiving extension | `.devflow/prompt-extensions/receiving-code-review.md` | 89 | 1,431 | 9,602 | 1,860 |
+| **AFTER** — plugin root | `skills/review-and-fix/SKILL.md` (thin) | 336 | **3,459** | 27,428 | 4,497 |
+| **AFTER** — actual initial load | root + always-loaded extensions | 628 | **7,363** | 53,576 | 9,572 |
+| **AFTER** — bundle | root + all `references/*.md` | 1,318 | 40,770 | 286,448 | 53,001 |
+| **AFTER** — normal cumulative path | root + live extension + Σ references | — | 43,243 | — | 56,216 |
+| **AFTER** — maximum active step | root + always-loaded extensions + `shadow-review.md` | — | **18,625** | — | 24,212 |
 | reference: `shadow-review.md` | Step 2.6 | 235 | 11,262 | 79,276 | 14,641 |
 | reference: `fixing.md` | Step 3 | 156 | 8,845 | 60,302 | 11,561 |
 | reference: `loop-exit.md` | Loop Exit | 273 | 6,594 | 45,216 | 8,576 |
@@ -96,24 +97,22 @@ active step ≤ 18,636 words).
 
 | Ceiling | Value | Measured | Result |
 | --- | --- | ---: | :--: |
-| Plugin root ≤ 3,500 words | 3,500 | 3,464 | ✅ |
-| Root + both live extensions (initial load) ≤ 7,374 words | 7,374 | 7,370 | ✅ |
-| Root + both extensions + max active step ≤ 18,636 words | 18,636 | 18,632 | ✅ |
+| Plugin root ≤ 3,500 words | 3,500 | 3,459 | ✅ |
+| Root + always-loaded extensions (initial load) ≤ 7,367 words | 7,367 | 7,363 | ✅ |
+| Root + always-loaded extensions + max active step ≤ 18,629 words | 18,629 | 18,625 | ✅ |
 
 ## Net mandatory-prompt reduction, and the named justified-growth warning
 
-- **Mandatory (always-loaded) prompt: net reduction of 32,737 words** — from 38,674 (monolith +
-  extension, *all* of it loaded on every invocation) to 5,937 (thin root + live extension). This is
+- **Mandatory (always-loaded) prompt: net reduction of 32,742 words** — from 38,674 (monolith +
+  extension, *all* of it loaded on every invocation) to 5,932 (thin root + live extension). This is
   the reduction the split exists to deliver: everything else now loads on demand, one step
-  reference at a time. Both sides of this comparison exclude the receiving extension, which the
-  pre-split basis never loaded — counting it on one side only would understate the split's
-  reduction by 1,433 words. The *actual* always-loaded surface since issue #620 is the 7,370-word
-  initial-load row above.
+  reference at a time. Both sides exclude the receiving extension (see Counting method). The
+  *actual* always-loaded surface since issue #620 is the 7,363-word initial-load row above.
 
-- **⚠️ `review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,574 words.**
+- **⚠️ `review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,569 words.**
   The *normal cumulative path* (root + live extension + every reference a full run loads in
-  sequence — the receiving extension excluded, per Counting method) is 43,248 words vs. 38,674
-  before — a net **growth of +4,574 words** (+11.8%). Its drivers are
+  sequence — the receiving extension excluded, per Counting method) is 43,243 words vs. 38,674
+  before — a net **growth of +4,569 words** (+11.8%). Its drivers are
   the routing text the split itself adds (the *Step routing* table, the *Reference-loading
   contract* — entry-gate, canonical-boundary rule, per-reference failure map, always-resident
   re-read rule — the condensed terminal verdict→chat mapping, the durable-operand schema fields,
@@ -122,7 +121,7 @@ active step ≤ 18,636 words).
   fields and the below-verdict-threshold evidence-classification prose in `shadow-review.md`, the
   bulk of the increase), and the issue-#620 receiving-extension loader call and its scoping prose
   in the root. It is **justified**: the split trades this cumulative increase for a
-  32,737-word reduction in the *mandatory* prompt, on-demand sequential loading (only one step
-  reference resident at a time — peak 18,632 words, not 43,248), and fail-closed reference handling.
+  32,742-word reduction in the *mandatory* prompt, on-demand sequential loading (only one step
+  reference resident at a time — peak 18,625 words, not 43,243), and fail-closed reference handling.
   Cumulative token spend on a full run is not the metric the split optimizes; peak-context and
   per-step focus are.
