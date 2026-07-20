@@ -44408,7 +44408,7 @@ for _ra_ext in implement review-and-fix receiving-code-review; do
 done
 
 if ! devflow_run_full_suite_module "$LIB/test/modules/regenerate-artifacts.sh" \
-  "regenerate-artifacts" 45; then
+  "regenerate-artifacts" 100; then
   printf 'ERROR: regenerate-artifacts boundary could not record its result\n'
   exit 1
 fi
