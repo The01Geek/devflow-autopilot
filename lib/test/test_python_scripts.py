@@ -8229,6 +8229,103 @@ with tempfile.TemporaryDirectory() as _dm_excl2:
               (discover_deferrals.MARKER_PARTIAL in _dm_perroot2[0],
                discover_deferrals.MARKER_FAILED in _dm_perroot2[0]))
 
+# The `os.path.getsize` OSError arm (a manifest vanishing between the os.walk yield and
+# the size probe) is a THIRD way into the `except OSError` handler, and the two fixtures
+# above cannot reach it: both stub os.walk to `return iter(())`, so the loop body — and
+# the getsize call inside it — never executes. Without this fixture the source comment
+# "getsize can itself raise OSError … handled by the except" is asserted by construction
+# only, and hoisting the probe outside the try (or guarding it with a bare `except:
+# pass`) would silently turn a vanished manifest into a CLEAN `ok` with the manifest
+# missing — the exact silent-loss shape #555 exists to remove, one level down.
+# Positive control first: the same fixture classifies `ok` and yields the manifest, so a
+# `failed` below can only come from the getsize probe and not from an earlier guard.
+with tempfile.TemporaryDirectory() as _dm_gs:
+    _gs_manifest = _dm_manifest(_dm_gs, 'run-gs', '{"deferrals": [{"file": "g.py"}]}')
+    assert_eq("#555 getsize arm (positive control): the un-patched fixture classifies 'ok' with its manifest",
+              ('ok', [_gs_manifest]), discover_deferrals.classify_root(_dm_gs))
+
+    _saved_getsize = discover_deferrals.os.path.getsize
+
+    def _boom_getsize(path):
+        raise OSError(2, "simulated vanished manifest")
+
+    _gs_err = io.StringIO()
+    try:
+        discover_deferrals.os.path.getsize = _boom_getsize
+        with contextlib.redirect_stderr(_gs_err):
+            _gs_status, _gs_matches = discover_deferrals.classify_root(_dm_gs)
+    finally:
+        discover_deferrals.os.path.getsize = _saved_getsize
+    assert_eq("#555 getsize OSError mid-walk → the root classifies 'failed', matches dropped",
+              ('failed', []), (_gs_status, _gs_matches))
+    # Attribute the rejection: it must be the OSError per-root breadcrumb naming this
+    # root, not some other failure path, and it must carry neither aggregate marker.
+    _gs_perroot = [ln for ln in _gs_err.getvalue().splitlines()
+                   if ln.startswith('devflow: discovery: root ')]
+    assert_eq("#555 getsize OSError arm: attributed by the OSError per-root breadcrumb naming this root",
+              (1, True, True, False, False),
+              (len(_gs_perroot),
+               os.path.abspath(_dm_gs) in _gs_perroot[0] if _gs_perroot else False,
+               'simulated vanished manifest' in _gs_perroot[0] if _gs_perroot else False,
+               discover_deferrals.MARKER_PARTIAL in _gs_perroot[0] if _gs_perroot else True,
+               discover_deferrals.MARKER_FAILED in _gs_perroot[0] if _gs_perroot else True))
+
+# The "regular files only" narrowing is the ONE claimed behavioral difference from the
+# retired `find -mindepth 2 -maxdepth 2 -name deferrals.json -size +0c` (which had no
+# `-type f` and would have matched a DIRECTORY named deferrals.json). It rests entirely
+# on os.walk splitting its yield into dirnames/filenames and the membership test reading
+# `filenames` — a rewrite reading `dirnames + filenames` would re-admit the directory and
+# hand file-deferrals.py a path it cannot read, with nothing to catch it. Positive control
+# on the same root: a sibling REGULAR manifest at the same depth IS matched, so a
+# directory's absence from the output cannot be an artifact of the root matching nothing.
+with tempfile.TemporaryDirectory() as _dm_dirname:
+    (Path(_dm_dirname) / 'run-dir' / 'deferrals.json').mkdir(parents=True)
+    _dn_sibling = _dm_manifest(_dm_dirname, 'run-file', '{"deferrals": [{"file": "f.py"}]}')
+    _dn_status, _dn_matches = discover_deferrals.classify_root(_dm_dirname)
+    assert_eq("#555 regular files only: a DIRECTORY named deferrals.json at depth 2 never matches, while its regular sibling does",
+              ('ok', [_dn_sibling]), (_dn_status, _dn_matches))
+
+# Symlink roots. The docstring claims the roots-echo path is `os.path.abspath` —
+# "normalized, NOT symlink-resolved" — and nothing pinned it, so a swap to
+# os.path.realpath would silently start echoing a path the operator never supplied,
+# breaking the documented cwd-drift heuristic (which compares the echoed paths against
+# where Phase 3.3 executed). Two arms: a symlink TO a populated dir searches through the
+# link and echoes the LINK path, and a DANGLING symlink takes os.path.exists's
+# follow-the-link False and classifies `absent` (benign) rather than `failed`.
+with tempfile.TemporaryDirectory() as _dm_sym:
+    _sym_real = Path(_dm_sym) / 'real-slug'
+    _sym_manifest = _dm_manifest(_sym_real, 'run-sym', '{"deferrals": [{"file": "s.py"}]}')
+    _sym_link = Path(_dm_sym) / 'link-slug'
+    _sym_dangling = Path(_dm_sym) / 'dangling-slug'
+    try:
+        _sym_link.symlink_to(_sym_real, target_is_directory=True)
+        _sym_dangling.symlink_to(Path(_dm_sym) / 'no-such-target', target_is_directory=True)
+        _sym_supported = True
+    except (OSError, NotImplementedError):
+        # A host without symlink privilege (native Windows without developer mode).
+        # Recorded rather than silently skipped; CI runs on Linux where it is supported.
+        _sym_supported = False
+        print("  #555 symlink-root fixture unavailable: this host cannot create symlinks")
+    if _sym_supported:
+        # The emitted match is rendered under the LINK path, not the resolved target —
+        # os.walk descends the link without rewriting the prefix, and the helper joins
+        # onto the supplied root. That is the stronger form of the "NOT symlink-resolved"
+        # contract: a swap to realpath anywhere in this path would change the emitted
+        # manifest paths themselves, not merely the echo, and file-deferrals.py would be
+        # handed a path the run never named.
+        assert_eq("#555 symlink root: a symlink to a populated dir is searched through the link, and matches are emitted under the LINK path (not the resolved target)",
+                  ('ok', [(_sym_link / 'run-sym' / 'deferrals.json').as_posix()], True),
+                  discover_deferrals.classify_root(str(_sym_link))
+                  + (_sym_manifest == (_sym_real / 'run-sym' / 'deferrals.json').as_posix(),))
+        _rc, _so, _se = _dm_run([str(_sym_link)])
+        assert_eq("#555 symlink root: the roots-echo carries the LINK path (abspath, NOT symlink-resolved)",
+                  (True, False),
+                  (os.path.abspath(str(_sym_link)) + '=ok' in _se,
+                   os.path.abspath(str(_sym_real)) + '=ok' in _se))
+        assert_eq("#555 dangling symlink root: classified 'absent' (benign), never 'failed'",
+                  ('absent', []),
+                  discover_deferrals.classify_root(str(_sym_dangling)))
+
 
 # ── issue #603: the per-finding ledger, post-revision resolution, and convergence basis ──
 #

@@ -6056,13 +6056,19 @@ assert_pin_red_under "#555: the clean-no-op arm requires discovery=[ok] (removin
 # to a path not present in the index is RED (an unparseable or dangling grant), never a silent
 # `continue` — the fail-open arms the blinded fix-delta gate flagged. The assertion also
 # checks the shebang, because mode 100755 alone does not make a leading-token exec work.
+# The guard body is a FUNCTION taking the manifest path, so the same code that runs over
+# the real manifest can be driven over fixtures. Asserted-by-construction fail-closed arms
+# are the class this repo keeps finding fails open (CLAUDE.md's "trace every operand back to
+# its producer"): each arm below is exercised by a planted-defect fixture at the end of this
+# block, so a rewrite that turns one of them into a silent `continue` goes RED at the desk.
+_execbit_state() {
+  _EXECBIT_MANIFEST="$1"
 _EXECBIT_TOKENS="$(probe_tmp '#555 exec-bit guard token list')" || _EXECBIT_TOKENS=""
 _EXECBIT_STATE=""
 if [ -z "$_EXECBIT_TOKENS" ]; then
   _EXECBIT_STATE="could-not-allocate-scratch"
 elif ! python3 -c "
-import json
-m = json.load(open('$LIB/capability-profiles.json'))
+import json, sys
 # A profile entry may be an inline token OR an '@group' reference the generator
 # expands against manifest['groups'] (lib/generate-capability-profiles.py's
 # resolve_profile). Iterating the RAW spec would silently drop every helper that a
@@ -6070,15 +6076,27 @@ m = json.load(open('$LIB/capability-profiles.json'))
 # non-empty floor would still pass, and the guard would go green while asserting
 # nothing about the moved helpers. Expand the same way the generator does; an
 # unknown group raises KeyError and rides the non-zero -> manifest-read-failed arm.
-for entry in m['profiles']['implement']:
-    tokens = m['groups'][entry[1:]] if entry.startswith('@') else [entry]
-    for t in tokens:
-        if '/scripts/' in t and t.startswith('Bash(.devflow/vendor/devflow/'):
-            print(t)
+# Every failure is reported as ONE compact cause line on stderr rather than a
+# traceback: the shell reads the FIRST stderr line as the breadcrumb, and a
+# traceback's first line is the constant 'Traceback (most recent call last):',
+# which would make every distinct producer failure carry the identical opaque
+# breadcrumb the arm below promises not to emit.
+try:
+    m = json.load(open('$_EXECBIT_MANIFEST'))
+    for entry in m['profiles']['implement']:
+        tokens = m['groups'][entry[1:]] if entry.startswith('@') else [entry]
+        for t in tokens:
+            if '/scripts/' in t and t.startswith('Bash(.devflow/vendor/devflow/'):
+                print(t)
+except Exception as exc:
+    sys.stderr.write('%s: %s\n' % (type(exc).__name__, exc))
+    sys.exit(1)
 " > "$_EXECBIT_TOKENS" 2>"$_EXECBIT_TOKENS.err"; then
   # Keep the cause: malformed JSON, a renamed profiles/implement key, an unknown
   # group ref, and an absent python3 all fail closed here, but they are different
   # repairs — an opaque breadcrumb makes the maintainer re-derive which one it was.
+  # (An absent python3 emits no stderr of ours at all; the arm still fires, with an
+  # empty cause, because the exit status is what selects it.)
   _EXECBIT_STATE="manifest-read-failed:$(head -n 1 "$_EXECBIT_TOKENS.err" 2>/dev/null)"
 elif [ ! -s "$_EXECBIT_TOKENS" ]; then
   _EXECBIT_STATE="derived-zero-tokens"
@@ -6101,8 +6119,80 @@ else
   done < "$_EXECBIT_TOKENS"
 fi
 rm -f "$_EXECBIT_TOKENS" "$_EXECBIT_TOKENS.err" 2>/dev/null
+  printf '%s' "$_EXECBIT_STATE"
+}
+
+_EXECBIT_STATE="$(_execbit_state "$LIB/capability-profiles.json")"
 assert_eq "#555 every vendored-literal-granted scripts/ helper on the implement profile is executable with a shebang (a leading-token exec has no interpreter fallback), and the guard's own manifest read resolved" \
   "" "$_EXECBIT_STATE"
+
+# Planted-defect fixtures for the guard's own fail-closed arms. Each asserts the SPECIFIC
+# state string, not merely "non-empty" — a bare non-empty check cannot tell the arm under
+# test from the one ten lines away, and every one of these arms produces an empty token
+# list, which is exactly the vacuity that would make the live assertion above pass while
+# asserting nothing. The clean-manifest positive control is the live call above: the same
+# function over the real manifest returns "", so a fixture's non-empty state can only come
+# from the planted defect and not from the function being broken outright.
+_EXECBIT_FIX="$(probe_tmp '#555 exec-bit guard fixture manifest')" || _EXECBIT_FIX=""
+if [ -n "$_EXECBIT_FIX" ]; then
+  # 1. Malformed JSON — json.load raises, python3 exits non-zero.
+  printf '%s' '{"profiles": {"implement": [' > "$_EXECBIT_FIX"
+  case "$(_execbit_state "$_EXECBIT_FIX")" in
+    manifest-read-failed:*) _EXECBIT_ARM=malformed-json-detected ;;
+    *) _EXECBIT_ARM="malformed-json-MISSED:$(_execbit_state "$_EXECBIT_FIX")" ;;
+  esac
+  assert_eq "#555 exec-bit guard fail-closed arm: malformed manifest JSON routes to manifest-read-failed, never a vacuous pass" \
+    "malformed-json-detected" "$_EXECBIT_ARM"
+
+  # 2. Renamed profiles/implement key — a KeyError, the shape a manifest refactor produces.
+  printf '%s' '{"groups": {}, "profiles": {"implement_tier": ["Bash(.devflow/vendor/devflow/scripts/x.py:*)"]}}' > "$_EXECBIT_FIX"
+  case "$(_execbit_state "$_EXECBIT_FIX")" in
+    manifest-read-failed:*KeyError*) _EXECBIT_ARM=renamed-key-detected ;;
+    *) _EXECBIT_ARM="renamed-key-MISSED:$(_execbit_state "$_EXECBIT_FIX")" ;;
+  esac
+  assert_eq "#555 exec-bit guard fail-closed arm: a renamed profiles/implement key routes to manifest-read-failed carrying the KeyError cause" \
+    "renamed-key-detected" "$_EXECBIT_ARM"
+
+  # 3. An unknown '@group' reference — the arm the group expansion added; it must raise,
+  #    not silently drop every helper the group holds.
+  printf '%s' '{"groups": {}, "profiles": {"implement": ["@no-such-group"]}}' > "$_EXECBIT_FIX"
+  case "$(_execbit_state "$_EXECBIT_FIX")" in
+    manifest-read-failed:*KeyError*) _EXECBIT_ARM=unknown-group-detected ;;
+    *) _EXECBIT_ARM="unknown-group-MISSED:$(_execbit_state "$_EXECBIT_FIX")" ;;
+  esac
+  assert_eq "#555 exec-bit guard fail-closed arm: an unknown @group reference routes to manifest-read-failed, never a silently shrunken token list" \
+    "unknown-group-detected" "$_EXECBIT_ARM"
+
+  # 4. An empty implement profile — parses fine, derives zero tokens. This is THE vacuity
+  #    arm: without the non-empty floor the loop body never runs and the guard passes.
+  printf '%s' '{"groups": {}, "profiles": {"implement": []}}' > "$_EXECBIT_FIX"
+  assert_eq "#555 exec-bit guard fail-closed arm: an empty implement profile derives zero tokens and is RED, not a vacuous pass" \
+    "derived-zero-tokens" "$(_execbit_state "$_EXECBIT_FIX")"
+
+  # 5. A scalar profile — parses fine; iterating a string would yield characters, none of
+  #    which match, so this also lands on the floor rather than a silent empty pass.
+  printf '%s' '{"groups": {}, "profiles": {"implement": "Bash(.devflow/vendor/devflow/scripts/x.py:*)"}}' > "$_EXECBIT_FIX"
+  assert_eq "#555 exec-bit guard fail-closed arm: a scalar implement profile derives zero tokens and is RED" \
+    "derived-zero-tokens" "$(_execbit_state "$_EXECBIT_FIX")"
+
+  # 6. A DANGLING grant — a well-formed vendored-literal token naming a helper that is not
+  #    in the index. `git ls-files` prints nothing, and the guard must report it rather than
+  #    `continue` past it (the fail-open arm the fix-delta gate flagged).
+  printf '%s' '{"groups": {}, "profiles": {"implement": ["Bash(.devflow/vendor/devflow/scripts/no-such-helper.py:*)"]}}' > "$_EXECBIT_FIX"
+  assert_eq "#555 exec-bit guard fail-closed arm: a dangling vendored-literal grant is reported as not-in-index, never skipped" \
+    " not-in-index:scripts/no-such-helper.py" "$(_execbit_state "$_EXECBIT_FIX")"
+
+  # 7. A granted helper that IS in the index but is not executable — the original defect
+  #    class (discover-deferral-manifests.py shipped 100644). Any tracked non-exec scripts/
+  #    file serves; assert the state names it so a reworded arm cannot mask the mode.
+  printf '%s' '{"groups": {}, "profiles": {"implement": ["Bash(.devflow/vendor/devflow/scripts/devflow-cloud-writer-contract.json:*)"]}}' > "$_EXECBIT_FIX"
+  assert_eq "#555 exec-bit guard fail-closed arm: a granted-but-non-executable helper is reported as not-executable" \
+    " not-executable:scripts/devflow-cloud-writer-contract.json" "$(_execbit_state "$_EXECBIT_FIX")"
+
+  rm -f "$_EXECBIT_FIX" 2>/dev/null
+else
+  skip "#555 exec-bit guard fail-closed arms" host-capability "could not allocate a fixture manifest under this host's scratch policy"
+fi
 
 # ── issue #555 (review finding): the §4.0.5 routing header is count-locked ON PURPOSE — the
 # block's whole value is that "a rework must not lose them", and this repo treats a stale
