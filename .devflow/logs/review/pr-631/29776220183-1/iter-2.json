@@ -1,0 +1,17 @@
+{
+  "iter": 2,
+  "fix_commit_sha": "819564714ce99e0527de07de0c93f054f3eceb75",
+  "fix_files": [
+    "docs/review-and-fix-budget.md",
+    "lib/test/run.sh",
+    "lib/test/test_module_runner.py",
+    "skills/review-and-fix/SKILL.md",
+    "skills/review-and-fix/references/fixing.md",
+    "skills/review-and-fix/references/loop-exit.md",
+    "skills/review-and-fix/references/pre-fix-gates.md",
+    "skills/review-and-fix/references/shadow-review.md"
+  ],
+  "loop_role": "fix",
+  "synthesized": true,
+  "telemetry": "unavailable"
+}
