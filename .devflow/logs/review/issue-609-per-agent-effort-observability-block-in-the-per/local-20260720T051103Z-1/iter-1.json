@@ -1,0 +1,26 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-20T05:11:03Z",
+  "current_step": "loop-control",
+  "current_substep": "phase1_checklist_generation",
+  "pending_dispatch": {
+    "kind": "checklist_generator_batches",
+    "roster": [
+      "devflow:checklist-generator",
+      "devflow:checklist-generator"
+    ],
+    "dispatched_at": "2026-07-20T05:24:00Z"
+  },
+  "dispatched_effort": [
+    {
+      "agent": "devflow:checklist-generator",
+      "phase": "1",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort 'low' resolved but not applied: an already-running session's Agent-tool dispatch has no per-agent effort parameter and no per-dispatch --agents injection exists; the agent inherits the session effort"
+    }
+  ],
+  "telemetry": "unavailable"
+}
