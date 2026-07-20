@@ -80,6 +80,34 @@ with no countable referent (the PR #383 "grep errors either way" shape) — is
 deterministically out of reach and stays routed to ``comment-analyzer`` via the
 fix loop's existing Step 3 item 3a machinery. This helper adds NO LLM fallback.
 
+**Illustrative-example opt-out (issue #635).** The rules cannot tell an *assertion* of a claim
+shape from an *illustrative example* of one — both are just claim-shaped text on a prose line —
+so prose that DOCUMENTS a rule (this header's own design record, a test-fixture comment spelling
+out an idiom, engine docs describing a claim class) was graded as a real claim and resolved
+against whatever lines followed it. It fired twice while implementing issue #629 (PR #631): a
+literal ``Expected total`` legend in a design record, plus a ``both``-summary R3b idiom
+in a ``lib/test/run.sh`` fixture comment. The surface most likely to describe a claim shape is
+exactly the one the lint most needs to keep clean, so those pulled against each other. The fix is
+an **explicit author opt-out**: a prose/comment line carrying the marker ``stale-prose-lint: example``
+anywhere on it is skipped for **every** rule (R1–R4 *and* the non-gating recognition tier). The
+marker is matched as a plain substring of the raw line via ``_EXAMPLE_MARKER_RE``, so it is
+**language-agnostic** — it works inside a Markdown ``<!-- … -->`` comment, a Python ``#`` /
+docstring line, or a shell ``#`` comment alike, independent of comment syntax. Example (this very
+line documents the R2 legend shape yet is skipped, because it carries the marker):
+``Expected total = 3`` legend adjacent to a two-item list.  <!-- stale-prose-lint: example -->
+
+Disclosed non-goals (by design): the opt-out is **line-scoped** — it exempts the whole line, not a
+particular claim shape on it (a line carrying both a real claim and the marker is the author's
+declared example, and is skipped in full). It is a **deliberate, discoverable opt-out**, NOT
+example auto-detection: distinguishing an example from an assertion by content alone is undecidable
+in the general case, so the author declares the intent explicitly rather than the helper guessing.
+It does **not** weaken R4: R4's referent is a **single**-backticked operator token and its
+recognition is untouched — a marked line is one the author declared illustrative, and a genuine R4
+deny-absolute never carries the marker. The marker is a plain substring, so a line legitimately
+containing the literal text ``stale-prose-lint: example`` for some *other* reason is also skipped
+(accepted: that string is distinctive enough that its incidental appearance on a real claim line is
+a non-concern, and the failure direction is a false *negative* the author can see and remove).
+
 **Move-awareness (issue #629).** An extraction refactor *relocates* prose without authoring
 it, but a relocated line is an **added** line in the unified diff — so every rule above used to
 re-grade it as newly authored and resolve its claims against the *destination* file's context,
@@ -341,6 +369,13 @@ _RECOG_MOD_DISQUALIFY = frozenset({"of", "per", "and", "or"})
 _TWO_ITEM_RE = re.compile(r"(?i)\ba\b\s+\S.*\band\b\s+\ba\b\s+\S")
 _BOTH_RE = re.compile(r"(?i)\bboth\b")
 _BACKTICK_RE = re.compile(r"`([^`]+)`")
+# Illustrative-example opt-out (issue #635). A prose/comment line carrying this marker is a
+# DESCRIPTION of a claim shape (a design-record example, a fixture-comment idiom), not an
+# ASSERTION of one, so `examine_file` skips ALL rules for it. Matched as a plain substring of the
+# raw line (whitespace after the colon optional), so it is language-agnostic: it fires the same
+# inside a Markdown `<!-- … -->` comment, a Python `#`/docstring line, or a shell `#` comment,
+# never depending on comment syntax. See the module header's #635 design record for the non-goals.
+_EXAMPLE_MARKER_RE = re.compile(r"stale-prose-lint:\s*example", re.IGNORECASE)
 
 # Verdict tokens as module constants, referenced by every emit site AND the exit-code gate
 # (``verdict == STALE`` in ``run``). The process exit code hinges on the STALE literal
@@ -1037,6 +1072,12 @@ def examine_file(path, added, lines, rows, move=None):
                 continue
             located_by_text = True
         if not _may_carry_claim(mask, idx):
+            continue
+        # Illustrative-example opt-out (issue #635): an author-declared example of a claim shape
+        # is DOCUMENTATION, not an assertion. Skip every rule for it — R1–R4 and the non-gating
+        # recognition tier below — before any rule runs, so a marked line emits no row at all.
+        # Placed after `_may_carry_claim` so only lines that could carry a claim pay the regex.
+        if _EXAMPLE_MARKER_RE.search(text):
             continue
         # Multiplicity half of the exemption; each rule adds its own referent half below.
         # Deliberately asymmetric with the referent rule: the CLAIM side does not additionally
