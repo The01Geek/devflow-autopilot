@@ -3965,13 +3965,31 @@ assert_pin_unique "#620: a failed/denied identity read routes to data-to-surface
 assert_pin_red_under "#620: failed-identity-read pin catches the fail-open ordering it guards" \
   "$RAF_PIN_READFAIL" 's/Either read that fails, is denied, or returns unparseable output is \*\*data to surface\*\* \(below\) — never an unedited reading, never an `admin`\/`write` grant\. Null/Null/' \
   "$MAXI_ROOT"
-assert_pin_unique "#620: the failed-read arm covers the permission read, before the write/admin branch" \
+assert_pin_unique "#620: the failed-read arm covers the permission read" \
   "$RAF_PIN_PERMFAIL" "$MAXI_ROOT"
 assert_pin_red_under "#620: permission-read failure pin catches re-scoping the arm to the identity read" \
   "$RAF_PIN_PERMFAIL" 's/ — never an unedited reading, never an `admin`\/`write` grant\./, never an unedited reading./' \
   "$MAXI_ROOT"
+# ORDERING is the property that makes this guard work, and the three pins above are all PRESENCE
+# checks — a reword relocating the failed-read arm to AFTER the `admin`/`write` branch satisfies
+# every one of them while reopening the fail-open the issue was filed to close. So assert the
+# position directly: the arm's byte offset must precede the branch's. python3 (a preflight
+# prerequisite) does the offset arithmetic — a value deciding an assertion must not route through a
+# non-preflight PATH tool. Both offsets must resolve: a `-1` from either `find` fails the check
+# closed rather than comparing against a sentinel.
+assert_eq "#620: the failed-read arm precedes the write/admin branch it governs" "yes" \
+  "$(python3 -c 'import sys
+s=open(sys.argv[1],encoding="utf-8").read()
+a=s.find("Either read that fails")
+b=s.find("`admin` or `write` is the operator amending the spec")
+print("yes" if a!=-1 and b!=-1 and a<b else "no")' "$MAXI_ROOT")"
 assert_pin_unique "#620: the catch-all admits an absent or unreadable permission" \
   "$RAF_PIN_PERMABSENT" "$MAXI_ROOT"
+# Unlike the two pins above (whose mutations rewrite ADJACENT prose to reconstruct the regression),
+# this one's guarded regression IS the narrowing of the pinned phrase itself, so its mutation
+# necessarily touches that phrase and the pin is removal-equivalent in strength. Kept as
+# assert_pin_red_under because the mutation still produces valid, grammatical prose that reopens the
+# gap — stronger evidence than a whole-line strip — but the block does not claim more than that.
 assert_pin_red_under "#620: absent-permission pin catches narrowing the catch-all to a present value" \
   "$RAF_PIN_PERMABSENT" 's/Any other, absent, or unreadable permission/Any other permission/' \
   "$MAXI_ROOT"
@@ -35085,34 +35103,63 @@ assert_eq "#530 budget: doc root Measured cell matches fresh measurement ($RAF_R
 _raf_load_row="$(grep -F 'Root + always-loaded extensions (initial load) ≤' "$RAF_BUDGET_DOC" || true)"
 assert_eq "#530 budget: doc initial-load Measured cell matches fresh measurement ($((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W)))" "yes" \
   "$(case "${_raf_load_row//,/}" in *"| $RAF_LOAD_CEIL | $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W)) |"*) echo yes;; *) echo no;; esac)"
-# #620 (pr-test-analyzer): the Lines/Bytes/Tokens columns carried NO live binding, so a byte cell
-# drifted 34 bytes from the shipped file and shipped desk-green past a block whose note claims to
-# have closed the stale-Measured-cell class. Bind the bytes column of EVERY AFTER row that carries a
-# byte figure — plugin root, actual initial load, and bundle — plus the receiving-extension row (not
-# an AFTER row, but a new operand this issue adds). The remaining two AFTER rows, normal-cumulative-
-# path and maximum-active-step, render `—` in the Bytes column, so there is no cell to bind; naming
-# that here keeps the next maintainer from reading an unbound cell into the gap. python3 (a preflight
-# prerequisite) does the counting, like _raf_words — never `wc -c`.
+# #620 (pr-test-analyzer): the Lines/Words/Bytes/Tokens columns of the Before/after table carried NO
+# live binding, so a byte cell drifted 34 bytes from the shipped file and shipped desk-green past a
+# block whose note claims to have closed the stale-Measured-cell class. Bind Lines, Words AND Bytes
+# as one POSITIONAL TRIPLE per row — `| <lines> | <words> | <bytes> |` — for every row whose three
+# cells carry live figures: the three AFTER rows that render a byte count (plugin root, actual
+# initial load, bundle) plus the two extension rows the initial-load sum is built from.
+#   * The triple is positional for the same reason the ceiling/Measured pairs above are (#539
+#     shadow): a lone whole-row `| <value> |` match passes VACUOUSLY the moment one cell's value
+#     collides with another cell's on the same row. Binding the three adjacent columns together
+#     cannot collide — any single stale cell breaks the triple → RED — and it fails closed (missing
+#     row → empty capture → no match → RED). It also binds the bundle row's Words cell, which the
+#     byte-only form left unbound even though this block already measures its operand set.
+#   * Rows are normalized by stripping commas AND `*` before matching, so a `**bold**` Measured cell
+#     (plugin root, initial load) matches the same pattern as an unbolded one and the assertion does
+#     not silently couple to the doc's emphasis formatting.
+#   * The remaining two AFTER rows, normal-cumulative-path and maximum-active-step, render `—` in
+#     both Lines and Bytes; their Words cells are already bound by the ceiling-adjacent assertions
+#     above. Naming that here keeps the next maintainer from reading an unbound cell into the gap.
+#   * The Tokens column is a DELIBERATE non-goal: it is a `words × 1.3` prose estimate with no
+#     in-repo producer, so binding it would require fabricating a formula and pinning the estimate
+#     to itself. Stated so the next reader does not re-derive this analysis.
+# python3 (a preflight prerequisite) does the counting, like _raf_words — never `wc -c` / `wc -l`.
 _raf_bytes() { python3 -c 'import sys; print(len(open(sys.argv[1],"rb").read()))' "$1"; }
+_raf_lines() { python3 -c 'import sys; print(open(sys.argv[1],"rb").read().count(b"\n"))' "$1"; }
 RAF_ROOT_B=$(_raf_bytes "$LIB/../skills/review-and-fix/SKILL.md")
 RAF_EXT_B=$(_raf_bytes "$LIB/../.devflow/prompt-extensions/review-and-fix.md")
 RAF_RCR_B=$(_raf_bytes "$LIB/../.devflow/prompt-extensions/receiving-code-review.md")
+RAF_ROOT_L=$(_raf_lines "$LIB/../skills/review-and-fix/SKILL.md")
+RAF_EXT_L=$(_raf_lines "$LIB/../.devflow/prompt-extensions/review-and-fix.md")
+RAF_RCR_L=$(_raf_lines "$LIB/../.devflow/prompt-extensions/receiving-code-review.md")
 RAF_BUNDLE_B="$RAF_ROOT_B"
+RAF_BUNDLE_L="$RAF_ROOT_L"
+RAF_BUNDLE_W2="$RAF_ROOT_W"
 for _raf_ref_b in "$LIB"/../skills/review-and-fix/references/*.md; do
   RAF_BUNDLE_B=$((RAF_BUNDLE_B + $(_raf_bytes "$_raf_ref_b")))
+  RAF_BUNDLE_L=$((RAF_BUNDLE_L + $(_raf_lines "$_raf_ref_b")))
+  RAF_BUNDLE_W2=$((RAF_BUNDLE_W2 + $(_raf_words "$_raf_ref_b")))
 done
-_raf_root_after_row="$(grep -F '| **AFTER** — plugin root |' "$RAF_BUDGET_DOC" || true)"
-assert_eq "#620 budget: doc plugin-root Bytes cell matches fresh measurement ($RAF_ROOT_B)" "yes" \
-  "$(case "${_raf_root_after_row//,/}" in *" | $RAF_ROOT_B | "*) echo yes;; *) echo no;; esac)"
-_raf_load_after_row="$(grep -F '| **AFTER** — actual initial load |' "$RAF_BUDGET_DOC" || true)"
-assert_eq "#620 budget: doc initial-load Bytes cell matches fresh measurement ($((RAF_ROOT_B+RAF_EXT_B+RAF_RCR_B)))" "yes" \
-  "$(case "${_raf_load_after_row//,/}" in *" | $((RAF_ROOT_B+RAF_EXT_B+RAF_RCR_B)) | "*) echo yes;; *) echo no;; esac)"
-_raf_rcr_row="$(grep -F '| receiving extension |' "$RAF_BUDGET_DOC" || true)"
-assert_eq "#620 budget: doc receiving-extension Bytes cell matches fresh measurement ($RAF_RCR_B)" "yes" \
-  "$(case "${_raf_rcr_row//,/}" in *" | $RAF_RCR_B | "*) echo yes;; *) echo no;; esac)"
-_raf_bundle_after_row="$(grep -F '| **AFTER** — bundle |' "$RAF_BUDGET_DOC" || true)"
-assert_eq "#620 budget: doc bundle Bytes cell matches fresh measurement ($RAF_BUNDLE_B)" "yes" \
-  "$(case "${_raf_bundle_after_row//,/}" in *" | $RAF_BUNDLE_B | "*) echo yes;; *) echo no;; esac)"
+# _raf_triple <assertion-name> <row-literal> <lines> <words> <bytes>
+_raf_triple() {
+  _rt_row="$(grep -F "$2" "$RAF_BUDGET_DOC" || true)"
+  _rt_row="${_rt_row//,/}"
+  _rt_row="${_rt_row//\*/}"
+  assert_eq "$1 (| $3 | $4 | $5 |)" "yes" \
+    "$(case "$_rt_row" in *"| $3 | $4 | $5 |"*) echo yes;; *) echo no;; esac)"
+}
+_raf_triple "#620 budget: doc plugin-root Lines/Words/Bytes match fresh measurement" \
+  '| **AFTER** — plugin root |' "$RAF_ROOT_L" "$RAF_ROOT_W" "$RAF_ROOT_B"
+_raf_triple "#620 budget: doc initial-load Lines/Words/Bytes match fresh measurement" \
+  '| **AFTER** — actual initial load |' \
+  "$((RAF_ROOT_L+RAF_EXT_L+RAF_RCR_L))" "$((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W))" "$((RAF_ROOT_B+RAF_EXT_B+RAF_RCR_B))"
+_raf_triple "#620 budget: doc bundle Lines/Words/Bytes match fresh measurement" \
+  '| **AFTER** — bundle |' "$RAF_BUNDLE_L" "$RAF_BUNDLE_W2" "$RAF_BUNDLE_B"
+_raf_triple "#620 budget: doc live-extension Lines/Words/Bytes match fresh measurement" \
+  '| live extension |' "$RAF_EXT_L" "$RAF_EXT_W" "$RAF_EXT_B"
+_raf_triple "#620 budget: doc receiving-extension Lines/Words/Bytes match fresh measurement" \
+  '| receiving extension |' "$RAF_RCR_L" "$RAF_RCR_W" "$RAF_RCR_B"
 _raf_maxstep_row="$(grep -F 'Root + always-loaded extensions + max active step ≤' "$RAF_BUDGET_DOC" || true)"
 assert_eq "#530 budget: doc max-step Measured cell matches fresh measurement ($((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W+RAF_MAXREF_W)))" "yes" \
   "$(case "${_raf_maxstep_row//,/}" in *"| $RAF_MAXSTEP_CEIL | $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W+RAF_MAXREF_W)) |"*) echo yes;; *) echo no;; esac)"

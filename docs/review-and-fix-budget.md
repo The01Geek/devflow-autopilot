@@ -31,7 +31,9 @@ extensions + max active step ≤ 18,697 words).
 
 ## Counting method & formulas
 
-- **lines / bytes** are `wc -l` / `wc -c` of each file. **words** are ASCII-whitespace-delimited
+- **lines / bytes** are the newline count / byte length of each file, measured with the same
+  `python3` reader the guard uses (`wc -l` / `wc -c` agree numerically; the guard avoids them
+  because a value deciding an assertion must not route through a non-preflight PATH tool). **words** are ASCII-whitespace-delimited
   byte tokens: `python3 -c 'import sys; print(len(open(sys.argv[1],"rb").read().split()))' <file>`
   — the exact counter the `run.sh` guard uses (python3 is a preflight prerequisite).
   **`wc -w` is deliberately not the arbiter — it disagrees with itself across platforms on this

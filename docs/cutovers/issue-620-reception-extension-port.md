@@ -42,7 +42,7 @@ failure: a rule that reaches the loop only when someone remembers to route it th
 ## Bounded-growth target
 
 The issue targeted 450 `_raf_words` for the two new sections plus the scoping prose.
-**Shipped: 660.** The target was renegotiated twice, and both moves are recorded here rather than
+**Shipped: 660.** The target was renegotiated three times, and all three moves are recorded here rather than
 folded away, because a bound that silently tracks its subject has stopped bounding anything.
 
 1. **450 → 600.** The prose reached 590 after two compression passes from 649, and every remaining
@@ -99,10 +99,9 @@ measures became three-term sums.
 | Initial load | 5,686 (root + extension) | 7,431 (root + always-loaded extensions) | 5,690 → 7,435 |
 | Max active step | 16,948 | 18,693 | 17,000 → 18,697 |
 
-All three ceilings now carry ~4 words over their measurements — recorded in
-`docs/review-and-fix-budget.md`'s maintainer note. Each renegotiated ceiling carries roughly four words of headroom over its
-measurement, following issues #556 and #619 — a ceiling set exactly at the measurement makes the
-next one-sentence edit a budget breach.
+All three ceilings now carry ~4 words of headroom over their measurements — following issues
+#556 and #619, because a ceiling set exactly at the measurement makes the next one-sentence edit a
+budget breach. Recorded in `docs/review-and-fix-budget.md`'s maintainer note.
 
 The **cumulative-path** and **growth-delta** arithmetic excludes the receiving extension —
 rationale in the budget doc's Counting method, mirrored in `lib/test/run.sh`'s `#530 budget`
