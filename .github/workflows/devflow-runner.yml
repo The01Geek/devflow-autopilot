@@ -1565,6 +1565,17 @@ jobs:
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
+        env:
+          # Pin the repository location so claude-code-action's configureGitAuth startup
+          # (repo-local `git config user.name/user.email`) resolves .git independent of the
+          # inherited CWD. Without these, a self-hosted Windows runner fails
+          # `fatal: not in a git directory` (exit 128) before the agent does any work
+          # (issue #602). STEP scope only — not job/workflow — so other steps' git ops are
+          # unaffected. git honors these on every platform; on a plain branch checkout
+          # (this tier's actual state, never a linked worktree) --git-dir == --git-common-dir,
+          # so phase-1-setup.md's worktree detection is not perturbed.
+          GIT_DIR: ${{ github.workspace }}/.git
+          GIT_WORK_TREE: ${{ github.workspace }}
         with:
           # Anthropic-default path only: pass the OAuth token when no provider is
           # active. A provider-routed devflow_runner section passes '' here (the

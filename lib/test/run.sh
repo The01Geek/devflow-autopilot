@@ -8206,6 +8206,32 @@ assert_eq "#601 AC5: schema setup.claude_code_executable has a non-empty descrip
 assert_eq "#601 AC5: example config carries setup.claude_code_executable (empty default)" "" \
   "$(jq -r '.setup.claude_code_executable' "$I601_EXAMPLE")"
 
+# ── issue #602: GIT_DIR/GIT_WORK_TREE on the Run Claude Code step (self-hosted Windows) ──
+# Each of the three shipped workflows that invoke claude-code-action must set step-scoped
+# GIT_DIR/GIT_WORK_TREE env on the 'Run Claude Code' step so the action's configureGitAuth
+# git-identity config succeeds independent of the inherited CWD (the reporter's
+# `fatal: not in a git directory` / exit 128 on a self-hosted Windows runner). AC2 requires
+# STEP scope (not job/workflow scope, which would leak into other steps' git ops), so the
+# awk extraction scopes each grep to the step block (between the step name: and its with:) —
+# a var stranded at job/workflow scope would not appear here and the count-1 check fails.
+# The assert_pin_red_under mutation proofs re-introduce the guarded regression (env line
+# dropped → CWD-dependent git identity again) and each pin must go RED under it.
+I602_DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
+I602_IMPL_YML="$LIB/../.github/workflows/devflow-implement.yml"
+I602_RUNNER_YML="$LIB/../.github/workflows/devflow-runner.yml"
+for _f in "$I602_DEVFLOW_YML" "$I602_IMPL_YML" "$I602_RUNNER_YML"; do
+  _b="$(basename "$_f")"
+  I602_STEP_BLK="$(awk '/name: Run Claude Code/{f=1} f{print} f&&/^        with:/{exit}' "$_f")"
+  assert_eq "#602 AC1/AC2 [$_b]: GIT_DIR set on the Run Claude Code step (step scope)" "1" \
+    "$(printf '%s\n' "$I602_STEP_BLK" | grep -cF 'GIT_DIR: ${{ github.workspace }}/.git')"
+  assert_eq "#602 AC1/AC2 [$_b]: GIT_WORK_TREE set on the Run Claude Code step (step scope)" "1" \
+    "$(printf '%s\n' "$I602_STEP_BLK" | grep -cF 'GIT_WORK_TREE: ${{ github.workspace }}')"
+  assert_pin_red_under "#602 AC5 [$_b]: GIT_DIR pin is RED when the env line is dropped" \
+    'GIT_DIR: ${{ github.workspace }}/.git' '/GIT_DIR:/d' "$_f"
+  assert_pin_red_under "#602 AC5 [$_b]: GIT_WORK_TREE pin is RED when the env line is dropped" \
+    'GIT_WORK_TREE: ${{ github.workspace }}' '/GIT_WORK_TREE:/d' "$_f"
+done
+
 # ── issue #338: --rewrite-ac (post-merge) retag requires a --note rationale ────
 # scripts/workpad.py: an `update` call in which any --rewrite-ac pair APPENDS the
 # trailing (post-merge) tag (NEW ends with it after rstrip; neither OLD nor the row
