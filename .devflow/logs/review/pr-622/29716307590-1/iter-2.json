@@ -1,0 +1,12 @@
+{
+  "iter": 2,
+  "fix_commit_sha": "ee0993d518b8d3616d58ba566792a872d70ccb9e",
+  "fix_files": [
+    ".changeset/issue-532-base-ref-freshness.md",
+    "lib/efficiency-trace.sh",
+    "lib/test/run.sh"
+  ],
+  "loop_role": "fix",
+  "synthesized": true,
+  "telemetry": "unavailable"
+}
