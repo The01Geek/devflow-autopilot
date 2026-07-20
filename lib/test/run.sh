@@ -5412,6 +5412,18 @@ _actual_phase_stems=$(find "$IMPL_PHASES_DIR" -maxdepth 1 -name '*.md' -type f -
 _registered_phase_stems=$(printf '%s\n' $IMPL_PHASE_STEMS | sort | tr '\n' ' ' | sed 's/ *$//')
 assert_eq "implement split: phases/ dir holds exactly the registered phase set (no unregistered / missing phase file)" \
   "$_registered_phase_stems" "$_actual_phase_stems"
+# #644 review finding 1: P4_FILE's "Span-suppression breadcrumb disclosure" quotes a
+# breadcrumb literal that MUST match what scripts/extract-doc-needed-paths.sh actually
+# emits (`suppressed a span …`). A quoted phrase the extractor never emits is a documented
+# falsehood — the self-contradicting-diff carve-out. The wrong "non-path span" phrasing also
+# reintroduces the dishonest characterization the script's suppress_span() comment deliberately
+# removed (a suppressed multi-token span may have carried a genuine deliverable, so the phrase
+# must NOT assert "a command literal" as fact). Pin both directions so the disclosure can never
+# drift from the emission again.
+assert_eq "#644 review: P4_FILE quotes the extractor's actual breadcrumb phrase (\`suppressed a span\`)" \
+  "1" "$(grep -c 'suppressed a span' "$P4_FILE")"
+assert_eq "#644 review: P4_FILE does not quote the never-emitted 'non-path span' phrasing" \
+  "0" "$(grep -c 'suppressed a non-path span' "$P4_FILE")"
 # The resolve-once preamble above the per-phase loop carries its OWN fail-closed contract
 # (the ${CLAUDE_SKILL_DIR}-empty stop, and "the stubs are deliberately non-actionable" —
 # the imperative that a phase must never run from its thin stub alone). Each per-phase gate
