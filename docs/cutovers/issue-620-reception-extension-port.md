@@ -42,28 +42,34 @@ failure: a rule that reaches the loop only when someone remembers to route it th
 ## Bounded-growth target
 
 The issue targeted 450 `_raf_words` for the two new sections plus the scoping prose.
-**Shipped: 626.** The target was renegotiated twice, and both moves are recorded here rather than
+**Shipped: 630.** The target was renegotiated twice, and both moves are recorded here rather than
 folded away, because a bound that silently tracks its subject has stopped bounding anything.
 
 1. **450 → 600.** The prose reached 590 after two compression passes from 649, and every remaining
    clause is mandated by AC1, AC2, AC4 or AC12's at-minimum lists — 450 is unreachable without
    dropping mandated content. Reconciled under the implement skill's Phase 2.2.6 rule; recorded in
    the issue workpad as an AC-rewrite note and an `issue-accuracy` reflection.
-2. **600 → 630, for a correctness fix.** The external `writing-skills` RED/GREEN pass this
-   repo's prompt-surface routing mandates found that the supersession guard named an operand it
-   could not obtain: it keyed authority on the *editor's* `author_association`, but GitHub exposes
-   no association for an edit — `gh issue view --json` has no such field at all, and the REST
-   payload's `author_association` describes the **issue author**. Verified directly against the
-   live API. As written the write-permission arm was dead and every run would have taken the safe
-   arm silently — the operand-trace defect class, in the very prose that adds a guard. The fix
-   names the retrievable call, states whose association the field actually is, and routes the
-   third-party-editor case to the unestablished arm. It cost 36 words after compression.
+2. **600 → 630, for a correctness fix.** The external `writing-skills` RED/GREEN pass this repo's
+   prompt-surface routing mandates found that the supersession guard named an operand it could not
+   obtain: it keyed authority on the *editor's* `author_association`, but GitHub exposes no
+   association for an edit — `gh issue view --json` has no such field at all, and the REST payload's
+   `author_association` describes the **issue author**. Verified directly against the live API.
+3. **A third expansion, and the only root-ceiling move (3,500 → 3,501).** The review's own checklist
+   verifier and `silent-failure-hunter` then showed the *repaired* guard still had no mechanism for
+   the predicate gating it — nothing told the run how to determine whether a body edit was made by a
+   third party — so the routing was undetermined and the guard could fail open on exactly the input
+   it exists to catch. The fix names a verified mechanism (`lastEditedAt` plus
+   `userContentEdits{editor{login}}` via `gh api graphql`, then
+   `collaborators/<login>/permission`) and an explicit permission mapping, since `author_association`
+   values do not denote write access — `MEMBER` in particular does not. Both API shapes were checked
+   live before being named. After repeated compression this left the root at exactly its 3,500
+   ceiling, so the ceiling moved to 3,501, restoring a margin.
 
-The second move is a deliberate choice to let correctness win over a word target. The **root
-ceiling was not** renegotiated to absorb it: the scoping prose was compressed instead, leaving the
-root at 3,493 of 3,500 — a **7-word margin**, now by far the tightest budget in
-`docs/review-and-fix-budget.md`, and the real constraint any future addition to this preamble
-meets first.
+Every move after the first is correctness winning over a word target, and each is recorded with its
+cause rather than folded away. Compression absorbed the first two entirely; only the third required
+touching the root ceiling, and then by four words. The root now sits at 3,497 of 3,501 — the same
+~4-word margin the other two ceilings carry, so a future addition to this preamble meets all three
+at once rather than any one of them first.
 
 ## Budget renegotiation
 
@@ -72,19 +78,18 @@ measures became three-term sums.
 
 | Quantity | Before | After | Ceiling before → after |
 | --- | ---: | ---: | --- |
-| Plugin root | 3,213 | 3,493 | 3,500 → 3,500 (unchanged) |
-| Initial load | 5,686 (root + extension) | 7,397 (root + always-loaded extensions) | 5,690 → 7,401 |
-| Max active step | 16,948 | 18,659 | 17,000 → 18,663 |
+| Plugin root | 3,213 | 3,497 | 3,500 → 3,501 |
+| Initial load | 5,686 (root + extension) | 7,401 (root + always-loaded extensions) | 5,690 → 7,405 |
+| Max active step | 16,948 | 18,663 | 17,000 → 18,667 |
 
-The scoping prose fits under the unchanged root ceiling with 7 words to spare, which makes the
-root the tightest budget in the table — recorded as such in `docs/review-and-fix-budget.md`'s
-maintainer note. Each renegotiated ceiling carries roughly four words of headroom over its
+All three ceilings now carry ~4 words over their measurements — recorded in
+`docs/review-and-fix-budget.md`'s maintainer note. Each renegotiated ceiling carries roughly four words of headroom over its
 measurement, following issues #556 and #619 — a ceiling set exactly at the measurement makes the
 next one-sentence edit a budget breach.
 
 The **cumulative-path** and **growth-delta** arithmetic excludes the receiving extension —
 rationale in the budget doc's Counting method, mirrored in `lib/test/run.sh`'s `#530 budget`
-block. Those figures still move (43,277 and +4,603) because the root itself grew by the loader
+block. Those figures still move (43,281 and +4,607) because the root itself grew by the loader
 call and its scoping prose.
 
 Growth is bounded by design: the two new sections state rules and cite their sources of record

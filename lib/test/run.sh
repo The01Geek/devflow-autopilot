@@ -3892,8 +3892,8 @@ assert_pin_unique "#466: review-and-fix extension carries the six-shape set (val
   "$SIXSHAPE_SET" "$LIB/../.devflow/prompt-extensions/review-and-fix.md"
 
 # ── #620 reception-extension port: surface-presence contract pins ─────────────
-# Surface-presence pins over prose contracts: per the #464 scoping each carries a whole-line
-# removal proof and no assert_pin_red_under mutation obligation.
+# Surface-presence pins over prose contracts — the #464 scoping is why no assert_pin_red_under
+# mutation obligation attaches here.
 RCR_EXT="$LIB/../.devflow/prompt-extensions/receiving-code-review.md"
 RCR_PIN_MODULE='A reception pass iterates on a focused module only after recording the selected module ID'
 RCR_PIN_PUSH='A reception pass that pushes uses an explicit destination ref'
@@ -3910,6 +3910,33 @@ assert_pin_unique "#620: review-and-fix loads the receiving-code-review extensio
   "$RAF_PIN_LOAD" "$MAXI_ROOT"
 assert_pin_red_on_removal "#620: receiving-extension loader-call pin is removal-sensitive" \
   "$RAF_PIN_LOAD" "$MAXI_ROOT"
+# The scoping prose is the behavior the loader call exists to deliver, so it is pinned too: the
+# supersession guard's authority operand and its fail-safe arm (which keeps an unattended loop from
+# treating an unprivileged issue edit as a spec amendment), and the non-binding-directive rule.
+RAF_PIN_AUTHORITY='collaborators/<login>/permission'
+RAF_PIN_SAFEARM='is **data to surface**'
+RAF_PIN_NONBINDING='is non-binding here'
+assert_pin_unique "#620: supersession guard names a retrievable authority operand" \
+  "$RAF_PIN_AUTHORITY" "$MAXI_ROOT"
+assert_pin_red_on_removal "#620: authority-operand pin is removal-sensitive" \
+  "$RAF_PIN_AUTHORITY" "$MAXI_ROOT"
+assert_pin_unique "#620: supersession guard keeps its surface-as-data fail-safe arm" \
+  "$RAF_PIN_SAFEARM" "$MAXI_ROOT"
+assert_pin_red_on_removal "#620: surface-as-data arm pin is removal-sensitive" \
+  "$RAF_PIN_SAFEARM" "$MAXI_ROOT"
+assert_pin_unique "#620: interactive directives are non-binding on loop runs" \
+  "$RAF_PIN_NONBINDING" "$MAXI_ROOT"
+assert_pin_red_on_removal "#620: non-binding-directive pin is removal-sensitive" \
+  "$RAF_PIN_NONBINDING" "$MAXI_ROOT"
+# Placement, not just presence: the docs claim both loads happen in the ENTRY preamble, which is what
+# makes them cover every path that enters through it. Assert the receiving load follows the skill's own
+# load and both precede the first section heading, so relocating the fence past entry goes RED.
+_r620_own=$(grep -n 'load-prompt-extension.sh review-and-fix' "$MAXI_ROOT" | head -n 1 | cut -d: -f1)
+_r620_rcv=$(grep -n 'load-prompt-extension.sh receiving-code-review' "$MAXI_ROOT" | head -n 1 | cut -d: -f1)
+_r620_hdr=$(grep -n '^## Engine source of truth' "$MAXI_ROOT" | head -n 1 | cut -d: -f1)
+assert_eq "#620: both extension loads sit in the entry preamble, own load first" "yes" \
+  "$([ -n "$_r620_own" ] && [ -n "$_r620_rcv" ] && [ -n "$_r620_hdr" ] && \
+     [ "$_r620_own" -lt "$_r620_rcv" ] && [ "$_r620_rcv" -lt "$_r620_hdr" ] && echo yes || echo no)"
 
 # ── #312 remaining-item prose pins (the sharpenings this issue lands; each fails if its
 #    rule is reworded away). File vars: $MAXI_SKILL (review-and-fix), $IMPL_SKILL (implement
@@ -34835,7 +34862,7 @@ RAF_EXT_W=$(_raf_words "$LIB/../.devflow/prompt-extensions/review-and-fix.md")
 # It is deliberately NOT added to RAF_CUM_W below: the cumulative/growth-delta arithmetic
 # isolates the #530 split against a frozen monolith basis, and folding an unrelated extension
 # into it would pollute that comparison (docs/review-and-fix-budget.md states the exclusion).
-RAF_RCR_W=$(_raf_words "$RCR_EXT")
+RAF_RCR_W=$(_raf_words "$LIB/../.devflow/prompt-extensions/receiving-code-review.md")
 RAF_MAXREF_W=0
 RAF_MAXREF_NAME=""
 RAF_REFS_SUM_W=0
@@ -34874,7 +34901,11 @@ assert_eq "#530 budget: no references/*.md outside the pinned 8-name set" "" "$_
 # numeric checks below from the names, and (b) assert each doc "Value" cell equals the same
 # constant, so a ceiling changed on one side without the other turns the coupling RED instead
 # of the two artifacts silently disagreeing.
-RAF_ROOT_CEIL=3500
+# #620 raised the root ceiling 3500->3501, the only root renegotiation in this issue: three
+# successive correctness fixes to the supersession guard (a named producer for its authority
+# operand, then a retrievable editor identity, then an explicit permission mapping) left the
+# scoping prose at exactly 3,500 after repeated compression. Carries the repo's usual ~4 words.
+RAF_ROOT_CEIL=3501
 # #556 raised the initial-load ceiling 5500->5510: AC8 requires the iter-<N>.json
 # checklist entry to carry the optional raw_verdict/normalized fields, and adding
 # them to the record-shape example in the root pushed root+extension to 5,504 words.
@@ -34889,14 +34920,14 @@ RAF_ROOT_CEIL=3500
 # exactly at the measurement makes the next one-sentence edit a budget breach. The growth is the
 # audited decision recorded in docs/cutovers/issue-619-batched-artifact-regeneration.md;
 # update docs/review-and-fix-budget.md's ceilings-table cell in lockstep.
-# #620 raised it again 5690->7401 (the three-term sum RAF_RCR_W above introduces), with ~4 words
+# #620 raised it again 5690->7405 — the new RAF_RCR_W term plus this issue's root-prose growth — with ~4 words
 # of headroom over the measurement per #619's convention. Update docs/review-and-fix-budget.md's
 # ceilings-table cell in lockstep; the audited decision is
 # docs/cutovers/issue-620-reception-extension-port.md.
-RAF_LOAD_CEIL=7401
-# #620: renegotiated only because that same always-loaded term pushed the measured peak past
-# the previous 17,000 ceiling.
-RAF_MAXSTEP_CEIL=18663
+RAF_LOAD_CEIL=7405
+# #620: renegotiated because the new always-loaded term and this issue's own root-prose growth
+# together push the measured peak past the previous 17,000 ceiling — neither alone explains it.
+RAF_MAXSTEP_CEIL=18667
 assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
   "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"
 assert_eq "#530 budget: root + always-loaded extensions (initial load) <= $RAF_LOAD_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W)))" "yes" \
@@ -34939,7 +34970,7 @@ for _raf_ceil in "$RAF_ROOT_CEIL" "$RAF_LOAD_CEIL" "$RAF_MAXSTEP_CEIL"; do
     "$(case "$_raf_doc_nocommas" in *"≤ $_raf_ceil words |"*) echo yes;; *) echo no;; esac)"
 done
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,603 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,607 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute
