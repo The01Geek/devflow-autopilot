@@ -13291,7 +13291,7 @@ rm -rf "$BXR626_TMP"
   assert_eq "#626 render-report: Skipped PRs section present when skips non-empty" "true" \
     "$(printf '%s' "$RR626_REPORT" | grep -qF '### Skipped PRs' && echo true || echo false)"
   assert_eq "#626 render-report: the skip record renders as a bullet" "true" \
-    "$(printf '%s' "$RR626_REPORT" | grep -qF '- PR #77 skipped (mechanical, no DevFlow provenance)' && echo true || echo false)"
+    "$(printf '%s' "$RR626_REPORT" | grep -qF -- '- PR #77 skipped (mechanical, no DevFlow provenance)' && echo true || echo false)"
   # Empty arm: skips absent entirely → section omitted, and the summary still
   # reports skipped: 0 (the count line is unconditional, unlike the section).
   RR626_EMPTY='{"prs_scanned":1,"clean_count":1,"analyzed_count":0,"intervention_issues":[],"blockers":[]}'

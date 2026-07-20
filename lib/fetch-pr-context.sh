@@ -101,9 +101,15 @@ if [ "$ISSUE_NUMBER" != "null" ]; then
     ISSUE_COMMENTS_RAW="$(printf '%s' "$_ISSUE_COMMENTS_RAW" | "$DEVFLOW_JQ" -s 'add // []')"
     # Normalize issue comments to {author, body, createdAt}
     ISSUE_COMMENTS_NORM="$(echo "$ISSUE_COMMENTS_RAW" | "$DEVFLOW_JQ" '[.[] | {author: (.user.login // ""), body: (.body // ""), createdAt: (.created_at // "")}]')"
+    # `labels` normalization is TOTAL over every JSON shape (mirrors the §5b `norm`
+    # def below): an array of label objects → their names, an array of strings →
+    # themselves, and a wrong-type/missing `labels` → []. A non-total extraction
+    # (e.g. `[.labels[]?.name]`) aborts under `set -e` on a wrong-type `labels`,
+    # taking down the WHOLE context fetch — not just provenance — so the issue leg
+    # must fail closed to [] exactly as the PR leg does.
     ISSUE_JSON="$(echo "$ISSUE_RAW" | "$DEVFLOW_JQ" \
         --slurpfile comments <(printf '%s' "$ISSUE_COMMENTS_NORM") \
-        '{title: (.title // ""), body: (.body // ""), labels: ([.labels[]?.name] // []), comments: $comments[0]}')"
+        '{title: (.title // ""), body: (.body // ""), labels: ((.labels // []) | if type == "array" then map(if type == "object" then (.name // "") else . end) else [] end), comments: $comments[0]}')"
 fi
 
 # ── 5b. DevFlow provenance ────────────────────────────────────────────────────
