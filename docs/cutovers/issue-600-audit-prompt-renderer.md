@@ -14,17 +14,17 @@ Per-round context accounting: on the normal path the orchestrator emits only the
 
 ## Consuming paths
 
-The five closed consumption categories on the local tier, all now driven by the renderer:
+The closed consumption categories (complete by construction) on the local tier, all now driven by the renderer:
 
-1. **Every state-owner-routed audit dispatch** (Step 3.6 initial round, same-round retries, boundary-offer rounds, revise-and-reaudit rounds, Step 4 sub-step 4 re-audits) — compact-preamble transport; the auditor runs `render-audit-prompt.py <arm>` first and treats its stdout as the instructions only when the `render-status:` first line and `render-end:` last line stand in position.
-2. **The degraded inline arm** — orchestrator-side `render-audit-prompt.py inline`, consumed as a tool result.
-3. **Step 3.5 item 6's drafter self-check** — orchestrator-side `render-audit-prompt.py checklist`, consumed as a tool result.
-4. **Step 2's `## Evidence axes` forwarding** — `render-audit-prompt.py extract --hook evidence-axes` (the section-extraction mode, shared with the Step 3.6 `## Audit dimensions` hook).
-5. **The `state-owner unavailable` fallback's single audit round** — class-1 entries (no contract output) go directly to the template-file Read; class-2 entries (state could not be established/persisted, interpreter demonstrably ran) attempt the renderer first and fall to the template-file Read on the no-output-or-markers-out-of-position key.
+- **Every state-owner-routed audit dispatch** (Step 3.6 initial round, same-round retries, boundary-offer rounds, revise-and-reaudit rounds, Step 4 sub-step 4 re-audits) — compact-preamble transport; the auditor runs `render-audit-prompt.py <arm>` first and treats its stdout as the instructions only when the `render-status:` first line and `render-end:` last line stand in position.
+- **The degraded inline arm** — orchestrator-side `render-audit-prompt.py inline`, consumed as a tool result.
+- **The Step 3.5 drafter self-check** — orchestrator-side `render-audit-prompt.py checklist`, consumed as a tool result.
+- **Step 2's `## Evidence axes` forwarding** — `render-audit-prompt.py extract --hook evidence-axes` (the section-extraction mode, shared with the Step 3.6 `## Audit dimensions` hook).
+- **The `state-owner unavailable` fallback's single audit round** — a class-1 entry (no contract output) goes directly to the template-file Read; a class-2 entry (state could not be established/persisted, interpreter demonstrably ran) attempts the renderer first and falls to the template-file Read on the no-output-or-markers-out-of-position key.
 
 ## Branch coverage
 
-The renderer's branches are suite-driven by `lib/test/test_render_audit_prompt.py` (R1–R12, wired into `lib/test/run.sh`): the three dispatch arms (R1/R2/R3), checklist mode (R11), the four extraction clauses over a malformed-shape matrix (R4), the delivery-equivalence matrix that drives the real `load-prompt-extension.sh` over the same fixtures (R5), the positional markers including a decoy interior `render-end:` and tail-truncation detection (R6), status-only equals the full render's first line (R7), determinism (R8), statelessness (R9), the failure arms (R10), and the closed argument surface (R12).
+The renderer's branches are suite-driven by `lib/test/test_render_audit_prompt.py` (R1–R12, wired into `lib/test/run.sh`): the dispatch arms (R1/R2/R3), checklist mode (R11), the four extraction clauses over a malformed-shape matrix (R4), the delivery-equivalence matrix that drives the real `load-prompt-extension.sh` over the same fixtures (R5), the positional markers including a decoy interior `render-end:` and tail-truncation detection (R6), status-only equals the full render's first line (R7), determinism (R8), statelessness (R9), the failure arms (R10), and the closed argument surface (R12).
 
 ## Grants and probes
 

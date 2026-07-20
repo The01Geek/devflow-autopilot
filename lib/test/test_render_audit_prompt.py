@@ -122,7 +122,7 @@ class DispatchArms(unittest.TestCase):
         out = r.stdout
         self.assertTrue(out.startswith("render-status: "))
         self.assertTrue(out.rstrip("\n").endswith("render-end:"))
-        # 9 generic dimension bullets present.
+        # the generic dimension bullets are present (count guard-locked by A3).
         self.assertIn("**Consumer-repo setup variance**", out)
         self.assertIn("**Authoring-discipline defects**", out)
         # No arm carriage / out-of-bounds / cap material.

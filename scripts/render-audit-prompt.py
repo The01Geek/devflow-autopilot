@@ -22,7 +22,7 @@ Contract (issue #600):
   slug, absolute paths, and the machine-generated sentinel pair. No free-text
   parameter (the draft title never crosses a command line — it travels in the
   orchestrator's dispatch preamble prose).
-- Six modes, complete by construction: the three dispatch arms ``file`` /
+- Modes, complete by construction: the dispatch arms ``file`` /
   ``embed`` / ``inline`` mirroring ``issue-audit-state.py``'s arm vocabulary,
   plus ``checklist`` (the Step 3.5 self-check), ``extract`` (the generic
   section-extraction hook, consumed by both the Step 3.6 ``## Audit dimensions``
