@@ -164,6 +164,14 @@ class Extraction(unittest.TestCase):
         out = self._status("<!--\n## Audit dimensions\n- hidden\n-->\n")
         self.assertTrue(out.startswith("render-status: absent"))
 
+    def test_fence_marker_inside_comment_is_inert(self):
+        # #600 review finding: a ``` line INSIDE an HTML comment must not toggle
+        # fence state, or the comment never closes and a later real heading is
+        # swallowed (a divergence from load-prompt-extension.sh).
+        out = self._status("<!--\n```\n-->\n## Audit dimensions\n- real body\n")
+        self.assertTrue(out.startswith("render-status: appended"))
+        self.assertIn("real body", out)
+
     def test_heading_in_fence_not_extracted(self):
         out = self._status("```\n## Audit dimensions\n- fenced\n```\n")
         self.assertTrue(out.startswith("render-status: absent"))

@@ -165,9 +165,33 @@ def extract_section(text: str, heading: str) -> str:
     in_comment = False
     in_section = False
     collected: list[str] = []
+    def _track_comment(current: bool, text_line: str) -> bool:
+        # Last-marker-wins comment-block state (mirrors load-prompt-extension.sh).
+        if "<!--" not in text_line and "-->" not in text_line:
+            return current
+        last_open = text_line.rfind("<!--")
+        last_close = text_line.rfind("-->")
+        if last_open > last_close:
+            return True
+        if last_close > last_open:
+            return False
+        return current
+
     for raw in text.splitlines():
         line = raw.rstrip()
         stripped = line.lstrip()
+
+        # Comment-block state is resolved BEFORE fence detection, so a code-fence
+        # marker (``` / ~~~) that sits INSIDE an open HTML comment is inert — it
+        # neither opens nor closes a fence. Evaluating the fence branch first
+        # would toggle `in_fence` on a commented-out fence line and then swallow
+        # a later real heading (the load-prompt-extension.sh divergence #600's
+        # review caught).
+        if in_comment:
+            in_comment = _track_comment(in_comment, line)
+            if in_section:
+                collected.append(raw)
+            continue
 
         # Fence tracking (``` or ~~~). A fence toggles only on its own kind.
         if stripped.startswith("```") or stripped.startswith("~~~"):
@@ -189,7 +213,7 @@ def extract_section(text: str, heading: str) -> str:
         # A line is a heading candidate BEFORE the comment-open check, so a
         # heading carrying a trailing inline comment still matches by its full
         # line (mirrors load-prompt-extension.sh).
-        is_heading = line.startswith("## ") and not in_comment
+        is_heading = line.startswith("## ")
         if is_heading:
             if line == target:
                 in_section = True
@@ -199,14 +223,10 @@ def extract_section(text: str, heading: str) -> str:
                 in_section = False
             # fall through to comment tracking for this line too
 
-        # HTML comment tracking (last-marker-wins on the line).
-        if "<!--" in line or "-->" in line:
-            last_open = line.rfind("<!--")
-            last_close = line.rfind("-->")
-            if last_open > last_close:
-                in_comment = True
-            elif last_close > last_open:
-                in_comment = False
+        # A `## ` heading line is tested for heading-ness above BEFORE this
+        # comment-open check, so a heading with a trailing inline comment still
+        # matches; a non-heading line here may open a comment for later lines.
+        in_comment = _track_comment(in_comment, line)
 
         if in_section:
             collected.append(raw)
