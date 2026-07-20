@@ -49,6 +49,8 @@ This skill **skips** /devflow:review's Phase 4.4 entirely — no GitHub post. Th
   "current_step": "2.6",
   "current_substep": "run_shadow_fanout",
   "pending_dispatch": {"kind": "shadow_reviewer_fanout", "roster": ["devflow:code-reviewer", "devflow:silent-failure-hunter"], "dispatched_at": "2026-05-16T20:46:00Z"},
+  "sweep_defs_read": ["phase-2-implement.md"],
+  "sweep_evidence": {"status": "run"},
   "checklist": [
     {
       "id": "VC-1",
@@ -62,6 +64,9 @@ This skill **skips** /devflow:review's Phase 4.4 entirely — no GitHub post. Th
       "evidence": "...",
       "reused_from_iter_prev": false
     }
+  ],
+  "dispatched_effort": [
+    {"agent": "devflow:checklist-generator", "phase": "1", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"}
   ],
   "phase3_dispatched": [
     "devflow:code-reviewer",
@@ -196,6 +201,7 @@ This skill **skips** /devflow:review's Phase 4.4 entirely — no GitHub post. Th
     "truncation": null,
     "dispatch": "verified"
   },
+  "reference_reads": {"fix_delta": {"status": "verified|not_verified", "outcome": "clean|refixed|promoted", "reason": null}},
   "shadow": {
     "ran_at": null,
     "reviewed_sha": null,
@@ -222,7 +228,7 @@ This skill **skips** /devflow:review's Phase 4.4 entirely — no GitHub post. Th
       {
         "parked_finding_ref": {"iter": 1, "index": 4},
         "parked_finding_id": "F-15",
-        "shadow_finding_index": 0, /* indexes THIS iteration's shadow.phase3_findings, shown here as the empty null-template above; in a real preservation run that array holds the paired re-raise at index 0 */
+        "shadow_finding_index": 0, /* see loop-control.md's park_calibration shape */
         "relation": "equivalent",
         "rationale": "shadow re-raises the same Postgres lock-mode claim on the same evidentiary basis, adding no new failing input",
         "operands_present": true,
@@ -244,7 +250,7 @@ This skill **skips** /devflow:review's Phase 4.4 entirely — no GitHub post. Th
 }
 ```
 
-**Field semantics** — `loop_role`, `phase3_dispatched`, `diff_profile`, `cap_drops`, `shadow`, and the durable operands `current_step`/`current_substep`/`pending_dispatch` — are documented in `references/loop-control.md` (*Schema field semantics*). `ITER_EXPECTED_FIELDS` in `lib/efficiency-trace.sh` is the single-source set the unconditional top-level fields mirror.
+**Field semantics** — `loop_role`, `dispatched_effort`, `phase3_dispatched`, `diff_profile`, `cap_drops`, `shadow`, and the durable operands `current_step`/`current_substep`/`pending_dispatch` — are documented in `references/loop-control.md` (*Schema field semantics*). `ITER_EXPECTED_FIELDS` in `lib/efficiency-trace.sh` is the single-source set the unconditional top-level fields mirror.
 
 ### Lifecycle
 
@@ -294,7 +300,7 @@ Every step reference loads at entry, **before any action in that step**, and a r
 | `pre-fix-gates.md` | **STOP before any mutation.** No fix without gate coverage. Record a `blocked` reflection; report non-convergence. |
 | `shadow-review.md` | Record `shadow.coverage: "not_verified"` on the active iter (the existing outcome-3 shape) — **prohibits a clean approve**. Then branch on the **trigger context**: a **convergence-time** trigger proceeds to Loop Exit reported not-verified; an **early** `engine_self_modifying` trigger (after iteration 1) instead continues the loop as in the `convergence.md` row — not an early terminate of a non-converged loop. |
 | `fixing.md` | **STOP before any mutation.** Never apply a fix blind. Record a `blocked` reflection; report non-convergence. |
-| `fix-delta-gate.md` | Record a not-verified fix-delta outcome (the existing gate-subagent-failure shape) that **prohibits a clean APPROVE-family verdict** for this run — the same effect as an unresolved over-grade flag (the formal `reference_reads.fix_delta` field is the #541 follow-up; the behavioral outcome ships here). |
+| `fix-delta-gate.md` | Record a not-verified fix-delta outcome (the existing gate-subagent-failure shape) in the formal `reference_reads.fix_delta` field, which **prohibits a clean APPROVE-family verdict** for this run — the same effect as an unresolved over-grade flag. |
 | `convergence.md` | Treat as "a convergence condition failed" — never early-exit: loop back to Step 1 for iteration N+1, or at the cap proceed to Loop Exit reporting non-convergence. |
 | `loop-exit.md` | Run the persistence backstop directly (`lib/efficiency-trace.sh --persist`), record an **incomplete terminal state** reflection, and emit a generic non-clean chat message (never an APPROVE-family template) — **prohibits a clean approve**. |
 | `loop-control.md` | The loop spine (config, Iteration Start, Steps 0.5/0.9/1/2), loaded at loop entry: **STOP before any mutation**. Record a `blocked` reflection; report non-convergence. |

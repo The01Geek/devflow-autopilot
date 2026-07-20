@@ -162,7 +162,13 @@ the tree-equality guard, and every OTHER path stays strictly per-run-immutable. 
 - `per_iteration[]` — dispatch counts, `diff_profile` (Phase 0.5 flags — segment cut decisions by
   this), `verification_posture`, checklist lite/agent split, fixes applied, the `added_nothing` flag,
   `phase3_dispatched_present` (so the analyzer can tell a genuinely zero-dispatch iteration from one
-  degraded by an absent roster — both show count 0), the `agent_verdicts` roster, `synthesized`
+  degraded by an absent roster — both show count 0), the `agent_effort[]` per-agent effort
+  observability blocks with their `dispatched_effort_present` flag (issue #609: agent id plus
+  exactly `requested`, `resolved`, `application_point`, `effective` — null unless read back — and
+  `fallback_reason`, populated over `phase3_dispatched` ∪ the iter workpad's `dispatched_effort`
+  roster, so a Phase-1/1.5/2 checklist agent's effort decision is carried too; an agent with no
+  entry records an all-null `session-inheritance` block; additive and nullable, `schema_version`
+  stays 1), the `agent_verdicts` roster, `synthesized`
   (whether *this* iteration was reconstructed by the synthesis floor — a strict `== true` of the
   workpad field, so an absent field reads `false`), and `loop_role`
   (`fix` | `promoted`) — each iteration's role in the fix loop, **derived here** from the prior
@@ -403,13 +409,18 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
   refs/heads/<branch>:.devflow/logs/efficiency/<slug>-<run-id>.json`), it emits a loud
   `::warning::` naming exactly what was not persisted (and points at `--persist` as the recovery).
   It **additionally validates each `iter-<N>.json`'s field set**: for every iter workpad missing a
-  field in the single-source `ITER_EXPECTED_FIELDS` set (the iter schema's top-level fields minus
-  `shadow`, which Step 2.6 appends later and is legitimately absent), it emits a `::warning::` naming
+  field in the single-source `ITER_EXPECTED_FIELDS` set (the iter schema's top-level fields minus the
+  conditional and non-telemetry ones — `shadow` and `reference_reads`, appended later by Step 2.6 and
+  Step 3.5's fix-delta gate respectively and so legitimately absent, plus the promotion/parking and
+  navigation-stamp fields; `LR_CONDITIONAL_FIELDS` in `lib/test/run.sh` is the single list that
+  declares the full subtracted set and drives both the subtraction and its presence pins), it emits a `::warning::` naming
   the field and the iter file — turning a silently-dropped inline-persist field into a visible signal.
   A workpad carrying `synthesized: true` (written by the Layer-3+ synthesis floor, below) is a
-  recognized degraded class validated against its **own** minimal set (`ITER_SYNTH_EXPECTED_FIELDS`:
-  `iter`, `fix_commit_sha`, `fix_files`, `loop_role`, `synthesized`) rather than the full set — so a
-  truncated synthesized record still warns instead of validating silently. And the zero-workpad
+  recognized degraded class validated against its **own** minimal set (`ITER_SYNTH_EXPECTED_FIELDS`
+  — see that variable in `lib/efficiency-trace.sh` for the members) rather than the full set — so a
+  truncated synthesized record still warns instead of validating silently. That minimal set includes
+  the run-scoped evidence fields, which is what makes `--self-check` **enforce** that a
+  synthesized record actually carries its unrecoverable-provenance stamps. And the zero-workpad
   warning names the **targeted** recovery command (`--persist --workpad-dir DIR --slug SLUG` — the
   form immune to discovery-mode synthesis skips) rather than implying there is nothing left to
   persist.
@@ -638,8 +649,33 @@ real record carries, none of which is recoverable **from the fix commits**.
   (`git log --reverse`).
 - *Synthesized-record shape.* Each synthesized `iter-<N>.json` carries exactly `iter`,
   `fix_commit_sha`, `fix_files` (from `git diff-tree`; **`null` when that derivation fails** —
-  unestablished, deliberately distinct from a genuine empty commit's `[]`), `loop_role: "fix"`, and
-  `synthesized: true`. `lib/efficiency-trace.jq` surfaces the marker at every level: per-iteration
+  unestablished, deliberately distinct from a genuine empty commit's `[]`), `loop_role: "fix"`,
+  `synthesized: true`, and the run-scoped evidence fields `sweep_defs_read`, `sweep_evidence`,
+  and `reference_reads`. A fix commit carries no trace of which sweep definitions an iteration read,
+  what its sweeps found, or whether the fix-delta gate ran, so each of those three is stamped with an
+  explicit `{"status": "unrecoverable", "reason": …}` object rather than a real-looking value. This is
+  deliberate and load-bearing: `sweep_defs_read: []` and `sweep_evidence: {"status": "not-run", …}`
+  are the *legitimate* values of a real no-fix iteration, so emitting either here would assert
+  something about an iteration this floor never observed. `reference_reads` is a registry, so its
+  stamp is written **inside** its `fix_delta` member — a top-level stamp would make the documented
+  `.reference_reads.fix_delta` read return `null`, which is indistinguishable from the legitimate
+  "the gate did not run" absence.
+
+  **Consumer contract.** Read `status: "unrecoverable"` as *unknown*, never as *empty*, and
+  **type-check before any shape-specific operation**: on a synthesized record `sweep_defs_read` is an
+  *object*, whereas on a real record it is an *array*, so an unguarded `.sweep_defs_read | length`
+  returns the provenance object's key count (2) and reads as "two sweep definitions were read" — an
+  unestablished measurement collapsed onto a real positive value. Branch on `.status` first.
+
+  **Compatibility boundary.** `ITER_SYNTH_EXPECTED_FIELDS` gained these three members in the issue
+  #541 change, so a synthesized record written by an *earlier* build lacks them and `--self-check`
+  now emits a missing-field `::warning::` for each. That is the intended fail-loud behavior (a
+  truncated synthesized record must still warn) rather than a regression; the blast radius is narrow
+  because `--workpad-dir` is a per-run ephemeral directory, so a pre-change record only appears when
+  a run directory survives a tool upgrade. The same boundary applies to **ordinary** (non-synthesized)
+  records: `ITER_EXPECTED_FIELDS` gained `sweep_defs_read` and `sweep_evidence` in the same change, so
+  a pre-change agent-written workpad warns for those two on the identical rationale — this is not a
+  synthesized-record-only boundary. `lib/efficiency-trace.jq` surfaces the marker at every level: per-iteration
   and in each `per_iteration[]` entry as a strict `== true` (an absent or malformed field reads
   `false` — agent-written workpads carry no such field, so real records read `synthesized: false`),
   and record-level as `any(…)` — `true` when **any** iteration was reconstructed, the key a

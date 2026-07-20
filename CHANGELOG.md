@@ -4,6 +4,64 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.18.12] — 2026-07-20
+
+### Changed
+### Added
+
+- Per-agent effort observability in the per-run efficiency telemetry (issue #609, carried from
+  #554; PR #630): the per-run record now carries an `agent_effort[]` block per iteration —
+  agent id plus exactly `requested`, `resolved`, `application_point`, `effective` (null unless
+  read back), and `fallback_reason` — populated over the full dispatched roster
+  (`phase3_dispatched` ∪ the new `dispatched_effort` iter-workpad field, which captures the
+  Phase-1/1.5/2 checklist-agent dispatches with their effort decisions). A
+  `checklist-generator.effort` override is no longer silently missing from the record, and a
+  dispatched agent with no override records an all-null `session-inheritance` block.
+  `resolve-review-overrides.py` gains an `--effort-json` mode emitting the five-field map per
+  dispatched agent. Additive and nullable — no `schema_version` bump, and
+  `validate-telemetry-artifact.sh` passes the block unchanged.
+
+## [2.18.11] — 2026-07-20
+
+### Fixed
+- **The stale counted-prose lint is now move-aware — a byte-identical relocation no longer
+  produces a gating `STALE`.** An extraction refactor relocates prose without authoring it, but
+  a relocated line is an *added* line in the unified diff, so `scripts/stale-prose-lint.py`
+  re-graded it as newly authored and resolved its claims against the destination file's
+  context — a pure move could fail a Phase 0.6 gate on unchanged prose. A diff-added prose line
+  whose full text also appears as a removed line in the same caller-supplied diff is now exempt,
+  bounded by a multiplicity rule (added occurrences must not outnumber removed ones,
+  diff-globally) and a referent rule (every diff-added referent line must itself be relocated,
+  so PR-authored referent growth still gates). The row is demoted rather than deleted: the
+  would-be `STALE` is emitted as a non-gating `UNRESOLVABLE` carrying the original diagnostic
+  behind a relocation-naming prefix, keeping the co-located contradiction visible without
+  enforcing. The change lands behind the helper's unchanged CLI contract, so the cloud review
+  Phase 0.6, the fix-loop pre-check, and the CI self-scan all inherit it with no caller edits
+  and no new tool grants. (#631)
+
+## [2.18.10] — 2026-07-20
+
+### Added
+- **`/devflow:review-and-fix` records a formal `reference_reads.fix_delta` evidence field, and the
+  run-scoped evidence schema is reconciled across every surface that defines it.** `sweep_defs_read`
+  and `sweep_evidence` were mandated by the authoritative `iter-<N>.json` writer but missing from the
+  root `### Schema` block and from `ITER_EXPECTED_FIELDS`; they are now stated in both, so the
+  single-source field set and the schema finally agree. On top of that reconciled base, Step 3.5's
+  fix-delta gate now persists its outcome durably in a conditional `reference_reads` field — the
+  formal record for a behavior that previously shipped with no schema — carrying `verified` /
+  `not_verified` with the two failure arms' distinct breadcrumbs preserved in `reason`. (#625)
+
+- **Fix-commit-only synthesized records no longer serialize absent evidence as real evidence.** When
+  a run leaves no per-iteration workpad, the synthesis floor reconstructs a record from the fix
+  commits — which carry no trace of which sweeps ran or whether the fix-delta gate ran. That evidence
+  is now stamped `{"status": "unrecoverable", "reason": …}` instead of the plausible-looking `[]` and
+  `{"status": "not-run"}`, which are the *legitimate* values of a real no-fix iteration and would
+  otherwise assert something about an iteration the floor never observed. `--self-check` validates
+  both the presence and the `unrecoverable` shape of that provenance, so a synthesizer that stopped
+  stamping it — or that regressed to a real-looking `[]` / `not-run` — emits a warning instead of
+  validating in silence. (`--self-check` is warn-only by contract: it never writes and never fails
+  the run; the `lib/test/run.sh` assertions are what turn the same regression RED at the desk.) (#625)
+
 ## [2.18.9] — 2026-07-20
 
 ### Changed

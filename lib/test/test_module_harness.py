@@ -1044,7 +1044,18 @@ class SignalCleanupMatrixTests(unittest.TestCase):
             elapsed = time.monotonic() - started
 
         self.assertEqual(process.returncode, 1)
-        self.assertLess(elapsed, 5)
+        # The rendezvous is wall-clock bounded (module-harness.sh's
+        # rendezvous_deadline_seconds=3, fired via SECONDS). Pin both ends of the
+        # ~3s budget, not just the old 5s ceiling: the upper bound catches a
+        # regression that inflates the deadline or reintroduces a fork-cost-
+        # sensitive bound; the lower bound catches a deadline collapsing to ~0
+        # (e.g. SECONDS=0 dropped, or -ge flipped) that would still exit rc 1 with
+        # the same message. The lower bound is 1.5 (not ~3) because SECONDS'
+        # integer granularity makes the real fire time [deadline-1, deadline),
+        # i.e. as low as ~2s + startup — 1.5 clears that legitimate floor while
+        # still failing an instant (~0s) collapse.
+        self.assertGreater(elapsed, 1.5)
+        self.assertLess(elapsed, 4)
         self.assertIn("supervisor PID rendezvous timed out", process.stderr)
 
     def test_full_suite_boundary_restores_caller_signal_traps(self) -> None:
