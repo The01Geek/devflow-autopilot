@@ -42,7 +42,7 @@ failure: a rule that reaches the loop only when someone remembers to route it th
 ## Bounded-growth target
 
 The issue targeted 450 `_raf_words` for the two new sections plus the scoping prose.
-**Shipped: 683.** The target was renegotiated three times, and all three moves are recorded here rather than
+**Shipped: 683.** The target was renegotiated more than once, and every move is recorded here rather than
 folded away, because a bound that silently tracks its subject has stopped bounding anything.
 
 1. **450 → 600.** The prose reached 590 after two compression passes from 649, and every remaining
@@ -70,7 +70,7 @@ folded away, because a bound that silently tracks its subject has stopped boundi
    data-to-surface arm **before** the null-means-unedited interpretation is reached — without that
    ordering the guard failed open exactly where it claimed to fail closed. Every API shape named was
    checked live before being written. The accumulated prose no longer fit under the 3,500 root
-   ceiling, which moved to 3,538.
+   ceiling, which moved to 3,567.
 4. **The failed-read arm was widened to cover the PERMISSION read too, word-neutrally (no ceiling
    move).** The prior wording's failure arm reached only the identity read, so a failed permission
    read — a 403 is the *expected* response on the read-only reviewer tier, whose token lacks the push
@@ -82,7 +82,8 @@ folded away, because a bound that silently tracks its subject has stopped boundi
    word count was unchanged (+19 bytes, an audited mandatory-prose growth reflected in
    `lib/test/prompt-mass-baseline.json`), so no ceiling moved.
 
-5. **660 → 683, and a second root-ceiling move (3,515 → 3,538).** A later review round found the
+5. **660 → 683, and a second root-ceiling move (the ceiling now stands at 3,567, which also absorbs
+   root growth arriving from `main`).** A later review round found the
    repaired guard still fail-open in one dimension: it weighed the editor logins as a *set*, so an
    Addendum written by an unprivileged editor read as an authoritative operator amendment whenever
    any `admin`/`write` login merely co-occurred in the truncated ten-node edit history — again the
@@ -92,7 +93,7 @@ folded away, because a bound that silently tracks its subject has stopped boundi
 
 Every move after the first is correctness winning over a word target, and each is recorded with its
 cause rather than folded away. Compression absorbed the first two entirely; the third and the fifth each required
-touching the root ceiling. The root now sits at 3,534 of 3,538 — the same
+touching the root ceiling. The root now sits at 3,563 of 3,567 — the same
 ~4-word margin the other two ceilings carry, so a future addition to this preamble meets all three
 at once rather than any one of them first.
 
@@ -103,9 +104,9 @@ measures became three-term sums.
 
 | Quantity | Before | After | Ceiling before → after |
 | --- | ---: | ---: | --- |
-| Plugin root | 3,213 | 3,534 | 3,500 → 3,538 |
-| Initial load | 5,686 (root + extension) | 7,611 (root + always-loaded extensions) | 5,690 → 7,615 |
-| Max active step | 16,948 | 18,873 | 17,000 → 18,877 |
+| Plugin root | 3,213 | 3,563 | 3,500 → 3,567 |
+| Initial load | 5,686 (root + extension) | 7,640 (root + always-loaded extensions) | 5,690 → 7,644 |
+| Max active step | 16,948 | 18,902 | 17,000 → 18,906 |
 
 All three ceilings now carry ~4 words of headroom over their measurements — following issues
 #556 and #619, because a ceiling set exactly at the measurement makes the next one-sentence edit a
@@ -113,7 +114,7 @@ budget breach. Recorded in `docs/review-and-fix-budget.md`'s maintainer note.
 
 The **cumulative-path** and **growth-delta** arithmetic excludes the receiving extension —
 rationale in the budget doc's Counting method, mirrored in `lib/test/run.sh`'s `#530 budget`
-block. Those figures still move (43,876 and +5,029) because the root itself grew by the loader
+block. Those figures still move (44,073 and +5,226) because the root itself grew by the loader
 call and its scoping prose.
 
 Growth is bounded by design: the two new sections state rules and cite their sources of record
