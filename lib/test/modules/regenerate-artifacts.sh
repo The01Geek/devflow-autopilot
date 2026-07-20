@@ -5,8 +5,10 @@
 # Contract: the caller sets LIB and RESULTS_FILE, defines assert_eq, and sources
 # lib/test/module-harness.sh first (which defines the namespaced module pin API:
 # devflow_module_pin_count / devflow_module_pin_unique / devflow_module_pin_present /
-# devflow_module_pin_red_under). This module uses assert_eq plus its domain-private
-# helpers below (_ra_fixture, _ra_run, _ra_has) — it references NO monolith helper.
+# devflow_module_pin_red_under). This module uses assert_eq plus the `_ra_*`
+# domain-private helpers defined below — it references NO monolith helper. They are
+# deliberately not enumerated here: an exact list is a mirror-fact that goes stale on
+# the next helper added, and the definitions below are the authoritative set.
 # The module owns its private fixture root and cleanup; it never invokes the runner
 # or the full-suite boundary. The inventory in regenerate-artifacts.inventory.md
 # records the module's provenance. Modules may not self-skip.
@@ -338,9 +340,52 @@ mv "$RA_A5E/.devflow/prompt-extensions/review.md" "$RA_A5E/.devflow/prompt-exten
 _ra_run "$RA_A5E"
 _ra_has "#619 A5e a renamed watch-list member reports unestablished" "$RA_A5E" \
   "watch-list member(s) absent from the tree"
+# Pin the ROW-ATTRIBUTED composite, never the bare path: renaming that file also breaks
+# the prompt-mass census, whose JUDGMENT output names the same path, so a bare-path pin
+# would still pass with the budget row's own interpolation deleted (the same vacuity
+# A5 above was fixed for).
 _ra_has "#619 A5e the unestablished watch-list line names the missing member" "$RA_A5E" \
-  ".devflow/prompt-extensions/review.md"
+  "absent from the tree: .devflow/prompt-extensions/review.md"
+# PTA: --list's budget-watch-missing loop is otherwise unexecuted by the suite (A4 runs
+# against a tree where `missing` is always empty), so the list surface could silently
+# stop disclosing a renamed member.
+python3 "$RA_HELPER" --list --repo-root "$RA_A5E" > "$RA_A5E/.ra.list" 2>&1
+assert_eq "#619 A5e --list discloses the missing member" "1" \
+  "$(devflow_module_pin_count 'budget-watch-missing	.devflow/prompt-extensions/review.md' "$RA_A5E/.ra.list")"
 _ra_live_unchanged "#619 A5e live manifest byte-unchanged after the renamed-member run"
+
+# ── A5g — a judgment row's INPUT failure routes to INFRASTRUCTURE, not to a judgment ──
+# Both judgment generators exit 1 for an unusable input as well as for real drift, so
+# without a discriminator an unmeasurable tree is reported as "go edit your coverage
+# rows" — telling the agent to fix a measurement that never happened. Stripping .git
+# from the fixture makes coverage_map_guard emit its `[input-error]` prefix; the row
+# must report INFRASTRUCTURE (exit 2), never a JUDGMENT item (exit 1).
+RA_A5G="$_ra_tmp_root/a5g"; _ra_fixture "$RA_A5G"; rm -rf "$RA_A5G/.git"
+_ra_run "$RA_A5G"
+assert_eq "#619 A5g a judgment row's input failure exits 2, never 1" "2" "$(_ra_rc "$RA_A5G")"
+_ra_has "#619 A5g the input failure is attributed to its row as INFRASTRUCTURE" "$RA_A5G" \
+  "[coverage-map-ratchet] INFRASTRUCTURE"
+_ra_has "#619 A5g the input failure is named as an input failure, not drift" "$RA_A5G" \
+  "reporting an input failure, not drift"
+_ra_has "#619 A5g the run does NOT tell the agent to resolve a ratchet judgment item" "$RA_A5G" \
+  "the artifact was NOT checked"
+_ra_live_unchanged "#619 A5g live manifest byte-unchanged after the input-failure run"
+
+# ── A5f — default_repo_root anchors its probe to THIS checkout, not the process cwd ──
+# The helper's one write target is a tracked file, so a root resolved from an unrelated
+# repository would regenerate that repository's manifest. Nothing exercised the anchor:
+# every other arm passes --repo-root explicitly, so deleting `cwd=str(here)` left all
+# assertions green. Run --list with NO --repo-root from inside an unrelated git repo and
+# assert the watch list is still DevFlow's own bundle.
+RA_A5F="$_ra_tmp_root/a5f-unrelated"; mkdir -p "$RA_A5F"
+( cd "$RA_A5F" && git init -q . && git config user.email a@b.c && git config user.name t \
+  && printf 'x\n' > f.txt && git add -A && git commit -q -m unrelated ) >/dev/null 2>&1
+( cd "$RA_A5F" && python3 "$RA_HELPER" --list ) > "$RA_A5F/list.out" 2>&1
+assert_eq "#619 A5f --list from an unrelated repo still resolves THIS checkout's bundle" "1" \
+  "$(devflow_module_pin_count 'budget-watch	skills/review/SKILL.md' "$RA_A5F/list.out")"
+assert_eq "#619 A5f the unrelated repo contributes no watch-list member" "0" \
+  "$(devflow_module_pin_count 'budget-watch	f.txt' "$RA_A5F/list.out")"
+_ra_live_unchanged "#619 A5f live manifest byte-unchanged after the unrelated-repo run"
 
 # ── A6 — an underivable change set is `unestablished`, never exit-1-forcing ──
 RA_A6="$_ra_tmp_root/a6"; _ra_fixture "$RA_A6"

@@ -78,9 +78,10 @@ BUDGET_WATCH_GLOBS = ("skills/review/phases/*.md",)
 # `exits` is the row's declared exit-code set and `clean` its positive arm; an exit
 # outside `exits` is the infrastructure state, never a clean pass.
 # `check` is the row's own strategy callable: main() dispatches through it uniformly
-# rather than re-deciding per row. The kind->callable binding lives in exactly one place
-# (the loop below the function definitions), so a reader has one site to consult; it is
-# not branch-free, and run_row still special-cases the mechanical kind.
+# rather than re-deciding per row. The binding lives in exactly one place (the loop
+# below the function definitions) and is keyed on whether the row declares an `argv`,
+# NOT on `kind` — `kind` is "judgment" for both callables, so a kind->callable mapping
+# does not exist. It is not branch-free: run_row still special-cases the mechanical kind.
 ROWS = (
     {
         "name": "cloud-writer-manifest",
@@ -116,6 +117,12 @@ ROWS = (
         "clean": (0,),
         "exits": (0, 1),
         "policy": "the mandatory-byte census section of .devflow/prompt-extensions/implement.md",
+        # The census returns 1 for an unusable ROOT as well as for real drift. Without
+        # this discriminator an unmeasurable tree would be reported as a judgment item
+        # telling the agent to edit a baseline whose measurement never happened —
+        # unknown collapsed onto a real value, the very class this helper exists to
+        # avoid. The mechanical row got this reasoning first; it applies here too.
+        "infra_markers": ("not found or not a directory",),
     },
     {
         "name": "review-bundle-budget",
@@ -135,6 +142,10 @@ ROWS = (
         "clean": (0,),
         "exits": (0, 1),
         "policy": "add the missing coverage rows per the issue-591 ratchet in lib/test/modules/coverage-map.json",
+        # Same discriminator: the guard prefixes a genuine input failure (git absent,
+        # not a repo) with `[input-error]` and exits 1, identically to a real ratchet
+        # violation. That is not a coverage-row problem and must not be reported as one.
+        "infra_markers": ("[input-error]",),
     },
 )
 
@@ -175,18 +186,23 @@ def watch_list(root):
     lets the suite compare this against the disk-derived bundle membership, so a new
     phase reference cannot make the budget row silently fail open on ADDITIONS.
 
-    `missing` closes the opposite direction. Filtering the literals by `is_file()` alone
-    is an existence guard standing in for membership: a renamed or moved member would
-    simply vanish from the list, and the row would then report "no review-bundle member
-    changed" for the very change that moved it. An absent literal is therefore reported
-    as UNESTABLISHED, never silently dropped — the same unknown-is-not-zero discipline
-    the git legs already follow.
+    `missing` closes the opposite direction, for BOTH legs. Filtering by existence alone
+    is a guard standing in for membership: a renamed or moved member would simply vanish
+    from the list, and the row would then report "no review-bundle member changed" for
+    the very change that moved it. That holds for a literal (`is_file()` false) and
+    equally for a glob whose PARENT directory is gone — `Path.glob` over a nonexistent
+    directory yields nothing and raises nothing, so a renamed `phases/` would empty the
+    list in silence. Both are reported as UNESTABLISHED, never silently dropped — the
+    same unknown-is-not-zero discipline the git legs follow.
     """
     members, missing = [], []
     for rel in BUDGET_WATCH_LITERALS:
         (members if (root / rel).is_file() else missing).append(rel)
     for pattern in BUDGET_WATCH_GLOBS:
         parent, _, leaf = pattern.rpartition("/")
+        if not (root / parent).is_dir():
+            missing.append(pattern)
+            continue
         members.extend(
             sorted(p.relative_to(root).as_posix() for p in (root / parent).glob(leaf))
         )
@@ -200,7 +216,7 @@ def _git_out(root, argv):
     shallow clone with no merge-base) — a caller must not read that as "no output".
     Every git call in the CHANGE-SET DERIVATION goes through here, so the OSError guard
     cannot be present at one derivation call site and forgotten at another.
-    (`default_repo_root` below is the one git call outside this helper — it runs before
+    (`default_repo_root` above is the one git call outside this helper — it runs before
     a root exists to pass as `cwd`, and carries its own OSError guard.)
     """
     try:
@@ -314,11 +330,22 @@ def run_row(row, root, report):
 
     if row["kind"] == "mechanical":
         after = written.read_bytes() if written.is_file() else None
-        return _mechanical_outcome(row, proc, output, before != after, report)
+        return _mechanical_outcome(row, proc, output, before != after, after, report)
 
     if proc.returncode in row["clean"]:
-        report.append(f"[{name}] clean — `{' '.join(row['argv'])}` exited 0")
+        report.append(
+            f"[{name}] clean — `{' '.join(row['argv'])}` exited {proc.returncode}"
+        )
         return False, False
+    hit = next((m for m in row.get("infra_markers", ()) if m in output), None)
+    if hit is not None:
+        report.append(
+            f"[{name}] INFRASTRUCTURE `{' '.join(row['argv'])}` exited "
+            f"{proc.returncode} reporting an input failure, not drift "
+            f"(matched {hit!r}) — the artifact was NOT checked:\n"
+            f"    output: {output or '(none)'}"
+        )
+        return False, True
     report.append(
         f"[{name}] JUDGMENT `{' '.join(row['argv'])}` exited {proc.returncode}\n"
         f"    output: {output or '(none)'}\n"
@@ -327,10 +354,17 @@ def run_row(row, root, report):
     return True, False
 
 
-def _mechanical_outcome(row, proc, output, changed, report):
+def _mechanical_outcome(row, proc, output, changed, after, report):
     """Classify the mechanical row's outcome. Returns (forces_exit_1, infrastructure)."""
     name = row["name"]
     if proc.returncode in row["clean"]:
+        if after is None:
+            report.append(
+                f"[{name}] INFRASTRUCTURE `{' '.join(row['argv'])}` exited 0 but "
+                f"{row['writes']} is absent — the generator produced no artifact, so "
+                "there is nothing to compare and nothing was verified."
+            )
+            return False, True
         if not changed:
             report.append(f"[{name}] clean — {row['writes']} already matches the closure")
             return False, False

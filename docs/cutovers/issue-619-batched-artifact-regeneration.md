@@ -41,9 +41,9 @@ not reach the flagship fix loop.
 
 ## Budget renegotiation (review-and-fix initial load)
 
-`.devflow/prompt-extensions/review-and-fix.md` was sitting **exactly** at its documented
-initial-load ceiling — root 3,213 + extension 2,291 = 5,504 words against a 5,510 ceiling, six
-words of headroom — so this instruction could not fit under it at any phrasing. The section was
+`.devflow/prompt-extensions/review-and-fix.md` was sitting **six words** below its documented
+initial-load ceiling — root 3,213 + extension 2,291 = 5,504 words against a 5,510 ceiling — so
+this instruction could not fit under it at any phrasing. The section was
 first trimmed to its operative minimum (the invocation, the act-on-the-report rule, the
 infrastructure-failure arm, the two-denials degradation, and the discharge line) and only then
 was the ceiling renegotiated **5,510 → 5,690**, mirroring the #556 precedent and carrying the

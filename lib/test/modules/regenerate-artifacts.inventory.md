@@ -42,8 +42,8 @@ interrupted live-tree mutate-and-restore would leave a self-consistent corrupted
 asset+manifest pair on disk that the issue-543 verify gate would then certify green.
 
 The module uses `assert_eq` plus its own `_ra_*` domain-private helpers and the
-namespaced pin API from `module-harness.sh` (`devflow_module_pin_count` /
-`devflow_module_pin_present`) — it references no monolith `lib/test/run.sh` helper. The
+namespaced pin API from `module-harness.sh` — it references no monolith
+`lib/test/run.sh` helper. The
 helper set is deliberately not enumerated here: an exact list is a mirror-fact that goes
 stale on the next helper added, and the authoritative set is the `_ra_*` definitions in
 the module itself.
@@ -52,4 +52,6 @@ the module itself.
 and needs none: `lib/test/` is listed in that map's `exempt_subtrees`, and
 `coverage_map_guard.py`'s patterns are depth-1 (`lib/*.py`, `scripts/*.sh`, …), so a
 depth-2 path under `lib/test/` is outside the ratchet surface by construction. Its
-coverage is this module, registered through the five-part contract above.
+coverage is this module, registered through the module-registration contract
+(module file, this inventory, the flight-recorder registry row, the `lib/test/run.sh`
+call-site floor, and the explicit `ci.yml` shellcheck listing).

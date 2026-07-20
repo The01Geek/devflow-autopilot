@@ -33984,8 +33984,8 @@ RAF_ROOT_CEIL=3500
 # them to the record-shape example in the root pushed root+extension to 5,504 words.
 # The small documented widening mirrors the #529 AC3 renegotiation; update
 # docs/review-and-fix-budget.md's ceilings-table cell in lockstep.
-# #619 raised it again 5510->5690: the extension was sitting EXACTLY at the 5510
-# ceiling (root 3,213 + extension 2,291 = 5,504, six words of headroom), so the
+# #619 raised it again 5510->5690: the extension was sitting six words below the 5510
+# ceiling (root 3,213 + extension 2,291 = 5,504), so the
 # batched-regeneration instruction the issue requires on this surface could not fit
 # under it at any phrasing — the section was already trimmed to its operative
 # minimum before this renegotiation was taken. The ceiling carries ~10 words of
