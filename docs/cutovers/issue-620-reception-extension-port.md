@@ -105,16 +105,24 @@ measures became three-term sums.
 | Quantity | Before | After | Ceiling before → after |
 | --- | ---: | ---: | --- |
 | Plugin root | 3,213 | 3,563 | 3,500 → 3,567 |
-| Initial load | 5,686 (root + extension) | 7,640 (root + always-loaded extensions) | 5,690 → 7,644 |
-| Max active step | 16,948 | 18,902 | 17,000 → 18,906 |
+| Initial load | 5,686 (root + extension) | 7,649 (root + always-loaded extensions) | 5,690 → 7,653 |
+| Max active step | 16,948 | 18,911 | 17,000 → 18,915 |
 
 All three ceilings now carry ~4 words of headroom over their measurements — following issues
 #556 and #619, because a ceiling set exactly at the measurement makes the next one-sentence edit a
 budget breach. Recorded in `docs/review-and-fix-budget.md`'s maintainer note.
 
+**Absorbed from `main` after the figures above were first set: issue #642's review-and-fix
+extension reword (2,646 → 2,655 words), which had already moved the initial-load and max-step
+ceilings to 5,887 / 17,149 on `main`.** Merging it raised both of this issue's measures by the same
+9 words — initial load 7,640 → 7,649, max active step 18,902 → 18,911 — so the two ceilings were
+re-measured to 7,653 / 18,915, preserving the ~4-word margin. The **root** ceiling is untouched
+(3,567): #642 did not change `skills/review-and-fix/SKILL.md`. Recorded here rather than folded
+away, per this section's own rule — a merge-driven move is still a move.
+
 The **cumulative-path** and **growth-delta** arithmetic excludes the receiving extension —
 rationale in the budget doc's Counting method, mirrored in `lib/test/run.sh`'s `#530 budget`
-block. Those figures still move (44,073 and +5,226) because the root itself grew by the loader
+block. Those figures still move (44,082 and +5,226) because the root itself grew by the loader
 call and its scoping prose.
 
 Growth is bounded by design: the two new sections state rules and cite their sources of record
