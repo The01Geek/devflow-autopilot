@@ -3782,6 +3782,55 @@ assert_eq("#629: _referents_relocated tolerates the CRLF channel difference in t
                                          {"hdr": _SRC, "Case 2\r": _SRC}),
               _SRC, [4], ["a", "b", "c", "d", "Case 2"]))
 
+# DEFERRED (issue #629 review, pr-test-analyzer Suggestion 6): no pinning characterization
+# test for disclosed non-goal cases 10 (referent deletion) / 11 (block merge). WHY: neither
+# case has behavior of its own to pin — both are the *already-pinned* multiplicity and
+# referent rules resolving to the demotion, and the design record above declares the outcome
+# accepted. A characterization test would restate those two rules through a longer fixture
+# and would go red on any deliberate re-tuning of them, pinning the accepted residual as if
+# it were a contract. REVISIT WHEN: either case is promoted from disclosed non-goal to a
+# gating requirement, or a rule change makes their outcome differ from the general rules.
+
+# ── #629: _emit_count's three arms under demote=True ──────────────────────────────────────
+# R2/R3/R3b differ only in their per-verdict detail strings and all resolve to this one
+# helper, so driving the helper directly covers every rule that reaches it. Without the
+# VERIFIED and UNRESOLVABLE arms asserted under demote=True, a mutant that let `demote`
+# leak past the STALE arm — rewriting an exempt-but-MATCHING claim's verdict, or prefixing
+# a no-block row — would ship green: only R1 carried an equivalent guard.
+
+
+def _emit_arm(n, c, demote):
+    rows = []
+    stale_prose_lint._emit_count(rows, "R2", "f.md", 7, n, c,
+                                 "U-detail", "S-detail", "V-detail", demote=demote)
+    return (rows[0].verdict, rows[0].detail)
+
+
+assert_eq("#629: _emit_count VERIFIED arm is UNTOUCHED by demote=True (an exempt claim whose "
+          "referent MATCHES stays a plain VERIFIED, unprefixed)",
+          (stale_prose_lint.VERIFIED, "V-detail"), _emit_arm(3, 3, True))
+assert_eq("#629: _emit_count UNRESOLVABLE (no-block) arm is UNTOUCHED by demote=True — it is "
+          "already non-gating and must NOT acquire the relocation prefix",
+          (stale_prose_lint.UNRESOLVABLE, "U-detail"), _emit_arm(3, 0, True))
+assert_eq("#629: _emit_count STALE arm under demote=True becomes non-gating UNRESOLVABLE and "
+          "carries the original diagnostic VERBATIM behind the prefix (deletion-free)",
+          (stale_prose_lint.UNRESOLVABLE, stale_prose_lint.RELOCATED_PREFIX + "S-detail"),
+          _emit_arm(3, 4, True))
+assert_eq("#629: _emit_count STALE arm without demote still GATES as STALE",
+          (stale_prose_lint.STALE, "S-detail"), _emit_arm(3, 4, False))
+
+# ── #629: pre_budget accounting for a removal that TRAILS the additions in a mixed hunk ────
+# The hunk's post-image budget (2) is exhausted by the two `+` lines, but the hunk is still
+# open because the pre-image budget is not — so the trailing `-` must still be tallied. A
+# parser closing the hunk on the post-image budget alone would drop it, silently starving the
+# exemption of the very removal that licenses the move.
+assert_eq("#629: parse_diff_full tallies a removal that TRAILS the additions in a mixed hunk, "
+          "after the post-image budget is already spent",
+          {"gone": 1},
+          dict(stale_prose_lint.parse_diff_full(
+              "diff --git a/s.md b/s.md\n--- a/s.md\n+++ b/s.md\n"
+              "@@ -1,2 +1,3 @@\n ctx\n+one\n+two\n-gone\n")[1]))
+
 # main()'s exit-2 catch-all must cover the WHOLE body. Before the #424 fix the stream
 # reconfigure and the argparse construction sat OUTSIDE the guard, so an exception there
 # escaped and Python exited 1 — and 1 is a contracted helper arm ("at least one STALE row"),

@@ -172,8 +172,10 @@ flags (``count-locked: … pin or drift-proof this claim``):
    adversarially: the removal side of the diff is untrusted PR content, so a removal planted
    solely to license an added claim *does* license it. That is deliberate, and it is bounded —
    the removal side licenses **nothing beyond what these rules already grant**: it cannot
-   suppress an authored referent (the referent rule), cannot license surplus copies (the
-   multiplicity rule), and cannot delete the row (the demotion). Planting the bait costs the
+   license surplus copies (the multiplicity rule), cannot delete the row (the demotion), and
+   on the referent side is narrowed — but *not* eliminated — to a same-source-file collision
+   (the referent rule plus its provenance requirement; see the sub-point below, which
+   corrects an earlier absolute form of this clause). Planting the bait costs the
    attacker a visible removal in the same diff a human reviews, and buys only the downgrade of
    one already-emitted diagnostic from gating to informational.
    **The referent side is subject to the same coincidence — narrowed, not eliminated.** An
@@ -260,6 +262,7 @@ import re
 import subprocess
 import sys
 from collections import Counter
+from types import MappingProxyType
 from typing import NamedTuple
 
 # Operator tokens R4 is restricted to. A backticked token outside this set is an
@@ -600,15 +603,21 @@ def parse_diff(diff_text):
 
 
 def parse_diff_full(diff_text):
-    """Return ``({path: {post_lineno: added_text}}, Counter(removed_text -> n))``.
+    """Return the 3-tuple ``(files, removed, removed_by_file)``, where ``files`` is
+    ``{path: {post_lineno: added_text}}``, ``removed`` is ``Counter(removed_text -> n)``
+    tallied diff-globally, and ``removed_by_file`` is ``{src_path: Counter(removed_text
+    -> n)}`` — the per-source-file provenance map the Referent rule's same-source-file
+    narrowing depends on. Callers wanting only the post-image use :func:`parse_diff`.
 
     Both images are tracked: each ``+`` line is recorded against its post-image line
     number, and each ``-`` line's raw text is tallied into the diff-global removed
-    multiset the move-awareness exemption (issue #629) pairs additions against. The
-    removed tally is **path-independent** by design — a relocation's source and
-    destination are different files — so it is collected even from a hunk whose target
-    is ``/dev/null`` (a wholly deleted source file, the commonest extraction shape:
-    without this, the exemption would never fire on the very move it exists for).
+    multiset the move-awareness exemption (issue #629) pairs additions against, and
+    additionally into that removal's own source path in ``removed_by_file``. The
+    diff-global ``removed`` tally is **path-independent** by design — a relocation's
+    source and destination are different files — so it is collected even from a hunk
+    whose target is ``/dev/null`` (a wholly deleted source file, the commonest
+    extraction shape: without this, the exemption would never fire on the very move it
+    exists for).
 
     A hunk is "open" while **either** image still owes lines, so a pure-deletion hunk
     (``@@ -1,3 +0,0 @@``, whose post-image budget is 0 from the start) is consumed as
@@ -745,8 +754,15 @@ class MoveIndex(NamedTuple):
     file this claim also moved out of" — and the residual is recorded as a disclosed case in
     the design record above."""
 
-    relocated: frozenset
-    sources: dict
+    #: Added line texts whose added occurrences do not outnumber their removed ones.
+    relocated: frozenset[str]
+    #: Removed line text -> the source paths it was removed FROM. :func:`build_move_index`
+    #: is the sanctioned constructor and wraps this in a read-only ``MappingProxyType``, so
+    #: the immutability the tuple advertises holds for every index the helper builds. Direct
+    #: construction is deliberately still permitted (the empty-inert literal in ``grade`` and
+    #: the unit tests both use it) and is NOT gated: the invariants live in the constructor,
+    #: and every consumer here reads through ``.get``/``in`` only.
+    sources: dict[str, frozenset[str]]
 
 
 def build_move_index(files, removed, removed_by_file):
@@ -756,7 +772,7 @@ def build_move_index(files, removed, removed_by_file):
         for text in counter:
             sources.setdefault(text, set()).add(src)
     return MoveIndex(frozenset(relocated_texts(files, removed)),
-                     {t: frozenset(p) for t, p in sources.items()})
+                     MappingProxyType({t: frozenset(p) for t, p in sources.items()}))
 
 
 def relocated_texts(files, removed):
@@ -1023,6 +1039,13 @@ def examine_file(path, added, lines, rows, move=None):
         if not _may_carry_claim(mask, idx):
             continue
         # Multiplicity half of the exemption; each rule adds its own referent half below.
+        # Deliberately asymmetric with the referent rule: the CLAIM side does not additionally
+        # require its own provenance to intersect anything. It has nothing to intersect against
+        # — the claim is the thing being relocated, so there is no second party whose source
+        # file must match. The only shape this asymmetry admits is a diff so malformed that a
+        # removal carries no resolvable source path (header-less hunks), which contributes to
+        # the diff-global `removed` tally but to no `sources` entry; that widens the claim half
+        # only, and the referent half still gates. Failure direction stays toward gating.
         exempt = (text in move.relocated) and not located_by_text
         # The source files this claim itself was removed from — the provenance the referent
         # rule intersects against. Empty when the claim is not a relocation, in which case
