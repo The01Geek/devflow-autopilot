@@ -80,6 +80,154 @@ with no countable referent (the PR #383 "grep errors either way" shape) — is
 deterministically out of reach and stays routed to ``comment-analyzer`` via the
 fix loop's existing Step 3 item 3a machinery. This helper adds NO LLM fallback.
 
+**Move-awareness (issue #629).** An extraction refactor *relocates* prose without authoring
+it, but a relocated line is an **added** line in the unified diff — so every rule above used to
+re-grade it as newly authored and resolve its claims against the *destination* file's context,
+manufacturing a contradiction out of a move. A diff-added prose line that is a **byte-identical
+relocation** is therefore never graded STALE. Two rules bound the exemption, and both fail
+*toward* gating:
+
+* **Multiplicity (multiset semantics).** A line text is exempt only when its **added**
+  occurrences across the whole supplied diff do not outnumber its **removed** occurrences.
+  When additions outnumber removals, every occurrence of that text grades as authored —
+  surplus copies mean authorship, so a copy-amplification shape still gates and the exemption
+  can never degrade to bare set-membership.
+* **Referent.** The exemption holds only when the diff **adds no un-relocated referent**:
+  every **diff-added** line that the claim's own rule resolves as referent content (a
+  ``Case N`` item for R1, an enumeration/assertion item for R2/R3/R3b, and **every** permit
+  line for R4 — not merely the first) must itself be a byte-identical relocation **whose
+  provenance shares a source file with the claim's own**. A referent line the diff did
+  **not** add is pre-existing content and imposes no obligation. So the *split-then-extend*
+  shape — a moved ``Cases 1-2`` header with a diff-added ``Case 3`` beneath it — still gates,
+  because that staleness is authored by the PR. This is what keeps the PR #328 shape
+  detectable. Note the deliberate wording: **"adds no un-relocated referent", not "leaves the
+  referent unchanged"** — a referent *deletion* also changes referent content and is **not**
+  examined (case 10 below).
+  **Provenance is part of this rule, not a refinement of it.** Relocation identity is
+  full-line text equality, and referent lines are the shape most likely to be non-unique
+  boilerplate, so without a provenance requirement a newly authored referent would read as
+  "relocated" whenever any unrelated hunk anywhere in the diff removed a byte-identical line
+  — silently disarming this half of the exemption on the very PR #336 shape it exists to keep
+  gating. Requiring a shared source file (``MoveIndex.sources``) narrows that coincidence from
+  "collides with any removal in the diff" to "collides with a removal in a file this claim
+  also moved out of"; the residual is case 7 below.
+
+Identity is compared on the **raw** line bytes of the diff's two sides — deliberately not
+through ``_norm_line``, whose CR/BOM stripping exists for *scoping*. Both sides of a CRLF
+file's diff carry the same trailing CR, so raw comparison preserves the exemption on a Windows
+consumer repo, where a normalised comparison would be no less correct but a *narrower*
+one — anything short of full-text identity is a relaxation this contract does not grant.
+
+**Demotion, not deletion.** When an exempt line's resolution would have been ``STALE``, the row
+is emitted as ``UNRESOLVABLE`` (the existing non-gating verdict token) with the original
+diagnostic retained behind a relocation-naming prefix. The co-located contradiction stays
+visible in Phase 0.6's informational channel and the fix loop's ``stale_prose_check`` record
+without enforcing — and the exit-code contract, Phase 0.6's row routing, and
+``match-lint-adjudications.py``'s STALE-keyed join all need no change. ``VERIFIED`` resolutions
+are untouched.
+
+**Move-awareness design record — each case explicitly decided** (the accepted-not-accidental
+idiom above; a case recorded as a disclosed non-goal *fails toward gating*, which is the safe
+direction for a lint). Deliberately count-free: the set accretes as review surfaces new
+shapes, and an ordinal here would be an unpinned mirror-fact this file's own recognition tier
+flags (``count-locked: … pin or drift-proof this claim``):
+
+1. **File rename.** *Handled, by the producer, not by this exemption.* On the local-git
+   producers (the ``#434`` self-scan's and the fix loop's ``git diff``) rename detection is on
+   by default, so a whole-file ``git mv`` emits **zero** added lines and no claim is examined —
+   this was already true before #629 and is unchanged. The PR-mode producer (``gh pr diff``) is
+   a server-side GitHub diff that consults no host git config, so its rename pairing is
+   GitHub's decision: when it emits a rename it behaves like the local case, and when it emits
+   delete-plus-add the added lines are byte-identical relocations and this exemption covers
+   them. Note the limitation this whole feature exists for: rename/copy detection is
+   **whole-file-grained**, and unified-diff format cannot express a *line-level* move — so
+   ``-C`` / ``--find-copies-harder`` do not help the block-extraction shape. The gap being
+   closed is line-level move-awareness, never "no rename detection".
+2. **Block split.** *Handled.* One source block relocated into two destinations is grading-wise
+   just N added occurrences against N removed ones; the multiplicity rule admits it at equal
+   counts and refuses it the moment the additions outnumber the removals.
+3. **Partial move.** *Handled, per line.* The exemption is decided per line text, so the moved
+   lines of a partially-moved block are exempt and the newly authored ones are not — and if an
+   authored line is *referent* content for a moved claim, the referent rule denies that claim's
+   exemption too.
+4. **Cross-file resolution.** *Handled.* The multiplicity multiset is diff-**global**, not
+   per-file, because a relocation's whole point is that its source and destination are
+   different files. Referent resolution stays file-scoped, as every rule above already is.
+5. **Copy amplification** (one removal, multiple identical additions). *Handled — gates.* The
+   multiplicity rule's surplus arm grades **every** occurrence of the text as authored, not
+   just the surplus one: a copy is an authorship act, and attributing "the moved one" among
+   identical texts is not decidable from the diff.
+6. **Byte-changing moves** (reindent, heading-level shift, rewrap). *Disclosed non-goal —
+   gates.* Such a line's full text is not a removed line of the same diff, so it grades as
+   authored, exactly as an edited line should. Whitespace-normalised or similarity-based
+   near-matching is deliberately **not** built: every relaxation of full-text identity widens
+   the set of *authored* lines a hostile or careless diff can launder past a gate, and this
+   lint's failure direction must be toward gating. A wave that rewrites the lines it moves
+   keeps its findings; that residual is accepted, not accidental.
+7. **Deletion coincidence** — a genuine deletion in one file plus an independently authored
+   byte-identical claim elsewhere, presenting equal counts. *Accepted — exempted.* At equal
+   counts the rule reads the removal as a move source; it cannot tell a coincidence from a
+   move, and the AC10 demotion is the compensating visibility (the contradiction is still
+   emitted, just non-gating). The **deliberate-manufacture** variant is the same case seen
+   adversarially: the removal side of the diff is untrusted PR content, so a removal planted
+   solely to license an added claim *does* license it. That is deliberate, and it is bounded —
+   the removal side licenses **nothing beyond what these rules already grant**: it cannot
+   license surplus copies (the multiplicity rule), cannot delete the row (the demotion), and
+   on the referent side is narrowed — but *not* eliminated — to a same-source-file collision
+   (the referent rule plus its provenance requirement; see the sub-point below, which
+   corrects an earlier absolute form of this clause). Planting the bait costs the
+   attacker a visible removal in the same diff a human reviews, and buys only the downgrade of
+   one already-emitted diagnostic from gating to informational.
+   **The referent side is subject to the same coincidence — narrowed, not eliminated.** An
+   earlier draft of this record claimed the deletion-coincidence risk "cannot suppress an
+   authored referent (the referent rule)". That was **false**, and review demonstrated it: the
+   referent rule decides relocation by the same text identity, so a newly authored referent
+   colliding with an unrelated removal read as relocated and disarmed the referent half on the
+   very PR #336 count-locked shape it exists to keep gating. The provenance requirement in the
+   Referent rule above is the fix; it narrows the residual to a **same-source-file** collision
+   — a claim moved out of file F plus an authored referent whose full text byte-identically
+   matches some line the same diff also removed from F. That residual is accepted for the same
+   reason as the claim-side case (full-text identity cannot distinguish it from a genuine
+   co-moved referent) and carries the same compensating visibility.
+8. **Data-to-prose promotion** — bytes moved from inside a code fence into examinable prose, so
+   the assertion is new even though the text is not. *Disclosed non-goal — exempted.* Deciding
+   it needs the **pre-image** file state (whether the removed occurrence was itself an
+   examinable prose line rather than data inside a fence), which is not derivable from the
+   supplied diff. Resolving it would mean taking a pre-image ``--rev`` input, and the
+   caller-supplied-diff contract below is the more valuable invariant: it is what makes this
+   helper shallow-clone safe and caller-uniform across all three tiers. The ``#434`` fail-open
+   discipline does not bind here precisely because no new input shape is introduced — the
+   helper still reads exactly the stdin diff and the one ``--rev`` it always did.
+9. **Cross-diff relocation** — a copy-then-delete split across two PRs, or a
+   reverted-then-relanded extraction. *Disclosed non-goal — gates.* The grading diff is
+   additions-only, so the exemption is **inert by design**: with no removed occurrence to pair
+   against, grading falls back to today's behavior. This follows directly from the
+   caller-supplied-diff contract (the helper grades the diff it is handed and derives no other)
+   and is the correct failure direction.
+10. **Referent deletion** — the claim relocates byte-for-byte while the same diff *removes* a
+    line from its resolution region (an ``Expected total`` legend moved into a file whose
+    adjacent enumeration the same diff shrinks). *Disclosed non-goal —
+    exempted.* The referent rule examines diff-**added** referent lines; a deletion changes
+    referent content too, and the PR authored that change, so this is genuine over-suppression.
+    It is not fixed because the operand is not available: the rules resolve referents by
+    *position in the post-diff file*, and a removed line has no post-diff position to resolve
+    against, so "the diff removed a line from THIS claim's resolution region" is not decidable
+    from the supplied diff: a removed line has no post-diff position *within the resolved
+    referent block*, and deciding its pre-move membership of that block needs pre-image block
+    identity — the same operand case 8 lacks and the caller-supplied-diff contract forecloses.
+    (The narrower claim is deliberate: a deletion's post-image insertion point *is* derivable
+    from ``post_ln``; what is not derivable is whether the deleted line belonged to this
+    claim's referent block.) This is why the Referent rule above is worded
+    "adds no un-relocated referent" rather than "leaves the referent unchanged". The demoted row
+    is still emitted, so the contradiction stays visible.
+11. **Block merge** — the inverse of case 2: two source blocks consolidated into one
+    destination. *Disclosed non-goal — exempted.* Every line is a byte-identical relocation and
+    every diff-added referent is itself relocated with shared provenance, so both rules pass —
+    yet a ``Cases 1-2`` header can be newly false because the PR authored the *co-location*.
+    Deciding it needs pre-image block identity (case 8's missing operand again), so a routine
+    consolidation refactor is exempted. Recorded rather than fixed, and reachable without any
+    bait removal or unrelated file.
+
 **Caller-supplied-diff contract (shallow-clone safe).** The helper reads the
 unified diff from **stdin** and resolves post-diff file state via an explicit
 ``--rev`` argument (``git show <rev>:<path>``). It never derives the diff range
@@ -113,6 +261,8 @@ import ast
 import re
 import subprocess
 import sys
+from collections import Counter
+from types import MappingProxyType
 from typing import NamedTuple
 
 # Operator tokens R4 is restricted to. A backticked token outside this set is an
@@ -138,7 +288,7 @@ _LIST_ITEM_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+\S")
 # A leading line-comment marker, stripped from a REFERENT line before it is tested for
 # enumeration-item shape. Load-bearing: the claims these rules resolve live in comment blocks,
 # so their enumerations do too — PR #320's legend bullets are `#   - inline_missing: …`, and
-# `_LIST_ITEM_RE` is anchored, so without this strip `_adjacent_list_count` returns 0 on the
+# `_LIST_ITEM_RE` is anchored, so without this strip `_adjacent_list_idxs` returns empty on the
 # very defect R2 exists to catch (a non-gating UNRESOLVABLE, exit 0 — a silent false negative;
 # only a *bare*-bullet legend, which the historical defect never was, ever resolved).
 # Deliberately only `#` and `//`: `*` is EXCLUDED because it is itself a markdown bullet
@@ -201,6 +351,14 @@ _BACKTICK_RE = re.compile(r"`([^`]+)`")
 VERIFIED = "VERIFIED"
 STALE = "STALE"
 UNRESOLVABLE = "UNRESOLVABLE"
+
+# The detail prefix every issue-#629 demoted row carries. A demotion is DELETION-FREE by
+# contract: the original STALE diagnostic follows this prefix verbatim, so the co-located
+# contradiction stays readable in Phase 0.6's informational channel and the fix loop's
+# `stale_prose_check` record even though it no longer gates.
+RELOCATED_PREFIX = (
+    "relocated byte-identically in this diff (move-aware exemption, issue #629 — "
+    "STALE demoted to non-gating): ")
 
 
 class Row(NamedTuple):
@@ -437,10 +595,35 @@ def _unquote_path(target):
 def parse_diff(diff_text):
     """Return {path: {post_lineno: added_text}} from a unified diff.
 
-    Only the post-image (added / context) line numbering is tracked; each ``+``
-    line is recorded against its post-image line number.
+    The post-image half of :func:`parse_diff_full` — see it for the parsing contract.
+    Kept as the narrow public shape so the #424 test corpus needs no edit; `run()` itself
+    calls `parse_diff_full` directly, so the discarded removed-tally costs production
+    nothing."""
+    return parse_diff_full(diff_text)[0]
 
-    Structure and content are told apart by the hunk's own **post-image budget**
+
+def parse_diff_full(diff_text):
+    """Return the 3-tuple ``(files, removed, removed_by_file)``, where ``files`` is
+    ``{path: {post_lineno: added_text}}``, ``removed`` is ``Counter(removed_text -> n)``
+    tallied diff-globally, and ``removed_by_file`` is ``{src_path: Counter(removed_text
+    -> n)}`` — the per-source-file provenance map the Referent rule's same-source-file
+    narrowing depends on. Callers wanting only the post-image use :func:`parse_diff`.
+
+    Both images are tracked: each ``+`` line is recorded against its post-image line
+    number, and each ``-`` line's raw text is tallied into the diff-global removed
+    multiset the move-awareness exemption (issue #629) pairs additions against, and
+    additionally into that removal's own source path in ``removed_by_file``. The
+    diff-global ``removed`` tally is **path-independent** by design — a relocation's
+    source and destination are different files — so it is collected even from a hunk
+    whose target is ``/dev/null`` (a wholly deleted source file, the commonest
+    extraction shape: without this, the exemption would never fire on the very move it
+    exists for).
+
+    A hunk is "open" while **either** image still owes lines, so a pure-deletion hunk
+    (``@@ -1,3 +0,0 @@``, whose post-image budget is 0 from the start) is consumed as
+    content rather than falling through to the between-hunks arm.
+
+    Structure and content are told apart by the hunk's own **image budgets**
     (``@@ -a,b +c,d @@`` promises exactly ``d`` post-image lines), not by a bare
     prefix test on each line. This is load-bearing twice over. First, a *content*
     line whose own text begins with ``++ `` is emitted in the diff as ``+++ ``: a
@@ -453,10 +636,14 @@ def parse_diff(diff_text):
     A ``-`` line consumes pre-image budget only, so it never advances ``post_ln``.
     """
     files = {}
+    removed = Counter()
+    removed_by_file = {}
     path = None
+    src_path = None
     added = None
     post_ln = 0
-    budget = 0  # post-image lines still owed by the current hunk (0 = between hunks)
+    budget = 0      # post-image lines still owed by the current hunk
+    pre_budget = 0  # pre-image lines still owed (both 0 = between hunks)
     for line in diff_text.split("\n"):
         # A content line always carries a ``+``/``-``/space prefix (or is empty), so an
         # unprefixed ``@@`` or ``diff --git`` at column 0 is structure even mid-hunk: resync
@@ -465,9 +652,24 @@ def parse_diff(diff_text):
         # argument does NOT hold for ``+++ ``/``--- ``: those ARE reachable as content (a
         # ``++ ``-leading added line renders as ``+++ ``), which is why the budget, not a
         # prefix test, decides those.
-        if budget > 0 and (line.startswith("@@") or line.startswith("diff --git ")):
-            budget = 0
-        if budget <= 0:
+        in_hunk = budget > 0 or pre_budget > 0
+        if in_hunk and (line.startswith("@@") or line.startswith("diff --git ")):
+            budget = pre_budget = 0
+            in_hunk = False
+        if not in_hunk:
+            if line.startswith("--- "):
+                # The SOURCE path — the file each following `-` line was removed FROM. Only
+                # reachable as structure here (the budget guard above means a `-- `-leading
+                # removed line, which renders as `--- `, is consumed as content instead), so
+                # this mirrors the `+++ ` handling exactly. Needed for move PROVENANCE: see
+                # `MoveIndex`.
+                src = line[4:].strip()
+                if src == "/dev/null":
+                    src_path = None
+                else:
+                    src = _unquote_path(src)
+                    src_path = src[2:] if src.startswith("a/") else src
+                continue
             if line.startswith("+++ "):
                 target = line[4:].strip()
                 if target == "/dev/null":
@@ -479,32 +681,189 @@ def parse_diff(diff_text):
                 path = target[2:] if target.startswith("b/") else target
                 added = files.setdefault(path, {})
                 continue
+            if line.startswith("diff --git "):
+                # Reset the source path at every file boundary. Without this, a section
+                # carrying no `--- ` header inherits the PREVIOUS file's path and its
+                # removals are attributed there — a false provenance record, which is worse
+                # than a missing one because the referent rule's intersection can be
+                # satisfied by it. An unattributed removal (src_path None) only fails toward
+                # gating; a misattributed one fails open.
+                src_path = None
+                continue
             if line.startswith("@@"):
                 m = re.search(r"\+(\d+)(?:,(\d+))?", line)
                 if m:
                     post_ln = int(m.group(1))
                     # An absent count means a one-line post image ("@@ -1 +1 @@").
                     budget = int(m.group(2)) if m.group(2) is not None else 1
+                    pm = re.search(r"-(\d+)(?:,(\d+))?", line)
+                    pre_budget = (int(pm.group(2)) if pm.group(2) is not None else 1) if pm else 0
                 else:
+                    # The post-image side does not parse, so nothing in this hunk can be
+                    # numbered. Fail CLOSED — zero BOTH budgets so the hunk stays shut,
+                    # rather than letting a parsed pre-image side hold it open and record
+                    # added lines at fabricated numbers from 0 (which would both anchor
+                    # claims on arbitrary lines and, by colliding `added` keys, UNDERCOUNT
+                    # occurrences and bias multiplicity toward granting the exemption).
                     post_ln = 0
                     budget = 0
+                    pre_budget = 0
+                    sys.stderr.write(
+                        "stale-prose-lint.py: unparseable post-image hunk header, hunk "
+                        f"skipped: {' '.join(line.split())[:80]}\n")
                 continue
-            continue  # "--- ", "diff ", "index ", and any other between-hunk noise
-        if path is None or added is None:
-            budget = 0
-            continue
+            continue  # "diff ", "index ", and any other between-hunk noise
         if line.startswith("+"):
-            added[post_ln] = line[1:]
+            # `added` is None only for a /dev/null target — a wholly deleted file, which
+            # contributes no post-image content but whose budget must still be spent.
+            if added is not None:
+                added[post_ln] = line[1:]
             post_ln += 1
             budget -= 1
         elif line.startswith("-"):
-            continue  # pre-image only — spends no post-image budget
+            removed[line[1:]] += 1  # raw bytes — identity, not the scoping normalisation
+            if src_path is not None:
+                removed_by_file.setdefault(src_path, Counter())[line[1:]] += 1
+            pre_budget -= 1
         elif line.startswith("\\"):  # "\ No newline at end of file" — not a line of either image
             continue
         else:  # context line (leading space, or an empty line)
             post_ln += 1
             budget -= 1
-    return files
+            pre_budget -= 1
+    return files, removed, removed_by_file
+
+
+class MoveIndex(NamedTuple):
+    """The diff-global move bookkeeping the issue-#629 exemption reads.
+
+    ``relocated`` is the multiplicity verdict — the set of added line texts whose added
+    occurrences do not outnumber their removed ones. ``sources`` maps each removed text to
+    the set of source paths it was removed FROM, which is the **provenance** operand: it is
+    what lets the referent rule require a referent to have come from a file that also gave
+    up the claim, rather than from anywhere at all in the diff.
+
+    Why provenance is needed (issue #629 review). Relocation identity is full-line text
+    equality, and referent lines are exactly the shape most likely to be non-unique
+    boilerplate — an assertion line, a bullet, a ``Case N`` row. Without provenance, a
+    **newly authored** referent is read as "relocated" whenever *any* unrelated hunk anywhere
+    in the diff happens to remove a byte-identical line, which silently disarms the referent
+    half of the exemption on the very shape (the PR #336 count-locked defect) it exists to
+    keep gating. Requiring a shared source file does not make coincidence impossible, but it
+    narrows it from "collides with any removal in the diff" to "collides with a removal in a
+    file this claim also moved out of" — and the residual is recorded as a disclosed case in
+    the design record above."""
+
+    #: Added line texts whose added occurrences do not outnumber their removed ones.
+    relocated: frozenset[str]
+    #: Removed line text -> the source paths it was removed FROM. :func:`build_move_index`
+    #: is the sanctioned constructor and wraps this in a read-only ``MappingProxyType``, so
+    #: the immutability the tuple advertises holds for every index the helper builds. Direct
+    #: construction is deliberately still permitted (the empty-inert literal in ``grade`` and
+    #: the unit tests both use it) and is NOT gated: the invariants live in the constructor,
+    #: and every consumer here reads through ``.get``/``in`` only.
+    sources: dict[str, frozenset[str]]
+
+
+def build_move_index(files, removed, removed_by_file):
+    """Assemble the :class:`MoveIndex` for one supplied diff."""
+    sources = {}
+    for src, counter in removed_by_file.items():
+        for text in counter:
+            sources.setdefault(text, set()).add(src)
+    return MoveIndex(frozenset(relocated_texts(files, removed)),
+                     MappingProxyType({t: frozenset(p) for t, p in sources.items()}))
+
+
+def relocated_texts(files, removed):
+    """The set of added line texts exempt as byte-identical relocations (issue #629).
+
+    The multiplicity rule in one expression: a text is exempt only when its diff-global
+    added occurrences do not outnumber its removed ones. ``n >= 1`` always holds for a
+    key of the added tally, so an absent removal (0) can never satisfy the comparison —
+    an additions-only diff (the cross-diff-relocation non-goal) yields an empty set and
+    the exemption is inert, exactly as designed."""
+    added_counts = Counter()
+    for added in files.values():
+        for text in added.values():
+            added_counts[text] += 1
+    return {text for text, n in added_counts.items() if removed.get(text, 0) >= n}
+
+
+def _referents_relocated(added, move, claim_sources, idxs, lines=None):
+    """True when the referent rule permits the exemption for a claim (issue #629).
+
+    ``idxs`` are the 0-based indices of the post-diff lines this claim's rule resolved as
+    its referent content. A referent line the diff did **not** add is pre-existing content
+    — unchanged by this diff — and imposes no obligation; a diff-added one must itself be a
+    byte-identical relocation, or the claim's staleness was authored by this PR.
+
+    **The absent operand fails CLOSED (issue #629 review).** ``idxs`` index the post-diff
+    *file* (``lines``) while ``added`` is keyed by post-image *diff* line numbers, so a
+    lookup miss has two very different causes that must not be conflated: the referent is
+    genuinely pre-existing (no obligation — the innocent case), or the two numberings do not
+    correspond and the join is meaningless (``parse_diff_full``'s own docstring notes an
+    off-by-one degrades silently). Reading the second as the first is the CLAUDE.md
+    unverified-assumption class — a guard whose comparand can be absent failing open exactly
+    where it claims to fail closed — so when ``lines`` is supplied the "pre-existing" arm is
+    taken only after **confirming the join corresponds**: the diff must record no added text
+    at that post-image number AND the file's own line there must be readable. Any
+    inconsistency denies the exemption (returns False), which fails toward gating.
+
+    **Correspondence is compared through ``_norm_line``, identity is not.** The two operands
+    reach us through channels that disagree about line endings: the diff arrives as raw bytes
+    (``sys.stdin.buffer`` + an explicit decode, so a CRLF file's ``+`` lines keep their
+    ``\\r``), while ``lines`` comes from ``_run_git``, whose ``encoding=`` argument enables
+    Python's universal-newline translation and silently rewrites ``\\r\\n`` to ``\\n``. A raw
+    comparison across that boundary therefore fails on **every** line of a CRLF file and would
+    deny the exemption wholesale on Windows consumer repos. Correspondence asks "is this the
+    same line?", so it is the right place to absorb that known representational difference;
+    relocation *identity* (``text not in relocated``) stays raw, because there both operands
+    come from the same channel — the diff's own two sides — and full-byte identity is the
+    contract."""
+    for idx in idxs:
+        text = added.get(idx + 1)
+        if text is not None:
+            if text not in move.relocated:
+                return False
+            # PROVENANCE: the referent must have been removed from a file that also gave up
+            # the claim. Text identity alone cannot tell a genuine co-moved referent from a
+            # newly authored one that happens to match an unrelated removal elsewhere in the
+            # diff; a shared source narrows that coincidence to the same-file case.
+            if not (move.sources.get(text, frozenset()) & claim_sources):
+                return False
+            # A corresponding join is one where the diff's recorded added text IS the file's
+            # line at that index. A mismatch means the numbering is skewed, so this "relocated"
+            # verdict was read off the wrong line — deny rather than trust it.
+            if lines is not None and (idx >= len(lines)
+                                      or _norm_line(lines[idx]) != _norm_line(text)):
+                return False
+            continue
+        # No added text at this post-image number: the innocent reading is "pre-existing
+        # content". Confirm the index is at least addressable in the post-diff file; an
+        # out-of-range referent index means the operands do not correspond at all.
+        if lines is not None and not (0 <= idx < len(lines)):
+            return False
+    return True
+
+
+def _demote_ok(exempt, added, move, claim_sources, idxs, lines=None):
+    """The issue-#629 demotion predicate — the SOLE owner of "may this STALE be demoted?".
+
+    Both halves of the contract in one place: ``exempt`` is the multiplicity half (this
+    line's text is a byte-identical relocation), ``_referents_relocated`` is the referent
+    half. Every rule site routes its decision through here rather than restating the
+    conjunction, so tightening or relaxing the contract is a one-site edit instead of a
+    coupled edit at every site. Deliberately a pure predicate that appends no ``Row``: the
+    STALE-emitting call sites keep their literal rule ids, which is what the ``#466``
+    mla-rule-drift AST guard requires (it tolerates exactly one emit indirection,
+    ``_emit_count``, and a new emit helper would violate it).
+
+    ``lines`` is the post-diff file, forwarded so the referent half can verify its own join
+    corresponds rather than reading an absent operand as innocence. A caller that cannot
+    supply a trustworthy line correspondence passes ``exempt=False`` instead (see
+    ``examine_file``'s ``_locate`` fallback), which denies the demotion outright."""
+    return exempt and _referents_relocated(added, move, claim_sources, idxs, lines)
 
 
 def post_file_lines(rev, path):
@@ -526,49 +885,57 @@ def post_file_lines(rev, path):
     return out.split("\n")
 
 
-def _forward_maxcase(lines, start_idx):
-    """Max ``Case N`` integer strictly after line index ``start_idx`` (0-based)."""
+def _forward_cases(lines, start_idx):
+    """``(max Case N, [indices of the lines carrying a Case item])`` strictly after
+    ``start_idx`` (0-based). The indices are R1's referent content for the issue-#629
+    referent rule; the max is its verdict operand. Both come from one scan so the
+    verdict and the exemption can never be computed over different line sets."""
     best = None
-    for line in lines[start_idx + 1:]:
+    idxs = []
+    for offset, line in enumerate(lines[start_idx + 1:]):
+        found = False
         for m in _CASE_ITEM_RE.finditer(line):
             n = int(m.group(1))
             best = n if best is None else max(best, n)
-    return best
+            found = True
+        if found:
+            idxs.append(start_idx + 1 + offset)
+    return best, idxs
 
 
-def _adjacent_list_count(lines, claim_idx):
-    """Count contiguous enumeration items directly above (preferred) or below the
-    claim line, tolerating blank separators. Returns 0 when no adjacent block."""
-    def count_dir(step):
+def _adjacent_list_idxs(lines, claim_idx):
+    """Indices of the contiguous enumeration items directly above (preferred) or below
+    the claim line, tolerating blank separators. Empty when there is no adjacent block."""
+    def scan_dir(step):
         i = claim_idx + step
         # Skip blank separators — including a bare `#` / `//` line inside a comment block,
         # which is that block's blank line and must not terminate the enumeration.
         while 0 <= i < len(lines) and _uncomment(lines[i]).strip() == "":
             i += step
-        c = 0
+        out = []
         while 0 <= i < len(lines) and _LIST_ITEM_RE.match(_uncomment(lines[i])):
-            c += 1
+            out.append(i)
             i += step
-        return c
+        return out
 
-    above = count_dir(-1)
+    above = scan_dir(-1)
     if above:
         return above
-    return count_dir(1)
+    return scan_dir(1)
 
 
-def _adjacent_assert_count(lines, claim_idx):
-    """Count contiguous assertion lines below the claim, tolerating blanks. An
+def _adjacent_assert_idxs(lines, claim_idx):
+    """Indices of the contiguous assertion lines below the claim, tolerating blanks. An
     assertion line contains ``assert`` or is an enumeration item."""
     i = claim_idx + 1
     while i < len(lines) and _uncomment(lines[i]).strip() == "":
         i += 1
-    c = 0
+    out = []
     while i < len(lines) and (_ASSERT_LINE_RE.search(lines[i])
                               or _LIST_ITEM_RE.match(_uncomment(lines[i]))):
-        c += 1
+        out.append(i)
         i += 1
-    return c
+    return out
 
 
 def _mods_ok(mods):
@@ -602,51 +969,105 @@ def _excerpt(text):
     return " ".join(text.split())[:120]
 
 
-def _emit_count(rows, rule, path, post_ln, n, c, unresolvable, stale, verified):
+def _emit_count(rows, rule, path, post_ln, n, c, unresolvable, stale, verified, demote=False):
     """Append the shared count-claim verdict for a claimed count ``n`` vs an actual
     adjacent-block count ``c``: 0 → UNRESOLVABLE (no block), ``c != n`` → STALE, else
     VERIFIED. R2/R3/R3b all resolve to this same three-arm shape, differing only in
-    their per-verdict detail strings."""
+    their per-verdict detail strings.
+
+    ``demote`` (issue #629) turns only the STALE arm into a non-gating UNRESOLVABLE row
+    carrying the same diagnostic behind the relocation prefix — the caller decides it by
+    the multiplicity + referent rules. The UNRESOLVABLE and VERIFIED arms are untouched:
+    an exempt line whose referent MATCHES is still a plain VERIFIED, not a demotion."""
     if c == 0:
         rows.append(Row(UNRESOLVABLE, rule, path, post_ln, unresolvable))
     elif c != n:
-        rows.append(Row(STALE, rule, path, post_ln, stale))
+        if demote:
+            rows.append(Row(UNRESOLVABLE, rule, path, post_ln, RELOCATED_PREFIX + stale))
+        else:
+            rows.append(Row(STALE, rule, path, post_ln, stale))
     else:
         rows.append(Row(VERIFIED, rule, path, post_ln, verified))
 
 
-def examine_file(path, added, lines, rows):
+def examine_file(path, added, lines, rows, move=None):
     """Append ``Row(verdict, rule, path, line, detail)`` rows to ``rows`` for ``path``.
 
     ``added`` maps post-image line numbers to added text; ``lines`` is the whole
     post-diff file (0-indexed list). A claim is examined only when it sits on an
     added line **that may carry a claim** — a comment or prose line, per ``prose_mask``.
     A code line that merely contains claim-shaped text is data, not an assertion.
+
+    ``move`` (issue #629) is the :class:`MoveIndex` carrying BOTH halves of the exemption's
+    bookkeeping — ``relocated`` (the multiplicity verdict) and ``sources`` (the per-text
+    provenance the referent rule intersects against). It only ever DEMOTES a STALE row to a
+    non-gating UNRESOLVABLE — it never suppresses a row, changes a VERIFIED, or
+    short-circuits the #434 scoping mask above it, so move-awareness is layered over scoping
+    rather than bypassing it. It defaults to ``None``, normalised below to an empty
+    ``MoveIndex``, which is exactly today's grading (every caller-supplied additions-only
+    diff, and any caller that does not compute the index).
     """
+    if move is None:
+        move = MoveIndex(frozenset(), {})
     mask = prose_mask(path, lines)
     for post_ln in sorted(added):
         text = added[post_ln]
         idx = post_ln - 1  # 0-based index into `lines`
-        if idx < 0 or idx >= len(lines):
-            # The added line's post-image number does not resolve in the post-diff
-            # file (deleted/renamed race) — resolve referents defensively by text.
+        # `located_by_text` records that post-image numbering did NOT resolve for this claim.
+        # It is load-bearing for the exemption, not merely for the referent lookup: on this
+        # path `idx` comes from a text search, so the `added` map's post-image keys bear no
+        # defined relationship to the file indices the rules derive their referents from. A
+        # demotion decided off that join would be read from the wrong lines, so the whole
+        # exemption is denied here — failing toward gating (issue #629 review).
+        located_by_text = False
+        if (idx < 0 or idx >= len(lines)
+                or _norm_line(lines[idx]) != _norm_line(text)):
+            # The added line's post-image number does not resolve to THIS line in the
+            # post-diff file — either out of range (deleted/renamed race) or in range but
+            # naming different content (a skewed post-image join, which a range test alone
+            # cannot see). Resolve referents defensively by text. A range test is not a
+            # correspondence test: without the content compare, a skewed-but-in-range join
+            # anchored the claim on the wrong line, collected referents from the wrong
+            # region, and — because those referents are then legitimately absent from
+            # `added` — took the "pre-existing, no obligation" arm and DEMOTED a real STALE.
+            # That is the primary path for this feature (the reported defect has no
+            # diff-added referents at all), so the check has to live here on the anchor.
             idx = _locate(lines, text)
             if idx is None:
                 continue
+            located_by_text = True
         if not _may_carry_claim(mask, idx):
             continue
+        # Multiplicity half of the exemption; each rule adds its own referent half below.
+        # Deliberately asymmetric with the referent rule: the CLAIM side does not additionally
+        # require its own provenance to intersect anything. It has nothing to intersect against
+        # — the claim is the thing being relocated, so there is no second party whose source
+        # file must match. The only shape this asymmetry admits is a diff so malformed that a
+        # removal carries no resolvable source path (header-less hunks), which contributes to
+        # the diff-global `removed` tally but to no `sources` entry; that widens the claim half
+        # only, and the referent half still gates. Failure direction stays toward gating.
+        exempt = (text in move.relocated) and not located_by_text
+        # The source files this claim itself was removed from — the provenance the referent
+        # rule intersects against. Empty when the claim is not a relocation, in which case
+        # `exempt` is already False and the intersection is never consulted.
+        claim_sources = move.sources.get(text, frozenset())
 
         # R1 — range outgrowth
         rm = _RANGE_RE.search(text)
         if rm:
             a, b = int(rm.group(1)), int(rm.group(2))
-            maxn = _forward_maxcase(lines, idx)
+            maxn, case_idxs = _forward_cases(lines, idx)
             if maxn is None:
                 rows.append(Row(UNRESOLVABLE, "R1", path, post_ln,
                                 f"range Cases {a}-{b}: no forward Case items found — {_excerpt(text)}"))
             elif maxn > b:
-                rows.append(Row(STALE, "R1", path, post_ln,
-                                f"range claims Cases {a}-{b} but forward region reaches Case {maxn} — {_excerpt(text)}"))
+                r1_stale = (f"range claims Cases {a}-{b} but forward region reaches "
+                            f"Case {maxn} — {_excerpt(text)}")
+                if _demote_ok(exempt, added, move, claim_sources, case_idxs, lines):
+                    rows.append(Row(UNRESOLVABLE, "R1", path, post_ln,
+                                    RELOCATED_PREFIX + r1_stale))
+                else:
+                    rows.append(Row(STALE, "R1", path, post_ln, r1_stale))
             else:
                 rows.append(Row(VERIFIED, "R1", path, post_ln,
                                 f"range Cases {a}-{b} covers forward max Case {maxn} — {_excerpt(text)}"))
@@ -656,31 +1077,37 @@ def examine_file(path, added, lines, rows):
         tm = _TOTAL_RE.search(text)
         if tm:
             n = int(tm.group(1))
-            c = _adjacent_list_count(lines, idx)
+            item_idxs = _adjacent_list_idxs(lines, idx)
+            c = len(item_idxs)
             _emit_count(rows, "R2", path, post_ln, n, c,
                         f"Expected total = {n}: no adjacent enumeration block — {_excerpt(text)}",
                         f"Expected total = {n} but adjacent enumeration has {c} items — {_excerpt(text)}",
-                        f"Expected total = {n} matches {c} enumerated items — {_excerpt(text)}")
+                        f"Expected total = {n} matches {c} enumerated items — {_excerpt(text)}",
+                        demote=_demote_ok(exempt, added, move, claim_sources, item_idxs, lines))
             continue
 
         # R3b — two-item "a X and a Y … both" count-locked claim (asserts 2)
         if _BOTH_RE.search(text) and _TWO_ITEM_RE.search(text):
-            c = _adjacent_assert_count(lines, idx)
+            assert_idxs = _adjacent_assert_idxs(lines, idx)
+            c = len(assert_idxs)
             _emit_count(rows, "R3", path, post_ln, 2, c,
                         f"count-locked: two-item claim but no adjacent assertion block — {_excerpt(text)}",
                         f"count-locked: claim asserts both (2) but adjacent block has {c} assertions — {_excerpt(text)}",
-                        f"count-locked: two-item claim matches {c} assertions — {_excerpt(text)}")
+                        f"count-locked: two-item claim matches {c} assertions — {_excerpt(text)}",
+                        demote=_demote_ok(exempt, added, move, claim_sources, assert_idxs, lines))
             continue
 
         # R3 — exact numeric count claim ("N assertions") count-locked
         cm = _COUNT_RE.search(text)
         if cm:
             n = int(cm.group(1))
-            c = _adjacent_assert_count(lines, idx)
+            assert_idxs = _adjacent_assert_idxs(lines, idx)
+            c = len(assert_idxs)
             _emit_count(rows, "R3", path, post_ln, n, c,
                         f"count-locked: '{n} {cm.group(2)}' claim but no adjacent assertion block — {_excerpt(text)}",
                         f"count-locked: claims {n} {cm.group(2)} but adjacent block has {c} — {_excerpt(text)}",
-                        f"count-locked: {n} {cm.group(2)} matches adjacent block — {_excerpt(text)}")
+                        f"count-locked: {n} {cm.group(2)} matches adjacent block — {_excerpt(text)}",
+                        demote=_demote_ok(exempt, added, move, claim_sources, assert_idxs, lines))
             continue
 
         # R4 — operator-token modality conflict
@@ -691,9 +1118,18 @@ def examine_file(path, added, lines, rows):
                     op = m.group(1)
                     break
             if op is not None:
-                if _permitted_elsewhere(lines, idx, op, mask):
-                    rows.append(Row(STALE, "R4", path, post_ln,
-                                    f"deny-absolute forbids `{op}` but the same file asserts it permitted — {_excerpt(text)}"))
+                permit_idxs = _permits_elsewhere(lines, idx, op, mask)
+                if permit_idxs:
+                    r4_stale = (f"deny-absolute forbids `{op}` but the same file asserts it "
+                                f"permitted — {_excerpt(text)}")
+                    # R4's referent is EVERY permit line that contradicts the claim — not just
+                    # the first. A single-index referent set let a PR-authored permit below a
+                    # pre-existing one escape the referent rule entirely (issue #629 review).
+                    if _demote_ok(exempt, added, move, claim_sources, permit_idxs, lines):
+                        rows.append(Row(UNRESOLVABLE, "R4", path, post_ln,
+                                        RELOCATED_PREFIX + r4_stale))
+                    else:
+                        rows.append(Row(STALE, "R4", path, post_ln, r4_stale))
                 else:
                     rows.append(Row(VERIFIED, "R4", path, post_ln,
                                     f"deny-absolute on `{op}`: no contradicting permit found — {_excerpt(text)}"))
@@ -717,8 +1153,19 @@ def examine_file(path, added, lines, rows):
             continue
 
 
-def _permitted_elsewhere(lines, claim_idx, op, mask=None):
-    """True when a COMMENT/PROSE line other than the claim asserts operator ``op`` is permitted.
+def _permits_elsewhere(lines, claim_idx, op, mask=None):
+    """**Every** index of a COMMENT/PROSE line (other than the claim) asserting operator ``op``
+    is permitted — the complete list, empty when there is none.
+
+    Completeness is load-bearing, not incidental: this list is R4's referent content for the
+    issue-#629 referent rule, and a truncated list is a **fail-open**. Returning only the
+    *first* permit (the shape this replaced) meant a pre-existing permit short-circuited the
+    scan, so a second, PR-**authored** permit below it was never examined — the referent rule
+    saw no diff-added referent, imposed no obligation, and demoted a contradiction the PR
+    itself authored. R1/R2/R3 all collect their full referent index set for exactly this
+    reason (see ``_forward_cases``, which returns the verdict operand and the index list from
+    one scan "so the verdict and the exemption can never be computed over different line
+    sets"); R4 is held to the same rule.
 
     The permit referent is scoped by the same predicate as the claim (issue #434). A code line
     is not an assertion about the file, so it cannot contradict one: before this, a shell
@@ -726,6 +1173,7 @@ def _permitted_elsewhere(lines, claim_idx, op, mask=None):
     "permit" and flipped a genuine comment deny-absolute to STALE. That is an independent
     false-positive source from the claim side, and scoping only the claim would leave it
     minting fresh false positives forever."""
+    idxs = []
     for i, line in enumerate(lines):
         if i == claim_idx:
             continue
@@ -735,8 +1183,9 @@ def _permitted_elsewhere(lines, claim_idx, op, mask=None):
             continue
         for m in _BACKTICK_RE.finditer(line):
             if m.group(1) == op:
-                return True
-    return False
+                idxs.append(i)
+                break
+    return idxs
 
 
 def _locate(lines, text):
@@ -756,7 +1205,11 @@ def run(rev, diff_text):
     if rc != 0:
         raise InternalError(f"--rev '{rev}' does not resolve to a commit")
 
-    files = parse_diff(diff_text)
+    # The removed-line multiset is diff-GLOBAL and computed once, before the per-file walk:
+    # a relocation's source and destination are different files, so a per-file tally could
+    # never pair them (issue #629).
+    files, removed, removed_by_file = parse_diff_full(diff_text)
+    move = build_move_index(files, removed, removed_by_file)
     rows = []
     for path in sorted(files):
         added = files[path]
@@ -768,7 +1221,7 @@ def run(rev, diff_text):
                 rows.append(Row(UNRESOLVABLE, "-", path, post_ln,
                                 f"post-diff file not resolvable at rev — {_excerpt(added[post_ln])}"))
             continue
-        examine_file(path, added, lines, rows)
+        examine_file(path, added, lines, rows, move)
 
     # The fail-open arm must be DISCOVERABLE, not silent: a consumer whose language is not in
     # the scoping tables keeps today's examine-every-line behavior (no coverage is lost), but
