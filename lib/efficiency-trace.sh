@@ -559,15 +559,28 @@ synthesize_iter_workpads() {
     # single-sources the shared framing so the three stamps cannot drift apart; each
     # call supplies only what it specifically could not establish. See the
     # ITER_SYNTH_EXPECTED_FIELDS comment for why --self-check enforces their presence.
+    #
+    # `reference_reads` is stamped INSIDE its `fix_delta` member, not at the top level:
+    # the field is a registry keyed by the producing reference (fixing.md item 7), so a
+    # top-level stamp would leave the documented `.reference_reads.fix_delta` read
+    # returning null — indistinguishable from the legitimate "Step 3.5 did not run"
+    # absence, collapsing the very distinction this provenance exists to preserve.
+    #
+    # The reason says "no iteration record was FOUND for this run", never "was never
+    # persisted": this floor establishes only that the run dir held no iter-*.json. A
+    # record can exist yet be unreachable here — the telemetry blob listing degrades to a
+    # no-op stub when its lib is unsourceable, and an unreadable sibling workpad is
+    # skipped without its sha being excluded — so the stronger claim would assert a state
+    # the code never observed (the all-output-channels honesty rule).
     if jq_err="$("$DEVFLOW_JQ" -n --argjson iter "$n" --arg sha "$sha" --arg files "$files" --arg files_ok "$files_ok" \
          'def unrec($what): {status: "unrecoverable",
-            reason: ("fix-commit-only synthesis: the iteration record was never persisted, and a fix commit carries no trace of " + $what)};
+            reason: ("fix-commit-only synthesis: no iteration record was found for this run, and a fix commit carries no trace of " + $what)};
           {iter: $iter, fix_commit_sha: $sha,
            fix_files: (if $files_ok == "1" then ($files | split("\n") | map(select(length > 0))) else null end),
            loop_role: "fix", synthesized: true,
            sweep_defs_read: unrec("which sweep definitions were read"),
            sweep_evidence: unrec("the sweep outcomes"),
-           reference_reads: unrec("whether the Step 3.5 fix-delta gate ran")}' 2>&1 > "$dir/iter-$n.json")"; then
+           reference_reads: {fix_delta: unrec("whether the Step 3.5 fix-delta gate ran")}}' 2>&1 > "$dir/iter-$n.json")"; then
       wrote=$((wrote + 1))
     else
       echo "::warning::efficiency-trace.sh --persist: failed to write synthesized iter-${n}.json for ${sha} (${jq_err:-no error text}); skipping" >&2
@@ -866,7 +879,7 @@ persist_one() {
         echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json and the fix-commit search could not run (an uncreatable target dir, an unresolvable base ref, a base ref left unestablished by a failed origin refresh, or a failed git log enumeration — the warning above names which) — whether matching fix commits exist was never established; telemetry not synthesized" >&2
         return 0 ;;
       4)
-        echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json; matching fix commits were selected but every synthesized record write failed (see the per-commit warnings above — disk/permissions, or on the cloud tier the sandbox's redirect-write denial into .devflow/tmp) — telemetry not synthesized" >&2
+        echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json; matching fix commits were selected but every synthesized record write failed (see the per-commit warnings above, which carry the actual jq error text — disk/permissions, a malformed jq program, or on the cloud tier the sandbox's redirect-write denial into .devflow/tmp) — telemetry not synthesized" >&2
         return 0 ;;
       2)
         echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json and no unrecorded 'fix: address review findings (iteration N)' commits were found — per-iteration effectiveness telemetry was not captured this run; nothing to synthesize" >&2

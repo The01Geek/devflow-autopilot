@@ -5,15 +5,15 @@ kind: growth
 
 ## Files
 
-- `skills/review-and-fix/SKILL.md` (+439 bytes) — the root `### Schema` block gains the
+- `skills/review-and-fix/SKILL.md` (+172 bytes) — the root `### Schema` block gains the
   `sweep_defs_read` and `sweep_evidence` unconditional fields and the `reference_reads`
   conditional field; the `fix-delta-gate.md` failure-map row's stale "the formal
   `reference_reads.fix_delta` field is the #541 follow-up" parenthetical is rewritten to
   state what now ships.
-- `skills/review-and-fix/references/fixing.md` (+1149 bytes) — item 7's "Conditional
+- `skills/review-and-fix/references/fixing.md` (+1361 bytes) — item 7's "Conditional
   gate/sweep fields" paragraph gains the authoritative `reference_reads` specification
-  (conditional contract, shape, the `status`/`outcome`/`reason` semantics with both
-  `not_verified` arms named, and the APPROVE-family prohibition).
+  (conditional contract, registry keying, shape, the `status`/`outcome`/`reason` semantics
+  with both `not_verified` arms named, and the APPROVE-family prohibition).
 - `skills/review-and-fix/references/fix-delta-gate.md` (+955 bytes) — the Step 3.5 gate
   gains its durable-record producer obligation: persist the gate outcome into
   `reference_reads.fix_delta`, covering the clean / refixed / promoted / both-failure-arm

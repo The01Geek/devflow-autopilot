@@ -9928,25 +9928,35 @@ assert_pin_red_under "#478 AC2 record shape: item 7 persists sweep evidence incl
   '`sweep_evidence` (the item 3b sweep outcomes, including any `sweeps: unrunnable` degradation record)' \
   's/`sweep_evidence` \(the item 3b sweep outcomes, including any `sweeps: unrunnable` degradation record\)//'
 
-# #541 — the reference_reads evidence field. Three behavioral-fix pins, each on the
-# operative sentence whose removal ALONE re-introduces a named defect.
-# (a) Without the APPROVE-family prohibition, an unverifiable fix-delta gate could ship a
-#     clean approve — the exact behavioral outcome #530 delivered and #541 formalizes.
+# #541 — the reference_reads evidence field.
+# ONE behavioral-fix pin, plus two presence pins. The distinction is deliberate and was
+# corrected after review: `assert_pin_red_under` only earns its name when the mutation is
+# NOT simply "delete the pinned literal" — a mutation identical to the pin is self-
+# fulfilling (before present, after absent) and reports PASS for a framing clause exactly
+# as it would for an operative one, which is the discrimination the helper exists to
+# provide. So (a) below mutates the sentence's OPERATIVE VERB rather than deleting it,
+# and (b)/(c) are demoted to honest presence pins because their surrounding sentences
+# already carry the contract independently: deleting the pinned clause alone does not
+# re-introduce the named defect, which by this repo's rule makes them framing, not
+# operative. Claiming otherwise would be the framing-only-pin defect (PRs #62/#173).
+#
+# (a) OPERATIVE: invert the prohibition and an unverifiable fix-delta gate ships a clean
+#     approve — the behavioral outcome #530 delivered and #541 formalizes. The mutation
+#     flips `prohibits` to `permits`, so the pin's own literal goes absent by a change
+#     that genuinely re-introduces the bug rather than by deleting the evidence of it.
 assert_pin_red_under "#541 reference_reads: a not_verified fix_delta prohibits a clean APPROVE-family verdict" \
   'A `not_verified` fix_delta prohibits a clean APPROVE-family verdict for the run.' \
-  's/A `not_verified` fix_delta prohibits a clean APPROVE-family verdict for the run\.//'
-# (b) Without the conditional contract, a reader treats an absent reference_reads as a
-#     defect — and a consumer added on that reading would fail closed on every iteration
-#     where Step 3.5 legitimately did not run.
-assert_pin_red_under "#541 reference_reads: the field is conditional — absence on a no-gate iteration is not a defect" \
-  'its absence is not a defect' \
-  's/its absence is not a defect//'
-# (c) Without the distinctness requirement, both failure arms could write one shared
-#     reason string, laundering a structurally-broken gate into a breadcrumb that reads
-#     identically to a transient subagent hiccup — the defect fix-delta-gate.md already names.
-assert_pin_red_under "#541 reference_reads: the two not_verified arms keep DISTINCT breadcrumbs in reason" \
-  'must preserve that distinction rather than collapsing both onto one string' \
-  's/must preserve that distinction rather than collapsing both onto one string//'
+  's/A `not_verified` fix_delta prohibits a clean APPROVE-family verdict/A `not_verified` fix_delta permits a clean APPROVE-family verdict/'
+# (b) PRESENCE: the conditional contract. The same sentence separately states the field
+#     "is absent on an iteration where that gate did not run", so this clause reinforces
+#     rather than solely carries the rule — a presence pin is the honest instrument.
+assert_pin_unique "#541 reference_reads: the field is conditional — absence on a no-gate iteration is not a defect" \
+  'its absence is not a defect' "$MAXI_SKILL"
+# (c) PRESENCE: the distinct-breadcrumb requirement. Its sentence opens by stating the two
+#     arms "keep their **distinct** breadcrumbs in `reason`", so this clause likewise
+#     reinforces an already-stated rule.
+assert_pin_unique "#541 reference_reads: the two not_verified arms keep DISTINCT breadcrumbs in reason" \
+  'must preserve that distinction rather than collapsing both onto one string' "$MAXI_SKILL"
 
 # AC4 — the drift-guarded fix-loop mapping table. Pin the drift-guard operative sentence.
 assert_pin_red_under "#478 AC4 mapping-table: the lint goes RED when a marker appears in a sweep body the table has no row for" \
@@ -21000,7 +21010,7 @@ assert_eq "et-synth(T5): self-check warning no longer says 'there is nothing to 
 # The synthesized-class self-check exemption: a synthesized iter emits NO
 # missing-field warnings (it legitimately lacks most ITER_EXPECTED_FIELDS).
 mkdir -p "$ETSC2_REPO/.devflow/tmp/review/pr-4/run-synth"
-printf '{"iter":1,"fix_commit_sha":"abc","fix_files":["f"],"loop_role":"fix","synthesized":true,"sweep_defs_read":{"status":"unrecoverable","reason":"r"},"sweep_evidence":{"status":"unrecoverable","reason":"r"},"reference_reads":{"status":"unrecoverable","reason":"r"}}' \
+printf '{"iter":1,"fix_commit_sha":"abc","fix_files":["f"],"loop_role":"fix","synthesized":true,"sweep_defs_read":{"status":"unrecoverable","reason":"r"},"sweep_evidence":{"status":"unrecoverable","reason":"r"},"reference_reads":{"fix_delta":{"status":"unrecoverable","reason":"r"}}}' \
   > "$ETSC2_REPO/.devflow/tmp/review/pr-4/run-synth/iter-1.json"
 ETSC2_OUT2="$( ( cd "$ETSC2_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$ETSC2_REPO/.devflow/tmp/review/pr-4/run-synth" --slug pr-4 ) 2>&1 )"
 assert_eq "et-synth(T5): synthesized record emits no missing-field warning" "no" \
@@ -21165,6 +21175,14 @@ assert_eq "et-fresh(R5): the record carries the correct fix_commit_sha" "$ETF5_O
 # three) would have left the claim true-sounding and the check stale. Deriving it means
 # the assertion cannot drift from what it says it checks.
 ETF5_SYNTH_FIELDS="$(grep -E '^ITER_SYNTH_EXPECTED_FIELDS=' "$LIB/efficiency-trace.sh" | sed -E 's/^ITER_SYNTH_EXPECTED_FIELDS=//; s/"//g')"
+# POSITIVE CONTROL, and it is load-bearing: the set-difference assertion below expects the
+# EMPTY string, and an empty $ETF5_SYNTH_FIELDS also yields empty (`"" | split(" ")` is `[]`,
+# and `[] - keys` is `[]`), so a broken extraction would pass having checked nothing —
+# silently dropping every member from coverage. `sed` is not preflight-guaranteed and the
+# grep depends on the constant staying a plain single-line assignment, so both failure modes
+# are live. Assert the extraction produced a usable value BEFORE trusting its emptiness.
+assert_eq "et-fresh(R5): the ITER_SYNTH_EXPECTED_FIELDS extraction itself resolved (guards the set-difference below against a vacuous empty-vs-empty pass)" "yes" \
+  "$(case "$ETF5_SYNTH_FIELDS" in *synthesized*) echo yes ;; *) echo no ;; esac)"
 assert_eq "et-fresh(R5): the synthesized record carries every ITER_SYNTH_EXPECTED_FIELDS member (set derived, not hard-coded)" "" \
   "$(jq -r --arg f "$ETF5_SYNTH_FIELDS" '(($f | split(" ")) - keys) | join(",")' "$ETF5_WPD/iter-1.json" 2>/dev/null)"
 assert_eq "et-fresh(R8): the LOCAL base branch ref is byte-identical after a successful refresh" \
@@ -21189,12 +21207,23 @@ assert_eq "et-fresh(R6): second --persist makes no new telemetry-branch commit (
 # than independently load-bearing; they are kept as the executable statement of the AC, so
 # a future loosening of the shape assertion still trips the prohibition it exists to
 # enforce.
-for _f541 in sweep_defs_read sweep_evidence reference_reads; do
+for _f541 in sweep_defs_read sweep_evidence; do
   assert_eq "et-fresh(#541): synthesized $_f541 is an object carrying status=unrecoverable" "object|unrecoverable" \
     "$(jq -r --arg k "$_f541" '[(.[$k] | type), (.[$k].status // "")] | join("|")' "$ETF5_WPD/iter-1.json" 2>/dev/null)"
   assert_eq "et-fresh(#541): synthesized $_f541 carries a non-empty reason naming why it is unrecoverable" "yes" \
     "$(jq -r --arg k "$_f541" 'if ((.[$k].reason // "") | length) > 0 then "yes" else "no" end' "$ETF5_WPD/iter-1.json" 2>/dev/null)"
 done
+# reference_reads is a REGISTRY keyed by the producing reference, so its provenance is
+# asserted at the documented `.reference_reads.fix_delta` read path — not at the top level.
+# Asserting the top level instead would pass on a shape whose documented read returns null,
+# which is byte-identical to the legitimate "Step 3.5 did not run" absence and would defeat
+# the distinction this field exists to preserve (review round 1, converged finding).
+assert_eq "et-fresh(#541): synthesized reference_reads.fix_delta is an object carrying status=unrecoverable" "object|unrecoverable" \
+  "$(jq -r '[(.reference_reads.fix_delta | type), (.reference_reads.fix_delta.status // "")] | join("|")' "$ETF5_WPD/iter-1.json" 2>/dev/null)"
+assert_eq "et-fresh(#541): synthesized reference_reads.fix_delta carries a non-empty reason" "yes" \
+  "$(jq -r 'if ((.reference_reads.fix_delta.reason // "") | length) > 0 then "yes" else "no" end' "$ETF5_WPD/iter-1.json" 2>/dev/null)"
+assert_eq "et-fresh(#541): the documented .reference_reads.fix_delta read does NOT return null (the shape a top-level stamp would produce)" "no" \
+  "$(jq -r 'if .reference_reads.fix_delta == null then "yes" else "no" end' "$ETF5_WPD/iter-1.json" 2>/dev/null)"
 assert_eq "et-fresh(#541): synthesized sweep_defs_read is NOT the real no-fix value []" "no" \
   "$(jq -r 'if .sweep_defs_read == [] then "yes" else "no" end' "$ETF5_WPD/iter-1.json" 2>/dev/null)"
 assert_eq "et-fresh(#541): synthesized sweep_evidence is NOT the real no-fix status not-run" "no" \
@@ -22380,7 +22409,7 @@ rm -rf "$ETSF_REPO"
 ETSN_REPO="$(git_sandbox "et-synth null-fixfiles repo")"
 git -C "$ETSN_REPO" init -q
 mkdir -p "$ETSN_REPO/.devflow/tmp/review/pr-n/run-n"
-printf '{"iter":1,"fix_commit_sha":"abc","fix_files":null,"loop_role":"fix","synthesized":true}' \
+printf '{"iter":1,"fix_commit_sha":"abc","fix_files":null,"loop_role":"fix","synthesized":true,"sweep_defs_read":{"status":"unrecoverable","reason":"r"},"sweep_evidence":{"status":"unrecoverable","reason":"r"},"reference_reads":{"fix_delta":{"status":"unrecoverable","reason":"r"}}}' \
   > "$ETSN_REPO/.devflow/tmp/review/pr-n/run-n/iter-1.json"
 ( cd "$ETSN_REPO" && bash "$LIB/efficiency-trace.sh" --mode trace --workpad-dir "$ETSN_REPO/.devflow/tmp/review/pr-n/run-n" --slug pr-n ) >/dev/null 2>&1; ETSN_T=$?
 ETSN_R="$( ( cd "$ETSN_REPO" && bash "$LIB/efficiency-trace.sh" --mode record --workpad-dir "$ETSN_REPO/.devflow/tmp/review/pr-n/run-n" --slug pr-n ) 2>/dev/null )"; ETSN_RRC=$?
@@ -22671,7 +22700,7 @@ assert_eq "loop_role #170: non-string persisted loop_role (numeric) falls back t
 rm -rf "$LR_N"
 
 # (11) --self-check emits NO field-validation ::warning:: on a fully-complete iter
-#      (all 13 expected fields present; no shadow key — shadow is exempt from
+#      (every expected field present; no shadow key — shadow is exempt from
 #      ITER_EXPECTED_FIELDS, so a complete iter lacking shadow must still produce
 #      no field warnings). The effectiveness-record warning is suppressed by
 #      pre-creating the record so only field-validation output can appear. Guards
@@ -22685,13 +22714,26 @@ mkdir -p "$LR_CLEAN_RUN"
 # only field-validation output can then appear.
 mkdir -p "$LR_CLEAN/.devflow/logs/efficiency"
 printf '{}' > "$LR_CLEAN/.devflow/logs/efficiency/pr-80-run-n.json"
-# All 13 ITER_EXPECTED_FIELDS present; no shadow key (shadow is exempt).
+# Every ITER_EXPECTED_FIELDS member present; no shadow key (shadow is exempt).
 printf '%s' '{"iter":1,"started_at":"t","fix_commit_sha":"abc","fix_files":[],"loop_role":"fix","sweep_defs_read":[],"sweep_evidence":{"status":"not-run","reason":"no fixes applied"},"checklist":[],"phase3_dispatched":3,"diff_profile":"x","phase3_findings":[],"fix_decisions":[],"convergence_inputs":{},"cap_drops":[],"telemetry":{}}' \
   > "$LR_CLEAN_RUN/iter-1.json"
 LR_CLEAN_OUT="$( ( cd "$LR_CLEAN" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$LR_CLEAN_RUN" --slug pr-80 ) 2>&1 )"; LR_CLEAN_RC=$?
 assert_eq "loop_role #177: --self-check exits 0 on a complete iter (all fields present)" "0" "$LR_CLEAN_RC"
 assert_eq "loop_role #177: --self-check emits no field-validation warning on a complete iter (no ::warning:: on fields)" "0" \
   "$(printf '%s' "$LR_CLEAN_OUT" | grep -F '::warning::' | grep -cvF 'was NOT persisted' || true)"
+# #541 CONSUMER cell for REAL (non-synthesized) records. The et-fresh(#541) consumer test
+# covers only `synthesized: true` records, which route to ITER_SYNTH_EXPECTED_FIELDS — so
+# without this, nothing asserted that --self-check warns when an ORDINARY iter record omits
+# the two unconditional sweep fields, and the AC's "producer-consumer tests cover each
+# evidence field" rested on the indirect LR_CONST==LR_SCHEMA divergence check alone.
+# Reuses the same clean fixture with exactly the two fields deleted, so the run is otherwise
+# valid and the warnings can only be attributed to their absence.
+jq 'del(.sweep_defs_read, .sweep_evidence)' "$LR_CLEAN_RUN/iter-1.json" > "$LR_CLEAN_RUN/iter-2.json" 2>/dev/null
+LR_MISS_OUT="$( ( cd "$LR_CLEAN" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$LR_CLEAN_RUN" --slug pr-80 ) 2>&1 )"
+for _f541r in sweep_defs_read sweep_evidence; do
+  assert_eq "#541 consumer (real record): --self-check flags an ordinary iter missing $_f541r" "yes" \
+    "$(printf '%s\n' "$LR_MISS_OUT" | grep -qF "iter-2.json' is missing expected field '$_f541r'" && echo yes || echo no)"
+done
 rm -rf "$LR_CLEAN"
 
 # (12) Mid-chain promotion: two consecutive promotions (iter-1 promotes, iter-2

@@ -404,8 +404,10 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
   `::warning::` naming exactly what was not persisted (and points at `--persist` as the recovery).
   It **additionally validates each `iter-<N>.json`'s field set**: for every iter workpad missing a
   field in the single-source `ITER_EXPECTED_FIELDS` set (the iter schema's top-level fields minus the
-  conditional ones — `shadow`, which Step 2.6 appends later, and `reference_reads`, which Step 3.5's
-  fix-delta gate appends; both are legitimately absent), it emits a `::warning::` naming
+  conditional and non-telemetry ones — `shadow` and `reference_reads`, appended later by Step 2.6 and
+  Step 3.5's fix-delta gate respectively and so legitimately absent, plus the convergence-only and
+  navigation-stamp fields; `LR_CONDITIONAL_FIELDS` in `lib/test/run.sh` is the single list that
+  declares the full subtracted set and drives both the subtraction and its presence pins), it emits a `::warning::` naming
   the field and the iter file — turning a silently-dropped inline-persist field into a visible signal.
   A workpad carrying `synthesized: true` (written by the Layer-3+ synthesis floor, below) is a
   recognized degraded class validated against its **own** minimal set (`ITER_SYNTH_EXPECTED_FIELDS`
@@ -624,8 +626,23 @@ real record carries, none of which is recoverable **from the fix commits**.
   explicit `{"status": "unrecoverable", "reason": …}` object rather than a real-looking value. This is
   deliberate and load-bearing: `sweep_defs_read: []` and `sweep_evidence: {"status": "not-run", …}`
   are the *legitimate* values of a real no-fix iteration, so emitting either here would assert
-  something about an iteration this floor never observed. A consumer must read `status:
-  "unrecoverable"` as *unknown*, never as *empty*. `lib/efficiency-trace.jq` surfaces the marker at every level: per-iteration
+  something about an iteration this floor never observed. `reference_reads` is a registry, so its
+  stamp is written **inside** its `fix_delta` member — a top-level stamp would make the documented
+  `.reference_reads.fix_delta` read return `null`, which is indistinguishable from the legitimate
+  "the gate did not run" absence.
+
+  **Consumer contract.** Read `status: "unrecoverable"` as *unknown*, never as *empty*, and
+  **type-check before any shape-specific operation**: on a synthesized record `sweep_defs_read` is an
+  *object*, whereas on a real record it is an *array*, so an unguarded `.sweep_defs_read | length`
+  returns the provenance object's key count (2) and reads as "two sweep definitions were read" — an
+  unestablished measurement collapsed onto a real positive value. Branch on `.status` first.
+
+  **Compatibility boundary.** `ITER_SYNTH_EXPECTED_FIELDS` gained these three members in the issue
+  #541 change, so a synthesized record written by an *earlier* build lacks them and `--self-check`
+  now emits a missing-field `::warning::` for each. That is the intended fail-loud behavior (a
+  truncated synthesized record must still warn) rather than a regression; the blast radius is narrow
+  because `--workpad-dir` is a per-run ephemeral directory, so a pre-change record only appears when
+  a run directory survives a tool upgrade. `lib/efficiency-trace.jq` surfaces the marker at every level: per-iteration
   and in each `per_iteration[]` entry as a strict `== true` (an absent or malformed field reads
   `false` — agent-written workpads carry no such field, so real records read `synthesized: false`),
   and record-level as `any(…)` — `true` when **any** iteration was reconstructed, the key a
