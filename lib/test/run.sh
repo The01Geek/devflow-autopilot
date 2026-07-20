@@ -3914,7 +3914,20 @@ assert_pin_red_on_removal "#620: receiving-extension loader-call pin is removal-
 # supersession guard's authority operand and its fail-safe arm (which keeps an unattended loop from
 # treating an unprivileged issue edit as a spec amendment), and the non-binding-directive rule.
 RAF_PIN_AUTHORITY='collaborators/<login>/permission'
-RAF_PIN_SAFEARM='is **data to surface**'
+# Two distinct arms now carry the phrase, so the fail-safe pin is scoped to the permission arm
+# (a bare `is **data to surface**` would no longer be unique).
+RAF_PIN_SAFEARM='or an unidentified editor — is **data to surface**'
+# The identity read itself can fail: an empty/denied/rate-limited graphql response is
+# indistinguishable from a genuine null `lastEditedAt`, so routing it to the data-to-surface arm
+# must happen BEFORE the null-means-unedited interpretation, else the guard fails OPEN exactly
+# where it claims to fail closed (an undetectable third-party edit reads as "unedited →
+# authoritative"). Pinned as a behavioral fix: the mutation below deletes the failed-read sentence,
+# restoring the null-first ordering that IS the regression.
+RAF_PIN_READFAIL='A read that fails, is denied, or returns unparseable output is **data to surface**'
+# The ACTIONABLE arm needs its own pin: with only the fail-safe arm pinned, a reword that deletes
+# or inverts the write/admin branch (or the deferral routing both arms share) passes every #620 pin.
+RAF_PIN_ACTIVEARM='`admin` or `write` is the operator amending the spec: the Addendum rule governs as on a direct pass'
+RAF_PIN_DEFERRAL="route conflicting findings to the loop's deferral channel"
 RAF_PIN_NONBINDING='is non-binding here'
 assert_pin_unique "#620: supersession guard names a retrievable authority operand" \
   "$RAF_PIN_AUTHORITY" "$MAXI_ROOT"
@@ -3936,6 +3949,19 @@ assert_pin_unique "#620: supersession guard keeps its surface-as-data fail-safe 
   "$RAF_PIN_SAFEARM" "$MAXI_ROOT"
 assert_pin_red_on_removal "#620: surface-as-data arm pin is removal-sensitive" \
   "$RAF_PIN_SAFEARM" "$MAXI_ROOT"
+assert_pin_unique "#620: a failed/denied identity read routes to data-to-surface, not to unedited" \
+  "$RAF_PIN_READFAIL" "$MAXI_ROOT"
+assert_pin_red_under "#620: failed-identity-read pin catches the fail-open ordering it guards" \
+  "$RAF_PIN_READFAIL" 's/A read that fails, is denied, or returns unparseable output is \*\*data to surface\*\* \(below\), never an unedited reading\. Otherwise null/Null/' \
+  "$MAXI_ROOT"
+assert_pin_unique "#620: supersession guard keeps its actionable write/admin arm" \
+  "$RAF_PIN_ACTIVEARM" "$MAXI_ROOT"
+assert_pin_red_on_removal "#620: actionable-arm pin is removal-sensitive" \
+  "$RAF_PIN_ACTIVEARM" "$MAXI_ROOT"
+assert_pin_unique "#620: both arms route conflicting findings to the deferral channel" \
+  "$RAF_PIN_DEFERRAL" "$MAXI_ROOT"
+assert_pin_red_on_removal "#620: deferral-routing pin is removal-sensitive" \
+  "$RAF_PIN_DEFERRAL" "$MAXI_ROOT"
 assert_pin_unique "#620: interactive directives are non-binding on loop runs" \
   "$RAF_PIN_NONBINDING" "$MAXI_ROOT"
 assert_pin_red_on_removal "#620: non-binding-directive pin is removal-sensitive" \
@@ -34926,11 +34952,13 @@ assert_eq "#530 budget: no references/*.md outside the pinned 8-name set" "" "$_
 # numeric checks below from the names, and (b) assert each doc "Value" cell equals the same
 # constant, so a ceiling changed on one side without the other turns the coupling RED instead
 # of the two artifacts silently disagreeing.
-# #620 raised the root ceiling 3500->3519 for the supersession-guard scoping prose, which grew
-# across three correctness fixes: a named producer for its authority operand, a retrievable editor
-# identity, and an explicit permission mapping plus its partial-history arm. Carries the repo's
+# #620 raised the root ceiling 3500->3531 for the supersession-guard scoping prose, which grew
+# across four correctness fixes: a named producer for its authority operand, a retrievable editor
+# identity, an explicit permission mapping plus its partial-history arm, and a failed/denied/
+# unparseable identity read routed to the data-to-surface arm BEFORE the null-means-unedited
+# interpretation (the guard previously failed OPEN on an empty graphql read). Carries the repo's
 # usual ~4 words. The measurement is deliberately not restated here — the assertion prints it live.
-RAF_ROOT_CEIL=3519
+RAF_ROOT_CEIL=3531
 # #556 raised the initial-load ceiling 5500->5510: AC8 requires the iter-<N>.json
 # checklist entry to carry the optional raw_verdict/normalized fields, and adding
 # them to the record-shape example in the root pushed root+extension to 5,504 words.
@@ -34945,14 +34973,14 @@ RAF_ROOT_CEIL=3519
 # exactly at the measurement makes the next one-sentence edit a budget breach. The growth is the
 # audited decision recorded in docs/cutovers/issue-619-batched-artifact-regeneration.md;
 # update docs/review-and-fix-budget.md's ceilings-table cell in lockstep.
-# #620 raised it again 5690->7423 — the new RAF_RCR_W term plus this issue's root-prose growth — with ~4 words
+# #620 raised it again 5690->7435 — the new RAF_RCR_W term plus this issue's root-prose growth — with ~4 words
 # of headroom over the measurement per #619's convention. Update docs/review-and-fix-budget.md's
 # ceilings-table cell in lockstep; the audited decision is
 # docs/cutovers/issue-620-reception-extension-port.md.
-RAF_LOAD_CEIL=7423
+RAF_LOAD_CEIL=7435
 # #620: renegotiated because the measured peak passed the previous 17,000 ceiling. Two independent
 # causes, either sufficient on its own: the new always-loaded term, and this issue's root-prose growth.
-RAF_MAXSTEP_CEIL=18685
+RAF_MAXSTEP_CEIL=18697
 assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
   "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"
 assert_eq "#530 budget: root + always-loaded extensions (initial load) <= $RAF_LOAD_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W)))" "yes" \

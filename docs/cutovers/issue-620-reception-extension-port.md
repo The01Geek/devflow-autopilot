@@ -54,7 +54,7 @@ folded away, because a bound that silently tracks its subject has stopped boundi
    obtain: it keyed authority on the *editor's* `author_association`, but GitHub exposes no
    association for an edit — `gh issue view --json` has no such field at all, and the REST payload's
    `author_association` describes the **issue author**. Verified directly against the live API.
-3. **630 → 650, and the only root-ceiling move (3,500 → 3,519).** The review's own checklist
+3. **630 → 650, and the only root-ceiling move (3,500 → 3,531).** The review's own checklist
    verifier and `silent-failure-hunter` then showed the *repaired* guard still had no mechanism for
    the predicate gating it — nothing told the run how to determine whether a body edit was made by a
    third party — so the routing was undetermined and the guard could fail open on exactly the input
@@ -64,12 +64,17 @@ folded away, because a bound that silently tracks its subject has stopped boundi
    — `MEMBER` in particular does not. A second review iteration then found the repaired mechanism
    still had an open arm: a non-null `lastEditedAt` with an empty or page-full (truncated) editor
    list would have read as authority established from a partial history, so that state now routes to
-   the unestablished arm. Every API shape named was checked live before being written. The
-   accumulated prose no longer fit under the 3,500 root ceiling, which moved to 3,519.
+   the unestablished arm. A third iteration closed the last open arm: the identity read itself can
+   fail, and an empty/denied/rate-limited `gh api graphql` response is indistinguishable from a
+   genuine null `lastEditedAt`, so a failed, denied, or unparseable read now routes to the
+   data-to-surface arm **before** the null-means-unedited interpretation is reached — without that
+   ordering the guard failed open exactly where it claimed to fail closed. Every API shape named was
+   checked live before being written. The accumulated prose no longer fit under the 3,500 root
+   ceiling, which moved to 3,531.
 
 Every move after the first is correctness winning over a word target, and each is recorded with its
 cause rather than folded away. Compression absorbed the first two entirely; only the third required
-touching the root ceiling, and then by four words. The root now sits at 3,515 of 3,519 — the same
+touching the root ceiling, and then by sixteen words. The root now sits at 3,527 of 3,531 — the same
 ~4-word margin the other two ceilings carry, so a future addition to this preamble meets all three
 at once rather than any one of them first.
 
@@ -80,9 +85,9 @@ measures became three-term sums.
 
 | Quantity | Before | After | Ceiling before → after |
 | --- | ---: | ---: | --- |
-| Plugin root | 3,213 | 3,515 | 3,500 → 3,519 |
-| Initial load | 5,686 (root + extension) | 7,419 (root + always-loaded extensions) | 5,690 → 7,423 |
-| Max active step | 16,948 | 18,681 | 17,000 → 18,685 |
+| Plugin root | 3,213 | 3,527 | 3,500 → 3,531 |
+| Initial load | 5,686 (root + extension) | 7,431 (root + always-loaded extensions) | 5,690 → 7,435 |
+| Max active step | 16,948 | 18,693 | 17,000 → 18,697 |
 
 All three ceilings now carry ~4 words over their measurements — recorded in
 `docs/review-and-fix-budget.md`'s maintainer note. Each renegotiated ceiling carries roughly four words of headroom over its
