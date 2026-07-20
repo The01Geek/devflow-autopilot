@@ -38688,8 +38688,11 @@ assert_eq "#629 the VERIFIED row is emitted, not demoted" "yes" "$(sp629_has "$S
 assert_eq "#629 the VERIFIED row's detail carries NO relocation prefix (demotion touches only the STALE arm)" "no" \
   "$(sp629_detail_has "$SPR" VERIFIED R1 relocated)"
 
-# R3b — the two-item "a X and a Y … both" shape is a SEPARATE `_emit_count` call site from R3
-# and emits the same `R3` rule token, so no rule-id assertion distinguishes them: a mutant
+# R3b — the two-item shape (see `_TWO_ITEM_RE` / `_BOTH_RE`) is a SEPARATE `_emit_count`
+# call site from R3. Deliberately NOT spelled out here: writing the idiom in prose makes
+# this comment itself a two-item claim, which the lint then grades against the following
+# lines (it did, and emitted a gating STALE on this very file).
+# It emits the same `R3` rule token, so no rule-id assertion distinguishes them: a mutant
 # dropping `demote=` from the R3b site alone ships green under every R3 fixture above. Driven
 # here directly, with its own authored-referent negative control.
 SP629_B="$(git_sandbox '#629 r3b before')"; SP629_A="$(git_sandbox '#629 r3b after')"
