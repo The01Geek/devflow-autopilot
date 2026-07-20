@@ -7777,8 +7777,13 @@ with tempfile.TemporaryDirectory() as _dm_base:
               'devflow: discovery failed:' in _se)
     assert_eq("#555 ENOTDIR root: partial marker ABSENT (exclusivity)", False,
               'devflow: discovery partial:' in _se)
+    # Target the PER-ROOT line specifically: the aggregate marker line also contains
+    # 'failed traversal', so a bare substring test would pass even with no per-root
+    # breadcrumb at all (it did — the non-directory arm emitted none until #555 review).
     assert_eq("#555 ENOTDIR root: per-root breadcrumb names the failed root", True,
-              'failed traversal' in _se)
+              any(ln.startswith('devflow: discovery: root ')
+                  and str(_regfile) in ln and 'failed traversal' in ln
+                  for ln in _se.splitlines()))
 
     # Every root failed (two regular files) → exit 4 with the same marker assertions.
     _rc, _so, _se = _dm_run([str(_regfile), str(_regfile)])
@@ -7869,10 +7874,30 @@ with tempfile.TemporaryDirectory() as _dm_mt:
                   ('failed', []), (_status, _matches))
     finally:
         discover_deferrals.os.walk = _saved_walk
-    # Exit-contract marker is emitted when such a root is the sole failure.
     _status2, _ = discover_deferrals.classify_root(_dm_mt)
     assert_eq("#555 mid-traversal: after restore the same root classifies 'ok'",
               'ok', _status2)
+
+# Marker-exclusivity is what makes the fence's `grep -q 'devflow: discovery partial:'`
+# discrimination sound, and the PER-ROOT breadcrumb is the one line that could break it:
+# it is emitted on BOTH the partial and the all-failed path, so a reword that let it carry
+# either aggregate marker substring would route an all-failed run into the fence's partial
+# arm — a fail-open reroute the source comment asserts but nothing mechanically enforced.
+# Pin it: a single failed root emits the per-root breadcrumb, and stripping the aggregate
+# marker line from that stderr must leave no marker substring behind.
+with tempfile.TemporaryDirectory() as _dm_excl:
+    _dm_notdir = os.path.join(_dm_excl, 'regular-file-root')
+    with open(_dm_notdir, 'w', encoding='utf-8') as _fh:
+        _fh.write('not a directory\n')
+    _, _, _dm_excl_err = _dm_run([_dm_notdir])
+    _dm_perroot = [ln for ln in _dm_excl_err.splitlines()
+                   if ln.startswith('devflow: discovery: root ')]
+    assert_eq("#555 marker-exclusivity: the per-root failure breadcrumb is emitted",
+              1, len(_dm_perroot))
+    assert_eq("#555 marker-exclusivity: the per-root breadcrumb carries NEITHER aggregate marker",
+              (False, False),
+              (discover_deferrals.MARKER_PARTIAL in _dm_perroot[0],
+               discover_deferrals.MARKER_FAILED in _dm_perroot[0]))
 
 
 print()

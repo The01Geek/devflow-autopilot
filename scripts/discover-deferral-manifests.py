@@ -102,6 +102,13 @@ def classify_root(root):
     # empty `ok`: os.walk over a regular file yields nothing silently, which would
     # misclassify it `ok`. Catch it explicitly.
     if not os.path.isdir(root):
+        # EVERY `failed` classification breadcrumbs the root and the reason — this arm
+        # raises no OSError, so without its own write it would be the one failure the
+        # operator cannot attribute to a root.
+        sys.stderr.write(
+            "devflow: discovery: root %s failed traversal (not a directory)\n"
+            % os.path.abspath(root)
+        )
         return "failed", []
     matches = []
     try:
