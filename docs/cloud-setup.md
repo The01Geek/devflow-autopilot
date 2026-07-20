@@ -180,6 +180,53 @@ Before pointing `DEVFLOW_RUNNER` at a self-hosted runner:
   non-standard locations (see [Installing & updating](install.md) for the local-tier
   binary overrides — the same env vars apply on the runner).
 
+### Windows: point the action at a pre-installed Claude Code (`setup.claude_code_executable`)
+
+`anthropics/claude-code-action@v1` installs the Claude Code CLI with a **Unix-only**
+bundled installer. On a self-hosted **Windows** runner that installer aborts before
+Claude ever starts (`Windows is not supported by this script … Failed to install
+Claude Code after 3 attempts`), so a `/devflow:*` cloud job fails immediately even
+when the runner is otherwise correctly provisioned.
+
+To run DevFlow cloud jobs on such a runner, **pre-install the Claude Code CLI on the
+runner** (e.g. `irm https://claude.ai/install.ps1 | iex`) and set the optional config
+key `setup.claude_code_executable` to the resulting executable's path:
+
+```jsonc
+{
+  "setup": {
+    "claude_code_executable": "C:\\Users\\runner\\.local\\bin\\claude.exe"
+  }
+}
+```
+
+All three DevFlow workflows (`devflow.yml`, `devflow-implement.yml`,
+`devflow-runner.yml`) forward this value to the action's
+`path_to_claude_code_executable` input. When it is set, the action **skips its
+installer and uses the named executable**; when it is **unset or empty (the default,
+and every Linux consumer)** the input resolves to an empty string and the action's
+automatic-install path runs unchanged — Linux consumers are unaffected.
+
+**A rejected value falls back to auto-install and says so.** The extraction accepts only a
+single-line, non-blank string: a non-string leaf (array/object/number/boolean), a non-object
+`setup` block, a string carrying an embedded newline or carriage return, and a whitespace-only
+string are each rejected and resolve to empty — the same result as leaving the key unset.
+Because a mistyped path would otherwise
+revert *silently* to the Windows-fatal auto-install path (leaving you debugging the installer's
+misleading `Windows is not supported` error rather than your own typo), a **set-but-rejected**
+value emits a workflow `::warning::` naming the key. An absent key, a JSON `null`, and an
+explicit `""` are deliberate unsets and warn nothing.
+
+**Effect is post-merge-only.** Unlike the `setup.*` keys the implement job reads at
+**runtime** from the checked-out working tree (`setup.install`, `setup.node_version`,
+`setup.services` — live in the same run), this key is resolved at **trigger time** (the workflows' `config` job — and, for `devflow-runner.yml`, the
+trusted base-ref `baseprovision` step — read config from the default/base branch), so
+a PR that *adds* the key cannot exercise it in that PR's own cloud run. It takes effect
+only after the change merges to the default branch. (For `devflow-runner.yml` the value
+is read **only** from the trusted base-ref config, never a PR-head-checked-out config,
+because that job runs under a write token and the action executes the resolved path — a
+PR-author-controllable path would be an arbitrary-code-execution vector.)
+
 ### The `setup.services` Docker caveat
 
 `setup.services` (see [Service containers](#php-service-containers-and-dependency-caching)
