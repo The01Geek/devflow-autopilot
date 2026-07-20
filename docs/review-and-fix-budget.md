@@ -67,15 +67,15 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
 | Row | Included paths | Lines | Words | Bytes | ≈Tokens |
 | --- | --- | ---: | ---: | ---: | ---: |
 | **BEFORE** — monolith | `skills/review-and-fix/SKILL.md` (pre-split) | 1,134 | 36,201 | 250,928 | 47,061 |
-| **BEFORE** — always-loaded | monolith + live extension | 1,337 | 38,674 | 267,474 | 50,271 |
+| **BEFORE** — always-loaded | monolith + live extension | 1,337 | 38,674 | 267,474 | 50,276 |
 | live extension | `.devflow/prompt-extensions/review-and-fix.md` | 203 | 2,473 | 16,546 | 3,215 |
 | **AFTER** — plugin root | `skills/review-and-fix/SKILL.md` (thin) | 329 | **3,197** | 25,707 | 4,156 |
 | **AFTER** — actual initial load | root + live extension | 532 | **5,670** | 42,253 | 7,371 |
-| **AFTER** — bundle | root + all `references/*.md` | 1,313 | 40,893 | 287,811 | 53,161 |
+| **AFTER** — bundle | root + all `references/*.md` | 1,313 | 40,893 | 287,827 | 53,161 |
 | **AFTER** — normal cumulative path | root + extension + Σ references | — | 43,366 | — | 56,376 |
 | **AFTER** — maximum active step | root + extension + `shadow-review.md` | — | **16,932** | — | 22,012 |
 | reference: `shadow-review.md` | Step 2.6 | 235 | 11,262 | 79,276 | 14,641 |
-| reference: `fixing.md` | Step 3 | 156 | 9,130 | 62,404 | 11,869 |
+| reference: `fixing.md` | Step 3 | 156 | 9,130 | 62,420 | 11,869 |
 | reference: `loop-exit.md` | Loop Exit | 273 | 6,587 | 45,177 | 8,563 |
 | reference: `loop-control.md` | workpad + field semantics + Main Loop + Steps 0.5–2 | 188 | 5,189 | 36,686 | 6,746 |
 | reference: `pre-fix-gates.md` | Step 2.5 + parked-class sweep | 51 | 2,220 | 16,231 | 2,886 |

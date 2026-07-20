@@ -21,7 +21,7 @@ kind: growth
   enumeration, replaced by the same pointer. Both were already stale before this change;
   they are reconciled here because the changeset claims the schema is reconciled across
   every surface that defines it, and a surviving mirror would make that claim false.
-- `skills/review-and-fix/references/fixing.md` (+2102 bytes) — item 7's "Conditional
+- `skills/review-and-fix/references/fixing.md` (+2118 bytes) — item 7's "Conditional
   gate/sweep fields" paragraph gains the authoritative `reference_reads` specification
   (conditional contract, registry keying, shape, the `status`/`outcome`/`reason` semantics
   with both `not_verified` arms named, and the APPROVE-family prohibition).

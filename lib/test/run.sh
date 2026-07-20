@@ -21499,11 +21499,15 @@ rm -f "$ETF5_WPD/iter-3.json"
 # Which rows carry the ABORT rationale, stated precisely so the comment does not overclaim:
 # the string / array / number / scalar-`fix_delta` rows are the ones that make the UNTYPED
 # filter abort, and each was confirmed to go RED against a mutant reverting the type guard.
-# The `null` and missing-`status` rows do NOT abort under that mutant (jq yields `null`
-# through the deref rather than erroring), so they survive it — they are here for the
-# separate, still-real property that a non-`unrecoverable` value must be flagged, not as
-# abort coverage. Reading "each row kills the untyped mutant" would be wrong.
-for _f541m in '"oops"' '["oops"]' '5' 'null' '{"fix_delta":5}' '{"fix_delta":{"status":"verified"}}'; do
+# The `null`, empty-object, and wrong-`status` (`{"fix_delta":{"status":"verified"}}`) rows do
+# NOT abort under that mutant (jq yields `null` through the deref rather than erroring), so
+# they survive it — they are here for the separate, still-real property that a
+# non-`unrecoverable` value must be flagged, not as abort coverage. Reading "each row kills
+# the untyped mutant" would be wrong. The empty-object row is the "Step 3.5 never ran" shape
+# appearing where it is illegitimate (a synthesized record): the registry-keyed design must
+# still distinguish it from unrecoverable provenance, so it is flagged like any other
+# non-`unrecoverable` value rather than read as a legitimate absence.
+for _f541m in '"oops"' '["oops"]' '5' 'null' '{}' '{"fix_delta":5}' '{"fix_delta":{"status":"verified"}}'; do
   printf '%s' "{\"iter\":1,\"fix_commit_sha\":\"a\",\"fix_files\":[\"f\"],\"loop_role\":\"fix\",\"synthesized\":true,\"sweep_defs_read\":{\"status\":\"not-run\"},\"sweep_evidence\":{\"status\":\"unrecoverable\",\"reason\":\"y\"},\"reference_reads\":$_f541m}" \
     > "$ETF5_WPD/iter-4.json"
   ETF5_MAL_OUT="$( ( cd "$ETF5_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$ETF5_WPD" --slug pr-5 ) 2>&1 )"
