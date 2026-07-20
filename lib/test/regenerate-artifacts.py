@@ -349,13 +349,15 @@ def is_budget_row(row):
     ONE spelling of this predicate, used by both the check-strategy binding below and
     `emit_list`. Keyed on the watch list the callers actually consume, never on the proxy
     "has no argv": those coincide only because every command-less row today is a budget
-    row. Keying on the real property means a misregistered row fails where it is used,
-    with the missing key named — a command-less non-budget row (a pure-Python check, a
-    placeholder) is classified False here and reaches `run_row`, which says so. Under the
-    proxy the same row would be classified True and handed to `budget_row`/`watch_list` as
-    if it carried a watch list it never declared. The module's registry-invariant arm pins
-    the coincidence and the budget-row key set, so the day either breaks, the suite says so
-    rather than this docstring silently going stale.
+    row. Keying on the real property means a misregistered row is classified by what the
+    callers consume rather than by a stand-in: a command-less non-budget row (a pure-Python
+    check, a placeholder) is False here and reaches `run_row`, where `row["argv"][1:]` on
+    None raises TypeError — measured: the top-level net routes it to the INFRASTRUCTURE
+    exit-2 state, so it fails closed, though as a traceback naming the exception rather
+    than the row or the key. Under the proxy the same row would be True and handed to
+    `budget_row`/`watch_list` as if it carried a watch list it never declared. Neither
+    keying yields an attributed message, so the *named* catch is the module's A4b
+    registry-invariant arm, which pins both this coincidence and the budget-row key set.
     """
     return "watch_literals" in row
 

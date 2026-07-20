@@ -295,6 +295,21 @@ done
 # field, so each row's list is extracted by its own attributed prefix. Extracting by the
 # bare `budget-watch` prefix would concatenate both rows' members into one blob, and the
 # equality below would then still pass if a member migrated from one row to the other.
+# `mv` is not preflight-guaranteed (lib/preflight.sh covers git/gh/jq/python3/PyYAML only),
+# and an unchecked fixture rename fails silently: the arm then runs against a tree that does
+# NOT have the shape under test. Several arms currently fail closed only because their
+# expected counts happen to invert on a failed rename — a property of the chosen values, not
+# of the code, which a later polarity change would quietly turn into a vacuous pass. Assert
+# the rename instead of relying on that.
+_ra_mv() {  # arm-label src dst
+  if mv "$2" "$3" 2>/dev/null; then
+    assert_eq "$1 fixture rename succeeded: ${2##*/}" yes yes
+  else
+    assert_eq "$1 fixture rename succeeded: ${2##*/}" yes \
+      "no(mv failed or is absent — the fixture lacks the shape under test, so the arm below is vacuous)"
+  fi
+}
+
 RA_WATCH_CHECKED=""      # rows _ra_watch_check was actually invoked for
 RA_WATCH_ALL_MEMBERS=""  # every checked row's members, for the cross-row overlap test
 _ra_watch_check() {  # row-name glob-dir literal-member...
@@ -440,15 +455,32 @@ a/one.md.bak')"
 # again, one level down. It is invisible on the live tree (every member exists there), so
 # it is driven against a fixture with every review-and-fix member renamed away.
 RA_A4C="$_ra_tmp_root/a4c"; _ra_fixture "$RA_A4C"
-mv "$RA_A4C/skills/review-and-fix/references" "$RA_A4C/skills/review-and-fix/references-gone"
-mv "$RA_A4C/skills/review-and-fix/SKILL.md" "$RA_A4C/skills/review-and-fix/SKILL-gone.md"
-mv "$RA_A4C/.devflow/prompt-extensions/review-and-fix.md" "$RA_A4C/.devflow/prompt-extensions/review-and-fix-gone.md"
-python3 "$RA_HELPER" --list --repo-root "$RA_A4C" > "$RA_A4C/.ra.list" 2>&1
+_ra_mv "#624 A4c" "$RA_A4C/skills/review-and-fix/references" "$RA_A4C/skills/review-and-fix/references-gone"
+_ra_mv "#624 A4c" "$RA_A4C/skills/review-and-fix/SKILL.md" "$RA_A4C/skills/review-and-fix/SKILL-gone.md"
+_ra_mv "#624 A4c" "$RA_A4C/.devflow/prompt-extensions/review-and-fix.md" "$RA_A4C/.devflow/prompt-extensions/review-and-fix-gone.md"
+# Keep the helper's OWN exit status and stderr separate. Folding stderr into .ra.list and
+# discarding rc would make a crash-before-emit_list indistinguishable from the shape under
+# test: the counts below would read 0 and the negative precondition would PASS, leaving the
+# roster `case` to fail with the wrong diagnosis (it would send a reader to audit
+# `_ra_roster_of`'s sed when the real cause was a traceback sitting in .ra.list).
+if python3 "$RA_HELPER" --list --repo-root "$RA_A4C" > "$RA_A4C/.ra.list" 2>"$RA_A4C/.ra.err"; then
+  assert_eq "#624 A4c --list succeeds against the all-absent fixture" yes yes
+else
+  assert_eq "#624 A4c --list succeeds against the all-absent fixture" yes \
+    "no(rc!=0; stderr: $(tr '\n' '|' <"$RA_A4C/.ra.err") — the assertions below would read 0 vacuously)"
+fi
 RA_A4C_LIST="$(cat "$RA_A4C/.ra.list")"
-# Precondition: the fixture really has the all-absent shape (no budget-watch line for the
-# row). Without this the arm could pass on a fixture where the renames silently failed.
+# NEGATIVE precondition: the renames took effect (no member is present for this row)…
 assert_eq "#624 A4c the fixture really leaves the review-and-fix row with no present member" "0" \
   "$(devflow_module_pin_count 'budget-watch	review-and-fix-budget	' "$RA_A4C/.ra.list")"
+# …and the POSITIVE one it stands in for: the row actually EMITS the shape this arm is
+# about. Without it, "no budget-watch line" is satisfied just as well by a run that emitted
+# nothing at all — a precondition standing in for an unverified consumption.
+case "$(devflow_module_pin_count 'budget-watch-missing	review-and-fix-budget	' "$RA_A4C/.ra.list")" in
+  0|'') assert_eq "#624 A4c the fixture row emits budget-watch-missing lines" yes \
+          "no(zero — the run or the renames failed; the roster check below would be vacuous)" ;;
+  *)    assert_eq "#624 A4c the fixture row emits budget-watch-missing lines" yes yes ;;
+esac
 case "$(_ra_roster_of "$RA_A4C_LIST")" in
   *review-and-fix-budget*) assert_eq "#624 A4c an all-absent budget row still enters the roster" yes yes ;;
   *) assert_eq "#624 A4c an all-absent budget row still enters the roster" yes \
@@ -720,8 +752,13 @@ _ra_live_unchanged "#619 A5i2 live manifest byte-unchanged after the deleted-mem
 # is what an unpinned leg always looks like, and a renamed references/ directory would
 # leave this row silently reporting unestablished with nobody watching.
 RA_A5I3="$_ra_tmp_root/a5i3"; _ra_fixture "$RA_A5I3"
-mv "$RA_A5I3/skills/review-and-fix/references" "$RA_A5I3/skills/review-and-fix/references-renamed"
-python3 "$RA_HELPER" --list --repo-root "$RA_A5I3" > "$RA_A5I3/.ra.list" 2>&1
+_ra_mv "#624 A5i3" "$RA_A5I3/skills/review-and-fix/references" "$RA_A5I3/skills/review-and-fix/references-renamed"
+if python3 "$RA_HELPER" --list --repo-root "$RA_A5I3" > "$RA_A5I3/.ra.list" 2>"$RA_A5I3/.ra.err"; then
+  assert_eq "#624 A5i3 --list succeeds against the renamed-references fixture" yes yes
+else
+  assert_eq "#624 A5i3 --list succeeds against the renamed-references fixture" yes \
+    "no(rc!=0; stderr: $(tr '\n' '|' <"$RA_A5I3/.ra.err"))"
+fi
 assert_eq "#624 A5i3 --list discloses the renamed references parent under its OWN row" "1" \
   "$(devflow_module_pin_count 'budget-watch-missing	review-and-fix-budget	skills/review-and-fix/references/*.md' "$RA_A5I3/.ra.list")"
 _ra_run "$RA_A5I3"
@@ -736,8 +773,16 @@ _ra_live_unchanged "#624 A5i3 live manifest byte-unchanged after the renamed-ref
 # own literal leg was the one place a watch_literals copy-paste from the sibling row would
 # go undetected — the same residual-symmetry argument A5i3 makes, one step further.
 RA_A5I4="$_ra_tmp_root/a5i4"; _ra_fixture "$RA_A5I4"
-mv "$RA_A5I4/.devflow/prompt-extensions/review-and-fix.md" "$RA_A5I4/.devflow/prompt-extensions/review-and-fix-renamed.md"
-python3 "$RA_HELPER" --list --repo-root "$RA_A5I4" > "$RA_A5I4/.ra.list" 2>&1
+_ra_mv "#624 A5i4" "$RA_A5I4/.devflow/prompt-extensions/review-and-fix.md" "$RA_A5I4/.devflow/prompt-extensions/review-and-fix-renamed.md"
+# Own exit status + separate stderr, same reason as A4c: a crash also yields count 0, and
+# this arm's expected 1 would then go RED with the misleading message "row attribution
+# regressed" while the explaining traceback sat unread inside .ra.list.
+if python3 "$RA_HELPER" --list --repo-root "$RA_A5I4" > "$RA_A5I4/.ra.list" 2>"$RA_A5I4/.ra.err"; then
+  assert_eq "#624 A5i4 --list succeeds against the renamed-literal fixture" yes yes
+else
+  assert_eq "#624 A5i4 --list succeeds against the renamed-literal fixture" yes \
+    "no(rc!=0; stderr: $(tr '\n' '|' <"$RA_A5I4/.ra.err"))"
+fi
 assert_eq "#624 A5i4 --list discloses the renamed literal member under its OWN row" "1" \
   "$(devflow_module_pin_count 'budget-watch-missing	review-and-fix-budget	.devflow/prompt-extensions/review-and-fix.md' "$RA_A5I4/.ra.list")"
 _ra_run "$RA_A5I4"
@@ -839,6 +884,10 @@ assert_eq "#619 A5f --list from an unrelated repo still resolves THIS checkout's
 # row while the other's anchoring stayed unpinned.
 assert_eq "#624 A5f --list from an unrelated repo also resolves the review-and-fix bundle" "1" \
   "$(devflow_module_pin_count 'budget-watch	review-and-fix-budget	skills/review-and-fix/SKILL.md' "$RA_A5F/list.out")"
+# Deliberately the bare tab-prefixed path, NOT the row-attributed form: with two attributed
+# line kinds this catches an unrelated-repo member leaking onto EITHER a budget-watch or a
+# budget-watch-missing line, under EITHER row. Restoring the attributed prefix would narrow
+# it back to one row's one line kind and silently lose the other three.
 assert_eq "#619 A5f the unrelated repo contributes no watch-list member" "0" \
   "$(devflow_module_pin_count '	f.txt' "$RA_A5F/list.out")"
 _ra_live_unchanged "#619 A5f live manifest byte-unchanged after the unrelated-repo run"
@@ -921,6 +970,25 @@ assert_eq "#624 A6d the review-and-fix budget item forces exit 1" "1" "$(_ra_rc 
 _ra_has "#624 A6d the review-bundle row stays clean when only review-and-fix moved" "$RA_A6D" \
   "[review-bundle-budget] clean"
 _ra_live_unchanged "#624 A6d live manifest byte-unchanged after the review-and-fix drift run"
+
+# ── A6d2 — an UNTRACKED review-and-fix member also trips its row (the A6b mirror) ─
+# A6b drives the review-bundle row's `git ls-files --others` leg. That leg is now shared
+# code parameterized by `row`, so the residual risk is low — but this is the same
+# residual-symmetry argument A5i4 makes, one leg further: a brand-new reference that has
+# not been `git add`ed is the precedented edit shape a tracked-only diff misses.
+RA_A6D2="$_ra_tmp_root/a6d2"; _ra_fixture "$RA_A6D2"
+# No _ra_reconcile: a brand-new reference file is an unclassified asset the closure and the
+# census both reject by design, so the ATTRIBUTABLE assertion is the budget JUDGMENT line.
+printf '# scratch\n' > "$RA_A6D2/skills/review-and-fix/references/reference-9-fixture.md"
+_ra_run "$RA_A6D2"
+_ra_has "#624 A6d2 an untracked review-and-fix member trips its own budget judgment item" "$RA_A6D2" \
+  "[review-and-fix-budget] JUDGMENT"
+_ra_has "#624 A6d2 the untracked member is named as the changed member" "$RA_A6D2" \
+  "changed members: skills/review-and-fix/references/reference-9-fixture.md"
+_ra_has "#624 A6d2 the review-bundle row stays clean when only review-and-fix moved" "$RA_A6D2" \
+  "[review-bundle-budget] clean"
+assert_eq "#624 A6d2 the untracked-member budget item forces exit 1" "1" "$(_ra_rc "$RA_A6D2")"
+_ra_live_unchanged "#624 A6d2 live manifest byte-unchanged after the untracked-member run"
 
 # ── A6e — a touched review-and-fix record resolves its budget item (issue #624) ─
 RA_A6E="$_ra_tmp_root/a6e"; _ra_fixture "$RA_A6E"
