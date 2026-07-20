@@ -39,6 +39,18 @@ particular, `/devflow:review-and-fix` cites the receiving-code-review skill by *
 a prose citation, not a guaranteed skill load — so the receiving-code-review extension alone would
 not reach the flagship fix loop.
 
+## Budget renegotiation (review-and-fix initial load)
+
+`.devflow/prompt-extensions/review-and-fix.md` was sitting **exactly** at its documented
+initial-load ceiling — root 3,213 + extension 2,291 = 5,504 words against a 5,510 ceiling, six
+words of headroom — so this instruction could not fit under it at any phrasing. The section was
+first trimmed to its operative minimum (~166 words: the invocation, the act-on-the-report rule,
+the two-denials degradation, and the discharge line) and only then was the ceiling renegotiated
+**5,510 → 5,680**, mirroring the #556 precedent. `lib/test/run.sh`'s `RAF_LOAD_CEIL` and every
+coupled cell in `docs/review-and-fix-budget.md` are updated in this same change; the growth-delta
+(+4,323) and net-reduction (32,988) figures are unchanged, because the extension term cancels in
+both. This artifact is the audited decision that widening records.
+
 Growth is bounded by design: the sections carry **no artifact inventory**. Enumeration lives
 solely in `lib/test/regenerate-artifacts.py`'s registry, so adding a sixth artifact later grows the
 helper and not these three mandatory rows. Each section's invocation sentence and discharge-record
