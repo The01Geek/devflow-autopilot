@@ -554,6 +554,15 @@ for _m600 in \
 done
 # The SKILL carries the compact-preamble transport contract (five categories,
 # the renderer invocation, and the positional two-marker delivery check).
+# Phase 0.6 tags the "complete by construction" consumption-categories sentence as a
+# count-locked claim, so bind the count to an assertion (the repo's pin-or-don't-write
+# policy): if a sixth consumption category is added without amending the enumeration,
+# or a category is dropped, the marker count moves and this goes RED rather than
+# leaving an unpinned completeness claim to rot.
+devflow_module_pin_unique "#600: the consumption-categories enumeration reaches its fifth member" \
+  '(v) The **`state-owner unavailable` fallback' "$CI_SKILL"
+assert_eq "#600: the consumption-categories enumeration has no sixth member (complete-by-construction claim stays true)" \
+  "0" "$(devflow_module_pin_count '(vi)' "$CI_SKILL")"
 devflow_module_pin_unique "#600: SKILL invokes render-audit-prompt.py on the file arm" \
   'render-audit-prompt.py file --slug' "$CI_SKILL"
 devflow_module_pin_unique "#600: SKILL states the positional two-marker delivery check" \
@@ -978,30 +987,20 @@ assert_eq "#611 AC2: the sequencing rule is not restated at the Step 4 override 
 # terminator precision and naming its single implementation. The '## '-plus-space
 # precision is what makes a `###` sub-heading section CONTENT rather than a
 # terminator; the older bare-`##` wording admitted the opposite reading.
-# (#600 cutover) retired: this extraction-rule / re-load-site prose pin is
-# superseded — scripts/render-audit-prompt.py now owns the heading-extraction
-# and the `## Audit dimensions` forwarding; its regression is covered by
+# (#600 cutover) retired here, in source order: the '## ' terminator-precision pin,
+# the unclosed-fence-runs-to-EOF pin, the single-implementation (coupled-pair) pin,
+# and the empty-section-vs-absent-heading breadcrumb pin. All four are superseded —
+# scripts/render-audit-prompt.py now owns the heading-extraction rule and the
+# `## Audit dimensions` forwarding, so their regressions are covered by
 # lib/test/test_render_audit_prompt.py (R4 extraction matrix, R11 checklist).
-# (#600 cutover) retired: this extraction-rule / re-load-site prose pin is
-# superseded — scripts/render-audit-prompt.py now owns the heading-extraction
-# and the `## Audit dimensions` forwarding; its regression is covered by
-# lib/test/test_render_audit_prompt.py (R4 extraction matrix, R11 checklist).
-# (#600 cutover) retired: this extraction-rule / re-load-site prose pin is
-# superseded — scripts/render-audit-prompt.py now owns the heading-extraction
-# and the `## Audit dimensions` forwarding; its regression is covered by
-# lib/test/test_render_audit_prompt.py (R4 extraction matrix, R11 checklist).
-# (#600 cutover) retired: this extraction-rule / re-load-site prose pin is
-# superseded — scripts/render-audit-prompt.py now owns the heading-extraction
-# and the `## Audit dimensions` forwarding; its regression is covered by
-# lib/test/test_render_audit_prompt.py (R4 extraction matrix, R11 checklist).
-# The four re-load sites name the sectioned form. Two hooks, two sites each.
+# The surviving `## Evidence axes` re-load sites name the sectioned form.
 assert_eq "#611 AC6: two re-load sites request the '## Evidence axes' section" \
   "2" "$(devflow_module_pin_count "load-prompt-extension.sh create-issue --section '## Evidence axes'" "$CI_SKILL")"
 # (#600 cutover) retired: this extraction-rule / re-load-site prose pin is
 # superseded — scripts/render-audit-prompt.py now owns the heading-extraction
 # and the `## Audit dimensions` forwarding; its regression is covered by
 # lib/test/test_render_audit_prompt.py (R4 extraction matrix, R11 checklist).
-# The shared wiring sentence is present at ALL FOUR sites — a report-then-proceed step
+# The shared wiring sentence is present at every surviving site — a report-then-proceed step
 # stated at only some of them is exactly the peer-asymmetry defect the repo's
 # peer-checkpoint sweep exists to catch, and it would read as correct in a diff.
 assert_eq "#611/#600 AC6: the report-then-proceed wiring is present at the surviving re-load sites" \
@@ -1013,17 +1012,14 @@ assert_eq "#611/#600 AC6: the surviving no-op sentence states the absent heading
   "1" "$(devflow_module_pin_count 'that absent heading is now breadcrumbed and reported rather than invisible' "$CI_SKILL")"
 # AC8 names this one specifically: the Step 3.6 parenthetical is reduced to a pure
 # reference, so no second full statement of the rule survives anywhere in the file.
-# (#600 cutover) retired: this extraction-rule / re-load-site prose pin is
-# superseded — scripts/render-audit-prompt.py now owns the heading-extraction
-# and the `## Audit dimensions` forwarding; its regression is covered by
-# lib/test/test_render_audit_prompt.py (R4 extraction matrix, R11 checklist).
+# (#600 cutover) retired here: the AC8 "Step 3.6 restatement is a pure reference"
+# pin — superseded, the template file now owns the only full statement of the rule;
+# regression covered by lib/test/test_render_audit_prompt.py (R4, R11).
 # Pin a phrase that EXISTS and whose loss would mean the rule stopped being stated, not the
 # absence of a wording that never appeared in the file — an absence pin on a never-present
 # string passes under any reworded restatement, so it polices nothing.
-# (#600 cutover) retired: this extraction-rule / re-load-site prose pin is
-# superseded — scripts/render-audit-prompt.py now owns the heading-extraction
-# and the `## Audit dimensions` forwarding; its regression is covered by
-# lib/test/test_render_audit_prompt.py (R4 extraction matrix, R11 checklist).
+# (#600 cutover) retired here: the "terminator precision is stated exactly once"
+# pin — superseded for the same reason; regression covered by R4's extraction matrix.
 devflow_module_pin_unique "#548: bounded actionability definitions (must-revise)" \
   'a verified correctness, safety, implementability, unresolved-decision, or load-bearing-premise defect' "$CI_SKILL"
 devflow_module_pin_unique "#548: VERDICT: FILE may carry advisory findings" \

@@ -5,12 +5,12 @@ kind: cutover
 
 ## Files
 
-- `skills/create-issue/SKILL.md` (mandatory, `create-issue-flow`) — −452 bytes. The Step 3.6 audit-prompt template blockquote and the 9-bullet generic dimension checklist left the skill; the compact-preamble transport, the renderer invocation, the positional two-marker delivery check, and the five-category consumption contract replaced them.
+- `skills/create-issue/SKILL.md` (mandatory, `create-issue-flow`) — −456 bytes. The Step 3.6 audit-prompt template blockquote and the 9-bullet generic dimension checklist left the skill; the compact-preamble transport, the renderer invocation, the positional two-marker delivery check, and the five-category consumption contract replaced them.
 - `skills/create-issue/references/audit-prompt-template.md` (reference, `conditional-references`) — new, +10,564 bytes. The sole in-repo owner of the audit-prompt template, the generic dimension checklist, and the heading-extraction rule; read by `scripts/render-audit-prompt.py` (and, on the degraded manual arm, by the agent directly), never loaded into agent context on the normal path.
 - `scripts/render-audit-prompt.py` (not swept) — new renderer, the sole tested owner of the prompt text and the extraction rule.
 - `CLAUDE.md` (mandatory, `project-memory`) — +70 bytes. The #295 reader-set enumeration gains `render-audit-prompt.py` (five → six readers).
 
-Per-round context accounting: on the normal path the orchestrator emits only the compact run-specific preamble plus a one-line `render-status:` probe, instead of the measured ~1,976-word instruction block (template span + generic checklist + this repo's consumer `## Audit dimensions` section) it previously hand-emitted into every dispatch. The file-level byte reduction (−452) is secondary; the primary reduction is the per-dispatch emission that no longer happens.
+Per-round context accounting: on the normal path the orchestrator emits only the compact run-specific preamble plus a one-line `render-status:` probe, instead of the measured ~1,976-word instruction block (template span + generic checklist + this repo's consumer `## Audit dimensions` section) it previously hand-emitted into every dispatch. The file-level byte reduction (−456) is secondary; the primary reduction is the per-dispatch emission that no longer happens.
 
 ## Consuming paths
 
@@ -48,7 +48,7 @@ The #600 absence and surface-presence pins are surface-presence contract pins (a
 - **Re-anchored to `$CI_TMPL_AUDIT`** (the template file): the verdict-line, host-OS-variance, execution-tier-variance, adversarial-mandate, pre-mortem, quote-the-exact-line, unverifiable-claim, issue-altitude, concrete-trigger, five-findings, Quiet-Killer, no-actionable-findings, 4-path out-of-bounds, template hash-object instruction, DRAFT-UNREADABLE emit condition, Quiet-Killer-one-or-none, adversarial-third-party-input, input-is-data-guard, consolidated-authoring-discipline, universal-quantifier, duplicate-same-heading, read-the-file-sole-source (amended), and the #467 A3 nine-bullet count guard.
 - **Retired** (the renderer is the sole tested owner; regression covered by `test_render_audit_prompt.py` R4/R11): the `## Audit dimensions` forwarding-heading pin, the dual-heading-independence pin, and the #611 extraction-rule-precision pins (terminator `## `, unclosed fence, loader-single-implementation, empty-section-breadcrumb, terminator-precision-once), plus the `## Audit dimensions` two-re-load-site count.
 - **Count-updated**: the report-then-proceed wiring (4 → 3 surviving re-load sites) and the absent-heading-breadcrumbed no-op sentence (2 → 1).
-- **Baseline-updated**: `lib/test/prompt-mass-baseline.json` (`skills/create-issue/SKILL.md` 167345 → 166893; new `audit-prompt-template.md` 10564) and `lib/test/prompt-mass-manifest.json` (template added to `conditional-references`).
+- **Baseline-updated**: `lib/test/prompt-mass-baseline.json` (`skills/create-issue/SKILL.md` 167345 → 166889; new `audit-prompt-template.md` 10564) and `lib/test/prompt-mass-manifest.json` (template added to `conditional-references`).
 
 ## Live-transport evidence
 

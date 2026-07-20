@@ -25,9 +25,11 @@ Contract (issue #600):
 - Modes, complete by construction: the dispatch arms ``file`` /
   ``embed`` / ``inline`` mirroring ``issue-audit-state.py``'s arm vocabulary,
   plus ``checklist`` (the Step 3.5 self-check), ``extract`` (the generic
-  section-extraction hook, consumed by both the Step 3.6 ``## Audit dimensions``
-  forwarding and the Step 2 ``## Evidence axes`` forwarding), and ``status-only``
-  (the orchestrator's fail-fast one-line probe).
+  section-extraction hook; the Step 2 ``## Evidence axes`` forwarding consumes
+  it as a standalone call, while the Step 3.6 ``## Audit dimensions`` hook
+  consumes the same extraction *rule* spliced into a dispatch arm as
+  ``{CONSUMER_DIMENSIONS}``, not via a standalone ``extract`` call), and
+  ``status-only`` (the orchestrator's fail-fast one-line probe).
 - Output contract: stdout's FIRST line is ``render-status:`` with a value from
   the closed set {appended, absent, unestablished}; stdout's LAST line is the
   fixed terminal marker ``render-end:`` on every full render, so a truncated
@@ -231,6 +233,12 @@ def extract_section(text: str, heading: str) -> str:
         if is_heading:
             if line == target:
                 in_section = True
+                # No _track_comment call is needed on this path: `line == target`
+                # is an exact match after rstrip, so a matched heading carries no
+                # `<!--`/`-->` marker by construction and the call would be a
+                # no-op. (A heading WITH a trailing `<!--` is not an exact match,
+                # so it reaches neither this arm nor the loader's — both report the
+                # section absent, which is the coupled-pair behavior.)
                 continue
             # A different '## ' heading terminates the current section.
             if in_section:
@@ -319,12 +327,32 @@ def _substitute(text: str, slots: dict[str, str]) -> str:
     return text
 
 
+def _section_placeholder(status: str) -> str:
+    # Self-describing body for a non-appended status. Fails CLOSED on a status
+    # outside the closed set rather than degrading into the plausible-looking
+    # "could not be established" prose: the vocabulary is closed by construction,
+    # so an unknown value is a defect in the producer, not an input to render.
+    if status == _STATUS_ABSENT:
+        return "(no consumer section)"
+    if status == _STATUS_UNESTABLISHED:
+        return "(consumer section could not be established)"
+    raise RenderError(
+        f"unknown consumer-extension status {status!r} (expected one of "
+        f"{_STATUS_ABSENT}, {_STATUS_UNESTABLISHED}, {_STATUS_APPENDED})"
+    )
+
+
 def _dimensions_block_for_status(status: str, section: str) -> str:
     if status == _STATUS_APPENDED:
         return section
     if status == _STATUS_ABSENT:
         return "(no consumer audit dimensions)"
-    return "(consumer audit dimensions could not be established)"
+    if status == _STATUS_UNESTABLISHED:
+        return "(consumer audit dimensions could not be established)"
+    raise RenderError(
+        f"unknown consumer-extension status {status!r} (expected one of "
+        f"{_STATUS_ABSENT}, {_STATUS_UNESTABLISHED}, {_STATUS_APPENDED})"
+    )
 
 
 def render_dispatch(
@@ -378,10 +406,23 @@ def render_extract(hook: str, ext_path: Path) -> str:
     dispatch arm via ``{CONSUMER_DIMENSIONS}``, not through a standalone
     ``extract`` call.
     """
+    # Guard the hook lookup so the module's documented failure contract (rc≠0,
+    # empty stdout, stderr breadcrumb) holds for every entry point, not only the
+    # CLI — argparse's `choices` constrains the CLI, but this function is public
+    # and a direct caller would otherwise get a bare KeyError.
+    if hook not in _HOOKS:
+        raise RenderError(
+            f"unknown hook {hook!r} (expected one of {', '.join(sorted(_HOOKS))})"
+        )
     heading = _HOOKS[hook]
-    # consumer_dimensions returns section="" for every non-appended status.
+    # consumer_dimensions returns section="" for every non-appended status, so the
+    # body carries self-describing placeholder prose instead of a bare blank line —
+    # the same treatment the dispatch path gives via _dimensions_block_for_status.
+    # An empty body between markers is positionally valid but instruction-empty,
+    # the shape render_dispatch fails closed on.
     status, section = consumer_dimensions(ext_path, heading)
-    return f"{STATUS_PREFIX} {status}\n{section}\n{END_MARKER}"
+    body = section if status == _STATUS_APPENDED else _section_placeholder(status)
+    return f"{STATUS_PREFIX} {status}\n{body}\n{END_MARKER}"
 
 
 def render_status_only(ext_path: Path) -> str:
@@ -415,6 +456,19 @@ def _sentinel(value: str) -> str:
     return value
 
 
+def _abs_path(value: str) -> str:
+    # Closed shape for the path slots: a single-line absolute path. The docstring's
+    # "no free-text parameter" claim is only true if EVERY slot substituted into the
+    # rendered instruction block is shape-constrained — a bare string here would let
+    # prose shaped like additional auditor instructions ride into {DRAFT_PATH} inside
+    # the block the auditor treats as its complete instructions.
+    if not value.startswith("/") or "\n" in value or "\r" in value:
+        raise argparse.ArgumentTypeError(
+            f"path must be a single-line absolute path (got {value!r})"
+        )
+    return value
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="render-audit-prompt.py",
@@ -422,7 +476,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("mode", choices=_MODES)
     parser.add_argument("--slug", type=_kebab_slug)
-    parser.add_argument("--draft-path")  # absolute path (file arm)
+    parser.add_argument("--draft-path", type=_abs_path)  # absolute path (file arm)
     parser.add_argument("--sentinel-open", type=_sentinel)
     parser.add_argument("--sentinel-close", type=_sentinel)
     parser.add_argument("--hook", choices=tuple(_HOOKS))
