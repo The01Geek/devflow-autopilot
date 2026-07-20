@@ -1,0 +1,127 @@
+{
+  "iter": 4,
+  "started_at": "2026-07-20T16:12:00Z",
+  "fix_commit_sha": "e01df987",
+  "fix_files": [
+    "lib/test/run.sh",
+    "docs/review-bundle-budget.md"
+  ],
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "current_step": "loop-exit",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [],
+  "phase3_findings": [],
+  "fix_decisions": [
+    {
+      "finding_id": "S-1",
+      "decision": "applied",
+      "commit": "e01df987",
+      "evidence": "margin guard RB_SHIPPED_CEIL - _rb_shipped_w <= 60; mutation-verified (gap 60 GREEN, gap 500 RED)"
+    },
+    {
+      "finding_id": "S-3",
+      "decision": "applied",
+      "commit": "e01df987",
+      "evidence": "reworded misquoted decision-record prose to quote run.sh #556/#618 comments verbatim"
+    },
+    {
+      "finding_id": "S-2",
+      "decision": "pushed_back",
+      "source_file": ".devflow/prompt-extensions/review-and-fix.md",
+      "skip_category": "claim-quality",
+      "evidence": "failure mode structurally prevented (co-RED anti-vacuity/margin assertion keeps suite RED; loop re-runs suite every iteration so bump-alone can never false-converge — corroborated by the shadow reviewers themselves); extension points to the doc which carries the discrimination + verify-GREEN; extension at RAF word ceiling (6-word headroom).",
+      "parking_evidence": {
+        "basis": "structurally-enforced-plus-documented; budget-constrained surface",
+        "failing_input": "a fix loop hitting a vacuity-masked RED and bumping the ceiling",
+        "source": "anti-vacuity + margin assertions + the loop's own suite re-run keep it RED; docs decision record carries the full discrimination",
+        "finding_ref": {
+          "iter": 3,
+          "index": 2
+        }
+      }
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 2,
+    "fix_diff_lines": 20,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "park_calibration": {
+    "evidence_comparisons": [
+      {
+        "parked_finding_ref": {
+          "iter": 3,
+          "index": 2
+        },
+        "parked_finding_id": "S-2",
+        "shadow_finding_index": 0,
+        "relation": "equivalent",
+        "rationale": "final shadow re-raises the same extension policy-without-mechanism concern on the same evidentiary basis; adds no new failing input that defeats the structural-prevention pushback (the suite-stays-RED backstop the re-raising reviewers themselves acknowledge)",
+        "operands_present": true,
+        "disposition": "preserved"
+      }
+    ]
+  },
+  "shadow": {
+    "ran_at": "2026-07-20T16:20:00Z",
+    "reviewed_sha": "e01df987",
+    "verdict": "APPROVE with notes",
+    "coverage": "full",
+    "prompt_addenda": [
+      "reviewed-diff: .devflow/prompt-extensions/review-and-fix.md is in the reviewed diff, so its extension text is not provenance-clean — outcome-1 attestation not reachable (terminal not-attested state)"
+    ],
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": "prompt attestation not recorded (extension in reviewed diff)",
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Suggestion",
+        "description": "S2 re-raise: extension self-apply section omits the growth-vs-defect discrimination and verify-GREEN step on the operative surface.",
+        "defect_signature": {
+          "file": ".devflow/prompt-extensions/review-and-fix.md",
+          "line_range": [
+            168,
+            170
+          ],
+          "kind": "other"
+        }
+      }
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 1,
+      "overlap_with_iter_4": 1,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
+  "notes": "Final convergence-time shadow over e01df987 (post-shadow edit gate: reviewed_sha == HEAD, passes). Zero new Critical/Important. Sole finding is the S2 re-raise (overlap with the iter-4 parked pushback, preserved on evidence equivalence via the Park-calibration gate). code-reviewer/comment-analyzer/pr-test-analyzer/requesting-code-review all CLEAN; the three clean-approve reviewers independently corroborated the structural backstop behind the S2 pushback. Terminal: APPROVE, coverage full, prompt attestation not recorded (extension in diff) — a converged non-REJECT.",
+  "telemetry": "unavailable"
+}

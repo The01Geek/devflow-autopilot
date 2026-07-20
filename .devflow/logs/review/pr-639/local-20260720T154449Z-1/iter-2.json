@@ -1,0 +1,82 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-20T15:55:00Z",
+  "fix_commit_sha": "efb020f1",
+  "fix_files": [
+    "lib/test/run.sh"
+  ],
+  "loop_role": "fix",
+  "current_step": "3",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Important",
+      "description": "G1: iter-1 stale-value scan used grep -cF (line count); a same-line stale duplicate evades it. Both mirrors carry the phrase on one physical line.",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          34752,
+          34757
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 3,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "G2: stale-value scan covered only 2 of 4 mirrors; the budget doc's decision-record prose/cell remained presence-only.",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          34706,
+          34715
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "G-1",
+      "decision": "applied",
+      "commit": "efb020f1"
+    },
+    {
+      "finding_id": "G-2",
+      "decision": "applied",
+      "commit": "efb020f1",
+      "evidence": "bold-prose shape count-scanned (unique to shipped-default); table-cell shape shared with AC2 8,500 so left to the positional AC3 pin — a written carve-out, not a silent skip"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 2,
+    "fix_diff_lines": 22,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "notes": "Iter-2 findings were all about iter-1's own fix (variance recovery). comment-analyzer + requesting-code-review verified the coupling claim TRUE and found no documented_falsehood. G1 fixed via occurrence-counting; G2 partially via the bold-prose scan with a documented table-cell carve-out.",
+  "telemetry": "unavailable"
+}

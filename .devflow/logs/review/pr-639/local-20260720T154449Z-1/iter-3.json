@@ -1,0 +1,101 @@
+{
+  "iter": 3,
+  "started_at": "2026-07-20T16:05:00Z",
+  "fix_commit_sha": null,
+  "fix_files": [],
+  "loop_role": "fix",
+  "current_step": "2.6",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_findings": [],
+  "fix_decisions": [],
+  "notes": "Iteration 3 re-review: all 5 agents CLEAN, no new findings — the loop reached a tentative clean-APPROVE. Triggered the convergence-time shadow.",
+  "shadow": {
+    "ran_at": "2026-07-20T16:10:00Z",
+    "reviewed_sha": "efb020f1",
+    "verdict": "APPROVE with notes",
+    "coverage": "full",
+    "prompt_addenda": [
+      "reviewed-diff: .devflow/prompt-extensions/review-and-fix.md is in the reviewed diff, so its extension text is not provenance-clean (topic-steering risk) — outcome-1 attestation not reachable"
+    ],
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Important",
+        "description": "No guard bounds RB_SHIPPED_CEIL above the live measurement; the +60 margin invariant is unenforced (self-apply could set measured+500 with all mirrors consistent and suite green).",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            34488,
+            34490
+          ],
+          "kind": "test_gap"
+        }
+      },
+      {
+        "agent": "devflow:comment-analyzer",
+        "severity": "Suggestion",
+        "description": "Documented_falsehood: PR-added decision-record prose quotes run.sh comments as citing 'the doc's sanctioned escape valve', a phrase not in run.sh (self-contradicting-diff).",
+        "defect_signature": {
+          "file": "docs/review-bundle-budget.md",
+          "line_range": [
+            147,
+            148
+          ],
+          "kind": "documented_falsehood"
+        }
+      },
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Suggestion",
+        "description": "The growth-vs-defect discrimination lives in the doc, not the extension the fix loop loads.",
+        "defect_signature": {
+          "file": ".devflow/prompt-extensions/review-and-fix.md",
+          "line_range": [
+            168,
+            170
+          ],
+          "kind": "other"
+        }
+      }
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 3,
+      "overlap_with_iter_3": 0,
+      "new": 3,
+      "new_critical": 0,
+      "new_important": 1
+    },
+    "promoted_to_iter_next": true
+  },
+  "telemetry": "unavailable"
+}
