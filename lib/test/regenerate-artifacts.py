@@ -127,7 +127,7 @@ ROWS = (
             "`python3 lib/generate-capability-profiles.py`, and update "
             "lib/review-profile.tokens when the resolved review list widens"
         ),
-        # Same discriminator the other two judgment rows carry: the generator raises
+        # Same discriminator the other marker-bearing judgment rows carry: the generator raises
         # GenError for an INPUT failure (an absent/unreadable/malformed manifest, an
         # unreadable target workflow, an unreadable reviewer lock) and exits 1 —
         # byte-identically to a real token drift. Without these markers a malformed

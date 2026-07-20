@@ -46,8 +46,8 @@ trap _ra_cleanup EXIT
 _ra_live_before="$(cat "$RA_LIVE_MANIFEST" 2>/dev/null)"
 # Non-emptiness is asserted, not assumed: an unreadable or absent live manifest would
 # make _ra_live_before empty, and every _ra_live_unchanged guard below would then
-# compare "" to "" and pass vacuously — ~20 confinement assertions failing open at once,
-# on exactly the broken tree they exist to catch.
+# compare "" to "" and pass vacuously — every confinement assertion in this module
+# failing open at once, on exactly the broken tree they exist to catch.
 case "$_ra_live_before" in
   '') assert_eq "#619 the live manifest baseline is non-empty (confinement guards are live)" yes \
         "no(empty — $RA_LIVE_MANIFEST unreadable or absent; every live-unchanged guard would be vacuous)" ;;
