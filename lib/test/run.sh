@@ -3982,7 +3982,7 @@ assert_pin_red_under "#620: failed-identity-read pin catches the fail-open order
 assert_pin_unique "#620: the failed-read arm covers the permission read" \
   "$RAF_PIN_PERMFAIL" "$MAXI_ROOT"
 assert_pin_red_under "#620: permission-read failure pin catches re-scoping the arm to the identity read" \
-  "$RAF_PIN_PERMFAIL" 's/ — never an unedited reading, never an `admin`\/`write` grant\./, never an unedited reading./' \
+  "$RAF_PIN_PERMFAIL" 's/Either read that fails/The identity read that fails/' \
   "$MAXI_ROOT"
 # ORDERING is the property that makes this guard work, and the three pins above are all PRESENCE
 # checks — a reword relocating the failed-read arm to AFTER the `admin`/`write` branch satisfies
