@@ -1362,6 +1362,13 @@ def main(argv=None):
     retro = {}
     retro_order = []
     for entry in _read_jsonl(retro_path):
+        # #626: `skip` marker entries (kind: "skip") are processed-PR bookkeeping,
+        # not retrospective analyses — exclude them from experiment-record candidacy
+        # so a mechanically-skipped PR (no DevFlow provenance, no workpad) never
+        # becomes an experiment-record candidate. A real retrospective entry for the
+        # same PR (a different kind) still enters the catalog normally.
+        if isinstance(entry, dict) and entry.get("kind") == "skip":
+            continue
         pr = _pr_of(entry)
         if pr is None:
             continue

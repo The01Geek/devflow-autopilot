@@ -131,6 +131,8 @@ Initialize counters:
 prs_scanned=0
 clean_count=0
 analyzed_count=0
+skipped_count=0     # issue #626: mechanically- and Stage-A-skipped PRs
+skip_records=()     # one-line report records, one per skip (never silent)
 needs_analysis=()   # array of bundle paths
 ```
 
@@ -167,7 +169,42 @@ Increment `clean_count`.
 
 **If `clean == false`:**
 
-Add the bundle path to the analysis list:
+First run the **mechanical pre-dispatch disposition** (issue #626). This decides —
+with **no LLM dispatch** — whether the non-clean bundle warrants Stage A analysis
+or is a mechanical skip (a foreign, non-DevFlow PR whose only non-clean signal is a
+missing workpad audit trail — `Absent` means the linked issue *did* resolve but
+carried no workpad comment, so this is not restricted to issueless PRs). It is a suite-driven helper, never inline prose:
+
+```bash
+DISP=$($LIB/../scripts/run-jq.sh -c --argjson gate "$GATE" -f $LIB/dispatch-disposition.jq < "$CTX")
+```
+
+`DISP` is `{"disposition": "skip"|"dispatch", "reason": "<string>"}`. It returns
+`skip` **exactly** when the gate reason is a workpad reason, the status is a
+sentinel (`Absent`/`NoIssue`), and `pr_devflow_provenance` is `false` — otherwise
+`dispatch`. So a bundle non-clean on **any** non-workpad signal (outstanding
+REJECT, CI failures, post-bot commits, review comments) is always dispatched,
+exactly the analysis it receives today.
+
+**If `disposition == "skip"` (the mechanical no-provenance skip):** this is a
+**permanently-terminal** skip. Append a marker entry to the store and write a
+one-line run-report record — costing **zero** LLM dispatches. Do **not** add it to
+`needs_analysis`.
+
+```bash
+# $number is this PR (the loop variable); DISP's .reason is the skip reason line.
+SKIP_REASON=$(printf '%s' "$DISP" | $LIB/../scripts/run-jq.sh -r '.reason')
+$LIB/../scripts/run-jq.sh -cn --argjson pr "$number" --arg reason "$SKIP_REASON" \
+  '{kind:"skip", pr:$pr, reason:$reason}' >> .devflow/tmp/new-entries.jsonl
+skip_records+=("PR #$number skipped (mechanical, no DevFlow provenance): $SKIP_REASON")
+skipped_count=$((skipped_count + 1))
+```
+
+Record the skip in the run report (see Step 9) with its reason line and increment
+`skipped_count`. The marker entry makes the processed-PRs filter treat this PR as
+handled on subsequent runs.
+
+**If `disposition == "dispatch"`:** add the bundle path to the analysis list:
 
 ```bash
 needs_analysis+=("$CTX")
@@ -202,11 +239,36 @@ to a temp file with the Write tool** (e.g. `.devflow/tmp/result-<n>.json`), then
 operate on the file. For each result:
 
 1. Attempt to parse it: `$LIB/../scripts/run-jq.sh -c . < .devflow/tmp/result-<n>.json`
-2. If parsing fails or the object has an `"error"` key, **retry the
-   subagent once** with the same prompt.
-3. If still malformed after one retry, record a blocker:
+2. **A Stage A defined skip (issue #626) is recognized by the presence of a
+   top-level `"skip"` key ONLY** — never by matching substrings of any error text
+   (agent-authored free text is data, never a discriminator). A `"skip"`-keyed
+   return is **terminal: no retry, no blocker.** Whether it leaves a marker depends
+   on the bundle's `workpad_final_status` (a mechanical field, not the skip text):
+   - **`Cancelled`** → a **permanently-terminal** skip → append a marker entry so
+     the PR is seen as handled next run:
+     `$LIB/../scripts/run-jq.sh -cn --argjson pr <n> --arg reason "<the skip .reason>" '{kind:"skip", pr:$pr, reason:$reason}' >> .devflow/tmp/new-entries.jsonl`
+   - an **interim** state (`Setup`/`Discovering`/…/`Documenting`) → a **transient**
+     skip → append **no** marker, so the PR stays unprocessed and is re-scanned
+     while it remains inside the 7-day merge lookback.
+
+   Either way, record the skip explicitly — append the report record AND increment
+   the counter, in the same two statements the mechanical branch above uses, so
+   `skipped_count` and the rendered `skips[]` can never diverge:
+
+   ```bash
+   skip_records+=("PR #<n> skipped (Stage A, <Cancelled|interim>): <the skip .reason>")
+   skipped_count=$((skipped_count + 1))
+   ```
+
+   That record is what Step 9 renders. **Every** skip — the mechanical
+   pre-dispatch skip above, the `Cancelled` skip, and the interim skip — writes a
+   one-line report record, so no skip is ever silent.
+3. Otherwise, if parsing fails or the object has an `"error"` key (a genuine
+   failure), **retry the subagent once** with the same prompt.
+4. If still malformed (or still `"error"`-keyed) after one retry, record a blocker:
    `"PR #<n>: retrospective analysis failed"` and skip that PR.
-4. If valid, append: `$LIB/../scripts/run-jq.sh -c . < .devflow/tmp/result-<n>.json >> .devflow/tmp/new-entries.jsonl`
+5. If valid (a real retrospective entry, no `"skip"`/`"error"` key), append:
+   `$LIB/../scripts/run-jq.sh -c . < .devflow/tmp/result-<n>.json >> .devflow/tmp/new-entries.jsonl`
 
 ---
 
@@ -521,6 +583,8 @@ SUMMARY_JSON="$($LIB/../scripts/run-jq.sh -nc \
   --argjson prs_scanned         "$prs_scanned" \
   --argjson clean_count         "$clean_count" \
   --argjson analyzed_count      "$analyzed_count" \
+  --argjson skipped_count       "$skipped_count" \
+  --argjson skips               "$(printf '%s\n' "${skip_records[@]:-}" | $LIB/../scripts/run-jq.sh -sRc 'split("\n") | map(select(. != ""))')" \
   --argjson analyzed            "$ANALYZED_JSON" \
   --argjson patterns            "$PATTERNS_JSON" \
   --argjson recurring_targets   "$RECURRING_TARGETS_JSON" \
@@ -529,6 +593,7 @@ SUMMARY_JSON="$($LIB/../scripts/run-jq.sh -nc \
   --argjson blockers            "$(printf '%s\n' "${blockers[@]:-}"            | $LIB/../scripts/run-jq.sh -sc '.')" \
   --argjson state_pr            "$STATE_PR" \
   '{prs_scanned:$prs_scanned,clean_count:$clean_count,analyzed_count:$analyzed_count,
+    skipped_count:$skipped_count,skips:$skips,
     analyzed:$analyzed,patterns:$patterns,recurring_targets:$recurring_targets,
     intervention_issues:$intervention_issues,
     cooldown_skipped:$cooldown_skipped,blockers:$blockers,state_pr:$state_pr}')"
