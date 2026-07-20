@@ -37400,12 +37400,14 @@ assert_eq "#362 settings.json: efficiency trace has no cwd-relative launcher" "n
 # permanent vacuous passes. Running against a scratch fixture places every guard
 # marker/sentinel outside the live read path; lib/implement-stop-guard.sh stays
 # byte-unchanged (no test-only backdoor).
-ISG_FX="$(git_sandbox "isg: nested-dir launch fixture")"
-git -C "$ISG_FX" init -q >/dev/null 2>&1
+# isg_repo builds the git-inited sandbox with scripts/ + .devflow/tmp/ already present;
+# the fixture only adds the committed lib/ closure, a nested/ dir, and the linked worktree.
+ISG_FX="$(isg_repo "isg: nested-dir launch fixture")"
 mkdir -p "$ISG_FX/lib" "$ISG_FX/nested"
 cp "$LIB/implement-stop-guard.sh" "$LIB/config-source.sh" "$ISG_FX/lib/"
 # A linked worktree checks out only COMMITTED content, so commit the lib/ copies
 # before `git worktree add`. Inline identity so a host with no global git user passes.
+# (isg_repo's empty scripts/ and .devflow/tmp/ dirs are untracked, so they are not committed.)
 git -C "$ISG_FX" -c user.email=devflow-test@example.invalid -c user.name=devflow-test add -A >/dev/null 2>&1
 git -C "$ISG_FX" -c user.email=devflow-test@example.invalid -c user.name=devflow-test commit -q -m fixture >/dev/null 2>&1
 git -C "$ISG_FX" worktree add -q "$ISG_FX-wt" >/dev/null 2>&1
@@ -37415,18 +37417,24 @@ mkdir -p "$ISG_FX-wt/nested"
 # so sequential and concurrent suite runs never share a sentinel key.
 ISG_SID="isg-nested-$$-$RANDOM"
 
-# Every guard execution scrubs GITHUB_ACTIONS + CLAUDE_PROJECT_DIR (so the guard takes
-# the same deterministic path locally and in CI) and the git-env trio GIT_DIR /
-# GIT_WORK_TREE / GIT_CEILING_DIRECTORIES (git rev-parse --show-toplevel honors ambient
-# GIT_DIR/GIT_WORK_TREE over the working directory — a suite run from a git hook would
-# otherwise resolve every "fixture" execution at the LIVE root and silently defeat the
-# isolation). None can reach gh: the no-marker arms exit before the workpad fork, and the
-# heal-proof arm's workpad is the rc-2 stub (no gh call).
+# isg_launch DIR ERRFILE — run the tracked launcher ($ISG_GUARD_CMD) from DIR, capturing
+# stderr to ERRFILE and returning the guard's exit code. Centralizing the env scrub here
+# keeps the three arms from drifting (AC6): every guard execution scrubs GITHUB_ACTIONS +
+# CLAUDE_PROJECT_DIR (so the guard takes the same deterministic path locally and in CI) and
+# the git-env trio GIT_DIR / GIT_WORK_TREE / GIT_CEILING_DIRECTORIES (git rev-parse
+# --show-toplevel honors ambient GIT_DIR/GIT_WORK_TREE over the working directory — a suite
+# run from a git hook would otherwise resolve every "fixture" execution at the LIVE root and
+# silently defeat the isolation). None can reach gh: the no-marker arms exit before the
+# workpad fork, and the heal-proof arm's workpad is the rc-2 stub (no gh call).
+isg_launch() {
+  ( cd "$1" && printf '%s' '{"session_id":"'"$ISG_SID"'"}' \
+    | env -u GITHUB_ACTIONS -u CLAUDE_PROJECT_DIR -u GIT_DIR -u GIT_WORK_TREE -u GIT_CEILING_DIRECTORIES sh -c "$ISG_GUARD_CMD" ) \
+    2>"$2"
+}
+
 # ── No-marker arm — fixture repo, nested directory.
 ISG_NESTED_ERR="$(mktemp)"
-( cd "$ISG_FX/nested" && printf '%s' '{"session_id":"'"$ISG_SID"'"}' \
-  | env -u GITHUB_ACTIONS -u CLAUDE_PROJECT_DIR -u GIT_DIR -u GIT_WORK_TREE -u GIT_CEILING_DIRECTORIES sh -c "$ISG_GUARD_CMD" ) \
-  2>"$ISG_NESTED_ERR"
+isg_launch "$ISG_FX/nested" "$ISG_NESTED_ERR"
 ISG_NESTED_RC=$?
 assert_eq "#362 settings.json: guard launches successfully from a nested directory (fixture repo)" "0" "$ISG_NESTED_RC"
 assert_eq "#362 settings.json: nested launch emits no missing-file error (repo)" "no" \
@@ -37435,9 +37443,7 @@ assert_eq "#362 settings.json: nested launch emits no missing-file error (repo)"
 # ── No-marker arm — linked worktree, nested directory (preserves the linked-worktree
 # coverage the retired fence's comment named).
 ISG_NESTED_WT_ERR="$(mktemp)"
-( cd "$ISG_FX-wt/nested" && printf '%s' '{"session_id":"'"$ISG_SID"'"}' \
-  | env -u GITHUB_ACTIONS -u CLAUDE_PROJECT_DIR -u GIT_DIR -u GIT_WORK_TREE -u GIT_CEILING_DIRECTORIES sh -c "$ISG_GUARD_CMD" ) \
-  2>"$ISG_NESTED_WT_ERR"
+isg_launch "$ISG_FX-wt/nested" "$ISG_NESTED_WT_ERR"
 ISG_NESTED_WT_RC=$?
 assert_eq "#362 settings.json: guard launches successfully from a nested directory (fixture linked worktree)" "0" "$ISG_NESTED_WT_RC"
 assert_eq "#362 settings.json: nested launch emits no missing-file error (worktree)" "no" \
@@ -37446,17 +37452,14 @@ assert_eq "#362 settings.json: nested launch emits no missing-file error (worktr
 # ── Heal-proof arm (AC11): AFTER the no-marker arms — it plants a marker in the MAIN
 # fixture, and running it first would flip the repo no-marker arm onto the marker path.
 # A network-free observable, every suite run, that the tracked launcher resolved the
-# FIXTURE root: plant implement-active-999 + an rc-2 stub workpad, run the launcher from
-# the fixture's nested directory, and assert the guard HEALED the fixture marker (exit 0,
-# marker gone). A future edit reverting the execution to the live checkout would leave
-# this fixture marker in place → this arm goes RED.
-mkdir -p "$ISG_FX/.devflow/tmp" "$ISG_FX/scripts"
+# FIXTURE root: plant implement-active-999 + an rc-2 stub workpad (isg_repo already created
+# .devflow/tmp/ and scripts/), run the launcher from the fixture's nested directory, and
+# assert the guard HEALED the fixture marker (exit 0, marker gone). A future edit reverting
+# the execution to the live checkout would leave this fixture marker in place → RED.
 : > "$ISG_FX/.devflow/tmp/implement-active-999"
 isg_stub_workpad "$ISG_FX" 2
 ISG_HEAL_ERR="$(mktemp)"
-( cd "$ISG_FX/nested" && printf '%s' '{"session_id":"'"$ISG_SID"'"}' \
-  | env -u GITHUB_ACTIONS -u CLAUDE_PROJECT_DIR -u GIT_DIR -u GIT_WORK_TREE -u GIT_CEILING_DIRECTORIES sh -c "$ISG_GUARD_CMD" ) \
-  2>"$ISG_HEAL_ERR"
+isg_launch "$ISG_FX/nested" "$ISG_HEAL_ERR"
 ISG_HEAL_RC=$?
 assert_eq "#362 settings.json: heal-proof: launcher resolves the fixture root (exit 0)" "0" "$ISG_HEAL_RC"
 assert_eq "#362 settings.json: heal-proof: launcher resolves the fixture root (marker healed)" "yes" \
