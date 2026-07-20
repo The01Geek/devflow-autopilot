@@ -474,8 +474,9 @@ select_fix_commits() {
 }
 
 # Synthesize minimal iter-<N>.json workpads into $1 from the branch's fix
-# commits (issue #381). Each record carries only iter / fix_commit_sha /
-# fix_files / loop_role:"fix" / synthesized:true — a distinct recognized degraded
+# commits (issue #381). Each record carries exactly the ITER_SYNTH_EXPECTED_FIELDS
+# set — the effectiveness fields, plus the run-scoped evidence fields stamped with
+# explicit unrecoverable provenance (issue #541) — a distinct recognized degraded
 # class the jq filter and --self-check both ride. The rc is a FOUR-way outcome (0/2/3/4,
 # enumerated below) so the caller's breadcrumb never collapses an unestablished measurement
 # onto "found none" (the repo's unknown-is-not-zero gotcha): returns 0 iff ≥1 record was
@@ -755,7 +756,7 @@ do_self_check() {
   #       and skips — otherwise a wrong-shape workpad masquerades as complete.
   # An object yields its missing-field names; field names are bare identifiers, so
   # the `for field in $missing` word-split is safe (and emits one warning line each).
-  local iter field missing shadow_missing provenance_state provenance_value
+  local iter field missing shadow_missing provenance_state provenance_value evidence_bad
   for iter in "$WORKPAD_DIR"/iter-*.json; do
     [ -e "$iter" ] || continue
     # A synthesized record (issue #381) is a recognized degraded class — it
@@ -786,22 +787,41 @@ do_self_check() {
     # iteration — keeps every key present and so passes a presence-only check in
     # silence, which is the unknown-collapsed-onto-a-real-value defect itself. Scoped
     # to keys that ARE present, so a dropped field warns once (above) rather than
-    # twice, and the two conditions stay separately attributable. Mirrors the
-    # promotion_provenance arm below rather than re-deriving a new predicate.
+    # twice, and the two conditions stay separately attributable.
+    # Every deref is TYPE-GUARDED before it is taken — the same discipline the
+    # promotion_provenance arm below applies, whose first predicate is likewise a type
+    # check — and the `reason` is required
+    # non-empty so the validator demands exactly the shape the producer is tested to
+    # write (a one-sided invariant would accept `{"status":"unrecoverable"}` with no
+    # reason — "unknown" without saying what is unknown, the same information loss one
+    # level down). An untyped `.reference_reads.fix_delta` deref made jq ABORT (rc 5) on
+    # an agent-mutable workpad whose `reference_reads` was a string/array, and because
+    # the emit is gated on this `if`, the abort discarded the sweep violations jq had
+    # ALREADY printed on the same run — the guard failing open on exactly the record it
+    # exists to catch. Hence also the `else` arm: this is a best-effort parser over
+    # agent-mutable JSON, so a check that could not run must say so rather than read as
+    # a clean record. `2>&1` keeps jq's own diagnostic as the breadcrumb text.
     if evidence_bad="$("$DEVFLOW_JQ" -r '
       if (.synthesized != true) then empty
       else
         (["sweep_defs_read", "sweep_evidence"][] as $f
           | select(has($f))
-          | select(((.[$f] | type) != "object") or ((.[$f].status // "") != "unrecoverable"))
+          | select(((.[$f] | type) != "object")
+                   or ((.[$f].status // "") != "unrecoverable")
+                   or (((.[$f].reason // "") | tostring | length) == 0))
           | $f),
         (select(has("reference_reads"))
-          | select(((.reference_reads.fix_delta.status // "") != "unrecoverable"))
+          | select(((.reference_reads | type) != "object")
+                   or ((.reference_reads.fix_delta | type) != "object")
+                   or ((.reference_reads.fix_delta.status // "") != "unrecoverable")
+                   or (((.reference_reads.fix_delta.reason // "") | tostring | length) == 0))
           | "reference_reads.fix_delta")
-      end' "$iter" 2>/dev/null)"; then
+      end' "$iter" 2>&1)"; then
       for field in $evidence_bad; do
         echo "::warning::devflow review-and-fix self-check: synthesized iter workpad '$(basename "$iter")' carries field '${field}' WITHOUT unrecoverable provenance — a fix-commit-only record cannot establish this evidence, so a real-looking value here asserts something the synthesis floor never observed" >&2
       done
+    else
+      echo "::warning::devflow review-and-fix self-check: iter workpad '$(basename "$iter")' — the evidence-provenance shape check could not run (${evidence_bad:-no error text}); its provenance was NOT validated, so treat this record as unchecked rather than clean" >&2
     fi
     # Producer-drop advisory (issue #501): provenance is conditional, so it does
     # not belong in ITER_EXPECTED_FIELDS. Validate it only on non-synthesized

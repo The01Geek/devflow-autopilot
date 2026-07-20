@@ -57,6 +57,13 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
 
 ## Before / after
 
+> **Note on rows for files this change does not touch.** Every figure below is re-measured
+> from the tree on each update rather than carried forward, so a row can move even when its
+> file is untouched — that is a stale cell being corrected, not an effect of the change. The
+> live-extension token cell moved that way in the issue #541 update: it was a carried-forward
+> value that disagreed with this doc's own stated `round(words × 1.3)` formula. Read a moved
+> row for an untouched file as a correction, never as a regression.
+
 | Row | Included paths | Lines | Words | Bytes | ≈Tokens |
 | --- | --- | ---: | ---: | ---: | ---: |
 | **BEFORE** — monolith | `skills/review-and-fix/SKILL.md` (pre-split) | 1,134 | 36,201 | 250,928 | 47,061 |
@@ -64,12 +71,12 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
 | live extension | `.devflow/prompt-extensions/review-and-fix.md` | 203 | 2,473 | 16,546 | 3,215 |
 | **AFTER** — plugin root | `skills/review-and-fix/SKILL.md` (thin) | 329 | **3,197** | 25,707 | 4,156 |
 | **AFTER** — actual initial load | root + live extension | 532 | **5,670** | 42,253 | 7,371 |
-| **AFTER** — bundle | root + all `references/*.md` | 1313 | 40,901 | 287,856 | 53,171 |
-| **AFTER** — normal cumulative path | root + extension + Σ references | — | 43,374 | — | 56,386 |
+| **AFTER** — bundle | root + all `references/*.md` | 1313 | 40,893 | 287,811 | 53,161 |
+| **AFTER** — normal cumulative path | root + extension + Σ references | — | 43,366 | — | 56,376 |
 | **AFTER** — maximum active step | root + extension + `shadow-review.md` | — | **16,932** | — | 22,012 |
 | reference: `shadow-review.md` | Step 2.6 | 235 | 11,262 | 79,276 | 14,641 |
-| reference: `fixing.md` | Step 3 | 156 | 9,131 | 62,410 | 11,870 |
-| reference: `loop-exit.md` | Loop Exit | 273 | 6,594 | 45,216 | 8,572 |
+| reference: `fixing.md` | Step 3 | 156 | 9,130 | 62,404 | 11,869 |
+| reference: `loop-exit.md` | Loop Exit | 273 | 6,587 | 45,177 | 8,563 |
 | reference: `loop-control.md` | workpad + field semantics + Main Loop + Steps 0.5–2 | 188 | 5,189 | 36,686 | 6,746 |
 | reference: `pre-fix-gates.md` | Step 2.5 + parked-class sweep | 51 | 2,220 | 16,231 | 2,886 |
 | reference: `fix-delta-gate.md` | Step 3.5 | 29 | 1,482 | 10,304 | 1,927 |
@@ -91,9 +98,9 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
   reduction the split exists to deliver: everything else now loads on demand, one step reference
   at a time.
 
-- **⚠️ `review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,700 words.**
+- **⚠️ `review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,692 words.**
   The *normal cumulative path* (root + extension + every reference a full run loads in sequence)
-  is 43,374 words vs. 38,674 before — a net **growth of +4,700 words** (+12.2%). Two things drive
+  is 43,366 words vs. 38,674 before — a net **growth of +4,692 words** (+12.1%). Two things drive
   it: the routing text the split itself adds (the *Step routing* table, the *Reference-loading
   contract* — entry-gate, canonical-boundary rule, per-reference failure map, always-resident
   re-read rule — the condensed terminal verdict→chat mapping, the durable-operand schema fields,
@@ -102,6 +109,6 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
   fields and the below-verdict-threshold evidence-classification prose in `shadow-review.md`, the
   bulk of the increase). It is **justified**: the split trades this cumulative increase for a
   33,004-word reduction in the *mandatory* prompt, on-demand sequential loading (only one step
-  reference resident at a time — peak 16,932 words, not 43,374), and fail-closed reference handling.
+  reference resident at a time — peak 16,932 words, not 43,366), and fail-closed reference handling.
   Cumulative token spend on a full run is not the metric the split optimizes; peak-context and
   per-step focus are.

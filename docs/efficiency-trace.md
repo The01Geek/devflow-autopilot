@@ -405,7 +405,7 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
   It **additionally validates each `iter-<N>.json`'s field set**: for every iter workpad missing a
   field in the single-source `ITER_EXPECTED_FIELDS` set (the iter schema's top-level fields minus the
   conditional and non-telemetry ones — `shadow` and `reference_reads`, appended later by Step 2.6 and
-  Step 3.5's fix-delta gate respectively and so legitimately absent, plus the convergence-only and
+  Step 3.5's fix-delta gate respectively and so legitimately absent, plus the promotion/parking and
   navigation-stamp fields; `LR_CONDITIONAL_FIELDS` in `lib/test/run.sh` is the single list that
   declares the full subtracted set and drives both the subtraction and its presence pins), it emits a `::warning::` naming
   the field and the iter file — turning a silently-dropped inline-persist field into a visible signal.

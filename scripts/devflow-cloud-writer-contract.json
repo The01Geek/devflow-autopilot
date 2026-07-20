@@ -1,6 +1,6 @@
 {
   "files": {
-    "lib/efficiency-trace.sh": "cbef6153c2e7348405ae16e39fce0942c4c8345aa4043359ff68c20fc332dc72",
+    "lib/efficiency-trace.sh": "7fa35979f34ac866fb7dfa6be2d3ad66e30caebf1dc029573b7634712f8aeaea",
     "scripts/apply-labels.sh": "1a19b88602745ea4644857e9bb37a2986212e96de3c83984aa752f14745d0e0f",
     "scripts/branch-for-issue.py": "e44aa7e0d8e743c9ea6c0b650e39376b91cefb5ce7eaca22803f3f50f5a0f1a9",
     "scripts/config-get.sh": "a418b2e05a7a2205ae8f7495b3c05f65660694a96c580895048b4688b0fa195e",
@@ -35,9 +35,9 @@
     "skills/review-and-fix/references/convergence.md": "a593c24c4c3eaf696978c1343eb28c5fd2889536c08fc7753d2bae9c66ca553a",
     "skills/review-and-fix/references/error-handling.md": "89bc17d53e1563c7736bd544a4945698ab26a010cd97c7b76b98adf03ff5dedb",
     "skills/review-and-fix/references/fix-delta-gate.md": "22db0ed407a54c621a2dc80d64846224742b1956196fb34e3dd83d9fd24c0bc5",
-    "skills/review-and-fix/references/fixing.md": "c229ee403b3b3426102fbd2ace2bc4cf92f98c1c4d3e7dbf8c45f0c89ef98483",
+    "skills/review-and-fix/references/fixing.md": "c1bd792a5c94ba7e4c5f2fada7cf047553864abd2a12aac268988e65ee337300",
     "skills/review-and-fix/references/loop-control.md": "2e76a5d4569e567bbb99ff0a49ee8cd34049be3bbff1b313b39c83cfb38e9308",
-    "skills/review-and-fix/references/loop-exit.md": "7aca1927010f681acb33d64d8f766f43104f3194e2123eee5486c52e149ef830",
+    "skills/review-and-fix/references/loop-exit.md": "1f8d983557624b5a0050c8585c67eb8e5f294b7c8065b59afd5666ad38f75561",
     "skills/review-and-fix/references/pre-fix-gates.md": "68fa47a956484460ab8186cad1522ea44b8db161c69ab232f75574622c926d4a",
     "skills/review-and-fix/references/shadow-review.md": "b3467ff2c727384436ea1743b46fb02adc3cb0adb749b318b49121e03d46a1f0",
     "skills/review/SKILL.md": "e54d2123985cb2d21da4c659606f9a0e1ddec905d3fab4db5f44ca10e5796c4e",

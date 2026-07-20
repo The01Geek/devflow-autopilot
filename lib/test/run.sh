@@ -21280,6 +21280,34 @@ done
 assert_eq "et-fresh(#541): the value-shape warning is NOT misreported as a missing field (attribution)" "no" \
   "$(printf '%s\n' "$ETF5_BAD_OUT" | grep -qF "iter-3.json' is missing expected field" && echo yes || echo no)"
 rm -f "$ETF5_WPD/iter-3.json"
+# MALFORMED-SHAPE MATRIX (#541 review round 3, shadow + fix-delta gate, corroborated 3x).
+# `reference_reads` is an agent-mutable workpad field, so the shape check is a best-effort
+# parser and gets this repo's adversarial input-shape sweep. The first version of the check
+# indexed `.reference_reads.fix_delta` with NO type guard: on a string/array/number jq
+# ABORTED (rc 5), the rc-gated `if` went false, and the sweep violations jq had ALREADY
+# printed on that same run were discarded with it — one malformed value silently suppressing
+# EVERY provenance warning for the record, the very fail-open the check exists to prevent.
+# Each row therefore pairs the malformed value with a genuinely-regressed `sweep_defs_read`
+# and asserts the sweep warning STILL fires: that is the attribution property, and it is what
+# a bare "does it warn about reference_reads" assertion would miss.
+for _f541m in '"oops"' '["oops"]' '5' 'null' '{"fix_delta":5}' '{"fix_delta":{"status":"verified"}}'; do
+  printf '%s' "{\"iter\":1,\"fix_commit_sha\":\"a\",\"fix_files\":[\"f\"],\"loop_role\":\"fix\",\"synthesized\":true,\"sweep_defs_read\":{\"status\":\"not-run\"},\"sweep_evidence\":{\"status\":\"unrecoverable\",\"reason\":\"y\"},\"reference_reads\":$_f541m}" \
+    > "$ETF5_WPD/iter-4.json"
+  ETF5_MAL_OUT="$( ( cd "$ETF5_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$ETF5_WPD" --slug pr-5 ) 2>&1 )"
+  assert_eq "et-fresh(#541 malformed): reference_reads=$_f541m does not suppress the sweep_defs_read provenance warning (guard does not fail open)" "yes" \
+    "$(printf '%s\n' "$ETF5_MAL_OUT" | grep -qF "iter-4.json' carries field 'sweep_defs_read' WITHOUT unrecoverable provenance" && echo yes || echo no)"
+  rm -f "$ETF5_WPD/iter-4.json"
+done
+# An unrecoverable stamp with a MISSING reason is rejected too: the producer is asserted to
+# write a non-empty reason, so a validator that accepted `{"status":"unrecoverable"}` alone
+# would be a one-sided invariant — "unknown" without saying what is unknown, the same
+# information loss this field exists to prevent, one level down.
+printf '%s' '{"iter":1,"fix_commit_sha":"a","fix_files":["f"],"loop_role":"fix","synthesized":true,"sweep_defs_read":{"status":"unrecoverable"},"sweep_evidence":{"status":"unrecoverable","reason":"y"},"reference_reads":{"fix_delta":{"status":"unrecoverable","reason":"z"}}}' \
+  > "$ETF5_WPD/iter-5.json"
+ETF5_NOREASON_OUT="$( ( cd "$ETF5_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$ETF5_WPD" --slug pr-5 ) 2>&1 )"
+assert_eq "et-fresh(#541): an unrecoverable stamp with no reason is flagged (validator matches the producer contract)" "yes" \
+  "$(printf '%s\n' "$ETF5_NOREASON_OUT" | grep -qF "iter-5.json' carries field 'sweep_defs_read' WITHOUT unrecoverable provenance" && echo yes || echo no)"
+rm -f "$ETF5_WPD/iter-5.json"
 rm -rf "$ETF5_ORIGIN" "$ETF5_REPO"
 
 # et-fresh(R7) — the refresh-failed decline path runs with tr/sed/wc/cut/head
@@ -22772,7 +22800,15 @@ mkdir -p "$LR_CLEAN_RUN"
 mkdir -p "$LR_CLEAN/.devflow/logs/efficiency"
 printf '{}' > "$LR_CLEAN/.devflow/logs/efficiency/pr-80-run-n.json"
 # Every ITER_EXPECTED_FIELDS member present; no shadow key (shadow is exempt).
-printf '%s' '{"iter":1,"started_at":"t","fix_commit_sha":"abc","fix_files":[],"loop_role":"fix","sweep_defs_read":[],"sweep_evidence":{"status":"not-run","reason":"no fixes applied"},"checklist":[],"phase3_dispatched":3,"diff_profile":"x","phase3_findings":[],"fix_decisions":[],"convergence_inputs":{},"cap_drops":[],"telemetry":{}}' \
+# The fixture carries `reference_reads` in its REAL (Step-3.5-written) verified shape
+# (#541 review, pr-test-analyzer): the only records that otherwise exercise the field
+# end-to-end are synthesized ones, so the ordinary gate-run path — a well-formed
+# reference_reads on a NON-synthesized record, which --self-check must pass in silence —
+# was asserted only by the field's absence. Carrying it here makes the zero-warning
+# assertion below cover that path, and turns RED if the evidence-shape arm is ever
+# widened past `.synthesized == true` "for symmetry" and starts warning on every
+# ordinary iteration that ran the gate.
+printf '%s' '{"iter":1,"started_at":"t","fix_commit_sha":"abc","fix_files":[],"loop_role":"fix","sweep_defs_read":[],"sweep_evidence":{"status":"not-run","reason":"no fixes applied"},"reference_reads":{"fix_delta":{"status":"verified","outcome":"clean","reason":null}},"checklist":[],"phase3_dispatched":3,"diff_profile":"x","phase3_findings":[],"fix_decisions":[],"convergence_inputs":{},"cap_drops":[],"telemetry":{}}' \
   > "$LR_CLEAN_RUN/iter-1.json"
 LR_CLEAN_OUT="$( ( cd "$LR_CLEAN" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$LR_CLEAN_RUN" --slug pr-80 ) 2>&1 )"; LR_CLEAN_RC=$?
 assert_eq "loop_role #177: --self-check exits 0 on a complete iter (all fields present)" "0" "$LR_CLEAN_RC"
@@ -34889,7 +34925,7 @@ for _raf_ceil in "$RAF_ROOT_CEIL" "$RAF_LOAD_CEIL" "$RAF_MAXSTEP_CEIL"; do
     "$(case "$_raf_doc_nocommas" in *"≤ $_raf_ceil words |"*) echo yes;; *) echo no;; esac)"
 done
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,700 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,692 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute
