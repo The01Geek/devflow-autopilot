@@ -4,6 +4,19 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.18.3] — 2026-07-20
+
+### Changed
+### Added
+
+- A batched generated-artifact pass, `lib/test/regenerate-artifacts.py`, that regenerates the
+  cloud-writer runtime manifest and runs the non-writing check for each judgment-gated artifact
+  (the capability-profile literals, the prompt-mass baseline, the review-bundle budget record,
+  and the coverage-map ratchet) in one invocation, reporting every resulting judgment item
+  together. Fix and implement loops run it once after applying edits and before each full-suite
+  re-verify run, collapsing N discover-fix-rerun suite cycles into one batched pass plus one
+  re-verify run.
+
 ## [2.18.2] — 2026-07-20
 
 ### Changed
