@@ -5999,6 +5999,47 @@ assert_pin_red_on_removal "#254: Phase 4.0.5 tr-degraded empty-slug breadcrumb f
   'current branch produced an empty slug' "$P4_FILE"
 assert_pin_unique "#254: Phase 4.0.5 guards the branch-slug arm on a non-empty slug" \
   '[ -n "$BRANCH_SLUG" ] && [ "$BRANCH_DIR" != "$SLUG_DIR" ]' "$P4_FILE"
+
+# ── issue #555: Phase 4.0.5 manifest discovery runs through the fail-closed helper, not a
+# multi-root `find` whose exit status the `| sort` capture masked. Under the old shape a
+# search that FAILED and a search that legitimately matched nothing both yielded an empty
+# MANIFESTS, so the unconditional sentinel printed the clean `manifest=[]` and acknowledged
+# deferrals were stranded with no signal (observed live on issue #533). The helper's exit
+# code carries discovery status, the fence discriminates it into DISCOVERY_STATE, and the
+# reader routing gains fail-closed arms. Pin the discovery statement, the sentinel field,
+# the extended filing guard, and the roots-echo surfacing; the two arms that decide whether
+# a degraded discovery is readable as the clean no-op are BEHAVIORAL fixes and take
+# assert_pin_red_under with a mutation that re-introduces the fail-open read.
+assert_pin_unique "#555: Phase 4.0.5 discovers manifests through the fail-closed helper" \
+  'discover-deferral-manifests.py $SEARCH_DIRS 2>/tmp/devflow-dm.err' "$P4_FILE"
+assert_pin_unique "#555: Phase 4.0.5 initializes DISCOVERY_STATE empty before the discovery statement (the #480 sentinel-operand rule)" \
+  'DISCOVERY_STATE=""' "$P4_FILE"
+assert_pin_unique "#555: Phase 4.0.5 discriminates the partial marker with the file-deferrals.py grep idiom" \
+  "elif grep -q 'devflow: discovery partial:' /tmp/devflow-dm.err; then" "$P4_FILE"
+assert_pin_unique "#555: the failed/refused arm blanks MANIFESTS so the merge guard is unambiguously false" \
+  'DISCOVERY_STATE=failed' "$P4_FILE"
+assert_pin_unique "#555: the sentinel carries the discovery= field, guarded with :- like filing=" \
+  'discovery=[${DISCOVERY_STATE:-}]' "$P4_FILE"
+assert_pin_unique "#555: the filing guard requires a successful discovery (a persisted prior aggregate must not drive filing on a failed/refused discovery)" \
+  '{ [ "$DISCOVERY_STATE" = ok ] || [ "$DISCOVERY_STATE" = partial ]; } && [ -n "$AGG" ] && [ -s "$AGG" ]' "$P4_FILE"
+assert_pin_unique "#555: the fence surfaces the helper roots-echo into the tool result on every path" \
+  "grep 'devflow: discovery roots:' /tmp/devflow-dm.err || true" "$P4_FILE"
+# Behavioral-fix pin 1 (#464 mutation evidence): the `discovery=[failed]` routing arm's operative
+# sentence is the instruction NOT to read the accompanying `manifest=[]` as the clean no-op.
+# Delete that one sentence and the reader is back to the #533 fail-open read while the bullet's
+# framing survives — which is exactly why this is assert_pin_red_under, not _red_on_removal.
+assert_pin_red_under "#555: discovery=[failed] routes fail-closed (removing the do-not-read-as-clean-no-op sentence goes RED)" \
+  'Do **not** read that `manifest=[]` as the clean no-op: no manifest could be discovered.' \
+  's/Do \*\*not\*\* read that `manifest=\[\]` as the clean no-op: no manifest could be discovered\. //' \
+  "$P4_FILE"
+# Behavioral-fix pin 2 (#464 mutation evidence): the clean-no-op arm is narrowed to REQUIRE
+# `discovery=[ok]`. Strip that requirement from the arm header and a failed/partial discovery
+# that also printed `manifest=[]` matches the clean-no-op arm again — the exact silent loss.
+assert_pin_red_under "#555: the clean-no-op arm requires discovery=[ok] (removing the requirement goes RED)" \
+  '- **Sentinel present with `discovery=[ok]`, `pr=[<n>]` and `manifest=[]`**' \
+  's/Sentinel present with `discovery=\[ok\]`, `pr=\[<n>\]`/Sentinel present with `pr=[<n>]`/' \
+  "$P4_FILE"
+
 assert_pin_unique "sweep 2.3.6: implement SKILL keeps the sweep body" '#### 2.3.6 Error-handling & silent-failure sweep' "$IMPL_SKILL"
 assert_pin_unique "sweep 2.3.6: implement SKILL lists it in the always-run index" '**2.3.6** (error-handling & silent-failure)' "$IMPL_SKILL"
 assert_eq "sweep 2.3.6: docs/implement-skill.md keeps the rationale table row" "yes" \
@@ -34780,10 +34821,17 @@ import sys
 lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
 def first(pred):
     return next((i for i, l in enumerate(lines) if pred(l)), None)
-guard = first(lambda l: l.strip().startswith('if [ -n "$AGG" ] && [ -s "$AGG" ]; then'))
+# The filing guard's leading condition moved in #555 (it now also requires a successful
+# discovery), so match it on the aggregate test that is its stable tail rather than on the
+# statement's opening bytes — a `startswith('if [ -n "$AGG" ]')` probe silently found NOTHING
+# after that rework and the placement pin would have reported "no" for the wrong reason.
+guard = first(lambda l: '[ -n "$AGG" ] && [ -s "$AGG" ]; then' in l and l.strip().startswith('if '))
 fs = first(lambda l: l.strip() == 'FILED_STATE=""')
 fn = first(lambda l: l.strip() == 'FILED_NUMBERS=""')
-print("yes" if None not in (guard, fs, fn) and fs < guard and fn < guard else "no")
+# #555: DISCOVERY_STATE is a sentinel operand too and is read by the guard itself, so it takes
+# the same before-the-guard placement contract.
+ds = first(lambda l: l.strip() == 'DISCOVERY_STATE=""')
+print("yes" if None not in (guard, fs, fn, ds) and fs < guard and fn < guard and ds < guard else "no")
 PY
 )"
 # ── FALSE-POSITIVE control for the idiom the guarded fences actually write (#480 review):
@@ -43708,7 +43756,7 @@ fi
 # lower-bound contract; test_module_runner.py parses this operand and rejects any
 # coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/capability-profiles.sh" \
-  "capability-profiles" 59; then
+  "capability-profiles" 61; then
   printf 'ERROR: capability-profiles boundary could not record its result\n'
   exit 1
 fi
