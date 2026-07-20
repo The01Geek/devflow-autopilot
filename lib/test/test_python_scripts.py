@@ -2912,6 +2912,126 @@ assert_eq("effort-app(#554): empty dispatched → empty decision map",
 assert_eq("effort-app(#554): empty decisions → no report lines",
           [], _rro.format_effort_reports({}, {}))
 
+# --- effort observability blocks (issue #609): requested/resolved + decision ---
+# build_effort_observability composes, per DISPATCHED agent, the five-field
+# block the iter workpad's `dispatched_effort` entries carry: `requested` (the
+# raw configured effort before validation — entry-level precedence, no default
+# backfill), `resolved` (the validated effort from the resolve_overrides map),
+# and the decide_effort_applications trio. Complete by construction: every block
+# carries all five keys.
+
+_EO_KEYS = {"requested", "resolved", "application_point", "effective",
+            "fallback_reason"}
+
+# EO1: own-entry valid effort → requested == resolved, session-fallback.
+_eo1_raw = {"devflow:checklist-generator": {"effort": "low"}}
+_eo1_res, _ = _rro.resolve_overrides(_eo1_raw, ["devflow:checklist-generator"])
+_eo1 = _rro.build_effort_observability(
+    _eo1_raw, _eo1_res, ["devflow:checklist-generator"])
+assert_eq("effort-obs(#609): own-entry requested carries the configured value",
+          "low", _eo1["devflow:checklist-generator"]["requested"])
+assert_eq("effort-obs(#609): own-entry resolved carries the validated value",
+          "low", _eo1["devflow:checklist-generator"]["resolved"])
+assert_eq("effort-obs(#609): resolved effort → session-fallback",
+          "session-fallback",
+          _eo1["devflow:checklist-generator"]["application_point"])
+assert_eq("effort-obs(#609): effective is null unless read back",
+          None, _eo1["devflow:checklist-generator"]["effective"])
+assert_eq("effort-obs(#609): every block carries exactly the five effort keys",
+          _EO_KEYS, set(_eo1["devflow:checklist-generator"].keys()))
+
+# EO2: no override anywhere → all-null block with session-inheritance.
+_eo2 = _rro.build_effort_observability({}, {}, ["devflow:code-reviewer"])
+assert_eq("effort-obs(#609): no override → session-inheritance all-null block",
+          {"requested": None, "resolved": None,
+           "application_point": "session-inheritance",
+           "effective": None, "fallback_reason": None},
+          _eo2["devflow:code-reviewer"])
+
+# EO3: an INVALID configured effort is visible as requested != resolved — the
+# silent-drop signal the observability block exists to expose. The resolver
+# dropped it, so the decision is session-inheritance (nothing resolved), but
+# requested still records what the config asked for.
+_eo3_raw = {"devflow:code-reviewer": {"effort": "ultra"}}
+_eo3_res, _ = _rro.resolve_overrides(_eo3_raw, ["devflow:code-reviewer"])
+_eo3 = _rro.build_effort_observability(
+    _eo3_raw, _eo3_res, ["devflow:code-reviewer"])
+assert_eq("effort-obs(#609): invalid effort keeps requested='ultra'",
+          "ultra", _eo3["devflow:code-reviewer"]["requested"])
+assert_eq("effort-obs(#609): invalid effort resolves to null",
+          None, _eo3["devflow:code-reviewer"]["resolved"])
+assert_eq("effort-obs(#609): invalid-dropped effort → session-inheritance",
+          "session-inheritance",
+          _eo3["devflow:code-reviewer"]["application_point"])
+
+# EO4: default-entry effort supplies a no-entry agent (requested follows the
+# same entry-level precedence resolve_overrides applies).
+_eo4_raw = {"default": {"effort": "medium"}}
+_eo4_res, _ = _rro.resolve_overrides(_eo4_raw, ["devflow:checklist-verifier"])
+_eo4 = _rro.build_effort_observability(
+    _eo4_raw, _eo4_res, ["devflow:checklist-verifier"])
+assert_eq("effort-obs(#609): default supplies requested for a no-entry agent",
+          "medium", _eo4["devflow:checklist-verifier"]["requested"])
+assert_eq("effort-obs(#609): default-supplied effort resolves and falls back",
+          "session-fallback",
+          _eo4["devflow:checklist-verifier"]["application_point"])
+
+# EO5: an own entry WITHOUT effort blocks default backfill — requested is null
+# even though default carries an effort (entry-level precedence, mirrored).
+_eo5_raw = {"default": {"effort": "medium"},
+            "devflow:code-reviewer": {"model": "claude-opus-4-8"}}
+_eo5_res, _ = _rro.resolve_overrides(_eo5_raw, ["devflow:code-reviewer"])
+_eo5 = _rro.build_effort_observability(
+    _eo5_raw, _eo5_res, ["devflow:code-reviewer"])
+assert_eq("effort-obs(#609): own entry without effort → requested null (no backfill)",
+          None, _eo5["devflow:code-reviewer"]["requested"])
+assert_eq("effort-obs(#609): own entry without effort → session-inheritance",
+          "session-inheritance",
+          _eo5["devflow:code-reviewer"]["application_point"])
+
+# EO6: capability-restricted (Haiku) — the block's fallback_reason names the
+# model, same decision the #554 report path computes (single source).
+_eo6_raw = {"devflow:code-reviewer":
+            {"model": "claude-haiku-4-5-20251001", "effort": "low"}}
+_eo6_res, _ = _rro.resolve_overrides(_eo6_raw, ["devflow:code-reviewer"])
+_eo6 = _rro.build_effort_observability(
+    _eo6_raw, _eo6_res, ["devflow:code-reviewer"])
+assert_eq("effort-obs(#609): Haiku block is session-fallback",
+          "session-fallback",
+          _eo6["devflow:code-reviewer"]["application_point"])
+assert_eq("effort-obs(#609): Haiku block's fallback_reason names the model",
+          True,
+          "haiku" in _eo6["devflow:code-reviewer"]["fallback_reason"].lower())
+
+# EO7: the CLI seam — `--effort-json` prints the observability map (NOT the
+# override map) as pure JSON on stdout, and does not re-emit the #554 effort
+# report lines (the normal resolve call already reported them).
+_saved_read_raw = _rro.read_raw
+_rro.read_raw = lambda agents, config_get, config: (
+    {"devflow:checklist-generator": {"effort": "low"}}, [])
+try:
+    _eo7_out, _eo7_err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(_eo7_out), \
+         contextlib.redirect_stderr(_eo7_err):
+        _eo7_rc = _rro.main(["devflow:checklist-generator", "--effort-json"])
+    _eo7_map = _json.loads(_eo7_out.getvalue())
+    assert_eq("effort-obs(#609): --effort-json exits 0", 0, _eo7_rc)
+    assert_eq("effort-obs(#609): --effort-json stdout is the five-field map",
+              {"requested": "low", "resolved": "low",
+               "application_point": "session-fallback",
+               "effective": None,
+               "fallback_reason": _eo7_map
+               ["devflow:checklist-generator"]["fallback_reason"]},
+              _eo7_map["devflow:checklist-generator"])
+    assert_eq("effort-obs(#609): --effort-json fallback_reason is non-null",
+              True,
+              _eo7_map["devflow:checklist-generator"]["fallback_reason"]
+              is not None)
+    assert_eq("effort-obs(#609): --effort-json does not re-emit the effort report",
+              False, "::notice::" in _eo7_err.getvalue())
+finally:
+    _rro.read_raw = _saved_read_raw
+
 # read_raw integration (exercises the real config-get.sh I/O path, not just the
 # pure resolver). The empty-own-entry contract must hold END-TO-END: the leaf
 # reads alone can't tell {} from an absent key, so read_raw probes the entry

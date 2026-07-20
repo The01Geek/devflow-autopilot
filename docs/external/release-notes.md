@@ -2,6 +2,8 @@
 
 ## July 20, 2026
 
+- **Improvement — Per-run efficiency telemetry now records each review agent's effort decision** — DevFlow's per-run efficiency telemetry now carries a per-agent effort-observability block for every review subagent it dispatches across all four dispatch phases — recording, for each agent, the requested effort, the resolved effort, where that effort was applied, the effective effort when it can be read back, and the reason for any fallback. An operator tuning per-agent effort overrides can now see after the fact exactly what each of the nine review agents was asked to run at and what it actually ran at, including the earlier checklist-phase agents that the telemetry previously did not cover. The change is additive and read-only — it adds no new configuration and changes no review behavior. (#630)
+
 - **Fix — Bot git-identity setup on self-hosted Windows runners is now an opt-in setting** — DevFlow's cloud jobs could abort at startup on a self-hosted Windows runner with `fatal: not in a git directory` (exit 128) before the agent did any work, because the underlying action's git-identity setup could not locate the repository from its inherited working directory. The three generated cloud workflows can pin the repository location on the Claude Code action step so git identity configures reliably regardless of the working directory. This is governed by two new configuration keys, `setup.git_dir_pin` and `setup.git_work_tree_pin`, **both off by default** — self-hosted Windows adopters enable `setup.git_dir_pin` to get this behavior, and `docs/cloud-setup.md` records what each combination costs. The default leaves GitHub-hosted Linux runners unaffected. (#643, #645)
 
 ## July 19, 2026

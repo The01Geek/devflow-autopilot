@@ -162,7 +162,13 @@ the tree-equality guard, and every OTHER path stays strictly per-run-immutable. 
 - `per_iteration[]` — dispatch counts, `diff_profile` (Phase 0.5 flags — segment cut decisions by
   this), `verification_posture`, checklist lite/agent split, fixes applied, the `added_nothing` flag,
   `phase3_dispatched_present` (so the analyzer can tell a genuinely zero-dispatch iteration from one
-  degraded by an absent roster — both show count 0), the `agent_verdicts` roster, `synthesized`
+  degraded by an absent roster — both show count 0), the `agent_effort[]` per-agent effort
+  observability blocks with their `dispatched_effort_present` flag (issue #609: agent id plus
+  exactly `requested`, `resolved`, `application_point`, `effective` — null unless read back — and
+  `fallback_reason`, populated over `phase3_dispatched` ∪ the iter workpad's `dispatched_effort`
+  roster, so a Phase-1/1.5/2 checklist agent's effort decision is carried too; an agent with no
+  entry records an all-null `session-inheritance` block; additive and nullable, `schema_version`
+  stays 1), the `agent_verdicts` roster, `synthesized`
   (whether *this* iteration was reconstructed by the synthesis floor — a strict `== true` of the
   workpad field, so an absent field reads `false`), and `loop_role`
   (`fix` | `promoted`) — each iteration's role in the fix loop, **derived here** from the prior

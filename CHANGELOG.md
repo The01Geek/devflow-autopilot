@@ -4,6 +4,23 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.18.12] — 2026-07-20
+
+### Changed
+### Added
+
+- Per-agent effort observability in the per-run efficiency telemetry (issue #609, carried from
+  #554; PR #630): the per-run record now carries an `agent_effort[]` block per iteration —
+  agent id plus exactly `requested`, `resolved`, `application_point`, `effective` (null unless
+  read back), and `fallback_reason` — populated over the full dispatched roster
+  (`phase3_dispatched` ∪ the new `dispatched_effort` iter-workpad field, which captures the
+  Phase-1/1.5/2 checklist-agent dispatches with their effort decisions). A
+  `checklist-generator.effort` override is no longer silently missing from the record, and a
+  dispatched agent with no override records an all-null `session-inheritance` block.
+  `resolve-review-overrides.py` gains an `--effort-json` mode emitting the five-field map per
+  dispatched agent. Additive and nullable — no `schema_version` bump, and
+  `validate-telemetry-artifact.sh` passes the block unchanged.
+
 ## [2.18.11] — 2026-07-20
 
 ### Fixed
