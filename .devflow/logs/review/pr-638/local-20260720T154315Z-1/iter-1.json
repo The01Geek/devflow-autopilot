@@ -1,0 +1,33 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-20T15:43:15Z",
+  "loop_role": "fix",
+  "current_step": "loop-exit",
+  "config": {
+    "max_iters": 5,
+    "fix_threshold": "suggestion"
+  },
+  "run_id": "local-20260720T154315Z-1",
+  "pr_head_at_start": "da92be02b4e6c1510cd781e1d02301faffaa5b93",
+  "fix_commit_sha": "3a789221",
+  "fix_files": [
+    "lib/fetch-pr-context.sh",
+    "lib/test/run.sh"
+  ],
+  "verification_evidence": {
+    "full_suite": "10861 passed, 0 failed, 1 skipped",
+    "skipped_checks": [
+      "#434 stale-prose self-scan [blocking-gate] — dirty tree, grades committed HEAD; arms on commit/CI"
+    ],
+    "shellcheck": "clean (lib/fetch-pr-context.sh)",
+    "artifacts": "reconciled — regenerate-artifacts exit 0"
+  },
+  "convergence": {
+    "prior_findings_addressed": 9,
+    "defects_found_and_fixed": 2,
+    "delta_review": "devflow:code-reviewer over 515d90a0..HEAD — no Important/Critical; one disclosed-residual suggestion, no action",
+    "verdict": "converged clean"
+  },
+  "final_head": "3a789221",
+  "telemetry": "unavailable"
+}
