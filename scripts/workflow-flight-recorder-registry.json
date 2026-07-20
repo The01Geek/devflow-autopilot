@@ -24,7 +24,7 @@
     "regenerate-artifacts": {
       "path": "lib/test/modules/regenerate-artifacts.sh",
       "minimum_assertions": 100,
-      "description": "Focused #619 batched generated-artifact pass: clean-tree run, mechanical regeneration and idempotency, closure-error vs traceback routing, combined judgment drift with write-scope negatives, --list registry surface and bundle-membership coupling, the three-state exit contract including in-declared-set infrastructure paths and the helper's own top-level exception net, per-row infra_marker discrimination for every judgment row, and the budget row's unestablished/untracked/resolved/deleted-member arms"
+      "description": "Focused #619 batched generated-artifact pass: clean-tree run, mechanical regeneration and idempotency, closure-error vs traceback routing, combined judgment drift with write-scope negatives, --list registry surface and bundle-membership coupling, the three-state exit contract including the infrastructure paths reached despite an in-set exit, per-row infra_marker discrimination for every judgment row with per-line marker scoping, and the budget row's unestablished/untracked/resolved/deleted-member arms"
     }
   },
   "workflows": {

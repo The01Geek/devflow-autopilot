@@ -33,8 +33,8 @@ instruction must fire before *every* full-suite re-verify run. A reference file 
 rare path would be absent at exactly the moment the pass is due, which is the failure mode the
 `batched-regeneration: run|refused|skipped` discharge line exists to make auditable.
 
-All three surfaces are grown rather than one, because each is the unconditional entry surface of a
-distinct loop that induces this drift, and no one of them is loaded by the other two. In
+Every named surface is grown rather than one, because each is the unconditional entry surface of a
+distinct loop that induces this drift, and none of them is loaded by the others. In
 particular, `/devflow:review-and-fix` cites the receiving-code-review skill by *principles* only —
 a prose citation, not a guaranteed skill load — so the receiving-code-review extension alone would
 not reach the flagship fix loop.
@@ -47,7 +47,7 @@ this instruction could not fit under it at any phrasing. The section was
 first trimmed to its operative minimum (the invocation, the act-on-the-report rule, the
 infrastructure-failure arm, the two-denials degradation, and the discharge line) and only then
 was the ceiling renegotiated **5,510 → 5,690**, mirroring the #556 precedent and carrying the
-same kind of small headroom over the measured 5,683. `lib/test/run.sh`'s `RAF_LOAD_CEIL` and
+same kind of small headroom over the measured 5,686. `lib/test/run.sh`'s `RAF_LOAD_CEIL` and
 every coupled cell in `docs/review-and-fix-budget.md` are updated in this same change; the
 growth-delta (+4,323) and net-reduction (32,988) figures are unchanged, because the extension
 term appears on both sides of each subtraction and cancels. This artifact is the audited

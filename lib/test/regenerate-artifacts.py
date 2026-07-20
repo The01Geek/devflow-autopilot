@@ -26,10 +26,14 @@ INCLUSION CRITERION for a row: a checked-in record whose suite gate goes RED on
 loop-induced edits AND which has a standalone non-writing check command (a
 regeneration command, for a mechanical row).
 
-DELIBERATELY EXCLUDED as artifact rows (disclosed non-goal):
-`scripts/workflow-flight-recorder-registry.json` and `lib/test/prompt-mass-manifest.json`
-are hand-maintained inventories with no standalone check command, so they meet no
-inclusion criterion and are not rows here.
+DELIBERATELY EXCLUDED as artifact rows, because they are REDUNDANT — not because they
+are uncovered: `scripts/workflow-flight-recorder-registry.json` and
+`lib/test/prompt-mass-manifest.json` are hand-maintained inventories with no
+*regeneration* command (nothing can rewrite them from the tree), and each is already
+checked by a command a row here runs — the census's `manifest completeness failure`
+arm covers the prompt-mass manifest, and the coverage guard's `[arm8]` arm covers the
+flight-recorder registry. A row of their own could only re-report what
+`prompt-mass-baseline` and `coverage-map-ratchet` already report.
 
 KNOWN UNCOVERED SIBLING (disclosed, not a claim of completeness):
 `docs/review-and-fix-budget.md` meets the drift half of the inclusion criterion — its
@@ -52,8 +56,9 @@ EXIT CONTRACT (exactly three states):
   1 — at least one of {the manifest bytes changed, an exit-1-forcing judgment item
       was printed} holds, and no row hit the infrastructure state.
   2 — infrastructure failure. Exit 2 takes precedence over exit 1. It is reached from
-      an exit code OUTSIDE a row's declared set AND from several paths INSIDE it —
-      the declared set bounds what the row's generator is expected to return, not what
+      an exit code OUTSIDE a row's declared set, from paths that occur despite an
+      IN-set exit, and from paths where no row exit code was ever established — the
+      declared set bounds what the row's generator is expected to return, not what
       counts as an established check:
         * a row's command failed to launch (absent file, interpreter launch failure);
         * a launched command exited outside its row's declared exit set;
@@ -77,11 +82,10 @@ states above and no row report accompanies it.
 """
 
 import argparse
-import fnmatch
 import subprocess
 import sys
 import traceback
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 MECHANICAL_ARTIFACT = "scripts/devflow-cloud-writer-contract.json"
 
@@ -207,10 +211,22 @@ ROWS = (
         # RETURNS before every map-dependent arm — so an unreadable map both suppresses
         # every real violation AND, without these markers, reported as a judgment item
         # telling the agent to add rows to the very file the guard could not read.
+        # Matched on the ARM PREFIX, not on each arm's message text. Arm 4 has two
+        # early-return legs — `coverage-map unreadable: …` AND `{shape_error}` (a
+        # structurally-valid but wrong-shape map: a bad merge, a truncated write, a
+        # schema bump landing before the migration) — and both suppress every
+        # map-dependent arm identically. Enumerating the unreadable leg alone left the
+        # shape leg reported as `add the missing coverage rows`, telling the agent to
+        # edit rows in the very file whose schema is broken, while every genuine
+        # violation stayed invisible. Enumerating each shape string instead would
+        # re-couple this row to a dozen literals in another module with nothing pinning
+        # them together; the prefix is stable and cannot drift that way.
+        # Safe because EVERY `[arm4]`/`[arm8]` emission in coverage_map_guard.py is an
+        # input failure — genuine ratchet violations carry the other arm numbers.
         "infra_markers": (
             "[input-error]",
-            "[arm4] coverage-map unreadable",
-            "[arm8] registry unreadable",
+            "[arm4] ",
+            "[arm8] ",
         ),
     },
 )
@@ -362,7 +378,13 @@ def budget_row(row, root, report):
         path
         for path in union
         if path in set(members)
-        or any(fnmatch.fnmatch(path, pattern) for pattern in BUDGET_WATCH_GLOBS)
+        # PurePosixPath.match, not fnmatch: fnmatch's `*` crosses `/`, so it would
+        # match a NESTED path (skills/review/phases/sub/x.md) that the disk-side
+        # Path.glob leg never yields. The two legs must accept the same set, or this
+        # one over-reports on a tree the other cannot produce.
+        or any(
+            PurePosixPath(path).match(pattern) for pattern in BUDGET_WATCH_GLOBS
+        )
     )
     if not touched:
         report.append(f"[{name}] clean — no review-bundle member changed in this change set")
@@ -395,10 +417,10 @@ def _marker_hit(markers, output):
     line-leading — the census's `: malformed JSON:` and `: unreadable:` are mid-line
     fragments of `prompt-mass census: <path>: malformed JSON: …`, while the
     coverage-map guard's `[arm4] …` and `[input-error]` are line-leading. A
-    startswith() rule would silently stop matching the census row's three markers and
-    reopen exactly the fail-open this discriminator exists to close, so the residual
-    risk (a marker quoted inside a longer diagnostic on one line) is accepted rather
-    than traded for a worse one.
+    startswith() rule would silently stop matching every marker the census row declares
+    — they are all mid-line — and reopen exactly the fail-open this discriminator exists
+    to close, so the residual risk (a marker quoted inside a longer diagnostic on one
+    line) is accepted rather than traded for a worse one.
     """
     return next(
         (m for m in markers if any(m in line for line in output.splitlines())),

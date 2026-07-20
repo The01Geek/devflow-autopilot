@@ -60,13 +60,13 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
 | Row | Included paths | Lines | Words | Bytes | ≈Tokens |
 | --- | --- | ---: | ---: | ---: | ---: |
 | **BEFORE** — monolith | `skills/review-and-fix/SKILL.md` (pre-split) | 1,134 | 36,201 | 250,928 | 47,061 |
-| **BEFORE** — always-loaded | monolith + live extension | 1,337 | 38,671 | 267,440 | 50,271 |
-| live extension | `.devflow/prompt-extensions/review-and-fix.md` | 203 | 2,470 | 16,512 | 3,210 |
+| **BEFORE** — always-loaded | monolith + live extension | 1,337 | 38,674 | 267,474 | 50,271 |
+| live extension | `.devflow/prompt-extensions/review-and-fix.md` | 203 | 2,473 | 16,546 | 3,210 |
 | **AFTER** — plugin root | `skills/review-and-fix/SKILL.md` (thin) | 326 | **3,213** | 25,673 | 4,177 |
-| **AFTER** — actual initial load | root + live extension | 529 | **5,683** | 42,185 | 7,387 |
+| **AFTER** — actual initial load | root + live extension | 529 | **5,686** | 42,219 | 7,387 |
 | **AFTER** — bundle | root + all `references/*.md` | 1,308 | 40,524 | 284,693 | 52,681 |
-| **AFTER** — normal cumulative path | root + extension + Σ references | — | 42,994 | — | 55,892 |
-| **AFTER** — maximum active step | root + extension + `shadow-review.md` | — | **16,945** | — | 22,028 |
+| **AFTER** — normal cumulative path | root + extension + Σ references | — | 42,997 | — | 55,892 |
+| **AFTER** — maximum active step | root + extension + `shadow-review.md` | — | **16,948** | — | 22,028 |
 | reference: `shadow-review.md` | Step 2.6 | 235 | 11,262 | 79,276 | 14,641 |
 | reference: `fixing.md` | Step 3 | 156 | 8,845 | 60,302 | 11,561 |
 | reference: `loop-exit.md` | Loop Exit | 273 | 6,594 | 45,216 | 8,576 |
@@ -81,19 +81,19 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
 | Ceiling | Value | Measured | Result |
 | --- | --- | ---: | :--: |
 | Plugin root ≤ 3,500 words | 3,500 | 3,213 | ✅ |
-| Root + live extension (initial load) ≤ 5,690 words | 5,690 | 5,683 | ✅ |
-| Root + extension + max active step ≤ 17,000 words | 17,000 | 16,945 | ✅ |
+| Root + live extension (initial load) ≤ 5,690 words | 5,690 | 5,686 | ✅ |
+| Root + extension + max active step ≤ 17,000 words | 17,000 | 16,948 | ✅ |
 
 ## Net mandatory-prompt reduction, and the named justified-growth warning
 
-- **Mandatory (always-loaded) prompt: net reduction of 32,988 words** — from 38,671 (monolith +
-  extension, *all* of it loaded on every invocation) to 5,683 (thin root + extension). This is the
+- **Mandatory (always-loaded) prompt: net reduction of 32,988 words** — from 38,674 (monolith +
+  extension, *all* of it loaded on every invocation) to 5,686 (thin root + extension). This is the
   reduction the split exists to deliver: everything else now loads on demand, one step reference
   at a time.
 
 - **⚠️ `review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,323 words.**
   The *normal cumulative path* (root + extension + every reference a full run loads in sequence)
-  is 42,994 words vs. 38,671 before — a net **growth of +4,323 words** (+11.2%). Two things drive
+  is 42,997 words vs. 38,674 before — a net **growth of +4,323 words** (+11.2%). Two things drive
   it: the routing text the split itself adds (the *Step routing* table, the *Reference-loading
   contract* — entry-gate, canonical-boundary rule, per-reference failure map, always-resident
   re-read rule — the condensed terminal verdict→chat mapping, the durable-operand schema fields,
@@ -102,6 +102,6 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
   fields and the below-verdict-threshold evidence-classification prose in `shadow-review.md`, the
   bulk of the increase). It is **justified**: the split trades this cumulative increase for a
   32,988-word reduction in the *mandatory* prompt, on-demand sequential loading (only one step
-  reference resident at a time — peak 16,945 words, not 42,994), and fail-closed reference handling.
+  reference resident at a time — peak 16,948 words, not 42,997), and fail-closed reference handling.
   Cumulative token spend on a full run is not the metric the split optimizes; peak-context and
   per-step focus are.

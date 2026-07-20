@@ -354,20 +354,26 @@ assert_eq "#619 A5q a regenerating mechanical row plus an infrastructure row exi
 # that the regeneration genuinely happened and was still reported in the same run.
 _ra_has "#619 A5q the regenerated manifest is still reported alongside the exit-2 state" \
   "$RA_A5Q" "REGENERATED scripts/devflow-cloud-writer-contract.json"
+_ra_has "#619 A5q the infrastructure half is attributed to its own row" "$RA_A5Q" \
+  "[capability-profile-literals] INFRASTRUCTURE"
 _ra_same "#619 A5q the manifest was rewritten despite the exit-2 outcome" changed \
   "$([ "$RA_A5Q_BEFORE" != "$(cat "$RA_A5Q/scripts/devflow-cloud-writer-contract.json")" ] \
     && echo changed || echo unchanged)" \
   "the exit-2 run skipped the mechanical regeneration"
 _ra_live_unchanged "#619 A5q live manifest byte-unchanged after the regenerate-plus-infra run"
 
-# ── A5r — the HELPER's OWN unhandled exception routes to exit 2, never CPython's 1 ──
-# Without the top-level net an uncaught exception exits 1 — the SAME code as "a judgment
-# item was printed" — so a run that established nothing would be indistinguishable from
-# a resolvable one, and the consumers' guard (which keys the never-checked verdict on
-# the exit code and the INFRASTRUCTURE literal) would route the agent to "resolve the
-# printed items" over a report that never printed. An unreadable manifest is the shape a
-# half-restored worktree actually produces; it reaches the snapshot read, which sits
-# outside the row's own subprocess try.
+# ── A5r — an UNREADABLE artifact snapshot routes to exit 2, never exit 1 ────
+# Scope, stated exactly: this arm covers run_row's SNAPSHOT-READ guard — the try/except
+# OSError bracketing the mechanical row's before/after read_bytes, which sits outside
+# that row's subprocess try. It does NOT reach the helper's top-level exception net:
+# this OSError is handled at the row level and main() returns normally. The net is
+# unexercised-by-design defence-in-depth — no CLI-reachable input shape raises past the
+# row handlers — and no arm here claims otherwise.
+# An unreadable manifest is the shape a half-restored worktree actually produces. Note
+# chmod 000 ALSO breaks the generator's own write, which independently yields exit 2 on
+# the same row, so the exit code and the row-attributed INFRASTRUCTURE line are NOT
+# sufficient evidence — the snapshot branch's own literal is pinned below to attribute
+# it.
 RA_A5R="$_ra_tmp_root/a5r"; _ra_fixture "$RA_A5R"
 chmod 000 "$RA_A5R/scripts/devflow-cloud-writer-contract.json" 2>/dev/null
 if [ -r "$RA_A5R/scripts/devflow-cloud-writer-contract.json" ]; then
@@ -382,6 +388,11 @@ else
     "2" "$(_ra_rc "$RA_A5R")"
   _ra_has "#619 A5r the unreadable snapshot is attributed to its row as INFRASTRUCTURE" \
     "$RA_A5R" "[cloud-writer-manifest] INFRASTRUCTURE"
+  # The distinguishing evidence: this literal is emitted ONLY by the snapshot-read
+  # guard. Without it the arm passes on the generator's own write failure, so deleting
+  # the guard under test would leave it green.
+  _ra_has "#619 A5r the snapshot-read guard is the branch that fired" "$RA_A5R" \
+    "could not read scripts/devflow-cloud-writer-contract.json before the run"
   # The report must survive: a state that printed nothing is what makes the consumers'
   # guard read "nothing to do".
   _ra_has "#619 A5r later rows still report despite the earlier row's failure" \
@@ -395,6 +406,11 @@ _ra_live_unchanged "#619 A5r live manifest byte-unchanged after the unreadable-s
 # (rc 2, before any row runs, with no row report). An untested documented claim in a
 # file this module content-pins elsewhere is a documented-falsehood risk.
 RA_A5S="$_ra_tmp_root/a5s"; _ra_fixture "$RA_A5S"
+# Drift is PLANTED first, deliberately: on a reconciled fixture the mechanical row would
+# rewrite byte-identical content, so `unchanged` would hold even if argparse failed to
+# short-circuit and the row DID run — proving nothing. Against a corrupted manifest,
+# `unchanged` means the row genuinely never executed.
+printf '{"corrupted": true}\n' > "$RA_A5S/scripts/devflow-cloud-writer-contract.json"
 RA_A5S_BEFORE="$(cat "$RA_A5S/scripts/devflow-cloud-writer-contract.json")"
 python3 "$RA_HELPER" --repo-root "$RA_A5S" --no-such-flag \
   >"$RA_A5S/.ra.out" 2>&1; printf '%s\n' "$?" >"$RA_A5S/.ra.rc"
@@ -539,8 +555,11 @@ rm -f "$RA_A5I2/skills/review/phases/phase-4-1-8-prose-cutover.md"
 _ra_run "$RA_A5I2"
 _ra_has "#619 A5i2 a deleted glob member trips the budget judgment item" "$RA_A5I2" \
   "[review-bundle-budget] JUDGMENT"
+# The COMPOSITE, not the bare path: this arm deliberately skips _ra_reconcile, so the
+# cloud-writer closure is broken and its row prints the same path verbatim — a bare-path
+# pin would pass with the fnmatch leg deleted. `changed members:` is the budget row's own.
 _ra_has "#619 A5i2 the deleted member is named as the changed member" "$RA_A5I2" \
-  "skills/review/phases/phase-4-1-8-prose-cutover.md"
+  "changed members: skills/review/phases/phase-4-1-8-prose-cutover.md"
 _ra_live_unchanged "#619 A5i2 live manifest byte-unchanged after the deleted-member run"
 
 # ── A5j — an UNREADABLE coverage-map is infrastructure, not "add the missing rows" ──
@@ -554,7 +573,7 @@ rm -f "$RA_A5J/lib/test/modules/coverage-map.json"
 _ra_run "$RA_A5J"
 assert_eq "#619 A5j an unreadable coverage-map exits 2, never 1" "2" "$(_ra_rc "$RA_A5J")"
 _ra_has "#619 A5j the unreadable map is matched by its own arm4 marker" "$RA_A5J" \
-  "matched '[arm4] coverage-map unreadable'"
+  "matched '[arm4] '"
 _ra_live_unchanged "#619 A5j live manifest byte-unchanged after the unreadable-map run"
 
 # ── A5k — a MALFORMED capability manifest is infrastructure, not "regenerate" ──
@@ -569,8 +588,12 @@ _ra_run "$RA_A5K"
 assert_eq "#619 A5k a malformed capability manifest exits 2, never 1" "2" "$(_ra_rc "$RA_A5K")"
 _ra_has "#619 A5k the malformed manifest is attributed to its own row" "$RA_A5K" \
   "[capability-profile-literals] INFRASTRUCTURE"
+# The RENDERED discriminator, not the bare payload: `manifest malformed JSON:` also
+# appears in the row's echoed command output, so pinning it would pass even if
+# _marker_hit returned None and the row was classified JUDGMENT. The `matched '...'`
+# wording is emitted ONLY by run_row's marker-hit branch.
 _ra_has "#619 A5k the malformed manifest is matched by its own marker" "$RA_A5K" \
-  "manifest malformed JSON:"
+  "matched 'manifest malformed JSON:'"
 _ra_live_unchanged "#619 A5k live manifest byte-unchanged after the malformed-manifest run"
 
 # ── A5m — the CENSUS infra_markers are exercised (they were declared but dead) ──
@@ -590,9 +613,29 @@ _ra_run "$RA_A5M"
 assert_eq "#619 A5m a census input failure exits 2, never 1" "2" "$(_ra_rc "$RA_A5M")"
 _ra_has "#619 A5m the census input failure is attributed to its own row" "$RA_A5M" \
   "[prompt-mass-baseline] INFRASTRUCTURE"
+# Rendered discriminator, same reason as A5k above.
 _ra_has "#619 A5m the census input failure is matched by its own marker" "$RA_A5M" \
-  ": malformed JSON:"
+  "matched ': malformed JSON:'"
 _ra_live_unchanged "#619 A5m live manifest byte-unchanged after the census-input-failure run"
+
+# ── A5n — _marker_hit scopes per LINE: a marker split across two lines is NOT a hit ──
+# The docstring claims a marker can never be assembled across a line break from two
+# unrelated messages. Replacing the per-line scan with `m in output` leaves every other
+# assertion in this module green, so without this arm that claim is unpinned. The stub
+# prints a marker split exactly at a newline: matched against the concatenated blob it
+# would read as `: malformed JSON:` and be misreported as INFRASTRUCTURE; scoped per
+# line it is neither, so the row must fall through to JUDGMENT.
+RA_A5N="$_ra_tmp_root/a5n"; _ra_fixture "$RA_A5N"
+printf 'import sys
+sys.stdout.write("prompt-mass census: /x/y: malformed\nJSON: nope\n")
+sys.exit(1)
+'   > "$RA_A5N/lib/test/prompt-mass-census.py"
+_ra_run "$RA_A5N"
+_ra_has "#619 A5n a marker split across two lines is not a marker hit" "$RA_A5N" \
+  "[prompt-mass-baseline] JUDGMENT"
+assert_eq "#619 A5n the split-marker run forces exit 1, not the exit-2 infra state" "1" \
+  "$(_ra_rc "$RA_A5N")"
+_ra_live_unchanged "#619 A5n live manifest byte-unchanged after the split-marker run"
 
 # ── A5f — default_repo_root anchors its probe to THIS checkout, not the process cwd ──
 # The helper's one write target is a tracked file, so a root resolved from an unrelated
@@ -663,7 +706,7 @@ _ra_live_unchanged "#619 A6c live manifest byte-unchanged after the resolved-rec
 
 # ── Helper-content contracts (the registration rule and the disclosed non-goals) ─
 devflow_module_pin_unique "#619 the helper header carries the registration rule" 'A PR that adds a checked-in generated artifact gated by the suite adds a row to this registry in the same PR.' "$RA_HELPER"
-devflow_module_pin_unique "#619 the helper header discloses the excluded hand-maintained inventories" 'are hand-maintained inventories with no standalone check command' "$RA_HELPER"
+devflow_module_pin_unique "#619 the helper header discloses the excluded hand-maintained inventories" 'DELIBERATELY EXCLUDED as artifact rows, because they are REDUNDANT' "$RA_HELPER"
 assert_eq "#619 the helper is stdlib-only (imports no yaml module)" "0" \
   "$(devflow_module_pin_count 'import yaml' "$RA_HELPER")"
 devflow_module_pin_unique "#619 the helper states its single-file write scope" 'the only file under the target root this helper writes is' "$RA_HELPER"
