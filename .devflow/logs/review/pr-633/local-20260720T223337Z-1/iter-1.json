@@ -2,10 +2,14 @@
   "iter": 1,
   "started_at": "2026-07-20T22:33:37Z",
   "loop_role": "fix",
-  "current_step": "3",
-  "current_substep": "post_fix_commit",
-  "pending_dispatch": null,
-  "fix_commit_sha": "30aba19bdf38f937b4f7af3f294f8d1e9d684c9f",
+  "current_step": "2.6",
+  "current_substep": "run_shadow_fanout",
+  "pending_dispatch": {
+    "kind": "shadow_reviewer_fanout",
+    "roster": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "dispatched_at": "2026-07-21T02:05:00Z"
+  },
+  "fix_commit_sha": "0cdbedb07ebf7e8638602d1a2beac378f22386a4",
   "fix_files": [
     ".changeset/reception-extension-auto-load.md",
     "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
@@ -15,13 +19,7 @@
     "lib/intervention-surfaces.md",
     "lib/test/run.sh"
   ],
-  "diff_profile": {
-    "small_diff": false,
-    "config_only": false,
-    "has_new_types": false,
-    "engine_self_modifying": true,
-    "checklist_skipped": null
-  },
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": null},
   "phase3_dispatched": [
     "devflow:code-reviewer",
     "devflow:silent-failure-hunter",
@@ -30,19 +28,6 @@
     "devflow:requesting-code-review"
   ],
   "checklist": [],
-  "phase3_findings": [
-    {"agent": "devflow:code-reviewer", "severity": "Critical", "description": "DEVFLOW_SYSTEM_OVERVIEW.md:378 mutates the implement-probe evidence-of-record head to a SHA that names no object, desyncing a three-site coupled mirror", "defect_signature": {"file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md", "line_range": [378, 378], "kind": "documented_falsehood"}, "corroboration_count": 5, "step25_classification": "codebase", "fix_decision": "applied"},
-    {"agent": "devflow:code-reviewer", "severity": "Important", "description": "budget doc maintainer note states a 3,538-word root ceiling that exists nowhere; the shipped ceiling is 3,567", "defect_signature": {"file": "docs/review-and-fix-budget.md", "line_range": [10, 10], "kind": "documented_falsehood"}, "corroboration_count": 5, "step25_classification": "codebase", "fix_decision": "applied"},
-    {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "cutover item 3's body says the first ceiling move landed at 3,567, contradicting its own 3,500->3,515 heading and item 5's second move", "defect_signature": {"file": "docs/cutovers/issue-620-reception-extension-port.md", "line_range": [72, 73], "kind": "documented_falsehood"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
-    {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "RAF_ROOT_CEIL comment claims 'four correctness fixes' while the shipped record documents five, omitting the one 3,567 is attributed to", "defect_signature": {"file": "lib/test/run.sh", "line_range": [36033, 36038], "kind": "documented_falsehood"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
-    {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "changeset and lib/intervention-surfaces.md assert 'every fix loop' / 'every autonomous entry', contradicted by the same diff's Skill-denied-fallback carve-out", "defect_signature": {"file": ".changeset/reception-extension-auto-load.md", "line_range": [13, 13], "kind": "documented_falsehood"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
-    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "install.md promises an undeliverable extension 'halts every autonomous fix loop at skill entry', but the skill mandates only 'surface its stderr, never proceed silently'", "defect_signature": {"file": "docs/install.md", "line_range": [196, 202], "kind": "documented_falsehood"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
-    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "the supersession guard's most-recent-edit and empty-or-page-full arms — its two most recently repaired fail-opens — carried no pin", "defect_signature": {"file": "lib/test/run.sh", "line_range": [3891, 4048], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
-    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "RAF_PIN_NONBINDING pinned a phrase carrying none of the rule's operative content", "defect_signature": {"file": "lib/test/run.sh", "line_range": [504, 504], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
-    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "the loader's two failure arms are discriminated only by exit status, which the prose never tells the run to read", "defect_signature": {"file": "skills/review-and-fix/SKILL.md", "line_range": [27, 33], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"},
-    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "the supersession guard's 'data to surface' arm names no schema field or report section to surface into", "defect_signature": {"file": "skills/review-and-fix/SKILL.md", "line_range": [35, 35], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"},
-    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "the second loader fence says 'failure arms as above' rather than restating them, so a trim of the first fence silently weakens the second", "defect_signature": {"file": "skills/review-and-fix/SKILL.md", "line_range": [27, 33], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"}
-  ],
   "fix_decisions": [
     {"finding_id": "F-1", "decision": "applied", "commit": "30aba19bdf38f937b4f7af3f294f8d1e9d684c9f"},
     {"finding_id": "F-2", "decision": "applied", "commit": "30aba19bdf38f937b4f7af3f294f8d1e9d684c9f"},
@@ -52,17 +37,25 @@
     {"finding_id": "F-6", "decision": "applied", "commit": "30aba19bdf38f937b4f7af3f294f8d1e9d684c9f"},
     {"finding_id": "F-7", "decision": "applied", "commit": "30aba19bdf38f937b4f7af3f294f8d1e9d684c9f"},
     {"finding_id": "F-8", "decision": "applied", "commit": "30aba19bdf38f937b4f7af3f294f8d1e9d684c9f"},
+    {"finding_id": "G-1", "decision": "applied", "commit": "ac19461b5a8ad596055cce79163376d6a9c73f2c"},
+    {"finding_id": "G-2", "decision": "applied", "commit": "ac19461b5a8ad596055cce79163376d6a9c73f2c"},
+    {"finding_id": "G-3", "decision": "applied", "commit": "ac19461b5a8ad596055cce79163376d6a9c73f2c"},
+    {"finding_id": "H-1", "decision": "applied", "commit": "0cdbedb07ebf7e8638602d1a2beac378f22386a4"},
+    {"finding_id": "H-2", "decision": "applied", "commit": "0cdbedb07ebf7e8638602d1a2beac378f22386a4"},
+    {"finding_id": "H-3", "decision": "applied", "commit": "0cdbedb07ebf7e8638602d1a2beac378f22386a4"},
+    {"finding_id": "H-4", "decision": "applied", "commit": "0cdbedb07ebf7e8638602d1a2beac378f22386a4"},
+    {"finding_id": "H-5", "decision": "applied", "commit": "0cdbedb07ebf7e8638602d1a2beac378f22386a4"},
     {
       "finding_id": "F-9",
       "decision": "deferred",
       "source_file": "skills/review-and-fix/SKILL.md",
       "claim_text": "the loader's absent-vs-undeliverable arms are discriminated only by exit status, which the prose never instructs the run to read",
       "skip_category": "out-of-scope",
-      "evidence": "the shape is pre-existing on the first (review-and-fix) load fence, unchanged by this diff — git blame shows that sentence predates this PR; closing it means changing the skill's documented failure semantics for BOTH fences, beyond issue #620's port-and-load scope, and the root has ~4 words of headroom (3,563 of 3,567) so the added prose would force a fourth ceiling renegotiation",
+      "evidence": "pre-existing on the first (review-and-fix) load fence and unmodified by this diff; closing it changes documented failure semantics for both fences, beyond issue #620's scope, and the root has ~4 words of headroom (3,563 of 3,567)",
       "parking_evidence": {
         "basis": "the defect is in pre-existing prose this PR does not modify; the diff only replicates the established arm by reference",
         "failing_input": "an undeliverable receiving-code-review.md whose non-zero exit the run does not read, taking the silent no-op arm",
-        "source": "skills/review-and-fix/SKILL.md line 27 (pre-existing, outside this PR's diff hunks)",
+        "source": "skills/review-and-fix/SKILL.md (pre-existing fence, outside this PR's diff hunks)",
         "finding_ref": {"iter": 1, "index": 8}
       }
     },
@@ -72,7 +65,7 @@
       "source_file": "skills/review-and-fix/SKILL.md",
       "claim_text": "the supersession guard's 'data to surface' arm names no durable schema field or report section",
       "skip_category": "uncategorized",
-      "evidence": "real gap, but binding it requires new top-level schema fields in the root record shape plus fixing.md item 7 and a loop-exit render — a design addition beyond this PR's scope, and unaffordable against the root's ~4-word headroom without a fourth ceiling renegotiation this iteration"
+      "evidence": "real gap; binding it needs new top-level schema fields in the root record shape plus fixing.md item 7 and a loop-exit render — a design addition beyond this PR's scope and unaffordable against the root's ~4-word headroom"
     },
     {
       "finding_id": "F-11",
@@ -80,30 +73,37 @@
       "source_file": "skills/review-and-fix/SKILL.md",
       "claim_text": "the second loader fence's 'failure arms as above' is unpinned against a trim of the first fence's arms",
       "skip_category": "uncategorized",
-      "evidence": "low-yield relative to cost: the phrase is prose-referential, and the existing loader-call and placement pins already bind the fence's presence and position"
+      "evidence": "low yield relative to cost: the existing loader-call and placement pins already bind the fence's presence and position"
     }
   ],
-  "convergence_inputs": {
-    "fixes_applied": 8,
-    "fix_diff_lines": 71,
-    "new_corroborated_critical_count": 0
-  },
+  "convergence_inputs": {"fixes_applied": 16, "fix_diff_lines": 118, "new_corroborated_critical_count": 0},
   "cap_drops": {"count": 0, "by_category": {}},
   "sweep_defs_read": [],
-  "sweep_evidence": {"status": "run", "note": "class-sweep over the changed surface: swept every diff-added numeric/ceiling claim in docs/review-and-fix-budget.md and docs/cutovers/issue-620-*.md against fresh python3 measurements (all other cells true); swept both universal-claim sites for the 'every fix loop' class; swept all three f2162d SHA mirror sites"},
+  "sweep_evidence": {"status": "run", "note": "class-sweeps: every diff-added numeric/ceiling claim re-measured; both universal-claim sites scoped; all three f2162d SHA mirrors reconciled and now suite-coupled; after the main merge, every published budget figure re-measured in one pass and reconciled in one edit"},
   "batched_regeneration": "run",
+  "base_checkpoint": {"token": "UPDATED", "behind_by": 11},
+  "stale_prose_check": {"rc": 0, "stale_rows": 0, "note": "UNRESOLVABLE count-locked rows only (informational); verified the two count-bearing comments near the edits remain accurate"},
   "verification_evidence": {
     "command": "lib/test/run.sh",
     "result": "pass",
-    "duration_s": 640,
-    "skipped_checks": [
-      {"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty (this check grades committed HEAD) — re-run post-commit for a zero-skip result"}
-    ]
+    "duration_s": 660,
+    "skipped_checks": []
   },
+  "reference_reads": {"fix_delta": {"status": "verified", "outcome": "refixed", "reason": null}},
   "telemetry": {
-    "phase_0": {"calls": 0, "tokens": 0, "wall_clock_s": 60},
     "phase_1": {"calls": 1, "tokens": 100669, "wall_clock_s": 212},
     "phase_3": {"calls": 5, "tokens": 614365, "wall_clock_s": 508},
-    "step_2_5": {"calls": 0, "tokens": 0, "wall_clock_s": 2, "webfetches": 0}
+    "step_2_5": {"calls": 0, "tokens": 0, "wall_clock_s": 2, "webfetches": 0},
+    "step_3_5": {"calls": 2, "tokens": 222398, "wall_clock_s": 703}
+  },
+  "shadow": {
+    "ran_at": "2026-07-21T02:05:00Z",
+    "reviewed_sha": "7f66d9dbcf2bb84c096ed0129cea813f27def6a9",
+    "verdict": null,
+    "coverage": null,
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "phase3_findings": [],
+    "promoted_to_iter_next": false
   }
 }
