@@ -228,6 +228,22 @@ _LEGAL_SETTLING_KEYS = {
     'invalidated': frozenset(('invalidation_provenance', 'invalidation_reason')),
 }
 
+# Fail FAST on the `_LEDGER_STATUSES` ↔ `_LEGAL_SETTLING_KEYS` coupling rather than fail
+# LATE inside `_validate_ledger`. That arm indexes `_LEGAL_SETTLING_KEYS[status]` on a
+# status already checked against `_LEDGER_STATUSES`, so a future status added to one
+# constant and not the other would raise a raw `KeyError` from inside the read boundary —
+# escaping the StateError→unestablished contract as an unhandled traceback on a state file
+# the tool itself wrote. An import-time check turns that into a named startup failure at
+# the desk, on the commit that introduces the drift. Deliberately not a bare `assert`
+# (stripped under `python3 -O`) and deliberately not a `.get(status, frozenset())` default
+# at the call site, which would silently accept the new status as carrying NO legal
+# settling key — quietly wrong rather than loudly absent.
+if set(_LEGAL_SETTLING_KEYS) != set(_LEDGER_STATUSES):
+    raise RuntimeError(
+        'issue-audit-state: _LEGAL_SETTLING_KEYS and _LEDGER_STATUSES have drifted '
+        f'(symmetric difference {sorted(set(_LEGAL_SETTLING_KEYS) ^ set(_LEDGER_STATUSES))!r}); '
+        'a ledger status must declare the settling-provenance keys it may legally carry')
+
 
 def _forged_protocol_token(text):
     """The first protocol token `text` forges as a `<token>=` word, else None.
@@ -3579,7 +3595,8 @@ def main():
                         'error.')
     s.add_argument('--reason', required=True,
                    help='One line naming why the finding was misclassified; refused when '
-                        'empty or when it carries a protocol `<field>=` token.')
+                        'empty, when it carries a newline or carriage return, or when it '
+                        'carries a protocol `<field>=` token.')
     s.set_defaults(func=cmd_record_invalidate)
 
     s = sub.add_parser('record-draft-binding',

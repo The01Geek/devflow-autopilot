@@ -6081,7 +6081,23 @@ class _Run603:
     def __init__(self, tmp, slug='s603'):
         self.tmp = tmp
         self.slug = slug
-        self.nonce = self('init', slug).stdout.split('nonce=')[1].strip()
+        self.nonce = self._field(self('init', slug), 'nonce=', 'init')
+
+    @staticmethod
+    def _field(proc, token, what):
+        """Parse a `token`-prefixed field out of a SETUP call's stdout, or name the failure.
+
+        The setup calls (`init`, `record-dispatch`) are preconditions, not assertions: a
+        harness that indexed straight into `stdout.split(token)` surfaced a broken
+        precondition as an opaque `IndexError` from inside the fixture, attributed to no
+        row. Check the returncode and the field's presence first so a setup failure names
+        the command, its exit code, and its stderr.
+        """
+        if proc.returncode != 0 or token not in proc.stdout:
+            raise AssertionError(
+                f'#603 harness: {what} did not establish {token!r} '
+                f'(rc={proc.returncode}); stdout={proc.stdout!r} stderr={proc.stderr!r}')
+        return proc.stdout.split(token, 1)[1].split()[0].strip()
 
     def __call__(self, *argv, stdin=None, nonce=False):
         args = [sys.executable, _IAS603, *argv]
@@ -6092,9 +6108,9 @@ class _Run603:
 
     def open_round(self, n, verdict='REVISE', findings=1):
         Path(self.tmp, 'd.md').write_text(f'draft {n}\n', encoding='utf-8')
-        out = self('record-dispatch', self.slug, '--round', str(n), '--arm', 'file',
-                   '--draft-file', 'd.md', nonce=True).stdout
-        digest = out.split('digest=')[1].split()[0]
+        digest = self._field(
+            self('record-dispatch', self.slug, '--round', str(n), '--arm', 'file',
+                 '--draft-file', 'd.md', nonce=True), 'digest=', 'record-dispatch')
         self('record-return', self.slug, '--round', str(n), '--verdict', verdict,
              '--findings-count', str(findings), '--carriage-object-id', digest,
              nonce=True)
@@ -6617,9 +6633,16 @@ def _row2b(r):
     assert_eq("#603-2b/AC1: --ledger-stdin on a shape that records no ledger is refused",
               (1, True), (notapp.returncode, 'ledger-not-applicable' in notapp.stderr))
     empty = r.adjudicate(1, 'FILE', 0, '0', '   \n')
-    assert_eq("#603-2b/AC1: ... and an empty payload is refused before the shape check "
-              "reaches it only when the shape is otherwise legal", True,
-              empty.returncode != 0)
+    # Assert the BREADCRUMB, not merely a non-zero exit: on a FILE shape the
+    # `ledger-not-applicable` arm fires FIRST, so a bare `returncode != 0` is satisfied by
+    # the shape refusal and observes nothing about the arm ordering it claims to pin. The
+    # empty-payload arm is unreachable here BY CONSTRUCTION, and that is the pinned fact —
+    # Row 2c is where `ledger-empty` is reached, on an otherwise-legal REVISE shape.
+    assert_eq("#603-2b/AC1: ... and on a FILE shape the shape refusal PRECEDES the "
+              "empty-payload arm (ordering observed by breadcrumb, not by exit code)",
+              (1, True, False),
+              (empty.returncode, 'ledger-not-applicable' in empty.stderr,
+               'ledger-empty' in empty.stderr))
 
 
 _with_run603(_row2b)
@@ -6959,6 +6982,179 @@ def _row17(r):
 
 
 _with_run603(_row17)
+
+
+# Row 18/AC3 — the `revision-predates-round` causality guard's REFUSAL arm. Row 3b carries
+# only its POSITIVE control (a revision whose after_round EQUALS the round is accepted),
+# which every other row also satisfies — so deleting or inverting the guard left the whole
+# suite green. That is the exact vacuity class this PR's positive-control discipline exists
+# to prevent, applied backwards (PR #612 review, Important #1). The refusal needs a fixture
+# no other row builds: a revision recorded after an EARLIER round, named against a LATER
+# round's ledger entry — a fix that provably predates the finding it would be credited for.
+def _row18(r):
+    r.open_round(1, 'REVISE', 1)
+    r.adjudicate(1, 'REVISE', 1, '1', 'unresolved: raised on round one\n')
+    r('record-revision', r.slug, '--after-round', '1', nonce=True)
+    r.open_round(2, 'REVISE', 1)
+    r.adjudicate(2, 'REVISE', 1, '1', 'unresolved: raised on round two\n')
+    pre = r('record-resolution', r.slug, '--round', '2', '--revision-ordinal', '1',
+            '--resolved-ids', '1', nonce=True)
+    assert_eq("#603-18/AC3: a revision recorded after an EARLIER round cannot resolve a "
+              "later round's finding (revision-predates-round)",
+              (1, True), (pre.returncode, 'revision-predates-round' in pre.stderr))
+    assert_eq("#603-18/AC3: ... and the refusal left round 2's entry unresolved "
+              "(no half-write behind the causality guard)",
+              'unresolved',
+              issue_audit_state.load_state(
+                  r.slug, root=r.tmp)['rounds'][1]['findings'][0]['status'])
+    # LOCAL positive control, so the row cannot pass merely because the fixture is broken:
+    # the SAME call with a revision recorded after round 2 is accepted. Causality is
+    # therefore the only property the refusal above turned on.
+    r('record-revision', r.slug, '--after-round', '2', nonce=True)
+    ok = r('record-resolution', r.slug, '--round', '2', '--revision-ordinal', '2',
+           '--resolved-ids', '1', nonce=True)
+    assert_eq("#603-18/AC3: positive control — a revision recorded after round 2 DOES "
+              "resolve round 2's finding", 0, ok.returncode)
+
+
+_with_run603(_row18)
+
+
+# Row 19/AC12 — the `_LEDGER_STATUSES` ↔ `_LEGAL_SETTLING_KEYS` coupling is enforced at
+# IMPORT time, not discovered as a raw KeyError inside `_validate_ledger`'s residual-key
+# arm. Adding a status to one constant and not the other would otherwise escape the
+# StateError→unestablished contract as an unhandled traceback (PR #612 review, Important #2).
+assert_eq("#603-19/AC12: every ledger status declares its legal settling-provenance keys",
+          set(issue_audit_state._LEDGER_STATUSES),
+          set(issue_audit_state._LEGAL_SETTLING_KEYS))
+# The guard is a real import-time raise, not a comment: re-executing the module source with
+# a status appended to `_LEDGER_STATUSES` alone must fail closed with a NAMED breadcrumb.
+# This is the mutation evidence for the assertion above — without it the row would pin the
+# constants' current agreement while the guard enforcing it could be deleted freely.
+_src19 = Path(_IAS603).read_text(encoding='utf-8').replace(
+    "_LEDGER_STATUSES = ('unresolved', 'resolved', 'invalidated', 'superseded')",
+    "_LEDGER_STATUSES = ('unresolved', 'resolved', 'invalidated', 'superseded', 'drifted')",
+    1)
+assert_eq("#603-19/AC12 mutation control: the drift mutation actually applied to the source",
+          True, "'drifted'" in _src19)
+try:
+    exec(compile(_src19, _IAS603, 'exec'), {'__name__': '_ias603_drift'})
+    _drift19 = 'no raise'
+except RuntimeError as _exc19:
+    _drift19 = 'named' if 'have drifted' in str(_exc19) else f'unnamed: {_exc19}'
+except KeyError as _exc19:
+    _drift19 = f'raw KeyError: {_exc19}'
+assert_eq("#603-19/AC12: a status added to _LEDGER_STATUSES alone raises a NAMED drift "
+          "error at import, never a raw KeyError at the read boundary", 'named', _drift19)
+
+
+# Row 20/AC1 — `_ingest_ledger`'s two fail-closed transport arms. Both are unreachable
+# through the CLI on any ordinary invocation (they need a closed fd 0 or a failing read),
+# so they are driven in-process against the real helper. Untested, either arm could regress
+# into the raw traceback it exists to prevent (PR #612 review, Suggestion #2).
+for _n20, _stdin20 in (
+        ('no stdin is attached (CPython sets sys.stdin to None on a closed fd 0)', None),
+        ('the read itself fails', 'raise'),
+):
+    class _Stdin20:
+        class buffer:  # noqa: N801 - mirrors the attribute shape `_ingest_ledger` reads
+            @staticmethod
+            def read():
+                raise OSError('simulated read failure')
+
+    _saved20 = sys.stdin
+    _err20 = io.StringIO()
+    sys.stdin = None if _stdin20 is None else _Stdin20()
+    try:
+        with contextlib.redirect_stderr(_err20):
+            issue_audit_state._ingest_ledger(1, 1)
+        _rc20 = 'no exit'
+    except SystemExit as _exc20:
+        _rc20 = _exc20.code
+    finally:
+        sys.stdin = _saved20
+    assert_eq(f"#603-20/AC1: _ingest_ledger fails closed when {_n20}",
+              (1, True), (_rc20, 'could not read the finding ledger from stdin'
+                          in _err20.getvalue()))
+
+
+# Row 21/AC12 — the read boundary's ingestion-count arm. The corrupt-state matrix reaches
+# every other `_validate_ledger` arm but not this one: it needs a ledger every OTHER arm
+# accepts whose ingested-unresolved tally simply disagrees with the round's recorded
+# `unresolved_must_revise` (PR #612 review, Suggestion #3). Asserted BY MESSAGE, since a
+# bare "raises" would be satisfied by any of the arms that precede it.
+_corrupt21 = _state([_round603(1, unresolved=1, must_revise=1,
+                               ledger=[_entry603(
+                                   1, 'ingested already resolved', 'resolved',
+                                   ingested_status='resolved',
+                                   ingest_provenance='resolved-at-adjudication')])],
+                    revisions=(1,))
+try:
+    issue_audit_state._validate(_corrupt21, 's')
+    _r21 = 'no raise'
+except issue_audit_state.StateError as _exc21:
+    _r21 = str(_exc21)
+assert_eq("#603-21/AC12: a ledger whose ingested-unresolved tally disagrees with the "
+          "round's unresolved_must_revise is refused BY THAT ARM, naming both counts",
+          True, 'ingested 0' in _r21 and 'unresolved-must-revise' in _r21.replace('_', '-'))
+
+
+# Row 22/AC8+AC11 — the two unestablished echo paths. `query-findings` is the tool's one
+# multi-line query, so its fail-closed single-line answer is a shape nothing else pins; and
+# `remaining=` on a post-close mutation must render the literal token, never a laundered 0,
+# when the run-wide effective count is unestablished (PR #612 review, Suggestion #4).
+def _row22(r):
+    r.open_round(1, 'REVISE', 1)
+    r.adjudicate(1, 'REVISE', 1, '1', 'unresolved: a\n')
+    r('record-revision', r.slug, '--after-round', '1', nonce=True)
+    r('record-resolution', r.slug, '--round', '1', '--revision-ordinal', '1',
+      '--resolved-ids', '1', nonce=True)
+    # A later REVISE round adjudicated with an UNESTABLISHED count carries no ledger, so
+    # the run-wide effective count is unestablished from here on.
+    r.open_round(2, 'REVISE', 1)
+    r.adjudicate(2, 'REVISE', 1, 'unestablished')
+    reop = r('record-reopen', r.slug, '--round', '1', '--ids', '1', nonce=True)
+    assert_eq("#603-22/AC11: a post-close echo renders an unestablished run-wide count as "
+              "the literal token — unknown is never collapsed onto a digit",
+              (0, 'round=1 reopened=1 remaining=unestablished'),
+              (reop.returncode, reop.stdout.strip()))
+    # `query-findings`' state-unestablished arm: corrupt the state file so `_query_state`
+    # answers None, and confirm the query still exits 0 with its decided single line.
+    Path(r.tmp, '.devflow', 'tmp', 'issue-audit-state-s603.json').write_text(
+        '{ not json', encoding='utf-8')
+    qf = r('query-findings', r.slug, nonce=True)
+    assert_eq("#603-22/AC8: query-findings answers state-unestablished at exit 0 over an "
+              "unparseable state file, on ONE line like its single-line siblings",
+              (0, 'findings=none reason=state-unestablished'),
+              (qf.returncode, qf.stdout.strip()))
+
+
+_with_run603(_row22)
+
+
+# Row 23/AC19 — `record-invalidate --reason`'s help enumerates the record-splitting refusal
+# the code actually enforces, not only the empty/protocol-token pair (PR #612 review,
+# Suggestion #1). Pinned against the RENDERED `--help` surface, never a source grep: the
+# help string is assembled from adjacent wrapped literals, so it lives on no single line
+# and a line-based pin would silently match nothing (the #375 wrapped-literal rule).
+_help23 = ' '.join(_subprocess.run(
+    [sys.executable, _IAS603, 'record-invalidate', '--help'],
+    capture_output=True, text=True).stdout.split())
+for _phrase23 in ('refused when empty', 'newline or carriage return',
+                  'protocol `<field>=` token'):
+    assert_eq(f"#603-23/AC19: record-invalidate --help enumerates {_phrase23!r}",
+              True, _phrase23 in _help23)
+# ... and the enumerated refusal is the one the code enforces, not merely documented.
+def _row23(r):
+    r.open_round(1, 'REVISE', 1)
+    r.adjudicate(1, 'REVISE', 1, '1', 'unresolved: a\n')
+    got = r('record-invalidate', r.slug, '--round', '1', '--ids', '1',
+            '--reason', 'first line\nsecond line', nonce=True)
+    assert_eq("#603-23/AC19: a reason carrying a newline is refused as reason-control-char",
+              (1, True), (got.returncode, 'reason-control-char' in got.stderr))
+
+
+_with_run603(_row23)
 
 print()
 print(f"{PASS} passed, {FAIL} failed")

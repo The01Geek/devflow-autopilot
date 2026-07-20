@@ -40,3 +40,13 @@ bump: patch
 - The convergence definition no longer claims to be evaluated "within the existing
   automatic audit budget" — a clause `evaluate_convergence` never computed; budget
   legality is enforced upstream at round funding.
+- The boundary offer gains one arm no trigger can fire: a `REVISE` round adjudicated with an
+  `unestablished` count records no ledger, so once a later ledgered round becomes the latest
+  completed round its findings are invisible to both T1 and T2. The skill now directs the
+  orchestrator to detect that itself — a gap in the round numbers `query-findings` returns,
+  alongside a `basis=resolution` convergence answer — and offer one more audit round on that
+  ground. `record-invalidate --reason`'s help and the skill's ledger-summary refusal list
+  additionally now name the record-splitting newline/carriage-return refusal both already
+  enforced, so a caller meeting `reason-control-char` is no longer met by an undocumented
+  refusal. A `_LEDGER_STATUSES` / `_LEGAL_SETTLING_KEYS` drift now fails fast at import with
+  a named error instead of surfacing as a raw `KeyError` from inside the read boundary.

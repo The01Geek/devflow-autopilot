@@ -24,3 +24,18 @@ kind: growth
 - The reconciliation discipline is stated once as a named shared procedure and referenced from
   both revision-producing sites rather than duplicated, which is the smallest mandatory
   footprint that still places each obligation at the execution point it gates.
+- **Review-driven additions (PR #612 review).** Three further increments, each the smallest
+  form that discharges its finding. Two are *accuracy* repairs to enumerations the prose
+  already carried: the ledger-summary refusal list and the `record-invalidate --reason` rule
+  each named only the empty/protocol-token refusals while the tool also refuses a
+  record-splitting `\n`/`\r`, so a drafter hitting `reason-control-char` would have met a
+  refusal the skill said nothing about. These add no new obligation — they complete a list
+  whose incompleteness was the defect, and they cost a clause each rather than a paragraph.
+- The third is the one genuinely new obligation: the AC5 residual (a `REVISE` round adjudicated
+  with an `unestablished` count records no ledger and goes invisible to both triggers once a
+  later ledgered round is latest) has **no** executable owner and is not reachable by one —
+  `query-convergence` is truthful about every ledger it can see, and the round in question is
+  not one of them, so no tool answer can name it. The prose is therefore the only possible
+  owner, and it is stated as a conditional on an **observable** predicate (a gap in the round
+  numbers `query-findings` returns, alongside a `basis=resolution` answer) rather than as a
+  standing caution the orchestrator would have to remember unprompted.
