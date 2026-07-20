@@ -122,7 +122,19 @@ ROWS = (
         # telling the agent to edit a baseline whose measurement never happened —
         # unknown collapsed onto a real value, the very class this helper exists to
         # avoid. The mechanical row got this reasoning first; it applies here too.
-        "infra_markers": ("not found or not a directory",),
+        # The unambiguous input-failure shapes only. `CensusError` is documented as
+        # "an attributable, fail-closed input error" and `main` renders it as
+        # `prompt-mass census: {exc}` — the SAME prefix a real drift report carries, so
+        # the prefix cannot discriminate. These three sub-shapes can: a drift report
+        # states paths and byte counts and never says a file was unreadable, malformed,
+        # or absent. A completeness failure ("manifest completeness failure: …") is
+        # genuine drift and deliberately does NOT match — matching it would hide a real
+        # finding, the opposite and worse error.
+        "infra_markers": (
+            "not found or not a directory",
+            ": malformed JSON:",
+            ": unreadable:",
+        ),
     },
     {
         "name": "review-bundle-budget",
@@ -145,7 +157,16 @@ ROWS = (
         # Same discriminator: the guard prefixes a genuine input failure (git absent,
         # not a repo) with `[input-error]` and exits 1, identically to a real ratchet
         # violation. That is not a coverage-row problem and must not be reported as one.
-        "infra_markers": ("[input-error]",),
+        # `[input-error]` covers only the git-ls-files failure. An absent or malformed
+        # coverage-map / registry takes a different path (`[arm4]` / `[arm8]`), and arm 4
+        # RETURNS before every map-dependent arm — so an unreadable map both suppresses
+        # every real violation AND, without these markers, reported as a judgment item
+        # telling the agent to add rows to the very file the guard could not read.
+        "infra_markers": (
+            "[input-error]",
+            "[arm4] coverage-map unreadable",
+            "[arm8] registry unreadable",
+        ),
     },
 )
 

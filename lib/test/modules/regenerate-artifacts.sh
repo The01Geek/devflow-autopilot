@@ -371,6 +371,50 @@ _ra_has "#619 A5g the run does NOT tell the agent to resolve a ratchet judgment 
   "the artifact was NOT checked"
 _ra_live_unchanged "#619 A5g live manifest byte-unchanged after the input-failure run"
 
+# ── A5h — a mechanical generator that exits 0 WITHOUT writing is infrastructure ──
+# `before` and `after` are both None when the artifact is absent on both sides, so
+# `before != after` is False and the row would have reported "already matches the
+# closure" — an absent artifact asserted to match. Two failed measurements read as
+# equality. Nothing pinned this branch: every other mechanical arm has a generator that
+# actually writes.
+RA_A5H="$_ra_tmp_root/a5h"; _ra_fixture "$RA_A5H"
+printf 'import sys\nsys.exit(0)\n' > "$RA_A5H/lib/test/cloud_writer_contract.py"
+rm -f "$RA_A5H/scripts/devflow-cloud-writer-contract.json"
+_ra_run "$RA_A5H"
+assert_eq "#619 A5h a clean exit that produced no artifact exits 2" "2" "$(_ra_rc "$RA_A5H")"
+_ra_has "#619 A5h the absent artifact is named, not reported as a match" "$RA_A5H" \
+  "the generator produced no artifact"
+_ra_live_unchanged "#619 A5h live manifest byte-unchanged after the no-artifact run"
+
+# ── A5i — a RENAMED glob parent reports unestablished (the glob leg of watch_list) ──
+# A5e covers the literal leg. Path.glob over a nonexistent directory yields nothing and
+# raises nothing, so a renamed skills/review/phases/ would empty the member list in
+# silence and the budget row would answer "no review-bundle member changed" for exactly
+# the change that moved them. Deleting the is_dir() guard leaves every other arm green.
+RA_A5I="$_ra_tmp_root/a5i"; _ra_fixture "$RA_A5I"
+mv "$RA_A5I/skills/review/phases" "$RA_A5I/skills/review/phases-renamed"
+python3 "$RA_HELPER" --list --repo-root "$RA_A5I" > "$RA_A5I/.ra.list" 2>&1
+assert_eq "#619 A5i --list discloses the renamed glob parent as missing" "1" \
+  "$(devflow_module_pin_count 'budget-watch-missing	skills/review/phases/*.md' "$RA_A5I/.ra.list")"
+_ra_run "$RA_A5I"
+_ra_has "#619 A5i a renamed glob parent reports unestablished, never a false clean" "$RA_A5I" \
+  "absent from the tree: skills/review/phases/*.md"
+_ra_live_unchanged "#619 A5i live manifest byte-unchanged after the renamed-parent run"
+
+# ── A5j — an UNREADABLE coverage-map is infrastructure, not "add the missing rows" ──
+# A5g covers the guard's [input-error] (git) path. An absent/malformed coverage-map
+# takes a DIFFERENT path ([arm4]/[arm8]) and arm 4 RETURNS before every map-dependent
+# arm — so an unreadable map both suppresses every real violation and, unmarked, would
+# be reported as a judgment item telling the agent to add rows to the very file the
+# guard just said it could not read.
+RA_A5J="$_ra_tmp_root/a5j"; _ra_fixture "$RA_A5J"
+rm -f "$RA_A5J/lib/test/modules/coverage-map.json"
+_ra_run "$RA_A5J"
+assert_eq "#619 A5j an unreadable coverage-map exits 2, never 1" "2" "$(_ra_rc "$RA_A5J")"
+_ra_has "#619 A5j the unreadable map is matched by its own arm4 marker" "$RA_A5J" \
+  "matched '[arm4] coverage-map unreadable'"
+_ra_live_unchanged "#619 A5j live manifest byte-unchanged after the unreadable-map run"
+
 # ── A5f — default_repo_root anchors its probe to THIS checkout, not the process cwd ──
 # The helper's one write target is a tracked file, so a root resolved from an unrelated
 # repository would regenerate that repository's manifest. Nothing exercised the anchor:

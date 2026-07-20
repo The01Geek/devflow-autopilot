@@ -11,14 +11,15 @@ there is no former `run.sh` location to map back to.
 
 ## What the module covers
 
-| Contract group | Module assertions | Representative contract |
+| Contract group | Representative assertions | Representative contract |
 | --- | --- | --- |
 | Clean-tree pass | A1 | a pristine fixture exits 0 with a per-row clean line for every registered row |
 | Mechanical row | A2, A2b, A2c | planted manifest drift regenerates and exits 1; a second run is idempotent; a closure error is an exit-1-forcing judgment item naming the closure data; a marker-less exit 1 (a traceback) routes to exit 2 instead of masquerading as a judgment item |
 | Judgment rows + write scope | A3, A5d | two drifts planted simultaneously are both reported by one invocation, and every judgment-gated artifact (the generated workflow literals, `lib/review-profile.tokens`, `lib/test/prompt-mass-baseline.json`, `docs/review-bundle-budget.md`) is byte-unchanged afterward; A5d drives the coverage-map ratchet's own judgment arm |
 | Registry surface | A4 | `--list` names every registered artifact and its watch list equals the disk-derived review-bundle membership |
-| Exit-code contract | A5, A5b, A5c | an absent generator (interpreter exit 2, the declared-set branch), an out-of-declared-set exit, and a genuine `OSError` launch failure all reach exit 2, attributed to their row rather than only to the summary line; exit 2 takes precedence over a concurrent judgment item |
-| Budget row | A6, A6b, A6c, A5e | an underivable change set degrades to `unestablished` and forces no exit state; an **untracked** bundle member still trips the judgment item; a branch that already updated the record runs clean; a **renamed** member reports unestablished rather than a false clean |
+| Exit-code contract | A5, A5b, A5c, A5g, A5h | an absent generator (interpreter exit 2, the declared-set branch), an out-of-declared-set exit, and a genuine `OSError` launch failure all reach exit 2, attributed to their row rather than only to the summary line; exit 2 takes precedence over a concurrent judgment item |
+| Budget row | A6, A6b, A6c, A5e, A5i | an underivable change set degrades to `unestablished` and forces no exit state; an **untracked** bundle member still trips the judgment item; a branch that already updated the record runs clean; a **renamed** member reports unestablished rather than a false clean |
+| Root resolution | A5f | the `git rev-parse` probe is anchored to this checkout, so an invocation from an unrelated repository cannot resolve — or regenerate — that repository's tree |
 | Helper content | header pins | the registration rule and the disclosed non-goals ship as artifact content, and the helper stays stdlib-only |
 
 ## Fixture discipline
