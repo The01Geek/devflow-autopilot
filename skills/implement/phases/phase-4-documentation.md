@@ -168,7 +168,7 @@ BRANCH_DIR=".devflow/tmp/review/${BRANCH_SLUG}"
 # literally named `pr-<N>` would otherwise be searched twice — harmless but pointless).
 SEARCH_DIRS="$SLUG_DIR"
 [ -n "$BRANCH_SLUG" ] && [ "$BRANCH_DIR" != "$SLUG_DIR" ] && SEARCH_DIRS="$SLUG_DIR $BRANCH_DIR"
-# run-id and slug are path-safe (alphanumeric/hyphen/dot), so the unquoted $SEARCH_DIRS
+# run-id and slug are path-safe ([a-z0-9._-]), so the unquoted $SEARCH_DIRS
 # word-split into the helper's argv is safe. Discovery is delegated to a stdlib-only Python
 # helper that searches EACH root independently and classifies each outcome (issue #555): the
 # old `find $SEARCH_DIRS … | sort` collapsed a FAILED search and a clean no-match onto the same

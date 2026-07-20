@@ -34,7 +34,9 @@ paths, one per line, in POSIX separator form (forward slashes) so the list is
 stable across native-Windows python3 hosts (#275's documented host shape).
 A match is a file named `deferrals.json`, size > 0 bytes, located EXACTLY two
 directory levels below a supplied root (`<root>/<run-id>/deferrals.json`) —
-mirroring the retired `find -mindepth 2 -maxdepth 2 -name deferrals.json -size +0c`.
+mirroring the retired `find -mindepth 2 -maxdepth 2 -name deferrals.json -size +0c`
+(narrowed: this helper matches regular files only, where the retired `find` had no
+`-type f` and would have matched a directory named `deferrals.json`).
 
 stderr carries a roots-echo line naming every root's absolute path (os.path.abspath
 — normalized, NOT symlink-resolved) and classification on every *discovery* run,
