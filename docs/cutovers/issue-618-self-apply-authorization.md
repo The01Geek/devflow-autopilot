@@ -10,13 +10,13 @@ maintainer-chosen **self-apply** standing remedy. That remedy must be encoded on
 fix loop actually loads, and mirrored in the always-loaded project memory, so two mandatory census
 rows grow:
 
-- `.devflow/prompt-extensions/review-and-fix.md` (+1,033 bytes / +132 words) — gains the
+- `.devflow/prompt-extensions/review-and-fix.md` (+1,307 bytes / +173 words) — gains the
   `## Review-bundle ceiling self-apply (issue #618)` section: the authorization for a
   `/devflow:review-and-fix` run to self-apply the escape-valve procedure on a growth breach, the
   `measured + 60` / four-mirror mechanic, the direct-`CLAUDE.md`-edit carve-out (a this-repo-scoped
   sibling of #366), the growth-only scope, and the pointer to the full decision record in
   `docs/review-bundle-budget.md`.
-- `CLAUDE.md` (+765 bytes) — the review-bundle bullet is rewritten measured-figure-free: it drops
+- `CLAUDE.md` (+1,073 bytes) — the review-bundle bullet is rewritten measured-figure-free: it drops
   the two live measured figures (30,082 and 32,339, which moved on every engine-prose PR and forced
   a `CLAUDE.md` edit each time) and instead carries the re-anchored **≤ 32,399-word** ceiling phrase
   (pinned by `lib/test/run.sh`), the shipped-default comparand definition, the self-apply
@@ -48,8 +48,8 @@ mandated section could not fit under it at any phrasing. The section was written
 minimum (the authorization, the `+60`/four-mirror mechanic, the direct-edit carve-out, the
 growth-only scope, and the doc pointer), and only then were the two affected ceilings renegotiated:
 
-- **initial load 5,690 → 5,824** (measured 5,818, ~6 words headroom, mirroring the #556/#619 style),
-- **max active step 17,000 → 17,086** (measured 17,080, ~6 words headroom).
+- **initial load 5,690 → 5,824 → 5,865** (measured 5,859, ~6 words headroom, mirroring the #556/#619 style),
+- **max active step 17,000 → 17,086 → 17,127** (measured 17,121, ~6 words headroom).
 
 `lib/test/run.sh`'s `RAF_LOAD_CEIL` / `RAF_MAXSTEP_CEIL` and every coupled cell in
 `docs/review-and-fix-budget.md` (the ceilings table, the Measured cells, the live-extension row,
@@ -60,5 +60,18 @@ and cancels, so a 132-word extension edit moves the cumulative and initial-load 
 perturbing the split-isolating growth or reduction figures.
 
 The `lib/test/prompt-mass-baseline.json` mandatory-byte census baseline is regenerated in the same
-change for the two grown rows (review-and-fix.md 16,546 → 17,579; CLAUDE.md 63,409 → 64,174). This
+change for the two grown rows (review-and-fix.md 16,546 → 17,853; CLAUDE.md 63,409 → 64,482). This
 artifact is the audited decision that both widenings record.
+
+## Second widening (PR #639 review, Important-1)
+
+The authorization as first written armed the escape valve on a **growth** breach only. But the
+same change added a `+60` margin bound that also REDs in the **reduction** direction — and every
+surface the fix loop reads said "growth-only — never lower", so a loop facing a reduction RED
+would have stalled on exactly the policy judgment #618 exists to end (and #642's ~2,239-word
+reduction walks straight into it). The section gained the either-direction wording plus the note
+that `lib/test/run.sh` needs **two** coordinated edits (the `RB_SHIPPED_CEIL` constant and the
+spelled-out `assert_pin_unique` literal): **+41 words**, taking the extension to 2,646 words and
+the ceilings to **5,865** / **17,127**. The bytes belong on the mandatory path for the same
+reason the first widening did — a loop hitting either RED must find the authorization present,
+and a valve documented for only one of its two arms is the trap this cutover exists to avoid.

@@ -34476,8 +34476,10 @@ assert_eq "#529 AC2: the split is at least 25,327 words below the 33,815 baselin
 # `/devflow:review-and-fix` path (_rb_raf, which drops the standalone-only 4.4) stays
 # OUTSIDE this gate by decision — its execution-weighted AC5 record is unchanged.
 # Standing remedy (recorded in the decision record): a fix-loop run MAY self-apply this
-# escape valve on the next breach — re-measure with _rb_words, set measured-plus-60,
-# reconcile the four mirrors (this file, the budget doc, CLAUDE.md, the review-and-fix extension), record it — with
+# escape valve on EITHER direction of ceiling drift — the path grew past the ceiling, or a
+# prose reduction widened the gap past the margin — re-measure with _rb_words, set
+# measured-plus-RB_SHIPPED_MARGIN, reconcile every mirror the decision record lists
+# (this file, the budget doc, CLAUDE.md, the review-and-fix extension), record it — with
 # the maintainer reviewing it in the ordinary PR review. Re-measure with _rb_words
 # before adding prose to any shipped-default member.
 # The interim ceiling is a named constant in the sibling RAF_*_CEIL style, so the gate
@@ -34486,21 +34488,29 @@ assert_eq "#529 AC2: the split is at least 25,327 words below the 33,815 baselin
 # it asserts CLAUDE.md carries the same phrase, so it cannot itself be derived from this
 # variable (a rendered `≤ 32,399 words` phrase is what a reader greps for in the bullet).
 RB_SHIPPED_CEIL=32399
+# The sanctioned margin is its own named constant so the bound below, the assertion label, and
+# the budget doc's Margin cell all read from ONE literal (PR #639 review, Suggestion-4: the
+# margin was a bare `60` in the condition plus hand-maintained prose in three docs — the same
+# uncoupled-literal class this block exists to close for the ceiling).
+RB_SHIPPED_MARGIN=60
 assert_eq "#618 AC3 (re-anchored, interim): the shipped-default per-pass path is within the $RB_SHIPPED_CEIL-word ceiling" "yes" \
   "$([ "$_rb_shipped_w" -le "$RB_SHIPPED_CEIL" ] && echo yes || echo no)"
-# #618 (PR #639 shadow, pr-test-analyzer Important): the four mirror pins verify the ceiling CONSTANT
+# #618 (PR #639 shadow, pr-test-analyzer Important): the mirror pins verify the ceiling CONSTANT
 # agrees across surfaces, but NONE bounds how far ABOVE the live measurement the ceiling may be set —
 # yet the whole #618 design (and the now-self-appliable escape valve) rests on the ceiling being the
-# live figure plus a FIXED 60-word margin. A renegotiation (now automatable) that set the ceiling to
+# live figure plus a FIXED margin. A renegotiation (now automatable) that set the ceiling to
 # measured+500 would keep every mirror consistent and the suite GREEN, silently defeating the thin-
 # margin early-warning intent and the "never widen the margin" scope the decision record insists on.
-# Bound it: the ceiling must not exceed the live shipped-default figure by more than the sanctioned 60.
-# Monotone-safe — ordinary prose GROWTH only shrinks the gap (never false-REDs); it fires only on an
-# over-generous ceiling (an over-wide renegotiation, or a prose reduction the ceiling was not re-
-# anchored to track — exactly the #642 re-lowering trigger, which re-anchors the ceiling in the same
-# change). Fails closed: a non-integer operand makes the arithmetic error → not "yes" → RED.
-assert_eq "#618: RB_SHIPPED_CEIL honors the sanctioned +60 margin (ceiling ≤ live shipped-default + 60)" "yes" \
-  "$([ "$((RB_SHIPPED_CEIL - _rb_shipped_w))" -le 60 ] && echo yes || echo no)"
+# Bound it: the ceiling must not exceed the live shipped-default figure by more than the sanctioned
+# margin. NOT monotone — this fires in BOTH directions, by design: prose GROWTH shrinks the gap and
+# never false-REDs, while an over-generous ceiling (an over-wide renegotiation) OR a prose REDUCTION
+# the ceiling was not re-anchored to track widens it past the margin and REDs. The reduction arm is a
+# real, expected event (any trim of a shipped-default member; #642's ~2,239-word reduction most of
+# all), so the decision record's escape valve carries an explicit DOWNWARD arm authorizing a
+# same-change re-anchor — without it this assertion would trap the very loop remedying it (PR #639
+# review, Important-1). Fails closed: a non-integer operand makes the arithmetic error → not "yes" → RED.
+assert_eq "#618: RB_SHIPPED_CEIL honors the sanctioned +$RB_SHIPPED_MARGIN margin (ceiling ≤ live shipped-default + margin)" "yes" \
+  "$([ "$((RB_SHIPPED_CEIL - _rb_shipped_w))" -le "$RB_SHIPPED_MARGIN" ] && echo yes || echo no)"
 # Anti-vacuity: the ceilings above are only meaningful if every operand was really
 # measured. `cat` SKIPS an unreadable member and keeps going, so a wrong path does
 # NOT zero the count — it merely shrinks it, and a ceiling then passes MORE easily
@@ -34743,9 +34753,16 @@ assert_eq "#618: the review-and-fix extension's self-apply ceiling phrase render
 # updated only one occurrence would still green on the survivor. Pin the ceilings-table row
 # POSITIONALLY, in the sibling RAF style: match ceiling and measured in ADJACENT columns on the
 # AC3 row, so a stale Measured cell breaks the pair. Fails closed: a missing row greps empty.
+# The row is also required to be UNIQUE (PR #639 review, Suggestion-5): the capture holds ALL
+# matching lines and the `case` matches if ANY of them carries the pattern, so a leftover stale
+# AC3 row beside the current one would green — the same duplicate-survivor class the occurrence
+# scans below exist to catch. Count rows first and require exactly one. The Margin cell is bound
+# too, so the doc's published margin cannot drift from RB_SHIPPED_MARGIN.
 _rb_ac3_row="$(grep -F '| Shipped-default per-pass path (AC3' "$RB_DOC" || true)"
-assert_eq "#618: the budget doc's AC3 row pins ceiling and measured in adjacent columns (positional, not presence)" "yes" \
-  "$(case "${_rb_ac3_row//,/}" in *"| ≤ $RB_SHIPPED_CEIL words | **$_rb_shipped_w** |"*) echo yes;; *) echo no;; esac)"
+assert_eq "#618: the budget doc carries exactly one AC3 ceilings-table row (a stale duplicate cannot hide behind the positional pin)" \
+  "1" "$(printf '%s' "$_rb_ac3_row" | grep -c '^' || true)"
+assert_eq "#618: the budget doc's AC3 row pins ceiling, measured, and margin in adjacent columns (positional, not presence)" "yes" \
+  "$(case "${_rb_ac3_row//,/}" in *"| ≤ $RB_SHIPPED_CEIL words | **$_rb_shipped_w** | $RB_SHIPPED_MARGIN |"*) echo yes;; *) echo no;; esac)"
 # #618 (PR #639 review, pr-test-analyzer stale-OLD-value blind spot; iter-2 corroboration): every
 # mirror pin above is a POSITIVE presence match on the CURRENT ceiling phrase. A single occurrence
 # carrying a stale OLD value is already caught (the current value would be absent → the positive
@@ -34760,26 +34777,46 @@ assert_eq "#618: the budget doc's AC3 row pins ceiling and measured in adjacent 
 # it. Require prefix-occurrence-count == current-value-occurrence-count; a stale duplicate makes
 # the prefix count exceed → RED. Comma-strip (pure-bash — no non-preflight PATH tool in the
 # selection) so grouped (`32,399`) and ungrouped (`32399`) forms unify; `grep -c '^' || true`
-# keeps a zero-match a count, not a set -e abort. Fails closed: the files are guaranteed non-empty
-# by the positive pins above. The `≤ 30,100` future-target text carries no `shipped-default per-
-# pass path ≤` prefix, so it never false-positives.
+# keeps a zero-match a count, not a set -e abort. Each scan additionally asserts its current-value
+# count is >= 1 (PR #639 review, Suggestion-2): the equality ALONE is 0 == 0 VACUOUS on a missing,
+# unreadable, or empty file, and on an absent `grep` binary both sides render the empty string and
+# still compare equal. The sibling positive pins would catch those, but run.sh is `set -u` WITHOUT
+# `set -e`, so that guarantee is cross-assertion, not intrinsic — the floor makes each scan
+# self-sufficient. The `≤ 30,100` future-target text carries no `shipped-default per-pass path ≤`
+# prefix, so it never false-positives.
 _rb_claudemd_nocommas="$(< "$RB_CLAUDEMD")"; _rb_claudemd_nocommas="${_rb_claudemd_nocommas//,/}"
+_rb_cm_pre="$(printf '%s\n' "$_rb_claudemd_nocommas" | grep -oF 'shipped-default per-pass path ≤ ' | grep -c '^' || true)"
+_rb_cm_cur="$(printf '%s\n' "$_rb_claudemd_nocommas" | grep -oF "shipped-default per-pass path ≤ $RB_SHIPPED_CEIL words" | grep -c '^' || true)"
+assert_eq "#618: CLAUDE.md's ceiling-phrase scan is non-vacuous (the current-value form is actually present)" "yes" \
+  "$([ "${_rb_cm_cur:-0}" -ge 1 ] && echo yes || echo no)"
 assert_eq "#618: CLAUDE.md carries no stale-value copy of the ceiling phrase (every occurrence renders the current RB_SHIPPED_CEIL)" \
-  "$(printf '%s\n' "$_rb_claudemd_nocommas" | grep -oF 'shipped-default per-pass path ≤ ' | grep -c '^' || true)" \
-  "$(printf '%s\n' "$_rb_claudemd_nocommas" | grep -oF "shipped-default per-pass path ≤ $RB_SHIPPED_CEIL words" | grep -c '^' || true)"
-assert_eq "#618: the review-and-fix extension carries no stale-value copy of the ceiling phrase (fourth mirror; every occurrence renders the current RB_SHIPPED_CEIL)" \
-  "$(printf '%s\n' "$_rb_rafext_nocommas" | grep -oF 'shipped-default per-pass path ≤ ' | grep -c '^' || true)" \
-  "$(printf '%s\n' "$_rb_rafext_nocommas" | grep -oF "shipped-default per-pass path ≤ $RB_SHIPPED_CEIL words" | grep -c '^' || true)"
+  "$_rb_cm_pre" "$_rb_cm_cur"
+_rb_ext_pre="$(printf '%s\n' "$_rb_rafext_nocommas" | grep -oF 'shipped-default per-pass path ≤ ' | grep -c '^' || true)"
+_rb_ext_cur="$(printf '%s\n' "$_rb_rafext_nocommas" | grep -oF "shipped-default per-pass path ≤ $RB_SHIPPED_CEIL words" | grep -c '^' || true)"
+assert_eq "#618: the review-and-fix extension's ceiling-phrase scan is non-vacuous (the current-value form is actually present)" "yes" \
+  "$([ "${_rb_ext_cur:-0}" -ge 1 ] && echo yes || echo no)"
+assert_eq "#618: the review-and-fix extension carries no stale-value copy of the ceiling phrase (every occurrence renders the current RB_SHIPPED_CEIL)" \
+  "$_rb_ext_pre" "$_rb_ext_cur"
 # The budget doc carries the shipped-default ceiling in a DECISION-RECORD prose shape `≤ <n> words**`
 # (bold) that is UNIQUE to it (the AC2 root+extension ceiling uses `≤ N words |`, no bold), so an
 # occurrence count of every `≤ <digits> words**` vs the current-value form catches a stale bold
 # duplicate in the record the self-apply loop hand-edits. The `≤ N words |` TABLE-cell shape is
 # deliberately NOT count-scanned — it is shared with the AC2 8,500 row, so a count-equality would
-# false-positive; that cell is guarded instead by the positional AC3-row pin below (ceiling AND
-# measured adjacent). Same fail-closed/occurrence-count discipline as the two mirrors above.
+# false-positive; that cell is guarded instead by the AC3 ceilings-table row assertions (the
+# unique-row count and the positional ceiling/measured/margin match). Same fail-closed and
+# occurrence-count discipline as the two mirrors above, including the non-vacuity floor.
+# LOAD-BEARING WORDING NOTE: this scan is line-based, and it reads 1/1 today only because the doc's
+# OTHER bold ceiling — the #642 future target — is deliberately spelled `**at most\n30,100 words**`,
+# wrapping the bold span so no `≤` shares a physical line with `30,100 words**`. Re-flowing that
+# paragraph, or rewording "at most" to "≤", flips the counts and REDs this with a diagnostic that
+# points at a stale ceiling rather than at the rewrap. Keep the `at most` spelling (PR #639 review,
+# Suggestion-6; the #375 wrapped-literal class).
+_rb_doc_pre="$(printf '%s\n' "$_rb_doc_nocommas" | grep -oE '≤ [0-9]+ words\*\*' | grep -c '^' || true)"
+_rb_doc_cur="$(printf '%s\n' "$_rb_doc_nocommas" | grep -oF "≤ $RB_SHIPPED_CEIL words**" | grep -c '^' || true)"
+assert_eq "#618: the budget doc's bold-ceiling scan is non-vacuous (the current-value form is actually present)" "yes" \
+  "$([ "${_rb_doc_cur:-0}" -ge 1 ] && echo yes || echo no)"
 assert_eq "#618: the budget doc's decision-record prose carries no stale-value bold ceiling (every ≤…words** renders the current RB_SHIPPED_CEIL)" \
-  "$(printf '%s\n' "$_rb_doc_nocommas" | grep -oE '≤ [0-9]+ words\*\*' | grep -c '^' || true)" \
-  "$(printf '%s\n' "$_rb_doc_nocommas" | grep -oF "≤ $RB_SHIPPED_CEIL words**" | grep -c '^' || true)"
+  "$_rb_doc_pre" "$_rb_doc_cur"
 # Captured once: the SAME emitted line is asserted to shrink AND to have been fed the
 # standalone set. Re-invoking would let the two assertions diverge. No skip arm is
 # needed any more — the baseline is a frozen constant, so there is no external ref
@@ -35085,19 +35122,22 @@ RAF_ROOT_CEIL=3500
 # exactly at the measurement makes the next one-sentence edit a budget breach. The growth is the
 # audited decision recorded in docs/cutovers/issue-619-batched-artifact-regeneration.md;
 # update docs/review-and-fix-budget.md's ceilings-table cell in lockstep.
-# #618 raised the initial-load ceiling 5690->5824 and the max-step ceiling 17000->17086:
-# the mandated self-apply authorization section ("Review-bundle ceiling self-apply") the #618
-# decision requires on this surface added 132 words to the extension, and it was already at ~4
-# words of headroom under 5690 (root 3,213 + extension 2,473 = 5,686). The section was written
-# to its operative minimum (the authorization, the +60/four-mirror mechanic, the direct
-# CLAUDE.md-edit carve-out, the growth-only scope, and the doc pointer) and only then were the
-# two ceilings renegotiated to the measured figures plus ~6 words of headroom, mirroring the
-# #556/#619 precedent. The growth-delta / net-reduction figures are unchanged (the extension
-# term cancels). This is the audited growth decision recorded in
+# #618 raised the initial-load ceiling 5690->5865 and the max-step ceiling 17000->17127 across
+# two steps. Step 1: the mandated self-apply authorization section ("Review-bundle ceiling
+# self-apply") the #618 decision requires on this surface added 132 words to the extension, and
+# it was already at ~4 words of headroom under 5690 (root 3,213 + extension 2,473 = 5,686), so
+# the ceilings went 5690->5824 / 17000->17086. Step 2 (PR #639 review, Important-1): the
+# authorization as first written armed the valve on GROWTH only, which would have trapped a fix
+# loop facing the reduction-direction RED of the +60 margin bound — so the section gained the
+# either-direction wording and the run.sh two-literal reconcile note, +41 words, taking the
+# ceilings to 5865 / 17127. Both steps were written to their operative minimum and only then
+# renegotiated to the measured figures plus ~6 words of headroom, mirroring the #556/#619
+# precedent. The growth-delta / net-reduction figures are unchanged (the extension term
+# cancels). This is the audited growth decision recorded in
 # docs/cutovers/issue-618-self-apply-authorization.md; update docs/review-and-fix-budget.md's
 # ceilings-table and Measured cells in lockstep.
-RAF_LOAD_CEIL=5824
-RAF_MAXSTEP_CEIL=17086
+RAF_LOAD_CEIL=5865
+RAF_MAXSTEP_CEIL=17127
 assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
   "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"
 assert_eq "#530 budget: root + live extension (initial load) <= $RAF_LOAD_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W)))" "yes" \

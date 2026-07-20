@@ -132,18 +132,37 @@ Because Arm B marks this ceiling **interim**, the same change files a **follow-u
 whose completion sheds ~2,239 words from the shipped-default path and lowers this ceiling to **at most
 30,100 words**.
 
-**The escape-valve procedure (the sanctioned honest move, now recorded here).** When the shipped-default
-path breaches this ceiling — and **only** when the RED is the `#618 AC3` ceiling assertion itself, a pure
-*growth* breach: if an anti-vacuity or `_rb_standalone` member-usability assertion is RED at the same
-time, that is a **different** defect (e.g. an unreadable member shrinking the measured figure so it
-passes the ceiling while the vacuity guard fails), and it must **not** be silenced by bumping the
-ceiling — re-measure it with `_rb_words`, set the new ceiling to that measured figure
-plus the fixed **60-word margin**, reconcile the four mirrors — `lib/test/run.sh` (the assertion
-literal), this doc (the ceilings table and this record), `CLAUDE.md`'s review-bundle bullet, and
-`.devflow/prompt-extensions/review-and-fix.md`'s self-apply ceiling phrase — then **re-run the suite and
-confirm it is GREEN** (the four mirrors are mutually coupled to `RB_SHIPPED_CEIL`, so a partial
-reconciliation of fewer than all four leaves the suite RED), and
-record the change in this decision record. This is the procedure #556 established (measured figure plus a
+**The escape-valve procedure (the sanctioned honest move, now recorded here).** The valve arms on
+**either direction** of ceiling drift, and only on ceiling drift:
+
+- **Upward (growth).** The shipped-default path breached the ceiling — the `#618 AC3` ceiling
+  assertion is RED.
+- **Downward (reduction).** A prose reduction widened the gap past the margin — the
+  `#618: RB_SHIPPED_CEIL honors the sanctioned +60 margin` assertion is RED. This is an expected,
+  ordinary event, not an exotic one: **any** trim of a shipped-default member trips it, and #642's
+  ~2,239-word reduction most of all. Re-anchor the ceiling **downward** in the same change. (This
+  is not #642 itself, which additionally lowers the *target* to at most 30,100 as its own project.)
+
+**Only** those two assertions arm the valve. If an anti-vacuity or `_rb_standalone`
+member-usability assertion is RED at the same time, that is a **different** defect (e.g. an
+unreadable member shrinking the measured figure so it passes the ceiling while the vacuity guard
+fails), and it must **not** be silenced by bumping the ceiling.
+
+In either direction: re-measure with `_rb_words`, set the new ceiling to that measured figure
+plus the fixed **60-word margin** (`RB_SHIPPED_MARGIN` — the margin itself never moves), reconcile
+every mirror listed below, then **re-run the suite and confirm it is GREEN** (the mirrors are
+mutually coupled to `RB_SHIPPED_CEIL`, so a partial reconciliation leaves the suite RED), and
+record the change in this decision record.
+
+The mirrors to reconcile:
+
+- `lib/test/run.sh` — **both** the `RB_SHIPPED_CEIL` constant **and** the spelled-out
+  `assert_pin_unique` ceiling-phrase literal (`'shipped-default per-pass path ≤ N words'`), which is
+  deliberately *not* derived from the constant. Bumping only the constant leaves the suite RED.
+- this doc — the ceilings table (ceiling, Measured, **and** Margin cells, pinned positionally) and
+  this record's bold ceiling prose.
+- `CLAUDE.md`'s review-bundle bullet — the `≤`-prefixed ceiling phrase.
+- `.devflow/prompt-extensions/review-and-fix.md`'s self-apply ceiling phrase. This is the procedure #556 established (measured figure plus a
 thin margin, recorded); it is written here so the `#556` / `#618` comments in `lib/test/run.sh` that
 reference the doc's escape-valve procedure (`#556`: "via the doc's escape valve"; `#618`: "the escape-valve
 procedure recorded in docs/review-bundle-budget.md's decision record") are no longer citing an absent procedure.
