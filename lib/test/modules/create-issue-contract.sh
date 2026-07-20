@@ -959,8 +959,11 @@ assert_eq "#611 AC6: both no-op sentences state the absent heading is now breadc
 # reference, so no second full statement of the rule survives anywhere in the file.
 devflow_module_pin_unique "#611 AC6/AC8: the Step 3.6 restatement is reduced to a pure reference" \
   'that sentence is the specification of record for both hooks and is not restated here' "$CI_SKILL"
-assert_eq "#611 AC6: no second full statement of the extraction rule remains" \
-  "0" "$(devflow_module_pin_count 'an empty section equals an absent heading' "$CI_SKILL")"
+# Pin a phrase that EXISTS and whose loss would mean the rule stopped being stated, not the
+# absence of a wording that never appeared in the file — an absence pin on a never-present
+# string passes under any reworded restatement, so it polices nothing.
+assert_eq "#611 AC6: the extraction rule's terminator precision is stated exactly once" \
+  "1" "$(devflow_module_pin_count 'two hashes PLUS A SPACE' "$CI_SKILL")"
 devflow_module_pin_unique "#548: bounded actionability definitions (must-revise)" \
   'a verified correctness, safety, implementability, unresolved-decision, or load-bearing-premise defect' "$CI_SKILL"
 devflow_module_pin_unique "#548: VERDICT: FILE may carry advisory findings" \

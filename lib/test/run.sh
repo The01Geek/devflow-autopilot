@@ -11404,6 +11404,25 @@ assert_eq "lpe --section: a heading opening an unclosed comment makes a later '#
 assert_eq "lpe --section: ...and the commented lines are still emitted as section content" \
   "yes" "$(case "$LPE_SEC_OPENER" in *'still inside the opened comment'*) echo yes ;; *) echo no ;; esac)"
 
+# CommonMark permits BOTH ``` and ~~~ as fence characters. Matching only ``` left a
+# ~~~-fenced '## ' line live, so the section truncated at a pseudo-heading the rule calls
+# inert — silent under-delivery of consumer prose into an agent prompt, while four doc
+# sites asserted fence inertness without qualifying the fence kind.
+printf '## Tilde\nbefore\n~~~\n## NotAHeading\n~~~\nafter\n\n## AfterTilde\nafter tilde\n' \
+  > "$LPE_SEC_DIR/.devflow/prompt-extensions/tilde.md"
+LPE_SEC_TILDE="$(cd "$LPE_SEC_DIR" && bash "$LPE" tilde --section '## Tilde' 2>/dev/null)"
+assert_eq "lpe --section: '##' inside a ~~~ fence is inert (the section is not truncated)" \
+  "yes" "$(case "$LPE_SEC_TILDE" in *'after'*) echo yes ;; *) echo no ;; esac)"
+assert_eq "lpe --section: a ~~~ fenced section still ends at the next real heading" "yes" \
+  "$(case "$LPE_SEC_TILDE" in *'after tilde'*) echo no ;; *) echo yes ;; esac)"
+# A fence closes only on its OWN kind: a ~~~ line inside a ``` block is content, so the
+# ``` block stays open and the '## ' line after the ~~~ remains inert.
+printf '## Mixed\n```\n~~~\n## StillFenced\n```\nreal content\n\n## AfterMixed\nafter mixed\n' \
+  > "$LPE_SEC_DIR/.devflow/prompt-extensions/mixed.md"
+LPE_SEC_MIXED="$(cd "$LPE_SEC_DIR" && bash "$LPE" mixed --section '## Mixed' 2>/dev/null)"
+assert_eq "lpe --section: a tilde line does not close a backtick fence (fence kind is tracked)" \
+  "yes" "$(case "$LPE_SEC_MIXED" in *'real content'*) echo yes ;; *) echo no ;; esac)"
+
 # A line that CLOSES one comment and RE-OPENS another (`<!-- a --> <!--`) leaves a block
 # open. Reading only the presence of '-->' left the state closed, so every later '## '
 # line read as a real heading and TRUNCATED the section at a pseudo-heading the rule calls

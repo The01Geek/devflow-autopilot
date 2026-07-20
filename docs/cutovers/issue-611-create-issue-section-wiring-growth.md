@@ -5,7 +5,7 @@ kind: growth
 
 ## Files
 
-- `skills/create-issue/SKILL.md` (+4676 bytes, mandatory)
+- `skills/create-issue/SKILL.md` (+5086 bytes, mandatory)
 
 ## Justification
 
@@ -28,6 +28,6 @@ kind: growth
   without restating it.
 - Partially offsetting: the Step 3.6 parenthetical restatement of the extraction rule is reduced to
   a pure reference in the same change, so the file carries one statement of the rule where it
-  previously carried two. The net figure above is after that reduction.
+  previously carried two. The net figure above is after that reduction, and is the post-review-loop total (146500 -> 151586): the review iterations added the exit-status-first reordering to all four wiring sentences after the first figure was written.
 - No ownership transfers and no prose leaves the mandatory path, so this is `growth`, not `cutover`
   or `relocate`.

@@ -23,10 +23,15 @@
 #   * an empty section is equivalent to an absent heading (both emit nothing);
 #   * a heading line inside an HTML comment block is never a heading;
 #   * a '##' line inside a fenced code block neither starts nor terminates a
-#     section, and an unclosed fence runs to end of file;
+#     section, and an unclosed fence runs to end of file. Both CommonMark fence
+#     characters are tracked (``` and ~~~), and a fence closes only on its own kind;
 #   * trailing whitespace is stripped from both the candidate heading line and the
 #     --section value before comparison, so a CRLF-authored extension and a heading
 #     hand-authored with trailing spaces both still extract.
+# Stated boundary: LEADING whitespace is not stripped, so an indented ATX heading and an
+# indented closing fence (CommonMark permits up to three spaces on both) are not
+# recognized. This matches the rule's literal wording — 'a line beginning `## `' — and is
+# a deliberate limit of a best-effort parser over hand-authored markdown, not an oversight.
 #
 # Section bytes are selected and emitted with bash builtins only (read/printf/case
 # parameter expansion) — never awk/sed/tr/head. The emitted section decides what a
@@ -89,7 +94,8 @@
 #      only makes it observable, so a near-miss heading is never silent)
 #   2  bad arguments (missing SKILL_NAME, a SKILL_NAME containing '/' or '..' or
 #      given as a '--'-prefixed token, an unrecognized '--' argument, a --section
-#      missing its value, or a --section whose value is empty after stripping), OR the named
+#      missing its value, a --section whose value is empty after stripping or is itself
+#      '--'-prefixed, or a heading-shaped bare positional — a dropped --section), OR the named
 #      extension exists but cannot be delivered as a Markdown file (unreadable, a
 #      symlink whose target is missing, or not a regular file — a directory or a
 #      symlink resolving to one) — refused loudly rather than left to masquerade as
@@ -161,7 +167,9 @@ esac
 # '--'-prefixed argument is refused rather than ignored: silently reverting to the
 # full-file dump would hand a caller the entire extension where it asked for one
 # section — the opposite of the context saving --section exists to provide, and
-# invisible at the call site.
+# invisible at the call site. A bare extra argument that is HEADING-shaped ('## …') is
+# refused for the same reason (it is a dropped --section); only a bare PLAIN word keeps
+# the pre-flag ignored behavior.
 section=""
 section_requested=0
 shift || true
@@ -298,6 +306,7 @@ if [ -f "$ext_file" ]; then
         # while inside the section) because a fence opened before the heading and
         # closed after it still governs whether the lines between them are headings.
         _in_fence=0
+        _in_fence_char=''
         _in_comment=0
         _in_section=0
         _found=0
@@ -313,8 +322,13 @@ if [ -f "$ext_file" ]; then
         while IFS= read -r _line || { [ -n "$_line" ] && _partial=1; }; do
             _is_heading=0
             if [ "$_in_fence" -eq 1 ]; then
-                # Inside a fence nothing is a heading; only the closing fence matters.
-                case "$_line" in '```'*) _in_fence=0 ;; esac
+                # Inside a fence nothing is a heading; only a closing fence of the SAME
+                # kind matters. CommonMark treats ``` and ~~~ as distinct fence
+                # characters, so a ~~~ line inside a ``` block is content, not a close.
+                case "$_line" in
+                    '```'*) [ "$_in_fence_char" = '`' ] && _in_fence=0 ;;
+                    '~~~'*) [ "$_in_fence_char" = '~' ] && _in_fence=0 ;;
+                esac
             elif [ "$_in_comment" -eq 1 ]; then
                 # Inside a comment block nothing is a heading; only the block state
                 # matters — and a line can close one comment and re-open another, so the
@@ -327,6 +341,15 @@ if [ -f "$ext_file" ]; then
                         # An unclosed fence is never reset, so it runs to end of file
                         # — the truncation shape a hand-edited extension can leave.
                         _in_fence=1
+                        _in_fence_char='`'
+                        ;;
+                    '~~~'*)
+                        # The tilde fence CommonMark permits alongside ```. Without this
+                        # arm a ~~~-fenced '## ' line stayed live and truncated the
+                        # section at a pseudo-heading, silently under-delivering consumer
+                        # prose into an agent prompt.
+                        _in_fence=1
+                        _in_fence_char='~'
                         ;;
                     '## '*)
                         # Two hashes PLUS A SPACE. '### Foo' fails this pattern (its
@@ -337,12 +360,17 @@ if [ -f "$ext_file" ]; then
                         # line that BEGINS with '## ' is a heading whatever follows it,
                         # including a trailing inline comment
                         # (`## Evidence axes <!-- consumer note -->`). Ordering the
-                        # comment arm first made such a heading unselectable AND made
-                        # the absent-heading breadcrumb enumerate the file as though the
-                        # heading were not there — telling the caller a heading it can
-                        # plainly see does not exist. A line that merely CONTAINS '<!--'
-                        # without starting '## ' still falls through to the comment arm,
-                        # so `<!-- ## Commented -->` is unaffected.
+                        # comment arm first made such a heading unreachable by ANY
+                        # --section value AND made the absent-heading breadcrumb
+                        # enumerate the file as though the heading were not there —
+                        # telling the caller a heading it can plainly see does not exist.
+                        # Matching stays EXACT, so `## Evidence axes <!-- note -->` is
+                        # selected by that full line, not by the bare `## Evidence axes`;
+                        # a bare-name request still takes the absent-heading arm, which
+                        # now lists the annotated heading so the drift is visible rather
+                        # than silent. A line that merely CONTAINS '<!--' without starting
+                        # '## ' still falls through to the comment arm, so
+                        # `<!-- ## Commented -->` is unaffected.
                         _is_heading=1
                         # A heading line may itself OPEN an unclosed comment block
                         # (`## X <!--`, or `## X <!-- a --> <!--`). It is still this

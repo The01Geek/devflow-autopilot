@@ -9,7 +9,8 @@ bump: patch
   heading-extraction rule `skills/create-issue/SKILL.md` already specified. A section spans its
   heading line to the next line beginning `## ` (two hashes plus a space, so a `###` sub-heading is
   section content); duplicate same-heading sections concatenate in file order; headings inside HTML
-  comment blocks and fenced code blocks are inert, and an unclosed fence runs to end of file.
+  comment blocks and fenced code blocks are inert (both ``` and ~~~ fences, each closing only on
+  its own kind), and an unclosed fence runs to end of file.
   Extraction uses bash builtins only. A flagless invocation stays byte-identical to the previous
   full-file behavior, with two extra-argument shapes now refused at exit 2 instead of ignored: an
   unrecognized `--`-prefixed argument, and a heading-shaped bare positional (a dropped `--section`,
