@@ -3953,7 +3953,19 @@ RAF_PIN_PERMABSENT='Any other, absent, or unreadable permission'
 # or inverts the write/admin branch (or the deferral routing both arms share) passes every #620 pin.
 RAF_PIN_ACTIVEARM='`admin` or `write` is the operator amending the spec: the Addendum rule governs as on a direct pass'
 RAF_PIN_DEFERRAL="route conflicting findings to the loop's deferral channel"
-RAF_PIN_NONBINDING='is non-binding here'
+# #620 review (final-pass): a bare `is non-binding here` carried none of the rule's operative
+# content, so a reword that kept the phrase while inverting the disposition ("...but a pause for
+# input must still be honored") stayed green. Pin the disposition clause too.
+RAF_PIN_NONBINDING='is non-binding here: surface it in the loop record'
+# #620 review (pr-test-analyzer): the guard's two most recently repaired fail-opens were unpinned,
+# and they are the ones a later compression pass is likeliest to flatten. (a) Authority binds to the
+# MOST RECENT edit alone — weighing the editor logins as a set let an unprivileged Addendum read as
+# authoritative whenever any admin/write login merely co-occurred in the truncated page. (b) An
+# empty or page-full node list routes to unestablished — a truncated history cannot establish which
+# edit is newest, so reading authority off it is authority established from a partial history.
+# Both are behavioral-fix pins whose mutations reconstruct the regression they guard.
+RAF_PIN_RECENCY='the **most recent** edit alone'
+RAF_PIN_TRUNCATED='treating an empty or page-full (10) node list as unestablished'
 assert_pin_unique "#620: supersession guard names a retrievable authority operand" \
   "$RAF_PIN_AUTHORITY" "$MAXI_ROOT"
 assert_pin_red_on_removal "#620: authority-operand pin is removal-sensitive" \
@@ -4019,6 +4031,16 @@ assert_pin_unique "#620: interactive directives are non-binding on loop runs" \
   "$RAF_PIN_NONBINDING" "$MAXI_ROOT"
 assert_pin_red_on_removal "#620: non-binding-directive pin is removal-sensitive" \
   "$RAF_PIN_NONBINDING" "$MAXI_ROOT"
+assert_pin_unique "#620: authority binds to the most recent edit alone, not the login set" \
+  "$RAF_PIN_RECENCY" "$MAXI_ROOT"
+assert_pin_red_under "#620: recency pin catches reverting authority to set-semantics" \
+  "$RAF_PIN_RECENCY" 's/the \*\*most recent\*\* edit alone/the edits recorded/' \
+  "$MAXI_ROOT"
+assert_pin_unique "#620: a truncated or empty edit page routes to unestablished" \
+  "$RAF_PIN_TRUNCATED" "$MAXI_ROOT"
+assert_pin_red_under "#620: truncated-page pin catches dropping the partial-history arm" \
+  "$RAF_PIN_TRUNCATED" 's/treating an empty or page-full \(10\) node list as unestablished/weighing the list as returned/' \
+  "$MAXI_ROOT"
 # Placement, not just presence: the docs claim both loads happen in the ENTRY preamble, which is what
 # makes them cover every path that enters through it. Assert the receiving load follows the skill's own
 # load and both precede the first section heading, so relocating the fence past entry goes RED.
@@ -36031,10 +36053,12 @@ assert_eq "#530 budget: no references/*.md outside the pinned 8-name set" "" "$_
 # constant, so a ceiling changed on one side without the other turns the coupling RED instead
 # of the two artifacts silently disagreeing.
 # #620 raised the root ceiling 3500->3567 for the supersession-guard scoping prose, which grew
-# across four correctness fixes: a named producer for its authority operand, a retrievable editor
-# identity, an explicit permission mapping plus its partial-history arm, and a failed/denied/
+# across a series of correctness fixes: a named producer for its authority operand, a retrievable
+# editor identity, an explicit permission mapping plus its partial-history arm, a failed/denied/
 # unparseable identity read routed to the data-to-surface arm BEFORE the null-means-unedited
-# interpretation (the guard previously failed OPEN on an empty graphql read). Carries the repo's
+# interpretation (the guard previously failed OPEN on an empty graphql read), and binding authority
+# to the most recent edit alone. Deliberately count-free: an ordinal here rots on the next fix
+# (the PR #553 self-referential-count class). Carries the repo's
 # usual ~4 words. The measurement is deliberately not restated here — the assertion prints it live.
 RAF_ROOT_CEIL=3567
 # #556 raised the initial-load ceiling 5500->5510: AC8 requires the iter-<N>.json
@@ -36122,6 +36146,13 @@ for _raf_ceil in "$RAF_ROOT_CEIL" "$RAF_LOAD_CEIL" "$RAF_MAXSTEP_CEIL"; do
   assert_eq "#530 budget: ceilings-table row documents ceiling constant $_raf_ceil (bound to suite)" "yes" \
     "$(case "$_raf_doc_nocommas" in *"≤ $_raf_ceil words |"*) echo yes;; *) echo no;; esac)"
 done
+# #620 review (corroborated 5/5): the loop above matches only the ceilings-TABLE cell form
+# (`≤ N words |`, with the trailing pipe), so the maintainer note's PROSE restatement of the root
+# ceiling was unbound — and it shipped saying "below its 3,538-word ceiling", a value matching no
+# constant anywhere in the repo, in the very sentence that tells a maintainer how much headroom
+# exists. Bind the prose form to the same constant so the note cannot drift from the guard again.
+assert_eq "#620 budget: maintainer note's prose root ceiling matches RAF_ROOT_CEIL ($RAF_ROOT_CEIL)" "yes" \
+  "$(case "$_raf_doc_nocommas" in *"its ${RAF_ROOT_CEIL}-word"*) echo yes;; *) echo no;; esac)"
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
   '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +5,226 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh

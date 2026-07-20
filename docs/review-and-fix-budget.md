@@ -7,7 +7,7 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
 (root ≤ 3,567 words; root + always-loaded extensions ≤ 7,644 words; root + always-loaded
 extensions + max active step ≤ 18,906 words).
 
-> **Maintainer note — the root is the budget to watch.** The root sits below its 3,538-word
+> **Maintainer note — the root is the budget to watch.** The root sits below its 3,567-word
 > ceiling (see the **AFTER — plugin root** row and the ceilings table below; the `#530 budget`
 > guard binds that Measured cell to the live python3 count, so it cannot silently drift). Any
 > non-trivial addition to `skills/review-and-fix/SKILL.md` risks tripping the guard; externalize
