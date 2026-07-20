@@ -67,3 +67,23 @@ Act on its report before starting the suite run: commit a changed manifest toget
 If the runner's permission matcher refuses the invocation **twice**, stop — do not iterate variants of the command (the issue-401 two-denials discipline). Record the refusal in the workpad and proceed to the suite run: the batched pass then degrades to the status-quo serial discovery, which is slower but never a silent stall.
 
 On a run that maintains a workpad, record one discharge line before each full-suite run — `batched-regeneration: run|refused|skipped`. A compacted context that dropped this section then leaves an auditable gap rather than an undetectable silent revert to serial discovery.
+
+## Focused test modules in direct reception passes
+
+A reception pass iterates on a focused module only after recording the selected module ID: find a candidate in `lib/test/modules/coverage-map.json`, confirm it in `scripts/workflow-flight-recorder-registry.json`.
+
+Iterate with the direct leading-token form `lib/test/run-module.sh <module-id>` — a deliberate divergence from the source section's bash-first wording, because direct reception passes run on the local tier, where the classifier routinely denies the `bash <path>` wrapper. Reserve that wrapper for hosts where the direct form is unavailable and it is permitted.
+
+A focused result discharges no gate: before every commit, push, and completion claim run the full `lib/test/run.sh` plus every lint gate `CLAUDE.md` requires; a nonempty skip tally is not clean. A fix no registered module covers iterates on the full suite.
+
+On loop runs this section defers to `.devflow/prompt-extensions/review-and-fix.md`'s "Focused test modules accelerate fix iteration only" section, which already governs and loads there. That section is this one's source of record — an adaptation, not a lockstep mirror.
+
+## Push form in reception passes
+
+A reception pass that pushes uses an explicit destination ref — `git push origin HEAD:refs/heads/<the PR head ref>` — the head ref read from the PR this pass is addressing.
+
+Two forms are non-conforming **within a reception pass**. A bare `git push` refuses under `push.default=simple` when the upstream ref name differs from the local branch (the shepherd-worktree shape: a `worktree-pr-N` checkout tracking an `issue-N-…` head). `git push -u origin <branch>` is worse — from a `.claude/worktrees/` checkout under `push.default=upstream` it has pushed straight to main here, the operator record issue #620 carries.
+
+This covers reception-pass pushes only; it never governs skill or phase prose, or helpers, whose push form is pinned, documented, or load-bearing by design — a class including `lib/open-state-pr.sh`'s `git push -u origin` for new state branches and implement Phase 1.5's `git push -u origin HEAD` in `skills/implement/phases/phase-1-setup.md`, which `scripts/update-branch-checkpoint.sh` documents itself as relying on. A class-sweeping fix pass does not strip those.
+
+Whether a push happens stays governed by the surrounding workflow. Source of record for the explicit-destination-ref form and the bare-push refusal: `skills/review-and-fix/references/fixing.md` Step 3 item 6.
