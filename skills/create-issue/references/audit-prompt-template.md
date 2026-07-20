@@ -31,10 +31,11 @@ same block/slot rules by hand.
     `AUDIT-<tag>-CLOSE` tokens the state owner generated (embed arm only). The
     embed splice slot is the one place the draft body is carried; the renderer
     never touches the draft bytes.
-  - `{SLUG}` — the run's kebab-case slug, substituted into the out-of-bounds
+  - `<slug>` — the run's kebab-case slug, substituted into the out-of-bounds
     paths.
-  - `{CONSUMER_DIMENSIONS}` — the consumer `## Audit dimensions` section (or a
-    clean no-consumer note / an unestablished note), computed by the renderer.
+  - the consumer-dimensions slot — the consumer `## Audit dimensions` section
+    (or a clean no-consumer note / an unestablished note), computed by the
+    renderer and spliced into the generic checklist block below.
 - **The draft title never appears here** — it travels in the orchestrator's
   dispatch preamble prose; the rendered instructions refer to the draft by path.
 
@@ -69,11 +70,11 @@ The draft title and body are embedded below, bracketed by the sentinel tokens `{
 <!-- render-block-end -->
 
 <!-- render-block: file inline -->
-Verify every claim against the repository (you have read access). The following on-disk files are **out of bounds** — `.devflow/tmp/issue-derivation-{SLUG}.md`, `.devflow/tmp/issue-audit-{SLUG}.md`, `.devflow/tmp/issue-audit-state-{SLUG}.json`, and `.devflow/tmp/issue-audit-state-{SLUG}.md`; **any finding derived from those files is void.** (The draft under audit is the artifact under audit, not out of bounds.)
+Verify every claim against the repository (you have read access). The following on-disk files are **out of bounds** — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, and `.devflow/tmp/issue-audit-state-<slug>.md`; **any finding derived from those files is void.** (The draft under audit is the artifact under audit, not out of bounds.)
 <!-- render-block-end -->
 
 <!-- render-block: embed -->
-Verify every claim against the repository (you have read access). On this arm the out-of-bounds declaration names exactly these 5 files — `.devflow/tmp/issue-derivation-{SLUG}.md`, `.devflow/tmp/issue-draft-{SLUG}.md`, `.devflow/tmp/issue-audit-{SLUG}.md`, `.devflow/tmp/issue-audit-state-{SLUG}.json`, and the **retired** `.devflow/tmp/issue-audit-state-{SLUG}.md`; **any finding derived from those files is void.** The embedded body above is the sole draft source; the on-disk draft file is untrusted here.
+Verify every claim against the repository (you have read access). On this arm the out-of-bounds declaration names exactly these 5 files — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-draft-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, and the **retired** `.devflow/tmp/issue-audit-state-<slug>.md`; **any finding derived from those files is void.** The embedded body above is the sole draft source; the on-disk draft file is untrusted here.
 <!-- render-block-end -->
 
 <!-- render-block: file embed inline -->

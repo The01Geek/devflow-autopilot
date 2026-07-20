@@ -313,7 +313,7 @@ def render_dispatch(
 
     status, section = consumer_dimensions(ext_path, _HOOKS["audit-dimensions"])
     slots = {
-        "{SLUG}": slug,
+        "<slug>": slug,
         "{DRAFT_PATH}": draft_path or "",
         "{SENTINEL_OPEN}": sentinel_open or "",
         "{SENTINEL_CLOSE}": sentinel_close or "",
