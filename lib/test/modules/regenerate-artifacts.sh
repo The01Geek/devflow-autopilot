@@ -298,23 +298,29 @@ done
 RA_WATCH_CHECKED=""      # rows _ra_watch_check was actually invoked for
 RA_WATCH_ALL_MEMBERS=""  # every checked row's members, for the cross-row overlap test
 _ra_watch_check() {  # row-name glob-dir literal-member...
-  local _row="$1" _dir="$2" _helper _disk
+  local _row="$1" _dir="$2" _helper _disk _globbed
   shift 2
   _helper="$(printf '%s\n' "$RA_LIST" | sed -n "s/^budget-watch	${_row}	//p" | sort)"
   # The glob is expanded HERE from a quoted directory rather than at the call site: an
   # unquoted `$( … ls dir/*.md )` argument splices its members as separate words but trips
   # SC2046, and CI's lint gate runs at --severity=warning.
-  _disk="$( { printf '%s\n' "$@"; ( cd "$RA_REPO" && ls "$_dir"/*.md ); } | sort )"
-  # Both comparands are derived through `sed`/`ls`/`sort` — none of which lib/preflight.sh
-  # guarantees. A missing tool empties BOTH sides, and the equality below would then pass
-  # comparing "" to "" (CLAUDE.md's un-guaranteed-tool rule: a value that decides an
-  # emitted result must fail CLOSED, not silently). Assert both sides are non-empty first,
-  # so tool absence surfaces as a RED assertion naming the cause instead of a vacuous pass.
-  case "$_disk" in
-    '') assert_eq "#624 A4 the disk-derived watch list is non-empty: $_row" yes \
-          "no(empty — sed/ls/sort absent or the references glob matched nothing)" ;;
-    *)  assert_eq "#624 A4 the disk-derived watch list is non-empty: $_row" yes yes ;;
+  # Precondition the GLOB-derived portion on its own, NOT the assembled `_disk`. `_disk`
+  # concatenates the literal members (emitted by the `printf` BUILTIN, so always present)
+  # with the glob expansion, which makes it unconditionally non-empty — a guard over it
+  # would be unreachable decoration whose failure text named causes (`ls` absent, the glob
+  # matching nothing) it structurally could not observe. Guarding the glob half is what
+  # actually detects those.
+  _globbed="$( cd "$RA_REPO" && ls "$_dir"/*.md )"
+  case "$_globbed" in
+    '') assert_eq "#624 A4 the disk-derived glob members are non-empty: $_row" yes \
+          "no(empty — ls absent, or $_dir/*.md matched nothing)" ;;
+    *)  assert_eq "#624 A4 the disk-derived glob members are non-empty: $_row" yes yes ;;
   esac
+  _disk="$( { printf '%s\n' "$@"; printf '%s\n' "$_globbed"; } | sort )"
+  # `_helper` IS derived wholly through `sed`/`sort` — neither preflight-guaranteed — so a
+  # missing tool empties it and the equality below would pass comparing "" to "" if `_disk`
+  # were also empty (CLAUDE.md's un-guaranteed-tool rule: a value deciding an emitted result
+  # must fail CLOSED). Guard it so tool absence surfaces as a named RED, not a vacuous pass.
   case "$_helper" in
     '') assert_eq "#624 A4 the helper-reported watch list is non-empty: $_row" yes \
           "no(empty — sed/sort absent, or --list emitted no budget-watch rows for $_row)" ;;
@@ -346,7 +352,20 @@ _ra_watch_check review-and-fix-budget "skills/review-and-fix/references" \
 # is exactly the blind spot a detect-all audit cannot self-certify away. So derive the
 # roster from --list's own row-name field and require it to equal the set actually checked:
 # a registered row nobody checks, and a check naming a row --list does not emit, both go RED.
-RA_WATCH_EMITTED="$(printf '%s\n' "$RA_LIST" | sed -n 's/^budget-watch	\([^	]*\)	.*$/\1/p' | sort -u)"
+# Derived from BOTH attributed line kinds. A budget row emits a `budget-watch` line only
+# for members that exist on disk, so a row whose literals and glob are ALL absent emits
+# `budget-watch-missing` lines exclusively — extracting from `budget-watch` alone would
+# leave that row out of the roster, and the equality below would pass while the row went
+# unchecked. That is the same self-certifying blind spot this block exists to close, so it
+# must not depend on an accident of the live tree having every member present.
+#
+# The derivation is a shared function precisely so the A4c arm below can drive it against a
+# fixture that HAS the all-absent shape: on the live tree both spellings agree, so a
+# single-prefix regression here would be invisible without that arm.
+_ra_roster_of() {  # --list output -> sorted unique row names owning budget-watch* lines
+  printf '%s\n' "$1" | sed -n 's/^budget-watch	\([^	]*\)	.*$/\1/p; s/^budget-watch-missing	\([^	]*\)	.*$/\1/p' | sort -u
+}
+RA_WATCH_EMITTED="$(_ra_roster_of "$RA_LIST")"
 RA_WATCH_COVERED="$(printf '%s' "$RA_WATCH_CHECKED" | sort -u)"
 # Both sides route through `sed`/`sort`, which lib/preflight.sh does not guarantee; a
 # missing tool empties BOTH and the equality would pass comparing "" to "". Assert
@@ -373,22 +392,68 @@ case "$RA_WATCH_ALL_MEMBERS" in
         "no(empty — no checked row contributed members, so the overlap test below would pass vacuously)" ;;
   *)  assert_eq "#624 A4 the cross-row member set is non-empty (overlap test is live)" yes yes ;;
 esac
-_ra_watch_seen=""
-_ra_watch_overlap=""
-while IFS= read -r _ra_wm; do
-  [ -n "$_ra_wm" ] || continue
-  case "$_ra_watch_seen" in
-    *"
-$_ra_wm
-"*) _ra_watch_overlap="$_ra_watch_overlap $_ra_wm" ;;
-    *)  _ra_watch_seen="$_ra_watch_seen
-$_ra_wm
-" ;;
-  esac
-done <<RA_WATCH_EOF
-$RA_WATCH_ALL_MEMBERS
+# Membership is a LITERAL substring test, never a `case` pattern: inside `case`, an
+# expanded member is read as a glob, so a member containing `*`, `?` or `[` would match
+# unrelated lines (a false overlap) or be absorbed and never recorded as seen. The registry
+# genuinely carries such members — `skills/review/phases/*.md` appears verbatim on
+# budget-watch-missing lines — so this is one row-schema change away from live. `${v#...}`
+# with a quoted needle is builtin and literal, so it has neither hazard.
+_ra_watch_overlaps() {  # newline-list-of-members -> overlapping members (empty when none)
+  local _seen="" _dup="" _m
+  while IFS= read -r _m; do
+    [ -n "$_m" ] || continue
+    if [ "${_seen#*"
+$_m
+"}" != "$_seen" ]; then
+      _dup="$_dup $_m"
+    else
+      _seen="$_seen
+$_m
+"
+    fi
+  done <<RA_WATCH_EOF
+$1
 RA_WATCH_EOF
-assert_eq "#624 A4 no watch-list member belongs to more than one budget row" "" "$_ra_watch_overlap"
+  printf '%s' "$_dup"
+}
+assert_eq "#624 A4 no watch-list member belongs to more than one budget row" "" \
+  "$(_ra_watch_overlaps "$RA_WATCH_ALL_MEMBERS")"
+# Drive the detector's POSITIVE branch. Without this the arm above proves only that the
+# loop terminates without appending: on the real tree the rows are disjoint by
+# construction, so the reporting branch is never taken and an inverted test, a broken
+# sentinel, or a mis-accumulated seen-set would leave it permanently green.
+assert_eq "#624 A4 the overlap detector reports a member present in two rows" " dup/x.md" \
+  "$(_ra_watch_overlaps 'a/one.md
+dup/x.md
+b/two.md
+dup/x.md')"
+# Anti-vacuity control: a member that is another's PREFIX must NOT register as an overlap,
+# which is the property the newline sentinels buy.
+assert_eq "#624 A4 the overlap detector does not treat a path prefix as an overlap" "" \
+  "$(_ra_watch_overlaps 'a/one.md
+a/one.md.bak')"
+
+# ── A4c — a budget row whose members are ALL absent still enters the roster ──────
+# The shape the roster derivation must not drop: such a row emits only
+# `budget-watch-missing` lines, so a roster read from `budget-watch` alone omits it and the
+# A4 equality above passes while the row goes unchecked — the self-certifying blind spot
+# again, one level down. It is invisible on the live tree (every member exists there), so
+# it is driven against a fixture with every review-and-fix member renamed away.
+RA_A4C="$_ra_tmp_root/a4c"; _ra_fixture "$RA_A4C"
+mv "$RA_A4C/skills/review-and-fix/references" "$RA_A4C/skills/review-and-fix/references-gone"
+mv "$RA_A4C/skills/review-and-fix/SKILL.md" "$RA_A4C/skills/review-and-fix/SKILL-gone.md"
+mv "$RA_A4C/.devflow/prompt-extensions/review-and-fix.md" "$RA_A4C/.devflow/prompt-extensions/review-and-fix-gone.md"
+python3 "$RA_HELPER" --list --repo-root "$RA_A4C" > "$RA_A4C/.ra.list" 2>&1
+RA_A4C_LIST="$(cat "$RA_A4C/.ra.list")"
+# Precondition: the fixture really has the all-absent shape (no budget-watch line for the
+# row). Without this the arm could pass on a fixture where the renames silently failed.
+assert_eq "#624 A4c the fixture really leaves the review-and-fix row with no present member" "0" \
+  "$(devflow_module_pin_count 'budget-watch	review-and-fix-budget	' "$RA_A4C/.ra.list")"
+case "$(_ra_roster_of "$RA_A4C_LIST")" in
+  *review-and-fix-budget*) assert_eq "#624 A4c an all-absent budget row still enters the roster" yes yes ;;
+  *) assert_eq "#624 A4c an all-absent budget row still enters the roster" yes \
+       "no(the roster derivation dropped a row that emits only budget-watch-missing lines)" ;;
+esac
 
 # ── A5 — exit 2 on an ABSENT generator, and exit 2 wins over a judgment item ─
 # An absent script is reported by the INTERPRETER as exit 2 ("can't open file"), which
@@ -666,6 +731,22 @@ _ra_has "#624 A5i3 the unestablished line is attributed to the review-and-fix ro
   "[review-and-fix-budget] INFO unestablished"
 _ra_live_unchanged "#624 A5i3 live manifest byte-unchanged after the renamed-references run"
 
+# ── A5i4 — the NEW row's renamed LITERAL member reports unestablished + attributed ──
+# A5i3 covers this row's glob leg; A5e covers the sibling row's literal leg. The new row's
+# own literal leg was the one place a watch_literals copy-paste from the sibling row would
+# go undetected — the same residual-symmetry argument A5i3 makes, one step further.
+RA_A5I4="$_ra_tmp_root/a5i4"; _ra_fixture "$RA_A5I4"
+mv "$RA_A5I4/.devflow/prompt-extensions/review-and-fix.md" "$RA_A5I4/.devflow/prompt-extensions/review-and-fix-renamed.md"
+python3 "$RA_HELPER" --list --repo-root "$RA_A5I4" > "$RA_A5I4/.ra.list" 2>&1
+assert_eq "#624 A5i4 --list discloses the renamed literal member under its OWN row" "1" \
+  "$(devflow_module_pin_count 'budget-watch-missing	review-and-fix-budget	.devflow/prompt-extensions/review-and-fix.md' "$RA_A5I4/.ra.list")"
+_ra_run "$RA_A5I4"
+_ra_has "#624 A5i4 the renamed literal member reports unestablished, never a false clean" "$RA_A5I4" \
+  "absent from the tree: .devflow/prompt-extensions/review-and-fix.md"
+_ra_has "#624 A5i4 the unestablished line is attributed to the review-and-fix row" "$RA_A5I4" \
+  "[review-and-fix-budget] INFO unestablished"
+_ra_live_unchanged "#624 A5i4 live manifest byte-unchanged after the renamed-literal run"
+
 # ── A5j — an UNREADABLE coverage-map is infrastructure, not "add the missing rows" ──
 # A5g covers the guard's [input-error] (git) path. An absent/malformed coverage-map
 # takes a DIFFERENT path ([arm4]/[arm8]) and arm 4 RETURNS before every map-dependent
@@ -815,7 +896,7 @@ _ra_live_unchanged "#619 A6c live manifest byte-unchanged after the resolved-rec
 
 # ── A6d — the review-and-fix budget row's JUDGMENT arm (issue #624) ──────────
 # The sibling git-staleness row's exit-1-forcing arm, mirroring A6b/A6c for the review
-# bundle. PR #622 proved this drift twice against the live suite; before this row the
+# bundle. PR #622 hit this drift against the live suite; before this row the
 # loop discovered it only a full suite run later. Same isolation approach as A6c: edit an
 # EXISTING member (a brand-new reference is an unclassified asset that neither the
 # cloud-writer closure nor the census sweep can reconcile), then reconcile the other rows
@@ -858,12 +939,15 @@ _ra_has "#624 A6e the review-bundle row stays clean when only review-and-fix mov
 assert_eq "#624 A6e a branch that updated the review-and-fix record runs clean" "0" "$(_ra_rc "$RA_A6E")"
 _ra_live_unchanged "#624 A6e live manifest byte-unchanged after the resolved-record run"
 
-# ── A5o — an UNREADABLE module registry is infrastructure, not "add the rows" ─
+# ── A5o — an UNRESOLVABLE module registry is infrastructure, not "add the rows" ─
 # The coverage row's `[arm8] ` marker was declared but unpinned (issue #624): A5j drives
-# the sibling `[arm4] ` (coverage-map) leg only. Arm 8 is the registry leg — the guard
-# emits `[arm8] registry unreadable: …` and exits 1, byte-identically to a real ratchet
-# violation, so without the marker the row would report a judgment item telling the agent
-# to add coverage rows keyed on a registry the guard could not read.
+# the sibling `[arm4] ` (coverage-map) leg only. Arm 8 is the registry leg. The fixture
+# plants ABSENCE (`rm -f`) rather than an unreadable file, because the guard renders both
+# through the same `[arm8] registry unreadable: …` text and absence needs no permission
+# bits — the same determinism reason A5m plants malformed JSON. Either way the guard exits
+# 1, byte-identically to a real ratchet violation, so without the marker the row would
+# report a judgment item telling the agent to add coverage rows keyed on a registry the
+# guard could not read.
 RA_A5O="$_ra_tmp_root/a5o"; _ra_fixture "$RA_A5O"
 rm -f "$RA_A5O/scripts/workflow-flight-recorder-registry.json"
 _ra_run "$RA_A5O"
@@ -903,14 +987,30 @@ _ra_live_unchanged "#624 A5p2 live manifest byte-unchanged after the unreadable-
 # arms are driven by every other arm here, but the coincidence it warns about is not. Pin
 # it so the day a command-less non-budget row (or a budget row that gains an argv) lands,
 # the suite says so — rather than the docstring quietly becoming false.
+# The probe reports its own population and fails closed on an EMPTY registry: every other
+# new assertion here carries a non-empty precondition, and this is the only one whose whole
+# population comes from inside Python — an empty (or lazily-populated) ROWS would print
+# nothing and pass green having checked zero rows. It also pins the full budget-row KEY SET,
+# not just the argv coincidence: `budget_row`/`watch_list` also consume `record` and
+# `watch_globs`, so a row carrying `watch_literals` alone satisfies a narrower pin and then
+# raises KeyError at use — fail-closed, but as a traceback rather than a named breadcrumb.
 RA_INVARIANT="$(python3 -c '
 import importlib.util, sys
 spec = importlib.util.spec_from_file_location("ra", sys.argv[1])
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-bad = [r["name"] for r in m.ROWS if m.is_budget_row(r) != (r["argv"] is None)]
+if not m.ROWS:
+    print("registry is empty — the invariant would check zero rows"); raise SystemExit(0)
+bad = []
+for r in m.ROWS:
+    if m.is_budget_row(r) != (r["argv"] is None):
+        bad.append(r["name"] + ":argv-coincidence")
+    if m.is_budget_row(r):
+        missing = {"record", "watch_literals", "watch_globs"} - set(r)
+        if missing:
+            bad.append(r["name"] + ":missing-" + ",".join(sorted(missing)))
 print(",".join(bad))
 ' "$RA_HELPER" 2>&1)"
-assert_eq "#624 every registry row satisfies is_budget_row(row) == (row['argv'] is None)" "" "$RA_INVARIANT"
+assert_eq "#624 A4b every registry row satisfies the budget-row shape invariant" "" "$RA_INVARIANT"
 
 # ── Helper-content contracts (the registration rule and the disclosed non-goals) ─
 devflow_module_pin_unique "#619 the helper header carries the registration rule" 'A PR that adds a checked-in generated artifact gated by the suite adds a row to this registry in the same PR.' "$RA_HELPER"

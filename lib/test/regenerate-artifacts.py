@@ -202,7 +202,7 @@ ROWS = (
             "(python3 bytes.split(), never wc -w) and update the record"
         ),
         # The sibling git-staleness row (issue #624). It meets the same inclusion criterion
-        # as review-bundle-budget: PR #622 twice proved that editing the review-and-fix root
+        # as review-bundle-budget: PR #622 showed that editing the review-and-fix root
         # or its extension moves this record's suite-bound Measured/cumulative cells and
         # turns the suite RED — the discover-drift-a-full-suite-run-later cost this helper
         # exists to remove. Like its sibling it measures NOTHING: re-deriving `_raf_words`
@@ -349,11 +349,13 @@ def is_budget_row(row):
     ONE spelling of this predicate, used by both the check-strategy binding below and
     `emit_list`. Keyed on the watch list the callers actually consume, never on the proxy
     "has no argv": those coincide only because every command-less row today is a budget
-    row, so a future command-less non-budget row (a pure-Python check, a placeholder)
-    would dispatch `budget_row` at one site and be skipped at the other — opposite
-    directions, and `--list` would drop a row's members with nothing failing. The module's
-    `#624 registry invariant` arm pins that coincidence, so the day it breaks the suite
-    says so rather than this docstring silently going stale.
+    row. Keying on the real property means a misregistered row fails where it is used,
+    with the missing key named — a command-less non-budget row (a pure-Python check, a
+    placeholder) is classified False here and reaches `run_row`, which says so. Under the
+    proxy the same row would be classified True and handed to `budget_row`/`watch_list` as
+    if it carried a watch list it never declared. The module's registry-invariant arm pins
+    the coincidence and the budget-row key set, so the day either breaks, the suite says so
+    rather than this docstring silently going stale.
     """
     return "watch_literals" in row
 
