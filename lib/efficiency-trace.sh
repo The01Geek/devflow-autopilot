@@ -273,17 +273,32 @@ emit_jq() {
 
 # Single source of truth for the iter-<N>.json expected field set (issue #170).
 # Kept in sync with the iter-<N>.json schema block in skills/review-and-fix/SKILL.md;
-# a lib/test/run.sh assertion FAILs if the two diverge. `shadow` is intentionally
-# excluded — Step 2.6 appends it later, so it is legitimately absent on iters that
-# ran no shadow pass. --self-check warns (best-effort) when any of these is missing
-# from a persisted iter workpad. Plain (non-readonly) single-line assignment so the
-# run.sh divergence guard can grep `^ITER_EXPECTED_FIELDS=` to extract it.
-ITER_EXPECTED_FIELDS="iter started_at fix_commit_sha fix_files loop_role checklist dispatched_effort phase3_dispatched diff_profile phase3_findings fix_decisions convergence_inputs cap_drops telemetry"
+# a lib/test/run.sh assertion FAILs if the two diverge. The CONDITIONAL schema
+# fields are intentionally excluded — `shadow` (Step 2.6 appends it later, so it is
+# legitimately absent on iters that ran no shadow pass) and `reference_reads` (issue
+# #541: Step 3.5's fix-delta gate appends it, so it is legitimately absent on iters
+# where that gate did not run). `sweep_defs_read`/`sweep_evidence` are NOT conditional:
+# fixing.md item 7 mandates them on every iteration (a no-fix iteration writes the
+# explicit `[]` / `not-run` pair rather than omitting them), which is why they belong
+# in this unconditional set. `dispatched_effort` (issue #609) is likewise unconditional:
+# fixing.md item 7 mandates it on every iteration Phase 1+2 ran. --self-check warns
+# (best-effort) when any of these is missing from a persisted iter workpad. Plain
+# (non-readonly) single-line assignment so the run.sh divergence guard can grep
+# `^ITER_EXPECTED_FIELDS=` to extract it.
+ITER_EXPECTED_FIELDS="iter started_at fix_commit_sha fix_files loop_role sweep_defs_read sweep_evidence checklist phase3_dispatched dispatched_effort diff_profile phase3_findings fix_decisions convergence_inputs cap_drops telemetry"
 # The synthesized-record minimal field set (issue #381): what synthesize_iter_workpads
 # writes, and what --self-check validates a synthesized:true record against (a
 # synthesized record is a recognized degraded class, exempt from the full set above
 # but NOT from its own — a truncated synthesized record must still warn).
-ITER_SYNTH_EXPECTED_FIELDS="iter fix_commit_sha fix_files loop_role synthesized"
+# The run-scoped evidence fields (issue #541) are members because the synthesizer writes an
+# explicit unrecoverable-provenance object for each: absent evidence is recorded AS
+# absent, never serialized as a real `[]` / `not-run` / omitted value. Their presence
+# here is the producer<->consumer coupling — this set catches a DROPPED field, while
+# the evidence-provenance shape check in do_self_check catches the sibling regression
+# this set structurally cannot see: a field still present but carrying a real-looking
+# `[]` / `not-run` value. Both are warn-only (do_self_check never fails); the
+# lib/test/run.sh #541 assertions are what turn either regression RED at the desk.
+ITER_SYNTH_EXPECTED_FIELDS="iter fix_commit_sha fix_files loop_role synthesized sweep_defs_read sweep_evidence reference_reads"
 # The synthesized SHADOW-marker minimal field set (issue #426): what
 # synthesize_shadow_markers writes into an iter's `shadow` block when provenance
 # establishes that a shadow ran (or leaves that fact unestablished for a legacy
@@ -461,8 +476,9 @@ select_fix_commits() {
 }
 
 # Synthesize minimal iter-<N>.json workpads into $1 from the branch's fix
-# commits (issue #381). Each record carries only iter / fix_commit_sha /
-# fix_files / loop_role:"fix" / synthesized:true — a distinct recognized degraded
+# commits (issue #381). Each record carries exactly the ITER_SYNTH_EXPECTED_FIELDS
+# set — the effectiveness fields, plus the run-scoped evidence fields stamped with
+# explicit unrecoverable provenance (issue #541) — a distinct recognized degraded
 # class the jq filter and --self-check both ride. The rc is a FOUR-way outcome (0/2/3/4,
 # enumerated below) so the caller's breadcrumb never collapses an unestablished measurement
 # onto "found none" (the repo's unknown-is-not-zero gotcha): returns 0 iff ≥1 record was
@@ -542,10 +558,35 @@ synthesize_iter_workpads() {
     # stdout goes to the record file, so stderr is free to capture — unlike the
     # git log/diff-tree data streams above, keeping the failure CAUSE
     # (ENOENT/EACCES/ENOSPC/argjson rejection) costs no data purity here.
+    # Run-scoped evidence provenance (issue #541). `sweep_defs_read: []` and
+    # `sweep_evidence: {"status":"not-run",...}` are the LEGITIMATE values of a real
+    # no-fix iteration, so emitting either here would be a positive claim about an
+    # iteration this fix-commit-only floor never observed. The `unrec` emitter below
+    # single-sources the shared framing so the three stamps cannot drift apart; each
+    # call supplies only what it specifically could not establish. See the
+    # ITER_SYNTH_EXPECTED_FIELDS comment for why --self-check enforces their presence.
+    #
+    # `reference_reads` is stamped INSIDE its `fix_delta` member, not at the top level:
+    # the field is a registry keyed by the producing reference (fixing.md item 7), so a
+    # top-level stamp would leave the documented `.reference_reads.fix_delta` read
+    # returning null — indistinguishable from the legitimate "Step 3.5 did not run"
+    # absence, collapsing the very distinction this provenance exists to preserve.
+    #
+    # The reason says "no iteration record was FOUND for this run", never "was never
+    # persisted": this floor establishes only that the run dir held no iter-*.json. A
+    # record can exist yet be unreachable here — the telemetry blob listing degrades to a
+    # no-op stub when its lib is unsourceable, and an unreadable sibling workpad is
+    # skipped without its sha being excluded — so the stronger claim would assert a state
+    # the code never observed (the all-output-channels honesty rule).
     if jq_err="$("$DEVFLOW_JQ" -n --argjson iter "$n" --arg sha "$sha" --arg files "$files" --arg files_ok "$files_ok" \
-         '{iter: $iter, fix_commit_sha: $sha,
+         'def unrec($what): {status: "unrecoverable",
+            reason: ("fix-commit-only synthesis: no iteration record was found for this run, and a fix commit carries no trace of " + $what)};
+          {iter: $iter, fix_commit_sha: $sha,
            fix_files: (if $files_ok == "1" then ($files | split("\n") | map(select(length > 0))) else null end),
-           loop_role: "fix", synthesized: true}' 2>&1 > "$dir/iter-$n.json")"; then
+           loop_role: "fix", synthesized: true,
+           sweep_defs_read: unrec("which sweep definitions were read"),
+           sweep_evidence: unrec("the sweep outcomes"),
+           reference_reads: {fix_delta: unrec("whether the Step 3.5 fix-delta gate ran")}}' 2>&1 > "$dir/iter-$n.json")"; then
       wrote=$((wrote + 1))
     else
       echo "::warning::efficiency-trace.sh --persist: failed to write synthesized iter-${n}.json for ${sha} (${jq_err:-no error text}); skipping" >&2
@@ -717,12 +758,13 @@ do_self_check() {
   #       and skips — otherwise a wrong-shape workpad masquerades as complete.
   # An object yields its missing-field names; field names are bare identifiers, so
   # the `for field in $missing` word-split is safe (and emits one warning line each).
-  local iter field missing shadow_missing provenance_state provenance_value
+  local iter field missing shadow_missing provenance_state provenance_value evidence_bad
   for iter in "$WORKPAD_DIR"/iter-*.json; do
     [ -e "$iter" ] || continue
     # A synthesized record (issue #381) is a recognized degraded class — it
-    # legitimately carries only iter/fix_commit_sha/fix_files/loop_role/synthesized,
-    # so it is validated against THAT minimal set (ITER_SYNTH_EXPECTED_FIELDS),
+    # legitimately carries only what the fix-commit floor can establish plus the
+    # issue-#541 unrecoverable-provenance stamps, so it is validated against THAT
+    # minimal set (ITER_SYNTH_EXPECTED_FIELDS — see its definition for the members),
     # not the full ITER_EXPECTED_FIELDS (a wave of spurious warnings would train
     # operators to ignore the self-check) — and not against nothing, or a
     # truncated/hand-edited synthesized record would validate silently (the
@@ -740,6 +782,53 @@ do_self_check() {
     for field in $missing; do
       echo "::warning::devflow review-and-fix self-check: iter workpad '$(basename "$iter")' is missing expected field '${field}'" >&2
     done
+    # Evidence-provenance SHAPE validation (issue #541). ITER_SYNTH_EXPECTED_FIELDS
+    # membership above proves only that the KEY is present, while the invariant this
+    # issue exists to protect is about the VALUE: a synthesizer that regressed to
+    # stamping `[]` / `{"status":"not-run"}` — the LEGITIMATE values of a real no-fix
+    # iteration — keeps every key present and so passes a presence-only check in
+    # silence, which is the unknown-collapsed-onto-a-real-value defect itself. Scoped
+    # to keys that ARE present, so a dropped field warns once (above) rather than
+    # twice, and the two conditions stay separately attributable.
+    # Every deref is TYPE-GUARDED before it is taken — the same discipline the
+    # promotion_provenance arm below applies, whose first predicate is likewise a type
+    # check — and the `reason` is required non-empty so the validator demands exactly the
+    # shape the producer is tested to write (a one-sided invariant would accept
+    # `{"status":"unrecoverable"}` with no reason — "unknown" without saying what is
+    # unknown, the same information loss one level down). An untyped `.reference_reads.fix_delta` deref made jq ABORT (rc 5) on
+    # an agent-mutable workpad whose `reference_reads` was a string/array, and because
+    # the emit is gated on this `if`, the abort discarded the sweep violations jq had
+    # ALREADY printed on the same run — the guard failing open on exactly the record it
+    # exists to catch. The `else` arm is a DEFENSIVE BACKSTOP, not a reachable path on
+    # today's inputs: an unreadable/non-object record is already caught by the missing-
+    # field block above (which `continue`s before reaching here), and with every deref
+    # type-guarded the filter cannot abort on any valid-JSON object — probing malformed
+    # JSON, `[]`, `null`, `"x"`, and an empty file fires it zero times. It is kept so a
+    # FUTURE predicate added here that can abort degrades loudly instead of silently
+    # reading as clean, which is the failure this arm's absence originally produced.
+    # `2>&1` keeps jq's own diagnostic as the breadcrumb text.
+    if evidence_bad="$("$DEVFLOW_JQ" -r '
+      if (.synthesized != true) then empty
+      else
+        (["sweep_defs_read", "sweep_evidence"][] as $f
+          | select(has($f))
+          | select(((.[$f] | type) != "object")
+                   or ((.[$f].status // "") != "unrecoverable")
+                   or (((.[$f].reason // "") | tostring | length) == 0))
+          | $f),
+        (select(has("reference_reads"))
+          | select(((.reference_reads | type) != "object")
+                   or ((.reference_reads.fix_delta | type) != "object")
+                   or ((.reference_reads.fix_delta.status // "") != "unrecoverable")
+                   or (((.reference_reads.fix_delta.reason // "") | tostring | length) == 0))
+          | "reference_reads.fix_delta")
+      end' "$iter" 2>&1)"; then
+      for field in $evidence_bad; do
+        echo "::warning::devflow review-and-fix self-check: synthesized iter workpad '$(basename "$iter")' carries field '${field}' WITHOUT unrecoverable provenance — a fix-commit-only record cannot establish this evidence, so a real-looking value here asserts something the synthesis floor never observed" >&2
+      done
+    else
+      echo "::warning::devflow review-and-fix self-check: iter workpad '$(basename "$iter")' — the evidence-provenance shape check could not run (${evidence_bad:-no error text}); its provenance was NOT validated, so treat this record as unchecked rather than clean" >&2
+    fi
     # Producer-drop advisory (issue #501): provenance is conditional, so it does
     # not belong in ITER_EXPECTED_FIELDS. Validate it only on non-synthesized
     # promoted records and stay advisory for legacy data.
@@ -843,7 +932,7 @@ persist_one() {
         echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json and the fix-commit search could not run (an uncreatable target dir, an unresolvable base ref, a base ref left unestablished by a failed origin refresh, or a failed git log enumeration — the warning above names which) — whether matching fix commits exist was never established; telemetry not synthesized" >&2
         return 0 ;;
       4)
-        echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json; matching fix commits were selected but every synthesized record write failed (see the per-commit warnings above — disk/permissions, or on the cloud tier the sandbox's redirect-write denial into .devflow/tmp) — telemetry not synthesized" >&2
+        echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json; matching fix commits were selected but every synthesized record write failed (see the per-commit warnings above, which carry the actual jq error text — disk/permissions, a malformed jq program, or on the cloud tier the sandbox's redirect-write denial into .devflow/tmp) — telemetry not synthesized" >&2
         return 0 ;;
       2)
         echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json and no unrecorded 'fix: address review findings (iteration N)' commits were found — per-iteration effectiveness telemetry was not captured this run; nothing to synthesize" >&2
