@@ -11,8 +11,9 @@ bump: patch
   section content); duplicate same-heading sections concatenate in file order; headings inside HTML
   comment blocks and fenced code blocks are inert, and an unclosed fence runs to end of file.
   Extraction uses bash builtins only. A flagless invocation stays byte-identical to the previous
-  full-file behavior, except that an unrecognized `--`-prefixed argument is now refused at exit 2
-  instead of ignored (PR #617).
+  full-file behavior, with two extra-argument shapes now refused at exit 2 instead of ignored: an
+  unrecognized `--`-prefixed argument, and a heading-shaped bare positional (a dropped `--section`,
+  which would otherwise emit the whole extension). A bare plain word is still ignored (PR #617).
 - The `stale-override` refusal in `scripts/issue-audit-state.py` now emits a state-aware recovery
   breadcrumb on stderr at both of its refusal surfaces (`query-eligibility` and `emit-body`). The
   arm is selected by the staling operand on the newest current-ordinal override rather than by the
