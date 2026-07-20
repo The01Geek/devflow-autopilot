@@ -1,5 +1,5 @@
 {
-  "manifest_version": 4,
+  "manifest_version": 5,
   "readme": [
     "This manifest is the single source of truth for DevFlow's cloud capability policy:",
     "which tools/commands each execution tier (review, implement, command) may run.",
@@ -125,6 +125,7 @@
       "Bash(test:*)",
       "Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*)",
       "Bash(.devflow/vendor/devflow/scripts/match-lint-adjudications.py:*)",
+      "Bash(.devflow/vendor/devflow/scripts/normalize-verdicts.py:*)",
       "Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*)",
       "Bash(.devflow/vendor/devflow/scripts/workpad.py:*)",
       "Bash(.devflow/vendor/devflow/scripts/config-get.sh:*)",
@@ -204,6 +205,7 @@
       "Bash(.devflow/vendor/devflow/scripts/stale-prose-lint.py:*)",
       "Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*)",
       "Bash(.devflow/vendor/devflow/scripts/match-lint-adjudications.py:*)",
+      "Bash(.devflow/vendor/devflow/scripts/normalize-verdicts.py:*)",
       "Bash(.devflow/vendor/devflow/scripts/load-prompt-extension.sh:*)",
       "Bash(.devflow/vendor/devflow/scripts/react-to-trigger.sh:*)",
       "Bash(.devflow/vendor/devflow/scripts/extract-doc-needed-paths.sh:*)",
@@ -312,6 +314,7 @@
       "Bash(.devflow/vendor/devflow/scripts/file-deferrals.py:*)",
       "Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*)",
       "Bash(.devflow/vendor/devflow/scripts/match-lint-adjudications.py:*)",
+      "Bash(.devflow/vendor/devflow/scripts/normalize-verdicts.py:*)",
       "Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*)",
       "Bash(.devflow/vendor/devflow/scripts/stale-prose-lint.py:*)",
       "Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*)",

@@ -4,6 +4,61 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.17.2] — 2026-07-20
+
+### Changed
+### Added
+
+- Cloud-writer trust-closure dependency classification (AC5 of #583, PR #598): `lib/test/cloud_writer_deps.py` classifies static source/exec/import edges out of every AC1-closure helper entry point — repository-owned edges must resolve beneath the vendored tree, external runtime edges must name a preflight guarantee or explicit profile grant, and an include the source scan cannot resolve is emitted as an `unresolved-source` edge the guard rejects (fail closed). `lib/preflight.sh` gains the machine-readable `_DEVFLOW_PREFLIGHT_GUARANTEES` declaration the classifier parses, machine-pinned against the file's own probes.
+
+## [2.17.1] — 2026-07-19
+
+### Added
+- **Add the `preflight.py branch-state` ahead-of-base branch preflight (Verdict B).** A new
+  `branch-state` subcommand classifies the adopted/working branch against the base and emits a
+  one-token verdict + matching exit code (`FRESH`/`VALIDATED_RESUME` → 0, `AMBIGUOUS`/`DECISION_BLOCKED`
+  → 2, `UNAVAILABLE` → 3), mirroring `update-branch-checkpoint.sh`'s one-token-stdout contract. It
+  derives the ahead-of-base count (with shallow unshallow-once-then-rederive), recorded-branch
+  existence, and published-tip reachability, closing the blind spot where a branch carrying unrelated
+  ahead-only history reads "up to date" against the behind-only freshness guard and publishes foreign
+  commits into the PR. Phase 1 §1.4.0.5 runs the classification on the adopted-branch arm, after branch
+  determination and before the §1.4.1 checkpoint and §1.5 push, so a stop verdict aborts before any
+  history mutation. The shallowness probe fails **closed**: a probe that cannot be established (non-zero
+  exit, or output outside `true`/`false` — e.g. git < 2.15, which does not recognize
+  `--is-shallow-repository`) yields the `shallow-probe` UNAVAILABLE reason rather than assuming the
+  repository is not shallow and adopting an unreliable count. A payload-write failure on a stop verdict
+  preserves the computed `AMBIGUOUS`/`DECISION_BLOCKED` classification and exit 2 instead of degrading
+  to a bare `UNAVAILABLE`. (#576)
+
+## [2.17.0] — 2026-07-19
+
+### Changed
+- **Reconciled the checklist-verifier verdict contract with a structured, executable wording-only normalizer.** The verifier now grades strictly and reports structured operands (`property_proven`, `inaccuracy_scope`) instead of self-normalizing, and a new stdlib-only helper `scripts/normalize-verdicts.py` owns the parse contract and the five-conjunct FAIL→PASS predicate. Checklist items carry `claim_provenance` (`generated_paraphrase`/`source_authored`) and, on source-authored items, `source_excerpt`, so a generator-wording artifact whose underlying property is proven no longer hard-rejects a `/devflow:review` or `/devflow:review-and-fix` run, while a false source-authored assertion still FAILs. The raw verdict, the normalization marker, and the evidence prefix survive for audit, and the helper's degraded paths fail closed with a named remedy. (#607)
+
+## [2.16.5] — 2026-07-19
+
+### Fixed
+- **Review engine no longer overclaims that a per-agent `effort` override is applied.** On the
+  in-session Agent-tool dispatch path both tiers use today, a per-agent `model` override is
+  delivered (via the Agent tool's `model` parameter) but a per-agent `effort` override is **not**
+  deliverable per-agent — no Agent-tool effort parameter and no per-dispatch `--agents` injection
+  exist. `scripts/resolve-review-overrides.py` now decides the per-agent effort-application outcome
+  (`session-fallback` for a resolved-but-unapplied override, `session-inheritance` for none) and
+  emits a single honest `::notice::` summary (distinct from `::warning::`), so a configured effort
+  is reported as a fallback rather than silently dropped while success is claimed. `effective` is
+  null unless read back (unknown is not zero); a Haiku model or a provider with `effort_supported:
+  false` is recorded as a capability-restricted fallback. The engine (`skills/review/SKILL.md`) and
+  docs (`docs/review-agent-overrides.md`, `docs/DEVFLOW_SYSTEM_OVERVIEW.md`, `docs/efficiency-trace.md`)
+  are reconciled to the per-tier application-point matrix; the fictional per-dispatch `--agents`
+  mechanism description is removed for model as well as effort. Model delivery is unchanged. (#554)
+
+## [2.16.4] — 2026-07-19
+
+### Added
+- **Audit mandatory prompt growth and executable-helper cutovers.** Add an exact byte census,
+  schema-validated cutover records, and a shared Review gate for same-change prose ownership
+  transfers. (#551)
+
 ## [2.16.3] — 2026-07-19
 
 ### Added

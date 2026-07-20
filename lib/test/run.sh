@@ -208,7 +208,7 @@ _build_skill_bundle "implement-skill" "$IMPL_SKILL_BUNDLE" "${_bundle_members[@]
 # budget counts only the sources a pass with no blocker fast path and no
 # stale-prose predicate must read — the gated three are excluded BY the split.
 REVIEW_DEFAULT_PHASE_STEMS="phase-0-setup phase-1-checklist phase-2-verification phase-3-agents phase-4-verdict phase-4-4-github-post"
-REVIEW_GATED_PHASE_STEMS="phase-0-3-6-blocker-recheck phase-0-6-stale-prose-lint phase-4-1-7-stale-adjudication"
+REVIEW_GATED_PHASE_STEMS="phase-0-3-6-blocker-recheck phase-0-6-stale-prose-lint phase-4-1-7-stale-adjudication phase-4-1-8-prose-cutover"
 REVIEW_PHASE_STEMS="$REVIEW_DEFAULT_PHASE_STEMS $REVIEW_GATED_PHASE_STEMS"
 REVIEW_ROOT="$LIB/../skills/review/SKILL.md"
 REVIEW_BUNDLE="$(mktemp)" || { echo "run.sh: could not allocate the review-skill bundle temp" >&2; exit 1; }
@@ -1360,6 +1360,15 @@ assert_pin_unique "#425(rev): the iterations exclusion is never applied to the S
 # be built from model/effort only. Pin the sentence that forbids forwarding it to dispatch.
 assert_pin_unique "#425(rev): iterations is not forwarded to the --agents dispatch block" \
   'you use only its resolved `model`/`effort` and ignore `iterations`' "$ST_REV"
+# #554: the engine no longer overclaims that per-agent EFFORT is applied via a
+# fictional per-dispatch --agents block. Positively pin the honest reconciled
+# claim (per-agent effort is NOT deliverable in-session; model rides the Agent
+# tool's model parameter). The behavioral-fix pin that reintroducing the overclaim
+# flips RED is routed through assert_pin_red_under below (search "#554(rev): overclaim").
+assert_pin_unique "#554(rev): per-agent effort is not deliverable per-agent in-session (honest claim)" \
+  'not deliverable per-agent' "$ST_REV"
+assert_pin_unique "#554(rev): per-agent model rides the Agent tool's model override parameter" \
+  "delivered via the **Agent tool's \`model\` override parameter**" "$ST_REV"
 # The default-off guarantee (AC #3): iteration 1, standalone /devflow:review, and an
 # absent/unresolvable signal all exclude nothing. Pin the no-op sentence so deleting it
 # (which would drop an opted-in agent on the FIRST pass, breaking byte-identical-when-absent)
@@ -2250,6 +2259,96 @@ printf 'operative token a.c/[x] on this line\nunrelated framing line\n' > "$PRU_
 assert_eq "#375 assert_pin_red_under: a pinned literal carrying regex+sed-delimiter metachars round-trips (fixed-string match; mutation flips it PASS->FAIL)" \
   "PASS" "$(probe_assert assert_pin_red_under 'meta' 'a.c/[x]' '/a\.c/d' "$PRU_META")"
 rm -f "$PRU_META"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# #556: checklist-verifier verdict-contract reconciliation.
+#   - T-1/T-3/T-6: the executable helper unit tests (real CLI over the fixture
+#     matrix, incl. the T-3 conjunct-2 mutation positive control).
+#   - T-2/T-4/T-5/T-6a/T-7/T-8/T-10/T-11/T-12: prose pins (presence + mutation).
+NV_HELPER="$LIB/../scripts/normalize-verdicts.py"
+NV_TEST="$LIB/test/normalize-verdicts-test.py"
+NV_GEN="$LIB/../agents/checklist-generator.md"
+NV_DED="$LIB/../agents/checklist-deduper.md"
+NV_VER="$LIB/../agents/checklist-verifier.md"
+NV_P2="$LIB/../skills/review/phases/phase-2-verification.md"
+NV_P4="$LIB/../skills/review/phases/phase-4-verdict.md"
+
+# T-1/T-3/T-6 — drive the real helper over the fixture matrix (exit 0 == all green).
+if python3 "$NV_TEST" >/dev/null 2>&1; then _NV_UNIT=ok; else _NV_UNIT=FAILED; fi
+assert_eq "#556 T-1/T-3/T-6: normalize-verdicts helper unit tests pass over the fixture matrix" "ok" "$_NV_UNIT"
+
+# T-2 (AC4) — the verifier's source_authored_text-takes-precedence sentence, mutation deletes the precedence clause.
+assert_pin_red_under "#556 T-2(AC4): verifier source_authored_text precedence sentence" \
+  'This value takes precedence** whenever a source-authored assertion is false' \
+  's|whenever a source-authored assertion is false at the same time as a generated-wording mismatch||' "$NV_VER"
+
+# T-4 (AC5) — the removed PASS-with-note softener must be ABSENT from the 2.1b dispatch prompt.
+assert_eq "#556 T-4(AC5): the 'Reserve FAIL' softener is gone from phase-2-verification.md" \
+  "0" "$(pin_count 'Reserve FAIL for cases where the code itself is wrong' "$NV_P2")"
+
+# T-5 (AC1/AC3/AC5) — claim_provenance / source_excerpt present at each mirror site + helper input contract.
+assert_pin_unique "#556 T-5: claim_provenance decision rule in generator schema" \
+  'Every item MUST carry `claim_provenance`, one of exactly two values' "$NV_GEN"
+assert_pin_unique "#556 T-5: source_excerpt required in generator schema" \
+  'On a `source_authored` item, `source_excerpt` is **required**' "$NV_GEN"
+assert_pin_unique "#556 T-5: claim_provenance in verifier Input" \
+  '"claim_provenance": "generated_paraphrase | source_authored",' "$NV_VER"
+assert_pin_unique "#556 T-5: source_excerpt in verifier Input" \
+  '"source_excerpt": "verbatim authored text under scrutiny (source_authored items only)",' "$NV_VER"
+assert_pin_unique "#556 T-5: claim_provenance + source_excerpt in 2.1b dispatch prompt" \
+  'The checklist item you receive carries `claim_provenance` and, on `source_authored` items, `source_excerpt`' "$NV_P2"
+assert_pin_unique "#556 T-5: claim_provenance in helper input contract" \
+  '"claim_provenance": "generated_paraphrase",' "$NV_HELPER"
+assert_pin_unique "#556 T-5: source_excerpt in helper input contract" \
+  '"source_excerpt": "<verbatim authored text, source_authored items only>", ...' "$NV_HELPER"
+
+# T-6a (AC7/AC7a) — degradation-split mutation on the possible-denial clause + invocation-recipe presence pins.
+assert_pin_red_under "#556 T-6a(AC7a): the 'a possible denial, never an empty value' clause" \
+  'no output at all — a possible denial, never an empty value' \
+  's|a possible denial, never an empty value||' "$NV_P2"
+assert_pin_unique "#556 T-6a(AC7): helper invoked as the single leading token" \
+  'single leading token** — the portable' "$NV_P2"
+assert_pin_unique "#556 T-6a(AC7): local-tier python3 second rung" \
+  'python3 <resolved helper path> <pairs-file>' "$NV_P2"
+assert_pin_unique "#556 T-6a(AC7a): bad-input arm one re-Write and re-invoke" \
+  'a second bad-input report ends the attempt' "$NV_P2"
+assert_pin_unique "#556 T-6a(AC7): in-context recovery arm" \
+  'recovered via in-context parse (helper-defect: <shape>)' "$NV_P2"
+assert_pin_unique "#556 T-6a(AC7): one-repair (re-dispatch once) sentence" \
+  're-dispatch that item once** and re-run the helper' "$NV_P2"
+
+# T-7 (AC2) — deduper carve-out clause mutation + disagreement->source_authored merge-rule presence.
+assert_pin_red_under "#556 T-7(AC2): deduper Rules carve-out clause" \
+  'reconciling `claim_provenance` to `source_authored`' \
+  's|reconciling .claim_provenance. to .source_authored.||' "$NV_DED"
+assert_pin_unique "#556 T-7(AC2): disagreement->source_authored merge rule present" \
+  'the merged item takes **`source_authored`**' "$NV_DED"
+
+# T-8 (AC9) — the two Phase 4.2 rule literals stay byte-identical.
+assert_pin_unique "#556 T-8(AC9): Phase 4.2 rule 1 literal (FAIL -> REJECT)" \
+  '1. Any verification checklist item with verdict FAIL → **REJECT**' "$NV_P4"
+assert_pin_unique "#556 T-8(AC9): Phase 4.2 rule 2 literal (INCONCLUSIVE -> REJECT)" \
+  '2. Any verification checklist item with verdict INCONCLUSIVE → **REJECT** (add "manual check needed" note)' "$NV_P4"
+
+# T-10 (AC8a) — Phase 2.0.5 extended copy sentence, mutation strips raw_verdict/normalized.
+assert_pin_red_under "#556 T-10(AC8a): 2.0.5 copy-list extension" \
+  'and — when present — `raw_verdict` and `normalized`' \
+  's|, and — when present — .raw_verdict. and .normalized.||' "$NV_P2"
+
+# T-11 (AC8) — the amended 4.1 equality sentence, mutation drops the − {normalized_count} term; + iteration/label presence.
+assert_pin_red_under "#556 T-11(AC8): 4.1 equality sentence carries the − {normalized_count} term" \
+  '`{pass}` − `{normalized_count}` MUST equal the number of `- VC-N` lines' \
+  's|normalized_count\}. MUST equal|MUST equal|' "$NV_P4"
+assert_pin_unique "#556 T-11(AC8): 4.1 PASS-item iteration line excludes normalized items" \
+  'for each PASS item not carrying `normalized: true`' "$NV_P4"
+assert_pin_unique "#556 T-11(AC8): 4.1 summary label counts the inside population" \
+  '✅ Passed items ({pass} − {normalized_count} of {total})' "$NV_P4"
+
+# T-12 (AC17) — Phase 2.0 field-completion re-ask sentence, mutation deletes the re-ask arm.
+assert_pin_red_under "#556 T-12(AC17): 2.0 item-side field-completion re-ask" \
+  'into **one field-completion re-ask** to the `checklist-generator`' \
+  's|into ..one field-completion re-ask.. to the .checklist-generator.||' "$NV_P2"
+
 # ── #536: probe_two_line — the two-line-verdict probe (count-shaped sibling of probe_assert).
 # assert_count_red_under (below) writes a bare verdict line plus, on FAIL, a DISTINCT cause
 # token on the FOLLOWING line, so the suite's whole-line tally (`grep -c '^FAIL$'`) still
@@ -3079,6 +3178,15 @@ assert_pin_red_under "#557: survived-unfixed reconciliation is operative (stale-
 assert_pin_red_under "#425(raf): shadow-not-scoped sentence is operative (thinning the shadow goes RED)" \
   'the shadow always dispatches the **full** expected roster above regardless of any' \
   's/dispatches the \*\*full\*\* expected roster above regardless of any/dispatches a reduced roster on some/' "$ST_RAF"
+# #554 behavioral-fix pin: the engine must NOT reassert that per-agent effort is applied via a
+# fictional per-dispatch --agents block. The operative correction is the phrase "not deliverable
+# per-agent" (in-session effort is a reported session-fallback, not an applied success). A mutation
+# that reintroduces the overclaim (effort IS deliverable per-agent via a --agents block) removes
+# that phrase, so this pin flips PASS->FAIL — proving it guards the named regression (the #533
+# silent-drop-plus-overclaim), not merely its own line's presence. $ST_REV is skills/review/SKILL.md.
+assert_pin_red_under "#554(rev): overclaim reintroduction (per-agent effort applied via --agents) goes RED" \
+  'not deliverable per-agent' \
+  's/not deliverable per-agent/deliverable per-agent via a per-run --agents block/' "$ST_REV"
 # The N≥2 iteration threshold is the operative half of the default-off invariant: relaxing it
 # to N≥1 would exclude an opted-in agent on the FIRST pass (and, since standalone review is a
 # single pass, silently thin it too). Semantic mutation N≥2 → N≥1 re-introduces exactly that
@@ -8447,6 +8555,381 @@ assert_eq "#547/#572 catch-all mutation: removing the catch-all lets the injecte
   "$P547C_OUT->$([ -z "$P547C_MUT_OUT" ] && echo escaped || echo "$P547C_MUT_OUT")"
 rm -rf "$P547C_MUT"
 
+# ── issue #576: branch-state (Verdict B) ahead-of-base classification ─────────
+# The §1.4 freshness guard derives only the BEHIND-by count, so a branch carrying
+# unrelated AHEAD-only history reads "up to date" while §1.5 publishes foreign
+# commits (the PR #524 incident). branch-state derives the ahead-of-base count and
+# emits a one-token verdict + matching exit code, mirroring update-branch-checkpoint.sh:
+#   FRESH / VALIDATED_RESUME     exit 0  proceed
+#   AMBIGUOUS / DECISION_BLOCKED exit 2  stop before push/checkpoint (no history mutation)
+#   UNAVAILABLE <reason>         exit 3  unestablished measurement
+# The driver below builds throwaway git repos (bare origin + work tree) and exercises
+# every arm AC4 enumerates, writing `<arm> <verdict-word> <rc>` lines to a file.
+BS576_HELPER="$LIB/../scripts/preflight.py"
+BS576_OUT="$(mktemp)"
+python3 - "$BS576_HELPER" "$BS576_OUT" >/dev/null 2>&1 <<'PY'
+import json, os, subprocess, sys, tempfile
+HELPER, OUT = sys.argv[1], sys.argv[2]
+ROOT = tempfile.mkdtemp()
+lines = []
+def git(args, cwd):
+    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+def commit(work, name, content="x"):
+    open(os.path.join(work, name), "w").write(content + "\n")
+    git(["add", "-A"], work); git(["commit", "-qm", name], work)
+def new_repo(tag):
+    d = os.path.join(ROOT, tag); bare = os.path.join(d, "origin.git"); work = os.path.join(d, "work")
+    os.makedirs(d)
+    subprocess.run(["git", "init", "-q", "--bare", bare], check=True)
+    subprocess.run(["git", "init", "-q", work], check=True)
+    git(["config", "user.email", "a@b.c"], work); git(["config", "user.name", "t"], work)
+    git(["remote", "add", "origin", bare], work)
+    return bare, work
+def base_repo(tag):
+    bare, work = new_repo(tag)
+    commit(work, "base0"); git(["branch", "-M", "main"], work)
+    git(["push", "-q", "-u", "origin", "main"], work)
+    return bare, work
+def run(work, state, cwd=None):
+    sf = os.path.join(ROOT, "state.json"); open(sf, "w").write(json.dumps(state))
+    r = subprocess.run(["python3", HELPER, "branch-state", "--state-file", sf],
+                       cwd=cwd or work, capture_output=True, text=True)
+    return (r.stdout.split() or [""])[0], r.returncode, r.stdout.strip()
+def reason_of(word, out):
+    # UNAVAILABLE prints `UNAVAILABLE <reason>` on stdout; the two stop verdicts
+    # print `<verdict> <payload-path>` and carry the reason slug inside the payload.
+    parts = out.split()
+    if word == "UNAVAILABLE":
+        return parts[1] if len(parts) > 1 else "-"
+    if word in ("AMBIGUOUS", "DECISION_BLOCKED") and len(parts) > 1:
+        try:
+            return json.load(open(parts[-1])).get("reason") or "-"
+        except Exception:
+            return "-"
+    return "-"
+def emit(arm, work, state, cwd=None):
+    word, rc, out = run(work, state, cwd)
+    lines.append(f"{arm} {word} {rc}")
+    lines.append(f"reason_{arm} {reason_of(word, out)}")
+# FRESH (ahead 0) + warm-start (ahead 0 with a workpad present)
+_, work = base_repo("fresh"); git(["checkout", "-qb", "feat", "main"], work)
+emit("ahead0", work, {"base": "main", "current_branch": "feat"})
+emit("warmstart", work, {"base": "main", "current_branch": "feat", "provenance_established": True,
+     "workpad_body": "**Branch:** `feat`", "has_proceed_verdict": True})
+# ahead>0 on an unpushed feat (tip NOT reachable)
+_, work = base_repo("ahead1"); git(["checkout", "-qb", "feat", "main"], work); commit(work, "a1")
+S = {"base": "main", "current_branch": "feat"}
+emit("ahead1_noprov", work, {**S, "provenance_established": False})
+emit("wp_forged", work, {**S, "provenance_established": False, "workpad_body": "**Branch:** `feat`", "has_proceed_verdict": True})
+emit("wp_matching_noverdict", work, {**S, "provenance_established": True, "workpad_body": "**Branch:** `feat`", "has_proceed_verdict": False})
+emit("wp_matching_verdict_notip", work, {**S, "provenance_established": True, "workpad_body": "**Branch:** `feat`", "has_proceed_verdict": True})
+emit("wp_absent", work, {**S, "provenance_established": True, "workpad_body": "no branch line here", "has_proceed_verdict": False})
+emit("wp_placeholder", work, {**S, "provenance_established": True, "workpad_body": "**Branch:** _(creating…)_", "has_proceed_verdict": True})
+emit("wp_duplicate", work, {**S, "provenance_established": True, "workpad_body": "**Branch:** `feat`\n**Branch:** `other`"})
+emit("wp_truncated", work, {**S, "provenance_established": True, "workpad_body": "**Branch:** `feat", "has_proceed_verdict": False})
+emit("wp_probe_fail", work, {**S, "provenance_established": True, "workpad_body": "**Branch:** `bad ref name`", "has_proceed_verdict": False})
+emit("wp_divergent_nonexistent", work, {**S, "provenance_established": True, "workpad_body": "**Branch:** `ghost`", "has_proceed_verdict": False})
+# no-history-mutation: HEAD sha + ref snapshot unchanged across a stop verdict
+hb = git(["rev-parse", "HEAD"], work).stdout.strip(); rb = git(["show-ref"], work).stdout
+run(work, {**S, "provenance_established": False})
+ha = git(["rev-parse", "HEAD"], work).stdout.strip(); ra = git(["show-ref"], work).stdout
+lines.append(f"nomut {'yes' if hb == ha and rb == ra else 'no'}")
+# divergent-existing (a real 'other' branch off base)
+_, work = base_repo("divergent")
+git(["checkout", "-qb", "other", "main"], work); commit(work, "o1"); git(["push", "-q", "-u", "origin", "other"], work)
+git(["checkout", "-qb", "feat", "main"], work); commit(work, "a1")
+D = {"base": "main", "current_branch": "feat", "provenance_established": True, "workpad_body": "**Branch:** `other`"}
+emit("wp_divergent_exist_verdict", work, {**D, "has_proceed_verdict": True})
+emit("wp_divergent_noverdict", work, {**D, "has_proceed_verdict": False})
+# VALIDATED_RESUME: ahead>0, pushed (tip reachable), matching + verdict; and absent+verdict+tip
+_, work = base_repo("resume"); git(["checkout", "-qb", "feat", "main"], work); commit(work, "a1")
+git(["push", "-q", "-u", "origin", "feat"], work)
+emit("wp_matching_verdict", work, {"base": "main", "current_branch": "feat", "provenance_established": True, "workpad_body": "**Branch:** `feat`", "has_proceed_verdict": True})
+emit("wp_absent_verdict_tip", work, {"base": "main", "current_branch": "feat", "provenance_established": True, "workpad_body": "no branch line", "has_proceed_verdict": True})
+# Published tip EXISTS but no longer reaches HEAD (pushed, then committed locally).
+# The sibling wp_matching_verdict_notip arm reaches the same slug through the
+# ref-ABSENT early return, leaving `merge-base --is-ancestor` — the actual
+# divergence check — unexercised: a regression returning True once the ref merely
+# resolves would still pass that arm, and hand a diverged branch a VALIDATED_RESUME
+# (exit 0, proceed to push). This arm is what fails on that regression.
+commit(work, "local-only")
+emit("wp_matching_verdict_tipdiverged", work, {"base": "main", "current_branch": "feat", "provenance_established": True,
+     "workpad_body": "**Branch:** `feat`", "has_proceed_verdict": True})
+# aheadN + mixed ahead/behind
+_, work = base_repo("mixed"); git(["checkout", "-qb", "feat", "main"], work)
+for i in range(3): commit(work, f"a{i}")
+emit("aheadN_noprov", work, {"base": "main", "current_branch": "feat", "provenance_established": False})
+git(["checkout", "-q", "main"], work); commit(work, "m2"); git(["push", "-q", "origin", "main"], work)
+git(["fetch", "-q", "origin"], work); git(["checkout", "-q", "feat"], work)
+emit("mixed", work, {"base": "main", "current_branch": "feat", "provenance_established": False})
+# base-fetch failure
+_, work = base_repo("basefail"); git(["checkout", "-qb", "feat", "main"], work); commit(work, "a1")
+emit("basefail", work, {"base": "nope", "current_branch": "feat"})
+# underivable count: origin/main resolvable but HEAD unborn
+bare, work2 = new_repo("count"); _, seed = base_repo("count_seed")
+git(["push", "-q", os.path.join(ROOT, "count", "origin.git"), "main"], seed)
+git(["fetch", "-q", "origin", "+refs/heads/main:refs/remotes/origin/main"], work2)
+emit("count", work2, {"base": "main", "current_branch": "feat"})
+# shallow wrong-digit vs post-unshallow: full clone of feat + shallow main fetch
+bare_s, deep = new_repo("shallow_src")
+commit(deep, "b0"); git(["branch", "-M", "main"], deep)
+git(["checkout", "-qb", "feat", "main"], deep); commit(deep, "f1")
+git(["checkout", "-q", "main"], deep)
+for i in range(4): commit(deep, f"b{i+1}")
+git(["push", "-q", "-u", "origin", "main"], deep); git(["push", "-q", "-u", "origin", "feat"], deep)
+shal = os.path.join(ROOT, "shallow_clone")
+subprocess.run(["git", "clone", "-q", "--branch", "feat", "file://" + bare_s, shal], check=True)
+git(["config", "user.email", "a@b.c"], shal); git(["config", "user.name", "t"], shal)
+git(["fetch", "-q", "--depth=1", "origin", "+refs/heads/main:refs/remotes/origin/main"], shal)
+naive = git(["rev-list", "--count", "refs/remotes/origin/main..HEAD"], shal).stdout.strip()
+lines.append(f"shallow_naive {naive or 'ERR'}")
+# Tip-invariance across the ONE path that issues a network git command
+# (fetch --unshallow). The published contract is narrow and this snapshot matches
+# it exactly: no LOCAL branch tip moves and the working tree is unchanged. The
+# remote-tracking ref origin/main is deliberately EXCLUDED — the deepen's refspec
+# force-updates it by design, so snapshotting `show-ref` wholesale here would pin
+# a claim the code does not make (and the non-shallow `nomut` arm above, which
+# runs no fetch, already covers the all-refs case).
+# `--untracked-files=no` (TRACKED files only) is the operand the published claim
+# names: "no local branch and no tracked file is touched". A raw `--porcelain`
+# here would compare UNTRACKED state too and so trip on the helper's OWN documented
+# stop-verdict payload, which `_payload_dir()` writes into `<repo>/.devflow/tmp/`
+# on exactly this DECISION_BLOCKED arm — grading a legitimate artifact as a tree
+# mutation. Tracked-only still fails on any real working-tree modification, which
+# is what the guarantee is about.
+shb = git(["show-ref", "--heads"], shal).stdout
+stb = git(["status", "--porcelain", "--untracked-files=no"], shal).stdout
+word, rc, out = run(shal, {"base": "main", "current_branch": "feat", "provenance_established": False}, cwd=shal)
+sha_ = git(["show-ref", "--heads"], shal).stdout
+sta_ = git(["status", "--porcelain", "--untracked-files=no"], shal).stdout
+lines.append(f"shallow_nomut {'yes' if shb == sha_ and stb == sta_ else 'no'}")
+lines.append(f"shallow_deepened {git(['rev-parse', '--is-shallow-repository'], shal).stdout.strip()}")
+lines.append(f"shallow {word} {rc}")
+payload = out.split()[-1] if word in ("AMBIGUOUS", "DECISION_BLOCKED") else ""
+derived = str(json.load(open(payload)).get("derived", {}).get("ahead")) if payload and os.path.exists(payload) else ""
+lines.append(f"shallow_derived {derived}")
+# shallow-undeepened: a fresh shallow clone whose origin is then broken, so the
+# unshallow fetch fails and the repo stays shallow — the count is unreliable and
+# must fail closed to UNAVAILABLE rather than trust a possibly-spurious value.
+shal2 = os.path.join(ROOT, "shallow_undeepenable")
+subprocess.run(["git", "clone", "-q", "--branch", "feat", "file://" + bare_s, shal2], check=True)
+git(["config", "user.email", "a@b.c"], shal2); git(["config", "user.name", "t"], shal2)
+git(["fetch", "-q", "--depth=1", "origin", "+refs/heads/main:refs/remotes/origin/main"], shal2)
+git(["remote", "set-url", "origin", os.path.join(ROOT, "does-not-exist.git")], shal2)
+emit("shallow_undeepened", shal2, {"base": "main", "current_branch": "feat", "provenance_established": False}, cwd=shal2)
+# ── branch-state input-validation matrix (best-effort parser over agent-written
+# JSON). Every arm asserts BOTH the fail-closed contract (`UNAVAILABLE state`,
+# exit 3) AND a SPECIFIC stderr cause — a bare exit-code assertion could not tell
+# these guards apart, since they all reject to the same token. `bad()` takes
+# argv directly so the absent/empty --state-file arms are reachable at all (they
+# cannot be expressed through run(), which always writes a well-formed file).
+# Positive control: the same fixture repo yields FRESH on a well-formed file, so a
+# rejection here cannot be an unrelated precondition (e.g. a broken sandbox).
+_, vwork = base_repo("inputval"); git(["checkout", "-qb", "feat", "main"], vwork)
+def bad(arm, argv, cwd):
+    r = subprocess.run(["python3", HELPER, "branch-state"] + argv, cwd=cwd,
+                       capture_output=True, text=True)
+    lines.append(f"{arm} {(r.stdout.split() or ['-'])[0]}_{(r.stdout.split() + ['-'])[1]} {r.returncode}")
+    # One whitespace-collapsed stderr line, so the cause can be substring-matched.
+    lines.append(f"err_{arm} {' '.join(r.stderr.split()) or '-'}")
+def bad_file(arm, content, cwd):
+    p = os.path.join(ROOT, f"iv_{arm}.json"); open(p, "w").write(content)
+    bad(arm, ["--state-file", p], cwd)
+emit("iv_control", vwork, {"base": "main", "current_branch": "feat"})
+bad("iv_noflag", [], vwork)
+bad("iv_emptypath", ["--state-file", ""], vwork)
+bad("iv_missing", ["--state-file", os.path.join(ROOT, "iv_absent.json")], vwork)
+_ivdir = os.path.join(ROOT, "iv_dir"); os.makedirs(_ivdir)
+bad("iv_unreadable", ["--state-file", _ivdir], vwork)
+bad_file("iv_notjson", "{not json", vwork)
+bad_file("iv_notdict", '["a"]', vwork)
+bad_file("iv_nobase", json.dumps({"current_branch": "feat"}), vwork)
+bad_file("iv_emptybase", json.dumps({"base": "", "current_branch": "feat"}), vwork)
+bad_file("iv_nocur", json.dumps({"base": "main"}), vwork)
+bad_file("iv_emptycur", json.dumps({"base": "main", "current_branch": ""}), vwork)
+bad_file("iv_wrongtype", json.dumps({"base": 7, "current_branch": "feat"}), vwork)
+# The two gate flags, exercised on an ahead>0 repo — the state where a truthy-string
+# coercion would actually fail OPEN. A quoted "false" is truthy in Python, so before
+# the type check these sailed past `unverified-provenance` (letting a forged workpad
+# vouch for foreign ahead history) or manufactured a proceed verdict. Each arm pins
+# the SPECIFIC flag name in the cause, so one flag's guard cannot pass for the other's;
+# the bool_ok control proves real booleans still classify (the guard is not blanket).
+_, bwork = base_repo("boolflags"); git(["checkout", "-qb", "feat", "main"], bwork); commit(bwork, "a1")
+_B = {"base": "main", "current_branch": "feat"}
+bad_file("iv_provstr", json.dumps({**_B, "provenance_established": "false"}), bwork)
+bad_file("iv_verdictstr", json.dumps({**_B, "provenance_established": True,
+         "workpad_body": "**Branch:** `feat`", "has_proceed_verdict": "false"}), bwork)
+bad_file("iv_provnum", json.dumps({**_B, "provenance_established": 1}), bwork)
+emit("iv_bool_ok", bwork, {**_B, "provenance_established": False})
+open(OUT, "w").write("\n".join(lines) + "\n")
+import shutil; shutil.rmtree(ROOT)
+PY
+_bs576() { awk -v k="$1" '$1==k{print $2, $3; f=1} END{if(!f)print "MISSING"}' "$BS576_OUT"; }
+_bs576v() { awk -v k="$1" '$1==k{print $2; f=1} END{if(!f)print "MISSING"}' "$BS576_OUT"; }
+# Whole-line-tail accessor for the stderr causes the input-validation matrix records.
+_bs576e() { awk -v k="$1" '$1==k{$1=""; sub(/^ /,""); print; f=1} END{if(!f)print "MISSING"}' "$BS576_OUT"; }
+# Substring match of a recorded stderr cause → yes/no (attributes WHICH guard rejected).
+_bs576err() { case "$(_bs576e "err_$1")" in *"$2"*) echo yes;; *) echo no;; esac; }
+assert_eq "#576: fresh branch (ahead 0) → FRESH/proceed" "FRESH 0" "$(_bs576 ahead0)"
+assert_eq "#576: warm-start (ahead 0, workpad present) → FRESH/proceed" "FRESH 0" "$(_bs576 warmstart)"
+assert_eq "#576: ahead>0 under unverified provenance → DECISION_BLOCKED/stop" "DECISION_BLOCKED 2" "$(_bs576 ahead1_noprov)"
+assert_eq "#576: aheadN under unverified provenance → DECISION_BLOCKED/stop" "DECISION_BLOCKED 2" "$(_bs576 aheadN_noprov)"
+assert_eq "#576: mixed ahead+behind still classifies on ahead → DECISION_BLOCKED/stop" "DECISION_BLOCKED 2" "$(_bs576 mixed)"
+assert_eq "#576: marker-forged hostile workpad (ahead>0, provenance false) → DECISION_BLOCKED" "DECISION_BLOCKED 2" "$(_bs576 wp_forged)"
+assert_eq "#576: recorded branch matches, no verdict → AMBIGUOUS/stop" "AMBIGUOUS 2" "$(_bs576 wp_matching_noverdict)"
+assert_eq "#576: recorded matches + verdict but tip unreachable → AMBIGUOUS/stop" "AMBIGUOUS 2" "$(_bs576 wp_matching_verdict_notip)"
+assert_eq "#576: recorded matches + verdict + tip reachable → VALIDATED_RESUME/proceed" "VALIDATED_RESUME 0" "$(_bs576 wp_matching_verdict)"
+assert_eq "#576: no recorded branch, no verdict → AMBIGUOUS/stop" "AMBIGUOUS 2" "$(_bs576 wp_absent)"
+assert_eq "#576: no recorded branch + verdict + tip reachable → VALIDATED_RESUME/proceed" "VALIDATED_RESUME 0" "$(_bs576 wp_absent_verdict_tip)"
+assert_eq "#576: placeholder Branch line resolves to absent → AMBIGUOUS/stop" "AMBIGUOUS 2" "$(_bs576 wp_placeholder)"
+assert_eq "#576: duplicate Branch line (ambiguous workpad) → AMBIGUOUS/stop" "AMBIGUOUS 2" "$(_bs576 wp_duplicate)"
+assert_eq "#576: truncated Branch line (no closing backtick) → absent → AMBIGUOUS/stop" "AMBIGUOUS 2" "$(_bs576 wp_truncated)"
+assert_eq "#576: divergent recorded branch that EXISTS + verdict → AMBIGUOUS/stop" "AMBIGUOUS 2" "$(_bs576 wp_divergent_exist_verdict)"
+assert_eq "#576: divergent recorded branch that EXISTS, no verdict → DECISION_BLOCKED/stop" "DECISION_BLOCKED 2" "$(_bs576 wp_divergent_noverdict)"
+assert_eq "#576: divergent recorded branch that does NOT exist (clean-empty) → DECISION_BLOCKED/stop" "DECISION_BLOCKED 2" "$(_bs576 wp_divergent_nonexistent)"
+assert_eq "#576: malformed recorded branch name (existence-probe failure) → UNAVAILABLE/3" "UNAVAILABLE 3" "$(_bs576 wp_probe_fail)"
+assert_eq "#576: base ref unresolvable (base-fetch failure) → UNAVAILABLE/3" "UNAVAILABLE 3" "$(_bs576 basefail)"
+assert_eq "#576: underivable ahead count (unborn HEAD) → UNAVAILABLE/3" "UNAVAILABLE 3" "$(_bs576 count)"
+# no-history-mutation (behavioral): a DECISION_BLOCKED stop leaves HEAD + every ref untouched.
+assert_eq "#576 no-history-mutation: a stop verdict leaves HEAD and all refs unchanged" "yes" "$(_bs576v nomut)"
+# shallow wrong-digit vs post-unshallow: the naive shallow count is inflated; the helper
+# unshallows once and re-derives the correct ahead count (1) recorded in the payload.
+BS576_NAIVE="$(_bs576v shallow_naive)"; BS576_DERIVED="$(_bs576v shallow_derived)"
+assert_eq "#576 shallow: the naive shallow ahead count differs from the post-unshallow count" "differ" \
+  "$([ "$BS576_NAIVE" != "$BS576_DERIVED" ] && echo differ || echo same)"
+assert_eq "#576 shallow: the helper re-derives the correct post-unshallow ahead count" "1" "$BS576_DERIVED"
+assert_eq "#576 shallow: a shallow repo still yields a well-formed stop verdict" "DECISION_BLOCKED 2" "$(_bs576 shallow)"
+# Tip-invariance on the ONE network-git path (fetch --unshallow). Scoped to the
+# published claim: no LOCAL branch tip moves, working tree unchanged. origin/main
+# is excluded because the deepen's refspec force-updates it by design.
+assert_eq "#576 shallow: the deepen moves no local branch tip and leaves the tree unchanged" "yes" \
+  "$(_bs576v shallow_nomut)"
+# Positive control: the fetch really did run, so the invariance above is not vacuous.
+assert_eq "#576 shallow: the fixture was genuinely deepened (tip-invariance is not vacuous)" "false" \
+  "$(_bs576v shallow_deepened)"
+# A shallow repo that CANNOT be deepened (broken origin) fails closed to UNAVAILABLE
+# rather than trusting the unreliable shallow count. Direction note (the helper's
+# docstring is authoritative): `origin/<base>..HEAD` excludes base-reachable
+# commits, so a truncated base excludes FEWER and the shallow count can only
+# OVERcount — it cannot undercount to a spurious FRESH. The count is simply
+# fabricated, which is why it is refused rather than adopted in either direction.
+assert_eq "#576 shallow-undeepened: an un-deepenable shallow repo fails closed to UNAVAILABLE/3" "UNAVAILABLE 3" "$(_bs576 shallow_undeepened)"
+assert_eq "#576 shallow-undeepened: carries the 'shallow-undeepened' reason slug" "shallow-undeepened" "$(_bs576v reason_shallow_undeepened)"
+# Reason slugs (the operator-facing remedy routing) are distinct even where the
+# verdict word + rc collapse: the three UNAVAILABLE causes and the three
+# DECISION_BLOCKED causes each assert their own slug, so a mis-routed reason is caught.
+assert_eq "#576 reason: base-fetch failure carries the 'base' slug" "base" "$(_bs576v reason_basefail)"
+assert_eq "#576 reason: underivable count carries the 'count' slug" "count" "$(_bs576v reason_count)"
+assert_eq "#576 reason: malformed recorded name carries the 'existence-probe' slug" "existence-probe" "$(_bs576v reason_wp_probe_fail)"
+assert_eq "#576 reason: ahead>0 under unverified provenance carries the 'unverified-provenance' slug" "unverified-provenance" "$(_bs576v reason_ahead1_noprov)"
+assert_eq "#576 reason: a forged workpad still routes to 'unverified-provenance'" "unverified-provenance" "$(_bs576v reason_wp_forged)"
+assert_eq "#576 reason: matching branch without a verdict carries 'matching-without-verdict'" "matching-without-verdict" "$(_bs576v reason_wp_matching_noverdict)"
+assert_eq "#576 reason: a duplicate Branch line carries 'duplicate-branch-line'" "duplicate-branch-line" "$(_bs576v reason_wp_duplicate)"
+assert_eq "#576 reason: divergent existing branch without a verdict carries 'divergent-without-verdict'" "divergent-without-verdict" "$(_bs576v reason_wp_divergent_noverdict)"
+assert_eq "#576 reason: divergent nonexistent branch carries 'divergent-nonexistent'" "divergent-nonexistent" "$(_bs576v reason_wp_divergent_nonexistent)"
+# The remaining three AMBIGUOUS arms collapse onto the same `AMBIGUOUS 2` verdict as
+# the two above, so verdict-only assertions cannot tell them apart — pin their slugs too.
+assert_eq "#576 reason: absent Branch line without a verdict carries 'no-recorded-branch'" "no-recorded-branch" "$(_bs576v reason_wp_absent)"
+assert_eq "#576 reason: matching branch + verdict but unreachable tip carries 'matching-verdict-tip-unreachable'" \
+  "matching-verdict-tip-unreachable" "$(_bs576v reason_wp_matching_verdict_notip)"
+assert_eq "#576 reason: divergent existing branch WITH a verdict carries 'divergent-existing-with-verdict'" \
+  "divergent-existing-with-verdict" "$(_bs576v reason_wp_divergent_exist_verdict)"
+
+# ── branch-state input-validation matrix (#576 Important #2). Every shape fails
+# closed to the SAME `UNAVAILABLE state` / exit 3 contract, so each arm also pins
+# the specific stderr cause that attributes WHICH guard rejected it — a bare
+# exit-code assertion would stay green against a mutant that collapsed the ladder.
+assert_eq "#576 input-val: positive control — a well-formed state file on the same fixture proceeds" \
+  "FRESH 0" "$(_bs576 iv_control)"
+assert_eq "#576 input-val: absent --state-file → UNAVAILABLE state/3" "UNAVAILABLE_state 3" "$(_bs576 iv_noflag)"
+assert_eq "#576 input-val: absent --state-file names the missing flag" "yes" "$(_bs576err iv_noflag "requires --state-file")"
+assert_eq "#576 input-val: empty --state-file '' → UNAVAILABLE state/3" "UNAVAILABLE_state 3" "$(_bs576 iv_emptypath)"
+assert_eq "#576 input-val: empty --state-file fails on the READ, never a phantom default" "yes" \
+  "$(_bs576err iv_emptypath "could not read branch-state file")"
+assert_eq "#576 input-val: nonexistent path → UNAVAILABLE state/3" "UNAVAILABLE_state 3" "$(_bs576 iv_missing)"
+assert_eq "#576 input-val: nonexistent path names the read failure" "yes" "$(_bs576err iv_missing "could not read branch-state file")"
+assert_eq "#576 input-val: unreadable path (a directory) → UNAVAILABLE state/3" "UNAVAILABLE_state 3" "$(_bs576 iv_unreadable)"
+assert_eq "#576 input-val: unreadable path names the read failure" "yes" "$(_bs576err iv_unreadable "could not read branch-state file")"
+assert_eq "#576 input-val: non-JSON content → UNAVAILABLE state/3" "UNAVAILABLE_state 3" "$(_bs576 iv_notjson)"
+assert_eq "#576 input-val: non-JSON names the JSON decode cause (not the read cause)" "yes" \
+  "$(_bs576err iv_notjson "not valid JSON")"
+assert_eq "#576 input-val: non-dict top-level (a JSON array) → UNAVAILABLE state/3" "UNAVAILABLE_state 3" "$(_bs576 iv_notdict)"
+assert_eq "#576 input-val: non-dict top-level names the object requirement" "yes" \
+  "$(_bs576err iv_notdict "must be a JSON object")"
+assert_eq "#576 input-val: missing 'base' → UNAVAILABLE state/3" "UNAVAILABLE_state 3" "$(_bs576 iv_nobase)"
+assert_eq "#576 input-val: missing 'base' names the required-keys cause" "yes" \
+  "$(_bs576err iv_nobase "non-empty string 'base' and 'current_branch'")"
+assert_eq "#576 input-val: valid-falsy empty 'base' is rejected, not defaulted" "UNAVAILABLE_state 3" "$(_bs576 iv_emptybase)"
+assert_eq "#576 input-val: empty 'base' names the required-keys cause" "yes" \
+  "$(_bs576err iv_emptybase "non-empty string 'base' and 'current_branch'")"
+assert_eq "#576 input-val: missing 'current_branch' → UNAVAILABLE state/3" "UNAVAILABLE_state 3" "$(_bs576 iv_nocur)"
+assert_eq "#576 input-val: valid-falsy empty 'current_branch' is rejected, not defaulted" "UNAVAILABLE_state 3" "$(_bs576 iv_emptycur)"
+assert_eq "#576 input-val: empty 'current_branch' names the required-keys cause" "yes" \
+  "$(_bs576err iv_emptycur "non-empty string 'base' and 'current_branch'")"
+assert_eq "#576 tip-reachability: an EXISTING but diverged published tip is not a validated resume" \
+  "AMBIGUOUS 2" "$(_bs576 wp_matching_verdict_tipdiverged)"
+assert_eq "#576 tip-reachability: the diverged-tip arm carries the tip-unreachable slug (via is-ancestor, not ref-absent)" \
+  "matching-verdict-tip-unreachable" "$(_bs576v reason_wp_matching_verdict_tipdiverged)"
+assert_eq "#576 input-val: truthy-string 'provenance_established' is refused, not coerced (fail-open guard)" \
+  "UNAVAILABLE_state 3" "$(_bs576 iv_provstr)"
+assert_eq "#576 input-val: the truthy-string provenance cause names that specific flag" "yes" \
+  "$(_bs576err iv_provstr "'provenance_established' must be a JSON boolean")"
+assert_eq "#576 input-val: truthy-string 'has_proceed_verdict' is refused, not coerced (fail-open guard)" \
+  "UNAVAILABLE_state 3" "$(_bs576 iv_verdictstr)"
+assert_eq "#576 input-val: the truthy-string verdict cause names that specific flag" "yes" \
+  "$(_bs576err iv_verdictstr "'has_proceed_verdict' must be a JSON boolean")"
+assert_eq "#576 input-val: non-bool 'provenance_established' (a number) → UNAVAILABLE state/3" \
+  "UNAVAILABLE_state 3" "$(_bs576 iv_provnum)"
+# Positive control: the same ahead>0 fixture still classifies on REAL booleans, so the
+# arms above are the flag guard firing, not a blanket rejection of the fixture.
+assert_eq "#576 input-val: real JSON booleans still classify (guard is not blanket)" \
+  "DECISION_BLOCKED 2" "$(_bs576 iv_bool_ok)"
+assert_eq "#576 input-val: wrong-type 'base' (a number) → UNAVAILABLE state/3" "UNAVAILABLE_state 3" "$(_bs576 iv_wrongtype)"
+assert_eq "#576 input-val: wrong-type 'base' names the required-keys cause" "yes" \
+  "$(_bs576err iv_wrongtype "non-empty string 'base' and 'current_branch'")"
+# ── _is_shallow probe (#576 Important #1). The probe's failure modes cannot be
+# provoked through a real repository (git >= 2.15 always answers), so drive it
+# directly with a stubbed _run_git. Reading `stdout == "true"` alone would fail
+# OPEN — an unrecognized option (git < 2.15) or a subprocess error prints nothing,
+# which would read as NOT shallow and adopt the unreliable pre-deepen count. Every
+# unestablished shape must return None so the caller fails closed to UNAVAILABLE.
+BS576_SHP="$(python3 - "$PWD/scripts/preflight.py" <<'PY'
+import importlib.util, subprocess, sys
+spec = importlib.util.spec_from_file_location("pf_shallow_probe", sys.argv[1])
+mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+def stub(rc, out):
+    mod._run_git = lambda argv: subprocess.CompletedProcess(argv, rc, out, "")
+    return mod._is_shallow()
+cases = [("true", 0, "true\n"), ("false", 0, "false\n"),
+         ("rc_nonzero", 129, "true\n"), ("empty", 0, "\n"),
+         ("unknown_word", 0, "maybe\n"), ("rc_and_empty", 128, "")]
+print(" ".join(f"{n}={stub(rc, out)}" for n, rc, out in cases))
+PY
+)"
+assert_eq "#576 shallow-probe: every established/unestablished probe shape maps as specified" \
+  "true=True false=False rc_nonzero=None empty=None unknown_word=None rc_and_empty=None" "$BS576_SHP"
+rm -f "$BS576_OUT"
+
+# ── issue #576: Phase 1 §1.4 integration — ordering + no-history-mutation pins ──
+BS576_PHASE="$IMPL_PHASES_DIR/phase-1-setup.md"
+# Ordering (positional): the branch-state invocation precedes the §1.4.1 checkpoint
+# heading, so a stop verdict aborts before any history-mutating step (AC2).
+BS576_INV_LN=$(grep -nF 'scripts/preflight.py branch-state --state-file .devflow/tmp/branch-state-$ISSUE_NUMBER.json' "$BS576_PHASE" | head -1 | cut -d: -f1)
+BS576_141_LN=$(grep -nF '#### 1.4.1 Base-branch update checkpoint 1' "$BS576_PHASE" | head -1 | cut -d: -f1)
+assert_eq "#576 AC2: the branch-state classification precedes the §1.4.1 checkpoint (before any history mutation)" "yes" \
+  "$([ -n "$BS576_INV_LN" ] && [ -n "$BS576_141_LN" ] && [ "$BS576_INV_LN" -lt "$BS576_141_LN" ] && echo yes || echo no)"
+# Ordering (mutation evidence): a sed -E reorder that copies the invocation to hold space
+# and appends it after the §1.4.1 heading makes the unique invocation literal appear a
+# second time (present→non-unique), so its pin flips PASS→FAIL (the AC10 reorder idiom).
+assert_pin_red_under "#576 AC2: a reorder placing branch-state after §1.4.1 turns its pin RED" \
+  'scripts/preflight.py branch-state --state-file .devflow/tmp/branch-state-$ISSUE_NUMBER.json' \
+  '/scripts\/preflight\.py branch-state --state-file/h;/^#### 1\.4\.1 Base-branch update checkpoint 1/G' "$BS576_PHASE"
+# No-history-mutation (prose contract): the operative guarantee sentence is present; a
+# mutation flipping it to a mutation-permitting claim removes the literal → pin RED.
+assert_pin_red_under "#576: the no-history-mutation guarantee sentence is present (operative, not framing)" \
+  'a stop verdict makes no history mutation' \
+  's/a stop verdict makes no history mutation/a stop verdict may rewrite history/' "$BS576_PHASE"
+
 # ── issue #547 AC10: the §1.3.5 dependency gate precedes §1.4 branch work ──────
 # The gate must run before ANY §1.4 branch operation (resume-precheck checkout,
 # fetch, checkpoint merge, fresh-branch creation, push) on every entry path.
@@ -13194,7 +13677,7 @@ for PA_FILE in "$LIB"/../skills/review/phases/*.md "$LIB"/../skills/review-and-f
     "$(if grep -qF 'CLAUDE_SKILL_DIR' "$PA_FILE"; then grep -qF "$PORTABLE_ANCHOR_LITERAL" "$PA_FILE" && echo yes || echo no; else echo yes; fi)"  # raw-guard-ok: loop body: conditional presence pin over the enumerated $PA_FILE loop variable
 done
 assert_eq "#275 pin (R0): portable-anchor coverage spans every review phase + fix-loop reference file (enumeration reconciled)" \
-  "17" "$PA_REF_COUNT"
+  "18" "$PA_REF_COUNT"
 # Mutation proof (PASS->FAIL, self-contained): the absence EREs must actually MATCH the
 # two fragile forms they exist to reject — an ERE typo would leave P1/P2 green forever
 # (vacuous absence pins). Inject each fragile form into a temp copy of a migrated file
@@ -33013,8 +33496,16 @@ assert_eq "#529 AC2: root + shipped extension is within the 8,500-word ceiling" 
 # — and the split clears it either way (25,590 measured; 25,599 under the old method).
 assert_eq "#529 AC2: the split is at least 25,327 words below the 33,815 baseline" "yes" \
   "$([ "$((33815 - RB_ROOT_W - RB_EXT_W))" -ge 25327 ] && echo yes || echo no)"
-assert_eq "#529 AC3: the default per-pass unique path is within the 28,700-word ceiling" "yes" \
-  "$([ "$RB_DEFAULT_W" -le 28700 ] && echo yes || echo no)"
+# #556 renegotiated the ceiling from 28,700 to 30,100: the always-on wording-only
+# normalization prose (Phase 2.0/2.0.5/2.1b/2.2 in phase-2-verification.md and the
+# Phase 4.1/4.2 amendments in phase-4-verdict.md) runs unconditionally on every pass,
+# so parking it behind a config gate would be metric-gaming (the gated exemption is for
+# genuinely conditional references only). Per docs/review-bundle-budget.md's sanctioned
+# escape valve, the ceiling is widened to the new measured figure (30,042 words) plus a
+# thin margin, matching the pre-#556 posture. Re-measure with _rb_words before adding
+# prose to the default path.
+assert_eq "#529 AC3: the default per-pass unique path is within the 30,100-word ceiling" "yes" \
+  "$([ "$RB_DEFAULT_W" -le 30100 ] && echo yes || echo no)"
 # Anti-vacuity: the ceilings above are only meaningful if every operand was really
 # measured. `cat` SKIPS an unreadable member and keeps going, so a wrong path does
 # NOT zero the count — it merely shrinks it, and a ceiling then passes MORE easily
@@ -33488,7 +33979,12 @@ assert_eq "#530 budget: no references/*.md outside the pinned 8-name set" "" "$_
 # constant, so a ceiling changed on one side without the other turns the coupling RED instead
 # of the two artifacts silently disagreeing.
 RAF_ROOT_CEIL=3500
-RAF_LOAD_CEIL=5500
+# #556 raised the initial-load ceiling 5500->5510: AC8 requires the iter-<N>.json
+# checklist entry to carry the optional raw_verdict/normalized fields, and adding
+# them to the record-shape example in the root pushed root+extension to 5,504 words.
+# The small documented widening mirrors the #529 AC3 renegotiation; update
+# docs/review-and-fix-budget.md's ceilings-table cell in lockstep.
+RAF_LOAD_CEIL=5510
 RAF_MAXSTEP_CEIL=17000
 assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
   "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"
@@ -33532,7 +34028,7 @@ for _raf_ceil in "$RAF_ROOT_CEIL" "$RAF_LOAD_CEIL" "$RAF_MAXSTEP_CEIL"; do
     "$(case "$_raf_doc_nocommas" in *"≤ $_raf_ceil words |"*) echo yes;; *) echo no;; esac)"
 done
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,319 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,323 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute
@@ -34369,15 +34865,21 @@ assert_eq "#480 a NESTED substitution inside the heredoc body does not unbalance
 { printf '%s\n' '```bash' 'echo \\"a << EOF"' 'cd /tmp' 'EOF' '```'; } > "$E363/i-esc-parity.md"
 assert_eq "#480 an ESCAPED backslash before a quote does not flip the mask's parity (R2 still flags the leading cd)" "yes" \
   "$(python3 "$ECS" "$E363/i-esc-parity.md" | grep -q '  R2  ' && echo yes || echo no)"
-# ── matcher-probe's EXTRAS is claimed to mirror the config VERBATIM; the IMPLEMENT half of that
-# ── mirror is pinned but EXTRAS was not, so a future config edit would silently make the
-# ── evidence-of-record probe measure a profile the repo does not ship (#480 review).
-assert_eq "#480 matcher-probe EXTRAS mirrors .devflow/config.json devflow_implement.allowed_tools verbatim" "SYNCED" \
+# ── matcher-probe's EXTRAS mirrors every probe-eligible config grant. The prompt-mass
+# ── census grant is intentionally config-only in its introducing PR: the Prose cutover policy
+# ── treats that direct command shape as unproven until a later matcher-probe run, and #551
+# ── explicitly changes no workflow TOOLS. Keep that one named exception closed and visible.
+assert_eq "#480 matcher-probe EXTRAS mirrors probe-eligible devflow_implement.allowed_tools" "SYNCED" \
   "$(python3 - "$LIB/../.github/workflows/matcher-probe.yml" "$LIB/../.devflow/config.json" <<'PY'
 import json, re, sys
 yml = open(sys.argv[1], encoding="utf-8").read()
 cfg = json.load(open(sys.argv[2], encoding="utf-8"))
-want = list(cfg.get("devflow_implement", {}).get("allowed_tools", []))
+unproven_post_merge = {"Bash(lib/test/prompt-mass-census.py:*)"}
+want = [
+    token
+    for token in cfg.get("devflow_implement", {}).get("allowed_tools", [])
+    if token not in unproven_post_merge
+]
 m = re.search(r"EXTRAS='([^']*)'", yml)
 if not m:
     print("EXTRAS-NOT-FOUND")
@@ -43190,7 +43692,7 @@ fi
 # The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/create-issue-contract.sh" \
-  "create-issue-contract" 211; then
+  "create-issue-contract" 234; then
   printf 'ERROR: create-issue-contract boundary could not record its result\n'
   exit 1
 fi
@@ -45306,6 +45808,91 @@ if [ -d "$WP_SB" ]; then
     "0" "$(cat "$WP_SB/.wp-embed-rc" 2>/dev/null)"
   rm -rf "$WP_SB"
 fi
+
+# ── issue #551: mandatory prompt-byte census + prose-cutover policy ──────────
+PMC="$LIB/test/prompt-mass-census.py"
+PMC_TEST="$LIB/test/test_prompt_mass_census.py"
+PMC_MANIFEST="$LIB/test/prompt-mass-manifest.json"
+PMC_BASELINE="$LIB/test/prompt-mass-baseline.json"
+PMC_CLAUDE="$LIB/../CLAUDE.md"
+PMC_EXT_IMPL="$LIB/../.devflow/prompt-extensions/implement.md"
+PMC_EXT_RAF="$LIB/../.devflow/prompt-extensions/review-and-fix.md"
+
+# The helper's behavioral boundary carries the issue's T1–T18 fixture matrix. Run it from
+# the suite rather than relying on a standalone developer command, then run the helper itself
+# over the real checkout so a stale committed mirror turns this required gate RED.
+if PMC_TEST_OUT="$(python3 "$PMC_TEST" 2>&1)"; then
+  echo PASS >> "$RESULTS_FILE"
+  printf '  PASS  #551 prompt-mass census behavioral fixtures (T1–T18)\n'
+else
+  echo FAIL >> "$RESULTS_FILE"
+  printf '  FAIL  #551 prompt-mass census behavioral fixtures (T1–T18)\n%s\n' "$PMC_TEST_OUT"
+fi
+if PMC_REAL_OUT="$("$PMC" 2>&1)"; then
+  echo PASS >> "$RESULTS_FILE"
+  printf '  PASS  #551 prompt-mass census exact mirror over the real tree\n'
+else
+  echo FAIL >> "$RESULTS_FILE"
+  printf '  FAIL  #551 prompt-mass census exact mirror over the real tree\n%s\n' "$PMC_REAL_OUT"
+fi
+
+# Implementation-shape pins: byte values come from Python in-process; the manifest states
+# the classification rule; config exposes the direct form only as a post-merge convenience.
+assert_pin_unique "#551 census derives bytes in-process with os.path.getsize" \
+  'measured[relative] = os.path.getsize(path)' "$PMC"
+assert_eq "#551 census value path imports no subprocess module" "0" \
+  "$(grep -cE '^(from subprocess|import subprocess)' "$PMC" 2>/dev/null)"
+assert_pin_unique "#551 manifest states the mandatory-vs-reference classification rule" \
+  "A file loaded unconditionally on any flow's normal path, including mandatory-at-entry phase and step references, is mandatory; reference is reserved for genuinely conditional rare-path files." "$PMC_MANIFEST"
+assert_eq "#551 direct census grant appears in both writable cloud config profiles" "2" \
+  "$(grep -cF 'Bash(lib/test/prompt-mass-census.py:*)' "$LIB/../.devflow/config.json")"
+assert_eq "#551 only one committed prompt-mass baseline exists" "1" \
+  "$(python3 -c 'from pathlib import Path; import sys; print(sum(1 for p in Path(sys.argv[1]).rglob("prompt-mass-baseline.json") if p.is_file()))' "$LIB/..")"
+assert_pin_unique "#551 baseline is a per-file mirror with no committed totals key" \
+  '"files": {' "$PMC_BASELINE"
+assert_eq "#551 baseline carries no group-total rows" "0" \
+  "$(grep -c 'total' "$PMC_BASELINE" 2>/dev/null)"
+
+# Rule/procedure pins. These are surface-presence guards; the behavioral census contract is
+# proven by the T1–T18 fixtures above rather than by prose-removal assertions.
+assert_pin_unique "#551 CLAUDE helper-cutover operative sentence is present" \
+  'When an executable helper becomes the sole tested owner of a workflow decision on every path that previously consumed the prose' "$PMC_CLAUDE"
+assert_pin_unique "#551 implement extension carries the Prose cutover section" \
+  '## Prose cutover' "$PMC_EXT_IMPL"
+assert_pin_unique "#551 extension carries the complete five-condition bar" \
+  'All five conditions below must hold **for each consuming path** before its decision-owning' "$PMC_EXT_IMPL"
+assert_pin_unique "#551 extension judges ownership per consuming path" \
+  'Ownership is judged **per consuming path**.' "$PMC_EXT_IMPL"
+assert_pin_unique "#551 extension says relocation is not removal" \
+  'Relocating decision-owning prose is not a' "$PMC_EXT_IMPL"
+assert_pin_unique "#551 extension conserves removed prose pins" \
+  'List every removed prose pin in the cutover artifact.' "$PMC_EXT_IMPL"
+assert_pin_unique "#551 extension prohibits deletion before sole ownership" \
+  'sole tested owner satisfies all five conditions is unauthorized.' "$PMC_EXT_IMPL"
+assert_pin_unique "#551 extension carries the schema-1 artifact template" \
+  '### Cutover artifact template (schema 1)' "$PMC_EXT_IMPL"
+assert_pin_unique "#551 review-and-fix extension points to the authoritative template" \
+  '[Prose cutover](implement.md#prose-cutover).' "$PMC_EXT_RAF"
+
+# Shared-engine gate pins. The criterion is a gated review reference: every engine caller
+# reaches it when repo policy declares the template, while consumer repos without that policy
+# inherit no internal-census obligation. It intentionally contains no fenced command.
+assert_pin_unique "#551 gate is conditioned on the repo's Prose cutover policy" \
+  'Run this gate only when the reviewed repository' "$REVIEW_BUNDLE"
+assert_pin_unique "#551 gate restates the complete five-condition bar" \
+  '**Sole tested owner means all five conditions hold, per consuming path:**' "$REVIEW_BUNDLE"
+assert_pin_unique "#551 gate carries the incoherent-cutover arm" \
+  '**Incoherent cutover:**' "$REVIEW_BUNDLE"
+assert_pin_unique "#551 gate carries the unjustified-reduction arm" \
+  '**Unjustified reduction:**' "$REVIEW_BUNDLE"
+assert_pin_unique "#551 gate carries the unjustified-growth arm" \
+  '**Unjustified growth:**' "$REVIEW_BUNDLE"
+assert_pin_unique "#551 gate keys the rename carve-out to the PR diff" \
+  'backing file the PR diff itself reports as a rename' "$REVIEW_BUNDLE"
+assert_pin_unique "#551 gate states the keep-both mechanical residual" \
+  'The mechanical residual is explicit:' "$REVIEW_BUNDLE"
+assert_eq "#551 gated criterion adds no fenced command" "0" \
+  "$(grep -c '^```' "$LIB/../skills/review/phases/phase-4-1-8-prose-cutover.md" 2>/dev/null)"
 
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
