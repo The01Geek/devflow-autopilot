@@ -155,6 +155,16 @@ per-fix extra review iteration. This is DevFlow-repo policy; the governing conve
 best-effort-parser adversarial-matrix gotcha, and this section is its coupled mirror in
 `.devflow/prompt-extensions/receiving-code-review.md` — edit both in the same change. (#466)
 
+## Batched artifact regeneration
+
+After applying edits and before each full-suite re-verify run, run `python3 lib/test/regenerate-artifacts.py` once. A fix loop's edits drift the checked-in generated records, and rediscovering each one a full suite run later is an iteration's dominant cost. The helper is the sole enumeration point; no inventory is listed here.
+
+Act on its report first: commit a changed manifest with its causing edits, and resolve every exit-1-forcing judgment item under the policy it names. Informational lines need reading, not action.
+
+**Any outcome but exit 0 or a fully-reported exit 1** — exit 2, a traceback, an empty or truncated report, an unattributable exit code — means an artifact went unchecked: unknown, not clean. Judge residually, never by hunting a named token. Never record `run`; record `batched-regeneration: skipped` naming what you saw, and fall back to serial discovery.
+
+If the matcher refuses the invocation **twice**, stop — record the refusal and proceed to the suite run rather than iterating variants (the issue-401 two-denials discipline). On a run that maintains a workpad, record one line before each full-suite run — `batched-regeneration: run|refused|skipped`.
+
 ## Prompt-surface edit routing evidence gate
 
 DevFlow-repo policy: a reviewed diff that touches a **prompt-surface** file must carry evidence

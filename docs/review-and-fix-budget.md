@@ -4,7 +4,7 @@ This table records the prompt-surface budget of `/devflow:review-and-fix` before
 issue #530 split of its monolithic `SKILL.md` into a thin root + step references under
 `skills/review-and-fix/references/`. It is the checked-in artifact for the #530 word-budget
 acceptance criteria; the live regression guard is the `#530 budget` block in `lib/test/run.sh`
-(root ≤ 3,500 words; root + live extension ≤ 5,540 words; root + extension + max active step
+(root ≤ 3,500 words; root + live extension ≤ 5,720 words; root + extension + max active step
 ≤ 17,000 words).
 
 > **Maintainer note — the root is the tightest budget.** The root sits below its 3,500-word
@@ -60,13 +60,13 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
 | Row | Included paths | Lines | Words | Bytes | ≈Tokens |
 | --- | --- | ---: | ---: | ---: | ---: |
 | **BEFORE** — monolith | `skills/review-and-fix/SKILL.md` (pre-split) | 1,134 | 36,201 | 250,928 | 47,061 |
-| **BEFORE** — always-loaded | monolith + live extension | 1,327 | 38,492 | 266,248 | 50,040 |
-| live extension | `.devflow/prompt-extensions/review-and-fix.md` | 193 | 2,291 | 15,320 | 2,978 |
+| **BEFORE** — always-loaded | monolith + live extension | 1,337 | 38,674 | 267,474 | 50,271 |
+| live extension | `.devflow/prompt-extensions/review-and-fix.md` | 203 | 2,473 | 16,546 | 3,210 |
 | **AFTER** — plugin root | `skills/review-and-fix/SKILL.md` (thin) | 329 | **3,242** | 25,989 | 4,215 |
-| **AFTER** — actual initial load | root + live extension | 522 | **5,533** | 41,309 | 7,193 |
+| **AFTER** — actual initial load | root + live extension | 532 | **5,715** | 42,535 | 7,430 |
 | **AFTER** — bundle | root + all `references/*.md` | 1,313 | 40,721 | 286,407 | 52,937 |
-| **AFTER** — normal cumulative path | root + extension + Σ references | — | 43,012 | — | 55,916 |
-| **AFTER** — maximum active step | root + extension + `shadow-review.md` | — | **16,795** | — | 21,834 |
+| **AFTER** — normal cumulative path | root + extension + Σ references | — | 43,194 | — | 56,152 |
+| **AFTER** — maximum active step | root + extension + `shadow-review.md` | — | **16,977** | — | 22,070 |
 | reference: `shadow-review.md` | Step 2.6 | 235 | 11,262 | 79,276 | 14,641 |
 | reference: `fixing.md` | Step 3 | 156 | 8,870 | 60,542 | 11,531 |
 | reference: `loop-exit.md` | Loop Exit | 273 | 6,594 | 45,216 | 8,576 |
@@ -81,19 +81,19 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
 | Ceiling | Value | Measured | Result |
 | --- | --- | ---: | :--: |
 | Plugin root ≤ 3,500 words | 3,500 | 3,242 | ✅ |
-| Root + live extension (initial load) ≤ 5,540 words | 5,540 | 5,533 | ✅ |
-| Root + extension + max active step ≤ 17,000 words | 17,000 | 16,795 | ✅ |
+| Root + live extension (initial load) ≤ 5,720 words | 5,720 | 5,715 | ✅ |
+| Root + extension + max active step ≤ 17,000 words | 17,000 | 16,977 | ✅ |
 
 ## Net mandatory-prompt reduction, and the named justified-growth warning
 
-- **Mandatory (always-loaded) prompt: net reduction of 32,959 words** — from 38,492 (monolith +
-  extension, *all* of it loaded on every invocation) to 5,533 (thin root + extension). This is the
+- **Mandatory (always-loaded) prompt: net reduction of 32,959 words** — from 38,674 (monolith +
+  extension, *all* of it loaded on every invocation) to 5,715 (thin root + extension). This is the
   reduction the split exists to deliver: everything else now loads on demand, one step reference
   at a time.
 
 - **⚠️ `review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,520 words.**
   The *normal cumulative path* (root + extension + every reference a full run loads in sequence)
-  is 43,012 words vs. 38,492 before — a net **growth of +4,520 words** (+11.7%). Three things drive
+  is 43,194 words vs. 38,674 before — a net **growth of +4,520 words** (+11.7%). Three things drive
   it: the routing text the split itself adds (the *Step routing* table, the *Reference-loading
   contract* — entry-gate, canonical-boundary rule, per-reference failure map, always-resident
   re-read rule — the condensed terminal verdict→chat mapping, the durable-operand schema fields,
@@ -102,6 +102,6 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
   fields and the below-verdict-threshold evidence-classification prose in `shadow-review.md`, the
   bulk of the increase), plus the issue #609 `dispatched_effort` effort-observability schema key and its capture/write semantics. It is **justified**: the split trades this cumulative increase for a
   32,959-word reduction in the *mandatory* prompt, on-demand sequential loading (only one step
-  reference resident at a time — peak 16,795 words, not 43,012), and fail-closed reference handling.
+  reference resident at a time — peak 16,977 words, not 43,194), and fail-closed reference handling.
   Cumulative token spend on a full run is not the metric the split optimizes; peak-context and
   per-step focus are.
