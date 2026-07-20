@@ -660,7 +660,8 @@ tracked file (`` `docs/a.md docs/b.md` ``, `` `docs/a.md LICENSE` ``). Any other
 `(`, `:`, `*`, or any non-path character (a grant `` `Bash(x.sh:*)` ``), or a bare command word like
 `` `bash lib/test/run.sh` `` (`bash` is extensionless and not an in-tree file) — is a command/grant
 literal: it contributes no tokens, and a **one-time stderr breadcrumb** names the first suppressed span
-(made durably observable by Phase 4.1 per the phase file's disclosed cloud-tier residual). (2) Outside
+(disclosed by Phase 4.1 as ephemeral on the cloud tier — the gate does not capture that stderr, so a
+suppressed span leaves no run-record trace there; see the phase file's cloud-tier residual note). (2) Outside
 spans, a `Word(...)` **call group** (a word immediately followed by a parenthesized group, e.g. an
 un-backticked `Bash(lib/test/run.sh:*)`) contributes no tokens. (3) A **fenced code block** — opened and
 closed by a line whose first non-whitespace characters are three-plus backticks or three-plus tildes (the

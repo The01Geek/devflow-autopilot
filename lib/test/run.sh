@@ -11587,6 +11587,44 @@ assert_eq "#644 review: the mid-scope unbalanced-fence drop emits the one-time o
   "1" "$(grep -c 'unbalanced (unclosed) fenced block' "$fx_644_unbal_err")"
 rm -f "$fx_644_unbal_err"
 
+# Case 62 (#644 review finding 5): an INFO-STRING fence (```` ```bash ````), the
+# commonest real-world fence form. The opening delimiter carries an info string
+# after the backticks; the fence regex is deliberately end-UNANCHORED
+# (/^[[:space:]]*(```|~~~)/) so it still matches. The interior command literal is
+# inert and only the genuine deliverable after the close is emitted. RED under the
+# plausible hardening to an end-anchored `…[[:space:]]*$/`: that would stop
+# recognizing the ```` ```bash ```` opener, leave the scope open, and tokenize the
+# interior `bash lib/test/run.sh` into a phantom `lib/test/run.sh` — reintroducing
+# #644 with no other test failing. This fixture is that missing guard.
+fx_644_infofence="## Implementation Notes
+
+### Documentation Needed
+\`\`\`bash
+bash lib/test/run.sh
+\`\`\`
+\`docs/genuine.md\`"
+assert_eq "#644 review finding 5: an info-string fence (\`\`\`bash) is recognized (interior inert); only the genuine deliverable is emitted" \
+  "docs/genuine.md" \
+  "$(printf '%s\n' "$fx_644_infofence" | bash "$EXTRACT_HELPER" 2>/dev/null)"
+
+# Case 63 (#644 review finding 6): the one-time / first-suppressed-span breadcrumb
+# property is EXERCISED here — a body with TWO distinct suppressible spans
+# (`bash lib/test/run.sh` and `Bash(lib/test/run-module.sh:*)`) beside a genuine
+# deliverable asserts the breadcrumb fires exactly ONCE. The other suppression
+# fixtures (Cases 50, 59) each carry a single suppressible span, so a regression
+# from one-time to per-span breadcrumbing would pass them; this multi-span body is
+# the case that pins the one-time contract (count == 2 under such a regression).
+fx_644_twosupp="## Implementation Notes
+
+- **Documentation Needed** — \`docs/keep.md\`, \`bash lib/test/run.sh\`, and \`Bash(lib/test/run-module.sh:*)\`."
+fx_644_twosupp_err="$(mktemp)"
+fx_644_twosupp_out="$(printf '%s\n' "$fx_644_twosupp" | bash "$EXTRACT_HELPER" 2>"$fx_644_twosupp_err")"
+assert_eq "#644 review finding 6: two suppressible spans both drop; only the genuine deliverable is emitted" \
+  "docs/keep.md" "$fx_644_twosupp_out"
+assert_eq "#644 review finding 6: two distinct suppressible spans emit the breadcrumb exactly once (one-time property exercised)" \
+  "1" "$(grep -c 'suppressed a span' "$fx_644_twosupp_err")"
+rm -f "$fx_644_twosupp_err"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
 # ────────────────────────────────────────────────────────────────────────────
