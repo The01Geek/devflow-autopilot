@@ -36,6 +36,30 @@ kind: growth
   later ledgered round is latest) has **no** executable owner and is not reachable by one —
   `query-convergence` is truthful about every ledger it can see, and the round in question is
   not one of them, so no tool answer can name it. The prose is therefore the only possible
-  owner, and it is stated as a conditional on an **observable** predicate (a gap in the round
-  numbers `query-findings` returns, alongside a `basis=resolution` answer) rather than as a
-  standing caution the orchestrator would have to remember unprompted.
+  owner, and it is stated as a conditional on an **observable** predicate (alongside a
+  `basis=resolution` answer) rather than as a standing caution the orchestrator would have to
+  remember unprompted.
+- **Second review round (PR #612, review iteration 1) — +1842 bytes, three increments.** Each
+  is again a conditional keyed to an observable predicate, which is the form this file has
+  used throughout; none adds a new standing caution.
+  - *The AC5 observable was itself defective and is restated over two operands.* The predicate
+    recorded in the bullet above — "a gap in the round numbers `query-findings` returns" —
+    only fires on an **interior** gap, and the residual's base case has none: round 1
+    adjudicated `REVISE … unestablished` with round 2 ledgered returns only `round=2` lines,
+    so the missing number is *leading* and invisible in the returned set. The predicate now
+    compares those distinct round numbers against `query-summary`'s `rounds_run=`, making
+    **any** completed round contributing no ledger line the trigger. This is a correction to a
+    prior increment, not new scope — the growth buys a predicate that fires on the shape the
+    residual most commonly takes rather than only on the rarer interior one.
+  - *The `query-findings` read-back gained a readability arm at both consuming sites.* The
+    prose made that read-back the sole input to the reconciliation classification and to every
+    ledger-maintenance decision, and stated the read-back-is-truth policy hard — but supplied
+    no instruction to notice that the read *failed*. `findings=none reason=state-unestablished`
+    and `reason=foreign-nonce` both render as an empty ledger, so every recurrence would
+    classify as fresh, no entry would ever be reopened, and the run would converge
+    `basis=resolution` on a defect that was never fixed. The arm mirrors the discrimination
+    sub-step 4 already makes for `query-draft-binding`, so it introduces no new idiom.
+  - *The ledger-summary refusal enumeration gained the `ledger-unresolved-count` rule* — the
+    `unresolved:`-prefixed line count must equal `--unresolved-must-revise`, a count
+    independent of `--must-revise`. Same accuracy-repair class as the two enumeration fixes
+    above: it completes a list whose incompleteness was the defect, at the cost of one clause.

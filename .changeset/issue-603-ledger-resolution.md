@@ -50,3 +50,17 @@ bump: patch
   enforced, so a caller meeting `reason-control-char` is no longer met by an undocumented
   refusal. A `_LEDGER_STATUSES` / `_LEGAL_SETTLING_KEYS` drift now fails fast at import with
   a named error instead of surfacing as a raw `KeyError` from inside the read boundary.
+- Ledger summaries can no longer forge the `bound=` or `latest_revision_landed=` fields. Both
+  are emitted by `query-draft-binding` but were absent from the protocol vocabulary, so the
+  forge guard refused their siblings on the same printed line and waved these two through.
+- A ledger entry recorded `resolved` while carrying *both* settling-provenance keys is now
+  refused at the read boundary. The combination is unreachable by the writer but writable by
+  hand, and on it the ingest short-circuit skipped the recorded-revision check entirely.
+- `supersession_round` joined the shared settling-key set, so the read boundary's residual-key
+  arm covers it and `_clear_settling` is genuinely status-agnostic as documented.
+- The boundary-offer arm above now keys on a two-operand predicate — the round numbers
+  `query-findings` returns compared against `query-summary`'s `rounds_run=` — because the
+  gap-only form missed the residual's base case, where the unledgered round is the *first*
+  one and its absence leaves no gap to see. The skill also now treats a `findings=none`
+  carrying any `reason=` as an unreadable ledger rather than an empty one at both sites that
+  consume the read-back, and names the `ledger-unresolved-count` refusal in its enumeration.
