@@ -57,10 +57,13 @@
 #     illustration, not a declaration; the single fence tracker lives in Stage A
 #     and runs from the top of the body, so the block Stage B receives is
 #     fence-free by construction. When the fence-aware pass enters no
-#     Documentation Needed scope at all (a truncated body, a lone stray
-#     delimiter, or a fence straddling the scope boundary), Stage A re-runs
-#     fence-blind (today's semantics) and that result stands, so a mis-fenced
-#     body degrades to today's behavior instead of silently emptying. DISCLOSED
+#     Documentation Needed scope at all AND a fence actually disrupted parsing
+#     (an unbalanced fence still open at EOF, or the section itself swallowed by a
+#     straddling fence — a truncated body, a lone stray delimiter, a fence
+#     straddling the scope boundary), Stage A re-runs fence-blind (today's
+#     semantics) and that result stands, so a mis-fenced body degrades to today's
+#     behavior instead of silently emptying; a balanced fenced example that opens
+#     no real scope (a phantom scope) does not trip the fallback and stays empty. DISCLOSED
 #     drops: an un-backticked bare command word in plain prose still emits its
 #     path token (textually indistinguishable from a deliverable mention); and
 #     command-shaped spans are a breadcrumbed under-enforcement residual, not a
@@ -341,7 +344,19 @@ run_stage_a() {
   # straddling fence swallowed its opener). The shell then re-runs fence-blind. A
   # phantom scope (a balanced fenced example inside an entered section, no real
   # scope) satisfies neither disjunct, so it stays empty rather than falling back.
-  END { exit (fence_aware && !entered_scope && (in_fence || !entered_section)) ? 10 : 0 }
+  # An UNBALANCED fence (in_fence still open at EOF) that opened AFTER a scope was
+  # already entered swallows every later line as fence-interior, so a deliverable
+  # written after a stray unclosed ``` is dropped. The fence-blind fallback does NOT
+  # cover this (it is gated on !entered_scope), and the leak-safe design keeps the
+  # drop (re-running fence-blind here would re-tokenize the malformed fenced content
+  # and re-introduce the phantom command tokens #644 exists to suppress). So keep the
+  # drop but make it OBSERVABLE with a one-time breadcrumb instead of silent (issue
+  # #644 review). A balanced fence (in_fence==0 at EOF) never triggers this.
+  END {
+    if (fence_aware && in_fence && entered_scope)
+      print "extract-doc-needed-paths.sh: an unbalanced (unclosed) fenced block inside the Documentation Needed scope swallowed the lines after it; any deliverable written after the stray fence delimiter was dropped (close the fence or move the deliverable out of it)" > "/dev/stderr"
+    exit (fence_aware && !entered_scope && (in_fence || !entered_section)) ? 10 : 0
+  }
   '
 }
 
@@ -387,6 +402,7 @@ git rev-parse --is-inside-work-tree >/dev/null 2>&1 || git_rescue_ok=0
 # grep/git already used by the predicate). Uses `printf` builtins, not command
 # substitution, so `span_warned` persists across spans in this shell.
 span_warned=0
+span_degraded_warned=0
 CLEANED=""
 
 # span_token_ok TOK — is TOK bare-path-form AND (recognized extension OR in-tree
@@ -401,12 +417,18 @@ span_token_ok() {
   return 1
 }
 
-# suppress_span CONTENT — record the first suppressed command/grant span with a
-# one-time stderr breadcrumb (mirrors the `git unavailable` one-time-breadcrumb
-# precedent), so a suppressed span is observable rather than silent.
+# suppress_span CONTENT — record the first suppressed span with a one-time stderr
+# breadcrumb (mirrors the `git unavailable` one-time-breadcrumb precedent), so a
+# suppressed span is observable rather than silent. HONEST wording (issue #644
+# review): a suppressed multi-token span is NOT necessarily a pure command/grant
+# literal — the accepted under-enforcement residual (AC6) also drops a span that
+# mixes a real path with a non-path token (`docs/a.md notes`), because the rule
+# cannot tell it from a command. The breadcrumb must not assert "a command
+# literal" as fact when the span may have carried a deliverable (the repo's
+# all-output-channels-honesty guard) — it names both possibilities.
 suppress_span() {
   if [ "$span_warned" -eq 0 ]; then
-    printf '%s\n' "extract-doc-needed-paths.sh: suppressed a non-path span (a command/grant/skill literal, not a documentation deliverable): \`$1\`" >&2
+    printf '%s\n' "extract-doc-needed-paths.sh: suppressed a span (a command/grant/skill literal, or a path mixed with non-path tokens — not a set of bare-path deliverables, so no tokens emitted): \`$1\`" >&2
     span_warned=1
   fi
 }
@@ -435,7 +457,16 @@ handle_span() {
     # and let the per-token predicate below emit extension-bearing tokens and drop
     # the extensionless ones (with its own `git unavailable` breadcrumb). Tool or
     # work-tree absence must not escalate into dropping an extension-bearing
-    # deliverable (issue #644).
+    # deliverable (issue #644). But this arm cannot run the command-word check that
+    # needs git, so a command span like `bash lib/test/run.sh` KEEPS its
+    # extension-bearing `lib/test/run.sh` token (a phantom the git-available path
+    # would suppress) — disclosed over-emission in the leak-safe direction. Emit a
+    # one-time breadcrumb so that degraded-mode over-emission is observable rather
+    # than a silent phantom keep (issue #644 review).
+    if [ "$span_degraded_warned" -eq 0 ]; then
+      printf '%s\n' "extract-doc-needed-paths.sh: multi-token span kept un-vetted (in-tree/command status unverifiable — git rescue degraded); a command literal in such a span may leak an extension-bearing token this run: \`$content\`" >&2
+      span_degraded_warned=1
+    fi
     CLEANED+=" $content "
   fi
 }

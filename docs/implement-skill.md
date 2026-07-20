@@ -669,9 +669,11 @@ to the *entire* pipeline: its delimiter and interior lines drive no scope transi
 tokens, so a fenced example (a command transcript, a config snippet, a template illustration) is never a
 declaration. The single fence tracker lives in Stage A and runs from the top of the body, so the block
 Stage B receives is fence-free by construction; when the fence-aware pass enters no Documentation Needed
-scope at all (a truncated body, a lone stray delimiter, or a fence straddling the scope boundary), Stage A
-re-runs fence-blind — today's semantics — so a mis-fenced body degrades to today's behavior instead of
-silently emptying. Two drops are **disclosed**: a command-shaped span is a breadcrumbed
+scope at all **and a fence actually disrupted parsing** — an unbalanced fence still open at end-of-body, or
+the section heading itself swallowed by a straddling fence (a truncated body, a lone stray delimiter, a
+fence straddling the scope boundary) — Stage A re-runs fence-blind — today's semantics — so a mis-fenced
+body degrades to today's behavior instead of silently emptying. A *balanced* fenced example that opens no
+real scope (a phantom scope inside an entered section) does **not** trip the fallback, so it stays empty. Two drops are **disclosed**: a command-shaped span is a breadcrumbed
 under-enforcement residual (not a leak-safe property — the rule cannot always distinguish it from a
 deliverable list), and an **un-backticked bare command in plain prose** (`run bash lib/test/run.sh`, no
 backticks, no call-group syntax, outside any fence) still emits its path token, because it is textually

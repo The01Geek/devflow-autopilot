@@ -11392,7 +11392,7 @@ fx_644_bc_out="$(printf '%s\n' "$fx_644_bc" | bash "$EXTRACT_HELPER" 2>"$fx_644_
 assert_eq "#644 AC6: command-shaped span drops silently-nothing while the genuine deliverable is emitted" \
   "docs/keep.md" "$fx_644_bc_out"
 assert_eq "#644 AC6: the suppressed command span emits the one-time stderr breadcrumb" \
-  "1" "$(grep -c 'suppressed a non-path span' "$fx_644_bc_err")"
+  "1" "$(grep -c 'suppressed a span' "$fx_644_bc_err")"
 rm -f "$fx_644_bc_err"
 
 # Case 51 (#644 AC7): the mixed extension/in-tree span under the suite's existing
@@ -11521,6 +11521,71 @@ Update \`docs/genuine.md\` in the documentation pass."
 assert_eq "#644 AC14: a grant-only structural line does not arm the trailing-prose close (arms() lockstep)" \
   "docs/genuine.md" \
   "$(printf '%s\n' "$fx_644_lockstep" | bash "$EXTRACT_HELPER" 2>/dev/null)"
+
+# Case 59 (#644 review — pr-test-analyzer Gap 1 / silent-failure-hunter F2): a
+# multi-token span mixing a genuine deliverable with a non-path sibling
+# (`docs/real.md notes`) is suppressed WHOLESALE — the genuine path is dropped
+# and a one-time breadcrumb fires. This pins the accepted, breadcrumbed
+# under-enforcement residual (AC6): the span rule keeps a span only when EVERY
+# token is a bare-path deliverable, so a mixed span contributes nothing. It also
+# pins that the breadcrumb is HONEST (not misattributing the drop as a pure
+# command literal) via the neutral "suppressed a span" phrase. This is the
+# deliberate all-or-nothing keep — a regression to per-token keep would make this
+# emit `docs/real.md`, so the fixture catches that direction.
+fx_644_mixed_supp="## Implementation Notes
+
+- **Documentation Needed** — \`docs/real.md notes\`."
+fx_644_mixed_err="$(mktemp)"
+fx_644_mixed_out="$(printf '%s\n' "$fx_644_mixed_supp" | bash "$EXTRACT_HELPER" 2>"$fx_644_mixed_err")"
+assert_eq "#644 review: a span mixing a genuine path with a non-path token is suppressed wholesale (accepted under-enforcement residual)" \
+  "" "$fx_644_mixed_out"
+assert_eq "#644 review: the wholesale-suppressed mixed span emits the one-time (honest) breadcrumb" \
+  "1" "$(grep -c 'suppressed a span' "$fx_644_mixed_err")"
+rm -f "$fx_644_mixed_err"
+
+# Case 60 (#644 review — pr-test-analyzer Gap 2 / silent-failure-hunter F3): under
+# the git-unavailable harness (cwd outside any work tree), a COMMAND span
+# (`bash lib/test/run.sh`) can no longer be vetted, so the degraded per-token arm
+# KEEPS it and the tokenizer emits its extension-bearing `lib/test/run.sh` token —
+# a disclosed over-emission (leak-safe direction: pollutes but never disables the
+# gate) that the git-available path suppresses. This pins that disclosed degraded
+# behavior AND that a one-time degraded breadcrumb fires so the over-emission is
+# observable rather than a silent phantom keep. (The genuine `docs/keep.md` is
+# emitted too.)
+fx_644_deg_dir="$(mktemp -d)"
+fx_644_deg_ceiling="$(dirname "$fx_644_deg_dir")"
+fx_644_deg_body="## Implementation Notes
+
+- **Documentation Needed** — \`docs/keep.md\` then \`bash lib/test/run.sh\`."
+fx_644_deg_out="$( printf '%s\n' "$fx_644_deg_body" | ( cd "$fx_644_deg_dir" && GIT_CEILING_DIRECTORIES="$fx_644_deg_ceiling" bash "$EXTRACT_HELPER" 2>"$fx_644_deg_dir/err" ) )"
+assert_eq "#644 review: git-unavailable degraded arm leaks a command span's extension-bearing token (disclosed over-emission)" \
+  "$(printf 'docs/keep.md\nlib/test/run.sh')" "$fx_644_deg_out"
+assert_eq "#644 review: the git-unavailable un-vetted-span keep emits the one-time degraded breadcrumb" \
+  "1" "$(grep -c 'kept un-vetted' "$fx_644_deg_dir/err")"
+rm -rf "$fx_644_deg_dir"
+
+# Case 61 (#644 review — silent-failure-hunter F1): an UNBALANCED (unclosed) fence
+# opened AFTER a deliverable was already captured swallows every later line as
+# fence interior, dropping a deliverable written after the stray delimiter. The
+# fence-blind fallback does NOT cover this (it is gated on !entered_scope), and the
+# leak-safe design keeps the drop (re-running fence-blind would re-tokenize the
+# malformed fenced content and re-introduce phantoms). This pins that the earlier
+# deliverable is still emitted (never a total empty) AND that a one-time breadcrumb
+# makes the mid-scope drop observable rather than silent.
+fx_644_unbal="## Implementation Notes
+
+### Documentation Needed
+
+- \`docs/a.md\`
+\`\`\`
+- \`docs/b.md\`"
+fx_644_unbal_err="$(mktemp)"
+fx_644_unbal_out="$(printf '%s\n' "$fx_644_unbal" | bash "$EXTRACT_HELPER" 2>"$fx_644_unbal_err")"
+assert_eq "#644 review: an unbalanced mid-scope fence drops later deliverables but keeps the earlier one (leak-safe, never total-empty)" \
+  "docs/a.md" "$fx_644_unbal_out"
+assert_eq "#644 review: the mid-scope unbalanced-fence drop emits the one-time observability breadcrumb" \
+  "1" "$(grep -c 'unbalanced (unclosed) fenced block' "$fx_644_unbal_err")"
+rm -f "$fx_644_unbal_err"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
