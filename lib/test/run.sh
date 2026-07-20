@@ -20339,6 +20339,87 @@ assert_eq "et: invalid --mode → exit 2" "2" "$ET_MODE_RC"
 
 rm -rf "$ET_DIR" "$ET_DEG" "$ET_EMPTY"; rm -f "$ET_CFG"
 
+# ── #609 agent_effort[]: per-agent effort observability in the per-run record ─
+# The record carries, per dispatched agent, agent id + exactly the five effort
+# observability fields (requested/resolved/application_point/effective/
+# fallback_reason), populated over the FULL dispatched roster — phase3_dispatched
+# ∪ the agents in the new `dispatched_effort` iter-workpad field — never the
+# resolver map alone. `dispatched_effort` is the field that captures the
+# Phase-1/1.5/2 dispatch roster (a checklist-phase agent never appears in
+# phase3_dispatched), so the checklist-generator assertion below FAILS against a
+# Phase-3-only implementation by construction (AC4), and the no-override
+# code-reviewer assertion is the full-roster arm (AC5).
+AE_DIR="$(mktemp -d)"
+cat > "$AE_DIR/iter-1.json" <<'EOF'
+{
+  "iter": 1,
+  "checklist": [],
+  "dispatched_effort": [
+    {"agent":"devflow:checklist-generator","phase":"1","requested":"low","resolved":"low","application_point":"session-fallback","effective":null,"fallback_reason":"per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"}
+  ],
+  "phase3_dispatched": ["devflow:code-reviewer"],
+  "phase3_findings": [],
+  "convergence_inputs": {"fixes_applied": 0},
+  "telemetry": "unavailable"
+}
+EOF
+AE_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$AE_DIR" --slug "pr-609" --mode record)"
+AE_field() { echo "$AE_REC" | jq -r --arg a "$1" --arg f "$2" '.per_iteration[0].agent_effort[]? | select(.agent==$a) | .[$f]'; }
+AE_field_type() { echo "$AE_REC" | jq -r --arg a "$1" --arg f "$2" '.per_iteration[0].agent_effort[]? | select(.agent==$a) | .[$f] | type'; }
+# AC4: the Phase-1 agent is routed through dispatched_effort into agent_effort.
+assert_eq "#609 agent_effort: checklist-generator (Phase-1) block carries session-fallback" \
+  "session-fallback" "$(AE_field 'devflow:checklist-generator' 'application_point')"
+assert_eq "#609 agent_effort: checklist-generator requested rides through" \
+  "low" "$(AE_field 'devflow:checklist-generator' 'requested')"
+assert_eq "#609 agent_effort: checklist-generator resolved rides through" \
+  "low" "$(AE_field 'devflow:checklist-generator' 'resolved')"
+assert_eq "#609 agent_effort: checklist-generator fallback_reason is a string" \
+  "string" "$(AE_field_type 'devflow:checklist-generator' 'fallback_reason')"
+# AC5: a dispatched Phase-3 agent with NO dispatched_effort entry still gets a
+# block — all-null effort, session-inheritance, fallback_reason null.
+assert_eq "#609 agent_effort: no-override phase3 agent → session-inheritance" \
+  "session-inheritance" "$(AE_field 'devflow:code-reviewer' 'application_point')"
+assert_eq "#609 agent_effort: no-override requested is JSON null" \
+  "null" "$(AE_field_type 'devflow:code-reviewer' 'requested')"
+assert_eq "#609 agent_effort: no-override resolved is JSON null" \
+  "null" "$(AE_field_type 'devflow:code-reviewer' 'resolved')"
+assert_eq "#609 agent_effort: no-override fallback_reason is JSON null" \
+  "null" "$(AE_field_type 'devflow:code-reviewer' 'fallback_reason')"
+assert_eq "#609 agent_effort: effective is JSON null (never inferred)" \
+  "null" "$(AE_field_type 'devflow:checklist-generator' 'effective')"
+# Complete by construction: each block is agent + exactly the five effort fields.
+assert_eq "#609 agent_effort: block keys are agent + the five effort fields exactly" \
+  "agent,application_point,effective,fallback_reason,requested,resolved" \
+  "$(echo "$AE_REC" | jq -r '.per_iteration[0].agent_effort[0] | keys | sort | join(",")')"
+# Unknown-vs-zero honesty: the roster field's presence is recorded, mirroring
+# phase3_dispatched_present.
+assert_eq "#609 agent_effort: dispatched_effort_present true when the field exists" \
+  "true" "$(echo "$AE_REC" | jq -r '.per_iteration[0].dispatched_effort_present')"
+rm -rf "$AE_DIR"
+# Degradation: an iter with NO dispatched_effort field (an older workpad) still
+# yields agent_effort over phase3_dispatched (all session-inheritance), with the
+# presence flag false — additive and nullable, no schema_version bump.
+AE_OLD="$(mktemp -d)"
+printf '{"iter":1,"checklist":[],"phase3_dispatched":["devflow:comment-analyzer"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":"unavailable"}' > "$AE_OLD/iter-1.json"
+AE_OLD_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$AE_OLD" --slug "pr-609" --mode record)"
+assert_eq "#609 agent_effort: absent dispatched_effort → blocks still cover phase3_dispatched" \
+  "session-inheritance" \
+  "$(echo "$AE_OLD_REC" | jq -r '.per_iteration[0].agent_effort[]? | select(.agent=="devflow:comment-analyzer") | .application_point')"
+assert_eq "#609 agent_effort: absent dispatched_effort → presence flag false" \
+  "false" "$(echo "$AE_OLD_REC" | jq -r '.per_iteration[0].dispatched_effort_present')"
+assert_eq "#609 agent_effort: schema_version stays 1 (additive, no bump)" \
+  "1" "$(echo "$AE_OLD_REC" | jq -r '.schema_version')"
+# Malformed shape: a scalar dispatched_effort is treated as no usable entries
+# (blocks still derived from phase3_dispatched; the filter never aborts).
+AE_BAD="$(mktemp -d)"
+printf '{"iter":1,"checklist":[],"dispatched_effort":"bogus","phase3_dispatched":["devflow:code-reviewer"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":"unavailable"}' > "$AE_BAD/iter-1.json"
+AE_BAD_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$AE_BAD" --slug "pr-609" --mode record)"; AE_BAD_RC=$?
+assert_eq "#609 agent_effort: scalar dispatched_effort never aborts the filter" "0" "$AE_BAD_RC"
+assert_eq "#609 agent_effort: scalar dispatched_effort degrades to roster-only blocks" \
+  "session-inheritance" \
+  "$(echo "$AE_BAD_REC" | jq -r '.per_iteration[0].agent_effort[]? | select(.agent=="devflow:code-reviewer") | .application_point')"
+rm -rf "$AE_OLD" "$AE_BAD"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "efficiency-trace.sh --persist / --self-check (issue #80)"
 # ────────────────────────────────────────────────────────────────────────────
@@ -23478,7 +23559,7 @@ assert_eq "loop_role #170: non-string persisted loop_role (numeric) falls back t
 rm -rf "$LR_N"
 
 # (11) --self-check emits NO field-validation ::warning:: on a fully-complete iter
-#      (every expected field present; no shadow key — shadow is exempt from
+#      (every ITER_EXPECTED_FIELDS member present; no shadow key — shadow is exempt from
 #      ITER_EXPECTED_FIELDS, so a complete iter lacking shadow must still produce
 #      no field warnings). The effectiveness-record warning is suppressed by
 #      pre-creating the record so only field-validation output can appear. Guards
@@ -23501,7 +23582,7 @@ printf '{}' > "$LR_CLEAN/.devflow/logs/efficiency/pr-80-run-n.json"
 # assertion below cover that path, and turns RED if the evidence-shape arm is ever
 # widened past `.synthesized == true` "for symmetry" and starts warning on every
 # ordinary iteration that ran the gate.
-printf '%s' '{"iter":1,"started_at":"t","fix_commit_sha":"abc","fix_files":[],"loop_role":"fix","sweep_defs_read":[],"sweep_evidence":{"status":"not-run","reason":"no fixes applied"},"reference_reads":{"fix_delta":{"status":"verified","outcome":"clean","reason":null}},"checklist":[],"phase3_dispatched":3,"diff_profile":"x","phase3_findings":[],"fix_decisions":[],"convergence_inputs":{},"cap_drops":[],"telemetry":{}}' \
+printf '%s' '{"iter":1,"started_at":"t","fix_commit_sha":"abc","fix_files":[],"loop_role":"fix","sweep_defs_read":[],"sweep_evidence":{"status":"not-run","reason":"no fixes applied"},"reference_reads":{"fix_delta":{"status":"verified","outcome":"clean","reason":null}},"checklist":[],"phase3_dispatched":3,"dispatched_effort":[],"diff_profile":"x","phase3_findings":[],"fix_decisions":[],"convergence_inputs":{},"cap_drops":[],"telemetry":{}}' \
   > "$LR_CLEAN_RUN/iter-1.json"
 LR_CLEAN_OUT="$( ( cd "$LR_CLEAN" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$LR_CLEAN_RUN" --slug pr-80 ) 2>&1 )"; LR_CLEAN_RC=$?
 assert_eq "loop_role #177: --self-check exits 0 on a complete iter (all fields present)" "0" "$LR_CLEAN_RC"
@@ -35797,8 +35878,6 @@ RAF_ROOT_CEIL=3500
 # #556 raised the initial-load ceiling 5500->5510: AC8 requires the iter-<N>.json
 # checklist entry to carry the optional raw_verdict/normalized fields, and adding
 # them to the record-shape example in the root pushed root+extension to 5,504 words.
-# The small documented widening mirrors the #529 AC3 renegotiation; update
-# docs/review-and-fix-budget.md's ceilings-table cell in lockstep.
 # #619 raised it again 5510->5690: the extension was sitting six words below the 5510
 # ceiling (root 3,213 + extension 2,291 = 5,504), so the
 # batched-regeneration instruction the issue requires on this surface could not fit
@@ -35822,8 +35901,28 @@ RAF_ROOT_CEIL=3500
 # cancels). This is the audited growth decision recorded in
 # docs/cutovers/issue-618-self-apply-authorization.md; update docs/review-and-fix-budget.md's
 # ceilings-table and Measured cells in lockstep.
-RAF_LOAD_CEIL=5865
-RAF_MAXSTEP_CEIL=17127
+# #609 raised the initial-load ceiling 5865->5877 and the max-step ceiling 17127->17139:
+# the `dispatched_effort` effort-observability schema key (a branch concurrent with #618/#619)
+# added to the root's record-shape example and to fixing.md's item-7 record shape. On the
+# merged tree (which also carries PR #625's root trim) the root measures 3,226 and the
+# extension 2,646, so the initial load is 3,226 + 2,646 = 5,872 words and the peak step is
+# root + extension + shadow-review.md 11,262 = 17,134. Each ceiling carries ~5 words of
+# headroom over its merged measurement (mirroring #556's 6), deliberately: a ceiling set
+# exactly at the measurement makes the next one-sentence edit a budget breach. Each widening
+# mirrors the #529 AC3 renegotiation and is the audited decision recorded in
+# docs/cutovers/issue-609-agent-effort-observability.md; update
+# docs/review-and-fix-budget.md's ceilings-table and Measured cells in lockstep.
+# #642 merge reconciliation raised the initial-load ceiling 5877->5887 and the max-step ceiling
+# 17139->17149: merging main into the #642 branch composes main's #609/#618 root growth (root
+# 3,226) with this PR's review-and-fix extension reword (the review-BUNDLE ceiling phrase in
+# .devflow/prompt-extensions/review-and-fix.md gained 9 words retiring #618's interim status,
+# 2,646->2,655), so the initial load is 3,226 + 2,655 = 5,881 and the peak step is
+# 3,226 + 2,655 + shadow-review.md 11,262 = 17,143. Each ceiling carries 6 words of headroom over
+# its merged measurement (mirroring #556's 6), deliberately: a ceiling set exactly at the
+# measurement makes the next one-sentence edit a budget breach. Update
+# docs/review-and-fix-budget.md's ceilings-table and Measured cells in lockstep.
+RAF_LOAD_CEIL=5887
+RAF_MAXSTEP_CEIL=17149
 assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
   "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"
 assert_eq "#530 budget: root + live extension (initial load) <= $RAF_LOAD_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W)))" "yes" \
@@ -35866,7 +35965,7 @@ for _raf_ceil in "$RAF_ROOT_CEIL" "$RAF_LOAD_CEIL" "$RAF_MAXSTEP_CEIL"; do
     "$(case "$_raf_doc_nocommas" in *"≤ $_raf_ceil words |"*) echo yes;; *) echo no;; esac)"
 done
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,692 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,889 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute
@@ -45565,6 +45664,73 @@ assert_pin_unique "#487 fail-fast prose: review-and-fix loop-control reference c
 # The compaction-immune sibling signal (the wrapper diagnostic literal) is named in the prose.
 assert_pin_unique "#487 fail-fast prose: implement rule names the gh-fresh.sh diagnostic sibling" \
   'devflow-gh-fresh' "$LIB/../skills/implement/SKILL.md"
+
+# ── issue #599 AC21: preserved producer safety contracts (numbered (1)–(5) below) ──
+# The deferred cloud-writer call-site rework (the other ACs of #599) reworks helper
+# instructions and tool grants across the writer skill/workflow graph. These pins
+# ensure that rework cannot SILENTLY break the producer-side safety contracts it
+# rides on — each guards a distinct workflow/wrapper safety surface. Where the
+# operative text is a single file-unique literal the pin is a behavioral-fix pin
+# (assert_pin_red_under) whose sed mutation re-introduces the NAMED regression; where
+# the property is a scoped presence/absence (an always()-guard inside one step, or a
+# credential absent from one step block) it is a scoped count guard — the copy-based
+# mutation evidence for those two is recorded in the issue #599 workpad.
+
+# (1) Workflow token permissions — the version-consolidate bump-commit push must
+# authenticate as the DevFlow App (a ruleset bypass actor), NOT the default
+# GITHUB_TOKEN (github-actions[bot], which main's required-checks ruleset rejects,
+# GH013). This file is outside the #357 checkout-token loop above, so pin it here:
+# unseeding the App token from checkout reintroduces the rejected bump push (#294/#357).
+assert_pin_red_under "#599 AC21(1) workflow token permissions: version-consolidate.yml seeds the App token into checkout (unseeding it runs the bump push as github-actions[bot], rejected by main's ruleset)" \
+  'token: ${{ steps.app-token.outputs.token }}' \
+  's/token: \$\{\{ steps\.app-token\.outputs\.token \}\}/token: \$\{\{ secrets.GITHUB_TOKEN \}\}/' \
+  "$WF/version-consolidate.yml"
+
+# (2) Refresh/cleanup steps — the detached credential refresher (issue #487) is
+# retired on EVERY exit path. The existing #487 wiring pin asserts the Stop step
+# EXISTS; this pins the always() guard that makes cleanup run even when the claude
+# step failed/cancelled. Dropping always() leaks the background refresher.
+_ac21_stopblk="$(mint_blk 'Stop credential refresher (optional)' "$WF/devflow-implement.yml")"
+assert_eq "#599 AC21(2) refresh/cleanup steps: devflow-implement.yml Stop step is always()-guarded (retires the refresher on every exit path)" "1" \
+  "$(printf '%s\n' "$_ac21_stopblk" | grep -cF 'if: ${{ always() && ')"
+
+# (3) Secret-file permissions — the mode-0600 token file the gh wrapper reads is
+# written under umask 077 (issue #487/#491). No prior pin covered this surface;
+# relaxing the umask leaks the App installation token to same-uid readers.
+assert_pin_red_under "#599 AC21(3) secret-file permissions: refresh-app-credentials.sh writes the token file under umask 077 (relaxing it leaks the token to same-uid readers)" \
+  '( umask 077; printf '"'"'%s'"'"' "$token" > "$tmp" )' \
+  's/umask 077/umask 022/' \
+  "$LIB/../scripts/refresh-app-credentials.sh"
+
+# (4) Bad-credential two-strike diagnostics — the gh-fresh.sh wrapper (issue #487)
+# recognizes the expired/bad-credential signature that drives the two-strike stop and
+# the compaction-immune diagnostic. Existing arms pin the DIAG_LINE EMISSION; this
+# pins the SIG signature that triggers it — weakening it silences the whole surface.
+assert_pin_red_under "#599 AC21(4) bad-credential two-strike diagnostics: gh-fresh.sh SIG matches HTTP 401 / Bad credentials / Authentication failed (weakening it silences the fail-fast signal)" \
+  "SIG='HTTP 401|Bad credentials|fatal: Authentication failed for'" \
+  's/Bad credentials\|fatal: Authentication failed for/NEVER_MATCHES/' \
+  "$LIB/../scripts/gh-fresh.sh"
+
+# (5) Direct-review identity split — the read-only DevFlow-Reviewer token (issue
+# #300/#402) is handed to the review action's github_token, but is NEVER seeded into
+# checkout as a write credential. (a) the action consumes the downscoped reviewer
+# token; (b) the review job's checkout step block carries no reviewer-token at all.
+assert_pin_red_under "#599 AC21(5a) direct-review identity split: devflow-runner.yml review action consumes the downscoped reviewer token (dropping it collapses review posts back onto github-actions)" \
+  'github_token: ${{ steps.reviewer-token.outputs.token || secrets.GITHUB_TOKEN }}' \
+  's/steps\.reviewer-token\.outputs\.token \|\| //' \
+  "$WF/devflow-runner.yml"
+# Precise checkout-step extraction (NOT mint_blk, which exits only on the next
+# `- name:` step and would over-span the runner's `- id:`-only follow-on steps):
+# print from the checkout step name until the next 6-space step boundary.
+_ac21_coblk="$(awk '
+    index($0, "- name: Checkout repository"){f=1; print; next}
+    f && /^      - /{exit}
+    f{print}' "$WF/devflow-runner.yml")"
+# Fail CLOSED: require the checkout step to be FOUND (carries actions/checkout@) AND
+# to carry no reviewer-token. If the step is ever renamed the extraction goes empty,
+# which must read as RED (a missed check), not a vacuous pass on a zero count.
+assert_eq "#599 AC21(5b) direct-review identity split: devflow-runner.yml checkout step is present and never consumes the read-only reviewer token (it is not a write/checkout credential)" "yes" \
+  "$(printf '%s\n' "$_ac21_coblk" | grep -qF 'actions/checkout@' && ! printf '%s\n' "$_ac21_coblk" | grep -qF 'reviewer-token' && echo yes || echo no)"
 
 # ── issue #533: workflow CLI scoping — single validated installer, PATH-scoped
 # wrapper selection, no process-global DEVFLOW_GH, harness isolation ──────────

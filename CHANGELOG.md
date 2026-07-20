@@ -4,6 +4,30 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.18.13] — 2026-07-20
+
+### Changed
+### Added
+
+- `scripts/stale-prose-lint.py` now emits a stderr breadcrumb when a `STALE` row is demoted to a non-gating `UNRESOLVABLE` under the issue-#629 move-aware relocation exemption: one per-row line naming the path and line, plus a single end-of-run summary line when the demotion count is non-zero. Demotion was previously the only silent non-gating downgrade in the helper, discoverable only by grepping the detail prefix. Additive on stderr only — the stdout TSV, exit-code arms, and Phase 0.6 row routing are unchanged. (Issue #636)
+
+## [2.18.12] — 2026-07-20
+
+### Changed
+### Added
+
+- Per-agent effort observability in the per-run efficiency telemetry (issue #609, carried from
+  #554; PR #630): the per-run record now carries an `agent_effort[]` block per iteration —
+  agent id plus exactly `requested`, `resolved`, `application_point`, `effective` (null unless
+  read back), and `fallback_reason` — populated over the full dispatched roster
+  (`phase3_dispatched` ∪ the new `dispatched_effort` iter-workpad field, which captures the
+  Phase-1/1.5/2 checklist-agent dispatches with their effort decisions). A
+  `checklist-generator.effort` override is no longer silently missing from the record, and a
+  dispatched agent with no override records an all-null `session-inheritance` block.
+  `resolve-review-overrides.py` gains an `--effort-json` mode emitting the five-field map per
+  dispatched agent. Additive and nullable — no `schema_version` bump, and
+  `validate-telemetry-artifact.sh` passes the block unchanged.
+
 ## [2.18.11] — 2026-07-20
 
 ### Fixed
