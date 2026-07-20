@@ -1,0 +1,121 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-20T00:00:00Z",
+  "fix_commit_sha": "2add288",
+  "fix_files": ["lib/test/run.sh"],
+  "loop_role": "fix",
+  "current_step": "3",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": false,
+    "checklist_skipped": "intentional"
+  },
+  "checklist": [
+    {
+      "id": "VC-1",
+      "claim": "Both agents' tools: lines omit KillShell and BashOutput and are byte-identical",
+      "file": "agents/code-explorer.md",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "grep -E '^tools:' shows both lines equal to 'Glob, Grep, LS, Read, NotebookRead, WebFetch, TodoWrite, WebSearch'; full suite T5 assertions pass",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-2",
+      "claim": "The four calibration/scoping/re-derivation sentences are present and unique in their target files",
+      "file": "agents/code-architect.md",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "grep -cF each literal = 1; run.sh T1-T4 assert_pin_unique pass",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-3",
+      "claim": "Consumer-shipped agent prose carries no DevFlow-internal paths (repo-agnostic)",
+      "file": "agents/code-explorer.md",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "code-reviewer confirmed no lib/test/... or .devflow/... or phase/step numbers in the two agent bodies",
+      "reused_from_iter_prev": false
+    }
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "none",
+      "description": "Clean: assertions genuinely guard the two-sided calibration contract; regenerated manifests match sources; consumer prose repo-agnostic; suite green.",
+      "defect_signature": null,
+      "corroboration_count": 0,
+      "step25_classification": "codebase",
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "T5 tools:-line capture (grep -E '^tools:[[:space:]]' | head -1) fails open: an empty capture makes the omission and byte-identity assertions pass vacuously, so a frontmatter reformat re-introducing KillShell/BashOutput could ship green.",
+      "defect_signature": {"file": "lib/test/run.sh", "line_range": [28138, 28152], "kind": "guard_fails_open_on_absent_comparand"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "none",
+      "description": "Clean: run.sh comments, growth-artifact byte deltas (+703/+947/+1637), changeset prose, and agent/phase-2 prose all accurate against HEAD.",
+      "defect_signature": null,
+      "corroboration_count": 0,
+      "step25_classification": "codebase",
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "The 'state its operands and counting rule inline' sub-clause of AC1/AC2 was unpinned (deletable while the core-phrase pin still passed). The phase-2 workpad-recording tail is unpinned but is a disclosed accepted residual.",
+      "defect_signature": {"file": "lib/test/run.sh", "line_range": [28119, 28124], "kind": "test_coverage_gap"},
+      "corroboration_count": 0,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "2add288"},
+    {"finding_id": "F-2", "decision": "applied", "commit": "2add288"}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 2,
+    "fix_diff_lines": 18,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "shadow": {
+    "ran_at": null,
+    "reviewed_sha": null,
+    "verdict": null,
+    "coverage": null,
+    "reviewers_dispatched": [],
+    "expected_reviewers": [],
+    "reason": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 0, "overlap_with_iter_N": 0, "new": 0, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false
+  },
+  "telemetry": {
+    "phase_1": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_2": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_3": {"calls": 4, "tokens": 240851, "wall_clock_s": 495},
+    "step_2_5": {"calls": 0, "tokens": 0, "wall_clock_s": 0, "webfetches": 0},
+    "step_2_6": {"calls": 0, "tokens": 0, "wall_clock_s": 0}
+  },
+  "notes": "Inline review-and-fix on a prose+test-pin diff (issue #628). Phase 0.5 small_diff → checklist resolved lite by the orchestrator. type-design-analyzer gated out (no new types); the general-purpose requesting-code-review final pass was not separately dispatched on this small prose diff. Two findings applied (fail-open capture guard + operands-clause pins); no shadow-triggering Critical remained."
+}
