@@ -3906,6 +3906,20 @@ assert_pin_unique "#620: reception extension carries the explicit push-destinati
   "$RCR_PIN_PUSH" "$RCR_EXT"
 assert_pin_red_on_removal "#620: push-destination-ref rule pin is removal-sensitive" \
   "$RCR_PIN_PUSH" "$RCR_EXT"
+# #620 review (pr-test-analyzer): pinning the rule's PRESENCE left its two load-bearing carve-out
+# exceptions unpinned, so a class-sweeping fix pass acting on the rule could strip the very
+# exemptions that keep it from breaking `lib/open-state-pr.sh` and implement Phase 1.5 — both of
+# which ship `git push -u origin` by design. Pin each exemption by the helper it names.
+RCR_PIN_CARVE_STATE='`lib/open-state-pr.sh`'"'"'s `git push -u origin` for new state branches'
+RCR_PIN_CARVE_PHASE='implement Phase 1.5'"'"'s `git push -u origin HEAD`'
+assert_pin_unique "#620: push rule exempts the open-state-pr helper by name" \
+  "$RCR_PIN_CARVE_STATE" "$RCR_EXT"
+assert_pin_red_on_removal "#620: open-state-pr carve-out pin is removal-sensitive" \
+  "$RCR_PIN_CARVE_STATE" "$RCR_EXT"
+assert_pin_unique "#620: push rule exempts the implement Phase 1.5 push by name" \
+  "$RCR_PIN_CARVE_PHASE" "$RCR_EXT"
+assert_pin_red_on_removal "#620: Phase 1.5 carve-out pin is removal-sensitive" \
+  "$RCR_PIN_CARVE_PHASE" "$RCR_EXT"
 assert_pin_unique "#620: review-and-fix loads the receiving-code-review extension at entry" \
   "$RAF_PIN_LOAD" "$MAXI_ROOT"
 assert_pin_red_on_removal "#620: receiving-extension loader-call pin is removal-sensitive" \
@@ -3933,7 +3947,7 @@ RAF_PIN_READFAIL='read that fails, is denied, or returns unparseable output is *
 # catch-all admits an absent/unreadable permission explicitly. Both are behavioral-fix pins whose
 # mutations reconstruct the regression (scoping the failure arm back to the identity read;
 # narrowing the catch-all back to a present permission value).
-RAF_PIN_PERMFAIL='never an `admin`/`write` grant'
+RAF_PIN_PERMFAIL='Either read that fails'
 RAF_PIN_PERMABSENT='Any other, absent, or unreadable permission'
 # The ACTIONABLE arm needs its own pin: with only the fail-safe arm pinned, a reword that deletes
 # or inverts the write/admin branch (or the deferral routing both arms share) passes every #620 pin.
@@ -35935,13 +35949,13 @@ assert_eq "#530 budget: no references/*.md outside the pinned 8-name set" "" "$_
 # numeric checks below from the names, and (b) assert each doc "Value" cell equals the same
 # constant, so a ceiling changed on one side without the other turns the coupling RED instead
 # of the two artifacts silently disagreeing.
-# #620 raised the root ceiling 3500->3531 for the supersession-guard scoping prose, which grew
+# #620 raised the root ceiling 3500->3538 for the supersession-guard scoping prose, which grew
 # across four correctness fixes: a named producer for its authority operand, a retrievable editor
 # identity, an explicit permission mapping plus its partial-history arm, and a failed/denied/
 # unparseable identity read routed to the data-to-surface arm BEFORE the null-means-unedited
 # interpretation (the guard previously failed OPEN on an empty graphql read). Carries the repo's
 # usual ~4 words. The measurement is deliberately not restated here — the assertion prints it live.
-RAF_ROOT_CEIL=3515
+RAF_ROOT_CEIL=3538
 # #556 raised the initial-load ceiling 5500->5510: AC8 requires the iter-<N>.json
 # checklist entry to carry the optional raw_verdict/normalized fields, and adding
 # them to the record-shape example in the root pushed root+extension to 5,504 words.
@@ -35974,8 +35988,8 @@ RAF_ROOT_CEIL=3515
 # root-prose growth — on top of #618's figures, with ~4 words of headroom over the merged
 # measurement per #619's convention. Update docs/review-and-fix-budget.md's ceilings-table cell
 # in lockstep; the audited decision is docs/cutovers/issue-620-reception-extension-port.md.
-RAF_LOAD_CEIL=7592
-RAF_MAXSTEP_CEIL=18854
+RAF_LOAD_CEIL=7615
+RAF_MAXSTEP_CEIL=18877
 assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
   "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"
 assert_eq "#530 budget: root + always-loaded extensions (initial load) <= $RAF_LOAD_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W)))" "yes" \
@@ -36018,7 +36032,7 @@ for _raf_ceil in "$RAF_ROOT_CEIL" "$RAF_LOAD_CEIL" "$RAF_MAXSTEP_CEIL"; do
     "$(case "$_raf_doc_nocommas" in *"≤ $_raf_ceil words |"*) echo yes;; *) echo no;; esac)"
 done
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +5,006 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +5,029 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute

@@ -42,7 +42,7 @@ failure: a rule that reaches the loop only when someone remembers to route it th
 ## Bounded-growth target
 
 The issue targeted 450 `_raf_words` for the two new sections plus the scoping prose.
-**Shipped: 660.** The target was renegotiated three times, and all three moves are recorded here rather than
+**Shipped: 683.** The target was renegotiated three times, and all three moves are recorded here rather than
 folded away, because a bound that silently tracks its subject has stopped bounding anything.
 
 1. **450 → 600.** The prose reached 590 after two compression passes from 649, and every remaining
@@ -54,7 +54,7 @@ folded away, because a bound that silently tracks its subject has stopped boundi
    obtain: it keyed authority on the *editor's* `author_association`, but GitHub exposes no
    association for an edit — `gh issue view --json` has no such field at all, and the REST payload's
    `author_association` describes the **issue author**. Verified directly against the live API.
-3. **630 → 660, and the only root-ceiling move (3,500 → 3,531).** The review's own checklist
+3. **630 → 660, and the first root-ceiling move (3,500 → 3,515).** The review's own checklist
    verifier and `silent-failure-hunter` then showed the *repaired* guard still had no mechanism for
    the predicate gating it — nothing told the run how to determine whether a body edit was made by a
    third party — so the routing was undetermined and the guard could fail open on exactly the input
@@ -70,7 +70,7 @@ folded away, because a bound that silently tracks its subject has stopped boundi
    data-to-surface arm **before** the null-means-unedited interpretation is reached — without that
    ordering the guard failed open exactly where it claimed to fail closed. Every API shape named was
    checked live before being written. The accumulated prose no longer fit under the 3,500 root
-   ceiling, which moved to 3,531.
+   ceiling, which moved to 3,538.
 4. **The failed-read arm was widened to cover the PERMISSION read too, word-neutrally (no ceiling
    move).** The prior wording's failure arm reached only the identity read, so a failed permission
    read — a 403 is the *expected* response on the read-only reviewer tier, whose token lacks the push
@@ -78,13 +78,21 @@ folded away, because a bound that silently tracks its subject has stopped boundi
    neither the `admin`/`write` arm nor the "unidentified editor" catch-all, leaving the routing
    undetermined on exactly the input the guard exists to catch. The arm now names both reads and is
    stated before the `admin`/`write` branch, and the catch-all admits an absent or unreadable
-   permission explicitly. Paid for by compression elsewhere in the same paragraph: the root stayed at
-   3,527 words (+19 bytes, an audited mandatory-prose growth reflected in
+   permission explicitly. Paid for by compression elsewhere in the same paragraph: the root
+   word count was unchanged (+19 bytes, an audited mandatory-prose growth reflected in
    `lib/test/prompt-mass-baseline.json`), so no ceiling moved.
 
+5. **660 → 683, and a second root-ceiling move (3,515 → 3,538).** A later review round found the
+   repaired guard still fail-open in one dimension: it weighed the editor logins as a *set*, so an
+   Addendum written by an unprivileged editor read as an authoritative operator amendment whenever
+   any `admin`/`write` login merely co-occurred in the truncated ten-node edit history — again the
+   exact input the guard exists to catch. Authority is now bound to the most recent edit alone (the
+   node with the latest `editedAt`), which required adding `editedAt` to the query and restating the
+   weighing clause.
+
 Every move after the first is correctness winning over a word target, and each is recorded with its
-cause rather than folded away. Compression absorbed the first two entirely; only the third required
-touching the root ceiling, and then by thirty-one words. The root now sits at 3,527 of 3,531 — the same
+cause rather than folded away. Compression absorbed the first two entirely; the third and the fifth each required
+touching the root ceiling. The root now sits at 3,534 of 3,538 — the same
 ~4-word margin the other two ceilings carry, so a future addition to this preamble meets all three
 at once rather than any one of them first.
 
@@ -95,9 +103,9 @@ measures became three-term sums.
 
 | Quantity | Before | After | Ceiling before → after |
 | --- | ---: | ---: | --- |
-| Plugin root | 3,213 | 3,527 | 3,500 → 3,531 |
-| Initial load | 5,686 (root + extension) | 7,431 (root + always-loaded extensions) | 5,690 → 7,435 |
-| Max active step | 16,948 | 18,693 | 17,000 → 18,697 |
+| Plugin root | 3,213 | 3,534 | 3,500 → 3,538 |
+| Initial load | 5,686 (root + extension) | 7,611 (root + always-loaded extensions) | 5,690 → 7,615 |
+| Max active step | 16,948 | 18,873 | 17,000 → 18,877 |
 
 All three ceilings now carry ~4 words of headroom over their measurements — following issues
 #556 and #619, because a ceiling set exactly at the measurement makes the next one-sentence edit a
@@ -105,7 +113,7 @@ budget breach. Recorded in `docs/review-and-fix-budget.md`'s maintainer note.
 
 The **cumulative-path** and **growth-delta** arithmetic excludes the receiving extension —
 rationale in the budget doc's Counting method, mirrored in `lib/test/run.sh`'s `#530 budget`
-block. Those figures still move (43,311 and +4,637) because the root itself grew by the loader
+block. Those figures still move (43,876 and +5,029) because the root itself grew by the loader
 call and its scoping prose.
 
 Growth is bounded by design: the two new sections state rules and cite their sources of record
