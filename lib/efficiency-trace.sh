@@ -552,26 +552,22 @@ synthesize_iter_workpads() {
     # stdout goes to the record file, so stderr is free to capture — unlike the
     # git log/diff-tree data streams above, keeping the failure CAUSE
     # (ENOENT/EACCES/ENOSPC/argjson rejection) costs no data purity here.
-    # Run-scoped evidence provenance (issue #541). This floor reconstructs a record
-    # from a FIX COMMIT — and a fix commit carries no trace of which sweep definitions
-    # the iteration read, what those sweeps found, or whether Step 3.5's fix-delta gate
-    # ran. That evidence is UNRECOVERABLE here, and the one thing this writer must never
-    # do is launder it into a value that reads as a real observation: `sweep_defs_read: []`
-    # is the legitimate no-fix-iteration value meaning "no sweep definitions were read",
-    # and `sweep_evidence: {"status":"not-run",...}` is the legitimate one meaning "no
-    # fixes were applied, so no sweep ran" — both are POSITIVE claims about an iteration
-    # this floor never observed. Stamping the uniform unrecoverable-provenance object
-    # instead keeps "we don't know" distinguishable from "we know it was empty" (the
-    # repo's unknown-is-not-zero rule, applied to evidence rather than a count).
-    # These keys are members of ITER_SYNTH_EXPECTED_FIELDS, so --self-check enforces
-    # that a synthesized record actually carries the provenance.
+    # Run-scoped evidence provenance (issue #541). `sweep_defs_read: []` and
+    # `sweep_evidence: {"status":"not-run",...}` are the LEGITIMATE values of a real
+    # no-fix iteration, so emitting either here would be a positive claim about an
+    # iteration this fix-commit-only floor never observed. The `unrec` emitter below
+    # single-sources the shared framing so the three stamps cannot drift apart; each
+    # call supplies only what it specifically could not establish. See the
+    # ITER_SYNTH_EXPECTED_FIELDS comment for why --self-check enforces their presence.
     if jq_err="$("$DEVFLOW_JQ" -n --argjson iter "$n" --arg sha "$sha" --arg files "$files" --arg files_ok "$files_ok" \
-         '{iter: $iter, fix_commit_sha: $sha,
+         'def unrec($what): {status: "unrecoverable",
+            reason: ("fix-commit-only synthesis: the iteration record was never persisted, and a fix commit carries no trace of " + $what)};
+          {iter: $iter, fix_commit_sha: $sha,
            fix_files: (if $files_ok == "1" then ($files | split("\n") | map(select(length > 0))) else null end),
            loop_role: "fix", synthesized: true,
-           sweep_defs_read: {status: "unrecoverable", reason: "fix-commit-only synthesis: the iteration record was never persisted, and a fix commit carries no trace of which sweep definitions were read"},
-           sweep_evidence: {status: "unrecoverable", reason: "fix-commit-only synthesis: the iteration record was never persisted, and a fix commit carries no trace of the sweep outcomes"},
-           reference_reads: {status: "unrecoverable", reason: "fix-commit-only synthesis: the iteration record was never persisted, and a fix commit carries no trace of whether the Step 3.5 fix-delta gate ran"}}' 2>&1 > "$dir/iter-$n.json")"; then
+           sweep_defs_read: unrec("which sweep definitions were read"),
+           sweep_evidence: unrec("the sweep outcomes"),
+           reference_reads: unrec("whether the Step 3.5 fix-delta gate ran")}' 2>&1 > "$dir/iter-$n.json")"; then
       wrote=$((wrote + 1))
     else
       echo "::warning::efficiency-trace.sh --persist: failed to write synthesized iter-${n}.json for ${sha} (${jq_err:-no error text}); skipping" >&2

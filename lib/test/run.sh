@@ -21182,10 +21182,13 @@ assert_eq "et-fresh(R6): second --persist makes no new telemetry-branch commit (
 # hand-written fixture): a fix-commit-only record cannot establish which sweep
 # definitions were read, what the sweeps found, or whether Step 3.5's fix-delta gate
 # ran, so each run-scoped evidence field carries an explicit unrecoverable-provenance
-# object. The NEGATIVE assertions are the load-bearing half of the AC: `[]` and
-# `{"status":"not-run"}` are the LEGITIMATE values of a real no-fix iteration, so
-# emitting either here would launder unobserved evidence into a positive claim about an
-# iteration this floor never saw (the repo's unknown-is-not-zero rule).
+# object. The two NEGATIVE assertions below state the AC's prohibition directly — `[]` and
+# `{"status":"not-run"}` are the LEGITIMATE values of a real no-fix iteration, so emitting
+# either here would launder unobserved evidence into a positive claim about an iteration
+# this floor never saw. They are implied by the type/status assertions in the loop rather
+# than independently load-bearing; they are kept as the executable statement of the AC, so
+# a future loosening of the shape assertion still trips the prohibition it exists to
+# enforce.
 for _f541 in sweep_defs_read sweep_evidence reference_reads; do
   assert_eq "et-fresh(#541): synthesized $_f541 is an object carrying status=unrecoverable" "object|unrecoverable" \
     "$(jq -r --arg k "$_f541" '[(.[$k] | type), (.[$k].status // "")] | join("|")' "$ETF5_WPD/iter-1.json" 2>/dev/null)"
@@ -21198,17 +21201,19 @@ assert_eq "et-fresh(#541): synthesized sweep_evidence is NOT the real no-fix sta
   "$(jq -r 'if (.sweep_evidence.status // "") == "not-run" then "yes" else "no" end' "$ETF5_WPD/iter-1.json" 2>/dev/null)"
 
 # CONSUMER side: ITER_SYNTH_EXPECTED_FIELDS membership is what makes --self-check
-# ENFORCE the provenance. Strip one evidence field from the real synthesized record and
-# the self-check must name it as missing — otherwise a synthesizer that silently stopped
-# stamping provenance would validate clean. Asserted per field so a partial membership
-# regression (one field dropped from the set) cannot hide behind the other two.
+# ENFORCE the provenance. Strip all three evidence fields from the real synthesized record
+# and the self-check must name EACH one as missing — otherwise a synthesizer that silently
+# stopped stamping provenance would validate clean. One strip and one --self-check run
+# suffice for the per-field claim: the validator computes `missing` as a jq set difference
+# and emits one warning line per name with no short-circuit, so a field dropped from the set
+# still cannot hide behind the other two (each name gets its own assertion below).
+jq 'del(.sweep_defs_read, .sweep_evidence, .reference_reads)' "$ETF5_WPD/iter-1.json" > "$ETF5_WPD/iter-2.json" 2>/dev/null
+ETF5_SC_OUT="$( ( cd "$ETF5_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$ETF5_WPD" --slug pr-5 ) 2>&1 )"
 for _f541 in sweep_defs_read sweep_evidence reference_reads; do
-  jq --arg k "$_f541" 'del(.[$k])' "$ETF5_WPD/iter-1.json" > "$ETF5_WPD/iter-2.json" 2>/dev/null
   assert_eq "et-fresh(#541): --self-check flags a synthesized record missing $_f541" "yes" \
-    "$( ( cd "$ETF5_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$ETF5_WPD" --slug pr-5 ) 2>&1 \
-       | grep -qF "is missing expected field '$_f541'" && echo yes || echo no)"
-  rm -f "$ETF5_WPD/iter-2.json"
+    "$(printf '%s\n' "$ETF5_SC_OUT" | grep -qF "iter-2.json' is missing expected field '$_f541'" && echo yes || echo no)"
 done
+rm -f "$ETF5_WPD/iter-2.json"
 rm -rf "$ETF5_ORIGIN" "$ETF5_REPO"
 
 # et-fresh(R7) — the refresh-failed decline path runs with tr/sed/wc/cut/head
@@ -22519,13 +22524,29 @@ rm -rf "$LR_SC_REPO"
 #     `promotion_provenance` (conditional on promoted iterations), the #530
 #     navigation stamps `current_step`/`current_substep`/`pending_dispatch`
 #     (best-effort continuation operands, not effectiveness/cost telemetry), and
-#     `reference_reads` (issue #541 — conditional exactly like `shadow`: Step 3.5's
-#     fix-delta gate appends it, so it is legitimately absent on an iteration where
-#     that gate did not run) — all are subtracted by the `-Ev` filter below. FAILs if
+#     `reference_reads` (issue #541 — conditional in the same sense as `shadow`: Step
+#     3.5's fix-delta gate appends it, so it is legitimately absent on an iteration
+#     where that gate did not run. The parallel is scoped to CONDITIONALITY only —
+#     `shadow` has a dedicated synthesis floor (synthesize_shadow_markers) whereas
+#     `reference_reads` is stamped inline by synthesize_iter_workpads, so the two
+#     differ where provenance recovery is concerned) — all are subtracted by the `-Ev`
+#     filter below. FAILs if
 #     an unconditional field is added/removed on either side. NOTE both sides are
 #     `sort -u`'d, so this asserts SET equality, never field order.
 LR_CONST="$(grep -E '^ITER_EXPECTED_FIELDS=' "$LIB/efficiency-trace.sh" | sed -E 's/^ITER_EXPECTED_FIELDS=//; s/"//g' | tr ' ' '\n' | grep -v '^$' | sort -u)"
-LR_SCHEMA="$(sed -n '/^### Schema$/,/^```$/p' "$MAXI_SKILL" | grep -E '^  "[A-Za-z0-9_]+":' | sed -E 's/^  "([A-Za-z0-9_]+)":.*/\1/' | grep -Ev '^(shadow|promotion_provenance|parked_class_sweep|park_calibration|current_step|current_substep|pending_dispatch|reference_reads)$' | sort -u)"
+# The conditional-field set is declared ONCE and both consumers derive from it: the
+# `-Ev` subtraction below, and the positive presence assertions further down. Before
+# issue #541 the two were hand-maintained separately, and they had already skewed — the
+# regex subtracted 7 fields while only the 3 nav fields carried a presence pin, leaving
+# `shadow`, `promotion_provenance`, `parked_class_sweep`, and `park_calibration`
+# subtracted with nothing to catch their deletion. Deriving both from one list makes that
+# skew impossible by construction and makes the next conditional field a one-token edit.
+LR_CONDITIONAL_FIELDS="shadow promotion_provenance parked_class_sweep park_calibration current_step current_substep pending_dispatch reference_reads"
+# Built with bash parameter expansion, never `tr`: this value DECIDES which fields are
+# subtracted, and the repo's guard-class-2 rule bars deriving a selection through a
+# PATH tool the preflight does not guarantee (a missing `tr` would empty the alternation).
+LR_COND_RE="^(${LR_CONDITIONAL_FIELDS// /|})$"
+LR_SCHEMA="$(sed -n '/^### Schema$/,/^```$/p' "$MAXI_SKILL" | grep -E '^  "[A-Za-z0-9_]+":' | sed -E 's/^  "([A-Za-z0-9_]+)":.*/\1/' | grep -Ev "$LR_COND_RE" | sort -u)"
 assert_eq "loop_role #170: ITER_EXPECTED_FIELDS single-source == SKILL.md unconditional schema fields" \
   "$LR_SCHEMA" "$LR_CONST"
 
@@ -22544,15 +22565,16 @@ assert_eq "loop_role #170: ITER_EXPECTED_FIELDS single-source == SKILL.md uncond
 # without the `-Ev` exclusion — exactly the schema-block field set — so asserting each nav field
 # is a member goes RED on a drop OR a relocation-out-of-block, the tighter guard the comment claims.
 LR_SCHEMA_ALL="$(sed -n '/^### Schema$/,/^```$/p' "$MAXI_SKILL" | grep -E '^  "[A-Za-z0-9_]+":' | sed -E 's/^  "([A-Za-z0-9_]+)":.*/\1/' | sort -u)"
-for _navf in current_step current_substep pending_dispatch; do
-  assert_eq "#530/#539 resume-state: $_navf nav field present in the ### Schema block (not just the bundle)" "yes" \
-    "$(printf '%s\n' "$LR_SCHEMA_ALL" | grep -qx "$_navf" && echo yes || echo no)"
+# Drive the presence check over EVERY subtracted field from the single LR_CONDITIONAL_FIELDS
+# list (issue #541), not a hand-picked subset. The subtraction hazard the comment above
+# describes applies identically to every excluded field, so enumerating them by hand is what
+# let four of them (shadow, promotion_provenance, parked_class_sweep, park_calibration) sit
+# subtracted-but-unpinned. Deriving the loop from the same list that drives the subtraction
+# means a newly-excluded field is pinned automatically and the two can never skew.
+for _condf in $LR_CONDITIONAL_FIELDS; do
+  assert_eq "#530/#539/#541 conditional field: $_condf present in the ### Schema block (its -Ev exclusion cannot catch a drop)" "yes" \
+    "$(printf '%s\n' "$LR_SCHEMA_ALL" | grep -qx "$_condf" && echo yes || echo no)"
 done
-# Same subtraction hazard, same remedy (issue #541): `reference_reads` is `-Ev`-excluded
-# above because it is conditional, so DELETING it from the schema block would leave the
-# equality test green while the field's specification silently vanished. Pin it positively.
-assert_eq "#541 evidence schema: reference_reads present in the ### Schema block (its -Ev exclusion cannot catch a drop)" "yes" \
-  "$(printf '%s\n' "$LR_SCHEMA_ALL" | grep -qx "reference_reads" && echo yes || echo no)"
 
 # (6) --self-check NEVER ABORTS on an unparseable iter file (issue #170 AC: every
 #     new path exits 0 on an unparseable iter-N.json). The script runs under
