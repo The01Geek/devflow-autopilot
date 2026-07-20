@@ -79,8 +79,8 @@ extensions + max active step ≤ 18,697 words).
 | Row | Included paths | Lines | Words | Bytes | ≈Tokens |
 | --- | --- | ---: | ---: | ---: | ---: |
 | **BEFORE** — monolith | `skills/review-and-fix/SKILL.md` (pre-split) | 1,134 | 36,201 | 250,928 | 47,061 |
-| **BEFORE** — always-loaded | monolith + live extension | 1,337 | 38,674 | 267,474 | 50,271 |
-| live extension | `.devflow/prompt-extensions/review-and-fix.md` | 203 | 2,473 | 16,546 | 3,210 |
+| **BEFORE** — always-loaded | monolith + live extension | 1,337 | 38,674 | 267,474 | 50,276 |
+| live extension | `.devflow/prompt-extensions/review-and-fix.md` | 203 | 2,473 | 16,546 | 3,215 |
 | receiving extension | `.devflow/prompt-extensions/receiving-code-review.md` | 89 | 1,431 | 9,602 | 1,860 |
 | **AFTER** — plugin root | `skills/review-and-fix/SKILL.md` (thin) | 336 | **3,527** | 27,986 | 4,585 |
 | **AFTER** — actual initial load | root + always-loaded extensions | 628 | **7,431** | 54,134 | 9,660 |
@@ -88,8 +88,8 @@ extensions + max active step ≤ 18,697 words).
 | **AFTER** — normal cumulative path | root + live extension + Σ references | — | 43,311 | — | 56,304 |
 | **AFTER** — maximum active step | root + always-loaded extensions + `shadow-review.md` | — | **18,693** | — | 24,301 |
 | reference: `shadow-review.md` | Step 2.6 | 235 | 11,262 | 79,276 | 14,641 |
-| reference: `fixing.md` | Step 3 | 156 | 8,845 | 60,302 | 11,561 |
-| reference: `loop-exit.md` | Loop Exit | 273 | 6,594 | 45,216 | 8,576 |
+| reference: `fixing.md` | Step 3 | 156 | 8,845 | 60,302 | 11,498 |
+| reference: `loop-exit.md` | Loop Exit | 273 | 6,594 | 45,216 | 8,572 |
 | reference: `loop-control.md` | workpad + field semantics + Main Loop + Steps 0.5–2 | 188 | 5,189 | 36,686 | 6,746 |
 | reference: `pre-fix-gates.md` | Step 2.5 + parked-class sweep | 51 | 2,220 | 16,231 | 2,886 |
 | reference: `fix-delta-gate.md` | Step 3.5 | 27 | 1,379 | 9,349 | 1,793 |

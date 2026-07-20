@@ -35078,8 +35078,15 @@ assert_pin_unique "#530 budget: table names the justified-growth warning with it
 # reference shifts both and turns them RED until the doc is re-measured.
 RAF_CUM_W=$((RAF_ROOT_W + RAF_EXT_W + RAF_REFS_SUM_W))
 _raf_cum_row="$(grep -F '| **AFTER** — normal cumulative path |' "$RAF_BUDGET_DOC" || true)"
+# Positional, like the Lines|Words|Bytes triples below: this row renders `—` in Lines and Bytes, so
+# the two em-dash cells are the adjacency anchors (`| — | <words> | — |`). A lone `| <words> |` match
+# would be the vacuity pattern the #539 note above condemns — it would pass the moment the Words
+# value collided with another cell on the row. Asterisks are stripped so the `**AFTER**` label in the
+# same row cannot interfere; a missing row yields an empty capture → no match → RED (fails closed).
+_raf_cum_row="${_raf_cum_row//,/}"
+_raf_cum_row="${_raf_cum_row//\*/}"
 assert_eq "#530 budget: doc cumulative-path words cell matches fresh measurement ($RAF_CUM_W)" "yes" \
-  "$(case "${_raf_cum_row//,/}" in *"| $RAF_CUM_W |"*) echo yes;; *) echo no;; esac)"
+  "$(case "$_raf_cum_row" in *"| — | $RAF_CUM_W | — |"*) echo yes;; *) echo no;; esac)"
 _raf_doc_growth="$(grep -F 'named justified-growth warning): +' "$RAF_BUDGET_DOC" | head -n 1 || true)"
 _raf_doc_growth="${_raf_doc_growth##*warning): +}"
 _raf_doc_growth="${_raf_doc_growth%% words*}"
@@ -35119,8 +35126,14 @@ assert_eq "#530 budget: doc initial-load Measured cell matches fresh measurement
 #     (plugin root, initial load) matches the same pattern as an unbolded one and the assertion does
 #     not silently couple to the doc's emphasis formatting.
 #   * The remaining two AFTER rows, normal-cumulative-path and maximum-active-step, render `—` in
-#     both Lines and Bytes; their Words cells are already bound by the ceiling-adjacent assertions
-#     above. Naming that here keeps the next maintainer from reading an unbound cell into the gap.
+#     both Lines and Bytes, so they get no triple. Their Words cells are bound POSITIONALLY between
+#     those two em-dashes instead — `| — | <words> | — |` — which is the same adjacency guarantee the
+#     triple gives, using the `—` cells as the anchors. That binding lives with each row's other
+#     assertion, not here: cumulative-path just above (it has no ceilings-table row to be adjacent
+#     to, so the em-dash pair is its only adjacency), max-active-step further BELOW, alongside its
+#     ceiling-adjacent `#530 budget` Measured-cell check. Naming the form and the direction keeps the
+#     next maintainer from hunting for a binding in the wrong place — or reading an unbound cell into
+#     the gap.
 #   * The Tokens column is a DELIBERATE non-goal: it is a `words × 1.3` prose estimate with no
 #     in-repo producer, so binding it would require fabricating a formula and pinning the estimate
 #     to itself. Stated so the next reader does not re-derive this analysis.
@@ -35163,6 +35176,14 @@ _raf_triple "#620 budget: doc receiving-extension Lines/Words/Bytes match fresh 
 _raf_maxstep_row="$(grep -F 'Root + always-loaded extensions + max active step ≤' "$RAF_BUDGET_DOC" || true)"
 assert_eq "#530 budget: doc max-step Measured cell matches fresh measurement ($((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W+RAF_MAXREF_W)))" "yes" \
   "$(case "${_raf_maxstep_row//,/}" in *"| $RAF_MAXSTEP_CEIL | $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W+RAF_MAXREF_W)) |"*) echo yes;; *) echo no;; esac)"
+# The Before/after table's max-active-step row is a SECOND site carrying the same Measured value, and
+# the ceilings-row assertion above does not bind it. It renders `—` in Lines and Bytes, so bind its
+# Words cell positionally between the em-dashes — the same anchor form the cumulative-path row uses.
+_raf_maxstep_after_row="$(grep -F '| **AFTER** — maximum active step |' "$RAF_BUDGET_DOC" || true)"
+_raf_maxstep_after_row="${_raf_maxstep_after_row//,/}"
+_raf_maxstep_after_row="${_raf_maxstep_after_row//\*/}"
+assert_eq "#620 budget: doc max-step Before/after row Words cell matches fresh measurement ($((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W+RAF_MAXREF_W)))" "yes" \
+  "$(case "$_raf_maxstep_after_row" in *"| — | $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W+RAF_MAXREF_W)) | — |"*) echo yes;; *) echo no;; esac)"
 # #539 shadow (code-reviewer): bind the primary net-mandatory-reduction figure to the live
 # measurement so the "Net mandatory-prompt reduction" bullet cannot go stale while the Measured
 # cells it summarizes are re-measured. The extension addend cancels, so the reduction equals the
