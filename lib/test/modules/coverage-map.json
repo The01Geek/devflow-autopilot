@@ -203,6 +203,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/discover-deferral-manifests.py": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "scripts/dismiss-stale-rejections.sh": {
       "note": "",
       "owner": "unmodularized"
