@@ -1198,6 +1198,37 @@ def _locate(lines, text):
     return None
 
 
+def _demotion_breadcrumbs(rows, err):
+    """Surface every issue-#629 demotion on stderr, then return the count (issue #636).
+
+    A demotion is the SOLE mechanism in this helper that turns a would-be exit 1 into
+    exit 0, and it was silent: a demoted row is emitted as a non-gating ``UNRESOLVABLE``
+    carrying the original diagnostic behind ``RELOCATED_PREFIX``, indistinguishable from
+    ordinary no-referent ``UNRESOLVABLE`` noise without grepping that prefix — so a caller
+    reading the exit code and row count saw a clean pass. Every OTHER degradation in this
+    file already writes a breadcrumb by explicit discipline; this closes the one gap.
+
+    The demotion signature is exact: a row is demoted iff its verdict is ``UNRESOLVABLE``
+    AND its detail begins with ``RELOCATED_PREFIX`` — that prefix is prepended at, and only
+    at, the demotion sites (``_emit_count``'s demote arm, R1, R4), so scanning for it here
+    covers every current site and any future one at one altitude, rather than emitting from
+    each site. Additive on stderr only: ``rows`` and stdout are untouched.
+    """
+    n = 0
+    for row in rows:
+        if row.verdict == UNRESOLVABLE and row.detail.startswith(RELOCATED_PREFIX):
+            n += 1
+            err.write(
+                f"stale-prose-lint.py: {row.path}:{row.line} STALE demoted to non-gating "
+                "(move-aware exemption, issue #629)\n")
+    if n:
+        # One end-of-run summary, mirroring the `_unrecognised_exts` pattern in `run`.
+        err.write(
+            f"stale-prose-lint.py: {n} STALE row(s) demoted to non-gating UNRESOLVABLE "
+            "(move-aware exemption, issue #629); these do not affect the exit code\n")
+    return n
+
+
 def run(rev, diff_text):
     # Validate the rev up front — an unreadable rev is a caller error (exit 2), not
     # a per-file UNRESOLVABLE. `rev-parse --verify` never derives a diff range.
@@ -1232,6 +1263,12 @@ def run(rev, diff_text):
             "stale-prose-lint.py: no comment/prose scoping rule for "
             f"{', '.join(sorted(_unrecognised_exts))} — every added line in those files was "
             "examined (fail-open: coverage is never silently dropped for an unlisted type)\n")
+
+    # Surface any issue-#629 demotions on stderr (issue #636) — a demotion is the sole
+    # non-gating downgrade in this helper and was previously undiscoverable except by
+    # grepping the detail prefix. Additive on stderr only; the stdout TSV below is
+    # byte-identical and the exit code is still driven solely by the STALE literal.
+    _demotion_breadcrumbs(rows, sys.stderr)
 
     stale = False
     for row in rows:

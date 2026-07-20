@@ -3819,6 +3819,50 @@ assert_eq("#629: _emit_count STALE arm under demote=True becomes non-gating UNRE
 assert_eq("#629: _emit_count STALE arm without demote still GATES as STALE",
           (stale_prose_lint.STALE, "S-detail"), _emit_arm(3, 4, False))
 
+# ── #636: demotion stderr breadcrumbs ─────────────────────────────────────────────────────
+# A demotion is the ONLY mechanism that turns a would-be exit 1 into exit 0, and it was
+# silent — indistinguishable from ordinary no-referent UNRESOLVABLE noise without grepping
+# the detail prefix. `_demotion_breadcrumbs` surfaces it on stderr (per-row + one summary),
+# keying on the sole demotion signature (UNRESOLVABLE verdict + RELOCATED_PREFIX detail).
+_RP = stale_prose_lint.RELOCATED_PREFIX
+_U = stale_prose_lint.UNRESOLVABLE
+
+
+def _demote_bc(rows):
+    _err = io.StringIO()
+    _n = stale_prose_lint._demotion_breadcrumbs(rows, _err)
+    return _n, _err.getvalue()
+
+
+# A single demoted row emits a per-row breadcrumb naming path:line, then a summary line.
+_n1, _out1 = _demote_bc([stale_prose_lint.Row(_U, "R2", "docs/x.md", 42, _RP + "orig diag")])
+assert_eq("#636: one demotion is counted", 1, _n1)
+assert_eq("#636: the per-row breadcrumb names path:line", True,
+          "docs/x.md:42" in _out1 and "STALE demoted to non-gating" in _out1)
+assert_eq("#636: a non-zero demotion count emits an end-of-run summary line",
+          True, "1 STALE row(s) demoted" in _out1)
+
+# Two demotions across different files: both breadcrumbs + a count-2 summary.
+_n2, _out2 = _demote_bc([
+    stale_prose_lint.Row(_U, "R1", "a.md", 3, _RP + "d1"),
+    stale_prose_lint.Row(_U, "R4", "b/c.rst", 9, _RP + "d2"),
+])
+assert_eq("#636: two demotions are counted", 2, _n2)
+assert_eq("#636: both per-row breadcrumbs are emitted (path:line each)",
+          True, "a.md:3" in _out2 and "b/c.rst:9" in _out2)
+assert_eq("#636: the summary reflects the demotion count", True, "2 STALE row(s) demoted" in _out2)
+
+# Non-demoted rows are IGNORED: a plain UNRESOLVABLE (no prefix), a STALE, a VERIFIED all
+# contribute nothing — so an ordinary run with no demotion prints NOTHING and returns 0.
+_n0, _out0 = _demote_bc([
+    stale_prose_lint.Row(_U, "R3", "p.md", 1, "no block found — plain UNRESOLVABLE"),
+    stale_prose_lint.Row(stale_prose_lint.STALE, "R2", "p.md", 2, "a real stale"),
+    stale_prose_lint.Row(stale_prose_lint.VERIFIED, "R2", "p.md", 3, "verified"),
+])
+assert_eq("#636: no demoted rows ⇒ count 0", 0, _n0)
+assert_eq("#636: no demoted rows ⇒ NO stderr output (no false positive on plain UNRESOLVABLE/"
+          "STALE/VERIFIED)", "", _out0)
+
 # ── #629: pre_budget accounting for a removal that TRAILS the additions in a mixed hunk ────
 # The hunk's post-image budget (2) is exhausted by the two `+` lines, but the hunk is still
 # open because the pre-image budget is not — so the trailing `-` must still be tallied. A
