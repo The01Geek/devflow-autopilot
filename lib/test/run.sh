@@ -34394,8 +34394,14 @@ assert_eq "#529 AC2: the split is at least 25,327 words below the 33,815 baselin
 # reconcile the three mirrors (this file, the budget doc, CLAUDE.md), record it — with
 # the maintainer reviewing it in the ordinary PR review. Re-measure with _rb_words
 # before adding prose to any shipped-default member.
-assert_eq "#618 AC3 (re-anchored, interim): the shipped-default per-pass path is within the 32,399-word ceiling" "yes" \
-  "$([ "$_rb_shipped_w" -le 32399 ] && echo yes || echo no)"
+# The interim ceiling is a named constant in the sibling RAF_*_CEIL style, so the gate
+# condition and the assertion label read from one literal instead of two hand-synced
+# copies. The CLAUDE.md-mirror pin below is DELIBERATELY a separate spelled-out literal:
+# it asserts CLAUDE.md carries the same phrase, so it cannot itself be derived from this
+# variable (a rendered `≤ 32,399 words` phrase is what a reader greps for in the bullet).
+RB_SHIPPED_CEIL=32399
+assert_eq "#618 AC3 (re-anchored, interim): the shipped-default per-pass path is within the $RB_SHIPPED_CEIL-word ceiling" "yes" \
+  "$([ "$_rb_shipped_w" -le "$RB_SHIPPED_CEIL" ] && echo yes || echo no)"
 # Anti-vacuity: the ceilings above are only meaningful if every operand was really
 # measured. `cat` SKIPS an unreadable member and keeps going, so a wrong path does
 # NOT zero the count — it merely shrinks it, and a ceiling then passes MORE easily
