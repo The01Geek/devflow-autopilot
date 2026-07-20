@@ -302,11 +302,17 @@ done
 # of the code, which a later polarity change would quietly turn into a vacuous pass. Assert
 # the rename instead of relying on that.
 _ra_mv() {  # arm-label src dst
-  if mv "$2" "$3" 2>/dev/null; then
+  # Capture stderr rather than discarding it: rc alone turns the arm RED (the load-bearing
+  # property) but collapses several distinct causes — `mv` absent from PATH, a source the
+  # fixture never materialized, an unwritable destination — into one message, leaving a
+  # maintainer to re-derive the cause by hand. That is the same debugging tax the sibling
+  # `--list` guards were reworked to remove. The `tr` is cosmetic-only (the assertion is
+  # already failing when it runs), so its absence degrades the message, never the verdict.
+  if mv "$2" "$3" 2>"$_ra_tmp_root/.ra.mv.err"; then
     assert_eq "$1 fixture rename succeeded: ${2##*/}" yes yes
   else
     assert_eq "$1 fixture rename succeeded: ${2##*/}" yes \
-      "no(mv failed or is absent — the fixture lacks the shape under test, so the arm below is vacuous)"
+      "no(mv rc!=0; stderr: $(tr '\n' '|' <"$_ra_tmp_root/.ra.mv.err") — the fixture lacks the shape under test, so the arm below is vacuous)"
   fi
 }
 
@@ -476,10 +482,16 @@ assert_eq "#624 A4c the fixture really leaves the review-and-fix row with no pre
 # …and the POSITIVE one it stands in for: the row actually EMITS the shape this arm is
 # about. Without it, "no budget-watch line" is satisfied just as well by a run that emitted
 # nothing at all — a precondition standing in for an unverified consumption.
+# The unestablished arm is separate from the zero arm, matching `_ra_has`'s house pattern:
+# a bare `*)` catch-all would pass on ANY non-zero output including a non-numeric one, so a
+# host where the counter emits a breadcrumb instead of a digit would fail OPEN here while
+# `_ra_has` fails closed — the very guard class this arm is hardening.
 case "$(devflow_module_pin_count 'budget-watch-missing	review-and-fix-budget	' "$RA_A4C/.ra.list")" in
-  0|'') assert_eq "#624 A4c the fixture row emits budget-watch-missing lines" yes \
-          "no(zero — the run or the renames failed; the roster check below would be vacuous)" ;;
-  *)    assert_eq "#624 A4c the fixture row emits budget-watch-missing lines" yes yes ;;
+  ''|*[!0-9]*) assert_eq "#624 A4c the fixture row emits budget-watch-missing lines" yes \
+                 "no(count unestablished — the derivation itself failed)" ;;
+  0)           assert_eq "#624 A4c the fixture row emits budget-watch-missing lines" yes \
+                 "no(zero — the run or the renames failed; the roster check below would be vacuous)" ;;
+  *)           assert_eq "#624 A4c the fixture row emits budget-watch-missing lines" yes yes ;;
 esac
 case "$(_ra_roster_of "$RA_A4C_LIST")" in
   *review-and-fix-budget*) assert_eq "#624 A4c an all-absent budget row still enters the roster" yes yes ;;
@@ -655,7 +667,7 @@ _ra_live_unchanged "#619 A5d live manifest byte-unchanged after the ratchet-drif
 # budget row answered "no review-bundle member changed" for the very change that moved
 # it. The arm renames a literal member and asserts the row refuses to answer.
 RA_A5E="$_ra_tmp_root/a5e"; _ra_fixture "$RA_A5E"
-mv "$RA_A5E/.devflow/prompt-extensions/review.md" "$RA_A5E/.devflow/prompt-extensions/review-renamed.md"
+_ra_mv "#619 A5e" "$RA_A5E/.devflow/prompt-extensions/review.md" "$RA_A5E/.devflow/prompt-extensions/review-renamed.md"
 _ra_run "$RA_A5E"
 _ra_has "#619 A5e a renamed watch-list member reports unestablished" "$RA_A5E" \
   "watch-list member(s) absent from the tree"
@@ -668,7 +680,12 @@ _ra_has "#619 A5e the unestablished watch-list line names the missing member" "$
 # PTA: --list's budget-watch-missing loop is otherwise unexecuted by the suite (A4 runs
 # against a tree where `missing` is always empty), so the list surface could silently
 # stop disclosing a renamed member.
-python3 "$RA_HELPER" --list --repo-root "$RA_A5E" > "$RA_A5E/.ra.list" 2>&1
+if python3 "$RA_HELPER" --list --repo-root "$RA_A5E" > "$RA_A5E/.ra.list" 2>"$RA_A5E/.ra.err"; then
+  assert_eq "#619 A5e --list succeeds against the renamed-member fixture" yes yes
+else
+  assert_eq "#619 A5e --list succeeds against the renamed-member fixture" yes \
+    "no(rc!=0; stderr: $(tr '\n' '|' <"$RA_A5E/.ra.err"))"
+fi
 assert_eq "#619 A5e --list discloses the missing member" "1" \
   "$(devflow_module_pin_count 'budget-watch-missing	review-bundle-budget	.devflow/prompt-extensions/review.md' "$RA_A5E/.ra.list")"
 _ra_live_unchanged "#619 A5e live manifest byte-unchanged after the renamed-member run"
@@ -711,8 +728,13 @@ _ra_live_unchanged "#619 A5h live manifest byte-unchanged after the no-artifact 
 # silence and the budget row would answer "no review-bundle member changed" for exactly
 # the change that moved them. Deleting the is_dir() guard leaves every other arm green.
 RA_A5I="$_ra_tmp_root/a5i"; _ra_fixture "$RA_A5I"
-mv "$RA_A5I/skills/review/phases" "$RA_A5I/skills/review/phases-renamed"
-python3 "$RA_HELPER" --list --repo-root "$RA_A5I" > "$RA_A5I/.ra.list" 2>&1
+_ra_mv "#619 A5i" "$RA_A5I/skills/review/phases" "$RA_A5I/skills/review/phases-renamed"
+if python3 "$RA_HELPER" --list --repo-root "$RA_A5I" > "$RA_A5I/.ra.list" 2>"$RA_A5I/.ra.err"; then
+  assert_eq "#619 A5i --list succeeds against the renamed-parent fixture" yes yes
+else
+  assert_eq "#619 A5i --list succeeds against the renamed-parent fixture" yes \
+    "no(rc!=0; stderr: $(tr '\n' '|' <"$RA_A5I/.ra.err"))"
+fi
 assert_eq "#619 A5i --list discloses the renamed glob parent as missing" "1" \
   "$(devflow_module_pin_count 'budget-watch-missing	review-bundle-budget	skills/review/phases/*.md' "$RA_A5I/.ra.list")"
 _ra_run "$RA_A5I"
@@ -876,7 +898,12 @@ _ra_live_unchanged "#619 A5n live manifest byte-unchanged after the split-marker
 RA_A5F="$_ra_tmp_root/a5f-unrelated"; mkdir -p "$RA_A5F"
 ( cd "$RA_A5F" && git init -q . && git config user.email a@b.c && git config user.name t \
   && printf 'x\n' > f.txt && git add -A && git commit -q -m unrelated ) >/dev/null 2>&1
-( cd "$RA_A5F" && python3 "$RA_HELPER" --list ) > "$RA_A5F/list.out" 2>&1
+if ( cd "$RA_A5F" && python3 "$RA_HELPER" --list ) > "$RA_A5F/list.out" 2>"$RA_A5F/list.err"; then
+  assert_eq "#619 A5f --list succeeds from the unrelated repo" yes yes
+else
+  assert_eq "#619 A5f --list succeeds from the unrelated repo" yes \
+    "no(rc!=0; stderr: $(tr '\n' '|' <"$RA_A5F/list.err"))"
+fi
 assert_eq "#619 A5f --list from an unrelated repo still resolves THIS checkout's bundle" "1" \
   "$(devflow_module_pin_count 'budget-watch	review-bundle-budget	skills/review/SKILL.md' "$RA_A5F/list.out")"
 # #624: the sibling budget row is anchored by the SAME default_repo_root probe, so it gets
