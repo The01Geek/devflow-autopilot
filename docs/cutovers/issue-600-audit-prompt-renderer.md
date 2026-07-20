@@ -8,6 +8,7 @@ kind: cutover
 - `skills/create-issue/SKILL.md` (mandatory, `create-issue-flow`) — −659 bytes. The Step 3.6 audit-prompt template blockquote and the 9-bullet generic dimension checklist left the skill; the compact-preamble transport, the renderer invocation, the positional two-marker delivery check, and the five-category consumption contract replaced them.
 - `skills/create-issue/references/audit-prompt-template.md` (reference, `conditional-references`) — new, +10,564 bytes. The sole in-repo owner of the audit-prompt template, the generic dimension checklist, and the heading-extraction rule; read by `scripts/render-audit-prompt.py` (and, on the degraded manual arm, by the agent directly), never loaded into agent context on the normal path.
 - `scripts/render-audit-prompt.py` (not swept) — new renderer, the sole tested owner of the prompt text and the extraction rule.
+- `CLAUDE.md` (mandatory, `project-memory`) — +70 bytes. The #295 reader-set enumeration gains `render-audit-prompt.py` (five → six readers).
 
 Per-round context accounting: on the normal path the orchestrator emits only the compact run-specific preamble plus a one-line `render-status:` probe, instead of the measured ~1,976-word instruction block (template span + generic checklist + this repo's consumer `## Audit dimensions` section) it previously hand-emitted into every dispatch. The file-level byte reduction (−659) is secondary; the primary reduction is the per-dispatch emission that no longer happens.
 
