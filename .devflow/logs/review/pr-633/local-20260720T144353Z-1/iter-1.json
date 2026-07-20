@@ -1,0 +1,69 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-20T14:43:53Z",
+  "loop_role": "fix",
+  "current_step": "3.5",
+  "current_substep": "fix_delta_gate",
+  "pending_dispatch": null,
+  "fix_commit_sha": "8f825a88",
+  "fix_files": [
+    "lib/test/run.sh",
+    "lib/test/prompt-mass-baseline.json",
+    "docs/review-and-fix-budget.md",
+    "docs/cutovers/issue-620-reception-extension-port.md"
+  ],
+  "config": {"max_iterations": 5, "fix_severity_threshold": "suggestion", "push_each_iteration": true},
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "detect_all_audit": false,
+    "checklist_skipped": null
+  },
+  "checklist": [
+    {"id": "VC-1", "claim": "run.sh justified-growth pin literal matches the budget doc", "file": "lib/test/run.sh", "verification_mode": "lite", "verdict": "FAIL", "evidence": "pin read '+4,625 words'; doc reads '+4,637 words' — ABSENT from target"},
+    {"id": "VC-2", "claim": "budget doc derived figures are arithmetically true against live measurement", "file": "docs/review-and-fix-budget.md", "verification_mode": "lite", "verdict": "FAIL", "evidence": "32,686/18,681/43,299 vs measured 32,674/18,693/43,311"},
+    {"id": "VC-3", "claim": "cutover doc figures agree with the budget doc", "file": "docs/cutovers/issue-620-reception-extension-port.md", "verification_mode": "lite", "verdict": "FAIL", "evidence": "43,299/+4,625; 'sixteen words'; 'Shipped: 648'"},
+    {"id": "VC-4", "claim": "prompt-mass baseline mirrors the tree", "file": "lib/test/prompt-mass-baseline.json", "verification_mode": "lite", "verdict": "FAIL", "evidence": "root +82 bytes vs baseline 27885"},
+    {"id": "VC-5", "claim": "root word count sits under its renegotiated ceiling", "file": "skills/review-and-fix/SKILL.md", "verification_mode": "lite", "verdict": "PASS", "evidence": "measured 3527 <= 3531"}
+  ],
+  "phase3_dispatched": [],
+  "phase3_findings": [
+    {"agent": "orchestrator:mechanical", "severity": "Critical", "description": "run.sh pin literal absent from the budget doc — required lib + python tests check RED (two assertions)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [35025, 35026], "kind": "stale_pin_literal"}, "corroboration_count": 2, "fix_decision": "applied"},
+    {"agent": "orchestrator:mechanical", "severity": "Important", "description": "budget doc 'It is justified' sentence self-contradicts figures stated earlier in the same document", "defect_signature": {"file": "docs/review-and-fix-budget.md", "line_range": [125, 126], "kind": "self_contradicting_diff"}, "corroboration_count": 1, "fix_decision": "applied"},
+    {"agent": "orchestrator:mechanical", "severity": "Important", "description": "cutover doc carries four stale figures (43,299 / +4,625 / sixteen words / Shipped 648)", "defect_signature": {"file": "docs/cutovers/issue-620-reception-extension-port.md", "line_range": [45, 99], "kind": "self_contradicting_diff"}, "corroboration_count": 1, "fix_decision": "applied"},
+    {"agent": "orchestrator:mechanical", "severity": "Important", "description": "prompt-mass baseline not regenerated after the root grew (+82 bytes)", "defect_signature": {"file": "lib/test/prompt-mass-baseline.json", "line_range": [1, 1], "kind": "stale_generated_artifact"}, "corroboration_count": 3, "fix_decision": "applied"},
+    {"agent": "orchestrator:mechanical", "severity": "Suggestion", "description": "test_missing_supervisor_pid_rendezvous_fails_boundedly is timing-flaky at its 5s bound (1 of 3 runs passed)", "defect_signature": {"file": "lib/test/test_module_harness.py", "line_range": [1037, 1037], "kind": "flaky_timing_bound"}, "corroboration_count": 1, "fix_decision": "deferred"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "8f825a88"},
+    {"finding_id": "F-2", "decision": "applied", "commit": "8f825a88"},
+    {"finding_id": "F-3", "decision": "applied", "commit": "8f825a88"},
+    {"finding_id": "F-4", "decision": "applied", "commit": "8f825a88"},
+    {
+      "finding_id": "F-5",
+      "decision": "deferred",
+      "source_file": "lib/test/test_module_harness.py",
+      "claim_text": "bounded-rendezvous test times out at its 5s bound under load",
+      "skip_category": "out-of-scope",
+      "evidence": "git diff origin/main...HEAD shows the file untouched by this PR and byte-identical to main; last touched 2026-07-18 in unrelated commit a24d6bc6",
+      "parking_evidence": {
+        "basis": "pre-existing environmental timing flake in a file this PR's diff does not touch",
+        "failing_input": "the 5-second subprocess timeout under concurrent machine load",
+        "source": "git diff --stat origin/main -- lib/test/test_module_harness.py (empty)",
+        "finding_ref": {"iter": 1, "index": 4}
+      }
+    }
+  ],
+  "verification_evidence": {
+    "suite": "lib/test/run.sh — 10828 passed, 1 failed (pre-existing flake, deferred), 1 skipped",
+    "skipped_checks": [
+      {"name": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty at run time; grades committed HEAD — re-runs clean post-commit"}
+    ],
+    "batched_regeneration": "run"
+  },
+  "convergence_inputs": {"fixes_applied": 4, "fix_diff_lines": 68, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "telemetry": {"phase_0": {"calls": 0, "tokens": 0, "wall_clock_s": 120}, "phase_1": {"calls": 0, "tokens": 0, "wall_clock_s": 60}, "phase_2": {"calls": 0, "tokens": 0, "wall_clock_s": 900}}
+}

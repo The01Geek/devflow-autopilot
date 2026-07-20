@@ -1,0 +1,53 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-20T15:20:00Z",
+  "loop_role": "fix",
+  "current_step": "loop-control",
+  "current_substep": "phase_3_agents",
+  "pending_dispatch": {
+    "kind": "phase3_reviewer_fanout",
+    "roster": [
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "dispatched_at": "2026-07-20T15:20:00Z"
+  },
+  "fix_commit_sha": null,
+  "fix_files": [],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "detect_all_audit": false,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "roster_notes": {
+    "devflow:code-reviewer": "excluded \u2014 iterations:first-only on fix-loop iteration >= 2 (overrides engine_self_modifying always-on force)",
+    "devflow:type-design-analyzer": "gated out \u2014 has_new_types=false"
+  },
+  "phase3_findings": [],
+  "fix_decisions": [],
+  "checklist": [],
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "shadow": {
+    "ran_at": null,
+    "verdict": null,
+    "coverage": null,
+    "reviewers_dispatched": [],
+    "phase3_findings": [],
+    "promoted_to_iter_next": false
+  },
+  "telemetry": {}
+}
