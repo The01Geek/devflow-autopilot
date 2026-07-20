@@ -66,10 +66,10 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
 | **BEFORE** — always-loaded | monolith + live extension | 1,341 | 38,847 | 268,781 | 50,501 |
 | live extension | `.devflow/prompt-extensions/review-and-fix.md` | 207 | 2,646 | 17,853 | 3,440 |
 | **AFTER** — plugin root | `skills/review-and-fix/SKILL.md` (thin) | 329 | **3,197** | 25,707 | 4,156 |
-| **AFTER** — actual initial load | root + live extension | 536 | **5,843** | 43,560 | 7,596 |
+| **AFTER** — actual initial load | root + live extension | 536 | **5,852** | 43,608 | 7,596 |
 | **AFTER** — bundle | root + all `references/*.md` | 1,313 | 40,893 | 287,827 | 53,161 |
-| **AFTER** — normal cumulative path | root + extension + Σ references | — | 43,539 | — | 56,601 |
-| **AFTER** — maximum active step | root + extension + `shadow-review.md` | — | **17,105** | — | 22,236 |
+| **AFTER** — normal cumulative path | root + extension + Σ references | — | 43,548 | — | 56,601 |
+| **AFTER** — maximum active step | root + extension + `shadow-review.md` | — | **17,114** | — | 22,236 |
 | reference: `shadow-review.md` | Step 2.6 | 235 | 11,262 | 79,276 | 14,641 |
 | reference: `fixing.md` | Step 3 | 156 | 9,130 | 62,420 | 11,869 |
 | reference: `loop-exit.md` | Loop Exit | 273 | 6,587 | 45,177 | 8,563 |
@@ -84,8 +84,8 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
 | Ceiling | Value | Measured | Result |
 | --- | --- | ---: | :--: |
 | Plugin root ≤ 3,500 words | 3,500 | 3,197 | ✅ |
-| Root + live extension (initial load) ≤ 5,865 words | 5,865 | 5,843 | ✅ |
-| Root + extension + max active step ≤ 17,127 words | 17,127 | 17,105 | ✅ |
+| Root + live extension (initial load) ≤ 5,865 words | 5,865 | 5,852 | ✅ |
+| Root + extension + max active step ≤ 17,127 words | 17,127 | 17,114 | ✅ |
 
 ## Net mandatory-prompt reduction, and the named justified-growth warning
 
