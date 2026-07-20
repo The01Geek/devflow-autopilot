@@ -113,7 +113,10 @@ fi
 # labels. Both lists are already fetched (the PR's in LABELS_JSON, the issue's in
 # ISSUE_JSON.labels, already normalized to name strings), so no new API call.
 # The PR leg uses the same object-or-string normalization classify-pr-kind.jq
-# uses; a wrong-type or absent label list yields false (fail-closed). The
+# uses (COUPLED INVARIANT: the `DevFlow` provenance-label match — object/string
+# normalization + `any(. == "DevFlow")` — is mirrored in lib/scan.sh and
+# lib/classify-pr-kind.jq; `DevFlow` is the hardcoded provenance constant, never a
+# config key). A wrong-type or absent label list yields false (fail-closed). The
 # issue-label leg keeps provenance alive in a deployment whose PR-label applies
 # fail (scripts/apply-labels.sh is best-effort). Any jq error → false.
 PR_DEVFLOW_PROVENANCE="$("$DEVFLOW_JQ" -n --argjson pr_labels "$LABELS_JSON" --argjson issue "$ISSUE_JSON" '
