@@ -30,6 +30,31 @@ kind: growth
   `reference_reads.fix_delta`, covering the clean / refixed / promoted / both-failure-arm
   paths and preserving the two failure arms' distinct breadcrumbs in `reason`.
 
+## Deferred (recorded, not silently dropped)
+
+- `docs/DEVFLOW_SYSTEM_OVERVIEW.md` §16's synthesis-floor narrative still enumerates the
+  synthesized record as `iter` / `fix_commit_sha` / `fix_files` / `loop_role` /
+  `synthesized: true`. That enumeration is now **incomplete** — the floor additionally stamps
+  `sweep_defs_read`, `sweep_evidence`, and `reference_reads` with
+  `{"status": "unrecoverable", "reason": …}` — though not *wrong*: all five listed members are
+  still present, and the three new ones are explicit unrecoverable-provenance placeholders
+  rather than recovered data.
+- It is deferred for a mechanical reason, not an editorial one. The enumeration sits inside a
+  ~700-word single-line paragraph, so any edit to it drags the whole paragraph into the diff,
+  where the #434 stale-prose lint's R3b count-locked rule resolves a **pre-existing** two-item
+  "both" claim in that same paragraph against an adjacent block it reads as carrying three
+  assertions, turning the blocking-gate self-scan RED. Isolated mechanically: with that one
+  file reverted the self-scan exits 0, and the file alone reproduces the failure. Fixing it
+  would mean rewriting an unrelated narrative paragraph this change did not author, to satisfy
+  a lint heuristic.
+- The changeset's "reconciled across every surface that defines it" claim is unaffected: the
+  *defining* surfaces are `fixing.md` item 7, the root `### Schema` block,
+  `ITER_EXPECTED_FIELDS` / `ITER_SYNTH_EXPECTED_FIELDS`, and the writer's jq object — all
+  reconciled here, as are `loop-exit.md`, `error-handling.md`, `phase-3-review.md`, and the
+  `synthesize_iter_workpads` header in `lib/efficiency-trace.sh`. The overview's entry is a
+  narrative *restatement*, not a defining surface. The authoritative synthesized-record shape
+  is documented in full in [`docs/efficiency-trace.md`](../efficiency-trace.md).
+
 ## Justification
 
 These bytes are the *specification* of a record field, and a record field's specification
