@@ -43,6 +43,29 @@
 #     mentioned in `## Current Behavior`,
 #     `## Technical Context`, or any OTHER bullet is NOT a documentation
 #     deliverable and is never emitted.
+#   * span / fence markers (issue #644) — a backtick span, a word-adjacent
+#     parenthesized `Word(...)` group, and a fenced code block (```` ``` ````/
+#     `~~~`) are scope markers, not deliverable text. A backtick span whose whole
+#     content is a single bare-path token yields that token; a span of several
+#     whitespace-separated bare-path tokens each carrying a recognized extension
+#     or naming an in-tree tracked file yields each; ANY other span (a command
+#     `bash lib/test/run.sh`, a grant `Bash(x.sh:*)`, a `:`/`*`/`(`-bearing
+#     literal) is a command/grant literal — it contributes no tokens and a
+#     one-time stderr breadcrumb names the first suppressed span. A `Word(...)`
+#     call group outside spans contributes no tokens. Fenced blocks are inert to
+#     the ENTIRE pipeline (scope state and tokens alike) — a fenced example is
+#     illustration, not a declaration; the single fence tracker lives in Stage A
+#     and runs from the top of the body, so the block Stage B receives is
+#     fence-free by construction. When the fence-aware pass enters no
+#     Documentation Needed scope at all (a truncated body, a lone stray
+#     delimiter, or a fence straddling the scope boundary), Stage A re-runs
+#     fence-blind (today's semantics) and that result stands, so a mis-fenced
+#     body degrades to today's behavior instead of silently emptying. DISCLOSED
+#     drops: an un-backticked bare command word in plain prose still emits its
+#     path token (textually indistinguishable from a deliverable mention); and
+#     command-shaped spans are a breadcrumbed under-enforcement residual, not a
+#     leak-safe property. Indented four-space code blocks are a disclosed
+#     non-goal (only the ```` ``` ````/`~~~` GFM fence forms are recognized).
 #   * a token counts as a path only if it ends in a recognized documentation/
 #     source extension OR names an in-tree tracked regular file (the two-part
 #     `[ -f ]` + `git ls-files` rescue for extensionless real files like
@@ -80,20 +103,76 @@ doc_ext_alt='md|markdown|sh|json|py|ya?ml|rst|txt|adoc|mdx|toml|cfg|ini'
 # prose deliverable (the fail-open guard: prose can never arm the close). awk
 # state: 0 = outside Implementation Notes; 1 = inside the section but outside the
 # bullet; 2 = inside the Documentation Needed bullet.
-block="$(printf '%s\n' "$body" | awk -v extre="$doc_ext_alt" '
+#
+# Stage A is invoked TWICE-capable via `-v fence_aware` (issue #644): the primary
+# fence-AWARE pass tracks fence state (a single tracker, from the top of the body)
+# and treats fence delimiter + interior lines as absent — they drive no scope
+# transition, never arm `emitted`, are never printed, and never update
+# `prev_blank`. If that pass enters NO Documentation Needed scope at all (state
+# never reached 2) AND parsing was disturbed by a fence (an unbalanced fence still
+# open at EOF, or the section itself was swallowed so state never even reached 1),
+# it exits 10 and the shell re-runs Stage A fence-BLIND (today's semantics). So a
+# lone stray delimiter, a truncated mid-fence body, or a fence straddling the
+# scope boundary degrade to today's behavior instead of silently emptying, while a
+# balanced fenced EXAMPLE that opens no real scope (a phantom scope) stays empty.
+run_stage_a() {
+  printf '%s\n' "$body" | awk -v extre="$doc_ext_alt" -v fence_aware="$1" '
+  # clean_spans(line): apply the issue #644 inline-span and Word(...) call-group
+  # rules and return the cleaned text — the SAME shape Stage B tokenizes, so
+  # arms() (below) arms exactly when Stage B would emit. Backticks are paired
+  # left-to-right; a closed span (even index, followed by another backtick) is
+  # kept only when its whole content is a single bare-path token, or several
+  # bare-path tokens each carrying a recognized extension (EXTENSION-ONLY here —
+  # arms() cannot run Stage B'"'"'s `[ -f ]`+git in-tree rescue, an accepted
+  # over-emission-direction gap, so a mixed ext/in-tree span is dropped by arms()
+  # but kept by Stage B); any other span (a `:`/`*`/`(`-bearing grant or a
+  # command word) contributes nothing. Outside spans, a `Word(...)` call group is
+  # stripped. SYNC: mirrors the Stage B bash cleaning below — change one, change
+  # both.
+  function clean_spans(line,   np, parts, i, seg, out, ntok, stoks, j, t, allbare, allext, nnz) {
+    np = split(line, parts, "`")
+    out = ""
+    for (i = 1; i <= np; i++) {
+      seg = parts[i]
+      if (i > 1 && (i % 2 == 0) && (i <= np - 1)) {
+        # a CLOSED backtick span (even index i, followed by a backtick i.e. i<=k=np-1)
+        ntok = split(seg, stoks, /[ \t]+/)
+        nnz = 0; allbare = 1; allext = 1
+        for (j = 1; j <= ntok; j++) {
+          t = stoks[j]
+          if (t == "") continue
+          nnz++
+          if (t ~ /[^A-Za-z0-9._\/-]/) allbare = 0
+          if (t !~ ("[A-Za-z0-9._-][.](" extre ")$")) allext = 0
+        }
+        if (nnz == 0) continue                 # empty span
+        if (!allbare) continue                 # command/grant/skill literal → drop
+        if (nnz == 1) { out = out " " seg " "; continue }   # single bare-path token → keep
+        if (allext) out = out " " seg " "      # multi, all extension-bearing → keep (ext-only)
+        # else multi with an extensionless token → dropped by arms() (no in-tree rescue)
+      } else {
+        # outside text (or an unpaired trailing segment): strip Word(...) call
+        # groups, keep the rest as tokenizable text.
+        gsub(/[A-Za-z_][A-Za-z0-9_]*\([^)]*\)/, " ", seg)
+        out = out " " seg " "
+      }
+    }
+    return out
+  }
   # arms(line): does this line contain a token STAGE B WOULD EMIT? The `emitted`
   # gate for the Shape 2 close (below) is only fail-open-safe if arming implies a
-  # real path was captured, so this MUST mirror the Stage B token predicate: split
-  # on the same non-path delimiters, apply the same leading-./ and trailing-dot
-  # strips, drop the same rooted (/...) and parent-escape (../...) tokens, and
-  # require a basename + a recognized extension (extre, single-sourced). A looser
-  # test (a bare line ".ext" substring) would arm on prose/list tokens Stage B
-  # DROPS — a bare ".md", a rooted "/x/y.md", a URL, "../x.md" — letting the next
-  # trailing-prose paragraph close the scope and drop the real deliverable to
-  # empty output (the fail-OPEN this whole gate exists to prevent). COUPLED with
-  # the Stage B `case` drops + extension test below: change one, change both.
-  function arms(line,   n, arr, i, t) {
-    n = split(line, arr, /[^A-Za-z0-9._\/-]+/)
+  # real path was captured, so this MUST mirror the Stage B token predicate: apply
+  # the same span/call-group cleaning, split on the same non-path delimiters, apply
+  # the same leading-./ and trailing-dot strips, drop the same rooted (/...) and
+  # parent-escape (../...) tokens, and require a basename + a recognized extension
+  # (extre, single-sourced). A looser test would arm on prose/grant tokens Stage B
+  # DROPS, letting the next trailing-prose paragraph close the scope and drop the
+  # real deliverable to empty output (the fail-OPEN this whole gate exists to
+  # prevent). COUPLED with the Stage B `case` drops + extension test + span
+  # cleaning below: change one, change both.
+  function arms(line,   cleaned, n, arr, i, t) {
+    cleaned = clean_spans(line)
+    n = split(cleaned, arr, /[^A-Za-z0-9._\/-]+/)
     for (i = 1; i <= n; i++) {
       t = arr[i]
       sub(/^\.\//, "", t)
@@ -106,9 +185,19 @@ block="$(printf '%s\n' "$body" | awk -v extre="$doc_ext_alt" '
     }
     return 0
   }
-  BEGIN { prev_blank = 1 }   # start-of-file is a paragraph boundary
+  BEGIN { prev_blank = 1; in_fence = 0 }   # start-of-file is a paragraph boundary
+  # Fence tracking (issue #644) — the FIRST thing, before any scope arm, from the
+  # top of the body (a fence can open before any scope opener). A GFM fence
+  # delimiter line (first non-whitespace chars are 3+ backticks OR 3+ tildes)
+  # toggles the state; both the delimiter and every interior line are INERT — no
+  # scope transition, no print, no `prev_blank` update (`next` skips the updater),
+  # so `prev_blank` is left as it stood before the fence. Only active in the
+  # fence-aware pass; the fence-blind fallback pass restores today (no fence rule).
+  fence_aware && /^[[:space:]]*(```|~~~)/ { in_fence = !in_fence; next }
+  fence_aware && in_fence { next }
   /^## / {
     state = ($0 ~ /^## Implementation Notes[[:space:]]*$/) ? 1 : 0
+    if (state == 1) entered_section = 1
     prev_blank = 1           # a heading is a block boundary: the next line begins a new paragraph
     next
   }
@@ -133,6 +222,7 @@ block="$(printf '%s\n' "$body" | awk -v extre="$doc_ext_alt" '
     if (state >= 1 && $0 ~ /^###[[:space:]]+\*{0,2}Documentation Needed/) {
       if (state != 2) emitted = 0
       state = 2
+      entered_scope = 1
     } else if (state == 2) {
       state = 1
     }
@@ -190,6 +280,8 @@ block="$(printf '%s\n' "$body" | awk -v extre="$doc_ext_alt" '
   state >= 1 && ( /^- \*\*[^`]/ || ( /^\*\*[^`]/ && prev_blank ) ) {
     ns = ($0 ~ /^(- )?\*\*Documentation Needed\*\*/) ? 2 : 1
     if (ns == 2 && state != 2) emitted = 0
+    if (ns == 2) entered_scope = 1
+    entered_section = 1
     state = ns
   }
   # SHAPE 2 (issue #327): a blank-line-PRECEDED PLAIN-PROSE paragraph (not blank,
@@ -227,59 +319,46 @@ block="$(printf '%s\n' "$body" | awk -v extre="$doc_ext_alt" '
   }
   # Print an in-scope line and mark the scope as having emitted a deliverable once
   # a printed STRUCTURAL deliverable line — a list item (^[[:space:]]*-) or a bold
-  # line (^**) — bears a recognized-extension path token (the SAME extension set
-  # Stage B emits on, passed in as `extre`, single-sourced in the shell above so
-  # the two cannot drift). The structural-line restriction is the load-bearing
-  # fail-open guard: `emitted` must NEVER be armed by a PLAIN-PROSE line, because
-  # ordinary intro/context prose routinely carries an extension-bearing substring
-  # that is NOT a deliverable, yet a prose line arming emitted would let the NEXT
-  # paragraph (often the one that actually names the deliverable) close the scope
-  # and DROP it: a fail-OPEN that empties the output, the #289/#309/#327 recurrence.
-  # TWO guards make arming imply "a real path was captured": (1) only a structural
-  # deliverable line (list item / bold line) can arm — a plain-prose line never
-  # does; (2) even on a structural line, arms() applies the SAME per-token predicate
-  # Stage B emits on (basename + recognized extension, minus rooted / parent-escape
-  # tokens), so a structural line whose only extension-bearing token is one Stage B
-  # DROPS (a bare ".md", a rooted "/x/y.md", a URL) does NOT arm either. Together
-  # these make the close PROVABLY fail-open-safe: a fresh scope opens emitted=0;
-  # emitted flips only when Stage B will emit >=1 path from this scope, and that
-  # path is itself printed — so whenever the close fires, the output is non-empty,
-  # and a prose-declared deliverable (emitted still 0 when the close arm sees it)
-  # is always captured. (An extension-bearing token on a prose line is still
-  # emitted by Stage B if it is a real path — same as main; we just do not let it
-  # ARM the trailing-prose close.) KNOWN gap (over-emission, leak-safe, no worse
-  # than main): an EXTENSIONLESS structural deliverable (a bare "- Makefile", which
-  # Stage B rescues via its in-tree check that arms() cannot replicate) does not
-  # flip emitted, so a following trailing-prose paragraph would not close —
-  # over-emission, never a fail-open.
+  # line (^**) — bears a recognized-extension path token (via arms(), which now
+  # applies the same span/call-group cleaning Stage B does, so a grant-only line
+  # like "- `Bash(x.sh:*)`" no longer arms; issue #644). The structural-line
+  # restriction is the load-bearing fail-open guard: `emitted` must NEVER be armed
+  # by a PLAIN-PROSE line, because ordinary intro/context prose routinely carries
+  # an extension-bearing substring that is NOT a deliverable, yet a prose line
+  # arming emitted would let the NEXT paragraph (often the one that actually names
+  # the deliverable) close the scope and DROP it: a fail-OPEN that empties the
+  # output, the #289/#309/#327 recurrence. Fence delimiter/interior lines never
+  # reach here (the fence rule `next`-skips them), so a fenced heading-shaped or
+  # bold-shaped line drives no scope transition and no arm.
   state == 2 {
     print
     if ( ( $0 ~ /^[[:space:]]*-/ || $0 ~ /^\*\*/ ) && arms($0) ) emitted = 1
   }
   { prev_blank = ($0 ~ /^[[:space:]]*$/) }
-')"
+  # Fence-blind fallback signal (issue #644): the fence-AWARE pass exits 10 when it
+  # entered no Documentation Needed scope AND a fence disturbed parsing (an
+  # unbalanced fence still open at EOF, or the section was never even entered so a
+  # straddling fence swallowed its opener). The shell then re-runs fence-blind. A
+  # phantom scope (a balanced fenced example inside an entered section, no real
+  # scope) satisfies neither disjunct, so it stays empty rather than falling back.
+  END { exit (fence_aware && !entered_scope && (in_fence || !entered_section)) ? 10 : 0 }
+  '
+}
+
+# Primary fence-aware pass; on the exit-10 "entered no scope, fence disturbed
+# parsing" signal, re-run fence-blind and let that result stand (issue #644).
+# `&& a_rc=0 || a_rc=$?` keeps `set -e` from aborting on the exit-10 signal while
+# still capturing the real awk exit code.
+block="$(run_stage_a 1)" && a_rc=0 || a_rc=$?
+if [ "$a_rc" -eq 10 ]; then
+  block="$(run_stage_a 0)" && a_rc=0 || a_rc=$?
+fi
+if [ "$a_rc" -ne 0 ]; then
+  printf '%s\n' "extract-doc-needed-paths.sh: Stage A block scan failed (awk rc=$a_rc)" >&2
+  exit "$a_rc"
+fi
 
 [ -n "$block" ] || exit 0
-
-# Stage B — pull path-like tokens out of the scoped block. Split on every
-# character that cannot appear in a path token (so backticks, commas, quotes,
-# parentheses, and whitespace are delimiters — backticks are stripped for free),
-# then keep only tokens that are actually paths. `LC_ALL=C sort` makes the output
-# order locale-independent so callers and fixtures see one canonical ordering.
-#
-# Distinguish the grep exit codes instead of swallowing them all with `|| true`:
-# rc 1 is the legitimate "no path-like token in the bullet" no-op (exit 0 below),
-# but rc >= 2 is a real grep error (e.g. a read failure) that must NOT be
-# laundered into an empty-output no-op — that would silently disable the gate the
-# same way an upstream failure on the caller side would. Fail closed: propagate
-# the non-zero rc so the caller routes to Blocked rather than "no paths named".
-grep_rc=0
-tokens="$(printf '%s\n' "$block" | grep -oE '[A-Za-z0-9._/-]+')" || grep_rc=$?
-if [ "$grep_rc" -ge 2 ]; then
-  printf '%s\n' "extract-doc-needed-paths.sh: token scan failed (grep rc=$grep_rc)" >&2
-  exit "$grep_rc"
-fi
-[ -n "$tokens" ] || exit 0
 
 # Probe once whether the `git ls-files` half of the extensionless rescue can run
 # at all: git absent from PATH, or cwd outside a work tree, both disable it. When
@@ -291,6 +370,134 @@ fi
 # affected), so the drop is observable rather than silent.
 git_rescue_ok=1
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || git_rescue_ok=0
+
+# Stage B span pre-pass (issue #644) — clean the scoped block BEFORE tokenizing,
+# so command/grant literals inside backtick spans and `Word(...)` call groups
+# never become phantom deliverables. The cleaning is a TEXT TRANSFORM: each span
+# is either passed through (backticks stripped, its tokens survive) or removed
+# (replaced by a space); `Word(...)` groups in the surrounding text are removed.
+# The existing Stage B tokenizer + per-token predicate below run UNCHANGED over
+# the cleaned block, so the extension test, `case` drops, extensionless in-tree
+# rescue, and grep-rc>=2 fail-closed path are all preserved.
+# SYNC: the span keep/suppress logic mirrors Stage A's clean_spans() (arms()), with
+# ONE intended divergence — Stage B runs the `[ -f ]`+git in-tree rescue for
+# multi-token spans that arms() cannot (an accepted over-emission-direction gap).
+# All string work here is bash builtins (no sed/tr — non-preflight PATH tools a
+# SELECTION must not depend on; the only external tools are the preflight-guaranteed
+# grep/git already used by the predicate). Uses `printf` builtins, not command
+# substitution, so `span_warned` persists across spans in this shell.
+span_warned=0
+CLEANED=""
+
+# span_token_ok TOK — is TOK bare-path-form AND (recognized extension OR in-tree
+# tracked regular file)? Used only for the git-available multi-token span keep
+# decision (issue #644). Bare builtins + the preflight-guaranteed grep/git.
+span_token_ok() {
+  local t="$1"
+  case "$t" in *[!A-Za-z0-9._/-]*) return 1 ;; esac   # not bare-path-form
+  [ -n "$t" ] || return 1
+  if printf '%s\n' "$t" | grep -qE ".+\.($doc_ext_alt)\$"; then return 0; fi
+  if [ -f "$t" ] && git ls-files --error-unmatch -- "$t" >/dev/null 2>&1; then return 0; fi
+  return 1
+}
+
+# suppress_span CONTENT — record the first suppressed command/grant span with a
+# one-time stderr breadcrumb (mirrors the `git unavailable` one-time-breadcrumb
+# precedent), so a suppressed span is observable rather than silent.
+suppress_span() {
+  if [ "$span_warned" -eq 0 ]; then
+    printf '%s\n' "extract-doc-needed-paths.sh: suppressed a non-path span (a command/grant/skill literal, not a documentation deliverable): \`$1\`" >&2
+    span_warned=1
+  fi
+}
+
+# handle_span CONTENT — decide keep/suppress for a paired backtick span and append
+# the cleaned text (span content, or a space) to CLEANED.
+handle_span() {
+  local content="$1"
+  local -a toks=()
+  # shellcheck disable=SC2162  # default IFS whitespace split is intended
+  read -ra toks <<< "$content"
+  local ntok=${#toks[@]}
+  if [ "$ntok" -eq 0 ]; then CLEANED+=" "; return; fi   # empty span
+  local t allbare=1
+  for t in "${toks[@]}"; do
+    case "$t" in *[!A-Za-z0-9._/-]*) allbare=0; break ;; esac
+  done
+  if [ "$allbare" -eq 0 ]; then suppress_span "$content"; CLEANED+=" "; return; fi
+  if [ "$ntok" -eq 1 ]; then CLEANED+=" ${toks[0]} "; return; fi   # single bare-path token → keep
+  if [ "$git_rescue_ok" -eq 1 ]; then
+    local allok=1
+    for t in "${toks[@]}"; do span_token_ok "$t" || { allok=0; break; }; done
+    if [ "$allok" -eq 1 ]; then CLEANED+=" $content "; else suppress_span "$content"; CLEANED+=" "; fi
+  else
+    # git-unavailable degraded arm: never span-wide suppression — keep the content
+    # and let the per-token predicate below emit extension-bearing tokens and drop
+    # the extensionless ones (with its own `git unavailable` breadcrumb). Tool or
+    # work-tree absence must not escalate into dropping an extension-bearing
+    # deliverable (issue #644).
+    CLEANED+=" $content "
+  fi
+}
+
+# strip_calls TEXT — remove `Word(...)` call groups (a word immediately followed
+# by a parenthesized group, non-greedy to the first `)`) from outside-span text
+# and append the rest to CLEANED. Pure-builtin (bash `[[ =~ ]]` + parameter
+# substitution) so it depends on no non-preflight PATH tool.
+_call_re='[A-Za-z_][A-Za-z0-9_]*\([^)]*\)'
+strip_calls() {
+  local s="$1" m
+  while [[ "$s" =~ $_call_re ]]; do
+    m="${BASH_REMATCH[0]}"
+    s="${s/"$m"/ }"
+  done
+  CLEANED+="$s"
+}
+
+# Walk the block line by line, splitting each on backticks and pairing spans
+# left-to-right. Outside segments (and an unpaired trailing segment after an odd
+# backtick — left in place so unbalanced inline spans degrade to today's per-line
+# behavior) go through strip_calls; paired spans go through handle_span.
+while IFS= read -r line; do
+  local_in_span=0
+  rest="$line"
+  while : ; do
+    before="${rest%%\`*}"
+    if [ "$before" = "$rest" ]; then
+      # no backtick remaining
+      if [ "$local_in_span" -eq 1 ]; then strip_calls " $rest"; else strip_calls "$rest"; fi
+      break
+    fi
+    after="${rest#*\`}"
+    if [ "$local_in_span" -eq 0 ]; then
+      strip_calls "$before"; local_in_span=1
+    else
+      handle_span "$before"; local_in_span=0
+    fi
+    rest="$after"
+  done
+  CLEANED+=$'\n'
+done <<< "$block"
+
+# Stage B — pull path-like tokens out of the cleaned block. Split on every
+# character that cannot appear in a path token (so backticks, commas, quotes,
+# parentheses, and whitespace are delimiters), then keep only tokens that are
+# actually paths. `LC_ALL=C sort` makes the output order locale-independent so
+# callers and fixtures see one canonical ordering.
+#
+# Distinguish the grep exit codes instead of swallowing them all with `|| true`:
+# rc 1 is the legitimate "no path-like token in the bullet" no-op (exit 0 below),
+# but rc >= 2 is a real grep error (e.g. a read failure) that must NOT be
+# laundered into an empty-output no-op — that would silently disable the gate the
+# same way an upstream failure on the caller side would. Fail closed: propagate
+# the non-zero rc so the caller routes to Blocked rather than "no paths named".
+grep_rc=0
+tokens="$(printf '%s\n' "$CLEANED" | grep -oE '[A-Za-z0-9._/-]+')" || grep_rc=$?
+if [ "$grep_rc" -ge 2 ]; then
+  printf '%s\n' "extract-doc-needed-paths.sh: token scan failed (grep rc=$grep_rc)" >&2
+  exit "$grep_rc"
+fi
+[ -n "$tokens" ] || exit 0
 
 printf '%s\n' "$tokens" \
   | { git_warned=0; while IFS= read -r tok; do
@@ -338,11 +545,13 @@ printf '%s\n' "$tokens" \
       # (it would not — the extension branch below emits on the extension alone).
       # The `.+` before the dot excludes a bare extension token (`.md`, `.sh`)
       # that is a syntax reference, not a filename.
-      # SYNC: Stage A's arms() (in the awk above) mirrors THIS token predicate — the
-      # rooted/`../` `case` drops above plus this basename+extension test — so the
-      # Shape 2 `emitted` gate only arms when this branch would emit. Change one,
-      # change both (the extensionless `[ -f ]`+git rescue below is intentionally
-      # NOT mirrored — arms() cannot do a filesystem check, an accepted leak-safe gap).
+      # SYNC: Stage A's arms()/clean_spans() (in the awk above) mirrors THIS token
+      # predicate — the span/call-group cleaning plus the rooted/`../` `case` drops
+      # and this basename+extension test — so the Shape 2 `emitted` gate only arms
+      # when this branch would emit. Change one, change both (the extensionless
+      # `[ -f ]`+git rescue below and the multi-token span in-tree rescue are
+      # intentionally NOT mirrored — arms() cannot do a filesystem check, an
+      # accepted leak-safe gap).
       if printf '%s\n' "$tok" | grep -qE ".+\.($doc_ext_alt)\$"; then
         printf '%s\n' "$tok"
       elif [ -f "$tok" ]; then

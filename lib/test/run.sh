@@ -11321,6 +11321,208 @@ assert_pin_unique "#380 W6A: extractor header names the ### Documentation Needed
   'a `### Documentation Needed` level-3 heading (issue #380)' "$EXTRACT_HELPER"
 
 # ────────────────────────────────────────────────────────────────────────────
+# issue #644: command/grant literals inside backtick spans, Word(...) call groups,
+# and fenced code blocks are scope markers, not deliverables. The extractor now
+# suppresses them; a suppressed span emits a one-time stderr breadcrumb. Each
+# fixture below maps 1:1 to an acceptance criterion (a closed set). All doc paths
+# carry a recognized extension (hermetic) except where an in-tree extensionless
+# file (`LICENSE`, tracked by this repo) is deliberately exercised.
+
+# Case 45 (#644 AC1): a backticked grant literal beside a backticked genuine
+# deliverable emits ONLY the genuine one. RED on today's code, which additionally
+# emits the grant's embedded path (the executed repro in Current Behavior).
+fx_644_grant="## Implementation Notes
+
+- **Documentation Needed** — update \`docs/implement-skill.md\` and the grant \`Bash(.devflow/vendor/devflow/scripts/config-get.sh:*)\`."
+assert_eq "#644 AC1: a backticked grant literal beside a genuine deliverable emits only the genuine path" \
+  "docs/implement-skill.md" \
+  "$(printf '%s\n' "$fx_644_grant" | bash "$EXTRACT_HELPER" 2>/dev/null)"
+
+# Case 46 (#644 AC2): backticked command spans (`bash lib/test/run.sh`) and a
+# backticked grant (`Bash(lib/test/run-module.sh:*)`) beside a genuine deliverable
+# contribute nothing; neither run.sh nor run-module.sh appears (both do today).
+fx_644_cmds="## Implementation Notes
+
+- **Documentation Needed** — \`docs/genuine.md\`, \`bash lib/test/run.sh\`, and \`Bash(lib/test/run-module.sh:*)\`."
+assert_eq "#644 AC2: backticked command/grant spans contribute nothing; the genuine deliverable survives" \
+  "docs/genuine.md" \
+  "$(printf '%s\n' "$fx_644_cmds" | bash "$EXTRACT_HELPER" 2>/dev/null)"
+
+# Case 47 (#644 AC3): an UN-backticked `Bash(lib/test/run.sh:*)` call group on a
+# structural deliverable line contributes no tokens (the Word(...) group rule) —
+# run.sh does not appear (it does today).
+fx_644_callgroup="## Implementation Notes
+
+- **Documentation Needed**
+- **\`docs/x.md\`** and Bash(lib/test/run.sh:*)"
+assert_eq "#644 AC3: an un-backticked Word(...) call group on a structural line contributes no tokens" \
+  "docs/x.md" \
+  "$(printf '%s\n' "$fx_644_callgroup" | bash "$EXTRACT_HELPER" 2>/dev/null)"
+
+# Case 48 (#644 AC4): a backtick span containing two whitespace-separated
+# extension-bearing paths emits BOTH — today's genuine multi-path-span behavior
+# is preserved, not regressed by the new span rule.
+fx_644_multipath="## Implementation Notes
+
+- **Documentation Needed** — \`docs/a.md docs/b.md\`."
+assert_eq "#644 AC4: a backtick span of two extension-bearing paths emits both (multi-path preserved)" \
+  "$(printf 'docs/a.md\ndocs/b.md')" \
+  "$(printf '%s\n' "$fx_644_multipath" | bash "$EXTRACT_HELPER" 2>/dev/null)"
+
+# Case 49 (#644 AC5): a backtick span mixing an extension-bearing path with an
+# extensionless IN-TREE tracked file (`LICENSE`, which this repo tracks) emits
+# BOTH — the multi-token rule mirrors Stage B's extensionless in-tree rescue, so
+# the all-extension complement does not swallow rescue-eligible deliverables.
+fx_644_mixed="## Implementation Notes
+
+- **Documentation Needed** — \`docs/a.md LICENSE\`."
+assert_eq "#644 AC5: a span mixing an ext path with an in-tree extensionless file emits both (in-tree rescue in span)" \
+  "$(printf 'LICENSE\ndocs/a.md')" \
+  "$(printf '%s\n' "$fx_644_mixed" | bash "$EXTRACT_HELPER" 2>/dev/null)"
+
+# Case 50 (#644 AC6): a command-shaped span (`bash lib/test/run.sh`) beside a
+# surviving genuine deliverable contributes nothing, the genuine deliverable is
+# emitted, and the one-time suppression breadcrumb is present — the partial drop
+# is observable, never silent.
+fx_644_bc="## Implementation Notes
+
+- **Documentation Needed** — \`docs/keep.md\` then \`bash lib/test/run.sh\`."
+fx_644_bc_err="$(mktemp)"
+fx_644_bc_out="$(printf '%s\n' "$fx_644_bc" | bash "$EXTRACT_HELPER" 2>"$fx_644_bc_err")"
+assert_eq "#644 AC6: command-shaped span drops silently-nothing while the genuine deliverable is emitted" \
+  "docs/keep.md" "$fx_644_bc_out"
+assert_eq "#644 AC6: the suppressed command span emits the one-time stderr breadcrumb" \
+  "1" "$(grep -c 'suppressed a non-path span' "$fx_644_bc_err")"
+rm -f "$fx_644_bc_err"
+
+# Case 51 (#644 AC7): the mixed extension/in-tree span under the suite's existing
+# git-unavailable harness (cwd outside any work tree → git_rescue_ok=0). The
+# degraded arm is PER-TOKEN, never span-wide suppression: the extension-bearing
+# path is still emitted and the git-unavailable breadcrumb fires for the dropped
+# extensionless token (which is a real on-disk file here, mirroring Case 13).
+fx_644_nogit_dir="$(mktemp -d)"
+fx_644_nogit_ceiling="$(dirname "$fx_644_nogit_dir")"
+: > "$fx_644_nogit_dir/Makefile"
+fx_644_nogit_body="## Implementation Notes
+
+- **Documentation Needed** — \`docs/a.md Makefile\`."
+fx_644_nogit_out="$( printf '%s\n' "$fx_644_nogit_body" | ( cd "$fx_644_nogit_dir" && GIT_CEILING_DIRECTORIES="$fx_644_nogit_ceiling" bash "$EXTRACT_HELPER" 2>"$fx_644_nogit_dir/err" ) )"
+assert_eq "#644 AC7: degraded (git-unavailable) mixed span emits the extension-bearing path (per-token, not span-wide drop)" \
+  "docs/a.md" "$fx_644_nogit_out"
+assert_eq "#644 AC7: git-unavailable drop of the extensionless span token emits the degraded-rescue breadcrumb" \
+  "1" "$(grep -c 'git unavailable' "$fx_644_nogit_dir/err")"
+rm -rf "$fx_644_nogit_dir"
+
+# Case 52 (#644 AC8): a lone unmatched ``` fence delimiter above the block leaves
+# the fence-aware pass in no scope (the never-closing fence swallows the opener) —
+# the fence-blind fallback restores today's semantics and the genuine deliverable
+# is still emitted, rather than the extraction silently emptying.
+fx_644_lonefence="## Implementation Notes
+\`\`\`
+- **Documentation Needed** — update \`docs/real.md\`."
+assert_eq "#644 AC8: a lone unmatched fence above the block falls back fence-blind; the deliverable is still emitted" \
+  "docs/real.md" \
+  "$(printf '%s\n' "$fx_644_lonefence" | bash "$EXTRACT_HELPER" 2>/dev/null)"
+
+# Case 53 (#644 AC9): a fence opened in an EARLIER section whose closing delimiter
+# falls after the Documentation Needed opener (so the fence-aware pass never even
+# enters the Implementation Notes section) — the same fence-blind fallback emits
+# the genuine deliverable. The single Stage-A tracker + the enters-no-scope
+# fallback cover the straddle.
+fx_644_straddle="## Technical Context
+\`\`\`
+example content
+## Implementation Notes
+- **Documentation Needed** — update \`docs/real.md\`.
+\`\`\`
+trailing prose"
+assert_eq "#644 AC9: a boundary-straddling fence falls back fence-blind; the genuine deliverable is emitted" \
+  "docs/real.md" \
+  "$(printf '%s\n' "$fx_644_straddle" | bash "$EXTRACT_HELPER" 2>/dev/null)"
+
+# Case 54 (#644 AC10): a TILDE-fence variant — the fence delimited by ~~~ instead
+# of backticks, interior carrying a command literal, genuine deliverable after the
+# close — emits exactly the genuine deliverable. Both GFM fence forms are inert.
+fx_644_tilde="## Implementation Notes
+
+### Documentation Needed
+~~~
+bash lib/test/run.sh
+~~~
+\`docs/genuine.md\`"
+assert_eq "#644 AC10: a ~~~ tilde fence is recognized (interior inert); only the genuine deliverable is emitted" \
+  "docs/genuine.md" \
+  "$(printf '%s\n' "$fx_644_tilde" | bash "$EXTRACT_HELPER" 2>/dev/null)"
+
+# Case 55 (#644 AC11): an odd (unpaired) inline backtick on a non-fence line — a
+# genuine extension-bearing deliverable in the unpaired trailing segment is still
+# emitted (unbalanced inline spans degrade to today's per-line behavior). The
+# paired span before it (`docs/x.md`) is emitted too.
+fx_644_odd="## Implementation Notes
+
+- **Documentation Needed** — \`docs/x.md\` and also see \`docs/u.md"
+assert_eq "#644 AC11: an odd unpaired inline backtick keeps the unpaired-segment deliverable (per-line degrade)" \
+  "$(printf 'docs/u.md\ndocs/x.md')" \
+  "$(printf '%s\n' "$fx_644_odd" | bash "$EXTRACT_HELPER" 2>/dev/null)"
+
+# Case 56 (#644 AC12): the RED-against-today fenced-block fixture. A
+# `### Documentation Needed` heading scope in which the fence comes BEFORE any
+# deliverable; the interior includes a command, an un-backticked grant, a
+# `### Example section` heading-shaped line, and a `- **Note**` bold-shaped line;
+# a genuine backticked deliverable follows the fence close. Output is exactly the
+# genuine deliverable. Today this fails on both axes: the fence-interior
+# heading-shaped line closes the scope AND the interior command/grant lines are
+# tokenized — the fixture pins fence inertness to tokens AND to the scope state
+# machine at once.
+fx_644_red="## Implementation Notes
+
+### Documentation Needed
+\`\`\`
+bash lib/test/run.sh
+Bash(.devflow/vendor/devflow/scripts/config-get.sh:*)
+### Example section
+- **Note**
+\`\`\`
+\`docs/genuine.md\`"
+assert_eq "#644 AC12: fence inertness to BOTH tokens and the scope state machine; only the genuine deliverable emitted" \
+  "docs/genuine.md" \
+  "$(printf '%s\n' "$fx_644_red" | bash "$EXTRACT_HELPER" 2>/dev/null)"
+
+# Case 57 (#644 AC13): a phantom-scope fixture — a fenced markdown EXAMPLE placed
+# inside `## Implementation Notes` but outside any real Documentation Needed scope,
+# whose interior includes `**Documentation Needed** — ` followed by a backticked
+# path — emits nothing. A fence never opens a scope, and fence tracking starts
+# from the top of the body; the balanced example does not trip the fence-blind
+# fallback (the section WAS entered), so the extraction stays empty.
+fx_644_phantom="## Implementation Notes
+
+Here is an illustration of the template shape:
+
+\`\`\`
+**Documentation Needed** — \`docs/phantom.md\`
+\`\`\`"
+assert_eq "#644 AC13: a fenced example naming a Documentation Needed opener emits nothing (a fence never opens a scope)" \
+  "" \
+  "$(printf '%s\n' "$fx_644_phantom" | bash "$EXTRACT_HELPER" 2>/dev/null)"
+
+# Case 58 (#644 AC14): the arms() lockstep fixture. An opener, then a STRUCTURAL
+# line whose only path tokens sit inside a backticked grant literal, then a blank
+# line, then a prose paragraph naming a genuine deliverable — the genuine
+# deliverable is emitted. This proves the grant-only line no longer arms
+# `emitted`: a Stage-B-only fix would let arms() arm on the grant's `config-get.sh`
+# token, the trailing-prose close would fire, and the genuine deliverable would be
+# dropped (the fail-open the SYNC invariant guards). RED under a Stage-B-only fix.
+fx_644_lockstep="## Implementation Notes
+
+- **Documentation Needed**
+- \`Bash(.devflow/vendor/devflow/scripts/config-get.sh:*)\`
+
+Update \`docs/genuine.md\` in the documentation pass."
+assert_eq "#644 AC14: a grant-only structural line does not arm the trailing-prose close (arms() lockstep)" \
+  "docs/genuine.md" \
+  "$(printf '%s\n' "$fx_644_lockstep" | bash "$EXTRACT_HELPER" 2>/dev/null)"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
 # ────────────────────────────────────────────────────────────────────────────
 # Single shared scaffolder used by BOTH install.sh and the /devflow:init skill.
