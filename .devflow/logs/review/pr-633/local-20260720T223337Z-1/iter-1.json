@@ -1,0 +1,33 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-20T22:33:37Z",
+  "loop_role": "fix",
+  "current_step": "loop-control",
+  "current_substep": "phase_3_dispatch",
+  "pending_dispatch": {
+    "kind": "phase3_agent_fanout",
+    "roster": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review", "devflow:checklist-generator"],
+    "dispatched_at": "2026-07-20T22:40:00Z"
+  },
+  "fix_commit_sha": null,
+  "fix_files": [],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "checklist": [],
+  "phase3_findings": [],
+  "fix_decisions": [],
+  "cap_drops": {"count": 0, "by_category": {}},
+  "telemetry": {}
+}
