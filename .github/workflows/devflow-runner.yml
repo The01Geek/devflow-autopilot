@@ -474,10 +474,16 @@ jobs:
           # probe emits the SENTINEL "set" rather than the value itself: command
           # substitution strips trailing newlines, so a value composed entirely of
           # newlines would collapse to the empty string and be misread as "unset",
-          # silently skipping the warning for exactly one rejected shape. The
+          # silently skipping the warning for a rejected shape. The probe filters on
+          # `!= null` rather than `// empty` because `//` is FALSY-triggered: `// empty`
+          # would swallow a valid-falsy `false` leaf, rejecting it to auto-install with
+          # no breadcrumb (the documented-off-switch class). JSON `null` stays an unset,
+          # like an absent key. `catch "set"` (not `catch empty`) makes a NON-OBJECT
+          # `setup` — which raises a jq index error in BOTH filters, so the guarded one
+          # cannot resolve a value — warn rather than fail open silently. The
           # raw probe reads the SAME trusted $BASE_JSON — it never widens the trust
           # boundary, and it is used only for this emptiness test, never emitted.
-          CLAUDE_CODE_EXECUTABLE_RAW=$(printf '%s' "$BASE_JSON" | jq -r 'try (.setup.claude_code_executable // empty | tostring | select(. != "") | "set") catch empty')
+          CLAUDE_CODE_EXECUTABLE_RAW=$(printf '%s' "$BASE_JSON" | jq -r 'try (.setup.claude_code_executable | select(. != null) | tostring | select(. != "") | "set") catch "set"')
           CLAUDE_CODE_EXECUTABLE=$(printf '%s' "$BASE_JSON" | jq -r 'try (.setup.claude_code_executable // empty | strings | select(test("[\n\r]") | not) | select(test("^[[:space:]]*$") | not)) catch empty')
           if [ -n "$CLAUDE_CODE_EXECUTABLE_RAW" ] && [ -z "$CLAUDE_CODE_EXECUTABLE" ]; then
             echo "::warning::setup.claude_code_executable is set in the trusted base-ref config but was rejected (non-string leaf, embedded newline/CR, or whitespace-only); falling back to the action's automatic Claude Code install."

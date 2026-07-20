@@ -7794,14 +7794,25 @@ done
 # Extract the exact jq programs shipped in EACH workflow and drive them against the matrix, so
 # the sweep tests the REAL filters (not a hardcoded copy, and not one file standing in for three).
 # Neither filter contains a single-quote, so `[^']*` safely spans it up to the closing
-# `) catch empty`; the per-file positive-control assertions below fail RED if a future filter edit
-# breaks either extraction (e.g. introduces a quote). The guarded filter is anchored on `| strings`
-# and the raw probe on `| tostring` so the two co-located programs cannot be confused for one
-# another (a bare `[^']*` match would take whichever appears first in the file).
+# `) catch` terminator; the per-file positive-control assertions below fail RED if a future filter
+# edit breaks either extraction (e.g. introduces a quote). The guarded filter is anchored on
+# `| strings` and the raw probe on `| select`/`| tostring` plus its distinct `catch "set"`
+# terminator, so the two co-located programs cannot be confused for one another (a bare `[^']*`
+# match would take whichever appears first in the file).
 for _f in "$I601_DEVFLOW_YML" "$I601_IMPL_YML" "$I601_RUNNER_YML"; do
   _b="$(basename "$_f")"
   I601_FILTER="$(grep -oE "try \(\.setup\.claude_code_executable // empty \| strings[^']*\) catch empty" "$_f" | head -1)"
-  I601_RAW_FILTER="$(grep -oE "try \(\.setup\.claude_code_executable // empty \| tostring[^']*\) catch empty" "$_f" | head -1)"
+  I601_RAW_FILTER="$(grep -oE "try \(\.setup\.claude_code_executable \| select[^']*\| tostring[^']*\) catch \"set\"" "$_f" | head -1)"
+  # Pin the three files' extracted programs EQUAL to one another. The per-file sweep below
+  # proves each behaves correctly, but without this a future edit to one workflow's filter
+  # that still satisfies every matrix row would drift silently — and the next untested shape
+  # would then behave differently per workflow (the coupled-mirror class).
+  if [ "$_b" = "$(basename "$I601_DEVFLOW_YML")" ]; then
+    I601_FILTER_REF="$I601_FILTER"; I601_RAW_FILTER_REF="$I601_RAW_FILTER"
+  else
+    assert_eq "#601 AC4: $_b guarded jq filter is byte-identical to devflow.yml's (coupled mirror)" "$I601_FILTER_REF" "$I601_FILTER"
+    assert_eq "#601 AC4: $_b raw-probe jq filter is byte-identical to devflow.yml's (coupled mirror)" "$I601_RAW_FILTER_REF" "$I601_RAW_FILTER"
+  fi
   assert_eq "#601 AC4: $_b guarded jq filter is extractable (positive control)" "yes" \
     "$([ -n "$I601_FILTER" ] && echo yes || echo no)"
   assert_eq "#601 AC4: $_b raw-probe jq filter is extractable (positive control)" "yes" \
@@ -7852,12 +7863,31 @@ for _f in "$I601_DEVFLOW_YML" "$I601_IMPL_YML" "$I601_RUNNER_YML"; do
   fi
   if [ -n "$I601_RAW_FILTER" ]; then
     # The raw probe decides the ::warning:: — it must distinguish REJECTED (non-empty raw,
-    # empty resolved → warn) from UNSET (empty raw → silent). Absent key and an explicit ""
-    # are deliberate unsets and must NOT warn; every rejected shape must.
+    # empty resolved → warn) from UNSET (empty raw → silent). The deliberate unsets are an
+    # absent key, an explicit "", and JSON `null` (null ≈ absent); every OTHER shape that
+    # resolves to empty is a rejection and must warn — including the valid-falsy `false`
+    # leaf and a non-object `setup`, the two shapes an earlier `// empty` / `catch empty`
+    # probe swallowed silently (CLAUDE.md's six-shape config matrix, valid-falsy row).
     assert_eq "#601 AC4 [$_b]: raw probe — absent key is unset, not rejected (no warning)" "" \
       "$(printf '%s' '{}' | jq -r "$I601_RAW_FILTER")"
-    assert_eq "#601 AC4 [$_b]: raw probe — non-object setup is unset, not rejected (no warning)" "" \
-      "$(printf '%s' '{"setup":"scalar"}' | jq -r "$I601_RAW_FILTER")"
+    assert_eq "#601 AC4 [$_b]: raw probe — null leaf is a deliberate unset (no warning)" "" \
+      "$(printf '%s' '{"setup":{"claude_code_executable":null}}' | jq -r "$I601_RAW_FILTER")"
+    # Valid-falsy row: `//` is FALSY-triggered, so a `// empty` probe swallowed `false`
+    # before `tostring` — rejected to auto-install with NO breadcrumb on the one platform
+    # where the key is load-bearing. Goes RED if the probe reverts to `// empty`.
+    assert_eq "#601 AC4 [$_b]: raw probe — valid-falsy false leaf is rejected, not unset (warning fires)" 'yes' \
+      "$([ -n "$(printf '%s' '{"setup":{"claude_code_executable":false}}' | jq -r "$I601_RAW_FILTER")" ] && echo yes || echo no)"
+    assert_eq "#601 AC4 [$_b]: raw probe — numeric leaf is rejected (warning fires)" 'yes' \
+      "$([ -n "$(printf '%s' '{"setup":{"claude_code_executable":0}}' | jq -r "$I601_RAW_FILTER")" ] && echo yes || echo no)"
+    assert_eq "#601 AC4 [$_b]: raw probe — object leaf is rejected (warning fires)" 'yes' \
+      "$([ -n "$(printf '%s' '{"setup":{"claude_code_executable":{}}}' | jq -r "$I601_RAW_FILTER")" ] && echo yes || echo no)"
+    # `setup`-level wrong-type rows: indexing a scalar/array raises a jq error that BOTH
+    # filters hit, so the guarded one cannot resolve a value. `catch "set"` (not
+    # `catch empty`) is what keeps that a loud rejection instead of a silent fail-open.
+    assert_eq "#601 AC4 [$_b]: raw probe — non-object (scalar) setup is rejected, not unset (warning fires)" 'yes' \
+      "$([ -n "$(printf '%s' '{"setup":"scalar"}' | jq -r "$I601_RAW_FILTER")" ] && echo yes || echo no)"
+    assert_eq "#601 AC4 [$_b]: raw probe — array setup is rejected, not unset (warning fires)" 'yes' \
+      "$([ -n "$(printf '%s' '{"setup":["a"]}' | jq -r "$I601_RAW_FILTER")" ] && echo yes || echo no)"
     assert_eq "#601 AC4 [$_b]: raw probe — explicit empty string is a deliberate unset (no warning)" "" \
       "$(printf '%s' '{"setup":{"claude_code_executable":""}}' | jq -r "$I601_RAW_FILTER")"
     assert_eq "#601 AC4 [$_b]: raw probe — rejected array leaf is non-empty (warning fires)" 'yes' \
@@ -7902,6 +7932,18 @@ for _f in "$I601_DEVFLOW_YML" "$I601_IMPL_YML" "$I601_RUNNER_YML"; do
       "$(_i601_warns '{"setup":{"claude_code_executable":"a\ntrailing"}}')"
     assert_eq "#601 AC4 [$_b]: composed branch — pure-newline value warns (\$(…)-stripping regression)" "warn" \
       "$(_i601_warns '{"setup":{"claude_code_executable":"\n"}}')"
+    assert_eq "#601 AC4 [$_b]: composed branch — null leaf does NOT warn (unset, like absent)" "silent" \
+      "$(_i601_warns '{"setup":{"claude_code_executable":null}}')"
+    assert_eq "#601 AC4 [$_b]: composed branch — valid-falsy false leaf warns" "warn" \
+      "$(_i601_warns '{"setup":{"claude_code_executable":false}}')"
+    assert_eq "#601 AC4 [$_b]: composed branch — numeric leaf warns" "warn" \
+      "$(_i601_warns '{"setup":{"claude_code_executable":0}}')"
+    assert_eq "#601 AC4 [$_b]: composed branch — object leaf warns" "warn" \
+      "$(_i601_warns '{"setup":{"claude_code_executable":{}}}')"
+    assert_eq "#601 AC4 [$_b]: composed branch — non-object (scalar) setup warns" "warn" \
+      "$(_i601_warns '{"setup":"scalar"}')"
+    assert_eq "#601 AC4 [$_b]: composed branch — array setup warns" "warn" \
+      "$(_i601_warns '{"setup":["a"]}')"
   fi
 done
 

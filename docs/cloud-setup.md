@@ -208,9 +208,10 @@ and every Linux consumer)** the input resolves to an empty string and the action
 automatic-install path runs unchanged — Linux consumers are unaffected.
 
 **A rejected value falls back to auto-install and says so.** The extraction accepts only a
-single-line, non-blank string: a non-string leaf (array/object/number), a string carrying an
-embedded newline or carriage return, and a whitespace-only string are each rejected and resolve
-to empty — the same result as leaving the key unset. Because a mistyped path would otherwise
+single-line, non-blank string: a non-string leaf (array/object/number/boolean), a non-object
+`setup` block, a string carrying an embedded newline or carriage return, and a whitespace-only
+string are each rejected and resolve to empty — the same result as leaving the key unset.
+An absent key, a JSON `null`, and an explicit `""` are deliberate unsets and warn nothing. Because a mistyped path would otherwise
 revert *silently* to the Windows-fatal auto-install path (leaving you debugging the installer's
 misleading `Windows is not supported` error rather than your own typo), a **set-but-rejected**
 value emits a workflow `::warning::` naming the key. An explicit `""` is a deliberate unset and

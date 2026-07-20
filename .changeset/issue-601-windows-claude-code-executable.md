@@ -13,7 +13,8 @@ type: Added
   string and leaves the action's automatic-install path unchanged. `devflow-runner.yml` reads the
   key only from the trusted base-ref config, never a PR-head config, because that write-token job
   executes the resolved path. The key is trigger-time-resolved, so its effect is post-merge-only.
-  A value that is set but unusable — a non-string leaf, a string with an embedded newline/CR, or
-  a whitespace-only string — is rejected to empty (auto-install) and emits a workflow
-  `::warning::` naming the key, so a mistyped path does not silently revert to the Windows-fatal
-  installer path. (#604)
+  A value that is set but unusable — a non-string leaf (including a valid-falsy `false`), a
+  non-object `setup` block, a string with an embedded newline/CR, or a whitespace-only string —
+  is rejected to empty (auto-install) and emits a workflow `::warning::` naming the key, so a
+  mistyped path does not silently revert to the Windows-fatal installer path. An absent key,
+  a JSON `null`, and an explicit `""` are deliberate unsets and warn nothing. (#604)
