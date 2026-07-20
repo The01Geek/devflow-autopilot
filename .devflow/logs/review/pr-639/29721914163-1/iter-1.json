@@ -1,0 +1,169 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-20T07:40:00Z",
+  "fix_commit_sha": "PENDING",
+  "fix_files": [
+    "lib/test/run.sh"
+  ],
+  "loop_role": "fix",
+  "current_step": "3",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "checklist": [
+    {
+      "id": "VC-1",
+      "claim": "_rb_shipped_w is defined before the re-anchored gate uses it",
+      "file": "lib/test/run.sh",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "defined at the _rb_standalone build site, gate is downstream; suite green"
+    },
+    {
+      "id": "VC-2",
+      "claim": "the CLAUDE.md pin literal matches the CLAUDE.md ceiling phrase exactly and uniquely",
+      "file": "CLAUDE.md",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "assert_pin_unique green; phrase occurs once"
+    },
+    {
+      "id": "VC-3",
+      "claim": "ceiling 32399 = live _rb_words measured 32339 + margin 60",
+      "file": "lib/test/run.sh",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "measured live 32339; RB_SHIPPED_CEIL=32399"
+    },
+    {
+      "id": "VC-4",
+      "claim": "RAF budget cells reconcile to live measurements after the ceiling bumps",
+      "file": "docs/review-and-fix-budget.md",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "#530 block green: root+ext 5818<=5824, maxstep 17080<=17086, cumulative 43129"
+    },
+    {
+      "id": "VC-5",
+      "claim": "prompt-mass-baseline.json matches the grown tree",
+      "file": "lib/test/prompt-mass-baseline.json",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "prompt-mass-census exact baseline match, exit 0"
+    },
+    {
+      "id": "VC-6",
+      "claim": "stale_prose.enabled default unchanged (schema true, example true)",
+      "file": ".devflow/config.schema.json",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "both files untouched; defaults True"
+    }
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:silent-failure-hunter"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": false,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "none",
+      "description": "clean; all coupled-mirror invariants hold, _rb_shipped_w defined before use, pin matches CLAUDE.md",
+      "defect_signature": null,
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "none",
+      "description": "all figures accurate and internally consistent; net-reduction 32988 and growth +4323 correctly unchanged (extension cancels)",
+      "defect_signature": null,
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "Finding 1: budget-doc ceiling cell not bound to RB_SHIPPED_CEIL (future-renegotiation drift could ship a stale doc ceiling green)",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          34600,
+          34605
+        ],
+        "kind": "missing_mirror_binding"
+      },
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "Finding 2: gate constant RB_SHIPPED_CEIL can drift from the CLAUDE.md pin literal within run.sh (stale gate constant while pin+CLAUDE.md updated together)",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          34600,
+          34605
+        ],
+        "kind": "missing_mirror_binding"
+      },
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "none",
+      "description": "no fail-open risk; every added assertion fails closed; hoist left no undefined-read",
+      "defect_signature": null,
+      "fix_decision": "advisory"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "PENDING",
+      "evidence": "added a comma-stripped ceilings-table label-cell binding of the budget doc to RB_SHIPPED_CEIL, mirroring the sibling RAF block"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "PENDING",
+      "evidence": "added a plain assert_eq (not assert_pin_*, to avoid the #375 pin-corpus static lint) coupling RB_SHIPPED_CEIL to the CLAUDE.md phrase via a dynamic _rb_grouped grep; planted a stale RB_SHIPPED_CEIL=32499 and observed both new assertions RED while the gate stayed green"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 2,
+    "fix_diff_lines": 20,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "shadow": {
+    "ran_at": null,
+    "reviewed_sha": null,
+    "verdict": null,
+    "coverage": null,
+    "reviewers_dispatched": [],
+    "expected_reviewers": [],
+    "reason": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 0,
+      "overlap_with_iter_N": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
+  "telemetry": "unavailable"
+}
