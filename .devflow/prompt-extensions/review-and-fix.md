@@ -157,11 +157,11 @@ best-effort-parser adversarial-matrix gotcha, and this section is its coupled mi
 
 ## Batched artifact regeneration
 
-After applying edits and before each full-suite re-verify run, run `python3 lib/test/regenerate-artifacts.py` once. A fix loop's own edits drift the checked-in generated records, and rediscovering each one a full suite run later is the dominant cost of an iteration. The helper is the sole enumeration point; this section lists no inventory.
+After applying edits and before each full-suite re-verify run, run `python3 lib/test/regenerate-artifacts.py` once. A fix loop's edits drift the checked-in generated records, and rediscovering each one a full suite run later is an iteration's dominant cost. The helper is the sole enumeration point; this section lists no inventory.
 
-Act on its report before the suite run: commit a changed manifest with the edits that caused it, and resolve every exit-1-forcing judgment item under the policy it names. Informational lines require reading, not action.
+Act on its report first: commit a changed manifest with the edits that caused it, and resolve every exit-1-forcing judgment item under the policy it names. Informational lines need reading, not action.
 
-An **INFRASTRUCTURE failure (exit 2)** means at least one artifact was never checked — unknown, not clean. Never read those lines as informational and never record `run`: record `batched-regeneration: skipped` naming the failing row, and fall back to serial discovery for that artifact.
+**Anything but exit 0 with a line per row** — exit 2, a traceback, an empty or truncated report — means an artifact went unchecked: unknown, not clean. That verdict is residual, not a token list. Never record `run`; record `batched-regeneration: skipped` naming what you saw, and fall back to serial discovery.
 
 If the matcher refuses the invocation **twice**, stop — record the refusal and proceed to the suite run rather than iterating variants (the issue-401 two-denials discipline). On a run that maintains a workpad, record one line before each full-suite run — `batched-regeneration: run|refused|skipped`.
 

@@ -69,10 +69,10 @@ python3 lib/test/regenerate-artifacts.py
 
 It regenerates the one mechanically-safe artifact (the cloud-writer runtime manifest,
 `scripts/devflow-cloud-writer-contract.json` — the only path it ever writes) and runs a
-**non-writing** check for each judgment-gated artifact (the generated capability-profile
-workflow literals, the prompt-mass baseline, the review-bundle budget record, and the
-coverage-map ratchet), reporting every judgment item together in one pass instead of one
-red run at a time. Judgment items are yours to resolve deliberately — the helper never
+**non-writing** check for each judgment-gated artifact, reporting every judgment item
+together in one pass instead of one red run at a time. The registry inside the helper is
+the sole enumeration point — run `--list` for the current set rather than trusting a
+copy here, which would go stale the next time an artifact is added. Judgment items are yours to resolve deliberately — the helper never
 edits them. Exit codes: `0` clean, `1` action required, `2` infrastructure failure
 (which wins over `1`). Use `--list` to see the registered artifacts and `--repo-root` to
 point it at another checkout.

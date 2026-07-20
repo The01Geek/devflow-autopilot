@@ -44,13 +44,29 @@ WRITE SCOPE: the only file under the target root this helper writes is
 judgment row runs a non-writing check and never writes its artifact.
 
 EXIT CONTRACT (exactly three states):
-  0 — every row's command exited in its declared clean state, the mechanical
-      regeneration changed nothing, and no exit-1-forcing judgment item was printed.
+  0 — every row resolved in its declared clean state (for a command-backed row, its
+      command exited in that state; the command-less budget row has no command and
+      resolves clean, informational, or judgment on its own git-derived arms), the
+      mechanical regeneration changed nothing, and no exit-1-forcing judgment item
+      was printed.
   1 — at least one of {the manifest bytes changed, an exit-1-forcing judgment item
       was printed} holds, and no row hit the infrastructure state.
-  2 — infrastructure failure: a row's command failed to launch (absent file,
-      interpreter launch failure), or a launched command exited outside its row's
-      declared exit set. Exit 2 takes precedence over exit 1.
+  2 — infrastructure failure. Exit 2 takes precedence over exit 1. It is reached from
+      an exit code OUTSIDE a row's declared set AND from several paths INSIDE it —
+      the declared set bounds what the row's generator is expected to return, not what
+      counts as an established check:
+        * a row's command failed to launch (absent file, interpreter launch failure);
+        * a launched command exited outside its row's declared exit set;
+        * a judgment row exited inside its declared set but its output matched one of
+          the row's `infra_markers` (an input failure reported as an exit code that
+          otherwise means drift);
+        * the mechanical row exited in its clean state but produced no artifact;
+        * the mechanical row exited 1 with no `cloud-writer-contract:` marker (an
+          interpreter traceback rather than a reconcilable closure error);
+        * an artifact snapshot could not be read;
+        * the helper itself raised an unhandled exception (the top-level net at the
+          bottom of this file — without it CPython would exit 1, aliasing an unchecked
+          run onto the resolvable "action required" state).
 Informational lines (the budget row's resolved and `unestablished` arms) select no
 state by themselves.
 
@@ -61,7 +77,10 @@ states above and no row report accompanies it.
 """
 
 import argparse
+import fnmatch
 import subprocess
+import sys
+import traceback
 from pathlib import Path
 
 MECHANICAL_ARTIFACT = "scripts/devflow-cloud-writer-contract.json"
@@ -108,6 +127,24 @@ ROWS = (
             "`python3 lib/generate-capability-profiles.py`, and update "
             "lib/review-profile.tokens when the resolved review list widens"
         ),
+        # Same discriminator the other two judgment rows carry: the generator raises
+        # GenError for an INPUT failure (an absent/unreadable/malformed manifest, an
+        # unreadable target workflow, an unreadable reviewer lock) and exits 1 —
+        # byte-identically to a real token drift. Without these markers a malformed
+        # lib/capability-profiles.json would be reported as a judgment item telling the
+        # agent to regenerate from the very file the generator could not read, and the
+        # pass would record `run` for a row that was never checked.
+        # Deliberately EXCLUDED: the `manifest: …` schema errors, the `region …` anchor
+        # errors, and the review-boundary/token-drift outputs — those ARE genuine
+        # findings, and matching them would hide a real one (the worse error).
+        "infra_markers": (
+            "manifest absent:",
+            "manifest unreadable:",
+            "manifest malformed JSON:",
+            "target workflow unreadable:",
+            "target workflow file absent:",
+            "reviewer security boundary lock unreadable:",
+        ),
     },
     {
         "name": "prompt-mass-baseline",
@@ -130,10 +167,18 @@ ROWS = (
         # or absent. A completeness failure ("manifest completeness failure: …") is
         # genuine drift and deliberately does NOT match — matching it would hide a real
         # finding, the opposite and worse error.
+        # `manifest-listed file is unreadable:` is listed separately from `: unreadable:`
+        # and is NOT redundant with it: the census spells that arm
+        # "manifest-listed file is unreadable: <path>: <exc>" — "is unreadable:", with no
+        # colon before the word — so the `: unreadable:` literal (which matches the
+        # manifest/baseline JSON read arm) does not cover it. An unreadable CLAUDE.md or
+        # skill asset is the likeliest input failure of all, and without this row it was
+        # reported as baseline drift.
         "infra_markers": (
             "not found or not a directory",
             ": malformed JSON:",
             ": unreadable:",
+            "manifest-listed file is unreadable:",
         ),
     },
     {
@@ -224,9 +269,17 @@ def watch_list(root):
         if not (root / parent).is_dir():
             missing.append(pattern)
             continue
-        members.extend(
-            sorted(p.relative_to(root).as_posix() for p in (root / parent).glob(leaf))
-        )
+        # `glob` walks the directory, so an unreadable one raises rather than yielding
+        # nothing. Report the pattern as missing (the UNESTABLISHED arm the caller
+        # already handles) instead of letting an OSError escape as a traceback.
+        try:
+            found = sorted(
+                p.relative_to(root).as_posix() for p in (root / parent).glob(leaf)
+            )
+        except OSError:
+            missing.append(pattern)
+            continue
+        members.extend(found)
     return sorted(set(members)), sorted(missing)
 
 
@@ -256,7 +309,11 @@ def _git_paths(root, argv):
 
 
 def budget_row(row, root, report):
-    """Detect a stale review-bundle budget record. Returns True when exit-1-forcing.
+    """Detect a stale review-bundle budget record.
+
+    Returns `(forces_exit_1, infrastructure)`, like every other row's check callable —
+    `budget_row` never selects the infrastructure state, so its second element is
+    always False, but the arity is the uniform one `main()` dispatches through.
 
     This row measures nothing: re-deriving `_rb_words` here would be a second
     implementation of a measurement the suite already owns. It only answers "did the
@@ -294,7 +351,19 @@ def budget_row(row, root, report):
         )
         return False, False
     union = uncommitted | untracked | branch
-    touched = sorted(union & set(members))
+    # Intersecting against the EXPANDED members alone fails open on a DELETED or renamed
+    # individual glob member: the parent still exists (so `missing` is empty and the
+    # unestablished arm never fires), the old path is gone from disk (so it is not in
+    # `members`), yet git reports it in the change set. The row would then print "no
+    # review-bundle member changed" for exactly the change that moved it. Matching the
+    # patterns themselves closes that leg — the same direction already closed for the
+    # renamed-literal and renamed-parent legs.
+    touched = sorted(
+        path
+        for path in union
+        if path in set(members)
+        or any(fnmatch.fnmatch(path, pattern) for pattern in BUDGET_WATCH_GLOBS)
+    )
     if not touched:
         report.append(f"[{name}] clean — no review-bundle member changed in this change set")
         return False, False
@@ -315,15 +384,56 @@ def budget_row(row, root, report):
     return True, False
 
 
+def _marker_hit(markers, output):
+    """The first marker contained in some single output line, else None.
+
+    Scoped per LINE rather than against the concatenated blob: a marker must appear
+    within one emitted diagnostic, so it can never be assembled across a line break
+    from two unrelated messages.
+
+    Deliberately NOT anchored to the line start. The markers are not uniformly
+    line-leading — the census's `: malformed JSON:` and `: unreadable:` are mid-line
+    fragments of `prompt-mass census: <path>: malformed JSON: …`, while the
+    coverage-map guard's `[arm4] …` and `[input-error]` are line-leading. A
+    startswith() rule would silently stop matching the census row's three markers and
+    reopen exactly the fail-open this discriminator exists to close, so the residual
+    risk (a marker quoted inside a longer diagnostic on one line) is accepted rather
+    than traded for a worse one.
+    """
+    return next(
+        (m for m in markers if any(m in line for line in output.splitlines())),
+        None,
+    )
+
+
 def run_row(row, root, report):
     """Execute one command-backed row. Returns (forces_exit_1, infrastructure)."""
     name = row["name"]
-    target = root / row["argv"][1]
+    # The script is the first non-flag argv element after the interpreter — NOT slot 1
+    # positionally. A future row spelled `("python3", "-m", "pkg")` (or carrying a
+    # leading flag) would resolve `root / "-m"`, which never exists, and the
+    # declared-set branch below would then assert `(target absent: -m)` about a script
+    # that is present — a misdirected diagnosis on an already-failing path. When no
+    # script can be identified, claim no absence at all.
+    target_rel = next((a for a in row["argv"][1:] if not a.startswith("-")), None)
     # The mechanical generator writes unconditionally on success, so "did anything
     # change?" is answered by bracketing the run with byte snapshots — never by the
     # generator's own wording, which says "wrote <path>" either way.
     written = root / row["writes"] if row["kind"] == "mechanical" else None
-    before = written.read_bytes() if written and written.is_file() else None
+    # The snapshot is an OS read, and it brackets the run OUTSIDE the try below (which
+    # covers only subprocess.run). An unreadable/undeletable manifest (PermissionError,
+    # IsADirectoryError — what a half-restored worktree or a root-owned fixture
+    # produces) would otherwise escape as a traceback, and a traceback exits 1: the
+    # infrastructure state aliased onto "action required", which is the exact
+    # unknown-collapsed-onto-a-real-value class this helper exists to prevent.
+    try:
+        before = written.read_bytes() if written and written.is_file() else None
+    except OSError as error:
+        report.append(
+            f"[{name}] INFRASTRUCTURE could not read {row['writes']} before the run "
+            f"({error}) — nothing was compared and nothing was verified."
+        )
+        return False, True
     try:
         proc = subprocess.run(
             row["argv"], cwd=str(root), capture_output=True, text=True, check=False
@@ -341,7 +451,11 @@ def run_row(row, root, report):
     # actually catches it. Naming the path here keeps that diagnosis attributable.
     declared = row["exits"]
     if proc.returncode not in declared:
-        missing = "" if target.exists() else f" (target absent: {row['argv'][1]})"
+        missing = (
+            ""
+            if target_rel is None or (root / target_rel).exists()
+            else f" (target absent: {target_rel})"
+        )
         report.append(
             f"[{name}] INFRASTRUCTURE `{' '.join(row['argv'])}` exited "
             f"{proc.returncode}, outside its declared set {declared}{missing}\n"
@@ -350,7 +464,14 @@ def run_row(row, root, report):
         return False, True
 
     if row["kind"] == "mechanical":
-        after = written.read_bytes() if written.is_file() else None
+        try:
+            after = written.read_bytes() if written.is_file() else None
+        except OSError as error:
+            report.append(
+                f"[{name}] INFRASTRUCTURE could not read {row['writes']} after the run "
+                f"({error}) — the change comparison never happened."
+            )
+            return False, True
         return _mechanical_outcome(row, proc, output, before != after, after, report)
 
     if proc.returncode in row["clean"]:
@@ -358,7 +479,7 @@ def run_row(row, root, report):
             f"[{name}] clean — `{' '.join(row['argv'])}` exited {proc.returncode}"
         )
         return False, False
-    hit = next((m for m in row.get("infra_markers", ()) if m in output), None)
+    hit = _marker_hit(row.get("infra_markers", ()), output)
     if hit is not None:
         report.append(
             f"[{name}] INFRASTRUCTURE `{' '.join(row['argv'])}` exited "
@@ -400,7 +521,7 @@ def _mechanical_outcome(row, proc, output, changed, after, report):
     # produce. Keying on the generator's own marker is what separates that reconcilable
     # closure error from an interpreter traceback, which must not be dressed up as a
     # judgment item the agent is told to "resolve".
-    if "cloud-writer-contract:" in output:
+    if _marker_hit(("cloud-writer-contract:",), output) is not None:
         report.append(
             f"[{name}] JUDGMENT the closure is broken (exit 1):\n"
             f"{output}\n"
@@ -466,13 +587,20 @@ def main(argv=None):
     forces_one = False
     infrastructure = False
 
-    for row in ROWS:
-        forced, infra = row["check"](row, root, report)
-        forces_one = forced or forces_one
-        infrastructure = infra or infrastructure
-
-    for line in report:
-        print(line)
+    # `report` is accumulated and flushed only after every row, so an exception in a
+    # late row would discard the earlier rows' findings too — the caller would then see
+    # a traceback, exit 1, and NO report lines, and the prompt guard (which keys the
+    # never-checked verdict on the literal INFRASTRUCTURE plus exit 2) would fall
+    # through to the exit-1 branch over an empty report. `finally` guarantees whatever
+    # was established still prints; the top-level net below supplies the exit-2 state.
+    try:
+        for row in ROWS:
+            forced, infra = row["check"](row, root, report)
+            forces_one = forced or forces_one
+            infrastructure = infra or infrastructure
+    finally:
+        for line in report:
+            print(line)
 
     if infrastructure:
         print("regenerate-artifacts: INFRASTRUCTURE failure — exit 2")
@@ -489,4 +617,22 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # An unhandled exception would otherwise exit 1 — the SAME code as "a judgment item
+    # was printed" — so the caller could not tell an unchecked run from a resolvable
+    # one. Route it to the declared infrastructure state (exit 2) with the same
+    # `INFRASTRUCTURE` literal the row reports use, so a consumer keying on that token
+    # sees it here too. `SystemExit` is re-raised untouched: main()'s own three states
+    # pass through unchanged.
+    try:
+        raise SystemExit(main())
+    except SystemExit:
+        raise
+    except Exception as _error:  # noqa: BLE001 — deliberate top-level net
+        traceback.print_exc()
+        print(
+            "regenerate-artifacts: INFRASTRUCTURE failure — unhandled "
+            f"{type(_error).__name__}: {_error} — no artifact state was established "
+            "— exit 2",
+            file=sys.stderr,
+        )
+        raise SystemExit(2) from None

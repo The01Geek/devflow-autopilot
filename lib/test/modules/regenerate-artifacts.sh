@@ -44,6 +44,15 @@ trap _ra_cleanup EXIT
 # assertion re-compares against this so a helper that escaped its target root would
 # be caught by the very next assertion rather than shipping green.
 _ra_live_before="$(cat "$RA_LIVE_MANIFEST" 2>/dev/null)"
+# Non-emptiness is asserted, not assumed: an unreadable or absent live manifest would
+# make _ra_live_before empty, and every _ra_live_unchanged guard below would then
+# compare "" to "" and pass vacuously — ~20 confinement assertions failing open at once,
+# on exactly the broken tree they exist to catch.
+case "$_ra_live_before" in
+  '') assert_eq "#619 the live manifest baseline is non-empty (confinement guards are live)" yes \
+        "no(empty — $RA_LIVE_MANIFEST unreadable or absent; every live-unchanged guard would be vacuous)" ;;
+  *)  assert_eq "#619 the live manifest baseline is non-empty (confinement guards are live)" yes yes ;;
+esac
 # One byte-compare assertion used by every "these bytes must not have moved" check, so
 # the shape exists once rather than being re-spelled per call site.
 _ra_same() {  # name expected actual fail-detail
@@ -110,9 +119,17 @@ _ra_fixture() {  # <dest>
 # this the budget assertions below would be vacuous: the run's exit 1 would be
 # attributable to the manifest or the census, not to the budget row under test.
 _ra_reconcile() {  # <root>
-  ( cd "$1" && python3 lib/test/cloud_writer_contract.py generate >/dev/null 2>&1
-    python3 lib/test/prompt-mass-census.py --write-baseline >.ra-baseline.tmp 2>/dev/null \
-      && mv .ra-baseline.tmp lib/test/prompt-mass-baseline.json ) >/dev/null 2>&1
+  # rc is CHECKED, not swallowed: if a reconcile step silently fails, the row it was
+  # meant to quiet stays drifted and the budget assertion downstream becomes
+  # attributable to that row instead of the one under test — a vacuous pass wearing a
+  # green tick. Surface it as a named failure rather than letting the caller's
+  # assertion misreport what it measured.
+  if ! ( cd "$1" && python3 lib/test/cloud_writer_contract.py generate >/dev/null 2>&1 &&
+         python3 lib/test/prompt-mass-census.py --write-baseline >.ra-baseline.tmp 2>/dev/null &&
+         mv .ra-baseline.tmp lib/test/prompt-mass-baseline.json ) >/dev/null 2>&1; then
+    assert_eq "#619 fixture reconcile succeeded for ${1##*/}" yes \
+      "no(cloud-writer generate or census --write-baseline failed; downstream budget assertions would be misattributed)"
+  fi
 }
 
 # Run the helper against a target root, capturing combined output and rc into
@@ -224,6 +241,7 @@ RA_A3_WF="$(cat "$RA_A3/.github/workflows/devflow-runner.yml" "$RA_A3/.github/wo
 RA_A3_LOCK="$(cat "$RA_A3/lib/review-profile.tokens")"
 RA_A3_BASE="$(cat "$RA_A3/lib/test/prompt-mass-baseline.json")"
 RA_A3_BUDGET="$(cat "$RA_A3/docs/review-bundle-budget.md")"
+RA_A3_COVMAP="$(cat "$RA_A3/lib/test/modules/coverage-map.json")"
 _ra_run "$RA_A3"
 assert_eq "#619 A3 combined capability+census drift exits 1" "1" "$(_ra_rc "$RA_A3")"
 _ra_has "#619 A3 one invocation reports the capability judgment item" "$RA_A3" \
@@ -244,6 +262,10 @@ _ra_same "#619 A3 write scope: the four workflow files are byte-unchanged" \
 _ra_cmp "#619 A3 write scope: lib/review-profile.tokens is byte-unchanged" "$RA_A3_LOCK" lib/review-profile.tokens
 _ra_cmp "#619 A3 write scope: the prompt-mass baseline is byte-unchanged" "$RA_A3_BASE" lib/test/prompt-mass-baseline.json
 _ra_cmp "#619 A3 write scope: the budget record is byte-unchanged" "$RA_A3_BUDGET" docs/review-bundle-budget.md
+# The coverage-map ratchet is a judgment row like the other three, so its artifact is
+# equally in the never-written set — omitting it left one registered judgment row's
+# write scope unasserted.
+_ra_cmp "#619 A3 write scope: the coverage map is byte-unchanged" "$RA_A3_COVMAP" lib/test/modules/coverage-map.json
 _ra_live_unchanged "#619 A3 live manifest byte-unchanged after the combined-drift run"
 
 # ── A4 — --list names every artifact and exposes the real bundle membership ──
@@ -264,6 +286,21 @@ done
 RA_WATCH_HELPER="$(printf '%s\n' "$RA_LIST" | sed -n 's/^budget-watch	//p' | sort)"
 RA_WATCH_DISK="$( { printf '%s\n' "skills/review/SKILL.md" ".devflow/prompt-extensions/review.md"
   ( cd "$RA_REPO" && ls skills/review/phases/*.md ); } | sort )"
+# Both comparands are derived through `sed`/`ls`/`sort` — none of which lib/preflight.sh
+# guarantees. A missing tool empties BOTH sides, and the equality below would then pass
+# comparing "" to "" (CLAUDE.md's un-guaranteed-tool rule: a value that decides an
+# emitted result must fail CLOSED, not silently). Assert both sides are non-empty first,
+# so tool absence surfaces as a RED assertion naming the cause instead of a vacuous pass.
+case "$RA_WATCH_DISK" in
+  '') assert_eq "#619 A4 the disk-derived watch list is non-empty" yes \
+        "no(empty — sed/ls/sort absent or the phases/ glob matched nothing)" ;;
+  *)  assert_eq "#619 A4 the disk-derived watch list is non-empty" yes yes ;;
+esac
+case "$RA_WATCH_HELPER" in
+  '') assert_eq "#619 A4 the helper-reported watch list is non-empty" yes \
+        "no(empty — sed/sort absent, or --list emitted no budget-watch rows)" ;;
+  *)  assert_eq "#619 A4 the helper-reported watch list is non-empty" yes yes ;;
+esac
 assert_eq "#619 A4 --list watch list equals the disk-derived bundle membership" \
   "$RA_WATCH_DISK" "$RA_WATCH_HELPER"
 
@@ -288,8 +325,91 @@ RA_A5P="$_ra_tmp_root/a5p"; _ra_fixture "$RA_A5P"
 printf '\n<!-- #619 census drift -->\n' >> "$RA_A5P/.devflow/prompt-extensions/implement.md"
 rm -f "$RA_A5P/lib/generate-capability-profiles.py"
 _ra_run "$RA_A5P"
+# Positive control for the precedence claim (guard-class shape 3). The rc assertion
+# below passes on the infrastructure condition ALONE — `main()` returns 2 whenever
+# `infrastructure` is set, regardless of `forces_one` — so without establishing that a
+# judgment item was ALSO present, the arm measures a plain exit-2 run and would stay
+# green if the census silently stopped reporting drift for this edit shape. Pin the
+# judgment row's own attributed signal first, so precedence is what is actually tested.
+_ra_has "#619 A5p the concurrent judgment item is present (precedence positive control)" \
+  "$RA_A5P" "[prompt-mass-baseline] JUDGMENT"
 assert_eq "#619 A5 exit 2 takes precedence over a concurrent judgment item" "2" "$(_ra_rc "$RA_A5P")"
 _ra_live_unchanged "#619 A5p live manifest byte-unchanged after the precedence run"
+
+# ── A5q — the MECHANICAL row regenerates while ANOTHER row hits infrastructure ──
+# The regeneration is exit-1-forcing and the infrastructure state wins, so the caller
+# gets exit 2 over a manifest that WAS rewritten and still must be committed. Nothing
+# else exercises that combination: every other exit-2 arm leaves the mechanical row
+# clean or makes it the infrastructure source itself. A regression that skipped the
+# remaining rows on the first infrastructure hit — or dropped the earlier rows' report
+# lines — would ship green without this.
+RA_A5Q="$_ra_tmp_root/a5q"; _ra_fixture "$RA_A5Q"
+printf '{"corrupted": true}\n' > "$RA_A5Q/scripts/devflow-cloud-writer-contract.json"
+RA_A5Q_BEFORE="$(cat "$RA_A5Q/scripts/devflow-cloud-writer-contract.json")"
+rm -f "$RA_A5Q/lib/generate-capability-profiles.py"
+_ra_run "$RA_A5Q"
+assert_eq "#619 A5q a regenerating mechanical row plus an infrastructure row exits 2" \
+  "2" "$(_ra_rc "$RA_A5Q")"
+# The positive control: exit 2 alone would pass on the infrastructure condition, so pin
+# that the regeneration genuinely happened and was still reported in the same run.
+_ra_has "#619 A5q the regenerated manifest is still reported alongside the exit-2 state" \
+  "$RA_A5Q" "REGENERATED scripts/devflow-cloud-writer-contract.json"
+_ra_same "#619 A5q the manifest was rewritten despite the exit-2 outcome" changed \
+  "$([ "$RA_A5Q_BEFORE" != "$(cat "$RA_A5Q/scripts/devflow-cloud-writer-contract.json")" ] \
+    && echo changed || echo unchanged)" \
+  "the exit-2 run skipped the mechanical regeneration"
+_ra_live_unchanged "#619 A5q live manifest byte-unchanged after the regenerate-plus-infra run"
+
+# ── A5r — the HELPER's OWN unhandled exception routes to exit 2, never CPython's 1 ──
+# Without the top-level net an uncaught exception exits 1 — the SAME code as "a judgment
+# item was printed" — so a run that established nothing would be indistinguishable from
+# a resolvable one, and the consumers' guard (which keys the never-checked verdict on
+# the exit code and the INFRASTRUCTURE literal) would route the agent to "resolve the
+# printed items" over a report that never printed. An unreadable manifest is the shape a
+# half-restored worktree actually produces; it reaches the snapshot read, which sits
+# outside the row's own subprocess try.
+RA_A5R="$_ra_tmp_root/a5r"; _ra_fixture "$RA_A5R"
+chmod 000 "$RA_A5R/scripts/devflow-cloud-writer-contract.json" 2>/dev/null
+if [ -r "$RA_A5R/scripts/devflow-cloud-writer-contract.json" ]; then
+  # Running as root (or on a filesystem ignoring mode bits) makes the unreadable state
+  # unreachable, so the arm cannot be expressed here. Say so rather than asserting a
+  # pass the host never established.
+  assert_eq "#619 A5r an unreadable artifact snapshot routes to exit 2" yes \
+    "no(host could not make the file unreadable — chmod 000 still readable)"
+else
+  _ra_run "$RA_A5R"
+  assert_eq "#619 A5r an unreadable artifact snapshot routes to exit 2, never exit 1" \
+    "2" "$(_ra_rc "$RA_A5R")"
+  _ra_has "#619 A5r the unreadable snapshot is attributed to its row as INFRASTRUCTURE" \
+    "$RA_A5R" "[cloud-writer-manifest] INFRASTRUCTURE"
+  # The report must survive: a state that printed nothing is what makes the consumers'
+  # guard read "nothing to do".
+  _ra_has "#619 A5r later rows still report despite the earlier row's failure" \
+    "$RA_A5R" "[coverage-map-ratchet]"
+fi
+chmod 644 "$RA_A5R/scripts/devflow-cloud-writer-contract.json" 2>/dev/null
+_ra_live_unchanged "#619 A5r live manifest byte-unchanged after the unreadable-snapshot run"
+
+# ── A5s — an argparse USAGE error exits 2 and runs no row ────────────────────
+# The helper's exit-contract docstring makes a positive claim about this boundary
+# (rc 2, before any row runs, with no row report). An untested documented claim in a
+# file this module content-pins elsewhere is a documented-falsehood risk.
+RA_A5S="$_ra_tmp_root/a5s"; _ra_fixture "$RA_A5S"
+RA_A5S_BEFORE="$(cat "$RA_A5S/scripts/devflow-cloud-writer-contract.json")"
+python3 "$RA_HELPER" --repo-root "$RA_A5S" --no-such-flag \
+  >"$RA_A5S/.ra.out" 2>&1; printf '%s\n' "$?" >"$RA_A5S/.ra.rc"
+assert_eq "#619 A5s an unknown flag exits 2" "2" "$(_ra_rc "$RA_A5S")"
+case "$(cat "$RA_A5S/.ra.out")" in
+  *"[cloud-writer-manifest]"*|*"regenerate-artifacts: "*)
+    assert_eq "#619 A5s the usage error emits no row report" yes \
+      "no(a row report accompanied the usage error)" ;;
+  *) assert_eq "#619 A5s the usage error emits no row report" yes yes ;;
+esac
+_ra_same "#619 A5s the usage error ran no row (fixture manifest untouched)" unchanged \
+  "$([ "$RA_A5S_BEFORE" = "$(cat "$RA_A5S/scripts/devflow-cloud-writer-contract.json")" ] \
+    && echo unchanged || echo changed)" \
+  "a row ran despite the usage error"
+_ra_live_unchanged "#619 A5s live manifest byte-unchanged after the usage-error run"
 
 # ── A5b — a launched command exiting OUTSIDE its declared set is exit 2 ──────
 RA_A5B="$_ra_tmp_root/a5b"; _ra_fixture "$RA_A5B"
@@ -401,6 +521,28 @@ _ra_has "#619 A5i a renamed glob parent reports unestablished, never a false cle
   "absent from the tree: skills/review/phases/*.md"
 _ra_live_unchanged "#619 A5i live manifest byte-unchanged after the renamed-parent run"
 
+# ── A5i2 — a DELETED individual glob member still trips the budget row ───────
+# A5e closes the renamed-literal leg and A5i the renamed-PARENT leg; an individual
+# phases/*.md deleted or renamed is the third and was open: the parent still exists (so
+# `missing` stays empty and the unestablished arm never fires) and the old path is gone
+# from disk (so it is absent from the expanded member list), while git still reports it
+# in the change set. Intersecting on the expanded members alone would answer "no
+# review-bundle member changed" for exactly the change that moved it. The fnmatch leg is
+# what catches it — deleting it turns this arm RED and nothing else.
+RA_A5I2="$_ra_tmp_root/a5i2"; _ra_fixture "$RA_A5I2"
+rm -f "$RA_A5I2/skills/review/phases/phase-4-1-8-prose-cutover.md"
+# No _ra_reconcile here, deliberately: deleting a reached phase file breaks the
+# cloud-writer CLOSURE, which `generate` cannot repair (it exits 1), so a reconcile
+# would fail rather than quiet the other rows. The assertions below pin the budget
+# row's OWN attributed line instead, so a concurrently-drifted row cannot stand in for
+# it — the same row-attribution discipline A5/A5e use in place of a bare match.
+_ra_run "$RA_A5I2"
+_ra_has "#619 A5i2 a deleted glob member trips the budget judgment item" "$RA_A5I2" \
+  "[review-bundle-budget] JUDGMENT"
+_ra_has "#619 A5i2 the deleted member is named as the changed member" "$RA_A5I2" \
+  "skills/review/phases/phase-4-1-8-prose-cutover.md"
+_ra_live_unchanged "#619 A5i2 live manifest byte-unchanged after the deleted-member run"
+
 # ── A5j — an UNREADABLE coverage-map is infrastructure, not "add the missing rows" ──
 # A5g covers the guard's [input-error] (git) path. An absent/malformed coverage-map
 # takes a DIFFERENT path ([arm4]/[arm8]) and arm 4 RETURNS before every map-dependent
@@ -414,6 +556,43 @@ assert_eq "#619 A5j an unreadable coverage-map exits 2, never 1" "2" "$(_ra_rc "
 _ra_has "#619 A5j the unreadable map is matched by its own arm4 marker" "$RA_A5J" \
   "matched '[arm4] coverage-map unreadable'"
 _ra_live_unchanged "#619 A5j live manifest byte-unchanged after the unreadable-map run"
+
+# ── A5k — a MALFORMED capability manifest is infrastructure, not "regenerate" ──
+# The generator raises GenError and exits 1 for an unreadable/malformed manifest —
+# byte-identically to a real token drift. Unmarked, the row would report a judgment
+# item telling the agent to regenerate from the very file the generator could not
+# parse, and the pass would record `run` for a row that was never checked. This row
+# was the only judgment row shipping without infra_markers.
+RA_A5K="$_ra_tmp_root/a5k"; _ra_fixture "$RA_A5K"
+printf '{ not json at all\n' > "$RA_A5K/lib/capability-profiles.json"
+_ra_run "$RA_A5K"
+assert_eq "#619 A5k a malformed capability manifest exits 2, never 1" "2" "$(_ra_rc "$RA_A5K")"
+_ra_has "#619 A5k the malformed manifest is attributed to its own row" "$RA_A5K" \
+  "[capability-profile-literals] INFRASTRUCTURE"
+_ra_has "#619 A5k the malformed manifest is matched by its own marker" "$RA_A5K" \
+  "manifest malformed JSON:"
+_ra_live_unchanged "#619 A5k live manifest byte-unchanged after the malformed-manifest run"
+
+# ── A5m — the CENSUS infra_markers are exercised (they were declared but dead) ──
+# Every other INFRASTRUCTURE assertion targets the cloud-writer or coverage-map rows,
+# so a typo in the census row's three marker literals shipped green: the row would
+# report an unmeasurable tree as a judgment item telling the agent to edit a baseline
+# whose measurement never happened. An absent CLAUDE.md is a census input failure
+# (`: unreadable:` / `not found or not a directory` class), not baseline drift.
+# A MALFORMED census manifest is the `: malformed JSON:` shape — a deterministic input
+# failure that needs no permission bits (the census derives sizes with os.path.getsize,
+# so an unreadable listed file does NOT fail it; only its own JSON reads do). A merely
+# ABSENT listed file is a manifest COMPLETENESS failure, which is genuine drift and
+# deliberately does not match the markers — matching it would hide a real finding.
+RA_A5M="$_ra_tmp_root/a5m"; _ra_fixture "$RA_A5M"
+printf '{ not json at all\n' > "$RA_A5M/lib/test/prompt-mass-manifest.json"
+_ra_run "$RA_A5M"
+assert_eq "#619 A5m a census input failure exits 2, never 1" "2" "$(_ra_rc "$RA_A5M")"
+_ra_has "#619 A5m the census input failure is attributed to its own row" "$RA_A5M" \
+  "[prompt-mass-baseline] INFRASTRUCTURE"
+_ra_has "#619 A5m the census input failure is matched by its own marker" "$RA_A5M" \
+  ": malformed JSON:"
+_ra_live_unchanged "#619 A5m live manifest byte-unchanged after the census-input-failure run"
 
 # ── A5f — default_repo_root anchors its probe to THIS checkout, not the process cwd ──
 # The helper's one write target is a tracked file, so a root resolved from an unrelated

@@ -34290,8 +34290,8 @@ RAF_ROOT_CEIL=3500
 # ceiling (root 3,213 + extension 2,291 = 5,504), so the
 # batched-regeneration instruction the issue requires on this surface could not fit
 # under it at any phrasing — the section was already trimmed to its operative
-# minimum before this renegotiation was taken. The ceiling carries ~10 words of
-# headroom over the measured 5,680 (mirroring #556's 6), deliberately: a ceiling set
+# minimum before this renegotiation was taken. The ceiling carries ~7 words of
+# headroom over the measured 5,683 (mirroring #556's 6), deliberately: a ceiling set
 # exactly at the measurement makes the next one-sentence edit a budget breach. The growth is the
 # audited decision recorded in docs/cutovers/issue-619-batched-artifact-regeneration.md;
 # update docs/review-and-fix-budget.md's ceilings-table cell in lockstep.
