@@ -4033,8 +4033,12 @@ assert_pin_red_on_removal "#620: non-binding-directive pin is removal-sensitive"
   "$RAF_PIN_NONBINDING" "$MAXI_ROOT"
 assert_pin_unique "#620: authority binds to the most recent edit alone, not the login set" \
   "$RAF_PIN_RECENCY" "$MAXI_ROOT"
+# The mutation strips the WHOLE recency span, not just the pinned literal: deleting
+# `the **most recent** edit alone` alone leaves the following clause ("never any privileged login
+# merely present in the list") still forbidding set-semantics, so the mutant would not actually
+# reconstruct the fail-open — a removal-sensitive pin wearing a behavioral-fix label.
 assert_pin_red_under "#620: recency pin catches reverting authority to set-semantics" \
-  "$RAF_PIN_RECENCY" 's/the \*\*most recent\*\* edit alone/the edits recorded/' \
+  "$RAF_PIN_RECENCY" 's/the \*\*most recent\*\* edit alone — the node with the latest `editedAt`, never any privileged login merely present in the list/the edits recorded/' \
   "$MAXI_ROOT"
 assert_pin_unique "#620: a truncated or empty edit page routes to unestablished" \
   "$RAF_PIN_TRUNCATED" "$MAXI_ROOT"
@@ -36137,7 +36141,9 @@ assert_eq "#530 budget: checked-in budget table exists" "yes" \
 # including a Measured cell that happens to equal its ceiling — so it was nearly redundant with
 # the adjacent-column `| <ceil> | <measured> |` pins below and could pass vacuously at that
 # boundary. The `≤ <ceil> words |` form matches only the ceilings-summary-table label cell (the
-# prose maintainer note spells the same "≤ N words" but never with a trailing ` |`), giving this
+# prose maintainer note restates the root ceiling in a different form entirely — "below its
+# <N>-word ceiling", no `≤` at all — which is why it needs the separately-scoped assertion below),
+# giving this
 # check a distinct role: it asserts each ceiling is DOCUMENTED in the summary table's own row,
 # which the per-row Measured pins do not by themselves guarantee.
 _raf_doc_nocommas="$(< "$RAF_BUDGET_DOC")"
@@ -36151,8 +36157,11 @@ done
 # ceiling was unbound — and it shipped saying "below its 3,538-word ceiling", a value matching no
 # constant anywhere in the repo, in the very sentence that tells a maintainer how much headroom
 # exists. Bind the prose form to the same constant so the note cannot drift from the guard again.
+# Scoped to the note's own sentence, not a bare `its <N>-word`: the operand is the WHOLE doc, so a
+# bare substring would pass on any other line carrying it — and would still pass if the note were
+# reworded stale or deleted outright, the same vacuity class the #539 note above condemns.
 assert_eq "#620 budget: maintainer note's prose root ceiling matches RAF_ROOT_CEIL ($RAF_ROOT_CEIL)" "yes" \
-  "$(case "$_raf_doc_nocommas" in *"its ${RAF_ROOT_CEIL}-word"*) echo yes;; *) echo no;; esac)"
+  "$(case "$_raf_doc_nocommas" in *"The root sits below its ${RAF_ROOT_CEIL}-word"*) echo yes;; *) echo no;; esac)"
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
   '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +5,226 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
