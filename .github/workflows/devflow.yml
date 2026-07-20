@@ -51,6 +51,13 @@ jobs:
       # path_to_claude_code_executable input in the command job below. Empty (the
       # default) leaves the action's automatic-install path unchanged.
       claude_code_executable: ${{ steps.extract.outputs.claude_code_executable }}
+      # The whole trigger-time config document, forwarded verbatim so the command
+      # job's git-env pin step (issue #645) can resolve setup.git_dir_pin /
+      # setup.git_work_tree_pin through the bundled helper rather than re-parsing
+      # them inline here. This job checks out the DEFAULT BRANCH at trigger time,
+      # so the forwarded document is the trusted tree's — never the PR head's —
+      # which is what makes those keys post-merge-only.
+      config_json: ${{ steps.cfg.outputs.json }}
     steps:
       - uses: actions/checkout@v6
       - id: cfg
@@ -1014,20 +1021,56 @@ jobs:
             fi
           fi
 
+      # Resolve the two DEFAULT-OFF git-env pin flags and export the enabled ones
+      # (issue #645). Both keys default to false, so on a stock consumer this step
+      # emits NOTHING and neither GIT_DIR nor GIT_WORK_TREE is present in the
+      # action's environment — the pre-#643 behavior, which is the configuration
+      # that works everywhere. #643 set both unconditionally so configureGitAuth
+      # would resolve the repo on a self-hosted Windows runner (issue #602), but
+      # GIT_WORK_TREE also reaches the Claude Code CLI subprocess that installs
+      # plugins, where it makes `git clone` refuse an existing working tree — so
+      # every run died at plugin install with `fatal: working tree '<path>'
+      # already exists.`, before the agent did any work, producing no verdict at
+      # all. The helper is now the SINGLE producer of both variables; the action
+      # step below deliberately carries neither in its own `env:` block.
+      #
+      # JOB-SCOPED, not step-scoped: `$GITHUB_ENV` appends assignments and offers
+      # no removal verb, and the empty-value form that would approximate one is
+      # measured fatal (`GIT_DIR=` → `fatal: not a git repository: ''`), which is
+      # precisely why the mechanism is an append rather than an `env:` expression
+      # (GitHub's workflow syntax accepts no expression evaluating to a whole
+      # `env:` mapping, so a variable's KEY cannot be made conditionally absent
+      # there). So an enabled variable is in force for `Run Claude Code` AND every
+      # step after it, including the agent's own git operations.
+      #
+      # Fails OPEN to the working default. An absent helper emits nothing and
+      # exits 0 rather than failing the job: this workflow reaches consumers via
+      # install.sh's file-copy while the helper reaches them via the
+      # devflow_version vendor fetch, so a consumer can carry this step before it
+      # carries the helper, and that skew must not reproduce the outage above.
+      - name: Resolve git-env pins
+        env:
+          # The trigger-time `config` job's default-branch checkout — a trusted
+          # tree, never the PR head. That is what makes these keys post-merge-only.
+          GITENV_CFGJSON: ${{ needs.config.outputs.config_json }}
+          GITENV_WS: ${{ github.workspace }}
+        run: |
+          set -uo pipefail
+          HELPER='.devflow/vendor/devflow/scripts/emit-git-env.sh'
+          if [ ! -f "$HELPER" ]; then
+            echo "::notice::devflow git-env pins: bundled helper '$HELPER' is absent (this workflow ships via install.sh's file-copy, the helper via the devflow_version vendor fetch, so a consumer can carry the step first). Failing open to the working default: neither GIT_DIR nor GIT_WORK_TREE is exported."
+            exit 0
+          fi
+          CFG="${RUNNER_TEMP}/devflow-gitenv-config.json"
+          if ! printf '%s' "$GITENV_CFGJSON" > "$CFG" 2>/dev/null; then
+            echo "::warning::devflow git-env pins: could not materialize the trigger-time config into RUNNER_TEMP; failing open to the working default (neither variable exported)."
+            exit 0
+          fi
+          bash "$HELPER" --workspace "$GITENV_WS" --config-file "$CFG" --tier command >> "$GITHUB_ENV"
+
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
-        env:
-          # Pin the repository location so claude-code-action's configureGitAuth startup
-          # (repo-local `git config user.name/user.email`) resolves .git independent of the
-          # inherited CWD. Without these, a self-hosted Windows runner fails
-          # `fatal: not in a git directory` (exit 128) before the agent does any work
-          # (issue #602). STEP scope only — not job/workflow — so other steps' git ops are
-          # unaffected. git honors these on every platform; on a plain branch checkout
-          # (this tier's actual state, never a linked worktree) --git-dir == --git-common-dir,
-          # so phase-1-setup.md's worktree detection is not perturbed.
-          GIT_DIR: ${{ github.workspace }}/.git
-          GIT_WORK_TREE: ${{ github.workspace }}
         with:
           # Anthropic-default path only: pass the OAuth token when no provider is
           # active. A provider-routed section passes '' here (the action treats

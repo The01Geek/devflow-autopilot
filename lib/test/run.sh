@@ -8356,31 +8356,210 @@ assert_eq "#601 AC5: schema setup.claude_code_executable has a non-empty descrip
 assert_eq "#601 AC5: example config carries setup.claude_code_executable (empty default)" "" \
   "$(jq -r '.setup.claude_code_executable' "$I601_EXAMPLE")"
 
-# ── issue #602: GIT_DIR/GIT_WORK_TREE on the Run Claude Code step (self-hosted Windows) ──
-# Each of the three shipped workflows that invoke claude-code-action must set step-scoped
-# GIT_DIR/GIT_WORK_TREE env on the 'Run Claude Code' step so the action's configureGitAuth
-# git-identity config succeeds independent of the inherited CWD (the reporter's
-# `fatal: not in a git directory` / exit 128 on a self-hosted Windows runner). AC2 requires
-# STEP scope (not job/workflow scope, which would leak into other steps' git ops), so the
-# awk extraction scopes each grep to the step block (between the step name: and its with:) —
-# a var stranded at job/workflow scope would not appear here and the count-1 check fails.
-# The assert_pin_red_under mutation proofs re-introduce the guarded regression (env line
-# dropped → CWD-dependent git identity again) and each pin must go RED under it.
+# ── issue #645: the #602 git-env pins are ABSENT BY DEFAULT, behind two opt-in flags ──
+# Supersedes the original issue-#602 both-present contract. #602/PR #643 set step-scoped
+# GIT_DIR and GIT_WORK_TREE UNCONDITIONALLY on the 'Run Claude Code' step of the three
+# shipped workflows, so claude-code-action's configureGitAuth would resolve the repo on a
+# self-hosted Windows runner. But GIT_WORK_TREE also reaches the Claude Code CLI subprocess
+# that installs plugins, where it makes `git clone` refuse an existing working tree, so every
+# cloud run died at plugin install (`fatal: working tree '<path>' already exists.`) before the
+# agent did any work — a checkless, verdictless run. The two variables are now decoupled into
+# two independent opt-in config keys, BOTH DEFAULT FALSE, resolved by the bundled helper
+# scripts/emit-git-env.sh whose stdout a step immediately before 'Run Claude Code' appends to
+# $GITHUB_ENV. So the contract asserted here is the INVERSE of the old one: the action step's
+# OWN env: block must carry NEITHER variable (the helper is the single producer of both).
+#
+# The awk extraction scopes each count to the step block (between the step `name:` and its
+# `with:`). A zero-occurrence check over an EMPTY extraction passes vacuously — a renamed step
+# or a reordered `with:` key would silently make this green — so the extraction is itself
+# asserted non-empty first.
 I602_DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
 I602_IMPL_YML="$LIB/../.github/workflows/devflow-implement.yml"
 I602_RUNNER_YML="$LIB/../.github/workflows/devflow-runner.yml"
+# A-1 / A-2: absent-by-default in the action step's own env:, plus the helper step present
+# and positioned BEFORE it.
 for _f in "$I602_DEVFLOW_YML" "$I602_IMPL_YML" "$I602_RUNNER_YML"; do
   _b="$(basename "$_f")"
   I602_STEP_BLK="$(awk '/name: Run Claude Code/{f=1} f{print} f&&/^        with:/{exit}' "$_f")"
-  assert_eq "#602 AC1/AC2 [$_b]: GIT_DIR set on the Run Claude Code step (step scope)" "1" \
-    "$(printf '%s\n' "$I602_STEP_BLK" | grep -cF 'GIT_DIR: ${{ github.workspace }}/.git')"
-  assert_eq "#602 AC1/AC2 [$_b]: GIT_WORK_TREE set on the Run Claude Code step (step scope)" "1" \
-    "$(printf '%s\n' "$I602_STEP_BLK" | grep -cF 'GIT_WORK_TREE: ${{ github.workspace }}')"
-  assert_pin_red_under "#602 AC5 [$_b]: GIT_DIR pin is RED when the env line is dropped" \
-    'GIT_DIR: ${{ github.workspace }}/.git' '/GIT_DIR:/d' "$_f"
-  assert_pin_red_under "#602 AC5 [$_b]: GIT_WORK_TREE pin is RED when the env line is dropped" \
-    'GIT_WORK_TREE: ${{ github.workspace }}' '/GIT_WORK_TREE:/d' "$_f"
+  # Non-vacuity guard for the two zero-occurrence checks below.
+  assert_eq "#645 A-1 [$_b]: the Run Claude Code step block extraction is non-empty (anti-vacuity)" \
+    "yes" "$([ -n "$I602_STEP_BLK" ] && echo yes || echo no)"
+  assert_eq "#645 A-1 [$_b]: Run Claude Code step's own env: carries NO GIT_DIR entry" "0" \
+    "$(printf '%s\n' "$I602_STEP_BLK" | grep -c 'GIT_DIR')"
+  assert_eq "#645 A-1 [$_b]: Run Claude Code step's own env: carries NO GIT_WORK_TREE entry" "0" \
+    "$(printf '%s\n' "$I602_STEP_BLK" | grep -c 'GIT_WORK_TREE')"
+  assert_eq "#645 A-2 [$_b]: the git-env pin helper step is present" "1" \
+    "$(grep -cF 'name: Resolve git-env pins' "$_f")"
+  # The invocation is `bash "$HELPER" …` (HELPER resolved by the step's own trusted-source
+  # ladder on the review tier), so the operative pin is that line, not a bare path literal.
+  assert_eq "#645 A-2 [$_b]: the helper step invokes the resolved helper with a workspace and a tier" "1" \
+    "$(grep -cF 'bash "$HELPER" --workspace "$GITENV_WS" --config-file "$CFG" --tier' "$_f")"
+  assert_eq "#645 A-2 [$_b]: the helper the step resolves is emit-git-env.sh" "yes" \
+    "$(grep -q 'emit-git-env\.sh' "$_f" && echo yes || echo no)"
+  # Positional: the helper step must come BEFORE the action step, so the append to
+  # $GITHUB_ENV is in force when the action runs.
+  assert_eq "#645 A-2 [$_b]: the helper step precedes the Run Claude Code step" "yes" \
+    "$([ "$(grep -nF 'name: Resolve git-env pins' "$_f" | head -1 | cut -d: -f1)" -lt \
+        "$(grep -nF 'name: Run Claude Code' "$_f" | head -1 | cut -d: -f1)" ] && echo yes || echo no)"
+  # A-3 (first half): the absent-by-default assertion must catch the GUARDED REGRESSION —
+  # a re-inserted GIT_WORK_TREE entry in the action step's own env: block — not merely its
+  # own removal. assert_pin_red_under cannot express an INVERSE (zero-occurrence) pin, so the
+  # mutation is applied here and the assertion is re-evaluated over the mutated copy: it must
+  # flip from 0 to non-zero. The mutation re-creates exactly the shape that caused the outage.
+  I645_MUT="$(probe_tmp "#645 A-3 [$_b] re-insertion mutation")" || I645_MUT=''
+  if [ -n "$I645_MUT" ]; then
+    sed -E 's|^(      - name: Run Claude Code)$|\1\n        env:\n          GIT_WORK_TREE: ${{ github.workspace }}|' "$_f" > "$I645_MUT" 2>/dev/null
+    I645_MUT_BLK="$(awk '/name: Run Claude Code/{f=1} f{print} f&&/^        with:/{exit}' "$I645_MUT")"
+    assert_eq "#645 A-3 [$_b]: the absent-by-default GIT_WORK_TREE assertion goes RED when the env entry is re-inserted" \
+      "0->nonzero" \
+      "$(printf '%s\n' "$I602_STEP_BLK" | grep -c 'GIT_WORK_TREE')->$(printf '%s\n' "$I645_MUT_BLK" | grep -q 'GIT_WORK_TREE' && echo nonzero || echo 0)"
+    rm -f "$I645_MUT"
+  fi
+  # A-3 (second half): deleting the helper invocation step turns the A-2 pin RED.
+  assert_pin_red_under "#645 A-3 [$_b]: the helper-step pin is RED when the step name is deleted" \
+    'name: Resolve git-env pins' '/name: Resolve git-env pins/d' "$_f"
+  assert_pin_red_under "#645 A-3 [$_b]: the helper-invocation pin is RED when the invocation line is deleted" \
+    'bash "$HELPER" --workspace "$GITENV_WS" --config-file "$CFG" --tier' \
+    '/bash "\$HELPER" --workspace/d' "$_f"
 done
+# Tier wiring: each workflow passes the tier its population requires. The implement tier
+# must pass --tier implement, because that is what suppresses GIT_DIR on the one tier that
+# stages and pushes commits (ambient GIT_DIR makes a stage issued from a non-root working
+# directory record deletions across the rest of the tree).
+# Pin the tier on the INVOCATION LINE itself, not a bare `--tier X` substring: the step's
+# explanatory comment also names its tier, so a bare-substring count would be 2 and would
+# drift on any comment edit.
+I645_INVOC='bash "$HELPER" --workspace "$GITENV_WS" --config-file "$CFG" --tier'
+assert_eq "#645 A-5: devflow-implement.yml invokes the helper with --tier implement" "1" \
+  "$(grep -cF "$I645_INVOC implement" "$I602_IMPL_YML")"
+assert_eq "#645: devflow.yml invokes the helper with --tier command" "1" \
+  "$(grep -cF "$I645_INVOC command" "$I602_DEVFLOW_YML")"
+assert_eq "#645: devflow-runner.yml invokes the helper with --tier review" "1" \
+  "$(grep -cF "$I645_INVOC review" "$I602_RUNNER_YML")"
+# A-7: on the review tier the keys are read from the TRUSTED base-ref config baseprovision
+# materializes, never the PR-head checkout — the security boundary. Negative pin: the step
+# must not source its config from a workspace-relative path.
+assert_eq "#645 A-7: the review tier reads the git-env keys from the trusted base-ref config" "1" \
+  "$(grep -cF 'GITENV_CFGJSON: ${{ steps.baseprovision.outputs.config_json }}' "$I602_RUNNER_YML")"
+assert_eq "#645 A-7: the review tier materializes the helper from a trusted source only" "1" \
+  "$(grep -cF 'gitenv_helper_dir=$GITENV_HELPER_DIR' "$I602_RUNNER_YML")"
+assert_eq "#645 A-7: the review tier's rank-2 fallback is gated on vendor_source == fetch" "1" \
+  "$(grep -cF "GITENV_VENDORSRC\" = 'fetch' ]" "$I602_RUNNER_YML")"
+# The two trigger-time tiers read the whole trusted config document forwarded by their
+# `config` job, which checks out the DEFAULT BRANCH — so a key set only in a PR head is inert.
+for _f in "$I602_DEVFLOW_YML" "$I602_IMPL_YML"; do
+  assert_eq "#645 [$(basename "$_f")]: the git-env keys are read from the trigger-time config job" "1" \
+    "$(grep -cF 'GITENV_CFGJSON: ${{ needs.config.outputs.config_json }}' "$_f")"
+done
+# The two keys are declared in the schema, both defaulting to false, and mirrored in the
+# example config as explicit falses (the documented-off-switch class: a valid-falsy value
+# must survive as false, never be coerced to a truthy default).
+I645_SCHEMA="$LIB/../.devflow/config.schema.json"
+I645_EXAMPLE="$LIB/../.devflow/config.example.json"
+for _k in git_dir_pin git_work_tree_pin; do
+  assert_eq "#645: schema declares setup.$_k as a boolean defaulting to false" "boolean:false" \
+    "$(jq -r --arg k "$_k" '.properties.setup.properties[$k] | "\(.type):\(.default)"' "$I645_SCHEMA")"
+  assert_eq "#645: schema description for setup.$_k names what enabling it costs" "yes" \
+    "$(jq -e --arg k "$_k" '.properties.setup.properties[$k].description | test("COST")' "$I645_SCHEMA" >/dev/null && echo yes || echo no)"
+  assert_eq "#645: example config carries setup.$_k as an explicit false" "false" \
+    "$(jq -r --arg k "$_k" '.setup[$k]' "$I645_EXAMPLE")"
+done
+
+# ── issue #645: emit-git-env.sh behavior (A-4, A-5) ───────────────────────────
+# The helper is the single producer of both variables and a shell boundary the suite drives
+# directly. Every row asserts exit 0 AND the exact emitted lines, because the consuming
+# workflow step appends this stdout to $GITHUB_ENV: a non-zero exit would fail the job over a
+# configuration read, and a WRONG emission is what reproduces the outage. The four-row
+# combination set is closed by construction (two independent booleans).
+I645_HELPER="$LIB/../scripts/emit-git-env.sh"
+assert_eq "#645: emit-git-env.sh exists and is executable" "yes" \
+  "$([ -x "$I645_HELPER" ] && echo yes || echo no)"
+I645_D="$(probe_tmp '#645 helper fixture dir')" || I645_D=''
+if [ -n "$I645_D" ]; then
+  rm -f "$I645_D"; mkdir -p "$I645_D"
+  # Drive the helper and render its stdout as a single semicolon-joined line so an exact
+  # comparison covers BOTH which lines were emitted and their order.
+  _i645_run() {  # tier config-json -> "rc|joined-stdout"
+    local _tier="$1" _json="$2" _out _rc _joined=''
+    printf '%s' "$_json" > "$I645_D/cfg.json"
+    _out="$(bash "$I645_HELPER" --workspace /ws --config-file "$I645_D/cfg.json" --tier "$_tier" 2>/dev/null)"
+    _rc=$?
+    while IFS= read -r _l; do
+      [ -z "$_l" ] && continue
+      if [ -z "$_joined" ]; then _joined="$_l"; else _joined="$_joined;$_l"; fi
+    done <<EOF
+$_out
+EOF
+    printf '%s|%s' "$_rc" "$_joined"
+  }
+  # A-4, the closed 4-combination set on a tier that honors both keys.
+  assert_eq "#645 A-4: both keys off → emits nothing (the working default), exit 0" "0|" \
+    "$(_i645_run review '{"setup":{"git_dir_pin":false,"git_work_tree_pin":false}}')"
+  assert_eq "#645 A-4: git_dir_pin only → emits GIT_DIR alone" "0|GIT_DIR=/ws/.git" \
+    "$(_i645_run review '{"setup":{"git_dir_pin":true}}')"
+  assert_eq "#645 A-4: git_work_tree_pin only → emits GIT_WORK_TREE alone" "0|GIT_WORK_TREE=/ws" \
+    "$(_i645_run review '{"setup":{"git_work_tree_pin":true}}')"
+  assert_eq "#645 A-4: both keys on → emits both assignments" "0|GIT_DIR=/ws/.git;GIT_WORK_TREE=/ws" \
+    "$(_i645_run review '{"setup":{"git_dir_pin":true,"git_work_tree_pin":true}}')"
+  # Boundary: the JSON STRING "true" reads as enabled, matching the platform gate's
+  # stringifying behavior; every other stringy value does not.
+  assert_eq "#645 A-4: the JSON string \"true\" enables a key" "0|GIT_DIR=/ws/.git;GIT_WORK_TREE=/ws" \
+    "$(_i645_run review '{"setup":{"git_dir_pin":"true","git_work_tree_pin":"true"}}')"
+  assert_eq "#645 A-4: the JSON string \"yes\" does NOT enable a key" "0|" \
+    "$(_i645_run review '{"setup":{"git_dir_pin":"yes","git_work_tree_pin":"1"}}')"
+  # A-4, the six-shape adversarial config-JSON matrix (CLAUDE.md's best-effort-parser rule),
+  # applied to the `setup` CONTAINER and to each key LEAF. Every shape must exit 0 and emit
+  # NOTHING: a hand-corrupted config yields the working default, never a partially-set
+  # environment. The valid-falsy row is load-bearing — an explicit `false` must not be
+  # coerced to a truthy default (the documented-off-switch class).
+  for _shape in \
+    'container-object-empty:{"setup":{}}' \
+    'container-array:{"setup":["git_dir_pin","git_work_tree_pin"]}' \
+    'container-scalar:{"setup":"git_dir_pin"}' \
+    'container-valid-falsy:{"setup":false}' \
+    'container-missing:{}' \
+    'container-wrong-type:{"setup":42}' \
+    'leaf-object:{"setup":{"git_dir_pin":{"enabled":true},"git_work_tree_pin":{"enabled":true}}}' \
+    'leaf-array:{"setup":{"git_dir_pin":[true],"git_work_tree_pin":[true]}}' \
+    'leaf-scalar:{"setup":{"git_dir_pin":1,"git_work_tree_pin":1}}' \
+    'leaf-valid-falsy:{"setup":{"git_dir_pin":false,"git_work_tree_pin":0}}' \
+    'leaf-missing:{"setup":{"claude_code_executable":""}}' \
+    'leaf-wrong-type:{"setup":{"git_dir_pin":null,"git_work_tree_pin":null}}' \
+    ; do
+    assert_eq "#645 A-4: config shape '${_shape%%:*}' → exit 0, emits nothing (working default)" "0|" \
+      "$(_i645_run review "${_shape#*:}")"
+  done
+  # Error path: a config that cannot be parsed at all emits nothing and exits 0.
+  printf 'this is not json {{{' > "$I645_D/cfg.json"
+  assert_eq "#645 A-4: an unparseable config → exit 0, emits nothing" "0|" \
+    "$(_out="$(bash "$I645_HELPER" --workspace /ws --config-file "$I645_D/cfg.json" --tier review 2>/dev/null)"; printf '%s|%s' "$?" "$_out")"
+  assert_eq "#645 A-4: a nonexistent config file → exit 0, emits nothing" "0|" \
+    "$(_out="$(bash "$I645_HELPER" --workspace /ws --config-file "$I645_D/absent.json" --tier review 2>/dev/null)"; printf '%s|%s' "$?" "$_out")"
+  # A-5: the implement tier IGNORES git_dir_pin and says so. GIT_WORK_TREE is unaffected —
+  # the two keys are independent, and only the GIT_DIR one carries the staging hazard.
+  assert_eq "#645 A-5: --tier implement suppresses GIT_DIR, keeps GIT_WORK_TREE" "0|GIT_WORK_TREE=/ws" \
+    "$(_i645_run implement '{"setup":{"git_dir_pin":true,"git_work_tree_pin":true}}')"
+  assert_eq "#645 A-5: --tier implement with only git_dir_pin emits nothing at all" "0|" \
+    "$(_i645_run implement '{"setup":{"git_dir_pin":true}}')"
+  printf '%s' '{"setup":{"git_dir_pin":true}}' > "$I645_D/cfg.json"
+  assert_eq "#645 A-5: --tier implement emits a breadcrumb naming that git_dir_pin was ignored" "yes" \
+    "$(bash "$I645_HELPER" --workspace /ws --config-file "$I645_D/cfg.json" --tier implement 2>&1 >/dev/null \
+       | grep -q 'implement tier IGNORES it' && echo yes || echo no)"
+  # The GIT_DIR silent-miss warning: the one loud signal for a failure mode that is otherwise
+  # undetectable (the #295 repo-root readers resolve a .devflow/ that does not exist).
+  assert_eq "#645: emitting GIT_DIR always warns about the #295 repo-root silent-miss hazard" "yes" \
+    "$(bash "$I645_HELPER" --workspace /ws --config-file "$I645_D/cfg.json" --tier review 2>&1 >/dev/null \
+       | grep -q 'SILENT MISS' && echo yes || echo no)"
+  # An empty workspace cannot produce a usable assignment: an EMPTY value is not an absent
+  # one (measured — `GIT_DIR=` is fatal to git), so the helper emits a line or emits nothing.
+  printf '%s' '{"setup":{"git_dir_pin":true,"git_work_tree_pin":true}}' > "$I645_D/cfg.json"
+  assert_eq "#645: an enabled key with an empty --workspace emits nothing (never an empty assignment)" "0|" \
+    "$(_out="$(bash "$I645_HELPER" --workspace '' --config-file "$I645_D/cfg.json" --tier review 2>/dev/null)"; printf '%s|%s' "$?" "$_out")"
+  # An unrecognized tier degrades to the MOST RESTRICTIVE tier, never to a permissive one.
+  assert_eq "#645: an unrecognized --tier degrades to the implement (most restrictive) tier" "0|GIT_WORK_TREE=/ws" \
+    "$(_i645_run bogus-tier '{"setup":{"git_dir_pin":true,"git_work_tree_pin":true}}')"
+  rm -rf "$I645_D"
+fi
 
 # ── issue #338: --rewrite-ac (post-merge) retag requires a --note rationale ────
 # scripts/workpad.py: an `update` call in which any --rewrite-ac pair APPENDS the
