@@ -134,8 +134,8 @@ run_stage_a() {
     out = ""
     for (i = 1; i <= np; i++) {
       seg = parts[i]
-      if (i > 1 && (i % 2 == 0) && (i <= np - 1)) {
-        # a CLOSED backtick span (even index i, followed by a backtick i.e. i<=k=np-1)
+      if ((i % 2 == 0) && (i <= np - 1)) {
+        # a CLOSED backtick span (even index i>=2, followed by a backtick i.e. i<=k=np-1)
         ntok = split(seg, stoks, /[ \t]+/)
         nnz = 0; allbare = 1; allext = 1
         for (j = 1; j <= ntok; j++) {
