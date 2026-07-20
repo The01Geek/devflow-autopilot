@@ -35235,10 +35235,11 @@ assert_eq "#529 AC2: the split is at least 25,327 words below the 33,815 baselin
 # comparand is now `_rb_shipped_w` (the shipped-default STANDALONE path — root + ext +
 # the six default stems + the stale-lint reference), and the ceiling is set by the
 # escape-valve procedure recorded in docs/review-bundle-budget.md's decision record:
-# the LIVE `_rb_words` shipped-default figure (32,339 at #618 time) plus a thin margin
-# of 60 words (the maintainer's recorded choice — #556's precedent was 58) = 32,399.
-# The maintainer (The01Geek, push access verified) chose Arm B: this ceiling is an
-# INTERIM bridge, and a follow-up prose-reduction issue lowers it to <= 30,100. The
+# the LIVE `_rb_words` shipped-default figure plus a thin margin of 60 words (the
+# maintainer's recorded choice — #556's precedent was 58). #618 set an interim 32,399
+# (measured 32,339). #642 (Arm B, completed) then shed ~2,323 words of review-engine
+# prose (32,339 -> 30,016) and lowered this ceiling to 30,076 (measured 30,016 + 60),
+# under the at-most-30,100 target — the ceiling is NO LONGER interim. The
 # `/devflow:review-and-fix` path (_rb_raf, which drops the standalone-only 4.4) stays
 # OUTSIDE this gate by decision — its execution-weighted AC5 record is unchanged.
 # Standing remedy (recorded in the decision record): a fix-loop run MAY self-apply this
@@ -35248,12 +35249,12 @@ assert_eq "#529 AC2: the split is at least 25,327 words below the 33,815 baselin
 # (this file, the budget doc, CLAUDE.md, the review-and-fix extension), record it — with
 # the maintainer reviewing it in the ordinary PR review. Re-measure with _rb_words
 # before adding prose to any shipped-default member.
-# The interim ceiling is a named constant in the sibling RAF_*_CEIL style, so the gate
+# The ceiling is a named constant in the sibling RAF_*_CEIL style, so the gate
 # condition and the assertion label read from one literal instead of two hand-synced
 # copies. The CLAUDE.md-mirror pin below is DELIBERATELY a separate spelled-out literal:
 # it asserts CLAUDE.md carries the same phrase, so it cannot itself be derived from this
-# variable (a rendered `≤ 32,399 words` phrase is what a reader greps for in the bullet).
-RB_SHIPPED_CEIL=32399
+# variable (a rendered `≤ 30,076 words` phrase is what a reader greps for in the bullet).
+RB_SHIPPED_CEIL=30076
 # The sanctioned margin is its own named constant so the bound below, the assertion label, and
 # the budget doc's Margin cell all read from ONE literal (PR #639 review, Suggestion-4: the
 # margin was a bare `60` in the condition plus hand-maintained prose in three docs — the same
@@ -35271,7 +35272,7 @@ assert_eq "#618 AC3 (re-anchored, interim): the shipped-default per-pass path is
 # margin. NOT monotone — this fires in BOTH directions, by design: prose GROWTH shrinks the gap and
 # never false-REDs, while an over-generous ceiling (an over-wide renegotiation) OR a prose REDUCTION
 # the ceiling was not re-anchored to track widens it past the margin and REDs. The reduction arm is a
-# real, expected event (any trim of a shipped-default member; #642's ~2,239-word reduction most of
+# real, expected event (any trim of a shipped-default member; #642's ~2,323-word reduction most of
 # all), so the decision record's escape valve carries an explicit DOWNWARD arm authorizing a
 # same-change re-anchor — without it this assertion would trap the very loop remedying it (PR #639
 # review, Important-1). Fails closed: a non-integer operand makes the arithmetic error → not "yes" → RED.
@@ -35473,7 +35474,7 @@ RECORD
 # assert_pin_unique also fails if the phrase appears twice, catching a stray duplicate.
 RB_CLAUDEMD="$LIB/../CLAUDE.md"
 assert_pin_unique "#618: CLAUDE.md's review-bundle bullet carries the re-anchored ceiling phrase (≤-prefixed, mirror of the suite literal)" \
-  'shipped-default per-pass path ≤ 32,399 words' "$RB_CLAUDEMD"
+  'shipped-default per-pass path ≤ 30,076 words' "$RB_CLAUDEMD"
 # #618 (pr-test-analyzer Finding 2): the static pin above catches a suite-literal↔CLAUDE.md
 # drift, but NOT a stale RB_SHIPPED_CEIL while the pin literal + CLAUDE.md are updated in
 # tandem. Bind the GATE CONSTANT to the CLAUDE.md phrase directly, via a dynamic grep whose
@@ -35911,8 +35912,17 @@ RAF_ROOT_CEIL=3500
 # mirrors the #529 AC3 renegotiation and is the audited decision recorded in
 # docs/cutovers/issue-609-agent-effort-observability.md; update
 # docs/review-and-fix-budget.md's ceilings-table and Measured cells in lockstep.
-RAF_LOAD_CEIL=5877
-RAF_MAXSTEP_CEIL=17139
+# #642 merge reconciliation raised the initial-load ceiling 5877->5887 and the max-step ceiling
+# 17139->17149: merging main into the #642 branch composes main's #609/#618 root growth (root
+# 3,226) with this PR's review-and-fix extension reword (the review-BUNDLE ceiling phrase in
+# .devflow/prompt-extensions/review-and-fix.md gained 9 words retiring #618's interim status,
+# 2,646->2,655), so the initial load is 3,226 + 2,655 = 5,881 and the peak step is
+# 3,226 + 2,655 + shadow-review.md 11,262 = 17,143. Each ceiling carries 6 words of headroom over
+# its merged measurement (mirroring #556's 6), deliberately: a ceiling set exactly at the
+# measurement makes the next one-sentence edit a budget breach. Update
+# docs/review-and-fix-budget.md's ceilings-table and Measured cells in lockstep.
+RAF_LOAD_CEIL=5887
+RAF_MAXSTEP_CEIL=17149
 assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
   "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"
 assert_eq "#530 budget: root + live extension (initial load) <= $RAF_LOAD_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W)))" "yes" \
