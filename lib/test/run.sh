@@ -20819,7 +20819,7 @@ assert_eq "et-fresh(R6): second --persist makes no new telemetry-branch commit (
 # PRODUCER side, exercised against the REAL record --persist just synthesized (not a
 # hand-written fixture): a fix-commit-only record cannot establish which sweep
 # definitions were read, what the sweeps found, or whether Step 3.5's fix-delta gate
-# ran, so each of the three evidence fields carries an explicit unrecoverable-provenance
+# ran, so each run-scoped evidence field carries an explicit unrecoverable-provenance
 # object. The NEGATIVE assertions are the load-bearing half of the AC: `[]` and
 # `{"status":"not-run"}` are the LEGITIMATE values of a real no-fix iteration, so
 # emitting either here would launder unobserved evidence into a positive claim about an

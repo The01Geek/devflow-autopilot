@@ -288,7 +288,7 @@ ITER_EXPECTED_FIELDS="iter started_at fix_commit_sha fix_files loop_role sweep_d
 # writes, and what --self-check validates a synthesized:true record against (a
 # synthesized record is a recognized degraded class, exempt from the full set above
 # but NOT from its own — a truncated synthesized record must still warn).
-# The three evidence fields (issue #541) are members because the synthesizer writes an
+# The run-scoped evidence fields (issue #541) are members because the synthesizer writes an
 # explicit unrecoverable-provenance object for each: absent evidence is recorded AS
 # absent, never serialized as a real `[]` / `not-run` / omitted value. Their presence
 # here is the producer<->consumer coupling — a synthesizer that stopped stamping

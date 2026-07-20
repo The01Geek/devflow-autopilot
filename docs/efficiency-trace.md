@@ -411,7 +411,7 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
   recognized degraded class validated against its **own** minimal set (`ITER_SYNTH_EXPECTED_FIELDS`
   — see that variable in `lib/efficiency-trace.sh` for the members) rather than the full set — so a
   truncated synthesized record still warns instead of validating silently. That minimal set includes
-  the three run-scoped evidence fields, which is what makes `--self-check` **enforce** that a
+  the run-scoped evidence fields, which is what makes `--self-check` **enforce** that a
   synthesized record actually carries its unrecoverable-provenance stamps. And the zero-workpad
   warning names the **targeted** recovery command (`--persist --workpad-dir DIR --slug SLUG` — the
   form immune to discovery-mode synthesis skips) rather than implying there is nothing left to
@@ -618,7 +618,7 @@ real record carries, none of which is recoverable **from the fix commits**.
 - *Synthesized-record shape.* Each synthesized `iter-<N>.json` carries exactly `iter`,
   `fix_commit_sha`, `fix_files` (from `git diff-tree`; **`null` when that derivation fails** —
   unestablished, deliberately distinct from a genuine empty commit's `[]`), `loop_role: "fix"`,
-  `synthesized: true`, and the three run-scoped evidence fields `sweep_defs_read`, `sweep_evidence`,
+  `synthesized: true`, and the run-scoped evidence fields `sweep_defs_read`, `sweep_evidence`,
   and `reference_reads`. A fix commit carries no trace of which sweep definitions an iteration read,
   what its sweeps found, or whether the fix-delta gate ran, so each of those three is stamped with an
   explicit `{"status": "unrecoverable", "reason": …}` object rather than a real-looking value. This is
