@@ -35023,7 +35023,7 @@ for _raf_ceil in "$RAF_ROOT_CEIL" "$RAF_LOAD_CEIL" "$RAF_MAXSTEP_CEIL"; do
     "$(case "$_raf_doc_nocommas" in *"≤ $_raf_ceil words |"*) echo yes;; *) echo no;; esac)"
 done
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,625 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,637 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute

@@ -42,7 +42,7 @@ failure: a rule that reaches the loop only when someone remembers to route it th
 ## Bounded-growth target
 
 The issue targeted 450 `_raf_words` for the two new sections plus the scoping prose.
-**Shipped: 648.** The target was renegotiated twice, and both moves are recorded here rather than
+**Shipped: 660.** The target was renegotiated twice, and both moves are recorded here rather than
 folded away, because a bound that silently tracks its subject has stopped bounding anything.
 
 1. **450 → 600.** The prose reached 590 after two compression passes from 649, and every remaining
@@ -54,7 +54,7 @@ folded away, because a bound that silently tracks its subject has stopped boundi
    obtain: it keyed authority on the *editor's* `author_association`, but GitHub exposes no
    association for an edit — `gh issue view --json` has no such field at all, and the REST payload's
    `author_association` describes the **issue author**. Verified directly against the live API.
-3. **630 → 650, and the only root-ceiling move (3,500 → 3,531).** The review's own checklist
+3. **630 → 660, and the only root-ceiling move (3,500 → 3,531).** The review's own checklist
    verifier and `silent-failure-hunter` then showed the *repaired* guard still had no mechanism for
    the predicate gating it — nothing told the run how to determine whether a body edit was made by a
    third party — so the routing was undetermined and the guard could fail open on exactly the input
@@ -74,7 +74,7 @@ folded away, because a bound that silently tracks its subject has stopped boundi
 
 Every move after the first is correctness winning over a word target, and each is recorded with its
 cause rather than folded away. Compression absorbed the first two entirely; only the third required
-touching the root ceiling, and then by sixteen words. The root now sits at 3,527 of 3,531 — the same
+touching the root ceiling, and then by thirty-one words. The root now sits at 3,527 of 3,531 — the same
 ~4-word margin the other two ceilings carry, so a future addition to this preamble meets all three
 at once rather than any one of them first.
 
@@ -96,7 +96,7 @@ next one-sentence edit a budget breach.
 
 The **cumulative-path** and **growth-delta** arithmetic excludes the receiving extension —
 rationale in the budget doc's Counting method, mirrored in `lib/test/run.sh`'s `#530 budget`
-block. Those figures still move (43,299 and +4,625) because the root itself grew by the loader
+block. Those figures still move (43,311 and +4,637) because the root itself grew by the loader
 call and its scoping prose.
 
 Growth is bounded by design: the two new sections state rules and cite their sources of record

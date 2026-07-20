@@ -122,7 +122,7 @@ extensions + max active step ≤ 18,697 words).
   fields and the below-verdict-threshold evidence-classification prose in `shadow-review.md`, the
   bulk of the increase), and the issue-#620 receiving-extension loader call and its scoping prose
   in the root. It is **justified**: the split trades this cumulative increase for a
-  32,686-word reduction in the *mandatory* prompt, on-demand sequential loading (only one step
-  reference resident at a time — peak 18,681 words, not 43,299), and fail-closed reference handling.
+  32,674-word reduction in the *mandatory* prompt, on-demand sequential loading (only one step
+  reference resident at a time — peak 18,693 words, not 43,311), and fail-closed reference handling.
   Cumulative token spend on a full run is not the metric the split optimizes; peak-context and
   per-step focus are.
