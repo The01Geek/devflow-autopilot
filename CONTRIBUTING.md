@@ -57,6 +57,26 @@ Each module is also executed by the full suite through the fail-closed
 A per-module inventory (e.g. `lib/test/modules/create-issue-contract.inventory.md`)
 records what it covers.
 
+### Regenerating suite-owned artifacts
+
+Several suite gates compare a checked-in generated artifact against what the tree
+implies, so a source edit can turn the suite red until the artifact is refreshed.
+Run one batched pass before re-running the suite:
+
+```bash
+python3 lib/test/regenerate-artifacts.py
+```
+
+It regenerates the one mechanically-safe artifact (the cloud-writer runtime manifest,
+`scripts/devflow-cloud-writer-contract.json` — the only path it ever writes) and runs a
+**non-writing** check for each judgment-gated artifact (the generated capability-profile
+workflow literals, the prompt-mass baseline, the review-bundle budget record, and the
+coverage-map ratchet), reporting every judgment item together in one pass instead of one
+red run at a time. Judgment items are yours to resolve deliberately — the helper never
+edits them. Exit codes: `0` clean, `1` action required, `2` infrastructure failure
+(which wins over `1`). Use `--list` to see the registered artifacts and `--repo-root` to
+point it at another checkout.
+
 ### Authoring a new focused module
 
 When you extract a cohesive block of `lib/test/run.sh` coverage into a new
