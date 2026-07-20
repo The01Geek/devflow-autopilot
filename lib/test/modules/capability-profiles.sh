@@ -251,3 +251,14 @@ _cap_fail "#561 T13n manifest present-but-unreadable (breadcrumb, not traceback)
 # T13o: a present-but-unreadable target workflow → read_wf must fail closed with a named
 # breadcrumb, not an uncaught OSError traceback (the lock/manifest reads already do).
 _cap_fail "#561 T13o target workflow unreadable (breadcrumb, not traceback)"      workflow-unreadable generate "target workflow unreadable" unchanged
+
+# ── issue #555: the implement-tier bundled-helper grant flow is a CLAUDE.md contract the
+# generator's --check enforces mechanically — a helper an implement fence invokes is granted
+# by adding its vendored-literal token to the manifest's implement profile and regenerating,
+# which syncs matcher-probe.yml's IMPLEMENT baseline with devflow-implement.yml's baked
+# baseline. Pin the operative clause narrowly (this is the capability-manifest module, never
+# a retired #450 block) so a reword that re-legitimizes hand-editing either literal goes RED.
+devflow_module_pin_unique "#555 CLAUDE.md documents the implement-tier bundled-helper grant flow" \
+  'Implement-tier bundled-helper grant flow (issue #555)' "$LIB/../CLAUDE.md"
+devflow_module_pin_unique "#555 CLAUDE.md forbids hand-editing either generated workflow literal for such a grant" \
+  '**Never hand-edit either workflow literal** to add such a grant.' "$LIB/../CLAUDE.md"
