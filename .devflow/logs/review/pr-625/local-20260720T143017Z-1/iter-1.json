@@ -11,8 +11,8 @@
     "skills/review-and-fix/references/fixing.md"
   ],
   "loop_role": "fix",
-  "current_step": "3.5",
-  "current_substep": "fix_delta_gate",
+  "current_step": "2.6",
+  "current_substep": "decide",
   "pending_dispatch": null,
   "sweep_defs_read": {
     "status": "unrecoverable",
@@ -42,7 +42,14 @@
       "agent": "orchestrator:phase-4-verification",
       "severity": "Important",
       "description": "docs/review-and-fix-budget.md BEFORE always-loaded token cell read 50,271 (= 47,061 + the stale 3,210 extension value) where the doc's own round(words*1.3) formula gives 50,276; falsified the diff-added no-carried-forward note.",
-      "defect_signature": {"file": "docs/review-and-fix-budget.md", "line_range": [70, 70], "kind": "documented_falsehood"},
+      "defect_signature": {
+        "file": "docs/review-and-fix-budget.md",
+        "line_range": [
+          70,
+          70
+        ],
+        "kind": "documented_falsehood"
+      },
       "corroboration_count": 1,
       "step25_classification": "codebase",
       "fix_decision": "applied"
@@ -51,7 +58,14 @@
       "agent": "devflow:silent-failure-hunter",
       "severity": "Important",
       "description": "fixing.md item 6's 'no third Write is ever needed' made false by this PR adding reference_reads.fix_delta, which Step 3.5 writes after item 6's re-Write.",
-      "defect_signature": {"file": "skills/review-and-fix/references/fixing.md", "line_range": [102, 102], "kind": "documented_falsehood"},
+      "defect_signature": {
+        "file": "skills/review-and-fix/references/fixing.md",
+        "line_range": [
+          102,
+          102
+        ],
+        "kind": "documented_falsehood"
+      },
       "corroboration_count": 1,
       "step25_classification": "codebase",
       "fix_decision": "applied"
@@ -60,7 +74,14 @@
       "agent": "devflow:requesting-code-review",
       "severity": "Important",
       "description": "lib/test/run.sh matrix comment cited a 'missing-status' row; no such row exists (sixth fixture is wrong-status {\"fix_delta\":{\"status\":\"verified\"}}).",
-      "defect_signature": {"file": "lib/test/run.sh", "line_range": [21502, 21502], "kind": "documented_falsehood"},
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          21502,
+          21502
+        ],
+        "kind": "documented_falsehood"
+      },
       "corroboration_count": 1,
       "step25_classification": "codebase",
       "fix_decision": "applied"
@@ -68,8 +89,15 @@
     {
       "agent": "devflow:pr-test-analyzer",
       "severity": "Suggestion",
-      "description": "No matrix row for reference_reads: {} — the 'Step 3.5 never ran' shape appearing illegitimately on a synthesized record.",
-      "defect_signature": {"file": "lib/test/run.sh", "line_range": [21506, 21506], "kind": "test_gap"},
+      "description": "No matrix row for reference_reads: {} \u2014 the 'Step 3.5 never ran' shape appearing illegitimately on a synthesized record.",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          21506,
+          21506
+        ],
+        "kind": "test_gap"
+      },
       "corroboration_count": 1,
       "step25_classification": "codebase",
       "fix_decision": "applied"
@@ -78,7 +106,14 @@
       "agent": "devflow:pr-test-analyzer",
       "severity": "Suggestion",
       "description": "do_self_check evidence-shape else backstop arm has no test; reachable via a DEVFLOW_JQ stub exiting non-zero.",
-      "defect_signature": {"file": "lib/efficiency-trace.sh", "line_range": [805, 812], "kind": "test_gap"},
+      "defect_signature": {
+        "file": "lib/efficiency-trace.sh",
+        "line_range": [
+          805,
+          812
+        ],
+        "kind": "test_gap"
+      },
       "corroboration_count": 1,
       "step25_classification": "codebase",
       "fix_decision": "deferred"
@@ -87,7 +122,14 @@
       "agent": "devflow:silent-failure-hunter",
       "severity": "Suggestion",
       "description": "evidence_bad captures jq with 2>&1 and word-splits the result into field names; jq stderr on the success path would fabricate a bogus per-token warning.",
-      "defect_signature": {"file": "lib/efficiency-trace.sh", "line_range": [800, 808], "kind": "api_misuse"},
+      "defect_signature": {
+        "file": "lib/efficiency-trace.sh",
+        "line_range": [
+          800,
+          808
+        ],
+        "kind": "api_misuse"
+      },
       "corroboration_count": 2,
       "step25_classification": "codebase",
       "fix_decision": "deferred"
@@ -96,7 +138,14 @@
       "agent": "devflow:silent-failure-hunter",
       "severity": "Suggestion",
       "description": "The reason non-empty check ((.reason // \"\") | tostring | length) == 0 accepts any non-string scalar (reason: 0 or an object passes).",
-      "defect_signature": {"file": "lib/efficiency-trace.sh", "line_range": [811, 821], "kind": "logic_error"},
+      "defect_signature": {
+        "file": "lib/efficiency-trace.sh",
+        "line_range": [
+          811,
+          821
+        ],
+        "kind": "logic_error"
+      },
       "corroboration_count": 1,
       "step25_classification": "codebase",
       "fix_decision": "deferred"
@@ -104,18 +153,41 @@
     {
       "agent": "devflow:requesting-code-review",
       "severity": "Suggestion",
-      "description": "docs/DEVFLOW_SYSTEM_OVERVIEW.md §16 synthesis-floor enumeration is now incomplete (missing the three new fields).",
-      "defect_signature": {"file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md", "line_range": [726, 726], "kind": "comment_drift"},
+      "description": "docs/DEVFLOW_SYSTEM_OVERVIEW.md \u00a716 synthesis-floor enumeration is now incomplete (missing the three new fields).",
+      "defect_signature": {
+        "file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+        "line_range": [
+          726,
+          726
+        ],
+        "kind": "comment_drift"
+      },
       "corroboration_count": 1,
       "step25_classification": "codebase",
       "fix_decision": "deferred"
     }
   ],
   "fix_decisions": [
-    {"finding_id": "F-1", "decision": "applied", "commit": "e8f5935"},
-    {"finding_id": "F-2", "decision": "applied", "commit": "e8f5935"},
-    {"finding_id": "F-3", "decision": "applied", "commit": "e8f5935"},
-    {"finding_id": "F-4", "decision": "applied", "commit": "e8f5935"},
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "e8f5935"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "e8f5935"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "e8f5935"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "applied",
+      "commit": "e8f5935"
+    },
     {
       "finding_id": "F-5",
       "decision": "deferred",
@@ -144,7 +216,7 @@
       "finding_id": "F-8",
       "decision": "deferred",
       "source_file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
-      "claim_text": "§16 synthesis-floor enumeration incomplete",
+      "claim_text": "\u00a716 synthesis-floor enumeration incomplete",
       "skip_category": "already-tracked",
       "evidence": "Already recorded as an explicit deferral in docs/cutovers/issue-541-reference-reads-evidence-schema.md with its mechanical cause (#434 R3b count-lock); the changeset scopes its reconciliation claim to defining surfaces and names the overview as narrative."
     },
@@ -162,7 +234,10 @@
     "fix_diff_lines": 24,
     "new_corroborated_critical_count": 0
   },
-  "cap_drops": {"count": 0, "by_category": {}},
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
   "verification_evidence": {
     "command": "lib/test/run.sh",
     "result": "pass",
@@ -177,29 +252,217 @@
     "note": "Post-fix HEAD recomputed against origin/main...HEAD; zero STALE, no fix-introduced counted-prose staleness."
   },
   "telemetry": {
-    "phase_0":   {"calls": 0, "tokens": 0, "wall_clock_s": 60},
-    "phase_0_5": {"calls": 0, "tokens": 0, "wall_clock_s": 5},
-    "phase_1":   {"calls": 2, "tokens": 159958, "wall_clock_s": 104},
-    "phase_1_5": {"calls": 1, "tokens": 62033, "wall_clock_s": 61},
-    "phase_2":   {"calls": 0, "tokens": 0, "wall_clock_s": 120},
-    "phase_3":   {"calls": 5, "tokens": 409390, "wall_clock_s": 277},
-    "step_2_5":  {"calls": 0, "tokens": 0, "wall_clock_s": 5, "webfetches": 0},
-    "step_2_6":  {"calls": 0, "tokens": 0, "wall_clock_s": 0},
-    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 30}
+    "phase_0": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 60
+    },
+    "phase_0_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 5
+    },
+    "phase_1": {
+      "calls": 2,
+      "tokens": 159958,
+      "wall_clock_s": 104
+    },
+    "phase_1_5": {
+      "calls": 1,
+      "tokens": 62033,
+      "wall_clock_s": 61
+    },
+    "phase_2": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 120
+    },
+    "phase_3": {
+      "calls": 5,
+      "tokens": 409390,
+      "wall_clock_s": 277
+    },
+    "step_2_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 5,
+      "webfetches": 0
+    },
+    "step_2_6": {
+      "calls": 5,
+      "tokens": 435349,
+      "wall_clock_s": 267
+    },
+    "phase_4_x": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 30
+    }
   },
   "shadow": {
-    "ran_at": null,
-    "reviewed_sha": null,
-    "verdict": null,
-    "coverage": null,
-    "prompt_addenda": null,
-    "reviewers_dispatched": [],
-    "expected_reviewers": [],
+    "ran_at": "2026-07-20T15:40:00Z",
+    "reviewed_sha": "98b797cf319e7fe2eddd6193d692dbdcaa83ebc1",
+    "verdict": "APPROVE WITH ADVISORY NOTES",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
     "reason": null,
     "checklist_skipped": null,
-    "phase3_findings": [],
+    "trigger": "early (engine_self_modifying, after iteration 1)",
+    "phase3_findings": [
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Important",
+        "description": "reference_reads.fix_delta's stated prohibition ('a not_verified fix_delta prohibits a clean APPROVE-family verdict') has no reader at Loop Exit. loop-exit.md contains zero mentions of reference_reads/fix_delta, while every sibling completeness gate in that file carries an explicit read-the-persisted-field-and-fail-closed instruction. fix-delta-gate.md's own failure arms instruct the executor to record the breadcrumb and PROCEED, so a run whose gate hit either arm emits a clean APPROVE with the prohibition never consulted. Fails OPEN.",
+        "defect_signature": {
+          "file": "skills/review-and-fix/references/fixing.md",
+          "line_range": [
+            151,
+            151
+          ],
+          "kind": "logic_error"
+        },
+        "corroboration_count": 1,
+        "novelty": "new",
+        "step25_classification": "codebase",
+        "fix_decision": "unfixed-non-convergence"
+      },
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Suggestion",
+        "description": "Evidence-provenance shape check is scoped to synthesized records only; a real record with malformed reference_reads.fix_delta is shape-checked by nothing.",
+        "defect_signature": {
+          "file": "lib/efficiency-trace.sh",
+          "line_range": [
+            800,
+            815
+          ],
+          "kind": "test_gap"
+        },
+        "corroboration_count": 1,
+        "novelty": "new",
+        "fix_decision": "unfixed"
+      },
+      {
+        "agent": "devflow:comment-analyzer",
+        "severity": "Suggestion",
+        "description": "The #541 pin-block header 'ONE behavioral-fix pin, plus two presence pins' is a self-referential same-file count - the ordinal-rot class CLAUDE.md flags as non-demotable REJECT on a later edit.",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            492,
+            492
+          ],
+          "kind": "comment_drift"
+        },
+        "corroboration_count": 1,
+        "novelty": "new",
+        "fix_decision": "unfixed"
+      },
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Important",
+        "description": "do_self_check else backstop arm has zero coverage (re-raise of parked F-5).",
+        "defect_signature": {
+          "file": "lib/efficiency-trace.sh",
+          "line_range": [
+            805,
+            812
+          ],
+          "kind": "test_gap"
+        },
+        "corroboration_count": 1,
+        "novelty": "overlap-parked-reraise",
+        "fix_decision": "park-calibration-misgrade"
+      },
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Suggestion",
+        "description": "Nothing asserts an ordinary (non-synthesized) record carrying a malformed reference_reads stays quiet; .synthesized scoping proven only by a well-formed fixture.",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            816,
+            834
+          ],
+          "kind": "test_gap"
+        },
+        "corroboration_count": 2,
+        "novelty": "new",
+        "fix_decision": "unfixed"
+      },
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Suggestion",
+        "description": "Malformed-shape matrix covers reference_reads only, not sweep_defs_read/sweep_evidence, though the stated rationale applies identically.",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            678,
+            690
+          ],
+          "kind": "test_gap"
+        },
+        "corroboration_count": 1,
+        "novelty": "new",
+        "fix_decision": "unfixed"
+      },
+      {
+        "agent": "devflow:requesting-code-review",
+        "severity": "Suggestion",
+        "description": "No fixture asserts a real non-synthesized record LACKING reference_reads produces no warning; conditionality inferred, not observed.",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            23047,
+            23070
+          ],
+          "kind": "test_gap"
+        },
+        "corroboration_count": 2,
+        "novelty": "new",
+        "fix_decision": "unfixed"
+      }
+    ],
     "phase2_fails": [],
-    "comparison": {"shadow_total": 0, "overlap_with_iter_N": 0, "new": 0, "new_critical": 0, "new_important": 0},
-    "promoted_to_iter_next": false
+    "comparison": {
+      "shadow_total": 7,
+      "overlap_with_iter_N": 1,
+      "new": 6,
+      "new_critical": 0,
+      "new_important": 1
+    },
+    "promoted_to_iter_next": false,
+    "decide_outcome": "2 (new Important finding) - loop NOT converged; promotion not started (handed back to human)"
+  },
+  "park_calibration": {
+    "evidence_comparisons": [
+      {
+        "parked_finding_ref": {
+          "iter": 1,
+          "index": 4
+        },
+        "parked_finding_id": "F-5",
+        "shadow_finding_index": 3,
+        "relation": "equivalent",
+        "rationale": "Same defect and same evidentiary basis as the iteration-1 parking (else backstop untested; DEVFLOW_JQ stub is the driver). No new failing input.",
+        "operands_present": true,
+        "disposition": "promoted",
+        "note": "Condition (b) fails: the re-raise is graded Important where the parking-time record graded it Suggestion, so parking cannot be preserved. Recorded as a park-calibration mis-grade (the loop under-graded its own finding)."
+      }
+    ]
   }
 }
