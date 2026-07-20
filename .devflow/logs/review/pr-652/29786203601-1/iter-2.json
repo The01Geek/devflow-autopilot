@@ -1,0 +1,30 @@
+{
+  "iter": 2,
+  "fix_commit_sha": "681ea30f118ff50f9b0fd684101418b8668deba1",
+  "fix_files": [
+    ".changeset/issue-586-signal-cleanup-matrix.md",
+    "lib/test/module-harness.sh",
+    "lib/test/modules/create-issue-contract.sh",
+    "lib/test/run-module.sh",
+    "lib/test/run.sh",
+    "lib/test/test_module_harness.py",
+    "lib/test/test_module_runner.py"
+  ],
+  "loop_role": "fix",
+  "synthesized": true,
+  "sweep_defs_read": {
+    "status": "unrecoverable",
+    "reason": "fix-commit-only synthesis: no iteration record was found for this run, and a fix commit carries no trace of which sweep definitions were read"
+  },
+  "sweep_evidence": {
+    "status": "unrecoverable",
+    "reason": "fix-commit-only synthesis: no iteration record was found for this run, and a fix commit carries no trace of the sweep outcomes"
+  },
+  "reference_reads": {
+    "fix_delta": {
+      "status": "unrecoverable",
+      "reason": "fix-commit-only synthesis: no iteration record was found for this run, and a fix commit carries no trace of whether the Step 3.5 fix-delta gate ran"
+    }
+  },
+  "telemetry": "unavailable"
+}
