@@ -266,6 +266,15 @@ the session effort, and the run states the limitation and the fallback reason at
 every in-session arm the engine cannot introspect its own session effort, so `effective` is **null**
 (unknown is not zero), never guessed. Model overrides are delivered exactly as before on every tier.
 
+Each dispatched agent's effort decision — its `requested`, `resolved`, `application_point`,
+`effective`, and `fallback_reason` — is emitted per agent into the per-run efficiency telemetry as the
+per-iteration `agent_effort[]` observability block (issue #609), so the matrix above is not only a
+resolution-time contract but an after-the-fact audit surface. The block covers the full dispatched
+roster — the six Phase-3 keys via `phase3_dispatched` plus the three checklist-phase keys (Phases
+1/1.5/2) via the iter-workpad's `dispatched_effort` field. `resolve-review-overrides.py`'s
+`--effort-json` mode emits the five-field map that populates it. See
+[efficiency-trace.md](efficiency-trace.md) for the record schema.
+
 **How the fallback is reported (per resolve, i.e. per dispatch phase).** `resolve-review-overrides.py`
 distinguishes the *cause* so a genuine misconfiguration is never laundered into steady-state noise:
 
