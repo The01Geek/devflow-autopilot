@@ -112,8 +112,22 @@ def _repo_root() -> str | None:
 
 def _default_extension_path() -> Path:
     root = _repo_root()
-    base = Path(root) if root is not None else Path.cwd()
-    return base / ".devflow" / "prompt-extensions" / "create-issue.md"
+    if root is not None:
+        return Path(root) / ".devflow" / "prompt-extensions" / "create-issue.md"
+    cwd = Path.cwd()
+    # Breadcrumb only when NEITHER a git root NOR a .devflow/ dir can be located —
+    # the silent-drop class the #295 reader-set contract closes (mirrors
+    # match-deferrals.py's _default_config_path). git can exit non-zero while
+    # genuinely INSIDE a repo (safe.directory / dubious-ownership), or be absent,
+    # so don't assert "not in a git repo" — report that the root could not be
+    # resolved.
+    if not (cwd / ".devflow").is_dir():
+        sys.stderr.write(
+            f"render-audit-prompt.py: could not resolve a git repo root and no "
+            f".devflow/ at {str(cwd)!r}; falling back to a cwd-anchored default "
+            f"prompt-extension path\n"
+        )
+    return cwd / ".devflow" / "prompt-extensions" / "create-issue.md"
 
 
 # --------------------------------------------------------------------------
@@ -344,11 +358,26 @@ def render_dispatch(
         if mode in arm_set:
             parts.append(_substitute(body, slots).strip("\n"))
     inner = "\n\n".join(p for p in parts if p.strip())
+    # Fail CLOSED on an instruction-empty body: a mode that selects no block (or
+    # only blank ones) would otherwise emit a positionally-valid two-marker render
+    # carrying no instructions at all, which the delivery check cannot detect.
+    if not inner.strip():
+        raise RenderError(
+            f"template selected no non-empty block for mode {mode!r} "
+            f"({template_path})"
+        )
     return f"{STATUS_PREFIX} {status}\n{inner}\n{END_MARKER}"
 
 
 def render_extract(hook: str, ext_path: Path) -> str:
-    """Section-extraction mode: forward one consumer section (both hooks)."""
+    """Section-extraction mode: forward one consumer section.
+
+    The extraction RULE is shared by both hooks, but this mode is the
+    consumption path only for ``--hook evidence-axes`` (Step 2's forwarding);
+    Step 3.6's ``## Audit dimensions`` reaches the auditor spliced into a
+    dispatch arm via ``{CONSUMER_DIMENSIONS}``, not through a standalone
+    ``extract`` call.
+    """
     heading = _HOOKS[hook]
     # consumer_dimensions returns section="" for every non-appended status.
     status, section = consumer_dimensions(ext_path, heading)
@@ -363,9 +392,14 @@ def render_status_only(ext_path: Path) -> str:
 # --------------------------------------------------------------------------
 # CLI.
 # --------------------------------------------------------------------------
+_KEBAB_ALPHABET = frozenset("abcdefghijklmnopqrstuvwxyz0123456789-")
+
+
 def _kebab_slug(value: str) -> str:
     # Closed-vocabulary slug: lowercase kebab-case only. Rejects any free text.
-    if not value or not all(c.islower() or c.isdigit() or c == "-" for c in value):
+    # ASCII-only: c.islower()/c.isdigit() accept non-ASCII ('é', 'ß', Arabic-Indic
+    # digits), which the "lowercase kebab" contract does not.
+    if not value or not all(c in _KEBAB_ALPHABET for c in value):
         raise argparse.ArgumentTypeError(
             f"slug must be lowercase kebab-case (got {value!r})"
         )

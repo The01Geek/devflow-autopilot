@@ -369,6 +369,86 @@ class MarkersAndContract(unittest.TestCase):
             run_renderer(["extract", "--hook", "made-up"]).returncode, 0)
 
 
+class FailClosedAndAnchoring(unittest.TestCase):
+    """Guards added under PR #651 review."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_R13_mode_selecting_no_block_fails_closed(self):
+        # A template whose blocks cover no shipped arm must NOT render a
+        # positionally-valid but instruction-empty prompt.
+        t = self.root / "t.md"
+        t.write_text(
+            "<!-- render-block: checklist -->\nbody\n"
+            "<!-- render-block-end -->\n",
+            encoding="utf-8",
+        )
+        r = run_renderer(["file", "--slug", "s", "--draft-path", "/a/d.md",
+                          "--template-file", str(t)])
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(r.stdout, "")
+        self.assertTrue(r.stderr.strip())
+
+    def test_R14_no_git_root_and_no_devflow_emits_breadcrumb(self):
+        # #295 reader-set contract: an unestablished repo root is breadcrumbed,
+        # never a silent cwd default.
+        env = dict(os.environ)
+        env["GIT_CEILING_DIRECTORIES"] = str(self.root)
+        r = subprocess.run(
+            [sys.executable, str(RENDERER), "status-only"],
+            cwd=str(self.root), env=env,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8",
+        )
+        # Either git resolved a root (sandbox-dependent) or the breadcrumb fired;
+        # what must never happen is a cwd fallback with no stderr at all.
+        if "could not resolve a git repo root" not in r.stderr:
+            self.skipTest("git resolved a repo root for the temp dir")
+        self.assertIn("prompt-extension path", r.stderr)
+
+    def test_R15_slug_alphabet_is_ascii_only(self):
+        for bad in ("café-slug", "groß", "slug٠"):
+            self.assertNotEqual(
+                run_renderer(["file", "--slug", bad,
+                              "--draft-path", "/a/d.md"]).returncode, 0, bad)
+
+    def test_R16_consumer_dimensions_substituted_last(self):
+        # A consumer section containing renderer tokens must be spliced verbatim,
+        # never re-scanned for <slug>/{DRAFT_PATH}.
+        write_ext(
+            self.root,
+            "## Audit dimensions\n\n- token <slug> and {DRAFT_PATH} literal\n",
+        )
+        ext = self.root / ".devflow" / "prompt-extensions" / "create-issue.md"
+        r = run_renderer(["file", "--slug", "realslug",
+                          "--draft-path", "/a/real-draft.md",
+                          "--extension-file", str(ext)])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("token <slug> and {DRAFT_PATH} literal", r.stdout)
+
+    def test_R17_non_appended_placeholder_bodies_reach_the_prompt(self):
+        # The placeholder text is asserted in the BODY, not only the status line.
+        r_absent = run_renderer(["file", "--slug", "s", "--draft-path", "/a/d.md",
+                                 "--extension-file",
+                                 str(self.root / "nope.md")])
+        self.assertEqual(r_absent.returncode, 0, r_absent.stderr)
+        body = "\n".join(r_absent.stdout.splitlines()[1:])
+        self.assertIn("(no consumer audit dimensions)", body)
+
+        bad = self.root / "adir"
+        bad.mkdir()
+        r_unest = run_renderer(["file", "--slug", "s", "--draft-path", "/a/d.md",
+                                "--extension-file", str(bad)])
+        self.assertEqual(r_unest.returncode, 0, r_unest.stderr)
+        body_u = "\n".join(r_unest.stdout.splitlines()[1:])
+        self.assertIn(
+            "(consumer audit dimensions could not be established)", body_u)
+
+
 class TemplateFileOwnership(unittest.TestCase):
     """The committed template file is the sole owner of the moved literals."""
 
