@@ -104,6 +104,24 @@ KNOWN_AGENTS = (
 )
 
 
+def _entry_for(raw, agent, default_entry=None):
+    """Precedence-selected raw entry for `agent`, with its source key.
+
+    The single source of the entry-level precedence rule ("an own entry wins
+    outright — even `{}` or a non-dict — and `default` applies only to an agent
+    with no entry of its own"), shared by `resolve_overrides` and
+    `build_effort_observability` so `requested` can never be sourced through a
+    different precedence than `resolved`. `default_entry` lets a caller supply
+    a pre-sanitized default (resolve_overrides warns once and blanks a non-dict
+    default); when omitted, the raw `default` value is returned as-is.
+    """
+    if agent in raw:
+        return raw[agent], agent
+    if default_entry is None:
+        default_entry = raw.get("default")
+    return default_entry, "default"
+
+
 def resolve_overrides(raw, dispatched):
     """Pure resolution: raw config -> (override_map, warnings).
 
@@ -125,9 +143,9 @@ def resolve_overrides(raw, dispatched):
     for agent in dispatched:
         # Entry-level precedence: own entry wins outright; else fall back to
         # `default`. A present-but-empty own entry ({}) still counts as "has an
-        # entry", so `default` does NOT apply to it.
-        entry = raw[agent] if agent in raw else default_entry
-        source = agent if agent in raw else "default"
+        # entry", so `default` does NOT apply to it. Selection lives in the
+        # shared _entry_for so build_effort_observability reads the same rule.
+        entry, source = _entry_for(raw, agent, default_entry)
         # A non-object entry (hand-edited config bypassing schema validation,
         # e.g. `"agent": "high"` or a list) must not crash resolution — the
         # engine never aborts on config shape. Warn and treat it as no override.
@@ -314,12 +332,15 @@ def build_effort_observability(raw, resolved, dispatched, *, effort_supported=Tr
     decisions = decide_effort_applications(
         resolved, dispatched, effort_supported=effort_supported
     )
-    default_entry = raw.get("default")
-    if not isinstance(default_entry, dict):
-        default_entry = {}
     blocks = {}
     for agent in dispatched:
-        entry = raw[agent] if agent in raw else default_entry
+        # Same precedence as resolve_overrides, via the shared _entry_for; a
+        # non-dict entry (own or default) yields requested=None, matching the
+        # resolver's ignore-with-warning treatment of that shape. The no-entry
+        # all-null session-inheritance block below is mirrored by the jq
+        # degradation arm in lib/efficiency-trace.jq (an agent with no
+        # dispatched_effort entry) — a coupled pair, edit together.
+        entry, _ = _entry_for(raw, agent)
         requested = entry.get("effort") if isinstance(entry, dict) else None
         decision = decisions[agent]
         blocks[agent] = {

@@ -2993,24 +2993,23 @@ _eo6_raw = {"devflow:code-reviewer":
 _eo6_res, _ = _rro.resolve_overrides(_eo6_raw, ["devflow:code-reviewer"])
 _eo6 = _rro.build_effort_observability(
     _eo6_raw, _eo6_res, ["devflow:code-reviewer"])
-assert_eq("effort-obs(#609): Haiku block is session-fallback naming the model",
+assert_eq("effort-obs(#609): Haiku block is session-fallback",
+          "session-fallback",
+          _eo6["devflow:code-reviewer"]["application_point"])
+assert_eq("effort-obs(#609): Haiku block's fallback_reason names the model",
           True,
-          _eo6["devflow:code-reviewer"]["application_point"] == "session-fallback"
-          and "haiku" in _eo6["devflow:code-reviewer"]["fallback_reason"].lower())
+          "haiku" in _eo6["devflow:code-reviewer"]["fallback_reason"].lower())
 
 # EO7: the CLI seam — `--effort-json` prints the observability map (NOT the
 # override map) as pure JSON on stdout, and does not re-emit the #554 effort
 # report lines (the normal resolve call already reported them).
-import contextlib as _contextlib  # noqa: E402
-import io as _io  # noqa: E402
-import json as _json  # noqa: E402
 _saved_read_raw = _rro.read_raw
 _rro.read_raw = lambda agents, config_get, config: (
     {"devflow:checklist-generator": {"effort": "low"}}, [])
 try:
-    _eo7_out, _eo7_err = _io.StringIO(), _io.StringIO()
-    with _contextlib.redirect_stdout(_eo7_out), \
-         _contextlib.redirect_stderr(_eo7_err):
+    _eo7_out, _eo7_err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(_eo7_out), \
+         contextlib.redirect_stderr(_eo7_err):
         _eo7_rc = _rro.main(["devflow:checklist-generator", "--effort-json"])
     _eo7_map = _json.loads(_eo7_out.getvalue())
     assert_eq("effort-obs(#609): --effort-json exits 0", 0, _eo7_rc)

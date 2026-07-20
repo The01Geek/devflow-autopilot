@@ -173,11 +173,11 @@ def iter_view:
   # dispatched_effort (issue #609): the iter-workpad field capturing every
   # dispatch phase's roster with its per-agent effort decision — including the
   # Phase-1/1.5/2 checklist agents that never appear in phase3_dispatched.
-  # Type-guarded: a non-array field, or a non-object/agent-less entry, yields no
-  # usable entries (the filter never aborts on a malformed producer value).
-  | (($it.dispatched_effort) // []) as $de_raw
-  | (if ($de_raw | type) == "array"
-     then [$de_raw[] | select(type == "object" and ((.agent) | type) == "string")]
+  # Type-guarded: a non-array field (absent/null/scalar alike), or a
+  # non-object/agent-less entry, yields no usable entries (the filter never
+  # aborts on a malformed producer value).
+  | (if ($it.dispatched_effort | type) == "array"
+     then [$it.dispatched_effort[] | select(type == "object" and ((.agent) | type) == "string")]
      else [] end) as $de
   # The effort roster is the FULL dispatched set (phase3_dispatched ∪ the
   # dispatched_effort agents), never the resolver map: an agent with no entry
@@ -207,7 +207,9 @@ def iter_view:
       dispatched_effort_present: ($it | has("dispatched_effort")),
       # Per-agent effort observability (issue #609): agent id + exactly the five
       # effort fields, complete by construction. An agent with no
-      # dispatched_effort entry records the all-null session-inheritance block;
+      # dispatched_effort entry records the all-null session-inheritance block —
+      # the degradation mirror of build_effort_observability's no-override arm
+      # in scripts/resolve-review-overrides.py (a coupled pair, edit together);
       # `effective` is carried verbatim (null unless genuinely read back —
       # unknown is not zero). With multiple entries for one agent the last wins.
       agent_effort: [
