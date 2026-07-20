@@ -24,7 +24,7 @@ extensions + max active step ≤ 18,697 words).
 > the peak step — see the justified-growth warning below. Issue #620 then widened two of the
 > *measures* themselves, not just their ceilings — the root now loads
 > `.devflow/prompt-extensions/receiving-code-review.md` at entry (see the ceilings table). The
-> root ceiling was renegotiated 3,500 -> 3,531 for the supersession guard's correctness fixes, leaving the root at
+> root ceiling was renegotiated 3,500 → 3,531 for the supersession guard's correctness fixes, leaving the root at
 > 3,527 of 3,531 — ~4 words, the same margin the other two ceilings carry, so an addition to the root
 > meets all three at once. Audited decision:
 > `docs/cutovers/issue-620-reception-extension-port.md`.

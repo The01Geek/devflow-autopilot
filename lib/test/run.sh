@@ -35066,20 +35066,32 @@ assert_eq "#530 budget: doc initial-load Measured cell matches fresh measurement
   "$(case "${_raf_load_row//,/}" in *"| $RAF_LOAD_CEIL | $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W)) |"*) echo yes;; *) echo no;; esac)"
 # #620 (pr-test-analyzer): the Lines/Bytes/Tokens columns carried NO live binding, so a byte cell
 # drifted 34 bytes from the shipped file and shipped desk-green past a block whose note claims to
-# have closed the stale-Measured-cell class. Bind the bytes column of the three AFTER rows. python3
-# (a preflight prerequisite) does the counting, like _raf_words — never `wc -c`.
+# have closed the stale-Measured-cell class. Bind the bytes column of EVERY AFTER row that carries a
+# byte figure — plugin root, actual initial load, and bundle — plus the receiving-extension row (not
+# an AFTER row, but a new operand this issue adds). The remaining two AFTER rows, normal-cumulative-
+# path and maximum-active-step, render `—` in the Bytes column, so there is no cell to bind; naming
+# that here keeps the next maintainer from reading an unbound cell into the gap. python3 (a preflight
+# prerequisite) does the counting, like _raf_words — never `wc -c`.
 _raf_bytes() { python3 -c 'import sys; print(len(open(sys.argv[1],"rb").read()))' "$1"; }
 RAF_ROOT_B=$(_raf_bytes "$LIB/../skills/review-and-fix/SKILL.md")
 RAF_EXT_B=$(_raf_bytes "$LIB/../.devflow/prompt-extensions/review-and-fix.md")
 RAF_RCR_B=$(_raf_bytes "$LIB/../.devflow/prompt-extensions/receiving-code-review.md")
+RAF_BUNDLE_B="$RAF_ROOT_B"
+for _raf_ref_b in "$LIB"/../skills/review-and-fix/references/*.md; do
+  RAF_BUNDLE_B=$((RAF_BUNDLE_B + $(_raf_bytes "$_raf_ref_b")))
+done
 _raf_root_after_row="$(grep -F '| **AFTER** — plugin root |' "$RAF_BUDGET_DOC" || true)"
 assert_eq "#620 budget: doc plugin-root Bytes cell matches fresh measurement ($RAF_ROOT_B)" "yes" \
   "$(case "${_raf_root_after_row//,/}" in *" | $RAF_ROOT_B | "*) echo yes;; *) echo no;; esac)"
 _raf_load_after_row="$(grep -F '| **AFTER** — actual initial load |' "$RAF_BUDGET_DOC" || true)"
 assert_eq "#620 budget: doc initial-load Bytes cell matches fresh measurement ($((RAF_ROOT_B+RAF_EXT_B+RAF_RCR_B)))" "yes" \
   "$(case "${_raf_load_after_row//,/}" in *" | $((RAF_ROOT_B+RAF_EXT_B+RAF_RCR_B)) | "*) echo yes;; *) echo no;; esac)"
+_raf_rcr_row="$(grep -F '| receiving extension |' "$RAF_BUDGET_DOC" || true)"
 assert_eq "#620 budget: doc receiving-extension Bytes cell matches fresh measurement ($RAF_RCR_B)" "yes" \
-  "$(case "$(grep -F '| receiving extension |' "$RAF_BUDGET_DOC" | tr -d ',')" in *" | $RAF_RCR_B | "*) echo yes;; *) echo no;; esac)"
+  "$(case "${_raf_rcr_row//,/}" in *" | $RAF_RCR_B | "*) echo yes;; *) echo no;; esac)"
+_raf_bundle_after_row="$(grep -F '| **AFTER** — bundle |' "$RAF_BUDGET_DOC" || true)"
+assert_eq "#620 budget: doc bundle Bytes cell matches fresh measurement ($RAF_BUNDLE_B)" "yes" \
+  "$(case "${_raf_bundle_after_row//,/}" in *" | $RAF_BUNDLE_B | "*) echo yes;; *) echo no;; esac)"
 _raf_maxstep_row="$(grep -F 'Root + always-loaded extensions + max active step ≤' "$RAF_BUDGET_DOC" || true)"
 assert_eq "#530 budget: doc max-step Measured cell matches fresh measurement ($((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W+RAF_MAXREF_W)))" "yes" \
   "$(case "${_raf_maxstep_row//,/}" in *"| $RAF_MAXSTEP_CEIL | $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W+RAF_MAXREF_W)) |"*) echo yes;; *) echo no;; esac)"
