@@ -28133,15 +28133,20 @@ assert_pin_unique "#628 phase-2 §2.2 obliges orchestrator to re-derive a subage
 # BashOutput (exactly the two inert tokens removed), and the two files' tools: lines
 # are byte-identical (the channel that keeps AC5's identity criterion from rotting
 # when one file's line is later edited alone).
-for ag628 in "$CE_628" "$CA_628"; do
-  TOOLS_LINE_628="$(grep -E '^tools:[[:space:]]' "$ag628" | head -1)"
-  assert_eq "#628 $(basename "$ag628") tools: line omits KillShell" \
-    "no" "$(printf '%s' "$TOOLS_LINE_628" | grep -qw 'KillShell' && echo yes || echo no)"
-  assert_eq "#628 $(basename "$ag628") tools: line omits BashOutput" \
-    "no" "$(printf '%s' "$TOOLS_LINE_628" | grep -qw 'BashOutput' && echo yes || echo no)"
-done
+# Capture each agent's tools: line ONCE and feed all three assertions from it — the
+# byte-identity check reuses the captured lines rather than re-grepping both files.
+CE_TOOLS_628="$(grep -E '^tools:[[:space:]]' "$CE_628" | head -1)"
+CA_TOOLS_628="$(grep -E '^tools:[[:space:]]' "$CA_628" | head -1)"
+assert_eq "#628 code-explorer.md tools: line omits KillShell" \
+  "no" "$(printf '%s' "$CE_TOOLS_628" | grep -qw 'KillShell' && echo yes || echo no)"
+assert_eq "#628 code-explorer.md tools: line omits BashOutput" \
+  "no" "$(printf '%s' "$CE_TOOLS_628" | grep -qw 'BashOutput' && echo yes || echo no)"
+assert_eq "#628 code-architect.md tools: line omits KillShell" \
+  "no" "$(printf '%s' "$CA_TOOLS_628" | grep -qw 'KillShell' && echo yes || echo no)"
+assert_eq "#628 code-architect.md tools: line omits BashOutput" \
+  "no" "$(printf '%s' "$CA_TOOLS_628" | grep -qw 'BashOutput' && echo yes || echo no)"
 assert_eq "#628 the two agents' tools: lines are byte-identical" \
-  "yes" "$([ "$(grep -E '^tools:[[:space:]]' "$CE_628" | head -1)" = "$(grep -E '^tools:[[:space:]]' "$CA_628" | head -1)" ] && echo yes || echo no)"
+  "yes" "$([ "$CE_TOOLS_628" = "$CA_TOOLS_628" ] && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "pr-review-toolkit internalization (#141)"
