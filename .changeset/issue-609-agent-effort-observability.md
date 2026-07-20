@@ -5,7 +5,7 @@ bump: patch
 ### Added
 
 - Per-agent effort observability in the per-run efficiency telemetry (issue #609, carried from
-  #554; PR #TBD): the per-run record now carries an `agent_effort[]` block per iteration —
+  #554; PR #630): the per-run record now carries an `agent_effort[]` block per iteration —
   agent id plus exactly `requested`, `resolved`, `application_point`, `effective` (null unless
   read back), and `fallback_reason` — populated over the full dispatched roster
   (`phase3_dispatched` ∪ the new `dispatched_effort` iter-workpad field, which captures the
