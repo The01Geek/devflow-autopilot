@@ -44,7 +44,13 @@ devflow_render_report() {
     # ever silent: the mechanical no-provenance pre-dispatch skip, the Stage A
     # Cancelled skip, and the Stage A interim skip. Omitted when nothing was skipped.
     local skips_n
-    skips_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.skips // []) | length')"
+    # `|| true` + numeric guard, mirroring open-state-pr.sh's identical jq-count
+    # fallback. `length` aborts jq on a boolean `.skips` (a hand-corrupted summary),
+    # and under `set -e` a bare failing substitution would kill the whole report —
+    # losing every other section over one malformed optional key. Tolerate the abort,
+    # then degrade a non-numeric result to 0 so the section is merely omitted.
+    skips_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.skips // []) | length' 2>/dev/null || true)"
+    case "$skips_n" in ''|*[!0-9]*) skips_n=0 ;; esac
     if [ "$skips_n" -gt 0 ]; then
         printf '\n### Skipped PRs (mechanical no-provenance / Cancelled / interim)\n\n'
         echo "$summary_json" | "$DEVFLOW_JQ" -r '(.skips // [])[] | "- " + (. | gsub("\n";" "))'

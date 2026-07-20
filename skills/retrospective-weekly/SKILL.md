@@ -171,8 +171,9 @@ Increment `clean_count`.
 
 First run the **mechanical pre-dispatch disposition** (issue #626). This decides —
 with **no LLM dispatch** — whether the non-clean bundle warrants Stage A analysis
-or is a mechanical skip (a foreign, issueless, non-DevFlow PR whose only non-clean
-signal is an absent workpad). It is a suite-driven helper, never inline prose:
+or is a mechanical skip (a foreign, non-DevFlow PR whose only non-clean signal is a
+missing workpad audit trail — `Absent` means the linked issue *did* resolve but
+carried no workpad comment, so this is not restricted to issueless PRs). It is a suite-driven helper, never inline prose:
 
 ```bash
 DISP=$($LIB/../scripts/run-jq.sh -c --argjson gate "$GATE" -f $LIB/dispatch-disposition.jq < "$CTX")
@@ -250,8 +251,16 @@ operate on the file. For each result:
      skip → append **no** marker, so the PR stays unprocessed and is re-scanned
      while it remains inside the 7-day merge lookback.
 
-   Either way, write a one-line record in the run report (Step 9) naming the PR and
-   the skip reason, and increment `skipped_count`. **Every** skip — the mechanical
+   Either way, record the skip explicitly — append the report record AND increment
+   the counter, in the same two statements the mechanical branch above uses, so
+   `skipped_count` and the rendered `skips[]` can never diverge:
+
+   ```bash
+   skip_records+=("PR #<n> skipped (Stage A, <Cancelled|interim>): <the skip .reason>")
+   skipped_count=$((skipped_count + 1))
+   ```
+
+   That record is what Step 9 renders. **Every** skip — the mechanical
    pre-dispatch skip above, the `Cancelled` skip, and the interim skip — writes a
    one-line report record, so no skip is ever silent.
 3. Otherwise, if parsing fails or the object has an `"error"` key (a genuine

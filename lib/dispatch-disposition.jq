@@ -40,9 +40,14 @@
 | ($gate.reason) as $gate_reason
 # COUPLED CONTRACT: these two literals are cheap-gate.jq's workpad reason lines —
 # rewording either there without updating here silently mis-classifies a workpad-
-# absent PR as `dispatch`. The coupling is test-guarded: lib/test/run.sh's `disp()`
-# block pipes REAL cheap-gate output through this filter, so a reason reword flips
-# the "Absent + no provenance → skip" assertion RED.
+# absent PR as `dispatch`. Only the FIRST is test-guarded end-to-end: lib/test/run.sh's
+# `disp()` block pipes REAL cheap-gate output through this filter, and because the
+# producer's sentinels are non-empty strings, cheap-gate answers "workpad status not
+# Complete" on every skip-eligible bundle — so a reword of THAT literal flips the
+# "Absent + no provenance → skip" assertion RED. The "workpad absent or status
+# unknown" disjunct is defense-in-depth for a leaked ""/null status, which can never
+# co-occur with a sentinel and therefore never yields a skip; reword it in lockstep
+# by hand, since no assertion covers it.
 | (($gate_reason == "workpad absent or status unknown")
    or ($gate_reason == "workpad status not Complete")) as $workpad_reason
 | (($status == "Absent") or ($status == "NoIssue")) as $is_sentinel

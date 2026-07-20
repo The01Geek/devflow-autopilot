@@ -13252,6 +13252,67 @@ assert_eq "#626 consumer: materialize keeps the impl entry for PR 77 (skip marke
 assert_eq "#626 consumer: materialize appends the skip marker for PR 77" "1" \
   "$(jq -s '[.[] | select(.pr==77 and .kind=="skip")] | length' "$MAT_TMP/store.jsonl")"
 rm -rf "$MAT_TMP"
+# build-experiment-records.py: a skip marker is excluded from experiment-record
+# CANDIDACY. Observable behavior, not a grep-pin: a retro store holding ONLY a skip
+# marker yields no candidates at all (the assembler breadcrumbs "no candidate PRs"
+# and writes an empty store), whereas the same store holding a real entry for that
+# same PR DOES select it. Deleting the `kind == "skip"` guard flips the first arm,
+# because the marker carries a numeric `.pr` that `_pr_of` reads happily.
+BXR626="$LIB/../scripts/build-experiment-records.py"
+BXR626_TMP="$(mktemp -d)"
+printf '%s\n' "$MRK" > "$BXR626_TMP/retro.jsonl"
+BXR626_SKIPONLY="$(DEVFLOW_GH=/bin/false python3 "$BXR626" --repo-root "$BXR626_TMP" \
+  --retrospectives "$BXR626_TMP/retro.jsonl" --store "$BXR626_TMP/store.jsonl" --dry-run 2>&1 >/dev/null || true)"
+assert_eq "#626 consumer: build-experiment-records treats a skip-only store as no candidates" "true" \
+  "$(printf '%s' "$BXR626_SKIPONLY" | grep -qF 'no candidate PRs to process' && echo true || echo false)"
+BXR626_OUT="$(DEVFLOW_GH=/bin/false python3 "$BXR626" --repo-root "$BXR626_TMP" \
+  --retrospectives "$BXR626_TMP/retro.jsonl" --store "$BXR626_TMP/store.jsonl" --dry-run 2>/dev/null || true)"
+assert_eq "#626 consumer: skip marker produces no experiment record" "0" \
+  "$(printf '%s' "$BXR626_OUT" | grep -c . || true)"
+# Control: the SAME PR with a real retrospective entry IS a candidate — proving the
+# exclusion above is the kind guard, not an unrelated empty-window artifact.
+printf '%s\n' "$IMPL_ENTRY" > "$BXR626_TMP/retro.jsonl"
+BXR626_REAL="$(DEVFLOW_GH=/bin/false python3 "$BXR626" --repo-root "$BXR626_TMP" \
+  --retrospectives "$BXR626_TMP/retro.jsonl" --store "$BXR626_TMP/store.jsonl" --dry-run 2>&1 >/dev/null || true)"
+assert_eq "#626 consumer: a real entry for the same PR IS a candidate (control)" "false" \
+  "$(printf '%s' "$BXR626_REAL" | grep -qF 'no candidate PRs to process' && echo true || echo false)"
+rm -rf "$BXR626_TMP"
+
+# ── #626 render-report.sh: the `skipped:` summary line and the branch-selecting
+# `### Skipped PRs` section. Both arms of the branch are driven (present when
+# non-zero, omitted when empty), plus the numeric guard's degrade-to-omitted path
+# — the repo convention that a message-and-branch-selecting shape is suite-driven
+# rather than grep-pinned (cf. scripts/describe-denial-count.sh).
+( . "$LIB/render-report.sh"
+  RR626_SUM='{"prs_scanned":3,"clean_count":1,"analyzed_count":1,"skipped_count":1,"skips":["PR #77 skipped (mechanical, no DevFlow provenance): no workpad audit trail"],"intervention_issues":[],"blockers":[]}'
+  RR626_REPORT="$(devflow_render_report "$RR626_SUM")"
+  assert_eq "#626 render-report: summary carries the skipped: count" "true" \
+    "$(printf '%s' "$RR626_REPORT" | grep -qF 'skipped: 1' && echo true || echo false)"
+  assert_eq "#626 render-report: Skipped PRs section present when skips non-empty" "true" \
+    "$(printf '%s' "$RR626_REPORT" | grep -qF '### Skipped PRs' && echo true || echo false)"
+  assert_eq "#626 render-report: the skip record renders as a bullet" "true" \
+    "$(printf '%s' "$RR626_REPORT" | grep -qF '- PR #77 skipped (mechanical, no DevFlow provenance)' && echo true || echo false)"
+  # Empty arm: skips absent entirely → section omitted, and the summary still
+  # reports skipped: 0 (the count line is unconditional, unlike the section).
+  RR626_EMPTY='{"prs_scanned":1,"clean_count":1,"analyzed_count":0,"intervention_issues":[],"blockers":[]}'
+  RR626_R2="$(devflow_render_report "$RR626_EMPTY")"
+  assert_eq "#626 render-report: Skipped PRs section omitted when no skips" "false" \
+    "$(printf '%s' "$RR626_R2" | grep -qF '### Skipped PRs' && echo true || echo false)"
+  assert_eq "#626 render-report: skipped: 0 still shown with no skips" "true" \
+    "$(printf '%s' "$RR626_R2" | grep -qF 'skipped: 0' && echo true || echo false)"
+  # Numeric guard: a boolean `.skips` (a hand-corrupted summary) makes `length` abort
+  # jq. Without the `|| true` + numeric guard, the failing substitution kills the whole
+  # report under set -e; with it, the section is merely omitted and every other section
+  # still renders. Assert the report survives AND stays complete, not just non-empty.
+  RR626_BAD='{"prs_scanned":1,"clean_count":0,"analyzed_count":1,"skips":true,"intervention_issues":[],"blockers":[]}'
+  RR626_R3="$(devflow_render_report "$RR626_BAD" 2>/dev/null || echo RENDER_ABORTED)"
+  assert_eq "#626 render-report: wrong-type skips does not abort the report" "false" \
+    "$(printf '%s' "$RR626_R3" | grep -qF 'RENDER_ABORTED' && echo true || echo false)"
+  assert_eq "#626 render-report: wrong-type skips still renders later sections" "true" \
+    "$(printf '%s' "$RR626_R3" | grep -qF '## Issues filed' && echo true || echo false)"
+  assert_eq "#626 render-report: wrong-type skips omits the Skipped PRs section" "false" \
+    "$(printf '%s' "$RR626_R3" | grep -qF '### Skipped PRs' && echo true || echo false)"
+)
 
 # ── #626 orchestrator surface pins (skills/retrospective-weekly/SKILL.md) ─────
 RW_SKILL="$LIB/../skills/retrospective-weekly/SKILL.md"
@@ -13861,6 +13922,35 @@ PV
 F626_G="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
 assert_eq "#626 e2e provenance: wrong-type PR label list → false (fail-closed)" "false" \
   "$(jq -r '.pr_devflow_provenance' < "$F626_G")"
+
+# Scenario H — the SYMMETRIC wrong-type case on the ISSUE leg: the PR's label list is
+# well-formed-but-unlabelled while the resolved issue's `labels` is a bare object. The
+# `norm` def treats both legs identically, but only the PR leg was covered; a future
+# asymmetry (e.g. dropping `norm` from one leg) would otherwise ship unnoticed. The
+# whole expression must still resolve to false rather than aborting to the fail-closed
+# coercion — so this also proves the wrong-type shape is HANDLED, not merely rescued.
+cat > "$F97/prview.json" <<'PV'
+{"number":900,"headRefName":"claude/issue-901-x","baseRefName":"main","headRefOid":"sha900beef","mergeCommit":{"oid":"merge900"},"mergedAt":"2026-05-08T16:31:00Z","createdAt":"2026-05-08T07:00:00Z","author":{"login":"example-bot"},"title":"t","body":"Closes #901","additions":1,"deletions":0,"files":[{"path":"x.txt"}],"labels":[]}
+PV
+cat > "$F97/issue.json" <<'IJ'
+{"number":901,"title":"i","body":"b","labels":{"name":"DevFlow"},"comments":[]}
+IJ
+F626_H_ERR="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh" 900 2>&1 >/dev/null || true)"
+F626_H="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
+assert_eq "#626 e2e provenance: wrong-type ISSUE label list → false (fail-closed)" "false" \
+  "$(jq -r '.pr_devflow_provenance' < "$F626_H")"
+# The fail-closed coercion breadcrumb must NOT fire here: this shape is handled by
+# `norm`, so `false` here means "no DevFlow label", not "provenance unreadable". A
+# spurious warning would train operators to ignore the real unestablished case.
+assert_eq "#626 e2e provenance: handled wrong-type emits no unestablished breadcrumb" "false" \
+  "$(printf '%s' "$F626_H_ERR" | grep -qF 'provenance for PR 900 could not be established' && echo true || echo false)"
+# The remaining arm — jq itself aborting, leaving an unestablished provenance — cannot
+# be reached from a fixture: `norm` is total over every JSON shape, so no label list
+# makes that call fail. It is pinned instead, under the mutation that reintroduces the
+# defect the arm exists to prevent: deleting the breadcrumb, so `false` (the SKIP-enabling
+# value for dispatch-disposition.jq) would again be indistinguishable from "no label".
+assert_pin_red_under "#626: unestablished provenance is breadcrumbed, never silently false" \
+  'could not be established (jq emitted' '/could not be established/d' "$LIB/fetch-pr-context.sh"
 
 rm -rf "$F97"
 

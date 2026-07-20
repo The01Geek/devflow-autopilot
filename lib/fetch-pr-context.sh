@@ -122,8 +122,18 @@ fi
 PR_DEVFLOW_PROVENANCE="$("$DEVFLOW_JQ" -n --argjson pr_labels "$LABELS_JSON" --argjson issue "$ISSUE_JSON" '
     def norm: (if type == "array" then map(if type == "object" then (.name // "") else . end) else [] end);
     (($pr_labels | norm) + (($issue.labels // []) | norm)) | any(. == "DevFlow")
-' 2>/dev/null || echo false)"
-case "$PR_DEVFLOW_PROVENANCE" in true|false) ;; *) PR_DEVFLOW_PROVENANCE=false ;; esac
+' 2>/dev/null)" || PR_DEVFLOW_PROVENANCE=""
+# Fail closed to `false` on anything that is not a bare boolean — a jq abort (the
+# `||` above leaves ""), a wrong-type/garbage emission, or an unresolvable label
+# list. `false` is the SKIP-ENABLING value for dispatch-disposition.jq, so this
+# coercion is never silent: it emits a ::warning:: breadcrumb like every sibling
+# absent path in this producer (the NoIssue/Absent/Unparsed arms below), so an
+# operator can tell "no DevFlow label" apart from "provenance could not be read".
+case "$PR_DEVFLOW_PROVENANCE" in
+    true|false) ;;
+    *) echo "::warning::fetch-pr-context: DevFlow provenance for PR ${PR} could not be established (jq emitted '${PR_DEVFLOW_PROVENANCE}'); failing closed to false" >&2
+       PR_DEVFLOW_PROVENANCE=false ;;
+esac
 
 # ── 6. Review comments (inline diff comments) ────────────────────────────────
 _REVIEW_COMMENTS_RAW="$("$DEVFLOW_GH" api "repos/${REPO}/pulls/${PR}/comments" --paginate)" \
