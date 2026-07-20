@@ -42,11 +42,14 @@ trap _ra_cleanup EXIT
 # assertion re-compares against this so a helper that escaped its target root would
 # be caught by the very next assertion rather than shipping green.
 _ra_live_before="$(cat "$RA_LIVE_MANIFEST" 2>/dev/null)"
+# One byte-compare assertion used by every "these bytes must not have moved" check, so
+# the shape exists once rather than being re-spelled per call site.
+_ra_same() {  # name expected actual fail-detail
+  if [ "$2" = "$3" ]; then assert_eq "$1" yes yes; else assert_eq "$1" yes "no($4)"; fi
+}
 _ra_live_unchanged() {  # name
-  local now
-  now="$(cat "$RA_LIVE_MANIFEST" 2>/dev/null)"
-  if [ "$now" = "$_ra_live_before" ]; then assert_eq "$1" yes yes
-  else assert_eq "$1" yes "no(live checkout manifest was mutated by a fixture run)"; fi
+  _ra_same "$1" "$_ra_live_before" "$(cat "$RA_LIVE_MANIFEST" 2>/dev/null)" \
+    "live checkout manifest was mutated by a fixture run"
 }
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -75,6 +78,12 @@ while IFS= read -r _path; do
   _ra_seen="$_ra_seen$_entry "
   cp -R "$RA_REPO/$_entry" "$_ra_pristine/$_entry" 2>/dev/null
 done < <(cd "$RA_REPO" && git ls-files)
+# The loop derives entry NAMES from git ls-files but copies whole directories, so
+# untracked build caches ride along into the image and then into every arm copy — and
+# into the fixture's own `git add -A`, inflating the git legs the budget row measures.
+# Prune them once, here, rather than 8 times downstream.
+find "$_ra_pristine" \( -name __pycache__ -o -name .ruff_cache \) -type d -prune -exec rm -rf {} + 2>/dev/null || :
+rm -rf "$_ra_pristine/.devflow/tmp" 2>/dev/null || :
 # A fixture must be a git repository: the budget row derives its change set with git,
 # and coverage_map_guard.py enumerates the tracked surface with `git ls-files`. The
 # synthetic origin/main ref is what makes the merge-base leg resolvable; the A6
@@ -113,15 +122,23 @@ _ra_run() {  # <root>
 }
 _ra_rc() { cat "$1/.ra.rc"; }
 _ra_has() {  # name root substring
-  if grep -qF "$3" "$2/.ra.out"; then assert_eq "$1" yes yes
+  local n
+  n="$(devflow_module_pin_count "$3" "$2/.ra.out")"
+  case "$n" in
+    ''|*[!0-9]*) assert_eq "$1" yes "no(count unestablished for '$3')"; return 0 ;;
+  esac
+  if [ "$n" -ge 1 ]; then assert_eq "$1" yes yes
   else assert_eq "$1" yes "no('$3' absent; output: $(tr '\n' '|' <"$2/.ra.out"))"; fi
 }
+
+# The registry's row names, declared ONCE and consumed by both the A1 clean-line loop
+# and the A4 --list loop — adding a row must not mean editing two lists.
+RA_ROW_NAMES="cloud-writer-manifest capability-profile-literals prompt-mass-baseline review-bundle-budget coverage-map-ratchet"
 
 # ── A1 — clean-tree run: exit 0 with a per-row clean line for every row ──────
 RA_CLEAN_OUT="$(python3 "$RA_HELPER" 2>&1)"; RA_CLEAN_RC=$?
 assert_eq "#619 A1 clean-tree run exits 0" "0" "$RA_CLEAN_RC"
-for _row in cloud-writer-manifest capability-profile-literals prompt-mass-baseline \
-            review-bundle-budget coverage-map-ratchet; do
+for _row in $RA_ROW_NAMES; do
   case "$RA_CLEAN_OUT" in
     *"[$_row] clean"*) assert_eq "#619 A1 clean-tree row reports clean: $_row" yes yes ;;
     *) assert_eq "#619 A1 clean-tree row reports clean: $_row" yes "no(no clean line for $_row)" ;;
@@ -144,11 +161,11 @@ RA_A2_AFTER="$(cat "$RA_A2/scripts/devflow-cloud-writer-contract.json")"
 assert_eq "#619 A2 planted mechanical drift exits 1" "1" "$(_ra_rc "$RA_A2")"
 _ra_has "#619 A2 reports the regenerated artifact by name" "$RA_A2" \
   "REGENERATED scripts/devflow-cloud-writer-contract.json"
-if [ "$RA_A2_BEFORE" != "$RA_A2_AFTER" ]; then
-  assert_eq "#619 A2 the fixture manifest bytes changed" yes yes
-else
-  assert_eq "#619 A2 the fixture manifest bytes changed" yes "no(manifest unchanged)"
-fi
+# Inverted sense (these bytes MUST have moved), so it asserts against a sentinel rather
+# than adding a second comparator.
+_ra_same "#619 A2 the fixture manifest bytes changed" changed \
+  "$([ "$RA_A2_BEFORE" != "$RA_A2_AFTER" ] && echo changed || echo unchanged)" \
+  "the regeneration left the fixture manifest byte-identical"
 # Idempotency: a second run over the now-regenerated fixture is clean.
 _ra_run "$RA_A2"
 assert_eq "#619 A2 second run over the regenerated fixture exits 0" "0" "$(_ra_rc "$RA_A2")"
@@ -203,17 +220,12 @@ _ra_has "#619 A3 the capability item names its governing policy" "$RA_A3" \
 _ra_has "#619 A3 the census item names its governing policy" "$RA_A3" \
   "the mandatory-byte census section of .devflow/prompt-extensions/implement.md"
 _ra_cmp() {  # name expected root-relative-file
-  local now; now="$(cat "$RA_A3/$3")"
-  if [ "$now" = "$2" ]; then assert_eq "$1" yes yes
-  else assert_eq "$1" yes "no($3 was written by a judgment row)"; fi
+  _ra_same "$1" "$2" "$(cat "$RA_A3/$3")" "$3 was written by a judgment row"
 }
 RA_A3_WF_NOW="$(cat "$RA_A3/.github/workflows/devflow-runner.yml" "$RA_A3/.github/workflows/devflow.yml" \
                 "$RA_A3/.github/workflows/devflow-implement.yml" "$RA_A3/.github/workflows/matcher-probe.yml")"
-if [ "$RA_A3_WF_NOW" = "$RA_A3_WF" ]; then
-  assert_eq "#619 A3 write scope: the four workflow files are byte-unchanged" yes yes
-else
-  assert_eq "#619 A3 write scope: the four workflow files are byte-unchanged" yes "no(a workflow was written)"
-fi
+_ra_same "#619 A3 write scope: the four workflow files are byte-unchanged" \
+  "$RA_A3_WF" "$RA_A3_WF_NOW" "a workflow was written by a judgment row"
 _ra_cmp "#619 A3 write scope: lib/review-profile.tokens is byte-unchanged" "$RA_A3_LOCK" lib/review-profile.tokens
 _ra_cmp "#619 A3 write scope: the prompt-mass baseline is byte-unchanged" "$RA_A3_BASE" lib/test/prompt-mass-baseline.json
 _ra_cmp "#619 A3 write scope: the budget record is byte-unchanged" "$RA_A3_BUDGET" docs/review-bundle-budget.md
@@ -222,8 +234,7 @@ _ra_live_unchanged "#619 A3 live manifest byte-unchanged after the combined-drif
 # ── A4 — --list names every artifact and exposes the real bundle membership ──
 RA_LIST="$(python3 "$RA_HELPER" --list 2>&1)"; RA_LIST_RC=$?
 assert_eq "#619 A4 --list exits 0" "0" "$RA_LIST_RC"
-for _row in cloud-writer-manifest capability-profile-literals prompt-mass-baseline \
-            review-bundle-budget coverage-map-ratchet; do
+for _row in $RA_ROW_NAMES; do
   case "$RA_LIST" in
     *"artifact	$_row	"*) assert_eq "#619 A4 --list names artifact: $_row" yes yes ;;
     *) assert_eq "#619 A4 --list names artifact: $_row" yes "no($_row absent from --list)" ;;
@@ -314,11 +325,8 @@ _ra_has "#619 A6c a branch that updated the record gets an informational line" "
 assert_eq "#619 A6c a branch that updated the record runs clean" "0" "$(_ra_rc "$RA_A6C")"
 
 # ── Helper-content contracts (the registration rule and the disclosed non-goals) ─
-assert_eq "#619 the helper header carries the registration rule" "1" \
-  "$(devflow_module_pin_count 'A PR that adds a checked-in generated artifact gated by the suite adds a row to this registry in the same PR.' "$RA_HELPER")"
-assert_eq "#619 the helper header discloses the excluded hand-maintained inventories" "1" \
-  "$(devflow_module_pin_count 'are hand-maintained inventories with no standalone check command' "$RA_HELPER")"
+devflow_module_pin_unique "#619 the helper header carries the registration rule" 'A PR that adds a checked-in generated artifact gated by the suite adds a row to this registry in the same PR.' "$RA_HELPER"
+devflow_module_pin_unique "#619 the helper header discloses the excluded hand-maintained inventories" 'are hand-maintained inventories with no standalone check command' "$RA_HELPER"
 assert_eq "#619 the helper is stdlib-only (imports no yaml module)" "0" \
   "$(devflow_module_pin_count 'import yaml' "$RA_HELPER")"
-assert_eq "#619 the helper states its single-file write scope" "1" \
-  "$(devflow_module_pin_count 'the only file under the target root this helper writes is' "$RA_HELPER")"
+devflow_module_pin_unique "#619 the helper states its single-file write scope" 'the only file under the target root this helper writes is' "$RA_HELPER"

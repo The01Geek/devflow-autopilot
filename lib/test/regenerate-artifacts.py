@@ -62,15 +62,19 @@ BUDGET_WATCH_GLOBS = ("skills/review/phases/*.md",)
 
 # Ordered registry. `argv` is resolved under the target root and run with that root as
 # the working directory, so a fixture root exercises the fixture's own generators.
-# `clean` / `drift` are the row's declared exit-code set; an exit outside their union
-# is the infrastructure state, never a clean pass.
+# `exits` is the row's declared exit-code set and `clean` its positive arm; an exit
+# outside `exits` is the infrastructure state, never a clean pass.
+# `check` is the row's own strategy — every row knows how to check itself, so there is
+# no sentinel branch to keep in sync at the dispatch site. Adding a row of a THIRD kind
+# (say a directory-hash comparison) costs a row, not another branch.
 ROWS = (
     {
         "name": "cloud-writer-manifest",
         "kind": "mechanical",
         "argv": ("python3", "lib/test/cloud_writer_contract.py", "generate"),
+        "check": None,  # bound to run_row below.
         "clean": (0,),
-        "drift": (1,),
+        "exits": (0, 1),
         "writes": MECHANICAL_ARTIFACT,
         "policy": (
             "the closure data in lib/test/cloud_writer_contract.py "
@@ -81,8 +85,9 @@ ROWS = (
         "name": "capability-profile-literals",
         "kind": "judgment",
         "argv": ("python3", "lib/generate-capability-profiles.py", "--check"),
+        "check": None,  # bound to run_row below.
         "clean": (0,),
-        "drift": (1,),
+        "exits": (0, 1),
         "policy": (
             "edit lib/capability-profiles.json, regenerate with "
             "`python3 lib/generate-capability-profiles.py`, and update "
@@ -93,16 +98,16 @@ ROWS = (
         "name": "prompt-mass-baseline",
         "kind": "judgment",
         "argv": ("python3", "lib/test/prompt-mass-census.py"),
+        "check": None,  # bound to run_row below.
         "clean": (0,),
-        "drift": (1,),
+        "exits": (0, 1),
         "policy": "the mandatory-byte census section of .devflow/prompt-extensions/implement.md",
     },
     {
         "name": "review-bundle-budget",
         "kind": "judgment",
-        "argv": None,  # git-derived staleness detection; see budget_row() below.
-        "clean": (),
-        "drift": (),
+        "check": None,  # bound to budget_row below (defined after this table).
+        "argv": None,  # git-derived staleness detection, not a launched command.
         "policy": (
             "docs/review-bundle-budget.md — re-measure with lib/test/run.sh's _rb_words "
             "(python3, never wc -w) and update the record"
@@ -112,8 +117,9 @@ ROWS = (
         "name": "coverage-map-ratchet",
         "kind": "judgment",
         "argv": ("python3", "lib/test/coverage_map_guard.py", "."),
+        "check": None,  # bound to run_row below.
         "clean": (0,),
-        "drift": (1,),
+        "exits": (0, 1),
         "policy": "add the missing coverage rows per the issue-591 ratchet in lib/test/modules/coverage-map.json",
     },
 )
@@ -156,11 +162,13 @@ def watch_list(root):
     return sorted(set(members))
 
 
-def _git_paths(root, argv):
-    """One git path-listing call. Returns a set of repo-relative paths, or None.
+def _git_out(root, argv):
+    """One git call under `root`. Returns its stdout, or None if unestablished.
 
     None means the measurement could not be established (git missing, a git error, a
-    shallow clone with no merge-base) — the caller must not read that as "no paths".
+    shallow clone with no merge-base) — a caller must not read that as "no output".
+    Every git call in this file goes through here, so the OSError guard cannot be
+    present at one call site and forgotten at another.
     """
     try:
         out = subprocess.run(
@@ -168,12 +176,16 @@ def _git_paths(root, argv):
         )
     except OSError:
         return None
-    if out.returncode != 0:
-        return None
-    return {line for line in out.stdout.splitlines() if line}
+    return out.stdout if out.returncode == 0 else None
 
 
-def budget_row(root, report):
+def _git_paths(root, argv):
+    """A git path-listing call as a set of repo-relative paths, or None (unestablished)."""
+    text = _git_out(root, argv)
+    return None if text is None else {line for line in text.splitlines() if line}
+
+
+def budget_row(row, root, report):
     """Detect a stale review-bundle budget record. Returns True when exit-1-forcing.
 
     This row measures nothing: re-deriving `_rb_words` here would be a second
@@ -181,28 +193,15 @@ def budget_row(root, report):
     bundle prose change while the record stayed untouched?", which is the staleness a
     loop induces and the suite then discovers a full run later.
     """
-    # Looked up by name, never by list index: an index would silently name a DIFFERENT
-    # row's policy the moment the registry is reordered, and the misnamed remedy would
-    # read as authoritative.
-    row = next(r for r in ROWS if r["argv"] is None)
     name = row["name"]
     uncommitted = _git_paths(root, ("git", "diff", "--name-only", "HEAD"))
     untracked = _git_paths(
         root, ("git", "ls-files", "--others", "--exclude-standard")
     )
-    merge_base = subprocess.run(
-        ("git", "merge-base", "origin/main", "HEAD"),
-        cwd=str(root),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    branch = None
-    if merge_base.returncode == 0 and merge_base.stdout.strip():
-        branch = _git_paths(
-            root,
-            ("git", "diff", "--name-only", merge_base.stdout.strip(), "HEAD"),
-        )
+    # Three-dot syntax IS the merge-base-then-diff composition, in one process rather
+    # than two — and it degrades identically (exit 128, hence None) when
+    # refs/remotes/origin/main is absent, which is what the `unestablished` arm keys on.
+    branch = _git_paths(root, ("git", "diff", "--name-only", "origin/main...HEAD"))
 
     # Each of the three inputs is required. An unestablished one is never collapsed
     # onto an empty set: that would silently report a clean record for a branch whose
@@ -214,20 +213,20 @@ def budget_row(root, report):
             "NOT checked for staleness; this arm is unresolvable in-loop and forces no "
             "exit state."
         )
-        return False
+        return False, False
 
     union = uncommitted | untracked | branch
     touched = sorted(union & set(watch_list(root)))
     if not touched:
         report.append(f"[{name}] clean — no review-bundle member changed in this change set")
-        return False
+        return False, False
     if BUDGET_RECORD in union:
         report.append(
             f"[{name}] INFO bundle members changed ({', '.join(touched)}) and "
             f"{BUDGET_RECORD} is already in this change set — figure correctness is "
             "deferred to the suite's own _rb_words measurement. No action forced."
         )
-        return False
+        return False, False
     report.append(
         f"[{name}] JUDGMENT bundle prose changed but the record is untouched.\n"
         f"    changed members: {', '.join(touched)}\n"
@@ -235,7 +234,7 @@ def budget_row(root, report):
         f"    Re-measure the affected figures in one pass and apply one edit to "
         f"{BUDGET_RECORD}."
     )
-    return True
+    return True, False
 
 
 def run_row(row, root, report):
@@ -262,7 +261,7 @@ def run_row(row, root, report):
     # An absent script is reported by the interpreter as exit 2 with a "can't open
     # file" diagnostic rather than an OSError, so the declared-set check below is what
     # actually catches it. Naming the path here keeps that diagnosis attributable.
-    declared = tuple(row["clean"]) + tuple(row["drift"])
+    declared = row["exits"]
     if proc.returncode not in declared:
         missing = "" if target.exists() else f" (target absent: {row['argv'][1]})"
         report.append(
@@ -274,7 +273,7 @@ def run_row(row, root, report):
 
     if row["kind"] == "mechanical":
         after = written.read_bytes() if written.is_file() else None
-        return _mechanical_outcome(row, name, proc, output, before, after, report)
+        return _mechanical_outcome(row, proc, output, before != after, report)
 
     if proc.returncode in row["clean"]:
         report.append(f"[{name}] clean — `{' '.join(row['argv'])}` exited 0")
@@ -287,10 +286,11 @@ def run_row(row, root, report):
     return True, False
 
 
-def _mechanical_outcome(row, name, proc, output, before, after, report):
+def _mechanical_outcome(row, proc, output, changed, report):
     """Classify the mechanical row's outcome. Returns (forces_exit_1, infrastructure)."""
+    name = row["name"]
     if proc.returncode in row["clean"]:
-        if before == after:
+        if not changed:
             report.append(f"[{name}] clean — {row['writes']} already matches the closure")
             return False, False
         report.append(
@@ -319,6 +319,12 @@ def _mechanical_outcome(row, name, proc, output, before, after, report):
         f"{output or '(no output)'}"
     )
     return False, True
+
+
+# Bind each row's check strategy now that both callables exist. Done here rather than
+# in the table because the table is defined above the functions it names.
+for _row in ROWS:
+    _row["check"] = budget_row if _row["argv"] is None else run_row
 
 
 def emit_list(root):
@@ -362,10 +368,7 @@ def main(argv=None):
     infrastructure = False
 
     for row in ROWS:
-        if row["argv"] is None:
-            forces_one = budget_row(root, report) or forces_one
-            continue
-        forced, infra = run_row(row, root, report)
+        forced, infra = row["check"](row, root, report)
         forces_one = forced or forces_one
         infrastructure = infra or infrastructure
 
