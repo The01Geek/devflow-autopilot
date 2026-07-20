@@ -4,6 +4,48 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.18.7] — 2026-07-20
+
+### Changed
+- **Calibrated quantitative claims in the `code-explorer`/`code-architect` discovery agents and removed their inert `KillShell`/`BashOutput` grants.** Both agent bodies now state a calibration rule — a quantitative claim (count, size, word count, percentage, arithmetic total) not read directly from tool output in the current session, or derived from truncated/limited/count-mode output, is marked `(unverified estimate)`, and a tool-derived claim states its operands and counting rule inline. The explorer additionally scopes its `file:line` precision to ephemeral in-context analysis, noting that committed documentation references bare paths and symbol names. `/devflow:implement` Phase 2 §2.2 now obliges the orchestrator to independently re-derive a Phase-2 subagent quantitative claim through a preflight-guaranteed channel before it feeds a plan step, gate, or budget decision, recording the re-derived-or-unverified status in the workpad. The two agents' `tools:` lines drop the two inert grants (no `Bash`, so neither could act on them). (#628)
+
+## [2.18.6] — 2026-07-20
+
+### Changed
+### Added
+
+- `lib/test/regenerate-artifacts.py` now covers `docs/review-and-fix-budget.md` as a sixth
+  registry row, so a loop that edits the review-and-fix root, its prompt extension, or any
+  `skills/review-and-fix/references/*.md` learns the budget record went stale from the batched
+  pass instead of a full suite run later. The row is git-staleness only — it measures nothing,
+  deferring figure correctness to the suite's own word counter, exactly like its review-bundle
+  sibling.
+
+### Changed
+
+- The budget row's record and watch list are now read from the registry row itself
+  (`record` / `watch_literals` / `watch_globs`) rather than module-level constants, so the
+  registry stays the single enumeration point with more than one budget row.
+- `--list`'s `budget-watch` and `budget-watch-missing` lines carry the owning row name as their
+  second field. A consumer keying on the bare path must now key on `(row, member)`.
+
+### Removed
+
+- The helper header's `KNOWN UNCOVERED SIBLING` disclosure, which became false once the sibling
+  record gained a row.
+
+### Fixed
+
+- The `[arm8] ` (module registry unreadable) and `: unreadable:` (census JSON read failure)
+  `infra_markers` literals were declared but unpinned: deleting either left the focused module
+  green while the corresponding generator input failure would have been reported as a resolvable
+  judgment item rather than an unchecked artifact. Both are now driven by their own module arm.
+
+## [2.18.5] — 2026-07-20
+
+### Fixed
+- **Set `GIT_DIR`/`GIT_WORK_TREE` on the `Run Claude Code` step of the generated workflows so bot git-identity config succeeds on self-hosted Windows runners.** `devflow.yml`, `devflow-implement.yml`, and `devflow-runner.yml` now declare step-scoped `GIT_DIR: ${{ github.workspace }}/.git` and `GIT_WORK_TREE: ${{ github.workspace }}` on the `anthropics/claude-code-action@v1` step, so the action's `configureGitAuth` startup resolves the repository independent of the inherited working directory. This fixes the `fatal: not in a git directory` (exit 128) job abort that self-hosted Windows adopters hit at startup; GitHub-hosted Linux runners are unaffected (on a plain branch checkout `--git-dir` equals `--git-common-dir`, so worktree detection is unchanged). The vars are step-scoped so other steps' git operations are untouched, and ship to every consumer via `install.sh`. (#643)
+
 ## [2.18.4] — 2026-07-20
 
 ### Changed
