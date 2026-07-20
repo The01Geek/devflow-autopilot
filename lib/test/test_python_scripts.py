@@ -4376,6 +4376,58 @@ assert_eq("#611 emit-body on stale-override: the arm-selected remedy accompanies
           "refusal",
           True, 'fresh explicit user election' in _so_e_err)
 
+# The `stale-override` reason guard inside _emit_stale_override_remedy is what makes the
+# centralized placement safe — and it was entirely unpinned: every #611 fixture above has
+# reason == 'stale-override', so deleting the guard left the whole suite green while every
+# OTHER refusal (no-digest-supplied, unaudited-revision, no-verdict-round) started emitting
+# stale-override remediation. That is actively wrong guidance at emit-body, the surface this
+# feature exists to de-risk. Drive a NON-stale-override refusal through both surfaces and
+# assert the remedy is absent.
+_so_other = _state([_round(1, 'file', 'REVISE', 'D1')], revisions=(1,))
+_so_o_out, _so_o_err, _so_o_rc = _so_capture(
+    issue_audit_state.cmd_query_eligibility,
+    argparse.Namespace(slug='s', nonce='n0', mode='approve',
+                       draft_file=str(_so_draft)), _so_other)
+assert_eq("#611 guard: a NON-stale-override refusal still answers on stdout",
+          True, _so_o_out.startswith('eligible=no reason=') and 'stale-override' not in _so_o_out)
+assert_eq("#611 guard: a NON-stale-override refusal emits NO stale-override remedy "
+          "(query-eligibility)",
+          (False, False),
+          ('fresh explicit user election' in _so_o_err, 'record-revision' in _so_o_err))
+_so_oe_out, _so_oe_err, _so_oe_rc = _so_capture(
+    issue_audit_state.cmd_emit_body,
+    argparse.Namespace(slug='s', nonce='n0', draft_file=str(_so_draft)), _so_other)
+assert_eq("#611 guard: a NON-stale-override refusal emits NO stale-override remedy "
+          "(emit-body)",
+          (False, False),
+          ('fresh explicit user election' in _so_oe_err, 'record-revision' in _so_oe_err))
+assert_eq("#611 guard: ...while emit-body still refuses non-zero with empty stdout",
+          (True, ''), (_so_oe_rc != 0, _so_oe_out))
+
+# The isinstance(..., int) screen on the arm-b ordinal comparand is the wrong-type row of
+# the repo's best-effort-parser matrix, applied to a human/agent-mutable state record (the
+# docstring itself cites hand-edited and older-build shapes). Without it a string ordinal
+# raises TypeError from inside a refusal surface — an uncaught traceback where a named
+# breadcrumb belongs. Drive the malformed shapes and assert the fail-safe arm, not a crash.
+for _label, _ord in (('string', '1'), ('None', None), ('absent', '__omit__'),
+                     ('float', 1.0), ('bool', True)):
+    _ovr = {'kind': 'user-decline', 'surface': 'step4-offer', 'draft_digest': 'D2'}
+    if _ord != '__omit__':
+        _ovr['recorded_at_ordinal'] = _ord
+    _st_bad = _state([_round(1, 'file', 'REVISE', 'D1')], revisions=(1, 1), overrides=[_ovr])
+    try:
+        _txt = _so_remedy(_st_bad, 'D9')
+        _crashed = False
+    except Exception:
+        _txt = ''
+        _crashed = True
+    assert_eq("#611 malformed ordinal (%s): degrades to a fail-safe remedy, never a "
+              "traceback from a refusal surface" % _label,
+              (False, True), (_crashed, 'fresh explicit user election' in _txt))
+    assert_eq("#611 malformed ordinal (%s): makes no already-recorded claim it cannot "
+              "establish" % _label,
+              False, 'already recorded' in _txt)
+
 # (e) query-summary is the reason token's THIRD reader — a RENDERING surface, not a
 # refusal. It must stay byte-unchanged: emitting the breadcrumb from the shared
 # evaluate_eligibility would grow an unplanned stderr line on every summary render of a

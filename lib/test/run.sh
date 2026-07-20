@@ -11387,7 +11387,7 @@ assert_eq "lpe --section: a heading with a trailing inline HTML comment is still
   "$(printf '## Inline <!-- note -->\ninline body\n')" "$LPE_SEC_INLINE"
 # ...and it does not bleed into the following section (the swallowed-heading shape
 # merged both sections into one).
-assert_eq "lpe --section: an inline-comment heading terminates the preceding section" "yes" \
+assert_eq "lpe --section: the section under an inline-comment heading ends at the next heading" "yes" \
   "$(case "$LPE_SEC_INLINE" in *'after inline'*) echo no ;; *) echo yes ;; esac)"
 # A heading that OPENS an unclosed comment still puts the block it opened into effect
 # for the lines that follow. What that buys is HEADING suppression, not content
@@ -11404,14 +11404,55 @@ assert_eq "lpe --section: a heading opening an unclosed comment makes a later '#
 assert_eq "lpe --section: ...and the commented lines are still emitted as section content" \
   "yes" "$(case "$LPE_SEC_OPENER" in *'still inside the opened comment'*) echo yes ;; *) echo no ;; esac)"
 
+# A line that CLOSES one comment and RE-OPENS another (`<!-- a --> <!--`) leaves a block
+# open. Reading only the presence of '-->' left the state closed, so every later '## '
+# line read as a real heading and TRUNCATED the section at a pseudo-heading the rule calls
+# inert — a silent loss of consumer prose into an agent prompt. Both the heading-line and
+# the body-line arms take the last-marker rule, so both are driven here.
+printf '## Reopen <!-- a --> <!--\nstill inside\n## Inert\nafter the inert line\n' \
+  > "$LPE_SEC_DIR/.devflow/prompt-extensions/reopen.md"
+LPE_SEC_REOPEN="$(cd "$LPE_SEC_DIR" && bash "$LPE" reopen --section '## Reopen <!-- a --> <!--' 2>/dev/null)"
+assert_eq "lpe --section: a heading that closes AND re-opens a comment leaves it OPEN (no truncation)" \
+  "yes" "$(case "$LPE_SEC_REOPEN" in *'after the inert line'*) echo yes ;; *) echo no ;; esac)"
+printf '## Body\nintro\n<!-- a --> <!--\nstill inside\n## Inert\nafter the inert line\n' \
+  > "$LPE_SEC_DIR/.devflow/prompt-extensions/reopenbody.md"
+LPE_SEC_REOPENB="$(cd "$LPE_SEC_DIR" && bash "$LPE" reopenbody --section '## Body' 2>/dev/null)"
+assert_eq "lpe --section: a BODY line that closes AND re-opens a comment leaves it OPEN (no truncation)" \
+  "yes" "$(case "$LPE_SEC_REOPENB" in *'after the inert line'*) echo yes ;; *) echo no ;; esac)"
+# The contrast that keeps the two rows above honest: a plain closing marker really does
+# close, so a later '## ' line terminates normally.
+printf '## Closed <!--\ninside\n-->\n## Real\nafter a real heading\n' \
+  > "$LPE_SEC_DIR/.devflow/prompt-extensions/closed.md"
+LPE_SEC_CLOSED="$(cd "$LPE_SEC_DIR" && bash "$LPE" closed --section '## Closed <!--' 2>/dev/null)"
+assert_eq "lpe --section: a plain closing marker really closes (a later heading terminates)" \
+  "yes" "$(case "$LPE_SEC_CLOSED" in *'after a real heading'*) echo no ;; *) echo yes ;; esac)"
+
+# A heading-shaped BARE positional is a dropped `--section` flag. Ignoring it emits the
+# WHOLE extension at exit 0 — the outcome the flag exists to prevent, and invisible at the
+# call site. It is the likelier typo than the flag-shaped value below, because the four
+# create-issue re-load sites are model-transcribed commands.
+LPE_BAD6="$(cd "$LPE_SEC_DIR" && bash "$LPE" sectioned '## Alpha' 2>"$LPE_SEC_DIR/err-bad6")"; LPE_BAD6_RC=$?
+assert_eq "lpe --section: a heading-shaped bare positional (dropped --section) → exit 2" "2" "$LPE_BAD6_RC"
+assert_eq "lpe --section: a dropped --section never emits the whole extension" "" "$LPE_BAD6"
+assert_eq "lpe --section: the dropped-flag breadcrumb suggests the flag" "yes" \
+  "$(grep -qF 'did you mean --section' "$LPE_SEC_DIR/err-bad6" && echo yes || echo no)"
+# ...while a stray PLAIN word keeps its pre-existing ignored behavior (compatibility).
+LPE_EXTRA2="$(cd "$LPE_SEC_DIR" && bash "$LPE" sectioned plainword 2>/dev/null)"; LPE_EXTRA2_RC=$?
+assert_eq "lpe --section: a stray plain word is still ignored (not heading-shaped)" "0" "$LPE_EXTRA2_RC"
+assert_eq "lpe --section: ...and still emits the full file" "yes" \
+  "$([ -n "$LPE_EXTRA2" ] && echo yes || echo no)"
+
 # A '--'-prefixed --section VALUE is a dropped heading argument, refused loudly rather
 # than searched for as a literal section name (which would take the silent
 # absent-heading no-op — the shape the positional guard already refuses).
 LPE_BAD5="$(cd "$LPE_SEC_DIR" && bash "$LPE" sectioned --section --bogus 2>"$LPE_SEC_DIR/err-bad5")"; LPE_BAD5_RC=$?
 assert_eq "lpe --section: a flag-shaped --section value → exit 2" "2" "$LPE_BAD5_RC"
 assert_eq "lpe --section: a flag-shaped --section value → empty stdout" "" "$LPE_BAD5"
-assert_eq "lpe --section: a flag-shaped --section value → breadcrumb names it" "yes" \
-  "$(grep -qF -- '--bogus' "$LPE_SEC_DIR/err-bad5" && echo yes || echo no)"
+# Pin the REJECTING GUARD's own distinct signal, not the value echo: '--bogus' also
+# appears in the fallback absent-heading breadcrumb, so a value-echo assertion passes
+# under the exact mutation it exists to catch (the vacuous-negative-test shape).
+assert_eq "lpe --section: a flag-shaped --section value → breadcrumb names the guard, not just the value" "yes" \
+  "$(grep -qF 'looks like a flag' "$LPE_SEC_DIR/err-bad5" && echo yes || echo no)"
 
 # (15) a repeated `--section` takes its LAST occurrence.
 LPE_SEC_REPEAT="$(cd "$LPE_SEC_DIR" && bash "$LPE" sectioned --section '## Alpha' --section '## Beta' 2>/dev/null)"

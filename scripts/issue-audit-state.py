@@ -1196,10 +1196,11 @@ def stale_override_remedy(state, current_digest):
         is LESS than the current revision ordinal: the revision is already recorded, so
         naming it again would send the caller to re-record state it already holds.
         Absence of a current-ordinal override does not select this arm on its own.
-      * arm c (fail-safe) — every other skipped shape: a current-ordinal override
-        carrying no digest on a file-arm epoch (the absent-comparand fail-closed skip),
-        a future-ordinal record, or any further hand-edited / older-build shape. It
-        makes NO claim about the revision state, because none was established.
+      * arm c (fail-safe) — every other skipped shape: a current-ordinal override whose
+        digest binding could not be compared (it carries no digest on a file-arm epoch,
+        OR no draft digest was supplied at query time), a future-ordinal record, or any
+        further hand-edited / older-build shape. It makes NO claim about the revision
+        state, because none was established.
 
     No arm names a bare `record-revision`-then-`record-override` pair: that sequence
     would re-arm a user election the user never made, which is the defect the skill's
@@ -1217,22 +1218,28 @@ def stale_override_remedy(state, current_digest):
     # Each branch selects only its CAUSE clause; the shared election clause is appended
     # once below, so "every arm ends in the election" is structural rather than a
     # convention each return site must separately remember. Arm c of the docstring is
-    # implemented as two branches with distinct causes (an unvalidatable current-ordinal
-    # override, and no current override at all) — deliberately not renumbered here, so
-    # no count or ordering claim in this comment can rot against the docstring.
+    # implemented as separate branches with distinct causes (an unvalidatable
+    # current-ordinal override; no current override at all), deliberately not renumbered
+    # here.
     if (current is not None and current_digest is not None
             and current.get('draft_digest') not in (None, current_digest)):
         cause = ('the recorded override was digest-bound to draft bytes that have '
                  'since changed, so it no longer grounds eligibility; record the '
                  'revision with `record-revision`, then ')
     elif current is not None:
-        # A current-ordinal override that is not digest-staled reached the refusal by
-        # the absent-comparand skip (no digest on a file-arm epoch) — an unestablished
-        # cause, so claim nothing about the revision state.
+        # A current-ordinal override that is not digest-staled reached the refusal with
+        # an uncomparable digest binding — the override carries none, or none was
+        # supplied at query time. Either way the cause is unestablished, so claim
+        # nothing about the revision state.
         cause = ('the recorded override could not be validated against the draft bytes, '
                  'so it no longer grounds eligibility; ')
     elif (newest is not None
+            # `not isinstance(..., bool)` is load-bearing, not defensive noise: bool is a
+            # subclass of int in Python, so a `true` ordinal in a hand-edited state file
+            # passes a bare isinstance check and then compares as 1 — letting arm b assert
+            # "the revision is already recorded" from a value that is not an ordinal at all.
             and isinstance(newest.get('recorded_at_ordinal'), int)
+            and not isinstance(newest.get('recorded_at_ordinal'), bool)
             and newest['recorded_at_ordinal'] < now):
         cause = ('the revision is already recorded, which invalidated the earlier '
                  'override; ')

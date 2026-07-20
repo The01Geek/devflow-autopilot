@@ -37,9 +37,10 @@
 # Two sibling '## '-heading scanners live in scripts/, and their terminator rules
 # DIFFER deliberately — do not "unify" them without re-reading all three contracts:
 #   * scripts/parse-acs.py `_extract_section` terminates on the next heading of the
-#     SAME-OR-HIGHER level. For the level-2 sections it is actually called with, a
-#     '###' sub-heading is therefore NOT a terminator either — it differs from this
-#     helper in dropping heading lines from the returned content, not in the terminator.
+#     SAME-OR-HIGHER level, and it resolves a section name at level 2 OR level 3
+#     (`level in (2, 3)`), so whether a '###' line terminates depends on the level the
+#     document used — unlike this helper, where '###' is always content. It also drops
+#     heading lines from the returned content and matches the name case-INsensitively.
 #   * scripts/workpad.py splits on '## ' in `_split_sections` and matches the heading
 #     name case-INsensitively in its sibling `_find_section` (the split and the match
 #     are two functions; `_split_sections` performs no name comparison of its own).
@@ -96,6 +97,33 @@
 #      silently drop the consumer's customization
 
 set -euo pipefail
+
+# Resolve whether an HTML comment block is OPEN at the end of a line, by walking the
+# line's markers in order and keeping the LAST one that fired. Presence of '-->' is not
+# enough: `<!-- a --> <!--` both closes and re-opens, and reading only the close leaves
+# the block state wrong for every line that follows — which silently truncates a section
+# at a '## ' line the extraction rule calls inert. Pure parameter expansion, no PATH tool.
+_lpe_comment_open() {
+    _lpe_open="$2"
+    _lpe_rest="$1"
+    # Which marker to look for next depends on the CURRENT state, so the walk must branch
+    # on it rather than always seeking an opener first: a line arriving already-inside a
+    # block (a bare `-->`) has no opener, and a seek-opener-first loop would break out
+    # before ever consuming the close and leave the block open forever.
+    while :; do
+        if [ "$_lpe_open" -eq 0 ]; then
+            case "$_lpe_rest" in
+                *'<!--'*) _lpe_rest="${_lpe_rest#*'<!--'}"; _lpe_open=1 ;;
+                *) break ;;
+            esac
+        else
+            case "$_lpe_rest" in
+                *'-->'*) _lpe_rest="${_lpe_rest#*'-->'}"; _lpe_open=0 ;;
+                *) break ;;
+            esac
+        fi
+    done
+}
 
 # Strip trailing whitespace (spaces, tabs, and a CR from a CRLF-authored file) with
 # pure parameter expansion — no `tr`/`sed`. Used on both sides of the heading
@@ -164,6 +192,18 @@ while [ "$#" -gt 0 ]; do
             exit 2
             ;;
         *)
+            # A heading-shaped bare positional is a dropped `--section` flag. Ignoring it
+            # emits the WHOLE extension at exit 0 — the opposite of what the caller asked
+            # for, and indistinguishable at the call site from a legitimate full-file
+            # load. This is the likelier typo than the flag-shaped value refused above
+            # (the four create-issue re-load sites are model-transcribed commands), so it
+            # gets the same loud refusal. A stray plain word keeps its ignored behavior.
+            case "$1" in
+                '## '*)
+                    echo "load-prompt-extension.sh: extra argument '$1' looks like a heading; did you mean --section '$1'? (refusing to silently emit the whole extension)" >&2
+                    exit 2
+                    ;;
+            esac
             shift
             ;;
     esac
@@ -276,8 +316,11 @@ if [ -f "$ext_file" ]; then
                 # Inside a fence nothing is a heading; only the closing fence matters.
                 case "$_line" in '```'*) _in_fence=0 ;; esac
             elif [ "$_in_comment" -eq 1 ]; then
-                # Inside a comment block nothing is a heading; only the close matters.
-                case "$_line" in *'-->'*) _in_comment=0 ;; esac
+                # Inside a comment block nothing is a heading; only the block state
+                # matters — and a line can close one comment and re-open another, so the
+                # LAST marker decides, not the presence of a close.
+                _lpe_comment_open "$_line" 1
+                _in_comment="$_lpe_open"
             else
                 case "$_line" in
                     '```'*)
@@ -302,17 +345,17 @@ if [ -f "$ext_file" ]; then
                         # so `<!-- ## Commented -->` is unaffected.
                         _is_heading=1
                         # A heading line may itself OPEN an unclosed comment block
-                        # (`## X <!--`). It is still this section's heading, but the
-                        # block it opened must govern the lines that follow, or the
-                        # commented-out remainder would be emitted as section content.
-                        case "$_line" in
-                            *'<!--'*) case "$_line" in *'-->'*) : ;; *) _in_comment=1 ;; esac ;;
-                        esac
+                        # (`## X <!--`, or `## X <!-- a --> <!--`). It is still this
+                        # section's heading, but whatever block state it leaves must
+                        # govern the lines that follow, so the LAST marker decides.
+                        _lpe_comment_open "$_line" 0
+                        _in_comment="$_lpe_open"
                         ;;
                     *'<!--'*)
-                        # A comment that also closes on the same line leaves the block
-                        # state alone; either way this line is not a heading.
-                        case "$_line" in *'-->'*) : ;; *) _in_comment=1 ;; esac
+                        # This line is not a heading either way; the LAST marker on it
+                        # decides whether a block is left open for the lines that follow.
+                        _lpe_comment_open "$_line" 0
+                        _in_comment="$_lpe_open"
                         ;;
                 esac
             fi
