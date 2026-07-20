@@ -680,8 +680,8 @@ RA_A6B="$_ra_tmp_root/a6b"; _ra_fixture "$RA_A6B"
 # No _ra_reconcile here: a brand-new phase file is an unclassified asset that the
 # closure and the census both reject by design, so it cannot be reconciled away. The
 # ATTRIBUTABLE assertion for this arm is therefore the budget JUDGMENT line itself —
-# the exit-1 assertion below corroborates it but does not attribute it (A3 is what
-# pins "a judgment item forces exit 1" on its own).
+# the exit-code assertion below corroborates it but does not attribute it (A3 is what
+# pins "a judgment item forces the action-required state" on its own).
 printf '# scratch\n' > "$RA_A6B/skills/review/phases/phase-9-fixture.md"
 _ra_run "$RA_A6B"
 _ra_has "#619 A6b an untracked bundle member trips the budget judgment item" "$RA_A6B" \
