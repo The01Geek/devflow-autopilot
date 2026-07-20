@@ -1,5 +1,9 @@
 # Release Notes
 
+## July 19, 2026
+
+- **Feature — Run DevFlow cloud jobs on self-hosted Windows runners** — DevFlow's cloud tier previously could not run on a self-hosted Windows runner because the underlying action's bundled Claude Code installer supports Unix only, so every cloud job failed before it started. A new optional configuration key, `setup.claude_code_executable`, lets you point DevFlow at a Claude Code executable you pre-install on the runner; all three DevFlow cloud workflows then use that executable instead of trying to install one. The key is unset by default, so Linux consumers are unaffected. See `docs/cloud-setup.md` for the full walkthrough. (#604)
+
 ## July 17, 2026
 
 - **Improvement — `/devflow:create-issue` now backs its approach recommendation with an axis-complete evidence bundle** — Before it asks you which implementation approach to take, the skill's independent-derivation pass now records a read-only evidence bundle in its working artifact — one entry per evidence axis (who produces and consumes the affected surface, which execution tiers and persistence it touches, its lifecycle states and termination paths, its migration/coexistence surfaces, and its coupled tests and docs) marked verified, not-applicable, or unestablished. The recommended-approach marking must cite a bundle entry by axis name and disclose any axis it could not establish, so an evidence-thin recommendation is visibly thin at the moment you approve it. The pre-filing audit also now sorts each finding into must-revise, advisory, or invalid-unverified classes, and whether the skill offers you one more audit round before presenting the draft keys off the count of unresolved must-revise findings rather than a raw verdict token. Consumers can extend the evidence axes the pass must cover with a `## Evidence axes` section in their `create-issue` prompt extension. (#570)
