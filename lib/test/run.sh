@@ -34488,6 +34488,19 @@ assert_eq "#529 AC2: the split is at least 25,327 words below the 33,815 baselin
 RB_SHIPPED_CEIL=32399
 assert_eq "#618 AC3 (re-anchored, interim): the shipped-default per-pass path is within the $RB_SHIPPED_CEIL-word ceiling" "yes" \
   "$([ "$_rb_shipped_w" -le "$RB_SHIPPED_CEIL" ] && echo yes || echo no)"
+# #618 (PR #639 shadow, pr-test-analyzer Important): the four mirror pins verify the ceiling CONSTANT
+# agrees across surfaces, but NONE bounds how far ABOVE the live measurement the ceiling may be set —
+# yet the whole #618 design (and the now-self-appliable escape valve) rests on the ceiling being the
+# live figure plus a FIXED 60-word margin. A renegotiation (now automatable) that set the ceiling to
+# measured+500 would keep every mirror consistent and the suite GREEN, silently defeating the thin-
+# margin early-warning intent and the "never widen the margin" scope the decision record insists on.
+# Bound it: the ceiling must not exceed the live shipped-default figure by more than the sanctioned 60.
+# Monotone-safe — ordinary prose GROWTH only shrinks the gap (never false-REDs); it fires only on an
+# over-generous ceiling (an over-wide renegotiation, or a prose reduction the ceiling was not re-
+# anchored to track — exactly the #642 re-lowering trigger, which re-anchors the ceiling in the same
+# change). Fails closed: a non-integer operand makes the arithmetic error → not "yes" → RED.
+assert_eq "#618: RB_SHIPPED_CEIL honors the sanctioned +60 margin (ceiling ≤ live shipped-default + 60)" "yes" \
+  "$([ "$((RB_SHIPPED_CEIL - _rb_shipped_w))" -le 60 ] && echo yes || echo no)"
 # Anti-vacuity: the ceilings above are only meaningful if every operand was really
 # measured. `cat` SKIPS an unreadable member and keeps going, so a wrong path does
 # NOT zero the count — it merely shrinks it, and a ceiling then passes MORE easily

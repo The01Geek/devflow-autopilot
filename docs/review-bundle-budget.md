@@ -144,8 +144,9 @@ literal), this doc (the ceilings table and this record), `CLAUDE.md`'s review-bu
 confirm it is GREEN** (the four mirrors are mutually coupled to `RB_SHIPPED_CEIL`, so a partial
 reconciliation of fewer than all four leaves the suite RED), and
 record the change in this decision record. This is the procedure #556 established (measured figure plus a
-thin margin, recorded); it is written here so the `#556` / `#618` comments in `lib/test/run.sh` that cite
-"the doc's sanctioned escape valve" are no longer citing an absent procedure.
+thin margin, recorded); it is written here so the `#556` / `#618` comments in `lib/test/run.sh` that
+reference the doc's escape-valve procedure (`#556`: "via the doc's escape valve"; `#618`: "the escape-valve
+procedure recorded in docs/review-bundle-budget.md's decision record") are no longer citing an absent procedure.
 
 **Standing remedy for the next breach (maintainer-chosen — self-apply).** The margin is thin by
 construction, so the next concurrent-merge breach is the same event class that motivated #618. The
