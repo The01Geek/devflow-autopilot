@@ -37457,6 +37457,13 @@ assert_eq "#362 settings.json: nested launch emits no missing-file error (worktr
 # assert the guard HEALED the fixture marker (exit 0, marker gone). A future edit reverting
 # the execution to the live checkout would leave this fixture marker in place → RED.
 : > "$ISG_FX/.devflow/tmp/implement-active-999"
+# Precondition (self-sufficiency): the "marker healed" assertion below is [ ! -e marker ],
+# which cannot by itself distinguish "the guard healed it" from "it was never planted" — so
+# pin that the plant actually landed first. Without this, a failed `: >` (e.g. .devflow/tmp
+# absent) would make the launcher take the no-marker path and BOTH heal-proof assertions pass
+# with zero healing (the CLAUDE.md "guard whose comparand can be absent fails open" class).
+assert_eq "#362 settings.json: heal-proof: fixture marker planted before the launch" "yes" \
+  "$([ -e "$ISG_FX/.devflow/tmp/implement-active-999" ] && echo yes || echo no)"
 isg_stub_workpad "$ISG_FX" 2
 ISG_HEAL_ERR="$(mktemp)"
 isg_launch "$ISG_FX/nested" "$ISG_HEAL_ERR"
@@ -37550,6 +37557,12 @@ ISG_DOC_ENTRIES="$(python3 -c "$ISG_DOCPIN_PY" md "$ISG_DOC" 2>/dev/null)"; ISG_
 ISG_REAL_ENTRIES="$(python3 -c "$ISG_DOCPIN_PY" json "$ISG_SETTINGS" 2>/dev/null)"; ISG_REAL_RC=$?
 assert_eq "#362 efficiency-trace doc: Stop example extraction succeeds (fail-closed contract)" "0" "$ISG_DOC_RC"
 assert_eq "#362 efficiency-trace doc: tracked settings.json Stop extraction succeeds" "0" "$ISG_REAL_RC"
+# Assert both operands are non-empty BEFORE the equality, so the equality is self-sufficient
+# rather than vacuous-safe only via the two RC-0 guards above: a fail-closed extraction prints
+# nothing, and "" == "" would otherwise pass. (Defense-in-depth: the RC-0 asserts already fire
+# RED first, but the equality should not silently trust a double-empty match.)
+assert_eq "#362 efficiency-trace doc: extracted Stop entries are non-empty" "yes" \
+  "$([ -n "$ISG_DOC_ENTRIES" ] && [ -n "$ISG_REAL_ENTRIES" ] && echo yes || echo no)"
 assert_eq "#362 efficiency-trace settings example matches the tracked Stop-hook wiring shape" "$ISG_REAL_ENTRIES" "$ISG_DOC_ENTRIES"
 
 # Permanent fail-closed arms over synthetic malformed markdown (the mutable-markdown
@@ -37581,7 +37594,35 @@ cat > "$ISG_DOCFX/truncated.md" <<'MD'
   ```json
   { "hooks":
 MD
-for ISG_MF in no-heading zero-fences two-fences truncated; do
+# duplicate-heading — the mutable-markdown matrix's "duplicate sections/markers" row; the
+# extractor's len(heads) != 1 guard must reject > 1 head, not only 0.
+cat > "$ISG_DOCFX/dup-heading.md" <<'MD'
+- *`Stop` hook (local-tier only).*
+  ```json
+  { "hooks": { "Stop": [ { "matcher": "", "hooks": [ { "type": "command", "command": "x" } ] } ] } }
+  ```
+- *`Stop` hook (local-tier only).* a second, duplicate heading.
+- *Next bullet.*
+MD
+# missing-Stop-key — a single valid fence whose JSON has no hooks.Stop path; the
+# list-comprehension `except` (cannot extract Stop entries) must fire.
+cat > "$ISG_DOCFX/no-stop-key.md" <<'MD'
+- *`Stop` hook (local-tier only).*
+  ```json
+  { "hooks": {} }
+  ```
+- *Next bullet.*
+MD
+# empty-Stop-list — a valid fence with an empty Stop array; the `if not entries` empty-input
+# sentinel must fail closed (AC10's "never a vacuous pass on empty input").
+cat > "$ISG_DOCFX/empty-stop.md" <<'MD'
+- *`Stop` hook (local-tier only).*
+  ```json
+  { "hooks": { "Stop": [] } }
+  ```
+- *Next bullet.*
+MD
+for ISG_MF in no-heading zero-fences two-fences truncated dup-heading no-stop-key empty-stop; do
   python3 -c "$ISG_DOCPIN_PY" md "$ISG_DOCFX/$ISG_MF.md" >/dev/null 2>&1
   ISG_MF_RC=$?
   assert_eq "#362 efficiency-trace doc: extractor fails closed on $ISG_MF" "yes" \
