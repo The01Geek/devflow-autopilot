@@ -1,0 +1,78 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-20T06:48:00Z",
+  "fix_commit_sha": null,
+  "fix_files": [],
+  "loop_role": "fix",
+  "current_step": "2.6",
+  "current_substep": "run_shadow_fanout",
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:silent-failure-hunter",
+    "devflow:pr-test-analyzer",
+    "devflow:code-reviewer"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "None",
+      "description": "both iter-1 findings RESOLVED; no new silent failures; APPROVE",
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "None",
+      "description": "iter-1 coverage gap RESOLVED; 3 new fixtures reach distinct branches (heads>1, Stop KeyError except, empty-entries sentinel); malformed matrix complete; APPROVE",
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "None",
+      "description": "independent shadow APPROVE; guard byte-unchanged; doc/settings byte-equal; complete malformed matrix",
+      "fix_decision": "advisory"
+    }
+  ],
+  "fix_decisions": [],
+  "convergence_inputs": {
+    "fixes_applied": 0,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "shadow": {
+    "ran_at": "2026-07-20T06:48:00Z",
+    "reviewed_sha": "58aa22e",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "devflow:silent-failure-hunter",
+      "devflow:pr-test-analyzer",
+      "devflow:code-reviewer"
+    ],
+    "expected_reviewers": [
+      "devflow:silent-failure-hunter",
+      "devflow:pr-test-analyzer",
+      "devflow:code-reviewer"
+    ],
+    "reason": "convergence-time shadow over the iter-1 fix delta; all reviewers independently APPROVE the shipped diff",
+    "phase3_findings": [],
+    "comparison": {
+      "shadow_total": 0,
+      "overlap_with_iter_N": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
+  "telemetry": "unavailable"
+}
