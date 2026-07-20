@@ -227,6 +227,20 @@ is read **only** from the trusted base-ref config, never a PR-head-checked-out c
 because that job runs under a write token and the action executes the resolved path — a
 PR-author-controllable path would be an arbitrary-code-execution vector.)
 
+### Windows: `GIT_DIR`/`GIT_WORK_TREE` pinned on the action step
+
+All three DevFlow workflows (`devflow.yml`, `devflow-implement.yml`,
+`devflow-runner.yml`) set step-scoped `GIT_DIR: ${{ github.workspace }}/.git` and
+`GIT_WORK_TREE: ${{ github.workspace }}` on their `Run Claude Code`
+(`anthropics/claude-code-action@v1`) step. This pins the repository location so the
+action's `configureGitAuth` startup — which runs repo-local `git config
+user.name`/`user.email` — resolves `.git` independent of the inherited working
+directory. Without it, a self-hosted **Windows** runner can abort with
+`fatal: not in a git directory` (exit 128) before the agent does any work. The vars
+are **step-scoped** (not job- or workflow-scoped), so other steps' git operations are
+unaffected, and behavior on GitHub-hosted Linux runners is unchanged. No
+configuration is required — the pin ships with the workflows via `install.sh`.
+
 ### The `setup.services` Docker caveat
 
 `setup.services` (see [Service containers](#php-service-containers-and-dependency-caching)
