@@ -28105,6 +28105,45 @@ assert_eq "#139 no cloud workflow installs the feature-dev companion plugin" \
 # tracked_scan aggregate below; no per-workflow loop is needed for either companion.)
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "#628 code-explorer/code-architect quantitative-claim calibration + inert-grant removal"
+# ────────────────────────────────────────────────────────────────────────────
+# The two discovery/planning agents gained a two-sided calibration contract (a
+# quantitative claim not read from tool output this session is marked an unverified
+# estimate) and lost their inert KillShell/BashOutput grants (no Bash → no shell
+# session for either to act on). Surface-presence pins on the new sentences (T1–T4)
+# plus live structural assertions computed against the tracked files (T5).
+CE_628="$FDROOT/agents/code-explorer.md"
+CA_628="$FDROOT/agents/code-architect.md"
+P2_628="$FDROOT/skills/implement/phases/phase-2-implement.md"
+
+# T1 (AC1): architect calibration sentence in its Output Guidance.
+assert_pin_unique "#628 architect Output Guidance carries the quantitative-claim calibration sentence" \
+  'did not read directly from tool output in the current session' "$CA_628"
+# T2 (AC2): explorer calibration sentence (same core phrase, adapted to analysis output).
+assert_pin_unique "#628 explorer carries the quantitative-claim calibration sentence" \
+  'did not read directly from tool output in the current session' "$CE_628"
+# T3 (AC3): explorer file:line scoping sentence after the line-numbers mandate.
+assert_pin_unique "#628 explorer scopes file:line precision to ephemeral analysis, bare paths in committed docs" \
+  'committed documentation instead references bare paths and symbol names' "$CE_628"
+# T4 (AC4): phase-2 §2.2 re-derivation obligation.
+assert_pin_unique "#628 phase-2 §2.2 obliges orchestrator to re-derive a subagent quantitative claim" \
+  'Independently re-derive any quantitative claim a Phase-2 subagent produced' "$P2_628"
+
+# T5 (AC5): live structural assertions — each agent tools: line omits KillShell and
+# BashOutput (exactly the two inert tokens removed), and the two files' tools: lines
+# are byte-identical (the channel that keeps AC5's identity criterion from rotting
+# when one file's line is later edited alone).
+for ag628 in "$CE_628" "$CA_628"; do
+  TOOLS_LINE_628="$(grep -E '^tools:[[:space:]]' "$ag628" | head -1)"
+  assert_eq "#628 $(basename "$ag628") tools: line omits KillShell" \
+    "no" "$(printf '%s' "$TOOLS_LINE_628" | grep -qw 'KillShell' && echo yes || echo no)"
+  assert_eq "#628 $(basename "$ag628") tools: line omits BashOutput" \
+    "no" "$(printf '%s' "$TOOLS_LINE_628" | grep -qw 'BashOutput' && echo yes || echo no)"
+done
+assert_eq "#628 the two agents' tools: lines are byte-identical" \
+  "yes" "$([ "$(grep -E '^tools:[[:space:]]' "$CE_628" | head -1)" = "$(grep -E '^tools:[[:space:]]' "$CA_628" | head -1)" ] && echo yes || echo no)"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "pr-review-toolkit internalization (#141)"
 # ────────────────────────────────────────────────────────────────────────────
 # This PR vendors the five external pr-review-toolkit review agents (code-reviewer,
