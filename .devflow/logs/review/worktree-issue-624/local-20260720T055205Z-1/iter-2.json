@@ -1,0 +1,254 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-20T06:40:00Z",
+  "fix_commit_sha": "36de3a65",
+  "fix_files": [
+    "lib/test/regenerate-artifacts.py",
+    "lib/test/modules/regenerate-artifacts.sh",
+    "lib/test/modules/regenerate-artifacts.inventory.md"
+  ],
+  "loop_role": "fix",
+  "current_step": "3",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "checklist": [],
+  "phase3_dispatched": [
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "The _disk non-empty precondition is vacuous by construction: printf is a builtin and \"$@\" always carries the literal members, so _disk is non-empty on every path and the '' arm is unreachable — the guard renders a green result for a condition it never tests, and its failure text names causes (ls absent, glob matched nothing) it structurally cannot observe.",
+      "defect_signature": {
+        "file": "lib/test/modules/regenerate-artifacts.sh",
+        "line_range": [
+          307,
+          318
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "The cross-row overlap `case` interpolates the member into a case PATTERN, so a member containing a glob metacharacter is read as a pattern rather than a literal. The registry does carry such members (skills/review/phases/*.md appears verbatim on budget-watch-missing lines), so the shape is one row-schema change from live.",
+      "defect_signature": {
+        "file": "lib/test/modules/regenerate-artifacts.sh",
+        "line_range": [
+          355,
+          375
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "The cross-row overlap detector's positive (reporting) branch is dead — driven only by the real tree, where the rows are disjoint by construction, so an inverted test or broken sentinel would stay permanently green.",
+      "defect_signature": {
+        "file": "lib/test/modules/regenerate-artifacts.sh",
+        "line_range": [
+          355,
+          375
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "The registry-derived roster is extracted from budget-watch lines only; a budget row whose members are ALL absent emits budget-watch-missing lines exclusively and so never enters the roster, letting the coverage equality pass while that row goes unchecked.",
+      "defect_signature": {
+        "file": "lib/test/modules/regenerate-artifacts.sh",
+        "line_range": [
+          340,
+          352
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "is_budget_row's docstring describes a counterfactual failure mode neither keying produces: the shipped keying makes a command-less non-budget row False at BOTH sites, and the rejected proxy makes it True at both — the 'opposite directions' split describes neither. Conclusion right, mechanism false against HEAD.",
+      "defect_signature": {
+        "file": "lib/test/regenerate-artifacts.py",
+        "line_range": [
+          349,
+          356
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "The registry-invariant probe passes vacuously on an empty (or lazily-populated) ROWS: bad is [], the probe prints nothing, and the assertion passes having checked zero rows. It is the only new assertion whose whole population comes from inside Python and the only one without a non-empty precondition.",
+      "defect_signature": {
+        "file": "lib/test/modules/regenerate-artifacts.sh",
+        "line_range": [
+          899,
+          914
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "The registry invariant pins argv-vs-watch_literals but not `record`/`watch_globs`, which budget_row and watch_list also consume — a budget row missing `record` satisfies the pin and then raises KeyError at use (fail-closed, but as a traceback rather than a named breadcrumb).",
+      "defect_signature": {
+        "file": "lib/test/modules/regenerate-artifacts.sh",
+        "line_range": [
+          906,
+          913
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "A5i3 pins the new row's glob leg; its literal leg is still unpinned — the one place a watch_literals copy-paste from the sibling row would go undetected.",
+      "defect_signature": {
+        "file": "lib/test/modules/regenerate-artifacts.sh",
+        "line_range": [
+          651,
+          666
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "A5o prose says 'UNREADABLE module registry' while the fixture plants absence (rm -f); defensible since arm 8 renders the same text for both, but the reproduction guidance misleads.",
+      "defect_signature": {
+        "file": "lib/test/modules/regenerate-artifacts.sh",
+        "line_range": [
+          861,
+          870
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "The inventory's Registry-surface cell cites `#624 registry invariant`, which is a section-header comment rather than an assertion name; every other cell cites arm labels that also prefix assertion names, so this entry silently changes referent class.",
+      "defect_signature": {
+        "file": "lib/test/modules/regenerate-artifacts.inventory.md",
+        "line_range": [
+          18,
+          18
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "The inventory's Budget-rows arm list is a hand-maintained enumeration (a mirror-fact that rots) and already omitted A5i2.",
+      "defect_signature": {
+        "file": "lib/test/modules/regenerate-artifacts.inventory.md",
+        "line_range": [
+          20,
+          20
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "A6d/row-comment provenance claims carry a bare count ('proved this drift twice').",
+      "defect_signature": {
+        "file": "lib/test/modules/regenerate-artifacts.sh",
+        "line_range": [
+          870,
+          870
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [],
+  "convergence_inputs": {
+    "fixes_applied": 12,
+    "fix_diff_lines": 140,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "shadow": {
+    "ran_at": null,
+    "reviewed_sha": null,
+    "verdict": null,
+    "coverage": null,
+    "prompt_addenda": null,
+    "reviewers_dispatched": [],
+    "expected_reviewers": [],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 0,
+      "overlap_with_iter_N": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
+  "telemetry": "unavailable"
+}

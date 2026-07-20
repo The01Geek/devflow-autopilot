@@ -1,0 +1,254 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-20T05:52:05Z",
+  "fix_commit_sha": "922b3812",
+  "fix_files": [
+    "lib/test/regenerate-artifacts.py",
+    "lib/test/modules/regenerate-artifacts.sh",
+    "lib/test/modules/regenerate-artifacts.inventory.md"
+  ],
+  "loop_role": "fix",
+  "current_step": "3",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "checklist": [],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Important",
+      "description": "Stale ordinal count 'a judgment row like the other three' at regenerate-artifacts.sh:270 — the diff registered a fifth judgment row and edited the hunk directly above it, so the count rotted inside the edited hunk (non-demotable stale-count class).",
+      "defect_signature": {
+        "file": "lib/test/modules/regenerate-artifacts.sh",
+        "line_range": [
+          270,
+          270
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Important",
+      "description": "is_budget_row docstring carries a self-referential exact count ('today's two command-less rows ... the two budget rows'); nothing in the suite goes RED on drift. Corroborated by Phase 0.6 stale-prose-lint R3 count-locked row at the same site.",
+      "defect_signature": {
+        "file": "lib/test/regenerate-artifacts.py",
+        "line_range": [
+          343,
+          351
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "The disjointness assertion renders a green 'disjoint' result for a comparison it never performed when both lists are empty — unknown rendered as the pass value.",
+      "defect_signature": {
+        "file": "lib/test/modules/regenerate-artifacts.sh",
+        "line_range": [
+          182,
+          196
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:completeness-critic",
+      "severity": "Important",
+      "description": "Phase 3.1.5: the A4 watch-list audit enumerated the budget-row population from hardcoded call sites while the registry is that population's declared single enumeration point; a third registered budget row would receive no equality assertion and no overlap comparison, with every arm staying green. Independent re-enumeration from the registry (ROWS + is_budget_row) matched today, so nothing was uncovered — but coverage was not structurally maintained.",
+      "defect_signature": {
+        "file": "lib/test/modules/regenerate-artifacts.sh",
+        "line_range": [
+          300,
+          338
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "The new row's budget-watch-missing attribution leg is driven by no arm (A5e/A5i drive review-bundle-budget only).",
+      "defect_signature": {
+        "file": "lib/test/modules/regenerate-artifacts.sh",
+        "line_range": [
+          764,
+          846
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "A6e lacks the sibling-clean anti-vacuity pin A6d carries; its rc-0 assertion carries no independent signal.",
+      "defect_signature": {
+        "file": "lib/test/modules/regenerate-artifacts.sh",
+        "line_range": [
+          767,
+          776
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "is_budget_row's documented divergence from the argv-is-None proxy is asserted by no test.",
+      "defect_signature": {
+        "file": "lib/test/regenerate-artifacts.py",
+        "line_range": [
+          343,
+          355
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "RA_WATCH_LAST is an implicit out-parameter with no staleness guard; a reordered or inserted call site would bind the wrong row's list.",
+      "defect_signature": {
+        "file": "lib/test/modules/regenerate-artifacts.sh",
+        "line_range": [
+          160,
+          169
+        ],
+        "kind": "api_misuse"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "The replacement for the deleted BUDGET_* constants gives no pointer to is_budget_row, the predicate that decides which rows carry those keys.",
+      "defect_signature": {
+        "file": "lib/test/regenerate-artifacts.py",
+        "line_range": [
+          84,
+          88
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "Header INCLUSION CRITERION still requires 'a standalone non-writing check command'; budget rows have none, and this change doubles the contradicting population.",
+      "defect_signature": {
+        "file": "lib/test/regenerate-artifacts.py",
+        "line_range": [
+          25,
+          27
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "AC7 (full suite, zero skip tally) unverified within the review pass itself.",
+      "defect_signature": {
+        "file": "lib/test/regenerate-artifacts.py",
+        "line_range": null,
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "pushed_back"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-11",
+      "decision": "pushed_back",
+      "source_file": "lib/test/regenerate-artifacts.py",
+      "claim_text": "AC7 unverified in review — only the focused module was run",
+      "skip_category": "claim-quality",
+      "evidence": "The full suite WAS run in-env on the committed tree before the review pass and observed 10767 passed, 0 failed, with a zero skip tally; recorded in the workpad. The reviewer could not observe that read-only, so the finding is about reviewer visibility rather than a gap in the change.",
+      "parking_evidence": {
+        "basis": "the claimed gap does not exist — the full-suite zero-skip run was performed in-env and recorded before the review pass",
+        "failing_input": "none; the asserted missing verification was in fact performed",
+        "source": "workpad note on issue #624 recording 10767 passed, 0 failed, zero skips on the committed tree",
+        "finding_ref": {
+          "iter": 1,
+          "index": 10
+        }
+      }
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 10,
+    "fix_diff_lines": 108,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "shadow": {
+    "ran_at": null,
+    "reviewed_sha": null,
+    "verdict": null,
+    "coverage": null,
+    "prompt_addenda": null,
+    "reviewers_dispatched": [],
+    "expected_reviewers": [],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 0,
+      "overlap_with_iter_N": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
+  "telemetry": "unavailable"
+}
