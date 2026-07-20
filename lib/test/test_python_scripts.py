@@ -5969,6 +5969,1662 @@ assert_eq("#543 AC18: checked-in manifest matches the generated closure (verify)
 assert_eq("#543 AC18: validator accepts the real checked-in manifest",
           0, vcwc.main([]))
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Cloud-writer trust-closure dependency classification (issue #583, AC5).
+# The classification is import/source-derived + exec-declared; the guard rejects
+# a repo-owned edge that escapes the vendored tree and an external edge that
+# names no preflight guarantee. Positive fixtures pin workpad.py's
+# subprocess/stdlib deps and run-jq.sh's jq delegation; non-vacuity is proven by
+# injecting one crafted edge at a time into check_dependencies(edges=...).
+# ─────────────────────────────────────────────────────────────────────────────
+cwd = _load('cloud_writer_deps', _LIBTEST / 'cloud_writer_deps.py')
+
+# The live closure classifies cleanly and every AC1 entry point is covered.
+assert_eq("#583 AC5: check_dependencies() reports no violations on the live closure",
+          [], cwd.check_dependencies())
+_cwd_all = cwd.classify_all()
+_cwd_helpers = {e.helper for e in _cwd_all}
+assert_eq("#583 AC5: every AC1-closure entry point is classified",
+          True, set(cwd.entry_points()) <= _cwd_helpers)
+assert_eq("#583 AC5: classification stays one hop from AC1 entry points",
+          set(cwd.entry_points()), _cwd_helpers)
+
+# Machine-pin the preflight authorization vocabulary to the live implementation,
+# including the guarantees whose probes are more specialized than `_need`.
+_preflight_source = (SCRIPTS.parent / "lib/preflight.sh").read_text(encoding="utf-8")
+_preflight_code = "\n".join(
+    line for line in _preflight_source.splitlines()
+    if not line.lstrip().startswith("#")
+)
+_preflight_guarantees = set(re.findall(
+    r"^\s*_need\s+([A-Za-z0-9_.+-]+)", _preflight_code, re.MULTILINE))
+if re.search(r'^\s*_JQ=.*\bdevflow_resolve_bin jq\b', _preflight_code, re.MULTILINE):
+    _preflight_guarantees.add("jq")
+if re.search(r'^\s*_GH=.*\bdevflow_resolve_gh\b', _preflight_code, re.MULTILINE):
+    _preflight_guarantees.add("gh")
+if re.search(r'^\s*if command -v python3\b', _preflight_code, re.MULTILINE):
+    _preflight_guarantees.add("python3")
+if re.search(r"^\s*if ! \$PYTHON -c 'import yaml'", _preflight_code, re.MULTILINE):
+    _preflight_guarantees.add("PyYAML")
+assert_eq("#583 AC5: PREFLIGHT_GUARANTEES is machine-pinned to lib/preflight.sh",
+          cwd.PREFLIGHT_GUARANTEES, frozenset(_preflight_guarantees))
+
+
+def _cwd_edges(helper, kind=None):
+    return [e for e in _cwd_all
+            if e.helper == helper and (kind is None or e.kind == kind)]
+
+
+# Positive fixture 1 — workpad.py: subprocess (gh/git) + standard-library deps.
+_wp_exec = {e.target: e for e in _cwd_edges("scripts/workpad.py", "exec")}
+assert_eq("#583 AC5: workpad.py's gh subprocess edge is external, authorized by the gh preflight guarantee",
+          (True, "external", True),
+          ("gh" in _wp_exec, _wp_exec["gh"].klass if "gh" in _wp_exec else None,
+           bool(_wp_exec.get("gh") and "gh (preflight guarantee)" == _wp_exec["gh"].auth)))
+assert_eq("#583 AC5: workpad.py's git subprocess edge is external, git-preflight-authorized",
+          (True, "external"),
+          ("git" in _wp_exec, _wp_exec["git"].klass if "git" in _wp_exec else None))
+assert_eq("#583 AC5: workpad.py's standard-library imports are all external and preflight-authorized",
+          True,
+          all(e.klass == "external" and e.auth and "python3 standard library" in e.auth
+              for e in _cwd_edges("scripts/workpad.py", "import")))
+
+# Positive fixture 2 — run-jq.sh: the sourced resolver (repo-owned, beneath the
+# vendored tree) and the jq delegation (external, jq-preflight-authorized).
+_rj_source = {e.target for e in _cwd_edges("scripts/run-jq.sh", "source")}
+_rj_exec = {e.target: e for e in _cwd_edges("scripts/run-jq.sh", "exec")}
+assert_eq("#583 AC5: run-jq.sh sources lib/resolve-jq.sh as a repo-owned edge beneath the vendored tree",
+          (True, True),
+          ("lib/resolve-jq.sh" in _rj_source,
+           cwd.resolves_beneath_vendor("lib/resolve-jq.sh")))
+assert_eq("#583 AC5: run-jq.sh's jq delegation is an external edge authorized by the jq preflight guarantee",
+          (True, "external", "jq (preflight guarantee)"),
+          ("jq" in _rj_exec, _rj_exec["jq"].klass if "jq" in _rj_exec else None,
+           _rj_exec["jq"].auth if "jq" in _rj_exec else None))
+
+# Positive fixture 3 — non-preflight runtime tools must name the helper-head
+# profile grant that authorizes their execution, rather than disappearing from
+# the classification merely because they are ordinary host utilities.
+_lpe_exec = {e.target: e for e in _cwd_edges("scripts/load-prompt-extension.sh", "exec")}
+assert_eq("#583 AC5: load-prompt-extension.sh classifies cat with explicit profile-grant provenance",
+          (True, True, True),
+          ("cat" in _lpe_exec,
+           bool(_lpe_exec.get("cat") and "profile grant" in _lpe_exec["cat"].auth),
+           bool(_lpe_exec.get("cat") and cwd.VENDOR_PREFIX + "scripts/load-prompt-extension.sh"
+                in _lpe_exec["cat"].auth)))
+
+_docs_exec = {e.target for e in _cwd_edges("scripts/extract-doc-needed-paths.sh", "exec")}
+assert_eq("#583 AC5: extract-doc-needed-paths.sh classifies every external runtime dependency",
+          {"cat", "awk", "grep", "git", "sort"}, _docs_exec)
+
+_checkpoint_exec = {e.target: e for e in _cwd_edges("scripts/update-branch-checkpoint.sh", "exec")}
+assert_eq("#583 AC5: update-branch-checkpoint.sh classifies config-get.sh as a repo-owned exec edge",
+          (True, "repo-owned", True),
+          ("scripts/config-get.sh" in _checkpoint_exec,
+           _checkpoint_exec["scripts/config-get.sh"].klass
+           if "scripts/config-get.sh" in _checkpoint_exec else None,
+           cwd.resolves_beneath_vendor("scripts/config-get.sh")))
+
+_eff_exec_targets = {e.target for e in _cwd_edges("lib/efficiency-trace.sh", "exec")}
+assert_eq("#583 AC5: efficiency-trace.sh classifies its preflight, profile-granted, and repo-owned exec edges",
+          {"jq", "git", "python3", "dirname", "sort", "wc", "date", "mkdir",
+           "rm", "basename", "mv", "cp", "scripts/config_fingerprint.py"},
+          _eff_exec_targets)
+
+# The source-to-declaration reconciliation must include repo-owned helper execs
+# reached through Python command variables, not only literal subprocess heads.
+_match_def_exec = {e.target for e in _cwd_edges("scripts/match-deferrals.py", "exec")}
+assert_eq("#583 AC5: match-deferrals.py classifies its config-get.sh delegation",
+          {"gh", "git", "scripts/config-get.sh"}, _match_def_exec)
+_match_lint_exec = {
+    e.target for e in _cwd_edges("scripts/match-lint-adjudications.py", "exec")
+}
+assert_eq("#583 AC5: match-lint-adjudications.py classifies its config-get.sh delegation",
+          {"git", "scripts/config-get.sh"}, _match_lint_exec)
+
+# Exec declarations use a named, validated record: the optional authorization
+# provenance cannot be shifted into the wrong positional slot or silently typo'd.
+assert_eq("#583 AC5: every exec declaration is an ExecSpec",
+          True, all(isinstance(spec, cwd.ExecSpec)
+                    for specs in cwd.EXEC_EDGES.values() for spec in specs))
+assert_raises("#583 AC5: ExecSpec rejects an unknown authorization source",
+              ValueError,
+              lambda: cwd.ExecSpec("git", cwd._EXT, "not-a-real-auth-source"))
+assert_raises("#583 AC5: ExecSpec rejects profile auth on a repo-owned edge",
+              ValueError,
+              lambda: cwd.ExecSpec("scripts/config-get.sh", cwd._REPO,
+                                   cwd._PROFILE_GRANT))
+assert_raises("#583 AC5: Edge rejects an unknown kind at construction",
+              ValueError,
+              lambda: cwd.Edge("scripts/workpad.py", "side-load", "git", "external"))
+assert_raises("#583 AC5: Edge rejects an unknown class at construction",
+              ValueError,
+              lambda: cwd.Edge("scripts/workpad.py", "exec", "git", "ambient"))
+assert_raises("#583 AC5: Edge rejects authorization on a repo-owned edge",
+              ValueError,
+              lambda: cwd.Edge("scripts/workpad.py", "exec", "scripts/x.py",
+                               "repo-owned", "ambient grant"))
+
+# Non-vacuity — the vendored-boundary predicate itself.
+assert_eq("#583 AC5: a repo-owned target beneath the vendored tree resolves beneath vendor",
+          True, cwd.resolves_beneath_vendor("lib/resolve-jq.sh"))
+assert_eq("#583 AC5: a repo-root '../../scripts/…' escape does NOT resolve beneath vendor",
+          False, cwd.resolves_beneath_vendor("../scripts/evil.sh"))
+
+# Non-vacuity — inject one crafted edge at a time and confirm the guard bites.
+_escape = cwd.Edge("scripts/run-jq.sh", "source", "../scripts/evil.sh", "repo-owned")
+assert_eq("#583 AC5: a repo-root '../../scripts/…' repo-owned edge is rejected (escapes the vendored tree)",
+          True, any("does not resolve beneath" in v
+                    for v in cwd.check_dependencies([_escape])))
+_ghost = cwd.Edge("scripts/run-jq.sh", "source", "lib/does-not-exist.sh", "repo-owned")
+assert_eq("#583 AC5: a repo-owned edge whose target is absent on disk is rejected",
+          True, any("missing on disk" in v for v in cwd.check_dependencies([_ghost])))
+_unauth_bin = cwd.Edge("scripts/workpad.py", "exec", "curl", "external", None)
+assert_eq("#583 AC5: an external edge naming no preflight guarantee/grant is rejected",
+          True, any("names no preflight guarantee" in v
+                    for v in cwd.check_dependencies([_unauth_bin])))
+_unauth_import = cwd.Edge("scripts/workpad.py", "import", "requests", "external", None)
+assert_eq("#583 AC5: an unvetted third-party import (no preflight guarantee) is rejected",
+          True, any("names no preflight guarantee" in v
+                    for v in cwd.check_dependencies([_unauth_import])))
+# The guard remains defensive for callers that supply edge-like objects rather
+# than the validated public Edge type.
+_unknown_kind = types.SimpleNamespace(
+    helper="scripts/workpad.py", kind="side-load", target="git",
+    klass="external", auth="x",
+)
+assert_eq("#583 AC5: an unknown edge kind is rejected by its named guard arm",
+          True, any("unknown kind 'side-load'" in v
+                    for v in cwd.check_dependencies([_unknown_kind])))
+_unknown_class = types.SimpleNamespace(
+    helper="scripts/workpad.py", kind="exec", target="git", klass="ambient", auth="x",
+)
+assert_eq("#583 AC5: an unknown edge class is rejected by its named guard arm",
+          True, any("unknown class 'ambient'" in v
+                    for v in cwd.check_dependencies([_unknown_class])))
+
+# Non-vacuity — the DERIVED scanners bite on drift, proven against synthetic
+# sources: a new unvetted import and a repo-root-escaping source are classified
+# into a violation without any declaration change (reverse-drift is structural).
+with tempfile.TemporaryDirectory() as _cwd_td:
+    _pyf = Path(_cwd_td) / "probe.py"
+    _pyf.write_text("import os\nimport requests\n", encoding="utf-8")
+    _orig_read = cwd._read
+    try:
+        cwd._read = lambda rel: _pyf.read_text(encoding="utf-8")  # noqa: E731
+        _probe_imports = cwd._scan_python_imports("scripts/probe.py")
+    finally:
+        cwd._read = _orig_read
+    _probe_by_target = {e.target: e for e in _probe_imports}
+    assert_eq("#583 AC5: the import scanner classifies a stdlib import as authorized-external",
+              (True, "external"),
+              ("os" in _probe_by_target, _probe_by_target["os"].klass if "os" in _probe_by_target else None))
+    assert_eq("#583 AC5: the import scanner leaves an unvetted import unauthorized (auth is None → guard bites)",
+              (True, None),
+              ("requests" in _probe_by_target,
+               _probe_by_target["requests"].auth if "requests" in _probe_by_target else "MISSING"))
+
+    # Exercise both repository-owned import paths: an absolute sibling import
+    # and a relative import resolved against the importing helper's directory.
+    _repo_root = Path(_cwd_td) / "repo"
+    (_repo_root / "scripts").mkdir(parents=True)
+    (_repo_root / "scripts" / "probe.py").write_text(
+        "import local_dep\nimport absolute_pkg.tool\n"
+        "from . import relative_dep\nfrom .relative_pkg import other\n"
+        "import namespace_pkg.tool\nimport nested_ns.sub.tool\n"
+        "import lone_namespace\n",
+        encoding="utf-8",
+    )
+    (_repo_root / "scripts" / "local_dep.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (_repo_root / "scripts" / "relative_dep.py").write_text("VALUE = 2\n", encoding="utf-8")
+    (_repo_root / "scripts" / "absolute_pkg").mkdir()
+    (_repo_root / "scripts" / "absolute_pkg" / "__init__.py").write_text(
+        "VALUE = 3\n", encoding="utf-8")
+    (_repo_root / "scripts" / "absolute_pkg" / "tool.py").write_text(
+        "VALUE = 31\n", encoding="utf-8")
+    (_repo_root / "scripts" / "absolute_pkg.py").write_text(
+        "VALUE = 'must-not-win-over-package'\n", encoding="utf-8")
+    (_repo_root / "scripts" / "relative_pkg").mkdir()
+    (_repo_root / "scripts" / "relative_pkg" / "__init__.py").write_text(
+        "VALUE = 4\n", encoding="utf-8")
+    (_repo_root / "scripts" / "relative_pkg" / "other.py").write_text(
+        "VALUE = 41\n", encoding="utf-8")
+    (_repo_root / "scripts" / "relative_pkg.py").write_text(
+        "VALUE = 'must-not-win-over-package'\n", encoding="utf-8")
+    (_repo_root / "scripts" / "namespace_pkg").mkdir()
+    (_repo_root / "scripts" / "namespace_pkg" / "tool.py").write_text(
+        "VALUE = 5\n", encoding="utf-8")
+    (_repo_root / "scripts" / "lone_namespace").mkdir()
+    (_repo_root / "lib" / "namespace_pkg").mkdir(parents=True)
+    (_repo_root / "lib" / "namespace_pkg" / "__init__.py").write_text(
+        "VALUE = 6\n", encoding="utf-8")
+    (_repo_root / "lib" / "namespace_pkg" / "tool.py").write_text(
+        "VALUE = 61\n", encoding="utf-8")
+    # Both roots contribute namespace portions at the top level. At the nested
+    # component, the later lib/ regular package must beat scripts/' namespace
+    # portion, exactly as PathFinder resolves each dotted component.
+    (_repo_root / "scripts" / "nested_ns" / "sub").mkdir(parents=True)
+    (_repo_root / "scripts" / "nested_ns" / "sub" / "tool.py").write_text(
+        "VALUE = 'must-not-win-over-later-regular-package'\n", encoding="utf-8")
+    (_repo_root / "lib" / "nested_ns" / "sub").mkdir(parents=True)
+    (_repo_root / "lib" / "nested_ns" / "sub" / "__init__.py").write_text(
+        "VALUE = 7\n", encoding="utf-8")
+    (_repo_root / "lib" / "nested_ns" / "sub" / "tool.py").write_text(
+        "VALUE = 71\n", encoding="utf-8")
+    _orig_root = cwd.REPO_ROOT
+    try:
+        cwd.REPO_ROOT = _repo_root
+        cwd._read = lambda rel: (_repo_root / rel).read_text(encoding="utf-8")  # noqa: E731
+        _repo_imports = cwd._scan_python_imports("scripts/probe.py")
+    finally:
+        cwd.REPO_ROOT = _orig_root
+        cwd._read = _orig_read
+    assert_eq("#583 AC5: flat and package absolute/relative imports classify repo-owned",
+              {"scripts/local_dep.py", "scripts/absolute_pkg/__init__.py",
+               "scripts/absolute_pkg/tool.py", "scripts/relative_dep.py",
+               "scripts/relative_pkg/__init__.py",
+               "scripts/relative_pkg/other.py", "lib/namespace_pkg/__init__.py",
+               "lib/namespace_pkg/tool.py", "lib/nested_ns/sub/__init__.py",
+               "lib/nested_ns/sub/tool.py"},
+              {e.target for e in _repo_imports if e.klass == "repo-owned"})
+    assert_eq("#583 AC5: a local namespace-only root is not classified external",
+              False, any(e.target == "lone_namespace" and e.klass == "external"
+                         for e in _repo_imports))
+    assert_eq("#583 AC5: nested namespace resolution honors a later regular package",
+              False, any(e.target == "scripts/nested_ns/sub/tool.py"
+                         for e in _repo_imports))
+    _outside_target = Path(_cwd_td) / "outside.sh"
+    _outside_target.write_text("#!/bin/sh\n", encoding="utf-8")
+    (_repo_root / "scripts" / "linked.sh").symlink_to(_outside_target)
+    try:
+        cwd.REPO_ROOT = _repo_root
+        _symlink_errors = cwd.check_dependencies([
+            cwd.Edge("scripts/probe.sh", "source", "scripts/linked.sh", "repo-owned")
+        ])
+    finally:
+        cwd.REPO_ROOT = _orig_root
+    assert_eq("#583 AC5: a repo-owned symlink cannot escape the repository",
+              True, any("symlink escape" in error for error in _symlink_errors))
+    _shf = Path(_cwd_td) / "probe.sh"
+    _shf.write_text(
+        'HERE="$(cd "$(dirname "$0")" && pwd)"\n'
+        '. "$HERE/../../scripts/evil.sh"\n',
+        encoding="utf-8",
+    )
+    try:
+        cwd._read = lambda rel: _shf.read_text(encoding="utf-8")  # noqa: E731
+        _probe_src = cwd._scan_shell_sources("scripts/probe.sh")
+    finally:
+        cwd._read = _orig_read
+    assert_eq("#583 AC5: the source scanner recovers a `.`-command include target relative to the helper dir",
+              ["../scripts/evil.sh"], [e.target for e in _probe_src])
+    assert_eq("#583 AC5: that escaping derived source edge is rejected by the guard",
+              True, any("does not resolve beneath" in v
+                        for v in cwd.check_dependencies(_probe_src)))
+
+# Non-vacuity — the exec-edge forward-verification bites on a stale declaration.
+_cwd_orig_exec = cwd.EXEC_EDGES
+try:
+    cwd.EXEC_EDGES = dict(_cwd_orig_exec)
+    cwd.EXEC_EDGES["scripts/run-jq.sh"] = _cwd_orig_exec["scripts/run-jq.sh"] + [
+        cwd.ExecSpec("nonesuchbin", cwd._EXT)
+    ]
+    assert_eq("#583 AC5: a declared exec edge whose target is absent from the source is rejected",
+              True, any("not found in source" in v for v in cwd.check_dependencies()))
+finally:
+    cwd.EXEC_EDGES = _cwd_orig_exec
+
+# Non-vacuity — the vendored-boundary predicate rejects a prefix-collision sibling
+# and an absolute target (both would fail open if the `root + "/"` / absolute
+# guards regressed — #583 review findings).
+assert_eq("#583 AC5: a prefix-collision sibling '.devflow/vendor/devflowX/…' does NOT resolve beneath vendor",
+          False, cwd.resolves_beneath_vendor("../devflowX/foo.sh"))
+assert_eq("#583 AC5: an absolute target does NOT resolve beneath vendor (no pathlib reset fail-open)",
+          False, cwd.resolves_beneath_vendor("/etc/passwd"))
+assert_eq("#583 AC5: Windows parent separators cannot cross the vendor boundary",
+          False, cwd.resolves_beneath_vendor(r"..\evil.sh"))
+assert_eq("#583 AC5: Windows drive paths cannot reset the vendor boundary",
+          False, cwd.resolves_beneath_vendor(r"C:\Windows\System32\evil.exe"))
+assert_eq("#583 AC5: Windows UNC paths cannot reset the vendor boundary",
+          False, cwd.resolves_beneath_vendor(r"\\server\share\evil"))
+
+# Positive control — a repo-owned EXEC edge (basename-forward-verified _REPO arm),
+# distinct from the source-edge and external-exec fixtures above.
+_eff_exec = {e.target: e for e in _cwd_edges("lib/efficiency-trace.sh", "exec")}
+assert_eq("#583 AC5: efficiency-trace.sh's config_fingerprint.py exec edge is repo-owned, beneath vendor, on disk",
+          (True, "repo-owned", True, True),
+          ("scripts/config_fingerprint.py" in _eff_exec,
+           _eff_exec["scripts/config_fingerprint.py"].klass if "scripts/config_fingerprint.py" in _eff_exec else None,
+           cwd.resolves_beneath_vendor("scripts/config_fingerprint.py"),
+           (cwd.REPO_ROOT / "scripts/config_fingerprint.py").is_file()))
+
+# Non-vacuity — the strengthened coverage guard: a `.py` entry point that produced
+# no import edge (a silent AST-scan regression) is now caught, no longer masked by
+# its declared exec edges (#583 review finding).
+_cwd_orig_pyscan = cwd._scan_python_imports
+try:
+    cwd._scan_python_imports = lambda helper: []  # noqa: E731 — simulate an import-scan regression
+    assert_eq("#583 AC5: a .py entry point yielding zero import edges is caught (coverage not masked by exec edges)",
+              True, any("import scan gap" in v for v in cwd.check_dependencies()))
+finally:
+    cwd._scan_python_imports = _cwd_orig_pyscan
+
+# The other coverage-floor arm: a shell entry point whose derived and declared
+# scans both return zero edges must be rejected as entirely unclassified.
+_cwd_orig_entry_points = cwd.entry_points
+_cwd_orig_read3 = cwd._read
+_cwd_orig_exec3 = cwd.EXEC_EDGES
+try:
+    cwd.entry_points = lambda: ["scripts/empty.sh"]
+    cwd._read = lambda rel: ""  # noqa: E731
+    cwd.EXEC_EDGES = {}
+    assert_eq("#583 AC5: a shell entry point yielding zero total edges is caught",
+              True, any("no edges scanned" in v for v in cwd.check_dependencies()))
+finally:
+    cwd.entry_points = _cwd_orig_entry_points
+    cwd._read = _cwd_orig_read3
+    cwd.EXEC_EDGES = _cwd_orig_exec3
+
+# Non-vacuity — exec forward-verification is comment-aware: a token that appears
+# ONLY in a comment does not vouch for a declared edge (#583 review finding).
+with tempfile.TemporaryDirectory() as _cwd_ctd:
+    _cmt = Path(_cwd_ctd) / "probe.sh"
+    _cmt.write_text("# this helper no longer shells out to git\necho done\n", encoding="utf-8")
+    _orig_read2 = cwd._read
+    try:
+        cwd._read = lambda rel: _cmt.read_text(encoding="utf-8")  # noqa: E731
+        _comment_only = cwd._exec_target_present("scripts/probe.sh", "git", cwd._EXT)
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: a declared exec token present only in a comment fails forward-verification",
+              False, _comment_only)
+    _code = Path(_cwd_ctd) / "probe2.sh"
+    _code.write_text('# runs the tool\ngit rev-parse HEAD\n', encoding="utf-8")
+    try:
+        cwd._read = lambda rel: _code.read_text(encoding="utf-8")  # noqa: E731
+        _code_present = cwd._exec_target_present("scripts/probe2.sh", "git", cwd._EXT)
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: a declared exec token present in code passes forward-verification (positive control)",
+              True, _code_present)
+
+    _py_strings = Path(_cwd_ctd) / "probe.py"
+    _py_strings.write_text(
+        '"""git appears only in this module docstring."""\n'
+        'message = "git is also unrelated string data"\n',
+        encoding="utf-8",
+    )
+    try:
+        cwd._read = lambda rel: _py_strings.read_text(encoding="utf-8")  # noqa: E731
+        _python_string_only = cwd._exec_target_present("scripts/probe.py", "git", cwd._EXT)
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: Python docstrings and unrelated string literals do not verify an exec edge",
+              False, _python_string_only)
+
+    _py_exec = Path(_cwd_ctd) / "probe_exec.py"
+    _py_exec.write_text(
+        'import os, subprocess\n'
+        'GH = os.environ.get("DEVFLOW_GH") or "gh"\n'
+        'subprocess.run([GH, "--version"])\n'
+        'subprocess.run(["git.exe", "--version"])\n',
+        encoding="utf-8",
+    )
+    try:
+        cwd._read = lambda rel: _py_exec.read_text(encoding="utf-8")  # noqa: E731
+        _devflow_form = cwd._exec_target_present("scripts/probe_exec.py", "gh", cwd._EXT)
+        _exe_form = cwd._exec_target_present("scripts/probe_exec.py", "git", cwd._EXT)
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: Python DEVFLOW_<TOOL> command-head evidence is recognized",
+              True, _devflow_form)
+    assert_eq("#583 AC5: Python .exe command-head evidence is recognized",
+              True, _exe_form)
+
+    _py_cross_scope = Path(_cwd_ctd) / "probe_cross_scope.py"
+    _py_cross_scope.write_text(
+        'import subprocess\n'
+        'def unused():\n    cmd = ["git", "--version"]\n'
+        'def active():\n    cmd = ["echo", "ok"]\n    subprocess.run(cmd)\n',
+        encoding="utf-8",
+    )
+    try:
+        cwd._read = lambda rel: _py_cross_scope.read_text(encoding="utf-8")  # noqa: E731
+        _cross_scope_only = cwd._exec_target_present(
+            "scripts/probe_cross_scope.py", "git", cwd._EXT
+        )
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: an unused function's same-name command binding is not exec evidence",
+              False, _cross_scope_only)
+
+    _py_order = Path(_cwd_ctd) / "probe_order.py"
+    _py_order.write_text(
+        'import subprocess\ncmd = ["echo"]\n'
+        'if False:\n    cmd = ["git"]\n'
+        'if 0:\n    cmd = ["git"]\n'
+        'subprocess.run(cmd)\ncmd = ["git"]\n',
+        encoding="utf-8",
+    )
+    try:
+        cwd._read = lambda rel: _py_order.read_text(encoding="utf-8")  # noqa: E731
+        _later_or_unreachable = cwd._exec_target_present(
+            "scripts/probe_order.py", "git", cwd._EXT
+        )
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: later and statically unreachable assignments are not exec evidence",
+              False, _later_or_unreachable)
+
+    _py_closure = Path(_cwd_ctd) / "probe_closure.py"
+    _py_closure.write_text(
+        'import subprocess\ndef outer():\n'
+        '    def inner():\n        subprocess.run(cmd)\n'
+        '    cmd = ["git"]\n    return inner\n',
+        encoding="utf-8",
+    )
+    try:
+        cwd._read = lambda rel: _py_closure.read_text(encoding="utf-8")  # noqa: E731
+        _closure_binding = cwd._exec_target_present(
+            "scripts/probe_closure.py", "git", cwd._EXT
+        )
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: a real nested-closure command binding remains exec evidence",
+              True, _closure_binding)
+
+    _py_branch = Path(_cwd_ctd) / "probe_branch.py"
+    _py_branch.write_text(
+        'import subprocess\ndef run(flag):\n'
+        '    if flag:\n        cmd = ["git"]\n'
+        '    else:\n        cmd = ["echo"]\n'
+        '    subprocess.run(cmd)\n',
+        encoding="utf-8",
+    )
+    try:
+        cwd._read = lambda rel: _py_branch.read_text(encoding="utf-8")  # noqa: E731
+        _branch_binding = cwd._exec_target_present(
+            "scripts/probe_branch.py", "git", cwd._EXT
+        )
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: branch-union reaching bindings remain exec evidence",
+              True, _branch_binding)
+
+    _py_same_line = Path(_cwd_ctd) / "probe_same_line.py"
+    _py_same_line.write_text(
+        'import subprocess\ncmd = ["git"]; subprocess.run(cmd)\n', encoding="utf-8"
+    )
+    try:
+        cwd._read = lambda rel: _py_same_line.read_text(encoding="utf-8")  # noqa: E731
+        _same_line_binding = cwd._exec_target_present(
+            "scripts/probe_same_line.py", "git", cwd._EXT
+        )
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: same-line reaching bindings remain exec evidence",
+              True, _same_line_binding)
+
+    _py_lexical_timing = Path(_cwd_ctd) / "probe_lexical_timing.py"
+    _py_lexical_timing.write_text(
+        'import subprocess\ndef outer():\n    cmd = ["git"]\n'
+        '    def inner():\n        subprocess.run(cmd)\n'
+        '    inner()\n    cmd = ["echo"]\n', encoding="utf-8"
+    )
+    _py_lexical_reverse = Path(_cwd_ctd) / "probe_lexical_reverse.py"
+    _py_lexical_reverse.write_text(
+        'import subprocess\ndef outer():\n    cmd = ["echo"]\n'
+        '    def inner():\n        subprocess.run(cmd)\n'
+        '    inner()\n    cmd = ["git"]\n', encoding="utf-8"
+    )
+    try:
+        cwd._read = lambda rel: _py_lexical_timing.read_text(encoding="utf-8")  # noqa: E731
+        _lexical_before_overwrite = cwd._exec_target_present(
+            "scripts/probe_lexical_timing.py", "git", cwd._EXT)
+        cwd._read = lambda rel: _py_lexical_reverse.read_text(encoding="utf-8")  # noqa: E731
+        _lexical_after_call = cwd._exec_target_present(
+            "scripts/probe_lexical_reverse.py", "git", cwd._EXT)
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: closure evidence uses the binding at its invocation point",
+              (True, False), (_lexical_before_overwrite, _lexical_after_call))
+
+    _py_control_bindings = Path(_cwd_ctd) / "probe_control_bindings.py"
+    _py_control_bindings.write_text(
+        'import subprocess\nfrom contextlib import nullcontext\n'
+        'def try_path(flag):\n    try:\n        1 / flag\n'
+        '    except Exception:\n        cmd = ["git"]\n'
+        '    else:\n        cmd = ["echo"]\n    subprocess.run(cmd)\n'
+        'def with_path():\n    with nullcontext():\n        cmd = ["git"]\n'
+        '    subprocess.run(cmd)\n'
+        'def match_path(value):\n    match value:\n        case _:\n            cmd = ["git"]\n'
+        '    subprocess.run(cmd)\n'
+        'def tuple_path():\n    cmd, unused = (["git"], None)\n'
+        '    subprocess.run(args=cmd)\n'
+        'class ClassPath:\n    cmd = ["git"]\n    subprocess.run(cmd)\n',
+        encoding="utf-8",
+    )
+    try:
+        cwd._read = lambda rel: _py_control_bindings.read_text(encoding="utf-8")  # noqa: E731
+        _control_binding_evidence = cwd._exec_target_present(
+            "scripts/probe_control_bindings.py", "git", cwd._EXT)
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: try/with/match/tuple/class and keyword-args bindings are scanned",
+              True, _control_binding_evidence)
+
+    _py_dead_bool = Path(_cwd_ctd) / "probe_dead_bool.py"
+    _py_dead_bool.write_text(
+        'import subprocess\nsubprocess.run(False and "git")\n'
+        'subprocess.run(True or "git")\n', encoding="utf-8"
+    )
+    try:
+        cwd._read = lambda rel: _py_dead_bool.read_text(encoding="utf-8")  # noqa: E731
+        _dead_bool_evidence = cwd._exec_target_present(
+            "scripts/probe_dead_bool.py", "git", cwd._EXT)
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: unreachable BoolOp operands are not command evidence",
+              False, _dead_bool_evidence)
+
+    _py_shadow_sink = Path(_cwd_ctd) / "probe_shadow_sink.py"
+    _py_shadow_sink.write_text(
+        'class Logger:\n    def run(self, value):\n        pass\n'
+        'subprocess = Logger()\nsubprocess.run(["git"])\n'
+        'def _run(value):\n    print(value)\n_run(["git"])\n', encoding="utf-8"
+    )
+    try:
+        cwd._read = lambda rel: _py_shadow_sink.read_text(encoding="utf-8")  # noqa: E731
+        _shadow_sink_evidence = cwd._exec_target_present(
+            "scripts/probe_shadow_sink.py", "git", cwd._EXT)
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: shadowed subprocess and logging _run calls are not sinks",
+              False, _shadow_sink_evidence)
+
+    _py_alias_sink = Path(_cwd_ctd) / "probe_alias_sink.py"
+    _py_alias_sink.write_text(
+        'import subprocess as sp\nfrom subprocess import run as execute\n'
+        'sp.run(["git"])\nexecute(args=["git"])\n', encoding="utf-8"
+    )
+    try:
+        cwd._read = lambda rel: _py_alias_sink.read_text(encoding="utf-8")  # noqa: E731
+        _alias_sink_evidence = cwd._exec_target_present(
+            "scripts/probe_alias_sink.py", "git", cwd._EXT)
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: official subprocess import aliases remain recognized sinks",
+              True, _alias_sink_evidence)
+
+    _py_parameter_name = Path(_cwd_ctd) / "probe_parameter_name.py"
+    _py_parameter_name.write_text(
+        'import subprocess\ndef run(git):\n    subprocess.run([git])\n',
+        encoding="utf-8",
+    )
+    try:
+        cwd._read = lambda rel: _py_parameter_name.read_text(encoding="utf-8")  # noqa: E731
+        _unbound_parameter_name = cwd._exec_target_present(
+            "scripts/probe_parameter_name.py", "git", cwd._EXT
+        )
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: an unbound command parameter name is not executable evidence",
+              False, _unbound_parameter_name)
+
+    _py_path_parent = Path(_cwd_ctd) / "probe_path_parent.py"
+    _py_path_parent.write_text(
+        'import subprocess\nfrom pathlib import Path\n'
+        'subprocess.run([str(Path("git") / "echo")])\n'
+        'subprocess.run([str(Path("config-get.sh", "echo"))])\n',
+        encoding="utf-8",
+    )
+    try:
+        cwd._read = lambda rel: _py_path_parent.read_text(encoding="utf-8")  # noqa: E731
+        _path_parent_external = cwd._exec_target_present(
+            "scripts/probe_path_parent.py", "git", cwd._EXT
+        )
+        _path_parent_repo = cwd._exec_target_present(
+            "scripts/probe_path_parent.py", "scripts/config-get.sh", cwd._REPO
+        )
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: only the final pathlib segment can verify an executable",
+              (False, False), (_path_parent_external, _path_parent_repo))
+
+    _py_dynamic = Path(_cwd_ctd) / "probe_dynamic.py"
+    _py_dynamic.write_text(
+        'import subprocess\n'
+        'subprocess.run([choose("echo", "git")])\n'
+        'subprocess.run(["echo" + "git"])\n'
+        'subprocess.run([f"echo{\'git\'}"])\n',
+        encoding="utf-8",
+    )
+    try:
+        cwd._read = lambda rel: _py_dynamic.read_text(encoding="utf-8")  # noqa: E731
+        _dynamic_string_only = cwd._exec_target_present(
+            "scripts/probe_dynamic.py", "git", cwd._EXT
+        )
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: strings inside an unknown dynamic command-head call fail closed",
+              False, _dynamic_string_only)
+
+    _py_env_data = Path(_cwd_ctd) / "probe_env_data.py"
+    _py_env_data.write_text(
+        'import os, subprocess\n'
+        'subprocess.run([os.environ.get("git", "echo")])\n'
+        'subprocess.run([settings.environ.get("git", "echo")])\n',
+        encoding="utf-8",
+    )
+    try:
+        cwd._read = lambda rel: _py_env_data.read_text(encoding="utf-8")  # noqa: E731
+        _environment_key_data = cwd._exec_target_present(
+            "scripts/probe_env_data.py", "git", cwd._EXT
+        )
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: environment keys and non-os environ-like objects are not exec evidence",
+              False, _environment_key_data)
+
+    _py_repo_data = Path(_cwd_ctd) / "probe_repo_data.py"
+    _py_repo_data.write_text(
+        'import argparse, subprocess\n'
+        'def parameter_only(config_get):\n    subprocess.run([config_get])\n'
+        'subprocess.run([choose("echo", "config-get.sh")])\n'
+        'parser = argparse.ArgumentParser()\n'
+        'parser.add_argument("--config-get", default="config-get.sh")\n'
+        'args = parser.parse_args([])\nlog(args.config_get)\n',
+        encoding="utf-8",
+    )
+    try:
+        cwd._read = lambda rel: _py_repo_data.read_text(encoding="utf-8")  # noqa: E731
+        _python_repo_data_only = cwd._exec_target_present(
+            "scripts/probe_repo_data.py", "scripts/config-get.sh", cwd._REPO
+        )
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: an unbound parameter or dynamic-call literal cannot verify a repo exec",
+              False, _python_repo_data_only)
+
+    _py_cli_flow = Path(_cwd_ctd) / "probe_cli_flow.py"
+    _py_cli_flow.write_text(
+        'import argparse, subprocess\n'
+        'def sink(value):\n    subprocess.run([value])\n'
+        'def valid():\n    parser = argparse.ArgumentParser()\n'
+        '    parser.add_argument("--config-get", default="config-get.sh")\n'
+        '    args = parser.parse_args([])\n    sink(args.config_get)\n',
+        encoding="utf-8",
+    )
+    try:
+        cwd._read = lambda rel: _py_cli_flow.read_text(encoding="utf-8")  # noqa: E731
+        _bound_cli_flow = cwd._exec_target_present(
+            "scripts/probe_cli_flow.py", "scripts/config-get.sh", cwd._REPO
+        )
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: a declared parser option flowing to a subprocess is evidence",
+              True, _bound_cli_flow)
+
+    _py_cli_wrong_parser = Path(_cwd_ctd) / "probe_cli_wrong_parser.py"
+    _py_cli_wrong_parser.write_text(
+        'import argparse, subprocess\n'
+        'def sink(value):\n    subprocess.run([value])\n'
+        'def invalid():\n    parser = argparse.ArgumentParser()\n'
+        '    parser.add_argument("--config-get", default="config-get.sh")\n'
+        '    unrelated = argparse.ArgumentParser()\n'
+        '    args = unrelated.parse_args([])\n    sink(args.config_get)\n'
+        'def condition_only():\n    parser = argparse.ArgumentParser()\n'
+        '    parser.add_argument("--config-get", default="config-get.sh")\n'
+        '    args = parser.parse_args([])\n'
+        '    sink("echo" if args.config_get else "echo")\n',
+        encoding="utf-8",
+    )
+    try:
+        cwd._read = lambda rel: _py_cli_wrong_parser.read_text(encoding="utf-8")  # noqa: E731
+        _unbound_cli_flow = cwd._exec_target_present(
+            "scripts/probe_cli_wrong_parser.py", "scripts/config-get.sh", cwd._REPO
+        )
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: unrelated parsers and condition-only CLI values are not exec flows",
+              False, _unbound_cli_flow)
+
+    _py_cli_extended = Path(_cwd_ctd) / "probe_cli_extended.py"
+    _py_cli_extended.write_text(
+        'import argparse, subprocess\nparser = argparse.ArgumentParser()\n'
+        'def setup(p):\n    p.add_argument("--config-get", default="config-get.sh")\n'
+        'setup(parser)\n'
+        'class Runner:\n    def sink(self, value):\n        subprocess.run(args=[value])\n'
+        'def main(flag):\n    other = argparse.ArgumentParser()\n'
+        '    if flag:\n        chosen = parser\n    else:\n        chosen = other\n'
+        '    args = chosen.parse_args([])\n    Runner().sink(args.config_get)\n',
+        encoding="utf-8",
+    )
+    try:
+        cwd._read = lambda rel: _py_cli_extended.read_text(encoding="utf-8")  # noqa: E731
+        _extended_cli_flow = cwd._exec_target_present(
+            "scripts/probe_cli_extended.py", "scripts/config-get.sh", cwd._REPO)
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: global/setup/branch/method/keyword CLI flow reaches its sink",
+              True, _extended_cli_flow)
+
+    _py_cli_dead_defaults = Path(_cwd_ctd) / "probe_cli_dead_defaults.py"
+    _py_cli_dead_defaults.write_text(
+        'import argparse, subprocess\ndef sink(value):\n    subprocess.run([value])\n'
+        'def dead():\n    p = argparse.ArgumentParser()\n'
+        '    if 0:\n        p.add_argument("--config-get", default="config-get.sh")\n'
+        '    args = p.parse_args([])\n    sink(args.config_get and "echo")\n'
+        'def bad_path():\n    p = argparse.ArgumentParser()\n'
+        '    p.add_argument("--config-get", default=Path("config-get.sh") / "echo")\n'
+        '    args = p.parse_args([])\n    sink(args.config_get)\n'
+        'def bad_tuple_path():\n    p = argparse.ArgumentParser()\n'
+        '    p.add_argument("--config-get", default=Path("config-get.sh", "echo"))\n'
+        '    args = p.parse_args([])\n    sink(args.config_get)\n'
+        'def dead_branch():\n    p = argparse.ArgumentParser()\n'
+        '    p.add_argument("--config-get", default="config-get.sh" if False else "echo")\n'
+        '    args = p.parse_args([])\n    sink(args.config_get)\n'
+        'def dead_and():\n    p = argparse.ArgumentParser()\n'
+        '    p.add_argument("--config-get", default=False and "config-get.sh")\n'
+        '    args = p.parse_args([])\n    sink(args.config_get)\n'
+        'def dead_or():\n    p = argparse.ArgumentParser()\n'
+        '    p.add_argument("--config-get", default=True or "config-get.sh")\n'
+        '    args = p.parse_args([])\n    sink(args.config_get)\n',
+        encoding="utf-8",
+    )
+    try:
+        cwd._read = lambda rel: _py_cli_dead_defaults.read_text(encoding="utf-8")  # noqa: E731
+        _dead_cli_defaults = cwd._exec_target_present(
+            "scripts/probe_cli_dead_defaults.py", "scripts/config-get.sh", cwd._REPO)
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: dead/path-parent/condition-only CLI defaults do not verify",
+              False, _dead_cli_defaults)
+
+    # Exact adversarial shapes from the second review pass. Keep these compact
+    # and table-driven so every data-flow semantic is pinned independently.
+    _python_sink_cases = {
+        "import-after-invocation": (
+            "def f():\n subprocess.run(['git'])\nf()\nimport subprocess\n", False),
+        "aliased-closure-invocation": (
+            "import subprocess\ndef outer():\n cmd=['git']\n"
+            " def inner(): subprocess.run(cmd)\n alias=inner\n alias()\nouter()\n", True),
+        "wrapper-uses-second-parameter": (
+            "import subprocess\ndef wrap(x, cmd): subprocess.run(cmd)\n"
+            "wrap('git', 'echo')\n", False),
+        "keyword-only-wrapper": (
+            "import subprocess\ndef wrap(*, cmd): subprocess.run(cmd)\n"
+            "wrap(cmd='git')\n", True),
+        "module-function-vs-method-name": (
+            "import subprocess\ndef run(cmd): pass\nclass X:\n"
+            " def run(self, cmd): subprocess.run(cmd)\nrun('git')\n", False),
+        "exhaustive-match-overwrite": (
+            "import subprocess\ncmd=['git']\nmatch 1:\n case _:\n  cmd=['echo']\n"
+            "subprocess.run(cmd)\n", False),
+        "try-handler-sees-body-binding": (
+            "import subprocess\ntry:\n cmd=['git']; raise ValueError\n"
+            "except ValueError:\n subprocess.run(cmd)\n", True),
+        "try-star-handler": (
+            "import subprocess\ntry:\n cmd=['git']; "
+            "raise ExceptionGroup('x',[ValueError()])\n"
+            "except* ValueError:\n subprocess.run(cmd)\n", True),
+        "walrus-binding": (
+            "import subprocess\nif (cmd := ['git']): subprocess.run(cmd)\n", True),
+        "unreachable-walrus-and": (
+            "import subprocess\ncmd='echo'\nFalse and (cmd := 'git')\n"
+            "subprocess.run([cmd])\n", False),
+        "unreachable-walrus-if-expression": (
+            "import subprocess\ncmd='echo'\n"
+            "(cmd := 'git') if False else None\nsubprocess.run([cmd])\n", False),
+        "multi-hop-closure-alias": (
+            "import subprocess\ndef outer():\n cmd='git'\n"
+            " def inner(): subprocess.run([cmd])\n a=inner; b=a; b(); cmd='echo'\n"
+            "outer()\n", True),
+        "executable-class-base": (
+            "import subprocess\nclass C(factory(subprocess.run(['git']))): pass\n",
+            True),
+        "unrelated-same-name-method": (
+            "import subprocess\nclass A:\n"
+            " def go(self,cmd): subprocess.run(cmd)\nclass B:\n"
+            " def go(self,cmd): pass\nB().go(['git'])\n", False),
+        "executable-overrides-argv-false": (
+            "import subprocess\nsubprocess.run(['git'], executable='echo')\n", False),
+        "executable-overrides-argv-true": (
+            "import subprocess\nsubprocess.run(['echo'], executable='git')\n", True),
+        "shadowed-os-environment": (
+            "import subprocess\nclass O: pass\nos=O(); os.environ=O(); "
+            "os.environ.get=lambda *x:'git'\n"
+            "subprocess.run([os.environ.get('DEVFLOW_GIT','echo')])\n", False),
+    }
+    for _case, (_source, _expected) in _python_sink_cases.items():
+        assert_eq(f"#583 AC5 reviewer exact Python sink: {_case}", _expected,
+                  "git" in cwd._python_command_evidence(_source, f"{_case}.py"))
+
+    def _repo_python_evidence(_source):
+        return cwd._python_repo_exec_present(
+            _source, "scripts/config-get.sh",
+            cwd._python_command_evidence(_source, "cli-probe.py"),
+        )
+
+    _python_cli_cases = {
+        "subprocess-alias": (
+            "import argparse,subprocess as sp\np=argparse.ArgumentParser();"
+            "p.add_argument('--config-get',default='config-get.sh');"
+            "a=p.parse_args();sp.run([a.config_get])\n", True),
+        "shadowed-subprocess": (
+            "import argparse\nclass X:\n def run(self,*x): pass\nsubprocess=X();"
+            "p=argparse.ArgumentParser();p.add_argument('--config-get',"
+            "default='config-get.sh');a=p.parse_args();"
+            "subprocess.run([a.config_get])\n", False),
+        "global-config-after-invocation": (
+            "import argparse,subprocess\np=argparse.ArgumentParser()\ndef f():\n"
+            " a=p.parse_args(); subprocess.run([a.config_get])\nf();"
+            "p.add_argument('--config-get',default='config-get.sh')\n", False),
+        "setup-after-parse": (
+            "import argparse,subprocess\ndef setup(p):"
+            "p.add_argument('--config-get',default='config-get.sh')\n"
+            "p=argparse.ArgumentParser();a=p.parse_args();setup(p);"
+            "subprocess.run([a.config_get])\n", False),
+        "one-branch-overwrite": (
+            "import argparse,subprocess\np=argparse.ArgumentParser();"
+            "p.add_argument('--config-get',default='config-get.sh');"
+            "a=p.parse_args();x=a.config_get\nif flag:x='echo'\n"
+            "subprocess.run([x])\n", True),
+        "constant-if-expression": (
+            "import argparse,subprocess\np=argparse.ArgumentParser();"
+            "p.add_argument('--config-get',default='config-get.sh');"
+            "a=p.parse_args();subprocess.run([a.config_get if False else 'echo'])\n",
+            False),
+        "named-concatenated-default": (
+            "import argparse,subprocess\nPART='config-';DEFAULT=PART+'get.sh';"
+            "p=argparse.ArgumentParser();p.add_argument('--config-get',default=DEFAULT);"
+            "a=p.parse_args();subprocess.run([a.config_get])\n", True),
+        "executable-overrides-cli": (
+            "import argparse,subprocess\np=argparse.ArgumentParser();"
+            "p.add_argument('--config-get',default='config-get.sh');"
+            "a=p.parse_args();subprocess.run([a.config_get],executable='echo')\n",
+            False),
+        "unrelated-parser-parsed-before-setup": (
+            "import argparse,subprocess\nq=argparse.ArgumentParser();q.parse_args([])\n"
+            "def setup(p):p.add_argument('--config-get',default='config-get.sh')\n"
+            "p=argparse.ArgumentParser();setup(p);a=p.parse_args([]);"
+            "subprocess.run([a.config_get])\n", True),
+        "subprocess-shadowed-after-call": (
+            "import argparse,subprocess\np=argparse.ArgumentParser();"
+            "p.add_argument('--config-get',default='config-get.sh');a=p.parse_args([])\n"
+            "def f():subprocess.run([a.config_get])\nf();subprocess=Logger()\n",
+            True),
+        "unused-local-subprocess-import": (
+            "import argparse\np=argparse.ArgumentParser();"
+            "p.add_argument('--config-get',default='config-get.sh');a=p.parse_args([])\n"
+            "def unused():import subprocess as sp\n"
+            "def f():sp.run([a.config_get])\nf()\n", False),
+        "global-parsed-args-in-function": (
+            "import argparse,subprocess\np=argparse.ArgumentParser();"
+            "p.add_argument('--config-get',default='config-get.sh');a=p.parse_args([])\n"
+            "def f():subprocess.run([a.config_get])\nf()\n", True),
+        "unrelated-same-name-sink-method": (
+            "import argparse,subprocess\nclass A:\n"
+            " def go(self,x):subprocess.run([x])\nclass B:\n"
+            " def go(self,x):pass\np=argparse.ArgumentParser();"
+            "p.add_argument('--config-get',default='config-get.sh');a=p.parse_args([]);"
+            "B().go(a.config_get)\n", False),
+    }
+    for _case, (_source, _expected) in _python_cli_cases.items():
+        assert_eq(f"#583 AC5 reviewer exact argparse flow: {_case}", _expected,
+                  _repo_python_evidence(_source))
+
+    _shell_string = Path(_cwd_ctd) / "probe-string.sh"
+    _shell_string.write_text('message="git rev-parse is documentation data"\necho "$message"\n',
+                             encoding="utf-8")
+    try:
+        cwd._read = lambda rel: _shell_string.read_text(encoding="utf-8")  # noqa: E731
+        _shell_string_only = cwd._exec_target_present("scripts/probe-string.sh", "git", cwd._EXT)
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: unrelated shell string data does not verify an exec edge",
+              False, _shell_string_only)
+
+    _shell_multiline_data = Path(_cwd_ctd) / "probe-multiline.sh"
+    _shell_multiline_data.write_text(
+        "message='\ngit rev-parse is multiline data\n'\n"
+        "cat <<'TEXT'\ngit rev-parse is heredoc data\nTEXT\n",
+        encoding="utf-8",
+    )
+    try:
+        cwd._read = lambda rel: _shell_multiline_data.read_text(encoding="utf-8")  # noqa: E731
+        _shell_multiline_only = cwd._exec_target_present(
+            "scripts/probe-multiline.sh", "git", cwd._EXT
+        )
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: multiline shell strings and heredoc data do not verify an exec edge",
+              False, _shell_multiline_only)
+
+    _shell_structural_data = Path(_cwd_ctd) / "probe-structural.sh"
+    _shell_structural_data.write_text(
+        "inline_commands=(git echo)\ncommands=(\n  git\n  echo\n)\n"
+        "declare -a declared_commands=(git echo)\n"
+        "local local_commands=(git echo)\ncommands+=(git)\n"
+        "typeset -a typed_commands=(git echo)\n"
+        "local -r -a readonly_commands=(git echo)\n"
+        "arithmetic=$((git + 1))\n(( git + 1 ))\n"
+        "case \"$choice\" in git) echo inline-data ;; esac\n"
+        "case \"$choice\" in echo) : ;; git) : ;; esac\n"
+        "case \"$choice\" in\n  git) echo selected ;;\nesac\n"
+        "cat <<\\ONE <<'TWO'\ngit in escaped heredoc\nONE\n"
+        "git in second heredoc\nTWO\n"
+        "cat <<123\ngit in numeric heredoc\n123\n",
+        encoding="utf-8",
+    )
+    try:
+        cwd._read = lambda rel: _shell_structural_data.read_text(encoding="utf-8")  # noqa: E731
+        _shell_structural_only = cwd._exec_target_present(
+            "scripts/probe-structural.sh", "git", cwd._EXT
+        )
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: shell arrays, case patterns, and escaped/multiple heredocs are data",
+              False, _shell_structural_only)
+
+    _shell_nested_exec = Path(_cwd_ctd) / "probe-nested-exec.sh"
+    _shell_nested_exec.write_text(
+        'commands=($(git --version))\ncase "$(git rev-parse HEAD)" in *) : ;; esac\n'
+        'case "$choice" in "$(git --version)") : ;; esac\n'
+        'value=$(( $(git --version) + 1 ))\n',
+        encoding="utf-8",
+    )
+    try:
+        cwd._read = lambda rel: _shell_nested_exec.read_text(encoding="utf-8")  # noqa: E731
+        _shell_nested_exec_present = cwd._exec_target_present(
+            "scripts/probe-nested-exec.sh", "git", cwd._EXT
+        )
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: command substitutions inside shell data contexts remain exec evidence",
+              True, _shell_nested_exec_present)
+
+    _shell_arithmetic_exec = Path(_cwd_ctd) / "probe-arithmetic-exec.sh"
+    _shell_arithmetic_exec.write_text(
+        'value=$(( $(git --version) + 1 ))\n', encoding="utf-8"
+    )
+    try:
+        cwd._read = lambda rel: _shell_arithmetic_exec.read_text(encoding="utf-8")  # noqa: E731
+        _arithmetic_nested_exec = cwd._exec_target_present(
+            "scripts/probe-arithmetic-exec.sh", "git", cwd._EXT
+        )
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: command substitutions nested in arithmetic remain exec evidence",
+              True, _arithmetic_nested_exec)
+
+    _quoted_heredoc_text = Path(_cwd_ctd) / "probe-quoted-heredoc-text.sh"
+    _quoted_heredoc_text.write_text(
+        "message='cat <<EOF'\nvalue=$((1 << EOF))\ngit --version\n",
+        encoding="utf-8",
+    )
+    try:
+        cwd._read = lambda rel: _quoted_heredoc_text.read_text(encoding="utf-8")  # noqa: E731
+        _after_quoted_marker = cwd._exec_target_present(
+            "scripts/probe-quoted-heredoc-text.sh", "git", cwd._EXT
+        )
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: a quoted heredoc-looking string cannot mask a later command",
+              True, _after_quoted_marker)
+
+    _shell_heredoc_exec = Path(_cwd_ctd) / "probe-heredoc-exec.sh"
+    _shell_heredoc_exec.write_text(
+        'cat <<EOF\n$(git status)\nEOF\n'
+        "cat <<'QUOTED'\n$(echo git)\nQUOTED\n"
+        'cat <<<EOF\ngit --version\n', encoding="utf-8"
+    )
+    try:
+        cwd._read = lambda rel: _shell_heredoc_exec.read_text(encoding="utf-8")  # noqa: E731
+        _heredoc_exec = cwd._exec_target_present(
+            "scripts/probe-heredoc-exec.sh", "git", cwd._EXT)
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: unquoted heredoc substitutions and commands after here-strings execute",
+              True, _heredoc_exec)
+
+    _shell_nested_complex = Path(_cwd_ctd) / "probe-nested-complex.sh"
+    _shell_nested_complex.write_text(
+        'value=$(( $(git "$(echo --version)") + 1 ))\n'
+        'value=`git status`\nvalue="`git status`"\n'
+        'value=$((\n1 << 2\n))\ngit --version\n', encoding="utf-8"
+    )
+    try:
+        cwd._read = lambda rel: _shell_nested_complex.read_text(encoding="utf-8")  # noqa: E731
+        _nested_complex_exec = cwd._exec_target_present(
+            "scripts/probe-nested-complex.sh", "git", cwd._EXT)
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: nested/backtick/multiline-arithmetic command positions are preserved",
+              True, _nested_complex_exec)
+
+    _shell_stale_bindings = Path(_cwd_ctd) / "probe-stale-bindings.sh"
+    _shell_stale_bindings.write_text(
+        'TOOL=config-get.sh\nTOOL=echo\n"$TOOL" hi\n'
+        'python3 not-config_fingerprint.py\n'
+        '"${DEVFLOW_GIT:+echo}" hi\n',
+        encoding="utf-8",
+    )
+    try:
+        cwd._read = lambda rel: _shell_stale_bindings.read_text(encoding="utf-8")  # noqa: E731
+        _stale_repo_binding = cwd._exec_target_present(
+            "scripts/probe-stale-bindings.sh", "scripts/config-get.sh", cwd._REPO
+        )
+        _prefixed_repo_name = cwd._exec_target_present(
+            "scripts/probe-stale-bindings.sh", "scripts/config_fingerprint.py", cwd._REPO
+        )
+        _alternate_parameter_value = cwd._exec_target_present(
+            "scripts/probe-stale-bindings.sh", "git", cwd._EXT
+        )
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: an overwritten shell command binding cannot verify a repo exec",
+              False, _stale_repo_binding)
+    assert_eq("#583 AC5: a longer interpreter argument ending in the basename is not evidence",
+              False, _prefixed_repo_name)
+    assert_eq("#583 AC5: a shell parameter alternate-value expansion does not execute the tool",
+              False, _alternate_parameter_value)
+
+    _shell_repo_bound = Path(_cwd_ctd) / "probe-repo-bound.sh"
+    _shell_repo_bound.write_text(
+        'if flag; then\n  TOOL=config-get.sh\nelse\n  TOOL=echo\nfi\n'
+        '"$TOOL" hi\nTOOL=config-get.sh; "$TOOL" again\n', encoding="utf-8"
+    )
+    try:
+        cwd._read = lambda rel: _shell_repo_bound.read_text(encoding="utf-8")  # noqa: E731
+        _branch_repo_binding = cwd._exec_target_present(
+            "scripts/probe-repo-bound.sh", "scripts/config-get.sh", cwd._REPO)
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: branch and semicolon repo-command bindings remain executable",
+              True, _branch_repo_binding)
+
+    _shell_keyword_data = Path(_cwd_ctd) / "probe-keyword-data.sh"
+    _shell_keyword_data.write_text(
+        'echo if git status\nprintf "%s" then git\necho command git\n'
+        'echo exec git\necho while git\necho "data; git status"\n'
+        'echo "data && git status"\necho "(git status)"\n'
+        'echo ok;# if git status\necho ok;# data; git status\n', encoding="utf-8"
+    )
+    try:
+        cwd._read = lambda rel: _shell_keyword_data.read_text(encoding="utf-8")  # noqa: E731
+        _keyword_data_exec = cwd._exec_target_present(
+            "scripts/probe-keyword-data.sh", "git", cwd._EXT)
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: keyword/quoted/comment argument data is not a command position",
+              False, _keyword_data_exec)
+
+    _shell_repo_data = Path(_cwd_ctd) / "probe-repo-data.sh"
+    _shell_repo_data.write_text("echo config-get.sh\n", encoding="utf-8")
+    try:
+        cwd._read = lambda rel: _shell_repo_data.read_text(encoding="utf-8")  # noqa: E731
+        _shell_repo_data_only = cwd._exec_target_present(
+            "scripts/probe-repo-data.sh", "scripts/config-get.sh", cwd._REPO
+        )
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: a repo target used only as a shell data argument is not exec evidence",
+              False, _shell_repo_data_only)
+
+    _shell_sink_cases = {
+        "multiline-heredoc-substitution": (
+            "cat <<EOF\n$(\ngit status\n)\nEOF\n", True),
+        "partially-quoted-heredoc": (
+            "cat <<E'O'F\ngit status\nEOF\n", False),
+        "multiline-double-quoted-data": (
+            'value="first\ngit status\nlast"\n', False),
+        "multiline-double-quoted-substitution": (
+            'value="first\n$(git status)\nlast"\n', True),
+        "inline-array-data": ("echo ok; values=(git)\n", False),
+        "multiline-array-data": ("values=(\ngit\n)\n", False),
+        "multiline-arithmetic-data": ("((\ngit + 1\n))\n", False),
+        "bare-arithmetic-shift-followed-by-command": (
+            "((\n1 << 2\n))\ngit status\n", True),
+        "inline-case-pattern-data": (
+            "echo ok; case x in git) echo data;; esac\n", False),
+        "function-inline-array-data": (
+            "f() { local values=(git echo); }\n", False),
+        "control-inline-array-data": (
+            "if true; then local values=(git); fi\n", False),
+        "quoted-control-word": ('"if" git status\n', False),
+        "escaped-control-word": ("\\if git status\n", False),
+        "attached-leading-redirection": (">/tmp/out git status\n", True),
+        "separate-leading-redirection": ("2> /tmp/out git status\n", True),
+        "process-substitution-in-array": ("values=(<(git status))\n", True),
+        "output-process-substitution-in-declared-array": (
+            "declare -a values=(>(git status))\n", True),
+        "inline-process-substitution-in-array": (
+            "f() { local values=(<(git status)); }\n", True),
+    }
+    for _case, (_source, _expected) in _shell_sink_cases.items():
+        assert_eq(f"#583 AC5 reviewer exact shell sink: {_case}", _expected,
+                  cwd._shell_external_present(_source, "git"))
+
+    _shell_repo_cases = {
+        "elif-binding-union": (
+            "if x; then TOOL=echo; elif y; then TOOL=config-get.sh; "
+            "else TOOL=echo; fi; \"$TOOL\"\n", True),
+        "loop-zero-or-more-union": (
+            "TOOL=echo; while x; do TOOL=config-get.sh; done; \"$TOOL\"\n", True),
+        "parameter-default-command": ("${TOOL:-config-get.sh} x\n", True),
+    }
+    for _case, (_source, _expected) in _shell_repo_cases.items():
+        assert_eq(f"#583 AC5 reviewer exact shell repo flow: {_case}", _expected,
+                  cwd._shell_repo_exec_present(_source, "scripts/config-get.sh"))
+
+    _shell_source_context = Path(_cwd_ctd) / "probe-source-context.sh"
+    _shell_source_context.write_text(
+        'HERE="$(cd "$(dirname "$0")" && pwd)"\n'
+        'if true; then . "$HERE/extra.sh"; fi\n'
+        'if . "$HERE/if-source.sh"; then :; fi\n'
+        'while . "$HERE/while-source.sh"; do :; done\n'
+        '! . "$HERE/bang-source.sh"\n'
+        'HELPER="$HERE/variable-source.sh"\n. "$HELPER"\n'
+        'if flag; then HELPER="$HERE/branch-a.sh"; '
+        'else HELPER="$HERE/branch-b.sh"; fi\n. "$HELPER"\n'
+        'INLINE="$HERE/inline-source.sh"; command . "$INLINE"\n'
+        'export EXPORTED="$HERE/exported-source.sh"; builtin source "$EXPORTED"\n'
+        'readonly FIXED="$HERE/readonly-source.sh"; . "$FIXED"\n'
+        "cat <<'DATA'\n. \"$HERE/not-live.sh\"\nDATA\n",
+        encoding="utf-8",
+    )
+    try:
+        cwd._read = lambda rel: _shell_source_context.read_text(encoding="utf-8")  # noqa: E731
+        _context_sources = cwd._scan_shell_sources("scripts/probe-source-context.sh")
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: shell source scanning sees keyword-position code but not heredoc data",
+              ["scripts/extra.sh", "scripts/if-source.sh", "scripts/while-source.sh",
+               "scripts/bang-source.sh", "scripts/variable-source.sh",
+               "scripts/branch-a.sh", "scripts/branch-b.sh",
+               "scripts/inline-source.sh", "scripts/exported-source.sh",
+               "scripts/readonly-source.sh"],
+              [e.target for e in _context_sources])
+
+    _shell_source_data = Path(_cwd_ctd) / "probe-source-data.sh"
+    _shell_source_data.write_text(
+        'echo if . "$HERE/x.sh"\nprintf "%s" then source "$HERE/y.sh"\n'
+        'echo "data; . $HERE/z.sh"\necho ok;# if . "$HERE/comment.sh"\n',
+        encoding="utf-8",
+    )
+    try:
+        cwd._read = lambda rel: _shell_source_data.read_text(encoding="utf-8")  # noqa: E731
+        _data_sources = cwd._scan_shell_sources("scripts/probe-source-data.sh")
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: source-looking keyword/quoted/comment arguments are data",
+              [], [e.target for e in _data_sources])
+
+    _absolute_source = Path(_cwd_ctd) / "probe-absolute-source.sh"
+    _absolute_source.write_text('. /etc/evil.sh\n', encoding="utf-8")
+    try:
+        cwd._read = lambda rel: _absolute_source.read_text(encoding="utf-8")  # noqa: E731
+        _absolute_edges = cwd._scan_shell_sources("scripts/probe-absolute-source.sh")
+    finally:
+        cwd._read = _orig_read2
+    assert_eq("#583 AC5: an absolute source stays absolute for boundary rejection",
+              ["/etc/evil.sh"], [e.target for e in _absolute_edges])
+    assert_eq("#583 AC5: an absolute derived source is rejected by the vendor guard",
+              True, any("does not resolve beneath" in v
+                        for v in cwd.check_dependencies(_absolute_edges)))
+
+    for _case, _source in {
+        "dynamic-absolute-prefix": '. "$(echo /etc)/evil.sh"\n',
+        "unknown-variable-prefix": '. "$HOME/evil.sh"\n',
+    }.items():
+        _source_probe = Path(_cwd_ctd) / f"probe-{_case}.sh"
+        _source_probe.write_text(_source, encoding="utf-8")
+        try:
+            cwd._read = lambda rel, p=_source_probe: p.read_text(encoding="utf-8")
+            _source_edges = cwd._scan_shell_sources(f"scripts/probe-{_case}.sh")
+        finally:
+            cwd._read = _orig_read2
+        # Either fail-closed route is a rejection: an absolute-looking target
+        # the vendor boundary refuses, or (post whole-operand accounting) an
+        # unresolved-source edge the guard rejects unconditionally.
+        assert_eq(f"#583 AC5 reviewer exact source prefix rejected: {_case}",
+                  True, bool(_source_edges) and all(
+                      edge.kind == "unresolved-source"
+                      or not cwd.resolves_beneath_vendor(edge.target)
+                      for edge in _source_edges
+                  ))
+
+# The public AC5 CLI contract: both modes and the check failure path are driven.
+_show_out = io.StringIO()
+with contextlib.redirect_stdout(_show_out):
+    _show_rc = cwd.main(["show"])
+assert_eq("#583 AC5: main(['show']) returns success and emits the live classification",
+          (0, [e.as_dict() for e in cwd.classify_all()]),
+          (_show_rc, json.loads(_show_out.getvalue())))
+_check_out = io.StringIO()
+with contextlib.redirect_stdout(_check_out):
+    _check_rc = cwd.main(["check"])
+assert_eq("#583 AC5: main(['check']) returns success with its named breadcrumb",
+          (0, "cloud-writer-deps: trust closure OK"),
+          (_check_rc, _check_out.getvalue().strip()))
+_orig_check_dependencies = cwd.check_dependencies
+try:
+    cwd.check_dependencies = lambda: ["synthetic CLI violation"]
+    _bad_check_out = io.StringIO()
+    with contextlib.redirect_stdout(_bad_check_out):
+        _bad_check_rc = cwd.main(["check"])
+finally:
+    cwd.check_dependencies = _orig_check_dependencies
+assert_eq("#583 AC5: main(['check']) reports violations and returns failure",
+          (1, "cloud-writer-deps: synthetic CLI violation"),
+          (_bad_check_rc, _bad_check_out.getvalue().strip()))
+
+# ── #598 review hardening ────────────────────────────────────────────────────
+# Fail-closed unresolvable shell includes: an include the source scan cannot
+# resolve to a .sh/.bash tail (extensionless target, unresolved variable,
+# for-loop variable) must emit an unresolved-source edge the guard rejects —
+# never a silent drop that lets a sourced sibling escape the trust closure.
+_unres_cases = {
+    "extensionless include":
+        '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+        '. "$HERE/../../scripts/evil"\n',
+    "unresolved-variable include":
+        '#!/usr/bin/env bash\n. "$CONFIG_HELPER"\n',
+    "for-loop-variable include":
+        '#!/usr/bin/env bash\nfor f in a.sh b.sh; do . "$f"; done\n',
+}
+_orig_cwd_read = cwd._read
+for _uc_name, _uc_src in _unres_cases.items():
+    try:
+        cwd._read = lambda rel, _s=_uc_src: _s
+        _uc_edges = cwd._scan_shell_sources("scripts/fake-unres.sh")
+    finally:
+        cwd._read = _orig_cwd_read
+    assert_eq(f"#598: {_uc_name} yields exactly one unresolved-source edge",
+              ["unresolved-source"], [e.kind for e in _uc_edges])
+    _uc_errors = cwd.check_dependencies(edges=_uc_edges)
+    assert_eq(f"#598: the guard rejects the {_uc_name} (fail closed, attributed)",
+              (1, True),
+              (len(_uc_errors),
+               bool(_uc_errors and "unresolvable source include" in _uc_errors[0])))
+# Positive control on the same fixture shape: a resolvable helper-dir include
+# still derives a clean repo-owned source edge (the rejection above is the
+# unresolvable operand's, not a precondition tripping on the fixture shape).
+try:
+    cwd._read = lambda rel: (
+        '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+        '. "$HERE/../lib/resolve-jq.sh"\n')
+    _uc_ctrl = cwd._scan_shell_sources("scripts/fake-unres.sh")
+finally:
+    cwd._read = _orig_cwd_read
+assert_eq("#598: positive control — a resolvable include still derives a clean source edge",
+          [("source", "lib/resolve-jq.sh", "repo-owned")],
+          [(e.kind, e.target, e.klass) for e in _uc_ctrl])
+
+# A non-helper-dir anchor must NOT prove the helper directory: resolving include
+# tails against it would rebase them and could launder a repo-root escape into an
+# in-repo path. The predicate is a strict structural whitelist, so every
+# equivalent parent-anchor spelling is rejected — not just the literal `/..`
+# form (fix-delta gate finding, iteration 1).
+for _pa_spelling in (
+    '$(cd "$(dirname "$0")/.." && pwd)',                # /.. inside the cd argument
+    '$(cd "$(dirname "$0")" && cd .. && pwd)',          # parent hop as a second cd
+    '$(cd "$(dirname "$(dirname "$0")")" && pwd)',      # double-dirname grandparent
+    '$(cd "$(dirname "$0")" && pwd)/..',                # /.. suffix after pwd)
+    '$pwdd$(cd "$(dirname "$0")/.." && pwd)',           # pwd-substring prefix junk
+    '$(cd $(dirname $"0") && pwd)',                     # $"…" locale-string collision
+    '$(cd ${0%/*"} && pwd)',                            # stray quote inside ${…%…}
+    "$(cd '$(dirname $0)' && pwd)",                     # single-quoted (unmodeled quoting)
+):
+    assert_eq(f"#598: anchor spelling does not prove the helper directory: {_pa_spelling}",
+              False, cwd._helper_dir_value(_pa_spelling))
+for _ok_spelling in (
+    '$(cd "$(dirname "$0")" && pwd)',
+    '$(cd "$(dirname "${0}")" && pwd)',
+    '$(cd "$(dirname "$BASH_SOURCE")" && pwd)',
+    '$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)',
+    '$(cd "${0%/*}" && pwd)',
+    '$(cd "${BASH_SOURCE[0]%/*}" && pwd)',
+):
+    assert_eq(f"#598: legitimate helper-dir anchor is accepted: {_ok_spelling}",
+              True, cwd._helper_dir_value(_ok_spelling))
+# End-to-end: a cd..-parent-anchored include on an EXISTING target must be
+# rejected as a vendor-tree escape — the laundering shape where the rebased
+# in-repo path happens to exist and every downstream check would pass.
+try:
+    cwd._read = lambda rel: (
+        '#!/usr/bin/env bash\nUP="$(cd "$(dirname "$0")" && cd .. && pwd)"\n'
+        '. "$UP/../scripts/config-get.sh"\n')
+    _pa_edges = cwd._scan_shell_sources("scripts/fake-parent.sh")
+finally:
+    cwd._read = _orig_cwd_read
+assert_eq("#598: a cd..-anchored include of an existing target is rejected as a vendor escape",
+          True,
+          bool(_pa_edges) and any(
+              "does not resolve beneath" in err
+              for err in cwd.check_dependencies(edges=_pa_edges)))
+# Inline-operand path: junk between the anchor and the .sh token (a second
+# command substitution) must not be laundered into a clean edge — the operand
+# either full-matches anchor + plain-path tail or stays unproved and is
+# rejected by the guard.
+try:
+    cwd._read = lambda rel: (
+        '#!/usr/bin/env bash\n'
+        '. "$(cd "$(dirname "$0")" && pwd)$(printf /../..)/../lib/resolve-jq.sh"\n')
+    _oj_edges = cwd._scan_shell_sources("scripts/fake-operand-junk.sh")
+finally:
+    cwd._read = _orig_cwd_read
+assert_eq("#598: operand junk between anchor and .sh token is rejected, never laundered clean",
+          True,
+          bool(_oj_edges) and bool(cwd.check_dependencies(edges=_oj_edges)))
+# Whole-operand accounting (#598 iter-2): the resolved token must account for
+# the ENTIRE operand. Unaccounted bytes — junk between anchor and a bare
+# filename, junk inside a $VAR tail, a glob — all route to unresolved-source,
+# never to a laundered clean edge.
+for _wo_name, _wo_src, in (
+    ("anchor+junk+bare filename",
+     '#!/usr/bin/env bash\n. "$(cd "$(dirname "$0")" && pwd)$(true)config-get.sh"\n'),
+    ("var tail with interposed substitution",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n. "$HERE/x$(true)y.sh"\n'),
+    ("glob include",
+     '#!/usr/bin/env bash\ndir=/some/dir\n. "$dir"/*.sh\n'),
+    ("embedded variable inside the tail",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n. "$HERE/x${EVIL}y.sh"\n'),
+    ("embedded variable via the binding channel",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+     'F="$HERE/lib${EVIL}.sh"\n. "$F"\n'),
+    ("suffix bytes after .sh in a var tail",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n. "$HERE/x.sh.bak"\n'),
+    ("suffix bytes after .sh in an anchored operand",
+     '#!/usr/bin/env bash\n. "$(cd "$(dirname "$0")" && pwd)/x.sh.bak"\n'),
+    ("missing separator after the proved var (brace form, existing target)",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+     '. "${HERE}config-get.sh"\n'),
+    ("dot-concatenated remnant after the proved var",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n. "$HERE../x.sh"\n'),
+    ("dash-concatenated remnant after the proved var",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n. "$HERE-x.sh"\n'),
+    ("glob bracket inside the tail",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n. "$HERE/x[ab].sh"\n'),
+    ("brace expansion inside the tail",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n. "$HERE/x{2..5}.sh"\n'),
+):
+    try:
+        cwd._read = lambda rel, _s=_wo_src: _s
+        _wo_edges = cwd._scan_shell_sources("scripts/fake-whole.sh")
+    finally:
+        cwd._read = _orig_cwd_read
+    assert_eq(f"#598 iter-2: {_wo_name} yields only unresolved-source edges",
+              (True, {"unresolved-source"}),
+              (bool(_wo_edges), {e.kind for e in _wo_edges}))
+    assert_eq(f"#598 iter-2: the guard rejects the {_wo_name} (fail closed)",
+              True,
+              any("unresolvable source include" in err
+                  for err in cwd.check_dependencies(edges=_wo_edges)))
+
+# Positive control: the plain inline-operand anchor form still derives cleanly.
+try:
+    cwd._read = lambda rel: (
+        '#!/usr/bin/env bash\n'
+        '. "$(cd "$(dirname "$0")" && pwd)/../lib/resolve-jq.sh"\n')
+    _oi_edges = cwd._scan_shell_sources("scripts/fake-operand-inline.sh")
+finally:
+    cwd._read = _orig_cwd_read
+assert_eq("#598: positive control — a plain inline-operand anchor include derives cleanly",
+          ([("source", "lib/resolve-jq.sh", "repo-owned")], []),
+          ([(e.kind, e.target, e.klass) for e in _oi_edges],
+           cwd.check_dependencies(edges=_oi_edges)))
+
+# Expansion-timing laundering (#598 iter-3): the shell expands $HERE inside a
+# double-quoted ASSIGNMENT immediately, so an operand captured while the dir
+# var held a non-anchor value must never be resolved against the var's LATER
+# anchor binding. Any non-anchor binding of the var anywhere in the file
+# (other than the accepted `$(pwd)` co-binding, tested below) leaves it
+# unproved (fail closed).
+try:
+    cwd._read = lambda rel: (
+        '#!/usr/bin/env bash\nHERE=/evil\nF="$HERE/../lib/resolve-jq.sh"\n'
+        'HERE="$(cd "$(dirname "$0")" && pwd)"\n. "$F"\n')
+    _et_edges = cwd._scan_shell_sources("scripts/fake-rebind.sh")
+finally:
+    cwd._read = _orig_cwd_read
+assert_eq("#598 iter-3: a rebound dir var never launders a pre-anchor capture into a clean edge",
+          True,
+          bool(_et_edges) and bool(cwd.check_dependencies(edges=_et_edges)))
+# Mixed-binding fail-closed conjunct: a var bound to an anchor in one branch
+# and an untrusted path in another stays unproved; the anchor+$(pwd) mix (the
+# run-jq.sh fallback shape) remains the one accepted co-binding.
+try:
+    cwd._read = lambda rel: (
+        '#!/usr/bin/env bash\nif [ -n "$X" ]; then HERE="$(cd "$(dirname "$0")" && pwd)"; '
+        'else HERE=/tmp; fi\n. "$HERE/../lib/resolve-jq.sh"\n')
+    _mb_edges = cwd._scan_shell_sources("scripts/fake-mixed.sh")
+finally:
+    cwd._read = _orig_cwd_read
+assert_eq("#598 iter-3: an anchor+untrusted mixed binding stays unproved and is rejected",
+          True,
+          bool(_mb_edges) and bool(cwd.check_dependencies(edges=_mb_edges)))
+try:
+    cwd._read = lambda rel: (
+        '#!/usr/bin/env bash\nif [ -n "$X" ]; then HERE="$(cd "$(dirname "$0")" && pwd)"; '
+        'else HERE="$(pwd)"; fi\n. "$HERE/../lib/resolve-jq.sh"\n')
+    _pw_edges = cwd._scan_shell_sources("scripts/fake-pwdmix.sh")
+finally:
+    cwd._read = _orig_cwd_read
+assert_eq("#598 iter-3: the anchor+$(pwd) co-binding (run-jq fallback shape) still derives cleanly",
+          ([("source", "lib/resolve-jq.sh", "repo-owned")], []),
+          ([(e.kind, e.target, e.klass) for e in _pw_edges],
+           cwd.check_dependencies(edges=_pw_edges)))
+# Substitution-body assignments never prove a parent variable: a binding that
+# exists only inside a $( ) body is subshell-scoped, so the parent var stays
+# unproved and the include is rejected (fix-delta gate, iteration 3).
+try:
+    cwd._read = lambda rel: (
+        '#!/usr/bin/env bash\n'
+        'X="$(HERE=$(cd "$(dirname "$0")" && pwd); echo "$HERE")"\n'
+        '. "$HERE/../lib/resolve-jq.sh"\n')
+    _sb_edges = cwd._scan_shell_sources("scripts/fake-subst.sh")
+finally:
+    cwd._read = _orig_cwd_read
+assert_eq("#598 iter-3: a substitution-body-only anchor binding never proves the parent var",
+          True,
+          bool(_sb_edges) and bool(cwd.check_dependencies(edges=_sb_edges)))
+# Rebind channels invisible to NAME=value assignment events (for/read/+=)
+# poison the variable's provedness: an anchor-bound var later rebound through
+# any of them stays unproved.
+for _rb_name, _rb_src in (
+    ("for-loop rebind",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+     'for HERE in /evil; do :; done\n. "$HERE/../lib/resolve-jq.sh"\n'),
+    ("read rebind",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+     'read -r HERE\n. "$HERE/../lib/resolve-jq.sh"\n'),
+    ("read rebind with option argument",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+     'read -p "path: " HERE\n. "$HERE/../lib/resolve-jq.sh"\n'),
+    ("mapfile rebind",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+     'mapfile -t HERE\n. "$HERE/../lib/resolve-jq.sh"\n'),
+    ("printf -v rebind",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+     'printf -v HERE /evil\n. "$HERE/../lib/resolve-jq.sh"\n'),
+    ("quoted printf -v rebind",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+     'printf -v "HERE" %s /evil\n. "$HERE/../lib/resolve-jq.sh"\n'),
+    ("select rebind",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+     'select HERE in /evil; do break; done\n. "$HERE/../lib/resolve-jq.sh"\n'),
+    ("nameref rebind",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+     'declare -n REF=HERE\nREF=/evil\n. "$HERE/../lib/resolve-jq.sh"\n'),
+    ("assign-default rebind",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+     ': "${HERE:=/evil}"\n. "$HERE/../lib/resolve-jq.sh"\n'),
+    ("backslash-continuation read rebind",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+     'read -r \\\n  HERE\n. "$HERE/../lib/resolve-jq.sh"\n'),
+    ("readarray rebind",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+     'readarray -t HERE\n. "$HERE/../lib/resolve-jq.sh"\n'),
+    ("getopts rebind",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+     'getopts a: HERE\n. "$HERE/../lib/resolve-jq.sh"\n'),
+    ("unset rebind",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+     'unset HERE\n. "$HERE/../lib/resolve-jq.sh"\n'),
+    ("append rebind",
+     '#!/usr/bin/env bash\nHERE="$(cd "$(dirname "$0")" && pwd)"\n'
+     'HERE+=/evil\n. "$HERE/../lib/resolve-jq.sh"\n'),
+):
+    try:
+        cwd._read = lambda rel, _s=_rb_src: _s
+        _rb_edges = cwd._scan_shell_sources("scripts/fake-rebindch.sh")
+    finally:
+        cwd._read = _orig_cwd_read
+    assert_eq(f"#598 iter-3: a {_rb_name} poisons the var's provedness (include rejected)",
+              True,
+              bool(_rb_edges) and bool(cwd.check_dependencies(edges=_rb_edges)))
+
+# Duck-typed EXTERNAL edge missing its auth attribute: the guard reports the
+# designed violation instead of detonating with AttributeError.
+_duck_ext_errors = cwd.check_dependencies(edges=[types.SimpleNamespace(
+    helper="scripts/duck-ext-598.sh", kind="exec", target="made-up-bin", klass="external")])
+assert_eq("#598 iter-3: a duck-typed external edge without auth draws the designed violation",
+          True,
+          any("names no preflight guarantee" in err for err in _duck_ext_errors))
+
+# An include of a variable bound to the empty string must emit the
+# unresolved-source edge (placeholder target), never crash Edge construction.
+try:
+    cwd._read = lambda rel: '#!/usr/bin/env bash\nX=""\n. "$X"\n'
+    _eo_edges = cwd._scan_shell_sources("scripts/fake-empty.sh")
+finally:
+    cwd._read = _orig_cwd_read
+assert_eq("#598: an empty-string include operand yields the unresolved-source placeholder edge",
+          [("unresolved-source", "<empty operand>")],
+          [(e.kind, e.target) for e in _eo_edges])
+assert_eq("#598: the guard rejects the empty-operand include (fail closed, no crash)",
+          True,
+          any("unresolvable source include" in err
+              for err in cwd.check_dependencies(edges=_eo_edges)))
+
+# Broken-import preserve-missing behavior (documented in _module_paths /
+# _sibling_module_paths): a broken relative import and a dotted import through a
+# flat module each emit a deterministic missing-leaf repo-owned edge the guard
+# flags "missing on disk" — never a silent drop.
+try:
+    cwd._read = lambda rel: "from . import definitely_missing_sibling_598\n"
+    _bi_rel = cwd._scan_python_imports("scripts/fake-broken-rel.py")
+finally:
+    cwd._read = _orig_cwd_read
+assert_eq("#598: a broken relative import emits the missing-leaf repo-owned edge",
+          [("scripts/definitely_missing_sibling_598.py", "repo-owned")],
+          [(e.target, e.klass) for e in _bi_rel])
+assert_eq("#598: the guard flags the broken relative import's missing leaf on disk",
+          True,
+          any("missing on disk" in err for err in cwd.check_dependencies(edges=_bi_rel)))
+try:
+    cwd._read = lambda rel: "import cloud_writer_deps.nonexistent_leaf_598\n"
+    _bi_flat = cwd._scan_python_imports("lib/test/fake-broken-flat.py")
+finally:
+    cwd._read = _orig_cwd_read
+assert_eq("#598: a dotted import through a flat module preserves the broken leaf edge",
+          True,
+          any(e.klass == "repo-owned" and e.target.endswith("nonexistent_leaf_598.py")
+              for e in _bi_flat))
+assert_eq("#598: the guard flags the dotted-through-flat broken leaf on disk",
+          True,
+          any("missing on disk" in err for err in cwd.check_dependencies(edges=_bi_flat)))
+
+# _declared_preflight_guarantees fail-closed arms: zero/two declarations,
+# duplicate tokens, and malformed tokens each raise rather than silently
+# widening or narrowing the authorization vocabulary.
+_pg_cases = {
+    "no declaration": ("#!/usr/bin/env bash\n_need git\n", "found 0"),
+    "two declarations": (
+        "readonly -a _DEVFLOW_PREFLIGHT_GUARANTEES=(git)\n"
+        "readonly -a _DEVFLOW_PREFLIGHT_GUARANTEES=(gh)\n", "found 2"),
+    "duplicate token": ("readonly -a _DEVFLOW_PREFLIGHT_GUARANTEES=(git git)\n",
+                        "duplicate token"),
+    "malformed token": ("readonly -a _DEVFLOW_PREFLIGHT_GUARANTEES=(g!t)\n",
+                        "malformed token"),
+    "empty declaration": ("readonly -a _DEVFLOW_PREFLIGHT_GUARANTEES=( )\n",
+                          "empty _DEVFLOW_PREFLIGHT_GUARANTEES"),
+}
+for _pg_name, (_pg_src, _pg_want) in _pg_cases.items():
+    with tempfile.TemporaryDirectory() as _pg_tmp:
+        _pg_root = Path(_pg_tmp)
+        (_pg_root / "lib").mkdir()
+        (_pg_root / "lib/preflight.sh").write_text(_pg_src, encoding="utf-8")
+        _pg_orig_root = cwd.REPO_ROOT
+        try:
+            cwd.REPO_ROOT = _pg_root
+            try:
+                cwd._declared_preflight_guarantees()
+                _pg_msg = "<no raise>"
+            except RuntimeError as _pg_exc:
+                _pg_msg = str(_pg_exc)
+        finally:
+            cwd.REPO_ROOT = _pg_orig_root
+        # Pin the ARM's own diagnostic, not merely that some RuntimeError fired
+        # (attribute the rejection — guard-class shape 3).
+        assert_eq(f"#598: _declared_preflight_guarantees fails closed on {_pg_name} with its arm's diagnostic",
+                  (True, True), (_pg_msg != "<no raise>", _pg_want in _pg_msg))
+
+# The poison sentinel can never satisfy the co-binding acceptance predicate —
+# pins the in-band "<rebound>" marker against a future widening of the
+# accepted-value set.
+assert_eq("#598: the '<rebound>' poison sentinel never proves a helper dir",
+          (False, False),
+          (cwd._helper_dir_value("<rebound>"), "<rebound>".strip() == "$(pwd)"))
+
+# The resolve_error exception arm fails closed with its OWN diagnostic (never
+# the symlink-escape diagnosis for a condition that was not established).
+_orig_resolve_598 = Path.resolve
+def _boom_resolve_598(self, *a, **k):
+    if "resolve-boom-598" in str(self):
+        raise OSError("boom-598")
+    return _orig_resolve_598(self, *a, **k)
+try:
+    Path.resolve = _boom_resolve_598
+    _re_errors = cwd.check_dependencies(edges=[
+        cwd.Edge("scripts/x-598.sh", "source", "scripts/resolve-boom-598.sh", "repo-owned")])
+finally:
+    Path.resolve = _orig_resolve_598
+assert_eq("#598: a Path.resolve() exception draws the fail-closed could-not-be-resolved arm",
+          (1, True, False),
+          (len(_re_errors),
+           "could not be resolved" in _re_errors[0],
+           "symlink escape" in _re_errors[0]))
+
+# _profile_grant_auth fail-closed passthrough: a helper granted in no profile
+# yields None, which leaves auth=None on the edge and the guard rejects it.
+assert_eq("#598: _profile_grant_auth returns None for a helper in no cloud profile",
+          None, cwd._profile_grant_auth("scripts/not-in-any-profile-598.sh"))
+
+# Synthetic-edge mode skips forward-verification by contract: an injected exec
+# edge whose target is absent from any source produces ONLY its own intended
+# violation, never a spurious "not found in source" (the live-only gate the
+# injection proofs depend on).
+_syn_errors = cwd.check_dependencies(edges=[
+    cwd.Edge("scripts/ghost-helper-598.sh", "exec", "made-up-binary-598", "external", None)])
+assert_eq("#598: synthetic exec edge yields only its intended violation (no forward-verify)",
+          (1, True, False),
+          (len(_syn_errors),
+           "names no preflight guarantee" in _syn_errors[0],
+           any("not found in source" in err for err in _syn_errors)))
+
+# Duck-typed edge validation mirrors the guard-relevant Edge invariants: a
+# synthetic repo-owned edge smuggling an authorization string is rejected by the
+# guard itself, not only by Edge.__post_init__.
+_duck_errors = cwd.check_dependencies(edges=[types.SimpleNamespace(
+    helper="scripts/duck-598.sh", kind="source", target="lib/resolve-jq.sh",
+    klass="repo-owned", auth="smuggled-authorization")])
+assert_eq("#598: the guard rejects a duck-typed repo-owned edge carrying authorization",
+          True,
+          any("carries external authorization" in err for err in _duck_errors))
+
 # AC18 — 17-class rejection matrix against an isolated fixture.
 with tempfile.TemporaryDirectory() as _cw_base:
     _base = Path(_cw_base)

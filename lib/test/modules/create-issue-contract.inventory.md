@@ -23,11 +23,20 @@ coverage (issue #199) after it stay in the monolith.
 | Evidence-bundle sub-pass and actionability | `4385–4435` | issue-#548 section | the evidence-bundle axis floor and the bounded-actionability verdict definitions |
 | Multi-state reconciliation, adversarial input, floor rule | `4436–4543` | issue-#465 and #464 sections | within-text multi-state-contract reconciliation; the adversarial-third-party-input dimension |
 | Revision-delta verification coverage guard | `4545–4732` | issue-#559 section | every `no-options gate` occurrence classified; the shared Revision-delta verification block |
+| Shift-left evidence disciplines | _(none — never lived in the monolith)_ | issue-#613 section | the Consumers-axis evidence floor and closed-set complement entries; the self-referential-count gate scan and the negative sweep retiring the overview's axis enumeration |
+
+The issue-#613 group also plants at least one pin outside its own section: a
+`devflow_module_pin_unique` on the Consumers-axis floor's sweep-leg paraphrase, placed
+beside the issue-#593 exactly-3 repo-wide-scope-sentence count with a comment recording
+why that count deliberately excludes the paraphrase. Read the two together — the count and
+the paraphrase pin are the same contract stated canonically and in paraphrase.
 
 The generic test harness, registry validation, module registration, full-suite
 boundary, and module-runner tests stay global so deleting this module cannot also
 delete the checks that prove it is selected and executed. The shared pin/count/
 mutation machinery lives in `module-harness.sh` (the namespaced `devflow_module_*`
 API), so this module carries no private copy of it — it uses only `assert_eq`, that
-namespaced API, and two domain-private classifiers (`ci559_classify` /
-`ci559_field`) for the revision-delta coverage guard.
+namespaced API, and a small set of domain-private helpers: `ci559_classify` /
+`ci559_field` for the revision-delta coverage guard, and `_ci613_classify` /
+`_ci613_scan` for the issue-#613 negative repo-wide sweep (the latter pair is
+`unset` immediately after its assertions, so it does not outlive its block).
