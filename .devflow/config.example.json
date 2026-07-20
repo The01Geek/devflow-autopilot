@@ -70,7 +70,9 @@
     "install": [
       "python -m pip install pyyaml"
     ],
-    "claude_code_executable": ""
+    "claude_code_executable": "",
+    "git_dir_pin": false,
+    "git_work_tree_pin": false
   },
   "docs": {
     "internal": "docs/internal/",
