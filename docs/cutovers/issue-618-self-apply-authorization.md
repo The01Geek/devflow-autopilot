@@ -10,13 +10,13 @@ maintainer-chosen **self-apply** standing remedy. That remedy must be encoded on
 fix loop actually loads, and mirrored in the always-loaded project memory, so two mandatory census
 rows grow:
 
-- `.devflow/prompt-extensions/review-and-fix.md` (+1,025 bytes / +132 words) — gains the
+- `.devflow/prompt-extensions/review-and-fix.md` (+1,033 bytes / +132 words) — gains the
   `## Review-bundle ceiling self-apply (issue #618)` section: the authorization for a
   `/devflow:review-and-fix` run to self-apply the escape-valve procedure on a growth breach, the
-  `measured + 60` / three-mirror mechanic, the direct-`CLAUDE.md`-edit carve-out (a this-repo-scoped
+  `measured + 60` / four-mirror mechanic, the direct-`CLAUDE.md`-edit carve-out (a this-repo-scoped
   sibling of #366), the growth-only scope, and the pointer to the full decision record in
   `docs/review-bundle-budget.md`.
-- `CLAUDE.md` (+693 bytes) — the review-bundle bullet is rewritten measured-figure-free: it drops
+- `CLAUDE.md` (+765 bytes) — the review-bundle bullet is rewritten measured-figure-free: it drops
   the two live measured figures (30,082 and 32,339, which moved on every engine-prose PR and forced
   a `CLAUDE.md` edit each time) and instead carries the re-anchored **≤ 32,399-word** ceiling phrase
   (pinned by `lib/test/run.sh`), the shipped-default comparand definition, the self-apply
@@ -45,7 +45,7 @@ whenever a fix loop hits that RED, which is not a rare-path condition.
 `.devflow/prompt-extensions/review-and-fix.md` was sitting **~4 words** below its documented
 initial-load ceiling — root 3,213 + extension 2,473 = 5,686 words against a 5,690 ceiling — so the
 mandated section could not fit under it at any phrasing. The section was written to its operative
-minimum (the authorization, the `+60`/three-mirror mechanic, the direct-edit carve-out, the
+minimum (the authorization, the `+60`/four-mirror mechanic, the direct-edit carve-out, the
 growth-only scope, and the doc pointer), and only then were the two affected ceilings renegotiated:
 
 - **initial load 5,690 → 5,824** (measured 5,818, ~6 words headroom, mirroring the #556/#619 style),
@@ -60,5 +60,5 @@ and cancels, so a 132-word extension edit moves the cumulative and initial-load 
 perturbing the split-isolating growth or reduction figures.
 
 The `lib/test/prompt-mass-baseline.json` mandatory-byte census baseline is regenerated in the same
-change for the two grown rows (review-and-fix.md 16,546 → 17,571; CLAUDE.md 63,409 → 64,102). This
+change for the two grown rows (review-and-fix.md 16,546 → 17,579; CLAUDE.md 63,409 → 64,174). This
 artifact is the audited decision that both widenings record.

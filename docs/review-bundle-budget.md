@@ -134,8 +134,9 @@ whose completion sheds ~2,239 words from the shipped-default path and lowers thi
 
 **The escape-valve procedure (the sanctioned honest move, now recorded here).** When the shipped-default
 path breaches this ceiling: re-measure it with `_rb_words`, set the new ceiling to that measured figure
-plus the fixed **60-word margin**, reconcile the three mirrors — `lib/test/run.sh` (the assertion
-literal), this doc (the ceilings table and this record), and `CLAUDE.md`'s review-bundle bullet — and
+plus the fixed **60-word margin**, reconcile the four mirrors — `lib/test/run.sh` (the assertion
+literal), this doc (the ceilings table and this record), `CLAUDE.md`'s review-bundle bullet, and
+`.devflow/prompt-extensions/review-and-fix.md`'s self-apply ceiling phrase — and
 record the change in this decision record. This is the procedure #556 established (measured figure plus a
 thin margin, recorded); it is written here so the `#556` / `#618` comments in `lib/test/run.sh` that cite
 "the doc's sanctioned escape valve" are no longer citing an absent procedure.

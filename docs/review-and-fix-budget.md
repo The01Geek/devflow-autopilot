@@ -64,7 +64,7 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
 | --- | --- | ---: | ---: | ---: | ---: |
 | **BEFORE** — monolith | `skills/review-and-fix/SKILL.md` (pre-split) | 1,134 | 36,201 | 250,928 | 47,061 |
 | **BEFORE** — always-loaded | monolith + live extension | 1,341 | 38,806 | 268,499 | 50,448 |
-| live extension | `.devflow/prompt-extensions/review-and-fix.md` | 207 | 2,605 | 17,571 | 3,387 |
+| live extension | `.devflow/prompt-extensions/review-and-fix.md` | 207 | 2,605 | 17,579 | 3,387 |
 | **AFTER** — plugin root | `skills/review-and-fix/SKILL.md` (thin) | 326 | **3,213** | 25,673 | 4,177 |
 | **AFTER** — actual initial load | root + live extension | 533 | **5,818** | 43,244 | 7,563 |
 | **AFTER** — bundle | root + all `references/*.md` | 1,308 | 40,524 | 284,693 | 52,681 |

@@ -34391,7 +34391,7 @@ assert_eq "#529 AC2: the split is at least 25,327 words below the 33,815 baselin
 # OUTSIDE this gate by decision — its execution-weighted AC5 record is unchanged.
 # Standing remedy (recorded in the decision record): a fix-loop run MAY self-apply this
 # escape valve on the next breach — re-measure with _rb_words, set measured-plus-60,
-# reconcile the three mirrors (this file, the budget doc, CLAUDE.md), record it — with
+# reconcile the four mirrors (this file, the budget doc, CLAUDE.md, the review-and-fix extension), record it — with
 # the maintainer reviewing it in the ordinary PR review. Re-measure with _rb_words
 # before adding prose to any shipped-default member.
 # The interim ceiling is a named constant in the sibling RAF_*_CEIL style, so the gate
@@ -34956,7 +34956,7 @@ RAF_ROOT_CEIL=3500
 # the mandated self-apply authorization section ("Review-bundle ceiling self-apply") the #618
 # decision requires on this surface added 132 words to the extension, and it was already at ~4
 # words of headroom under 5690 (root 3,213 + extension 2,473 = 5,686). The section was written
-# to its operative minimum (the authorization, the +60/three-mirror mechanic, the direct
+# to its operative minimum (the authorization, the +60/four-mirror mechanic, the direct
 # CLAUDE.md-edit carve-out, the growth-only scope, and the doc pointer) and only then were the
 # two ceilings renegotiated to the measured figures plus ~6 words of headroom, mirroring the
 # #556/#619 precedent. The growth-delta / net-reduction figures are unchanged (the extension
