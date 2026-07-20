@@ -1,0 +1,67 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-20T00:00:00Z",
+  "fix_commit_sha": "786c24a4179a524c433a18ced11fd8486313b457",
+  "fix_files": ["lib/test/run.sh"],
+  "loop_role": "fix",
+  "current_step": "3",
+  "current_substep": null,
+  "checklist": [],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer"
+  ],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": false,
+    "checklist_skipped": "intentional"
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Important",
+      "description": "count-locked 'five'/'These five pins' in the AC21 block header is an unbound same-file count that rots on edit (CLAUDE.md #553 auto-REJECT class); also imprecise (six assertions).",
+      "defect_signature": {"file": "lib/test/run.sh", "line_range": [45568, 45571], "kind": "count_locked_prose"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Suggestion",
+      "description": "C2 pin couples always() to the '&& ' app-id gate; a legit refactor to bare always() would false-positive. Fail-closed, not a defect; bare always() would false-match the comment line, so '&& ' is the deliberate correct choice.",
+      "defect_signature": {"file": "lib/test/run.sh", "line_range": [45590, 45592], "kind": "over_coupling"},
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "C5b scopes the identity split to reviewer-token absence, not 'no write credential at all'. Within AC21(5)'s stated wording (the reviewer-token split), so not an AC gap.",
+      "defect_signature": {"file": "lib/test/run.sh", "line_range": [45620, 45633], "kind": "narrow_scope"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "advisory"
+    }
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "786c24a4179a524c433a18ced11fd8486313b457"},
+    {"finding_id": "F-2", "decision": "advisory", "source_file": "lib/test/run.sh", "claim_text": "C2 always() over-coupling", "skip_category": "advisory-parked", "evidence": "fail-closed robustness note; bare always() would false-match the comment line, so the '&& ' prefix is the deliberate lesser-evil choice"},
+    {"finding_id": "F-3", "decision": "advisory", "source_file": "lib/test/run.sh", "claim_text": "C5b reviewer-token-only scope", "skip_category": "advisory-parked", "evidence": "within AC21(5)'s stated wording (the direct-review identity split = the reviewer token); pr-test-analyzer confirmed not an AC gap"}
+  ],
+  "convergence_inputs": {"fixes_applied": 1, "fix_diff_lines": 5, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "shadow": {"ran_at": null, "reviewed_sha": null, "verdict": null, "coverage": null, "reviewers_dispatched": [], "expected_reviewers": [], "reason": null, "phase3_findings": [], "phase2_fails": [], "promoted_to_iter_next": false},
+  "telemetry": {
+    "phase_0": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_1": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_2": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_3": {"calls": 4, "tokens": 244000, "wall_clock_s": 126},
+    "step_2_6": {"calls": 0, "tokens": 0, "wall_clock_s": 0}
+  }
+}
