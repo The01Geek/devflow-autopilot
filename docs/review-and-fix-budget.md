@@ -71,10 +71,10 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
 | **BEFORE** — always-loaded | monolith + live extension | 1,341 | 38,847 | 268,781 | 50,501 |
 | live extension | `.devflow/prompt-extensions/review-and-fix.md` | 207 | 2,646 | 17,853 | 3,440 |
 | **AFTER** — plugin root | `skills/review-and-fix/SKILL.md` (thin) | 332 | **3,226** | 26,023 | 4,194 |
-| **AFTER** — actual initial load | root + live extension | 539 | **5,872** | 43,876 | 7,634 |
+| **AFTER** — actual initial load | root + live extension | 539 | **5,881** | 43,924 | 7,642 |
 | **AFTER** — bundle | root + all `references/*.md` | 1,318 | 41,090 | 289,541 | 53,417 |
-| **AFTER** — normal cumulative path | root + extension + Σ references | — | 43,736 | — | 56,857 |
-| **AFTER** — maximum active step | root + extension + `shadow-review.md` | — | **17,134** | — | 22,274 |
+| **AFTER** — normal cumulative path | root + extension + Σ references | — | 43,745 | — | 56,869 |
+| **AFTER** — maximum active step | root + extension + `shadow-review.md` | — | **17,143** | — | 22,286 |
 | reference: `shadow-review.md` | Step 2.6 | 235 | 11,262 | 79,276 | 14,641 |
 | reference: `fixing.md` | Step 3 | 156 | 9,155 | 62,660 | 11,902 |
 | reference: `loop-exit.md` | Loop Exit | 273 | 6,587 | 45,177 | 8,563 |
@@ -89,8 +89,8 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
 | Ceiling | Value | Measured | Result |
 | --- | --- | ---: | :--: |
 | Plugin root ≤ 3,500 words | 3,500 | 3,226 | ✅ |
-| Root + live extension (initial load) ≤ 5,877 words | 5,877 | 5,872 | ✅ |
-| Root + extension + max active step ≤ 17,139 words | 17,139 | 17,134 | ✅ |
+| Root + live extension (initial load) ≤ 5,887 words | 5,887 | 5,881 | ✅ |
+| Root + extension + max active step ≤ 17,149 words | 17,149 | 17,143 | ✅ |
 
 ## Net mandatory-prompt reduction, and the named justified-growth warning
 
@@ -101,7 +101,7 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
 
 - **⚠️ `review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,889 words.**
   The *normal cumulative path* (root + extension + every reference a full run loads in sequence)
-  is 43,736 words vs. 38,847 before — a net **growth of +4,889 words** (+12.6%). Three things drive
+  is 43,745 words vs. 38,847 before — a net **growth of +4,889 words** (+12.6%). Three things drive
   it: the routing text the split itself adds (the *Step routing* table, the *Reference-loading
   contract* — entry-gate, canonical-boundary rule, per-reference failure map, always-resident
   re-read rule — the condensed terminal verdict→chat mapping, the durable-operand schema fields,
@@ -110,6 +110,6 @@ acceptance criteria; the live regression guard is the `#530 budget` block in `li
   fields and the below-verdict-threshold evidence-classification prose in `shadow-review.md`, the
   bulk of the increase), plus the issue #609 `dispatched_effort` effort-observability schema key and its capture/write semantics. It is **justified**: the split trades this cumulative increase for a
   32,975-word reduction in the *mandatory* prompt, on-demand sequential loading (only one step
-  reference resident at a time — peak 17,134 words, not 43,736), and fail-closed reference handling.
+  reference resident at a time — peak 17,143 words, not 43,745), and fail-closed reference handling.
   Cumulative token spend on a full run is not the metric the split optimizes; peak-context and
   per-step focus are.
