@@ -146,10 +146,6 @@ def _read_extension(path: Path) -> tuple[str, str]:
     return ("ok", text)
 
 
-def _rstrip(line: str) -> str:
-    return line.rstrip()
-
-
 def extract_section(text: str, heading: str) -> str:
     """Extract every ``## heading`` section, per the four extraction clauses.
 
@@ -163,14 +159,14 @@ def extract_section(text: str, heading: str) -> str:
     Returns the concatenated section BODIES (heading lines excluded), or the
     empty string when the heading is absent or every match is body-empty.
     """
-    target = _rstrip(heading)
+    target = heading.rstrip()
     in_fence = False
     fence_kind = ""  # '`' or '~'
     in_comment = False
     in_section = False
     collected: list[str] = []
     for raw in text.splitlines():
-        line = _rstrip(raw)
+        line = raw.rstrip()
         stripped = line.lstrip()
 
         # Fence tracking (``` or ~~~). A fence toggles only on its own kind.
@@ -305,13 +301,16 @@ def render_dispatch(
     sentinel_open: str | None,
     sentinel_close: str | None,
     ext_path: Path,
-    checklist_only: bool,
 ) -> str:
-    """Assemble a full render for a dispatch arm or the checklist self-check."""
+    """Assemble a full render for a dispatch arm (``mode`` in _DISPATCH_ARMS) or
+    the checklist self-check (``mode == "checklist"``). ``mode`` doubles as the
+    block-selection token, so the checklist branch passes ``"checklist"``."""
     blocks = _parse_blocks(_load_template(template_path))
-    selector = "checklist" if checklist_only else mode
 
     status, section = consumer_dimensions(ext_path, _HOOKS["audit-dimensions"])
+    # `{CONSUMER_DIMENSIONS}` is substituted LAST (dict-insertion order): the
+    # consumer-extension text spliced in is then never re-scanned for `<slug>` /
+    # `{DRAFT_PATH}` tokens it may legitimately contain. Keep it last.
     slots = {
         "<slug>": slug,
         "{DRAFT_PATH}": draft_path or "",
@@ -322,7 +321,7 @@ def render_dispatch(
 
     parts: list[str] = []
     for arm_set, body in blocks:
-        if selector in arm_set:
+        if mode in arm_set:
             parts.append(_substitute(body, slots).strip("\n"))
     inner = "\n\n".join(p for p in parts if p.strip())
     return f"{STATUS_PREFIX} {status}\n{inner}\n{END_MARKER}"
@@ -331,9 +330,9 @@ def render_dispatch(
 def render_extract(hook: str, ext_path: Path) -> str:
     """Section-extraction mode: forward one consumer section (both hooks)."""
     heading = _HOOKS[hook]
+    # consumer_dimensions returns section="" for every non-appended status.
     status, section = consumer_dimensions(ext_path, heading)
-    body = section if status == _STATUS_APPENDED else ""
-    return f"{STATUS_PREFIX} {status}\n{body}\n{END_MARKER}"
+    return f"{STATUS_PREFIX} {status}\n{section}\n{END_MARKER}"
 
 
 def render_status_only(ext_path: Path) -> str:
@@ -412,7 +411,6 @@ def main(argv: list[str]) -> int:
                 args.sentinel_open,
                 args.sentinel_close,
                 ext_path,
-                checklist_only=False,
             )
         elif args.mode == "checklist":
             out = render_dispatch(
@@ -423,7 +421,6 @@ def main(argv: list[str]) -> int:
                 None,
                 None,
                 ext_path,
-                checklist_only=True,
             )
         elif args.mode == "extract":
             if not args.hook:
