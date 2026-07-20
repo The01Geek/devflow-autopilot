@@ -237,7 +237,7 @@ _LIST_ITEM_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+\S")
 # A leading line-comment marker, stripped from a REFERENT line before it is tested for
 # enumeration-item shape. Load-bearing: the claims these rules resolve live in comment blocks,
 # so their enumerations do too — PR #320's legend bullets are `#   - inline_missing: …`, and
-# `_LIST_ITEM_RE` is anchored, so without this strip `_adjacent_list_count` returns 0 on the
+# `_LIST_ITEM_RE` is anchored, so without this strip `_adjacent_list_idxs` returns empty on the
 # very defect R2 exists to catch (a non-gating UNRESOLVABLE, exit 0 — a silent false negative;
 # only a *bare*-bullet legend, which the historical defect never was, ever resolved).
 # Deliberately only `#` and `//`: `*` is EXCLUDED because it is itself a markdown bullet
@@ -545,7 +545,9 @@ def parse_diff(diff_text):
     """Return {path: {post_lineno: added_text}} from a unified diff.
 
     The post-image half of :func:`parse_diff_full` — see it for the parsing contract.
-    Kept as the narrow public shape because most callers want only the added lines."""
+    Kept as the narrow public shape so the #424 test corpus needs no edit; `run()` itself
+    calls `parse_diff_full` directly, so the discarded removed-tally costs production
+    nothing."""
     return parse_diff_full(diff_text)[0]
 
 
@@ -668,6 +670,20 @@ def _referents_relocated(added, relocated, idxs):
     return True
 
 
+def _demote_ok(exempt, added, relocated, idxs):
+    """The issue-#629 demotion predicate — the SOLE owner of "may this STALE be demoted?".
+
+    Both halves of the contract in one place: ``exempt`` is the multiplicity half (this
+    line's text is a byte-identical relocation), ``_referents_relocated`` is the referent
+    half. Every rule site routes its decision through here rather than restating the
+    conjunction, so tightening or relaxing the contract is a one-site edit instead of a
+    five-site coupled one. Deliberately a pure predicate that appends no ``Row``: the
+    STALE-emitting call sites keep their literal rule ids, which is what the ``#466``
+    mla-rule-drift AST guard requires (it tolerates exactly one emit indirection,
+    ``_emit_count``, and a new emit helper would violate it)."""
+    return exempt and _referents_relocated(added, relocated, idxs)
+
+
 def post_file_lines(rev, path):
     """Return the post-diff file's lines (1-indexed via index+1), or None when the
     file cannot be resolved at ``rev`` (e.g. deleted) — an UNRESOLVABLE case, NOT an
@@ -705,11 +721,6 @@ def _forward_cases(lines, start_idx):
     return best, idxs
 
 
-def _forward_maxcase(lines, start_idx):
-    """Max ``Case N`` integer strictly after line index ``start_idx`` (0-based)."""
-    return _forward_cases(lines, start_idx)[0]
-
-
 def _adjacent_list_idxs(lines, claim_idx):
     """Indices of the contiguous enumeration items directly above (preferred) or below
     the claim line, tolerating blank separators. Empty when there is no adjacent block."""
@@ -731,12 +742,6 @@ def _adjacent_list_idxs(lines, claim_idx):
     return scan_dir(1)
 
 
-def _adjacent_list_count(lines, claim_idx):
-    """Count contiguous enumeration items directly above (preferred) or below the
-    claim line, tolerating blank separators. Returns 0 when no adjacent block."""
-    return len(_adjacent_list_idxs(lines, claim_idx))
-
-
 def _adjacent_assert_idxs(lines, claim_idx):
     """Indices of the contiguous assertion lines below the claim, tolerating blanks. An
     assertion line contains ``assert`` or is an enumeration item."""
@@ -749,12 +754,6 @@ def _adjacent_assert_idxs(lines, claim_idx):
         out.append(i)
         i += 1
     return out
-
-
-def _adjacent_assert_count(lines, claim_idx):
-    """Count contiguous assertion lines below the claim, tolerating blanks. An
-    assertion line contains ``assert`` or is an enumeration item."""
-    return len(_adjacent_assert_idxs(lines, claim_idx))
 
 
 def _mods_ok(mods):
@@ -850,7 +849,7 @@ def examine_file(path, added, lines, rows, relocated=frozenset()):
             elif maxn > b:
                 r1_stale = (f"range claims Cases {a}-{b} but forward region reaches "
                             f"Case {maxn} — {_excerpt(text)}")
-                if exempt and _referents_relocated(added, relocated, case_idxs):
+                if _demote_ok(exempt, added, relocated, case_idxs):
                     rows.append(Row(UNRESOLVABLE, "R1", path, post_ln,
                                     RELOCATED_PREFIX + r1_stale))
                 else:
@@ -870,7 +869,7 @@ def examine_file(path, added, lines, rows, relocated=frozenset()):
                         f"Expected total = {n}: no adjacent enumeration block — {_excerpt(text)}",
                         f"Expected total = {n} but adjacent enumeration has {c} items — {_excerpt(text)}",
                         f"Expected total = {n} matches {c} enumerated items — {_excerpt(text)}",
-                        demote=exempt and _referents_relocated(added, relocated, item_idxs))
+                        demote=_demote_ok(exempt, added, relocated, item_idxs))
             continue
 
         # R3b — two-item "a X and a Y … both" count-locked claim (asserts 2)
@@ -881,7 +880,7 @@ def examine_file(path, added, lines, rows, relocated=frozenset()):
                         f"count-locked: two-item claim but no adjacent assertion block — {_excerpt(text)}",
                         f"count-locked: claim asserts both (2) but adjacent block has {c} assertions — {_excerpt(text)}",
                         f"count-locked: two-item claim matches {c} assertions — {_excerpt(text)}",
-                        demote=exempt and _referents_relocated(added, relocated, assert_idxs))
+                        demote=_demote_ok(exempt, added, relocated, assert_idxs))
             continue
 
         # R3 — exact numeric count claim ("N assertions") count-locked
@@ -894,7 +893,7 @@ def examine_file(path, added, lines, rows, relocated=frozenset()):
                         f"count-locked: '{n} {cm.group(2)}' claim but no adjacent assertion block — {_excerpt(text)}",
                         f"count-locked: claims {n} {cm.group(2)} but adjacent block has {c} — {_excerpt(text)}",
                         f"count-locked: {n} {cm.group(2)} matches adjacent block — {_excerpt(text)}",
-                        demote=exempt and _referents_relocated(added, relocated, assert_idxs))
+                        demote=_demote_ok(exempt, added, relocated, assert_idxs))
             continue
 
         # R4 — operator-token modality conflict
@@ -910,7 +909,7 @@ def examine_file(path, added, lines, rows, relocated=frozenset()):
                     r4_stale = (f"deny-absolute forbids `{op}` but the same file asserts it "
                                 f"permitted — {_excerpt(text)}")
                     # R4's referent is the single permit line that contradicts the claim.
-                    if exempt and _referents_relocated(added, relocated, [permit_idx]):
+                    if _demote_ok(exempt, added, relocated, [permit_idx]):
                         rows.append(Row(UNRESOLVABLE, "R4", path, post_ln,
                                         RELOCATED_PREFIX + r4_stale))
                     else:

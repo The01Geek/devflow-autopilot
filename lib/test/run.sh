@@ -38428,28 +38428,35 @@ sp629_repo() {  # before_dir after_dir -> repo dir (commit1 = before, commit2 = 
   git -C "$d" -c user.email=t@t -c user.name=t commit -qm c2 >/dev/null 2>&1
   printf '%s\n' "$d"
 }
-# Rename detection is pinned ON in the diff command (AC6 measures the local-git producer's
-# documented default explicitly rather than inheriting an ambient `diff.renames`).
-sp629_rc() {  # repo_dir -> exit code over `git -c diff.renames=true diff HEAD~1 HEAD`
+# ONE producer, four readers. Rename detection is pinned ON in the diff command (AC6 measures
+# the local-git producer's documented default explicitly rather than inheriting an ambient
+# `diff.renames`), and pinning it in a single place is why the readers below cannot drift from
+# each other — a fixture that later needs a different diff invocation has exactly one site.
+sp629_out() {  # repo_dir -> the lint's TSV stdout over `git -c diff.renames=true diff HEAD~1 HEAD`
+  ( cd "$1" 2>/dev/null || exit
+    git -c diff.renames=true diff HEAD~1 HEAD 2>/dev/null | python3 "$SPL" --rev HEAD 2>/dev/null )
+}
+sp629_rc() {  # repo_dir -> the lint's exit code (the gating signal — read separately from stdout)
   ( cd "$1" 2>/dev/null || { echo 99; exit; }
     git -c diff.renames=true diff HEAD~1 HEAD 2>/dev/null | python3 "$SPL" --rev HEAD >/dev/null 2>&1
     echo $? )
 }
 sp629_has() {  # repo_dir verdict rule -> yes/no
-  ( cd "$1" 2>/dev/null || { echo no; exit; }
-    git -c diff.renames=true diff HEAD~1 HEAD 2>/dev/null | python3 "$SPL" --rev HEAD 2>/dev/null \
-      | awk -F '\t' -v v="$2" -v r="$3" '$1==v && $2==r{f=1} END{exit f?0:1}' \
-      && echo yes || echo no )
+  printf '%s\n' "$(sp629_out "$1")" \
+    | awk -F '\t' -v v="$2" -v r="$3" '$1==v && $2==r{f=1} END{exit f?0:1}' \
+    && echo yes || echo no
 }
 sp629_rowcount() {  # repo_dir -> number of TSV rows emitted
-  ( cd "$1" 2>/dev/null || { echo -1; exit; }
-    git -c diff.renames=true diff HEAD~1 HEAD 2>/dev/null | python3 "$SPL" --rev HEAD 2>/dev/null \
-      | awk 'END{print NR}' )
+  sp629_out "$1" | awk 'END{print NR}'
+}
+sp629_rulecount() {  # repo_dir rule -> rows carrying that rule id, in ANY verdict
+  sp629_out "$1" | awk -F '\t' -v r="$2" '$2==r{c++} END{print c+0}'
 }
 sp629_detail() {  # repo_dir verdict rule -> the detail field of the first matching row
-  ( cd "$1" 2>/dev/null || exit
-    git -c diff.renames=true diff HEAD~1 HEAD 2>/dev/null | python3 "$SPL" --rev HEAD 2>/dev/null \
-      | awk -F '\t' -v v="$2" -v r="$3" '$1==v && $2==r{print $5; exit}' )
+  sp629_out "$1" | awk -F '\t' -v v="$2" -v r="$3" '$1==v && $2==r{print $5; exit}'
+}
+sp629_detail_has() {  # repo_dir verdict rule substring -> yes/no (the demoted row's wording)
+  case "$(sp629_detail "$1" "$2" "$3")" in *"$4"*) echo yes ;; *) echo no ;; esac
 }
 # Shared fixture texts. `dest.md`'s `Case 5` tail PRE-EXISTS at commit 1, so it is the
 # wrong-sized referent the move co-locates — never a diff-added one (that is AC5's shape).
@@ -38467,9 +38474,9 @@ assert_eq "#629 AC1 byte-identical relocation into a wrong-sized-referent file e
 assert_eq "#629 AC1 the relocated claim emits NO STALE R1 row" "no" "$(sp629_has "$SPR" STALE R1)"
 assert_eq "#629 AC10 the exempted claim is DEMOTED, not deleted — an UNRESOLVABLE R1 row is emitted" "yes" "$(sp629_has "$SPR" UNRESOLVABLE R1)"
 assert_eq "#629 AC10 the demoted row's detail names the relocation" "yes" \
-  "$(case "$(sp629_detail "$SPR" UNRESOLVABLE R1)" in *relocated*) echo yes ;; *) echo no ;; esac)"
+  "$(sp629_detail_has "$SPR" UNRESOLVABLE R1 relocated)"
 assert_eq "#629 AC10 the demoted row still carries the co-located contradiction it suppressed" "yes" \
-  "$(case "$(sp629_detail "$SPR" UNRESOLVABLE R1)" in *"reaches Case 5"*) echo yes ;; *) echo no ;; esac)"
+  "$(sp629_detail_has "$SPR" UNRESOLVABLE R1 "reaches Case 5")"
 
 # AC2 — no over-suppression, new prose: a genuinely new stale claim in the SAME diff as a pure
 # relocation still gates. `new.md`'s `Case 9` pre-exists; only its header is authored here.
@@ -38542,7 +38549,7 @@ SPR="$(sp629_repo "$SP629_B" "$SP629_A")"
 assert_eq "#629 AC10 hostile: a planted equal-count removal licenses the exemption (exit 0)" "0" "$(sp629_rc "$SPR")"
 assert_eq "#629 AC10 hostile: the manufactured shape still emits the demoted UNRESOLVABLE R1 row" "yes" "$(sp629_has "$SPR" UNRESOLVABLE R1)"
 assert_eq "#629 AC10 hostile: the demoted row names the relocation (compensating visibility)" "yes" \
-  "$(case "$(sp629_detail "$SPR" UNRESOLVABLE R1)" in *relocated*) echo yes ;; *) echo no ;; esac)"
+  "$(sp629_detail_has "$SPR" UNRESOLVABLE R1 relocated)"
 
 # Boundary — a relocation whose SOURCE file is deleted at --rev must still resolve through the
 # existing post_file_lines None arm (an UNRESOLVABLE `-` row), never a crash. `src.md` is gone
@@ -38577,8 +38584,8 @@ printf '%s\n' '```' 'existing fenced line' '```' 'Case 5 epsilon' > "$SP629_B/de
 printf '%s\n' '```' "$SP629_HDR" 'Case 1 alpha' 'Case 2 beta' 'existing fenced line' '```' 'Case 5 epsilon' > "$SP629_A/dest.md"
 SPR="$(sp629_repo "$SP629_B" "$SP629_A")"
 assert_eq "#629 adversarial: a move INTO a fenced block is still un-examined by #434 scoping (exit 0)" "0" "$(sp629_rc "$SPR")"
-assert_eq "#629 adversarial: the fenced move emits no R1 row at all" "0" \
-  "$(( $([ "$(sp629_has "$SPR" STALE R1)" = yes ] && echo 1 || echo 0) + $([ "$(sp629_has "$SPR" UNRESOLVABLE R1)" = yes ] && echo 1 || echo 0) ))"
+assert_eq "#629 adversarial: the fenced move emits no R1 row at all (in ANY verdict)" "0" \
+  "$(sp629_rulecount "$SPR" R1)"
 
 
 # Tally the shell assertions from the results file (authoritative — includes the
