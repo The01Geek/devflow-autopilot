@@ -7698,6 +7698,308 @@ assert_eq "#356 pin: devflow.yml surfaces the engine execution result as steps.e
   "$(grep -q 'id: engine' "$DEVFLOW_YML" && grep -q 'parse-engine-error.sh' "$DEVFLOW_YML" && grep -q 'is_error=\$IS_ERROR' "$DEVFLOW_YML" && echo yes || echo no)"
 rm -rf "$S356"
 
+# ── issue #601: self-hosted Windows runner support — path_to_claude_code_executable ──
+# Each of the three shipped workflows that invoke claude-code-action must pass the
+# action's `path_to_claude_code_executable` input, sourced from a new optional config
+# key `setup.claude_code_executable`, defaulting to an EMPTY string (action auto-install
+# path, unchanged for Linux consumers) when the key is absent. devflow.yml and
+# devflow-implement.yml source it from their own `config` job; devflow-runner.yml sources
+# it ONLY from the trusted base-ref config (steps.baseprovision) — never a PR-head-checked-out
+# config, because that job runs under a write token and the resolved path is executed (an
+# arbitrary-code-execution boundary). These are literal-presence guards; a plain removal
+# mutation-check (the input line deleted → RED) is the appropriate proof for each.
+I601_DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
+I601_IMPL_YML="$LIB/../.github/workflows/devflow-implement.yml"
+I601_RUNNER_YML="$LIB/../.github/workflows/devflow-runner.yml"
+I601_SCHEMA="$LIB/../.devflow/config.schema.json"
+I601_EXAMPLE="$LIB/../.devflow/config.example.json"
+
+# AC1 — devflow.yml: extraction (// empty default) + config-job output + with: input.
+assert_eq "#601 AC1: devflow.yml extracts setup.claude_code_executable with // empty default" "yes" \
+  "$(grep -qF '.setup.claude_code_executable // empty' "$I601_DEVFLOW_YML" && echo yes || echo no)"
+assert_eq "#601 AC1: devflow.yml config job exposes the claude_code_executable output" "yes" \
+  "$(grep -qF 'claude_code_executable: ${{ steps.extract.outputs.claude_code_executable }}' "$I601_DEVFLOW_YML" && echo yes || echo no)"
+assert_eq "#601 AC1: devflow.yml Run Claude Code passes path_to_claude_code_executable from the config job" "yes" \
+  "$(grep -qF 'path_to_claude_code_executable: ${{ needs.config.outputs.claude_code_executable }}' "$I601_DEVFLOW_YML" && echo yes || echo no)"
+
+# AC2 — devflow-implement.yml: same pattern, its own config-job resolution.
+assert_eq "#601 AC2: devflow-implement.yml extracts setup.claude_code_executable with // empty default" "yes" \
+  "$(grep -qF '.setup.claude_code_executable // empty' "$I601_IMPL_YML" && echo yes || echo no)"
+assert_eq "#601 AC2: devflow-implement.yml config job exposes the claude_code_executable output" "yes" \
+  "$(grep -qF 'claude_code_executable: ${{ steps.extract.outputs.claude_code_executable }}' "$I601_IMPL_YML" && echo yes || echo no)"
+assert_eq "#601 AC2: devflow-implement.yml Run Claude Code passes path_to_claude_code_executable from the config job" "yes" \
+  "$(grep -qF 'path_to_claude_code_executable: ${{ needs.config.outputs.claude_code_executable }}' "$I601_IMPL_YML" && echo yes || echo no)"
+
+# AC3 — devflow-runner.yml: trusted base-ref source ONLY (trust boundary). The security
+# property is two-sided: (a) the extraction pipes the TRUSTED $BASE_JSON (the base-ref config
+# materialized by baseprovision), and (b) the with: value references steps.baseprovision —
+# never a PR-head config (steps.cfg.outputs / needs.config). The positive baseprovision pin is
+# the authoritative guard (it goes RED for ANY re-source); the $BASE_JSON-source pins and the
+# input-line-scoped negative pin harden the two ways a re-source could slip a differently-spelled
+# PR-head value past the positive pin (per the #601 pr-test-analyzer review).
+assert_eq "#601 AC3: devflow-runner.yml extracts setup.claude_code_executable from the trusted base config" "yes" \
+  "$(grep -qF '.setup.claude_code_executable // empty' "$I601_RUNNER_YML" && echo yes || echo no)"
+# (a) The extraction line pipes $BASE_JSON specifically — pins that the value comes from the
+# trusted base-ref config, not a head-checked-out config JSON. Removing $BASE_JSON from the
+# extraction (e.g. switching the pipe source to a head var) goes RED.
+# Anchored on `| strings` so it pins the GUARDED extraction line specifically: the raw
+# probe is co-located and also pipes $BASE_JSON, so an unanchored match was satisfiable by
+# the probe line alone — a re-source switching only the guarded line to a PR-head var would
+# have slipped past the AC3 pins.
+assert_eq "#601 AC3: runner guarded extraction pipes the trusted \$BASE_JSON (not a PR-head config)" "yes" \
+  "$(grep -E 'BASE_JSON.*claude_code_executable.*\| strings' "$I601_RUNNER_YML" | grep -qF '.setup.claude_code_executable' && echo yes || echo no)"
+# The raw probe must read the same trusted source (it never widens the trust boundary).
+assert_eq "#601 AC3: runner raw probe also pipes the trusted \$BASE_JSON" "yes" \
+  "$(grep -E 'BASE_JSON.*claude_code_executable.*\| tostring' "$I601_RUNNER_YML" | grep -qF '.setup.claude_code_executable' && echo yes || echo no)"
+# (b) Scope the with:-input pins to the YAML key line itself (leading-token, colon-terminated),
+# NOT `grep path_to_claude_code_executable` over the whole file — that would also match the
+# comment lines above the input and make the negative pin trippable by a comment edit.
+I601_RUNNER_INPUT_LINE="$(grep -E '^[[:space:]]*path_to_claude_code_executable:' "$I601_RUNNER_YML" || true)"
+assert_eq "#601 AC3: runner sources path_to_claude_code_executable from trusted baseprovision" "yes" \
+  "$(printf '%s' "$I601_RUNNER_INPUT_LINE" | grep -qF 'steps.baseprovision.outputs.claude_code_executable' && echo yes || echo no)"
+assert_eq "#601 AC3: runner with:-input does NOT source it from a PR-head config (cfg.outputs/needs.config)" "yes" \
+  "$(printf '%s' "$I601_RUNNER_INPUT_LINE" | grep -Eq 'cfg\.outputs|needs\.config' && echo no || echo yes)"
+
+# AC4 — empty/malformed/multi-line default resolves to an EMPTY, SINGLE-LINE string
+# (auto-install path, Linux unchanged). Two complementary layers, with DIFFERENT reach:
+#   (1) a PRESENCE pin that BOTH the `| strings` non-string guard AND the
+#       `select(test("[\n\r]") | not)` embedded-newline guard are in each workflow's extraction.
+#       This is the ONLY layer that catches removal of `| strings`: with it removed, a non-string
+#       leaf flows into `select(test(...))`, whose `test()` errors on a non-string and is swallowed
+#       by the surrounding `try … catch` back to empty — so the sweep's array row still passes.
+#       The `| strings` guard is therefore defense-in-depth (the catch already yields empty), and
+#       its removal is caught by literal presence here, NOT behaviorally by the sweep below.
+#   (2) an EXECUTABLE sweep of the SHIPPED filter across the config-JSON adversarial matrix,
+#       driven once per workflow — the filter is extracted from EACH of the three files rather
+#       than from devflow.yml alone. Driving only one file left the `try … catch` wrapper of the
+#       other two behaviorally unpinned: a mutation dropping `try`/`catch empty` from
+#       devflow-implement.yml or devflow-runner.yml passed every presence pin, yet under
+#       `set -eo pipefail` a jq evaluation error on a hand-corrupted non-object `setup` would
+#       abort the assignment and fail the whole config/baseprovision job — the exact abort
+#       try/catch exists to prevent. This layer DOES behaviorally catch removal of the newline
+#       guard: removing `select(test("[\n\r]") | not)` makes the escaped-newline row emit a
+#       multi-line value (2 lines) → that sweep row goes RED.
+#   The two presence-only pins in layer (1) have NO behavioral backstop, so each is routed
+#   through assert_pin_red_under below with a `sed -E` mutation that re-introduces the exact
+#   guarded regression (the guard dropped from the shipped filter) — evidence the pin catches
+#   the defect, not merely that its own line vanished (the behavioral-fix-pin rule).
+for _f in "$I601_DEVFLOW_YML" "$I601_IMPL_YML" "$I601_RUNNER_YML"; do
+  assert_eq "#601 AC4: $(basename "$_f") extraction carries the '| strings' non-string type guard" "yes" \
+    "$(grep -qF '| strings | select(test("[\n\r]") | not)' "$_f" && echo yes || echo no)"
+  # The whitespace-only guard: such a value passes `| strings` and carries no newline/CR, so
+  # without this select it would be forwarded verbatim as path_to_claude_code_executable.
+  assert_eq "#601 AC4: $(basename "$_f") extraction carries the whitespace-only guard" "yes" \
+    "$(grep -qF 'select(test("^[[:space:]]*$") | not)' "$_f" && echo yes || echo no)"
+  # Rejected != unset: a non-empty raw value that resolves to empty must leave an operator
+  # breadcrumb rather than silently reverting to the (Windows-fatal) auto-install path.
+  assert_eq "#601 AC4: $(basename "$_f") warns when a set value is rejected (rejected != unset)" "yes" \
+    "$(grep -qF '::warning::setup.claude_code_executable is set' "$_f" && echo yes || echo no)"
+  # Mutation proofs for the three presence-only pins above: each sed program re-introduces the
+  # guarded regression in the shipped filter (guard dropped / warning removed) and the pin must
+  # go RED under it — evidence rather than an attestation in a comment.
+  assert_pin_red_under "#601 AC4: $(basename "$_f") '| strings' pin is RED when the type guard is dropped" \
+    '| strings | select(test("[\n\r]") | not)' 's/\| strings \| select\(test\("\[\\n\\r\]"\) \| not\)/| select(test("[\\n\\r]") | not)/' "$_f"
+  # Anchored on the filter-unique tail (`… ) catch empty`), NOT the bare guard: that shorter
+  # literal also appears in the explanatory comment above the filter, so assert_pin_unique
+  # would refuse it (the pin-in-comment count-inflation class).
+  assert_pin_red_under "#601 AC4: $(basename "$_f") whitespace-only pin is RED when that guard is dropped" \
+    'select(test("^[[:space:]]*$") | not)) catch empty' 's/ \| select\(test\("\^\[\[:space:\]\]\*\$"\) \| not\)\) catch empty/) catch empty/' "$_f"
+  assert_pin_red_under "#601 AC4: $(basename "$_f") rejected-value warning pin is RED when the warning is dropped" \
+    '::warning::setup.claude_code_executable is set' 's/::warning::setup\.claude_code_executable is set/::notice::silently ignored/' "$_f"
+done
+# Extract the exact jq programs shipped in EACH workflow and drive them against the matrix, so
+# the sweep tests the REAL filters (not a hardcoded copy, and not one file standing in for three).
+# Neither filter contains a single-quote, so `[^']*` safely spans it up to the closing
+# `) catch` terminator; the per-file positive-control assertions below fail RED if a future filter
+# edit breaks either extraction (e.g. introduces a quote). The guarded filter is anchored on
+# `| strings` and the raw probe on `| select`/`| tostring` plus its distinct `catch "set"`
+# terminator, so the two co-located programs cannot be confused for one another (a bare `[^']*`
+# match would take whichever appears first in the file).
+for _f in "$I601_DEVFLOW_YML" "$I601_IMPL_YML" "$I601_RUNNER_YML"; do
+  _b="$(basename "$_f")"
+  # Strip comment lines BEFORE extracting: `head -1` takes the first match in the file, so a
+  # future edit that quoted the filter text in a `#` comment above the real one would silently
+  # select the comment — every positive control would still pass while the whole sweep tested a
+  # non-shipped string (a fully-green sweep testing nothing shipped, the costliest vacuity here).
+  I601_SRC="$(grep -v '^[[:space:]]*#' "$_f")"
+  I601_FILTER="$(printf '%s' "$I601_SRC" | grep -oE "try \(\.setup\.claude_code_executable // empty \| strings[^']*\) catch empty" | head -1)"
+  I601_RAW_FILTER="$(printf '%s' "$I601_SRC" | grep -oE "try \(\.setup\.claude_code_executable \| select[^']*\| tostring[^']*\) catch \"set\"" | head -1)"
+  # Pin the three files' extracted programs EQUAL to one another. The per-file sweep below
+  # proves each behaves correctly, but without this a future edit to one workflow's filter
+  # that still satisfies every matrix row would drift silently — and the next untested shape
+  # would then behave differently per workflow (the coupled-mirror class).
+  if [ "$_b" = "$(basename "$I601_DEVFLOW_YML")" ]; then
+    I601_FILTER_REF="$I601_FILTER"; I601_RAW_FILTER_REF="$I601_RAW_FILTER"
+  else
+    assert_eq "#601 AC4: $_b guarded jq filter is byte-identical to devflow.yml's (coupled mirror)" "$I601_FILTER_REF" "$I601_FILTER"
+    assert_eq "#601 AC4: $_b raw-probe jq filter is byte-identical to devflow.yml's (coupled mirror)" "$I601_RAW_FILTER_REF" "$I601_RAW_FILTER"
+  fi
+  assert_eq "#601 AC4: $_b guarded jq filter is extractable (positive control)" "yes" \
+    "$([ -n "$I601_FILTER" ] && echo yes || echo no)"
+  assert_eq "#601 AC4: $_b raw-probe jq filter is extractable (positive control)" "yes" \
+    "$([ -n "$I601_RAW_FILTER" ] && echo yes || echo no)"
+  if [ -n "$I601_FILTER" ]; then
+    assert_eq "#601 AC4 [$_b]: absent key → empty" "" \
+      "$(printf '%s' '{}' | jq -r "$I601_FILTER")"
+    assert_eq "#601 AC4 [$_b]: non-object setup → empty (try/catch, no abort)" "" \
+      "$(printf '%s' '{"setup":"scalar"}' | jq -r "$I601_FILTER")"
+    assert_eq "#601 AC4 [$_b]: explicit empty-string value → empty" "" \
+      "$(printf '%s' '{"setup":{"claude_code_executable":""}}' | jq -r "$I601_FILTER")"
+    assert_eq "#601 AC4 [$_b]: valid string path → passed through verbatim" "/opt/claude" \
+      "$(printf '%s' '{"setup":{"claude_code_executable":"/opt/claude"}}' | jq -r "$I601_FILTER")"
+    # A Windows path (backslashes, drive letter, embedded spaces) is the REAL load-bearing
+    # value for this key — it must survive verbatim, not be mangled by any guard.
+    assert_eq "#601 AC4 [$_b]: Windows path with spaces → passed through verbatim" 'C:\Program Files\claude.exe' \
+      "$(printf '%s' '{"setup":{"claude_code_executable":"C:\\Program Files\\claude.exe"}}' | jq -r "$I601_FILTER")"
+    # Regression guard A (non-string leaf): an array must collapse to empty, NOT pretty-print
+    # multi-line and corrupt the GITHUB_OUTPUT key=value line. Assert empty AND zero lines.
+    assert_eq "#601 AC4 [$_b]: non-string (array) leaf → empty (no GITHUB_OUTPUT corruption)" "" \
+      "$(printf '%s' '{"setup":{"claude_code_executable":["a","b"]}}' | jq -r "$I601_FILTER")"
+    assert_eq "#601 AC4 [$_b]: non-string (array) leaf → zero output lines (single-line-safe)" "0" \
+      "$(printf '%s' '{"setup":{"claude_code_executable":["a","b"]}}' | jq -r "$I601_FILTER" | grep -c .)"
+    # Regression guard B (valid string with an embedded newline — the #601 iteration-2 finding):
+    # a VALID JSON string carrying an ESCAPED newline (the two source chars backslash-n, exactly
+    # how json.load in read-project-config round-trips one) passes `| strings` but would make jq -r
+    # emit a multi-line value; the select(test("[\n\r]")|not) guard must drop it to empty. Use
+    # `printf '%s'` on the single-quoted literal so the `\n` reaches jq as an ESCAPE inside VALID
+    # JSON (a bare `printf '…\n…'` would expand it into a raw newline → INVALID JSON → a parse
+    # error caught by try/catch, which would pass this pin VACUOUSLY even with the guard removed).
+    assert_eq "#601 AC4 [$_b]: valid string with embedded newline → empty (newline guard)" "" \
+      "$(printf '%s' '{"setup":{"claude_code_executable":"a\ntrailing"}}' | jq -r "$I601_FILTER")"
+    assert_eq "#601 AC4 [$_b]: valid string with embedded newline → zero output lines (single-line-safe)" "0" \
+      "$(printf '%s' '{"setup":{"claude_code_executable":"a\ntrailing"}}' | jq -r "$I601_FILTER" | grep -c .)"
+    # Regression guard B' — the CR half of the `[\n\r]` alternation, previously covered only by
+    # exact-literal presence. A narrowing mutation to `test("[\n]")` now goes RED behaviorally.
+    assert_eq "#601 AC4 [$_b]: valid string with embedded CR → empty (CR half of the newline guard)" "" \
+      "$(printf '%s' '{"setup":{"claude_code_executable":"a\rtrailing"}}' | jq -r "$I601_FILTER")"
+    assert_eq "#601 AC4 [$_b]: valid string with embedded CR → zero output lines (single-line-safe)" "0" \
+      "$(printf '%s' '{"setup":{"claude_code_executable":"a\rtrailing"}}' | jq -r "$I601_FILTER" | grep -c .)"
+    # Regression guard C — whitespace-only values. These pass `| strings`, carry no newline/CR,
+    # and are single-line-safe, so nothing else rejects them; the contract is "blank means unset"
+    # (auto-install), NOT "forward a space as an executable path".
+    assert_eq "#601 AC4 [$_b]: spaces-only value → empty (whitespace-only guard)" "" \
+      "$(printf '%s' '{"setup":{"claude_code_executable":"   "}}' | jq -r "$I601_FILTER")"
+    assert_eq "#601 AC4 [$_b]: tab-only value → empty (whitespace-only guard)" "" \
+      "$(printf '%s' '{"setup":{"claude_code_executable":"\t"}}' | jq -r "$I601_FILTER")"
+  fi
+  if [ -n "$I601_RAW_FILTER" ]; then
+    # The raw probe decides the ::warning:: — it must distinguish REJECTED (non-empty raw,
+    # empty resolved → warn) from UNSET (empty raw → silent). The deliberate unsets are an
+    # absent key, an explicit "", and JSON `null` (null ≈ absent); every OTHER shape that
+    # resolves to empty is a rejection and must warn — including the valid-falsy `false`
+    # leaf and a non-object `setup`, the two shapes an earlier `// empty` / `catch empty`
+    # probe swallowed silently (CLAUDE.md's six-shape config matrix, valid-falsy row).
+    assert_eq "#601 AC4 [$_b]: raw probe — absent key is unset, not rejected (no warning)" "" \
+      "$(printf '%s' '{}' | jq -r "$I601_RAW_FILTER")"
+    assert_eq "#601 AC4 [$_b]: raw probe — null leaf is a deliberate unset (no warning)" "" \
+      "$(printf '%s' '{"setup":{"claude_code_executable":null}}' | jq -r "$I601_RAW_FILTER")"
+    # Valid-falsy row: `//` is FALSY-triggered, so a `// empty` probe swallowed `false`
+    # before `tostring` — rejected to auto-install with NO breadcrumb on the one platform
+    # where the key is load-bearing. Goes RED if the probe reverts to `// empty`.
+    assert_eq "#601 AC4 [$_b]: raw probe — valid-falsy false leaf is rejected, not unset (warning fires)" 'yes' \
+      "$([ -n "$(printf '%s' '{"setup":{"claude_code_executable":false}}' | jq -r "$I601_RAW_FILTER")" ] && echo yes || echo no)"
+    assert_eq "#601 AC4 [$_b]: raw probe — numeric leaf is rejected (warning fires)" 'yes' \
+      "$([ -n "$(printf '%s' '{"setup":{"claude_code_executable":0}}' | jq -r "$I601_RAW_FILTER")" ] && echo yes || echo no)"
+    assert_eq "#601 AC4 [$_b]: raw probe — object leaf is rejected (warning fires)" 'yes' \
+      "$([ -n "$(printf '%s' '{"setup":{"claude_code_executable":{}}}' | jq -r "$I601_RAW_FILTER")" ] && echo yes || echo no)"
+    # `setup`-level wrong-type rows: indexing a scalar/array raises a jq error that BOTH
+    # filters hit, so the guarded one cannot resolve a value. `catch "set"` (not
+    # `catch empty`) is what keeps that a loud rejection instead of a silent fail-open.
+    assert_eq "#601 AC4 [$_b]: raw probe — non-object (scalar) setup is rejected, not unset (warning fires)" 'yes' \
+      "$([ -n "$(printf '%s' '{"setup":"scalar"}' | jq -r "$I601_RAW_FILTER")" ] && echo yes || echo no)"
+    assert_eq "#601 AC4 [$_b]: raw probe — array setup is rejected, not unset (warning fires)" 'yes' \
+      "$([ -n "$(printf '%s' '{"setup":["a"]}' | jq -r "$I601_RAW_FILTER")" ] && echo yes || echo no)"
+    # `setup`-level valid-falsy + null rows. `{"setup":null}` is the only OTHER path to silent:
+    # indexing null yields null (no jq error), so the probe's `select(. != null)` drops it. It is
+    # the intended behavior (nulling the block ≈ not setting it) and nothing else pins it, so a
+    # future probe edit flipping it to a spurious warning on a merely-nulled block would go RED.
+    assert_eq "#601 AC4 [$_b]: raw probe — null setup is a deliberate unset (no warning)" "" \
+      "$(printf '%s' '{"setup":null}' | jq -r "$I601_RAW_FILTER")"
+    assert_eq "#601 AC4 [$_b]: raw probe — empty-object setup is an unset (no warning)" "" \
+      "$(printf '%s' '{"setup":{}}' | jq -r "$I601_RAW_FILTER")"
+    assert_eq "#601 AC4 [$_b]: raw probe — valid-falsy false setup is rejected (warning fires)" 'yes' \
+      "$([ -n "$(printf '%s' '{"setup":false}' | jq -r "$I601_RAW_FILTER")" ] && echo yes || echo no)"
+    assert_eq "#601 AC4 [$_b]: raw probe — numeric setup is rejected (warning fires)" 'yes' \
+      "$([ -n "$(printf '%s' '{"setup":0}' | jq -r "$I601_RAW_FILTER")" ] && echo yes || echo no)"
+    # Top-level wrong-type rows: `.setup` on a non-object document raises, so BOTH filters land
+    # in `catch` — guarded empty, raw "set" → a rejection verdict on a config malformed above
+    # this key. The try/catch wrapper is the only reason this survives `set -eo pipefail`.
+    assert_eq "#601 AC4 [$_b]: raw probe — top-level array document is rejected (warning fires)" 'yes' \
+      "$([ -n "$(printf '%s' '[]' | jq -r "$I601_RAW_FILTER")" ] && echo yes || echo no)"
+    assert_eq "#601 AC4 [$_b]: raw probe — top-level string document is rejected (warning fires)" 'yes' \
+      "$([ -n "$(printf '%s' '"str"' | jq -r "$I601_RAW_FILTER")" ] && echo yes || echo no)"
+    # Contract pin: surrounding whitespace around real content is NOT trimmed — the value is
+    # forwarded verbatim (a path may legitimately contain spaces, as the Windows row proves).
+    # Pinning the direction makes trim-vs-no-trim explicit rather than incidental.
+    assert_eq "#601 AC4 [$_b]: padded valid path is forwarded verbatim (NOT trimmed)" " /opt/claude " \
+      "$(printf '%s' '{"setup":{"claude_code_executable":" /opt/claude "}}' | jq -r "$I601_FILTER")"
+    assert_eq "#601 AC4 [$_b]: raw probe — explicit empty string is a deliberate unset (no warning)" "" \
+      "$(printf '%s' '{"setup":{"claude_code_executable":""}}' | jq -r "$I601_RAW_FILTER")"
+    assert_eq "#601 AC4 [$_b]: raw probe — rejected array leaf is non-empty (warning fires)" 'yes' \
+      "$([ -n "$(printf '%s' '{"setup":{"claude_code_executable":["a","b"]}}' | jq -r "$I601_RAW_FILTER")" ] && echo yes || echo no)"
+    assert_eq "#601 AC4 [$_b]: raw probe — rejected whitespace-only value is non-empty (warning fires)" 'yes' \
+      "$([ -n "$(printf '%s' '{"setup":{"claude_code_executable":"   "}}' | jq -r "$I601_RAW_FILTER")" ] && echo yes || echo no)"
+    assert_eq "#601 AC4 [$_b]: raw probe — rejected embedded-newline value is non-empty (warning fires)" 'yes' \
+      "$([ -n "$(printf '%s' '{"setup":{"claude_code_executable":"a\ntrailing"}}' | jq -r "$I601_RAW_FILTER")" ] && echo yes || echo no)"
+    # A value composed ENTIRELY of newline(s) is a rejected shape too, and it is the reason
+    # the probe emits a sentinel instead of the value: `$(…)` strips trailing newlines, so a
+    # value-emitting probe collapsed this row to the empty string and the ::warning:: silently
+    # never fired. Capture through a command substitution (as the workflow does) so the pin
+    # goes RED if the sentinel is reverted to a bare `tostring`.
+    assert_eq "#601 AC4 [$_b]: raw probe — pure-newline value survives \$(…) stripping (warning fires)" 'yes' \
+      "$([ -n "$(printf '%s' '{"setup":{"claude_code_executable":"\n"}}' | jq -r "$I601_RAW_FILTER")" ] && echo yes || echo no)"
+    # A VALID path must yield a NON-EMPTY raw probe — the other half of the warning branch.
+    # Without this, a probe that always returned empty would pass every "unset" row above.
+    assert_eq "#601 AC4 [$_b]: raw probe — valid path is non-empty (warning branch operand)" 'yes' \
+      "$([ -n "$(printf '%s' '{"setup":{"claude_code_executable":"/opt/claude"}}' | jq -r "$I601_RAW_FILTER")" ] && echo yes || echo no)"
+  fi
+  if [ -n "$I601_FILTER" ] && [ -n "$I601_RAW_FILTER" ]; then
+    # Drive the COMPOSED warning selection — `[ -n RAW ] && [ -z RESOLVED ]` — not just its two
+    # operands separately. A reversed test, or a regression that warns on a valid path, now goes
+    # RED. `_i601_warns` mirrors the workflow's shell condition exactly.
+    _i601_warns() {
+      local _json="$1" _raw _res
+      _raw="$(printf '%s' "$_json" | jq -r "$I601_RAW_FILTER")"
+      _res="$(printf '%s' "$_json" | jq -r "$I601_FILTER")"
+      if [ -n "$_raw" ] && [ -z "$_res" ]; then echo warn; else echo silent; fi
+    }
+    assert_eq "#601 AC4 [$_b]: composed branch — valid path does NOT warn" "silent" \
+      "$(_i601_warns '{"setup":{"claude_code_executable":"/opt/claude"}}')"
+    assert_eq "#601 AC4 [$_b]: composed branch — absent key does NOT warn (unset)" "silent" \
+      "$(_i601_warns '{}')"
+    assert_eq "#601 AC4 [$_b]: composed branch — explicit empty string does NOT warn (deliberate unset)" "silent" \
+      "$(_i601_warns '{"setup":{"claude_code_executable":""}}')"
+    assert_eq "#601 AC4 [$_b]: composed branch — array leaf warns" "warn" \
+      "$(_i601_warns '{"setup":{"claude_code_executable":["a","b"]}}')"
+    assert_eq "#601 AC4 [$_b]: composed branch — whitespace-only value warns" "warn" \
+      "$(_i601_warns '{"setup":{"claude_code_executable":"   "}}')"
+    assert_eq "#601 AC4 [$_b]: composed branch — embedded-newline value warns" "warn" \
+      "$(_i601_warns '{"setup":{"claude_code_executable":"a\ntrailing"}}')"
+    assert_eq "#601 AC4 [$_b]: composed branch — pure-newline value warns (\$(…)-stripping regression)" "warn" \
+      "$(_i601_warns '{"setup":{"claude_code_executable":"\n"}}')"
+    assert_eq "#601 AC4 [$_b]: composed branch — null leaf does NOT warn (unset, like absent)" "silent" \
+      "$(_i601_warns '{"setup":{"claude_code_executable":null}}')"
+    assert_eq "#601 AC4 [$_b]: composed branch — valid-falsy false leaf warns" "warn" \
+      "$(_i601_warns '{"setup":{"claude_code_executable":false}}')"
+    assert_eq "#601 AC4 [$_b]: composed branch — numeric leaf warns" "warn" \
+      "$(_i601_warns '{"setup":{"claude_code_executable":0}}')"
+    assert_eq "#601 AC4 [$_b]: composed branch — object leaf warns" "warn" \
+      "$(_i601_warns '{"setup":{"claude_code_executable":{}}}')"
+    assert_eq "#601 AC4 [$_b]: composed branch — non-object (scalar) setup warns" "warn" \
+      "$(_i601_warns '{"setup":"scalar"}')"
+    assert_eq "#601 AC4 [$_b]: composed branch — array setup warns" "warn" \
+      "$(_i601_warns '{"setup":["a"]}')"
+  fi
+done
+
+# AC5 — schema documents the optional string key; example carries it (empty default).
+assert_eq "#601 AC5: schema setup.claude_code_executable type is string" "string" \
+  "$(jq -r '.properties.setup.properties.claude_code_executable.type' "$I601_SCHEMA")"
+assert_eq "#601 AC5: schema setup.claude_code_executable has a non-empty description" "yes" \
+  "$(jq -e '.properties.setup.properties.claude_code_executable.description | type == "string" and (length > 0)' "$I601_SCHEMA" >/dev/null && echo yes || echo no)"
+assert_eq "#601 AC5: example config carries setup.claude_code_executable (empty default)" "" \
+  "$(jq -r '.setup.claude_code_executable' "$I601_EXAMPLE")"
+
 # ── issue #338: --rewrite-ac (post-merge) retag requires a --note rationale ────
 # scripts/workpad.py: an `update` call in which any --rewrite-ac pair APPENDS the
 # trailing (post-merge) tag (NEW ends with it after rstrip; neither OLD nor the row
@@ -43701,7 +44003,7 @@ fi
 # The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/create-issue-contract.sh" \
-  "create-issue-contract" 234; then
+  "create-issue-contract" 257; then
   printf 'ERROR: create-issue-contract boundary could not record its result\n'
   exit 1
 fi
@@ -43987,8 +44289,17 @@ if [ -d "$IAS_SB" ]; then
     # post-adjudication unresolved count, so it holds only after this record, not on the raw
     # REVISE token. Also capture the pre-adjudication convergence (unadjudicated) beforehand.
     PATH="$RESTRICTED" python3 "$IAS" query-convergence rt --nonce "$NONCE" > .rt-conv-preadj
+    # #603: a REVISE adjudication with a settled count now REQUIRES the per-finding
+    # ledger on stdin. The QUOTED-delimiter heredoc is the decided transport — the second
+    # summary carries `$(…)` and a backtick precisely so this row proves the shell
+    # performs no expansion on auditor-derived text (query-findings re-emits it verbatim
+    # below).
     PATH="$RESTRICTED" python3 "$IAS" record-adjudication rt --nonce "$NONCE" --round 1 \
-      --verdict REVISE --must-revise 2 --advisory 0 --invalid 0 --unresolved-must-revise 2 > .rt-adj
+      --verdict REVISE --must-revise 2 --advisory 0 --invalid 0 --unresolved-must-revise 2 \
+      --ledger-stdin > .rt-adj <<'LEDGER-EOF'
+unresolved: first finding
+unresolved: second finding $(not expanded) `nor this`
+LEDGER-EOF
     PATH="$RESTRICTED" python3 "$IAS" query-triggers rt --nonce "$NONCE" > .rt-trig
     PATH="$RESTRICTED" python3 "$IAS" query-convergence rt --nonce "$NONCE" > .rt-conv-revise
 
@@ -43999,6 +44310,13 @@ if [ -d "$IAS_SB" ]; then
       --mode approve --draft-file draft.md > .rt-elig-bad
     PATH="$RESTRICTED" python3 "$IAS" query-eligibility rt --nonce "$NONCE" \
       --mode iterate --draft-file draft.md > .rt-elig-iter
+    # #603: the durable reconciliation read-back, then a post-revision resolution that
+    # clears the round the findings were raised on, then the convergence answer that now
+    # rests on a self-verified resolution basis rather than on an auditor FILE verdict.
+    PATH="$RESTRICTED" python3 "$IAS" query-findings rt --nonce "$NONCE" > .rt-findings
+    PATH="$RESTRICTED" python3 "$IAS" record-resolution rt --nonce "$NONCE" \
+      --round 1 --revision-ordinal 1 --resolved-ids 1,2 > .rt-resolution
+    PATH="$RESTRICTED" python3 "$IAS" query-convergence rt --nonce "$NONCE" > .rt-conv-resolved
 
     # A clean round on the revised bytes, then approve mode must ground eligible.
     PATH="$RESTRICTED" python3 "$IAS" record-dispatch rt --nonce "$NONCE" \
@@ -44033,17 +44351,24 @@ if [ -d "$IAS_SB" ]; then
   assert_eq "#548 cli_roundtrip_restricted_path: T1 holds after a REVISE round is ADJUDICATED (not on the raw token)" \
     "1" "$(grep -c 't1=hold' "$IAS_SB/.rt-trig" 2>/dev/null)"
   assert_eq "#548 cli_roundtrip_restricted_path: an un-adjudicated REVISE round is not converged" \
-    "converged=no reason=unadjudicated" "$(cat "$IAS_SB/.rt-conv-preadj" 2>/dev/null)"
+    "converged=no reason=unadjudicated basis=none unledgered_revise=none" "$(cat "$IAS_SB/.rt-conv-preadj" 2>/dev/null)"
   assert_eq "#548 cli_roundtrip_restricted_path: an adjudicated REVISE with unresolved must-revise is not converged" \
-    "converged=no reason=unresolved-must-revise-remain" "$(cat "$IAS_SB/.rt-conv-revise" 2>/dev/null)"
+    "converged=no reason=unresolved-must-revise-remain basis=none unledgered_revise=none" "$(cat "$IAS_SB/.rt-conv-revise" 2>/dev/null)"
   assert_eq "#548 cli_roundtrip_restricted_path: adjudicated FILE with 0 unresolved converges" \
-    "converged=yes reason=" "$(cat "$IAS_SB/.rt-conv-file" 2>/dev/null)"
+    "converged=yes reason= basis=adjudicated unledgered_revise=none" "$(cat "$IAS_SB/.rt-conv-file" 2>/dev/null)"
   assert_eq "#548 cli_roundtrip_restricted_path: query-convergence fails closed on a foreign nonce (never reads a converged verdict off another run)" \
-    "converged=no reason=foreign-nonce" "$(cat "$IAS_SB/.rt-conv-fn" 2>/dev/null)"
+    "converged=no reason=foreign-nonce basis=none unledgered_revise=none" "$(cat "$IAS_SB/.rt-conv-fn" 2>/dev/null)"
   assert_eq "#548 cli_roundtrip_restricted_path: query-summary RENDERS the latest round's adjudicated tokens at the CLI (round 2: FILE, 0 unresolved)" \
     "1" "$(grep -c 'adjudicated_verdict=FILE must_revise=0 advisory=1 invalid=0 unresolved_must_revise=0' "$IAS_SB/.rt-summary" 2>/dev/null)"
   assert_eq "#548 cli_roundtrip_restricted_path: record-adjudication echoes the adjudicated payload" \
-    "adjudicated=REVISE unresolved=2 must_revise=2 advisory=0 invalid=0" "$(cat "$IAS_SB/.rt-adj" 2>/dev/null)"
+    "adjudicated=REVISE unresolved=2 must_revise=2 advisory=0 invalid=0 superseded=0" "$(cat "$IAS_SB/.rt-adj" 2>/dev/null)"
+  assert_eq "#603 cli_roundtrip_restricted_path: query-findings re-emits an auditor summary byte-verbatim (the quoted-delimiter heredoc performed no expansion)" \
+    "round=1 id=2 status=unresolved summary=second finding \$(not expanded) \`nor this\`" \
+    "$(sed -n 2p "$IAS_SB/.rt-findings" 2>/dev/null)"
+  assert_eq "#603 cli_roundtrip_restricted_path: record-resolution derives the run-wide remaining count (no caller-supplied tally)" \
+    "round=1 revision_ordinal=1 frozen=2 remaining=0" "$(cat "$IAS_SB/.rt-resolution" 2>/dev/null)"
+  assert_eq "#603 cli_roundtrip_restricted_path: a REVISE-latest run cleared by resolution converges on the resolution basis" \
+    "converged=yes reason= basis=resolution unledgered_revise=none" "$(cat "$IAS_SB/.rt-conv-resolved" 2>/dev/null)"
   assert_eq "#546 cli_roundtrip_restricted_path: approve mode refuses just-revised, not-yet-re-audited bytes" \
     "eligible=no reason=unaudited-revision" "$(cat "$IAS_SB/.rt-elig-bad" 2>/dev/null)"
   assert_eq "#546 cli_roundtrip_restricted_path: iterate mode answers ok for the same bytes" \
