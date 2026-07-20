@@ -43713,6 +43713,33 @@ if ! devflow_run_full_suite_module "$LIB/test/modules/capability-profiles.sh" \
   exit 1
 fi
 
+# regenerate-artifacts contract coverage (issue #619: the batched generated-artifact
+# pass). The registry and this full-suite call share the same lower-bound contract;
+# test_module_runner.py parses this operand and rejects any coupling drift.
+# ────────────────────────────────────────────────────────────────────────────
+echo "#619 batched-regeneration instruction surfaces"
+# ────────────────────────────────────────────────────────────────────────────
+# Surface-presence pins: each of the three instruction surfaces must carry the
+# batched-regeneration invocation, so a loop's context cannot silently revert to
+# serial per-artifact discovery because one extension lost the instruction. The
+# pinned literal is a single unwrapped line in each file (a sentence wrapped across a
+# line break lives on no single line and this line-based pin would find nothing —
+# the issue-375 wrapped-literal hazard).
+for _ra_ext in implement review-and-fix receiving-code-review; do
+  assert_pin_unique "#619 .devflow/prompt-extensions/$_ra_ext.md carries the batched-regeneration invocation" \
+    'run `python3 lib/test/regenerate-artifacts.py` once' \
+    "$LIB/../.devflow/prompt-extensions/$_ra_ext.md"
+  assert_pin_unique "#619 .devflow/prompt-extensions/$_ra_ext.md carries the batched-regeneration discharge record" \
+    '`batched-regeneration: run|refused|skipped`' \
+    "$LIB/../.devflow/prompt-extensions/$_ra_ext.md"
+done
+
+if ! devflow_run_full_suite_module "$LIB/test/modules/regenerate-artifacts.sh" \
+  "regenerate-artifacts" 45; then
+  printf 'ERROR: regenerate-artifacts boundary could not record its result\n'
+  exit 1
+fi
+
 VB_ROOT="$(mktemp -d)"
 
 # ────────────────────────────────────────────────────────────────────────────

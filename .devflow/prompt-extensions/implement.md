@@ -406,3 +406,13 @@ available-skills check outcome, and the RED/GREEN/no-guidance micro-test outcome
 `Writing-skills evidence:` marker literal is the exact string the review-gate criterion matches
 (also as containment) — a coupled site, pinned in lockstep across `review-and-fix.md` and
 `review.md`.
+
+## Batched artifact regeneration
+
+After applying edits and before each full-suite re-verify run, run `python3 lib/test/regenerate-artifacts.py` once. Loop-induced edits drift the repo's checked-in generated records — editing a reached skill asset drifts the cloud-writer runtime manifest, adding prompt prose drifts the mandatory-byte census baseline, editing the capability manifest drifts the generated workflow literals, and adding review-bundle prose stales the budget record — and discovering each one a full suite run at a time is the dominant cost of a Phase 2-3 iteration. The helper is the sole enumeration point for this repo's suite-owned generated artifacts, so this section deliberately lists no artifact inventory of its own — an inventory duplicated into prose is one that silently goes stale as artifacts are added.
+
+Act on its report before starting the suite run: commit a changed manifest together with the edits that caused it, and resolve every printed exit-1-forcing judgment item under the governing policy that item names. Informational lines require reading, not action.
+
+If the runner's permission matcher refuses the invocation **twice**, stop — do not iterate variants of the command (the issue-401 two-denials discipline). Record the refusal in the workpad and proceed to the suite run: the batched pass then degrades to the status-quo serial discovery, which is slower but never a silent stall.
+
+On a run that maintains a workpad, record one discharge line before each full-suite run — `batched-regeneration: run|refused|skipped`. A compacted context that dropped this section then leaves an auditable gap rather than an undetectable silent revert to serial discovery.

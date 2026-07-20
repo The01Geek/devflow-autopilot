@@ -191,3 +191,13 @@ surface can be confirmed to contain the marker — whether because it was genuin
 because the read could not be established — the review reports a **FAIL** finding naming this
 rule (fail **closed** — an absent, malformed, or misspelled marker, and an unestablished read,
 all read as absent).
+
+## Batched artifact regeneration
+
+After applying edits and before each full-suite re-verify run, run `python3 lib/test/regenerate-artifacts.py` once. A fix loop's own edits drift the repo's checked-in generated records, and the full suite is the slowest verification step here, so each avoidable rerun spent rediscovering a mechanical regeneration chore is the dominant cost of a loop iteration. The helper is the sole enumeration point for this repo's suite-owned generated artifacts, so this section deliberately lists no artifact inventory of its own — an inventory duplicated into prose is one that silently goes stale as artifacts are added.
+
+Act on its report before starting the suite run: commit a changed manifest together with the edits that caused it, and resolve every printed exit-1-forcing judgment item under the governing policy that item names. Informational lines require reading, not action.
+
+If the runner's permission matcher refuses the invocation **twice**, stop — do not iterate variants of the command (the issue-401 two-denials discipline). Record the refusal in the workpad and proceed to the suite run: the batched pass then degrades to the status-quo serial discovery, which is slower but never a silent stall.
+
+On a run that maintains a workpad, record one discharge line before each full-suite run — `batched-regeneration: run|refused|skipped`. A compacted context that dropped this section then leaves an auditable gap rather than an undetectable silent revert to serial discovery.

@@ -53,3 +53,13 @@ config-read fix), so sweeping the whole matrix in one fix is what stops the per-
 iteration. This is DevFlow-repo policy; the governing convention is CLAUDE.md's best-effort-parser
 adversarial-matrix gotcha, and this section is its coupled mirror in
 `.devflow/prompt-extensions/review-and-fix.md` — edit both in the same change. (#466)
+
+## Batched artifact regeneration
+
+After applying edits and before each full-suite re-verify run, run `python3 lib/test/regenerate-artifacts.py` once. Edits applied while addressing review findings drift the repo's checked-in generated records, so a fix batch that skips this pass pays an extra full-suite cycle per drifted artifact. The helper is the sole enumeration point for this repo's suite-owned generated artifacts, so this section deliberately lists no artifact inventory of its own — an inventory duplicated into prose is one that silently goes stale as artifacts are added.
+
+Act on its report before starting the suite run: commit a changed manifest together with the edits that caused it, and resolve every printed exit-1-forcing judgment item under the governing policy that item names. Informational lines require reading, not action.
+
+If the runner's permission matcher refuses the invocation **twice**, stop — do not iterate variants of the command (the issue-401 two-denials discipline). Record the refusal in the workpad and proceed to the suite run: the batched pass then degrades to the status-quo serial discovery, which is slower but never a silent stall.
+
+On a run that maintains a workpad, record one discharge line before each full-suite run — `batched-regeneration: run|refused|skipped`. A compacted context that dropped this section then leaves an auditable gap rather than an undetectable silent revert to serial discovery.
