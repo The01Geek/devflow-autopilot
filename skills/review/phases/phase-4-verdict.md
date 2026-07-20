@@ -7,7 +7,7 @@ Output: `Phase 4/4: Aggregating findings...`
 
 **Skip this step entirely in current-branch mode** (no PR → no body to read). On standalone branch reviews, there is no Scope-Acknowledged Findings block; jump straight to 4.1.
 
-When `$ARGUMENTS` is a PR number, the engine consults the **Scope-Acknowledged Findings** block in the PR body (delimited by `<!-- DEVFLOW_DEFERRED_FINDINGS_START -->` / `<!-- DEVFLOW_DEFERRED_FINDINGS_END -->`) and demotes any current finding that matches a validated deferral entry to **Informational**. This is the consumer side of the contract /devflow:implement Phase 4.0.5 produces; without it, /devflow:review re-raises findings that /devflow:implement already filed follow-up issues for, creating the policy mismatch the contract is meant to prevent. (See `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/match-deferrals.py` for the matcher's exact guard order and matching rule.)
+When `$ARGUMENTS` is a PR number, the engine consults the **Scope-Acknowledged Findings** block in the PR body (delimited by `<!-- DEVFLOW_DEFERRED_FINDINGS_START -->` / `<!-- DEVFLOW_DEFERRED_FINDINGS_END -->`) and demotes any current finding matching a validated deferral entry to **Informational**. This is the consumer side of the contract /devflow:implement Phase 4.0.5 produces; without it, /devflow:review re-raises findings /devflow:implement already filed follow-up issues for. (See `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/match-deferrals.py` for the matcher's exact guard order and matching rule.)
 
 Serialize the Phase 3 findings collected in 3.2 to a JSON array with one object per finding:
 
@@ -42,7 +42,7 @@ The matcher always exits 0 when it ran (any result, including no block found). R
 
 If the matcher itself errors out (exit code 2), log the failure (`Deferral matcher failed: {stderr}; proceeding without demotions.`) and continue to 4.1 with all findings intact. Never block the review on a matcher failure — the safe default is to surface findings, not hide them.
 
-**Caching note.** The matcher hits the GitHub API once for the PR body + author and once per `follow_up.issue` for the cross-link guard. For a PR with N deferrals, this is N+1 API calls. Tolerable; if it ever becomes a bottleneck, batch the issue reads via `gh api graphql`.
+**Caching note.** The matcher makes N+1 GitHub API calls for N deferrals (PR body/author + one per `follow_up.issue` cross-link guard). Tolerable; batch via `gh api graphql` if it ever bottlenecks.
 
 ### 4.1 Build the report
 
@@ -103,7 +103,7 @@ FAIL and INCONCLUSIVE items stay listed outside the `<details>` block so they re
 
 ### 4.1.5 Over-grade advisory annotation (advisory for shapes 1/3 + non-comment shape 2; a deterministic verdict cap for the in-code-comment sub-case)
 
-**This subsection is the single source of truth for the over-grade shape definitions.** `/devflow:review-and-fix`'s Step 2.6 *Over-grade calibration gate* consumes this same shape list (the fix loop reads this engine file at runtime) rather than forking its own copy — keep the shapes defined **here only**, so the standalone-engine annotation and the fix-loop gate can never drift apart.
+**This subsection is the single source of truth for the over-grade shape definitions.** `/devflow:review-and-fix`'s Step 2.6 *Over-grade calibration gate* consumes this same shape list at runtime rather than forking its own copy — keep the shapes defined **here only**, so the standalone-engine annotation and the fix-loop gate can never drift apart.
 
 After building the report (4.1) and **before** computing the verdict (4.2), scan the Phase-3 findings the verdict will weigh (the `Critical` / `Important` / `Major` findings not deferral-demoted in 4.0). **Flag** a finding as a *suspected over-grade* when it matches one of these **observable** over-grade shapes (keyed on observable signals — what the suite catches, which direction the code fails, how many agents corroborated — never on a re-judgment of the finding's merits, or the annotation just relocates the calibration problem it exists to surface):
 
@@ -120,7 +120,7 @@ After building the report (4.1) and **before** computing the verdict (4.2), scan
 
 If no finding matches, add the line `over-grade annotation: no finding flagged` to the report so a clean scan is visible rather than ambiguous with a skipped step.
 
-The full **flag-and-record** gate — which *requires* a recorded `severity-calibrated` technical evaluation before a flagged finding may drive a shadow-promotion, and which still never auto-demotes — lives in `/devflow:review-and-fix` Step 2.6, because the fix loop has a fixer to record that evaluation. Standalone review is **advisory by construction**: do not port the gate's recording requirement here, and never let the annotation change what 4.2 computes. A consumer repo sharpens these shapes with local instances via `.devflow/prompt-extensions/review.md`; the extension sharpens the shapes but never makes the annotation change the verdict.
+The full **flag-and-record** gate — which *requires* a recorded `severity-calibrated` technical evaluation before a flagged finding may drive a shadow-promotion, and which still never auto-demotes — lives in `/devflow:review-and-fix` Step 2.6, because the fix loop has a fixer to record that evaluation. Standalone review is **advisory by construction**: do not port the gate's recording requirement here, and never let the annotation change what 4.2 computes. A consumer repo may sharpen these shapes via `.devflow/prompt-extensions/review.md`, but the extension never makes the annotation change the verdict.
 
 ### 4.1.6 Pre-verdict truthfulness sweep (promote-only; over every finding regardless of severity chip, plus an intra-diff contradiction scan over the diff itself)
 
@@ -146,15 +146,12 @@ If the sweep demonstrates no falsehood, add the line `truthfulness sweep: no fin
 **Resolve the verdict-severity threshold once, before applying the rules.** Read `devflow_review.verdict_severity_threshold` (default `critical`) via the same portable skill-dir-anchored, no-`bash`-prefix `config-get.sh` invocation the live-progress-comment gate uses. `config-get.sh` reads the value but does **not** validate the enum — it coerces any JSON value to a string — so validate the enum **inline** and fall back to the default `critical` on a resolver failure (rc≠0) or any value outside the enum, with a **specific breadcrumb naming the key and the fallback value** (never aborting the review):
 
 ```bash
-# A missing key returns the default `critical` (valid → kept silently, so an absent
-# key leaves verdict computation byte-identical to today). Discriminate a resolver FAILURE
-# from an out-of-enum value with single-statement branches that read no variable carried
-# across statements: an inline-bash runner that strips a variable assigned in one statement
-# and read in a later one (Copilot CLI / Cursor / Codex CLI / Gemini CLI) would otherwise
-# leave a captured rc empty and misreport a resolver failure as a bad enum value. The
-# `if !` condition reads config-get's OWN exit status directly (its stderr is never
-# suppressed, so it surfaces on the rc≠0 path); the value validation is a separate `case`
-# on the value alone. Both fall back to the default, each with its own DISTINCT breadcrumb.
+# A missing key returns the default `critical` silently (verdict computation stays
+# byte-identical to today). Discriminate a resolver FAILURE from an out-of-enum value
+# without carrying a variable across statements (an inline-bash runner that strips such a
+# variable would misreport a failure as a bad enum): `if !` reads config-get's OWN exit
+# status directly (rc≠0 surfaces its stderr); the value validation is a separate `case` on
+# the value alone. Both fall back to the default, each with its own DISTINCT breadcrumb.
 if ! VERDICT_THRESHOLD=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .devflow_review.verdict_severity_threshold critical); then
   echo "::warning::devflow review: could not read .devflow_review.verdict_severity_threshold (config-get.sh rc≠0 — malformed config.json or missing python3?); using default 'critical'" >&2
   VERDICT_THRESHOLD=critical
@@ -191,11 +188,11 @@ Output the full report to the user.
 
 ### 4.5 Run telemetry + effectiveness trace
 
-This step is gated by `devflow_review_and_fix.efficiency_telemetry_enabled` (read via `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .devflow_review_and_fix.efficiency_telemetry_enabled true`; the flag is shared with `/devflow:review-and-fix`). When `false`, skip this step entirely — no telemetry, no trace, no record. It is **independent** of the live-comment flag: the live comment can be on with telemetry off (an incremental narrative with no telemetry/trace block), or vice versa.
+This step is gated by `devflow_review_and_fix.efficiency_telemetry_enabled` (read via `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .devflow_review_and_fix.efficiency_telemetry_enabled true`; the flag is shared with `/devflow:review-and-fix`). When `false`, skip this step entirely — no telemetry, no trace, no record. It is **independent** of the live-comment flag: either can be on while the other is off.
 
-When enabled, assemble a **single workpad-shaped object** for this run from state the engine already produced, and write it to `.devflow/tmp/review/<slug>/<run-id>/iter-1.json` (run-scoped, the same `<run-id>` Phase 0.2 resolved — see "Caller run-id"). The `telemetry` key is mandatory: when no phase figures were established, emit the literal JSON string `"unavailable"` instead of omitting the key or writing `null`. This scratch write is the input `efficiency-trace.sh --mode trace` reads back; it lands in gitignored `.devflow/tmp/` (the same ephemeral-scratch location as Phase 0.2's `diff.patch`), so it does **not** make the trace a tree write and is permitted under the read-only cloud `review` profile — only the durable `--persist` write to the telemetry branch (issue #441) is gated to writable runs.
+When enabled, assemble a **single workpad-shaped object** for this run from state the engine already produced and write it to `.devflow/tmp/review/<slug>/<run-id>/iter-1.json` (run-scoped, the same `<run-id>` Phase 0.2 resolved). The `telemetry` key is mandatory: when no phase figures were established, emit the literal JSON string `"unavailable"`, never a missing key or `null`. This scratch write is what `efficiency-trace.sh --mode trace` reads back; landing in gitignored `.devflow/tmp/` (like Phase 0.2's `diff.patch`), it is **not** a tree write and is permitted under the read-only cloud `review` profile — only the durable `--persist` write to the telemetry branch (issue #441) is gated to writable runs.
 
-**Author it with an allow-listed command** — the read-only cloud `review` profile grants the execution-verified jq wrapper `Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*)` (invoke it as the command's leading token by path, so a shim-shadowed Windows/WSL host resolves a runnable jq — this is the preferred head; bare `Bash(jq:*)` also remains granted but skips the execution-verified resolution), plus `Bash(printf:*)` and `Bash(tee:*)`. Build the object with `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/run-jq.sh -n` (or `printf '%s'`, or the `tee <file> <<'EOF'` heredoc Phase 0.3.5 sanctions — never a `cat`-headed heredoc, which the *Cloud command-shape discipline* classifies as denied) and `>`-redirect it, e.g. `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/run-jq.sh -n --argjson findings '…' '{iter:1, source:"review", …}' > .devflow/tmp/review/<slug>/<run-id>/iter-1.json`. The `>` redirect of an allow-listed command head is permitted — consistent with the *Cloud command-shape discipline* near the top of this skill, whose denied redirect class is `/tmp`-targeted redirects and `cat`-heredoc writes, never an in-workspace redirect of a granted head; a head the profile does not grant would be silently denied under the cloud profile and the trace would have no input.
+**Author it with an allow-listed command** — the read-only cloud `review` profile grants the execution-verified jq wrapper `Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*)` (invoke it as the leading token by path so a shim-shadowed Windows/WSL host resolves a runnable jq; bare `Bash(jq:*)` is also granted but skips that resolution), plus `Bash(printf:*)` and `Bash(tee:*)`. Build the object with `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/run-jq.sh -n` (or `printf '%s'`, or the `tee <file> <<'EOF'` heredoc Phase 0.3.5 sanctions — never a `cat`-headed heredoc, which the *Cloud command-shape discipline* classifies as denied) and `>`-redirect it, e.g. `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/run-jq.sh -n --argjson findings '…' '{iter:1, source:"review", …}' > .devflow/tmp/review/<slug>/<run-id>/iter-1.json`. The `>` redirect of a granted head is permitted (the denied redirect class is `/tmp`-targeted and `cat`-heredoc writes, never an in-workspace redirect of a granted head); an ungranted head is silently denied and the trace has no input.
 
 ```json
 {
@@ -209,7 +206,7 @@ When enabled, assemble a **single workpad-shaped object** for this run from stat
 }
 ```
 
-`source: "review"` is what selects the **review-mode** derivation in `lib/efficiency-trace.jq` (and distinguishes the record from `/devflow:review-and-fix`'s). Because standalone review never applies a fix, each Phase-3 finding carries `contributed_to_verdict` instead of `fix_decision`: set it `true` when the finding counted toward the verdict (drove the REJECT, or was a non-deferral-demoted Important/Suggestion in an APPROVE-with-notes), and `false` when Phase 4.0's deferral match demoted it to Informational. The jq then classifies each agent `unique-effective` / `corroborating` / `noise` / `null` exactly as it does for the fix-loop, but off contribution instead of applied-fix.
+`source: "review"` selects the **review-mode** derivation in `lib/efficiency-trace.jq` (distinguishing the record from `/devflow:review-and-fix`'s). Because standalone review never applies a fix, each Phase-3 finding carries `contributed_to_verdict` instead of `fix_decision`: `true` when it counted toward the verdict (drove the REJECT, or was a non-deferral-demoted Important/Suggestion in an APPROVE-with-notes), `false` when Phase 4.0's deferral match demoted it to Informational. The jq then classifies each agent `unique-effective` / `corroborating` / `noise` / `null` off contribution instead of applied-fix.
 
 Then render the trace and (on a writable run) persist the record, reusing the **same hardened invocation** `/devflow:review-and-fix`'s Loop Exit uses (direct invocation — no `bash` prefix; rc/stderr `::warning::` breadcrumbs; remove-on-rc≠0):
 
@@ -227,22 +224,19 @@ elif [ -z "$TELEM" ]; then
   echo "::warning::review effectiveness trace rendered empty (rc=0, no output — telemetry disabled or no readable workpads); omitting the trace section"
 fi
 
-# Record (WRITABLE runs only — never under the read-only cloud profile). The durable
-# record is derived and persisted to the TELEMETRY BRANCH by --persist (issue #441),
-# reading THIS run's iter-1.json (source:"review", so the helper derives a review-mode
-# record). Nothing is written into the working tree or committed on the current branch:
-# --persist hashes the record into the object store, advances the telemetry ref with a
-# compare-and-swap, and pushes — the SAME code path /devflow:review-and-fix's Loop Exit
-# uses. Best-effort/exit-0: when the branch cannot be pushed (offline, no remote, a
-# read-only fork-PR token) the local ref still advances and a ::warning:: is emitted.
-# (No `|| true`: --persist is exit-0 by contract, and adding one would introduce an
-# ungranted `true` command head under the cloud review profile.)
+# Record (WRITABLE runs only — never under the read-only cloud profile). --persist
+# (issue #441) reads THIS run's iter-1.json (source:"review" → review-mode record),
+# hashes it into the object store, advances the TELEMETRY BRANCH ref with a compare-and-
+# swap, and pushes — the SAME code path /devflow:review-and-fix's Loop Exit uses. Nothing
+# touches the working tree or the current branch. Best-effort/exit-0: an unpushable branch
+# (offline, no remote, read-only fork-PR token) still advances the local ref and warns.
+# (No `|| true`: --persist is exit-0 by contract, and `true` is an ungranted head here.)
 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --persist --workpad-dir "$WORKPAD_DIR" --slug "<slug>"
 ```
 
 - **PR mode + live comment on:** append the Run telemetry summary (per-phase `calls`/`tokens`/`wall_clock_s`) and the rendered `$TELEM` trace into the live progress comment's finalization (Phase 4 of the update protocol), so the comment is the single complete surface. The comment edit goes through `gh` — permitted under the read-only cloud profile.
-- **Writable run (local/IDE) only:** run the `--persist` record block above. **Do not run it — no telemetry-branch write, no push — under the read-only cloud `review` profile** (`contents: read`); the comment is the cloud surface, the durable record is writable-run-only.
-- **Telemetry-on with live comment OFF, in a read-only cloud run:** there is no surface — the live comment is disabled and the `--persist` write is gated out of the read-only cloud profile. Do **not** silently compute-and-discard: emit a one-line chat note (`::warning::devflow review telemetry enabled but no surface available (live comment disabled, read-only run) — trace not persisted`) so the no-op is visible rather than baffling. In a writable run this combination still persists the record to the telemetry branch, so the note is read-only-cloud-only.
+- **Writable run (local/IDE) only:** run the `--persist` record block above. **Never run it under the read-only cloud `review` profile** (`contents: read`); the comment is the cloud surface, the durable record is writable-run-only.
+- **Telemetry-on with live comment OFF, in a read-only cloud run:** there is no surface (comment disabled, `--persist` gated out). Do **not** silently compute-and-discard: emit a one-line chat note (`::warning::devflow review telemetry enabled but no surface available (live comment disabled, read-only run) — trace not persisted`) so the no-op is visible. A writable run still persists the record, so this note is read-only-cloud-only.
 
 Best-effort throughout: a telemetry/trace failure is a `::warning::`, never a downgrade of the verdict.
 <!-- devflow:review-ref phase=4 file=skills/review/phases/phase-4-verdict.md end -->
