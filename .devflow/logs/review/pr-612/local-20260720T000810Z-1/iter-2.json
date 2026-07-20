@@ -1,0 +1,58 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-20T01:20:00Z",
+  "fix_commit_sha": "d9f76d3a",
+  "fix_files": [
+    "scripts/issue-audit-state.py",
+    "lib/test/test_python_scripts.py",
+    "lib/test/run.sh",
+    "lib/test/prompt-mass-baseline.json",
+    "skills/create-issue/SKILL.md",
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+    "docs/cutovers/issue-603-prompt-mass-growth.md",
+    ".changeset/issue-603-ledger-resolution.md"
+  ],
+  "loop_role": "fix",
+  "current_step": "loop-exit",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:type-design-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "convergence_inputs": {
+    "fixes_applied": 14,
+    "new_corroborated_critical_count": 0
+  },
+  "shadow": {
+    "ran_at": null,
+    "coverage": "not_run",
+    "reason": "loop did not converge at iteration 2 — a shadow pass gates a clean approve, and no clean approve is claimed",
+    "promoted_to_iter_next": false
+  },
+  "notes": {
+    "verdict": "REJECT — iteration 2 surfaced 14 findings, including diff-added documented_falsehoods and one Important state-semantics defect that remains OPEN",
+    "verification": "full suite 10295 passed, 1 failed, 0 skipped on the committed tree; the sole failure is the SignalCleanupMatrixTests environmental artifact (58/58 standalone and under a SIG_DFL launcher), not a code defect",
+    "convergence": "NOT converged. PR deliberately left in draft.",
+    "open_findings": [
+      "IMPORTANT (unfixed): a REVISE adjudication recorded behind a FILE-adjudicated LATER round silently reverses converged=yes and re-enters the reporting deadlock #603 exists to remove. The write-once out-of-order guard is one-directional; the AC21 supersession sweep runs only at FILE-adjudication time so a ledger written afterwards is never superseded. Reproduced end-to-end against HEAD by the final-pass reviewer. Fix: refuse a REVISE adjudication for round N when any completed round later than N is already FILE-adjudicated (breadcrumb adjudication-out-of-order), plus a mirror row beside _row4b.",
+      "TEST GAP: _settling_ordinal's invalidated arm is vacuously covered — patching it to return None flips basis from resolution-stale to resolution and nothing observes it.",
+      "TEST GAP: query-findings is never asserted to emit status=invalidated or status=superseded, though the skill's reconciliation discipline branches on exactly those.",
+      "TEST GAP (user-selected, not done): pin or record-as-non-goal the _clear_settling call on the record-resolution channel, which is provably a no-op on every reachable input.",
+      "REFACTOR (user-selected, not done): make _LEGAL_SETTLING_KEYS values alternatives (exact required key sets) rather than a flat legal set, retiring the bespoke per-status arms. No on-disk schema change.",
+      "SUGGESTION: --reason trailing-newline tolerance unpinned; interior blank lines in --ledger-stdin silently dropped, unpinned both directions; _ledgered_round's `latest is None` sub-branch unreached; query-summary's rendered effective_unresolved/convergence_basis unasserted end-to-end."
+    ]
+  },
+  "telemetry": "unavailable"
+}
