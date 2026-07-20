@@ -3671,6 +3671,30 @@ assert_eq("#629: parse_diff_full tallies only `-` lines, by raw text, across a m
               stale_prose_lint.parse_diff_full(
                   "--- a/f.md\n+++ b/f.md\n@@ -1,2 +1,3 @@\n+added\n kept\n-dropped\n+moved\n")))
 
+# `--- /dev/null` (a NEW file) attributes nothing: there is no source file to attribute to.
+assert_eq("#629: parse_diff_full attributes no provenance for a `--- /dev/null` new-file hunk",
+          {}, stale_prose_lint.parse_diff_full(
+              "--- /dev/null\n+++ b/new.md\n@@ -0,0 +1,1 @@\n+fresh\n")[2])
+
+# A second file entry must NOT inherit the previous entry's source path. Before the
+# `diff --git ` reset, removals under a header-less section were attributed to the PREVIOUS
+# file — a FALSE provenance record, which is worse than a missing one because the referent
+# rule's intersection can be satisfied by it.
+assert_eq("#629: parse_diff_full resets the source path at a `diff --git ` boundary so a "
+          "header-less section's removals are never MISattributed to the previous file",
+          {"x.md": {"gone": 1}},
+          {k: dict(v) for k, v in stale_prose_lint.parse_diff_full(
+              "diff --git a/x.md b/x.md\n--- a/x.md\n+++ b/x.md\n@@ -1,1 +1,0 @@\n-gone\n"
+              "diff --git a/y.md b/y.md\n+++ b/y.md\n@@ -1,1 +1,0 @@\n-alsogone\n")[2].items()})
+
+# An unparseable POST-IMAGE hunk header must shut the hunk, not let a parsed pre-image side
+# hold it open and record added lines at fabricated numbers from 0 (which would anchor claims
+# on arbitrary lines AND undercount occurrences, biasing multiplicity toward exemption).
+assert_eq("#629: an unparseable post-image hunk header records NO added lines (fails closed "
+          "rather than numbering them from 0 off the pre-image side)",
+          {}, stale_prose_lint.parse_diff_full(
+              "--- a/f.md\n+++ b/f.md\n@@ -1,5 +?? @@\n+claimed\n")[0].get("f.md", {}))
+
 # Provenance across a two-file move: the claim leaves src.md, so `sources` must attribute it
 # to src.md and NOT to the unrelated other.md removal. This is the operand the referent rule
 # intersects against; without it a boilerplate collision anywhere in the diff reads as a move.
@@ -3725,6 +3749,16 @@ assert_eq("#629: _referents_relocated REFUSES a relocated referent whose provena
           "source file with the claim (authored referent colliding with an unrelated removal)",
           False, stale_prose_lint._referents_relocated(
               {1: "hdr", 5: "boiler"}, _MV_X, _SRC, [4]))
+
+# The CORRESPONDENCE-MISMATCH arm (distinct from the out-of-range arm below): the diff records
+# an added text at this post-image number, but the post-diff file's line there is DIFFERENT.
+# The numbering is skewed, so the "relocated" verdict was read off the wrong line. Shadow
+# review mutation-proved this arm had no covering test — removing it flipped only this shape.
+assert_eq("#629: _referents_relocated fails CLOSED when the diff's added text does not MATCH "
+          "the post-diff file's line at that index (a skewed post-image join is not innocence)",
+          False, stale_prose_lint._referents_relocated(
+              {1: "hdr", 5: "Case 2"}, _MV, _SRC, [4],
+              ["a", "b", "c", "d", "SOMETHING ELSE ENTIRELY"]))
 
 # The absent operand fails CLOSED: an out-of-range referent index means the post-image/file
 # numberings do not correspond, so the "pre-existing, no obligation" arm must NOT be taken.

@@ -210,8 +210,12 @@ flags (``count-locked: … pin or drift-proof this claim``):
     It is not fixed because the operand is not available: the rules resolve referents by
     *position in the post-diff file*, and a removed line has no post-diff position to resolve
     against, so "the diff removed a line from THIS claim's resolution region" is not decidable
-    from the supplied diff without pre-image block identity — the same operand case 8 lacks and
-    the caller-supplied-diff contract forecloses. This is why the Referent rule above is worded
+    from the supplied diff: a removed line has no post-diff position *within the resolved
+    referent block*, and deciding its pre-move membership of that block needs pre-image block
+    identity — the same operand case 8 lacks and the caller-supplied-diff contract forecloses.
+    (The narrower claim is deliberate: a deletion's post-image insertion point *is* derivable
+    from ``post_ln``; what is not derivable is whether the deleted line belonged to this
+    claim's referent block.) This is why the Referent rule above is worded
     "adds no un-relocated referent" rather than "leaves the referent unchanged". The demoted row
     is still emitted, so the contradiction stays visible.
 11. **Block merge** — the inverse of case 2: two source blocks consolidated into one
@@ -668,17 +672,36 @@ def parse_diff_full(diff_text):
                 path = target[2:] if target.startswith("b/") else target
                 added = files.setdefault(path, {})
                 continue
+            if line.startswith("diff --git "):
+                # Reset the source path at every file boundary. Without this, a section
+                # carrying no `--- ` header inherits the PREVIOUS file's path and its
+                # removals are attributed there — a false provenance record, which is worse
+                # than a missing one because the referent rule's intersection can be
+                # satisfied by it. An unattributed removal (src_path None) only fails toward
+                # gating; a misattributed one fails open.
+                src_path = None
+                continue
             if line.startswith("@@"):
                 m = re.search(r"\+(\d+)(?:,(\d+))?", line)
                 if m:
                     post_ln = int(m.group(1))
                     # An absent count means a one-line post image ("@@ -1 +1 @@").
                     budget = int(m.group(2)) if m.group(2) is not None else 1
+                    pm = re.search(r"-(\d+)(?:,(\d+))?", line)
+                    pre_budget = (int(pm.group(2)) if pm.group(2) is not None else 1) if pm else 0
                 else:
+                    # The post-image side does not parse, so nothing in this hunk can be
+                    # numbered. Fail CLOSED — zero BOTH budgets so the hunk stays shut,
+                    # rather than letting a parsed pre-image side hold it open and record
+                    # added lines at fabricated numbers from 0 (which would both anchor
+                    # claims on arbitrary lines and, by colliding `added` keys, UNDERCOUNT
+                    # occurrences and bias multiplicity toward granting the exemption).
                     post_ln = 0
                     budget = 0
-                pm = re.search(r"-(\d+)(?:,(\d+))?", line)
-                pre_budget = (int(pm.group(2)) if pm.group(2) is not None else 1) if pm else 0
+                    pre_budget = 0
+                    sys.stderr.write(
+                        "stale-prose-lint.py: unparseable post-image hunk header, hunk "
+                        f"skipped: {' '.join(line.split())[:80]}\n")
                 continue
             continue  # "diff ", "index ", and any other between-hunk noise
         if line.startswith("+"):
@@ -959,12 +982,14 @@ def examine_file(path, added, lines, rows, move=None):
     added line **that may carry a claim** — a comment or prose line, per ``prose_mask``.
     A code line that merely contains claim-shaped text is data, not an assertion.
 
-    ``relocated`` (issue #629) is the diff-global set of byte-identically relocated line
-    texts. It only ever DEMOTES a STALE row to a non-gating UNRESOLVABLE — it never
-    suppresses a row, changes a VERIFIED, or short-circuits the #434 scoping mask above
-    it, so move-awareness is layered over scoping rather than bypassing it. Its default
-    is empty, which is exactly today's grading (every caller-supplied additions-only
-    diff, and any caller that does not compute the set).
+    ``move`` (issue #629) is the :class:`MoveIndex` carrying BOTH halves of the exemption's
+    bookkeeping — ``relocated`` (the multiplicity verdict) and ``sources`` (the per-text
+    provenance the referent rule intersects against). It only ever DEMOTES a STALE row to a
+    non-gating UNRESOLVABLE — it never suppresses a row, changes a VERIFIED, or
+    short-circuits the #434 scoping mask above it, so move-awareness is layered over scoping
+    rather than bypassing it. It defaults to ``None``, normalised below to an empty
+    ``MoveIndex``, which is exactly today's grading (every caller-supplied additions-only
+    diff, and any caller that does not compute the index).
     """
     if move is None:
         move = MoveIndex(frozenset(), {})
@@ -979,9 +1004,18 @@ def examine_file(path, added, lines, rows, move=None):
         # demotion decided off that join would be read from the wrong lines, so the whole
         # exemption is denied here — failing toward gating (issue #629 review).
         located_by_text = False
-        if idx < 0 or idx >= len(lines):
-            # The added line's post-image number does not resolve in the post-diff
-            # file (deleted/renamed race) — resolve referents defensively by text.
+        if (idx < 0 or idx >= len(lines)
+                or _norm_line(lines[idx]) != _norm_line(text)):
+            # The added line's post-image number does not resolve to THIS line in the
+            # post-diff file — either out of range (deleted/renamed race) or in range but
+            # naming different content (a skewed post-image join, which a range test alone
+            # cannot see). Resolve referents defensively by text. A range test is not a
+            # correspondence test: without the content compare, a skewed-but-in-range join
+            # anchored the claim on the wrong line, collected referents from the wrong
+            # region, and — because those referents are then legitimately absent from
+            # `added` — took the "pre-existing, no obligation" arm and DEMOTED a real STALE.
+            # That is the primary path for this feature (the reported defect has no
+            # diff-added referents at all), so the check has to live here on the anchor.
             idx = _locate(lines, text)
             if idx is None:
                 continue
