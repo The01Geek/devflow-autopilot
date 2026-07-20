@@ -133,10 +133,16 @@ whose completion sheds ~2,239 words from the shipped-default path and lowers thi
 30,100 words**.
 
 **The escape-valve procedure (the sanctioned honest move, now recorded here).** When the shipped-default
-path breaches this ceiling: re-measure it with `_rb_words`, set the new ceiling to that measured figure
+path breaches this ceiling — and **only** when the RED is the `#618 AC3` ceiling assertion itself, a pure
+*growth* breach: if an anti-vacuity or `_rb_standalone` member-usability assertion is RED at the same
+time, that is a **different** defect (e.g. an unreadable member shrinking the measured figure so it
+passes the ceiling while the vacuity guard fails), and it must **not** be silenced by bumping the
+ceiling — re-measure it with `_rb_words`, set the new ceiling to that measured figure
 plus the fixed **60-word margin**, reconcile the four mirrors — `lib/test/run.sh` (the assertion
 literal), this doc (the ceilings table and this record), `CLAUDE.md`'s review-bundle bullet, and
-`.devflow/prompt-extensions/review-and-fix.md`'s self-apply ceiling phrase — and
+`.devflow/prompt-extensions/review-and-fix.md`'s self-apply ceiling phrase — then **re-run the suite and
+confirm it is GREEN** (the four mirrors are mutually coupled to `RB_SHIPPED_CEIL`, so a partial
+reconciliation of fewer than all four leaves the suite RED), and
 record the change in this decision record. This is the procedure #556 established (measured figure plus a
 thin margin, recorded); it is written here so the `#556` / `#618` comments in `lib/test/run.sh` that cite
 "the doc's sanctioned escape valve" are no longer citing an absent procedure.
