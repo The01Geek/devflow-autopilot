@@ -1,0 +1,15 @@
+{
+  "iter": 1,
+  "fix_commit_sha": "f5ed7c75f79de552d93cd537b208cb7500b4fce6",
+  "fix_files": [
+    ".changeset/issue-530-review-and-fix-split.md",
+    ".devflow/prompt-extensions/review-and-fix.md",
+    "docs/review-and-fix-budget.md",
+    "lib/test/run.sh",
+    "skills/review-and-fix/SKILL.md",
+    "skills/review-and-fix/references/loop-control.md"
+  ],
+  "loop_role": "fix",
+  "synthesized": true,
+  "telemetry": "unavailable"
+}
