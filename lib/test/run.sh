@@ -34585,8 +34585,9 @@ max incremental phase read words (largest single reference by words)~ $(_rb_grou
 max incremental phase read bytes (largest single reference by bytes, prose row)~$(_rb_grouped "$RB_MAXPHASE_BYTES") B
 RECORD
 # ── #618: CLAUDE.md's review-bundle bullet is a SECOND reconciliation target ──────
-# The re-anchored ceiling lives in THREE mirrors (this file, the budget doc, and
-# CLAUDE.md's review-bundle bullet). The budget doc's figures are pinned by the RECORD
+# The re-anchored ceiling is mirrored in this file, the budget doc, CLAUDE.md's
+# review-bundle bullet, and the review-and-fix extension's self-apply section (each of the
+# latter three bound to RB_SHIPPED_CEIL below). The budget doc's figures are pinned by the RECORD
 # rows above; this pins CLAUDE.md's ceiling PHRASE so a renegotiation that moves the
 # suite literal but misses CLAUDE.md turns the suite RED. Pin the RENDERED "<= N words"
 # phrase WITH its `≤` prefix — never a bare figure: the AC4 loop's own design comment
@@ -34626,6 +34627,26 @@ assert_eq "#618: the budget doc's ceilings-table cell documents RB_SHIPPED_CEIL 
 # prose form too — the bold `**` suffix keys it to the decision-record occurrence, not the cell.
 assert_eq "#618: the budget doc's decision-record prose renders RB_SHIPPED_CEIL (bound to the suite constant)" "yes" \
   "$(case "$_rb_doc_nocommas" in *"≤ $RB_SHIPPED_CEIL words**"*) echo yes;; *) echo no;; esac)"
+# #618 (PR #639 review, Important-2): the ceiling has a FOURTH mirror — the self-apply
+# section of `.devflow/prompt-extensions/review-and-fix.md`, which restates it as
+# `shipped-default per-pass path ≤ N words`. It is the file a fix loop READS while
+# renegotiating, so a stale copy there misdirects the very procedure this gate protects.
+# Bind it to RB_SHIPPED_CEIL like the budget-doc occurrences above (same comma-stripping,
+# same dynamic comparand so the #375 pin-corpus lint never sees a spelled-out literal).
+# The extension's own reconcile list and CLAUDE.md's both enumerate this file as a mirror.
+_rb_rafext_nocommas="$(< "$LIB/../.devflow/prompt-extensions/review-and-fix.md")"
+_rb_rafext_nocommas="${_rb_rafext_nocommas//,/}"
+assert_eq "#618: the review-and-fix extension's self-apply ceiling phrase renders RB_SHIPPED_CEIL (fourth mirror, bound to the suite constant)" "yes" \
+  "$(case "$_rb_rafext_nocommas" in *"shipped-default per-pass path ≤ $RB_SHIPPED_CEIL words"*) echo yes;; *) echo no;; esac)"
+# #618 (PR #639 review, Suggestion-1): the RECORD loop asserts the measured shipped-default
+# figure with a presence match, and that value appears in the doc more than once (the ceilings
+# table cell AND the decision record's historical "at #618 time" mention). A re-measure that
+# updated only one occurrence would still green on the survivor. Pin the ceilings-table row
+# POSITIONALLY, in the sibling RAF style: match ceiling and measured in ADJACENT columns on the
+# AC3 row, so a stale Measured cell breaks the pair. Fails closed: a missing row greps empty.
+_rb_ac3_row="$(grep -F '| Shipped-default per-pass path (AC3' "$RB_DOC" || true)"
+assert_eq "#618: the budget doc's AC3 row pins ceiling and measured in adjacent columns (positional, not presence)" "yes" \
+  "$(case "${_rb_ac3_row//,/}" in *"| ≤ $RB_SHIPPED_CEIL words | **$_rb_shipped_w** |"*) echo yes;; *) echo no;; esac)"
 # Captured once: the SAME emitted line is asserted to shrink AND to have been fed the
 # standalone set. Re-invoking would let the two assertions diverge. No skip arm is
 # needed any more — the baseline is a frozen constant, so there is no external ref
