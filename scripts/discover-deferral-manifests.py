@@ -18,8 +18,12 @@ Each supplied root is classified into exactly one of three outcomes:
     ok      searched cleanly (zero matches allowed)
     absent  the root path does not exist (benign — contributes nothing)
     failed  the root exists but could not be fully traversed (an OSError at the
-            root OR anywhere inside it — a non-directory root, a permission or
-            I/O error, an unreadable subtree). This does NOT rely on os.walk's
+            root OR anywhere the walk actually visits — a non-directory root, a
+            permission or I/O error, an unreadable subtree at depth <= 2). The
+            walk is pruned below depth 2 (nothing deeper can match), so a
+            subtree at depth >= 3 is never visited and cannot classify a root
+            `failed`; that is out of the matching contract's reach by
+            construction, not a swallowed error. This does NOT rely on os.walk's
             default error-swallowing (`onerror=None` silently skips an unreadable
             subtree and would classify the root `ok` with the manifest inside it
             missing — the exact silent-loss shape this helper exists to remove,
@@ -32,10 +36,13 @@ A match is a file named `deferrals.json`, size > 0 bytes, located EXACTLY two
 directory levels below a supplied root (`<root>/<run-id>/deferrals.json`) —
 mirroring the retired `find -mindepth 2 -maxdepth 2 -name deferrals.json -size +0c`.
 
-stderr always carries a roots-echo line naming every root's absolute resolved
-path and classification, so an `absent` root is observable on every run rather
-than silent. Failed roots additionally emit a per-root breadcrumb, and the run
-emits one aggregate discrimination marker the fence greps.
+stderr carries a roots-echo line naming every root's absolute path (os.path.abspath
+— normalized, NOT symlink-resolved) and classification on every *discovery* run,
+i.e. whenever at least one root argument was supplied, so an `absent` root is
+observable rather than silent. The zero-argument usage error (exit 2) returns
+before any root is classified and therefore emits only the usage message.
+Failed roots additionally emit a per-root breadcrumb, and a discovery run emits
+at most one aggregate discrimination marker the fence greps.
 
 Exit codes:
     0  no root classified `failed` (all ok/absent, including zero total matches)
@@ -55,11 +62,18 @@ import sys
 
 MANIFEST_NAME = "deferrals.json"
 
-# Aggregate discrimination markers the §4.0.5 fence greps. They are MUTUALLY
-# EXCLUSIVE by construction (a run emits at most one), and the per-root failed
-# breadcrumb below is deliberately worded so it contains NEITHER contiguous
-# substring — the fence's `grep -q 'devflow: discovery partial:'` discrimination
-# is only sound under that exclusivity.
+# Aggregate discrimination markers the §4.0.5 fence greps. At most one is emitted
+# per run (the partial/all-failed arms are exclusive branches), and the per-root
+# failed breadcrumb below is deliberately worded so its own fixed text contains
+# NEITHER contiguous substring — the fence's `grep -q 'devflow: discovery partial:'`
+# discrimination is only sound under that exclusivity. NOTE the residual: the
+# per-root breadcrumb interpolates the root path and the OSError text, so a CALLER
+# that passes a root path literally containing a marker substring can defeat the
+# exclusivity. The §4.0.5 fence cannot: both its roots are path-safe components
+# (`pr-<N>` and an `[a-z0-9._-]`-sanitized branch slug), which admit neither `:`
+# nor a space. This helper does not sanitize argv, so the guarantee is the fence's
+# input discipline plus the fixed wording — not an unconditional property of the
+# helper for an arbitrary caller.
 MARKER_PARTIAL = "devflow: discovery partial:"
 MARKER_FAILED = "devflow: discovery failed:"
 
@@ -141,8 +155,16 @@ def main(argv=None):
     _force_utf8_streams()
     args = list(sys.argv[1:] if argv is None else argv)
     if not args:
-        # NO discovery marker here — a usage error is not a discovery outcome, and
-        # the fence must not read it as a failed traversal.
+        # NO discovery marker here — a usage error is not a discovery outcome, so
+        # it must not be mistaken for a PARTIAL one. Emitting neither marker is
+        # what routes it to the fence's else arm (`DISCOVERY_STATE=failed`), the
+        # fail-closed direction: nothing is filed. The fence's else-arm reflection
+        # names the two shapes it expects (all roots failed / a harness denial),
+        # so a usage error — which the fence itself cannot produce, since it always
+        # passes $SEARCH_DIRS — would be recorded under a diagnosis one word wider
+        # than the truth. That is the accepted cost of a single fail-closed arm;
+        # do NOT add a marker here to sharpen it, because any marker this arm
+        # emitted would have to be discriminated from a real discovery outcome.
         sys.stderr.write(
             "devflow: discovery: usage: discover-deferral-manifests.py ROOT [ROOT ...]\n"
         )
@@ -155,9 +177,11 @@ def main(argv=None):
         results.append((root, status))
         all_matches.update(matches)
 
-    # Roots-echo: name every root's ABSOLUTE resolved path and classification on
-    # EVERY run, so an `absent`-classified root is observable in the fence's tool
-    # result (the fence surfaces this line unconditionally) rather than silent.
+    # Roots-echo: name every root's ABSOLUTE path (os.path.abspath — normalized,
+    # NOT symlink-resolved) and classification on every run that reaches here, so
+    # an `absent`-classified root is observable in the fence's tool result (the
+    # fence surfaces this line unconditionally) rather than silent. The zero-arg
+    # usage error returns above, before any root exists to echo.
     echo = " ".join(
         "%s=%s" % (os.path.abspath(root), status) for root, status in results
     )

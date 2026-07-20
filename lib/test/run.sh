@@ -6040,6 +6040,35 @@ assert_pin_red_under "#555: the clean-no-op arm requires discovery=[ok] (removin
   's/Sentinel present with `discovery=\[ok\]`, `pr=\[<n>\]`/Sentinel present with `pr=[<n>]`/' \
   "$P4_FILE"
 
+# ── issue #555 (review finding): a bundled helper granted as a vendored-literal LEADING
+# TOKEN is exec'd by path — no `python3`/`bash` wrapper is available, because an interpreter
+# head is ungranted on the cloud tiers. Without the exec bit such a call dies rc 126 on every
+# run, and for a fail-closed fence that lands in the arm that looks like legitimate
+# degradation (discovery=[failed] → "nothing to file"), so the loss is silent in exactly the
+# way this issue exists to stop. discover-deferral-manifests.py shipped 100644 and was caught
+# in review; assert the class, not the instance — every scripts/ helper the implement profile
+# grants by vendored literal must be executable in the index.
+_EXECBIT_MISSING=""
+while IFS= read -r _tok; do
+  _rel="scripts/${_tok##*/scripts/}"
+  _rel="${_rel%:\*)}"
+  [ -f "$LIB/../$_rel" ] || continue
+  case "$(git -C "$LIB/.." ls-files -s -- "$_rel" | cut -c1-6)" in
+    100755) : ;;
+    *) _EXECBIT_MISSING="$_EXECBIT_MISSING $_rel" ;;
+  esac
+done <<EOF
+$(python3 -c "
+import json,sys
+m=json.load(open('$LIB/capability-profiles.json'))
+for t in m['profiles']['implement']:
+    if '/scripts/' in t and t.startswith('Bash(.devflow/vendor/devflow/'):
+        print(t)
+")
+EOF
+assert_eq "#555 every vendored-literal-granted scripts/ helper on the implement profile is executable (a leading-token exec has no interpreter fallback)" \
+  "" "$_EXECBIT_MISSING"
+
 assert_pin_unique "sweep 2.3.6: implement SKILL keeps the sweep body" '#### 2.3.6 Error-handling & silent-failure sweep' "$IMPL_SKILL"
 assert_pin_unique "sweep 2.3.6: implement SKILL lists it in the always-run index" '**2.3.6** (error-handling & silent-failure)' "$IMPL_SKILL"
 assert_eq "sweep 2.3.6: docs/implement-skill.md keeps the rationale table row" "yes" \

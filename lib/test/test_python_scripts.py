@@ -7864,8 +7864,18 @@ with tempfile.TemporaryDirectory() as _dm_mt:
     _dm_manifest(_dm_mt, 'run-x', '{"deferrals": [{"file": "x.py"}]}')
     _saved_walk = discover_deferrals.os.walk
 
+    # Drive the onerror CALLBACK rather than raising directly. A stub that raises
+    # unconditionally exercises the `except OSError` handler but never the onerror
+    # channel — so it stays GREEN when `onerror=_raise` is dropped, which is the
+    # exact regression (os.walk's default silently skips an unreadable subtree and
+    # classifies the root `ok`) the argument exists to prevent. Calling onerror
+    # makes the assertion fail closed: with `onerror=None` the callback is absent
+    # and no OSError ever reaches classify_root.
     def _boom_walk(path, onerror=None):
-        raise OSError(5, "simulated mid-traversal I/O error")
+        exc = OSError(5, "simulated mid-traversal I/O error")
+        if onerror is not None:
+            onerror(exc)
+        return iter(())
 
     try:
         discover_deferrals.os.walk = _boom_walk
