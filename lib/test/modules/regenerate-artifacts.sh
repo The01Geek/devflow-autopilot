@@ -289,7 +289,7 @@ printf '\n<!-- #619 census drift -->\n' >> "$RA_A5P/.devflow/prompt-extensions/i
 rm -f "$RA_A5P/lib/generate-capability-profiles.py"
 _ra_run "$RA_A5P"
 assert_eq "#619 A5 exit 2 takes precedence over a concurrent judgment item" "2" "$(_ra_rc "$RA_A5P")"
-_ra_live_unchanged "#619 A5 live manifest byte-unchanged after the precedence run"
+_ra_live_unchanged "#619 A5p live manifest byte-unchanged after the precedence run"
 
 # ── A5b — a launched command exiting OUTSIDE its declared set is exit 2 ──────
 RA_A5B="$_ra_tmp_root/a5b"; _ra_fixture "$RA_A5B"
