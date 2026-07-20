@@ -182,6 +182,12 @@ REQUIRED_HELPER_HEADS = {
         ".devflow/vendor/devflow/scripts/branch-for-issue.py",
         ".devflow/vendor/devflow/scripts/update-branch-checkpoint.sh",
         ".devflow/vendor/devflow/scripts/file-deferrals.py",
+        # Phase 4.0.5's discovery step, invoked in the SAME fence as
+        # file-deferrals.py above (issue #555). Registered alongside it so the
+        # deferrals pipeline's two helpers share one trust boundary: pinning the
+        # filing half while leaving the discovery half out is the asymmetry a
+        # reader would take for a deliberate exclusion rather than an omission.
+        ".devflow/vendor/devflow/scripts/discover-deferral-manifests.py",
         ".devflow/vendor/devflow/scripts/match-deferrals.py",
         ".devflow/vendor/devflow/scripts/resolve-review-overrides.py",
         ".devflow/vendor/devflow/scripts/apply-labels.sh",
