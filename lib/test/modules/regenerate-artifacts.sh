@@ -136,7 +136,20 @@ _ra_has() {  # name root substring
 RA_ROW_NAMES="cloud-writer-manifest capability-profile-literals prompt-mass-baseline review-bundle-budget coverage-map-ratchet"
 
 # ── A1 — clean-tree run: exit 0 with a per-row clean line for every row ──────
-RA_CLEAN_OUT="$(python3 "$RA_HELPER" 2>&1)"; RA_CLEAN_RC=$?
+# Run against a PRISTINE FIXTURE, never the live checkout. Two reasons, both real:
+# (1) the mechanical row WRITES scripts/devflow-cloud-writer-contract.json, so a live
+#     run would mutate a tracked file in the developer's tree as a test side effect —
+#     invisible on a reconciled tree, a silent regeneration on exactly the drifted tree
+#     this helper exists to detect;
+# (2) the live tree's cleanliness is a property of whatever branch the suite runs on,
+#     not of the helper — a branch legitimately editing review-bundle prose makes the
+#     budget row emit INFO (or JUDGMENT), so a live per-row `clean` assertion would go
+#     RED for reasons unrelated to the code under test.
+# The fixture is committed with origin/main == HEAD, so every row is clean BY
+# CONSTRUCTION. The live tree keeps its non-mutating coverage in A4 (`--list` launches
+# no row) and in the suite's own artifact gates.
+RA_A1="$_ra_tmp_root/a1"; _ra_fixture "$RA_A1"
+RA_CLEAN_OUT="$(python3 "$RA_HELPER" --repo-root "$RA_A1" 2>&1)"; RA_CLEAN_RC=$?
 assert_eq "#619 A1 clean-tree run exits 0" "0" "$RA_CLEAN_RC"
 for _row in $RA_ROW_NAMES; do
   case "$RA_CLEAN_OUT" in
@@ -252,12 +265,21 @@ RA_WATCH_DISK="$( { printf '%s\n' "skills/review/SKILL.md" ".devflow/prompt-exte
 assert_eq "#619 A4 --list watch list equals the disk-derived bundle membership" \
   "$RA_WATCH_DISK" "$RA_WATCH_HELPER"
 
-# ── A5 — exit 2 on a launch failure, and exit 2 wins over a judgment item ────
+# ── A5 — exit 2 on an ABSENT generator, and exit 2 wins over a judgment item ─
+# An absent script is reported by the INTERPRETER as exit 2 ("can't open file"), which
+# the helper catches in its declared-set branch — NOT the OSError launch-failure branch
+# (A5c below drives that one). The assertion pins a DISTINGUISHING substring plus the
+# row-level attribution: a bare "INFRASTRUCTURE" match would be vacuous, because main()
+# unconditionally prints a summary line carrying that word on every exit-2 path, so it
+# would still pass with row-level attribution deleted.
 RA_A5="$_ra_tmp_root/a5"; mkdir -p "$RA_A5"
 _ra_run "$RA_A5"
 assert_eq "#619 A5 an absent generator under --repo-root exits 2" "2" "$(_ra_rc "$RA_A5")"
-_ra_has "#619 A5 the launch failure is reported as INFRASTRUCTURE" "$RA_A5" "INFRASTRUCTURE"
-_ra_live_unchanged "#619 A5 live manifest byte-unchanged after the launch-failure run"
+_ra_has "#619 A5 the absent generator is attributed to its ROW, not just the summary" \
+  "$RA_A5" "[cloud-writer-manifest] INFRASTRUCTURE"
+_ra_has "#619 A5 the absent generator names the declared-set branch" "$RA_A5" "outside its declared set"
+_ra_has "#619 A5 the absent generator names the missing target" "$RA_A5" "(target absent: lib/test/cloud_writer_contract.py)"
+_ra_live_unchanged "#619 A5 live manifest byte-unchanged after the absent-generator run"
 
 RA_A5P="$_ra_tmp_root/a5p"; _ra_fixture "$RA_A5P"
 # A judgment item AND an infrastructure failure in one run: exit 2 takes precedence.
@@ -265,6 +287,7 @@ printf '\n<!-- #619 census drift -->\n' >> "$RA_A5P/.devflow/prompt-extensions/i
 rm -f "$RA_A5P/lib/generate-capability-profiles.py"
 _ra_run "$RA_A5P"
 assert_eq "#619 A5 exit 2 takes precedence over a concurrent judgment item" "2" "$(_ra_rc "$RA_A5P")"
+_ra_live_unchanged "#619 A5 live manifest byte-unchanged after the precedence run"
 
 # ── A5b — a launched command exiting OUTSIDE its declared set is exit 2 ──────
 RA_A5B="$_ra_tmp_root/a5b"; _ra_fixture "$RA_A5B"
@@ -273,6 +296,51 @@ _ra_run "$RA_A5B"
 assert_eq "#619 A5b an out-of-declared-set exit routes to exit 2, never clean" "2" "$(_ra_rc "$RA_A5B")"
 _ra_has "#619 A5b the out-of-set exit names the declared set" "$RA_A5B" "outside its declared set"
 _ra_live_unchanged "#619 A5b live manifest byte-unchanged after the out-of-set run"
+
+# ── A5c — the OSError LAUNCH-FAILURE branch (distinct from A5's declared-set arm) ─
+# A5 exercises an absent *script* (the interpreter exits 2, caught by the declared-set
+# check). Nothing reached the helper's `except OSError` arm, so a regression that
+# swallowed a launch failure — or returned "clean" from it — would have shipped green.
+# A nonexistent --repo-root makes subprocess.run itself raise (the cwd does not exist),
+# which is the only shape that reaches that branch.
+RA_A5C="$_ra_tmp_root/a5c-does-not-exist"
+python3 "$RA_HELPER" --repo-root "$RA_A5C" >"$_ra_tmp_root/a5c.out" 2>&1; printf '%s\n' "$?" >"$_ra_tmp_root/a5c.rc"
+assert_eq "#619 A5c an unlaunchable command (nonexistent root) exits 2" "2" "$(cat "$_ra_tmp_root/a5c.rc")"
+# Presence, not an exact count: every command row fails to launch under a nonexistent
+# root, so the line legitimately appears once per command row — pinning the current
+# number would be a mirror-fact that rots the moment a row is added.
+devflow_module_pin_present "#619 A5c the launch failure is named as such" \
+  'INFRASTRUCTURE the command failed to launch' "$_ra_tmp_root/a5c.out"
+_ra_live_unchanged "#619 A5c live manifest byte-unchanged after the launch-failure run"
+
+# ── A5d — the coverage-map row's JUDGMENT arm (its drift path was unexercised) ───
+# Every other judgment row had its JUDGMENT line and policy string pinned; this one was
+# reachable only via A1 (clean) and A5b (out-of-set), so a typo in its exits/clean tuple
+# would have turned every real ratchet failure into a spurious exit 2 unnoticed.
+RA_A5D="$_ra_tmp_root/a5d"; _ra_fixture "$RA_A5D"
+printf '# scratch\n' > "$RA_A5D/lib/uncovered-helper-619.sh"
+( cd "$RA_A5D" && git add -A && git commit -q -m "plant coverage drift" ) >/dev/null 2>&1
+_ra_reconcile "$RA_A5D"
+_ra_run "$RA_A5D"
+_ra_has "#619 A5d planted coverage-map drift raises the ratchet judgment item" "$RA_A5D" \
+  "[coverage-map-ratchet] JUDGMENT"
+_ra_has "#619 A5d the ratchet item names its governing policy" "$RA_A5D" \
+  "add the missing coverage rows per the issue-591 ratchet"
+assert_eq "#619 A5d the ratchet judgment item forces exit 1" "1" "$(_ra_rc "$RA_A5D")"
+_ra_live_unchanged "#619 A5d live manifest byte-unchanged after the ratchet-drift run"
+
+# ── A5e — a RENAMED watch-list member reports unestablished, never a false clean ──
+# The fail-open this closes: an is_file() filter silently dropped a moved member, so the
+# budget row answered "no review-bundle member changed" for the very change that moved
+# it. The arm renames a literal member and asserts the row refuses to answer.
+RA_A5E="$_ra_tmp_root/a5e"; _ra_fixture "$RA_A5E"
+mv "$RA_A5E/.devflow/prompt-extensions/review.md" "$RA_A5E/.devflow/prompt-extensions/review-renamed.md"
+_ra_run "$RA_A5E"
+_ra_has "#619 A5e a renamed watch-list member reports unestablished" "$RA_A5E" \
+  "watch-list member(s) absent from the tree"
+_ra_has "#619 A5e the unestablished watch-list line names the missing member" "$RA_A5E" \
+  ".devflow/prompt-extensions/review.md"
+_ra_live_unchanged "#619 A5e live manifest byte-unchanged after the renamed-member run"
 
 # ── A6 — an underivable change set is `unestablished`, never exit-1-forcing ──
 RA_A6="$_ra_tmp_root/a6"; _ra_fixture "$RA_A6"
@@ -323,6 +391,7 @@ _ra_run "$RA_A6C"
 _ra_has "#619 A6c a branch that updated the record gets an informational line" "$RA_A6C" \
   "[review-bundle-budget] INFO bundle members changed"
 assert_eq "#619 A6c a branch that updated the record runs clean" "0" "$(_ra_rc "$RA_A6C")"
+_ra_live_unchanged "#619 A6c live manifest byte-unchanged after the resolved-record run"
 
 # ── Helper-content contracts (the registration rule and the disclosed non-goals) ─
 devflow_module_pin_unique "#619 the helper header carries the registration rule" 'A PR that adds a checked-in generated artifact gated by the suite adds a row to this registry in the same PR.' "$RA_HELPER"

@@ -5,7 +5,7 @@ kind: growth
 
 ## Files
 
-Three mandatory census rows grow by one `## Batched artifact regeneration` section each:
+Each of the mandatory census rows listed below grows by one `## Batched artifact regeneration` section. The defining site is the `for _ra_ext in …` pin loop in `lib/test/run.sh`, which pins every listed surface — a count stated here would be a mirror-fact that rots if a fourth surface is added:
 
 - `.devflow/prompt-extensions/implement.md` — the `/devflow:implement` entry surface, loaded
   unconditionally by its `load-prompt-extension.sh` step.
@@ -44,12 +44,14 @@ not reach the flagship fix loop.
 `.devflow/prompt-extensions/review-and-fix.md` was sitting **exactly** at its documented
 initial-load ceiling — root 3,213 + extension 2,291 = 5,504 words against a 5,510 ceiling, six
 words of headroom — so this instruction could not fit under it at any phrasing. The section was
-first trimmed to its operative minimum (~166 words: the invocation, the act-on-the-report rule,
-the two-denials degradation, and the discharge line) and only then was the ceiling renegotiated
-**5,510 → 5,680**, mirroring the #556 precedent. `lib/test/run.sh`'s `RAF_LOAD_CEIL` and every
-coupled cell in `docs/review-and-fix-budget.md` are updated in this same change; the growth-delta
-(+4,323) and net-reduction (32,988) figures are unchanged, because the extension term cancels in
-both. This artifact is the audited decision that widening records.
+first trimmed to its operative minimum (the invocation, the act-on-the-report rule, the
+infrastructure-failure arm, the two-denials degradation, and the discharge line) and only then
+was the ceiling renegotiated **5,510 → 5,690**, mirroring the #556 precedent and carrying the
+same kind of small headroom over the measured 5,680. `lib/test/run.sh`'s `RAF_LOAD_CEIL` and
+every coupled cell in `docs/review-and-fix-budget.md` are updated in this same change; the
+growth-delta (+4,323) and net-reduction (32,988) figures are unchanged, because the extension
+term appears on both sides of each subtraction and cancels. This artifact is the audited
+decision that widening records.
 
 Growth is bounded by design: the sections carry **no artifact inventory**. Enumeration lives
 solely in `lib/test/regenerate-artifacts.py`'s registry, so adding a sixth artifact later grows the

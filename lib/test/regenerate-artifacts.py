@@ -31,6 +31,14 @@ DELIBERATELY EXCLUDED as artifact rows (disclosed non-goal):
 are hand-maintained inventories with no standalone check command, so they meet no
 inclusion criterion and are not rows here.
 
+KNOWN UNCOVERED SIBLING (disclosed, not a claim of completeness):
+`docs/review-and-fix-budget.md` meets the drift half of the inclusion criterion — its
+suite-bound Measured/cumulative cells go stale the moment a loop edits the
+review-and-fix root or its extension — but it has no row here. The registry is the
+closed set issue #619 specified, not an exhaustive sweep of every stale-able record;
+adding this sibling (as a second git-staleness row) is deliberately left to a follow-up
+rather than widened in silence.
+
 WRITE SCOPE: the only file under the target root this helper writes is
 `scripts/devflow-cloud-writer-contract.json` (the mechanical row's output). Every
 judgment row runs a non-writing check and never writes its artifact.
@@ -45,6 +53,11 @@ EXIT CONTRACT (exactly three states):
       declared exit set. Exit 2 takes precedence over exit 1.
 Informational lines (the budget row's resolved and `unestablished` arms) select no
 state by themselves.
+
+These three are the states main() itself selects. argparse also exits 2 on a usage
+error (an unknown flag) before any row runs — the same code as the infrastructure
+state, and consistent with it (nothing was checked), but it is not one of the three
+states above and no row report accompanies it.
 """
 
 import argparse
@@ -64,9 +77,10 @@ BUDGET_WATCH_GLOBS = ("skills/review/phases/*.md",)
 # the working directory, so a fixture root exercises the fixture's own generators.
 # `exits` is the row's declared exit-code set and `clean` its positive arm; an exit
 # outside `exits` is the infrastructure state, never a clean pass.
-# `check` is the row's own strategy — every row knows how to check itself, so there is
-# no sentinel branch to keep in sync at the dispatch site. Adding a row of a THIRD kind
-# (say a directory-hash comparison) costs a row, not another branch.
+# `check` is the row's own strategy callable: main() dispatches through it uniformly
+# rather than re-deciding per row. The kind->callable binding lives in exactly one place
+# (the loop below the function definitions), so a reader has one site to consult; it is
+# not branch-free, and run_row still special-cases the mechanical kind.
 ROWS = (
     {
         "name": "cloud-writer-manifest",
@@ -126,40 +140,57 @@ ROWS = (
 
 
 def default_repo_root():
-    """Repo root of the checkout being operated on.
+    """The repo root to operate on when `--repo-root` is absent.
 
     `git rev-parse --show-toplevel` first (mirroring the repo's #295 root-anchoring
     contract), falling back to the checkout containing this script when git cannot
     answer — a fixture root is commonly not a git repository at all.
+
+    The probe runs with `cwd` anchored to THIS SCRIPT's checkout, not the process
+    working directory. Unanchored, the helper invoked from inside a different
+    repository would resolve that repository as its root and regenerate the manifest
+    under the wrong tree — not hypothetical in a repo that runs agents from
+    `.claude/worktrees/` checkouts.
     """
+    here = Path(__file__).resolve().parents[2]
     try:
         out = subprocess.run(
             ("git", "rev-parse", "--show-toplevel"),
+            cwd=str(here),
             capture_output=True,
             text=True,
             check=False,
         )
     except OSError:
-        return Path(__file__).resolve().parents[2]
+        return here
     if out.returncode == 0 and out.stdout.strip():
         return Path(out.stdout.strip())
-    return Path(__file__).resolve().parents[2]
+    return here
 
 
 def watch_list(root):
-    """The review-bundle watch list, expanded against disk under `root`.
+    """The review-bundle watch list expanded against disk under `root`.
 
-    Expansion (rather than a literal glob string) is what lets the suite compare this
-    against the disk-derived bundle membership, so a new phase reference cannot make
-    the budget row silently fail open.
+    Returns `(members, missing)`. Expansion (rather than a literal glob string) is what
+    lets the suite compare this against the disk-derived bundle membership, so a new
+    phase reference cannot make the budget row silently fail open on ADDITIONS.
+
+    `missing` closes the opposite direction. Filtering the literals by `is_file()` alone
+    is an existence guard standing in for membership: a renamed or moved member would
+    simply vanish from the list, and the row would then report "no review-bundle member
+    changed" for the very change that moved it. An absent literal is therefore reported
+    as UNESTABLISHED, never silently dropped — the same unknown-is-not-zero discipline
+    the git legs already follow.
     """
-    members = [rel for rel in BUDGET_WATCH_LITERALS if (root / rel).is_file()]
+    members, missing = [], []
+    for rel in BUDGET_WATCH_LITERALS:
+        (members if (root / rel).is_file() else missing).append(rel)
     for pattern in BUDGET_WATCH_GLOBS:
         parent, _, leaf = pattern.rpartition("/")
         members.extend(
             sorted(p.relative_to(root).as_posix() for p in (root / parent).glob(leaf))
         )
-    return sorted(set(members))
+    return sorted(set(members)), sorted(missing)
 
 
 def _git_out(root, argv):
@@ -167,8 +198,10 @@ def _git_out(root, argv):
 
     None means the measurement could not be established (git missing, a git error, a
     shallow clone with no merge-base) — a caller must not read that as "no output".
-    Every git call in this file goes through here, so the OSError guard cannot be
-    present at one call site and forgotten at another.
+    Every git call in the CHANGE-SET DERIVATION goes through here, so the OSError guard
+    cannot be present at one derivation call site and forgotten at another.
+    (`default_repo_root` below is the one git call outside this helper — it runs before
+    a root exists to pass as `cwd`, and carries its own OSError guard.)
     """
     try:
         out = subprocess.run(
@@ -215,8 +248,16 @@ def budget_row(row, root, report):
         )
         return False, False
 
+    members, missing = watch_list(root)
+    if missing:
+        report.append(
+            f"[{name}] INFO unestablished — watch-list member(s) absent from the tree: "
+            f"{', '.join(missing)}. A renamed or moved bundle member cannot be checked "
+            "for staleness, so this row reports no verdict rather than a false clean."
+        )
+        return False, False
     union = uncommitted | untracked | branch
-    touched = sorted(union & set(watch_list(root)))
+    touched = sorted(union & set(members))
     if not touched:
         report.append(f"[{name}] clean — no review-bundle member changed in this change set")
         return False, False
@@ -331,8 +372,11 @@ def emit_list(root):
     for row in ROWS:
         command = " ".join(row["argv"]) if row["argv"] else "(git-derived staleness check)"
         print(f"artifact\t{row['name']}\t{row['kind']}\t{command}")
-    for member in watch_list(root):
+    members, missing = watch_list(root)
+    for member in members:
         print(f"budget-watch\t{member}")
+    for absent in missing:
+        print(f"budget-watch-missing\t{absent}")
     return 0
 
 

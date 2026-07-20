@@ -33984,14 +33984,16 @@ RAF_ROOT_CEIL=3500
 # them to the record-shape example in the root pushed root+extension to 5,504 words.
 # The small documented widening mirrors the #529 AC3 renegotiation; update
 # docs/review-and-fix-budget.md's ceilings-table cell in lockstep.
-# #619 raised it again 5510->5680: the extension was sitting EXACTLY at the 5510
+# #619 raised it again 5510->5690: the extension was sitting EXACTLY at the 5510
 # ceiling (root 3,213 + extension 2,291 = 5,504, six words of headroom), so the
 # batched-regeneration instruction the issue requires on this surface could not fit
 # under it at any phrasing — the section was already trimmed to its operative
-# minimum (~166 words) before this renegotiation was taken. The growth is the
+# minimum before this renegotiation was taken. The ceiling carries ~10 words of
+# headroom over the measured 5,680 (mirroring #556's 6), deliberately: a ceiling set
+# exactly at the measurement makes the next one-sentence edit a budget breach. The growth is the
 # audited decision recorded in docs/cutovers/issue-619-batched-artifact-regeneration.md;
 # update docs/review-and-fix-budget.md's ceilings-table cell in lockstep.
-RAF_LOAD_CEIL=5680
+RAF_LOAD_CEIL=5690
 RAF_MAXSTEP_CEIL=17000
 assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
   "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"

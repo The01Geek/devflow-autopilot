@@ -157,9 +157,13 @@ best-effort-parser adversarial-matrix gotcha, and this section is its coupled mi
 
 ## Batched artifact regeneration
 
-After applying edits and before each full-suite re-verify run, run `python3 lib/test/regenerate-artifacts.py` once. A fix loop's own edits drift the repo's checked-in generated records, and the full suite is the slowest verification step here, so rediscovering each drifted artifact a full run at a time is the dominant cost of an iteration. The helper is the sole enumeration point for those artifacts; this section deliberately lists no inventory of its own.
+After applying edits and before each full-suite re-verify run, run `python3 lib/test/regenerate-artifacts.py` once. A fix loop's own edits drift the checked-in generated records, and rediscovering each one a full suite run later is the dominant cost of an iteration. The helper is the sole enumeration point; this section lists no inventory.
 
-Act on its report before the suite run: commit a changed manifest with the edits that caused it, and resolve every exit-1-forcing judgment item under the policy that item names. Informational lines require reading, not action. If the matcher refuses the invocation **twice**, stop — record the refusal and proceed to the suite run rather than iterating variants (the issue-401 two-denials discipline); the pass then degrades to serial discovery, never to a silent stall. On a run that maintains a workpad, record one line before each full-suite run — `batched-regeneration: run|refused|skipped`.
+Act on its report before the suite run: commit a changed manifest with the edits that caused it, and resolve every exit-1-forcing judgment item under the policy it names. Informational lines require reading, not action.
+
+An **INFRASTRUCTURE failure (exit 2)** means at least one artifact was never checked — unknown, not clean. Never read those lines as informational and never record `run`: record `batched-regeneration: skipped` naming the failing row, and fall back to serial discovery for that artifact.
+
+If the matcher refuses the invocation **twice**, stop — record the refusal and proceed to the suite run rather than iterating variants (the issue-401 two-denials discipline). On a run that maintains a workpad, record one line before each full-suite run — `batched-regeneration: run|refused|skipped`.
 
 ## Prompt-surface edit routing evidence gate
 
