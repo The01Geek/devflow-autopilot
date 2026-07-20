@@ -1,0 +1,131 @@
+{
+  "iter": 1,
+  "loop_role": "fix",
+  "current_step": "loop-exit",
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": false,
+    "checklist_skipped": null
+  },
+  "checklist": [
+    {
+      "id": "M-1",
+      "claim": "fixtures carry SPDX MIT header",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "grep confirmed all three"
+    },
+    {
+      "id": "M-2",
+      "claim": "fixtures are valid python",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "py_compile OK"
+    },
+    {
+      "id": "M-3",
+      "claim": "README references existing files",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "all fixture paths exist"
+    },
+    {
+      "id": "M-4",
+      "claim": "README normalized_count=3 matches fresh normalize run",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "scripts/normalize-verdicts.py returned normalized_count=3, field_defect_fail_count=0"
+    }
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "evidence note transcribes point-in-time runtime observations that no suite check re-derives; inherent to evidence docs, contract itself pinned by normalize-verdicts-test.py",
+      "defect_signature": {
+        "file": "docs/evidence/issue-608/README.md",
+        "line_range": [
+          94,
+          117
+        ],
+        "kind": "comment_drift"
+      },
+      "fix_decision": "advisory"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "advisory",
+      "source_file": "docs/evidence/issue-608/README.md",
+      "claim_text": "evidence-doc rot is inherent",
+      "skip_category": "advisory-parked",
+      "evidence": "inherent to point-in-time live-agent evidence; the verdict contract itself is pinned by lib/test/normalize-verdicts-test.py, so this is an accepted tradeoff, not a fixable defect",
+      "parking_evidence": {
+        "basis": "inherent property of live-agent evidence docs; contract pinned elsewhere",
+        "failing_input": "a future change to the verifier contract output shape",
+        "source": "lib/test/normalize-verdicts-test.py",
+        "finding_ref": {
+          "iter": 1,
+          "index": 0
+        }
+      }
+    }
+  ],
+  "shadow": {
+    "reviewed_sha": "bb3236e587837dd8468af1156644d48f1618f2d7",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {
+        "agent": "devflow:requesting-code-review",
+        "severity": "Suggestion",
+        "description": "V-3 table omits per-item claim_provenance column (presentational; no claim wrong)",
+        "defect_signature": {
+          "file": "docs/evidence/issue-608/README.md",
+          "line_range": [
+            88,
+            94
+          ],
+          "kind": "style"
+        }
+      }
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 1,
+      "overlap_with_iter_1": 0,
+      "new": 1,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
+  "telemetry": "unavailable"
+}
