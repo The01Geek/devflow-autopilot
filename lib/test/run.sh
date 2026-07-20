@@ -38436,10 +38436,13 @@ sp629_out() {  # repo_dir -> the lint's TSV stdout over `git -c diff.renames=tru
   ( cd "$1" 2>/dev/null || exit
     git -c diff.renames=true diff HEAD~1 HEAD 2>/dev/null | python3 "$SPL" --rev HEAD 2>/dev/null )
 }
-sp629_rc() {  # repo_dir -> the lint's exit code (the gating signal — read separately from stdout)
-  ( cd "$1" 2>/dev/null || { echo 99; exit; }
-    git -c diff.renames=true diff HEAD~1 HEAD 2>/dev/null | python3 "$SPL" --rev HEAD >/dev/null 2>&1
-    echo $? )
+sp629_rc() {  # repo_dir -> the lint's exit code, from the SAME invocation sp629_out publishes
+  # Routed through the producer deliberately. A second independent `git diff | lint` pipeline
+  # here would mean the exit-code assertions and the row assertions describe two different
+  # runs under two independently-parameterised invocations — and would falsify the
+  # single-site claim above. `set -o pipefail` is what makes `$?` the LINT's status rather
+  # than the tail of the pipeline inside the producer.
+  ( set -o pipefail; sp629_out "$1" >/dev/null 2>&1; echo $? )
 }
 sp629_has() {  # repo_dir verdict rule -> yes/no
   printf '%s\n' "$(sp629_out "$1")" \
@@ -38586,6 +38589,103 @@ SPR="$(sp629_repo "$SP629_B" "$SP629_A")"
 assert_eq "#629 adversarial: a move INTO a fenced block is still un-examined by #434 scoping (exit 0)" "0" "$(sp629_rc "$SPR")"
 assert_eq "#629 adversarial: the fenced move emits no R1 row at all (in ANY verdict)" "0" \
   "$(sp629_rulecount "$SPR" R1)"
+
+# ── #629 per-rule demotion wiring: R1 is NOT representative, so every rule site is driven ──
+# The exemption is applied at five sites across four rules. R1 and R4 inline their demote
+# branch; R2/R3b/R3 route through `_emit_count(demote=…)`. An R1-only corpus therefore leaves
+# the `_emit_count` demote arm and R4's branch with NO executing test — a mutant dropping
+# `demote=` from the three `_emit_count` call sites, or inverting R4's condition, would ship
+# GREEN. The failure directions differ and both matter: at R2/R3 it is toward gating (the fix
+# silently does not work), at R4 toward fail-open (a real contradiction demoted). Each rule
+# gets a demote fixture AND an authored-referent negative control.
+
+# R2 — a relocated `Expected total = N` legend over a PRE-EXISTING wrong-sized enumeration.
+SP629_B="$(git_sandbox '#629 r2 before')"; SP629_A="$(git_sandbox '#629 r2 after')"
+printf '%s\n' 'Expected total = 3 items.' > "$SP629_B/src.md"
+printf '%s\n' '- one' '- two' > "$SP629_B/dest.md"
+printf '%s\n' '- one' '- two' 'Expected total = 3 items.' > "$SP629_A/dest.md"
+SPR="$(sp629_repo "$SP629_B" "$SP629_A")"
+assert_eq "#629 R2 relocated legend-sum over a pre-existing wrong-sized block exits 0" "0" "$(sp629_rc "$SPR")"
+assert_eq "#629 R2 drives the shared _emit_count demote arm (UNRESOLVABLE R2, not STALE)" "yes" "$(sp629_has "$SPR" UNRESOLVABLE R2)"
+assert_eq "#629 R2 emits no STALE R2 row" "no" "$(sp629_has "$SPR" STALE R2)"
+
+# R2 negative control — the same relocation, but the diff AUTHORS enumeration items.
+SP629_B="$(git_sandbox '#629 r2neg before')"; SP629_A="$(git_sandbox '#629 r2neg after')"
+printf '%s\n' 'Expected total = 3 items.' > "$SP629_B/src.md"
+printf '%s\n' '- one' '- two' > "$SP629_B/dest.md"
+printf '%s\n' '- one' '- two' '- three-authored' '- four-authored' 'Expected total = 3 items.' > "$SP629_A/dest.md"
+SPR="$(sp629_repo "$SP629_B" "$SP629_A")"
+assert_eq "#629 R2 authored referent growth still gates (exit 1)" "1" "$(sp629_rc "$SPR")"
+assert_eq "#629 R2 authored referent growth emits its STALE R2 row" "yes" "$(sp629_has "$SPR" STALE R2)"
+
+# R3 — a relocated `N assertions` count-locked claim over a PRE-EXISTING wrong-sized block.
+SP629_B="$(git_sandbox '#629 r3 before')"; SP629_A="$(git_sandbox '#629 r3 after')"
+printf '%s\n' 'This block has 5 assertions.' > "$SP629_B/src.md"
+printf '%s\n' 'assert one' 'assert two' > "$SP629_B/dest.md"
+printf '%s\n' 'This block has 5 assertions.' 'assert one' 'assert two' > "$SP629_A/dest.md"
+SPR="$(sp629_repo "$SP629_B" "$SP629_A")"
+assert_eq "#629 R3 relocated count-locked claim over a pre-existing wrong-sized block exits 0" "0" "$(sp629_rc "$SPR")"
+assert_eq "#629 R3 drives the shared _emit_count demote arm (UNRESOLVABLE R3)" "yes" "$(sp629_has "$SPR" UNRESOLVABLE R3)"
+
+# R3 negative control — an AUTHORED assertion in the resolution region.
+SP629_B="$(git_sandbox '#629 r3neg before')"; SP629_A="$(git_sandbox '#629 r3neg after')"
+printf '%s\n' 'This block has 5 assertions.' > "$SP629_B/src.md"
+printf '%s\n' 'assert one' 'assert two' > "$SP629_B/dest.md"
+printf '%s\n' 'This block has 5 assertions.' 'assert one' 'assert two' 'assert three-authored' > "$SP629_A/dest.md"
+SPR="$(sp629_repo "$SP629_B" "$SP629_A")"
+assert_eq "#629 R3 authored assertion still gates (exit 1)" "1" "$(sp629_rc "$SPR")"
+assert_eq "#629 R3 authored assertion emits its STALE R3 row" "yes" "$(sp629_has "$SPR" STALE R3)"
+
+# R4 — a relocated deny-absolute whose ONLY contradicting permit is pre-existing.
+# The permit sits at index 0, which also pins the `is not None` / non-empty-list contract:
+# a regression to a truthiness test on the first index would read index 0 as "no permit".
+SP629_B="$(git_sandbox '#629 r4 before')"; SP629_A="$(git_sandbox '#629 r4 after')"
+printf '%s\n' 'A `>` redirect is never allowed here.' > "$SP629_B/src.md"
+printf '%s\n' 'An in-workspace `>` redirect is permitted.' > "$SP629_B/dest.md"
+printf '%s\n' 'An in-workspace `>` redirect is permitted.' 'A `>` redirect is never allowed here.' > "$SP629_A/dest.md"
+SPR="$(sp629_repo "$SP629_B" "$SP629_A")"
+assert_eq "#629 R4 relocated deny-absolute over a pre-existing index-0 permit exits 0" "0" "$(sp629_rc "$SPR")"
+assert_eq "#629 R4 drives its demote branch (UNRESOLVABLE R4)" "yes" "$(sp629_has "$SPR" UNRESOLVABLE R4)"
+
+# R4 negative control — the FAIL-OPEN this rule's referent set was widened to close. A
+# pre-existing permit precedes a PR-AUTHORED second one; collecting only the FIRST permit
+# (the shape this replaced) let the authored permit escape the referent rule entirely and
+# demoted a contradiction the PR itself authored.
+SP629_B="$(git_sandbox '#629 r4neg before')"; SP629_A="$(git_sandbox '#629 r4neg after')"
+printf '%s\n' 'A `>` redirect is never allowed here.' > "$SP629_B/src.md"
+printf '%s\n' 'An in-workspace `>` redirect is permitted.' > "$SP629_B/dest.md"
+printf '%s\n' 'An in-workspace `>` redirect is permitted.' 'A `>` redirect is never allowed here.' 'A second `>` form is also permitted.' > "$SP629_A/dest.md"
+SPR="$(sp629_repo "$SP629_B" "$SP629_A")"
+assert_eq "#629 R4 a PR-AUTHORED second permit still gates (exit 1) — R4's referent set is every permit, not the first" "1" "$(sp629_rc "$SPR")"
+assert_eq "#629 R4 the authored permit emits its STALE R4 row" "yes" "$(sp629_has "$SPR" STALE R4)"
+
+# Provenance — an AUTHORED referent whose full text byte-identically matches an UNRELATED
+# removal in a DIFFERENT file. Text identity alone reads it as relocated and disarms the
+# referent rule on the PR #336 count-locked shape; the shared-source-file requirement is what
+# denies it. `other.md` gives up `assert boiler` while the claim moves out of `src.md`, so the
+# provenance sets are disjoint and the exemption must not fire.
+SP629_B="$(git_sandbox '#629 provenance before')"; SP629_A="$(git_sandbox '#629 provenance after')"
+printf '%s\n' 'This block has 3 assertions.' > "$SP629_B/src.md"
+printf '%s\n' 'assert one' 'assert two' 'assert three' > "$SP629_B/dest.md"
+printf '%s\n' 'assert boiler' 'keep' > "$SP629_B/other.md"
+printf '%s\n' 'This block has 3 assertions.' 'assert one' 'assert two' 'assert three' 'assert boiler' > "$SP629_A/dest.md"
+printf '%s\n' 'keep' > "$SP629_A/other.md"
+SPR="$(sp629_repo "$SP629_B" "$SP629_A")"
+assert_eq "#629 provenance: an authored referent matching an unrelated removal in ANOTHER file still gates (exit 1)" "1" "$(sp629_rc "$SPR")"
+assert_eq "#629 provenance: the boilerplate-coincidence shape emits its STALE R3 row" "yes" "$(sp629_has "$SPR" STALE R3)"
+
+# A VERIFIED resolution is never demoted. `_emit_count`'s docstring states this as a contract
+# and it is structurally true today (demote guards only the `c != n` arm), but a refactor
+# hoisting the prefix would corrupt every VERIFIED row's detail while the suite stayed green.
+SP629_B="$(git_sandbox '#629 verified before')"; SP629_A="$(git_sandbox '#629 verified after')"
+printf '%s\n' "$SP629_HDR" 'Case 1 alpha' 'Case 2 beta' > "$SP629_B/src.md"
+printf '%s\n' 'Intro paragraph.' > "$SP629_B/dest.md"
+printf '%s\n' "$SP629_HDR" 'Case 1 alpha' 'Case 2 beta' 'Intro paragraph.' > "$SP629_A/dest.md"
+SPR="$(sp629_repo "$SP629_B" "$SP629_A")"
+assert_eq "#629 a relocated claim whose referent MATCHES stays VERIFIED (exit 0)" "0" "$(sp629_rc "$SPR")"
+assert_eq "#629 the VERIFIED row is emitted, not demoted" "yes" "$(sp629_has "$SPR" VERIFIED R1)"
+assert_eq "#629 the VERIFIED row's detail carries NO relocation prefix (demotion touches only the STALE arm)" "no" \
+  "$(sp629_detail_has "$SPR" VERIFIED R1 relocated)"
 
 
 # Tally the shell assertions from the results file (authoritative — includes the

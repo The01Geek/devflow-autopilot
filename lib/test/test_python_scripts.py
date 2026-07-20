@@ -3664,10 +3664,22 @@ assert_eq("#629: the pure-deletion hunk still contributes no ADDED lines",
 
 # A mixed hunk: removals are tallied by RAW text (identity, not the `_norm_line` scoping
 # normalisation), and a context line spends both budgets without being tallied either way.
-assert_eq("#629: parse_diff_full tallies only `-` lines, by raw text, across a mixed hunk",
-          ({"f.md": {1: "added", 3: "moved"}}, {"dropped": 1}),
-          (lambda r: (r[0], dict(r[1])))(stale_prose_lint.parse_diff_full(
-              "--- a/f.md\n+++ b/f.md\n@@ -1,2 +1,3 @@\n+added\n kept\n-dropped\n+moved\n")))
+assert_eq("#629: parse_diff_full tallies only `-` lines, by raw text, across a mixed hunk, "
+          "and records each removal's SOURCE path (the provenance operand)",
+          ({"f.md": {1: "added", 3: "moved"}}, {"dropped": 1}, {"f.md": {"dropped": 1}}),
+          (lambda r: (r[0], dict(r[1]), {k: dict(v) for k, v in r[2].items()}))(
+              stale_prose_lint.parse_diff_full(
+                  "--- a/f.md\n+++ b/f.md\n@@ -1,2 +1,3 @@\n+added\n kept\n-dropped\n+moved\n")))
+
+# Provenance across a two-file move: the claim leaves src.md, so `sources` must attribute it
+# to src.md and NOT to the unrelated other.md removal. This is the operand the referent rule
+# intersects against; without it a boilerplate collision anywhere in the diff reads as a move.
+assert_eq("#629: build_move_index attributes each relocated text to the file it was removed FROM",
+          {"claim": frozenset({"src.md"}), "boiler": frozenset({"other.md"})},
+          (lambda r: stale_prose_lint.build_move_index(r[0], r[1], r[2]).sources)(
+              stale_prose_lint.parse_diff_full(
+                  "--- a/src.md\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-claim\n"
+                  "--- a/other.md\n+++ b/other.md\n@@ -1,1 +1,0 @@\n-boiler\n")))
 
 # The multiplicity rule in isolation, at its three decisive points. The SURPLUS row is what
 # keeps the exemption from degrading to bare set-membership: with additions outnumbering
@@ -3677,7 +3689,7 @@ assert_eq("#629: relocated_texts exempts an equal-count text, refuses a surplus 
           "and refuses a text with no removal at all",
           {"moved"},
           stale_prose_lint.relocated_texts(_R_FILES, {"moved": 1, "copied": 1}))
-assert_eq("#629: a text removed MORE often than added is still exempt (a partial move)",
+assert_eq("#629: a text removed MORE often than added is still exempt (a partial move), alongside an equal-count one in the same call",
           {"moved", "copied"},
           stale_prose_lint.relocated_texts(_R_FILES, {"moved": 3, "copied": 2}))
 # An additions-only diff is the cross-diff-relocation non-goal: the exemption is inert by
@@ -3689,15 +3701,47 @@ assert_eq("#629: an additions-only diff yields an EMPTY exemption set (the exemp
 # The referent rule in isolation. A referent line the diff did NOT add is pre-existing
 # content and imposes no obligation; a diff-added one must itself be relocated, which is
 # what makes the split-then-extend shape gate.
+_MV = stale_prose_lint.MoveIndex(
+    frozenset({"hdr", "Case 2"}),
+    {"hdr": frozenset({"src.md"}), "Case 2": frozenset({"src.md"})})
+_SRC = frozenset({"src.md"})
 assert_eq("#629: _referents_relocated permits an exemption whose referents are pre-existing",
-          True, stale_prose_lint._referents_relocated({1: "hdr"}, {"hdr"}, [4, 7]))
+          True, stale_prose_lint._referents_relocated({1: "hdr"}, _MV, _SRC, [4, 7]))
 assert_eq("#629: _referents_relocated permits an exemption whose added referents are relocated",
           True, stale_prose_lint._referents_relocated(
-              {1: "hdr", 5: "Case 2"}, {"hdr", "Case 2"}, [4]))
+              {1: "hdr", 5: "Case 2"}, _MV, _SRC, [4]))
 assert_eq("#629: _referents_relocated REFUSES when a diff-added referent is authored "
           "(the split-then-extend shape — PR-authored referent growth is authored staleness)",
           False, stale_prose_lint._referents_relocated(
-              {1: "hdr", 5: "Case 3"}, {"hdr"}, [4]))
+              {1: "hdr", 5: "Case 3"}, _MV, _SRC, [4]))
+
+# PROVENANCE: a referent whose text IS relocated but whose source file is disjoint from the
+# claim's is refused. This is the boilerplate-coincidence fail-open the shared-source-file
+# requirement closes — the referent rule's operand, not a refinement of it.
+_MV_X = stale_prose_lint.MoveIndex(
+    frozenset({"hdr", "boiler"}),
+    {"hdr": frozenset({"src.md"}), "boiler": frozenset({"other.md"})})
+assert_eq("#629: _referents_relocated REFUSES a relocated referent whose provenance shares no "
+          "source file with the claim (authored referent colliding with an unrelated removal)",
+          False, stale_prose_lint._referents_relocated(
+              {1: "hdr", 5: "boiler"}, _MV_X, _SRC, [4]))
+
+# The absent operand fails CLOSED: an out-of-range referent index means the post-image/file
+# numberings do not correspond, so the "pre-existing, no obligation" arm must NOT be taken.
+assert_eq("#629: _referents_relocated fails CLOSED on an out-of-range referent index "
+          "(an unresolvable join is not innocence)",
+          False, stale_prose_lint._referents_relocated({1: "hdr"}, _MV, _SRC, [99], ["hdr"]))
+
+# Correspondence is compared through _norm_line so a CRLF file — whose diff keeps the CR but
+# whose `git show` read has it stripped by universal-newline translation — is not denied
+# wholesale. Identity stays raw; only this join absorbs the channel difference.
+assert_eq("#629: _referents_relocated tolerates the CRLF channel difference in the "
+          "correspondence check (diff keeps the CR, the file read does not)",
+          True, stale_prose_lint._referents_relocated(
+              {1: "hdr", 5: "Case 2\r"},
+              stale_prose_lint.MoveIndex(frozenset({"hdr", "Case 2\r"}),
+                                         {"hdr": _SRC, "Case 2\r": _SRC}),
+              _SRC, [4], ["a", "b", "c", "d", "Case 2"]))
 
 # main()'s exit-2 catch-all must cover the WHOLE body. Before the #424 fix the stream
 # reconfigure and the argparse construction sat OUTSIDE the guard, so an exception there
