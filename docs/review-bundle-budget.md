@@ -88,37 +88,74 @@ budget contract later changes are held to.
   This table measures the *shipped repo copy*; a live consumer's
   `.devflow/prompt-extensions/review.md` is theirs and varies, so it is additive on top.
 
-## Ceilings (issue #529 AC2 / AC3)
+## Ceilings (issue #529 AC2 / #618 re-anchored AC3)
 
 | Contract | Ceiling | Measured | Margin |
 |---|---|---|---|
 | Root + shipped extension (AC2) | ≤ 8,500 words | **8,232** | 268 |
 | Reduction vs the 33,815 baseline (AC2) | ≥ 25,327 words | **25,583** | 256 |
-| Default per-pass unique path (AC3) | ≤ 30,100 words | **30,082** | 18 |
+| Shipped-default per-pass path (AC3, #618 re-anchored — **interim**) | ≤ 32,399 words | **32,339** | 60 |
 
-AC3's margin is **thin by construction** — the ceiling sits just above what the split can achieve.
-Adding words to the root or to any non-gated reference spends that margin directly. Re-measure with
-the `python3` counter above (`lib/test/run.sh`'s `_rb_words`) before adding prose to either — a
-`wc -w` reading will disagree with the record on some hosts.
+The AC3 gate's margin is **thin by construction** — the ceiling is the live measured figure plus a fixed
+60-word margin (see the decision record below). Adding words to any shipped-default member spends that
+margin directly. Re-measure with the `python3` counter above (`lib/test/run.sh`'s `_rb_words`) before
+adding prose — a `wc -w` reading will disagree with the record on some hosts.
 
-### The AC3 metric is not the shipped default
+The **default per-pass unique path** (no stale-prose predicate) still measures **30,082** words and is
+reported in the *Static size* table above, but it is **no longer a ceiling**: issue #618 retired it as
+the gated comparand because it measures a configuration nobody runs by default (see the decision record).
 
-AC3's ceiling counts a pass with **no stale-prose predicate**. But `devflow_review.stale_prose.enabled`
-defaults **true** in the shipped config, so an *ordinary* pass does read `phases/phase-0-6-stale-prose-lint.md`.
-The configuration AC3 measures is therefore one nobody runs by default, and the honest figure is worse
-than the gated one:
+### Decision record — #618: the AC3 gate measures the shipped-default path
 
-| Path | Gating | Measured | vs the 30,100 ceiling |
+**The problem this resolved.** Through #556 the AC3 ceiling gated a pass with **no stale-prose
+predicate**. But `devflow_review.stale_prose.enabled` defaults **true** in the shipped config, so an
+*ordinary* pass does read `phases/phase-0-6-stale-prose-lint.md`. The configuration AC3 measured was
+therefore one nobody runs by default, and the shipped path was worse than the old gated one:
+
+| Path | Gating | Measured | vs the old 30,100 ceiling |
 |---|---|---|---|
-| AC3 default path (no stale-prose predicate) | **gates this repo** | 30,082 | 18 under |
-| Shipped-default path (stale-lint gate at its `true` default) | *non-gating — recorded only* | **32,339** | **2,239 OVER** |
+| AC3 default path (no stale-prose predicate) | *informational — no longer gates* | 30,082 | 18 under |
+| Shipped-default path (stale-lint gate at its `true` default) | **now gates this repo (#618)** | **32,339** | 2,239 over |
 
-AC3 is implemented **as written**: its literal wording governs the gate, and the number above it is the
-one the suite asserts. This second row is published so that the gap between the metric's *name* and the
-configuration it actually describes is a documented, greppable fact rather than a silent one — a reader
-must not come away believing the shipped default sits under the ceiling. It does not. Reconciling the
-two is follow-up work, and it has exactly two honest resolutions: widen the ceiling to cover the
-stale-lint reference, or shed words from the default path until the shipped default fits.
+**The decision (maintainer-chosen, Arm B — interim bridge).** The maintainer (push access verified)
+chose **Arm B: shed — the new ceiling is an interim bridge.** The gate's comparand is re-anchored to the
+shipped-default path (`lib/test/run.sh`'s `_rb_shipped_w` over `_rb_standalone` — root + shipped
+extension + the six default stems + the stale-lint reference), and its ceiling is set by the escape-valve
+procedure below: the live `_rb_words` shipped-default figure (**32,339** at #618 time) plus a **60-word
+margin** (the maintainer's recorded choice; #556's precedent was 58) = **≤ 32,399 words**. The
+`/devflow:review-and-fix` path (`_rb_raf`, which drops the standalone-only `phase-4-4-github-post.md`)
+stays outside this gate by decision; its execution-weighted AC5 record is unchanged.
+
+Because Arm B marks this ceiling **interim**, the same change files a **follow-up prose-reduction issue**
+— sized as its own project, carrying behavioral-preservation ACs (the engine-content pins over
+`$REVIEW_BUNDLE`, the prose-cutover procedure, and the frozen merge-gating-judge economics of #425) —
+whose completion sheds ~2,239 words from the shipped-default path and lowers this ceiling to **at most
+30,100 words**.
+
+**The escape-valve procedure (the sanctioned honest move, now recorded here).** When the shipped-default
+path breaches this ceiling: re-measure it with `_rb_words`, set the new ceiling to that measured figure
+plus the fixed **60-word margin**, reconcile the three mirrors — `lib/test/run.sh` (the assertion
+literal), this doc (the ceilings table and this record), and `CLAUDE.md`'s review-bundle bullet — and
+record the change in this decision record. This is the procedure #556 established (measured figure plus a
+thin margin, recorded); it is written here so the `#556` / `#618` comments in `lib/test/run.sh` that cite
+"the doc's sanctioned escape valve" are no longer citing an absent procedure.
+
+**Standing remedy for the next breach (maintainer-chosen — self-apply).** The margin is thin by
+construction, so the next concurrent-merge breach is the same event class that motivated #618. The
+maintainer chose **self-apply**: a fix-loop run (`/devflow:review-and-fix`, shepherd sessions) **may
+itself apply the escape-valve procedure above** on a breach — with the maintainer reviewing it in the
+ordinary PR review — rather than stalling on a policy judgment. This authorization is
+**this-repo-scoped**. It additionally authorizes such a fix-loop run to make the required `CLAUDE.md`
+ceiling-phrase mirror edit **directly** (a sibling of the #366 implement-run carve-out, not an edit to
+it — `skills/implement/SKILL.md` stays untouched): without it the `CLAUDE.md` ceiling pin would leave the
+fix loop unable to clear the very RED it is remedying, since applying the escape valve changes the
+ceiling and the pin keeps the suite RED until the bullet's ceiling phrase matches. The authorization is
+also encoded in `.devflow/prompt-extensions/review-and-fix.md` (the surface the fix-loop run loads) and
+in the `CLAUDE.md` review-bundle bullet. Ordinary re-measures are exempt from this whole concern: the
+`CLAUDE.md` bullet carries no measured figure, so only a ceiling renegotiation ever requires a
+`CLAUDE.md` edit. A maintainer-only renegotiation posture was the rejected alternative (it preserves
+human control at the cost of a stall per breach); self-apply was chosen because the breach is a recurring
+event class, not a rarity.
 
 ## Execution-weighted prompt traffic (issue #529 AC5)
 

@@ -165,6 +165,10 @@ Act on its report first: commit a changed manifest with its causing edits, and r
 
 If the matcher refuses the invocation **twice**, stop — record the refusal and proceed to the suite run rather than iterating variants (the issue-401 two-denials discipline). On a run that maintains a workpad, record one line before each full-suite run — `batched-regeneration: run|refused|skipped`.
 
+## Review-bundle ceiling self-apply (issue #618)
+
+The `#618 AC3` gate holds the **shipped-default per-pass path ≤ 32,399 words** — an **interim** ceiling of the live `_rb_words` measurement plus **60 words**. When a fix loop hits that RED because the path merely *grew* past the ceiling (not a code defect), the maintainer's recorded #618 decision authorizes it to **self-apply the escape valve** instead of stalling: re-measure with `_rb_words`, set measured **+60**, and reconcile the three mirrors — `lib/test/run.sh`, `docs/review-bundle-budget.md`, and `CLAUDE.md`'s `≤`-prefixed ceiling phrase — editing `CLAUDE.md` **directly** (a this-repo-scoped sibling of the #366 carve-out; `skills/implement/SKILL.md` stays untouched), else the pin traps the fix loop. Record old/measured/new in the workpad and PR. Full procedure and scope (growth-only — never lower toward ≤ 30,100, touch `#529 AC2`, or change the margin): [`docs/review-bundle-budget.md`](../../docs/review-bundle-budget.md)'s decision record.
+
 ## Prompt-surface edit routing evidence gate
 
 DevFlow-repo policy: a reviewed diff that touches a **prompt-surface** file must carry evidence
