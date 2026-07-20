@@ -5,7 +5,7 @@ kind: growth
 
 ## Files
 
-- `skills/review-and-fix/SKILL.md` (+172 bytes) — the root `### Schema` block gains the
+- `skills/review-and-fix/SKILL.md` (+147 bytes) — the root `### Schema` block gains the
   `sweep_defs_read` and `sweep_evidence` unconditional fields and the `reference_reads`
   conditional field; the `fix-delta-gate.md` failure-map row's stale "the formal
   `reference_reads.fix_delta` field is the #541 follow-up" parenthetical is rewritten to

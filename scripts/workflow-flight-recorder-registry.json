@@ -20,6 +20,11 @@
       "path": "lib/test/modules/capability-profiles.sh",
       "minimum_assertions": 59,
       "description": "Focused #561 capability-profile manifest generator: --check clean pass, manifest and region adversarial matrices, planted-defect controls, idempotency/determinism, no-runtime-read, and PR #588 hardening"
+    },
+    "regenerate-artifacts": {
+      "path": "lib/test/modules/regenerate-artifacts.sh",
+      "minimum_assertions": 100,
+      "description": "Focused #619 batched generated-artifact pass: clean-tree run, mechanical regeneration and idempotency, closure-error vs traceback routing, combined judgment drift with write-scope negatives, --list registry surface and bundle-membership coupling, the three-state exit contract including the infrastructure paths reached despite an in-set exit, per-row infra_marker discrimination for every judgment row with per-line marker scoping, and the budget row's unestablished/untracked/resolved/deleted-member arms"
     }
   },
   "workflows": {

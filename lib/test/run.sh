@@ -34779,7 +34779,16 @@ RAF_ROOT_CEIL=3500
 # them to the record-shape example in the root pushed root+extension to 5,504 words.
 # The small documented widening mirrors the #529 AC3 renegotiation; update
 # docs/review-and-fix-budget.md's ceilings-table cell in lockstep.
-RAF_LOAD_CEIL=5510
+# #619 raised it again 5510->5690: the extension was sitting six words below the 5510
+# ceiling (root 3,213 + extension 2,291 = 5,504), so the
+# batched-regeneration instruction the issue requires on this surface could not fit
+# under it at any phrasing — the section was already trimmed to its operative
+# minimum before this renegotiation was taken. The ceiling carries ~4 words of
+# headroom over the measured 5,686 (mirroring #556's 6), deliberately: a ceiling set
+# exactly at the measurement makes the next one-sentence edit a budget breach. The growth is the
+# audited decision recorded in docs/cutovers/issue-619-batched-artifact-regeneration.md;
+# update docs/review-and-fix-budget.md's ceilings-table cell in lockstep.
+RAF_LOAD_CEIL=5690
 RAF_MAXSTEP_CEIL=17000
 assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
   "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"
@@ -34823,7 +34832,7 @@ for _raf_ceil in "$RAF_ROOT_CEIL" "$RAF_LOAD_CEIL" "$RAF_MAXSTEP_CEIL"; do
     "$(case "$_raf_doc_nocommas" in *"≤ $_raf_ceil words |"*) echo yes;; *) echo no;; esac)"
 done
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,674 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +4,671 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute
@@ -44505,6 +44514,33 @@ fi
 if ! devflow_run_full_suite_module "$LIB/test/modules/capability-profiles.sh" \
   "capability-profiles" 59; then
   printf 'ERROR: capability-profiles boundary could not record its result\n'
+  exit 1
+fi
+
+# regenerate-artifacts contract coverage (issue #619: the batched generated-artifact
+# pass). The registry and this full-suite call share the same lower-bound contract;
+# test_module_runner.py parses this operand and rejects any coupling drift.
+# ────────────────────────────────────────────────────────────────────────────
+echo "#619 batched-regeneration instruction surfaces"
+# ────────────────────────────────────────────────────────────────────────────
+# Surface-presence pins: each of the three instruction surfaces must carry the
+# batched-regeneration invocation, so a loop's context cannot silently revert to
+# serial per-artifact discovery because one extension lost the instruction. The
+# pinned literal is a single unwrapped line in each file (a sentence wrapped across a
+# line break lives on no single line and this line-based pin would find nothing —
+# the issue-375 wrapped-literal hazard).
+for _ra_ext in implement review-and-fix receiving-code-review; do
+  assert_pin_unique "#619 .devflow/prompt-extensions/$_ra_ext.md carries the batched-regeneration invocation" \
+    'run `python3 lib/test/regenerate-artifacts.py` once' \
+    "$LIB/../.devflow/prompt-extensions/$_ra_ext.md"
+  assert_pin_unique "#619 .devflow/prompt-extensions/$_ra_ext.md carries the batched-regeneration discharge record" \
+    '`batched-regeneration: run|refused|skipped`' \
+    "$LIB/../.devflow/prompt-extensions/$_ra_ext.md"
+done
+
+if ! devflow_run_full_suite_module "$LIB/test/modules/regenerate-artifacts.sh" \
+  "regenerate-artifacts" 100; then
+  printf 'ERROR: regenerate-artifacts boundary could not record its result\n'
   exit 1
 fi
 

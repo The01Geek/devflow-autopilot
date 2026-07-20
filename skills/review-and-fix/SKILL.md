@@ -49,7 +49,7 @@ This skill **skips** /devflow:review's Phase 4.4 entirely — no GitHub post. Th
   "current_step": "2.6",
   "current_substep": "run_shadow_fanout",
   "pending_dispatch": {"kind": "shadow_reviewer_fanout", "roster": ["devflow:code-reviewer", "devflow:silent-failure-hunter"], "dispatched_at": "2026-05-16T20:46:00Z"},
-  "sweep_defs_read": ["phase-2-implement.md", "2.3.0"],
+  "sweep_defs_read": ["phase-2-implement.md"],
   "sweep_evidence": {"status": "run"},
   "checklist": [
     {
@@ -198,7 +198,7 @@ This skill **skips** /devflow:review's Phase 4.4 entirely — no GitHub post. Th
     "truncation": null,
     "dispatch": "verified"
   },
-  "reference_reads": {"fix_delta": {"status": "verified|not_verified", "outcome": "clean|refixed|promoted|null", "reason": null}},
+  "reference_reads": {"fix_delta": {"status": "verified|not_verified", "outcome": "clean|refixed|promoted|null"}},
   "shadow": {
     "ran_at": null,
     "reviewed_sha": null,
