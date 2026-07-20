@@ -380,7 +380,8 @@ PYEOF
     # break the later `--slurpfile reflections` / `--argjson`. The guard requires
     # BOTH keys, and — crucially — it FAILS TOWARD ANALYSIS, matching the sibling
     # WORKPAD_FINAL_STATUS="Unparsed" guard above: a workpad IS present (we are
-    # inside `if [ -n "$WORKPAD_BODY" ]`), so a parse failure means "a reflection
+    # in the `else` arm of the issue#626 chain — issue resolved AND WORKPAD_BODY
+    # non-empty), so a parse failure means "a reflection
     # block existed but could not be read", NOT "there were no reflections". The
     # fallback therefore substitutes a FRICTION sentinel (one non-note bullet,
     # friction_count 1) so cheap-gate gates the PR non-clean and it is analyzed,
