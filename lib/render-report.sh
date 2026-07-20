@@ -31,10 +31,24 @@ devflow_render_report() {
     printf '# DevFlow Weekly Report\n\n'
     printf '**Run finished:** %s\n\n' "$ts"
 
+    local skipped_count
+    skipped_count="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '.skipped_count // 0')"
+
     printf '## Summary\n\n'
     printf 'PRs scanned: %s\n' "$prs_scanned"
     printf 'clean (no analysis): %s\n' "$clean_count"
     printf 'analyzed: %s\n' "$analyzed_count"
+    printf 'skipped: %s\n' "$skipped_count"
+
+    # Skips (issue #626) — every skip class writes a one-line record so no skip is
+    # ever silent: the mechanical no-provenance pre-dispatch skip, the Stage A
+    # Cancelled skip, and the Stage A interim skip. Omitted when nothing was skipped.
+    local skips_n
+    skips_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.skips // []) | length')"
+    if [ "$skips_n" -gt 0 ]; then
+        printf '\n### Skipped PRs (mechanical no-provenance / Cancelled / interim)\n\n'
+        echo "$summary_json" | "$DEVFLOW_JQ" -r '(.skips // [])[] | "- " + (. | gsub("\n";" "))'
+    fi
 
     # Analyzed PRs — one line each (omitted when the caller did not pass `analyzed`)
     local analyzed_n

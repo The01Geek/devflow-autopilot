@@ -7515,6 +7515,19 @@ assert_pin_unique "#356: retrospective SKILL enumerates the terminal workpad_fin
 assert_pin_red_on_removal "#356: retrospective SKILL terminal-status enumeration flips RED on removal" \
   '`Complete` / `Blocked` / `Failed` / `Cancelled`' "$LIB/../skills/retrospective/SKILL.md"
 
+# #626 — Stage A surface pins. The workpad-absent analysis rule is present, and
+# the two defined-skip emitters (interim, Cancelled) emit the top-level "skip" key
+# (distinct from a genuine failure's "error"). These are prose pins over the
+# agent-run Stage A skill (its behavior cannot be driven mechanically here).
+assert_pin_unique "#626: Stage A carries the workpad-absent analysis rule" \
+  'Workpad-absent analysis rule (issue #626)' "$LIB/../skills/retrospective/SKILL.md"
+assert_pin_unique "#626: Stage A interim skip emits the \"skip\" key" \
+  '{"skip": "incomplete run — workpad_final_status is <status>; skipping"}' "$LIB/../skills/retrospective/SKILL.md"
+assert_pin_unique "#626: Stage A Cancelled skip emits the \"skip\" key" \
+  '{"skip": "operator-cancelled run — workpad_final_status is Cancelled; a deliberate stop, not a quality signal; skipping"}' "$LIB/../skills/retrospective/SKILL.md"
+assert_pin_unique "#626: Stage A recognizes a defined skip by the \"skip\" key only, not error text" \
+  'by the presence of the `"skip"` key' "$LIB/../skills/retrospective/SKILL.md"
+
 assert_eq "#356 flip: helper carries the SPDX header" "yes" \
   "$(grep -q 'SPDX-License-Identifier: MIT' "$FLIP_SH" && echo yes || echo no)"
 assert_eq "#356 flip: helper routes GitHub access through workpad.py (no bare gh invocation)" "yes" \
@@ -13163,8 +13176,93 @@ assert_eq "review comment → clean=false"      "false" "$(echo "$BASE" | jq '.s
 assert_eq "workpad Blocked → clean=false"     "false" "$(echo "$BASE" | jq '.signals.workpad_final_status="Blocked"' | gate | jq -r .clean)"
 assert_eq "#356: workpad Failed → clean=false" "false" "$(echo "$BASE" | jq '.signals.workpad_final_status="Failed"' | gate | jq -r .clean)"
 assert_eq "#356: workpad Failed → reason 'workpad status not Complete'" "workpad status not Complete" "$(echo "$BASE" | jq '.signals.workpad_final_status="Failed"' | gate | jq -r .reason)"
-assert_eq "workpad empty string → clean=true" "true"  "$(echo "$BASE" | jq '.signals.workpad_final_status=""' | gate | jq -r .clean)"
-assert_eq "workpad null → clean=true"         "true"  "$(echo "$BASE" | jq '.signals.workpad_final_status=null' | gate | jq -r .clean)"
+# #626: an ABSENT workpad ("" / null / an absent key) fails CLOSED, symmetric with
+# the corrupt Unparsed case — these two assertions previously pinned the fail-OPEN
+# laundering this issue removes (they asserted clean=true) and are flipped here.
+assert_eq "#626: workpad empty string → clean=false" "false" "$(echo "$BASE" | jq '.signals.workpad_final_status=""' | gate | jq -r .clean)"
+assert_eq "#626: workpad empty string → reason 'workpad absent or status unknown'" "workpad absent or status unknown" "$(echo "$BASE" | jq '.signals.workpad_final_status=""' | gate | jq -r .reason)"
+assert_eq "#626: workpad null → clean=false"         "false" "$(echo "$BASE" | jq '.signals.workpad_final_status=null' | gate | jq -r .clean)"
+assert_eq "#626: workpad null → reason 'workpad absent or status unknown'" "workpad absent or status unknown" "$(echo "$BASE" | jq '.signals.workpad_final_status=null' | gate | jq -r .reason)"
+assert_eq "#626: workpad absent key → clean=false" "false" "$(echo "$BASE" | jq 'del(.signals.workpad_final_status)' | gate | jq -r .clean)"
+assert_eq "#626: workpad absent key → reason 'workpad absent or status unknown'" "workpad absent or status unknown" "$(echo "$BASE" | jq 'del(.signals.workpad_final_status)' | gate | jq -r .reason)"
+# #626: the existing status vocabulary is unchanged — Complete stays clean; the four
+# non-empty non-Complete words keep the byte-identical "workpad status not Complete".
+assert_eq "#626: workpad Complete → clean=true" "true" "$(echo "$BASE" | gate | jq -r .clean)"
+assert_eq "#626: workpad Unparsed → clean=false" "false" "$(echo "$BASE" | jq '.signals.workpad_final_status="Unparsed"' | gate | jq -r .clean)"
+assert_eq "#626: workpad Unparsed → reason 'workpad status not Complete'" "workpad status not Complete" "$(echo "$BASE" | jq '.signals.workpad_final_status="Unparsed"' | gate | jq -r .reason)"
+assert_eq "#626: workpad Absent sentinel → clean=false" "false" "$(echo "$BASE" | jq '.signals.workpad_final_status="Absent"' | gate | jq -r .clean)"
+assert_eq "#626: workpad Absent sentinel → reason 'workpad status not Complete'" "workpad status not Complete" "$(echo "$BASE" | jq '.signals.workpad_final_status="Absent"' | gate | jq -r .reason)"
+assert_eq "#626: workpad NoIssue sentinel → clean=false" "false" "$(echo "$BASE" | jq '.signals.workpad_final_status="NoIssue"' | gate | jq -r .clean)"
+# #626: a wrong-type status (JSON boolean true) gates non-clean via the fallthrough.
+assert_eq "#626: workpad wrong-type (true) → clean=false" "false" "$(echo "$BASE" | jq '.signals.workpad_final_status=true' | gate | jq -r .clean)"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "issue #626: dispatch-disposition.jq — mechanical skip-or-dispatch classifier"
+# ────────────────────────────────────────────────────────────────────────────
+# Runs only on a non-clean bundle. Returns "skip" EXACTLY when all three hold:
+# gate reason is a workpad reason literal, status is a sentinel (Absent/NoIssue),
+# provenance is false. Otherwise "dispatch". The producer emits sentinel "Absent"/
+# "NoIssue" (non-empty, non-Complete), so the gate reason on those is the existing
+# 'workpad status not Complete' arm — which the disposition accepts as a workpad
+# reason alongside 'workpad absent or status unknown'.
+disp() {
+  local _bundle="$1" _g
+  _g="$(printf '%s' "$_bundle" | jq -c -f "$LIB/cheap-gate.jq")"
+  printf '%s' "$_bundle" | jq -c --argjson gate "$_g" -f "$LIB/dispatch-disposition.jq"
+}
+DBASE='{"signals":{"review_comments_count":0,"post_bot_commits":0,"ci_failures_during_pr":0,"ci_status_unknown":false,"review_reject_outstanding":false,"workpad_final_status":"Absent"},"pr_devflow_provenance":false}'
+assert_eq "#626 disp: Absent + no provenance → skip" "skip" "$(disp "$DBASE" | jq -r .disposition)"
+assert_eq "#626 disp: skip reason names the sentinel" "no DevFlow provenance and no workpad audit trail — workpad_final_status is Absent; skipping without analysis" "$(disp "$DBASE" | jq -r .reason)"
+assert_eq "#626 disp: NoIssue + no provenance → skip" "skip" "$(disp "$(echo "$DBASE" | jq -c '.signals.workpad_final_status="NoIssue"')" | jq -r .disposition)"
+assert_eq "#626 disp: Absent + provenance true → dispatch" "dispatch" "$(disp "$(echo "$DBASE" | jq -c '.pr_devflow_provenance=true')" | jq -r .disposition)"
+assert_eq "#626 disp: NoIssue + CI failure → dispatch (non-workpad gate reason wins)" "dispatch" "$(disp "$(echo "$DBASE" | jq -c '.signals.workpad_final_status="NoIssue" | .signals.ci_failures_during_pr=1')" | jq -r .disposition)"
+assert_eq "#626 disp: Absent + outstanding REJECT → dispatch" "dispatch" "$(disp "$(echo "$DBASE" | jq -c '.signals.review_reject_outstanding=true')" | jq -r .disposition)"
+assert_eq "#626 disp: non-sentinel status (Blocked) → dispatch" "dispatch" "$(disp "$(echo "$DBASE" | jq -c '.signals.workpad_final_status="Blocked"')" | jq -r .disposition)"
+assert_eq "#626 disp: wrong-type provenance → treated false → skip" "skip" "$(disp "$(echo "$DBASE" | jq -c '.pr_devflow_provenance="yes"')" | jq -r .disposition)"
+assert_eq "#626 disp: absent provenance key → treated false → skip" "skip" "$(disp "$(echo "$DBASE" | jq -c 'del(.pr_devflow_provenance)')" | jq -r .disposition)"
+
+# ── #626 marker-entry consumer handling ──────────────────────────────────────
+# A skip marker entry {kind:"skip", pr, reason} is processed-PR bookkeeping, not a
+# retrospective analysis. Every reader of retrospectives.jsonl handles it deliberately.
+MRK='{"kind":"skip","pr":77,"reason":"no DevFlow provenance and no workpad audit trail — workpad_final_status is Absent; skipping without analysis"}'
+IMPL_ENTRY='{"schema_version":2,"kind":"implementation","pr":77,"merged_at":"2026-06-01T00:00:00Z","verdict":"imperfect","categories":["convention-violation"],"descriptors":["x"],"suggested_interventions":[{"summary":"fix it","candidate_targets":["skills/a/SKILL.md"]}]}'
+# recurring-targets.jq: a skip marker contributes no target (explicit kind filter #626).
+assert_eq "#626 consumer: recurring-targets excludes skip markers" "0" \
+  "$(printf '%s\n' "$MRK" | jq -s -f "$LIB/recurring-targets.jq" | jq 'length')"
+# A skip marker sharing a PR with a real impl entry does not perturb that target's count.
+assert_eq "#626 consumer: recurring-targets counts the impl entry, skip marker ignored" "skills/a/SKILL.md" \
+  "$(printf '%s\n%s\n%s\n' "$IMPL_ENTRY" "$MRK" "$(echo "$IMPL_ENTRY" | jq -c '.pr=78')" | jq -s -f "$LIB/recurring-targets.jq" | jq -r '.[0].target // "none"')"
+# compute-patterns.jq: a skip marker forms no pattern (selects implementation/audit only).
+assert_eq "#626 consumer: compute-patterns excludes skip markers (empty object)" "0" \
+  "$(printf '%s\n' "$MRK" | jq -s -f "$LIB/compute-patterns.jq" --slurpfile overrides <(echo '{}') | jq 'keys | length')"
+# open-state-pr.sh N counts entries excluding skip markers.
+OSP_TMP="$(mktemp -d)"
+printf '%s\n%s\n' "$IMPL_ENTRY" "$MRK" > "$OSP_TMP/retrospectives.jsonl"
+assert_eq "#626 consumer: open-state-pr N excludes skip markers (1 real of 2 lines)" "1" \
+  "$(cd "$OSP_TMP" && mkdir -p .devflow/learnings && cp retrospectives.jsonl .devflow/learnings/ && DEVFLOW_GH=/bin/true bash "$LIB/open-state-pr.sh" --dry-run 2>/dev/null | grep -oE '\([0-9]+ entries\)' | grep -oE '[0-9]+' | head -1)"
+rm -rf "$OSP_TMP"
+# materialize-retrospectives.sh: a skip marker merges by pr+kind and does NOT clobber
+# the implementation entry for the same PR (different kind).
+MAT_TMP="$(mktemp -d)"
+printf '%s\n' "$IMPL_ENTRY" > "$MAT_TMP/store.jsonl"
+printf '%s\n' "$MRK" > "$MAT_TMP/new.jsonl"
+bash "$LIB/materialize-retrospectives.sh" "$MAT_TMP/new.jsonl" "$MAT_TMP/store.jsonl" >/dev/null 2>&1 || true
+assert_eq "#626 consumer: materialize keeps the impl entry for PR 77 (skip marker is a distinct kind)" "1" \
+  "$(jq -s '[.[] | select(.pr==77 and .kind=="implementation")] | length' "$MAT_TMP/store.jsonl")"
+assert_eq "#626 consumer: materialize appends the skip marker for PR 77" "1" \
+  "$(jq -s '[.[] | select(.pr==77 and .kind=="skip")] | length' "$MAT_TMP/store.jsonl")"
+rm -rf "$MAT_TMP"
+
+# ── #626 orchestrator surface pins (skills/retrospective-weekly/SKILL.md) ─────
+RW_SKILL="$LIB/../skills/retrospective-weekly/SKILL.md"
+assert_pin_unique "#626: orchestrator carries the pre-dispatch disposition call" \
+  '-f $LIB/dispatch-disposition.jq' "$RW_SKILL"
+assert_pin_unique "#626: orchestrator recognizes a Stage A skip by the skip key only, not error text" \
+  'never by matching substrings of any error text' "$RW_SKILL"
+assert_pin_unique "#626: orchestrator marker split keys the marker on the mechanical status" \
+  'Whether it leaves a marker depends' "$RW_SKILL"
+assert_pin_unique "#626: orchestrator report names all three skip classes" \
+  'pre-dispatch skip above, the' "$RW_SKILL"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "issue #97: reserved DevFlow label + issue-workpad reflection ingestion"
@@ -13686,6 +13784,84 @@ assert_eq "#519 e2e: bullet under unrecognized ### heading → friction_count 1 
 assert_eq "#519 e2e: unknown-heading bundle → cheap-gate clean=false" "false" \
   "$(jq -c -f "$LIB/cheap-gate.jq" < "$F_OUT10" | jq -r .clean)"
 
+# ── #626 producer e2e: absent-workpad sentinels + pr_devflow_provenance ──────
+# Reuses the $F97 stub (PR 900, branch claude/issue-901-x → issue 901). The
+# `pr view` output is $F97/prview.json and the issue is $F97/issue.json, both
+# overwritten per scenario; the issue-thread comments are $F97/issuecomments.json.
+
+# Scenario A — issue resolves (901) but NO workpad-marker comment → Absent, and
+# the bundle gates clean=false end-to-end. issuecomments.json holds a non-workpad
+# comment so the marker grep misses.
+echo '[{"user":{"login":"someone"},"body":"just a normal comment","created_at":"2026-05-08T10:00:00Z"}]' > "$F97/issuecomments.json"
+F626_A="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
+assert_eq "#626 e2e: issue resolves, no workpad comment → Absent" "Absent" \
+  "$(jq -r '.signals.workpad_final_status' < "$F626_A")"
+assert_eq "#626 e2e: Absent bundle → cheap-gate clean=false" "false" \
+  "$(jq -c -f "$LIB/cheap-gate.jq" < "$F626_A" | jq -r .clean)"
+
+# Scenario B — NO resolvable issue: branch matches no pattern, body has no
+# Closes/Fixes, closingIssuesReferences empty → NoIssue, gates clean=false. Uses
+# a DevFlow label on the PR so the classifier still selects it (kind != skip).
+cat > "$F97/prview.json" <<'PV'
+{"number":900,"headRefName":"random/branch-x","baseRefName":"main","headRefOid":"sha900beef","mergeCommit":{"oid":"merge900"},"mergedAt":"2026-05-08T16:31:00Z","createdAt":"2026-05-08T07:00:00Z","author":{"login":"example-bot"},"title":"t","body":"no issue linkage here","additions":1,"deletions":0,"files":[{"path":"x.txt"}],"labels":[{"name":"DevFlow"}],"closingIssuesReferences":[]}
+PV
+F626_B="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
+assert_eq "#626 e2e: no resolvable issue → NoIssue" "NoIssue" \
+  "$(jq -r '.signals.workpad_final_status' < "$F626_B")"
+assert_eq "#626 e2e: NoIssue bundle → cheap-gate clean=false" "false" \
+  "$(jq -c -f "$LIB/cheap-gate.jq" < "$F626_B" | jq -r .clean)"
+# The DevFlow PR label kept provenance true even though the issue never resolved.
+assert_eq "#626 e2e: NoIssue with DevFlow PR label → pr_devflow_provenance true" "true" \
+  "$(jq -r '.pr_devflow_provenance' < "$F626_B")"
+
+# Scenario C — provenance field: PR-label only, object-shaped label (gh's native
+# shape). Branch claude/issue-901-x resolves issue 901; issue.json carries no label.
+cat > "$F97/prview.json" <<'PV'
+{"number":900,"headRefName":"claude/issue-901-x","baseRefName":"main","headRefOid":"sha900beef","mergeCommit":{"oid":"merge900"},"mergedAt":"2026-05-08T16:31:00Z","createdAt":"2026-05-08T07:00:00Z","author":{"login":"example-bot"},"title":"t","body":"Closes #901","additions":1,"deletions":0,"files":[{"path":"x.txt"}],"labels":[{"name":"DevFlow"}]}
+PV
+cat > "$F97/issue.json" <<'IJ'
+{"number":901,"title":"i","body":"b","labels":[],"comments":[]}
+IJ
+echo '[]' > "$F97/issuecomments.json"
+F626_C="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
+assert_eq "#626 e2e provenance: PR-label only (object-shaped) → true" "true" \
+  "$(jq -r '.pr_devflow_provenance' < "$F626_C")"
+
+# Scenario D — issue-label only: PR has no label, the resolved issue carries DevFlow.
+cat > "$F97/prview.json" <<'PV'
+{"number":900,"headRefName":"claude/issue-901-x","baseRefName":"main","headRefOid":"sha900beef","mergeCommit":{"oid":"merge900"},"mergedAt":"2026-05-08T16:31:00Z","createdAt":"2026-05-08T07:00:00Z","author":{"login":"example-bot"},"title":"t","body":"Closes #901","additions":1,"deletions":0,"files":[{"path":"x.txt"}],"labels":[]}
+PV
+cat > "$F97/issue.json" <<'IJ'
+{"number":901,"title":"i","body":"b","labels":[{"name":"DevFlow"}],"comments":[]}
+IJ
+F626_D="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
+assert_eq "#626 e2e provenance: issue-label only → true (issue leg keeps provenance alive)" "true" \
+  "$(jq -r '.pr_devflow_provenance' < "$F626_D")"
+
+# Scenario E — neither PR nor issue labelled → false.
+cat > "$F97/issue.json" <<'IJ'
+{"number":901,"title":"i","body":"b","labels":[],"comments":[]}
+IJ
+F626_E="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
+assert_eq "#626 e2e provenance: neither labelled → false" "false" \
+  "$(jq -r '.pr_devflow_provenance' < "$F626_E")"
+
+# Scenario F — string-shaped PR label list (the other shape classify normalizes).
+cat > "$F97/prview.json" <<'PV'
+{"number":900,"headRefName":"claude/issue-901-x","baseRefName":"main","headRefOid":"sha900beef","mergeCommit":{"oid":"merge900"},"mergedAt":"2026-05-08T16:31:00Z","createdAt":"2026-05-08T07:00:00Z","author":{"login":"example-bot"},"title":"t","body":"Closes #901","additions":1,"deletions":0,"files":[{"path":"x.txt"}],"labels":["DevFlow"]}
+PV
+F626_F="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
+assert_eq "#626 e2e provenance: string-shaped PR label → true" "true" \
+  "$(jq -r '.pr_devflow_provenance' < "$F626_F")"
+
+# Scenario G — wrong-type PR label list (a bare object, not an array) → false (fail-closed).
+cat > "$F97/prview.json" <<'PV'
+{"number":900,"headRefName":"claude/issue-901-x","baseRefName":"main","headRefOid":"sha900beef","mergeCommit":{"oid":"merge900"},"mergedAt":"2026-05-08T16:31:00Z","createdAt":"2026-05-08T07:00:00Z","author":{"login":"example-bot"},"title":"t","body":"Closes #901","additions":1,"deletions":0,"files":[{"path":"x.txt"}],"labels":{"name":"DevFlow"}}
+PV
+F626_G="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
+assert_eq "#626 e2e provenance: wrong-type PR label list → false (fail-closed)" "false" \
+  "$(jq -r '.pr_devflow_provenance' < "$F626_G")"
+
 rm -rf "$F97"
 
 # #519 fail-closed-on-parse-failure pin (behavioral-fix): when the reflection parser
@@ -13848,7 +14024,7 @@ assert_eq "#519 clean-entry: empty reflections → entry reflections is []" "0" 
 assert_eq "#519 clean-entry: empty reflections → summary keeps 'no retrospective signal'" "yes" \
   "$(printf '%s' "$CE_NONE" | jq -f "$LIB/clean-entry.jq" | jq -r '.summary' | grep -q 'no retrospective signal' && echo yes || echo no)"
 # #498 — a Cancelled workpad (operator-cancelled run) is a non-empty, non-Complete
-# status, so cheap-gate's $workpad_ok arm (Complete/empty/null only) gates it
+# status, so cheap-gate's clean arm (Complete only since #626) gates it
 # non-clean via the existing 'workpad status not Complete' reason — cheap-gate.jq
 # needs no edit (issue #498 AC4). The strip of the leading 🛑 is covered by the
 # glyph-sync self-check (fetch-pr-context.sh's strip set == workpad.py's

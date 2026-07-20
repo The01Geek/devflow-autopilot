@@ -34,11 +34,22 @@ done
 # shellcheck source=resolve-gh.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/resolve-gh.sh"
 : "${DEVFLOW_GH:=$(devflow_resolve_gh)}"
+# jq binary: resolved once via the sourced sibling resolver (issue #247), used
+# below to count retrospective ENTRIES excluding #626 `skip` marker rows.
+# shellcheck source=resolve-jq.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/resolve-jq.sh" \
+  || { echo "open-state-pr: resolve-jq.sh could not be sourced — using bare 'jq'" >&2; : "${DEVFLOW_JQ:=jq}"; }
 
 # ── Determine entry count ─────────────────────────────────────────────────────
+# Count retrospective ENTRIES only — #626 `skip` marker rows are processed-PR
+# bookkeeping, not retrospective analyses, so they must not inflate the "N entries"
+# label. Count via jq (kind != "skip"); on any jq failure fall back to the raw line
+# count so the label degrades to over-counting rather than breaking the commit.
 N=0
 if [ -f .devflow/learnings/retrospectives.jsonl ]; then
-    N=$(wc -l < .devflow/learnings/retrospectives.jsonl | tr -d ' ')
+    N=$("$DEVFLOW_JQ" -s '[.[] | select((.kind // "") != "skip")] | length' \
+        < .devflow/learnings/retrospectives.jsonl 2>/dev/null || true)
+    case "$N" in ''|*[!0-9]*) N=$(wc -l < .devflow/learnings/retrospectives.jsonl | tr -d ' ') ;; esac
 fi
 
 # ── Commit metadata ───────────────────────────────────────────────────────────

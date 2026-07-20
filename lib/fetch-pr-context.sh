@@ -106,6 +106,22 @@ if [ "$ISSUE_NUMBER" != "null" ]; then
         '{title: (.title // ""), body: (.body // ""), labels: ([.labels[]?.name] // []), comments: $comments[0]}')"
 fi
 
+# ── 5b. DevFlow provenance ────────────────────────────────────────────────────
+# pr_devflow_provenance: true iff the literal `DevFlow` label (the hardcoded
+# provenance constant the scan/classify path matches — NEVER a config key) is
+# among the PR's labels OR, when an issue resolved, among the linked issue's
+# labels. Both lists are already fetched (the PR's in LABELS_JSON, the issue's in
+# ISSUE_JSON.labels, already normalized to name strings), so no new API call.
+# The PR leg uses the same object-or-string normalization classify-pr-kind.jq
+# uses; a wrong-type or absent label list yields false (fail-closed). The
+# issue-label leg keeps provenance alive in a deployment whose PR-label applies
+# fail (scripts/apply-labels.sh is best-effort). Any jq error → false.
+PR_DEVFLOW_PROVENANCE="$("$DEVFLOW_JQ" -n --argjson pr_labels "$LABELS_JSON" --argjson issue "$ISSUE_JSON" '
+    def norm: (if type == "array" then map(if type == "object" then (.name // "") else . end) else [] end);
+    (($pr_labels | norm) + (($issue.labels // []) | norm)) | any(. == "DevFlow")
+' 2>/dev/null || echo false)"
+case "$PR_DEVFLOW_PROVENANCE" in true|false) ;; *) PR_DEVFLOW_PROVENANCE=false ;; esac
+
 # ── 6. Review comments (inline diff comments) ────────────────────────────────
 _REVIEW_COMMENTS_RAW="$("$DEVFLOW_GH" api "repos/${REPO}/pulls/${PR}/comments" --paginate)" \
   || { echo "::error::fetch-pr-context: failed to fetch review comments for PR ${PR}" >&2; exit 1; }
@@ -252,7 +268,21 @@ REFLECTIONS="[]"
 # analysis (every kind EXCEPT the informational `note`). Defaulted to 0 for a
 # workpad-less bundle; recomputed by the parser below when a workpad is present.
 REFLECTION_FRICTION_COUNT=0
-if [ -n "$WORKPAD_BODY" ]; then
+# Three-arm chain (issue #626): an ABSENT workpad now emits a non-empty sentinel
+# so cheap-gate.jq fails closed rather than laundering it past analysis, mirroring
+# the present-but-corrupt `Unparsed` arm inside the parse block below. All 4
+# producer paths therefore emit a non-empty value: (1) no linked issue → NoIssue;
+# (2) issue resolved but no marker comment → Absent; (3) marker present, Status
+# unparseable → Unparsed; (4) parsed → the glyph-stripped word. The sentinels carry
+# triage granularity — provenance (pr_devflow_provenance below), not the sentinel,
+# decides the retrospective disposition.
+if [ "$ISSUE_NUMBER" = "null" ]; then
+    echo "::warning::fetch-pr-context: no linked issue resolved for PR ${PR}; no workpad audit trail (NoIssue)" >&2
+    WORKPAD_FINAL_STATUS="NoIssue"
+elif [ -z "$WORKPAD_BODY" ]; then
+    echo "::warning::fetch-pr-context: issue ${ISSUE_NUMBER} resolved for PR ${PR} but no <!-- devflow:workpad --> comment exists (Absent)" >&2
+    WORKPAD_FINAL_STATUS="Absent"
+else
     # Extract the value after "**Status:** <glyph> <word>" / "Status: <word>".
     # workpad.py prepends a canonical glyph (🚀/🎉/👎/💥/🛑) to the status word, so the
     # captured value is e.g. "🎉 Complete". Strip that glyph by the known glyph SET
@@ -273,9 +303,10 @@ if [ -n "$WORKPAD_BODY" ]; then
     WORKPAD_FINAL_STATUS="$(printf '%s' "$WORKPAD_BODY" | tr -d '\r' | sed -nE 's/^\*{0,2}[[:space:]]*[Ss]tatus[[:space:]]*:?\*{0,2}[[:space:]]*(.+)/\1/p' | head -1 | sed -E 's/^[[:space:]]*(🚀|🎉|👎|💥|🛑)?[[:space:]]*//; s/[[:space:]]+$//' || true)"
     # Fail toward analysis, not toward "clean": a workpad is present but its
     # Status line did not parse (corrupt/hand-edited — workpad.py always writes
-    # `**Status:** <glyph> <word>`). cheap-gate.jq treats "" as clean, so an
-    # empty status here on a *present* workpad would silently pass a possibly-bad
-    # run. Substitute a non-empty sentinel (any non-Complete value gates not-clean).
+    # `**Status:** <glyph> <word>`). Substitute a non-empty sentinel — any
+    # non-Complete value gates not-clean (issue #626 shrank the gate's clean set
+    # to "Complete" only, so an empty "" now fails closed too; the sentinel still
+    # keeps this present-but-corrupt case distinguishable from the absent arms).
     if [ -z "$WORKPAD_FINAL_STATUS" ]; then
         echo "::warning::fetch-pr-context: workpad present for PR ${PR} but Status line did not parse; not treating as Complete" >&2
         WORKPAD_FINAL_STATUS="Unparsed"
@@ -533,6 +564,7 @@ printf '%s' "$IMPLEMENT_SUMMARY_JSON"   > "$_JQ_TMP/implement_summary_comment.js
     --argjson ci_failures_during_pr "$CI_FAILURES" \
     --argjson ci_status_unknown "$CI_STATUS_UNKNOWN" \
     --arg workpad_final_status "$WORKPAD_FINAL_STATUS" \
+    --argjson pr_devflow_provenance "$PR_DEVFLOW_PROVENANCE" \
     --argjson reflections_friction_count "$REFLECTION_FRICTION_COUNT" \
     --argjson ttm_hours "$TTM_HOURS" \
     '{
@@ -561,6 +593,7 @@ printf '%s' "$IMPLEMENT_SUMMARY_JSON"   > "$_JQ_TMP/implement_summary_comment.js
         pr_reviews: $pr_reviews[0],
         commits: $commits[0],
         workpad_body: $workpad_body[0],
+        pr_devflow_provenance: $pr_devflow_provenance,
         reflections: $reflections[0],
         reflections_friction_count: $reflections_friction_count,
         review_verdicts: $review_verdicts[0],
