@@ -34598,6 +34598,26 @@ RECORD
 RB_CLAUDEMD="$LIB/../CLAUDE.md"
 assert_pin_unique "#618: CLAUDE.md's review-bundle bullet carries the re-anchored ceiling phrase (≤-prefixed, mirror of the suite literal)" \
   'shipped-default per-pass path ≤ 32,399 words' "$RB_CLAUDEMD"
+# #618 (pr-test-analyzer Finding 2): the static pin above catches a suite-literal↔CLAUDE.md
+# drift, but NOT a stale RB_SHIPPED_CEIL while the pin literal + CLAUDE.md are updated in
+# tandem. Bind the GATE CONSTANT to the CLAUDE.md phrase directly, via a dynamic grep whose
+# comparand is rendered from RB_SHIPPED_CEIL (a plain assert_eq, NOT an assert_pin_* — so the
+# #375 pin-corpus static lint, which analyses spelled-out pin literals, never sees a command
+# substitution). A renegotiation that bumps the pin literal + CLAUDE.md but forgets
+# RB_SHIPPED_CEIL now turns RED here: _rb_grouped of the stale constant no longer matches the
+# updated bullet phrase. Together with the static pin this couples gate → pin → CLAUDE.md.
+assert_eq "#618: CLAUDE.md's ceiling phrase renders the CURRENT RB_SHIPPED_CEIL (gate↔bullet coupling, catches a stale gate constant)" "yes" \
+  "$(grep -qF "shipped-default per-pass path ≤ $(_rb_grouped "$RB_SHIPPED_CEIL") words" "$RB_CLAUDEMD" && echo yes || echo no)"
+# #618 (pr-test-analyzer Finding 1): the RECORD rows pin the budget doc's MEASURED cells but
+# NOT its ceiling cell, so a renegotiation could update run.sh + CLAUDE.md and leave the doc's
+# `≤ 32,399 words` cell stale — a documented_falsehood in the record CLAUDE.md names authoritative.
+# Bind the doc ceiling cell to RB_SHIPPED_CEIL exactly as the sibling RAF block binds RAF_*_CEIL
+# (strip commas from the doc body with pure-bash expansion — no non-preflight PATH tool — then
+# match the `≤ <ceil> words |` ceilings-table label cell).
+_rb_doc_nocommas="$(< "$RB_DOC")"
+_rb_doc_nocommas="${_rb_doc_nocommas//,/}"
+assert_eq "#618: the budget doc's ceilings-table cell documents RB_SHIPPED_CEIL (bound to the suite constant)" "yes" \
+  "$(case "$_rb_doc_nocommas" in *"≤ $RB_SHIPPED_CEIL words |"*) echo yes;; *) echo no;; esac)"
 # Captured once: the SAME emitted line is asserted to shrink AND to have been fed the
 # standalone set. Re-invoking would let the two assertions diverge. No skip arm is
 # needed any more — the baseline is a frozen constant, so there is no external ref
