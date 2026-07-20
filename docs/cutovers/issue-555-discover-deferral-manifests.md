@@ -5,7 +5,7 @@ kind: growth
 
 ## Files
 
-- `skills/implement/phases/phase-4-documentation.md` (mandatory, `implement-flow`) — +7,037 bytes.
+- `skills/implement/phases/phase-4-documentation.md` (mandatory, `implement-flow`) — +7,096 bytes.
 - `CLAUDE.md` (mandatory, `project-memory`) — +988 bytes.
 
 ## Justification

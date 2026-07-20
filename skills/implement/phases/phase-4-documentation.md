@@ -194,14 +194,14 @@ DISCOVERY_STATE=""
 if MANIFESTS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/discover-deferral-manifests.py $SEARCH_DIRS 2>/tmp/devflow-dm.err); then
     DISCOVERY_STATE=ok
 elif grep -q 'devflow: discovery partial:' /tmp/devflow-dm.err; then
-    # PARTIAL: at least one root failed traversal, at least one searched cleanly. Keep the
+    # PARTIAL: at least one root failed traversal, at least one did not fail (`ok` or `absent`). Keep the
     # captured paths (bash assigns a $(…) capture even when the command exits non-zero) and file
     # from the clean roots, but record the failed root AND the honest limitation: once this run's
     # filing hydrates the aggregate, the failed root's still-undiscovered deferrals can no longer
     # be auto-filed by a later re-run (file-deferrals.py refuses a mixed hydrated/raw manifest
     # all-or-nothing), so recovering them means filing from that root's run-scoped manifest manually.
     DISCOVERY_STATE=partial
-    "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 deferral discovery was PARTIAL — at least one candidate root failed traversal: $(cat /tmp/devflow-dm.err); filing proceeds from the roots that searched cleanly. The failed root's deferrals are NOT filed this run, and once this run hydrates ${AGG} they cannot be auto-filed by a later re-run (file-deferrals.py refuses a mixed hydrated/raw manifest) — recover them by filing from that root's run-scoped manifest manually."
+    "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 deferral discovery was PARTIAL — at least one candidate root failed traversal: $(cat /tmp/devflow-dm.err); filing proceeds from the roots that did not fail (\`ok\`/\`absent\`; an \`absent\` root contributes nothing). The failed root's deferrals are NOT filed this run, and once this run hydrates ${AGG} they cannot be auto-filed by a later re-run (file-deferrals.py refuses a mixed hydrated/raw manifest) — recover them by filing from that root's run-scoped manifest manually."
 else
     # FAILED or REFUSED: every root failed traversal, OR the capture produced NO OUTPUT AT ALL (a
     # likely matcher denial of this unproven capture shape). Blank MANIFESTS so the merge guard is
