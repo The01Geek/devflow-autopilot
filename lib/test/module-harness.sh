@@ -397,20 +397,33 @@ _devflow_supervise_module() { # body-function supervisor-pid-file worker-pid-fil
   # enough slower on macOS (where fork/exec is costlier) to exceed the harness
   # test's 5s ceiling even though the rendezvous still failed boundedly — a
   # desk-only RED for macOS contributors, green on Linux CI (issue #641). A time
-  # budget makes the bound platform-independent: on any host the loop exits
-  # ~3s after starting regardless of how many polls fit in that window. SECONDS
-  # is a bash builtin timer that costs no per-poll fork; the supervisor runs
-  # inside a backgrounded ( ) subshell in both production callers
-  # (module-harness.sh full-suite and run-module.sh focused), so resetting it
-  # here has no caller-visible effect.
-  local rendezvous_deadline_seconds=3
+  # budget makes the bound platform-independent: the loop stops within
+  # rendezvous_deadline_seconds regardless of how many polls fit in that window.
+  # SECONDS is a bash builtin timer that costs no per-poll fork; its integer-
+  # second granularity means the deadline actually fires anywhere in
+  # [rendezvous_deadline_seconds-1, rendezvous_deadline_seconds) after the reset,
+  # depending on the sub-second phase of the SECONDS=0 assignment — bounded
+  # either way. rendezvous_max_polls is a fail-closed backstop that guarantees
+  # termination even if SECONDS never advances (a backward system-clock step —
+  # e.g. an NTP correction — after the reset would otherwise hang the loop with
+  # no timeout breadcrumb): it is set far above the polls a healthy clock fits in
+  # the deadline (~300 at the 10ms cadence), so it never fires first in normal
+  # operation and only bounds the clock-stall case. Callers MUST run the
+  # supervisor in a backgrounded ( ) subshell (both production callers do —
+  # module-harness.sh full-suite and run-module.sh focused) so the non-local
+  # SECONDS=0 reset stays contained to the supervisor and has no caller-visible
+  # effect; a `local SECONDS` cannot be used because that strips the special
+  # timer attribute.
+  local rendezvous_deadline_seconds=3 rendezvous_polls=0 rendezvous_max_polls=1000
 
   trap '_devflow_module_supervisor_signal HUP' HUP
   trap '_devflow_module_supervisor_signal INT' INT
   trap '_devflow_module_supervisor_signal TERM' TERM
   SECONDS=0
   while ! supervisor_pid="$(_devflow_test_read_pid "$supervisor_pid_file" 2>/dev/null)"; do
-    if [ "$SECONDS" -ge "$rendezvous_deadline_seconds" ]; then
+    rendezvous_polls=$((rendezvous_polls + 1))
+    if [ "$SECONDS" -ge "$rendezvous_deadline_seconds" ] || \
+      [ "$rendezvous_polls" -ge "$rendezvous_max_polls" ]; then
       printf 'devflow: module supervisor PID rendezvous timed out: %s\n' \
         "$supervisor_pid_file" >&2
       trap - HUP INT TERM
