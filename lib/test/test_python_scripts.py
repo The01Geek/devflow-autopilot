@@ -6903,7 +6903,9 @@ assert_eq("#543 AC18: validator accepts the real checked-in manifest",
 # tight-scoped, or when any grant COVERING a reachable helper widens the
 # executable trust boundary. The class list is deliberately not restated here —
 # check_grant_sync()'s docstring is its single source of truth, and an earlier
-# three-class copy of it here was already stale against the shipped five labels.
+# copy of it here was already stale against the shipped label set. (Nor is the
+# label COUNT restated: a hand-transcribed count rots on the next label added,
+# which is what happened to the count that briefly stood in this sentence.)
 # Non-vacuity is proven by injecting one synthetic defect at a time via
 # profile_grants=.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -7131,6 +7133,7 @@ for _spec, _why in (
         ("../scripts/workpad.py", "parent-relative path"),
         ("~/scripts/workpad.py", "home-relative path"),
         ("workpad.py", "bare basename, executable from anywhere on PATH"),
+        (".devflow/vendor/devflow/scripts/workpad.p?", "single-char '?' glob"),
 ):
     _gs_cover = _cw_healthy_grants()
     _gs_cover["implement"] += "\nTOOLS='Bash(%s:*)'" % _spec

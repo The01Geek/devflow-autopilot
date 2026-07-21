@@ -393,7 +393,8 @@ def unlisted_skill_assets():
 # check_grant_sync() enforces both directions over the three cloud profiles keyed
 # by ROOTS.
 #
-# KNOWN, DELIBERATE SCOPE LIMITS — two surfaces this guard does not measure.
+# KNOWN, DELIBERATE SCOPE LIMITS — three surfaces this guard does not measure.
+# Each is disclosed because an undisclosed non-goal reads as a closed hole.
 #
 # (i) Interpreter and wrapper grants. _ANY_BASH_GRANT_RE reads only the grant's
 # leading command-position token, so Bash(python3:*) yields 'python3', which
@@ -405,9 +406,33 @@ def unlisted_skill_assets():
 # light-command (the review profile deliberately grants NO python3 head; do not
 # "restore" one) — so flagging that class would turn the guard RED on the healthy
 # tree. AC9's stated scope is the path classes above; bounding the interpreter
-# surface is a separate policy question, tracked in the #650 follow-up.
+# surface is a separate policy question, tracked in the #650 follow-up. The same
+# leading-token truncation also hides a widened path in WRAPPER ARGUMENT
+# position: `Bash(python3 /home/x/workpad.py:*)` enumerates as `python3`, so the
+# absolute path beside it is never classified.
 #
-# (ii) Consumer-spliced grants. devflow-implement.yml's --allowed-tools baseline
+# (ii) Whole-file grant pooling. _grant_source_text returns the ENTIRE workflow
+# text, so every surviving `Bash(...)` in the file is pooled as that profile's
+# grants — there is no scoping to the profile's own TOOLS='…' / --allowed-tools
+# region. This is behavioural parity with the runtime validator's
+# extract_profile_grants, which reads whole-file the same way, but it is a
+# fail-open direction on arm (1) and is stated here rather than left implicit.
+# Measured on the review profile today: exactly two pooled tokens — `cargo` and
+# `go` — come from outside any grant-bearing line, both from a `run:` echo in
+# devflow-runner.yml naming them inside a user-facing warning string. (That pair
+# is the measurement, not an exhaustive class: re-derive it rather than trusting
+# this figure.) It is currently harmless — neither is a reachable
+# helper, so arm (1) ignores them and arm (2)'s coverage test rejects them — but
+# a `run:` line or doc string that mentions a VENDORED LITERAL (e.g. an echo
+# reading "grant it with Bash(.devflow/vendor/devflow/scripts/workpad.py:*)")
+# would satisfy arm (1) for a helper the profile does not actually grant. Region
+# scoping — anchored on the generated capability-manifest banner, failing closed
+# via the existing "grant source unavailable" violation when the region cannot be
+# located — is tracked in the #650 follow-up alongside the AC3 re-home, because
+# it belongs with extract-command-heads.py's authoritative scoper rather than as
+# a second hand-rolled parser here.
+#
+# (iii) Consumer-spliced grants. devflow-implement.yml's --allowed-tools baseline
 # is followed by a `${{ needs.config.outputs.allowed_tools_extra }}` splice, so a
 # consumer's devflow_implement.allowed_tools entries never appear in the file
 # this guard reads. A widened grant added there is outside the measured surface.
