@@ -219,6 +219,27 @@ for _s in $REVIEW_PHASE_STEMS; do
 done
 _build_skill_bundle "review-skill" "$REVIEW_BUNDLE" "${_review_members[@]}"
 
+# ── #614 create-issue is a BUNDLE too ────────────────────────────────────────
+# `/devflow:create-issue` is now a thin root plus marker-gated step and fallback
+# references, exactly like the two engines above — so it gets the SAME fail-closed
+# bundle treatment through the same builder. A pin asserting that a contract sentence
+# SURVIVES the split targets this concatenated bundle; a pin asserting a sentence lives
+# in a SPECIFIC surface (the root's non-degradable invariants, the fallback purity pins)
+# keeps its specific-file target. CI_REF_STEMS is the single source of the reference set,
+# so a reference can never be registered in one place and silently dropped from another.
+# The two template files (issue-template.md, audit-prompt-template.md) are deliberately
+# NOT members: the split left them unchanged and they carry their own pin targets, so
+# including them would only add uniqueness collisions for prose that never moved.
+CI_REF_STEMS="step-2-clarify step-3-5-steelman revision-delta step-3-6-audit step-4-present-create fallback-no-task-tool fallback-read-only-sandbox fallback-audit-dispatch-arms fallback-state-owner-unavailable"
+CREATE_ISSUE_ROOT="$LIB/../skills/create-issue/SKILL.md"
+CREATE_ISSUE_BUNDLE="$(mktemp)" || { echo "run.sh: could not allocate the create-issue-skill bundle temp" >&2; exit 1; }
+_suite_tmp_file "$CREATE_ISSUE_BUNDLE"
+_ci_members=("$CREATE_ISSUE_ROOT")
+for _s in $CI_REF_STEMS; do
+  _ci_members+=("$LIB/../skills/create-issue/references/${_s}.md")
+done
+_build_skill_bundle "create-issue-skill" "$CREATE_ISSUE_BUNDLE" "${_ci_members[@]}"
+
 PASS=0
 FAIL=0
 
@@ -4152,7 +4173,7 @@ assert_eq "#620: both extension loads sit in the entry preamble, own load first"
 #    rule is reworded away). File vars: $MAXI_SKILL (review-and-fix), $IMPL_SKILL (implement
 #    orchestrator+phase bundle, includes phase-2 and phase-3), create-issue SKILL + template.
 CI312_TMPL="$LIB/../skills/create-issue/references/issue-template.md"
-CI312_SKILL="$LIB/../skills/create-issue/SKILL.md"
+CI312_SKILL="$CREATE_ISSUE_BUNDLE"   # #614: content-survival target — the split bundle, not the root alone
 # item 1 — Step 4.5 severity/surface weighting of convergence
 assert_pin_unique "#312 item 1: Step 4.5 weighs convergence by severity and surface (code-only tally)" \
   'Weigh convergence by severity and surface' "$MAXI_SKILL"
@@ -15366,7 +15387,7 @@ assert_pin_unique "#476: Phase 4.3 clean-tree backstop classifies leftover .devf
 # runner-neutral total-question budget, and enumerates options in-text when the tool has
 # no structured-choice affordance. Removal-proof presence pins (assert_pin_unique fails
 # closed if the literal is deleted or paraphrased). Literals are apostrophe-free + unique.
-CI_SKILL_242="$LIB/../skills/create-issue/SKILL.md"
+CI_SKILL_242="$CREATE_ISSUE_BUNDLE"   # #614: content-survival target — the split bundle, not the root alone
 CI_OVERVIEW_242="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 assert_pin_unique "#242 A1: create-issue names AskUserQuestion as the canonical example (runner-neutral)" \
   '`AskUserQuestion` (Claude Code, the canonical example)' "$CI_SKILL_242"
@@ -15418,7 +15439,7 @@ assert_eq "#242 docs: overview dropped the round-based cap phrasing" "yes" \
 # the #242 per-site completeness rationale (a revert of any one reworded clause turns its own
 # pin RED, not a neighbor's). Surface-presence/absence pins (the #242 A1/A2 classification) —
 # no assert_pin_red_under obligation. Literals are apostrophe-free ASCII, unique, single-line.
-CI_SKILL_560="$LIB/../skills/create-issue/SKILL.md"
+CI_SKILL_560="$CREATE_ISSUE_BUNDLE"   # #614: content-survival target — the split bundle, not the root alone
 # AC1: the four mandate-sentence elements — abstraction, canonical example, equivalents, fallback route.
 assert_pin_unique "#560 AC1: mandate names the runner-neutral task-tracking abstraction" \
   'set up progress tracking for exactly the seven items below using the task-tracking tool the runner exposes' "$CI_SKILL_560"
@@ -15475,7 +15496,7 @@ assert_eq "#560 AC1: create-issue dropped the sole TodoWrite mandate literal" "y
 # are removal-proof presence pins on the operative sentences (assert_pin_unique fails closed
 # if the literal is deleted or paraphrased), per the issue's testing strategy: pin the
 # behavior, not merely the absence of "goes quiet". Literals are apostrophe-free + unique.
-CI_SKILL_256="$LIB/../skills/create-issue/SKILL.md"
+CI_SKILL_256="$CREATE_ISSUE_BUNDLE"   # #614: content-survival target — the split bundle, not the root alone
 assert_pin_unique "#256 AC2: create-issue classifies a silent non-response as NOT disengagement" \
   'A silent non-response is not disengagement — never proceed on silence' "$CI_SKILL_256"
 assert_pin_unique "#256 AC2: create-issue requires re-asking the unanswered question in the final chat message" \
@@ -15520,7 +15541,7 @@ assert_eq "#256 AC1: create-issue removed the goes-quiet disengagement trigger" 
 # preferred-not-mandatory substitute rule (AC7), the non-UI false-positive guard (AC8),
 # and the Blocked-section route (AC9). Every #272 AC maps to at least one pin (AC3/AC4/AC5
 # added after a Phase-3 review found them orphaned and the header over-claiming AC5).
-CI_SKILL_272="$LIB/../skills/create-issue/SKILL.md"
+CI_SKILL_272="$CREATE_ISSUE_BUNDLE"   # #614: content-survival target — the split bundle, not the root alone
 CI_TEMPLATE_272="$LIB/../skills/create-issue/references/issue-template.md"
 CI_OVERVIEW_272="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 # AC6: the template carries the new Visual Specification section heading …
@@ -15839,6 +15860,8 @@ assert_eq "#275 pin (P0): portable-anchor coverage spans every skill + implement
 # The #529/#530 bundle splits moved authoritative procedure — helper call sites included —
 # out of the two SKILL.md roots and into skills/review/phases/*.md and
 # skills/review-and-fix/references/*.md. Those families were outside the loop above, so a
+# skills/create-issue/references/*.md joined that families list with the #614 split, which
+# relocated the label-helper call sites out of the create-issue root. A
 # fragile anchor introduced in a reference file was unguarded (issue #528 added a new
 # `${CLAUDE_SKILL_DIR:-…}` call site to references/fixing.md with no pin covering it).
 # They get the same absence + completeness pins. The P3 PRESENCE pin is deliberately
@@ -15847,7 +15870,7 @@ assert_eq "#275 pin (P0): portable-anchor coverage spans every skill + implement
 # so it fires only on a file that references the anchor, where dropping the sanctioned form
 # is a real regression.
 PA_REF_COUNT=0
-for PA_FILE in "$LIB"/../skills/review/phases/*.md "$LIB"/../skills/review-and-fix/references/*.md; do
+for PA_FILE in "$LIB"/../skills/review/phases/*.md "$LIB"/../skills/review-and-fix/references/*.md "$LIB"/../skills/create-issue/references/*.md; do
   PA_NAME="skills/${PA_FILE#"$LIB"/../skills/}"
   PA_REF_COUNT=$((PA_REF_COUNT + 1))
   assert_eq "#275 pin (R1): $PA_NAME has no bare \$CLAUDE_SKILL_DIR/../../ expansion" "yes" \
@@ -15866,8 +15889,8 @@ for PA_FILE in "$LIB"/../skills/review/phases/*.md "$LIB"/../skills/review-and-f
   assert_eq "#275 pin (R3): $PA_NAME: any anchor mention uses the portable single-statement inline form" "yes" \
     "$(if grep -qF 'CLAUDE_SKILL_DIR' "$PA_FILE"; then grep -qF "$PORTABLE_ANCHOR_LITERAL" "$PA_FILE" && echo yes || echo no; else echo yes; fi)"  # raw-guard-ok: loop body: conditional presence pin over the enumerated $PA_FILE loop variable
 done
-assert_eq "#275 pin (R0): portable-anchor coverage spans every review phase + fix-loop reference file (enumeration reconciled)" \
-  "18" "$PA_REF_COUNT"
+assert_eq "#275 pin (R0): portable-anchor coverage spans every review phase + fix-loop + create-issue reference file (enumeration reconciled)" \
+  "29" "$PA_REF_COUNT"
 # Mutation proof (PASS->FAIL, self-contained): the absence EREs must actually MATCH the
 # two fragile forms they exist to reject — an ERE typo would leave P1/P2 green forever
 # (vacuous absence pins). Inject each fragile form into a temp copy of a migrated file
@@ -15905,10 +15928,14 @@ if [ "$PA_MUT" != "/dev/null" ]; then
 fi
 # Positive per-call-site companions (formerly #241 A2b), retargeted to the inline form:
 # the label helpers must route through the portable anchor, uniquely.
+# #614: the split relocated two of these three call sites, so each pin follows the file
+# that now carries it — the label helpers to the Step 4 reference, the extension load to
+# the root preamble that still performs it (Step 2's re-load names the loader with a
+# --section flag, a different literal, so the root target stays unique).
 assert_pin_unique "#275 pin (A2b): create-issue invokes ensure-label.sh through the inline portable anchor" \
-  "$PORTABLE_ANCHOR_LITERAL"'scripts/ensure-label.sh DevFlow' "$LIB/../skills/create-issue/SKILL.md"
+  "$PORTABLE_ANCHOR_LITERAL"'scripts/ensure-label.sh DevFlow' "$LIB/../skills/create-issue/references/step-4-present-create.md"
 assert_pin_unique "#275 pin (A2b): create-issue invokes apply-labels.sh through the inline portable anchor" \
-  "$PORTABLE_ANCHOR_LITERAL"'scripts/apply-labels.sh <issue_number> DevFlow' "$LIB/../skills/create-issue/SKILL.md"
+  "$PORTABLE_ANCHOR_LITERAL"'scripts/apply-labels.sh <issue_number> DevFlow' "$LIB/../skills/create-issue/references/step-4-present-create.md"
 assert_pin_unique "#275 pin (A2b): create-issue invokes load-prompt-extension.sh through the inline portable anchor" \
   "$PORTABLE_ANCHOR_LITERAL"'scripts/load-prompt-extension.sh create-issue' "$LIB/../skills/create-issue/SKILL.md"
 # P4 — the shared "Portable helper anchor (single-statement)" preamble paragraph is a
@@ -16091,7 +16118,7 @@ assert_eq "#332 fallback: resolved root gone from disk → specific (not generic
 # same change per the AC). The draft is written at the resolved main root and displayed at
 # the BOUND-root absolute path (issue #569: the display reads the root back from
 # query-draft-binding's `bound=` field); no bare-relative displayed draft-save note remains.
-CI_SKILL_332="$LIB/../skills/create-issue/SKILL.md"
+CI_SKILL_332="$CREATE_ISSUE_BUNDLE"   # #614: content-survival target — the split bundle, not the root alone
 assert_pin_unique "#332 AC4: create-issue resolves the main root via resolve-main-root.sh (portable anchor)" \
   'MAIN_ROOT="$('"$PORTABLE_ANCHOR_LITERAL"'scripts/resolve-main-root.sh)"' "$CI_SKILL_332"
 # #569: the record-draft-binding statement is a SEPARATE bash fence, so it cannot read the
@@ -35911,10 +35938,16 @@ assert_eq "#375 pin-corpus-lint helper exists" "yes" "$([ -f "$PCL" ] && echo ye
 # Runtime-resolved target-file bindings the static scanner cannot derive itself: DEF_SKILL /
 # IMPL_SKILL_BUNDLE are the mktemp'd implement-skill bundle (markdown, no extension → --md);
 # the $LIB-relative ones the helper resolves on its own, but binding them explicitly is harmless.
-_PCL_ARGS=( --lib "$LIB" --md "$DEF_SKILL" --md "$IMPL_SKILL_BUNDLE" --md "$REVIEW_BUNDLE"
+_PCL_ARGS=( --lib "$LIB" --md "$DEF_SKILL" --md "$IMPL_SKILL_BUNDLE" --md "$REVIEW_BUNDLE" --md "$CREATE_ISSUE_BUNDLE"
   --var "MAXI_SKILL=$MAXI_SKILL" --var "DEF_SKILL=$DEF_SKILL"
   --var "IMPL_SKILL_BUNDLE=$IMPL_SKILL_BUNDLE"
   --var "REVIEW_BUNDLE=$REVIEW_BUNDLE" --var "REVIEW_ROOT=$REVIEW_ROOT"
+  # #614: the create-issue pins retargeted onto the split bundle; several vars all equal
+  # $CREATE_ISSUE_BUNDLE, so bind each to keep its pins RESOLVABLE rather than silently exempt.
+  --var "CREATE_ISSUE_BUNDLE=$CREATE_ISSUE_BUNDLE" --var "CREATE_ISSUE_ROOT=$CREATE_ISSUE_ROOT"
+  --var "CI312_SKILL=$CREATE_ISSUE_BUNDLE" --var "CI_SKILL_242=$CREATE_ISSUE_BUNDLE"
+  --var "CI_SKILL_560=$CREATE_ISSUE_BUNDLE" --var "CI_SKILL_256=$CREATE_ISSUE_BUNDLE"
+  --var "CI_SKILL_272=$CREATE_ISSUE_BUNDLE" --var "CI_SKILL_332=$CREATE_ISSUE_BUNDLE"
   --var "ST_RAF=$ST_RAF" --var "ST_REV=$ST_REV" --var "ST_RCV=$ST_RCV"
   # #530: the review-and-fix pins now target the root+references bundle ($MAXI_BUNDLE).
   # These vars all equal $MAXI_BUNDLE (some are defined later in run.sh than this line),
@@ -36268,6 +36301,17 @@ echo "#591: pin-corpus meta-lints cover registered module files"
 # bundle temps stay unresolved/surfaced).
 CI_MOD_VARS=(
   --var "CI_SKILL=skills/create-issue/SKILL.md"
+  --var "CI_BUNDLE=$CREATE_ISSUE_BUNDLE"
+  --var "CI_REF_STEP2=skills/create-issue/references/step-2-clarify.md"
+  --var "CI_REF_STEP35=skills/create-issue/references/step-3-5-steelman.md"
+  --var "CI_REF_REVDELTA=skills/create-issue/references/revision-delta.md"
+  --var "CI_REF_STEP36=skills/create-issue/references/step-3-6-audit.md"
+  --var "CI_REF_STEP4=skills/create-issue/references/step-4-present-create.md"
+  --var "CI_REF_FB_NOTASK=skills/create-issue/references/fallback-no-task-tool.md"
+  --var "CI_REF_FB_READONLY=skills/create-issue/references/fallback-read-only-sandbox.md"
+  --var "CI_REF_FB_DISPATCH=skills/create-issue/references/fallback-audit-dispatch-arms.md"
+  --var "CI_REF_FB_STATEOWNER=skills/create-issue/references/fallback-state-owner-unavailable.md"
+  --var "CI_TMPL_AUDIT=skills/create-issue/references/audit-prompt-template.md"
   --var "CI_TMPL=skills/create-issue/references/issue-template.md"
   --var "CI_EXT=.devflow/prompt-extensions/create-issue.md"
   --var "CI_OVERVIEW=docs/DEVFLOW_SYSTEM_OVERVIEW.md"
@@ -36292,8 +36336,9 @@ done
 # create-issue-contract.sh carries the module corpus's namespaced pins whose targets need
 # --var resolution, so a regression breaking that resolution would leave every pin
 # UNRESOLVED (surfaced, not asserted) and the wrapped guard would scan nothing while still
-# reading clean. Pin a RESOLVED-COUNT floor over its wrapped scan (today only the two
-# runtime bundle temps stay unresolved) so a resolution regression turns RED, not green.
+# reading clean. Pin a RESOLVED-COUNT floor over its wrapped scan (the module-internal
+# runtime bundle temps stay unresolved; $CI_BUNDLE is bound above so its pins do resolve)
+# so a resolution regression turns RED, not green.
 _CI_WRAP_ERR="$(mktemp)"
 python3 "$PCL" wrapped "$LIB/test/modules/create-issue-contract.sh" --lib "$LIB" "${CI_MOD_VARS[@]}" >/dev/null 2>"$_CI_WRAP_ERR" || true
 _CI_WRAP_RESOLVED="$(grep '^RESOLVED-COUNT' "$_CI_WRAP_ERR" 2>/dev/null | tail -1)"; _CI_WRAP_RESOLVED="${_CI_WRAP_RESOLVED##*$'\t'}"
@@ -48346,7 +48391,7 @@ fi
 # The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/create-issue-contract.sh" \
-  "create-issue-contract" 279; then
+  "create-issue-contract" 360; then
   printf 'ERROR: create-issue-contract boundary could not record its result\n'
   exit 1
 fi
