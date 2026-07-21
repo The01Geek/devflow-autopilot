@@ -43,7 +43,6 @@ import fnmatch
 import hashlib
 import importlib.util
 import json
-import os
 import re
 from pathlib import Path
 
@@ -55,20 +54,26 @@ def _load_sibling(module_name, filename):
     """Import a hyphenated sibling helper in lib/test/ by path.
 
     `lib/test/` carries no package `__init__.py` and its helpers are named with
-    hyphens, so a plain import cannot reach them. This is the same dynamic-load
-    idiom extract-command-shapes.py already uses to reach extract-command-heads.py
-    — reused here rather than re-derived so all three modules agree on what a
-    fenced command, a statement, and an allowlist region are.
+    hyphens, so a plain import cannot reach them. This copies the dynamic-load
+    idiom extract-command-shapes.py uses to reach extract-command-heads.py; there
+    is no shared loader in this tree to call instead.
     """
-    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
+    path = Path(__file__).resolve().parent / filename
     spec = importlib.util.spec_from_file_location(module_name, path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
-_heads = _load_sibling("extract_command_heads", "extract-command-heads.py")
 _shapes = _load_sibling("extract_command_shapes", "extract-command-shapes.py")
+# Reach extract-command-heads.py through the instance _shapes ALREADY loaded
+# rather than exec-ing that module a second time. Beyond the duplicate import
+# cost (this module is imported by scripts/validate-cloud-writer-contract.py's
+# pre-agent validator), a second exec would produce a DISTINCT module object, so
+# the two guards would only agree about what a fenced command, a statement, and
+# an allowlist region are by coincidence of identical source. Sharing one
+# instance makes that agreement structural.
+_heads = _shapes._heads
 
 PROTOCOL = "devflow-cloud-writer-contract-v1"
 
@@ -544,9 +549,9 @@ SANCTIONED_WILDCARD_GRANTS = {
 # silently inherit the retired whole-file read, which is precisely the fail-open
 # scope limit (ii) this mapping retires.
 GRANT_REGION_EXTRACTORS = {
-    "implement": "allowed-tools-block",
-    "light-command": "tools-line",
-    "review": "tools-line",
+    "implement": _heads.implement_allowlist_block,
+    "light-command": _heads.tools_allowlist_line,
+    "review": _heads.tools_allowlist_line,
 }
 
 
@@ -561,13 +566,7 @@ def _scope_grant_region(profile, text):
     aborting the whole run. Never falls back to the whole text: an unlocatable
     region is unknown, and unknown is not "everything".
     """
-    kind = GRANT_REGION_EXTRACTORS.get(profile)
-    if kind is None:
-        return None
-    extractor = {
-        "tools-line": _heads.tools_allowlist_line,
-        "allowed-tools-block": _heads.implement_allowlist_block,
-    }.get(kind)
+    extractor = GRANT_REGION_EXTRACTORS.get(profile)
     if extractor is None:
         return None
     try:
@@ -614,8 +613,9 @@ def _grant_source(profile, profile_grants):
         return (None, "workflow file unreadable or not valid UTF-8")
     region = _scope_grant_region(profile, raw)
     if region is None:
+        extractor = GRANT_REGION_EXTRACTORS.get(profile)
         return (None, "grant-bearing region could not be located in the workflow "
-                      f"(extractor: {GRANT_REGION_EXTRACTORS.get(profile, 'none declared')})")
+                      f"(extractor: {extractor.__name__ if extractor else 'none declared'})")
     return (region, None)
 
 
@@ -822,10 +822,13 @@ def check_grant_sync(profile_grants=None):
 #
 # `rules` is read from extract-command-shapes.py rather than mirrored, so a rule
 # added there cannot leave a stale copy here.
+# `finder` binds the function OBJECT, matching its sibling `rules` key: a renamed
+# finder then fails at import here rather than at call time through a getattr on
+# a stale name string.
 PROFILE_SHAPE_TABLES = {
-    "implement": {"rules": _shapes.IMPLEMENT_RULES, "finder": "find_implement_violations"},
+    "implement": {"rules": _shapes.IMPLEMENT_RULES, "finder": _shapes.find_implement_violations},
     "light-command": None,
-    "review": {"rules": _shapes.REVIEW_RULES, "finder": "find_violations"},
+    "review": {"rules": _shapes.REVIEW_RULES, "finder": _shapes.find_violations},
 }
 
 
@@ -850,21 +853,21 @@ def shape_violations_in(profile, asset, text):
     """Denied-shape hits ``(line, rule, statement)`` for one asset under one profile.
 
     Returns an empty list for a profile whose declared table is ``None`` (no
-    probe-anchored rules to apply). Raises ``KeyError`` for a profile with no
-    declared entry at all — that is a contract error the caller reports as a
-    violation, deliberately distinct from the declared-no-table case.
+    probe-anchored rules to apply). A profile with no declared entry at all
+    raises ``KeyError``; ``check_shape_conformance`` filters those out before
+    calling, so only a direct (test) caller can reach that path.
     """
     table = PROFILE_SHAPE_TABLES[profile]
     if table is None:
         return []
-    return list(getattr(_shapes, table["finder"])(text))
+    return table["finder"](text)
 
 
 def check_shape_conformance():
     """AC4 guard. Return a list of human-readable violations (empty == OK)."""
     errors = []
-    undeclared = sorted(set(ROOTS) - set(PROFILE_SHAPE_TABLES))
-    for profile in undeclared:
+    declared = set(PROFILE_SHAPE_TABLES)
+    for profile in sorted(set(ROOTS) - declared):
         errors.append(
             f"AC4 shapes: profile '{profile}' has no shape rule table declared in "
             f"PROFILE_SHAPE_TABLES — declare its probe-anchored table, or None with "
@@ -880,7 +883,7 @@ def check_shape_conformance():
         except (OSError, UnicodeDecodeError) as exc:
             errors.append(f"AC4 shapes: reached asset '{asset}' could not be read: {exc}")
             continue
-        for profile in sorted(profiles - set(undeclared)):
+        for profile in sorted(profiles & declared):
             for lineno, rule, statement in shape_violations_in(profile, asset, text):
                 oneline = " ".join(statement.split())
                 if len(oneline) > 120:

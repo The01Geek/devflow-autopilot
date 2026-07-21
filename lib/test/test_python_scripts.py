@@ -7447,17 +7447,18 @@ for _sc_profile, _sc_table in sorted(cwc.PROFILE_SHAPE_TABLES.items()):
         continue
     _sc_asset = next(a for a, p in sorted(_sc_audited.items()) if _sc_profile in p)
     _sc_body = (cwc.REPO_ROOT / _sc_asset).read_text(encoding="utf-8")
+    # Non-vacuity of every control below: the UNMUTATED asset is clean, so each
+    # RED is the planted defect and not a pre-existing hit. Asserted once per
+    # (profile, asset) rather than once per rule — the baseline does not vary
+    # with the rule being planted.
+    assert_eq("#678 AC8: %s is clean under %s before any plant" % (_sc_asset, _sc_profile),
+              [], cwc.shape_violations_in(_sc_profile, _sc_asset, _sc_body))
     for _sc_rule in sorted(_sc_table["rules"]):
         _sc_mutated = _sc_body + "\n```bash\n%s\n```\n" % _sc_planted[_sc_rule]
         _sc_hits = cwc.shape_violations_in(_sc_profile, _sc_asset, _sc_mutated)
         assert_eq("#678 AC8: planting a %s violation in %s is observed RED under the "
                   "%s profile" % (_sc_rule, _sc_asset, _sc_profile),
                   True, any(_sc_rule == rule for _, rule, _ in _sc_hits))
-        # Non-vacuity of the control itself: the UNMUTATED asset is clean, so the
-        # RED above is the planted defect and not a pre-existing hit.
-        assert_eq("#678 AC8: %s under %s is clean before the %s plant" %
-                  (_sc_asset, _sc_profile, _sc_rule),
-                  [], cwc.shape_violations_in(_sc_profile, _sc_asset, _sc_body))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Cloud-writer trust-closure dependency classification (issue #583, AC5).
