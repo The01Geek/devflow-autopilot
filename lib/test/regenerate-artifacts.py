@@ -449,7 +449,7 @@ def conflict_paths(row, root):
 
     Two sources, both keyed on a DECLARED FIELD — never on the row's name. Keying on a name
     string is the "proxy instead of the real property" that `is_budget_row`'s docstring
-    argues against forty lines above: a row rename is an ordinary registry edit, and under a
+    argues against: a row rename is an ordinary registry edit, and under a
     name check it would silently drop the generator-sourced workflow literals with no field
     anywhere declaring that the name was load-bearing.
 
@@ -727,6 +727,25 @@ for _row in ROWS:
         )
     if not (_row.get("policy") or "").strip():
         raise ValueError(f"registry row {_row['name']!r} declares an empty recipe (policy)")
+    # A row must declare SOME static path source, checked at the same import-time point as the two
+    # above rather than left to KeyError inside emit_list: the neighbouring validations chose import
+    # deliberately ("every entry path hits it"), and a row that reaches `--list` before failing has
+    # already been handed to a consumer.
+    # Membership is not enough: `"conflict_paths": ()` satisfies `in` and short-circuits the
+    # writes/record fallback, so the row resolves to NO path and the shipped rule routes its
+    # artifact to the hand-merge default — the fail-open the rule exists to close, reached
+    # through the one invariant #655 states and nothing enforced. Require a non-empty source.
+    if "conflict_paths" in _row:
+        if not tuple(_row["conflict_paths"]):
+            raise ValueError(
+                f"registry row {_row['name']!r} declares an empty conflict_paths; "
+                "a row must resolve to at least one conflict path"
+            )
+    elif not any(k in _row for k in ("writes", "record")):
+        raise ValueError(
+            f"registry row {_row['name']!r} declares no conflict-path source "
+            "(needs one of conflict_paths / writes / record)"
+        )
 
 
 def emit_list(root):
@@ -763,6 +782,20 @@ def emit_list(root):
     # One pass over ROWS rather than one pass per line kind: every consumer lookup is
     # prefix-anchored (`conflict-path\t<row>\t…`), so nothing depends on the kinds being
     # grouped, and a single loop keeps "what one row emits" readable in one place.
+    # No path may be claimed by two rows: the conflict rule reads the matched path's class, so a
+    # duplicate would yield two contradictory classes with no stated tiebreak. Resolution is
+    # root-dependent (the capability row derives its workflow literals), so this cannot move to the
+    # import-time bind loop; it raises here and the top-level net routes it to the exit-2
+    # infrastructure state — never a listing a consumer could act on.
+    _seen_paths = {}
+    for row in ROWS:
+        for path in conflict_paths(row, root):
+            if path in _seen_paths:
+                raise ValueError(
+                    f"conflict path {path!r} is claimed by both {_seen_paths[path]!r} and "
+                    f"{row['name']!r}; a path must resolve to exactly one conflict class"
+                )
+            _seen_paths[path] = row["name"]
     for row in ROWS:
         print(f"conflict-class\t{row['name']}\t{row['conflict_class']}")
         for path in conflict_paths(row, root):

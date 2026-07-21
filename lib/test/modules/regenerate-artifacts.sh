@@ -1406,6 +1406,26 @@ _ra_region_fails_infra "an absent capability generator" \
 _ra_region_fails_infra "an empty generator REGIONS list" \
   "sed -E 's/^REGIONS = \\[\$/REGIONS = []  # mutated/' lib/generate-capability-profiles.py > .rg.tmp && mv .rg.tmp lib/generate-capability-profiles.py"
 
+# ── (f3) a row declaring no path source, and a path claimed by TWO rows, fail closed ──
+# Both are the same fail-open one level in: without them a misregistered row reaches a consumer
+# either with no path at all, or with a path resolving to two contradictory classes the rule has
+# no stated tiebreak for. `_ra_bind_fails_closed` drives each end-to-end (non-zero exit plus the
+# breadcrumb that names the offence), so neither can regress to a silent listing.
+_ra_bind_fails_closed "an empty conflict_paths tuple" \
+  's/"conflict_paths": \("lib\/test\/prompt-mass-baseline.json",\)/"conflict_paths": ()/' \
+  "declares an empty conflict_paths" "at least one conflict path"
+_ra_bind_fails_closed "a row declaring no conflict-path source" \
+  's/"conflict_paths": \("lib\/test\/modules\/coverage-map.json",\),//' \
+  "declares no conflict-path source" "coverage-map-ratchet"
+# Point the prompt-mass row at a path the cloud-writer row already owns.
+_ra_bind_fails_closed "a conflict path claimed by two rows" \
+  's/"conflict_paths": \("lib\/test\/prompt-mass-baseline.json",\)/"conflict_paths": ("scripts\/devflow-cloud-writer-contract.json",)/' \
+  "is claimed by both" "exactly one conflict class"
+# The live registry must actually satisfy the uniqueness invariant the emit enforces — the
+# positive control, so the arms above are not the only evidence that duplicates are impossible.
+assert_eq "#655 no conflict-path value is claimed by more than one row (live registry)" "" \
+  "$(sed -n 's/^conflict-path	[^	]*	//p' "$RA_C_LIST_F" | sort | uniq -d)"
+
 # ── (g) the recipe is a SINGLE source: `policy`, read by BOTH consumers ──────────
 # A parallel `conflict_recipe` field would let the batched pass and the conflict rule
 # drift — the coupled-mirror hazard. Two halves: no such field exists, and the string the
@@ -1464,7 +1484,10 @@ assert_eq "#655 the superseded narrow prompt-mass conflict sentence is gone" "0"
 
 # The generic, repo-agnostic pointer each in-run conflict arm carries. It names no
 # DevFlow-internal helper, so it stays correct in the vendored/shipped surfaces.
-RA_ARM_POINTER='When the conflict is in a checked-in generated or derived artifact, do not hand-merge its bytes — regenerate the artifact or reconcile its source of truth per your repo'
+# The pointer carries its own fail-closed default: without one it states a prohibition the agent
+# has no way to evaluate in a repo with no guidance, and falls through to the surrounding
+# resolve-it-yourself arm — hand-merging exactly what the sentence forbids.
+RA_ARM_POINTER='if you cannot establish whether the conflicted file is generated, stop and mark it needs-human-reconciliation rather than hand-merging'
 devflow_module_pin_unique "#655 the implement checkpoint CONFLICT arm carries the generic pointer" \
   "$RA_ARM_POINTER" "$RA_REPO/skills/implement/phases/phase-1-setup.md"
 devflow_module_pin_unique "#655 the review-and-fix CONFLICT arm carries the generic pointer" \

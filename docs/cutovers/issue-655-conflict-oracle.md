@@ -22,8 +22,8 @@ Two mandatory-surface ceilings for the review-and-fix bundle were renegotiated:
 
 | ceiling | before | after | measured after |
 | --- | --- | --- | --- |
-| root + always-loaded extensions (initial load) | 7,653 | 8,467 | 8,463 |
-| root + always-loaded extensions + max active step | 18,915 | 19,729 | 19,725 |
+| root + always-loaded extensions (initial load) | 7,734 | 8,686 | 8,682 |
+| root + always-loaded extensions + max active step | 18,996 | 19,948 | 19,944 |
 
 The plugin-root ceiling (3,567) is **unchanged** — the root gained no words. Every renegotiated
 ceiling carries the repo's usual ~4 words over the measurement, for the reason #556/#619/#618
@@ -35,8 +35,9 @@ Issue #655 requires a generalized regenerate-on-conflict rule, stated **byte-ide
 own top-level section of all three DevFlow prompt extensions (`implement.md`,
 `review-and-fix.md`, `receiving-code-review.md`). Since issue #620 **two** of those three —
 `review-and-fix.md` and `receiving-code-review.md` — sit on this bundle's always-loaded surface,
-so the rule lands on the initial load twice. The measured cost is +814 words on the initial load
-and, transitively, on the max-active-step figure.
+so the rule lands on the initial load twice. The measured cost is +952 words on the initial load and,
+transitively, on the max-active-step figure (measured against the tree merged with `main`, whose
+issue #640 had already moved the ceilings to 7,734 / 18,996).
 
 The section could not be shrunk past its operative minimum without dropping something AC7 pins:
 it must cite `regenerate-artifacts.py --list` as the oracle, match the conflicted path against the

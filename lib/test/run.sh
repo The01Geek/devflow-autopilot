@@ -36479,8 +36479,8 @@ RAF_ROOT_CEIL=3567
 # one-sentence edit a budget breach. The growth is the audited decision recorded in
 # docs/cutovers/issue-655-conflict-oracle.md; update docs/review-and-fix-budget.md's
 # ceilings-table cells in lockstep.
-RAF_LOAD_CEIL=__LOAD__
-RAF_MAXSTEP_CEIL=__MAXSTEP__
+RAF_LOAD_CEIL=8686
+RAF_MAXSTEP_CEIL=19948
 assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
   "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"
 assert_eq "#530 budget: root + always-loaded extensions (initial load) <= $RAF_LOAD_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W)))" "yes" \
@@ -36534,7 +36534,7 @@ done
 assert_eq "#620 budget: maintainer note's prose root ceiling matches RAF_ROOT_CEIL ($RAF_ROOT_CEIL)" "yes" \
   "$(case "$_raf_doc_nocommas" in *"The root sits below its ${RAF_ROOT_CEIL}-word"*) echo yes;; *) echo no;; esac)"
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +__GROWTH__ words' \"$RAF_BUDGET_DOC\"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +5,125 words' \"$RAF_BUDGET_DOC\"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute
@@ -36563,7 +36563,7 @@ assert_eq "#530 budget: doc cumulative-path words cell matches fresh measurement
 # — which restates the cumulative, the BEFORE basis, and the peak — went stale under this change's
 # ceiling renegotiation and shipped desk-green past the pin below (the #539 stale-cell class, one
 # level in). Bind those three body figures to the same live measurements. Commas are stripped so
-# the doc's rendering (`44,412`) matches the computed integer, exactly as the sibling row checks do.
+# the doc's comma-separated rendering matches the computed integer, as the sibling row checks do.
 _raf_body="$(tr -d ',' < "$RAF_BUDGET_DOC")"
 assert_eq "#655 budget: the growth bullet body's cumulative figure matches fresh measurement ($RAF_CUM_W)" "yes" \
   "$(case "$_raf_body" in *"is $RAF_CUM_W words vs."*) echo yes;; *) echo no;; esac)"
