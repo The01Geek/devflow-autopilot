@@ -4,6 +4,53 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.19.9] — 2026-07-21
+
+### Fixed
+- **`/devflow:implement`'s outcome-reaction fence no longer addresses the repository through an
+  Actions-only environment variable in its `gh api` REST path.** The fallback triggering-comment lookup now uses the
+  `{owner}/{repo}` placeholders `gh` fills from the git remote, so it resolves on the
+  local/interactive tier instead of collapsing to an empty repo segment and issuing a doomed API
+  call at every terminal `Status` transition. The fence additionally admits a resolved comment id
+  only when it is a bare digit string: `gh` writes an HTTP error body to **stdout**, so the
+  previous non-empty check could be satisfied by a 404 payload and pass it downstream as a
+  comment id — on the cloud tier that could POST a malformed reaction and append a misleading
+  note to the issue workpad whenever the comment listing failed. A new stdlib-only guard,
+  `lib/test/lint-gh-api-repo-path.py`, audits the tracked-and-unignored files outside the
+  Actions-only directories and its own documented exclusion set (the prose surfaces that state
+  the rule and the machine-appended corpora that quote it), and fails the suite if the form is
+  reintroduced. (#664)
+
+## [2.19.8] — 2026-07-21
+
+### Added
+- **Cloud per-agent-effort seam probe (issue #610, carried from #554).** Adds
+  `.github/workflows/agents-seam-probe.yml` — a repo-internal, human-dispatch probe
+  (mirroring `matcher-probe.yml`) that empirically establishes whether
+  `claude-code-action` forwards a startup `--agents` JSON from `claude_args` (fact i,
+  deterministically measured) and whether an `effort` on that startup agent-definition
+  governs a runtime Agent-tool dispatch (fact ii, human-adjudicated from the subagent's
+  self-report). Its verdict is computed by the unit-tested helper
+  `scripts/agents-seam-probe-verdict.py` (SEAM_PROVEN / SEAM_FORWARDED / SEAM_UNPROVEN /
+  INCONCLUSIVE), and the spike-gated *applied arm* ships only on `SEAM_PROVEN` — which
+  requires the explicit human `--adjudicated-governed` flag. The probe is authored but
+  not yet dispatched, so the seam stays unproven, the cloud per-agent-effort row remains
+  honest fallback identical to local, and no per-agent effort application code ships (AC1's
+  own contingency). Evidence of record: `docs/agents-seam-probe.md`; `docs/review-agent-overrides.md`
+  is reconciled to point at the probe. (#610)
+
+## [2.19.7] — 2026-07-21
+
+### Added
+- **Relocation-drift discovery in the implement-time changed-contract sweep.** Phase 2.3.0
+  now arms on relocation of a prose literal, heading, section, or file path — not only a code
+  symbol — mandating a whitespace-normalized + rendered-surface enumeration of the moved
+  content's old-location citations (recovered from the working-tree diff's deletion hunks or a
+  `git diff --name-status` rename/deletion entry) so a single-branch relocation stops leaving
+  an orphaned pin. `lib/test/pin-corpus-lint.py` gains an opt-in `--reloc` relocation-diagnosis
+  net on the `wrapped` guard's `ABSENT` branch that turns a bare `ABSENT` into `relocated to
+  <file>` (or a genuine deletion), fail-closed on an unresolvable/empty search set. (#661)
+
 ## [2.19.6] — 2026-07-21
 
 ### Changed

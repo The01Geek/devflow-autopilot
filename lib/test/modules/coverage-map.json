@@ -111,6 +111,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/agents-seam-probe-verdict.py": {
+      "note": "issue #610 cloud seam-probe verdict core; driven directly in lib/test/run.sh (asv arms + fail-open matrix)",
+      "owner": "unmodularized"
+    },
     "scripts/analyze-implement-runs.py": {
       "note": "",
       "owner": "unmodularized"

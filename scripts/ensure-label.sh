@@ -14,7 +14,7 @@
 # Creation goes through the REST endpoint
 #   POST /repos/{owner}/{repo}/labels
 # via `gh api`, whose `{owner}`/`{repo}` placeholders `gh` fills from the git
-# remote (and $GITHUB_REPOSITORY in cloud) WITHOUT the org-scoped GraphQL
+# remote on BOTH tiers, WITHOUT the org-scoped GraphQL
 # resolution `gh label create` triggers — so a repo-scoped token (GitHub App
 # installation token, or a fine-grained `repo`-only PAT, neither carrying
 # `read:org`) creates labels successfully.

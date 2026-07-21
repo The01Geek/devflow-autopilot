@@ -6686,6 +6686,47 @@ _docs_sweeps=$(grep -oE 'still runs the contract-completeness sweeps \([^)]+\)' 
 assert_eq "sweep selection: SKILL and docs enumerate the same contract-sweep set (cross-site)" \
   "$_skill_sweeps" "$_docs_sweeps"
 
+# ── issue #661: §2.3.0 gains a relocation-discovery arm (prose literal/heading/section/path
+# relocation is a contract change). Each BEHAVIORAL pin uses assert_pin_red_under with a
+# `sed -E` mutation that removes ONLY the operative sentence — the minimal text whose removal
+# re-opens the guarded gap — so a framing-only pin would be reported RED. Presence pins
+# (assert_pin_unique / assert_eq) guard the index cue, the recovery detail, and the coupled
+# docs mirror.
+# AC1 — the heading names prose/heading/section/path relocation as an armed case.
+assert_pin_red_under "#661: §2.3.0 heading names prose/heading/section/path relocation (operative)" \
+  'or relocates a prose literal, heading, section, or file path' \
+  's|, or relocates a prose literal, heading, section, or file path||' "$P2_FILE"
+assert_pin_red_under "#661: §2.3.0 body arms the sweep on a relocation (operative)" \
+  'A relocation arms this sweep exactly as a moved code symbol does' \
+  's|A relocation arms this sweep exactly as a moved code symbol does|removed|' "$P2_FILE"
+# AC1 — the Sweep-selection index cue also names a relocated prose literal (the code-symbol
+# under-cueing hole this change closes); presence pin (distinct wording from the heading).
+assert_pin_unique "#661: Sweep-selection index cues a relocated prose literal/heading/section/path" \
+  'or a relocated prose literal, heading, section, or file path' "$P2_FILE"
+# AC2 — the enumeration mandates a whitespace-normalized search (the #375 wrapped-literal
+# blind spot). This is the prose-AC behavioral pin the issue's testing strategy names.
+assert_pin_red_under "#661: §2.3.0 mandates a whitespace-normalized enumeration search (operative)" \
+  'with a **whitespace-normalized** search' \
+  's|with a \*\*whitespace-normalized\*\* search|with a plain search|' "$P2_FILE"
+# AC3 — content recovery from the diff's deletion hunks (operative).
+assert_pin_red_under "#661: §2.3.0 recovers a content move from the diff deletion hunks (operative)" \
+  '**deletion hunks** (the removed lines)' \
+  's|\*\*deletion hunks\*\* \(the removed lines\)|the hunks|' "$P2_FILE"
+# AC3 — both old-location citation forms: the vacated-location enumeration a content search
+# never sees (operative — removing it re-opens the name-the-old-path blind spot).
+assert_pin_red_under "#661: §2.3.0 also enumerates citations that name the vacated location (operative)" \
+  'separately enumerate the citations that **name the vacated location**' \
+  's|separately enumerate the citations that \*\*name the vacated location\*\*|also look|' "$P2_FILE"
+# AC3 — file-path recovery via git diff --name-status (rename source / deletion entry); presence.
+assert_pin_unique "#661: §2.3.0 recovers a file-path move via a rename record source" \
+  'the **source** of a rename record (`R### old new`' "$P2_FILE"
+# AC8 — the cloud-safe search uses grep -rnE/tr, never the ungranted git grep; presence.
+assert_pin_unique "#661: §2.3.0 forbids the ungranted git grep for the cloud whitespace search" \
+  'never `git grep`, which the implement profile does not grant' "$P2_FILE"
+# AC11 — docs/implement-skill.md rationale reconciled with the hardened §2.3.0 (coupled mirror).
+assert_eq "#661: docs/implement-skill.md carries the relocation-is-a-contract-change rationale" "yes" \
+  "$(grep -qF 'Relocation is a contract change too (issue #661)' "$IMPL_DOC" && echo yes || echo no)"
+
 # ── issue #474: Phase 2.3 gains §2.3.7 (collection-cardinality sweep) and two §2.3.0c
 # sharpenings (derived-comparand arms, obligation placement). Each BEHAVIORAL pin below
 # (the assert_pin_red_under calls) targets the OPERATIVE sentence — the minimal text whose
@@ -34313,6 +34354,128 @@ assert_eq "#415 swv: DENIED wins over AVAILABLE when ScheduleWakeup is both deni
   "$(swv_has_row "$SWV_F" '| **DENIED** | yes |')"
 rm -f "$SWV_F"
 
+# ── #610 cloud per-agent-effort SEAM probe verdict — the branch-selecting core is
+# ── extracted into scripts/agents-seam-probe-verdict.py so every arm (and the
+# ── never-auto-ship-the-applied-arm fail-open guard) is DRIVEN, not left inline-in-YAML
+# ── untestable (same rationale as the #415 schedulewakeup helper above). The applied
+# ── arm ships ONLY on SEAM_PROVEN, which requires the explicit human
+# ── --adjudicated-governed flag — the dangerous direction (shipping on an unproven
+# ── seam) must be unreachable without a human in the loop.
+ASV_PY="$REPO_ROOT/scripts/agents-seam-probe-verdict.py"
+ASPROBE="$REPO_ROOT/.github/workflows/agents-seam-probe.yml"
+assert_pin_unique "#610 agents-seam-probe.yml routes the seam verdict through the testable helper" \
+  'python3 scripts/agents-seam-probe-verdict.py "${EXECUTION_FILE}"' "$ASPROBE"
+asv_has_row() {  # fixture expected-row-prefix -> "yes" if the verdict row starts with it
+  python3 "$ASV_PY" "$1" 2>/dev/null | grep -qF "$2" && echo yes || echo no
+}
+asv_has() {  # fixture substring -> "yes" if the rendered output contains it (any line)
+  python3 "$ASV_PY" "$1" 2>/dev/null | grep -qF "$2" && echo yes || echo no
+}
+asv_has_row_adj() {  # fixture expected-row-prefix (with --adjudicated-governed)
+  python3 "$ASV_PY" "$1" --adjudicated-governed 2>/dev/null | grep -qF "$2" && echo yes || echo no
+}
+ASV_F="$(probe_tmp asv.fixture)"
+# Arm: SEAM_FORWARDED — the seam marker was emitted (fact i proven) but fact (ii) is NOT
+# adjudicated → does NOT ship the applied arm. This is the primary fail-open guard: a
+# forwarded seam must NOT auto-promote to SEAM_PROVEN/ship without the human flag.
+printf '%s' '[{"type":"tool_use","name":"Task","input":{"subagent_type":"seam-probe-agent"}},{"type":"tool_use","name":"Bash","input":{"command":"printf %s SEAM_PROBE_FORWARDED_OK SEAM_PROBE_EFFORT=low"}}]' > "$ASV_F"
+assert_eq "#610 asv: SEAM_FORWARDED (no ship) when marker present but fact (ii) not adjudicated" "yes" \
+  "$(asv_has_row "$ASV_F" '| **SEAM_FORWARDED** | no |')"
+# Same fixture WITH --adjudicated-governed → SEAM_PROVEN, ships the applied arm.
+assert_eq "#610 asv: SEAM_PROVEN (ship) only when a human adjudicated fact (ii) via --adjudicated-governed" "yes" \
+  "$(asv_has_row_adj "$ASV_F" '| **SEAM_PROVEN** | yes |')"
+# Arm: SEAM_UNPROVEN — the subagent type was dispatched but no seam marker appeared (the
+# `--agents` startup block was not forwarded / the type was unrecognized). Does NOT ship.
+printf '%s' '[{"type":"tool_use","name":"Task","input":{"subagent_type":"seam-probe-agent"}},{"type":"tool_use","name":"Bash","input":{"command":"printf %s seam-probe-agent dispatch refused: unknown subagent_type"}}]' > "$ASV_F"
+assert_eq "#610 asv: SEAM_UNPROVEN (no ship) when the subagent type was dispatched but emitted no seam marker" "yes" \
+  "$(asv_has_row "$ASV_F" '| **SEAM_UNPROVEN** | no |')"
+# Even with --adjudicated-governed, SEAM_UNPROVEN must NOT ship: fact (i) forwarding is a
+# hard prerequisite the human flag cannot override.
+assert_eq "#610 asv: SEAM_UNPROVEN stays no-ship even with --adjudicated-governed (fact (i) is a hard gate)" "yes" \
+  "$(asv_has_row_adj "$ASV_F" '| **SEAM_UNPROVEN** | no |')"
+# Arm: INCONCLUSIVE — no dispatch of the probe subagent_type was even attempted (the seam
+# was never exercised). Never ships.
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"echo unrelated"}}]' > "$ASV_F"
+assert_eq "#610 asv: INCONCLUSIVE (no ship) when no dispatch of the probe subagent_type was attempted" "yes" \
+  "$(asv_has_row "$ASV_F" '| **INCONCLUSIVE** | no |')"
+# Arm: INCONCLUSIVE — execution file absent (note_top floor). "Unknown is not zero" — never
+# collapsed onto a shippable verdict.
+assert_eq "#610 asv: INCONCLUSIVE (no ship) when the execution file is absent" "yes" \
+  "$(asv_has_row "/no/such/agents-seam-execfile.json" '| **INCONCLUSIVE** | no |')"
+# Arm: INCONCLUSIVE — present regular file, wholly unparseable → note_top floor.
+printf '%s\n' 'not json at all' > "$ASV_F"
+assert_eq "#610 asv: INCONCLUSIVE (no ship) when a present file is wholly unparseable" "yes" \
+  "$(asv_has_row "$ASV_F" '| **INCONCLUSIVE** | no |')"
+# Fail-open regression (case): a LOWER-CASED seam marker must still read as forwarded
+# (SEAM_FORWARDED), not fall through to SEAM_UNPROVEN — case-sensitive matching would
+# under-read fact (i).
+printf '%s' '[{"type":"tool_use","name":"Task","input":{"subagent_type":"seam-probe-agent"}},{"type":"tool_use","name":"Bash","input":{"command":"printf %s seam_probe_forwarded_ok seam_probe_effort=low"}}]' > "$ASV_F"
+assert_eq "#610 asv: lower-cased seam marker still reads SEAM_FORWARDED, not SEAM_UNPROVEN" "yes" \
+  "$(asv_has_row "$ASV_F" '| **SEAM_FORWARDED** | no |')"
+# Arm: INCONCLUSIVE — partial JSONL corruption forces the floor rather than reading the
+# surviving lines as a clean measurement (both a dispatch AND a marker line survive, so the
+# ONLY thing keeping this off SEAM_FORWARDED is the dropped→note_top precedence).
+printf '%s\n%s\n%s\n' \
+  '{"type":"tool_use","name":"Task","input":{"subagent_type":"seam-probe-agent"}}' \
+  '{"type":"tool_use","name":"Bash","input":{"command":"printf %s SEAM_PROBE_FORWARDED_OK SEAM_PROBE_EFFORT=low"}}' \
+  '{oops-not-json' > "$ASV_F"
+assert_eq "#610 asv: INCONCLUSIVE (no ship) on partial JSONL corruption, not a false SEAM_FORWARDED" "yes" \
+  "$(asv_has_row "$ASV_F" '| **INCONCLUSIVE** | no |')"
+# Decision-text pins (the operator-facing AC1 decision line, selected independently of the
+# row). One per class so a mis-mapped decision (green row, wrong action) is caught.
+printf '%s' '[{"type":"tool_use","name":"Task","input":{"subagent_type":"seam-probe-agent"}},{"type":"tool_use","name":"Bash","input":{"command":"printf %s SEAM_PROBE_FORWARDED_OK SEAM_PROBE_EFFORT=low"}}]' > "$ASV_F"
+assert_eq "#610 asv: SEAM_PROVEN renders the SHIP applied-arm decision (AC1)" "yes" \
+  "$(python3 "$ASV_PY" "$ASV_F" --adjudicated-governed 2>/dev/null | grep -qF 'AC1): SHIP the spike-gated applied arm' && echo yes || echo no)"
+assert_eq "#610 asv: SEAM_FORWARDED renders the DO-NOT-SHIP (fact ii pending) decision (AC1)" "yes" \
+  "$(asv_has "$ASV_F" 'fact (ii) (effort governs the dispatch) needs human adjudication')"
+printf '%s' '[{"type":"tool_use","name":"Task","input":{"subagent_type":"seam-probe-agent"}},{"type":"tool_use","name":"Bash","input":{"command":"printf %s seam-probe-agent dispatch refused: unknown subagent_type"}}]' > "$ASV_F"
+assert_eq "#610 asv: SEAM_UNPROVEN renders the DO-NOT-SHIP (seam not forwarded) decision (AC1)" "yes" \
+  "$(asv_has "$ASV_F" 'the startup `--agents` seam was not forwarded')"
+assert_eq "#610 asv: INCONCLUSIVE renders the DO NOT ACT decision (AC1)" "yes" \
+  "$(asv_has "/no/such/agents-seam-decision.json" 'AC1): DO NOT ACT')"
+# The helper always exits 0 (best-effort, like the #415 sibling).
+assert_eq "#610 asv: helper exits 0 even on an absent execution file" "0" \
+  "$(python3 "$ASV_PY" /no/such/execfile.json >/dev/null 2>&1; echo $?)"
+# Fail-open regression (input-less tool_use): a dispatch tool_use recorded under the probe
+# subagent NAME but carrying NO `input` key must still read as dispatch_attempted (-> the
+# no-marker case resolves SEAM_UNPROVEN), never be dropped (which would fail OPEN into the
+# INCONCLUSIVE "measured nothing" floor). collect() records a tool_use even without `input`
+# (the named fail-open guard); this fixture pins it. Every other fixture carries an `input`,
+# so without this the guard is untested and a regression stays green (PR #667 review, pr-test-analyzer Important).
+printf '%s' '[{"type":"tool_use","name":"seam-probe-agent"}]' > "$ASV_F"
+assert_eq "#610 asv: input-less probe-subagent tool_use still reads dispatch_attempted -> SEAM_UNPROVEN, not a fail-open INCONCLUSIVE" "yes" \
+  "$(asv_has_row "$ASV_F" '| **SEAM_UNPROVEN** | no |')"
+# dispatch_attempted via the permission_denials arm (the realistic "dispatch refused" shape):
+# the probe agent name appears ONLY in a permission_denials node, never in a tool_use command
+# string — exercises the `AGENT_NAME in denial_text` half of the OR (PR #667 review, pr-test-analyzer suggestion).
+printf '%s' '[{"permission_denials":[{"tool":"Task","reason":"unknown subagent_type seam-probe-agent"}]}]' > "$ASV_F"
+assert_eq "#610 asv: probe name only in permission_denials still reads dispatch_attempted -> SEAM_UNPROVEN" "yes" \
+  "$(asv_has_row "$ASV_F" '| **SEAM_UNPROVEN** | no |')"
+# Case-insensitivity of the AGENT_NAME match (its own .lower(), distinct from the marker's):
+# a MIXED-case dispatch name still reads dispatch_attempted -> SEAM_UNPROVEN (PR #667 review, pr-test-analyzer suggestion).
+printf '%s' '[{"type":"tool_use","name":"Task","input":{"subagent_type":"SEAM-Probe-Agent"}}]' > "$ASV_F"
+assert_eq "#610 asv: mixed-case probe subagent name still reads dispatch_attempted -> SEAM_UNPROVEN" "yes" \
+  "$(asv_has_row "$ASV_F" '| **SEAM_UNPROVEN** | no |')"
+# Present-but-unreadable execution file (PermissionError / TOCTOU) must route to the
+# INCONCLUSIVE floor and still exit 0 — honoring "always exits 0" — never raise an uncaught
+# traceback (which under the workflow's `set -euo pipefail` verdict step yields a red step
+# with NO verdict table). Parity with the #415 swv sibling (PR #667 review, pr-test-analyzer).
+# Skipped where chmod 000 does not actually deny reads (running as root) so the suite stays green.
+ASV_UNREAD="$(probe_tmp asv.unreadable)"
+printf '%s' '[{"type":"tool_use","name":"Task","input":{"subagent_type":"seam-probe-agent"}}]' > "$ASV_UNREAD"
+chmod 000 "$ASV_UNREAD"
+if python3 -c "open('$ASV_UNREAD').read()" 2>/dev/null; then
+  echo "  (skipped #610 asv unreadable-file arm — reads not denied here, e.g. running as root)"
+else
+  assert_eq "#610 asv: present-but-unreadable execution file -> INCONCLUSIVE (no ship), not a raised traceback" "yes" \
+    "$(asv_has_row "$ASV_UNREAD" '| **INCONCLUSIVE** | no |')"
+  assert_eq "#610 asv: helper still exits 0 on a present-but-unreadable execution file" "0" \
+    "$(python3 "$ASV_PY" "$ASV_UNREAD" >/dev/null 2>&1; echo $?)"
+fi
+chmod 644 "$ASV_UNREAD" 2>/dev/null || true
+rm -f "$ASV_UNREAD"
+rm -f "$ASV_F"
+
 # mktemp-guard breadcrumb: after #414 the `BODY_FILE="$(mktemp)"` guard lives ONCE in the
 # shared helper (no longer a byte-identical mirror across the two YAMLs — the PR #410 review
 # gap this coupled-mirror pin guarded is now structurally impossible). It is pinned against
@@ -35259,7 +35422,16 @@ grep '^UNRESOLVED-COUNT' "$_PCL_LINT_ERR" 2>/dev/null | sed 's/^/  #375 lint (su
 _PCL_WRAP_ERR="$(probe_tmp '#375 real-corpus wrapped stderr capture')"
 # Same exit-status fold as the lint block above: a scanner crash (empty stdout + rc!=0) must be
 # RED, not a vacuous green.
-_PCL_WRAP_OUT="$(python3 "$PCL" wrapped "$SELF_SRC" "${_PCL_ARGS[@]}" 2>"$_PCL_WRAP_ERR")"; _PCL_WRAP_RC=$?
+# --reloc (issue #661) turns a bare real-corpus ABSENT into a relocation diagnosis
+# (git ls-files search set, minus the lib/test/ pin sources and the always-on
+# vendor/tmp trees). `git ls-files` runs ONCE here to resolve the search set (it is
+# resolved eagerly whenever --reloc is on, before the pin loop); a clean corpus has
+# no ABSENT pin, so no relocation diagnosis fires and stdout stays empty (the rc=0|
+# assertion stays the RED gate on any spurious emit). The diagnosis-vs-deletion
+# discrimination is exercised by the #661 self-tests below. --reloc-exclude drops the
+# pin-source tree so a real relocation report never self-matches a pin's own
+# declaration (the abspath auto-exclude covers run.sh itself either way).
+_PCL_WRAP_OUT="$(python3 "$PCL" wrapped "$SELF_SRC" "${_PCL_ARGS[@]}" --reloc --reloc-exclude lib/test/ 2>"$_PCL_WRAP_ERR")"; _PCL_WRAP_RC=$?
 assert_eq "#375 wrapped-literal meta-guard: no resolvable pin phrase is off-line/wrapped (real corpus; exit 0 + empty)" \
   "rc=0|" "rc=$_PCL_WRAP_RC|$_PCL_WRAP_OUT"
 # Same positive-coverage floor as the lint block (bash-builtin count extraction, fail-closed).
@@ -35423,6 +35595,126 @@ if _F375="$(mktemp -d 2>/dev/null)" && [ -n "$_F375" ] && [ -d "$_F375" ]; then
 else
   echo FAIL >> "$RESULTS_FILE"
   printf '  FAIL  #375 pin-corpus self-tests: mktemp -d failed (guards could not be exercised; not a vacuous skip)\n' >&2
+fi
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "#661 pin-corpus relocation diagnosis: ABSENT distinguishes relocation from deletion"
+# ────────────────────────────────────────────────────────────────────────────
+# The wrapped guard's --reloc mode (issue #661): when a pin literal is ABSENT from its
+# target, search a scoped tracked-file set and report where it RELOCATED to, or a genuine
+# deletion, fail-closed on an unresolvable/empty search set. The search set is supplied
+# EXPLICITLY via --reloc-search-set so the harness stays git-free (mirroring the existing
+# #375 self-tests). Fail CLOSED if the fixture dir can't be created.
+if _F661="$(mktemp -d 2>/dev/null)" && [ -n "$_F661" ] && [ -d "$_F661" ]; then
+  RELOC_LIT='the relocated contract phrase for 661'
+  RELOC_WRAP='the wrapped relocated phrase 661'
+  # Targets and candidate destinations.
+  printf 'totally unrelated content on one line\n' > "$_F661/tgt.md"          # literal ABSENT here
+  printf 'prefix %s suffix\n' "$RELOC_LIT" > "$_F661/dest.md"                  # relocation destination
+  printf 'the wrapped\nrelocated phrase 661 across lines\n' > "$_F661/wrapdest.md"  # wrapped destination (#375)
+  printf 'here is %s present in its own target\n' "$RELOC_LIT" > "$_F661/present.md"  # negative-control target
+  # Scoping/reachability stand-ins that all CONTAIN the literal but must be EXCLUDED: a
+  # pin-source stand-in (excluded via --reloc-exclude — a literal is present in its own pin
+  # declaration by construction) and vendor/tmp stand-ins (excluded by the always-on
+  # .devflow/vendor/ + .devflow/tmp/ default tokens; their paths carry those segments so the
+  # substring exclusion matches a temp-dir path exactly as it would a repo-relative one).
+  printf 'assert_pin_unique fx %s tgt\n' "$RELOC_LIT" > "$_F661/pinsrc.sh"
+  mkdir -p "$_F661/.devflow/vendor" "$_F661/.devflow/tmp"
+  printf '%s\n' "$RELOC_LIT" > "$_F661/.devflow/vendor/vcopy.md"
+  printf '%s\n' "$RELOC_LIT" > "$_F661/.devflow/tmp/tdraft.md"
+  # Per-case pin sources (one absent-from-target pin each) and explicit search-set files.
+  printf 'assert_pin_unique "fx" %s "%s"\n' "'$RELOC_LIT'" "$_F661/tgt.md" > "$_F661/pins_lit.sh"
+  printf 'assert_pin_unique "fx" %s "%s"\n' "'$RELOC_WRAP'" "$_F661/tgt.md" > "$_F661/pins_wrap.sh"
+  printf 'assert_pin_unique "fx" %s "%s"\n' "'$RELOC_LIT'" "$_F661/present.md" > "$_F661/pins_present.sh"
+  printf '%s\n' "$_F661/dest.md" > "$_F661/set_dest.txt"
+  printf '%s\n' "$_F661/wrapdest.md" > "$_F661/set_wrap.txt"
+  printf '%s\n%s\n%s\n' "$_F661/pinsrc.sh" "$_F661/.devflow/vendor/vcopy.md" "$_F661/.devflow/tmp/tdraft.md" > "$_F661/set_scope.txt"
+  : > "$_F661/set_empty.txt"
+  # Positive control: the literal resolves in exactly one non-target file → RELOCATED to it.
+  _R661_POS="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_dest.txt" 2>/dev/null)"
+  assert_eq "#661 reloc self-test: an ABSENT literal present in a non-target file is reported RELOCATED to it" \
+    "yes" "$(printf '%s' "$_R661_POS" | grep -q 'RELOCATED.*relocated to .*dest.md' && echo yes || echo no)"
+  # Scoping/reachability: every candidate carrying the literal is an excluded pin-source /
+  # vendor / tmp stand-in → the check reports a genuine deletion, NOT a self-matching RELOCATED.
+  _R661_SCOPE="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_scope.txt" --reloc-exclude "$_F661/pinsrc.sh" 2>/dev/null)"
+  assert_eq "#661 reloc self-test: pin-source + vendor + tmp stand-ins are excluded → deleted, not a self-match" \
+    "yes" "$(printf '%s' "$_R661_SCOPE" | grep -q 'deleted (not found anywhere)' && ! printf '%s' "$_R661_SCOPE" | grep -q 'RELOCATED' && echo yes || echo no)"
+  # Wrapped-literal destination (#375): the literal exists at the destination only in the
+  # whitespace-normalized rendering (wrapped across lines) → still reported RELOCATED.
+  _R661_WRAP="$(python3 "$PCL" wrapped "$_F661/pins_wrap.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_wrap.txt" 2>/dev/null)"
+  assert_eq "#661 reloc self-test: a wrapped-literal destination is still reported RELOCATED (#375 case)" \
+    "yes" "$(printf '%s' "$_R661_WRAP" | grep -q 'RELOCATED.*wrapdest.md' && echo yes || echo no)"
+  # Negative control: the literal is present in its OWN named target → no ABSENT, no relocation.
+  _R661_NEG="$(python3 "$PCL" wrapped "$_F661/pins_present.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_dest.txt" 2>/dev/null)"
+  assert_eq "#661 reloc self-test: a literal present in its named target stays silent (no ABSENT/RELOCATED)" \
+    "yes" "$([ -z "$_R661_NEG" ] && echo yes || echo no)"
+  # Fail-closed: an empty search set is reported unavailable on stderr and NEVER collapsed to
+  # "deleted" — a failed enumeration must not masquerade as a genuine deletion.
+  _R661_FC="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_empty.txt" 2>"$_F661/fc.err")"
+  assert_eq "#661 reloc self-test: an empty/failed search set is reported unavailable on stderr (fail-closed)" \
+    "yes" "$(grep -q 'RELOC-UNAVAILABLE' "$_F661/fc.err" && echo yes || echo no)"
+  assert_eq "#661 reloc self-test: a failed enumeration is NOT collapsed to 'deleted'" \
+    "yes" "$(printf '%s' "$_R661_FC" | grep -q 'relocation diagnosis unavailable' && ! printf '%s' "$_R661_FC" | grep -q 'deleted (not found anywhere)' && echo yes || echo no)"
+  # Review-driven additions (PR #663). Extra fixtures:
+  printf 'prefix %s suffix\n' "$RELOC_LIT" > "$_F661/dest2.md"                 # second relocation destination
+  printf "p.add_argument('--x', help='the relocated '\n                           'contract phrase for 661')\n" > "$_F661/helpdest.py"  # help= split-literal destination
+  printf '\377\376 not valid utf-8 bytes here\n' > "$_F661/undecodable.md"     # unreadable candidate
+  printf '%s\n' "$_F661/./pins_lit.sh" > "$_F661/set_selfmatch.txt"            # a /./ respelling of the pin source itself
+  printf '%s\n%s\n' "$_F661/dest.md" "$_F661/dest2.md" > "$_F661/set_multi.txt"
+  printf '%s\n' "$_F661/helpdest.py" > "$_F661/set_help.txt"
+  printf '%s\n' "$_F661/undecodable.md" > "$_F661/set_undec.txt"
+  # Auto-exclude via ABSPATH-equality (not substring): the search set names the pin source
+  # itself under a `/./` respelling, which the substring test misses but the abspath auto-exclude
+  # catches — so a deleted pin never self-matches its own declaration even with NO --reloc-exclude.
+  # (Regression guard for the git-ls-files-emits-relative-paths defect: pin_source is absolute.)
+  _R661_SELF="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_selfmatch.txt" 2>/dev/null)"
+  assert_eq "#661 reloc self-test: the pin source is auto-excluded by abspath-equality (no self-match without --reloc-exclude)" \
+    "yes" "$(printf '%s' "$_R661_SELF" | grep -q 'deleted (not found anywhere)' && ! printf '%s' "$_R661_SELF" | grep -q 'RELOCATED' && echo yes || echo no)"
+  # Real git ls-files failure path (not the --reloc-search-set seam): run from a NON-git cwd with
+  # no explicit search set → _git_ls_files returns a failure reason → RELOC-UNAVAILABLE, not deleted.
+  _R661_NOGIT="$( ( cd "$_F661" && python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc 2>"$_F661/nogit.err" ) )"
+  assert_eq "#661 reloc self-test: a git ls-files enumeration failure (non-git cwd) is reported unavailable, not deleted" \
+    "yes" "$(grep -q 'RELOC-UNAVAILABLE' "$_F661/nogit.err" && printf '%s' "$_R661_NOGIT" | grep -q 'relocation diagnosis unavailable' && ! printf '%s' "$_R661_NOGIT" | grep -q 'deleted (not found anywhere)' && echo yes || echo no)"
+  # An unreadable --reloc-search-set file is a distinct fail-closed arm (search-set-unreadable).
+  _R661_SSU="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/does-not-exist.txt" 2>"$_F661/ssu.err")"
+  assert_eq "#661 reloc self-test: an unreadable --reloc-search-set file is reported unavailable, not deleted" \
+    "yes" "$(grep -q 'RELOC-UNAVAILABLE' "$_F661/ssu.err" && ! printf '%s' "$_R661_SSU" | grep -q 'deleted (not found anywhere)' && echo yes || echo no)"
+  # Multiple destinations: both files carrying the literal are reported, comma-joined and sorted.
+  _R661_MULTI="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_multi.txt" 2>/dev/null)"
+  assert_eq "#661 reloc self-test: multiple relocation destinations are all reported (sorted, comma-joined)" \
+    "yes" "$(printf '%s' "$_R661_MULTI" | grep -q 'RELOCATED.*dest.md.*dest2.md' && echo yes || echo no)"
+  # help= destination: the literal reconstructs only across adjacent argparse help= literals
+  # (the canonical #375 shape) — the _literal_resolves_in help-rendering branch must find it.
+  _R661_HELP="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_help.txt" 2>/dev/null)"
+  assert_eq "#661 reloc self-test: a split-literal argparse help= destination is reported RELOCATED (#375)" \
+    "yes" "$(printf '%s' "$_R661_HELP" | grep -q 'RELOCATED.*helpdest.py' && echo yes || echo no)"
+  # Unreadable CANDIDATE (not enumeration): the only candidate is undecodable → the diagnosis is
+  # INCOMPLETE with a RELOC-CANDIDATE-UNREADABLE breadcrumb, never a false 'deleted' (AC5 spirit).
+  _R661_UNREAD="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_undec.txt" 2>"$_F661/unread.err")"
+  assert_eq "#661 reloc self-test: an unreadable candidate reports INCOMPLETE (breadcrumb), not a false 'deleted'" \
+    "yes" "$(grep -q 'RELOC-CANDIDATE-UNREADABLE' "$_F661/unread.err" && printf '%s' "$_R661_UNREAD" | grep -q 'diagnosis INCOMPLETE' && ! printf '%s' "$_R661_UNREAD" | grep -q 'deleted (not found anywhere)' && echo yes || echo no)"
+  # A NON-UTF-8 --reloc-search-set file: the read raises UnicodeDecodeError (a ValueError,
+  # NOT an OSError), so a bare `except OSError` would let it escape and crash the scan with
+  # an uncaught traceback instead of taking the documented fail-closed arm (PR #663 review).
+  _R661_SSD="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/undecodable.md" 2>"$_F661/ssd.err")"; _R661_SSD_RC=$?
+  assert_eq "#661 reloc self-test: a non-UTF-8 --reloc-search-set file fails closed (no uncaught UnicodeDecodeError)" \
+    "yes" "$([ "$_R661_SSD_RC" -eq 0 ] && ! grep -q 'Traceback' "$_F661/ssd.err" && grep -q 'RELOC-UNAVAILABLE' "$_F661/ssd.err" && printf '%s' "$_R661_SSD" | grep -q 'relocation diagnosis unavailable' && ! printf '%s' "$_R661_SSD" | grep -q 'deleted (not found anywhere)' && echo yes || echo no)"
+  # Mixed precedence: a resolvable destination AND an unreadable candidate in the same set →
+  # the found destination wins (RELOCATED); the INCOMPLETE arm is reserved for the case where
+  # NO destination resolved, so an unreadable candidate never downgrades a positive diagnosis.
+  printf '%s\n%s\n' "$_F661/dest.md" "$_F661/undecodable.md" > "$_F661/set_mixed.txt"
+  _R661_MIX="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_mixed.txt" 2>/dev/null)"
+  assert_eq "#661 reloc self-test: a destination plus an unreadable candidate reports RELOCATED (not INCOMPLETE)" \
+    "yes" "$(printf '%s' "$_R661_MIX" | grep -q 'RELOCATED.*dest.md' && ! printf '%s' "$_R661_MIX" | grep -q 'diagnosis INCOMPLETE' && echo yes || echo no)"
+  # An EMPTY --reloc-exclude token is skipped, never treated as a substring that matches every
+  # path (which would exclude the whole search set and turn a relocation into a false 'deleted').
+  _R661_EMPTOK="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_dest.txt" --reloc-exclude "" 2>/dev/null)"
+  assert_eq "#661 reloc self-test: an empty --reloc-exclude token is skipped (does not exclude every path)" \
+    "yes" "$(printf '%s' "$_R661_EMPTOK" | grep -q 'RELOCATED.*dest.md' && echo yes || echo no)"
+  rm -rf "$_F661"
+else
+  echo FAIL >> "$RESULTS_FILE"
+  printf '  FAIL  #661 pin-corpus relocation self-tests: mktemp -d failed (guards could not be exercised; not a vacuous skip)\n' >&2
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -45587,6 +45879,206 @@ assert_eq "#466 mla-fetch: Phase 0.6 comment fetch does not address the repo via
   "$(grep -cF 'repos/$GITHUB_REPOSITORY/issues/' "$REVIEW_SKILL" || true)"
 assert_pin_unique "#466 mla-fetch: Phase 0.6 comment fetch uses the {owner}/{repo} placeholders" \
   'gh api --paginate "repos/{owner}/{repo}/issues/$PR_NUMBER/comments?per_page=100"' "$REVIEW_SKILL"
+
+echo "#664 gh-api REST path: \$GITHUB_REPOSITORY is not a repo address outside Actions"
+# The two #466 arms above are review-bundle-scoped and stay exactly as they are: they hold DEPTH
+# over that bundle (they match the literal anywhere in its bytes, including Markdown prose outside
+# any fence and a literal reached through one assignment hop). The scanner below adds population
+# BREADTH — it reaches every audited file in the tree, which the bundle-scoped arms never see —
+# and its own reach is narrower by construction (a `gh api` argument, never prose). Neither
+# subsumes the other, which is why both live here.
+E664_LINT="$LIB/test/lint-gh-api-repo-path.py"
+E664_FX="$LIB/test/fixtures/ghapi-repo-path"
+E664_IMPL="$LIB/../skills/implement/SKILL.md"
+
+# Real-tree run. The tally is asserted POSITIVE as well: a green run whose audited count had
+# silently collapsed to zero (a broken enumeration, an over-wide exclusion) would otherwise read
+# as "clean" while auditing nothing at all.
+E664_OUT="$(python3 "$E664_LINT" 2>&1)"; E664_RC=$?
+# The comparand is the exit code alone: the success arm prints `rc=0` and nothing else, so no
+# audited-file count is encoded here — a count every added file to the repo would drift. (The
+# scanner prints its tally on BOTH arms; the tally is folded in only on the failure arm, where it
+# is diagnostic rather than comparand. The positive-tally assertion below reads it from an rc=0
+# run, which is why that read must not go through this assertion's comparand.)
+assert_eq "#664 scanner: clean on the tree as it stands" "rc=0" \
+  "$([ "$E664_RC" -eq 0 ] && printf 'rc=0' || printf 'rc=%s | %s' "$E664_RC" "$E664_OUT")"
+assert_eq "#664 scanner: the real-tree run audited a positive number of files" "yes" \
+  "$(printf '%s' "$E664_OUT" | python3 -c 'import re,sys
+m = re.search(r"audited (\d+) of", sys.stdin.read())
+print("yes" if m and int(m.group(1)) > 0 else "no")')"
+
+# Fixture-driven behavior. Every case is driven through --files-from over a synthetic path list
+# rooted at the fixture directory, because the audited population excludes lib/test/ — the
+# fixtures are unreachable from the default enumeration by design.
+e664_run() {  # <root> <path…>  -> prints "rc=<n>|<stdout+stderr>"
+  local root="$1"; shift
+  local list out rc
+  list="$(probe_tmp '#664 fixture list')" || return 0
+  printf '%s\n' "$@" > "$list"
+  out="$(python3 "$E664_LINT" --root "$root" --files-from "$list" 2>&1)"; rc=$?
+  rm -f "$list"
+  printf 'rc=%s|%s' "$rc" "$out"
+}
+
+# Legitimate corpus: a --repo flag value, a run-URL composition, a workflow env: assignment, a
+# Python os.environ.get, a comment naming the variable, and prose quoting the prohibition itself.
+assert_eq "#664 scanner: the legitimate corpus produces no violation" \
+  "rc=0|lint-gh-api-repo-path: audited 4 of 4 files" \
+  "$(e664_run "$E664_FX" legit-source.sh legit-python.py legit-prose.md legit-workflow.yml)"
+
+# Planted defects, one assertion per named form. Fields are read with `IFS=:` from a heredoc
+# (not a pipeline — the loop must stay in this shell), so no manual `%%:*` unpacking and no
+# hidden "the description may not contain a colon" constraint.
+while IFS=: read -r _e664_file _e664_line _e664_what; do
+  [ -n "$_e664_file" ] || continue
+  assert_eq "#664 scanner: flags a violation $_e664_what ($_e664_file)" "yes" \
+    "$(case "$(e664_run "$E664_FX" "$_e664_file")" in *"|$_e664_file:$_e664_line: gh api REST path"*) echo yes ;; *) echo no ;; esac)"
+done <<'E664_VIOLATIONS'
+violation-basic.sh:3:plain dollar form
+violation-brace.sh:2:brace form
+violation-markdown.md:4:inside a bash fence
+violation-resolved-head.sh:2:resolved-binary head
+adversarial-heredoc.sh:5:inside a heredoc body
+adversarial-singlequote.sh:4:inside a single-quoted string
+adversarial-unterminated.md:8:after an unterminated fence
+adversarial-nonutf8.sh:3:in a file carrying a non-UTF-8 byte
+adversarial-continuation.sh:4:on a backslash-continued statement
+adversarial-mdexample-fence.md.example:4:inside a .md.example fence
+violation-leading-slash.sh:4:on the documented leading-slash /repos/ spelling
+violation-preflag.sh:3:when a global flag sits between the head and the api subcommand
+violation-gh-exe.sh:3:on the gh.exe Windows head
+violation-nested-substitution.sh:3:nested two substitutions deep
+violation-suffix-gh-var.sh:5:on a $VAR head whose name merely ENDS in GH (the suffix rule)
+violation-tilde-fence.md:4:inside a ~~~ fence, not only a backtick fence
+E664_VIOLATIONS
+
+# Shapes that must NOT be flagged, each for its own reason.
+while IFS=: read -r _e664_file _e664_why; do
+  [ -n "$_e664_file" ] || continue
+  assert_eq "#664 scanner: does not flag $_e664_why ($_e664_file)" \
+    "rc=0|lint-gh-api-repo-path: audited 1 of 1 files" "$(e664_run "$E664_FX" "$_e664_file")"
+done <<'E664_CLEAN'
+adversarial-prose-only.md:a Markdown occurrence outside any fence
+adversarial-mdexample-prose.md.example:a .md.example occurrence outside any fence
+adversarial-empty.sh:an empty file
+adversarial-nogh.sh:a file with no gh invocation
+legit-nongh-var-head.sh:a variable head whose name does not end in GH (a declared residual)
+E664_CLEAN
+
+# Two violations in one file, each on its own reported line.
+assert_eq "#664 scanner: reports both violations of one file on separate lines" "3 5" \
+  "$(e664_run "$E664_FX" violation-basic.sh | python3 -c 'import re,sys
+body = sys.stdin.read().split("|", 1)[1]
+print(" ".join(re.findall(r"^violation-basic\.sh:(\d+):", body, re.M)))')"
+
+# A call reached through more than one nesting level is reported ONCE. The substitution
+# descent visits a nested `$( … $(gh api …) … )` through both bodies, so without the
+# (line, argument) dedup this reports the same call twice and a reader double-counts.
+assert_eq "#664 scanner: a nested-substitution call is reported once, not once per nesting level" "1" \
+  "$(e664_run "$E664_FX" violation-nested-substitution.sh | python3 -c 'import sys
+print(sys.stdin.read().split("|", 1)[1].count(": gh api REST path"))')"
+
+# A selected path that cannot be READ is never absorbed into a clean pass: it is named on
+# stderr, excluded from the read tally, and — when it is the whole population — fails closed.
+# The tally counts files READ against files SELECTED precisely so "audited nothing" can never
+# print the same thing as "audited everything, found nothing".
+assert_eq "#664 scanner: an unreadable selected path is named, not silently skipped" "yes" \
+  "$(case "$(e664_run "$E664_FX" no-such-file.sh)" in *"SKIPPED no-such-file.sh"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#664 scanner: a wholly unreadable population fails closed rather than reporting clean" "rc=1|0 of 1" \
+  "$(e664_run "$E664_FX" no-such-file.sh | python3 -c 'import re,sys
+t = sys.stdin.read()
+m = re.search(r"audited (\d+ of \d+)", t)
+print("rc=" + re.match(r"rc=(\d+)", t).group(1) + "|" + (m.group(1) if m else "no-tally"))')"
+
+# Violations spread across separate files: still one non-zero exit for the process as a whole.
+assert_eq "#664 scanner: two violating files exit non-zero once, reporting both" "rc=1 2" \
+  "$(e664_run "$E664_FX" violation-brace.sh violation-second-file.sh | python3 -c 'import re,sys
+t = sys.stdin.read()
+print("rc=" + re.match(r"rc=(\d+)", t).group(1), len(re.findall(r": gh api REST path", t)))')"
+
+# Fixture-integrity guards. Both fixtures below carry bytes `* text=auto` would normalize away,
+# and a normalized fixture makes its assertion VACUOUS rather than red — the CRLF twin would
+# simply become a second copy of its LF sibling, and the undecodable byte would vanish. The
+# `-text` .gitattributes entries are what preserve them; the assertions below are what notice if
+# those entries are ever dropped, since no downstream assertion can tell the difference.
+e664_fixture_keeps() {  # <crlf|undecodable> <path> -> yes|no
+  python3 -c 'import pathlib, sys
+mode, data = sys.argv[1], pathlib.Path(sys.argv[2]).read_bytes()
+if mode == "crlf":
+    print("yes" if b"\r\n" in data else "no")
+else:
+    try:
+        data.decode("utf-8")
+    except UnicodeDecodeError:
+        print("yes")
+    else:
+        print("no")' "$1" "$2"
+}
+assert_eq "#664 fixture integrity: the CRLF twin still carries CR bytes (not normalized to LF)" "yes" \
+  "$(e664_fixture_keeps crlf "$E664_FX/adversarial-crlf.txt")"
+assert_eq "#664 fixture integrity: the non-UTF-8 fixture still carries an undecodable byte" "yes" \
+  "$(e664_fixture_keeps undecodable "$E664_FX/adversarial-nonutf8.sh")"
+
+# CRLF twin: identical verdict AND identical line numbers to its LF sibling.
+assert_eq "#664 scanner: a CRLF file yields the same line numbers as its LF twin" "same" \
+  "$(python3 -c 'import sys
+lf, crlf = sys.argv[1], sys.argv[2]
+print("same" if lf.split(":",1)[1] == crlf.split(":",1)[1] else "differ: %s vs %s" % (lf, crlf))' \
+    "$(e664_run "$E664_FX" adversarial-lf.sh)" "$(e664_run "$E664_FX" adversarial-crlf.txt)")"
+
+# Population selection, driven over a mini-root whose every excluded-prefix file carries a planted
+# violation: only the one included file is reported, and the tally counts post-exclusion files.
+assert_eq "#664 scanner: every excluded prefix keeps its planted violation out of reach" \
+  "rc=1|included/planted.sh|1" \
+  "$(e664_run "$E664_FX/exroot" \
+      lib/test/planted.sh docs/planted.sh .github/workflows/planted.yml \
+      .github/actions/act/planted.sh .devflow/logs/planted.md .devflow/learnings/planted.md \
+      .changeset/planted.md CHANGELOG.md included/planted.sh \
+    | python3 -c 'import re,sys
+t = sys.stdin.read()
+body = t.split("|", 1)[1]
+print("|".join([
+    "rc=" + re.match(r"rc=(\d+)", t).group(1),
+    ",".join(re.findall(r"^(\S+):\d+: gh api REST path", body, re.M)),
+    re.search(r"audited (\d+) of", body).group(1),
+]))')"
+
+# A post-exclusion population of zero is a LEGAL outcome (exit 0, zero tally) and must never be
+# confused with the fail-closed arms below — that confusion is what would let an over-wide
+# exclusion read as a clean audit.
+assert_eq "#664 scanner: an all-excluded population is a zero tally at exit 0, not a failure" \
+  "rc=0|lint-gh-api-repo-path: audited 0 of 0 files" \
+  "$(e664_run "$E664_FX/exroot" lib/test/planted.sh docs/planted.sh)"
+
+# Fail-closed arms, measured PRE-exclusion, each naming which of the two occurred.
+assert_eq "#664 scanner: an empty pre-exclusion population fails closed with its own breadcrumb" "yes" \
+  "$(case "$(e664_run "$E664_FX")" in "rc=0"*) echo "no: exited 0" ;; *"yielded zero paths before any exclusion"*) echo yes ;; *) echo no ;; esac)"
+E664_MISSING="$(probe_tmp '#664 missing list')"
+rm -f "$E664_MISSING"
+assert_eq "#664 scanner: an unreadable --files-from list fails closed with its own breadcrumb" "yes" \
+  "$(E664_OUT2="$(python3 "$E664_LINT" --root "$E664_FX" --files-from "$E664_MISSING" 2>&1)"
+     case "$?:$E664_OUT2" in 0:*) echo "no: exited 0" ;; *"could not be read"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#664 scanner: a non-repository root fails closed naming git ls-files" "yes" \
+  "$(E664_SB="$(probe_tmp '#664 non-repo root')"
+     rm -f "$E664_SB"; mkdir -p "$E664_SB"
+     E664_OUT3="$(python3 "$E664_LINT" --root "$E664_SB" 2>&1)"
+     E664_RC3=$?
+     rmdir "$E664_SB" 2>/dev/null || true
+     case "$E664_RC3:$E664_OUT3" in 0:*) echo "no: exited 0" ;; *"git ls-files exited"*) echo yes ;; *) echo no ;; esac)"
+
+# The fence itself. The mutation restores the pre-#664 form on a scratch copy, so the pin proves it
+# catches the guarded regression (the collapsed local-tier path) rather than merely its own line
+# vanishing — the operative-vs-framing discrimination assert_pin_red_on_removal cannot report.
+assert_pin_red_under "#664 fence: the outcome-reaction comment listing uses the {owner}/{repo} placeholders" \
+  'gh api "repos/{owner}/{repo}/issues/$ISSUE_NUMBER/comments?per_page=100"' \
+  's|repos/\{owner\}/\{repo\}/issues/\$ISSUE_NUMBER/comments|repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments|' \
+  "$E664_IMPL"
+# The digit-only test is the arm that makes a captured HTTP error body inert. Its guarded
+# regression is dropping the second test, which the mutation below re-introduces.
+assert_pin_red_under "#664 fence: the resolved comment id is admitted only when it is a bare digit string" \
+  '[ -n "$TRIGGER_COMMENT_ID" ] && [ -z "${TRIGGER_COMMENT_ID//[0-9]/}" ]' \
+  's|^if \[ -n "\$TRIGGER_COMMENT_ID" \] && \[ -z .*\]; then$|if [ -n "$TRIGGER_COMMENT_ID" ]; then|' \
+  "$E664_IMPL"
 
 # #466 mla-rule-drift (coupled site): match-lint-adjudications.py excludes R4 from carry-forward
 # because R4's detail carries no referent. That exclusion is a DENY-list, so a NEW stale-prose

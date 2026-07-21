@@ -28,6 +28,22 @@ authoring time:
   requiring the pin to target the rendered surface (captured ``--help`` output,
   real stderr) instead.
 
+  **Relocation diagnosis (issue #661, opt-in via ``--reloc``).** A bare
+  ``ABSENT`` reads identically for a pin literal that was *relocated* into a
+  different file and one that was genuinely *deleted*. When ``--reloc`` is
+  passed and a pin literal is ABSENT from its named target (whitespace-normalized
+  and rendered-surface, so a wrapped literal still counts), the guard searches a
+  scoped tracked-file set — from ``--reloc-search-set`` when supplied (the
+  git-free path the self-tests use) else ``git ls-files`` — **minus** the
+  pin-source file(s) that declare the literal (auto-excluded plus any
+  ``--reloc-exclude`` substring token) and the non-source trees ``.devflow/vendor/`` /
+  ``.devflow/tmp/``, and reports every other file where the literal resolves as
+  ``RELOCATED … relocated to <file>; update the pin target``. Only when the set
+  was enumerated successfully **and** the literal resolves nowhere in it does it
+  read ``deleted (not found anywhere)`` — a failed/empty enumeration is reported
+  ``relocation diagnosis unavailable`` on stderr and is **never** collapsed to
+  ``deleted`` (fail-closed). Without ``--reloc`` the ABSENT emit is unchanged.
+
 **Fail-closed:** a call site the scanner cannot resolve statically (the literal
 interpolates a variable it cannot resolve, or the target file is a variable with
 no ``--var`` binding and no ``$LIB``-relative assignment) is COUNTED and reported
@@ -40,19 +56,40 @@ CLI::
 
     pin-corpus-lint.py lint    PIN_SOURCE [--lib DIR] [--var NAME=PATH ...]
     pin-corpus-lint.py wrapped PIN_SOURCE [--lib DIR] [--var NAME=PATH ...]
+                               [--reloc] [--reloc-search-set FILE]
+                               [--reloc-exclude SUBSTR ...]
 
 ``PIN_SOURCE`` is the shell file whose pin call sites are scanned (``run.sh``
 itself for the real corpus, a synthetic fixture for the self-tests). ``--var``
 supplies the runtime value of a target-file variable the helper cannot resolve
 statically (e.g. ``DEF_SKILL``, the mktemp'd implement-skill bundle); ``--lib``
 binds ``$LIB`` so ``VAR="$LIB/../skills/…"`` assignments resolve on their own.
+``--reloc`` enables the issue-#661 relocation diagnosis on the ``wrapped``
+guard's ABSENT branch; ``--reloc-search-set FILE`` supplies the search set as a
+newline-delimited file (git-free, for the self-tests) instead of ``git
+ls-files``; ``--reloc-exclude SUBSTR`` (repeatable) drops any tracked path
+containing SUBSTR anywhere in it -- a substring test, not an anchored prefix --
+from the search set (the pin-source file(s) that declare the literal); a token
+that resolves to the same file as a candidate (abspath-equal) is dropped too.
+
+Known limitation: the search set is read as UTF-8, so a non-UTF-8 tracked file
+(an image, a binary fixture) is an UNREADABLE candidate. That direction is safe
+-- it downgrades a would-be ``deleted`` verdict to ``diagnosis INCOMPLETE`` and
+never claims a false deletion -- but it does mean a genuine deletion in a corpus
+containing binary tracked files reports INCOMPLETE rather than ``deleted``.
 """
 
 from __future__ import annotations
 
 import os
 import re
+import subprocess
 import sys
+
+# Non-source trees always excluded from the relocation search set (issue #661): a
+# committed vendored plugin copy and the run's own draft/derivation artifacts both
+# quote pin literals and would otherwise be reported as spurious destinations.
+RELOC_DEFAULT_EXCLUDES = (".devflow/vendor/", ".devflow/tmp/")
 
 # (literal_arg_index, file_arg_index, default_file_var).  Indices are 0-based
 # over the call's arguments AFTER the helper name.  A file index past the actual
@@ -575,11 +612,127 @@ def run_lint(pin_source, lib, overrides, md_targets):
     return 0
 
 
-def run_wrapped(pin_source, lib, overrides, md_targets):
+# ── #661 relocation diagnosis ───────────────────────────────────────────────
+def _git_ls_files():
+    """Enumerate tracked files with the granted ``git ls-files``. Returns
+    (paths, None) on success or (None, reason) fail-closed on any error / empty
+    output — the caller must NOT collapse a failed enumeration to "deleted"."""
+    try:
+        res = subprocess.run(
+            ["git", "ls-files", "-z"], capture_output=True, text=True, check=False
+        )
+    except (OSError, UnicodeDecodeError) as exc:
+        # UnicodeDecodeError (a ValueError, NOT an OSError) can surface from text=True
+        # eager decoding of a non-UTF-8 tracked filename; catch it too so the docstring's
+        # "fail-closed on any error" holds rather than crashing the scan.
+        return None, f"git-ls-files-error:{type(exc).__name__}"
+    if res.returncode != 0:
+        return None, f"git-ls-files-rc:{res.returncode}"
+    paths = [p for p in res.stdout.split("\0") if p]
+    if not paths:
+        return None, "git-ls-files-empty"
+    return paths, None
+
+
+def resolve_reloc_search_set(explicit_file):
+    """Resolve the relocation search set. An explicit ``--reloc-search-set`` file
+    (the git-free self-test path) wins; otherwise ``git ls-files``. A file that is
+    unreadable, or a raw enumeration that fails or is empty, returns (None, reason)
+    so the ABSENT branch fails closed rather than reporting a false deletion."""
+    if explicit_file is not None:
+        # Read through _read_target, which catches (OSError, UnicodeDecodeError):
+        # a non-UTF-8 --reloc-search-set file raises UnicodeDecodeError (a ValueError,
+        # NOT an OSError), and a bare `except OSError` would let it escape and crash
+        # the scan instead of taking this docstring's fail-closed (None, reason) arm.
+        raw, reason = _read_target(explicit_file)
+        if reason is not None:
+            return None, f"search-set-unreadable:{reason}"
+        paths = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+        if not paths:
+            return None, "search-set-empty"
+        return paths, None
+    return _git_ls_files()
+
+
+def _reloc_excluded(path, exclude_tokens):
+    """A search-set path is excluded when any exclude token is a substring of it
+    (the distinctive ``.devflow/vendor/`` / ``.devflow/tmp/`` trees, or a
+    pin-source path/prefix) OR resolves to the same file (abspath-equal). Substring
+    matches a temp-dir stand-in like ``/tmp/xxx/.devflow/vendor/copy.md`` against the
+    same token a repo-relative ``.devflow/vendor/…`` path does; the abspath-equality
+    arm is load-bearing for the pin-source auto-exclude, because ``git ls-files``
+    emits **repo-relative** paths (``lib/test/run.sh``) while the pin-source token is
+    the **absolute** ``$LIB/test/run.sh`` — a substring test alone never matches those
+    two spellings, so without abspath-equality the auto-exclude would silently no-op
+    and a deleted pin's literal would self-match its own declaration in run.sh."""
+    apath = os.path.abspath(path)
+    for tok in exclude_tokens:
+        if not tok:
+            continue
+        if tok in path or apath == os.path.abspath(tok):
+            return True
+    return False
+
+
+def _literal_resolves_in(lit, nlit, path, cache):
+    """Tri-state: ``True`` when the pin literal resolves in a candidate file (on a
+    single line, in the whitespace-normalized rendering — a wrapped-adjacent-literal
+    destination, #375 — or in a multi-literal argparse help= rendering), ``False``
+    when the file was read but does not contain it, and ``None`` when the candidate
+    is UNREADABLE. The None arm is load-bearing: a swallowed read error on the very
+    file a literal moved into would otherwise let ``diagnose_relocation`` report a
+    false ``deleted`` — the AC5 masquerade at per-candidate granularity — so the
+    caller must surface unreadable candidates rather than treat them as 'not here'."""
+    view = _wrapped_view(path, cache)
+    if view[0] == "unreadable":
+        return None
+    lines, nfile, helps = view
+    if any(lit in ln for ln in lines):
+        return True
+    if nlit and nlit in nfile:
+        return True
+    return bool(nlit and any(nlit in h for h in helps))
+
+
+def diagnose_relocation(lit, nlit, target, search_paths, exclude_tokens, cache):
+    """Given the resolved (non-None) search set, return
+    ``(sorted_dests, unreadable_paths)``: the files (excluding the
+    pin-source/vendor/tmp set and the target itself) where the literal resolves, and
+    the candidates that could not be read. An empty ``dests`` with an empty
+    ``unreadable`` means a genuine deletion; an empty ``dests`` with a non-empty
+    ``unreadable`` means the diagnosis is INCOMPLETE — the caller must not claim a
+    clean deletion over swallowed read errors (fail-closed, AC5 spirit)."""
+    dests = []
+    unreadable = []
+    for path in search_paths:
+        if path == target or _reloc_excluded(path, exclude_tokens):
+            continue
+        resolved = _literal_resolves_in(lit, nlit, path, cache)
+        if resolved is None:
+            unreadable.append(path)
+        elif resolved:
+            dests.append(path)
+    return sorted(set(dests)), sorted(set(unreadable))
+
+
+def run_wrapped(pin_source, lib, overrides, md_targets,
+                reloc=False, reloc_search_file=None, reloc_exclude=None):
     text = _read(pin_source)
     unresolved = 0
     resolved = 0
     view_cache = {}
+    # Resolve the relocation search set ONCE (issue #661) — only when --reloc is on.
+    # A resolution failure is carried as (None, reason): the ABSENT branch then reports
+    # "relocation diagnosis unavailable" and never a false "deleted". The pin-source file
+    # is auto-excluded (a pin literal is present in its own declaration by construction),
+    # alongside the always-on vendor/tmp trees and any --reloc-exclude substring token.
+    reloc_paths, reloc_err = (None, None)
+    reloc_excludes = ()
+    if reloc:
+        reloc_paths, reloc_err = resolve_reloc_search_set(reloc_search_file)
+        reloc_excludes = (
+            (pin_source,) + tuple(RELOC_DEFAULT_EXCLUDES) + tuple(reloc_exclude or ())
+        )
     for pin in extract_pins(text, lib, overrides):
         if pin["literal"] is None or pin["file"] is None:
             unresolved += 1
@@ -619,23 +772,72 @@ def run_wrapped(pin_source, lib, overrides, md_targets):
                 f"surface (captured --help output / real stderr), not the source\t{lit}"
             )
             continue
-        _emit_wrapped_or_absent(pin, pin_source, nlit, nfile, lit)
+        _emit_wrapped_or_absent(
+            pin, pin_source, nlit, nfile, lit,
+            reloc=reloc, reloc_paths=reloc_paths, reloc_err=reloc_err,
+            reloc_excludes=reloc_excludes, cache=view_cache,
+        )
     sys.stderr.write(f"UNRESOLVED-COUNT\t{unresolved}\n")
     sys.stderr.write(f"RESOLVED-COUNT\t{resolved}\n")
     return 0
 
 
-def _emit_wrapped_or_absent(pin, pin_source, nlit, nfile, lit):
+def _emit_wrapped_or_absent(pin, pin_source, nlit, nfile, lit,
+                            reloc=False, reloc_paths=None, reloc_err=None,
+                            reloc_excludes=(), cache=None):
+    site = f"{pin['helper']}@{pin_source}:{pin['lineno']}"
     if nlit and nlit in nfile:
         print(
-            f"WRAPPED\t{pin['file']}\t{pin['helper']}@{pin_source}:{pin['lineno']}\t"
+            f"WRAPPED\t{pin['file']}\t{site}\t"
             f"phrase occurs on NO single line but IS present in the whitespace-normalized "
             f"rendering — a wrapped-literal blind spot; pin the rendered surface\t{lit}"
         )
+        return
+    if not reloc:
+        # Relocation diagnosis off — the pre-#661 ABSENT emit, byte-identical.
+        print(
+            f"ABSENT\t{pin['file']}\t{site}\t"
+            f"phrase absent from the target entirely (not merely wrapped)\t{lit}"
+        )
+        return
+    if reloc_paths is None:
+        # The search set could not be enumerated (git ls-files failed/empty, or an
+        # unreadable --reloc-search-set). Fail closed: report unavailability on stderr
+        # and NEVER collapse to "deleted" — a failed enumeration is not evidence of
+        # deletion. stdout still carries an ABSENT line so a real absent pin stays RED.
+        sys.stderr.write(
+            f"RELOC-UNAVAILABLE\t{pin['file']}\t{site}\t{reloc_err}\n"
+        )
+        print(
+            f"ABSENT\t{pin['file']}\t{site}\t"
+            f"phrase absent from the target entirely; relocation diagnosis unavailable "
+            f"({reloc_err})\t{lit}"
+        )
+        return
+    dests, unreadable = diagnose_relocation(
+        lit, nlit, pin["file"], reloc_paths, reloc_excludes, cache or {}
+    )
+    if dests:
+        print(
+            f"RELOCATED\t{pin['file']}\t{site}\t"
+            f"relocated to {', '.join(dests)}; update the pin target\t{lit}"
+        )
+    elif unreadable:
+        # Fail closed: candidates could not be read, so the literal may have moved into
+        # one of them — do NOT claim a clean deletion. Surface each unreadable candidate
+        # on stderr and say the diagnosis is incomplete (AC5 masquerade guard).
+        for path in unreadable:
+            sys.stderr.write(f"RELOC-CANDIDATE-UNREADABLE\t{pin['file']}\t{site}\t{path}\n")
+        print(
+            f"ABSENT\t{pin['file']}\t{site}\t"
+            f"phrase absent from the target; relocation diagnosis INCOMPLETE "
+            f"({len(unreadable)} candidate(s) unreadable — not a confirmed deletion)\t{lit}"
+        )
     else:
         print(
-            f"ABSENT\t{pin['file']}\t{pin['helper']}@{pin_source}:{pin['lineno']}\t"
-            f"phrase absent from the target entirely (not merely wrapped)\t{lit}"
+            f"ABSENT\t{pin['file']}\t{site}\t"
+            f"phrase absent from the target AND from the scoped tracked-file set — "
+            f"deleted (not found anywhere)\t{lit}"
         )
 
 
@@ -667,6 +869,9 @@ def main(argv):
     lib = None
     overrides = {}
     md_targets = set()
+    reloc = False
+    reloc_search_file = None
+    reloc_exclude = []
     i = 3
     while i < len(argv):
         if argv[i] == "--lib" and i + 1 < len(argv):
@@ -679,6 +884,15 @@ def main(argv):
         elif argv[i] == "--md" and i + 1 < len(argv):
             md_targets.add(argv[i + 1])
             i += 2
+        elif argv[i] == "--reloc":
+            reloc = True
+            i += 1
+        elif argv[i] == "--reloc-search-set" and i + 1 < len(argv):
+            reloc_search_file = argv[i + 1]
+            i += 2
+        elif argv[i] == "--reloc-exclude" and i + 1 < len(argv):
+            reloc_exclude.append(argv[i + 1])
+            i += 2
         else:
             sys.stderr.write(f"unknown arg: {argv[i]}\n")
             return 2
@@ -686,7 +900,10 @@ def main(argv):
         lib = os.path.dirname(os.path.dirname(os.path.abspath(pin_source)))
     if cmd == "lint":
         return run_lint(pin_source, lib, overrides, md_targets)
-    return run_wrapped(pin_source, lib, overrides, md_targets)
+    return run_wrapped(
+        pin_source, lib, overrides, md_targets,
+        reloc=reloc, reloc_search_file=reloc_search_file, reloc_exclude=reloc_exclude,
+    )
 
 
 if __name__ == "__main__":

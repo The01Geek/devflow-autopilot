@@ -91,12 +91,22 @@ Throughout the run you maintain exactly **one** marker-tagged comment on the Git
 # Resolve the triggering comment (best-effort): the newest issue comment that
 # quotes /devflow:implement but is NOT the workpad (no marker). $GITHUB_EVENT_PATH
 # also carries .comment.id when the event was a comment — prefer it when present.
+# The listing addresses the repo by the {owner}/{repo} placeholders gh fills from
+# the git remote: $GITHUB_REPOSITORY is EMPTY outside Actions, so interpolating it
+# collapses the path to repos//issues/… and gh writes the 404 body to STDOUT, which
+# 2>/dev/null does not silence — the capture below would then hold an error blob.
 TRIGGER_COMMENT_ID=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/run-jq.sh -r '.comment.id // empty' "$GITHUB_EVENT_PATH" 2>/dev/null || true)
 if [ -z "$TRIGGER_COMMENT_ID" ]; then
-  TRIGGER_COMMENT_ID=$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments?per_page=100" \
+  TRIGGER_COMMENT_ID=$(gh api "repos/{owner}/{repo}/issues/$ISSUE_NUMBER/comments?per_page=100" \
     --jq 'map(select((.body | contains("/devflow:implement")) and (.body | contains("devflow:workpad") | not))) | last | .id' 2>/dev/null || true)
 fi
-if [ -n "$TRIGGER_COMMENT_ID" ]; then
+if [ -n "$TRIGGER_COMMENT_ID" ] && [ -z "${TRIGGER_COMMENT_ID//[0-9]/}" ]; then
+  # The second test is what makes a non-id capture inert: parameter expansion
+  # strips every digit, so a residue means the value is an HTTP error body (or any
+  # other non-id text) rather than a comment id. It rides inside the existing
+  # `[ … ]` test rather than adding a `case`, so the fence gains no new command
+  # head for the implement-profile head guard and no new shape for
+  # extract-command-shapes.py --profile implement to adjudicate.
   # Leading-token form (the helper path is the command head; values as CLI args) —
   # a leading VAR=value env prefix is a denied matcher shape (#401) that would
   # silently refuse the granted helper. --report-failure keeps the workflow's
