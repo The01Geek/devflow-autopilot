@@ -6,14 +6,46 @@ Output: `Phase 1/4: Setup — creating the workpad and branch...`
 
 ### 1.1 Fetch the GitHub Issue
 
-Run:
+**Cache the issue body ONCE per run attempt (issue #693).** A run materializes the issue body many times over — six API fetches and three inline dispatch pastes. So the first body read of the run writes the body to a single in-tree cache file, `.devflow/tmp/issue-body/issue-<ISSUE_NUMBER>.md`, and the Phase 1–2 consumers below read it by explicit hand-off (shell helpers through their `--body-file` arms; subagents through an `Issue body path:` line) instead of re-fetching. The cache is a **cost optimization applied only where staleness cannot change a verdict** — every verdict-bearing reader (the §4.1 Documentation-Needed gate, the Phase 3.3 inline review, `/pr-description`, `receiving-code-review`) keeps fetching live, because a human can amend the issue mid-run.
+
+**The in-tree write is preconditioned on an ignore rule already covering `.devflow/tmp/` — the run never creates one** (a new dotfile would itself be an untracked file the run's `git add -A` calls would stage). Resolve the precondition through the already-granted `preflight.py` (the `git check-ignore` call is in-process, so no new matcher head or vendored-literal token is introduced). Anchor the cache to the repo-or-worktree root with the run-marker idiom, run the precondition, then — only on the satisfied arm — **delete any stale cache and fetch the body fresh, unconditionally**, so a resumed / re-triggered / stall-backstop-auto-resumed run always writes a freshly-fetched cache rather than reading a prior attempt's file. The producer uses the **extracting** form `--json body --jq '.body'` (so the cache holds the bare body, never a JSON envelope) and the run-marker's **in-workspace redirect** shape (never a `/tmp` target, whose class the matcher probe records as denied). The fetch carries a retry:
+
 ```bash
-gh issue view $ARGUMENTS --json title,body,labels,number
+DEVFLOW_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+# ignore-precondition prints IGNORED (exit 0) / NOT_IGNORED (exit 2, a resolved
+# 'not ignored' → the degraded arm) / UNAVAILABLE (exit 3, or a denied/no-output
+# invocation → the stop path). Branch on the command's OWN exit status inline
+# (issue #284: never a captured $? read in a later statement).
+if "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/preflight.py ignore-precondition --path "$DEVFLOW_ROOT/.devflow/tmp/issue-body/issue-$ARGUMENTS.md"; then
+  # IGNORED — precondition satisfied. Delete-then-fetch, in that order and
+  # unconditionally, so a resumed run cannot read a prior attempt's cache.
+  mkdir -p "$DEVFLOW_ROOT/.devflow/tmp/issue-body"
+  rm -f "$DEVFLOW_ROOT/.devflow/tmp/issue-body/issue-$ARGUMENTS.md"
+  gh issue view $ARGUMENTS --json body --jq '.body' > "$DEVFLOW_ROOT/.devflow/tmp/issue-body/issue-$ARGUMENTS.md" \
+    || gh issue view $ARGUMENTS --json body --jq '.body' > "$DEVFLOW_ROOT/.devflow/tmp/issue-body/issue-$ARGUMENTS.md"
+elif [ "$?" -eq 2 ]; then
+  echo "devflow: .devflow/tmp/ is not gitignored — issue-body cache NOT written; taking the degraded arm"
+else
+  echo "devflow: ignore-precondition could not be established (denied / no output / git error) — STOP"
+fi
+```
+
+**Fail closed on the fetch's exit status AND on the written content.** After the write, **Read the cache file back** (you need its body for the §1.1 classification and the §1.6 audit anyway, so hold that single copy rather than a second copy from the fetch output). Treat the cache as valid only when it is **non-empty** and does **not** begin with `{` (a JSON envelope, which would mean the extracting `--jq '.body'` form was lost). A retry that also failed, a zero-byte file, or a JSON-object body is a failed write: route to the run's existing stop path (report "Error: Could not read GitHub issue #$ARGUMENTS body into the cache") rather than leaving a plausible-looking cache for later phases to consume.
+
+**Two non-satisfied arms:**
+- **`UNAVAILABLE` / denied / no output (exit 3 or the else arm)** — the precondition is an *unestablished measurement*, never a decided "not ignored". Take the run's existing stop path; a matcher refusal must not masquerade as the degraded arm.
+- **`NOT_IGNORED` (exit 2)** — a resolved answer: the cache is **not** written, and each consumer class takes its own stated degraded fallback (**not** a single blanket "fetch live"). Record the degradation in your run context and write a workpad `--note` naming it as soon as the workpad exists (it already does on the cloud tier; otherwise immediately after §1.3): `Phase 1.1: .devflow/tmp/ not gitignored — issue-body cache disabled this run; shell consumers use their --issue arms and subagent dispatches paste the body inline`.
+
+**Whether the cache was written is orchestrator state every later consumer branches on** — it does not survive across Bash calls, so carry it in your context. When the cache was written, §1.2/§1.3.5/§1.6 read it and the §2.1/§2.2/§4.1 dispatches ship an `Issue body path:` line; on the degraded arm they revert to the pre-#693 behavior. **The cache is reached only by hand-off, never by filesystem discovery:** a consumer never decides to use the cache by testing for the file in the tree; the path reaches it only as an explicit parameter of the orchestrator's own invocation, so no consumer can be induced to read a file the reviewed PR authored.
+
+Now fetch the remaining metadata — **body dropped**, so the body is materialized in your context exactly once (by the cache Read above), not twice:
+```bash
+gh issue view $ARGUMENTS --json title,labels,number
 ```
 
 If this fails, stop immediately and report: "Error: Could not fetch GitHub issue #$ARGUMENTS. Verify the issue number exists."
 
-Save the issue title, body, labels, and number — you will use these throughout the workflow.
+Save the issue title, labels, and number — you will use these throughout the workflow; the body lives in the cache (read it back above). On the degraded arm where no cache was written, obtain the body with the original `gh issue view $ARGUMENTS --json body` fetch for your own classification use.
 
 **Classify the issue as a bug report from its *content*, not its label — Phase 2.1.5 depends on it.** The reproduce-first gate (2.1.5) fires on this classification, so decide it here from the issue **title and body**, treating an existing `bug` label as *one input signal* among them — labeling is a human convention the engine does not control, so a genuine bug filed without the label must still fire the gate, and a stale `bug` label on a feature request must not force reproduction. Classify as **bug-report** or **non-bug**:
 
@@ -25,11 +57,18 @@ Hold the verdict and a one-line rationale; Phase 1.3 records them in the workpad
 
 ### 1.2 Parse Acceptance Criteria from the issue body
 
-Run the bundled parser to extract `## Acceptance Criteria` and (optional) `## Test Plan` sections from the issue, pre-classifying each criterion as either code-verifiable or *post-merge*:
+Run the bundled parser to extract `## Acceptance Criteria` and (optional) `## Test Plan` sections from the issue, pre-classifying each criterion as either code-verifiable or *post-merge*. **When the §1.1 cache was written, read it via `--body-file` — no re-fetch (issue #693).** parse-acs.py reads `--body-file` unguarded (an unreadable path raises), so **fail closed on the helper's own exit status**: an unreadable cache must route to the run's existing stop path rather than leave a zero-byte `/tmp/acs-${ARGUMENTS}.md` that splices in as an empty Acceptance Criteria section. (An empty-but-readable cache is already closed upstream by §1.1's content check.)
 
 ```bash
-"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/parse-acs.py --issue $ARGUMENTS > /tmp/acs-${ARGUMENTS}.md
+DEVFLOW_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+if ! "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/parse-acs.py --body-file "$DEVFLOW_ROOT/.devflow/tmp/issue-body/issue-$ARGUMENTS.md" > /tmp/acs-${ARGUMENTS}.md; then
+  # STOP: the cache could not be read (helper exit ≠ 0). Do NOT proceed with an
+  # empty AC section — take the run's existing stop path.
+  echo "devflow: could not read the issue-body cache into the AC parser — STOP"
+fi
 ```
+
+On the **degraded arm** where §1.1 wrote no cache, revert to the original `parse-acs.py --issue $ARGUMENTS > /tmp/acs-${ARGUMENTS}.md`, which fetches internally exactly as before.
 
 The output is checkbox lines ready to splice into the workpad's `## Acceptance Criteria` section, with ` (post-merge)` appended to any criterion whose text matches the bundled trigger phrases (see `parse-acs.py`'s `POST_MERGE_TRIGGERS` list for what's matched). When no AC section exists, the helper prints `_(none provided in issue body)_` and Phase 3.4 passes trivially.
 
@@ -155,12 +194,14 @@ fetch, checkpoint merge, branch creation, or push — run the single executable
 declared-dependency gate. `scripts/preflight.py` owns the recognizer and state
 semantics; do not duplicate them in this procedure.
 
+**When the §1.1 cache was written, read it via `--body-file` — no re-fetch (issue #693).** preflight.py's `--body-file` arm reads the file and, on an unreadable path, prints `UNAVAILABLE body` / exit 3 — which §1.3.5 already routes to the terminal Blocked path, so the cutover fails closed with no new arm:
+
 ```bash
-"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/preflight.py dependencies --issue $ISSUE_NUMBER
+DEVFLOW_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/preflight.py dependencies --body-file "$DEVFLOW_ROOT/.devflow/tmp/issue-body/issue-$ISSUE_NUMBER.md"
 ```
 
-On a local runner that refuses the direct helper path, use the documented
-fallback `python3 <resolved helper path> dependencies --issue $ISSUE_NUMBER`.
+On the **degraded arm** where §1.1 wrote no cache, revert to the original `preflight.py dependencies --issue $ISSUE_NUMBER`, which fetches internally. On a local runner that refuses the direct helper path, use the documented fallback `python3 <resolved helper path> dependencies --body-file "$DEVFLOW_ROOT/.devflow/tmp/issue-body/issue-$ISSUE_NUMBER.md"` (or the `--issue $ISSUE_NUMBER` form on the degraded arm).
 Read the helper's one-token stdout result and its exit code:
 
 - `PROCEED` (including a listed set of landed dependencies) exits 0. Record a
@@ -293,7 +334,7 @@ fi
 ```
 
 - **`LANDED` is `yes`** — the tree is on the PR's head branch. Skip branch creation and both signals entirely.
-- **`LANDED` is `no` and `$CO_ERR` matches `already used by worktree` (or the older `already checked out at`)** — the branch is live in another linked worktree. Do not force it and do not duplicate the branch: read that worktree's path from `git worktree list --porcelain` and continue in that worktree instead of duplicating the branch, noting the switch in the workpad. (If the harness already placed you in a worktree, the checkout happens **inside** it — that is simply the current working tree, so no extra step is needed.)
+- **`LANDED` is `no` and `$CO_ERR` matches `already used by worktree` (or the older `already checked out at`)** — the branch is live in another linked worktree. Do not force it and do not duplicate the branch: read that worktree's path from `git worktree list --porcelain` and continue in that worktree instead of duplicating the branch, noting the switch in the workpad. **Re-materialize the §1.1 issue-body cache under the new worktree root before any Phase 2 consumer reads it (issue #693):** §1.1 wrote the cache anchored to the *original* root, and a repo-relative read from the switched worktree would miss it — so, inside the switched worktree, re-run the §1.1 producer (root anchor → ignore precondition → delete-then-fetch into `.devflow/tmp/issue-body/issue-$ISSUE_NUMBER.md`) so the cache exists under this worktree's `$(git rev-parse --show-toplevel)` for §1.2/§1.3.5/§1.6 and the Phase 2 dispatches. (If the harness already placed you in a worktree, the checkout happens **inside** it — that is simply the current working tree, so no extra step is needed.)
 - **`LANDED` is `no` for any other reason** (including an empty `HEAD_REF`) — record it and **stop**: `workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind blocked --reflection "resume pre-check: PR #<n> exists on branch $HEAD_REF but the checkout did not land ($CO_ERR); refusing to fall through to branch creation, which would duplicate that PR and abandon its commits"`, then emit the 👎 outcome reaction and stop the run. Falling through here is never correct: an open PR is *known* to exist, so creating a branch is a known duplication, not an unknown risk.
 
 **When there is no workpad `Branch` line and no open PR for the issue** — `PR_JSON` is the literal `[]`, meaning the queries *ran* and found nothing — this pre-check is a no-op and the rest of §1.4 behaves exactly as it did before this pre-check existed — Signal 1, then Signal 2, then the create-fresh fallthrough.
@@ -474,7 +515,7 @@ Then tick the Setup phase in the workpad's `## Progress` checklist:
 
 ### 1.6 Issue-Claim Audit
 
-Before Phase 2 begins, operationalise the Phase 2.1 principle that "the issue body is a starting point, not the source of truth" with the targeted pre-checks below that catch wrong scope, policy, dependency, and execution-capability assumptions before any code edit. Run after the issue data from 1.1 is in hand; passes are independent (read their sources in any order or in a single batch). Record each finding **immediately** when its pass completes, as a `## Progress` line via `workpad.py update $ISSUE_NUMBER --note "issue-claim audit ({type}): {finding}"` — recording each outcome the moment it is known keeps the durability the audit relies on (a compaction, an auto-resume, or a Blocked stop mid-audit never loses the passes already recorded). A clean confirmation is a `--note`, **not a reflection**: it proves the assumption was checked, but it carries no friction signal, and a reflection is the expensive-but-loud surface (it trips the retrospective cheap gate) while a `## Progress` note is the cheap-but-quiet one. The per-arm exceptions below re-kind a *finding* — a wrong issue claim (`--reflection-kind issue-accuracy`), punted work (`--reflection-kind deferred`), or a hard stop (`--status Blocked --reflection-kind blocked`) — to a reflection; only clean/confirm arms stay `--note`.
+Before Phase 2 begins, operationalise the Phase 2.1 principle that "the issue body is a starting point, not the source of truth" with the targeted pre-checks below that catch wrong scope, policy, dependency, and execution-capability assumptions before any code edit. Run after the issue data from 1.1 is in hand; passes are independent (read their sources in any order or in a single batch). **The issue body these passes read is the §1.1 cache** (`.devflow/tmp/issue-body/issue-$ISSUE_NUMBER.md`, read back in §1.1) — no re-fetch (issue #693); on the degraded arm where no cache was written, use the body you fetched in §1.1's degraded fallback. Record each finding **immediately** when its pass completes, as a `## Progress` line via `workpad.py update $ISSUE_NUMBER --note "issue-claim audit ({type}): {finding}"` — recording each outcome the moment it is known keeps the durability the audit relies on (a compaction, an auto-resume, or a Blocked stop mid-audit never loses the passes already recorded). A clean confirmation is a `--note`, **not a reflection**: it proves the assumption was checked, but it carries no friction signal, and a reflection is the expensive-but-loud surface (it trips the retrospective cheap gate) while a `## Progress` note is the cheap-but-quiet one. The per-arm exceptions below re-kind a *finding* — a wrong issue claim (`--reflection-kind issue-accuracy`), punted work (`--reflection-kind deferred`), or a hard stop (`--status Blocked --reflection-kind blocked`) — to a reflection; only clean/confirm arms stay `--note`.
 
 **Scope:** the explicitly-defined claim types below only. Do not attempt to verify every sentence in the issue body — open-ended verification creates a runaway discovery loop and produces false-positive discrepancies on subjective or aspirational claims.
 
