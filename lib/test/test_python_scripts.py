@@ -7613,11 +7613,14 @@ try:
               True, any("sc-678-planted.md" in e and "IR3-denied shape" in e
                         and "'implement' profile" in e for e in _sc_e2e))
     # The review root's closure does not reach pr-description, so no review-profile
-    # violation may be emitted for this asset. That verdict is decided by the
-    # `profiles & declared` intersection — an inverted or wrong-set intersection shows
-    # up right here rather than silently auditing nothing.
+    # violation may be emitted for this asset. What this pins is the REACHABILITY set
+    # (shape_audited_assets' per-root closure), NOT the `profiles & declared`
+    # intersection: at HEAD PROFILE_SHAPE_TABLES and ROOTS carry identical key sets, so
+    # that intersection is a no-op and deleting it would leave this green. The
+    # intersection is instead covered by the assertion above, which goes RED when it is
+    # inverted (mutation-verified: `profiles - declared` audits nothing).
     assert_eq("#678 AC4: ...and no violation is emitted under a profile whose closure does "
-              "not reach the asset (the intersection really intersects)",
+              "not reach the asset (the per-root reachability set really scopes)",
               False, any("sc-678-planted.md" in e and "'review' profile" in e
                          for e in _sc_e2e))
 finally:
