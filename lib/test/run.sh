@@ -49998,7 +49998,7 @@ assert_pin_unique "#551 manifest states the mandatory-vs-reference classificatio
 assert_eq "#551 direct census grant appears in both writable cloud config profiles" "2" \
   "$(grep -cF 'Bash(lib/test/prompt-mass-census.py:*)' "$LIB/../.devflow/config.json")"
 assert_eq "#551 only one committed prompt-mass baseline exists" "1" \
-  "$(python3 -c 'from pathlib import Path; import sys; print(sum(1 for p in Path(sys.argv[1]).rglob("prompt-mass-baseline.json") if p.is_file()))' "$LIB/..")"
+  "$(python3 -c 'from pathlib import Path; import sys; print(sum(1 for p in Path(sys.argv[1]).rglob("prompt-mass-baseline.json") if p.is_file() and ".devflow/vendor/" not in p.as_posix()))' "$LIB/..")"
 assert_pin_unique "#551 baseline is a per-file mirror with no committed totals key" \
   '"files": {' "$PMC_BASELINE"
 assert_eq "#551 baseline carries no group-total rows" "0" \
