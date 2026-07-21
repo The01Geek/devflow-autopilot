@@ -1,0 +1,118 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-21T22:06:42Z",
+  "loop_role": "fix",
+  "current_step": "3",
+  "current_substep": "apply_fixes",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Critical",
+      "description": "pin-corpus-lint.py docstring 'Both subcommands exit 0' + CLI synopsis omit the third mutation-routing subcommand/--diff-file",
+      "defect_signature": {
+        "file": "lib/test/pin-corpus-lint.py",
+        "line_range": [
+          60,
+          68
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Important",
+      "description": "assert_count_red_under + devflow_module_pin_red_under overbreadth guards have no positive blank-mutation rejection test (vacuous-guard risk); issue Move 3 mandates one sibling assertion per helper",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          36628,
+          36636
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "None-literal added site has no assertion proving it is never exempt by move",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          36527,
+          36600
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "untracked-module / base-staleness / origin-unresolvable driver-arm skip tests not added (git-integration-fixture cost disproportionate to Low severity; Python gate logic already unit-tested)",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          36448,
+          36516
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "pending"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "pending"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "pending"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "deferred",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "git-dependent driver-arm skip/untracked coverage tests",
+      "skip_category": "uncategorized",
+      "evidence": "Low severity; needs temp-git integration infrastructure disproportionate to value; wraps already-unit-tested Python gate logic; surfaced for human review"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 4,
+    "fix_diff_lines": 40,
+    "new_corroborated_critical_count": 0
+  },
+  "telemetry": "unavailable"
+}
