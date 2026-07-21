@@ -4,6 +4,60 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.20.5] — 2026-07-21
+
+### Added
+- **The `receiving-code-review` Reception Preflight now produces machine-checkable session
+  artifacts.** Two bundled helpers ship: `scripts/reception_identity.py`, an importable
+  stdlib-only routine that derives a content-based **candidate identity** — the git tree object
+  ID of the working-tree content (tracked content plus untracked non-ignored files, with
+  gitignored content and HEAD excluded), through a temporary index seeded from the
+  current index so the repository's own index is never touched and no history is read. The
+  seeded index is an input, not an exclusion: an entry git does not re-stat (skip-worktree
+  under a sparse checkout, or `assume-unchanged`) is decided by its index content. Also
+  `scripts/reception-record.py`, a CLI whose one `record` invocation derives that identity, mints
+  a per-session cryptographic claim-context nonce, and writes an identity artifact, a per-finding
+  disposition ledger, and a fixed-name session pointer under the gitignored session directory —
+  confirming the directory is ignored (via `git check-ignore`) before writing. The candidate
+  identity is commit-invariant across a commit that records exactly the staged content and
+  compares unequal for any later tracked-content change. `scripts/verification-flight.py` gains an
+  optional top-level `candidate_identity` declaration field recorded in the handle, a sibling of
+  `checkout` that leaves `descriptor_digest`, `flight_key`, and `SCHEMA_VERSION` byte-unchanged.
+  The Reception Preflight block grows from nine to eleven facts (candidate identity and
+  claim-context token); both render `established` only when the invocation exits 0 and its stdout
+  parses as a JSON object carrying both values, and otherwise render `missing` while the run
+  continues, and the editing gate is unchanged. The helper is granted in the `implement` and
+  `command` capability profiles only — the read-only reviewer boundary is untouched. (#668)
+
+### Changed
+### Changed
+
+- `/devflow:create-issue` is now a thin always-loaded root plus marker-gated references.
+  `skills/create-issue/SKILL.md` drops from 24,473 words to 2,732 — it keeps the portable-anchor
+  preamble, the extension load, the core principle, the completion checklist, Step 1, Step 3's
+  drafting rules and no-options gate, a reference routing table, and four non-degradable
+  invariants. The five step procedures (Step 2, Step 3.5, the shared Revision-delta procedure,
+  Step 3.6, Step 4) and four conditional fallback arms (no task tool, read-only sandbox, audit
+  dispatch arms, state-owner unavailable) move verbatim into `skills/create-issue/references/`,
+  each behind a first-line/last-line boundary-marker entry gate. Skill semantics are unchanged:
+  a default-path run reads the same procedures it always did, and now sheds 2,291 words of
+  fallback prose whose predicates cannot fire on that path.
+
+### Added
+
+- `docs/create-issue-budget.md` records the root and default-path word budgets (measured by
+  python3 word-splitting, never `wc -w`), the ratchet-down-only rule, the conservation check,
+  and the decision record. Both ceilings are enforced by the test suite and report RED on exceed.
+- The `create-issue` consumer prompt extension gains a **Measurement-command naming** evidence
+  axis: a drafted quantitative acceptance criterion must name the exact command that measures it,
+  or record `unestablished` — never leave an unnamed counter for the implementer to choose.
+
+### Fixed
+
+- A failed reference load degrades best-effort — an in-chat breadcrumb naming the file and the
+  failure kind, then that routing row's named degraded behavior — so no load failure can terminate
+  a run, preserving the skill's never-block-issue-creation contract.
+
 ## [2.20.4] — 2026-07-21
 
 ### Changed
