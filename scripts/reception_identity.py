@@ -52,8 +52,8 @@ class IdentityError(Exception):
 
     `.reason` is a named machine-readable breadcrumb (never a bare traceback):
     `git_not_found`, `git_exec_error:<class>`, `git_failed:<subcommand>:<code>`,
-    `temp_index_error:<class>`, or `empty_tree_output`. The caller prints it to
-    stderr and prints no identity.
+    `git_output_not_utf8:<subcommand>`, `temp_index_error:<class>`, or
+    `empty_tree_output`. The caller prints it to stderr and prints no identity.
     """
 
     def __init__(self, reason: str):
@@ -89,6 +89,24 @@ def _run_git(args: list[str], cwd: str, extra_env: "dict | None" = None) -> byte
     return proc.stdout
 
 
+def _run_git_text(args: list[str], cwd: str, extra_env: "dict | None" = None) -> str:
+    """`_run_git` decoded to stripped UTF-8 text, raising IdentityError on bad bytes.
+
+    Decoding lives here rather than at each call site so the module's
+    every-failure-mode-is-a-named-IdentityError contract holds by construction.
+    A git-dir path (or any git stdout) that is not valid UTF-8 is reachable on
+    Linux, where paths are arbitrary bytes; decoding at the call site would raise
+    a bare UnicodeDecodeError that the CLI's `except IdentityError` never catches,
+    escaping as a raw traceback instead of the `{"ok": false, "reason": ...}`
+    record the caller contract promises.
+    """
+    raw = _run_git(args, cwd, extra_env)
+    try:
+        return raw.decode("utf-8").strip()
+    except UnicodeDecodeError as exc:
+        raise IdentityError(f"git_output_not_utf8:{args[0]}") from exc
+
+
 def derive_candidate_identity(repo_root: "str | None" = None) -> str:
     """Return the candidate identity — the git tree object ID of working-tree content.
 
@@ -98,7 +116,7 @@ def derive_candidate_identity(repo_root: "str | None" = None) -> str:
     """
     cwd = repo_root or os.getcwd()
     # Resolve the real git dir (worktree-aware) so the current index can be seeded.
-    git_dir = _run_git(["rev-parse", "--absolute-git-dir"], cwd).decode("utf-8").strip()
+    git_dir = _run_git_text(["rev-parse", "--absolute-git-dir"], cwd)
     index_path = os.path.join(git_dir, "index")
 
     try:
@@ -119,7 +137,7 @@ def derive_candidate_identity(repo_root: "str | None" = None) -> str:
         # -A stages every working-tree content change: edits, deletions, renames,
         # and untracked non-ignored files. Gitignored content is excluded by git.
         _run_git(["add", "-A"], cwd, env)
-        tree = _run_git(["write-tree"], cwd, env).decode("utf-8").strip()
+        tree = _run_git_text(["write-tree"], cwd, env)
     except OSError as exc:
         raise IdentityError(f"temp_index_error:{exc.__class__.__name__}") from exc
     finally:

@@ -4602,6 +4602,14 @@ assert_pin_unique "rcv/#668 P-rescope: mutate sentence rescoped to tracked conte
   'no command that mutates branches, tracked content, history, or remote state' "$RECV_SKILL"
 assert_pin_unique "rcv/#668 P-nooutput: no helper output renders both new facts missing, run continues" \
   'renders established with the produced value, or missing when the helper produces no output' "$RECV_SKILL"
+# PR #681 review: the prescribed helper call must carry the portable anchor. A BARE basename
+# matches no PATH entry locally and no cloud grant (the shipped literal is the vendored
+# leading-token path), so the artifact write would be silently denied on every tier and both
+# new facts would render `missing` forever — a permanently inert feature that the non-blocking
+# degraded arm hides. pf545_illegal_count cannot catch it: its permitted-head regex tests
+# whether a head is PERMITTED, never whether it is INVOCABLE.
+assert_pin_unique "rcv/#681 P-anchor: the prescribed reception-record.py call carries the portable anchor" \
+  '"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/reception-record.py record' "$RECV_SKILL"
 #
 # Behavioral-fix mutation evidence (17): each sed -E mutation re-introduces the named bug.
 assert_pin_red_under "rcv/#545 P-carveout-mp: deleting the loop-governs clause (double-establishment bug)" \
@@ -4663,6 +4671,18 @@ assert_pin_red_under "rcv/#668 P-block-mp: restoring the nine-fact sentence (dro
 assert_pin_red_under "rcv/#668 P-rescope-mp: restoring the worktree-files wording (bars the gitignored write)" \
   'no command that mutates branches, tracked content, history, or remote state' \
   's/tracked content/worktree files/' "$RECV_SKILL"
+# PR #681 review: P-nooutput pinned its operative sentence with uniqueness only, unlike its
+# #545 P-stale-mp sibling. Removing the no-output clause re-introduces the named bug (an
+# unproducible artifact would no longer be specified to render `missing`), so the pin carries
+# mutation evidence rather than uniqueness alone.
+assert_pin_red_under "rcv/#668 P-nooutput-mp: deleting the no-output clause (unproducible artifact no longer renders missing)" \
+  'renders established with the produced value, or missing when the helper produces no output' \
+  's/, or missing when the helper produces no output//' "$RECV_SKILL"
+# PR #681 review: reverting the anchored call to the bare basename re-introduces the
+# uninvocable-command defect on every tier.
+assert_pin_red_under "rcv/#681 P-anchor-mp: reverting to the bare basename (uninvocable on every tier)" \
+  '"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/reception-record.py record' \
+  's|"\$\{CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>\}"/\.\./\.\./scripts/reception-record\.py record|reception-record.py record|' "$RECV_SKILL"
 #
 # ── Reception Preflight read-only command allowlist detector (issue #545, AC5): every command
 # head inside a ```bash fence within the "## Reception Preflight" section must be a member of
@@ -4703,7 +4723,14 @@ pf545_cmd_count() {  # count of ALL command lines in the section's bash fences (
 # becomes a space, never a separator. (Issue #668 widened the permitted set to add the
 # reception-record.py session-artifact write — the one gitignored write the amended read-only
 # contract permits; the planted-defect positive control below still fires, so the widen did not
-# vacate the guard.) Splitting on the closer instead would orphan the outer
+# vacate the guard. PR #681 review then widened the helper-exemption PREFIX to also accept the
+# portable quoted anchor `"${CLAUDE_SKILL_DIR:-…}"` as the segment's leading token: the anchor's
+# default-value placeholder contains SPACES, so the bare `[^[:space:]]*\/` prefix could never
+# match a real anchored invocation, and the section's one anchored helper call would have been
+# counted illegal. The anchored alternative is HEAD-anchored exactly like the path form, so a
+# mutator wearing an anchored path prefix — `"${CLAUDE_SKILL_DIR:-x}"/../../scripts/rm -rf /` —
+# is still counted illegal, and a nested `$(…)` inside the anchor still splits into its own
+# segment whose head is checked on its own.) Splitting on the closer instead would orphan the outer
 # command's remaining arguments into their own segment, whose first argument then reads as a bogus
 # command head — `git merge-base --is-ancestor $(git rev-parse HEAD) HEAD` would flag a phantom
 # `HEAD` command (observed: it turned the nested-read negative control below RED). Backticks are
@@ -4740,7 +4767,7 @@ pf545_illegal_count() {
       | sed -E 's/^[[:space:]]+//' \
       | { grep -vE '^(#|$)' || [ "$?" -eq 1 ]; } \
       | { grep -vE '^(git fetch|git rev-parse|git status|git merge-base|git rev-list|gh pr view|gh issue view)([[:space:]]|$)' || [ "$?" -eq 1 ]; } \
-      | { grep -vE '^([^[:space:]]*/)?(load-prompt-extension\.sh|config-get\.sh|reception-record\.py)([[:space:]]|$)' || [ "$?" -eq 1 ]; } \
+      | { grep -vE '^("\$\{CLAUDE_SKILL_DIR:-[^"]*\}")?([^[:space:]]*/)?(load-prompt-extension\.sh|config-get\.sh|reception-record\.py)([[:space:]]|$)' || [ "$?" -eq 1 ]; } \
       | awk 'END{print NR}'
   )" || return 1
   printf '%s\n' "$count"

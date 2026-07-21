@@ -22,6 +22,12 @@ Subcommands:
                       rebinds the token to the new content identity by design (the
                       preflight re-runs on compaction/resume against a possibly
                       edited tree); read the artifact, never a remembered value.
+                      A rebind is never silent: the stdout record carries
+                      `rebound_from` (the superseded identity, else null) and a
+                      `candidate_identity_rebound` warning record is written to
+                      stderr, so a consumer holding the old value can detect the
+                      change instead of assuming continuity. An unchanged tree
+                      re-derives the same value and emits no warning.
   append-disposition  Append one disposition to the findings ledger with a
                       helper-assigned finding id. A deferral-class disposition must
                       name one of the skill's four durable channels; a channel-less
@@ -30,9 +36,12 @@ Subcommands:
 Failure discipline (mirrors scripts/verification-flight.py): every error path
 writes an attributable {"ok": false, "reason": …} record to STDERR, prints
 nothing a caller would read as a derived identity on stdout, and exits non-zero.
-Before writing any artifact the helper confirms its session directory is ignored
-through git's own ignore resolution (`git check-ignore`), so a repository lacking
-the ignore rule is reported rather than given a self-invalidating identity.
+Before writing any artifact — on BOTH the `record` and `append-disposition`
+paths, since `--session-dir` is per-invocation and nothing binds an append to the
+directory a prior record validated — the helper confirms its session directory is
+ignored through git's own ignore resolution (`git check-ignore`), so a repository
+lacking the ignore rule is reported rather than given a self-invalidating
+identity.
 
 Data-only besides git: no `gh` call, no network call, no PyYAML, and no decisive
 value derived through a non-preflight PATH tool.
@@ -244,6 +253,35 @@ def cmd_record(args) -> int:
             return _fail("existing_findings_not_list")
         findings_record["findings"] = prior
 
+    # Surface a rebind. The identity is re-derived on every invocation, so a re-record
+    # under an existing token whose tree changed silently rebinds that token to a new
+    # content identity — the AC calls the identity artifact idempotent, and it is only
+    # so for an unchanged tree. Rebinding is the correct behaviour for a CONTENT
+    # identity (the #545 compaction/resume re-run depends on it), so this does not
+    # fail: it emits one stderr breadcrumb naming both values, and reports the rebind
+    # on stdout so a consumer holding the old value can detect it rather than assume
+    # continuity. An unchanged tree re-derives the same value and emits nothing.
+    rebound_from = None
+    if identity_path.exists():
+        prior_identity, _prior_reason = _read_json_object(identity_path)
+        if isinstance(prior_identity, dict):
+            prior_value = prior_identity.get("candidate_identity")
+            if isinstance(prior_value, str) and prior_value != candidate_identity:
+                rebound_from = prior_value
+                sys.stderr.write(
+                    json.dumps(
+                        {
+                            "ok": True,
+                            "warning": "candidate_identity_rebound",
+                            "claim_context_token": token,
+                            "previous_candidate_identity": prior_value,
+                            "candidate_identity": candidate_identity,
+                        },
+                        sort_keys=True,
+                    )
+                    + "\n"
+                )
+
     pointer_record = {
         "schema_version": SCHEMA_VERSION,
         "kind": "reception-session-pointer",
@@ -266,6 +304,7 @@ def cmd_record(args) -> int:
                 "ok": True,
                 "claim_context_token": token,
                 "candidate_identity": candidate_identity,
+                "rebound_from": rebound_from,
                 "identity_path": str(identity_path),
                 "findings_path": str(findings_path),
                 "pointer_path": str(pointer_path),
@@ -287,8 +326,23 @@ def cmd_append_disposition(args) -> int:
     if not token or any(c not in "0123456789abcdef" for c in token):
         return _fail("invalid_token")
 
+    cwd = args.repo_root or os.getcwd()
     session_dir = _session_dir(args)
     _, findings_path, _ = _paths(session_dir, token)
+
+    # Confirm the session directory is ignored BEFORE writing, exactly as cmd_record
+    # does. --session-dir is a per-invocation argument, so nothing binds this call to
+    # the directory a prior `record` validated: without this check an append pointed at
+    # a non-ignored --session-dir writes a TRACKED artifact, which then becomes part of
+    # the very working-tree content derive_candidate_identity() hashes — the
+    # self-invalidating-identity condition the precondition exists to prevent.
+    ignored = _check_ignored(findings_path, cwd)
+    if ignored is None:
+        return _fail("ignore_check_failed:git-could-not-resolve-ignore-state")
+    if ignored is False:
+        return _fail(
+            "session_dir_not_ignored:add-'/.devflow/*'-or-'.devflow/tmp/'-to-.gitignore"
+        )
 
     record, reason = _read_json_object(findings_path)
     if record is None:

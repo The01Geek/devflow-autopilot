@@ -93,7 +93,7 @@ git merge-base --is-ancestor <remote-head> HEAD  # head-match ancestry (fact 3)
 git rev-list --count <base>..HEAD                # divergence vs the base and the remote counterpart (fact 5)
 gh pr view <n> --json headRefName,baseRefName,headRefOid,baseRefOid,closingIssuesReferences,files
 gh issue view <n> --json body                    # linked-issue body, re-read this run as triage data (fact 6)
-reception-record.py record                       # one gitignored session-artifact write: candidate identity + claim-context token (facts 10, 11)
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/reception-record.py record   # one gitignored session-artifact write: candidate identity + claim-context token (facts 10, 11)
 ```
 
 - **PR head and base (fact 2)** and **commit/path scope (fact 9)** derive from the `gh pr view` read — for a PR-bound subject the scope fact is the file list that read returns (server-side, immune to local history truncation; a locally-computed diff is never the PR-bound scope source), and otherwise the scope is the paths the feedback names.

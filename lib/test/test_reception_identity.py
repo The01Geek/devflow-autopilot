@@ -11,11 +11,15 @@ Covers the issue #668 acceptance matrix:
   * the identity contract rows (edit+untracked, one-byte change, gitignored append,
     deletion, rename, `git commit -am` falsifier),
   * shallow-clone and cone-mode sparse-checkout invariance,
-  * every derivation failure mode -> named breadcrumb, no printed identity,
+  * the exercised derivation failure modes -> named breadcrumb, no printed
+    identity (the arms left untested are enumerated in the deferred-coverage
+    record near the end of this file, with the fail-direction reasoning),
   * one-invocation-writes-both-artifacts, token nonce, gitignored keying,
   * the ignore-rule precondition, the session pointer, idempotency,
   * the findings ledger + disposition subcommand + the four-channel guard,
-  * the six-shape adversarial matrix over each JSON artifact read back,
+  * the six-shape adversarial matrix over the findings artifact the
+    append-disposition path reads back (the record path's existing_findings_*
+    read-back is not matrix-covered — see the deferred-coverage record),
   * degenerate inputs (no commits, empty tree, mode change, symlink, newline
     filename, absent index), the no-history / index-unmodified scale properties,
   * the flight_key-unchanged property for a candidate_identity sibling field.
@@ -333,6 +337,70 @@ class RecordCliTests(unittest.TestCase):
         self.assertEqual(p2["claim_context_token"], token)
         fdrec = json.loads(Path(p2["findings_path"]).read_text())
         self.assertEqual(len(fdrec["findings"]), 1)
+        # UNCHANGED tree: the identity half of the AC. The value is re-derived, so
+        # assert it re-derived EQUAL rather than assuming continuity, and assert the
+        # rebind channel stayed silent.
+        self.assertEqual(p2["candidate_identity"], p1["candidate_identity"])
+        self.assertIsNone(p2["rebound_from"])
+
+    def test_rerecord_after_edit_rebinds_and_surfaces_it(self):
+        """A re-record whose tree changed rebinds the token — and says so.
+
+        PR #681 review: the AC calls the identity artifact idempotent, but the value
+        is re-derived every call, so a same-token re-record after an edit silently
+        rebound a token a consumer already held. Rebinding is correct for a content
+        identity; going UNANNOUNCED was the defect. Pins both halves: the value
+        actually changes, and the change is reported on stdout and stderr.
+        """
+        r = self._repo()
+        r.write("a.txt", "x\n")
+        p1 = json.loads(self._run(["record", "--repo-root", str(r.path)])[1])
+        token = p1["claim_context_token"]
+        r.write("a.txt", "edited\n")
+        code, out, err = self._run(["record", "--repo-root", str(r.path), "--token", token])
+        self.assertEqual(code, 0)
+        p2 = json.loads(out)
+        # the identity genuinely re-derived to a different value
+        self.assertNotEqual(p2["candidate_identity"], p1["candidate_identity"])
+        self.assertEqual(p2["candidate_identity"], ri.derive_candidate_identity(str(r.path)))
+        # and the rebind is surfaced on both channels, naming the superseded value
+        self.assertEqual(p2["rebound_from"], p1["candidate_identity"])
+        warn = json.loads(err.strip().splitlines()[-1])
+        self.assertEqual(warn["warning"], "candidate_identity_rebound")
+        self.assertEqual(warn["previous_candidate_identity"], p1["candidate_identity"])
+        self.assertEqual(warn["candidate_identity"], p2["candidate_identity"])
+
+    def test_append_disposition_checks_ignore_precondition(self):
+        """append-disposition runs the ignore precondition too (PR #681 review).
+
+        --session-dir is per-invocation, so nothing binds an append to the directory
+        a prior record validated. Positive control: the same fixture succeeds through
+        the default (ignored) session dir, so the rejection below is attributable to
+        the ignore state and not to an unrelated precondition.
+        """
+        r = self._repo()
+        r.write("a.txt", "x\n")
+        token = json.loads(self._run(["record", "--repo-root", str(r.path)])[1])["claim_context_token"]
+        # positive control: the fixture is otherwise valid
+        ok, _out, _err = self._run(["append-disposition", "--repo-root", str(r.path),
+                                    "--token", token, "--summary", "s",
+                                    "--disposition", "fixed"])
+        self.assertEqual(ok, 0)
+        # now point the append at a NON-ignored session dir carrying a ledger
+        tracked = r.path / "tracked-sessions"
+        tracked.mkdir()
+        (tracked / f"{token}.findings.json").write_text(
+            json.dumps({"schema_version": rr.SCHEMA_VERSION,
+                        "kind": "reception-findings",
+                        "claim_context_token": token, "findings": []})
+        )
+        code, out, err = self._run(["append-disposition", "--repo-root", str(r.path),
+                                    "--session-dir", str(tracked), "--token", token,
+                                    "--summary", "s", "--disposition", "fixed"])
+        self.assertNotEqual(code, 0)
+        self.assertEqual(out, "")
+        # attribute the rejection to the guard under test, not to a sibling guard
+        self.assertIn("session_dir_not_ignored", json.loads(err)["reason"])
 
     def test_disposition_assigns_id(self):
         r = self._repo()
@@ -494,7 +562,7 @@ class FlightExtensionTests(unittest.TestCase):
 
 # Deferred coverage gaps (PR #681 reception pass, review Important finding 2 —
 # annotated by the review itself as a suspected over-grade; triaged on the code).
-# WHAT: four untested arms — the `temp_index_error`, `git_exec_error`, and
+# WHAT: the untested arms — the `temp_index_error`, `git_exec_error`, and
 #   `empty_tree_output` IdentityError breadcrumbs; the `record` idempotent
 #   read-back (`existing_findings_*`) against the six-shape matrix, which is
 #   currently applied only to the `append-disposition` read-back; the
