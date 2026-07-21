@@ -560,6 +560,280 @@ class FlightExtensionTests(unittest.TestCase):
         self.assertEqual(handle["candidate_identity"], "deadbeef" * 5)
 
 
+class ReviewFixTests(unittest.TestCase):
+    """PR #681 review round 2: fixes for findings the Phase-3 roster raised.
+
+    Each test pins the OUTCOME the finding named, not the precondition — an
+    unreadable prior identity must be reported as undetermined (not as absent),
+    the default session dir must resolve from the git ROOT (not the cwd), and a
+    ledger whose own tags disagree with the request must be refused rather than
+    joined.
+    """
+
+    def _repo(self):
+        return ScratchRepo(Path(tempfile.mkdtemp()))
+
+    def _run(self, argv, cwd=None):
+        out, err = io.StringIO(), io.StringIO()
+        prev = os.getcwd()
+        if cwd:
+            os.chdir(cwd)
+        try:
+            with redirect_stdout(out), redirect_stderr(err):
+                code = rr.main(argv)
+        finally:
+            os.chdir(prev)
+        return code, out.getvalue(), err.getvalue()
+
+    def _record(self, repo):
+        return json.loads(self._run(["record", "--repo-root", str(repo.path)])[1])
+
+    # ── Finding A (corroborated x2): rebind detection fell open on a degraded
+    # prior identity artifact — `rebound_from: null` positively asserted
+    # "identity unchanged" while the artifact was being overwritten.
+    def test_unreadable_prior_identity_reports_undetermined_not_absent(self):
+        for name, content in (
+            ("malformed", '{"candidate_identity": '),
+            ("not_object", "[1,2,3]"),
+            ("empty", "   "),
+            ("non_utf8", None),
+        ):
+            with self.subTest(name):
+                r = self._repo()
+                r.write("a.txt", "x\n")
+                p1 = self._record(r)
+                token = p1["claim_context_token"]
+                idp = Path(p1["identity_path"])
+                if content is None:
+                    idp.write_bytes(b"\xff\xfe not utf8")
+                else:
+                    idp.write_text(content)
+                r.write("a.txt", "edited\n")
+                code, out, err = self._run(
+                    ["record", "--repo-root", str(r.path), "--token", token])
+                self.assertEqual(code, 0, err)
+                p2 = json.loads(out)
+                # NOT null: null is the positive claim "identity unchanged".
+                self.assertEqual(p2["rebound_from"], "unknown")
+                warn = json.loads(err.strip().splitlines()[-1])
+                self.assertEqual(warn["warning"], "prior_identity_unreadable")
+                self.assertTrue(warn["reason"])
+
+    # ── Finding E: CLAUDE.md's #295 repo-root contract. The default session dir
+    # was cwd-anchored, so a run from a subdirectory composed
+    # `<subdir>/.devflow/...`, which the root-anchored ignore rule cannot match —
+    # producing a `session_dir_not_ignored` breadcrumb whose remedy is wrong.
+    def test_default_session_dir_anchors_on_repo_root_not_cwd(self):
+        r = self._repo()
+        r.write("a.txt", "x\n")
+        sub = r.path / "nested" / "deeper"
+        sub.mkdir(parents=True)
+        code, out, err = self._run(["record"], cwd=str(sub))
+        self.assertEqual(code, 0, err)
+        payload = json.loads(out)
+        self.assertTrue(payload["ok"])
+        # The artifacts land under the REPO ROOT's session dir, not the subdir's.
+        self.assertEqual(
+            Path(payload["identity_path"]).resolve().parent,
+            (r.path / rr.SESSION_DIRNAME).resolve())
+        self.assertFalse((sub / ".devflow").exists())
+
+    def test_explicit_repo_root_still_honored_verbatim(self):
+        # The root-anchoring applies only to the DEFAULT; an explicit value wins.
+        r = self._repo()
+        other = self._repo()
+        code, out, err = self._run(["record", "--repo-root", str(other.path)],
+                                   cwd=str(r.path))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(
+            Path(json.loads(out)["identity_path"]).resolve().parent,
+            (other.path / rr.SESSION_DIRNAME).resolve())
+
+    # ── Finding N (corroborated x2): `kind`/`claim_context_token` were written
+    # as discriminators and never checked on read, so a ledger belonging to a
+    # different session (or a different artifact kind entirely) was joined
+    # silently — the one matrix-adjacent shape that yields a VALID-LOOKING ledger.
+    def test_findings_ledger_token_mismatch_refused(self):
+        r = self._repo()
+        p = self._record(r)
+        token = p["claim_context_token"]
+        fdp = Path(p["findings_path"])
+        rec = json.loads(fdp.read_text())
+        rec["claim_context_token"] = "0" * 32
+        fdp.write_text(json.dumps(rec))
+        code, out, err = self._run(
+            ["append-disposition", "--repo-root", str(r.path), "--token", token,
+             "--summary", "s", "--disposition", "fixed"])
+        self.assertNotEqual(code, 0)
+        self.assertEqual(out, "")
+        self.assertIn("findings_token_mismatch", err)
+
+    def test_findings_ledger_wrong_kind_refused(self):
+        r = self._repo()
+        p = self._record(r)
+        token = p["claim_context_token"]
+        fdp = Path(p["findings_path"])
+        rec = json.loads(fdp.read_text())
+        rec["kind"] = "reception-identity"
+        fdp.write_text(json.dumps(rec))
+        code, out, err = self._run(
+            ["append-disposition", "--repo-root", str(r.path), "--token", token,
+             "--summary", "s", "--disposition", "fixed"])
+        self.assertNotEqual(code, 0)
+        self.assertIn("findings_wrong_kind", err)
+
+    # Positive control on the SAME fixture: it is otherwise valid and the call
+    # succeeds but for the one property under test (guard-class shape 3).
+    def test_findings_ledger_matching_tags_accepted(self):
+        r = self._repo()
+        p = self._record(r)
+        code, out, err = self._run(
+            ["append-disposition", "--repo-root", str(r.path),
+             "--token", p["claim_context_token"],
+             "--summary", "s", "--disposition", "fixed"])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(out)["finding_id"], "f001")
+
+    # ── The six-shape matrix over `cmd_record`'s OWN read-backs. The shipped
+    # matrix covered only the append-disposition read-back.
+    def test_record_readback_matrix(self):
+        cases = {
+            "object_valid": (json.dumps(
+                {"schema_version": 1, "kind": "reception-findings", "findings": []}), True),
+            "array": (json.dumps([1, 2, 3]), False),
+            "scalar": (json.dumps(5), False),
+            "valid_falsy_false": (json.dumps(False), False),
+            "valid_falsy_empty_string": (json.dumps(""), False),
+            "wrong_type_findings": (json.dumps({"findings": "nope"}), False),
+        }
+        for name, (content, ok) in cases.items():
+            with self.subTest(name):
+                r = self._repo()
+                p = self._record(r)
+                token = p["claim_context_token"]
+                Path(p["findings_path"]).write_text(content)
+                code, out, err = self._run(
+                    ["record", "--repo-root", str(r.path), "--token", token])
+                if ok:
+                    self.assertEqual(code, 0, err)
+                else:
+                    self.assertNotEqual(code, 0)
+                    self.assertEqual(out, "")
+                    self.assertIn("existing_findings_", err)
+
+    # A well-formed object whose identity token is an empty string is the
+    # valid-falsy row the Testing Strategy names for the IDENTITY artifact.
+    def test_record_readback_empty_string_token_is_not_a_rebind_source(self):
+        r = self._repo()
+        r.write("a.txt", "x\n")
+        p1 = self._record(r)
+        token = p1["claim_context_token"]
+        idp = Path(p1["identity_path"])
+        rec = json.loads(idp.read_text())
+        rec["candidate_identity"] = ""
+        idp.write_text(json.dumps(rec))
+        r.write("a.txt", "edited\n")
+        code, out, err = self._run(
+            ["record", "--repo-root", str(r.path), "--token", token])
+        self.assertEqual(code, 0, err)
+        # An empty prior value is a real (falsy) string that differs from the
+        # derived one, so it is a genuine rebind — reported, never swallowed.
+        self.assertEqual(json.loads(out)["rebound_from"], "")
+
+    # ── Finding I: the module docstring promises EVERY error path emits the
+    # {"ok": false, "reason": ...} record; an exception outside IdentityError /
+    # OSError escaped as a bare traceback instead.
+    def test_unexpected_exception_becomes_attributable_record(self):
+        r = self._repo()
+        orig = rr._atomic_write_json
+
+        def boom(*a, **k):
+            raise RuntimeError("synthetic")
+
+        rr._atomic_write_json = boom
+        try:
+            code, out, err = self._run(["record", "--repo-root", str(r.path)])
+        finally:
+            rr._atomic_write_json = orig
+        self.assertNotEqual(code, 0)
+        self.assertEqual(out, "")
+        payload = json.loads(err.strip().splitlines()[-1])
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["reason"], "internal_error:RuntimeError")
+
+    # ── Final-pass finding 5: the `temp_index_error` arm shipped untested.
+    def test_unwritable_tmpdir_yields_temp_index_breadcrumb(self):
+        r = self._repo()
+        orig = ri.tempfile.mkstemp
+
+        def denied(*a, **k):
+            raise PermissionError("read-only TMPDIR")
+
+        ri.tempfile.mkstemp = denied
+        try:
+            with self.assertRaises(ri.IdentityError) as cm:
+                ri.derive_candidate_identity(str(r.path))
+        finally:
+            ri.tempfile.mkstemp = orig
+        self.assertEqual(cm.exception.reason, "temp_index_error:PermissionError")
+
+    # ── Final-pass / pr-test-analyzer: pin the atomicity property the
+    # non-atomic-write deferral rationale rests on — a failed write leaves the
+    # PRIOR artifact intact and drops no temp file.
+    def test_failed_write_leaves_prior_artifact_intact(self):
+        r = self._repo()
+        p = self._record(r)
+        fdp = Path(p["findings_path"])
+        before = fdp.read_bytes()
+        orig = os.replace
+        os.replace = lambda *a, **k: (_ for _ in ()).throw(OSError("no space"))
+        try:
+            code, out, err = self._run(
+                ["append-disposition", "--repo-root", str(r.path),
+                 "--token", p["claim_context_token"],
+                 "--summary", "s", "--disposition", "fixed"])
+        finally:
+            os.replace = orig
+        self.assertNotEqual(code, 0)
+        self.assertIn("write_failed", err)
+        self.assertEqual(fdp.read_bytes(), before)
+        strays = [q for q in fdp.parent.iterdir() if q.name.startswith(".rr-")]
+        self.assertEqual(strays, [])
+
+    # ── Type-design finding M: the one new declaration field was the only
+    # unvalidated one; a dict/int/empty-string was persisted into the handle and
+    # compared silently unequal by a downstream consumer.
+    def test_flight_candidate_identity_must_be_nonempty_string(self):
+        for bad in ({}, [], 5, "", "   ", False):
+            with self.subTest(repr(bad)):
+                d = {
+                    "schema_version": vf.SCHEMA_VERSION,
+                    "profile": {
+                        "profile_version": "1", "argv": ["run.sh"], "cwd": "/x",
+                        "environment": {}, "toolchain": {}, "dependencies": {},
+                        "output_roots": [], "external_services": "none",
+                    },
+                    "checkout": {k: "v" for k in vf._CHECKOUT_REQUIRED},
+                    "candidate_identity": bad,
+                }
+                with self.assertRaises(vf.DeclarationError) as cm:
+                    vf._derive(d)
+                self.assertIn("candidate_identity", str(cm.exception))
+
+    def test_flight_absent_candidate_identity_still_accepted(self):
+        # Positive control: absent stays legal and records None (the AC).
+        d = {
+            "schema_version": vf.SCHEMA_VERSION,
+            "profile": {
+                "profile_version": "1", "argv": ["run.sh"], "cwd": "/x",
+                "environment": {}, "toolchain": {}, "dependencies": {},
+                "output_roots": [], "external_services": "none",
+            },
+            "checkout": {k: "v" for k in vf._CHECKOUT_REQUIRED},
+        }
+        self.assertIsNone(vf._derive(d)["candidate_identity"])
+
+
 # Deferred coverage gaps (PR #681 reception pass, review Important finding 2 —
 # annotated by the review itself as a suspected over-grade; triaged on the code).
 # WHAT: the untested arms — the `temp_index_error`, `git_exec_error`, and

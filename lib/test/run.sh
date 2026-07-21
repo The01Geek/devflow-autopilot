@@ -4611,7 +4611,10 @@ assert_pin_unique "rcv/#668 P-nooutput: no helper output renders both new facts 
 assert_pin_unique "rcv/#681 P-anchor: the prescribed reception-record.py call carries the portable anchor" \
   '"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/reception-record.py record' "$RECV_SKILL"
 #
-# Behavioral-fix mutation evidence (17): each sed -E mutation re-introduces the named bug.
+# Behavioral-fix mutation evidence: each sed -E mutation re-introduces the named bug.
+# Deliberately count-free (PR #681 review): a self-referential ordinal here rots on the
+# next edit that adds an assert_pin_red_under to this section, which is the non-demotable
+# self-contradicting-diff class CLAUDE.md names.
 assert_pin_red_under "rcv/#545 P-carveout-mp: deleting the loop-governs clause (double-establishment bug)" \
   'and this preflight is not consulted' \
   's/and this preflight is not consulted//' "$RECV_SKILL"

@@ -209,6 +209,7 @@ class DeclarationError(_CodedError):
         "profile_output_roots_not_list",
         "non_hermetic_profile",
         "checkout_not_object",
+        "candidate_identity_not_nonempty_string",
     })
     _REASON_PREFIXES = frozenset({
         "profile_missing_field",
@@ -291,9 +292,16 @@ def _derive(declaration: Any) -> dict:
     # `descriptor_digest` and `flight_key` byte-identical and every stored handle
     # valid. An in-`checkout` placement would silently invalidate every stored
     # handle while presence-only tests still passed — the documented gotcha. The
-    # field is read verbatim (an absent field records None); SCHEMA_VERSION is
+    # An ABSENT field records None (that stays legal — the AC); a PRESENT one is
+    # validated to the same non-empty-string bar every sibling operand meets, so a
+    # dict/list/int/blank can never be persisted into the handle and then compare
+    # silently unequal against a freshly re-derived tree id. SCHEMA_VERSION is
     # unchanged, because a bump would reject every existing declaration.
     candidate_identity = declaration.get("candidate_identity")
+    if candidate_identity is not None and (
+        not isinstance(candidate_identity, str) or not candidate_identity.strip()
+    ):
+        raise DeclarationError("candidate_identity_not_nonempty_string")
     return {
         "descriptor_digest": descriptor_digest,
         "flight_key": flight_key,

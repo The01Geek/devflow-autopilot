@@ -13,8 +13,10 @@ itself so no consumer joins against a hand-authored key.
 
 Subcommands:
   record              Derive identity + mint token + write both artifacts and the
-                      pointer in one call; print {token, candidate_identity, paths}
-                      as JSON to stdout. Idempotent in shape for an existing
+                      pointer in one call; print a JSON object to stdout carrying
+                      `claim_context_token`, `candidate_identity`, `rebound_from`,
+                      and the three artifact paths (`identity_path`,
+                      `findings_path`, `pointer_path`). Idempotent in shape for an existing
                       --token: the findings ledger is preserved, not reset, and
                       the identity artifact is rewritten with a FRESHLY re-derived
                       candidate identity — equal to the recorded one only for an
@@ -27,7 +29,13 @@ Subcommands:
                       `candidate_identity_rebound` warning record is written to
                       stderr, so a consumer holding the old value can detect the
                       change instead of assuming continuity. An unchanged tree
-                      re-derives the same value and emits no warning.
+                      re-derives the same value and emits no warning. When the
+                      prior identity artifact exists but cannot be read (any
+                      degraded shape), the rebind is UNDETERMINED, not absent:
+                      `rebound_from` is the literal `"unknown"` and a
+                      `prior_identity_unreadable` warning names the reason — a
+                      null there is the positive claim "identity unchanged" and
+                      must never stand in for "could not tell".
   append-disposition  Append one disposition to the findings ledger with a
                       helper-assigned finding id. A deferral-class disposition must
                       name one of the skill's four durable channels; a channel-less
@@ -80,9 +88,14 @@ DEFERRAL_KINDS = frozenset(DISPOSITION_KINDS) - {"fixed"}
 # Deferred review findings (PR #681 reception pass) — WHAT / WHY / revisit:
 #   * Non-atomic three-artifact write: a mid-sequence OSError can leave an
 #     orphaned identity.json. WHY deferred: fails CLOSED — the caller sees
-#     write_failed and the pointer is written last, so no consumer reads a
-#     partial session; the residue is debris, not a wrong value. Revisit if a
-#     consumer is ever added that reads identity.json without the pointer.
+#     write_failed, and FOR A FRESH TOKEN the pointer is written last, so no
+#     consumer reads a partial session; the residue is debris, not a wrong
+#     value. Scope limit (PR #681 review): on a RE-record the prior pointer
+#     already exists, so a mid-sequence failure leaves a live pointer addressing
+#     a half-rewritten session — still fail-closed to the caller, but detectable
+#     only by re-running. Each individual artifact write is itself atomic
+#     (temp file + os.replace), so no artifact is ever left truncated. Revisit if
+#     a consumer is ever added that reads identity.json without the pointer.
 #   * append-disposition is a lock-free read-modify-write with position-derived
 #     finding ids; two concurrent appends can collide and lose one. WHY
 #     deferred: SINGLE-WRITER BY DESIGN — one reception pass owns one session
@@ -112,13 +125,32 @@ def _fail(reason: str, code: int = 1) -> int:
 
 
 def _atomic_write_json(path: Path, obj: dict) -> None:
-    """Write JSON atomically with owner-only permissions (0700 dir, 0600 file)."""
+    """Write JSON atomically (temp file + os.replace); 0600 file, 0700 dir best-effort.
+
+    The file mode is a real guarantee; the directory mode is attempted and its
+    failure is non-fatal but never silent — the directory holds the session
+    FILENAMES, which embed the claim-context nonce, so a world-readable session
+    directory leaks the nonce to `ls` even with owner-only files.
+    """
     parent = path.parent
     parent.mkdir(parents=True, exist_ok=True)
     try:
         os.chmod(parent, DIR_MODE)
-    except OSError:
-        pass  # best-effort hardening; the file mode below is the real guard
+    except OSError as exc:
+        # Non-fatal (the 0600 file mode below is the real guard) but attributable:
+        # a silent failure here hides a nonce-leaking directory permission.
+        sys.stderr.write(
+            json.dumps(
+                {
+                    "ok": True,
+                    "warning": "session_dir_chmod_failed",
+                    "reason": exc.__class__.__name__,
+                    "path": str(parent),
+                },
+                sort_keys=True,
+            )
+            + "\n"
+        )
     data = (json.dumps(obj, sort_keys=True, indent=2) + "\n").encode("utf-8")
     fd, tmp = tempfile.mkstemp(dir=str(parent), prefix=".rr-")
     try:
@@ -140,9 +172,20 @@ def _read_json_object(path: Path) -> "tuple[dict | None, str | None]":
     """Read a JSON *object* artifact, applying the six-shape adversarial matrix.
 
     Returns (obj, None) for a real object, or (None, reason) for every degraded
-    shape: object (ok), array/scalar/valid-falsy/wrong-type -> `not_object`,
-    missing -> `missing`, truncated/non-UTF-8 -> `malformed`. No shape yields a
-    value a caller would read as a valid ledger.
+    shape. The reason vocabulary is CLOSED and caller-visible (callers
+    interpolate it into `existing_findings_{reason}` / `findings_{reason}`
+    breadcrumbs), so it is enumerated here in full:
+
+      * object                              -> (obj, None)
+      * array / scalar / valid-falsy /
+        wrong-type                          -> `not_object`
+      * absent file                         -> `missing`
+      * present but unopenable (EACCES,
+        EISDIR, ...)                        -> `unreadable:<ExceptionClass>`
+      * empty or whitespace-only            -> `empty`
+      * truncated or non-UTF-8              -> `malformed`
+
+    No shape yields a value a caller would read as a valid ledger.
     """
     try:
         raw = path.read_bytes()
@@ -162,11 +205,64 @@ def _read_json_object(path: Path) -> "tuple[dict | None, str | None]":
     return obj, None
 
 
+def _repo_root(args) -> str:
+    """Resolve the repository root for the DEFAULT session-dir path.
+
+    CLAUDE.md's SHARED REPO-ROOT CONFIG CONTRACT (#295): a `.devflow/` default
+    path anchors on the git repo ROOT — resolved through a native `git` subprocess
+    (Windows-safe, like the `gh` callers; never a `.sh` exec) — falling back to the
+    cwd when there is no git root. A cwd-anchored default composes
+    `<subdir>/.devflow/...` for a run started from a subdirectory, which the
+    root-anchored ignore rule cannot match, so the helper refuses with an
+    ignore-rule breadcrumb whose remedy would not fix it.
+
+    A non-empty explicit `--repo-root` is honored verbatim; root anchoring
+    applies only to the default.
+    """
+    if args.repo_root:
+        return args.repo_root
+    try:
+        proc = subprocess.run(  # noqa: S603 - argv list, no shell
+            [GIT, "rev-parse", "--show-toplevel"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        return os.getcwd()
+    if proc.returncode != 0:
+        return os.getcwd()
+    try:
+        top = proc.stdout.decode("utf-8").strip()
+    except UnicodeDecodeError:
+        return os.getcwd()
+    return top or os.getcwd()
+
+
+def _check_ledger_tags(record: dict, token: str) -> "str | None":
+    """Verify a findings ledger's own discriminators before it is joined.
+
+    `kind` and `claim_context_token` are written as discriminators; reading a
+    ledger without checking them means a ledger belonging to a DIFFERENT session
+    (or an artifact of a different kind entirely) is accepted verbatim so long
+    as it carries a list-valued `findings`. That is the one degraded shape the
+    six-shape matrix cannot catch, because the object is structurally valid — it
+    yields a valid-LOOKING ledger rather than a refusal.
+
+    Returns a named reason, or None when the tags agree.
+    """
+    kind = record.get("kind")
+    if kind is not None and kind != "reception-findings":
+        return "findings_wrong_kind"
+    recorded = record.get("claim_context_token")
+    if recorded is not None and recorded != token:
+        return "findings_token_mismatch"
+    return None
+
+
 def _session_dir(args) -> Path:
-    root = args.repo_root or os.getcwd()
     if args.session_dir:
         return Path(args.session_dir)
-    return Path(root) / SESSION_DIRNAME
+    return Path(_repo_root(args)) / SESSION_DIRNAME
 
 
 def _check_ignored(sample_path: Path, cwd: str) -> "bool | None":
@@ -201,7 +297,7 @@ def _paths(session_dir: Path, token: str) -> "tuple[Path, Path, Path]":
 
 
 def cmd_record(args) -> int:
-    cwd = args.repo_root or os.getcwd()
+    cwd = _repo_root(args)
 
     # Derive the identity FIRST — before any artifact write — so the artifacts the
     # write creates are excluded from the identity this same invocation derived.
@@ -248,6 +344,9 @@ def cmd_record(args) -> int:
         existing, reason = _read_json_object(findings_path)
         if existing is None:
             return _fail(f"existing_findings_{reason}")
+        tag_reason = _check_ledger_tags(existing, token)
+        if tag_reason:
+            return _fail(f"existing_{tag_reason}")
         prior = existing.get("findings")
         if not isinstance(prior, list):
             return _fail("existing_findings_not_list")
@@ -263,8 +362,29 @@ def cmd_record(args) -> int:
     # continuity. An unchanged tree re-derives the same value and emits nothing.
     rebound_from = None
     if identity_path.exists():
-        prior_identity, _prior_reason = _read_json_object(identity_path)
-        if isinstance(prior_identity, dict):
+        prior_identity, prior_reason = _read_json_object(identity_path)
+        if prior_identity is None:
+            # UNDETERMINED, not absent. `rebound_from: null` is the positive claim
+            # "the identity did not change"; emitting it for an artifact we could
+            # not read would assert continuity across an overwrite we cannot
+            # verify — the fail-open this arm exists to close. The write still
+            # proceeds (a degraded prior must not block the session), but the
+            # caller is told the comparison could not be made.
+            rebound_from = "unknown"
+            sys.stderr.write(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "warning": "prior_identity_unreadable",
+                        "reason": prior_reason,
+                        "claim_context_token": token,
+                        "candidate_identity": candidate_identity,
+                    },
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+        else:
             prior_value = prior_identity.get("candidate_identity")
             if isinstance(prior_value, str) and prior_value != candidate_identity:
                 rebound_from = prior_value
@@ -326,7 +446,7 @@ def cmd_append_disposition(args) -> int:
     if not token or any(c not in "0123456789abcdef" for c in token):
         return _fail("invalid_token")
 
-    cwd = args.repo_root or os.getcwd()
+    cwd = _repo_root(args)
     session_dir = _session_dir(args)
     _, findings_path, _ = _paths(session_dir, token)
 
@@ -347,6 +467,9 @@ def cmd_append_disposition(args) -> int:
     record, reason = _read_json_object(findings_path)
     if record is None:
         return _fail(f"findings_{reason}")
+    tag_reason = _check_ledger_tags(record, token)
+    if tag_reason:
+        return _fail(tag_reason)
     findings = record.get("findings")
     if not isinstance(findings, list):
         return _fail("findings_not_list")
@@ -413,7 +536,16 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: "list[str] | None" = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except Exception as exc:  # noqa: BLE001 - contract: no bare traceback escapes
+        # The module contract is that EVERY error path emits the attributable
+        # {"ok": false, "reason": ...} record. Without this arm a residual
+        # exception (a non-serializable value reaching json.dumps, an OSError
+        # subclass raised outside a guarded block) escaped as a raw traceback —
+        # a shape no consumer parsing the contracted record reads as a failure.
+        # The class name keeps it attributable without leaking the message.
+        return _fail(f"internal_error:{exc.__class__.__name__}")
 
 
 if __name__ == "__main__":
