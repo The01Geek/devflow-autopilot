@@ -24,4 +24,10 @@
 # fixture is read as data, never executed, so it carries a neutral suffix instead
 # of being carved out of #222. Do not rename it back under `*.sh`.
 lib/test/fixtures/ghapi-repo-path/adversarial-crlf.txt   -text
-lib/test/fixtures/ghapi-repo-path/adversarial-nonutf8.sh -text
+# `-diff` as well as `-text` on the encoding fixture: its undecodable byte would
+# otherwise land in `git diff` output, and the #434 stale-prose self-scan pipes that
+# diff into a UTF-8 reader which fails closed on it — one fixture would silently
+# disarm a blocking gate for every branch carrying it. `-diff` makes git report
+# "Binary files differ" instead; the working-tree bytes the scanner reads are
+# untouched, so the encoding fixture still does its job.
+lib/test/fixtures/ghapi-repo-path/adversarial-nonutf8.sh -text -diff
