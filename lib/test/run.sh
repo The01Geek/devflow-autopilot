@@ -48024,8 +48024,16 @@ for _m690 in 666 444; do
   # security guarantee is exactly what a reader must not have to grep the raw log for.
   # Under GITHUB_ACTIONS the arm emits an additional ::warning:: annotation; off
   # Actions it emits ONLY the bare-prefixed detail line, so a local run stays clean.
+  #
+  # BOTH operands set GITHUB_ACTIONS explicitly — the negative one by UNSETTING it in
+  # a subshell, never by reusing an ambient-env capture like $_e690_nt. `_i690` runs
+  # `env "${_ENV533[@]}"`, which inherits the ambient environment, and the required
+  # `lib + python tests` CI job runs with GITHUB_ACTIONS=true: an ambient-env capture
+  # would take the annotation branch there and turn this row RED on CI alone, while
+  # passing at a desk where the variable is unset. Pinning both states makes the row
+  # environment-independent.
   assert_eq "#690: the relaxed arm emits a ::warning:: annotation under GITHUB_ACTIONS, and none when it is unset" "yes no" \
-    "$(printf '%s' "$(GITHUB_ACTIONS=true _i690)" | grep -qF '::warning::install-gh-wrapper:' && echo yes || echo no) $(printf '%s' "$_e690_nt" | grep -qF '::warning::' && echo yes || echo no)"
+    "$(printf '%s' "$(GITHUB_ACTIONS=true _i690)" | grep -qF '::warning::install-gh-wrapper:' && echo yes || echo no) $(printf '%s' "$(unset GITHUB_ACTIONS; _i690)" | grep -qF '::warning::' && echo yes || echo no)"
 done
 # The `nt` token with a real 600 must take the FIRST arm (mode value) and emit no
 # breadcrumb. Without this row nothing pins the arm ORDER: reordering the `if` so
@@ -48070,7 +48078,7 @@ assert_eq "#690: the relaxed arm tests equality against the literal nt, never a 
 # see it. The installer's only legitimate chmod is the `+x` on the copied
 # wrapper (output 4/7), so the mode-setting count must be exactly zero.
 assert_eq "#690: install-gh-wrapper.sh contains no mode-setting chmod at all (only the wrapper's chmod +x)" "0" \
-  "$(grep -vE '^[[:space:]]*#' "$INSTALL533" | grep -c 'chmod' | { read -r _all; printf '%s' "$(( _all - $(grep -vE '^[[:space:]]*#' "$INSTALL533" | grep -c 'chmod +x') ))"; })"
+  "$(grep -vE '^[[:space:]]*#' "$INSTALL533" | grep 'chmod' | grep -vc 'chmod +x')"
 # Behavioral mutation proof (issue #690). assert_pin_red_under cannot express this:
 # it seds a copy and re-greps a literal, never EXECUTING the mutated file, so it
 # cannot observe a behavioral case change verdict. Mirroring the #533 AC22
