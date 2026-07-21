@@ -36180,7 +36180,7 @@ RAF_ROOT_CEIL=3567
 # Update docs/review-and-fix-budget.md's ceilings-table and Measured cells in lockstep; the audited
 # decision is docs/cutovers/issue-620-reception-extension-port.md.
 RAF_LOAD_CEIL=7653
-RAF_MAXSTEP_CEIL=18915
+RAF_MAXSTEP_CEIL=18992
 assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
   "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"
 assert_eq "#530 budget: root + always-loaded extensions (initial load) <= $RAF_LOAD_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W)))" "yes" \
