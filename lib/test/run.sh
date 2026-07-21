@@ -34395,6 +34395,26 @@ assert_eq "#610 asv: INCONCLUSIVE renders the DO NOT ACT decision (AC1)" "yes" \
 # The helper always exits 0 (best-effort, like the #415 sibling).
 assert_eq "#610 asv: helper exits 0 even on an absent execution file" "0" \
   "$(python3 "$ASV_PY" /no/such/execfile.json >/dev/null 2>&1; echo $?)"
+# Fail-open regression (input-less tool_use): a dispatch tool_use recorded under the probe
+# subagent NAME but carrying NO `input` key must still read as dispatch_attempted (-> the
+# no-marker case resolves SEAM_UNPROVEN), never be dropped (which would fail OPEN into the
+# INCONCLUSIVE "measured nothing" floor). collect() records a tool_use even without `input`
+# (the named fail-open guard); this fixture pins it. Every other fixture carries an `input`,
+# so without this the guard is untested and a regression stays green (PR #667 review, pr-test-analyzer Important).
+printf '%s' '[{"type":"tool_use","name":"seam-probe-agent"}]' > "$ASV_F"
+assert_eq "#610 asv: input-less probe-subagent tool_use still reads dispatch_attempted -> SEAM_UNPROVEN, not a fail-open INCONCLUSIVE" "yes" \
+  "$(asv_has_row "$ASV_F" '| **SEAM_UNPROVEN** | no |')"
+# dispatch_attempted via the permission_denials arm (the realistic "dispatch refused" shape):
+# the probe agent name appears ONLY in a permission_denials node, never in a tool_use command
+# string — exercises the `AGENT_NAME in denial_text` half of the OR (PR #667 review, pr-test-analyzer suggestion).
+printf '%s' '[{"permission_denials":[{"tool":"Task","reason":"unknown subagent_type seam-probe-agent"}]}]' > "$ASV_F"
+assert_eq "#610 asv: probe name only in permission_denials still reads dispatch_attempted -> SEAM_UNPROVEN" "yes" \
+  "$(asv_has_row "$ASV_F" '| **SEAM_UNPROVEN** | no |')"
+# Case-insensitivity of the AGENT_NAME match (its own .lower(), distinct from the marker's):
+# a MIXED-case dispatch name still reads dispatch_attempted -> SEAM_UNPROVEN (PR #667 review, pr-test-analyzer suggestion).
+printf '%s' '[{"type":"tool_use","name":"Task","input":{"subagent_type":"SEAM-Probe-Agent"}}]' > "$ASV_F"
+assert_eq "#610 asv: mixed-case probe subagent name still reads dispatch_attempted -> SEAM_UNPROVEN" "yes" \
+  "$(asv_has_row "$ASV_F" '| **SEAM_UNPROVEN** | no |')"
 rm -f "$ASV_F"
 
 # mktemp-guard breadcrumb: after #414 the `BODY_FILE="$(mktemp)"` guard lives ONCE in the

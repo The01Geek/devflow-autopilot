@@ -76,7 +76,7 @@ import sys
 
 AGENT_NAME = "seam-probe-agent"
 FORWARDED_MARKER = "SEAM_PROBE_FORWARDED_OK"
-EFFORT_MARKER_RE = re.compile(r"SEAM_PROBE_EFFORT=([A-Za-z]+)")
+EFFORT_MARKER_RE = re.compile(r"SEAM_PROBE_EFFORT=([A-Za-z]+)", re.IGNORECASE)
 
 
 def parse_execution_file(exec_file):

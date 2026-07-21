@@ -43,9 +43,9 @@ name: Agents seam probe
 # pull_request-triggered: this probe spends a paid Claude session and its verdict is
 # human-adjudicated, so a per-PR auto-run would cost without adding signal, and keeping
 # it off the PR-trigger set keeps it out of the review re-trigger coverage list (#579).
-# Same-repo only — the job `if:` refuses anything but a same-repo dispatch. Concurrency-
-# capped; a run costs cents. Repo-internal; NOT shipped to consumers by install.sh (like
-# matcher-probe.yml).
+# Same-repo only — `workflow_dispatch` exists only on the default branch, and the job `if:`
+# gates on that event (it is not a literal repo check). Concurrency-capped; a run costs
+# cents. Repo-internal; NOT shipped to consumers by install.sh (like matcher-probe.yml).
 #
 # Re-run this whenever claude-code-action or the Claude Code CLI upgrades — the seam is
 # version-dependent, and this probe is the evidence of record that keeps the applied-arm
