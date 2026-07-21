@@ -61,12 +61,10 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
+  # The probe invokes no gh-api helper (its allowed-tools carry none) and runs
+  # workflow_dispatch-only, so the endpoint↔permission lint (#312) requires nothing
+  # beyond the contents floor.
   contents: read
-  # The probe invokes no gh-api helper (its allowed-tools carry none), so the
-  # endpoint↔permission lint (#312) requires nothing beyond the contents floor.
-  # `pull-requests: read` documents the family claude-code-action reads for PR context
-  # on a pull_request trigger and caps it at read so the probe can never mutate a PR.
-  pull-requests: read
 
 jobs:
   seam-probe:
