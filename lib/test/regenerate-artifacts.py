@@ -124,7 +124,7 @@ ROWS = (
         "writes": MECHANICAL_ARTIFACT,
         # `policy` is the SINGLE recipe source (issue #655): the batched-pass
         # `governing policy:` line and the `conflict-recipe` emit read this one field, so
-        # a parallel `conflict_recipe` cannot drift from it. A `regenerate` row's policy
+        # a second, parallel recipe field cannot drift from it. A `regenerate` row's policy
         # must therefore name a runnable WRITE command — the row's `argv` here happens to
         # be that writer, but two other rows' `argv` is a non-writing checker, so the
         # recipe states the command explicitly rather than deriving it from `argv`.

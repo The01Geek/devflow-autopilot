@@ -36130,8 +36130,20 @@ RAF_ROOT_CEIL=3567
 # tree — which absorbs #642's extension growth — with ~4 words of headroom per #619's convention.
 # Update docs/review-and-fix-budget.md's ceilings-table and Measured cells in lockstep; the audited
 # decision is docs/cutovers/issue-620-reception-extension-port.md.
-RAF_LOAD_CEIL=7653
-RAF_MAXSTEP_CEIL=18915
+# #655 raised the initial-load ceiling 7653->8253 and the max-step ceiling 18915->19515. The
+# generalized regenerate-on-conflict rule the issue mandates is byte-identical across the three
+# DevFlow prompt extensions, and TWO of those (review-and-fix.md and receiving-code-review.md)
+# are on this bundle's always-loaded surface since #620 — so the rule lands on the initial load
+# twice, ~300 words each. It cannot be split or shortened past its operative minimum: AC7 pins
+# the three copies byte-identical and requires the oracle citation, the conflict-path/
+# conflict-sibling match, the class+recipe read, and BOTH fail-closed defaults (path not among
+# them; --list unrunnable). Both ceilings carry the repo's usual ~4 words over the measurement,
+# for the #556/#619/#618 reason: a ceiling set exactly at the measurement makes the next
+# one-sentence edit a budget breach. The growth is the audited decision recorded in
+# docs/cutovers/issue-655-conflict-oracle.md; update docs/review-and-fix-budget.md's
+# ceilings-table cells in lockstep.
+RAF_LOAD_CEIL=8253
+RAF_MAXSTEP_CEIL=19515
 assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
   "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"
 assert_eq "#530 budget: root + always-loaded extensions (initial load) <= $RAF_LOAD_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W)))" "yes" \

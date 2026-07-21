@@ -1185,7 +1185,7 @@ for _row in $RA_ROW_NAMES; do
 done
 _ra_conflict_red_under "#655 the conflict-class emit is what produces those lines" \
   'conflict-class	coverage-map-ratchet	by-hand' \
-  's/^(\s*)print\(f"conflict-class.*$/\1pass/'
+  's/^([[:space:]]*)print\(f"conflict-class.*$/\1pass/'
 
 # ── (b) the six class ASSIGNMENTS, each pinned; mutation flips one ───────────────
 _ra_class_is() {  # row expected-class
@@ -1239,9 +1239,9 @@ _ra_conflict_red_under "#655 dropping a row's conflict_paths entry leaves its ar
   'conflict-path	prompt-mass-baseline	lib/test/prompt-mass-baseline.json' \
   's/"conflict_paths": \("lib\/test\/prompt-mass-baseline.json",\)/"conflict_paths": ()/'
 # And the generator-sourced half: emptying REGIONS must NOT silently shrink the set.
-_ra_conflict_red_under "#655 an empty generator REGIONS list does not silently shrink the path set" \
+_ra_conflict_red_under "#655 the workflow literals come from the generator-sourced derivation" \
   'conflict-path	capability-profile-literals	.github/workflows/devflow-runner.yml' \
-  's/^REGIONS = \[$/REGIONS = []  # mutated/'
+  's/ \+ _capability_region_targets\(root\)//'
 
 # ── (d) each regenerate/reconcile-source recipe names a command the TOOL really has ──
 # A substring pin ("the recipe mentions --write-baseline") stays green when the flag is
