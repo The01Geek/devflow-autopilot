@@ -48,12 +48,17 @@ in isolation while iterating on their area:
 
 ```bash
 bash lib/test/run-module.sh create-issue-contract
+bash lib/test/run-module.sh installer-wiring
 ```
 
 Each module is also executed by the full suite through the fail-closed
 `devflow_run_full_suite_module` boundary, and shares the namespaced pin helpers in
 `lib/test/module-harness.sh` (`devflow_module_pin_count` / `pin_unique` /
-`pin_present` / `pin_red_under`) so a module carries no private pin machinery.
+`pin_present` / `pin_red_under`) so a module carries no private pin machinery. The
+harness is likewise the single home of the shared fixture helpers `mint_blk`,
+`probe_tmp` and `probe_assert` (`lib/test/run.sh` sources them from there rather than
+defining its own), and it clears an inherited `DEVFLOW_GH` before sourcing a module body
+so a focused run gets the same fixture isolation as the full suite.
 A per-module inventory (e.g. `lib/test/modules/create-issue-contract.inventory.md`)
 records what it covers.
 
