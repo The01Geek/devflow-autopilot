@@ -36215,9 +36215,11 @@ assert_eq "#656: the AC2 reduction Ceilings row renders Measured + Margin live" 
   "$(case "$_rb_rd_row" in *"| **$(_rb_grouped "$_rb_reduction")** | $(_rb_grouped "$_rb_red_margin") |"*) echo yes ;; *) echo no ;; esac)"
 # Execution-weighted — the After + Delta cell group of every row, plus the two prose-bullet
 # after figures and the token columns. Tokens round PER PASS then multiply (ceil(bytes/4)×N).
-_rb_base_t=$(( (RB_BASELINE_BYTES + 3) / 4 ))     # 59,279
-_rb_sa_t=$(( (RB_STANDALONE_BYTES + 3) / 4 ))     # 53,701
-_rb_raf_t=$(( (RB_RAF_BYTES + 3) / 4 ))           # 52,166
+# Reuse the existing _rb_ceil4 (defined above) so the ceil(bytes/4) token ratio lives
+# in ONE place — a change to it cannot silently desync these pins from the AC4 RECORD row.
+_rb_base_t=$(_rb_ceil4 "$RB_BASELINE_BYTES")      # 59,279
+_rb_sa_t=$(_rb_ceil4 "$RB_STANDALONE_BYTES")      # 53,701
+_rb_raf_t=$(_rb_ceil4 "$RB_RAF_BYTES")            # 52,166
 _rb_assert_exec() {  # label-grep  afterB afterT  N(before/after multiplier)  human-name
   local _row _aB="$2" _aT="$3" _n="$4" _row_lit
   _row="$(grep -F "$1" "$RB_DOC" | head -1)"
@@ -36313,15 +36315,22 @@ assert_eq "#656 AC6: the governed budget figures partition into reconciled ∪ e
 # unmutated scan is the GREEN case (the assertion above). These prove the guard catches the
 # guarded regression, not merely its own line vanishing. Evidence recorded in the workpad.
 # (a) DRIFT a governed figure in a scratch doc -> the drifted value is unaccounted -> RED.
-_rb_mut_a="$(mktemp)"; sed 's/| \*\*7,701\*\* |/| **7,702** |/' "$RB_DOC" > "$_rb_mut_a"
-assert_eq "#656 AC7(a): drifting a governed figure (7,701->7,702) makes the partition scan RED" "yes" \
+# The search value is derived from the LIVE measurement (never a checked-in literal), so a
+# legitimate bundle-size change re-renders the doc AND this mutation together — the guard's
+# own test cannot rot into a no-op sed (the drift class #656 exists to kill, inside the test).
+_rb_mut_from="$(_rb_grouped "$_rb_rootext")"; _rb_mut_to="$(_rb_grouped "$((_rb_rootext + 1))")"
+_rb_mut_a="$(mktemp)"; sed "s/\\*\\*${_rb_mut_from}\\*\\*/**${_rb_mut_to}**/" "$RB_DOC" > "$_rb_mut_a"
+assert_eq "#656 AC7(a): drifting the live root+ext measured cell makes the partition scan RED" "yes" \
   "$([ -n "$(python3 "$LIB/test/rb-figure-partition.py" "$_rb_mut_a" "$_rb_acc" "$_rb_exempt")" ] && echo yes || echo no)"
 # (b) REMOVE a figure from both accounted sets -> that live figure is now unaccounted -> RED.
 _rb_acc_drop="$(mktemp)"; grep -vxF "$_rb_rootext" "$_rb_acc" > "$_rb_acc_drop"
 assert_eq "#656 AC7(b): removing a figure from the accounted set makes the partition scan RED" "yes" \
   "$([ -n "$(python3 "$LIB/test/rb-figure-partition.py" "$RB_DOC" "$_rb_acc_drop" "$_rb_exempt")" ] && echo yes || echo no)"
 # (c) ADD an un-sentineled figure to a governed region (append a cell to the AC3 row) -> RED.
-_rb_mut_c="$(mktemp)"; sed 's/| \*\*30,016\*\* | 60 |/| **30,016** | 60 | 987654 |/' "$RB_DOC" > "$_rb_mut_c"
+# Search value derived from the LIVE AC3 measured cell + margin (never a checked-in literal);
+# 987654 is a fixed mutation-injected sentinel that is no real figure, so it is unaccounted.
+_rb_mut_ac3="| **$(_rb_grouped "$_rb_shipped_w")** | $RB_SHIPPED_MARGIN |"
+_rb_mut_c="$(mktemp)"; sed "s/${_rb_mut_ac3//\*/\\*}/${_rb_mut_ac3//\*/\\*} 987654 |/" "$RB_DOC" > "$_rb_mut_c"
 assert_eq "#656 AC7(c): adding an un-accounted figure to a governed region makes the partition scan RED" "yes" \
   "$([ -n "$(python3 "$LIB/test/rb-figure-partition.py" "$_rb_mut_c" "$_rb_acc" "$_rb_exempt")" ] && echo yes || echo no)"
 # (d) non-vacuity: an EMPTY accounted set fails closed (the FATAL floor), never green.
