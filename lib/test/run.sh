@@ -34354,6 +34354,128 @@ assert_eq "#415 swv: DENIED wins over AVAILABLE when ScheduleWakeup is both deni
   "$(swv_has_row "$SWV_F" '| **DENIED** | yes |')"
 rm -f "$SWV_F"
 
+# ── #610 cloud per-agent-effort SEAM probe verdict — the branch-selecting core is
+# ── extracted into scripts/agents-seam-probe-verdict.py so every arm (and the
+# ── never-auto-ship-the-applied-arm fail-open guard) is DRIVEN, not left inline-in-YAML
+# ── untestable (same rationale as the #415 schedulewakeup helper above). The applied
+# ── arm ships ONLY on SEAM_PROVEN, which requires the explicit human
+# ── --adjudicated-governed flag — the dangerous direction (shipping on an unproven
+# ── seam) must be unreachable without a human in the loop.
+ASV_PY="$REPO_ROOT/scripts/agents-seam-probe-verdict.py"
+ASPROBE="$REPO_ROOT/.github/workflows/agents-seam-probe.yml"
+assert_pin_unique "#610 agents-seam-probe.yml routes the seam verdict through the testable helper" \
+  'python3 scripts/agents-seam-probe-verdict.py "${EXECUTION_FILE}"' "$ASPROBE"
+asv_has_row() {  # fixture expected-row-prefix -> "yes" if the verdict row starts with it
+  python3 "$ASV_PY" "$1" 2>/dev/null | grep -qF "$2" && echo yes || echo no
+}
+asv_has() {  # fixture substring -> "yes" if the rendered output contains it (any line)
+  python3 "$ASV_PY" "$1" 2>/dev/null | grep -qF "$2" && echo yes || echo no
+}
+asv_has_row_adj() {  # fixture expected-row-prefix (with --adjudicated-governed)
+  python3 "$ASV_PY" "$1" --adjudicated-governed 2>/dev/null | grep -qF "$2" && echo yes || echo no
+}
+ASV_F="$(probe_tmp asv.fixture)"
+# Arm: SEAM_FORWARDED — the seam marker was emitted (fact i proven) but fact (ii) is NOT
+# adjudicated → does NOT ship the applied arm. This is the primary fail-open guard: a
+# forwarded seam must NOT auto-promote to SEAM_PROVEN/ship without the human flag.
+printf '%s' '[{"type":"tool_use","name":"Task","input":{"subagent_type":"seam-probe-agent"}},{"type":"tool_use","name":"Bash","input":{"command":"printf %s SEAM_PROBE_FORWARDED_OK SEAM_PROBE_EFFORT=low"}}]' > "$ASV_F"
+assert_eq "#610 asv: SEAM_FORWARDED (no ship) when marker present but fact (ii) not adjudicated" "yes" \
+  "$(asv_has_row "$ASV_F" '| **SEAM_FORWARDED** | no |')"
+# Same fixture WITH --adjudicated-governed → SEAM_PROVEN, ships the applied arm.
+assert_eq "#610 asv: SEAM_PROVEN (ship) only when a human adjudicated fact (ii) via --adjudicated-governed" "yes" \
+  "$(asv_has_row_adj "$ASV_F" '| **SEAM_PROVEN** | yes |')"
+# Arm: SEAM_UNPROVEN — the subagent type was dispatched but no seam marker appeared (the
+# `--agents` startup block was not forwarded / the type was unrecognized). Does NOT ship.
+printf '%s' '[{"type":"tool_use","name":"Task","input":{"subagent_type":"seam-probe-agent"}},{"type":"tool_use","name":"Bash","input":{"command":"printf %s seam-probe-agent dispatch refused: unknown subagent_type"}}]' > "$ASV_F"
+assert_eq "#610 asv: SEAM_UNPROVEN (no ship) when the subagent type was dispatched but emitted no seam marker" "yes" \
+  "$(asv_has_row "$ASV_F" '| **SEAM_UNPROVEN** | no |')"
+# Even with --adjudicated-governed, SEAM_UNPROVEN must NOT ship: fact (i) forwarding is a
+# hard prerequisite the human flag cannot override.
+assert_eq "#610 asv: SEAM_UNPROVEN stays no-ship even with --adjudicated-governed (fact (i) is a hard gate)" "yes" \
+  "$(asv_has_row_adj "$ASV_F" '| **SEAM_UNPROVEN** | no |')"
+# Arm: INCONCLUSIVE — no dispatch of the probe subagent_type was even attempted (the seam
+# was never exercised). Never ships.
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"echo unrelated"}}]' > "$ASV_F"
+assert_eq "#610 asv: INCONCLUSIVE (no ship) when no dispatch of the probe subagent_type was attempted" "yes" \
+  "$(asv_has_row "$ASV_F" '| **INCONCLUSIVE** | no |')"
+# Arm: INCONCLUSIVE — execution file absent (note_top floor). "Unknown is not zero" — never
+# collapsed onto a shippable verdict.
+assert_eq "#610 asv: INCONCLUSIVE (no ship) when the execution file is absent" "yes" \
+  "$(asv_has_row "/no/such/agents-seam-execfile.json" '| **INCONCLUSIVE** | no |')"
+# Arm: INCONCLUSIVE — present regular file, wholly unparseable → note_top floor.
+printf '%s\n' 'not json at all' > "$ASV_F"
+assert_eq "#610 asv: INCONCLUSIVE (no ship) when a present file is wholly unparseable" "yes" \
+  "$(asv_has_row "$ASV_F" '| **INCONCLUSIVE** | no |')"
+# Fail-open regression (case): a LOWER-CASED seam marker must still read as forwarded
+# (SEAM_FORWARDED), not fall through to SEAM_UNPROVEN — case-sensitive matching would
+# under-read fact (i).
+printf '%s' '[{"type":"tool_use","name":"Task","input":{"subagent_type":"seam-probe-agent"}},{"type":"tool_use","name":"Bash","input":{"command":"printf %s seam_probe_forwarded_ok seam_probe_effort=low"}}]' > "$ASV_F"
+assert_eq "#610 asv: lower-cased seam marker still reads SEAM_FORWARDED, not SEAM_UNPROVEN" "yes" \
+  "$(asv_has_row "$ASV_F" '| **SEAM_FORWARDED** | no |')"
+# Arm: INCONCLUSIVE — partial JSONL corruption forces the floor rather than reading the
+# surviving lines as a clean measurement (both a dispatch AND a marker line survive, so the
+# ONLY thing keeping this off SEAM_FORWARDED is the dropped→note_top precedence).
+printf '%s\n%s\n%s\n' \
+  '{"type":"tool_use","name":"Task","input":{"subagent_type":"seam-probe-agent"}}' \
+  '{"type":"tool_use","name":"Bash","input":{"command":"printf %s SEAM_PROBE_FORWARDED_OK SEAM_PROBE_EFFORT=low"}}' \
+  '{oops-not-json' > "$ASV_F"
+assert_eq "#610 asv: INCONCLUSIVE (no ship) on partial JSONL corruption, not a false SEAM_FORWARDED" "yes" \
+  "$(asv_has_row "$ASV_F" '| **INCONCLUSIVE** | no |')"
+# Decision-text pins (the operator-facing AC1 decision line, selected independently of the
+# row). One per class so a mis-mapped decision (green row, wrong action) is caught.
+printf '%s' '[{"type":"tool_use","name":"Task","input":{"subagent_type":"seam-probe-agent"}},{"type":"tool_use","name":"Bash","input":{"command":"printf %s SEAM_PROBE_FORWARDED_OK SEAM_PROBE_EFFORT=low"}}]' > "$ASV_F"
+assert_eq "#610 asv: SEAM_PROVEN renders the SHIP applied-arm decision (AC1)" "yes" \
+  "$(python3 "$ASV_PY" "$ASV_F" --adjudicated-governed 2>/dev/null | grep -qF 'AC1): SHIP the spike-gated applied arm' && echo yes || echo no)"
+assert_eq "#610 asv: SEAM_FORWARDED renders the DO-NOT-SHIP (fact ii pending) decision (AC1)" "yes" \
+  "$(asv_has "$ASV_F" 'fact (ii) (effort governs the dispatch) needs human adjudication')"
+printf '%s' '[{"type":"tool_use","name":"Task","input":{"subagent_type":"seam-probe-agent"}},{"type":"tool_use","name":"Bash","input":{"command":"printf %s seam-probe-agent dispatch refused: unknown subagent_type"}}]' > "$ASV_F"
+assert_eq "#610 asv: SEAM_UNPROVEN renders the DO-NOT-SHIP (seam not forwarded) decision (AC1)" "yes" \
+  "$(asv_has "$ASV_F" 'the startup `--agents` seam was not forwarded')"
+assert_eq "#610 asv: INCONCLUSIVE renders the DO NOT ACT decision (AC1)" "yes" \
+  "$(asv_has "/no/such/agents-seam-decision.json" 'AC1): DO NOT ACT')"
+# The helper always exits 0 (best-effort, like the #415 sibling).
+assert_eq "#610 asv: helper exits 0 even on an absent execution file" "0" \
+  "$(python3 "$ASV_PY" /no/such/execfile.json >/dev/null 2>&1; echo $?)"
+# Fail-open regression (input-less tool_use): a dispatch tool_use recorded under the probe
+# subagent NAME but carrying NO `input` key must still read as dispatch_attempted (-> the
+# no-marker case resolves SEAM_UNPROVEN), never be dropped (which would fail OPEN into the
+# INCONCLUSIVE "measured nothing" floor). collect() records a tool_use even without `input`
+# (the named fail-open guard); this fixture pins it. Every other fixture carries an `input`,
+# so without this the guard is untested and a regression stays green (PR #667 review, pr-test-analyzer Important).
+printf '%s' '[{"type":"tool_use","name":"seam-probe-agent"}]' > "$ASV_F"
+assert_eq "#610 asv: input-less probe-subagent tool_use still reads dispatch_attempted -> SEAM_UNPROVEN, not a fail-open INCONCLUSIVE" "yes" \
+  "$(asv_has_row "$ASV_F" '| **SEAM_UNPROVEN** | no |')"
+# dispatch_attempted via the permission_denials arm (the realistic "dispatch refused" shape):
+# the probe agent name appears ONLY in a permission_denials node, never in a tool_use command
+# string — exercises the `AGENT_NAME in denial_text` half of the OR (PR #667 review, pr-test-analyzer suggestion).
+printf '%s' '[{"permission_denials":[{"tool":"Task","reason":"unknown subagent_type seam-probe-agent"}]}]' > "$ASV_F"
+assert_eq "#610 asv: probe name only in permission_denials still reads dispatch_attempted -> SEAM_UNPROVEN" "yes" \
+  "$(asv_has_row "$ASV_F" '| **SEAM_UNPROVEN** | no |')"
+# Case-insensitivity of the AGENT_NAME match (its own .lower(), distinct from the marker's):
+# a MIXED-case dispatch name still reads dispatch_attempted -> SEAM_UNPROVEN (PR #667 review, pr-test-analyzer suggestion).
+printf '%s' '[{"type":"tool_use","name":"Task","input":{"subagent_type":"SEAM-Probe-Agent"}}]' > "$ASV_F"
+assert_eq "#610 asv: mixed-case probe subagent name still reads dispatch_attempted -> SEAM_UNPROVEN" "yes" \
+  "$(asv_has_row "$ASV_F" '| **SEAM_UNPROVEN** | no |')"
+# Present-but-unreadable execution file (PermissionError / TOCTOU) must route to the
+# INCONCLUSIVE floor and still exit 0 — honoring "always exits 0" — never raise an uncaught
+# traceback (which under the workflow's `set -euo pipefail` verdict step yields a red step
+# with NO verdict table). Parity with the #415 swv sibling (PR #667 review, pr-test-analyzer).
+# Skipped where chmod 000 does not actually deny reads (running as root) so the suite stays green.
+ASV_UNREAD="$(probe_tmp asv.unreadable)"
+printf '%s' '[{"type":"tool_use","name":"Task","input":{"subagent_type":"seam-probe-agent"}}]' > "$ASV_UNREAD"
+chmod 000 "$ASV_UNREAD"
+if python3 -c "open('$ASV_UNREAD').read()" 2>/dev/null; then
+  echo "  (skipped #610 asv unreadable-file arm — reads not denied here, e.g. running as root)"
+else
+  assert_eq "#610 asv: present-but-unreadable execution file -> INCONCLUSIVE (no ship), not a raised traceback" "yes" \
+    "$(asv_has_row "$ASV_UNREAD" '| **INCONCLUSIVE** | no |')"
+  assert_eq "#610 asv: helper still exits 0 on a present-but-unreadable execution file" "0" \
+    "$(python3 "$ASV_PY" "$ASV_UNREAD" >/dev/null 2>&1; echo $?)"
+fi
+chmod 644 "$ASV_UNREAD" 2>/dev/null || true
+rm -f "$ASV_UNREAD"
+rm -f "$ASV_F"
+
 # mktemp-guard breadcrumb: after #414 the `BODY_FILE="$(mktemp)"` guard lives ONCE in the
 # shared helper (no longer a byte-identical mirror across the two YAMLs — the PR #410 review
 # gap this coupled-mirror pin guarded is now structurally impossible). It is pinned against
