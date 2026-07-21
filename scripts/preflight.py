@@ -7,6 +7,17 @@ The dependency subcommand owns the declared sequencing-dependency recognizer.
 It prints one machine-readable outcome so the Phase 1 procedure can decide
 before any branch setup begins.
 
+The ignore-precondition subcommand (issue #693) reports whether a path is
+covered by a gitignore rule, resolved through `git check-ignore` in-process (the
+scripts/reception-record.py shape). It is the precondition of the §1.1 issue-body
+cache write: the cache lives in-tree under .devflow/tmp/, so it must already be
+ignored before it is written. Shipping it as a subcommand of this already-granted
+helper — rather than a new bundled helper — keeps the precondition free of any
+new matcher command head or vendored-literal token, so no install.sh-versus-
+vendor-fetch skew window opens. It reuses the three-class one-token contract:
+IGNORED / PROCEED_EXIT, NOT_IGNORED / BLOCKED_EXIT (a resolved 'not ignored' — the
+degraded arm), UNAVAILABLE / UNAVAILABLE_EXIT (git could not answer).
+
 The branch-state subcommand (issue #576, "Verdict B") classifies the
 adopted/working branch against the base and emits a one-token verdict + matching
 exit code, mirroring scripts/update-branch-checkpoint.sh's one-token-stdout
@@ -594,6 +605,69 @@ def branch_state(args: argparse.Namespace) -> int:
     return BLOCKED_EXIT
 
 
+# ── ignore-precondition (issue #693) ─────────────────────────────────────────
+# A precondition of the §1.1 issue-body cache write: the cache lives IN-TREE under
+# .devflow/tmp/, so an ignore rule covering it must already be in effect before it
+# is written (the run never creates one — a new dotfile would itself be an
+# untracked file the run's `git add -A` calls would stage). Resolving ignore state
+# through git itself — the scripts/reception-record.py `_check_ignored` shape —
+# means the precondition introduces NO new matcher command head and NO new
+# vendored-literal token: the `git check-ignore` call is an in-process subprocess
+# of the already-granted preflight.py, not a command the phase fence invokes. The
+# one-token stdout reuses the three-class exit contract shared with the other
+# subcommands, so the §1.1 fence reads one exit vocabulary:
+#   IGNORED            exit 0  precondition satisfied — the caller may write
+#   NOT_IGNORED        exit 2  a RESOLVED 'not ignored' answer — the degraded arm
+#   UNAVAILABLE <why>  exit 3  git could not answer — an unestablished measurement
+# The IGNORED/NOT_IGNORED split is the resolved answer; UNAVAILABLE (and, at the
+# fence, a denied-or-no-output invocation that prints no recognized token) is the
+# unestablished measurement the fence routes to the run's stop path rather than
+# treating as an unsatisfied precondition — so a matcher refusal can never
+# masquerade as a decided degraded arm.
+def _path_is_ignored(path: str) -> "bool | None":
+    """True if `path` is gitignored, False if not, None if git could not answer.
+
+    Mirrors scripts/reception-record.py's _check_ignored: git's own ignore
+    resolution via `git check-ignore -q`, which answers for a path that need not
+    yet exist. returncode 0 → ignored, 1 → not ignored; anything else (128
+    not-a-repo / error, or an OSError launching git) is undecidable → None.
+    """
+    try:
+        proc = _run_git(["check-ignore", "-q", path])
+    except OSError:
+        return None
+    if proc.returncode == 0:
+        return True
+    if proc.returncode == 1:
+        return False
+    return None
+
+
+def ignore_precondition(args: argparse.Namespace) -> int:
+    if not args.path:
+        print("preflight.py: ignore-precondition requires a non-empty --path", file=sys.stderr)
+        print("UNAVAILABLE path", flush=True)
+        return UNAVAILABLE_EXIT
+    ignored = _path_is_ignored(args.path)
+    if ignored is None:
+        print(
+            f"preflight.py: git check-ignore could not resolve ignore state for {args.path}",
+            file=sys.stderr,
+        )
+        print("UNAVAILABLE resolve", flush=True)
+        return UNAVAILABLE_EXIT
+    if ignored:
+        print("IGNORED", flush=True)
+        return PROCEED_EXIT
+    print(
+        f"preflight.py: {args.path} is not covered by a gitignore rule; the "
+        f"in-tree cache write is preconditioned on one being in effect",
+        file=sys.stderr,
+    )
+    print("NOT_IGNORED", flush=True)
+    return BLOCKED_EXIT
+
+
 class _Parser(argparse.ArgumentParser):
     """Exit usage errors with UNAVAILABLE_EXIT, not argparse's default 2.
 
@@ -626,6 +700,9 @@ def main() -> int:
     branch_state_parser = subparsers.add_parser("branch-state")
     branch_state_parser.add_argument("--state-file")
     branch_state_parser.set_defaults(func=branch_state)
+    ignore_parser = subparsers.add_parser("ignore-precondition")
+    ignore_parser.add_argument("--path")
+    ignore_parser.set_defaults(func=ignore_precondition)
     args = parser.parse_args()
     try:
         return args.func(args)
