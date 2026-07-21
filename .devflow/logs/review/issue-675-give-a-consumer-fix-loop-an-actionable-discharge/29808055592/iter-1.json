@@ -1,0 +1,59 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-21T00:00:00Z",
+  "fix_commit_sha": "e6c3ca501deb5f1b3f73ac36445867a79d77bb31",
+  "fix_files": [],
+  "loop_role": "fix",
+  "current_step": "loop-exit",
+  "current_substep": "converged",
+  "pending_dispatch": null,
+  "sweep_defs_read": [],
+  "sweep_evidence": {"status": "n/a — no fix applied (clean at iteration 1)"},
+  "checklist": [
+    {"id": "VC-1", "claim": "The rewritten desk-check routing row still contains the lib/test/run.sh marker and it matches exactly one table row", "file": "skills/review-and-fix/references/fixing.md", "verification_mode": "lite", "verdict": "PASS", "evidence": "row 45 left cell carries `lib/test/run.sh`; grep shows one table row"},
+    {"id": "VC-2", "claim": "P478_DESTINATIONS[7] is a literal substring of the rewritten row and the destination RED-arm sed matches it byte-for-byte (non-vacuous)", "file": "lib/test/run.sh", "verification_mode": "agent", "verdict": "PASS", "evidence": "suite #478 AC5 GREEN + destination RED arm both pass"},
+    {"id": "VC-3", "claim": "RAF budget doc cells + cloud-writer sha + prompt-mass byte count reconciled to the shipped file", "file": "docs/review-and-fix-budget.md", "verification_mode": "agent", "verdict": "PASS", "evidence": "budget block recomputed against fresh measurement; cloud_writer verify + prompt-mass census exit 0"}
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer"
+  ],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": false
+  },
+  "phase3_findings": [],
+  "fix_decisions": [],
+  "convergence_inputs": {
+    "fixes_applied": 0,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "reference_reads": {"fix_delta": {"status": "verified", "outcome": "clean", "reason": null}},
+  "shadow": {
+    "ran_at": "2026-07-21T00:00:00Z",
+    "reviewed_sha": "e6c3ca501deb5f1b3f73ac36445867a79d77bb31",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "prompt_addenda": null,
+    "reviewers_dispatched": ["independent-shadow-fresh-eyes"],
+    "expected_reviewers": ["independent-shadow-fresh-eyes"],
+    "reason": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 0, "overlap_with_iter_N": 0, "new": 0, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false
+  },
+  "telemetry": {
+    "phase_3": {"calls": 4, "tokens": 0, "wall_clock_s": 0},
+    "step_2_6": {"calls": 1, "tokens": 0, "wall_clock_s": 0}
+  },
+  "verdict": "APPROVE",
+  "notes": "engine_self_modifying diff (touches skills/, lib/test/). All Phase 3 reviewers + independent shadow clean. Prompt-surface edit routing evidence gate discharged via the workpad's Writing-skills evidence marker. Suite green except the #551 gitignored-vendor rglob env artifact (reproduces on main, absent on CI)."
+}
