@@ -13,6 +13,7 @@ time (push to ``main``) from the ``version-consolidate`` workflow at
   * computes the single highest pending bump (``patch`` < ``minor`` < ``major``),
   * rewrites ``.claude-plugin/plugin.json``'s ``version`` by that increment,
   * rewrites ``CITATION.cff``'s ``version`` to the same value (when the file is present),
+  * rewrites the ``marketplace.json`` plugin entry's ``version`` to the same value (when present),
   * prepends a dated, PR-cited Keep-a-Changelog entry assembled from all the prose, and
   * deletes the consumed changeset files.
 
@@ -244,6 +245,30 @@ def _render_citation(citation_path: str, new_version: str) -> str:
     return new_text
 
 
+def _render_marketplace_version(marketplace_path: str, new_version: str) -> str:
+    """Read ``marketplace.json`` and return its text with the plugin entry's ``version`` rewritten.
+
+    The marketplace manifest carries exactly one ``version`` key (its single ``plugins[0]``
+    entry's — there is no marketplace-level ``version``), so the same surgical JSON regex
+    ``_render_manifest`` uses, with ``count=1``, targets it and no other. Pure read + assemble
+    (no write), so ``consolidate`` can prove the output is writable-in-memory before touching
+    disk, and formatting is preserved. Keeps the marketplace listing's advertised plugin version
+    in lockstep with the ``plugin.json`` the consolidator bumps.
+    """
+    text = _read_text(marketplace_path, "marketplace")
+    new_text, n = re.subn(
+        r'("version"\s*:\s*")[^"]*(")',
+        lambda mo: mo.group(1) + new_version + mo.group(2),
+        text,
+        count=1,
+    )
+    if n != 1:
+        raise ChangesetError(
+            f"{marketplace_path}: could not rewrite the plugin entry version"
+        )
+    return new_text
+
+
 def _assemble_entry(version: str, date: str, sections: "dict[str, list[str]]") -> str:
     """Build the ``## [version] — date`` Keep-a-Changelog block from grouped prose."""
     lines = [f"## [{version}] — {date}", ""]
@@ -282,6 +307,7 @@ def consolidate(root: str, date: str) -> int:
     manifest_path = os.path.join(root, ".claude-plugin", "plugin.json")
     changelog_path = os.path.join(root, "CHANGELOG.md")
     citation_path = os.path.join(root, "CITATION.cff")
+    marketplace_path = os.path.join(root, ".claude-plugin", "marketplace.json")
 
     if not os.path.isdir(changeset_dir):
         print("no .changeset/ directory — nothing to consolidate")
@@ -324,11 +350,21 @@ def consolidate(root: str, date: str) -> int:
         if os.path.exists(citation_path)
         else None
     )
+    # The marketplace entry advertises the same plugin version; keep it in lockstep so the
+    # listing never drifts behind the manifest. Same optional/read-before-write treatment as
+    # CITATION.cff: absent → skipped; present-but-unrewritable → raises before any write.
+    new_marketplace = (
+        _render_marketplace_version(marketplace_path, new_version)
+        if os.path.exists(marketplace_path)
+        else None
+    )
 
     _write_text(manifest_path, new_manifest)
     _write_text(changelog_path, new_changelog)
     if new_citation is not None:
         _write_text(citation_path, new_citation)
+    if new_marketplace is not None:
+        _write_text(marketplace_path, new_marketplace)
     for path in pending:
         try:
             os.remove(path)

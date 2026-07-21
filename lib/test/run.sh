@@ -28236,8 +28236,8 @@ assert_eq "vendor: floor abort is the floor's doing, not a cp-under-set-e abort"
 assert_eq "vendor: sanity floor leaves dest non-existent (no partial copy lands)" "no" \
   "$(vexists "$VS_FLOORSRC_DEST")"
 # (c) #671: LICENSES/ is a load-bearing copy-list member — third-party license text for the
-#     vendored Apache-2.0/MIT assets (they carry NO in-file attribution marker by the e398332
-#     decision, so the retained LICENSES/ IS the attribution). A source missing LICENSES/ must
+#     vendored Apache-2.0/MIT assets (they carry NO in-file attribution marker by design, so the
+#     retained LICENSES/ IS the attribution — see issue #671). A source missing LICENSES/ must
 #     fail closed exactly as a missing scripts/ does: cp aborts under set -e before the swap,
 #     leaving dest absent (the "same manner" the floor already treats scripts/).
 VS_NOLIC="$(mktemp -d)"
@@ -28700,6 +28700,12 @@ for f in files:
         bad.append("%s (YAML error: %s)" % (f, e)); continue
     if not isinstance(d, dict):
         bad.append(f + " (frontmatter is not a mapping)")
+    elif not {"name", "description"} <= set(d):
+        bad.append("%s (frontmatter missing required key(s): %s)" % (f, sorted({"name", "description"} - set(d))))
+# "Unknown is not zero" floor: an empty glob would leave `bad` empty and pass green having
+# validated NOTHING (a directory rename / wrong root would silently certify an empty corpus).
+if not files:
+    bad.append("no agent/skill frontmatter files matched (agents/*.md + skills/**/SKILL.md) — empty corpus, the glob found nothing to validate")
 for mf in (".claude-plugin/plugin.json", ".claude-plugin/marketplace.json"):
     p = os.path.join(root, mf)
     try:
@@ -28753,8 +28759,11 @@ if command -v claude >/dev/null 2>&1; then
   done
   PKG_VAL_OUT="$(claude plugin validate --strict "$PKG_STAGE" 2>&1)"; PKG_VAL_RC=$?
   [ "$PKG_VAL_RC" -eq 0 ] || printf '%s\n' "$PKG_VAL_OUT"
+  # Require BOTH a zero exit AND the 'Validation passed' line (the AC's expected output). The
+  # exit code is the authoritative signal — an OR fallback on the string alone would pass green
+  # on a non-zero exit whose output merely contained a per-component 'Validation passed' line.
   assert_eq "#671 packaging: claude plugin validate --strict passes on the staged plugin tree" "yes" \
-    "$( { [ "$PKG_VAL_RC" -eq 0 ] || printf '%s' "$PKG_VAL_OUT" | grep -qF 'Validation passed'; } && echo yes || echo no)"
+    "$( { [ "$PKG_VAL_RC" -eq 0 ] && printf '%s' "$PKG_VAL_OUT" | grep -qF 'Validation passed'; } && echo yes || echo no)"
   rm -rf "$PKG_STAGE"
 else
   skip "#671 claude plugin validate --strict (plugin tree)" blocking-gate "claude CLI not on PATH — plugin-tree strict validation not run (a CI runner could install it; install the CLI to arm this gate)"
@@ -30456,6 +30465,20 @@ assert_eq "#671 CITATION no-version-line: diagnostic names CITATION.cff" "yes" \
 assert_eq "#671 CITATION no-version-line: manifest version unchanged (no partial write)" "2.8.64" "$(cs_ver "$CSD")"
 rm -rf "$CSD"
 
+# #671: the marketplace entry's plugin version tracks the manifest bump too. cs_repo does NOT
+# create a marketplace.json (absent-file skip path), so add one and assert the consolidator
+# rewrites its plugins[0].version to the new value while leaving the marketplace-level fields
+# alone.
+CSD="$(cs_repo)"; printf -- '---\nbump: patch\n---\n\n- x (#671)\n' > "$CSD/.changeset/a.md"
+printf '{\n  "name": "devflow-marketplace",\n  "description": "mkt desc",\n  "plugins": [\n    { "name": "devflow", "source": "./", "version": "2.8.64" }\n  ]\n}\n' > "$CSD/.claude-plugin/marketplace.json"
+python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-21 >/dev/null 2>&1; CS_RC=$?
+assert_eq "#671 marketplace bump: exit 0" "0" "$CS_RC"
+assert_eq "#671 marketplace bump: plugins[0].version rewritten to the new manifest version" "2.8.65" \
+  "$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['plugins'][0]['version'])" "$CSD/.claude-plugin/marketplace.json")"
+assert_eq "#671 marketplace bump: marketplace-level description untouched" "yes" \
+  "$(grep -qF '"description": "mkt desc"' "$CSD/.claude-plugin/marketplace.json" && echo yes || echo no)"
+rm -rf "$CSD"
+
 # #671: CITATION.cff's version must equal the manifest version at HEAD — the consolidator keeps
 # them in lockstep on merge, so a drift here means the repo shipped out of sync. Both values are
 # read LIVE (no checked-in literal), since version-consolidate bumps the manifest on merge to main.
@@ -30465,6 +30488,11 @@ assert_eq "#671 CITATION.cff exists" "yes" "$([ -f "$CIT_CFF" ] && echo yes || e
 CIT_PJ_VER="$(python3 -c "import json; print(json.load(open('$CIT_PJ'))['version'])")"
 CIT_CFF_VER="$(python3 -c "import re; t=open('$CIT_CFF').read(); m=re.search(r'(?m)^version:[ \t]*(\S+)', t); print(m.group(1) if m else '')")"
 assert_eq "#671 CITATION.cff version tracks plugin.json version" "$CIT_PJ_VER" "$CIT_CFF_VER"
+# #671: the marketplace plugin entry's version must likewise equal the manifest version at HEAD
+# (the consolidator now bumps it in lockstep), read LIVE — a drift means the listing shipped
+# behind the plugin.
+CIT_MKT_VER="$(python3 -c "import json; print(json.load(open('$FDROOT/.claude-plugin/marketplace.json'))['plugins'][0]['version'])")"
+assert_eq "#671 marketplace plugins[0].version tracks plugin.json version" "$CIT_PJ_VER" "$CIT_MKT_VER"
 
 # ── #298 hardening: fail-closed OS wrapping, atomic outputs, single-source bump domain ──────
 # AC: _BUMP_RANK is DERIVED from VALID_BUMPS (single source) — the two sets stay consistent,
