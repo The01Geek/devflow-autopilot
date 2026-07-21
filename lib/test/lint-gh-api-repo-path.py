@@ -33,10 +33,15 @@ Scope boundaries, all deliberate and asserted by the suite:
   even when that variable was populated from the environment. Both residuals are
   accepted, not closed.
 
-Unlike `extract-command-heads.py`, this scanner does **not** skip heredoc bodies
-and does not require a fence's info string to be exactly `bash`: a recipe emitted
-from a heredoc runs as written, and an unterminated fence's remainder is treated
-as fence interior so a violation after it is still reached.
+The statement model — continuation folding aside — is **shared, not re-derived**:
+this scanner imports `extract-command-heads.py`'s splitter, substitution walker,
+tokenizer, and normalizer exactly as `extract-command-shapes.py` does, so the
+#363 / #401 / #664 guards can never disagree about what a `gh api` invocation is.
+What is bespoke here is only the *line selector*: unlike the #363 extractor, this
+scanner does **not** skip heredoc bodies and does not require a fence's info
+string to be exactly `bash` — a recipe emitted from a heredoc runs as written, and
+an unterminated fence's remainder is treated as fence interior so a violation
+after it is still reached.
 
 Usage:
     lint-gh-api-repo-path.py [--root DIR] [--files-from PATH]
@@ -49,10 +54,21 @@ two by reading the report, never the exit code.
 from __future__ import annotations
 
 import argparse
+import importlib.util
+import os
 import re
 import subprocess
 import sys
 from pathlib import Path
+
+# Reuse the issue-#363 extractor's quote/substitution/tokenization machinery — the same
+# import `extract-command-shapes.py` uses, and for the same reason: three independent
+# notions of "a statement" in lib/test/ would drift, and this guard would then disagree
+# with the #363/#401 guards about which text is a `gh api` invocation.
+_HEADS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "extract-command-heads.py")
+_spec = importlib.util.spec_from_file_location("extract_command_heads", _HEADS_PATH)
+_heads = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_heads)
 
 #: Path prefixes whose files are never read. See the module docstring for why
 #: each one is here.
@@ -73,9 +89,6 @@ EXCLUDED_PATHS = ("CHANGELOG.md",)
 #: the repository tracks prompt-extension examples with that suffix, whose prose
 #: would otherwise be scanned as if it were shell.
 MARKDOWN_SUFFIXES = (".md", ".md.example")
-
-#: Statement separators, matched outside quotes and outside `$(…)`.
-_SEPARATORS = ("&&", "||", ";", "|", "&", "\n")
 
 #: A head token naming the gh binary directly, or through a resolver variable.
 _GH_VAR_HEAD = re.compile(r"^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$")
@@ -193,107 +206,24 @@ def fold_continuations(lines: list[tuple[int, str]]) -> list[tuple[int, str]]:
     return folded
 
 
-def _substitution_spans(text: str) -> list[tuple[int, int]]:
-    """Return the (start, end) offsets of each top-level `$(…)` body."""
-    spans: list[tuple[int, int]] = []
-    quote: str | None = None
-    depth = 0
-    start = 0
-    index = 0
-    while index < len(text):
-        char = text[index]
-        if quote:
-            if char == quote:
-                quote = None
-        elif depth == 0 and char in ("'", '"'):
-            quote = char
-        elif text.startswith("$(", index):
-            if depth == 0:
-                start = index + 2
-            depth += 1
-            index += 2
-            continue
-        elif char == "(" and depth:
-            depth += 1
-        elif char == ")" and depth:
-            depth -= 1
-            if depth == 0:
-                spans.append((start, index))
-        index += 1
-    return spans
+def statements_in(text: str) -> list[str]:
+    """Return every statement in one logical line, descending into `$(…)` bodies.
 
-
-def split_statements(text: str) -> list[str]:
-    """Split on the shell separator set, outside quotes, descending into `$(…)`.
-
-    A substitution's body becomes its own statement list and is removed from the
-    enclosing text, so `VAR=$(gh api …)` is reached without the assignment prefix
-    hiding the head.
+    Composed from the shared machinery rather than re-derived: `_split_statements`
+    keeps a substitution's body intact as part of its enclosing statement, and
+    `_substitutions` hands back those bodies to be split in their own right — which
+    is how `VAR=$(gh api …)` is reached without the assignment prefix hiding the head.
+    The descent repeats until no further substitution appears, so a nested
+    `$( … $(gh api …) … )` is reached too.
     """
-    statements: list[str] = []
-    spans = _substitution_spans(text)
-    if spans:
-        remainder: list[str] = []
-        previous = 0
-        for start, end in spans:
-            remainder.append(text[previous : start - 2])
-            statements.extend(split_statements(text[start:end]))
-            previous = end + 1
-        remainder.append(text[previous:])
-        text = "".join(remainder)
-
-    current: list[str] = []
-    quote: str | None = None
-    index = 0
-    while index < len(text):
-        char = text[index]
-        if quote:
-            current.append(char)
-            if char == quote:
-                quote = None
-            index += 1
-            continue
-        if char in ("'", '"'):
-            quote = char
-            current.append(char)
-            index += 1
-            continue
-        separator = next((s for s in _SEPARATORS if text.startswith(s, index)), None)
-        if separator is not None:
-            statements.append("".join(current))
-            current = []
-            index += len(separator)
-            continue
-        current.append(char)
-        index += 1
-    statements.append("".join(current))
-    return statements
-
-
-def tokenize(statement: str) -> list[str]:
-    """Split a statement into whitespace-separated tokens, stripping quotes."""
-    tokens: list[str] = []
-    current: list[str] = []
-    quote: str | None = None
-    for char in statement:
-        if quote:
-            if char == quote:
-                quote = None
-            else:
-                current.append(char)
-            continue
-        if char in ("'", '"'):
-            quote = char
-            continue
-        if char.isspace():
-            if current:
-                tokens.append("".join(current))
-                current = []
-            continue
-        current.append(char)
-    if current:
-        tokens.append("".join(current))
-    return tokens
+    found: list[str] = []
+    pending = [text]
+    while pending:
+        current = pending.pop()
+        for statement in _heads._split_statements(current):
+            found.append(statement)
+            pending.extend(_heads._substitutions(statement))
+    return found
 
 
 def _is_gh_head(token: str) -> bool:
@@ -305,7 +235,7 @@ def _is_gh_head(token: str) -> bool:
 
 def violations_in_statement(statement: str) -> list[str]:
     """Return the offending path arguments of one statement (usually none)."""
-    tokens = tokenize(statement)
+    tokens = [_heads._normalize(t) for t in _heads._tokenize(statement)]
     if len(tokens) < 3 or not _is_gh_head(tokens[0]) or tokens[1] != "api":
         return []
     return [
@@ -319,7 +249,7 @@ def scan_text(text: str, markdown: bool) -> list[tuple[int, str]]:
     """Return the (line number, offending argument) pairs found in `text`."""
     found: list[tuple[int, str]] = []
     for number, line in fold_continuations(considered_lines(text, markdown)):
-        for statement in split_statements(line):
+        for statement in statements_in(line):
             found.extend((number, argument) for argument in violations_in_statement(statement))
     return found
 

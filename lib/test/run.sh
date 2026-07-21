@@ -45801,36 +45801,37 @@ assert_eq "#664 scanner: the legitimate corpus produces no violation" \
   "rc=0|lint-gh-api-repo-path: audited 4 files" \
   "$(e664_run "$E664_FX" legit-source.sh legit-python.py legit-prose.md legit-workflow.yml)"
 
-# Planted defects, one assertion per named form.
-for _e664_case in \
-  "violation-basic.sh:3:plain dollar form" \
-  "violation-brace.sh:2:brace form" \
-  "violation-markdown.md:4:inside a bash fence" \
-  "violation-resolved-head.sh:2:resolved-binary head" \
-  "adversarial-heredoc.sh:5:inside a heredoc body" \
-  "adversarial-singlequote.sh:4:inside a single-quoted string" \
-  "adversarial-unterminated.md:8:after an unterminated fence" \
-  "adversarial-nonutf8.sh:3:in a file carrying a non-UTF-8 byte" \
-  "adversarial-continuation.sh:4:on a backslash-continued statement" \
-  "adversarial-mdexample-fence.md.example:4:inside a .md.example fence" \
-; do
-  _e664_file="${_e664_case%%:*}"; _e664_rest="${_e664_case#*:}"
-  _e664_line="${_e664_rest%%:*}"; _e664_what="${_e664_rest#*:}"
+# Planted defects, one assertion per named form. Fields are read with `IFS=:` from a heredoc
+# (not a pipeline — the loop must stay in this shell), so no manual `%%:*` unpacking and no
+# hidden "the description may not contain a colon" constraint.
+while IFS=: read -r _e664_file _e664_line _e664_what; do
+  [ -n "$_e664_file" ] || continue
   assert_eq "#664 scanner: flags a violation $_e664_what ($_e664_file)" "yes" \
     "$(case "$(e664_run "$E664_FX" "$_e664_file")" in *"|$_e664_file:$_e664_line: gh api REST path"*) echo yes ;; *) echo no ;; esac)"
-done
+done <<'E664_VIOLATIONS'
+violation-basic.sh:3:plain dollar form
+violation-brace.sh:2:brace form
+violation-markdown.md:4:inside a bash fence
+violation-resolved-head.sh:2:resolved-binary head
+adversarial-heredoc.sh:5:inside a heredoc body
+adversarial-singlequote.sh:4:inside a single-quoted string
+adversarial-unterminated.md:8:after an unterminated fence
+adversarial-nonutf8.sh:3:in a file carrying a non-UTF-8 byte
+adversarial-continuation.sh:4:on a backslash-continued statement
+adversarial-mdexample-fence.md.example:4:inside a .md.example fence
+E664_VIOLATIONS
 
 # Shapes that must NOT be flagged, each for its own reason.
-for _e664_clean in \
-  "adversarial-prose-only.md:a Markdown occurrence outside any fence" \
-  "adversarial-mdexample-prose.md.example:a .md.example occurrence outside any fence" \
-  "adversarial-empty.sh:an empty file" \
-  "adversarial-nogh.sh:a file with no gh invocation" \
-; do
-  _e664_file="${_e664_clean%%:*}"; _e664_why="${_e664_clean#*:}"
+while IFS=: read -r _e664_file _e664_why; do
+  [ -n "$_e664_file" ] || continue
   assert_eq "#664 scanner: does not flag $_e664_why ($_e664_file)" \
     "rc=0|lint-gh-api-repo-path: audited 1 files" "$(e664_run "$E664_FX" "$_e664_file")"
-done
+done <<'E664_CLEAN'
+adversarial-prose-only.md:a Markdown occurrence outside any fence
+adversarial-mdexample-prose.md.example:a .md.example occurrence outside any fence
+adversarial-empty.sh:an empty file
+adversarial-nogh.sh:a file with no gh invocation
+E664_CLEAN
 
 # Two violations in one file, each on its own reported line.
 assert_eq "#664 scanner: reports both violations of one file on separate lines" "3 5" \
@@ -45849,18 +45850,23 @@ print("rc=" + re.match(r"rc=(\d+)", t).group(1), len(re.findall(r": gh api REST 
 # simply become a second copy of its LF sibling, and the undecodable byte would vanish. The
 # `-text` .gitattributes entries are what preserve them; these two assertions are what notice if
 # those entries are ever dropped, since neither downstream assertion can tell the difference.
-assert_eq "#664 fixture integrity: the CRLF twin still carries CR bytes (not normalized to LF)" "yes" \
-  "$(python3 -c 'import pathlib,sys
-print("yes" if b"\r\n" in pathlib.Path(sys.argv[1]).read_bytes() else "no")' "$E664_FX/adversarial-crlf.txt")"
-assert_eq "#664 fixture integrity: the non-UTF-8 fixture still carries an undecodable byte" "yes" \
-  "$(python3 -c 'import pathlib,sys
-data = pathlib.Path(sys.argv[1]).read_bytes()
-try:
-    data.decode("utf-8")
-except UnicodeDecodeError:
-    print("yes")
+e664_fixture_keeps() {  # <crlf|undecodable> <path> -> yes|no
+  python3 -c 'import pathlib, sys
+mode, data = sys.argv[1], pathlib.Path(sys.argv[2]).read_bytes()
+if mode == "crlf":
+    print("yes" if b"\r\n" in data else "no")
 else:
-    print("no")' "$E664_FX/adversarial-nonutf8.sh")"
+    try:
+        data.decode("utf-8")
+    except UnicodeDecodeError:
+        print("yes")
+    else:
+        print("no")' "$1" "$2"
+}
+assert_eq "#664 fixture integrity: the CRLF twin still carries CR bytes (not normalized to LF)" "yes" \
+  "$(e664_fixture_keeps crlf "$E664_FX/adversarial-crlf.txt")"
+assert_eq "#664 fixture integrity: the non-UTF-8 fixture still carries an undecodable byte" "yes" \
+  "$(e664_fixture_keeps undecodable "$E664_FX/adversarial-nonutf8.sh")"
 
 # CRLF twin: identical verdict AND identical line numbers to its LF sibling.
 assert_eq "#664 scanner: a CRLF file yields the same line numbers as its LF twin" "same" \
