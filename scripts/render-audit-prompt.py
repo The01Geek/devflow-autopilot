@@ -24,9 +24,11 @@ Contract (issue #600):
   ARE substituted into it (``<slug>``, ``{DRAFT_PATH}``) are shape-checked, and
   the draft title never crosses a command line at all — it travels in the
   orchestrator's dispatch preamble prose. The ``--template-file`` /
-  ``--extension-file`` test overrides are read-paths, never substituted into the
-  block; they are shape-checked too, but that is hygiene, not part of this claim.
-  The path check bounds shape, not vocabulary (see ``_abs_path``).
+  ``--extension-file`` test overrides are read-paths that are never substituted
+  into the block, and are deliberately left untyped so an explicit empty value
+  still selects the root-anchored default (the #295 shared contract) — they are
+  outside this claim. The path check bounds shape, not vocabulary (see
+  ``_abs_path``).
 - Modes, complete by construction: the dispatch arms ``file`` /
   ``embed`` / ``inline`` mirroring ``issue-audit-state.py``'s arm vocabulary,
   plus ``checklist`` (the Step 3.5 self-check), ``extract`` (the generic
@@ -478,10 +480,20 @@ def _abs_path(value: str) -> str:
     # POSIX-form only: a Windows-form path is normalized at prompt time (#275), so
     # the message names that remedy rather than reading as a contradiction of what
     # is, on that platform, a genuinely absolute path.
-    if not value.startswith("/") or "\n" in value or "\r" in value:
+    # `{` is rejected so a path can never carry a literal slot token
+    # ({CONSUMER_DIMENSIONS}, {SENTINEL_OPEN}, ...). Without it the
+    # substituted-last invariant in render_dispatch would hold only by argument
+    # provenance; with it, it holds unconditionally.
+    if (
+        not value.startswith("/")
+        or "\n" in value
+        or "\r" in value
+        or "{" in value
+    ):
         raise argparse.ArgumentTypeError(
-            f"path must be a single-line POSIX-form absolute path (got {value!r}); "
-            "normalize a Windows-form path first (see lib/normalize-path.sh)"
+            f"path must be a single-line POSIX-form absolute path with no "
+            f"'{{' slot token (got {value!r}); normalize a Windows-form path "
+            "first (see lib/normalize-path.sh)"
         )
     return value
 
@@ -497,8 +509,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sentinel-open", type=_sentinel)
     parser.add_argument("--sentinel-close", type=_sentinel)
     parser.add_argument("--hook", choices=tuple(_HOOKS))
-    parser.add_argument("--template-file", type=_abs_path)  # override (tests)
-    parser.add_argument("--extension-file", type=_abs_path)  # override (tests)
+    # NOT typed with _abs_path: the #295 shared contract says an explicit EMPTY
+    # value still selects the root-anchored default, and an argparse type would
+    # reject "" at rc 2 before main() could apply that default (and rc 2 is not
+    # this module's documented rc-1 failure shape). These are read-paths that are
+    # never substituted into the rendered block, so they sit outside the
+    # docstring's no-free-text claim.
+    parser.add_argument("--template-file")  # absolute path override (tests)
+    parser.add_argument("--extension-file")  # absolute path override (tests)
     return parser
 
 

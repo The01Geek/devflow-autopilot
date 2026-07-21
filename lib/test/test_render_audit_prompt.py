@@ -532,10 +532,26 @@ class FailClosedAndAnchoring(unittest.TestCase):
                 self.assertIn("--draft-path", r.stderr, bad)
                 self.assertIn(
                     "single-line POSIX-form absolute path", r.stderr, bad)
+        # A path carrying a literal slot token is rejected, so render_dispatch's
+        # substituted-last invariant holds unconditionally rather than by
+        # argument provenance.
+        r_slot = run_renderer(["file", "--slug", "s",
+                               "--draft-path", "/a/{CONSUMER_DIMENSIONS}.md"])
+        self.assertNotEqual(r_slot.returncode, 0)
+        self.assertIn("slot token", r_slot.stderr)
         # Positive control on the same argv shape: a well-formed absolute path
         # renders, so the rejections are the path shape and nothing else.
         r_ok = run_renderer(["file", "--slug", "s", "--draft-path", "/a/d.md"])
         self.assertEqual(r_ok.returncode, 0, r_ok.stderr)
+
+    def test_R22_empty_override_selects_the_root_anchored_default(self):
+        # #295 shared contract: a NON-EMPTY explicit --extension-file is honored
+        # verbatim, but an explicit EMPTY value still selects the root-anchored
+        # default. An argparse `type` on this flag would reject "" at rc 2 before
+        # main() could apply that default — this pins that it does not.
+        r = run_renderer(["status-only", "--extension-file", ""])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(r.stdout.startswith("render-status: "), r.stdout)
 
     def test_R15_slug_alphabet_is_ascii_only(self):
         for bad in ("café-slug", "groß", "slug٠"):
