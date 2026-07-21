@@ -46894,6 +46894,20 @@ assert_eq "#693 scanner: an all-unaudited population is a zero tally at exit 0" 
   "rc=0|lint-issue-body-refetch: audited 0 of 0 files" \
   "$(ibr_run "$IBR_FX" other/foo.md)"
 
+# Fail-closed arms (mirroring the #664 sibling, since the scaffolding is a deliberate mirror):
+# an audited path that cannot be READ is named on stderr and, when it is the whole population,
+# fails closed — "audited nothing" must never print the same thing as "audited everything, clean".
+assert_eq "#693 scanner: an unreadable audited path is named, not silently skipped" "yes" \
+  "$(case "$(ibr_run "$IBR_FX" skills/implement/no-such-file.md)" in *"SKIPPED skills/implement/no-such-file.md"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#693 scanner: a wholly unreadable population fails closed rather than reporting clean" "rc=1|0 of 1" \
+  "$(ibr_run "$IBR_FX" skills/implement/no-such-file.md | python3 -c 'import re,sys
+t = sys.stdin.read()
+m = re.search(r"audited (\d+ of \d+)", t)
+print("rc=" + re.match(r"rc=(\d+)", t).group(1) + "|" + (m.group(1) if m else "no-tally"))')"
+# An empty pre-filter enumeration fails closed with its own breadcrumb (never a silent exit 0).
+assert_eq "#693 scanner: an empty enumeration fails closed with its own breadcrumb" "yes" \
+  "$(case "$(ibr_run "$IBR_FX")" in "rc=0"*) echo "no: exited 0" ;; *"yielded zero paths"*) echo yes ;; *) echo no ;; esac)"
+
 # Re-paste regression: the scanner cannot see a pasted body, so each dispatch site carries a prose
 # pin whose mutation restores the pasted body (the guarded regression the headline saving depends on).
 assert_pin_red_under "#693 re-paste: §2.1 code-explorer dispatch hands the body off, not pasted" \
