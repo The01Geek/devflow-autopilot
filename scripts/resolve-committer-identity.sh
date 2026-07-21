@@ -187,11 +187,10 @@ _emit_identity() {
     _ei_name="$1"
     _ei_email="$2"
     _ei_delim="DEVFLOW_ATTR_EOF_$(date +%s%N 2>/dev/null)_$$"
-    for _ei_var in GIT_AUTHOR_NAME GIT_COMMITTER_NAME; do
-        printf '%s<<%s\n%s\n%s\n' "$_ei_var" "$_ei_delim" "$_ei_name" "$_ei_delim"
-    done
-    for _ei_var in GIT_AUTHOR_EMAIL GIT_COMMITTER_EMAIL; do
-        printf '%s<<%s\n%s\n%s\n' "$_ei_var" "$_ei_delim" "$_ei_email" "$_ei_delim"
+    # One loop over the four "var value" pairs — the name pair then the email pair.
+    for _ei_pair in "GIT_AUTHOR_NAME $_ei_name" "GIT_COMMITTER_NAME $_ei_name" \
+                    "GIT_AUTHOR_EMAIL $_ei_email" "GIT_COMMITTER_EMAIL $_ei_email"; do
+        printf '%s<<%s\n%s\n%s\n' "${_ei_pair%% *}" "$_ei_delim" "${_ei_pair#* }" "$_ei_delim"
     done
 }
 
@@ -209,20 +208,20 @@ fi
 
 # Parse .type, .id, .name from the API response with python3 (never jq — keep the
 # parse on the preflight-guaranteed interpreter). Emit a tab-separated
-# "type<TAB>id<TAB>name", with empty fields for a missing/null value, and the
-# literal sentinel `__DEVFLOW_PARSE_FAIL__` on the first line when the body is not
-# a JSON object at all (so an anomalous body is distinguished from a User with
-# empty fields).
+# "type<TAB>id<TAB>name", with empty fields for a missing/null value. An
+# unparseable body or a non-object body emits an EMPTY type, which the
+# `!= "User"` gate below treats identically to any non-human type — the sole
+# consumer never distinguishes "anomalous body" from "empty .type", so no
+# sentinel is needed.
 _parsed="$(DEVFLOW_ATTR_USERJSON="$_user_json" python3 -c '
 import json, os, sys
 raw = os.environ.get("DEVFLOW_ATTR_USERJSON", "")
 try:
     d = json.loads(raw)
 except Exception:
-    sys.stdout.write("__DEVFLOW_PARSE_FAIL__\t\t")
-    sys.exit(0)
+    d = None
 if not isinstance(d, dict):
-    sys.stdout.write("__DEVFLOW_PARSE_FAIL__\t\t")
+    sys.stdout.write("\t\t")
     sys.exit(0)
 t = d.get("type")
 i = d.get("id")
