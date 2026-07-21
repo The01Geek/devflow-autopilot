@@ -1,0 +1,49 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-21T15:37:40Z",
+  "loop_role": "fix",
+  "current_step": "loop-control",
+  "current_substep": "phase_1_checklist_generation",
+  "pending_dispatch": {
+    "kind": "checklist_generator_batches",
+    "roster": [
+      "devflow:checklist-generator",
+      "devflow:checklist-generator"
+    ],
+    "dispatched_at": "2026-07-21T15:45:00Z"
+  },
+  "fix_threshold": "suggestion",
+  "max_iters": 5,
+  "verdict_severity_threshold": "critical",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "detect_all_audit": true,
+    "checklist_skipped": null
+  },
+  "dispatched_effort": [
+    {
+      "agent": "devflow:checklist-generator",
+      "phase": "1",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
+    }
+  ],
+  "stale_prose_lint": {
+    "exit": 0,
+    "stale_rows": 0,
+    "unresolvable_rows": 1,
+    "note": "UNRESOLVABLE R3 lib/test/test_reception_identity.py:497 count-locked 'four untested arms' — informational, does not gate the verdict, but the repo extension's pin-or-don't-write policy makes it actionable (prose added by this run's own fix commit 6e1de99a)"
+  },
+  "notes": [
+    "Step 0.5 deviation: local branch worktree-pr-681 tracks origin/claude/issue-668; HEAD == PR headRefOid so the invariant holds. gh pr checkout not run (would fight the worktree).",
+    "Phase 1.2 delivery deviation: issue context handed off by file reference (issue-context.md, 36KB) rather than inlined, matching Phase 1.1's no-orchestrator-transit rule. Semantic content identical.",
+    "Phase 0.5: detect_all_audit set true (this diff modifies pf545_illegal_count, a population-enumerating completeness audit). The prior cloud review did not set it; forces the Phase 3.1.5 completeness-critic pass."
+  ],
+  "telemetry": "unavailable"
+}
