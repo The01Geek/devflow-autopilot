@@ -14,9 +14,14 @@ itself so no consumer joins against a hand-authored key.
 Subcommands:
   record              Derive identity + mint token + write both artifacts and the
                       pointer in one call; print {token, candidate_identity, paths}
-                      as JSON to stdout. Idempotent for an existing --token (the
-                      identity artifact is rewritten with the same value and the
-                      findings ledger is preserved, not reset).
+                      as JSON to stdout. Idempotent in shape for an existing
+                      --token: the findings ledger is preserved, not reset, and
+                      the identity artifact is rewritten with a FRESHLY re-derived
+                      candidate identity — equal to the recorded one only for an
+                      unchanged working tree. A re-record after an edit therefore
+                      rebinds the token to the new content identity by design (the
+                      preflight re-runs on compaction/resume against a possibly
+                      edited tree); read the artifact, never a remembered value.
   append-disposition  Append one disposition to the findings ledger with a
                       helper-assigned finding id. A deferral-class disposition must
                       name one of the skill's four durable channels; a channel-less
@@ -59,7 +64,27 @@ FILE_MODE = 0o600
 # Disposition vocabulary (closed). A deferral-class disposition must name a
 # channel; `fixed` needs none.
 DISPOSITION_KINDS = ("fixed", "deferred", "pushback", "disclosed")
-DEFERRAL_KINDS = frozenset({"deferred", "pushback", "disclosed"})
+# DERIVED, never restated: a second literal here would be a coupled mirror that
+# silently drifts the moment DISPOSITION_KINDS gains a member.
+DEFERRAL_KINDS = frozenset(DISPOSITION_KINDS) - {"fixed"}
+
+# Deferred review findings (PR #681 reception pass) — WHAT / WHY / revisit:
+#   * Non-atomic three-artifact write: a mid-sequence OSError can leave an
+#     orphaned identity.json. WHY deferred: fails CLOSED — the caller sees
+#     write_failed and the pointer is written last, so no consumer reads a
+#     partial session; the residue is debris, not a wrong value. Revisit if a
+#     consumer is ever added that reads identity.json without the pointer.
+#   * append-disposition is a lock-free read-modify-write with position-derived
+#     finding ids; two concurrent appends can collide and lose one. WHY
+#     deferred: SINGLE-WRITER BY DESIGN — one reception pass owns one session
+#     token. Revisit if dispositions are ever appended from parallel agents.
+#   * A `fixed` disposition may still carry a --channel (permissive guard), and
+#     the reused --token path validates charset but not length. WHY deferred:
+#     both fail closed or are harmless-permissive; neither admits a wrong
+#     identity. Revisit if a consumer keys behavior off channel-on-fixed.
+#   * IdentityError.reason's closed vocabulary is documented but not enforced as
+#     a type. WHY deferred: reasons are asserted by the test suite's breadcrumb
+#     pins. Revisit if reasons become a consumed API rather than diagnostics.
 # The skill's four durable deferral channels, in its stated order of preference.
 CHANNELS = ("loop-record", "code-comment", "pr-thread", "follow-up-issue")
 

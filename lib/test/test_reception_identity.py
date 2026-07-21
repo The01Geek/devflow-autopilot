@@ -492,5 +492,24 @@ class FlightExtensionTests(unittest.TestCase):
         self.assertEqual(handle["candidate_identity"], "deadbeef" * 5)
 
 
+# Deferred coverage gaps (PR #681 reception pass, review Important finding 2 —
+# annotated by the review itself as a suspected over-grade; triaged on the code).
+# WHAT: four untested arms — the `temp_index_error`, `git_exec_error`, and
+#   `empty_tree_output` IdentityError breadcrumbs; the `record` idempotent
+#   read-back (`existing_findings_*`) against the six-shape matrix, which is
+#   currently applied only to the `append-disposition` read-back; the
+#   `invalid_token` charset guard; and the `ignore_check_failed` (git rc 128) arm.
+# WHY deferred: every one of these arms fails CLOSED by construction — each
+#   raises/returns a named breadcrumb on stderr, prints nothing a caller could
+#   read as a derived identity, and exits non-zero. The untested surface is the
+#   *attribution* of an already-safe refusal, not a path that can admit a wrong
+#   identity or a valid-looking ledger. The happy paths and the fail-open-capable
+#   reads (the append-disposition read-back matrix, the ignore-rule precondition)
+#   are covered. Nothing here gates the verdict at the `critical` threshold.
+# REVISIT: if any of these arms is ever changed to return a value instead of
+#   raising, if a caller starts branching on a specific reason string, or if a
+#   regression lands in one of them — at which point add the missing rows rather
+#   than re-litigating the deferral.
+
 if __name__ == "__main__":
     unittest.main()
