@@ -87,7 +87,7 @@ extensions + max active step ≤ 19,515 words).
 | Row | Included paths | Lines | Words | Bytes | ≈Tokens |
 | --- | --- | ---: | ---: | ---: | ---: |
 | **BEFORE** — monolith | `skills/review-and-fix/SKILL.md` (pre-split) | 1,134 | 36,201 | 250,928 | 47,061 |
-| **BEFORE** — always-loaded | monolith + live extension | 1,341 | 38,856 | 268,829 | 50,513 |
+| **BEFORE** — always-loaded | monolith + live extension | 1,369 | 39,156 | 270,839 | 50,903 |
 | live extension | `.devflow/prompt-extensions/review-and-fix.md` | 235 | 2,955 | 19,911 | 3,842 |
 | receiving extension | `.devflow/prompt-extensions/receiving-code-review.md` | 117 | 1,731 | 11,612 | 2,250 |
 | **AFTER** — plugin root | `skills/review-and-fix/SKILL.md` (thin) | 342 | **3,563** | 28,484 | 4,632 |
@@ -114,7 +114,7 @@ extensions + max active step ≤ 19,515 words).
 
 ## Net mandatory-prompt reduction, and the named justified-growth warning
 
-- **Mandatory (always-loaded) prompt: net reduction of 32,338 words** — from 38,856 (monolith +
+- **Mandatory (always-loaded) prompt: net reduction of 32,638 words** — from 39,156 (monolith +
   extension, *all* of it loaded on every invocation) to 6,518 (thin root + live extension). This is
   the reduction the split exists to deliver: everything else now loads on demand, one step
   reference at a time. Both sides exclude the receiving extension (see Counting method). The

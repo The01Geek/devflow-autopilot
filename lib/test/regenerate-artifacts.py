@@ -154,6 +154,10 @@ ROWS = (
         # before merging the manifest would silently revert whichever grant the
         # concurrent PR added.
         "conflict_class": "reconcile-source",
+        # The conflicted SOURCE of truth is the manifest; the generated workflow literals
+        # are appended at emit time from the generator's own REGIONS (bound below).
+        "conflict_paths": ("lib/capability-profiles.json",),
+        "conflict_paths_extra": None,  # bound to _capability_region_targets below.
         "coupled_by_hand": (("lib/review-profile.tokens", "by-hand"),),
         # Same discriminator the other marker-bearing judgment rows carry: the generator raises
         # GenError for an INPUT failure (an absent/unreadable/malformed manifest, an
@@ -443,18 +447,24 @@ def _capability_region_targets(root):
 def conflict_paths(row, root):
     """The generated artifact file path(s) a merge conflict in `row` can land in.
 
-    Derived from the row's EXISTING structure wherever that structure already states the
-    artifact — `writes` for the mechanical row, `record` for a budget row — and stated
-    explicitly on the row only where no such field exists. The capability row composes
-    its conflicted source (the manifest) with the generator-sourced region targets.
+    Two sources, both keyed on a DECLARED FIELD — never on the row's name. Keying on a name
+    string is the "proxy instead of the real property" that `is_budget_row`'s docstring
+    argues against forty lines above: a row rename is an ordinary registry edit, and under a
+    name check it would silently drop the generator-sourced workflow literals with no field
+    anywhere declaring that the name was load-bearing.
+
+    * the row's static `conflict_paths`, defaulting to whatever field already states the
+      artifact (`writes` for the mechanical row, `record` for a budget row), so no row
+      restates a path the registry already carries; plus
+    * `conflict_paths_extra`, an optional per-row callable taking the target root and
+      returning additional paths derived at emit time. Bound below the function definitions
+      for the same forward-reference reason `check` is.
     """
-    if row["name"] == "capability-profile-literals":
-        return ("lib/capability-profiles.json",) + _capability_region_targets(root)
-    if "conflict_paths" in row:
-        return tuple(row["conflict_paths"])
-    if "writes" in row:
-        return (row["writes"],)
-    return (row["record"],)
+    static = tuple(row["conflict_paths"]) if "conflict_paths" in row else (
+        (row["writes"],) if "writes" in row else (row["record"],)
+    )
+    extra = row.get("conflict_paths_extra")
+    return static + (tuple(extra(root)) if extra else ())
 
 
 def budget_row(row, root, report):
@@ -700,6 +710,11 @@ def _mechanical_outcome(row, proc, output, changed, after, report):
 # in the table because the table is defined above the functions it names.
 for _row in ROWS:
     _row["check"] = budget_row if is_budget_row(_row) else run_row
+    # The capability row's extra paths come from the capability generator's own REGIONS.
+    # Bound here, not in the table, for the same forward-reference reason `check` is — and
+    # as a FIELD, so `conflict_paths` never keys on a row name.
+    if _row.get("conflict_paths_extra", "unset") is None:
+        _row["conflict_paths_extra"] = _capability_region_targets
     # Fail closed on a misregistered conflict class or an empty recipe (issue #655), in
     # the same bind loop the check strategy is wired in — so a row that cannot be
     # classified never reaches `--list` and emits an unknown class a consumer would then
@@ -739,18 +754,20 @@ def emit_list(root):
     # `conflict-sibling`, then reads that row's `conflict-class` and `conflict-recipe`.
     # The recipe is the row's `policy` verbatim — the SAME field the batched pass prints
     # as `governing policy:` — so the two consumers structurally cannot drift.
-    for row in ROWS:
-        print(f"conflict-class\t{row['name']}\t{row['conflict_class']}")
-    for row in ROWS:
-        for path in conflict_paths(row, root):
-            print(f"conflict-path\t{row['name']}\t{path}")
-    for row in ROWS:
-        print(f"conflict-recipe\t{row['name']}\t{row['policy']}")
+    #
     # A coupled by-hand sibling is a file the row's gate READS but never writes, and which
     # is not a registry row of its own (it has no independent check, so it fails the
     # registry's inclusion criterion). The oracle must still name it, or a conflict in it
     # matches nothing and takes the hand-merge default.
+    #
+    # One pass over ROWS rather than one pass per line kind: every consumer lookup is
+    # prefix-anchored (`conflict-path\t<row>\t…`), so nothing depends on the kinds being
+    # grouped, and a single loop keeps "what one row emits" readable in one place.
     for row in ROWS:
+        print(f"conflict-class\t{row['name']}\t{row['conflict_class']}")
+        for path in conflict_paths(row, root):
+            print(f"conflict-path\t{row['name']}\t{path}")
+        print(f"conflict-recipe\t{row['name']}\t{row['policy']}")
         for path, sibling_class in row.get("coupled_by_hand", ()):
             print(f"conflict-sibling\t{row['name']}\t{path}\t{sibling_class}")
     return 0

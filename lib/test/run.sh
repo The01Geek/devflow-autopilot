@@ -36197,7 +36197,7 @@ done
 assert_eq "#620 budget: maintainer note's prose root ceiling matches RAF_ROOT_CEIL ($RAF_ROOT_CEIL)" "yes" \
   "$(case "$_raf_doc_nocommas" in *"The root sits below its ${RAF_ROOT_CEIL}-word"*) echo yes;; *) echo no;; esac)"
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +5,226 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +5,256 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute

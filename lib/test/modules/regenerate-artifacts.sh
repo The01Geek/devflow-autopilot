@@ -1128,37 +1128,52 @@ devflow_module_pin_unique "#619 the helper states its single-file write scope" '
 # stronger than a source-content pin: it proves the emit is what the mutation kills, not
 # merely that a source literal moved. Never mutate the live checkout (the module-wide rule).
 
-RA_C_LIST="$RA_LIST"   # the live `--list` output captured in A4, reused unchanged.
-# The same output as a FILE, because devflow_module_pin_count reads a path. Written once
-# rather than re-spilled per call site.
+# The live `--list` output (captured in A4) as a FILE, because the harness pin API reads a
+# path. Every arm below matches through that API rather than a `case` glob: a `case` pattern
+# with two `*` wildcards spans LINES in a multi-line string, so `*"conflict-path	"*"	$1"*`
+# would match one row's name against another row's path — a false green on exactly the
+# coverage property this block calls load-bearing. devflow_module_pin_count is line-scoped
+# and count-returning, so neither that cross-row match nor an unanchored suffix
+# (`by-hand` matching `by-hand-ish`) survives it.
 RA_C_LIST_F="$_ra_tmp_root/c655-live-list.txt"
-printf '%s\n' "$RA_C_LIST" > "$RA_C_LIST_F"
+printf '%s\n' "$RA_LIST" > "$RA_C_LIST_F"
 
 # One mutation harness: copy the pristine fixture, apply a `sed -E` to the helper inside
 # it, re-run `--list` there, and report whether `literal` was present before and after.
 # A no-op mutation, a sed error, or a `--list` that fails to run are each their own named
 # failure — never a silent "absent after", which would let a broken harness certify a pin
 # it never actually exercised.
+# ONE fixture root shared by every mutated-helper arm below. Each arm writes its mutated
+# helper to a DISTINCT scratch path outside the root and invokes it with --repo-root pointed
+# here, so no arm's mutation is visible to another and none of them writes into the root:
+# `--list` is read-only (it walks ROWS, reads the capability generator, and prints). Without
+# this each arm cost a full `cp -R` of the tracked tree, and this module runs inside the
+# slowest step in the repo.
+RA_C_SHARED="$_ra_tmp_root/c655-shared"; _ra_fixture "$RA_C_SHARED"
+RA_C_MUT=0
+
 _ra_conflict_red_under() {  # name literal mutation
-  local name="$1" literal="$2" mutation="$3" dest before after
-  dest="$_ra_tmp_root/c655-$(printf '%s' "$name" | tr -c 'a-zA-Z0-9' '-')"
-  rm -rf "$dest"; _ra_fixture "$dest"
-  if ! sed -E "$mutation" "$RA_HELPER" > "$dest/lib/test/regenerate-artifacts.py" 2>/dev/null; then
+  local name="$1" literal="$2" mutation="$3" mut before after
+  RA_C_MUT=$((RA_C_MUT + 1))
+  mut="$_ra_tmp_root/c655-mut-$RA_C_MUT.py"
+  if ! sed -E "$mutation" "$RA_HELPER" > "$mut" 2>/dev/null; then
     assert_eq "$name" "PASS->FAIL" "mutation-errored"; return 0
   fi
-  if cmp -s "$RA_HELPER" "$dest/lib/test/regenerate-artifacts.py"; then
+  if cmp -s "$RA_HELPER" "$mut"; then
     assert_eq "$name" "PASS->FAIL" "mutation-noop(the pin would prove nothing)"; return 0
   fi
-  before="$([ "$(devflow_module_pin_count "$literal" "$RA_C_LIST_F")" -ge 1 ] \
+  # Exactly 1, matching devflow_module_pin_red_under's PASS derivation rather than `-ge 1`:
+  # two helpers whose pin names mean different things is the divergence a second copy of a
+  # contract always drifts into.
+  before="$([ "$(devflow_module_pin_count "$literal" "$RA_C_LIST_F")" = 1 ] \
     && printf 'PASS' || printf 'FAIL')"
   # The mutated run's rc is deliberately IGNORED for the after-state: several mutations
   # here are expected to make `--list` fail closed (a raise), and "the line is gone
   # because the helper refused to emit anything" is exactly as much a RED as "the line is
   # gone because the emit was deleted". A separate arm (the fail-closed pin) asserts the
   # raise path on its own terms.
-  python3 "$dest/lib/test/regenerate-artifacts.py" --list --repo-root "$dest" \
-    >"$dest/.ra.clist" 2>&1
-  after="$([ "$(devflow_module_pin_count "$literal" "$dest/.ra.clist")" -ge 1 ] \
+  python3 "$mut" --list --repo-root "$RA_C_SHARED" >"$mut.out" 2>&1
+  after="$([ "$(devflow_module_pin_count "$literal" "$mut.out")" = 1 ] \
     && printf 'PASS' || printf 'FAIL')"
   assert_eq "$name" "PASS->FAIL" "$before->$after"
 }
@@ -1168,16 +1183,16 @@ _ra_conflict_red_under() {  # name literal mutation
 # A4), so a newly-registered row that forgets its class is caught here rather than
 # silently omitted from a hand-maintained list.
 for _row in $RA_ROW_NAMES; do
-  case "$RA_C_LIST" in
-    *"conflict-class	$_row	regenerate"*|\
-    *"conflict-class	$_row	reconcile-source"*|\
-    *"conflict-class	$_row	by-hand"*)
-      assert_eq "#655 --list emits an in-set conflict-class for: $_row" yes yes ;;
-    *) assert_eq "#655 --list emits an in-set conflict-class for: $_row" yes \
-         "no(no conflict-class line, or a value outside {regenerate, reconcile-source, by-hand})" ;;
-  esac
+  # Sum the three in-set spellings through the line-scoped counter: exactly one must match.
+  # A `case` glob would accept an unanchored suffix (`by-hand-ish`) and, with two wildcards,
+  # match across LINES — see the RA_C_LIST_F note above.
+  _ra_c_inset=0
+  for _cls in regenerate reconcile-source by-hand; do
+    _ra_c_inset=$((_ra_c_inset + $(devflow_module_pin_count "conflict-class	$_row	$_cls" "$RA_C_LIST_F")))
+  done
+  assert_eq "#655 --list emits exactly one in-set conflict-class for: $_row" "1" "$_ra_c_inset"
   # One conflict-recipe line per row, non-empty — the recipe the conflict rule follows.
-  case "$(printf '%s\n' "$RA_C_LIST" | sed -n "s/^conflict-recipe	${_row}	//p")" in
+  case "$(sed -n "s/^conflict-recipe	${_row}	//p" "$RA_C_LIST_F")" in
     '') assert_eq "#655 --list emits a non-empty conflict-recipe for: $_row" yes \
           "no(absent or empty)" ;;
     *)  assert_eq "#655 --list emits a non-empty conflict-recipe for: $_row" yes yes ;;
@@ -1189,11 +1204,8 @@ _ra_conflict_red_under "#655 the conflict-class emit is what produces those line
 
 # ── (b) the six class ASSIGNMENTS, each pinned; mutation flips one ───────────────
 _ra_class_is() {  # row expected-class
-  case "$RA_C_LIST" in
-    *"conflict-class	$1	$2"*) assert_eq "#655 conflict-class assignment: $1 -> $2" yes yes ;;
-    *) assert_eq "#655 conflict-class assignment: $1 -> $2" yes \
-         "no($1 is not classified $2)" ;;
-  esac
+  assert_eq "#655 conflict-class assignment: $1 -> $2" "1" \
+    "$(devflow_module_pin_count "conflict-class	$1	$2" "$RA_C_LIST_F")"
 }
 _ra_class_is cloud-writer-manifest       regenerate
 _ra_class_is prompt-mass-baseline        regenerate
@@ -1215,11 +1227,18 @@ _ra_conflict_red_under "#655 a flipped class is caught (by-hand -> regenerate)" 
 # to the hand-merge default — the exact failure the rule exists to prevent. The list is
 # the audit's own enumeration of the repo's generated artifacts, deliberately independent
 # of the registry (a registry-derived list could only certify its own completeness).
+# Row-agnostic on purpose (the audit asks "is this artifact covered", not "by which row"),
+# so it counts LINES ending in the path via a tab-anchored suffix strip rather than a
+# two-wildcard `case` that could pair one row's name with another row's path.
 _ra_conflict_path_covered() {  # artifact-path
-  case "$RA_C_LIST" in
-    *"conflict-path	"*"	$1"*) assert_eq "#655 conflict-path covers the generated artifact: $1" yes yes ;;
-    *) assert_eq "#655 conflict-path covers the generated artifact: $1" yes \
+  local n
+  n="$(sed -n "s/^conflict-path	[^	]*	//p" "$RA_C_LIST_F" | grep -cx -F -- "$1")"
+  case "$n" in
+    ''|*[!0-9]*) assert_eq "#655 conflict-path covers the generated artifact: $1" yes \
+                   "no(count unestablished — sed/grep absent)" ;;
+    0) assert_eq "#655 conflict-path covers the generated artifact: $1" yes \
          "no($1 is a generated artifact but no conflict-path line names it; a conflict there would take the hand-merge default)" ;;
+    *) assert_eq "#655 conflict-path covers the generated artifact: $1" yes yes ;;
   esac
 }
 _ra_conflict_path_covered scripts/devflow-cloud-writer-contract.json
@@ -1239,9 +1258,12 @@ _ra_conflict_red_under "#655 dropping a row's conflict_paths entry leaves its ar
   'conflict-path	prompt-mass-baseline	lib/test/prompt-mass-baseline.json' \
   's/"conflict_paths": \("lib\/test\/prompt-mass-baseline.json",\)/"conflict_paths": ()/'
 # And the generator-sourced half: emptying REGIONS must NOT silently shrink the set.
+# Mutation: drop the bind-loop line that wires the row's conflict_paths_extra callable, so
+# the row falls back to its static path alone and every generator-sourced workflow literal
+# vanishes from the set.
 _ra_conflict_red_under "#655 the workflow literals come from the generator-sourced derivation" \
   'conflict-path	capability-profile-literals	.github/workflows/devflow-runner.yml' \
-  's/ \+ _capability_region_targets\(root\)//'
+  's/_row\["conflict_paths_extra"\] = _capability_region_targets/pass/'
 
 # ── (d) each regenerate/reconcile-source recipe names a command the TOOL really has ──
 # A substring pin ("the recipe mentions --write-baseline") stays green when the flag is
@@ -1249,7 +1271,7 @@ _ra_conflict_red_under "#655 the workflow literals come from the generator-sourc
 # tool's REAL interface: its `--help` text, or — for the capability generator, which has
 # no argparse and rejects `--help` — an actual fixture run of the bare write form.
 _ra_recipe_names() {  # row needle
-  case "$(printf '%s\n' "$RA_C_LIST" | sed -n "s/^conflict-recipe	${1}	//p")" in
+  case "$(sed -n "s/^conflict-recipe	${1}	//p" "$RA_C_LIST_F")" in
     *"$2"*) printf 'yes' ;;
     *) printf 'no' ;;
   esac
@@ -1270,13 +1292,18 @@ _ra_tool_has_flag() {  # root tool-relative-path case-glob
     *) printf 'no' ;;
   esac
 }
+# The `--help` probes run against the LIVE checkout: argparse prints usage and exits before
+# any repo I/O, so they cannot mutate anything and need no copy. The capability generator's
+# BARE form is the one arm that writes (it rewrites the five workflow literal regions), so it
+# alone gets a private fixture — stated here because it is otherwise invisible why one of
+# these three probes is different.
 RA_IFACE="$_ra_tmp_root/iface"; _ra_fixture "$RA_IFACE"
 assert_eq "#655 recipe interface: cloud-writer names the 'generate' subcommand the tool declares" \
   "yes/yes" \
-  "$(_ra_recipe_names cloud-writer-manifest 'cloud_writer_contract.py generate')/$(_ra_tool_has_flag "$RA_IFACE" lib/test/cloud_writer_contract.py '*generate[!a-z-]*')"
+  "$(_ra_recipe_names cloud-writer-manifest 'cloud_writer_contract.py generate')/$(_ra_tool_has_flag "$RA_REPO" lib/test/cloud_writer_contract.py '*generate[!a-z-]*')"
 assert_eq "#655 recipe interface: prompt-mass names the '--write-baseline' writer the tool declares" \
   "yes/yes" \
-  "$(_ra_recipe_names prompt-mass-baseline '--write-baseline')/$(_ra_tool_has_flag "$RA_IFACE" lib/test/prompt-mass-census.py '*--write-baseline[!-]*')"
+  "$(_ra_recipe_names prompt-mass-baseline '--write-baseline')/$(_ra_tool_has_flag "$RA_REPO" lib/test/prompt-mass-census.py '*--write-baseline[!-]*')"
 # The capability generator has no argparse (it rejects `--help`), so its interface is
 # established by RUNNING the bare write form the recipe names against a fixture: an exit
 # outside {0} — or an "unknown argument" breadcrumb — means the recipe names a dead form.
@@ -1293,9 +1320,11 @@ assert_eq "#655 recipe interface: the capability recipe names the generator and 
 # The mutation the round-2 finding demands: rename the flag IN THE TOOL and confirm the
 # interface check goes RED. A substring-only pin stays green here — that is the whole
 # point of driving it against the tool's real `--help`.
-RA_IFACE_MUT="$_ra_tmp_root/iface-mut"; _ra_fixture "$RA_IFACE_MUT"
-sed -i.bak 's/write-baseline/write-baseline-renamed/g' \
-  "$RA_IFACE_MUT/lib/test/prompt-mass-census.py" 2>/dev/null
+# A single-file image, not a tree copy: this arm only runs `--help` on that one tool, and
+# argparse prints usage before any repo read.
+RA_IFACE_MUT="$_ra_tmp_root/iface-mut"; mkdir -p "$RA_IFACE_MUT/lib/test"
+sed 's/write-baseline/write-baseline-renamed/g' "$RA_REPO/lib/test/prompt-mass-census.py" \
+  > "$RA_IFACE_MUT/lib/test/prompt-mass-census.py" 2>/dev/null
 assert_eq "#655 renaming --write-baseline in the tool turns the interface check RED" \
   "no" "$(_ra_tool_has_flag "$RA_IFACE_MUT" lib/test/prompt-mass-census.py '*--write-baseline[!-]*')"
 
@@ -1312,30 +1341,35 @@ _ra_conflict_red_under "#655 the coupled_by_hand tuple is what produces the sibl
 # The bind-time validation raises, so `--list` never emits an unknown class a consumer
 # would have no route for. Driven end-to-end: rc must be non-zero and the breadcrumb must
 # name the offending value, not merely traceback anonymously.
-RA_C655F="$_ra_tmp_root/c655-outofset"; _ra_fixture "$RA_C655F"
-sed -E 's/"conflict_class": "regenerate"/"conflict_class": "hand-wave"/' "$RA_HELPER" \
-  > "$RA_C655F/lib/test/regenerate-artifacts.py"
-python3 "$RA_C655F/lib/test/regenerate-artifacts.py" --list --repo-root "$RA_C655F" \
-  >"$RA_C655F/.ra.out" 2>&1; printf '%s\n' "$?" >"$RA_C655F/.ra.rc"
-case "$(_ra_rc "$RA_C655F")" in
-  0) assert_eq "#655 an out-of-set conflict_class fails closed (non-zero exit)" yes \
-       "no(--list exited 0 and emitted an unknown class)" ;;
-  *) assert_eq "#655 an out-of-set conflict_class fails closed (non-zero exit)" yes yes ;;
-esac
-_ra_has "#655 the out-of-set breadcrumb names the offending value" "$RA_C655F" "'hand-wave'"
-_ra_has "#655 the out-of-set breadcrumb names the closed set" "$RA_C655F" "which is outside"
-# And the sibling invariant: an empty recipe is refused on the same bind pass.
-RA_C655F2="$_ra_tmp_root/c655-emptyrecipe"; _ra_fixture "$RA_C655F2"
-sed -E 's/^        "policy": "add the missing coverage rows.*$/        "policy": "",/' "$RA_HELPER" \
-  > "$RA_C655F2/lib/test/regenerate-artifacts.py"
-python3 "$RA_C655F2/lib/test/regenerate-artifacts.py" --list --repo-root "$RA_C655F2" \
-  >"$RA_C655F2/.ra.out" 2>&1; printf '%s\n' "$?" >"$RA_C655F2/.ra.rc"
-case "$(_ra_rc "$RA_C655F2")" in
-  0) assert_eq "#655 an empty recipe fails closed (non-zero exit)" yes \
-       "no(--list exited 0 with a row carrying no recipe)" ;;
-  *) assert_eq "#655 an empty recipe fails closed (non-zero exit)" yes yes ;;
-esac
-_ra_has "#655 the empty-recipe breadcrumb names the recipe field" "$RA_C655F2" "empty recipe (policy)"
+# Both bind-time invariants take the same five steps (mutate the helper, run --list against
+# the shared root, require a non-zero exit, then pin the breadcrumb), so they share a helper —
+# the same two-call-sites threshold at which this module already extracts one.
+_ra_bind_fails_closed() {  # label mutation needle...
+  local label="$1" mutation="$2" mut
+  shift 2
+  RA_C_MUT=$((RA_C_MUT + 1))
+  mut="$_ra_tmp_root/c655-mut-$RA_C_MUT.py"
+  sed -E "$mutation" "$RA_HELPER" > "$mut"
+  if python3 "$mut" --list --repo-root "$RA_C_SHARED" >"$mut.out" 2>&1; then
+    assert_eq "#655 $label fails closed (non-zero exit)" yes \
+      "no(--list exited 0 despite the planted registry defect)"
+  else
+    assert_eq "#655 $label fails closed (non-zero exit)" yes yes
+  fi
+  for _needle in "$@"; do
+    case "$(devflow_module_pin_count "$_needle" "$mut.out")" in
+      ''|*[!0-9]*) assert_eq "#655 $label breadcrumb names: $_needle" yes "no(count unestablished)" ;;
+      0) assert_eq "#655 $label breadcrumb names: $_needle" yes "no(absent from the breadcrumb)" ;;
+      *) assert_eq "#655 $label breadcrumb names: $_needle" yes yes ;;
+    esac
+  done
+}
+_ra_bind_fails_closed "an out-of-set conflict_class" \
+  's/"conflict_class": "regenerate"/"conflict_class": "hand-wave"/' \
+  "'hand-wave'" "which is outside"
+_ra_bind_fails_closed "an empty recipe" \
+  's/^        "policy": "add the missing coverage rows.*$/        "policy": "",/' \
+  "empty recipe (policy)"
 
 # ── (g) the recipe is a SINGLE source: `policy`, read by BOTH consumers ──────────
 # A parallel `conflict_recipe` field would let the batched pass and the conflict rule
@@ -1347,7 +1381,7 @@ assert_eq "#655 no parallel conflict_recipe field exists (the recipe is the reus
 # A3 already ran a fixture whose capability row emitted a JUDGMENT with its governing
 # policy; compare that rendered text against this row's conflict-recipe line. Both are
 # derived from the live registry, so a split into two fields breaks the equality.
-RA_C655G_RECIPE="$(printf '%s\n' "$RA_C_LIST" | sed -n 's/^conflict-recipe	capability-profile-literals	//p')"
+RA_C655G_RECIPE="$(sed -n 's/^conflict-recipe	capability-profile-literals	//p' "$RA_C_LIST_F")"
 case "$RA_C655G_RECIPE" in
   '') assert_eq "#655 the capability conflict-recipe is non-empty (single-source test is live)" yes \
         "no(empty — the comparison below would be vacuous)" ;;
