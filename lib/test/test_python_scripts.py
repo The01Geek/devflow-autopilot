@@ -6900,9 +6900,12 @@ assert_eq("#543 AC18: validator accepts the real checked-in manifest",
 # AC9 (issue #650) — grant synchronization. check_grant_sync() maps every
 # AC1-closure reachable helper literal (REQUIRED_HELPER_HEADS) to its profile's
 # workflow grants and fails when a reachable literal is not explicitly granted
-# tight-scoped, or when a grant for a reachable helper widens the executable
-# trust boundary (absolute / repo-root / basename-wildcard). Non-vacuity is
-# proven by injecting one synthetic defect at a time via profile_grants=.
+# tight-scoped, or when any grant COVERING a reachable helper widens the
+# executable trust boundary. The class list is deliberately not restated here —
+# check_grant_sync()'s docstring is its single source of truth, and an earlier
+# three-class copy of it here was already stale against the shipped five labels.
+# Non-vacuity is proven by injecting one synthetic defect at a time via
+# profile_grants=.
 # ─────────────────────────────────────────────────────────────────────────────
 # Coupled-mirror pin (/simplify F1): _VENDORED_GRANT_RE is intentionally identical
 # to the runtime validator's _GRANT_RE (the lower contract module cannot import the
@@ -6915,17 +6918,32 @@ assert_eq("#650 AC9: _VENDORED_GRANT_RE mirrors the validator's _GRANT_RE (drift
 # Manifest-coupling pin (/simplify F4): each SANCTIONED_WILDCARD_GRANTS entry is a
 # deliberate companion wildcard the real profiles carry (lib/capability-profiles.json,
 # per #561). The exemption is a policy allowlist (auto-deriving it from every manifest
-# wildcard would make the widening check vacuous), so instead couple it to reality:
-# assert each sanctioned wildcard actually appears as a Bash(<wildcard>:*) grant in at
-# least one live ROOTS workflow. If the manifest drops it, this pin goes RED, flagging
-# the now-stale exemption rather than letting it silently mask a future real widening.
-_gs_workflow_blob = "\n".join(
-    (cwc.REPO_ROOT / cwc.ROOTS[pr]["workflow"]).read_text(encoding="utf-8")
-    for pr in cwc.ROOTS)
-for _sw in sorted(cwc.SANCTIONED_WILDCARD_GRANTS):
-    assert_eq("#650 AC9: sanctioned wildcard '%s' is a real grant in a live workflow "
-              "(exemption coupled to the manifest, not a stale hardcode)" % _sw,
-              True, ("Bash(%s:" % _sw) in _gs_workflow_blob)
+# wildcard would make the widening check vacuous), so instead couple it to reality.
+#
+# The coupling is asserted PER PROFILE, against that profile's own workflow. An
+# earlier whole-tree concatenation could only prove a wildcard was granted
+# *somewhere*, which is precisely the evidence a profile-blind exemption needs to
+# look sound: it would stay green while the implement profile — which carries no
+# such wildcard — silently enjoyed the exemption. The set-equality half is what
+# turns a wildcard ADDED to a profile's exemption list, without a matching live
+# grant, RED.
+_gs_exempt_profiles = set(cwc.SANCTIONED_WILDCARD_GRANTS)
+assert_eq("#650 AC9: the sanctioned-wildcard map is keyed by exactly the ROOTS profiles",
+          set(cwc.ROOTS), _gs_exempt_profiles)
+for _pr in sorted(cwc.ROOTS):
+    _gs_pr_text = (cwc.REPO_ROOT / cwc.ROOTS[_pr]["workflow"]).read_text(encoding="utf-8")
+    for _sw in sorted(cwc.SANCTIONED_WILDCARD_GRANTS[_pr]):
+        assert_eq("#650 AC9: sanctioned wildcard '%s' is a real grant in profile '%s's OWN "
+                  "workflow (exemption coupled per profile, not tree-wide)" % (_sw, _pr),
+                  True, ("Bash(%s:" % _sw) in _gs_pr_text)
+    # The converse: a profile whose workflow does NOT carry the wildcard must not
+    # be exempting it. This is the arm that catches a profile-blind exemption.
+    for _sw in sorted(cwc.SANCTIONED_WILDCARD_GRANTS["light-command"]
+                      | cwc.SANCTIONED_WILDCARD_GRANTS["review"]):
+        if ("Bash(%s:" % _sw) not in _gs_pr_text:
+            assert_eq("#650 AC9: profile '%s' does not exempt wildcard '%s' it never grants"
+                      % (_pr, _sw),
+                      False, _sw in cwc.SANCTIONED_WILDCARD_GRANTS[_pr])
 
 # The live tree passes — the real workflows grant every reachable literal and
 # widen nothing (the sanctioned */load-prompt-extension.sh wildcard aside).
@@ -6988,6 +7006,18 @@ _gs_sanct["review"] += "\nTOOLS='Bash(*/load-prompt-extension.sh:*)'"
 assert_eq("#650 AC9: the sanctioned */load-prompt-extension.sh wildcard is NOT flagged",
           [], cwc.check_grant_sync(_gs_sanct))
 
+# (e2) …but the exemption is PER PROFILE. The implement profile carries no `*/`
+# wildcard, so injecting the same spec there MUST still be flagged: a globally
+# scoped exemption set would wave it through and re-open the basename-wildcard
+# widening class for the read-write profile. This is the discriminating pair with
+# (e) — same spec, different profile, opposite expected outcome.
+_gs_implement_wc = _cw_healthy_grants()
+_gs_implement_wc["implement"] += "\nTOOLS='Bash(*/load-prompt-extension.sh:*)'"
+assert_eq("#650 AC9: a wildcard sanctioned only for review/light-command is still flagged "
+          "in the implement profile, which does not grant it",
+          True, any("widens" in e and "basename-wildcard" in e
+                    for e in cwc.check_grant_sync(_gs_implement_wc)))
+
 # (f) An unavailable grant source (None) is a targeted violation, never a silent
 # empty grant set (unknown is not zero).
 _gs_none = _cw_healthy_grants()
@@ -7005,8 +7035,11 @@ try:
               True, any("!= ROOTS profiles" in e for e in cwc.check_grant_sync(_gs_parity_grants)))
 finally:
     cwc.REQUIRED_HELPER_HEADS = _gs_orig_heads
+# Restoration pin, matching the other two module-global mutations below.
+assert_eq("#650 AC9: REQUIRED_HELPER_HEADS restored after the profile-parity arm",
+          [], cwc.check_grant_sync())
 
-# A commented-out grant does not satisfy a reachable literal (fail-open guard,
+# (h) A commented-out grant does not satisfy a reachable literal (fail-open guard,
 # mirrors the AC18 extract_profile_grants pin): a `# … Bash(workpad.py…)` line is
 # not a grant, so the literal reads as ungranted.
 _gs_comment = _cw_healthy_grants()
@@ -7143,6 +7176,25 @@ finally:
     cwc.ROOTS["review"]["workflow"] = _gs_orig_roots_wf
 # Restoration is load-bearing for every later assertion — pin it.
 assert_eq("#650 AC9: ROOTS['review'] workflow restored after the on-disk arm",
+          [], cwc.check_grant_sync())
+
+# The on-disk arm above raises FileNotFoundError — an OSError. The ValueError half
+# of `except (OSError, ValueError)` guards a DIFFERENT cause: a workflow carrying a
+# non-UTF-8 byte raises UnicodeDecodeError, which is a ValueError. Without this
+# fixture, narrowing the handler back to `except OSError` leaves every assertion
+# green while the documented raw-traceback crash returns.
+_gs_badbytes = cwc.REPO_ROOT / ".devflow" / "tmp" / "gs-650-nonutf8.yml"
+_gs_badbytes.parent.mkdir(parents=True, exist_ok=True)
+_gs_badbytes.write_bytes(b"TOOLS='Bash(\xff\xfe:*)'\n")
+try:
+    cwc.ROOTS["review"]["workflow"] = str(_gs_badbytes.relative_to(cwc.REPO_ROOT))
+    assert_eq("#650 AC9: a non-UTF-8 workflow is reported unavailable, not a raw traceback "
+              "(UnicodeDecodeError is a ValueError, not an OSError)",
+              True, any("grant source unavailable" in e for e in cwc.check_grant_sync()))
+finally:
+    cwc.ROOTS["review"]["workflow"] = _gs_orig_roots_wf
+    _gs_badbytes.unlink(missing_ok=True)
+assert_eq("#650 AC9: ROOTS['review'] workflow restored after the non-UTF-8 arm",
           [], cwc.check_grant_sync())
 
 # (m) main(["grant-sync"])'s FAILURE arm returns 1 (only the exit-0 arm was

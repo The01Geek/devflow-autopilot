@@ -393,18 +393,34 @@ def unlisted_skill_assets():
 # check_grant_sync() enforces both directions over the three cloud profiles keyed
 # by ROOTS.
 #
-# KNOWN, DELIBERATE SCOPE LIMIT — interpreter and wrapper grants are NOT detected.
-# _ANY_BASH_GRANT_RE reads only the grant's leading command-position token, so
-# Bash(python3:*) / Bash(bash:*) / Bash(env:*) yield 'python3' / 'bash' / 'env',
-# which neither glob-match a vendored literal nor share a reachable basename —
-# yet each can execute every reachable helper (`python3 .devflow/vendor/devflow/
-# scripts/workpad.py …`). This is not an oversight the guard could close by
-# widening detection: devflow-implement.yml *legitimately and necessarily* grants
-# Bash(python3:*), so flagging the interpreter class would turn the guard RED on
-# the healthy tree. AC9's stated scope is the three path classes above; bounding
-# the interpreter surface is a separate policy question, not this guard's.
+# KNOWN, DELIBERATE SCOPE LIMITS — two surfaces this guard does not measure.
+#
+# (i) Interpreter and wrapper grants. _ANY_BASH_GRANT_RE reads only the grant's
+# leading command-position token, so Bash(python3:*) yields 'python3', which
+# neither glob-matches a vendored literal nor shares a reachable basename — yet
+# it can execute every reachable helper (`python3 .devflow/vendor/devflow/
+# scripts/workpad.py …`). The same blindness covers any wrapper head. This is
+# not an oversight detection could simply close: the live profiles legitimately
+# and necessarily grant interpreter heads (python3 in all three, env likewise),
+# so flagging that class would turn the guard RED on the healthy tree. AC9's
+# stated scope is the path classes above; bounding the interpreter surface is a
+# separate policy question, tracked in the #650 follow-up.
+#
+# (ii) Consumer-spliced grants. devflow-implement.yml's --allowed-tools baseline
+# is followed by a `${{ needs.config.outputs.allowed_tools_extra }}` splice, so a
+# consumer's devflow_implement.allowed_tools entries never appear in the file
+# this guard reads. A widened grant added there is outside the measured surface.
+#
 # Do not read arm (2) as "no grant can reach a helper" — it is "no PATH-SHAPED
-# grant for a helper is broader than the vendored literal".
+# grant IN THE COMMITTED WORKFLOW is broader than the vendored literal".
+#
+# Why the generated workflow and not lib/capability-profiles.json (the manifest
+# those literals are generated FROM): the rendered literal is what the cloud
+# runner's matcher actually reads, so it is the surface a widening would have to
+# reach to matter. Manifest-vs-literal parity is separately enforced in this same
+# suite by `python3 lib/generate-capability-profiles.py --check` (#561), so
+# reading the rendered side loses nothing and measures the real boundary. Do not
+# "fix" this into a manifest read.
 #
 # Scoped-home note (deviates from issue #650's AC9 wording "the command-head
 # test", which names lib/test/extract-command-heads.py's comment-aware scoper as
@@ -443,16 +459,25 @@ _VENDORED_GRANT_RE = re.compile(
 # the widened classes AC9 must reject.
 _ANY_BASH_GRANT_RE = re.compile(r"Bash\(\s*([^\s:)]+)")
 
-# Deliberately-sanctioned basename-wildcard grants (NOT widening defects). The
-# light-command and review profiles grant Bash(*/load-prompt-extension.sh:*)
-# ALONGSIDE the explicit vendored literal (lib/capability-profiles.json): the
-# prompt-extension loader is reached through the portable ${CLAUDE_SKILL_DIR:-…}
-# anchor, which can resolve to a non-vendored absolute path on some runners, so
-# the wildcard is an intentional companion to the tight grant, not a replacement
-# of it. A change that ADDED a new wildcard here would still need an explicit
-# manifest edit + review-boundary diff, so exempting this one literal does not
-# open a silent widening path.
-SANCTIONED_WILDCARD_GRANTS = frozenset({"*/load-prompt-extension.sh"})
+# Deliberately-sanctioned basename-wildcard grants (NOT widening defects),
+# **keyed per profile**. The light-command and review profiles grant
+# Bash(*/load-prompt-extension.sh:*) ALONGSIDE the explicit vendored literal
+# (lib/capability-profiles.json): the prompt-extension loader is reached through
+# the portable ${CLAUDE_SKILL_DIR:-…} anchor, which can resolve to a non-vendored
+# absolute path on some runners, so the wildcard is an intentional companion to
+# the tight grant, not a replacement of it.
+#
+# The per-profile keying is load-bearing, not tidiness. The implement profile
+# does NOT carry that wildcard, so a global exemption set would wave it through
+# there too — re-opening, for the read-write profile, exactly the basename-
+# wildcard widening arm (2) exists to reject. An unknown profile gets an EMPTY
+# exemption set (see the `.get(profile, frozenset())` read), so the failure
+# direction of a future profile addition is fail-closed.
+SANCTIONED_WILDCARD_GRANTS = {
+    "implement": frozenset(),
+    "light-command": frozenset({"*/load-prompt-extension.sh"}),
+    "review": frozenset({"*/load-prompt-extension.sh"}),
+}
 
 
 def _grant_source_text(profile, profile_grants):
@@ -645,8 +670,8 @@ def check_grant_sync(profile_grants=None):
         for spec in sorted(any_grants):
             if spec in vendored_grants:
                 continue  # a proper vendored grant is never a widening
-            if spec in SANCTIONED_WILDCARD_GRANTS:
-                continue  # deliberate companion wildcard (documented)
+            if spec in SANCTIONED_WILDCARD_GRANTS.get(profile, frozenset()):
+                continue  # deliberate companion wildcard for THIS profile (documented)
             if not _grant_covers(spec, heads, reachable_basenames):
                 continue  # cannot execute any helper this profile reaches
             errors.append(
