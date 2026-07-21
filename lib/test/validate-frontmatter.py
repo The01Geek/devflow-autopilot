@@ -35,7 +35,17 @@ def validate(root: str) -> "tuple[int, list[str]]":
         glob.glob(os.path.join(root, "skills", "**", "SKILL.md"), recursive=True)
     )
     for f in files:
-        text = open(f, encoding="utf-8").read()
+        # Closed handle + named-path failure: an I/O or decode fault must stay inside this
+        # helper's documented 0/1/3 vocabulary, never escape as a bare traceback.
+        try:
+            with open(f, encoding="utf-8") as fh:
+                text = fh.read()
+        except OSError as exc:
+            bad.append("%s (cannot read: %s)" % (f, exc))
+            continue
+        except UnicodeDecodeError as exc:
+            bad.append("%s (not valid UTF-8: %s)" % (f, exc))
+            continue
         m = re.match(r"---\n(.*?)\n---\n", text, re.DOTALL)
         if not m:
             bad.append(f + " (no frontmatter block)")

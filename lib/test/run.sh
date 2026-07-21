@@ -28967,6 +28967,61 @@ PKG_FIX_CTL_OUT="$(python3 "$PKG_FM" "$PKG_FIX_ROOT")"; PKG_FIX_CTL_RC=$?
 assert_eq "#671 packaging: positive control — the same fixture root passes once the description is quoted" "0" "$PKG_FIX_CTL_RC"
 rm -rf "$PKG_FIX_ROOT"
 
+# (2b) an unreadable file must stay inside the helper's documented 0/1/3 vocabulary — a named
+# path on its own line, never a bare OSError traceback escaping as an unattributable exit 1.
+PKG_NEG_IO="$(mktemp -d)"; mkdir -p "$PKG_NEG_IO/agents"
+printf -- '---\nname: x\ndescription: y\n---\n\nbody\n' > "$PKG_NEG_IO/agents/unreadable.md"
+chmod 000 "$PKG_NEG_IO/agents/unreadable.md"
+if [ -r "$PKG_NEG_IO/agents/unreadable.md" ]; then
+  # Running as root (or on a filesystem ignoring the mode) — the condition cannot be expressed.
+  skip "#671 packaging: unreadable frontmatter file is named, not a traceback" host-capability \
+    "chmod 000 left the file readable (root or a mode-ignoring filesystem) — the unreadable-input arm cannot be expressed on this host"
+else
+  PKG_NEG_IO_OUT="$(python3 "$PKG_FM" "$PKG_NEG_IO" 2>&1)"; PKG_NEG_IO_RC=$?
+  assert_eq "#671 packaging: unreadable frontmatter file fails closed (exit 1, the helper's own code)" "1" "$PKG_NEG_IO_RC"
+  assert_eq "#671 packaging: unreadable frontmatter file is named with the cannot-read reason (no bare traceback)" "yes" \
+    "$(printf '%s' "$PKG_NEG_IO_OUT" | grep -qF "$PKG_NEG_IO/agents/unreadable.md (cannot read:" && echo yes || echo no)"
+  assert_eq "#671 packaging: unreadable-file arm emits no Python traceback" "no" \
+    "$(printf '%s' "$PKG_NEG_IO_OUT" | grep -qF 'Traceback (most recent call last)' && echo yes || echo no)"
+fi
+chmod 644 "$PKG_NEG_IO/agents/unreadable.md" 2>/dev/null || true
+rm -rf "$PKG_NEG_IO"
+
+# (2c) PyYAML-missing arm: exit 3 (a loud failure, never a silent green) with a named reason.
+# Driven by putting a stub `yaml` module that raises on import ahead of the real one.
+PKG_NOYAML="$(mktemp -d)"; mkdir -p "$PKG_NOYAML/agents" "$PKG_NOYAML/stub"
+printf -- '---\nname: x\ndescription: y\n---\n\nbody\n' > "$PKG_NOYAML/agents/a.md"
+printf -- 'raise ImportError("no module named yaml (stubbed)")\n' > "$PKG_NOYAML/stub/yaml.py"
+PKG_NOYAML_OUT="$(PYTHONPATH="$PKG_NOYAML/stub" python3 "$PKG_FM" "$PKG_NOYAML" 2>&1)"; PKG_NOYAML_RC=$?
+assert_eq "#671 packaging: PyYAML-unavailable arm exits 3 (loud, never a silent pass)" "3" "$PKG_NOYAML_RC"
+assert_eq "#671 packaging: PyYAML-unavailable arm names the missing prerequisite" "yes" \
+  "$(printf '%s' "$PKG_NOYAML_OUT" | grep -qF 'PYYAML_MISSING' && echo yes || echo no)"
+rm -rf "$PKG_NOYAML"
+
+# (2d) the canonical plugin description is carried by TWO manifests and hand-kept byte-identical;
+# pin the equality so a future single-sided edit reintroduces the drift this change closed.
+PKG_DESC_PJ="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["description"])' "$REPO_ROOT/.claude-plugin/plugin.json")"
+PKG_DESC_MK="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["plugins"][0]["description"])' "$REPO_ROOT/.claude-plugin/marketplace.json")"
+assert_eq "#671 packaging: marketplace plugins[0].description is byte-identical to plugin.json's canonical description" \
+  "$PKG_DESC_PJ" "$PKG_DESC_MK"
+assert_eq "#671 packaging: canonical plugin description is at most 160 characters" "yes" \
+  "$([ "${#PKG_DESC_PJ}" -le 160 ] && echo yes || echo no)"
+
+# (2e) COUPLED SITE — .github/workflows/version-consolidate.yml's `git add` staging list must
+# name every file scripts/consolidate-changesets.py writes. An unstaged write is silently
+# discarded by the next attempt's `git reset --hard origin/main`, so the advertised bump lands
+# dead on merge while the suite (which drives the consolidator directly) stays green. Derive the
+# write-set from the consolidator's own _write_text call sites rather than restating it here.
+PKG_VC_YML="$REPO_ROOT/.github/workflows/version-consolidate.yml"
+PKG_VC_ADD="$(grep -E '^[[:space:]]*git add ' "$PKG_VC_YML")"
+for pkg_w in .claude-plugin/plugin.json CHANGELOG.md CITATION.cff .claude-plugin/marketplace.json; do
+  assert_eq "#671 consolidator write-set is staged by version-consolidate.yml: $pkg_w" "yes" \
+    "$(printf '%s' "$PKG_VC_ADD" | grep -qF " $pkg_w" && echo yes || echo no)"
+done
+assert_pin_red_under "#671 version-consolidate stages the marketplace manifest" \
+  "git add .claude-plugin/plugin.json .claude-plugin/marketplace.json CHANGELOG.md CITATION.cff .changeset" \
+  's/ \.claude-plugin\/marketplace\.json//' "$PKG_VC_YML"
+
 # (3) full `claude plugin validate --strict` over the plugin tree. The repo root holds BOTH
 # manifests and the CLI resolves the marketplace one, so stage a temp dir holding ONLY
 # plugin.json + real copies of the component dirs (no marketplace.json beside it, no symlinks
@@ -30709,6 +30764,17 @@ assert_eq "#671 marketplace multi-version: exit 2 (fail-closed, not a silent wro
 assert_eq "#671 marketplace multi-version: diagnostic names the marketplace + the count" "yes" \
   "$(grep -qF 'marketplace.json' "$CSD/out" && grep -qF 'found 2' "$CSD/out" && echo yes || echo no)"
 assert_eq "#671 marketplace multi-version: manifest version unchanged (no partial write)" "2.8.64" "$(cs_ver "$CSD")"
+rm -rf "$CSD"
+# #671: the same guard's total==0 arm — a marketplace carrying NO "version" key is equally
+# unsafe for the surgical rewrite (nothing to bump), so it must fail loud, not no-op silently
+# past a listing that then advertises no version at all.
+CSD="$(cs_repo)"; printf -- '---\nbump: patch\n---\n\n- x (#671)\n' > "$CSD/.changeset/a.md"
+printf '{\n  "plugins": [\n    { "name": "devflow" }\n  ]\n}\n' > "$CSD/.claude-plugin/marketplace.json"
+python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-21 >"$CSD/out" 2>&1; CS_RC=$?
+assert_eq "#671 marketplace zero-version: exit 2 (fail-closed, not a silent no-op)" "2" "$CS_RC"
+assert_eq "#671 marketplace zero-version: diagnostic names the marketplace + the count" "yes" \
+  "$(grep -qF 'marketplace.json' "$CSD/out" && grep -qF 'found 0' "$CSD/out" && echo yes || echo no)"
+assert_eq "#671 marketplace zero-version: manifest version unchanged (no partial write)" "2.8.64" "$(cs_ver "$CSD")"
 rm -rf "$CSD"
 
 # #671: CITATION.cff's version must equal the manifest version at HEAD — the consolidator keeps

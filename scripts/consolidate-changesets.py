@@ -22,11 +22,12 @@ It writes nothing else — staging and the ``chore: bump version`` commit are th
 Fail-closed contract: a malformed changeset (no frontmatter, missing/invalid ``bump``, an
 unknown ``type``, or an empty prose body) aborts with exit 2 and a diagnostic naming the
 offending file. Everything is **validated before any file is modified** — all changesets are
-parsed *and* both output files (``plugin.json``, ``CHANGELOG.md``) are read and their new
+parsed *and* every output file (``plugin.json``, ``CHANGELOG.md``, plus ``CITATION.cff`` and
+``.claude-plugin/marketplace.json`` when present) is read and its new
 contents assembled in memory *before* the first write, so a malformed changeset or an
 output-side read/parse fault never causes a silent skip or a partial bump — it aborts before
-any write. (The two writes themselves are sequential and non-atomic, so a *write*-side fault
-between them can still leave one output rewritten and the other not; the workflow commits from
+any write. (Those up to four writes are themselves sequential and non-atomic, so a *write*-side
+fault can still leave some outputs rewritten and the rest not; the workflow commits from
 a fresh ``git reset --hard origin/main`` checkout on each attempt, so a half-write is never
 committed.) Every OS-level fault (a read, write, or delete)
 is wrapped into the same name-the-file exit-2 path — a top-level ``except OSError`` backstop in
