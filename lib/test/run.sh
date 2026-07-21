@@ -35253,10 +35253,13 @@ _PCL_WRAP_ERR="$(probe_tmp '#375 real-corpus wrapped stderr capture')"
 # RED, not a vacuous green.
 # --reloc (issue #661) turns a bare real-corpus ABSENT into a relocation diagnosis
 # (git ls-files search set, minus the lib/test/ pin sources and the always-on
-# vendor/tmp trees). A clean corpus has no ABSENT pin so git ls-files is never
-# invoked here and stdout stays empty; the wiring is exercised by the #661
-# self-tests below. --reloc-exclude drops the pin-source tree so a real relocation
-# report never self-matches a pin's own declaration.
+# vendor/tmp trees). `git ls-files` runs ONCE here to resolve the search set (it is
+# resolved eagerly whenever --reloc is on, before the pin loop); a clean corpus has
+# no ABSENT pin, so no relocation diagnosis fires and stdout stays empty (the rc=0|
+# assertion stays the RED gate on any spurious emit). The diagnosis-vs-deletion
+# discrimination is exercised by the #661 self-tests below. --reloc-exclude drops the
+# pin-source tree so a real relocation report never self-matches a pin's own
+# declaration (the abspath auto-exclude covers run.sh itself either way).
 _PCL_WRAP_OUT="$(python3 "$PCL" wrapped "$SELF_SRC" "${_PCL_ARGS[@]}" --reloc --reloc-exclude lib/test/ 2>"$_PCL_WRAP_ERR")"; _PCL_WRAP_RC=$?
 assert_eq "#375 wrapped-literal meta-guard: no resolvable pin phrase is off-line/wrapped (real corpus; exit 0 + empty)" \
   "rc=0|" "rc=$_PCL_WRAP_RC|$_PCL_WRAP_OUT"
@@ -35481,6 +35484,44 @@ if _F661="$(mktemp -d 2>/dev/null)" && [ -n "$_F661" ] && [ -d "$_F661" ]; then
     "yes" "$(grep -q 'RELOC-UNAVAILABLE' "$_F661/fc.err" && echo yes || echo no)"
   assert_eq "#661 reloc self-test: a failed enumeration is NOT collapsed to 'deleted'" \
     "yes" "$(printf '%s' "$_R661_FC" | grep -q 'relocation diagnosis unavailable' && ! printf '%s' "$_R661_FC" | grep -q 'deleted (not found anywhere)' && echo yes || echo no)"
+  # Review-driven additions (PR #663). Extra fixtures:
+  printf 'prefix %s suffix\n' "$RELOC_LIT" > "$_F661/dest2.md"                 # second relocation destination
+  printf "p.add_argument('--x', help='the relocated '\n                           'contract phrase for 661')\n" > "$_F661/helpdest.py"  # help= split-literal destination
+  printf '\377\376 not valid utf-8 bytes here\n' > "$_F661/undecodable.md"     # unreadable candidate
+  printf '%s\n' "$_F661/./pins_lit.sh" > "$_F661/set_selfmatch.txt"            # a /./ respelling of the pin source itself
+  printf '%s\n%s\n' "$_F661/dest.md" "$_F661/dest2.md" > "$_F661/set_multi.txt"
+  printf '%s\n' "$_F661/helpdest.py" > "$_F661/set_help.txt"
+  printf '%s\n' "$_F661/undecodable.md" > "$_F661/set_undec.txt"
+  # Auto-exclude via ABSPATH-equality (not substring): the search set names the pin source
+  # itself under a `/./` respelling, which the substring test misses but the abspath auto-exclude
+  # catches — so a deleted pin never self-matches its own declaration even with NO --reloc-exclude.
+  # (Regression guard for the git-ls-files-emits-relative-paths defect: pin_source is absolute.)
+  _R661_SELF="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_selfmatch.txt" 2>/dev/null)"
+  assert_eq "#661 reloc self-test: the pin source is auto-excluded by abspath-equality (no self-match without --reloc-exclude)" \
+    "yes" "$(printf '%s' "$_R661_SELF" | grep -q 'deleted (not found anywhere)' && ! printf '%s' "$_R661_SELF" | grep -q 'RELOCATED' && echo yes || echo no)"
+  # Real git ls-files failure path (not the --reloc-search-set seam): run from a NON-git cwd with
+  # no explicit search set → _git_ls_files returns a failure reason → RELOC-UNAVAILABLE, not deleted.
+  _R661_NOGIT="$( ( cd "$_F661" && python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc 2>"$_F661/nogit.err" ) )"
+  assert_eq "#661 reloc self-test: a git ls-files enumeration failure (non-git cwd) is reported unavailable, not deleted" \
+    "yes" "$(grep -q 'RELOC-UNAVAILABLE' "$_F661/nogit.err" && printf '%s' "$_R661_NOGIT" | grep -q 'relocation diagnosis unavailable' && ! printf '%s' "$_R661_NOGIT" | grep -q 'deleted (not found anywhere)' && echo yes || echo no)"
+  # An unreadable --reloc-search-set file is a distinct fail-closed arm (search-set-unreadable).
+  _R661_SSU="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/does-not-exist.txt" 2>"$_F661/ssu.err")"
+  assert_eq "#661 reloc self-test: an unreadable --reloc-search-set file is reported unavailable, not deleted" \
+    "yes" "$(grep -q 'RELOC-UNAVAILABLE' "$_F661/ssu.err" && ! printf '%s' "$_R661_SSU" | grep -q 'deleted (not found anywhere)' && echo yes || echo no)"
+  # Multiple destinations: both files carrying the literal are reported, comma-joined and sorted.
+  _R661_MULTI="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_multi.txt" 2>/dev/null)"
+  assert_eq "#661 reloc self-test: multiple relocation destinations are all reported (sorted, comma-joined)" \
+    "yes" "$(printf '%s' "$_R661_MULTI" | grep -q 'RELOCATED.*dest.md.*dest2.md' && echo yes || echo no)"
+  # help= destination: the literal reconstructs only across adjacent argparse help= literals
+  # (the canonical #375 shape) — the _literal_resolves_in help-rendering branch must find it.
+  _R661_HELP="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_help.txt" 2>/dev/null)"
+  assert_eq "#661 reloc self-test: a split-literal argparse help= destination is reported RELOCATED (#375)" \
+    "yes" "$(printf '%s' "$_R661_HELP" | grep -q 'RELOCATED.*helpdest.py' && echo yes || echo no)"
+  # Unreadable CANDIDATE (not enumeration): the only candidate is undecodable → the diagnosis is
+  # INCOMPLETE with a RELOC-CANDIDATE-UNREADABLE breadcrumb, never a false 'deleted' (AC5 spirit).
+  _R661_UNREAD="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_undec.txt" 2>"$_F661/unread.err")"
+  assert_eq "#661 reloc self-test: an unreadable candidate reports INCOMPLETE (breadcrumb), not a false 'deleted'" \
+    "yes" "$(grep -q 'RELOC-CANDIDATE-UNREADABLE' "$_F661/unread.err" && printf '%s' "$_R661_UNREAD" | grep -q 'diagnosis INCOMPLETE' && ! printf '%s' "$_R661_UNREAD" | grep -q 'deleted (not found anywhere)' && echo yes || echo no)"
   rm -rf "$_F661"
 else
   echo FAIL >> "$RESULTS_FILE"

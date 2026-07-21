@@ -614,7 +614,10 @@ def _git_ls_files():
         res = subprocess.run(
             ["git", "ls-files", "-z"], capture_output=True, text=True, check=False
         )
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
+        # UnicodeDecodeError (a ValueError, NOT an OSError) can surface from text=True
+        # eager decoding of a non-UTF-8 tracked filename; catch it too so the docstring's
+        # "fail-closed on any error" holds rather than crashing the scan.
         return None, f"git-ls-files-error:{type(exc).__name__}"
     if res.returncode != 0:
         return None, f"git-ls-files-rc:{res.returncode}"
@@ -644,20 +647,35 @@ def resolve_reloc_search_set(explicit_file):
 def _reloc_excluded(path, exclude_tokens):
     """A search-set path is excluded when any exclude token is a substring of it
     (the distinctive ``.devflow/vendor/`` / ``.devflow/tmp/`` trees, or a
-    pin-source path/prefix). Substring — not just prefix — so a temp-dir stand-in
-    like ``/tmp/xxx/.devflow/vendor/copy.md`` matches the same token a
-    repo-relative ``.devflow/vendor/…`` path does."""
-    return any(tok and tok in path for tok in exclude_tokens)
+    pin-source path/prefix) OR resolves to the same file (abspath-equal). Substring
+    matches a temp-dir stand-in like ``/tmp/xxx/.devflow/vendor/copy.md`` against the
+    same token a repo-relative ``.devflow/vendor/…`` path does; the abspath-equality
+    arm is load-bearing for the pin-source auto-exclude, because ``git ls-files``
+    emits **repo-relative** paths (``lib/test/run.sh``) while the pin-source token is
+    the **absolute** ``$LIB/test/run.sh`` — a substring test alone never matches those
+    two spellings, so without abspath-equality the auto-exclude would silently no-op
+    and a deleted pin's literal would self-match its own declaration in run.sh."""
+    apath = os.path.abspath(path)
+    for tok in exclude_tokens:
+        if not tok:
+            continue
+        if tok in path or apath == os.path.abspath(tok):
+            return True
+    return False
 
 
 def _literal_resolves_in(lit, nlit, path, cache):
-    """True when the pin literal resolves in a candidate file — on a single line,
-    in the whitespace-normalized rendering (a wrapped-adjacent-literal destination,
-    #375), or in a multi-literal argparse help= rendering. Reuses _wrapped_view so
-    an unreadable candidate is simply not a destination (never a crash)."""
+    """Tri-state: ``True`` when the pin literal resolves in a candidate file (on a
+    single line, in the whitespace-normalized rendering — a wrapped-adjacent-literal
+    destination, #375 — or in a multi-literal argparse help= rendering), ``False``
+    when the file was read but does not contain it, and ``None`` when the candidate
+    is UNREADABLE. The None arm is load-bearing: a swallowed read error on the very
+    file a literal moved into would otherwise let ``diagnose_relocation`` report a
+    false ``deleted`` — the AC5 masquerade at per-candidate granularity — so the
+    caller must surface unreadable candidates rather than treat them as 'not here'."""
     view = _wrapped_view(path, cache)
     if view[0] == "unreadable":
-        return False
+        return None
     lines, nfile, helps = view
     if any(lit in ln for ln in lines):
         return True
@@ -667,17 +685,24 @@ def _literal_resolves_in(lit, nlit, path, cache):
 
 
 def diagnose_relocation(lit, nlit, target, search_paths, exclude_tokens, cache):
-    """Given the resolved (non-None) search set, return the sorted list of files
-    (excluding the pin-source/vendor/tmp set and the target itself) where the
-    literal resolves. An empty list means the literal was found nowhere → the
-    caller reports a genuine deletion."""
+    """Given the resolved (non-None) search set, return
+    ``(sorted_dests, unreadable_paths)``: the files (excluding the
+    pin-source/vendor/tmp set and the target itself) where the literal resolves, and
+    the candidates that could not be read. An empty ``dests`` with an empty
+    ``unreadable`` means a genuine deletion; an empty ``dests`` with a non-empty
+    ``unreadable`` means the diagnosis is INCOMPLETE — the caller must not claim a
+    clean deletion over swallowed read errors (fail-closed, AC5 spirit)."""
     dests = []
+    unreadable = []
     for path in search_paths:
         if path == target or _reloc_excluded(path, exclude_tokens):
             continue
-        if _literal_resolves_in(lit, nlit, path, cache):
+        resolved = _literal_resolves_in(lit, nlit, path, cache)
+        if resolved is None:
+            unreadable.append(path)
+        elif resolved:
             dests.append(path)
-    return sorted(set(dests))
+    return sorted(set(dests)), sorted(set(unreadable))
 
 
 def run_wrapped(pin_source, lib, overrides, md_targets,
@@ -779,11 +804,24 @@ def _emit_wrapped_or_absent(pin, pin_source, nlit, nfile, lit,
             f"({reloc_err})\t{lit}"
         )
         return
-    dests = diagnose_relocation(lit, nlit, pin["file"], reloc_paths, reloc_excludes, cache or {})
+    dests, unreadable = diagnose_relocation(
+        lit, nlit, pin["file"], reloc_paths, reloc_excludes, cache or {}
+    )
     if dests:
         print(
             f"RELOCATED\t{pin['file']}\t{site}\t"
             f"relocated to {', '.join(dests)}; update the pin target\t{lit}"
+        )
+    elif unreadable:
+        # Fail closed: candidates could not be read, so the literal may have moved into
+        # one of them — do NOT claim a clean deletion. Surface each unreadable candidate
+        # on stderr and say the diagnosis is incomplete (AC5 masquerade guard).
+        for path in unreadable:
+            sys.stderr.write(f"RELOC-CANDIDATE-UNREADABLE\t{pin['file']}\t{site}\t{path}\n")
+        print(
+            f"ABSENT\t{pin['file']}\t{site}\t"
+            f"phrase absent from the target; relocation diagnosis INCOMPLETE "
+            f"({len(unreadable)} candidate(s) unreadable — not a confirmed deletion)\t{lit}"
         )
     else:
         print(
