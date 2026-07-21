@@ -1706,8 +1706,12 @@ import sys
 print(sum(len(open(p, encoding='utf-8').read().split()) for p in sys.argv[1:]))
 PY614W
 }
-CI614_ROOT_CEIL=2754      # docs/create-issue-budget.md: measured 2,623 + 5% headroom
-CI614_DEFAULT_CEIL=31262  # docs/create-issue-budget.md: measured 29,774 + 5% headroom
+# The ceilings are the only checked-in figures here (a ceiling IS the enforcement — the #656
+# exemption). Deliberately NO measured value in these comments: it would rot on the next prose
+# edit, and the ratchet-legality assertions below already tie each ceiling to its LIVE
+# measurement. docs/create-issue-budget.md is the sole home of the measured figures.
+CI614_ROOT_CEIL=2754
+CI614_DEFAULT_CEIL=31262
 # One comparison shape, shared by both ceilings and by the positive control below, so the
 # three sites cannot drift. An EMPTY measured value reads `no` (fail-closed): a word count
 # that could not be established is never treated as under the ceiling.

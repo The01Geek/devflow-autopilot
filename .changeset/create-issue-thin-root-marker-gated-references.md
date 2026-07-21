@@ -5,7 +5,7 @@ bump: patch
 ### Changed
 
 - `/devflow:create-issue` is now a thin always-loaded root plus marker-gated references.
-  `skills/create-issue/SKILL.md` drops from 24,473 words to 2,623 — it keeps the portable-anchor
+  `skills/create-issue/SKILL.md` drops from 24,473 words to 2,732 — it keeps the portable-anchor
   preamble, the extension load, the core principle, the completion checklist, Step 1, Step 3's
   drafting rules and no-options gate, a reference routing table, and four non-degradable
   invariants. The five step procedures (Step 2, Step 3.5, the shared Revision-delta procedure,

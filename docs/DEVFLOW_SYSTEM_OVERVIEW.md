@@ -838,7 +838,7 @@ lib/                     # retrospective-loop helpers (*.sh, *.jq), preflight.sh
 .devflow/                # config.example.json + config.schema.json (+ learnings/, logs/)
 docs/                    # cloud-setup.md, implement-skill.md, workflow-triggers.md,
                          #   efficiency-trace.md, shadow-review.md, review-agent-overrides.md,
-                         #   review-bundle-budget.md
+                         #   review-bundle-budget.md, create-issue-budget.md
 install.sh               # one-command cloud-tier install/update
 ```
 
