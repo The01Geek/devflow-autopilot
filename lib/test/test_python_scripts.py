@@ -6938,8 +6938,11 @@ for _pr in sorted(cwc.ROOTS):
                   True, ("Bash(%s:" % _sw) in _gs_pr_text)
     # The converse: a profile whose workflow does NOT carry the wildcard must not
     # be exempting it. This is the arm that catches a profile-blind exemption.
-    for _sw in sorted(cwc.SANCTIONED_WILDCARD_GRANTS["light-command"]
-                      | cwc.SANCTIONED_WILDCARD_GRANTS["review"]):
+    # Union over EVERY ROOTS profile, not a hardcoded pair: a fourth profile
+    # exempting a wildcard no workflow grants would otherwise never be asked the
+    # question, silently re-opening the profile-blind hole this arm exists to catch.
+    for _sw in sorted(set().union(
+            *(cwc.SANCTIONED_WILDCARD_GRANTS[_p] for _p in cwc.ROOTS))):
         if ("Bash(%s:" % _sw) not in _gs_pr_text:
             assert_eq("#650 AC9: profile '%s' does not exempt wildcard '%s' it never grants"
                       % (_pr, _sw),
@@ -7144,7 +7147,7 @@ for _spec, _why in (
 # _classify_widening NEVER returns None — labelling can no longer drop a finding.
 for _spec, _label in (("/abs/workpad.py", "absolute"), ("*/workpad.py", "basename-wildcard"),
                       ("scripts/workpad.py", "repo-root"), ("lib/x.sh", "repo-root"),
-                      ("**/workpad.py", "wildcard"), ("workpad.py", "unclassified")):
+                      ("**/workpad.py", "wildcard"), ("workpad.py", "bare-name")):
     assert_eq("#650 AC9: _classify_widening('%s') labels as '%s' (never None)" % (_spec, _label),
               _label, cwc._classify_widening(_spec))
 
@@ -7183,11 +7186,16 @@ assert_eq("#650 AC9: ROOTS['review'] workflow restored after the on-disk arm",
 # non-UTF-8 byte raises UnicodeDecodeError, which is a ValueError. Without this
 # fixture, narrowing the handler back to `except OSError` leaves every assertion
 # green while the documented raw-traceback crash returns.
+# The fixture is written INSIDE the try so the finally covers the write itself —
+# a partial write or an interrupt between write and try would otherwise leave a
+# stray non-UTF-8 .yml in the tree, exactly the shape a future tree-walking guard
+# would choke on. _grant_source_text joins the path onto REPO_ROOT, so the fixture
+# must live under it (a tempfile elsewhere would not be reachable by that read).
 _gs_badbytes = cwc.REPO_ROOT / ".devflow" / "tmp" / "gs-650-nonutf8.yml"
-_gs_badbytes.parent.mkdir(parents=True, exist_ok=True)
-_gs_badbytes.write_bytes(b"TOOLS='Bash(\xff\xfe:*)'\n")
 try:
-    cwc.ROOTS["review"]["workflow"] = str(_gs_badbytes.relative_to(cwc.REPO_ROOT))
+    _gs_badbytes.parent.mkdir(parents=True, exist_ok=True)
+    _gs_badbytes.write_bytes(b"TOOLS='Bash(\xff\xfe:*)'\n")
+    cwc.ROOTS["review"]["workflow"] = ".devflow/tmp/gs-650-nonutf8.yml"
     assert_eq("#650 AC9: a non-UTF-8 workflow is reported unavailable, not a raw traceback "
               "(UnicodeDecodeError is a ValueError, not an OSError)",
               True, any("grant source unavailable" in e for e in cwc.check_grant_sync()))

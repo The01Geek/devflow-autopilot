@@ -400,11 +400,12 @@ def unlisted_skill_assets():
 # neither glob-matches a vendored literal nor shares a reachable basename — yet
 # it can execute every reachable helper (`python3 .devflow/vendor/devflow/
 # scripts/workpad.py …`). The same blindness covers any wrapper head. This is
-# not an oversight detection could simply close: the live profiles legitimately
-# and necessarily grant interpreter heads (python3 in all three, env likewise),
-# so flagging that class would turn the guard RED on the healthy tree. AC9's
-# stated scope is the path classes above; bounding the interpreter surface is a
-# separate policy question, tracked in the #650 follow-up.
+# not an oversight detection could simply close: every live profile grants at
+# least one interpreter head — `env` in all three, `python3` in implement and
+# light-command (the review profile deliberately grants NO python3 head; do not
+# "restore" one) — so flagging that class would turn the guard RED on the healthy
+# tree. AC9's stated scope is the path classes above; bounding the interpreter
+# surface is a separate policy question, tracked in the #650 follow-up.
 #
 # (ii) Consumer-spliced grants. devflow-implement.yml's --allowed-tools baseline
 # is followed by a `${{ needs.config.outputs.allowed_tools_extra }}` splice, so a
@@ -566,7 +567,7 @@ def _classify_widening(spec):
     """Label a grant ``spec`` that covers a reachable helper by its widened class.
 
     Returns ``absolute`` / ``basename-wildcard`` / ``repo-root`` / ``wildcard``
-    / ``unclassified``. It **never returns None**: classification is labelling
+    / ``bare-name`` / ``unclassified``. It **never returns None**: labelling
     only, never the decision of whether a spec is a violation — that decision is
     ``_grant_covers``. An earlier shape returned ``None`` for any spec outside
     three enumerated prefixes and the caller dropped the finding, so genuinely
@@ -583,6 +584,11 @@ def _classify_widening(spec):
         return "repo-root"
     if "*" in spec or "?" in spec:
         return "wildcard"
+    if "/" not in spec:
+        # A bare name is resolved through PATH, so it is the BROADEST path-class
+        # widening, not an unrecognized one — label it precisely rather than
+        # letting the catch-all bucket describe the most dangerous shape.
+        return "bare-name"
     return "unclassified"
 
 
@@ -619,9 +625,9 @@ def check_grant_sync(profile_grants=None):
     * a reachable literal lacks an explicit vendored ``Bash(<literal>:*)`` grant, or
     * any other grant *covering* a reachable helper (see ``_grant_covers``)
       widens the executable trust boundary — an absolute-path, repo-root,
-      basename-wildcard, directory/blanket glob, or otherwise unclassified
-      shape (excluding the sanctioned wildcards in
-      ``SANCTIONED_WILDCARD_GRANTS``).
+      basename-wildcard, directory/blanket glob, PATH-resolved bare name, or
+      otherwise unclassified shape (excluding that profile's sanctioned
+      wildcards in ``SANCTIONED_WILDCARD_GRANTS``).
 
     ``profile_grants`` (optional ``{profile: workflow-text}``) injects synthetic
     grant sources for unit tests; when omitted each profile's ROOTS workflow is
@@ -752,6 +758,13 @@ def main(argv=None):
 
     # grant-sync is a standalone guard over the workflow grants — it does not
     # render the manifest, so it runs before the check_closure()/build path below.
+    #
+    # This subcommand is an OPERATOR-FACING entry point, not the CI wiring: the
+    # guard reaches the required `lib + python tests` job because
+    # lib/test/test_python_scripts.py calls check_grant_sync() and
+    # main(["grant-sync"]) directly. Do not read the absence of a run.sh
+    # invocation as the guard being ungated, and do not add one believing it
+    # closes a coverage hole — it would be duplicate coverage.
     if args.command == "grant-sync":
         gs_errors = check_grant_sync()
         if gs_errors:
