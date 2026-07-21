@@ -28270,6 +28270,12 @@ printf '{}' > "$VS_REMOTE/.claude-plugin/marketplace.json"
 : > "$VS_REMOTE/lib/placeholder.sh"
 : > "$VS_REMOTE/skills/placeholder.md"
 : > "$VS_REMOTE/LICENSES/placeholder-LICENSE"   # #671: LICENSES/ is now a copy-list member, so the fetch fixture must carry it
+# #677: the fixture must CARRY the two excluded subtrees, otherwise the fetch-branch
+# exclusion assertions below would pass vacuously — absent from the source, never
+# pruned. With these present the assertions observe the prune actually running.
+mkdir -p "$VS_REMOTE/docs/site" "$VS_REMOTE/lib/test"
+: > "$VS_REMOTE/docs/site/index.html"
+: > "$VS_REMOTE/lib/test/run.sh"
 printf '{}' > "$VS_REMOTE/.devflow/config.example.json"
 printf '{}' > "$VS_REMOTE/.devflow/config.schema.json"
 printf '{}' > "$VS_REMOTE/.devflow/tool-presets.json"
@@ -28295,6 +28301,13 @@ assert_eq "vendor: fetch branch drops the vendored marketplace.json" "no" "$(vex
 # docs/ must travel with the slice so skills' relative ../../docs/… links resolve
 # offline in the materialized plugin (no web access in the runner sandbox).
 assert_eq "vendor: fetch branch copies docs/ (offline skill links resolve)" "yes" "$(vexists "$VS_FETCH/docs/efficiency-trace.md")"
+# #677 on the CONSUMER-FACING branch: the self-branch assertions further below cover
+# the same shared devflow_copy_slice, but `fetch` is what a real thin consumer runs,
+# so pin the prune there directly rather than relying on the shared path transitively.
+# Non-vacuous by construction — the fixture above carries both subtrees.
+assert_eq "#677 vendor: fetch slice excludes docs/site (published-page HTML)" "no" "$(vexists "$VS_FETCH/docs/site")"
+assert_eq "#677 vendor: fetch slice excludes lib/test (DevFlow's own test suite)" "no" "$(vexists "$VS_FETCH/lib/test")"
+assert_eq "#677 vendor: fetch slice keeps non-test lib/ contents" "yes" "$(vexists "$VS_FETCH/lib/placeholder.sh")"
 
 # fetch branch pinned to a NON-TIP commit SHA. `--branch` rejects any raw SHA,
 # so this always takes the full-clone + checkout fallback (the path install.sh's
@@ -28395,9 +28408,10 @@ assert_eq "vendor: self copies .devflow/tool-presets.json" "yes" "$(vexists "$VS
 # #677 exclusions: the produced slice must ship neither the published GitHub Pages
 # HTML (docs/site) nor DevFlow's own test suite (lib/test) — neither is reachable on
 # any consumer path, and both dominate the payload. These observe the PRODUCED tree,
-# not just that the helper exited zero. Reintroducing either directory into
-# devflow_copy_slice's copy list (or deleting the rm -rf prune) re-ships the subtree
-# and turns these RED, so the exclusion cannot be silently reverted.
+# not just that the helper exited zero. docs/ and lib/ are copied WHOLESALE, so
+# neither subtree has its own copy-list entry — the reachable mutation is deleting or
+# weakening the rm -rf prune (or moving it after the atomic swap), which re-ships the
+# subtree and turns these RED, so the exclusion cannot be silently reverted.
 assert_eq "#677 vendor: self slice excludes docs/site (published-page HTML)" "no" "$(vexists "$VS_SELF/docs/site")"
 assert_eq "#677 vendor: self slice excludes lib/test (DevFlow's own test suite)" "no" "$(vexists "$VS_SELF/lib/test")"
 # #677 presence backstops: the exclusion must not over-prune. Proving absence alone
