@@ -30,8 +30,9 @@ workflows. A few areas warrant care:
   in `config.json`.
 - **The `.devflow/learnings/` corpus is committed, not gitignored.** The
   retrospective loop's records (`retrospectives.jsonl`, `experiment-records.jsonl`,
-  `overrides.json`) are force-added past the `/.devflow/*` ignore rule and published
-  to the repository through a weekly state PR. Because they are committed, keep
+  `overrides.json`) are tracked — re-included by the `!/.devflow/learnings/`
+  negation in `.gitignore` past the `/.devflow/*` ignore rule — and published to
+  the repository through a weekly state PR. Because they are committed, keep
   host-local and owner-identifying data — operator home-directory paths, account
   names, machine layout — out of them. The corpus is meant to record the bot's
   unsanitized friction (CI-runner paths and repo-relative paths included), so

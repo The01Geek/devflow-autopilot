@@ -59,18 +59,33 @@ REP=0
 # carve-out preserves GitHub-Actions runner paths, which identify no person and
 # carry the friction the record exists to describe. A per-file pass (rather than
 # a jq fork per record inside the loop) is equivalent because redaction is
-# per-record-independent and touches only values; a malformed new-entries file
-# falls back to the raw copy so the existing post-merge JSONL validation still
-# reports it (and a file that fails to parse never writes a committed corpus, so
-# skipping redaction on that path leaks nothing).
+# per-record-independent and touches only values.
+#
+# The fallback FAILS CLOSED, not open. A raw copy on any jq failure would commit
+# UNREDACTED operator paths whenever jq errors for a reason OTHER than malformed
+# input — a jq build lacking the Oniguruma regex features this filter uses (named
+# capture, negative lookahead), or a single gsub-hostile record (e.g. an invalid
+# UTF-8 string) poisoning the whole-file pass. The post-merge JSONL validation
+# only gates JSON validity, never redaction, so it cannot backstop that leak. So
+# on a redaction failure whose input is itself VALID JSONL — the committable case
+# — abort rather than write the unredacted corpus (the guard is a privacy
+# boundary; guard-class 2). Only genuinely malformed input (which the post-merge
+# validation rejects anyway, so nothing unredacted is ever committed) takes the
+# raw path. The jq stderr is surfaced on both arms, never swallowed, so the
+# operator sees WHY redaction could not run.
 REDACTED="$(mktemp)"
 trap 'rm -f "$TMP" "$REDACTED"' EXIT
-if ! "$DEVFLOW_JQ" -c '
+if ! REDACT_ERR="$("$DEVFLOW_JQ" -c '
         def redact_home:
           gsub("(?<d>^|[^A-Za-z0-9_])/Users/(?!runner(admin)?/)[^/\\s\"]+/"; "\(.d)~/")
           | gsub("(?<d>^|[^A-Za-z0-9_])/home/(?!runner(admin)?/)[^/\\s\"]+/"; "\(.d)~/")
           | gsub("[A-Za-z]:\\\\Users\\\\[^\\\\\\s\"]+\\\\"; "~\\");
-        walk(if type == "string" then redact_home else . end)' "$NEW_FILE" > "$REDACTED" 2>/dev/null; then
+        walk(if type == "string" then redact_home else . end)' "$NEW_FILE" 2>&1 1>"$REDACTED")"; then
+    if "$DEVFLOW_JQ" -c . "$NEW_FILE" >/dev/null 2>&1; then
+        echo "materialize: redaction pass failed on VALID JSONL (jq: ${REDACT_ERR}); refusing to commit an unredacted corpus" >&2
+        exit 1
+    fi
+    echo "materialize: new-entries file is not valid JSONL (jq: ${REDACT_ERR}); skipping redaction — the post-merge validation will reject it" >&2
     cp "$NEW_FILE" "$REDACTED"
 fi
 

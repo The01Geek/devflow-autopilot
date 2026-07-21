@@ -16520,6 +16520,23 @@ assert_eq "materialize #672: .pr/.kind preserved through redaction" \
   "retro" "$(jq -r 'select(.pr==101)|.kind' "$MR_TMP/store.jsonl")"
 assert_eq "materialize #672: redacted output still valid JSONL" \
   "0" "$(jq -c . "$MR_TMP/store.jsonl" >/dev/null 2>&1; echo $?)"
+# runneradmin carve-out (the (admin)? alternation) — a second CI-runner account.
+: > "$MR_TMP/store2.jsonl"
+printf '%s\n' '{"pr":107,"kind":"retro","summary":"at /home/runneradmin/work/x.md and /Users/runner/y.md"}' > "$MR_TMP/new2.jsonl"
+bash "$LIB/materialize-retrospectives.sh" "$MR_TMP/new2.jsonl" "$MR_TMP/store2.jsonl" >/dev/null 2>&1 || true
+assert_eq "materialize #672: /home/runneradmin/ and /Users/runner/ carve-outs preserved" \
+  "at /home/runneradmin/work/x.md and /Users/runner/y.md" "$(jq -r 'select(.pr==107)|.summary' "$MR_TMP/store2.jsonl")"
+# Fail-CLOSED fallback: a MALFORMED new-entries file must NOT overwrite the store
+# with unredacted content — the redaction skip routes to the post-merge JSONL
+# validation, which rejects it (non-zero exit) and leaves the store untouched.
+printf '%s\n' '{"pr":200,"kind":"retro","verdict":"clean"}' > "$MR_TMP/store3.jsonl"
+printf '%s\n' 'this is not json {' > "$MR_TMP/bad.jsonl"
+MR_BAD_RC=0
+bash "$LIB/materialize-retrospectives.sh" "$MR_TMP/bad.jsonl" "$MR_TMP/store3.jsonl" >/dev/null 2>&1 || MR_BAD_RC=$?
+assert_eq "materialize #672: malformed new-entries fails closed (non-zero exit)" \
+  "true" "$([ "$MR_BAD_RC" -ne 0 ] && echo true || echo false)"
+assert_eq "materialize #672: malformed new-entries leaves the store untouched" \
+  '{"pr":200,"kind":"retro","verdict":"clean"}' "$(cat "$MR_TMP/store3.jsonl")"
 rm -rf "$MR_TMP"
 
 # ────────────────────────────────────────────────────────────────────────────

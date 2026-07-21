@@ -195,8 +195,9 @@ fails the suite. The summary renderer lives in `lib/test/summary.sh`.
   its live `config.json` — force-added past the `/.devflow/*` ignore rule with
   `git add -f` so the cloud tier reads it from the committed tree — so keep secrets
   and owner-specific IDs out of it. The `.devflow/learnings/` corpus
-  (`retrospectives.jsonl`, `experiment-records.jsonl`, `overrides.json`) is tracked
-  and published the same way, so keep host-local and owner-identifying data —
+  (`retrospectives.jsonl`, `experiment-records.jsonl`, `overrides.json`) is likewise
+  tracked and published — re-included by the `!/.devflow/learnings/` negation in
+  `.gitignore` — so keep host-local and owner-identifying data —
   operator home-directory paths, account names — out of it too;
   `lib/materialize-retrospectives.sh` rewrites operator home prefixes to `~` on the
   merge write path as a backstop, but the rule is the primary guard.
