@@ -46902,10 +46902,33 @@ fi
 # The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/create-issue-contract.sh" \
-  "create-issue-contract" 274; then
+  "create-issue-contract" 279; then
   printf 'ERROR: create-issue-contract boundary could not record its result\n'
   exit 1
 fi
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "#600 create-issue audit-prompt renderer (render-audit-prompt.py)"
+# ────────────────────────────────────────────────────────────────────────────
+# R1..R12 are unit-driven in lib/test/test_render_audit_prompt.py (renderer over
+# mktemp fixture trees + a delivery-equivalence matrix that drives the real
+# load-prompt-extension.sh). The two greps below are SOURCE-SHAPE pins that
+# backstop test_R9_statelessness (which is the outcome check — it observes that no
+# file was written and no stdin was read). A source scan cannot see a write routed
+# through subprocess/shutil/os.write or a variable-mode Path.open, so these pins
+# catch the obvious reintroduction and R9 catches the behavior.
+RAP_ROOT="$(mktemp -d)"
+python3 "$LIB/test/test_render_audit_prompt.py" >"$RAP_ROOT/rap-unit.out" 2>&1
+RAP_UNIT_RC=$?
+# Surface the captured traceback on failure — otherwise the scratch dir is removed
+# below and the only signal left is a bare "expected 0, got 1".
+[ "$RAP_UNIT_RC" -eq 0 ] || cat "$RAP_ROOT/rap-unit.out"
+assert_eq "#600 render-audit-prompt: focused Python tests pass" "0" "$RAP_UNIT_RC"
+assert_eq "#600 render-audit-prompt writes no file (stateless)" "0" \
+  "$(grep -cE "open\([^)]*['\"][wax]|\.write_text\(|\.write_bytes\(" "$LIB/../scripts/render-audit-prompt.py" || true)"
+assert_eq "#600 render-audit-prompt reads no stdin (stateless)" "0" \
+  "$(grep -cE 'sys\.stdin|(^|[^a-zA-Z_])input\(' "$LIB/../scripts/render-audit-prompt.py" || true)"
+rm -rf "$RAP_ROOT"
 
 if ! devflow_run_full_suite_module "$LIB/test/modules/workflow-flight-recorder.sh" \
   "workflow-flight-recorder" 68; then

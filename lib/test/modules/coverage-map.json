@@ -339,6 +339,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/render-audit-prompt.py": {
+      "note": "issue #600 create-issue Step 3.6 audit-prompt renderer; driven by lib/test/test_render_audit_prompt.py + the #600 block in lib/test/run.sh",
+      "owner": "unmodularized"
+    },
     "scripts/render-grounding-block.sh": {
       "note": "",
       "owner": "unmodularized"
