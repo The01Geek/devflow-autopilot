@@ -4164,10 +4164,10 @@ assert_eq("#635: an ordinary claim line without the marker is NOT treated as an 
 # audit row (never STALE), so a mis-placed marker on a real claim is visible in the lint OUTPUT,
 # not only in the source. Asserted against ALL rows (not the STALE-filtered projection), which is
 # the only way to pin "one audit row, and the gating rule did not run" together.
-def _all_rows_635(path, body_lines):
+def _all_rows_635(path, body_lines, move=None):
     added = {i + 1: t for i, t in enumerate(body_lines)}
     rows = []
-    stale_prose_lint.examine_file(path, added, list(body_lines), rows)
+    stale_prose_lint.examine_file(path, added, list(body_lines), rows, move=move)
     return [(r.verdict, r.rule) for r in rows]
 
 # A marked R2 legend line (which unmarked gates STALE R2) yields exactly one non-gating audit row.
@@ -4202,6 +4202,26 @@ assert_eq("#635: an incidental 'examples'/'example-driven' mention is NOT the op
           [bool(stale_prose_lint._EXAMPLE_MARKER_RE.search(s)) for s in (
               "see the stale-prose-lint: examples of the shapes",
               "a stale-prose-lint: example-driven approach")])
+
+# Scoped-observability boundary: the opt-out check sits AFTER `_may_carry_claim`, so a marked
+# line in a mask-excluded region (a fenced code block) is `continue`d before the EX emit and
+# surfaces NO row — the "not silent" contract holds only for claim-eligible lines (such a line
+# would never gate anyway). Pins the placement: moving the check above `_may_carry_claim` would
+# flip this to an unconditional EX row.
+assert_eq("#635: a marked line inside a fenced code block emits no row at all (opt-out is scoped "
+          "to claim-eligible lines, after `_may_carry_claim`)",
+          [], _all_rows_635("docs/design.md",
+                            ["```", "Expected total = 3  <!-- stale-prose-lint: example -->", "```"]))
+
+# Marker precedence over #629 move-awareness: the EX emit + `continue` short-circuit BEFORE the
+# relocation/demotion join (`exempt = text in move.relocated`), so a marked line that a non-None
+# `move` would otherwise route through the demotion path still yields exactly the one EX row.
+_mv_line = "Expected total = 3 in the record  <!-- stale-prose-lint: example -->"
+_mv = stale_prose_lint.MoveIndex(frozenset({_mv_line}), {_mv_line: frozenset({"docs/design.md"})})
+assert_eq("#635: the marker short-circuits before the move-awareness join (marked line yields "
+          "only the EX row even when a non-None move would otherwise route it through demotion)",
+          [(stale_prose_lint.UNRESOLVABLE, "EX")],
+          _all_rows_635("docs/design.md", [_mv_line, "", "- a", "- b"], move=_mv))
 
 # ── stale_prose_lint.prose_mask (#434 line scoping) ───────────────────────────────────────
 # The predicate is FILE-STATEFUL: fence / docstring / block-comment membership cannot be
