@@ -4600,8 +4600,17 @@ assert_pin_unique "rcv/#668 P-facts-added: the two new facts are candidate ident
   '(10) candidate identity, and (11) claim-context token' "$RECV_SKILL"
 assert_pin_unique "rcv/#668 P-rescope: mutate sentence rescoped to tracked content (gitignored write permitted)" \
   'no command that mutates branches, tracked content, history, or remote state' "$RECV_SKILL"
-assert_pin_unique "rcv/#668 P-nooutput: no helper output renders both new facts missing, run continues" \
-  'renders established with the produced value, or missing when the helper produces no output' "$RECV_SKILL"
+# PR #681 review round 2: the discriminator was rewritten from "produces no output" to the
+# OBSERVABLE contract (exit status + stdout parse). The old wording named a condition no
+# failure path satisfies — the helper writes a JSON record to STDERR on every failure — so
+# the `missing` arm was unreachable and a fact could be stamped `established` on a value the
+# run never derived. Both halves are pinned: the establishing predicate and the missing arm.
+assert_pin_unique "rcv/#668 P-nooutput: establishing both new facts requires exit 0 + a parsing stdout object" \
+  'exits 0 and its stdout parses as a JSON object carrying' "$RECV_SKILL"
+assert_pin_unique "rcv/#668 P-nooutput-missing: a non-zero exit / absent stdout / ok:false record renders both facts missing" \
+  "renders both facts missing with that record's" "$RECV_SKILL"
+assert_pin_unique "rcv/#668 P-rebind-surface: a non-null rebound_from is surfaced in fact 10's value" \
+  "surface it in fact 10's value" "$RECV_SKILL"
 # PR #681 review: the prescribed helper call must carry the portable anchor. A BARE basename
 # matches no PATH entry locally and no cloud grant (the shipped literal is the vendored
 # leading-token path), so the artifact write would be silently denied on every tier and both
@@ -4674,13 +4683,16 @@ assert_pin_red_under "rcv/#668 P-block-mp: restoring the nine-fact sentence (dro
 assert_pin_red_under "rcv/#668 P-rescope-mp: restoring the worktree-files wording (bars the gitignored write)" \
   'no command that mutates branches, tracked content, history, or remote state' \
   's/tracked content/worktree files/' "$RECV_SKILL"
-# PR #681 review: P-nooutput pinned its operative sentence with uniqueness only, unlike its
-# #545 P-stale-mp sibling. Removing the no-output clause re-introduces the named bug (an
-# unproducible artifact would no longer be specified to render `missing`), so the pin carries
-# mutation evidence rather than uniqueness alone.
-assert_pin_red_under "rcv/#668 P-nooutput-mp: deleting the no-output clause (unproducible artifact no longer renders missing)" \
-  'renders established with the produced value, or missing when the helper produces no output' \
-  's/, or missing when the helper produces no output//' "$RECV_SKILL"
+# PR #681 review round 2: both halves of the rewritten discriminator carry mutation evidence.
+# Reverting the establishing predicate to the unobservable "produces output" wording is the
+# original defect (the `missing` arm becomes unreachable because every failure path DOES emit
+# a stderr record); flipping the missing arm to `established` is the fail-open it guards.
+assert_pin_red_under "rcv/#668 P-nooutput-mp: reverting to the unobservable produces-output discriminator" \
+  'exits 0 and its stdout parses as a JSON object carrying' \
+  's/exits 0 and its stdout parses as a JSON object carrying/produces output carrying/' "$RECV_SKILL"
+assert_pin_red_under "rcv/#668 P-nooutput-missing-mp: flipping the missing arm to established (stamps an underived value)" \
+  "renders both facts missing with that record's" \
+  's/renders both facts missing with that record/renders both facts established with that record/' "$RECV_SKILL"
 # PR #681 review: reverting the anchored call to the bare basename re-introduces the
 # uninvocable-command defect on every tier.
 assert_pin_red_under "rcv/#681 P-anchor-mp: reverting to the bare basename (uninvocable on every tier)" \

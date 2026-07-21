@@ -836,11 +836,15 @@ class ReviewFixTests(unittest.TestCase):
 
 # Deferred coverage gaps (PR #681 reception pass, review Important finding 2 —
 # annotated by the review itself as a suspected over-grade; triaged on the code).
-# WHAT: the untested arms — the `temp_index_error`, `git_exec_error`, and
-#   `empty_tree_output` IdentityError breadcrumbs; the `record` idempotent
-#   read-back (`existing_findings_*`) against the six-shape matrix, which is
-#   currently applied only to the `append-disposition` read-back; the
-#   `invalid_token` charset guard; and the `ignore_check_failed` (git rc 128) arm.
+# WHAT: the untested arms — the `git_exec_error` and `empty_tree_output`
+#   IdentityError breadcrumbs; the `invalid_token` charset guard; and the
+#   `ignore_check_failed` (git rc 128) arm.
+#   (PR #681 review round 2 DISCHARGED two arms this note previously listed:
+#   `temp_index_error` is now covered by ReviewFixTests'
+#   test_unwritable_tmpdir_yields_temp_index_breadcrumb, and the `record`
+#   read-back six-shape matrix by test_record_readback_matrix plus its
+#   empty-string-token valid-falsy sibling. Both were removed from this list
+#   rather than left as a stale claim.)
 # WHY deferred: every one of these arms fails CLOSED by construction — each
 #   raises/returns a named breadcrumb on stderr, prints nothing a caller could
 #   read as a derived identity, and exits non-zero. The untested surface is the
