@@ -41243,7 +41243,7 @@ assert_eq "#672 a .devflow/learnings/ record is not examined (exit 0)" "0" "$(sp
 assert_eq "#672 the excluded learnings path emits NO row of ANY verdict" "" \
   "$( ( cd "$SPR" && git diff "$SP_EMPTY_TREE" HEAD 2>/dev/null | python3 "$SPL" --rev HEAD 2>/dev/null ) )"
 assert_eq "#672 the intended coverage drop is DISCOVERABLE: stderr names the excluded path" "yes" \
-  "$(spl_stderr_base "$SPR" "$SP_EMPTY_TREE" | grep -qF 'machine-appended corpus, issue #672: .devflow/learnings/retrospectives.jsonl' && echo yes || echo no)"
+  "$(spl_stderr_base "$SPR" "$SP_EMPTY_TREE" | grep -qF 'machine-appended corpus, issue #672): .devflow/learnings/retrospectives.jsonl' && echo yes || echo no)"
 SPR="$(spl_repo_at "$SPF" .devflow/logs/run.jsonl)"
 assert_eq "#672 a .devflow/logs/ record is not examined (exit 0)" "0" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
 # Boundary in the OTHER direction — the exclusion must stay narrow. `CHANGELOG.md` and
