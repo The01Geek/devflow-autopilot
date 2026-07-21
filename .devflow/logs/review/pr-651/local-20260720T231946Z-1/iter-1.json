@@ -1,0 +1,370 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-20T23:19:46Z",
+  "fix_commit_sha": "5c671e88",
+  "fix_files": [
+    "scripts/render-audit-prompt.py",
+    "lib/test/test_render_audit_prompt.py",
+    "lib/test/modules/create-issue-contract.sh",
+    "lib/test/run.sh",
+    "skills/create-issue/SKILL.md",
+    "docs/cutovers/issue-600-audit-prompt-renderer.md",
+    "lib/test/prompt-mass-baseline.json",
+    "scripts/workflow-flight-recorder-registry.json"
+  ],
+  "loop_role": "fix",
+  "current_step": "4.5",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:requesting-code-review",
+    "devflow:type-design-analyzer",
+    "devflow:pr-test-analyzer"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Critical",
+      "description": "renderer module docstring claims `extract` is consumed by both the Step 3.6 `## Audit dimensions` forwarding and Step 2's `## Evidence axes` forwarding; the same diff's cutover doc says 3.6 consumes the rule spliced as {CONSUMER_DIMENSIONS}, not via a standalone extract call",
+      "defect_signature": {
+        "file": "scripts/render-audit-prompt.py",
+        "line_range": [
+          27,
+          29
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Important",
+      "description": "docstring claims a closed argument surface with 'No free-text parameter' while --draft-path is declared bare and is substituted into the rendered instruction block",
+      "defect_signature": {
+        "file": "scripts/render-audit-prompt.py",
+        "line_range": [
+          21,
+          24
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Critical",
+      "description": "create-issue-contract.sh comments claim 'four re-load sites' / 'ALL FOUR sites' directly above assertions this diff changed to 3 (self-referential ordinal rot)",
+      "defect_signature": {
+        "file": "lib/test/modules/create-issue-contract.sh",
+        "line_range": [
+          997,
+          1004
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Important",
+      "description": "run.sh comment claims the two greps 'verify the outcome — no file write, no stdin read'; both are source scans, the outcome check is test_R9_statelessness",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          46278,
+          46282
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "render_extract emits a positionally-valid render with an empty body — the shape render_dispatch refuses",
+      "defect_signature": {
+        "file": "scripts/render-audit-prompt.py",
+        "line_range": [
+          372,
+          384
+        ],
+        "kind": "api_misuse"
+      },
+      "corroboration_count": 4,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "render_extract's _HOOKS[hook] is unguarded; a non-CLI caller gets a bare KeyError instead of the documented RenderError contract",
+      "defect_signature": {
+        "file": "scripts/render-audit-prompt.py",
+        "line_range": [
+          372,
+          384
+        ],
+        "kind": "type_design"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "_dimensions_block_for_status silently renders 'could not be established' for any status outside the closed set",
+      "defect_signature": {
+        "file": "scripts/render-audit-prompt.py",
+        "line_range": [
+          322,
+          327
+        ],
+        "kind": "type_design"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "template malformed-block parser arms (nested open, end-without-open, unterminated) entirely untested",
+      "defect_signature": {
+        "file": "lib/test/test_render_audit_prompt.py",
+        "line_range": [
+          382,
+          396
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "embed missing-sentinel and extract missing-hook main() precondition arms unexercised",
+      "defect_signature": {
+        "file": "scripts/render-audit-prompt.py",
+        "line_range": [
+          451,
+          459
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "os.geteuid() unguarded (POSIX-only) and test_R14 self-skips outside the #456 skip helper",
+      "defect_signature": {
+        "file": "lib/test/test_render_audit_prompt.py",
+        "line_range": [
+          249,
+          411
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "six byte-identical '(#600 cutover) retired' comment stanzas lose per-pin traceability",
+      "defect_signature": {
+        "file": "lib/test/modules/create-issue-contract.sh",
+        "line_range": [
+          981,
+          1023
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "SKILL.md:92 muddles the shared extraction rule against the {CONSUMER_DIMENSIONS} splice and duplicates the clause within one paragraph",
+      "defect_signature": {
+        "file": "skills/create-issue/SKILL.md",
+        "line_range": [
+          92,
+          92
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "orchestrator:phase-3.1.5-completeness-critic",
+      "severity": "Suggestion",
+      "description": "the SKILL's 'Consumption categories (complete by construction)' five-member enumeration is unpinned; Phase 0.6 tags it count-locked, and an independent re-enumeration of renderer invocation sites surfaces status-only with no explicit category",
+      "defect_signature": {
+        "file": "skills/create-issue/SKILL.md",
+        "line_range": [
+          261,
+          261
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "_repo_root() discards git stderr and collapses 'git failed' with 'not a repo'; the breadcrumb fires only when cwd has no .devflow/, so a safe.directory refusal in a subdir carrying its own .devflow/ silently resolves a different extension file",
+      "defect_signature": {
+        "file": "scripts/render-audit-prompt.py",
+        "line_range": [
+          93,
+          130
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "matched target heading continues before _track_comment, allegedly diverging from the loader when the heading carries a trailing inline comment",
+      "defect_signature": {
+        "file": "scripts/render-audit-prompt.py",
+        "line_range": [
+          230,
+          243
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "pushed_back"
+    },
+    {
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "promote mode/status vocabularies to StrEnum and introduce a validating RenderRequest dataclass so the mode-argument co-requirements live in the type rather than main()",
+      "defect_signature": {
+        "file": "scripts/render-audit-prompt.py",
+        "line_range": [
+          330,
+          369
+        ],
+        "kind": "type_design"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "deferred"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-15",
+      "decision": "pushed_back",
+      "source_file": "scripts/render-audit-prompt.py",
+      "claim_text": "the matched-heading continue skips _track_comment and so diverges from load-prompt-extension.sh when the heading carries a trailing inline comment",
+      "skip_category": "claim-quality",
+      "evidence": "refuted against HEAD: line = raw.rstrip() and the arm fires only on line == target, an exact match, so the matched line contains no <!--/--> marker by construction and _track_comment would return `current` at its first early return. in_comment is also already False on that path (the in_comment branch continues at line 206). Empirically confirmed both implementations agree: a fixture headed '## Evidence axes <!--' is reported absent by the real load-prompt-extension.sh (rc 0, 'no section headed') and by the renderer (render-status: absent) — the heading is not an exact match in either, so neither reaches the arm. An edit here would have shipped a comment asserting a divergence that cannot occur.",
+      "parking_evidence": {
+        "basis": "the claimed divergence is unreachable: exact-match and trailing-comment are mutually exclusive by construction",
+        "failing_input": "a consumer extension headed '## Evidence axes <!--' followed by commented-out body lines",
+        "source": "scripts/render-audit-prompt.py:196-234 (line = raw.rstrip(); line == target) plus a live differential run against scripts/load-prompt-extension.sh",
+        "finding_ref": {
+          "iter": 1,
+          "index": 14
+        }
+      }
+    },
+    {
+      "finding_id": "F-14",
+      "decision": "deferred",
+      "source_file": "scripts/render-audit-prompt.py",
+      "claim_text": "_repo_root swallows git's stderr; the no-git-root breadcrumb fires only when cwd carries no .devflow/",
+      "skip_category": "out-of-scope",
+      "evidence": "the shipped behavior matches the documented #295 contract verbatim ('a no-git-root-AND-no-.devflow/ tree emits a stderr breadcrumb instead of a silent default') and mirrors match-deferrals.py's _default_config_path, the sibling this reader was explicitly modeled on. The finding argues the SHARED contract is too weak, not that this reader diverges from it. Changing only this reader would desynchronize it from the other five members of the #295 reader set, which is the coupled-mirror hazard CLAUDE.md warns about. Revisit condition: a follow-up issue that changes the contract for ALL six readers together (capture git's stderr and breadcrumb on rc != 0 independent of the cwd .devflow/ probe), reconciling the three contract mirror sites and the run.sh pins in one change.",
+      "parking_evidence": {
+        "basis": "a cross-reader contract change, not a defect in this PR's reader; unilateral change would desync the six-member #295 set",
+        "failing_input": "git exiting non-zero under safe.directory while genuinely inside a repo, run from a subdirectory that carries its own .devflow/",
+        "source": "CLAUDE.md #295 reader-set bullet; scripts/match-deferrals.py _default_config_path",
+        "finding_ref": {
+          "iter": 1,
+          "index": 13
+        }
+      }
+    },
+    {
+      "finding_id": "F-16",
+      "decision": "deferred",
+      "source_file": "scripts/render-audit-prompt.py",
+      "claim_text": "introduce StrEnum vocabularies and a validating RenderRequest dataclass",
+      "skip_category": "out-of-scope",
+      "evidence": "a structural refactor of a helper this PR is introducing, beyond the cutover's scope. The concrete fail-open the finding names at the CLI boundary is closed in this change (the _abs_path type plus the fail-closed unknown-status arms); what remains is the direct-call path, which has no in-repo caller. Revisit condition: a second in-repo caller of render_dispatch/render_extract appears, or the mode-argument matrix grows a fourth arm.",
+      "parking_evidence": {
+        "basis": "structural refactor beyond the cutover's scope; the reachable fail-open is closed at the CLI boundary in this change",
+        "failing_input": "a direct render_dispatch(mode='file', draft_path=None) call from a non-CLI caller",
+        "source": "scripts/render-audit-prompt.py:330-369",
+        "finding_ref": {
+          "iter": 1,
+          "index": 15
+        }
+      }
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 13,
+    "fix_diff_lines": 227,
+    "new_corroborated_critical_count": 0
+  },
+  "verification_evidence": {
+    "suite": "lib/test/run.sh — 11272 passed, 0 failed",
+    "skipped_checks": [],
+    "lint": "ruff check clean on scripts/render-audit-prompt.py and lib/test/test_render_audit_prompt.py",
+    "artifacts": "python3 lib/test/regenerate-artifacts.py — all artifacts reconciled, exit 0",
+    "mutation_checks": [
+      "R21: _abs_path guard disabled (if False) -> R21 RED on both rows, only R21 failed; reverted",
+      "R20: render_extract reverted to bare section -> R20 RED; reverted",
+      "R18: unterminated-block raise replaced with pass -> R18 RED on the unterminated row only; reverted"
+    ],
+    "batched-regeneration": "run"
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "reference_reads": {
+    "fix_delta": {
+      "status": "not_verified",
+      "outcome": null,
+      "reason": "pending iteration 2"
+    }
+  },
+  "shadow": {
+    "ran_at": null,
+    "reviewed_sha": null,
+    "verdict": null,
+    "coverage": null,
+    "reviewers_dispatched": [],
+    "expected_reviewers": [],
+    "reason": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "promoted_to_iter_next": false
+  },
+  "telemetry": "unavailable"
+}
