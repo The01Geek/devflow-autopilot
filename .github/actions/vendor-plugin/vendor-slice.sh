@@ -61,7 +61,7 @@ devflow_copy_slice() {
   stage="${dest}.vendor-stage.$$"
   rm -rf "$stage"
   mkdir -p "$stage"
-  cp -R "$src/.claude-plugin" "$src/agents" "$src/docs" "$src/lib" "$src/scripts" "$src/skills" "$stage/"
+  cp -R "$src/.claude-plugin" "$src/agents" "$src/docs" "$src/lib" "$src/scripts" "$src/skills" "$src/LICENSES" "$stage/"
   # Only the committed templates/registry — not the whole .devflow/ tree (which
   # would drag in learnings/ and a possibly-dirty config.json).
   mkdir -p "$stage/.devflow"
@@ -73,9 +73,9 @@ devflow_copy_slice() {
   find "$stage" -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true
   # Sanity floor before the swap: the load-bearing members must have landed.
   if [ ! -d "$stage/scripts" ] || [ ! -f "$stage/.claude-plugin/plugin.json" ] \
-     || [ ! -f "$stage/.devflow/config.schema.json" ]; then
+     || [ ! -f "$stage/.devflow/config.schema.json" ] || [ ! -d "$stage/LICENSES" ]; then
     rm -rf "$stage"
-    devflow_vendor_die "incomplete plugin slice copied from $src (missing scripts/, plugin.json, or .devflow templates) — refusing to install a partial copy."
+    devflow_vendor_die "incomplete plugin slice copied from $src (missing scripts/, plugin.json, .devflow templates, or LICENSES/) — refusing to install a partial copy."
   fi
   rm -rf "$dest"
   mkdir -p "$(dirname "$dest")"

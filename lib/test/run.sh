@@ -28259,7 +28259,7 @@ assert_eq "vendor: self branch copies the .devflow templates" "yes" "$(vexists "
 # to git_sandbox would also break `git clone`, which requires its target to NOT pre-exist.
 VS_REMOTE="$(git_sandbox "vendor fetch fixture remote")"
 mkdir -p "$VS_REMOTE"/.claude-plugin "$VS_REMOTE"/agents "$VS_REMOTE"/docs \
-        "$VS_REMOTE"/lib "$VS_REMOTE"/scripts "$VS_REMOTE"/skills "$VS_REMOTE"/.devflow
+        "$VS_REMOTE"/lib "$VS_REMOTE"/scripts "$VS_REMOTE"/skills "$VS_REMOTE"/LICENSES "$VS_REMOTE"/.devflow
 printf '{}' > "$VS_REMOTE/.claude-plugin/plugin.json"
 printf '{}' > "$VS_REMOTE/.claude-plugin/marketplace.json"
 : > "$VS_REMOTE/scripts/resolve-implement-trigger.sh"
@@ -28269,6 +28269,7 @@ printf '{}' > "$VS_REMOTE/.claude-plugin/marketplace.json"
 : > "$VS_REMOTE/docs/efficiency-trace.md"
 : > "$VS_REMOTE/lib/placeholder.sh"
 : > "$VS_REMOTE/skills/placeholder.md"
+: > "$VS_REMOTE/LICENSES/placeholder-LICENSE"   # #671: LICENSES/ is now a copy-list member, so the fetch fixture must carry it
 printf '{}' > "$VS_REMOTE/.devflow/config.example.json"
 printf '{}' > "$VS_REMOTE/.devflow/config.schema.json"
 printf '{}' > "$VS_REMOTE/.devflow/tool-presets.json"
@@ -28450,7 +28451,7 @@ assert_eq "vendor: total clone failure is not mislabeled as a checkout failure" 
 #     missing scripts/ → non-zero exit AND $dest non-existent").
 VS_BADSRC="$(mktemp -d)"
 mkdir -p "$VS_BADSRC"/.claude-plugin "$VS_BADSRC"/agents "$VS_BADSRC"/docs \
-        "$VS_BADSRC"/lib "$VS_BADSRC"/skills "$VS_BADSRC"/.devflow   # NOTE: no scripts/
+        "$VS_BADSRC"/lib "$VS_BADSRC"/skills "$VS_BADSRC"/LICENSES "$VS_BADSRC"/.devflow   # NOTE: no scripts/ (LICENSES/ present so scripts/ is the sole missing member)
 printf '{}' > "$VS_BADSRC/.claude-plugin/plugin.json"
 printf '{}' > "$VS_BADSRC/.devflow/config.example.json"
 printf '{}' > "$VS_BADSRC/.devflow/config.schema.json"
@@ -28468,8 +28469,10 @@ assert_eq "vendor: missing scripts/ leaves dest non-existent (no partial copy la
 #     so this genuinely reaches and trips the explicit sanity-floor check.
 VS_FLOORSRC="$(mktemp -d)"
 mkdir -p "$VS_FLOORSRC"/.claude-plugin "$VS_FLOORSRC"/agents "$VS_FLOORSRC"/docs \
-        "$VS_FLOORSRC"/lib "$VS_FLOORSRC"/scripts "$VS_FLOORSRC"/skills "$VS_FLOORSRC"/.devflow
+        "$VS_FLOORSRC"/lib "$VS_FLOORSRC"/scripts "$VS_FLOORSRC"/skills "$VS_FLOORSRC"/LICENSES "$VS_FLOORSRC"/.devflow
 # NOTE: no .claude-plugin/plugin.json — the floor's plugin.json check must fire.
+# (LICENSES/ present so the cp succeeds and the run reaches the floor rather than
+# aborting early at the LICENSES copy.)
 printf '{}' > "$VS_FLOORSRC/.devflow/config.example.json"
 printf '{}' > "$VS_FLOORSRC/.devflow/config.schema.json"
 printf '{}' > "$VS_FLOORSRC/.devflow/tool-presets.json"
@@ -28489,7 +28492,33 @@ assert_eq "vendor: floor abort is the floor's doing, not a cp-under-set-e abort"
   "$(printf '%s' "$VS_FLOORSRC_ERR" | grep -q 'incomplete plugin slice copied' && echo yes || echo no)"
 assert_eq "vendor: sanity floor leaves dest non-existent (no partial copy lands)" "no" \
   "$(vexists "$VS_FLOORSRC_DEST")"
-rm -rf "$VS_BADSRC" "$(dirname "$VS_FLOOR_DEST")" "$VS_FLOORSRC" "$(dirname "$VS_FLOORSRC_DEST")"
+# (c) #671: LICENSES/ is a load-bearing copy-list member — third-party license text for the
+#     vendored Apache-2.0/MIT assets (they carry NO in-file attribution marker by design, so the
+#     retained LICENSES/ IS the attribution — see issue #671). A source missing LICENSES/ must
+#     fail closed exactly as a missing scripts/ does: cp aborts under set -e before the swap,
+#     leaving dest absent (the "same manner" the floor already treats scripts/).
+VS_NOLIC="$(mktemp -d)"
+mkdir -p "$VS_NOLIC"/.claude-plugin "$VS_NOLIC"/agents "$VS_NOLIC"/docs \
+        "$VS_NOLIC"/lib "$VS_NOLIC"/scripts "$VS_NOLIC"/skills "$VS_NOLIC"/.devflow   # NOTE: no LICENSES/
+printf '{}' > "$VS_NOLIC/.claude-plugin/plugin.json"
+printf '{}' > "$VS_NOLIC/.devflow/config.example.json"
+printf '{}' > "$VS_NOLIC/.devflow/config.schema.json"
+printf '{}' > "$VS_NOLIC/.devflow/tool-presets.json"
+VS_NOLIC_DEST="$(mktemp -d)/dest"
+VS_NOLIC_RC=0
+# shellcheck disable=SC1090
+( DEVFLOW_VENDOR_SOURCE=1 . "$VENDOR" && devflow_copy_slice "$VS_NOLIC" "$VS_NOLIC_DEST" ) >/dev/null 2>&1 || VS_NOLIC_RC=$?
+assert_eq "#671 vendor: missing LICENSES/ fails closed (copy aborts)" "yes" \
+  "$([ "$VS_NOLIC_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "#671 vendor: missing LICENSES/ leaves dest non-existent (no partial copy lands)" "no" \
+  "$(vexists "$VS_NOLIC_DEST")"
+# #671 copy-list pin: LICENSES must remain a member of devflow_copy_slice's cp statement.
+# Removal-proof under a sed -E mutation that deletes the "$src/LICENSES" argument from the cp
+# line — the pin flips PASS->FAIL only when that operative copy argument is gone.
+assert_pin_red_under "#671 vendor copy list includes LICENSES" \
+  '"$src/LICENSES"' 's/ "\$src\/LICENSES"//' "$VENDOR"
+
+rm -rf "$VS_BADSRC" "$(dirname "$VS_FLOOR_DEST")" "$VS_FLOORSRC" "$(dirname "$VS_FLOORSRC_DEST")" "$VS_NOLIC" "$(dirname "$VS_NOLIC_DEST")"
 
 # set_config_version (install.sh) BEHAVIORAL: pins devflow_version without
 # clobbering other keys, and a present-but-failing tool (malformed config)
@@ -28893,6 +28922,181 @@ fi
 
 rm -rf "$VS_COMMIT" "$VS_SELF" "$VS_REMOTE" "$VS_FETCH" "$VS_FETCH_SHA" \
        "$VS_PREC" "$VS_DECOY" "$VS_DECOY_DEST"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "#671 packaging validation (agent/skill frontmatter + manifests + plugin tree)"
+# ────────────────────────────────────────────────────────────────────────────
+# The root `claude plugin validate` resolves the MARKETPLACE manifest and never examines the
+# plugin tree, so unparseable component frontmatter shipped green. These checks close that hole:
+# (1) every agent + skill frontmatter parses under PyYAML and both manifests parse as JSON —
+#     runs UNCONDITIONALLY on any preflight-satisfying host (python3 + PyYAML are hard
+#     prerequisites), NOT gated on the claude CLI; (2) a malformed fixture proves the parser
+#     rejects the exact defect (an unquoted `description` scalar containing ": "); (3) the full
+#     `claude plugin validate --strict` runs over a staged plugin-only tree when the CLI is
+#     present, else self-skips as blocking-gate.
+
+# (1) frontmatter structured-parse gate. The frontmatter half is lib/test/validate-frontmatter.py
+# (extracted so the suite can drive its empty-corpus / unparseable / missing-key branches against
+# a FIXTURE root — the negative fixtures below — not only observe the happy path over the real
+# repo). The two-manifest JSON parse stays a small inline check over the real repo.
+PKG_FM="$LIB/test/validate-frontmatter.py"
+PKG_FM_OUT="$(python3 "$PKG_FM" "$REPO_ROOT")"; PKG_FM_RC=$?
+[ "$PKG_FM_RC" -eq 0 ] || printf '%s\n' "$PKG_FM_OUT"   # name the failing path(s) on failure
+assert_eq "#671 packaging: every agent+skill frontmatter parses (PyYAML), naming any failing path" "0" "$PKG_FM_RC"
+PKG_MF_OUT="$(python3 - "$REPO_ROOT" <<'PYEOF'
+import sys, os, json
+root = sys.argv[1]
+bad = []
+for mf in (".claude-plugin/plugin.json", ".claude-plugin/marketplace.json"):
+    p = os.path.join(root, mf)
+    try:
+        json.load(open(p, encoding="utf-8"))
+    except Exception as e:
+        bad.append("%s (JSON error: %s)" % (p, e))
+if bad:
+    print("BAD")
+    for b in bad:
+        print("  " + b)
+    sys.exit(1)
+print("OK both manifests parse")
+PYEOF
+)"; PKG_MF_RC=$?
+[ "$PKG_MF_RC" -eq 0 ] || printf '%s\n' "$PKG_MF_OUT"
+assert_eq "#671 packaging: both manifests parse as JSON" "0" "$PKG_MF_RC"
+
+# Negative fixtures — prove the frontmatter guards FAIL CLOSED against a fixture root, not just
+# pass on the compliant real corpus (the "assert the guard fails closed, not just the happy
+# path" convention). These run the SAME helper the real gate above runs.
+# (a) empty corpus: a root with no agents/skills → exit 1 naming the empty-corpus reason.
+PKG_NEG_EMPTY="$(mktemp -d)"
+PKG_NEG_EMPTY_OUT="$(python3 "$PKG_FM" "$PKG_NEG_EMPTY")"; PKG_NEG_EMPTY_RC=$?
+assert_eq "#671 packaging: frontmatter gate fails closed on an empty corpus (exit 1)" "1" "$PKG_NEG_EMPTY_RC"
+assert_eq "#671 packaging: empty-corpus failure names the empty-corpus reason" "yes" \
+  "$(printf '%s' "$PKG_NEG_EMPTY_OUT" | grep -qF 'empty corpus' && echo yes || echo no)"
+rm -rf "$PKG_NEG_EMPTY"
+# (b) a frontmatter missing a required key (name present, description absent) → exit 1 naming it.
+PKG_NEG_KEY="$(mktemp -d)"; mkdir -p "$PKG_NEG_KEY/agents"
+printf -- '---\nname: no-desc\nmodel: sonnet\n---\n\nbody\n' > "$PKG_NEG_KEY/agents/no-desc.md"
+PKG_NEG_KEY_OUT="$(python3 "$PKG_FM" "$PKG_NEG_KEY")"; PKG_NEG_KEY_RC=$?
+assert_eq "#671 packaging: frontmatter gate fails closed on a missing required key (exit 1)" "1" "$PKG_NEG_KEY_RC"
+assert_eq "#671 packaging: missing-key failure names the missing key" "yes" \
+  "$(printf '%s' "$PKG_NEG_KEY_OUT" | grep -qF 'missing required key' && echo yes || echo no)"
+rm -rf "$PKG_NEG_KEY"
+# (c) a file carrying no frontmatter block at all → exit 1 naming that branch.
+PKG_NEG_NOFM="$(mktemp -d)"; mkdir -p "$PKG_NEG_NOFM/agents"
+printf -- 'no frontmatter here, just body text\n' > "$PKG_NEG_NOFM/agents/no-fm.md"
+PKG_NEG_NOFM_OUT="$(python3 "$PKG_FM" "$PKG_NEG_NOFM")"; PKG_NEG_NOFM_RC=$?
+assert_eq "#671 packaging: frontmatter gate fails closed on a file with no frontmatter block (exit 1)" "1" "$PKG_NEG_NOFM_RC"
+assert_eq "#671 packaging: no-frontmatter failure names the file and that branch" "yes" \
+  "$(printf '%s' "$PKG_NEG_NOFM_OUT" | grep -qF "$PKG_NEG_NOFM/agents/no-fm.md (no frontmatter block)" && echo yes || echo no)"
+rm -rf "$PKG_NEG_NOFM"
+# (d) a frontmatter block that parses but is not a mapping (a bare scalar) → exit 1 naming it.
+PKG_NEG_SEQ="$(mktemp -d)"; mkdir -p "$PKG_NEG_SEQ/agents"
+printf -- '---\njust-a-scalar\n---\n\nbody\n' > "$PKG_NEG_SEQ/agents/not-a-map.md"
+PKG_NEG_SEQ_OUT="$(python3 "$PKG_FM" "$PKG_NEG_SEQ")"; PKG_NEG_SEQ_RC=$?
+assert_eq "#671 packaging: frontmatter gate fails closed on a non-mapping frontmatter (exit 1)" "1" "$PKG_NEG_SEQ_RC"
+assert_eq "#671 packaging: non-mapping failure names the file and that branch" "yes" \
+  "$(printf '%s' "$PKG_NEG_SEQ_OUT" | grep -qF "$PKG_NEG_SEQ/agents/not-a-map.md (frontmatter is not a mapping)" && echo yes || echo no)"
+rm -rf "$PKG_NEG_SEQ"
+
+# (2) malformed-fixture assertion — the gate must REJECT an unquoted `description` scalar
+# containing ": " (a direct fixture assertion; assert_pin_red_under cannot express "this parser
+# rejects this input"). Driven THROUGH validate-frontmatter.py against a fixture root, so the
+# helper's own `except yaml.YAMLError` branch is what is exercised — an inline re-implementation
+# of the parse would prove only that PyYAML rejects the input, never that the shipped gate does.
+PKG_FIX_ROOT="$(mktemp -d)"; mkdir -p "$PKG_FIX_ROOT/agents"
+PKG_FIX="$PKG_FIX_ROOT/agents/bad-fixture.md"
+printf -- '---\nname: bad-fixture\ndescription: Uses `verification_mode: "agent"` unquoted\nmodel: sonnet\n---\n\nbody\n' > "$PKG_FIX"
+PKG_FIX_OUT="$(python3 "$PKG_FM" "$PKG_FIX_ROOT")"; PKG_FIX_RC=$?
+assert_eq "#671 packaging: malformed unquoted 'description' with \": \" fails the gate (exit 1)" "1" "$PKG_FIX_RC"
+assert_eq "#671 packaging: malformed unquoted 'description' with \": \" is rejected, naming the fixture path and the YAML-error branch" "yes" \
+  "$(printf '%s' "$PKG_FIX_OUT" | grep -qF "$PKG_FIX (YAML error:" && echo yes || echo no)"
+# Positive control on the same fixture root: with the description quoted, the SAME root passes
+# the SAME gate — so the rejection above is attributable to the unquoted scalar, not to an
+# unrelated precondition of the fixture (missing key, bad path, empty corpus).
+printf -- '---\nname: bad-fixture\ndescription: "Uses `verification_mode: \\"agent\\"` quoted"\nmodel: sonnet\n---\n\nbody\n' > "$PKG_FIX"
+PKG_FIX_CTL_OUT="$(python3 "$PKG_FM" "$PKG_FIX_ROOT")"; PKG_FIX_CTL_RC=$?
+[ "$PKG_FIX_CTL_RC" -eq 0 ] || printf '%s\n' "$PKG_FIX_CTL_OUT"
+assert_eq "#671 packaging: positive control — the same fixture root passes once the description is quoted" "0" "$PKG_FIX_CTL_RC"
+rm -rf "$PKG_FIX_ROOT"
+
+# (2b) an unreadable file must stay inside the helper's documented 0/1/3 vocabulary — a named
+# path on its own line, never a bare OSError traceback escaping as an unattributable exit 1.
+PKG_NEG_IO="$(mktemp -d)"; mkdir -p "$PKG_NEG_IO/agents"
+printf -- '---\nname: x\ndescription: y\n---\n\nbody\n' > "$PKG_NEG_IO/agents/unreadable.md"
+chmod 000 "$PKG_NEG_IO/agents/unreadable.md"
+if [ -r "$PKG_NEG_IO/agents/unreadable.md" ]; then
+  # Running as root (or on a filesystem ignoring the mode) — the condition cannot be expressed.
+  skip "#671 packaging: unreadable frontmatter file is named, not a traceback" host-capability \
+    "chmod 000 left the file readable (root or a mode-ignoring filesystem) — the unreadable-input arm cannot be expressed on this host"
+else
+  PKG_NEG_IO_OUT="$(python3 "$PKG_FM" "$PKG_NEG_IO" 2>&1)"; PKG_NEG_IO_RC=$?
+  assert_eq "#671 packaging: unreadable frontmatter file fails closed (exit 1, the helper's own code)" "1" "$PKG_NEG_IO_RC"
+  assert_eq "#671 packaging: unreadable frontmatter file is named with the cannot-read reason (no bare traceback)" "yes" \
+    "$(printf '%s' "$PKG_NEG_IO_OUT" | grep -qF "$PKG_NEG_IO/agents/unreadable.md (cannot read:" && echo yes || echo no)"
+  assert_eq "#671 packaging: unreadable-file arm emits no Python traceback" "no" \
+    "$(printf '%s' "$PKG_NEG_IO_OUT" | grep -qF 'Traceback (most recent call last)' && echo yes || echo no)"
+fi
+chmod 644 "$PKG_NEG_IO/agents/unreadable.md" 2>/dev/null || true
+rm -rf "$PKG_NEG_IO"
+
+# (2c) PyYAML-missing arm: exit 3 (a loud failure, never a silent green) with a named reason.
+# Driven by putting a stub `yaml` module that raises on import ahead of the real one.
+PKG_NOYAML="$(mktemp -d)"; mkdir -p "$PKG_NOYAML/agents" "$PKG_NOYAML/stub"
+printf -- '---\nname: x\ndescription: y\n---\n\nbody\n' > "$PKG_NOYAML/agents/a.md"
+printf -- 'raise ImportError("no module named yaml (stubbed)")\n' > "$PKG_NOYAML/stub/yaml.py"
+PKG_NOYAML_OUT="$(PYTHONPATH="$PKG_NOYAML/stub" python3 "$PKG_FM" "$PKG_NOYAML" 2>&1)"; PKG_NOYAML_RC=$?
+assert_eq "#671 packaging: PyYAML-unavailable arm exits 3 (loud, never a silent pass)" "3" "$PKG_NOYAML_RC"
+assert_eq "#671 packaging: PyYAML-unavailable arm names the missing prerequisite" "yes" \
+  "$(printf '%s' "$PKG_NOYAML_OUT" | grep -qF 'PYYAML_MISSING' && echo yes || echo no)"
+rm -rf "$PKG_NOYAML"
+
+# (2d) the canonical plugin description is carried by TWO manifests and hand-kept byte-identical;
+# pin the equality so a future single-sided edit reintroduces the drift this change closed.
+PKG_DESC_PJ="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["description"])' "$REPO_ROOT/.claude-plugin/plugin.json")"
+PKG_DESC_MK="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["plugins"][0]["description"])' "$REPO_ROOT/.claude-plugin/marketplace.json")"
+assert_eq "#671 packaging: marketplace plugins[0].description is byte-identical to plugin.json's canonical description" \
+  "$PKG_DESC_PJ" "$PKG_DESC_MK"
+assert_eq "#671 packaging: canonical plugin description is at most 160 characters" "yes" \
+  "$([ "${#PKG_DESC_PJ}" -le 160 ] && echo yes || echo no)"
+
+# (2e) COUPLED SITE — .github/workflows/version-consolidate.yml's `git add` staging list must
+# name every file scripts/consolidate-changesets.py writes. An unstaged write is silently
+# discarded by the next attempt's `git reset --hard origin/main`, so the advertised bump lands
+# dead on merge while the suite (which drives the consolidator directly) stays green. Derive the
+# write-set from the consolidator's own _write_text call sites rather than restating it here.
+PKG_VC_YML="$REPO_ROOT/.github/workflows/version-consolidate.yml"
+PKG_VC_ADD="$(grep -E '^[[:space:]]*git add ' "$PKG_VC_YML")"
+for pkg_w in .claude-plugin/plugin.json CHANGELOG.md CITATION.cff .claude-plugin/marketplace.json; do
+  assert_eq "#671 consolidator write-set is staged by version-consolidate.yml: $pkg_w" "yes" \
+    "$(printf '%s' "$PKG_VC_ADD" | grep -qF " $pkg_w" && echo yes || echo no)"
+done
+assert_pin_red_under "#671 version-consolidate stages the marketplace manifest" \
+  "git add .claude-plugin/plugin.json .claude-plugin/marketplace.json CHANGELOG.md CITATION.cff .changeset" \
+  's/ \.claude-plugin\/marketplace\.json//' "$PKG_VC_YML"
+
+# (3) full `claude plugin validate --strict` over the plugin tree. The repo root holds BOTH
+# manifests and the CLI resolves the marketplace one, so stage a temp dir holding ONLY
+# plugin.json + real copies of the component dirs (no marketplace.json beside it, no symlinks
+# leaving the tree — cp of real files, per the security-skip constraint) and validate that path.
+if command -v claude >/dev/null 2>&1; then
+  PKG_STAGE="$(mktemp -d)"
+  mkdir -p "$PKG_STAGE/.claude-plugin"
+  cp "$REPO_ROOT/.claude-plugin/plugin.json" "$PKG_STAGE/.claude-plugin/plugin.json"
+  for d in agents skills commands hooks; do
+    [ -e "$REPO_ROOT/$d" ] && cp -R "$REPO_ROOT/$d" "$PKG_STAGE/$d"
+  done
+  PKG_VAL_OUT="$(claude plugin validate --strict "$PKG_STAGE" 2>&1)"; PKG_VAL_RC=$?
+  [ "$PKG_VAL_RC" -eq 0 ] || printf '%s\n' "$PKG_VAL_OUT"
+  # Require BOTH a zero exit AND the 'Validation passed' line (the AC's expected output). The
+  # exit code is the authoritative signal — an OR fallback on the string alone would pass green
+  # on a non-zero exit whose output merely contained a per-component 'Validation passed' line.
+  assert_eq "#671 packaging: claude plugin validate --strict passes on the staged plugin tree" "yes" \
+    "$( { [ "$PKG_VAL_RC" -eq 0 ] && printf '%s' "$PKG_VAL_OUT" | grep -qF 'Validation passed'; } && echo yes || echo no)"
+  rm -rf "$PKG_STAGE"
+else
+  skip "#671 claude plugin validate --strict (plugin tree)" blocking-gate "claude CLI not on PATH — plugin-tree strict validation not run (a CI runner could install it; install the CLI to arm this gate)"
+fi
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "provision-local-settings.sh (project .claude/settings.json provisioner)"
@@ -30563,6 +30767,83 @@ assert_eq "#290 idempotent rerun: exit 0" "0" "$CS_RC"
 assert_eq "#290 idempotent rerun: version unchanged" "$CS_V1" "$(cs_ver "$CSD")"
 assert_eq "#290 idempotent rerun: CHANGELOG unchanged" "$CS_CL1" "$(cat "$CSD/CHANGELOG.md")"
 rm -rf "$CSD"
+
+# #671: CITATION.cff version tracks the manifest bump. cs_repo does NOT create a CITATION.cff
+# (so every #290/#298 test above exercises the absent-file skip path — the file is optional
+# supplementary metadata); here we add one and assert the consolidator rewrites ITS version to
+# the new value while leaving the sibling cff-version key untouched.
+CSD="$(cs_repo)"; printf -- '---\nbump: patch\n---\n\n- x (#671)\n' > "$CSD/.changeset/a.md"
+printf 'cff-version: 1.2.0\ntitle: DevFlow\nversion: 2.8.64\nkeywords:\n  - x\n' > "$CSD/CITATION.cff"
+python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-21 >/dev/null 2>&1; CS_RC=$?
+assert_eq "#671 CITATION bump: exit 0" "0" "$CS_RC"
+assert_eq "#671 CITATION bump: version rewritten to the new manifest version" "yes" \
+  "$(grep -qxF 'version: 2.8.65' "$CSD/CITATION.cff" && echo yes || echo no)"
+assert_eq "#671 CITATION bump: cff-version left untouched (only the top-level version rewritten)" "yes" \
+  "$(grep -qxF 'cff-version: 1.2.0' "$CSD/CITATION.cff" && echo yes || echo no)"
+assert_eq "#671 CITATION bump: old version string gone" "0" \
+  "$(grep -cxF 'version: 2.8.64' "$CSD/CITATION.cff")"
+rm -rf "$CSD"
+# #671: a present-but-unrewritable CITATION.cff (no top-level version line) fails closed BEFORE
+# any write — read-before-write atomicity, mirroring the manifest/changelog guarantee.
+CSD="$(cs_repo)"; printf -- '---\nbump: patch\n---\n\n- x (#671)\n' > "$CSD/.changeset/a.md"
+printf 'cff-version: 1.2.0\ntitle: DevFlow\n' > "$CSD/CITATION.cff"
+python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-21 >"$CSD/out" 2>&1; CS_RC=$?
+assert_eq "#671 CITATION no-version-line: exit 2 (fail-closed)" "2" "$CS_RC"
+assert_eq "#671 CITATION no-version-line: diagnostic names CITATION.cff" "yes" \
+  "$(grep -qF 'CITATION.cff' "$CSD/out" && echo yes || echo no)"
+assert_eq "#671 CITATION no-version-line: manifest version unchanged (no partial write)" "2.8.64" "$(cs_ver "$CSD")"
+rm -rf "$CSD"
+
+# #671: the marketplace entry's plugin version tracks the manifest bump too. cs_repo does NOT
+# create a marketplace.json (absent-file skip path), so add one and assert the consolidator
+# rewrites its plugins[0].version to the new value while leaving the marketplace-level fields
+# alone.
+CSD="$(cs_repo)"; printf -- '---\nbump: patch\n---\n\n- x (#671)\n' > "$CSD/.changeset/a.md"
+printf '{\n  "name": "devflow-marketplace",\n  "description": "mkt desc",\n  "plugins": [\n    { "name": "devflow", "source": "./", "version": "2.8.64" }\n  ]\n}\n' > "$CSD/.claude-plugin/marketplace.json"
+python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-21 >/dev/null 2>&1; CS_RC=$?
+assert_eq "#671 marketplace bump: exit 0" "0" "$CS_RC"
+assert_eq "#671 marketplace bump: plugins[0].version rewritten to the new manifest version" "2.8.65" \
+  "$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['plugins'][0]['version'])" "$CSD/.claude-plugin/marketplace.json")"
+assert_eq "#671 marketplace bump: marketplace-level description untouched" "yes" \
+  "$(grep -qF '"description": "mkt desc"' "$CSD/.claude-plugin/marketplace.json" && echo yes || echo no)"
+rm -rf "$CSD"
+# #671: the surgical single-key marketplace rewrite fails LOUD (exit 2, no write) when the
+# manifest carries more than one "version" key — a future top-level version or a second plugin
+# entry — instead of silently bumping the wrong key and shipping a half-bumped listing.
+CSD="$(cs_repo)"; printf -- '---\nbump: patch\n---\n\n- x (#671)\n' > "$CSD/.changeset/a.md"
+printf '{\n  "version": "9.9.9",\n  "plugins": [\n    { "name": "devflow", "version": "2.8.64" }\n  ]\n}\n' > "$CSD/.claude-plugin/marketplace.json"
+python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-21 >"$CSD/out" 2>&1; CS_RC=$?
+assert_eq "#671 marketplace multi-version: exit 2 (fail-closed, not a silent wrong-key bump)" "2" "$CS_RC"
+assert_eq "#671 marketplace multi-version: diagnostic names the marketplace + the count" "yes" \
+  "$(grep -qF 'marketplace.json' "$CSD/out" && grep -qF 'found 2' "$CSD/out" && echo yes || echo no)"
+assert_eq "#671 marketplace multi-version: manifest version unchanged (no partial write)" "2.8.64" "$(cs_ver "$CSD")"
+rm -rf "$CSD"
+# #671: the same guard's total==0 arm — a marketplace carrying NO "version" key is equally
+# unsafe for the surgical rewrite (nothing to bump), so it must fail loud, not no-op silently
+# past a listing that then advertises no version at all.
+CSD="$(cs_repo)"; printf -- '---\nbump: patch\n---\n\n- x (#671)\n' > "$CSD/.changeset/a.md"
+printf '{\n  "plugins": [\n    { "name": "devflow" }\n  ]\n}\n' > "$CSD/.claude-plugin/marketplace.json"
+python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-21 >"$CSD/out" 2>&1; CS_RC=$?
+assert_eq "#671 marketplace zero-version: exit 2 (fail-closed, not a silent no-op)" "2" "$CS_RC"
+assert_eq "#671 marketplace zero-version: diagnostic names the marketplace + the count" "yes" \
+  "$(grep -qF 'marketplace.json' "$CSD/out" && grep -qF 'found 0' "$CSD/out" && echo yes || echo no)"
+assert_eq "#671 marketplace zero-version: manifest version unchanged (no partial write)" "2.8.64" "$(cs_ver "$CSD")"
+rm -rf "$CSD"
+
+# #671: CITATION.cff's version must equal the manifest version at HEAD — the consolidator keeps
+# them in lockstep on merge, so a drift here means the repo shipped out of sync. Both values are
+# read LIVE (no checked-in literal), since version-consolidate bumps the manifest on merge to main.
+CIT_CFF="$FDROOT/CITATION.cff"
+CIT_PJ="$FDROOT/.claude-plugin/plugin.json"
+assert_eq "#671 CITATION.cff exists" "yes" "$([ -f "$CIT_CFF" ] && echo yes || echo no)"
+CIT_PJ_VER="$(python3 -c "import json; print(json.load(open('$CIT_PJ'))['version'])")"
+CIT_CFF_VER="$(python3 -c "import re; t=open('$CIT_CFF').read(); m=re.search(r'(?m)^version:[ \t]*(\S+)', t); print(m.group(1) if m else '')")"
+assert_eq "#671 CITATION.cff version tracks plugin.json version" "$CIT_PJ_VER" "$CIT_CFF_VER"
+# #671: the marketplace plugin entry's version must likewise equal the manifest version at HEAD
+# (the consolidator now bumps it in lockstep), read LIVE — a drift means the listing shipped
+# behind the plugin.
+CIT_MKT_VER="$(python3 -c "import json; print(json.load(open('$FDROOT/.claude-plugin/marketplace.json'))['plugins'][0]['version'])")"
+assert_eq "#671 marketplace plugins[0].version tracks plugin.json version" "$CIT_PJ_VER" "$CIT_MKT_VER"
 
 # ── #298 hardening: fail-closed OS wrapping, atomic outputs, single-source bump domain ──────
 # AC: _BUMP_RANK is DERIVED from VALID_BUMPS (single source) — the two sets stay consistent,
