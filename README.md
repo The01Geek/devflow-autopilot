@@ -139,7 +139,7 @@ On **Windows** any POSIX **bash** works — **WSL bash**, **Git Bash**, or **MSY
 | `/devflow:init` | One-time setup: scaffold `.devflow/config.json` + refresh the schema |
 | `/devflow:retrospective-weekly` | The weekly self-improvement loop ([details](#the-self-improving-loop)) |
 
-**Agents** (`agents/`): `checklist-generator`, `checklist-deduper`, and `checklist-verifier` build, dedupe, and verify the review engine's verification checklist.
+**Agents** (`agents/`): the review-engine trio `checklist-generator`, `checklist-deduper`, and `checklist-verifier` build, dedupe, and verify the review engine's verification checklist; the `/devflow:implement` `code-explorer` and `code-architect` handle discovery and planning; and the five `pr-review-toolkit` reviewers (`code-reviewer`, `comment-analyzer`, `pr-test-analyzer`, `silent-failure-hunter`, `type-design-analyzer`) run the deep-dive review passes.
 
 > **Namespacing matters where names collide with built-ins.** `/review`, `/init`, and `/security-review` are *built-in* Claude Code commands — always use the `/devflow:`-prefixed form to reach DevFlow's engine (a bare `/review` reaches Claude Code's reviewer, not DevFlow's). DevFlow's cloud workflows trigger on **bare** `/devflow:*` comments (no `@claude`), so they coexist with Anthropic's Claude GitHub App, which owns plain `@claude` mentions and `/security-review`.
 
@@ -176,7 +176,7 @@ Full mechanics — the pipeline, the data files, how patterns become issues: **[
 ```text
 .claude-plugin/   # plugin.json (declares dependencies) + marketplace.json (this repo is its own marketplace)
 skills/           # one SKILL.md per command (/devflow:implement, /devflow:review, /docs, …)
-agents/           # checklist-generator / -deduper / -verifier
+agents/           # 10 subagents: checklist-generator/-deduper/-verifier + code-explorer/-architect + 5 pr-review-toolkit reviewers
 scripts/          # Python + shell CLIs (workpad.py, config-get.sh, match-deferrals.py, …)
 lib/              # retrospective-loop helpers (*.sh, *.jq), preflight.sh, test/
 .github/          # optional cloud tier: workflows + composite actions (incl. vendor-plugin)

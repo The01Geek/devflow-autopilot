@@ -12,6 +12,7 @@ time (push to ``main``) from the ``version-consolidate`` workflow at
   * parses each file's ``bump:`` (required) + optional ``type:`` frontmatter and prose body,
   * computes the single highest pending bump (``patch`` < ``minor`` < ``major``),
   * rewrites ``.claude-plugin/plugin.json``'s ``version`` by that increment,
+  * rewrites ``CITATION.cff``'s ``version`` to the same value (when the file is present),
   * prepends a dated, PR-cited Keep-a-Changelog entry assembled from all the prose, and
   * deletes the consumed changeset files.
 
@@ -222,6 +223,27 @@ def _render_manifest(manifest_path: str, new_version: str) -> str:
     return new_text
 
 
+def _render_citation(citation_path: str, new_version: str) -> str:
+    """Read ``CITATION.cff`` and return its text with only the top-level ``version`` rewritten.
+
+    Uses the same surgical-regex approach as ``_render_manifest`` (no YAML round-trip, so the
+    file's exact formatting is preserved). The pattern is anchored to a line beginning exactly
+    ``version:`` (``re.MULTILINE``), so the sibling ``cff-version:`` key is never matched.
+    Pure read + assemble (no write) so ``consolidate`` can prove the output is writable-in-
+    memory before touching disk.
+    """
+    text = _read_text(citation_path, "citation")
+    new_text, n = re.subn(
+        r"(?m)^(version:[ \t]*)\S.*$",
+        lambda mo: mo.group(1) + new_version,
+        text,
+        count=1,
+    )
+    if n != 1:
+        raise ChangesetError(f"{citation_path}: could not rewrite the version field")
+    return new_text
+
+
 def _assemble_entry(version: str, date: str, sections: "dict[str, list[str]]") -> str:
     """Build the ``## [version] — date`` Keep-a-Changelog block from grouped prose."""
     lines = [f"## [{version}] — {date}", ""]
@@ -259,6 +281,7 @@ def consolidate(root: str, date: str) -> int:
     changeset_dir = os.path.join(root, ".changeset")
     manifest_path = os.path.join(root, ".claude-plugin", "plugin.json")
     changelog_path = os.path.join(root, "CHANGELOG.md")
+    citation_path = os.path.join(root, "CITATION.cff")
 
     if not os.path.isdir(changeset_dir):
         print("no .changeset/ directory — nothing to consolidate")
@@ -293,9 +316,19 @@ def consolidate(root: str, date: str) -> int:
     # No os.access() check-then-write (TOCTOU): the render helpers do the real read.
     new_manifest = _render_manifest(manifest_path, new_version)
     new_changelog = _render_changelog(changelog_path, entry)
+    # CITATION.cff tracks the manifest version. It is optional supplementary metadata: absent
+    # → skipped (None); present-but-unrewritable → _render_citation raises before any write,
+    # preserving the read-before-write atomicity guarantee above.
+    new_citation = (
+        _render_citation(citation_path, new_version)
+        if os.path.exists(citation_path)
+        else None
+    )
 
     _write_text(manifest_path, new_manifest)
     _write_text(changelog_path, new_changelog)
+    if new_citation is not None:
+        _write_text(citation_path, new_citation)
     for path in pending:
         try:
             os.remove(path)
