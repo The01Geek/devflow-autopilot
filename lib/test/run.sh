@@ -15865,10 +15865,10 @@ assert_eq "#275 pin (P0): portable-anchor coverage spans every skill + implement
 # The #529/#530 bundle splits moved authoritative procedure — helper call sites included —
 # out of the two SKILL.md roots and into skills/review/phases/*.md and
 # skills/review-and-fix/references/*.md. Those families were outside the loop above, so a
-# skills/create-issue/references/*.md joined that families list with the #614 split, which
-# relocated the label-helper call sites out of the create-issue root. A
 # fragile anchor introduced in a reference file was unguarded (issue #528 added a new
 # `${CLAUDE_SKILL_DIR:-…}` call site to references/fixing.md with no pin covering it).
+# skills/create-issue/references/*.md joined that family list with the #614 split, which
+# relocated the label-helper call sites out of the create-issue root.
 # They get the same absence + completeness pins. The P3 PRESENCE pin is deliberately
 # CONDITIONAL here — unlike a SKILL.md root, a phase/reference file legitimately carries no
 # helper call at all (most files in both families carry none) —

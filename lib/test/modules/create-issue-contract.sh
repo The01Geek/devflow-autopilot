@@ -35,10 +35,17 @@ CI_TMPL_AUDIT="$CI_ROOT/skills/create-issue/references/audit-prompt-template.md"
 # LOCATION-sensitive pin (it asserts a sentence lives in a specific surface) keeps a
 # specific-file target. Each reference is also bound by name so a specific-file pin
 # resolves under the pin-corpus meta-guard.
+# shellcheck disable=SC2034  # AC5 specific-file pin-retarget seams: run.sh binds each of these
+# through CI_MOD_VARS so a step-reference retarget resolves under the pin-corpus meta-guard.
+# The four fallback siblings below are live T4 purity operands; these five are seams only.
 CI_REF_STEP2="$CI_ROOT/skills/create-issue/references/step-2-clarify.md"
+# shellcheck disable=SC2034  # pin-retarget seam (see the block comment above)
 CI_REF_STEP35="$CI_ROOT/skills/create-issue/references/step-3-5-steelman.md"
+# shellcheck disable=SC2034  # pin-retarget seam (see the block comment above)
 CI_REF_REVDELTA="$CI_ROOT/skills/create-issue/references/revision-delta.md"
+# shellcheck disable=SC2034  # pin-retarget seam (see the block comment above)
 CI_REF_STEP36="$CI_ROOT/skills/create-issue/references/step-3-6-audit.md"
+# shellcheck disable=SC2034  # pin-retarget seam (see the block comment above)
 CI_REF_STEP4="$CI_ROOT/skills/create-issue/references/step-4-present-create.md"
 CI_REF_FB_NOTASK="$CI_ROOT/skills/create-issue/references/fallback-no-task-tool.md"
 CI_REF_FB_READONLY="$CI_ROOT/skills/create-issue/references/fallback-read-only-sandbox.md"
@@ -1601,7 +1608,13 @@ assert_eq "#614 T1: no references/*.md is unrouted (on-disk set == routed set)" 
 # The self-naming requirement is what makes a copy-pasted marker from a sibling file RED.
 for _ci614_ref in $CI614_REFS; do
   _ci614_p="$CI_ROOT/skills/create-issue/references/$_ci614_ref.md"
-  _ci614_id="$(ci614_marker_id "$_ci614_ref")"
+  # Read ci614_marker_id's OWN exit status inline: an unmapped stem otherwise yields an
+  # empty id, and the marker assertions below go RED blaming the reference file instead of
+  # the missing case arm — fail-closed on the verdict, fail-OPEN on the diagnosis.
+  if ! _ci614_id="$(ci614_marker_id "$_ci614_ref")"; then
+    assert_eq "#614 T2: $_ci614_ref has a marker id mapped in ci614_marker_id" "mapped" "unmapped-stem"
+    continue
+  fi
   _ci614_start="<!-- devflow:create-issue-ref step=$_ci614_id file=skills/create-issue/references/$_ci614_ref.md start -->"
   _ci614_end="<!-- devflow:create-issue-ref step=$_ci614_id file=skills/create-issue/references/$_ci614_ref.md end -->"
   assert_eq "#614 T2: $_ci614_ref.md first line is its own start marker" "yes" \
@@ -1610,6 +1623,11 @@ for _ci614_ref in $CI614_REFS; do
     "$([ "$(tail -n 1 "$_ci614_p")" = "$_ci614_end" ] && echo yes || echo no)"
   assert_eq "#614 T2: $_ci614_ref.md carries exactly one start and one end marker" "1|1" \
     "$(grep -cF "$_ci614_start" "$_ci614_p")|$(grep -cF "$_ci614_end" "$_ci614_p")"
+  # A marker naming a DIFFERENT reference, pasted anywhere in the body, is one of the shapes
+  # the root's degrade rule enumerates — the first/last-line checks above cannot see it.
+  assert_eq "#614 T2: $_ci614_ref.md carries no marker naming a foreign reference path" "0" \
+    "$(grep -cF 'devflow:create-issue-ref' "$_ci614_p" | grep -q . && \
+       { grep -F 'devflow:create-issue-ref' "$_ci614_p" | grep -vcF "file=skills/create-issue/references/$_ci614_ref.md" || true; })"
   # The routing table's marker-contract column byte-matches the id this file carries.
   assert_eq "#614 T2: the routing row for $_ci614_ref.md states marker id \`step=$_ci614_id\`" "1" \
     "$(grep -F "references/$_ci614_ref.md\` |" "$CI_SKILL" | grep -cF "\`step=$_ci614_id\`")"
@@ -1649,9 +1667,17 @@ ci614_purity() {  # <fallback-reference-path> <representative literal>
   stem="${p##*/}"; stem="${stem%.md}"
   assert_eq "#614 T4: $stem.md carries its representative relocated literal" "1" \
     "$(grep -cF "$lit" "$p")"
+  # A grep over a missing/unreadable/empty file exits non-zero — indistinguishable from
+  # "literal absent" — so the purity claim would pass over a file it never searched. Gate on
+  # usability first: an unsearchable operand is reported, never silently read as clean.
+  [ -s "$CI_SKILL" ] || leaked="SKILL.md(unsearchable)"
   grep -qF "$lit" "$CI_SKILL" && leaked="SKILL.md"
   for f in $CI614_STEP_REFS; do
-    grep -qF "$lit" "$CI_ROOT/skills/create-issue/references/$f.md" && leaked="$leaked $f.md"
+    if [ ! -s "$CI_ROOT/skills/create-issue/references/$f.md" ]; then
+      leaked="$leaked $f.md(unsearchable)"
+    elif grep -qF "$lit" "$CI_ROOT/skills/create-issue/references/$f.md"; then
+      leaked="$leaked $f.md"
+    fi
   done
   assert_eq "#614 T4: $stem.md's literal is absent from the root and every step reference" \
     "" "$leaked"
@@ -1690,19 +1716,46 @@ ci614_under() { { [ -n "$1" ] && [ "$1" -le "$2" ]; } 2>/dev/null && echo yes ||
 CI614_ROOT_W="$(ci614_words "$CI_SKILL")"
 assert_eq "#614 T3: the always-loaded root is at or under its recorded ceiling ($CI614_ROOT_CEIL words)" \
   "yes" "$(ci614_under "$CI614_ROOT_W" "$CI614_ROOT_CEIL")"
-CI614_DEFAULT_W="$(ci614_words "$CI_SKILL" "$CI_REF_STEP2" "$CI_REF_STEP35" "$CI_REF_REVDELTA" \
-  "$CI_REF_STEP36" "$CI_REF_STEP4" "$CI_TMPL")"
+# The operand is DERIVED from the step roster, never hand-listed: a hand list drifts silently
+# when a step reference is renamed or dropped — the measured total FALLS, so the ceiling
+# assertion goes greener and nothing is RED, exactly inverting what the guard is for. The
+# cardinality pin makes a silently-shrunk operand fail loudly instead.
+CI614_DEFAULT_SET=("$CI_SKILL")
+for _ci614_ref in $CI614_STEP_REFS; do
+  CI614_DEFAULT_SET+=("$CI_ROOT/skills/create-issue/references/$_ci614_ref.md")
+done
+CI614_DEFAULT_SET+=("$CI_TMPL")
+# shellcheck disable=SC2086  # deliberate word-split of the space-separated roster
+set -- $CI614_STEP_REFS
+assert_eq "#614 T3: the default-path operand covers the root, every step reference, and the template" \
+  "$(( $# + 2 ))" "${#CI614_DEFAULT_SET[@]}"
+CI614_DEFAULT_W="$(ci614_words "${CI614_DEFAULT_SET[@]}")"
 assert_eq "#614 T3: the default-path read set is at or under its recorded ceiling ($CI614_DEFAULT_CEIL words)" \
   "yes" "$(ci614_under "$CI614_DEFAULT_W" "$CI614_DEFAULT_CEIL")"
 # AC7 positive control: the root-ceiling assertion must report RED against a deliberately
 # over-ceiling root. Plant the defect on a COPY (the working tree is never mutated) and
 # assert the same comparison fires — evidence the guard detects growth, not attestation.
+# The plant must be PROVEN over-ceiling before it can prove anything about the guard.
+# ci614_under is fail-closed for a ceiling assertion (empty reads `no`), but here `no` is the
+# EXPECTED value — so an unwritable TMPDIR or a failed padding emit would leave the measurement
+# empty and the control would report GREEN having planted nothing. Assert the plant is
+# measurable and strictly over BOTH ceilings first, so a vacuous control turns the suite RED.
 CI614_PLANT="$_ci_tmp_root/ci614-over-ceiling-root.md"
-{ cat "$CI_SKILL"; python3 -c 'print(("padding " * 200 + "\n") * 5)'; } > "$CI614_PLANT"
-CI614_PLANT_W="$(ci614_words "$CI614_PLANT")"
-assert_eq "#614 T3/AC7 positive control: an over-ceiling root turns the budget assertion RED" \
+if { cat "$CI_SKILL"; python3 -c 'print(("padding " * 8000 + "\n") * 5)'; } > "$CI614_PLANT"; then
+  CI614_PLANT_W="$(ci614_words "$CI614_PLANT")"
+else
+  CI614_PLANT_W=""
+fi
+assert_eq "#614 T3/AC7: the planted copy is measurable and strictly over both ceilings (control is not vacuous)" \
+  "yes" "$({ [ -n "$CI614_PLANT_W" ] && [ "$CI614_PLANT_W" -gt "$CI614_ROOT_CEIL" ] && [ "$CI614_PLANT_W" -gt "$CI614_DEFAULT_CEIL" ]; } 2>/dev/null && echo yes || echo no)"
+# Both ceilings get a control: the default-path ceiling is the larger and more drift-prone of
+# the two, so proving only the root ceiling would leave the riskier guard unexercised.
+assert_eq "#614 T3/AC7 positive control: an over-ceiling operand turns the root budget assertion RED" \
   "clean=yes|planted=no" \
   "clean=$(ci614_under "$CI614_ROOT_W" "$CI614_ROOT_CEIL")|planted=$(ci614_under "$CI614_PLANT_W" "$CI614_ROOT_CEIL")"
+assert_eq "#614 T3/AC7 positive control: an over-ceiling operand turns the default-path budget assertion RED" \
+  "clean=yes|planted=no" \
+  "clean=$(ci614_under "$CI614_DEFAULT_W" "$CI614_DEFAULT_CEIL")|planted=$(ci614_under "$CI614_PLANT_W" "$CI614_DEFAULT_CEIL")"
 rm -f "$CI614_PLANT"
 # The budget doc is the record of every live measured figure; the ceilings above are the
 # only checked-in literals, because a ceiling IS the enforcement (the #656 exemption).

@@ -1,9 +1,9 @@
 # `/devflow:create-issue` prompt budget
 
 `skills/create-issue/SKILL.md` is a thin always-loaded **root** plus marker-gated **references**
-under `skills/create-issue/references/` (issue #614) — the third instance of the repo's
-progressive-disclosure pattern, after the `/devflow:implement` `phases/` split and the #529 review
-bundle. This document is the record of every live measured figure and of the decisions behind the
+under `skills/create-issue/references/` (issue #614) — another instance of the repo's
+progressive-disclosure pattern, alongside the `/devflow:implement` `phases/` split, the #529 review
+bundle, and the #530 fix-loop references. This document is the record of every measured figure and of the decisions behind the
 two ceilings the suite enforces. It is the sibling of [`review-bundle-budget.md`](review-bundle-budget.md).
 
 ## How these figures are measured
@@ -42,11 +42,16 @@ their predicate fires, which is the whole point of the split.
 measured-plus-5% in the same change; a ceiling is **never raised** to accommodate growth. Growth is
 resolved by shedding prose or by moving it behind a load trigger, not by moving the line.
 
-The two ceiling literals are the only checked-in numbers this document does not render live, because a
-ceiling **is** the enforcement — the *enforcement constant* exemption in `CLAUDE.md`'s
-prefer-generated-evidence convention. They are mirrored in exactly two places, edited together: the
-`CI614_ROOT_CEIL` / `CI614_DEFAULT_CEIL` constants in the contract module, and the two suite pins that
-assert this document names them.
+**Every figure on this page is a hand-recorded implement-time snapshot, not a live-rendered value** —
+this document has no positional reconciliation against `ci614_words` (contrast the review bundle's
+`rb-figure-partition.py` machinery). The suite pins only the two **ceiling** phrases, the
+one-directional-ratchet rule stated above, and the `wc -w` ban; it does not re-derive the per-file
+table, the overhead itemization, or the conservation delta. So a change that moves any measured figure must re-measure and
+re-record it here in the same change — the ceilings will catch growth past the ceiling, but nothing
+catches a stale row below it. The two ceilings are checked-in literals under the *enforcement constant*
+exemption in `CLAUDE.md`'s prefer-generated-evidence convention (a ceiling **is** the enforcement), and
+are mirrored in exactly two places, edited together: the `CI614_ROOT_CEIL` / `CI614_DEFAULT_CEIL`
+constants in the contract module, and the two suite pins that assert this document names them.
 
 ## Post-split per-file table
 
