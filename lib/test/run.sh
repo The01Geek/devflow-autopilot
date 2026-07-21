@@ -36331,6 +36331,11 @@ if _F375="$(mktemp -d 2>/dev/null)" && [ -n "$_F375" ] && [ -d "$_F375" ]; then
   _W375C="$(python3 "$PCL" wrapped "$_F375/clean.sh" --lib "$_F375" --strict 2>/dev/null)"; _W375C_RC=$?
   assert_eq "#687 wrapped --strict over a findings-free source exits 0 with empty stdout" \
     "rc=0|" "rc=$_W375C_RC|$_W375C"
+  # Opt-in guard for wrapped (mirrors the lint one): WITHOUT --strict a findings-bearing wrapped
+  # run still exits 0 — the assertion that would go RED if someone made --strict the default.
+  python3 "$PCL" wrapped "$_F375/pins.sh" --lib "$_F375" >/dev/null 2>&1; _W375_PLAIN_RC=$?
+  assert_eq "#687 wrapped WITHOUT --strict over findings still exits 0 (opt-in), non-empty stdout" \
+    "rc=0|nonempty" "rc=$_W375_PLAIN_RC|$([ -n "$_W375" ] && echo nonempty || echo empty)"
   # The RELOCATED emit is a covered stdout write too: `wrapped --reloc --strict` over the
   # relocated fixture reaches it and must exit 3 (reached through the _emit helper).
   _W375R="$(python3 "$PCL" wrapped "$_F375/reloc_pins.sh" --lib "$_F375" --reloc --reloc-search-set "$_F375/reloc_set.txt" --strict 2>/dev/null)"; _W375R_RC=$?
@@ -36338,9 +36343,12 @@ if _F375="$(mktemp -d 2>/dev/null)" && [ -n "$_F375" ] && [ -d "$_F375" ]; then
     "yes" "$(printf '%s' "$_W375R" | grep -q 'RELOCATED' && [ "$_W375R_RC" -eq 3 ] && echo yes || echo no)"
 
   # Assertion 7: an unknown flag alongside --strict still exits 2 (the new arm does not
-  # swallow malformed input) in pin-corpus-lint.py.
+  # swallow malformed input) in pin-corpus-lint.py — asserted for BOTH subcommands, since a
+  # per-subcommand reading of the criterion should not rest on the shared arg loop implicitly.
   python3 "$PCL" lint "$_F375/pins.sh" --lib "$_F375" --strict --bogus >/dev/null 2>&1; _L375U_RC=$?
   assert_eq "#687 lint --strict alongside an unknown flag still exits 2" "2" "$_L375U_RC"
+  python3 "$PCL" wrapped "$_F375/pins.sh" --lib "$_F375" --strict --bogus >/dev/null 2>&1; _W375U_RC=$?
+  assert_eq "#687 wrapped --strict alongside an unknown flag still exits 2" "2" "$_W375U_RC"
 
   rm -rf "$_F375"
 else
@@ -36430,13 +36438,18 @@ if _F687E="$(mktemp -d 2>/dev/null)" && [ -n "$_F687E" ] && [ -d "$_F687E" ]; th
   assert_eq "#687 heads --strict (with file arg) exits 2 with empty stdout" "rc=2|" "rc=$_E687H_RC|$_E687H"
   assert_eq "#687 heads --strict writes the usage text to stderr" \
     "yes" "$(grep -q 'usage: extract-command-heads.py' "$_F687E/h.err" && echo yes || echo no)"
-  _E687H2="$(python3 "$_ECH687" heads --strict 2>/dev/null)"; _E687H2_RC=$?
+  _E687H2="$(python3 "$_ECH687" heads --strict 2>"$_F687E/h2.err")"; _E687H2_RC=$?
   assert_eq "#687 heads --strict (no file arg) also exits 2 with empty stdout" "rc=2|" "rc=$_E687H2_RC|$_E687H2"
-  # Test 8: a --strict token in a NON-leading position keeps today's behaviour — it is read
-  # as a FILE, not the flag, so strict mode is NOT enabled (rc is today's non-3 behaviour).
+  assert_eq "#687 heads --strict (no file arg) also writes the usage text to stderr" \
+    "yes" "$(grep -q 'usage: extract-command-heads.py' "$_F687E/h2.err" && echo yes || echo no)"
+  # Test 8: a --strict token in a NON-leading position keeps today's behaviour — it is read as
+  # a FILE, not consumed as the flag. Here that file does not exist, so the run fails exactly
+  # as any missing-FILE run does today (rc 1 from the open() error) rather than enabling strict
+  # (which would be rc 3 on this findings-bearing input). Pinning the specific rc 1 — not merely
+  # "rc != 3" — proves the token reached the file layer unconsumed, which is the criterion.
   python3 "$_ECH687" ungranted "$_F687E/fence.md" --strict "$_F687E/grant_none.txt" >/dev/null 2>&1; _E687X_RC=$?
-  assert_eq "#687 a non-leading --strict is treated as a FILE (today's behaviour), not the flag" \
-    "yes" "$([ "$_E687X_RC" != 3 ] && echo yes || echo no)"
+  assert_eq "#687 a non-leading --strict is read as a FILE (today's missing-file rc 1), not the flag (would be rc 3)" \
+    "1" "$_E687X_RC"
   rm -rf "$_F687E"
 else
   echo FAIL >> "$RESULTS_FILE"

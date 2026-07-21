@@ -644,7 +644,7 @@ _ALLOWLIST_MODES = {
 
 _USAGE = (
     "usage: extract-command-heads.py heads FILE...\n"
-    "       extract-command-heads.py ungranted FILE... ALLOWLIST_FILE "
+    "       extract-command-heads.py ungranted [--strict] FILE... ALLOWLIST_FILE "
     "[tools-line | implement-block]"
 )
 
