@@ -2,21 +2,168 @@
   "iter": 2,
   "started_at": "2026-07-21T00:05:00Z",
   "fix_commit_sha": "004cd74d",
-  "fix_files": ["lib/test/test_python_scripts.py", "scripts/devflow-cloud-writer-contract.json"],
+  "fix_files": [
+    "lib/test/test_python_scripts.py",
+    "scripts/devflow-cloud-writer-contract.json"
+  ],
   "loop_role": "fix",
   "current_step": "3",
-  "phase3_dispatched": ["devflow:code-reviewer","devflow:silent-failure-hunter","devflow:comment-analyzer","devflow:pr-test-analyzer"],
-  "diff_profile": {"small_diff": true, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": null},
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer"
+  ],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
   "phase3_findings": [
-    {"agent":"devflow:pr-test-analyzer","severity":"Suggestion","description":"marked line inside a fence emits no row — scoped-observability boundary untested","defect_signature":{"file":"lib/test/test_python_scripts.py","line_range":[4150,4170],"kind":"test_gap"},"corroboration_count":1,"step25_classification":"codebase","fix_decision":"applied"},
-    {"agent":"devflow:pr-test-analyzer","severity":"Suggestion","description":"marker/move-awareness precedence untested (all fixtures move=None)","defect_signature":{"file":"lib/test/test_python_scripts.py","line_range":[4112,4118],"kind":"test_gap"},"corroboration_count":1,"step25_classification":"codebase","fix_decision":"applied"}
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "marked line inside a fence emits no row \u2014 scoped-observability boundary untested",
+      "defect_signature": {
+        "file": "lib/test/test_python_scripts.py",
+        "line_range": [
+          4150,
+          4170
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "marker/move-awareness precedence untested (all fixtures move=None)",
+      "defect_signature": {
+        "file": "lib/test/test_python_scripts.py",
+        "line_range": [
+          4112,
+          4118
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
   ],
   "fix_decisions": [
-    {"finding_id":"F2-1","decision":"applied","commit":"004cd74d"},
-    {"finding_id":"F2-2","decision":"applied","commit":"004cd74d"}
+    {
+      "finding_id": "F2-1",
+      "decision": "applied",
+      "commit": "004cd74d"
+    },
+    {
+      "finding_id": "F2-2",
+      "decision": "applied",
+      "commit": "004cd74d"
+    }
   ],
-  "convergence_inputs": {"fixes_applied": 2, "fix_diff_lines": 22, "new_corroborated_critical_count": 0},
-  "cap_drops": {"count": 0, "by_category": {}},
-  "shadow": {"ran_at": null, "reviewed_sha": null, "verdict": null, "coverage": null, "reviewers_dispatched": [], "expected_reviewers": [], "reason": null, "phase3_findings": [], "phase2_fails": [], "comparison": {"shadow_total": 0, "overlap_with_iter_N": 0, "new": 0, "new_critical": 0, "new_important": 0}, "promoted_to_iter_next": false},
-  "telemetry": {"phase_3": {"calls": 4, "tokens": 284000, "wall_clock_s": 230}}
+  "convergence_inputs": {
+    "fixes_applied": 2,
+    "fix_diff_lines": 22,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "shadow": {
+    "ran_at": "2026-07-21T00:20:00Z",
+    "reviewed_sha": "004cd74d",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Suggestion",
+        "description": "incidental-substring opt-out is accept-as-designed (disclosed + tested, observable via EX row)",
+        "defect_signature": {
+          "file": "scripts/stale-prose-lint.py",
+          "line_range": [
+            379,
+            380
+          ],
+          "kind": "api_misuse"
+        }
+      },
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Suggestion",
+        "description": "optional: add a run()/CLI-level assertion that a marked-only file exits 0 with one EX TSV row",
+        "defect_signature": {
+          "file": "lib/test/test_python_scripts.py",
+          "line_range": [
+            21,
+            136
+          ],
+          "kind": "test_gap"
+        }
+      },
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Suggestion",
+        "description": "EX rule token vs a rule-token allowlist \u2014 verified safe (run gates on STALE only; #466 scope is STALE R3/R4)",
+        "defect_signature": {
+          "file": "scripts/stale-prose-lint.py",
+          "line_range": [
+            1089,
+            1092
+          ],
+          "kind": "test_gap"
+        }
+      },
+      {
+        "agent": "devflow:requesting-code-review",
+        "severity": "Important",
+        "description": "process: branch is behind origin/main and must be brought current before merge (stale-base diff artifact only; merge-base diff touches only the 4 #635 files)",
+        "defect_signature": {
+          "file": "<branch-state>",
+          "line_range": null,
+          "kind": "other"
+        }
+      }
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 4,
+      "overlap_with_iter_N": 1,
+      "new": 3,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
+  "telemetry": {
+    "phase_3": {
+      "calls": 4,
+      "tokens": 284000,
+      "wall_clock_s": 230
+    }
+  }
 }
