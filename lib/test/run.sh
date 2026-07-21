@@ -36233,7 +36233,7 @@ assert_eq "#655 budget: the growth bullet body's cumulative figure matches fresh
 assert_eq "#655 budget: the growth bullet body's BEFORE basis matches monolith + live extension ($((36201 + RAF_EXT_W)))" "yes" \
   "$(case "$_raf_body" in *"vs. $((36201 + RAF_EXT_W))"*) echo yes;; *) echo no;; esac)"
 assert_eq "#655 budget: the justified-growth prose peak figure matches fresh measurement ($((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W+RAF_MAXREF_W)))" "yes" \
-  "$(case "$_raf_body" in *"peak $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W+RAF_MAXREF_W)) words, not $RAF_CUM_W"*) echo yes;; *) echo no;; esac)"
+  "$(case "$_raf_body" in *"peak $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W+RAF_MAXREF_W)) words not $RAF_CUM_W"*) echo yes;; *) echo no;; esac)"
 _raf_doc_growth="$(grep -F 'named justified-growth warning): +' "$RAF_BUDGET_DOC" | head -n 1 || true)"
 _raf_doc_growth="${_raf_doc_growth##*warning): +}"
 _raf_doc_growth="${_raf_doc_growth%% words*}"
