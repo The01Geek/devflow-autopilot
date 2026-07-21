@@ -21,7 +21,7 @@ A **"Sweep selection (run first)"** preamble in the skill indexes which of these
 
 | Sweep | Triggers on | Closes |
 |---|---|---|
-| 2.3.0 Changed-contract | a change that **modifies** a signature, renames/moves a symbol, tightens a validator, or alters a classifying predicate | dependent sites left on the *old* contract (other predicate branches, sibling callers, fixtures/assertions) |
+| 2.3.0 Changed-contract | a change that **modifies** a signature, renames/moves a symbol, tightens a validator, alters a classifying predicate, **or relocates a prose literal, heading, section, or file path** | dependent sites left on the *old* contract (other predicate branches, sibling callers, fixtures/assertions) — and, for a relocation, an existing citation of the content's *old* location (a `run.sh` pin, a docs cross-reference, a config-key list) left dangling at the vanished source |
 | 2.3.0a Peer-checkpoint completeness | a change that **adds** a rule/clause/guard/invariant which has *co-equal peer sites* (two or more sites that must each enforce the same rule for it to hold) | the rule stated at only *some* peers — a guard applied to one config-leaf branch but not its siblings, a read-only clause present at 2 of 4 gate checkpoints, a fallback in the selection predicate but not the parallel derivation |
 | 2.3.0b Enum-enumeration reconciliation | a change that **adds a value to an enumerated value set** (a new enum/string-union member, status, kind, verdict, or `fix_decision`) | enumerating sites left stale — a doc/comment list of the value set, or a fall-through consumer (an `else`/`default`/`// null` arm) — that the *code*-call-site sweeps (2.3.0/2.3.0a) miss, even when the runtime stays correct because the new value rides an intended fall-through |
 | 2.3.0c Operand-trace | a change that **adds a guard, predicate, validator, or coverage invariant** in code, **or** ships **agent-executed imperative prose stating a policy** (a `SKILL.md`/`phases/*.md` command block) | a guard whose comparand comes from the diff's *own* code (the blind spot 2.3.4 carves out and 2.3.0a/2.3.0b's peer/enum focus misses), and a stated policy whose operand no step produces (an inert guard). Trigger (a) demands a four-column operand table — comparand, producer (file+line), emitted on every selected path?, and the load-bearing *what OTHER inputs produce the same value?*; trigger (b) demands every policy name its observable operand, its producing step, and a route for every outcome including failure |
@@ -93,6 +93,25 @@ conflict-recovery path (`git pull --rebase origin {branch}`) and anywhere else t
 site, or assertion (often from a concurrently-merged PR) that the change's new contract now rejects,
 merged cleanly with no conflict. A newly-arrived violating site is a defect in *this* PR, not a
 follow-up.
+
+**Relocation is a contract change too (issue #661).** Moving a *prose literal, heading, section, or
+file path* to a new location while an existing citation of its **old** location survives — a
+`lib/test/run.sh` pin, a docs cross-reference, a budget cell, a config-key list — is the same
+stale-dependent defect: the citation still parses and only *semantically* dangles at the vanished
+source, so it ships clean and is found reactively (a suite red at Phase 2.4, a `/devflow:review`
+REJECT — issue #530/PR #539 is the archetype). The hardened §2.3.0 therefore arms on a relocation
+and, at the sweep's existing point, recovers what moved from the working-tree diff (a **content**
+move from the `git diff -U0` deletion hunks; a **file-path** move's old path from `git diff
+--name-status`, a rename record's `R### old new` source or a `D old` deletion entry), then enumerates
+the old-location citations in **both** forms — those that *quote the recovered content* (with a
+**whitespace-normalized** search plus a rendered-surface check, so a wrapped-adjacent-literal citation
+on no single line is still found, the #375 blind spot) **and** those that *name the vacated
+path/anchor/heading* (which a content search never sees) — and reconciles each against the
+destination. This ports the authoring-tier discipline of `.devflow/prompt-extensions/create-issue.md`'s
+Interaction-surface map down to the implement tier; the cloud-safe search uses `grep -rnE`/`tr`, never
+`git grep` (ungranted in the implement profile). The deterministic desk-time net is
+`lib/test/pin-corpus-lint.py`'s `--reloc` relocation diagnosis, which turns a bare `ABSENT` pin into
+`relocated to <file>` (or a genuine `deleted`, fail-closed on an unresolvable search set).
 
 ## Boundary-assumption sweep (2.3.4)
 

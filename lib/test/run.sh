@@ -6686,6 +6686,47 @@ _docs_sweeps=$(grep -oE 'still runs the contract-completeness sweeps \([^)]+\)' 
 assert_eq "sweep selection: SKILL and docs enumerate the same contract-sweep set (cross-site)" \
   "$_skill_sweeps" "$_docs_sweeps"
 
+# ── issue #661: §2.3.0 gains a relocation-discovery arm (prose literal/heading/section/path
+# relocation is a contract change). Each BEHAVIORAL pin uses assert_pin_red_under with a
+# `sed -E` mutation that removes ONLY the operative sentence — the minimal text whose removal
+# re-opens the guarded gap — so a framing-only pin would be reported RED. Presence pins
+# (assert_pin_unique / assert_eq) guard the index cue, the recovery detail, and the coupled
+# docs mirror.
+# AC1 — the heading names prose/heading/section/path relocation as an armed case.
+assert_pin_red_under "#661: §2.3.0 heading names prose/heading/section/path relocation (operative)" \
+  'or relocates a prose literal, heading, section, or file path' \
+  's|, or relocates a prose literal, heading, section, or file path||' "$P2_FILE"
+assert_pin_red_under "#661: §2.3.0 body arms the sweep on a relocation (operative)" \
+  'A relocation arms this sweep exactly as a moved code symbol does' \
+  's|A relocation arms this sweep exactly as a moved code symbol does|removed|' "$P2_FILE"
+# AC1 — the Sweep-selection index cue also names a relocated prose literal (the code-symbol
+# under-cueing hole this change closes); presence pin (distinct wording from the heading).
+assert_pin_unique "#661: Sweep-selection index cues a relocated prose literal/heading/section/path" \
+  'or a relocated prose literal, heading, section, or file path' "$P2_FILE"
+# AC2 — the enumeration mandates a whitespace-normalized search (the #375 wrapped-literal
+# blind spot). This is the prose-AC behavioral pin the issue's testing strategy names.
+assert_pin_red_under "#661: §2.3.0 mandates a whitespace-normalized enumeration search (operative)" \
+  'with a **whitespace-normalized** search' \
+  's|with a \*\*whitespace-normalized\*\* search|with a plain search|' "$P2_FILE"
+# AC3 — content recovery from the diff's deletion hunks (operative).
+assert_pin_red_under "#661: §2.3.0 recovers a content move from the diff deletion hunks (operative)" \
+  '**deletion hunks** (the removed lines)' \
+  's|\*\*deletion hunks\*\* \(the removed lines\)|the hunks|' "$P2_FILE"
+# AC3 — both old-location citation forms: the vacated-location enumeration a content search
+# never sees (operative — removing it re-opens the name-the-old-path blind spot).
+assert_pin_red_under "#661: §2.3.0 also enumerates citations that name the vacated location (operative)" \
+  'separately enumerate the citations that **name the vacated location**' \
+  's|separately enumerate the citations that \*\*name the vacated location\*\*|also look|' "$P2_FILE"
+# AC3 — file-path recovery via git diff --name-status (rename source / deletion entry); presence.
+assert_pin_unique "#661: §2.3.0 recovers a file-path move via a rename record source" \
+  'the **source** of a rename record (`R### old new`' "$P2_FILE"
+# AC8 — the cloud-safe search uses grep -rnE/tr, never the ungranted git grep; presence.
+assert_pin_unique "#661: §2.3.0 forbids the ungranted git grep for the cloud whitespace search" \
+  'never `git grep`, which the implement profile does not grant' "$P2_FILE"
+# AC11 — docs/implement-skill.md rationale reconciled with the hardened §2.3.0 (coupled mirror).
+assert_eq "#661: docs/implement-skill.md carries the relocation-is-a-contract-change rationale" "yes" \
+  "$(grep -qF 'Relocation is a contract change too (issue #661)' "$IMPL_DOC" && echo yes || echo no)"
+
 # ── issue #474: Phase 2.3 gains §2.3.7 (collection-cardinality sweep) and two §2.3.0c
 # sharpenings (derived-comparand arms, obligation placement). Each BEHAVIORAL pin below
 # (the assert_pin_red_under calls) targets the OPERATIVE sentence — the minimal text whose
@@ -35259,7 +35300,16 @@ grep '^UNRESOLVED-COUNT' "$_PCL_LINT_ERR" 2>/dev/null | sed 's/^/  #375 lint (su
 _PCL_WRAP_ERR="$(probe_tmp '#375 real-corpus wrapped stderr capture')"
 # Same exit-status fold as the lint block above: a scanner crash (empty stdout + rc!=0) must be
 # RED, not a vacuous green.
-_PCL_WRAP_OUT="$(python3 "$PCL" wrapped "$SELF_SRC" "${_PCL_ARGS[@]}" 2>"$_PCL_WRAP_ERR")"; _PCL_WRAP_RC=$?
+# --reloc (issue #661) turns a bare real-corpus ABSENT into a relocation diagnosis
+# (git ls-files search set, minus the lib/test/ pin sources and the always-on
+# vendor/tmp trees). `git ls-files` runs ONCE here to resolve the search set (it is
+# resolved eagerly whenever --reloc is on, before the pin loop); a clean corpus has
+# no ABSENT pin, so no relocation diagnosis fires and stdout stays empty (the rc=0|
+# assertion stays the RED gate on any spurious emit). The diagnosis-vs-deletion
+# discrimination is exercised by the #661 self-tests below. --reloc-exclude drops the
+# pin-source tree so a real relocation report never self-matches a pin's own
+# declaration (the abspath auto-exclude covers run.sh itself either way).
+_PCL_WRAP_OUT="$(python3 "$PCL" wrapped "$SELF_SRC" "${_PCL_ARGS[@]}" --reloc --reloc-exclude lib/test/ 2>"$_PCL_WRAP_ERR")"; _PCL_WRAP_RC=$?
 assert_eq "#375 wrapped-literal meta-guard: no resolvable pin phrase is off-line/wrapped (real corpus; exit 0 + empty)" \
   "rc=0|" "rc=$_PCL_WRAP_RC|$_PCL_WRAP_OUT"
 # Same positive-coverage floor as the lint block (bash-builtin count extraction, fail-closed).
@@ -35423,6 +35473,126 @@ if _F375="$(mktemp -d 2>/dev/null)" && [ -n "$_F375" ] && [ -d "$_F375" ]; then
 else
   echo FAIL >> "$RESULTS_FILE"
   printf '  FAIL  #375 pin-corpus self-tests: mktemp -d failed (guards could not be exercised; not a vacuous skip)\n' >&2
+fi
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "#661 pin-corpus relocation diagnosis: ABSENT distinguishes relocation from deletion"
+# ────────────────────────────────────────────────────────────────────────────
+# The wrapped guard's --reloc mode (issue #661): when a pin literal is ABSENT from its
+# target, search a scoped tracked-file set and report where it RELOCATED to, or a genuine
+# deletion, fail-closed on an unresolvable/empty search set. The search set is supplied
+# EXPLICITLY via --reloc-search-set so the harness stays git-free (mirroring the existing
+# #375 self-tests). Fail CLOSED if the fixture dir can't be created.
+if _F661="$(mktemp -d 2>/dev/null)" && [ -n "$_F661" ] && [ -d "$_F661" ]; then
+  RELOC_LIT='the relocated contract phrase for 661'
+  RELOC_WRAP='the wrapped relocated phrase 661'
+  # Targets and candidate destinations.
+  printf 'totally unrelated content on one line\n' > "$_F661/tgt.md"          # literal ABSENT here
+  printf 'prefix %s suffix\n' "$RELOC_LIT" > "$_F661/dest.md"                  # relocation destination
+  printf 'the wrapped\nrelocated phrase 661 across lines\n' > "$_F661/wrapdest.md"  # wrapped destination (#375)
+  printf 'here is %s present in its own target\n' "$RELOC_LIT" > "$_F661/present.md"  # negative-control target
+  # Scoping/reachability stand-ins that all CONTAIN the literal but must be EXCLUDED: a
+  # pin-source stand-in (excluded via --reloc-exclude — a literal is present in its own pin
+  # declaration by construction) and vendor/tmp stand-ins (excluded by the always-on
+  # .devflow/vendor/ + .devflow/tmp/ default tokens; their paths carry those segments so the
+  # substring exclusion matches a temp-dir path exactly as it would a repo-relative one).
+  printf 'assert_pin_unique fx %s tgt\n' "$RELOC_LIT" > "$_F661/pinsrc.sh"
+  mkdir -p "$_F661/.devflow/vendor" "$_F661/.devflow/tmp"
+  printf '%s\n' "$RELOC_LIT" > "$_F661/.devflow/vendor/vcopy.md"
+  printf '%s\n' "$RELOC_LIT" > "$_F661/.devflow/tmp/tdraft.md"
+  # Per-case pin sources (one absent-from-target pin each) and explicit search-set files.
+  printf 'assert_pin_unique "fx" %s "%s"\n' "'$RELOC_LIT'" "$_F661/tgt.md" > "$_F661/pins_lit.sh"
+  printf 'assert_pin_unique "fx" %s "%s"\n' "'$RELOC_WRAP'" "$_F661/tgt.md" > "$_F661/pins_wrap.sh"
+  printf 'assert_pin_unique "fx" %s "%s"\n' "'$RELOC_LIT'" "$_F661/present.md" > "$_F661/pins_present.sh"
+  printf '%s\n' "$_F661/dest.md" > "$_F661/set_dest.txt"
+  printf '%s\n' "$_F661/wrapdest.md" > "$_F661/set_wrap.txt"
+  printf '%s\n%s\n%s\n' "$_F661/pinsrc.sh" "$_F661/.devflow/vendor/vcopy.md" "$_F661/.devflow/tmp/tdraft.md" > "$_F661/set_scope.txt"
+  : > "$_F661/set_empty.txt"
+  # Positive control: the literal resolves in exactly one non-target file → RELOCATED to it.
+  _R661_POS="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_dest.txt" 2>/dev/null)"
+  assert_eq "#661 reloc self-test: an ABSENT literal present in a non-target file is reported RELOCATED to it" \
+    "yes" "$(printf '%s' "$_R661_POS" | grep -q 'RELOCATED.*relocated to .*dest.md' && echo yes || echo no)"
+  # Scoping/reachability: every candidate carrying the literal is an excluded pin-source /
+  # vendor / tmp stand-in → the check reports a genuine deletion, NOT a self-matching RELOCATED.
+  _R661_SCOPE="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_scope.txt" --reloc-exclude "$_F661/pinsrc.sh" 2>/dev/null)"
+  assert_eq "#661 reloc self-test: pin-source + vendor + tmp stand-ins are excluded → deleted, not a self-match" \
+    "yes" "$(printf '%s' "$_R661_SCOPE" | grep -q 'deleted (not found anywhere)' && ! printf '%s' "$_R661_SCOPE" | grep -q 'RELOCATED' && echo yes || echo no)"
+  # Wrapped-literal destination (#375): the literal exists at the destination only in the
+  # whitespace-normalized rendering (wrapped across lines) → still reported RELOCATED.
+  _R661_WRAP="$(python3 "$PCL" wrapped "$_F661/pins_wrap.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_wrap.txt" 2>/dev/null)"
+  assert_eq "#661 reloc self-test: a wrapped-literal destination is still reported RELOCATED (#375 case)" \
+    "yes" "$(printf '%s' "$_R661_WRAP" | grep -q 'RELOCATED.*wrapdest.md' && echo yes || echo no)"
+  # Negative control: the literal is present in its OWN named target → no ABSENT, no relocation.
+  _R661_NEG="$(python3 "$PCL" wrapped "$_F661/pins_present.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_dest.txt" 2>/dev/null)"
+  assert_eq "#661 reloc self-test: a literal present in its named target stays silent (no ABSENT/RELOCATED)" \
+    "yes" "$([ -z "$_R661_NEG" ] && echo yes || echo no)"
+  # Fail-closed: an empty search set is reported unavailable on stderr and NEVER collapsed to
+  # "deleted" — a failed enumeration must not masquerade as a genuine deletion.
+  _R661_FC="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_empty.txt" 2>"$_F661/fc.err")"
+  assert_eq "#661 reloc self-test: an empty/failed search set is reported unavailable on stderr (fail-closed)" \
+    "yes" "$(grep -q 'RELOC-UNAVAILABLE' "$_F661/fc.err" && echo yes || echo no)"
+  assert_eq "#661 reloc self-test: a failed enumeration is NOT collapsed to 'deleted'" \
+    "yes" "$(printf '%s' "$_R661_FC" | grep -q 'relocation diagnosis unavailable' && ! printf '%s' "$_R661_FC" | grep -q 'deleted (not found anywhere)' && echo yes || echo no)"
+  # Review-driven additions (PR #663). Extra fixtures:
+  printf 'prefix %s suffix\n' "$RELOC_LIT" > "$_F661/dest2.md"                 # second relocation destination
+  printf "p.add_argument('--x', help='the relocated '\n                           'contract phrase for 661')\n" > "$_F661/helpdest.py"  # help= split-literal destination
+  printf '\377\376 not valid utf-8 bytes here\n' > "$_F661/undecodable.md"     # unreadable candidate
+  printf '%s\n' "$_F661/./pins_lit.sh" > "$_F661/set_selfmatch.txt"            # a /./ respelling of the pin source itself
+  printf '%s\n%s\n' "$_F661/dest.md" "$_F661/dest2.md" > "$_F661/set_multi.txt"
+  printf '%s\n' "$_F661/helpdest.py" > "$_F661/set_help.txt"
+  printf '%s\n' "$_F661/undecodable.md" > "$_F661/set_undec.txt"
+  # Auto-exclude via ABSPATH-equality (not substring): the search set names the pin source
+  # itself under a `/./` respelling, which the substring test misses but the abspath auto-exclude
+  # catches — so a deleted pin never self-matches its own declaration even with NO --reloc-exclude.
+  # (Regression guard for the git-ls-files-emits-relative-paths defect: pin_source is absolute.)
+  _R661_SELF="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_selfmatch.txt" 2>/dev/null)"
+  assert_eq "#661 reloc self-test: the pin source is auto-excluded by abspath-equality (no self-match without --reloc-exclude)" \
+    "yes" "$(printf '%s' "$_R661_SELF" | grep -q 'deleted (not found anywhere)' && ! printf '%s' "$_R661_SELF" | grep -q 'RELOCATED' && echo yes || echo no)"
+  # Real git ls-files failure path (not the --reloc-search-set seam): run from a NON-git cwd with
+  # no explicit search set → _git_ls_files returns a failure reason → RELOC-UNAVAILABLE, not deleted.
+  _R661_NOGIT="$( ( cd "$_F661" && python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc 2>"$_F661/nogit.err" ) )"
+  assert_eq "#661 reloc self-test: a git ls-files enumeration failure (non-git cwd) is reported unavailable, not deleted" \
+    "yes" "$(grep -q 'RELOC-UNAVAILABLE' "$_F661/nogit.err" && printf '%s' "$_R661_NOGIT" | grep -q 'relocation diagnosis unavailable' && ! printf '%s' "$_R661_NOGIT" | grep -q 'deleted (not found anywhere)' && echo yes || echo no)"
+  # An unreadable --reloc-search-set file is a distinct fail-closed arm (search-set-unreadable).
+  _R661_SSU="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/does-not-exist.txt" 2>"$_F661/ssu.err")"
+  assert_eq "#661 reloc self-test: an unreadable --reloc-search-set file is reported unavailable, not deleted" \
+    "yes" "$(grep -q 'RELOC-UNAVAILABLE' "$_F661/ssu.err" && ! printf '%s' "$_R661_SSU" | grep -q 'deleted (not found anywhere)' && echo yes || echo no)"
+  # Multiple destinations: both files carrying the literal are reported, comma-joined and sorted.
+  _R661_MULTI="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_multi.txt" 2>/dev/null)"
+  assert_eq "#661 reloc self-test: multiple relocation destinations are all reported (sorted, comma-joined)" \
+    "yes" "$(printf '%s' "$_R661_MULTI" | grep -q 'RELOCATED.*dest.md.*dest2.md' && echo yes || echo no)"
+  # help= destination: the literal reconstructs only across adjacent argparse help= literals
+  # (the canonical #375 shape) — the _literal_resolves_in help-rendering branch must find it.
+  _R661_HELP="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_help.txt" 2>/dev/null)"
+  assert_eq "#661 reloc self-test: a split-literal argparse help= destination is reported RELOCATED (#375)" \
+    "yes" "$(printf '%s' "$_R661_HELP" | grep -q 'RELOCATED.*helpdest.py' && echo yes || echo no)"
+  # Unreadable CANDIDATE (not enumeration): the only candidate is undecodable → the diagnosis is
+  # INCOMPLETE with a RELOC-CANDIDATE-UNREADABLE breadcrumb, never a false 'deleted' (AC5 spirit).
+  _R661_UNREAD="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_undec.txt" 2>"$_F661/unread.err")"
+  assert_eq "#661 reloc self-test: an unreadable candidate reports INCOMPLETE (breadcrumb), not a false 'deleted'" \
+    "yes" "$(grep -q 'RELOC-CANDIDATE-UNREADABLE' "$_F661/unread.err" && printf '%s' "$_R661_UNREAD" | grep -q 'diagnosis INCOMPLETE' && ! printf '%s' "$_R661_UNREAD" | grep -q 'deleted (not found anywhere)' && echo yes || echo no)"
+  # A NON-UTF-8 --reloc-search-set file: the read raises UnicodeDecodeError (a ValueError,
+  # NOT an OSError), so a bare `except OSError` would let it escape and crash the scan with
+  # an uncaught traceback instead of taking the documented fail-closed arm (PR #663 review).
+  _R661_SSD="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/undecodable.md" 2>"$_F661/ssd.err")"; _R661_SSD_RC=$?
+  assert_eq "#661 reloc self-test: a non-UTF-8 --reloc-search-set file fails closed (no uncaught UnicodeDecodeError)" \
+    "yes" "$([ "$_R661_SSD_RC" -eq 0 ] && ! grep -q 'Traceback' "$_F661/ssd.err" && grep -q 'RELOC-UNAVAILABLE' "$_F661/ssd.err" && printf '%s' "$_R661_SSD" | grep -q 'relocation diagnosis unavailable' && ! printf '%s' "$_R661_SSD" | grep -q 'deleted (not found anywhere)' && echo yes || echo no)"
+  # Mixed precedence: a resolvable destination AND an unreadable candidate in the same set →
+  # the found destination wins (RELOCATED); the INCOMPLETE arm is reserved for the case where
+  # NO destination resolved, so an unreadable candidate never downgrades a positive diagnosis.
+  printf '%s\n%s\n' "$_F661/dest.md" "$_F661/undecodable.md" > "$_F661/set_mixed.txt"
+  _R661_MIX="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_mixed.txt" 2>/dev/null)"
+  assert_eq "#661 reloc self-test: a destination plus an unreadable candidate reports RELOCATED (not INCOMPLETE)" \
+    "yes" "$(printf '%s' "$_R661_MIX" | grep -q 'RELOCATED.*dest.md' && ! printf '%s' "$_R661_MIX" | grep -q 'diagnosis INCOMPLETE' && echo yes || echo no)"
+  # An EMPTY --reloc-exclude token is skipped, never treated as a substring that matches every
+  # path (which would exclude the whole search set and turn a relocation into a false 'deleted').
+  _R661_EMPTOK="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_dest.txt" --reloc-exclude "" 2>/dev/null)"
+  assert_eq "#661 reloc self-test: an empty --reloc-exclude token is skipped (does not exclude every path)" \
+    "yes" "$(printf '%s' "$_R661_EMPTOK" | grep -q 'RELOCATED.*dest.md' && echo yes || echo no)"
+  rm -rf "$_F661"
+else
+  echo FAIL >> "$RESULTS_FILE"
+  printf '  FAIL  #661 pin-corpus relocation self-tests: mktemp -d failed (guards could not be exercised; not a vacuous skip)\n' >&2
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -36795,13 +36965,27 @@ RAF_ROOT_CEIL=3567
 # DIRECT reception pass inherits it, not only the loop. The relocation is per-surface neutral, but
 # the direct-pass framing the extension now needs (a self-contained intro) plus the root's residual
 # loop-tail pointer net +81 words on the always-loaded surface (root -149, receiving ext +230).
+# Measured against the up-to-date-with-main tree with ~4 words of headroom per #619's convention.
+# Update docs/review-and-fix-budget.md's ceilings-table and Measured cells in lockstep; the audited
+# decision is docs/cutovers/issue-640-direct-pass-editor-authority.md.
 # #621 then added the settled-by-disclosure foreclosure vocabulary to shadow-review.md (the
 # max-step reference), re-raising the max-step ceiling 18996->19073 (measured + ~4 headroom).
-# Measured against the up-to-date-with-main tree. Update docs/review-and-fix-budget.md's
-# ceilings-table and Measured cells in lockstep; the audited decisions are
-# docs/cutovers/issue-640-direct-pass-editor-authority.md and this issue's budget-doc note.
-RAF_LOAD_CEIL=7734
-RAF_MAXSTEP_CEIL=19073
+# #655 raised both ceilings again, on top of #640 and #621, measured against the merged tree. The
+# generalized regenerate-on-conflict rule the issue mandates is byte-identical across the three
+# DevFlow prompt extensions, and TWO of those (review-and-fix.md and receiving-code-review.md)
+# are on this bundle's always-loaded surface since #620 — so the rule lands on the initial load
+# twice, 476 words each. It cannot be split or shortened past its operative minimum: AC7 pins
+# the three copies byte-identical and requires the oracle citation, the conflict-path/
+# conflict-sibling match, the class+recipe read, and BOTH fail-closed defaults (path not among
+# them; --list unrunnable). Both ceilings carry the repo's usual ~4 words over the measurement,
+# for the #556/#619/#618 reason: a ceiling set exactly at the measurement makes the next
+# one-sentence edit a budget breach. The growth is the audited decision recorded in
+# docs/cutovers/issue-655-conflict-oracle.md; update docs/review-and-fix-budget.md's
+# ceilings-table cells in lockstep. The max-step ceiling below sits on #621's 19073 base, not
+# #640's 18996 — this branch's +952 is applied to the merged tree's measurement, never to the
+# pre-merge one.
+RAF_LOAD_CEIL=8686
+RAF_MAXSTEP_CEIL=20025
 assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
   "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"
 assert_eq "#530 budget: root + always-loaded extensions (initial load) <= $RAF_LOAD_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W)))" "yes" \
@@ -36855,7 +37039,7 @@ done
 assert_eq "#620 budget: maintainer note's prose root ceiling matches RAF_ROOT_CEIL ($RAF_ROOT_CEIL)" "yes" \
   "$(case "$_raf_doc_nocommas" in *"The root sits below its ${RAF_ROOT_CEIL}-word"*) echo yes;; *) echo no;; esac)"
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +5,997 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +6,045 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute
@@ -36880,6 +37064,18 @@ _raf_cum_row="${_raf_cum_row//,/}"
 _raf_cum_row="${_raf_cum_row//\*/}"
 assert_eq "#530 budget: doc cumulative-path words cell matches fresh measurement ($RAF_CUM_W)" "yes" \
   "$(case "$_raf_cum_row" in *"| — | $RAF_CUM_W | — |"*) echo yes;; *) echo no;; esac)"
+# #655: the growth bullet's HEADLINE literal was the only bound figure, so the bullet's own BODY
+# — which restates the cumulative, the BEFORE basis, and the peak — went stale under this change's
+# ceiling renegotiation and shipped desk-green past the pin below (the #539 stale-cell class, one
+# level in). Bind those three body figures to the same live measurements. Commas are stripped so
+# the doc's comma-separated rendering matches the computed integer, as the sibling row checks do.
+_raf_body="$(tr -d ',' < "$RAF_BUDGET_DOC")"
+assert_eq "#655 budget: the growth bullet body's cumulative figure matches fresh measurement ($RAF_CUM_W)" "yes" \
+  "$(case "$_raf_body" in *"is $RAF_CUM_W words vs."*) echo yes;; *) echo no;; esac)"
+assert_eq "#655 budget: the growth bullet body's BEFORE basis matches monolith + live extension ($((36201 + RAF_EXT_W)))" "yes" \
+  "$(case "$_raf_body" in *"vs. $((36201 + RAF_EXT_W))"*) echo yes;; *) echo no;; esac)"
+assert_eq "#655 budget: the justified-growth prose peak figure matches fresh measurement ($((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W+RAF_MAXREF_W)))" "yes" \
+  "$(case "$_raf_body" in *"peak $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W+RAF_MAXREF_W)) words not $RAF_CUM_W"*) echo yes;; *) echo no;; esac)"
 _raf_doc_growth="$(grep -F 'named justified-growth warning): +' "$RAF_BUDGET_DOC" | head -n 1 || true)"
 _raf_doc_growth="${_raf_doc_growth##*warning): +}"
 _raf_doc_growth="${_raf_doc_growth%% words*}"
