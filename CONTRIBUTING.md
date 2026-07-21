@@ -57,6 +57,38 @@ Each module is also executed by the full suite through the fail-closed
 A per-module inventory (e.g. `lib/test/modules/create-issue-contract.inventory.md`)
 records what it covers.
 
+#### Coverage-map block ownership (every PR that adds an assertion)
+
+`lib/test/modules/coverage-map.json` is the ranked to-do list for future
+extractions, and its `run_sh_blocks` half is **derived**, not curated. The coverage
+guard (`lib/test/coverage_map_guard.py`, driven by the complete suite) derives the
+issue labels asserted by `lib/test/run.sh` and by every `lib/test/modules/*.sh` —
+anchored on assertion-name position, so a `#NNN` in a comment derives nothing — and
+turns the suite RED when:
+
+- a label asserted in `lib/test/run.sh` has **no** `run_sh_blocks` entry, or
+- a **fully extracted** label — carried by a module and asserted nowhere in
+  `lib/test/run.sh` — has no entry, or names `unmodularized` instead of a module
+  that carries it.
+
+So **any** PR that adds an assertion named for a new issue owes that label a map
+entry, not only a PR that extracts a module. The remedy is mechanical — run it and
+commit the result:
+
+```bash
+python3 lib/test/coverage_map_guard.py . --fix
+```
+
+`--fix` is **hand-invoked only**. It is deliberately not wired into the batched
+generated-artifact pass, where the coverage map stays a `by-hand` judgment row whose
+write-scope assertion proves the pass leaves the file byte-unchanged. Running it
+twice in a row leaves the file byte-unchanged the second time, and it refuses to
+write a malformed map rather than corrupting it.
+
+A label a module carries while assertions remain in `lib/test/run.sh` is *partially*
+extracted and correctly stays `unmodularized`: one `owner` string cannot truthfully
+describe split coverage.
+
 ### Regenerating suite-owned artifacts
 
 Several suite gates compare a checked-in generated artifact against what the tree
@@ -138,10 +170,16 @@ selectable module, complete all of the following in the same PR:
    on a stale, misfiled, or unlisted unit). If the ratchet fires on a code
    extension outside the five depth-1 patterns, extend the pattern set (a map +
    guard + this convention change in one PR) — never list a code file in
-   `non_code_exempt`. The `run_sh_blocks` half of the map is hand-maintained
-   (mechanical `run.sh` block scanning is a disclosed non-goal), and ownership is
-   a curated claim the guard checks for referential validity, not semantic
-   correctness.
+   `non_code_exempt`. The `run_sh_blocks` half is **derived and enforced** by the
+   guard, not hand-maintained: it scans `lib/test/run.sh` and every
+   `lib/test/modules/*.sh` at assertion-name position and fails RED on a `run.sh`
+   label with no map entry, and on a **fully extracted** label (carried by a module,
+   asserted nowhere in `run.sh`) whose entry is absent or still names
+   `unmodularized`. A **partially extracted** label — one a module carries while
+   assertions remain in `run.sh` — correctly keeps `unmodularized`, because a single
+   `owner` string cannot describe split coverage. Repair the map with
+   `python3 lib/test/coverage_map_guard.py . --fix` rather than by hand (see
+   *Coverage-map block ownership* under Running the tests).
 7. **Module-contract compliance** — the module must satisfy the module contract
    documented in `lib/test/module-harness.sh`'s header (private fixture root and
    cleanup, caller-provided `LIB`/`RESULTS_FILE`/`assert_eq`, no self-skip, no

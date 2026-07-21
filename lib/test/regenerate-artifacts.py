@@ -281,9 +281,13 @@ ROWS = (
         "check": None,  # bound to run_row below.
         "clean": (0,),
         "exits": (0, 1),
-        "policy": "add the missing coverage rows per the issue-591 ratchet in lib/test/modules/coverage-map.json",
-        # by-hand: coverage_map_guard.py has no write path (verified issue #655) — the
-        # map is hand-merged, row by row.
+        "policy": "add the missing coverage rows per the issue-591 ratchet in lib/test/modules/coverage-map.json (for a run_sh_blocks completeness/attribution item, `python3 lib/test/coverage_map_guard.py . --fix` is the hand-invoked repair)",
+        # by-hand, and it STAYS by-hand: since issue #695 coverage_map_guard.py does have
+        # a write path, but only behind the explicit, hand-invoked `--fix` flag. The
+        # `argv` above deliberately omits it, so this row still runs a non-writing check
+        # and the batched pass leaves the map byte-unchanged — the property the `#619 A3`
+        # write-scope assertion pins. Wiring `--fix` into this row would flip that
+        # assertion RED. The files half of the map remains hand-merged, row by row.
         "conflict_class": "by-hand",
         "conflict_paths": ("lib/test/modules/coverage-map.json",),
         # Same discriminator: the guard prefixes a genuine input failure (git absent,

@@ -26,17 +26,30 @@ REVIEW_AND_FIX_MODULE_SOURCE = ROOT / "lib/test/modules/review-and-fix-contract.
 CREATE_ISSUE_MODULE_SOURCE = ROOT / "lib/test/modules/create-issue-contract.sh"
 CAPABILITY_PROFILES_MODULE_SOURCE = ROOT / "lib/test/modules/capability-profiles.sh"
 
-# The extracted create-issue module must reference NO monolith run.sh helper — it
-# uses only assert_eq plus the namespaced devflow_module_* API and its own private
-# helpers. This matches each banned helper as a standalone token, so the namespaced
-# names (devflow_module_pin_count, …) whose `pin_count` substring is preceded by `_`
-# never trip it.
+# An extracted module must reference NO helper that lives only in the monolith
+# lib/test/run.sh — it uses only assert_eq, the namespaced devflow_module_* API, the
+# shared fixture helpers module-harness.sh defines, and its own private helpers. This
+# matches each banned helper as a standalone token, so the namespaced names
+# (devflow_module_pin_count, …) whose `pin_count` substring is preceded by `_` never
+# trip it. `mint_blk`, `probe_tmp` and `probe_assert` are deliberately ABSENT from this
+# list since issue #695 promoted all three out of run.sh into module-harness.sh, where a
+# module legitimately obtains them; the guard that keeps them harness-owned is the
+# single-definition assertion below, not this ban.
 MONOLITH_HELPER_RE = re.compile(
     r"(?:^|[^A-Za-z0-9_])"
-    r"(pin_count|probe_tmp|probe_assert|grep_present"
+    r"(pin_count|grep_present"
     r"|assert_pin_unique|assert_pin_red_under|assert_pin_red_on_removal)"
     r"(?:[^A-Za-z0-9_]|$)"
 )
+
+# A module may not self-skip: run-module.sh overrides `skip` to a fatal. Match it only
+# in command position (a line whose first token is `skip`), so prose mentioning the word
+# in a comment is not a false positive.
+MODULE_SKIP_CALL_RE = re.compile(r"^[ \t]*skip(?:[ \t]|$)", re.MULTILINE)
+
+# The three fixture helpers issue #695 promoted from lib/test/run.sh into
+# lib/test/module-harness.sh. Exactly one definition of each must exist tree-wide.
+PROMOTED_HARNESS_HELPERS = ("mint_blk", "probe_tmp", "probe_assert")
 
 
 class ModuleRunnerTests(unittest.TestCase):
@@ -1243,6 +1256,57 @@ class ModuleRunnerTests(unittest.TestCase):
                 )
                 self.assertIn("Contract: the caller sets LIB and RESULTS_FILE", module_text)
                 self.assertNotIn("devflow_run_full_suite_module", module_text)
+                # No monolith-only helper reference, and no self-skip (module contract).
+                # Comment-aware: a helper name inside a `#` comment is prose about the
+                # helper, never an invocation, so only code lines are scanned.
+                module_code = "\n".join(
+                    line
+                    for line in module_text.split("\n")
+                    if not line.lstrip().startswith("#")
+                )
+                helper_hits = sorted(
+                    {match.group(1) for match in MONOLITH_HELPER_RE.finditer(module_code)}
+                )
+                self.assertEqual(
+                    helper_hits,
+                    [],
+                    f"{module_id} references monolith-only helper(s): {helper_hits}",
+                )
+                self.assertIsNone(
+                    MODULE_SKIP_CALL_RE.search(module_text),
+                    f"{module_id} calls skip; modules may not self-skip",
+                )
+
+    def test_promoted_fixture_helpers_are_defined_only_in_the_module_harness(self) -> None:
+        # Issue #695: mint_blk / probe_tmp / probe_assert were PROMOTED out of the
+        # monolith, not copied — 15 mint_blk uses (and many probe_tmp/probe_assert uses)
+        # stay in lib/test/run.sh, so a second copy would be an uncoupled mirror of
+        # load-bearing logic. Each must have exactly one definition tree-wide, in
+        # lib/test/module-harness.sh, which lib/test/run.sh obtains by sourcing.
+        harness_text = (ROOT / "lib/test/module-harness.sh").read_text(encoding="utf-8")
+        shell_sources = sorted(ROOT.glob("lib/**/*.sh")) + sorted(ROOT.glob("scripts/**/*.sh"))
+        for helper in PROMOTED_HARNESS_HELPERS:
+            with self.subTest(helper=helper):
+                definition = re.compile(rf"^[ \t]*{helper}\(\)", re.MULTILINE)
+                self.assertIsNotNone(
+                    definition.search(harness_text),
+                    f"{helper} is not defined in lib/test/module-harness.sh",
+                )
+                definers = [
+                    str(path.relative_to(ROOT))
+                    for path in shell_sources
+                    if definition.search(path.read_text(encoding="utf-8", errors="replace"))
+                ]
+                self.assertEqual(
+                    definers,
+                    ["lib/test/module-harness.sh"],
+                    f"{helper} must be defined exactly once, in the harness; found: {definers}",
+                )
+        self.assertIn(
+            '. "$LIB/test/module-harness.sh"',
+            (ROOT / "lib/test/run.sh").read_text(encoding="utf-8"),
+            "lib/test/run.sh must obtain the promoted helpers by sourcing the harness",
+        )
 
     def test_capability_profiles_module_runs_green_through_the_real_runner(self) -> None:
         """Issue #591 T-module: the seed module runs green through the real runner
@@ -1435,10 +1499,10 @@ class ModuleRunnerTests(unittest.TestCase):
         # is a real guard, not a vacuous pass) …
         for planted in (
             "x=$(pin_count 'a' \"$F\")\n",
-            "t=$(probe_tmp 'a')\n",
+            "g=$(grep_present 'a' \"$F\")\n",
             "assert_pin_unique n l f\n",
             "assert_pin_red_under n l m f\n",
-            "b=$(probe_assert assert_pin_unique p l f)\n",
+            "assert_pin_red_on_removal n l f\n",
         ):
             self.assertIsNotNone(
                 MONOLITH_HELPER_RE.search(planted), f"missed planted ref: {planted!r}"
@@ -1449,6 +1513,10 @@ class ModuleRunnerTests(unittest.TestCase):
             "devflow_module_pin_count 'a' \"$F\"\n",
             "devflow_module_pin_unique n l f\n",
             "devflow_module_pin_red_under n l m f\n",
+            # Promoted to module-harness.sh by issue #695 — harness API, not monolith.
+            "t=$(probe_tmp 'a')\n",
+            "b=$(probe_assert devflow_module_pin_unique p l f)\n",
+            "blk=$(mint_blk 'Step name' \"$F\")\n",
         ):
             self.assertIsNone(
                 MONOLITH_HELPER_RE.search(sanctioned),
