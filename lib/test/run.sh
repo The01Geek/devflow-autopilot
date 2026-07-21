@@ -36232,7 +36232,7 @@ if _F375="$(mktemp -d 2>/dev/null)" && [ -n "$_F375" ] && [ -d "$_F375" ]; then
     "assert_pin_unique \"fx-unresolvable\" 'x' \"\$NEVER_SET_VAR\"" \
     > "$_F375/pins.sh"
   _L375="$(python3 "$PCL" lint "$_F375/pins.sh" --lib "$_F375" 2>"$_F375/lint.err")"
-  _W375="$(python3 "$PCL" wrapped "$_F375/pins.sh" --lib "$_F375" 2>/dev/null)"
+  _W375="$(python3 "$PCL" wrapped "$_F375/pins.sh" --lib "$_F375" 2>"$_F375/wrap.err")"
   # Lint self-tests.
   assert_eq "#375 lint self-test: a #-comment that also quotes an operative literal is flagged" \
     "yes" "$(printf '%s' "$_L375" | grep -q 'COLLISION.*tgt.sh.*FLAG_OPERATIVE' && echo yes || echo no)"
@@ -36319,11 +36319,12 @@ if _F375="$(mktemp -d 2>/dev/null)" && [ -n "$_F375" ] && [ -d "$_F375" ]; then
     "rc=0|" "rc=$_L375C_RC|$_L375C"
 
   # Assertion 3 & biconditional (wrapped, findings): --strict exits 3, stdout/stderr identical.
-  _W375B="$(python3 "$PCL" wrapped "$_F375/pins.sh" --lib "$_F375" 2>"$_F375/wrap.err")"
+  # Reuses the plain-run stdout ($_W375) and stderr ($_F375/wrap.err) captured above rather
+  # than re-scanning the same input.
   _W375S="$(python3 "$PCL" wrapped "$_F375/pins.sh" --lib "$_F375" --strict 2>"$_F375/wrap_s.err")"; _W375S_RC=$?
   assert_eq "#687 wrapped --strict over findings exits 3 (stdout unchanged)" \
-    "rc=3|$_W375B" "rc=$_W375S_RC|$_W375S"
-  assert_eq "#687 wrapped --strict stdout is byte-identical to without --strict" "$_W375B" "$_W375S"
+    "rc=3|$_W375" "rc=$_W375S_RC|$_W375S"
+  assert_eq "#687 wrapped --strict stdout is byte-identical to without --strict" "$_W375" "$_W375S"
   assert_eq "#687 wrapped --strict stderr is byte-identical to without --strict" \
     "yes" "$(cmp -s "$_F375/wrap.err" "$_F375/wrap_s.err" && echo yes || echo no)"
   # wrapped --strict over the findings-free twin exits 0, empty stdout.
@@ -36372,7 +36373,7 @@ _ECH687="$LIB/test/extract-command-heads.py"
 # _emit_wrapped_or_absent alone would wrongly leave the HELP emit (in run_wrapped,
 # between them) in neither region.
 assert_count_red_under "#687 pin-corpus-lint emit-helper guard: no raw stdout write in the run_lint.._emit_wrapped_or_absent range" \
-  '^def run_lint\(pin_source, lib, overrides, md_targets, strict=False\):' \
+  '^def run_lint\(' \
   '^def _read\(path\):' \
   'sys\.stdout\.write|os\.write\(1|print\(.*file=sys\.stdout|print\(' \
   -eq 0 \

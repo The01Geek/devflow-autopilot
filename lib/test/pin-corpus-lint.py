@@ -822,11 +822,9 @@ def run_wrapped(pin_source, lib, overrides, md_targets,
     return 3 if strict and sink else 0
 
 
-def _emit_wrapped_or_absent(pin, pin_source, nlit, nfile, lit,
+def _emit_wrapped_or_absent(pin, pin_source, nlit, nfile, lit, sink,
                             reloc=False, reloc_paths=None, reloc_err=None,
-                            reloc_excludes=(), cache=None, sink=None):
-    if sink is None:
-        sink = []
+                            reloc_excludes=(), cache=None):
     site = f"{pin['helper']}@{pin_source}:{pin['lineno']}"
     if nlit and nlit in nfile:
         _emit(
