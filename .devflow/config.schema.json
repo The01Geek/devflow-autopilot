@@ -115,6 +115,11 @@
           "type": "boolean",
           "default": false,
           "description": "Opt-in: upload the engine's token-scrubbed execution transcript as a 7-day run artifact. Default false; the scrub is a blocklist, so enable only if run artifacts are acceptable exposure for this repo's access model."
+        },
+        "attribute_commits_to_triggerer": {
+          "type": "boolean",
+          "default": false,
+          "description": "Opt-in: on the cloud-tier WRITER runs (/devflow:implement's claude job and /devflow:review-and-fix's command job), author the agent's git commits as the human who triggered the run, so `git blame`/history show the responsible human — parity with local runs. Default FALSE; when false or absent, commits are authored exactly as today (byte-for-byte unchanged). Read at TRIGGER time from a trusted default-branch checkout, so its effect is POST-MERGE-ONLY: a value present only in a PR head has no effect on that PR's own run. HUMANS ONLY, fail-safe: identity is emitted only for a GitHub `.type == \"User\"` login that does not carry the `[bot]` suffix; any other type, a `[bot]` login, or a type that cannot be established falls back to current authorship with a warning. The read-only review tier (devflow-runner.yml) never commits and is untouched. Needs NO new credential — commit author/committer is git metadata, independent of the push token (which stays the App/github-actions[bot] identity). Fail-open: attribution is advisory and never fails or gates the run. Posting the review AS the human and the PR opened-by identity are out of scope (they require a per-user credential)."
         }
       }
     },
