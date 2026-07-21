@@ -1,5 +1,9 @@
 # Release Notes
 
+## July 21, 2026
+
+- **Feature — Attribute cloud-tier writer commits to the triggering user** — DevFlow's cloud-tier writer runs (`/devflow:implement` and `/devflow:review-and-fix`) previously authored the agent's git commits with whatever identity the runner's git resolved, rather than the person who triggered the run, so `git blame` and history did not show which human owns a cloud-made change. A new opt-in setting, `devflow.attribute_commits_to_triggerer` (off by default), authors those commits as the triggering user, matching what local runs already do. It is fail-safe and humans-only — bot and unverifiable identities fall back to the current behavior — needs no new credential, and takes effect only after it is merged to the default branch. See `docs/cloud-setup.md`. (#683)
+
 ## July 20, 2026
 
 - **Improvement — Per-run efficiency telemetry now records each review agent's effort decision** — DevFlow's per-run efficiency telemetry now carries a per-agent effort-observability block for every review subagent it dispatches across all four dispatch phases — recording, for each agent, the requested effort, the resolved effort, where that effort was applied, the effective effort when it can be read back, and the reason for any fallback. An operator tuning per-agent effort overrides can now see after the fact exactly what each of the nine review agents was asked to run at and what it actually ran at, including the earlier checklist-phase agents that the telemetry previously did not cover. The change is additive and read-only — it adds no new configuration and changes no review behavior. (#630)

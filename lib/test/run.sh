@@ -8806,6 +8806,210 @@ EOF
   rm -rf "$I645_D"
 fi
 
+# ── issue #682: attribute cloud-tier writer commits to the triggering user ─────
+# scripts/resolve-committer-identity.sh is the sibling of emit-git-env.sh (#645):
+# a default-off config flag (devflow.attribute_commits_to_triggerer) gates whether
+# the four GIT_AUTHOR_*/GIT_COMMITTER_* variables are emitted for the triggering
+# human. The helper is a pure shell CLI with a deterministic stdout/exit contract,
+# driven directly here with DEVFLOW_GH stubbed (the resolver's test-stub contract),
+# so no network/auth. Every enabled-and-human row asserts exit 0 AND the exact
+# emitted identity, because the consuming workflow step appends this stdout to
+# $GITHUB_ENV: a wrong emission mis-attributes a commit and a non-zero exit would
+# fail the job over an advisory attribution read.
+I682_IMPL_YML="$LIB/../.github/workflows/devflow-implement.yml"
+I682_DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
+I682_HELPER="$LIB/../scripts/resolve-committer-identity.sh"
+I682_SCHEMA="$LIB/../.devflow/config.schema.json"
+I682_EXAMPLE="$LIB/../.devflow/config.example.json"
+
+assert_eq "#682: resolve-committer-identity.sh exists and is executable" "yes" \
+  "$([ -x "$I682_HELPER" ] && echo yes || echo no)"
+
+# Schema/example: the key is declared as boolean defaulting to false and mirrored
+# in the example config as an explicit false (the documented-off-switch class — a
+# valid-falsy value must survive as false, never be coerced to a truthy default).
+assert_eq "#682: schema declares devflow.attribute_commits_to_triggerer as boolean:false" "boolean:false" \
+  "$(jq -r '.properties.devflow.properties.attribute_commits_to_triggerer | "\(.type):\(.default)"' "$I682_SCHEMA")"
+assert_eq "#682: schema description names the post-merge-only semantics" "yes" \
+  "$(jq -e '.properties.devflow.properties.attribute_commits_to_triggerer.description | test("POST-MERGE-ONLY")' "$I682_SCHEMA" >/dev/null && echo yes || echo no)"
+assert_eq "#682: example config carries devflow.attribute_commits_to_triggerer as an explicit false" "false" \
+  "$(jq -r '.devflow.attribute_commits_to_triggerer' "$I682_EXAMPLE")"
+
+# Workflow wiring: BOTH writer workflows carry a step that reads the flag from the
+# trusted trigger-time config, wires its OWN GH_TOKEN (the git-env-pins step it
+# mirrors sets none), invokes the vendored helper with the sender login, appends to
+# $GITHUB_ENV, and precedes Run Claude Code. A half-done change that wires only one
+# workflow, or omits the token, fails a pin.
+for _f in "$I682_IMPL_YML" "$I682_DEVFLOW_YML"; do
+  _b="$(basename "$_f")"
+  assert_eq "#682 [$_b]: the committer-identity step is present" "1" \
+    "$(grep -cF 'name: Resolve committer identity' "$_f")"
+  assert_eq "#682 [$_b]: the step invokes the vendored resolve-committer-identity.sh helper" "1" \
+    "$(grep -cF ".devflow/vendor/devflow/scripts/resolve-committer-identity.sh" "$_f")"
+  assert_eq "#682 [$_b]: the step invokes the helper with the sender login and appends to \$GITHUB_ENV" "1" \
+    "$(grep -cF 'bash "$HELPER" --login "$SENDER_LOGIN" --config-file "$CFG" >> "$GITHUB_ENV"' "$_f")"
+  # Scope the token/config-source pins to the step block (from its name: down to the
+  # helper invocation) so a GH_TOKEN elsewhere in the file cannot make them pass
+  # vacuously. The extraction is asserted non-empty first (anti-vacuity).
+  I682_STEP_BLK="$(awk '/name: Resolve committer identity/{f=1} f{print} f&&/bash "\$HELPER" --login/{exit}' "$_f")"
+  assert_eq "#682 [$_b]: the committer-identity step block extraction is non-empty (anti-vacuity)" "yes" \
+    "$([ -n "$I682_STEP_BLK" ] && echo yes || echo no)"
+  assert_eq "#682 [$_b]: the step wires its own GH_TOKEN so the gh api call is authenticated" "yes" \
+    "$(printf '%s\n' "$I682_STEP_BLK" | grep -q 'GH_TOKEN:' && echo yes || echo no)"
+  assert_eq "#682 [$_b]: the step reads the flag from the trusted trigger-time config job" "yes" \
+    "$(printf '%s\n' "$I682_STEP_BLK" | grep -qF 'ATTR_CFGJSON: ${{ needs.config.outputs.config_json }}' && echo yes || echo no)"
+  assert_eq "#682 [$_b]: the step passes github.event.sender.login" "yes" \
+    "$(printf '%s\n' "$I682_STEP_BLK" | grep -qF 'SENDER_LOGIN: ${{ github.event.sender.login }}' && echo yes || echo no)"
+  assert_eq "#682 [$_b]: the committer-identity step precedes the Run Claude Code step" "yes" \
+    "$([ "$(grep -nF 'name: Resolve committer identity' "$_f" | head -1 | cut -d: -f1)" -lt \
+        "$(grep -nF 'name: Run Claude Code' "$_f" | head -1 | cut -d: -f1)" ] && echo yes || echo no)"
+  # Behavioral-fix pins: deleting the step name, or the helper invocation, turns the
+  # coverage pins RED (the guarded regression is a dropped/renamed committer-identity
+  # step, which silently reverts the run to unattributed commits).
+  assert_pin_red_under "#682 [$_b]: the committer-identity step-name pin is RED when the step name is deleted" \
+    'name: Resolve committer identity' '/name: Resolve committer identity/d' "$_f"
+  assert_pin_red_under "#682 [$_b]: the helper-invocation pin is RED when the invocation line is deleted" \
+    'bash "$HELPER" --login "$SENDER_LOGIN" --config-file "$CFG" >> "$GITHUB_ENV"' \
+    '/bash "\$HELPER" --login/d' "$_f"
+done
+
+# Helper behavior: a fixture dir with a DEVFLOW_GH stub that returns canned user
+# JSON keyed by login, plus a driver that canonicalizes the helper's heredoc-form
+# stdout into a compact "KEY=VALUE;…" string (in emission order) so an exact
+# comparison covers which vars were emitted, their order, AND their values.
+I682_D="$(probe_tmp '#682 helper fixture dir')" || I682_D=''
+if [ -n "$I682_D" ]; then
+  rm -rf "$I682_D"; mkdir -p "$I682_D"
+  cat > "$I682_D/gh" <<'I682STUB'
+#!/usr/bin/env bash
+# Canned users/<login> responses; anything else fails so a stray call is loud.
+a="$*"
+case "$a" in
+  *"--version"*)     echo "gh version 2.50.0 (stub)"; exit 0 ;;
+  *"users/alice"*)   echo '{"login":"alice","id":12345,"name":"Alice Example","type":"User"}'; exit 0 ;;
+  *"users/nullname"*)echo '{"login":"nullname","id":777,"name":null,"type":"User"}'; exit 0 ;;
+  *"users/orgx"*)    echo '{"login":"orgx","id":42,"name":"Org X","type":"Organization"}'; exit 0 ;;
+  *"users/notype"*)  echo '{"login":"notype","id":9,"name":"No Type"}'; exit 0 ;;
+  *"users/advuser"*) echo '{"login":"advuser","id":55,"name":"A; B $x `z` \"q\"","type":"User"}'; exit 0 ;;
+  # A User whose .id is null (non-integer) → login-only email fallback branch.
+  # A User whose .name carries a real newline/CR (JSON escapes) → the python
+  # collapse-to-space path. printf '%s' keeps the \n/\r literal in the arg so the
+  # JSON parser (not the shell) produces the real control chars.
+  *"users/noid"*)    printf '%s\n' '{"login":"noid","id":null,"name":"No Id","type":"User"}'; exit 0 ;;
+  *"users/nlname"*)  printf '%s\n' '{"login":"nlname","id":88,"name":"A\nB\rC","type":"User"}'; exit 0 ;;
+  *"users/boom"*)    echo "gh: network error" >&2; exit 1 ;;
+esac
+echo "stub: unhandled gh call: $a" >&2; exit 1
+I682STUB
+  chmod +x "$I682_D/gh"
+
+  # Canonicalize heredoc-form stdin into "KEY=VALUE;…" (single-line values, which is
+  # what the helper emits — a value's newlines are collapsed by the helper).
+  _i682_canon() {
+    local line key delim val out='' state=0
+    while IFS= read -r line; do
+      if [ "$state" -eq 0 ]; then
+        case "$line" in
+          GIT_*'<<'*) key="${line%%<<*}"; delim="${line#*<<}"; state=1 ;;
+        esac
+      elif [ "$state" -eq 1 ]; then
+        val="$line"; state=2
+      else
+        # closing delimiter line
+        if [ -z "$out" ]; then out="$key=$val"; else out="$out;$key=$val"; fi
+        state=0
+      fi
+    done
+    printf '%s' "$out"
+  }
+  _i682_run() {  # cfgjson login -> "rc|canonicalized-identity"
+    local _json="$1" _login="$2" _out _rc _canon
+    printf '%s' "$_json" > "$I682_D/cfg.json"
+    _out="$(DEVFLOW_GH="$I682_D/gh" bash "$I682_HELPER" --login "$_login" --config-file "$I682_D/cfg.json" 2>/dev/null)"
+    _rc=$?
+    _canon="$(printf '%s\n' "$_out" | _i682_canon)"
+    printf '%s|%s' "$_rc" "$_canon"
+  }
+
+  _I682_HUMAN='GIT_AUTHOR_NAME=Alice Example;GIT_COMMITTER_NAME=Alice Example;GIT_AUTHOR_EMAIL=12345+alice@users.noreply.github.com;GIT_COMMITTER_EMAIL=12345+alice@users.noreply.github.com'
+  # Enabled + confirmed human → the four vars with the canonical <id>+<login> email.
+  assert_eq "#682: enabled (boolean true) + human → four GIT_* vars, canonical email" "0|$_I682_HUMAN" \
+    "$(_i682_run '{"devflow":{"attribute_commits_to_triggerer":true}}' alice)"
+  # The JSON string "true" also enables (lockstep with emit-git-env.sh's gate).
+  assert_eq "#682: enabled (string \"true\") + human → four GIT_* vars" "0|$_I682_HUMAN" \
+    "$(_i682_run '{"devflow":{"attribute_commits_to_triggerer":"true"}}' alice)"
+  # A User with a null .name uses the login as the name; email stays canonical.
+  assert_eq "#682: human with null .name → login as name" \
+    "0|GIT_AUTHOR_NAME=nullname;GIT_COMMITTER_NAME=nullname;GIT_AUTHOR_EMAIL=777+nullname@users.noreply.github.com;GIT_COMMITTER_EMAIL=777+nullname@users.noreply.github.com" \
+    "$(_i682_run '{"devflow":{"attribute_commits_to_triggerer":true}}' nullname)"
+  # gh-call failure for a not-non-human login → login-only fallback (still four vars).
+  assert_eq "#682: gh api failure (unclassified) → login-only fallback, four vars" \
+    "0|GIT_AUTHOR_NAME=boom;GIT_COMMITTER_NAME=boom;GIT_AUTHOR_EMAIL=boom@users.noreply.github.com;GIT_COMMITTER_EMAIL=boom@users.noreply.github.com" \
+    "$(_i682_run '{"devflow":{"attribute_commits_to_triggerer":true}}' boom)"
+  # Non-human / non-User / bot / empty-login → emit NOTHING (fall back to current authorship).
+  assert_eq "#682: non-User type (Organization) → emits nothing" "0|" \
+    "$(_i682_run '{"devflow":{"attribute_commits_to_triggerer":true}}' orgx)"
+  assert_eq "#682: a .type that cannot be established → emits nothing" "0|" \
+    "$(_i682_run '{"devflow":{"attribute_commits_to_triggerer":true}}' notype)"
+  assert_eq "#682: a [bot] login → emits nothing (no login-only fallback for a bot)" "0|" \
+    "$(_i682_run '{"devflow":{"attribute_commits_to_triggerer":true}}' 'dependabot[bot]')"
+  assert_eq "#682: an empty triggering login → emits nothing, exit 0" "0|" \
+    "$(_i682_run '{"devflow":{"attribute_commits_to_triggerer":true}}' '')"
+  # A [bot] login warns and never even calls the stub (which would fail on it).
+  printf '%s' '{"devflow":{"attribute_commits_to_triggerer":true}}' > "$I682_D/cfg.json"
+  assert_eq "#682: a [bot] login emits a ::warning:: naming the bot suffix" "yes" \
+    "$(DEVFLOW_GH="$I682_D/gh" bash "$I682_HELPER" --login 'dependabot[bot]' --config-file "$I682_D/cfg.json" 2>&1 >/dev/null \
+       | grep -q "\[bot\]' suffix" && echo yes || echo no)"
+
+  # The six-shape adversarial config-JSON matrix (CLAUDE.md's best-effort-parser rule)
+  # applied to the `devflow` CONTAINER and the flag LEAF, plus the type-boundary
+  # fixtures. Every shape must exit 0 and emit NOTHING (enabled ONLY for true/"true").
+  # The valid-falsy row is load-bearing (an explicit false must not coerce to enabled).
+  for _shape in \
+    'flag-boolean-false:{"devflow":{"attribute_commits_to_triggerer":false}}' \
+    'flag-json-null:{"devflow":{"attribute_commits_to_triggerer":null}}' \
+    'flag-absent:{"devflow":{}}' \
+    'flag-number-1:{"devflow":{"attribute_commits_to_triggerer":1}}' \
+    'flag-string-True:{"devflow":{"attribute_commits_to_triggerer":"True"}}' \
+    'flag-array-true:{"devflow":{"attribute_commits_to_triggerer":[true]}}' \
+    'flag-object:{"devflow":{"attribute_commits_to_triggerer":{"enabled":true}}}' \
+    'container-non-object:{"devflow":42}' \
+    'container-missing:{}' \
+    ; do
+    assert_eq "#682: config shape '${_shape%%:*}' → exit 0, emits nothing (enabled only for true/\"true\")" "0|" \
+      "$(_i682_run "${_shape#*:}" alice)"
+  done
+  # An unparseable / nonexistent config → disabled, exit 0, emits nothing.
+  printf 'not json {{{' > "$I682_D/cfg.json"
+  assert_eq "#682: an unparseable config → exit 0, emits nothing" "0|" \
+    "$(_out="$(DEVFLOW_GH="$I682_D/gh" bash "$I682_HELPER" --login alice --config-file "$I682_D/cfg.json" 2>/dev/null)"; printf '%s|%s' "$?" "$(printf '%s\n' "$_out" | _i682_canon)")"
+  assert_eq "#682: a nonexistent config file → exit 0, emits nothing" "0|" \
+    "$(_out="$(DEVFLOW_GH="$I682_D/gh" bash "$I682_HELPER" --login alice --config-file "$I682_D/absent.json" 2>/dev/null)"; printf '%s|%s' "$?" "$(printf '%s\n' "$_out" | _i682_canon)")"
+
+  # Adversarial-input case: a login/name carrying quotes, `$`, `;`, and backticks
+  # cannot split or forge a further $GITHUB_ENV line — the heredoc framing holds, so
+  # the value round-trips intact as a single GIT_AUTHOR_NAME value. The emitted block
+  # must parse to exactly the four vars (no injected fifth assignment).
+  assert_eq "#682: an adversarial display name round-trips through the heredoc form (no line forging)" \
+    "0|GIT_AUTHOR_NAME=A; B \$x \`z\` \"q\";GIT_COMMITTER_NAME=A; B \$x \`z\` \"q\";GIT_AUTHOR_EMAIL=55+advuser@users.noreply.github.com;GIT_COMMITTER_EMAIL=55+advuser@users.noreply.github.com" \
+    "$(_i682_run '{"devflow":{"attribute_commits_to_triggerer":true}}' advuser)"
+  # A confirmed User whose .id is not an integer (null here) → login-only email
+  # fallback (name is still the display name, email degrades to <login>@… since
+  # there is no numeric id for the canonical <id>+<login>@… form).
+  assert_eq "#682: a User with a non-integer .id → login-only email, display name kept" \
+    "0|GIT_AUTHOR_NAME=No Id;GIT_COMMITTER_NAME=No Id;GIT_AUTHOR_EMAIL=noid@users.noreply.github.com;GIT_COMMITTER_EMAIL=noid@users.noreply.github.com" \
+    "$(_i682_run '{"devflow":{"attribute_commits_to_triggerer":true}}' noid)"
+  # A display name carrying a real newline/CR — the actual $GITHUB_ENV line-forging
+  # vector — is collapsed to spaces by the helper's python step, so the emitted
+  # block still parses to exactly the four vars (the collapse code path, not just
+  # shell-metacharacter safety).
+  assert_eq "#682: a display name with a real newline is collapsed (heredoc block stays exactly four vars)" \
+    "0|GIT_AUTHOR_NAME=A B C;GIT_COMMITTER_NAME=A B C;GIT_AUTHOR_EMAIL=88+nlname@users.noreply.github.com;GIT_COMMITTER_EMAIL=88+nlname@users.noreply.github.com" \
+    "$(_i682_run '{"devflow":{"attribute_commits_to_triggerer":true}}' nlname)"
+
+  rm -rf "$I682_D"
+fi
+
 # ── issue #338: --rewrite-ac (post-merge) retag requires a --note rationale ────
 # scripts/workpad.py: an `update` call in which any --rewrite-ac pair APPENDS the
 # trailing (post-merge) tag (NEW ends with it after rstrip; neither OLD nor the row
@@ -10877,7 +11081,7 @@ assert_pin_red_under "#478 AC10 step-4.5 clause: the recorded grade tallies unde
 # '## Devflow Reflection' line stripped (including its mapping-table row) while the marker stays in
 # the sweep bodies → RED.
 P478_MARKERS=( 'workpad.py' '$ISSUE_NUMBER' 'Phase 3.4' 'Phase 4.1' '(post-merge)' '--rewrite-ac' '## Devflow Reflection' 'lib/test/run.sh' 'CLAUDE.md' )
-P478_DESTINATIONS=( "The loop's own evidence sink" "The loop's own evidence sink" 'An item-5 pushback/advisory record' 'Fix-now, or record through' 'An item-5 pushback/advisory record' 'An item-5 pushback/advisory record' "The loop's evidence sink" 'No equivalent backstop exists' "The repo's stated conventions" )
+P478_DESTINATIONS=( "The loop's own evidence sink" "The loop's own evidence sink" 'An item-5 pushback/advisory record' 'Fix-now, or record through' 'An item-5 pushback/advisory record' 'An item-5 pushback/advisory record' "The loop's evidence sink" 'Run the project-specific check that carries the obligation' "The repo's stated conventions" )
 p478_sweep_bodies() {
   awk '
     /^\*\*Sweep selection \(run first\)\.\*\*/ { starts++; f=1; next }
@@ -10938,7 +11142,7 @@ assert_eq "#478 AC5 routing lint RED: deleting a mapping-table row while its mar
 rm -f "$P478_MUT"
 # Destination-only RED arm: retaining the marker while blanking its mapped destination must fail.
 P478_MUT_DEST="$(probe_tmp '#478 AC5 routing lint destination RED-arm setup')"
-sed 's#| No equivalent backstop exists — the hand-run obligation is the sole discharge (never "the project'"'"'s test suite", which does not carry DevFlow'"'"'s desk lints).#| # ' "$MAXI_SKILL" > "$P478_MUT_DEST"
+sed 's#| Run the project-specific check that carries the obligation to discharge it — a consumer runs its own equivalent project-specific check, never a broader suite that does not carry the obligation.#| # ' "$MAXI_SKILL" > "$P478_MUT_DEST"
 assert_eq "#478 AC5 routing lint RED: blanking a mapping destination while retaining its marker flips the lint RED" \
   "RED" "$(p478_routing_lint "$P478_MUT_DEST" "$P478_P2")"
 rm -f "$P478_MUT_DEST"
@@ -16557,6 +16761,59 @@ assert_eq "materialize: missing new-entries → appended 0, replaced 0" "materia
 assert_eq "materialize: missing new-entries → target untouched" "1" "$(wc -l < "$M_NOFILE_TMP/existing.jsonl" | tr -d ' ')"
 rm -rf "$M_NOFILE_TMP"
 rm -rf "$M_TMP"
+
+# issue #672: operator home-directory paths are redacted on the merge write path.
+# Positive controls assert the REDACTED output (not merely exit 0); negative
+# controls assert repo-relative / non-home / CI-runner / non-string values survive
+# unchanged — the pairing that distinguishes a working redactor from one that
+# rewrites everything, rewrites nothing, or aborts on a numeric field.
+MR_TMP="$(mktemp -d)"
+: > "$MR_TMP/store.jsonl"
+printf '%s\n' \
+  '{"pr":101,"kind":"retro","summary":"at /Users/alice/.claude/jobs/x/w0.md"}' \
+  '{"pr":102,"kind":"retro","summary":"at /home/alice/.claude/w0.md"}' \
+  '{"pr":103,"kind":"retro","summary":"at C:\\Users\\bob\\tmp\\w0.md"}' \
+  '{"pr":104,"kind":"retro","summary":"a /Users/bob/x and /Users/bob/y"}' \
+  '{"pr":105,"kind":"retro","summary":"at /home/runner/work/x/scripts/workpad.py"}' \
+  '{"pr":106,"kind":"retro","summary":"lib/scan.sh and /tmp/x","n":3,"nul":null,"ok":true}' \
+  > "$MR_TMP/new.jsonl"
+bash "$LIB/materialize-retrospectives.sh" "$MR_TMP/new.jsonl" "$MR_TMP/store.jsonl" >/dev/null 2>&1 || true
+assert_eq "materialize #672: /Users/ prefix redacted to ~ (positive control)" \
+  "at ~/.claude/jobs/x/w0.md" "$(jq -r 'select(.pr==101)|.summary' "$MR_TMP/store.jsonl")"
+assert_eq "materialize #672: /home/ prefix redacted to ~ (positive control)" \
+  "at ~/.claude/w0.md" "$(jq -r 'select(.pr==102)|.summary' "$MR_TMP/store.jsonl")"
+assert_eq "materialize #672: Windows prefix redacted with single separator" \
+  'at ~\tmp\w0.md' "$(jq -r 'select(.pr==103)|.summary' "$MR_TMP/store.jsonl")"
+assert_eq "materialize #672: both operator paths in one string redacted" \
+  "a ~/x and ~/y" "$(jq -r 'select(.pr==104)|.summary' "$MR_TMP/store.jsonl")"
+assert_eq "materialize #672: /home/runner/ carve-out preserved unchanged" \
+  "at /home/runner/work/x/scripts/workpad.py" "$(jq -r 'select(.pr==105)|.summary' "$MR_TMP/store.jsonl")"
+assert_eq "materialize #672: repo-relative + non-home path unchanged" \
+  "lib/scan.sh and /tmp/x" "$(jq -r 'select(.pr==106)|.summary' "$MR_TMP/store.jsonl")"
+assert_eq "materialize #672: numeric field survives redaction (no rc5 abort)" \
+  "3" "$(jq -r 'select(.pr==106)|.n' "$MR_TMP/store.jsonl")"
+assert_eq "materialize #672: .pr/.kind preserved through redaction" \
+  "retro" "$(jq -r 'select(.pr==101)|.kind' "$MR_TMP/store.jsonl")"
+assert_eq "materialize #672: redacted output still valid JSONL" \
+  "0" "$(jq -c . "$MR_TMP/store.jsonl" >/dev/null 2>&1; echo $?)"
+# runneradmin carve-out (the (admin)? alternation) — a second CI-runner account.
+: > "$MR_TMP/store2.jsonl"
+printf '%s\n' '{"pr":107,"kind":"retro","summary":"at /home/runneradmin/work/x.md and /Users/runner/y.md"}' > "$MR_TMP/new2.jsonl"
+bash "$LIB/materialize-retrospectives.sh" "$MR_TMP/new2.jsonl" "$MR_TMP/store2.jsonl" >/dev/null 2>&1 || true
+assert_eq "materialize #672: /home/runneradmin/ and /Users/runner/ carve-outs preserved" \
+  "at /home/runneradmin/work/x.md and /Users/runner/y.md" "$(jq -r 'select(.pr==107)|.summary' "$MR_TMP/store2.jsonl")"
+# Fail-CLOSED fallback: a MALFORMED new-entries file must NOT overwrite the store
+# with unredacted content — the redaction skip routes to the post-merge JSONL
+# validation, which rejects it (non-zero exit) and leaves the store untouched.
+printf '%s\n' '{"pr":200,"kind":"retro","verdict":"clean"}' > "$MR_TMP/store3.jsonl"
+printf '%s\n' 'this is not json {' > "$MR_TMP/bad.jsonl"
+MR_BAD_RC=0
+bash "$LIB/materialize-retrospectives.sh" "$MR_TMP/bad.jsonl" "$MR_TMP/store3.jsonl" >/dev/null 2>&1 || MR_BAD_RC=$?
+assert_eq "materialize #672: malformed new-entries fails closed (non-zero exit)" \
+  "true" "$([ "$MR_BAD_RC" -ne 0 ] && echo true || echo false)"
+assert_eq "materialize #672: malformed new-entries leaves the store untouched" \
+  '{"pr":200,"kind":"retro","verdict":"clean"}' "$(cat "$MR_TMP/store3.jsonl")"
+rm -rf "$MR_TMP"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "meta-issue.sh"
@@ -28074,7 +28331,7 @@ assert_eq "vendor: self branch copies the .devflow templates" "yes" "$(vexists "
 # to git_sandbox would also break `git clone`, which requires its target to NOT pre-exist.
 VS_REMOTE="$(git_sandbox "vendor fetch fixture remote")"
 mkdir -p "$VS_REMOTE"/.claude-plugin "$VS_REMOTE"/agents "$VS_REMOTE"/docs \
-        "$VS_REMOTE"/lib "$VS_REMOTE"/scripts "$VS_REMOTE"/skills "$VS_REMOTE"/.devflow
+        "$VS_REMOTE"/lib "$VS_REMOTE"/scripts "$VS_REMOTE"/skills "$VS_REMOTE"/LICENSES "$VS_REMOTE"/.devflow
 printf '{}' > "$VS_REMOTE/.claude-plugin/plugin.json"
 printf '{}' > "$VS_REMOTE/.claude-plugin/marketplace.json"
 : > "$VS_REMOTE/scripts/resolve-implement-trigger.sh"
@@ -28084,6 +28341,13 @@ printf '{}' > "$VS_REMOTE/.claude-plugin/marketplace.json"
 : > "$VS_REMOTE/docs/efficiency-trace.md"
 : > "$VS_REMOTE/lib/placeholder.sh"
 : > "$VS_REMOTE/skills/placeholder.md"
+: > "$VS_REMOTE/LICENSES/placeholder-LICENSE"   # #671: LICENSES/ is now a copy-list member, so the fetch fixture must carry it
+# #677: the fixture must CARRY the two excluded subtrees, otherwise the fetch-branch
+# exclusion assertions below would pass vacuously — absent from the source, never
+# pruned. With these present the assertions observe the prune actually running.
+mkdir -p "$VS_REMOTE/docs/site" "$VS_REMOTE/lib/test"
+: > "$VS_REMOTE/docs/site/index.html"
+: > "$VS_REMOTE/lib/test/run.sh"
 printf '{}' > "$VS_REMOTE/.devflow/config.example.json"
 printf '{}' > "$VS_REMOTE/.devflow/config.schema.json"
 printf '{}' > "$VS_REMOTE/.devflow/tool-presets.json"
@@ -28109,6 +28373,13 @@ assert_eq "vendor: fetch branch drops the vendored marketplace.json" "no" "$(vex
 # docs/ must travel with the slice so skills' relative ../../docs/… links resolve
 # offline in the materialized plugin (no web access in the runner sandbox).
 assert_eq "vendor: fetch branch copies docs/ (offline skill links resolve)" "yes" "$(vexists "$VS_FETCH/docs/efficiency-trace.md")"
+# #677 on the CONSUMER-FACING branch: the self-branch assertions further below cover
+# the same shared devflow_copy_slice, but `fetch` is what a real thin consumer runs,
+# so pin the prune there directly rather than relying on the shared path transitively.
+# Non-vacuous by construction — the fixture above carries both subtrees.
+assert_eq "#677 vendor: fetch slice excludes docs/site (published-page HTML)" "no" "$(vexists "$VS_FETCH/docs/site")"
+assert_eq "#677 vendor: fetch slice excludes lib/test (DevFlow's own test suite)" "no" "$(vexists "$VS_FETCH/lib/test")"
+assert_eq "#677 vendor: fetch slice keeps non-test lib/ contents" "yes" "$(vexists "$VS_FETCH/lib/placeholder.sh")"
 
 # fetch branch pinned to a NON-TIP commit SHA. `--branch` rejects any raw SHA,
 # so this always takes the full-clone + checkout fallback (the path install.sh's
@@ -28206,6 +28477,40 @@ assert_eq "vendor: self copies lib/" "yes" "$(vexists "$VS_SELF/lib")"
 assert_eq "vendor: self copies skills/" "yes" "$(vexists "$VS_SELF/skills")"
 assert_eq "vendor: self copies .devflow/tool-presets.json" "yes" "$(vexists "$VS_SELF/.devflow/tool-presets.json")"
 
+# #677 exclusions: the produced slice must ship neither the published GitHub Pages
+# HTML (docs/site) nor DevFlow's own test suite (lib/test) — neither is reachable on
+# any consumer path, and both dominate the payload. These observe the PRODUCED tree,
+# not just that the helper exited zero. docs/ and lib/ are copied WHOLESALE, so
+# neither subtree has its own copy-list entry — the reachable mutation is deleting or
+# weakening the rm -rf prune (or moving it after the atomic swap), which re-ships the
+# subtree and turns these RED, so the exclusion cannot be silently reverted.
+assert_eq "#677 vendor: self slice excludes docs/site (published-page HTML)" "no" "$(vexists "$VS_SELF/docs/site")"
+assert_eq "#677 vendor: self slice excludes lib/test (DevFlow's own test suite)" "no" "$(vexists "$VS_SELF/lib/test")"
+# #677 presence backstops: the exclusion must not over-prune. Proving absence alone
+# would be satisfied by an implementation that pruned too much (e.g. all of docs/ or
+# all of lib/), so pair each excluded subtree with the reachable siblings that MUST
+# survive: the docs/ files shipped skill bodies link to (each pinned individually
+# below), the non-test lib/ contents, and the load-bearing top-level members. The
+# per-file pins matter — the "vendor: self copies docs/" assertion above only checks
+# the docs/ directory exists, so an over-prune of a single linked doc would slip past
+# it but not past these.
+# (docs/architecture.md is named in the issue's AC3 but does not exist in the tree —
+# its only mention is an illustrative example string in agents/checklist-generator.md,
+# not a shipped link — so it is deliberately NOT asserted here; recorded as an
+# issue-accuracy reflection.)
+assert_eq "#677 vendor: self slice keeps docs/DEVFLOW_SYSTEM_OVERVIEW.md" "yes" "$(vexists "$VS_SELF/docs/DEVFLOW_SYSTEM_OVERVIEW.md")"
+assert_eq "#677 vendor: self slice keeps docs/cloud-setup.md" "yes" "$(vexists "$VS_SELF/docs/cloud-setup.md")"
+assert_eq "#677 vendor: self slice keeps docs/efficiency-trace.md" "yes" "$(vexists "$VS_SELF/docs/efficiency-trace.md")"
+assert_eq "#677 vendor: self slice keeps docs/implement-skill.md" "yes" "$(vexists "$VS_SELF/docs/implement-skill.md")"
+assert_eq "#677 vendor: self slice keeps docs/review-agent-overrides.md" "yes" "$(vexists "$VS_SELF/docs/review-agent-overrides.md")"
+assert_eq "#677 vendor: self slice keeps docs/shadow-review.md" "yes" "$(vexists "$VS_SELF/docs/shadow-review.md")"
+assert_eq "#677 vendor: self slice keeps non-test lib/ contents (preflight.sh)" "yes" "$(vexists "$VS_SELF/lib/preflight.sh")"
+assert_eq "#677 vendor: self slice keeps scripts/" "yes" "$(vexists "$VS_SELF/scripts")"
+assert_eq "#677 vendor: self slice keeps agents/" "yes" "$(vexists "$VS_SELF/agents")"
+assert_eq "#677 vendor: self slice keeps skills/" "yes" "$(vexists "$VS_SELF/skills")"
+assert_eq "#677 vendor: self slice keeps .claude-plugin/plugin.json" "yes" "$(vexists "$VS_SELF/.claude-plugin/plugin.json")"
+assert_eq "#677 vendor: self slice keeps .devflow/config.schema.json" "yes" "$(vexists "$VS_SELF/.devflow/config.schema.json")"
+
 # self-branch NEGATIVE: a consumer repo with its OWN top-level scripts/+skills/
 # but a non-devflow plugin.json must NOT be mistaken for the source repo — it
 # falls through to fetch. Guards the plugin.json name discriminator.
@@ -28265,7 +28570,7 @@ assert_eq "vendor: total clone failure is not mislabeled as a checkout failure" 
 #     missing scripts/ → non-zero exit AND $dest non-existent").
 VS_BADSRC="$(mktemp -d)"
 mkdir -p "$VS_BADSRC"/.claude-plugin "$VS_BADSRC"/agents "$VS_BADSRC"/docs \
-        "$VS_BADSRC"/lib "$VS_BADSRC"/skills "$VS_BADSRC"/.devflow   # NOTE: no scripts/
+        "$VS_BADSRC"/lib "$VS_BADSRC"/skills "$VS_BADSRC"/LICENSES "$VS_BADSRC"/.devflow   # NOTE: no scripts/ (LICENSES/ present so scripts/ is the sole missing member)
 printf '{}' > "$VS_BADSRC/.claude-plugin/plugin.json"
 printf '{}' > "$VS_BADSRC/.devflow/config.example.json"
 printf '{}' > "$VS_BADSRC/.devflow/config.schema.json"
@@ -28283,8 +28588,10 @@ assert_eq "vendor: missing scripts/ leaves dest non-existent (no partial copy la
 #     so this genuinely reaches and trips the explicit sanity-floor check.
 VS_FLOORSRC="$(mktemp -d)"
 mkdir -p "$VS_FLOORSRC"/.claude-plugin "$VS_FLOORSRC"/agents "$VS_FLOORSRC"/docs \
-        "$VS_FLOORSRC"/lib "$VS_FLOORSRC"/scripts "$VS_FLOORSRC"/skills "$VS_FLOORSRC"/.devflow
+        "$VS_FLOORSRC"/lib "$VS_FLOORSRC"/scripts "$VS_FLOORSRC"/skills "$VS_FLOORSRC"/LICENSES "$VS_FLOORSRC"/.devflow
 # NOTE: no .claude-plugin/plugin.json — the floor's plugin.json check must fire.
+# (LICENSES/ present so the cp succeeds and the run reaches the floor rather than
+# aborting early at the LICENSES copy.)
 printf '{}' > "$VS_FLOORSRC/.devflow/config.example.json"
 printf '{}' > "$VS_FLOORSRC/.devflow/config.schema.json"
 printf '{}' > "$VS_FLOORSRC/.devflow/tool-presets.json"
@@ -28304,7 +28611,33 @@ assert_eq "vendor: floor abort is the floor's doing, not a cp-under-set-e abort"
   "$(printf '%s' "$VS_FLOORSRC_ERR" | grep -q 'incomplete plugin slice copied' && echo yes || echo no)"
 assert_eq "vendor: sanity floor leaves dest non-existent (no partial copy lands)" "no" \
   "$(vexists "$VS_FLOORSRC_DEST")"
-rm -rf "$VS_BADSRC" "$(dirname "$VS_FLOOR_DEST")" "$VS_FLOORSRC" "$(dirname "$VS_FLOORSRC_DEST")"
+# (c) #671: LICENSES/ is a load-bearing copy-list member — third-party license text for the
+#     vendored Apache-2.0/MIT assets (they carry NO in-file attribution marker by design, so the
+#     retained LICENSES/ IS the attribution — see issue #671). A source missing LICENSES/ must
+#     fail closed exactly as a missing scripts/ does: cp aborts under set -e before the swap,
+#     leaving dest absent (the "same manner" the floor already treats scripts/).
+VS_NOLIC="$(mktemp -d)"
+mkdir -p "$VS_NOLIC"/.claude-plugin "$VS_NOLIC"/agents "$VS_NOLIC"/docs \
+        "$VS_NOLIC"/lib "$VS_NOLIC"/scripts "$VS_NOLIC"/skills "$VS_NOLIC"/.devflow   # NOTE: no LICENSES/
+printf '{}' > "$VS_NOLIC/.claude-plugin/plugin.json"
+printf '{}' > "$VS_NOLIC/.devflow/config.example.json"
+printf '{}' > "$VS_NOLIC/.devflow/config.schema.json"
+printf '{}' > "$VS_NOLIC/.devflow/tool-presets.json"
+VS_NOLIC_DEST="$(mktemp -d)/dest"
+VS_NOLIC_RC=0
+# shellcheck disable=SC1090
+( DEVFLOW_VENDOR_SOURCE=1 . "$VENDOR" && devflow_copy_slice "$VS_NOLIC" "$VS_NOLIC_DEST" ) >/dev/null 2>&1 || VS_NOLIC_RC=$?
+assert_eq "#671 vendor: missing LICENSES/ fails closed (copy aborts)" "yes" \
+  "$([ "$VS_NOLIC_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "#671 vendor: missing LICENSES/ leaves dest non-existent (no partial copy lands)" "no" \
+  "$(vexists "$VS_NOLIC_DEST")"
+# #671 copy-list pin: LICENSES must remain a member of devflow_copy_slice's cp statement.
+# Removal-proof under a sed -E mutation that deletes the "$src/LICENSES" argument from the cp
+# line — the pin flips PASS->FAIL only when that operative copy argument is gone.
+assert_pin_red_under "#671 vendor copy list includes LICENSES" \
+  '"$src/LICENSES"' 's/ "\$src\/LICENSES"//' "$VENDOR"
+
+rm -rf "$VS_BADSRC" "$(dirname "$VS_FLOOR_DEST")" "$VS_FLOORSRC" "$(dirname "$VS_FLOORSRC_DEST")" "$VS_NOLIC" "$(dirname "$VS_NOLIC_DEST")"
 
 # set_config_version (install.sh) BEHAVIORAL: pins devflow_version without
 # clobbering other keys, and a present-but-failing tool (malformed config)
@@ -28708,6 +29041,181 @@ fi
 
 rm -rf "$VS_COMMIT" "$VS_SELF" "$VS_REMOTE" "$VS_FETCH" "$VS_FETCH_SHA" \
        "$VS_PREC" "$VS_DECOY" "$VS_DECOY_DEST"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "#671 packaging validation (agent/skill frontmatter + manifests + plugin tree)"
+# ────────────────────────────────────────────────────────────────────────────
+# The root `claude plugin validate` resolves the MARKETPLACE manifest and never examines the
+# plugin tree, so unparseable component frontmatter shipped green. These checks close that hole:
+# (1) every agent + skill frontmatter parses under PyYAML and both manifests parse as JSON —
+#     runs UNCONDITIONALLY on any preflight-satisfying host (python3 + PyYAML are hard
+#     prerequisites), NOT gated on the claude CLI; (2) a malformed fixture proves the parser
+#     rejects the exact defect (an unquoted `description` scalar containing ": "); (3) the full
+#     `claude plugin validate --strict` runs over a staged plugin-only tree when the CLI is
+#     present, else self-skips as blocking-gate.
+
+# (1) frontmatter structured-parse gate. The frontmatter half is lib/test/validate-frontmatter.py
+# (extracted so the suite can drive its empty-corpus / unparseable / missing-key branches against
+# a FIXTURE root — the negative fixtures below — not only observe the happy path over the real
+# repo). The two-manifest JSON parse stays a small inline check over the real repo.
+PKG_FM="$LIB/test/validate-frontmatter.py"
+PKG_FM_OUT="$(python3 "$PKG_FM" "$REPO_ROOT")"; PKG_FM_RC=$?
+[ "$PKG_FM_RC" -eq 0 ] || printf '%s\n' "$PKG_FM_OUT"   # name the failing path(s) on failure
+assert_eq "#671 packaging: every agent+skill frontmatter parses (PyYAML), naming any failing path" "0" "$PKG_FM_RC"
+PKG_MF_OUT="$(python3 - "$REPO_ROOT" <<'PYEOF'
+import sys, os, json
+root = sys.argv[1]
+bad = []
+for mf in (".claude-plugin/plugin.json", ".claude-plugin/marketplace.json"):
+    p = os.path.join(root, mf)
+    try:
+        json.load(open(p, encoding="utf-8"))
+    except Exception as e:
+        bad.append("%s (JSON error: %s)" % (p, e))
+if bad:
+    print("BAD")
+    for b in bad:
+        print("  " + b)
+    sys.exit(1)
+print("OK both manifests parse")
+PYEOF
+)"; PKG_MF_RC=$?
+[ "$PKG_MF_RC" -eq 0 ] || printf '%s\n' "$PKG_MF_OUT"
+assert_eq "#671 packaging: both manifests parse as JSON" "0" "$PKG_MF_RC"
+
+# Negative fixtures — prove the frontmatter guards FAIL CLOSED against a fixture root, not just
+# pass on the compliant real corpus (the "assert the guard fails closed, not just the happy
+# path" convention). These run the SAME helper the real gate above runs.
+# (a) empty corpus: a root with no agents/skills → exit 1 naming the empty-corpus reason.
+PKG_NEG_EMPTY="$(mktemp -d)"
+PKG_NEG_EMPTY_OUT="$(python3 "$PKG_FM" "$PKG_NEG_EMPTY")"; PKG_NEG_EMPTY_RC=$?
+assert_eq "#671 packaging: frontmatter gate fails closed on an empty corpus (exit 1)" "1" "$PKG_NEG_EMPTY_RC"
+assert_eq "#671 packaging: empty-corpus failure names the empty-corpus reason" "yes" \
+  "$(printf '%s' "$PKG_NEG_EMPTY_OUT" | grep -qF 'empty corpus' && echo yes || echo no)"
+rm -rf "$PKG_NEG_EMPTY"
+# (b) a frontmatter missing a required key (name present, description absent) → exit 1 naming it.
+PKG_NEG_KEY="$(mktemp -d)"; mkdir -p "$PKG_NEG_KEY/agents"
+printf -- '---\nname: no-desc\nmodel: sonnet\n---\n\nbody\n' > "$PKG_NEG_KEY/agents/no-desc.md"
+PKG_NEG_KEY_OUT="$(python3 "$PKG_FM" "$PKG_NEG_KEY")"; PKG_NEG_KEY_RC=$?
+assert_eq "#671 packaging: frontmatter gate fails closed on a missing required key (exit 1)" "1" "$PKG_NEG_KEY_RC"
+assert_eq "#671 packaging: missing-key failure names the missing key" "yes" \
+  "$(printf '%s' "$PKG_NEG_KEY_OUT" | grep -qF 'missing required key' && echo yes || echo no)"
+rm -rf "$PKG_NEG_KEY"
+# (c) a file carrying no frontmatter block at all → exit 1 naming that branch.
+PKG_NEG_NOFM="$(mktemp -d)"; mkdir -p "$PKG_NEG_NOFM/agents"
+printf -- 'no frontmatter here, just body text\n' > "$PKG_NEG_NOFM/agents/no-fm.md"
+PKG_NEG_NOFM_OUT="$(python3 "$PKG_FM" "$PKG_NEG_NOFM")"; PKG_NEG_NOFM_RC=$?
+assert_eq "#671 packaging: frontmatter gate fails closed on a file with no frontmatter block (exit 1)" "1" "$PKG_NEG_NOFM_RC"
+assert_eq "#671 packaging: no-frontmatter failure names the file and that branch" "yes" \
+  "$(printf '%s' "$PKG_NEG_NOFM_OUT" | grep -qF "$PKG_NEG_NOFM/agents/no-fm.md (no frontmatter block)" && echo yes || echo no)"
+rm -rf "$PKG_NEG_NOFM"
+# (d) a frontmatter block that parses but is not a mapping (a bare scalar) → exit 1 naming it.
+PKG_NEG_SEQ="$(mktemp -d)"; mkdir -p "$PKG_NEG_SEQ/agents"
+printf -- '---\njust-a-scalar\n---\n\nbody\n' > "$PKG_NEG_SEQ/agents/not-a-map.md"
+PKG_NEG_SEQ_OUT="$(python3 "$PKG_FM" "$PKG_NEG_SEQ")"; PKG_NEG_SEQ_RC=$?
+assert_eq "#671 packaging: frontmatter gate fails closed on a non-mapping frontmatter (exit 1)" "1" "$PKG_NEG_SEQ_RC"
+assert_eq "#671 packaging: non-mapping failure names the file and that branch" "yes" \
+  "$(printf '%s' "$PKG_NEG_SEQ_OUT" | grep -qF "$PKG_NEG_SEQ/agents/not-a-map.md (frontmatter is not a mapping)" && echo yes || echo no)"
+rm -rf "$PKG_NEG_SEQ"
+
+# (2) malformed-fixture assertion — the gate must REJECT an unquoted `description` scalar
+# containing ": " (a direct fixture assertion; assert_pin_red_under cannot express "this parser
+# rejects this input"). Driven THROUGH validate-frontmatter.py against a fixture root, so the
+# helper's own `except yaml.YAMLError` branch is what is exercised — an inline re-implementation
+# of the parse would prove only that PyYAML rejects the input, never that the shipped gate does.
+PKG_FIX_ROOT="$(mktemp -d)"; mkdir -p "$PKG_FIX_ROOT/agents"
+PKG_FIX="$PKG_FIX_ROOT/agents/bad-fixture.md"
+printf -- '---\nname: bad-fixture\ndescription: Uses `verification_mode: "agent"` unquoted\nmodel: sonnet\n---\n\nbody\n' > "$PKG_FIX"
+PKG_FIX_OUT="$(python3 "$PKG_FM" "$PKG_FIX_ROOT")"; PKG_FIX_RC=$?
+assert_eq "#671 packaging: malformed unquoted 'description' with \": \" fails the gate (exit 1)" "1" "$PKG_FIX_RC"
+assert_eq "#671 packaging: malformed unquoted 'description' with \": \" is rejected, naming the fixture path and the YAML-error branch" "yes" \
+  "$(printf '%s' "$PKG_FIX_OUT" | grep -qF "$PKG_FIX (YAML error:" && echo yes || echo no)"
+# Positive control on the same fixture root: with the description quoted, the SAME root passes
+# the SAME gate — so the rejection above is attributable to the unquoted scalar, not to an
+# unrelated precondition of the fixture (missing key, bad path, empty corpus).
+printf -- '---\nname: bad-fixture\ndescription: "Uses `verification_mode: \\"agent\\"` quoted"\nmodel: sonnet\n---\n\nbody\n' > "$PKG_FIX"
+PKG_FIX_CTL_OUT="$(python3 "$PKG_FM" "$PKG_FIX_ROOT")"; PKG_FIX_CTL_RC=$?
+[ "$PKG_FIX_CTL_RC" -eq 0 ] || printf '%s\n' "$PKG_FIX_CTL_OUT"
+assert_eq "#671 packaging: positive control — the same fixture root passes once the description is quoted" "0" "$PKG_FIX_CTL_RC"
+rm -rf "$PKG_FIX_ROOT"
+
+# (2b) an unreadable file must stay inside the helper's documented 0/1/3 vocabulary — a named
+# path on its own line, never a bare OSError traceback escaping as an unattributable exit 1.
+PKG_NEG_IO="$(mktemp -d)"; mkdir -p "$PKG_NEG_IO/agents"
+printf -- '---\nname: x\ndescription: y\n---\n\nbody\n' > "$PKG_NEG_IO/agents/unreadable.md"
+chmod 000 "$PKG_NEG_IO/agents/unreadable.md"
+if [ -r "$PKG_NEG_IO/agents/unreadable.md" ]; then
+  # Running as root (or on a filesystem ignoring the mode) — the condition cannot be expressed.
+  skip "#671 packaging: unreadable frontmatter file is named, not a traceback" host-capability \
+    "chmod 000 left the file readable (root or a mode-ignoring filesystem) — the unreadable-input arm cannot be expressed on this host"
+else
+  PKG_NEG_IO_OUT="$(python3 "$PKG_FM" "$PKG_NEG_IO" 2>&1)"; PKG_NEG_IO_RC=$?
+  assert_eq "#671 packaging: unreadable frontmatter file fails closed (exit 1, the helper's own code)" "1" "$PKG_NEG_IO_RC"
+  assert_eq "#671 packaging: unreadable frontmatter file is named with the cannot-read reason (no bare traceback)" "yes" \
+    "$(printf '%s' "$PKG_NEG_IO_OUT" | grep -qF "$PKG_NEG_IO/agents/unreadable.md (cannot read:" && echo yes || echo no)"
+  assert_eq "#671 packaging: unreadable-file arm emits no Python traceback" "no" \
+    "$(printf '%s' "$PKG_NEG_IO_OUT" | grep -qF 'Traceback (most recent call last)' && echo yes || echo no)"
+fi
+chmod 644 "$PKG_NEG_IO/agents/unreadable.md" 2>/dev/null || true
+rm -rf "$PKG_NEG_IO"
+
+# (2c) PyYAML-missing arm: exit 3 (a loud failure, never a silent green) with a named reason.
+# Driven by putting a stub `yaml` module that raises on import ahead of the real one.
+PKG_NOYAML="$(mktemp -d)"; mkdir -p "$PKG_NOYAML/agents" "$PKG_NOYAML/stub"
+printf -- '---\nname: x\ndescription: y\n---\n\nbody\n' > "$PKG_NOYAML/agents/a.md"
+printf -- 'raise ImportError("no module named yaml (stubbed)")\n' > "$PKG_NOYAML/stub/yaml.py"
+PKG_NOYAML_OUT="$(PYTHONPATH="$PKG_NOYAML/stub" python3 "$PKG_FM" "$PKG_NOYAML" 2>&1)"; PKG_NOYAML_RC=$?
+assert_eq "#671 packaging: PyYAML-unavailable arm exits 3 (loud, never a silent pass)" "3" "$PKG_NOYAML_RC"
+assert_eq "#671 packaging: PyYAML-unavailable arm names the missing prerequisite" "yes" \
+  "$(printf '%s' "$PKG_NOYAML_OUT" | grep -qF 'PYYAML_MISSING' && echo yes || echo no)"
+rm -rf "$PKG_NOYAML"
+
+# (2d) the canonical plugin description is carried by TWO manifests and hand-kept byte-identical;
+# pin the equality so a future single-sided edit reintroduces the drift this change closed.
+PKG_DESC_PJ="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["description"])' "$REPO_ROOT/.claude-plugin/plugin.json")"
+PKG_DESC_MK="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["plugins"][0]["description"])' "$REPO_ROOT/.claude-plugin/marketplace.json")"
+assert_eq "#671 packaging: marketplace plugins[0].description is byte-identical to plugin.json's canonical description" \
+  "$PKG_DESC_PJ" "$PKG_DESC_MK"
+assert_eq "#671 packaging: canonical plugin description is at most 160 characters" "yes" \
+  "$([ "${#PKG_DESC_PJ}" -le 160 ] && echo yes || echo no)"
+
+# (2e) COUPLED SITE — .github/workflows/version-consolidate.yml's `git add` staging list must
+# name every file scripts/consolidate-changesets.py writes. An unstaged write is silently
+# discarded by the next attempt's `git reset --hard origin/main`, so the advertised bump lands
+# dead on merge while the suite (which drives the consolidator directly) stays green. Derive the
+# write-set from the consolidator's own _write_text call sites rather than restating it here.
+PKG_VC_YML="$REPO_ROOT/.github/workflows/version-consolidate.yml"
+PKG_VC_ADD="$(grep -E '^[[:space:]]*git add ' "$PKG_VC_YML")"
+for pkg_w in .claude-plugin/plugin.json CHANGELOG.md CITATION.cff .claude-plugin/marketplace.json; do
+  assert_eq "#671 consolidator write-set is staged by version-consolidate.yml: $pkg_w" "yes" \
+    "$(printf '%s' "$PKG_VC_ADD" | grep -qF " $pkg_w" && echo yes || echo no)"
+done
+assert_pin_red_under "#671 version-consolidate stages the marketplace manifest" \
+  "git add .claude-plugin/plugin.json .claude-plugin/marketplace.json CHANGELOG.md CITATION.cff .changeset" \
+  's/ \.claude-plugin\/marketplace\.json//' "$PKG_VC_YML"
+
+# (3) full `claude plugin validate --strict` over the plugin tree. The repo root holds BOTH
+# manifests and the CLI resolves the marketplace one, so stage a temp dir holding ONLY
+# plugin.json + real copies of the component dirs (no marketplace.json beside it, no symlinks
+# leaving the tree — cp of real files, per the security-skip constraint) and validate that path.
+if command -v claude >/dev/null 2>&1; then
+  PKG_STAGE="$(mktemp -d)"
+  mkdir -p "$PKG_STAGE/.claude-plugin"
+  cp "$REPO_ROOT/.claude-plugin/plugin.json" "$PKG_STAGE/.claude-plugin/plugin.json"
+  for d in agents skills commands hooks; do
+    [ -e "$REPO_ROOT/$d" ] && cp -R "$REPO_ROOT/$d" "$PKG_STAGE/$d"
+  done
+  PKG_VAL_OUT="$(claude plugin validate --strict "$PKG_STAGE" 2>&1)"; PKG_VAL_RC=$?
+  [ "$PKG_VAL_RC" -eq 0 ] || printf '%s\n' "$PKG_VAL_OUT"
+  # Require BOTH a zero exit AND the 'Validation passed' line (the AC's expected output). The
+  # exit code is the authoritative signal — an OR fallback on the string alone would pass green
+  # on a non-zero exit whose output merely contained a per-component 'Validation passed' line.
+  assert_eq "#671 packaging: claude plugin validate --strict passes on the staged plugin tree" "yes" \
+    "$( { [ "$PKG_VAL_RC" -eq 0 ] && printf '%s' "$PKG_VAL_OUT" | grep -qF 'Validation passed'; } && echo yes || echo no)"
+  rm -rf "$PKG_STAGE"
+else
+  skip "#671 claude plugin validate --strict (plugin tree)" blocking-gate "claude CLI not on PATH — plugin-tree strict validation not run (a CI runner could install it; install the CLI to arm this gate)"
+fi
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "provision-local-settings.sh (project .claude/settings.json provisioner)"
@@ -30378,6 +30886,83 @@ assert_eq "#290 idempotent rerun: exit 0" "0" "$CS_RC"
 assert_eq "#290 idempotent rerun: version unchanged" "$CS_V1" "$(cs_ver "$CSD")"
 assert_eq "#290 idempotent rerun: CHANGELOG unchanged" "$CS_CL1" "$(cat "$CSD/CHANGELOG.md")"
 rm -rf "$CSD"
+
+# #671: CITATION.cff version tracks the manifest bump. cs_repo does NOT create a CITATION.cff
+# (so every #290/#298 test above exercises the absent-file skip path — the file is optional
+# supplementary metadata); here we add one and assert the consolidator rewrites ITS version to
+# the new value while leaving the sibling cff-version key untouched.
+CSD="$(cs_repo)"; printf -- '---\nbump: patch\n---\n\n- x (#671)\n' > "$CSD/.changeset/a.md"
+printf 'cff-version: 1.2.0\ntitle: DevFlow\nversion: 2.8.64\nkeywords:\n  - x\n' > "$CSD/CITATION.cff"
+python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-21 >/dev/null 2>&1; CS_RC=$?
+assert_eq "#671 CITATION bump: exit 0" "0" "$CS_RC"
+assert_eq "#671 CITATION bump: version rewritten to the new manifest version" "yes" \
+  "$(grep -qxF 'version: 2.8.65' "$CSD/CITATION.cff" && echo yes || echo no)"
+assert_eq "#671 CITATION bump: cff-version left untouched (only the top-level version rewritten)" "yes" \
+  "$(grep -qxF 'cff-version: 1.2.0' "$CSD/CITATION.cff" && echo yes || echo no)"
+assert_eq "#671 CITATION bump: old version string gone" "0" \
+  "$(grep -cxF 'version: 2.8.64' "$CSD/CITATION.cff")"
+rm -rf "$CSD"
+# #671: a present-but-unrewritable CITATION.cff (no top-level version line) fails closed BEFORE
+# any write — read-before-write atomicity, mirroring the manifest/changelog guarantee.
+CSD="$(cs_repo)"; printf -- '---\nbump: patch\n---\n\n- x (#671)\n' > "$CSD/.changeset/a.md"
+printf 'cff-version: 1.2.0\ntitle: DevFlow\n' > "$CSD/CITATION.cff"
+python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-21 >"$CSD/out" 2>&1; CS_RC=$?
+assert_eq "#671 CITATION no-version-line: exit 2 (fail-closed)" "2" "$CS_RC"
+assert_eq "#671 CITATION no-version-line: diagnostic names CITATION.cff" "yes" \
+  "$(grep -qF 'CITATION.cff' "$CSD/out" && echo yes || echo no)"
+assert_eq "#671 CITATION no-version-line: manifest version unchanged (no partial write)" "2.8.64" "$(cs_ver "$CSD")"
+rm -rf "$CSD"
+
+# #671: the marketplace entry's plugin version tracks the manifest bump too. cs_repo does NOT
+# create a marketplace.json (absent-file skip path), so add one and assert the consolidator
+# rewrites its plugins[0].version to the new value while leaving the marketplace-level fields
+# alone.
+CSD="$(cs_repo)"; printf -- '---\nbump: patch\n---\n\n- x (#671)\n' > "$CSD/.changeset/a.md"
+printf '{\n  "name": "devflow-marketplace",\n  "description": "mkt desc",\n  "plugins": [\n    { "name": "devflow", "source": "./", "version": "2.8.64" }\n  ]\n}\n' > "$CSD/.claude-plugin/marketplace.json"
+python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-21 >/dev/null 2>&1; CS_RC=$?
+assert_eq "#671 marketplace bump: exit 0" "0" "$CS_RC"
+assert_eq "#671 marketplace bump: plugins[0].version rewritten to the new manifest version" "2.8.65" \
+  "$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['plugins'][0]['version'])" "$CSD/.claude-plugin/marketplace.json")"
+assert_eq "#671 marketplace bump: marketplace-level description untouched" "yes" \
+  "$(grep -qF '"description": "mkt desc"' "$CSD/.claude-plugin/marketplace.json" && echo yes || echo no)"
+rm -rf "$CSD"
+# #671: the surgical single-key marketplace rewrite fails LOUD (exit 2, no write) when the
+# manifest carries more than one "version" key — a future top-level version or a second plugin
+# entry — instead of silently bumping the wrong key and shipping a half-bumped listing.
+CSD="$(cs_repo)"; printf -- '---\nbump: patch\n---\n\n- x (#671)\n' > "$CSD/.changeset/a.md"
+printf '{\n  "version": "9.9.9",\n  "plugins": [\n    { "name": "devflow", "version": "2.8.64" }\n  ]\n}\n' > "$CSD/.claude-plugin/marketplace.json"
+python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-21 >"$CSD/out" 2>&1; CS_RC=$?
+assert_eq "#671 marketplace multi-version: exit 2 (fail-closed, not a silent wrong-key bump)" "2" "$CS_RC"
+assert_eq "#671 marketplace multi-version: diagnostic names the marketplace + the count" "yes" \
+  "$(grep -qF 'marketplace.json' "$CSD/out" && grep -qF 'found 2' "$CSD/out" && echo yes || echo no)"
+assert_eq "#671 marketplace multi-version: manifest version unchanged (no partial write)" "2.8.64" "$(cs_ver "$CSD")"
+rm -rf "$CSD"
+# #671: the same guard's total==0 arm — a marketplace carrying NO "version" key is equally
+# unsafe for the surgical rewrite (nothing to bump), so it must fail loud, not no-op silently
+# past a listing that then advertises no version at all.
+CSD="$(cs_repo)"; printf -- '---\nbump: patch\n---\n\n- x (#671)\n' > "$CSD/.changeset/a.md"
+printf '{\n  "plugins": [\n    { "name": "devflow" }\n  ]\n}\n' > "$CSD/.claude-plugin/marketplace.json"
+python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-21 >"$CSD/out" 2>&1; CS_RC=$?
+assert_eq "#671 marketplace zero-version: exit 2 (fail-closed, not a silent no-op)" "2" "$CS_RC"
+assert_eq "#671 marketplace zero-version: diagnostic names the marketplace + the count" "yes" \
+  "$(grep -qF 'marketplace.json' "$CSD/out" && grep -qF 'found 0' "$CSD/out" && echo yes || echo no)"
+assert_eq "#671 marketplace zero-version: manifest version unchanged (no partial write)" "2.8.64" "$(cs_ver "$CSD")"
+rm -rf "$CSD"
+
+# #671: CITATION.cff's version must equal the manifest version at HEAD — the consolidator keeps
+# them in lockstep on merge, so a drift here means the repo shipped out of sync. Both values are
+# read LIVE (no checked-in literal), since version-consolidate bumps the manifest on merge to main.
+CIT_CFF="$FDROOT/CITATION.cff"
+CIT_PJ="$FDROOT/.claude-plugin/plugin.json"
+assert_eq "#671 CITATION.cff exists" "yes" "$([ -f "$CIT_CFF" ] && echo yes || echo no)"
+CIT_PJ_VER="$(python3 -c "import json; print(json.load(open('$CIT_PJ'))['version'])")"
+CIT_CFF_VER="$(python3 -c "import re; t=open('$CIT_CFF').read(); m=re.search(r'(?m)^version:[ \t]*(\S+)', t); print(m.group(1) if m else '')")"
+assert_eq "#671 CITATION.cff version tracks plugin.json version" "$CIT_PJ_VER" "$CIT_CFF_VER"
+# #671: the marketplace plugin entry's version must likewise equal the manifest version at HEAD
+# (the consolidator now bumps it in lockstep), read LIVE — a drift means the listing shipped
+# behind the plugin.
+CIT_MKT_VER="$(python3 -c "import json; print(json.load(open('$FDROOT/.claude-plugin/marketplace.json'))['plugins'][0]['version'])")"
+assert_eq "#671 marketplace plugins[0].version tracks plugin.json version" "$CIT_PJ_VER" "$CIT_MKT_VER"
 
 # ── #298 hardening: fail-closed OS wrapping, atomic outputs, single-source bump domain ──────
 # AC: _BUMP_RANK is DERIVED from VALID_BUMPS (single source) — the two sets stay consistent,
@@ -37442,7 +38027,7 @@ done
 assert_eq "#620 budget: maintainer note's prose root ceiling matches RAF_ROOT_CEIL ($RAF_ROOT_CEIL)" "yes" \
   "$(case "$_raf_doc_nocommas" in *"The root sits below its ${RAF_ROOT_CEIL}-word"*) echo yes;; *) echo no;; esac)"
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +6,045 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +6,051 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute
@@ -41229,6 +41814,61 @@ printf '%s\n' '# The skill must never emit ANY `>` redirect anywhere.' \
 SPR="$(spl_repo_named "$SPF" fixture.sh)"
 assert_eq "#434 R4 POSITIVE CONTROL: a COMMENT-line permit DOES contradict it (exit 1)" "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
 assert_eq "#434 R4: the comment-line permit emits the STALE R4 row" "yes" "$(spl_has "$SPR" STALE R4)"
+
+# ── #672 excluded population: machine-appended corpora are DATA, not assertions ──────
+# The regression: PR #673 replaced an operator home path with `~` inside two committed
+# `.devflow/learnings/*.jsonl` records, which re-presented each whole record as a diff-ADDED
+# line; the unlisted `.jsonl` type failed open to examine-every-line (correctly), and a prior
+# PR's counted claim quoted inside a retrospective graded STALE — a self-scan failure on a
+# diff that authored no claim. Every arm below runs the SAME fixture content at a different
+# path, so each verdict is attributable to the path predicate alone.
+spl_repo_at() {  # content_file repo_relative_path -> repo dir
+  local d; d="$(git_sandbox '#672 spl corpus repo')"
+  git -C "$d" init -q >/dev/null 2>&1
+  mkdir -p "$d/$(dirname "$2")"
+  cp "$1" "$d/$2"
+  git -C "$d" -c user.email=t@t -c user.name=t add "$2" >/dev/null 2>&1
+  git -C "$d" -c user.email=t@t -c user.name=t commit -qm c1 >/dev/null 2>&1
+  printf '%s\n' "$d"
+}
+spl_stderr_base() {  # repo_dir base_rev -> the lint's stderr
+  ( cd "$1" 2>/dev/null || exit
+    git diff "$2" HEAD 2>/dev/null | python3 "$SPL" --rev HEAD 2>&1 >/dev/null )
+}
+# The fixture is the real shape: a counted claim quoted inside a JSON record, whose referent
+# the record itself outgrows. It is genuinely STALE as prose — which is the point.
+SPF="$(probe_tmp '#672 corpus record')"
+printf '%s\n' '{"pr":383,"note":"# Cases 19-32 are exercised below"}' \
+              '{"pr":384,"note":"Case 37 delta"}' > "$SPF"
+# POSITIVE CONTROL FIRST: at a non-excluded path the identical content still gates, so a
+# clean excluded arm can never be an artifact of the fixture failing to be stale at all.
+SPR="$(spl_repo_at "$SPF" notes/records.jsonl)"
+assert_eq "#672 POSITIVE CONTROL: the same corpus record OUTSIDE the excluded prefixes still gates (exit 1)" \
+  "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+assert_eq "#672 positive control emits the STALE R1 row" "yes" "$(spl_has "$SPR" STALE R1)"
+# The two excluded prefixes.
+SPR="$(spl_repo_at "$SPF" .devflow/learnings/retrospectives.jsonl)"
+assert_eq "#672 a .devflow/learnings/ record is not examined (exit 0)" "0" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+assert_eq "#672 the excluded learnings path emits NO row of ANY verdict" "" \
+  "$( ( cd "$SPR" && git diff "$SP_EMPTY_TREE" HEAD 2>/dev/null | python3 "$SPL" --rev HEAD 2>/dev/null ) )"
+assert_eq "#672 the intended coverage drop is DISCOVERABLE: stderr names the excluded path" "yes" \
+  "$(spl_stderr_base "$SPR" "$SP_EMPTY_TREE" | grep -qF 'machine-appended corpus, issue #672): .devflow/learnings/retrospectives.jsonl' && echo yes || echo no)"
+SPR="$(spl_repo_at "$SPF" .devflow/logs/run.jsonl)"
+assert_eq "#672 a .devflow/logs/ record is not examined (exit 0)" "0" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+# Boundary in the OTHER direction — the exclusion must stay narrow. `CHANGELOG.md` and
+# `.changeset/` are human-authored prose about the current change, the surface this lint
+# exists to grade; a later over-broad prefix that swallowed them turns these RED.
+SPF="$(probe_tmp '#672 human prose')"
+printf '%s\n' '# Cases 19-32 are exercised below' 'Case 37 delta' > "$SPF"
+SPR="$(spl_repo_at "$SPF" CHANGELOG.md)"
+assert_eq "#672 CHANGELOG.md is deliberately NOT excluded (still gates, exit 1)" "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+SPR="$(spl_repo_at "$SPF" .changeset/some-change.md)"
+assert_eq "#672 .changeset/ is deliberately NOT excluded (still gates, exit 1)" "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+# A path merely CONTAINING an excluded segment further down is not excluded — the predicate
+# is a repo-root-anchored prefix, not a substring.
+SPR="$(spl_repo_at "$SPF" vendor/.devflow/learnings/notes.md)"
+assert_eq "#672 the predicate is a root-anchored PREFIX, not a substring match (still gates, exit 1)" \
+  "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
 
 # The lint is CLEAN against its OWN branch diff — the whole point of #434, and the assertion
 # that stops the fixture corpus from silently re-accumulating false positives.
@@ -47560,11 +48200,15 @@ D533="$(mktemp -d)"
 mkdir -p "$D533/bin" "$D533/rtmp" "$D533/emptybin"
 printf '#!/usr/bin/env bash\necho "REALGH_CALLED $*"\n' > "$D533/bin/gh"; chmod +x "$D533/bin/gh"
 : > "$D533/ghenv"; : > "$D533/ghpath"
+# The success fixture env, held in ONE place so every runner below (_i533 and the
+# #690 stderr-only sibling _i690) shares it. A new installer env seam is added
+# here once, rather than in two blocks ~120 lines apart where the second would
+# silently keep running against a stale environment and still pass.
+_ENV533=(PATH="$D533/bin:$PATH" DEVFLOW_GH_SOURCE_SH="$LIB/../scripts/gh-fresh.sh"
+         APP_TOKEN=FIXTURE_TOKEN_533 RUNNER_TEMP="$D533/rtmp" GITHUB_ENV="$D533/ghenv" GITHUB_PATH="$D533/ghpath"
+         DEVFLOW_GH_WRAPDIR="$D533/wrapdir" DEVFLOW_GH_FINGERPRINT_FILE="$D533/rtmp/devflow-gh-fingerprint")
 _i533() {  # run the installer with the success fixture env, overriding via "$@"
-  env PATH="$D533/bin:$PATH" DEVFLOW_GH_SOURCE_SH="$LIB/../scripts/gh-fresh.sh" \
-      APP_TOKEN=FIXTURE_TOKEN_533 RUNNER_TEMP="$D533/rtmp" GITHUB_ENV="$D533/ghenv" GITHUB_PATH="$D533/ghpath" \
-      DEVFLOW_GH_WRAPDIR="$D533/wrapdir" DEVFLOW_GH_FINGERPRINT_FILE="$D533/rtmp/devflow-gh-fingerprint" \
-      "$@" bash "$INSTALL533" 2>&1
+  env "${_ENV533[@]}" "$@" bash "$INSTALL533" 2>&1
 }
 # output 1: no executable real gh (gh-less PATH).
 _o533_1="$(env APP_TOKEN=t GITHUB_ENV="$D533/ghenv" GITHUB_PATH="$D533/ghpath" \
@@ -47649,6 +48293,132 @@ assert_eq "#533 AC14: fingerprint content is the python3-hashlib sha256 of APP_T
   "$(cat "$D533/rtmp/devflow-gh-fingerprint")"
 assert_eq "#533 AC14: fingerprint file is mode 0600" "600" \
   "$(python3 -c 'import os,sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777)[2:])' "$D533/rtmp/devflow-gh-fingerprint")"
+
+# --- #690: output 5/7's fingerprint-mode gate is platform-aware --------------
+# The shipped gate compared the mode to the literal 600 unconditionally, which a
+# native-Windows python3 can never satisfy (st_mode's permission bits are
+# synthesized from FILE_ATTRIBUTE_READONLY alone), so every Windows writer-tier
+# run aborted at output 5/7 before the agent started. These assertions extend
+# the #533 block and reuse its $D533 fixture rather than standing up a parallel
+# one for the same script and the same output.
+#
+# The breadcrumb assertions run through _i690, a STDERR-ONLY capture sibling of
+# _i533: _i533 ends 2>&1 and merges stderr into stdout, so through it an
+# implementer emitting the breadcrumb to stdout would ship green, leaving the
+# stream half of the criterion unasserted.
+_py690="$(command -v python3)"
+mkdir -p "$D533/py690"
+_stub690() {  # $1 = the exact line the stubbed python3 prints for the os.name+mode probe
+  printf '#!/usr/bin/env bash\ncase "$2" in *os.name*) printf "%%s\\n" "%s"; exit 0;; esac\nexec %s "$@"\n' \
+    "$1" "$_py690" > "$D533/py690/python3"
+  chmod +x "$D533/py690/python3"
+}
+_i690() {  # stdout discarded, stderr captured; $1 (optional) overrides the installer path
+  rm -f "$D533/rtmp/devflow-gh-fingerprint"; : > "$D533/ghenv"; : > "$D533/ghpath"
+  # Reuses _ENV533 (the shared fixture env), prepending the stubbed python3 to
+  # PATH and giving these cases their own wrapper dir. It cannot simply call
+  # _i533: that helper ends `2>&1`, merging stderr into stdout INSIDE the
+  # function, so no outer redirection could recover a stderr-only capture.
+  env "${_ENV533[@]}" PATH="$D533/py690:$D533/bin:$PATH" DEVFLOW_GH_WRAPDIR="$D533/wrapdir690" \
+      bash "${1:-$INSTALL533}" 2>&1 1>/dev/null
+}
+# Passing cases. posix+600 is the unchanged POSIX behavior; nt+666 and nt+444 are
+# the two reachable Windows values, each additionally asserting the stderr
+# breadcrumb and that the installer proceeded to outputs 6 and 7; the
+# unrecognized token passes on the mode VALUE alone, never on the token.
+_stub690 'posix 600'; _e690_p6="$(_i690)"; _rc690_p6=$?
+assert_eq "#690: stubbed 'posix 600' passes output 5/7 (rc 0) and emits NO could-not-establish breadcrumb" "0 no" \
+  "$_rc690_p6 $(printf '%s' "$_e690_p6" | grep -qF 'owner-only' && echo yes || echo no)"
+_fp690_want="$(printf '%s' FIXTURE_TOKEN_533 | python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())')"
+for _m690 in 666 444; do
+  _stub690 "nt $_m690"; _e690_nt="$(_i690)"; _rc690_nt=$?
+  assert_eq "#690: stubbed 'nt $_m690' passes output 5/7 (rc 0) and still writes GITHUB_ENV (output 6) and GITHUB_PATH (output 7)" "0 1 1" \
+    "$_rc690_nt $(grep -cF "DEVFLOW_GH_REAL=$D533/bin/gh" "$D533/ghenv") $(grep -cF "$D533/wrapdir690" "$D533/ghpath")"
+  # Relaxing the MODE gate must not relax the WRITE: a regression that skipped or
+  # short-circuited the fingerprint write on this arm would otherwise stay green
+  # on the rc/GITHUB_ENV assertions alone (the #533 AC14 content assertion runs
+  # only on the strict posix path, against a different wrapdir).
+  assert_eq "#690: stubbed 'nt $_m690' still leaves the correct python3-hashlib sha256 fingerprint on disk" "$_fp690_want" \
+    "$(cat "$D533/rtmp/devflow-gh-fingerprint" 2>/dev/null)"
+  # The breadcrumb: install-gh-wrapper:-prefixed, on STDERR, naming the observed
+  # mode value and stating that access is left to the filesystem's ACLs, which
+  # this script neither sets nor verifies.
+  assert_eq "#690: stubbed 'nt $_m690' writes the install-gh-wrapper: could-not-establish breadcrumb to STDERR, naming mode $_m690 and the ACL caveat" "yes" \
+    "$(printf '%s' "$_e690_nt" | grep -qF 'install-gh-wrapper: the owner-only (0600) mode guarantee could not be established' \
+       && printf '%s' "$_e690_nt" | grep -qF "observed (platform-synthesized) mode $_m690" \
+       && printf '%s' "$_e690_nt" | grep -qF 'which this script neither sets nor verifies' \
+       && echo yes || echo no)"
+  # A plain stderr line gets no Actions run-summary annotation, and an unestablished
+  # security guarantee is exactly what a reader must not have to grep the raw log for.
+  # Under GITHUB_ACTIONS the arm emits an additional ::warning:: annotation; off
+  # Actions it emits ONLY the bare-prefixed detail line, so a local run stays clean.
+  #
+  # BOTH operands set GITHUB_ACTIONS explicitly — the negative one by UNSETTING it in
+  # a subshell, never by reusing an ambient-env capture like $_e690_nt. `_i690` runs
+  # `env "${_ENV533[@]}"`, which inherits the ambient environment, and the required
+  # `lib + python tests` CI job runs with GITHUB_ACTIONS=true: an ambient-env capture
+  # would take the annotation branch there and turn this row RED on CI alone, while
+  # passing at a desk where the variable is unset. Pinning both states makes the row
+  # environment-independent.
+  assert_eq "#690: the relaxed arm emits a ::warning:: annotation under GITHUB_ACTIONS, and none when it is unset" "yes no" \
+    "$(printf '%s' "$(GITHUB_ACTIONS=true _i690)" | grep -qF '::warning::install-gh-wrapper:' && echo yes || echo no) $(printf '%s' "$(unset GITHUB_ACTIONS; _i690)" | grep -qF '::warning::' && echo yes || echo no)"
+done
+# The `nt` token with a real 600 must take the FIRST arm (mode value) and emit no
+# breadcrumb. Without this row nothing pins the arm ORDER: reordering the `if` so
+# the nt test precedes the `600` equality would make an nt host that genuinely
+# produced 600 emit a false could-not-be-established line, and every other row
+# would stay green.
+_stub690 'nt 600'; _e690_n6="$(_i690)"; _rc690_n6=$?
+assert_eq "#690: stubbed 'nt 600' passes on the mode value via the FIRST arm (rc 0), emitting no could-not-establish breadcrumb (pins arm order)" "0 no" \
+  "$_rc690_n6 $(printf '%s' "$_e690_n6" | grep -qF 'owner-only' && echo yes || echo no)"
+_stub690 'zz 600'; _e690_u6="$(_i690)"; _rc690_u6=$?
+assert_eq "#690: an unrecognized platform token with mode 600 passes on the mode value alone (rc 0), emitting no breadcrumb" "0 no" \
+  "$_rc690_u6 $(printf '%s' "$_e690_u6" | grep -qF 'owner-only' && echo yes || echo no)"
+# Failing cases — the closed set, enumerated per platform-token class because the
+# nt class has no octal-and-failing member by construction (under nt every octal
+# mode passes). Every one exits 1 naming the (fingerprint-mode) slug, so the
+# relaxed arm can never be reached by an absent token, an absent mode field, a
+# value the producer could not have emitted, or a three-field capture.
+for _c690 in 'posix 644' 'posix banana' 'posix' \
+             'nt banana' 'nt' 'nt 666 x' \
+             'zz 644' 'zz banana' 'zz' \
+             ''; do
+  _stub690 "$_c690"; _e690_f="$(_i690)"; _rc690_f=$?
+  assert_eq "#690: stubbed capture '$_c690' keeps the strict comparison — rc 1 naming (fingerprint-mode)" "1 yes" \
+    "$_rc690_f $(printf '%s' "$_e690_f" | grep -qF 'output 5/7 FAILED' && printf '%s' "$_e690_f" | grep -qF '(fingerprint-mode)' && echo yes || echo no)"
+done
+# Pinned so no execution path can attribute the token and the mode to two
+# different interpreters (a second os.stat could observe a different file state).
+assert_eq "#690: the platform token and the mode are read by a single python3 invocation from a single os.stat" "1" \
+  "$(grep -cF "python3 -c 'import os,sys; print(os.name, oct(os.stat(sys.argv[1]).st_mode & 0o777)[2:])'" "$INSTALL533")"
+# The relaxed arm is an ALLOWLIST equality against the literal nt. A negated test
+# against posix would admit the empty token an unreadable os.stat leaves behind,
+# turning the fail-closed unreadable-mode arm into a silent pass on every platform.
+assert_eq "#690: the relaxed arm tests equality against the literal nt, never a negation against posix" "1 0" \
+  "$(grep -cF '[ "$_fpos" = "nt" ]' "$INSTALL533") $(grep -cF '[ "$_fpos" != "posix" ]' "$INSTALL533")"
+# No mode-setting chmod is introduced anywhere: the umask 077 stays the sole
+# producer of the fingerprint file's mode, which is what keeps the AC22 mutation
+# proof below meaningful (a chmod would repair the mutated copy and turn that
+# proof green). Asserted over EVERY non-comment chmod in the file rather than
+# only those naming FINGERPRINT on the same line — a `chmod 600 "$f"` reached
+# through an intermediate assignment, or placed on a following line, defeats the
+# umask proof just as completely and a FINGERPRINT-on-the-same-line grep cannot
+# see it. The installer's only legitimate chmod is the `+x` on the copied
+# wrapper (output 4/7), so the mode-setting count must be exactly zero.
+assert_eq "#690: install-gh-wrapper.sh contains no mode-setting chmod at all (only the wrapper's chmod +x)" "0" \
+  "$(grep -vE '^[[:space:]]*#' "$INSTALL533" | grep 'chmod' | grep -vc 'chmod +x')"
+# Behavioral mutation proof (issue #690). assert_pin_red_under cannot express this:
+# it seds a copy and re-greps a literal, never EXECUTING the mutated file, so it
+# cannot observe a behavioral case change verdict. Mirroring the #533 AC22
+# mutated-installer block instead — mutate the nt disjunct out of a copy, RUN it
+# under the stubbed-nt fixture, and observe the reported bug reappear.
+_t690m="$(probe_tmp '#690 mutated-installer setup')"
+sed -E 's/\[ "\$_fpos" = "nt" \]/[ "$_fpos" = "IMPOSSIBLE" ]/' "$INSTALL533" > "$_t690m"
+_stub690 'nt 666'; _e690_m="$(_i690 "$_t690m")"; _rc690_m=$?
+assert_eq "#690: mutating the nt disjunct out of an installer copy re-introduces the reported bug — rc 1 naming (fingerprint-mode) under a stubbed 'nt 666'" "1 yes" \
+  "$_rc690_m $(printf '%s' "$_e690_m" | grep -qF '(fingerprint-mode)' && echo yes || echo no)"
+rm -f "$_t690m"
+rm -rf "$D533/py690"
 
 # AC14 — the DEFAULT wrapper-source resolution (output 2's vendored-or-repo
 # chain) is the branch PRODUCTION takes: neither workflow passes
@@ -50279,7 +51049,7 @@ assert_pin_unique "#551 manifest states the mandatory-vs-reference classificatio
 assert_eq "#551 direct census grant appears in both writable cloud config profiles" "2" \
   "$(grep -cF 'Bash(lib/test/prompt-mass-census.py:*)' "$LIB/../.devflow/config.json")"
 assert_eq "#551 only one committed prompt-mass baseline exists" "1" \
-  "$(python3 -c 'from pathlib import Path; import sys; print(sum(1 for p in Path(sys.argv[1]).rglob("prompt-mass-baseline.json") if p.is_file()))' "$LIB/..")"
+  "$(python3 -c 'from pathlib import Path; import sys; print(sum(1 for p in Path(sys.argv[1]).rglob("prompt-mass-baseline.json") if p.is_file() and ".devflow/vendor/" not in p.as_posix()))' "$LIB/..")"
 assert_pin_unique "#551 baseline is a per-file mirror with no committed totals key" \
   '"files": {' "$PMC_BASELINE"
 assert_eq "#551 baseline carries no group-total rows" "0" \

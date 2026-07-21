@@ -103,7 +103,11 @@ jobs:
               echo "No pending changesets consolidated — nothing to commit."
               exit 0
             fi
-            git add .claude-plugin/plugin.json CHANGELOG.md .changeset
+            # Coupled site of scripts/consolidate-changesets.py's write-set: every file the
+            # consolidator writes must be staged here, or its edit is silently discarded by the
+            # next attempt's `git reset --hard origin/main`. Deliberately explicit (never
+            # `git add -A`). lib/test/run.sh pins this list against the consolidator's writes.
+            git add .claude-plugin/plugin.json .claude-plugin/marketplace.json CHANGELOG.md CITATION.cff .changeset
             git commit -m "chore: bump version (consolidate changesets)"
             if git push origin HEAD:main; then
               echo "Pushed version bump on attempt $attempt."

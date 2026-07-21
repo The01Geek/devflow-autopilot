@@ -336,6 +336,44 @@ registered runner's labels, GitHub does not raise an error — the job sits
 **queued indefinitely** with no failure. Match the label set exactly to a
 registered runner.
 
+### Windows: POSIX mode bits do not constrain the credential files
+
+**Resolved (issue #690).** With a GitHub App configured, both writer tiers run
+`scripts/install-gh-wrapper.sh`, whose output 5/7 used to assert that the token
+**fingerprint** file's POSIX mode was exactly `600`. On a native-Windows `python3`
+(`os.name == 'nt'`) `os.stat()` synthesizes the permission bits from the
+`FILE_ATTRIBUTE_READONLY` bit alone, so a writable file reports `666` and `600` is
+simply not reachable — the assertion failed on every run and the `claude` job aborted
+at that step, *before the agent started*. The gate is now platform-aware: on a
+`posix` platform token it behaves exactly as before (`600` passes, anything else exits
+1 naming `fingerprint-mode`), and on an `nt` token the mode value stops being a
+failure condition and the installer writes an `install-gh-wrapper:` stderr line
+recording that the owner-only guarantee could not be established. No `chmod` is
+involved — Windows honors only the read-only flag, so `os.chmod` could not repair it.
+
+The relaxation is scoped to the **interpreter build**: only a native Windows CPython
+(python.org, `mingw-w64-*-python`) reports `nt`. The Cygwin-derived `msys/python`
+build reports `posix` and keeps the strict comparison, as does any Linux host whose
+`RUNNER_TEMP` sits on a filesystem that does not honor mode bits (WSL DrvFs without
+`metadata`, CIFS/SMB, exFAT/FAT) — such hosts keep failing the gate deliberately,
+because relaxing on a `posix` token would disable the guarantee on real POSIX runners.
+
+**The weakened guarantee is real, and accepted rather than fixed here.** On Windows,
+mode `666` grants **write** as well as read to every local principal, and the same is
+true of the sibling credential file `scripts/refresh-app-credentials.sh` writes (whose
+`umask 077` and `chmod 600` are equally ineffective there) — that file carries the
+App token itself rather than a hash, so the exposure is strictly worse. A local
+principal able to rewrite the fingerprint file can force every wrapped `gh` call down
+the defer arm, costing the run the refresher's purpose once the job outlives the
+token's 60-minute lifetime. Both exposures pre-date this change; it extends their
+duration to the length of the run rather than creating them, on the basis that a
+self-hosted runner is single-tenant by its own trust model. Narrowing them is tracked
+separately.
+
+Clearing this blocker does **not** by itself make the tier usable — see the
+`setup.git_dir_pin` / `setup.git_work_tree_pin` table above for the next expected
+blocker, and note that `git_dir_pin` is not honored on the implement tier.
+
 ### Dispatch-enabled, not certified — run a smoke test first
 
 Setting `DEVFLOW_RUNNER` makes a self-hosted / Windows runner **selectable** and
@@ -438,6 +476,62 @@ restore the default-token behavior. The read-only review run has the same fail-l
 contract, but under its own `DEVFLOW_REVIEWER_APP_ID` (unset *that* to restore the
 review run's default token) — see the DevFlow-Reviewer section below.
 
+## Attributing commits to the triggering user (`devflow.attribute_commits_to_triggerer`)
+
+By default, the git commits a cloud-tier **writer** run produces
+(`/devflow:implement`'s `claude` job and `/devflow:review-and-fix`'s `command` job)
+are authored by whatever git resolves from the runner's unconfigured `.git/config` —
+*not* the human who triggered the run. Local runs already carry the triggering
+developer's identity; only cloud-tier runs do not. If your reviewers and auditors read
+`git blame`/history to see *which human owns a change*, that provenance is lost on every
+cloud run.
+
+Set the opt-in boolean key to close that gap:
+
+```jsonc
+// .devflow/config.json
+{
+  "devflow": {
+    "attribute_commits_to_triggerer": true   // default: false
+  }
+}
+```
+
+When enabled, each cloud-tier writer run resolves the triggering user
+(`github.event.sender.login`) to a GitHub commit identity and exports
+`GIT_AUTHOR_NAME`/`GIT_AUTHOR_EMAIL`/`GIT_COMMITTER_NAME`/`GIT_COMMITTER_EMAIL` into the
+job environment before the agent runs, so the agent's commits carry the triggering human
+as both author and committer (name = the account's display name, or the login when it has
+none; email = the canonical `<id>+<login>@users.noreply.github.com`).
+
+Key properties:
+
+- **Default-off, byte-for-byte unchanged when off.** With the key absent or `false`, the
+  resolution step exports **no** `GIT_*` variable and commits are authored exactly as
+  today.
+- **Post-merge-only.** The flag is read at *trigger* time from a **trusted default-branch
+  checkout** (never the PR head), so a value present only in a PR head has no effect on
+  that PR's own run — it takes effect only after it merges to the default branch. This is
+  the same trigger-time trusted-tree read the git-env pins use, and it is deliberate: a PR
+  must not be able to set its own commit attribution.
+- **Humans only, fail-safe.** Identity is emitted only for a GitHub account whose
+  `.type == "User"` and whose login does not carry the `[bot]` suffix. Any other account
+  type, a `[bot]` login, an empty login, or a type that cannot be established falls back to
+  current authorship with a `::warning::` — never a mis-attributed bot commit. If the
+  `gh api users/<login>` lookup itself fails (network/rate-limit), the run still preserves
+  human attribution via a login-only email (`<login>@users.noreply.github.com`).
+- **No new credential.** Commit author/committer is git metadata, independent of the push
+  token — the push still authenticates as the App/`github-actions[bot]` identity, so
+  nothing new is required. (The resolution step does authenticate its `gh api users/…`
+  lookup with the run's existing token; no extra secret.)
+- **Fail-open, never gates the run.** Attribution is advisory: a missing helper (during a
+  workflow-vs-vendor version skew), an unreadable config, or any lookup failure emits a
+  notice/warning and continues under current authorship — it never fails the job.
+- **Scope.** The two writer tiers only. The read-only review tier (`devflow-runner.yml`)
+  never commits, so it is unaffected. Posting the review *as* the human and the PR
+  "opened-by" identity are out of scope — they require a per-user credential (tracked
+  separately).
+
 ## Startup-lifecycle observability & consumer version skew (issue #537)
 
 The `/devflow:implement` startup lifecycle (see `docs/workflow-triggers.md` and
@@ -491,7 +585,11 @@ installation token and rewrites the two repo-controlled credential surfaces in p
    `git push` authenticates with (it *rewrites* that credential of record — it never
    replaces the push mechanism), and
 2. a mode-0600 token file that the agent-side `gh` wrapper (`scripts/gh-fresh.sh`)
-   reads at call time. The wrapper is installed by the checked-in, seven-output-validated
+   reads at call time — **mode-0600 only where POSIX mode bits apply; on Windows they
+   constrain neither this token file nor the wrapper installer's sibling fingerprint
+   file, so both are left to whatever the filesystem's ACLs provide** (see
+   [Windows: POSIX mode bits do not constrain the credential files](#windows-posix-mode-bits-do-not-constrain-the-credential-files)).
+   The wrapper is installed by the checked-in, seven-output-validated
    `scripts/install-gh-wrapper.sh` (issue #533) ahead of the real `gh` on `PATH`, so
    direct `gh` calls and DevFlow's own resolver-routed gh-callers (whose PATH probe
    finds the wrapper when `DEVFLOW_GH` is unset) resolve the fresh token. The install

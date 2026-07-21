@@ -38,19 +38,19 @@ DevFlow declares **zero companion-plugin dependencies** — every external asset
 
 ### The step people miss: PyYAML
 
-`/plugin install` resolves companion *plugins* only — it **never runs `pip`**. DevFlow's shell helpers need **PyYAML**, so install it yourself:
+`/plugin install` resolves companion *plugins* only — it **never runs `pip`**. DevFlow's shell helpers need **PyYAML**, so install it yourself (a plugin-cache install has no `requirements.txt` to point `pip` at):
 
 ```bash
-python3 -m pip install -r requirements.txt
+python3 -m pip install PyYAML
 ```
 
-(The cloud-tier `install.sh` handles PyYAML for you.) See [Requirements](../README.md#requirements) for the full PATH checklist; `bash lib/preflight.sh` verifies everything.
+(The cloud-tier `install.sh` handles PyYAML for you.) See [Requirements](../README.md#requirements) for the full PATH checklist; in a checkout of this repo, `bash lib/preflight.sh` verifies everything.
 
 ### Windows: resolving `python3`
 
 A stock Windows Python install (python.org / `winget install python`) exposes Python on PATH as `python` and the `py -3` launcher — there is **no `python3`**. Because DevFlow's helpers, the agent-typed `python3 <path>` convention, and the cloud `Bash(python3:*)` allowlist all invoke the literal `python3`, the toolchain otherwise fails with `python3: command not found` even with a perfectly good Python 3.11+ installed.
 
-When `python3` is absent but a `>=3.11` Python is reachable as `python` or `py -3`, run the consent-gated provisioner once to install a small `python3` shim onto the first writable directory already on your PATH (falling back to Git-Bash's `~/bin`, with a PATH note, if none is writable):
+When `python3` is absent but a `>=3.11` Python is reachable as `python` or `py -3`, run the consent-gated provisioner once — from a checkout of this repo — to install a small `python3` shim onto the first writable directory already on your PATH (falling back to Git-Bash's `~/bin`, with a PATH note, if none is writable):
 
 ```bash
 bash scripts/provision-python3-shim.sh --apply
@@ -133,6 +133,14 @@ For autonomous GitHub Actions automation, run this from your repo root — the s
 curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/main/install.sh | bash
 ```
 
+**Prefer to read the script before running it?** It writes into your repository — the workflows and composite actions under `.github/`, a local `marketplace.json`, and `.devflow/` templates (config scaffold, schema, ignore file) — so those changes land in version control. Download it, read it, then run the downloaded file:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/main/install.sh -o devflow-install.sh
+# review devflow-install.sh, then:
+bash devflow-install.sh
+```
+
 See **[`cloud-setup.md`](cloud-setup.md)** for secrets, triggers, and the full guide — including the optional primary DevFlow App (workflow-file pushes + one identity for user-visible posts) and the separate **DevFlow-Reviewer** App that gives the review agent a non-author identity so its formal `--request-changes`/`--approve` is not a forbidden self-review.
 
 **Thin by default.** `install.sh` does **not** commit the plugin tree to your repo — it installs the workflows, composite actions, a local `marketplace.json`, and a `.devflow/config.json` scaffold, and pins a `devflow_version` (the commit it installed from). At runtime the workflows materialize the plugin into `.devflow/vendor/devflow/` via the `vendor-plugin` composite action, so there's no bulky vendored diff to carry. Pass `DEVFLOW_VENDOR=1` to commit the tree instead (self-hosting; `devflow_version` is then ignored).
@@ -151,6 +159,8 @@ Each workflow also forces `bash` for its `run:` steps, so a self-hosted Windows 
 **Windows: pre-install Claude Code and set `setup.claude_code_executable`.** `anthropics/claude-code-action@v1` bundles a **Unix-only** installer, so on a self-hosted Windows runner it aborts before Claude starts (`Windows is not supported by this script`) and every `/devflow:*` cloud job fails. Pre-install the CLI on the runner (`irm https://claude.ai/install.ps1 | iex`) and set the optional `.devflow/config.json` key `setup.claude_code_executable` to the resulting `claude.exe` path; all three workflows forward it to the action's `path_to_claude_code_executable` input, which skips installation and uses that executable. Unset/empty (the default) leaves the Linux auto-install path unchanged. Because this key is resolved at **trigger time** (from the default/base branch), its effect is **post-merge-only** — a PR that adds it cannot exercise it in that PR's own run. Full walkthrough in [`cloud-setup.md`](cloud-setup.md#windows-point-the-action-at-a-pre-installed-claude-code-setupclaude_code_executable).
 
 **Windows: the two opt-in git-env pins (`setup.git_dir_pin`, `setup.git_work_tree_pin`).** Two independent boolean keys, **both defaulting to `false`**, govern whether DevFlow exports `GIT_DIR: <workspace>/.git` and `GIT_WORK_TREE: <workspace>` into the cloud job environment before the `Run Claude Code` (`anthropics/claude-code-action@v1`) step. With both off — the default — neither variable is set and the tiers behave as they did before the pins existed; that default is the configuration that works everywhere. Enabling `git_dir_pin` makes the action's `configureGitAuth` git-identity setup resolve `.git` independent of the inherited working directory, which a self-hosted Windows runner needs (otherwise it aborts `fatal: not in a git directory`, exit 128, before the agent runs) — but ambient `GIT_DIR` also makes DevFlow's repo-root readers resolve a `.devflow/` that does not exist whenever a helper runs from a non-root working directory, and that failure is a **silent miss** rather than an error, so such a run is not config-faithful. `git_dir_pin` is **not honored on the implement tier**, which stages and pushes commits. Enabling `git_work_tree_pin` **breaks remote plugin-marketplace installs** (`fatal: working tree '<path>' already exists.`) and is safe only if your composed marketplace list is local-only. The `configureGitAuth` benefit is inferred from the action's upstream source, **not observed on a self-hosted Windows runner**. Both keys are resolved at **trigger time** from a trusted tree, so their effect is **post-merge-only**. Note the two-channel upgrade ordering: the workflows ship via `install.sh`'s file-copy while the resolving helper ships via the `devflow_version` vendor fetch, so re-running `install.sh` without advancing `devflow_version` gives you the step without the helper — which is safe, because an absent helper makes the step emit nothing and exit 0 (fail-open to the working default). Full per-combination cost table in [`cloud-setup.md`](cloud-setup.md).
+
+**Windows: the `gh`-wrapper fingerprint-mode gate (resolved, issue #690).** With a GitHub App configured (`DEVFLOW_APP_ID` set), both writer tiers run `scripts/install-gh-wrapper.sh`, whose output 5/7 used to require the token fingerprint file's POSIX mode to be exactly `600`. A native-Windows `python3` (`os.name == 'nt'`) synthesizes `st_mode`'s permission bits from the `FILE_ATTRIBUTE_READONLY` bit alone, so `600` is unreachable there and the step failed on **every** run, aborting the `claude` job before the agent started. The gate is now platform-aware: `posix` hosts are unchanged, and on an `nt` host the mode stops being a failure condition and the installer records on stderr that the owner-only guarantee could not be established, leaving access to the filesystem's ACLs. Only a **native** Windows CPython (python.org, `mingw-w64-*-python`) reports `nt`; the Cygwin-derived `msys/python` build reports `posix` and keeps the strict gate. Consistent with the "dispatch-enabled, not certified" posture above, clearing this blocker does not by itself certify the tier — run the smoke test. This ships through the `devflow_version` vendor fetch alone (no workflow file changes), so on a **thin** install re-running `install.sh` delivers nothing; on a **committed-vendor** install (`DEVFLOW_VENDOR=1`) re-running it from an updated checkout does deliver the fixed script. Full detail in [`cloud-setup.md`](cloud-setup.md#windows-posix-mode-bits-do-not-constrain-the-credential-files).
 
 ## Updating
 
