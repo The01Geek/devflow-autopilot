@@ -10805,7 +10805,7 @@ assert_pin_red_under "#478 AC10 step-4.5 clause: the recorded grade tallies unde
 # '## Devflow Reflection' line stripped (including its mapping-table row) while the marker stays in
 # the sweep bodies → RED.
 P478_MARKERS=( 'workpad.py' '$ISSUE_NUMBER' 'Phase 3.4' 'Phase 4.1' '(post-merge)' '--rewrite-ac' '## Devflow Reflection' 'lib/test/run.sh' 'CLAUDE.md' )
-P478_DESTINATIONS=( "The loop's own evidence sink" "The loop's own evidence sink" 'An item-5 pushback/advisory record' 'Fix-now, or record through' 'An item-5 pushback/advisory record' 'An item-5 pushback/advisory record' "The loop's evidence sink" 'No equivalent backstop exists' "The repo's stated conventions" )
+P478_DESTINATIONS=( "The loop's own evidence sink" "The loop's own evidence sink" 'An item-5 pushback/advisory record' 'Fix-now, or record through' 'An item-5 pushback/advisory record' 'An item-5 pushback/advisory record' "The loop's evidence sink" 'Run the project-specific check that carries the obligation' "The repo's stated conventions" )
 p478_sweep_bodies() {
   awk '
     /^\*\*Sweep selection \(run first\)\.\*\*/ { starts++; f=1; next }
@@ -10866,7 +10866,7 @@ assert_eq "#478 AC5 routing lint RED: deleting a mapping-table row while its mar
 rm -f "$P478_MUT"
 # Destination-only RED arm: retaining the marker while blanking its mapped destination must fail.
 P478_MUT_DEST="$(probe_tmp '#478 AC5 routing lint destination RED-arm setup')"
-sed 's#| No equivalent backstop exists — the hand-run obligation is the sole discharge (never "the project'"'"'s test suite", which does not carry DevFlow'"'"'s desk lints).#| # ' "$MAXI_SKILL" > "$P478_MUT_DEST"
+sed 's#| Run the project-specific check that carries the obligation to discharge it — a consumer runs its own equivalent project-specific check, never a broader suite that does not carry the obligation.#| # ' "$MAXI_SKILL" > "$P478_MUT_DEST"
 assert_eq "#478 AC5 routing lint RED: blanking a mapping destination while retaining its marker flips the lint RED" \
   "RED" "$(p478_routing_lint "$P478_MUT_DEST" "$P478_P2")"
 rm -f "$P478_MUT_DEST"
@@ -37161,7 +37161,7 @@ done
 assert_eq "#620 budget: maintainer note's prose root ceiling matches RAF_ROOT_CEIL ($RAF_ROOT_CEIL)" "yes" \
   "$(case "$_raf_doc_nocommas" in *"The root sits below its ${RAF_ROOT_CEIL}-word"*) echo yes;; *) echo no;; esac)"
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +6,045 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +6,051 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute
@@ -49998,7 +49998,7 @@ assert_pin_unique "#551 manifest states the mandatory-vs-reference classificatio
 assert_eq "#551 direct census grant appears in both writable cloud config profiles" "2" \
   "$(grep -cF 'Bash(lib/test/prompt-mass-census.py:*)' "$LIB/../.devflow/config.json")"
 assert_eq "#551 only one committed prompt-mass baseline exists" "1" \
-  "$(python3 -c 'from pathlib import Path; import sys; print(sum(1 for p in Path(sys.argv[1]).rglob("prompt-mass-baseline.json") if p.is_file()))' "$LIB/..")"
+  "$(python3 -c 'from pathlib import Path; import sys; print(sum(1 for p in Path(sys.argv[1]).rglob("prompt-mass-baseline.json") if p.is_file() and ".devflow/vendor/" not in p.as_posix()))' "$LIB/..")"
 assert_pin_unique "#551 baseline is a per-file mirror with no committed totals key" \
   '"files": {' "$PMC_BASELINE"
 assert_eq "#551 baseline carries no group-total rows" "0" \
