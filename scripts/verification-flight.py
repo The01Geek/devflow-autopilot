@@ -285,11 +285,21 @@ def _derive(declaration: Any) -> dict:
     flight_key = _sha256(
         _canonical({"descriptor_digest": descriptor_digest, "checkout": checkout})
     )
+    # Optional content-based candidate identity (issue #668). A SIBLING of
+    # `checkout`, NEVER a member of it: `_descriptor_bytes` and the flight-key
+    # derivation above read only `profile` and `checkout`, so this field leaves
+    # `descriptor_digest` and `flight_key` byte-identical and every stored handle
+    # valid. An in-`checkout` placement would silently invalidate every stored
+    # handle while presence-only tests still passed — the documented gotcha. The
+    # field is read verbatim (an absent field records None); SCHEMA_VERSION is
+    # unchanged, because a bump would reject every existing declaration.
+    candidate_identity = declaration.get("candidate_identity")
     return {
         "descriptor_digest": descriptor_digest,
         "flight_key": flight_key,
         "profile": profile,
         "checkout": checkout,
+        "candidate_identity": candidate_identity,
     }
 
 
@@ -616,6 +626,9 @@ def cmd_claim(args) -> int:
         "descriptor_digest": derived["descriptor_digest"],
         "profile_version": derived["profile"]["profile_version"],
         "checkout": derived["checkout"],
+        # Optional candidate identity carried into the handle (issue #668); a
+        # declaration omitting it records the field absent (None).
+        "candidate_identity": derived["candidate_identity"],
         "state": "claimed",
         "token_digest": _sha256(token.encode("utf-8")),
         "claimed_at": _iso(now),

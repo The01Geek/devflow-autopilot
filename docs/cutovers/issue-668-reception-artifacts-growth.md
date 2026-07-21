@@ -1,0 +1,36 @@
+---
+schema: 1
+kind: growth
+---
+
+## Files
+
+- `skills/receiving-code-review/SKILL.md`
+
+## Justification
+
+- Issue #668 gives the Reception Preflight a machine-readable producer: one
+  `reception-record.py record` session-artifact write that derives the
+  content-based candidate identity, mints the claim-context nonce, and records
+  both to the gitignored session directory. The block therefore grows from nine
+  facts to eleven — candidate identity (fact 10) and claim-context token (fact
+  11) — and each addition is the smallest form that discharges its acceptance
+  criterion.
+- The added mandatory bytes are the operative half of that mechanism and are not
+  relocatable to a progressively-loaded reference: they fire at execution points
+  the preflight reaches inline. Specifically — the two enumerated facts and their
+  block-template rows (the eleven-fact completeness-by-construction claim is a
+  decision the render owns), the single new prescribed command in the read-only
+  fence, the per-fact source rule that binds facts 10/11 to the one gitignored
+  write and states the no-output→`missing` arm, and the degraded-arm bullet that
+  makes an unproducible artifact an explicit `missing` render rather than a
+  silent skip. None of these is a standing caution the orchestrator could carry
+  unprompted; each is a conditional keyed to an observable predicate (the helper
+  produced output, or it did not).
+- The read-only contract is amended in place rather than evaded: the mutate
+  sentence is rescoped from `worktree files` to `tracked content`, and the one
+  gitignored session-artifact write is named as permitted text. That is a
+  clause-level edit, not a new paragraph, and it keeps the section's stated
+  contract true instead of resting the write on omission.
+- The editing gate is untouched: neither new fact's status can bar it, so the
+  growth adds observability facts without widening the gate's bar condition.

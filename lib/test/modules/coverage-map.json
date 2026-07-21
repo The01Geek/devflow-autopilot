@@ -335,6 +335,14 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/reception-record.py": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "scripts/reception_identity.py": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "scripts/refresh-app-credentials.sh": {
       "note": "",
       "owner": "unmodularized"
