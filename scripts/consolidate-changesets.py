@@ -232,6 +232,13 @@ def _render_citation(citation_path: str, new_version: str) -> str:
     ``version:`` (``re.MULTILINE``), so the sibling ``cff-version:`` key is never matched.
     Pure read + assemble (no write) so ``consolidate`` can prove the output is writable-in-
     memory before touching disk.
+
+    Deliberately carries no multi-match count guard (unlike ``_render_marketplace_version``,
+    whose JSON ``"version"`` keys can legitimately recur at several depths): the column-0
+    ``(?m)^version:`` anchor can only match a *top-level* CFF key, and a duplicate top-level
+    key is invalid YAML, so a second real match is impossible for a valid CITATION.cff. Loosen
+    that anchor (e.g. allowing leading whitespace, which would reach nested mapping keys) and
+    the guard becomes necessary — add it in the same change.
     """
     text = _read_text(citation_path, "citation")
     new_text, n = re.subn(
@@ -261,6 +268,10 @@ def _render_marketplace_version(marketplace_path: str, new_version: str) -> str:
     # rewrite would silently bump the wrong key and leave the others stale (n==1 would still
     # hold, so no error fires). Fail LOUD instead — a multi-version manifest needs a structural
     # rewrite, not this first-match regex — rather than silently ship a half-bumped listing.
+    # The count is textual, not structural: a literal `"version": "` occurring *inside* a string
+    # value would also be counted. That over-counts, never under-counts, so it fails in the safe
+    # direction (a loud refusal to rewrite, never a silent wrong-key bump). A structural count
+    # would need a json.loads walk, which this deliberately-formatting-preserving path avoids.
     total = len(re.findall(r'"version"\s*:\s*"', text))
     if total != 1:
         raise ChangesetError(

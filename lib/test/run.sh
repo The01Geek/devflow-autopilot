@@ -28725,29 +28725,43 @@ assert_eq "#671 packaging: frontmatter gate fails closed on a missing required k
 assert_eq "#671 packaging: missing-key failure names the missing key" "yes" \
   "$(printf '%s' "$PKG_NEG_KEY_OUT" | grep -qF 'missing required key' && echo yes || echo no)"
 rm -rf "$PKG_NEG_KEY"
+# (c) a file carrying no frontmatter block at all → exit 1 naming that branch.
+PKG_NEG_NOFM="$(mktemp -d)"; mkdir -p "$PKG_NEG_NOFM/agents"
+printf -- 'no frontmatter here, just body text\n' > "$PKG_NEG_NOFM/agents/no-fm.md"
+PKG_NEG_NOFM_OUT="$(python3 "$PKG_FM" "$PKG_NEG_NOFM")"; PKG_NEG_NOFM_RC=$?
+assert_eq "#671 packaging: frontmatter gate fails closed on a file with no frontmatter block (exit 1)" "1" "$PKG_NEG_NOFM_RC"
+assert_eq "#671 packaging: no-frontmatter failure names the file and that branch" "yes" \
+  "$(printf '%s' "$PKG_NEG_NOFM_OUT" | grep -qF "$PKG_NEG_NOFM/agents/no-fm.md (no frontmatter block)" && echo yes || echo no)"
+rm -rf "$PKG_NEG_NOFM"
+# (d) a frontmatter block that parses but is not a mapping (a bare scalar) → exit 1 naming it.
+PKG_NEG_SEQ="$(mktemp -d)"; mkdir -p "$PKG_NEG_SEQ/agents"
+printf -- '---\njust-a-scalar\n---\n\nbody\n' > "$PKG_NEG_SEQ/agents/not-a-map.md"
+PKG_NEG_SEQ_OUT="$(python3 "$PKG_FM" "$PKG_NEG_SEQ")"; PKG_NEG_SEQ_RC=$?
+assert_eq "#671 packaging: frontmatter gate fails closed on a non-mapping frontmatter (exit 1)" "1" "$PKG_NEG_SEQ_RC"
+assert_eq "#671 packaging: non-mapping failure names the file and that branch" "yes" \
+  "$(printf '%s' "$PKG_NEG_SEQ_OUT" | grep -qF "$PKG_NEG_SEQ/agents/not-a-map.md (frontmatter is not a mapping)" && echo yes || echo no)"
+rm -rf "$PKG_NEG_SEQ"
 
-# (2) malformed-fixture assertion — the parser must REJECT an unquoted `description` scalar
+# (2) malformed-fixture assertion — the gate must REJECT an unquoted `description` scalar
 # containing ": " (a direct fixture assertion; assert_pin_red_under cannot express "this parser
-# rejects this input").
-PKG_FIX="$(mktemp)"
+# rejects this input"). Driven THROUGH validate-frontmatter.py against a fixture root, so the
+# helper's own `except yaml.YAMLError` branch is what is exercised — an inline re-implementation
+# of the parse would prove only that PyYAML rejects the input, never that the shipped gate does.
+PKG_FIX_ROOT="$(mktemp -d)"; mkdir -p "$PKG_FIX_ROOT/agents"
+PKG_FIX="$PKG_FIX_ROOT/agents/bad-fixture.md"
 printf -- '---\nname: bad-fixture\ndescription: Uses `verification_mode: "agent"` unquoted\nmodel: sonnet\n---\n\nbody\n' > "$PKG_FIX"
-PKG_FIX_OUT="$(python3 - "$PKG_FIX" <<'PYEOF'
-import sys, re, yaml
-f = sys.argv[1]
-t = open(f, encoding="utf-8").read()
-m = re.match(r"---\n(.*?)\n---\n", t, re.DOTALL)
-ok = False
-try:
-    d = yaml.safe_load(m.group(1))
-    ok = isinstance(d, dict) and set(d) == {"name", "description", "model"}
-except yaml.YAMLError:
-    ok = False
-print("PARSED_CLEAN" if ok else ("REJECTED " + f))
-PYEOF
-)"
-assert_eq "#671 packaging: malformed unquoted 'description' with \": \" is rejected, naming the fixture path" "yes" \
-  "$(printf '%s' "$PKG_FIX_OUT" | grep -qxF "REJECTED $PKG_FIX" && echo yes || echo no)"
-rm -f "$PKG_FIX"
+PKG_FIX_OUT="$(python3 "$PKG_FM" "$PKG_FIX_ROOT")"; PKG_FIX_RC=$?
+assert_eq "#671 packaging: malformed unquoted 'description' with \": \" fails the gate (exit 1)" "1" "$PKG_FIX_RC"
+assert_eq "#671 packaging: malformed unquoted 'description' with \": \" is rejected, naming the fixture path and the YAML-error branch" "yes" \
+  "$(printf '%s' "$PKG_FIX_OUT" | grep -qF "$PKG_FIX (YAML error:" && echo yes || echo no)"
+# Positive control on the same fixture root: with the description quoted, the SAME root passes
+# the SAME gate — so the rejection above is attributable to the unquoted scalar, not to an
+# unrelated precondition of the fixture (missing key, bad path, empty corpus).
+printf -- '---\nname: bad-fixture\ndescription: "Uses `verification_mode: \\"agent\\"` quoted"\nmodel: sonnet\n---\n\nbody\n' > "$PKG_FIX"
+PKG_FIX_CTL_OUT="$(python3 "$PKG_FM" "$PKG_FIX_ROOT")"; PKG_FIX_CTL_RC=$?
+[ "$PKG_FIX_CTL_RC" -eq 0 ] || printf '%s\n' "$PKG_FIX_CTL_OUT"
+assert_eq "#671 packaging: positive control — the same fixture root passes once the description is quoted" "0" "$PKG_FIX_CTL_RC"
+rm -rf "$PKG_FIX_ROOT"
 
 # (3) full `claude plugin validate --strict` over the plugin tree. The repo root holds BOTH
 # manifests and the CLI resolves the marketplace one, so stage a temp dir holding ONLY
