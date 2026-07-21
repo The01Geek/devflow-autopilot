@@ -41,6 +41,10 @@
       "class": "mandatory",
       "files": [
         "skills/create-issue/SKILL.md",
+        "skills/create-issue/references/step-2-clarify.md",
+        "skills/create-issue/references/step-3-5-steelman.md",
+        "skills/create-issue/references/step-3-6-audit.md",
+        "skills/create-issue/references/step-4-present-create.md",
         "skills/create-issue/references/issue-template.md"
       ]
     },
@@ -133,6 +137,16 @@
         "skills/review-and-fix/references/fixing.md",
         "skills/review-and-fix/references/pre-fix-gates.md",
         "skills/review-and-fix/references/shadow-review.md"
+      ]
+    },
+    "create-issue-conditional": {
+      "class": "reference",
+      "files": [
+        "skills/create-issue/references/revision-delta.md",
+        "skills/create-issue/references/fallback-no-task-tool.md",
+        "skills/create-issue/references/fallback-read-only-sandbox.md",
+        "skills/create-issue/references/fallback-audit-dispatch-arms.md",
+        "skills/create-issue/references/fallback-state-owner-unavailable.md"
       ]
     }
   }

@@ -266,3 +266,12 @@ Record a bundle entry for each of these, in addition to the generic axes:
   implement Phase 4.0), so they are out of this axis's scope. Record the reliance, and rewrite it as one of:
   a code-reading obligation citing the producer, a command already granted on the consuming tier, or a
   post-merge follow-up.
+- **Measurement-command naming.** When a drafted acceptance criterion is **quantitative** — a word,
+  byte, or line ceiling, a count, a percentage tolerance — the bundle records, per such AC, the **exact
+  command that measures it**, and the drafter writes that command into the AC itself. An AC whose
+  measurement command cannot be established records `unestablished` for that AC, never an unnamed
+  counter left for the implementer to choose. The motivating defect class is recorded in `CLAUDE.md`'s
+  review-bundle gotcha: GNU and BSD `wc -w` disagree in two directions on this repo's own prompt corpus,
+  so a ceiling phrased as "under N words" with no named counter is not a testable criterion — two hosts
+  read the same file and disagree about whether it passes. Name the counter (`python3` word-splitting via
+  the suite's own helper, `git hash-object`, a specific `grep -c`), not merely the unit.
