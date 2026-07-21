@@ -36243,6 +36243,14 @@ _rb_growth_words=$((_C_W - 33815))                # 642 = complete words - basel
 _rb_grow_line="$(grep -F 'grows by **' "$RB_DOC" | head -1)"
 assert_eq "#656: the Justified-growth sentence renders its words/bytes figures live" "yes" \
   "$(case "$_rb_grow_line" in *"**$(_rb_grouped "$_rb_growth_words") words / $(_rb_grouped "$((_C_B - RB_BASELINE_BYTES))") bytes**"*) echo yes ;; *) echo no ;; esac)"
+# The SAME growth figure is also stated in the Formulas' Complete-bundle bullet. It carried
+# a stale hand-transcribed pre-#642 value (+2,925) that contradicted the very figure this doc
+# reconciles — the exact "a reader treats it as current, it rots silently" class, surviving
+# only because it sat OUTSIDE every governed sentinel. It is now sentineled and rendered live
+# from the same operand, so the two statements cannot diverge again.
+_rb_cbg_line="$(grep -F 'against baseline by **' "$RB_DOC" | head -1)"
+assert_eq "#656: the Complete-bundle formula bullet renders the growth words live" "yes" \
+  "$(case "$_rb_cbg_line" in *"against baseline by **$(_rb_grouped "$_rb_growth_words") words**"*) echo yes ;; *) echo no ;; esac)"
 
 # ── #656 partition scan — the durable anti-drift guard (AC6/AC7) ──────────────────
 # ACCOUNTED = every reconciled figure rendered LIVE above (a drift makes it absent -> the
@@ -36266,7 +36274,7 @@ _rb_acc="$(mktemp)"; _rb_exempt="$(mktemp)"
     "$_D_L" "$_D_W" "$_D_B" "$_D_T" "$_M_L" "$_M_W" "$_M_B" "$_M_T" "$_E_L" "$_E_W" "$_E_B" "$_E_T"
   # Ceilings measured + margins (AC2 rows) and the AC3 row cells.
   printf '%s\n' "$_rb_rootext" "$_rb_re_margin" "$_rb_reduction" "$_rb_red_margin" \
-    "$RB_SHIPPED_CEIL" "$_rb_shipped_w" "$RB_SHIPPED_MARGIN"
+    "$_rb_shipped_w"
   # Execution-weighted after + token + delta cells (all four rows) and the two prose bullets.
   printf '%s\n' "$RB_STANDALONE_BYTES" "$_rb_sa_t" "$RB_RAF_BYTES" "$_rb_raf_t"
   printf '%s\n' "$((RB_RAF_BYTES * 2))" "$((_rb_raf_t * 2))" "$((RB_RAF_BYTES * 3))" "$((_rb_raf_t * 3))" \
@@ -36310,11 +36318,22 @@ cat > "$_rb_exempt" <<'RBEXEMPT'
 8500
 25327
 # Execution-weighted FORMULA multipliers (×1, ×2, ×(N+1), N=2, N=3) — table structure,
-# not a measurement.
+# not a measurement. These tiny values MASK a collision: a governed cell that drifted to
+# 1, 2 or 3 would be silently accepted by this add-directional scan. That is covered by
+# the positional whole-row pins (a drifted cell breaks its row match -> RED); the scan is
+# never the sole guard for any accounted cell — see the LOAD-BEARING coupling note above.
 1
 2
 3
 RBEXEMPT
+# The AC3 row's two ENFORCEMENT CONSTANTS are exempt, not accounted: the partition's
+# semantic story is accounted = rendered from a LIVE measurement, exempt = frozen literal.
+# RB_SHIPPED_CEIL is the ceiling literal the gate compares against (and is pinned to
+# CLAUDE.md); RB_SHIPPED_MARGIN is the fixed 60-word margin that never moves (pinned by
+# AC5 below). Both are additionally covered positionally by the #618 whole-row assertion,
+# so exempting them here costs no drift coverage — and RB_SHIPPED_MARGIN, being small,
+# masks collisions on the same terms as the multipliers above.
+printf '%s\n%s\n' "$RB_SHIPPED_CEIL" "$RB_SHIPPED_MARGIN" >> "$_rb_exempt"
 _rb_partition="$(python3 "$LIB/test/rb-figure-partition.py" "$RB_DOC" "$_rb_acc" "$_rb_exempt")"
 assert_eq "#656 AC6: the governed budget figures partition into reconciled ∪ exempt (no figure unaccounted)" \
   "" "$_rb_partition"
@@ -36356,7 +36375,24 @@ assert_eq "#656 AC7(e): stripping the governed sentinels fails closed (no govern
 # (f) fail-closed: an unreadable DOC path prints FATAL (non-empty) -> RED, never a silent pass.
 assert_eq "#656 AC7(f): an unreadable doc path fails closed (FATAL), never vacuously green" "yes" \
   "$([ -n "$(python3 "$LIB/test/rb-figure-partition.py" "$RB_DOC.nonexistent-$$" "$_rb_acc" "$_rb_exempt")" ] && echo yes || echo no)"
-rm -f "$_rb_acc" "$_rb_exempt" "$_rb_mut_a" "$_rb_acc_drop" "$_rb_mut_c" "$_rb_empty" "$_rb_mut_e"
+# (g) DRIFT-TO-COLLISION: rewrite one accounted cell to ANOTHER accounted figure's value.
+# The set-based scan CANNOT see this (the value is still a known figure) — it is exactly the
+# hole the LOAD-BEARING coupling note above names, and the POSITIONAL pin is what closes it.
+# So this mutation asserts (i) the scan stays silent and (ii) the row's positional literal
+# no longer matches, proving the pin — not the scan — is the guard carrying that class.
+_rb_mut_g="$(mktemp)"
+sed "s/| $(_rb_grouped "$_C_L") \/ $(_rb_grouped "$_C_W") \/ $(_rb_grouped "$_C_B") \/ $(_rb_grouped "$_C_T") |/| $(_rb_grouped "$_C_L") \/ $(_rb_grouped "$_D_W") \/ $(_rb_grouped "$_C_B") \/ $(_rb_grouped "$_C_T") |/" "$RB_DOC" > "$_rb_mut_g"
+assert_eq "#656 AC7(g): drift-to-collision is INVISIBLE to the set-based scan (the hole the positional pin exists to close)" "" \
+  "$(python3 "$LIB/test/rb-figure-partition.py" "$_rb_mut_g" "$_rb_acc" "$_rb_exempt")"
+assert_eq "#656 AC7(g): drift-to-collision breaks the Complete-bundle POSITIONAL row pin -> RED" "no" \
+  "$(case "$(grep -F '| Complete bundle |' "$_rb_mut_g" | head -1)" in *"| $(_rb_grouped "$_C_L") / $(_rb_grouped "$_C_W") / $(_rb_grouped "$_C_B") / $(_rb_grouped "$_C_T") |"*) echo yes ;; *) echo no ;; esac)"
+# (h) UN-GOVERNING a prose figure: move the `<!-- rb:fig -->` marker off the figure's own
+# line (the rewrap an editor makes without thinking). The figure stops being scanned, so a
+# whole-doc floor alone would stay green; the PER-REGION floor is what turns it RED.
+_rb_mut_h="$(mktemp)"; sed 's/ <!-- rb:fig -->//' "$RB_DOC" > "$_rb_mut_h"
+assert_eq "#656 AC7(h): un-governing a prose figure (rb:fig marker moved off its line) fails closed per-region, never vacuously green" "yes" \
+  "$([ -n "$(python3 "$LIB/test/rb-figure-partition.py" "$_rb_mut_h" "$_rb_acc" "$_rb_exempt")" ] && echo yes || echo no)"
+rm -f "$_rb_acc" "$_rb_exempt" "$_rb_mut_a" "$_rb_acc_drop" "$_rb_mut_c" "$_rb_empty" "$_rb_mut_e" "$_rb_mut_g" "$_rb_mut_h"
 
 # ── #656 AC5 — pin CLAUDE.md's enforcement CONSTANTS (8,500 and 60) ───────────────
 # 8,500 is the root+extension ceiling literal; 60 is RB_SHIPPED_MARGIN, which never moves.

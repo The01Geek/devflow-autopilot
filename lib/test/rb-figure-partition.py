@@ -82,6 +82,11 @@ def _load_set(path: str) -> set:
     return out
 
 
+def _regions_declared(doc: str):
+    """Return every governed region name the doc opens, in document order."""
+    return re.findall(r"<!--\s*rb:governed-begin\s+(\S+)\s*-->", doc)
+
+
 def _governed_figures(doc: str):
     """Yield (region, normalized_figure, raw_line) for every governed figure."""
     region = None
@@ -113,7 +118,12 @@ def main(argv):
         doc = open(doc_path, encoding="utf-8").read()
         accounted = _load_set(acc_path)
         exempt = _load_set(exempt_path)
-    except OSError as e:
+    except (OSError, ValueError) as e:
+        # ValueError covers UnicodeDecodeError (a non-UTF-8/corrupted doc or set
+        # file). Catching only OSError would let the decode traceback go to
+        # stderr with an EMPTY stdout — which the caller's output-is-empty
+        # assertion reads as a clean pass. That is the fail-open this guard exists
+        # to prevent, inside the guard.
         print(f"FATAL: could not read partition inputs: {e}")
         return 0
     if not accounted:
@@ -122,10 +132,24 @@ def main(argv):
         return 0
     seen_any = False
     known = accounted | exempt
+    populated = set()
     for region, fig, raw in _governed_figures(doc):
         seen_any = True
+        populated.add(region)
         if fig not in known:
             print(f"UNACCOUNTED[{region}]: {fig}  (line: {raw.strip()})")
+    # Per-region non-vacuity floor. A governed region that yields NO figure is a
+    # region whose figures stopped being seen — the prose-figure case is the live
+    # one: `_governed_figures` only reads a non-table line when `<!-- rb:fig -->`
+    # is on that SAME physical line, so an editor who rewraps the sentence and
+    # pushes the marker onto its own line silently un-governs the figure. The
+    # whole-doc floor below cannot catch that (other regions still yield figures),
+    # so each declared region carries its own floor.
+    for region in _regions_declared(doc):
+        if region not in populated:
+            print(f"FATAL: governed region '{region}' yields no figure — its "
+                  "figures are un-sentineled or its `<!-- rb:fig -->` marker no "
+                  "longer sits on the figure's own line; refusing to pass vacuously")
     if not seen_any:
         print("FATAL: no governed figure found in any sentinel region — the "
               "governed regions are missing or empty; refusing to pass vacuously")

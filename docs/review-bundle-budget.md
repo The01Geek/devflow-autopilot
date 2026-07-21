@@ -81,7 +81,9 @@ budget contract later changes are held to.
 
 - **Root** — `skills/review/SKILL.md` alone.
 - **Complete bundle** — root + shipped extension + all ten references, each once. It **grows**
-  against baseline (+2,925 words); see *Justified growth* below.
+  <!-- rb:governed-begin complete-bundle-growth -->
+  against baseline by **642 words**; <!-- rb:fig --> see *Justified growth* below.
+  <!-- rb:governed-end complete-bundle-growth -->
 - **Default per-pass unique path** — root + shipped extension + each source a pass requires when
   **no blocker fast path** and **no stale-prose predicate** holds, each counted **exactly once**:
   the six always/standalone references, *excluding* the four gated ones (6,527 words). This is the
