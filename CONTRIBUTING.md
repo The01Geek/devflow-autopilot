@@ -89,6 +89,11 @@ A label a module carries while assertions remain in `lib/test/run.sh` is *partia
 extracted and correctly stays `unmodularized`: one `owner` string cannot truthfully
 describe split coverage.
 
+The arm is deliberately **one-directional**: it reports a label the tree asserts but the
+map does not carry, never the reverse. A map entry with no derivation behind it — a
+block whose assertions were deleted or renamed — is a curated historical record, so it is
+neither reported nor removed by `--fix`. Prune such an entry by hand when you want it gone.
+
 ### Regenerating suite-owned artifacts
 
 Several suite gates compare a checked-in generated artifact against what the tree

@@ -389,15 +389,26 @@ class LabelDerivationTest(unittest.TestCase):
         # looks for a `}` on its OWN line hands such a stub the surrounding real
         # assertions as its "body", promotes `sed`/`mktemp` to an assertion head, and
         # then derives a bogus label from any ordinary `sed \'s/#604/#609/\'` argument.
+        # The trailing real wrapper is load-bearing: if a one-line stub's body were
+        # allowed to bleed to the remainder of the file, it would swallow this
+        # forwarding call and BE promoted. Without it the assertions below cannot
+        # fail even with the carve-out removed — vacuous.
         text = (
             "  sed() { return 2; }\n"
             "  mktemp() { return 1; }\n"
             'assert_eq "#700 the real assertion" "1" "1"\n'
             "sed 's/#604/#609/' \"$F\" > \"$G\"\n"
+            "_real_wrapper() {\n"
+            '  assert_eq "$1" "a" "$2"\n'
+            "}\n"
         )
         self.assertEqual(guard.derive_labels(text), {"700"})
-        self.assertNotIn("sed", guard._assertion_heads(text))
-        self.assertNotIn("mktemp", guard._assertion_heads(text))
+        # _assertion_heads takes the SPLIT lines; passing the raw string iterates
+        # characters, so bodies comes back empty and both assertions below pass
+        # vacuously — including under a broken _function_bodies.
+        heads = guard._assertion_heads(text.split("\n"))
+        self.assertNotIn("sed", heads)
+        self.assertNotIn("mktemp", heads)
 
     def test_a_wrapper_must_forward_its_own_first_positional(self):
         # A function that merely CONTAINS an assertion head is not a wrapper; only one
