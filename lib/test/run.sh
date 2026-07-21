@@ -16690,6 +16690,59 @@ assert_eq "materialize: missing new-entries → target untouched" "1" "$(wc -l <
 rm -rf "$M_NOFILE_TMP"
 rm -rf "$M_TMP"
 
+# issue #672: operator home-directory paths are redacted on the merge write path.
+# Positive controls assert the REDACTED output (not merely exit 0); negative
+# controls assert repo-relative / non-home / CI-runner / non-string values survive
+# unchanged — the pairing that distinguishes a working redactor from one that
+# rewrites everything, rewrites nothing, or aborts on a numeric field.
+MR_TMP="$(mktemp -d)"
+: > "$MR_TMP/store.jsonl"
+printf '%s\n' \
+  '{"pr":101,"kind":"retro","summary":"at /Users/alice/.claude/jobs/x/w0.md"}' \
+  '{"pr":102,"kind":"retro","summary":"at /home/alice/.claude/w0.md"}' \
+  '{"pr":103,"kind":"retro","summary":"at C:\\Users\\bob\\tmp\\w0.md"}' \
+  '{"pr":104,"kind":"retro","summary":"a /Users/bob/x and /Users/bob/y"}' \
+  '{"pr":105,"kind":"retro","summary":"at /home/runner/work/x/scripts/workpad.py"}' \
+  '{"pr":106,"kind":"retro","summary":"lib/scan.sh and /tmp/x","n":3,"nul":null,"ok":true}' \
+  > "$MR_TMP/new.jsonl"
+bash "$LIB/materialize-retrospectives.sh" "$MR_TMP/new.jsonl" "$MR_TMP/store.jsonl" >/dev/null 2>&1 || true
+assert_eq "materialize #672: /Users/ prefix redacted to ~ (positive control)" \
+  "at ~/.claude/jobs/x/w0.md" "$(jq -r 'select(.pr==101)|.summary' "$MR_TMP/store.jsonl")"
+assert_eq "materialize #672: /home/ prefix redacted to ~ (positive control)" \
+  "at ~/.claude/w0.md" "$(jq -r 'select(.pr==102)|.summary' "$MR_TMP/store.jsonl")"
+assert_eq "materialize #672: Windows prefix redacted with single separator" \
+  'at ~\tmp\w0.md' "$(jq -r 'select(.pr==103)|.summary' "$MR_TMP/store.jsonl")"
+assert_eq "materialize #672: both operator paths in one string redacted" \
+  "a ~/x and ~/y" "$(jq -r 'select(.pr==104)|.summary' "$MR_TMP/store.jsonl")"
+assert_eq "materialize #672: /home/runner/ carve-out preserved unchanged" \
+  "at /home/runner/work/x/scripts/workpad.py" "$(jq -r 'select(.pr==105)|.summary' "$MR_TMP/store.jsonl")"
+assert_eq "materialize #672: repo-relative + non-home path unchanged" \
+  "lib/scan.sh and /tmp/x" "$(jq -r 'select(.pr==106)|.summary' "$MR_TMP/store.jsonl")"
+assert_eq "materialize #672: numeric field survives redaction (no rc5 abort)" \
+  "3" "$(jq -r 'select(.pr==106)|.n' "$MR_TMP/store.jsonl")"
+assert_eq "materialize #672: .pr/.kind preserved through redaction" \
+  "retro" "$(jq -r 'select(.pr==101)|.kind' "$MR_TMP/store.jsonl")"
+assert_eq "materialize #672: redacted output still valid JSONL" \
+  "0" "$(jq -c . "$MR_TMP/store.jsonl" >/dev/null 2>&1; echo $?)"
+# runneradmin carve-out (the (admin)? alternation) — a second CI-runner account.
+: > "$MR_TMP/store2.jsonl"
+printf '%s\n' '{"pr":107,"kind":"retro","summary":"at /home/runneradmin/work/x.md and /Users/runner/y.md"}' > "$MR_TMP/new2.jsonl"
+bash "$LIB/materialize-retrospectives.sh" "$MR_TMP/new2.jsonl" "$MR_TMP/store2.jsonl" >/dev/null 2>&1 || true
+assert_eq "materialize #672: /home/runneradmin/ and /Users/runner/ carve-outs preserved" \
+  "at /home/runneradmin/work/x.md and /Users/runner/y.md" "$(jq -r 'select(.pr==107)|.summary' "$MR_TMP/store2.jsonl")"
+# Fail-CLOSED fallback: a MALFORMED new-entries file must NOT overwrite the store
+# with unredacted content — the redaction skip routes to the post-merge JSONL
+# validation, which rejects it (non-zero exit) and leaves the store untouched.
+printf '%s\n' '{"pr":200,"kind":"retro","verdict":"clean"}' > "$MR_TMP/store3.jsonl"
+printf '%s\n' 'this is not json {' > "$MR_TMP/bad.jsonl"
+MR_BAD_RC=0
+bash "$LIB/materialize-retrospectives.sh" "$MR_TMP/bad.jsonl" "$MR_TMP/store3.jsonl" >/dev/null 2>&1 || MR_BAD_RC=$?
+assert_eq "materialize #672: malformed new-entries fails closed (non-zero exit)" \
+  "true" "$([ "$MR_BAD_RC" -ne 0 ] && echo true || echo false)"
+assert_eq "materialize #672: malformed new-entries leaves the store untouched" \
+  '{"pr":200,"kind":"retro","verdict":"clean"}' "$(cat "$MR_TMP/store3.jsonl")"
+rm -rf "$MR_TMP"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "meta-issue.sh"
 # ────────────────────────────────────────────────────────────────────────────
@@ -41152,6 +41205,61 @@ printf '%s\n' '# The skill must never emit ANY `>` redirect anywhere.' \
 SPR="$(spl_repo_named "$SPF" fixture.sh)"
 assert_eq "#434 R4 POSITIVE CONTROL: a COMMENT-line permit DOES contradict it (exit 1)" "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
 assert_eq "#434 R4: the comment-line permit emits the STALE R4 row" "yes" "$(spl_has "$SPR" STALE R4)"
+
+# ── #672 excluded population: machine-appended corpora are DATA, not assertions ──────
+# The regression: PR #673 replaced an operator home path with `~` inside two committed
+# `.devflow/learnings/*.jsonl` records, which re-presented each whole record as a diff-ADDED
+# line; the unlisted `.jsonl` type failed open to examine-every-line (correctly), and a prior
+# PR's counted claim quoted inside a retrospective graded STALE — a self-scan failure on a
+# diff that authored no claim. Every arm below runs the SAME fixture content at a different
+# path, so each verdict is attributable to the path predicate alone.
+spl_repo_at() {  # content_file repo_relative_path -> repo dir
+  local d; d="$(git_sandbox '#672 spl corpus repo')"
+  git -C "$d" init -q >/dev/null 2>&1
+  mkdir -p "$d/$(dirname "$2")"
+  cp "$1" "$d/$2"
+  git -C "$d" -c user.email=t@t -c user.name=t add "$2" >/dev/null 2>&1
+  git -C "$d" -c user.email=t@t -c user.name=t commit -qm c1 >/dev/null 2>&1
+  printf '%s\n' "$d"
+}
+spl_stderr_base() {  # repo_dir base_rev -> the lint's stderr
+  ( cd "$1" 2>/dev/null || exit
+    git diff "$2" HEAD 2>/dev/null | python3 "$SPL" --rev HEAD 2>&1 >/dev/null )
+}
+# The fixture is the real shape: a counted claim quoted inside a JSON record, whose referent
+# the record itself outgrows. It is genuinely STALE as prose — which is the point.
+SPF="$(probe_tmp '#672 corpus record')"
+printf '%s\n' '{"pr":383,"note":"# Cases 19-32 are exercised below"}' \
+              '{"pr":384,"note":"Case 37 delta"}' > "$SPF"
+# POSITIVE CONTROL FIRST: at a non-excluded path the identical content still gates, so a
+# clean excluded arm can never be an artifact of the fixture failing to be stale at all.
+SPR="$(spl_repo_at "$SPF" notes/records.jsonl)"
+assert_eq "#672 POSITIVE CONTROL: the same corpus record OUTSIDE the excluded prefixes still gates (exit 1)" \
+  "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+assert_eq "#672 positive control emits the STALE R1 row" "yes" "$(spl_has "$SPR" STALE R1)"
+# The two excluded prefixes.
+SPR="$(spl_repo_at "$SPF" .devflow/learnings/retrospectives.jsonl)"
+assert_eq "#672 a .devflow/learnings/ record is not examined (exit 0)" "0" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+assert_eq "#672 the excluded learnings path emits NO row of ANY verdict" "" \
+  "$( ( cd "$SPR" && git diff "$SP_EMPTY_TREE" HEAD 2>/dev/null | python3 "$SPL" --rev HEAD 2>/dev/null ) )"
+assert_eq "#672 the intended coverage drop is DISCOVERABLE: stderr names the excluded path" "yes" \
+  "$(spl_stderr_base "$SPR" "$SP_EMPTY_TREE" | grep -qF 'machine-appended corpus, issue #672): .devflow/learnings/retrospectives.jsonl' && echo yes || echo no)"
+SPR="$(spl_repo_at "$SPF" .devflow/logs/run.jsonl)"
+assert_eq "#672 a .devflow/logs/ record is not examined (exit 0)" "0" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+# Boundary in the OTHER direction — the exclusion must stay narrow. `CHANGELOG.md` and
+# `.changeset/` are human-authored prose about the current change, the surface this lint
+# exists to grade; a later over-broad prefix that swallowed them turns these RED.
+SPF="$(probe_tmp '#672 human prose')"
+printf '%s\n' '# Cases 19-32 are exercised below' 'Case 37 delta' > "$SPF"
+SPR="$(spl_repo_at "$SPF" CHANGELOG.md)"
+assert_eq "#672 CHANGELOG.md is deliberately NOT excluded (still gates, exit 1)" "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+SPR="$(spl_repo_at "$SPF" .changeset/some-change.md)"
+assert_eq "#672 .changeset/ is deliberately NOT excluded (still gates, exit 1)" "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+# A path merely CONTAINING an excluded segment further down is not excluded — the predicate
+# is a repo-root-anchored prefix, not a substring.
+SPR="$(spl_repo_at "$SPF" vendor/.devflow/learnings/notes.md)"
+assert_eq "#672 the predicate is a root-anchored PREFIX, not a substring match (still gates, exit 1)" \
+  "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
 
 # The lint is CLEAN against its OWN branch diff — the whole point of #434, and the assertion
 # that stops the fixture corpus from silently re-accumulating false positives.
