@@ -45839,7 +45839,7 @@ assert_eq "#664 scanner: reports both violations of one file on separate lines" 
 body = sys.stdin.read().split("|", 1)[1]
 print(" ".join(re.findall(r"^violation-basic\.sh:(\d+):", body, re.M)))')"
 
-# Two violating files, one non-zero exit for the process as a whole.
+# Violations spread across separate files: still one non-zero exit for the process as a whole.
 assert_eq "#664 scanner: two violating files exit non-zero once, reporting both" "rc=1 2" \
   "$(e664_run "$E664_FX" violation-brace.sh violation-second-file.sh | python3 -c 'import re,sys
 t = sys.stdin.read()
@@ -45848,8 +45848,8 @@ print("rc=" + re.match(r"rc=(\d+)", t).group(1), len(re.findall(r": gh api REST 
 # Fixture-integrity guards. Both fixtures below carry bytes `* text=auto` would normalize away,
 # and a normalized fixture makes its assertion VACUOUS rather than red — the CRLF twin would
 # simply become a second copy of its LF sibling, and the undecodable byte would vanish. The
-# `-text` .gitattributes entries are what preserve them; these two assertions are what notice if
-# those entries are ever dropped, since neither downstream assertion can tell the difference.
+# `-text` .gitattributes entries are what preserve them; the assertions below are what notice if
+# those entries are ever dropped, since no downstream assertion can tell the difference.
 e664_fixture_keeps() {  # <crlf|undecodable> <path> -> yes|no
   python3 -c 'import pathlib, sys
 mode, data = sys.argv[1], pathlib.Path(sys.argv[2]).read_bytes()

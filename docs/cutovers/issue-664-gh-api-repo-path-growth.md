@@ -38,5 +38,5 @@ gotcha an author consults *before* writing a `gh api` fence.
   stated without its counter-case invites the wrong fix in the exempt directories, and a rule
   stated without its enforcing mechanism leaves an author unable to find why the suite went RED.
 
-The growth is confined to these two files. The new scanner, its fixtures, and the `#664` suite
+The growth is confined to the files listed above. The new scanner, its fixtures, and the `#664` suite
 block are all under `lib/test/`, which the census does not measure as prompt mass.
