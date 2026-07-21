@@ -35967,12 +35967,20 @@ assert_eq "#529 AC2: root + shipped extension is within the 8,500-word ceiling" 
 # restated in the pinned method rather than left at the issue's figure.
 # The AC's own >= 25,327 threshold is unchanged — it is the contract, not a measurement
 # — and the split clears it either way (25,590 measured; 25,599 under the old method).
+# #656: those two figures (25,590 / 25,599) are FROZEN #529-split-time snapshots — a
+# past-time reduction the current live figure (26,114) has since moved past. They are
+# registered OUT-OF-GOVERNED with that provenance and DELIBERATELY not machine-rendered:
+# re-rendering a past-time snapshot from the current measurement would overwrite it and
+# falsify the record. The live reduction is reconciled by the #656 AC2 ceilings row above.
 assert_eq "#529 AC2: the split is at least 25,327 words below the 33,815 baseline" "yes" \
   "$([ "$((33815 - RB_ROOT_W - RB_EXT_W))" -ge 25327 ] && echo yes || echo no)"
 # #618 re-anchored this gate to the SHIPPED-DEFAULT path (Arm B — interim bridge).
 # History: #529 set the AC3 ceiling over the hypothetical no-stale-prose default set;
 # #556 renegotiated it 28,700 -> 30,100 (measured 30,042 at #556 time) via the doc's
-# escape valve for the always-on wording-only normalization prose. That default set
+# escape valve for the always-on wording-only normalization prose. #656: "30,042 at #556
+# time" is a FROZEN point-in-time snapshot (registered out-of-governed with that
+# provenance) — NOT the current default-path figure (27,930), and deliberately not
+# machine-rendered, since a live render would overwrite the historical value. That default set
 # EXCLUDED phase-0-6-stale-prose-lint.md, whose gate `devflow_review.stale_prose.enabled`
 # defaults TRUE — so an ordinary pass DID read it and the metric's name disagreed with
 # the configuration it measured. Issue #618 resolves that standing breach: the gate's
@@ -36348,6 +36356,280 @@ assert_eq "#529 AC5: the standalone row is FED the standalone set (not the AC3 d
 assert_eq "#529 AC5: the normal-plus-shadow row is FED the raf set, doubled" \
   "yes" "$(printf '%s' "$RB_RAF_OUT" | grep -qF "after $((RB_RAF_BYTES * 2)))" && echo yes || echo no)"
 
+# ── #656: reconcile every current-measured budget figure a reader treats as ──────
+# CURRENT, and close the silent-drift class. The RECORD loop and #618 positional pins
+# above reconcile SOME governed figures; the rest of the doc's live tables (Static-size
+# After columns, the Ceilings measured/margin cells, the Execution-weighted After/Delta/
+# token cells, and the Justified-growth words) drifted silently — asserted nowhere. This
+# block renders each governed cell LIVE and asserts it POSITIONALLY (each cell pinned to its
+# live value; a DRIFTED cell breaks its row match — an ADDED cell is caught by the partition
+# scan below, not the row match, which is a substring test), registers the frozen point-in-time
+# figures as exempt with provenance, and runs a PARTITION SCAN over the doc's sentinel-delimited
+# governed regions so a figure in NEITHER the reconciled nor the exempt set fails RED. The
+# scan is complementary to the per-cell pins: the pins prove each reconciled cell still
+# renders its live value (drift -> RED); the scan proves nothing was ADDED to a governed
+# region unaccounted (an un-sentineled/un-registered add -> RED). Frozen figures — the
+# Before columns, the #618 decision-record illustrations (30,082/32,339/18/2,239 vs the
+# RETIRED 30,100 ceiling), the 33,815/237,113 baseline, and the two run.sh historical
+# comments (#556 "30,042", #529 "25,590"/"25,599") — are OUT-OF-GOVERNED by construction:
+# they live OUTSIDE the doc's governed sentinels (or in this file's comments), so the scan
+# never sees them, and re-rendering them from a live measurement is REJECTED (it would
+# overwrite a past-time snapshot with the current value and falsify the record). Words are
+# counted with python3 (_rb_lwbt below), NEVER wc -w — the coupled convention above.
+_rb_lwbt() {  # files... -> "LINES WORDS BYTES TOKENS" (raw ints; tokens = ceil(bytes/4))
+  python3 -c 'import sys, math
+L=W=B=0
+for f in sys.argv[1:]:
+    t=open(f, encoding="utf-8").read()
+    L+=t.count(chr(10))+(0 if t=="" or t.endswith(chr(10)) else 1)
+    W+=len(t.split()); B+=len(t.encode("utf-8"))
+print(L, W, B, math.ceil(B/4))' "$@"
+}
+_rb_sgrouped() {  # signed comma-grouped, U+2212 minus, matching the doc's Delta cells
+  python3 -c 'import sys
+n=int(sys.argv[1]); print(("−" if n<0 else "")+f"{abs(n):,}")' "$1"
+}
+# Live L/W/B/T for each Static-size row's member set (reusing the sets defined above:
+# _review_members = root + every phase; _rb_default = root+ext+6 default stems).
+read -r _R_L _R_W _R_B _R_T <<<"$(_rb_lwbt "$REVIEW_ROOT")"
+read -r _C_L _C_W _C_B _C_T <<<"$(_rb_lwbt "${_review_members[@]}" "$RB_EXT")"
+read -r _D_L _D_W _D_B _D_T <<<"$(_rb_lwbt "${_rb_default[@]}")"
+# The Max-incremental row publishes the single largest reference BY WORDS (the doc note
+# records it is also the max by bytes). Resolve that file live, then measure its full row.
+_rb_maxwf=$(python3 -c 'import sys
+best=None; bw=-1
+for f in sys.argv[1:]:
+    w=len(open(f, encoding="utf-8").read().split())
+    if w>bw: bw=w; best=f
+print(best)' "$LIB"/../skills/review/phases/*.md)
+read -r _M_L _M_W _M_B _M_T <<<"$(_rb_lwbt "$_rb_maxwf")"
+read -r _E_L _E_W _E_B _E_T <<<"$(_rb_lwbt "$RB_EXT")"
+# Positional whole-row After-cell assertions (a drifted OR an added After cell breaks the
+# suffix match). The label greps are unique per row; the After group is the row's last cell.
+_rb_assert_after() {  # label-grep  expected-"L / W / B / T"  human-name
+  local _row; _row="$(grep -F "$1" "$RB_DOC" | head -1)"
+  assert_eq "#656: the '$3' Static-size row renders its After cells live ($2)" "yes" \
+    "$(case "$_row" in *"| $2 |"*) echo yes ;; *) echo no ;; esac)"
+}
+_rb_assert_after '| Root (`skills/review/SKILL.md`) |' \
+  "$(_rb_grouped "$_R_L") / $(_rb_grouped "$_R_W") / $(_rb_grouped "$_R_B") / $(_rb_grouped "$_R_T")" "Root"
+_rb_assert_after '| Complete bundle |' \
+  "$(_rb_grouped "$_C_L") / $(_rb_grouped "$_C_W") / $(_rb_grouped "$_C_B") / $(_rb_grouped "$_C_T")" "Complete bundle"
+_rb_assert_after '| Default per-pass unique path |' \
+  "$(_rb_grouped "$_D_L") / $(_rb_grouped "$_D_W") / $(_rb_grouped "$_D_B") / $(_rb_grouped "$_D_T")" "Default per-pass"
+_rb_assert_after '| Max incremental phase read |' \
+  "$(_rb_grouped "$_M_L") / $(_rb_grouped "$_M_W") / $(_rb_grouped "$_M_B") / $(_rb_grouped "$_M_T")" "Max incremental"
+_rb_assert_after '| Consumer extension (shipped repo copy) |' \
+  "$(_rb_grouped "$_E_L") / $(_rb_grouped "$_E_W") / $(_rb_grouped "$_E_B") / $(_rb_grouped "$_E_T")" "Consumer extension"
+# Ceilings — the AC2 rows' Measured + Margin cells (the AC3 row is pinned by #618 above).
+# 8,500 / 25,327 are enforcement CONSTANTS (exempt); the measured + margins render live.
+_rb_rootext=$((RB_ROOT_W + RB_EXT_W))            # 7,701
+_rb_re_margin=$((8500 - _rb_rootext))            # 799
+_rb_reduction=$((33815 - _rb_rootext))           # 26,114 = baseline - (root+ext)
+_rb_red_margin=$((_rb_reduction - 25327))        # 787
+_rb_ce_row="$(grep -F '| Root + shipped extension (AC2) |' "$RB_DOC" | head -1)"
+assert_eq "#656: the AC2 root+extension Ceilings row renders Measured + Margin live" "yes" \
+  "$(case "$_rb_ce_row" in *"| **$(_rb_grouped "$_rb_rootext")** | $(_rb_grouped "$_rb_re_margin") |"*) echo yes ;; *) echo no ;; esac)"
+_rb_rd_row="$(grep -F '| Reduction vs the 33,815 baseline (AC2) |' "$RB_DOC" | head -1)"
+assert_eq "#656: the AC2 reduction Ceilings row renders Measured + Margin live" "yes" \
+  "$(case "$_rb_rd_row" in *"| **$(_rb_grouped "$_rb_reduction")** | $(_rb_grouped "$_rb_red_margin") |"*) echo yes ;; *) echo no ;; esac)"
+# Execution-weighted — the After + Delta cell group of every row, plus the two prose-bullet
+# after figures and the token columns. Tokens round PER PASS then multiply (ceil(bytes/4)×N).
+# Reuse the existing _rb_ceil4 (defined above) so the ceil(bytes/4) token ratio lives
+# in ONE place — a change to it cannot silently desync these pins from the AC4 RECORD row.
+_rb_base_t=$(_rb_ceil4 "$RB_BASELINE_BYTES")      # 59,279
+_rb_sa_t=$(_rb_ceil4 "$RB_STANDALONE_BYTES")      # 53,701
+_rb_raf_t=$(_rb_ceil4 "$RB_RAF_BYTES")            # 52,166
+_rb_assert_exec() {  # label-grep  afterB afterT  N(before/after multiplier)  human-name
+  local _row _aB="$2" _aT="$3" _n="$4" _row_lit
+  _row="$(grep -F "$1" "$RB_DOC" | head -1)"
+  _row_lit="| $(_rb_grouped "$_aB") / $(_rb_grouped "$_aT") | **$(_rb_sgrouped $(( _aB - RB_BASELINE_BYTES * _n ))) / $(_rb_sgrouped $(( _aT - _rb_base_t * _n )))** |"
+  assert_eq "#656: the '$5' Execution-weighted row renders its After + Delta cells live" "yes" \
+    "$(case "$_row" in *"$_row_lit"*) echo yes ;; *) echo no ;; esac)"
+}
+_rb_assert_exec '| Standalone review (1 pass) |'                    "$RB_STANDALONE_BYTES"   "$_rb_sa_t"          1 "Standalone review"
+_rb_assert_exec '| One normal + shadow pass |'                      "$((RB_RAF_BYTES * 2))"  "$((_rb_raf_t * 2))" 2 "One normal + shadow"
+_rb_assert_exec '| Bounded multi-iteration (2 iters + shadow) |'    "$((RB_RAF_BYTES * 3))"  "$((_rb_raf_t * 3))" 3 "Bounded 2-iter"
+_rb_assert_exec '| Bounded multi-iteration (3 iters + shadow) |'    "$((RB_RAF_BYTES * 4))"  "$((_rb_raf_t * 4))" 4 "Bounded 3-iter"
+_rb_sa_bullet="$(grep -F '`standalone_path`' "$RB_DOC" | head -1)"
+assert_eq "#656: the standalone_path prose bullet renders its after bytes/tokens live" "yes" \
+  "$(case "$_rb_sa_bullet" in *"($(_rb_grouped "$RB_STANDALONE_BYTES") B / $(_rb_grouped "$_rb_sa_t") tok)"*) echo yes ;; *) echo no ;; esac)"
+_rb_raf_bullet="$(grep -F '`raf_path`' "$RB_DOC" | head -1)"
+assert_eq "#656: the raf_path prose bullet renders its after bytes/tokens live" "yes" \
+  "$(case "$_rb_raf_bullet" in *"($(_rb_grouped "$RB_RAF_BYTES") B / $(_rb_grouped "$_rb_raf_t") tok)"*) echo yes ;; *) echo no ;; esac)"
+# Justified growth — the WORDS figure (the bytes figure is already the growth-bytes RECORD row).
+_rb_growth_words=$((_C_W - 33815))                # 642 = complete words - baseline words
+_rb_grow_line="$(grep -F 'grows by **' "$RB_DOC" | head -1)"
+assert_eq "#656: the Justified-growth sentence renders its words/bytes figures live" "yes" \
+  "$(case "$_rb_grow_line" in *"**$(_rb_grouped "$_rb_growth_words") words / $(_rb_grouped "$((_C_B - RB_BASELINE_BYTES))") bytes**"*) echo yes ;; *) echo no ;; esac)"
+# The SAME growth figure is also stated in the Formulas' Complete-bundle bullet. It carried
+# a stale hand-transcribed pre-#642 value (+2,925) that contradicted the very figure this doc
+# reconciles — the exact "a reader treats it as current, it rots silently" class, surviving
+# only because it sat OUTSIDE every governed sentinel. It is now sentineled and rendered live
+# from the same operand, so the two statements cannot diverge again.
+_rb_cbg_line="$(grep -F 'against baseline by **' "$RB_DOC" | head -1)"
+assert_eq "#656: the Complete-bundle formula bullet renders the growth words live" "yes" \
+  "$(case "$_rb_cbg_line" in *"against baseline by **$(_rb_grouped "$_rb_growth_words") words**"*) echo yes ;; *) echo no ;; esac)"
+
+# ── #656 partition scan — the durable anti-drift guard (AC6/AC7) ──────────────────
+# ACCOUNTED = every reconciled figure rendered LIVE above (a drift makes it absent -> the
+# scan flags the doc's now-different figure). EXEMPT = the registered frozen figures that
+# genuinely cannot be rendered from a live measurement, each with a one-line rationale. The
+# helper extracts every figure inside the doc's sentinel-delimited governed regions and
+# prints any figure in NEITHER set; a non-empty print is RED. This is the partition
+# assertion of AC6: reconciled ∪ exempt must cover the enumerated governed set.
+# LOAD-BEARING coupling: every figure added to the accounted set below MUST also
+# carry a positional whole-row pin above (an _rb_assert_after / _rb_assert_exec /
+# ceilings / bullet / growth assertion). The partition scan is set-based and
+# add-directional — it flags a figure present-but-unknown, but it does NOT catch a
+# governed cell drifting to a value equal to ANOTHER accounted figure, nor a
+# deletion (the set merely shrinks). Those two are caught only by the positional
+# pins (wrong value / vanished row -> RED). Add an accounted figure here without a
+# positional pin and its drift-to-collision becomes silently invisible.
+_rb_acc="$(mktemp)"; _rb_exempt="$(mktemp)"
+{
+  # Static-size After cells (all five rows).
+  printf '%s\n' "$_R_L" "$_R_W" "$_R_B" "$_R_T" "$_C_L" "$_C_W" "$_C_B" "$_C_T" \
+    "$_D_L" "$_D_W" "$_D_B" "$_D_T" "$_M_L" "$_M_W" "$_M_B" "$_M_T" "$_E_L" "$_E_W" "$_E_B" "$_E_T"
+  # Ceilings measured + margins (AC2 rows) and the AC3 row cells.
+  printf '%s\n' "$_rb_rootext" "$_rb_re_margin" "$_rb_reduction" "$_rb_red_margin" \
+    "$_rb_shipped_w"
+  # Execution-weighted after + token + delta cells (all four rows) and the two prose bullets.
+  printf '%s\n' "$RB_STANDALONE_BYTES" "$_rb_sa_t" "$RB_RAF_BYTES" "$_rb_raf_t"
+  printf '%s\n' "$((RB_RAF_BYTES * 2))" "$((_rb_raf_t * 2))" "$((RB_RAF_BYTES * 3))" "$((_rb_raf_t * 3))" \
+    "$((RB_RAF_BYTES * 4))" "$((_rb_raf_t * 4))"
+  printf '%s\n' "$((RB_STANDALONE_BYTES - RB_BASELINE_BYTES))" "$((_rb_sa_t - _rb_base_t))" \
+    "$((RB_RAF_BYTES * 2 - RB_BASELINE_BYTES * 2))" "$((_rb_raf_t * 2 - _rb_base_t * 2))" \
+    "$((RB_RAF_BYTES * 3 - RB_BASELINE_BYTES * 3))" "$((_rb_raf_t * 3 - _rb_base_t * 3))" \
+    "$((RB_RAF_BYTES * 4 - RB_BASELINE_BYTES * 4))" "$((_rb_raf_t * 4 - _rb_base_t * 4))"
+  # Justified growth.
+  printf '%s\n' "$_rb_growth_words" "$((_C_B - RB_BASELINE_BYTES))"
+} > "$_rb_acc"
+cat > "$_rb_exempt" <<'RBEXEMPT'
+# Registered-exempt governed figures — frozen point-in-time, cannot be rendered from a
+# live measurement. Each line is a normalized figure; the rationale is in the comment above
+# its group. (Frozen figures that live OUTSIDE the doc's governed sentinels — the #618
+# decision-record illustrations, the run.sh historical comments — are out-of-governed by
+# construction and never reach this scan; they are documented at their sites.)
+#
+# Static-size / Execution-weighted BEFORE columns — the frozen pre-split baseline
+# (rev 4e2ae406). A historical measurement cannot change; re-rendering it is rejected.
+1559
+33378
+233903
+58476
+1604
+33815
+237113
+59279
+437
+3210
+803
+474226
+118558
+711339
+177837
+948452
+237116
+# Ceilings ENFORCEMENT CONSTANTS — the literal IS the check. 8,500 is live-gated
+# (RB_ROOT_W+RB_EXT_W <= 8500) and additionally pinned to CLAUDE.md below; 25,327 is the
+# AC2 reduction contract threshold (live-gated >= 25,327). Neither is a measurement.
+8500
+25327
+# Execution-weighted FORMULA multipliers (×1, ×2, ×(N+1), N=2, N=3) — table structure,
+# not a measurement. These tiny values MASK a collision: a governed cell that drifted to
+# 1, 2 or 3 would be silently accepted by this add-directional scan. That is covered by
+# the positional whole-row pins (a drifted cell breaks its row match -> RED); the scan is
+# never the sole guard for any accounted cell — see the LOAD-BEARING coupling note above.
+1
+2
+3
+RBEXEMPT
+# The AC3 row's two ENFORCEMENT CONSTANTS are exempt, not accounted: the partition's
+# semantic story is accounted = rendered from a LIVE measurement, exempt = frozen literal.
+# RB_SHIPPED_CEIL is the ceiling literal the gate compares against (and is pinned to
+# CLAUDE.md); RB_SHIPPED_MARGIN is the fixed 60-word margin that never moves (pinned by
+# AC5 below). Both are additionally covered positionally by the #618 whole-row assertion,
+# so exempting them here costs no drift coverage — and RB_SHIPPED_MARGIN, being small,
+# masks collisions on the same terms as the multipliers above.
+printf '%s\n%s\n' "$RB_SHIPPED_CEIL" "$RB_SHIPPED_MARGIN" >> "$_rb_exempt"
+_rb_partition="$(python3 "$LIB/test/rb-figure-partition.py" "$RB_DOC" "$_rb_acc" "$_rb_exempt")"
+assert_eq "#656 AC6: the governed budget figures partition into reconciled ∪ exempt (no figure unaccounted)" \
+  "" "$_rb_partition"
+
+# ── #656 AC7 — the partition guard is a mutation-proven behavioral-fix pin ────────
+# Each mutation reproduces a NAMED regression and is observed RED every suite run; the
+# unmutated scan is the GREEN case (the assertion above). These prove the guard catches the
+# guarded regression, not merely its own line vanishing. Evidence recorded in the workpad.
+# (a) DRIFT a governed figure in a scratch doc -> the drifted value is unaccounted -> RED.
+# The search value is derived from the LIVE measurement (never a checked-in literal), so a
+# legitimate bundle-size change re-renders the doc AND this mutation together — the guard's
+# own test cannot rot into a no-op sed (the drift class #656 exists to kill, inside the test).
+_rb_mut_from="$(_rb_grouped "$_rb_rootext")"; _rb_mut_to="$(_rb_grouped "$((_rb_rootext + 1))")"
+_rb_mut_a="$(mktemp)"; sed "s/\\*\\*${_rb_mut_from}\\*\\*/**${_rb_mut_to}**/" "$RB_DOC" > "$_rb_mut_a"
+assert_eq "#656 AC7(a): drifting the live root+ext measured cell makes the partition scan RED" "yes" \
+  "$([ -n "$(python3 "$LIB/test/rb-figure-partition.py" "$_rb_mut_a" "$_rb_acc" "$_rb_exempt")" ] && echo yes || echo no)"
+# (b) REMOVE a figure from both accounted sets -> that live figure is now unaccounted -> RED.
+_rb_acc_drop="$(mktemp)"; grep -vxF "$_rb_rootext" "$_rb_acc" > "$_rb_acc_drop"
+assert_eq "#656 AC7(b): removing a figure from the accounted set makes the partition scan RED" "yes" \
+  "$([ -n "$(python3 "$LIB/test/rb-figure-partition.py" "$RB_DOC" "$_rb_acc_drop" "$_rb_exempt")" ] && echo yes || echo no)"
+# (c) ADD an un-sentineled figure to a governed region (append a cell to the AC3 row) -> RED.
+# Search value derived from the LIVE AC3 measured cell + margin (never a checked-in literal);
+# 987654 is a fixed mutation-injected sentinel that is no real figure, so it is unaccounted.
+_rb_mut_ac3="| **$(_rb_grouped "$_rb_shipped_w")** | $RB_SHIPPED_MARGIN |"
+_rb_mut_c="$(mktemp)"; sed "s/${_rb_mut_ac3//\*/\\*}/${_rb_mut_ac3//\*/\\*} 987654 |/" "$RB_DOC" > "$_rb_mut_c"
+assert_eq "#656 AC7(c): adding an un-accounted figure to a governed region makes the partition scan RED" "yes" \
+  "$([ -n "$(python3 "$LIB/test/rb-figure-partition.py" "$_rb_mut_c" "$_rb_acc" "$_rb_exempt")" ] && echo yes || echo no)"
+# (d) non-vacuity: an EMPTY accounted set fails closed (the FATAL floor), never green.
+_rb_empty="$(mktemp)"; : > "$_rb_empty"
+assert_eq "#656 AC7(d): an empty accounted set fails closed (non-vacuity floor), never vacuously green" "yes" \
+  "$([ -n "$(python3 "$LIB/test/rb-figure-partition.py" "$RB_DOC" "$_rb_empty" "$_rb_exempt")" ] && echo yes || echo no)"
+# (e) non-vacuity: STRIPPING the governed sentinels makes the scan find no governed figure
+# -> FATAL floor -> RED. This is the floor the per-cell positional pins CANNOT cover (they
+# grep by row label, not by sentinel), so without it a doc that lost its sentinels would let
+# the whole guard silently no-op. Strip every rb:governed-begin/-end marker on a scratch doc.
+_rb_mut_e="$(mktemp)"; sed -e '/<!-- rb:governed-begin/d' -e '/<!-- rb:governed-end/d' "$RB_DOC" > "$_rb_mut_e"
+assert_eq "#656 AC7(e): stripping the governed sentinels fails closed (no governed figure -> FATAL), never vacuously green" "yes" \
+  "$([ -n "$(python3 "$LIB/test/rb-figure-partition.py" "$_rb_mut_e" "$_rb_acc" "$_rb_exempt")" ] && echo yes || echo no)"
+# (f) fail-closed: an unreadable DOC path prints FATAL (non-empty) -> RED, never a silent pass.
+assert_eq "#656 AC7(f): an unreadable doc path fails closed (FATAL), never vacuously green" "yes" \
+  "$([ -n "$(python3 "$LIB/test/rb-figure-partition.py" "$RB_DOC.nonexistent-$$" "$_rb_acc" "$_rb_exempt")" ] && echo yes || echo no)"
+# (g) DRIFT-TO-COLLISION: rewrite one accounted cell to ANOTHER accounted figure's value.
+# The set-based scan CANNOT see this (the value is still a known figure) — it is exactly the
+# hole the LOAD-BEARING coupling note above names, and the POSITIONAL pin is what closes it.
+# So this mutation asserts (i) the scan stays silent and (ii) the row's positional literal
+# no longer matches, proving the pin — not the scan — is the guard carrying that class.
+_rb_mut_g="$(mktemp)"
+sed "s/| $(_rb_grouped "$_C_L") \/ $(_rb_grouped "$_C_W") \/ $(_rb_grouped "$_C_B") \/ $(_rb_grouped "$_C_T") |/| $(_rb_grouped "$_C_L") \/ $(_rb_grouped "$_D_W") \/ $(_rb_grouped "$_C_B") \/ $(_rb_grouped "$_C_T") |/" "$RB_DOC" > "$_rb_mut_g"
+assert_eq "#656 AC7(g): drift-to-collision is INVISIBLE to the set-based scan (the hole the positional pin exists to close)" "" \
+  "$(python3 "$LIB/test/rb-figure-partition.py" "$_rb_mut_g" "$_rb_acc" "$_rb_exempt")"
+assert_eq "#656 AC7(g): drift-to-collision breaks the Complete-bundle POSITIONAL row pin -> RED" "no" \
+  "$(case "$(grep -F '| Complete bundle |' "$_rb_mut_g" | head -1)" in *"| $(_rb_grouped "$_C_L") / $(_rb_grouped "$_C_W") / $(_rb_grouped "$_C_B") / $(_rb_grouped "$_C_T") |"*) echo yes ;; *) echo no ;; esac)"
+# (h) UN-GOVERNING a prose figure: move the `<!-- rb:fig -->` marker off the figure's own
+# line (the rewrap an editor makes without thinking). The figure stops being scanned, so a
+# whole-doc floor alone would stay green; the PER-REGION floor is what turns it RED.
+_rb_mut_h="$(mktemp)"; sed 's/ <!-- rb:fig -->//' "$RB_DOC" > "$_rb_mut_h"
+assert_eq "#656 AC7(h): un-governing a prose figure (rb:fig marker moved off its line) fails closed per-region, never vacuously green" "yes" \
+  "$([ -n "$(python3 "$LIB/test/rb-figure-partition.py" "$_rb_mut_h" "$_rb_acc" "$_rb_exempt")" ] && echo yes || echo no)"
+rm -f "$_rb_acc" "$_rb_exempt" "$_rb_mut_a" "$_rb_acc_drop" "$_rb_mut_c" "$_rb_empty" "$_rb_mut_e" "$_rb_mut_g" "$_rb_mut_h"
+
+# ── #656 AC5 — pin CLAUDE.md's enforcement CONSTANTS (8,500 and 60) ───────────────
+# 8,500 is the root+extension ceiling literal; 60 is RB_SHIPPED_MARGIN, which never moves.
+# Both are live-enforced, so a CLAUDE.md edit to either must turn the suite RED — extending
+# the existing 32,399/30,076 ceiling-phrase pin pattern. 30,100 is DELIBERATELY NOT pinned:
+# it is the at-most-30,100 target (#642 already achieved it; the live ceiling is now 30,076,
+# and 30,100 remains only as target prose), NOT an enforcement constant — pinning it would
+# trap a future renegotiation that lowers the target further. Registered-exempt for that reason.
+assert_pin_unique "#656 AC5: CLAUDE.md pins the root+extension 8,500-word ceiling constant" \
+  'root+extension ≤ 8,500 words' "$RB_CLAUDEMD"
+assert_pin_unique "#656 AC5: CLAUDE.md pins the fixed 60-word margin constant" \
+  'a fixed 60-word margin' "$RB_CLAUDEMD"
+# Mutation-proof the two constant pins catch the guarded edit (not merely their own removal).
+assert_pin_red_under "#656 AC5: the 8,500 ceiling pin REDs when the constant is edited" \
+  'root+extension ≤ 8,500 words' 's/≤ 8,500 words/≤ 8,400 words/' "$RB_CLAUDEMD"
+assert_pin_red_under "#656 AC5: the 60-word margin pin REDs when the constant is edited" \
+  'a fixed 60-word margin' 's/60-word margin/70-word margin/' "$RB_CLAUDEMD"
+
 # ── The extractor discriminates BETWEEN the two allowlists (it is not a
 # ── fail-always / pass-always stub): the same skill head is ungranted by one
 # ── fixture profile and granted by the other.
@@ -36683,13 +36965,27 @@ RAF_ROOT_CEIL=3567
 # DIRECT reception pass inherits it, not only the loop. The relocation is per-surface neutral, but
 # the direct-pass framing the extension now needs (a self-contained intro) plus the root's residual
 # loop-tail pointer net +81 words on the always-loaded surface (root -149, receiving ext +230).
+# Measured against the up-to-date-with-main tree with ~4 words of headroom per #619's convention.
+# Update docs/review-and-fix-budget.md's ceilings-table and Measured cells in lockstep; the audited
+# decision is docs/cutovers/issue-640-direct-pass-editor-authority.md.
 # #621 then added the settled-by-disclosure foreclosure vocabulary to shadow-review.md (the
 # max-step reference), re-raising the max-step ceiling 18996->19073 (measured + ~4 headroom).
-# Measured against the up-to-date-with-main tree. Update docs/review-and-fix-budget.md's
-# ceilings-table and Measured cells in lockstep; the audited decisions are
-# docs/cutovers/issue-640-direct-pass-editor-authority.md and this issue's budget-doc note.
-RAF_LOAD_CEIL=7734
-RAF_MAXSTEP_CEIL=19073
+# #655 raised both ceilings again, on top of #640 and #621, measured against the merged tree. The
+# generalized regenerate-on-conflict rule the issue mandates is byte-identical across the three
+# DevFlow prompt extensions, and TWO of those (review-and-fix.md and receiving-code-review.md)
+# are on this bundle's always-loaded surface since #620 — so the rule lands on the initial load
+# twice, 476 words each. It cannot be split or shortened past its operative minimum: AC7 pins
+# the three copies byte-identical and requires the oracle citation, the conflict-path/
+# conflict-sibling match, the class+recipe read, and BOTH fail-closed defaults (path not among
+# them; --list unrunnable). Both ceilings carry the repo's usual ~4 words over the measurement,
+# for the #556/#619/#618 reason: a ceiling set exactly at the measurement makes the next
+# one-sentence edit a budget breach. The growth is the audited decision recorded in
+# docs/cutovers/issue-655-conflict-oracle.md; update docs/review-and-fix-budget.md's
+# ceilings-table cells in lockstep. The max-step ceiling below sits on #621's 19073 base, not
+# #640's 18996 — this branch's +952 is applied to the merged tree's measurement, never to the
+# pre-merge one.
+RAF_LOAD_CEIL=8686
+RAF_MAXSTEP_CEIL=20025
 assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
   "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"
 assert_eq "#530 budget: root + always-loaded extensions (initial load) <= $RAF_LOAD_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W)))" "yes" \
@@ -36743,7 +37039,7 @@ done
 assert_eq "#620 budget: maintainer note's prose root ceiling matches RAF_ROOT_CEIL ($RAF_ROOT_CEIL)" "yes" \
   "$(case "$_raf_doc_nocommas" in *"The root sits below its ${RAF_ROOT_CEIL}-word"*) echo yes;; *) echo no;; esac)"
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +5,997 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +6,045 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute
@@ -36768,6 +37064,18 @@ _raf_cum_row="${_raf_cum_row//,/}"
 _raf_cum_row="${_raf_cum_row//\*/}"
 assert_eq "#530 budget: doc cumulative-path words cell matches fresh measurement ($RAF_CUM_W)" "yes" \
   "$(case "$_raf_cum_row" in *"| — | $RAF_CUM_W | — |"*) echo yes;; *) echo no;; esac)"
+# #655: the growth bullet's HEADLINE literal was the only bound figure, so the bullet's own BODY
+# — which restates the cumulative, the BEFORE basis, and the peak — went stale under this change's
+# ceiling renegotiation and shipped desk-green past the pin below (the #539 stale-cell class, one
+# level in). Bind those three body figures to the same live measurements. Commas are stripped so
+# the doc's comma-separated rendering matches the computed integer, as the sibling row checks do.
+_raf_body="$(tr -d ',' < "$RAF_BUDGET_DOC")"
+assert_eq "#655 budget: the growth bullet body's cumulative figure matches fresh measurement ($RAF_CUM_W)" "yes" \
+  "$(case "$_raf_body" in *"is $RAF_CUM_W words vs."*) echo yes;; *) echo no;; esac)"
+assert_eq "#655 budget: the growth bullet body's BEFORE basis matches monolith + live extension ($((36201 + RAF_EXT_W)))" "yes" \
+  "$(case "$_raf_body" in *"vs. $((36201 + RAF_EXT_W))"*) echo yes;; *) echo no;; esac)"
+assert_eq "#655 budget: the justified-growth prose peak figure matches fresh measurement ($((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W+RAF_MAXREF_W)))" "yes" \
+  "$(case "$_raf_body" in *"peak $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W+RAF_MAXREF_W)) words not $RAF_CUM_W"*) echo yes;; *) echo no;; esac)"
 _raf_doc_growth="$(grep -F 'named justified-growth warning): +' "$RAF_BUDGET_DOC" | head -n 1 || true)"
 _raf_doc_growth="${_raf_doc_growth##*warning): +}"
 _raf_doc_growth="${_raf_doc_growth%% words*}"
