@@ -256,7 +256,7 @@ Per execution tier:
 
 | Tier / dispatch context | Per-agent effort application point | Per-agent effort applied? |
 |---|---|---|
-| **Cloud** review — fresh `claude-code-action` process per run | `session-fallback` (see spike note) | **No** — the process-start `--agents` effort seam is **hypothesized but unproven** (no `--agents` usage exists in `.github/`); until a seam spike proves it, the cloud per-agent row is honest fallback identical to local. |
+| **Cloud** review — fresh `claude-code-action` process per run | `session-fallback` (see spike note) | **No** — the process-start `--agents` effort seam is **hypothesized but unproven**; the only `--agents` usage in `.github/` is the [seam probe](agents-seam-probe.md) itself (`.github/workflows/agents-seam-probe.yml`), which is authored but not yet dispatched to a `SEAM_PROVEN` verdict, so until it proves the seam the cloud per-agent row is honest fallback identical to local. |
 | **Cloud/local session effort** — `devflow.effort` / `devflow_implement.effort` / `devflow_runner.effort` | `process-start-session` | Session-wide, not per-agent — capability-gated by `effort_supported` (#313). |
 | **Local** review — already-running interactive session dispatching via the Agent tool | `session-fallback` | **No** — the Agent tool carries `model` but no effort, and no per-dispatch `--agents` injection exists; the run reports the limitation and effective fallback with a reason. |
 
@@ -307,11 +307,16 @@ default, and a caller that knows the provider capability passes it in.
 > **Spike-gated applied arm (`agent-definition`).** A per-agent *applied* arm — composing the
 > resolved effort into a process-start agent-definition the platform reads at launch — exists only
 > where an empirical spike in the real `claude-code-action` proves the startup `--agents` effort seam
-> is reachable AND governs a runtime Agent-tool dispatch. That spike is a deferred follow-up; until it
-> proves the seam, **no per-agent effort application code ships** and every tier records honest
-> fallback. On a proven applied arm the recorded `effective` would be the effort *composed into* the
-> agent-definition — a spike-grounded proxy for the effort the dispatch reasons at, re-established by
-> re-running the spike after a `claude-code-action` upgrade, **not** a per-run measurement.
+> is reachable AND governs a runtime Agent-tool dispatch. That spike is implemented as the
+> [`agents-seam-probe.yml`](../.github/workflows/agents-seam-probe.yml) probe, whose deterministic
+> verdict helper is `scripts/agents-seam-probe-verdict.py` and whose recorded evidence of record is
+> [agents-seam-probe.md](agents-seam-probe.md) (issue #610). **The probe is authored but not yet
+> dispatched to a `SEAM_PROVEN` verdict**, so until a dispatch proves BOTH facts (forwarding, and a
+> human-adjudicated effort-governance self-report), **no per-agent effort application code ships** and
+> every tier records honest fallback. On a proven applied arm the recorded `effective` would be the
+> effort *composed into* the agent-definition — a spike-grounded proxy for the effort the dispatch
+> reasons at, re-established by re-running the spike after a `claude-code-action` upgrade, **not** a
+> per-run measurement.
 
 The helper must be the command's **leading token** (the same cloud allow-list rule that governs
 `workpad.py`); `OVERRIDES=$(…/resolve-review-overrides.py …)` is fine — the path is the leading
