@@ -41,9 +41,12 @@ Subcommands:
                       name one of the skill's four durable channels; a channel-less
                       deferral is rejected with a named breadcrumb.
 
-Failure discipline (mirrors scripts/verification-flight.py): every error path
-writes an attributable {"ok": false, "reason": …} record to STDERR, prints
-nothing a caller would read as a derived identity on stdout, and exits non-zero.
+Failure discipline (mirrors scripts/verification-flight.py): once argument
+parsing has succeeded, every error path writes an attributable
+{"ok": false, "reason": …} record to STDERR, prints nothing a caller would read
+as a derived identity on stdout, and exits non-zero. Argument errors are the one
+exception and are argparse's: a missing or invalid option exits 2 with usage text
+and no JSON record, before any command body runs.
 Before writing any artifact — on BOTH the `record` and `append-disposition`
 paths, since `--session-dir` is per-invocation and nothing binds an append to the
 directory a prior record validated — the helper confirms its session directory is
@@ -107,6 +110,21 @@ DEFERRAL_KINDS = frozenset(DISPOSITION_KINDS) - {"fixed"}
 #   * IdentityError.reason's closed vocabulary is documented but not enforced as
 #     a type. WHY deferred: reasons are asserted by the test suite's breadcrumb
 #     pins. Revisit if reasons become a consumed API rather than diagnostics.
+#   * `record` is NOT idempotent for the identity artifact in the AC's literal
+#     sense: the identity is re-derived every call, so a same-token re-record
+#     against an edited tree rebinds the token. WHY deferred: rebinding is the
+#     correct semantics for a CONTENT identity (the compaction/resume re-run
+#     depends on it), and it is never silent — `rebound_from` on stdout plus a
+#     stderr warning name both values. Revisit when a consumer keys behavior off
+#     token→identity stability rather than reading the artifact.
+#   * verification-flight's attach path does not compare `candidate_identity`:
+#     two declarations sharing a `checkout` fingerprint but differing in that
+#     field map to one handle and the attacher receives the first claimer's
+#     value. WHY deferred: the field is deliberately outside the flight key
+#     (that is what keeps every stored handle valid), so comparing it would
+#     change reuse semantics — a decision belonging to the consumer that first
+#     needs it. Revisit when a caller reads the handle's candidate_identity as
+#     authoritative for its own checkout.
 # The skill's four durable deferral channels, in its stated order of preference.
 CHANNELS = ("loop-record", "code-comment", "pr-thread", "follow-up-issue")
 
@@ -320,9 +338,22 @@ def _check_ledger_tags(record: dict, token: str) -> "str | None":
 
 
 def _session_dir(args) -> Path:
-    if args.session_dir:
-        return Path(args.session_dir)
-    return Path(_repo_root(args)) / SESSION_DIRNAME
+    """The session artifact directory, always ABSOLUTE.
+
+    The ignore precondition runs `git check-ignore` with `cwd=_repo_root(args)`,
+    while the writes resolve their `Path` against the PROCESS cwd. A relative
+    `--session-dir` (or `--repo-root`) therefore made the guard answer about one
+    path while the write landed on another — the guard passing on an ignored
+    `<root>/.devflow/...` while the artifacts were created at
+    `<cwd>/.devflow/...`, untracked and NOT ignored, which is exactly the
+    self-invalidating identity the precondition exists to prevent (and, in the
+    mirror case, a `session_dir_not_ignored` refusal naming a remedy already
+    present). Resolving relative paths against the repo root — the same base the
+    ignore check uses — makes the checked path and the written path the same
+    bytes on every arm.
+    """
+    d = Path(args.session_dir) if args.session_dir else Path(SESSION_DIRNAME)
+    return d if d.is_absolute() else (Path(_repo_root(args)) / d)
 
 
 def _check_ignored(sample_path: Path, cwd: str) -> "bool | None":
@@ -366,7 +397,10 @@ def cmd_record(args) -> int:
     except ri.IdentityError as exc:
         return _fail(f"identity:{exc.reason}")
 
-    token = args.token or secrets.token_hex(_TOKEN_LEN_HEX // 2)
+    # `is None`, not falsiness: an explicitly-empty --token is an INVALID token,
+    # not an absent one, and must be refused rather than silently minting a fresh
+    # nonce under a caller that believes it supplied a token.
+    token = secrets.token_hex(_TOKEN_LEN_HEX // 2) if args.token is None else args.token
     if not token or any(c not in "0123456789abcdef" for c in token):
         return _fail("invalid_token")
 
@@ -623,12 +657,15 @@ def main(argv: "list[str] | None" = None) -> int:
     try:
         return args.func(args)
     except Exception as exc:  # noqa: BLE001 - contract: no bare traceback escapes
-        # The module contract is that EVERY error path emits the attributable
+        # Every error path IN A COMMAND BODY emits the attributable
         # {"ok": false, "reason": ...} record. Without this arm a residual
         # exception (a non-serializable value reaching json.dumps, an OSError
         # subclass raised outside a guarded block) escaped as a raw traceback —
         # a shape no consumer parsing the contracted record reads as a failure.
         # The class name keeps it attributable without leaking the message.
+        # Argument errors are deliberately NOT covered: argparse raises
+        # SystemExit (a BaseException) from parse_args above this block, so a bad
+        # option exits 2 with usage text and no record — the documented exception.
         return _fail(f"internal_error:{exc.__class__.__name__}")
 
 

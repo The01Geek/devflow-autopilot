@@ -7,8 +7,10 @@ type: Added
   artifacts.** Two bundled helpers ship: `scripts/reception_identity.py`, an importable
   stdlib-only routine that derives a content-based **candidate identity** — the git tree object
   ID of the working-tree content (tracked content plus untracked non-ignored files, with
-  gitignored content, HEAD, and the index excluded), through a temporary index seeded from the
-  current index so the repository's own index is never touched and no history is read; and
+  gitignored content and HEAD excluded), through a temporary index seeded from the
+  current index so the repository's own index is never touched and no history is read. The
+  seeded index is an input, not an exclusion: an entry git does not re-stat (skip-worktree
+  under a sparse checkout, or `assume-unchanged`) is decided by its index content. Also
   `scripts/reception-record.py`, a CLI whose one `record` invocation derives that identity, mints
   a per-session cryptographic claim-context nonce, and writes an identity artifact, a per-finding
   disposition ledger, and a fixed-name session pointer under the gitignored session directory —

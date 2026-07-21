@@ -365,8 +365,10 @@ class RecordCliTests(unittest.TestCase):
         self.assertEqual(p2["candidate_identity"], ri.derive_candidate_identity(str(r.path)))
         # and the rebind is surfaced on both channels, naming the superseded value
         self.assertEqual(p2["rebound_from"], p1["candidate_identity"])
-        warn = json.loads(err.strip().splitlines()[-1])
-        self.assertEqual(warn["warning"], "candidate_identity_rebound")
+        # Located by NAME, not by position: an unrelated warning (e.g. a failed
+        # session-dir chmod) is emitted after this one on some hosts and would
+        # otherwise displace the record under test.
+        warn = ReviewFixTests._warning(err, "candidate_identity_rebound")
         self.assertEqual(warn["previous_candidate_identity"], p1["candidate_identity"])
         self.assertEqual(warn["candidate_identity"], p2["candidate_identity"])
 
@@ -709,6 +711,47 @@ class ReviewFixTests(unittest.TestCase):
 
     # Positive control on the SAME fixture: it is otherwise valid and the call
     # succeeds but for the one property under test (guard-class shape 3).
+    def test_relative_session_dir_is_checked_and_written_at_one_path(self):
+        """The ignore guard must validate the path the write actually uses.
+
+        Round-2 shadow: `git check-ignore` ran with cwd=repo-root while the write
+        resolved its Path against the PROCESS cwd, so a relative --session-dir
+        made the guard pass on an ignored <root>/.devflow/... while the artifacts
+        landed at <cwd>/.devflow/... — untracked, NOT ignored, and therefore part
+        of the very content the identity hashes. Both halves are pinned: the
+        artifacts land under the repo root, and the tree stays clean.
+        """
+        r = self._repo()
+        r.write("a.txt", "x\n")
+        sub = r.path / "nested" / "deep"
+        sub.mkdir(parents=True)
+        rel = os.path.join(".devflow", "tmp", "reception-sessions")
+        code, out, err = self._run(
+            ["record", "--session-dir", rel], cwd=str(sub))
+        self.assertEqual(code, 0, err)
+        payload = json.loads(out)
+        self.assertEqual(
+            Path(payload["identity_path"]).resolve().parent,
+            (r.path / rel).resolve())
+        self.assertFalse((sub / ".devflow").exists())
+        # The write added no non-ignored content, so the identity it recorded is
+        # still the identity of the tree right after the write.
+        self.assertEqual(
+            payload["candidate_identity"], ri.derive_candidate_identity(str(r.path)))
+        porcelain = git(r.path, "status", "--porcelain").stdout
+        self.assertNotIn("nested", porcelain)
+
+    def test_explicitly_empty_token_is_refused_not_silently_minted(self):
+        # `--token ""` is an INVALID token, not an absent one; falsiness-based
+        # defaulting silently minted a fresh nonce under a caller that believed
+        # it had supplied one.
+        r = self._repo()
+        code, out, err = self._run(
+            ["record", "--repo-root", str(r.path), "--token", ""])
+        self.assertNotEqual(code, 0)
+        self.assertEqual(out, "")
+        self.assertIn("invalid_token", err)
+
     def test_findings_ledger_absent_tags_refused(self):
         """An ABSENT discriminator is not agreement.
 
