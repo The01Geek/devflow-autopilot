@@ -13,8 +13,11 @@
 *.py  text eol=lf
 *.jq  text eol=lf
 
-# Reserved exception: a future test fixture that must keep literal CRLF or raw
-# bytes (e.g. a CRLF-diff fixture under lib/test/fixtures/) would otherwise be
-# silently normalized to LF by `* text=auto`. When that case arises, add an
-# explicit `-text` line for it here, e.g.:
-#   lib/test/fixtures/crlf-sample.txt -text
+# Reserved exception (now in use): a test fixture that must keep literal CRLF or
+# raw bytes would otherwise be silently normalized to LF by `* text=auto` — and a
+# CRLF fixture normalized to LF makes its assertion VACUOUS rather than red, since
+# the fixture then matches the LF twin it is supposed to differ from. The two
+# entries below are the #664 scanner's line-ending and encoding fixtures; each
+# also overrides the `*.sh text eol=lf` rule above, which would otherwise win.
+lib/test/fixtures/ghapi-repo-path/adversarial-crlf.sh    -text
+lib/test/fixtures/ghapi-repo-path/adversarial-nonutf8.sh -text
