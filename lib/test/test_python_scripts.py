@@ -7150,9 +7150,47 @@ for _spec, _why in (
 # _classify_widening NEVER returns None — labelling can no longer drop a finding.
 for _spec, _label in (("/abs/workpad.py", "absolute"), ("*/workpad.py", "basename-wildcard"),
                       ("scripts/workpad.py", "repo-root"), ("lib/x.sh", "repo-root"),
-                      ("**/workpad.py", "wildcard"), ("workpad.py", "bare-name")):
+                      ("**/workpad.py", "wildcard"), ("workpad.py", "bare-name"),
+                      # The catch-all arm: a slash-bearing, glob-free spec matching
+                      # none of the enumerated prefixes. Asserted DIRECTLY here (the
+                      # covering-grant loop above only reaches it incidentally), so
+                      # the label table covers every arm _classify_widening returns.
+                      ("foo/bar.sh", "unclassified")):
     assert_eq("#650 AC9: _classify_widening('%s') labels as '%s' (never None)" % (_spec, _label),
               _label, cwc._classify_widening(_spec))
+
+# (l) Arm (2) is exercised on EVERY profile, not just implement. A non-sanctioned
+# widening injected into review / light-command must be caught there too — the
+# per-profile loop is what makes the guard's coverage profile-complete, and every
+# other arm-(2) fixture above targets implement alone.
+for _wp in ("review", "light-command"):
+    _gs_other = _cw_healthy_grants()
+    _gs_other[_wp] += "\nTOOLS='Bash(/abs/path/workpad.py:*)'"
+    assert_eq("#650 AC9: an unsanctioned widening in the '%s' profile is caught" % _wp,
+              True, any("widens" in e and ("'%s'" % _wp) in e and "absolute" in e
+                        for e in cwc.check_grant_sync(_gs_other)))
+
+# (m) Arm (1) and arm (2) fire on the SAME run: the guard ACCUMULATES errors
+# rather than returning on the first. Drop a required literal (arm 1) and inject
+# a widened grant (arm 2) into one profile, then assert both violations are
+# present in the single returned list.
+_gs_both = _cw_healthy_grants()
+_gs_both_lit = sorted(cwc.REQUIRED_HELPER_HEADS["implement"])[0]
+_gs_both["implement"] = _gs_both["implement"].replace(
+    "TOOLS='Bash(%s:*)'" % _gs_both_lit, "") + "\nTOOLS='Bash(/abs/path/workpad.py:*)'"
+_gs_both_errs = cwc.check_grant_sync(_gs_both)
+assert_eq("#650 AC9: arm (1) and arm (2) violations accumulate in one run (missing literal)",
+          True, any("grants no explicit Bash(%s:*)" % _gs_both_lit in e for e in _gs_both_errs))
+assert_eq("#650 AC9: arm (1) and arm (2) violations accumulate in one run (widened grant)",
+          True, any("widens" in e and "absolute" in e for e in _gs_both_errs))
+
+# (n) The unknown-profile fail-closed default. The live loop iterates sorted(ROOTS)
+# only, so `.get(profile, frozenset())` is unreachable through check_grant_sync
+# today — assert the read directly, so a future profile addition inherits an EMPTY
+# exemption set (fail-closed) rather than silently picking up another's wildcards.
+assert_eq("#650 AC9: an unknown profile gets an EMPTY sanctioned-wildcard set (fail-closed)",
+          frozenset(),
+          cwc.SANCTIONED_WILDCARD_GRANTS.get("a-future-profile", frozenset()))
 
 # A bare granted command that is NOT a reachable helper stays clean — the
 # healthy-tree control for the widened polarity above (every non-vendored grant
@@ -7200,7 +7238,7 @@ try:
     _gs_badbytes.write_bytes(b"TOOLS='Bash(\xff\xfe:*)'\n")
     cwc.ROOTS["review"]["workflow"] = ".devflow/tmp/gs-650-nonutf8.yml"
     assert_eq("#650 AC9: a non-UTF-8 workflow is reported unavailable, not a raw traceback "
-              "(UnicodeDecodeError is a ValueError, not an OSError)",
+              "(UnicodeDecodeError is named explicitly; it is not an OSError)",
               True, any("grant source unavailable" in e for e in cwc.check_grant_sync()))
 finally:
     cwc.ROOTS["review"]["workflow"] = _gs_orig_roots_wf

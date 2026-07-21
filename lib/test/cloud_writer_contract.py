@@ -521,12 +521,14 @@ def _grant_source_text(profile, profile_grants):
     workflow = ROOTS[profile]["workflow"]
     try:
         return (REPO_ROOT / workflow).read_text(encoding="utf-8")
-    # UnicodeDecodeError is a ValueError, NOT an OSError: a workflow carrying a
+    # UnicodeDecodeError is a ValueError subclass, NOT an OSError: a workflow carrying a
     # non-UTF-8 byte would otherwise escape this handler as a raw traceback and
     # abort the whole guard, defeating the very unknown-is-not-zero contract this
     # function documents. Catch both so an undecodable source is reported as
-    # unavailable exactly like an unreadable one.
-    except (OSError, ValueError):
+    # unavailable exactly like an unreadable one. Named precisely rather than as
+    # the broader ValueError so an unrelated future ValueError in this try body
+    # surfaces as a traceback instead of being masked as "source unavailable".
+    except (OSError, UnicodeDecodeError):
         return None
 
 
