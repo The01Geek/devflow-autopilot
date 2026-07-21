@@ -31,6 +31,40 @@ beside the issue-#593 exactly-3 repo-wide-scope-sentence count with a comment re
 why that count deliberately excludes the paraphrase. Read the two together — the count and
 the paraphrase pin are the same contract stated canonically and in paraphrase.
 
+## Pin-target routing after the issue-#614 split
+
+`skills/create-issue/SKILL.md` became a thin root plus marker-gated references under
+`skills/create-issue/references/` (issue #614), so every pre-existing pin in this module had
+to be routed to the surface that preserves its guarantee. The routing rule is decided, not
+per-pin ad hoc:
+
+| Pin class | Post-split target | Why |
+| --- | --- | --- |
+| Content-survival — the pin asserts a contract sentence still exists somewhere in the shipped skill | `$CI_BUNDLE` (root + the 9 references, concatenated) | Which reference currently hosts a sentence is an implementation detail that may be re-partitioned; "present-and-unique in the shipped skill" is the semantically correct claim. Deleting the sentence from a reference still turns the pin RED, because the bundle is rebuilt from the real files on every run. |
+| Location-sensitive — the pin asserts a sentence lives in a *specific* surface | that specific file | A bundle target would pass while the sentence sat anywhere, which is exactly what these pins exist to forbid. |
+
+The location-sensitive population is exactly:
+
+| Pin | Target | Reason |
+| --- | --- | --- |
+| `A skipped or degraded audit is **never silent**` | `$CI_SKILL` (root) | AC4 invariant 3 — the root is the sole home of this sentence; `step-4-present-create.md` carries a seam pointer to it, deliberately worded to quote no pinned literal. |
+| `**The audit summary line is mandatory and always renders**` | `$CI_SKILL` (root) | Same invariant, same reason. |
+| the `s/the evidence the audit ran and which arm it took//` mutation | `$CI_SKILL` (root) | Guards the same root sentence; a bundle target would let the invariant drift out of the root. |
+| `A fallback lifecycle is **never silent**` | `$CI_REF_FB_STATEOWNER` | AC4's second never-silent sentence; the two phrasings are near-identical, so a bundle target would collide their uniqueness. |
+| the four `#614 T4` purity representatives | each fallback reference, plus an absence sweep over the root and every step reference | AC8 — the whole claim is *where* the prose is not. |
+| the three `#275` A2b anchor call-site pins (`lib/test/run.sh`) | `step-4-present-create.md` (label helpers), the root (extension load) | Each pin follows the file that now performs the call. |
+
+`$CI_BUNDLE` is assembled in-module from the root plus the nine references (never a glob, so a
+dropped reference fails LOUD rather than silently shrinking the bundle), and `lib/test/run.sh`
+hoists an identical `CREATE_ISSUE_BUNDLE` and binds it through `CI_MOD_VARS` so these targets
+stay **resolved** under the pin-corpus meta-guard instead of dropping out of the lint. The two
+template files (`issue-template.md`, `audit-prompt-template.md`) are deliberately not bundle
+members: the split left them unchanged and they keep their own dedicated targets, so including
+them would add uniqueness collisions for prose that never moved.
+
+The `#614` block itself adds the structure (T1), marker (T2), budget (T3 + the AC7 planted-defect
+positive control), purity (T4), routing-table (T6), and extension-axis (T7) assertions.
+
 The generic test harness, registry validation, module registration, full-suite
 boundary, and module-runner tests stay global so deleting this module cannot also
 delete the checks that prove it is selected and executed. The shared pin/count/

@@ -28,6 +28,29 @@ CI_ROOT="${DEVFLOW_CREATE_ISSUE_CONTRACT_ROOT:-${LIB%/lib}}"
 CI_SKILL="$CI_ROOT/skills/create-issue/SKILL.md"
 CI_TMPL="$CI_ROOT/skills/create-issue/references/issue-template.md"
 CI_TMPL_AUDIT="$CI_ROOT/skills/create-issue/references/audit-prompt-template.md"  # #600 audit-prompt renderer template
+# #614: create-issue is a BUNDLE — a thin SKILL.md root plus marker-gated step and
+# fallback references under references/. A contract sentence lives in exactly one of
+# those sources, and which one is an implementation detail that may be re-partitioned,
+# so a CONTENT-survival pin asserts against the concatenated $CI_BUNDLE while a
+# LOCATION-sensitive pin (it asserts a sentence lives in a specific surface) keeps a
+# specific-file target. Each reference is also bound by name so a specific-file pin
+# resolves under the pin-corpus meta-guard.
+# shellcheck disable=SC2034  # AC5 specific-file pin-retarget seams: run.sh binds each of these
+# through CI_MOD_VARS so a step-reference retarget resolves under the pin-corpus meta-guard.
+# The four fallback siblings below are live T4 purity operands; these five are seams only.
+CI_REF_STEP2="$CI_ROOT/skills/create-issue/references/step-2-clarify.md"
+# shellcheck disable=SC2034  # pin-retarget seam (see the block comment above)
+CI_REF_STEP35="$CI_ROOT/skills/create-issue/references/step-3-5-steelman.md"
+# shellcheck disable=SC2034  # pin-retarget seam (see the block comment above)
+CI_REF_REVDELTA="$CI_ROOT/skills/create-issue/references/revision-delta.md"
+# shellcheck disable=SC2034  # pin-retarget seam (see the block comment above)
+CI_REF_STEP36="$CI_ROOT/skills/create-issue/references/step-3-6-audit.md"
+# shellcheck disable=SC2034  # pin-retarget seam (see the block comment above)
+CI_REF_STEP4="$CI_ROOT/skills/create-issue/references/step-4-present-create.md"
+CI_REF_FB_NOTASK="$CI_ROOT/skills/create-issue/references/fallback-no-task-tool.md"
+CI_REF_FB_READONLY="$CI_ROOT/skills/create-issue/references/fallback-read-only-sandbox.md"
+CI_REF_FB_DISPATCH="$CI_ROOT/skills/create-issue/references/fallback-audit-dispatch-arms.md"
+CI_REF_FB_STATEOWNER="$CI_ROOT/skills/create-issue/references/fallback-state-owner-unavailable.md"
 CI_EXT="$CI_ROOT/.devflow/prompt-extensions/create-issue.md"
 CI_OVERVIEW="$CI_ROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 CI_CLAUDE="$CI_ROOT/CLAUDE.md"
@@ -177,6 +200,31 @@ for _ci_maxi_member in "$CI_ROOT/skills/review-and-fix/SKILL.md" "$CI_ROOT"/skil
   fi
 done
 
+# The create-issue bundle (#614) backs every content-survival pin over the split
+# skill. run.sh hoists an identical build and binds it as the CI_BUNDLE --var so the
+# pin-corpus meta-guard resolves these targets; this in-module assembly is what the
+# focused run-module.sh path uses, mirroring the boundary-vs-self fixture-root split
+# above. Members are DERIVED FROM THE TREE by the same rule run.sh applies — every
+# references/*.md except the two unchanged template files — so a reference added later
+# cannot be routed and pinned while silently sitting outside the bundle that every
+# content-survival pin asserts against. A DROPPED reference is still caught loudly, by the
+# T1 routing-table reconciliation below (its routing row would name a file that is gone),
+# which is why deriving here costs no fail-loud coverage. The two template files keep their
+# own dedicated targets ($CI_TMPL / $CI_TMPL_AUDIT) and are unchanged by the split, so
+# including them would only add uniqueness collisions for prose that never moved.
+CI_BUNDLE="$_ci_tmp_root/create-issue-skill-bundle.md"
+: > "$CI_BUNDLE"
+for _ci_bundle_ref in "$CI_SKILL" "$CI_ROOT"/skills/create-issue/references/*.md; do
+  case "${_ci_bundle_ref##*/}" in issue-template.md|audit-prompt-template.md) continue ;; esac
+  if [ -r "$_ci_bundle_ref" ] && [ -s "$_ci_bundle_ref" ]; then
+    cat "$_ci_bundle_ref" >> "$CI_BUNDLE"
+    printf '\n' >> "$CI_BUNDLE"
+  else
+    assert_eq "ci module: create-issue-bundle member usable: $_ci_bundle_ref" \
+      "usable" "missing-empty-or-unreadable"
+  fi
+done
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "create-issue contract: module surfaces and inventory"
 # ────────────────────────────────────────────────────────────────────────────
@@ -218,30 +266,30 @@ echo "create-issue contract: issue #443 Step 3.6 fresh-context audit"
 devflow_module_pin_red_under "#443: Step 3.6 mandates the FILE/REVISE/DRAFT-UNREADABLE verdict line" \
   'whose only three legal values are exactly' 's/legal values are exactly//' "$CI_TMPL_AUDIT"
 devflow_module_pin_present "#522: Step 3.6 names the VERDICT: DRAFT-UNREADABLE legal value" \
-  'VERDICT: DRAFT-UNREADABLE' "$CI_SKILL"
+  'VERDICT: DRAFT-UNREADABLE' "$CI_BUNDLE"
 # Presence (not uniqueness): the FILE/REVISE verdict values recur across the template, the
 # summary example, and the act-on-the-verdict prose (the third value DRAFT-UNREADABLE is pinned
 # separately below) — the verdict-line CONTRACT is pinned uniquely above. Use the >=1
 # presence pin, not the exactly-one unique pin, because these values legitimately recur.
 devflow_module_pin_present "#443: Step 3.6 names the VERDICT: FILE legal value" \
-  'VERDICT: FILE' "$CI_SKILL"
+  'VERDICT: FILE' "$CI_BUNDLE"
 devflow_module_pin_present "#443: Step 3.6 names the VERDICT: REVISE legal value" \
-  'VERDICT: REVISE' "$CI_SKILL"
+  'VERDICT: REVISE' "$CI_BUNDLE"
 # Information-diet exclusion clause (maps to the information-diet AC): removing it re-anchors
 # the auditor on the drafting context — the exact regression the fresh-context mechanism prevents.
 devflow_module_pin_red_under "#443: audit prompt omits conversation, Step 1 findings, and the derivation artifact" \
   'omits the drafting conversation, the Step 1 findings report, and the Step 2 derivation artifact' \
-  's/omits the drafting conversation//' "$CI_SKILL"
-devflow_module_pin_unique '#443: audit prompt refers to "the draft", never "your draft"' 'never "your draft"' "$CI_SKILL"
+  's/omits the drafting conversation//' "$CI_BUNDLE"
+devflow_module_pin_unique '#443: audit prompt refers to "the draft", never "your draft"' 'never "your draft"' "$CI_BUNDLE"
 # Out-of-bounds on-disk artifacts (maps to the information-diet AC): the void clause is what
 # stops repository read access from silently re-anchoring the auditor on the drafter's reasoning.
 devflow_module_pin_red_under "#443: on-disk drafting artifacts are declared out of bounds (findings void)" \
-  'any finding derived from those files is void' 's/derived from those files is void//' "$CI_SKILL"
+  'any finding derived from those files is void' 's/derived from those files is void//' "$CI_BUNDLE"
 # Synchronous-dispatch sentence (maps to the dispatch AC): removing the blocking-wait wording
 # lets a launch acknowledgment be misread as the auditor's return.
 devflow_module_pin_red_under "#443: Step 3.6 dispatch waits for the completed result (synchronous)" \
   "wait for the subagent's completed result before proceeding" \
-  's/completed result before proceeding//' "$CI_SKILL"
+  's/completed result before proceeding//' "$CI_BUNDLE"
 # Degraded arm (maps to the degraded-arm AC). The #546 cutover moved this arm's ENTRY
 # classification into the tool (`query-next-action` answers `dispatch-inline-degraded`, driven
 # by run.sh's #546 next_action_budget_rows), so the old enumerated-failures literal is gone.
@@ -251,7 +299,7 @@ devflow_module_pin_red_under "#443: Step 3.6 dispatch waits for the completed re
 # pre-detect clause, re-introducing exactly that pre-detected skip.
 devflow_module_pin_red_under "#443: degraded arm is attempt-first, never pre-detected" \
   'never pre-detect a nested context and skip' \
-  's/never pre-detect a nested context and skip//' "$CI_SKILL"
+  's/never pre-detect a nested context and skip//' "$CI_BUNDLE"
 # Re-audit offer in the Step 4 revision loop (maps to the revision-loop AC). Repointed by the
 # #546 cutover's delta 9, which reordered the loop so the offer resolves BEFORE the confirm/
 # edit approval question; the offer itself survives verbatim as a prose obligation (the tool
@@ -260,12 +308,12 @@ devflow_module_pin_red_under "#443: degraded arm is attempt-first, never pre-det
 devflow_module_pin_red_under "#443: Step 4 revision loop offers a fresh re-audit" \
   '**offer a fresh re-audit** via the runner' \
   's/\*\*offer a fresh re-audit\*\* via the runner/skip any re-audit and proceed via the runner/' \
-  "$CI_SKILL"
+  "$CI_BUNDLE"
 # Dispatch-time fresh re-load of the extension (maps to the forwarding-freshness AC): removing
 # the fresh re-load lets a compaction-evicted turn-one load silently drop consumer dimensions.
 devflow_module_pin_red_under "#443/#600: consumer audit dimensions are re-loaded FRESH at dispatch time (renderer-native)" \
   'The re-load remains mandatory-fresh at dispatch' \
-  's/mandatory-fresh//' "$CI_SKILL"
+  's/mandatory-fresh//' "$CI_BUNDLE"
 # Forwarding-contract heading, pinned as a COUPLED PAIR (maps to the forwarding-contract and
 # extension-file ACs): the skill's forwarding sentence and this repo's live extension must both
 # carry the exact `## Audit dimensions` heading; either side drifting turns its pin RED.
@@ -283,18 +331,18 @@ devflow_module_pin_unique "#443: generic dimensions name execution-tier permissi
 # Reconciliation absence pin (maps to the reconciliation AC): the stale literal must be GONE from
 # the skill (it legitimately remains in CHANGELOG.md's historical entry, so this pin is FILE-scoped).
 assert_eq "#443: SKILL no longer carries the stale 'no-subagent, all-inline model' literal" \
-  "0" "$(devflow_module_pin_count 'no-subagent, all-inline model' "$CI_SKILL")"
+  "0" "$(devflow_module_pin_count 'no-subagent, all-inline model' "$CI_BUNDLE")"
 # Non-vacuity proof: re-introducing the stale literal makes the absence guard's count non-zero,
 # so the guard actually catches the regression rather than passing vacuously.
 CI443_MUT="$_ci_tmp_root/ci443-mut"
-sed -E '1s/^/REINTRODUCED no-subagent, all-inline model\n/' "$CI_SKILL" > "$CI443_MUT"
+sed -E '1s/^/REINTRODUCED no-subagent, all-inline model\n/' "$CI_BUNDLE" > "$CI443_MUT"
 assert_eq "#443: absence guard catches a re-introduction of the stale literal (non-vacuous)" \
   "1" "$(devflow_module_pin_count 'no-subagent, all-inline model' "$CI443_MUT")"
 rm -f "$CI443_MUT"
 # Anti-deadlock guarantee (maps to the VERDICT: REVISE / re-audit AC): removing it re-opens an
 # unbounded re-audit loop that could block issue filing.
 devflow_module_pin_red_under "#443: bounded re-audit never deadlocks filing" \
-  'the audit informs, it never deadlocks filing' 's/never deadlocks filing//' "$CI_SKILL"
+  'the audit informs, it never deadlocks filing' 's/never deadlocks filing//' "$CI_BUNDLE"
 # Mandatory never-silent audit summary line (maps to the audit-summary AC): the feature's
 # observability contract — a skipped/degraded audit must always render a summary line. The
 # #546 cutover moved the summary's FIELD SET to `query-summary` (a tool surface, driven by
@@ -316,11 +364,11 @@ devflow_module_pin_unique "#443: a skipped or degraded audit is never silent" \
 # mandatory rather than skippable — removing the presence check lets an un-audited draft show.
 devflow_module_pin_red_under "#443: Step 4 presentation gate confirms this run's audit artifact exists" \
   'confirm `.devflow/tmp/issue-audit-<slug>.md` is present' \
-  's/is present//' "$CI_SKILL"
+  's/is present//' "$CI_BUNDLE"
 # Audit-artifact write with delete-leftover-first (maps to the artifact-gate AC): mirrors the
 # Step 2 derivation-artifact discipline so the gated file can only ever be this run's.
 devflow_module_pin_red_under "#443: audit artifact deletes any same-slug leftover before writing" \
-  'deleting any same-slug leftover first' 's/deleting any same-slug leftover first//' "$CI_SKILL"
+  'deleting any same-slug leftover first' 's/deleting any same-slug leftover first//' "$CI_BUNDLE"
 # Audit-prompt template surfaces (maps to the audit-prompt AC, which requires EACH surface
 # pinned here). These are surface-PRESENCE contracts — the template must carry each named
 # element — so plain devflow_module_pin_unique is the honest primitive (a removed/duplicated surface
@@ -346,9 +394,9 @@ devflow_module_pin_unique "#443: the empty 'no actionable findings' output is ex
 # Audit-summary required contents (maps to the audit-summary AC — the observability contract's
 # operative fields, distinct from the never-silent rationale clause pinned above).
 devflow_module_pin_unique "#443: audit summary states whether a consumer audit-dimensions section was appended" \
-  'whether a consumer `## Audit dimensions` section was appended' "$CI_SKILL"
+  'whether a consumer `## Audit dimensions` section was appended' "$CI_BUNDLE"
 devflow_module_pin_unique "#443: audit summary renders the word degraded whenever the degraded arm ran" \
-  'the word "degraded"' "$CI_SKILL"
+  'the word "degraded"' "$CI_BUNDLE"
 
 # ── issue #522: Step 3.6 audits the canonical DRAFT FILE (not a hand-condensed copy), offers
 #    user-chosen audit rounds past the automatic cap, and Step 3.5 self-checks the audit
@@ -385,47 +433,47 @@ devflow_module_pin_unique "#443: audit summary renders the word degraded wheneve
 devflow_module_pin_red_under "#546: presentation eligibility is the tool's answer, never prose-decided" \
   'is presented for approval only after `query-eligibility --mode approve` answers `eligible=yes`' \
   's|\*\*A draft you are certain is clean is presented for approval only after `query-eligibility --mode approve` answers `eligible=yes`\.\*\* ||' \
-  "$CI_SKILL"
+  "$CI_BUNDLE"
 # The obey-the-tool contract's two supporting prose obligations (surfaces, not mutations): the
 # record-and-obey loop, and the closed prohibition on re-deriving a tool-owned decision.
 devflow_module_pin_unique "#546: the step records each lifecycle event through the tool and obeys its answer" \
-  'records each lifecycle event through that tool and obeys the answer it returns' "$CI_SKILL"
+  'records each lifecycle event through that tool and obeys the answer it returns' "$CI_BUNDLE"
 devflow_module_pin_unique "#546: no tool-owned decision is ever re-derived from this prose" \
   'Never re-derive a transition, a budget, a retry bound, a dispatch arm, or eligibility from this prose' \
-  "$CI_SKILL"
+  "$CI_BUNDLE"
 # An illegal-transition rejection is NOT unavailability (SKILL.md's contract line). Without
 # this rule a rejected mutation routes to the `state-owner unavailable` fallback — turning the
 # tool's fail-closed refusal into a licence to improvise around it, which is the fail-open the
 # whole state-owner cutover exists to close.
 devflow_module_pin_unique "#546: an illegal-transition rejection is not an unavailability signal" \
-  '**An illegal-transition rejection is NOT an unavailability signal.**' "$CI_SKILL"
+  '**An illegal-transition rejection is NOT an unavailability signal.**' "$CI_BUNDLE"
 devflow_module_pin_unique "#546: an illegal transition never routes to the state-owner-unavailable fallback" \
-  'Never route an illegal transition to the `state-owner unavailable` fallback below' "$CI_SKILL"
+  'Never route an illegal transition to the `state-owner unavailable` fallback below' "$CI_BUNDLE"
 # The `state-owner unavailable` fallback: its DISTINCT marker (distinct from `degraded`, which
 # keeps meaning the inline arm — the two never substitute, so the breadcrumb stays honest:
 # CLAUDE.md guard-class 2), its closed 2-class entry set, and its one-round/one-question bound.
 # The bare marker string recurs (6x in the fallback's own prose), so the marker is pinned via
 # its unique defining sentence rather than a bare-literal devflow_module_pin_unique.
 devflow_module_pin_unique "#546: the state-owner-unavailable fallback carries its own distinct summary marker" \
-  'The audit summary line carries the distinct marker **`state-owner unavailable`**' "$CI_SKILL"
+  'The audit summary line carries the distinct marker **`state-owner unavailable`**' "$CI_BUNDLE"
 devflow_module_pin_unique "#546: the state-owner-unavailable marker is distinct from the degraded marker" \
-  'is **distinct from `degraded`**' "$CI_SKILL"
+  'is **distinct from `degraded`**' "$CI_BUNDLE"
 devflow_module_pin_unique "#546: exactly 2 classes route to the state-owner-unavailable fallback" \
-  'Exactly **2 classes** route here, and nothing else' "$CI_SKILL"
+  'Exactly **2 classes** route here, and nothing else' "$CI_BUNDLE"
 devflow_module_pin_unique "#546: the state-owner-unavailable fallback is bounded to one round and one question" \
-  'bounded to one round and one question' "$CI_SKILL"
+  'bounded to one round and one question' "$CI_BUNDLE"
 # The fallback is never silent either (the AC's "a fallback lifecycle is never silent"), and it
 # never reconstructs a round's findings from memory.
 devflow_module_pin_unique "#546: the state-owner-unavailable fallback still renders the mandatory summary line" \
-  'A fallback lifecycle is **never silent**' "$CI_SKILL"
+  'A fallback lifecycle is **never silent**' "$CI_REF_FB_STATEOWNER"
 devflow_module_pin_unique "#546: a memory-reconstructed findings summary is never a legal discharge" \
   '**A findings summary reconstructed from memory and presented as a round'"'"'s real findings is never a legal discharge.**' \
-  "$CI_SKILL"
+  "$CI_BUNDLE"
 # (1) Pre-dispatch canonical write — removing it re-opens the condensation-drift channel (the
 #     auditor audits a hand-condensed copy instead of the exact file the implementer reads).
 devflow_module_pin_red_under "#522: Step 3.6 writes the canonical draft file before every dispatch" \
   'write the current rendered draft title + body to the canonical draft file' \
-  's/ to the canonical draft file//' "$CI_SKILL"
+  's/ to the canonical draft file//' "$CI_BUNDLE"
 # (2) Read-the-file-as-sole-draft-source — removing it lets the auditor judge an embedded/
 #     remembered copy, re-opening the same condensation-drift channel.
 devflow_module_pin_red_under "#522/#600: template reads the draft file as the sole draft source (amended two-transport ordering)" \
@@ -435,7 +483,7 @@ devflow_module_pin_red_under "#522/#600: template reads the draft file as the so
 #     file-arm out-of-bounds list makes the artifact under audit unreadable to the auditor.
 devflow_module_pin_red_under "#522: draft file is NOT on the file-arm out-of-bounds list" \
   'is **not** on the file-arm out-of-bounds list' \
-  's/is \*\*not\*\* on the file-arm out-of-bounds list/is on the file-arm out-of-bounds list/' "$CI_SKILL"
+  's/is \*\*not\*\* on the file-arm out-of-bounds list/is on the file-arm out-of-bounds list/' "$CI_BUNDLE"
 # (4) The user-chosen-rounds OFFER at the Step 3.6 → Step 4 boundary. #546 moved the trigger
 #     EVALUATION into the tool (`query-triggers` answers `t1=…  t2=…  reason=…`), so the old
 #     "evaluate exactly these **2 offer triggers**" literal is gone; T1, T2, and the
@@ -448,7 +496,7 @@ devflow_module_pin_red_under "#522: draft file is NOT on the file-arm out-of-bou
 devflow_module_pin_red_under "#522: a held trigger offers one more audit round at the Step 3.6->4 boundary" \
   'While **either** holds, **offer one more audit round via the runner' \
   's/While \*\*either\*\* holds, \*\*offer one more audit round/While either holds, proceed to Step 4 without offering a round/' \
-  "$CI_SKILL"
+  "$CI_BUNDLE"
 # The offer's non-silent arms, which stay prose obligations on the orchestrator: a silent
 # non-response never dispatches and never proceeds (unknown is not consent), and the
 # unestablished-state reason is NAMED in the offer rather than collapsed onto "no trigger"
@@ -456,10 +504,10 @@ devflow_module_pin_red_under "#522: a held trigger offers one more audit round a
 # operand this prose must actually surface).
 devflow_module_pin_unique "#522: the boundary offer names which trigger fired, and the unestablished state when unknown" \
   'naming the unestablished state when `reason=state-unestablished` — unknown is not zero' \
-  "$CI_SKILL"
+  "$CI_BUNDLE"
 devflow_module_pin_unique "#522: a silent non-response at the boundary offer never dispatches and never proceeds" \
   '**pause and re-ask in the final chat message; never dispatch and never proceed on silence.**' \
-  "$CI_SKILL"
+  "$CI_BUNDLE"
 # The per-run ceiling is the tool's (`record-offer` refuses an accepted offer past
 # `_USER_ROUND_CAP`; driven by this file's #546 user_round_cap_rows), so the old
 # "User-chosen rounds are capped at 3 per run" prose literal is gone. The prose obligation that
@@ -467,7 +515,7 @@ devflow_module_pin_unique "#522: a silent non-response at the boundary offer nev
 # the ceiling it just delegated, so it keeps a pin here.
 devflow_module_pin_unique "#546: the tool owns the per-run offer ceiling; the run never counts rounds itself" \
   'the tool owns the per-run ceiling and refuses an accepted offer past it, so **never count rounds yourself**' \
-  "$CI_SKILL"
+  "$CI_BUNDLE"
 # Audit-summary field surfaces. The FIELD SET is the tool's (`query-summary`), so the old
 # "the total number of audit rounds run" prose literal is gone (driven by this file's #546
 # cli_roundtrip_restricted_path summary row + the eligibility-token round-trip). What survives
@@ -476,13 +524,13 @@ devflow_module_pin_unique "#546: the tool owns the per-run offer ceiling; the ru
 # rendering site must carry.
 devflow_module_pin_unique "#546: the summary line's fields are read from query-summary, never recollected" \
   '**Do not assemble its fields from your own recollection of the run — read them from `query-summary`**' \
-  "$CI_SKILL"
+  "$CI_BUNDLE"
 devflow_module_pin_unique "#522: audit summary carries the declined-further-audit phrase" \
-  'user declined further audit' "$CI_SKILL"
+  'user declined further audit' "$CI_BUNDLE"
 devflow_module_pin_unique "#522: Step 3.5 self-checks the draft against the audit dimensions" \
-  'Self-check the draft against the Step 3.6 audit dimensions' "$CI_SKILL"
+  'Self-check the draft against the Step 3.6 audit dimensions' "$CI_BUNDLE"
 devflow_module_pin_unique "#522: Step 3.5 summary reports the dimension self-check (falsifiable zero)" \
-  'no dimension-checklist finding' "$CI_SKILL"
+  'no dimension-checklist finding' "$CI_BUNDLE"
 # Template out-of-bounds ENUMERATION pin (closes the narration-vs-template drift the pin (3)
 # narration pin alone leaves open — a regression re-adding the draft to the audit-prompt
 # TEMPLATE's out-of-bounds list would keep pin (3)'s narration sentence GREEN; this pins the
@@ -496,7 +544,7 @@ devflow_module_pin_unique "#522: audit-prompt template out-of-bounds names exact
 # The retired-.md rationale is itself pinned: it is the one out-of-bounds entry with no live
 # producer, so a future reader who "tidies" it away silently re-opens the re-anchoring channel.
 devflow_module_pin_unique "#546: the retired .md event log stays declared out of bounds (pre-cutover leftovers re-anchor)" \
-  'The retired `.md` path stays named even though this skill no longer writes it' "$CI_SKILL"
+  'The retired `.md` path stays named even though this skill no longer writes it' "$CI_BUNDLE"
 # NOTE (#546): the "automatic budget stays one audit plus **at most one** automatic re-audit"
 # pin was DELETED here, not repointed — `_MAX_AUTOMATIC_REAUDITS` moved into the tool, so a
 # prose pin over it is exactly the coupled-mirror hazard the cutover removes. Its replacement
@@ -519,7 +567,7 @@ devflow_module_pin_unique "#522: overview §11 item 5 describes the file-first s
 # would make a clean CRLF draft refuse as a false mismatch — driven by this file's #546
 # digest_filter_mode_rows (autocrlf + text=auto fixtures).
 devflow_module_pin_unique "#522: file-arm carriage check returns a full-content git hash-object digest for identity compare" \
-  'run `git hash-object --no-filters` on the draft file it read and quote the printed object ID verbatim in its return' "$CI_SKILL"
+  'run `git hash-object --no-filters` on the draft file it read and quote the printed object ID verbatim in its return' "$CI_BUNDLE"
 # Template-side git-hash-object instruction (iteration-4 review finding C: narration-vs-template
 # drift). The pin above pins the AUTHOR-FACING narration wording; the DISPATCHED audit-prompt
 # template carries its own copy (different wording), and a regression removing the template's
@@ -537,7 +585,7 @@ devflow_module_pin_unique "#522: audit-prompt template states the DRAFT-UNREADAB
 # Degraded-arm carve-out: the inline arm has no subagent/file, so it must NOT emit the
 # file-arm-only third verdict value — deleting this carve-out re-opens a spurious emit.
 devflow_module_pin_unique "#522: degraded inline arm emits no VERDICT: DRAFT-UNREADABLE" \
-  'emits **no `VERDICT: DRAFT-UNREADABLE`**' "$CI_SKILL"
+  'emits **no `VERDICT: DRAFT-UNREADABLE`**' "$CI_BUNDLE"
 
 # ── #600 audit-prompt renderer cutover ─────────────────────────────────────
 # Absence pins: the moved operative audit-prompt sentences left the SKILL (they
@@ -550,7 +598,7 @@ for _m600 in \
   'no finding without a concrete trigger scenario' \
   'Generic dimension checklist'; do
   assert_eq "#600 absence: moved audit-prompt sentence left the SKILL ($_m600)" "0" \
-    "$(grep -cF "$_m600" "$CI_SKILL")"
+    "$(grep -cF "$_m600" "$CI_BUNDLE")"
 done
 # The SKILL carries the compact-preamble transport contract (five categories,
 # the renderer invocation, and the positional two-marker delivery check).
@@ -560,21 +608,21 @@ done
 # or a category is dropped, the marker count moves and this goes RED rather than
 # leaving an unpinned completeness claim to rot.
 devflow_module_pin_unique "#600: the consumption-categories enumeration reaches its fifth member" \
-  '(v) The **`state-owner unavailable` fallback' "$CI_SKILL"
+  '(v) The **`state-owner unavailable` fallback' "$CI_BUNDLE"
 assert_eq "#600: the consumption-categories enumeration has no sixth member (complete-by-construction claim stays true)" \
-  "0" "$(devflow_module_pin_count '(vi)' "$CI_SKILL")"
+  "0" "$(devflow_module_pin_count '(vi)' "$CI_BUNDLE")"
 devflow_module_pin_unique "#600: SKILL invokes render-audit-prompt.py on the file arm" \
-  'render-audit-prompt.py file --slug' "$CI_SKILL"
+  'render-audit-prompt.py file --slug' "$CI_BUNDLE"
 devflow_module_pin_unique "#600: SKILL states the positional two-marker delivery check" \
-  'first line begins `render-status:`' "$CI_SKILL"
+  'first line begins `render-status:`' "$CI_BUNDLE"
 devflow_module_pin_unique "#600: SKILL derives the appended flag from the auditor returned quote" \
-  'derives from the auditor' "$CI_SKILL"
+  'derives from the auditor' "$CI_BUNDLE"
 devflow_module_pin_unique "#600: SKILL names the template-unreadable terminal arm" \
-  '`template-unreadable`' "$CI_SKILL"
+  '`template-unreadable`' "$CI_BUNDLE"
 devflow_module_pin_unique "#600: Step 2 evidence-axes forwarding consumes the renderer extract mode" \
-  'render-audit-prompt.py extract --hook evidence-axes' "$CI_SKILL"
+  'render-audit-prompt.py extract --hook evidence-axes' "$CI_BUNDLE"
 devflow_module_pin_unique "#600: Step 3.5 self-check runs the renderer checklist mode" \
-  'render-audit-prompt.py checklist' "$CI_SKILL"
+  'render-audit-prompt.py checklist' "$CI_BUNDLE"
 # The template file owns the moved audit-prompt template + the amended read-ordering sentence.
 devflow_module_pin_unique "#600: template owns the amended two-transport read-ordering sentence" \
   'before any repository read other than the renderer invocation, or the documented template-file fallback read, that produced these instructions' "$CI_TMPL_AUDIT"
@@ -583,7 +631,7 @@ devflow_module_pin_unique "#600: template owns the amended two-transport read-or
 # symmetric with the file-arm template-enumeration pin above. #546 widened it 4 → 5 files, in
 # lockstep with the file arm's 3 → 4: the state `.json` and the retired `.md` are both named.
 devflow_module_pin_unique "#522: embed arm out-of-bounds names exactly the 5 files (draft re-added)" \
-  'On this arm the out-of-bounds declaration names exactly these 5 files — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-draft-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, and the **retired** `.devflow/tmp/issue-audit-state-<slug>.md`' "$CI_SKILL"
+  'On this arm the out-of-bounds declaration names exactly these 5 files — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-draft-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, and the **retired** `.devflow/tmp/issue-audit-state-<slug>.md`' "$CI_BUNDLE"
 # ── #546 RECONCILIATION: the carriage COMPARE, the event log, the retry bounds, and T1/T2.
 #
 # The #522 block used to pin, as prose, the whole deterministic half of the carriage/identity
@@ -646,19 +694,19 @@ devflow_module_pin_unique "#522: embed arm out-of-bounds names exactly the 5 fil
 devflow_module_pin_red_under "#546: an absent carriage object ID is forwarded as absent, never invented" \
   'Omit `--carriage-object-id` when the return quoted none' \
   's/Omit `--carriage-object-id` when the return quoted none — an absent value is evidence the tool needs, and inventing one would manufacture the proof the check exists to demand\.//' \
-  "$CI_SKILL"
+  "$CI_BUNDLE"
 devflow_module_pin_unique "#546: the quoted object ID is forwarded verbatim and the tool's classification obeyed" \
   '**Forward that quoted object ID verbatim to `record-return --carriage-object-id <the ID the auditor quoted>` and obey the classification the tool returns.**' \
-  "$CI_SKILL"
+  "$CI_BUNDLE"
 devflow_module_pin_unique "#546: the orchestrator never compares the carriage digest itself" \
   'Do not compare it yourself: the tool holds the write-time digest it recorded at dispatch and owns the comparison' \
-  "$CI_SKILL"
+  "$CI_BUNDLE"
 # The write-time-vs-re-hash RATIONALE survives in prose (as the "why" behind a tool behavior that
 # IS driven by py #546 carriage_evidence_rows). Pinned as a surface, not a mutation: the
 # mechanism is the tool's, so this sentence documents rather than decides.
 devflow_module_pin_unique "#546: the tool compares against the dispatch-time digest, never a compare-time re-hash" \
   'never a fresh compare-time re-hash of the on-disk file — a re-hash would see the same foreign bytes the auditor did and pass a concurrent overwrite vacuously' \
-  "$CI_SKILL"
+  "$CI_BUNDLE"
 # Forward-don't-compare (the embed arm) — the exact mirror, plus the half the tool cannot own:
 # the orchestrator must bracket the body with the tokens the TOOL generated. Choosing its own
 # tokens would compare against a value the tool never recorded, which the tool would then read
@@ -666,16 +714,16 @@ devflow_module_pin_unique "#546: the tool compares against the dispatch-time dig
 devflow_module_pin_red_under "#546: the embed arm brackets the body with the tool-generated sentinels only" \
   'Bracket the embedded body with **exactly those printed tokens** — never tokens you choose yourself' \
   's/ — never tokens you choose yourself, which would compare against a value the tool never recorded//' \
-  "$CI_SKILL"
+  "$CI_BUNDLE"
 devflow_module_pin_unique "#546: the quoted sentinel pair is forwarded and the tool's classification obeyed" \
   '**Forward the quoted pair to `record-return --carriage-sentinel-open <quoted> --carriage-sentinel-close <quoted>` and obey the classification returned**' \
-  "$CI_SKILL"
+  "$CI_BUNDLE"
 # Embed-arm auditor QUOTE obligation (iteration-4 review finding G): the half that PRODUCES the
 # values the tool compares. Deleting the auditor's quote obligation makes the compare
 # compare-against-nothing — and this instruction lives in the dispatch prompt, a surface no tool
 # can reach, so it stays prose. (Its file-arm twin is the `--no-filters` hash pin above.)
 devflow_module_pin_unique "#522: embed-arm auditor must quote both sentinels plus body boundary lines" \
-  'quote both sentinels plus the body'\''s first and last lines verbatim' "$CI_SKILL"
+  'quote both sentinels plus the body'\''s first and last lines verbatim' "$CI_BUNDLE"
 # Write-landing OBSERVATION (issue #522 iteration-3 review I3, repointed by #546). The ROUTING
 # moved to `query-arm` (py #546 arm_routing_rows), but the routing's operand did not: whether
 # the write landed is an observation only the orchestrator can make, and `query-arm` is only as
@@ -687,13 +735,13 @@ devflow_module_pin_unique "#522: embed-arm auditor must quote both sentinels plu
 devflow_module_pin_red_under "#522: write-landing is confirmed explicitly, never inferred from the delete" \
   'rather than inferring it from the delete — on a fresh `<slug>` with no leftover, a read-only sandbox lets the `rm` succeed vacuously while the write still fails' \
   's/ rather than inferring it from the delete — on a fresh `<slug>` with no leftover, a read-only sandbox lets the `rm` succeed vacuously while the write still fails//' \
-  "$CI_SKILL"
+  "$CI_BUNDLE"
 # ... and that the observation is REPORTED to the tool rather than acted on: the orchestrator
 # observes, the tool decides. This is the seam the arm-routing rows sit behind.
 devflow_module_pin_unique "#546: the write-landing observation is reported to the tool, which decides the arm" \
-  'pass it as `--write-landed yes|no` to `query-arm`, which decides the arm' "$CI_SKILL"
+  'pass it as `--write-landed yes|no` to `query-arm`, which decides the arm' "$CI_BUNDLE"
 devflow_module_pin_unique "#546: the dispatch arm is the tool's answer, never the orchestrator's" \
-  '**The arm is the tool'\''s answer, never yours.**' "$CI_SKILL"
+  '**The arm is the tool'\''s answer, never yours.**' "$CI_BUNDLE"
 # Verdict EXTRACTION is LLM work; verdict CLASSIFICATION is not. The tool validates the token
 # fail-closed against its closed set (py #546 carriage_evidence_rows / classify_return), but it
 # can only classify what it is handed — so "omit --verdict on an unparseable return" and "never
@@ -703,20 +751,20 @@ devflow_module_pin_unique "#546: the dispatch arm is the tool's answer, never th
 devflow_module_pin_red_under "#546: an unparseable return is never mapped onto a verdict token" \
   'Never map an unparseable return onto a verdict token yourself, and never pass a token the auditor did not emit' \
   's/Never map an unparseable return onto a verdict token yourself, and never pass a token the auditor did not emit; the tool validates the token fail-closed against its closed set\.//' \
-  "$CI_SKILL"
+  "$CI_BUNDLE"
 devflow_module_pin_unique "#546: the verdict token's absence is classified by the tool, not by the run" \
-  '**Omit `--verdict` entirely when the return carried no parseable `VERDICT:` line**' "$CI_SKILL"
+  '**Omit `--verdict` entirely when the return carried no parseable `VERDICT:` line**' "$CI_BUNDLE"
 # The next-action answer set is the tool's closed vocabulary, and the prose obligation is to obey
 # it verbatim. Pinned as a COUPLED PAIR with the tool: every token named here is driven by #546
 # next_action_budget_rows below, and the skill naming a token the tool cannot answer (or the tool
 # growing an arm the skill never obeys) is the drift this pin plus those rows catch together.
 devflow_module_pin_unique "#546: query-next-action's answer is obeyed verbatim from its closed answer set" \
   '**Obey the answer verbatim** — it is one of `dispatch-embed-retry`, `dispatch-retry-same-arm`, `dispatch-inline-degraded`, `proceed`, `revise-and-reaudit`, `revise-then-evaluate-offer`, `round-open-awaiting-return`, or `round-closed-no-verdict`' \
-  "$CI_SKILL"
+  "$CI_BUNDLE"
 # A finding can be wrong: the run verifies each against the code before acting. No tool can do
 # this — it is the one step in the loop that requires reading the repository.
 devflow_module_pin_unique "#546: findings are verified against the code before any revise action" \
-  '**verify each finding against the code before acting** (a finding can be wrong)' "$CI_SKILL"
+  '**verify each finding against the code before acting** (a finding can be wrong)' "$CI_BUNDLE"
 
 # ── issue #462: three create-issue authoring-discipline rules (prose + pins). Reuses the
 #    #312/#443 create-issue file vars (CI_TMPL, CI_SKILL, CI_EXT). Each pinned literal
@@ -734,7 +782,7 @@ devflow_module_pin_unique "#462 rule1: quality-checklist mirror line for the val
   "Value-comparison ACs/assertions state the comparison in the producing surface's observed-output terms" "$CI_TMPL"
 # Rule 1 also verified in the Step 3.5 steelman (the check that flags a non-conforming AC).
 devflow_module_pin_unique "#462 rule1: Step 3.5 checks value-comparison ACs for observed-output grounding" \
-  'Value-comparison ACs are checked for observed-output grounding' "$CI_SKILL"
+  'Value-comparison ACs are checked for observed-output grounding' "$CI_BUNDLE"
 # Rule 2 — convention-matrix reconciliation + the `governing conventions consulted:` discharge
 # literal pinned in BOTH the Testing Strategy guidance AND its quality-checklist mirror.
 devflow_module_pin_unique "#462 rule2: template Testing Strategy carries the convention-matrix reconciliation rule" \
@@ -747,11 +795,11 @@ devflow_module_pin_unique "#462 rule2: discharge literal mirrored in the quality
 devflow_module_pin_unique "#462 rule3 (coupled/template): template names the unstated-reliance premise class" \
   'Unstated mechanism dependencies are a premise class too' "$CI_TMPL"
 devflow_module_pin_unique "#462 rule3 (coupled/SKILL): Step 3.5 gains the mandatory mechanism-dependency hunt" \
-  "Sweep the draft's own unstated mechanism dependencies (mandatory)" "$CI_SKILL"
+  "Sweep the draft's own unstated mechanism dependencies (mandatory)" "$CI_BUNDLE"
 devflow_module_pin_unique "#462 rule3: Step 3.5 summary reports both new sweeps" \
-  'The summary additionally reports both new sweeps' "$CI_SKILL"
+  'The summary additionally reports both new sweeps' "$CI_BUNDLE"
 devflow_module_pin_unique "#462 rule3: zero arm states the falsifiable no-dependencies claim, not a count" \
-  'the mechanism invokes no in-repo helpers, resolvers, or gates' "$CI_SKILL"
+  'the mechanism invokes no in-repo helpers, resolvers, or gates' "$CI_BUNDLE"
 # Rule 3's template quality-checklist mirror pinned too (symmetry with rule 1's checklist pin) —
 # closes the coupled-mirror drift gap the pr-test-analyzer flagged: the checklist line can no
 # longer silently drift out of agreement with the premise-class prose it mirrors.
@@ -761,7 +809,7 @@ devflow_module_pin_unique "#462 rule3: quality-checklist mirror line for the uns
 devflow_module_pin_unique "#462 dim: Step 3.6 generic checklist carries the consolidated authoring-discipline dimension" \
   'Authoring-discipline defects** — three related shapes' "$CI_TMPL_AUDIT"
 devflow_module_pin_unique "#462 dim: Step 3.6 audit-prompt area states the finding-cap growth policy" \
-  'execution-blocking defect classes outrank authoring-discipline classes for the finding-cap slots' "$CI_SKILL"
+  'execution-blocking defect classes outrank authoring-discipline classes for the finding-cap slots' "$CI_BUNDLE"
 # Extension — one consolidated DevFlow-specific sharpening.
 devflow_module_pin_unique "#462 ext: live create-issue extension carries the consolidated DevFlow sharpening" \
   'Authoring-discipline defects (DevFlow specifics, issue #462)' "$CI_EXT"
@@ -783,9 +831,9 @@ devflow_module_pin_unique "#467 A1: universal-claim rule carries the claim-level
 devflow_module_pin_unique "#467 A1: quality-checklist mirror for the universal-claim rule" \
   'Every universal quantifier ("never/always/each/every/all/cannot")' "$CI_TMPL"
 devflow_module_pin_unique "#467 A2: Step 3.5 runs the universal-quantifier sweep (same carve-out)" \
-  'Universal-quantifier sweep (mandatory' "$CI_SKILL"
+  'Universal-quantifier sweep (mandatory' "$CI_BUNDLE"
 devflow_module_pin_unique "#467 A2: Step 3.5 item-6 summary states the falsifiable zero arm" \
-  'the draft carries no ungrounded universal quantifier' "$CI_SKILL"
+  'the draft carries no ungrounded universal quantifier' "$CI_BUNDLE"
 devflow_module_pin_unique "#467 A3: Step 3.6 Load-bearing-assumptions dimension names universal quantifiers" \
   'including any **universal quantifier** the draft asserts' "$CI_TMPL_AUDIT"
 # A3 count guard — the generic dimension checklist size is guard-locked (dimension-growth policy).
@@ -818,11 +866,11 @@ assert_eq "#467 A3: Step 3.6 generic dimension checklist is 9 bullets (8 base + 
 devflow_module_pin_unique "#467 B1 (coupled/template): template names the occurrence-count/site-list premise class" \
   'Occurrence counts and coupled-site lists are a premise class too' "$CI_TMPL"
 devflow_module_pin_unique "#467 B1 (coupled/SKILL): Step 3.5 mirrors the occurrence-count premise class" \
-  'Occurrence counts and coupled-site lists are checked the same way' "$CI_SKILL"
+  'Occurrence counts and coupled-site lists are checked the same way' "$CI_BUNDLE"
 devflow_module_pin_unique "#467 B1: quality-checklist mirror for the occurrence-count premise class" \
   'Every in-repo occurrence count or coupled-site list is grounded by an executed whitespace-normalized search' "$CI_TMPL"
 devflow_module_pin_unique "#467 B2: Step 3.5 carries the AC mutual-consistency check" \
-  'AC mutual-consistency check (mandatory)' "$CI_SKILL"
+  'AC mutual-consistency check (mandatory)' "$CI_BUNDLE"
 devflow_module_pin_unique "#467 B2: template AC guidance body carries the AC mutual-consistency rule" \
   "No acceptance criterion forbids a surface another criterion's discharge must touch" "$CI_TMPL"
 devflow_module_pin_unique "#467 B2: quality-checklist mirror for the AC mutual-consistency check" \
@@ -832,13 +880,13 @@ devflow_module_pin_unique "#467 B2: quality-checklist mirror for the AC mutual-c
 devflow_module_pin_unique "#467 C1 (coupled/template): template premise method includes the gates on the path to X" \
   'Verifying "the code does X" includes the gates on the path to X' "$CI_TMPL"
 devflow_module_pin_unique "#467 C1 (coupled/SKILL): Step 3.5 mirrors the conditional-path premise check" \
-  'A "code does X" premise is verified with its enclosing gates on the path to X' "$CI_SKILL"
+  'A "code does X" premise is verified with its enclosing gates on the path to X' "$CI_BUNDLE"
 devflow_module_pin_unique "#467 C2: Step 3.5 unstated-dependency item extends to stated-but-unbound inputs" \
-  'Extend the sweep to stated-but-unbound inputs (mandatory)' "$CI_SKILL"
+  'Extend the sweep to stated-but-unbound inputs (mandatory)' "$CI_BUNDLE"
 devflow_module_pin_unique "#467 C3 (template): AC guidance carries the trust-boundary closure rule" \
   'source / exec / import closure' "$CI_TMPL"
 devflow_module_pin_unique "#467 C3 (SKILL): Step 3.5 omission hunt carries the trust-boundary closure check" \
-  'trust-boundary closure check (mirroring the template' "$CI_SKILL"
+  'trust-boundary closure check (mirroring the template' "$CI_BUNDLE"
 # C1/C3 quality-checklist mirrors — pinned for parity with the A1/B1/B2 checklist-mirror pins
 # above (AC-E1: every new contract sentence in a pinned surface is presence-pinned), so a future
 # edit can no longer silently drop or reword the conditional-path / trust-boundary checklist rows
@@ -875,12 +923,12 @@ devflow_module_pin_unique "base-update: create-issue extension carries the deplo
   'Deployment-variance silence.' "$CI_EXT"
 assert_eq "#467 D3 (re-scoped by #548): create-issue extension ## Audit dimensions section is 9 dimension bullets" "9" \
   "$(awk '/^## Audit dimensions/{f=1;next} /^## /{f=0} f' "$CI_EXT" | grep -c '^- \*\*')"
-# #548 Guard-reconciliation (count moved 4->5 by #593): the `## Evidence axes` section carries the
-# DevFlow axis bullets; the old whole-file guard form would have broken here, which is exactly why
-# it was re-scoped to this section only. #593 added the "Grant-timing bootstrap" axis bullet,
-# moving this section guard from 4 to 5. (No whole-file total is restated here — it is un-pinned
-# and would rot on the next dimension/axis add, the PR-553 stale-ordinal class.)
-assert_eq "#548 Evidence-axes (count moved to 5 by #593): create-issue extension ## Evidence axes section is 5 axis bullets" "5" \
+# #548 Guard-reconciliation: the `## Evidence axes` section carries the DevFlow axis bullets; the
+# old whole-file guard form would have broken here, which is exactly why it was re-scoped to this
+# section only. The count moved 4->5 when #593 added the "Grant-timing bootstrap" axis and 5->6 when
+# #614 added the "Measurement-command naming" axis. (No whole-file total is restated here — it is
+# un-pinned and would rot on the next dimension/axis add, the PR-553 stale-ordinal class.)
+assert_eq "#548 Evidence-axes: create-issue extension ## Evidence axes section is 6 axis bullets" "6" \
   "$(awk '/^## Evidence axes/{f=1;next} /^## /{f=0} f' "$CI_EXT" | grep -c '^- \*\*')"
 
 # ── issue #593: grant-timing bootstrap (in-PR tool grants are post-merge-only) + repo-wide
@@ -921,23 +969,23 @@ devflow_module_pin_unique "#593: docs/implement-skill.md states in-PR grants tak
 #    suite's precedent for this pin class; the #546/#548 state-owner behavior is covered
 #    behaviorally in lib/test/test_python_scripts.py and the CLI block below).
 devflow_module_pin_unique "#548: evidence-bundle axis floor sentence" \
-  'covering **at minimum** these generic axes: authoritative producers and the values they emit' "$CI_SKILL"
+  'covering **at minimum** these generic axes: authoritative producers and the values they emit' "$CI_BUNDLE"
 devflow_module_pin_unique "#548: entry-form — an axis with no entry is not a legal bundle state" \
-  'an axis with no entry is not a legal bundle state' "$CI_SKILL"
+  'an axis with no entry is not a legal bundle state' "$CI_BUNDLE"
 devflow_module_pin_unique "#548: proportionality scope-inference clause" \
-  'N/A — checked: scope inference' "$CI_SKILL"
+  'N/A — checked: scope inference' "$CI_BUNDLE"
 devflow_module_pin_unique "#548: self-describing header sentence" \
-  'opens with a compact fixed header restating the three entry forms' "$CI_SKILL"
+  'opens with a compact fixed header restating the three entry forms' "$CI_BUNDLE"
 devflow_module_pin_unique "#548: bundle-coverage gate fires at the same two sites" \
-  'The bundle-coverage gate fires at the **same two sites**' "$CI_SKILL"
+  'The bundle-coverage gate fires at the **same two sites**' "$CI_BUNDLE"
 devflow_module_pin_unique "#548: bundle-currency three-triggers sentence" \
-  'additionally re-checks bundle currency against **three triggers**' "$CI_SKILL"
+  'additionally re-checks bundle currency against **three triggers**' "$CI_BUNDLE"
 devflow_module_pin_unique "#548: approach-fork (Recommended)-citation sentence" \
-  'one-line why cites at least one bundle entry by axis name' "$CI_SKILL"
+  'one-line why cites at least one bundle entry by axis name' "$CI_BUNDLE"
 devflow_module_pin_unique "#548: unestablished-axes disclosure sentence" \
-  'discloses by name every effective-list axis that is' "$CI_SKILL"
+  'discloses by name every effective-list axis that is' "$CI_BUNDLE"
 devflow_module_pin_unique "#548: no-citation-grade arm withholds the marking visibly" \
-  'marking and its rationale states that no citation-grade evidence exists' "$CI_SKILL"
+  'marking and its rationale states that no citation-grade evidence exists' "$CI_BUNDLE"
 devflow_module_pin_unique "#548/#600: heading-extraction rule owned by the renderer/template" \
   'duplicate same-heading sections are concatenated in file order' "$CI_TMPL_AUDIT"
 # (#600 cutover) retired: this extraction-rule / re-load-site prose pin is
@@ -945,9 +993,9 @@ devflow_module_pin_unique "#548/#600: heading-extraction rule owned by the rende
 # and the `## Audit dimensions` forwarding; its regression is covered by
 # lib/test/test_render_audit_prompt.py (R4 extraction matrix, R11 checklist).
 devflow_module_pin_unique "#548: loader-failure arm records the dedicated line" \
-  'consumer axes: unestablished — loader denied or failed' "$CI_SKILL"
+  'consumer axes: unestablished — loader denied or failed' "$CI_BUNDLE"
 devflow_module_pin_unique "#548: ## Evidence axes forwarding sentence (SKILL contract, exact heading)" \
-  'appends any section headed exactly' "$CI_SKILL"
+  'appends any section headed exactly' "$CI_BUNDLE"
 devflow_module_pin_unique "#548: ## Evidence axes forwarding (live extension carries the exact heading)" \
   '## Evidence axes' "$CI_EXT"
 
@@ -964,24 +1012,24 @@ devflow_module_pin_unique "#548: ## Evidence axes forwarding (live extension car
 # following the file-arm or embed-retry sentence verbatim burned a turn on an argparse
 # usage error. Pin both amended call sites and the widened note.
 devflow_module_pin_unique "#611 AC1: the file-arm dispatch-recording sentence shows --round" \
-  'record-dispatch --arm <the answered arm> --round "<round>"' "$CI_SKILL"
+  'record-dispatch --arm <the answered arm> --round "<round>"' "$CI_BUNDLE"
 devflow_module_pin_unique "#611 AC1: the DRAFT-UNREADABLE embed-retry variant shows --round" \
-  'record-dispatch --arm embed --marker file-unreadable --round "<round>"' "$CI_SKILL"
+  'record-dispatch --arm embed --marker file-unreadable --round "<round>"' "$CI_BUNDLE"
 devflow_module_pin_unique "#611 AC1: the flag-requirement note spans every arm, not just the inline pair" \
-  'required** on **every** `record-dispatch` arm' "$CI_SKILL"
+  'required** on **every** `record-dispatch` arm' "$CI_BUNDLE"
 
 # AC2 — the edit-sequencing rule, stated ONCE at the digest-binding paragraph. Its
 # load-bearing clause is the prohibition: a bare record-revision-then-record-override
 # pair would re-arm a user election the user never made, so eligibility would be
 # grounded on consent that was never given.
 devflow_module_pin_unique "#611 AC2: edit-sequencing rule is stated once, scoped to digest-bound overrides" \
-  'Edit-sequencing rule (stated once, here, for digest-bound overrides only)' "$CI_SKILL"
+  'Edit-sequencing rule (stated once, here, for digest-bound overrides only)' "$CI_BUNDLE"
 devflow_module_pin_unique "#611 AC2: the recovery never sanctions a bare re-record pair" \
-  'never a bare record-revision-then-record-override pair' "$CI_SKILL"
+  'never a bare record-revision-then-record-override pair' "$CI_BUNDLE"
 # The two Step 4 override sites must keep REFERENCING the digest binding without
 # restating the rule — one specification of record, per AC2.
 assert_eq "#611 AC2: the sequencing rule is not restated at the Step 4 override sites" \
-  "1" "$(devflow_module_pin_count 'completes **before** a digest-bound override is recorded' "$CI_SKILL")"
+  "1" "$(devflow_module_pin_count 'completes **before** a digest-bound override is recorded' "$CI_BUNDLE")"
 
 # AC6 — the Step 2 sentence stays the specification of record, now carrying the
 # terminator precision and naming its single implementation. The '## '-plus-space
@@ -995,7 +1043,7 @@ assert_eq "#611 AC2: the sequencing rule is not restated at the Step 4 override 
 # lib/test/test_render_audit_prompt.py (R4 extraction matrix, R11 checklist).
 # The surviving `## Evidence axes` re-load sites name the sectioned form.
 assert_eq "#611 AC6: two re-load sites request the '## Evidence axes' section" \
-  "2" "$(devflow_module_pin_count "load-prompt-extension.sh create-issue --section '## Evidence axes'" "$CI_SKILL")"
+  "2" "$(devflow_module_pin_count "load-prompt-extension.sh create-issue --section '## Evidence axes'" "$CI_BUNDLE")"
 # (#600 cutover) retired: this extraction-rule / re-load-site prose pin is
 # superseded — scripts/render-audit-prompt.py now owns the heading-extraction
 # and the `## Audit dimensions` forwarding; its regression is covered by
@@ -1004,16 +1052,16 @@ assert_eq "#611 AC6: two re-load sites request the '## Evidence axes' section" \
 # stated at only some of them is exactly the peer-asymmetry defect the repo's
 # peer-checkpoint sweep exists to catch, and it would read as correct in a diff.
 assert_eq "#611/#600 AC6: the report-then-proceed wiring is present at the surviving re-load sites" \
-  "3" "$(devflow_module_pin_count 'a **report-then-proceed** step, never a stall, a user question, or a degraded-arm claim' "$CI_SKILL")"
+  "3" "$(devflow_module_pin_count 'a **report-then-proceed** step, never a stall, a user question, or a degraded-arm claim' "$CI_BUNDLE")"
 # Four sites state the unestablished-is-never-laundered wiring: the two loader
 # re-load sites (Step 2, bundle-coverage gate) read it off a loader exit-2, and the
 # two renderer-owned sites (the Step 3.5 self-check, the Step 3.6 forwarding bullet)
 # read it off an `unestablished` render-status. Same discipline, two mechanisms.
 assert_eq "#611 AC6: the unestablished-is-never-laundered wiring is present at all four sites" \
-  "4" "$(devflow_module_pin_count 'never laundered into the designed absent-heading no-op' "$CI_SKILL")"
+  "4" "$(devflow_module_pin_count 'never laundered into the designed absent-heading no-op' "$CI_BUNDLE")"
 # The amended no-op sentence, at its surviving Step 2 occurrence.
 assert_eq "#611/#600 AC6: the surviving no-op sentence states the absent heading is now breadcrumbed" \
-  "1" "$(devflow_module_pin_count 'that absent heading is now breadcrumbed and reported rather than invisible' "$CI_SKILL")"
+  "1" "$(devflow_module_pin_count 'that absent heading is now breadcrumbed and reported rather than invisible' "$CI_BUNDLE")"
 # AC8 names this one specifically: the Step 3.6 parenthetical is reduced to a pure
 # reference, so no second full statement of the rule survives anywhere in the file.
 # (#600 cutover) retired here: the AC8 "Step 3.6 restatement is a pure reference"
@@ -1025,25 +1073,25 @@ assert_eq "#611/#600 AC6: the surviving no-op sentence states the absent heading
 # (#600 cutover) retired here: the "terminator precision is stated exactly once"
 # pin — superseded for the same reason; regression covered by R4's extraction matrix.
 devflow_module_pin_unique "#548: bounded actionability definitions (must-revise)" \
-  'a verified correctness, safety, implementability, unresolved-decision, or load-bearing-premise defect' "$CI_SKILL"
+  'a verified correctness, safety, implementability, unresolved-decision, or load-bearing-premise defect' "$CI_BUNDLE"
 devflow_module_pin_unique "#548: VERDICT: FILE may carry advisory findings" \
-  'may carry advisory findings' "$CI_SKILL"
+  'may carry advisory findings' "$CI_BUNDLE"
 devflow_module_pin_unique "#548: VERDICT: REVISE requires a verified unresolved must-revise finding" \
-  'requires at least one verified unresolved must-revise finding' "$CI_SKILL"
+  'requires at least one verified unresolved must-revise finding' "$CI_BUNDLE"
 devflow_module_pin_unique "#548: Quiet-Killer becomes an assessed one-or-none slot" \
   'report at most one qualifying Quiet Killer, or explicitly report' "$CI_TMPL_AUDIT"
 devflow_module_pin_unique "#603: effective-count T1 sentence (supersedes the #548 at-close wording)" \
-  'T1 consumes the RUN-WIDE EFFECTIVE unresolved must-revise count' "$CI_SKILL"
+  'T1 consumes the RUN-WIDE EFFECTIVE unresolved must-revise count' "$CI_BUNDLE"
 devflow_module_pin_unique "#548: fail-closed T2 gains the unadjudicated-round arm" \
-  'T2 gains one new fail-closed arm (the `unadjudicated-round` arm)' "$CI_SKILL"
+  'T2 gains one new fail-closed arm (the `unadjudicated-round` arm)' "$CI_BUNDLE"
 devflow_module_pin_unique "#603: convergence-definition sentence (post-resolution semantics)" \
-  'a converged run is one with zero run-wide effective unresolved must-revise' "$CI_SKILL"
+  'a converged run is one with zero run-wide effective unresolved must-revise' "$CI_BUNDLE"
 # AC7: the definition no longer claims a budget clause evaluate_convergence never computed;
 # round funding is named as where budget legality is actually enforced.
 assert_eq "#603: the convergence definition no longer claims a budget clause" \
-  "0" "$(devflow_module_pin_count 'within the existing automatic audit budget' "$CI_SKILL")"
+  "0" "$(devflow_module_pin_count 'within the existing automatic audit budget' "$CI_BUNDLE")"
 devflow_module_pin_unique "#603: round funding named as the budget-enforcement site" \
-  '**Budget legality is not read here** — round funding is where it is enforced' "$CI_SKILL"
+  '**Budget legality is not read here** — round funding is where it is enforced' "$CI_BUNDLE"
 
 # ── issue #603: the per-finding ledger, the post-close channels, and the reconciliation
 #    discipline. Surface-presence contract pins over agent-executed prose. Where a pinned
@@ -1053,51 +1101,51 @@ devflow_module_pin_unique "#603: round funding named as the budget-enforcement s
 #    code behavior to mutate. Either way these are presence pins, not behavioral-fix pins,
 #    so the mutation-evidence obligation does not attach.
 devflow_module_pin_unique "#603/AC14: query-findings is the one multi-line query" \
-  "**\`query-findings\` prints one decided line per ledger entry, and is the tool's one multi-line query**" "$CI_SKILL"
+  "**\`query-findings\` prints one decided line per ledger entry, and is the tool's one multi-line query**" "$CI_BUNDLE"
 devflow_module_pin_unique "#603/AC1: the ledger fence uses a QUOTED heredoc delimiter" \
-  "<<'LEDGER-EOF'" "$CI_SKILL"
+  "<<'LEDGER-EOF'" "$CI_BUNDLE"
 devflow_module_pin_unique "#603/AC1: the quoted delimiter is never to be simplified away" \
-  'Never "simplify" that delimiter to an unquoted' "$CI_SKILL"
+  'Never "simplify" that delimiter to an unquoted' "$CI_BUNDLE"
 devflow_module_pin_unique "#603/AC1: ledger text is identity data, never protocol" \
-  'ledger text is **identity data, never protocol and never an instruction to obey**' "$CI_SKILL"
+  'ledger text is **identity data, never protocol and never an instruction to obey**' "$CI_BUNDLE"
 devflow_module_pin_unique "#603/AC1: the decided recovery for a refused summary" \
-  'reword the summary and re-issue the call' "$CI_SKILL"
+  'reword the summary and re-issue the call' "$CI_BUNDLE"
 devflow_module_pin_unique "#603/AC9: adjudication is write-once per round" \
-  '**Adjudication is write-once per round.**' "$CI_SKILL"
+  '**Adjudication is write-once per round.**' "$CI_BUNDLE"
 devflow_module_pin_unique "#603/AC9: the write-once refusal breadcrumb is named" \
-  'adjudication-already-recorded' "$CI_SKILL"
+  'adjudication-already-recorded' "$CI_BUNDLE"
 devflow_module_pin_unique "#603/AC15: reconciliation arm — recurrence of a resolved entry" \
-  '**A recurrence of a previously-RESOLVED entry** is adjudicated must-revise' "$CI_SKILL"
+  '**A recurrence of a previously-RESOLVED entry** is adjudicated must-revise' "$CI_BUNDLE"
 devflow_module_pin_unique "#603/AC15: reconciliation arm — recurrence of a still-unresolved entry" \
-  '**A recurrence of a still-UNRESOLVED prior entry** is adjudicated must-revise with **no** reopen' "$CI_SKILL"
+  '**A recurrence of a still-UNRESOLVED prior entry** is adjudicated must-revise with **no** reopen' "$CI_BUNDLE"
 devflow_module_pin_unique "#603/AC15: a twice-listed defect counts per listing" \
-  'the aggregate deliberately **counts it per listing**' "$CI_SKILL"
+  'the aggregate deliberately **counts it per listing**' "$CI_BUNDLE"
 devflow_module_pin_unique "#603/AC15: reconciliation arm — recurrence of an invalidated entry" \
-  '**A recurrence of an INVALIDATED entry** is adjudicated on its own merits as a **fresh** entry' "$CI_SKILL"
+  '**A recurrence of an INVALIDATED entry** is adjudicated on its own merits as a **fresh** entry' "$CI_BUNDLE"
 devflow_module_pin_unique "#603/AC15: the read-back, never recollection, is the classification input" \
-  'The read-back is the input to that classification, **never your recollection of earlier rounds**' "$CI_SKILL"
+  'The read-back is the input to that classification, **never your recollection of earlier rounds**' "$CI_BUNDLE"
 devflow_module_pin_unique "#603/AC13: the shared ledger-maintenance procedure both revision sites call" \
-  '### Ledger maintenance after a revision (shared procedure — referenced by both revision-producing sites)' "$CI_SKILL"
+  '### Ledger maintenance after a revision (shared procedure — referenced by both revision-producing sites)' "$CI_BUNDLE"
 devflow_module_pin_unique "#603/AC13: no confirmed fix means no recorded resolution" \
-  '**When the verification confirmed none fixed, record no resolution.**' "$CI_SKILL"
+  '**When the verification confirmed none fixed, record no resolution.**' "$CI_BUNDLE"
 devflow_module_pin_unique "#603/AC13: a post-close record is a claim about verified fact" \
-  'A resolution, reopen, or invalidation is a **claim about verified fact**' "$CI_SKILL"
+  'A resolution, reopen, or invalidation is a **claim about verified fact**' "$CI_BUNDLE"
 devflow_module_pin_unique "#603/AC16: the boundary offer names the self-verified state" \
-  'the revised bytes have not been re-audited and the findings are self-verified fixed' "$CI_SKILL"
+  'the revised bytes have not been re-audited and the findings are self-verified fixed' "$CI_BUNDLE"
 devflow_module_pin_unique "#603/AC11: the stale resolution-basis summary phrase" \
-  'converged via self-verified resolution (stale — later revisions unverified)' "$CI_SKILL"
+  'converged via self-verified resolution (stale — later revisions unverified)' "$CI_BUNDLE"
 devflow_module_pin_unique "#603/AC17: the revise-and-recover sequence records a resolution" \
-  '`record-revision` → `record-resolution` (naming the ids the per-finding verification confirmed fixed' "$CI_SKILL"
+  '`record-revision` → `record-resolution` (naming the ids the per-finding verification confirmed fixed' "$CI_BUNDLE"
 devflow_module_pin_unique "#603/AC19: wholesale misadjudication has no amend path" \
-  '**Wholesale misadjudication has no amend path, by design.**' "$CI_SKILL"
+  '**Wholesale misadjudication has no amend path, by design.**' "$CI_BUNDLE"
 devflow_module_pin_unique "#603/AC19: the forced-reinit cost is disclosed" \
-  "**destroys the run's entire lifecycle record, including the round-budget accounting**" "$CI_SKILL"
+  "**destroys the run's entire lifecycle record, including the round-budget accounting**" "$CI_BUNDLE"
 devflow_module_pin_unique "#603/AC19: an erroneous invalidation needs no amend path" \
-  '**A single erroneous invalidation needs no amend path at all**' "$CI_SKILL"
+  '**A single erroneous invalidation needs no amend path at all**' "$CI_BUNDLE"
 devflow_module_pin_unique "#548: Step 3.5 summary reports the evidence bundle's coverage" \
-  "The summary additionally reports the evidence bundle's coverage" "$CI_SKILL"
+  "The summary additionally reports the evidence bundle's coverage" "$CI_BUNDLE"
 devflow_module_pin_unique "#548: Step 4 audit summary reports the bundle's coverage + actionability" \
-  "The Step 4 audit summary line reports the bundle's coverage" "$CI_SKILL"
+  "The Step 4 audit summary line reports the bundle's coverage" "$CI_BUNDLE"
 # ── issue #465: within-text multi-state-contract reconciliation (prose + pins). Reuses the
 #    #312/#443 create-issue file vars (CI_SKILL, CI_TMPL, CI_EXT) + CI_OVERVIEW.
 #    Each pin is a behavioral-fix pin: its literal IS an operative sentence whose removal
@@ -1110,7 +1158,7 @@ devflow_module_pin_unique "#548: Step 4 audit summary reports the bundle's cover
 # (a) Step 3.5 hunt gains the within-text contract-reconciliation target.
 devflow_module_pin_red_under "#465 (a): Step 3.5 names the within-text multi-state-contract reconciliation target" \
   'no summary or table form lists fewer causes for a state than the detailed per-state ACs' \
-  's/lists fewer causes for a state/REMOVED/' "$CI_SKILL"
+  's/lists fewer causes for a state/REMOVED/' "$CI_BUNDLE"
 # (b) Template Move 3 orphan sentence folds the enumerated-state→AC clause.
 devflow_module_pin_red_under "#465 (b): template folds the every-enumerated-contract-state-maps-to-an-AC clause" \
   'every state a multi-state contract enumerates' \
@@ -1126,11 +1174,11 @@ devflow_module_pin_red_under "#465 (d): SYSTEM_OVERVIEW §11 Self-steelman enume
 # (e) Step 3.5 target carries the scope-honesty operative clause ("Scope honesty" AC).
 devflow_module_pin_red_under "#465 (e): Step 3.5 target scopes to the draft's own forms (no not-yet-written-implementation claim)" \
   'makes **no** claim to catch a state that only a not-yet-written implementation will emit' \
-  's/not-yet-written implementation will emit/REMOVED/' "$CI_SKILL"
+  's/not-yet-written implementation will emit/REMOVED/' "$CI_BUNDLE"
 # (f) Step 3.5 target carries the no-burden-on-non-contract-issues operative clause ("No burden…" AC).
 devflow_module_pin_red_under "#465 (f): Step 3.5 target draws no new hunt/question/revision on a non-contract draft" \
   'a draft that states none draws no new hunt, question, or revision' \
-  's/draws no new hunt, question, or revision/REMOVED/' "$CI_SKILL"
+  's/draws no new hunt, question, or revision/REMOVED/' "$CI_BUNDLE"
 # (g) Consumer-agnostic ABSENCE pin (the issue's Testing-Strategy coverage-dimension (e)).
 #     (a)–(f) are all positive-presence pins, so a future edit injecting a DevFlow-internal
 #     reference into a body that ships into consumer repos would pass them all. Assert the two
@@ -1139,7 +1187,7 @@ devflow_module_pin_red_under "#465 (f): Step 3.5 target draws no new hunt/questi
 #     config key (consumers set it themselves), not a DevFlow-repo-internal token.
 for CI465_TOK in 'lib/test/run.sh' 'lib + python tests'; do
   assert_eq "#465 (g): create-issue SKILL stays consumer-agnostic — no '$CI465_TOK'" \
-    "0" "$(devflow_module_pin_count "$CI465_TOK" "$CI_SKILL")"
+    "0" "$(devflow_module_pin_count "$CI465_TOK" "$CI_BUNDLE")"
   assert_eq "#465 (g): create-issue template stays consumer-agnostic — no '$CI465_TOK'" \
     "0" "$(devflow_module_pin_count "$CI465_TOK" "$CI_TMPL")"
   # Non-vacuity proof: an absence pin over a token the detector could never match is a guard
@@ -1149,9 +1197,9 @@ for CI465_TOK in 'lib/test/run.sh' 'lib + python tests'; do
   # depends on the source being clean, so a body that already carried the token would fail this
   # proof with the message "injected token is NOT detected" — the exact inverse of what happened.
   CI465_INJ="$_ci_tmp_root/ci465-inj"
-  { cat "$CI_SKILL"; printf 'the pins live in %s (injected)\n' "$CI465_TOK"; } > "$CI465_INJ"
+  { cat "$CI_BUNDLE"; printf 'the pins live in %s (injected)\n' "$CI465_TOK"; } > "$CI465_INJ"
   assert_eq "#465 (g)-mp: absence pin is non-vacuous — injecting '$CI465_TOK' raises the count by 1" \
-    "$(( $(devflow_module_pin_count "$CI465_TOK" "$CI_SKILL") + 1 ))" "$(devflow_module_pin_count "$CI465_TOK" "$CI465_INJ")"
+    "$(( $(devflow_module_pin_count "$CI465_TOK" "$CI_BUNDLE") + 1 ))" "$(devflow_module_pin_count "$CI465_TOK" "$CI465_INJ")"
 done
 # ── issue #464: create-issue adversarial-input dimension + enumerated-AC-list floor rule.
 #    Reuses the #312/#443 create-issue file vars (CI_TMPL, CI_SKILL, CI_EXT) and adds
@@ -1171,12 +1219,12 @@ devflow_module_pin_unique "#464 AC1: the dimension carries the input-is-data gua
 # consolidate-before-appending rule is itself a coupled contract sentence — pin it so a future
 # edit that drops it (leaving the dimension and the policy silently self-contradicting) goes RED.
 devflow_module_pin_unique "#464 AC1: growth-policy carve-out sanctions the standalone dimension" \
-  'sanctioned standalone addition, not a breach of consolidate-before-appending' "$CI_SKILL"
+  'sanctioned standalone addition, not a breach of consolidate-before-appending' "$CI_BUNDLE"
 # AC4 — Step 3.5 omission-hunt list gains both checks.
 devflow_module_pin_unique "#464 AC4: Step 3.5 hunt flags a new judgment surface missing the guard/hostile-case pair" \
-  'without the guard-AC-plus-hostile-case pair' "$CI_SKILL"
+  'without the guard-AC-plus-hostile-case pair' "$CI_BUNDLE"
 devflow_module_pin_unique "#464 AC4: Step 3.5 hunt flags an AC enum list declaring neither floor nor closure" \
-  'declares neither a floor marker nor a closed-set' "$CI_SKILL"
+  'declares neither a floor marker nor a closed-set' "$CI_BUNDLE"
 # AC2 — template drafter-side judgment-surface guard rule (coupled with the Step 3.6 dimension).
 devflow_module_pin_unique "#464 AC2: template carries the drafter-side judgment-surface guard rule" \
   'A designed LLM/semantic-judgment surface over third-party text carries an input-is-data' "$CI_TMPL"
@@ -1241,6 +1289,7 @@ ALLOW = [                                              # full-context non-comman
     '### Step 3: Draft the issue and pass the no-options gate',
     'immediately after the no-options gate passes and before Step 4 presents anything',
     'and neither is a clean no-options gate',
+    '**The no-options gate** (stated under Step 3 below)',   # #614: the root's non-degradable invariant 2
 ]
 ds = norm.find(DEF_HEAD)
 de = -1 if ds == -1 else norm.find('### ', ds + len(DEF_HEAD))
@@ -1291,7 +1340,7 @@ ci559_field() {
   return 1
 }
 
-CI559_SUM="$(ci559_classify "$CI_SKILL")"
+CI559_SUM="$(ci559_classify "$CI_BUNDLE")"
 CI559_B1="$(ci559_field "$CI559_SUM" bin1)"
 CI559_B2="$(ci559_field "$CI559_SUM" bin2)"
 CI559_U="$(ci559_field "$CI559_SUM" unresolved)"
@@ -1314,7 +1363,7 @@ assert_eq "#559: the definition block contributes exactly one classified occurre
 # mutated copy is an UNRESOLVED occurrence — the guard's detection claim exercised,
 # not attested (recorded observed RED in the PR).
 CI559_PLANT="$_ci_tmp_root/ci559-plant"
-{ cat "$CI_SKILL"; printf '\nThen re-run the Step 3 no-options gate and stop.\n'; } > "$CI559_PLANT"
+{ cat "$CI_BUNDLE"; printf '\nThen re-run the Step 3 no-options gate and stop.\n'; } > "$CI559_PLANT"
 assert_eq "#559: planted-defect positive control — an unwired key-phrase sentence is unresolved (guard RED)" \
   "1" "$(ci559_field "$(ci559_classify "$CI559_PLANT")" unresolved)"
 rm -f "$CI559_PLANT"
@@ -1355,7 +1404,7 @@ assert_eq "#559 shape: absent target file → empty summary (total-classificatio
 # allowlist entry must match one live occurrence so stale or duplicate exemptions
 # cannot accumulate and silently reclassify a future command.
 assert_eq "#559 shape: the enumerated allowlist mentions land in bin3 on the live skill" \
-  "6" "$(ci559_field "$CI559_SUM" bin3)"
+  "7" "$(ci559_field "$CI559_SUM" bin3)"
 # (d) Boundary-hostile: a correctly-wired gate mention whose key phrase and by-name
 # reference are separated by a period-bearing path literal still classifies as a
 # wired site (unresolved=0), proving the contract is positional adjacency — not
@@ -1373,22 +1422,22 @@ rm -f "$CI559_BND"
 # expressed through devflow_module_pin_red_under with a mutation that strips that qualifier.
 devflow_module_pin_red_under "#559: always-run trigger carries the at-every-revision-event qualifier" \
   'runs **at every revision event** — before any re-audit dispatch at that site and before any presentation of the revised draft' \
-  's/at every revision event/sometimes/' "$CI_SKILL"
+  's/at every revision event/sometimes/' "$CI_BUNDLE"
 # The remaining new load-bearing sentences carry surface-presence pins.
 devflow_module_pin_unique "#559: the Revision-delta verification procedure is stated once as a named block" \
-  '### Revision-delta verification (shared procedure — referenced by every revise-and-re-gate site)' "$CI_SKILL"
+  '### Revision-delta verification (shared procedure — referenced by every revise-and-re-gate site)' "$CI_BUNDLE"
 devflow_module_pin_unique "#559: per-class walk records one entry per class, else a stated falsifiable zero" \
-  "one compact entry per class — the class's enumerated items, else a stated falsifiable zero" "$CI_SKILL"
+  "one compact entry per class — the class's enumerated items, else a stated falsifiable zero" "$CI_BUNDLE"
 devflow_module_pin_unique "#559: an all-zeros walk ends the batch's work at the walk record" \
-  "An all-zeros walk ends the batch's work at the walk record." "$CI_SKILL"
+  "An all-zeros walk ends the batch's work at the walk record." "$CI_BUNDLE"
 devflow_module_pin_unique "#559: the inline fix loop walks the fix and terminates on an all-zeros walk" \
-  'walk the fix as its own edit-batch; a batch whose walk is all-zeros ends the loop.' "$CI_SKILL"
+  'walk the fix as its own edit-batch; a batch whose walk is all-zeros ends the loop.' "$CI_BUNDLE"
 devflow_module_pin_unique "#559: closing evidence line — enumerated/verified/fixed format literal" \
-  'revision-delta check: <N> enumerated, <V> verified, <F> fixed' "$CI_SKILL"
+  'revision-delta check: <N> enumerated, <V> verified, <F> fixed' "$CI_BUNDLE"
 devflow_module_pin_unique "#559: closing evidence line — no-verifiable-delta format literal" \
-  'revision-delta check: no verifiable delta' "$CI_SKILL"
+  'revision-delta check: no verifiable delta' "$CI_BUNDLE"
 devflow_module_pin_unique "#559: the five per-site evidence-line anchors are enumerated" \
-  "at Step 3.5's item 5, immediately after that item's gate re-run; at Step 3.5's item 6, immediately before the initial Step 3.6 dispatch's pre-dispatch draft write" "$CI_SKILL"
+  "at Step 3.5's item 5, immediately after that item's gate re-run; at Step 3.5's item 6, immediately before the initial Step 3.6 dispatch's pre-dispatch draft write" "$CI_BUNDLE"
 # SYSTEM_OVERVIEW §11 documents the procedure in both revise-loop descriptions (AC 13).
 devflow_module_pin_unique "#559: overview §11 (Step 3.5 loop) documents the Revision-delta verification procedure" \
   "walks the revision's edit-batch delta across six classes" "$CI_OVERVIEW"
@@ -1504,6 +1553,293 @@ unset -f _ci613_classify _ci613_scan
 unset _ci613_out _ci613_rc
 devflow_module_pin_unique "#613 AC10: overview evidence-axes hook points at the live extension instead of enumerating" \
   'see the live extension'"'"'s `## Evidence axes` section for the current axis list' "$CI_OVERVIEW"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "#614 create-issue split: routing, markers, purity, budgets"
+# ────────────────────────────────────────────────────────────────────────────
+# The skill is a thin root plus marker-gated references. These assertions cover the
+# structure (T1), the boundary-marker contract (T2), the two word budgets (T3), the
+# default-path purity pins (T4), the routing table's stated failure arms (T6), and the
+# consumer extension's new measurement-command evidence axis (T7).
+
+# The reference roster is stated ONCE here and drives every loop below, so a reference
+# can never be registered in one assertion's list and silently dropped from another.
+CI614_STEP_REFS="step-2-clarify step-3-5-steelman revision-delta step-3-6-audit step-4-present-create"
+CI614_FALLBACK_REFS="fallback-no-task-tool fallback-read-only-sandbox fallback-audit-dispatch-arms fallback-state-owner-unavailable"
+CI614_REFS="$CI614_STEP_REFS $CI614_FALLBACK_REFS"
+
+# Marker ids per AC2's decided id space: the step number for step references, the literal
+# `revision-delta`, and `fallback-<name>` for the four fallback files.
+ci614_marker_id() {
+  case "$1" in
+    step-2-clarify)         printf '2' ;;
+    step-3-5-steelman)      printf '3.5' ;;
+    revision-delta)         printf 'revision-delta' ;;
+    step-3-6-audit)         printf '3.6' ;;
+    step-4-present-create)  printf '4' ;;
+    fallback-*)             printf '%s' "$1" ;;
+    *)                      return 1 ;;
+  esac
+}
+
+# T1 — directory <-> routing reconciliation, both directions. Every routed reference
+# exists on disk, and every references/*.md except the two unchanged template files has
+# exactly one routing row naming it. A one-directional check would let an orphaned file
+# accumulate unrouted (dead prose the run never loads) or a row point at nothing.
+for _ci614_ref in $CI614_REFS; do
+  assert_eq "#614 T1: routed reference exists: $_ci614_ref.md" "yes" \
+    "$([ -r "$CI_ROOT/skills/create-issue/references/$_ci614_ref.md" ] && echo yes || echo no)"
+  assert_eq "#614 T1: the root's routing table names $_ci614_ref.md exactly once" "1" \
+    "$(grep -cF "references/$_ci614_ref.md\` |" "$CI_SKILL")"
+done
+_ci614_ondisk=0
+for _ci614_f in "$CI_ROOT"/skills/create-issue/references/*.md; do
+  case "${_ci614_f##*/}" in issue-template.md|audit-prompt-template.md) continue ;; esac
+  _ci614_ondisk=$((_ci614_ondisk + 1))
+done
+# shellcheck disable=SC2086  # deliberate word-split of the space-separated roster
+set -- $CI614_REFS
+_ci614_routed=$#
+assert_eq "#614 T1: no references/*.md is unrouted (on-disk set == routed set)" \
+  "$_ci614_routed" "$_ci614_ondisk"
+
+# T2 — boundary markers. Each reference's literal FIRST line is its start marker naming
+# its own path, its literal LAST line the matching end marker, with exactly one of each.
+# The self-naming requirement is what makes a copy-pasted marker from a sibling file RED.
+for _ci614_ref in $CI614_REFS; do
+  _ci614_p="$CI_ROOT/skills/create-issue/references/$_ci614_ref.md"
+  # Read ci614_marker_id's OWN exit status inline: an unmapped stem otherwise yields an
+  # empty id, and the marker assertions below go RED blaming the reference file instead of
+  # the missing case arm — fail-closed on the verdict, fail-OPEN on the diagnosis.
+  if ! _ci614_id="$(ci614_marker_id "$_ci614_ref")"; then
+    assert_eq "#614 T2: $_ci614_ref has a marker id mapped in ci614_marker_id" "mapped" "unmapped-stem"
+    continue
+  fi
+  _ci614_start="<!-- devflow:create-issue-ref step=$_ci614_id file=skills/create-issue/references/$_ci614_ref.md start -->"
+  _ci614_end="<!-- devflow:create-issue-ref step=$_ci614_id file=skills/create-issue/references/$_ci614_ref.md end -->"
+  assert_eq "#614 T2: $_ci614_ref.md first line is its own start marker" "yes" \
+    "$([ "$(head -n 1 "$_ci614_p")" = "$_ci614_start" ] && echo yes || echo no)"
+  assert_eq "#614 T2: $_ci614_ref.md last line is its own end marker" "yes" \
+    "$([ "$(tail -n 1 "$_ci614_p")" = "$_ci614_end" ] && echo yes || echo no)"
+  assert_eq "#614 T2: $_ci614_ref.md carries exactly one start and one end marker" "1|1" \
+    "$(grep -cF "$_ci614_start" "$_ci614_p")|$(grep -cF "$_ci614_end" "$_ci614_p")"
+  # A marker naming a DIFFERENT reference, pasted anywhere in the body, is one of the shapes
+  # the root's degrade rule enumerates — the first/last-line checks above cannot see it.
+  assert_eq "#614 T2: $_ci614_ref.md carries no marker naming a foreign reference path" "0" \
+    "$(grep -F 'devflow:create-issue-ref' "$_ci614_p" | grep -vcF "file=skills/create-issue/references/$_ci614_ref.md" || true)"
+  # The routing table's marker-contract column byte-matches the id this file carries.
+  assert_eq "#614 T2: the routing row for $_ci614_ref.md states marker id \`step=$_ci614_id\`" "1" \
+    "$(grep -F "references/$_ci614_ref.md\` |" "$CI_SKILL" | grep -cF "\`step=$_ci614_id\`")"
+done
+
+# T6 — every routing row states a degraded behavior, and the root ships the degrade rule
+# itself as artifact content. The behavioral evidence for the entry gate is the recorded
+# trace in the PR (AC3); these pins assert the table the run reads is present and total.
+devflow_module_pin_unique "#614 T6: the root ships the entry-gate marker contract as rule text" \
+  'A load is accepted only when the file'"'"'s **first line is its `start` boundary marker and its last line is the matching `end` marker**' "$CI_SKILL"
+devflow_module_pin_unique "#614 T6: the root ships the total degrade rule (no failure arm terminates the run)" \
+  '**Every load failure degrades, and no failure arm terminates the run.**' "$CI_SKILL"
+devflow_module_pin_unique "#614 T6: the degrade rule enumerates the malformed-shape matrix" \
+  'an unreadable or absent file, an empty file, a missing / duplicated / foreign-path marker, or a truncated read' "$CI_SKILL"
+devflow_module_pin_unique "#614 T6: a failed load emits a breadcrumb naming the file and the failure kind" \
+  'emit an in-chat breadcrumb naming the file and the failure kind' "$CI_SKILL"
+devflow_module_pin_unique "#614 T6: references load with the runner's file-read tool, never a shell invocation" \
+  '**reading it with the runner'"'"'s file-read tool** — never a new shell invocation' "$CI_SKILL"
+# Totality: the table has one row per reference and every row carries a non-empty
+# degraded-behavior cell. A row whose last cell were blank would read as routed-and-covered
+# while naming no fallback at all.
+assert_eq "#614 T6: every routing row carries a non-empty degraded-behavior cell" "$_ci614_routed" \
+  "$(python3 - "$CI_SKILL" <<'PY614'
+import sys, re
+rows = [l for l in open(sys.argv[1], encoding='utf-8') if l.startswith('| ') and 'references/' in l]
+print(sum(1 for l in rows if len(c := [x.strip() for x in l.strip().strip('|').split('|')]) == 4 and c[3]))
+PY614
+)"
+
+# T4 (AC8) — default-path purity. One representative literal per fallback reference,
+# chosen from fallback-internal procedure text no seam pointer or routing row quotes:
+# present in its own file, ABSENT from the root and from every step reference. This is
+# what proves the default path (task tool usable, writable filesystem, file-arm dispatch,
+# state owner available) no longer carries the fallback prose it used to load every run.
+ci614_purity() {  # <fallback-reference-path> <representative literal>
+  local p="$1" lit="$2" stem leaked="" f
+  stem="${p##*/}"; stem="${stem%.md}"
+  assert_eq "#614 T4: $stem.md carries its representative relocated literal" "1" \
+    "$(grep -cF "$lit" "$p")"
+  # A grep over a missing/unreadable/empty file exits non-zero — indistinguishable from
+  # "literal absent" — so the purity claim would pass over a file it never searched. Gate on
+  # usability first: an unsearchable operand is reported, never silently read as clean.
+  [ -s "$CI_SKILL" ] || leaked="SKILL.md(unsearchable)"
+  grep -qF "$lit" "$CI_SKILL" && leaked="SKILL.md"
+  for f in $CI614_STEP_REFS; do
+    if [ ! -s "$CI_ROOT/skills/create-issue/references/$f.md" ]; then
+      leaked="$leaked $f.md(unsearchable)"
+    elif grep -qF "$lit" "$CI_ROOT/skills/create-issue/references/$f.md"; then
+      leaked="$leaked $f.md"
+    fi
+  done
+  assert_eq "#614 T4: $stem.md's literal is absent from the root and every step reference" \
+    "" "$leaked"
+}
+ci614_purity "$CI_REF_FB_NOTASK" \
+  'The status markers are exactly three, complete by construction'
+ci614_purity "$CI_REF_FB_READONLY" \
+  'the failed delete may have left a stale leftover from a prior run'
+ci614_purity "$CI_REF_FB_DISPATCH" \
+  'Bracket the embedded body with **exactly those printed tokens**'
+ci614_purity "$CI_REF_FB_STATEOWNER" \
+  'A fallback lifecycle is **never silent**'
+unset -f ci614_purity
+
+# T3 (AC6/AC7) — the two word budgets. Words are counted by python3 `.split()`, NEVER
+# `wc -w`: GNU and BSD `wc -w` disagree in two directions on this corpus (CLAUDE.md's
+# review-bundle record), so a `wc`-derived ceiling passes at one desk and fails at another.
+# Both ceilings are ratchet-DOWN-only — a measured reduction lowers the recorded ceiling in
+# docs/create-issue-budget.md; neither is ever raised to accommodate growth.
+# Sums per file rather than concatenating the bytes first (run.sh's _rb_words replicates
+# `cat`, because its operand IS an already-concatenated bundle). Summing is the correct
+# shape for a multi-file operand: concatenating would join a file's last word to the next
+# file's first whenever a member lacks a trailing newline, undercounting once per such seam.
+ci614_words() {  # <file>... -> total words on stdout
+  python3 - "$@" <<'PY614W'
+import sys
+print(sum(len(open(p, encoding='utf-8').read().split()) for p in sys.argv[1:]))
+PY614W
+}
+# The ceilings are the only checked-in figures here (a ceiling IS the enforcement — the #656
+# exemption). Deliberately NO measured value in these comments: it would rot on the next prose
+# edit, and the ratchet-legality assertions below already tie each ceiling to its LIVE
+# measurement. docs/create-issue-budget.md is the sole home of the measured figures.
+CI614_ROOT_CEIL=2754
+CI614_DEFAULT_CEIL=31262
+# One comparison shape, shared by both ceilings and by the positive control below, so the
+# three sites cannot drift. An EMPTY measured value reads `no` (fail-closed): a word count
+# that could not be established is never treated as under the ceiling.
+ci614_under() { { [ -n "$1" ] && [ "$1" -le "$2" ]; } 2>/dev/null && echo yes || echo no; }
+CI614_ROOT_W="$(ci614_words "$CI_SKILL")"
+assert_eq "#614 T3: the always-loaded root is at or under its recorded ceiling ($CI614_ROOT_CEIL words)" \
+  "yes" "$(ci614_under "$CI614_ROOT_W" "$CI614_ROOT_CEIL")"
+# The operand is DERIVED from the step roster, never hand-listed: a hand list drifts silently
+# when a step reference is renamed or dropped — the measured total FALLS, so the ceiling
+# assertion goes greener and nothing is RED, exactly inverting what the guard is for. The
+# cardinality pin makes a silently-shrunk operand fail loudly instead.
+CI614_DEFAULT_SET=("$CI_SKILL")
+for _ci614_ref in $CI614_STEP_REFS; do
+  CI614_DEFAULT_SET+=("$CI_ROOT/skills/create-issue/references/$_ci614_ref.md")
+done
+CI614_DEFAULT_SET+=("$CI_TMPL")
+# shellcheck disable=SC2086  # deliberate word-split of the space-separated roster
+set -- $CI614_STEP_REFS
+assert_eq "#614 T3: the default-path operand covers the root, every step reference, and the template" \
+  "$(( $# + 2 ))" "${#CI614_DEFAULT_SET[@]}"
+CI614_DEFAULT_W="$(ci614_words "${CI614_DEFAULT_SET[@]}")"
+assert_eq "#614 T3: the default-path read set is at or under its recorded ceiling ($CI614_DEFAULT_CEIL words)" \
+  "yes" "$(ci614_under "$CI614_DEFAULT_W" "$CI614_DEFAULT_CEIL")"
+# AC7 positive control: the root-ceiling assertion must report RED against a deliberately
+# over-ceiling root. Plant the defect on a COPY (the working tree is never mutated) and
+# assert the same comparison fires — evidence the guard detects growth, not attestation.
+# The plant must be PROVEN over-ceiling before it can prove anything about the guard.
+# ci614_under is fail-closed for a ceiling assertion (empty reads `no`), but here `no` is the
+# EXPECTED value — so an unwritable TMPDIR or a failed padding emit would leave the measurement
+# empty and the control would report GREEN having planted nothing. Assert the plant is
+# measurable and strictly over BOTH ceilings first, so a vacuous control turns the suite RED.
+CI614_PLANT="$_ci_tmp_root/ci614-over-ceiling-root.md"
+if { cat "$CI_SKILL"; python3 -c 'print(("padding " * 8000 + "\n") * 5)'; } > "$CI614_PLANT"; then
+  CI614_PLANT_W="$(ci614_words "$CI614_PLANT")"
+else
+  CI614_PLANT_W=""
+fi
+assert_eq "#614 T3/AC7: the planted copy is measurable and strictly over both ceilings (control is not vacuous)" \
+  "yes" "$({ [ -n "$CI614_PLANT_W" ] && [ "$CI614_PLANT_W" -gt "$CI614_ROOT_CEIL" ] && [ "$CI614_PLANT_W" -gt "$CI614_DEFAULT_CEIL" ]; } 2>/dev/null && echo yes || echo no)"
+# Both ceilings get a control: the default-path ceiling is the larger and more drift-prone of
+# the two, so proving only the root ceiling would leave the riskier guard unexercised.
+assert_eq "#614 T3/AC7 positive control: an over-ceiling operand turns the root budget assertion RED" \
+  "clean=yes|planted=no" \
+  "clean=$(ci614_under "$CI614_ROOT_W" "$CI614_ROOT_CEIL")|planted=$(ci614_under "$CI614_PLANT_W" "$CI614_ROOT_CEIL")"
+assert_eq "#614 T3/AC7 positive control: an over-ceiling operand turns the default-path budget assertion RED" \
+  "clean=yes|planted=no" \
+  "clean=$(ci614_under "$CI614_DEFAULT_W" "$CI614_DEFAULT_CEIL")|planted=$(ci614_under "$CI614_PLANT_W" "$CI614_DEFAULT_CEIL")"
+rm -f "$CI614_PLANT"
+# Ratchet enforcement (shadow finding): a ceiling is only legal at at-most measured+5%, so a
+# future change cannot simply RAISE the constant to admit growth — the module constant and the
+# doc literals are coupled and would be edited together in one commit, leaving no RED. Tying
+# each ceiling to its own live measurement makes a growth-by-ceiling-bump visibly illegal.
+assert_eq "#614 T3: the root ceiling is at most the measured value plus 5% (a raise needs a real measurement)" \
+  "yes" "$({ [ -n "$CI614_ROOT_W" ] && [ "$CI614_ROOT_CEIL" -le "$(( CI614_ROOT_W * 105 / 100 ))" ]; } 2>/dev/null && echo yes || echo no)"
+assert_eq "#614 T3: the default-path ceiling is at most the measured value plus 5% (a raise needs a real measurement)" \
+  "yes" "$({ [ -n "$CI614_DEFAULT_W" ] && [ "$CI614_DEFAULT_CEIL" -le "$(( CI614_DEFAULT_W * 105 / 100 ))" ]; } 2>/dev/null && echo yes || echo no)"
+
+# Conservation guard (shadow finding): the ceilings are ONE-SIDED, so a re-partition that
+# DROPS a paragraph no pin happens to cover makes the word count merely go down — which reads
+# as an improvement against a ratchet-down-only budget while contract prose silently vanishes.
+# AC6's conservation claim is what that would falsify, so the total gets a two-sided band.
+CI614_TOTAL_SET=("$CI_SKILL")
+for _ci614_ref in $CI614_REFS; do
+  CI614_TOTAL_SET+=("$CI_ROOT/skills/create-issue/references/$_ci614_ref.md")
+done
+CI614_TOTAL_W="$(ci614_words "${CI614_TOTAL_SET[@]}")"
+CI614_TOTAL_RECORDED=25814   # docs/create-issue-budget.md, root + all 9 references
+assert_eq "#614 T3: the root+references total is within +/-2% of the recorded conservation figure (a silent DROP is as RED as a rise)" \
+  "yes" "$({ [ -n "$CI614_TOTAL_W" ] \
+    && [ "$CI614_TOTAL_W" -ge "$(( CI614_TOTAL_RECORDED * 98 / 100 ))" ] \
+    && [ "$CI614_TOTAL_W" -le "$(( CI614_TOTAL_RECORDED * 102 / 100 ))" ]; } 2>/dev/null && echo yes || echo no)"
+
+# Positional reconciliation (shadow finding): the budget doc's headline measured figures are
+# hand-transcribed, so pin them AGAINST the live measurement rather than as bare literals —
+# the #656 prefer-generated-evidence rule applied to the two figures that drive the ceilings.
+# The doc renders figures with thousands separators, so the comparand needs them too — but
+# `printf "%'d"` is LOCALE-DEPENDENT (it emits `2732` under LC_ALL=C and `2,732` under a UTF-8
+# locale), which is exactly the guard-class-2 defect this repo bans: a value that decides an
+# assertion must not be derived through something whose behavior varies by host. Python's
+# `{:,}` is locale-independent, and python3 is a hard preflight prerequisite.
+ci614_grouped() { python3 -c 'import sys; print(f"{int(sys.argv[1]):,}")' "$1"; }
+assert_eq "#614 T3: the budget doc's recorded root measurement matches the live count" "yes" \
+  "$(grep -qF "| \`SKILL.md\` (root) | $(ci614_grouped "$CI614_ROOT_W") |" "$CI_ROOT/docs/create-issue-budget.md" && echo yes || echo no)"
+assert_eq "#614 T3: the budget doc's recorded root+references total matches the live count" "yes" \
+  "$(grep -qF "**$(ci614_grouped "$CI614_TOTAL_W")**" "$CI_ROOT/docs/create-issue-budget.md" && echo yes || echo no)"
+unset -f ci614_grouped
+
+# Step-reference purity (shadow finding): T4 proves fallback prose left the default path, but
+# nothing proved a STEP reference's prose did not ALSO remain in the root — a duplicated
+# procedure would load twice and drift into two disagreeing copies, this repo's dominant
+# coupled-mirror hazard. One representative literal per step reference, unique bundle-wide.
+ci614_step_unique() {  # <step-reference stem> <representative literal>
+  assert_eq "#614 T4: $1.md's relocated prose exists exactly once across the shipped skill (not duplicated in the root)" \
+    "1" "$(grep -cF "$2" "$CI_BUNDLE")"
+}
+ci614_step_unique step-2-clarify 'Clarification is the default, not the exception.'
+ci614_step_unique step-3-5-steelman 'This is a **code-grounded verification loop, not a re-read**'
+ci614_step_unique revision-delta '**Bind and walk the delta per edit-batch.**'
+ci614_step_unique step-3-6-audit '**Obey the state owner (the contract governing this whole step).**'
+ci614_step_unique step-4-present-create '**Show the complete rendered issue in chat.**'
+unset -f ci614_step_unique
+
+# The budget doc is the record of every live measured figure; the ceilings above are the
+# only checked-in literals, because a ceiling IS the enforcement (the #656 exemption).
+assert_eq "#614 T3: the budget doc exists" "yes" \
+  "$([ -r "$CI_ROOT/docs/create-issue-budget.md" ] && echo yes || echo no)"
+devflow_module_pin_unique "#614 T3: the budget doc records the ratchet-down-only rule" \
+  'ratchet-down-only' "$CI_ROOT/docs/create-issue-budget.md"
+devflow_module_pin_unique "#614 T3: the budget doc names the root ceiling the suite enforces" \
+  'Root ceiling: **2,754 words**' "$CI_ROOT/docs/create-issue-budget.md"
+devflow_module_pin_unique "#614 T3: the budget doc names the default-path ceiling the suite enforces" \
+  'Default-path ceiling: **31,262 words**' "$CI_ROOT/docs/create-issue-budget.md"
+devflow_module_pin_unique "#614 T3: the budget doc bans wc -w for these measurements" \
+  '**Never `wc -w`.**' "$CI_ROOT/docs/create-issue-budget.md"
+unset -f ci614_words ci614_under
+
+# T7 (AC13) — the consumer extension's new measurement-command evidence axis. A
+# surface-presence contract pin (the extension's own behavioral-fix-pin dimension), so it
+# carries no mutation obligation.
+devflow_module_pin_unique "#614 T7/AC13: the extension carries a measurement-command naming axis" \
+  '**Measurement-command naming.**' "$CI_EXT"
+devflow_module_pin_unique "#614 T7/AC13: the axis requires the exact measuring command per quantitative AC" \
+  'the bundle records, per such AC, the **exact' "$CI_EXT"
+devflow_module_pin_unique "#614 T7/AC13: an unestablishable measurement records unestablished, never an unnamed counter" \
+  'never an unnamed' "$CI_EXT"
+devflow_module_pin_unique "#614 T7/AC13: the axis cites the GNU/BSD wc -w divergence as its motivating defect" \
+  'GNU and BSD `wc -w` disagree in two directions on this repo'"'"'s own prompt corpus' "$CI_EXT"
+unset -f ci614_marker_id
 
 # Complete normal cleanup explicitly so a removal or marker failure changes the
 # module status. EXIT remains a fallback for earlier returns and shell errors.
