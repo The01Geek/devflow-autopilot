@@ -6897,6 +6897,98 @@ assert_eq("#543 AC18: validator accepts the real checked-in manifest",
           0, vcwc.main([]))
 
 # ─────────────────────────────────────────────────────────────────────────────
+# AC9 (issue #650) — grant synchronization. check_grant_sync() maps every
+# AC1-closure reachable helper literal (REQUIRED_HELPER_HEADS) to its profile's
+# workflow grants and fails when a reachable literal is not explicitly granted
+# tight-scoped, or when a grant for a reachable helper widens the executable
+# trust boundary (absolute / repo-root / basename-wildcard). Non-vacuity is
+# proven by injecting one synthetic defect at a time via profile_grants=.
+# ─────────────────────────────────────────────────────────────────────────────
+# The live tree passes — the real workflows grant every reachable literal and
+# widen nothing (the sanctioned */load-prompt-extension.sh wildcard aside).
+assert_eq("#650 AC9: check_grant_sync() reports no violations on the live tree",
+          [], cwc.check_grant_sync())
+assert_eq("#650 AC9: grant-sync main subcommand exits 0 on the live tree",
+          0, cwc.main(["grant-sync"]))
+
+
+def _cw_healthy_grants():
+    """A synthetic {profile: text} granting exactly the reachable literals."""
+    return {
+        pr: "\n".join("TOOLS='Bash(%s:*)'" % lit
+                      for lit in cwc.REQUIRED_HELPER_HEADS[pr])
+        for pr in cwc.ROOTS
+    }
+
+
+# A fully-healthy injected grant set passes (the injection harness itself is not
+# the source of the [] — an all-granted synthetic tree is genuinely clean).
+assert_eq("#650 AC9: a fully-granted synthetic grant set passes",
+          [], cwc.check_grant_sync(_cw_healthy_grants()))
+
+# (a) A reachable literal with no explicit grant is caught.
+_gs_miss = _cw_healthy_grants()
+_gs_miss["implement"] = "\n".join(
+    "TOOLS='Bash(%s:*)'" % lit for lit in cwc.REQUIRED_HELPER_HEADS["implement"][1:])
+assert_eq("#650 AC9: a reachable literal lacking an explicit grant is caught",
+          True, any("grants no explicit" in e for e in cwc.check_grant_sync(_gs_miss)))
+
+# (b) An absolute-path widened grant for a reachable helper is caught.
+_gs_abs = _cw_healthy_grants()
+_gs_abs["implement"] += "\nTOOLS='Bash(/home/x/scripts/workpad.py:*)'"
+assert_eq("#650 AC9: an absolute-path widened grant is caught",
+          True, any("absolute" in e for e in cwc.check_grant_sync(_gs_abs)))
+
+# (c) A repo-root (non-vendored scripts/… ) widened grant is caught.
+_gs_rr = _cw_healthy_grants()
+_gs_rr["implement"] += "\nTOOLS='Bash(scripts/workpad.py:*)'"
+assert_eq("#650 AC9: a repo-root widened grant is caught",
+          True, any("repo-root" in e for e in cwc.check_grant_sync(_gs_rr)))
+
+# (d) An unsanctioned basename-wildcard widened grant is caught.
+_gs_bw = _cw_healthy_grants()
+_gs_bw["implement"] += "\nTOOLS='Bash(*/workpad.py:*)'"
+assert_eq("#650 AC9: an unsanctioned basename-wildcard widened grant is caught",
+          True, any("basename-wildcard" in e for e in cwc.check_grant_sync(_gs_bw)))
+
+# (e) The sanctioned */load-prompt-extension.sh wildcard is NOT flagged — the
+# guard must not go RED on the deliberate companion wildcard the real profiles
+# carry (lib/capability-profiles.json), or it would fail on the healthy tree.
+_gs_sanct = _cw_healthy_grants()
+_gs_sanct["review"] += "\nTOOLS='Bash(*/load-prompt-extension.sh:*)'"
+assert_eq("#650 AC9: the sanctioned */load-prompt-extension.sh wildcard is NOT flagged",
+          [], cwc.check_grant_sync(_gs_sanct))
+
+# (f) An unavailable grant source (None) is a targeted violation, never a silent
+# empty grant set (unknown is not zero).
+_gs_none = _cw_healthy_grants()
+_gs_none["review"] = None
+assert_eq("#650 AC9: an unavailable grant source is reported, not read as zero grants",
+          True, any("grant source unavailable" in e for e in cwc.check_grant_sync(_gs_none)))
+
+# (g) REQUIRED_HELPER_HEADS naming a different profile set than ROOTS is caught
+# ("exactly three current cloud profiles, complete by AC1's workflow roots").
+_gs_orig_heads = cwc.REQUIRED_HELPER_HEADS
+_gs_parity_grants = _cw_healthy_grants()  # built before the mutation below
+try:
+    cwc.REQUIRED_HELPER_HEADS = {"implement": _gs_orig_heads["implement"]}
+    assert_eq("#650 AC9: REQUIRED_HELPER_HEADS profiles != ROOTS profiles is caught",
+              True, any("!= ROOTS profiles" in e for e in cwc.check_grant_sync(_gs_parity_grants)))
+finally:
+    cwc.REQUIRED_HELPER_HEADS = _gs_orig_heads
+
+# A commented-out grant does not satisfy a reachable literal (fail-open guard,
+# mirrors the AC18 extract_profile_grants pin): a `# … Bash(workpad.py…)` line is
+# not a grant, so the literal reads as ungranted.
+_gs_comment = _cw_healthy_grants()
+_gs_comment["review"] = _gs_comment["review"].replace(
+    "TOOLS='Bash(.devflow/vendor/devflow/scripts/workpad.py:*)'",
+    "# TOOLS='Bash(.devflow/vendor/devflow/scripts/workpad.py:*)'")
+assert_eq("#650 AC9: a commented-out reachable grant does not count (fail-open guard)",
+          True, any("workpad.py" in e and "grants no explicit" in e
+                    for e in cwc.check_grant_sync(_gs_comment)))
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Cloud-writer trust-closure dependency classification (issue #583, AC5).
 # The classification is import/source-derived + exec-declared; the guard rejects
 # a repo-owned edge that escapes the vendored tree and an external edge that

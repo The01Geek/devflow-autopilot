@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 
 # Repo root: this file is lib/test/cloud_writer_contract.py.
@@ -382,6 +383,161 @@ def unlisted_skill_assets():
     return missing
 
 
+# --- AC9: grant synchronization ------------------------------------------------
+# The AC1-closure per-profile reachable helper literals (REQUIRED_HELPER_HEADS)
+# must each be granted in that profile's workflow as the exact vendored leading
+# token, and no grant for a reachable helper may WIDEN the executable trust
+# boundary to a broader class (an absolute path, a repo-root path, or a
+# basename-wildcard). check_grant_sync() enforces both directions over the three
+# cloud profiles keyed by ROOTS.
+#
+# Grant-shape regexes, mirroring validate-cloud-writer-contract.py's _GRANT_RE for
+# the vendored form. Both anchor on `Bash(` so a vendored path that appears only in
+# a comment or a shell assignment is never counted as a grant (the same fail-open
+# guard the validator's _GRANT_RE documents).
+# A properly-scoped vendored grant: the exact tight trust boundary.
+_VENDORED_GRANT_RE = re.compile(
+    r"Bash\(\s*(\.devflow/vendor/devflow/(?:scripts|lib)/[A-Za-z0-9._-]+)"
+)
+# Any `Bash(<spec>)` grant's command-position path token (up to the first `:` /
+# `)` / whitespace). Used to enumerate every grant so a widened one for a
+# reachable helper basename can be detected — a vendored-only regex is blind to
+# exactly the widened classes AC9 must reject.
+_ANY_BASH_GRANT_RE = re.compile(r"Bash\(\s*([^\s:)]+)")
+
+# Deliberately-sanctioned basename-wildcard grants (NOT widening defects). The
+# light-command and review profiles grant Bash(*/load-prompt-extension.sh:*)
+# ALONGSIDE the explicit vendored literal (lib/capability-profiles.json): the
+# prompt-extension loader is reached through the portable ${CLAUDE_SKILL_DIR:-…}
+# anchor, which can resolve to a non-vendored absolute path on some runners, so
+# the wildcard is an intentional companion to the tight grant, not a replacement
+# of it. A change that ADDED a new wildcard here would still need an explicit
+# manifest edit + review-boundary diff, so exempting this one literal does not
+# open a silent widening path.
+SANCTIONED_WILDCARD_GRANTS = frozenset({"*/load-prompt-extension.sh"})
+
+
+def _grant_source_text(profile, profile_grants):
+    """Return the raw grant-source text for one profile.
+
+    When ``profile_grants`` is provided it is a ``{profile: text}`` mapping
+    (the injection point unit tests use to drive synthetic grants); otherwise
+    the profile's ROOTS workflow file is read from disk. A missing injected
+    profile or an unreadable workflow yields ``None`` so the caller can report a
+    targeted violation rather than silently treating the grant set as empty
+    (unknown is not zero).
+    """
+    if profile_grants is not None:
+        return profile_grants.get(profile)
+    workflow = ROOTS[profile]["workflow"]
+    try:
+        return (REPO_ROOT / workflow).read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+
+def _scan_grants(text):
+    """Return ``(vendored_grants, any_grants)`` for a grant-source text.
+
+    Full-line YAML comments are dropped first so a commented-out grant is not
+    counted (mirrors extract_profile_grants). ``vendored_grants`` is the set of
+    properly-scoped vendored leading tokens; ``any_grants`` is the set of every
+    ``Bash(...)`` command-position path token (used for widening detection).
+    """
+    scanned = "\n".join(
+        line for line in text.splitlines() if not line.lstrip().startswith("#")
+    )
+    return set(_VENDORED_GRANT_RE.findall(scanned)), set(_ANY_BASH_GRANT_RE.findall(scanned))
+
+
+def _classify_widening(spec):
+    """Classify a non-vendored grant ``spec`` for a reachable helper basename.
+
+    Returns one of ``absolute`` / ``repo-root`` / ``basename-wildcard``, or
+    ``None`` when the spec is not one of the three widened helper classes AC9
+    rejects (e.g. a bare command name that happens to share the basename).
+    """
+    if spec.startswith("/"):
+        return "absolute"
+    if spec.startswith("*/"):
+        return "basename-wildcard"
+    if spec.startswith("scripts/") or spec.startswith("lib/"):
+        return "repo-root"
+    return None
+
+
+def check_grant_sync(profile_grants=None):
+    """AC9 guard. Return a list of human-readable violations (empty == OK).
+
+    For each of the three cloud profiles keyed by ROOTS (implement,
+    light-command, review), maps every AC1-closure reachable helper literal in
+    REQUIRED_HELPER_HEADS to that profile's workflow grants and fails when:
+
+    * a reachable literal lacks an explicit vendored ``Bash(<literal>:*)`` grant, or
+    * a grant for a reachable helper's basename widens the executable trust
+      boundary to an absolute-path, repo-root, or basename-wildcard class
+      (excluding the sanctioned wildcards in ``SANCTIONED_WILDCARD_GRANTS``).
+
+    ``profile_grants`` (optional ``{profile: workflow-text}``) injects synthetic
+    grant sources for unit tests; when omitted each profile's ROOTS workflow is
+    read from disk.
+    """
+    errors = []
+
+    # "exactly three current cloud profiles, complete by AC1's workflow roots":
+    # REQUIRED_HELPER_HEADS must name precisely the ROOTS profile set. (A subset
+    # or superset here is the drift this half of the guard exists to catch; the
+    # profile parity in check_closure() covers the healthy tree, this restates it
+    # so grant-sync is self-standing when driven in isolation.)
+    if set(REQUIRED_HELPER_HEADS) != set(ROOTS):
+        errors.append(
+            "AC9 grant-sync: REQUIRED_HELPER_HEADS profiles "
+            f"{sorted(REQUIRED_HELPER_HEADS)} != ROOTS profiles {sorted(ROOTS)}"
+        )
+        return errors
+
+    for profile in sorted(ROOTS):
+        heads = REQUIRED_HELPER_HEADS[profile]
+        text = _grant_source_text(profile, profile_grants)
+        if text is None:
+            errors.append(
+                f"AC9 grant-sync: profile '{profile}' grant source unavailable "
+                f"({ROOTS[profile]['workflow']}); cannot confirm grants (unknown is not zero)"
+            )
+            continue
+        vendored_grants, any_grants = _scan_grants(text)
+
+        # (1) Every reachable literal must be explicitly granted, tight-scoped.
+        reachable_basenames = set()
+        for literal in heads:
+            reachable_basenames.add(literal.rsplit("/", 1)[-1])
+            if literal not in vendored_grants:
+                errors.append(
+                    f"AC9 grant-sync: profile '{profile}' reaches helper "
+                    f"'{literal}' but grants no explicit Bash({literal}:*) — "
+                    f"add the vendored-literal grant"
+                )
+
+        # (2) No grant for a reachable helper's basename may widen the boundary.
+        for spec in sorted(any_grants):
+            if spec in vendored_grants:
+                continue  # a proper vendored grant is never a widening
+            if spec in SANCTIONED_WILDCARD_GRANTS:
+                continue  # deliberate companion wildcard (documented)
+            basename = spec.rsplit("/", 1)[-1]
+            if basename not in reachable_basenames:
+                continue  # not a grant for a helper this profile reaches
+            widened = _classify_widening(spec)
+            if widened is not None:
+                errors.append(
+                    f"AC9 grant-sync: profile '{profile}' grants '{spec}' for "
+                    f"reachable helper '{basename}' as a {widened} class — widens "
+                    f"the executable trust boundary; grant only the vendored literal"
+                )
+
+    return errors
+
+
 def _helper_source_path(vendored_token):
     """Map a vendored leading token to its repository-owned source path.
 
@@ -441,11 +597,24 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "command",
-        choices=("check", "generate", "verify"),
+        choices=("check", "generate", "verify", "grant-sync"),
         help="check: AC1 closure guard; generate: write the manifest; "
-        "verify: assert the checked-in manifest matches the closure",
+        "verify: assert the checked-in manifest matches the closure; "
+        "grant-sync: AC9 guard — every reachable helper literal is granted "
+        "tight-scoped in its profile and no grant widens the trust boundary",
     )
     args = parser.parse_args(argv)
+
+    # grant-sync is a standalone guard over the workflow grants — it does not
+    # render the manifest, so it runs before the check_closure()/build path below.
+    if args.command == "grant-sync":
+        gs_errors = check_grant_sync()
+        if gs_errors:
+            for e in gs_errors:
+                print(f"cloud-writer-contract: {e}")
+            return 1
+        print("cloud-writer-contract: grant-sync OK")
+        return 0
 
     # generate and verify both render the manifest from the closure, so a closure
     # that `check` would reject (a helper token missing the vendor prefix, a
