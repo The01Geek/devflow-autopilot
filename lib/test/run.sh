@@ -28403,8 +28403,11 @@ assert_eq "#677 vendor: self slice excludes lib/test (DevFlow's own test suite)"
 # #677 presence backstops: the exclusion must not over-prune. Proving absence alone
 # would be satisfied by an implementation that pruned too much (e.g. all of docs/ or
 # all of lib/), so pair each excluded subtree with the reachable siblings that MUST
-# survive: the rest of docs/ (the six files shipped skill bodies link to), the
-# non-test lib/ contents, and the load-bearing top-level members.
+# survive: representative docs/ files shipped skill bodies link to, the non-test lib/
+# contents, and the load-bearing top-level members. (Of the six docs files skill
+# bodies link to, five are pinned individually below; the sixth,
+# docs/DEVFLOW_SYSTEM_OVERVIEW.md, is already covered by the pre-existing
+# "vendor: self copies docs/" assertion above.)
 # (docs/architecture.md is named in the issue's AC3 but does not exist in the tree —
 # its only mention is an illustrative example string in agents/checklist-generator.md,
 # not a shipped link — so it is deliberately NOT asserted here; recorded as an

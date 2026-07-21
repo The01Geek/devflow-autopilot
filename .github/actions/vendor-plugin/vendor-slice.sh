@@ -72,14 +72,17 @@ devflow_copy_slice() {
   rm -f "$stage/.claude-plugin/marketplace.json"
   find "$stage" -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true
   # Prune subtrees no consumer run reaches (issue #677): the published GitHub
-  # Pages HTML under docs/site (a web page, not a doc any shipped skill links to
-  # — only docs/site is unreferenced; the rest of docs/ stays), and DevFlow's own
-  # test suite under lib/test (it asserts against install.sh and .github/, which
-  # the slice does not copy, so it could only fail loudly in a consumer tree).
-  # Placed after cp -R and before the sanity floor so the floor evaluates the tree
-  # that actually ships; the whole $stage is rm -rf'd on any floor failure, so this
-  # can never leave a partially-pruned tree at $dest. rm -rf is a no-op on an absent
-  # path, mirroring the best-effort marketplace.json/__pycache__ prunes above.
+  # Pages HTML under docs/site (a standalone published web page no shipped skill
+  # links to — the rest of docs/ stays, since shipped skill bodies link into it),
+  # and DevFlow's own test suite under lib/test (it asserts against install.sh and
+  # .github/, which the slice does not copy, so it could only fail loudly in a
+  # consumer tree). Placed after cp -R and before the sanity floor so the floor
+  # evaluates the tree that actually ships; the whole $stage is rm -rf'd on any
+  # floor failure, so this can never leave a partially-pruned tree at $dest. Like
+  # the marketplace.json/__pycache__ prunes above, rm -rf is a no-op on an absent
+  # path; unlike those (which suppress errors to stay best-effort) this line is
+  # left unguarded, so an unexpected rm error aborts loudly under set -e — the
+  # preferred fail direction here.
   rm -rf "$stage/docs/site" "$stage/lib/test"
   # Sanity floor before the swap: the load-bearing members must have landed.
   if [ ! -d "$stage/scripts" ] || [ ! -f "$stage/.claude-plugin/plugin.json" ] \
