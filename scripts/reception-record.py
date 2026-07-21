@@ -500,9 +500,29 @@ def cmd_record(args) -> int:
                 )
                 + "\n"
             )
+        elif not isinstance(prior_identity.get("candidate_identity"), str):
+            # The THIRD way into the same fail-open, entering through the value
+            # rather than the read or the tags: a well-formed, correctly-tagged
+            # artifact whose recorded identity is absent or not a string cannot
+            # be compared, so reporting `null` would assert continuity across an
+            # overwrite this run never verified. Undetermined, like the others.
+            rebound_from = "unknown"
+            sys.stderr.write(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "warning": "prior_identity_unreadable",
+                        "reason": "identity_value_not_string",
+                        "claim_context_token": token,
+                        "candidate_identity": candidate_identity,
+                    },
+                    sort_keys=True,
+                )
+                + "\n"
+            )
         else:
-            prior_value = prior_identity.get("candidate_identity")
-            if isinstance(prior_value, str) and prior_value != candidate_identity:
+            prior_value = prior_identity["candidate_identity"]
+            if prior_value != candidate_identity:
                 rebound_from = prior_value
                 sys.stderr.write(
                     json.dumps(

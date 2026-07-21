@@ -240,6 +240,30 @@ class IdentityContractTests(unittest.TestCase):
         r.commit_all("nl")
         self.assertEqual(derived, committed_tree(r.path))
 
+    def test_assume_unchanged_edit_does_not_change_identity(self):
+        """The documented CE_VALID invariance, exercised.
+
+        Round-3 review: the docs assert that an `assume-unchanged` path's
+        worktree edit does not change the derived identity — a surprising,
+        load-bearing consequence of seeding the temp index from the real index,
+        previously backed only by a throwaway manual probe. This is the more
+        surprising direction than the sparse-checkout half: a REAL on-disk edit
+        that `git add -A` must not re-stat. A future git behavior change (or a
+        "simplify to a fresh index" refactor) breaks it silently otherwise.
+        """
+        r = self._repo()
+        r.write("a.txt", "x\n")
+        r.commit_all("seed a")
+        before = ri.derive_candidate_identity(str(r.path))
+        git(r.path, "update-index", "--assume-unchanged", "a.txt")
+        r.write("a.txt", "EDITED — must be invisible to the identity\n")
+        self.assertEqual(ri.derive_candidate_identity(str(r.path)), before)
+        # Positive control on the SAME fixture: once the flag is cleared, the
+        # very same edit DOES move the identity — so the equality above is the
+        # assume-unchanged flag's doing, not an inert derivation.
+        git(r.path, "update-index", "--no-assume-unchanged", "a.txt")
+        self.assertNotEqual(ri.derive_candidate_identity(str(r.path)), before)
+
     def test_absent_index(self):
         r = self._repo()
         r.write("a.txt", "x\n")
@@ -680,6 +704,43 @@ class ReviewFixTests(unittest.TestCase):
     # as discriminators and never checked on read, so a ledger belonging to a
     # different session (or a different artifact kind entirely) was joined
     # silently — the one matrix-adjacent shape that yields a VALID-LOOKING ledger.
+    def test_prior_identity_bad_value_shape_is_undetermined_not_unchanged(self):
+        """The value field is the third way into the same fail-open.
+
+        Round-3 review: two arms already render `unknown` (unreadable artifact,
+        tag mismatch), but a well-formed, correctly-tagged artifact whose
+        `candidate_identity` is missing or non-string fell past the
+        `isinstance(prior_value, str)` test and left `rebound_from` at null —
+        which positively asserts "identity unchanged" across an overwrite the
+        helper could not actually compare. Same class, entered through the value.
+        """
+        for name, planted in (
+            ("missing", {}),
+            ("null", {"candidate_identity": None}),
+            ("int", {"candidate_identity": 5}),
+            ("object", {"candidate_identity": {}}),
+            ("list", {"candidate_identity": []}),
+            ("bool_false", {"candidate_identity": False}),
+        ):
+            with self.subTest(name):
+                r = self._repo()
+                r.write("a.txt", "x\n")
+                p1 = self._record(r)
+                token = p1["claim_context_token"]
+                Path(p1["identity_path"]).write_text(json.dumps({
+                    "kind": "reception-identity",
+                    "claim_context_token": token,
+                    **planted,
+                }))
+                r.write("a.txt", "edited\n")
+                code, out, err = self._run(
+                    ["record", "--repo-root", str(r.path), "--token", token])
+                self.assertEqual(code, 0, err)
+                self.assertEqual(json.loads(out)["rebound_from"], "unknown")
+                self.assertEqual(
+                    self._warning(err, "prior_identity_unreadable")["reason"],
+                    "identity_value_not_string")
+
     def test_findings_ledger_token_mismatch_refused(self):
         r = self._repo()
         p = self._record(r)

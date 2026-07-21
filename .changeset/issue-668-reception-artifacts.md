@@ -20,6 +20,7 @@ type: Added
   optional top-level `candidate_identity` declaration field recorded in the handle, a sibling of
   `checkout` that leaves `descriptor_digest`, `flight_key`, and `SCHEMA_VERSION` byte-unchanged.
   The Reception Preflight block grows from nine to eleven facts (candidate identity and
-  claim-context token); when the helper produces no output both facts render `missing` and the run
+  claim-context token); both render `established` only when the invocation exits 0 and its stdout
+  parses as a JSON object carrying both values, and otherwise render `missing` while the run
   continues, and the editing gate is unchanged. The helper is granted in the `implement` and
   `command` capability profiles only — the read-only reviewer boundary is untouched. (#668)
