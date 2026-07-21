@@ -89,8 +89,13 @@ literal ``Expected total`` legend in a design record, plus a ``both``-summary R3
 in a ``lib/test/run.sh`` fixture comment. The surface most likely to describe a claim shape is
 exactly the one the lint most needs to keep clean, so those pulled against each other. The fix is
 an **explicit author opt-out**: a prose/comment line carrying the marker ``stale-prose-lint: example``
-anywhere on it is skipped for **every** rule (R1–R4 *and* the non-gating recognition tier). The
-marker is matched as a plain substring of the raw line via ``_EXAMPLE_MARKER_RE``, so it is
+anywhere on it is skipped for **every** gating rule (R1–R4 *and* the non-gating recognition tier).
+The skip is **not silent** — the line still surfaces one non-gating ``UNRESOLVABLE`` audit row
+(rule ``EX``, never ``STALE``, so the exit code is untouched), so a marker that lands on a real
+claim (mis-placed, or dragged onto an adjacent claim by a relocation) stays visible to a reviewer
+of the lint *output*, not only to a reader of the source. The
+marker is matched as a plain substring of the raw line via ``_EXAMPLE_MARKER_RE`` (a trailing
+negative-lookahead pins the exact token, so ``examples`` / ``example-driven`` do not opt a line out), so it is
 **language-agnostic** — it works inside a Markdown ``<!-- … -->`` comment, a Python ``#`` /
 docstring line, or a shell ``#`` comment alike, independent of comment syntax. Example (this very
 line documents the R2 legend shape yet is skipped, because it carries the marker):
@@ -370,10 +375,12 @@ _TWO_ITEM_RE = re.compile(r"(?i)\ba\b\s+\S.*\band\b\s+\ba\b\s+\S")
 _BOTH_RE = re.compile(r"(?i)\bboth\b")
 _BACKTICK_RE = re.compile(r"`([^`]+)`")
 # Illustrative-example opt-out (issue #635). A prose/comment line carrying this marker DESCRIBES a
-# claim shape rather than asserting it, so `examine_file` skips all rules for it. Matched as a plain
-# substring (optional whitespace after the colon) so it is language-agnostic. See the module
-# header's #635 design record for the mechanism and disclosed non-goals.
-_EXAMPLE_MARKER_RE = re.compile(r"stale-prose-lint:\s*example", re.IGNORECASE)
+# claim shape rather than asserting it, so `examine_file` skips all gating rules for it (emitting a
+# single non-gating audit row so the suppression stays visible in the output). Matched as a plain
+# substring (optional whitespace after the colon) so it is language-agnostic; the trailing
+# `(?![\w-])` pins the exact token so `examples` / `example-driven` do not incidentally opt a line
+# out. See the module header's #635 design record for the mechanism and disclosed non-goals.
+_EXAMPLE_MARKER_RE = re.compile(r"stale-prose-lint:\s*example(?![\w-])", re.IGNORECASE)
 
 # Verdict tokens as module constants, referenced by every emit site AND the exit-code gate
 # (``verdict == STALE`` in ``run``). The process exit code hinges on the STALE literal
@@ -1072,10 +1079,17 @@ def examine_file(path, added, lines, rows, move=None):
         if not _may_carry_claim(mask, idx):
             continue
         # Illustrative-example opt-out (issue #635): an author-declared example of a claim shape
-        # is DOCUMENTATION, not an assertion. Skip every rule for it — R1–R4 and the non-gating
-        # recognition tier below — before any rule runs, so a marked line emits no row at all.
-        # Placed after `_may_carry_claim` so only lines that could carry a claim pay the regex.
+        # is DOCUMENTATION, not an assertion. Skip every gating rule for it — R1–R4 and the
+        # non-gating recognition tier below — before any rule runs. Emit ONE non-gating
+        # (UNRESOLVABLE, never STALE) audit row instead of falling silent, so the suppression is
+        # greppable in the output: a marked line that lands on a real claim (a mis-placed or
+        # relocated marker) is then visible to a reviewer of the lint's output, not only to a
+        # reader of the source. Placed after `_may_carry_claim` so only lines that could carry a
+        # claim pay the regex.
         if _EXAMPLE_MARKER_RE.search(text):
+            rows.append(Row(UNRESOLVABLE, "EX", path, post_ln,
+                            f"exempted by opt-out marker (stale-prose-lint: example) — "
+                            f"all rules skipped — {_excerpt(text)}"))
             continue
         # Multiplicity half of the exemption; each rule adds its own referent half below.
         # Deliberately asymmetric with the referent rule: the CLAIM side does not additionally

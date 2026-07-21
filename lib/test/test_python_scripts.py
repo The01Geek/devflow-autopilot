@@ -4160,6 +4160,49 @@ assert_eq("#635: the marker recognizer fires inside a Markdown comment, a shell/
 assert_eq("#635: an ordinary claim line without the marker is NOT treated as an example",
           False, bool(stale_prose_lint._EXAMPLE_MARKER_RE.search("Expected total = 3 items")))
 
+# The opt-out is NOT silent: a marked line surfaces exactly one non-gating UNRESOLVABLE 'EX'
+# audit row (never STALE), so a mis-placed marker on a real claim is visible in the lint OUTPUT,
+# not only in the source. Asserted against ALL rows (not the STALE-filtered projection), which is
+# the only way to pin "one audit row, and the gating rule did not run" together.
+def _all_rows_635(path, body_lines):
+    added = {i + 1: t for i, t in enumerate(body_lines)}
+    rows = []
+    stale_prose_lint.examine_file(path, added, list(body_lines), rows)
+    return [(r.verdict, r.rule) for r in rows]
+
+# A marked R2 legend line (which unmarked gates STALE R2) yields exactly one non-gating audit row.
+assert_eq("#635: a marked claim line emits exactly one non-gating UNRESOLVABLE 'EX' audit row "
+          "(the suppression is observable, and no gating rule ran)",
+          [(stale_prose_lint.UNRESOLVABLE, "EX")],
+          _all_rows_635("docs/design.md",
+                        [_C1[0].format(mark="  <!-- stale-prose-lint: example -->")] + _C1[1:]))
+# The recognition tier (non-gating R3 'pin or drift-proof') is also suppressed: a marked line
+# matching the widened recognition shape emits ONLY the EX row, not a recognition-tier row.
+assert_eq("#635: the marker also suppresses the non-gating recognition tier (only the EX row "
+          "remains, no 'R3' recognition-only row)",
+          [(stale_prose_lint.UNRESOLVABLE, "EX")],
+          _all_rows_635("docs/design.md",
+                        ["mentions two files here  <!-- stale-prose-lint: example -->"]))
+
+# R1 (range-outgrowth) shares the same pre-rule skip: a marked `Cases A-B` header whose forward
+# region outgrows B (unmarked → STALE R1) is skipped too, completing the "all rules" claim.
+_C_R1 = ["# Cases 1-2 below{mark}", "Case 1: a", "Case 2: b", "Case 3: c"]
+assert_eq("#635: a marked R1 range-outgrowth header is skipped (no STALE)",
+          [], _stale_rules_635("lib/test/run.sh",
+                               [_C_R1[0].format(mark="  # stale-prose-lint: example")] + _C_R1[1:]))
+assert_eq("#635: the SAME R1 shape WITHOUT the marker still gates STALE",
+          ["R1"], _stale_rules_635("lib/test/run.sh", [_C_R1[0].format(mark="")] + _C_R1[1:]))
+
+# re.IGNORECASE is load-bearing: a mixed-case marker still opts the line out.
+assert_eq("#635: the marker match is case-insensitive (a mixed-case marker still fires)",
+          True, bool(stale_prose_lint._EXAMPLE_MARKER_RE.search("x STALE-PROSE-LINT: Example -->")))
+# The token is pinned: an incidental `examples` / `example-driven` mention does NOT opt out.
+assert_eq("#635: an incidental 'examples'/'example-driven' mention is NOT the opt-out token",
+          [False, False],
+          [bool(stale_prose_lint._EXAMPLE_MARKER_RE.search(s)) for s in (
+              "see the stale-prose-lint: examples of the shapes",
+              "a stale-prose-lint: example-driven approach")])
+
 # ── stale_prose_lint.prose_mask (#434 line scoping) ───────────────────────────────────────
 # The predicate is FILE-STATEFUL: fence / docstring / block-comment membership cannot be
 # decided from an added line's own text (a hunk can begin *inside* a fence, so the opening
