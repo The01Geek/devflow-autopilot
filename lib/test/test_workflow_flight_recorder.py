@@ -422,6 +422,24 @@ class RegistryAndOccurrenceTests(unittest.TestCase):
                 self.assertIn("skills/review/phases/*.md", globs)
                 self.assertIn(".devflow/prompt-extensions/review.md", globs)
 
+    def test_receiving_code_review_extension_surface_is_recorded(self) -> None:
+        # #620: /devflow:review-and-fix loads the receiving-code-review extension at
+        # entry (a second always-loaded extension), and /devflow:implement reaches it
+        # through the inline engine. The row rides `required: false`, so a dropped or
+        # typo'd glob ships desk-green while the recorder under-reports the loaded
+        # surface. Bind the registry rows to disk, as the references glob is bound.
+        extension_glob = ".devflow/prompt-extensions/receiving-code-review.md"
+        for workflow in ("review-and-fix", "implement", "receiving-code-review"):
+            with self.subTest(workflow=workflow):
+                rows = [
+                    item
+                    for item in self.registry[workflow].surfaces
+                    if item.glob == extension_glob
+                ]
+                self.assertEqual(len(rows), 1)
+                self.assertEqual(rows[0].load_class, "extension")
+        self.assertTrue((ROOT / extension_glob).is_file())
+
     def test_review_and_fix_reference_surfaces_resolve_to_the_shipped_files(self) -> None:
         # #530/#539: the references glob rides `required: false`, so a typo'd or
         # stale glob would silently record ZERO surfaces (the census under-reports
