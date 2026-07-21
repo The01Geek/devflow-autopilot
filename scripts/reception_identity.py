@@ -6,14 +6,16 @@
 An importable, python3 standard-library-only routine. It derives ONE value — the
 git tree object ID of the working-tree *content*: tracked files at their
 working-tree content plus untracked non-ignored files, with gitignored content
-excluded, and with HEAD excluded from the input. Staged-vs-worktree differences
-resolve to worktree content, so the index does not decide the value for any path
-present on disk; the current index contributes only its skip-worktree (sparse)
-entries, which have no on-disk content to read and would otherwise be dropped
-(see the seeding paragraph below — that contribution is deliberate and
-load-bearing, so the index is an input, not an exclusion). This is the single
-machine-checkable session identity the Reception Preflight records and later
-consumers re-derive.
+excluded, and with HEAD excluded from the input. The current index is an INPUT,
+not an exclusion: for an ordinary path `git add -A` resolves the entry to
+worktree content, but for an entry git deliberately does not re-stat — a
+skip-worktree (cone-mode sparse) entry, which has no on-disk content to read, or
+an `assume-unchanged` (CE_VALID) entry, which does — the INDEX content decides
+the value, and an `assume-unchanged` path's worktree edit therefore does not
+change the derived identity. Both are the documented consequence of seeding from
+the real index (see the seeding paragraph below), which is load-bearing for
+sparse checkouts. This is the single machine-checkable session identity the
+Reception Preflight records and later consumers re-derive.
 
 Derivation is index-cached plumbing, not a hand-rolled tree walk: a temporary
 index is SEEDED from the repository's current index, `git add -A` stages every

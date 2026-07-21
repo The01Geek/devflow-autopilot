@@ -291,7 +291,7 @@ def _derive(declaration: Any) -> dict:
     # derivation above read only `profile` and `checkout`, so this field leaves
     # `descriptor_digest` and `flight_key` byte-identical and every stored handle
     # valid. An in-`checkout` placement would silently invalidate every stored
-    # handle while presence-only tests still passed — the documented gotcha. The
+    # handle while presence-only tests still passed — the documented gotcha.
     # An ABSENT field records None (that stays legal — the AC); a PRESENT one is
     # validated to the same non-empty-string bar every sibling operand meets, so a
     # dict/list/int/blank can never be persisted into the handle and then compare

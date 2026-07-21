@@ -17,9 +17,9 @@ Covers the issue #668 acceptance matrix:
   * one-invocation-writes-both-artifacts, token nonce, gitignored keying,
   * the ignore-rule precondition, the session pointer, idempotency,
   * the findings ledger + disposition subcommand + the four-channel guard,
-  * the six-shape adversarial matrix over the findings artifact the
-    append-disposition path reads back (the record path's existing_findings_*
-    read-back is not matrix-covered — see the deferred-coverage record),
+  * the six-shape adversarial matrix over the findings artifact BOTH read-back
+    paths consume — the append-disposition path and the record path's
+    existing_findings_* re-read,
   * degenerate inputs (no commits, empty tree, mode change, symlink, newline
     filename, absent index), the no-history / index-unmodified scale properties,
   * the flight_key-unchanged property for a candidate_identity sibling field.
@@ -476,7 +476,10 @@ class AdversarialArtifactMatrixTests(unittest.TestCase):
 
     def test_matrix(self):
         cases = {
-            "object_valid": (json.dumps({"schema_version": 1, "findings": []}), True),
+            # The positive control carries BOTH discriminators (`kind` and the
+            # session's own token), so it proves the fixture is otherwise valid
+            # rather than passing because the guard tolerated absent tags.
+            "object_valid": ("__VALID__", True),
             "array": (json.dumps([1, 2, 3]), False),
             "scalar": (json.dumps(5), False),
             "valid_falsy": (json.dumps(False), False),
@@ -487,6 +490,11 @@ class AdversarialArtifactMatrixTests(unittest.TestCase):
             with self.subTest(name):
                 repo, token = self._repo_token()
                 fdp = self._findings_path(repo, token)
+                if content == "__VALID__":
+                    content = json.dumps({
+                        "schema_version": 1, "kind": "reception-findings",
+                        "claim_context_token": token, "findings": [],
+                    })
                 if content is None:
                     os.remove(fdp)
                 else:
@@ -588,6 +596,24 @@ class ReviewFixTests(unittest.TestCase):
     def _record(self, repo):
         return json.loads(self._run(["record", "--repo-root", str(repo.path)])[1])
 
+    @staticmethod
+    def _warning(err, name):
+        """Find a named stderr warning record by NAME, never by position.
+
+        Asserting on `err.splitlines()[-1]` couples the test to diagnostic
+        ordering: on a host where the session-dir chmod fails, that unrelated
+        warning would displace the record under test and fail the test for a
+        reason it does not assert.
+        """
+        for line in err.strip().splitlines():
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if rec.get("warning") == name or (name == "error" and not rec.get("ok")):
+                return rec
+        raise AssertionError(f"no {name!r} record in stderr: {err!r}")
+
     # ── Finding A (corroborated x2): rebind detection fell open on a degraded
     # prior identity artifact — `rebound_from: null` positively asserted
     # "identity unchanged" while the artifact was being overwritten.
@@ -615,8 +641,7 @@ class ReviewFixTests(unittest.TestCase):
                 p2 = json.loads(out)
                 # NOT null: null is the positive claim "identity unchanged".
                 self.assertEqual(p2["rebound_from"], "unknown")
-                warn = json.loads(err.strip().splitlines()[-1])
-                self.assertEqual(warn["warning"], "prior_identity_unreadable")
+                warn = self._warning(err, "prior_identity_unreadable")
                 self.assertTrue(warn["reason"])
 
     # ── Finding E: CLAUDE.md's #295 repo-root contract. The default session dir
@@ -684,6 +709,62 @@ class ReviewFixTests(unittest.TestCase):
 
     # Positive control on the SAME fixture: it is otherwise valid and the call
     # succeeds but for the one property under test (guard-class shape 3).
+    def test_findings_ledger_absent_tags_refused(self):
+        """An ABSENT discriminator is not agreement.
+
+        Round-2 fix-delta gate: the first guard only rejected a tag that was
+        present-and-different, so `{"findings": []}` — the shape a hand-corrupting
+        edit most naturally leaves — was accepted. Worse, the append path rewrites
+        the object it read without restoring the tags, so a tagless ledger stayed
+        tagless and the guard could never fire on it again.
+        """
+        for name, planted in (
+            ("both_absent", {"findings": []}),
+            ("kind_absent", {"claim_context_token": "PLACEHOLDER", "findings": []}),
+            ("token_absent", {"kind": "reception-findings", "findings": []}),
+        ):
+            with self.subTest(name):
+                r = self._repo()
+                p = self._record(r)
+                token = p["claim_context_token"]
+                if planted.get("claim_context_token") == "PLACEHOLDER":
+                    planted = dict(planted, claim_context_token=token)
+                Path(p["findings_path"]).write_text(json.dumps(planted))
+                code, out, err = self._run(
+                    ["append-disposition", "--repo-root", str(r.path),
+                     "--token", token, "--summary", "s", "--disposition", "fixed"])
+                self.assertNotEqual(code, 0)
+                self.assertEqual(out, "")
+                self.assertTrue(
+                    "findings_wrong_kind" in err or "findings_token_mismatch" in err,
+                    err)
+
+    def test_identity_artifact_tag_mismatch_is_not_lifted_into_rebound_from(self):
+        """A foreign identity artifact's value never reaches the rendered block.
+
+        The skill renders a non-null `rebound_from` into preflight fact 10, so a
+        planted artifact whose own tags disagree with the request must report the
+        comparison as undetermined rather than echo an arbitrary string.
+        """
+        r = self._repo()
+        r.write("a.txt", "x\n")
+        p1 = self._record(r)
+        token = p1["claim_context_token"]
+        Path(p1["identity_path"]).write_text(json.dumps({
+            "kind": "reception-identity",
+            "claim_context_token": "deadbeef",
+            "candidate_identity": "FOREIGN-VALUE",
+        }))
+        r.write("a.txt", "edited\n")
+        code, out, err = self._run(
+            ["record", "--repo-root", str(r.path), "--token", token])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(out)["rebound_from"], "unknown")
+        self.assertNotIn("FOREIGN-VALUE", out)
+        self.assertEqual(
+            self._warning(err, "prior_identity_unreadable")["reason"],
+            "identity_tag_mismatch")
+
     def test_findings_ledger_matching_tags_accepted(self):
         r = self._repo()
         p = self._record(r)
@@ -698,8 +779,9 @@ class ReviewFixTests(unittest.TestCase):
     # matrix covered only the append-disposition read-back.
     def test_record_readback_matrix(self):
         cases = {
-            "object_valid": (json.dumps(
-                {"schema_version": 1, "kind": "reception-findings", "findings": []}), True),
+            # The positive-control row carries BOTH discriminators, so it proves
+            # the fixture is otherwise valid rather than riding a permissive guard.
+            "object_valid": ("__VALID__", True),
             "array": (json.dumps([1, 2, 3]), False),
             "scalar": (json.dumps(5), False),
             "valid_falsy_false": (json.dumps(False), False),
@@ -711,6 +793,11 @@ class ReviewFixTests(unittest.TestCase):
                 r = self._repo()
                 p = self._record(r)
                 token = p["claim_context_token"]
+                if content == "__VALID__":
+                    content = json.dumps({
+                        "schema_version": 1, "kind": "reception-findings",
+                        "claim_context_token": token, "findings": [],
+                    })
                 Path(p["findings_path"]).write_text(content)
                 code, out, err = self._run(
                     ["record", "--repo-root", str(r.path), "--token", token])
@@ -723,7 +810,7 @@ class ReviewFixTests(unittest.TestCase):
 
     # A well-formed object whose identity token is an empty string is the
     # valid-falsy row the Testing Strategy names for the IDENTITY artifact.
-    def test_record_readback_empty_string_token_is_not_a_rebind_source(self):
+    def test_record_readback_empty_prior_identity_is_a_reported_rebind(self):
         r = self._repo()
         r.write("a.txt", "x\n")
         p1 = self._record(r)
@@ -757,7 +844,7 @@ class ReviewFixTests(unittest.TestCase):
             rr._atomic_write_json = orig
         self.assertNotEqual(code, 0)
         self.assertEqual(out, "")
-        payload = json.loads(err.strip().splitlines()[-1])
+        payload = self._warning(err, "error")
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["reason"], "internal_error:RuntimeError")
 

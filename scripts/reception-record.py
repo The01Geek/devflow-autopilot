@@ -124,6 +124,42 @@ def _fail(reason: str, code: int = 1) -> int:
     return code
 
 
+# Session directories already hardened this process. `record` writes three
+# artifacts into one directory, so an unguarded chmod-per-write would emit the
+# same warning three times AND append it after every other diagnostic — which
+# would displace the record a caller reads as the last stderr line.
+_HARDENED_DIRS: "set[str]" = set()
+
+
+def _harden_dir(parent: Path) -> None:
+    """Best-effort 0700 on the session directory — once per directory per run.
+
+    Non-fatal (the 0600 file mode is the real guard on the artifact bytes) but
+    never silent: the directory holds the session FILENAMES, which embed the
+    claim-context nonce, so a world-readable session directory leaks the nonce
+    to `ls` even with owner-only files.
+    """
+    key = str(parent)
+    if key in _HARDENED_DIRS:
+        return
+    _HARDENED_DIRS.add(key)
+    try:
+        os.chmod(parent, DIR_MODE)
+    except OSError as exc:
+        sys.stderr.write(
+            json.dumps(
+                {
+                    "ok": True,
+                    "warning": "session_dir_chmod_failed",
+                    "reason": exc.__class__.__name__,
+                    "path": key,
+                },
+                sort_keys=True,
+            )
+            + "\n"
+        )
+
+
 def _atomic_write_json(path: Path, obj: dict) -> None:
     """Write JSON atomically (temp file + os.replace); 0600 file, 0700 dir best-effort.
 
@@ -134,23 +170,7 @@ def _atomic_write_json(path: Path, obj: dict) -> None:
     """
     parent = path.parent
     parent.mkdir(parents=True, exist_ok=True)
-    try:
-        os.chmod(parent, DIR_MODE)
-    except OSError as exc:
-        # Non-fatal (the 0600 file mode below is the real guard) but attributable:
-        # a silent failure here hides a nonce-leaking directory permission.
-        sys.stderr.write(
-            json.dumps(
-                {
-                    "ok": True,
-                    "warning": "session_dir_chmod_failed",
-                    "reason": exc.__class__.__name__,
-                    "path": str(parent),
-                },
-                sort_keys=True,
-            )
-            + "\n"
-        )
+    _harden_dir(parent)
     data = (json.dumps(obj, sort_keys=True, indent=2) + "\n").encode("utf-8")
     fd, tmp = tempfile.mkstemp(dir=str(parent), prefix=".rr-")
     try:
@@ -217,25 +237,58 @@ def _repo_root(args) -> str:
     ignore-rule breadcrumb whose remedy would not fix it.
 
     A non-empty explicit `--repo-root` is honored verbatim; root anchoring
-    applies only to the default.
+    applies only to the default. Every fallback arm emits a stderr breadcrumb
+    naming the ROOT-RESOLUTION failure rather than defaulting silently: the run
+    still fails closed downstream (`_check_ignored` cannot resolve, so the
+    invocation refuses), but without this breadcrumb the operator sees only the
+    ignore-rule diagnosis and never learns the root was the thing that could not
+    be established.
+
+    Resolved once per invocation and cached on `args` — this is called from both
+    the command body and `_session_dir`, and an uncached form spawns two `git`
+    subprocesses for one value.
     """
     if args.repo_root:
         return args.repo_root
+    cached = getattr(args, "_resolved_repo_root", None)
+    if cached is not None:
+        return cached
+
+    def _fallback(reason: str) -> str:
+        sys.stderr.write(
+            json.dumps(
+                {
+                    "ok": True,
+                    "warning": "repo_root_unresolved",
+                    "reason": reason,
+                    "fallback": os.getcwd(),
+                },
+                sort_keys=True,
+            )
+            + "\n"
+        )
+        return os.getcwd()
+
     try:
         proc = subprocess.run(  # noqa: S603 - argv list, no shell
             [GIT, "rev-parse", "--show-toplevel"],
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
         )
-    except OSError:
-        return os.getcwd()
-    if proc.returncode != 0:
-        return os.getcwd()
-    try:
-        top = proc.stdout.decode("utf-8").strip()
-    except UnicodeDecodeError:
-        return os.getcwd()
-    return top or os.getcwd()
+    except OSError as exc:
+        root = _fallback(f"git_exec_error:{exc.__class__.__name__}")
+    else:
+        if proc.returncode != 0:
+            root = _fallback(f"git_failed:rev-parse:{proc.returncode}")
+        else:
+            try:
+                top = proc.stdout.decode("utf-8").strip()
+            except UnicodeDecodeError:
+                root = _fallback("git_output_not_utf8:rev-parse")
+            else:
+                root = top or _fallback("git_empty_toplevel")
+    args._resolved_repo_root = root
+    return root
 
 
 def _check_ledger_tags(record: dict, token: str) -> "str | None":
@@ -248,13 +301,20 @@ def _check_ledger_tags(record: dict, token: str) -> "str | None":
     six-shape matrix cannot catch, because the object is structurally valid — it
     yields a valid-LOOKING ledger rather than a refusal.
 
-    Returns a named reason, or None when the tags agree.
+    Both tags are REQUIRED, not merely checked-if-present. `cmd_record` always
+    writes both, so requiring them keeps this guard's accepted set a SUBSET of
+    what the writer produces; treating an absent tag as agreement would accept
+    the shape a hand-corrupting edit most naturally leaves behind — and, because
+    the append path rewrites the object it read, a tagless ledger would stay
+    tagless and the guard could never fire on it again. `schema_version` is 1 and
+    this artifact family is new, so there is no back-compat reason to tolerate
+    absence.
+
+    Returns a named reason, or None when both tags are present and agree.
     """
-    kind = record.get("kind")
-    if kind is not None and kind != "reception-findings":
+    if record.get("kind") != "reception-findings":
         return "findings_wrong_kind"
-    recorded = record.get("claim_context_token")
-    if recorded is not None and recorded != token:
+    if record.get("claim_context_token") != token:
         return "findings_token_mismatch"
     return None
 
@@ -377,6 +437,28 @@ def cmd_record(args) -> int:
                         "ok": True,
                         "warning": "prior_identity_unreadable",
                         "reason": prior_reason,
+                        "claim_context_token": token,
+                        "candidate_identity": candidate_identity,
+                    },
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+        elif (
+            prior_identity.get("kind") != "reception-identity"
+            or prior_identity.get("claim_context_token") != token
+        ):
+            # Same discriminator discipline the findings ledger gets. The skill
+            # now renders a non-null `rebound_from` into the preflight block, so
+            # an artifact whose own tags disagree with this request must not have
+            # its value lifted into the rendered output verbatim.
+            rebound_from = "unknown"
+            sys.stderr.write(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "warning": "prior_identity_unreadable",
+                        "reason": "identity_tag_mismatch",
                         "claim_context_token": token,
                         "candidate_identity": candidate_identity,
                     },
@@ -513,7 +595,9 @@ def build_parser() -> argparse.ArgumentParser:
                        help="Override the session artifact directory (default: "
                             "<repo>/.devflow/tmp/reception-sessions).")
         p.add_argument("--repo-root", default=None,
-                       help="Repository root to derive from (default: cwd).")
+                       help="Repository root to derive from (default: the git "
+                            "repository root, falling back to the cwd when git "
+                            "cannot resolve one).")
 
     p_rec = sub.add_parser("record", help="Derive identity, mint token, write artifacts.")
     p_rec.add_argument("--token", default=None,
