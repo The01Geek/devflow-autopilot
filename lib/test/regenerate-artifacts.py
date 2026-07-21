@@ -75,12 +75,26 @@ states above and no row report accompanies it.
 """
 
 import argparse
+import importlib.util
 import subprocess
 import sys
 import traceback
 from pathlib import Path, PurePosixPath
 
 MECHANICAL_ARTIFACT = "scripts/devflow-cloud-writer-contract.json"
+
+# The closed set of conflict-resolution classes (issue #655). A merge conflict in a
+# checked-in generated artifact must never be hand-merged: hand-merged bytes match no
+# source of truth, and the row's own gate then reports the result as drift with a remedy
+# that steers the agent at the wrong file. `conflict_class` states WHICH remedy applies:
+#   regenerate       — re-run the row's writer against the merged tree; the artifact is a
+#                      pure function of its source, so the merged source is the answer.
+#   reconcile-source — merge the SOURCE of truth first, regenerate from it, then
+#                      hand-update whatever coupled by-hand sibling the row names.
+#   by-hand          — no writer exists; a human re-measures or hand-merges the record.
+# Kept a module-level constant so a row's class is validated against one enumeration
+# rather than each consumer re-spelling the vocabulary.
+CONFLICT_CLASSES = ("regenerate", "reconcile-source", "by-hand")
 
 # A budget row's watch list is carried by the ROW (`record` / `watch_literals` /
 # `watch_globs`), not by module-level constants: with more than one such row the registry
@@ -108,10 +122,19 @@ ROWS = (
         "clean": (0,),
         "exits": (0, 1),
         "writes": MECHANICAL_ARTIFACT,
+        # `policy` is the SINGLE recipe source (issue #655): the batched-pass
+        # `governing policy:` line and the `conflict-recipe` emit read this one field, so
+        # a second, parallel recipe field cannot drift from it. A `regenerate` row's policy
+        # must therefore name a runnable WRITE command — the row's `argv` here happens to
+        # be that writer, but two other rows' `argv` is a non-writing checker, so the
+        # recipe states the command explicitly rather than deriving it from `argv`.
         "policy": (
             "the closure data in lib/test/cloud_writer_contract.py "
-            "(ROOTS / DISPATCH_EDGES / SKILL_ASSETS / required helper heads)"
+            "(ROOTS / DISPATCH_EDGES / SKILL_ASSETS / required helper heads) — "
+            "regenerate against the merged tree with "
+            "`python3 lib/test/cloud_writer_contract.py generate`"
         ),
+        "conflict_class": "regenerate",
     },
     {
         "name": "capability-profile-literals",
@@ -121,10 +144,21 @@ ROWS = (
         "clean": (0,),
         "exits": (0, 1),
         "policy": (
-            "edit lib/capability-profiles.json, regenerate with "
-            "`python3 lib/generate-capability-profiles.py`, and update "
-            "lib/review-profile.tokens when the resolved review list widens"
+            "merge lib/capability-profiles.json first, regenerate with "
+            "`python3 lib/generate-capability-profiles.py`, and hand-"
+            "update lib/review-profile.tokens when the resolved review list widens"
         ),
+        # reconcile-source, not regenerate: the generated workflow literals are a pure
+        # function of the manifest, but the manifest itself is the conflicted source and
+        # the reviewer lock is a by-hand sibling the generator NEVER writes. Regenerating
+        # before merging the manifest would silently revert whichever grant the
+        # concurrent PR added.
+        "conflict_class": "reconcile-source",
+        # The conflicted SOURCE of truth is the manifest; the generated workflow literals
+        # are appended at emit time from the generator's own REGIONS (bound below).
+        "conflict_paths": ("lib/capability-profiles.json",),
+        "conflict_paths_extra": None,  # bound to _capability_region_targets below.
+        "coupled_by_hand": (("lib/review-profile.tokens", "by-hand"),),
         # Same discriminator the other marker-bearing judgment rows carry: the generator raises
         # GenError for an INPUT failure (an absent/unreadable/malformed manifest, an
         # unreadable target workflow, an unreadable reviewer lock) and exits 1 —
@@ -151,7 +185,29 @@ ROWS = (
         "check": None,  # bound to run_row below.
         "clean": (0,),
         "exits": (0, 1),
-        "policy": "the mandatory-byte census section of .devflow/prompt-extensions/implement.md",
+        # The recipe names `--write-baseline`, never the bare checker this row's `argv`
+        # holds: `argv` is the non-writing census run, which prints a drift report and
+        # writes nothing.
+        # #659 review follow-up (found by dogfooding this rule on a real conflict): despite
+        # its name, `--write-baseline` does NOT write the baseline — its own `help=` says it
+        # "print[s] canonical replacement baseline JSON", and it returns 0 after writing that
+        # JSON to stdout. A recipe stopping at the command therefore reads as complete, exits
+        # 0, and leaves the artifact byte-unchanged — the silent fail-open this whole rule
+        # exists to close, sitting in the rule's own recipe. So the recipe states the WRITE
+        # step explicitly and names the destination path, mirroring the canonical procedure in
+        # the census section of .devflow/prompt-extensions/implement.md ("Copy the printed JSON
+        # into lib/test/prompt-mass-baseline.json with the Write/Edit tool"). The Write/Edit
+        # phrasing is deliberate over a `>` redirect: a redirect is a denied command shape on
+        # the cloud tiers (issue #401), so a redirect-shaped recipe would be refused there.
+        "policy": (
+            "the mandatory-byte census section of .devflow/prompt-extensions/implement.md"
+            " — regenerate the baseline against the merged tree by running "
+            "`python3 lib/test/prompt-mass-census.py --write-baseline`, which PRINTS the "
+            "canonical replacement JSON without writing it, then writing that printed JSON "
+            "into lib/test/prompt-mass-baseline.json with the Write/Edit tool"
+        ),
+        "conflict_class": "regenerate",
+        "conflict_paths": ("lib/test/prompt-mass-baseline.json",),
         # The census returns 1 for an unusable ROOT as well as for real drift. Without
         # this discriminator an unmeasurable tree would be reported as a judgment item
         # telling the agent to edit a baseline whose measurement never happened —
@@ -188,6 +244,9 @@ ROWS = (
             "docs/review-bundle-budget.md — re-measure with lib/test/run.sh's _rb_words "
             "(python3, never wc -w) and update the record"
         ),
+        # by-hand: no writer exists for a budget record — the figures are re-measured by
+        # the suite's own word counter and the record is edited by hand.
+        "conflict_class": "by-hand",
         "record": "docs/review-bundle-budget.md",
         "watch_literals": ("skills/review/SKILL.md", ".devflow/prompt-extensions/review.md"),
         "watch_globs": ("skills/review/phases/*.md",),
@@ -207,6 +266,7 @@ ROWS = (
         # turns the suite RED — the discover-drift-a-full-suite-run-later cost this helper
         # exists to remove. Like its sibling it measures NOTHING: re-deriving `_raf_words`
         # here would be a second implementation of a measurement the suite already owns.
+        "conflict_class": "by-hand",  # same reasoning as its sibling budget row above.
         "record": "docs/review-and-fix-budget.md",
         "watch_literals": (
             "skills/review-and-fix/SKILL.md",
@@ -222,6 +282,10 @@ ROWS = (
         "clean": (0,),
         "exits": (0, 1),
         "policy": "add the missing coverage rows per the issue-591 ratchet in lib/test/modules/coverage-map.json",
+        # by-hand: coverage_map_guard.py has no write path (verified issue #655) — the
+        # map is hand-merged, row by row.
+        "conflict_class": "by-hand",
+        "conflict_paths": ("lib/test/modules/coverage-map.json",),
         # Same discriminator: the guard prefixes a genuine input failure (git absent,
         # not a repo) with `[input-error]` and exits 1, identically to a real ratchet
         # violation. That is not a coverage-row problem and must not be reported as one.
@@ -360,6 +424,68 @@ def is_budget_row(row):
     registry-invariant arm, which pins both this coincidence and the budget-row key set.
     """
     return "watch_literals" in row
+
+
+def _capability_region_targets(root):
+    """The generated workflow literal files, read from the GENERATOR's own region list.
+
+    Sourced rather than re-enumerated (issue #655): the five workflow paths already live
+    in `lib/generate-capability-profiles.py`'s `REGIONS`, and a second copy here would be
+    a coupled mirror that goes stale the day a region is added or renamed — the exact
+    drift class this repo's coupled-invariant rule exists to stop.
+
+    The generator is stdlib-only with no import side effects (it defines constants and
+    functions; every file read happens inside a subcommand), so importing it is safe.
+    A failure to import or to read `REGIONS` RAISES rather than returning a partial set:
+    a silently short list would leave a real conflict path unmatched, and the conflict
+    rule would then send the agent down its hand-merge default for a generated artifact —
+    unknown collapsed onto "not a generated artifact", the fail-open this helper's whole
+    exit contract is built to avoid. The top-level net routes the raise to exit 2.
+    """
+    path = root / "lib" / "generate-capability-profiles.py"
+    spec = importlib.util.spec_from_file_location("_devflow_capgen", path)
+    # Defensive, and deliberately not covered by a test arm (#659 review, Suggestion 3): this is
+    # the documented `None` return of the importlib API (an unrecognized suffix / no loader for
+    # the location), which a `.py` path cannot reach — an ABSENT file still yields a spec with a
+    # loader and surfaces as `exec_module`'s FileNotFoundError, which is the arm `_ra_region_fails_infra`
+    # actually drives. Kept rather than removed: it raises into the same exit-2 route as every
+    # other arm here, so its cost is two lines and its removal would make an API contract change
+    # fail open on a partial region set. There is no fixture that reaches it without mutating
+    # importlib itself.
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"capability generator not importable: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    targets = {
+        Path(region["file"]).resolve().relative_to(Path(module.REPO_ROOT).resolve()).as_posix()
+        for region in module.REGIONS
+    }
+    if not targets:
+        raise RuntimeError("capability generator declared no regions")
+    return tuple(sorted(targets))
+
+
+def conflict_paths(row, root):
+    """The generated artifact file path(s) a merge conflict in `row` can land in.
+
+    Two sources, both keyed on a DECLARED FIELD — never on the row's name. Keying on a name
+    string is the "proxy instead of the real property" that `is_budget_row`'s docstring
+    argues against: a row rename is an ordinary registry edit, and under a
+    name check it would silently drop the generator-sourced workflow literals with no field
+    anywhere declaring that the name was load-bearing.
+
+    * the row's static `conflict_paths`, defaulting to whatever field already states the
+      artifact (`writes` for the mechanical row, `record` for a budget row), so no row
+      restates a path the registry already carries; plus
+    * `conflict_paths_extra`, an optional per-row callable taking the target root and
+      returning additional paths derived at emit time. Bound below the function definitions
+      for the same forward-reference reason `check` is.
+    """
+    static = tuple(row["conflict_paths"]) if "conflict_paths" in row else (
+        (row["writes"],) if "writes" in row else (row["record"],)
+    )
+    extra = row.get("conflict_paths_extra")
+    return static + (tuple(extra(root)) if extra else ())
 
 
 def budget_row(row, root, report):
@@ -605,6 +731,69 @@ def _mechanical_outcome(row, proc, output, changed, after, report):
 # in the table because the table is defined above the functions it names.
 for _row in ROWS:
     _row["check"] = budget_row if is_budget_row(_row) else run_row
+    # The capability row's extra paths come from the capability generator's own REGIONS.
+    # Bound here, not in the table, for the same forward-reference reason `check` is — and
+    # as a FIELD, so `conflict_paths` never keys on a row name.
+    if _row.get("conflict_paths_extra", "unset") is None:
+        _row["conflict_paths_extra"] = _capability_region_targets
+
+
+def _validate_registry():
+    """Fail closed on a misregistered conflict class, recipe, or path source (issue #655).
+
+    Run at import (below), so every entry path — main, --list, an importing test — hits it
+    and a row that cannot be classified never reaches `--list` to emit an unknown class a
+    consumer would have no route for.
+
+    Import-time strictness is kept, but the raise is ROUTED to the exit-2 infrastructure
+    state for a script run (see the module-level call below). A bare module-level raise
+    would exit **1** — the resolvable "action required" code — because the module body runs
+    before the `if __name__ == "__main__"` net at the bottom of this file can catch
+    anything. That aliases an unchecked run onto a resolvable one, the precise
+    discrimination this module's EXIT CONTRACT says the net exists to preserve.
+    """
+    for row in ROWS:
+        if row.get("conflict_class") not in CONFLICT_CLASSES:
+            raise ValueError(
+                f"registry row {row['name']!r} declares conflict_class "
+                f"{row.get('conflict_class')!r}, which is outside {CONFLICT_CLASSES}"
+            )
+        if not (row.get("policy") or "").strip():
+            raise ValueError(f"registry row {row['name']!r} declares an empty recipe (policy)")
+        # A row must declare SOME static path source, checked at this same import-time point
+        # rather than left to KeyError inside emit_list: a row that reaches `--list` before
+        # failing has already been handed to a consumer.
+        # Membership is not enough: `"conflict_paths": ()` satisfies `in` and short-circuits the
+        # writes/record fallback, so the row resolves to NO path and the shipped rule routes its
+        # artifact to the hand-merge default — the fail-open the rule exists to close, reached
+        # through the one invariant #655 states and nothing enforced. Require a non-empty source.
+        if "conflict_paths" in row:
+            if not tuple(row["conflict_paths"]):
+                raise ValueError(
+                    f"registry row {row['name']!r} declares an empty conflict_paths; "
+                    "a row must resolve to at least one conflict path"
+                )
+        elif not any(k in row for k in ("writes", "record")):
+            raise ValueError(
+                f"registry row {row['name']!r} declares no conflict-path source "
+                "(needs one of conflict_paths / writes / record)"
+            )
+
+
+# Validate at import — but route a script run's failure to exit 2 (INFRASTRUCTURE), never the
+# exit 1 a bare module-level raise would produce. An IMPORTING caller still gets the raw
+# ValueError, so a test can assert the exception itself.
+try:
+    _validate_registry()
+except ValueError as _bind_error:
+    if __name__ != "__main__":
+        raise
+    print(
+        f"regenerate-artifacts: INFRASTRUCTURE — registry validation failed: {_bind_error} "
+        "— nothing was checked — exit 2",
+        file=sys.stderr,
+    )
+    raise SystemExit(2) from None
 
 
 def emit_list(root):
@@ -624,6 +813,60 @@ def emit_list(root):
             print(f"budget-watch\t{row['name']}\t{member}")
         for absent in missing:
             print(f"budget-watch-missing\t{row['name']}\t{absent}")
+    # The conflict-oracle lines (issue #655), emitted AFTER the two line kinds above so
+    # those formats stay byte-unchanged and every existing prefix-anchored consumer
+    # (`artifact\tNAME\t`, `^budget-watch`) parses exactly as before.
+    #
+    # A conflict rule matches a conflicted path against `conflict-path` and
+    # `conflict-sibling`, then reads that row's `conflict-class` and `conflict-recipe`.
+    # The recipe is the row's `policy` verbatim — the SAME field the batched pass prints
+    # as `governing policy:` — so the two consumers structurally cannot drift.
+    #
+    # A coupled by-hand sibling is a file the row's gate READS but never writes, and which
+    # is not a registry row of its own (it has no independent check, so it fails the
+    # registry's inclusion criterion). The oracle must still name it, or a conflict in it
+    # matches nothing and takes the hand-merge default.
+    #
+    # One pass over ROWS rather than one pass per line kind: every consumer lookup is
+    # prefix-anchored (`conflict-path\t<row>\t…`), so nothing depends on the kinds being
+    # grouped, and a single loop keeps "what one row emits" readable in one place.
+    # No path may be claimed by two rows: the conflict rule reads the matched path's class, so a
+    # duplicate would yield two contradictory classes with no stated tiebreak. Resolution is
+    # root-dependent (the capability row derives its workflow literals), so this cannot move to the
+    # import-time bind loop; it raises here and the top-level net routes it to the exit-2
+    # infrastructure state — never a listing a consumer could act on.
+    # Siblings join the SAME uniqueness namespace as conflict paths (#659 review, Suggestion 1):
+    # the shipped rule matches a conflicted path against the `conflict-path` AND
+    # `conflict-sibling` lines together, and the two line kinds carry DIFFERENT classes (a
+    # sibling's class is its own fourth field, never the owning row's). A path emitted as both
+    # would therefore hand the rule two contradictory classes with no stated tiebreak — the same
+    # fail-open a two-row duplicate is, one line kind over. Deduping only within the path set
+    # leaves exactly that gap unguarded.
+    _seen_paths = {}
+    for row in ROWS:
+        for path in conflict_paths(row, root):
+            if path in _seen_paths:
+                raise ValueError(
+                    f"conflict path {path!r} is claimed by both {_seen_paths[path]!r} and "
+                    f"{row['name']!r}; a path must resolve to exactly one conflict class"
+                )
+            _seen_paths[path] = row["name"]
+    for row in ROWS:
+        for path, _sibling_class in row.get("coupled_by_hand", ()):
+            if path in _seen_paths:
+                raise ValueError(
+                    f"conflict path {path!r} is claimed by both {_seen_paths[path]!r} and "
+                    f"{row['name']!r} (as a coupled by-hand sibling); a path must resolve to "
+                    "exactly one conflict class"
+                )
+            _seen_paths[path] = row["name"]
+    for row in ROWS:
+        print(f"conflict-class\t{row['name']}\t{row['conflict_class']}")
+        for path in conflict_paths(row, root):
+            print(f"conflict-path\t{row['name']}\t{path}")
+        print(f"conflict-recipe\t{row['name']}\t{row['policy']}")
+        for path, sibling_class in row.get("coupled_by_hand", ()):
+            print(f"conflict-sibling\t{row['name']}\t{path}\t{sibling_class}")
     return 0
 
 

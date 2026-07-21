@@ -77,6 +77,37 @@ edits them. Exit codes: `0` clean, `1` action required, `2` infrastructure failu
 (which wins over `1`). Use `--list` to see the registered artifacts and `--repo-root` to
 point it at another checkout.
 
+#### The registry is also the merge-conflict oracle
+
+When a branch update lands a merge conflict in a checked-in **generated** artifact, do
+not hand-merge its bytes: hand-merged bytes match no source of truth, so the artifact's
+own suite gate then reports them as drift with a remedy aimed at the wrong file, while
+silently reverting whatever the other side added. The same registry answers what to do
+instead, via `--list`:
+
+- `conflict-path <row> <path>` — the generated paths a conflict in that row can land in.
+- `conflict-class <row> <class>` — one of `regenerate` (re-run the row's generator against
+  the merged tree), `reconcile-source` (merge the *source* first, then regenerate), or
+  `by-hand` (a genuine hand-merge is correct for this row).
+- `conflict-recipe <row> <text>` — the row's governing policy, reused verbatim as the
+  recipe so the batched pass's `governing policy:` output and this rule cannot drift.
+- `conflict-sibling <row> <path> <class>` — a coupled path a row's conflict can also touch,
+  governed by **that line's own** class (e.g. `lib/review-profile.tokens`, the reviewer
+  security-boundary lock the capability generator never writes, is `by-hand`).
+
+These four line kinds are emitted strictly *after* the existing `artifact` and
+`budget-watch` lines, whose formats are byte-unchanged, so prefix-anchored consumers parse
+as before. The rule is fail-closed at both ends: a conflicted path that is **not** among
+the emitted `conflict-path`/`conflict-sibling` paths is an ordinary hand-merge, and a
+`--list` that cannot run — or that emits no `artifact`/`conflict-class` lines — means
+needs-human-reconciliation and stop, never a guessed hand-merge.
+
+Autonomous `/devflow:implement`, `/devflow:review-and-fix`, and `/devflow:receiving-code-review`
+runs apply this automatically: the rule lives, byte-identical, in the three
+`.devflow/prompt-extensions/` files, and each skill's in-run conflict arm carries a generic
+pointer to it. Adding a new artifact row therefore extends the conflict rule with no prompt
+edit — the registry stays the sole enumeration point.
+
 ### Authoring a new focused module
 
 When you extract a cohesive block of `lib/test/run.sh` coverage into a new
