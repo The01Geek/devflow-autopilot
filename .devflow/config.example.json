@@ -10,7 +10,8 @@
     "effort": "high",
     "allowed_tools": [],
     "execution_diagnostics_enabled": true,
-    "execution_transcript_artifact_enabled": false
+    "execution_transcript_artifact_enabled": false,
+    "attribute_commits_to_triggerer": false
   },
   "devflow_implement": {
     "effort": "high",
