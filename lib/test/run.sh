@@ -3939,9 +3939,11 @@ assert_pin_unique "#620: review-and-fix loads the receiving-code-review extensio
   "$RAF_PIN_LOAD" "$MAXI_ROOT"
 assert_pin_red_on_removal "#620: receiving-extension loader-call pin is removal-sensitive" \
   "$RAF_PIN_LOAD" "$MAXI_ROOT"
-# The scoping prose is the behavior the loader call exists to deliver, so it is pinned too: the
-# supersession guard's authority operand and its fail-safe arm (which keeps an unattended loop from
-# treating an unprivileged issue edit as a spec amendment), and the non-binding-directive rule.
+# The supersession guard's mechanism is pinned too. Post-#640 the mechanism (authority operand,
+# fail-safe arm, editor identity, recency/truncated-page) lives in the receiving-code-review
+# extension ($RCR_EXT) so a DIRECT reception pass inherits it, not only the loop — its pins target
+# that surface below. Only the loop-specific deferral routing and the non-binding-directive rule
+# stay on the review-and-fix root ($MAXI_ROOT).
 RAF_PIN_AUTHORITY='collaborators/<login>/permission'
 # Two distinct arms now carry the phrase, so the fail-safe pin is scoped to the permission arm
 # (a bare `is **data to surface**` would no longer be unique).
@@ -3966,7 +3968,7 @@ RAF_PIN_PERMFAIL='Either read that fails'
 RAF_PIN_PERMABSENT='Any other, absent, or unreadable permission'
 # The ACTIONABLE arm needs its own pin: with only the fail-safe arm pinned, a reword that deletes
 # or inverts the write/admin branch (or the deferral routing both arms share) passes every #620 pin.
-RAF_PIN_ACTIVEARM='`admin` or `write` is the operator amending the spec: the Addendum rule governs as on a direct pass'
+RAF_PIN_ACTIVEARM='`admin` or `write` is the operator amending the spec: the Addendum rule governs'
 RAF_PIN_DEFERRAL="route conflicting findings to the loop's deferral channel"
 # #620 review (final-pass): a bare `is non-binding here` carried none of the rule's operative
 # content, so a reword that kept the phrase while inverting the disposition ("...but a pause for
@@ -3983,36 +3985,42 @@ RAF_PIN_NONBINDING='is non-binding here: surface it in the loop record'
 # Both are behavioral-fix pins whose mutations reconstruct the regression they guard.
 RAF_PIN_RECENCY='the **most recent** edit alone'
 RAF_PIN_TRUNCATED='treating an empty or page-full (10) node list as unestablished'
-assert_pin_unique "#620: supersession guard names a retrievable authority operand" \
-  "$RAF_PIN_AUTHORITY" "$MAXI_ROOT"
-assert_pin_red_on_removal "#620: authority-operand pin is removal-sensitive" \
-  "$RAF_PIN_AUTHORITY" "$MAXI_ROOT"
+# ── #640: the editor-authority MECHANISM moved from the review-and-fix root to the
+#    receiving-code-review extension, so a DIRECT reception pass (which loads only that
+#    extension, not the review-and-fix root) inherits it too. The mechanism pins below now
+#    assert against $RCR_EXT (the authoritative surface post-#640); the LOOP-SPECIFIC tail
+#    (deferral-channel routing) and the separate non-binding-directive rule stay on $MAXI_ROOT.
+#    Every mutation/removal proof carries over unchanged — only the surface arg changed.
+assert_pin_unique "#620/#640: supersession guard names a retrievable authority operand" \
+  "$RAF_PIN_AUTHORITY" "$RCR_EXT"
+assert_pin_red_on_removal "#620/#640: authority-operand pin is removal-sensitive" \
+  "$RAF_PIN_AUTHORITY" "$RCR_EXT"
 # Pin the DETECTION half too. Pinning only the permission read would let a later edit delete the
 # editor-identity calls and leave a policy over a signal nobody reads — the exact prior-art defect.
 RAF_PIN_DETECT='userContentEdits(last: 10)'
 RAF_PIN_NOTASSOC='not `author_association`'
-assert_pin_unique "#620: supersession guard reads the editor identity it weighs" \
-  "$RAF_PIN_DETECT" "$MAXI_ROOT"
-assert_pin_red_on_removal "#620: editor-identity pin is removal-sensitive" \
-  "$RAF_PIN_DETECT" "$MAXI_ROOT"
-assert_pin_unique "#620: supersession guard excludes author_association as the authority term" \
-  "$RAF_PIN_NOTASSOC" "$MAXI_ROOT"
-assert_pin_red_on_removal "#620: author_association-exclusion pin is removal-sensitive" \
-  "$RAF_PIN_NOTASSOC" "$MAXI_ROOT"
-assert_pin_unique "#620: supersession guard keeps its surface-as-data fail-safe arm" \
-  "$RAF_PIN_SAFEARM" "$MAXI_ROOT"
-assert_pin_red_on_removal "#620: surface-as-data arm pin is removal-sensitive" \
-  "$RAF_PIN_SAFEARM" "$MAXI_ROOT"
-assert_pin_unique "#620: a failed/denied identity read routes to data-to-surface, not to unedited" \
-  "$RAF_PIN_READFAIL" "$MAXI_ROOT"
-assert_pin_red_under "#620: failed-identity-read pin catches the fail-open ordering it guards" \
+assert_pin_unique "#620/#640: supersession guard reads the editor identity it weighs" \
+  "$RAF_PIN_DETECT" "$RCR_EXT"
+assert_pin_red_on_removal "#620/#640: editor-identity pin is removal-sensitive" \
+  "$RAF_PIN_DETECT" "$RCR_EXT"
+assert_pin_unique "#620/#640: supersession guard excludes author_association as the authority term" \
+  "$RAF_PIN_NOTASSOC" "$RCR_EXT"
+assert_pin_red_on_removal "#620/#640: author_association-exclusion pin is removal-sensitive" \
+  "$RAF_PIN_NOTASSOC" "$RCR_EXT"
+assert_pin_unique "#620/#640: supersession guard keeps its surface-as-data fail-safe arm" \
+  "$RAF_PIN_SAFEARM" "$RCR_EXT"
+assert_pin_red_on_removal "#620/#640: surface-as-data arm pin is removal-sensitive" \
+  "$RAF_PIN_SAFEARM" "$RCR_EXT"
+assert_pin_unique "#620/#640: a failed/denied identity read routes to data-to-surface, not to unedited" \
+  "$RAF_PIN_READFAIL" "$RCR_EXT"
+assert_pin_red_under "#620/#640: failed-identity-read pin catches the fail-open ordering it guards" \
   "$RAF_PIN_READFAIL" 's/Either read that fails, is denied, or returns unparseable output is \*\*data to surface\*\* \(below\) — never an unedited reading, never an `admin`\/`write` grant\. Null/Null/' \
-  "$MAXI_ROOT"
-assert_pin_unique "#620: the failed-read arm covers the permission read" \
-  "$RAF_PIN_PERMFAIL" "$MAXI_ROOT"
-assert_pin_red_under "#620: permission-read failure pin catches re-scoping the arm to the identity read" \
+  "$RCR_EXT"
+assert_pin_unique "#620/#640: the failed-read arm covers the permission read" \
+  "$RAF_PIN_PERMFAIL" "$RCR_EXT"
+assert_pin_red_under "#620/#640: permission-read failure pin catches re-scoping the arm to the identity read" \
   "$RAF_PIN_PERMFAIL" 's/Either read that fails/The identity read that fails/' \
-  "$MAXI_ROOT"
+  "$RCR_EXT"
 # ORDERING is the property that makes this guard work, and the three pins above are all PRESENCE
 # checks — a reword relocating the failed-read arm to AFTER the `admin`/`write` branch satisfies
 # every one of them while reopening the fail-open the issue was filed to close. So assert the
@@ -4020,26 +4028,29 @@ assert_pin_red_under "#620: permission-read failure pin catches re-scoping the a
 # prerequisite) does the offset arithmetic — a value deciding an assertion must not route through a
 # non-preflight PATH tool. Both offsets must resolve: a `-1` from either `find` fails the check
 # closed rather than comparing against a sentinel.
-assert_eq "#620: the failed-read arm precedes the write/admin branch it governs" "yes" \
+assert_eq "#620/#640: the failed-read arm precedes the write/admin branch it governs" "yes" \
   "$(python3 -c 'import sys
 s=open(sys.argv[1],encoding="utf-8").read()
 a=s.find("Either read that fails")
 b=s.find("`admin` or `write` is the operator amending the spec")
-print("yes" if a!=-1 and b!=-1 and a<b else "no")' "$MAXI_ROOT")"
-assert_pin_unique "#620: the catch-all admits an absent or unreadable permission" \
-  "$RAF_PIN_PERMABSENT" "$MAXI_ROOT"
+print("yes" if a!=-1 and b!=-1 and a<b else "no")' "$RCR_EXT")"
+assert_pin_unique "#620/#640: the catch-all admits an absent or unreadable permission" \
+  "$RAF_PIN_PERMABSENT" "$RCR_EXT"
 # Unlike the two pins above (whose mutations rewrite ADJACENT prose to reconstruct the regression),
 # this one's guarded regression IS the narrowing of the pinned phrase itself, so its mutation
 # necessarily touches that phrase and the pin is removal-equivalent in strength. Kept as
 # assert_pin_red_under because the mutation still produces valid, grammatical prose that reopens the
 # gap — stronger evidence than a whole-line strip — but the block does not claim more than that.
-assert_pin_red_under "#620: absent-permission pin catches narrowing the catch-all to a present value" \
+assert_pin_red_under "#620/#640: absent-permission pin catches narrowing the catch-all to a present value" \
   "$RAF_PIN_PERMABSENT" 's/Any other, absent, or unreadable permission/Any other permission/' \
-  "$MAXI_ROOT"
-assert_pin_unique "#620: supersession guard keeps its actionable write/admin arm" \
-  "$RAF_PIN_ACTIVEARM" "$MAXI_ROOT"
-assert_pin_red_on_removal "#620: actionable-arm pin is removal-sensitive" \
-  "$RAF_PIN_ACTIVEARM" "$MAXI_ROOT"
+  "$RCR_EXT"
+assert_pin_unique "#620/#640: supersession guard keeps its actionable write/admin arm" \
+  "$RAF_PIN_ACTIVEARM" "$RCR_EXT"
+assert_pin_red_on_removal "#620/#640: actionable-arm pin is removal-sensitive" \
+  "$RAF_PIN_ACTIVEARM" "$RCR_EXT"
+# The LOOP-SPECIFIC tail stays on the review-and-fix root ($MAXI_ROOT): the deferral-channel
+# routing names a mechanism only the loop has, and the non-binding-directive rule governs loop
+# runs. These are the two pins #640 deliberately did NOT move.
 assert_pin_unique "#620: both arms route conflicting findings to the deferral channel" \
   "$RAF_PIN_DEFERRAL" "$MAXI_ROOT"
 assert_pin_red_on_removal "#620: deferral-routing pin is removal-sensitive" \
@@ -4048,23 +4059,23 @@ assert_pin_unique "#620: interactive directives are non-binding on loop runs" \
   "$RAF_PIN_NONBINDING" "$MAXI_ROOT"
 assert_pin_red_on_removal "#620: non-binding-directive pin is removal-sensitive" \
   "$RAF_PIN_NONBINDING" "$MAXI_ROOT"
-assert_pin_unique "#620: authority binds to the most recent edit alone, not the login set" \
-  "$RAF_PIN_RECENCY" "$MAXI_ROOT"
+assert_pin_unique "#620/#640: authority binds to the most recent edit alone, not the login set" \
+  "$RAF_PIN_RECENCY" "$RCR_EXT"
 # The mutation strips the WHOLE recency span, not just the pinned literal: deleting
 # `the **most recent** edit alone` alone leaves the following clause ("never any privileged login
 # merely present in the list") still forbidding set-semantics, so the mutant would not actually
 # reconstruct the fail-open — a removal-sensitive pin wearing a behavioral-fix label.
-assert_pin_red_under "#620: recency pin catches reverting authority to set-semantics" \
+assert_pin_red_under "#620/#640: recency pin catches reverting authority to set-semantics" \
   "$RAF_PIN_RECENCY" 's/the \*\*most recent\*\* edit alone — the node with the latest `editedAt`, never any privileged login merely present in the list/the edits recorded/' \
-  "$MAXI_ROOT"
-assert_pin_unique "#620: a truncated or empty edit page routes to unestablished" \
-  "$RAF_PIN_TRUNCATED" "$MAXI_ROOT"
+  "$RCR_EXT"
+assert_pin_unique "#620/#640: a truncated or empty edit page routes to unestablished" \
+  "$RAF_PIN_TRUNCATED" "$RCR_EXT"
 # The mutation spans the trailing `since …` rationale too: deleting only the directive would leave
 # its justification standing, so the mutant would be self-contradicting prose rather than a clean
 # reconstruction of the fail-open — the same widening the recency mutation above needed.
-assert_pin_red_under "#620: truncated-page pin catches dropping the partial-history arm" \
+assert_pin_red_under "#620/#640: truncated-page pin catches dropping the partial-history arm" \
   "$RAF_PIN_TRUNCATED" 's/treating an empty or page-full \(10\) node list as unestablished, since a truncated edit history cannot establish which edit is newest/weighing the list as returned/' \
-  "$MAXI_ROOT"
+  "$RCR_EXT"
 # Placement, not just presence: the docs claim both loads happen in the ENTRY preamble, which is what
 # makes them cover every path that enters through it. Assert the receiving load follows the skill's own
 # load and both precede the first section heading, so relocating the fence past entry goes RED.
@@ -36447,8 +36458,17 @@ RAF_ROOT_CEIL=3567
 # tree — which absorbs #642's extension growth — with ~4 words of headroom per #619's convention.
 # Update docs/review-and-fix-budget.md's ceilings-table and Measured cells in lockstep; the audited
 # decision is docs/cutovers/issue-620-reception-extension-port.md.
-RAF_LOAD_CEIL=7653
-RAF_MAXSTEP_CEIL=18915
+# #640 raised the initial-load ceiling 7653->7734 and the max-step ceiling 18915->18996: the
+# editor-authority MECHANISM (identity read + permission read + both arms + recency/truncated-page)
+# moved from the review-and-fix root into the always-loaded receiving-code-review extension so a
+# DIRECT reception pass inherits it, not only the loop. The relocation is per-surface neutral, but
+# the direct-pass framing the extension now needs (a self-contained intro) plus the root's residual
+# loop-tail pointer net +81 words on the always-loaded surface (root -149, receiving ext +230).
+# Measured against the up-to-date-with-main tree with ~4 words of headroom per #619's convention.
+# Update docs/review-and-fix-budget.md's ceilings-table and Measured cells in lockstep; the audited
+# decision is docs/cutovers/issue-640-direct-pass-editor-authority.md.
+RAF_LOAD_CEIL=7734
+RAF_MAXSTEP_CEIL=18996
 assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
   "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"
 assert_eq "#530 budget: root + always-loaded extensions (initial load) <= $RAF_LOAD_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W)))" "yes" \
@@ -36502,7 +36522,7 @@ done
 assert_eq "#620 budget: maintainer note's prose root ceiling matches RAF_ROOT_CEIL ($RAF_ROOT_CEIL)" "yes" \
   "$(case "$_raf_doc_nocommas" in *"The root sits below its ${RAF_ROOT_CEIL}-word"*) echo yes;; *) echo no;; esac)"
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +5,226 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +5,077 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute
