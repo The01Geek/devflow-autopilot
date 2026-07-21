@@ -35571,6 +35571,24 @@ if _F661="$(mktemp -d 2>/dev/null)" && [ -n "$_F661" ] && [ -d "$_F661" ]; then
   _R661_UNREAD="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_undec.txt" 2>"$_F661/unread.err")"
   assert_eq "#661 reloc self-test: an unreadable candidate reports INCOMPLETE (breadcrumb), not a false 'deleted'" \
     "yes" "$(grep -q 'RELOC-CANDIDATE-UNREADABLE' "$_F661/unread.err" && printf '%s' "$_R661_UNREAD" | grep -q 'diagnosis INCOMPLETE' && ! printf '%s' "$_R661_UNREAD" | grep -q 'deleted (not found anywhere)' && echo yes || echo no)"
+  # A NON-UTF-8 --reloc-search-set file: the read raises UnicodeDecodeError (a ValueError,
+  # NOT an OSError), so a bare `except OSError` would let it escape and crash the scan with
+  # an uncaught traceback instead of taking the documented fail-closed arm (PR #663 review).
+  _R661_SSD="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/undecodable.md" 2>"$_F661/ssd.err")"; _R661_SSD_RC=$?
+  assert_eq "#661 reloc self-test: a non-UTF-8 --reloc-search-set file fails closed (no uncaught UnicodeDecodeError)" \
+    "yes" "$([ "$_R661_SSD_RC" -eq 0 ] && ! grep -q 'Traceback' "$_F661/ssd.err" && grep -q 'RELOC-UNAVAILABLE' "$_F661/ssd.err" && printf '%s' "$_R661_SSD" | grep -q 'relocation diagnosis unavailable' && ! printf '%s' "$_R661_SSD" | grep -q 'deleted (not found anywhere)' && echo yes || echo no)"
+  # Mixed precedence: a resolvable destination AND an unreadable candidate in the same set →
+  # the found destination wins (RELOCATED); the INCOMPLETE arm is reserved for the case where
+  # NO destination resolved, so an unreadable candidate never downgrades a positive diagnosis.
+  printf '%s\n%s\n' "$_F661/dest.md" "$_F661/undecodable.md" > "$_F661/set_mixed.txt"
+  _R661_MIX="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_mixed.txt" 2>/dev/null)"
+  assert_eq "#661 reloc self-test: a destination plus an unreadable candidate reports RELOCATED (not INCOMPLETE)" \
+    "yes" "$(printf '%s' "$_R661_MIX" | grep -q 'RELOCATED.*dest.md' && ! printf '%s' "$_R661_MIX" | grep -q 'diagnosis INCOMPLETE' && echo yes || echo no)"
+  # An EMPTY --reloc-exclude token is skipped, never treated as a substring that matches every
+  # path (which would exclude the whole search set and turn a relocation into a false 'deleted').
+  _R661_EMPTOK="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_dest.txt" --reloc-exclude "" 2>/dev/null)"
+  assert_eq "#661 reloc self-test: an empty --reloc-exclude token is skipped (does not exclude every path)" \
+    "yes" "$(printf '%s' "$_R661_EMPTOK" | grep -q 'RELOCATED.*dest.md' && echo yes || echo no)"
   rm -rf "$_F661"
 else
   echo FAIL >> "$RESULTS_FILE"

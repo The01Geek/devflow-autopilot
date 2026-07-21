@@ -36,7 +36,7 @@ authoring time:
   scoped tracked-file set — from ``--reloc-search-set`` when supplied (the
   git-free path the self-tests use) else ``git ls-files`` — **minus** the
   pin-source file(s) that declare the literal (auto-excluded plus any
-  ``--reloc-exclude`` prefix) and the non-source trees ``.devflow/vendor/`` /
+  ``--reloc-exclude`` substring token) and the non-source trees ``.devflow/vendor/`` /
   ``.devflow/tmp/``, and reports every other file where the literal resolves as
   ``RELOCATED … relocated to <file>; update the pin target``. Only when the set
   was enumerated successfully **and** the literal resolves nowhere in it does it
@@ -57,7 +57,7 @@ CLI::
     pin-corpus-lint.py lint    PIN_SOURCE [--lib DIR] [--var NAME=PATH ...]
     pin-corpus-lint.py wrapped PIN_SOURCE [--lib DIR] [--var NAME=PATH ...]
                                [--reloc] [--reloc-search-set FILE]
-                               [--reloc-exclude PREFIX ...]
+                               [--reloc-exclude SUBSTR ...]
 
 ``PIN_SOURCE`` is the shell file whose pin call sites are scanned (``run.sh``
 itself for the real corpus, a synthetic fixture for the self-tests). ``--var``
@@ -67,9 +67,16 @@ binds ``$LIB`` so ``VAR="$LIB/../skills/…"`` assignments resolve on their own.
 ``--reloc`` enables the issue-#661 relocation diagnosis on the ``wrapped``
 guard's ABSENT branch; ``--reloc-search-set FILE`` supplies the search set as a
 newline-delimited file (git-free, for the self-tests) instead of ``git
-ls-files``; ``--reloc-exclude PREFIX`` (repeatable) drops any tracked path
-containing PREFIX from the search set (the pin-source file(s) that declare the
-literal).
+ls-files``; ``--reloc-exclude SUBSTR`` (repeatable) drops any tracked path
+containing SUBSTR anywhere in it -- a substring test, not an anchored prefix --
+from the search set (the pin-source file(s) that declare the literal); a token
+that resolves to the same file as a candidate (abspath-equal) is dropped too.
+
+Known limitation: the search set is read as UTF-8, so a non-UTF-8 tracked file
+(an image, a binary fixture) is an UNREADABLE candidate. That direction is safe
+-- it downgrades a would-be ``deleted`` verdict to ``diagnosis INCOMPLETE`` and
+never claims a false deletion -- but it does mean a genuine deletion in a corpus
+containing binary tracked files reports INCOMPLETE rather than ``deleted``.
 """
 
 from __future__ import annotations
@@ -633,10 +640,13 @@ def resolve_reloc_search_set(explicit_file):
     unreadable, or a raw enumeration that fails or is empty, returns (None, reason)
     so the ABSENT branch fails closed rather than reporting a false deletion."""
     if explicit_file is not None:
-        try:
-            raw = _read(explicit_file)
-        except OSError as exc:
-            return None, f"search-set-unreadable:{type(exc).__name__}"
+        # Read through _read_target, which catches (OSError, UnicodeDecodeError):
+        # a non-UTF-8 --reloc-search-set file raises UnicodeDecodeError (a ValueError,
+        # NOT an OSError), and a bare `except OSError` would let it escape and crash
+        # the scan instead of taking this docstring's fail-closed (None, reason) arm.
+        raw, reason = _read_target(explicit_file)
+        if reason is not None:
+            return None, f"search-set-unreadable:{reason}"
         paths = [ln.strip() for ln in raw.splitlines() if ln.strip()]
         if not paths:
             return None, "search-set-empty"
@@ -715,7 +725,7 @@ def run_wrapped(pin_source, lib, overrides, md_targets,
     # A resolution failure is carried as (None, reason): the ABSENT branch then reports
     # "relocation diagnosis unavailable" and never a false "deleted". The pin-source file
     # is auto-excluded (a pin literal is present in its own declaration by construction),
-    # alongside the always-on vendor/tmp trees and any --reloc-exclude prefix.
+    # alongside the always-on vendor/tmp trees and any --reloc-exclude substring token.
     reloc_paths, reloc_err = (None, None)
     reloc_excludes = ()
     if reloc:
