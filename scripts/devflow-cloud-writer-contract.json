@@ -1,12 +1,12 @@
 {
   "files": {
     "lib/efficiency-trace.sh": "8dfff79231d395e4ab0538edc4a1afc962b81d58c05f53c8eaf80e5d720d541b",
-    "scripts/apply-labels.sh": "1a19b88602745ea4644857e9bb37a2986212e96de3c83984aa752f14745d0e0f",
+    "scripts/apply-labels.sh": "7ea8de21f888b038ab0d6a2324b197e6e865144caf51d8b7a765d06996ab3ad2",
     "scripts/branch-for-issue.py": "e44aa7e0d8e743c9ea6c0b650e39376b91cefb5ce7eaca22803f3f50f5a0f1a9",
     "scripts/config-get.sh": "a418b2e05a7a2205ae8f7495b3c05f65660694a96c580895048b4688b0fa195e",
     "scripts/discover-deferral-manifests.py": "05ccba516c0e4778c56c793354f5966027722b1cac546eeb134f11c31a165a89",
     "scripts/dismiss-stale-rejections.sh": "179b63aeaef262ff4c5b688deb62aa873dd3940d87acc9a4b962fe16df48a09e",
-    "scripts/ensure-label.sh": "4bd23c2b9d7d018d17cf1f9c34815753b36a2fb3acaaaf0f291aabaae12355b9",
+    "scripts/ensure-label.sh": "ce02a8a23e46d41940e00a79315454dd574f22b7e7cfe61cf08660bf8805f99a",
     "scripts/extract-doc-needed-paths.sh": "1813edaa0a5c3af7303db62fe5a3b0fcd5f33b42d36ee25c8100eb107880f040",
     "scripts/file-deferrals.py": "8a3e3f71493a4c1776e388d8212294f1d7b5b7b304646b15c0a4aed52f958064",
     "scripts/load-prompt-extension.sh": "0745353307505ab109c00003d083dc52ade7c38a8f06ed5f699166b5638013e0",
@@ -23,7 +23,7 @@
     "skills/docs-sync-external/SKILL.md": "a143f1e22b0e1ce6a254a20ca6080b01df08f356e2693e4b8f2cf3eb7759d04d",
     "skills/docs-sync-internal/SKILL.md": "bfab308b9d734e026ae66bb4c575ff6aa7a2e44995cb8dd031dad4e1a4c0a43d",
     "skills/docs/SKILL.md": "8a7cd8550f7578dba5d7ad844c2bf575e5755f660cfdf82d0bd489b811910a9b",
-    "skills/implement/SKILL.md": "f5fe10988b60bf90363727e518713b2e70291d70def54d3728c827f7fe5a35b0",
+    "skills/implement/SKILL.md": "dd97fa9176b1e08d6bb6da6cd06ddbe748803008fbebebf7f38ab2240fad270e",
     "skills/implement/phases/phase-1-setup.md": "f4070802a10b8817158eaa1a34b88acd8c7df7f5d57981d635d263fea172775b",
     "skills/implement/phases/phase-2-implement.md": "0578da581450b507b34fce0e9b4bd0d43f7586f95b1a30eed89e67c9d107295e",
     "skills/implement/phases/phase-3-review.md": "b78725e78f403c2b6a17bafafa4331e59d225c90e61a8943b2d51e07205b2fa2",

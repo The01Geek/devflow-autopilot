@@ -333,6 +333,21 @@ The completion/blocked reaction is emitted via `scripts/react-to-trigger.sh`
 `Blocked`. The reaction is best-effort: a failure never blocks the run, and the
 workpad `Status` glyph remains the authoritative signal.
 
+Resolving *which* comment to react to works on both tiers (issue #664). The
+skill prefers `.comment.id` from `$GITHUB_EVENT_PATH` (present when the run was
+comment-triggered) and otherwise lists the issue's comments via `gh api` using
+the `{owner}/{repo}` placeholders `gh` fills from the git remote — never
+`repos/$GITHUB_REPOSITORY/…`, since that variable is set only by the Actions
+runner and is **empty** on the local/interactive tier, collapsing the path to
+`repos//issues/…`. That failure is not self-announcing: `gh` writes the HTTP
+error body to **stdout**, so a best-effort `VAR=$(gh api … 2>/dev/null || true)`
+capture holds a 404 JSON blob rather than an empty string. The fence therefore
+admits a resolved id only when it is a bare digit string, and reacts to nothing
+otherwise. `lib/test/lint-gh-api-repo-path.py` (driven from `lib/test/run.sh`)
+turns a reintroduced `$GITHUB_REPOSITORY` interpolation in a `gh api` path
+argument RED at the desk, everywhere outside the Actions-only
+`.github/workflows/` and `.github/actions/` surfaces.
+
 ## A PR-mode `/devflow:review` posts one live progress comment
 
 Standalone `/devflow:review` (the light listener in `devflow.yml`, and the

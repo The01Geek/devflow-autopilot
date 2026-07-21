@@ -45880,6 +45880,206 @@ assert_eq "#466 mla-fetch: Phase 0.6 comment fetch does not address the repo via
 assert_pin_unique "#466 mla-fetch: Phase 0.6 comment fetch uses the {owner}/{repo} placeholders" \
   'gh api --paginate "repos/{owner}/{repo}/issues/$PR_NUMBER/comments?per_page=100"' "$REVIEW_SKILL"
 
+echo "#664 gh-api REST path: \$GITHUB_REPOSITORY is not a repo address outside Actions"
+# The two #466 arms above are review-bundle-scoped and stay exactly as they are: they hold DEPTH
+# over that bundle (they match the literal anywhere in its bytes, including Markdown prose outside
+# any fence and a literal reached through one assignment hop). The scanner below adds population
+# BREADTH — it reaches every audited file in the tree, which the bundle-scoped arms never see —
+# and its own reach is narrower by construction (a `gh api` argument, never prose). Neither
+# subsumes the other, which is why both live here.
+E664_LINT="$LIB/test/lint-gh-api-repo-path.py"
+E664_FX="$LIB/test/fixtures/ghapi-repo-path"
+E664_IMPL="$LIB/../skills/implement/SKILL.md"
+
+# Real-tree run. The tally is asserted POSITIVE as well: a green run whose audited count had
+# silently collapsed to zero (a broken enumeration, an over-wide exclusion) would otherwise read
+# as "clean" while auditing nothing at all.
+E664_OUT="$(python3 "$E664_LINT" 2>&1)"; E664_RC=$?
+# The comparand is the exit code alone: the success arm prints `rc=0` and nothing else, so no
+# audited-file count is encoded here — a count every added file to the repo would drift. (The
+# scanner prints its tally on BOTH arms; the tally is folded in only on the failure arm, where it
+# is diagnostic rather than comparand. The positive-tally assertion below reads it from an rc=0
+# run, which is why that read must not go through this assertion's comparand.)
+assert_eq "#664 scanner: clean on the tree as it stands" "rc=0" \
+  "$([ "$E664_RC" -eq 0 ] && printf 'rc=0' || printf 'rc=%s | %s' "$E664_RC" "$E664_OUT")"
+assert_eq "#664 scanner: the real-tree run audited a positive number of files" "yes" \
+  "$(printf '%s' "$E664_OUT" | python3 -c 'import re,sys
+m = re.search(r"audited (\d+) of", sys.stdin.read())
+print("yes" if m and int(m.group(1)) > 0 else "no")')"
+
+# Fixture-driven behavior. Every case is driven through --files-from over a synthetic path list
+# rooted at the fixture directory, because the audited population excludes lib/test/ — the
+# fixtures are unreachable from the default enumeration by design.
+e664_run() {  # <root> <path…>  -> prints "rc=<n>|<stdout+stderr>"
+  local root="$1"; shift
+  local list out rc
+  list="$(probe_tmp '#664 fixture list')" || return 0
+  printf '%s\n' "$@" > "$list"
+  out="$(python3 "$E664_LINT" --root "$root" --files-from "$list" 2>&1)"; rc=$?
+  rm -f "$list"
+  printf 'rc=%s|%s' "$rc" "$out"
+}
+
+# Legitimate corpus: a --repo flag value, a run-URL composition, a workflow env: assignment, a
+# Python os.environ.get, a comment naming the variable, and prose quoting the prohibition itself.
+assert_eq "#664 scanner: the legitimate corpus produces no violation" \
+  "rc=0|lint-gh-api-repo-path: audited 4 of 4 files" \
+  "$(e664_run "$E664_FX" legit-source.sh legit-python.py legit-prose.md legit-workflow.yml)"
+
+# Planted defects, one assertion per named form. Fields are read with `IFS=:` from a heredoc
+# (not a pipeline — the loop must stay in this shell), so no manual `%%:*` unpacking and no
+# hidden "the description may not contain a colon" constraint.
+while IFS=: read -r _e664_file _e664_line _e664_what; do
+  [ -n "$_e664_file" ] || continue
+  assert_eq "#664 scanner: flags a violation $_e664_what ($_e664_file)" "yes" \
+    "$(case "$(e664_run "$E664_FX" "$_e664_file")" in *"|$_e664_file:$_e664_line: gh api REST path"*) echo yes ;; *) echo no ;; esac)"
+done <<'E664_VIOLATIONS'
+violation-basic.sh:3:plain dollar form
+violation-brace.sh:2:brace form
+violation-markdown.md:4:inside a bash fence
+violation-resolved-head.sh:2:resolved-binary head
+adversarial-heredoc.sh:5:inside a heredoc body
+adversarial-singlequote.sh:4:inside a single-quoted string
+adversarial-unterminated.md:8:after an unterminated fence
+adversarial-nonutf8.sh:3:in a file carrying a non-UTF-8 byte
+adversarial-continuation.sh:4:on a backslash-continued statement
+adversarial-mdexample-fence.md.example:4:inside a .md.example fence
+violation-leading-slash.sh:4:on the documented leading-slash /repos/ spelling
+violation-preflag.sh:3:when a global flag sits between the head and the api subcommand
+violation-gh-exe.sh:3:on the gh.exe Windows head
+violation-nested-substitution.sh:3:nested two substitutions deep
+violation-suffix-gh-var.sh:5:on a $VAR head whose name merely ENDS in GH (the suffix rule)
+violation-tilde-fence.md:4:inside a ~~~ fence, not only a backtick fence
+E664_VIOLATIONS
+
+# Shapes that must NOT be flagged, each for its own reason.
+while IFS=: read -r _e664_file _e664_why; do
+  [ -n "$_e664_file" ] || continue
+  assert_eq "#664 scanner: does not flag $_e664_why ($_e664_file)" \
+    "rc=0|lint-gh-api-repo-path: audited 1 of 1 files" "$(e664_run "$E664_FX" "$_e664_file")"
+done <<'E664_CLEAN'
+adversarial-prose-only.md:a Markdown occurrence outside any fence
+adversarial-mdexample-prose.md.example:a .md.example occurrence outside any fence
+adversarial-empty.sh:an empty file
+adversarial-nogh.sh:a file with no gh invocation
+legit-nongh-var-head.sh:a variable head whose name does not end in GH (a declared residual)
+E664_CLEAN
+
+# Two violations in one file, each on its own reported line.
+assert_eq "#664 scanner: reports both violations of one file on separate lines" "3 5" \
+  "$(e664_run "$E664_FX" violation-basic.sh | python3 -c 'import re,sys
+body = sys.stdin.read().split("|", 1)[1]
+print(" ".join(re.findall(r"^violation-basic\.sh:(\d+):", body, re.M)))')"
+
+# A call reached through more than one nesting level is reported ONCE. The substitution
+# descent visits a nested `$( … $(gh api …) … )` through both bodies, so without the
+# (line, argument) dedup this reports the same call twice and a reader double-counts.
+assert_eq "#664 scanner: a nested-substitution call is reported once, not once per nesting level" "1" \
+  "$(e664_run "$E664_FX" violation-nested-substitution.sh | python3 -c 'import sys
+print(sys.stdin.read().split("|", 1)[1].count(": gh api REST path"))')"
+
+# A selected path that cannot be READ is never absorbed into a clean pass: it is named on
+# stderr, excluded from the read tally, and — when it is the whole population — fails closed.
+# The tally counts files READ against files SELECTED precisely so "audited nothing" can never
+# print the same thing as "audited everything, found nothing".
+assert_eq "#664 scanner: an unreadable selected path is named, not silently skipped" "yes" \
+  "$(case "$(e664_run "$E664_FX" no-such-file.sh)" in *"SKIPPED no-such-file.sh"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#664 scanner: a wholly unreadable population fails closed rather than reporting clean" "rc=1|0 of 1" \
+  "$(e664_run "$E664_FX" no-such-file.sh | python3 -c 'import re,sys
+t = sys.stdin.read()
+m = re.search(r"audited (\d+ of \d+)", t)
+print("rc=" + re.match(r"rc=(\d+)", t).group(1) + "|" + (m.group(1) if m else "no-tally"))')"
+
+# Violations spread across separate files: still one non-zero exit for the process as a whole.
+assert_eq "#664 scanner: two violating files exit non-zero once, reporting both" "rc=1 2" \
+  "$(e664_run "$E664_FX" violation-brace.sh violation-second-file.sh | python3 -c 'import re,sys
+t = sys.stdin.read()
+print("rc=" + re.match(r"rc=(\d+)", t).group(1), len(re.findall(r": gh api REST path", t)))')"
+
+# Fixture-integrity guards. Both fixtures below carry bytes `* text=auto` would normalize away,
+# and a normalized fixture makes its assertion VACUOUS rather than red — the CRLF twin would
+# simply become a second copy of its LF sibling, and the undecodable byte would vanish. The
+# `-text` .gitattributes entries are what preserve them; the assertions below are what notice if
+# those entries are ever dropped, since no downstream assertion can tell the difference.
+e664_fixture_keeps() {  # <crlf|undecodable> <path> -> yes|no
+  python3 -c 'import pathlib, sys
+mode, data = sys.argv[1], pathlib.Path(sys.argv[2]).read_bytes()
+if mode == "crlf":
+    print("yes" if b"\r\n" in data else "no")
+else:
+    try:
+        data.decode("utf-8")
+    except UnicodeDecodeError:
+        print("yes")
+    else:
+        print("no")' "$1" "$2"
+}
+assert_eq "#664 fixture integrity: the CRLF twin still carries CR bytes (not normalized to LF)" "yes" \
+  "$(e664_fixture_keeps crlf "$E664_FX/adversarial-crlf.txt")"
+assert_eq "#664 fixture integrity: the non-UTF-8 fixture still carries an undecodable byte" "yes" \
+  "$(e664_fixture_keeps undecodable "$E664_FX/adversarial-nonutf8.sh")"
+
+# CRLF twin: identical verdict AND identical line numbers to its LF sibling.
+assert_eq "#664 scanner: a CRLF file yields the same line numbers as its LF twin" "same" \
+  "$(python3 -c 'import sys
+lf, crlf = sys.argv[1], sys.argv[2]
+print("same" if lf.split(":",1)[1] == crlf.split(":",1)[1] else "differ: %s vs %s" % (lf, crlf))' \
+    "$(e664_run "$E664_FX" adversarial-lf.sh)" "$(e664_run "$E664_FX" adversarial-crlf.txt)")"
+
+# Population selection, driven over a mini-root whose every excluded-prefix file carries a planted
+# violation: only the one included file is reported, and the tally counts post-exclusion files.
+assert_eq "#664 scanner: every excluded prefix keeps its planted violation out of reach" \
+  "rc=1|included/planted.sh|1" \
+  "$(e664_run "$E664_FX/exroot" \
+      lib/test/planted.sh docs/planted.sh .github/workflows/planted.yml \
+      .github/actions/act/planted.sh .devflow/logs/planted.md .devflow/learnings/planted.md \
+      .changeset/planted.md CHANGELOG.md included/planted.sh \
+    | python3 -c 'import re,sys
+t = sys.stdin.read()
+body = t.split("|", 1)[1]
+print("|".join([
+    "rc=" + re.match(r"rc=(\d+)", t).group(1),
+    ",".join(re.findall(r"^(\S+):\d+: gh api REST path", body, re.M)),
+    re.search(r"audited (\d+) of", body).group(1),
+]))')"
+
+# A post-exclusion population of zero is a LEGAL outcome (exit 0, zero tally) and must never be
+# confused with the fail-closed arms below — that confusion is what would let an over-wide
+# exclusion read as a clean audit.
+assert_eq "#664 scanner: an all-excluded population is a zero tally at exit 0, not a failure" \
+  "rc=0|lint-gh-api-repo-path: audited 0 of 0 files" \
+  "$(e664_run "$E664_FX/exroot" lib/test/planted.sh docs/planted.sh)"
+
+# Fail-closed arms, measured PRE-exclusion, each naming which of the two occurred.
+assert_eq "#664 scanner: an empty pre-exclusion population fails closed with its own breadcrumb" "yes" \
+  "$(case "$(e664_run "$E664_FX")" in "rc=0"*) echo "no: exited 0" ;; *"yielded zero paths before any exclusion"*) echo yes ;; *) echo no ;; esac)"
+E664_MISSING="$(probe_tmp '#664 missing list')"
+rm -f "$E664_MISSING"
+assert_eq "#664 scanner: an unreadable --files-from list fails closed with its own breadcrumb" "yes" \
+  "$(E664_OUT2="$(python3 "$E664_LINT" --root "$E664_FX" --files-from "$E664_MISSING" 2>&1)"
+     case "$?:$E664_OUT2" in 0:*) echo "no: exited 0" ;; *"could not be read"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#664 scanner: a non-repository root fails closed naming git ls-files" "yes" \
+  "$(E664_SB="$(probe_tmp '#664 non-repo root')"
+     rm -f "$E664_SB"; mkdir -p "$E664_SB"
+     E664_OUT3="$(python3 "$E664_LINT" --root "$E664_SB" 2>&1)"
+     E664_RC3=$?
+     rmdir "$E664_SB" 2>/dev/null || true
+     case "$E664_RC3:$E664_OUT3" in 0:*) echo "no: exited 0" ;; *"git ls-files exited"*) echo yes ;; *) echo no ;; esac)"
+
+# The fence itself. The mutation restores the pre-#664 form on a scratch copy, so the pin proves it
+# catches the guarded regression (the collapsed local-tier path) rather than merely its own line
+# vanishing — the operative-vs-framing discrimination assert_pin_red_on_removal cannot report.
+assert_pin_red_under "#664 fence: the outcome-reaction comment listing uses the {owner}/{repo} placeholders" \
+  'gh api "repos/{owner}/{repo}/issues/$ISSUE_NUMBER/comments?per_page=100"' \
+  's|repos/\{owner\}/\{repo\}/issues/\$ISSUE_NUMBER/comments|repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments|' \
+  "$E664_IMPL"
+# The digit-only test is the arm that makes a captured HTTP error body inert. Its guarded
+# regression is dropping the second test, which the mutation below re-introduces.
+assert_pin_red_under "#664 fence: the resolved comment id is admitted only when it is a bare digit string" \
+  '[ -n "$TRIGGER_COMMENT_ID" ] && [ -z "${TRIGGER_COMMENT_ID//[0-9]/}" ]' \
+  's|^if \[ -n "\$TRIGGER_COMMENT_ID" \] && \[ -z .*\]; then$|if [ -n "$TRIGGER_COMMENT_ID" ]; then|' \
+  "$E664_IMPL"
+
 # #466 mla-rule-drift (coupled site): match-lint-adjudications.py excludes R4 from carry-forward
 # because R4's detail carries no referent. That exclusion is a DENY-list, so a NEW stale-prose
 # rule would silently inherit eligibility. Pin the lint's emitted STALE rule-id set: adding a
