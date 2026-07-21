@@ -15585,7 +15585,7 @@ assert_pin_unique "#272 AC10: overview §11 mirrors the visual-specification beh
 #    the offer gate guards against the restored-unconditional-offer regression, plus a
 #    verified-config multi-shape block driving config-get.sh's fail-closed arm selection.
 CI446_TMPL="$LIB/../skills/create-issue/references/issue-template.md"
-CI446_SKILL="$LIB/../skills/create-issue/SKILL.md"
+CI446_SKILL="$CREATE_ISSUE_BUNDLE"   # #614: Step 2's DoR item and Step 4's offer gate now live in references/; the bundle is the content-survival target
 CI446_P4="$LIB/../skills/implement/phases/phase-4-documentation.md"
 CI446_OVERVIEW="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 # AC1/AC2 — the optional ## Dependencies section in BOTH the template's structure guidance
@@ -15797,7 +15797,7 @@ rm -f "$CG446_FALSE" "$CG446_ABSENT" "$CG446_TRUE" "$CG446_WRONGTYPE" "$CG446_TO
 assert_eq "#97 pin: ensure-label.sh exists" "yes" \
   "$([ -f "$LIB/../scripts/ensure-label.sh" ] && echo yes || echo no)"
 assert_eq "#97 pin: create-issue ensures+applies DevFlow label via REST helper" "yes" \
-  "$(grep -q 'ensure-label.sh DevFlow' "$LIB/../skills/create-issue/SKILL.md" && grep -qF 'apply-labels.sh <issue_number> DevFlow' "$LIB/../skills/create-issue/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + REST apply-labels)
+  "$(grep -q 'ensure-label.sh DevFlow' "$LIB/../skills/create-issue/references/step-4-present-create.md" && grep -qF 'apply-labels.sh <issue_number> DevFlow' "$LIB/../skills/create-issue/references/step-4-present-create.md" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + REST apply-labels)
 # ── #275: EVERY local-tier skill/phase file resolves its helper anchor portably, in a
 # single statement (supersedes the create-issue-only #241 pins A1/A1b/A2/A2b).
 # Copilot CLI's inline `bash -c` marshaling strips a variable assigned in one statement
@@ -16182,14 +16182,14 @@ assert_pin_unique "#275 docs: system overview documents the generalized single-s
 # (the helper never ran; the always-exit-0 contract never engaged) is not swallowed by
 # the "continue regardless of the label outcome" prose as a benign label hiccup.
 assert_pin_unique "#241 pin (A3): sub-step 5a discriminates anchor-resolution failure from a benign label outcome" \
-  'The always-exit-0 contract applies only once a helper actually runs' "$LIB/../skills/create-issue/SKILL.md"
+  'The always-exit-0 contract applies only once a helper actually runs' "$LIB/../skills/create-issue/references/step-4-present-create.md"
 # A3b (review PR #243 Important note): when the anchor is genuinely UNRESOLVABLE on a
 # runner (neither $CLAUDE_SKILL_DIR nor a runner-reported base dir), the guard must not
 # fail open into "Continue to sub-step 6 regardless" — sub-step 5a surfaces the
 # degradation explicitly (issue created, provenance label NOT applied) so the silently
 # dropped DevFlow label never vanishes from the retrospective detection unnoticed.
 assert_pin_unique "#241 pin (A3b): sub-step 5a surfaces an unresolvable anchor as an explicit degradation, not a silent skip" \
-  'provenance label NOT applied' "$LIB/../skills/create-issue/SKILL.md"
+  'provenance label NOT applied' "$LIB/../skills/create-issue/references/step-4-present-create.md"
 assert_eq "#97 pin: implement applies DevFlow label at PR create via REST helper" "yes" \
   "$(grep -q 'ensure-label.sh DevFlow' "$IMPL_SKILL_BUNDLE" && grep -qF 'apply-labels.sh <draft-pr-number> DevFlow' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + REST apply-labels); issue #218: bundle (label idiom in phases/phase-3-review.md). #480: the PR number is a substituted LITERAL, not "$PR_NUM" — that variable is set in a previous fence and does not survive into this separate command on the cloud runner, so the old form passed an empty number and the helper refused at its arg-slip guard (the label never landed on the PR).
 assert_eq "#152 pin: meta-issue.sh ensures+applies DevFlow and Retrospective labels via REST helper" "yes" \
@@ -16207,7 +16207,7 @@ assert_eq "#228: apply-labels.sh applies via REST gh api, never gh issue/pr edit
 assert_eq "#228: meta-issue.sh no longer invokes 'gh issue edit' for labels" "yes" \
   "$(! grep -qF '"$DEVFLOW_GH" issue edit' "$LIB/meta-issue.sh" && echo yes || echo no)"
 assert_eq "#228: create-issue removed the gh issue edit --add-label command" "yes" \
-  "$(! grep -qF 'gh issue edit <issue_number> --add-label DevFlow' "$LIB/../skills/create-issue/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: absence pin — asserts the removed porcelain command literal is GONE (negated grep, not a presence pin)
+  "$(! grep -qF 'gh issue edit <issue_number> --add-label DevFlow' "$CREATE_ISSUE_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: absence pin — asserts the removed porcelain command literal is GONE (negated grep, not a presence pin)
 assert_eq "#228: phase-3 removed the gh pr edit --add-label command" "yes" \
   "$(! grep -qF 'gh pr edit "$PR_NUM" --add-label DevFlow' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: absence pin — asserts the removed porcelain command literal is GONE (negated grep, not a presence pin)
 assert_eq "#228: phase-4 removed the gh issue edit --add-label deferred command" "yes" \
@@ -38174,7 +38174,8 @@ IMPL_DIR="$LIB/../skills/implement"
 # uniform and pre-empts a future read-write tier, rather than guarding a live denial. All
 # lint clean today, so the coverage is free (#480 review).
 for f in "$IMPL_DIR/SKILL.md" "$IMPL_DIR"/phases/*.md \
-         "$LIB/../skills/create-issue/SKILL.md" "$LIB/../skills/init/SKILL.md"; do
+         "$LIB/../skills/create-issue/SKILL.md" "$LIB"/../skills/create-issue/references/*.md \
+         "$LIB/../skills/init/SKILL.md"; do
   assert_eq "#455 implement shape-lint: $(basename "$(dirname "$f")")/$(basename "$f") teaches no proven-denied shape" "" \
     "$(python3 "$ECS" --profile implement "$f" 2>&1)"
 done
@@ -38413,7 +38414,8 @@ assert_eq "#455 behavioral: reintroducing the removed per-label ensure-label pip
 # ── the contract loop's "teaches no proven-denied shape" claim would pass VACUOUSLY over it. Keep
 # ── the claim's reach equal to its wording — the guarded files must use no other shell fence tag.
 for f in "$IMPL_DIR/SKILL.md" "$IMPL_DIR"/phases/*.md \
-         "$LIB/../skills/create-issue/SKILL.md" "$LIB/../skills/init/SKILL.md"; do
+         "$LIB/../skills/create-issue/SKILL.md" "$LIB"/../skills/create-issue/references/*.md \
+         "$LIB/../skills/init/SKILL.md"; do
   assert_eq "#455 scope: $(basename "$(dirname "$f")")/$(basename "$f") uses no non-bash shell fence tag (the lint reads only \`\`\`bash)" "0" \
     "$(grep -cE '^\s*```(sh|shell|zsh|console)\s*$' "$f" || true)"
 done
@@ -38534,7 +38536,8 @@ assert_eq "#480 the guard-class-2 sed range actually spans the label derivation 
 # ── working. Pin the class: no implement-tier fence may use `paste`, and the granted tools
 # ── its replacement depends on must actually be granted.
 for f in "$IMPL_DIR/SKILL.md" "$IMPL_DIR"/phases/*.md \
-         "$LIB/../skills/create-issue/SKILL.md" "$LIB/../skills/init/SKILL.md"; do
+         "$LIB/../skills/create-issue/SKILL.md" "$LIB"/../skills/create-issue/references/*.md \
+         "$LIB/../skills/init/SKILL.md"; do
   assert_eq "#455 ungranted-head: $(basename "$(dirname "$f")")/$(basename "$f") uses no 'paste' (granted in no allowlist)" "0" \
     "$(python3 "$ECH" heads "$f" 2>/dev/null | grep -cxF 'paste' || true)"
 done
