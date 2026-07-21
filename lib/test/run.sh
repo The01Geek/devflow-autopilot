@@ -45773,13 +45773,16 @@ E664_IMPL="$LIB/../skills/implement/SKILL.md"
 # silently collapsed to zero (a broken enumeration, an over-wide exclusion) would otherwise read
 # as "clean" while auditing nothing at all.
 E664_OUT="$(python3 "$E664_LINT" 2>&1)"; E664_RC=$?
-# The comparand is the exit code alone — the tally line rides along only on the failure arm, so
-# the assertion never encodes an audited-file count that every added file would drift.
+# The comparand is the exit code alone: the success arm prints `rc=0` and nothing else, so no
+# audited-file count is encoded here — a count every added file to the repo would drift. (The
+# scanner prints its tally on BOTH arms; the tally is folded in only on the failure arm, where it
+# is diagnostic rather than comparand. The positive-tally assertion below reads it from an rc=0
+# run, which is why that read must not go through this assertion's comparand.)
 assert_eq "#664 scanner: clean on the tree as it stands" "rc=0" \
   "$([ "$E664_RC" -eq 0 ] && printf 'rc=0' || printf 'rc=%s | %s' "$E664_RC" "$E664_OUT")"
 assert_eq "#664 scanner: the real-tree run audited a positive number of files" "yes" \
   "$(printf '%s' "$E664_OUT" | python3 -c 'import re,sys
-m = re.search(r"audited (\d+) files", sys.stdin.read())
+m = re.search(r"audited (\d+) of", sys.stdin.read())
 print("yes" if m and int(m.group(1)) > 0 else "no")')"
 
 # Fixture-driven behavior. Every case is driven through --files-from over a synthetic path list
@@ -45798,7 +45801,7 @@ e664_run() {  # <root> <path…>  -> prints "rc=<n>|<stdout+stderr>"
 # Legitimate corpus: a --repo flag value, a run-URL composition, a workflow env: assignment, a
 # Python os.environ.get, a comment naming the variable, and prose quoting the prohibition itself.
 assert_eq "#664 scanner: the legitimate corpus produces no violation" \
-  "rc=0|lint-gh-api-repo-path: audited 4 files" \
+  "rc=0|lint-gh-api-repo-path: audited 4 of 4 files" \
   "$(e664_run "$E664_FX" legit-source.sh legit-python.py legit-prose.md legit-workflow.yml)"
 
 # Planted defects, one assertion per named form. Fields are read with `IFS=:` from a heredoc
@@ -45819,18 +45822,23 @@ adversarial-unterminated.md:8:after an unterminated fence
 adversarial-nonutf8.sh:3:in a file carrying a non-UTF-8 byte
 adversarial-continuation.sh:4:on a backslash-continued statement
 adversarial-mdexample-fence.md.example:4:inside a .md.example fence
+violation-leading-slash.sh:4:on the documented leading-slash /repos/ spelling
+violation-preflag.sh:3:when a global flag sits between the head and the api subcommand
+violation-gh-exe.sh:3:on the gh.exe Windows head
+violation-nested-substitution.sh:3:nested two substitutions deep
 E664_VIOLATIONS
 
 # Shapes that must NOT be flagged, each for its own reason.
 while IFS=: read -r _e664_file _e664_why; do
   [ -n "$_e664_file" ] || continue
   assert_eq "#664 scanner: does not flag $_e664_why ($_e664_file)" \
-    "rc=0|lint-gh-api-repo-path: audited 1 files" "$(e664_run "$E664_FX" "$_e664_file")"
+    "rc=0|lint-gh-api-repo-path: audited 1 of 1 files" "$(e664_run "$E664_FX" "$_e664_file")"
 done <<'E664_CLEAN'
 adversarial-prose-only.md:a Markdown occurrence outside any fence
 adversarial-mdexample-prose.md.example:a .md.example occurrence outside any fence
 adversarial-empty.sh:an empty file
 adversarial-nogh.sh:a file with no gh invocation
+legit-nongh-var-head.sh:a variable head whose name does not end in GH (a declared residual)
 E664_CLEAN
 
 # Two violations in one file, each on its own reported line.
@@ -45838,6 +45846,25 @@ assert_eq "#664 scanner: reports both violations of one file on separate lines" 
   "$(e664_run "$E664_FX" violation-basic.sh | python3 -c 'import re,sys
 body = sys.stdin.read().split("|", 1)[1]
 print(" ".join(re.findall(r"^violation-basic\.sh:(\d+):", body, re.M)))')"
+
+# A call reached through more than one nesting level is reported ONCE. The substitution
+# descent visits a nested `$( … $(gh api …) … )` through both bodies, so without the
+# (line, argument) dedup this reports the same call twice and a reader double-counts.
+assert_eq "#664 scanner: a nested-substitution call is reported once, not once per nesting level" "1" \
+  "$(e664_run "$E664_FX" violation-nested-substitution.sh | python3 -c 'import sys
+print(sys.stdin.read().split("|", 1)[1].count(": gh api REST path"))')"
+
+# A selected path that cannot be READ is never absorbed into a clean pass: it is named on
+# stderr, excluded from the read tally, and — when it is the whole population — fails closed.
+# The tally counts files READ against files SELECTED precisely so "audited nothing" can never
+# print the same thing as "audited everything, found nothing".
+assert_eq "#664 scanner: an unreadable selected path is named, not silently skipped" "yes" \
+  "$(case "$(e664_run "$E664_FX" no-such-file.sh)" in *"SKIPPED no-such-file.sh"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#664 scanner: a wholly unreadable population fails closed rather than reporting clean" "rc=1|0 of 1" \
+  "$(e664_run "$E664_FX" no-such-file.sh | python3 -c 'import re,sys
+t = sys.stdin.read()
+m = re.search(r"audited (\d+ of \d+)", t)
+print("rc=" + re.match(r"rc=(\d+)", t).group(1) + "|" + (m.group(1) if m else "no-tally"))')"
 
 # Violations spread across separate files: still one non-zero exit for the process as a whole.
 assert_eq "#664 scanner: two violating files exit non-zero once, reporting both" "rc=1 2" \
@@ -45889,14 +45916,14 @@ body = t.split("|", 1)[1]
 print("|".join([
     "rc=" + re.match(r"rc=(\d+)", t).group(1),
     ",".join(re.findall(r"^(\S+):\d+: gh api REST path", body, re.M)),
-    re.search(r"audited (\d+) files", body).group(1),
+    re.search(r"audited (\d+) of", body).group(1),
 ]))')"
 
 # A post-exclusion population of zero is a LEGAL outcome (exit 0, zero tally) and must never be
 # confused with the fail-closed arms below — that confusion is what would let an over-wide
 # exclusion read as a clean audit.
 assert_eq "#664 scanner: an all-excluded population is a zero tally at exit 0, not a failure" \
-  "rc=0|lint-gh-api-repo-path: audited 0 files" \
+  "rc=0|lint-gh-api-repo-path: audited 0 of 0 files" \
   "$(e664_run "$E664_FX/exroot" lib/test/planted.sh docs/planted.sh)"
 
 # Fail-closed arms, measured PRE-exclusion, each naming which of the two occurred.

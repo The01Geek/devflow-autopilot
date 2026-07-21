@@ -17,27 +17,34 @@ Scope boundaries, all deliberate and asserted by the suite:
 
 * The audited population excludes `lib/test/`, `docs/`, `.github/workflows/`,
   `.github/actions/`, `.devflow/logs/`, `.devflow/learnings/`, `.changeset/`,
-  and `CHANGELOG.md`. The first three groups carry the rule's own statement text
-  and the `#466` pin literal; the `.devflow/` corpora are machine-appended
+  and `CHANGELOG.md`. `lib/test/`, `docs/`, and `CHANGELOG.md` carry the rule's
+  own statement text and the `#466` pin literal; the `.devflow/` corpora are machine-appended
   records that quote reviewed commands verbatim; `.changeset/` is `CHANGELOG.md`'s
   producer and describes before-states. `.github/workflows/` and
   `.github/actions/` are excluded on the merits: both run only inside Actions,
   and a checkout-less workflow job has no remote for the placeholders to resolve
   from, so environment addressing is the *correct* form there.
 * The recognized head set is closed: `gh`, `gh.exe`, and a `$VAR` / `${VAR}`
-  expansion whose variable name ends in `GH` (the repo's `DEVFLOW_GH` resolver
-  contract). A `gh` reached through a wrapper script, or through a variable whose
-  name does not end in `GH`, is outside this guard and is not covered elsewhere.
+  expansion whose variable **name ends in `GH`** — a suffix test, not a
+  `DEVFLOW_GH` equality test, so `$MY_GH` matches too and `$MYTOOL` does not. It
+  is deliberately loose in that direction because the repo's resolver contract
+  spells the variable differently in different callers. A `gh` reached through a
+  wrapper script, or through a variable whose name does not end in `GH`, is
+  outside this guard and is not covered elsewhere.
 * The recognized path token set is closed at the literal variable name. A repo
   string reached through one assignment hop (`repos/$REPO/…`) is invisible here
   even when that variable was populated from the environment. Both residuals are
-  accepted, not closed.
+  accepted, not closed. The path argument itself is matched with or without a
+  leading `/`, and a `-`-prefixed flag between the head and `api` is skipped, so
+  neither the documented `/repos/…` spelling nor `gh -R … api …` evades the test.
 
 The statement model — continuation folding aside — is **shared, not re-derived**:
 this scanner imports `extract-command-heads.py`'s splitter, substitution walker,
-tokenizer, and normalizer exactly as `extract-command-shapes.py` does, so the
-#363 / #401 / #664 guards can never disagree about what a `gh api` invocation is.
-What is bespoke here is only the *line selector*: unlike the #363 extractor, this
+tokenizer, and normalizer exactly as `extract-command-shapes.py` does, so once a
+line is selected the #363 / #401 / #664 guards agree on what a `gh api`
+invocation is. They do **not** agree on which lines are selected in the first
+place, and that is deliberate — what is bespoke here is the *line selector*, so
+the scanned populations differ by construction. Unlike the #363 extractor, this
 scanner does **not** skip heredoc bodies and does not require a fence's info
 string to be exactly `bash` — a recipe emitted from a heredoc runs as written, and
 an unterminated fence's remainder is treated as fence interior so a violation
@@ -132,7 +139,10 @@ def enumerate_population(root: Path, files_from: Path | None) -> list[str]:
             )
         raw = proc.stdout
 
-    paths = [line.strip() for line in raw.split("\n") if line.strip()]
+    # Strip ONLY the line terminator: a path with leading/trailing spaces is legal in
+    # git, and trimming it would yield a path that cannot open — silently dropping a
+    # real file from the audit through the skip arm below.
+    paths = [line.rstrip("\r\n") for line in raw.split("\n") if line.rstrip("\r\n")]
     if not paths:
         raise EnumerationError(
             "the enumeration yielded zero paths before any exclusion was applied"
@@ -148,18 +158,28 @@ def is_audited(path: str) -> bool:
     return not any(normalized.startswith(p) for p in EXCLUDED_PREFIXES)
 
 
-def _read(path: Path) -> str | None:
-    """Decode a file with replacement, or return None when it cannot be opened.
+def _read(path: Path) -> tuple[str | None, str | None]:
+    """Return `(text, skip_reason)` — exactly one of the two is None.
 
-    A stray non-UTF-8 byte never drops a file from the audit; an unopenable path
-    (a deleted-but-still-listed entry, a directory) is skipped silently, because
-    the enumeration is a snapshot the filesystem may have moved past.
+    A stray non-UTF-8 byte never drops a file from the audit (it decodes with
+    replacement and is scanned to completion). Two shapes genuinely cannot be
+    audited and are reported as skips rather than absorbed: an unopenable path (a
+    deleted-but-still-listed entry, a directory, a permission or symlink-loop
+    error — the enumeration is a snapshot the filesystem may have moved past), and
+    a non-UTF-8-superset encoding such as UTF-16, whose NUL-interleaved bytes
+    decode to text in which no `gh api` token can ever match. Both used to return
+    a bare None that `main` skipped silently, so a wholly unreadable population
+    printed a plausible tally and exited 0 — "audited nothing" reading as "audited
+    everything, found nothing", the exact failure this scanner exists to prevent.
     """
     try:
         data = path.read_bytes()
-    except OSError:
-        return None
-    return data.decode("utf-8", errors="replace").replace("\r\n", "\n")
+    except OSError as exc:
+        return None, f"unreadable ({exc.__class__.__name__}: {exc})"
+    text = data.decode("utf-8", errors="replace").replace("\r\n", "\n")
+    if "\x00" in text:
+        return None, "not a UTF-8-superset text file (NUL bytes — binary, UTF-16, or similar)"
+    return text, None
 
 
 def considered_lines(text: str, markdown: bool) -> list[tuple[int, str]]:
@@ -234,23 +254,44 @@ def _is_gh_head(token: str) -> bool:
 
 
 def violations_in_statement(statement: str) -> list[str]:
-    """Return the offending path arguments of one statement (usually none)."""
+    """Return the offending path arguments of one statement (usually none).
+
+    The `api` subcommand is located anywhere after the head rather than pinned to
+    `tokens[1]`, so a global flag and its value (`gh -R owner/repo api …`,
+    `gh --hostname h api …`) cannot push the subcommand out of view — matching on
+    position alone made that shape unreachable. Searching rather than indexing errs
+    toward flagging, which is the correct direction for a guard. The path test also
+    tolerates one leading `/`, because `/repos/{owner}/{repo}/labels` is the
+    spelling this repo's own helper headers and docs use for these endpoints — an
+    author copying the documented form and interpolating the variable must not
+    evade it.
+    """
     tokens = [_heads._normalize(t) for t in _heads._tokenize(statement)]
-    if len(tokens) < 3 or not _is_gh_head(tokens[0]) or tokens[1] != "api":
+    if not tokens or not _is_gh_head(tokens[0]):
         return []
+    if "api" not in tokens[1:]:
+        return []
+    index = tokens.index("api", 1)
     return [
         token
-        for token in tokens[2:]
-        if token.startswith("repos/") and any(f in token for f in _FORBIDDEN)
+        for token in tokens[index + 1 :]
+        if token.lstrip("/").startswith("repos/") and any(f in token for f in _FORBIDDEN)
     ]
 
 
 def scan_text(text: str, markdown: bool) -> list[tuple[int, str]]:
     """Return the (line number, offending argument) pairs found in `text`."""
     found: list[tuple[int, str]] = []
+    seen: set[tuple[int, str]] = set()
     for number, line in fold_continuations(considered_lines(text, markdown)):
         for statement in statements_in(line):
-            found.extend((number, argument) for argument in violations_in_statement(statement))
+            for argument in violations_in_statement(statement):
+                # Deduplicate by (line, argument): the substitution descent reaches a
+                # nested `$( … $(gh api …) … )` through both its outer and inner body,
+                # so the same call would otherwise be reported once per nesting level.
+                if (number, argument) not in seen:
+                    seen.add((number, argument))
+                    found.append((number, argument))
     return found
 
 
@@ -282,7 +323,19 @@ def main(argv: list[str] | None = None) -> int:
             text=True,
             check=False,
         )
-        root = Path(proc.stdout.strip()) if proc.returncode == 0 and proc.stdout.strip() else Path.cwd()
+        if proc.returncode == 0 and proc.stdout.strip():
+            root = Path(proc.stdout.strip())
+        else:
+            # Never a silent default (the #295 repo-root contract): a wrong root feeds
+            # straight into the read loop, and with --files-from it would otherwise
+            # produce a green run over files that do not exist.
+            root = Path.cwd()
+            print(
+                "lint-gh-api-repo-path: no git toplevel "
+                f"({proc.stderr.strip() or 'git rev-parse failed'}); "
+                f"resolving paths against the cwd {root}",
+                file=sys.stderr,
+            )
 
     try:
         population = enumerate_population(root, Path(args.files_from) if args.files_from else None)
@@ -293,10 +346,14 @@ def main(argv: list[str] | None = None) -> int:
     audited = [path for path in population if is_audited(path)]
 
     findings: list[str] = []
+    skipped: list[tuple[str, str]] = []
+    read_ok = 0
     for relative in audited:
-        text = _read(root / relative)
+        text, skip_reason = _read(root / relative)
         if text is None:
+            skipped.append((relative, skip_reason or "unknown"))
             continue
+        read_ok += 1
         markdown = any(relative.endswith(suffix) for suffix in MARKDOWN_SUFFIXES)
         for number, argument in scan_text(text, markdown):
             findings.append(
@@ -306,7 +363,21 @@ def main(argv: list[str] | None = None) -> int:
 
     for finding in findings:
         print(finding)
-    print(f"lint-gh-api-repo-path: audited {len(audited)} files")
+    for relative, reason in skipped:
+        print(f"lint-gh-api-repo-path: SKIPPED {relative}: {reason}", file=sys.stderr)
+    # The tally counts files actually READ, against the number selected — never the
+    # selection alone, which would report work that did not happen.
+    print(
+        f"lint-gh-api-repo-path: audited {read_ok} of {len(audited)} files"
+        + (f" ({len(skipped)} skipped)" if skipped else "")
+    )
+    if audited and read_ok == 0:
+        print(
+            "lint-gh-api-repo-path: every selected path was skipped — the root is almost "
+            "certainly wrong; refusing to report clean",
+            file=sys.stderr,
+        )
+        return 1
     return 1 if findings else 0
 
 

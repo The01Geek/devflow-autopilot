@@ -12,5 +12,7 @@ type: Fixed
   previous non-empty check could be satisfied by a 404 payload and pass it downstream as a
   comment id — on the cloud tier that could POST a malformed reaction and append a misleading
   note to the issue workpad whenever the comment listing failed. A new stdlib-only guard,
-  `lib/test/lint-gh-api-repo-path.py`, audits every tracked-or-unignored file outside the
-  Actions-only directories and fails the suite if the form is reintroduced. (#664)
+  `lib/test/lint-gh-api-repo-path.py`, audits the tracked-and-unignored files outside the
+  Actions-only directories and its own documented exclusion set (the prose surfaces that state
+  the rule and the machine-appended corpora that quote it), and fails the suite if the form is
+  reintroduced. (#664)
