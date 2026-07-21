@@ -267,10 +267,15 @@ assert_eq "#533 AC14: installer fingerprints via python3 hashlib and never invok
 # The AC10 guard's counting recipe lives in ONE function so the AC22 mutation
 # proof below exercises the same recipe the guard runs — never a hand copy that
 # could drift green while the real guard's pattern rots.
-_ac10_count533() { grep -cF 'DEVFLOW_GH=' "$1" 2>/dev/null; }
+# The `2>/dev/null` below hides grep's own missing-file error, and BOTH counters feed
+# assertions whose expected value is `0` — so an absent or renamed target would read as
+# "the file is clean" rather than "the file was never read". Guard readability first and
+# emit a non-numeric sentinel, so the assert_eq goes RED naming the cause (issue #695
+# review): unknown is not zero.
+_ac10_count533() { [ -r "$1" ] || { printf 'UNREADABLE:%s\n' "$1"; return; }; grep -cF 'DEVFLOW_GH=' "$1" 2>/dev/null; }
 # Whole-workflow sibling: counts process-global DEVFLOW_GH assignments anywhere
 # in a file — shell '=' or YAML env ':' form — with whole-line comments stripped.
-_ac10_wf_count533() { grep -vE '^[[:space:]]*#' "$1" 2>/dev/null | grep -cE 'DEVFLOW_GH[=:]'; }
+_ac10_wf_count533() { [ -r "$1" ] || { printf 'UNREADABLE:%s\n' "$1"; return; }; grep -vE '^[[:space:]]*#' "$1" 2>/dev/null | grep -cE 'DEVFLOW_GH[=:]'; }
 assert_eq "#533 AC10: install-gh-wrapper.sh writes no bare DEVFLOW_GH= (only DEVFLOW_GH_REAL=)" "0" \
   "$(_ac10_count533 "$INSTALL533")"
 
@@ -309,7 +314,11 @@ rm -f "$_t533k"
 
 # AC14 — the seven validated outputs: each induced failure exits 1 with a
 # diagnostic naming that output; the full-success arm lands all seven.
-D533="$(mktemp -d "$_iw_tmp_root/d533.XXXXXX")"
+D533="$(mktemp -d "$_iw_tmp_root/d533.XXXXXX")" || {
+  echo FAIL >> "$RESULTS_FILE"
+  printf '  FAIL  #533 AC14 fixture root — mktemp -d failed; the installer arms cannot run\n' >&2
+  D533=/dev/null/unallocated-d533
+}
 # The real-gh capture is steered through a PATH stub — the same seam production
 # uses — never a bypass branch in the installer itself.
 mkdir -p "$D533/bin" "$D533/rtmp" "$D533/emptybin"
@@ -625,7 +634,12 @@ assert_eq "#533 AC13: suite launched with a failing-sentinel DEVFLOW_GH resolves
 # (a) Harness defect: remove the entry clear from a run.sh copy (with the resolver
 # siblings beside it so the probe still sources) — the inherited sentinel then
 # SURVIVES into the probe, i.e. the AC13 assertion above would go RED.
-_m533d="$(mktemp -d "$_iw_tmp_root/m533d.XXXXXX")"; mkdir -p "$_m533d/test"
+_m533d="$(mktemp -d "$_iw_tmp_root/m533d.XXXXXX")" || {
+  echo FAIL >> "$RESULTS_FILE"
+  printf '  FAIL  #533 AC22 mutated-harness fixture — mktemp -d failed\n' >&2
+  _m533d=/dev/null/unallocated-m533d
+}
+mkdir -p "$_m533d/test"
 sed -E 's/^unset DEVFLOW_GH$/: # planted defect: inherited override no longer cleared/' "$LIB/test/run.sh" > "$_m533d/test/run.sh"
 cp "$LIB/resolve-gh.sh" "$LIB/resolve-bin.sh" "$_m533d/"
 _ac13m="$(DEVFLOW_GH=/nonexistent/failing-sentinel DEVFLOW_AC13_PROBE=1 bash "$_m533d/test/run.sh" 2>/dev/null || true)"

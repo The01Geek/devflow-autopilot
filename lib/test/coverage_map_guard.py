@@ -85,6 +85,7 @@ _BASE_ASSERTION_HEADS = (
     "assert_pin_red_on_removal",
     "check",
     "pin_count",
+    "assert_count_red_under",
     "devflow_module_pin_unique",
     "devflow_module_pin_red_under",
     "devflow_module_pin_present",
@@ -136,7 +137,8 @@ def _assertion_heads(lines: "list[str]") -> "set[str]":
 
     A wrapper is a function that FORWARDS ITS OWN FIRST POSITIONAL into a recognized
     head's name slot — `assert_eq "$1" …`, `devflow_module_pin_unique "$1" …`, `"$@"` —
-    the shape of `_cap_fail`, `_ra_has`, `_raf_pin_unique`, `drp` and friends.
+    the shape of `_cap_fail`, `_ra_has`, `_raf_pin_unique`, `drp` and friends — including
+    the local-variable hop `local name="$1"; assert_eq "$name" …` that `_cap_fail` uses.
     Discovery iterates to a fixpoint so a wrapper around a wrapper is also covered; each
     pass tests only the heads the previous pass added, since a body already checked
     against an older head cannot newly match it.
@@ -155,21 +157,40 @@ def _assertion_heads(lines: "list[str]") -> "set[str]":
     }
     frontier = list(heads)
     while frontier:
-        patterns = [_forwarding_pattern(head) for head in frontier]
-        frontier = []
+        current, frontier = frontier, []
         for name in list(pending):
-            if any(pattern.search(pending[name]) for pattern in patterns):
+            if any(_forwards_first_positional(head, pending[name]) for head in current):
                 heads.add(name)
                 frontier.append(name)
                 del pending[name]
     return heads
 
 
-def _forwarding_pattern(head: str):
-    """Compiled matcher for HEAD invoked with the caller's own first positional."""
-    return re.compile(
-        rf"(?<![A-Za-z0-9_]){re.escape(head)}[ \t]+\"\$(?:\{{1\}}|[1@])\""
+def _forwarding_aliases(body: str) -> "set[str]":
+    """Names inside BODY bound to the caller's own first positional.
+
+    A wrapper does not always pass `"$1"` straight through: the repo's own
+    `_cap_fail` opens `local name="$1" mut="$2" …` and then calls
+    `assert_eq "$name" …`. Matching only the literal `"$1"` misses that
+    local-variable hop, which would leave every label a module asserts *solely*
+    through such a wrapper underived — a vacuous completeness guarantee in the arm
+    whose entire job is completeness."""
+    aliases = {"1", "@", "{1}"}
+    for name in re.findall(r"(?<![A-Za-z0-9_])([A-Za-z_][A-Za-z0-9_]*)=\"?\$\{?1\}?\"?", body):
+        aliases.add(name)
+        aliases.add("{" + name + "}")
+    return aliases
+
+
+def _forwards_first_positional(head: str, body: str) -> bool:
+    """True when BODY invokes HEAD with the caller's own first positional as the name."""
+    alternation = "|".join(
+        sorted((re.escape(alias) for alias in _forwarding_aliases(body)), key=len, reverse=True)
     )
+    return re.search(
+        rf"(?<![A-Za-z0-9_]){re.escape(head)}[ \t]+\"\$(?:{alternation})\"",
+        body,
+    ) is not None
 
 
 def derive_labels(text: str) -> "set[str]":
@@ -194,8 +215,8 @@ def derive_labels(text: str) -> "set[str]":
 def _call_pattern(heads: "frozenset[str]"):
     """Compiled `<head> <quoted-name>` matcher for a head set.
 
-    Cached because the six modules whose files define no wrapper all resolve to the
-    same base head set, so they share one compile. The separator admits a
+    Cached because modules that define no wrapper all resolve to the same base head
+    set and share one compile. The separator admits a
     `\\`-continuation, so a call whose name argument wraps to the next line is still
     anchored at name position rather than silently missed."""
     alternation = "|".join(sorted((re.escape(head) for head in heads), key=len, reverse=True))
@@ -431,7 +452,8 @@ def _reportable(labels):
 
 def _arm9(run_sh_blocks, valid_ids, run_sh_labels, module_labels, scan_read_errors):
     violations = []
-    for error in scan_read_errors or []:
+    scan_read_errors = scan_read_errors or []
+    for error in scan_read_errors:
         violations.append(
             f"[arm9] label-derivation source unreadable: {error}; an unreadable source is "
             f"NOT an empty label set — restore the file, then {ARM9_REMEDY}"
@@ -452,6 +474,14 @@ def _arm9(run_sh_blocks, valid_ids, run_sh_labels, module_labels, scan_read_erro
         # The registered-id set is unavailable, so "owner names a module carrying the
         # label" cannot be established. Arm 8 already recorded the registry failure;
         # stand down here exactly as _valid_owner does, rather than double-reporting.
+        return violations
+    if scan_read_errors:
+        # A module file could not be read, so `module_labels` is knowingly INCOMPLETE and
+        # "fully extracted" cannot be established: a label the unreadable module carries
+        # would read as run.sh-only and its entry as correctly `unmodularized`, or a label
+        # it alone carries would vanish from the carrier set. The run.sh-completeness half
+        # above is unaffected (it reads only the monolith's own set), so it still runs; the
+        # attribution half stands down and the named read error above is the signal.
         return violations
 
     for label, carriers in sorted(
@@ -556,14 +586,22 @@ def _apply_fix(map_value, run_sh_labels, module_labels):
     return changed
 
 
-def _write_map(path: Path, map_value) -> None:
+def _write_map(path: Path, map_value) -> "str | None":
     """Serialize with the map's existing shape: 2-space indent, sorted keys, one
     trailing newline. Byte-identical to the checked-in file when nothing changed, which
-    is what makes a second `--fix` run a no-op."""
-    path.write_text(
-        json.dumps(map_value, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
+    is what makes a second `--fix` run a no-op.
+
+    Returns None on success, or a breadcrumb when the write fails. The write is the one
+    remaining path that could leave `--fix` raising a raw traceback instead of this
+    file's fail-closed-with-a-named-breadcrumb posture (a read-only map, a full disk)."""
+    try:
+        path.write_text(
+            json.dumps(map_value, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+    except (OSError, UnicodeError, TypeError, ValueError) as error:
+        return f"{path} could not be written ({error})"
+    return None
 
 
 def _run_fix(repo_root: Path) -> int:
@@ -585,7 +623,10 @@ def _run_fix(repo_root: Path) -> int:
             print(f"[fix-refused] label-derivation source unreadable: {error}")
         return 1
     if _apply_fix(map_value, run_sh_labels, module_labels):
-        _write_map(map_path, map_value)
+        write_error = _write_map(map_path, map_value)
+        if write_error is not None:
+            print(f"[fix-refused] {write_error}; {MAP_REMEDY}")
+            return 1
         print(f"[fix] repaired {MAP_REL}")
     else:
         print(f"[fix] {MAP_REL} already satisfies the coverage-map block-ownership arm")

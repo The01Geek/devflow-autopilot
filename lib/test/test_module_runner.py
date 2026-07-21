@@ -1277,6 +1277,74 @@ class ModuleRunnerTests(unittest.TestCase):
                     f"{module_id} calls skip; modules may not self-skip",
                 )
 
+    def test_installer_wiring_module_runs_green_through_the_real_runner(self) -> None:
+        """Issue #695: the extracted module runs green through the real focused runner at
+        or above its registry floor, so a harness-API misuse or a broken LIB/RESULTS_FILE
+        contract surfaces here rather than only in the aggregate monolith run."""
+        registry = json.loads(
+            (ROOT / "scripts/workflow-flight-recorder-registry.json").read_text(encoding="utf-8")
+        )
+        floor = registry["test_modules"]["installer-wiring"]["minimum_assertions"]
+        environment = os.environ.copy()
+        environment.pop("DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE", None)
+        with tempfile.TemporaryDirectory() as log_dir:
+            result = subprocess.run(
+                ["bash", str(RUNNER_SOURCE), "--log-dir", log_dir, "installer-wiring"],
+                cwd=ROOT,
+                env=environment,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout[-4000:] + result.stderr[-4000:])
+            self.assertIn(f"Module installer-wiring: {floor} passed, 0 failed", result.stdout)
+            self.assertTrue(list(Path(log_dir).iterdir()))
+
+    def test_the_harness_clears_an_inherited_devflow_gh_before_a_module_body(self) -> None:
+        """Issue #695 AC: a focused run started with DEVFLOW_GH exported must produce the
+        same assertion outcomes as one started with it unset.
+
+        This is the AC's own observable — a leaked override outranks every fixture-local
+        PATH stub with NO error, so an unguarded regression here fails silently. Assert
+        the module body observes it empty AND that the clear is disclosed on stderr."""
+        environment = os.environ.copy()
+        environment.pop("DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE", None)
+        environment["DEVFLOW_GH"] = "/nonexistent/leaked-sentinel"
+        probe = Path(self.temporary_directory.name) / "gh-clear-probe.sh"
+        probe.write_text(
+            '# shellcheck shell=bash\n'
+            'assert_eq "inherited DEVFLOW_GH is cleared before the module body"'
+            ' "" "${DEVFLOW_GH:-}"\n',
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [
+                "bash",
+                "-c",
+                'set -u; RESULTS_FILE="$1"; DETAILS_FILE="$2";'
+                ' assert_eq() { if [ "$2" = "$3" ]; then printf "PASS\\n" >> "$RESULTS_FILE";'
+                ' else printf "FAIL %s want=[%s] got=[%s]\\n" "$1" "$2" "$3" >> "$RESULTS_FILE"; fi; };'
+                ' . "$3"; . "$4"',
+                "bash",
+                str(Path(self.temporary_directory.name) / "tally"),
+                str(Path(self.temporary_directory.name) / "details"),
+                str(ROOT / "lib/test/module-harness.sh"),
+                str(probe),
+            ],
+            cwd=ROOT,
+            env=environment,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        tally = (Path(self.temporary_directory.name) / "tally").read_text(encoding="utf-8")
+        self.assertEqual(
+            tally.strip(),
+            "PASS",
+            f"module body saw a leaked DEVFLOW_GH: {tally!r}\n{result.stderr[-2000:]}",
+        )
+        self.assertIn("clearing inherited DEVFLOW_GH", result.stderr)
+
     def test_promoted_fixture_helpers_are_defined_only_in_the_module_harness(self) -> None:
         # Issue #695: mint_blk / probe_tmp / probe_assert were PROMOTED out of the
         # monolith, not copied — uses of all three stay in lib/test/run.sh, so a second
@@ -1285,7 +1353,10 @@ class ModuleRunnerTests(unittest.TestCase):
         # must have exactly one definition tree-wide, in
         # lib/test/module-harness.sh, which lib/test/run.sh obtains by sourcing.
         harness_text = (ROOT / "lib/test/module-harness.sh").read_text(encoding="utf-8")
-        shell_sources = sorted(ROOT.glob("lib/**/*.sh")) + sorted(ROOT.glob("scripts/**/*.sh"))
+        shell_sources = {
+            str(path.relative_to(ROOT)): path.read_text(encoding="utf-8", errors="replace")
+            for path in sorted(ROOT.glob("lib/**/*.sh")) + sorted(ROOT.glob("scripts/**/*.sh"))
+        }
         for helper in PROMOTED_HARNESS_HELPERS:
             with self.subTest(helper=helper):
                 definition = re.compile(rf"^[ \t]*{helper}\(\)", re.MULTILINE)
@@ -1294,9 +1365,9 @@ class ModuleRunnerTests(unittest.TestCase):
                     f"{helper} is not defined in lib/test/module-harness.sh",
                 )
                 definers = [
-                    str(path.relative_to(ROOT))
-                    for path in shell_sources
-                    if definition.search(path.read_text(encoding="utf-8", errors="replace"))
+                    relative_path
+                    for relative_path, text in shell_sources.items()
+                    if definition.search(text)
                 ]
                 self.assertEqual(
                     definers,

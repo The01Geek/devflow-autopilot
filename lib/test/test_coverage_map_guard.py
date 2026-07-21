@@ -407,6 +407,36 @@ class LabelDerivationTest(unittest.TestCase):
         literal = "_v() {\n  assert_eq \"a fixed name\" \"a\" \"$1\"\n}\n_v \"#702 not a name\"\n"
         self.assertEqual(guard.derive_labels(literal), set())
 
+    def test_a_wrapper_may_forward_through_a_local_variable_hop(self):
+        # lib/test/modules/capability-profiles.sh's `_cap_fail` opens
+        # `local name="$1" mut="$2" …` and then calls `assert_eq "$name" …`. Matching only
+        # the literal "$1" misses that hop, leaving every label a module asserts SOLELY
+        # through such a wrapper underived — a vacuous completeness guarantee.
+        text = (
+            "_hop() {\n"
+            '  local name="$1" other="$2"\n'
+            '  assert_eq "$name" "yes" "$other"\n'
+            "}\n"
+            '_hop "#703 through a local-variable hop" x\n'
+        )
+        self.assertEqual(guard.derive_labels(text), {"703"})
+        self.assertIn("_hop", guard._assertion_heads(text.split("\n")))
+
+    def test_the_shipped_cap_fail_wrapper_is_discovered(self):
+        # The concrete instance the rule above exists for, pinned against the real module
+        # so a future rewrite of either side is caught.
+        module = (ROOT / "lib/test/modules/capability-profiles.sh").read_text(encoding="utf-8")
+        self.assertIn("_cap_fail", guard._assertion_heads(module.split("\n")))
+
+    def test_assert_count_red_under_is_a_recognized_head(self):
+        # lib/test/run.sh's assert_count_red_under takes the assertion NAME first, exactly
+        # like assert_pin_red_under; the completeness critic found it absent from the head
+        # set, which would leave any label asserted only through it underived.
+        text = (
+            'assert_count_red_under "#704 counted" START END PAT -eq 2 \'s/x/y/\' "$F"\n'
+        )
+        self.assertEqual(guard.derive_labels(text), {"704"})
+
     def test_a_source_deriving_zero_labels_is_an_empty_set(self):
         self.assertEqual(guard.derive_labels('assert_eq "no label here" "1" "1"\n'), set())
 
@@ -550,6 +580,23 @@ class Arm9Test(unittest.TestCase):
         self.assertIn("mod-a.sh (boom)", found[0])
         self.assertIn("'100'", found[1])
 
+    def test_attribution_stands_down_when_a_module_read_failed(self):
+        # module_labels is knowingly INCOMPLETE when a module file could not be read, so
+        # "fully extracted" cannot be established: a label the unreadable module carries
+        # would read as run.sh-only. The run.sh-completeness half still runs.
+        violations = guard.evaluate(
+            [],
+            _map(run_sh_blocks={"200": _owned("unmodularized")}),
+            _registry(ids=("mod-a",)),
+            run_sh_labels={"100"},
+            module_labels={"mod-a": {"200"}},
+            scan_read_errors=["lib/test/modules/mod-b.sh (boom)"],
+        )
+        found = self._arm9(violations)
+        self.assertTrue(any("mod-b.sh (boom)" in v for v in found))
+        self.assertTrue(any("'100'" in v for v in found))
+        self.assertFalse(any("fully extracted" in v for v in found))
+
     def test_arm9_stands_down_when_no_derivation_is_injected(self):
         # The 35 pre-existing positional evaluate() call sites pass no derivation and
         # must keep passing — arm 9 has nothing to compare against and reports nothing.
@@ -673,6 +720,28 @@ class FixModeTest(unittest.TestCase):
                 self.assertEqual(rc, 1)
                 self.assertIn("[fix-refused]", output)
                 self.assertEqual((root / guard.MAP_REL).read_text(encoding="utf-8"), bad)
+
+    def test_fix_refuses_with_a_breadcrumb_when_the_map_cannot_be_written(self):
+        # Every READ failure path already breadcrumbs; the write path was the one that
+        # would raise a raw traceback instead, breaking the file's fail-closed posture.
+        with tempfile.TemporaryDirectory() as d:
+            root = self._tree(
+                d,
+                _map(run_sh_blocks={"unlabeled": _owned()}),
+                run_sh='assert_eq "#100 monolith" "1" "1"\n',
+                modules={},
+            )
+            map_path = root / guard.MAP_REL
+            before = map_path.read_bytes()
+            map_path.chmod(0o444)
+            try:
+                rc, output = self._fix(root)
+            finally:
+                map_path.chmod(0o644)
+            self.assertEqual(rc, 1)
+            self.assertIn("[fix-refused]", output)
+            self.assertIn("could not be written", output)
+            self.assertEqual(before, map_path.read_bytes())
 
     def test_fix_refuses_when_a_derivation_source_is_unreadable(self):
         with tempfile.TemporaryDirectory() as d:
