@@ -2,20 +2,6 @@
   "$schema": "./config.schema.json",
   "base_branch": "main",
   "claude_model": "claude-opus-4-8",
-  "providers": {
-    "openrouter": {
-      "base_url": "https://openrouter.ai/api",
-      "auth": "bearer",
-      "timeout_ms": 3000000,
-      "env": {
-        "ANTHROPIC_DEFAULT_HAIKU_MODEL": "z-ai/glm-5.2",
-        "CLAUDE_CODE_SUBAGENT_MODEL": "z-ai/glm-5.2",
-        "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1",
-        "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
-        "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "1000000"
-      }
-    }
-  },
   "devflow_version": "main",
   "devflow": {
     "allowed_bots": "claude,dependabot,devflow-autopilot",

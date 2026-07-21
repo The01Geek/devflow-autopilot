@@ -4,6 +4,28 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.20.2] — 2026-07-21
+
+### Added
+- **Packaging validation gate and manifest metadata.** The test suite gained a `#671 packaging`
+  block that parses every agent and skill frontmatter plus both plugin manifests, and runs
+  `claude plugin validate --strict` over a staged plugin tree where the CLI is available. The
+  plugin manifest gained `displayName` and the marketplace entry gained `version`, `license`,
+  `keywords`, and an owner `url`. The version consolidator now bumps `CITATION.cff` and the
+  marketplace plugin entry alongside the manifest, and the `version-consolidate` workflow stages
+  both so the lockstep lands on merge. (#671)
+
+### Fixed
+- **Close plugin packaging gaps.** The test suite now parses every agent and skill frontmatter
+  (PyYAML) and both manifests (JSON), and runs `claude plugin validate --strict` over a staged
+  plugin tree when the CLI is present (else records an auditable `blocking-gate` skip). Fixed
+  the two agent files whose `description` frontmatter failed to parse. The vendored plugin slice
+  now carries `LICENSES/` so consumers receive the third-party Apache-2.0/MIT license text.
+  Removed the dead `providers` block from the committed config, completed the plugin/marketplace
+  manifest metadata around one canonical description, and taught the version consolidator to keep
+  both `CITATION.cff` and the `marketplace.json` plugin entry's version in lockstep with the
+  manifest. (#671)
+
 ## [2.20.1] — 2026-07-21
 
 ### Changed

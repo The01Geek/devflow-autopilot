@@ -12,6 +12,8 @@ time (push to ``main``) from the ``version-consolidate`` workflow at
   * parses each file's ``bump:`` (required) + optional ``type:`` frontmatter and prose body,
   * computes the single highest pending bump (``patch`` < ``minor`` < ``major``),
   * rewrites ``.claude-plugin/plugin.json``'s ``version`` by that increment,
+  * rewrites ``CITATION.cff``'s ``version`` to the same value (when the file is present),
+  * rewrites the ``marketplace.json`` plugin entry's ``version`` to the same value (when present),
   * prepends a dated, PR-cited Keep-a-Changelog entry assembled from all the prose, and
   * deletes the consumed changeset files.
 
@@ -20,11 +22,12 @@ It writes nothing else — staging and the ``chore: bump version`` commit are th
 Fail-closed contract: a malformed changeset (no frontmatter, missing/invalid ``bump``, an
 unknown ``type``, or an empty prose body) aborts with exit 2 and a diagnostic naming the
 offending file. Everything is **validated before any file is modified** — all changesets are
-parsed *and* both output files (``plugin.json``, ``CHANGELOG.md``) are read and their new
+parsed *and* every output file (``plugin.json``, ``CHANGELOG.md``, plus ``CITATION.cff`` and
+``.claude-plugin/marketplace.json`` when present) is read and its new
 contents assembled in memory *before* the first write, so a malformed changeset or an
 output-side read/parse fault never causes a silent skip or a partial bump — it aborts before
-any write. (The two writes themselves are sequential and non-atomic, so a *write*-side fault
-between them can still leave one output rewritten and the other not; the workflow commits from
+any write. (Those up to four writes are themselves sequential and non-atomic, so a *write*-side
+fault can still leave some outputs rewritten and the rest not; the workflow commits from
 a fresh ``git reset --hard origin/main`` checkout on each attempt, so a half-write is never
 committed.) Every OS-level fault (a read, write, or delete)
 is wrapped into the same name-the-file exit-2 path — a top-level ``except OSError`` backstop in
@@ -222,6 +225,75 @@ def _render_manifest(manifest_path: str, new_version: str) -> str:
     return new_text
 
 
+def _render_citation(citation_path: str, new_version: str) -> str:
+    """Read ``CITATION.cff`` and return its text with only the top-level ``version`` rewritten.
+
+    Uses the same surgical-regex approach as ``_render_manifest`` (no YAML round-trip, so the
+    file's exact formatting is preserved). The pattern is anchored to a line beginning exactly
+    ``version:`` (``re.MULTILINE``), so the sibling ``cff-version:`` key is never matched.
+    Pure read + assemble (no write) so ``consolidate`` can prove the output is writable-in-
+    memory before touching disk.
+
+    Deliberately carries no multi-match count guard (unlike ``_render_marketplace_version``,
+    whose JSON ``"version"`` keys can legitimately recur at several depths): the column-0
+    ``(?m)^version:`` anchor can only match a *top-level* CFF key, and a duplicate top-level
+    key is invalid YAML, so a second real match is impossible for a valid CITATION.cff. Loosen
+    that anchor (e.g. allowing leading whitespace, which would reach nested mapping keys) and
+    the guard becomes necessary — add it in the same change.
+    """
+    text = _read_text(citation_path, "citation")
+    new_text, n = re.subn(
+        r"(?m)^(version:[ \t]*)\S.*$",
+        lambda mo: mo.group(1) + new_version,
+        text,
+        count=1,
+    )
+    if n != 1:
+        raise ChangesetError(f"{citation_path}: could not rewrite the version field")
+    return new_text
+
+
+def _render_marketplace_version(marketplace_path: str, new_version: str) -> str:
+    """Read ``marketplace.json`` and return its text with the plugin entry's ``version`` rewritten.
+
+    The marketplace manifest carries exactly one ``version`` key (its single ``plugins[0]``
+    entry's — there is no marketplace-level ``version``), so the same surgical JSON regex
+    ``_render_manifest`` uses, with ``count=1``, targets it and no other. Pure read + assemble
+    (no write), so ``consolidate`` can prove the output is writable-in-memory before touching
+    disk, and formatting is preserved. Keeps the marketplace listing's advertised plugin version
+    in lockstep with the ``plugin.json`` the consolidator bumps.
+    """
+    text = _read_text(marketplace_path, "marketplace")
+    # Guard the single-version-key assumption before the surgical count=1 rewrite. If a future
+    # marketplace grows a marketplace-level version, or a second plugin entry, a first-match
+    # rewrite would silently bump the wrong key and leave the others stale (n==1 would still
+    # hold, so no error fires). Fail LOUD instead — a multi-version manifest needs a structural
+    # rewrite, not this first-match regex — rather than silently ship a half-bumped listing.
+    # The count is textual, not structural: a literal `"version": "` occurring *inside* a string
+    # value would also be counted. That over-counts, never under-counts, so it fails in the safe
+    # direction (a loud refusal to rewrite, never a silent wrong-key bump). A structural count
+    # would need a json.loads walk, which this deliberately-formatting-preserving path avoids.
+    total = len(re.findall(r'"version"\s*:\s*"', text))
+    if total != 1:
+        raise ChangesetError(
+            f"{marketplace_path}: expected exactly one \"version\" key (the single plugin "
+            f"entry's) but found {total} — the surgical single-key rewrite is unsafe here; a "
+            "marketplace with a top-level version or multiple plugin entries needs a "
+            "structural rewrite"
+        )
+    new_text, n = re.subn(
+        r'("version"\s*:\s*")[^"]*(")',
+        lambda mo: mo.group(1) + new_version + mo.group(2),
+        text,
+        count=1,
+    )
+    if n != 1:
+        raise ChangesetError(
+            f"{marketplace_path}: could not rewrite the plugin entry version"
+        )
+    return new_text
+
+
 def _assemble_entry(version: str, date: str, sections: "dict[str, list[str]]") -> str:
     """Build the ``## [version] — date`` Keep-a-Changelog block from grouped prose."""
     lines = [f"## [{version}] — {date}", ""]
@@ -259,6 +331,8 @@ def consolidate(root: str, date: str) -> int:
     changeset_dir = os.path.join(root, ".changeset")
     manifest_path = os.path.join(root, ".claude-plugin", "plugin.json")
     changelog_path = os.path.join(root, "CHANGELOG.md")
+    citation_path = os.path.join(root, "CITATION.cff")
+    marketplace_path = os.path.join(root, ".claude-plugin", "marketplace.json")
 
     if not os.path.isdir(changeset_dir):
         print("no .changeset/ directory — nothing to consolidate")
@@ -293,9 +367,29 @@ def consolidate(root: str, date: str) -> int:
     # No os.access() check-then-write (TOCTOU): the render helpers do the real read.
     new_manifest = _render_manifest(manifest_path, new_version)
     new_changelog = _render_changelog(changelog_path, entry)
+    # CITATION.cff tracks the manifest version. It is optional supplementary metadata: absent
+    # → skipped (None); present-but-unrewritable → _render_citation raises before any write,
+    # preserving the read-before-write atomicity guarantee above.
+    new_citation = (
+        _render_citation(citation_path, new_version)
+        if os.path.exists(citation_path)
+        else None
+    )
+    # The marketplace entry advertises the same plugin version; keep it in lockstep so the
+    # listing never drifts behind the manifest. Same optional/read-before-write treatment as
+    # CITATION.cff: absent → skipped; present-but-unrewritable → raises before any write.
+    new_marketplace = (
+        _render_marketplace_version(marketplace_path, new_version)
+        if os.path.exists(marketplace_path)
+        else None
+    )
 
     _write_text(manifest_path, new_manifest)
     _write_text(changelog_path, new_changelog)
+    if new_citation is not None:
+        _write_text(citation_path, new_citation)
+    if new_marketplace is not None:
+        _write_text(marketplace_path, new_marketplace)
     for path in pending:
         try:
             os.remove(path)
