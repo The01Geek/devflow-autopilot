@@ -71,6 +71,16 @@ devflow_copy_slice() {
   # The vendored copy is a plugin, not a marketplace — keep only plugin.json.
   rm -f "$stage/.claude-plugin/marketplace.json"
   find "$stage" -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true
+  # Prune subtrees no consumer run reaches (issue #677): the published GitHub
+  # Pages HTML under docs/site (a web page, not a doc any shipped skill links to
+  # — only docs/site is unreferenced; the rest of docs/ stays), and DevFlow's own
+  # test suite under lib/test (it asserts against install.sh and .github/, which
+  # the slice does not copy, so it could only fail loudly in a consumer tree).
+  # Placed after cp -R and before the sanity floor so the floor evaluates the tree
+  # that actually ships; the whole $stage is rm -rf'd on any floor failure, so this
+  # can never leave a partially-pruned tree at $dest. rm -rf is a no-op on an absent
+  # path, mirroring the best-effort marketplace.json/__pycache__ prunes above.
+  rm -rf "$stage/docs/site" "$stage/lib/test"
   # Sanity floor before the swap: the load-bearing members must have landed.
   if [ ! -d "$stage/scripts" ] || [ ! -f "$stage/.claude-plugin/plugin.json" ] \
      || [ ! -f "$stage/.devflow/config.schema.json" ]; then

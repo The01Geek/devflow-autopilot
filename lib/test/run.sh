@@ -28134,6 +28134,35 @@ assert_eq "vendor: self copies lib/" "yes" "$(vexists "$VS_SELF/lib")"
 assert_eq "vendor: self copies skills/" "yes" "$(vexists "$VS_SELF/skills")"
 assert_eq "vendor: self copies .devflow/tool-presets.json" "yes" "$(vexists "$VS_SELF/.devflow/tool-presets.json")"
 
+# #677 exclusions: the produced slice must ship neither the published GitHub Pages
+# HTML (docs/site) nor DevFlow's own test suite (lib/test) — neither is reachable on
+# any consumer path, and both dominate the payload. These observe the PRODUCED tree,
+# not just that the helper exited zero. Reintroducing either directory into
+# devflow_copy_slice's copy list (or deleting the rm -rf prune) re-ships the subtree
+# and turns these RED, so the exclusion cannot be silently reverted.
+assert_eq "#677 vendor: self slice excludes docs/site (published-page HTML)" "no" "$(vexists "$VS_SELF/docs/site")"
+assert_eq "#677 vendor: self slice excludes lib/test (DevFlow's own test suite)" "no" "$(vexists "$VS_SELF/lib/test")"
+# #677 presence backstops: the exclusion must not over-prune. Proving absence alone
+# would be satisfied by an implementation that pruned too much (e.g. all of docs/ or
+# all of lib/), so pair each excluded subtree with the reachable siblings that MUST
+# survive: the rest of docs/ (the six files shipped skill bodies link to), the
+# non-test lib/ contents, and the load-bearing top-level members.
+# (docs/architecture.md is named in the issue's AC3 but does not exist in the tree —
+# its only mention is an illustrative example string in agents/checklist-generator.md,
+# not a shipped link — so it is deliberately NOT asserted here; recorded as an
+# issue-accuracy reflection.)
+assert_eq "#677 vendor: self slice keeps docs/cloud-setup.md" "yes" "$(vexists "$VS_SELF/docs/cloud-setup.md")"
+assert_eq "#677 vendor: self slice keeps docs/efficiency-trace.md" "yes" "$(vexists "$VS_SELF/docs/efficiency-trace.md")"
+assert_eq "#677 vendor: self slice keeps docs/implement-skill.md" "yes" "$(vexists "$VS_SELF/docs/implement-skill.md")"
+assert_eq "#677 vendor: self slice keeps docs/review-agent-overrides.md" "yes" "$(vexists "$VS_SELF/docs/review-agent-overrides.md")"
+assert_eq "#677 vendor: self slice keeps docs/shadow-review.md" "yes" "$(vexists "$VS_SELF/docs/shadow-review.md")"
+assert_eq "#677 vendor: self slice keeps non-test lib/ contents (preflight.sh)" "yes" "$(vexists "$VS_SELF/lib/preflight.sh")"
+assert_eq "#677 vendor: self slice keeps scripts/" "yes" "$(vexists "$VS_SELF/scripts")"
+assert_eq "#677 vendor: self slice keeps agents/" "yes" "$(vexists "$VS_SELF/agents")"
+assert_eq "#677 vendor: self slice keeps skills/" "yes" "$(vexists "$VS_SELF/skills")"
+assert_eq "#677 vendor: self slice keeps .claude-plugin/plugin.json" "yes" "$(vexists "$VS_SELF/.claude-plugin/plugin.json")"
+assert_eq "#677 vendor: self slice keeps .devflow/config.schema.json" "yes" "$(vexists "$VS_SELF/.devflow/config.schema.json")"
+
 # self-branch NEGATIVE: a consumer repo with its OWN top-level scripts/+skills/
 # but a non-devflow plugin.json must NOT be mistaken for the source repo — it
 # falls through to fetch. Guards the plugin.json name discriminator.
