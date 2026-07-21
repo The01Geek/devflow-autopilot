@@ -1057,7 +1057,13 @@ jobs:
             echo "::warning::devflow commit attribution: could not materialize the trigger-time config into RUNNER_TEMP; falling back to current authorship (no GIT_* identity exported)."
             exit 0
           fi
-          bash "$HELPER" --login "$SENDER_LOGIN" --config-file "$CFG" >> "$GITHUB_ENV"
+          # The helper's own contract is always-exit-0 (advisory attribution never
+          # gates the run); the `|| echo` makes that guarantee real at the step
+          # boundary rather than contract-dependent — a helper that ever exits
+          # non-zero degrades to current authorship with a breadcrumb, never a
+          # failed writer job over an advisory read.
+          bash "$HELPER" --login "$SENDER_LOGIN" --config-file "$CFG" >> "$GITHUB_ENV" \
+            || echo "::warning::devflow commit attribution: the identity helper exited non-zero; continuing with current authorship (attribution never gates the run)."
 
       - name: Run Claude Code
         id: claude

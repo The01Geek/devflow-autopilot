@@ -243,8 +243,9 @@ _uid="${_rest%%$'\t'*}"
 _uname="${_rest#*$'\t'}"
 
 if [ "$_utype" != "User" ]; then
-    # Includes the __DEVFLOW_PARSE_FAIL__ sentinel (a .type that cannot be
-    # established) and any Bot/Organization/other type: emit nothing, warn.
+    # An empty _utype (an unparseable/non-object API body, or a .type that could
+    # not be established) and any Bot/Organization/other type all land here: emit
+    # nothing, warn.
     echo "::warning::devflow commit attribution: users/$_login resolved with type='$_utype' (not the human 'User' type, or the type could not be established); emitting no GIT_* identity — commits use current authorship." >&2
     exit 0
 fi

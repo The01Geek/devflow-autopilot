@@ -8819,6 +8819,12 @@ case "$a" in
   *"users/orgx"*)    echo '{"login":"orgx","id":42,"name":"Org X","type":"Organization"}'; exit 0 ;;
   *"users/notype"*)  echo '{"login":"notype","id":9,"name":"No Type"}'; exit 0 ;;
   *"users/advuser"*) echo '{"login":"advuser","id":55,"name":"A; B $x `z` \"q\"","type":"User"}'; exit 0 ;;
+  # A User whose .id is null (non-integer) → login-only email fallback branch.
+  # A User whose .name carries a real newline/CR (JSON escapes) → the python
+  # collapse-to-space path. printf '%s' keeps the \n/\r literal in the arg so the
+  # JSON parser (not the shell) produces the real control chars.
+  *"users/noid"*)    printf '%s\n' '{"login":"noid","id":null,"name":"No Id","type":"User"}'; exit 0 ;;
+  *"users/nlname"*)  printf '%s\n' '{"login":"nlname","id":88,"name":"A\nB\rC","type":"User"}'; exit 0 ;;
   *"users/boom"*)    echo "gh: network error" >&2; exit 1 ;;
 esac
 echo "stub: unhandled gh call: $a" >&2; exit 1
@@ -8915,6 +8921,19 @@ I682STUB
   assert_eq "#682: an adversarial display name round-trips through the heredoc form (no line forging)" \
     "0|GIT_AUTHOR_NAME=A; B \$x \`z\` \"q\";GIT_COMMITTER_NAME=A; B \$x \`z\` \"q\";GIT_AUTHOR_EMAIL=55+advuser@users.noreply.github.com;GIT_COMMITTER_EMAIL=55+advuser@users.noreply.github.com" \
     "$(_i682_run '{"devflow":{"attribute_commits_to_triggerer":true}}' advuser)"
+  # A confirmed User whose .id is not an integer (null here) → login-only email
+  # fallback (name is still the display name, email degrades to <login>@… since
+  # there is no numeric id for the canonical <id>+<login>@… form).
+  assert_eq "#682: a User with a non-integer .id → login-only email, display name kept" \
+    "0|GIT_AUTHOR_NAME=No Id;GIT_COMMITTER_NAME=No Id;GIT_AUTHOR_EMAIL=noid@users.noreply.github.com;GIT_COMMITTER_EMAIL=noid@users.noreply.github.com" \
+    "$(_i682_run '{"devflow":{"attribute_commits_to_triggerer":true}}' noid)"
+  # A display name carrying a real newline/CR — the actual $GITHUB_ENV line-forging
+  # vector — is collapsed to spaces by the helper's python step, so the emitted
+  # block still parses to exactly the four vars (the collapse code path, not just
+  # shell-metacharacter safety).
+  assert_eq "#682: a display name with a real newline is collapsed (heredoc block stays exactly four vars)" \
+    "0|GIT_AUTHOR_NAME=A B C;GIT_COMMITTER_NAME=A B C;GIT_AUTHOR_EMAIL=88+nlname@users.noreply.github.com;GIT_COMMITTER_EMAIL=88+nlname@users.noreply.github.com" \
+    "$(_i682_run '{"devflow":{"attribute_commits_to_triggerer":true}}' nlname)"
 
   rm -rf "$I682_D"
 fi
