@@ -5,7 +5,7 @@ issue #530 split of its monolithic `SKILL.md` into a thin root + step references
 `skills/review-and-fix/references/`. It is the checked-in artifact for the #530 word-budget
 acceptance criteria; the live regression guard is the `#530 budget` block in `lib/test/run.sh`
 (root ≤ 3,567 words; root + always-loaded extensions ≤ 7,734 words; root + always-loaded
-extensions + max active step ≤ 18,996 words).
+extensions + max active step ≤ 19,073 words).
 
 > **Maintainer note — the root is the budget to watch.** The root sits below its 3,567-word
 > ceiling (see the **AFTER — plugin root** row and the ceilings table below; the `#530 budget`
@@ -97,14 +97,14 @@ extensions + max active step ≤ 18,996 words).
 | receiving extension | `.devflow/prompt-extensions/receiving-code-review.md` | 97 | 1,661 | 11,222 | 2,159 |
 | **AFTER** — plugin root | `skills/review-and-fix/SKILL.md` (thin) | 342 | **3,414** | 27,394 | 4,438 |
 | **AFTER** — actual initial load | root + always-loaded extensions | 646 | **7,730** | 56,517 | 10,049 |
-| **AFTER** — bundle | root + all `references/*.md` | 1,328 | 41,278 | 290,912 | 53,661 |
-| **AFTER** — normal cumulative path | root + live extension + Σ references | — | 43,933 | — | 57,113 |
-| **AFTER** — maximum active step | root + always-loaded extensions + `shadow-review.md` | — | **18,992** | — | 24,690 |
-| reference: `shadow-review.md` | Step 2.6 | 235 | 11,262 | 79,276 | 14,641 |
-| reference: `fixing.md` | Step 3 | 156 | 9,155 | 62,660 | 11,902 |
-| reference: `loop-exit.md` | Loop Exit | 273 | 6,587 | 45,177 | 8,563 |
-| reference: `loop-control.md` | workpad + field semantics + Main Loop + Steps 0.5–2 | 190 | 5,332 | 37,844 | 6,932 |
-| reference: `pre-fix-gates.md` | Step 2.5 + parked-class sweep | 51 | 2,220 | 16,231 | 2,886 |
+| **AFTER** — bundle | root + all `references/*.md` | 1,333 | 42,198 | 298,088 | 54,857 |
+| **AFTER** — normal cumulative path | root + live extension + Σ references | — | 44,853 | — | 58,309 |
+| **AFTER** — maximum active step | root + always-loaded extensions + `shadow-review.md` | — | **19,069** | — | 24,790 |
+| reference: `shadow-review.md` | Step 2.6 | 235 | 11,339 | 79,930 | 14,741 |
+| reference: `fixing.md` | Step 3 | 157 | 9,594 | 66,028 | 12,472 |
+| reference: `loop-exit.md` | Loop Exit | 276 | 6,693 | 46,065 | 8,701 |
+| reference: `loop-control.md` | workpad + field semantics + Main Loop + Steps 0.5–2 | 191 | 5,597 | 39,864 | 7,276 |
+| reference: `pre-fix-gates.md` | Step 2.5 + parked-class sweep | 51 | 2,253 | 16,477 | 2,929 |
 | reference: `fix-delta-gate.md` | Step 3.5 | 29 | 1,482 | 10,304 | 1,927 |
 | reference: `error-handling.md` | When NOT to use + Error Handling + Common Mistakes | 28 | 1,059 | 6,946 | 1,377 |
 | reference: `convergence.md` | Step 4.5 | 24 | 767 | 5,080 | 997 |
@@ -115,7 +115,15 @@ extensions + max active step ≤ 18,996 words).
 | --- | --- | ---: | :--: |
 | Plugin root ≤ 3,567 words | 3,567 | 3,414 | ✅ |
 | Root + always-loaded extensions (initial load) ≤ 7,734 words | 7,734 | 7,730 | ✅ |
-| Root + always-loaded extensions + max active step ≤ 18,996 words | 18,996 | 18,992 | ✅ |
+| Root + always-loaded extensions + max active step ≤ 19,073 words | 19,073 | 19,069 | ✅ |
+
+> **Ceiling renegotiation — issue #621.** The `settled-by-disclosure` foreclosure vocabulary added
+> AC-mandated prose to `shadow-review.md` (the max-active-step reference), taking the max-active-step
+> measure to **19,069** words — past the #640 ceiling of 18,996, which carried only ~4 words of margin.
+> The bundle was at capacity, so trimming could not clear it without dropping required content; the
+> max-step ceiling was re-measured to **19,073** (measured + the same ~4-word margin the #619/#640
+> cutovers use). The initial-load ceiling (7,734) and the plugin-root ceiling (3,567) are untouched —
+> this change edited references only, not the root or the always-loaded extensions.
 
 ## Net mandatory-prompt reduction, and the named justified-growth warning
 
@@ -125,10 +133,10 @@ extensions + max active step ≤ 18,996 words).
   reference at a time. Both sides exclude the receiving extension (see Counting method). The
   *actual* always-loaded surface since issue #620 is the 7,730-word initial-load row above.
 
-- **⚠️ `review-and-fix-split-cumulative-growth` (named justified-growth warning): +5,077 words.**
+- **⚠️ `review-and-fix-split-cumulative-growth` (named justified-growth warning): +5,997 words.**
   The *normal cumulative path* (root + live extension + every reference a full run loads in
-  sequence — the receiving extension excluded, per Counting method) is 43,933 words vs. 38,856
-  before — a net **growth of +5,077 words** (+13.1%). Its drivers are
+  sequence — the receiving extension excluded, per Counting method) is 44,853 words vs. 38,856
+  before — a net **growth of +5,997 words** (+15.4%). Its drivers are
   the routing text the split itself adds (the *Step routing* table, the *Reference-loading
   contract* — entry-gate, canonical-boundary rule, per-reference failure map, always-resident
   re-read rule — the condensed terminal verdict→chat mapping, the durable-operand schema fields,
@@ -139,8 +147,8 @@ extensions + max active step ≤ 18,996 words).
   capture/write semantics, and the issue-#620 receiving-extension loader call plus the residual
   supersession-guard tail in the root (issue #640 relocated the guard's editor-authority mechanism
   out of the root into the always-loaded receiving extension — which this figure excludes — so it
-  slightly *trimmed* the cumulative path). It is **justified**: the split trades this cumulative increase for a
+  slightly *trimmed* the cumulative path), and the issue-#621 `settled-by-disclosure` foreclosure vocabulary threaded through the fix/park/shadow references. It is **justified**: the split trades this cumulative increase for a
   32,787-word reduction in the *mandatory* prompt, on-demand sequential loading (only one step
-  reference resident at a time — peak 18,992 words, not 43,933), and fail-closed reference handling.
+  reference resident at a time — peak 19,069 words, not 44,853), and fail-closed reference handling.
   Cumulative token spend on a full run is not the metric the split optimizes; peak-context and
   per-step focus are.
