@@ -1,0 +1,79 @@
+{
+  "iter": 1,
+  "source": "review-and-fix",
+  "started_at": "2026-06-24T07:00:00Z",
+  "fix_commit_sha": "234d15b5f7f1f17f883dd616af62b535b51e6c80",
+  "fix_files": [
+    "skills/implement/SKILL.md"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "pr-review-toolkit:code-reviewer",
+    "pr-review-toolkit:silent-failure-hunter",
+    "pr-review-toolkit:comment-analyzer",
+    "pr-review-toolkit:pr-test-analyzer",
+    "superpowers:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "pr-review-toolkit:silent-failure-hunter",
+      "severity": "Important",
+      "description": "config-get.sh read failure silently collapses to apply-no-labels with no breadcrumb (Phase 4.0/4.0.5)",
+      "defect_signature": {
+        "file": "skills/implement/SKILL.md",
+        "line_range": [
+          753,
+          765
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "pr-review-toolkit:silent-failure-hunter",
+      "severity": "Important",
+      "description": "DEFERRED_ISSUE_NUMBERS unbound placeholder; empty expansion labels nothing with no breadcrumb (Phase 4.0)",
+      "defect_signature": {
+        "file": "skills/implement/SKILL.md",
+        "line_range": [
+          760,
+          764
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "234d15b5f7f1f17f883dd616af62b535b51e6c80"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "234d15b5f7f1f17f883dd616af62b535b51e6c80"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 2,
+    "fix_diff_lines": 30,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": "unavailable"
+}

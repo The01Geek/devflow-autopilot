@@ -1,0 +1,89 @@
+{
+  "iter": 5,
+  "source": "review-and-fix",
+  "started_at": "2026-06-24T08:10:00Z",
+  "fix_commit_sha": "d47352e3ecad5cacc6d51acd331541c3aacc0c52",
+  "fix_files": [
+    "skills/implement/SKILL.md"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "pr-review-toolkit:code-reviewer",
+    "pr-review-toolkit:silent-failure-hunter",
+    "pr-review-toolkit:comment-analyzer",
+    "pr-review-toolkit:pr-test-analyzer",
+    "superpowers:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "pr-review-toolkit:silent-failure-hunter",
+      "severity": "Important",
+      "description": "Phase 4.0.5 piped-while loop last-command [ -n n ] could abort under set -e on trailing blank",
+      "defect_signature": {
+        "file": "skills/implement/SKILL.md",
+        "line_range": [
+          891,
+          895
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "I5-1",
+      "decision": "applied",
+      "commit": "d47352e3ecad5cacc6d51acd331541c3aacc0c52"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 1,
+    "fix_diff_lines": 36,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "shadow": {
+    "ran_at": "2026-06-24T08:40:00Z",
+    "reviewed_sha": "3b8ab2699dca3fc86bb33988f80434d6c9776d92",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "pr-review-toolkit:code-reviewer",
+      "pr-review-toolkit:silent-failure-hunter",
+      "pr-review-toolkit:comment-analyzer",
+      "pr-review-toolkit:pr-test-analyzer",
+      "superpowers:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "pr-review-toolkit:code-reviewer",
+      "pr-review-toolkit:silent-failure-hunter",
+      "pr-review-toolkit:comment-analyzer",
+      "pr-review-toolkit:pr-test-analyzer",
+      "superpowers:requesting-code-review"
+    ],
+    "reason": null,
+    "checklist_skipped": null,
+    "comparison": {
+      "shadow_total": 1,
+      "overlap_with_iter_N": 0,
+      "new": 1,
+      "new_critical": 0,
+      "new_important": 1
+    },
+    "promoted_to_iter_next": false,
+    "note": "AWUSF at cap (iter5 shadow surfaced drift-guard slack, Important) -> orchestrator option-1 fix + bounded re-review (full coverage). Re-review surfaced only comment-overclaim items (set-e safety) shared with pre-existing docs.labels idiom; resolved via comment-accuracy fix, post-shadow delta-review CLEAN. Feature code APPROVE, shadow agreed full coverage; reviewed_sha=final HEAD."
+  },
+  "telemetry": "unavailable"
+}

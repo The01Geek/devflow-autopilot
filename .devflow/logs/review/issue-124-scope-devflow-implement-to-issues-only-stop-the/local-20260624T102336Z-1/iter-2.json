@@ -1,0 +1,94 @@
+{
+  "iter": 2,
+  "source": "review-and-fix",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "pr-review-toolkit:code-reviewer",
+    "pr-review-toolkit:comment-analyzer",
+    "pr-review-toolkit:pr-test-analyzer",
+    "superpowers:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "pr-review-toolkit:pr-test-analyzer",
+      "severity": "Important",
+      "kind": "test_gap",
+      "file": "lib/test/run.sh",
+      "description": "on: narrowing left issue_comment subscription unpinned (only negative assertions)",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "iter2-F1",
+      "decision": "applied",
+      "commit": "pending"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 1,
+    "fix_diff_lines": 11,
+    "new_corroborated_critical_count": 0
+  },
+  "shadow": {
+    "ran_at": "2026-06-24T10:40:00Z",
+    "reviewed_sha": "a19bcbd761f5321e5808bafd266faa68e4420189",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "pr-review-toolkit:code-reviewer",
+      "pr-review-toolkit:silent-failure-hunter",
+      "pr-review-toolkit:comment-analyzer",
+      "pr-review-toolkit:pr-test-analyzer",
+      "superpowers:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "pr-review-toolkit:code-reviewer",
+      "pr-review-toolkit:silent-failure-hunter",
+      "pr-review-toolkit:comment-analyzer",
+      "pr-review-toolkit:pr-test-analyzer",
+      "superpowers:requesting-code-review"
+    ],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {
+        "agent": "pr-review-toolkit:silent-failure-hunter",
+        "severity": "Suggestion",
+        "kind": "style",
+        "file": "scripts/resolve-implement-trigger.sh",
+        "description": "IS_PULL_REQUEST backstop fails open (non-true=>not-a-PR); intentional backward-compat contract, gate if: is primary defense"
+      },
+      {
+        "agent": "pr-review-toolkit:silent-failure-hunter",
+        "severity": "Suggestion",
+        "kind": "comment_drift",
+        "file": ".github/workflows/devflow-implement.yml",
+        "description": "stale issue/PR wording in unchanged dedupe/notice comments"
+      },
+      {
+        "agent": "pr-review-toolkit:comment-analyzer",
+        "severity": "Suggestion",
+        "kind": "comment_drift",
+        "file": ".github/workflows/devflow-implement.yml",
+        "description": "same stale issue/PR wording (corroborates)"
+      }
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 3,
+      "overlap_with_iter_N": 0,
+      "new": 3,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
+  "telemetry": "unavailable"
+}

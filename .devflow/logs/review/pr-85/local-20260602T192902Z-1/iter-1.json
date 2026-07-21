@@ -1,0 +1,133 @@
+{
+  "iter": 1,
+  "source": "review-and-fix",
+  "started_at": "2026-06-02T19:29:02Z",
+  "fix_commit_sha": null,
+  "fix_files": [],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "pr-review-toolkit:code-reviewer",
+    "pr-review-toolkit:silent-failure-hunter",
+    "pr-review-toolkit:comment-analyzer",
+    "pr-review-toolkit:pr-test-analyzer",
+    "superpowers:requesting-code-review"
+  ],
+  "checklist_summary": {
+    "total": 46,
+    "lite": 19,
+    "agent": 27,
+    "pass": 46,
+    "fail": 0,
+    "inconclusive": 0
+  },
+  "phase3_findings": [
+    {
+      "agent": "pr-review-toolkit:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "Header/CHANGELOG say 'plain POSIX-portable shell' but the script is portable bash (uses set -o pipefail, a bashism), not strict POSIX sh",
+      "defect_signature": {
+        "file": "scripts/load-prompt-extension.sh",
+        "line_range": [
+          33,
+          33
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "superpowers:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "review-and-fix post-shadow edit gate + mutation-check prose ships with no drift-guard test, unlike comparable locked verdict-gate contracts in the repo",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          744,
+          960
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "superpowers:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "Clean-delta-review branch sets reviewed_sha=HEAD but does not touch coverage; Coverage section then renders 'full reviewer coverage' though the shipped commit was vetted only by a bounded delta-review",
+      "defect_signature": {
+        "file": "skills/review-and-fix/SKILL.md",
+        "line_range": [
+          616,
+          620
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "pr-review-toolkit:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "SKILL.md prose says 'surface its stderr' but the documented bare invocation has no explicit stderr capture; relies on harness surfacing tool stderr",
+      "defect_signature": {
+        "file": "skills/create-issue/SKILL.md",
+        "line_range": [
+          529,
+          529
+        ],
+        "kind": "api_misuse"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "pr-review-toolkit:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "Name guard accepts dot-only/control-char names (., newline) that resolve in-dir and silently no-op; harmless (name-confined) but an unpinned validation edge",
+      "defect_signature": {
+        "file": "scripts/load-prompt-extension.sh",
+        "line_range": [
+          57,
+          62
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "pr-review-toolkit:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "FIFO/device + symlink-to-device non-regular shapes are advertised in the helper header but not exercised by tests (directory/symlink-to-dir variants are)",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          256,
+          276
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "advisory"
+    }
+  ],
+  "fix_decisions": [],
+  "convergence_inputs": {
+    "fixes_applied": 0,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "reviewed_sha": null,
+  "telemetry": "unavailable"
+}

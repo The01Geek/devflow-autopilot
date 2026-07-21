@@ -1,0 +1,163 @@
+{
+  "iter": 2,
+  "source": "review-and-fix",
+  "fix_commit_sha": "5f361dbddb6f693da56666cf876bbc32cd4a60e5",
+  "fix_files": [
+    "scripts/provision-auto-mode.sh",
+    "lib/test/run.sh"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "checklist": [],
+  "phase3_dispatched": [
+    "pr-review-toolkit:code-reviewer",
+    "pr-review-toolkit:silent-failure-hunter",
+    "pr-review-toolkit:comment-analyzer",
+    "pr-review-toolkit:pr-test-analyzer",
+    "superpowers:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "pr-review-toolkit:silent-failure-hunter",
+      "severity": "Important",
+      "description": "numeric/non-string leaf produces false already-selectable breadcrumb (silent misreport)",
+      "defect_signature": {
+        "file": "scripts/provision-auto-mode.sh",
+        "line_range": [
+          197,
+          217
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "pr-review-toolkit:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "iter-1 comment used path:line ref (line ~185) against CLAUDE.md convention",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          220,
+          223
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "pr-review-toolkit:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "no-consent HOME-unset display branch untested",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          114,
+          129
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "pr-review-toolkit:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "recursive nested-object guard arm + join separator dead until defaults nest deeper",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          176,
+          186
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "pr-review-toolkit:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "jq-not-found exit-2 path untested",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": null,
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F2-1",
+      "decision": "applied",
+      "commit": "5f361db"
+    },
+    {
+      "finding_id": "F2-2",
+      "decision": "applied",
+      "commit": "5f361db"
+    },
+    {
+      "finding_id": "F2-3",
+      "decision": "applied",
+      "commit": "5f361db"
+    },
+    {
+      "finding_id": "F2-4",
+      "decision": "deferred",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "recursive nested-object guard arm dead until defaults nest",
+      "skip_category": "uncategorized",
+      "evidence": "DEFAULTS has exactly one object-valued path (env) today; the join(\";\") separator and nested-parent skip-arm are latent-until-defaults-nest, no current input can exercise them"
+    },
+    {
+      "finding_id": "F2-5",
+      "decision": "deferred",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "jq-not-found exit-2 path untested",
+      "skip_category": "uncategorized",
+      "evidence": "requires masking jq on PATH; whole suite presupposes jq; documented breadcrumb, low-value, deferred"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 3,
+    "fix_diff_lines": 60,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": {
+    "phase_1": {
+      "calls": 1,
+      "tokens": 61864,
+      "wall_clock_s": 69
+    },
+    "phase_2": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 0
+    },
+    "phase_3": {
+      "calls": 6,
+      "tokens": 348000,
+      "wall_clock_s": 145
+    }
+  },
+  "checklist_note": "15 prior items narrow-reused (PASS); variance-recovery generator emitted VC-16..24 cross-file breadcrumb/cleanup contracts, all confirmed accurate by parallel Phase-3 agents — no FAIL/INCONCLUSIVE"
+}

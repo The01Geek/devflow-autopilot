@@ -1,0 +1,46 @@
+{
+  "iter": 1,
+  "started_at": "2026-06-30T17:33:19Z",
+  "fix_commit_sha": "e5ae21b2f85335a8082b2e1c36f1c8b5811e39d6",
+  "fix_files": ["lib/test/run.sh", "lib/intervention-surfaces.md"],
+  "loop_role": "fix",
+  "checklist": [
+    {"id": "VC-1", "claim": "bundle concatenation makes the ~120 IMPL_SKILL/DEF_SKILL pins search the relocated content", "file": "lib/test/run.sh", "verification_mode": "lite", "claim_signature": "api_contract:run.sh:bundle-pins-resolve", "verdict": "PASS", "evidence": "suite 2044/0; 121 pins green against the 5-file bundle", "reused_from_iter_prev": false},
+    {"id": "VC-2", "claim": "phase files are byte-exact verbatim relocations", "file": "skills/implement/phases", "verification_mode": "lite", "claim_signature": "data_format:phases:verbatim", "verdict": "PASS", "evidence": "build-time content check: 0 original non-blank lines lost; pins exactly-once across bundle", "reused_from_iter_prev": false},
+    {"id": "VC-3", "claim": "phase-file paths resolve via ${CLAUDE_SKILL_DIR}, not ${CLAUDE_PLUGIN_ROOT}", "file": "skills/implement/SKILL.md", "verification_mode": "lite", "claim_signature": "api_contract:SKILL.md:skill-dir-anchor", "verdict": "PASS", "evidence": "CLAUDE_SKILL_DIR x10; CLAUDE_PLUGIN_ROOT only in the do-not-use warning", "reused_from_iter_prev": false},
+    {"id": "VC-4", "claim": "doc/content path-claims point to where content actually moved", "file": "docs", "verification_mode": "lite", "claim_signature": "doc_accuracy:docs:relocated-paths", "verdict": "PASS", "evidence": "test-first in phase-2-implement.md; git-status-porcelain in phase-4-documentation.md", "reused_from_iter_prev": false}
+  ],
+  "phase3_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": null, "detect_all_audit": true},
+  "phase3_findings": [
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "bundle [ -s ] member check does not cover readability; unchecked cat drops an unreadable member silently (vacuous absence guards)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [37, 50], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "no directory-completeness reconciliation; a future phase file added to phases/ without registration is silently under-covered", "defect_signature": {"file": "lib/test/run.sh", "line_range": [86, 2095], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "entry-gate assertion pins the path token, not the mandatory-read/fail-closed framing", "defect_signature": {"file": "lib/test/run.sh", "line_range": [2083, 2088], "kind": "test_gap"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "bundle header comment claims line-ordering guards use the bundle and 'every call site unchanged'; contradicted by the positional-guard carve-out", "defect_signature": {"file": "lib/test/run.sh", "line_range": [25, 30], "kind": "comment_drift"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:code-reviewer", "severity": "Important", "description": "lib/intervention-surfaces.md:16 routing pointer sends phase-detail interventions at the thin orchestrator instead of the phase files", "defect_signature": {"file": "lib/intervention-surfaces.md", "line_range": [16, 16], "kind": "comment_drift"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Important", "description": "no version bump + CHANGELOG for a consumer-shipping skills/ change; confirm intent or record the no-bump decision", "defect_signature": {"file": ".claude-plugin/plugin.json", "line_range": null, "kind": "other"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "pushed_back"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "verbatim-relocation guarantee is sampled by pins, not proven by a standing test (acceptable; do not over-claim in PR narrative)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [72, 122], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "advisory"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "bundle uniqueness pins couple orchestrator stubs to phase bodies (spurious RED if a stub restates a pinned literal) — by-design stub-collision guard", "defect_signature": {"file": "lib/test/run.sh", "line_range": [126, 131], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "advisory"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "S1", "decision": "applied", "commit": "e5ae21b"},
+    {"finding_id": "T1", "decision": "applied", "commit": "e5ae21b"},
+    {"finding_id": "T2-S2", "decision": "applied", "commit": "e5ae21b"},
+    {"finding_id": "C1", "decision": "applied", "commit": "e5ae21b"},
+    {"finding_id": "CR1-FP2", "decision": "applied", "commit": "e5ae21b"},
+    {"finding_id": "FP1", "decision": "pushed_back", "source_file": ".claude-plugin/plugin.json", "claim_text": "no version bump + CHANGELOG for a consumer-shipping skills/ change", "skip_category": "claim-quality", "evidence": "no-bump is the issue's explicit AC + aligned with .devflow/prompt-extensions/implement.md (a verbatim relocation with zero behavior change is not a fix/feature/breaking change); the explicit no-bump decision is recorded in the issue workpad, satisfying the finding's own 'record the decision' option"},
+    {"finding_id": "T3", "decision": "advisory", "source_file": "lib/test/run.sh", "claim_text": "verbatim guarantee is sampled, not proven by a standing test", "skip_category": "advisory-parked", "evidence": "agent confirms sampling is the pragmatic acceptable choice; byte-exactness was build-time-verified (0 lines lost); ask is only to not over-claim 'verbatim' in the PR body — handled at Phase 4.2"},
+    {"finding_id": "T4", "decision": "advisory", "source_file": "lib/test/run.sh", "claim_text": "bundle pins can spuriously RED on a stub restating a pinned literal", "skip_category": "advisory-parked", "evidence": "by-design: this IS the stub-collision guard; agent notes not a current problem; informational"}
+  ],
+  "convergence_inputs": {"fixes_applied": 5, "fix_diff_lines": 117, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "telemetry": {
+    "phase_0": {"calls": 0, "tokens": 0, "wall_clock_s": 2},
+    "phase_0_5": {"calls": 0, "tokens": 0, "wall_clock_s": 1},
+    "phase_1": {"calls": 0, "tokens": 0, "wall_clock_s": 30},
+    "phase_2": {"calls": 0, "tokens": 0, "wall_clock_s": 20},
+    "phase_3": {"calls": 5, "tokens": 540966, "wall_clock_s": 383},
+    "step_2_5": {"calls": 0, "tokens": 0, "wall_clock_s": 2},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 5}
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "pr_branch": "issue-142-internalize-the-superpowers-skills-remove-all",
+  "base_branch": "main",
+  "generated_at": "2026-06-28T17:14:27Z",
+  "deferrals": [
+    {"agent": "checklist-verifier", "severity": "Critical", "file": "docs/review-agent-overrides.md", "line_range": [34, 34], "symbol": "pr-review-toolkit:", "kind": "other", "summary": "no pr-review-toolkit: outside Migration tables (VC-30)", "category": "claim-quality", "explanation": "line 34 is intended migration-section prose; claim's table-only constraint over-strict; AC governs superpowers: ids only"},
+    {"agent": "checklist-verifier", "severity": "Critical", "file": "lib/test/run.sh", "line_range": [5769, 5769], "symbol": "", "kind": "other", "summary": "lib/test/run.sh shellcheck-clean (VC-56)", "category": "out-of-scope", "explanation": "project shellcheck gate excludes lib/test/; flagged SC1087 is unrelated pam test + known [[:space:]] false positive; in-scope ruff clean"}
+  ]
+}

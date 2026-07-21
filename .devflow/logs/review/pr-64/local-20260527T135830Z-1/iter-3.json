@@ -1,0 +1,34 @@
+{
+  "iter": 3,
+  "started_at": "2026-05-27T14:22:00Z",
+  "fix_commit_sha": "56826f9",
+  "fix_files": ["skills/review/SKILL.md", "lib/test/test_python_scripts.py"],
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": null},
+  "checklist": [
+    {"id": "VC3-1", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "data_format_assumption:skill.md:phase-tagged-stderr-path-consistent", "reused_from_iter_prev": false},
+    {"id": "VC3-2", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "api_contract:skill.md:phase-token-set-matches-dispatch-points", "reused_from_iter_prev": false, "note": "surfaced the $PHASE-unbound concern; fixed iter 3"},
+    {"id": "VC3-3", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "api_contract:skill.md:always-on-four-roster-consistent", "reused_from_iter_prev": false},
+    {"id": "VC3-4", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "test_mock_alignment:resolve-review-overrides.py:default-model-warning-agent-agnostic", "reused_from_iter_prev": false},
+    {"id": "VC3-5", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "test_mock_alignment:resolve-review-overrides.py:scope-wording-affects-every-agent", "reused_from_iter_prev": false},
+    {"id": "VC3-6", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "test_mock_alignment:resolve-review-overrides.py:own-entry-warning-agent-distinct", "reused_from_iter_prev": false},
+    {"id": "VC3-7", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "data_format_assumption:skill.md:stderr-redirect-truncates-not-appends", "reused_from_iter_prev": false}
+  ],
+  "phase3_dispatched": ["pr-review-toolkit:code-reviewer", "pr-review-toolkit:silent-failure-hunter", "pr-review-toolkit:comment-analyzer", "pr-review-toolkit:pr-test-analyzer", "superpowers:requesting-code-review"],
+  "phase3_findings": [
+    {"agent": "pr-review-toolkit:silent-failure-hunter", "severity": "Important", "description": "$PHASE shell var never bound at any dispatch site; verbatim copy is unset → all phases collapse to /tmp/devflow-rv-ovr..err, re-introducing cross-phase truncation", "defect_signature": {"file": "skills/review/SKILL.md", "line_range": [143, 157], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "pr-review-toolkit:pr-test-analyzer", "severity": "Suggestion", "description": "bad-default.model dedup test pins a path unreachable via the real engine (read_raw drops empty leaves); no main() end-to-end twin", "defect_signature": {"file": "lib/test/test_python_scripts.py", "line_range": [481, 487], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F3-phase-unbound", "decision": "applied", "commit": "56826f9"},
+    {"finding_id": "F3-model-test-direct-only", "decision": "applied", "commit": "56826f9"}
+  ],
+  "convergence_inputs": {"fixes_applied": 2, "fix_diff_lines": 16, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "telemetry": {
+    "phase_1": {"calls": 1, "tokens": 62402, "wall_clock_s": 64},
+    "phase_2": {"calls": 0, "tokens": 0, "wall_clock_s": 8},
+    "phase_3": {"calls": 5, "tokens": 280000, "wall_clock_s": 90},
+    "step_2_5": {"calls": 0, "tokens": 0, "wall_clock_s": 2},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 2}
+  }
+}

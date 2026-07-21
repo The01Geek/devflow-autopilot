@@ -1,0 +1,184 @@
+{
+  "iter": 1,
+  "source": "review-and-fix",
+  "fix_commit_sha": "be8c48eee25eee4df8184ceb29dc208afbc8c0ec",
+  "fix_files": [
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+    "lib/test/run.sh",
+    "scripts/load-prompt-extension.sh"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "pr-review-toolkit:code-reviewer",
+    "pr-review-toolkit:silent-failure-hunter",
+    "pr-review-toolkit:comment-analyzer",
+    "pr-review-toolkit:pr-test-analyzer",
+    "superpowers:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "pr-review-toolkit:silent-failure-hunter",
+      "severity": "Important",
+      "description": "unreadable present file silently dropped",
+      "defect_signature": {
+        "file": "scripts/load-prompt-extension.sh",
+        "line_range": [
+          59,
+          61
+        ],
+        "kind": "unhandled_exception"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "pr-review-toolkit:silent-failure-hunter",
+      "severity": "Important",
+      "description": "symlink escapes dir; comment over-promises containment",
+      "defect_signature": {
+        "file": "scripts/load-prompt-extension.sh",
+        "line_range": [
+          23,
+          53
+        ],
+        "kind": "security"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "pr-review-toolkit:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "model-supplied name wording imprecise",
+      "defect_signature": {
+        "file": "scripts/load-prompt-extension.sh",
+        "line_range": [
+          25,
+          27
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "pr-review-toolkit:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "coverage guard vacuously green on empty glob",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          197,
+          202
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "general-purpose:superpowers",
+      "severity": "Suggestion",
+      "description": "config.json gitignore analogy loose",
+      "defect_signature": {
+        "file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+        "line_range": [
+          67,
+          67
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "pr-review-toolkit:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "no test for non-root CWD no-op",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          null,
+          null
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "pushed_back"
+    },
+    {
+      "agent": "pr-review-toolkit:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "leading-dash skill names untested",
+      "defect_signature": {
+        "file": "scripts/load-prompt-extension.sh",
+        "line_range": [
+          48,
+          53
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "pushed_back"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "be8c48eee25eee4df8184ceb29dc208afbc8c0ec"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "be8c48eee25eee4df8184ceb29dc208afbc8c0ec"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "be8c48eee25eee4df8184ceb29dc208afbc8c0ec"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "applied",
+      "commit": "be8c48eee25eee4df8184ceb29dc208afbc8c0ec"
+    },
+    {
+      "finding_id": "F-5",
+      "decision": "applied",
+      "commit": "be8c48eee25eee4df8184ceb29dc208afbc8c0ec"
+    },
+    {
+      "finding_id": "F-6",
+      "decision": "pushed_back",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "no test for non-root CWD no-op",
+      "skip_category": "uncategorized",
+      "evidence": "low value; CWD-relative resolution is shared convention with config-get.sh which has no such test; wrong-CWD degrades safely to no-op"
+    },
+    {
+      "finding_id": "F-7",
+      "decision": "pushed_back",
+      "source_file": "scripts/load-prompt-extension.sh",
+      "claim_text": "leading-dash skill names untested",
+      "skip_category": "claim-quality",
+      "evidence": "ext_file always begins with '.devflow/', so cat never receives a dash-leading arg; no option-injection (confirmed by superpowers final-pass reviewer)"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 5,
+    "fix_diff_lines": 60,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": "unavailable"
+}

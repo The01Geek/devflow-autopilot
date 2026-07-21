@@ -1,0 +1,25 @@
+{
+  "iter": 3,
+  "source": "review-and-fix",
+  "loop_role": "promoted",
+  "fix_commit_sha": "a6072924",
+  "fix_files": [
+    "CHANGELOG.md"
+  ],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": true,
+    "has_new_types": false,
+    "engine_self_modifying": false,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [],
+  "fix_decisions": [
+    {
+      "finding_id": "CL1",
+      "decision": "applied",
+      "commit": "a6072924"
+    }
+  ],
+  "telemetry": "unavailable"
+}

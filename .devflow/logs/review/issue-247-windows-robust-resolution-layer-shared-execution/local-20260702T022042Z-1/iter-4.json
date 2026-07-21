@@ -1,0 +1,209 @@
+{
+  "iter": 4,
+  "started_at": "2026-07-02T05:40:00Z",
+  "fix_commit_sha": "0797d37011432413e10cc95d72c8f18ea084b9e7",
+  "fix_files": [
+    "lib/test/run.sh"
+  ],
+  "loop_role": "fix",
+  "checklist": [
+    {
+      "id": "S4-VC-1",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:preflight.sh:degraded-resolve-bin-fallback-ignores-generic-override",
+      "evidence": "latent-by-design: no third tool routed through preflight today; degraded arm covers both live tools",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "S4-VC-2",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:README.md:windows-resolving-jq-anchor-target-exists",
+      "reused_from_iter_prev": false
+    }
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "detect_all_audit": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "T7f negative conjunct vacuous (grep -vq always true on multi-line)",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          11547,
+          11547
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "DJQ_BARE comment exclusion anchored to any colon, not file:line prefix",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          11827,
+          11827
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:checklist-generator",
+      "severity": "Suggestion",
+      "description": "preflight degraded arm hardcodes jq/gh (latent: generic-override parity only matters for a future third tool)",
+      "defect_signature": {
+        "file": "lib/preflight.sh",
+        "line_range": [
+          715,
+          721
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "I4-1",
+      "decision": "applied",
+      "commit": "0797d37"
+    },
+    {
+      "finding_id": "I4-2",
+      "decision": "applied",
+      "commit": "0797d37"
+    },
+    {
+      "finding_id": "I4-3",
+      "decision": "deferred",
+      "source_file": "lib/preflight.sh",
+      "claim_text": "degraded devflow_resolve_bin fallback hardcodes jq/gh; a future third tool's override would be ignored in partial-copy mode",
+      "skip_category": "uncategorized",
+      "evidence": "latent by construction \u2014 no third tool is routed through preflight; the comment scopes the arm and adding generic derivation to an emergency fallback duplicates the exact tr-dependence the main path just removed"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 2,
+    "fix_diff_lines": 4,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": {
+    "phase_1": {
+      "calls": 1,
+      "tokens": 141563,
+      "wall_clock_s": 132
+    },
+    "phase_3": {
+      "calls": 5,
+      "tokens": 596704,
+      "wall_clock_s": 380
+    },
+    "step_3_5": {
+      "calls": 1,
+      "tokens": 85380,
+      "wall_clock_s": 248
+    }
+  },
+  "shadow": {
+    "ran_at": "2026-07-02T06:05:00Z",
+    "reviewed_sha": "0797d37011432413e10cc95d72c8f18ea084b9e7",
+    "verdict": "APPROVE with notes",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Suggestion",
+        "description": "install.sh inline jq.exe selection arm untested (deleting the elif ships green)",
+        "defect_signature": {
+          "file": "install.sh",
+          "line_range": [
+            111,
+            115
+          ],
+          "kind": "test_gap"
+        },
+        "corroboration_count": 1
+      },
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Suggestion",
+        "description": "preflight positive path (shim jq + working jq.exe \u2192 exit 0) untested; only the two failure diagnoses pinned",
+        "defect_signature": {
+          "file": "lib/preflight.sh",
+          "line_range": [
+            76,
+            88
+          ],
+          "kind": "test_gap"
+        },
+        "corroboration_count": 1
+      },
+      {
+        "agent": "devflow:requesting-code-review",
+        "severity": "Suggestion",
+        "description": "resolved value not exported (child helpers re-probe; by-design isolation) + broken override double-probed in install.sh (cosmetic)",
+        "defect_signature": {
+          "file": "lib/resolve-jq.sh",
+          "line_range": null,
+          "kind": "other"
+        },
+        "corroboration_count": 1
+      }
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 3,
+      "overlap_with_iter_N": 1,
+      "new": 2,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  }
+}

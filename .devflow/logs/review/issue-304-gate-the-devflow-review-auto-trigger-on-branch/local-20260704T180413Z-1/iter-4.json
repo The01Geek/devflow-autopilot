@@ -1,0 +1,42 @@
+{
+  "iter": 4,
+  "started_at": "2026-07-04T20:30:00Z",
+  "fix_commit_sha": "1dfaa43c66eb5ca1335dcd74012b94592e360b7f",
+  "fix_files": ["scripts/derive-review-preconditions.sh", ".github/workflows/devflow-review.yml", "lib/test/run.sh"],
+  "loop_role": "fix",
+  "checklist": [
+    {"id": "VC-1", "claim": "gh pr view .state returns uppercase OPEN (guard comparand correct)", "verification_mode": "agent", "claim_signature": "dependency_interaction:devflow-review.yml:pr-state-open-uppercase", "verdict": "PASS", "evidence": "verified in the iteration-3 fix-delta gate: GraphQL enum values OPEN/CLOSED/MERGED, uppercase; word-splitting safe", "reused_from_iter_prev": true},
+    {"id": "VC-2", "claim": "c9 unverifiable-title pin substring is a prefix of the shipped title", "verification_mode": "lite", "claim_signature": "api_contract:run.sh:unverifiable-title-pin-coupling", "verdict": "PASS", "evidence": "pin literal 'Devflow review waiting: preconditions unverifiable' is the leading substring of the case-arm title; removing the arm removes the substring — non-vacuous", "reused_from_iter_prev": false},
+    {"id": "VC-3", "claim": "create_check *) fallback unreachable given the reason vocabulary (defensive only)", "verification_mode": "agent", "claim_signature": "data_format_assumption:devflow-review.yml:skip-reason-fallback-reachability", "verdict": "PASS", "evidence": "reason vocabulary is {behind-base, ci-not-green, unverifiable} + the :-unverifiable default; all have explicit arms; *) is defense in depth", "reused_from_iter_prev": false}
+  ],
+  "phase3_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": null},
+  "phase3_findings": [
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "STATUS_STATE shape failure emitted ci-not-green instead of unverifiable (residual arm of the reason re-routing)", "defect_signature": {"file": "scripts/derive-review-preconditions.sh", "line_range": [200, 205], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "preconditions_ok || true swallows a contract-violating non-zero helper exit without its own breadcrumb", "defect_signature": {"file": ".github/workflows/devflow-review.yml", "line_range": [216, 229], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "stale routing comment in the run.sh test-block header contradicting the unverifiable re-routing", "defect_signature": {"file": "lib/test/run.sh", "line_range": [7729, 7730], "kind": "comment_drift"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "stub is URL-shape-blind: swapped compare operand order ships green (semantic inversion)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [653, 671], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "precondition precedence (behind + red CI -> behind-base) untested", "defect_signature": {"file": "scripts/derive-review-preconditions.sh", "line_range": [1146, 1174], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "shared green-gate pending arm exercised via one caller only", "defect_signature": {"file": "lib/test/run.sh", "line_range": [797, 804], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "installer could prompt for consumer CI workflow names (workflows: list install friction)", "defect_signature": {"file": ".github/workflows/devflow-review.yml", "line_range": [87, 89], "kind": "other"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "M1", "decision": "severity-calibrated", "source_file": "scripts/derive-review-preconditions.sh", "claim_text": "STATUS_STATE shape failure misattributed", "original_severity": "Important", "calibrated_severity": "Suggestion", "evidence": "shape 1 (fail-closed) + near-unreachable arm (payload already jq-parsed once); applied anyway as trivial and consistent with the routing contract"},
+    {"finding_id": "M1", "decision": "applied", "commit": "1dfaa43c66eb5ca1335dcd74012b94592e360b7f"},
+    {"finding_id": "M2", "decision": "applied", "commit": "1dfaa43c66eb5ca1335dcd74012b94592e360b7f"},
+    {"finding_id": "M3", "decision": "applied", "commit": "1dfaa43c66eb5ca1335dcd74012b94592e360b7f"},
+    {"finding_id": "M4", "decision": "applied", "commit": "1dfaa43c66eb5ca1335dcd74012b94592e360b7f"},
+    {"finding_id": "M5", "decision": "applied", "commit": "1dfaa43c66eb5ca1335dcd74012b94592e360b7f"},
+    {"finding_id": "M6", "decision": "applied", "commit": "1dfaa43c66eb5ca1335dcd74012b94592e360b7f"},
+    {"finding_id": "M7", "decision": "deferred", "source_file": ".github/workflows/devflow-review.yml", "claim_text": "installer could prompt for consumer CI workflow names for the workflow_run list", "skip_category": "uncategorized", "evidence": "install-time enhancement outside this PR's engine scope; recorded for a follow-up issue in the wrapping implement run's audit list"}
+  ],
+  "convergence_inputs": {"fixes_applied": 6, "fix_diff_lines": 48, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "telemetry": {
+    "phase_1":   {"calls": 1, "tokens": 99044, "wall_clock_s": 89},
+    "phase_2":   {"calls": 0, "tokens": 0, "wall_clock_s": 10},
+    "phase_3":   {"calls": 5, "tokens": 446531, "wall_clock_s": 300},
+    "step_2_5":  {"calls": 0, "tokens": 0, "wall_clock_s": 10, "webfetches": 0},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 10}
+  }
+}

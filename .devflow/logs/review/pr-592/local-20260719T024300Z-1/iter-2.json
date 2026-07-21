@@ -1,0 +1,126 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-19T05:20:00Z",
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "current_step": "3.5",
+  "current_substep": "fix_delta_reviewer_dispatch",
+  "pending_dispatch": {
+    "kind": "fix_delta_blinded_reviewer",
+    "roster": [
+      "general-purpose"
+    ],
+    "dispatched_at": "2026-07-19T05:08:22Z"
+  },
+  "fix_commit_sha": "681ea30f118ff50f9b0fd684101418b8668deba1",
+  "fix_files": [
+    ".changeset/issue-586-signal-cleanup-matrix.md",
+    "lib/test/module-harness.sh",
+    "lib/test/modules/create-issue-contract.sh",
+    "lib/test/run-module.sh",
+    "lib/test/run.sh",
+    "lib/test/test_module_harness.py",
+    "lib/test/test_module_runner.py"
+  ],
+  "test_first_gate": [
+    {
+      "decision": "RED",
+      "command": "python3 -m unittest selected iteration-2 regression tests -v",
+      "result": "fail",
+      "evidence": "All 18 generic-scratch matrix rows, controlling-TTY group identity, launch-window no-release, validation cleanup, focused cleanup attribution, inherited-hook scrub, capability reporting, and create-issue unsafe-root regressions failed for their intended pre-fix reasons."
+    },
+    {
+      "decision": "GREEN",
+      "command": "env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null bash lib/test/run.sh",
+      "result": "pass",
+      "evidence": "9488 passed, 0 failed, 1 skipped; only the dirty-tree stale-prose self-scan skipped. Focused Python suites passed 91 tests and the 18-row matrix plus resistant-process paths passed."
+    },
+    {
+      "decision": "MUTATION_RED",
+      "command": "copy-based targeted mutation checks",
+      "result": "fail-as-expected",
+      "evidence": "Five independent mutations proved scratch containment, controlling-TTY PGID preservation, cleanup-failure attribution, create-issue root validation, and host-capability reason reporting."
+    }
+  ],
+  "sweep_defs_read": [
+    {
+      "source": "/home/natprog/.codex/plugins/cache/devflow-marketplace/devflow/2.15.20/skills/implement/phases/phase-2-implement.md",
+      "sweeps": ["2.3.0", "2.3.0a", "2.3.0c", "2.3.1", "2.3.3", "2.3.4", "2.3.4a", "2.3.5", "2.3.6", "2.3.7"]
+    }
+  ],
+  "sweep_evidence": {
+    "status": "clean",
+    "details": "Grep covered every changed helper, hook, scratch owner/consumer, capability consumer, and both focused/full-suite boundaries. The mandatory comment/mechanism re-sweep independently found no stale or misleading prose. Ruff, bash -n, git diff --check, and touched-shell shellcheck were clean; full run.sh shellcheck was clean with its pre-existing parser codes excluded."
+  },
+  "checklist": [],
+  "checklist_skipped": "intentional",
+  "phase3_dispatched": [],
+  "diff_profile": {
+    "engine_self_modifying": true,
+    "has_new_types": true,
+    "test_relevant": true,
+    "checklist_skipped": "intentional"
+  },
+  "phase3_findings": [
+    {"finding_id":"S-1","severity":"Important","description":"Forced escalation could leave scratch owned by generic selectable modules outside the boundary root.","defect_signature":{"file":"lib/test/module-harness.sh","kind":"incomplete-cleanup-ownership"},"fix_decision":"applied"},
+    {"finding_id":"S-2","severity":"Important","description":"An unsupported-host matrix skip was invisible in the suite tally.","defect_signature":{"file":"lib/test/test_module_harness.py","kind":"vacuous-host-skip"},"fix_decision":"applied"},
+    {"finding_id":"S-3","severity":"Suggestion","description":"The launch-window hook remained blocked after a pending signal without an external release.","defect_signature":{"file":"lib/test/module-harness.sh","kind":"unbounded-test-launch-wait"},"fix_decision":"applied"},
+    {"finding_id":"S-4","severity":"Suggestion","description":"Validation rejection cleared the scratch handle before safe leaf cleanup.","defect_signature":{"file":"lib/test/module-harness.sh","kind":"orphaned-scratch-on-validation-failure"},"fix_decision":"applied"},
+    {"finding_id":"S-5","severity":"Critical","description":"Focused scratch cleanup failure was falsely reported as module process exit status 1.","defect_signature":{"file":"lib/test/run-module.sh","kind":"documented_falsehood"},"fix_decision":"applied"},
+    {"finding_id":"S-6","severity":"Important","description":"Nested monitor mode could launch the worker in a different PGID under a controlling TTY.","defect_signature":{"file":"lib/test/module-harness.sh","kind":"process-group-identity-model"},"fix_decision":"applied"},
+    {"finding_id":"S-7","severity":"Suggestion","description":"SignalRowState does not encode boundary-specific path roles as a discriminated union.","defect_signature":{"file":"lib/test/test_module_harness.py","kind":"invalid-state-modeling"},"fix_decision":"below-threshold"},
+    {"finding_id":"S-8","severity":"Suggestion","description":"The test-only PID reader accepts zero.","defect_signature":{"file":"lib/test/module-harness.sh","kind":"invalid-process-identity"},"fix_decision":"below-threshold"}
+  ],
+  "fix_decisions": [
+    {"finding_id":"S-1","decision":"applied","commit":"681ea30f118ff50f9b0fd684101418b8668deba1","evidence":"Both boundaries export TMPDIR beneath the validated owned root; all 18 rows prove generic module scratch existed and was removed."},
+    {"finding_id":"S-2","decision":"applied","commit":"681ea30f118ff50f9b0fd684101418b8668deba1","evidence":"run.sh queries the capability helper and emits a host-capability suite skip on unsupported hosts."},
+    {"finding_id":"S-3","decision":"applied","commit":"681ea30f118ff50f9b0fd684101418b8668deba1","evidence":"The hook releases itself when either boundary records a pending signal; launch-window rows pass without creating .release."},
+    {"finding_id":"S-4","decision":"applied","commit":"681ea30f118ff50f9b0fd684101418b8668deba1","evidence":"Both boundaries perform only an empty-leaf rmdir for newly allocated but unvalidated scratch."},
+    {"finding_id":"S-5","decision":"applied","commit":"681ea30f118ff50f9b0fd684101418b8668deba1","evidence":"MODULE_CLEANUP_FAILED is tallied and recapped independently without overwriting MODULE_RC."},
+    {"finding_id":"S-6","decision":"applied","commit":"681ea30f118ff50f9b0fd684101418b8668deba1","evidence":"The supervisor disables nested monitor mode before worker launch and restores the caller mode afterward; a PTY regression proves identical PGIDs."},
+    {"finding_id":"S-7","decision":"below-threshold","source_file":"lib/test/test_module_harness.py","claim_text":"SignalRowState does not encode boundary-specific path roles as a discriminated union.","skip_category":"below-threshold-parked","evidence":"parked-origin: below-threshold; the dataclass is now keyword-only, preventing positional Path-role swaps, while a boundary-specific union would be test-only structural refinement beyond the Important fix threshold."},
+    {"finding_id":"S-8","decision":"below-threshold","source_file":"lib/test/module-harness.sh","claim_text":"The test-only PID reader accepts zero.","skip_category":"below-threshold-parked","evidence":"parked-origin: below-threshold; the reader is test-evidence-only and kill -0 is a liveness probe rather than signal delivery. Retained for the final parked-class sweep."},
+    {"finding_id":"S-1","decision":"severity-calibrated","source_file":"lib/test/module-harness.sh","claim_text":"Generic selectable-module scratch can escape boundary cleanup.","original_severity":"Important","calibrated_severity":"Important","evidence":"The reproduced residue directly violates the issue's no-surviving-scratch contract after a bounded interruption."},
+    {"finding_id":"S-2","decision":"severity-calibrated","source_file":"lib/test/test_module_harness.py","claim_text":"Unsupported-host coverage loss is invisible in the suite tally.","original_severity":"Important","calibrated_severity":"Important","evidence":"The prior path exited zero while silently providing no signal-matrix coverage, materially weakening a required test boundary."},
+    {"finding_id":"S-5","decision":"severity-calibrated","source_file":"lib/test/run-module.sh","claim_text":"Cleanup failure is reported as a module process exit.","original_severity":"Critical","calibrated_severity":"Critical","evidence":"The diagnostic directly contradicted the observed successful module exit; self-contradicting changed behavior is non-demotable."},
+    {"finding_id":"S-6","decision":"severity-calibrated","source_file":"lib/test/module-harness.sh","claim_text":"The worker can launch outside the supervisor PGID under a controlling TTY.","original_severity":"Important","calibrated_severity":"Important","evidence":"A PTY reproduction observed split PGIDs, allowing forwarded signals and bounded escalation to miss the worker."},
+    {"finding_id":"sig08-validation-failure-orphans-scratch","decision":"applied","commit":"681ea30f118ff50f9b0fd684101418b8668deba1","evidence":"Boundary validation rejection safely discards empty leaves; create-issue self roots are physically parent-validated before recursive cleanup."},
+    {"finding_id":"sig15-incomplete-test-hook-env-scrub","decision":"applied","commit":"681ea30f118ff50f9b0fd684101418b8668deba1","evidence":"The generic runner fixture scrubs every signal-test hook; resistant parent and module delivery paths are covered."},
+    {"finding_id":"sig16-release-note-omits-platform-scope","decision":"applied","commit":"681ea30f118ff50f9b0fd684101418b8668deba1","evidence":"The changeset states the POSIX signal/process-group scope and explicit unsupported-host skip."}
+  ],
+  "convergence_inputs": {
+    "critical_important_fixes_applied": 4,
+    "fix_diff_lines": 358,
+    "new_corroborated_critical": 1,
+    "converged": false,
+    "reason": "Four threshold fixes and a 358-line fix delta require a fresh review iteration."
+  },
+  "verification": {
+    "full_suite": "9488 passed, 0 failed, 1 expected dirty-tree stale-prose skip",
+    "focused_python": "91 passed in 50.520s",
+    "matrix_and_resistant_paths": "18 matrix rows and 3 resistant paths passed in 4.328s",
+    "static": "ruff, bash -n, diff-check, and touched-shell shellcheck clean"
+  },
+  "verification_evidence": {
+    "command": "env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null bash lib/test/run.sh",
+    "result": "pass",
+    "duration_s": null,
+    "skipped_checks": [
+      {"check":"#434 stale-prose self-scan","kind":"blocking-gate","reason":"The suite ran before the fix commit while the working tree was dirty; the identical committed-HEAD stale-prose helper passed immediately after commit."}
+    ]
+  },
+  "stale_prose_check": {
+    "command": "git diff origin/main...HEAD | scripts/stale-prose-lint.py --rev HEAD",
+    "result": "pass",
+    "rows": []
+  },
+  "base_checkpoint": {"token":"UP_TO_DATE","behind_by":null},
+  "fix_delta_gate": {"result":"not-verified","iter_fix_base":"f07df0845cdef7b58d2144ea83d8f4c51fd67d87","reviewed_head":"681ea30f118ff50f9b0fd684101418b8668deba1","evidence":"The blinded reviewer was stopped before returning when the user requested an immediate stop at the already committed and pushed safe checkpoint."},
+  "cap_drops": {"count":0,"by_category":{}},
+  "telemetry": "unavailable",
+  "devflow_reflection": [
+    "iteration-2 fix committed and pushed after an UP_TO_DATE base checkpoint",
+    "committed stale-prose pre-check clean",
+    "fix-delta not verified: the in-flight blinded reviewer was stopped at the user's request"
+  ]
+}

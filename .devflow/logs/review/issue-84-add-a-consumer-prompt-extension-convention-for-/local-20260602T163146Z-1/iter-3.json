@@ -1,0 +1,73 @@
+{
+  "iter": 3,
+  "source": "review-and-fix",
+  "fix_commit_sha": "ca57b20a64b02ef50396e275612f8111e098f1e8",
+  "fix_files": [
+    ".github/workflows/devflow-runner.yml",
+    "lib/test/run.sh",
+    "scripts/load-prompt-extension.sh"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "pr-review-toolkit:code-reviewer",
+    "pr-review-toolkit:silent-failure-hunter",
+    "superpowers:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "pr-review-toolkit:code-reviewer",
+      "severity": "Important",
+      "description": "present-but-non-regular-file (dir / symlink-to-dir) silent no-op",
+      "defect_signature": {
+        "file": "scripts/load-prompt-extension.sh",
+        "line_range": [
+          73,
+          89
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "general-purpose:superpowers",
+      "severity": "Important",
+      "description": "cloud review profile allowlist omits load-prompt-extension.sh → preflight silently denied in cloud",
+      "defect_signature": {
+        "file": ".github/workflows/devflow-runner.yml",
+        "line_range": [
+          264,
+          264
+        ],
+        "kind": "api_misuse"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F3-1",
+      "decision": "applied",
+      "commit": "ca57b20a64b02ef50396e275612f8111e098f1e8"
+    },
+    {
+      "finding_id": "F3-2",
+      "decision": "applied",
+      "commit": "ca57b20a64b02ef50396e275612f8111e098f1e8"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 2,
+    "fix_diff_lines": 44,
+    "new_corroborated_critical_count": 0,
+    "new_corroborated_important_count": 1
+  },
+  "telemetry": "unavailable"
+}

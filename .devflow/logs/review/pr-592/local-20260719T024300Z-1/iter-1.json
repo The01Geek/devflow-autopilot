@@ -1,0 +1,234 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-19T02:43:00Z",
+  "loop_role": "fix",
+  "current_step": "2.6",
+  "current_substep": "promote-shadow-findings",
+  "pending_dispatch": null,
+  "fix_commit_sha": "677269b7909acc660cf1e1e046ea7640272f33b3",
+  "fix_files": [
+    ".changeset/issue-586-signal-cleanup-matrix.md",
+    "lib/test/module-harness.sh",
+    "lib/test/modules/create-issue-contract.sh",
+    "lib/test/run-module.sh",
+    "lib/test/test_module_harness.py",
+    "lib/test/test_module_runner.py"
+  ],
+  "test_first_gate": [
+    {
+      "decision": "RED",
+      "command": "python3 -m unittest lib.test.test_module_harness.SignalCleanupMatrixTests.test_signal_cleanup_matrix -v",
+      "result": "fail",
+      "evidence": "Before the supervisor fix, module-only delivery while Bash waited on a real foreground helper exceeded the bounded cleanup timeout."
+    },
+    {
+      "decision": "GREEN",
+      "command": "python3 -m unittest lib.test.test_module_harness.SignalCleanupMatrixTests -v",
+      "result": "pass",
+      "evidence": "The 18-row matrix and launch, escalation, cleanup-failure, trap, monitor-mode, and rendezvous regressions passed after the fix."
+    },
+    {
+      "decision": "MUTATION_RED",
+      "command": "temporary harness mutation: replace process-group escalation with direct-PID signaling",
+      "result": "fail",
+      "evidence": "The process-survivor assertion detected the deliberately orphaned descendant."
+    },
+    {
+      "decision": "GREEN",
+      "command": "lib/test/run.sh",
+      "result": "pass",
+      "evidence": "Clean pre-checkpoint HEAD: 9432 passed, 0 failed, no skipped checks; post-checkpoint HEAD: 9489 passed, 0 failed."
+    }
+  ],
+  "sweep_defs_read": [
+    {
+      "source": "/home/natprog/.codex/plugins/cache/devflow-marketplace/devflow/2.15.20/skills/implement/phases/phase-2-implement.md",
+      "sweeps": ["2.3.0", "2.3.0a", "2.3.0b", "2.3.0c", "2.3.1", "2.3.2", "2.3.3", "2.3.4", "2.3.4a", "2.3.5", "2.3.6", "2.3.7"]
+    }
+  ],
+  "sweep_evidence": {
+    "diff_shape": ["changed-signatures", "new-guards", "new-routing", "restructured-code", "new-types", "aggregation-tests"],
+    "2.3.0": "Reconciled both _devflow_supervise_module callers and every scratch, supervisor PID, worker PID, cleanup, and signal-forwarding consumer.",
+    "2.3.0a": "Checked the co-equal focused and full-suite boundaries; both use the same supervisor, pending-signal handshake, bounded group termination, and scratch cleanup contracts.",
+    "2.3.0b": "SignalBoundary, SignalName, and SignalDeliveryScope literals exactly match the 2x3x3 matrix; no unhandled value remains.",
+    "2.3.0c": "Traced TMPDIR to validated scratch leaf, parent to supervisor PID rendezvous, supervisor to worker/group signaling, and cleanup return codes to boundary outcomes.",
+    "2.3.1": "Reviewed deleted inline cleanup, direct wait, and positional tuple setup; replacement ownership and named-state paths are live and tested.",
+    "2.3.2": "No method, file, route, or page was deleted; no stranded dependent found.",
+    "2.3.3": "ruff, bash -n, warning-level shellcheck, and git diff --check passed on touched code.",
+    "2.3.4": "Verified POSIX capability gating and official Python API availability; negative cleanup, launch, missing-rendezvous, and signal-resistant boundary rows pass.",
+    "2.3.4a": "Identifier-scoped comment-analyzer re-sweep found two wording overclaims; both were corrected before commit.",
+    "2.3.5": "Shared supervisor and group-termination helpers remove duplicated focused/full-suite control flow; no simpler contract-preserving path found.",
+    "2.3.6": "Cleanup return codes are folded into non-green outcomes; bounded waits, pending launch signals, and finally-group cleanup close silent failure paths.",
+    "2.3.7": "The exact matrix cardinality is asserted as 18 unique rows and result/failure tallies are verified without ordering assumptions."
+  },
+  "checklist": [],
+  "checklist_skipped": "failure",
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:type-design-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "engine_self_modifying": true,
+    "has_new_types": true,
+    "test_relevant": true,
+    "checklist_skipped": "failure"
+  },
+  "phase3_findings": [
+    {"finding_id":"F-1","severity":"Critical","description":"The full-suite process-group comment contradicted the distinct module group.","defect_signature":{"file":"lib/test/module-harness.sh","line_range":[218,219],"kind":"documented_falsehood"},"step25_classification":"codebase","corroboration_count":2,"fix_decision":"applied"},
+    {"finding_id":"F-2","severity":"Critical","description":"The focused-runner process-group comment contradicted the distinct module group.","defect_signature":{"file":"lib/test/run-module.sh","line_range":[95,96],"kind":"documented_falsehood"},"step25_classification":"codebase","corroboration_count":2,"fix_decision":"applied"},
+    {"finding_id":"F-3","severity":"Important","description":"Module-only delivery could hang behind a real foreground helper.","defect_signature":{"file":"lib/test/run-module.sh","line_range":[331,336],"kind":"leak"},"step25_classification":"codebase","corroboration_count":1,"fix_decision":"applied"},
+    {"finding_id":"F-4","severity":"Critical","description":"The module signal trap was deferred behind a real foreground helper.","defect_signature":{"file":"lib/test/modules/create-issue-contract.sh","line_range":[62,71],"kind":"logic_error"},"step25_classification":"codebase","corroboration_count":1,"fix_decision":"applied"},
+    {"finding_id":"F-5","severity":"Critical","description":"The in-shell fixture did not model deferred traps behind an external child.","defect_signature":{"file":"lib/test/test_module_harness.py","line_range":[360,372],"kind":"test_gap"},"step25_classification":"codebase","corroboration_count":2,"fix_decision":"applied"},
+    {"finding_id":"F-6","severity":"Important","description":"Timeout cleanup omitted the distinct module process group.","defect_signature":{"file":"lib/test/test_module_harness.py","line_range":[537,592],"kind":"leak"},"step25_classification":"codebase","corroboration_count":2,"fix_decision":"applied"},
+    {"finding_id":"F-7","severity":"Important","description":"POSIX-only signal APIs were unconditional on native Windows.","defect_signature":{"file":"lib/test/test_module_harness.py","line_range":[315,315],"kind":"api_misuse"},"step25_classification":"web_confirmed","corroboration_count":1,"fix_decision":"applied"},
+    {"finding_id":"F-8","severity":"Important","description":"The matrix lacked capability-aware native-Windows handling.","defect_signature":{"file":"lib/test/test_module_harness.py","line_range":[315,315],"kind":"test_gap"},"step25_classification":"codebase","corroboration_count":1,"fix_decision":"applied"},
+    {"finding_id":"F-9","severity":"Critical","description":"The release note promised reliable cleanup while hangs and races remained.","defect_signature":{"file":".changeset/issue-586-signal-cleanup-matrix.md","line_range":[6,6],"kind":"documented_falsehood"},"step25_classification":"codebase","corroboration_count":3,"fix_decision":"applied"},
+    {"finding_id":"F-10","severity":"Critical","description":"The full-suite boundary could lose a signal before capturing the child PID.","defect_signature":{"file":"lib/test/module-harness.sh","line_range":[306,307],"kind":"race"},"step25_classification":"codebase","corroboration_count":1,"fix_decision":"applied"},
+    {"finding_id":"F-11","severity":"Critical","description":"The focused boundary had the same post-launch PID-capture race.","defect_signature":{"file":"lib/test/run-module.sh","line_range":[326,327],"kind":"race"},"step25_classification":"codebase","corroboration_count":1,"fix_decision":"applied"},
+    {"finding_id":"F-12","severity":"Critical","description":"Signal forwarding used an unbounded wait for a resistant group.","defect_signature":{"file":"lib/test/module-harness.sh","line_range":[224,225],"kind":"logic_error"},"step25_classification":"codebase","corroboration_count":1,"fix_decision":"applied"},
+    {"finding_id":"F-13","severity":"Critical","description":"The module duplicate-signal comment was impossible under the group topology.","defect_signature":{"file":"lib/test/modules/create-issue-contract.sh","line_range":[63,64],"kind":"documented_falsehood"},"step25_classification":"codebase","corroboration_count":1,"fix_decision":"applied"},
+    {"finding_id":"F-14","severity":"Important","description":"Normal full-suite paths discarded tally cleanup failures.","defect_signature":{"file":"lib/test/module-harness.sh","line_range":[319,336],"kind":"logic_error"},"step25_classification":"codebase","corroboration_count":1,"fix_decision":"applied"},
+    {"finding_id":"F-15","severity":"Important","description":"Module cleanup marked completion before successful removal.","defect_signature":{"file":"lib/test/modules/create-issue-contract.sh","line_range":[47,70],"kind":"logic_error"},"step25_classification":"codebase","corroboration_count":1,"fix_decision":"applied"},
+    {"finding_id":"F-16","severity":"Suggestion","description":"The positional fixture tuple permitted silent Path-role swaps.","defect_signature":{"file":"lib/test/test_module_harness.py","line_range":[394,396],"kind":"type_design"},"step25_classification":"codebase","corroboration_count":1,"fix_decision":"applied"},
+    {"finding_id":"F-17","severity":"Suggestion","description":"Open primitive matrix dimensions permitted invalid fallback routing.","defect_signature":{"file":"lib/test/test_module_harness.py","line_range":[394,530],"kind":"type_design"},"step25_classification":"codebase","corroboration_count":1,"fix_decision":"applied"},
+    {"finding_id":"F-18","severity":"Critical","description":"The tests did not exercise the pre-PID-capture launch window.","defect_signature":{"file":"lib/test/test_module_harness.py","line_range":[499,508],"kind":"test_gap"},"step25_classification":"codebase","corroboration_count":1,"fix_decision":"applied"},
+    {"finding_id":"F-19","severity":"Critical","description":"No resistant-helper row proved bounded escalation and reaping.","defect_signature":{"file":"lib/test/test_module_harness.py","line_range":[532,550],"kind":"test_gap"},"step25_classification":"codebase","corroboration_count":1,"fix_decision":"applied"},
+    {"finding_id":"F-20","severity":"Important","description":"Rows did not assert runner exit or full-suite failure semantics.","defect_signature":{"file":"lib/test/test_module_harness.py","line_range":[532,585],"kind":"test_gap"},"step25_classification":"codebase","corroboration_count":1,"fix_decision":"applied"},
+    {"finding_id":"F-21","severity":"Important","description":"No removal-failure injection proved a loud non-green outcome.","defect_signature":{"file":"lib/test/test_module_harness.py","line_range":[552,580],"kind":"test_gap"},"step25_classification":"codebase","corroboration_count":1,"fix_decision":"applied"},
+    {"finding_id":"F-22","severity":"Important","description":"Trap restoration did not verify caller job-control mode preservation.","defect_signature":{"file":"lib/test/test_module_harness.py","line_range":[605,640],"kind":"test_gap"},"step25_classification":"codebase","corroboration_count":1,"fix_decision":"applied"},
+    {"finding_id":"F-23","severity":"Important","description":"Caller traps were restored while the boundary still owned its tally.","defect_signature":{"file":"lib/test/module-harness.sh","line_range":[317,335],"kind":"race"},"step25_classification":"codebase","corroboration_count":1,"fix_decision":"applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id":"F-1","decision":"applied","commit":"677269b7909acc660cf1e1e046ea7640272f33b3"},
+    {"finding_id":"F-2","decision":"applied","commit":"677269b7909acc660cf1e1e046ea7640272f33b3"},
+    {"finding_id":"F-3","decision":"applied","commit":"677269b7909acc660cf1e1e046ea7640272f33b3"},
+    {"finding_id":"F-4","decision":"applied","commit":"677269b7909acc660cf1e1e046ea7640272f33b3"},
+    {"finding_id":"F-5","decision":"applied","commit":"677269b7909acc660cf1e1e046ea7640272f33b3"},
+    {"finding_id":"F-6","decision":"applied","commit":"677269b7909acc660cf1e1e046ea7640272f33b3"},
+    {"finding_id":"F-7","decision":"applied","commit":"677269b7909acc660cf1e1e046ea7640272f33b3"},
+    {"finding_id":"F-8","decision":"applied","commit":"677269b7909acc660cf1e1e046ea7640272f33b3"},
+    {"finding_id":"F-9","decision":"applied","commit":"677269b7909acc660cf1e1e046ea7640272f33b3"},
+    {"finding_id":"F-10","decision":"applied","commit":"677269b7909acc660cf1e1e046ea7640272f33b3"},
+    {"finding_id":"F-11","decision":"applied","commit":"677269b7909acc660cf1e1e046ea7640272f33b3"},
+    {"finding_id":"F-12","decision":"applied","commit":"677269b7909acc660cf1e1e046ea7640272f33b3"},
+    {"finding_id":"F-13","decision":"applied","commit":"677269b7909acc660cf1e1e046ea7640272f33b3"},
+    {"finding_id":"F-14","decision":"applied","commit":"677269b7909acc660cf1e1e046ea7640272f33b3"},
+    {"finding_id":"F-15","decision":"applied","commit":"677269b7909acc660cf1e1e046ea7640272f33b3"},
+    {"finding_id":"F-16","decision":"applied","commit":"677269b7909acc660cf1e1e046ea7640272f33b3"},
+    {"finding_id":"F-17","decision":"applied","commit":"677269b7909acc660cf1e1e046ea7640272f33b3"},
+    {"finding_id":"F-18","decision":"applied","commit":"677269b7909acc660cf1e1e046ea7640272f33b3"},
+    {"finding_id":"F-19","decision":"applied","commit":"677269b7909acc660cf1e1e046ea7640272f33b3"},
+    {"finding_id":"F-20","decision":"applied","commit":"677269b7909acc660cf1e1e046ea7640272f33b3"},
+    {"finding_id":"F-21","decision":"applied","commit":"677269b7909acc660cf1e1e046ea7640272f33b3"},
+    {"finding_id":"F-22","decision":"applied","commit":"677269b7909acc660cf1e1e046ea7640272f33b3"},
+    {"finding_id":"F-23","decision":"applied","commit":"677269b7909acc660cf1e1e046ea7640272f33b3"},
+    {"finding_id":"F-1","decision":"severity-calibrated","source_file":"lib/test/module-harness.sh","claim_text":"Topology comment contradicted behavior.","original_severity":"Critical","calibrated_severity":"Critical","evidence":"A self-contradicting changed claim is non-demotable and would misdirect maintenance of signal ownership."},
+    {"finding_id":"F-2","decision":"severity-calibrated","source_file":"lib/test/run-module.sh","claim_text":"Topology comment contradicted behavior.","original_severity":"Critical","calibrated_severity":"Critical","evidence":"A self-contradicting changed claim is non-demotable and would misdirect maintenance of signal ownership."},
+    {"finding_id":"F-3","decision":"severity-calibrated","source_file":"lib/test/run-module.sh","claim_text":"Foreground-helper hang.","original_severity":"Important","calibrated_severity":"Critical","evidence":"The observable failure was an unbounded run with descendant and scratch leakage."},
+    {"finding_id":"F-4","decision":"severity-calibrated","source_file":"lib/test/modules/create-issue-contract.sh","claim_text":"Deferred module trap.","original_severity":"Critical","calibrated_severity":"Critical","evidence":"The observable failure was an unbounded run with descendant and scratch leakage."},
+    {"finding_id":"F-5","decision":"severity-calibrated","source_file":"lib/test/test_module_harness.py","claim_text":"Fixture fidelity gap.","original_severity":"Critical","calibrated_severity":"Critical","evidence":"The missing fixture allowed the core bounded-cleanup guarantee to pass while the real foreground-child path hung."},
+    {"finding_id":"F-6","decision":"severity-calibrated","source_file":"lib/test/test_module_harness.py","claim_text":"Timeout cleanup leak.","original_severity":"Important","calibrated_severity":"Important","evidence":"Failure cleanup could strand a distinct module group, but only on an already failing/timeout test path."},
+    {"finding_id":"F-7","decision":"severity-calibrated","source_file":"lib/test/test_module_harness.py","claim_text":"POSIX API misuse.","original_severity":"Important","calibrated_severity":"Important","evidence":"Official API availability confirms collection would fail on native Windows instead of skipping by capability."},
+    {"finding_id":"F-8","decision":"severity-calibrated","source_file":"lib/test/test_module_harness.py","claim_text":"Platform capability gap.","original_severity":"Important","calibrated_severity":"Important","evidence":"Unsupported-host collection failure is material but does not affect POSIX execution semantics."},
+    {"finding_id":"F-9","decision":"severity-calibrated","source_file":".changeset/issue-586-signal-cleanup-matrix.md","claim_text":"Reliability overclaim.","original_severity":"Critical","calibrated_severity":"Critical","evidence":"The branch's customer-facing claim directly contradicted reproduced hangs and races."},
+    {"finding_id":"F-10","decision":"severity-calibrated","source_file":"lib/test/module-harness.sh","claim_text":"Launch-window race.","original_severity":"Critical","calibrated_severity":"Critical","evidence":"A signal in the window could terminate the boundary while leaving the just-launched module group orphaned."},
+    {"finding_id":"F-11","decision":"severity-calibrated","source_file":"lib/test/run-module.sh","claim_text":"Focused launch-window race.","original_severity":"Critical","calibrated_severity":"Critical","evidence":"A signal in the window could terminate the runner while leaving the just-launched module group orphaned."},
+    {"finding_id":"F-12","decision":"severity-calibrated","source_file":"lib/test/module-harness.sh","claim_text":"Unbounded forwarding wait.","original_severity":"Critical","calibrated_severity":"Critical","evidence":"A resistant descendant could block interruption forever; bounded escalation is required by the acceptance contract."},
+    {"finding_id":"F-13","decision":"severity-calibrated","source_file":"lib/test/modules/create-issue-contract.sh","claim_text":"Impossible duplicate-signal claim.","original_severity":"Critical","calibrated_severity":"Critical","evidence":"The changed comment contradicted the process topology and could prompt incorrect signal handling changes."},
+    {"finding_id":"F-14","decision":"severity-calibrated","source_file":"lib/test/module-harness.sh","claim_text":"Discarded tally cleanup error.","original_severity":"Important","calibrated_severity":"Important","evidence":"The run could report green while leaving a private artifact; the failure is bounded and diagnostic once propagated."},
+    {"finding_id":"F-15","decision":"severity-calibrated","source_file":"lib/test/modules/create-issue-contract.sh","claim_text":"Premature cleanup completion.","original_severity":"Important","calibrated_severity":"Important","evidence":"A removal failure could be silently laundered into success and suppress later cleanup retry."},
+    {"finding_id":"F-18","decision":"severity-calibrated","source_file":"lib/test/test_module_harness.py","claim_text":"Launch-race test gap.","original_severity":"Critical","calibrated_severity":"Critical","evidence":"Without deterministic coverage, the orphan-producing race could remain while the core matrix stayed green."},
+    {"finding_id":"F-19","decision":"severity-calibrated","source_file":"lib/test/test_module_harness.py","claim_text":"Escalation test gap.","original_severity":"Critical","calibrated_severity":"Critical","evidence":"Without a resistant helper, the bounded-exit guarantee was unproven and the old unbounded wait passed."},
+    {"finding_id":"F-20","decision":"severity-calibrated","source_file":"lib/test/test_module_harness.py","claim_text":"Outcome assertion gap.","original_severity":"Important","calibrated_severity":"Important","evidence":"Cleanup-only assertions could miss wrong exit/failure-tally semantics even when artifacts disappeared."},
+    {"finding_id":"F-21","decision":"severity-calibrated","source_file":"lib/test/test_module_harness.py","claim_text":"Cleanup failure injection gap.","original_severity":"Important","calibrated_severity":"Important","evidence":"The prior suite could not prove cleanup errors affected the verdict, allowing silent green leaks."},
+    {"finding_id":"F-22","decision":"severity-calibrated","source_file":"lib/test/test_module_harness.py","claim_text":"Monitor-state coverage gap.","original_severity":"Important","calibrated_severity":"Important","evidence":"Leaking job-control mode into callers changes shell behavior after the helper returns."},
+    {"finding_id":"F-23","decision":"severity-calibrated","source_file":"lib/test/module-harness.sh","claim_text":"Post-module tally race.","original_severity":"Important","calibrated_severity":"Important","evidence":"A narrow signal window could bypass private-tally cleanup and leave an artifact; the run otherwise remained bounded."},
+    {"finding_id":"S-1","decision":"severity-calibrated","source_file":"lib/test/module-harness.sh","claim_text":"Forced escalation leaves scratch roots owned by selectable modules that do not consume DEVFLOW_MODULE_OWNED_SCRATCH_ROOT.","original_severity":"Important","calibrated_severity":"Important","evidence":"A reproduced parent-only TERM left devflow-raf-contract.* after the worker was killed, directly violating the no-surviving-scratch acceptance contract."},
+    {"finding_id":"S-2","decision":"severity-calibrated","source_file":"lib/test/test_module_harness.py","claim_text":"The POSIX capability skip is not propagated into the suite skip tally.","original_severity":"Important","calibrated_severity":"Important","evidence":"A fully skipped unittest class exits zero and run.sh records only PASS, so unsupported-host coverage loss is invisible in the terminal tally."},
+    {"finding_id":"S-3","decision":"severity-calibrated","source_file":"lib/test/module-harness.sh","claim_text":"The launch-window test hook waits forever without an external release after a pending signal.","original_severity":"Important","calibrated_severity":"Suggestion","evidence":"The unbounded path is gated entirely behind DEVFLOW_TEST_LAUNCH_WINDOW_FILE and cannot affect production runs, but it weakens deterministic test instrumentation."},
+    {"finding_id":"S-5","decision":"severity-calibrated","source_file":"lib/test/run-module.sh","claim_text":"A scratch cleanup failure is reported as a module process exit status.","original_severity":"Critical","calibrated_severity":"Critical","evidence":"The changed recap factually contradicts the observed successful module exit; self-contradicting changed diagnostics are non-demotable."},
+    {"finding_id":"S-6","decision":"severity-calibrated","source_file":"lib/test/module-harness.sh","claim_text":"Nested job control can launch the worker outside the supervisor process group.","original_severity":"Important","calibrated_severity":"Important","evidence":"A PTY probe observed distinct supervisor and worker PGIDs, so forwarding and escalation can miss the worker on a supported execution topology."}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 23,
+    "fix_diff_lines": 1035,
+    "new_corroborated_critical": 0
+  },
+  "fix_delta_gate": {
+    "result": "clean",
+    "iter_fix_base": "202f802e065fc8d96b15b8bf34c5e10865164f7b",
+    "reviewed_head": "f07df0845cdef7b58d2144ea83d8f4c51fd67d87",
+    "attempts": 1,
+    "evidence": "Blinded reviewer verified guard/consumer contracts, launch races, bounded escalation and reaping, cleanup/error propagation, POSIX assumptions, trap restoration, and matrix fidelity."
+  },
+  "shadow": {
+    "ran_at": "2026-07-19T05:12:00Z",
+    "reviewed_sha": "f07df0845cdef7b58d2144ea83d8f4c51fd67d87",
+    "verdict": "REJECT",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:type-design-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:type-design-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": null,
+    "checklist_skipped": null,
+    "trigger": "early (engine_self_modifying, after iteration 1)",
+    "phase3_findings": [
+      {"finding_id":"S-1","agent":"devflow:code-reviewer","severity":"Important","description":"Forced escalation removes only the boundary root while other selectable modules allocate sibling scratch roots directly under TMPDIR; a review-and-fix reproduction left devflow-raf-contract.* behind.","defect_signature":{"file":"lib/test/module-harness.sh","line_range":[498,520],"kind":"incomplete-cleanup-ownership"},"corroboration_count":3},
+      {"finding_id":"S-2","agent":"devflow:code-reviewer","severity":"Important","description":"The POSIX-only unittest class can skip every signal row and exit zero while run.sh discards successful output and records no host-capability skip.","defect_signature":{"file":"lib/test/test_module_harness.py","line_range":[339,342],"kind":"vacuous-host-skip"},"corroboration_count":3},
+      {"finding_id":"S-3","agent":"devflow:silent-failure-hunter","severity":"Suggestion","description":"The test-only launch-window hook busy-spins until an external .release file even after the runner has recorded a pending signal.","defect_signature":{"file":"lib/test/module-harness.sh","line_range":[368,376],"kind":"unbounded-test-launch-wait"},"corroboration_count":3},
+      {"finding_id":"S-4","agent":"devflow:silent-failure-hunter","severity":"Suggestion","description":"Focused and full-suite validation failures clear the newly allocated scratch path before cleanup, orphaning a relative-TMPDIR allocation.","defect_signature":{"file":"lib/test/run-module.sh","line_range":[272,276],"kind":"orphaned-scratch-on-validation-failure"},"corroboration_count":4},
+      {"finding_id":"S-5","agent":"devflow:comment-analyzer","severity":"Critical","description":"Focused scratch cleanup failure overwrites MODULE_RC and falsely reports that a successful module process exited with status 1.","defect_signature":{"file":"lib/test/run-module.sh","line_range":[364,403],"kind":"documented_falsehood"},"corroboration_count":3},
+      {"finding_id":"S-6","agent":"devflow:type-design-analyzer","severity":"Important","description":"The supervisor launches its worker while nested monitor mode is enabled, which can put the worker in another PGID under a PTY and outside forwarded group signals.","defect_signature":{"file":"lib/test/module-harness.sh","line_range":[283,351],"kind":"process-group-identity-model"},"corroboration_count":1},
+      {"finding_id":"S-7","agent":"devflow:type-design-analyzer","severity":"Suggestion","description":"SignalRowState remains a positional aggregate that permits boundary and Path-role mismatches despite being frozen.","defect_signature":{"file":"lib/test/test_module_harness.py","line_range":[35,50],"kind":"invalid-state-modeling"},"corroboration_count":1},
+      {"finding_id":"S-8","agent":"devflow:type-design-analyzer","severity":"Suggestion","description":"PID readers accept zero, so a corrupted test PID can turn group termination into kill -0 against the caller's own process group.","defect_signature":{"file":"lib/test/module-harness.sh","line_range":[240,257],"kind":"invalid-process-identity"},"corroboration_count":1}
+    ],
+    "phase2_fails": [
+      {"claim_signature":"sig08-validation-failure-orphans-scratch","description":"Validation failure loses the cleanup handle, and create-issue self-allocation lacks equivalent path validation before recursive cleanup."},
+      {"claim_signature":"sig15-incomplete-test-hook-env-scrub","description":"The general runner fixture does not scrub every newly consumed test hook, and resistant-helper coverage omits the parent-boundary path."},
+      {"claim_signature":"sig16-release-note-omits-platform-scope","description":"The release note omits the POSIX process-group capability scope enforced by the matrix."}
+    ],
+    "comparison": {
+      "shadow_total": 11,
+      "overlap_with_iter_N": 0,
+      "new": 11,
+      "new_critical": 1,
+      "new_important": 4
+    },
+    "promoted_to_iter_next": true,
+    "promotion_provenance": "shadow"
+  },
+  "devflow_reflection": [
+    "fix-delta gate clean",
+    "early shadow review completed with full six-reviewer coverage and promoted 11 new finding/checklist records to iteration 2",
+    "over-grade calibration gate: S-1 Important, S-2 Important, S-3 calibrated to Suggestion, S-5 Critical, and S-6 Important recorded with technical evidence"
+  ],
+  "parked_class_sweep": {"status":"clean","classes":[]},
+  "cap_drops": {"count":0,"by_category":{}},
+  "telemetry": "unavailable",
+  "stale_prose_check": {"result":"pass","rows":[]},
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "duration_s": 325,
+    "skipped_checks": []
+  },
+  "base_checkpoint": {"token":"UPDATED","behind_by":15}
+}

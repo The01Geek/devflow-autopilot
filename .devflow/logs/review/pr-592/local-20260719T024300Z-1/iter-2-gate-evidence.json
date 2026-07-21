@@ -1,0 +1,20 @@
+[
+  {
+    "decision": "RED",
+    "command": "python3 -m unittest selected iteration-2 regression tests -v",
+    "result": "fail",
+    "evidence": "Before production fixes: all 18 matrix rows left devflow-generic-module.* scratch; the controlling-TTY probe observed worker PGID 5 outside supervisor PGID 3; both launch-window rows timed out without .release; focused/full-suite relative-TMPDIR allocations survived validation rejection; focused cleanup was falsely recapped as module exit status 1; the inherited launch hook reached a normal runner test; and create-issue accepted an unsafe mktemp root and deleted the controlled victim."
+  },
+  {
+    "decision": "GREEN",
+    "command": "env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null bash lib/test/run.sh",
+    "result": "pass",
+    "evidence": "9488 passed, 0 failed, 1 skipped; the sole skip was the expected blocking stale-prose self-scan because the iteration-2 fix was still uncommitted. Focused Python suites also passed 91 tests in 50.520s, and the exact 18-row signal matrix plus resistant-process paths passed in 4.328s."
+  },
+  {
+    "decision": "MUTATION_RED",
+    "command": "copy-based targeted mutation checks",
+    "result": "fail-as-expected",
+    "evidence": "Each targeted regression flipped RED independently: removing boundary TMPDIR containment leaked generic scratch; removing pre-launch set +m split the worker PGID under a controlling TTY; overwriting MODULE_RC falsely recapped cleanup failure as a module exit; bypassing create-issue root validation deleted a controlled victim; and suppressing the unavailable-host reason failed capability reporting."
+  }
+]

@@ -1,0 +1,54 @@
+{
+  "iter": 4,
+  "source": "review-and-fix",
+  "started_at": "2026-06-24T08:10:00Z",
+  "fix_commit_sha": "e74103dfa63c9d267858a21c380421b056fe9593",
+  "fix_files": [
+    "lib/test/run.sh",
+    "skills/implement/SKILL.md"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [],
+  "promoted_from_shadow": true,
+  "phase3_findings": [
+    {
+      "agent": "pr-review-toolkit:silent-failure-hunter",
+      "severity": "Important",
+      "description": "failed gh issue edit --add-label routed to stderr only, not durable workpad (invisible in autonomous cloud runs)",
+      "defect_signature": {
+        "file": "skills/implement/SKILL.md",
+        "line_range": [
+          780,
+          783
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "S-1",
+      "decision": "applied",
+      "commit": "e74103dfa63c9d267858a21c380421b056fe9593"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 1,
+    "fix_diff_lines": 36,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": "unavailable"
+}
