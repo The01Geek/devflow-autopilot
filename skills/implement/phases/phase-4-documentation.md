@@ -223,6 +223,10 @@ if [ -n "$MANIFESTS" ]; then
     # _compute_id payload — (file|symbol|kind|summary.strip()), every field defaulted to ""
     # — so a finding deferred in both runs collapses to one row, is filed once, and a null
     # field never errors the string concat. Header fields come from the first input.
+    # The merge preserves every per-entry field verbatim (`.[].deferrals[]` passes whole
+    # objects through unique_by), so a `settled-by-disclosure` entry's flat `category` and
+    # its top-level `disclosure: {path, phrase}` object survive into the aggregate unchanged
+    # (dedup key untouched) — no jq change is needed for foreclosure passthrough (issue #621).
     # Idempotent re-runs: feed any prior hydrated aggregate FIRST so its `follow_up` entries
     # win the dedup (unique_by keeps the first occurrence); otherwise a re-run rebuilds $AGG
     # from the raw run-scoped manifests (which never carry follow_up), wiping the prior
@@ -336,6 +340,8 @@ echo "phase 4.0.5 filing fence ran; pr=[${PR_NUMBER:-}] discovery=[${DISCOVERY_S
 The helper groups manifest entries by `file` (one issue per source file), files each issue with a repo-agnostic title/body template (`<area>: deferred review findings in <file> (carried from #<source_issue>)` and a body containing the verbatim findings plus the `PR #<pr_number>` substring that the verdict matcher's mutual-cross-link guard validates against), then rewrites the manifest in place with `id: dfr-<6-hex>` (deterministic hash of `file + symbol + kind + summary`) and `follow_up: {issue, url, filed_at, filed_by}` populated per entry. Filed issue numbers are printed to stdout, one per line.
 
 Failure mode: if `gh issue create` fails for a particular file-group, that group's entries are dropped from the manifest entirely — no fake deferral can downgrade a future review. The helper exits 0 as long as at least one group succeeded. Capture stderr in your `Devflow Reflection` notes if anything was dropped.
+
+**Foreclosure passthrough (issue #621).** A `settled-by-disclosure` entry files **no** follow-up issue — the shipped disclosure is its deliverable — yet still survives into the rewritten aggregate unchanged (with a `dfr-` id assigned, no `follow_up`, its `category` and `disclosure` object preserved) so `/pr-description` can render it and `/devflow:review` can honor it. Consequently a manifest whose entries are **all** foreclosures files zero issues and **still exits 0** (printing no issue numbers), rewriting the aggregate; the `FILED_STATE=filed` arm handles it benignly (empty `FILED_NUMBERS`). This is the all-foreclosed exit-0 arm — do not treat an exit-0 with no printed issue numbers as a failure.
 
 The fence above recorded the filed issue numbers in the workpad **and printed them** (`filed deferred-finding issues=[...]`) — that print is load-bearing, not decoration, and it deliberately lives **inside** the filing fence: `FILED_NUMBERS` is a shell variable, and a shell variable **does not survive into a later separate command** on the cloud runner (the same rule that forces the label list to be printed). Reading it from a *later* fence would always see it empty, print `[]`, and lead you to conclude "nothing was filed" on a run that filed issues — labelling none of them. Read the printed list from that tool result; it is the only channel that carries the numbers to the agent-level label calls below.
 
