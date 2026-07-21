@@ -803,7 +803,7 @@ After scaffolding and the dependency preflight, `/devflow:init` runs one final *
 claude plugin marketplace add The01Geek/devflow-autopilot \
   && claude plugin install devflow@devflow-marketplace
 ```
-DevFlow declares **zero companion-plugin dependencies** (every external asset it once dispatched is now first-party — see §6), so `/plugin install` resolves on its own with no `claude-plugins-official` prerequisite. PyYAML is a separate, manual prerequisite (`pip install -r requirements.txt`); `/plugin install` never runs `pip`.
+DevFlow declares **zero companion-plugin dependencies** (every external asset it once dispatched is now first-party — see §6), so `/plugin install` resolves on its own with no `claude-plugins-official` prerequisite. PyYAML is a separate, manual prerequisite (`python3 -m pip install PyYAML`; a plugin-cache install has no `requirements.txt` to point `pip` at); `/plugin install` never runs `pip`.
 
 **Cloud tier (one line, from repo root):**
 ```bash
