@@ -45826,6 +45826,8 @@ violation-leading-slash.sh:4:on the documented leading-slash /repos/ spelling
 violation-preflag.sh:3:when a global flag sits between the head and the api subcommand
 violation-gh-exe.sh:3:on the gh.exe Windows head
 violation-nested-substitution.sh:3:nested two substitutions deep
+violation-suffix-gh-var.sh:5:on a $VAR head whose name merely ENDS in GH (the suffix rule)
+violation-tilde-fence.md:4:inside a ~~~ fence, not only a backtick fence
 E664_VIOLATIONS
 
 # Shapes that must NOT be flagged, each for its own reason.

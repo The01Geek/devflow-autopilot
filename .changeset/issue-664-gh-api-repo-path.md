@@ -4,7 +4,7 @@ type: Fixed
 ---
 
 - **`/devflow:implement`'s outcome-reaction fence no longer addresses the repository through an
-  Actions-only environment variable.** The fallback triggering-comment lookup now uses the
+  Actions-only environment variable in its `gh api` REST path.** The fallback triggering-comment lookup now uses the
   `{owner}/{repo}` placeholders `gh` fills from the git remote, so it resolves on the
   local/interactive tier instead of collapsing to an empty repo segment and issuing a doomed API
   call at every terminal `Status` transition. The fence additionally admits a resolved comment id

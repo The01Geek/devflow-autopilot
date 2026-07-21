@@ -13,12 +13,12 @@ downstream `[ -n "$VAR" ]` guard is satisfied by a 404 blob rather than an id.
 The correct idiom is the `{owner}/{repo}` placeholder pair, which `gh` fills from
 the git remote on both tiers.
 
-Scope boundaries, all deliberate and asserted by the suite:
+Scope boundaries, all deliberate and each asserted by a fixture in the suite:
 
 * The audited population excludes `lib/test/`, `docs/`, `.github/workflows/`,
   `.github/actions/`, `.devflow/logs/`, `.devflow/learnings/`, `.changeset/`,
-  and `CHANGELOG.md`. `lib/test/`, `docs/`, and `CHANGELOG.md` carry the rule's
-  own statement text and the `#466` pin literal; the `.devflow/` corpora are machine-appended
+  and `CHANGELOG.md`. `lib/test/` carries the `#466` pin literal; `docs/` and
+  `CHANGELOG.md` carry the rule's own statement text; the `.devflow/` corpora are machine-appended
   records that quote reviewed commands verbatim; `.changeset/` is `CHANGELOG.md`'s
   producer and describes before-states. `.github/workflows/` and
   `.github/actions/` are excluded on the merits: both run only inside Actions,
@@ -35,8 +35,13 @@ Scope boundaries, all deliberate and asserted by the suite:
   string reached through one assignment hop (`repos/$REPO/…`) is invisible here
   even when that variable was populated from the environment. Both residuals are
   accepted, not closed. The path argument itself is matched with or without a
-  leading `/`, and a `-`-prefixed flag between the head and `api` is skipped, so
-  neither the documented `/repos/…` spelling nor `gh -R … api …` evades the test.
+  leading `/`, and the `api` subcommand is located by search rather than by
+  position, so neither the documented `/repos/…` spelling nor a global flag
+  between the head and the subcommand (`gh -R … api …`) evades the test.
+* Only *shell* statements are examined. A REST path composed in another language
+  and handed to `gh` — `scripts/build-experiment-records.py` builds one from
+  `os.environ.get("GITHUB_REPOSITORY")` with a `gh repo view` fallback — is a
+  third accepted residual, invisible to a shell-statement scanner by construction.
 
 The statement model — continuation folding aside — is **shared, not re-derived**:
 this scanner imports `extract-command-heads.py`'s splitter, substitution walker,
@@ -53,9 +58,10 @@ after it is still reached.
 Usage:
     lint-gh-api-repo-path.py [--root DIR] [--files-from PATH]
 
-Exit status is 0 when the audited population is clean, and non-zero both when a
-violation is found and when the enumeration is unusable — callers distinguish the
-two by reading the report, never the exit code.
+Exit status is 0 only when every selected file was read and none of them violated
+the rule. It is non-zero when a violation is found, when the enumeration is
+unusable, and when any selected path could not be read — callers distinguish the
+three by reading the report, never the exit code.
 """
 
 from __future__ import annotations
@@ -194,7 +200,10 @@ def considered_lines(text: str, markdown: bool) -> list[tuple[int, str]]:
     for number, line in enumerate(text.split("\n"), start=1):
         stripped = line.lstrip()
         if markdown:
-            if stripped.startswith("```"):
+            # Both CommonMark fence spellings toggle: a `~~~bash` block is a fence like
+            # any other, and recognizing only backticks would leave its interior silently
+            # treated as prose.
+            if stripped.startswith("```") or stripped.startswith("~~~"):
                 inside = not inside
                 continue
             if inside:
@@ -371,10 +380,15 @@ def main(argv: list[str] | None = None) -> int:
         f"lint-gh-api-repo-path: audited {read_ok} of {len(audited)} files"
         + (f" ({len(skipped)} skipped)" if skipped else "")
     )
-    if audited and read_ok == 0:
+    if skipped:
+        # A skipped file is never a clean pass (the repo's standing suite convention): a
+        # PARTIAL skip is the same defect as a total one, just quieter — the guard reports
+        # clean over a population it did not fully read. Gate on any skip, not only on the
+        # all-skipped case, so a permission blip or a race against a rewritten worktree
+        # cannot silently shrink the audit while the exit code stays green.
         print(
-            "lint-gh-api-repo-path: every selected path was skipped — the root is almost "
-            "certainly wrong; refusing to report clean",
+            f"lint-gh-api-repo-path: {len(skipped)} selected path(s) could not be audited — "
+            "refusing to report clean; see the SKIPPED lines above",
             file=sys.stderr,
         )
         return 1
