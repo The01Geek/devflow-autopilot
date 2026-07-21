@@ -36879,13 +36879,27 @@ RAF_ROOT_CEIL=3567
 # DIRECT reception pass inherits it, not only the loop. The relocation is per-surface neutral, but
 # the direct-pass framing the extension now needs (a self-contained intro) plus the root's residual
 # loop-tail pointer net +81 words on the always-loaded surface (root -149, receiving ext +230).
+# Measured against the up-to-date-with-main tree with ~4 words of headroom per #619's convention.
+# Update docs/review-and-fix-budget.md's ceilings-table and Measured cells in lockstep; the audited
+# decision is docs/cutovers/issue-640-direct-pass-editor-authority.md.
 # #621 then added the settled-by-disclosure foreclosure vocabulary to shadow-review.md (the
 # max-step reference), re-raising the max-step ceiling 18996->19073 (measured + ~4 headroom).
-# Measured against the up-to-date-with-main tree. Update docs/review-and-fix-budget.md's
-# ceilings-table and Measured cells in lockstep; the audited decisions are
-# docs/cutovers/issue-640-direct-pass-editor-authority.md and this issue's budget-doc note.
-RAF_LOAD_CEIL=7734
-RAF_MAXSTEP_CEIL=19073
+# #655 raised both ceilings again, on top of #640 and #621, measured against the merged tree. The
+# generalized regenerate-on-conflict rule the issue mandates is byte-identical across the three
+# DevFlow prompt extensions, and TWO of those (review-and-fix.md and receiving-code-review.md)
+# are on this bundle's always-loaded surface since #620 — so the rule lands on the initial load
+# twice, 476 words each. It cannot be split or shortened past its operative minimum: AC7 pins
+# the three copies byte-identical and requires the oracle citation, the conflict-path/
+# conflict-sibling match, the class+recipe read, and BOTH fail-closed defaults (path not among
+# them; --list unrunnable). Both ceilings carry the repo's usual ~4 words over the measurement,
+# for the #556/#619/#618 reason: a ceiling set exactly at the measurement makes the next
+# one-sentence edit a budget breach. The growth is the audited decision recorded in
+# docs/cutovers/issue-655-conflict-oracle.md; update docs/review-and-fix-budget.md's
+# ceilings-table cells in lockstep. The max-step ceiling below sits on #621's 19073 base, not
+# #640's 18996 — this branch's +952 is applied to the merged tree's measurement, never to the
+# pre-merge one.
+RAF_LOAD_CEIL=8686
+RAF_MAXSTEP_CEIL=20025
 assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
   "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"
 assert_eq "#530 budget: root + always-loaded extensions (initial load) <= $RAF_LOAD_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W)))" "yes" \
@@ -36939,7 +36953,7 @@ done
 assert_eq "#620 budget: maintainer note's prose root ceiling matches RAF_ROOT_CEIL ($RAF_ROOT_CEIL)" "yes" \
   "$(case "$_raf_doc_nocommas" in *"The root sits below its ${RAF_ROOT_CEIL}-word"*) echo yes;; *) echo no;; esac)"
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +5,997 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +6,045 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute
@@ -36964,6 +36978,18 @@ _raf_cum_row="${_raf_cum_row//,/}"
 _raf_cum_row="${_raf_cum_row//\*/}"
 assert_eq "#530 budget: doc cumulative-path words cell matches fresh measurement ($RAF_CUM_W)" "yes" \
   "$(case "$_raf_cum_row" in *"| — | $RAF_CUM_W | — |"*) echo yes;; *) echo no;; esac)"
+# #655: the growth bullet's HEADLINE literal was the only bound figure, so the bullet's own BODY
+# — which restates the cumulative, the BEFORE basis, and the peak — went stale under this change's
+# ceiling renegotiation and shipped desk-green past the pin below (the #539 stale-cell class, one
+# level in). Bind those three body figures to the same live measurements. Commas are stripped so
+# the doc's comma-separated rendering matches the computed integer, as the sibling row checks do.
+_raf_body="$(tr -d ',' < "$RAF_BUDGET_DOC")"
+assert_eq "#655 budget: the growth bullet body's cumulative figure matches fresh measurement ($RAF_CUM_W)" "yes" \
+  "$(case "$_raf_body" in *"is $RAF_CUM_W words vs."*) echo yes;; *) echo no;; esac)"
+assert_eq "#655 budget: the growth bullet body's BEFORE basis matches monolith + live extension ($((36201 + RAF_EXT_W)))" "yes" \
+  "$(case "$_raf_body" in *"vs. $((36201 + RAF_EXT_W))"*) echo yes;; *) echo no;; esac)"
+assert_eq "#655 budget: the justified-growth prose peak figure matches fresh measurement ($((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W+RAF_MAXREF_W)))" "yes" \
+  "$(case "$_raf_body" in *"peak $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W+RAF_MAXREF_W)) words not $RAF_CUM_W"*) echo yes;; *) echo no;; esac)"
 _raf_doc_growth="$(grep -F 'named justified-growth warning): +' "$RAF_BUDGET_DOC" | head -n 1 || true)"
 _raf_doc_growth="${_raf_doc_growth##*warning): +}"
 _raf_doc_growth="${_raf_doc_growth%% words*}"
