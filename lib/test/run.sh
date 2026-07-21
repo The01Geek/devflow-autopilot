@@ -36444,9 +36444,13 @@ fi
 # every clean --strict run turned red.
 _PCL687="$LIB/test/pin-corpus-lint.py"
 _ECH687="$LIB/test/extract-command-heads.py"
-# pin-corpus-lint.py: ONE guard from the start of run_lint to the start of _read
-# (the def immediately after _emit_wrapped_or_absent). That contiguous range covers
-# every covered emit — the COLLISION emit in run_lint, the HELP emit in run_wrapped,
+# pin-corpus-lint.py: ONE guard from the start of run_lint to the start of
+# parse_diff (the def immediately after _emit_wrapped_or_absent on this merged tree —
+# issue #666 inserted parse_diff/…/run_mutation_routing between _emit_wrapped_or_absent
+# and _read, so the #687-covered `--strict` subcommands now end at parse_diff, not _read;
+# run_mutation_routing is a SEPARATE always-exit-0 subcommand outside --strict, so its own
+# `print(` emit is deliberately outside this guard). That contiguous range covers
+# every --strict-covered emit — the COLLISION emit in run_lint, the HELP emit in run_wrapped,
 # and the WRAPPED/RELOCATED/ABSENT emits in _emit_wrapped_or_absent — and needs NO
 # exemption: every finding emit in it is routed through _emit, and the _emit helper
 # itself is defined ABOVE run_lint, outside the range. Anchoring over run_lint and
@@ -36454,7 +36458,7 @@ _ECH687="$LIB/test/extract-command-heads.py"
 # between them) in neither region.
 assert_count_red_under "#687 pin-corpus-lint emit-helper guard: no raw stdout write in the run_lint.._emit_wrapped_or_absent range" \
   '^def run_lint\(' \
-  '^def _read\(path\):' \
+  '^def parse_diff\(' \
   'sys\.stdout\.write|os\.write\(1|print\(.*file=sys\.stdout|print\(' \
   -eq 0 \
   's/sys\.stderr\.write\(f"RESOLVED-COUNT/print(f"RESOLVED-COUNT/' \
