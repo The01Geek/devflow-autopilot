@@ -1300,7 +1300,7 @@ _ra_tool_has_flag() {  # root tool-relative-path case-glob
 RA_IFACE="$_ra_tmp_root/iface"; _ra_fixture "$RA_IFACE"
 assert_eq "#655 recipe interface: cloud-writer names the 'generate' subcommand the tool declares" \
   "yes/yes" \
-  "$(_ra_recipe_names cloud-writer-manifest 'cloud_writer_contract.py generate')/$(_ra_tool_has_flag "$RA_REPO" lib/test/cloud_writer_contract.py '*generate[!a-z-]*')"
+  "$(_ra_recipe_names cloud-writer-manifest 'cloud_writer_contract.py generate')/$(_ra_tool_has_flag "$RA_REPO" lib/test/cloud_writer_contract.py '*check,generate,verify*')"
 assert_eq "#655 recipe interface: prompt-mass names the '--write-baseline' writer the tool declares" \
   "yes/yes" \
   "$(_ra_recipe_names prompt-mass-baseline '--write-baseline')/$(_ra_tool_has_flag "$RA_REPO" lib/test/prompt-mass-census.py '*--write-baseline[!-]*')"
@@ -1327,6 +1327,15 @@ sed 's/write-baseline/write-baseline-renamed/g' "$RA_REPO/lib/test/prompt-mass-c
   > "$RA_IFACE_MUT/lib/test/prompt-mass-census.py" 2>/dev/null
 assert_eq "#655 renaming --write-baseline in the tool turns the interface check RED" \
   "no" "$(_ra_tool_has_flag "$RA_IFACE_MUT" lib/test/prompt-mass-census.py '*--write-baseline[!-]*')"
+# The same proof for the cloud-writer subcommand. It needs one MORE than its sibling: `generate` is
+# an ordinary English word likely to appear in argparse prose, so a rename that leaves the word
+# elsewhere in the help text would keep a naive check green. Renaming the subcommand in the tool
+# must still turn it RED.
+mkdir -p "$RA_IFACE_MUT/lib/test"
+sed 's/"generate"/"regen655"/g; s/{check,generate,verify}/{check,regen655,verify}/g' \
+  "$RA_REPO/lib/test/cloud_writer_contract.py" > "$RA_IFACE_MUT/lib/test/cloud_writer_contract.py" 2>/dev/null
+assert_eq "#655 renaming the 'generate' subcommand in the tool turns the interface check RED" \
+  "no" "$(_ra_tool_has_flag "$RA_IFACE_MUT" lib/test/cloud_writer_contract.py '*check,generate,verify*')"
 
 # ── (e) exactly ONE conflict-sibling line, naming the reviewer lock ──────────────
 assert_eq "#655 --list emits exactly one conflict-sibling line" "1" \
@@ -1370,6 +1379,32 @@ _ra_bind_fails_closed "an out-of-set conflict_class" \
 _ra_bind_fails_closed "an empty recipe" \
   's/^        "policy": "add the missing coverage rows.*$/        "policy": "",/' \
   "empty recipe (policy)"
+
+# ── (f2) an underivable region set exits 2 (INFRASTRUCTURE), never 1 ────────────
+# `_capability_region_targets` documents that it RAISES rather than returning a partial set, and
+# that the top-level net routes the raise to the exit-2 infrastructure state. Nothing exercised
+# that: the (f) arms above raise at module IMPORT — before `try: raise SystemExit(main())` — so
+# they exit 1 and cannot cover it. The distinction is this repo's unchecked-vs-resolvable
+# discriminator (the same reason a dozen sibling arms pin "exits 2, never 1"): an exit 1 here
+# would tell the agent a conflicted artifact is resolvable when the path set was never derived,
+# which is exactly the fail-open the shipped rule's "when --list cannot run" default exists to stop.
+_ra_region_fails_infra() {  # label fixture-mutation-command
+  local label="$1" dest
+  dest="$_ra_tmp_root/c655-regions-$(printf '%s' "$label" | tr -c 'a-zA-Z0-9' '-')"
+  rm -rf "$dest"; _ra_fixture "$dest"
+  ( cd "$dest" && eval "$2" ) >/dev/null 2>&1
+  python3 "$RA_HELPER" --list --repo-root "$dest" >"$dest/.ra.out" 2>&1
+  printf '%s\n' "$?" >"$dest/.ra.rc"
+  assert_eq "#655 $label exits 2 (infrastructure), never 1" "2" "$(_ra_rc "$dest")"
+  _ra_has "#655 $label is named as an infrastructure failure" "$dest" "INFRASTRUCTURE"
+}
+# An ABSENT generator: the import itself cannot resolve.
+_ra_region_fails_infra "an absent capability generator" \
+  "rm -f lib/generate-capability-profiles.py"
+# A generator that imports cleanly but declares NO regions: the fail-closed arm inside the
+# derivation, distinct from the absent-file arm above (a short list must not read as a clean one).
+_ra_region_fails_infra "an empty generator REGIONS list" \
+  "sed -E 's/^REGIONS = \\[\$/REGIONS = []  # mutated/' lib/generate-capability-profiles.py > .rg.tmp && mv .rg.tmp lib/generate-capability-profiles.py"
 
 # ── (g) the recipe is a SINGLE source: `policy`, read by BOTH consumers ──────────
 # A parallel `conflict_recipe` field would let the batched pass and the conflict rule

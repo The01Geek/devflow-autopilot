@@ -2,9 +2,9 @@
   "version": 1,
   "files": {
     ".devflow/prompt-extensions/create-issue.md": 22094,
-    ".devflow/prompt-extensions/implement.md": 33743,
-    ".devflow/prompt-extensions/receiving-code-review.md": 11612,
-    ".devflow/prompt-extensions/review-and-fix.md": 19911,
+    ".devflow/prompt-extensions/implement.md": 34460,
+    ".devflow/prompt-extensions/receiving-code-review.md": 12329,
+    ".devflow/prompt-extensions/review-and-fix.md": 20628,
     ".devflow/prompt-extensions/review.md": 3280,
     "CLAUDE.md": 64495,
     "agents/checklist-deduper.md": 5537,

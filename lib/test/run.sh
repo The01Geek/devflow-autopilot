@@ -36130,7 +36130,7 @@ RAF_ROOT_CEIL=3567
 # tree — which absorbs #642's extension growth — with ~4 words of headroom per #619's convention.
 # Update docs/review-and-fix-budget.md's ceilings-table and Measured cells in lockstep; the audited
 # decision is docs/cutovers/issue-620-reception-extension-port.md.
-# #655 raised the initial-load ceiling 7653->8253 and the max-step ceiling 18915->19515. The
+# #655 raised the initial-load ceiling 7653->8467 and the max-step ceiling 18915->19729. The
 # generalized regenerate-on-conflict rule the issue mandates is byte-identical across the three
 # DevFlow prompt extensions, and TWO of those (review-and-fix.md and receiving-code-review.md)
 # are on this bundle's always-loaded surface since #620 — so the rule lands on the initial load
@@ -36142,8 +36142,8 @@ RAF_ROOT_CEIL=3567
 # one-sentence edit a budget breach. The growth is the audited decision recorded in
 # docs/cutovers/issue-655-conflict-oracle.md; update docs/review-and-fix-budget.md's
 # ceilings-table cells in lockstep.
-RAF_LOAD_CEIL=8253
-RAF_MAXSTEP_CEIL=19515
+RAF_LOAD_CEIL=8467
+RAF_MAXSTEP_CEIL=19729
 assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
   "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"
 assert_eq "#530 budget: root + always-loaded extensions (initial load) <= $RAF_LOAD_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W)))" "yes" \
@@ -36222,6 +36222,18 @@ _raf_cum_row="${_raf_cum_row//,/}"
 _raf_cum_row="${_raf_cum_row//\*/}"
 assert_eq "#530 budget: doc cumulative-path words cell matches fresh measurement ($RAF_CUM_W)" "yes" \
   "$(case "$_raf_cum_row" in *"| — | $RAF_CUM_W | — |"*) echo yes;; *) echo no;; esac)"
+# #655: the growth bullet's HEADLINE literal was the only bound figure, so the bullet's own BODY
+# — which restates the cumulative, the BEFORE basis, and the peak — went stale under this change's
+# ceiling renegotiation and shipped desk-green past the pin below (the #539 stale-cell class, one
+# level in). Bind those three body figures to the same live measurements. Commas are stripped so
+# the doc's rendering (`44,412`) matches the computed integer, exactly as the sibling row checks do.
+_raf_body="$(tr -d ',' < "$RAF_BUDGET_DOC")"
+assert_eq "#655 budget: the growth bullet body's cumulative figure matches fresh measurement ($RAF_CUM_W)" "yes" \
+  "$(case "$_raf_body" in *"is $RAF_CUM_W words vs."*) echo yes;; *) echo no;; esac)"
+assert_eq "#655 budget: the growth bullet body's BEFORE basis matches monolith + live extension ($((36201 + RAF_EXT_W)))" "yes" \
+  "$(case "$_raf_body" in *"vs. $((36201 + RAF_EXT_W))"*) echo yes;; *) echo no;; esac)"
+assert_eq "#655 budget: the justified-growth prose peak figure matches fresh measurement ($((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W+RAF_MAXREF_W)))" "yes" \
+  "$(case "$_raf_body" in *"peak $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W+RAF_MAXREF_W)) words, not $RAF_CUM_W"*) echo yes;; *) echo no;; esac)"
 _raf_doc_growth="$(grep -F 'named justified-growth warning): +' "$RAF_BUDGET_DOC" | head -n 1 || true)"
 _raf_doc_growth="${_raf_doc_growth##*warning): +}"
 _raf_doc_growth="${_raf_doc_growth%% words*}"
