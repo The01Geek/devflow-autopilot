@@ -11,7 +11,7 @@
       "description": "Turn a one-line request into a tested, reviewed, documented PR ready for your review: implement, review, docs, and a self-improving retrospective loop.",
       "author": { "name": "Daniel Radman", "email": "daniel@radman.ai" },
       "homepage": "https://github.com/The01Geek/devflow-autopilot",
-      "version": "2.20.2",
+      "version": "2.20.3",
       "license": "MIT",
       "keywords": [
         "implement",
