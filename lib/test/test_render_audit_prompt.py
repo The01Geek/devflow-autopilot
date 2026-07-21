@@ -530,7 +530,8 @@ class FailClosedAndAnchoring(unittest.TestCase):
                 # Attribute: argparse names THIS option's type failure, so a
                 # rejection from any other precondition fails the assertion.
                 self.assertIn("--draft-path", r.stderr, bad)
-                self.assertIn("single-line absolute path", r.stderr, bad)
+                self.assertIn(
+                    "single-line POSIX-form absolute path", r.stderr, bad)
         # Positive control on the same argv shape: a well-formed absolute path
         # renders, so the rejections are the path shape and nothing else.
         r_ok = run_renderer(["file", "--slug", "s", "--draft-path", "/a/d.md"])

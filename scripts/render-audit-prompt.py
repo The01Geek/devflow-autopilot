@@ -19,9 +19,14 @@ Contract (issue #600):
   from the git repo root per the #295 SHARED REPO-ROOT CONFIG CONTRACT (a native
   ``git`` subprocess, cwd fallback; never a ``.sh`` exec — the #275 constraint).
 - Closed argument surface: closed-vocabulary mode/arm/hook tokens, a kebab-case
-  slug, absolute paths, and the machine-generated sentinel pair. No free-text
-  parameter (the draft title never crosses a command line — it travels in the
-  orchestrator's dispatch preamble prose).
+  slug, single-line absolute paths, and the machine-generated sentinel pair. No
+  free-text parameter reaches the rendered instruction block: the two slots that
+  ARE substituted into it (``<slug>``, ``{DRAFT_PATH}``) are shape-checked, and
+  the draft title never crosses a command line at all — it travels in the
+  orchestrator's dispatch preamble prose. The ``--template-file`` /
+  ``--extension-file`` test overrides are read-paths, never substituted into the
+  block; they are shape-checked too, but that is hygiene, not part of this claim.
+  The path check bounds shape, not vocabulary (see ``_abs_path``).
 - Modes, complete by construction: the dispatch arms ``file`` /
   ``embed`` / ``inline`` mirroring ``issue-audit-state.py``'s arm vocabulary,
   plus ``checklist`` (the Step 3.5 self-check), ``extract`` (the generic
@@ -457,14 +462,26 @@ def _sentinel(value: str) -> str:
 
 
 def _abs_path(value: str) -> str:
-    # Closed shape for the path slots: a single-line absolute path. The docstring's
-    # "no free-text parameter" claim is only true if EVERY slot substituted into the
-    # rendered instruction block is shape-constrained — a bare string here would let
-    # prose shaped like additional auditor instructions ride into {DRAFT_PATH} inside
-    # the block the auditor treats as its complete instructions.
+    # Shape check for the path arguments: POSIX-form, absolute, single-line.
+    #
+    # Deliberately NOT a closed vocabulary, and the claim it supports is scoped to
+    # match: a legitimate checkout path can contain spaces and most punctuation, so
+    # constraining further would reject real consumers. What this DOES buy is that
+    # {DRAFT_PATH} cannot carry a newline — the shape that would let a second line of
+    # prose sit in the rendered block as if it were template instructions. A
+    # same-line trailer is still expressible; --draft-path is orchestrator-derived
+    # from the bound slug, not consumer-supplied, so that residual is accepted and
+    # disclosed rather than papered over. See the module docstring, which states the
+    # narrow claim (no free-text parameter reaches the rendered block) and not a
+    # broad one this check does not implement.
+    #
+    # POSIX-form only: a Windows-form path is normalized at prompt time (#275), so
+    # the message names that remedy rather than reading as a contradiction of what
+    # is, on that platform, a genuinely absolute path.
     if not value.startswith("/") or "\n" in value or "\r" in value:
         raise argparse.ArgumentTypeError(
-            f"path must be a single-line absolute path (got {value!r})"
+            f"path must be a single-line POSIX-form absolute path (got {value!r}); "
+            "normalize a Windows-form path first (see lib/normalize-path.sh)"
         )
     return value
 
@@ -480,8 +497,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sentinel-open", type=_sentinel)
     parser.add_argument("--sentinel-close", type=_sentinel)
     parser.add_argument("--hook", choices=tuple(_HOOKS))
-    parser.add_argument("--template-file")  # absolute path override (tests)
-    parser.add_argument("--extension-file")  # absolute path override (tests)
+    parser.add_argument("--template-file", type=_abs_path)  # override (tests)
+    parser.add_argument("--extension-file", type=_abs_path)  # override (tests)
     return parser
 
 
