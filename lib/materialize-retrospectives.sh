@@ -46,26 +46,36 @@ cp "$JSONL_PATH" "$TMP"
 APP=0
 REP=0
 
-while IFS= read -r line; do
-    [ -z "$line" ] && continue
-
-    # Redact operator home-directory paths before merge (issue #672). This is the
-    # single deterministic choke point: it fires on every merged record regardless
-    # of which of the three producers (clean-entry.jq, the Stage A subagent, the
-    # inline skip marker) emitted it, so no per-producer instruction is relied on.
-    # Every string VALUE is rewritten via walk (keys and non-string types are left
-    # untouched, so .pr/.kind — numeric/enum — survive and the merge key still
-    # resolves). CLAUDE.md guard-class 2: this transform decides an emitted result,
-    # so it is expressed through the resolved $DEVFLOW_JQ, never a non-preflight
-    # PATH tool (sed/tr/cut/wc) that would fail open by writing the unredacted line.
-    # The /home/runner(admin)? carve-out preserves GitHub-Actions runner paths,
-    # which identify no person and carry the friction the record exists to describe.
-    line="$("$DEVFLOW_JQ" -c '
+# Redact operator home-directory paths before merge (issue #672), in ONE
+# streaming jq pass over the new-entries file. This is the single deterministic
+# choke point: it fires on every merged record regardless of which of the three
+# producers (clean-entry.jq, the Stage A subagent, the inline skip marker)
+# emitted it, so no per-producer instruction is relied on. Every string VALUE is
+# rewritten via walk (keys and non-string types are left untouched, so .pr/.kind
+# — numeric/enum — survive and the merge key still resolves). CLAUDE.md
+# guard-class 2: this transform decides an emitted result, so it is expressed
+# through the resolved $DEVFLOW_JQ, never a non-preflight PATH tool (sed/tr/cut/wc)
+# that would fail open by writing the unredacted line. The /home/runner(admin)?
+# carve-out preserves GitHub-Actions runner paths, which identify no person and
+# carry the friction the record exists to describe. A per-file pass (rather than
+# a jq fork per record inside the loop) is equivalent because redaction is
+# per-record-independent and touches only values; a malformed new-entries file
+# falls back to the raw copy so the existing post-merge JSONL validation still
+# reports it (and a file that fails to parse never writes a committed corpus, so
+# skipping redaction on that path leaks nothing).
+REDACTED="$(mktemp)"
+trap 'rm -f "$TMP" "$REDACTED"' EXIT
+if ! "$DEVFLOW_JQ" -c '
         def redact_home:
           gsub("(?<d>^|[^A-Za-z0-9_])/Users/(?!runner(admin)?/)[^/\\s\"]+/"; "\(.d)~/")
           | gsub("(?<d>^|[^A-Za-z0-9_])/home/(?!runner(admin)?/)[^/\\s\"]+/"; "\(.d)~/")
           | gsub("[A-Za-z]:\\\\Users\\\\[^\\\\\\s\"]+\\\\"; "~\\");
-        walk(if type == "string" then redact_home else . end)' <<<"$line")"
+        walk(if type == "string" then redact_home else . end)' "$NEW_FILE" > "$REDACTED" 2>/dev/null; then
+    cp "$NEW_FILE" "$REDACTED"
+fi
+
+while IFS= read -r line; do
+    [ -z "$line" ] && continue
 
     pr="$("$DEVFLOW_JQ" -r '.pr' <<<"$line")"
     kind="$("$DEVFLOW_JQ" -r '.kind' <<<"$line")"
@@ -80,18 +90,18 @@ while IFS= read -r line; do
         # Replace in place — run per-line through jq substituting the match
         NEW_TMP="$(mktemp)"
         # shellcheck disable=SC2064
-        trap "rm -f '$NEW_TMP' '$TMP'" EXIT
+        trap "rm -f '$NEW_TMP' '$TMP' '$REDACTED'" EXIT
         "$DEVFLOW_JQ" -c --argjson pr "$pr" --arg kind "$kind" --argjson repl "$line" \
             'if .pr==$pr and .kind==$kind then $repl else . end' "$TMP" > "$NEW_TMP"
         mv "$NEW_TMP" "$TMP"
-        # Restore trap to only clean $TMP now that $NEW_TMP is gone (renamed to $TMP)
-        trap 'rm -f "$TMP"' EXIT
+        # Restore trap to only clean $TMP/$REDACTED now that $NEW_TMP is gone (renamed to $TMP)
+        trap 'rm -f "$TMP" "$REDACTED"' EXIT
         REP=$((REP + 1))
     else
         printf '%s\n' "$line" >> "$TMP"
         APP=$((APP + 1))
     fi
-done < "$NEW_FILE"
+done < "$REDACTED"
 
 # Validate the merged result
 if ! "$DEVFLOW_JQ" -c . "$TMP" > /dev/null 2>&1; then
