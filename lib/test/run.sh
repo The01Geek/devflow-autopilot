@@ -21389,6 +21389,51 @@ assert_eq "#609 agent_effort: scalar dispatched_effort degrades to roster-only b
   "$(echo "$AE_BAD_REC" | jq -r '.per_iteration[0].agent_effort[]? | select(.agent=="devflow:code-reviewer") | .application_point')"
 rm -rf "$AE_OLD" "$AE_BAD"
 
+# ── #669 applied arm: the applier->recorder sidecar governs effective/point ──
+# The SEAM_PROVEN cloud seam. The applier (pre-launch workflow component) writes
+# the per-agent EMITTED effort (post-capability-gate) to a sidecar the in-session
+# recorder reads. When the sidecar names an agent, that agent's `effective` is the
+# emitted effort and `application_point` is `agent-definition` (the single source
+# of truth, AC2). Absent the sidecar value the honest fallback stands: `effective`
+# is null and `application_point` is never `agent-definition` (unknown is not zero).
+AE669_DIR="$(mktemp -d)"
+cat > "$AE669_DIR/iter-1.json" <<'EOF'
+{"iter":1,"checklist":[],
+ "dispatched_effort":[{"agent":"devflow:code-reviewer","phase":"3","requested":"low","resolved":"low","application_point":"session-fallback","effective":null,"fallback_reason":"honest fallback"}],
+ "phase3_dispatched":["devflow:silent-failure-hunter"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":"unavailable"}
+EOF
+AE669_SIDE="$AE669_DIR/agent-effort-applied.json"
+printf '{"devflow:code-reviewer":"low"}' > "$AE669_SIDE"
+AE669_field() { echo "$1" | jq -r --arg a "$2" --arg f "$3" '.per_iteration[0].agent_effort[]? | select(.agent==$a) | .[$f]'; }
+AE669_type() { echo "$1" | jq -r --arg a "$2" --arg f "$3" '.per_iteration[0].agent_effort[]? | select(.agent==$a) | .[$f] | type'; }
+# With the sidecar present: code-reviewer flips to the applied arm.
+AE669_REC="$(DEVFLOW_APPLIED_EFFORT_FILE="$AE669_SIDE" bash "$LIB/efficiency-trace.sh" --workpad-dir "$AE669_DIR" --slug "pr-669" --mode record)"
+assert_eq "#669 applied: sidecar agent → application_point agent-definition" \
+  "agent-definition" "$(AE669_field "$AE669_REC" 'devflow:code-reviewer' 'application_point')"
+assert_eq "#669 applied: sidecar agent → effective is the emitted effort" \
+  "low" "$(AE669_field "$AE669_REC" 'devflow:code-reviewer' 'effective')"
+# An agent NOT named in the sidecar keeps its honest in-session fallback.
+assert_eq "#669 applied: non-sidecar agent stays session-inheritance" \
+  "session-inheritance" "$(AE669_field "$AE669_REC" 'devflow:silent-failure-hunter' 'application_point')"
+assert_eq "#669 applied: non-sidecar agent effective stays JSON null" \
+  "null" "$(AE669_type "$AE669_REC" 'devflow:silent-failure-hunter' 'effective')"
+# Absent sidecar file: the honest fallback stands verbatim (never coerced).
+AE669_NOFILE="$(DEVFLOW_APPLIED_EFFORT_FILE="$AE669_DIR/nope.json" bash "$LIB/efficiency-trace.sh" --workpad-dir "$AE669_DIR" --slug "pr-669" --mode record)"
+assert_eq "#669 applied: absent sidecar → code-reviewer stays session-fallback" \
+  "session-fallback" "$(AE669_field "$AE669_NOFILE" 'devflow:code-reviewer' 'application_point')"
+assert_eq "#669 applied: absent sidecar → effective JSON null (no agent-definition)" \
+  "null" "$(AE669_type "$AE669_NOFILE" 'devflow:code-reviewer' 'effective')"
+# Malformed sidecar (a JSON array, not an object): fail CLOSED to honest fallback,
+# never abort the record.
+printf '["not","an","object"]' > "$AE669_DIR/bad-sidecar.json"
+AE669_BAD="$(DEVFLOW_APPLIED_EFFORT_FILE="$AE669_DIR/bad-sidecar.json" bash "$LIB/efficiency-trace.sh" --workpad-dir "$AE669_DIR" --slug "pr-669" --mode record)"; AE669_BAD_RC=$?
+assert_eq "#669 applied: malformed sidecar never aborts the record" "0" "$AE669_BAD_RC"
+assert_eq "#669 applied: malformed sidecar → honest fallback (session-fallback)" \
+  "session-fallback" "$(AE669_field "$AE669_BAD" 'devflow:code-reviewer' 'application_point')"
+assert_eq "#669 applied: schema_version stays 1 (additive sidecar read, no bump)" \
+  "1" "$(echo "$AE669_REC" | jq -r '.schema_version')"
+rm -rf "$AE669_DIR"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "efficiency-trace.sh --persist / --self-check (issue #80)"
 # ────────────────────────────────────────────────────────────────────────────
@@ -32971,6 +33016,21 @@ for R313_WF in "$IMPL_WF" "$RUNNER_WF" "$LIGHT_WF"; do
   # the per-section model override.
   assert_pin_unique "#313 defaults: $R313_TAG claude_args consumes the computed cargs head" \
     '${{ steps.cargs.outputs.args }}' "$R313_WF"
+  # #669 applied arm: claude_args must ALSO consume the applied-effort composer's
+  # output — otherwise the composed startup `--agents` block is built but never
+  # reaches the process, silently re-collapsing the cloud tier to honest fallback.
+  assert_pin_unique "#669 applied: $R313_TAG claude_args consumes the applied-effort agents_args" \
+    '${{ steps.applied_effort.outputs.agents_args }}' "$R313_WF"
+  # #669 applied arm: the composer step invokes the resolver's applied modes and
+  # writes the applier->recorder sidecar the in-session recorder reads. Pin the
+  # composition head and the sidecar path so a revert that drops either goes RED.
+  R669_APPLIED="$(mint_blk 'Compose applied per-agent effort (issue 669)' "$R313_WF")"
+  assert_eq "#669 applied: $R313_TAG composer calls the resolver applied-agents-json mode over --known-roster" "yes" \
+    "$(printf '%s' "$R669_APPLIED" | grep -qF -- '--known-roster' \
+       && printf '%s' "$R669_APPLIED" | grep -qF -- '--applied-agents-json' && echo yes || echo no)"
+  assert_eq "#669 applied: $R313_TAG composer writes the applier->recorder sidecar" "yes" \
+    "$(printf '%s' "$R669_APPLIED" | grep -qF -- '--applied-sidecar-json' \
+       && printf '%s' "$R669_APPLIED" | grep -qF '.devflow/tmp/agent-effort-applied.json' && echo yes || echo no)"
 done
 # AC 8 default-path fail-loud OAuth guard (runner-only): the runner relaxed
 # CLAUDE_CODE_OAUTH_TOKEN to an optional workflow_call secret, so it must fail loud when the
@@ -33012,7 +33072,10 @@ import sys, yaml
 files = sys.argv[1:]
 names = ["Resolve model provider",
          "Inject provider endpoint (provider-routed sections only)",
-         "Build claude_args head (model + conditional effort)"]
+         "Build claude_args head (model + conditional effort)",
+         # issue #669 applied arm: the per-agent effort composer is triplicated
+         # scaffolding too (identical env AND run: across the three workflows).
+         "Compose applied per-agent effort (issue 669)"]
 bodies = {n: [] for n in names}
 for f in files:
     doc = yaml.safe_load(open(f))
@@ -33027,7 +33090,7 @@ for n in names:
 print(",".join(out))
 PY
 )"
-  assert_eq "#313 single-sourced: Resolve/Inject/cargs run: bodies byte-identical across the 3 workflows" "yes,yes,yes" "$R313_BODY_IDENT"
+  assert_eq "#313 single-sourced: Resolve/Inject/cargs/applied-effort run: bodies byte-identical across the 3 workflows" "yes,yes,yes,yes" "$R313_BODY_IDENT"
 
   # gh_kv normalizes a $GITHUB_ENV/$GITHUB_OUTPUT file written in GitHub's newline-safe
   # multiline-heredoc form (KEY<<DELIM\nvalue\nDELIM — the form this PR now uses everywhere)

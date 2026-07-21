@@ -353,6 +353,49 @@ def build_effort_observability(raw, resolved, dispatched, *, effort_supported=Tr
     return blocks
 
 
+def build_applied_effort(resolved, dispatched, *, effort_supported=True):
+    """Applied-arm composition for the SEAM_PROVEN cloud seam (issue #669).
+
+    The spike (`docs/agents-seam-probe.md`) proved that a startup `--agents`
+    agent-definition is forwarded by `claude-code-action` and that its `effort`
+    governs a runtime Agent-tool dispatch. This is the pure composition the
+    pre-launch component (the workflow `cargs` step that owns `claude_args`)
+    runs to build that agent-definition and the applier->recorder sidecar.
+
+    For every dispatched agent whose resolved per-agent effort passes the
+    capability gate (non-Haiku model AND `effort_supported`), the EMITTED effort
+    is that resolved effort; a capability-restricted or absent effort emits
+    nothing — it is stripped, never coerced (mirroring the `scaffold-config.sh`
+    Haiku-effort strip and the #313 provider gate via the shared
+    `_effort_capability_block`). Returns `(agents_defs, sidecar)`:
+      - `agents_defs`: agent id -> {"effort": <emitted>} — the startup
+        `--agents` agent-definition fragment composed into `claude_args` (AC1).
+        An agent with no emitted effort is omitted.
+      - `sidecar`: agent id -> <emitted effort> — the applier->recorder channel
+        (AC2). The in-session recorder (`lib/efficiency-trace.jq`) reads it to
+        set `effective` and `application_point: agent-definition`; post-gate by
+        construction, so the recorder never records an effort a provider rejects.
+
+    Both maps carry EXACTLY the agents with an emitted effort, derived from one
+    gate pass — a split-brain between what is applied and what is recorded is
+    impossible by construction. `effective` on the applied arm is a proxy
+    grounded once by the seam spike, not a per-run measurement.
+    """
+    agents_defs = {}
+    sidecar = {}
+    for agent in dispatched:
+        entry = resolved.get(agent) or {}
+        effort = entry.get("effort")
+        if effort is None:
+            continue
+        model = entry.get("model")
+        if _effort_capability_block(model, effort_supported) is not None:
+            continue
+        agents_defs[agent] = {"effort": effort}
+        sidecar[agent] = effort
+    return agents_defs, sidecar
+
+
 def format_effort_reports(decisions, resolved, *, effort_supported=True):
     """Honest per-resolve effort-fallback report lines (issue #554).
 
@@ -517,7 +560,28 @@ def _force_utf8_streams():
 def main(argv=None):
     _force_utf8_streams()
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("agents", nargs="+", help="subagent ids about to be dispatched")
+    parser.add_argument(
+        "agents",
+        nargs="*",
+        help=(
+            "subagent ids about to be dispatched. Optional only when "
+            "--known-roster is given (the applied-arm launch path, which has no "
+            "per-dispatch roster yet)."
+        ),
+    )
+    parser.add_argument(
+        "--known-roster",
+        action="store_true",
+        help=(
+            "applied arm (issue #669): resolve over the full canonical review "
+            "roster (KNOWN_AGENTS) instead of a caller-supplied dispatch list. "
+            "The pre-launch component composes the startup `--agents` block "
+            "before any per-dispatch roster exists, so it asks for every known "
+            "agent's override; agents with no gated per-agent effort are simply "
+            "omitted from the composed output. Keeps the roster in ONE place "
+            "(this script), never duplicated into workflow YAML."
+        ),
+    )
     parser.add_argument("--config", default=None, help="config file (passed to config-get.sh)")
     parser.add_argument(
         "--config-get",
@@ -551,7 +615,38 @@ def main(argv=None):
             "them); config-shape warnings still go to stderr."
         ),
     )
+    parser.add_argument(
+        "--applied-agents-json",
+        action="store_true",
+        help=(
+            "applied arm (issue #669, SEAM_PROVEN cloud seam): print the startup "
+            "`--agents` agent-definition map {agent: {effort}} as pure JSON on "
+            "stdout, INSTEAD of the override map. Only agents whose resolved "
+            "per-agent effort passes the capability gate appear; `{}` when none. "
+            "This is the value the pre-launch `cargs` component composes into "
+            "claude_args."
+        ),
+    )
+    parser.add_argument(
+        "--applied-sidecar-json",
+        action="store_true",
+        help=(
+            "applied arm (issue #669): print the applier->recorder sidecar map "
+            "{agent: emitted_effort} (post-capability-gate) as pure JSON on "
+            "stdout, INSTEAD of the override map. The in-session recorder reads "
+            "this to set `effective` and `application_point: agent-definition`; "
+            "`{}` when no per-agent effort is emitted."
+        ),
+    )
     args = parser.parse_args(argv)
+
+    # Effective roster: --known-roster (the applied-arm launch path) resolves over
+    # the full canonical KNOWN_AGENTS; otherwise the caller-supplied dispatch list,
+    # which must be non-empty (argparse's nargs="*" allows zero, so guard here).
+    if args.known_roster:
+        args.agents = list(KNOWN_AGENTS)
+    elif not args.agents:
+        parser.error("at least one agent id is required unless --known-roster is given")
 
     # A dispatched id not in the known roster is almost always a drift between
     # SKILL.md's hardcoded strings and the canonical roster, or an operator typo
@@ -591,6 +686,17 @@ def main(argv=None):
             )
             + "\n"
         )
+        return 0
+    if args.applied_agents_json or args.applied_sidecar_json:
+        # Applied arm (issue #669): pure-JSON composition modes. Like
+        # --effort-json these are a second call in the dispatch/launch flow, so
+        # the #554 report lines are NOT re-emitted here; config-shape warnings
+        # still go to stderr above.
+        agents_defs, sidecar = build_applied_effort(
+            result, args.agents, effort_supported=effort_supported
+        )
+        payload = agents_defs if args.applied_agents_json else sidecar
+        sys.stdout.write(json.dumps(payload) + "\n")
         return 0
     decisions = decide_effort_applications(
         result, args.agents, effort_supported=effort_supported

@@ -57,13 +57,37 @@ summary** for the verdict table. A human then:
 
 ## Recorded result
 
-**NOT YET RUN — pending dispatch.** As of issue #610, the probe workflow and its
-deterministic verdict helper are authored, but the probe has not been dispatched in the
-real cloud action and no `SEAM_PROVEN` evidence exists. Therefore the seam is **unproven**,
-the cloud per-agent-effort row remains **honest fallback identical to local**, and **no
-per-agent effort application code ships** — exactly AC1's "otherwise" branch. When the
-probe is dispatched, append the run link and the adjudicated verdict here.
+**`SEAM_PROVEN` — adjudicated 2026-07-21.** The probe was dispatched **8 times** in the
+real cloud action (`anthropics/claude-code-action@v1`, `claude-haiku-4-5-20251001`,
+session `--effort high`, agent-definition `effort: low`). **Fact (i) forwarding is proven
+deterministically and unanimously:** every one of the 8 dispatches recognized and
+dispatched the `seam-probe-agent` subagent type — which is defined *only* in the startup
+`--agents` JSON — with **zero** permission denials and **never** a `dispatch refused:
+unknown subagent_type`; the deterministic `SEAM_PROBE_FORWARDED_OK` marker landed in 4 of
+the 8 execution files (the other 4 runs dispatched successfully but the Haiku top-level
+session skipped the final `printf` echo step, so the marker was not recorded — a
+model-compliance miss, not a seam failure; corroborated by the zero-denial /
+no-unknown-type signal on those runs). **Fact (ii) governance is adjudicated GOVERNED:**
+in all **4** runs that reached the subagent's self-report, the report was
+`SEAM_PROBE_EFFORT=low` — matching the agent-definition's `effort: low` and overriding the
+session's `--effort high` — with **zero** `high` self-reports (no counter-evidence). A
+human adjudicated the unanimous self-report as GOVERNED and re-ran the verdict helper with
+`--adjudicated-governed`, which yields `SEAM_PROVEN`.
+
+**Decision: the applied arm SHIPS** (issue #669) — a valid resolved per-agent effort may
+be composed into the process-start `--agents` agent-definition, and the cloud per-agent
+row in `docs/review-agent-overrides.md` flips off honest fallback. Fact (ii) remains a
+model self-report, however consistent, so the applied arm treats `effective` as a proxy
+grounded once by this spike, not a per-run measurement (issue #669 AC2).
 
 | Date | Run link | Verdict | Fact (i) | Fact (ii) self-report | Adjudication |
 |---|---|---|---|---|---|
-| _(pending)_ | _(pending)_ | `NOT YET RUN` | — | — | — |
+| 2026-07-21 | [29871350774](https://github.com/The01Geek/devflow-autopilot/actions/runs/29871350774) | `SEAM_UNPROVEN` | dispatched, no unknown-type refusal (echo skipped) | unobserved | — |
+| 2026-07-21 | [29871446151](https://github.com/The01Geek/devflow-autopilot/actions/runs/29871446151) | `SEAM_FORWARDED` | marker landed ✅ | `low` | GOVERNED |
+| 2026-07-21 | [29871519987](https://github.com/The01Geek/devflow-autopilot/actions/runs/29871519987) | `SEAM_UNPROVEN` | dispatched, no unknown-type refusal (echo skipped) | unobserved | — |
+| 2026-07-21 | [29872320341](https://github.com/The01Geek/devflow-autopilot/actions/runs/29872320341) | `SEAM_FORWARDED` | marker landed ✅ | `low` | GOVERNED |
+| 2026-07-21 | [29872398980](https://github.com/The01Geek/devflow-autopilot/actions/runs/29872398980) | `SEAM_UNPROVEN` | dispatched, no unknown-type refusal (echo skipped) | unobserved | — |
+| 2026-07-21 | [29872451024](https://github.com/The01Geek/devflow-autopilot/actions/runs/29872451024) | `SEAM_UNPROVEN` | dispatched, no unknown-type refusal (echo skipped) | unobserved | — |
+| 2026-07-21 | [29872503054](https://github.com/The01Geek/devflow-autopilot/actions/runs/29872503054) | `SEAM_FORWARDED` | marker landed ✅ | `low` | GOVERNED |
+| 2026-07-21 | [29872570287](https://github.com/The01Geek/devflow-autopilot/actions/runs/29872570287) | `SEAM_FORWARDED` | marker landed ✅ | `low` | GOVERNED |
+| **Summary** | 8 dispatches | **`SEAM_PROVEN`** | 8/8 forwarded (no unknown-type refusal) | **4/4 `low`, 0 `high`** | **GOVERNED** |

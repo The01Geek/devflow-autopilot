@@ -241,13 +241,38 @@ compute_config_fingerprint() {
 
 # Run the jq derivation over VALID_FILES for $1 mode ("trace"|"record") and the
 # slug $2, to stdout. A fresh GENERATED_AT is stamped per call.
+# Load the applied-arm sidecar (issue #669): the applier->recorder channel the
+# pre-launch workflow component writes with the per-agent EMITTED effort
+# (post-capability-gate) it composed into the startup `--agents` agent-definition.
+# The in-session recorder reads it here so `effective` and the applied
+# `application_point: agent-definition` have a single source of truth (AC2).
+# Best-effort and fail-CLOSED to `{}`: an absent/unreadable/non-object sidecar
+# yields no applied entries, so the recorder keeps the honest `effective: null`
+# fallback and never records `agent-definition` — a missing sidecar is never
+# coerced into an unearned applied value (unknown is not zero). The path is
+# `DEVFLOW_APPLIED_EFFORT_FILE` when set, else `.devflow/tmp/agent-effort-applied.json`
+# under the repo root. jq is a hard preflight prerequisite, so this value that
+# decides an emitted field is derived through a preflight-guaranteed tool.
+load_applied_effort() {
+  local file="${DEVFLOW_APPLIED_EFFORT_FILE:-}"
+  if [ -z "$file" ]; then
+    file="$(devflow_repo_root)/.devflow/tmp/agent-effort-applied.json"
+  fi
+  [ -f "$file" ] || { printf '{}\n'; return 0; }
+  "$DEVFLOW_JQ" -c 'if type == "object" then . else {} end' "$file" 2>/dev/null \
+    || printf '{}\n'
+}
+
 emit_jq() {
-  local mode="$1" slug="$2" generated_at config_fingerprint
+  local mode="$1" slug="$2" generated_at config_fingerprint applied_effort
   generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   # Fingerprint the config that produced this run (issue #431). Guard the empty
   # case to a JSON null so --argjson never aborts jq (and the wrapper under set -e).
   config_fingerprint="$(compute_config_fingerprint "$_DEVFLOW_CONFIG")"
   [ -n "$config_fingerprint" ] || config_fingerprint="null"
+  # Applied-arm sidecar (issue #669), normalized to a JSON object (fail-closed {}).
+  applied_effort="$(load_applied_effort)"
+  [ -n "$applied_effort" ] || applied_effort="{}"
   # jq -s over zero files yields null, not []; feed an explicit empty array so the
   # filter (which expects an array) degrades to an empty trace / empty record.
   if [ "${#VALID_FILES[@]}" -eq 0 ]; then
@@ -255,13 +280,15 @@ emit_jq() {
       --arg mode "$mode" --arg slug "$slug" \
       --arg generated_at "$generated_at" \
       --argjson cut_candidate_min_dispatch "$THRESHOLD" \
-      --argjson config_fingerprint "$config_fingerprint"
+      --argjson config_fingerprint "$config_fingerprint" \
+      --argjson applied_effort "$applied_effort"
   else
     "$DEVFLOW_JQ" --raw-output --slurp -f "$HERE/efficiency-trace.jq" \
       --arg mode "$mode" --arg slug "$slug" \
       --arg generated_at "$generated_at" \
       --argjson cut_candidate_min_dispatch "$THRESHOLD" \
       --argjson config_fingerprint "$config_fingerprint" \
+      --argjson applied_effort "$applied_effort" \
       "${VALID_FILES[@]}"
   fi
 }

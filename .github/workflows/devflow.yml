@@ -905,6 +905,46 @@ jobs:
           adelim="OUT_EOF_$(date +%s%N)_$$"
           { printf 'args<<%s\n' "$adelim"; printf '%s\n' "$ARGS"; printf '%s\n' "$adelim"; } >> "$GITHUB_OUTPUT"
 
+      # Applied arm (issue #669, SEAM_PROVEN cloud per-agent-effort seam): compose the
+      # startup `--agents` per-agent effort block the spike (docs/agents-seam-probe.md)
+      # proved is forwarded and governs, and write the applier->recorder sidecar the
+      # in-session recorder (lib/efficiency-trace.sh) reads. Kept as its OWN step (not the
+      # cargs body) so the model/effort composition stays isolated and independently
+      # testable. Best-effort, fail-OPEN: any failure (resolver absent, non-JSON, empty
+      # result) yields an empty agents_args and no sidecar, and the honest fallback stands.
+      # The resolver owns the canonical roster (--known-roster), validates each effort
+      # against the enum, and applies the capability gate (Haiku strip + effort_supported
+      # #313), so the emitted JSON keys are fixed KNOWN_AGENTS ids and values are enum
+      # efforts — safe to single-quote as one CLI token spliced into claude_args. Ordering:
+      # a run before the plugin is vendored simply finds no resolver and fails open to the
+      # honest fallback (never a false applied claim); the self-repo `scripts/` fallback
+      # covers this repo's own runs.
+      - name: Compose applied per-agent effort (issue 669)
+        id: applied_effort
+        env:
+          EFFORT_SUPPORTED: ${{ steps.provider.outputs.effort_supported }}
+        run: |
+          set -euo pipefail
+          AGENTS_ARGS=""
+          RRO=.devflow/vendor/devflow/scripts/resolve-review-overrides.py
+          [ -f "$RRO" ] || RRO=scripts/resolve-review-overrides.py
+          if [ -f "$RRO" ]; then
+            AGENTS_JSON="$(python3 "$RRO" --known-roster --effort-supported "${EFFORT_SUPPORTED:-true}" --applied-agents-json 2>/dev/null || printf '{}')"
+            case "$AGENTS_JSON" in
+              '' | '{}') : ;;
+              *)
+                AGENTS_ARGS="--agents '$AGENTS_JSON'"
+                mkdir -p .devflow/tmp
+                python3 "$RRO" --known-roster --effort-supported "${EFFORT_SUPPORTED:-true}" --applied-sidecar-json \
+                  > .devflow/tmp/agent-effort-applied.json 2>/dev/null \
+                  || rm -f .devflow/tmp/agent-effort-applied.json
+                ;;
+            esac
+          fi
+          # Newline-safe heredoc output (mirrors the cargs step's scalar-output form).
+          aedelim="AEOUT_$(date +%s%N)_$$"
+          { printf 'agents_args<<%s\n' "$aedelim"; printf '%s\n' "$AGENTS_ARGS"; printf '%s\n' "$aedelim"; } >> "$GITHUB_OUTPUT"
+
       # Compose the plugins/plugin_marketplaces inputs (issue #505): the baked
       # baseline (byte-identical across the three call sites — run.sh pins it)
       # PLUS the entries this repo's trusted default-branch .claude/settings.json
@@ -1177,6 +1217,7 @@ jobs:
           # --allowed-tools tail is the steps.tools computed string (issue #363).
           claude_args: >-
             ${{ steps.cargs.outputs.args }}
+            ${{ steps.applied_effort.outputs.agents_args }}
             --allowed-tools "${{ steps.tools.outputs.tools }}"
 
       # Retire the detached credential refresher (issue #487). Best-effort,
