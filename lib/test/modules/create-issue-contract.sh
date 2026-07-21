@@ -1005,9 +1005,13 @@ assert_eq "#611 AC6: two re-load sites request the '## Evidence axes' section" \
 # peer-checkpoint sweep exists to catch, and it would read as correct in a diff.
 assert_eq "#611/#600 AC6: the report-then-proceed wiring is present at the surviving re-load sites" \
   "3" "$(devflow_module_pin_count 'a **report-then-proceed** step, never a stall, a user question, or a degraded-arm claim' "$CI_SKILL")"
-assert_eq "#611 AC6: the exit-2-is-unestablished wiring is present at all four re-load sites" \
+# Four sites state the unestablished-is-never-laundered wiring: the two loader
+# re-load sites (Step 2, bundle-coverage gate) read it off a loader exit-2, and the
+# two renderer-owned sites (the Step 3.5 self-check, the Step 3.6 forwarding bullet)
+# read it off an `unestablished` render-status. Same discipline, two mechanisms.
+assert_eq "#611 AC6: the unestablished-is-never-laundered wiring is present at all four sites" \
   "4" "$(devflow_module_pin_count 'never laundered into the designed absent-heading no-op' "$CI_SKILL")"
-# The amended no-op sentence, at both of its occurrences (Step 2 and Step 3.6).
+# The amended no-op sentence, at its surviving Step 2 occurrence.
 assert_eq "#611/#600 AC6: the surviving no-op sentence states the absent heading is now breadcrumbed" \
   "1" "$(devflow_module_pin_count 'that absent heading is now breadcrumbed and reported rather than invisible' "$CI_SKILL")"
 # AC8 names this one specifically: the Step 3.6 parenthetical is reduced to a pure

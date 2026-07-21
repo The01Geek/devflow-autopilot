@@ -43,8 +43,10 @@ Contract (issue #600):
 - Output contract: stdout's FIRST line is ``render-status:`` with a value from
   the closed set {appended, absent, unestablished}; stdout's LAST line is the
   fixed terminal marker ``render-end:`` on every full render, so a truncated
-  delivery (the consumer section is appended last and is the first text a
-  tool-result cap eats) is positionally detectable. ``status-only`` prints
+  delivery is positionally detectable: any tail cut drops the terminal marker,
+  whatever the render's last block happens to be (the consumer section is last
+  only in checklist/extract mode — the dispatch arms follow it with the
+  verdict/cap block). ``status-only`` prints
   exactly the one status line (it IS one line; no end marker).
 - Failure (unusable arguments, unreadable template file) exits non-zero with
   EMPTY stdout and a stderr breadcrumb — which, together with out-of-position
@@ -205,7 +207,6 @@ def extract_section(text: str, heading: str) -> str:
 
     for raw in text.splitlines():
         line = raw.rstrip()
-        stripped = line.lstrip()
 
         # Comment-block state is resolved BEFORE fence detection, so a code-fence
         # marker (``` / ~~~) that sits INSIDE an open HTML comment is inert — it
@@ -219,9 +220,14 @@ def extract_section(text: str, heading: str) -> str:
                 collected.append(raw)
             continue
 
-        # Fence tracking (``` or ~~~). A fence toggles only on its own kind.
-        if stripped.startswith("```") or stripped.startswith("~~~"):
-            kind = stripped[0]
+        # Fence tracking (``` or ~~~) at COLUMN 0 only — `line`, never `line.lstrip()`.
+        # load-prompt-extension.sh matches fences with `case "$_line" in '```'*)`, a
+        # deliberate column-0 contract, and heading detection here is column-0 too. An
+        # lstripped test recognized INDENTED fences the loader treats as ordinary text,
+        # so a consumer section wrapping a column-0 `## ` heading in an indented fence
+        # made the two hooks forward different bodies at the same `appended` status.
+        if line.startswith("```") or line.startswith("~~~"):
+            kind = line[0]
             if not in_fence:
                 in_fence = True
                 fence_kind = kind

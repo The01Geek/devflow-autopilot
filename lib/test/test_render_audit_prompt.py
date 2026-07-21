@@ -5,7 +5,7 @@
 
 Levels: unit (renderer over mktemp fixture trees) + a delivery-equivalence
 matrix that drives the real scripts/load-prompt-extension.sh over the same
-fixtures. Each named assertion (R1..R21) maps to an acceptance criterion or to a
+fixtures. Each R-numbered assertion maps to an acceptance criterion or to a
 guard added under PR #651 review; the re-anchored prose pins live in the shell
 suite, not here.
 """
@@ -265,6 +265,52 @@ class DeliveryEquivalence(unittest.TestCase):
             d.mkdir(parents=True)
             (d / "create-issue.md").symlink_to(root / "missing-target.md")
         self._assert_maps(make, "unestablished")
+
+    def _assert_body_matches(self, body: str):
+        """Compare the renderer's extracted BODY against the loader's --section
+        output, not merely the three-way status classification. Status-only
+        equivalence stays green against a divergence that returns `appended` on
+        both sides while forwarding different bytes to the two hooks."""
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            ext = write_ext(root, body)
+            r = run_renderer(
+                ["extract", "--hook", "audit-dimensions", "--extension-file", str(ext)]
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            lines = r.stdout.split("\n")
+            self.assertTrue(lines[0].startswith("render-status: appended"), r.stdout)
+            # Strip the two positional markers; what remains is the extracted body.
+            rendered = "\n".join(lines[1:-2] if lines[-1] == "" else lines[1:-1])
+            lr = run_loader(str(root))
+            self.assertEqual(lr.returncode, 0, lr.stderr)
+            # The loader emits the heading line with the body; the renderer's
+            # documented contract excludes it. That one designed difference is
+            # normalized away here so the assertion compares section CONTENT.
+            loader_body = "\n".join(
+                ln for ln in lr.stdout.split("\n") if ln != "## Audit dimensions"
+            )
+            self.assertEqual(
+                rendered.strip("\n"),
+                loader_body.strip("\n"),
+                "renderer and loader forwarded DIFFERENT bodies at the same status",
+            )
+
+    def test_body_parity_plain_section(self):
+        self._assert_body_matches("## Audit dimensions\n- **x** — d\n\n## Other\n- z\n")
+
+    def test_body_parity_indented_fence(self):
+        # The divergence guard: an INDENTED fence wrapping a column-0 '## ' heading.
+        # The loader matches fences at column 0 only, so the fence is ordinary text
+        # and '## Other' terminates the section; an lstripped fence test in the
+        # renderer would open a fence here and swallow the heading as content.
+        self._assert_body_matches(
+            "## Audit dimensions\n"
+            "- **x** — d\n"
+            "    ```\n"
+            "## Other\n"
+            "- z\n"
+        )
 
     def test_present_but_non_regular(self):
         def make(root):
