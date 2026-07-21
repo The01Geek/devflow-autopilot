@@ -1068,6 +1068,42 @@ jobs:
           fi
           bash "$HELPER" --workspace "$GITENV_WS" --config-file "$CFG" --tier command >> "$GITHUB_ENV"
 
+      # Resolve the DEFAULT-OFF devflow.attribute_commits_to_triggerer flag and,
+      # when enabled, export the four GIT_AUTHOR_*/GIT_COMMITTER_* variables so the
+      # agent's commits are authored by the human who triggered the run (issue #682).
+      # Off by default, so on a stock consumer this step emits NOTHING and commits are
+      # authored exactly as before. Read at TRIGGER time from the trusted `config`
+      # job's default-branch checkout (never the PR head), which makes the flag
+      # post-merge-only. Unlike the git-env-pins step above, this step DOES make a
+      # `gh api users/<login>` call, so it wires GH_TOKEN into its own env: — without
+      # it the call runs unauthenticated against the 60/hr anonymous limit and degrades
+      # every run to the login-only fallback. Fails OPEN: an absent helper (install.sh
+      # ships the workflow, the devflow_version vendor fetch ships the helper, so a
+      # consumer can carry this step first) or an unmaterializable config emits nothing
+      # and exits 0. Attribution is advisory and NEVER gates the run. This scopes to the
+      # writer commands (/devflow:review-and-fix, /devflow:pr-description); a
+      # /devflow:review command performs no commits, so the export is simply inert there.
+      - name: Resolve committer identity
+        env:
+          ATTR_CFGJSON: ${{ needs.config.outputs.config_json }}
+          SENDER_LOGIN: ${{ github.event.sender.login }}
+          # The step makes a gh api call, so it must carry a token of its own — the
+          # minted App token when DEVFLOW_APP_ID is set, else the built-in github.token.
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+        run: |
+          set -uo pipefail
+          HELPER='.devflow/vendor/devflow/scripts/resolve-committer-identity.sh'
+          if [ ! -f "$HELPER" ]; then
+            echo "::notice::devflow commit attribution: bundled helper '$HELPER' is absent (this workflow ships via install.sh's file-copy, the helper via the devflow_version vendor fetch, so a consumer can carry the step first). Falling back to current authorship: no GIT_* identity exported."
+            exit 0
+          fi
+          CFG="${RUNNER_TEMP}/devflow-committer-config.json"
+          if ! printf '%s' "$ATTR_CFGJSON" > "$CFG" 2>/dev/null; then
+            echo "::warning::devflow commit attribution: could not materialize the trigger-time config into RUNNER_TEMP; falling back to current authorship (no GIT_* identity exported)."
+            exit 0
+          fi
+          bash "$HELPER" --login "$SENDER_LOGIN" --config-file "$CFG" >> "$GITHUB_ENV"
+
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
