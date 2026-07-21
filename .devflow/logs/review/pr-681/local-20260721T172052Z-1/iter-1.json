@@ -1,0 +1,103 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-21T17:20:52Z",
+  "fix_commit_sha": "cab7f02e",
+  "fix_files": [
+    "scripts/reception-record.py",
+    "scripts/reception_identity.py",
+    "scripts/verification-flight.py",
+    "lib/test/test_reception_identity.py",
+    "lib/test/run.sh",
+    "lib/capability-profiles.json"
+  ],
+  "loop_role": "fix",
+  "current_step": "3",
+  "current_substep": "apply_fixes",
+  "pending_dispatch": null,
+  "sweep_defs_read": [],
+  "sweep_evidence": {"status": "run"},
+  "checklist": [],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "detect_all_audit": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:type-design-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "dispatched_effort": [
+    {"agent": "devflow:code-reviewer", "phase": "3", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "no in-session per-agent effort seam"}
+  ],
+  "phase3_findings": [
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "rebind detection fails open on a corrupt prior identity artifact; rebound_from:null positively claims identity unchanged", "defect_signature": {"file": "scripts/reception-record.py", "line_range": [232, 240], "kind": "logic_error"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:code-reviewer", "severity": "Important", "description": "session dir is cwd-anchored, violating CLAUDE.md #295 repo-root contract; subdirectory run fails with a wrong remedy", "defect_signature": {"file": "scripts/reception-record.py", "line_range": [165, 169], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Critical", "description": "run.sh mutation-evidence header says (17); the section now holds 21 — self-referential ordinal rot", "defect_signature": {"file": "lib/test/run.sh", "line_range": [4614, 4614], "kind": "documented_falsehood"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:code-reviewer", "severity": "Important", "description": "reception_identity docstring claims the index is excluded from the input; the seeding paragraph and code make it an input", "defect_signature": {"file": "scripts/reception_identity.py", "line_range": [9, 10], "kind": "documented_falsehood"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Critical", "description": "_read_json_object docstring claims an exhaustive shape->reason map but omits `empty` and `unreadable:<class>`, both caller-visible", "defect_signature": {"file": "scripts/reception-record.py", "line_range": [140, 146], "kind": "documented_falsehood"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:type-design-analyzer", "severity": "Suggestion", "description": "kind/claim_context_token discriminators written but never verified on read; a foreign ledger joins silently", "defect_signature": {"file": "scripts/reception-record.py", "line_range": [244, 250], "kind": "type_design"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:type-design-analyzer", "severity": "Suggestion", "description": "candidate_identity is the only unvalidated declaration field in verification-flight", "defect_signature": {"file": "scripts/verification-flight.py", "line_range": [288, 295], "kind": "type_design"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "residual exceptions escape main() as raw tracebacks, contradicting the every-error-path JSON record contract", "defect_signature": {"file": "scripts/reception-record.py", "line_range": [330, 337], "kind": "unhandled_exception"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "session-dir chmod failure swallowed with no breadcrumb; the dir holds nonce-bearing filenames", "defect_signature": {"file": "scripts/reception-record.py", "line_range": [119, 123], "kind": "security"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "SKILL.md 'produces no output' discriminator has no mechanism; every failure path emits stderr output", "defect_signature": {"file": "skills/receiving-code-review/SKILL.md", "line_range": [106, 106], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "concurrency row (two concurrent disposition appends) named in the Testing Strategy is untested", "defect_signature": {"file": "lib/test/test_reception_identity.py", "line_range": [405, 437], "kind": "race"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "settled-by-disclosure"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "cab7f02e"},
+    {"finding_id": "F-2", "decision": "applied", "commit": "cab7f02e"},
+    {"finding_id": "F-3", "decision": "applied", "commit": "cab7f02e"},
+    {"finding_id": "F-4", "decision": "applied", "commit": "cab7f02e"},
+    {"finding_id": "F-5", "decision": "applied", "commit": "cab7f02e"},
+    {"finding_id": "F-6", "decision": "applied", "commit": "cab7f02e"},
+    {"finding_id": "F-7", "decision": "applied", "commit": "cab7f02e"},
+    {"finding_id": "F-8", "decision": "applied", "commit": "cab7f02e"},
+    {"finding_id": "F-9", "decision": "applied", "commit": "cab7f02e"},
+    {
+      "finding_id": "F-11",
+      "decision": "settled-by-disclosure",
+      "source_file": "lib/test/test_reception_identity.py",
+      "claim_text": "two concurrent disposition appends are untested; append-disposition is a lock-free read-modify-write",
+      "skip_category": "settled-by-disclosure",
+      "evidence": "already disclosed in the shipped deferred-findings block with a single-writer rationale",
+      "parking_evidence": {
+        "basis": "the deliverable is an already-shipped disclosure naming this exact residual and its single-writer rationale",
+        "failing_input": "two overlapping append-disposition invocations against one session token",
+        "source": {"path": "scripts/reception-record.py", "phrase": "SINGLE-WRITER BY DESIGN"},
+        "finding_ref": {"iter": 1, "index": 10}
+      },
+      "disclosure": {"path": "scripts/reception-record.py", "phrase": "SINGLE-WRITER BY DESIGN"}
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 10,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "duration_s": null,
+    "skipped_checks": []
+  },
+  "telemetry": "unavailable",
+  "shadow": {
+    "ran_at": null,
+    "reviewed_sha": null,
+    "verdict": null,
+    "coverage": null,
+    "reviewers_dispatched": [],
+    "expected_reviewers": [],
+    "reason": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "promoted_to_iter_next": false
+  }
+}
