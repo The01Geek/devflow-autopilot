@@ -4,6 +4,28 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.20.0] — 2026-07-21
+
+### Added
+- **Config-gated attribution of cloud-tier writer commits to the triggering user.** A new
+  default-off boolean key `devflow.attribute_commits_to_triggerer` (`false` by default). When
+  enabled, each cloud-tier **writer** run (`/devflow:implement`'s `claude` job and
+  `/devflow:review-and-fix`'s `command` job) resolves the triggering user
+  (`github.event.sender.login`) to a GitHub commit identity and exports
+  `GIT_AUTHOR_*`/`GIT_COMMITTER_*` before the agent runs, so the agent's commits carry the
+  triggering human as author and committer — parity with local runs in `git blame`/history. The
+  flag is read at trigger time from the trusted default-branch config, so its effect is
+  post-merge-only; it is humans-only and fail-safe (a non-`User` type, a `[bot]` login, or an
+  unresolvable type falls back to current authorship with a warning), needs no new credential
+  (commit identity is git metadata, independent of the push token), and is fail-open (advisory,
+  never gates the run). The read-only review tier is unaffected. Documented in
+  `docs/cloud-setup.md`. (#683)
+
+## [2.19.10] — 2026-07-21
+
+### Fixed
+- **Give a consumer fix loop an actionable discharge in the desk-check routing row.** The fix-loop context mapping table in `skills/review-and-fix/references/fixing.md` (shipped into consumer repos) told a fix loop matching the `lib/test/run.sh` desk-check row that "no equivalent backstop exists" and forbade the only generic fallback — a dead branch with no valid outcome. The row now names a discharge a consumer can perform (run the project-specific check that carries the obligation, or the consumer's own equivalent) while preserving the surviving force that a broader suite is never a substitute. The coupled `#478` routing-lint constant and destination RED-arm mutation, the review-and-fix word-budget doc cells, and the cloud-writer and prompt-mass baselines are reconciled in the same change. (#679)
+
 ## [2.19.9] — 2026-07-21
 
 ### Fixed

@@ -42,7 +42,7 @@ Apply the `devflow:receiving-code-review` principles — including the **share-t
    | A `(post-merge)` AC-retag arm (the Phase 3.4 `--rewrite-ac` retag pattern) | An item-5 pushback/advisory record — the standalone loop owns no issue ACs to retag. |
    | A Phase 4.1 docs-pass deferral | Fix-now, or record through the item-5 pushback flow — the standalone loop has no Phase 4.1 docs pass to hand work to. |
    | An issue-workpad AC reconciliation arm | Not applicable standalone; the iteration record (`iter-<N>.json`) is the loop's self-record. |
-   | A "backed by `lib/test/run.sh` <desk check>" claim | No equivalent backstop exists — the hand-run obligation is the sole discharge (never "the project's test suite", which does not carry DevFlow's desk lints). |
+   | A "backed by `lib/test/run.sh` <desk check>" claim | Run the project-specific check that carries the obligation to discharge it — a consumer runs its own equivalent project-specific check, never a broader suite that does not carry the obligation. |
    | A `## Devflow Reflection` reflection-bullet obligation | The loop's evidence sink — an `iter-<N>.json` record entry when standalone, the issue workpad's reflection when implement-driven. |
    | §2.3.3's `CLAUDE.md` rulebook, in a repo with no `CLAUDE.md` | The repo's stated conventions — lint configuration, `CONTRIBUTING.md`, house style — with the rulebook actually used recorded in the sweep's evidence. |
    <!-- fix-loop-mapping-table-end (issue #478) -->
