@@ -49,6 +49,24 @@ REP=0
 while IFS= read -r line; do
     [ -z "$line" ] && continue
 
+    # Redact operator home-directory paths before merge (issue #672). This is the
+    # single deterministic choke point: it fires on every merged record regardless
+    # of which of the three producers (clean-entry.jq, the Stage A subagent, the
+    # inline skip marker) emitted it, so no per-producer instruction is relied on.
+    # Every string VALUE is rewritten via walk (keys and non-string types are left
+    # untouched, so .pr/.kind — numeric/enum — survive and the merge key still
+    # resolves). CLAUDE.md guard-class 2: this transform decides an emitted result,
+    # so it is expressed through the resolved $DEVFLOW_JQ, never a non-preflight
+    # PATH tool (sed/tr/cut/wc) that would fail open by writing the unredacted line.
+    # The /home/runner(admin)? carve-out preserves GitHub-Actions runner paths,
+    # which identify no person and carry the friction the record exists to describe.
+    line="$("$DEVFLOW_JQ" -c '
+        def redact_home:
+          gsub("(?<d>^|[^A-Za-z0-9_])/Users/(?!runner(admin)?/)[^/\\s\"]+/"; "\(.d)~/")
+          | gsub("(?<d>^|[^A-Za-z0-9_])/home/(?!runner(admin)?/)[^/\\s\"]+/"; "\(.d)~/")
+          | gsub("[A-Za-z]:\\\\Users\\\\[^\\\\\\s\"]+\\\\"; "~\\");
+        walk(if type == "string" then redact_home else . end)' <<<"$line")"
+
     pr="$("$DEVFLOW_JQ" -r '.pr' <<<"$line")"
     kind="$("$DEVFLOW_JQ" -r '.kind' <<<"$line")"
 

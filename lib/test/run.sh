@@ -16486,6 +16486,42 @@ assert_eq "materialize: missing new-entries → target untouched" "1" "$(wc -l <
 rm -rf "$M_NOFILE_TMP"
 rm -rf "$M_TMP"
 
+# issue #672: operator home-directory paths are redacted on the merge write path.
+# Positive controls assert the REDACTED output (not merely exit 0); negative
+# controls assert repo-relative / non-home / CI-runner / non-string values survive
+# unchanged — the pairing that distinguishes a working redactor from one that
+# rewrites everything, rewrites nothing, or aborts on a numeric field.
+MR_TMP="$(mktemp -d)"
+: > "$MR_TMP/store.jsonl"
+printf '%s\n' \
+  '{"pr":101,"kind":"retro","summary":"at /Users/alice/.claude/jobs/x/w0.md"}' \
+  '{"pr":102,"kind":"retro","summary":"at /home/alice/.claude/w0.md"}' \
+  '{"pr":103,"kind":"retro","summary":"at C:\\Users\\bob\\tmp\\w0.md"}' \
+  '{"pr":104,"kind":"retro","summary":"a /Users/bob/x and /Users/bob/y"}' \
+  '{"pr":105,"kind":"retro","summary":"at /home/runner/work/x/scripts/workpad.py"}' \
+  '{"pr":106,"kind":"retro","summary":"lib/scan.sh and /tmp/x","n":3,"nul":null,"ok":true}' \
+  > "$MR_TMP/new.jsonl"
+bash "$LIB/materialize-retrospectives.sh" "$MR_TMP/new.jsonl" "$MR_TMP/store.jsonl" >/dev/null 2>&1 || true
+assert_eq "materialize #672: /Users/ prefix redacted to ~ (positive control)" \
+  "at ~/.claude/jobs/x/w0.md" "$(jq -r 'select(.pr==101)|.summary' "$MR_TMP/store.jsonl")"
+assert_eq "materialize #672: /home/ prefix redacted to ~ (positive control)" \
+  "at ~/.claude/w0.md" "$(jq -r 'select(.pr==102)|.summary' "$MR_TMP/store.jsonl")"
+assert_eq "materialize #672: Windows prefix redacted with single separator" \
+  'at ~\tmp\w0.md' "$(jq -r 'select(.pr==103)|.summary' "$MR_TMP/store.jsonl")"
+assert_eq "materialize #672: both operator paths in one string redacted" \
+  "a ~/x and ~/y" "$(jq -r 'select(.pr==104)|.summary' "$MR_TMP/store.jsonl")"
+assert_eq "materialize #672: /home/runner/ carve-out preserved unchanged" \
+  "at /home/runner/work/x/scripts/workpad.py" "$(jq -r 'select(.pr==105)|.summary' "$MR_TMP/store.jsonl")"
+assert_eq "materialize #672: repo-relative + non-home path unchanged" \
+  "lib/scan.sh and /tmp/x" "$(jq -r 'select(.pr==106)|.summary' "$MR_TMP/store.jsonl")"
+assert_eq "materialize #672: numeric field survives redaction (no rc5 abort)" \
+  "3" "$(jq -r 'select(.pr==106)|.n' "$MR_TMP/store.jsonl")"
+assert_eq "materialize #672: .pr/.kind preserved through redaction" \
+  "retro" "$(jq -r 'select(.pr==101)|.kind' "$MR_TMP/store.jsonl")"
+assert_eq "materialize #672: redacted output still valid JSONL" \
+  "0" "$(jq -c . "$MR_TMP/store.jsonl" >/dev/null 2>&1; echo $?)"
+rm -rf "$MR_TMP"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "meta-issue.sh"
 # ────────────────────────────────────────────────────────────────────────────
