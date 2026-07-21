@@ -69,7 +69,7 @@ If `WORKPAD_BODY` is set, scan its `## Acceptance Criteria` section for lines ma
 
 If no workpad exists, no issue number is available, or no `(post-merge)`-tagged items are found, `POST_MERGE_ITEMS` stays empty and the template's Post-Merge Verification section is omitted entirely. The lookup is best-effort — never fail the run on a missing workpad.
 
-**Best-effort: pull deferred review findings from the manifest.** /devflow:review-and-fix now writes each run's manifest **run-scoped** (`.devflow/tmp/review/<slug>/<run-id>/deferrals.json`), and /devflow:implement Phase 4.0.5 merges every run-scoped manifest into one **slug-level aggregate** at `.devflow/tmp/review/pr-<N>/deferrals.json`, then files follow-up issues and updates that aggregate in place with `id` and `follow_up` fields per entry. Read the slug-level aggregate (the single hydrated path Phase 4.0.5 produces) and surface its entries in the PR body as a Scope-Acknowledged Findings block so /devflow:review (run later as a formal merge signal) can match them and demote the corresponding findings to Informational. (Only entries with a populated `follow_up.issue` render — and only Phase 4.0.5 populates that, so the aggregate is the authoritative source; the run-scoped per-run files are raw, un-hydrated inputs to the merge.)
+**Best-effort: pull deferred review findings from the manifest.** /devflow:review-and-fix now writes each run's manifest **run-scoped** (`.devflow/tmp/review/<slug>/<run-id>/deferrals.json`), and /devflow:implement Phase 4.0.5 merges every run-scoped manifest into one **slug-level aggregate** at `.devflow/tmp/review/pr-<N>/deferrals.json`, then files follow-up issues and updates that aggregate in place with `id` and `follow_up` fields per entry. Read the slug-level aggregate (the single hydrated path Phase 4.0.5 produces) and surface its entries in the PR body as a Scope-Acknowledged Findings block so /devflow:review (run later as a formal merge signal) can match them and demote the corresponding findings to Informational. (Ordinary entries render only with a populated `follow_up.issue` — and only Phase 4.0.5 populates that, so the aggregate is the authoritative source; the run-scoped per-run files are raw, un-hydrated inputs to the merge. **A `settled-by-disclosure` foreclosure entry (issue #621) is the exception: it renders WITHOUT a `follow_up.issue`** — the shipped disclosure is its deliverable, no follow-up issue is ever filed, and the PR-body block is the foreclosure's *sole* durable record.)
 
 ```bash
 PR_NUMBER=$(gh pr view --json number --jq '.number' 2>/dev/null || true)
@@ -81,7 +81,13 @@ if [ -n "$PR_NUMBER" ]; then
 fi
 ```
 
-If `DEFERRALS_BODY` is set and the parsed JSON has at least one entry under `deferrals[]` with a populated `follow_up.issue`, render the Deferred Findings section in Step 2's template — a human-readable Markdown table (one row per deferral) for readers, plus the exact machine payload (the same `schema_version: 1` / `deferrals[]` YAML shape) inside the hidden `DEVFLOW_DEFERRED_PAYLOAD` HTML comment that `scripts/match-deferrals.py` parses. Entries lacking a `follow_up.issue` are stale half-written manifests — skip them silently. Otherwise omit the section entirely. The lookup is best-effort — never fail the run on a missing or unparseable manifest.
+If `DEFERRALS_BODY` is set and the parsed JSON has at least one **renderable** entry under `deferrals[]`, render the Deferred Findings section in Step 2's template — a human-readable Markdown table (one row per deferral) for readers, plus the exact machine payload (the same `schema_version: 1` / `deferrals[]` YAML shape) inside the hidden `DEVFLOW_DEFERRED_PAYLOAD` HTML comment that `scripts/match-deferrals.py` parses. An entry is **renderable** when it has a populated `follow_up.issue` **OR** its `reason.category` (equivalently the aggregate's flat `category`) is `settled-by-disclosure` (a foreclosure, which never has a `follow_up.issue`). An ordinary entry (one of the three non-foreclosure categories) lacking a `follow_up.issue` is a stale half-written manifest — skip it silently.
+
+**Carry-forward safety (issue #621 — the foreclosure block is a sole durable record).** Because a `settled-by-disclosure` foreclosure files no follow-up issue, the PR-body Scope-Acknowledged block is its *only* durable record — a regeneration from a fresh environment (where `.devflow/tmp/review/…` is empty) must therefore **never** silently wipe it. So:
+- When the slug aggregate is **absent or unparseable** (`DEFERRALS_BODY` empty/invalid), do **not** omit the section: read the **existing PR body's** `DEVFLOW_DEFERRED_PAYLOAD` block and preserve it verbatim (re-emit its entries unchanged). Only when neither an aggregate nor an existing block exists is the section omitted.
+- When **both** an aggregate and an existing PR-body block exist, merge them: render the aggregate's entries, then **carry forward** any entry present in the existing body's `DEVFLOW_DEFERRED_PAYLOAD` but **absent from the aggregate** (matched by its `dfr-` id) so a foreclosure recorded on an earlier pass is never dropped by a later regeneration that no longer sees its manifest.
+
+The lookup is best-effort — never fail the run on a missing or unparseable manifest, and never wipe an existing foreclosure block on one.
 
 ## Step 2: Generate the PR Description
 
@@ -99,7 +105,7 @@ Fetch the existing body and apply these merge rules:
 - Visual Changes
 - Breaking Changes
 - Post-Merge Verification (when `POST_MERGE_ITEMS` is non-empty — re-derived from the workpad on every run so the list stays in sync with the latest /devflow:implement parse)
-- Deferred Findings (when `DEFERRALS_BODY` is non-empty and contains entries with `follow_up.issue` — re-derived from the manifest on every run so the block stays in sync with the latest /devflow:implement Phase 4.0.5 filing)
+- Deferred Findings (when there is at least one renderable entry — an entry with `follow_up.issue`, or a `settled-by-disclosure` foreclosure — re-derived from the manifest on every run so the block stays in sync with the latest /devflow:implement Phase 4.0.5 filing; **carry-forward-safe**: a regeneration with no manifest present preserves the existing block's foreclosure entries verbatim rather than wiping them, per the carry-forward rule in Step 1)
 
 **Merge** (keep existing items that are still relevant, add new ones, remove stale ones):
 - Test Plan — preserve human-added checklist items; add items for new changes; remove items for changes that no longer exist
@@ -141,14 +147,15 @@ The following items can only be verified after this PR is merged or deployed. Ti
 - [ ] [...]
 
 ## Deferred Findings
-[Omit this entire section when DEFERRALS_BODY is empty or contains no entries with a populated follow_up.issue. When non-empty, render with the markers — the /devflow:review verdict matcher parses them exactly. The visible content is a human-readable Markdown table; the exact machine payload lives in a hidden HTML comment (`DEVFLOW_DEFERRED_PAYLOAD`) so it does not appear in the rendered PR body. One table row per deferral; one payload entry per deferral, in the same order:]
+[Omit this entire section only when there are NO renderable entries AND no existing PR-body block to carry forward (issue #621). An entry is renderable when it has a populated follow_up.issue, OR its reason.category is `settled-by-disclosure` (a foreclosure — no follow_up.issue). When rendering, render with the markers — the /devflow:review verdict matcher parses them exactly. The visible content is a human-readable Markdown table; the exact machine payload lives in a hidden HTML comment (`DEVFLOW_DEFERRED_PAYLOAD`) so it does not appear in the rendered PR body. One table row per deferral; one payload entry per deferral, in the same order. A foreclosure row cites the disclosure path in the Follow-up column (e.g. `disclosure: docs/…`) instead of a `#<N>` issue reference. Carry forward any existing-body foreclosure entry absent from the aggregate, per Step 1's carry-forward rule:]
 
 <!-- DEVFLOW_DEFERRED_FINDINGS_START -->
-These review-agent findings were deferred under the Scope-Acknowledged Findings contract. /devflow:review honors matching entries as Informational; closing a linked follow-up issue invalidates the deferral and forces re-verification.
+These review-agent findings were deferred under the Scope-Acknowledged Findings contract. /devflow:review honors matching entries as Informational; closing a linked follow-up issue invalidates the deferral and forces re-verification. A `settled-by-disclosure` foreclosure has no follow-up issue — the cited disclosure is its deliverable, and a review re-verifies the disclosure phrase against the tree.
 
 | Severity | File | Finding | Follow-up |
 | --- | --- | --- | --- |
 | <severity> | `<path>:<start>-<end>` | <one-line summary> | #<N> |
+| <severity> | `<path>:<start>-<end>` | <one-line summary> | disclosure: `<disclosure path>` |
 
 <!-- DEVFLOW_DEFERRED_PAYLOAD
 schema_version: 1
@@ -164,14 +171,19 @@ deferrals:
       summary: |
         <verbatim summary>
     reason:
-      category: <out-of-scope | already-tracked | claim-quality>
+      category: <out-of-scope | already-tracked | claim-quality | settled-by-disclosure>
       explanation: |
         <verbatim explanation>
+    # follow_up is present for the three ordinary categories; a settled-by-disclosure
+    # entry OMITS follow_up and instead carries a top-level `disclosure: {path, phrase}`.
     follow_up:
       issue: <N>
       url: <url>
       filed_at: <ISO 8601 UTC>
       filed_by: <login>
+    disclosure:
+      path: <repo-relative disclosure path>   # settled-by-disclosure entries only
+      phrase: <short verbatim phrase>
 -->
 <!-- DEVFLOW_DEFERRED_FINDINGS_END -->
 

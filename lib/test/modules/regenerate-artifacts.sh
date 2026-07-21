@@ -1304,6 +1304,17 @@ assert_eq "#655 recipe interface: cloud-writer names the 'generate' subcommand t
 assert_eq "#655 recipe interface: prompt-mass names the '--write-baseline' writer the tool declares" \
   "yes/yes" \
   "$(_ra_recipe_names prompt-mass-baseline '--write-baseline')/$(_ra_tool_has_flag "$RA_REPO" lib/test/prompt-mass-census.py '*--write-baseline[!-]*')"
+# #659 review follow-up: the flag EXISTING is not the flag WRITING. `--write-baseline` prints the
+# replacement JSON to stdout and returns 0 without touching the artifact (its own `help=` says
+# "print"), so the interface pin above stays green against a recipe that stops at the command and
+# silently regenerates nothing — found by dogfooding this rule on a real merge conflict, where the
+# recipe was followed twice and the baseline never changed. A `regenerate` row whose named tool does
+# not itself write must therefore also name the DESTINATION artifact, so the recipe carries the
+# write step rather than implying it. Verified two ways: the tool is confirmed non-writing (its
+# --help declares `print`), and the recipe is confirmed to name the destination path.
+assert_eq "#655 recipe completeness: prompt-mass' non-writing tool forces the destination path into the recipe" \
+  "print/yes" \
+  "$(case "$(cd "$RA_REPO" && python3 lib/test/prompt-mass-census.py --help 2>&1)" in *"--write-baseline"*print*) echo print;; *) echo writes;; esac)/$(_ra_recipe_names prompt-mass-baseline 'lib/test/prompt-mass-baseline.json')"
 # The capability generator has no argparse (it rejects `--help`), so its interface is
 # established by RUNNING the bare write form the recipe names against a fixture: an exit
 # outside {0} — or an "unknown argument" breadcrumb — means the recipe names a dead form.

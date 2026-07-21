@@ -185,13 +185,26 @@ ROWS = (
         "check": None,  # bound to run_row below.
         "clean": (0,),
         "exits": (0, 1),
-        # The recipe names the WRITER (`--write-baseline`), never the bare checker this
-        # row's `argv` holds: `argv` is the non-writing census run, which prints a drift
-        # report and writes nothing.
+        # The recipe names `--write-baseline`, never the bare checker this row's `argv`
+        # holds: `argv` is the non-writing census run, which prints a drift report and
+        # writes nothing.
+        # #659 review follow-up (found by dogfooding this rule on a real conflict): despite
+        # its name, `--write-baseline` does NOT write the baseline — its own `help=` says it
+        # "print[s] canonical replacement baseline JSON", and it returns 0 after writing that
+        # JSON to stdout. A recipe stopping at the command therefore reads as complete, exits
+        # 0, and leaves the artifact byte-unchanged — the silent fail-open this whole rule
+        # exists to close, sitting in the rule's own recipe. So the recipe states the WRITE
+        # step explicitly and names the destination path, mirroring the canonical procedure in
+        # the census section of .devflow/prompt-extensions/implement.md ("Copy the printed JSON
+        # into lib/test/prompt-mass-baseline.json with the Write/Edit tool"). The Write/Edit
+        # phrasing is deliberate over a `>` redirect: a redirect is a denied command shape on
+        # the cloud tiers (issue #401), so a redirect-shaped recipe would be refused there.
         "policy": (
             "the mandatory-byte census section of .devflow/prompt-extensions/implement.md"
-            " — regenerate the baseline against the merged tree with "
-            "`python3 lib/test/prompt-mass-census.py --write-baseline`"
+            " — regenerate the baseline against the merged tree by running "
+            "`python3 lib/test/prompt-mass-census.py --write-baseline`, which PRINTS the "
+            "canonical replacement JSON without writing it, then writing that printed JSON "
+            "into lib/test/prompt-mass-baseline.json with the Write/Edit tool"
         ),
         "conflict_class": "regenerate",
         "conflict_paths": ("lib/test/prompt-mass-baseline.json",),

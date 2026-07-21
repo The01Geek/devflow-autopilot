@@ -339,6 +339,8 @@ Write the deferral, in order of preference, to the first channel available:
 
 **A successful pushback is itself a deferral** — record it the same way, with the technical reason you declined. To the next run, an un-recorded "the reviewer was wrong" is indistinguishable from "nobody ever looked at it," so it comes back identically every pass. Writing down WHY you declined is what makes the decision stick.
 
+**When the deliverable is an already-shipped disclosure** — the finding is answered by documentation that already ships, and the correct outcome is to disclose rather than change code — record WHAT was settled, WHY the disclosure answers it (cite the disclosure by location and a short verbatim phrase from it), and the revisit condition: *revisit only if evidence contradicts the cited disclosure*. This keeps the same WHAT / WHY / revisit-condition triple; the difference is that no further work is tracked, so the citation itself is the record the next run re-checks.
+
 ## Acknowledging Correct Feedback
 
 When feedback IS correct:

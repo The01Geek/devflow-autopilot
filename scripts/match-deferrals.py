@@ -5,7 +5,8 @@
 
 Reads the Scope-Acknowledged Findings block from a PR body (between the
 DEVFLOW_DEFERRED_FINDINGS_START/END markers), validates each deferral
-against three guards, and matches the survivors against the current run's
+against four guards (guard 4 replaces guard 2 for a `settled-by-disclosure`
+foreclosure entry, so any one deferral is validated against three), and matches the survivors against the current run's
 Phase 3 findings. Emits a JSON demotion map the verdict engine consumes
 to demote matched findings to Informational.
 
@@ -15,9 +16,23 @@ normal):
                           .devflow/config.json.
     2. Mutual cross-link: follow-up issue exists, is open, and its body
                           contains the substring "PR #<N>" (where N is the
-                          current PR number).
+                          current PR number). Applies to ordinary deferrals
+                          only; for a `settled-by-disclosure` foreclosure
+                          entry this guard is replaced by guard 4 below.
     3. Widens surface:    PR's current diff does not overlap the deferral's
                           file within ±10 lines of its line_range.
+    4. Disclosure verify (foreclosure entries only, `reason.category ==
+                          "settled-by-disclosure"`): the PR's cached diff was
+                          read and parsed to at least one hunk; the entry's
+                          `disclosure.path` is a repo-relative path resolving
+                          to a file under the checked-out tree's repo root;
+                          `disclosure.phrase` is found in that file under
+                          whitespace-normalized comparison; and `disclosure.path`
+                          is not the file of any hunk in the PR's own diff (a
+                          PR-authored disclosure never self-forecloses). Fails
+                          closed with reason `disclosure-unverified` and a
+                          `detail` naming the failed arm — this REPLACES guard 2
+                          for foreclosure entries; guards 1 and 3 still apply.
 
 Matching rule (v1, conservative): a current finding matches a surviving
 deferral iff same file AND same kind AND line_range overlaps within ±25
@@ -61,7 +76,7 @@ import os
 import re
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 if sys.version_info < (3, 11):  # fail fast, before any PEP 604 annotation is evaluated below
     sys.stderr.write(
@@ -89,7 +104,9 @@ PAYLOAD_START = "<!-- DEVFLOW_DEFERRED_PAYLOAD"
 # default (so the empty-string edge matches config-get.sh's behavior, but via its
 # fallback rather than a passthrough here).
 
-# Rejection reason codes — mirrored verbatim in skills/review/SKILL.md prose.
+# Rejection reason codes — mirrored verbatim in
+# skills/review/phases/phase-4-verdict.md prose (the review engine is a bundle
+# since #529; the codes moved out of skills/review/SKILL.md with it).
 # Edit both in lockstep.
 REASON_UNTRUSTED_FILER = "untrusted-filer"
 REASON_MISSING_FOLLOW_UP_ISSUE = "missing-follow-up-issue"
@@ -98,6 +115,89 @@ REASON_ISSUE_CLOSED = "issue-closed"
 REASON_UNLINKED_FOLLOWUP = "unlinked-followup"
 REASON_WIDENS_SURFACE = "widens-surface"
 REASON_UNMATCHED = "unmatched"
+# issue #621: foreclosure entries (reason.category == "settled-by-disclosure")
+# are honored through a disclosure-verification guard that REPLACES the mutual
+# cross-link guard for this category only. It fails closed with this reason code
+# plus a `detail` naming the failed arm.
+REASON_DISCLOSURE_UNVERIFIED = "disclosure-unverified"
+
+# The per-entry reason.category value that marks a settled-by-disclosure
+# foreclosure (issue #621). A foreclosure has no follow-up issue — the
+# already-shipped disclosure IS the deliverable — so it cannot ride the
+# mutual-cross-link guard; guard 4 (_verify_disclosure) governs it instead.
+FORECLOSURE_CATEGORY = "settled-by-disclosure"
+
+
+def _normalize_ws(text: str) -> str:
+    # Whitespace-normalized comparison: collapse every run of whitespace
+    # (including newlines) to a single space and strip the ends, so a
+    # disclosure phrase matches its file even across line wraps / reflowed
+    # indentation. Pure-Python (str.split) — no non-preflight PATH tool decides
+    # this selection (CLAUDE.md guard-class 2).
+    return " ".join(text.split())
+
+
+def _verify_disclosure(deferral: dict, hunks: dict, diff_hunk_count: int,
+                       repo_root: str | None) -> str | None:
+    """Guard 4 (issue #621) — foreclosure disclosure verification.
+
+    Returns None when the disclosure verifies, else a short `detail` string
+    naming the failed arm (paired with REASON_DISCLOSURE_UNVERIFIED by the
+    caller). Fails CLOSED on every degraded operand: a foreclosure whose
+    disclosure cannot be verified against the checked-out tree is rejected and
+    the matching finding re-raises at full strength.
+
+    A foreclosure is honored only when ALL hold:
+      * the PR's cached diff was read and parsed to >= 1 hunk (an absent /
+        unreadable / zero-hunk diff fails closed — the not-in-diff test below
+        would otherwise be vacuously true over an empty hunk dict);
+      * `disclosure.path` is a non-empty repo-relative path (not absolute, no
+        `..`) resolving to a file UNDER the checked-out tree's repo root;
+      * `disclosure.path` is NOT the file of any hunk in the PR's own diff (a
+        PR-authored disclosure never self-forecloses — "already shipped" means
+        it predates the PR);
+      * the file is readable and contains `disclosure.phrase` under
+        whitespace-normalized comparison.
+    """
+    disc = deferral.get("disclosure")
+    if not isinstance(disc, dict):
+        return "absent-disclosure-object"
+    path = disc.get("path")
+    phrase = disc.get("phrase")
+    if not isinstance(path, str) or not path.strip():
+        return "absent-path"
+    if not isinstance(phrase, str) or not phrase.strip():
+        return "absent-phrase"
+    # Diff must have been read and parsed to at least one hunk — fail closed
+    # otherwise, so the not-in-diff check below is never vacuously satisfied.
+    if diff_hunk_count < 1:
+        return "diff-unavailable"
+    if os.path.isabs(path):
+        return "absolute-path"
+    if ".." in Path(path).parts:
+        return "parent-traversal"
+    if repo_root is None:
+        return "repo-root-unresolved"
+    root = Path(repo_root).resolve()
+    target = (root / path).resolve()
+    try:
+        target.relative_to(root)
+    except ValueError:
+        return "path-outside-repo"
+    # A disclosure the PR itself authors cannot foreclose that PR's findings —
+    # reject when disclosure.path is a file the diff touched (>= 1 hunk).
+    diff_files = {f for f, hs in hunks.items() if hs}
+    if _norm_path(path) in diff_files:
+        return "disclosure-in-diff"
+    if not target.is_file():
+        return "file-absent"
+    try:
+        file_text = target.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return "file-unreadable"
+    if _normalize_ws(phrase) not in _normalize_ws(file_text):
+        return "phrase-not-found"
+    return None
 
 
 def _fail(msg, code=2):
@@ -297,12 +397,34 @@ def _check_issue_cross_link(issue_number: int, pr_number: int) -> str | None:
     return None
 
 
+def _norm_path(path: str) -> str:
+    """Canonical repo-relative comparison basis for a path.
+
+    Both operands of every hunk-key comparison pass through this, so a
+    non-canonical spelling (`./docs/x.md`, `docs//x.md`, a backslash form)
+    compares equal to the canonical `docs/x.md` diff key. Purely lexical — no
+    filesystem access, so it is safe on paths that do not exist. Guard-class 2:
+    pure Python (`PurePosixPath`/`str`), never a PATH tool.
+
+    An empty path returns unchanged so the caller's own emptiness checks still
+    decide. Lexical normalization does NOT collapse `..`, so the traversal guard
+    upstream of every call site keeps its meaning.
+    """
+    if not path:
+        return path
+    return PurePosixPath(path.replace("\\", "/")).as_posix()
+
+
 def _parse_diff_hunks(diff_text: str) -> dict:
     """Returns {file_path: [(start_line, end_line), ...]} for added/modified
     lines on the new side. Conservative — includes both add and context lines
     in the hunk range, which over-approximates the affected region (safe for
     widens-surface — false positives reject deferrals, never honor them
     incorrectly).
+
+    Keys are normalized through `_norm_path` so every consumer
+    (`_verify_disclosure`'s self-foreclosure exclusion, `_widens_surface`)
+    compares on one canonical basis (issue #660 review).
     """
     hunks: dict[str, list[tuple[int, int]]] = {}
     current_file: str | None = None
@@ -312,7 +434,7 @@ def _parse_diff_hunks(diff_text: str) -> dict:
     for line in diff_text.splitlines():
         m = file_re.match(line)
         if m:
-            current_file = m.group(1)
+            current_file = _norm_path(m.group(1))
             hunks.setdefault(current_file, [])
             continue
         m = hunk_re.match(line)
@@ -330,7 +452,7 @@ def _widens_surface(deferral: dict, hunks: dict) -> bool:
     if not file_path or len(line_range) != 2:
         return False
     start, end = line_range
-    file_hunks = hunks.get(file_path, [])
+    file_hunks = hunks.get(_norm_path(file_path), [])
     for h_start, h_end in file_hunks:
         if (h_start - WIDENS_SURFACE_TOLERANCE) <= end and \
            (h_end + WIDENS_SURFACE_TOLERANCE) >= start:
@@ -447,10 +569,43 @@ def main(argv=None):
         hunks = _parse_diff_hunks(
             diff_path.read_text(encoding="utf-8", errors="replace")
         )
+    # Total parsed hunks across all files — the operand the foreclosure guard
+    # fails closed on when the cached diff was absent, unreadable, or parsed to
+    # zero hunks (issue #621). `_parse_diff_hunks` seeds an empty list per `+++`
+    # header, so a non-empty `hunks` dict does not imply any real hunk — count
+    # the tuples, not the keys.
+    diff_hunk_count = sum(len(v) for v in hunks.values())
+    repo_root = _repo_root()
 
     valid_deferrals: list[dict] = []
     for d in deferrals:
         deferral_id = d.get("id", "(no-id)")
+
+        # issue #621: a foreclosure entry (reason.category == "settled-by-
+        # disclosure") has no follow-up issue by design. It skips the missing-
+        # follow-up-issue + mutual-cross-link guards entirely; guards 1
+        # (trusted filer, already applied above), 3 (widens surface), and 4
+        # (disclosure verification) govern it. The `reason.category` slot is
+        # the exact discriminator between old-shape and foreclosure entries.
+        category = (d.get("reason") or {}).get("category")
+        if category == FORECLOSURE_CATEGORY:
+            if _widens_surface(d, hunks):
+                result["rejected_deferrals"].append({
+                    "deferral_id": deferral_id,
+                    "reason": REASON_WIDENS_SURFACE,
+                })
+                continue
+            detail = _verify_disclosure(d, hunks, diff_hunk_count, repo_root)
+            if detail is not None:
+                result["rejected_deferrals"].append({
+                    "deferral_id": deferral_id,
+                    "reason": REASON_DISCLOSURE_UNVERIFIED,
+                    "detail": detail,
+                })
+                continue
+            valid_deferrals.append(d)
+            continue
+
         follow_up = d.get("follow_up") or {}
         issue_n = follow_up.get("issue")
         if not isinstance(issue_n, int):
