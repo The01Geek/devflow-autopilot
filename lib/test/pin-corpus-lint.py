@@ -49,13 +49,33 @@ interpolates a variable it cannot resolve, or the target file is a variable with
 no ``--var`` binding and no ``$LIB``-relative assignment) is COUNTED and reported
 on stderr, never silently skipped.
 
-Both subcommands exit 0. Findings go to stdout (one per line, tab-separated);
-the unresolvable count and per-site detail go to stderr.
+Without ``--strict`` both subcommands exit 0 whether or not they found anything.
+Findings go to stdout (one per line, tab-separated); the unresolvable count and
+per-site detail go to stderr.
+
+**``--strict`` exit-code mode (issue #687, opt-in, applies to both ``lint`` and
+``wrapped``).** With ``--strict`` a run that writes at least one line to stdout
+exits **3**, and a run that writes none exits 0; the stdout and stderr bytes are
+byte-for-byte what they are without the flag — ``--strict`` changes only the exit
+code. The rule is defined over **whether any line was written to stdout**, not
+over a list of finding tokens, so a finding arm added later is covered the day it
+lands. Every stdout write on a covered path routes through the single ``_emit``
+helper (defined just above ``run_lint``); ``lib/test/run.sh``'s issue-#687
+emit-helper guard, anchored from ``run_lint`` to the end of
+``_emit_wrapped_or_absent``, goes RED if a raw stdout write is introduced inside
+that range — so a future arm printing *informational* output on a covered path
+must route it to ``sys.stderr`` instead. **What ``--strict`` rc 0 does and does
+not assert:** it asserts only that no line was written to stdout; it does **not**
+assert that any pin was resolved. The fail-closed accounting
+(``UNRESOLVED-COUNT`` / ``RESOLVED-COUNT``) is a stderr channel that never moves
+the exit code, so a corpus in which every pin failed to resolve prints nothing and
+exits 0 under ``--strict`` — a caller keying on the exit code still owes the
+separate ``RESOLVED-COUNT`` floor.
 
 CLI::
 
-    pin-corpus-lint.py lint    PIN_SOURCE [--lib DIR] [--var NAME=PATH ...]
-    pin-corpus-lint.py wrapped PIN_SOURCE [--lib DIR] [--var NAME=PATH ...]
+    pin-corpus-lint.py lint    PIN_SOURCE [--strict] [--lib DIR] [--var NAME=PATH ...]
+    pin-corpus-lint.py wrapped PIN_SOURCE [--strict] [--lib DIR] [--var NAME=PATH ...]
                                [--reloc] [--reloc-search-set FILE]
                                [--reloc-exclude SUBSTR ...]
 
@@ -558,12 +578,29 @@ def _wrapped_view(path, cache):
     return v
 
 
-def run_lint(pin_source, lib, overrides, md_targets):
+def _emit(sink, line):
+    """The single stdout chokepoint for every finding line on a ``--strict``-covered
+    path (issue #687). Appends to ``sink`` — so ``--strict`` can key rc 3 on
+    "at least one line was written to stdout" — and prints the line unchanged, so
+    the stdout/stderr bytes are byte-identical with and without ``--strict``.
+
+    Defined OUTSIDE the ``run_lint`` … end-of-``_emit_wrapped_or_absent`` guard
+    range that ``lib/test/run.sh``'s issue-#687 emit-helper guard anchors over, so
+    the guard's ``grep -cE`` count of raw stdout-writing forms inside that range
+    stays 0. A future finding arm on a covered path MUST route through this helper
+    (never a bare ``print(`` / ``sys.stdout.write`` / ``os.write(1``) or the guard
+    goes RED; informational output on a covered path must go to ``sys.stderr``."""
+    sink.append(line)
+    print(line)
+
+
+def run_lint(pin_source, lib, overrides, md_targets, strict=False):
     text = _read(pin_source)
     unresolved = 0
     resolved = 0
     collisions = []
     view_cache = {}
+    sink = []
     for pin in extract_pins(text, lib, overrides):
         if pin["literal"] is None or pin["file"] is None:
             unresolved += 1
@@ -606,10 +643,10 @@ def run_lint(pin_source, lib, overrides, md_targets):
                 collisions.append((pin, None))
     for pin, cln in collisions:
         loc = f":{cln}" if cln else ""
-        print(f"COLLISION\t{pin['file']}{loc}\t{pin['helper']}@{pin_source}:{pin['lineno']}\t{pin['literal']}")
+        _emit(sink, f"COLLISION\t{pin['file']}{loc}\t{pin['helper']}@{pin_source}:{pin['lineno']}\t{pin['literal']}")
     sys.stderr.write(f"UNRESOLVED-COUNT\t{unresolved}\n")
     sys.stderr.write(f"RESOLVED-COUNT\t{resolved}\n")
-    return 0
+    return 3 if strict and sink else 0
 
 
 # ── #661 relocation diagnosis ───────────────────────────────────────────────
@@ -716,11 +753,13 @@ def diagnose_relocation(lit, nlit, target, search_paths, exclude_tokens, cache):
 
 
 def run_wrapped(pin_source, lib, overrides, md_targets,
-                reloc=False, reloc_search_file=None, reloc_exclude=None):
+                reloc=False, reloc_search_file=None, reloc_exclude=None,
+                strict=False):
     text = _read(pin_source)
     unresolved = 0
     resolved = 0
     view_cache = {}
+    sink = []
     # Resolve the relocation search set ONCE (issue #661) — only when --reloc is on.
     # A resolution failure is carried as (None, reason): the ABSENT branch then reports
     # "relocation diagnosis unavailable" and never a false "deleted". The pin-source file
@@ -766,7 +805,8 @@ def run_wrapped(pin_source, lib, overrides, md_targets,
         # rendered surface), a whitespace-wrapped phrase, and a genuinely-absent one.
         nlit = normalize_ws(lit)
         if nlit and any(nlit in h for h in helps):
-            print(
+            _emit(
+                sink,
                 f"HELP\t{pin['file']}\t{pin['helper']}@{pin_source}:{pin['lineno']}\t"
                 f"pin targets a multi-literal argparse help= string; pin the RENDERED "
                 f"surface (captured --help output / real stderr), not the source\t{lit}"
@@ -775,19 +815,22 @@ def run_wrapped(pin_source, lib, overrides, md_targets,
         _emit_wrapped_or_absent(
             pin, pin_source, nlit, nfile, lit,
             reloc=reloc, reloc_paths=reloc_paths, reloc_err=reloc_err,
-            reloc_excludes=reloc_excludes, cache=view_cache,
+            reloc_excludes=reloc_excludes, cache=view_cache, sink=sink,
         )
     sys.stderr.write(f"UNRESOLVED-COUNT\t{unresolved}\n")
     sys.stderr.write(f"RESOLVED-COUNT\t{resolved}\n")
-    return 0
+    return 3 if strict and sink else 0
 
 
 def _emit_wrapped_or_absent(pin, pin_source, nlit, nfile, lit,
                             reloc=False, reloc_paths=None, reloc_err=None,
-                            reloc_excludes=(), cache=None):
+                            reloc_excludes=(), cache=None, sink=None):
+    if sink is None:
+        sink = []
     site = f"{pin['helper']}@{pin_source}:{pin['lineno']}"
     if nlit and nlit in nfile:
-        print(
+        _emit(
+            sink,
             f"WRAPPED\t{pin['file']}\t{site}\t"
             f"phrase occurs on NO single line but IS present in the whitespace-normalized "
             f"rendering — a wrapped-literal blind spot; pin the rendered surface\t{lit}"
@@ -795,7 +838,8 @@ def _emit_wrapped_or_absent(pin, pin_source, nlit, nfile, lit,
         return
     if not reloc:
         # Relocation diagnosis off — the pre-#661 ABSENT emit, byte-identical.
-        print(
+        _emit(
+            sink,
             f"ABSENT\t{pin['file']}\t{site}\t"
             f"phrase absent from the target entirely (not merely wrapped)\t{lit}"
         )
@@ -808,7 +852,8 @@ def _emit_wrapped_or_absent(pin, pin_source, nlit, nfile, lit,
         sys.stderr.write(
             f"RELOC-UNAVAILABLE\t{pin['file']}\t{site}\t{reloc_err}\n"
         )
-        print(
+        _emit(
+            sink,
             f"ABSENT\t{pin['file']}\t{site}\t"
             f"phrase absent from the target entirely; relocation diagnosis unavailable "
             f"({reloc_err})\t{lit}"
@@ -818,7 +863,8 @@ def _emit_wrapped_or_absent(pin, pin_source, nlit, nfile, lit,
         lit, nlit, pin["file"], reloc_paths, reloc_excludes, cache or {}
     )
     if dests:
-        print(
+        _emit(
+            sink,
             f"RELOCATED\t{pin['file']}\t{site}\t"
             f"relocated to {', '.join(dests)}; update the pin target\t{lit}"
         )
@@ -828,13 +874,15 @@ def _emit_wrapped_or_absent(pin, pin_source, nlit, nfile, lit,
         # on stderr and say the diagnosis is incomplete (AC5 masquerade guard).
         for path in unreadable:
             sys.stderr.write(f"RELOC-CANDIDATE-UNREADABLE\t{pin['file']}\t{site}\t{path}\n")
-        print(
+        _emit(
+            sink,
             f"ABSENT\t{pin['file']}\t{site}\t"
             f"phrase absent from the target; relocation diagnosis INCOMPLETE "
             f"({len(unreadable)} candidate(s) unreadable — not a confirmed deletion)\t{lit}"
         )
     else:
-        print(
+        _emit(
+            sink,
             f"ABSENT\t{pin['file']}\t{site}\t"
             f"phrase absent from the target AND from the scoped tracked-file set — "
             f"deleted (not found anywhere)\t{lit}"
@@ -872,9 +920,18 @@ def main(argv):
     reloc = False
     reloc_search_file = None
     reloc_exclude = []
+    strict = False
     i = 3
     while i < len(argv):
-        if argv[i] == "--lib" and i + 1 < len(argv):
+        if argv[i] == "--strict":
+            # Opt-in exit-code mode (issue #687): make the exit code carry the
+            # finding signal so a caller can key on it. Takes no value, so it
+            # mirrors --reloc's single-token arm. Off by default → byte-for-byte
+            # today's behaviour, which is why every existing call site is
+            # unaffected and the #661 rc-0-on-findings self-test still passes.
+            strict = True
+            i += 1
+        elif argv[i] == "--lib" and i + 1 < len(argv):
             lib = argv[i + 1]
             i += 2
         elif argv[i] == "--var" and i + 1 < len(argv):
@@ -899,10 +956,11 @@ def main(argv):
     if lib is None:
         lib = os.path.dirname(os.path.dirname(os.path.abspath(pin_source)))
     if cmd == "lint":
-        return run_lint(pin_source, lib, overrides, md_targets)
+        return run_lint(pin_source, lib, overrides, md_targets, strict=strict)
     return run_wrapped(
         pin_source, lib, overrides, md_targets,
         reloc=reloc, reloc_search_file=reloc_search_file, reloc_exclude=reloc_exclude,
+        strict=strict,
     )
 
 

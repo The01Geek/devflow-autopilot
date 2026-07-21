@@ -8006,9 +8006,11 @@ echo "implement-profile head guard (#484)"
 # the workflow's baked block
 # ALONE (implement-block mode), never from .devflow/config.json — a consumer repo
 # does not carry this repo's config extras, so a head reachable only via config is
-# reported ungranted here (the fail-closed direction). The extractor prints
-# ungranted heads and exits 0 either way, so the guard keys on the printed output
-# being EMPTY, never on the exit status.
+# reported ungranted here (the fail-closed direction). WITHOUT --strict the extractor
+# prints ungranted heads and exits 0 either way (issue #687: --strict is opt-in and NOT
+# passed here), so the guard below deliberately keys on the printed output being EMPTY,
+# never on the exit status. (A caller that DOES want to key on rc passes --strict, which
+# makes `ungranted` exit 3 when it prints any head and 0 when it prints none.)
 ECH="$LIB/test/extract-command-heads.py"
 E363=
 E484=
@@ -36279,10 +36281,165 @@ if _F375="$(mktemp -d 2>/dev/null)" && [ -n "$_F375" ] && [ -d "$_F375" ]; then
     "yes" "$(printf '%s' "$_W375" | grep -qi 'HELP.*help.py.*rendered' && echo yes || echo no)"
   assert_eq "#375 meta-guard self-test: a genuinely-absent phrase reads ABSENT, not a false WRAPPED" \
     "yes" "$(printf '%s' "$_W375" | grep -q 'ABSENT.*absent.py' && ! printf '%s' "$_W375" | grep -q 'WRAPPED.*absent.py' && echo yes || echo no)"
+
+  # ── issue #687: --strict exit-code mode over the #375 pin corpus ──────────────
+  # A findings-FREE twin pin source: every pin resolves and produces no
+  # COLLISION/WRAPPED/ABSENT/HELP, so the clean --strict case exits 0 with empty stdout.
+  {
+    printf 'assert_pin_unique "clean-op" %s "%s"\n' "'FLAG_OPERATIVE'" "$_F375/tgt_nocomment.sh"
+    printf 'assert_pin_unique "clean-single" %s "%s"\n' "'the phrase sits entirely on one line'" "$_F375/single.py"
+  } > "$_F375/clean.sh"
+  # A RELOCATED fixture: the literal is ABSENT from its target but present in a sibling in
+  # the scoped search set, so `wrapped --reloc` reaches the RELOCATED emit — unreachable
+  # without --reloc (AC11), and one more covered emit site routed through the _emit helper.
+  printf 'target prose with no marker phrase on any line\n' > "$_F375/reloc_tgt.md"
+  printf 'the relocated marker phrase lives here now\n' > "$_F375/reloc_dest.md"
+  printf 'assert_pin_unique "reloc" %s "%s"\n' "'the relocated marker phrase'" "$_F375/reloc_tgt.md" > "$_F375/reloc_pins.sh"
+  printf '%s\n' "$_F375/reloc_dest.md" > "$_F375/reloc_set.txt"
+
+  # Assertion 1 & the biconditional's rc-3 direction (lint): --strict over findings exits 3,
+  # with the reported actual value carrying the scanner's own stdout so a failure still
+  # names the finding. Maps to the exits-3 criterion.
+  _L375S="$(python3 "$PCL" lint "$_F375/pins.sh" --lib "$_F375" --strict 2>"$_F375/lint_s.err")"; _L375S_RC=$?
+  assert_eq "#687 lint --strict over findings exits 3 (stdout unchanged)" \
+    "rc=3|$_L375" "rc=$_L375S_RC|$_L375S"
+  # Assertion 3 (lint): stdout AND stderr with --strict are byte-identical to without it.
+  assert_eq "#687 lint --strict stdout is byte-identical to without --strict" "$_L375" "$_L375S"
+  assert_eq "#687 lint --strict stderr is byte-identical to without --strict" \
+    "yes" "$(cmp -s "$_F375/lint.err" "$_F375/lint_s.err" && echo yes || echo no)"
+  # Assertion 4 (lint): WITHOUT --strict a findings-bearing run still exits 0 (opt-in guard) —
+  # this is the regression that would go RED if someone made --strict the default.
+  python3 "$PCL" lint "$_F375/pins.sh" --lib "$_F375" >/dev/null 2>&1; _L375_PLAIN_RC=$?
+  assert_eq "#687 lint WITHOUT --strict over findings still exits 0 (opt-in), non-empty stdout" \
+    "rc=0|nonempty" "rc=$_L375_PLAIN_RC|$([ -n "$_L375" ] && echo nonempty || echo empty)"
+  # Assertion 2 & the biconditional's rc-0 direction (lint): --strict over the findings-FREE
+  # twin exits 0 and writes nothing to stdout.
+  _L375C="$(python3 "$PCL" lint "$_F375/clean.sh" --lib "$_F375" --strict 2>/dev/null)"; _L375C_RC=$?
+  assert_eq "#687 lint --strict over a findings-free source exits 0 with empty stdout" \
+    "rc=0|" "rc=$_L375C_RC|$_L375C"
+
+  # Assertion 3 & biconditional (wrapped, findings): --strict exits 3, stdout/stderr identical.
+  _W375B="$(python3 "$PCL" wrapped "$_F375/pins.sh" --lib "$_F375" 2>"$_F375/wrap.err")"
+  _W375S="$(python3 "$PCL" wrapped "$_F375/pins.sh" --lib "$_F375" --strict 2>"$_F375/wrap_s.err")"; _W375S_RC=$?
+  assert_eq "#687 wrapped --strict over findings exits 3 (stdout unchanged)" \
+    "rc=3|$_W375B" "rc=$_W375S_RC|$_W375S"
+  assert_eq "#687 wrapped --strict stdout is byte-identical to without --strict" "$_W375B" "$_W375S"
+  assert_eq "#687 wrapped --strict stderr is byte-identical to without --strict" \
+    "yes" "$(cmp -s "$_F375/wrap.err" "$_F375/wrap_s.err" && echo yes || echo no)"
+  # wrapped --strict over the findings-free twin exits 0, empty stdout.
+  _W375C="$(python3 "$PCL" wrapped "$_F375/clean.sh" --lib "$_F375" --strict 2>/dev/null)"; _W375C_RC=$?
+  assert_eq "#687 wrapped --strict over a findings-free source exits 0 with empty stdout" \
+    "rc=0|" "rc=$_W375C_RC|$_W375C"
+  # The RELOCATED emit is a covered stdout write too: `wrapped --reloc --strict` over the
+  # relocated fixture reaches it and must exit 3 (reached through the _emit helper).
+  _W375R="$(python3 "$PCL" wrapped "$_F375/reloc_pins.sh" --lib "$_F375" --reloc --reloc-search-set "$_F375/reloc_set.txt" --strict 2>/dev/null)"; _W375R_RC=$?
+  assert_eq "#687 wrapped --reloc --strict reaching the RELOCATED emit exits 3" \
+    "yes" "$(printf '%s' "$_W375R" | grep -q 'RELOCATED' && [ "$_W375R_RC" -eq 3 ] && echo yes || echo no)"
+
+  # Assertion 7: an unknown flag alongside --strict still exits 2 (the new arm does not
+  # swallow malformed input) in pin-corpus-lint.py.
+  python3 "$PCL" lint "$_F375/pins.sh" --lib "$_F375" --strict --bogus >/dev/null 2>&1; _L375U_RC=$?
+  assert_eq "#687 lint --strict alongside an unknown flag still exits 2" "2" "$_L375U_RC"
+
   rm -rf "$_F375"
 else
   echo FAIL >> "$RESULTS_FILE"
   printf '  FAIL  #375 pin-corpus self-tests: mktemp -d failed (guards could not be exercised; not a vacuous skip)\n' >&2
+fi
+
+# ── issue #687: emit-helper guards + extract-command-heads --strict self-tests ─
+# The --strict exit code is a sound proxy for "a finding was reported" ONLY because
+# every stdout write on a covered path routes through a single _emit helper that
+# records the write. These guards pin that mechanically (AC: "goes RED if an
+# unrecorded stdout write is introduced"): assert_count_red_under counts raw
+# stdout-writing forms inside the anchored region and asserts -eq 0 on the real
+# file while a sed -E mutation introducing one breaches the bound (RED). It is the
+# COUNT-shaped sibling of assert_pin_red_under because this is an ABSENCE assertion:
+# a mutation that ADDS a write removes no pinned literal, so assert_pin_red_under's
+# PASS->FAIL presence transition would report FAIL against a correct implementation.
+# The matched set is an alternation over stdout-writing forms (sys.stdout.write —
+# no trailing paren, so writelines( is covered too; os.write(1; a print( carrying
+# file=sys.stdout; and a bare print(); a print(-only pattern would stay GREEN while
+# every clean --strict run turned red.
+_PCL687="$LIB/test/pin-corpus-lint.py"
+_ECH687="$LIB/test/extract-command-heads.py"
+# pin-corpus-lint.py: ONE guard from the start of run_lint to the start of _read
+# (the def immediately after _emit_wrapped_or_absent). That contiguous range covers
+# every covered emit — the COLLISION emit in run_lint, the HELP emit in run_wrapped,
+# and the WRAPPED/RELOCATED/ABSENT emits in _emit_wrapped_or_absent — and needs NO
+# exemption: every finding emit in it is routed through _emit, and the _emit helper
+# itself is defined ABOVE run_lint, outside the range. Anchoring over run_lint and
+# _emit_wrapped_or_absent alone would wrongly leave the HELP emit (in run_wrapped,
+# between them) in neither region.
+assert_count_red_under "#687 pin-corpus-lint emit-helper guard: no raw stdout write in the run_lint.._emit_wrapped_or_absent range" \
+  '^def run_lint\(pin_source, lib, overrides, md_targets, strict=False\):' \
+  '^def _read\(path\):' \
+  'sys\.stdout\.write|os\.write\(1|print\(.*file=sys\.stdout|print\(' \
+  -eq 0 \
+  's/sys\.stderr\.write\(f"RESOLVED-COUNT/print(f"RESOLVED-COUNT/' \
+  "$_PCL687"
+# extract-command-heads.py: TWO guards, because one contiguous range spanning the
+# shared extraction helpers and the ungranted arm would necessarily contain main's
+# `heads` arm, whose bare print(name) IS the tool's data product and would breach an
+# -eq 0 bound. Guard A covers the shared extraction helpers (start of
+# _fenced_bash_blocks to the def _emit line); guard B covers the ungranted arm only.
+# Neither range includes the `heads` arm. The two NAMED exemptions — the `heads`
+# arm's emit and the _emit helper's own definition — sit outside BOTH ranges (the
+# _emit def is the END anchor of guard A, so its body is beyond the range; the
+# `heads` print sits between guard A's end and guard B's start).
+assert_count_red_under "#687 extract-command-heads emit-helper guard A: no raw stdout write in the shared extraction helpers" \
+  '^def _fenced_bash_blocks\(text: str\) -> list\[str\]:' \
+  '^def _emit\(sink: list\[str\], line: str\) -> None:' \
+  'sys\.stdout\.write|os\.write\(1|print\(.*file=sys\.stdout|print\(' \
+  -eq 0 \
+  's/heads\.extend\(extract_heads/print("leak"); heads.extend(extract_heads/' \
+  "$_ECH687"
+assert_count_red_under "#687 extract-command-heads emit-helper guard B: no raw stdout write in the ungranted arm" \
+  '^    if argv\[1:2\] == \["ungranted"\]:' \
+  '^        return 3 if strict and sink else 0' \
+  'sys\.stdout\.write|os\.write\(1|print\(.*file=sys\.stdout|print\(' \
+  -eq 0 \
+  's/_emit\(sink, name\)/print(name)/' \
+  "$_ECH687"
+
+# extract-command-heads.py --strict runtime behaviour (a distinct corpus from the
+# pin-corpus fixtures above), nothing mocked — the real command lines are the
+# boundary being proven.
+if _F687E="$(mktemp -d 2>/dev/null)" && [ -n "$_F687E" ] && [ -d "$_F687E" ]; then
+  printf '```bash\nzzcmd687 --x\n```\n' > "$_F687E/fence.md"
+  printf 'Bash(zzcmd687:*)\n' > "$_F687E/grant_all.txt"
+  printf 'Bash(othercmd:*)\n' > "$_F687E/grant_none.txt"
+  # Test 6: ungranted --strict against a granting allowlist exits 0; against a
+  # non-granting one exits 3, with the ungranted head still on stdout.
+  _E687A="$(python3 "$_ECH687" ungranted --strict "$_F687E/fence.md" "$_F687E/grant_all.txt" 2>/dev/null)"; _E687A_RC=$?
+  assert_eq "#687 ungranted --strict all-granted exits 0 with empty stdout" "rc=0|" "rc=$_E687A_RC|$_E687A"
+  _E687N="$(python3 "$_ECH687" ungranted --strict "$_F687E/fence.md" "$_F687E/grant_none.txt" 2>/dev/null)"; _E687N_RC=$?
+  assert_eq "#687 ungranted --strict none-granted exits 3 (stdout carries the head)" "rc=3|zzcmd687" "rc=$_E687N_RC|$_E687N"
+  # Test 3 (ungranted): stdout AND stderr with --strict are byte-identical to without.
+  _E687P="$(python3 "$_ECH687" ungranted "$_F687E/fence.md" "$_F687E/grant_none.txt" 2>"$_F687E/p.err")"; _E687P_RC=$?
+  _E687S="$(python3 "$_ECH687" ungranted --strict "$_F687E/fence.md" "$_F687E/grant_none.txt" 2>"$_F687E/s.err")"
+  assert_eq "#687 ungranted --strict stdout byte-identical to without" "$_E687P" "$_E687S"
+  assert_eq "#687 ungranted --strict stderr byte-identical to without" "yes" "$(cmp -s "$_F687E/p.err" "$_F687E/s.err" && echo yes || echo no)"
+  # Test 4 (ungranted): WITHOUT --strict a findings-bearing run still exits 0 (opt-in).
+  assert_eq "#687 ungranted WITHOUT --strict over findings still exits 0 (opt-in)" \
+    "rc=0|nonempty" "rc=$_E687P_RC|$([ -n "$_E687P" ] && echo nonempty || echo empty)"
+  # Test 5: heads --strict is REJECTED (exit 2, usage to stderr, empty stdout) — and does so
+  # whether or not file arguments follow the flag.
+  _E687H="$(python3 "$_ECH687" heads --strict "$_F687E/fence.md" 2>"$_F687E/h.err")"; _E687H_RC=$?
+  assert_eq "#687 heads --strict (with file arg) exits 2 with empty stdout" "rc=2|" "rc=$_E687H_RC|$_E687H"
+  assert_eq "#687 heads --strict writes the usage text to stderr" \
+    "yes" "$(grep -q 'usage: extract-command-heads.py' "$_F687E/h.err" && echo yes || echo no)"
+  _E687H2="$(python3 "$_ECH687" heads --strict 2>/dev/null)"; _E687H2_RC=$?
+  assert_eq "#687 heads --strict (no file arg) also exits 2 with empty stdout" "rc=2|" "rc=$_E687H2_RC|$_E687H2"
+  # Test 8: a --strict token in a NON-leading position keeps today's behaviour — it is read
+  # as a FILE, not the flag, so strict mode is NOT enabled (rc is today's non-3 behaviour).
+  python3 "$_ECH687" ungranted "$_F687E/fence.md" --strict "$_F687E/grant_none.txt" >/dev/null 2>&1; _E687X_RC=$?
+  assert_eq "#687 a non-leading --strict is treated as a FILE (today's behaviour), not the flag" \
+    "yes" "$([ "$_E687X_RC" != 3 ] && echo yes || echo no)"
+  rm -rf "$_F687E"
+else
+  echo FAIL >> "$RESULTS_FILE"
+  printf '  FAIL  #687 extract-command-heads --strict self-tests: mktemp -d failed (guards not exercised)\n' >&2
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -36440,14 +36597,26 @@ for _mod in "$LIB"/test/modules/*.sh; do
     */create-issue-contract.sh) _mod_vars=( "${CI_MOD_VARS[@]}" ) ;;
     *) _mod_vars=() ;;
   esac
-  # pin-corpus-lint.py emits findings to STDOUT and returns rc!=0 ONLY on an arg-parse
-  # error — never on a COLLISION/WRAPPED/ABSENT/HELP finding. So a bare rc check passes
-  # VACUOUSLY on a real finding (the #375-documented fail-open). Fold rc AND stdout into
-  # the comparand exactly as the #375 real-corpus scan does: clean == rc 0 AND empty stdout.
+  # pin-corpus-lint.py emits findings to STDOUT. WITHOUT --strict it returns rc 0 on a
+  # COLLISION/WRAPPED/ABSENT/HELP finding too (rc!=0 only on an arg-parse error), so a bare
+  # rc check passes VACUOUSLY on a real finding (the #375-documented fail-open) — which is
+  # why the FIRST assertion below folds rc AND stdout into the comparand (clean == rc 0 AND
+  # empty stdout), exactly as the #375 real-corpus scan does. WITH --strict (issue #687) the
+  # tool exits 3 when it writes any finding line to stdout and 0 when it writes none, so a
+  # NEW caller can key on the exit code by passing --strict; the SECOND assertion below
+  # exercises that mode over the same input while still capturing stdout for its diagnosis.
+  # (--strict rc 0 asserts only that stdout was empty, NOT that any pin resolved — the
+  # RESOLVED-COUNT floor below is the separate obligation a caller keying on rc still owes.)
+  # The finding-token wording stays accurate for this loop, which passes no --reloc (so the
+  # RELOCATED emit is unreachable here).
   _MOD_LINT_OUT="$(python3 "$PCL" lint "$_mod" --lib "$LIB" "${_mod_vars[@]}" 2>/dev/null)"; _MOD_LINT_RC=$?
   assert_eq "#591 pin-corpus lint clean over module $(basename "$_mod")" "rc=0|" "rc=$_MOD_LINT_RC|$_MOD_LINT_OUT"
+  _MOD_LINT_STRICT_OUT="$(python3 "$PCL" lint "$_mod" --lib "$LIB" "${_mod_vars[@]}" --strict 2>/dev/null)"; _MOD_LINT_STRICT_RC=$?
+  assert_eq "#687 pin-corpus lint --strict exits 0 over clean module $(basename "$_mod")" "rc=0|" "rc=$_MOD_LINT_STRICT_RC|$_MOD_LINT_STRICT_OUT"
   _MOD_WRAP_OUT="$(python3 "$PCL" wrapped "$_mod" --lib "$LIB" "${_mod_vars[@]}" 2>/dev/null)"; _MOD_WRAP_RC=$?
   assert_eq "#591 pin-corpus wrapped clean over module $(basename "$_mod")" "rc=0|" "rc=$_MOD_WRAP_RC|$_MOD_WRAP_OUT"
+  _MOD_WRAP_STRICT_OUT="$(python3 "$PCL" wrapped "$_mod" --lib "$LIB" "${_mod_vars[@]}" --strict 2>/dev/null)"; _MOD_WRAP_STRICT_RC=$?
+  assert_eq "#687 pin-corpus wrapped --strict exits 0 over clean module $(basename "$_mod")" "rc=0|" "rc=$_MOD_WRAP_STRICT_RC|$_MOD_WRAP_STRICT_OUT"
 done
 # Resolution floor: the meta-guards only actually CHECK a pin whose target file resolves.
 # create-issue-contract.sh carries the module corpus's namespaced pins whose targets need
