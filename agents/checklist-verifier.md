@@ -1,6 +1,6 @@
 ---
 name: checklist-verifier
-description: Verifies a single claim from the verification checklist against the actual source code. Reports PASS, FAIL, or INCONCLUSIVE with file:line evidence. Used for `verification_mode: "agent"` items; lite-mode items are resolved by the orchestrator directly via grep.
+description: 'Verifies a single claim from the verification checklist against the actual source code. Reports PASS, FAIL, or INCONCLUSIVE with file:line evidence. Used for `verification_mode: "agent"` items; lite-mode items are resolved by the orchestrator directly via grep.'
 model: sonnet
 color: cyan
 ---
