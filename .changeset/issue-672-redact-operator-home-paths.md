@@ -16,3 +16,10 @@ expressed through the resolved `$DEVFLOW_JQ`, applies only to string-typed value
 leaked operator path is scrubbed from both corpus files, and `SECURITY.md` /
 `CONTRIBUTING.md` now name the corpus as committed content that must be kept free of
 host-local and owner-identifying data. (#672)
+
+`scripts/stale-prose-lint.py` no longer examines diff-added lines under
+`.devflow/learnings/` or `.devflow/logs/`. Those records quote reviewed prose verbatim as
+JSON data about a past PR, never as an assertion about the file they sit in, so rewriting
+one — as the redaction above does — re-presented the whole record as diff-added prose and
+graded a previous PR's counted claim STALE. Each excluded path is named on stderr, and
+`CHANGELOG.md` / `.changeset/` stay in scope. (#672)
