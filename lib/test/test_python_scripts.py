@@ -6904,6 +6904,29 @@ assert_eq("#543 AC18: validator accepts the real checked-in manifest",
 # trust boundary (absolute / repo-root / basename-wildcard). Non-vacuity is
 # proven by injecting one synthetic defect at a time via profile_grants=.
 # ─────────────────────────────────────────────────────────────────────────────
+# Coupled-mirror pin (/simplify F1): _VENDORED_GRANT_RE is intentionally identical
+# to the runtime validator's _GRANT_RE (the lower contract module cannot import the
+# higher validator without a cycle, so the mirror is documented, not shared). Pin
+# byte-equality so tightening one regex without the other goes RED here instead of
+# silently drifting a security-boundary grant matcher.
+assert_eq("#650 AC9: _VENDORED_GRANT_RE mirrors the validator's _GRANT_RE (drift-proof pin)",
+          vcwc._GRANT_RE.pattern, cwc._VENDORED_GRANT_RE.pattern)
+
+# Manifest-coupling pin (/simplify F4): each SANCTIONED_WILDCARD_GRANTS entry is a
+# deliberate companion wildcard the real profiles carry (lib/capability-profiles.json,
+# per #561). The exemption is a policy allowlist (auto-deriving it from every manifest
+# wildcard would make the widening check vacuous), so instead couple it to reality:
+# assert each sanctioned wildcard actually appears as a Bash(<wildcard>:*) grant in at
+# least one live ROOTS workflow. If the manifest drops it, this pin goes RED, flagging
+# the now-stale exemption rather than letting it silently mask a future real widening.
+_gs_workflow_blob = "\n".join(
+    (cwc.REPO_ROOT / cwc.ROOTS[pr]["workflow"]).read_text(encoding="utf-8")
+    for pr in cwc.ROOTS)
+for _sw in sorted(cwc.SANCTIONED_WILDCARD_GRANTS):
+    assert_eq("#650 AC9: sanctioned wildcard '%s' is a real grant in a live workflow "
+              "(exemption coupled to the manifest, not a stale hardcode)" % _sw,
+              True, ("Bash(%s:" % _sw) in _gs_workflow_blob)
+
 # The live tree passes — the real workflows grant every reachable literal and
 # widen nothing (the sanctioned */load-prompt-extension.sh wildcard aside).
 assert_eq("#650 AC9: check_grant_sync() reports no violations on the live tree",

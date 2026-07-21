@@ -391,6 +391,16 @@ def unlisted_skill_assets():
 # basename-wildcard). check_grant_sync() enforces both directions over the three
 # cloud profiles keyed by ROOTS.
 #
+# Scoped-home note (deviates from issue #650's AC9 wording "the command-head
+# test", which names lib/test/extract-command-heads.py's comment-aware scoper as
+# the eventual home; see the workpad AC-rewrite/deviation note). This slice ships
+# AC9 alone: it lives here, on the AC1-closure module that OWNS REQUIRED_HELPER_HEADS
+# and ROOTS, and its grant parsing is at parity with the runtime validator's
+# extract_profile_grants (full-line-comment-aware only). Re-homing onto
+# extract-command-heads.py's authoritative inline-comment-aware parser is coupled
+# with the deferred AC3 leading-token guard (which uses that parser) and is
+# tracked in the #650 follow-up, not built half-way here.
+#
 # Grant-shape regexes, mirroring validate-cloud-writer-contract.py's _GRANT_RE for
 # the vendored form. Both anchor on `Bash(` so a vendored path that appears only in
 # a comment or a shell assignment is never counted as a grant (the same fail-open
