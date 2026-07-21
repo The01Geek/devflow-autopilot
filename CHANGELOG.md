@@ -4,6 +4,21 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.19.2] — 2026-07-21
+
+### Changed
+- **A direct `/devflow:receiving-code-review` pass now inherits the editor-authority guard.**
+  The rule that weighs an issue Addendum's authority by the editor's repository permission —
+  added for the fix loop in #620 — moved from `skills/review-and-fix/SKILL.md` into
+  `.devflow/prompt-extensions/receiving-code-review.md`, so both a standalone reception pass and
+  the fix loop apply it. The review-and-fix root keeps only the loop-specific tail (routing
+  conflicting findings to the loop's deferral channel). (#658)
+
+## [2.19.1] — 2026-07-21
+
+### Fixed
+- **`extract-doc-needed-paths.sh`: command and grant literals inside the Documentation Needed block are no longer tokenized into phantom doc deliverables.** A `**Documentation Needed**` block that quotes a tool-grant literal (`` `Bash(x.sh:*)` ``) or a shell command (`` `bash lib/test/run.sh` ``) — routine DevFlow issue prose — used to emit the embedded path as a `/devflow:implement` Phase 4.1 deliverable, which could pollute the docs-subagent briefing, drive a spurious self-heal `docs:` commit, or Block the run outright. Backtick spans, `Word(...)` call groups, and fenced code blocks (```` ``` ````/`~~~`) are now scope markers: a span yields a deliverable only when it is a single bare-path token or several extension-bearing / in-tree bare-path tokens, and any command/grant literal contributes no tokens. A suppressed backtick span leaves a one-time stderr breadcrumb; `Word(...)` call groups and fenced blocks are removed silently. A mis-fenced body degrades to the prior fence-blind behavior instead of silently emptying. The extractor ships via the `devflow_version` vendor fetch, so **normalize your open issues' Documentation Needed blocks to one bare backticked path per span before bumping** — a multi-token span authored under the older tokenization can otherwise be reclassified from a deliverable to a suppressed literal. (#644)
+
 ## [2.19.0] — 2026-07-20
 
 ### Changed

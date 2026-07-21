@@ -429,7 +429,7 @@ Describe the **one** approach the user chose — not a comparison of candidates.
   tied to an AC and concrete enough that a second reviewer reaches the same verdict.
   "Confirmed by review" alone is not a plan — state *what* the reviewer checks and *how they
   know it passed.*
-- **Documentation Needed** — what doc updates the change requires.
+- **Documentation Needed** — what doc updates the change requires. Write each deliverable as one bare backticked path per span (`` `docs/foo.md` ``); command and grant literals in this block (`` `bash ./run-tests.sh` ``, `` `Bash(x.sh:*)` ``) are never deliverables and are suppressed by the path extractor.
 - **Potential Gotchas** — pitfalls and architectural constraints (these are warnings, not
   unresolved choices).
 

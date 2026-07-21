@@ -651,6 +651,38 @@ gate suffered). Its behavior is verified by a fixture-based input-shape matrix i
 (bullet-with-paths, no-paths, absent section, path-in-another-section-not-extracted, directory-token and
 rooted-token rejection) rather than by the shadow review.
 
+**Span, call-group, and fence rules (issue #644).** Inside the scoped block, three constructs are
+treated as scope markers rather than deliverable text, so a routine DevFlow issue that quotes a
+tool-grant literal or a shell command no longer produces a phantom deliverable. (1) A **backtick span**
+yields deliverables only when its whole content is a single bare-path token (`` `docs/a.md` ``), or
+several whitespace-separated bare-path tokens each carrying a recognized extension or naming an in-tree
+tracked file (`` `docs/a.md docs/b.md` ``, `` `docs/a.md LICENSE` ``). Any other span — one bearing a
+`(`, `:`, `*`, or any non-path character (a grant `` `Bash(x.sh:*)` ``), or a bare command word like
+`` `bash lib/test/run.sh` `` (`bash` is extensionless and not an in-tree file) — is a command/grant
+literal: it contributes no tokens, and a **one-time stderr breadcrumb** names the first suppressed span
+(disclosed by Phase 4.1 as ephemeral on the cloud tier — the gate does not capture that stderr, so a
+suppressed span leaves no run-record trace there; see the phase file's cloud-tier residual note). (2) Outside
+spans, a `Word(...)` **call group** (a word immediately followed by a parenthesized group, e.g. an
+un-backticked `Bash(lib/test/run.sh:*)`) contributes no tokens. (3) A **fenced code block** — opened and
+closed by a line whose first non-whitespace characters are three-plus backticks or three-plus tildes (the
+two GitHub-flavored-markdown forms; indented four-space code blocks are a disclosed non-goal) — is inert
+to the *entire* pipeline: its delimiter and interior lines drive no scope transition and contribute no
+tokens, so a fenced example (a command transcript, a config snippet, a template illustration) is never a
+declaration. The single fence tracker lives in Stage A and runs from the top of the body, so the block
+Stage B receives is fence-free by construction; when the fence-aware pass enters no Documentation Needed
+scope at all **and a fence actually disrupted parsing** — an unbalanced fence still open at end-of-body, or
+the section heading itself swallowed by a straddling fence (a truncated body, a lone stray delimiter, a
+fence straddling the scope boundary) — Stage A re-runs fence-blind — today's semantics — so a mis-fenced
+body degrades to today's behavior instead of silently emptying. A *balanced* fenced example that opens no
+real scope (a phantom scope inside an entered section) does **not** trip the fallback, so it stays empty. Two drops are **disclosed**: a command-shaped span is a breadcrumbed
+under-enforcement residual (not a leak-safe property — the rule cannot always distinguish it from a
+deliverable list), and an **un-backticked bare command in plain prose** (`run bash lib/test/run.sh`, no
+backticks, no call-group syntax, outside any fence) still emits its path token, because it is textually
+indistinguishable from a deliverable mention (the rejected wrapper-word-heuristic alternative rots and
+false-positives). The Stage A `emitted` proxy (`arms()`) applies the same span/call-group rules
+(extension-only, since it cannot run the filesystem in-tree rescue) so it stays in lockstep with what
+Stage B emits.
+
 **Stage 1 — Pre-flight briefing (before dispatch).** The orchestrator runs the helper over the issue
 body and treats its output as the required deliverables. If the helper emits one or more paths, the
 dispatch instruction sent to the `devflow:docs` subagent is extended with "The issue requires the

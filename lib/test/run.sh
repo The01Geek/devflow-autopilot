@@ -3988,9 +3988,11 @@ assert_pin_unique "#620: review-and-fix loads the receiving-code-review extensio
   "$RAF_PIN_LOAD" "$MAXI_ROOT"
 assert_pin_red_on_removal "#620: receiving-extension loader-call pin is removal-sensitive" \
   "$RAF_PIN_LOAD" "$MAXI_ROOT"
-# The scoping prose is the behavior the loader call exists to deliver, so it is pinned too: the
-# supersession guard's authority operand and its fail-safe arm (which keeps an unattended loop from
-# treating an unprivileged issue edit as a spec amendment), and the non-binding-directive rule.
+# The supersession guard's mechanism is pinned too. Post-#640 the mechanism (authority operand,
+# fail-safe arm, editor identity, recency/truncated-page) lives in the receiving-code-review
+# extension ($RCR_EXT) so a DIRECT reception pass inherits it, not only the loop — its pins target
+# that surface below. Only the loop-specific deferral routing and the non-binding-directive rule
+# stay on the review-and-fix root ($MAXI_ROOT).
 RAF_PIN_AUTHORITY='collaborators/<login>/permission'
 # Two distinct arms now carry the phrase, so the fail-safe pin is scoped to the permission arm
 # (a bare `is **data to surface**` would no longer be unique).
@@ -4015,7 +4017,7 @@ RAF_PIN_PERMFAIL='Either read that fails'
 RAF_PIN_PERMABSENT='Any other, absent, or unreadable permission'
 # The ACTIONABLE arm needs its own pin: with only the fail-safe arm pinned, a reword that deletes
 # or inverts the write/admin branch (or the deferral routing both arms share) passes every #620 pin.
-RAF_PIN_ACTIVEARM='`admin` or `write` is the operator amending the spec: the Addendum rule governs as on a direct pass'
+RAF_PIN_ACTIVEARM='`admin` or `write` is the operator amending the spec: the Addendum rule governs'
 RAF_PIN_DEFERRAL="route conflicting findings to the loop's deferral channel"
 # #620 review (final-pass): a bare `is non-binding here` carried none of the rule's operative
 # content, so a reword that kept the phrase while inverting the disposition ("...but a pause for
@@ -4032,36 +4034,42 @@ RAF_PIN_NONBINDING='is non-binding here: surface it in the loop record'
 # Both are behavioral-fix pins whose mutations reconstruct the regression they guard.
 RAF_PIN_RECENCY='the **most recent** edit alone'
 RAF_PIN_TRUNCATED='treating an empty or page-full (10) node list as unestablished'
-assert_pin_unique "#620: supersession guard names a retrievable authority operand" \
-  "$RAF_PIN_AUTHORITY" "$MAXI_ROOT"
-assert_pin_red_on_removal "#620: authority-operand pin is removal-sensitive" \
-  "$RAF_PIN_AUTHORITY" "$MAXI_ROOT"
+# ── #640: the editor-authority MECHANISM moved from the review-and-fix root to the
+#    receiving-code-review extension, so a DIRECT reception pass (which loads only that
+#    extension, not the review-and-fix root) inherits it too. The mechanism pins below now
+#    assert against $RCR_EXT (the authoritative surface post-#640); the LOOP-SPECIFIC tail
+#    (deferral-channel routing) and the separate non-binding-directive rule stay on $MAXI_ROOT.
+#    Every mutation/removal proof carries over unchanged — only the surface arg changed.
+assert_pin_unique "#620/#640: supersession guard names a retrievable authority operand" \
+  "$RAF_PIN_AUTHORITY" "$RCR_EXT"
+assert_pin_red_on_removal "#620/#640: authority-operand pin is removal-sensitive" \
+  "$RAF_PIN_AUTHORITY" "$RCR_EXT"
 # Pin the DETECTION half too. Pinning only the permission read would let a later edit delete the
 # editor-identity calls and leave a policy over a signal nobody reads — the exact prior-art defect.
 RAF_PIN_DETECT='userContentEdits(last: 10)'
 RAF_PIN_NOTASSOC='not `author_association`'
-assert_pin_unique "#620: supersession guard reads the editor identity it weighs" \
-  "$RAF_PIN_DETECT" "$MAXI_ROOT"
-assert_pin_red_on_removal "#620: editor-identity pin is removal-sensitive" \
-  "$RAF_PIN_DETECT" "$MAXI_ROOT"
-assert_pin_unique "#620: supersession guard excludes author_association as the authority term" \
-  "$RAF_PIN_NOTASSOC" "$MAXI_ROOT"
-assert_pin_red_on_removal "#620: author_association-exclusion pin is removal-sensitive" \
-  "$RAF_PIN_NOTASSOC" "$MAXI_ROOT"
-assert_pin_unique "#620: supersession guard keeps its surface-as-data fail-safe arm" \
-  "$RAF_PIN_SAFEARM" "$MAXI_ROOT"
-assert_pin_red_on_removal "#620: surface-as-data arm pin is removal-sensitive" \
-  "$RAF_PIN_SAFEARM" "$MAXI_ROOT"
-assert_pin_unique "#620: a failed/denied identity read routes to data-to-surface, not to unedited" \
-  "$RAF_PIN_READFAIL" "$MAXI_ROOT"
-assert_pin_red_under "#620: failed-identity-read pin catches the fail-open ordering it guards" \
+assert_pin_unique "#620/#640: supersession guard reads the editor identity it weighs" \
+  "$RAF_PIN_DETECT" "$RCR_EXT"
+assert_pin_red_on_removal "#620/#640: editor-identity pin is removal-sensitive" \
+  "$RAF_PIN_DETECT" "$RCR_EXT"
+assert_pin_unique "#620/#640: supersession guard excludes author_association as the authority term" \
+  "$RAF_PIN_NOTASSOC" "$RCR_EXT"
+assert_pin_red_on_removal "#620/#640: author_association-exclusion pin is removal-sensitive" \
+  "$RAF_PIN_NOTASSOC" "$RCR_EXT"
+assert_pin_unique "#620/#640: supersession guard keeps its surface-as-data fail-safe arm" \
+  "$RAF_PIN_SAFEARM" "$RCR_EXT"
+assert_pin_red_on_removal "#620/#640: surface-as-data arm pin is removal-sensitive" \
+  "$RAF_PIN_SAFEARM" "$RCR_EXT"
+assert_pin_unique "#620/#640: a failed/denied identity read routes to data-to-surface, not to unedited" \
+  "$RAF_PIN_READFAIL" "$RCR_EXT"
+assert_pin_red_under "#620/#640: failed-identity-read pin catches the fail-open ordering it guards" \
   "$RAF_PIN_READFAIL" 's/Either read that fails, is denied, or returns unparseable output is \*\*data to surface\*\* \(below\) — never an unedited reading, never an `admin`\/`write` grant\. Null/Null/' \
-  "$MAXI_ROOT"
-assert_pin_unique "#620: the failed-read arm covers the permission read" \
-  "$RAF_PIN_PERMFAIL" "$MAXI_ROOT"
-assert_pin_red_under "#620: permission-read failure pin catches re-scoping the arm to the identity read" \
+  "$RCR_EXT"
+assert_pin_unique "#620/#640: the failed-read arm covers the permission read" \
+  "$RAF_PIN_PERMFAIL" "$RCR_EXT"
+assert_pin_red_under "#620/#640: permission-read failure pin catches re-scoping the arm to the identity read" \
   "$RAF_PIN_PERMFAIL" 's/Either read that fails/The identity read that fails/' \
-  "$MAXI_ROOT"
+  "$RCR_EXT"
 # ORDERING is the property that makes this guard work, and the three pins above are all PRESENCE
 # checks — a reword relocating the failed-read arm to AFTER the `admin`/`write` branch satisfies
 # every one of them while reopening the fail-open the issue was filed to close. So assert the
@@ -4069,26 +4077,29 @@ assert_pin_red_under "#620: permission-read failure pin catches re-scoping the a
 # prerequisite) does the offset arithmetic — a value deciding an assertion must not route through a
 # non-preflight PATH tool. Both offsets must resolve: a `-1` from either `find` fails the check
 # closed rather than comparing against a sentinel.
-assert_eq "#620: the failed-read arm precedes the write/admin branch it governs" "yes" \
+assert_eq "#620/#640: the failed-read arm precedes the write/admin branch it governs" "yes" \
   "$(python3 -c 'import sys
 s=open(sys.argv[1],encoding="utf-8").read()
 a=s.find("Either read that fails")
 b=s.find("`admin` or `write` is the operator amending the spec")
-print("yes" if a!=-1 and b!=-1 and a<b else "no")' "$MAXI_ROOT")"
-assert_pin_unique "#620: the catch-all admits an absent or unreadable permission" \
-  "$RAF_PIN_PERMABSENT" "$MAXI_ROOT"
+print("yes" if a!=-1 and b!=-1 and a<b else "no")' "$RCR_EXT")"
+assert_pin_unique "#620/#640: the catch-all admits an absent or unreadable permission" \
+  "$RAF_PIN_PERMABSENT" "$RCR_EXT"
 # Unlike the two pins above (whose mutations rewrite ADJACENT prose to reconstruct the regression),
 # this one's guarded regression IS the narrowing of the pinned phrase itself, so its mutation
 # necessarily touches that phrase and the pin is removal-equivalent in strength. Kept as
 # assert_pin_red_under because the mutation still produces valid, grammatical prose that reopens the
 # gap — stronger evidence than a whole-line strip — but the block does not claim more than that.
-assert_pin_red_under "#620: absent-permission pin catches narrowing the catch-all to a present value" \
+assert_pin_red_under "#620/#640: absent-permission pin catches narrowing the catch-all to a present value" \
   "$RAF_PIN_PERMABSENT" 's/Any other, absent, or unreadable permission/Any other permission/' \
-  "$MAXI_ROOT"
-assert_pin_unique "#620: supersession guard keeps its actionable write/admin arm" \
-  "$RAF_PIN_ACTIVEARM" "$MAXI_ROOT"
-assert_pin_red_on_removal "#620: actionable-arm pin is removal-sensitive" \
-  "$RAF_PIN_ACTIVEARM" "$MAXI_ROOT"
+  "$RCR_EXT"
+assert_pin_unique "#620/#640: supersession guard keeps its actionable write/admin arm" \
+  "$RAF_PIN_ACTIVEARM" "$RCR_EXT"
+assert_pin_red_on_removal "#620/#640: actionable-arm pin is removal-sensitive" \
+  "$RAF_PIN_ACTIVEARM" "$RCR_EXT"
+# The LOOP-SPECIFIC tail stays on the review-and-fix root ($MAXI_ROOT): the deferral-channel
+# routing names a mechanism only the loop has, and the non-binding-directive rule governs loop
+# runs. These are the two pins #640 deliberately did NOT move.
 assert_pin_unique "#620: both arms route conflicting findings to the deferral channel" \
   "$RAF_PIN_DEFERRAL" "$MAXI_ROOT"
 assert_pin_red_on_removal "#620: deferral-routing pin is removal-sensitive" \
@@ -4097,23 +4108,23 @@ assert_pin_unique "#620: interactive directives are non-binding on loop runs" \
   "$RAF_PIN_NONBINDING" "$MAXI_ROOT"
 assert_pin_red_on_removal "#620: non-binding-directive pin is removal-sensitive" \
   "$RAF_PIN_NONBINDING" "$MAXI_ROOT"
-assert_pin_unique "#620: authority binds to the most recent edit alone, not the login set" \
-  "$RAF_PIN_RECENCY" "$MAXI_ROOT"
+assert_pin_unique "#620/#640: authority binds to the most recent edit alone, not the login set" \
+  "$RAF_PIN_RECENCY" "$RCR_EXT"
 # The mutation strips the WHOLE recency span, not just the pinned literal: deleting
 # `the **most recent** edit alone` alone leaves the following clause ("never any privileged login
 # merely present in the list") still forbidding set-semantics, so the mutant would not actually
 # reconstruct the fail-open — a removal-sensitive pin wearing a behavioral-fix label.
-assert_pin_red_under "#620: recency pin catches reverting authority to set-semantics" \
+assert_pin_red_under "#620/#640: recency pin catches reverting authority to set-semantics" \
   "$RAF_PIN_RECENCY" 's/the \*\*most recent\*\* edit alone — the node with the latest `editedAt`, never any privileged login merely present in the list/the edits recorded/' \
-  "$MAXI_ROOT"
-assert_pin_unique "#620: a truncated or empty edit page routes to unestablished" \
-  "$RAF_PIN_TRUNCATED" "$MAXI_ROOT"
+  "$RCR_EXT"
+assert_pin_unique "#620/#640: a truncated or empty edit page routes to unestablished" \
+  "$RAF_PIN_TRUNCATED" "$RCR_EXT"
 # The mutation spans the trailing `since …` rationale too: deleting only the directive would leave
 # its justification standing, so the mutant would be self-contradicting prose rather than a clean
 # reconstruction of the fail-open — the same widening the recency mutation above needed.
-assert_pin_red_under "#620: truncated-page pin catches dropping the partial-history arm" \
+assert_pin_red_under "#620/#640: truncated-page pin catches dropping the partial-history arm" \
   "$RAF_PIN_TRUNCATED" 's/treating an empty or page-full \(10\) node list as unestablished, since a truncated edit history cannot establish which edit is newest/weighing the list as returned/' \
-  "$MAXI_ROOT"
+  "$RCR_EXT"
 # Placement, not just presence: the docs claim both loads happen in the ENTRY preamble, which is what
 # makes them cover every path that enters through it. Assert the receiving load follows the skill's own
 # load and both precede the first section heading, so relocating the fence past entry goes RED.
@@ -5658,6 +5669,18 @@ _actual_phase_stems=$(find "$IMPL_PHASES_DIR" -maxdepth 1 -name '*.md' -type f -
 _registered_phase_stems=$(printf '%s\n' $IMPL_PHASE_STEMS | sort | tr '\n' ' ' | sed 's/ *$//')
 assert_eq "implement split: phases/ dir holds exactly the registered phase set (no unregistered / missing phase file)" \
   "$_registered_phase_stems" "$_actual_phase_stems"
+# #644 review finding 1: P4_FILE's "Span-suppression breadcrumb disclosure" quotes a
+# breadcrumb literal that MUST match what scripts/extract-doc-needed-paths.sh actually
+# emits (`suppressed a span …`). A quoted phrase the extractor never emits is a documented
+# falsehood — the self-contradicting-diff carve-out. The wrong "non-path span" phrasing also
+# reintroduces the dishonest characterization the script's suppress_span() comment deliberately
+# removed (a suppressed multi-token span may have carried a genuine deliverable, so the phrase
+# must NOT assert "a command literal" as fact). Pin both directions so the disclosure can never
+# drift from the emission again.
+assert_eq "#644 review: P4_FILE quotes the extractor's actual breadcrumb phrase (\`suppressed a span\`)" \
+  "1" "$(grep -c 'suppressed a span' "$P4_FILE")"
+assert_eq "#644 review: P4_FILE does not quote the never-emitted 'non-path span' phrasing" \
+  "0" "$(grep -c 'suppressed a non-path span' "$P4_FILE")"
 # The resolve-once preamble above the per-phase loop carries its OWN fail-closed contract
 # (the ${CLAUDE_SKILL_DIR}-empty stop, and "the stubs are deliberately non-actionable" —
 # the imperative that a phase must never run from its thin stub alone). Each per-phase gate
@@ -11565,6 +11588,311 @@ assert_pin_red_on_removal "#380 W6A: create-issue SKILL.md pins the Relevant Cla
 # Extractor header names all three shapes and this issue (AC5 documentation clause).
 assert_pin_unique "#380 W6A: extractor header names the ### Documentation Needed shape and issue #380" \
   'a `### Documentation Needed` level-3 heading (issue #380)' "$EXTRACT_HELPER"
+
+# ────────────────────────────────────────────────────────────────────────────
+# issue #644: command/grant literals inside backtick spans, Word(...) call groups,
+# and fenced code blocks are scope markers, not deliverables. The extractor now
+# suppresses them; a suppressed span emits a one-time stderr breadcrumb. Each
+# fixture below maps 1:1 to an acceptance criterion (a closed set). All doc paths
+# carry a recognized extension (hermetic) except where an in-tree extensionless
+# file (`LICENSE`, tracked by this repo) is deliberately exercised.
+
+# Case 45 (#644 AC1): a backticked grant literal beside a backticked genuine
+# deliverable emits ONLY the genuine one. RED on today's code, which additionally
+# emits the grant's embedded path (the executed repro in Current Behavior).
+fx_644_grant="## Implementation Notes
+
+- **Documentation Needed** — update \`docs/implement-skill.md\` and the grant \`Bash(.devflow/vendor/devflow/scripts/config-get.sh:*)\`."
+assert_eq "#644 AC1: a backticked grant literal beside a genuine deliverable emits only the genuine path" \
+  "docs/implement-skill.md" \
+  "$(printf '%s\n' "$fx_644_grant" | bash "$EXTRACT_HELPER" 2>/dev/null)"
+
+# Case 46 (#644 AC2): backticked command spans (`bash lib/test/run.sh`) and a
+# backticked grant (`Bash(lib/test/run-module.sh:*)`) beside a genuine deliverable
+# contribute nothing; neither run.sh nor run-module.sh appears (both do today).
+fx_644_cmds="## Implementation Notes
+
+- **Documentation Needed** — \`docs/genuine.md\`, \`bash lib/test/run.sh\`, and \`Bash(lib/test/run-module.sh:*)\`."
+assert_eq "#644 AC2: backticked command/grant spans contribute nothing; the genuine deliverable survives" \
+  "docs/genuine.md" \
+  "$(printf '%s\n' "$fx_644_cmds" | bash "$EXTRACT_HELPER" 2>/dev/null)"
+
+# Case 47 (#644 AC3): an UN-backticked `Bash(lib/test/run.sh:*)` call group on a
+# structural deliverable line contributes no tokens (the Word(...) group rule) —
+# run.sh does not appear (it does today).
+fx_644_callgroup="## Implementation Notes
+
+- **Documentation Needed**
+- **\`docs/x.md\`** and Bash(lib/test/run.sh:*)"
+assert_eq "#644 AC3: an un-backticked Word(...) call group on a structural line contributes no tokens" \
+  "docs/x.md" \
+  "$(printf '%s\n' "$fx_644_callgroup" | bash "$EXTRACT_HELPER" 2>/dev/null)"
+
+# Case 48 (#644 AC4): a backtick span containing two whitespace-separated
+# extension-bearing paths emits BOTH — today's genuine multi-path-span behavior
+# is preserved, not regressed by the new span rule.
+fx_644_multipath="## Implementation Notes
+
+- **Documentation Needed** — \`docs/a.md docs/b.md\`."
+assert_eq "#644 AC4: a backtick span of two extension-bearing paths emits both (multi-path preserved)" \
+  "$(printf 'docs/a.md\ndocs/b.md')" \
+  "$(printf '%s\n' "$fx_644_multipath" | bash "$EXTRACT_HELPER" 2>/dev/null)"
+
+# Case 49 (#644 AC5): a backtick span mixing an extension-bearing path with an
+# extensionless IN-TREE tracked file (`LICENSE`, which this repo tracks) emits
+# BOTH — the multi-token rule mirrors Stage B's extensionless in-tree rescue, so
+# the all-extension complement does not swallow rescue-eligible deliverables.
+fx_644_mixed="## Implementation Notes
+
+- **Documentation Needed** — \`docs/a.md LICENSE\`."
+assert_eq "#644 AC5: a span mixing an ext path with an in-tree extensionless file emits both (in-tree rescue in span)" \
+  "$(printf 'LICENSE\ndocs/a.md')" \
+  "$(printf '%s\n' "$fx_644_mixed" | bash "$EXTRACT_HELPER" 2>/dev/null)"
+
+# Case 50 (#644 AC6): a command-shaped span (`bash lib/test/run.sh`) beside a
+# surviving genuine deliverable contributes nothing, the genuine deliverable is
+# emitted, and the one-time suppression breadcrumb is present — the partial drop
+# is observable, never silent.
+fx_644_bc="## Implementation Notes
+
+- **Documentation Needed** — \`docs/keep.md\` then \`bash lib/test/run.sh\`."
+fx_644_bc_err="$(mktemp)"
+fx_644_bc_out="$(printf '%s\n' "$fx_644_bc" | bash "$EXTRACT_HELPER" 2>"$fx_644_bc_err")"
+assert_eq "#644 AC6: command-shaped span drops silently-nothing while the genuine deliverable is emitted" \
+  "docs/keep.md" "$fx_644_bc_out"
+assert_eq "#644 AC6: the suppressed command span emits the one-time stderr breadcrumb" \
+  "1" "$(grep -c 'suppressed a span' "$fx_644_bc_err")"
+rm -f "$fx_644_bc_err"
+
+# Case 51 (#644 AC7): the mixed extension/in-tree span under the suite's existing
+# git-unavailable harness (cwd outside any work tree → git_rescue_ok=0). The
+# degraded arm is PER-TOKEN, never span-wide suppression: the extension-bearing
+# path is still emitted and the git-unavailable breadcrumb fires for the dropped
+# extensionless token (which is a real on-disk file here, mirroring Case 13).
+fx_644_nogit_dir="$(mktemp -d)"
+fx_644_nogit_ceiling="$(dirname "$fx_644_nogit_dir")"
+: > "$fx_644_nogit_dir/Makefile"
+fx_644_nogit_body="## Implementation Notes
+
+- **Documentation Needed** — \`docs/a.md Makefile\`."
+fx_644_nogit_out="$( printf '%s\n' "$fx_644_nogit_body" | ( cd "$fx_644_nogit_dir" && GIT_CEILING_DIRECTORIES="$fx_644_nogit_ceiling" bash "$EXTRACT_HELPER" 2>"$fx_644_nogit_dir/err" ) )"
+assert_eq "#644 AC7: degraded (git-unavailable) mixed span emits the extension-bearing path (per-token, not span-wide drop)" \
+  "docs/a.md" "$fx_644_nogit_out"
+assert_eq "#644 AC7: git-unavailable drop of the extensionless span token emits the degraded-rescue breadcrumb" \
+  "1" "$(grep -c 'git unavailable' "$fx_644_nogit_dir/err")"
+rm -rf "$fx_644_nogit_dir"
+
+# Case 52 (#644 AC8): a lone unmatched ``` fence delimiter above the block leaves
+# the fence-aware pass in no scope (the never-closing fence swallows the opener) —
+# the fence-blind fallback restores today's semantics and the genuine deliverable
+# is still emitted, rather than the extraction silently emptying.
+fx_644_lonefence="## Implementation Notes
+\`\`\`
+- **Documentation Needed** — update \`docs/real.md\`."
+assert_eq "#644 AC8: a lone unmatched fence above the block falls back fence-blind; the deliverable is still emitted" \
+  "docs/real.md" \
+  "$(printf '%s\n' "$fx_644_lonefence" | bash "$EXTRACT_HELPER" 2>/dev/null)"
+
+# Case 53 (#644 AC9): a fence opened in an EARLIER section whose closing delimiter
+# falls after the Documentation Needed opener (so the fence-aware pass never even
+# enters the Implementation Notes section) — the same fence-blind fallback emits
+# the genuine deliverable. The single Stage-A tracker + the enters-no-scope
+# fallback cover the straddle.
+fx_644_straddle="## Technical Context
+\`\`\`
+example content
+## Implementation Notes
+- **Documentation Needed** — update \`docs/real.md\`.
+\`\`\`
+trailing prose"
+assert_eq "#644 AC9: a boundary-straddling fence falls back fence-blind; the genuine deliverable is emitted" \
+  "docs/real.md" \
+  "$(printf '%s\n' "$fx_644_straddle" | bash "$EXTRACT_HELPER" 2>/dev/null)"
+
+# Case 54 (#644 AC10): a TILDE-fence variant — the fence delimited by ~~~ instead
+# of backticks, interior carrying a command literal, genuine deliverable after the
+# close — emits exactly the genuine deliverable. Both GFM fence forms are inert.
+fx_644_tilde="## Implementation Notes
+
+### Documentation Needed
+~~~
+bash lib/test/run.sh
+~~~
+\`docs/genuine.md\`"
+assert_eq "#644 AC10: a ~~~ tilde fence is recognized (interior inert); only the genuine deliverable is emitted" \
+  "docs/genuine.md" \
+  "$(printf '%s\n' "$fx_644_tilde" | bash "$EXTRACT_HELPER" 2>/dev/null)"
+
+# Case 55 (#644 AC11): an odd (unpaired) inline backtick on a non-fence line — a
+# genuine extension-bearing deliverable in the unpaired trailing segment is still
+# emitted (unbalanced inline spans degrade to today's per-line behavior). The
+# paired span before it (`docs/x.md`) is emitted too.
+fx_644_odd="## Implementation Notes
+
+- **Documentation Needed** — \`docs/x.md\` and also see \`docs/u.md"
+assert_eq "#644 AC11: an odd unpaired inline backtick keeps the unpaired-segment deliverable (per-line degrade)" \
+  "$(printf 'docs/u.md\ndocs/x.md')" \
+  "$(printf '%s\n' "$fx_644_odd" | bash "$EXTRACT_HELPER" 2>/dev/null)"
+
+# Case 56 (#644 AC12): the RED-against-today fenced-block fixture. A
+# `### Documentation Needed` heading scope in which the fence comes BEFORE any
+# deliverable; the interior includes a command, an un-backticked grant, a
+# `### Example section` heading-shaped line, and a `- **Note**` bold-shaped line;
+# a genuine backticked deliverable follows the fence close. Output is exactly the
+# genuine deliverable. Today this fails on both axes: the fence-interior
+# heading-shaped line closes the scope AND the interior command/grant lines are
+# tokenized — the fixture pins fence inertness to tokens AND to the scope state
+# machine at once.
+fx_644_red="## Implementation Notes
+
+### Documentation Needed
+\`\`\`
+bash lib/test/run.sh
+Bash(.devflow/vendor/devflow/scripts/config-get.sh:*)
+### Example section
+- **Note**
+\`\`\`
+\`docs/genuine.md\`"
+assert_eq "#644 AC12: fence inertness to BOTH tokens and the scope state machine; only the genuine deliverable emitted" \
+  "docs/genuine.md" \
+  "$(printf '%s\n' "$fx_644_red" | bash "$EXTRACT_HELPER" 2>/dev/null)"
+
+# Case 57 (#644 AC13): a phantom-scope fixture — a fenced markdown EXAMPLE placed
+# inside `## Implementation Notes` but outside any real Documentation Needed scope,
+# whose interior includes `**Documentation Needed** — ` followed by a backticked
+# path — emits nothing. A fence never opens a scope, and fence tracking starts
+# from the top of the body; the balanced example does not trip the fence-blind
+# fallback (the section WAS entered), so the extraction stays empty.
+fx_644_phantom="## Implementation Notes
+
+Here is an illustration of the template shape:
+
+\`\`\`
+**Documentation Needed** — \`docs/phantom.md\`
+\`\`\`"
+assert_eq "#644 AC13: a fenced example naming a Documentation Needed opener emits nothing (a fence never opens a scope)" \
+  "" \
+  "$(printf '%s\n' "$fx_644_phantom" | bash "$EXTRACT_HELPER" 2>/dev/null)"
+
+# Case 58 (#644 AC14): the arms() lockstep fixture. An opener, then a STRUCTURAL
+# line whose only path tokens sit inside a backticked grant literal, then a blank
+# line, then a prose paragraph naming a genuine deliverable — the genuine
+# deliverable is emitted. This proves the grant-only line no longer arms
+# `emitted`: a Stage-B-only fix would let arms() arm on the grant's `config-get.sh`
+# token, the trailing-prose close would fire, and the genuine deliverable would be
+# dropped (the fail-open the SYNC invariant guards). RED under a Stage-B-only fix.
+fx_644_lockstep="## Implementation Notes
+
+- **Documentation Needed**
+- \`Bash(.devflow/vendor/devflow/scripts/config-get.sh:*)\`
+
+Update \`docs/genuine.md\` in the documentation pass."
+assert_eq "#644 AC14: a grant-only structural line does not arm the trailing-prose close (arms() lockstep)" \
+  "docs/genuine.md" \
+  "$(printf '%s\n' "$fx_644_lockstep" | bash "$EXTRACT_HELPER" 2>/dev/null)"
+
+# Case 59 (#644 review — pr-test-analyzer Gap 1 / silent-failure-hunter F2): a
+# multi-token span mixing a genuine deliverable with a non-path sibling
+# (`docs/real.md notes`) is suppressed WHOLESALE — the genuine path is dropped
+# and a one-time breadcrumb fires. This pins the accepted, breadcrumbed
+# under-enforcement residual (AC6): the span rule keeps a span only when EVERY
+# token is a bare-path deliverable, so a mixed span contributes nothing. It also
+# pins that the breadcrumb is HONEST (not misattributing the drop as a pure
+# command literal) via the neutral "suppressed a span" phrase. This is the
+# deliberate all-or-nothing keep — a regression to per-token keep would make this
+# emit `docs/real.md`, so the fixture catches that direction.
+fx_644_mixed_supp="## Implementation Notes
+
+- **Documentation Needed** — \`docs/real.md notes\`."
+fx_644_mixed_err="$(mktemp)"
+fx_644_mixed_out="$(printf '%s\n' "$fx_644_mixed_supp" | bash "$EXTRACT_HELPER" 2>"$fx_644_mixed_err")"
+assert_eq "#644 review: a span mixing a genuine path with a non-path token is suppressed wholesale (accepted under-enforcement residual)" \
+  "" "$fx_644_mixed_out"
+assert_eq "#644 review: the wholesale-suppressed mixed span emits the one-time (honest) breadcrumb" \
+  "1" "$(grep -c 'suppressed a span' "$fx_644_mixed_err")"
+rm -f "$fx_644_mixed_err"
+
+# Case 60 (#644 review — pr-test-analyzer Gap 2 / silent-failure-hunter F3): under
+# the git-unavailable harness (cwd outside any work tree), a COMMAND span
+# (`bash lib/test/run.sh`) can no longer be vetted, so the degraded per-token arm
+# KEEPS it and the tokenizer emits its extension-bearing `lib/test/run.sh` token —
+# a disclosed over-emission (leak-safe direction: pollutes but never disables the
+# gate) that the git-available path suppresses. This pins that disclosed degraded
+# behavior AND that a one-time degraded breadcrumb fires so the over-emission is
+# observable rather than a silent phantom keep. (The genuine `docs/keep.md` is
+# emitted too.)
+fx_644_deg_dir="$(mktemp -d)"
+fx_644_deg_ceiling="$(dirname "$fx_644_deg_dir")"
+fx_644_deg_body="## Implementation Notes
+
+- **Documentation Needed** — \`docs/keep.md\` then \`bash lib/test/run.sh\`."
+fx_644_deg_out="$( printf '%s\n' "$fx_644_deg_body" | ( cd "$fx_644_deg_dir" && GIT_CEILING_DIRECTORIES="$fx_644_deg_ceiling" bash "$EXTRACT_HELPER" 2>"$fx_644_deg_dir/err" ) )"
+assert_eq "#644 review: git-unavailable degraded arm leaks a command span's extension-bearing token (disclosed over-emission)" \
+  "$(printf 'docs/keep.md\nlib/test/run.sh')" "$fx_644_deg_out"
+assert_eq "#644 review: the git-unavailable un-vetted-span keep emits the one-time degraded breadcrumb" \
+  "1" "$(grep -c 'kept un-vetted' "$fx_644_deg_dir/err")"
+rm -rf "$fx_644_deg_dir"
+
+# Case 61 (#644 review — silent-failure-hunter F1): an UNBALANCED (unclosed) fence
+# opened AFTER a deliverable was already captured swallows every later line as
+# fence interior, dropping a deliverable written after the stray delimiter. The
+# fence-blind fallback does NOT cover this (it is gated on !entered_scope), and the
+# leak-safe design keeps the drop (re-running fence-blind would re-tokenize the
+# malformed fenced content and re-introduce phantoms). This pins that the earlier
+# deliverable is still emitted (never a total empty) AND that a one-time breadcrumb
+# makes the mid-scope drop observable rather than silent.
+fx_644_unbal="## Implementation Notes
+
+### Documentation Needed
+
+- \`docs/a.md\`
+\`\`\`
+- \`docs/b.md\`"
+fx_644_unbal_err="$(mktemp)"
+fx_644_unbal_out="$(printf '%s\n' "$fx_644_unbal" | bash "$EXTRACT_HELPER" 2>"$fx_644_unbal_err")"
+assert_eq "#644 review: an unbalanced mid-scope fence drops later deliverables but keeps the earlier one (leak-safe, never total-empty)" \
+  "docs/a.md" "$fx_644_unbal_out"
+assert_eq "#644 review: the mid-scope unbalanced-fence drop emits the one-time observability breadcrumb" \
+  "1" "$(grep -c 'unbalanced (unclosed) fenced block' "$fx_644_unbal_err")"
+rm -f "$fx_644_unbal_err"
+
+# Case 62 (#644 review finding 5): an INFO-STRING fence (```` ```bash ````), the
+# commonest real-world fence form. The opening delimiter carries an info string
+# after the backticks; the fence regex is deliberately end-UNANCHORED
+# (/^[[:space:]]*(```|~~~)/) so it still matches. The interior command literal is
+# inert and only the genuine deliverable after the close is emitted. RED under the
+# plausible hardening to an end-anchored `…[[:space:]]*$/`: that would stop
+# recognizing the ```` ```bash ```` opener, leave the scope open, and tokenize the
+# interior `bash lib/test/run.sh` into a phantom `lib/test/run.sh` — reintroducing
+# #644 with no other test failing. This fixture is that missing guard.
+fx_644_infofence="## Implementation Notes
+
+### Documentation Needed
+\`\`\`bash
+bash lib/test/run.sh
+\`\`\`
+\`docs/genuine.md\`"
+assert_eq "#644 review finding 5: an info-string fence (\`\`\`bash) is recognized (interior inert); only the genuine deliverable is emitted" \
+  "docs/genuine.md" \
+  "$(printf '%s\n' "$fx_644_infofence" | bash "$EXTRACT_HELPER" 2>/dev/null)"
+
+# Case 63 (#644 review finding 6): the one-time / first-suppressed-span breadcrumb
+# property is EXERCISED here — a body with TWO distinct suppressible spans
+# (`bash lib/test/run.sh` and `Bash(lib/test/run-module.sh:*)`) beside a genuine
+# deliverable asserts the breadcrumb fires exactly ONCE. The other suppression
+# fixtures (Cases 50, 59) each carry a single suppressible span, so a regression
+# from one-time to per-span breadcrumbing would pass them; this multi-span body is
+# the case that pins the one-time contract (count == 2 under such a regression).
+fx_644_twosupp="## Implementation Notes
+
+- **Documentation Needed** — \`docs/keep.md\`, \`bash lib/test/run.sh\`, and \`Bash(lib/test/run-module.sh:*)\`."
+fx_644_twosupp_err="$(mktemp)"
+fx_644_twosupp_out="$(printf '%s\n' "$fx_644_twosupp" | bash "$EXTRACT_HELPER" 2>"$fx_644_twosupp_err")"
+assert_eq "#644 review finding 6: two suppressible spans both drop; only the genuine deliverable is emitted" \
+  "docs/keep.md" "$fx_644_twosupp_out"
+assert_eq "#644 review finding 6: two distinct suppressible spans emit the breadcrumb exactly once (one-time property exercised)" \
+  "1" "$(grep -c 'suppressed a span' "$fx_644_twosupp_err")"
+rm -f "$fx_644_twosupp_err"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
@@ -36179,8 +36507,19 @@ RAF_ROOT_CEIL=3567
 # tree — which absorbs #642's extension growth — with ~4 words of headroom per #619's convention.
 # Update docs/review-and-fix-budget.md's ceilings-table and Measured cells in lockstep; the audited
 # decision is docs/cutovers/issue-620-reception-extension-port.md.
-RAF_LOAD_CEIL=7653
-RAF_MAXSTEP_CEIL=18992
+# #640 raised the initial-load ceiling 7653->7734 and the max-step ceiling 18915->18996: the
+# editor-authority MECHANISM (identity read + permission read + both arms + recency/truncated-page)
+# moved from the review-and-fix root into the always-loaded receiving-code-review extension so a
+# DIRECT reception pass inherits it, not only the loop. The relocation is per-surface neutral, but
+# the direct-pass framing the extension now needs (a self-contained intro) plus the root's residual
+# loop-tail pointer net +81 words on the always-loaded surface (root -149, receiving ext +230).
+# #621 then added the settled-by-disclosure foreclosure vocabulary to shadow-review.md (the
+# max-step reference), re-raising the max-step ceiling 18996->19073 (measured + ~4 headroom).
+# Measured against the up-to-date-with-main tree. Update docs/review-and-fix-budget.md's
+# ceilings-table and Measured cells in lockstep; the audited decisions are
+# docs/cutovers/issue-640-direct-pass-editor-authority.md and this issue's budget-doc note.
+RAF_LOAD_CEIL=7734
+RAF_MAXSTEP_CEIL=19073
 assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
   "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"
 assert_eq "#530 budget: root + always-loaded extensions (initial load) <= $RAF_LOAD_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W)))" "yes" \
@@ -36234,7 +36573,7 @@ done
 assert_eq "#620 budget: maintainer note's prose root ceiling matches RAF_ROOT_CEIL ($RAF_ROOT_CEIL)" "yes" \
   "$(case "$_raf_doc_nocommas" in *"The root sits below its ${RAF_ROOT_CEIL}-word"*) echo yes;; *) echo no;; esac)"
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +6,146 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +5,997 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute
