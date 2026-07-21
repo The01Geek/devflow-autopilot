@@ -21,12 +21,15 @@ Usage:
 
 Exit codes:
     0  At least one group of findings was filed successfully (or --dry-run),
-       OR the only surviving entries are settled-by-disclosure foreclosures,
-       which file NO follow-up issue by design (issue #621) yet still survive
-       into the rewritten manifest — a manifest whose entries are ALL
-       foreclosures rewrites and exits 0 with zero issue-create calls.
-    1  Nothing was filed and nothing survived (every fileable group failed and
-       there were no foreclosure entries, or input was invalid).
+       OR there were NO fileable groups at all and the only surviving entries
+       are settled-by-disclosure foreclosures, which file NO follow-up issue by
+       design (issue #621) yet still survive into the rewritten manifest — a
+       manifest whose entries are ALL foreclosures rewrites and exits 0 with
+       zero issue-create calls.
+    1  Nothing was filed: either nothing survived at all, or every fileable
+       group failed. A surviving foreclosure does NOT mask a complete filing
+       failure (issue #660 review) — foreclosures need no `gh` call, so they
+       can never evidence that filing worked. Also 1 on invalid input.
     2  Bad arguments / unusable manifest.
 """
 
@@ -164,6 +167,16 @@ def _compute_id(entry: dict) -> str:
 
     Re-running on the same manifest produces the same ID — important so the
     verdict engine's signature match is stable across regenerations.
+
+    Known, accepted collision (raised as a #660 review Suggestion, DECLINED):
+    two distinct entries on the same file with empty symbol/kind/summary hash
+    identically. No observable effect today — nothing de-dupes by id, and both
+    entries survive independently into the manifest and the PR-body payload.
+    Widening the payload (e.g. with `line_range`) would change every existing
+    id, breaking the cross-regeneration stability this docstring promises and
+    the verdict engine relies on — a real contract change to fix a defect with
+    no current symptom. Revisit if and when a consumer de-dupes by id; that
+    consumer's introduction is the trigger to re-key, all sites at once.
     """
     payload = "|".join([
         entry.get("file", ""),
@@ -379,6 +392,18 @@ def main(argv=None):
         # zero issue-create calls, but the aggregate is still rewritten.)
         _fail("no follow-up issues filed and no entries survived — "
               "every fileable group failed", code=1)
+
+    if failed_files and not succeeded_numbers:
+        # issue #660 review: a COMPLETE filing failure is a hard signal even
+        # when a foreclosure survives to make `surviving` non-empty. Without
+        # this arm a manifest mixing one `settled-by-disclosure` entry with
+        # fileable groups that ALL failed would exit 0, silently dropping every
+        # failed real deferral from the rewritten manifest. Foreclosures need no
+        # `gh` call, so they can never evidence that filing worked.
+        _fail(f"no follow-up issues filed — every fileable group failed "
+              f"({len(failed_files)} group(s)); "
+              f"{len(foreclosures)} foreclosure(s) survived but do not "
+              f"constitute a successful filing", code=1)
 
     new_manifest = dict(manifest)
     new_manifest["deferrals"] = surviving

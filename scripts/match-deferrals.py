@@ -5,7 +5,8 @@
 
 Reads the Scope-Acknowledged Findings block from a PR body (between the
 DEVFLOW_DEFERRED_FINDINGS_START/END markers), validates each deferral
-against three guards, and matches the survivors against the current run's
+against four guards (guard 4 replaces guard 2 for a `settled-by-disclosure`
+foreclosure entry, so any one deferral is validated against three), and matches the survivors against the current run's
 Phase 3 findings. Emits a JSON demotion map the verdict engine consumes
 to demote matched findings to Informational.
 
@@ -75,7 +76,7 @@ import os
 import re
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 if sys.version_info < (3, 11):  # fail fast, before any PEP 604 annotation is evaluated below
     sys.stderr.write(
@@ -103,7 +104,9 @@ PAYLOAD_START = "<!-- DEVFLOW_DEFERRED_PAYLOAD"
 # default (so the empty-string edge matches config-get.sh's behavior, but via its
 # fallback rather than a passthrough here).
 
-# Rejection reason codes — mirrored verbatim in skills/review/SKILL.md prose.
+# Rejection reason codes — mirrored verbatim in
+# skills/review/phases/phase-4-verdict.md prose (the review engine is a bundle
+# since #529; the codes moved out of skills/review/SKILL.md with it).
 # Edit both in lockstep.
 REASON_UNTRUSTED_FILER = "untrusted-filer"
 REASON_MISSING_FOLLOW_UP_ISSUE = "missing-follow-up-issue"
@@ -184,7 +187,7 @@ def _verify_disclosure(deferral: dict, hunks: dict, diff_hunk_count: int,
     # A disclosure the PR itself authors cannot foreclose that PR's findings —
     # reject when disclosure.path is a file the diff touched (>= 1 hunk).
     diff_files = {f for f, hs in hunks.items() if hs}
-    if path in diff_files:
+    if _norm_path(path) in diff_files:
         return "disclosure-in-diff"
     if not target.is_file():
         return "file-absent"
@@ -394,12 +397,34 @@ def _check_issue_cross_link(issue_number: int, pr_number: int) -> str | None:
     return None
 
 
+def _norm_path(path: str) -> str:
+    """Canonical repo-relative comparison basis for a path.
+
+    Both operands of every hunk-key comparison pass through this, so a
+    non-canonical spelling (`./docs/x.md`, `docs//x.md`, a backslash form)
+    compares equal to the canonical `docs/x.md` diff key. Purely lexical — no
+    filesystem access, so it is safe on paths that do not exist. Guard-class 2:
+    pure Python (`PurePosixPath`/`str`), never a PATH tool.
+
+    An empty path returns unchanged so the caller's own emptiness checks still
+    decide. Lexical normalization does NOT collapse `..`, so the traversal guard
+    upstream of every call site keeps its meaning.
+    """
+    if not path:
+        return path
+    return PurePosixPath(path.replace("\\", "/")).as_posix()
+
+
 def _parse_diff_hunks(diff_text: str) -> dict:
     """Returns {file_path: [(start_line, end_line), ...]} for added/modified
     lines on the new side. Conservative — includes both add and context lines
     in the hunk range, which over-approximates the affected region (safe for
     widens-surface — false positives reject deferrals, never honor them
     incorrectly).
+
+    Keys are normalized through `_norm_path` so every consumer
+    (`_verify_disclosure`'s self-foreclosure exclusion, `_widens_surface`)
+    compares on one canonical basis (issue #660 review).
     """
     hunks: dict[str, list[tuple[int, int]]] = {}
     current_file: str | None = None
@@ -409,7 +434,7 @@ def _parse_diff_hunks(diff_text: str) -> dict:
     for line in diff_text.splitlines():
         m = file_re.match(line)
         if m:
-            current_file = m.group(1)
+            current_file = _norm_path(m.group(1))
             hunks.setdefault(current_file, [])
             continue
         m = hunk_re.match(line)
@@ -427,7 +452,7 @@ def _widens_surface(deferral: dict, hunks: dict) -> bool:
     if not file_path or len(line_range) != 2:
         return False
     start, end = line_range
-    file_hunks = hunks.get(file_path, [])
+    file_hunks = hunks.get(_norm_path(file_path), [])
     for h_start, h_end in file_hunks:
         if (h_start - WIDENS_SURFACE_TOLERANCE) <= end and \
            (h_end + WIDENS_SURFACE_TOLERANCE) >= start:

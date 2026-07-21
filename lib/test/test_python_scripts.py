@@ -2687,6 +2687,116 @@ finally:
     (match_deferrals._get_pr_body_and_author, match_deferrals._config_get,
      match_deferrals._check_issue_cross_link, match_deferrals._repo_root) = _saved_old
 
+# --- #660 review: coverage the #621 batch left open -------------------------
+# The two _verify_disclosure arms that had no fixture. Both are fail-closed
+# rejections, so a regression (a dropped arm) would fail OPEN with the suite
+# otherwise green — exactly the class a green suite cannot catch unpinned.
+print("match_deferrals #660: the two remaining _verify_disclosure fail-closed arms")
+assert_eq("#660 verify: repo_root unresolved → repo-root-unresolved (fail closed)",
+          "repo-root-unresolved", _reject(_ok_entry, _hunks_ok, 1, None))
+# A path that stays lexically relative and traversal-free, but resolves OUTSIDE
+# the repo root — a symlink escaping the tree. Distinct from parent-traversal
+# (rejected lexically, earlier) and from absolute-path.
+_out_root = tempfile.mkdtemp()
+_outside = tempfile.mkdtemp()
+(Path(_outside) / "secret.md").write_text("effective model is resolved\n", encoding="utf-8")
+_esc_ok = False
+try:
+    (Path(_out_root) / "escape").symlink_to(_outside, target_is_directory=True)
+    _esc_ok = True
+except (OSError, NotImplementedError):
+    pass  # unprivileged Windows: no symlink; the arm stays pinned by the None-root case
+if _esc_ok:
+    assert_eq("#660 verify: relative path resolving outside the repo → path-outside-repo",
+              "path-outside-repo",
+              _reject(dict(_ok_entry, disclosure={"path": "escape/secret.md",
+                                                  "phrase": "effective model is resolved"}),
+                      _hunks_ok, 1, _out_root))
+
+# Path normalization (#660 review, Important): the self-foreclosure exclusion
+# compared RAW disclosure.path against canonical `b/<path>` diff keys, so a
+# non-canonical spelling of a diffed file evaded it and failed OPEN — honoring a
+# finding whose disclosure the PR itself authored. Both operands now normalize.
+print("match_deferrals #660: non-canonical disclosure.path still self-forecloses")
+for _spelling in ("./docs/disc.md", "docs//disc.md", "docs/./disc.md"):
+    assert_eq(f"#660 verify: non-canonical {_spelling!r} in diff → disclosure-in-diff (fail closed)",
+              "disclosure-in-diff",
+              _reject(dict(_ok_entry, disclosure={"path": _spelling,
+                                                  "phrase": "effective model is resolved"}),
+                      {"docs/disc.md": [(1, 2)]}, 1, _v_root))
+# The same normalization on _widens_surface's hunk lookup (the sibling site).
+assert_eq("#660 widens: non-canonical finding.file still matches its diff hunk",
+          True,
+          match_deferrals._widens_surface(
+              {"finding": {"file": "./docs/disc.md", "line_range": [1, 2]}},
+              {"docs/disc.md": [(1, 2)]}))
+# And the parser keys are canonical, so a diff naming `./docs/disc.md` lands on
+# the same key an ordinary diff would produce.
+assert_eq("#660 parse: diff header path is normalized into a canonical key",
+          ["docs/disc.md"],
+          list(match_deferrals._parse_diff_hunks(
+              "--- a/./docs/disc.md\n+++ b/./docs/disc.md\n@@ -1,2 +1,3 @@\n c\n+a\n").keys()))
+
+
+def _drive_match_main(body, root, diff_text=None):
+    """Drive match_deferrals.main() end-to-end over `body`, returning its JSON.
+
+    Every network operand is stubbed; the disclosure guard reads the real temp
+    tree at `root`. Used by the #660 rejection-branch drives below.
+    """
+    _saved = (match_deferrals._get_pr_body_and_author, match_deferrals._config_get,
+              match_deferrals._repo_root)
+    try:
+        match_deferrals._get_pr_body_and_author = lambda pr: (body, "bot")
+        match_deferrals._config_get = (
+            lambda key, default="", config_path=None: "bot" if "allowed_bots" in key else default)
+        match_deferrals._repo_root = lambda: root
+        _df = Path(root) / "drive.diff"
+        _df.write_text(diff_text if diff_text is not None else _diff_neutral, encoding="utf-8")
+        _ff = Path(root) / "drive-findings.json"
+        _ff.write_text(json.dumps(_findings), encoding="utf-8")
+        _c = io.StringIO()
+        with contextlib.redirect_stdout(_c):
+            match_deferrals.main(["--pr", "700", "--diff", str(_df), "--findings", str(_ff)])
+        return json.loads(_c.getvalue())
+    finally:
+        (match_deferrals._get_pr_body_and_author, match_deferrals._config_get,
+         match_deferrals._repo_root) = _saved
+
+
+# main()-level REJECT wiring. The guard functions are unit-pinned above, but
+# nothing drove main()'s foreclosure rejection branches end to end: a dropped
+# `continue` or an inverted `is not None` would honor a foreclosure whose
+# disclosure never verified, with every unit fixture still green.
+print("match_deferrals #660: main() REJECTS an unverifiable foreclosure (fail-closed wiring)")
+# Positive control on the same fixture shape: with the phrase present the entry
+# is HONORED, so the rejections below cannot be an unrelated precondition.
+_ctl = _drive_match_main(_fore_body, _m_root)
+assert_eq("#660 main: positive control — verifiable foreclosure is honored", 1, len(_ctl["honored"]))
+assert_eq("#660 main: positive control — nothing rejected", 0, len(_ctl["rejected_deferrals"]))
+
+_bad_phrase_body = _fore_body.replace('phrase: "shipped disclosure sentence"',
+                                      'phrase: "xyzzy-never-in-the-tree-4417"')
+_rej = _drive_match_main(_bad_phrase_body, _m_root)
+assert_eq("#660 main: unverifiable foreclosure is NOT honored", 0, len(_rej["honored"]))
+assert_eq("#660 main: rejected exactly one deferral", 1, len(_rej["rejected_deferrals"]))
+assert_eq("#660 main: rejection reason is disclosure-unverified",
+          "disclosure-unverified", _rej["rejected_deferrals"][0]["reason"])
+# Attribute the rejection to the arm that fired — a bare "was rejected" assertion
+# cannot tell this guard from any of the ten others that also reject.
+assert_eq("#660 main: rejection detail names the phrase-not-found arm",
+          "phrase-not-found", _rej["rejected_deferrals"][0]["detail"])
+
+print("match_deferrals #660: main() REJECTS a foreclosure that widens the diff surface")
+# The foreclosure's finding is scripts/thing.py:[10,12]; a diff hunk over that
+# same region means the PR touched the surface the deferral claims is settled.
+_widen_diff = ("--- a/scripts/thing.py\n+++ b/scripts/thing.py\n"
+               "@@ -9,3 +9,4 @@\n ctx\n+added\n ctx\n")
+_rej_w = _drive_match_main(_fore_body, _m_root, diff_text=_widen_diff)
+assert_eq("#660 main: surface-widening foreclosure is NOT honored", 0, len(_rej_w["honored"]))
+assert_eq("#660 main: surface-widening rejection reason is widens-surface",
+          "widens-surface", _rej_w["rejected_deferrals"][0]["reason"])
+
 
 print("file_deferrals #621: a settled-by-disclosure manifest files no issue and exits 0")
 
@@ -2751,6 +2861,67 @@ try:
     _for = [d for d in _defs if d.get("category") == "settled-by-disclosure"][0]
     assert_eq("#621 file: ordinary entry got a follow_up issue", 55, _ord["follow_up"]["issue"])
     assert_eq("#621 file: foreclosure entry still has no follow_up", None, _for.get("follow_up"))
+
+    # --- #660 review (Important): a COMPLETE filing failure must stay a hard
+    # signal even when a foreclosure survives. Pre-fix, the surviving foreclosure
+    # made `surviving` non-empty and the run exited 0, silently dropping every
+    # failed real deferral from the rewritten manifest.
+    print("file_deferrals #660: a surviving foreclosure does not mask a total filing failure")
+    _fd_created.clear()
+    _mixed = json.loads(_mpath.read_text(encoding="utf-8"))
+
+    def _boom(*a, **kw):
+        raise RuntimeError("gh exploded")
+
+    file_deferrals._create_issue = _boom
+    _mpath.write_text(json.dumps(_mixed | {"deferrals": [
+        {"agent": "x", "severity": "Important", "file": "src/a.py",
+         "line_range": [3, 4], "symbol": "f", "kind": "bug",
+         "summary": "ordinary", "category": "out-of-scope", "explanation": "pre-existing"},
+        {"agent": "y", "severity": "Suggestion", "file": "docs/bar.md",
+         "line_range": [1, 1], "symbol": "", "kind": "quality",
+         "summary": "disclosed", "category": "settled-by-disclosure",
+         "explanation": "shipped", "disclosure": {"path": "README.md", "phrase": "DevFlow"}},
+    ]}), encoding="utf-8")
+    _err = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(_err):
+            file_deferrals.main(["--source-issue", "621", "--pr", "700",
+                                 "--manifest", str(_mpath)])
+        _rc = 0
+    except SystemExit as _e:
+        _rc = _e.code
+    assert_eq("#660 file: every fileable group failed → exit 1 despite a surviving foreclosure",
+              1, _rc)
+    # Attribute the exit to the arm that fired, not merely to "it exited 1" —
+    # the nothing-survived arm also exits 1 with a different message.
+    assert_eq("#660 file: exit names the complete-filing-failure arm", True,
+              "every fileable group failed" in _err.getvalue()
+              and "do not constitute a successful filing" in _err.getvalue())
+
+    # Positive control on the same fixture: with _create_issue working, the very
+    # same manifest exits 0 — so the exit 1 above is the filing failure, not an
+    # unrelated precondition in the fixture.
+    file_deferrals._create_issue = lambda *a, **kw: (56, "https://example/issues/56")
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        _rc_ok = file_deferrals.main(["--source-issue", "621", "--pr", "700",
+                                      "--manifest", str(_mpath)])
+    assert_eq("#660 file: positive control — same manifest exits 0 when filing works", 0, _rc_ok)
+
+    # The documented all-foreclosure exit-0 path must be untouched by the new arm
+    # (no fileable groups → no failure → still 0).
+    _mpath.write_text(json.dumps(_mixed | {"deferrals": [
+        {"agent": "y", "severity": "Suggestion", "file": "docs/bar.md",
+         "line_range": [1, 1], "symbol": "", "kind": "quality",
+         "summary": "disclosed", "category": "settled-by-disclosure",
+         "explanation": "shipped", "disclosure": {"path": "README.md", "phrase": "DevFlow"}},
+    ]}), encoding="utf-8")
+    file_deferrals._create_issue = _boom
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        _rc_all = file_deferrals.main(["--source-issue", "621", "--pr", "700",
+                                       "--manifest", str(_mpath)])
+    assert_eq("#660 file: all-foreclosure manifest still exits 0 (no fileable group failed)",
+              0, _rc_all)
 finally:
     (file_deferrals._create_issue, file_deferrals._gh_login) = _fd_saved
 
