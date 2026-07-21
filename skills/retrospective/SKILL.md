@@ -97,7 +97,12 @@ and you treat its three facets as primary analysis input:
   under each phase. Mine its append-only notes for the moment-to-moment story.
 
 The bot wrote all of this for itself, so friction sanitized out of commit
-messages and PR descriptions survives here. When the workpad conflicts with the
+messages and PR descriptions survives here — with one redaction: operator
+home-directory path prefixes (`/Users/<account>/`, `/home/<account>/`,
+`C:\Users\<account>\`) are rewritten to `~` on the merge write path before the
+corpus is committed, because they identify an account and machine layout while
+adding nothing the loop consumes (GitHub-Actions runner paths and every other
+string are preserved unchanged). When the workpad conflicts with the
 polished narrative elsewhere, favor the workpad and quote concrete passages.
 After the workpad, the strongest signals are `review_verdicts` / `pr_reviews` /
 `review_comments` (reviewer pushback), then `human_postbot_diff` (what humans

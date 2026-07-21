@@ -367,6 +367,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/resolve-committer-identity.sh": {
+      "note": "#682 commit-attribution identity resolver (sibling of emit-git-env.sh); driven directly from lib/test/run.sh's #682 block over the config-shape matrix, the login-resolution matrix (DEVFLOW_GH stubbed), and the adversarial-display-name heredoc round-trip.",
+      "owner": "unmodularized"
+    },
     "scripts/resolve-extra-plugins.sh": {
       "note": "",
       "owner": "unmodularized"

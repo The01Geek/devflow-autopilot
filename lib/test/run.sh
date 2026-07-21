@@ -8784,6 +8784,210 @@ EOF
   rm -rf "$I645_D"
 fi
 
+# ── issue #682: attribute cloud-tier writer commits to the triggering user ─────
+# scripts/resolve-committer-identity.sh is the sibling of emit-git-env.sh (#645):
+# a default-off config flag (devflow.attribute_commits_to_triggerer) gates whether
+# the four GIT_AUTHOR_*/GIT_COMMITTER_* variables are emitted for the triggering
+# human. The helper is a pure shell CLI with a deterministic stdout/exit contract,
+# driven directly here with DEVFLOW_GH stubbed (the resolver's test-stub contract),
+# so no network/auth. Every enabled-and-human row asserts exit 0 AND the exact
+# emitted identity, because the consuming workflow step appends this stdout to
+# $GITHUB_ENV: a wrong emission mis-attributes a commit and a non-zero exit would
+# fail the job over an advisory attribution read.
+I682_IMPL_YML="$LIB/../.github/workflows/devflow-implement.yml"
+I682_DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
+I682_HELPER="$LIB/../scripts/resolve-committer-identity.sh"
+I682_SCHEMA="$LIB/../.devflow/config.schema.json"
+I682_EXAMPLE="$LIB/../.devflow/config.example.json"
+
+assert_eq "#682: resolve-committer-identity.sh exists and is executable" "yes" \
+  "$([ -x "$I682_HELPER" ] && echo yes || echo no)"
+
+# Schema/example: the key is declared as boolean defaulting to false and mirrored
+# in the example config as an explicit false (the documented-off-switch class — a
+# valid-falsy value must survive as false, never be coerced to a truthy default).
+assert_eq "#682: schema declares devflow.attribute_commits_to_triggerer as boolean:false" "boolean:false" \
+  "$(jq -r '.properties.devflow.properties.attribute_commits_to_triggerer | "\(.type):\(.default)"' "$I682_SCHEMA")"
+assert_eq "#682: schema description names the post-merge-only semantics" "yes" \
+  "$(jq -e '.properties.devflow.properties.attribute_commits_to_triggerer.description | test("POST-MERGE-ONLY")' "$I682_SCHEMA" >/dev/null && echo yes || echo no)"
+assert_eq "#682: example config carries devflow.attribute_commits_to_triggerer as an explicit false" "false" \
+  "$(jq -r '.devflow.attribute_commits_to_triggerer' "$I682_EXAMPLE")"
+
+# Workflow wiring: BOTH writer workflows carry a step that reads the flag from the
+# trusted trigger-time config, wires its OWN GH_TOKEN (the git-env-pins step it
+# mirrors sets none), invokes the vendored helper with the sender login, appends to
+# $GITHUB_ENV, and precedes Run Claude Code. A half-done change that wires only one
+# workflow, or omits the token, fails a pin.
+for _f in "$I682_IMPL_YML" "$I682_DEVFLOW_YML"; do
+  _b="$(basename "$_f")"
+  assert_eq "#682 [$_b]: the committer-identity step is present" "1" \
+    "$(grep -cF 'name: Resolve committer identity' "$_f")"
+  assert_eq "#682 [$_b]: the step invokes the vendored resolve-committer-identity.sh helper" "1" \
+    "$(grep -cF ".devflow/vendor/devflow/scripts/resolve-committer-identity.sh" "$_f")"
+  assert_eq "#682 [$_b]: the step invokes the helper with the sender login and appends to \$GITHUB_ENV" "1" \
+    "$(grep -cF 'bash "$HELPER" --login "$SENDER_LOGIN" --config-file "$CFG" >> "$GITHUB_ENV"' "$_f")"
+  # Scope the token/config-source pins to the step block (from its name: down to the
+  # helper invocation) so a GH_TOKEN elsewhere in the file cannot make them pass
+  # vacuously. The extraction is asserted non-empty first (anti-vacuity).
+  I682_STEP_BLK="$(awk '/name: Resolve committer identity/{f=1} f{print} f&&/bash "\$HELPER" --login/{exit}' "$_f")"
+  assert_eq "#682 [$_b]: the committer-identity step block extraction is non-empty (anti-vacuity)" "yes" \
+    "$([ -n "$I682_STEP_BLK" ] && echo yes || echo no)"
+  assert_eq "#682 [$_b]: the step wires its own GH_TOKEN so the gh api call is authenticated" "yes" \
+    "$(printf '%s\n' "$I682_STEP_BLK" | grep -q 'GH_TOKEN:' && echo yes || echo no)"
+  assert_eq "#682 [$_b]: the step reads the flag from the trusted trigger-time config job" "yes" \
+    "$(printf '%s\n' "$I682_STEP_BLK" | grep -qF 'ATTR_CFGJSON: ${{ needs.config.outputs.config_json }}' && echo yes || echo no)"
+  assert_eq "#682 [$_b]: the step passes github.event.sender.login" "yes" \
+    "$(printf '%s\n' "$I682_STEP_BLK" | grep -qF 'SENDER_LOGIN: ${{ github.event.sender.login }}' && echo yes || echo no)"
+  assert_eq "#682 [$_b]: the committer-identity step precedes the Run Claude Code step" "yes" \
+    "$([ "$(grep -nF 'name: Resolve committer identity' "$_f" | head -1 | cut -d: -f1)" -lt \
+        "$(grep -nF 'name: Run Claude Code' "$_f" | head -1 | cut -d: -f1)" ] && echo yes || echo no)"
+  # Behavioral-fix pins: deleting the step name, or the helper invocation, turns the
+  # coverage pins RED (the guarded regression is a dropped/renamed committer-identity
+  # step, which silently reverts the run to unattributed commits).
+  assert_pin_red_under "#682 [$_b]: the committer-identity step-name pin is RED when the step name is deleted" \
+    'name: Resolve committer identity' '/name: Resolve committer identity/d' "$_f"
+  assert_pin_red_under "#682 [$_b]: the helper-invocation pin is RED when the invocation line is deleted" \
+    'bash "$HELPER" --login "$SENDER_LOGIN" --config-file "$CFG" >> "$GITHUB_ENV"' \
+    '/bash "\$HELPER" --login/d' "$_f"
+done
+
+# Helper behavior: a fixture dir with a DEVFLOW_GH stub that returns canned user
+# JSON keyed by login, plus a driver that canonicalizes the helper's heredoc-form
+# stdout into a compact "KEY=VALUE;…" string (in emission order) so an exact
+# comparison covers which vars were emitted, their order, AND their values.
+I682_D="$(probe_tmp '#682 helper fixture dir')" || I682_D=''
+if [ -n "$I682_D" ]; then
+  rm -rf "$I682_D"; mkdir -p "$I682_D"
+  cat > "$I682_D/gh" <<'I682STUB'
+#!/usr/bin/env bash
+# Canned users/<login> responses; anything else fails so a stray call is loud.
+a="$*"
+case "$a" in
+  *"--version"*)     echo "gh version 2.50.0 (stub)"; exit 0 ;;
+  *"users/alice"*)   echo '{"login":"alice","id":12345,"name":"Alice Example","type":"User"}'; exit 0 ;;
+  *"users/nullname"*)echo '{"login":"nullname","id":777,"name":null,"type":"User"}'; exit 0 ;;
+  *"users/orgx"*)    echo '{"login":"orgx","id":42,"name":"Org X","type":"Organization"}'; exit 0 ;;
+  *"users/notype"*)  echo '{"login":"notype","id":9,"name":"No Type"}'; exit 0 ;;
+  *"users/advuser"*) echo '{"login":"advuser","id":55,"name":"A; B $x `z` \"q\"","type":"User"}'; exit 0 ;;
+  # A User whose .id is null (non-integer) → login-only email fallback branch.
+  # A User whose .name carries a real newline/CR (JSON escapes) → the python
+  # collapse-to-space path. printf '%s' keeps the \n/\r literal in the arg so the
+  # JSON parser (not the shell) produces the real control chars.
+  *"users/noid"*)    printf '%s\n' '{"login":"noid","id":null,"name":"No Id","type":"User"}'; exit 0 ;;
+  *"users/nlname"*)  printf '%s\n' '{"login":"nlname","id":88,"name":"A\nB\rC","type":"User"}'; exit 0 ;;
+  *"users/boom"*)    echo "gh: network error" >&2; exit 1 ;;
+esac
+echo "stub: unhandled gh call: $a" >&2; exit 1
+I682STUB
+  chmod +x "$I682_D/gh"
+
+  # Canonicalize heredoc-form stdin into "KEY=VALUE;…" (single-line values, which is
+  # what the helper emits — a value's newlines are collapsed by the helper).
+  _i682_canon() {
+    local line key delim val out='' state=0
+    while IFS= read -r line; do
+      if [ "$state" -eq 0 ]; then
+        case "$line" in
+          GIT_*'<<'*) key="${line%%<<*}"; delim="${line#*<<}"; state=1 ;;
+        esac
+      elif [ "$state" -eq 1 ]; then
+        val="$line"; state=2
+      else
+        # closing delimiter line
+        if [ -z "$out" ]; then out="$key=$val"; else out="$out;$key=$val"; fi
+        state=0
+      fi
+    done
+    printf '%s' "$out"
+  }
+  _i682_run() {  # cfgjson login -> "rc|canonicalized-identity"
+    local _json="$1" _login="$2" _out _rc _canon
+    printf '%s' "$_json" > "$I682_D/cfg.json"
+    _out="$(DEVFLOW_GH="$I682_D/gh" bash "$I682_HELPER" --login "$_login" --config-file "$I682_D/cfg.json" 2>/dev/null)"
+    _rc=$?
+    _canon="$(printf '%s\n' "$_out" | _i682_canon)"
+    printf '%s|%s' "$_rc" "$_canon"
+  }
+
+  _I682_HUMAN='GIT_AUTHOR_NAME=Alice Example;GIT_COMMITTER_NAME=Alice Example;GIT_AUTHOR_EMAIL=12345+alice@users.noreply.github.com;GIT_COMMITTER_EMAIL=12345+alice@users.noreply.github.com'
+  # Enabled + confirmed human → the four vars with the canonical <id>+<login> email.
+  assert_eq "#682: enabled (boolean true) + human → four GIT_* vars, canonical email" "0|$_I682_HUMAN" \
+    "$(_i682_run '{"devflow":{"attribute_commits_to_triggerer":true}}' alice)"
+  # The JSON string "true" also enables (lockstep with emit-git-env.sh's gate).
+  assert_eq "#682: enabled (string \"true\") + human → four GIT_* vars" "0|$_I682_HUMAN" \
+    "$(_i682_run '{"devflow":{"attribute_commits_to_triggerer":"true"}}' alice)"
+  # A User with a null .name uses the login as the name; email stays canonical.
+  assert_eq "#682: human with null .name → login as name" \
+    "0|GIT_AUTHOR_NAME=nullname;GIT_COMMITTER_NAME=nullname;GIT_AUTHOR_EMAIL=777+nullname@users.noreply.github.com;GIT_COMMITTER_EMAIL=777+nullname@users.noreply.github.com" \
+    "$(_i682_run '{"devflow":{"attribute_commits_to_triggerer":true}}' nullname)"
+  # gh-call failure for a not-non-human login → login-only fallback (still four vars).
+  assert_eq "#682: gh api failure (unclassified) → login-only fallback, four vars" \
+    "0|GIT_AUTHOR_NAME=boom;GIT_COMMITTER_NAME=boom;GIT_AUTHOR_EMAIL=boom@users.noreply.github.com;GIT_COMMITTER_EMAIL=boom@users.noreply.github.com" \
+    "$(_i682_run '{"devflow":{"attribute_commits_to_triggerer":true}}' boom)"
+  # Non-human / non-User / bot / empty-login → emit NOTHING (fall back to current authorship).
+  assert_eq "#682: non-User type (Organization) → emits nothing" "0|" \
+    "$(_i682_run '{"devflow":{"attribute_commits_to_triggerer":true}}' orgx)"
+  assert_eq "#682: a .type that cannot be established → emits nothing" "0|" \
+    "$(_i682_run '{"devflow":{"attribute_commits_to_triggerer":true}}' notype)"
+  assert_eq "#682: a [bot] login → emits nothing (no login-only fallback for a bot)" "0|" \
+    "$(_i682_run '{"devflow":{"attribute_commits_to_triggerer":true}}' 'dependabot[bot]')"
+  assert_eq "#682: an empty triggering login → emits nothing, exit 0" "0|" \
+    "$(_i682_run '{"devflow":{"attribute_commits_to_triggerer":true}}' '')"
+  # A [bot] login warns and never even calls the stub (which would fail on it).
+  printf '%s' '{"devflow":{"attribute_commits_to_triggerer":true}}' > "$I682_D/cfg.json"
+  assert_eq "#682: a [bot] login emits a ::warning:: naming the bot suffix" "yes" \
+    "$(DEVFLOW_GH="$I682_D/gh" bash "$I682_HELPER" --login 'dependabot[bot]' --config-file "$I682_D/cfg.json" 2>&1 >/dev/null \
+       | grep -q "\[bot\]' suffix" && echo yes || echo no)"
+
+  # The six-shape adversarial config-JSON matrix (CLAUDE.md's best-effort-parser rule)
+  # applied to the `devflow` CONTAINER and the flag LEAF, plus the type-boundary
+  # fixtures. Every shape must exit 0 and emit NOTHING (enabled ONLY for true/"true").
+  # The valid-falsy row is load-bearing (an explicit false must not coerce to enabled).
+  for _shape in \
+    'flag-boolean-false:{"devflow":{"attribute_commits_to_triggerer":false}}' \
+    'flag-json-null:{"devflow":{"attribute_commits_to_triggerer":null}}' \
+    'flag-absent:{"devflow":{}}' \
+    'flag-number-1:{"devflow":{"attribute_commits_to_triggerer":1}}' \
+    'flag-string-True:{"devflow":{"attribute_commits_to_triggerer":"True"}}' \
+    'flag-array-true:{"devflow":{"attribute_commits_to_triggerer":[true]}}' \
+    'flag-object:{"devflow":{"attribute_commits_to_triggerer":{"enabled":true}}}' \
+    'container-non-object:{"devflow":42}' \
+    'container-missing:{}' \
+    ; do
+    assert_eq "#682: config shape '${_shape%%:*}' → exit 0, emits nothing (enabled only for true/\"true\")" "0|" \
+      "$(_i682_run "${_shape#*:}" alice)"
+  done
+  # An unparseable / nonexistent config → disabled, exit 0, emits nothing.
+  printf 'not json {{{' > "$I682_D/cfg.json"
+  assert_eq "#682: an unparseable config → exit 0, emits nothing" "0|" \
+    "$(_out="$(DEVFLOW_GH="$I682_D/gh" bash "$I682_HELPER" --login alice --config-file "$I682_D/cfg.json" 2>/dev/null)"; printf '%s|%s' "$?" "$(printf '%s\n' "$_out" | _i682_canon)")"
+  assert_eq "#682: a nonexistent config file → exit 0, emits nothing" "0|" \
+    "$(_out="$(DEVFLOW_GH="$I682_D/gh" bash "$I682_HELPER" --login alice --config-file "$I682_D/absent.json" 2>/dev/null)"; printf '%s|%s' "$?" "$(printf '%s\n' "$_out" | _i682_canon)")"
+
+  # Adversarial-input case: a login/name carrying quotes, `$`, `;`, and backticks
+  # cannot split or forge a further $GITHUB_ENV line — the heredoc framing holds, so
+  # the value round-trips intact as a single GIT_AUTHOR_NAME value. The emitted block
+  # must parse to exactly the four vars (no injected fifth assignment).
+  assert_eq "#682: an adversarial display name round-trips through the heredoc form (no line forging)" \
+    "0|GIT_AUTHOR_NAME=A; B \$x \`z\` \"q\";GIT_COMMITTER_NAME=A; B \$x \`z\` \"q\";GIT_AUTHOR_EMAIL=55+advuser@users.noreply.github.com;GIT_COMMITTER_EMAIL=55+advuser@users.noreply.github.com" \
+    "$(_i682_run '{"devflow":{"attribute_commits_to_triggerer":true}}' advuser)"
+  # A confirmed User whose .id is not an integer (null here) → login-only email
+  # fallback (name is still the display name, email degrades to <login>@… since
+  # there is no numeric id for the canonical <id>+<login>@… form).
+  assert_eq "#682: a User with a non-integer .id → login-only email, display name kept" \
+    "0|GIT_AUTHOR_NAME=No Id;GIT_COMMITTER_NAME=No Id;GIT_AUTHOR_EMAIL=noid@users.noreply.github.com;GIT_COMMITTER_EMAIL=noid@users.noreply.github.com" \
+    "$(_i682_run '{"devflow":{"attribute_commits_to_triggerer":true}}' noid)"
+  # A display name carrying a real newline/CR — the actual $GITHUB_ENV line-forging
+  # vector — is collapsed to spaces by the helper's python step, so the emitted
+  # block still parses to exactly the four vars (the collapse code path, not just
+  # shell-metacharacter safety).
+  assert_eq "#682: a display name with a real newline is collapsed (heredoc block stays exactly four vars)" \
+    "0|GIT_AUTHOR_NAME=A B C;GIT_COMMITTER_NAME=A B C;GIT_AUTHOR_EMAIL=88+nlname@users.noreply.github.com;GIT_COMMITTER_EMAIL=88+nlname@users.noreply.github.com" \
+    "$(_i682_run '{"devflow":{"attribute_commits_to_triggerer":true}}' nlname)"
+
+  rm -rf "$I682_D"
+fi
+
 # ── issue #338: --rewrite-ac (post-merge) retag requires a --note rationale ────
 # scripts/workpad.py: an `update` call in which any --rewrite-ac pair APPENDS the
 # trailing (post-merge) tag (NEW ends with it after rstrip; neither OLD nor the row
@@ -16535,6 +16739,59 @@ assert_eq "materialize: missing new-entries → appended 0, replaced 0" "materia
 assert_eq "materialize: missing new-entries → target untouched" "1" "$(wc -l < "$M_NOFILE_TMP/existing.jsonl" | tr -d ' ')"
 rm -rf "$M_NOFILE_TMP"
 rm -rf "$M_TMP"
+
+# issue #672: operator home-directory paths are redacted on the merge write path.
+# Positive controls assert the REDACTED output (not merely exit 0); negative
+# controls assert repo-relative / non-home / CI-runner / non-string values survive
+# unchanged — the pairing that distinguishes a working redactor from one that
+# rewrites everything, rewrites nothing, or aborts on a numeric field.
+MR_TMP="$(mktemp -d)"
+: > "$MR_TMP/store.jsonl"
+printf '%s\n' \
+  '{"pr":101,"kind":"retro","summary":"at /Users/alice/.claude/jobs/x/w0.md"}' \
+  '{"pr":102,"kind":"retro","summary":"at /home/alice/.claude/w0.md"}' \
+  '{"pr":103,"kind":"retro","summary":"at C:\\Users\\bob\\tmp\\w0.md"}' \
+  '{"pr":104,"kind":"retro","summary":"a /Users/bob/x and /Users/bob/y"}' \
+  '{"pr":105,"kind":"retro","summary":"at /home/runner/work/x/scripts/workpad.py"}' \
+  '{"pr":106,"kind":"retro","summary":"lib/scan.sh and /tmp/x","n":3,"nul":null,"ok":true}' \
+  > "$MR_TMP/new.jsonl"
+bash "$LIB/materialize-retrospectives.sh" "$MR_TMP/new.jsonl" "$MR_TMP/store.jsonl" >/dev/null 2>&1 || true
+assert_eq "materialize #672: /Users/ prefix redacted to ~ (positive control)" \
+  "at ~/.claude/jobs/x/w0.md" "$(jq -r 'select(.pr==101)|.summary' "$MR_TMP/store.jsonl")"
+assert_eq "materialize #672: /home/ prefix redacted to ~ (positive control)" \
+  "at ~/.claude/w0.md" "$(jq -r 'select(.pr==102)|.summary' "$MR_TMP/store.jsonl")"
+assert_eq "materialize #672: Windows prefix redacted with single separator" \
+  'at ~\tmp\w0.md' "$(jq -r 'select(.pr==103)|.summary' "$MR_TMP/store.jsonl")"
+assert_eq "materialize #672: both operator paths in one string redacted" \
+  "a ~/x and ~/y" "$(jq -r 'select(.pr==104)|.summary' "$MR_TMP/store.jsonl")"
+assert_eq "materialize #672: /home/runner/ carve-out preserved unchanged" \
+  "at /home/runner/work/x/scripts/workpad.py" "$(jq -r 'select(.pr==105)|.summary' "$MR_TMP/store.jsonl")"
+assert_eq "materialize #672: repo-relative + non-home path unchanged" \
+  "lib/scan.sh and /tmp/x" "$(jq -r 'select(.pr==106)|.summary' "$MR_TMP/store.jsonl")"
+assert_eq "materialize #672: numeric field survives redaction (no rc5 abort)" \
+  "3" "$(jq -r 'select(.pr==106)|.n' "$MR_TMP/store.jsonl")"
+assert_eq "materialize #672: .pr/.kind preserved through redaction" \
+  "retro" "$(jq -r 'select(.pr==101)|.kind' "$MR_TMP/store.jsonl")"
+assert_eq "materialize #672: redacted output still valid JSONL" \
+  "0" "$(jq -c . "$MR_TMP/store.jsonl" >/dev/null 2>&1; echo $?)"
+# runneradmin carve-out (the (admin)? alternation) — a second CI-runner account.
+: > "$MR_TMP/store2.jsonl"
+printf '%s\n' '{"pr":107,"kind":"retro","summary":"at /home/runneradmin/work/x.md and /Users/runner/y.md"}' > "$MR_TMP/new2.jsonl"
+bash "$LIB/materialize-retrospectives.sh" "$MR_TMP/new2.jsonl" "$MR_TMP/store2.jsonl" >/dev/null 2>&1 || true
+assert_eq "materialize #672: /home/runneradmin/ and /Users/runner/ carve-outs preserved" \
+  "at /home/runneradmin/work/x.md and /Users/runner/y.md" "$(jq -r 'select(.pr==107)|.summary' "$MR_TMP/store2.jsonl")"
+# Fail-CLOSED fallback: a MALFORMED new-entries file must NOT overwrite the store
+# with unredacted content — the redaction skip routes to the post-merge JSONL
+# validation, which rejects it (non-zero exit) and leaves the store untouched.
+printf '%s\n' '{"pr":200,"kind":"retro","verdict":"clean"}' > "$MR_TMP/store3.jsonl"
+printf '%s\n' 'this is not json {' > "$MR_TMP/bad.jsonl"
+MR_BAD_RC=0
+bash "$LIB/materialize-retrospectives.sh" "$MR_TMP/bad.jsonl" "$MR_TMP/store3.jsonl" >/dev/null 2>&1 || MR_BAD_RC=$?
+assert_eq "materialize #672: malformed new-entries fails closed (non-zero exit)" \
+  "true" "$([ "$MR_BAD_RC" -ne 0 ] && echo true || echo false)"
+assert_eq "materialize #672: malformed new-entries leaves the store untouched" \
+  '{"pr":200,"kind":"retro","verdict":"clean"}' "$(cat "$MR_TMP/store3.jsonl")"
+rm -rf "$MR_TMP"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "meta-issue.sh"
@@ -40998,6 +41255,61 @@ printf '%s\n' '# The skill must never emit ANY `>` redirect anywhere.' \
 SPR="$(spl_repo_named "$SPF" fixture.sh)"
 assert_eq "#434 R4 POSITIVE CONTROL: a COMMENT-line permit DOES contradict it (exit 1)" "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
 assert_eq "#434 R4: the comment-line permit emits the STALE R4 row" "yes" "$(spl_has "$SPR" STALE R4)"
+
+# ── #672 excluded population: machine-appended corpora are DATA, not assertions ──────
+# The regression: PR #673 replaced an operator home path with `~` inside two committed
+# `.devflow/learnings/*.jsonl` records, which re-presented each whole record as a diff-ADDED
+# line; the unlisted `.jsonl` type failed open to examine-every-line (correctly), and a prior
+# PR's counted claim quoted inside a retrospective graded STALE — a self-scan failure on a
+# diff that authored no claim. Every arm below runs the SAME fixture content at a different
+# path, so each verdict is attributable to the path predicate alone.
+spl_repo_at() {  # content_file repo_relative_path -> repo dir
+  local d; d="$(git_sandbox '#672 spl corpus repo')"
+  git -C "$d" init -q >/dev/null 2>&1
+  mkdir -p "$d/$(dirname "$2")"
+  cp "$1" "$d/$2"
+  git -C "$d" -c user.email=t@t -c user.name=t add "$2" >/dev/null 2>&1
+  git -C "$d" -c user.email=t@t -c user.name=t commit -qm c1 >/dev/null 2>&1
+  printf '%s\n' "$d"
+}
+spl_stderr_base() {  # repo_dir base_rev -> the lint's stderr
+  ( cd "$1" 2>/dev/null || exit
+    git diff "$2" HEAD 2>/dev/null | python3 "$SPL" --rev HEAD 2>&1 >/dev/null )
+}
+# The fixture is the real shape: a counted claim quoted inside a JSON record, whose referent
+# the record itself outgrows. It is genuinely STALE as prose — which is the point.
+SPF="$(probe_tmp '#672 corpus record')"
+printf '%s\n' '{"pr":383,"note":"# Cases 19-32 are exercised below"}' \
+              '{"pr":384,"note":"Case 37 delta"}' > "$SPF"
+# POSITIVE CONTROL FIRST: at a non-excluded path the identical content still gates, so a
+# clean excluded arm can never be an artifact of the fixture failing to be stale at all.
+SPR="$(spl_repo_at "$SPF" notes/records.jsonl)"
+assert_eq "#672 POSITIVE CONTROL: the same corpus record OUTSIDE the excluded prefixes still gates (exit 1)" \
+  "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+assert_eq "#672 positive control emits the STALE R1 row" "yes" "$(spl_has "$SPR" STALE R1)"
+# The two excluded prefixes.
+SPR="$(spl_repo_at "$SPF" .devflow/learnings/retrospectives.jsonl)"
+assert_eq "#672 a .devflow/learnings/ record is not examined (exit 0)" "0" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+assert_eq "#672 the excluded learnings path emits NO row of ANY verdict" "" \
+  "$( ( cd "$SPR" && git diff "$SP_EMPTY_TREE" HEAD 2>/dev/null | python3 "$SPL" --rev HEAD 2>/dev/null ) )"
+assert_eq "#672 the intended coverage drop is DISCOVERABLE: stderr names the excluded path" "yes" \
+  "$(spl_stderr_base "$SPR" "$SP_EMPTY_TREE" | grep -qF 'machine-appended corpus, issue #672): .devflow/learnings/retrospectives.jsonl' && echo yes || echo no)"
+SPR="$(spl_repo_at "$SPF" .devflow/logs/run.jsonl)"
+assert_eq "#672 a .devflow/logs/ record is not examined (exit 0)" "0" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+# Boundary in the OTHER direction — the exclusion must stay narrow. `CHANGELOG.md` and
+# `.changeset/` are human-authored prose about the current change, the surface this lint
+# exists to grade; a later over-broad prefix that swallowed them turns these RED.
+SPF="$(probe_tmp '#672 human prose')"
+printf '%s\n' '# Cases 19-32 are exercised below' 'Case 37 delta' > "$SPF"
+SPR="$(spl_repo_at "$SPF" CHANGELOG.md)"
+assert_eq "#672 CHANGELOG.md is deliberately NOT excluded (still gates, exit 1)" "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+SPR="$(spl_repo_at "$SPF" .changeset/some-change.md)"
+assert_eq "#672 .changeset/ is deliberately NOT excluded (still gates, exit 1)" "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
+# A path merely CONTAINING an excluded segment further down is not excluded — the predicate
+# is a repo-root-anchored prefix, not a substring.
+SPR="$(spl_repo_at "$SPF" vendor/.devflow/learnings/notes.md)"
+assert_eq "#672 the predicate is a root-anchored PREFIX, not a substring match (still gates, exit 1)" \
+  "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
 
 # The lint is CLEAN against its OWN branch diff — the whole point of #434, and the assertion
 # that stops the fixture corpus from silently re-accumulating false positives.

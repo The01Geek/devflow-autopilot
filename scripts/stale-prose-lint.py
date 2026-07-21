@@ -24,6 +24,25 @@ Deliberately NOT examined (accepted, not accidental): ``.sh`` heredoc prose, YAM
 prose, trailing comments after code, and ``#`` comments inside ```` ```bash ```` fences in
 markdown. None of the four historical escape shapes lived on those surfaces.
 
+**Excluded population: machine-appended corpora (issue #672).** Diff-added lines under
+``.devflow/learnings/`` and ``.devflow/logs/`` are not examined at all. Those files are
+records DevFlow *writes* — a retrospective, an experiment record, a log — each quoting
+reviewed prose verbatim inside a JSON string. The quoted text is data about a past PR, never
+an assertion about the file it now sits in, and no referent for it exists in the post-diff
+state to resolve against. The trigger was PR #673, whose only edit to two such records
+replaced an operator home path with ``~``: that re-presented each whole 5 KB JSONL record as
+a diff-*added* line, the unlisted ``.jsonl`` type failed open to examine-every-line as
+designed, and a 2026-07-10 retrospective's narration of a *previous* PR's counted claim
+graded STALE — failing CI on a diff that had authored no claim. Any later rewrite of a corpus
+line re-trips it, so the exclusion is keyed to the path, not to that one edit. Two neighbours
+are deliberately **not** excluded: ``CHANGELOG.md`` and ``.changeset/`` are human-authored
+prose about the current change, exactly the surface this lint exists to grade. The exclusion
+is announced on stderr per run — an intended coverage drop is still a coverage drop, and must
+be as discoverable as the fail-open arm above. Scope boundary: it selects which files' ADDED
+lines are graded; the diff-global removed-line multiset behind the issue-#629 move exemption
+is untouched, so an excluded path can still supply a relocation *source* — which requires
+byte-equality between a JSON record and a prose line, and so is unreachable in practice.
+
 * **R1 range-outgrowth.** A ``Cases A-B`` header whose forward region (the lines
   after it in the post-diff file) contains a ``Case N`` with ``N > B`` — the header
   was frozen while the block it introduces grew past it (the PR #328 shape).
@@ -447,6 +466,18 @@ _SLASH_EXTS = frozenset({".ts", ".tsx", ".js", ".jsx", ".go", ".rs", ".java", ".
 _FENCE_RE = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
 
 _unrecognised_exts = set()  # reported once, at the end of the run (see `run`)
+
+# ── Excluded population: machine-appended corpora (issue #672) ─────────────────────────
+# Path prefixes whose diff-added lines are never examined. See the module header for the
+# rationale and for the two neighbours (`.changeset/`, `CHANGELOG.md`) deliberately NOT
+# listed. This is a closed list of PATHS, not of languages: the fail-open rule above governs
+# an unrecognised file TYPE, and nothing here changes it.
+_EXCLUDED_PREFIXES = (".devflow/learnings/", ".devflow/logs/")
+
+
+def _is_excluded(path):
+    """True when `path` sits under a machine-appended corpus prefix."""
+    return path.replace("\\", "/").startswith(_EXCLUDED_PREFIXES)
 
 
 def _norm_line(line):
@@ -1296,9 +1327,16 @@ def run(rev, diff_text):
     files, removed, removed_by_file = parse_diff_full(diff_text)
     move = build_move_index(files, removed, removed_by_file)
     rows = []
+    excluded = []
     for path in sorted(files):
         added = files[path]
         if not added:
+            continue
+        # A machine-appended corpus record is DATA that quotes prose, never an assertion
+        # about the file (issue #672). Skipped before the post-image read, so an excluded
+        # path costs no `git show` and can emit no row of any verdict.
+        if _is_excluded(path):
+            excluded.append(path)
             continue
         lines = post_file_lines(rev, path)
         if lines is None:
@@ -1312,6 +1350,14 @@ def run(rev, diff_text):
     # the scoping tables keeps today's examine-every-line behavior (no coverage is lost), but
     # they get the false positives that behavior implies — and with no breadcrumb they would
     # have no way to learn why, or that adding their type is the fix.
+    # Dropping coverage is never silent either — including when the drop is INTENDED. An
+    # excluded path is named on stderr so a claim a consumer expected to be graded is
+    # traceable to this rule rather than looking like a missed detection.
+    if excluded:
+        sys.stderr.write(
+            "stale-prose-lint.py: not examined (machine-appended corpus, issue #672): "
+            f"{', '.join(excluded)}\n")
+
     if _unrecognised_exts:
         sys.stderr.write(
             "stale-prose-lint.py: no comment/prose scoping rule for "
