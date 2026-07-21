@@ -122,6 +122,7 @@
     "conditional-references": {
       "class": "reference",
       "files": [
+        "skills/create-issue/references/audit-prompt-template.md",
         "skills/review/phases/phase-0-3-6-blocker-recheck.md",
         "skills/review/phases/phase-0-6-stale-prose-lint.md",
         "skills/review/phases/phase-4-1-7-stale-adjudication.md",

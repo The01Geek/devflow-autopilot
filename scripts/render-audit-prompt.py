@@ -1,0 +1,594 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 Daniel Radman
+# SPDX-License-Identifier: MIT
+"""Render the /devflow:create-issue Step 3.6 fresh-context audit prompt.
+
+This is the create-issue sibling of ``scripts/render-grounding-block.sh``: the
+single deterministic renderer of a load-bearing prompt surface, so the
+orchestrator stops hand-emitting the ~2,000-word audit-instruction block into
+every dispatch. The canonical prose lives in the committed template file
+``skills/create-issue/references/audit-prompt-template.md`` (resolved relative
+to THIS file, never the cwd — the repo layout and the vendored-plugin layout
+both place ``scripts/`` and ``skills/`` as siblings under one root).
+
+Contract (issue #600):
+
+- Stateless: reads no run state, writes no file, takes no stdin. The only reads
+  are the committed template file and — for consumer-dimension forwarding — the
+  consumer extension ``.devflow/prompt-extensions/create-issue.md``, resolved
+  from the git repo root per the #295 SHARED REPO-ROOT CONFIG CONTRACT (a native
+  ``git`` subprocess, cwd fallback; never a ``.sh`` exec — the #275 constraint).
+- Closed argument surface: closed-vocabulary mode/arm/hook tokens, a kebab-case
+  slug, single-line absolute paths, and the machine-generated sentinel pair. No
+  free-text parameter reaches the rendered instruction block: every slot filled
+  from an argument (``<slug>``, ``{DRAFT_PATH}``, and the ``{SENTINEL_OPEN}`` /
+  ``{SENTINEL_CLOSE}`` pair) is shape-checked at the parse boundary, and the
+  draft title never crosses a command line at all — it travels in the
+  orchestrator's dispatch preamble prose. (``{CONSUMER_DIMENSIONS}`` is the one
+  remaining slot; it is filled from committed consumer-extension file content,
+  never from an argument, and is substituted LAST so it is never re-scanned.) The ``--template-file`` /
+  ``--extension-file`` test overrides are read-paths that are never substituted
+  into the block, and are deliberately left untyped so an explicit empty value
+  still selects the root-anchored default (the #295 shared contract) — they are
+  outside this claim. The path check bounds shape, not vocabulary (see
+  ``_abs_path``).
+- Modes, complete by construction: the dispatch arms ``file`` /
+  ``embed`` / ``inline`` mirroring ``issue-audit-state.py``'s arm vocabulary,
+  plus ``checklist`` (the Step 3.5 self-check), ``extract`` (the generic
+  section-extraction hook; the Step 2 ``## Evidence axes`` forwarding consumes
+  it as a standalone call, while the Step 3.6 ``## Audit dimensions`` hook
+  consumes the same extraction *rule* spliced into a dispatch arm as
+  ``{CONSUMER_DIMENSIONS}``, not via a standalone ``extract`` call), and
+  ``status-only`` (the orchestrator's fail-fast one-line probe).
+- Output contract: stdout's FIRST line is ``render-status:`` with a value from
+  the closed set {appended, absent, unestablished}; stdout's LAST line is the
+  fixed terminal marker ``render-end:`` on every full render, so a truncated
+  delivery is positionally detectable: any tail cut drops the terminal marker,
+  whatever the render's last block happens to be (the consumer section is last
+  only in checklist/extract mode — the dispatch arms follow it with the
+  verdict/cap block). ``status-only`` prints
+  exactly the one status line (it IS one line; no end marker).
+- Failure (unusable arguments, unreadable template file) exits non-zero with
+  EMPTY stdout and a stderr breadcrumb — which, together with out-of-position
+  markers, is the no-contract-output signal the skill's degraded arms key on.
+"""
+
+from __future__ import annotations
+
+import argparse
+import subprocess
+import sys
+from pathlib import Path
+
+STATUS_PREFIX = "render-status:"
+END_MARKER = "render-end:"
+
+# Closed vocabularies (complete by construction).
+_MODES = ("file", "embed", "inline", "checklist", "extract", "status-only")
+_DISPATCH_ARMS = ("file", "embed", "inline")
+# Extraction hooks map to the two consumer section headings they forward.
+_HOOKS = {
+    "audit-dimensions": "## Audit dimensions",
+    "evidence-axes": "## Evidence axes",
+}
+# Consumer-dimension status values (the render-status: value set).
+_STATUS_APPENDED = "appended"
+_STATUS_ABSENT = "absent"
+_STATUS_UNESTABLISHED = "unestablished"
+
+# Template block markers. A block is bounded by
+#   <!-- render-block: <space-separated arm/mode set> -->
+#   ... block body ...
+#   <!-- render-block-end -->
+# and is emitted only when the current arm/mode is in its set. Slots inside a
+# block are substituted after selection.
+_BLOCK_OPEN_PREFIX = "<!-- render-block:"
+_BLOCK_OPEN_SUFFIX = "-->"
+_BLOCK_CLOSE = "<!-- render-block-end -->"
+
+
+class RenderError(Exception):
+    """A renderer failure: exit non-zero, empty stdout, stderr breadcrumb."""
+
+
+def _default_template_path() -> Path:
+    # Resolve the template relative to THIS file's location, never the cwd, so
+    # the vendored-plugin layout (scripts/ and skills/ siblings under the
+    # vendor root) resolves identically to the repo checkout.
+    return (
+        Path(__file__).resolve().parent.parent
+        / "skills"
+        / "create-issue"
+        / "references"
+        / "audit-prompt-template.md"
+    )
+
+
+def _repo_root() -> str | None:
+    # #295 SHARED REPO-ROOT CONFIG CONTRACT, Python-reader shape: a native git
+    # subprocess (Windows-safe, no .sh exec — #275), shallow-clone-safe
+    # (--show-toplevel reads no history). git can exit non-zero while genuinely
+    # inside a repo (safe.directory) or be absent, so a non-zero/OSError result
+    # simply falls back to cwd rather than asserting "not in a repo".
+    try:
+        r = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            encoding="utf-8",
+        )
+    except OSError:
+        return None
+    root = r.stdout.strip() if r.returncode == 0 else ""
+    return root or None
+
+
+def _default_extension_path() -> Path:
+    root = _repo_root()
+    if root is not None:
+        return Path(root) / ".devflow" / "prompt-extensions" / "create-issue.md"
+    cwd = Path.cwd()
+    # Breadcrumb only when NEITHER a git root NOR a .devflow/ dir can be located —
+    # the silent-drop class the #295 reader-set contract closes (mirrors
+    # match-deferrals.py's _default_config_path). git can exit non-zero while
+    # genuinely INSIDE a repo (safe.directory / dubious-ownership), or be absent,
+    # so don't assert "not in a git repo" — report that the root could not be
+    # resolved.
+    if not (cwd / ".devflow").is_dir():
+        sys.stderr.write(
+            f"render-audit-prompt.py: could not resolve a git repo root and no "
+            f".devflow/ at {str(cwd)!r}; falling back to a cwd-anchored default "
+            f"prompt-extension path\n"
+        )
+    return cwd / ".devflow" / "prompt-extensions" / "create-issue.md"
+
+
+# --------------------------------------------------------------------------
+# Consumer extension delivery triage + section extraction.
+#
+# The triage mirrors scripts/load-prompt-extension.sh (a coupled pair):
+#   present regular readable file          -> read text, extract section
+#   absent / present-but-empty             -> no section  (status absent)
+#   present-but-unreadable / broken symlink
+#     / present-but-non-regular file       -> unestablished (never "absent")
+# --------------------------------------------------------------------------
+def _read_extension(path: Path) -> tuple[str, str]:
+    """Return (state, text). state is one of 'ok' / 'absent' / 'unestablished'.
+
+    'ok' text is the file contents (possibly empty -> caller treats as absent).
+    """
+    # Broken symlink: is a symlink whose target does not exist.
+    if path.is_symlink() and not path.exists():
+        return ("unestablished", "")
+    if not path.exists():
+        return ("absent", "")
+    # Present-but-non-regular (directory, fifo, device, symlink-to-dir).
+    if not path.is_file():
+        return ("unestablished", "")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        # Present-but-unreadable (permissions) or undecodable payload.
+        return ("unestablished", "")
+    return ("ok", text)
+
+
+def extract_section(text: str, heading: str) -> str:
+    """Extract every ``## heading`` section, per the four extraction clauses.
+
+    1. A section spans its heading line to the next line beginning ``## ``
+       (two hashes + a space) or end of file.
+    2. Duplicate same-heading sections concatenate in file order.
+    3. An empty section (no non-whitespace body) equals an absent heading.
+    4. A heading line inside an HTML comment block or a fenced code block is
+       not a heading (an unclosed fence runs to end of file).
+
+    Returns the concatenated section BODIES (heading lines excluded), or the
+    empty string when the heading is absent or every match is body-empty.
+    """
+    target = heading.rstrip()
+    in_fence = False
+    fence_kind = ""  # '`' or '~'
+    in_comment = False
+    in_section = False
+    collected: list[str] = []
+    def _track_comment(current: bool, text_line: str) -> bool:
+        # Last-marker-wins comment-block state (mirrors load-prompt-extension.sh).
+        if "<!--" not in text_line and "-->" not in text_line:
+            return current
+        last_open = text_line.rfind("<!--")
+        last_close = text_line.rfind("-->")
+        if last_open > last_close:
+            return True
+        if last_close > last_open:
+            return False
+        return current
+
+    for raw in text.splitlines():
+        line = raw.rstrip()
+
+        # Comment-block state is resolved BEFORE fence detection, so a code-fence
+        # marker (``` / ~~~) that sits INSIDE an open HTML comment is inert — it
+        # neither opens nor closes a fence. Evaluating the fence branch first
+        # would toggle `in_fence` on a commented-out fence line and then swallow
+        # a later real heading (the load-prompt-extension.sh divergence #600's
+        # review caught).
+        if in_comment:
+            in_comment = _track_comment(in_comment, line)
+            if in_section:
+                collected.append(raw)
+            continue
+
+        # Fence tracking (``` or ~~~) at COLUMN 0 only — `line`, never `line.lstrip()`.
+        # load-prompt-extension.sh matches fences with `case "$_line" in '```'*)`, a
+        # deliberate column-0 contract, and heading detection here is column-0 too. An
+        # lstripped test recognized INDENTED fences the loader treats as ordinary text,
+        # so a consumer section wrapping a column-0 `## ` heading in an indented fence
+        # made the two hooks forward different bodies at the same `appended` status.
+        if line.startswith("```") or line.startswith("~~~"):
+            kind = line[0]
+            if not in_fence:
+                in_fence = True
+                fence_kind = kind
+            elif kind == fence_kind:
+                in_fence = False
+                fence_kind = ""
+            if in_section:
+                collected.append(raw)
+            continue
+        if in_fence:
+            if in_section:
+                collected.append(raw)
+            continue
+
+        # A line is a heading candidate BEFORE the comment-open check, so a
+        # heading carrying a trailing inline comment still matches by its full
+        # line (mirrors load-prompt-extension.sh).
+        is_heading = line.startswith("## ")
+        if is_heading:
+            if line == target:
+                in_section = True
+                # No _track_comment call is needed on this path: `line == target`
+                # is an exact match after rstrip, so a matched heading carries no
+                # `<!--`/`-->` marker by construction and the call would be a
+                # no-op. (A heading WITH a trailing `<!--` is not an exact match,
+                # so it reaches neither this arm nor the loader's — both report the
+                # section absent, which is the coupled-pair behavior.)
+                continue
+            # A different '## ' heading terminates the current section.
+            if in_section:
+                in_section = False
+            # fall through to comment tracking for this line too
+
+        # A `## ` heading line is tested for heading-ness above BEFORE this
+        # comment-open check, so a heading with a trailing inline comment still
+        # matches; a non-heading line here may open a comment for later lines.
+        in_comment = _track_comment(in_comment, line)
+
+        if in_section:
+            collected.append(raw)
+
+    body = "\n".join(collected).strip("\n")
+    if not body.strip():
+        return ""
+    return body
+
+
+def consumer_dimensions(ext_path: Path, heading: str) -> tuple[str, str]:
+    """Return (status, section_text) for a consumer section forwarding hook."""
+    state, text = _read_extension(ext_path)
+    if state == "unestablished":
+        return (_STATUS_UNESTABLISHED, "")
+    if state == "absent":
+        return (_STATUS_ABSENT, "")
+    section = extract_section(text, heading)
+    if not section:
+        return (_STATUS_ABSENT, "")
+    return (_STATUS_APPENDED, section)
+
+
+# --------------------------------------------------------------------------
+# Template parsing / block selection.
+# --------------------------------------------------------------------------
+def _parse_blocks(template_text: str) -> list[tuple[frozenset[str], str]]:
+    """Parse the template into (arm/mode set, body) blocks in file order.
+
+    Text outside any block is ignored (it is the human-facing documentation of
+    slots and the extraction rule, for the degraded manual arms). A missing
+    close marker is a template defect -> RenderError.
+    """
+    blocks: list[tuple[frozenset[str], str]] = []
+    current_set: frozenset[str] | None = None
+    current_lines: list[str] = []
+    for line in template_text.splitlines():
+        s = line.strip()
+        if s.startswith(_BLOCK_OPEN_PREFIX) and s.endswith(_BLOCK_OPEN_SUFFIX):
+            if current_set is not None:
+                raise RenderError(
+                    "template malformed: nested render-block open marker"
+                )
+            spec = s[len(_BLOCK_OPEN_PREFIX):-len(_BLOCK_OPEN_SUFFIX)].strip()
+            current_set = frozenset(spec.split())
+            current_lines = []
+            continue
+        if s == _BLOCK_CLOSE:
+            if current_set is None:
+                raise RenderError(
+                    "template malformed: render-block-end without an open marker"
+                )
+            blocks.append((current_set, "\n".join(current_lines)))
+            current_set = None
+            current_lines = []
+            continue
+        if current_set is not None:
+            current_lines.append(line)
+    if current_set is not None:
+        raise RenderError("template malformed: unterminated render-block")
+    return blocks
+
+
+def _load_template(template_path: Path) -> str:
+    try:
+        return template_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise RenderError(
+            f"could not read audit-prompt template at {template_path}: {exc}"
+        ) from exc
+
+
+def _substitute(text: str, slots: dict[str, str]) -> str:
+    for key, value in slots.items():
+        text = text.replace(key, value)
+    return text
+
+
+def _section_placeholder(status: str) -> str:
+    # Self-describing body for a non-appended status. Fails CLOSED on a status
+    # outside the closed set rather than degrading into the plausible-looking
+    # "could not be established" prose: the vocabulary is closed by construction,
+    # so an unknown value is a defect in the producer, not an input to render.
+    if status == _STATUS_ABSENT:
+        return "(no consumer section)"
+    if status == _STATUS_UNESTABLISHED:
+        return "(consumer section could not be established)"
+    raise RenderError(
+        f"unknown consumer-extension status {status!r} (expected one of "
+        f"{_STATUS_ABSENT}, {_STATUS_UNESTABLISHED}, {_STATUS_APPENDED})"
+    )
+
+
+def _dimensions_block_for_status(status: str, section: str) -> str:
+    if status == _STATUS_APPENDED:
+        return section
+    if status == _STATUS_ABSENT:
+        return "(no consumer audit dimensions)"
+    if status == _STATUS_UNESTABLISHED:
+        return "(consumer audit dimensions could not be established)"
+    raise RenderError(
+        f"unknown consumer-extension status {status!r} (expected one of "
+        f"{_STATUS_ABSENT}, {_STATUS_UNESTABLISHED}, {_STATUS_APPENDED})"
+    )
+
+
+def render_dispatch(
+    mode: str,
+    template_path: Path,
+    slug: str,
+    draft_path: str | None,
+    sentinel_open: str | None,
+    sentinel_close: str | None,
+    ext_path: Path,
+) -> str:
+    """Assemble a full render for a dispatch arm (``mode`` in _DISPATCH_ARMS) or
+    the checklist self-check (``mode == "checklist"``). ``mode`` doubles as the
+    block-selection token, so the checklist branch passes ``"checklist"``."""
+    blocks = _parse_blocks(_load_template(template_path))
+
+    status, section = consumer_dimensions(ext_path, _HOOKS["audit-dimensions"])
+    # `{CONSUMER_DIMENSIONS}` is substituted LAST (dict-insertion order): the
+    # consumer-extension text spliced in is then never re-scanned for `<slug>` /
+    # `{DRAFT_PATH}` tokens it may legitimately contain. Keep it last.
+    slots = {
+        "<slug>": slug,
+        "{DRAFT_PATH}": draft_path or "",
+        "{SENTINEL_OPEN}": sentinel_open or "",
+        "{SENTINEL_CLOSE}": sentinel_close or "",
+        "{CONSUMER_DIMENSIONS}": _dimensions_block_for_status(status, section),
+    }
+
+    parts: list[str] = []
+    for arm_set, body in blocks:
+        if mode in arm_set:
+            parts.append(_substitute(body, slots).strip("\n"))
+    inner = "\n\n".join(p for p in parts if p.strip())
+    # Fail CLOSED on an instruction-empty body: a mode that selects no block (or
+    # only blank ones) would otherwise emit a positionally-valid two-marker render
+    # carrying no instructions at all, which the delivery check cannot detect.
+    if not inner.strip():
+        raise RenderError(
+            f"template selected no non-empty block for mode {mode!r} "
+            f"({template_path})"
+        )
+    return f"{STATUS_PREFIX} {status}\n{inner}\n{END_MARKER}"
+
+
+def render_extract(hook: str, ext_path: Path) -> str:
+    """Section-extraction mode: forward one consumer section.
+
+    The extraction RULE is shared by both hooks, but this mode is the
+    consumption path only for ``--hook evidence-axes`` (Step 2's forwarding);
+    Step 3.6's ``## Audit dimensions`` reaches the auditor spliced into a
+    dispatch arm via ``{CONSUMER_DIMENSIONS}``, not through a standalone
+    ``extract`` call.
+    """
+    # Guard the hook lookup so the module's documented failure contract (rc≠0,
+    # empty stdout, stderr breadcrumb) holds for every entry point, not only the
+    # CLI — argparse's `choices` constrains the CLI, but this function is public
+    # and a direct caller would otherwise get a bare KeyError.
+    if hook not in _HOOKS:
+        raise RenderError(
+            f"unknown hook {hook!r} (expected one of {', '.join(sorted(_HOOKS))})"
+        )
+    heading = _HOOKS[hook]
+    # consumer_dimensions returns section="" for every non-appended status, so the
+    # body carries self-describing placeholder prose instead of a bare blank line —
+    # the same treatment the dispatch path gives via _dimensions_block_for_status.
+    # An empty body between markers is positionally valid but instruction-empty,
+    # the shape render_dispatch fails closed on.
+    status, section = consumer_dimensions(ext_path, heading)
+    body = section if status == _STATUS_APPENDED else _section_placeholder(status)
+    return f"{STATUS_PREFIX} {status}\n{body}\n{END_MARKER}"
+
+
+def render_status_only(ext_path: Path) -> str:
+    status, _ = consumer_dimensions(ext_path, _HOOKS["audit-dimensions"])
+    return f"{STATUS_PREFIX} {status}"
+
+
+# --------------------------------------------------------------------------
+# CLI.
+# --------------------------------------------------------------------------
+_KEBAB_ALPHABET = frozenset("abcdefghijklmnopqrstuvwxyz0123456789-")
+
+
+def _kebab_slug(value: str) -> str:
+    # Closed-vocabulary slug: lowercase kebab-case only. Rejects any free text.
+    # ASCII-only: c.islower()/c.isdigit() accept non-ASCII ('é', 'ß', Arabic-Indic
+    # digits), which the "lowercase kebab" contract does not.
+    if not value or not all(c in _KEBAB_ALPHABET for c in value):
+        raise argparse.ArgumentTypeError(
+            f"slug must be lowercase kebab-case (got {value!r})"
+        )
+    return value
+
+
+def _sentinel(value: str) -> str:
+    # Closed shape: AUDIT-<hex>-OPEN / AUDIT-<hex>-CLOSE (issue-audit-state.py).
+    if not (value.startswith("AUDIT-") and value.endswith(("-OPEN", "-CLOSE"))):
+        raise argparse.ArgumentTypeError(
+            f"sentinel must be an AUDIT-<tag>-OPEN/CLOSE token (got {value!r})"
+        )
+    return value
+
+
+def _abs_path(value: str) -> str:
+    # Shape check for the path arguments: POSIX-form, absolute, single-line.
+    #
+    # Deliberately NOT a closed vocabulary, and the claim it supports is scoped to
+    # match: a legitimate checkout path can contain spaces and most punctuation, so
+    # constraining further would reject real consumers. What this DOES buy is that
+    # {DRAFT_PATH} cannot carry a newline — the shape that would let a second line of
+    # prose sit in the rendered block as if it were template instructions. A
+    # same-line trailer is still expressible; --draft-path is orchestrator-derived
+    # from the bound slug, not consumer-supplied, so that residual is accepted and
+    # disclosed rather than papered over. See the module docstring, which states the
+    # narrow claim (no free-text parameter reaches the rendered block) and not a
+    # broad one this check does not implement.
+    #
+    # POSIX-form only: a Windows-form path is normalized at prompt time (#275), so
+    # the message names that remedy rather than reading as a contradiction of what
+    # is, on that platform, a genuinely absolute path.
+    # `{` is rejected so a path can never carry a literal slot token
+    # ({CONSUMER_DIMENSIONS}, {SENTINEL_OPEN}, ...). Without it the
+    # substituted-last invariant in render_dispatch would hold only by argument
+    # provenance; with it, it holds unconditionally.
+    if (
+        not value.startswith("/")
+        or "\n" in value
+        or "\r" in value
+        or "{" in value
+    ):
+        raise argparse.ArgumentTypeError(
+            f"path must be a single-line POSIX-form absolute path with no "
+            f"'{{' slot token (got {value!r}); normalize a Windows-form path "
+            "first (see lib/normalize-path.sh)"
+        )
+    return value
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="render-audit-prompt.py",
+        description="Render the create-issue Step 3.6 fresh-context audit prompt.",
+    )
+    parser.add_argument("mode", choices=_MODES)
+    parser.add_argument("--slug", type=_kebab_slug)
+    parser.add_argument("--draft-path", type=_abs_path)  # absolute path (file arm)
+    parser.add_argument("--sentinel-open", type=_sentinel)
+    parser.add_argument("--sentinel-close", type=_sentinel)
+    parser.add_argument("--hook", choices=tuple(_HOOKS))
+    # NOT typed with _abs_path: the #295 shared contract says an explicit EMPTY
+    # value still selects the root-anchored default, and an argparse type would
+    # reject "" at rc 2 before main() could apply that default (and rc 2 is not
+    # this module's documented rc-1 failure shape). These are read-paths that are
+    # never substituted into the rendered block, so they sit outside the
+    # docstring's no-free-text claim.
+    parser.add_argument("--template-file")  # absolute path override (tests)
+    parser.add_argument("--extension-file")  # absolute path override (tests)
+    return parser
+
+
+def main(argv: list[str]) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    template_path = (
+        Path(args.template_file) if args.template_file else _default_template_path()
+    )
+    ext_path = (
+        Path(args.extension_file)
+        if args.extension_file
+        else _default_extension_path()
+    )
+
+    try:
+        if args.mode in _DISPATCH_ARMS:
+            if args.slug is None:
+                raise RenderError(f"--slug is required for the {args.mode} arm")
+            if args.mode == "file" and not args.draft_path:
+                raise RenderError("--draft-path is required for the file arm")
+            if args.mode == "embed" and not (
+                args.sentinel_open and args.sentinel_close
+            ):
+                raise RenderError(
+                    "--sentinel-open and --sentinel-close are required for the "
+                    "embed arm"
+                )
+            out = render_dispatch(
+                args.mode,
+                template_path,
+                args.slug,
+                args.draft_path,
+                args.sentinel_open,
+                args.sentinel_close,
+                ext_path,
+            )
+        elif args.mode == "checklist":
+            out = render_dispatch(
+                "checklist",
+                template_path,
+                args.slug or "",
+                None,
+                None,
+                None,
+                ext_path,
+            )
+        elif args.mode == "extract":
+            if not args.hook:
+                raise RenderError("--hook is required for extract mode")
+            out = render_extract(args.hook, ext_path)
+        elif args.mode == "status-only":
+            out = render_status_only(ext_path)
+        else:  # unreachable: choices already constrain mode
+            raise RenderError(f"unknown mode {args.mode}")
+    except RenderError as exc:
+        sys.stderr.write(f"render-audit-prompt.py: {exc}\n")
+        return 1
+
+    sys.stdout.write(out + "\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
