@@ -39,6 +39,17 @@ particular, `/devflow:review-and-fix` cites the receiving-code-review skill by *
 a prose citation, not a guaranteed skill load — so the receiving-code-review extension alone would
 not reach the flagship fix loop.
 
+> **Superseded in part by issue #620** (see `docs/cutovers/issue-620-reception-extension-port.md`).
+> Two statements above described the load topology as it stood at this cutover and no longer hold:
+> the `receiving-code-review` extension's load condition (the third bullet under **Files**) and the
+> "none of them is loaded by the others" premise in the paragraph immediately above. Issue #620 added
+> a second `load-prompt-extension.sh` call to the `/devflow:review-and-fix` preamble, so that
+> extension now also loads unconditionally on every entry through that preamble — the standalone
+> loop, the `/devflow:implement` Phase 3 inline run, and the Step 2.6 shadow entry. The flagship fix
+> loop therefore *is* reached by the receiving extension today. The decision recorded here is left
+> as written: it was sound on the topology of its time, and this note corrects the premise without
+> re-litigating whether the resulting duplication is still wanted.
+
 ## Budget renegotiation (review-and-fix initial load)
 
 `.devflow/prompt-extensions/review-and-fix.md` was sitting **six words** below its documented
