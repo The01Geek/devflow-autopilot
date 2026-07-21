@@ -1,0 +1,27 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-20T00:00:00Z",
+  "fix_commit_sha": "017e9bb1cf105a7eef8da08684b24771eb523c2c",
+  "fix_files": [],
+  "loop_role": "fix",
+  "current_step": "loop-exit",
+  "current_substep": "verdict",
+  "sweep_defs_read": [],
+  "sweep_evidence": {"status": "not_run"},
+  "checklist": [
+    {"id": "VC-1", "claim": "Every moved mechanism pin literal exists exactly once on $RCR_EXT and zero times on $MAXI_ROOT", "file": ".devflow/prompt-extensions/receiving-code-review.md", "verification_mode": "lite", "verdict": "PASS", "evidence": "grep -Fc each of 10 literals == 1 in RCR_EXT, ==0 in root; verified by direct execution"},
+    {"id": "VC-2", "claim": "assert_pin_red_under mutation seds still match the new extension text (red-proofs fire)", "file": "lib/test/run.sh", "verification_mode": "lite", "verdict": "PASS", "evidence": "5 mutation seds each produce a change in RCR_EXT (diff -q non-identical)"},
+    {"id": "VC-3", "claim": "failed-read arm precedes the write/admin branch on $RCR_EXT", "file": ".devflow/prompt-extensions/receiving-code-review.md", "verification_mode": "lite", "verdict": "PASS", "evidence": "python find() offset a<b == yes"},
+    {"id": "VC-4", "claim": "All budget doc cells match fresh _raf_words/_raf_bytes/_raf_lines measurement (root 3414, rcr 1661, init 7730, maxstep 18992, cum 43933, growth +5077, reduction 32787)", "file": "docs/review-and-fix-budget.md", "verification_mode": "lite", "verdict": "PASS", "evidence": "all ceiling/measured/triple/em-dash patterns matched via nc-normalized grep"},
+    {"id": "VC-5", "claim": "prompt-mass baseline + cloud-writer contract regenerated in-diff (census exit 0, regenerate-artifacts exit 0)", "file": "lib/test/prompt-mass-baseline.json", "verification_mode": "lite", "verdict": "PASS", "evidence": "regenerate-artifacts.py final exit 0; census exact baseline match"}
+  ],
+  "phase3_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": false},
+  "phase3_findings": [],
+  "fix_decisions": [],
+  "convergence_inputs": {"fixes_applied": 0, "fix_diff_lines": 0, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "reference_reads": {"fix_delta": {"status": "not_run", "outcome": "clean", "reason": "no fix applied on iteration 1"}},
+  "shadow": {"ran_at": null, "reviewed_sha": null, "verdict": null, "coverage": "not_verified", "reviewers_dispatched": [], "expected_reviewers": [], "reason": "local inline review-and-fix pass converged APPROVE on iteration 1 with 5/5 review agents clean; no separate shadow fan-out run", "phase3_findings": [], "phase2_fails": [], "comparison": {"shadow_total": 0, "overlap_with_iter_N": 0, "new": 0, "new_critical": 0, "new_important": 0}, "promoted_to_iter_next": false},
+  "telemetry": {"phase_3": {"calls": 5, "tokens": 405242, "wall_clock_s": 147}}
+}
