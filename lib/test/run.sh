@@ -6637,6 +6637,47 @@ _docs_sweeps=$(grep -oE 'still runs the contract-completeness sweeps \([^)]+\)' 
 assert_eq "sweep selection: SKILL and docs enumerate the same contract-sweep set (cross-site)" \
   "$_skill_sweeps" "$_docs_sweeps"
 
+# ── issue #661: §2.3.0 gains a relocation-discovery arm (prose literal/heading/section/path
+# relocation is a contract change). Each BEHAVIORAL pin uses assert_pin_red_under with a
+# `sed -E` mutation that removes ONLY the operative sentence — the minimal text whose removal
+# re-opens the guarded gap — so a framing-only pin would be reported RED. Presence pins
+# (assert_pin_unique / assert_eq) guard the index cue, the recovery detail, and the coupled
+# docs mirror.
+# AC1 — the heading names prose/heading/section/path relocation as an armed case.
+assert_pin_red_under "#661: §2.3.0 heading names prose/heading/section/path relocation (operative)" \
+  'or relocates a prose literal, heading, section, or file path' \
+  's|, or relocates a prose literal, heading, section, or file path||' "$P2_FILE"
+assert_pin_red_under "#661: §2.3.0 body arms the sweep on a relocation (operative)" \
+  'A relocation arms this sweep exactly as a moved code symbol does' \
+  's|A relocation arms this sweep exactly as a moved code symbol does|removed|' "$P2_FILE"
+# AC1 — the Sweep-selection index cue also names a relocated prose literal (the code-symbol
+# under-cueing hole this change closes); presence pin (distinct wording from the heading).
+assert_pin_unique "#661: Sweep-selection index cues a relocated prose literal/heading/section/path" \
+  'or a relocated prose literal, heading, section, or file path' "$P2_FILE"
+# AC2 — the enumeration mandates a whitespace-normalized search (the #375 wrapped-literal
+# blind spot). This is the prose-AC behavioral pin the issue's testing strategy names.
+assert_pin_red_under "#661: §2.3.0 mandates a whitespace-normalized enumeration search (operative)" \
+  'with a **whitespace-normalized** search' \
+  's|with a \*\*whitespace-normalized\*\* search|with a plain search|' "$P2_FILE"
+# AC3 — content recovery from the diff's deletion hunks (operative).
+assert_pin_red_under "#661: §2.3.0 recovers a content move from the diff deletion hunks (operative)" \
+  '**deletion hunks** (the removed lines)' \
+  's|\*\*deletion hunks\*\* \(the removed lines\)|the hunks|' "$P2_FILE"
+# AC3 — both old-location citation forms: the vacated-location enumeration a content search
+# never sees (operative — removing it re-opens the name-the-old-path blind spot).
+assert_pin_red_under "#661: §2.3.0 also enumerates citations that name the vacated location (operative)" \
+  'separately enumerate the citations that **name the vacated location**' \
+  's|separately enumerate the citations that \*\*name the vacated location\*\*|also look|' "$P2_FILE"
+# AC3 — file-path recovery via git diff --name-status (rename source / deletion entry); presence.
+assert_pin_unique "#661: §2.3.0 recovers a file-path move via a rename record source" \
+  'the **source** of a rename record (`R### old new`' "$P2_FILE"
+# AC8 — the cloud-safe search uses grep -rnE/tr, never the ungranted git grep; presence.
+assert_pin_unique "#661: §2.3.0 forbids the ungranted git grep for the cloud whitespace search" \
+  'never `git grep`, which the implement profile does not grant' "$P2_FILE"
+# AC11 — docs/implement-skill.md rationale reconciled with the hardened §2.3.0 (coupled mirror).
+assert_eq "#661: docs/implement-skill.md carries the relocation-is-a-contract-change rationale" "yes" \
+  "$(grep -qF 'Relocation is a contract change too (issue #661)' "$IMPL_DOC" && echo yes || echo no)"
+
 # ── issue #474: Phase 2.3 gains §2.3.7 (collection-cardinality sweep) and two §2.3.0c
 # sharpenings (derived-comparand arms, obligation placement). Each BEHAVIORAL pin below
 # (the assert_pin_red_under calls) targets the OPERATIVE sentence — the minimal text whose
@@ -35210,7 +35251,13 @@ grep '^UNRESOLVED-COUNT' "$_PCL_LINT_ERR" 2>/dev/null | sed 's/^/  #375 lint (su
 _PCL_WRAP_ERR="$(probe_tmp '#375 real-corpus wrapped stderr capture')"
 # Same exit-status fold as the lint block above: a scanner crash (empty stdout + rc!=0) must be
 # RED, not a vacuous green.
-_PCL_WRAP_OUT="$(python3 "$PCL" wrapped "$SELF_SRC" "${_PCL_ARGS[@]}" 2>"$_PCL_WRAP_ERR")"; _PCL_WRAP_RC=$?
+# --reloc (issue #661) turns a bare real-corpus ABSENT into a relocation diagnosis
+# (git ls-files search set, minus the lib/test/ pin sources and the always-on
+# vendor/tmp trees). A clean corpus has no ABSENT pin so git ls-files is never
+# invoked here and stdout stays empty; the wiring is exercised by the #661
+# self-tests below. --reloc-exclude drops the pin-source tree so a real relocation
+# report never self-matches a pin's own declaration.
+_PCL_WRAP_OUT="$(python3 "$PCL" wrapped "$SELF_SRC" "${_PCL_ARGS[@]}" --reloc --reloc-exclude lib/test/ 2>"$_PCL_WRAP_ERR")"; _PCL_WRAP_RC=$?
 assert_eq "#375 wrapped-literal meta-guard: no resolvable pin phrase is off-line/wrapped (real corpus; exit 0 + empty)" \
   "rc=0|" "rc=$_PCL_WRAP_RC|$_PCL_WRAP_OUT"
 # Same positive-coverage floor as the lint block (bash-builtin count extraction, fail-closed).
@@ -35374,6 +35421,70 @@ if _F375="$(mktemp -d 2>/dev/null)" && [ -n "$_F375" ] && [ -d "$_F375" ]; then
 else
   echo FAIL >> "$RESULTS_FILE"
   printf '  FAIL  #375 pin-corpus self-tests: mktemp -d failed (guards could not be exercised; not a vacuous skip)\n' >&2
+fi
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "#661 pin-corpus relocation diagnosis: ABSENT distinguishes relocation from deletion"
+# ────────────────────────────────────────────────────────────────────────────
+# The wrapped guard's --reloc mode (issue #661): when a pin literal is ABSENT from its
+# target, search a scoped tracked-file set and report where it RELOCATED to, or a genuine
+# deletion, fail-closed on an unresolvable/empty search set. The search set is supplied
+# EXPLICITLY via --reloc-search-set so the harness stays git-free (mirroring the existing
+# #375 self-tests). Fail CLOSED if the fixture dir can't be created.
+if _F661="$(mktemp -d 2>/dev/null)" && [ -n "$_F661" ] && [ -d "$_F661" ]; then
+  RELOC_LIT='the relocated contract phrase for 661'
+  RELOC_WRAP='the wrapped relocated phrase 661'
+  # Targets and candidate destinations.
+  printf 'totally unrelated content on one line\n' > "$_F661/tgt.md"          # literal ABSENT here
+  printf 'prefix %s suffix\n' "$RELOC_LIT" > "$_F661/dest.md"                  # relocation destination
+  printf 'the wrapped\nrelocated phrase 661 across lines\n' > "$_F661/wrapdest.md"  # wrapped destination (#375)
+  printf 'here is %s present in its own target\n' "$RELOC_LIT" > "$_F661/present.md"  # negative-control target
+  # Scoping/reachability stand-ins that all CONTAIN the literal but must be EXCLUDED: a
+  # pin-source stand-in (excluded via --reloc-exclude — a literal is present in its own pin
+  # declaration by construction) and vendor/tmp stand-ins (excluded by the always-on
+  # .devflow/vendor/ + .devflow/tmp/ default tokens; their paths carry those segments so the
+  # substring exclusion matches a temp-dir path exactly as it would a repo-relative one).
+  printf 'assert_pin_unique fx %s tgt\n' "$RELOC_LIT" > "$_F661/pinsrc.sh"
+  mkdir -p "$_F661/.devflow/vendor" "$_F661/.devflow/tmp"
+  printf '%s\n' "$RELOC_LIT" > "$_F661/.devflow/vendor/vcopy.md"
+  printf '%s\n' "$RELOC_LIT" > "$_F661/.devflow/tmp/tdraft.md"
+  # Per-case pin sources (one absent-from-target pin each) and explicit search-set files.
+  printf 'assert_pin_unique "fx" %s "%s"\n' "'$RELOC_LIT'" "$_F661/tgt.md" > "$_F661/pins_lit.sh"
+  printf 'assert_pin_unique "fx" %s "%s"\n' "'$RELOC_WRAP'" "$_F661/tgt.md" > "$_F661/pins_wrap.sh"
+  printf 'assert_pin_unique "fx" %s "%s"\n' "'$RELOC_LIT'" "$_F661/present.md" > "$_F661/pins_present.sh"
+  printf '%s\n' "$_F661/dest.md" > "$_F661/set_dest.txt"
+  printf '%s\n' "$_F661/wrapdest.md" > "$_F661/set_wrap.txt"
+  printf '%s\n%s\n%s\n' "$_F661/pinsrc.sh" "$_F661/.devflow/vendor/vcopy.md" "$_F661/.devflow/tmp/tdraft.md" > "$_F661/set_scope.txt"
+  : > "$_F661/set_empty.txt"
+  # Positive control: the literal resolves in exactly one non-target file → RELOCATED to it.
+  _R661_POS="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_dest.txt" 2>/dev/null)"
+  assert_eq "#661 reloc self-test: an ABSENT literal present in a non-target file is reported RELOCATED to it" \
+    "yes" "$(printf '%s' "$_R661_POS" | grep -q 'RELOCATED.*relocated to .*dest.md' && echo yes || echo no)"
+  # Scoping/reachability: every candidate carrying the literal is an excluded pin-source /
+  # vendor / tmp stand-in → the check reports a genuine deletion, NOT a self-matching RELOCATED.
+  _R661_SCOPE="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_scope.txt" --reloc-exclude "$_F661/pinsrc.sh" 2>/dev/null)"
+  assert_eq "#661 reloc self-test: pin-source + vendor + tmp stand-ins are excluded → deleted, not a self-match" \
+    "yes" "$(printf '%s' "$_R661_SCOPE" | grep -q 'deleted (not found anywhere)' && ! printf '%s' "$_R661_SCOPE" | grep -q 'RELOCATED' && echo yes || echo no)"
+  # Wrapped-literal destination (#375): the literal exists at the destination only in the
+  # whitespace-normalized rendering (wrapped across lines) → still reported RELOCATED.
+  _R661_WRAP="$(python3 "$PCL" wrapped "$_F661/pins_wrap.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_wrap.txt" 2>/dev/null)"
+  assert_eq "#661 reloc self-test: a wrapped-literal destination is still reported RELOCATED (#375 case)" \
+    "yes" "$(printf '%s' "$_R661_WRAP" | grep -q 'RELOCATED.*wrapdest.md' && echo yes || echo no)"
+  # Negative control: the literal is present in its OWN named target → no ABSENT, no relocation.
+  _R661_NEG="$(python3 "$PCL" wrapped "$_F661/pins_present.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_dest.txt" 2>/dev/null)"
+  assert_eq "#661 reloc self-test: a literal present in its named target stays silent (no ABSENT/RELOCATED)" \
+    "yes" "$([ -z "$_R661_NEG" ] && echo yes || echo no)"
+  # Fail-closed: an empty search set is reported unavailable on stderr and NEVER collapsed to
+  # "deleted" — a failed enumeration must not masquerade as a genuine deletion.
+  _R661_FC="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_empty.txt" 2>"$_F661/fc.err")"
+  assert_eq "#661 reloc self-test: an empty/failed search set is reported unavailable on stderr (fail-closed)" \
+    "yes" "$(grep -q 'RELOC-UNAVAILABLE' "$_F661/fc.err" && echo yes || echo no)"
+  assert_eq "#661 reloc self-test: a failed enumeration is NOT collapsed to 'deleted'" \
+    "yes" "$(printf '%s' "$_R661_FC" | grep -q 'relocation diagnosis unavailable' && ! printf '%s' "$_R661_FC" | grep -q 'deleted (not found anywhere)' && echo yes || echo no)"
+  rm -rf "$_F661"
+else
+  echo FAIL >> "$RESULTS_FILE"
+  printf '  FAIL  #661 pin-corpus relocation self-tests: mktemp -d failed (guards could not be exercised; not a vacuous skip)\n' >&2
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
