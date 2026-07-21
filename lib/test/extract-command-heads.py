@@ -37,7 +37,7 @@ CLI:
            FILE. A reviewed surface is a BUNDLE (a skill root plus its phase
            references, issue #529), so passing every source in one call is what
            keeps a head in a moved fence from escaping the scan.
-    extract-command-heads.py ungranted FILE... ALLOWLIST_FILE [tools-line | implement-block]
+    extract-command-heads.py ungranted [--strict] FILE... ALLOWLIST_FILE [tools-line | implement-block]
         -> one head per line, across every FILE, that no rule in ALLOWLIST_FILE
            grants. The trailing parse mode is a closed enum, so it is recognized
            by exact membership; a trailing token that is neither a known mode nor
@@ -49,7 +49,27 @@ CLI:
        correct form to use against them. Pass `implement-block` to parse only the
        multi-line `--allowed-tools "..."` block of devflow-implement.yml (which has
        no `TOOLS='...'` line and cites `Bash(...)` specs inside comments).
-Both subcommands exit 0; `ungranted` prints nothing when everything is granted.
+Without `--strict` both subcommands exit 0; `ungranted` prints nothing when
+everything is granted.
+
+`--strict` exit-code mode (issue #687, opt-in, applies to `ungranted` ONLY).
+Recognized only as the FIRST token after the subcommand
+(`ungranted --strict FILE... ALLOWLIST_FILE [MODE]`) and consumed before the
+positional logic; a `--strict` in any other position is read as a FILE, today's
+behaviour. With `--strict`, an `ungranted` run that writes at least one line to
+stdout exits **3** and one that writes none exits 0; the stdout and stderr bytes
+are byte-for-byte what they are without the flag. The rule is defined over whether
+any line was written to stdout, not over a token list. Every stdout write on the
+`ungranted` path routes through the single `_emit` helper (defined just above
+`main`); `lib/test/run.sh`'s two issue-#687 emit-helper guards (one over the shared
+extraction helpers, one over the `ungranted` arm) go RED if a raw stdout write is
+introduced inside either range — so a future informational emit on a covered path
+must go to `sys.stderr` instead. `--strict` is rejected on `heads` by an explicit
+check before the extraction arm (exit 2, usage to stderr): `heads`' stdout is the
+tool's data product, so the flag must never apply there. `--strict` rc 0 asserts
+only that no line was written to stdout — not that any head was extracted (a
+fence-free file prints nothing and exits 0 either way).
+
 `tools-line` and `implement-block` raise SystemExit (non-zero) when their marker is
 absent/duplicated/malformed rather than yielding an empty allowlist, so a guard
 keying on the printed output being empty never reads a parse failure as "all granted".
@@ -624,7 +644,7 @@ _ALLOWLIST_MODES = {
 
 _USAGE = (
     "usage: extract-command-heads.py heads FILE...\n"
-    "       extract-command-heads.py ungranted FILE... ALLOWLIST_FILE "
+    "       extract-command-heads.py ungranted [--strict] FILE... ALLOWLIST_FILE "
     "[tools-line | implement-block]"
 )
 
@@ -661,31 +681,68 @@ def _read_allowlist(path: str, mode: str | None) -> str:
     return _ALLOWLIST_MODES[mode](allowlist) if mode else allowlist
 
 
+def _emit(sink: list[str], line: str) -> None:
+    """The single stdout chokepoint for the ``ungranted`` finding channel (issue
+    #687). Appends to ``sink`` — so ``--strict`` can key rc 3 on "at least one line
+    was written to stdout" — and prints the line unchanged, so the stdout/stderr
+    bytes are byte-identical with and without ``--strict``.
+
+    Defined OUTSIDE both issue-#687 emit-helper guard ranges in ``lib/test/run.sh``
+    (the shared-extraction-helpers range and the ``ungranted``-arm range), which is
+    one of the two named exemptions those guards carry — the other being the
+    ``heads`` arm's own data-product ``print(name)``. A future finding arm on the
+    ``ungranted`` path MUST route through this helper (never a bare ``print(`` /
+    ``sys.stdout.write`` / ``os.write(1``) or the ``ungranted``-arm guard goes RED;
+    informational output on a covered path must go to ``sys.stderr`` instead."""
+    sink.append(line)
+    print(line)
+
+
 def main(argv: list[str]) -> int:
     args = argv[2:]
     if len(args) >= 1 and argv[1] == "heads":
+        # Reject --strict on `heads` with an EXPLICIT check ahead of the extraction
+        # arm (issue #687). `heads`' stdout IS the tool's data product, so --strict
+        # must never apply here. A bare leading-token strip would be silently
+        # discarded: `heads --strict some/file.md` still satisfies `len(args) >= 1`,
+        # enters extraction, and returns 0 — the exact fail-open this rejection
+        # removes. The check fires whether or not file arguments follow the flag.
+        if args and args[0] == "--strict":
+            sys.stderr.write(_USAGE + "\n")
+            return 2
         for name in sorted({name_of(h) for h in _heads_of_all(args)}):
             print(name)
         return 0
-    if len(args) >= 2 and argv[1] == "ungranted":
+    if argv[1:2] == ["ungranted"]:
+        # --strict is recognized ONLY as the first token after the subcommand and
+        # is consumed before the positional logic (issue #687). That placement
+        # cannot collide with the variadic FILE... list, args[-1] as ALLOWLIST_FILE,
+        # or the trailing closed-enum MODE. A --strict token in any other position
+        # keeps today's behaviour (it is read as a FILE), so no unknown-flag
+        # rejection is added here.
+        strict = False
+        if args and args[0] == "--strict":
+            strict = True
+            args = args[1:]
         # Tail layout: [FILE...] ALLOWLIST_FILE [MODE]. MODE is a closed enum, so
         # its presence is decided by exact membership — never by a path-shape
         # guess, which would misparse a legitimately odd allowlist filename.
         mode = None
-        if args[-1] in _ALLOWLIST_MODES:
+        if args and args[-1] in _ALLOWLIST_MODES:
             mode = args[-1]
             args = args[:-1]
         if len(args) < 2:
-            print(_USAGE, file=sys.stderr)
+            sys.stderr.write(_USAGE + "\n")
             return 2
         granted = parse_allowlist(_read_allowlist(args[-1], mode))
         heads = _heads_of_all(args[:-1])
+        sink: list[str] = []
         for name in sorted(
             {name_of(h) for h in heads if not is_granted(h, granted)}
         ):
-            print(name)
-        return 0
-    print(_USAGE, file=sys.stderr)
+            _emit(sink, name)
+        return 3 if strict and sink else 0
+    sys.stderr.write(_USAGE + "\n")
     return 2
 
 
