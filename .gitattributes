@@ -13,8 +13,21 @@
 *.py  text eol=lf
 *.jq  text eol=lf
 
-# Reserved exception: a future test fixture that must keep literal CRLF or raw
-# bytes (e.g. a CRLF-diff fixture under lib/test/fixtures/) would otherwise be
-# silently normalized to LF by `* text=auto`. When that case arises, add an
-# explicit `-text` line for it here, e.g.:
-#   lib/test/fixtures/crlf-sample.txt -text
+# Reserved exception (now in use): a test fixture that must keep literal CRLF or
+# raw bytes would otherwise be silently normalized to LF by `* text=auto` — and a
+# CRLF fixture normalized to LF makes its assertion VACUOUS rather than red, since
+# the fixture then matches the LF twin it is supposed to differ from. The two
+# entries below are the #664 scanner's line-ending and encoding fixtures, and each
+# overrides the broader rules above, which would otherwise win. The CRLF one is
+# deliberately NOT named `*.sh`: the #222 guard forbids a CR byte in the index of
+# any tracked `*.sh` (a CR would break a shebang), and that guard is right — this
+# fixture is read as data, never executed, so it carries a neutral suffix instead
+# of being carved out of #222. Do not rename it back under `*.sh`.
+lib/test/fixtures/ghapi-repo-path/adversarial-crlf.txt   -text
+# `-diff` as well as `-text` on the encoding fixture: its undecodable byte would
+# otherwise land in `git diff` output, and the #434 stale-prose self-scan pipes that
+# diff into a UTF-8 reader which fails closed on it — one fixture would silently
+# disarm a blocking gate for every branch carrying it. `-diff` makes git report
+# "Binary files differ" instead; the working-tree bytes the scanner reads are
+# untouched, so the encoding fixture still does its job.
+lib/test/fixtures/ghapi-repo-path/adversarial-nonutf8.sh -text -diff
