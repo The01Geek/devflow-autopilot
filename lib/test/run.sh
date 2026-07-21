@@ -34415,6 +34415,24 @@ assert_eq "#610 asv: probe name only in permission_denials still reads dispatch_
 printf '%s' '[{"type":"tool_use","name":"Task","input":{"subagent_type":"SEAM-Probe-Agent"}}]' > "$ASV_F"
 assert_eq "#610 asv: mixed-case probe subagent name still reads dispatch_attempted -> SEAM_UNPROVEN" "yes" \
   "$(asv_has_row "$ASV_F" '| **SEAM_UNPROVEN** | no |')"
+# Present-but-unreadable execution file (PermissionError / TOCTOU) must route to the
+# INCONCLUSIVE floor and still exit 0 — honoring "always exits 0" — never raise an uncaught
+# traceback (which under the workflow's `set -euo pipefail` verdict step yields a red step
+# with NO verdict table). Parity with the #415 swv sibling (PR #667 review, pr-test-analyzer).
+# Skipped where chmod 000 does not actually deny reads (running as root) so the suite stays green.
+ASV_UNREAD="$(probe_tmp asv.unreadable)"
+printf '%s' '[{"type":"tool_use","name":"Task","input":{"subagent_type":"seam-probe-agent"}}]' > "$ASV_UNREAD"
+chmod 000 "$ASV_UNREAD"
+if python3 -c "open('$ASV_UNREAD').read()" 2>/dev/null; then
+  echo "  (skipped #610 asv unreadable-file arm — reads not denied here, e.g. running as root)"
+else
+  assert_eq "#610 asv: present-but-unreadable execution file -> INCONCLUSIVE (no ship), not a raised traceback" "yes" \
+    "$(asv_has_row "$ASV_UNREAD" '| **INCONCLUSIVE** | no |')"
+  assert_eq "#610 asv: helper still exits 0 on a present-but-unreadable execution file" "0" \
+    "$(python3 "$ASV_PY" "$ASV_UNREAD" >/dev/null 2>&1; echo $?)"
+fi
+chmod 644 "$ASV_UNREAD" 2>/dev/null || true
+rm -f "$ASV_UNREAD"
 rm -f "$ASV_F"
 
 # mktemp-guard breadcrumb: after #414 the `BODY_FILE="$(mktemp)"` guard lives ONCE in the
