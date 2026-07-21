@@ -20,10 +20,13 @@ Contract (issue #600):
   ``git`` subprocess, cwd fallback; never a ``.sh`` exec — the #275 constraint).
 - Closed argument surface: closed-vocabulary mode/arm/hook tokens, a kebab-case
   slug, single-line absolute paths, and the machine-generated sentinel pair. No
-  free-text parameter reaches the rendered instruction block: the two slots that
-  ARE substituted into it (``<slug>``, ``{DRAFT_PATH}``) are shape-checked, and
-  the draft title never crosses a command line at all — it travels in the
-  orchestrator's dispatch preamble prose. The ``--template-file`` /
+  free-text parameter reaches the rendered instruction block: every slot filled
+  from an argument (``<slug>``, ``{DRAFT_PATH}``, and the ``{SENTINEL_OPEN}`` /
+  ``{SENTINEL_CLOSE}`` pair) is shape-checked at the parse boundary, and the
+  draft title never crosses a command line at all — it travels in the
+  orchestrator's dispatch preamble prose. (``{CONSUMER_DIMENSIONS}`` is the one
+  remaining slot; it is filled from committed consumer-extension file content,
+  never from an argument, and is substituted LAST so it is never re-scanned.) The ``--template-file`` /
   ``--extension-file`` test overrides are read-paths that are never substituted
   into the block, and are deliberately left untyped so an explicit empty value
   still selects the root-anchored default (the #295 shared contract) — they are
