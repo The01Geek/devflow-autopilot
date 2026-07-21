@@ -36142,9 +36142,10 @@ assert_eq "#529 AC5: the normal-plus-shadow row is FED the raf set, doubled" \
 # above reconcile SOME governed figures; the rest of the doc's live tables (Static-size
 # After columns, the Ceilings measured/margin cells, the Execution-weighted After/Delta/
 # token cells, and the Justified-growth words) drifted silently — asserted nowhere. This
-# block renders each governed cell LIVE and asserts it POSITIONALLY (a whole-row match, so
-# a cell ADDED to a governed row breaks it too), registers the frozen point-in-time figures
-# as exempt with provenance, and runs a PARTITION SCAN over the doc's sentinel-delimited
+# block renders each governed cell LIVE and asserts it POSITIONALLY (each cell pinned to its
+# live value; a DRIFTED cell breaks its row match — an ADDED cell is caught by the partition
+# scan below, not the row match, which is a substring test), registers the frozen point-in-time
+# figures as exempt with provenance, and runs a PARTITION SCAN over the doc's sentinel-delimited
 # governed regions so a figure in NEITHER the reconciled nor the exempt set fails RED. The
 # scan is complementary to the per-cell pins: the pins prove each reconciled cell still
 # renders its live value (drift -> RED); the scan proves nothing was ADDED to a governed
@@ -36250,6 +36251,14 @@ assert_eq "#656: the Justified-growth sentence renders its words/bytes figures l
 # helper extracts every figure inside the doc's sentinel-delimited governed regions and
 # prints any figure in NEITHER set; a non-empty print is RED. This is the partition
 # assertion of AC6: reconciled ∪ exempt must cover the enumerated governed set.
+# LOAD-BEARING coupling: every figure added to the accounted set below MUST also
+# carry a positional whole-row pin above (an _rb_assert_after / _rb_assert_exec /
+# ceilings / bullet / growth assertion). The partition scan is set-based and
+# add-directional — it flags a figure present-but-unknown, but it does NOT catch a
+# governed cell drifting to a value equal to ANOTHER accounted figure, nor a
+# deletion (the set merely shrinks). Those two are caught only by the positional
+# pins (wrong value / vanished row -> RED). Add an accounted figure here without a
+# positional pin and its drift-to-collision becomes silently invisible.
 _rb_acc="$(mktemp)"; _rb_exempt="$(mktemp)"
 {
   # Static-size After cells (all five rows).
@@ -36337,13 +36346,25 @@ assert_eq "#656 AC7(c): adding an un-accounted figure to a governed region makes
 _rb_empty="$(mktemp)"; : > "$_rb_empty"
 assert_eq "#656 AC7(d): an empty accounted set fails closed (non-vacuity floor), never vacuously green" "yes" \
   "$([ -n "$(python3 "$LIB/test/rb-figure-partition.py" "$RB_DOC" "$_rb_empty" "$_rb_exempt")" ] && echo yes || echo no)"
-rm -f "$_rb_acc" "$_rb_exempt" "$_rb_mut_a" "$_rb_acc_drop" "$_rb_mut_c" "$_rb_empty"
+# (e) non-vacuity: STRIPPING the governed sentinels makes the scan find no governed figure
+# -> FATAL floor -> RED. This is the floor the per-cell positional pins CANNOT cover (they
+# grep by row label, not by sentinel), so without it a doc that lost its sentinels would let
+# the whole guard silently no-op. Strip every rb:governed-begin/-end marker on a scratch doc.
+_rb_mut_e="$(mktemp)"; sed -e '/<!-- rb:governed-begin/d' -e '/<!-- rb:governed-end/d' "$RB_DOC" > "$_rb_mut_e"
+assert_eq "#656 AC7(e): stripping the governed sentinels fails closed (no governed figure -> FATAL), never vacuously green" "yes" \
+  "$([ -n "$(python3 "$LIB/test/rb-figure-partition.py" "$_rb_mut_e" "$_rb_acc" "$_rb_exempt")" ] && echo yes || echo no)"
+# (f) fail-closed: an unreadable DOC path prints FATAL (non-empty) -> RED, never a silent pass.
+assert_eq "#656 AC7(f): an unreadable doc path fails closed (FATAL), never vacuously green" "yes" \
+  "$([ -n "$(python3 "$LIB/test/rb-figure-partition.py" "$RB_DOC.nonexistent-$$" "$_rb_acc" "$_rb_exempt")" ] && echo yes || echo no)"
+rm -f "$_rb_acc" "$_rb_exempt" "$_rb_mut_a" "$_rb_acc_drop" "$_rb_mut_c" "$_rb_empty" "$_rb_mut_e"
 
 # ── #656 AC5 — pin CLAUDE.md's enforcement CONSTANTS (8,500 and 60) ───────────────
 # 8,500 is the root+extension ceiling literal; 60 is RB_SHIPPED_MARGIN, which never moves.
 # Both are live-enforced, so a CLAUDE.md edit to either must turn the suite RED — extending
 # the existing 32,399/30,076 ceiling-phrase pin pattern. 30,100 is DELIBERATELY NOT pinned:
-# it is the future target #642 lowers, registered-exempt so the pin cannot trap #642.
+# it is the at-most-30,100 target (#642 already achieved it; the live ceiling is now 30,076,
+# and 30,100 remains only as target prose), NOT an enforcement constant — pinning it would
+# trap a future renegotiation that lowers the target further. Registered-exempt for that reason.
 assert_pin_unique "#656 AC5: CLAUDE.md pins the root+extension 8,500-word ceiling constant" \
   'root+extension ≤ 8,500 words' "$RB_CLAUDEMD"
 assert_pin_unique "#656 AC5: CLAUDE.md pins the fixed 60-word margin constant" \
