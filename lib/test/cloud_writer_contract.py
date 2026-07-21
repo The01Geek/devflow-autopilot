@@ -44,7 +44,6 @@ import hashlib
 import importlib.util
 import json
 import re
-import sys
 from pathlib import Path
 
 # Repo root: this file is lib/test/cloud_writer_contract.py.
@@ -56,8 +55,8 @@ def _load_sibling(module_name, filename):
 
     `lib/test/` carries no package `__init__.py` and its helpers are named with
     hyphens, so a plain import cannot reach them. This copies the dynamic-load
-    idiom extract-command-shapes.py uses to reach extract-command-heads.py; there
-    is no shared loader in this tree to call instead.
+    idiom extract-command-shapes.py uses to reach extract-command-heads.py; no
+    loader in this tree is exported for reuse (each caller rolls its own).
     """
     path = Path(__file__).resolve().parent / filename
     spec = importlib.util.spec_from_file_location(module_name, path)
@@ -604,17 +603,23 @@ def _scope_grant_region(profile, text):
                       + (detail if detail else "refused with no reason given"))
 
 
+# A grant REGION is one `TOOLS='…'` line or one `--allowed-tools` quoted value;
+# neither can contain an unindented top-level YAML key. This is the enumeration —
+# a few characteristic keys, not "top-level keys" in general, so a workflow whose
+# only leading keys are outside this tuple is not detected. Keyed on the keys
+# rather than on size, so a long legitimate region is never flagged.
+_WHOLE_WORKFLOW_KEYS = ("on:", "jobs:", "name:", "permissions:")
+
+
 def _looks_like_whole_workflow(text):
     """True when injected text carries workflow structure a grant REGION never has.
 
-    A scoped region is one ``TOOLS='…'`` line or one ``--allowed-tools`` quoted
-    value; a whole workflow carries top-level YAML keys. Keyed on those keys rather
-    than on size, so a long legitimate region is not flagged.
+    Detection is the characteristic-key heuristic above, so it is one-sided: a
+    positive is reliable, a negative proves nothing. That asymmetry is why the
+    caller treats a positive as a fail-closed refusal rather than as the whole
+    guarantee.
     """
-    return any(
-        line.startswith(("on:", "jobs:", "name:", "permissions:"))
-        for line in text.splitlines()
-    )
+    return any(line.startswith(_WHOLE_WORKFLOW_KEYS) for line in text.splitlines())
 
 
 def _grant_source(profile, profile_grants):
@@ -642,17 +647,20 @@ def _grant_source(profile, profile_grants):
         text = profile_grants.get(profile)
         # The injected branch returns its text UNSCOPED by design (a synthetic
         # one-grant-per-line fixture would trip the scoper's uniqueness check), so
-        # a caller that passed real workflow text here would silently get the
-        # retired whole-file pooling back. Breadcrumb it rather than leaving that
-        # reachable in silence; the parameter is a test-injection seam for
-        # already-scoped regions, not a general grant-source override.
+        # a caller that passed real workflow text here would get the retired
+        # whole-file pooling back — the very fail-open scope limit (ii) this module
+        # closed. REFUSE it rather than merely breadcrumbing: a breadcrumb beside a
+        # green result is the silent-failure shape (the guard would report "no
+        # violations" about a grant set derived by the method it just declared
+        # unsafe), so this takes the same fail-closed grant-source-unavailable arm
+        # as every other unusable source. The parameter is a test-injection seam for
+        # already-scoped regions, not a general grant-source override. Detection is
+        # one-sided (see _looks_like_whole_workflow), so this narrows the fail-open
+        # rather than eliminating it — an undetected whole workflow still pools.
         if text is not None and _looks_like_whole_workflow(text):
-            print(
-                f"cloud-writer-contract: profile '{profile}' injected grant source looks "
-                f"like a whole workflow file, not an already-scoped grant region; it is "
-                f"NOT re-scoped — pass the region, or omit profile_grants to read from disk",
-                file=sys.stderr,
-            )
+            return (None, "injected grant source looks like a whole workflow file, not an "
+                          "already-scoped grant region; pass the region, or omit "
+                          "profile_grants to read from disk")
         return (text, None if text is not None else "no injected grant source for this profile")
     workflow = ROOTS[profile]["workflow"]
     try:

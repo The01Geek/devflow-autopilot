@@ -7466,6 +7466,23 @@ for _gsr_body, _gsr_label, _gsr_phrase in (
 assert_eq("#678 AC9-residual: ROOTS['implement'] workflow restored after the malformed-value arms",
           [], cwc.check_grant_sync())
 
+# A MESSAGELESS SystemExit: the docstring promises it renders as "refused with no
+# reason given" so the guard can never print a reason the code did not observe.
+# Every other refusal arm carries a message, so nothing else reaches that branch.
+_gsr_orig_ext_map = dict(cwc.GRANT_REGION_EXTRACTORS)
+def _gsr_silent_exit(_text):
+    raise SystemExit()
+try:
+    cwc.GRANT_REGION_EXTRACTORS["review"] = _gsr_silent_exit
+    assert_eq("#678 AC9-residual: a messageless scoper exit renders 'refused with no reason "
+              "given', never a bare 'refused' implying an observed cause",
+              True, any("refused with no reason given" in e for e in cwc.check_grant_sync()))
+finally:
+    cwc.GRANT_REGION_EXTRACTORS.clear()
+    cwc.GRANT_REGION_EXTRACTORS.update(_gsr_orig_ext_map)
+assert_eq("#678 AC9-residual: GRANT_REGION_EXTRACTORS restored after the messageless-exit arm",
+          [], cwc.check_grant_sync())
+
 # (i) The injected `profile_grants` path is UNCHANGED — it injects an
 # already-scoped region, so the synthetic multi-line grant sets used by the #650
 # injected-grant arms and `_cw_healthy_grants()` are not re-scoped (and a scoper's
@@ -7477,18 +7494,22 @@ assert_eq("#678 AC9-residual: injected profile_grants bypass region scoping",
 # would silently restore the retired whole-file pooling) is not left in silence.
 _gsr_whole_inj = _cw_healthy_grants()
 _gsr_whole_inj["review"] = _gsr_review_text
-_gsr_cap = io.StringIO()
-with contextlib.redirect_stderr(_gsr_cap):
-    cwc.check_grant_sync(_gsr_whole_inj)
-assert_eq("#678 AC9-residual: injecting a WHOLE workflow (not a scoped region) emits a "
-          "breadcrumb rather than silently restoring whole-file pooling",
-          True, "looks like a whole workflow file" in _gsr_cap.getvalue())
-_gsr_cap_clean = io.StringIO()
-with contextlib.redirect_stderr(_gsr_cap_clean):
-    cwc.check_grant_sync(_cw_healthy_grants())
-assert_eq("#678 AC9-residual: a properly-scoped injected region emits NO such breadcrumb "
-          "(the guard is not a blanket warning)",
-          False, "looks like a whole workflow file" in _gsr_cap_clean.getvalue())
+assert_eq("#678 AC9-residual: injecting a WHOLE workflow (not a scoped region) is REFUSED "
+          "as an unavailable grant source, never pooled whole-file behind a green result",
+          True, any("grant source unavailable" in e
+                    and "looks like a whole workflow file" in e
+                    for e in cwc.check_grant_sync(_gsr_whole_inj)))
+# The other direction: the detector must not flag a legitimate scoped region, or every
+# injected-fixture arm above would start failing for the wrong reason.
+assert_eq("#678 AC9-residual: a properly-scoped injected region is NOT flagged as a whole "
+          "workflow (the refusal is not a blanket one)",
+          [], cwc.check_grant_sync(_cw_healthy_grants()))
+# The detector itself, both directions, so its heuristic cannot rot unnoticed.
+assert_eq("#678 AC9-residual: _looks_like_whole_workflow detects a workflow's top-level keys",
+          True, cwc._looks_like_whole_workflow("name: x\non: push\njobs:\n  a: {}\n"))
+assert_eq("#678 AC9-residual: _looks_like_whole_workflow does not flag a long scoped region",
+          False, cwc._looks_like_whole_workflow(
+              "TOOLS='" + ",".join("Bash(x%d:*)" % i for i in range(200)) + "'"))
 
 # The retired scope-limit (ii) note states the guard's vendored grant set equals the
 # validator's on the healthy tree. That is a live measured property, so bind it to an
@@ -7548,6 +7569,23 @@ assert_raises("#678 AC4: an unknown root profile raises ValueError (fail-closed)
 # under implement); a light-command-only skill would turn this RED.
 assert_eq("#678 AC4: no reached asset is left governed by zero probe-anchored tables",
           [], cwc.shape_unaudited_assets())
+# ...and the arm is not vacuous: the assertion above is a NEGATIVE one over a set the
+# docstring says is empty only by coincidence of the current closure, so plant the
+# condition it guards (a profile whose table is withdrawn leaves its exclusively-reached
+# assets governed by nothing) and observe it RED.
+_sc_orig_impl_table = cwc.PROFILE_SHAPE_TABLES["implement"]
+try:
+    cwc.PROFILE_SHAPE_TABLES["implement"] = None
+    assert_eq("#678 AC4: withdrawing a profile's table leaves its exclusively-reached "
+              "assets unaudited, and that is REPORTED (positive control)",
+              True, any("governed by no profile carrying a probe-anchored rule table" in e
+                        for e in cwc.check_shape_conformance()))
+    assert_eq("#678 AC4: ...and shape_unaudited_assets() names them (non-empty under the plant)",
+              True, bool(cwc.shape_unaudited_assets()))
+finally:
+    cwc.PROFILE_SHAPE_TABLES["implement"] = _sc_orig_impl_table
+assert_eq("#678 AC4: PROFILE_SHAPE_TABLES restored after the unaudited-asset control",
+          ([], []), (cwc.shape_unaudited_assets(), cwc.check_shape_conformance()))
 
 # The live closure carries no denied shape in any profile that HAS a table.
 assert_eq("#678 AC4: check_shape_conformance() reports no violations on the live closure",
@@ -7672,8 +7710,21 @@ assert_eq("#678 AC8: a planted control exists for every rule id in every declare
 # the rule-id literals in extract-command-shapes.py's own source, so that drift is
 # the thing that turns this RED.
 _sc_shapes_src = (cwc.REPO_ROOT / "lib/test/extract-command-shapes.py").read_text(encoding="utf-8")
-_sc_src_review = set(re.findall(r'hits\.append\("(R\d+)"\)', _sc_shapes_src))
-_sc_src_implement = set(re.findall(r'"(IR\d+)"', _sc_shapes_src))
+# Scan the source with the two frozenset DECLARATIONS removed. Without this the
+# `IR\d+` extraction also matches `IMPLEMENT_RULES = frozenset({"IR1", …})` itself,
+# so the reconciliation would be self-satisfying for an id added to the frozenset
+# alone — one-directional, where the point is to catch drift both ways.
+_sc_shapes_emit_src = "\n".join(
+    line for line in _sc_shapes_src.splitlines()
+    if not line.startswith(("REVIEW_RULES = ", "IMPLEMENT_RULES = "))
+)
+assert_eq("#678 AC8: stripping the frozenset declarations actually removed them "
+          "(otherwise the reconciliation below is self-satisfying)",
+          (False, False),
+          ("REVIEW_RULES = " in _sc_shapes_emit_src,
+           "IMPLEMENT_RULES = " in _sc_shapes_emit_src))
+_sc_src_review = set(re.findall(r'hits\.append\("(R\d+)"\)', _sc_shapes_emit_src))
+_sc_src_implement = set(re.findall(r'"(IR\d+)"', _sc_shapes_emit_src))
 assert_eq("#678 AC8: REVIEW_RULES mirrors exactly the R-ids extract-command-shapes.py's "
           "review classifier emits (a rule added to the finder alone goes RED here)",
           _sc_src_review, set(_shapes_mod.REVIEW_RULES))
