@@ -60,6 +60,13 @@ def _load_sibling(module_name, filename):
     """
     path = Path(__file__).resolve().parent / filename
     spec = importlib.util.spec_from_file_location(module_name, path)
+    # spec_from_file_location returns None for a path that does not resolve, so a
+    # missing/renamed sibling would otherwise surface as `AttributeError: 'NoneType'
+    # object has no attribute 'loader'` at IMPORT of this module — which
+    # scripts/validate-cloud-writer-contract.py imports in its pre-agent validator.
+    # Loud but unactionable; name the path instead.
+    if spec is None or spec.loader is None:
+        raise ImportError(f"devflow: cannot load sibling helper {path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -454,7 +461,12 @@ def unlisted_skill_assets():
 # actually grant. Do NOT restore the whole-file read believing it is parity with
 # the runtime validator's extract_profile_grants: that parity was the fail-open
 # direction, not the contract. The residual divergence runs the safe way — this
-# guard now counts a strict subset of what the validator pools.
+# guard reads a NARROWER source than the validator (a region of the file, not the
+# whole file) and strips inline comments the validator keeps, so its vendored
+# grant set can never be a superset of the validator's. It is not a *strict*
+# subset: on the healthy tree the two sets are EQUAL for all three profiles
+# (re-derive rather than trusting this note — the point is the direction, which
+# holds by construction, not the coincidence, which does not).
 #
 # (iii) Consumer-spliced grants. devflow-implement.yml's --allowed-tools baseline
 # is followed by a `${{ needs.config.outputs.allowed_tools_extra }}` splice, so a
@@ -556,23 +568,29 @@ GRANT_REGION_EXTRACTORS = {
 
 
 def _scope_grant_region(profile, text):
-    """Return ``profile``'s grant-bearing region within a workflow's ``text``.
+    """``(region_text_or_None, why_or_None)`` for ``profile`` inside a workflow's ``text``.
 
-    Returns ``None`` when the region cannot be located — an undeclared profile,
-    or an extractor that refuses the file (no marker, or more than one, which it
-    declines to resolve by guessing). Both scopers signal that refusal by raising
-    ``SystemExit``; it is converted to ``None`` here so the refusal reaches the
-    caller as the guard's own "grant source unavailable" violation instead of
-    aborting the whole run. Never falls back to the whole text: an unlocatable
-    region is unknown, and unknown is not "everything".
+    ``region_text`` is ``None`` when the region cannot be located — an undeclared
+    profile, or an extractor that refuses the file — and ``why`` then carries the
+    reason. Both scopers signal a refusal by raising ``SystemExit`` carrying a
+    SPECIFIC message ("no `TOOLS='...'` allowlist line found", "2 … lines found;
+    refusing to guess", "value must begin with a quote", "no closing quote"), and
+    those four are materially different things to go fix — so the exception text is
+    threaded out rather than collapsed, and the caller renders it. Converting the
+    refusal to a return value (instead of letting ``SystemExit`` propagate) is what
+    keeps it a reported violation rather than an aborted run. Never falls back to
+    the whole text: an unlocatable region is unknown, and unknown is not
+    "everything".
     """
     extractor = GRANT_REGION_EXTRACTORS.get(profile)
     if extractor is None:
-        return None
+        return (None, "no grant-region extractor declared for this profile")
     try:
-        return extractor(text)
-    except SystemExit:
-        return None
+        return (extractor(text), None)
+    except SystemExit as exc:
+        detail = str(exc).strip()
+        return (None, f"{extractor.__name__} refused the workflow"
+                      + (f": {detail}" if detail else ""))
 
 
 def _grant_source(profile, profile_grants):
@@ -611,11 +629,9 @@ def _grant_source(profile, profile_grants):
     # surfaces as a traceback instead of being masked as "source unavailable".
     except (OSError, UnicodeDecodeError):
         return (None, "workflow file unreadable or not valid UTF-8")
-    region = _scope_grant_region(profile, raw)
+    region, why = _scope_grant_region(profile, raw)
     if region is None:
-        extractor = GRANT_REGION_EXTRACTORS.get(profile)
-        return (None, "grant-bearing region could not be located in the workflow "
-                      f"(extractor: {extractor.__name__ if extractor else 'none declared'})")
+        return (None, f"grant-bearing region could not be located in the workflow ({why})")
     return (region, None)
 
 
@@ -863,10 +879,33 @@ def shape_violations_in(profile, asset, text):
     return table["finder"](text)
 
 
+def shape_unaudited_assets():
+    """Reached assets governed by NO profile carrying a probe-anchored rule table.
+
+    An asset every reaching profile declares ``None`` for (today only
+    ``light-command``) is audited by nothing — a real coverage hole this module
+    must *report*, not leave to be inferred from a silent pass. It is empty on the
+    current closure only because every light-command-reached skill is also reached
+    under ``implement``; a future skill reachable ONLY from the light-command
+    listener would otherwise escape the AC4 audit with the guard still green.
+    """
+    tabled = {p for p, table in PROFILE_SHAPE_TABLES.items() if table is not None}
+    return sorted(
+        asset for asset, profiles in shape_audited_assets().items()
+        if not (profiles & tabled)
+    )
+
+
 def check_shape_conformance():
     """AC4 guard. Return a list of human-readable violations (empty == OK)."""
     errors = []
     declared = set(PROFILE_SHAPE_TABLES)
+    for asset in shape_unaudited_assets():
+        errors.append(
+            f"AC4 shapes: reached asset '{asset}' is governed by no profile carrying a "
+            f"probe-anchored rule table, so no shape rule audits it — establish a table "
+            f"for a reaching profile (probe it first), or record why this asset is exempt"
+        )
     for profile in sorted(set(ROOTS) - declared):
         errors.append(
             f"AC4 shapes: profile '{profile}' has no shape rule table declared in "

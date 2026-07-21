@@ -7285,7 +7285,7 @@ assert_eq("#678 AC9-residual: check_grant_sync() reports no violations with the 
 # tools), and those are no longer pooled into the profile's grant set.
 _gsr_review_text = (cwc.REPO_ROOT / cwc.ROOTS["review"]["workflow"]).read_text(encoding="utf-8")
 _gsr_whole = cwc._scan_grants(_gsr_review_text)[1]
-_gsr_region = cwc._scan_grants(cwc._scope_grant_region("review", _gsr_review_text))[1]
+_gsr_region = cwc._scan_grants(cwc._scope_grant_region("review", _gsr_review_text)[0])[1]
 assert_eq("#678 AC9-residual: region scoping is non-vacuous — the review workflow pools "
           "strictly fewer command-position tokens when scoped than whole-file",
           True, _gsr_region < _gsr_whole)
@@ -7296,9 +7296,15 @@ assert_eq("#678 AC9-residual: region scoping is non-vacuous — the review workf
 # disclosed as fail-open: whole-file pooling read the echo as a grant and went
 # green on a helper the profile could not actually execute.
 _gsr_lit = cwc.REQUIRED_HELPER_HEADS["review"][0]
-_gsr_forged = _gsr_review_text.replace(
-    "Bash(%s:*)," % _gsr_lit, "", 1
-) + "\n      - run: echo \"grant it with Bash(%s:*)\"\n" % _gsr_lit
+_gsr_stripped = _gsr_review_text.replace("Bash(%s:*)," % _gsr_lit, "", 1)
+# Non-vacuity of the fixture itself: if the generated literal ever stopped carrying
+# the trailing comma (e.g. the head sorted last), the replace would be a silent
+# no-op and the forged workflow would STILL grant the literal in its region — so
+# arm (a) would pass for the wrong reason (the echo merely also present).
+assert_eq("#678 AC9-residual: the forged fixture's grant-removal actually edits the "
+          "workflow (a no-op replace would make the arm below vacuous)",
+          True, _gsr_stripped != _gsr_review_text)
+_gsr_forged = _gsr_stripped + "\n      - run: echo \"grant it with Bash(%s:*)\"\n" % _gsr_lit
 _gsr_fixture = cwc.REPO_ROOT / ".devflow" / "tmp" / "gsr-678-forged.yml"
 _gsr_orig_wf = cwc.ROOTS["review"]["workflow"]
 try:
@@ -7324,9 +7330,16 @@ try:
     _gsr_noregion.write_text("on: push\njobs:\n  a:\n    steps:\n      - run: echo hi\n",
                              encoding="utf-8")
     cwc.ROOTS["review"]["workflow"] = ".devflow/tmp/gsr-678-noregion.yml"
+    # Match the SPECIFIC cause, not merely the shared "grant source unavailable"
+    # prefix every no-source arm emits: the whole point of _grant_source's
+    # three-way cause is that the arms are distinguishable, and asserting only the
+    # prefix would leave a collapse of all three to one literal green.
     assert_eq("#678 AC9-residual: a workflow with no locatable grant region is reported "
-              "unavailable, not read as zero grants nor as the whole file",
-              True, any("grant source unavailable" in e for e in cwc.check_grant_sync()))
+              "unavailable naming the region cause, not read as zero grants nor as the whole file",
+              True, any("grant source unavailable" in e
+                        and "region could not be located" in e
+                        and "no `TOOLS='...'` allowlist line found" in e
+                        for e in cwc.check_grant_sync()))
 finally:
     cwc.ROOTS["review"]["workflow"] = _gsr_orig_wf
     _gsr_noregion.unlink(missing_ok=True)
@@ -7342,9 +7355,16 @@ try:
         ln for ln in _gsr_review_text.splitlines() if ln.lstrip().startswith("TOOLS='")),
         encoding="utf-8")
     cwc.ROOTS["review"]["workflow"] = ".devflow/tmp/gsr-678-noregion.yml"
+    # The duplicate-region cause must be distinguishable from the absent-region
+    # cause above — they are different fixes (restore a lost allowlist line vs.
+    # remove a second one), and before the cause was threaded out of the scoper
+    # both arms rendered the identical message.
     assert_eq("#678 AC9-residual: a workflow carrying TWO grant regions is reported "
-              "unavailable rather than resolved by guessing",
-              True, any("grant source unavailable" in e for e in cwc.check_grant_sync()))
+              "unavailable naming the duplicate cause, rather than resolved by guessing",
+              True, any("grant source unavailable" in e
+                        and "allowlist lines found" in e
+                        and "Refusing to guess" in e
+                        for e in cwc.check_grant_sync()))
 finally:
     cwc.ROOTS["review"]["workflow"] = _gsr_orig_wf
     _gsr_noregion.unlink(missing_ok=True)
@@ -7358,16 +7378,46 @@ _gsr_orig_ext = cwc.GRANT_REGION_EXTRACTORS
 try:
     cwc.GRANT_REGION_EXTRACTORS = {k: v for k, v in _gsr_orig_ext.items() if k != "review"}
     assert_eq("#678 AC9-residual: a profile with no declared grant-region extractor is "
-              "reported unavailable (fail-closed), not read whole-file",
-              True, any("grant source unavailable" in e for e in cwc.check_grant_sync()))
+              "reported unavailable naming the undeclared-extractor cause (fail-closed), "
+              "not read whole-file",
+              True, any("grant source unavailable" in e
+                        and "no grant-region extractor declared" in e
+                        for e in cwc.check_grant_sync()))
 finally:
     cwc.GRANT_REGION_EXTRACTORS = _gsr_orig_ext
 assert_eq("#678 AC9-residual: GRANT_REGION_EXTRACTORS restored after the unmapped-profile arm",
           [], cwc.check_grant_sync())
 
-# (e) The injected `profile_grants` path is UNCHANGED — it injects an
-# already-scoped region, so the synthetic multi-line grant sets every arm above
-# uses are not re-scoped (and a scoper's uniqueness refusal cannot reach them).
+# (e) The INJECTED-source cause is its own arm, distinct from the two on-disk
+# causes above — a profile absent from the injected map is not an unreadable
+# workflow and not an unlocatable region.
+_gsr_inj_missing = _cw_healthy_grants()
+del _gsr_inj_missing["review"]
+assert_eq("#678 AC9-residual: an absent injected grant source names the injection cause, "
+          "not a workflow-read or region cause",
+          True, any("no injected grant source" in e
+                    for e in cwc.check_grant_sync(_gsr_inj_missing)))
+
+# (f) The UNREADABLE-workflow cause is likewise its own arm (the #650 non-UTF-8
+# fixture now flows through the rewritten _grant_source).
+_gsr_bad = cwc.REPO_ROOT / ".devflow" / "tmp" / "gsr-678-nonutf8.yml"
+try:
+    _gsr_bad.parent.mkdir(parents=True, exist_ok=True)
+    _gsr_bad.write_bytes(b"TOOLS='Bash(\xff\xfe:*)'\n")
+    cwc.ROOTS["review"]["workflow"] = ".devflow/tmp/gsr-678-nonutf8.yml"
+    assert_eq("#678 AC9-residual: an undecodable workflow names the read cause, not a "
+              "region cause",
+              True, any("unreadable or not valid UTF-8" in e for e in cwc.check_grant_sync()))
+finally:
+    cwc.ROOTS["review"]["workflow"] = _gsr_orig_wf
+    _gsr_bad.unlink(missing_ok=True)
+assert_eq("#678 AC9-residual: ROOTS['review'] workflow restored after the undecodable arm",
+          [], cwc.check_grant_sync())
+
+# (g) The injected `profile_grants` path is UNCHANGED — it injects an
+# already-scoped region, so the synthetic multi-line grant sets used by the #650
+# injected-grant arms and `_cw_healthy_grants()` are not re-scoped (and a scoper's
+# uniqueness refusal cannot reach them).
 assert_eq("#678 AC9-residual: injected profile_grants bypass region scoping",
           [], cwc.check_grant_sync(_cw_healthy_grants()))
 
@@ -7387,6 +7437,32 @@ assert_eq("#678 AC4: every ROOTS profile declares a shape rule table (None == no
           "probe-anchored table for that profile)",
           set(cwc.ROOTS), set(cwc.PROFILE_SHAPE_TABLES))
 
+# reachable_skills' new per-root parameter is what decides WHICH table governs an
+# asset, so it needs direct coverage: driving it only through
+# shape_audited_assets() would stay green even if the root filter were ignored and
+# every profile got the whole closure.
+assert_eq("#678 AC4: the per-root closures union to the whole closure",
+          cwc.reachable_skills(),
+          set().union(*(cwc.reachable_skills(p) for p in cwc.ROOTS)))
+assert_eq("#678 AC4: at least one per-root closure is a STRICT subset of the whole "
+          "closure (proves the root filter actually filters)",
+          True, any(cwc.reachable_skills(p) < cwc.reachable_skills() for p in cwc.ROOTS))
+# Isolation: the review root reaches neither the fix loop nor the docs family, both
+# of which the implement root does — so a leaked seed would show up here.
+assert_eq("#678 AC4: the review root's closure excludes implement-only reach",
+          set(),
+          cwc.reachable_skills("review") & {"review-and-fix", "docs", "pr-description"})
+assert_raises("#678 AC4: an unknown root profile raises ValueError (fail-closed), never a "
+              "silently entry-skill-only closure",
+              ValueError, lambda: cwc.reachable_skills("no-such-profile"))
+
+# No reached asset may be governed by zero probe-anchored tables — an asset every
+# reaching profile declares None for would be audited by nothing while the guard
+# stayed green. Empty today (every light-command-reached skill is also reached
+# under implement); a light-command-only skill would turn this RED.
+assert_eq("#678 AC4: no reached asset is left governed by zero probe-anchored tables",
+          [], cwc.shape_unaudited_assets())
+
 # The live closure carries no denied shape in any profile that HAS a table.
 assert_eq("#678 AC4: check_shape_conformance() reports no violations on the live closure",
           [], cwc.check_shape_conformance())
@@ -7398,6 +7474,39 @@ assert_eq("#678 AC4: assets are audited under the review profile",
           True, any("review" in profs for profs in _sc_audited.values()))
 assert_eq("#678 AC4: assets are audited under the implement profile",
           True, any("implement" in profs for profs in _sc_audited.values()))
+# The shared review engine is reached under BOTH tabled profiles (inline from
+# implement, directly from the review root), so it is audited against both rule
+# tables — the concrete case the per-profile mapping exists for.
+assert_eq("#678 AC4: the shared review engine is audited under both tabled profiles",
+          {"implement", "review"},
+          _sc_audited.get("skills/review/SKILL.md", set()) & {"implement", "review"})
+
+# The unreadable-asset arm is the sibling of _grant_source's unknown-is-not-zero
+# contract, and nothing else drives it: shape_audited_assets() keys off
+# SKILL_ASSETS, not the disk, so a reached-but-undecodable asset is a real state
+# (check_closure reports a MISSING asset, never an undecodable one).
+_sc_bad = cwc.REPO_ROOT / ".devflow" / "tmp" / "sc-678-nonutf8.md"
+_sc_orig_assets = cwc.SKILL_ASSETS["pr-description"]
+try:
+    _sc_bad.parent.mkdir(parents=True, exist_ok=True)
+    _sc_bad.write_bytes(b"```bash\n\xff\xfe\n```\n")
+    cwc.SKILL_ASSETS["pr-description"] = list(_sc_orig_assets) + [".devflow/tmp/sc-678-nonutf8.md"]
+    assert_eq("#678 AC4: a reached asset that cannot be decoded is reported, never counted "
+              "as zero findings (unknown is not clean)",
+              True, any("could not be read" in e and "sc-678-nonutf8.md" in e
+                        for e in cwc.check_shape_conformance()))
+finally:
+    cwc.SKILL_ASSETS["pr-description"] = _sc_orig_assets
+    _sc_bad.unlink(missing_ok=True)
+assert_eq("#678 AC4: SKILL_ASSETS restored after the undecodable-asset arm",
+          [], cwc.check_shape_conformance())
+
+# The documented KeyError path: a profile with no declared entry at all is a
+# contract error at the direct-caller surface, deliberately distinct from the
+# declared-no-table case that returns [].
+assert_raises("#678 AC4: shape_violations_in raises KeyError for an undeclared profile "
+              "(distinct from the declared-None case, which returns [])",
+              KeyError, lambda: cwc.shape_violations_in("no-such-profile", "synthetic", ""))
 # light-command's declared None is honoured as "no rules to apply", NOT as a
 # silent pass-through to another profile's table. Drive it against text that DOES
 # violate both tables: a table-inheriting regression would report those hits.
