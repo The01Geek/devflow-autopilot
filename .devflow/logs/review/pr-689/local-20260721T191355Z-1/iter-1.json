@@ -1,0 +1,191 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-21T19:13:55Z",
+  "loop_role": "fix",
+  "current_step": "2.6",
+  "current_substep": "run_shadow_fanout",
+  "pending_dispatch": {
+    "kind": "shadow_reviewer_fanout",
+    "roster": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "dispatched_at": "2026-07-21T20:10:00Z"
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "dispatched_effort": [
+    {
+      "agent": "devflow:code-reviewer",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
+    }
+  ],
+  "checklist": [],
+  "phase3_findings": [],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "39fd5e4"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "39fd5e4"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "39fd5e4"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "applied",
+      "commit": "39fd5e4"
+    },
+    {
+      "finding_id": "F-5",
+      "decision": "applied",
+      "commit": "39fd5e4"
+    },
+    {
+      "finding_id": "F-6",
+      "decision": "applied",
+      "commit": "39fd5e4"
+    },
+    {
+      "finding_id": "F-7",
+      "decision": "applied",
+      "commit": "39fd5e4"
+    },
+    {
+      "finding_id": "F-8",
+      "decision": "applied",
+      "commit": "39fd5e4"
+    },
+    {
+      "finding_id": "F-9",
+      "decision": "applied",
+      "commit": "39fd5e4"
+    },
+    {
+      "finding_id": "F-10",
+      "decision": "applied",
+      "commit": "39fd5e4"
+    },
+    {
+      "finding_id": "F-11",
+      "decision": "applied",
+      "commit": "39fd5e4"
+    },
+    {
+      "finding_id": "F-12",
+      "decision": "applied",
+      "commit": "39fd5e4"
+    }
+  ],
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "sweep_defs_read": [],
+  "sweep_evidence": {
+    "status": "pending"
+  },
+  "convergence_inputs": {
+    "fixes_applied": 12,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "fix_commit_sha": "39fd5e4",
+  "shadow": {
+    "ran_at": "2026-07-21T20:10:00Z",
+    "reviewed_sha": "39fd5e4e0ab8ea4de96530ea121a796e99e3c6df",
+    "verdict": null,
+    "coverage": null,
+    "prompt_addenda": null,
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 0,
+      "overlap_with_iter_N": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
+  "telemetry": "unavailable"
+}
