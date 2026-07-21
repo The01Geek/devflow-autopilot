@@ -438,6 +438,62 @@ restore the default-token behavior. The read-only review run has the same fail-l
 contract, but under its own `DEVFLOW_REVIEWER_APP_ID` (unset *that* to restore the
 review run's default token) — see the DevFlow-Reviewer section below.
 
+## Attributing commits to the triggering user (`devflow.attribute_commits_to_triggerer`)
+
+By default, the git commits a cloud-tier **writer** run produces
+(`/devflow:implement`'s `claude` job and `/devflow:review-and-fix`'s `command` job)
+are authored by whatever git resolves from the runner's unconfigured `.git/config` —
+*not* the human who triggered the run. Local runs already carry the triggering
+developer's identity; only cloud-tier runs do not. If your reviewers and auditors read
+`git blame`/history to see *which human owns a change*, that provenance is lost on every
+cloud run.
+
+Set the opt-in boolean key to close that gap:
+
+```jsonc
+// .devflow/config.json
+{
+  "devflow": {
+    "attribute_commits_to_triggerer": true   // default: false
+  }
+}
+```
+
+When enabled, each cloud-tier writer run resolves the triggering user
+(`github.event.sender.login`) to a GitHub commit identity and exports
+`GIT_AUTHOR_NAME`/`GIT_AUTHOR_EMAIL`/`GIT_COMMITTER_NAME`/`GIT_COMMITTER_EMAIL` into the
+job environment before the agent runs, so the agent's commits carry the triggering human
+as both author and committer (name = the account's display name, or the login when it has
+none; email = the canonical `<id>+<login>@users.noreply.github.com`).
+
+Key properties:
+
+- **Default-off, byte-for-byte unchanged when off.** With the key absent or `false`, the
+  resolution step exports **no** `GIT_*` variable and commits are authored exactly as
+  today.
+- **Post-merge-only.** The flag is read at *trigger* time from a **trusted default-branch
+  checkout** (never the PR head), so a value present only in a PR head has no effect on
+  that PR's own run — it takes effect only after it merges to the default branch. This is
+  the same trigger-time trusted-tree read the git-env pins use, and it is deliberate: a PR
+  must not be able to set its own commit attribution.
+- **Humans only, fail-safe.** Identity is emitted only for a GitHub account whose
+  `.type == "User"` and whose login does not carry the `[bot]` suffix. Any other account
+  type, a `[bot]` login, an empty login, or a type that cannot be established falls back to
+  current authorship with a `::warning::` — never a mis-attributed bot commit. If the
+  `gh api users/<login>` lookup itself fails (network/rate-limit), the run still preserves
+  human attribution via a login-only email (`<login>@users.noreply.github.com`).
+- **No new credential.** Commit author/committer is git metadata, independent of the push
+  token — the push still authenticates as the App/`github-actions[bot]` identity, so
+  nothing new is required. (The resolution step does authenticate its `gh api users/…`
+  lookup with the run's existing token; no extra secret.)
+- **Fail-open, never gates the run.** Attribution is advisory: a missing helper (during a
+  workflow-vs-vendor version skew), an unreadable config, or any lookup failure emits a
+  notice/warning and continues under current authorship — it never fails the job.
+- **Scope.** The two writer tiers only. The read-only review tier (`devflow-runner.yml`)
+  never commits, so it is unaffected. Posting the review *as* the human and the PR
+  "opened-by" identity are out of scope — they require a per-user credential (tracked
+  separately).
+
 ## Startup-lifecycle observability & consumer version skew (issue #537)
 
 The `/devflow:implement` startup lifecycle (see `docs/workflow-triggers.md` and

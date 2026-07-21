@@ -39,8 +39,10 @@ can never silently drift from the closure it claims to describe.
 """
 from __future__ import annotations
 
+import fnmatch
 import hashlib
 import json
+import re
 from pathlib import Path
 
 # Repo root: this file is lib/test/cloud_writer_contract.py.
@@ -382,6 +384,338 @@ def unlisted_skill_assets():
     return missing
 
 
+# --- AC9: grant synchronization ------------------------------------------------
+# The AC1-closure per-profile reachable helper literals (REQUIRED_HELPER_HEADS)
+# must each be granted in that profile's workflow as the exact vendored leading
+# token, and no OTHER grant covering a reachable helper may WIDEN the executable
+# trust boundary — by an absolute path, a repo-root path, a basename-wildcard, or
+# a directory/blanket glob IN THE GRANT'S COMMAND-POSITION TOKEN.
+# check_grant_sync() enforces both directions over the three cloud profiles keyed
+# by ROOTS.
+#
+# KNOWN, DELIBERATE SCOPE LIMITS — three surfaces this guard does not measure.
+# Each is disclosed because an undisclosed non-goal reads as a closed hole.
+#
+# (i) Interpreter and wrapper grants. _ANY_BASH_GRANT_RE reads only the grant's
+# leading command-position token, so Bash(python3:*) yields 'python3', which
+# neither glob-matches a vendored literal nor shares a reachable basename — yet
+# it can execute every reachable helper (`python3 .devflow/vendor/devflow/
+# scripts/workpad.py …`). The same blindness covers any wrapper head. This is
+# not an oversight detection could simply close: every live profile grants at
+# least one interpreter head — `env` in all three, `python3` in implement and
+# light-command (the review profile deliberately grants NO python3 head; do not
+# "restore" one) — so flagging that class would turn the guard RED on the healthy
+# tree. AC9's stated scope is the path classes above; bounding the interpreter
+# surface is a separate policy question, tracked in the #650 follow-up. The same
+# leading-token truncation also hides a widened path in WRAPPER ARGUMENT
+# position: `Bash(python3 /home/x/workpad.py:*)` enumerates as `python3`, so the
+# absolute path beside it is never classified.
+#
+# (ii) Whole-file grant pooling. _grant_source_text returns the ENTIRE workflow
+# text, so every surviving `Bash(...)` in the file is pooled as that profile's
+# grants — there is no scoping to the profile's own TOOLS='…' / --allowed-tools
+# region. This is behavioural parity with the runtime validator's
+# extract_profile_grants, which reads whole-file the same way, but it is a
+# fail-open direction on arm (1) and is stated here rather than left implicit.
+# Measured on the review profile today: exactly two pooled tokens — `cargo` and
+# `go` — come from outside any grant-bearing line, both from a `run:` echo in
+# devflow-runner.yml naming them inside a user-facing warning string. (That pair
+# is the measurement, not an exhaustive class: re-derive it rather than trusting
+# this figure.) It is currently harmless — neither is a reachable
+# helper, so arm (1) ignores them and arm (2)'s coverage test rejects them — but
+# a `run:` line or doc string that mentions a VENDORED LITERAL (e.g. an echo
+# reading "grant it with Bash(.devflow/vendor/devflow/scripts/workpad.py:*)")
+# would satisfy arm (1) for a helper the profile does not actually grant. Region
+# scoping — anchored on the generated capability-manifest banner, failing closed
+# via the existing "grant source unavailable" violation when the region cannot be
+# located — is tracked in the #650 follow-up alongside the AC3 re-home, because
+# it belongs with extract-command-heads.py's authoritative scoper rather than as
+# a second hand-rolled parser here.
+#
+# (iii) Consumer-spliced grants. devflow-implement.yml's --allowed-tools baseline
+# is followed by a `${{ needs.config.outputs.allowed_tools_extra }}` splice, so a
+# consumer's devflow_implement.allowed_tools entries never appear in the file
+# this guard reads. A widened grant added there is outside the measured surface.
+#
+# Do not read arm (2) as "no grant can reach a helper" — it is "no PATH-SHAPED
+# grant IN THE COMMITTED WORKFLOW is broader than the vendored literal".
+#
+# Why the generated workflow and not lib/capability-profiles.json (the manifest
+# those literals are generated FROM): the rendered literal is what the cloud
+# runner's matcher actually reads, so it is the surface a widening would have to
+# reach to matter. Manifest-vs-literal parity is separately enforced in this same
+# suite by `python3 lib/generate-capability-profiles.py --check` (#561), so
+# reading the rendered side loses nothing and measures the real boundary. Do not
+# "fix" this into a manifest read.
+#
+# Scoped-home note (deviates from issue #650's AC9 wording "the command-head
+# test", which names lib/test/extract-command-heads.py's comment-aware scoper as
+# the eventual home; see the workpad AC-rewrite/deviation note). This slice ships
+# AC9 alone: it lives here, on the AC1-closure module that OWNS REQUIRED_HELPER_HEADS
+# and ROOTS. Re-homing onto extract-command-heads.py's authoritative
+# comment-aware parser is coupled with the deferred AC3 leading-token guard
+# (which uses that parser) and is tracked in the #650 follow-up, not built
+# half-way here.
+#
+# Arm (1) below (a reachable literal with no explicit vendored grant) is the
+# same defect class the runtime validator reports as class 17 (HEAD_ABSENT) in
+# scripts/validate-cloud-writer-contract.py. Neither is redundant: the validator
+# grades the checked-in manifest at runtime, this guard grades the AC1 closure
+# against the live workflows at desk/CI time and additionally owns arm (2)
+# (widening), which the validator has no equivalent of. Retire neither believing
+# the other is the sole owner.
+#
+# Grant-shape regexes, mirroring validate-cloud-writer-contract.py's _GRANT_RE for
+# the vendored form. Both anchor on `Bash(` so a vendored path that appears only in
+# a comment or a shell assignment is never counted as a grant (the same fail-open
+# guard the validator's _GRANT_RE documents).
+# A properly-scoped vendored grant: the exact tight trust boundary. Its
+# `(?:scripts|lib)` alternation is COUPLED to REQUIRED_HELPER_HEADS: a head added
+# under any other vendored subdirectory would match neither this regex (so arm (1)
+# would fire on a helper that IS correctly granted) nor the vendored-grant skip in
+# arm (2) (so the real grant would also be flagged as a widening) — one omission,
+# two false positives. The coupling is asserted in lib/test/test_python_scripts.py
+# rather than left to a reader, so widening the alternation is forced in lockstep.
+_VENDORED_GRANT_RE = re.compile(
+    r"Bash\(\s*(\.devflow/vendor/devflow/(?:scripts|lib)/[A-Za-z0-9._-]+)"
+)
+# Any `Bash(<spec>)` grant's command-position path token (up to the first `:` /
+# `)` / whitespace). Used to enumerate every grant so a widened one covering a
+# reachable helper can be detected — a vendored-only regex is blind to exactly
+# the widened classes AC9 must reject.
+_ANY_BASH_GRANT_RE = re.compile(r"Bash\(\s*([^\s:)]+)")
+
+# Deliberately-sanctioned basename-wildcard grants (NOT widening defects),
+# **keyed per profile**. The light-command and review profiles grant
+# Bash(*/load-prompt-extension.sh:*) ALONGSIDE the explicit vendored literal
+# (lib/capability-profiles.json): the prompt-extension loader is reached through
+# the portable ${CLAUDE_SKILL_DIR:-…} anchor, which can resolve to a non-vendored
+# absolute path on some runners, so the wildcard is an intentional companion to
+# the tight grant, not a replacement of it.
+#
+# The per-profile keying is load-bearing, not tidiness. The implement profile
+# does NOT carry that wildcard, so a global exemption set would wave it through
+# there too — re-opening, for the read-write profile, exactly the basename-
+# wildcard widening arm (2) exists to reject. An unknown profile gets an EMPTY
+# exemption set (see the `.get(profile, frozenset())` read), so the failure
+# direction of a future profile addition is fail-closed.
+SANCTIONED_WILDCARD_GRANTS = {
+    "implement": frozenset(),
+    "light-command": frozenset({"*/load-prompt-extension.sh"}),
+    "review": frozenset({"*/load-prompt-extension.sh"}),
+}
+
+
+def _grant_source_text(profile, profile_grants):
+    """Return the raw grant-source text for one profile.
+
+    When ``profile_grants`` is provided it is a ``{profile: text}`` mapping
+    (the injection point unit tests use to drive synthetic grants); otherwise
+    the profile's ROOTS workflow file is read from disk. A missing injected
+    profile or an unreadable workflow yields ``None`` so the caller can report a
+    targeted violation rather than silently treating the grant set as empty
+    (unknown is not zero).
+    """
+    if profile_grants is not None:
+        return profile_grants.get(profile)
+    workflow = ROOTS[profile]["workflow"]
+    try:
+        return (REPO_ROOT / workflow).read_text(encoding="utf-8")
+    # UnicodeDecodeError is a ValueError subclass, NOT an OSError: a workflow carrying a
+    # non-UTF-8 byte would otherwise escape this handler as a raw traceback and
+    # abort the whole guard, defeating the very unknown-is-not-zero contract this
+    # function documents. Catch both so an undecodable source is reported as
+    # unavailable exactly like an unreadable one. Named precisely rather than as
+    # the broader ValueError so an unrelated future ValueError in this try body
+    # surfaces as a traceback instead of being masked as "source unavailable".
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def _strip_yaml_comment(line):
+    """Return ``line`` with any YAML comment removed, quote-aware.
+
+    A `#` starts a YAML comment only at the start of the line or after
+    whitespace, and only outside a quoted scalar — so `Bash(x:*)'  # note` is
+    stripped while a `#` inside `'...'` (or in a path) is preserved.
+
+    **Deliberately stricter than the runtime validator's extract_profile_grants**
+    (which drops full-line comments only, and documents that residual fail-open).
+    An inline `# was Bash(.../workpad.py:*)` would otherwise be counted as a live
+    grant, letting arm (1) pass for a helper the profile does not actually grant
+    — the silent-matcher-denial class (#363/#401).
+
+    **Unbalanced-quote fail-closed arm.** Quote state is per-line, so a line
+    carrying an unpaired `'` or `"` before the `#` (an apostrophe in an unquoted
+    YAML scalar — `run: echo don't  # Bash(scripts/x.sh:*)`) would leave the
+    scanner "inside" a string for the rest of the line and strip nothing. That
+    direction counts MORE than the validator, not fewer: the commented text is
+    scanned as live, manufacturing a phantom grant (or a phantom widening). So a
+    line whose quote is still open at end-of-line is re-scanned quote-blind,
+    stripping at the first whitespace-preceded `#`. With that arm in place the
+    divergence from the validator is one-way — this function only ever counts
+    FEWER things as grants — because every line the validator drops whole is
+    also reduced to a grant-free prefix here.
+    """
+    def _scan(text, quote_aware):
+        quote = None
+        for i, ch in enumerate(text):
+            if quote_aware and quote is not None:
+                if ch == quote:
+                    quote = None
+            elif quote_aware and ch in ("'", '"'):
+                quote = ch
+            elif ch == "#" and (i == 0 or text[i - 1].isspace()):
+                return text[:i], quote
+        return text, quote
+
+    stripped, open_quote = _scan(line, quote_aware=True)
+    if open_quote is not None:
+        # Unterminated quote: the quote state is not trustworthy, so do not let it
+        # protect a `#`. Re-scan treating quotes as ordinary characters.
+        stripped, _ = _scan(line, quote_aware=False)
+    return stripped
+
+
+def _scan_grants(text):
+    """Return ``(vendored_grants, any_grants)`` for a grant-source text.
+
+    YAML comments — full-line *and* inline — are stripped first (see
+    ``_strip_yaml_comment``) so a commented-out grant is counted neither as a
+    grant nor as a widening. ``vendored_grants`` is the set of properly-scoped
+    vendored leading tokens; ``any_grants`` is the set of every ``Bash(...)``
+    command-position path token (used for widening detection).
+    """
+    scanned = "\n".join(_strip_yaml_comment(line) for line in text.splitlines())
+    return set(_VENDORED_GRANT_RE.findall(scanned)), set(_ANY_BASH_GRANT_RE.findall(scanned))
+
+
+def _classify_widening(spec):
+    """Label a grant ``spec`` that covers a reachable helper by its widened class.
+
+    Returns ``absolute`` / ``basename-wildcard`` / ``repo-root`` / ``wildcard``
+    / ``bare-name`` / ``unclassified``. It **never returns None**: labelling
+    only, never the decision of whether a spec is a violation — that decision is
+    ``_grant_covers``. An earlier shape returned ``None`` for any spec outside
+    three enumerated prefixes and the caller dropped the finding, so genuinely
+    widening shapes (``./scripts/x``, ``../scripts/x``, ``~/scripts/x``,
+    ``**/x``, ``*x``, a bare ``x``) were silently accepted — a guard that failed
+    open exactly where it claimed to fail closed. An unrecognized shape is now
+    reported as ``unclassified``, never waved through.
+    """
+    if spec.startswith("/"):
+        return "absolute"
+    if spec.startswith("*/"):
+        return "basename-wildcard"
+    if spec.startswith("scripts/") or spec.startswith("lib/"):
+        return "repo-root"
+    if "*" in spec or "?" in spec:
+        return "wildcard"
+    if "/" not in spec:
+        # A bare name is resolved through PATH, so it is the BROADEST path-class
+        # widening, not an unrecognized one — label it precisely rather than
+        # letting the catch-all bucket describe the most dangerous shape.
+        return "bare-name"
+    return "unclassified"
+
+
+def _grant_covers(spec, literals, basenames):
+    """Return True when grant ``spec`` can execute a reachable helper.
+
+    Two independent coverage tests, unioned, because either alone fails open:
+
+    * **glob coverage** — ``spec`` read as a shell pattern matches a reachable
+      vendored literal. This is what catches a *directory* or blanket wildcard
+      (``.devflow/vendor/devflow/scripts/*``, ``*``, ``**/workpad.py``), whose
+      basename is ``*`` and so never matches a reachable basename.
+    * **basename coverage** — ``spec``'s final path segment names a reachable
+      helper. This catches a widened *path* to the same helper
+      (``scripts/workpad.py``, ``/home/x/workpad.py``, ``./scripts/workpad.py``,
+      a bare ``workpad.py``), which does not glob-match the vendored literal.
+
+    A bare granted command name that is not a reachable helper (``awk``, ``jq``,
+    ``git`` — every non-vendored grant the live workflows actually carry) matches
+    neither test, so the healthy tree stays clean.
+    """
+    if any(fnmatch.fnmatchcase(literal, spec) for literal in literals):
+        return True
+    return spec.rsplit("/", 1)[-1] in basenames
+
+
+def check_grant_sync(profile_grants=None):
+    """AC9 guard. Return a list of human-readable violations (empty == OK).
+
+    For each of the three cloud profiles keyed by ROOTS (implement,
+    light-command, review), maps every AC1-closure reachable helper literal in
+    REQUIRED_HELPER_HEADS to that profile's workflow grants and fails when:
+
+    * a reachable literal lacks an explicit vendored ``Bash(<literal>:*)`` grant, or
+    * any other grant *covering* a reachable helper (see ``_grant_covers``)
+      widens the executable trust boundary — an absolute-path, repo-root,
+      basename-wildcard, directory/blanket glob, PATH-resolved bare name, or
+      otherwise unclassified shape (excluding that profile's sanctioned
+      wildcards in ``SANCTIONED_WILDCARD_GRANTS``).
+
+    ``profile_grants`` (optional ``{profile: workflow-text}``) injects synthetic
+    grant sources for unit tests; when omitted each profile's ROOTS workflow is
+    read from disk.
+    """
+    errors = []
+
+    # "exactly three current cloud profiles, complete by AC1's workflow roots":
+    # REQUIRED_HELPER_HEADS must name precisely the ROOTS profile set. (A subset
+    # or superset here is the drift this half of the guard exists to catch; the
+    # profile parity in check_closure() covers the healthy tree, this restates it
+    # so grant-sync is self-standing when driven in isolation.)
+    if set(REQUIRED_HELPER_HEADS) != set(ROOTS):
+        errors.append(
+            "AC9 grant-sync: REQUIRED_HELPER_HEADS profiles "
+            f"{sorted(REQUIRED_HELPER_HEADS)} != ROOTS profiles {sorted(ROOTS)}"
+        )
+        return errors
+
+    for profile in sorted(ROOTS):
+        heads = REQUIRED_HELPER_HEADS[profile]
+        text = _grant_source_text(profile, profile_grants)
+        if text is None:
+            errors.append(
+                f"AC9 grant-sync: profile '{profile}' grant source unavailable "
+                f"({ROOTS[profile]['workflow']}); cannot confirm grants (unknown is not zero)"
+            )
+            continue
+        vendored_grants, any_grants = _scan_grants(text)
+
+        # (1) Every reachable literal must be explicitly granted, tight-scoped.
+        reachable_basenames = set()
+        for literal in heads:
+            reachable_basenames.add(literal.rsplit("/", 1)[-1])
+            if literal not in vendored_grants:
+                errors.append(
+                    f"AC9 grant-sync: profile '{profile}' reaches helper "
+                    f"'{literal}' but grants no explicit Bash({literal}:*) — "
+                    f"add the vendored-literal grant"
+                )
+
+        # (2) No grant COVERING a reachable helper may widen the boundary.
+        # Fail-closed polarity: any non-vendored, non-sanctioned grant that can
+        # execute a reachable helper is a violation, and _classify_widening only
+        # LABELS it. Never drop a covering spec because its shape is unfamiliar.
+        for spec in sorted(any_grants):
+            if spec in vendored_grants:
+                continue  # a proper vendored grant is never a widening
+            if spec in SANCTIONED_WILDCARD_GRANTS.get(profile, frozenset()):
+                continue  # deliberate companion wildcard for THIS profile (documented)
+            if not _grant_covers(spec, heads, reachable_basenames):
+                continue  # cannot execute any helper this profile reaches
+            errors.append(
+                f"AC9 grant-sync: profile '{profile}' grants '{spec}' covering "
+                f"reachable helper(s) as a {_classify_widening(spec)} class — widens "
+                f"the executable trust boundary; grant only the vendored literal"
+            )
+
+    return errors
+
+
 def _helper_source_path(vendored_token):
     """Map a vendored leading token to its repository-owned source path.
 
@@ -441,11 +775,31 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "command",
-        choices=("check", "generate", "verify"),
+        choices=("check", "generate", "verify", "grant-sync"),
         help="check: AC1 closure guard; generate: write the manifest; "
-        "verify: assert the checked-in manifest matches the closure",
+        "verify: assert the checked-in manifest matches the closure; "
+        "grant-sync: AC9 guard — every reachable helper literal is granted "
+        "tight-scoped in its profile and no grant widens the trust boundary",
     )
     args = parser.parse_args(argv)
+
+    # grant-sync is a standalone guard over the workflow grants — it does not
+    # render the manifest, so it runs before the check_closure()/build path below.
+    #
+    # This subcommand is an OPERATOR-FACING entry point, not the CI wiring: the
+    # guard reaches the required `lib + python tests` job because
+    # lib/test/test_python_scripts.py calls check_grant_sync() and
+    # main(["grant-sync"]) directly. Do not read the absence of a run.sh
+    # invocation as the guard being ungated, and do not add one believing it
+    # closes a coverage hole — it would be duplicate coverage.
+    if args.command == "grant-sync":
+        gs_errors = check_grant_sync()
+        if gs_errors:
+            for e in gs_errors:
+                print(f"cloud-writer-contract: {e}")
+            return 1
+        print("cloud-writer-contract: grant-sync OK")
+        return 0
 
     # generate and verify both render the manifest from the closure, so a closure
     # that `check` would reject (a helper token missing the vendor prefix, a

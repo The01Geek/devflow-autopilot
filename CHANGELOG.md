@@ -4,6 +4,75 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.20.2] — 2026-07-21
+
+### Added
+- **Packaging validation gate and manifest metadata.** The test suite gained a `#671 packaging`
+  block that parses every agent and skill frontmatter plus both plugin manifests, and runs
+  `claude plugin validate --strict` over a staged plugin tree where the CLI is available. The
+  plugin manifest gained `displayName` and the marketplace entry gained `version`, `license`,
+  `keywords`, and an owner `url`. The version consolidator now bumps `CITATION.cff` and the
+  marketplace plugin entry alongside the manifest, and the `version-consolidate` workflow stages
+  both so the lockstep lands on merge. (#671)
+
+### Fixed
+- **Close plugin packaging gaps.** The test suite now parses every agent and skill frontmatter
+  (PyYAML) and both manifests (JSON), and runs `claude plugin validate --strict` over a staged
+  plugin tree when the CLI is present (else records an auditable `blocking-gate` skip). Fixed
+  the two agent files whose `description` frontmatter failed to parse. The vendored plugin slice
+  now carries `LICENSES/` so consumers receive the third-party Apache-2.0/MIT license text.
+  Removed the dead `providers` block from the committed config, completed the plugin/marketplace
+  manifest metadata around one canonical description, and taught the version consolidator to keep
+  both `CITATION.cff` and the `marketplace.json` plugin entry's version in lockstep with the
+  manifest. (#671)
+
+## [2.20.1] — 2026-07-21
+
+### Changed
+Redact operator home-directory paths from retrospective records on the merge write path.
+
+`lib/materialize-retrospectives.sh` now rewrites operator home-directory prefixes
+(`/Users/<name>/`, `/home/<name>/`, `<drive>:\Users\<name>\`) to `~` in every string
+value of every record it merges, at the single deterministic merge write choke point,
+so no producer can leak an account name or machine layout into the tracked, published
+`.devflow/learnings/` corpus. GitHub-Actions runner paths (`/home/runner/`,
+`/home/runneradmin/`) and every other string are preserved unchanged, keeping the
+corpus's value as an unsanitized record of the bot's friction. The redaction is
+expressed through the resolved `$DEVFLOW_JQ`, applies only to string-typed values via
+`walk`, and preserves each record's `.pr`/`.kind` merge key. The single pre-existing
+leaked operator path is scrubbed from both corpus files, and `SECURITY.md` /
+`CONTRIBUTING.md` now name the corpus as committed content that must be kept free of
+host-local and owner-identifying data. (#672)
+
+`scripts/stale-prose-lint.py` no longer examines diff-added lines under
+`.devflow/learnings/` or `.devflow/logs/`. Those records quote reviewed prose verbatim as
+JSON data about a past PR, never as an assertion about the file they sit in, so rewriting
+one — as the redaction above does — re-presented the whole record as diff-added prose and
+graded a previous PR's counted claim STALE. Each excluded path is named on stderr, and
+`CHANGELOG.md` / `.changeset/` stay in scope. (#672)
+
+## [2.20.0] — 2026-07-21
+
+### Added
+- **Config-gated attribution of cloud-tier writer commits to the triggering user.** A new
+  default-off boolean key `devflow.attribute_commits_to_triggerer` (`false` by default). When
+  enabled, each cloud-tier **writer** run (`/devflow:implement`'s `claude` job and
+  `/devflow:review-and-fix`'s `command` job) resolves the triggering user
+  (`github.event.sender.login`) to a GitHub commit identity and exports
+  `GIT_AUTHOR_*`/`GIT_COMMITTER_*` before the agent runs, so the agent's commits carry the
+  triggering human as author and committer — parity with local runs in `git blame`/history. The
+  flag is read at trigger time from the trusted default-branch config, so its effect is
+  post-merge-only; it is humans-only and fail-safe (a non-`User` type, a `[bot]` login, or an
+  unresolvable type falls back to current authorship with a warning), needs no new credential
+  (commit identity is git metadata, independent of the push token), and is fail-open (advisory,
+  never gates the run). The read-only review tier is unaffected. Documented in
+  `docs/cloud-setup.md`. (#683)
+
+## [2.19.10] — 2026-07-21
+
+### Fixed
+- **Give a consumer fix loop an actionable discharge in the desk-check routing row.** The fix-loop context mapping table in `skills/review-and-fix/references/fixing.md` (shipped into consumer repos) told a fix loop matching the `lib/test/run.sh` desk-check row that "no equivalent backstop exists" and forbade the only generic fallback — a dead branch with no valid outcome. The row now names a discharge a consumer can perform (run the project-specific check that carries the obligation, or the consumer's own equivalent) while preserving the surviving force that a broader suite is never a substitute. The coupled `#478` routing-lint constant and destination RED-arm mutation, the review-and-fix word-budget doc cells, and the cloud-writer and prompt-mass baselines are reconciled in the same change. (#679)
+
 ## [2.19.9] — 2026-07-21
 
 ### Fixed

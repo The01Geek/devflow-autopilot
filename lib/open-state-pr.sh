@@ -8,8 +8,10 @@
 #
 # --base defaults to "main": the per-run branch is (re)created from that ref so
 # the resulting PR diff contains only the learnings files, never whatever the
-# operator happened to have checked out. The untracked .devflow/learnings/*
-# files survive the checkout and are committed onto the new branch.
+# operator happened to have checked out. The .devflow/learnings/* files are
+# tracked (re-included by the !/.devflow/learnings/ negation in .gitignore, past
+# the /.devflow/* ignore rule), so the checkout carries them onto the new branch
+# as modified tracked files, which Step 2 then stages (plain git add) and commits.
 #
 # Prints the PR number to stdout (or "DRYRUN" in dry-run mode).
 set -euo pipefail

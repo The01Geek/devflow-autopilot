@@ -112,15 +112,15 @@ The intended way to drive DevFlow — from a feature request to a reviewed pull 
 
 ## Requirements
 
-**Local tier** — these must be on your PATH (`bash lib/preflight.sh` checks all of them):
+**Local tier** — these must be on your PATH (in a checkout of this repo, `bash lib/preflight.sh` checks all of them for you):
 
 - **`git`** and **[`gh`](https://cli.github.com)** (GitHub CLI, authenticated via `gh auth login`) — you most likely already have these.
 - **`jq`** — JSON wrangling inside the skills.
-- **Python 3.11+ with PyYAML** — `python3 -m pip install -r requirements.txt`. **The step people miss:** `/plugin install` never runs `pip`, so install PyYAML yourself.
+- **Python 3.11+ with PyYAML** — install PyYAML with `python3 -m pip install PyYAML`. **The step people miss:** `/plugin install` never runs `pip`, so install PyYAML yourself (a plugin-cache install has no `requirements.txt` to point `pip` at).
 
 All four are used by the core skills; none is optional. Shell helpers avoid GNU-only flags, so macOS/BSD work without GNU coreutils.
 
-On **Windows** any POSIX **bash** works — **WSL bash**, **Git Bash**, or **MSYS2 bash** (DevFlow mandates none); point DevFlow at the one you want with **`DEVFLOW_BASH`**, and `bash lib/preflight.sh` prints a `devflow-bash:` breadcrumb confirming which bash is in use (a host with *no* POSIX bash at all is out of scope). A non-executable `gh` or `jq` shim can also shadow the real binary on `PATH`; DevFlow resolves the first `gh`/`gh.exe` (and `jq`/`jq.exe`) that actually runs (execution-verified via the shared `lib/resolve-bin.sh` resolver), and you can force a specific binary by setting **`DEVFLOW_GH`** / **`DEVFLOW_JQ`** to the working one. Windows-form paths are normalized to the running shell's POSIX form by `lib/normalize-path.sh`. See [Windows: choosing the bash DevFlow runs under](docs/install.md#windows-choosing-the-bash-devflow-runs-under-devflow_bash), [Windows: resolving `gh`](docs/install.md#windows-resolving-gh), and [Windows: resolving `jq`](docs/install.md#windows-resolving-jq).
+On **Windows** any POSIX **bash** works — **WSL bash**, **Git Bash**, or **MSYS2 bash** (DevFlow mandates none); point DevFlow at the one you want with **`DEVFLOW_BASH`**, and in a checkout of this repo `bash lib/preflight.sh` prints a `devflow-bash:` breadcrumb confirming which bash is in use (a host with *no* POSIX bash at all is out of scope). A non-executable `gh` or `jq` shim can also shadow the real binary on `PATH`; DevFlow resolves the first `gh`/`gh.exe` (and `jq`/`jq.exe`) that actually runs (execution-verified via the shared `lib/resolve-bin.sh` resolver), and you can force a specific binary by setting **`DEVFLOW_GH`** / **`DEVFLOW_JQ`** to the working one. Windows-form paths are normalized to the running shell's POSIX form by `lib/normalize-path.sh`. See [Windows: choosing the bash DevFlow runs under](docs/install.md#windows-choosing-the-bash-devflow-runs-under-devflow_bash), [Windows: resolving `gh`](docs/install.md#windows-resolving-gh), and [Windows: resolving `jq`](docs/install.md#windows-resolving-jq).
 
 **Cloud tier** — nothing to install on your machine; the GitHub Actions runner provisions its own toolchain. By default every job runs on `ubuntu-latest`, but the runner is configurable via the `DEVFLOW_RUNNER` repository/organization variable (a bare label or a JSON label array), which dispatch-enables **self-hosted / Windows runners** — read the prerequisites and the smoke-test boundary in [`docs/cloud-setup.md`](docs/cloud-setup.md) before treating a non-Linux runner as production-ready.
 
@@ -139,7 +139,7 @@ On **Windows** any POSIX **bash** works — **WSL bash**, **Git Bash**, or **MSY
 | `/devflow:init` | One-time setup: scaffold `.devflow/config.json` + refresh the schema |
 | `/devflow:retrospective-weekly` | The weekly self-improvement loop ([details](#the-self-improving-loop)) |
 
-**Agents** (`agents/`): `checklist-generator`, `checklist-deduper`, and `checklist-verifier` build, dedupe, and verify the review engine's verification checklist.
+**Agents** (`agents/`): the review-engine trio `checklist-generator`, `checklist-deduper`, and `checklist-verifier` build, dedupe, and verify the review engine's verification checklist; the `/devflow:implement` `code-explorer` and `code-architect` handle discovery and planning; and the five `pr-review-toolkit` reviewers (`code-reviewer`, `comment-analyzer`, `pr-test-analyzer`, `silent-failure-hunter`, `type-design-analyzer`) run the deep-dive review passes.
 
 > **Namespacing matters where names collide with built-ins.** `/review`, `/init`, and `/security-review` are *built-in* Claude Code commands — always use the `/devflow:`-prefixed form to reach DevFlow's engine (a bare `/review` reaches Claude Code's reviewer, not DevFlow's). DevFlow's cloud workflows trigger on **bare** `/devflow:*` comments (no `@claude`), so they coexist with Anthropic's Claude GitHub App, which owns plain `@claude` mentions and `/security-review`.
 
@@ -176,7 +176,7 @@ Full mechanics — the pipeline, the data files, how patterns become issues: **[
 ```text
 .claude-plugin/   # plugin.json (declares dependencies) + marketplace.json (this repo is its own marketplace)
 skills/           # one SKILL.md per command (/devflow:implement, /devflow:review, /docs, …)
-agents/           # checklist-generator / -deduper / -verifier
+agents/           # 10 subagents: checklist-generator/-deduper/-verifier + code-explorer/-architect + 5 pr-review-toolkit reviewers
 scripts/          # Python + shell CLIs (workpad.py, config-get.sh, match-deferrals.py, …)
 lib/              # retrospective-loop helpers (*.sh, *.jq), preflight.sh, test/
 .github/          # optional cloud tier: workflows + composite actions (incl. vendor-plugin)
