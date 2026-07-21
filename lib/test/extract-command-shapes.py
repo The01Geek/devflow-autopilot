@@ -458,6 +458,19 @@ def _cat_heredoc_violation(statement: str) -> bool:
     return has_redirect and has_heredoc
 
 
+# The two profiles' rule-id sets, exported so a consumer that must enumerate the
+# tables (lib/test/cloud_writer_contract.py's AC4 shape-conformance guard, issue
+# #678) reads them from here rather than mirroring the ids into a second list that
+# silently goes stale when a rule is added. The `#678 AC8` control loop in
+# lib/test/test_python_scripts.py drives one planted violation per id listed here
+# and asserts the owning finder emits it, so listing an id no finder emits turns
+# the suite RED; its companion `a planted control exists for every rule id`
+# assertion turns the reverse drift RED — a rule added to a finder and to these
+# sets without a control.
+REVIEW_RULES = frozenset({"R1", "R2", "R3", "R4"})
+IMPLEMENT_RULES = frozenset({"IR1", "IR2", "IR3"})
+
+
 def classify(statement: str) -> list[str]:
     """Return the rule ids this statement violates (possibly several)."""
     hits: list[str] = []

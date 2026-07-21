@@ -41,12 +41,34 @@ from __future__ import annotations
 
 import fnmatch
 import hashlib
+import importlib.util
 import json
+import os
 import re
 from pathlib import Path
 
 # Repo root: this file is lib/test/cloud_writer_contract.py.
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _load_sibling(module_name, filename):
+    """Import a hyphenated sibling helper in lib/test/ by path.
+
+    `lib/test/` carries no package `__init__.py` and its helpers are named with
+    hyphens, so a plain import cannot reach them. This is the same dynamic-load
+    idiom extract-command-shapes.py already uses to reach extract-command-heads.py
+    — reused here rather than re-derived so all three modules agree on what a
+    fenced command, a statement, and an allowlist region are.
+    """
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_heads = _load_sibling("extract_command_heads", "extract-command-heads.py")
+_shapes = _load_sibling("extract_command_shapes", "extract-command-shapes.py")
 
 PROTOCOL = "devflow-cloud-writer-contract-v1"
 
@@ -239,18 +261,27 @@ REQUIRED_HELPER_HEADS = {
 }
 
 
-def reachable_skills():
-    """Transitive closure of skills reachable from the roots via DISPATCH_EDGES.
+def reachable_skills(root=None):
+    """Transitive closure of skills reachable via DISPATCH_EDGES.
 
     An edge's ``from`` is either a root id (a direct dispatch out of a workflow
     root, e.g. the light-command listener) or an already-reached skill.
+
+    With ``root`` omitted the closure spans every root (the AC1 whole-closure
+    question). With ``root`` set to one ROOTS profile id the closure is that
+    profile's alone — the per-profile reach AC4's shape audit needs, because a
+    command's *execution profile* decides which probe-anchored rule table governs
+    it, and a shared skill (the review engine) is reached under more than one.
     """
-    reached = {root["entry_skill"] for root in ROOTS.values()}
+    if root is not None and root not in ROOTS:
+        raise ValueError(f"unknown root profile: {root!r}")
+    sources = ROOTS if root is None else {root: ROOTS[root]}
+    reached = {r["entry_skill"] for r in sources.values()}
     # Seed edges whose source is a root id (roots are not skills). Use .get() so a
     # malformed edge missing `from`/`to` never crashes here — check_closure()
     # reports it as a violation instead (a well-formed edge always has both).
     for edge in DISPATCH_EDGES:
-        if edge.get("from") in ROOTS and edge.get("to") is not None:
+        if edge.get("from") in sources and edge.get("to") is not None:
             reached.add(edge["to"])
     # Fixpoint over skill->skill edges (edges are few; iterate to convergence).
     changed = True
@@ -411,26 +442,14 @@ def unlisted_skill_assets():
 # position: `Bash(python3 /home/x/workpad.py:*)` enumerates as `python3`, so the
 # absolute path beside it is never classified.
 #
-# (ii) Whole-file grant pooling. _grant_source_text returns the ENTIRE workflow
-# text, so every surviving `Bash(...)` in the file is pooled as that profile's
-# grants — there is no scoping to the profile's own TOOLS='…' / --allowed-tools
-# region. This is behavioural parity with the runtime validator's
-# extract_profile_grants, which reads whole-file the same way, but it is a
-# fail-open direction on arm (1) and is stated here rather than left implicit.
-# Measured on the review profile today: exactly two pooled tokens — `cargo` and
-# `go` — come from outside any grant-bearing line, both from a `run:` echo in
-# devflow-runner.yml naming them inside a user-facing warning string. (That pair
-# is the measurement, not an exhaustive class: re-derive it rather than trusting
-# this figure.) It is currently harmless — neither is a reachable
-# helper, so arm (1) ignores them and arm (2)'s coverage test rejects them — but
-# a `run:` line or doc string that mentions a VENDORED LITERAL (e.g. an echo
-# reading "grant it with Bash(.devflow/vendor/devflow/scripts/workpad.py:*)")
-# would satisfy arm (1) for a helper the profile does not actually grant. Region
-# scoping — anchored on the generated capability-manifest banner, failing closed
-# via the existing "grant source unavailable" violation when the region cannot be
-# located — is tracked in the #650 follow-up alongside the AC3 re-home, because
-# it belongs with extract-command-heads.py's authoritative scoper rather than as
-# a second hand-rolled parser here.
+# (ii) RETIRED by issue #678. The on-disk grant read is now scoped to the
+# profile's own grant-bearing region (see GRANT_REGION_EXTRACTORS and
+# _scope_grant_region below), so a vendored literal named in a `run:` echo or a
+# doc string no longer satisfies arm (1) for a helper the profile does not
+# actually grant. Do NOT restore the whole-file read believing it is parity with
+# the runtime validator's extract_profile_grants: that parity was the fail-open
+# direction, not the contract. The residual divergence runs the safe way — this
+# guard now counts a strict subset of what the validator pools.
 #
 # (iii) Consumer-spliced grants. devflow-implement.yml's --allowed-tools baseline
 # is followed by a `${{ needs.config.outputs.allowed_tools_extra }}` splice, so a
@@ -506,21 +525,84 @@ SANCTIONED_WILDCARD_GRANTS = {
 }
 
 
-def _grant_source_text(profile, profile_grants):
-    """Return the raw grant-source text for one profile.
+# How each profile's grant-bearing region is located inside its workflow (issue
+# #678, AC9-residual). The two extractors are extract-command-heads.py's — the
+# authoritative scopers the #363 head pins already rely on — never a second
+# hand-rolled parser here:
+#
+#   tools-line           the single `TOOLS='…'` allowlist line (devflow.yml's
+#                        hoisted Resolve-allowed-tools step, devflow-runner.yml's
+#                        review case arm)
+#   allowed-tools-block  devflow-implement.yml's multi-line `--allowed-tools "…"`
+#                        argument inside the claude_args folded scalar; that file
+#                        carries NO `TOOLS='…'` line, so the line extractor
+#                        cannot read it
+#
+# A ROOTS profile with no entry here resolves to an UNLOCATABLE region, which
+# takes the "grant source unavailable" arm. That is the load-bearing direction: a
+# future fourth cloud profile added without declaring its region must not
+# silently inherit the retired whole-file read, which is precisely the fail-open
+# scope limit (ii) this mapping retires.
+GRANT_REGION_EXTRACTORS = {
+    "implement": "allowed-tools-block",
+    "light-command": "tools-line",
+    "review": "tools-line",
+}
 
-    When ``profile_grants`` is provided it is a ``{profile: text}`` mapping
-    (the injection point unit tests use to drive synthetic grants); otherwise
-    the profile's ROOTS workflow file is read from disk. A missing injected
-    profile or an unreadable workflow yields ``None`` so the caller can report a
-    targeted violation rather than silently treating the grant set as empty
-    (unknown is not zero).
+
+def _scope_grant_region(profile, text):
+    """Return ``profile``'s grant-bearing region within a workflow's ``text``.
+
+    Returns ``None`` when the region cannot be located — an undeclared profile,
+    or an extractor that refuses the file (no marker, or more than one, which it
+    declines to resolve by guessing). Both scopers signal that refusal by raising
+    ``SystemExit``; it is converted to ``None`` here so the refusal reaches the
+    caller as the guard's own "grant source unavailable" violation instead of
+    aborting the whole run. Never falls back to the whole text: an unlocatable
+    region is unknown, and unknown is not "everything".
+    """
+    kind = GRANT_REGION_EXTRACTORS.get(profile)
+    if kind is None:
+        return None
+    extractor = {
+        "tools-line": _heads.tools_allowlist_line,
+        "allowed-tools-block": _heads.implement_allowlist_block,
+    }.get(kind)
+    if extractor is None:
+        return None
+    try:
+        return extractor(text)
+    except SystemExit:
+        return None
+
+
+def _grant_source(profile, profile_grants):
+    """``(region_text_or_None, cause)`` for one profile's grant source.
+
+    When ``profile_grants`` is provided it is a ``{profile: text}`` mapping of
+    already-scoped grant regions (the injection point unit tests use to drive
+    synthetic grants) and is returned verbatim — injected text is NOT re-scoped,
+    so a synthetic fixture spelling one grant per line is never refused by a
+    scoper's uniqueness check. Otherwise the profile's ROOTS workflow file is read
+    from disk and narrowed to its own grant-bearing region (issue #678). A missing
+    injected profile, an unreadable/undecodable workflow, or an unlocatable region
+    yields ``None`` so the caller can report a targeted violation rather than
+    silently treating the grant set as empty (unknown is not zero).
+
+    ``cause`` is ``None`` on success and otherwise names WHICH of the three
+    distinct no-source conditions fired — an injected profile that is absent or
+    explicitly ``None``, a workflow that could not be read or decoded, or a
+    region that could not be located inside a workflow that read fine. All three
+    take the same "grant source unavailable" violation class (unknown is not
+    zero), but they are three different things to go fix, so each carries its own
+    breadcrumb rather than converging on one indistinguishable message.
     """
     if profile_grants is not None:
-        return profile_grants.get(profile)
+        text = profile_grants.get(profile)
+        return (text, None if text is not None else "no injected grant source for this profile")
     workflow = ROOTS[profile]["workflow"]
     try:
-        return (REPO_ROOT / workflow).read_text(encoding="utf-8")
+        raw = (REPO_ROOT / workflow).read_text(encoding="utf-8")
     # UnicodeDecodeError is a ValueError subclass, NOT an OSError: a workflow carrying a
     # non-UTF-8 byte would otherwise escape this handler as a raw traceback and
     # abort the whole guard, defeating the very unknown-is-not-zero contract this
@@ -529,7 +611,12 @@ def _grant_source_text(profile, profile_grants):
     # the broader ValueError so an unrelated future ValueError in this try body
     # surfaces as a traceback instead of being masked as "source unavailable".
     except (OSError, UnicodeDecodeError):
-        return None
+        return (None, "workflow file unreadable or not valid UTF-8")
+    region = _scope_grant_region(profile, raw)
+    if region is None:
+        return (None, "grant-bearing region could not be located in the workflow "
+                      f"(extractor: {GRANT_REGION_EXTRACTORS.get(profile, 'none declared')})")
+    return (region, None)
 
 
 def _strip_yaml_comment(line):
@@ -676,11 +763,12 @@ def check_grant_sync(profile_grants=None):
 
     for profile in sorted(ROOTS):
         heads = REQUIRED_HELPER_HEADS[profile]
-        text = _grant_source_text(profile, profile_grants)
+        text, cause = _grant_source(profile, profile_grants)
         if text is None:
             errors.append(
                 f"AC9 grant-sync: profile '{profile}' grant source unavailable "
-                f"({ROOTS[profile]['workflow']}); cannot confirm grants (unknown is not zero)"
+                f"({ROOTS[profile]['workflow']}): {cause}; "
+                f"cannot confirm grants (unknown is not zero)"
             )
             continue
         vendored_grants, any_grants = _scan_grants(text)
@@ -713,6 +801,94 @@ def check_grant_sync(profile_grants=None):
                 f"the executable trust boundary; grant only the vendored literal"
             )
 
+    return errors
+
+
+# --- AC4 (issue #678): profile-specific command shapes over the AC1 closure ----
+# extract-command-shapes.py already owns two empirically-probed rule tables — the
+# read-only review tier (R1-R4) and the read-write implement tier (IR1-IR3). What
+# was missing is the join to THIS module's reachability closure: the existing
+# desk-time scans cover named file globs, so a fenced command in an asset reached
+# by a root whose glob does not name it was audited by neither.
+#
+# The mapping below is per profile and EXPLICIT, because AC4 forbids inferring a
+# permitted form from evidence recorded on the other profile. `light-command`
+# maps to None BY DECLARATION, not by omission: matcher-probe.yml records a REVIEW
+# baseline and an IMPLEMENT baseline and no light-command one, so there is no
+# probe-anchored table to apply — and applying the review table (its listener is
+# a read-write writer tier, not the read-only reviewer) would be exactly the
+# cross-profile inference AC4 rejects. A ROOTS profile with NO entry at all is a
+# reported violation rather than a silent skip, so a future profile fails closed.
+#
+# `rules` is read from extract-command-shapes.py rather than mirrored, so a rule
+# added there cannot leave a stale copy here.
+PROFILE_SHAPE_TABLES = {
+    "implement": {"rules": _shapes.IMPLEMENT_RULES, "finder": "find_implement_violations"},
+    "light-command": None,
+    "review": {"rules": _shapes.REVIEW_RULES, "finder": "find_violations"},
+}
+
+
+def shape_audited_assets():
+    """``{asset_path: {profile, …}}`` for every AC1-reached asset.
+
+    An asset maps to every ROOTS profile whose OWN closure reaches the skill that
+    owns it — a shared asset (the review engine, reached inline from implement and
+    directly from the review root) is therefore audited under each governing
+    profile's table, which is the point: a shape permitted on one tier is unproven
+    on the other.
+    """
+    audited = {}
+    for profile in ROOTS:
+        for skill in reachable_skills(profile):
+            for asset in SKILL_ASSETS.get(skill, ()):
+                audited.setdefault(asset, set()).add(profile)
+    return audited
+
+
+def shape_violations_in(profile, asset, text):
+    """Denied-shape hits ``(line, rule, statement)`` for one asset under one profile.
+
+    Returns an empty list for a profile whose declared table is ``None`` (no
+    probe-anchored rules to apply). Raises ``KeyError`` for a profile with no
+    declared entry at all — that is a contract error the caller reports as a
+    violation, deliberately distinct from the declared-no-table case.
+    """
+    table = PROFILE_SHAPE_TABLES[profile]
+    if table is None:
+        return []
+    return list(getattr(_shapes, table["finder"])(text))
+
+
+def check_shape_conformance():
+    """AC4 guard. Return a list of human-readable violations (empty == OK)."""
+    errors = []
+    undeclared = sorted(set(ROOTS) - set(PROFILE_SHAPE_TABLES))
+    for profile in undeclared:
+        errors.append(
+            f"AC4 shapes: profile '{profile}' has no shape rule table declared in "
+            f"PROFILE_SHAPE_TABLES — declare its probe-anchored table, or None with "
+            f"the reason; an undeclared profile is never silently unaudited"
+        )
+    for asset, profiles in sorted(shape_audited_assets().items()):
+        path = REPO_ROOT / asset
+        try:
+            text = path.read_text(encoding="utf-8")
+        # An asset that cannot be read is unknown, not clean. check_closure()
+        # already reports a MISSING asset, so this arm is about an unreadable or
+        # undecodable one — it must not pass as zero findings here either.
+        except (OSError, UnicodeDecodeError) as exc:
+            errors.append(f"AC4 shapes: reached asset '{asset}' could not be read: {exc}")
+            continue
+        for profile in sorted(profiles - set(undeclared)):
+            for lineno, rule, statement in shape_violations_in(profile, asset, text):
+                oneline = " ".join(statement.split())
+                if len(oneline) > 120:
+                    oneline = oneline[:117] + "..."
+                errors.append(
+                    f"AC4 shapes: {asset}:{lineno} emits a {rule}-denied shape under the "
+                    f"'{profile}' profile that reaches it: {oneline}"
+                )
     return errors
 
 
@@ -775,11 +951,13 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "command",
-        choices=("check", "generate", "verify", "grant-sync"),
+        choices=("check", "generate", "verify", "grant-sync", "shape-conformance"),
         help="check: AC1 closure guard; generate: write the manifest; "
         "verify: assert the checked-in manifest matches the closure; "
         "grant-sync: AC9 guard — every reachable helper literal is granted "
-        "tight-scoped in its profile and no grant widens the trust boundary",
+        "tight-scoped in its profile and no grant widens the trust boundary; "
+        "shape-conformance: AC4 guard — no AC1-reached fenced command emits a "
+        "denied shape under a profile that reaches it",
     )
     args = parser.parse_args(argv)
 
@@ -799,6 +977,19 @@ def main(argv=None):
                 print(f"cloud-writer-contract: {e}")
             return 1
         print("cloud-writer-contract: grant-sync OK")
+        return 0
+
+    # shape-conformance is likewise a standalone guard over the reached fences —
+    # it renders no manifest. Same operator-facing status as grant-sync: the CI
+    # wiring is lib/test/test_python_scripts.py calling check_shape_conformance()
+    # directly, so the absence of a run.sh invocation is not an ungated guard.
+    if args.command == "shape-conformance":
+        sc_errors = check_shape_conformance()
+        if sc_errors:
+            for e in sc_errors:
+                print(f"cloud-writer-contract: {e}")
+            return 1
+        print("cloud-writer-contract: shape-conformance OK")
         return 0
 
     # generate and verify both render the manifest from the closure, so a closure
