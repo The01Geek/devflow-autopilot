@@ -197,15 +197,18 @@ done
 # skill. run.sh hoists an identical build and binds it as the CI_BUNDLE --var so the
 # pin-corpus meta-guard resolves these targets; this in-module assembly is what the
 # focused run-module.sh path uses, mirroring the boundary-vs-self fixture-root split
-# above. Members are enumerated explicitly (never a glob) so a reference dropped from
-# the tree fails LOUD here instead of silently shrinking the bundle. The two template
-# files keep their own dedicated targets ($CI_TMPL / $CI_TMPL_AUDIT) and are unchanged by
-# the split, so they are deliberately not members.
+# above. Members are DERIVED FROM THE TREE by the same rule run.sh applies — every
+# references/*.md except the two unchanged template files — so a reference added later
+# cannot be routed and pinned while silently sitting outside the bundle that every
+# content-survival pin asserts against. A DROPPED reference is still caught loudly, by the
+# T1 routing-table reconciliation below (its routing row would name a file that is gone),
+# which is why deriving here costs no fail-loud coverage. The two template files keep their
+# own dedicated targets ($CI_TMPL / $CI_TMPL_AUDIT) and are unchanged by the split, so
+# including them would only add uniqueness collisions for prose that never moved.
 CI_BUNDLE="$_ci_tmp_root/create-issue-skill-bundle.md"
 : > "$CI_BUNDLE"
-for _ci_bundle_ref in "$CI_SKILL" "$CI_REF_STEP2" "$CI_REF_STEP35" "$CI_REF_REVDELTA" \
-  "$CI_REF_STEP36" "$CI_REF_STEP4" "$CI_REF_FB_NOTASK" "$CI_REF_FB_READONLY" \
-  "$CI_REF_FB_DISPATCH" "$CI_REF_FB_STATEOWNER"; do
+for _ci_bundle_ref in "$CI_SKILL" "$CI_ROOT"/skills/create-issue/references/*.md; do
+  case "${_ci_bundle_ref##*/}" in issue-template.md|audit-prompt-template.md) continue ;; esac
   if [ -r "$_ci_bundle_ref" ] && [ -s "$_ci_bundle_ref" ]; then
     cat "$_ci_bundle_ref" >> "$CI_BUNDLE"
     printf '\n' >> "$CI_BUNDLE"
@@ -455,7 +458,7 @@ devflow_module_pin_unique "#546: the state-owner-unavailable fallback is bounded
 # The fallback is never silent either (the AC's "a fallback lifecycle is never silent"), and it
 # never reconstructs a round's findings from memory.
 devflow_module_pin_unique "#546: the state-owner-unavailable fallback still renders the mandatory summary line" \
-  'A fallback lifecycle is **never silent**' "$CI_BUNDLE"
+  'A fallback lifecycle is **never silent**' "$CI_REF_FB_STATEOWNER"
 devflow_module_pin_unique "#546: a memory-reconstructed findings summary is never a legal discharge" \
   '**A findings summary reconstructed from memory and presented as a round'"'"'s real findings is never a legal discharge.**' \
   "$CI_BUNDLE"
@@ -1587,8 +1590,9 @@ for _ci614_f in "$CI_ROOT"/skills/create-issue/references/*.md; do
   case "${_ci614_f##*/}" in issue-template.md|audit-prompt-template.md) continue ;; esac
   _ci614_ondisk=$((_ci614_ondisk + 1))
 done
-_ci614_routed=0
-for _ci614_ref in $CI614_REFS; do _ci614_routed=$((_ci614_routed + 1)); done
+# shellcheck disable=SC2086  # deliberate word-split of the space-separated roster
+set -- $CI614_REFS
+_ci614_routed=$#
 assert_eq "#614 T1: no references/*.md is unrouted (on-disk set == routed set)" \
   "$_ci614_routed" "$_ci614_ondisk"
 
@@ -1640,8 +1644,9 @@ PY614
 # present in its own file, ABSENT from the root and from every step reference. This is
 # what proves the default path (task tool usable, writable filesystem, file-arm dispatch,
 # state owner available) no longer carries the fallback prose it used to load every run.
-ci614_purity() {  # <fallback-stem> <representative literal>
-  local stem="$1" lit="$2" p="$CI_ROOT/skills/create-issue/references/$1.md" leaked="" f
+ci614_purity() {  # <fallback-reference-path> <representative literal>
+  local p="$1" lit="$2" stem leaked="" f
+  stem="${p##*/}"; stem="${stem%.md}"
   assert_eq "#614 T4: $stem.md carries its representative relocated literal" "1" \
     "$(grep -cF "$lit" "$p")"
   grep -qF "$lit" "$CI_SKILL" && leaked="SKILL.md"
@@ -1651,13 +1656,13 @@ ci614_purity() {  # <fallback-stem> <representative literal>
   assert_eq "#614 T4: $stem.md's literal is absent from the root and every step reference" \
     "" "$leaked"
 }
-ci614_purity fallback-no-task-tool \
+ci614_purity "$CI_REF_FB_NOTASK" \
   'The status markers are exactly three, complete by construction'
-ci614_purity fallback-read-only-sandbox \
+ci614_purity "$CI_REF_FB_READONLY" \
   'the failed delete may have left a stale leftover from a prior run'
-ci614_purity fallback-audit-dispatch-arms \
+ci614_purity "$CI_REF_FB_DISPATCH" \
   'Bracket the embedded body with **exactly those printed tokens**'
-ci614_purity fallback-state-owner-unavailable \
+ci614_purity "$CI_REF_FB_STATEOWNER" \
   'A fallback lifecycle is **never silent**'
 unset -f ci614_purity
 
@@ -1666,6 +1671,10 @@ unset -f ci614_purity
 # review-bundle record), so a `wc`-derived ceiling passes at one desk and fails at another.
 # Both ceilings are ratchet-DOWN-only — a measured reduction lowers the recorded ceiling in
 # docs/create-issue-budget.md; neither is ever raised to accommodate growth.
+# Sums per file rather than concatenating the bytes first (run.sh's _rb_words replicates
+# `cat`, because its operand IS an already-concatenated bundle). Summing is the correct
+# shape for a multi-file operand: concatenating would join a file's last word to the next
+# file's first whenever a member lacks a trailing newline, undercounting once per such seam.
 ci614_words() {  # <file>... -> total words on stdout
   python3 - "$@" <<'PY614W'
 import sys
@@ -1674,13 +1683,17 @@ PY614W
 }
 CI614_ROOT_CEIL=2754      # docs/create-issue-budget.md: measured 2,623 + 5% headroom
 CI614_DEFAULT_CEIL=31262  # docs/create-issue-budget.md: measured 29,774 + 5% headroom
+# One comparison shape, shared by both ceilings and by the positive control below, so the
+# three sites cannot drift. An EMPTY measured value reads `no` (fail-closed): a word count
+# that could not be established is never treated as under the ceiling.
+ci614_under() { { [ -n "$1" ] && [ "$1" -le "$2" ]; } 2>/dev/null && echo yes || echo no; }
 CI614_ROOT_W="$(ci614_words "$CI_SKILL")"
 assert_eq "#614 T3: the always-loaded root is at or under its recorded ceiling ($CI614_ROOT_CEIL words)" \
-  "yes" "$({ [ -n "$CI614_ROOT_W" ] && [ "$CI614_ROOT_W" -le "$CI614_ROOT_CEIL" ]; } 2>/dev/null && echo yes || echo no)"
+  "yes" "$(ci614_under "$CI614_ROOT_W" "$CI614_ROOT_CEIL")"
 CI614_DEFAULT_W="$(ci614_words "$CI_SKILL" "$CI_REF_STEP2" "$CI_REF_STEP35" "$CI_REF_REVDELTA" \
   "$CI_REF_STEP36" "$CI_REF_STEP4" "$CI_TMPL")"
 assert_eq "#614 T3: the default-path read set is at or under its recorded ceiling ($CI614_DEFAULT_CEIL words)" \
-  "yes" "$({ [ -n "$CI614_DEFAULT_W" ] && [ "$CI614_DEFAULT_W" -le "$CI614_DEFAULT_CEIL" ]; } 2>/dev/null && echo yes || echo no)"
+  "yes" "$(ci614_under "$CI614_DEFAULT_W" "$CI614_DEFAULT_CEIL")"
 # AC7 positive control: the root-ceiling assertion must report RED against a deliberately
 # over-ceiling root. Plant the defect on a COPY (the working tree is never mutated) and
 # assert the same comparison fires — evidence the guard detects growth, not attestation.
@@ -1689,7 +1702,7 @@ CI614_PLANT="$_ci_tmp_root/ci614-over-ceiling-root.md"
 CI614_PLANT_W="$(ci614_words "$CI614_PLANT")"
 assert_eq "#614 T3/AC7 positive control: an over-ceiling root turns the budget assertion RED" \
   "clean=yes|planted=no" \
-  "clean=$({ [ "$CI614_ROOT_W" -le "$CI614_ROOT_CEIL" ]; } 2>/dev/null && echo yes || echo no)|planted=$({ [ "$CI614_PLANT_W" -le "$CI614_ROOT_CEIL" ]; } 2>/dev/null && echo yes || echo no)"
+  "clean=$(ci614_under "$CI614_ROOT_W" "$CI614_ROOT_CEIL")|planted=$(ci614_under "$CI614_PLANT_W" "$CI614_ROOT_CEIL")"
 rm -f "$CI614_PLANT"
 # The budget doc is the record of every live measured figure; the ceilings above are the
 # only checked-in literals, because a ceiling IS the enforcement (the #656 exemption).
@@ -1703,7 +1716,7 @@ devflow_module_pin_unique "#614 T3: the budget doc names the default-path ceilin
   'Default-path ceiling: **31,262 words**' "$CI_ROOT/docs/create-issue-budget.md"
 devflow_module_pin_unique "#614 T3: the budget doc bans wc -w for these measurements" \
   '**Never `wc -w`.**' "$CI_ROOT/docs/create-issue-budget.md"
-unset -f ci614_words
+unset -f ci614_words ci614_under
 
 # T7 (AC13) — the consumer extension's new measurement-command evidence axis. A
 # surface-presence contract pin (the extension's own behavioral-fix-pin dimension), so it

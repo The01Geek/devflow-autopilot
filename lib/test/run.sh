@@ -225,18 +225,23 @@ _build_skill_bundle "review-skill" "$REVIEW_BUNDLE" "${_review_members[@]}"
 # bundle treatment through the same builder. A pin asserting that a contract sentence
 # SURVIVES the split targets this concatenated bundle; a pin asserting a sentence lives
 # in a SPECIFIC surface (the root's non-degradable invariants, the fallback purity pins)
-# keeps its specific-file target. CI_REF_STEMS is the single source of the reference set,
-# so a reference can never be registered in one place and silently dropped from another.
-# The two template files (issue-template.md, audit-prompt-template.md) are deliberately
-# NOT members: the split left them unchanged and they carry their own pin targets, so
-# including them would only add uniqueness collisions for prose that never moved.
-CI_REF_STEMS="step-2-clarify step-3-5-steelman revision-delta step-3-6-audit step-4-present-create fallback-no-task-tool fallback-read-only-sandbox fallback-audit-dispatch-arms fallback-state-owner-unavailable"
+# keeps its specific-file target. Membership is DERIVED FROM THE TREE, never transcribed:
+# every references/*.md except the two unchanged template files is a member. A transcribed
+# stem list would let a reference added later be registered in the routing table and in the
+# contract module while this bundle silently omitted it — and every content-survival pin
+# would then assert against a bundle missing the new prose, passing green over unguarded
+# text. The contract module derives its own bundle by the SAME rule, and its T1 assertion
+# reconciles the routing table against this same on-disk set, so a reference can be neither
+# unrouted nor unbundled. The two template files (issue-template.md, audit-prompt-template.md)
+# are excluded deliberately: the split left them unchanged and they carry their own pin
+# targets, so including them would only add uniqueness collisions for prose that never moved.
 CREATE_ISSUE_ROOT="$LIB/../skills/create-issue/SKILL.md"
 CREATE_ISSUE_BUNDLE="$(mktemp)" || { echo "run.sh: could not allocate the create-issue-skill bundle temp" >&2; exit 1; }
 _suite_tmp_file "$CREATE_ISSUE_BUNDLE"
 _ci_members=("$CREATE_ISSUE_ROOT")
-for _s in $CI_REF_STEMS; do
-  _ci_members+=("$LIB/../skills/create-issue/references/${_s}.md")
+for _s in "$LIB"/../skills/create-issue/references/*.md; do
+  case "${_s##*/}" in issue-template.md|audit-prompt-template.md) continue ;; esac
+  _ci_members+=("$_s")
 done
 _build_skill_bundle "create-issue-skill" "$CREATE_ISSUE_BUNDLE" "${_ci_members[@]}"
 
@@ -38173,9 +38178,15 @@ IMPL_DIR="$LIB/../skills/implement"
 # matcher today (no workflow dispatches them on that tier) — linting them keeps the idiom
 # uniform and pre-empts a future read-write tier, rather than guarding a live denial. All
 # lint clean today, so the coverage is free (#480 review).
-for f in "$IMPL_DIR/SKILL.md" "$IMPL_DIR"/phases/*.md \
-         "$LIB/../skills/create-issue/SKILL.md" "$LIB"/../skills/create-issue/references/*.md \
-         "$LIB/../skills/init/SKILL.md"; do
+# The audited implement-tier surface, built ONCE and shared by the three loops below
+# (shape-lint, fence-tag scope, ungranted-head). Three transcribed copies of this list is
+# how a future split gets added to one loop and silently missed by the other two: each
+# would keep passing while scanning fewer files, a fail-OPEN regression no assertion sees.
+# create-issue's references join it because the #614 split moved its helper fences there.
+IMPL_SHAPE_FILES=("$IMPL_DIR/SKILL.md" "$IMPL_DIR"/phases/*.md
+  "$LIB/../skills/create-issue/SKILL.md" "$LIB"/../skills/create-issue/references/*.md
+  "$LIB/../skills/init/SKILL.md")
+for f in "${IMPL_SHAPE_FILES[@]}"; do
   assert_eq "#455 implement shape-lint: $(basename "$(dirname "$f")")/$(basename "$f") teaches no proven-denied shape" "" \
     "$(python3 "$ECS" --profile implement "$f" 2>&1)"
 done
@@ -38413,9 +38424,7 @@ assert_eq "#455 behavioral: reintroducing the removed per-label ensure-label pip
 # ── Scope pin: the lint reads only ```bash fences, so a ```sh-tagged fence would be invisible and
 # ── the contract loop's "teaches no proven-denied shape" claim would pass VACUOUSLY over it. Keep
 # ── the claim's reach equal to its wording — the guarded files must use no other shell fence tag.
-for f in "$IMPL_DIR/SKILL.md" "$IMPL_DIR"/phases/*.md \
-         "$LIB/../skills/create-issue/SKILL.md" "$LIB"/../skills/create-issue/references/*.md \
-         "$LIB/../skills/init/SKILL.md"; do
+for f in "${IMPL_SHAPE_FILES[@]}"; do
   assert_eq "#455 scope: $(basename "$(dirname "$f")")/$(basename "$f") uses no non-bash shell fence tag (the lint reads only \`\`\`bash)" "0" \
     "$(grep -cE '^\s*```(sh|shell|zsh|console)\s*$' "$f" || true)"
 done
@@ -38535,9 +38544,7 @@ assert_eq "#480 the guard-class-2 sed range actually spans the label derivation 
 # ── EMPTY, and the applies silently did nothing. The fix (#455) would have shipped not
 # ── working. Pin the class: no implement-tier fence may use `paste`, and the granted tools
 # ── its replacement depends on must actually be granted.
-for f in "$IMPL_DIR/SKILL.md" "$IMPL_DIR"/phases/*.md \
-         "$LIB/../skills/create-issue/SKILL.md" "$LIB"/../skills/create-issue/references/*.md \
-         "$LIB/../skills/init/SKILL.md"; do
+for f in "${IMPL_SHAPE_FILES[@]}"; do
   assert_eq "#455 ungranted-head: $(basename "$(dirname "$f")")/$(basename "$f") uses no 'paste' (granted in no allowlist)" "0" \
     "$(python3 "$ECH" heads "$f" 2>/dev/null | grep -cxF 'paste' || true)"
 done
