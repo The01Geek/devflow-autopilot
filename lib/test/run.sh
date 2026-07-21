@@ -28302,6 +28302,12 @@ printf '{}' > "$VS_REMOTE/.claude-plugin/marketplace.json"
 : > "$VS_REMOTE/lib/placeholder.sh"
 : > "$VS_REMOTE/skills/placeholder.md"
 : > "$VS_REMOTE/LICENSES/placeholder-LICENSE"   # #671: LICENSES/ is now a copy-list member, so the fetch fixture must carry it
+# #677: the fixture must CARRY the two excluded subtrees, otherwise the fetch-branch
+# exclusion assertions below would pass vacuously — absent from the source, never
+# pruned. With these present the assertions observe the prune actually running.
+mkdir -p "$VS_REMOTE/docs/site" "$VS_REMOTE/lib/test"
+: > "$VS_REMOTE/docs/site/index.html"
+: > "$VS_REMOTE/lib/test/run.sh"
 printf '{}' > "$VS_REMOTE/.devflow/config.example.json"
 printf '{}' > "$VS_REMOTE/.devflow/config.schema.json"
 printf '{}' > "$VS_REMOTE/.devflow/tool-presets.json"
@@ -28327,6 +28333,13 @@ assert_eq "vendor: fetch branch drops the vendored marketplace.json" "no" "$(vex
 # docs/ must travel with the slice so skills' relative ../../docs/… links resolve
 # offline in the materialized plugin (no web access in the runner sandbox).
 assert_eq "vendor: fetch branch copies docs/ (offline skill links resolve)" "yes" "$(vexists "$VS_FETCH/docs/efficiency-trace.md")"
+# #677 on the CONSUMER-FACING branch: the self-branch assertions further below cover
+# the same shared devflow_copy_slice, but `fetch` is what a real thin consumer runs,
+# so pin the prune there directly rather than relying on the shared path transitively.
+# Non-vacuous by construction — the fixture above carries both subtrees.
+assert_eq "#677 vendor: fetch slice excludes docs/site (published-page HTML)" "no" "$(vexists "$VS_FETCH/docs/site")"
+assert_eq "#677 vendor: fetch slice excludes lib/test (DevFlow's own test suite)" "no" "$(vexists "$VS_FETCH/lib/test")"
+assert_eq "#677 vendor: fetch slice keeps non-test lib/ contents" "yes" "$(vexists "$VS_FETCH/lib/placeholder.sh")"
 
 # fetch branch pinned to a NON-TIP commit SHA. `--branch` rejects any raw SHA,
 # so this always takes the full-clone + checkout fallback (the path install.sh's
@@ -28423,6 +28436,40 @@ assert_eq "vendor: self copies docs/efficiency-trace.md" "yes" "$(vexists "$VS_S
 assert_eq "vendor: self copies lib/" "yes" "$(vexists "$VS_SELF/lib")"
 assert_eq "vendor: self copies skills/" "yes" "$(vexists "$VS_SELF/skills")"
 assert_eq "vendor: self copies .devflow/tool-presets.json" "yes" "$(vexists "$VS_SELF/.devflow/tool-presets.json")"
+
+# #677 exclusions: the produced slice must ship neither the published GitHub Pages
+# HTML (docs/site) nor DevFlow's own test suite (lib/test) — neither is reachable on
+# any consumer path, and both dominate the payload. These observe the PRODUCED tree,
+# not just that the helper exited zero. docs/ and lib/ are copied WHOLESALE, so
+# neither subtree has its own copy-list entry — the reachable mutation is deleting or
+# weakening the rm -rf prune (or moving it after the atomic swap), which re-ships the
+# subtree and turns these RED, so the exclusion cannot be silently reverted.
+assert_eq "#677 vendor: self slice excludes docs/site (published-page HTML)" "no" "$(vexists "$VS_SELF/docs/site")"
+assert_eq "#677 vendor: self slice excludes lib/test (DevFlow's own test suite)" "no" "$(vexists "$VS_SELF/lib/test")"
+# #677 presence backstops: the exclusion must not over-prune. Proving absence alone
+# would be satisfied by an implementation that pruned too much (e.g. all of docs/ or
+# all of lib/), so pair each excluded subtree with the reachable siblings that MUST
+# survive: the docs/ files shipped skill bodies link to (each pinned individually
+# below), the non-test lib/ contents, and the load-bearing top-level members. The
+# per-file pins matter — the "vendor: self copies docs/" assertion above only checks
+# the docs/ directory exists, so an over-prune of a single linked doc would slip past
+# it but not past these.
+# (docs/architecture.md is named in the issue's AC3 but does not exist in the tree —
+# its only mention is an illustrative example string in agents/checklist-generator.md,
+# not a shipped link — so it is deliberately NOT asserted here; recorded as an
+# issue-accuracy reflection.)
+assert_eq "#677 vendor: self slice keeps docs/DEVFLOW_SYSTEM_OVERVIEW.md" "yes" "$(vexists "$VS_SELF/docs/DEVFLOW_SYSTEM_OVERVIEW.md")"
+assert_eq "#677 vendor: self slice keeps docs/cloud-setup.md" "yes" "$(vexists "$VS_SELF/docs/cloud-setup.md")"
+assert_eq "#677 vendor: self slice keeps docs/efficiency-trace.md" "yes" "$(vexists "$VS_SELF/docs/efficiency-trace.md")"
+assert_eq "#677 vendor: self slice keeps docs/implement-skill.md" "yes" "$(vexists "$VS_SELF/docs/implement-skill.md")"
+assert_eq "#677 vendor: self slice keeps docs/review-agent-overrides.md" "yes" "$(vexists "$VS_SELF/docs/review-agent-overrides.md")"
+assert_eq "#677 vendor: self slice keeps docs/shadow-review.md" "yes" "$(vexists "$VS_SELF/docs/shadow-review.md")"
+assert_eq "#677 vendor: self slice keeps non-test lib/ contents (preflight.sh)" "yes" "$(vexists "$VS_SELF/lib/preflight.sh")"
+assert_eq "#677 vendor: self slice keeps scripts/" "yes" "$(vexists "$VS_SELF/scripts")"
+assert_eq "#677 vendor: self slice keeps agents/" "yes" "$(vexists "$VS_SELF/agents")"
+assert_eq "#677 vendor: self slice keeps skills/" "yes" "$(vexists "$VS_SELF/skills")"
+assert_eq "#677 vendor: self slice keeps .claude-plugin/plugin.json" "yes" "$(vexists "$VS_SELF/.claude-plugin/plugin.json")"
+assert_eq "#677 vendor: self slice keeps .devflow/config.schema.json" "yes" "$(vexists "$VS_SELF/.devflow/config.schema.json")"
 
 # self-branch NEGATIVE: a consumer repo with its OWN top-level scripts/+skills/
 # but a non-devflow plugin.json must NOT be mistaken for the source repo — it
