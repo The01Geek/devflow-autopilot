@@ -7032,11 +7032,55 @@ assert_eq("#650 AC9: an INLINE-commented reachable grant does not count either",
 
 # A `#` INSIDE a quoted scalar is not a comment — the strip must not truncate a
 # real grant line and manufacture a spurious ungranted violation (the opposite
-# fail direction of (i); a naive `line.split("#")[0]` would fail this).
-assert_eq("#650 AC9: a '#' inside a quoted scalar does not truncate a real grant",
-          [], cwc.check_grant_sync(
-              {pr: _cw_healthy_grants()[pr] + "\n    body: 'see issue #650 for context'"
-               for pr in cwc.ROOTS}))
+# fail direction of (i)).
+#
+# The fixture puts the quoted `#` on a line that CARRIES a reachable grant, before
+# that grant. This is what makes the assertion discriminating: a naive
+# `line.split("#")[0]` (or a deleted quote state machine) truncates the line and
+# destroys the grant, so arm (1) fires. A `#` on some unrelated line would be
+# vacuous — nothing about the scan result would change. Real workflow TOOLS lines
+# are exactly this shape: one long comma-joined single-quoted scalar.
+for _q in ("'", '"'):
+    _gs_quoted = _cw_healthy_grants()
+    _gs_quoted["review"] = _gs_quoted["review"].replace(
+        "TOOLS='Bash(.devflow/vendor/devflow/scripts/workpad.py:*)'",
+        "TOOLS=%sBash(git:*) # issue 650, not a comment: "
+        "Bash(.devflow/vendor/devflow/scripts/workpad.py:*)%s" % (_q, _q))
+    assert_eq("#650 AC9: a '#' inside a %s-quoted scalar does not truncate the grant "
+              "that follows it on the same line" % ("single" if _q == "'" else "double"),
+              [], cwc.check_grant_sync(_gs_quoted))
+
+# A `#` mid-token (no whitespace before it) is not a comment either — a helper
+# path may legitimately contain one, and stripping there would drop a real grant.
+assert_eq("#650 AC9: a mid-token '#' (no preceding whitespace) does not start a comment",
+          "TOOLS='Bash(a#b.sh:*)'", cwc._strip_yaml_comment("TOOLS='Bash(a#b.sh:*)'"))
+
+# UNBALANCED-QUOTE FAIL-CLOSED ARM. An unpaired apostrophe before the `#` would
+# leave a quote-aware scanner "inside" a string to end of line, stripping nothing
+# — so the commented-out spec gets scanned as LIVE, manufacturing a phantom
+# widening violation on a healthy profile. That is the one direction in which
+# this strip could count MORE than the runtime validator, which is why the
+# unterminated-quote re-scan exists.
+_gs_unbal = _cw_healthy_grants()
+_gs_unbal["implement"] += "\n    run: echo don't  # Bash(scripts/workpad.py:*)"
+assert_eq("#650 AC9: an unbalanced quote before an inline comment does not make the "
+          "commented spec live (fail-closed re-scan)",
+          [], cwc.check_grant_sync(_gs_unbal))
+# (Truncation is at the `#` index, so the whitespace before it is preserved —
+# what matters is that the commented grant is gone, not the trailing spaces.)
+assert_eq("#650 AC9: _strip_yaml_comment strips past an unterminated quote",
+          "    run: echo don't  ", cwc._strip_yaml_comment(
+              "    run: echo don't  # Bash(scripts/workpad.py:*)"))
+
+# _VENDORED_GRANT_RE's (?:scripts|lib) alternation is coupled to every head: a
+# head added under another vendored subdirectory would make arm (1) fire on a
+# correctly-granted helper AND arm (2) flag the real grant as a widening. Turn
+# that drift RED here rather than leaving it to a future reader of the regex.
+for _pr in cwc.ROOTS:
+    for _lit in cwc.REQUIRED_HELPER_HEADS[_pr]:
+        assert_eq("#650 AC9: head '%s' is matchable by _VENDORED_GRANT_RE "
+                  "(scripts|lib alternation coupled to REQUIRED_HELPER_HEADS)" % _lit,
+                  [_lit], cwc._VENDORED_GRANT_RE.findall("Bash(%s:*)" % _lit))
 
 # (j) Widening polarity is FAIL-CLOSED: a grant covering a reachable helper is a
 # violation regardless of whether its shape is one of the named classes. Each row
@@ -7054,9 +7098,15 @@ for _spec, _why in (
 ):
     _gs_cover = _cw_healthy_grants()
     _gs_cover["implement"] += "\nTOOLS='Bash(%s:*)'" % _spec
-    assert_eq("#650 AC9: a covering grant '%s' (%s) is caught, not waved through"
+    # Assert ATTRIBUTION, not mere existence: the violation must name the
+    # offending spec and its class label. An enumeration bug attributing the
+    # widening to a different granted token would leave a bare `any("widens")`
+    # green while sending a reader to a grant that is fine.
+    assert_eq("#650 AC9: a covering grant '%s' (%s) is caught and attributed to that spec"
               % (_spec, _why),
-              True, any("widens" in e for e in cwc.check_grant_sync(_gs_cover)))
+              True, any("widens" in e and ("'%s'" % _spec) in e
+                        and cwc._classify_widening(_spec) in e
+                        for e in cwc.check_grant_sync(_gs_cover)))
 
 # _classify_widening NEVER returns None — labelling can no longer drop a finding.
 for _spec, _label in (("/abs/workpad.py", "absolute"), ("*/workpad.py", "basename-wildcard"),

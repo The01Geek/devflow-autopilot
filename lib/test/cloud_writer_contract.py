@@ -388,10 +388,23 @@ def unlisted_skill_assets():
 # The AC1-closure per-profile reachable helper literals (REQUIRED_HELPER_HEADS)
 # must each be granted in that profile's workflow as the exact vendored leading
 # token, and no OTHER grant covering a reachable helper may WIDEN the executable
-# trust boundary — whether by an absolute path, a repo-root path, a
-# basename-wildcard, a directory or blanket glob, or any other shape that can
-# still execute the helper. check_grant_sync() enforces both directions over the
-# three cloud profiles keyed by ROOTS.
+# trust boundary — by an absolute path, a repo-root path, a basename-wildcard, or
+# a directory/blanket glob IN THE GRANT'S COMMAND-POSITION TOKEN.
+# check_grant_sync() enforces both directions over the three cloud profiles keyed
+# by ROOTS.
+#
+# KNOWN, DELIBERATE SCOPE LIMIT — interpreter and wrapper grants are NOT detected.
+# _ANY_BASH_GRANT_RE reads only the grant's leading command-position token, so
+# Bash(python3:*) / Bash(bash:*) / Bash(env:*) yield 'python3' / 'bash' / 'env',
+# which neither glob-match a vendored literal nor share a reachable basename —
+# yet each can execute every reachable helper (`python3 .devflow/vendor/devflow/
+# scripts/workpad.py …`). This is not an oversight the guard could close by
+# widening detection: devflow-implement.yml *legitimately and necessarily* grants
+# Bash(python3:*), so flagging the interpreter class would turn the guard RED on
+# the healthy tree. AC9's stated scope is the three path classes above; bounding
+# the interpreter surface is a separate policy question, not this guard's.
+# Do not read arm (2) as "no grant can reach a helper" — it is "no PATH-SHAPED
+# grant for a helper is broader than the vendored literal".
 #
 # Scoped-home note (deviates from issue #650's AC9 wording "the command-head
 # test", which names lib/test/extract-command-heads.py's comment-aware scoper as
@@ -414,7 +427,13 @@ def unlisted_skill_assets():
 # the vendored form. Both anchor on `Bash(` so a vendored path that appears only in
 # a comment or a shell assignment is never counted as a grant (the same fail-open
 # guard the validator's _GRANT_RE documents).
-# A properly-scoped vendored grant: the exact tight trust boundary.
+# A properly-scoped vendored grant: the exact tight trust boundary. Its
+# `(?:scripts|lib)` alternation is COUPLED to REQUIRED_HELPER_HEADS: a head added
+# under any other vendored subdirectory would match neither this regex (so arm (1)
+# would fire on a helper that IS correctly granted) nor the vendored-grant skip in
+# arm (2) (so the real grant would also be flagged as a widening) — one omission,
+# two false positives. The coupling is asserted in lib/test/test_python_scripts.py
+# rather than left to a reader, so widening the alternation is forced in lockstep.
 _VENDORED_GRANT_RE = re.compile(
     r"Bash\(\s*(\.devflow/vendor/devflow/(?:scripts|lib)/[A-Za-z0-9._-]+)"
 )
@@ -471,20 +490,38 @@ def _strip_yaml_comment(line):
     (which drops full-line comments only, and documents that residual fail-open).
     An inline `# was Bash(.../workpad.py:*)` would otherwise be counted as a live
     grant, letting arm (1) pass for a helper the profile does not actually grant
-    — the silent-matcher-denial class (#363/#401). The divergence is one-way: it
-    only ever counts FEWER things as grants than the validator, so it cannot
-    manufacture a grant the validator would not see.
+    — the silent-matcher-denial class (#363/#401).
+
+    **Unbalanced-quote fail-closed arm.** Quote state is per-line, so a line
+    carrying an unpaired `'` or `"` before the `#` (an apostrophe in an unquoted
+    YAML scalar — `run: echo don't  # Bash(scripts/x.sh:*)`) would leave the
+    scanner "inside" a string for the rest of the line and strip nothing. That
+    direction counts MORE than the validator, not fewer: the commented text is
+    scanned as live, manufacturing a phantom grant (or a phantom widening). So a
+    line whose quote is still open at end-of-line is re-scanned quote-blind,
+    stripping at the first whitespace-preceded `#`. With that arm in place the
+    divergence from the validator is one-way — this function only ever counts
+    FEWER things as grants — because every line the validator drops whole is
+    also reduced to a grant-free prefix here.
     """
-    quote = None
-    for i, ch in enumerate(line):
-        if quote is not None:
-            if ch == quote:
-                quote = None
-        elif ch in ("'", '"'):
-            quote = ch
-        elif ch == "#" and (i == 0 or line[i - 1].isspace()):
-            return line[:i]
-    return line
+    def _scan(text, quote_aware):
+        quote = None
+        for i, ch in enumerate(text):
+            if quote_aware and quote is not None:
+                if ch == quote:
+                    quote = None
+            elif quote_aware and ch in ("'", '"'):
+                quote = ch
+            elif ch == "#" and (i == 0 or text[i - 1].isspace()):
+                return text[:i], quote
+        return text, quote
+
+    stripped, open_quote = _scan(line, quote_aware=True)
+    if open_quote is not None:
+        # Unterminated quote: the quote state is not trustworthy, so do not let it
+        # protect a `#`. Re-scan treating quotes as ordinary characters.
+        stripped, _ = _scan(line, quote_aware=False)
+    return stripped
 
 
 def _scan_grants(text):
