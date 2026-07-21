@@ -48001,19 +48001,40 @@ _i690() {  # stdout discarded, stderr captured; $1 (optional) overrides the inst
 _stub690 'posix 600'; _e690_p6="$(_i690)"; _rc690_p6=$?
 assert_eq "#690: stubbed 'posix 600' passes output 5/7 (rc 0) and emits NO could-not-establish breadcrumb" "0 no" \
   "$_rc690_p6 $(printf '%s' "$_e690_p6" | grep -qF 'owner-only' && echo yes || echo no)"
+_fp690_want="$(printf '%s' FIXTURE_TOKEN_533 | python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())')"
 for _m690 in 666 444; do
   _stub690 "nt $_m690"; _e690_nt="$(_i690)"; _rc690_nt=$?
   assert_eq "#690: stubbed 'nt $_m690' passes output 5/7 (rc 0) and still writes GITHUB_ENV (output 6) and GITHUB_PATH (output 7)" "0 1 1" \
     "$_rc690_nt $(grep -cF "DEVFLOW_GH_REAL=$D533/bin/gh" "$D533/ghenv") $(grep -cF "$D533/wrapdir690" "$D533/ghpath")"
+  # Relaxing the MODE gate must not relax the WRITE: a regression that skipped or
+  # short-circuited the fingerprint write on this arm would otherwise stay green
+  # on the rc/GITHUB_ENV assertions alone (the #533 AC14 content assertion runs
+  # only on the strict posix path, against a different wrapdir).
+  assert_eq "#690: stubbed 'nt $_m690' still leaves the correct python3-hashlib sha256 fingerprint on disk" "$_fp690_want" \
+    "$(cat "$D533/rtmp/devflow-gh-fingerprint" 2>/dev/null)"
   # The breadcrumb: install-gh-wrapper:-prefixed, on STDERR, naming the observed
   # mode value and stating that access is left to the filesystem's ACLs, which
   # this script neither sets nor verifies.
   assert_eq "#690: stubbed 'nt $_m690' writes the install-gh-wrapper: could-not-establish breadcrumb to STDERR, naming mode $_m690 and the ACL caveat" "yes" \
     "$(printf '%s' "$_e690_nt" | grep -qF 'install-gh-wrapper: the owner-only (0600) mode guarantee could not be established' \
-       && printf '%s' "$_e690_nt" | grep -qF "observed mode $_m690" \
+       && printf '%s' "$_e690_nt" | grep -qF "observed (platform-synthesized) mode $_m690" \
        && printf '%s' "$_e690_nt" | grep -qF 'which this script neither sets nor verifies' \
        && echo yes || echo no)"
+  # A plain stderr line gets no Actions run-summary annotation, and an unestablished
+  # security guarantee is exactly what a reader must not have to grep the raw log for.
+  # Under GITHUB_ACTIONS the arm emits an additional ::warning:: annotation; off
+  # Actions it emits ONLY the bare-prefixed detail line, so a local run stays clean.
+  assert_eq "#690: the relaxed arm emits a ::warning:: annotation under GITHUB_ACTIONS, and none when it is unset" "yes no" \
+    "$(printf '%s' "$(GITHUB_ACTIONS=true _i690)" | grep -qF '::warning::install-gh-wrapper:' && echo yes || echo no) $(printf '%s' "$_e690_nt" | grep -qF '::warning::' && echo yes || echo no)"
 done
+# The `nt` token with a real 600 must take the FIRST arm (mode value) and emit no
+# breadcrumb. Without this row nothing pins the arm ORDER: reordering the `if` so
+# the nt test precedes the `600` equality would make an nt host that genuinely
+# produced 600 emit a false could-not-be-established line, and every other row
+# would stay green.
+_stub690 'nt 600'; _e690_n6="$(_i690)"; _rc690_n6=$?
+assert_eq "#690: stubbed 'nt 600' passes on the mode value via the FIRST arm (rc 0), emitting no could-not-establish breadcrumb (pins arm order)" "0 no" \
+  "$_rc690_n6 $(printf '%s' "$_e690_n6" | grep -qF 'owner-only' && echo yes || echo no)"
 _stub690 'zz 600'; _e690_u6="$(_i690)"; _rc690_u6=$?
 assert_eq "#690: an unrecognized platform token with mode 600 passes on the mode value alone (rc 0), emitting no breadcrumb" "0 no" \
   "$_rc690_u6 $(printf '%s' "$_e690_u6" | grep -qF 'owner-only' && echo yes || echo no)"
@@ -48039,11 +48060,17 @@ assert_eq "#690: the platform token and the mode are read by a single python3 in
 # turning the fail-closed unreadable-mode arm into a silent pass on every platform.
 assert_eq "#690: the relaxed arm tests equality against the literal nt, never a negation against posix" "1 0" \
   "$(grep -cF '[ "$_fpos" = "nt" ]' "$INSTALL533") $(grep -cF '[ "$_fpos" != "posix" ]' "$INSTALL533")"
-# No chmod is introduced on the fingerprint path: the umask 077 stays the sole
-# producer of the file's mode, which is what keeps the AC22 mutation proof below
-# meaningful (a chmod would repair the mutated copy and turn that proof green).
-assert_eq "#690: install-gh-wrapper.sh applies no chmod to the fingerprint file on any path" "0" \
-  "$(grep -vE '^[[:space:]]*#' "$INSTALL533" | grep -c 'chmod[^|]*FINGERPRINT')"
+# No mode-setting chmod is introduced anywhere: the umask 077 stays the sole
+# producer of the fingerprint file's mode, which is what keeps the AC22 mutation
+# proof below meaningful (a chmod would repair the mutated copy and turn that
+# proof green). Asserted over EVERY non-comment chmod in the file rather than
+# only those naming FINGERPRINT on the same line — a `chmod 600 "$f"` reached
+# through an intermediate assignment, or placed on a following line, defeats the
+# umask proof just as completely and a FINGERPRINT-on-the-same-line grep cannot
+# see it. The installer's only legitimate chmod is the `+x` on the copied
+# wrapper (output 4/7), so the mode-setting count must be exactly zero.
+assert_eq "#690: install-gh-wrapper.sh contains no mode-setting chmod at all (only the wrapper's chmod +x)" "0" \
+  "$(grep -vE '^[[:space:]]*#' "$INSTALL533" | grep -c 'chmod' | { read -r _all; printf '%s' "$(( _all - $(grep -vE '^[[:space:]]*#' "$INSTALL533" | grep -c 'chmod +x') ))"; })"
 # Behavioral mutation proof (issue #690). assert_pin_red_under cannot express this:
 # it seds a copy and re-greps a literal, never EXECUTING the mutated file, so it
 # cannot observe a behavioral case change verdict. Mirroring the #533 AC22

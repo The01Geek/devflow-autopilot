@@ -133,7 +133,10 @@ _fpcap="$(python3 -c 'import os,sys; print(os.name, oct(os.stat(sys.argv[1]).st_
 # allowlist test, silently re-select the strict arm on Windows — restoring the
 # bug. The mode expansion deliberately keeps ALL trailing content beyond the
 # first space, so a three-field capture yields a non-octal mode field and takes
-# the strict arm rather than silently discarding the extra field.
+# the strict arm rather than silently discarding the extra field. A multi-line
+# capture (a python3 shim printing a notice to stdout before the value) lands in
+# the same place for the same reason — the mode field carries the newline and is
+# not solely octal — so it too fails closed.
 _fpos="${_fpcap%% *}"
 _fpmode="${_fpcap#* }"
 [ "$_fpcap" != "$_fpmode" ] || _fpmode=""   # no space in the capture => no mode field at all
@@ -151,7 +154,21 @@ elif [ "$_fpos" = "nt" ] && [ "$_fpmode_octal" = yes ]; then
   # Equality against the literal `nt`, NEVER a negated test against `posix`: a
   # negation would admit the EMPTY token an unreadable os.stat leaves behind,
   # turning the fail-closed unreadable-mode arm into a silent pass everywhere.
-  echo "install-gh-wrapper: the owner-only (0600) mode guarantee could not be established for fingerprint file $FINGERPRINT_FILE on this platform (python3 reports os.name=nt, where POSIX mode bits are not expressible); observed mode $_fpmode. Access to that file is left to whatever the filesystem's ACLs provide, which this script neither sets nor verifies." >&2
+  #
+  # This arm accepts ANY octal mode under `nt`, deliberately and with no value
+  # floor: on that platform st_mode is synthesized from FILE_ATTRIBUTE_READONLY
+  # alone, so the number carries no confidentiality meaning and a floor would
+  # only re-break Windows the way the unconditional 600 comparison did. Do not
+  # "helpfully" add one — the breadcrumb names the observed value instead.
+  #
+  # A plain stderr line is invisible in the Actions run summary, and this is a
+  # security guarantee going unestablished, so under Actions it is ALSO emitted
+  # as a ::warning:: annotation. The detail line keeps its bare
+  # `install-gh-wrapper:` prefix on every tier (the seven-output diagnostic
+  # vocabulary), so a local run gets exactly one clean line.
+  [ -z "${GITHUB_ACTIONS:-}" ] \
+    || echo "::warning::install-gh-wrapper: the owner-only (0600) mode guarantee for the token fingerprint file could not be established on this platform — see the install-gh-wrapper: detail line below" >&2
+  echo "install-gh-wrapper: the owner-only (0600) mode guarantee could not be established for fingerprint file $FINGERPRINT_FILE on this platform (python3 reports os.name=nt, where POSIX mode bits are not expressible); observed (platform-synthesized) mode $_fpmode. Access to that file is left to whatever the filesystem's ACLs provide, which this script neither sets nor verifies." >&2
 else
   fail "output 5/7 FAILED: fingerprint file $FINGERPRINT_FILE is mode ${_fpmode:-unreadable}, not 0600 (fingerprint-mode)"
 fi

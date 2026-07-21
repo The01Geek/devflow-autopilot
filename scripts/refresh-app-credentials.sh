@@ -269,8 +269,7 @@ run_cycle() {
 
   # Surface 2: the mode-0600 token file the gh wrapper reads at call time
   # (mode-0600 only where POSIX mode bits apply — see the header's item 2, #690).
-  # Write to
-  # a temp file in the same dir and atomically rename into place, so a concurrent
+  # Write to a temp file in the same dir and atomically rename into place, so a concurrent
   # gh-fresh.sh read never observes a truncated/partial token (mirroring the
   # atomic-rename guarantee git config gives surface 1). A plain `> "$TOKEN_FILE"`
   # would truncate-then-write, and a read landing in that window would see an empty

@@ -8,4 +8,4 @@ bump: patch
 
 ### Changed
 
-- `docs/cloud-setup.md`, `docs/install.md`, `docs/DEVFLOW_SYSTEM_OVERVIEW.md`, and the comments in `scripts/install-gh-wrapper.sh` and `scripts/refresh-app-credentials.sh` now state that POSIX mode bits constrain neither the `gh`-wrapper fingerprint file nor the sibling credential token file on Windows, replacing the previous unconditional mode-0600 claims.
+- `docs/cloud-setup.md`, `docs/DEVFLOW_SYSTEM_OVERVIEW.md`, and the comments in `scripts/install-gh-wrapper.sh` and `scripts/refresh-app-credentials.sh` now state that POSIX mode bits constrain neither the `gh`-wrapper fingerprint file nor the sibling credential token file on Windows, replacing the previous unconditional mode-0600 claims. `docs/install.md` records the fingerprint-file blocker and its resolution in the Windows runner prerequisites, linking to the full detail in `docs/cloud-setup.md`.
