@@ -168,12 +168,22 @@ diligence. The requirement lives at three co-equal homes — `phase-2-implement.
 author), `skills/review-and-fix/references/fixing.md`'s Step 3 mutation-check step (the fix-loop author), and
 `.devflow/prompt-extensions/implement.md` (this repo's operative policy) — and is scoped to
 **behavioral-fix** pins only, never to literal-constant, token-name, count-based, or absence pins where no
-operative-vs-framing distinction exists. Two mechanical suite guards (`lib/test/pin-corpus-lint.py`,
-self-scanned by `lib/test/run.sh`) now catch the two blind spots the parents (#370/#371) had to
+operative-vs-framing distinction exists. Three mechanical suite guards (`lib/test/pin-corpus-lint.py`,
+self-scanned by `lib/test/run.sh`) now catch the blind spots the parents (#370/#371) had to
 rediscover in a shadow: a **pin-in-comment lint** (a pin literal that also appears in a comment of its own
-target inflates the count) and a **wrapped-literal meta-guard** (a phrase assembled from wrapped adjacent
-string literals lives on no single line, so a line-based `git grep` misses it — pin the rendered
-`--help`/stderr surface instead).
+target inflates the count — its `.md` arm subtracts not only `<!-- … -->` regions but also the `#`
+comments inside fenced ```` ```bash ```` code blocks of a skill bundle, issue #394); a
+**wrapped-literal meta-guard** (a phrase assembled from wrapped adjacent string literals lives on no
+single line, so a line-based `git grep` misses it — pin the rendered `--help`/stderr surface instead);
+and the **`mutation-routing` declaration gate** (issue #666), a diff-scoped, fail-closed check that turns
+the suite RED for a pin the change *adds* whose helper is not mutation-taking and which carries no
+format-strict `# structural-pin-ok: <reason>` marker — so a behavioral-fix pin authored as a plain
+`assert_pin_unique` is stopped at the desk, while a genuine structural pin declares itself with a
+one-line reason. All three guards run over `run.sh` itself and over every registered
+`lib/test/modules/*.sh` file, so pins that module extraction moves out of `run.sh` stay covered (issue
+#591). A companion runtime overbreadth guard in the three mutation-taking helpers rejects a mutation
+that blanks its target (`1,$d` / `s/.*//`), closing the loophole where a pin flips PASS→FAIL because the
+file was destroyed rather than the guarded content removed.
 
 **Inline-review observability backstop (Phase 3.3).** `review-and-fix`'s Loop Exit is what normally
 persists a run's effectiveness record (`.devflow/logs/efficiency/<slug>-<run-id>.json`) and durable

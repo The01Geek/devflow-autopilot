@@ -205,7 +205,11 @@ subagent. Judge the draft against each of these, in addition to the generic dime
   plan that states no mutation obligation. **Surface-presence contract pins** — a plain
   `assert_pin_unique` on new prose whose removal breaks no behavioral guarantee — are explicitly
   **outside this dimension's scope** and carry no mutation obligation, matching the suite's own
-  precedent (this very issue's prose pins are that class).
+  precedent (this very issue's prose pins are that class). A surface-presence pin stays permitted
+  at issue altitude; it acquires a `# structural-pin-ok:` declaration only **when it is
+  implemented** (issue #666's `mutation-routing` gate enforces that marker at implement time on a
+  suite consumers do not run), so this is an implement-time consequence, not a drafting
+  requirement — the auditor does not flag a draft's surface-presence pin for lacking the marker.
 
 ## Evidence axes
 
