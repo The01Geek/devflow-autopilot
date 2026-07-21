@@ -35,9 +35,10 @@ This skill is a **pipeline that ends with a created GitHub issue and a *gated* o
 6. Present the rendered issue, get the user's explicit confirmation, then create it (Step 4, sub-steps 1–5)
 7. After creation succeeds, run the gated implement-offer step — present the offer, or print the withheld-offer reason (Step 4, sub-step 6)
 
-Mark each item `in_progress` when you start and `completed` only when done — that is the canonical status vocabulary; a task tool whose status fields differ uses its nearest equivalents, and the inline checklist fallback expresses the same transitions with the markers defined below. **The issue is created only after the user explicitly confirms the rendered draft (todo 6) — never before.** A finished `/devflow:docs-verify` report is only todo 1. If the user has not yet confirmed, the pipeline is paused at todo 6, not complete; that is a valid waiting state, not a reason to create the issue anyway. Todo 7 runs only after a successful creation — it is the post-creation hand-off, not a gate on creating the issue.
+Mark each item `in_progress` when you start and `completed` only when done — that is the canonical status vocabulary; a task tool whose status fields differ uses its nearest equivalents, and the inline checklist fallback expresses the same transitions with the three status markers that `references/fallback-no-task-tool.md` defines. **The issue is created only after the user explicitly confirms the rendered draft (todo 6) — never before.** A finished `/devflow:docs-verify` report is only todo 1. If the user has not yet confirmed, the pipeline is paused at todo 6, not complete; that is a valid waiting state, not a reason to create the issue anyway. Todo 7 runs only after a successful creation — it is the post-creation hand-off, not a gate on creating the issue.
 
 **When no task-tracking tool is usable**, the inline-checklist fallback in `references/fallback-no-task-tool.md` tracks the same seven items; load it per the routing table below.
+
 ## Reference routing
 
 The per-step procedures and the conditional fallback arms live in `references/`, loaded at their trigger. **Load a reference by building its path from this skill's directory per the *Portable helper anchor* rules above** (the runner-reported skill base directory, with prompt-time Windows-path normalization) and **reading it with the runner's file-read tool** — never a new shell invocation. A load is accepted only when the file's **first line is its `start` boundary marker and its last line is the matching `end` marker**, each naming that file's own path, with exactly one of each.
@@ -46,10 +47,10 @@ The per-step procedures and the conditional fallback arms live in `references/`,
 
 | Load trigger | File | Marker contract | Degraded behavior on a failed load |
 | --- | --- | --- | --- |
-| Step 2 entry | `references/step-2-clarify.md` | `step=2` | Clarify from the Definition-of-Ready summary in the completion checklist, asking via the runner's user-question tool, and report the reduced clarification in chat |
+| Step 2 entry | `references/step-2-clarify.md` | `step=2` | Clarify from the Definition-of-Ready summary in the completion checklist, asking via the runner's user-question tool; record the derivation in chat when it cannot be written to disk, and report the reduced clarification |
 | Step 3.5 entry | `references/step-3-5-steelman.md` | `step=3.5` | Verify the draft's load-bearing claims and file references against the code inline, and report the steelman as reduced in chat |
 | Any revise-and-re-gate site | `references/revision-delta.md` | `step=revision-delta` | Re-gate the revision under Step 3 and report that the delta walk was unavailable |
-| Step 3.6 entry | `references/step-3-6-audit.md` | `step=3.6` | Conduct one in-chat audit round under the `state-owner unavailable` shape and mark the audit summary line accordingly |
+| Step 3.6 entry | `references/step-3-6-audit.md` | `step=3.6` | Audit the rendered draft yourself in chat for exactly one round, keep the findings in chat, ask the user once whether to continue, and mark the audit summary line as degraded |
 | Step 4 entry | `references/step-4-present-create.md` | `step=4` | Render the full draft in chat, carry the audit summary line, and create only on the user's explicit approval — the invariants below |
 | No task-tracking tool is exposed, or the exposed one is disabled or unusable | `references/fallback-no-task-tool.md` | `step=fallback-no-task-tool` | Track the seven checklist items as a re-rendered in-chat block and report that the state-file mirror was unavailable |
 | A write or delete under `.devflow/tmp/` fails because the filesystem is read-only | `references/fallback-read-only-sandbox.md` | `step=fallback-read-only-sandbox` | Post the affected artifact as a visible in-chat block in the current turn and distrust any on-disk copy |
@@ -86,7 +87,7 @@ Load `references/step-2-clarify.md` per the routing table above and follow it ex
 
 Draft the issue **from the context you already hold** — the documentation findings from Step 1 (relevant files, current behavior, any drift) and the decisions from Step 2 — doing only targeted verification reads where a specific claim needs confirming. Do not re-explore the whole codebase; the findings are your map.
 
-Follow `references/issue-template.md` for the required section structure, the **no-options rule**, the quality checklist, and autolink hygiene. Key rules:
+Follow `references/issue-template.md` for the required section structure, the **no-options rule**, the quality checklist, and autolink hygiene. This read is deliberately ungated (the file carries no boundary markers), so it has its own failure arm: if it cannot be read, say so in chat, draft against the section list in the completion checklist above, re-gate the body inline per Step 3's rule, and — because that file also carries the exact `gh issue create` recipe — do **not** improvise the invocation: pass the body through a non-empty-guarded `--body-file`, never a pipe. Filing is not blocked; the degradation is reported. Key rules:
 
 - **No-options gate (run before showing the draft):** re-read the rendered body. Outside the `## 🚫 Blocked` section it must contain **no** unresolved-decision language — no "or", "either", "alternatively", "could", "we might", "TBD", "option", "approach A vs B", "(optional)"-for-undecided, "e.g. X or Y" where X and Y are competing choices. Each acceptance criterion is one concrete unconditional assertion. If you find any such language, you skipped a decision: either ask the user now, or move it to the Blocked section. Do not proceed to Step 4 until the body is clean.
 
@@ -104,6 +105,7 @@ Load `references/step-3-6-audit.md` per the routing table above and follow it ex
 ### Step 4: Review with the user, then create
 
 Load `references/step-4-present-create.md` per the routing table above and follow it exactly, on every entry into this step.
+
 ---
 
 User Story (rough draft): $ARGUMENTS

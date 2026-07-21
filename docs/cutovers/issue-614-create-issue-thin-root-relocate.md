@@ -24,7 +24,7 @@ revision event, a predicate that never fires on a run whose steelman and audit f
 - `skills/create-issue/SKILL.md` — retained root: the portable-anchor preamble, the
   extension load, Prerequisites, the core principle, the completion checklist, Step 1,
   Step 3's drafting rules and no-options gate, the routing table, the entry-gate rule,
-  and the four non-degradable invariants. 2,623 words.
+  and the four non-degradable invariants. 2,732 words.
 - `skills/create-issue/references/step-2-clarify.md` — Step 2 in full: the Definition of
   Ready, the independent-derivation pass, the evidence-bundle sub-pass and its gates, the
   visual-specification guidance, and the clarification/disengagement machinery. 4,673 words.
@@ -32,7 +32,7 @@ revision event, a predicate that never fires on a run whose steelman and audit f
   verification loop. 2,133 words.
 - `skills/create-issue/references/step-3-6-audit.md` — the Step 3.6 audit lifecycle, the
   state-owner contract, the call sequence, and the shared Ledger-maintenance procedure.
-  7,663 words.
+  7,701 words.
 - `skills/create-issue/references/step-4-present-create.md` — Step 4's presentation gate,
   the confirmation gate, the iterate-on-feedback loop, creation, the `DevFlow` provenance
   stamp, and the gated implement offer. 5,362 words.
@@ -65,13 +65,13 @@ neither moved nor rewrote them.
 ## Conservation
 
 Relocated prose moves **verbatim** apart from extraction-seam splices. Post-split total
-(root + all 9 references) is 25,667 words; subtracting the 985 words of itemized structural
+(root + all 9 references) is 25,814 words; subtracting the 985 words of itemized structural
 overhead the split is required to add (boundary markers 108, routing table 325, entry-gate
-prose 155, non-degradable-invariants block 175, seam pointers 222) leaves 24,682 against a
-pre-split baseline of 24,473 — **+0.85%**, inside the ±2% tolerance. The full itemization,
+prose 155, non-degradable-invariants block 175, seam pointers 222) leaves 24,829 against a
+pre-split baseline of 24,473 — **+1.45%**, inside the ±2% tolerance. The full itemization,
 the two enforced ceilings, and the decision record live in
 [`docs/create-issue-budget.md`](../create-issue-budget.md).
 
-The always-loaded surface drops from 24,473 words to 2,623, and a default-path run — task
+The always-loaded surface drops from 24,473 words to 2,732, and a default-path run — task
 tool usable, writable filesystem, file-arm dispatch, state owner available — no longer loads
 the 2,291 words of fallback prose it previously carried on every run.

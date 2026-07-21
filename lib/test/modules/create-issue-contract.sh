@@ -1626,8 +1626,7 @@ for _ci614_ref in $CI614_REFS; do
   # A marker naming a DIFFERENT reference, pasted anywhere in the body, is one of the shapes
   # the root's degrade rule enumerates — the first/last-line checks above cannot see it.
   assert_eq "#614 T2: $_ci614_ref.md carries no marker naming a foreign reference path" "0" \
-    "$(grep -cF 'devflow:create-issue-ref' "$_ci614_p" | grep -q . && \
-       { grep -F 'devflow:create-issue-ref' "$_ci614_p" | grep -vcF "file=skills/create-issue/references/$_ci614_ref.md" || true; })"
+    "$(grep -F 'devflow:create-issue-ref' "$_ci614_p" | grep -vcF "file=skills/create-issue/references/$_ci614_ref.md" || true)"
   # The routing table's marker-contract column byte-matches the id this file carries.
   assert_eq "#614 T2: the routing row for $_ci614_ref.md states marker id \`step=$_ci614_id\`" "1" \
     "$(grep -F "references/$_ci614_ref.md\` |" "$CI_SKILL" | grep -cF "\`step=$_ci614_id\`")"
@@ -1757,6 +1756,53 @@ assert_eq "#614 T3/AC7 positive control: an over-ceiling operand turns the defau
   "clean=yes|planted=no" \
   "clean=$(ci614_under "$CI614_DEFAULT_W" "$CI614_DEFAULT_CEIL")|planted=$(ci614_under "$CI614_PLANT_W" "$CI614_DEFAULT_CEIL")"
 rm -f "$CI614_PLANT"
+# Ratchet enforcement (shadow finding): a ceiling is only legal at at-most measured+5%, so a
+# future change cannot simply RAISE the constant to admit growth — the module constant and the
+# doc literals are coupled and would be edited together in one commit, leaving no RED. Tying
+# each ceiling to its own live measurement makes a growth-by-ceiling-bump visibly illegal.
+assert_eq "#614 T3: the root ceiling is at most the measured value plus 5% (a raise needs a real measurement)" \
+  "yes" "$({ [ -n "$CI614_ROOT_W" ] && [ "$CI614_ROOT_CEIL" -le "$(( CI614_ROOT_W * 105 / 100 ))" ]; } 2>/dev/null && echo yes || echo no)"
+assert_eq "#614 T3: the default-path ceiling is at most the measured value plus 5% (a raise needs a real measurement)" \
+  "yes" "$({ [ -n "$CI614_DEFAULT_W" ] && [ "$CI614_DEFAULT_CEIL" -le "$(( CI614_DEFAULT_W * 105 / 100 ))" ]; } 2>/dev/null && echo yes || echo no)"
+
+# Conservation guard (shadow finding): the ceilings are ONE-SIDED, so a re-partition that
+# DROPS a paragraph no pin happens to cover makes the word count merely go down — which reads
+# as an improvement against a ratchet-down-only budget while contract prose silently vanishes.
+# AC6's conservation claim is what that would falsify, so the total gets a two-sided band.
+CI614_TOTAL_SET=("$CI_SKILL")
+for _ci614_ref in $CI614_REFS; do
+  CI614_TOTAL_SET+=("$CI_ROOT/skills/create-issue/references/$_ci614_ref.md")
+done
+CI614_TOTAL_W="$(ci614_words "${CI614_TOTAL_SET[@]}")"
+CI614_TOTAL_RECORDED=25814   # docs/create-issue-budget.md, root + all 9 references
+assert_eq "#614 T3: the root+references total is within +/-2% of the recorded conservation figure (a silent DROP is as RED as a rise)" \
+  "yes" "$({ [ -n "$CI614_TOTAL_W" ] \
+    && [ "$CI614_TOTAL_W" -ge "$(( CI614_TOTAL_RECORDED * 98 / 100 ))" ] \
+    && [ "$CI614_TOTAL_W" -le "$(( CI614_TOTAL_RECORDED * 102 / 100 ))" ]; } 2>/dev/null && echo yes || echo no)"
+
+# Positional reconciliation (shadow finding): the budget doc's headline measured figures are
+# hand-transcribed, so pin them AGAINST the live measurement rather than as bare literals —
+# the #656 prefer-generated-evidence rule applied to the two figures that drive the ceilings.
+assert_eq "#614 T3: the budget doc's recorded root measurement matches the live count" "yes" \
+  "$(grep -qF "| \`SKILL.md\` (root) | $(printf "%'d" "$CI614_ROOT_W" 2>/dev/null || echo "$CI614_ROOT_W") |" "$CI_ROOT/docs/create-issue-budget.md" && echo yes || echo no)"
+assert_eq "#614 T3: the budget doc's recorded root+references total matches the live count" "yes" \
+  "$(grep -qF "**$(printf "%'d" "$CI614_TOTAL_W" 2>/dev/null || echo "$CI614_TOTAL_W")**" "$CI_ROOT/docs/create-issue-budget.md" && echo yes || echo no)"
+
+# Step-reference purity (shadow finding): T4 proves fallback prose left the default path, but
+# nothing proved a STEP reference's prose did not ALSO remain in the root — a duplicated
+# procedure would load twice and drift into two disagreeing copies, this repo's dominant
+# coupled-mirror hazard. One representative literal per step reference, unique bundle-wide.
+ci614_step_unique() {  # <step-reference stem> <representative literal>
+  assert_eq "#614 T4: $1.md's relocated prose exists exactly once across the shipped skill (not duplicated in the root)" \
+    "1" "$(grep -cF "$2" "$CI_BUNDLE")"
+}
+ci614_step_unique step-2-clarify 'Clarification is the default, not the exception.'
+ci614_step_unique step-3-5-steelman 'This is a **code-grounded verification loop, not a re-read**'
+ci614_step_unique revision-delta '**Bind and walk the delta per edit-batch.**'
+ci614_step_unique step-3-6-audit '**Obey the state owner (the contract governing this whole step).**'
+ci614_step_unique step-4-present-create '**Show the complete rendered issue in chat.**'
+unset -f ci614_step_unique
+
 # The budget doc is the record of every live measured figure; the ceilings above are the
 # only checked-in literals, because a ceiling IS the enforcement (the #656 exemption).
 assert_eq "#614 T3: the budget doc exists" "yes" \
