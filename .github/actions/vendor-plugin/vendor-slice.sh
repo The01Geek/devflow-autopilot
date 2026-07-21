@@ -71,6 +71,15 @@ devflow_copy_slice() {
   # The vendored copy is a plugin, not a marketplace — keep only plugin.json.
   rm -f "$stage/.claude-plugin/marketplace.json"
   find "$stage" -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true
+  # No consumer run reaches the published-site HTML (docs/site/) or DevFlow's own
+  # test suite (lib/test/): both land under .devflow/vendor/devflow/, where a
+  # repo-root-relative lib/test/run.sh does not resolve and the site artifacts are
+  # a web page, not a code path — so ~11M of dead payload ships to every consumer.
+  # Prune them from the staged tree here, before the sanity floor (like the
+  # marketplace.json/__pycache__ prunes above), so the floor evaluates the tree
+  # that actually ships. Scoped to docs/site — the rest of docs/ is linked from
+  # shipped skill bodies and must stay (issue #677).
+  rm -rf "$stage/docs/site" "$stage/lib/test"
   # Sanity floor before the swap: the load-bearing members must have landed.
   if [ ! -d "$stage/scripts" ] || [ ! -f "$stage/.claude-plugin/plugin.json" ] \
      || [ ! -f "$stage/.devflow/config.schema.json" ]; then

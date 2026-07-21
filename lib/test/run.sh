@@ -28134,6 +28134,41 @@ assert_eq "vendor: self copies lib/" "yes" "$(vexists "$VS_SELF/lib")"
 assert_eq "vendor: self copies skills/" "yes" "$(vexists "$VS_SELF/skills")"
 assert_eq "vendor: self copies .devflow/tool-presets.json" "yes" "$(vexists "$VS_SELF/.devflow/tool-presets.json")"
 
+# #677: the slice prunes the published-site HTML and DevFlow's own test suite —
+# neither is reachable on any consumer path, and together they are ~11M of dead
+# payload. VS_SELF copies the REAL repo root (which carries both docs/site/ and
+# lib/test/), so observing the PRODUCED tree proves the prune ran rather than
+# merely that the helper exited zero. The exclusion pair is proven together with
+# the presence half below: an over-pruning implementation (e.g. dropping docs/
+# wholesale) would satisfy the absence assertions alone while breaking the skill
+# links that point into the rest of docs/.
+assert_eq "#677: self slice prunes docs/site (published-site HTML not shipped)" "no" "$(vexists "$VS_SELF/docs/site")"
+assert_eq "#677: self slice prunes lib/test (DevFlow's own suite not shipped)" "no" "$(vexists "$VS_SELF/lib/test")"
+# Presence half — the exclusion must not over-prune. The rest of docs/ is linked
+# from shipped skill bodies, and the non-test contents of lib/ stay. (The issue's
+# AC named docs/architecture.md, but that file does not exist in the repo — its
+# only mention is an example checklist string in agents/checklist-generator.md,
+# not a real doc link — so the produced-tree presence set is the real linked docs.)
+assert_eq "#677: self slice keeps docs/cloud-setup.md" "yes" "$(vexists "$VS_SELF/docs/cloud-setup.md")"
+assert_eq "#677: self slice keeps docs/efficiency-trace.md" "yes" "$(vexists "$VS_SELF/docs/efficiency-trace.md")"
+assert_eq "#677: self slice keeps docs/implement-skill.md" "yes" "$(vexists "$VS_SELF/docs/implement-skill.md")"
+assert_eq "#677: self slice keeps docs/review-agent-overrides.md" "yes" "$(vexists "$VS_SELF/docs/review-agent-overrides.md")"
+assert_eq "#677: self slice keeps docs/shadow-review.md" "yes" "$(vexists "$VS_SELF/docs/shadow-review.md")"
+assert_eq "#677: self slice keeps non-test lib/ contents (preflight.sh)" "yes" "$(vexists "$VS_SELF/lib/preflight.sh")"
+assert_eq "#677: self slice keeps scripts/" "yes" "$(vexists "$VS_SELF/scripts")"
+assert_eq "#677: self slice keeps .claude-plugin/plugin.json" "yes" "$(vexists "$VS_SELF/.claude-plugin/plugin.json")"
+assert_eq "#677: self slice keeps .devflow/config.schema.json" "yes" "$(vexists "$VS_SELF/.devflow/config.schema.json")"
+# Behavioral-fix pin: deleting the prune line from vendor-slice.sh must turn the
+# suite RED, so a future edit to the copy list cannot silently reintroduce either
+# subtree (AC: "reintroducing either directory turns the suite RED"). The mutation
+# strips the prune's target paths, re-shipping docs/site + lib/test.
+assert_pin_red_under "#677: vendor-slice prunes docs/site + lib/test (reintroduction goes RED)" \
+  'rm -rf "$stage/docs/site" "$stage/lib/test"' \
+  's|rm -rf "\$stage/docs/site" "\$stage/lib/test"|:|' "$VENDOR"
+# Repository is untouched by running the slice (the prune only touches $stage).
+assert_eq "#677: running the self slice leaves docs/site in the repo" "yes" "$(vexists "$REPO_ROOT/docs/site")"
+assert_eq "#677: running the self slice leaves lib/test in the repo" "yes" "$(vexists "$REPO_ROOT/lib/test")"
+
 # self-branch NEGATIVE: a consumer repo with its OWN top-level scripts/+skills/
 # but a non-devflow plugin.json must NOT be mistaken for the source repo — it
 # falls through to fetch. Guards the plugin.json name discriminator.
