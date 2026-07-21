@@ -78,11 +78,15 @@ devflow_copy_slice() {
   # .github/, which the slice does not copy, so it could only fail loudly in a
   # consumer tree). Placed after cp -R and before the sanity floor so the floor
   # evaluates the tree that actually ships; the whole $stage is rm -rf'd on any
-  # floor failure, so this can never leave a partially-pruned tree at $dest. Like
-  # the marketplace.json/__pycache__ prunes above, rm -rf is a no-op on an absent
-  # path; unlike those (which suppress errors to stay best-effort) this line is
-  # left unguarded, so an unexpected rm error aborts loudly under set -e — the
-  # preferred fail direction here.
+  # floor failure, so this can never leave a partially-pruned tree at $dest (a
+  # $stage orphan is still possible if this rm itself aborts — the self branch has
+  # no $stage trap — but that never lands at $dest). Like the marketplace.json/
+  # __pycache__ prunes above, rm -rf is a no-op on an absent path. It is left
+  # unguarded, so an unexpected rm error aborts loudly under set -e — the preferred
+  # fail direction here; the __pycache__ prune instead suppresses all errors
+  # (2>/dev/null || true) to stay best-effort, while marketplace.json's rm -f is
+  # likewise unguarded against an unexpected error, differing only in that -f
+  # ignores a missing file.
   rm -rf "$stage/docs/site" "$stage/lib/test"
   # Sanity floor before the swap: the load-bearing members must have landed.
   if [ ! -d "$stage/scripts" ] || [ ! -f "$stage/.claude-plugin/plugin.json" ] \

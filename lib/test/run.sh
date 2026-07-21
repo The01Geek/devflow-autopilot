@@ -28403,15 +28403,16 @@ assert_eq "#677 vendor: self slice excludes lib/test (DevFlow's own test suite)"
 # #677 presence backstops: the exclusion must not over-prune. Proving absence alone
 # would be satisfied by an implementation that pruned too much (e.g. all of docs/ or
 # all of lib/), so pair each excluded subtree with the reachable siblings that MUST
-# survive: representative docs/ files shipped skill bodies link to, the non-test lib/
-# contents, and the load-bearing top-level members. (Of the six docs files skill
-# bodies link to, five are pinned individually below; the sixth,
-# docs/DEVFLOW_SYSTEM_OVERVIEW.md, is already covered by the pre-existing
-# "vendor: self copies docs/" assertion above.)
+# survive: the docs/ files shipped skill bodies link to (each pinned individually
+# below), the non-test lib/ contents, and the load-bearing top-level members. The
+# per-file pins matter — the "vendor: self copies docs/" assertion above only checks
+# the docs/ directory exists, so an over-prune of a single linked doc would slip past
+# it but not past these.
 # (docs/architecture.md is named in the issue's AC3 but does not exist in the tree —
 # its only mention is an illustrative example string in agents/checklist-generator.md,
 # not a shipped link — so it is deliberately NOT asserted here; recorded as an
 # issue-accuracy reflection.)
+assert_eq "#677 vendor: self slice keeps docs/DEVFLOW_SYSTEM_OVERVIEW.md" "yes" "$(vexists "$VS_SELF/docs/DEVFLOW_SYSTEM_OVERVIEW.md")"
 assert_eq "#677 vendor: self slice keeps docs/cloud-setup.md" "yes" "$(vexists "$VS_SELF/docs/cloud-setup.md")"
 assert_eq "#677 vendor: self slice keeps docs/efficiency-trace.md" "yes" "$(vexists "$VS_SELF/docs/efficiency-trace.md")"
 assert_eq "#677 vendor: self slice keeps docs/implement-skill.md" "yes" "$(vexists "$VS_SELF/docs/implement-skill.md")"
