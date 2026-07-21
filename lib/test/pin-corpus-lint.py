@@ -750,14 +750,14 @@ def run_wrapped(pin_source, lib, overrides, md_targets,
 def _emit_wrapped_or_absent(pin, pin_source, nlit, nfile, lit,
                             reloc=False, reloc_paths=None, reloc_err=None,
                             reloc_excludes=(), cache=None):
+    site = f"{pin['helper']}@{pin_source}:{pin['lineno']}"
     if nlit and nlit in nfile:
         print(
-            f"WRAPPED\t{pin['file']}\t{pin['helper']}@{pin_source}:{pin['lineno']}\t"
+            f"WRAPPED\t{pin['file']}\t{site}\t"
             f"phrase occurs on NO single line but IS present in the whitespace-normalized "
             f"rendering — a wrapped-literal blind spot; pin the rendered surface\t{lit}"
         )
         return
-    site = f"{pin['helper']}@{pin_source}:{pin['lineno']}"
     if not reloc:
         # Relocation diagnosis off — the pre-#661 ABSENT emit, byte-identical.
         print(
