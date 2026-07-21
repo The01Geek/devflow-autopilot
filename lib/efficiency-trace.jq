@@ -40,10 +40,18 @@
 #   null             — dispatched but raised nothing, or nothing that survived
 #                      to an applied fix or a noise classification. A finding
 #                      whose only outcome is `deferred` (real, but out-of-scope
-#                      / already-tracked) or `severity-calibrated` (real, but
-#                      over-graded and calibrated down — not a false positive) is
-#                      deliberately `null`, NOT `noise`: `noise` is reserved for
-#                      `pushed_back` / `advisory` (false-positive / web-refuted).
+#                      / already-tracked), `severity-calibrated` (real, but
+#                      over-graded and calibrated down — not a false positive),
+#                      or `settled-by-disclosure` (real, but foreclosed because
+#                      the concern is already disclosed in the shipped tree —
+#                      issue #621) is deliberately `null`, NOT `noise`: `noise`
+#                      is reserved for `pushed_back` / `advisory` (false-positive
+#                      / web-refuted). A #660 review note proposing
+#                      `settled-by-disclosure` be bucketed as `noise` was
+#                      DECLINED on exactly this rule — a foreclosed finding is
+#                      true, so counting it as agent noise would understate the
+#                      agent. Revisit only if `noise` is redefined to mean
+#                      "raised but not acted on" rather than "false positive".
 #                      Any future `fix_decision` value also defaults to `null`
 #                      unless `verdict_for` is updated.
 #

@@ -31,10 +31,10 @@
     "skills/implement/phases/phase-1-setup.md": 82889,
     "skills/implement/phases/phase-2-implement.md": 90936,
     "skills/implement/phases/phase-3-review.md": 74255,
-    "skills/implement/phases/phase-4-documentation.md": 103397,
+    "skills/implement/phases/phase-4-documentation.md": 104483,
     "skills/init/SKILL.md": 33472,
-    "skills/pr-description/SKILL.md": 13471,
-    "skills/receiving-code-review/SKILL.md": 49644,
+    "skills/pr-description/SKILL.md": 16341,
+    "skills/receiving-code-review/SKILL.md": 50220,
     "skills/requesting-code-review/SKILL.md": 6078,
     "skills/retrospective-audit/SKILL.md": 13812,
     "skills/retrospective-weekly/SKILL.md": 36138,
@@ -43,11 +43,11 @@
     "skills/review-and-fix/references/convergence.md": 5080,
     "skills/review-and-fix/references/error-handling.md": 6946,
     "skills/review-and-fix/references/fix-delta-gate.md": 10304,
-    "skills/review-and-fix/references/fixing.md": 62660,
-    "skills/review-and-fix/references/loop-control.md": 37844,
-    "skills/review-and-fix/references/loop-exit.md": 45177,
-    "skills/review-and-fix/references/pre-fix-gates.md": 16231,
-    "skills/review-and-fix/references/shadow-review.md": 79276,
+    "skills/review-and-fix/references/fixing.md": 66028,
+    "skills/review-and-fix/references/loop-control.md": 39864,
+    "skills/review-and-fix/references/loop-exit.md": 46065,
+    "skills/review-and-fix/references/pre-fix-gates.md": 16477,
+    "skills/review-and-fix/references/shadow-review.md": 79930,
     "skills/review/SKILL.md": 49226,
     "skills/review/phases/phase-0-3-6-blocker-recheck.md": 19663,
     "skills/review/phases/phase-0-6-stale-prose-lint.md": 14883,
@@ -58,6 +58,6 @@
     "skills/review/phases/phase-4-1-7-stale-adjudication.md": 7130,
     "skills/review/phases/phase-4-1-8-prose-cutover.md": 3499,
     "skills/review/phases/phase-4-4-github-post.md": 6141,
-    "skills/review/phases/phase-4-verdict.md": 41646
+    "skills/review/phases/phase-4-verdict.md": 42117
   }
 }
