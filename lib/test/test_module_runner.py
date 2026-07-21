@@ -1273,15 +1273,16 @@ class ModuleRunnerTests(unittest.TestCase):
                     f"{module_id} references monolith-only helper(s): {helper_hits}",
                 )
                 self.assertIsNone(
-                    MODULE_SKIP_CALL_RE.search(module_text),
+                    MODULE_SKIP_CALL_RE.search(module_code),
                     f"{module_id} calls skip; modules may not self-skip",
                 )
 
     def test_promoted_fixture_helpers_are_defined_only_in_the_module_harness(self) -> None:
         # Issue #695: mint_blk / probe_tmp / probe_assert were PROMOTED out of the
-        # monolith, not copied — 15 mint_blk uses (and many probe_tmp/probe_assert uses)
-        # stay in lib/test/run.sh, so a second copy would be an uncoupled mirror of
-        # load-bearing logic. Each must have exactly one definition tree-wide, in
+        # monolith, not copied — uses of all three stay in lib/test/run.sh, so a second
+        # copy would be an uncoupled mirror of load-bearing logic (an exact use count is
+        # deliberately not stated here: it rots on the next edit to either file). Each
+        # must have exactly one definition tree-wide, in
         # lib/test/module-harness.sh, which lib/test/run.sh obtains by sourcing.
         harness_text = (ROOT / "lib/test/module-harness.sh").read_text(encoding="utf-8")
         shell_sources = sorted(ROOT.glob("lib/**/*.sh")) + sorted(ROOT.glob("scripts/**/*.sh"))

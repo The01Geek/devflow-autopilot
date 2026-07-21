@@ -316,6 +316,26 @@ class LabelDerivationTest(unittest.TestCase):
         text = 'assert_eq "#123 something" "1" "$x"\nassert_true "#124 other" yes\n'
         self.assertEqual(guard.derive_labels(text), {"123", "124"})
 
+    def test_every_pin_corpus_lint_helper_is_a_recognized_derivation_head(self):
+        # lib/test/pin-corpus-lint.py keeps its own HELPERS table of assertion helpers
+        # over the SAME two corpora (lib/test/run.sh + lib/test/modules/*.sh). A helper
+        # added there but not here makes arm 9 silently under-derive labels — a clean
+        # pass on real drift, in a guard whose entire job is completeness. Couple the
+        # two tables so that drift is RED instead. (Imported by path: the linter's
+        # filename is hyphenated, so it is not importable as a module name.)
+        lint_spec = importlib.util.spec_from_file_location(
+            "pin_corpus_lint", HERE / "pin-corpus-lint.py"
+        )
+        lint = importlib.util.module_from_spec(lint_spec)
+        lint_spec.loader.exec_module(lint)
+        missing = sorted(set(lint.HELPERS) - set(guard._BASE_ASSERTION_HEADS))
+        self.assertEqual(
+            missing,
+            [],
+            "pin-corpus-lint.py HELPERS the label derivation does not recognize: "
+            f"{missing} — add them to _BASE_ASSERTION_HEADS",
+        )
+
     def test_derives_from_the_namespaced_harness_api(self):
         text = (
             'devflow_module_pin_unique "#201 a" \'lit\' "$F"\n'

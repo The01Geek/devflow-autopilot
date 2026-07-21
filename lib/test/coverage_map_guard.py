@@ -22,6 +22,7 @@ error), 0 when clean.
 """
 from __future__ import annotations
 
+import functools
 import json
 import re
 import subprocess
@@ -69,9 +70,13 @@ REGISTRY_REMEDY = (
 # as coverage it does not carry.
 
 # Assertion heads recognized everywhere: the monolith's helpers plus the namespaced
-# harness API a module uses instead of them. `devflow_module_pin_count` is included
-# for coverage of the whole namespaced API; its first argument is a pinned literal
-# rather than a name, which only ever narrows what a module can under-report.
+# harness API a module uses instead of them. This set is a SUPERSET of
+# `lib/test/pin-corpus-lint.py`'s `HELPERS` table, which keys the same helpers over the
+# same two corpora — a coupling `test_coverage_map_guard.py` asserts, so a helper added
+# there can never leave this derivation silently under-reporting. The two counters
+# (`pin_count` / `devflow_module_pin_count`) take a pinned literal in first position
+# rather than a name; they are listed for whole-API coverage, and measured against the
+# shipped tree they derive no label the assertion heads do not already derive.
 _BASE_ASSERTION_HEADS = (
     "assert_eq",
     "assert_true",
@@ -79,18 +84,19 @@ _BASE_ASSERTION_HEADS = (
     "assert_pin_red_under",
     "assert_pin_red_on_removal",
     "check",
+    "pin_count",
     "devflow_module_pin_unique",
     "devflow_module_pin_red_under",
     "devflow_module_pin_present",
     "devflow_module_pin_count",
 )
 
-_FUNCTION_DEF_RE = re.compile(r"^([ \t]*)([A-Za-z_][A-Za-z0-9_]*)\(\)[ \t]*\{", re.MULTILINE)
+_FUNCTION_DEF_RE = re.compile(r"([ \t]*)([A-Za-z_][A-Za-z0-9_]*)\(\)[ \t]*\{")
 _LABEL_RE = re.compile(r"#(\d{2,5})")
 
 
-def _function_bodies(text: str) -> "dict[str, str]":
-    """Map each `name() {` definition in TEXT to its body text.
+def _function_bodies(lines: "list[str]") -> "dict[str, str]":
+    """Map each `name() {` definition in LINES to its body text.
 
     A ONE-LINE definition (`mktemp() { return 1; }` — the fixture-stub shape
     `lib/test/run.sh` uses to shadow a command inside a subshell) yields only the text
@@ -100,16 +106,18 @@ def _function_bodies(text: str) -> "dict[str, str]":
     closer never appears on a line of its own, so a shared fallback would hand a stub
     named `sed`/`mktemp` a "body" made of the surrounding real assertions and promote
     it to an assertion head. A definition whose closer is genuinely never found yields
-    the remainder of the file, which can only over-approximate."""
-    lines = text.split("\n")
-    starts: "list[tuple[int, str, str, int]]" = []
-    for match in _FUNCTION_DEF_RE.finditer(text):
-        line_index = text.count("\n", 0, match.start())
-        line_start = text.rfind("\n", 0, match.start()) + 1
-        starts.append((line_index, match.group(2), match.group(1), match.end() - line_start))
+    the remainder of the file, which can only over-approximate.
+
+    Takes the already-split LINES rather than the raw text: a `finditer` over the whole
+    file would need each match's line number, and deriving that with `text.count("\n",
+    0, start)` rescans the prefix per match — hundreds of megabytes of scanning on the
+    50,000-line monolith, for a fact a single ordered pass already has."""
     bodies: "dict[str, str]" = {}
-    for line_index, name, indent, brace_offset in starts:
-        line = lines[line_index]
+    for line_index, line in enumerate(lines):
+        match = _FUNCTION_DEF_RE.match(line)
+        if match is None:
+            continue
+        name, indent, brace_offset = match.group(2), match.group(1), match.end()
         if "}" in line[brace_offset:]:
             bodies[name] = line[brace_offset : line.rindex("}")]
             continue
@@ -123,16 +131,15 @@ def _function_bodies(text: str) -> "dict[str, str]":
     return bodies
 
 
-def _assertion_heads(text: str) -> "set[str]":
-    """The base heads plus every module-private assertion wrapper defined in TEXT.
+def _assertion_heads(lines: "list[str]") -> "set[str]":
+    """The base heads plus every module-private assertion wrapper defined in LINES.
 
     A wrapper is a function that FORWARDS ITS OWN FIRST POSITIONAL into a recognized
     head's name slot — `assert_eq "$1" …`, `devflow_module_pin_unique "$1" …`, `"$@"` —
     the shape of `_cap_fail`, `_ra_has`, `_raf_pin_unique`, `drp` and friends.
-    Discovery iterates to a fixpoint so a wrapper around a wrapper is also covered.
-    Without this, converting a monolith `assert_pin_unique` call to the namespaced
-    API or to a private wrapper would make the label invisible — exactly the blindness
-    that made the retired `generated_by` scanner under-report module coverage.
+    Discovery iterates to a fixpoint so a wrapper around a wrapper is also covered; each
+    pass tests only the heads the previous pass added, since a body already checked
+    against an older head cannot newly match it.
 
     The forwarding requirement is what keeps the over-approximation safe. Merely
     *containing* a head is far too loose: `lib/test/run.sh` writes fixture stub scripts
@@ -141,20 +148,28 @@ def _assertion_heads(text: str) -> "set[str]":
     those as heads would make every ordinary `sed 's/#604/#609/'` derive a spurious
     label from a fixture argument — a name the tree never asserts."""
     heads = set(_BASE_ASSERTION_HEADS)
-    bodies = _function_bodies(text)
-    while True:
-        grown = False
-        for name, body in bodies.items():
-            if name in heads:
-                continue
-            for head in heads:
-                forwards = rf"(?<![A-Za-z0-9_]){re.escape(head)}[ \t]+\"\$(?:\{{1\}}|[1@])\""
-                if re.search(forwards, body):
-                    heads.add(name)
-                    grown = True
-                    break
-        if not grown:
-            return heads
+    pending = {
+        name: body
+        for name, body in _function_bodies(lines).items()
+        if name not in heads
+    }
+    frontier = list(heads)
+    while frontier:
+        patterns = [_forwarding_pattern(head) for head in frontier]
+        frontier = []
+        for name in list(pending):
+            if any(pattern.search(pending[name]) for pattern in patterns):
+                heads.add(name)
+                frontier.append(name)
+                del pending[name]
+    return heads
+
+
+def _forwarding_pattern(head: str):
+    """Compiled matcher for HEAD invoked with the caller's own first positional."""
+    return re.compile(
+        rf"(?<![A-Za-z0-9_]){re.escape(head)}[ \t]+\"\$(?:\{{1\}}|[1@])\""
+    )
 
 
 def derive_labels(text: str) -> "set[str]":
@@ -163,23 +178,30 @@ def derive_labels(text: str) -> "set[str]":
     A label is derived only from the first quoted argument of an assertion call — the
     assertion NAME. Comments are stripped from consideration by the same rule: a `#`
     comment carries no assertion head in command position followed by a quoted name."""
-    heads = _assertion_heads(text)
-    alternation = "|".join(sorted((re.escape(head) for head in heads), key=len, reverse=True))
-    # The separator admits a `\`-continuation, so a call whose name argument wraps to
-    # the next line is still anchored at name position rather than silently missed.
-    call_re = re.compile(
-        rf"(?<![A-Za-z0-9_])(?:{alternation})[ \t\\\n]+(\"(?:[^\"\\]|\\.)*\"|'[^']*')"
-    )
+    lines = text.split("\n")
+    call_re = _call_pattern(frozenset(_assertion_heads(lines)))
     # An assertion head can never be invoked from inside a `#` comment line, so the
     # comment lines are dropped before the scan — this is what makes a label token
     # that appears only in a comment underive, per the arm's positional contract.
-    code = "\n".join(
-        line for line in text.split("\n") if not line.lstrip().startswith("#")
-    )
+    code = "\n".join(line for line in lines if not line.lstrip().startswith("#"))
     labels: "set[str]" = set()
     for match in call_re.finditer(code):
         labels.update(_LABEL_RE.findall(match.group(1)))
     return labels
+
+
+@functools.lru_cache(maxsize=None)
+def _call_pattern(heads: "frozenset[str]"):
+    """Compiled `<head> <quoted-name>` matcher for a head set.
+
+    Cached because the six modules whose files define no wrapper all resolve to the
+    same base head set, so they share one compile. The separator admits a
+    `\\`-continuation, so a call whose name argument wraps to the next line is still
+    anchored at name position rather than silently missed."""
+    alternation = "|".join(sorted((re.escape(head) for head in heads), key=len, reverse=True))
+    return re.compile(
+        rf"(?<![A-Za-z0-9_])(?:{alternation})[ \t\\\n]+(\"(?:[^\"\\]|\\.)*\"|'[^']*')"
+    )
 
 
 def _depth1(path: str) -> bool:
@@ -393,11 +415,18 @@ def _fully_extracted(run_sh_labels, module_labels):
     and is never an attribution violation."""
     carriers: "dict[str, list[str]]" = {}
     for module_id, labels in sorted(module_labels.items()):
-        for label in labels:
-            if label in run_sh_labels:
-                continue
+        for label in _reportable(labels) - run_sh_labels:
             carriers.setdefault(label, []).append(module_id)
-    return carriers
+    return {label: sorted(ids) for label, ids in carriers.items()}
+
+
+def _reportable(labels):
+    """LABELS minus the synthetic aggregate key.
+
+    Filtered once, here, at every boundary where a derived or mapped label set enters
+    the arm — so no downstream loop needs its own exemption arm, and a loop added later
+    cannot silently report or repair the synthetic key."""
+    return set(labels) - {UNLABELED_KEY}
 
 
 def _arm9(run_sh_blocks, valid_ids, run_sh_labels, module_labels, scan_read_errors):
@@ -413,9 +442,7 @@ def _arm9(run_sh_blocks, valid_ids, run_sh_labels, module_labels, scan_read_erro
         # mapped label as unmatched — the read failure above is the recorded signal.
         return violations
 
-    for label in sorted(run_sh_labels - set(run_sh_blocks), key=_label_sort_key):
-        if label == UNLABELED_KEY:
-            continue
+    for label in sorted(_reportable(run_sh_labels) - set(run_sh_blocks), key=_label_sort_key):
         violations.append(
             f"[arm9] label {label!r} is asserted in {RUN_SH_REL} but has no "
             f"coverage-map run_sh_blocks entry — {ARM9_REMEDY}"
@@ -430,8 +457,6 @@ def _arm9(run_sh_blocks, valid_ids, run_sh_labels, module_labels, scan_read_erro
     for label, carriers in sorted(
         _fully_extracted(run_sh_labels, module_labels).items(), key=lambda kv: _label_sort_key(kv[0])
     ):
-        if label == UNLABELED_KEY:
-            continue
         named = ", ".join(carriers)
         entry = run_sh_blocks.get(label)
         if entry is None:
@@ -453,7 +478,7 @@ def _arm9(run_sh_blocks, valid_ids, run_sh_labels, module_labels, scan_read_erro
 
 def _label_sort_key(label: str):
     """Numeric-first ordering so violation lists are stable and human-readable."""
-    return (0, int(label), "") if label.isdigit() else (1, 0, label)
+    return (0, int(label)) if label.isdigit() else (1, label)
 
 
 def _git_tracked(repo_root: Path):
@@ -516,14 +541,10 @@ def _apply_fix(map_value, run_sh_labels, module_labels):
     historical record arm 9 deliberately does not report, so `--fix` does not delete it."""
     blocks = map_value["run_sh_blocks"]
     changed = False
-    for label in sorted(run_sh_labels, key=_label_sort_key):
-        if label == UNLABELED_KEY or label in blocks:
-            continue
+    for label in sorted(_reportable(run_sh_labels) - set(blocks), key=_label_sort_key):
         blocks[label] = {"note": "", "owner": UNMODULARIZED}
         changed = True
     for label, carriers in _fully_extracted(run_sh_labels, module_labels).items():
-        if label == UNLABELED_KEY:
-            continue
         owner = carriers[0]
         entry = blocks.get(label)
         if entry is None:
@@ -577,10 +598,10 @@ def main(argv):
     # row whose `#619 A3` assertion proves the pass leaves it byte-unchanged. The
     # positional repo-root argument is unchanged, so lib/test/run.sh's existing
     # invocation needs no edit.
-    arguments = [argument for argument in argv[1:] if argument != "--fix"]
+    positional = [argument for argument in argv[1:] if argument != "--fix"]
+    repo_root = Path(positional[0]).resolve() if positional else Path.cwd()
     if "--fix" in argv[1:]:
-        return _run_fix(Path(arguments[0]).resolve() if arguments else Path.cwd())
-    repo_root = Path(argv[1]).resolve() if len(argv) > 1 else Path.cwd()
+        return _run_fix(repo_root)
     # git is preflight-guaranteed, but honor the file's fail-closed-with-a-named-breadcrumb
     # posture (the JSON reads do the same via _load_json) rather than letting a git failure
     # surface as a raw traceback.
