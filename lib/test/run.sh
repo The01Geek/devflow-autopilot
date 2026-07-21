@@ -36610,6 +36610,18 @@ if _F666="$(mktemp -d 2>/dev/null)" && [ -n "$_F666" ] && [ -d "$_F666" ]; then
   assert_eq "#666 mutation-routing: one deletion exempts at most one addition of the same literal" \
     "1" "$(printf '%s\n' "$_MR_DUP" | grep -c 'MR_LIT_DUP')"
 
+  # A None-literal added site (the literal is an unresolvable variable, not a static string)
+  # is NEVER exempt by move — `None == None` would otherwise pair arbitrary malformed pins —
+  # so it is still reported as `<unresolved-literal>`, even against a same-shaped deletion.
+  printf '%s\n' 'assert_pin_unique "none-lit" "$MR_UNRES" "$F"' > "$_F666/none.sh"
+  printf '%s\n' "--- a/x" "+++ b/x" "@@" \
+    '+assert_pin_unique "none-lit" "$MR_UNRES" "$F"' \
+    '-assert_pin_unique "none old" "$MR_UNRES" "$OTHER"' \
+    > "$_F666/none.diff"
+  _MR_NONE="$(_mr_run "$_F666/none.sh" "$_F666/none.diff")"
+  assert_eq "#666 mutation-routing: a None-literal added site is never exempt by move (still reported)" \
+    "yes" "$(printf '%s' "$_MR_NONE" | grep -q '<unresolved-literal>' && echo yes || echo no)"
+
   # An empty diff yields no findings; a missing diff file is reported but still exits 0.
   : > "$_F666/empty.diff"
   _MR_EMPTY="$(_mr_run "$_F666/src.sh" "$_F666/empty.diff")"
@@ -36636,6 +36648,30 @@ assert_eq "#666 overbreadth: an s/.*// blanking mutation (empties every line, li
 assert_eq "#666 overbreadth: an existing single-line delete mutation still passes (regression control)" \
   "PASS" "$(probe_assert assert_pin_red_under 'ob-ok' 'OB_LINE_ONE the operative content lives here' '/OB_LINE_ONE/d' "$_OBF")"
 rm -f "$_OBF"
+
+# #666 overbreadth guard — the per-helper sibling assertions the issue-666 test plan mandates
+# ("one sibling assertion per helper"): assert_count_red_under carries its OWN separately-inlined
+# guard (part 2 of 2), which measures the mutated SLICE (not the whole file), so a blank-the-file
+# mutation reaches it only through the sliced measurement. The fixture keeps the two anchors short
+# and the counted lines long, so a mutation that blanks the counted content of the slice while
+# PRESERVING the anchors (the anchor re-check at step 6 would otherwise fire ANCHOR-COLLAPSE first)
+# retains <5% of the real slice's non-whitespace and trips MUTATION-OVERBROAD — proving the count
+# helper's reject arm actually executes, not merely that its regression controls stay green.
+# Single-char anchors (S / E) keep the anchor lines from dominating the slice's
+# non-whitespace, so blanking the three long counted lines drops retention below the
+# 1/20 bound (5 retained of ~130 → ~4%) and trips MUTATION-OVERBROAD; longer anchors
+# would keep retention above 5% and the reject arm would never fire.
+_OCF="$(probe_tmp '#666 overbreadth count-helper fixture setup')"
+printf 'S\nCOUNTED_alpha the operative counted content lives on line two here\nCOUNTED_bravo the operative counted content lives on line three here\nCOUNTED_charlie the operative counted content lives on line four here\nE\n' > "$_OCF"
+# assert_count_red_under uses the two-line FAIL protocol (echo FAIL; echo <token>), so
+# probe_assert's tail -n 1 returns the CAUSE token — asserting MUTATION-OVERBROAD (not a bare
+# FAIL) attributes the rejection to the overbreadth guard specifically, never a sibling arm
+# (ANCHOR-COLLAPSE / BOUND-VIOLATED) rejecting first (guard-class shape 3 discipline).
+assert_eq "#666 overbreadth: a blank-the-counted-slice mutation is rejected by assert_count_red_under (MUTATION-OVERBROAD)" \
+  "MUTATION-OVERBROAD" "$(probe_assert assert_count_red_under 'ob-count' '^S$' '^E$' '^COUNTED_' -ge 3 's/^COUNTED_.*/x/' "$_OCF")"
+assert_eq "#666 overbreadth: an operative single-counted-line mutation still passes assert_count_red_under (regression control)" \
+  "PASS" "$(probe_assert assert_count_red_under 'ob-count-ok' '^S$' '^E$' '^COUNTED_' -ge 3 's/^COUNTED_bravo.*/kept but renamed harmlessly/' "$_OCF")"
+rm -f "$_OCF"
 
 # #666 the gate's OWN behavioral-fix pin, expressed through assert_pin_red_under (never a plain
 # assert_pin_unique — the gate must obey the rule it enforces). It guards the OPERATIVE clause of

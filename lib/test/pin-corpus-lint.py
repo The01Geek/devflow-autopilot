@@ -57,15 +57,17 @@ interpolates a variable it cannot resolve, or the target file is a variable with
 no ``--var`` binding and no ``$LIB``-relative assignment) is COUNTED and reported
 on stderr, never silently skipped.
 
-Both subcommands exit 0. Findings go to stdout (one per line, tab-separated);
+All three subcommands exit 0. Findings go to stdout (one per line, tab-separated);
 the unresolvable count and per-site detail go to stderr.
 
 CLI::
 
-    pin-corpus-lint.py lint    PIN_SOURCE [--lib DIR] [--var NAME=PATH ...]
-    pin-corpus-lint.py wrapped PIN_SOURCE [--lib DIR] [--var NAME=PATH ...]
-                               [--reloc] [--reloc-search-set FILE]
-                               [--reloc-exclude SUBSTR ...]
+    pin-corpus-lint.py lint            PIN_SOURCE [--lib DIR] [--var NAME=PATH ...]
+    pin-corpus-lint.py wrapped         PIN_SOURCE [--lib DIR] [--var NAME=PATH ...]
+                                       [--reloc] [--reloc-search-set FILE]
+                                       [--reloc-exclude SUBSTR ...]
+    pin-corpus-lint.py mutation-routing PIN_SOURCE --diff-file FILE
+                                       [--lib DIR] [--var NAME=PATH ...]
 
 ``PIN_SOURCE`` is the shell file whose pin call sites are scanned (``run.sh``
 itself for the real corpus, a synthetic fixture for the self-tests). ``--var``
@@ -79,6 +81,8 @@ ls-files``; ``--reloc-exclude SUBSTR`` (repeatable) drops any tracked path
 containing SUBSTR anywhere in it -- a substring test, not an anchored prefix --
 from the search set (the pin-source file(s) that declare the literal); a token
 that resolves to the same file as a candidate (abspath-equal) is dropped too.
+``--diff-file FILE`` (``mutation-routing`` only, required) supplies the unified
+diff whose added/deleted lines scope the declaration gate.
 
 Known limitation: the search set is read as UTF-8, so a non-UTF-8 tracked file
 (an image, a binary fixture) is an UNREADABLE candidate. That direction is safe
