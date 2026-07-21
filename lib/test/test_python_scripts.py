@@ -6949,12 +6949,18 @@ def _cw_healthy_grants():
 assert_eq("#650 AC9: a fully-granted synthetic grant set passes",
           [], cwc.check_grant_sync(_cw_healthy_grants()))
 
-# (a) A reachable literal with no explicit grant is caught.
+# (a) A reachable literal with no explicit grant is caught, and the violation
+# NAMES the dropped literal (not merely "some literal is ungranted" — a guard
+# reporting the wrong literal would send a reader to the wrong grant).
+assert_eq("#650 AC9: the implement head list has >=2 entries (precondition of the drop-one fixture)",
+          True, len(cwc.REQUIRED_HELPER_HEADS["implement"]) >= 2)
+_gs_dropped = cwc.REQUIRED_HELPER_HEADS["implement"][0]
 _gs_miss = _cw_healthy_grants()
 _gs_miss["implement"] = "\n".join(
     "TOOLS='Bash(%s:*)'" % lit for lit in cwc.REQUIRED_HELPER_HEADS["implement"][1:])
-assert_eq("#650 AC9: a reachable literal lacking an explicit grant is caught",
-          True, any("grants no explicit" in e for e in cwc.check_grant_sync(_gs_miss)))
+assert_eq("#650 AC9: a reachable literal lacking an explicit grant is caught, naming that literal",
+          True, any("grants no explicit" in e and _gs_dropped in e
+                    for e in cwc.check_grant_sync(_gs_miss)))
 
 # (b) An absolute-path widened grant for a reachable helper is caught.
 _gs_abs = _cw_healthy_grants()
@@ -7010,6 +7016,96 @@ _gs_comment["review"] = _gs_comment["review"].replace(
 assert_eq("#650 AC9: a commented-out reachable grant does not count (fail-open guard)",
           True, any("workpad.py" in e and "grants no explicit" in e
                     for e in cwc.check_grant_sync(_gs_comment)))
+
+# (i) An INLINE (trailing) comment carrying the grant likewise does not count.
+# This is the arm the earlier full-line-only strip failed open on: a grant living
+# only in prose after a real YAML value satisfied arm (1) for a helper the profile
+# does not actually grant, so the run would die at a silent matcher denial
+# (#363/#401) with the guard green.
+_gs_inline = _cw_healthy_grants()
+_gs_inline["review"] = _gs_inline["review"].replace(
+    "TOOLS='Bash(.devflow/vendor/devflow/scripts/workpad.py:*)'",
+    "TOOLS='Bash(git:*)'  # was Bash(.devflow/vendor/devflow/scripts/workpad.py:*)")
+assert_eq("#650 AC9: an INLINE-commented reachable grant does not count either",
+          True, any("workpad.py" in e and "grants no explicit" in e
+                    for e in cwc.check_grant_sync(_gs_inline)))
+
+# A `#` INSIDE a quoted scalar is not a comment — the strip must not truncate a
+# real grant line and manufacture a spurious ungranted violation (the opposite
+# fail direction of (i); a naive `line.split("#")[0]` would fail this).
+assert_eq("#650 AC9: a '#' inside a quoted scalar does not truncate a real grant",
+          [], cwc.check_grant_sync(
+              {pr: _cw_healthy_grants()[pr] + "\n    body: 'see issue #650 for context'"
+               for pr in cwc.ROOTS}))
+
+# (j) Widening polarity is FAIL-CLOSED: a grant covering a reachable helper is a
+# violation regardless of whether its shape is one of the named classes. Each row
+# below was silently ACCEPTED by the earlier three-prefix classifier, whose
+# unrecognized-shape arm returned None and dropped the finding.
+for _spec, _why in (
+        (".devflow/vendor/devflow/scripts/*", "directory glob over the vendored helper dir"),
+        ("*", "blanket grant"),
+        ("**/workpad.py", "leading ** (not the '*/' prefix)"),
+        ("*workpad.py", "leading * without a slash"),
+        ("./scripts/workpad.py", "'./'-relative path (not the 'scripts/' prefix)"),
+        ("../scripts/workpad.py", "parent-relative path"),
+        ("~/scripts/workpad.py", "home-relative path"),
+        ("workpad.py", "bare basename, executable from anywhere on PATH"),
+):
+    _gs_cover = _cw_healthy_grants()
+    _gs_cover["implement"] += "\nTOOLS='Bash(%s:*)'" % _spec
+    assert_eq("#650 AC9: a covering grant '%s' (%s) is caught, not waved through"
+              % (_spec, _why),
+              True, any("widens" in e for e in cwc.check_grant_sync(_gs_cover)))
+
+# _classify_widening NEVER returns None — labelling can no longer drop a finding.
+for _spec, _label in (("/abs/workpad.py", "absolute"), ("*/workpad.py", "basename-wildcard"),
+                      ("scripts/workpad.py", "repo-root"), ("lib/x.sh", "repo-root"),
+                      ("**/workpad.py", "wildcard"), ("workpad.py", "unclassified")):
+    assert_eq("#650 AC9: _classify_widening('%s') labels as '%s' (never None)" % (_spec, _label),
+              _label, cwc._classify_widening(_spec))
+
+# A bare granted command that is NOT a reachable helper stays clean — the
+# healthy-tree control for the widened polarity above (every non-vendored grant
+# the real workflows carry is exactly this shape: awk, jq, git, …).
+_gs_bare = _cw_healthy_grants()
+_gs_bare["implement"] += "\nTOOLS='Bash(awk:*)'\nTOOLS='Bash(jq:*)'"
+assert_eq("#650 AC9: a bare non-helper command grant is not a widening",
+          [], cwc.check_grant_sync(_gs_bare))
+
+# (k) A profile MISSING from an injected profile_grants dict takes the same
+# unavailable arm as an explicit None (the .get() miss, distinct from (f)).
+_gs_absent = _cw_healthy_grants()
+del _gs_absent["review"]
+assert_eq("#650 AC9: a profile absent from the injected grant map is reported unavailable",
+          True, any("grant source unavailable" in e for e in cwc.check_grant_sync(_gs_absent)))
+
+# (l) The ON-DISK read arm: an unreadable workflow path yields the same targeted
+# violation rather than an empty grant set. (f)/(k) drive only the injected path,
+# so without this the `except (OSError, ValueError) -> None` arm is unexercised —
+# a regression returning "" (silently zero grants) would ship green.
+_gs_orig_roots_wf = cwc.ROOTS["review"]["workflow"]
+try:
+    cwc.ROOTS["review"]["workflow"] = ".github/workflows/does-not-exist-650.yml"
+    assert_eq("#650 AC9: an unreadable on-disk workflow is reported unavailable, not zero grants",
+              True, any("grant source unavailable" in e for e in cwc.check_grant_sync()))
+finally:
+    cwc.ROOTS["review"]["workflow"] = _gs_orig_roots_wf
+# Restoration is load-bearing for every later assertion — pin it.
+assert_eq("#650 AC9: ROOTS['review'] workflow restored after the on-disk arm",
+          [], cwc.check_grant_sync())
+
+# (m) main(["grant-sync"])'s FAILURE arm returns 1 (only the exit-0 arm was
+# pinned; a swapped return code would ship green).
+_gs_orig_check = cwc.check_grant_sync
+try:
+    cwc.check_grant_sync = lambda *a, **k: ["AC9 grant-sync: synthetic violation"]
+    assert_eq("#650 AC9: grant-sync main subcommand exits 1 when violations exist",
+              1, cwc.main(["grant-sync"]))
+finally:
+    cwc.check_grant_sync = _gs_orig_check
+assert_eq("#650 AC9: grant-sync main subcommand still exits 0 after the failure-arm probe",
+          0, cwc.main(["grant-sync"]))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Cloud-writer trust-closure dependency classification (issue #583, AC5).
