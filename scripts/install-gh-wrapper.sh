@@ -124,7 +124,8 @@ FINGERPRINT_FILE="${DEVFLOW_GH_FINGERPRINT_FILE:-$RUNNER_TEMP/devflow-gh-fingerp
 # platform and says so on stderr rather than asserting a guarantee it did not
 # establish. os.chmod cannot repair it either (Windows honors only the
 # read-only flag), which is why no chmod is introduced on this path: the
-# umask 077 above stays the sole producer of the file's mode.
+# umask 077 above stays the sole producer of the file's mode, keeping the
+# suite's umask-mutation proof meaningful.
 _fpcap="$(python3 -c 'import os,sys; print(os.name, oct(os.stat(sys.argv[1]).st_mode & 0o777)[2:])' "$FINGERPRINT_FILE" 2>/dev/null || true)"
 # Split with bash builtins ONLY. Routing a security gate's verdict through a
 # non-preflight PATH tool (the CLAUDE.md guard-class-2 rule) would empty the

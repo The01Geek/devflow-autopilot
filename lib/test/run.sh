@@ -47872,11 +47872,15 @@ D533="$(mktemp -d)"
 mkdir -p "$D533/bin" "$D533/rtmp" "$D533/emptybin"
 printf '#!/usr/bin/env bash\necho "REALGH_CALLED $*"\n' > "$D533/bin/gh"; chmod +x "$D533/bin/gh"
 : > "$D533/ghenv"; : > "$D533/ghpath"
+# The success fixture env, held in ONE place so every runner below (_i533 and the
+# #690 stderr-only sibling _i690) shares it. A new installer env seam is added
+# here once, rather than in two blocks ~120 lines apart where the second would
+# silently keep running against a stale environment and still pass.
+_ENV533=(PATH="$D533/bin:$PATH" DEVFLOW_GH_SOURCE_SH="$LIB/../scripts/gh-fresh.sh"
+         APP_TOKEN=FIXTURE_TOKEN_533 RUNNER_TEMP="$D533/rtmp" GITHUB_ENV="$D533/ghenv" GITHUB_PATH="$D533/ghpath"
+         DEVFLOW_GH_WRAPDIR="$D533/wrapdir" DEVFLOW_GH_FINGERPRINT_FILE="$D533/rtmp/devflow-gh-fingerprint")
 _i533() {  # run the installer with the success fixture env, overriding via "$@"
-  env PATH="$D533/bin:$PATH" DEVFLOW_GH_SOURCE_SH="$LIB/../scripts/gh-fresh.sh" \
-      APP_TOKEN=FIXTURE_TOKEN_533 RUNNER_TEMP="$D533/rtmp" GITHUB_ENV="$D533/ghenv" GITHUB_PATH="$D533/ghpath" \
-      DEVFLOW_GH_WRAPDIR="$D533/wrapdir" DEVFLOW_GH_FINGERPRINT_FILE="$D533/rtmp/devflow-gh-fingerprint" \
-      "$@" bash "$INSTALL533" 2>&1
+  env "${_ENV533[@]}" "$@" bash "$INSTALL533" 2>&1
 }
 # output 1: no executable real gh (gh-less PATH).
 _o533_1="$(env APP_TOKEN=t GITHUB_ENV="$D533/ghenv" GITHUB_PATH="$D533/ghpath" \
@@ -47983,9 +47987,11 @@ _stub690() {  # $1 = the exact line the stubbed python3 prints for the os.name+m
 }
 _i690() {  # stdout discarded, stderr captured; $1 (optional) overrides the installer path
   rm -f "$D533/rtmp/devflow-gh-fingerprint"; : > "$D533/ghenv"; : > "$D533/ghpath"
-  env PATH="$D533/py690:$D533/bin:$PATH" DEVFLOW_GH_SOURCE_SH="$LIB/../scripts/gh-fresh.sh" \
-      APP_TOKEN=FIXTURE_TOKEN_533 RUNNER_TEMP="$D533/rtmp" GITHUB_ENV="$D533/ghenv" GITHUB_PATH="$D533/ghpath" \
-      DEVFLOW_GH_WRAPDIR="$D533/wrapdir690" DEVFLOW_GH_FINGERPRINT_FILE="$D533/rtmp/devflow-gh-fingerprint" \
+  # Reuses _ENV533 (the shared fixture env), prepending the stubbed python3 to
+  # PATH and giving these cases their own wrapper dir. It cannot simply call
+  # _i533: that helper ends `2>&1`, merging stderr into stdout INSIDE the
+  # function, so no outer redirection could recover a stderr-only capture.
+  env "${_ENV533[@]}" PATH="$D533/py690:$D533/bin:$PATH" DEVFLOW_GH_WRAPDIR="$D533/wrapdir690" \
       bash "${1:-$INSTALL533}" 2>&1 1>/dev/null
 }
 # Passing cases. posix+600 is the unchanged POSIX behavior; nt+666 and nt+444 are
@@ -48024,8 +48030,8 @@ for _c690 in 'posix 644' 'posix banana' 'posix' \
   assert_eq "#690: stubbed capture '$_c690' keeps the strict comparison — rc 1 naming (fingerprint-mode)" "1 yes" \
     "$_rc690_f $(printf '%s' "$_e690_f" | grep -qF 'output 5/7 FAILED' && printf '%s' "$_e690_f" | grep -qF '(fingerprint-mode)' && echo yes || echo no)"
 done
-# The platform token and the mode value come from ONE python3 invocation reading
-# ONE os.stat result, so no execution path can attribute them to two interpreters.
+# Pinned so no execution path can attribute the token and the mode to two
+# different interpreters (a second os.stat could observe a different file state).
 assert_eq "#690: the platform token and the mode are read by a single python3 invocation from a single os.stat" "1" \
   "$(grep -cF "python3 -c 'import os,sys; print(os.name, oct(os.stat(sys.argv[1]).st_mode & 0o777)[2:])'" "$INSTALL533")"
 # The relaxed arm is an ALLOWLIST equality against the literal nt. A negated test

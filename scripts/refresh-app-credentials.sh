@@ -267,9 +267,8 @@ run_cycle() {
   git config --file "$cfg" --replace-all "http.${SERVER_URL}/.extraheader" "$header" 2>/dev/null \
     || { warn "cycle: rewriting the extraheader in '$cfg' failed — push credential NOT rewritten"; return 1; }
 
-  # Surface 2: the mode-0600 token file the gh wrapper reads at call time —
-  # mode-0600 only where POSIX mode bits apply; on Windows the umask and chmod
-  # below are ineffective and access is left to the filesystem's ACLs (#690).
+  # Surface 2: the mode-0600 token file the gh wrapper reads at call time
+  # (mode-0600 only where POSIX mode bits apply — see the header's item 2, #690).
   # Write to
   # a temp file in the same dir and atomically rename into place, so a concurrent
   # gh-fresh.sh read never observes a truncated/partial token (mirroring the
