@@ -28,7 +28,7 @@ kind: growth
   orchestrator could carry unprompted; each is a conditional keyed to an
   observable predicate — the invocation exited 0 and its stdout parsed as a JSON
   object carrying both values, or it did not.
-- Round-2 review growth (+690 bytes) is the cost of making that predicate
+- Round-2 review growth (+797 bytes total) is the cost of making that predicate
   actually observable. The shipped wording keyed the `missing` arm on the helper
   "producing no output", which no failure path satisfies — every failure path
   writes a `{"ok": false, "reason": …}` record to stderr — so the arm was
@@ -36,7 +36,11 @@ kind: growth
   derived. Replacing it with the exit-status-plus-stdout-parse predicate, and
   directing the reader to surface a non-null `rebound_from` in fact 10's value,
   cannot be expressed in fewer bytes than the vaguer text they replace; both were
-  written as in-place sentence rewrites rather than added paragraphs.
+  written as in-place sentence rewrites rather than added paragraphs. A further
+  in-place clause names the reason source when no `{"ok": false}` record was
+  written at all — three of the enumerated causes (an absent helper, a denied
+  invocation, an unavailable interpreter) produce no such record, so without it
+  the reason text was unspecified for exactly those arms.
 - The read-only contract is amended in place rather than evaded: the mutate
   sentence is rescoped from `worktree files` to `tracked content`, and the one
   gitignored session-artifact write is named as permitted text. That is a
