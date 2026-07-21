@@ -27,6 +27,7 @@
 CI_ROOT="${DEVFLOW_CREATE_ISSUE_CONTRACT_ROOT:-${LIB%/lib}}"
 CI_SKILL="$CI_ROOT/skills/create-issue/SKILL.md"
 CI_TMPL="$CI_ROOT/skills/create-issue/references/issue-template.md"
+CI_TMPL_AUDIT="$CI_ROOT/skills/create-issue/references/audit-prompt-template.md"  # #600 audit-prompt renderer template
 CI_EXT="$CI_ROOT/.devflow/prompt-extensions/create-issue.md"
 CI_OVERVIEW="$CI_ROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 CI_CLAUDE="$CI_ROOT/CLAUDE.md"
@@ -215,7 +216,7 @@ echo "create-issue contract: issue #443 Step 3.6 fresh-context audit"
 # Verdict-line requirement (maps to the audit-prompt AC): removing "legal values are exactly"
 # guts the FILE/REVISE/DRAFT-UNREADABLE verdict contract (issue #522 widened it to three values).
 devflow_module_pin_red_under "#443: Step 3.6 mandates the FILE/REVISE/DRAFT-UNREADABLE verdict line" \
-  'whose only three legal values are exactly' 's/legal values are exactly//' "$CI_SKILL"
+  'whose only three legal values are exactly' 's/legal values are exactly//' "$CI_TMPL_AUDIT"
 devflow_module_pin_present "#522: Step 3.6 names the VERDICT: DRAFT-UNREADABLE legal value" \
   'VERDICT: DRAFT-UNREADABLE' "$CI_SKILL"
 # Presence (not uniqueness): the FILE/REVISE verdict values recur across the template, the
@@ -262,21 +263,23 @@ devflow_module_pin_red_under "#443: Step 4 revision loop offers a fresh re-audit
   "$CI_SKILL"
 # Dispatch-time fresh re-load of the extension (maps to the forwarding-freshness AC): removing
 # the fresh re-load lets a compaction-evicted turn-one load silently drop consumer dimensions.
-devflow_module_pin_red_under "#443: consumer audit dimensions are re-loaded FRESH at dispatch time" \
-  'extract from that **fresh** output any section headed exactly' \
-  's/any section headed exactly//' "$CI_SKILL"
+devflow_module_pin_red_under "#443/#600: consumer audit dimensions are re-loaded FRESH at dispatch time (renderer-native)" \
+  'The re-load remains mandatory-fresh at dispatch' \
+  's/mandatory-fresh//' "$CI_SKILL"
 # Forwarding-contract heading, pinned as a COUPLED PAIR (maps to the forwarding-contract and
 # extension-file ACs): the skill's forwarding sentence and this repo's live extension must both
 # carry the exact `## Audit dimensions` heading; either side drifting turns its pin RED.
-devflow_module_pin_unique "#443: skill forwarding contract keys on the exact ## Audit dimensions heading" \
-  'headed exactly `## Audit dimensions`' "$CI_SKILL"
+# (#600 cutover) retired: this extraction-rule / re-load-site prose pin is
+# superseded — scripts/render-audit-prompt.py now owns the heading-extraction
+# and the `## Audit dimensions` forwarding; its regression is covered by
+# lib/test/test_render_audit_prompt.py (R4 extraction matrix, R11 checklist).
 devflow_module_pin_unique "#443: live create-issue extension carries the exact ## Audit dimensions heading" \
   '## Audit dimensions' "$CI_EXT"
 # Generic dimension checklist is consumer-agnostic (maps to the dimension-checklist AC).
 devflow_module_pin_unique "#443: generic dimensions name host-OS variance without GNU coreutils" \
-  'hosts without GNU coreutils' "$CI_SKILL"
+  'hosts without GNU coreutils' "$CI_TMPL_AUDIT"
 devflow_module_pin_unique "#443: generic dimensions name execution-tier permission-allowlist variance" \
-  'including their differing permission allowlists' "$CI_SKILL"
+  'including their differing permission allowlists' "$CI_TMPL_AUDIT"
 # Reconciliation absence pin (maps to the reconciliation AC): the stale literal must be GONE from
 # the skill (it legitimately remains in CHANGELOG.md's historical entry, so this pin is FILE-scoped).
 assert_eq "#443: SKILL no longer carries the stale 'no-subagent, all-inline model' literal" \
@@ -323,23 +326,23 @@ devflow_module_pin_red_under "#443: audit artifact deletes any same-slug leftove
 # element — so plain devflow_module_pin_unique is the honest primitive (a removed/duplicated surface
 # flips count away from 1 → RED); no operative-vs-framing distinction applies to a surface pin.
 devflow_module_pin_unique "#443: audit prompt carries the adversarial mandate (no credit for good intent)" \
-  'no credit for good intent' "$CI_SKILL"
+  'no credit for good intent' "$CI_TMPL_AUDIT"
 devflow_module_pin_unique "#443: audit prompt carries the pre-mortem frame (write the autopsy)" \
-  'write the autopsy' "$CI_SKILL"
+  'write the autopsy' "$CI_TMPL_AUDIT"
 devflow_module_pin_unique "#443: per-finding bar requires quoting the exact draft line attacked" \
-  'quote the exact draft line it attacks' "$CI_SKILL"
+  'quote the exact draft line it attacks' "$CI_TMPL_AUDIT"
 devflow_module_pin_unique "#443: per-finding bar reports an unverifiable claim as unverifiable" \
-  'report an unverifiable claim as unverifiable rather than asserting it' "$CI_SKILL"
+  'report an unverifiable claim as unverifiable rather than asserting it' "$CI_TMPL_AUDIT"
 devflow_module_pin_unique "#443: scope exclusions judge the draft at issue altitude" \
-  'judge the draft at **issue altitude**' "$CI_SKILL"
+  'judge the draft at **issue altitude**' "$CI_TMPL_AUDIT"
 devflow_module_pin_unique "#443: scope exclusions require a concrete trigger scenario per finding" \
-  'no finding without a concrete trigger scenario' "$CI_SKILL"
+  'no finding without a concrete trigger scenario' "$CI_TMPL_AUDIT"
 devflow_module_pin_unique "#443: audit prompt caps findings at five" \
-  'at most five findings' "$CI_SKILL"
+  'at most five findings' "$CI_TMPL_AUDIT"
 devflow_module_pin_unique "#443: audit prompt reserves exactly one Quiet Killer slot" \
-  '"Quiet Killer"' "$CI_SKILL"
+  '"Quiet Killer"' "$CI_TMPL_AUDIT"
 devflow_module_pin_unique "#443: the empty 'no actionable findings' output is explicitly legal" \
-  'no actionable findings' "$CI_SKILL"
+  'no actionable findings' "$CI_TMPL_AUDIT"
 # Audit-summary required contents (maps to the audit-summary AC — the observability contract's
 # operative fields, distinct from the never-silent rationale clause pinned above).
 devflow_module_pin_unique "#443: audit summary states whether a consumer audit-dimensions section was appended" \
@@ -425,9 +428,9 @@ devflow_module_pin_red_under "#522: Step 3.6 writes the canonical draft file bef
   's/ to the canonical draft file//' "$CI_SKILL"
 # (2) Read-the-file-as-sole-draft-source — removing it lets the auditor judge an embedded/
 #     remembered copy, re-opening the same condensation-drift channel.
-devflow_module_pin_red_under "#522: audit prompt reads the draft file as the sole draft source" \
-  'Read the draft file `{absolute issue-draft-<slug>.md path}` as the sole draft source' \
-  's/as the sole draft source//' "$CI_SKILL"
+devflow_module_pin_red_under "#522/#600: template reads the draft file as the sole draft source (amended two-transport ordering)" \
+  'Read the draft file `{DRAFT_PATH}` as the sole draft source' \
+  's/as the sole draft source//' "$CI_TMPL_AUDIT"
 # (3) Narrowed reasoning-artifacts-only out-of-bounds list — putting the draft back on the
 #     file-arm out-of-bounds list makes the artifact under audit unreadable to the auditor.
 devflow_module_pin_red_under "#522: draft file is NOT on the file-arm out-of-bounds list" \
@@ -489,7 +492,7 @@ devflow_module_pin_unique "#522: Step 3.5 summary reports the dimension self-che
 # re-anchors an auditor on prior verdicts exactly as the live file did, and this skill no longer
 # writes (or deletes) that path, so only the out-of-bounds declaration covers it.
 devflow_module_pin_unique "#522: audit-prompt template out-of-bounds names exactly the 4 reasoning artifacts" \
-  'The following on-disk files are **out of bounds** — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, and `.devflow/tmp/issue-audit-state-<slug>.md`' "$CI_SKILL"
+  'The following on-disk files are **out of bounds** — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, and `.devflow/tmp/issue-audit-state-<slug>.md`' "$CI_TMPL_AUDIT"
 # The retired-.md rationale is itself pinned: it is the one out-of-bounds entry with no live
 # producer, so a future reader who "tidies" it away silently re-opens the re-anchoring channel.
 devflow_module_pin_unique "#546: the retired .md event log stays declared out of bounds (pre-cutover leftovers re-anchor)" \
@@ -524,17 +527,58 @@ devflow_module_pin_unique "#522: file-arm carriage check returns a full-content 
 # silently disabling the whole identity check. Symmetric with the out-of-bounds template pin.
 # (AMENDED by #546 to `--no-filters`, for the digest_filter_mode_rows reason above.)
 devflow_module_pin_unique "#522: audit-prompt template instructs the auditor to return a git hash-object digest" \
-  'run `git hash-object --no-filters` on that draft file and quote the object ID it prints verbatim' "$CI_SKILL"
+  'run `git hash-object --no-filters` on that draft file and quote the object ID it prints verbatim' "$CI_TMPL_AUDIT"
 # Template-side DRAFT-UNREADABLE emit condition (iteration-4 review finding F): the only other
 # guard over this token is a non-discriminating devflow_module_pin_count>=1 that stays GREEN as long as the
 # token survives anywhere; this pins the template's operative emit-condition sentence so deleting
 # the instruction that tells the auditor WHEN to produce the third verdict flips RED.
 devflow_module_pin_unique "#522: audit-prompt template states the DRAFT-UNREADABLE emit condition" \
-  'If you cannot read the file, return **no findings** and end with' "$CI_SKILL"
+  'If you cannot read the file, return **no findings** and end with' "$CI_TMPL_AUDIT"
 # Degraded-arm carve-out: the inline arm has no subagent/file, so it must NOT emit the
 # file-arm-only third verdict value — deleting this carve-out re-opens a spurious emit.
 devflow_module_pin_unique "#522: degraded inline arm emits no VERDICT: DRAFT-UNREADABLE" \
   'emits **no `VERDICT: DRAFT-UNREADABLE`**' "$CI_SKILL"
+
+# ── #600 audit-prompt renderer cutover ─────────────────────────────────────
+# Absence pins: the moved operative audit-prompt sentences left the SKILL (they
+# now live in $CI_TMPL_AUDIT, pinned there by the re-anchored pins above). A
+# regression that re-embeds the block into the SKILL goes RED here.
+for _m600 in \
+  'no credit for good intent' \
+  'write the autopsy' \
+  'at most five findings' \
+  'no finding without a concrete trigger scenario' \
+  'Generic dimension checklist'; do
+  assert_eq "#600 absence: moved audit-prompt sentence left the SKILL ($_m600)" "0" \
+    "$(grep -cF "$_m600" "$CI_SKILL")"
+done
+# The SKILL carries the compact-preamble transport contract (five categories,
+# the renderer invocation, and the positional two-marker delivery check).
+# Phase 0.6 tags the "complete by construction" consumption-categories sentence as a
+# count-locked claim, so bind the count to an assertion (the repo's pin-or-don't-write
+# policy): if a sixth consumption category is added without amending the enumeration,
+# or a category is dropped, the marker count moves and this goes RED rather than
+# leaving an unpinned completeness claim to rot.
+devflow_module_pin_unique "#600: the consumption-categories enumeration reaches its fifth member" \
+  '(v) The **`state-owner unavailable` fallback' "$CI_SKILL"
+assert_eq "#600: the consumption-categories enumeration has no sixth member (complete-by-construction claim stays true)" \
+  "0" "$(devflow_module_pin_count '(vi)' "$CI_SKILL")"
+devflow_module_pin_unique "#600: SKILL invokes render-audit-prompt.py on the file arm" \
+  'render-audit-prompt.py file --slug' "$CI_SKILL"
+devflow_module_pin_unique "#600: SKILL states the positional two-marker delivery check" \
+  'first line begins `render-status:`' "$CI_SKILL"
+devflow_module_pin_unique "#600: SKILL derives the appended flag from the auditor returned quote" \
+  'derives from the auditor' "$CI_SKILL"
+devflow_module_pin_unique "#600: SKILL names the template-unreadable terminal arm" \
+  '`template-unreadable`' "$CI_SKILL"
+devflow_module_pin_unique "#600: Step 2 evidence-axes forwarding consumes the renderer extract mode" \
+  'render-audit-prompt.py extract --hook evidence-axes' "$CI_SKILL"
+devflow_module_pin_unique "#600: Step 3.5 self-check runs the renderer checklist mode" \
+  'render-audit-prompt.py checklist' "$CI_SKILL"
+# The template file owns the moved audit-prompt template + the amended read-ordering sentence.
+devflow_module_pin_unique "#600: template owns the amended two-transport read-ordering sentence" \
+  'before any repository read other than the renderer invocation, or the documented template-file fallback read, that produced these instructions' "$CI_TMPL_AUDIT"
+# ────────────────────────────────────────────────────────────────────────────
 # Embed-arm out-of-bounds list (the inverse of the file arm's list — re-adds the draft path):
 # symmetric with the file-arm template-enumeration pin above. #546 widened it 4 → 5 files, in
 # lockstep with the file arm's 3 → 4: the state `.json` and the retired `.md` are both named.
@@ -715,7 +759,7 @@ devflow_module_pin_unique "#462 rule3: quality-checklist mirror line for the uns
   'are each resolved with a cited probe or an implementer-obligation AC' "$CI_TMPL"
 # Step 3.6 — one consolidated generic dimension + the growth policy.
 devflow_module_pin_unique "#462 dim: Step 3.6 generic checklist carries the consolidated authoring-discipline dimension" \
-  'Authoring-discipline defects** — three related shapes' "$CI_SKILL"
+  'Authoring-discipline defects** — three related shapes' "$CI_TMPL_AUDIT"
 devflow_module_pin_unique "#462 dim: Step 3.6 audit-prompt area states the finding-cap growth policy" \
   'execution-blocking defect classes outrank authoring-discipline classes for the finding-cap slots' "$CI_SKILL"
 # Extension — one consolidated DevFlow-specific sharpening.
@@ -743,7 +787,7 @@ devflow_module_pin_unique "#467 A2: Step 3.5 runs the universal-quantifier sweep
 devflow_module_pin_unique "#467 A2: Step 3.5 item-6 summary states the falsifiable zero arm" \
   'the draft carries no ungrounded universal quantifier' "$CI_SKILL"
 devflow_module_pin_unique "#467 A3: Step 3.6 Load-bearing-assumptions dimension names universal quantifiers" \
-  'including any **universal quantifier** the draft asserts' "$CI_SKILL"
+  'including any **universal quantifier** the draft asserts' "$CI_TMPL_AUDIT"
 # A3 count guard — the generic dimension checklist size is guard-locked (dimension-growth policy).
 # The count is 9 after issue #464 (merged) appended the "Adversarial third-party input" dimension;
 # #467 sharpened the "Load-bearing assumptions" dimension in place, adding no row (the growth-policy
@@ -758,17 +802,17 @@ devflow_module_pin_unique "#467 A3: Step 3.6 Load-bearing-assumptions dimension 
 # by binding each anchor to the exact ^** column-0 predicate sed uses, so the range can never
 # silently un-bound (rename, removal, OR position drift all go RED at the desk).
 devflow_module_pin_unique "#467 A3: the generic-dimension-checklist sed START anchor is present and unique" \
-  '**Generic dimension checklist' "$CI_SKILL"
+  '**Audit dimensions** (judge the draft against each):' "$CI_TMPL_AUDIT"
 devflow_module_pin_unique "#467 A3: the generic-dimension-checklist sed END anchor is present and unique" \
-  '**Dimension-list growth policy' "$CI_SKILL"
+  '{CONSUMER_DIMENSIONS}' "$CI_TMPL_AUDIT"
 # Line-anchored anchor checks (close the position-drift hole the substring pins above cannot):
 # each heading must match the sed range's ^** column-0 shape exactly once.
 assert_eq "#467 A3: the generic-dimension-checklist sed START anchor matches at line-start exactly once" "1" \
-  "$(grep -c '^\*\*Generic dimension checklist' "$CI_SKILL")"
+  "$(grep -c '^\*\*Audit dimensions' "$CI_TMPL_AUDIT")"
 assert_eq "#467 A3: the generic-dimension-checklist sed END anchor matches at line-start exactly once" "1" \
-  "$(grep -c '^\*\*Dimension-list growth policy' "$CI_SKILL")"
+  "$(grep -c '^{CONSUMER_DIMENSIONS}' "$CI_TMPL_AUDIT")"
 assert_eq "#467 A3: Step 3.6 generic dimension checklist is 9 bullets (8 base + #464's dimension; #467 added none)" "9" \
-  "$(sed -n '/^\*\*Generic dimension checklist/,/^\*\*Dimension-list growth policy/p' "$CI_SKILL" | grep -c '^- \*\*')"
+  "$(sed -n '/^\*\*Audit dimensions/,/^{CONSUMER_DIMENSIONS}/p' "$CI_TMPL_AUDIT" | grep -c '^- \*\*')"
 # Cluster B — occurrence-count premise class (coupled template<->Step-3.5) + checklist mirror; AC
 # mutual-consistency check (Step 3.5 + template AC guidance + checklist mirror).
 devflow_module_pin_unique "#467 B1 (coupled/template): template names the occurrence-count/site-list premise class" \
@@ -894,10 +938,12 @@ devflow_module_pin_unique "#548: unestablished-axes disclosure sentence" \
   'discloses by name every effective-list axis that is' "$CI_SKILL"
 devflow_module_pin_unique "#548: no-citation-grade arm withholds the marking visibly" \
   'marking and its rationale states that no citation-grade evidence exists' "$CI_SKILL"
-devflow_module_pin_unique "#548: heading-extraction rule (defined once, both hooks)" \
-  'duplicate same-heading sections are concatenated in file order' "$CI_SKILL"
-devflow_module_pin_unique "#548: dual-heading independence — each hook at its own site" \
-  'The two hooks are extracted independently at their own consumption sites' "$CI_SKILL"
+devflow_module_pin_unique "#548/#600: heading-extraction rule owned by the renderer/template" \
+  'duplicate same-heading sections are concatenated in file order' "$CI_TMPL_AUDIT"
+# (#600 cutover) retired: this extraction-rule / re-load-site prose pin is
+# superseded — scripts/render-audit-prompt.py now owns the heading-extraction
+# and the `## Audit dimensions` forwarding; its regression is covered by
+# lib/test/test_render_audit_prompt.py (R4 extraction matrix, R11 checklist).
 devflow_module_pin_unique "#548: loader-failure arm records the dedicated line" \
   'consumer axes: unestablished — loader denied or failed' "$CI_SKILL"
 devflow_module_pin_unique "#548: ## Evidence axes forwarding sentence (SKILL contract, exact heading)" \
@@ -941,38 +987,43 @@ assert_eq "#611 AC2: the sequencing rule is not restated at the Step 4 override 
 # terminator precision and naming its single implementation. The '## '-plus-space
 # precision is what makes a `###` sub-heading section CONTENT rather than a
 # terminator; the older bare-`##` wording admitted the opposite reading.
-devflow_module_pin_unique "#611 AC6: the terminator is '## ' — two hashes plus a space" \
-  'two hashes PLUS A SPACE' "$CI_SKILL"
-devflow_module_pin_unique "#611 AC6: an unclosed fence runs to end of file" \
-  'an unclosed fence runs to end of file' "$CI_SKILL"
-devflow_module_pin_unique "#611 AC6: the rule names the loader as its single implementation (coupled pair)" \
-  'is its single implementation (a coupled pair, edited together)' "$CI_SKILL"
-devflow_module_pin_unique "#611 AC6: empty-section vs absent-heading now differ by the stderr breadcrumb" \
-  'an empty section stays breadcrumb-free' "$CI_SKILL"
-# The four re-load sites name the sectioned form. Two hooks, two sites each.
+# (#600 cutover) retired here, in source order: the '## ' terminator-precision pin,
+# the unclosed-fence-runs-to-EOF pin, the single-implementation (coupled-pair) pin,
+# and the empty-section-vs-absent-heading breadcrumb pin. All four are superseded —
+# scripts/render-audit-prompt.py now owns the heading-extraction rule and the
+# `## Audit dimensions` forwarding, so their regressions are covered by
+# lib/test/test_render_audit_prompt.py (R4 extraction matrix, R11 checklist).
+# The surviving `## Evidence axes` re-load sites name the sectioned form.
 assert_eq "#611 AC6: two re-load sites request the '## Evidence axes' section" \
   "2" "$(devflow_module_pin_count "load-prompt-extension.sh create-issue --section '## Evidence axes'" "$CI_SKILL")"
-assert_eq "#611 AC6: two re-load sites request the '## Audit dimensions' section" \
-  "2" "$(devflow_module_pin_count "load-prompt-extension.sh create-issue --section '## Audit dimensions'" "$CI_SKILL")"
-# The shared wiring sentence is present at ALL FOUR sites — a report-then-proceed step
+# (#600 cutover) retired: this extraction-rule / re-load-site prose pin is
+# superseded — scripts/render-audit-prompt.py now owns the heading-extraction
+# and the `## Audit dimensions` forwarding; its regression is covered by
+# lib/test/test_render_audit_prompt.py (R4 extraction matrix, R11 checklist).
+# The shared wiring sentence is present at every surviving site — a report-then-proceed step
 # stated at only some of them is exactly the peer-asymmetry defect the repo's
 # peer-checkpoint sweep exists to catch, and it would read as correct in a diff.
-assert_eq "#611 AC6: the report-then-proceed wiring is present at all four re-load sites" \
-  "4" "$(devflow_module_pin_count 'a **report-then-proceed** step, never a stall, a user question, or a degraded-arm claim' "$CI_SKILL")"
-assert_eq "#611 AC6: the exit-2-is-unestablished wiring is present at all four re-load sites" \
+assert_eq "#611/#600 AC6: the report-then-proceed wiring is present at the surviving re-load sites" \
+  "3" "$(devflow_module_pin_count 'a **report-then-proceed** step, never a stall, a user question, or a degraded-arm claim' "$CI_SKILL")"
+# Four sites state the unestablished-is-never-laundered wiring: the two loader
+# re-load sites (Step 2, bundle-coverage gate) read it off a loader exit-2, and the
+# two renderer-owned sites (the Step 3.5 self-check, the Step 3.6 forwarding bullet)
+# read it off an `unestablished` render-status. Same discipline, two mechanisms.
+assert_eq "#611 AC6: the unestablished-is-never-laundered wiring is present at all four sites" \
   "4" "$(devflow_module_pin_count 'never laundered into the designed absent-heading no-op' "$CI_SKILL")"
-# The amended no-op sentence, at both of its occurrences (Step 2 and Step 3.6).
-assert_eq "#611 AC6: both no-op sentences state the absent heading is now breadcrumbed" \
-  "2" "$(devflow_module_pin_count 'that absent heading is now breadcrumbed and reported rather than invisible' "$CI_SKILL")"
+# The amended no-op sentence, at its surviving Step 2 occurrence.
+assert_eq "#611/#600 AC6: the surviving no-op sentence states the absent heading is now breadcrumbed" \
+  "1" "$(devflow_module_pin_count 'that absent heading is now breadcrumbed and reported rather than invisible' "$CI_SKILL")"
 # AC8 names this one specifically: the Step 3.6 parenthetical is reduced to a pure
 # reference, so no second full statement of the rule survives anywhere in the file.
-devflow_module_pin_unique "#611 AC6/AC8: the Step 3.6 restatement is reduced to a pure reference" \
-  'that sentence is the specification of record for both hooks and is not restated here' "$CI_SKILL"
+# (#600 cutover) retired here: the AC8 "Step 3.6 restatement is a pure reference"
+# pin — superseded, the template file now owns the only full statement of the rule;
+# regression covered by lib/test/test_render_audit_prompt.py (R4, R11).
 # Pin a phrase that EXISTS and whose loss would mean the rule stopped being stated, not the
 # absence of a wording that never appeared in the file — an absence pin on a never-present
 # string passes under any reworded restatement, so it polices nothing.
-assert_eq "#611 AC6: the extraction rule's terminator precision is stated exactly once" \
-  "1" "$(devflow_module_pin_count 'two hashes PLUS A SPACE' "$CI_SKILL")"
+# (#600 cutover) retired here: the "terminator precision is stated exactly once"
+# pin — superseded for the same reason; regression covered by R4's extraction matrix.
 devflow_module_pin_unique "#548: bounded actionability definitions (must-revise)" \
   'a verified correctness, safety, implementability, unresolved-decision, or load-bearing-premise defect' "$CI_SKILL"
 devflow_module_pin_unique "#548: VERDICT: FILE may carry advisory findings" \
@@ -980,7 +1031,7 @@ devflow_module_pin_unique "#548: VERDICT: FILE may carry advisory findings" \
 devflow_module_pin_unique "#548: VERDICT: REVISE requires a verified unresolved must-revise finding" \
   'requires at least one verified unresolved must-revise finding' "$CI_SKILL"
 devflow_module_pin_unique "#548: Quiet-Killer becomes an assessed one-or-none slot" \
-  'report at most one qualifying Quiet Killer, or explicitly report' "$CI_SKILL"
+  'report at most one qualifying Quiet Killer, or explicitly report' "$CI_TMPL_AUDIT"
 devflow_module_pin_unique "#603: effective-count T1 sentence (supersedes the #548 at-close wording)" \
   'T1 consumes the RUN-WIDE EFFECTIVE unresolved must-revise count' "$CI_SKILL"
 devflow_module_pin_unique "#548: fail-closed T2 gains the unadjudicated-round arm" \
@@ -1113,9 +1164,9 @@ done
 #    line-scoped), so a phrase that wraps in the prose is pinned by its on-line fragment.
 # AC1 — Step 3.6 generic dimension checklist gains the adversarial-third-party-input dimension.
 devflow_module_pin_unique "#464 AC1: Step 3.6 generic checklist gains the adversarial-third-party-input dimension" \
-  'Adversarial third-party input' "$CI_SKILL"
+  'Adversarial third-party input' "$CI_TMPL_AUDIT"
 devflow_module_pin_unique "#464 AC1: the dimension carries the input-is-data guard (data to classify, not obey)" \
-  'data to classify, never instructions to obey' "$CI_SKILL"
+  'data to classify, never instructions to obey' "$CI_TMPL_AUDIT"
 # The growth-policy carve-out reconciling the appended standalone dimension with the
 # consolidate-before-appending rule is itself a coupled contract sentence — pin it so a future
 # edit that drops it (leaving the dimension and the policy silently self-contradicting) goes RED.
