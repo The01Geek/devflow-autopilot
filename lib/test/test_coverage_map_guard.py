@@ -363,6 +363,30 @@ class LabelDerivationTest(unittest.TestCase):
     def test_a_bare_label_token_outside_any_assertion_is_not_derived(self):
         self.assertEqual(guard.derive_labels('X="#998 just a string"\n'), set())
 
+    def test_a_one_line_command_stub_is_not_promoted_to_an_assertion_head(self):
+        # lib/test/run.sh shadows commands inside subshells with one-line stubs
+        # (`mktemp() { return 1; }`, `sed() { return 2; }`). A body-extractor that only
+        # looks for a `}` on its OWN line hands such a stub the surrounding real
+        # assertions as its "body", promotes `sed`/`mktemp` to an assertion head, and
+        # then derives a bogus label from any ordinary `sed \'s/#604/#609/\'` argument.
+        text = (
+            "  sed() { return 2; }\n"
+            "  mktemp() { return 1; }\n"
+            'assert_eq "#700 the real assertion" "1" "1"\n'
+            "sed 's/#604/#609/' \"$F\" > \"$G\"\n"
+        )
+        self.assertEqual(guard.derive_labels(text), {"700"})
+        self.assertNotIn("sed", guard._assertion_heads(text))
+        self.assertNotIn("mktemp", guard._assertion_heads(text))
+
+    def test_a_wrapper_must_forward_its_own_first_positional(self):
+        # A function that merely CONTAINS an assertion head is not a wrapper; only one
+        # that forwards "$1"/"$@" into the head's name slot is.
+        forwarding = "_w() {\n  assert_eq \"$1\" \"a\" \"$2\"\n}\n_w \"#701 forwarded\" x\n"
+        self.assertEqual(guard.derive_labels(forwarding), {"701"})
+        literal = "_v() {\n  assert_eq \"a fixed name\" \"a\" \"$1\"\n}\n_v \"#702 not a name\"\n"
+        self.assertEqual(guard.derive_labels(literal), set())
+
     def test_a_source_deriving_zero_labels_is_an_empty_set(self):
         self.assertEqual(guard.derive_labels('assert_eq "no label here" "1" "1"\n'), set())
 

@@ -92,18 +92,27 @@ _LABEL_RE = re.compile(r"#(\d{2,5})")
 def _function_bodies(text: str) -> "dict[str, str]":
     """Map each `name() {` definition in TEXT to its body text.
 
-    The body runs to the first line that closes the definition at the SAME
-    indentation (`}` or `}` followed by a redirect) — the shape every helper in this
-    repo's shell sources uses. A definition whose closer is never found yields the
-    remainder of the file, which can only over-approximate a wrapper's body and so
-    never causes a label to be missed."""
+    A ONE-LINE definition (`mktemp() { return 1; }` — the fixture-stub shape
+    `lib/test/run.sh` uses to shadow a command inside a subshell) yields only the text
+    between its own braces. Otherwise the body runs to the first line that closes the
+    definition at the SAME indentation — the shape every multi-line helper in this
+    repo's shell sources uses. Handling the one-liner separately is load-bearing: its
+    closer never appears on a line of its own, so a shared fallback would hand a stub
+    named `sed`/`mktemp` a "body" made of the surrounding real assertions and promote
+    it to an assertion head. A definition whose closer is genuinely never found yields
+    the remainder of the file, which can only over-approximate."""
     lines = text.split("\n")
-    starts: "list[tuple[int, str, str]]" = []
+    starts: "list[tuple[int, str, str, int]]" = []
     for match in _FUNCTION_DEF_RE.finditer(text):
         line_index = text.count("\n", 0, match.start())
-        starts.append((line_index, match.group(2), match.group(1)))
+        line_start = text.rfind("\n", 0, match.start()) + 1
+        starts.append((line_index, match.group(2), match.group(1), match.end() - line_start))
     bodies: "dict[str, str]" = {}
-    for line_index, name, indent in starts:
+    for line_index, name, indent, brace_offset in starts:
+        line = lines[line_index]
+        if "}" in line[brace_offset:]:
+            bodies[name] = line[brace_offset : line.rindex("}")]
+            continue
         closer = indent + "}"
         end = len(lines)
         for offset in range(line_index + 1, len(lines)):
@@ -117,12 +126,20 @@ def _function_bodies(text: str) -> "dict[str, str]":
 def _assertion_heads(text: str) -> "set[str]":
     """The base heads plus every module-private assertion wrapper defined in TEXT.
 
-    A wrapper is a function whose body invokes an already-recognized head — the shape
-    of `_cap_fail`, `_ra_has`, `_raf_pin_unique`, `_ra_live_unchanged` and friends.
+    A wrapper is a function that FORWARDS ITS OWN FIRST POSITIONAL into a recognized
+    head's name slot — `assert_eq "$1" …`, `devflow_module_pin_unique "$1" …`, `"$@"` —
+    the shape of `_cap_fail`, `_ra_has`, `_raf_pin_unique`, `drp` and friends.
     Discovery iterates to a fixpoint so a wrapper around a wrapper is also covered.
     Without this, converting a monolith `assert_pin_unique` call to the namespaced
     API or to a private wrapper would make the label invisible — exactly the blindness
-    that made the retired `generated_by` scanner under-report module coverage."""
+    that made the retired `generated_by` scanner under-report module coverage.
+
+    The forwarding requirement is what keeps the over-approximation safe. Merely
+    *containing* a head is far too loose: `lib/test/run.sh` writes fixture stub scripts
+    inside heredocs, so a `sed() {` / `mktemp() {` line inside one is picked up as a
+    definition whose apparent body bleeds into surrounding real assertions. Treating
+    those as heads would make every ordinary `sed 's/#604/#609/'` derive a spurious
+    label from a fixture argument — a name the tree never asserts."""
     heads = set(_BASE_ASSERTION_HEADS)
     bodies = _function_bodies(text)
     while True:
@@ -131,7 +148,8 @@ def _assertion_heads(text: str) -> "set[str]":
             if name in heads:
                 continue
             for head in heads:
-                if re.search(rf"(?<![A-Za-z0-9_]){re.escape(head)}(?![A-Za-z0-9_])", body):
+                forwards = rf"(?<![A-Za-z0-9_]){re.escape(head)}[ \t]+\"\$(?:\{{1\}}|[1@])\""
+                if re.search(forwards, body):
                     heads.add(name)
                     grown = True
                     break
