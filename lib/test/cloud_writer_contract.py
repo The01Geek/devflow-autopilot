@@ -471,6 +471,13 @@ def unlisted_skill_assets():
 # (re-derive rather than trusting this note — the point is the direction, which
 # holds by construction, not the coincidence, which does not).
 #
+# (iv) Injected grant sources. check_grant_sync's `profile_grants` parameter is a
+# test-injection seam for ALREADY-SCOPED regions and is returned unscoped. A caller
+# passing a whole workflow through it is refused (see _looks_like_whole_workflow),
+# but that detection is one-sided — a workflow whose leading keys fall outside the
+# characteristic set is not detected and its grants pool whole-file. Only the
+# on-disk read is region-scoped unconditionally.
+#
 # (iii) Consumer-spliced grants. devflow-implement.yml's --allowed-tools baseline
 # is followed by a `${{ needs.config.outputs.allowed_tools_extra }}` splice, so a
 # consumer's devflow_implement.allowed_tools entries never appear in the file
@@ -601,6 +608,16 @@ def _scope_grant_region(profile, text):
         detail = str(exc).strip()
         return (None, f"{extractor.__name__} refused the workflow: "
                       + (detail if detail else "refused with no reason given"))
+    # SystemExit is the scopers' DECLARED refusal channel; anything else is a
+    # scoper bug (implement_allowlist_block indexes and slices, so an unusual
+    # scalar shape could raise IndexError/ValueError). Letting that escape would
+    # abort check_grant_sync entirely and take the other two profiles' reporting
+    # down with it — loud, but it defeats this module's per-profile
+    # continue-and-report contract. Route it to the same unavailable arm, naming
+    # the exception type so a scoper bug is never mistaken for a refusal.
+    except Exception as exc:  # noqa: BLE001 — deliberate: see the contract above
+        return (None, f"{extractor.__name__} raised {type(exc).__name__} on this workflow "
+                      f"(not its declared SystemExit refusal channel): {exc}")
 
 
 # A grant REGION is one `TOOLS='…'` line or one `--allowed-tools` quoted value;
@@ -614,12 +631,17 @@ _WHOLE_WORKFLOW_KEYS = ("on:", "jobs:", "name:", "permissions:")
 def _looks_like_whole_workflow(text):
     """True when injected text carries workflow structure a grant REGION never has.
 
-    Detection is the characteristic-key heuristic above, so it is one-sided: a
-    positive is reliable, a negative proves nothing. That asymmetry is why the
-    caller treats a positive as a fail-closed refusal rather than as the whole
-    guarantee.
+    Leading whitespace is stripped before matching, so an indented copy of a
+    workflow is still detected — matching at column 0 only would have made mere
+    indentation a second, silent way past the check.
+
+    Detection is still the characteristic-key heuristic above, so it is one-sided:
+    a positive is reliable, a negative proves nothing (a workflow whose only
+    leading keys fall outside the tuple, or which quotes them as `"on":`, is not
+    detected). That asymmetry is why the caller treats a positive as a fail-closed
+    refusal rather than as the whole guarantee.
     """
-    return any(line.startswith(_WHOLE_WORKFLOW_KEYS) for line in text.splitlines())
+    return any(line.lstrip().startswith(_WHOLE_WORKFLOW_KEYS) for line in text.splitlines())
 
 
 def _grant_source(profile, profile_grants):

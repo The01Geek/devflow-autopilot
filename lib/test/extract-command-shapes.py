@@ -94,6 +94,15 @@ import sys
 # the two guards can never disagree about what a "statement" is.
 _HEADS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "extract-command-heads.py")
 _spec = importlib.util.spec_from_file_location("extract_command_heads", _HEADS_PATH)
+# `spec_from_file_location` returns None when it can find no loader for the path's
+# suffix, so without this the failure is `AttributeError: 'NoneType' object has no
+# attribute 'loader'` at IMPORT — loud but naming nothing. This module is reached at
+# import by lib/test/cloud_writer_contract.py, which the pre-agent validator
+# (scripts/validate-cloud-writer-contract.py) imports, so that unactionable shape
+# would surface there. Guarded here as well as at that caller: guarding only the
+# caller leaves this hop, one level down, still able to produce it.
+if _spec is None or _spec.loader is None:
+    raise ImportError(f"devflow: cannot load sibling helper {_HEADS_PATH}")
 _heads = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_heads)
 

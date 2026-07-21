@@ -7587,6 +7587,45 @@ finally:
 assert_eq("#678 AC4: PROFILE_SHAPE_TABLES restored after the unaudited-asset control",
           ([], []), (cwc.shape_unaudited_assets(), cwc.check_shape_conformance()))
 
+# END-TO-END control for check_shape_conformance's own per-asset loop. Every AC8 plant
+# above calls shape_violations_in directly on a string, and the exit-1 CLI arm
+# monkeypatches check_shape_conformance itself — so nothing drives the loop that reads
+# an asset from disk, intersects `profiles & declared`, and formats the violation. An
+# inverted intersection or a dropped finder call would make the guard audit NOTHING
+# while "reports no violations on the live closure" stayed green: the self-satisfying
+# shape. Register a real denied fence through the same SKILL_ASSETS seam the
+# undecodable-asset arm uses and assert the emitted message.
+_sc_planted_asset = cwc.REPO_ROOT / ".devflow" / "tmp" / "sc-678-planted.md"
+_sc_orig_pd = cwc.SKILL_ASSETS["pr-description"]
+try:
+    _sc_planted_asset.parent.mkdir(parents=True, exist_ok=True)
+    # pr-description is reached under implement and light-command, NOT review — so plant
+    # a fence denied by the IMPLEMENT table (IR3, a label-helper capture). A review-table
+    # rule would produce nothing here, which is itself the intersection working.
+    _sc_planted_asset.write_text(
+        "```bash\nOUT=$(.devflow/vendor/devflow/scripts/apply-labels.sh 1 X)\n```\n",
+        encoding="utf-8")
+    cwc.SKILL_ASSETS["pr-description"] = list(_sc_orig_pd) + [".devflow/tmp/sc-678-planted.md"]
+    _sc_e2e = cwc.check_shape_conformance()
+    assert_eq("#678 AC4: check_shape_conformance's own per-asset loop emits the violation "
+              "for a denied fence in a reached asset (end-to-end, not via "
+              "shape_violations_in) and names asset, rule and governing profile",
+              True, any("sc-678-planted.md" in e and "IR3-denied shape" in e
+                        and "'implement' profile" in e for e in _sc_e2e))
+    # The review root's closure does not reach pr-description, so no review-profile
+    # violation may be emitted for this asset. That verdict is decided by the
+    # `profiles & declared` intersection — an inverted or wrong-set intersection shows
+    # up right here rather than silently auditing nothing.
+    assert_eq("#678 AC4: ...and no violation is emitted under a profile whose closure does "
+              "not reach the asset (the intersection really intersects)",
+              False, any("sc-678-planted.md" in e and "'review' profile" in e
+                         for e in _sc_e2e))
+finally:
+    cwc.SKILL_ASSETS["pr-description"] = _sc_orig_pd
+    _sc_planted_asset.unlink(missing_ok=True)
+assert_eq("#678 AC4: SKILL_ASSETS restored after the end-to-end emission control",
+          [], cwc.check_shape_conformance())
+
 # The live closure carries no denied shape in any profile that HAS a table.
 assert_eq("#678 AC4: check_shape_conformance() reports no violations on the live closure",
           [], cwc.check_shape_conformance())
