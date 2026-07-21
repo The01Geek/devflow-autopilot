@@ -36471,7 +36471,8 @@ RAF_ROOT_CEIL=3567
 # generalized regenerate-on-conflict rule the issue mandates is byte-identical across the three
 # DevFlow prompt extensions, and TWO of those (review-and-fix.md and receiving-code-review.md)
 # are on this bundle's always-loaded surface since #620 — so the rule lands on the initial load
-# twice, ~300 words each. It cannot be split or shortened past its operative minimum: AC7 pins
+# twice, 476 words each (= the +952 both ceilings move above). It cannot be split or shortened
+# past its operative minimum: AC7 pins
 # the three copies byte-identical and requires the oracle citation, the conflict-path/
 # conflict-sibling match, the class+recipe read, and BOTH fail-closed defaults (path not among
 # them; --list unrunnable). Both ceilings carry the repo's usual ~4 words over the measurement,

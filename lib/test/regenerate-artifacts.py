@@ -431,6 +431,14 @@ def _capability_region_targets(root):
     """
     path = root / "lib" / "generate-capability-profiles.py"
     spec = importlib.util.spec_from_file_location("_devflow_capgen", path)
+    # Defensive, and deliberately not covered by a test arm (#659 review, Suggestion 3): this is
+    # the documented `None` return of the importlib API (an unrecognized suffix / no loader for
+    # the location), which a `.py` path cannot reach — an ABSENT file still yields a spec with a
+    # loader and surfaces as `exec_module`'s FileNotFoundError, which is the arm `_ra_region_fails_infra`
+    # actually drives. Kept rather than removed: it raises into the same exit-2 route as every
+    # other arm here, so its cost is two lines and its removal would make an API contract change
+    # fail open on a partial region set. There is no fixture that reaches it without mutating
+    # importlib itself.
     if spec is None or spec.loader is None:
         raise RuntimeError(f"capability generator not importable: {path}")
     module = importlib.util.module_from_spec(spec)
@@ -715,37 +723,64 @@ for _row in ROWS:
     # as a FIELD, so `conflict_paths` never keys on a row name.
     if _row.get("conflict_paths_extra", "unset") is None:
         _row["conflict_paths_extra"] = _capability_region_targets
-    # Fail closed on a misregistered conflict class or an empty recipe (issue #655), in
-    # the same bind loop the check strategy is wired in — so a row that cannot be
-    # classified never reaches `--list` and emits an unknown class a consumer would then
-    # have no route for. Raising at import is the strictest available point: every entry
-    # path (main, --list, an importing test) hits it.
-    if _row.get("conflict_class") not in CONFLICT_CLASSES:
-        raise ValueError(
-            f"registry row {_row['name']!r} declares conflict_class "
-            f"{_row.get('conflict_class')!r}, which is outside {CONFLICT_CLASSES}"
-        )
-    if not (_row.get("policy") or "").strip():
-        raise ValueError(f"registry row {_row['name']!r} declares an empty recipe (policy)")
-    # A row must declare SOME static path source, checked at the same import-time point as the two
-    # above rather than left to KeyError inside emit_list: the neighbouring validations chose import
-    # deliberately ("every entry path hits it"), and a row that reaches `--list` before failing has
-    # already been handed to a consumer.
-    # Membership is not enough: `"conflict_paths": ()` satisfies `in` and short-circuits the
-    # writes/record fallback, so the row resolves to NO path and the shipped rule routes its
-    # artifact to the hand-merge default — the fail-open the rule exists to close, reached
-    # through the one invariant #655 states and nothing enforced. Require a non-empty source.
-    if "conflict_paths" in _row:
-        if not tuple(_row["conflict_paths"]):
+
+
+def _validate_registry():
+    """Fail closed on a misregistered conflict class, recipe, or path source (issue #655).
+
+    Run at import (below), so every entry path — main, --list, an importing test — hits it
+    and a row that cannot be classified never reaches `--list` to emit an unknown class a
+    consumer would have no route for.
+
+    Import-time strictness is kept, but the raise is ROUTED to the exit-2 infrastructure
+    state for a script run (see the module-level call below). A bare module-level raise
+    would exit **1** — the resolvable "action required" code — because the module body runs
+    before the `if __name__ == "__main__"` net at the bottom of this file can catch
+    anything. That aliases an unchecked run onto a resolvable one, the precise
+    discrimination this module's EXIT CONTRACT says the net exists to preserve.
+    """
+    for row in ROWS:
+        if row.get("conflict_class") not in CONFLICT_CLASSES:
             raise ValueError(
-                f"registry row {_row['name']!r} declares an empty conflict_paths; "
-                "a row must resolve to at least one conflict path"
+                f"registry row {row['name']!r} declares conflict_class "
+                f"{row.get('conflict_class')!r}, which is outside {CONFLICT_CLASSES}"
             )
-    elif not any(k in _row for k in ("writes", "record")):
-        raise ValueError(
-            f"registry row {_row['name']!r} declares no conflict-path source "
-            "(needs one of conflict_paths / writes / record)"
-        )
+        if not (row.get("policy") or "").strip():
+            raise ValueError(f"registry row {row['name']!r} declares an empty recipe (policy)")
+        # A row must declare SOME static path source, checked at this same import-time point
+        # rather than left to KeyError inside emit_list: a row that reaches `--list` before
+        # failing has already been handed to a consumer.
+        # Membership is not enough: `"conflict_paths": ()` satisfies `in` and short-circuits the
+        # writes/record fallback, so the row resolves to NO path and the shipped rule routes its
+        # artifact to the hand-merge default — the fail-open the rule exists to close, reached
+        # through the one invariant #655 states and nothing enforced. Require a non-empty source.
+        if "conflict_paths" in row:
+            if not tuple(row["conflict_paths"]):
+                raise ValueError(
+                    f"registry row {row['name']!r} declares an empty conflict_paths; "
+                    "a row must resolve to at least one conflict path"
+                )
+        elif not any(k in row for k in ("writes", "record")):
+            raise ValueError(
+                f"registry row {row['name']!r} declares no conflict-path source "
+                "(needs one of conflict_paths / writes / record)"
+            )
+
+
+# Validate at import — but route a script run's failure to exit 2 (INFRASTRUCTURE), never the
+# exit 1 a bare module-level raise would produce. An IMPORTING caller still gets the raw
+# ValueError, so a test can assert the exception itself.
+try:
+    _validate_registry()
+except ValueError as _bind_error:
+    if __name__ != "__main__":
+        raise
+    print(
+        f"regenerate-artifacts: INFRASTRUCTURE — registry validation failed: {_bind_error} "
+        "— nothing was checked — exit 2",
+        file=sys.stderr,
+    )
+    raise SystemExit(2) from None
 
 
 def emit_list(root):
@@ -787,6 +822,13 @@ def emit_list(root):
     # root-dependent (the capability row derives its workflow literals), so this cannot move to the
     # import-time bind loop; it raises here and the top-level net routes it to the exit-2
     # infrastructure state — never a listing a consumer could act on.
+    # Siblings join the SAME uniqueness namespace as conflict paths (#659 review, Suggestion 1):
+    # the shipped rule matches a conflicted path against the `conflict-path` AND
+    # `conflict-sibling` lines together, and the two line kinds carry DIFFERENT classes (a
+    # sibling's class is its own fourth field, never the owning row's). A path emitted as both
+    # would therefore hand the rule two contradictory classes with no stated tiebreak — the same
+    # fail-open a two-row duplicate is, one line kind over. Deduping only within the path set
+    # leaves exactly that gap unguarded.
     _seen_paths = {}
     for row in ROWS:
         for path in conflict_paths(row, root):
@@ -794,6 +836,15 @@ def emit_list(root):
                 raise ValueError(
                     f"conflict path {path!r} is claimed by both {_seen_paths[path]!r} and "
                     f"{row['name']!r}; a path must resolve to exactly one conflict class"
+                )
+            _seen_paths[path] = row["name"]
+    for row in ROWS:
+        for path, _sibling_class in row.get("coupled_by_hand", ()):
+            if path in _seen_paths:
+                raise ValueError(
+                    f"conflict path {path!r} is claimed by both {_seen_paths[path]!r} and "
+                    f"{row['name']!r} (as a coupled by-hand sibling); a path must resolve to "
+                    "exactly one conflict class"
                 )
             _seen_paths[path] = row["name"]
     for row in ROWS:

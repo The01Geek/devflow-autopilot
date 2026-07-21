@@ -1348,23 +1348,27 @@ _ra_conflict_red_under "#655 the coupled_by_hand tuple is what produces the sibl
 
 # ── (f) a conflict_class outside the closed set FAILS CLOSED ─────────────────────
 # The bind-time validation raises, so `--list` never emits an unknown class a consumer
-# would have no route for. Driven end-to-end: rc must be non-zero and the breadcrumb must
+# would have no route for. Driven end-to-end: rc must be exactly 2 and the breadcrumb must
 # name the offending value, not merely traceback anonymously.
 # Both bind-time invariants take the same five steps (mutate the helper, run --list against
-# the shared root, require a non-zero exit, then pin the breadcrumb), so they share a helper —
+# the shared root, require exit 2, then pin the breadcrumb), so they share a helper —
 # the same two-call-sites threshold at which this module already extracts one.
+# #659 review (Important 3 + 4): this asserted only NON-ZERO, which could not tell exit 2
+# (INFRASTRUCTURE — nothing was checked) from exit 1 (a resolvable "action required" item).
+# That mattered in both directions. The bind-time arms genuinely exited 1 — the module-level
+# raise ran before the `__main__` exit-2 net could catch it — silently contradicting this
+# module's own EXIT CONTRACT; and the emit-time duplicate-path arm, which DID reach the net,
+# would have stayed green if it ever regressed to 1. The helper now routes the bind-time
+# raise to exit 2 (`_validate_registry`), so every arm below is exit 2 and this pins it.
 _ra_bind_fails_closed() {  # label mutation needle...
-  local label="$1" mutation="$2" mut
+  local label="$1" mutation="$2" mut _rc
   shift 2
   RA_C_MUT=$((RA_C_MUT + 1))
   mut="$_ra_tmp_root/c655-mut-$RA_C_MUT.py"
   sed -E "$mutation" "$RA_HELPER" > "$mut"
-  if python3 "$mut" --list --repo-root "$RA_C_SHARED" >"$mut.out" 2>&1; then
-    assert_eq "#655 $label fails closed (non-zero exit)" yes \
-      "no(--list exited 0 despite the planted registry defect)"
-  else
-    assert_eq "#655 $label fails closed (non-zero exit)" yes yes
-  fi
+  python3 "$mut" --list --repo-root "$RA_C_SHARED" >"$mut.out" 2>&1
+  _rc=$?
+  assert_eq "#655 $label fails closed (exit 2 INFRASTRUCTURE, never 1)" "2" "$_rc"
   for _needle in "$@"; do
     case "$(devflow_module_pin_count "$_needle" "$mut.out")" in
       ''|*[!0-9]*) assert_eq "#655 $label breadcrumb names: $_needle" yes "no(count unestablished)" ;;
@@ -1382,9 +1386,11 @@ _ra_bind_fails_closed "an empty recipe" \
 
 # ── (f2) an underivable region set exits 2 (INFRASTRUCTURE), never 1 ────────────
 # `_capability_region_targets` documents that it RAISES rather than returning a partial set, and
-# that the top-level net routes the raise to the exit-2 infrastructure state. Nothing exercised
-# that: the (f) arms above raise at module IMPORT — before `try: raise SystemExit(main())` — so
-# they exit 1 and cannot cover it. The distinction is this repo's unchecked-vs-resolvable
+# that the top-level net routes the raise to the exit-2 infrastructure state. This arm covers the
+# raise that happens DURING a run (the region set is derived under the target root, so it cannot
+# be validated at import); the (f) arms above cover the import-time bind validation, which since
+# the #659 review reaches the same exit 2 via `_validate_registry`'s routed raise rather than the
+# exit 1 a bare module-level raise produced. The distinction is this repo's unchecked-vs-resolvable
 # discriminator (the same reason a dozen sibling arms pin "exits 2, never 1"): an exit 1 here
 # would tell the agent a conflicted artifact is resolvable when the path set was never derived,
 # which is exactly the fail-open the shipped rule's "when --list cannot run" default exists to stop.
@@ -1414,6 +1420,23 @@ _ra_region_fails_infra "an empty generator REGIONS list" \
 _ra_bind_fails_closed "an empty conflict_paths tuple" \
   's/"conflict_paths": \("lib\/test\/prompt-mass-baseline.json",\)/"conflict_paths": ()/' \
   "declares an empty conflict_paths" "at least one conflict path"
+# #659 review (Suggestion 2): the arm above mutates the prompt-mass row, which declares NO
+# `writes`/`record`, so it proves only that an empty tuple raises — not the scenario the guard
+# was written for. The fail-open is `()` SHORT-CIRCUITING a fallback that would otherwise have
+# resolved a real path: `"conflict_paths" in row` is satisfied by the empty tuple, so the
+# writes/record branch is never consulted and the row silently resolves to no path at all.
+# Only a row that HAS a working fallback can exercise that, so plant `()` on the cloud-writer
+# row, whose `writes` would otherwise supply its artifact path.
+_ra_bind_fails_closed "an empty conflict_paths short-circuiting a real writes fallback" \
+  's/"writes": MECHANICAL_ARTIFACT,/"writes": MECHANICAL_ARTIFACT, "conflict_paths": (),/' \
+  "declares an empty conflict_paths" "at least one conflict path" "cloud-writer-manifest"
+# #659 review (Suggestion 1): a path emitted as BOTH a conflict-path and a conflict-sibling
+# hands the shipped rule two contradictory classes — the sibling's own fourth field vs the
+# owning row's — with no tiebreak, the same fail-open a two-row duplicate is. Point the
+# prompt-mass row at the capability row's coupled sibling to drive it.
+_ra_bind_fails_closed "a path claimed as both a conflict-path and a coupled sibling" \
+  's/"conflict_paths": \("lib\/test\/prompt-mass-baseline.json",\)/"conflict_paths": ("lib\/review-profile.tokens",)/' \
+  "is claimed by both" "coupled by-hand sibling" "exactly one conflict class"
 _ra_bind_fails_closed "a row declaring no conflict-path source" \
   's/"conflict_paths": \("lib\/test\/modules\/coverage-map.json",\),//' \
   "declares no conflict-path source" "coverage-map-ratchet"
@@ -1481,6 +1504,14 @@ assert_eq "#655 the conflict rule is its own top-level section, not nested under
 # a surviving second statement of the same decision is the coupled-mirror defect.
 assert_eq "#655 the superseded narrow prompt-mass conflict sentence is gone" "0" \
   "$(devflow_module_pin_count 'Resolve such a conflict by regenerating the complete' "$RA_EXT_DIR/implement.md")"
+# #659 review (Suggestion 5): the replacement sentence points at the rule by PROSE TITLE. The
+# heading's existence is pinned above, and the sentence's existence is implied by the retirement
+# pin above — but nothing bound the two, so renaming the heading would leave the pointer aiming
+# at a section that no longer exists while both pins stayed green. Derive the cross-reference
+# needle FROM the heading constant (strip the `## `) rather than re-spelling the title, so the
+# two cannot drift: a rename must update the pointer or this goes RED.
+assert_eq "#655 implement.md's cross-reference names the rule's actual heading literal" "1" \
+  "$(devflow_module_pin_count "under the ${RA_RULE_HEADING#\#\# } section" "$RA_EXT_DIR/implement.md")"
 
 # The generic, repo-agnostic pointer each in-run conflict arm carries. It names no
 # DevFlow-internal helper, so it stays correct in the vendored/shipped surfaces.

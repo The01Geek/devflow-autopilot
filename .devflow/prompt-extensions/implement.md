@@ -315,8 +315,8 @@ run the full suite. On a cloud tier, treat the direct `.py` command shape as unp
 matcher-probe row establishes it; no step may depend on the config grant added by the same PR,
 because cloud config is resolved from the default branch before that PR runs. Concurrent PRs
 that edit non-adjacent baseline rows normally merge; same or adjacent rows (including the last
-row's comma context) may conflict loudly. Resolve such a conflict under the Merge conflicts in
-generated artifacts section.
+row's comma context) may conflict loudly.
+Resolve such a conflict under the Merge conflicts in generated artifacts section.
 
 ### Cutover artifact template (schema 1)
 

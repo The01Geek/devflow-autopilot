@@ -12,7 +12,11 @@ kind: growth
 bundle — each gain the byte-identical `## Merge conflicts in generated artifacts` section
 (`.devflow/prompt-extensions/implement.md` gains the same section, but it is not on this bundle's
 surface). `skills/review-and-fix/references/fixing.md` gains the one-sentence repo-agnostic
-pointer in its `CONFLICT` arm.
+pointer in its `CONFLICT` arm — as do the other two in-run conflict arms,
+`skills/implement/phases/phase-1-setup.md` (the Checkpoint `CONFLICT` arm) and
+`skills/receiving-code-review/SKILL.md` (the "Update the Branch First" merge-conflict clause);
+`fixing.md` is singled out above only because it is the arm on *this* bundle's surface, not
+because it is the complete arm set.
 
 ## Justification
 
