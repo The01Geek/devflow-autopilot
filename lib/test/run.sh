@@ -45648,12 +45648,30 @@ assert_eq "#664 scanner: two violating files exit non-zero once, reporting both"
 t = sys.stdin.read()
 print("rc=" + re.match(r"rc=(\d+)", t).group(1), len(re.findall(r": gh api REST path", t)))')"
 
+# Fixture-integrity guards. Both fixtures below carry bytes `* text=auto` would normalize away,
+# and a normalized fixture makes its assertion VACUOUS rather than red — the CRLF twin would
+# simply become a second copy of its LF sibling, and the undecodable byte would vanish. The
+# `-text` .gitattributes entries are what preserve them; these two assertions are what notice if
+# those entries are ever dropped, since neither downstream assertion can tell the difference.
+assert_eq "#664 fixture integrity: the CRLF twin still carries CR bytes (not normalized to LF)" "yes" \
+  "$(python3 -c 'import pathlib,sys
+print("yes" if b"\r\n" in pathlib.Path(sys.argv[1]).read_bytes() else "no")' "$E664_FX/adversarial-crlf.txt")"
+assert_eq "#664 fixture integrity: the non-UTF-8 fixture still carries an undecodable byte" "yes" \
+  "$(python3 -c 'import pathlib,sys
+data = pathlib.Path(sys.argv[1]).read_bytes()
+try:
+    data.decode("utf-8")
+except UnicodeDecodeError:
+    print("yes")
+else:
+    print("no")' "$E664_FX/adversarial-nonutf8.sh")"
+
 # CRLF twin: identical verdict AND identical line numbers to its LF sibling.
 assert_eq "#664 scanner: a CRLF file yields the same line numbers as its LF twin" "same" \
   "$(python3 -c 'import sys
 lf, crlf = sys.argv[1], sys.argv[2]
 print("same" if lf.split(":",1)[1] == crlf.split(":",1)[1] else "differ: %s vs %s" % (lf, crlf))' \
-    "$(e664_run "$E664_FX" adversarial-lf.sh)" "$(e664_run "$E664_FX" adversarial-crlf.sh)")"
+    "$(e664_run "$E664_FX" adversarial-lf.sh)" "$(e664_run "$E664_FX" adversarial-crlf.txt)")"
 
 # Population selection, driven over a mini-root whose every excluded-prefix file carries a planted
 # violation: only the one included file is reported, and the tally counts post-exclusion files.
