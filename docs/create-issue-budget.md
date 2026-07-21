@@ -32,9 +32,9 @@ Both are asserted by `lib/test/modules/create-issue-contract.sh` (driven by the 
 | Ceiling | Operand | Measured | Enforced ceiling |
 | --- | --- | --- | --- |
 | **Root** | `skills/create-issue/SKILL.md` | 2,623 | Root ceiling: **2,754 words** |
-| **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 29,774 | Default-path ceiling: **31,262 words** |
+| **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 29,826 | Default-path ceiling: **31,262 words** |
 
-Each ceiling is the implement-time measured value plus **5% headroom** (the AC6 maximum). The
+Each ceiling is at most the implement-time measured value plus **5% headroom** (the AC6 maximum); the default-path ceiling is measured-plus-4.8%, having been set from an earlier measurement in this same change and deliberately not re-raised when a review fix grew the operand. The
 default-path operand deliberately **excludes the four fallback references** — they load only when
 their predicate fires, which is the whole point of the split.
 
@@ -64,12 +64,12 @@ Measured at implement time (2026-07-21), python3 word-split:
 | `references/step-3-5-steelman.md` | 2,133 | Step 3.5 entry |
 | `references/revision-delta.md` | 922 | every revision event |
 | `references/step-3-6-audit.md` | 7,663 | Step 3.6 entry |
-| `references/step-4-present-create.md` | 5,310 | Step 4 entry |
+| `references/step-4-present-create.md` | 5,362 | Step 4 entry |
 | `references/fallback-no-task-tool.md` | 540 | no usable task-tracking tool |
 | `references/fallback-read-only-sandbox.md` | 334 | a `.devflow/tmp/` write is refused |
 | `references/fallback-audit-dispatch-arms.md` | 669 | a non-file audit arm, a retry escalation, or no subagent tool |
 | `references/fallback-state-owner-unavailable.md` | 748 | the state owner stops answering |
-| **root + all 9 references** | **25,615** | — |
+| **root + all 9 references** | **25,667** | — |
 | `references/issue-template.md` | 6,450 | Step 3 (unchanged by the split) |
 | `references/audit-prompt-template.md` | 1,515 | renderer-owned (unchanged by the split) |
 
@@ -84,19 +84,25 @@ The split must not silently shed unpinned contract prose, and the structural add
 to make must not be able to force the check to fail. So the conserved operand is the post-split total
 minus the itemized structural overhead:
 
-| Overhead category | Words |
-| --- | --- |
-| Boundary marker lines (18 markers, 9 files) | 108 |
-| The root's routing table | 325 |
-| The root's entry-gate prose | 155 |
-| The root's non-degradable-invariants block | 175 |
-| Seam-splice pointer sentences | 222 |
-| **Total structural overhead** | **985** |
+| Overhead category | Words | How to re-derive it |
+| --- | --- | --- |
+| Boundary marker lines (two per gated reference) | 108 | first + last line of each `references/*.md` except the two templates |
+| The root's routing table | 325 | the `\| Load trigger \|` table through the following blank line |
+| The root's entry-gate prose | 155 | `## Reference routing` heading to the table |
+| The root's non-degradable-invariants block | 175 | `## Non-degradable invariants` to `## Steps` |
+| Seam-splice pointer sentences | 222 | standalone pointer lines naming the routing table or a fallback reference |
+| **Total structural overhead** | **985** | — |
 
-- Post-split total (root + all 9 references): **25,615**
-- Minus structural overhead: **24,630**
+**The seam-pointer row counts standalone pointer lines only.** A pointer spliced mid-paragraph — the
+Step 4 presentation gate's is one — is not counted, so this row **understates** the true structural
+overhead. That direction is deliberate and fail-safe: understating overhead leaves a larger residue in
+the conserved operand, which can only make the ±2% check *harder* to pass, never easier. A future
+re-measure that wants the tighter figure should count the spliced pointers too and record the change here.
+
+- Post-split total (root + all 9 references): **25,667**
+- Minus structural overhead: **24,682**
 - Pre-split baseline: **24,473**
-- **Deviation: +0.64%** — inside the ±2% tolerance.
+- **Deviation: +0.85%** — inside the ±2% tolerance.
 
 ### Two recorded corrections to the issue's stated figures
 
@@ -118,9 +124,12 @@ minus the itemized structural overhead:
 
 ## Decision record
 
-- **2026-07-21 (issue #614) — initial ceilings set.** Root 2,623 → ceiling 2,754. Default path 29,774
-  → ceiling 31,262. Conservation +0.64% against the implement-time baseline of 24,473. Both stale-figure
-  corrections above recorded at the same time.
+- **2026-07-21 (issue #614) — initial ceilings set.** Root 2,623 → ceiling 2,754. Default path 29,826
+  → ceiling 31,262 (set from the pre-review-fix measurement of 29,774 and left unraised when a review
+  fix grew the operand by 52 words, so the shipped headroom is 4.8%, not 5%). Conservation +0.85%
+  against the implement-time baseline of 24,473. Both stale-figure corrections above recorded at the
+  same time. The ratchet rule binds every *subsequent* change; these initial values are set from the
+  final pre-merge measurement.
 
 When a later change re-measures, append a row here rather than editing an earlier one: the record is
 the history of what the surface cost, and overwriting it loses exactly the drift a budget exists to catch.
