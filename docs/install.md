@@ -38,19 +38,19 @@ DevFlow declares **zero companion-plugin dependencies** — every external asset
 
 ### The step people miss: PyYAML
 
-`/plugin install` resolves companion *plugins* only — it **never runs `pip`**. DevFlow's shell helpers need **PyYAML**, so install it yourself:
+`/plugin install` resolves companion *plugins* only — it **never runs `pip`**. DevFlow's shell helpers need **PyYAML**, so install it yourself (a plugin-cache install has no `requirements.txt` to point `pip` at):
 
 ```bash
-python3 -m pip install -r requirements.txt
+python3 -m pip install PyYAML
 ```
 
-(The cloud-tier `install.sh` handles PyYAML for you.) See [Requirements](../README.md#requirements) for the full PATH checklist; `bash lib/preflight.sh` verifies everything.
+(The cloud-tier `install.sh` handles PyYAML for you.) See [Requirements](../README.md#requirements) for the full PATH checklist; in a checkout of this repo, `bash lib/preflight.sh` verifies everything.
 
 ### Windows: resolving `python3`
 
 A stock Windows Python install (python.org / `winget install python`) exposes Python on PATH as `python` and the `py -3` launcher — there is **no `python3`**. Because DevFlow's helpers, the agent-typed `python3 <path>` convention, and the cloud `Bash(python3:*)` allowlist all invoke the literal `python3`, the toolchain otherwise fails with `python3: command not found` even with a perfectly good Python 3.11+ installed.
 
-When `python3` is absent but a `>=3.11` Python is reachable as `python` or `py -3`, run the consent-gated provisioner once to install a small `python3` shim onto the first writable directory already on your PATH (falling back to Git-Bash's `~/bin`, with a PATH note, if none is writable):
+When `python3` is absent but a `>=3.11` Python is reachable as `python` or `py -3`, run the consent-gated provisioner once — from a checkout of this repo — to install a small `python3` shim onto the first writable directory already on your PATH (falling back to Git-Bash's `~/bin`, with a PATH note, if none is writable):
 
 ```bash
 bash scripts/provision-python3-shim.sh --apply
@@ -131,6 +131,14 @@ For autonomous GitHub Actions automation, run this from your repo root — the s
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/main/install.sh | bash
+```
+
+**Prefer to read the script before running it?** It writes into your repository — the workflows and composite actions under `.github/`, a local `marketplace.json`, and `.devflow/` templates (config scaffold, schema, ignore file) — so those changes land in version control. Download it, read it, then run the downloaded file:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/main/install.sh -o devflow-install.sh
+# review devflow-install.sh, then:
+bash devflow-install.sh
 ```
 
 See **[`cloud-setup.md`](cloud-setup.md)** for secrets, triggers, and the full guide — including the optional primary DevFlow App (workflow-file pushes + one identity for user-visible posts) and the separate **DevFlow-Reviewer** App that gives the review agent a non-author identity so its formal `--request-changes`/`--approve` is not a forbidden self-review.
