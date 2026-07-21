@@ -47962,6 +47962,95 @@ assert_eq "#533 AC14: fingerprint content is the python3-hashlib sha256 of APP_T
 assert_eq "#533 AC14: fingerprint file is mode 0600" "600" \
   "$(python3 -c 'import os,sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777)[2:])' "$D533/rtmp/devflow-gh-fingerprint")"
 
+# --- #690: output 5/7's fingerprint-mode gate is platform-aware --------------
+# The shipped gate compared the mode to the literal 600 unconditionally, which a
+# native-Windows python3 can never satisfy (st_mode's permission bits are
+# synthesized from FILE_ATTRIBUTE_READONLY alone), so every Windows writer-tier
+# run aborted at output 5/7 before the agent started. These assertions extend
+# the #533 block and reuse its $D533 fixture rather than standing up a parallel
+# one for the same script and the same output.
+#
+# The breadcrumb assertions run through _i690, a STDERR-ONLY capture sibling of
+# _i533: _i533 ends 2>&1 and merges stderr into stdout, so through it an
+# implementer emitting the breadcrumb to stdout would ship green, leaving the
+# stream half of the criterion unasserted.
+_py690="$(command -v python3)"
+mkdir -p "$D533/py690"
+_stub690() {  # $1 = the exact line the stubbed python3 prints for the os.name+mode probe
+  printf '#!/usr/bin/env bash\ncase "$2" in *os.name*) printf "%%s\\n" "%s"; exit 0;; esac\nexec %s "$@"\n' \
+    "$1" "$_py690" > "$D533/py690/python3"
+  chmod +x "$D533/py690/python3"
+}
+_i690() {  # stdout discarded, stderr captured; $1 (optional) overrides the installer path
+  rm -f "$D533/rtmp/devflow-gh-fingerprint"; : > "$D533/ghenv"; : > "$D533/ghpath"
+  env PATH="$D533/py690:$D533/bin:$PATH" DEVFLOW_GH_SOURCE_SH="$LIB/../scripts/gh-fresh.sh" \
+      APP_TOKEN=FIXTURE_TOKEN_533 RUNNER_TEMP="$D533/rtmp" GITHUB_ENV="$D533/ghenv" GITHUB_PATH="$D533/ghpath" \
+      DEVFLOW_GH_WRAPDIR="$D533/wrapdir690" DEVFLOW_GH_FINGERPRINT_FILE="$D533/rtmp/devflow-gh-fingerprint" \
+      bash "${1:-$INSTALL533}" 2>&1 1>/dev/null
+}
+# Passing cases. posix+600 is the unchanged POSIX behavior; nt+666 and nt+444 are
+# the two reachable Windows values, each additionally asserting the stderr
+# breadcrumb and that the installer proceeded to outputs 6 and 7; the
+# unrecognized token passes on the mode VALUE alone, never on the token.
+_stub690 'posix 600'; _e690_p6="$(_i690)"; _rc690_p6=$?
+assert_eq "#690: stubbed 'posix 600' passes output 5/7 (rc 0) and emits NO could-not-establish breadcrumb" "0 no" \
+  "$_rc690_p6 $(printf '%s' "$_e690_p6" | grep -qF 'owner-only' && echo yes || echo no)"
+for _m690 in 666 444; do
+  _stub690 "nt $_m690"; _e690_nt="$(_i690)"; _rc690_nt=$?
+  assert_eq "#690: stubbed 'nt $_m690' passes output 5/7 (rc 0) and still writes GITHUB_ENV (output 6) and GITHUB_PATH (output 7)" "0 1 1" \
+    "$_rc690_nt $(grep -cF "DEVFLOW_GH_REAL=$D533/bin/gh" "$D533/ghenv") $(grep -cF "$D533/wrapdir690" "$D533/ghpath")"
+  # The breadcrumb: install-gh-wrapper:-prefixed, on STDERR, naming the observed
+  # mode value and stating that access is left to the filesystem's ACLs, which
+  # this script neither sets nor verifies.
+  assert_eq "#690: stubbed 'nt $_m690' writes the install-gh-wrapper: could-not-establish breadcrumb to STDERR, naming mode $_m690 and the ACL caveat" "yes" \
+    "$(printf '%s' "$_e690_nt" | grep -qF 'install-gh-wrapper: the owner-only (0600) mode guarantee could not be established' \
+       && printf '%s' "$_e690_nt" | grep -qF "observed mode $_m690" \
+       && printf '%s' "$_e690_nt" | grep -qF 'which this script neither sets nor verifies' \
+       && echo yes || echo no)"
+done
+_stub690 'zz 600'; _e690_u6="$(_i690)"; _rc690_u6=$?
+assert_eq "#690: an unrecognized platform token with mode 600 passes on the mode value alone (rc 0), emitting no breadcrumb" "0 no" \
+  "$_rc690_u6 $(printf '%s' "$_e690_u6" | grep -qF 'owner-only' && echo yes || echo no)"
+# Failing cases — the closed set, enumerated per platform-token class because the
+# nt class has no octal-and-failing member by construction (under nt every octal
+# mode passes). Every one exits 1 naming the (fingerprint-mode) slug, so the
+# relaxed arm can never be reached by an absent token, an absent mode field, a
+# value the producer could not have emitted, or a three-field capture.
+for _c690 in 'posix 644' 'posix banana' 'posix' \
+             'nt banana' 'nt' 'nt 666 x' \
+             'zz 644' 'zz banana' 'zz' \
+             ''; do
+  _stub690 "$_c690"; _e690_f="$(_i690)"; _rc690_f=$?
+  assert_eq "#690: stubbed capture '$_c690' keeps the strict comparison — rc 1 naming (fingerprint-mode)" "1 yes" \
+    "$_rc690_f $(printf '%s' "$_e690_f" | grep -qF 'output 5/7 FAILED' && printf '%s' "$_e690_f" | grep -qF '(fingerprint-mode)' && echo yes || echo no)"
+done
+# The platform token and the mode value come from ONE python3 invocation reading
+# ONE os.stat result, so no execution path can attribute them to two interpreters.
+assert_eq "#690: the platform token and the mode are read by a single python3 invocation from a single os.stat" "1" \
+  "$(grep -cF "python3 -c 'import os,sys; print(os.name, oct(os.stat(sys.argv[1]).st_mode & 0o777)[2:])'" "$INSTALL533")"
+# The relaxed arm is an ALLOWLIST equality against the literal nt. A negated test
+# against posix would admit the empty token an unreadable os.stat leaves behind,
+# turning the fail-closed unreadable-mode arm into a silent pass on every platform.
+assert_eq "#690: the relaxed arm tests equality against the literal nt, never a negation against posix" "1 0" \
+  "$(grep -cF '[ "$_fpos" = "nt" ]' "$INSTALL533") $(grep -cF '[ "$_fpos" != "posix" ]' "$INSTALL533")"
+# No chmod is introduced on the fingerprint path: the umask 077 stays the sole
+# producer of the file's mode, which is what keeps the AC22 mutation proof below
+# meaningful (a chmod would repair the mutated copy and turn that proof green).
+assert_eq "#690: install-gh-wrapper.sh applies no chmod to the fingerprint file on any path" "0" \
+  "$(grep -vE '^[[:space:]]*#' "$INSTALL533" | grep -c 'chmod[^|]*FINGERPRINT')"
+# Behavioral mutation proof (issue #690). assert_pin_red_under cannot express this:
+# it seds a copy and re-greps a literal, never EXECUTING the mutated file, so it
+# cannot observe a behavioral case change verdict. Mirroring the #533 AC22
+# mutated-installer block instead — mutate the nt disjunct out of a copy, RUN it
+# under the stubbed-nt fixture, and observe the reported bug reappear.
+_t690m="$(probe_tmp '#690 mutated-installer setup')"
+sed -E 's/\[ "\$_fpos" = "nt" \]/[ "$_fpos" = "IMPOSSIBLE" ]/' "$INSTALL533" > "$_t690m"
+_stub690 'nt 666'; _e690_m="$(_i690 "$_t690m")"; _rc690_m=$?
+assert_eq "#690: mutating the nt disjunct out of an installer copy re-introduces the reported bug — rc 1 naming (fingerprint-mode) under a stubbed 'nt 666'" "1 yes" \
+  "$_rc690_m $(printf '%s' "$_e690_m" | grep -qF '(fingerprint-mode)' && echo yes || echo no)"
+rm -f "$_t690m"
+rm -rf "$D533/py690"
+
 # AC14 — the DEFAULT wrapper-source resolution (output 2's vendored-or-repo
 # chain) is the branch PRODUCTION takes: neither workflow passes
 # DEVFLOW_GH_SOURCE_SH, so a regression in the default chain (inverted

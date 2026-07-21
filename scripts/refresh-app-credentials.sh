@@ -16,7 +16,13 @@
 #      in-run `git push` authenticates with (the #357 contract — this REWRITES
 #      that credential-of-record, it never replaces the mechanism), and
 #   2. a mode-0600 token file the agent-side `gh` wrapper (scripts/gh-fresh.sh)
-#      reads at call time.
+#      reads at call time. The mode-0600 half holds only where POSIX mode bits
+#      apply: on Windows the umask/chmod below are ineffective (the filesystem
+#      honors only a read-only flag), so the file is left to whatever the
+#      filesystem's ACLs provide — a comment-only reconciliation of existing
+#      behavior, kept in step with docs/cloud-setup.md and
+#      docs/DEVFLOW_SYSTEM_OVERVIEW.md (issue #690). Narrowing that exposure is
+#      tracked separately; this script's behavior is unchanged.
 #
 # Subcommands:
 #   cycle   run ONE mint-and-rewrite cycle, then exit 0 (best-effort; the suite
@@ -261,7 +267,10 @@ run_cycle() {
   git config --file "$cfg" --replace-all "http.${SERVER_URL}/.extraheader" "$header" 2>/dev/null \
     || { warn "cycle: rewriting the extraheader in '$cfg' failed — push credential NOT rewritten"; return 1; }
 
-  # Surface 2: the mode-0600 token file the gh wrapper reads at call time. Write to
+  # Surface 2: the mode-0600 token file the gh wrapper reads at call time —
+  # mode-0600 only where POSIX mode bits apply; on Windows the umask and chmod
+  # below are ineffective and access is left to the filesystem's ACLs (#690).
+  # Write to
   # a temp file in the same dir and atomically rename into place, so a concurrent
   # gh-fresh.sh read never observes a truncated/partial token (mirroring the
   # atomic-rename guarantee git config gives surface 1). A plain `> "$TOKEN_FILE"`

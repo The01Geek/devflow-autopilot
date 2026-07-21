@@ -336,6 +336,44 @@ registered runner's labels, GitHub does not raise an error — the job sits
 **queued indefinitely** with no failure. Match the label set exactly to a
 registered runner.
 
+### Windows: POSIX mode bits do not constrain the credential files
+
+**Resolved (issue #690).** With a GitHub App configured, both writer tiers run
+`scripts/install-gh-wrapper.sh`, whose output 5/7 used to assert that the token
+**fingerprint** file's POSIX mode was exactly `600`. On a native-Windows `python3`
+(`os.name == 'nt'`) `os.stat()` synthesizes the permission bits from the
+`FILE_ATTRIBUTE_READONLY` bit alone, so a writable file reports `666` and `600` is
+simply not reachable — the assertion failed on every run and the `claude` job aborted
+at that step, *before the agent started*. The gate is now platform-aware: on a
+`posix` platform token it behaves exactly as before (`600` passes, anything else exits
+1 naming `fingerprint-mode`), and on an `nt` token the mode value stops being a
+failure condition and the installer writes an `install-gh-wrapper:` stderr line
+recording that the owner-only guarantee could not be established. No `chmod` is
+involved — Windows honors only the read-only flag, so `os.chmod` could not repair it.
+
+The relaxation is scoped to the **interpreter build**: only a native Windows CPython
+(python.org, `mingw-w64-*-python`) reports `nt`. The Cygwin-derived `msys/python`
+build reports `posix` and keeps the strict comparison, as does any Linux host whose
+`RUNNER_TEMP` sits on a filesystem that does not honor mode bits (WSL DrvFs without
+`metadata`, CIFS/SMB, exFAT/FAT) — such hosts keep failing the gate deliberately,
+because relaxing on a `posix` token would disable the guarantee on real POSIX runners.
+
+**The weakened guarantee is real, and accepted rather than fixed here.** On Windows,
+mode `666` grants **write** as well as read to every local principal, and the same is
+true of the sibling credential file `scripts/refresh-app-credentials.sh` writes (whose
+`umask 077` and `chmod 600` are equally ineffective there) — that file carries the
+App token itself rather than a hash, so the exposure is strictly worse. A local
+principal able to rewrite the fingerprint file can force every wrapped `gh` call down
+the defer arm, costing the run the refresher's purpose once the job outlives the
+token's 60-minute lifetime. Both exposures pre-date this change; it extends their
+duration to the length of the run rather than creating them, on the basis that a
+self-hosted runner is single-tenant by its own trust model. Narrowing them is tracked
+separately.
+
+Clearing this blocker does **not** by itself make the tier usable — see the
+`setup.git_dir_pin` / `setup.git_work_tree_pin` table above for the next expected
+blocker, and note that `git_dir_pin` is not honored on the implement tier.
+
 ### Dispatch-enabled, not certified — run a smoke test first
 
 Setting `DEVFLOW_RUNNER` makes a self-hosted / Windows runner **selectable** and
@@ -547,7 +585,11 @@ installation token and rewrites the two repo-controlled credential surfaces in p
    `git push` authenticates with (it *rewrites* that credential of record — it never
    replaces the push mechanism), and
 2. a mode-0600 token file that the agent-side `gh` wrapper (`scripts/gh-fresh.sh`)
-   reads at call time. The wrapper is installed by the checked-in, seven-output-validated
+   reads at call time — **mode-0600 only where POSIX mode bits apply; on Windows they
+   constrain neither this token file nor the wrapper installer's sibling fingerprint
+   file, so both are left to whatever the filesystem's ACLs provide** (see
+   [Windows: POSIX mode bits do not constrain the credential files](#windows-posix-mode-bits-do-not-constrain-the-credential-files)).
+   The wrapper is installed by the checked-in, seven-output-validated
    `scripts/install-gh-wrapper.sh` (issue #533) ahead of the real `gh` on `PATH`, so
    direct `gh` calls and DevFlow's own resolver-routed gh-callers (whose PATH probe
    finds the wrapper when `DEVFLOW_GH` is unset) resolve the fresh token. The install
