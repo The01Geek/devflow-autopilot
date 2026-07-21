@@ -3203,6 +3203,55 @@ assert_pin_red_under "#425(rev): the N≥2 exclusion threshold is operative (rel
 assert_pin_red_under "#425(rev): the first-only exclusion overrides the engine_self_modifying always-on force (inverting the precedence goes RED)" \
   'this exclusion **overrides** Phase 0.5' \
   's/this exclusion \*\*overrides\*\* Phase 0.5/this exclusion **yields to** Phase 0.5/' "$ST_REV"
+# ---------------------------------------------------------------------------
+# issue #621: settled-by-disclosure foreclosure disposition. Prose pins scope
+# to $ST_RAF (review-and-fix root+references bundle) plus the two doc mirrors.
+# The disclosure-verification GUARD behavior is covered by test_python_scripts.py
+# (match-deferrals _verify_disclosure arms + main() honor drive); these pins
+# guard the engine PROSE that describes the vocabulary and its writers.
+# ---------------------------------------------------------------------------
+assert_pin_unique "#621: skip_category enum gains the settled-by-disclosure row" \
+  '| `settled-by-disclosure` | Written by this step (fixer-routed foreclosure) or by Step 2' "$ST_RAF"
+assert_pin_unique "#621: the item-5 writing precondition names below-verdict-threshold + not-a-REJECT-driver" \
+  'only** for a finding that is **below the run'"'"'s `verdict_severity_threshold` and not a REJECT driver of the current iteration**' "$ST_RAF"
+assert_pin_unique "#621: fixer-routed foreclosure writer (Step 3 item 5) is present" \
+  'A finding whose deliverable is an **already-shipped disclosure** is recorded once, in place of a fix, with `skip_category: "settled-by-disclosure"`' "$ST_RAF"
+assert_pin_unique "#621: parked foreclosure writer (Step 2 per-finding arm) is present" \
+  '**Per-finding foreclosure arm (`settled-by-disclosure`).**' "$ST_RAF"
+assert_pin_unique "#621: exactly one fix_decisions row per foreclosed finding (foreclosure dominates)" \
+  'a finding foreclosed here carries the `settled-by-disclosure` row **instead of** a `below-threshold` row' "$ST_RAF"
+assert_pin_unique "#621: parking_evidence names the settled-by-disclosure rationale-bearing writer" \
+  'the **`settled-by-disclosure` foreclosure row** (written by Step 3 item 5 for a fixer-routed finding or by Step 2'"'"'s per-finding foreclosure arm for a parked one)' "$ST_RAF"
+assert_pin_unique "#621: the new comparison-time disclosure verification is documented" \
+  'the comparer **opens the named file and searches for the quoted phrase whitespace-normalized**' "$ST_RAF"
+assert_pin_unique "#621: sweep union includes settled-by-disclosure rows" \
+  '`settled-by-disclosure` foreclosure rows are also part of this union' "$ST_RAF"
+assert_pin_unique "#621: deferrals manifest emit carries settled-by-disclosure + disclosure object" \
+  'A `settled-by-disclosure` row carries `category: "settled-by-disclosure"` plus a top-level `disclosure: {path, phrase}` object' "$ST_RAF"
+assert_pin_unique "#621: shadow rationale-bearing class list includes settled-by-disclosure" \
+  '**rationale-bearing** (advisory-parked rows; Yes-downgrade deferrals; `settled-by-disclosure` foreclosure rows; the sweep'"'"'s below-threshold sibling)' "$ST_RAF"
+# Behavioral-fix pin: the stopping-rule foreclosure carve-out. The OPERATIVE
+# qualifier is "whose **prior-iteration row is `settled-by-disclosure`**" — the
+# clause that scopes the escalation suppression to foreclosed rows alone. A
+# mutation widening it to suppress the escalation for ANY repeat skip re-opens
+# the bug (a genuinely-unresolved finding skipped twice would stop tripping the
+# "Finding persists after pushback" escalation), so the pin flips PASS->FAIL.
+assert_pin_red_under "#621: the stopping-rule carve-out is scoped to settled-by-disclosure rows (widening it goes RED)" \
+  'a repeat skip of a `(source_file, claim_text)` pair whose **prior-iteration row is `settled-by-disclosure`** does **not** trip this "Finding persists after pushback" escalation' \
+  's/whose \*\*prior-iteration row is `settled-by-disclosure`\*\* does/does/' "$ST_RAF"
+# Doc mirrors (issue #621).
+assert_pin_unique "#621: shadow-review docs name the foreclosure producer" \
+  '`settled-by-disclosure` foreclosures' "$LIB/../docs/shadow-review.md"
+assert_pin_unique "#621: system overview documents the foreclosure disposition + disclosure-verification guard" \
+  '**Settled-by-disclosure foreclosure (issue #621).**' "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+assert_pin_unique "#621: system overview records the standalone-run in-run-only limitation" \
+  'a **standalone** `/devflow:review-and-fix` run'"'"'s foreclosures are **in-run only**' "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+# Vendored principles mirror (issue #621, issue-196 pin style). $RECV_SKILL is
+# defined further below, so reference the file by its literal path here.
+assert_pin_unique "#621: receiving-code-review records the disclosure disposition (repo-agnostic)" \
+  '**When the deliverable is an already-shipped disclosure**' "$LIB/../skills/receiving-code-review/SKILL.md"
+assert_pin_unique "#621: receiving-code-review keeps the revisit-condition triple" \
+  'revisit only if evidence contradicts the cited disclosure' "$LIB/../skills/receiving-code-review/SKILL.md"
 #
 assert_pin_red_on_removal "AC3(c): deleting the Step 2.6 sentinel contract turns its pin RED" \
   'park-calibration gate clean: no parked finding matched'
@@ -36464,11 +36513,13 @@ RAF_ROOT_CEIL=3567
 # DIRECT reception pass inherits it, not only the loop. The relocation is per-surface neutral, but
 # the direct-pass framing the extension now needs (a self-contained intro) plus the root's residual
 # loop-tail pointer net +81 words on the always-loaded surface (root -149, receiving ext +230).
-# Measured against the up-to-date-with-main tree with ~4 words of headroom per #619's convention.
-# Update docs/review-and-fix-budget.md's ceilings-table and Measured cells in lockstep; the audited
-# decision is docs/cutovers/issue-640-direct-pass-editor-authority.md.
+# #621 then added the settled-by-disclosure foreclosure vocabulary to shadow-review.md (the
+# max-step reference), re-raising the max-step ceiling 18996->19073 (measured + ~4 headroom).
+# Measured against the up-to-date-with-main tree. Update docs/review-and-fix-budget.md's
+# ceilings-table and Measured cells in lockstep; the audited decisions are
+# docs/cutovers/issue-640-direct-pass-editor-authority.md and this issue's budget-doc note.
 RAF_LOAD_CEIL=7734
-RAF_MAXSTEP_CEIL=18996
+RAF_MAXSTEP_CEIL=19073
 assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
   "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"
 assert_eq "#530 budget: root + always-loaded extensions (initial load) <= $RAF_LOAD_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W)))" "yes" \
@@ -36522,7 +36573,7 @@ done
 assert_eq "#620 budget: maintainer note's prose root ceiling matches RAF_ROOT_CEIL ($RAF_ROOT_CEIL)" "yes" \
   "$(case "$_raf_doc_nocommas" in *"The root sits below its ${RAF_ROOT_CEIL}-word"*) echo yes;; *) echo no;; esac)"
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +5,077 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +5,997 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute

@@ -20,8 +20,16 @@ Usage:
     file-deferrals.py --source-issue N --pr M --manifest PATH [--dry-run]
 
 Exit codes:
-    0  At least one group of findings was filed successfully (or --dry-run).
-    1  Nothing was filed (every group failed, or input was invalid).
+    0  At least one group of findings was filed successfully (or --dry-run),
+       OR there were NO fileable groups at all and the only surviving entries
+       are settled-by-disclosure foreclosures, which file NO follow-up issue by
+       design (issue #621) yet still survive into the rewritten manifest — a
+       manifest whose entries are ALL foreclosures rewrites and exits 0 with
+       zero issue-create calls.
+    1  Nothing was filed: either nothing survived at all, or every fileable
+       group failed. A surviving foreclosure does NOT mask a complete filing
+       failure (issue #660 review) — foreclosures need no `gh` call, so they
+       can never evidence that filing worked. Also 1 on invalid input.
     2  Bad arguments / unusable manifest.
 """
 
@@ -42,6 +50,20 @@ GH = os.environ.get("DEVFLOW_GH") or "gh"
 SCHEMA_VERSION = 1
 ID_PREFIX = "dfr-"
 ID_HEX_LEN = 6
+
+# issue #621: a settled-by-disclosure foreclosure files NO follow-up issue —
+# the already-shipped disclosure is the deliverable. The manifest this helper
+# reads is the FLAT shape (review-and-fix loop-exit deferrals.json → implement
+# Phase 4.0.5 slug aggregate), so the discriminator is the top-level `category`
+# field; a nested `reason.category` is accepted defensively too.
+FORECLOSURE_CATEGORY = "settled-by-disclosure"
+
+
+def _is_foreclosure(entry: dict) -> bool:
+    return (
+        entry.get("category") == FORECLOSURE_CATEGORY
+        or (entry.get("reason") or {}).get("category") == FORECLOSURE_CATEGORY
+    )
 
 
 def _force_utf8_streams():
@@ -145,6 +167,16 @@ def _compute_id(entry: dict) -> str:
 
     Re-running on the same manifest produces the same ID — important so the
     verdict engine's signature match is stable across regenerations.
+
+    Known, accepted collision (raised as a #660 review Suggestion, DECLINED):
+    two distinct entries on the same file with empty symbol/kind/summary hash
+    identically. No observable effect today — nothing de-dupes by id, and both
+    entries survive independently into the manifest and the PR-body payload.
+    Widening the payload (e.g. with `line_range`) would change every existing
+    id, breaking the cross-regeneration stability this docstring promises and
+    the verdict engine relies on — a real contract change to fix a defect with
+    no current symptom. Revisit if and when a consumer de-dupes by id; that
+    consumer's introduction is the trigger to re-key, all sites at once.
     """
     payload = "|".join([
         entry.get("file", ""),
@@ -304,9 +336,17 @@ def main(argv=None):
     filed_by = _gh_login() if not args.dry_run else "(dry-run-user)"
     filed_at = _now_iso()
 
+    # issue #621: partition foreclosures out of the fileable groups. A
+    # foreclosure files no issue but still survives into the rewritten manifest
+    # unchanged (with an `id` assigned for the dfr- match), so /pr-description
+    # and /devflow:review can carry and honor it.
     groups: "OrderedDict[str, list[dict]]" = OrderedDict()
+    foreclosures: list[dict] = []
     for d in deferrals:
-        groups.setdefault(d.get("file", "(unknown)"), []).append(d)
+        if _is_foreclosure(d):
+            foreclosures.append(d)
+        else:
+            groups.setdefault(d.get("file", "(unknown)"), []).append(d)
 
     succeeded_numbers: list[int] = []
     failed_files: list[str] = []
@@ -338,8 +378,32 @@ def main(argv=None):
             surviving.append(entry)
         succeeded_numbers.append(number)
 
+    # issue #621: pass foreclosure entries through unchanged (no follow_up),
+    # assigning the deterministic dfr- id so the PR-body payload and the
+    # verdict matcher can key on it. `setdefault` keeps a prior id on a re-run.
+    for d in foreclosures:
+        entry = dict(d)
+        entry.setdefault("id", _compute_id(d))
+        surviving.append(entry)
+
     if not surviving:
-        _fail("no follow-up issues filed — every group failed", code=1)
+        # Nothing filed AND no foreclosures survived. (A manifest of only
+        # foreclosures reaches here with `surviving` non-empty and exits 0 —
+        # zero issue-create calls, but the aggregate is still rewritten.)
+        _fail("no follow-up issues filed and no entries survived — "
+              "every fileable group failed", code=1)
+
+    if failed_files and not succeeded_numbers:
+        # issue #660 review: a COMPLETE filing failure is a hard signal even
+        # when a foreclosure survives to make `surviving` non-empty. Without
+        # this arm a manifest mixing one `settled-by-disclosure` entry with
+        # fileable groups that ALL failed would exit 0, silently dropping every
+        # failed real deferral from the rewritten manifest. Foreclosures need no
+        # `gh` call, so they can never evidence that filing worked.
+        _fail(f"no follow-up issues filed — every fileable group failed "
+              f"({len(failed_files)} group(s)); "
+              f"{len(foreclosures)} foreclosure(s) survived but do not "
+              f"constitute a successful filing", code=1)
 
     new_manifest = dict(manifest)
     new_manifest["deferrals"] = surviving
