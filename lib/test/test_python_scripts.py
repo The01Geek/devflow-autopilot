@@ -4323,6 +4323,123 @@ assert_eq("#424: positive control — the same fixture with argparse intact exit
           "diff (the exit-2 above is the raised error, not an unrelated precondition)",
           0, _main_rc_on_empty_diff())
 
+# ── stale_prose_lint illustrative-example opt-out (#635) ──────────────────────────────────
+# A prose/comment line DESCRIBING a claim shape (a design-record example, a fixture-comment
+# idiom) is not an ASSERTION of it, but the rules cannot tell them apart — so it was graded as a
+# real claim and gated STALE (fired twice on DevFlow's own repo while implementing #629). The fix
+# is an explicit author opt-out marker; these fixtures reproduce the two observed shapes and pin
+# that a MARKED line is skipped (RED before the fix, GREEN after) while an UNMARKED line of the
+# same shape still gates (the guard is non-vacuous), and that R4 is untouched (AC2).
+def _stale_rules_635(path, body_lines):
+    """Gating-STALE rule tokens produced by examine_file over `body_lines` (each an added line)."""
+    added = {i + 1: t for i, t in enumerate(body_lines)}
+    rows = []
+    stale_prose_lint.examine_file(path, added, list(body_lines), rows)
+    return [r.rule for r in rows if r.verdict == stale_prose_lint.STALE]
+
+# Case 1 — R2 legend-sum: `Expected total = N` in explanatory prose over a mismatching list.
+_C1 = ["Expected total = 3 in the record{mark}", "", "- first", "- second"]
+assert_eq("#635: R2 legend example in prose is skipped when the line carries the marker "
+          "(RED before the fix — the marked line still gated STALE)",
+          [], _stale_rules_635("docs/design.md",
+                               [_C1[0].format(mark="  <!-- stale-prose-lint: example -->")] + _C1[1:]))
+assert_eq("#635: the SAME R2 shape WITHOUT the marker still gates STALE (the opt-out is "
+          "non-vacuous — it narrows only marked lines, never the rule)",
+          ["R2"], _stale_rules_635("docs/design.md", [_C1[0].format(mark="")] + _C1[1:]))
+
+# Case 2 — R3b two-item idiom inside a shell `#` comment over a mismatching assertion block.
+_C2 = ["# shape: a X and a Y and both are asserted{mark}", "assert_a", "assert_b", "assert_c"]
+assert_eq("#635: R3b idiom example in a shell comment is skipped when marked",
+          [], _stale_rules_635("lib/test/run.sh",
+                               [_C2[0].format(mark="  # stale-prose-lint: example")] + _C2[1:]))
+assert_eq("#635: the SAME R3b shape WITHOUT the marker still gates STALE",
+          ["R3"], _stale_rules_635("lib/test/run.sh", [_C2[0].format(mark="")] + _C2[1:]))
+
+# AC2 — R4's single-backtick operator referent is untouched: an unmarked deny-absolute on a
+# permitted operator still gates; only an author-marked line opts out.
+_R4 = ["Never use `>` here.{mark}", "The `>` redirect is permitted below."]
+assert_eq("#635/AC2: R4 deny-absolute on a permitted operator still gates when unmarked "
+          "(the opt-out does not weaken R4)",
+          ["R4"], _stale_rules_635("docs/r.md", [_R4[0].format(mark="")] + _R4[1:]))
+assert_eq("#635/AC2: a marked R4 line is the author's declared example and is skipped",
+          [], _stale_rules_635("docs/r.md",
+                               [_R4[0].format(mark="  <!-- stale-prose-lint: example -->")] + _R4[1:]))
+
+# The marker is a plain substring, so it is language-agnostic across comment syntaxes.
+assert_eq("#635: the marker recognizer fires inside a Markdown comment, a shell/py `#` "
+          "comment, and with flexible post-colon whitespace",
+          [True, True, True, True],
+          [bool(stale_prose_lint._EXAMPLE_MARKER_RE.search(s)) for s in (
+              "x  <!-- stale-prose-lint: example -->",
+              "# stale-prose-lint:example",
+              "    // stale-prose-lint:   example",
+              'legend. """stale-prose-lint: example"""')])
+assert_eq("#635: an ordinary claim line without the marker is NOT treated as an example",
+          False, bool(stale_prose_lint._EXAMPLE_MARKER_RE.search("Expected total = 3 items")))
+
+# The opt-out is NOT silent: a marked line surfaces exactly one non-gating UNRESOLVABLE 'EX'
+# audit row (never STALE), so a mis-placed marker on a real claim is visible in the lint OUTPUT,
+# not only in the source. Asserted against ALL rows (not the STALE-filtered projection), which is
+# the only way to pin "one audit row, and the gating rule did not run" together.
+def _all_rows_635(path, body_lines, move=None):
+    added = {i + 1: t for i, t in enumerate(body_lines)}
+    rows = []
+    stale_prose_lint.examine_file(path, added, list(body_lines), rows, move=move)
+    return [(r.verdict, r.rule) for r in rows]
+
+# A marked R2 legend line (which unmarked gates STALE R2) yields exactly one non-gating audit row.
+assert_eq("#635: a marked claim line emits exactly one non-gating UNRESOLVABLE 'EX' audit row "
+          "(the suppression is observable, and no gating rule ran)",
+          [(stale_prose_lint.UNRESOLVABLE, "EX")],
+          _all_rows_635("docs/design.md",
+                        [_C1[0].format(mark="  <!-- stale-prose-lint: example -->")] + _C1[1:]))
+# The recognition tier (non-gating R3 'pin or drift-proof') is also suppressed: a marked line
+# matching the widened recognition shape emits ONLY the EX row, not a recognition-tier row.
+assert_eq("#635: the marker also suppresses the non-gating recognition tier (only the EX row "
+          "remains, no 'R3' recognition-only row)",
+          [(stale_prose_lint.UNRESOLVABLE, "EX")],
+          _all_rows_635("docs/design.md",
+                        ["mentions two files here  <!-- stale-prose-lint: example -->"]))
+
+# R1 (range-outgrowth) shares the same pre-rule skip: a marked `Cases A-B` header whose forward
+# region outgrows B (unmarked → STALE R1) is skipped too, completing the "all rules" claim.
+_C_R1 = ["# Cases 1-2 below{mark}", "Case 1: a", "Case 2: b", "Case 3: c"]
+assert_eq("#635: a marked R1 range-outgrowth header is skipped (no STALE)",
+          [], _stale_rules_635("lib/test/run.sh",
+                               [_C_R1[0].format(mark="  # stale-prose-lint: example")] + _C_R1[1:]))
+assert_eq("#635: the SAME R1 shape WITHOUT the marker still gates STALE",
+          ["R1"], _stale_rules_635("lib/test/run.sh", [_C_R1[0].format(mark="")] + _C_R1[1:]))
+
+# re.IGNORECASE is load-bearing: a mixed-case marker still opts the line out.
+assert_eq("#635: the marker match is case-insensitive (a mixed-case marker still fires)",
+          True, bool(stale_prose_lint._EXAMPLE_MARKER_RE.search("x STALE-PROSE-LINT: Example -->")))
+# The token is pinned: an incidental `examples` / `example-driven` mention does NOT opt out.
+assert_eq("#635: an incidental 'examples'/'example-driven' mention is NOT the opt-out token",
+          [False, False],
+          [bool(stale_prose_lint._EXAMPLE_MARKER_RE.search(s)) for s in (
+              "see the stale-prose-lint: examples of the shapes",
+              "a stale-prose-lint: example-driven approach")])
+
+# Scoped-observability boundary: the opt-out check sits AFTER `_may_carry_claim`, so a marked
+# line in a mask-excluded region (a fenced code block) is `continue`d before the EX emit and
+# surfaces NO row — the "not silent" contract holds only for claim-eligible lines (such a line
+# would never gate anyway). Pins the placement: moving the check above `_may_carry_claim` would
+# flip this to an unconditional EX row.
+assert_eq("#635: a marked line inside a fenced code block emits no row at all (opt-out is scoped "
+          "to claim-eligible lines, after `_may_carry_claim`)",
+          [], _all_rows_635("docs/design.md",
+                            ["```", "Expected total = 3  <!-- stale-prose-lint: example -->", "```"]))
+
+# Marker precedence over #629 move-awareness: the EX emit + `continue` short-circuit BEFORE the
+# relocation/demotion join (`exempt = text in move.relocated`), so a marked line that a non-None
+# `move` would otherwise route through the demotion path still yields exactly the one EX row.
+_mv_line = "Expected total = 3 in the record  <!-- stale-prose-lint: example -->"
+_mv = stale_prose_lint.MoveIndex(frozenset({_mv_line}), {_mv_line: frozenset({"docs/design.md"})})
+assert_eq("#635: the marker short-circuits before the move-awareness join (marked line yields "
+          "only the EX row even when a non-None move would otherwise route it through demotion)",
+          [(stale_prose_lint.UNRESOLVABLE, "EX")],
+          _all_rows_635("docs/design.md", [_mv_line, "", "- a", "- b"], move=_mv))
+
 # ── stale_prose_lint.prose_mask (#434 line scoping) ───────────────────────────────────────
 # The predicate is FILE-STATEFUL: fence / docstring / block-comment membership cannot be
 # decided from an added line's own text (a hunk can begin *inside* a fence, so the opening

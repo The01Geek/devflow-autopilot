@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.19.3] — 2026-07-21
+
+### Fixed
+- **`stale-prose-lint`: prose that documents a claim shape is no longer graded as a claim of that shape.** A design-record example, a fixture-comment idiom, or engine docs describing a rule class were graded as real R1–R4 claims and could gate a false-positive `STALE` against DevFlow's own repo. A prose/comment line may now carry an explicit, language-agnostic opt-out marker (`stale-prose-lint: example`) that skips all rule recognition for that one line. R4's single-backtick operator referent is untouched, so genuine deny-absolute claims still gate. (#635)
+
 ## [2.19.2] — 2026-07-21
 
 ### Changed
