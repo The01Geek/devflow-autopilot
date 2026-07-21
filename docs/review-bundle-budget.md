@@ -61,6 +61,7 @@ budget contract later changes are held to.
 
 ## Static size
 
+<!-- rb:governed-begin static-size -->
 | Row | Before — lines / words / bytes / ~tokens | After — lines / words / bytes / ~tokens |
 |---|---|---|
 | Root (`skills/review/SKILL.md`) | 1,559 / 33,378 / 233,903 / 58,476 | 358 / 7,262 / 49,226 / 12,307 |
@@ -68,6 +69,13 @@ budget contract later changes are held to.
 | Default per-pass unique path | 1,604 / 33,815 / 237,113 / 59,279 | 1,541 / 27,930 / 199,919 / 49,980 |
 | Max incremental phase read | 1,559 / 33,378 / 233,903 / 58,476 | 242 / 5,845 / 41,646 / 10,412 |
 | Consumer extension (shipped repo copy) | 45 / 437 / 3,210 / 803 | 45 / 439 / 3,280 / 820 |
+<!-- rb:governed-end static-size -->
+
+<!-- The After columns above are current-measured (machine-reconciled live by
+     lib/test/run.sh's #656 block). The Before columns are frozen pre-split
+     baseline snapshots (rev 4e2ae406) — registered-exempt with that provenance,
+     never re-measured (a historical measurement cannot change). -->
+
 
 **Formulas and included paths**
 
@@ -90,11 +98,19 @@ budget contract later changes are held to.
 
 ## Ceilings (issue #529 AC2 / #618 re-anchored AC3)
 
+<!-- rb:governed-begin ceilings -->
 | Contract | Ceiling | Measured | Margin |
 |---|---|---|---|
 | Root + shipped extension (AC2) | ≤ 8,500 words | **7,701** | 799 |
 | Reduction vs the 33,815 baseline (AC2) | ≥ 25,327 words | **26,114** | 787 |
 | Shipped-default per-pass path (AC3, #618 re-anchored, #642 shed) | ≤ 30,076 words | **30,016** | 60 |
+<!-- rb:governed-end ceilings -->
+
+<!-- Measured + Margin cells are current-measured (machine-reconciled live).
+     The Ceiling literals 8,500 / 25,327 are enforcement constants (live-gated
+     in run.sh; 8,500 additionally pinned to CLAUDE.md) — registered-exempt as
+     "the constant IS the check". 33,815 in the label is the frozen baseline. -->
+
 
 The AC3 gate's margin is **thin by construction** — the ceiling is the live measured figure plus a fixed
 60-word margin (see the decision record below). Adding words to any shipped-default member spends that
@@ -195,10 +211,11 @@ reads repeatedly**. Baseline is the monolith, which every pass read in full.
 a hypothetical configuration; AC5 measures reality, so each row carries the references its own path
 actually loads:
 
-- **`standalone_path`** (214,802 B / 53,701 tok) — the AC3 default set **plus**
+<!-- rb:governed-begin exec-weighted -->
+- **`standalone_path`** (214,802 B / 53,701 tok) — the AC3 default set **plus** <!-- rb:fig -->
   `phases/phase-0-6-stale-prose-lint.md`, whose gate defaults **true**, so an ordinary standalone pass
   reads it. Includes `phases/phase-4-4-github-post.md` (a standalone pass posts to GitHub).
-- **`raf_path`** (208,661 B / 52,166 tok) — the same, **minus** the standalone-only
+- **`raf_path`** (208,661 B / 52,166 tok) — the same, **minus** the standalone-only <!-- rb:fig -->
   `phase-4-4-github-post.md`, which `/devflow:review-and-fix` skips entirely.
 - `phases/phase-0-3-6-blocker-recheck.md` is in **neither**: its predicate needs a prior REJECT driven
   solely by carve-out blockers, so an ordinary pass never loads it — and on a hit it *replaces* Phases
@@ -210,6 +227,13 @@ actually loads:
 | One normal + shadow pass | `raf_path × 2` | 474,226 / 118,558 | 417,322 / 104,332 | **−56,904 / −14,226** |
 | Bounded multi-iteration (2 iters + shadow) | `raf_path × (N+1)`, N=2 | 711,339 / 177,837 | 625,983 / 156,498 | **−85,356 / −21,339** |
 | Bounded multi-iteration (3 iters + shadow) | `raf_path × (N+1)`, N=3 | 948,452 / 237,116 | 834,644 / 208,664 | **−113,808 / −28,452** |
+<!-- rb:governed-end exec-weighted -->
+
+<!-- After + Delta cells (and the two prose-bullet after figures) are
+     current-measured — machine-reconciled live by run.sh's #656 block. The
+     Before cells and the ×1/×2/(N+1)/N multipliers are frozen baseline / formula
+     structure — registered-exempt. -->
+
 
 **Repeated reads are reported explicitly, not amortized.** The multipliers above *are* the repeat
 count: a normal-plus-shadow pass reads its path twice (the shadow re-enters the engine at
@@ -237,7 +261,9 @@ against the figure this page publishes, so the two cannot drift apart.
 
 ## Justified growth
 
-The **complete bundle** grows by **642 words / 7,981 bytes** against baseline. That is the
+<!-- rb:governed-begin justified-growth -->
+The **complete bundle** grows by **642 words / 7,981 bytes** against baseline. <!-- rb:fig --> That is the
+<!-- rb:governed-end justified-growth -->
 expected cost of the split and is stated rather than hidden: the root gained the bundle-identity
 contract, the boundary contract, and the routing table (~960 words), and each reference carries a
 start/end boundary marker pair. The growth buys the AC3 reduction — the gated references
