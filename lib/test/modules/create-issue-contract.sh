@@ -1787,10 +1787,17 @@ assert_eq "#614 T3: the root+references total is within +/-2% of the recorded co
 # Positional reconciliation (shadow finding): the budget doc's headline measured figures are
 # hand-transcribed, so pin them AGAINST the live measurement rather than as bare literals —
 # the #656 prefer-generated-evidence rule applied to the two figures that drive the ceilings.
+# The doc renders figures with thousands separators, so the comparand needs them too — but
+# `printf "%'d"` is LOCALE-DEPENDENT (it emits `2732` under LC_ALL=C and `2,732` under a UTF-8
+# locale), which is exactly the guard-class-2 defect this repo bans: a value that decides an
+# assertion must not be derived through something whose behavior varies by host. Python's
+# `{:,}` is locale-independent, and python3 is a hard preflight prerequisite.
+ci614_grouped() { python3 -c 'import sys; print(f"{int(sys.argv[1]):,}")' "$1"; }
 assert_eq "#614 T3: the budget doc's recorded root measurement matches the live count" "yes" \
-  "$(grep -qF "| \`SKILL.md\` (root) | $(printf "%'d" "$CI614_ROOT_W" 2>/dev/null || echo "$CI614_ROOT_W") |" "$CI_ROOT/docs/create-issue-budget.md" && echo yes || echo no)"
+  "$(grep -qF "| \`SKILL.md\` (root) | $(ci614_grouped "$CI614_ROOT_W") |" "$CI_ROOT/docs/create-issue-budget.md" && echo yes || echo no)"
 assert_eq "#614 T3: the budget doc's recorded root+references total matches the live count" "yes" \
-  "$(grep -qF "**$(printf "%'d" "$CI614_TOTAL_W" 2>/dev/null || echo "$CI614_TOTAL_W")**" "$CI_ROOT/docs/create-issue-budget.md" && echo yes || echo no)"
+  "$(grep -qF "**$(ci614_grouped "$CI614_TOTAL_W")**" "$CI_ROOT/docs/create-issue-budget.md" && echo yes || echo no)"
+unset -f ci614_grouped
 
 # Step-reference purity (shadow finding): T4 proves fallback prose left the default path, but
 # nothing proved a STEP reference's prose did not ALSO remain in the root — a duplicated
