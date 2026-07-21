@@ -44,6 +44,7 @@ import hashlib
 import importlib.util
 import json
 import re
+import sys
 from pathlib import Path
 
 # Repo root: this file is lib/test/cloud_writer_contract.py.
@@ -60,8 +61,11 @@ def _load_sibling(module_name, filename):
     """
     path = Path(__file__).resolve().parent / filename
     spec = importlib.util.spec_from_file_location(module_name, path)
-    # spec_from_file_location returns None for a path that does not resolve, so a
-    # missing/renamed sibling would otherwise surface as `AttributeError: 'NoneType'
+    # `spec_from_file_location` returns None when it can find no loader for the
+    # path's SUFFIX — not when the file is merely absent. A missing `.py` sibling
+    # still yields a spec and fails at `exec_module` with a FileNotFoundError that
+    # already names the path, so that case needs no help. This guard covers the
+    # None/loaderless case, where the alternative is `AttributeError: 'NoneType'
     # object has no attribute 'loader'` at IMPORT of this module — which
     # scripts/validate-cloud-writer-contract.py imports in its pre-agent validator.
     # Loud but unactionable; name the path instead.
@@ -572,15 +576,22 @@ def _scope_grant_region(profile, text):
 
     ``region_text`` is ``None`` when the region cannot be located — an undeclared
     profile, or an extractor that refuses the file — and ``why`` then carries the
-    reason. Both scopers signal a refusal by raising ``SystemExit`` carrying a
-    SPECIFIC message ("no `TOOLS='...'` allowlist line found", "2 … lines found;
-    refusing to guess", "value must begin with a quote", "no closing quote"), and
-    those four are materially different things to go fix — so the exception text is
+    reason. Each scoper signals a refusal by raising ``SystemExit`` carrying a
+    specific message naming what refused and why (an absent allowlist line, more
+    than one, a value that does not begin with a quote, an unterminated one, …);
+    those are materially different things to go fix, so the exception text is
     threaded out rather than collapsed, and the caller renders it. Converting the
     refusal to a return value (instead of letting ``SystemExit`` propagate) is what
     keeps it a reported violation rather than an aborted run. Never falls back to
     the whole text: an unlocatable region is unknown, and unknown is not
     "everything".
+
+    ``except SystemExit`` is deliberately broader than the scopers' own refusals —
+    any ``SystemExit`` raised beneath the extractor lands here. That is a
+    mis-*attribution* risk, not a swallow (the run still fails closed and the
+    message names the extractor), and a messageless exit is reported as such rather
+    than as a bare "refused", so it can never render a reason the code did not
+    observe.
     """
     extractor = GRANT_REGION_EXTRACTORS.get(profile)
     if extractor is None:
@@ -589,8 +600,21 @@ def _scope_grant_region(profile, text):
         return (extractor(text), None)
     except SystemExit as exc:
         detail = str(exc).strip()
-        return (None, f"{extractor.__name__} refused the workflow"
-                      + (f": {detail}" if detail else ""))
+        return (None, f"{extractor.__name__} refused the workflow: "
+                      + (detail if detail else "refused with no reason given"))
+
+
+def _looks_like_whole_workflow(text):
+    """True when injected text carries workflow structure a grant REGION never has.
+
+    A scoped region is one ``TOOLS='…'`` line or one ``--allowed-tools`` quoted
+    value; a whole workflow carries top-level YAML keys. Keyed on those keys rather
+    than on size, so a long legitimate region is not flagged.
+    """
+    return any(
+        line.startswith(("on:", "jobs:", "name:", "permissions:"))
+        for line in text.splitlines()
+    )
 
 
 def _grant_source(profile, profile_grants):
@@ -616,6 +640,19 @@ def _grant_source(profile, profile_grants):
     """
     if profile_grants is not None:
         text = profile_grants.get(profile)
+        # The injected branch returns its text UNSCOPED by design (a synthetic
+        # one-grant-per-line fixture would trip the scoper's uniqueness check), so
+        # a caller that passed real workflow text here would silently get the
+        # retired whole-file pooling back. Breadcrumb it rather than leaving that
+        # reachable in silence; the parameter is a test-injection seam for
+        # already-scoped regions, not a general grant-source override.
+        if text is not None and _looks_like_whole_workflow(text):
+            print(
+                f"cloud-writer-contract: profile '{profile}' injected grant source looks "
+                f"like a whole workflow file, not an already-scoped grant region; it is "
+                f"NOT re-scoped — pass the region, or omit profile_grants to read from disk",
+                file=sys.stderr,
+            )
         return (text, None if text is not None else "no injected grant source for this profile")
     workflow = ROOTS[profile]["workflow"]
     try:
@@ -865,8 +902,8 @@ def shape_audited_assets():
     return audited
 
 
-def shape_violations_in(profile, asset, text):
-    """Denied-shape hits ``(line, rule, statement)`` for one asset under one profile.
+def shape_violations_in(profile, text):
+    """Denied-shape hits ``(line, rule, statement)`` for one text under one profile.
 
     Returns an empty list for a profile whose declared table is ``None`` (no
     probe-anchored rules to apply). A profile with no declared entry at all
@@ -923,7 +960,7 @@ def check_shape_conformance():
             errors.append(f"AC4 shapes: reached asset '{asset}' could not be read: {exc}")
             continue
         for profile in sorted(profiles & declared):
-            for lineno, rule, statement in shape_violations_in(profile, asset, text):
+            for lineno, rule, statement in shape_violations_in(profile, text):
                 oneline = " ".join(statement.split())
                 if len(oneline) > 120:
                     oneline = oneline[:117] + "..."

@@ -7414,12 +7414,96 @@ finally:
 assert_eq("#678 AC9-residual: ROOTS['review'] workflow restored after the undecodable arm",
           [], cwc.check_grant_sync())
 
-# (g) The injected `profile_grants` path is UNCHANGED — it injects an
+# (g) The IMPLEMENT profile binds a DIFFERENT scoper (implement_allowlist_block,
+# not tools_allowlist_line), so its refusal path is a separate arm — arms (b)/(c)
+# prove nothing about it. A refusal signalled by any mechanism other than
+# SystemExit would escape check_grant_sync as a traceback rather than a reported
+# violation, which is exactly what the conversion exists to prevent.
+_gsr_impl = cwc.REPO_ROOT / ".devflow" / "tmp" / "gsr-678-noblock.yml"
+_gsr_orig_impl_wf = cwc.ROOTS["implement"]["workflow"]
+try:
+    _gsr_impl.parent.mkdir(parents=True, exist_ok=True)
+    _gsr_impl.write_text("on: push\njobs:\n  a:\n    steps:\n      - run: echo hi\n",
+                         encoding="utf-8")
+    cwc.ROOTS["implement"]["workflow"] = ".devflow/tmp/gsr-678-noblock.yml"
+    assert_eq("#678 AC9-residual: the implement scoper's refusal is reported as a "
+              "violation (not a traceback) and names its own extractor",
+              True, any("grant source unavailable" in e
+                        and "implement_allowlist_block" in e
+                        and "no `--allowed-tools` allowlist block found" in e
+                        for e in cwc.check_grant_sync()))
+finally:
+    cwc.ROOTS["implement"]["workflow"] = _gsr_orig_impl_wf
+    _gsr_impl.unlink(missing_ok=True)
+assert_eq("#678 AC9-residual: ROOTS['implement'] workflow restored after the implement-scoper arm",
+          [], cwc.check_grant_sync())
+
+# (h) The MALFORMED-VALUE refusal shapes — a present-but-corrupt allowlist region
+# is the hand-corruptible input CLAUDE.md's adversarial-shape matrix governs, and
+# it is the shape a real bad edit most likely produces. Each must fail closed with
+# its own cause rather than yielding a partial region.
+for _gsr_body, _gsr_label, _gsr_phrase in (
+        ("jobs:\n  a:\n    steps:\n      - run: x\n        args:\n          --allowed-tools\n"
+         "          Bash(git:*)\n",
+         "a value that does not begin with a quote",
+         "must begin with a quote"),
+        ("jobs:\n  a:\n    steps:\n      - run: x\n        args:\n          --allowed-tools\n"
+         '          "Bash(git:*)\n',
+         "an unterminated quoted value",
+         "no closing quote"),
+):
+    try:
+        _gsr_impl.parent.mkdir(parents=True, exist_ok=True)
+        _gsr_impl.write_text(_gsr_body, encoding="utf-8")
+        cwc.ROOTS["implement"]["workflow"] = ".devflow/tmp/gsr-678-noblock.yml"
+        assert_eq("#678 AC9-residual: %s fails closed with its own cause, never a "
+                  "partial region" % _gsr_label,
+                  True, any("grant source unavailable" in e and _gsr_phrase in e
+                            for e in cwc.check_grant_sync()))
+    finally:
+        cwc.ROOTS["implement"]["workflow"] = _gsr_orig_impl_wf
+        _gsr_impl.unlink(missing_ok=True)
+assert_eq("#678 AC9-residual: ROOTS['implement'] workflow restored after the malformed-value arms",
+          [], cwc.check_grant_sync())
+
+# (i) The injected `profile_grants` path is UNCHANGED — it injects an
 # already-scoped region, so the synthetic multi-line grant sets used by the #650
 # injected-grant arms and `_cw_healthy_grants()` are not re-scoped (and a scoper's
 # uniqueness refusal cannot reach them).
 assert_eq("#678 AC9-residual: injected profile_grants bypass region scoping",
           [], cwc.check_grant_sync(_cw_healthy_grants()))
+
+# ...but that bypass is BREADCRUMBED, so a caller passing real workflow text (which
+# would silently restore the retired whole-file pooling) is not left in silence.
+_gsr_whole_inj = _cw_healthy_grants()
+_gsr_whole_inj["review"] = _gsr_review_text
+_gsr_cap = io.StringIO()
+with contextlib.redirect_stderr(_gsr_cap):
+    cwc.check_grant_sync(_gsr_whole_inj)
+assert_eq("#678 AC9-residual: injecting a WHOLE workflow (not a scoped region) emits a "
+          "breadcrumb rather than silently restoring whole-file pooling",
+          True, "looks like a whole workflow file" in _gsr_cap.getvalue())
+_gsr_cap_clean = io.StringIO()
+with contextlib.redirect_stderr(_gsr_cap_clean):
+    cwc.check_grant_sync(_cw_healthy_grants())
+assert_eq("#678 AC9-residual: a properly-scoped injected region emits NO such breadcrumb "
+          "(the guard is not a blanket warning)",
+          False, "looks like a whole workflow file" in _gsr_cap_clean.getvalue())
+
+# The retired scope-limit (ii) note states the guard's vendored grant set equals the
+# validator's on the healthy tree. That is a live measured property, so bind it to an
+# assertion rather than leaving a figure in prose to rot; the DIRECTIONAL half (never
+# a superset) is what holds by construction and is asserted alongside it.
+for _gsr_p in sorted(cwc.ROOTS):
+    _gsr_wf = (cwc.REPO_ROOT / cwc.ROOTS[_gsr_p]["workflow"]).read_text(encoding="utf-8")
+    _gsr_ours = cwc._scan_grants(cwc._scope_grant_region(_gsr_p, _gsr_wf)[0])[0]
+    _gsr_theirs = set(vcwc.extract_profile_grants(cwc.REPO_ROOT / cwc.ROOTS[_gsr_p]["workflow"]))
+    assert_eq("#678 AC9-residual: profile '%s' — the region-scoped vendored grant set is "
+              "never a superset of the runtime validator's (holds by construction)" % _gsr_p,
+              True, _gsr_ours <= _gsr_theirs)
+    assert_eq("#678 AC9-residual: profile '%s' — and on the healthy tree the two sets are "
+              "EQUAL (the measured half of the retired-limit note, bound live)" % _gsr_p,
+              _gsr_theirs, _gsr_ours)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # AC4 (issue #678) — profile-specific command SHAPES over the AC1-reached fences.
@@ -7428,6 +7512,8 @@ assert_eq("#678 AC9-residual: injected profile_grants bypass region scoping",
 # a reached asset that neither the review-bundle nor the implement-bundle scan
 # covers shipped unseen.
 # ─────────────────────────────────────────────────────────────────────────────
+
+_shapes_mod = cwc._shapes
 
 # Every ROOTS profile declares which rule table governs it. `light-command` maps
 # to None BY DECLARATION: matcher-probe.yml records a REVIEW and an IMPLEMENT
@@ -7506,7 +7592,35 @@ assert_eq("#678 AC4: SKILL_ASSETS restored after the undecodable-asset arm",
 # declared-no-table case that returns [].
 assert_raises("#678 AC4: shape_violations_in raises KeyError for an undeclared profile "
               "(distinct from the declared-None case, which returns [])",
-              KeyError, lambda: cwc.shape_violations_in("no-such-profile", "synthetic", ""))
+              KeyError, lambda: cwc.shape_violations_in("no-such-profile", ""))
+
+# The operator-facing CLI arm — the subcommand the module docstring tells a human to
+# run. Its guard is driven directly above, but a typo in the print/return path would
+# otherwise ship green (the #650 grant-sync arm is the precedent).
+assert_eq("#678 AC4: main(['shape-conformance']) exits 0 on the live closure",
+          0, cwc.main(["shape-conformance"]))
+_sc_orig_check = cwc.check_shape_conformance
+try:
+    cwc.check_shape_conformance = lambda *a, **k: ["AC4 shapes: synthetic violation"]
+    assert_eq("#678 AC4: main(['shape-conformance']) exits 1 when violations exist",
+              1, cwc.main(["shape-conformance"]))
+finally:
+    cwc.check_shape_conformance = _sc_orig_check
+assert_eq("#678 AC4: main(['shape-conformance']) still exits 0 after the failure-arm probe",
+          0, cwc.main(["shape-conformance"]))
+
+# _load_sibling's guard exists because this module is imported by the pre-agent
+# validator, where a NoneType.loader traceback is loud but unactionable. It fires on
+# the shape that actually produces a None spec — a suffix importlib has no loader
+# for — NOT on a merely-absent `.py`, which yields a spec and fails later with a
+# FileNotFoundError that already names the path. Both arms are pinned so the comment
+# describing this split cannot drift from the behavior.
+assert_raises("#678: _load_sibling raises ImportError naming the path when importlib "
+              "returns no loader for the suffix (the NoneType.loader shape)",
+              ImportError, lambda: cwc._load_sibling("nope", "no-such-sibling-678.txt"))
+assert_raises("#678: a merely-absent .py sibling fails at exec_module with a path-naming "
+              "FileNotFoundError — the guard above is not what covers it",
+              FileNotFoundError, lambda: cwc._load_sibling("nope", "no-such-sibling-678.py"))
 # light-command's declared None is honoured as "no rules to apply", NOT as a
 # silent pass-through to another profile's table. Drive it against text that DOES
 # violate both tables: a table-inheriting regression would report those hits.
@@ -7514,11 +7628,11 @@ _sc_dirty = "```bash\ncd /tmp\npython3 -c pass\n" \
             'OUT=$(.devflow/vendor/devflow/scripts/apply-labels.sh 1 X)\n```\n'
 assert_eq("#678 AC4: light-command declares no probe-anchored table, so a shape denied "
           "on BOTH other tiers yields no hit under it (no cross-profile inference)",
-          [], cwc.shape_violations_in("light-command", "synthetic", _sc_dirty))
+          [], cwc.shape_violations_in("light-command", _sc_dirty))
 assert_eq("#678 AC4: the same text is NOT clean under the profiles that do have a table",
           (True, True),
-          (bool(cwc.shape_violations_in("review", "synthetic", _sc_dirty)),
-           bool(cwc.shape_violations_in("implement", "synthetic", _sc_dirty))))
+          (bool(cwc.shape_violations_in("review", _sc_dirty)),
+           bool(cwc.shape_violations_in("implement", _sc_dirty))))
 
 # An unmapped profile fails CLOSED — a future cloud profile must not be audited
 # under a silently-chosen table nor skipped without saying so.
@@ -7551,6 +7665,26 @@ assert_eq("#678 AC8: a planted control exists for every rule id in every declare
           {rule for table in cwc.PROFILE_SHAPE_TABLES.values() if table
            for rule in table["rules"]} - set(_sc_planted))
 
+# AC8's "complete by construction" bottoms out on REVIEW_RULES/IMPLEMENT_RULES being
+# a faithful mirror of what the finders can EMIT. They are hand-written frozensets,
+# so a new rule id added to a finder alone would get no control and no RED — the
+# completeness guarantee would be one hop short. Reconcile the declared sets against
+# the rule-id literals in extract-command-shapes.py's own source, so that drift is
+# the thing that turns this RED.
+_sc_shapes_src = (cwc.REPO_ROOT / "lib/test/extract-command-shapes.py").read_text(encoding="utf-8")
+_sc_src_review = set(re.findall(r'hits\.append\("(R\d+)"\)', _sc_shapes_src))
+_sc_src_implement = set(re.findall(r'"(IR\d+)"', _sc_shapes_src))
+assert_eq("#678 AC8: REVIEW_RULES mirrors exactly the R-ids extract-command-shapes.py's "
+          "review classifier emits (a rule added to the finder alone goes RED here)",
+          _sc_src_review, set(_shapes_mod.REVIEW_RULES))
+assert_eq("#678 AC8: IMPLEMENT_RULES mirrors exactly the IR-ids extract-command-shapes.py "
+          "carries (a rule added to the finder alone goes RED here)",
+          _sc_src_implement, set(_shapes_mod.IMPLEMENT_RULES))
+# Non-vacuity of the two reconciliations above: the extracted sets are non-empty, so
+# a regex that silently stopped matching could not read as agreement.
+assert_eq("#678 AC8: the rule-id extraction is non-vacuous (both sets non-empty)",
+          (True, True), (bool(_sc_src_review), bool(_sc_src_implement)))
+
 for _sc_profile, _sc_table in sorted(cwc.PROFILE_SHAPE_TABLES.items()):
     if _sc_table is None:
         continue
@@ -7561,10 +7695,10 @@ for _sc_profile, _sc_table in sorted(cwc.PROFILE_SHAPE_TABLES.items()):
     # (profile, asset) rather than once per rule — the baseline does not vary
     # with the rule being planted.
     assert_eq("#678 AC8: %s is clean under %s before any plant" % (_sc_asset, _sc_profile),
-              [], cwc.shape_violations_in(_sc_profile, _sc_asset, _sc_body))
+              [], cwc.shape_violations_in(_sc_profile, _sc_body))
     for _sc_rule in sorted(_sc_table["rules"]):
         _sc_mutated = _sc_body + "\n```bash\n%s\n```\n" % _sc_planted[_sc_rule]
-        _sc_hits = cwc.shape_violations_in(_sc_profile, _sc_asset, _sc_mutated)
+        _sc_hits = cwc.shape_violations_in(_sc_profile, _sc_mutated)
         assert_eq("#678 AC8: planting a %s violation in %s is observed RED under the "
                   "%s profile" % (_sc_rule, _sc_asset, _sc_profile),
                   True, any(_sc_rule == rule for _, rule, _ in _sc_hits))
