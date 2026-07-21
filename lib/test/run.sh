@@ -16137,7 +16137,7 @@ assert_eq "#275 pin (gate-op): all four implement entry-gates carry the placehol
 # SKILL.md files only): one canonical helper invocation per phase file, pinned unique, so a
 # commented-out/prose-only occurrence cannot satisfy P3 alone.
 assert_pin_unique "#275 pin (P3-live): phase-1 carries a live parse-acs.py invocation via the portable anchor" \
-  "$PORTABLE_ANCHOR_LITERAL"'scripts/parse-acs.py --issue' "$LIB/../skills/implement/phases/phase-1-setup.md"
+  "$PORTABLE_ANCHOR_LITERAL"'scripts/parse-acs.py --body-file' "$LIB/../skills/implement/phases/phase-1-setup.md"
 assert_pin_unique "#275 pin (P3-live): phase-2 carries a live config-get.sh docs.internal read via the portable anchor" \
   "$PORTABLE_ANCHOR_LITERAL"'scripts/config-get.sh .docs.internal' "$LIB/../skills/implement/phases/phase-2-implement.md"
 assert_pin_unique "#275 pin (P3-live): phase-3 carries the live --persist backstop via the portable anchor" \
@@ -47339,6 +47339,123 @@ assert_pin_red_under "#664 fence: the resolved comment id is admitted only when 
   '[ -n "$TRIGGER_COMMENT_ID" ] && [ -z "${TRIGGER_COMMENT_ID//[0-9]/}" ]' \
   's|^if \[ -n "\$TRIGGER_COMMENT_ID" \] && \[ -z .*\]; then$|if [ -n "$TRIGGER_COMMENT_ID" ]; then|' \
   "$E664_IMPL"
+
+echo "#693 issue-body cache: no cut-over site re-fetches the body"
+IBR_LINT="$LIB/test/lint-issue-body-refetch.py"
+IBR_FX="$LIB/test/fixtures/issue-body-refetch"
+IBR_P1="$LIB/../skills/implement/phases/phase-1-setup.md"
+IBR_P2="$LIB/../skills/implement/phases/phase-2-implement.md"
+IBR_P4="$LIB/../skills/implement/phases/phase-4-documentation.md"
+
+# Real-tree run: clean now, plus a POSITIVE tally so a collapsed audited set can't read as clean.
+IBR_OUT="$(python3 "$IBR_LINT" 2>&1)"; IBR_RC=$?
+assert_eq "#693 scanner: clean on the tree as it stands" "rc=0" \
+  "$([ "$IBR_RC" -eq 0 ] && printf 'rc=0' || printf 'rc=%s | %s' "$IBR_RC" "$IBR_OUT")"
+assert_eq "#693 scanner: the real-tree run audited a positive number of files" "yes" \
+  "$(printf '%s' "$IBR_OUT" | python3 -c 'import re,sys
+m = re.search(r"audited (\d+) of", sys.stdin.read())
+print("yes" if m and int(m.group(1)) > 0 else "no")')"
+
+# Fixture-driven behavior over --files-from. The fixtures live under lib/test/ (unreachable from
+# the default enumeration); their in-list paths are laid out under skills/implement/ so is_audited()
+# selects them.
+ibr_run() {  # <root> <path…> -> "rc=<n>|<stdout+stderr>"
+  local root="$1"; shift
+  local list out rc
+  list="$(probe_tmp '#693 fixture list')" || return 0
+  printf '%s\n' "$@" > "$list"
+  out="$(python3 "$IBR_LINT" --root "$root" --files-from "$list" 2>&1)"; rc=$?
+  rm -f "$list"
+  printf 'rc=%s|%s' "$rc" "$out"
+}
+
+# Discrimination: the §1.1 producer fetch and §4.1 gate fences are the two named in-file
+# allowances — a green run over exactly those (plus a clean file) proves the guard discriminates.
+assert_eq "#693 scanner: the §1.1 producer fetch and §4.1 gate fences are not flagged" \
+  "rc=0|lint-issue-body-refetch: audited 3 of 3 files" \
+  "$(ibr_run "$IBR_FX" skills/implement/clean.md skills/implement/producer.md skills/implement/docgate.md)"
+
+# Planted-defect positive control, one per detected form (the coverage-claim rule).
+while IFS=: read -r _ibr_file _ibr_slug _ibr_what; do
+  [ -n "$_ibr_file" ] || continue
+  assert_eq "#693 scanner: flags the $_ibr_what form ($_ibr_file)" "yes" \
+    "$(case "$(ibr_run "$IBR_FX" "$_ibr_file")" in *"|$_ibr_file:"*"($_ibr_slug)"*) echo yes ;; *) echo no ;; esac)"
+done <<'IBR_VIOLATIONS'
+skills/implement/v-ghview-body.md:gh-issue-view-body:gh issue view requesting body
+skills/implement/v-ghview-nojson.md:gh-issue-view-no-json:gh issue view with no --json
+skills/implement/v-ghapi-body.md:gh-api-issue-body:gh api issue-body read
+skills/implement/v-parseacs-issue.md:parse-acs-issue:parse-acs.py --issue
+skills/implement/v-preflight-issue.md:preflight-issue:preflight.py --issue
+skills/implement/v-wrapped.md:gh-issue-view-body:a line-wrapped detected form
+IBR_VIOLATIONS
+
+# An all-unaudited population is a zero tally at exit 0 (never a silent clean over nothing).
+assert_eq "#693 scanner: an all-unaudited population is a zero tally at exit 0" \
+  "rc=0|lint-issue-body-refetch: audited 0 of 0 files" \
+  "$(ibr_run "$IBR_FX" other/foo.md)"
+
+# Fail-closed arms (mirroring the #664 sibling, since the scaffolding is a deliberate mirror):
+# an audited path that cannot be READ is named on stderr and, when it is the whole population,
+# fails closed — "audited nothing" must never print the same thing as "audited everything, clean".
+assert_eq "#693 scanner: an unreadable audited path is named, not silently skipped" "yes" \
+  "$(case "$(ibr_run "$IBR_FX" skills/implement/no-such-file.md)" in *"SKIPPED skills/implement/no-such-file.md"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#693 scanner: a wholly unreadable population fails closed rather than reporting clean" "rc=1|0 of 1" \
+  "$(ibr_run "$IBR_FX" skills/implement/no-such-file.md | python3 -c 'import re,sys
+t = sys.stdin.read()
+m = re.search(r"audited (\d+ of \d+)", t)
+print("rc=" + re.match(r"rc=(\d+)", t).group(1) + "|" + (m.group(1) if m else "no-tally"))')"
+# An empty pre-filter enumeration fails closed with its own breadcrumb (never a silent exit 0).
+assert_eq "#693 scanner: an empty enumeration fails closed with its own breadcrumb" "yes" \
+  "$(case "$(ibr_run "$IBR_FX")" in "rc=0"*) echo "no: exited 0" ;; *"yielded zero paths"*) echo yes ;; *) echo no ;; esac)"
+
+# Re-paste regression: the scanner cannot see a pasted body, so each dispatch site carries a prose
+# pin whose mutation restores the pasted body (the guarded regression the headline saving depends on).
+assert_pin_red_under "#693 re-paste: §2.1 code-explorer dispatch hands the body off, not pasted" \
+  'The GitHub issue title and labels inline (the code-explorer dispatch, on every arm)' \
+  's/title and labels inline \(the code-explorer dispatch, on every arm\)/title, body, and labels/' \
+  "$IBR_P2"
+assert_pin_red_under "#693 re-paste: §2.2 code-architect dispatch hands the body off, not pasted" \
+  'The GitHub issue title and labels inline (the code-architect dispatch, on every arm)' \
+  's/title and labels inline \(the code-architect dispatch, on every arm\)/title, body, and labels/' \
+  "$IBR_P2"
+assert_pin_red_under "#693 re-paste: §4.1 devflow:docs dispatch hands the body off, not pasted" \
+  'the issue title and number inline (the devflow:docs dispatch, on every arm)' \
+  's/the issue title and number inline \(the devflow:docs dispatch, on every arm\)/the issue title, body, and number/' \
+  "$IBR_P4"
+
+# §1.1 delete-then-fetch ordering: the delete precedes the fetch so a resumed run never reads a
+# prior attempt's cache. The mutation removes the delete statement.
+assert_pin_red_under "#693 §1.1: the stale cache is deleted before the fresh fetch" \
+  'rm -f "$DEVFLOW_ROOT/.devflow/tmp/issue-body/issue-$ARGUMENTS.md"' \
+  '/rm -f "\$DEVFLOW_ROOT\/\.devflow\/tmp\/issue-body\/issue-\$ARGUMENTS\.md"/d' \
+  "$IBR_P1"
+
+# The extracting --jq producer form: the mutation reverts it to the enveloping shape (which would
+# cache a JSON envelope that passes both write guards yet silently empties the AC/dependency gates).
+assert_pin_red_under "#693 §1.1: the producer uses the extracting --jq '.body' form" \
+  "|| gh issue view \$ARGUMENTS --json body --jq '.body'" \
+  "s/--json body --jq '\\.body'/--json title,body,labels,number/g" \
+  "$IBR_P1"
+
+# §1.1's remaining metadata fetch drops body (materialized once). The mutation re-adds body.
+assert_pin_red_under "#693 §1.1: the remaining metadata fetch drops body (title,labels,number)" \
+  'gh issue view $ARGUMENTS --json title,labels,number' \
+  's/--json title,labels,number/--json title,body,labels,number/' \
+  "$IBR_P1"
+
+# The in-tree write is preconditioned on an ignore rule, never created by the run. The mutation
+# converts the precondition into a create-when-absent step (the plugin-only-adopter dotfile hazard).
+assert_pin_red_under "#693 §1.1: the ignore rule is a precondition, never created by the run" \
+  'the run never creates one' \
+  's/the run never creates one/the run creates one when absent/' \
+  "$IBR_P1"
+
+# Hand-off only: a consumer never decides to use the cache by testing for the file in the tree.
+# The mutation replaces the supplied-path rule with a filesystem test.
+assert_pin_red_under "#693 hand-off only: the cache is reached by explicit path, never filesystem discovery" \
+  'never decides to use the cache by testing for the file in the tree' \
+  's/never decides to use the cache by testing for the file in the tree/decides to use the cache by testing for the file in the tree/' \
+  "$IBR_P1"
 
 # #466 mla-rule-drift (coupled site): match-lint-adjudications.py excludes R4 from carry-forward
 # because R4's detail carries no referent. That exclusion is a DENY-list, so a NEW stale-prose
