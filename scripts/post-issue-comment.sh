@@ -7,7 +7,7 @@
 # Posts through
 #   POST /repos/{owner}/{repo}/issues/{number}/comments
 # via `gh api`, whose {owner}/{repo} placeholders gh fills from the git remote
-# (and $GITHUB_REPOSITORY in cloud) WITHOUT the org-scoped GraphQL resolution that
+# on BOTH tiers, WITHOUT the org-scoped GraphQL resolution that
 # `gh issue comment` porcelain triggers — so a repo-scoped token (GitHub App
 # installation token, or a fine-grained repo-only PAT) posts successfully. Mirrors
 # ensure-label.sh / apply-labels.sh: it ALWAYS exits 0 (best-effort) and leaves a

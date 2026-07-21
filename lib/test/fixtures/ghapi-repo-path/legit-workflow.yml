@@ -1,0 +1,10 @@
+name: legit workflow
+# An Actions-only surface. Environment addressing is correct here, and the
+# population exclusion keeps this file out of the scanner's reach entirely.
+env:
+  GITHUB_REPOSITORY: owner/repo
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh api "repos/$GITHUB_REPOSITORY/check-runs"

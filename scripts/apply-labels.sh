@@ -10,7 +10,7 @@
 # goes through the REST endpoint
 #   POST /repos/{owner}/{repo}/issues/{number}/labels
 # via `gh api`, whose `{owner}`/`{repo}` placeholders `gh` fills from the git
-# remote (and $GITHUB_REPOSITORY in cloud) WITHOUT the org-scoped GraphQL
+# remote on BOTH tiers, WITHOUT the org-scoped GraphQL
 # resolution that `gh issue edit`/`gh pr edit --add-label` trigger — so a
 # repo-scoped token (GitHub App installation token, or a fine-grained `repo`-only
 # PAT, neither of which carries `read:org`) applies labels successfully.
