@@ -9,6 +9,52 @@ any branch checkout, creation, checkpoint merge, or push. An open or
 unresolvable dependency terminalizes the workpad as Blocked; Phase 1.6 keeps
 the other audit passes without re-running this gate.
 
+## Issue-body cache (issue #693)
+
+A single implement run used to materialize the GitHub issue body many times over — six API
+fetches plus an inline paste into every dispatched subagent's prompt. Phase 1 §1.1 now fetches
+the body **once per run attempt** into an in-tree cache file and the Phase 1–2 consumers read it
+by explicit hand-off.
+
+- **Path and content.** The cache is `.devflow/tmp/issue-body/issue-<ISSUE_NUMBER>.md`, anchored to
+  the repo-or-worktree root (`git rev-parse --show-toplevel`, falling back to `pwd`). The producer
+  uses the extracting `gh issue view … --json body --jq '.body'` form, so the file holds the bare
+  body, never a JSON envelope. §1.1's own remaining metadata fetch drops `body`
+  (`--json title,labels,number`), so the body is materialized in the orchestrator's context exactly
+  once — by the cache read.
+- **Per-run-attempt lifecycle.** The write is an unconditional delete-then-fetch on every entry
+  path, so a resumed, re-triggered, or stall-backstop-auto-resumed run always writes a freshly
+  fetched cache rather than reading a prior attempt's file. When §1.4's resume pre-check moves the
+  run into a linked worktree, the cache is re-materialized under that worktree's root before any
+  Phase 2 consumer reads it. It is removed at every terminal `Status` transition alongside the run
+  marker (best-effort; a leftover file is inert because reads are hand-off-only).
+- **Ignore precondition.** The in-tree write is preconditioned on an ignore rule already covering
+  `.devflow/tmp/`; the run never creates one (a new dotfile would be an untracked file a blind
+  `git add -A` would stage). The precondition is resolved by `scripts/preflight.py
+  ignore-precondition`, which calls `git check-ignore` in-process — no new matcher command head and
+  no new vendored-literal token. A denied or no-output invocation is an unestablished measurement
+  routed to the stop path, never a decided degraded arm.
+- **Hand-off only.** No consumer decides to use the cache by testing for the file in the tree; the
+  path reaches a consumer only as an explicit parameter of the orchestrator's invocation, so no
+  consumer can be induced to read a file the reviewed PR authored. Shell helpers read it through
+  their `--body-file` arms (§1.2 `parse-acs.py`, §1.3.5 `preflight.py dependencies`); the §2.1
+  `code-explorer`, §2.2 `code-architect`, and §4.1 `devflow:docs` dispatches carry an
+  `Issue body path:` line naming the cache with an instruction to Read it, and stop pasting the body
+  into the prompt (title and labels stay inline). On the degraded arm where the ignore precondition
+  is unsatisfied, the cache is not written: shell helpers revert to their `--issue` arms and the
+  dispatches revert to the inline body paste, because `code-explorer` and `code-architect` declare
+  no `Bash` tool and cannot fetch the body themselves.
+- **Freshness dispositions.** The cache is a cost optimization applied only where staleness cannot
+  change a verdict. Every verdict-bearing reader keeps fetching live, because a human can amend the
+  issue mid-run: §4.1's Documentation-Needed gate (a stale snapshot would read as "no deliverables"),
+  the Phase 3.3 inline review's issue-compliance check (`skills/review/phases/phase-0-setup.md` §0.4,
+  which would otherwise judge the PR against superseded acceptance criteria), `/pr-description`
+  (renders the acceptance criteria into the PR body), and `receiving-code-review`'s per-iteration
+  re-read.
+- **Regression guard.** `lib/test/lint-issue-body-refetch.py` (driven from `lib/test/run.sh`) fails
+  the suite when any detected re-fetch form reappears at a cut-over site under `skills/implement/`;
+  the re-paste regression is guarded by prose pins on the three dispatch sites.
+
 The `/devflow:implement` orchestrator runs a set of mandatory **sweeps** in Phase 2.3, after writing the
 code and before running tests. Each sweep closes a class of blast-radius bug that survives `git diff`
 review because nothing is *syntactically* broken — the affected lines still compile, parse, or run;

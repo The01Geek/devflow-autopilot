@@ -121,10 +121,11 @@ fi
 
 If the triggering comment can't be resolved (a review-body trigger has no reactions API; the id lookup fails), skip the reaction silently — the workpad `Status` glyph remains the authoritative signal.
 
-**Run-marker removal (same terminal transitions).** This block already binds *every* terminal `Status` transition, so it is also where the run's local-tier marker file is retired: at each such transition — 🎉 `Complete` and **any** 👎 `Blocked` finalizer alike — also remove the Phase 1.3 run-marker written for this issue. It is best-effort like the reaction; a failure to remove it never blocks the run, because the local Stop-hook guard self-heals a stale marker the next time it reads a terminal workpad.
+**Run-marker removal (same terminal transitions).** This block already binds *every* terminal `Status` transition, so it is also where the run's local-tier marker file is retired: at each such transition — 🎉 `Complete` and **any** 👎 `Blocked` finalizer alike — also remove the Phase 1.3 run-marker written for this issue, **and the Phase 1.1 issue-body cache** (`.devflow/tmp/issue-body/issue-$ISSUE_NUMBER.md`, issue #693). Both removals are best-effort like the reaction; a failure to remove either never blocks the run (the local Stop-hook guard self-heals a stale marker the next time it reads a terminal workpad, and a leftover cache file is inert — reads are hand-off-only, so no later run discovers it, and the next implement run on the same issue deletes it before writing).
 
 ```bash
 rm -f "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.devflow/tmp/implement-active-$ISSUE_NUMBER" 2>/dev/null || true
+rm -f "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.devflow/tmp/issue-body/issue-$ISSUE_NUMBER.md" 2>/dev/null || true
 ```
 
 **GitHub autolink hygiene** (every GitHub surface you write — workpad comment, PR body, follow-up issue bodies, completion summary): never put a bare `#` immediately before a number unless it is a real issue or PR reference — GitHub renders `#2` as a link to issue/PR 2, which misleads readers. For an ordinal, count, or list position, spell it out ("item 2", "step 3"), never `#2`. Genuine references like `#123` stay as-is.
