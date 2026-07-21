@@ -28678,34 +28678,18 @@ echo "#671 packaging validation (agent/skill frontmatter + manifests + plugin tr
 #     `claude plugin validate --strict` runs over a staged plugin-only tree when the CLI is
 #     present, else self-skips as blocking-gate.
 
-# (1) frontmatter + manifest structured-parse gate.
-PKG_FM_OUT="$(python3 - "$REPO_ROOT" <<'PYEOF'
-import sys, os, re, glob, json
+# (1) frontmatter structured-parse gate. The frontmatter half is lib/test/validate-frontmatter.py
+# (extracted so the suite can drive its empty-corpus / unparseable / missing-key branches against
+# a FIXTURE root — the negative fixtures below — not only observe the happy path over the real
+# repo). The two-manifest JSON parse stays a small inline check over the real repo.
+PKG_FM="$LIB/test/validate-frontmatter.py"
+PKG_FM_OUT="$(python3 "$PKG_FM" "$REPO_ROOT")"; PKG_FM_RC=$?
+[ "$PKG_FM_RC" -eq 0 ] || printf '%s\n' "$PKG_FM_OUT"   # name the failing path(s) on failure
+assert_eq "#671 packaging: every agent+skill frontmatter parses (PyYAML), naming any failing path" "0" "$PKG_FM_RC"
+PKG_MF_OUT="$(python3 - "$REPO_ROOT" <<'PYEOF'
+import sys, os, json
 root = sys.argv[1]
-try:
-    import yaml
-except Exception as e:  # PyYAML is a hard preflight prerequisite — absence is a loud failure.
-    print("PYYAML_MISSING:", e); sys.exit(3)
 bad = []
-files = sorted(glob.glob(os.path.join(root, "agents", "*.md"))) + \
-        sorted(glob.glob(os.path.join(root, "skills", "**", "SKILL.md"), recursive=True))
-for f in files:
-    t = open(f, encoding="utf-8").read()
-    m = re.match(r"---\n(.*?)\n---\n", t, re.DOTALL)
-    if not m:
-        bad.append(f + " (no frontmatter block)"); continue
-    try:
-        d = yaml.safe_load(m.group(1))
-    except yaml.YAMLError as e:
-        bad.append("%s (YAML error: %s)" % (f, e)); continue
-    if not isinstance(d, dict):
-        bad.append(f + " (frontmatter is not a mapping)")
-    elif not {"name", "description"} <= set(d):
-        bad.append("%s (frontmatter missing required key(s): %s)" % (f, sorted({"name", "description"} - set(d))))
-# "Unknown is not zero" floor: an empty glob would leave `bad` empty and pass green having
-# validated NOTHING (a directory rename / wrong root would silently certify an empty corpus).
-if not files:
-    bad.append("no agent/skill frontmatter files matched (agents/*.md + skills/**/SKILL.md) — empty corpus, the glob found nothing to validate")
 for mf in (".claude-plugin/plugin.json", ".claude-plugin/marketplace.json"):
     p = os.path.join(root, mf)
     try:
@@ -28717,11 +28701,30 @@ if bad:
     for b in bad:
         print("  " + b)
     sys.exit(1)
-print("OK %d frontmatter files + 2 manifests parsed" % len(files))
+print("OK both manifests parse")
 PYEOF
-)"; PKG_FM_RC=$?
-[ "$PKG_FM_RC" -eq 0 ] || printf '%s\n' "$PKG_FM_OUT"   # name the failing path(s) on failure
-assert_eq "#671 packaging: every agent+skill frontmatter parses (PyYAML) and both manifests parse (JSON)" "0" "$PKG_FM_RC"
+)"; PKG_MF_RC=$?
+[ "$PKG_MF_RC" -eq 0 ] || printf '%s\n' "$PKG_MF_OUT"
+assert_eq "#671 packaging: both manifests parse as JSON" "0" "$PKG_MF_RC"
+
+# Negative fixtures — prove the frontmatter guards FAIL CLOSED against a fixture root, not just
+# pass on the compliant real corpus (the "assert the guard fails closed, not just the happy
+# path" convention). These run the SAME helper the real gate above runs.
+# (a) empty corpus: a root with no agents/skills → exit 1 naming the empty-corpus reason.
+PKG_NEG_EMPTY="$(mktemp -d)"
+PKG_NEG_EMPTY_OUT="$(python3 "$PKG_FM" "$PKG_NEG_EMPTY")"; PKG_NEG_EMPTY_RC=$?
+assert_eq "#671 packaging: frontmatter gate fails closed on an empty corpus (exit 1)" "1" "$PKG_NEG_EMPTY_RC"
+assert_eq "#671 packaging: empty-corpus failure names the empty-corpus reason" "yes" \
+  "$(printf '%s' "$PKG_NEG_EMPTY_OUT" | grep -qF 'empty corpus' && echo yes || echo no)"
+rm -rf "$PKG_NEG_EMPTY"
+# (b) a frontmatter missing a required key (name present, description absent) → exit 1 naming it.
+PKG_NEG_KEY="$(mktemp -d)"; mkdir -p "$PKG_NEG_KEY/agents"
+printf -- '---\nname: no-desc\nmodel: sonnet\n---\n\nbody\n' > "$PKG_NEG_KEY/agents/no-desc.md"
+PKG_NEG_KEY_OUT="$(python3 "$PKG_FM" "$PKG_NEG_KEY")"; PKG_NEG_KEY_RC=$?
+assert_eq "#671 packaging: frontmatter gate fails closed on a missing required key (exit 1)" "1" "$PKG_NEG_KEY_RC"
+assert_eq "#671 packaging: missing-key failure names the missing key" "yes" \
+  "$(printf '%s' "$PKG_NEG_KEY_OUT" | grep -qF 'missing required key' && echo yes || echo no)"
+rm -rf "$PKG_NEG_KEY"
 
 # (2) malformed-fixture assertion — the parser must REJECT an unquoted `description` scalar
 # containing ": " (a direct fixture assertion; assert_pin_red_under cannot express "this parser
@@ -30477,6 +30480,17 @@ assert_eq "#671 marketplace bump: plugins[0].version rewritten to the new manife
   "$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['plugins'][0]['version'])" "$CSD/.claude-plugin/marketplace.json")"
 assert_eq "#671 marketplace bump: marketplace-level description untouched" "yes" \
   "$(grep -qF '"description": "mkt desc"' "$CSD/.claude-plugin/marketplace.json" && echo yes || echo no)"
+rm -rf "$CSD"
+# #671: the surgical single-key marketplace rewrite fails LOUD (exit 2, no write) when the
+# manifest carries more than one "version" key — a future top-level version or a second plugin
+# entry — instead of silently bumping the wrong key and shipping a half-bumped listing.
+CSD="$(cs_repo)"; printf -- '---\nbump: patch\n---\n\n- x (#671)\n' > "$CSD/.changeset/a.md"
+printf '{\n  "version": "9.9.9",\n  "plugins": [\n    { "name": "devflow", "version": "2.8.64" }\n  ]\n}\n' > "$CSD/.claude-plugin/marketplace.json"
+python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-21 >"$CSD/out" 2>&1; CS_RC=$?
+assert_eq "#671 marketplace multi-version: exit 2 (fail-closed, not a silent wrong-key bump)" "2" "$CS_RC"
+assert_eq "#671 marketplace multi-version: diagnostic names the marketplace + the count" "yes" \
+  "$(grep -qF 'marketplace.json' "$CSD/out" && grep -qF 'found 2' "$CSD/out" && echo yes || echo no)"
+assert_eq "#671 marketplace multi-version: manifest version unchanged (no partial write)" "2.8.64" "$(cs_ver "$CSD")"
 rm -rf "$CSD"
 
 # #671: CITATION.cff's version must equal the manifest version at HEAD — the consolidator keeps

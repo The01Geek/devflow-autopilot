@@ -256,6 +256,19 @@ def _render_marketplace_version(marketplace_path: str, new_version: str) -> str:
     in lockstep with the ``plugin.json`` the consolidator bumps.
     """
     text = _read_text(marketplace_path, "marketplace")
+    # Guard the single-version-key assumption before the surgical count=1 rewrite. If a future
+    # marketplace grows a marketplace-level version, or a second plugin entry, a first-match
+    # rewrite would silently bump the wrong key and leave the others stale (n==1 would still
+    # hold, so no error fires). Fail LOUD instead — a multi-version manifest needs a structural
+    # rewrite, not this first-match regex — rather than silently ship a half-bumped listing.
+    total = len(re.findall(r'"version"\s*:\s*"', text))
+    if total != 1:
+        raise ChangesetError(
+            f"{marketplace_path}: expected exactly one \"version\" key (the single plugin "
+            f"entry's) but found {total} — the surgical single-key rewrite is unsafe here; a "
+            "marketplace with a top-level version or multiple plugin entries needs a "
+            "structural rewrite"
+        )
     new_text, n = re.subn(
         r'("version"\s*:\s*")[^"]*(")',
         lambda mo: mo.group(1) + new_version + mo.group(2),

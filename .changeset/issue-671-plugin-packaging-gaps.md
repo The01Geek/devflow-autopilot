@@ -10,4 +10,5 @@ type: Fixed
   now carries `LICENSES/` so consumers receive the third-party Apache-2.0/MIT license text.
   Removed the dead `providers` block from the committed config, completed the plugin/marketplace
   manifest metadata around one canonical description, and taught the version consolidator to keep
-  `CITATION.cff` in lockstep with the manifest version. (#671)
+  both `CITATION.cff` and the `marketplace.json` plugin entry's version in lockstep with the
+  manifest. (#671)
