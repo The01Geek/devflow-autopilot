@@ -8150,7 +8150,7 @@ assert_eq "#484 withheld list is exactly gh pr checkout, git rev-list, mktemp" \
 # A failed/empty find becomes a sentinel path, which `_impl_ungranted` turns into
 # `__extractor_error__`; roster discovery can never masquerade as zero heads.
 if ! _impl_files="$(find "$LIB/../skills/implement" "$LIB/../skills"/review* "$LIB/../skills/requesting-code-review" -type f -name '*.md' -print 2>"$E484/roster.err")" \
-   || [ -z "$_impl_files" ]; then  # tree-walk-ok: scoped to skills/implement and skills/review*, which no worktree lives under
+   || [ -z "$_impl_files" ]; then  # tree-walk-ok: all three operands are scoped to skills/ (implement, review*, requesting-code-review), which no worktree lives under
   _impl_files="$E484/__roster_error__"
 fi
 assert_eq "#484 recursive roster includes nested implement phase files" "yes" \
@@ -47298,8 +47298,10 @@ assert_pin_red_under "#664 fence: the resolved comment id is admitted only when 
   "$E664_IMPL"
 
 echo "#711 tree enumeration: a repository-root recursive walk is declared, not silent"
-# The guard is the third member of the desk-time static-lint family (extract-command-heads.py,
-# pin-corpus-lint.py, lint-gh-api-repo-path.py) and is driven the same way: the real tree as the
+# The guard joins the desk-time static-lint family (extract-command-heads.py, pin-corpus-lint.py,
+# lint-gh-api-repo-path.py, lint-issue-body-refetch.py, coverage_map_guard.py — deliberately no
+# ordinal: it is the THIRD member of the DECLARATION-MARKER family, which is a different set, and
+# a count of this one accretes) and is driven the same way: the real tree as the
 # live gate, plus synthetic fixtures through --root/--files-from. Its audited population INCLUDES
 # lib/test/, which is why its fixtures are written into probe_tmp scratch rather than checked in —
 # a tracked fixture carrying an unmarked walk would be caught by the guard's own real-tree run.
@@ -47409,6 +47411,26 @@ e711_write "$E711_FX" lib/test/sh_optvalue.sh \
   "V=\"\$(${E711_TOK_GR} -r --include '*.sh' NEEDLE \"\$${E711_RV}\")\""
 e711_write "$E711_FX" lib/test/strmarker.py \
   "h = [\"# tree-walk-ok: not a comment\", root.${E711_TOK_R}('*.json')]"
+# Head POSITION. The head is located through extract-command-heads.py's own classification, not
+# assumed to be token 0; each shape below reported `audited 1 of 1 files` at exit 0 before that.
+e711_write "$E711_FX" lib/test/sh_envprefix.sh "LC_ALL=C ${E711_TOK_GR} -rn needle \"\$${E711_RV}\""
+e711_write "$E711_FX" lib/test/sh_wrapper.sh "timeout 5 ${E711_TOK_F} \"\$${E711_RV}\" -type f"
+e711_write "$E711_FX" lib/test/sh_redirect.sh ">out ${E711_TOK_F} \"\$${E711_RV}\" -type f"
+e711_write "$E711_FX" lib/test/sh_negated.sh "! ${E711_TOK_GR} -rq needle \"\$${E711_RV}\""
+e711_write "$E711_FX" lib/test/sh_ifcond.sh "if ${E711_TOK_F} \"\$${E711_RV}\" -type f; then :; fi"
+e711_write "$E711_FX" lib/test/sh_procsub.sh \
+  "while IFS= read -r f; do :; done < <(${E711_TOK_F} \"\$${E711_RV}\" -type f)"
+# The long recursive flags and the operand-less cwd default: both are live arms with no other
+# fixture, so narrowing _GREP_RECURSIVE or dropping the implicit `.` was previously invisible.
+e711_write "$E711_FX" lib/test/sh_longflag.sh "${E711_TOK_GR} --recursive x \"\$${E711_RV}/lib\""
+e711_write "$E711_FX" lib/test/sh_cwddefault.sh "${E711_TOK_GR} -rn NEEDLE"
+# The unbalanced-quote fallback in _comment_split: this line's opening quote lives on the PREVIOUS
+# physical line, so a quote-aware-only split would swallow the marker and report a declared walk.
+e711_write "$E711_FX" lib/test/sh_markedcont.sh \
+  "V=\"\$(${E711_TOK_F} \"\$${E711_RV}/lib\" \\\\" \
+  "  -name x)\"  # tree-walk-ok: scoped to a per-test sandbox"
+# is_audited's separator normalization: a backslash-form path still selects into the population.
+e711_write "$E711_FX" lib/test/backslash.py "i = root.${E711_TOK_R}('*.json')"
 
 # Planted-defect positive control — the assertion that discharges the guard-coverage claim.
 assert_eq "#711 guard flags an unmarked walk in the audited population" "rc=1|lib/test/unmarked.py" \
@@ -47472,7 +47494,10 @@ assert_eq "#711 a shell find rooted at the repository root is a candidate" "rc=1
   "$(e711_rc "$E711_FX" lib/test/sh_find.sh)"
 assert_eq "#711 a captured recursive grep rooted at the repository root is a candidate" "rc=1" \
   "$(e711_rc "$E711_FX" lib/test/sh_capture.sh)"
-assert_eq "#711 the REPO_ROOT fragment spelling is a candidate" "rc=1" \
+# Named for what it measures: a $REPO_ROOT-spelled operand is a candidate. It is NOT a control
+# for the REPO_ROOT tuple member, which `ROOT` subsumes as its own source comment concedes —
+# dropping that member changes no verdict, by construction.
+assert_eq "#711 a REPO_ROOT-spelled operand is a candidate" "rc=1" \
   "$(e711_rc "$E711_FX" lib/test/sh_repo_root.sh)"
 assert_eq "#711 a line-continued recursive grep whose root operand wraps is a candidate" "rc=1" \
   "$(e711_rc "$E711_FX" lib/test/sh_continued.sh)"
@@ -47495,6 +47520,44 @@ assert_eq "#711 an option taking a separated value does not hide the root operan
 assert_eq "#711 marker text inside a string literal does not exempt the line" "rc=1" \
   "$(e711_rc "$E711_FX" lib/test/strmarker.py)"
 
+# Head POSITION — six shapes that put something before the command. Each reported clean before
+# the head was located through the shared classification, and each is one character of ordinary
+# idiom away from the sites this suite already writes.
+assert_eq "#711 a walk behind a leading env assignment is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_envprefix.sh)"
+assert_eq "#711 a walk behind a process wrapper is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_wrapper.sh)"
+assert_eq "#711 a walk behind a leading redirection is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_redirect.sh)"
+assert_eq "#711 a negated walk is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_negated.sh)"
+assert_eq "#711 a walk in a compound-command condition is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_ifcond.sh)"
+assert_eq "#711 a walk inside a process substitution is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_procsub.sh)"
+# The two shell arms with no other fixture: the long recursive flag and the cwd default.
+assert_eq "#711 a long-form recursive grep flag is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_longflag.sh)"
+assert_eq "#711 an operand-less recursive grep defaults to the cwd and is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_cwddefault.sh)"
+# The unbalanced-quote fallback: without it the marker on this continued statement is swallowed
+# and a correctly-declared walk is reported — a false positive, the fallback's whole purpose.
+assert_eq "#711 a marked walk on a quote-unbalanced continuation stays declared" \
+  "rc=0|lint-tree-enumeration: audited 1 of 1 files" \
+  "$(e711_run "$E711_FX" lib/test/sh_markedcont.sh)"
+# Population selection normalizes separators, so a backslash-form path still selects in.
+assert_eq "#711 a backslash-form path selects into the audited population" "rc=1" \
+  "$(e711_rc "$E711_FX" 'lib\test\backslash.py')"
+# The --root default: with no flag and no git toplevel the helper must breadcrumb, never silently
+# resolve against a wrong root (the #295 no-silent-default contract). Nothing else exercises it.
+assert_eq "#711 an absent --root outside a repository breadcrumbs rather than defaulting silently" "yes" \
+  "$(E711_NR="$(probe_tmp '#711 no-root cwd')"
+     case "$E711_NR" in ""|/dev/null) echo yes; exit 0 ;; esac
+     rm -f "$E711_NR"; mkdir -p "$E711_NR"
+     E711_NROUT="$(cd "$E711_NR" && python3 "$E711_LINT" 2>&1)"
+     rm -rf "$E711_NR" 2>/dev/null || true
+     case "$E711_NROUT" in *"no git toplevel"*) echo yes ;; *) echo "no: $E711_NROUT" ;; esac)"
+
 # Population selection: a path outside lib/test/ is excluded even while carrying a planted walk,
 # and an all-excluded population is a zero tally at exit 0 — never confused with the fail-closed
 # arms below, which is the confusion that would let an over-wide exclusion read as a clean audit.
@@ -47516,7 +47579,7 @@ E711_EMPTY="$(probe_tmp '#711 empty list')"
 assert_eq "#711 an empty pre-exclusion enumeration fails closed" "yes" \
   "$(E711_OUT2="$(python3 "$E711_LINT" --root "$E711_FX" --files-from "$E711_EMPTY" 2>&1)"
      case "$?:$E711_OUT2" in 0:*) echo "no: exited 0" ;; *"yielded zero paths before any exclusion"*) echo yes ;; *) echo no ;; esac)"
-rm -f "$E711_EMPTY"
+case "$E711_EMPTY" in ""|/dev/null) : ;; *) rm -f "$E711_EMPTY" ;; esac   # probe_tmp sentinel: never rm /dev/null
 assert_eq "#711 a non-repository root fails closed naming git ls-files" "yes" \
   "$(E711_SB="$(probe_tmp '#711 non-repo root')"
      # probe_tmp's mktemp-failure sentinel. It has ALREADY recorded a suite FAIL and its own
@@ -47532,7 +47595,7 @@ assert_eq "#711 a non-repository root fails closed naming git ls-files" "yes" \
 # The guard is a pure read: running it twice over the same population yields byte-identical output.
 assert_eq "#711 the guard is idempotent over one population" "same" \
   "$([ "$(e711_run "$E711_FX" lib/test/clean.py)" = "$(e711_run "$E711_FX" lib/test/clean.py)" ] && echo same || echo differ)"
-rm -rf "$E711_FX"
+case "$E711_FX" in ""|/dev/null) : ;; *) rm -rf "$E711_FX" ;; esac   # probe_tmp sentinel: never rm -rf /dev/null
 
 # Documentation surfaces. Both are surface-presence pins: the rule's behavioral guarantee is
 # carried by the guard's own fixture-driven assertions above, not by a prose-removal check.
@@ -51193,7 +51256,8 @@ printf '#!/bin/sh\nexit 3\n' > "$PM_STUB_BIN/git" 2>/dev/null
 chmod +x "$PM_STUB_BIN/git" 2>/dev/null
 assert_eq "#711 an unavailable git emits git-unavailable, never a count" "git-unavailable" \
   "$(PATH="$PM_STUB_BIN:$PATH" _pm_committed_baseline_count "$PM_SB_STUB")"
-rm -rf "$PM_SB_STUB" "$PM_STUB_BIN"
+rm -rf "$PM_SB_STUB"
+case "$PM_STUB_BIN" in ""|/dev/null) : ;; *) rm -rf "$PM_STUB_BIN" ;; esac   # probe_tmp sentinel: never rm -rf /dev/null
 
 # Call-shape check, deliberately NOT a grep counting occurrences of the retained expression —
 # such a grep matches its own pattern line and can never report the intended count (the repo's

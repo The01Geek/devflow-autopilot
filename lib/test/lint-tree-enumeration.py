@@ -97,11 +97,22 @@ Accepted residuals, each stated with its own reason rather than folded together:
   resolver convention would produce — is not seen: both the substring pre-filter and
   the head test compare against the literal names `find`/`grep`. This is the shell
   arm's analogue of root and pattern indirection, and is listed separately because it
-  escapes at the *head*, not at an operand.
+  escapes at the *head*, not at an operand. It is **only** the variable case: a head
+  behind a leading `!`, a `VAR=value` prefix, a wrapper (`xargs`/`timeout`/…), a
+  redirection, or a reserved word (`if`/`while`/`then`/`do`) **is** reached, via
+  `_head_index`, and a walk inside a `<(…)` process substitution is reached too.
 * **A bare `find` with no path operand.** GNU `find` defaults to `.`; BSD `find`
-  requires the operand. Because the defaulting is not portable, no operand is
-  synthesized and the call is not flagged. `grep`'s implicit `.` **is** synthesized,
-  because it is required by POSIX rather than a GNU extension.
+  requires the operand, so the defaulting is not portable and no operand is
+  synthesized. `grep -r`'s no-operand default to `.` **is** synthesized: it is
+  consistent across the greps this repository runs on, and the two arms are decided
+  by the guard's own risk asymmetry rather than by a portability claim — an over-fire
+  is a declarable marker, an under-fire is a fail-open. (Neither default is POSIX:
+  POSIX `grep` has no `-r` at all, and with no file operand it reads standard input.)
+* **Line-scoped literal arm.** Marker acceptance across a statement's whole span
+  applies to the AST arms and the folded shell arm only. A literal-token candidate is
+  judged on its own raw line, so a wrapped `rglob(`/`os.walk(`/`iglob(`/`recursive=True`
+  call must carry its declaration on the token's line — the walk's own line is always
+  the safe placement.
 * **Python string-literal prose.** The comment-awareness rule strips `#` comments
   only, so a candidate token inside a module docstring or any other triple-quoted
   string is scanned as code and would demand a marker. Prose in a `#` comment is
@@ -271,8 +282,11 @@ def _comment_split(line: str) -> tuple[str, str]:
     # declaration marker), so re-scan with quotes inert and let the word-boundary
     # rule alone decide. Precision is retained on every line whose quotes balance,
     # which is the case the string-literal exemption hole lives in.
-    fallback = _split_at_hash(line, quotes_active=False)
-    return fallback if fallback is not None else (line, "")
+    # Total by construction: `None` is returned only when a quote was left open, and
+    # the quote variable's sole assignment site is gated on `quotes_active`. No `or
+    # (line, "")` fallback here — it would be unreachable, and an unreachable arm reads
+    # to the next maintainer as evidence this pass can fail, which it cannot.
+    return _split_at_hash(line, quotes_active=False)  # type: ignore[return-value]
 
 
 def _split_at_hash(line: str, quotes_active: bool) -> tuple[str, str] | None:
@@ -468,13 +482,81 @@ def _path_operands(tokens: list[str], head_index: int) -> list[str]:
     return operands
 
 
-def _is_root_operand(operand: str | None) -> bool:
-    if operand is None:
-        return False
+def _is_root_operand(operand: str) -> bool:
+    # No `None` arm: the sole producer is `_path_operands`, which returns `list[str]`.
+    # A parameter type advertising an absent value the producer cannot emit would
+    # answer `False` — the fail-OPEN direction — for a state that is unrepresentable.
     stripped = operand.strip("'\"")
     if stripped == "." or stripped.startswith("./"):
         return True
     return any(fragment in stripped for fragment in ROOT_FRAGMENTS)
+
+
+def _head_index(raw_tokens: list[str]) -> int | None:
+    """Return the index of the statement's head command word, or None.
+
+    Composed from `extract-command-heads.py`'s own classification sets rather than
+    assuming the head is `tokens[0]`, which is what the module-level reuse comment
+    warns against: a leading-position assumption silently exempts every shape that
+    puts something before the command. `LC_ALL=C grep -r "$ROOT"`,
+    `xargs grep -r … "$ROOT"`, `timeout 5 find "$ROOT" …`, `>out find "$ROOT" …`,
+    `! grep -rq … "$ROOT"`, and `if find "$ROOT" …; then` are all ordinary idiom in
+    this population and every one was reported clean under that assumption.
+
+    It differs from `_heads._head_of` in exactly one way, deliberately: `_head_of`
+    returns None on a RESERVED head because for its purposes `if` IS the command
+    being audited, whereas here a leading `if`/`while`/`then`/`do` is a wrapper the
+    walk hides behind, so reserved words are stripped rather than refused.
+    """
+    index = 0
+    count = len(raw_tokens)
+    while index < count:
+        token = raw_tokens[index]
+        normalized = _heads._normalize(token)
+        if (
+            token == "!"
+            or normalized in _heads.RESERVED
+            or _heads._ASSIGNMENT.match(token)
+            or _heads._REDIRECTION.match(token)
+        ):
+            index += 1
+            continue
+        if normalized in _heads.WRAPPERS:
+            index += 1
+            while index < count and raw_tokens[index].startswith("-"):
+                index += 1
+            if (
+                normalized in _heads.WRAPPERS_WITH_OPERAND
+                and index < count
+                and not raw_tokens[index].startswith("-")
+                and re.fullmatch(r"[0-9]+[smhd]?", raw_tokens[index])
+            ):
+                index += 1
+            continue
+        return index
+    return None
+
+
+#: A process substitution's opening delimiter. `_substitutions` descends `$(…)` only.
+_PROCESS_SUBSTITUTION = re.compile(r"[<>]\(")
+
+
+def _process_substitution_bodies(statement: str) -> list[str]:
+    """Return the bodies of every `<(…)` / `>(…)` process substitution, brace-matched."""
+    bodies: list[str] = []
+    for match in _PROCESS_SUBSTITUTION.finditer(statement):
+        depth = 1
+        start = match.end()
+        index = start
+        while index < len(statement) and depth:
+            if statement[index] == "(":
+                depth += 1
+            elif statement[index] == ")":
+                depth -= 1
+            index += 1
+        if not depth:
+            bodies.append(statement[start : index - 1])
+    return bodies
 
 
 def statements_in(text: str) -> list[str]:
@@ -488,11 +570,18 @@ def statements_in(text: str) -> list[str]:
     """
     found: list[str] = []
     pending = [text]
+    seen: set[str] = set()
     while pending:
         current = pending.pop()
         for statement in _heads._split_statements(current):
             found.append(statement)
-            pending.extend(_heads._substitutions(statement))
+            # `_substitutions` descends `$(…)` only, so a walk inside a PROCESS
+            # substitution — `while read f; do …; done < <(find "$ROOT" …)` — would
+            # otherwise never be reached by any arm.
+            for body in _heads._substitutions(statement) + _process_substitution_bodies(statement):
+                if body not in seen:
+                    seen.add(body)
+                    pending.append(body)
     return found
 
 
@@ -515,18 +604,21 @@ def scan_shell(raw_lines: list[str]) -> list[tuple[int, str]]:
         if _marker_lines(raw_lines, number, end):
             continue
         for statement in statements_in(line):
-            tokens = [_heads._normalize(t) for t in _heads._tokenize(statement)]
-            if not tokens:
+            raw_tokens = _heads._tokenize(statement)
+            head_index = _head_index(raw_tokens)
+            if head_index is None:
                 continue
-            bare = tokens[0].rsplit("/", 1)[-1]
+            tokens = [_heads._normalize(t) for t in raw_tokens]
+            bare = tokens[head_index].rsplit("/", 1)[-1]
             if bare not in ("find", "grep"):
                 continue
             if bare == "grep" and not any(
-                _GREP_RECURSIVE.match(t) for t in tokens[1:]
+                _GREP_RECURSIVE.match(t) for t in tokens[head_index + 1 :]
             ):
                 continue
             if not any(
-                _is_root_operand(operand) for operand in _path_operands(tokens, 0)
+                _is_root_operand(operand)
+                for operand in _path_operands(tokens, head_index)
             ):
                 continue
             found.append(

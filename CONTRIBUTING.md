@@ -121,9 +121,11 @@ that enumerates with a recursive walk — `rglob(`, `os.walk(`, `iglob(`, a `rec
 call, a `glob(` whose pattern carries a `**` component or is not a string literal (these two
 are judged by a Python parse, so they apply to `.py` files only), or a shell `find` / `grep -r`
 rooted at the repository root — must carry that marker on the walk's line, or source its
-population from an index-reading `git ls-files` instead. On a multi-line call or a
-`\`-continued shell statement the marker is accepted anywhere in the statement's span, so a
-wrapped call need not be reflowed; the walk's own line is always safe. The reason exists
+population from an index-reading `git ls-files` instead. **The walk's own line is always the
+safe placement.** Span acceptance — the marker anywhere within a statement — applies only to a
+multi-line `glob(`-family call judged by the Python parse and to a `\`-continued shell
+statement; the four literal tokens (`rglob(`, `os.walk(`, `iglob(`, `recursive=True`) are judged
+line by line, so a wrapped one must carry its marker on the token's own line. The reason exists
 because a root-anchored walk descends into every sibling worktree under `.claude/worktrees/`
 and reports a count that has nothing to do with the repository's state. `lib/test/lint-tree-enumeration.py`
 turns the suite RED for an undeclared walk; it never judges what a reason claims, so a marked
