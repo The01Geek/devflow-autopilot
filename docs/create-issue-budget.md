@@ -32,7 +32,7 @@ Both are asserted by `lib/test/modules/create-issue-contract.sh` (driven by the 
 | Ceiling | Operand | Measured | Enforced ceiling |
 | --- | --- | --- | --- |
 | **Root** | `skills/create-issue/SKILL.md` | 2,732 | Root ceiling: **2,754 words** |
-| **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 29,973 | Default-path ceiling: **31,262 words** |
+| **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 31,201 | Default-path ceiling: **31,262 words** |
 
 Each ceiling is at most the implement-time measured value plus **5% headroom** (the AC6 maximum). Both were set from an earlier measurement in this same change and deliberately **not re-raised** when review fixes grew the operands, so the shipped headroom is under 5% on both (root ~0.9%, default path ~4.3%). The suite asserts that legality directly — a ceiling above measured+5% is RED — so a future raise needs a real measurement behind it. The
 default-path operand deliberately **excludes the four fallback references** — they load only when
@@ -65,15 +65,15 @@ Measured at implement time (2026-07-21), python3 word-split:
 | `references/step-2-clarify.md` | 4,673 | Step 2 entry |
 | `references/step-3-5-steelman.md` | 2,133 | Step 3.5 entry |
 | `references/revision-delta.md` | 922 | every revision event |
-| `references/step-3-6-audit.md` | 7,701 | Step 3.6 entry |
-| `references/step-4-present-create.md` | 5,362 | Step 4 entry |
+| `references/step-3-6-audit.md` | 8,839 | Step 3.6 entry |
+| `references/step-4-present-create.md` | 5,452 | Step 4 entry |
 | `references/fallback-no-task-tool.md` | 540 | no usable task-tracking tool |
-| `references/fallback-read-only-sandbox.md` | 334 | a `.devflow/tmp/` write is refused |
-| `references/fallback-audit-dispatch-arms.md` | 669 | a non-file audit arm, a retry escalation, or no subagent tool |
+| `references/fallback-read-only-sandbox.md` | 484 | a `.devflow/tmp/` write is refused |
+| `references/fallback-audit-dispatch-arms.md` | 674 | a non-file audit arm, a retry escalation, or no subagent tool |
 | `references/fallback-state-owner-unavailable.md` | 748 | the state owner stops answering |
-| **root + all 9 references** | **25,814** | — |
+| **root + all 9 references** | **27,197** | — |
 | `references/issue-template.md` | 6,450 | Step 3 (unchanged by the split) |
-| `references/audit-prompt-template.md` | 1,515 | renderer-owned (unchanged by the split) |
+| `references/audit-prompt-template.md` | 1,525 | renderer-owned (unchanged by the split) |
 
 **What the default path sheds.** Before the split every run loaded all 24,473 words of the monolith.
 After it, a run on the default path — task tool usable, writable filesystem, file-arm dispatch, state
@@ -101,10 +101,21 @@ overhead. That direction is deliberate and fail-safe: understating overhead leav
 the conserved operand, which can only make the ±2% check *harder* to pass, never easier. A future
 re-measure that wants the tighter figure should count the spliced pointers too and record the change here.
 
-- Post-split total (root + all 9 references): **25,814**
-- Minus structural overhead: **24,829**
-- Pre-split baseline: **24,473**
+The figures below are the **issue #614 split-time snapshot**, frozen: they record that the split itself
+shed no unpinned contract prose.
+
+- Post-split total at #614 (root + all 9 references): 25,814
+- Minus structural overhead: 24,829
+- Pre-split baseline: 24,473
 - **Deviation: +1.45%** — inside the ±2% tolerance.
+
+**Issue #705 addition (not a split, and not a shed).** #705 added ~1,383 words of new contract prose to
+the references — the *Staged canonical-draft write* shared procedure in `step-3-6-audit.md`, the staged-artifact
+entries in both audit out-of-bounds enumerations, the by-name references at the Step 4 write sites, and the
+read-only fallback arm — raising the live root-plus-references total to **27,197**. That growth is an
+intentional feature addition, so the live two-sided conservation band the suite enforces is re-centred on
+the new total: `CI614_TOTAL_RECORDED` is re-recorded to `27197` in the same change. The default-path ceiling
+is **unchanged** at 31,262 (measured 31,201, ~0.2% headroom), and the root ceiling is unchanged at 2,754.
 
 ### Two recorded corrections to the issue's stated figures
 
@@ -133,6 +144,11 @@ re-measure that wants the tighter figure should count the spliced pointers too a
   against the implement-time baseline of 24,473. Both stale-figure corrections above recorded at the
   same time. The ratchet rule binds every *subsequent* change; these initial values are set from the
   final pre-merge measurement.
+
+- **2026-07-22 (issue #705) — staged canonical-draft write added.** Added the *Staged canonical-draft write*
+  shared procedure and the staged-artifact enumeration entries, raising the root-plus-references total
+  25,814 → **27,197** and the default-path measured 29,973 → **31,201** (ceiling unchanged at 31,262, ~0.2%
+  headroom). Root unchanged at 2,732. `CI614_TOTAL_RECORDED` re-recorded 25,814 → 27,197. No ceiling raised.
 
 When a later change re-measures, append a row here rather than editing an earlier one: the record is
 the history of what the surface cost, and overwriting it loses exactly the drift a budget exists to catch.

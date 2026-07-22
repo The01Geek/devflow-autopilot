@@ -33,7 +33,7 @@ FOUR_PATH_OOB = (
     "The following on-disk files are **out of bounds** — "
     "`.devflow/tmp/issue-derivation-"
 )
-FIVE_FILE_OOB = "the out-of-bounds declaration names exactly these 5 files"
+FIVE_FILE_OOB = "the out-of-bounds declaration names exactly these 6 files"
 READ_ORDERING_AMENDED = (
     "before any repository read other than the renderer invocation, or the "
     "documented template-file fallback read, that produced these instructions"
