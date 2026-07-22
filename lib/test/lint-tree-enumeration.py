@@ -77,7 +77,11 @@ Accepted residuals, each stated with its own reason rather than folded together:
   arrives through an assignment hop is unaudited past the non-literal-pattern arm:
   that arm flags a non-literal pattern at the call site, but a pattern assembled
   earlier and passed in as a plain name is flagged only because it is non-literal,
-  never because of what it contains. Root indirection and pattern indirection are
+  never because of what it contains. The escape is the assignment hop specifically,
+  not "any non-positional pattern": a pattern passed as a keyword *literal*
+  (`glob(pattern="**/x")`) is still caught, by the `**`-component arm, which reads
+  every string constant anywhere inside the call regardless of argument position.
+  Root indirection and pattern indirection are
   two distinct escapes and neither implies the other.
 * **This guard's own path** is excluded from the audited population. Its source
   must contain the candidate token literals in order to detect them, and those

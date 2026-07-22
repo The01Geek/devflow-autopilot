@@ -47621,6 +47621,23 @@ e711_write "$E711_FX" lib/test/dedupe.py "e = root.${E711_TOK_R}(\"**/x.json\")"
 e711_write "$E711_FX" lib/test/nonliteral.py "f = ROOT.${E711_TOK_G}(pattern)"
 # Arm 2's documented complement: a call with no positional argument at all is not a candidate.
 e711_write "$E711_FX" lib/test/kwonly.py "g = ROOT.${E711_TOK_G}(pattern=p)"
+# Positive controls for the two LITERAL_TOKENS members no other fixture reaches. Both shapes are
+# deliberately invisible to BOTH AST arms — a plain string pattern with no `**` component — so the
+# literal arm is the only thing that can flag them, and deleting either tuple member turns exactly
+# one of these RED instead of leaving the whole block green. Tokens are assembled from parts for
+# the same reason as the rest: an intact literal here would make run.sh its own candidate.
+E711_TOK_I="ig""lob"; E711_TOK_RT="recursive""=True"
+e711_write "$E711_FX" lib/test/iglob.py "k = ${E711_TOK_G}.${E711_TOK_I}(\"*.txt\")"
+e711_write "$E711_FX" lib/test/recursivekw.py "l = ${E711_TOK_G}.${E711_TOK_G}(\"*.txt\", ${E711_TOK_RT})"
+# Minor #2's uncovered branch: a file that is BOTH unparseable and carries a literal-arm walk.
+# `broken.py` carries no walk token, so the "report literal findings alongside the parse skip"
+# path was unexercised — deleting that report would have left the block green.
+e711_write "$E711_FX" lib/test/brokenwalk.py "m = root.${E711_TOK_R}('*.json')" "def f(:"
+# The residual docstring now states positively that a keyword-LITERAL `**` pattern is still
+# caught (the `**`-component arm reads every string constant in the call, whatever its argument
+# position). `kwonly.py`'s pattern is a NAME, so it cannot discharge that claim — this fixture is
+# the control that keeps the stated contract from becoming a documented falsehood.
+e711_write "$E711_FX" lib/test/kwstar.py "n = ROOT.${E711_TOK_G}(pattern=\"**/x.json\")"
 
 # --- Shell arm fixtures. Every fixture above is `.py`, so without these the whole shell arm
 # --- (fold_continuations, statements_in, the path-operand scan, ROOT_FRAGMENTS, the substring
@@ -47706,6 +47723,8 @@ assert_eq "#711 guard reports its audited count on the clean path" "rc=0|lint-tr
   "$(e711_run "$E711_FX" lib/test/clean.py)"
 # An unparseable audited file has NOT been audited; reporting clean over it would be the same
 # fail-open the guard exists to prevent, so it is a named skip and a non-zero exit.
+assert_eq "#711 a keyword-literal ** pattern is still a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/kwstar.py)"
 assert_eq "#711 an unparseable audited file is a named skip, not a silent pass" "yes" \
   "$(case "$(e711_run "$E711_FX" lib/test/broken.py)" in rc=0*) echo "no: exited 0" ;; *"SKIPPED lib/test/broken.py"*) echo yes ;; *) echo no ;; esac)"
 # The OTHER skip arm — an unopenable path — reaches the same fail-closed exit through different
@@ -47720,6 +47739,35 @@ assert_eq "#711 a glob call whose pattern is not a literal is a candidate" "rc=1
 assert_eq "#711 a glob call with no positional pattern argument is not a candidate" \
   "rc=0|lint-tree-enumeration: audited 1 of 1 files" \
   "$(e711_run "$E711_FX" lib/test/kwonly.py)"
+# The literal arm's two otherwise-uncovered members. The reason string is part of the comparand:
+# it names the token that fired, so a fixture accidentally flagged by an AST arm instead cannot
+# masquerade as the control this assertion claims to be.
+assert_eq "#711 an iglob call with a plain literal pattern is a literal-arm candidate" \
+  "rc=1|1:${E711_TOK_I}(" \
+  "$(e711_run "$E711_FX" lib/test/iglob.py | python3 -c 'import re,sys
+t = sys.stdin.read()
+b = t.split("|",1)[1]
+m = re.search(r"^\S+:(\d+): undeclared recursive walk \(`([^`]+)`\)", b, re.M)
+print("rc=%s|%s" % (re.match(r"rc=(\d+)", t).group(1), "%s:%s" % m.groups() if m else "none"))')"
+assert_eq "#711 a recursive= keyword glob is a literal-arm candidate" \
+  "rc=1|1:${E711_TOK_RT}" \
+  "$(e711_run "$E711_FX" lib/test/recursivekw.py | python3 -c 'import re,sys
+t = sys.stdin.read()
+b = t.split("|",1)[1]
+m = re.search(r"^\S+:(\d+): undeclared recursive walk \(`([^`]+)`\)", b, re.M)
+print("rc=%s|%s" % (re.match(r"rc=(\d+)", t).group(1), "%s:%s" % m.groups() if m else "none"))')"
+# An unparseable file that ALSO carries a literal-arm walk reports BOTH — the finding is not
+# discarded by the parse skip, so the author does not pay a second red run for a known violation.
+assert_eq "#711 a parse skip still reports the literal-arm findings it already collected" \
+  "rc=1|finding=1|skip=1" \
+  "$(e711_run "$E711_FX" lib/test/brokenwalk.py | python3 -c 'import re,sys
+t = sys.stdin.read()
+b = t.split("|",1)[1]
+print("|".join([
+    "rc=" + re.match(r"rc=(\d+)", t).group(1),
+    "finding=%d" % len(re.findall(r"^lib/test/brokenwalk\.py:\d+: undeclared", b, re.M)),
+    "skip=%d" % len(re.findall(r"SKIPPED lib/test/brokenwalk\.py", b)),
+]))')"
 assert_eq "#711 one line reaching two arms is reported once" "rc=1|1" \
   "$(e711_run "$E711_FX" lib/test/dedupe.py | python3 -c 'import re,sys
 t = sys.stdin.read()
