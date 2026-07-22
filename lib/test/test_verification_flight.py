@@ -343,6 +343,100 @@ class TestClaimAndAttach(Harness):
         )
 
 
+    def test_attach_candidate_identity_mismatch_is_not_a_reusable_pass(self):
+        # Issue #550 (closing the PR #681 attach-path residual): candidate_identity
+        # is OUTSIDE the flight key by design, so two declarations sharing a checkout
+        # fingerprint but declaring DIFFERENT content identities map to ONE handle.
+        # Before #550 the attacher silently received the first claimer's value and
+        # could consume its `passed` handle for a DIFFERENT content identity. Now the
+        # attacher whose own declared candidate_identity differs is NOT a reusable
+        # pass: reuse_ready / satisfies_verification are False and
+        # candidate_identity_match is False, so it launches its own verification.
+        d_a = _decl(candidate_identity="tree-AAAA")
+        d_b = _decl(candidate_identity="tree-BBBB")
+        # flight_key and descriptor_digest stay byte-UNCHANGED across the two (and vs
+        # a declaration with NO candidate_identity) — the field is outside the key.
+        _, desc_a = self.run_cmd(["descriptor", "--input-file", self._write(d_a)])
+        _, desc_b = self.run_cmd(["descriptor", "--input-file", self._write(d_b)])
+        _, desc_none = self.run_cmd(["descriptor", "--input-file", self._write(_decl())])
+        self.assertEqual(desc_a["flight_key"], desc_b["flight_key"])
+        self.assertEqual(desc_a["flight_key"], desc_none["flight_key"])
+        self.assertEqual(desc_a["descriptor_digest"], desc_b["descriptor_digest"])
+        self.assertEqual(desc_a["descriptor_digest"], desc_none["descriptor_digest"])
+        # Owner claims + passes with identity A; attacher declares identity B.
+        _, owner = self.claim(d_a)
+        k, t = owner["flight_key"], owner["token"]
+        self.run_cmd(["mark-running", "--flight", k, "--token", t, "--state-dir", self.state])
+        self.run_cmd(["finish", "--flight", k, "--token", t, "--result", "passed",
+                      "--summary-file", self._write({"command": "x", "skipped_checks": []}),
+                      "--state-dir", self.state, "--logs-dir", self.logs])
+        code, att = self.claim(d_b)
+        self.assertEqual(code, vf.EXIT_OK)
+        self.assertEqual(att["role"], "attacher")
+        self.assertEqual(att["flight_key"], k, "the handle is still shared by flight key")
+        self.assertFalse(att["candidate_identity_match"])
+        self.assertFalse(att["reuse_ready"],
+                         "a candidate_identity mismatch is not a reusable pass")
+        self.assertFalse(att["satisfies_verification"])
+
+    def test_attach_declared_identity_against_stored_none_is_not_reusable(self):
+        # The asymmetric arm of the same residual: the OWNER declared NO
+        # candidate_identity (a pre-#668 producer), so the handle records None, while
+        # the attacher DOES declare one. Nothing observable proves the stored pass
+        # covers the attacher's content, so it must NOT be reusable — treating the
+        # unprovable pair as a match would fail OPEN. Positive control: the identical
+        # fixture with a matching stored identity IS reusable
+        # (test_attach_candidate_identity_match_is_reusable), so this rejection is
+        # attributable to the stored-None asymmetry and not to an unrelated guard.
+        _, owner = self.claim(_decl())  # owner declares no candidate_identity
+        k, t = owner["flight_key"], owner["token"]
+        self.run_cmd(["mark-running", "--flight", k, "--token", t, "--state-dir", self.state])
+        self.run_cmd(["finish", "--flight", k, "--token", t, "--result", "passed",
+                      "--summary-file", self._write({"command": "x", "skipped_checks": []}),
+                      "--state-dir", self.state, "--logs-dir", self.logs])
+        code, att = self.claim(_decl(candidate_identity="tree-DECLARED"))
+        self.assertEqual(code, vf.EXIT_OK)
+        self.assertEqual(att["role"], "attacher")
+        self.assertEqual(att["flight_key"], k, "the handle is still shared by flight key")
+        self.assertFalse(att["candidate_identity_match"])
+        self.assertFalse(att["reuse_ready"],
+                         "a declared identity against a stored None is not a reusable pass")
+        self.assertFalse(att["satisfies_verification"])
+
+    def test_attach_no_declared_identity_keeps_pre_550_reuse(self):
+        # The complementary non-regression: an attacher that declares NO
+        # candidate_identity against a handle that stored one still reuses the pass
+        # (pre-#550 behaviour), so the tightened predicate did not widen to the
+        # non-declaring caller.
+        _, owner = self.claim(_decl(candidate_identity="tree-STORED"))
+        k, t = owner["flight_key"], owner["token"]
+        self.run_cmd(["mark-running", "--flight", k, "--token", t, "--state-dir", self.state])
+        self.run_cmd(["finish", "--flight", k, "--token", t, "--result", "passed",
+                      "--summary-file", self._write({"command": "x", "skipped_checks": []}),
+                      "--state-dir", self.state, "--logs-dir", self.logs])
+        code, att = self.claim(_decl())
+        self.assertEqual(code, vf.EXIT_OK)
+        self.assertFalse(att["candidate_identity_match"])
+        self.assertTrue(att["reuse_ready"])
+        self.assertTrue(att["satisfies_verification"])
+
+    def test_attach_candidate_identity_match_is_reusable(self):
+        # The complementary arm: an attacher declaring the SAME candidate_identity as
+        # the passed handle reuses it (candidate_identity_match True, reuse_ready True).
+        d = _decl(candidate_identity="tree-SAME")
+        _, owner = self.claim(d)
+        k, t = owner["flight_key"], owner["token"]
+        self.run_cmd(["mark-running", "--flight", k, "--token", t, "--state-dir", self.state])
+        self.run_cmd(["finish", "--flight", k, "--token", t, "--result", "passed",
+                      "--summary-file", self._write({"command": "x", "skipped_checks": []}),
+                      "--state-dir", self.state, "--logs-dir", self.logs])
+        code, att = self.claim(d)
+        self.assertEqual(code, vf.EXIT_OK)
+        self.assertTrue(att["candidate_identity_match"])
+        self.assertTrue(att["reuse_ready"])
+        self.assertTrue(att["satisfies_verification"])
+
+
 class TestDeclarationValidation(Harness):
     def test_non_hermetic_profile_rejected(self):
         code, out = self.claim(_decl(profile={"external_services": "network"}))
