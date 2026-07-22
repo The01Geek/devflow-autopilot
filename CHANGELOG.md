@@ -4,6 +4,63 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.20.14] — 2026-07-22
+
+### Added
+- **Gate receiving-review completion claims on a producer-owned completion-evidence check.** A new
+  thin, deterministic validator (`scripts/check-completion-evidence.py`, python3 stdlib-only,
+  repo-agnostic) validates a receiving-code-review completion claim against current, producer-owned
+  evidence — the durable verification record, the candidate-identity and findings anchors, the
+  disposition ledger, and deferral traces — and prints exactly one `completion-check: <token> — <detail>`
+  verdict line (one of eight tokens: `pass`, `missing-evidence`, `stale-candidate`,
+  `verification-not-pass`, `skipped-checks-present`, `undischarged-findings`, `non-durable-deferral`,
+  `unverifiable-trace`). The `receiving-code-review` Verification Gate gains a fifth evidence item
+  that runs the check and quotes its verdict verbatim (phrasing "complete" only on a quoted `pass`,
+  and `degraded: unvalidated (<reason>)` when the check produces no verdict line); the
+  `review-and-fix` loop discharges the item at Loop Exit over its run-scoped records, refreshing the
+  verification record on an identity-keyed mismatch and carrying any non-pass token into its final
+  verdict line. The loop's run-scoped `deferrals.json` declares its durable channel once at manifest
+  level (`default_channel: "loop-record"`) and the check resolves a channel-less entry from that
+  declaration, so an ordinary loop run with surviving deferrals reports `pass` instead of a spurious
+  `non-durable-deferral`; a declaration outside the four durable channels is discarded, and a
+  per-entry `channel` still wins. (#550)
+
+## [2.20.13] — 2026-07-22
+
+### Changed
+### Added
+
+- `/devflow:create-issue` now records **repository-baseline provenance** for load-bearing
+  claims and **reproducible evidence** for audit findings, both owned by
+  `scripts/issue-audit-state.py` so they survive a context compaction.
+  - New subcommands `record-claim-baseline`, `check-claim-staleness`, and
+    `query-claim-baselines`. A claim records a captured revision plus a **per-class
+    measured-content identity** — a content digest of the measured paths for a
+    location-sensitive anchor, a digest of the re-executed **full-domain** search result for a
+    count or coupled-site inventory — so the staleness re-check localizes: an unrelated base
+    advance leaves a location anchor fresh, while an occurrence added outside the original hit
+    set marks a count stale. The comparison reads no repository history, so a shallow clone
+    resolves a normal baseline.
+  - New subcommands `record-finding-evidence` and `query-finding-evidence`, a **dedicated
+    per-finding evidence channel keyed by finding id** with its own bounded encoding —
+    deliberately not the one-line `record-adjudication --ledger-stdin` summary transport,
+    which refuses newlines and `<field>=` tokens by contract. Evidence text is stored as data
+    and JSON-encoded at the print boundary, so record-splitting auditor text cannot forge a
+    line, and the decision fields (`finding=`, `completeness=`, `conflict=`) cannot be forged
+    because they precede every auditor-controlled value and come from closed domains. The
+    trailing evidence values are quoted rather than delimited, so the line is read by its JSON
+    quoting, not by whitespace splitting. The text is never executed.
+  - The Step 3.6 auditor's per-finding bar now requires a locator, the exact command, its
+    observed output, and the baseline revision it was captured against; adjudication became
+    **proportionate in scope** — a low-risk finding with complete, non-conflicting evidence has
+    its conclusion re-derived from the locator by a bounded check rather than a fresh
+    whole-repository investigation, while high-risk, conflicting, and incomplete findings are
+    fully independently verified. Whether the conclusion is checked is unchanged.
+
+All new fields are additive under the unchanged `schema_version`, so an existing on-disk state
+file still loads; an absent baseline reads as possibly-stale, never as fresh. Every arm is
+best-effort and never blocks issue creation.
+
 ## [2.20.12] — 2026-07-22
 
 ### Changed

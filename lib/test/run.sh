@@ -1855,6 +1855,58 @@ assert_pin_unique "#379(AC6): R4 shape Flag names the hand-derived-predicate tel
 # AC11 — each new shape/rule names the PR #340 cost it would have eliminated (3 in the extension)
 assert_eq "#379(AC11): extension records the PR #340 cost eliminated for each of shape 3, shape 4, and the probe rule" \
   "3" "$(pin_count 'this would have eliminated' "$RAF379")"
+
+# ── issue #550: completion-evidence gate in receiving-code-review + loop wiring ──
+CCE550_RCV="$LIB/../skills/receiving-code-review/SKILL.md"
+CCE550_LOOPEXIT="$LIB/../skills/review-and-fix/references/loop-exit.md"
+CCE550_FIXING="$LIB/../skills/review-and-fix/references/fixing.md"
+CCE550_PHASE3="$LIB/../skills/implement/phases/phase-3-review.md"
+# The Verification Gate carries the fifth evidence item: run the bundled check, quote
+# the verdict line verbatim, and phrase "complete" only on a quoted `pass`.
+assert_pin_unique "#550: Verification Gate carries the completion-evidence check (quote verbatim)" \
+  'quote its single verdict line verbatim' "$CCE550_RCV"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
+assert_pin_unique "#550: completion claim is phrased complete only on a quoted pass" \
+  'Phrase the claim "complete" only when the quoted line carries `pass`' "$CCE550_RCV"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
+# The degraded arm: no verdict line -> `degraded: unvalidated (<reason>)`, never pass.
+assert_pin_unique "#550: absent verdict line takes the degraded: unvalidated arm" \
+  'phrase the claim `degraded: unvalidated (<reason>)`' "$CCE550_RCV"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
+assert_pin_unique "#550: no-quoted-line is an undischarged gate a later pass re-checks" \
+  'A completion claim that carries **no** quoted verdict line is an undischarged gate' "$CCE550_RCV"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
+# Item 3 records the suite run through the durable verification handle.
+assert_pin_unique "#550: gate records the suite run through the durable verification handle" \
+  'Record this suite run through the durable verification handle bundled with the review tooling' "$CCE550_RCV"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
+# Scoping-sentence rewrite: names Loop Exit as the loop's discharge site for the item.
+# Mutation evidence (AC): restoring the superseded sentence (dropping the Loop-Exit
+# clause) turns this pin RED.
+assert_pin_red_under "#550: scoping sentence names Loop Exit as the loop's completion-evidence discharge site" \
+  'the loop discharges the completion-evidence item (item 5) at its **Loop Exit**' \
+  's/the loop discharges the completion-evidence item \(item 5\) at its \*\*Loop Exit\*\*/no additional invocation needed/' \
+  "$CCE550_RCV"
+# The vendored body stays repo-agnostic: the new text introduces NO repo-internal
+# validator path and NO DevFlow step numbers (extends the #379/sev(rcv) negatives).
+assert_eq "#550: receiving-code-review body carries no repo-internal validator path" "no" \
+  "$(grep -qF 'scripts/check-completion-evidence.py' "$CCE550_RCV" && echo yes || echo no)"
+assert_eq "#550: receiving-code-review body has no repo-specific test path (extends sev(rcv))" "no" \
+  "$(grep -qF 'lib/test/run.sh' "$CCE550_RCV" && echo yes || echo no)"
+# Loop Exit runs the validator over run-scoped records and carries the token.
+assert_pin_unique "#550: Loop Exit runs the completion-evidence validator via the portable anchor" \
+  'invoke it via the portable anchor as a single leading-token vendored literal' "$CCE550_LOOPEXIT"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
+assert_pin_unique "#550: Loop Exit carries a non-pass token into the reported verdict line" \
+  'to the reported final verdict line (`<verdict> — completion evidence: <token>`)' "$CCE550_LOOPEXIT"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
+assert_pin_unique "#550: Loop Exit records a non-pass verdict as a Devflow Reflection bullet (no status-word edits)" \
+  'record a `## Devflow Reflection` bullet quoting the verdict line' "$CCE550_LOOPEXIT"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
+assert_pin_unique "#550: Loop Exit treats a no-verdict-line invocation as the degraded arm" \
+  'report `degraded: unvalidated (<reason>)`, never read absent output as `pass`' "$CCE550_LOOPEXIT"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
+assert_pin_unique "#550: Loop Exit refreshes the verification record on an identity-keyed mismatch" \
+  'refresh the verification record first' "$CCE550_LOOPEXIT"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
+# The verification_evidence "Consumption is deferred" caveat now names the validator.
+assert_pin_unique "#550: verification_evidence caveat names the completion-evidence check as consumer" \
+  'read at **Loop Exit** by the completion-evidence check (`scripts/check-completion-evidence.py`)' "$CCE550_FIXING"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
+# Dispatch surfaces reference the plugin-qualified copy explicitly.
+assert_pin_unique "#550: implement Phase 3 wrapper names the plugin-qualified receiving-code-review" \
+  '`devflow:receiving-code-review`' "$CCE550_PHASE3"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
+assert_pin_unique "#550: Loop Exit names the plugin-qualified receiving-code-review copy" \
+  '`devflow:receiving-code-review` Verification Gate' "$CCE550_LOOPEXIT"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
 # AC7 — interpreter-faithful probe rule in BOTH extensions (operative half, single-line in each)
 assert_pin_unique "#379(AC7): review-and-fix extension carries the interpreter-faithful probe rule" \
   'prefer mutation evidence over a hand probe when the two disagree' "$RAF379"
@@ -4420,10 +4472,10 @@ assert_pin_red_under "399: reverting Step 0 to settled-fact phrasing re-introduc
   's/the sync state it establishes is not citable as completion-time evidence/the sync state it establishes remains a settled fact for the rest of the session/' "$RECV_SKILL"
 # pin-D (AC5): the closing item gates on all FOUR evidence items, not three.
 assert_pin_unique "399: gate closing item requires all four evidence items" \
-  'Only after all four pass, claim completion' "$RECV_SKILL"
+  'Only after evidence items 1 through 4 are satisfied' "$RECV_SKILL"
 assert_pin_red_under "399: reverting the closing item to all-three drops the branch-sync gate" \
-  'Only after all four pass, claim completion' \
-  's/Only after all four pass, claim completion/Only after all three pass, claim completion/' "$RECV_SKILL"
+  'Only after evidence items 1 through 4 are satisfied' \
+  's/Only after evidence items 1 through 4 are satisfied/Only after evidence items 1 through 3 are satisfied/' "$RECV_SKILL"
 # pin-E (item 4, d3b0ba5/fbaf447): the safety-critical failed-fetch clause — when the fetch
 # does not succeed BOTH the remote-counterpart divergence and the base-branch divergence are
 # unestablished (unknown), never collapsed onto a stale-remote-tracking-ref zero-behind result.
@@ -8149,8 +8201,8 @@ assert_eq "#484 withheld list is exactly gh pr checkout, git rev-list, mktemp" \
 # while the guard still claims those recursive roots as coverage.
 # A failed/empty find becomes a sentinel path, which `_impl_ungranted` turns into
 # `__extractor_error__`; roster discovery can never masquerade as zero heads.
-if ! _impl_files="$(find "$LIB/../skills/implement" "$LIB/../skills"/review* "$LIB/../skills/requesting-code-review" -type f -name '*.md' -print 2>"$E484/roster.err")" \
-   || [ -z "$_impl_files" ]; then  # tree-walk-ok: all three operands are scoped to skills/ (implement, review*, requesting-code-review), which no worktree lives under
+if ! _impl_files="$(find "$LIB/../skills/implement" "$LIB/../skills"/review* "$LIB/../skills/requesting-code-review" "$LIB/../skills/receiving-code-review" -type f -name '*.md' -print 2>"$E484/roster.err")" \
+   || [ -z "$_impl_files" ]; then  # tree-walk-ok: every operand is scoped to skills/ (implement, review*, requesting-code-review, receiving-code-review), which no worktree lives under
   _impl_files="$E484/__roster_error__"
 fi
 assert_eq "#484 recursive roster includes nested implement phase files" "yes" \
@@ -8162,6 +8214,13 @@ assert_eq "#484 recursive roster includes the dispatched requesting-code-review 
 # references from the implement-profile head audit while the two pins above stay green.
 assert_eq "#539 recursive roster includes the review-and-fix step references" "yes" \
   "$(printf '%s\n' "$_impl_files" | grep -qxF "$LIB/../skills/review-and-fix/references/loop-control.md" && echo yes || echo no)"  # raw-guard-ok: roster membership assertion is scoped to the extractor input
+# #550: receiving-code-review now runs the completion-evidence check via the portable
+# anchor, so its fenced heads must be audited on the implement profile too. Dropping
+# skills/receiving-code-review from the find roster above turns this pin RED (the
+# mutation-run evidence is recorded in the PR: removing the roster arg makes
+# _impl_files omit this SKILL.md and this membership check flips yes->no).
+assert_eq "#550 recursive roster includes the receiving-code-review skill" "yes" \
+  "$(printf '%s\n' "$_impl_files" | grep -qxF "$LIB/../skills/receiving-code-review/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: roster membership assertion is scoped to the extractor input
 assert_eq "#484 every implement-tier head is granted or withheld (zero ungranted real heads)" "" \
   "$(for f in $_impl_files; do _impl_ungranted "$f" "$IMPL_YML" implement-block; done | sort -u | tr '\n' ' ' | sed 's/ *$//')"
 
@@ -32411,7 +32470,10 @@ assert_eq "#245 peer-completeness: no non-comment bare gh <subcommand> call surv
 # (grep -l DEVFLOW_GH over scripts/*.py) — the loop had under-counted it;
 # preflight.py (issue #547) is the newest — the early dependency-preflight gate's
 # `gh issue view` state/body reads route through the same DEVFLOW_GH pattern.
-for DGH_PY in workpad.py file-deferrals.py match-deferrals.py parse-acs.py export-workflow-lifecycle-census.py build-experiment-records.py preflight.py; do
+# check-completion-evidence.py (issue #550) reads gh only on its remote-trace arm
+# (`gh api` for a pr-thread / follow-up-issue trace, `gh repo view` for own-repo
+# scope) — the same DEVFLOW_GH-no-probe pattern.
+for DGH_PY in workpad.py file-deferrals.py match-deferrals.py parse-acs.py export-workflow-lifecycle-census.py build-experiment-records.py preflight.py check-completion-evidence.py; do
   assert_eq "#245 python routing: $DGH_PY reads DEVFLOW_GH (or-\"gh\" form)" "1" \
     "$(grep -cF 'os.environ.get("DEVFLOW_GH") or "gh"' "$DGH_ROOT/scripts/$DGH_PY" || true)"
   assert_eq "#245 python routing: $DGH_PY keeps no bare-\"gh\" argv0 literal" "0" \
@@ -38507,7 +38569,7 @@ done
 assert_eq "#620 budget: maintainer note's prose root ceiling matches RAF_ROOT_CEIL ($RAF_ROOT_CEIL)" "yes" \
   "$(case "$_raf_doc_nocommas" in *"The root sits below its ${RAF_ROOT_CEIL}-word"*) echo yes;; *) echo no;; esac)"
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +6,051 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +6,808 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute
@@ -49272,6 +49334,521 @@ if ! devflow_run_full_suite_module "$LIB/test/modules/regenerate-artifacts.sh" \
   printf 'ERROR: regenerate-artifacts boundary could not record its result\n'
   exit 1
 fi
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "completion-evidence validator (issue #550)"
+# ────────────────────────────────────────────────────────────────────────────
+# scripts/check-completion-evidence.py validates a receiving-review completion
+# claim against current, producer-owned evidence and prints exactly one
+# `completion-check: <token> — <detail>` line. These fixtures plant, per token,
+# exactly that token's trigger condition and assert the emitted token, the single
+# verdict line, and the exit code (0 for pass, 1 for each non-pass, 2 + no line
+# for an internal failure). Evidence artifacts live OUTSIDE the fixture repo tree
+# (as they do under the gitignored .devflow/tmp/), so they never perturb the
+# content identity the validator re-derives.
+CCE="$LIB/../scripts/check-completion-evidence.py"
+CCE_ROOT="$(mktemp -d)"
+CCE_REPO="$CCE_ROOT/repo"; CCE_EV="$CCE_ROOT/ev"; CCE_BIN="$CCE_ROOT/bin"
+mkdir -p "$CCE_REPO" "$CCE_EV" "$CCE_BIN"
+( cd "$CCE_REPO" && git init -q && git config user.email t@t && git config user.name t \
+    && printf 'hello\n' > f.txt && git add -A && git commit -qm init ) >/dev/null 2>&1
+# For a clean committed tree, `git write-tree` (what the validator re-derives) equals
+# HEAD^{tree}, so this is the claim-time candidate identity for the honest sequence.
+CCE_TREE="$(cd "$CCE_REPO" && git rev-parse 'HEAD^{tree}')"
+# A gh stub for the remote-trace arms (no network): GH_STUB_MODE selects exists(0) /
+# absent(HTTP 404) / unreach(other non-zero); GH_STUB_OWN answers `gh repo view`.
+cat > "$CCE_BIN/gh" <<'EOF'
+#!/usr/bin/env bash
+case "$1" in
+  repo)
+    # __FAIL__ models an unresolvable own-repo slug (`gh repo view` non-zero), the
+    # input that drives _own_repo to None.
+    if [ "${GH_STUB_OWN:-me/repo}" = "__FAIL__" ]; then exit 1; fi
+    printf '%s\n' "${GH_STUB_OWN:-me/repo}" ;;
+  api)
+    case "${GH_STUB_MODE:-exists}" in
+      exists) exit 0 ;;
+      absent) echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;
+      *) echo "error connecting: dial tcp: no route to host" >&2; exit 1 ;;
+    esac ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$CCE_BIN/gh"
+# _cce runs the validator and captures token (field 2), exit code, and verdict-line
+# count. The stub dir is on PATH for every call (only the remote-deferral cases ever
+# invoke gh; --own-repo overrides `gh repo view`, so the stub is inert elsewhere).
+# grep -c . counts non-empty lines — a single verdict line reads 1, no output reads 0.
+_cce() {
+  CCE_OUT="$(PATH="$CCE_BIN:$PATH" GH_STUB_MODE="${CCE_MODE:-exists}" GH_STUB_OWN="${CCE_OWN:-me/repo}" DEVFLOW_GH="gh" \
+            python3 "$CCE" "$@" 2>/dev/null)"; CCE_RC=$?
+  if [ -z "$CCE_OUT" ]; then CCE_NL=0; else CCE_NL="$(printf '%s\n' "$CCE_OUT" | grep -c .)"; fi
+  CCE_TOK="$(printf '%s\n' "$CCE_OUT" | awk 'NR==1{print $2}')"
+}
+CCE_MODE=exists
+# Evidence artifact writers (JSON via printf so no shell-quote traversal of content).
+printf '{"result":"passed","candidate_identity":"%s","skipped_checks":[]}\n' "$CCE_TREE" > "$CCE_EV/vrec.json"
+printf '{"kind":"reception-identity","claim_context_token":"abc","candidate_identity":"%s"}\n' "$CCE_TREE" > "$CCE_EV/id.json"
+printf '{"kind":"reception-findings","claim_context_token":"abc","findings":[{"finding_id":"f001","disposition":"fixed"}]}\n' > "$CCE_EV/find.json"
+
+# ── Token 1: pass (direct) — honest sequence, all classes affirmative ─────────
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/vrec.json" \
+     --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 pass(direct): token" "pass" "$CCE_TOK"
+assert_eq "#550 pass(direct): exit 0" "0" "$CCE_RC"
+assert_eq "#550 pass(direct): single verdict line" "1" "$CCE_NL"
+
+# ── Untracked-at-derivation coverage: a brand-new file committed in the same
+#    sequence still yields pass (derivation included it pre-commit; HEAD^{tree}
+#    after commit equals that derived value on a clean tree). ──────────────────
+( cd "$CCE_REPO" && printf 'new\n' > g.txt && git add -A && git commit -qm add-untracked ) >/dev/null 2>&1
+CCE_TREE2="$(cd "$CCE_REPO" && git rev-parse 'HEAD^{tree}')"
+printf '{"result":"passed","candidate_identity":"%s","skipped_checks":[]}\n' "$CCE_TREE2" > "$CCE_EV/vrec2.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/vrec2.json" \
+     --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 pass(direct, new-file-committed): token" "pass" "$CCE_TOK"
+assert_eq "#550 pass(direct, new-file-committed): exit 0" "0" "$CCE_RC"
+
+# ── Token 2: missing-evidence — an absent required reference ──────────────────
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/nope.json" \
+     --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 missing-evidence(absent vrec): token" "missing-evidence" "$CCE_TOK"
+assert_eq "#550 missing-evidence(absent vrec): exit 1" "1" "$CCE_RC"
+assert_eq "#550 missing-evidence(absent vrec): single verdict line" "1" "$CCE_NL"
+
+# ── Token 3: stale-candidate — one tracked byte changed after the verified state.
+#    (vrec2 records CCE_TREE2; mutate a tracked file so the re-derived tree differs.)
+printf 'mutated\n' > "$CCE_REPO/f.txt"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/vrec2.json" \
+     --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 stale-candidate(tracked byte changed): token" "stale-candidate" "$CCE_TOK"
+assert_eq "#550 stale-candidate: exit 1" "1" "$CCE_RC"
+assert_eq "#550 stale-candidate: single verdict line" "1" "$CCE_NL"
+( cd "$CCE_REPO" && git checkout -q -- f.txt ) >/dev/null 2>&1   # restore clean tree
+
+# ── Precedence: missing-evidence beats stale-candidate (presence before value).
+#    Absent vrec beside stale-looking anchors -> missing, not stale. ────────────
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/gone.json" \
+     --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 precedence: missing-evidence beats stale-candidate" "missing-evidence" "$CCE_TOK"
+
+# ── Token 4: verification-not-pass — result is the sanctioned ungranted-consumer
+#    producer shape `result: "skipped"` with a reason. ─────────────────────────
+printf '{"result":"skipped","reason":"suite command not granted","candidate_identity":"%s","skipped_checks":[]}\n' "$CCE_TREE2" > "$CCE_EV/vrec_skip.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/vrec_skip.json" \
+     --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 verification-not-pass(result=skipped): token" "verification-not-pass" "$CCE_TOK"
+assert_eq "#550 verification-not-pass: exit 1" "1" "$CCE_RC"
+assert_eq "#550 verification-not-pass: single verdict line" "1" "$CCE_NL"
+
+# ── Token 5: skipped-checks-present — a pass result with a blocking-gate skip ──
+printf '{"result":"passed","candidate_identity":"%s","skipped_checks":[{"check":"c1","kind":"blocking-gate","reason":"r"}]}\n' "$CCE_TREE2" > "$CCE_EV/vrec_block.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/vrec_block.json" \
+     --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 skipped-checks-present(blocking-gate): token" "skipped-checks-present" "$CCE_TOK"
+assert_eq "#550 skipped-checks-present: exit 1" "1" "$CCE_RC"
+# A skip with NO kind is treated as blocking (fail-closed on the unclassified shape).
+printf '{"result":"passed","candidate_identity":"%s","skipped_checks":[{"check":"c1","reason":"r"}]}\n' "$CCE_TREE2" > "$CCE_EV/vrec_nokind.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/vrec_nokind.json" \
+     --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 skipped-checks-present(no-kind, fail-closed): token" "skipped-checks-present" "$CCE_TOK"
+# A record whose ONLY skips are host-capability-kind is a pass, with those skips
+# quoted in the detail (surfaced, never laundered) — the suppressed input is present.
+printf '{"result":"passed","candidate_identity":"%s","skipped_checks":[{"check":"T6b","kind":"host-capability","reason":"r"}]}\n' "$CCE_TREE2" > "$CCE_EV/vrec_host.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/vrec_host.json" \
+     --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 skipped-checks(host-capability only): token is pass" "pass" "$CCE_TOK"
+assert_eq "#550 skipped-checks(host-capability only): exit 0" "0" "$CCE_RC"
+assert_eq "#550 skipped-checks(host-capability only): skip is quoted in detail (surfaced)" "1" \
+  "$(printf '%s' "$CCE_OUT" | grep -cF 'host-capability skips surfaced: T6b')"
+
+# ── Token 6: undischarged-findings ───────────────────────────────────────────
+# Direct: a claimed-complete session whose ledger records zero dispositions.
+printf '{"kind":"reception-findings","claim_context_token":"abc","findings":[]}\n' > "$CCE_EV/find_empty.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/vrec2.json" \
+     --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find_empty.json" --repo-root "$CCE_REPO"
+assert_eq "#550 undischarged-findings(direct, zero dispositions): token" "undischarged-findings" "$CCE_TOK"
+assert_eq "#550 undischarged-findings(direct): exit 1" "1" "$CCE_RC"
+# Its detail must NOT imply per-finding coverage a direct session cannot assert.
+assert_eq "#550 undischarged-findings(direct): detail states completeness-only, not per-finding" "1" \
+  "$(printf '%s' "$CCE_OUT" | grep -cF 'per-finding coverage is not asserted')"
+# Loop: an in-fix-set finding with no fix_decisions row.
+printf '{"claim_context_token":"run1","candidate_identity":"%s"}\n' "$CCE_TREE2" > "$CCE_EV/loop_id.json"
+printf '{"claim_context_token":"run1","findings":[{"finding_id":"f001","in_fix_set":true}]}\n' > "$CCE_EV/loop_inv.json"
+printf '{"fix_decisions":[]}\n' > "$CCE_EV/loop_ledger_empty.json"
+printf '{"result":"passed","candidate_identity":"%s","skipped_checks":[]}\n' "$CCE_TREE2" > "$CCE_EV/loop_vrec.json"
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec.json" \
+     --findings-inventory "$CCE_EV/loop_inv.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" --repo-root "$CCE_REPO"
+assert_eq "#550 undischarged-findings(loop, in-fix-set no row): token" "undischarged-findings" "$CCE_TOK"
+# Loop: a below-threshold (not-in-fix-set) finding with no row is a pass (derived
+# disposition discharges born-advisory findings).
+printf '{"claim_context_token":"run1","findings":[{"finding_id":"f001","in_fix_set":false}]}\n' > "$CCE_EV/loop_inv_below.json"
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" --repo-root "$CCE_REPO"
+assert_eq "#550 undischarged-findings(loop, below-threshold no row): token is pass" "pass" "$CCE_TOK"
+
+# ── Pass-value coverage: the OTHER honest producer value `result: "pass"` ─────
+# The review-and-fix `verification_evidence` producer writes "pass" (the flight
+# handle writes "passed"); every other pass fixture above uses "passed", so this
+# is the positive control for the second member of PASS_RESULT_VALUES. Narrowing
+# that frozenset to {"passed"} makes this fixture resolve verification-not-pass.
+printf '{"result":"pass","candidate_identity":"%s","skipped_checks":[]}\n' "$CCE_TREE2" > "$CCE_EV/vrec_password.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/vrec_password.json" \
+     --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 pass(result=\"pass\", review-and-fix producer value): token" "pass" "$CCE_TOK"
+assert_eq "#550 pass(result=\"pass\"): exit 0" "0" "$CCE_RC"
+assert_eq "#550 pass(result=\"pass\"): single verdict line" "1" "$CCE_NL"
+
+# ── Loop-supplied identity: the production invocation shape --claim-identity ──
+# The loop passes the identity it computed instead of letting the validator
+# re-derive one, so the --claim-identity pin branch is the real Loop-Exit path.
+# Matching value -> pass; a differing value -> stale-candidate (the staleness
+# compare runs against the SUPPLIED identity, not a re-derivation).
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" \
+     --repo-root "$CCE_REPO" --claim-identity "$CCE_TREE2"
+assert_eq "#550 claim-identity(loop-supplied, matches record): token" "pass" "$CCE_TOK"
+assert_eq "#550 claim-identity(loop-supplied, matches record): exit 0" "0" "$CCE_RC"
+# A loop-supplied identity that differs from the record's is stale — and it must
+# be the SUPPLIED value that decides, so this differing value is one the tree
+# would never re-derive (the pin branch is what makes this fixture stale).
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" \
+     --repo-root "$CCE_REPO" --claim-identity "0000000000000000000000000000000000000000"
+assert_eq "#550 claim-identity(loop-supplied, differs from record): token" "stale-candidate" "$CCE_TOK"
+assert_eq "#550 claim-identity(loop-supplied, differs from record): exit 1" "1" "$CCE_RC"
+
+# ── Token 7: non-durable-deferral ────────────────────────────────────────────
+# Baseline loop pass inputs (no undischarged finding, verification pass).
+CCE_LOOPBASE=(--context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" --repo-root "$CCE_REPO")
+# A chat-only deferral (channel not one of the four durable channels).
+printf '{"deferrals":[{"finding_id":"f003","channel":"chat"}]}\n' > "$CCE_EV/def_chat.json"
+_cce "${CCE_LOOPBASE[@]}" --deferrals "$CCE_EV/def_chat.json"
+assert_eq "#550 non-durable-deferral(chat-only): token" "non-durable-deferral" "$CCE_TOK"
+assert_eq "#550 non-durable-deferral(chat-only): exit 1" "1" "$CCE_RC"
+# A code-comment trace whose marker is absent at the cited in-tree site.
+printf '{"deferrals":[{"finding_id":"f002","channel":"code-comment","ref":{"file":"f.txt","marker":"ABSENT-MARKER"}}]}\n' > "$CCE_EV/def_cc_absent.json"
+_cce "${CCE_LOOPBASE[@]}" --deferrals "$CCE_EV/def_cc_absent.json"
+assert_eq "#550 non-durable-deferral(code-comment marker absent): token" "non-durable-deferral" "$CCE_TOK"
+# A remote trace in the validator's OWN repo whose target the gh stub reports 404
+# (read access established) — provable absence.
+printf '{"deferrals":[{"finding_id":"f004","channel":"follow-up-issue","ref":{"repo":"me/repo","api_path":"repos/me/repo/issues/9999"}}]}\n' > "$CCE_EV/def_remote_own.json"
+CCE_MODE=absent
+_cce "${CCE_LOOPBASE[@]}" --deferrals "$CCE_EV/def_remote_own.json" --own-repo "me/repo"
+assert_eq "#550 non-durable-deferral(remote 404 in own repo): token" "non-durable-deferral" "$CCE_TOK"
+CCE_MODE=exists
+
+# ── Token 8: unverifiable-trace ──────────────────────────────────────────────
+# A remote trace OUTSIDE the credential's provable scope whose target 404s —
+# absence there is unknown; asserted to never yield non-durable-deferral.
+printf '{"deferrals":[{"finding_id":"f005","channel":"follow-up-issue","ref":{"repo":"other/repo","api_path":"repos/other/repo/issues/1"}}]}\n' > "$CCE_EV/def_remote_other.json"
+CCE_MODE=absent
+_cce "${CCE_LOOPBASE[@]}" --deferrals "$CCE_EV/def_remote_other.json" --own-repo "me/repo"
+assert_eq "#550 unverifiable-trace(remote 404 outside scope): token" "unverifiable-trace" "$CCE_TOK"
+assert_eq "#550 unverifiable-trace(outside scope) is NOT non-durable" "0" \
+  "$([ "$CCE_TOK" = "non-durable-deferral" ] && echo 1 || echo 0)"
+# A remote trace with the gh stub unreachable.
+CCE_MODE=unreach
+_cce "${CCE_LOOPBASE[@]}" --deferrals "$CCE_EV/def_remote_own.json" --own-repo "me/repo"
+assert_eq "#550 unverifiable-trace(gh unreachable): token" "unverifiable-trace" "$CCE_TOK"
+CCE_MODE=exists
+
+# ── Deferral pass-arms: loop-record present, code-comment present, omit-on-zero
+printf '{"deferrals":[{"finding_id":"f001","channel":"loop-record"}]}\n' > "$CCE_EV/def_loop.json"
+_cce "${CCE_LOOPBASE[@]}" --deferrals "$CCE_EV/def_loop.json"
+assert_eq "#550 deferral pass(loop-record present): token" "pass" "$CCE_TOK"
+printf '# DEFERRED-f002 tracked at HEAD, see follow-up\n' >> "$CCE_REPO/f.txt"
+( cd "$CCE_REPO" && git add -A && git commit -qm cc-marker ) >/dev/null 2>&1
+CCE_TREE3="$(cd "$CCE_REPO" && git rev-parse 'HEAD^{tree}')"
+printf '{"result":"passed","candidate_identity":"%s","skipped_checks":[]}\n' "$CCE_TREE3" > "$CCE_EV/loop_vrec3.json"
+printf '{"deferrals":[{"finding_id":"f002","channel":"code-comment","ref":{"file":"f.txt","marker":"DEFERRED-f002"}}]}\n' > "$CCE_EV/def_cc.json"
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec3.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" \
+     --repo-root "$CCE_REPO" --deferrals "$CCE_EV/def_cc.json"
+assert_eq "#550 deferral pass(code-comment marker present): token" "pass" "$CCE_TOK"
+# Zero-deferral clean run with NO deferrals.json on disk (omit-on-zero producer state).
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec3.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" \
+     --repo-root "$CCE_REPO" --deferrals "$CCE_EV/absent-deferrals.json"
+assert_eq "#550 deferral pass(zero-deferral, no deferrals.json): token" "pass" "$CCE_TOK"
+# A durable remote citation: a follow-up-issue trace in the OWN repo whose gh-stub
+# target EXISTS -> pass (the durable remote happy path).
+printf '{"deferrals":[{"finding_id":"f006","channel":"follow-up-issue","ref":{"repo":"me/repo","api_path":"repos/me/repo/issues/1"}}]}\n' > "$CCE_EV/def_remote_exists.json"
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec3.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" \
+     --repo-root "$CCE_REPO" --deferrals "$CCE_EV/def_remote_exists.json" --own-repo "me/repo"
+assert_eq "#550 deferral pass(remote follow-up-issue EXISTS): token" "pass" "$CCE_TOK"
+assert_eq "#550 deferral pass(remote EXISTS): exit 0" "0" "$CCE_RC"
+# Cross-entry class ordering: a deferrals list whose FIRST entry is an out-of-scope
+# 404 (unverifiable) and a LATER entry is chat-only (provable non-durable) emits the
+# LOWEST-RANKED class non-durable-deferral, never the first-listed entry's
+# unverifiable-trace (first-failing-CLASS, not first-failing-ENTRY).
+printf '{"deferrals":[{"finding_id":"f007","channel":"follow-up-issue","ref":{"repo":"other/repo","api_path":"repos/other/repo/issues/1"}},{"finding_id":"f008","channel":"chat"}]}\n' > "$CCE_EV/def_mixed_order.json"
+CCE_MODE=absent
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec3.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" \
+     --repo-root "$CCE_REPO" --deferrals "$CCE_EV/def_mixed_order.json" --own-repo "me/repo"
+assert_eq "#550 deferral class-order: non-durable beats first-listed unverifiable" "non-durable-deferral" "$CCE_TOK"
+CCE_MODE=exists
+# ── LIVE producer<->consumer path: the manifest shape loop-exit.md actually
+#    specifies, fed to the real validator. Every fixture above hand-writes a
+#    channel-shaped entry, so none of them exercises the shipped producer schema —
+#    which is how the two files were able to disagree while both sides' own tests
+#    stayed green (PR #716 review, VC-20). This case reads the JSON fence out of
+#    skills/review-and-fix/references/loop-exit.md, substitutes its <placeholder>
+#    tokens, and asserts the validator passes it. It is deliberately NOT a grep
+#    pin on a literal: it goes RED if the doc drops default_channel, renames it,
+#    or names a channel the validator does not accept — i.e. on the real mismatch.
+CCE_LOOPDOC="$LIB/../skills/review-and-fix/references/loop-exit.md"
+python3 - "$CCE_LOOPDOC" "$CCE_EV/def_from_doc.json" <<'PYEOF'
+import json, re, sys
+doc = open(sys.argv[1], encoding='utf-8').read()
+# The deferrals manifest fence is the first ```json block carrying a "deferrals" key.
+blocks = re.findall(r'```json\n(.*?)```', doc, re.S)
+cand = [b for b in blocks if '"deferrals"' in b]
+if len(cand) != 1:
+    sys.exit(f'expected exactly one deferrals JSON fence in loop-exit.md, found {len(cand)}')
+text = cand[0]
+# The fence documents value SHAPES, not values: <...> placeholders stand in for
+# producer-filled content. Substitute them so the documented shape becomes a real
+# manifest — the array-typed line first, then the remaining in-string placeholders.
+text = re.sub(r'\[<start>, <end>\]', '[1, 2]', text)
+text = re.sub(r'<[^>]*>', 'x', text)
+obj = json.loads(text)
+assert isinstance(obj.get('deferrals'), list) and obj['deferrals'], 'fence carries no sample entry'
+open(sys.argv[2], 'w', encoding='utf-8').write(json.dumps(obj))
+PYEOF
+assert_eq "#550/#716 loop-exit.md deferrals fence parses into a real manifest" "0" "$?"
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec3.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" \
+     --repo-root "$CCE_REPO" --deferrals "$CCE_EV/def_from_doc.json" --own-repo "me/repo"
+assert_eq "#550/#716 live cross-file: loop-exit.md manifest shape passes the validator" "pass" "$CCE_TOK"
+assert_eq "#550/#716 live cross-file: exit 0" "0" "$CCE_RC"
+# Negative control, attributed: the SAME doc-derived manifest with only the
+# manifest-level declaration dropped must be rejected by the deferrals guard
+# specifically (non-durable-deferral) — not by some earlier evidence class — so a
+# pass above cannot be an accident of an inert deferrals arm.
+python3 -c 'import json,sys; o=json.load(open(sys.argv[1])); o.pop("default_channel",None); json.dump(o,open(sys.argv[2],"w"))' \
+  "$CCE_EV/def_from_doc.json" "$CCE_EV/def_from_doc_nodecl.json"
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec3.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" \
+     --repo-root "$CCE_REPO" --deferrals "$CCE_EV/def_from_doc_nodecl.json" --own-repo "me/repo"
+assert_eq "#550/#716 doc manifest minus default_channel: rejected by the deferrals guard" "non-durable-deferral" "$CCE_TOK"
+# A declaration outside the four durable channels is DISCARDED, never honored —
+# the declaration cannot widen the guard past ALL_CHANNELS.
+python3 -c 'import json,sys; o=json.load(open(sys.argv[1])); o["default_channel"]="chat"; json.dump(o,open(sys.argv[2],"w"))' \
+  "$CCE_EV/def_from_doc.json" "$CCE_EV/def_from_doc_baddecl.json"
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec3.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" \
+     --repo-root "$CCE_REPO" --deferrals "$CCE_EV/def_from_doc_baddecl.json" --own-repo "me/repo"
+assert_eq "#550/#716 non-durable default_channel declaration is discarded, not honored" "non-durable-deferral" "$CCE_TOK"
+# A per-entry channel still WINS over the declaration (the declaration only fills
+# a channel-less entry) — an entry naming a bogus channel is not laundered by a
+# valid manifest-level default.
+python3 -c 'import json,sys; o=json.load(open(sys.argv[1])); o["deferrals"][0]["channel"]="chat"; json.dump(o,open(sys.argv[2],"w"))' \
+  "$CCE_EV/def_from_doc.json" "$CCE_EV/def_from_doc_entrywins.json"
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec3.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" \
+     --repo-root "$CCE_REPO" --deferrals "$CCE_EV/def_from_doc_entrywins.json" --own-repo "me/repo"
+assert_eq "#550/#716 per-entry channel overrides the manifest declaration" "non-durable-deferral" "$CCE_TOK"
+# skipped_checks is NOT a list (a hand-mutable producer shape) -> fail-closed to
+# skipped-checks-present (unclassifiable), even though result is a pass value.
+printf '{"result":"passed","candidate_identity":"%s","skipped_checks":{"check":"c1"}}\n' "$CCE_TREE3" > "$CCE_EV/vrec_skipobj.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/vrec_skipobj.json" \
+     --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 skipped-checks-present(skipped_checks not a list): token" "skipped-checks-present" "$CCE_TOK"
+assert_eq "#550 skipped-checks-present(not a list): exit 1" "1" "$CCE_RC"
+# Loop: an in-fix-set finding whose finding_id is MISSING (malformed producer shape)
+# fails CLOSED to undischarged-findings, never silently skipped toward pass.
+printf '{"claim_context_token":"run1","findings":[{"in_fix_set":true}]}\n' > "$CCE_EV/loop_inv_noid.json"
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec3.json" \
+     --findings-inventory "$CCE_EV/loop_inv_noid.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" --repo-root "$CCE_REPO"
+assert_eq "#550 undischarged-findings(loop, in-fix-set malformed finding_id): token" "undischarged-findings" "$CCE_TOK"
+
+# ── Wrong-session anchor: a well-formed preflight artifact whose claim-context
+#    token differs from the operand -> missing-evidence (session-binding control).
+printf '{"kind":"reception-identity","claim_context_token":"WRONGSESSION","candidate_identity":"%s"}\n' "$CCE_TREE3" > "$CCE_EV/id_wrong.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/loop_vrec3.json" \
+     --identity-artifact "$CCE_EV/id_wrong.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 wrong-session anchor: token" "missing-evidence" "$CCE_TOK"
+
+# ── Rebind semantics (#668) the check must not read as continuity ─────────────
+# rebound_from == "unknown" (prior identity unreadable) is UNDETERMINED, not
+# continuity -> missing-evidence, never a false pass.
+printf '{"kind":"reception-identity","claim_context_token":"abc","candidate_identity":"%s","rebound_from":"unknown"}\n' "$CCE_TREE3" > "$CCE_EV/id_rebind_unknown.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/loop_vrec3.json" \
+     --identity-artifact "$CCE_EV/id_rebind_unknown.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 rebind(rebound_from=unknown): token is missing-evidence, never pass" "missing-evidence" "$CCE_TOK"
+# rebound_from == null (identity unchanged) is the ordinary pass-arm input.
+printf '{"kind":"reception-identity","claim_context_token":"abc","candidate_identity":"%s","rebound_from":null}\n' "$CCE_TREE3" > "$CCE_EV/id_rebind_null.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/loop_vrec3.json" \
+     --identity-artifact "$CCE_EV/id_rebind_null.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 rebind(rebound_from=null, unchanged tree): token is pass" "pass" "$CCE_TOK"
+
+# ── Session-directory degraded fixtures (direct): absent artifact, present-but-
+#    empty artifact, and a directory with no artifacts each yield missing-evidence
+#    for a claimed-complete session (never fail-open on a missing preflight fact).
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/loop_vrec3.json" \
+     --identity-artifact "$CCE_EV/absent-id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 session-degraded(absent identity artifact): token" "missing-evidence" "$CCE_TOK"
+printf '' > "$CCE_EV/id_empty.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/loop_vrec3.json" \
+     --identity-artifact "$CCE_EV/id_empty.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 session-degraded(empty identity artifact): token" "missing-evidence" "$CCE_TOK"
+
+# ── Malformed-shape matrix over the verification-record JSON input. Each degraded
+#    shape yields a named non-pass token at exit 1 with a single verdict line; no
+#    row yields pass, no row raises an uncaught traceback (rc is 1, never a Python
+#    crash to a bare stderr with no verdict line). ─────────────────────────────
+printf '[1,2,3]\n'        > "$CCE_EV/m_array.json"
+printf '42\n'             > "$CCE_EV/m_scalar.json"
+printf 'false\n'          > "$CCE_EV/m_falsy.json"
+printf '"a string"\n'     > "$CCE_EV/m_wrongtype.json"
+printf ''                 > "$CCE_EV/m_empty.json"
+printf '{"result":"pas'   > "$CCE_EV/m_truncated.json"
+for CCE_M in array scalar falsy wrongtype empty truncated missing; do
+  if [ "$CCE_M" = missing ]; then CCE_MF="$CCE_EV/m_does_not_exist.json"; else CCE_MF="$CCE_EV/m_${CCE_M}.json"; fi
+  _cce --context abc --context-mode direct --verification-record "$CCE_MF" \
+       --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+  assert_eq "#550 malformed-matrix(vrec=$CCE_M): a non-pass token, never pass" "1" \
+    "$([ "$CCE_TOK" != pass ] && [ -n "$CCE_TOK" ] && echo 1 || echo 0)"
+  assert_eq "#550 malformed-matrix(vrec=$CCE_M): exit 1" "1" "$CCE_RC"
+  assert_eq "#550 malformed-matrix(vrec=$CCE_M): exactly one verdict line (no traceback, no silent no-output)" "1" "$CCE_NL"
+done
+
+# The loop operand set refreshed against the CURRENT tree — CCE_LOOPBASE pins the
+# pre-cc-marker verification record, which by this point in the file would route
+# every row below to stale-candidate instead of the class it means to pin.
+CCE_LOOPBASE3=(--context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec3.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" --repo-root "$CCE_REPO")
+# ── Fail-closed branches that were reachable but untested (PR #716 review,
+#    coverage-hardening Suggestion). Each row plants exactly its own branch's
+#    trigger and asserts the named token — these arms are fail-closed by
+#    construction, so an untested one is a guard nobody has ever seen fire.
+# (a) A verification record present and parseable but carrying NO candidate_identity:
+#     the currency compare has no comparand -> missing-evidence, never a value token
+#     and never pass. (Planted beside otherwise-honest anchors, so the token is
+#     attributable to this operand alone.)
+printf '{"result":"passed","skipped_checks":[]}\n' > "$CCE_EV/vrec_noident.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/vrec_noident.json" \
+     --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 vrec without candidate_identity: token is missing-evidence" "missing-evidence" "$CCE_TOK"
+assert_eq "#550 vrec without candidate_identity: exit 1" "1" "$CCE_RC"
+assert_eq "#550 vrec without candidate_identity: single verdict line" "1" "$CCE_NL"
+# Positive control on the SAME fixture: adding only the candidate_identity makes it
+# pass, so the rejection above is attributable to that one absent field and not to
+# an unrelated precondition in the fixture.
+printf '{"result":"passed","candidate_identity":"%s","skipped_checks":[]}\n' "$CCE_TREE3" > "$CCE_EV/vrec_noident_ctl.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/vrec_noident_ctl.json" \
+     --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 vrec candidate_identity control: same fixture plus the field passes" "pass" "$CCE_TOK"
+# (b) A session anchor with NO claim-context token at all: a required artifact with
+#     no discriminator cannot be bound -> missing-evidence (the absent-token sibling
+#     of the wrong-session case above, which pins only a MISmatching token).
+printf '{"kind":"reception-identity","candidate_identity":"%s"}\n' "$CCE_TREE3" > "$CCE_EV/id_notok.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/loop_vrec3.json" \
+     --identity-artifact "$CCE_EV/id_notok.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 anchor with absent claim-context token: token is missing-evidence" "missing-evidence" "$CCE_TOK"
+assert_eq "#550 anchor with absent claim-context token: exit 1" "1" "$CCE_RC"
+# Attribute the rejection to the absent-token guard specifically. The token alone
+# cannot: with that guard disabled, the very next line (the token != context
+# compare) rejects the same fixture under the SAME missing-evidence token, so a
+# token-only assertion stays green against a mutant that removed the guard it
+# names. The breadcrumb is what distinguishes the two.
+assert_eq "#550 anchor with absent claim-context token: rejected BY the absent-token guard" "1" \
+  "$(printf '%s' "$CCE_OUT" | grep -cF 'identity-artifact: no claim-context token to bind')"
+# (c) Malformed-shape matrix over the DEFERRALS manifest — the hand-mutable producer
+#     input the four rows below can each degrade independently. No row yields pass.
+printf '{"deferrals":{"finding_id":"f009"}}\n' > "$CCE_EV/def_notlist.json"
+printf '{"deferrals":["not-an-object"]}\n'     > "$CCE_EV/def_notobj.json"
+printf '{"deferrals":[{"finding_id":"f010","channel":"code-comment","ref":{}}]}\n' > "$CCE_EV/def_cc_noref.json"
+printf '{"deferrals":[{"finding_id":"f011","channel":"follow-up-issue","ref":{"repo":"me/repo"}}]}\n' > "$CCE_EV/def_remote_nopath.json"
+for CCE_D in notlist notobj cc_noref remote_nopath; do
+  _cce "${CCE_LOOPBASE3[@]}" --deferrals "$CCE_EV/def_${CCE_D}.json" --own-repo "me/repo"
+  assert_eq "#550 deferrals malformed-matrix($CCE_D): a non-pass token, never pass" "1" \
+    "$([ "$CCE_TOK" != pass ] && [ -n "$CCE_TOK" ] && echo 1 || echo 0)"
+  assert_eq "#550 deferrals malformed-matrix($CCE_D): exit 1" "1" "$CCE_RC"
+  assert_eq "#550 deferrals malformed-matrix($CCE_D): exactly one verdict line (no traceback)" "1" "$CCE_NL"
+done
+# Attribute each rejection to the guard that owns it, not merely to "it failed":
+# a non-list manifest is a structural read failure (missing-evidence), while the
+# three well-formed-but-underspecified entries are the deferrals guard's own class.
+_cce "${CCE_LOOPBASE3[@]}" --deferrals "$CCE_EV/def_notlist.json" --own-repo "me/repo"
+assert_eq "#550 deferrals malformed(entries not a list): missing-evidence" "missing-evidence" "$CCE_TOK"
+for CCE_D in notobj cc_noref remote_nopath; do
+  _cce "${CCE_LOOPBASE3[@]}" --deferrals "$CCE_EV/def_${CCE_D}.json" --own-repo "me/repo"
+  assert_eq "#550 deferrals malformed($CCE_D): attributed to the deferrals guard" "non-durable-deferral" "$CCE_TOK"
+done
+# (d) _own_repo resolves to None (`gh repo view` non-zero and no --own-repo): a 404
+#     is then OUTSIDE provable scope for every repo, so the own-repo 404 fixture that
+#     yields non-durable-deferral WITH --own-repo must yield unverifiable-trace here.
+#     Absence is unknown, never a fabrication accusation, when scope is unestablished.
+CCE_MODE=absent; CCE_OWN=__FAIL__
+_cce "${CCE_LOOPBASE3[@]}" --deferrals "$CCE_EV/def_remote_own.json"
+assert_eq "#550 _own_repo unresolvable: own-repo 404 is unverifiable-trace, not provable absence" \
+  "unverifiable-trace" "$CCE_TOK"
+assert_eq "#550 _own_repo unresolvable: exit 1" "1" "$CCE_RC"
+# Positive control on the same fixture and the same gh mode: supplying --own-repo
+# (the only differing property) flips it to the provable-absence class, so the arm
+# above is attributable to the unresolvable slug and not to an inert probe.
+_cce "${CCE_LOOPBASE3[@]}" --deferrals "$CCE_EV/def_remote_own.json" --own-repo "me/repo"
+assert_eq "#550 _own_repo control: same fixture with a resolved slug is non-durable-deferral" \
+  "non-durable-deferral" "$CCE_TOK"
+CCE_MODE=exists; CCE_OWN=me/repo
+
+# ── Internal-error: an unresolvable repo root (identity re-derivation fails)
+#    exits 2 and prints NO verdict line. ────────────────────────────────────────
+CCE_NOGIT="$CCE_ROOT/nogit"; mkdir -p "$CCE_NOGIT"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/vrec2.json" \
+     --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_NOGIT"
+assert_eq "#550 internal-error(no git repo): exit 2" "2" "$CCE_RC"
+assert_eq "#550 internal-error(no git repo): NO verdict line" "0" "$CCE_NL"
+
+# ── Semantic-judgment exclusion (code-reading obligation over the shipped source):
+#    the validator source spawns NO subprocess whose head is anything other than
+#    the resolved gh (constant GH — its single subprocess head, on the remote-trace
+#    arm); git runs only inside the imported reception_identity routine, so the
+#    "GIT" allowlist entry below is defensive and unexercised in this module. It
+#    re-grades no severity, re-runs no test suite. An AST negative, not a grep. ──
+CCE_SEMANTIC="$(python3 - "$CCE" <<'SEMEOF'
+import ast, sys
+src = open(sys.argv[1], encoding="utf-8").read()
+tree = ast.parse(src)
+ALLOWED_HEADS = {"GIT", "GH"}
+SPAWNERS = {"run", "Popen", "call", "check_call", "check_output"}
+bad = []
+for node in ast.walk(tree):
+    if isinstance(node, ast.Call):
+        f = node.func
+        # subprocess.<spawner>(...) — the only subprocess surface in this module.
+        is_spawn = (
+            isinstance(f, ast.Attribute)
+            and f.attr in SPAWNERS
+            and isinstance(f.value, ast.Name)
+            and f.value.id == "subprocess"
+        )
+        if not is_spawn or not node.args:
+            continue
+        argv = node.args[0]
+        if not isinstance(argv, ast.List) or not argv.elts:
+            bad.append("non-list-or-empty argv to subprocess")
+            continue
+        head = argv.elts[0]
+        if isinstance(head, ast.Name) and head.id in ALLOWED_HEADS:
+            continue
+        bad.append(ast.dump(head))
+# Also: no import of a test runner and no in-module severity ordering table.
+if "_SEVERITY_ORDER" in src:
+    bad.append("re-introduced a severity-ordering table (severity comparison)")
+print("clean" if not bad else "DIRTY:" + ";".join(bad))
+SEMEOF
+)"
+assert_eq "#550 semantic-exclusion: validator spawns only git/gh, no severity table" "clean" "$CCE_SEMANTIC"
+
+rm -rf "$CCE_ROOT"
+unset -f _cce
+unset CCE_MODE CCE_LOOPBASE
 
 # These integration tests live outside the module whose registration and source
 # boundary they pin, so deleting that boundary cannot delete the test execution.

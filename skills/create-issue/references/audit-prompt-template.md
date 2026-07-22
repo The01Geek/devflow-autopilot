@@ -177,7 +177,7 @@ Verify every claim against the repository (you have read access). On this arm th
 <!-- render-block-end -->
 
 <!-- render-block: file embed inline -->
-**Per-finding bar** — every finding must: quote the exact draft line it attacks; name the concrete failure *mechanism*, not a category; verify each claim against the repository and **report an unverifiable claim as unverifiable rather than asserting it**; carry a **severity graded by observable blast radius**; and give a specific recommended edit.
+**Per-finding bar** — every finding must: quote the exact draft line it attacks; name the concrete failure *mechanism*, not a category; verify each claim against the repository and **report an unverifiable claim as unverifiable rather than asserting it**; carry a **severity graded by observable blast radius**; give a specific recommended edit; and carry **reproducible evidence** — all four of: a **locator** (the `path:line` or `path:region` the check reads), the **exact command** that produces the evidence, its **observed output** quoted verbatim, and the **baseline** it was captured against (the repository revision you read — resolve it yourself with `git rev-parse HEAD`; never read it from an out-of-bounds file). Report a field you could not establish as unestablished rather than inventing it: incomplete evidence is legal and simply routes the finding to full independent verification, whereas a fabricated locator or output is a defect in the finding.
 
 **Scope exclusions** — no wording or formatting notes; no implementation details decidable at implement time (judge the draft at **issue altitude**); no finding without a concrete trigger scenario.
 <!-- render-block-end -->
