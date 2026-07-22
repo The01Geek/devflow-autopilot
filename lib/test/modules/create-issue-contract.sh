@@ -1100,8 +1100,12 @@ devflow_module_pin_unique "#603: round funding named as the budget-enforcement s
 #    restricted-PATH roundtrip; the remaining pins guard orchestrator-judgment prose with no
 #    code behavior to mutate. Either way these are presence pins, not behavioral-fix pins,
 #    so the mutation-evidence obligation does not attach.
+# structural-pin-ok: presence only — this pins that the step-3.6 prose NAMES the multi-line
+# read-back query class, a documentation contract with no code regression a sed mutation could
+# re-introduce. #704 widened the class from one query to three, so the literal moved; the
+# guarded property (the class is stated, not left implicit) is unchanged.
 devflow_module_pin_unique "#603/AC14 (+#704): the multi-line read-back query class is named" \
-  "**The read-back queries \`query-findings\`, \`query-claim-baselines\`, and \`query-finding-evidence\` are the multi-line ones**" "$CI_BUNDLE"
+  "**The read-back queries \`query-findings\`, \`query-claim-baselines\`, and \`query-finding-evidence\` are the multi-line ones**" "$CI_BUNDLE"  # structural-pin-ok: presence only — a documentation contract, no code regression to mutate
 devflow_module_pin_unique "#603/AC1: the ledger fence uses a QUOTED heredoc delimiter" \
   "<<'LEDGER-EOF'" "$CI_BUNDLE"
 devflow_module_pin_unique "#603/AC1: the quoted delimiter is never to be simplified away" \
