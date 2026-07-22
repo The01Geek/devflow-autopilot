@@ -2,20 +2,97 @@
   "iter": 1,
   "started_at": "2026-07-22T07:14:31Z",
   "loop_role": "fix",
-  "current_step": "loop-control",
-  "current_substep": "read_engine",
+  "current_step": "3",
+  "current_substep": "post_fix_commit",
   "pending_dispatch": null,
-  "fix_commit_sha": null,
-  "fix_files": [],
-  "checklist": [],
-  "dispatched_effort": [],
-  "phase3_dispatched": [],
-  "diff_profile": null,
-  "phase3_findings": [],
-  "fix_decisions": [],
-  "convergence_inputs": {"fixes_applied": 0, "fix_diff_lines": 0, "new_corroborated_critical_count": 0},
+  "fix_commit_sha": "92e0c5b7",
+  "fix_files": [
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+    "docs/create-issue-budget.md",
+    "docs/cutovers/issue-709-audit-dispatch-instructions.md",
+    "lib/test/modules/coverage-map.json",
+    "lib/test/modules/create-issue-contract.sh",
+    "lib/test/prompt-mass-baseline.json",
+    "lib/test/test_python_scripts.py",
+    "lib/test/test_render_audit_prompt.py",
+    "scripts/issue-audit-state.py",
+    "scripts/render-audit-prompt.py",
+    "skills/create-issue/references/audit-prompt-template.md",
+    "skills/create-issue/references/fallback-audit-dispatch-arms.md",
+    "skills/create-issue/references/step-3-6-audit.md"
+  ],
+  "sweep_defs_read": [],
+  "sweep_evidence": {
+    "status": "run",
+    "note": "Fix delta classified as: contract change (eligibility reason routing, two new record-dispatch refusals), new guards, and coupled prose. Ran 2.3.0 relocation (the re-scoped step-3-6 paragraphs vs their module pins — both pinned literals restored verbatim after the first rewording broke them, caught by the module), 2.3.0a peer-checkpoint (the unestablished-by-construction claim across the three fallback references), 2.3.0b enum reconciliation (_STEERING_SUMMARY_REASONS added beside _STEERING_SUMMARY; _DEGRADED_REASONS mirrored into the skill's --reason enumeration), 2.3.0c operand trace (the refusal's new comparand is _clean_identity, the same operation the grant consumes — one producer, two consumers), 2.3.4a self-authored-claim (every docstring the fix falsified was rewritten: triggers 'exactly the three', eligibility 'require the opposite', _validate 'indexes every one of these keys', determinism 'reproduces exactly'), 2.3.6 error handling (the generator loader now fails closed on any module-body exception)."
+  },
+  "checklist": [
+    {"id": "VC-6", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "api_contract:step-4-present-create.md:audit-independence-marker-present", "reused_from_iter_prev": false},
+    {"id": "VC-9", "verification_mode": "agent", "verdict": "FAIL", "claim_signature": "data_format_assumption:create-issue-budget.md:per-file-word-figures", "reused_from_iter_prev": false},
+    {"id": "VC-11", "verification_mode": "agent", "verdict": "FAIL", "claim_signature": "data_format_assumption:coverage-map.json:709-owner-create-issue-contract", "reused_from_iter_prev": false},
+    {"id": "VC-33", "verification_mode": "agent", "verdict": "FAIL", "claim_signature": "dependency_interaction:render-audit-prompt.py:template-path-string-reproducibility", "reused_from_iter_prev": false},
+    {"id": "VC-44", "verification_mode": "agent", "verdict": "FAIL", "claim_signature": "data_format_assumption:issue-audit-state.py:steering-validate-loop-nesting", "reused_from_iter_prev": false},
+    {"id": "VC-49", "verification_mode": "agent", "verdict": "FAIL", "claim_signature": "absolute_claim:issue-709:steering-reason-never-collides", "reused_from_iter_prev": false},
+    {"id": "VC-51", "verification_mode": "agent", "verdict": "FAIL", "claim_signature": "absolute_claim:issue-709:nothing-hand-written-for-this-draft", "reused_from_iter_prev": false},
+    {"id": "VC-others", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "48-passing-items-elided", "reused_from_iter_prev": false}
+  ],
+  "dispatched_effort": [
+    {"agent": "devflow:checklist-generator", "phase": "1", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "no in-session per-agent effort seam"},
+    {"agent": "devflow:checklist-deduper", "phase": "1.5", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "no in-session per-agent effort seam"},
+    {"agent": "devflow:checklist-verifier", "phase": "2", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "no in-session per-agent effort seam"},
+    {"agent": "devflow:code-reviewer", "phase": "3", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "no in-session per-agent effort seam"}
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:type-design-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "detect_all_audit": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {"agent": "devflow:requesting-code-review", "severity": "Critical", "description": "step-3-6-audit's preserved information-diet / out-of-bounds / carriage paragraphs still direct a non-bare dispatch prompt, which would make the auditor answer extra-dispatch-content: yes on every normal run", "defect_signature": {"file": "skills/create-issue/references/step-3-6-audit.md", "line_range": [76, 86], "kind": "logic_error"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Critical", "description": "evaluate_triggers docstring claims exactly three reason-bearing arms and that T2's behavior on a clean FILE round is unchanged; the same diff adds a fourth arm that changes exactly that", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [1576, 1580], "kind": "documented_falsehood"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:code-reviewer", "severity": "Important", "description": "steering-unestablished masks unaudited-revision, and the justifying docstring/comment is false against HEAD", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [1961, 1967], "kind": "documented_falsehood"}, "corroboration_count": 3, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:code-reviewer", "severity": "Important", "description": "the 'refuses the pair half-given' claim is false in the reverse direction", "defect_signature": {"file": "skills/create-issue/references/step-3-6-audit.md", "line_range": [74, 74], "kind": "documented_falsehood"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "the generation-failure recipe orders record-degraded before the record-dispatch that creates the round, omits --round, and overloads the reserved degraded flag", "defect_signature": {"file": "skills/create-issue/references/step-3-6-audit.md", "line_range": [98, 98], "kind": "logic_error"}, "corroboration_count": 3, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "_default_template_path is reached across the module boundary outside the fail-closed try, so an AttributeError escapes as a traceback and aborts record-return before save_state", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [3218, 3270], "kind": "unhandled_exception"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:type-design-analyzer", "severity": "Important", "description": "the attempt carries two draft-path facts that must agree and nothing makes them", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [2496, 2538], "kind": "type_design"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Important", "description": "docs/DEVFLOW_SYSTEM_OVERVIEW.md still states the state schema_version is 2", "defect_signature": {"file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md", "line_range": [575, 575], "kind": "documented_falsehood"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Important", "description": "the event-ordering ground is unreachable under the steering gate and fallback-audit-dispatch-arms claims the arm still carries it", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [1925, 1946], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Critical", "description": "the generated di instructions assert to the auditor, as fact, the one property the design says it cannot prove", "defect_signature": {"file": "skills/create-issue/references/audit-prompt-template.md", "line_range": [72, 73], "kind": "documented_falsehood"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Critical", "description": "_validate comment claims record-return indexes every key of the instructions record", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [936, 943], "kind": "documented_falsehood"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "the new _validate branches carry no malformed-state rows, including the forged-pair check", "defect_signature": {"file": "lib/test/test_python_scripts.py", "line_range": [5680, 5975], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "the template_path regeneration input and the _assemble fail-closed arm are uncovered", "defect_signature": {"file": "lib/test/test_render_audit_prompt.py", "line_range": [660, 848], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:type-design-analyzer", "severity": "Suggestion", "description": "steering_reason has no closed answer set while steering does", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [2161, 2180], "kind": "type_design"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:type-design-analyzer", "severity": "Suggestion", "description": "instructions['digest'] is write-only state with a strict invariant and no consumer", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [2533, 2538], "kind": "type_design"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "pushed_back"},
+    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "the T2 offer fires on structurally-unestablishable arms where a re-dispatch cannot help", "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [1618, 1633], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "pushed_back"},
+    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "byte-exactness of the instruction-file write is not specified", "defect_signature": {"file": "skills/create-issue/references/step-3-6-audit.md", "line_range": [90, 96], "kind": "api_misuse"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "pushed_back"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "renderer module docstring splice artifact and draft_title coupled-mirror overstatement", "defect_signature": {"file": "scripts/render-audit-prompt.py", "line_range": [11, 13], "kind": "style"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-15", "decision": "pushed_back", "source_file": "scripts/issue-audit-state.py", "claim_text": "instructions['digest'] is write-only state with a strict invariant and no consumer", "skip_category": "claim-quality", "evidence": "The field is a deliberate dispatch-time diagnostic, not dead state: it is what the `instructions_digest=` line prints for the orchestrator's own record, and the comparand is deliberately the fresh regeneration (regenerate_instructions_digest's docstring states why comparing the recorded digest would be self-consistent and useless). Wiring it into record-return as an extra comparison would detect a different property (the file mutating between dispatch and return) that the regeneration comparison already subsumes — a mutated file fails the canonical compare too. Fixed the _validate comment that mis-stated why it is validated instead.", "parking_evidence": {"basis": "the prescription rests on the field being unused, but its use is the printed dispatch-time diagnostic and the regeneration comparison already covers the shape it would detect", "failing_input": "an instruction file mutated between dispatch and return", "source": "scripts/issue-audit-state.py regenerate_instructions_digest docstring", "finding_ref": {"iter": 1, "index": 14}}},
+    {"finding_id": "F-16", "decision": "pushed_back", "source_file": "scripts/issue-audit-state.py", "claim_text": "the T2 offer fires on structurally-unestablishable arms where a re-dispatch cannot help", "skip_category": "claim-quality", "evidence": "A re-dispatch on an embed/inline round CAN change the outcome: those arms are entered because the canonical draft-file write failed, and the accepted re-audit re-runs query-arm, which returns arm=file once the write succeeds — so the offer is actionable, not a loop. Suppressing it would also remove the only user-facing disclosure on exactly the arms whose independence is weakest.", "parking_evidence": {"basis": "the claim assumes the arm is fixed for the run; query-arm re-decides it per round", "failing_input": "an embed-arm round whose next dispatch finds the canonical write succeeding", "source": "skills/create-issue/references/step-3-6-audit.md query-arm contract", "finding_ref": {"iter": 1, "index": 15}}},
+    {"finding_id": "F-17", "decision": "deferred", "source_file": "skills/create-issue/references/step-3-6-audit.md", "claim_text": "byte-exactness of the instruction-file write is not specified", "skip_category": "uncategorized", "evidence": "Real and worth stating, but the prose already says 'write the renderer's stdout verbatim' and the failure it guards (a trailing-newline normalization) is disclosed by the mismatch reason token rather than silently swallowed. Adding a redirect form to the fence would also change the create-issue default-path word budget again in the same iteration; left for the shadow/next pass to weigh against the ceiling."}
+  ],
+  "convergence_inputs": {"fixes_applied": 15, "fix_diff_lines": 420, "new_corroborated_critical_count": 0},
   "cap_drops": {"count": 0, "by_category": {}},
+  "completeness_critic": {
+    "population": "the steering (state, reason) pairs the round record may carry",
+    "audit": "_validate's #709 pair check against _STEERING_REASON_STATE",
+    "independent_signal": "the literal return tuples of steering_state, enumerated by regex over its own body (not the mapping the audit reads)",
+    "result": "complete with respect to that signal — all 8 producer pairs are covered, zero uncovered"
+  },
   "shadow": {"ran_at": null, "reviewed_sha": null, "verdict": null, "coverage": null, "prompt_addenda": null, "reviewers_dispatched": [], "expected_reviewers": [], "reason": null, "checklist_skipped": null, "phase3_findings": [], "phase2_fails": [], "comparison": null, "promoted_to_iter_next": false},
-  "reference_reads": {"fix_delta": {"status": "not_verified", "outcome": null, "reason": "not yet run"}},
-  "telemetry": {}
+  "stale_prose_check": {"rows": ["9 UNRESOLVABLE R3 count-locked rows, 0 STALE"], "outcome": "clean (exit 0)"},
+  "verification_evidence": {"command": "lib/test/run.sh (via a SIG_DFL launcher) + ruff + shellcheck", "result": "pending", "duration_s": null, "skipped_checks": []},
+  "telemetry": "unavailable"
 }
