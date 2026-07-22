@@ -30484,8 +30484,9 @@ WSR_TGL='`skills/*/SKILL.md`, `skills/implement/phases/*.md`, `skills/review/pha
 # The evidence marker literal the routing evidence-contract writes and the gate criterion matches.
 WSR_MARK='Writing-skills evidence:'
 
-# #563 focused-module guidance is repo-local prompt behavior: a known module may
-# accelerate RED/GREEN, but it must never replace the complete verification gate.
+# #563 focused-module guidance is repo-local prompt behavior: a covering module is the
+# iteration default (issue #707 inverted it), but it must never replace the complete
+# verification gate at the end.
 # Mutation-prove both load-bearing directions on each operative workflow surface.
 assert_pin_red_under "#563 implement extension selects the focused runner for RED/GREEN" \
   'use `bash lib/test/run-module.sh <module-id>` for RED/GREEN iteration.' \
