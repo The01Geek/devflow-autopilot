@@ -166,28 +166,12 @@ def cmd_apply(args):
     if staged_digest != args.expect_digest:
         print(f'canonical_digest={staged_digest} agree=no reason=staged-digest-mismatch')
         return
+    # COPY the staged bytes onto the canonical path atomically via _atomic_write (a temporary
+    # sibling + fsync + os.replace). _atomic_write writes the in-memory `staged` bytes to a
+    # fresh temp and never touches the staging artifact, so that artifact survives the call
+    # for the recovery arm to read back — the copy-not-rename property this mode requires.
+    _atomic_write(args.canonical, staged, 'apply')
     canonical = Path(args.canonical)
-    directory = canonical.parent
-    try:
-        directory.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        _fail('apply', f'could not create the directory for {canonical}: {exc}')
-    # COPY the staged bytes to a temporary sibling of the canonical file and os.replace that
-    # temporary onto the canonical path. The staging artifact is never renamed, so it
-    # survives the call for the recovery arm to read back.
-    fd, tmp = tempfile.mkstemp(prefix=canonical.name + '.', suffix='.tmp', dir=str(directory))
-    try:
-        with os.fdopen(fd, 'wb') as fh:
-            fh.write(staged)
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(tmp, str(canonical))
-    except OSError as exc:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        _fail('apply', f'could not replace the canonical file {canonical}: {exc}')
     # Re-digest the canonical file THROUGH git hash-object (not the in-memory staged bytes):
     # the answer is meaningful only if it reads back from disk what the replace wrote.
     try:
