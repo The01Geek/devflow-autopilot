@@ -10294,7 +10294,8 @@ def _row1(r):
     r.open_round(1, 'REVISE', 3)
     r.adjudicate(1, 'REVISE', 3, '3',
                  'unresolved: finding A\nunresolved: finding B\nunresolved: finding C\n')
-    r('record-revision', r.slug, '--after-round', '1', nonce=True)
+    r('record-revision', r.slug, '--after-round', '1', '--stdin-digest',
+      stdin='revised bytes\n', nonce=True)
     assert_eq("#603-1 regression: T1 holds while the ledger carries unresolved entries",
               't1=hold t2=hold coverage=not-hold reason=',
               r('query-triggers', r.slug, nonce=True).stdout.strip())
@@ -10447,7 +10448,8 @@ def _row3(r):
             '--reason', 'misclassified: advisory, not must-revise', nonce=True)
     assert_eq("#603-3/AC19: invalidation retires the entry and re-derives remaining",
               (0, 'round=1 invalidated=1 remaining=1'), (inv.returncode, inv.stdout.strip()))
-    r('record-revision', r.slug, '--after-round', '1', nonce=True)
+    r('record-revision', r.slug, '--after-round', '1', '--stdin-digest',
+      stdin='revised bytes\n', nonce=True)
     part = r('record-resolution', r.slug, '--round', '1', '--revision-ordinal', '1',
              '--resolved-ids', '1', nonce=True)
     assert_eq("#603-3/AC2: full resolution of the remainder reaches remaining=0",
@@ -10470,7 +10472,8 @@ _with_run603(_row3)
 def _row6(r):
     r.open_round(1, 'REVISE', 2)
     r.adjudicate(1, 'REVISE', 2, '2', 'unresolved: a\nunresolved: b\n')
-    r('record-revision', r.slug, '--after-round', '1', nonce=True)
+    r('record-revision', r.slug, '--after-round', '1', '--stdin-digest',
+      stdin='revised bytes\n', nonce=True)
     r.open_round(2, 'FILE', 0)
     got = r.adjudicate(2, 'FILE', 0, '0')
     assert_eq("#603-6/AC21: a FILE adjudication supersedes prior unresolved entries",
@@ -10528,7 +10531,8 @@ _with_run603(_row6)
 def _row6e(r):
     r.open_round(1, 'REVISE', 2)
     r.adjudicate(1, 'REVISE', 2, '2', 'unresolved: a\nunresolved: b\n')
-    r('record-revision', r.slug, '--after-round', '1', nonce=True)
+    r('record-revision', r.slug, '--after-round', '1', '--stdin-digest',
+      stdin='revised bytes\n', nonce=True)
     r('record-resolution', r.slug, '--round', '1', '--revision-ordinal', '1',
       '--resolved-ids', '1', nonce=True)
     inv = r('record-invalidate', r.slug, '--round', '1', '--ids', '1',
@@ -10556,7 +10560,8 @@ _with_run603(_row6e)
 def _row6f(r):
     r.open_round(1, 'REVISE', 2)
     r.adjudicate(1, 'REVISE', 2, '2', 'unresolved: a\nunresolved: b\n')
-    r('record-revision', r.slug, '--after-round', '1', nonce=True)
+    r('record-revision', r.slug, '--after-round', '1', '--stdin-digest',
+      stdin='revised bytes\n', nonce=True)
     r('record-resolution', r.slug, '--round', '1', '--revision-ordinal', '1',
       '--resolved-ids', '1,2', nonce=True)
     r('record-reopen', r.slug, '--round', '1', '--ids', '1', nonce=True)
@@ -10583,10 +10588,12 @@ _with_run603(_row6f)
 def _row6b(r):
     r.open_round(1, 'REVISE', 2)
     r.adjudicate(1, 'REVISE', 2, '2', 'unresolved: a\nunresolved: b\n')
-    r('record-revision', r.slug, '--after-round', '1', nonce=True)
+    r('record-revision', r.slug, '--after-round', '1', '--stdin-digest',
+      stdin='revised bytes\n', nonce=True)
     r('record-resolution', r.slug, '--round', '1', '--revision-ordinal', '1',
       '--resolved-ids', '1', nonce=True)
-    r('record-revision', r.slug, '--after-round', '1', nonce=True)
+    r('record-revision', r.slug, '--after-round', '1', '--stdin-digest',
+      stdin='revised bytes\n', nonce=True)
     r('record-resolution', r.slug, '--round', '1', '--revision-ordinal', '2',
       '--resolved-ids', '2', nonce=True)
     assert_eq("#603-6/AC7: an interleaved resolve/revise/resolve run stays stale on the "
@@ -10859,7 +10866,8 @@ def _row3b(r):
                '--resolved-ids', '1', nonce=True)
     assert_eq("#603-3b/AC3: an absent round is refused as unknown-round",
               (1, True), (absent.returncode, 'unknown-round' in absent.stderr))
-    r('record-revision', r.slug, '--after-round', '1', nonce=True)
+    r('record-revision', r.slug, '--after-round', '1', '--stdin-digest',
+      stdin='revised bytes\n', nonce=True)
     # A round that EXISTS but has not closed takes the round-not-completed arm (an absent
     # round takes unknown-round above, so the two arms need different fixtures).
     Path(r.tmp, 'd.md').write_text('draft 2\n', encoding='utf-8')
@@ -10926,7 +10934,8 @@ def _row3c(r):
     r.adjudicate(1, 'REVISE', 2, '2', 'unresolved: a\nunresolved: b\n')
     r('record-invalidate', r.slug, '--round', '1', '--ids', '2',
       '--reason', 'misclassified', nonce=True)
-    r('record-revision', r.slug, '--after-round', '1', nonce=True)
+    r('record-revision', r.slug, '--after-round', '1', '--stdin-digest',
+      stdin='revised bytes\n', nonce=True)
     got = r('record-resolution', r.slug, '--round', '1', '--revision-ordinal', '1',
             '--resolved-ids', '1,2', nonce=True)
     assert_eq("#603-3c/AC3: a batch naming one illegal entry is refused",
@@ -10989,7 +10998,8 @@ _with_run603(_row2c)
 def _row6c(r):
     r.open_round(1, 'REVISE', 2)
     r.adjudicate(1, 'REVISE', 2, '1', 'resolved: a\nunresolved: b\n')
-    r('record-revision', r.slug, '--after-round', '1', nonce=True)
+    r('record-revision', r.slug, '--after-round', '1', '--stdin-digest',
+      stdin='revised bytes\n', nonce=True)
     r('record-resolution', r.slug, '--round', '1', '--revision-ordinal', '1',
       '--resolved-ids', '2', nonce=True)
     assert_eq("#603-6c/AC7: an ingested-resolved entry counts as ordinal zero, so a later "
@@ -11006,7 +11016,8 @@ _with_run603(_row6c)
 def _row6d(r):
     r.open_round(1, 'REVISE', 1)
     r.adjudicate(1, 'REVISE', 1, '1', 'unresolved: a\n')
-    r('record-revision', r.slug, '--after-round', '1', nonce=True)
+    r('record-revision', r.slug, '--after-round', '1', '--stdin-digest',
+      stdin='revised bytes\n', nonce=True)
     r('record-resolution', r.slug, '--round', '1', '--revision-ordinal', '1',
       '--resolved-ids', '1', nonce=True)
     assert_eq("#603-6d/AC7: the first resolution converges on a plain resolution basis",
@@ -11028,13 +11039,15 @@ _with_run603(_row6d)
 def _row3d(r):
     r.open_round(1, 'REVISE', 1)
     r.adjudicate(1, 'REVISE', 1, '1', 'unresolved: shared defect\n')
-    r('record-revision', r.slug, '--after-round', '1', nonce=True)
+    r('record-revision', r.slug, '--after-round', '1', '--stdin-digest',
+      stdin='revised bytes\n', nonce=True)
     r.open_round(2, 'REVISE', 1)
     r.adjudicate(2, 'REVISE', 1, '1', 'unresolved: shared defect\n')
     assert_eq("#603-3d/AC5: a defect listed on two rounds' ledgers counts per listing",
               'converged=no reason=unresolved-must-revise-remain basis=none unledgered_revise=none',
               r('query-convergence', r.slug, nonce=True).stdout.strip())
-    r('record-revision', r.slug, '--after-round', '2', nonce=True)
+    r('record-revision', r.slug, '--after-round', '2', '--stdin-digest',
+      stdin='revised bytes\n', nonce=True)
     one = r('record-resolution', r.slug, '--round', '2', '--revision-ordinal', '2',
             '--resolved-ids', '1', nonce=True)
     assert_eq("#603-3d/AC5: resolving only the later listing leaves the earlier one holding",
@@ -11054,7 +11067,8 @@ _with_run603(_row3d)
 # where its run-wide supersession sweep would retire findings raised after it.
 def _row4b(r):
     r.open_round(1, 'FILE', 0)
-    r('record-revision', r.slug, '--after-round', '1', nonce=True)
+    r('record-revision', r.slug, '--after-round', '1', '--stdin-digest',
+      stdin='revised bytes\n', nonce=True)
     # A round following a FILE round is not automatically funded — the user-chosen offer is.
     r('record-offer', r.slug, '--accepted', nonce=True)
     r.open_round(2, 'REVISE', 1)
@@ -11073,7 +11087,8 @@ _with_run603(_row4b)
 def _row7b(r):
     r.open_round(1, 'REVISE', 1)
     r.adjudicate(1, 'REVISE', 1, '1', 'unresolved: first round finding\n')
-    r('record-revision', r.slug, '--after-round', '1', nonce=True)
+    r('record-revision', r.slug, '--after-round', '1', '--stdin-digest',
+      stdin='revised bytes\n', nonce=True)
     r.open_round(2, 'REVISE', 1)
     r.adjudicate(2, 'REVISE', 1, '1', 'unresolved: second round finding\n')
     lines = r('query-findings', r.slug, nonce=True).stdout.strip().splitlines()
@@ -11304,7 +11319,8 @@ assert_eq("#603-15/AC11: a positive effective count renders as its integer, not 
 def _row16(r):
     r.open_round(1, 'REVISE', 2)
     r.adjudicate(1, 'REVISE', 2, '2', 'unresolved: a\nunresolved: b\n')
-    r('record-revision', r.slug, '--after-round', '1', nonce=True)
+    r('record-revision', r.slug, '--after-round', '1', '--stdin-digest',
+      stdin='revised bytes\n', nonce=True)
     dup = r('record-resolution', r.slug, '--round', '1', '--revision-ordinal', '1',
             '--resolved-ids', '1,1,1', nonce=True)
     # record-resolution echoes no per-entry count, so a repeat has nothing to inflate
@@ -11358,7 +11374,8 @@ _with_run603(_row17)
 def _row18(r):
     r.open_round(1, 'REVISE', 1)
     r.adjudicate(1, 'REVISE', 1, '1', 'unresolved: raised on round one\n')
-    r('record-revision', r.slug, '--after-round', '1', nonce=True)
+    r('record-revision', r.slug, '--after-round', '1', '--stdin-digest',
+      stdin='revised bytes\n', nonce=True)
     r.open_round(2, 'REVISE', 1)
     r.adjudicate(2, 'REVISE', 1, '1', 'unresolved: raised on round two\n')
     pre = r('record-resolution', r.slug, '--round', '2', '--revision-ordinal', '1',
@@ -11374,7 +11391,8 @@ def _row18(r):
     # LOCAL positive control, so the row cannot pass merely because the fixture is broken:
     # the SAME call with a revision recorded after round 2 is accepted. Causality is
     # therefore the only property the refusal above turned on.
-    r('record-revision', r.slug, '--after-round', '2', nonce=True)
+    r('record-revision', r.slug, '--after-round', '2', '--stdin-digest',
+      stdin='revised bytes\n', nonce=True)
     ok = r('record-resolution', r.slug, '--round', '2', '--revision-ordinal', '2',
            '--resolved-ids', '1', nonce=True)
     assert_eq("#603-18/AC3: positive control — a revision recorded after round 2 DOES "
@@ -11470,7 +11488,8 @@ assert_eq("#603-21/AC12: a ledger whose ingested-unresolved tally disagrees with
 def _row22(r):
     r.open_round(1, 'REVISE', 1)
     r.adjudicate(1, 'REVISE', 1, '1', 'unresolved: a\n')
-    r('record-revision', r.slug, '--after-round', '1', nonce=True)
+    r('record-revision', r.slug, '--after-round', '1', '--stdin-digest',
+      stdin='revised bytes\n', nonce=True)
     r('record-resolution', r.slug, '--round', '1', '--revision-ordinal', '1',
       '--resolved-ids', '1', nonce=True)
     # A later REVISE round adjudicated with an UNESTABLISHED count carries no ledger, so
@@ -11751,6 +11770,208 @@ def _cov_read_boundary(r):
 
 
 _with_run603(_cov_read_boundary)
+# ── issue #705: the record-revision file-arm staged-write guard ─────────────────────
+# The guard fires on the PER-ROUND shape `rounds[-1]['attempts'][-1]['arm']`, so these
+# rows craft valid state documents on disk (a file-arm latest round, an embed-arm latest
+# round, and a mixed file→embed run) and drive the real `record-revision` CLI against
+# each — the faithful surface, not the internal predicate. State is anchored to the cwd
+# (a non-git temp dir), exactly as the _Run603 harness relies on.
+def _attempt705(arm):
+    return {'arm': arm, 'digest': 'a' * 40, 'body_digest': 'b' * 40,
+            'sentinel_open': None, 'sentinel_close': None}
+
+
+def _round705(num, arm, outcome='REVISE'):
+    return {'round': num, 'attempts': [_attempt705(arm)], 'outcome': outcome}
+
+
+def _write_state705(tmp, slug, nonce, rounds, revisions=None):
+    doc = {'schema_version': 2, 'slug': slug, 'nonce': nonce, 'rounds': rounds,
+           'revisions': revisions or [], 'overrides': []}
+    p = Path(tmp) / '.devflow' / 'tmp' / f'issue-audit-state-{slug}.json'
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(doc), encoding='utf-8')
+    return p
+
+
+def _revise705(tmp, slug, nonce, after_round, stdin_digest=False, stdin=None):
+    argv = [sys.executable, _IAS603, 'record-revision', slug, '--nonce', nonce,
+            '--after-round', str(after_round)]
+    if stdin_digest:
+        argv.append('--stdin-digest')
+    return _subprocess.run(argv, cwd=tmp, input=stdin, capture_output=True, text=True)
+
+
+def _revisions705(path):
+    return json.loads(Path(path).read_text(encoding='utf-8'))['revisions']
+
+
+# T1 (AC7): a file-arm latest round + no --stdin-digest is refused with the named
+# breadcrumb, and no revision is appended (write no state).
+with tempfile.TemporaryDirectory() as _t705:
+    _p = _write_state705(_t705, 's705f', 'N705F', [_round705(1, 'file')])
+    _got = _revise705(_t705, 's705f', 'N705F', 1)
+    assert_eq("#705/AC7 T1: a file-arm latest round + no --stdin-digest is refused non-zero",
+              True, _got.returncode != 0)
+    assert_eq("#705/AC7 T1: ... named by the file-arm-requires-stdin-digest breadcrumb",
+              True, 'file-arm-requires-stdin-digest' in _got.stderr)
+    assert_eq("#705/AC7 T1: ... and no revision was appended (no state written)",
+              0, len(_revisions705(_p)))
+
+# T10 (AC7/AC13): the same file-arm latest round is satisfied by piping the intended
+# bytes to --stdin-digest — the read-only reconciliation reads stdin, never a file.
+with tempfile.TemporaryDirectory() as _t705:
+    _p = _write_state705(_t705, 's705r', 'N705R', [_round705(1, 'file')])
+    _got = _revise705(_t705, 's705r', 'N705R', 1, stdin_digest=True, stdin='revised bytes\n')
+    assert_eq("#705/AC7 T10: a file-arm latest round records with piped --stdin-digest (exit 0)",
+              0, _got.returncode)
+    _revs = _revisions705(_p)
+    assert_eq("#705/AC7 T10: ... and the revision carries the recorded stdin_digest",
+              (1, True), (len(_revs), bool(_revs and _revs[0].get('stdin_digest'))))
+
+# T2 (AC8): an embed-arm latest round accepts the bare (no-digest) call unchanged.
+with tempfile.TemporaryDirectory() as _t705:
+    _p = _write_state705(_t705, 's705e', 'N705E', [_round705(1, 'embed')])
+    _got = _revise705(_t705, 's705e', 'N705E', 1)
+    assert_eq("#705/AC8 T2: an embed-arm latest round accepts a bare record-revision (exit 0)",
+              0, _got.returncode)
+    _revs = _revisions705(_p)
+    assert_eq("#705/AC8 T2: ... appending a revision that carries no stdin_digest",
+              (1, False), (len(_revs), 'stdin_digest' in (_revs[0] if _revs else {})))
+
+# T2b (AC8): a mixed run — round 1 file, round 2 embed — selects the PER-ROUND shape, not
+# the creation-epoch shape, so the latest (embed) attempt accepts the bare call.
+with tempfile.TemporaryDirectory() as _t705:
+    _p = _write_state705(_t705, 's705m', 'N705M',
+                         [_round705(1, 'file'), _round705(2, 'embed')])
+    _got = _revise705(_t705, 's705m', 'N705M', 2)
+    assert_eq("#705/AC8 T2b: a file→embed run accepts the bare call on its embed latest round",
+              0, _got.returncode)
+    assert_eq("#705/AC8 T2b: ... appending the revision (per-round predicate, not file_arm_epoch)",
+              1, len(_revisions705(_p)))
+
+
+# ── issue #705: the scripts/stage-draft-write.py helper (T8/AC19) ────────────────────
+_SDW = str(SCRIPTS / 'stage-draft-write.py')
+
+
+def _sdw(*argv, stdin=None):
+    return _subprocess.run([sys.executable, _SDW, *argv], input=stdin,
+                           capture_output=True)
+
+
+with tempfile.TemporaryDirectory() as _t705:
+    _staged = str(Path(_t705) / 'issue-draft-x.NONCE.staged.md')
+    _canon = str(Path(_t705) / 'issue-draft-x.md')
+    _bytes = b'# Title\n\nbody bytes\n'
+    # stage: atomic landing + printed digest.
+    _r = _sdw('stage', '--path', _staged, stdin=_bytes)
+    assert_eq("#705/AC19 stage: lands bytes and prints the digest (exit 0)",
+              (0, True), (_r.returncode, _r.stdout.startswith(b'digest=')))
+    assert_eq("#705/AC19 stage: the staged artifact holds exactly the intended bytes",
+              _bytes, Path(_staged).read_bytes())
+    _dig = _r.stdout.decode().strip().split('=', 1)[1]
+    assert_eq("#705/AC19 stage: no residual temp sibling remains on success", [],
+              [n for n in os.listdir(_t705) if n.endswith('.tmp')])
+    # emit: byte-exact stdout, including trailing bytes.
+    _r = _sdw('emit', '--path', _staged)
+    assert_eq("#705/AC19 emit: stdout is byte-identical to the staged artifact",
+              (0, _bytes), (_r.returncode, _r.stdout))
+    _r = _sdw('emit', '--path', str(Path(_t705) / 'absent'))
+    assert_eq("#705/AC19 emit: exits non-zero on an absent artifact", True, _r.returncode != 0)
+    # apply agreement: canonical replaced, staged survives (copy-not-rename), agree=yes.
+    Path(_canon).write_bytes(b'OLD CANONICAL\n')
+    _r = _sdw('apply', '--staged', _staged, '--canonical', _canon, '--expect-digest', _dig)
+    assert_eq("#705/AC3/AC19 apply: agreement over a declared --expect-digest (exit 0, agree=yes)",
+              (0, True), (_r.returncode, b'agree=yes' in _r.stdout))
+    assert_eq("#705/AC3 apply: the canonical file now holds the staged bytes",
+              _bytes, Path(_canon).read_bytes())
+    assert_eq("#705/AC3 apply: the staging artifact survives the replace (copy, not rename)",
+              True, Path(_staged).exists())
+    assert_eq("#705/AC19 apply: no residual temp sibling remains on success", [],
+              [n for n in os.listdir(_t705) if n.endswith('.tmp')])
+    # wrong-artifact guard: a foreign --expect-digest is refused, canonical untouched.
+    Path(_canon).write_bytes(b'UNTOUCHED\n')
+    _r = _sdw('apply', '--staged', _staged, '--canonical', _canon,
+              '--expect-digest', '0' * 40)
+    assert_eq("#705/AC3/AC19 apply: a declared expectation the staged bytes don't match is refused",
+              (0, True), (_r.returncode, b'agree=no' in _r.stdout))
+    assert_eq("#705/AC3 apply: ... and the canonical file is left untouched (wrong-artifact guard)",
+              b'UNTOUCHED\n', Path(_canon).read_bytes())
+
+# apply stage-mode atomicity: a stage over an existing artifact leaves it holding exactly
+# one of the two whole byte sequences, never a mixture.
+with tempfile.TemporaryDirectory() as _t705:
+    _staged = str(Path(_t705) / 's.NONCE.staged.md')
+    _sdw('stage', '--path', _staged, stdin=b'first whole copy\n')
+    _sdw('stage', '--path', _staged, stdin=b'second entirely different whole copy\n')
+    assert_eq("#705/AC12 stage: a re-stage lands the whole new bytes (atomic, never a mixture)",
+              b'second entirely different whole copy\n', Path(_staged).read_bytes())
+
+# emit byte-exactness with a NON-newline-terminated payload (the trailing-byte case): emit
+# and the --no-filters digest must be byte-transparent, never newline-normalizing.
+with tempfile.TemporaryDirectory() as _t705:
+    _staged = str(Path(_t705) / 's.NONCE.staged.md')
+    _no_nl = b'# Title\n\nbody with no trailing newline'
+    _sdw('stage', '--path', _staged, stdin=_no_nl)
+    _r = _sdw('emit', '--path', _staged)
+    assert_eq("#705/AC19 emit: byte-exact for a payload with no trailing newline",
+              (0, _no_nl), (_r.returncode, _r.stdout))
+
+# T11 (AC6): apply fails closed when the canonical write cannot land, leaving the staging
+# artifact intact for the recovery arm to read back. The parent dir is made unwritable so
+# _atomic_write's mkstemp raises (mirrors run.sh's chmod-555 unpersistable fixture).
+with tempfile.TemporaryDirectory() as _t705:
+    _staged = str(Path(_t705) / 's.NONCE.staged.md')
+    _dig = _sdw('stage', '--path', _staged, stdin=b'body\n').stdout.decode().strip().split('=', 1)[1]
+    _rodir = Path(_t705) / 'ro'
+    _rodir.mkdir()
+    _canon = str(_rodir / 'c.md')
+    os.chmod(str(_rodir), 0o555)
+    try:
+        _r = _sdw('apply', '--staged', _staged, '--canonical', _canon, '--expect-digest', _dig)
+        assert_eq("#705/AC6 T11: apply fails closed (non-zero) when the canonical write cannot land",
+                  True, _r.returncode != 0)
+        assert_eq("#705/AC6 T11: ... and the staging artifact survives the failed apply (recovery arm)",
+                  True, Path(_staged).exists())
+    finally:
+        os.chmod(str(_rodir), 0o755)
+
+# T5 (AC12/AC13): apply against adversarial staging-artifact shapes — the malformed-input
+# matrix a mutable on-disk artifact demands. Each must fail closed and leave canonical intact.
+with tempfile.TemporaryDirectory() as _t705:
+    _canon = str(Path(_t705) / 'c.md')
+    Path(_canon).write_bytes(b'ORIG\n')
+    # absent staging artifact
+    _r = _sdw('apply', '--staged', str(Path(_t705) / 'absent'), '--canonical', _canon,
+              '--expect-digest', '0' * 40)
+    assert_eq("#705/AC12 T5: apply fails closed on an absent staging artifact",
+              (True, b'ORIG\n'), (_r.returncode != 0, Path(_canon).read_bytes()))
+    # non-regular staging artifact (a directory)
+    _d = Path(_t705) / 'dir.staged.md'
+    _d.mkdir()
+    _r = _sdw('apply', '--staged', str(_d), '--canonical', _canon, '--expect-digest', '0' * 40)
+    assert_eq("#705/AC12 T5: apply fails closed on a non-regular staging artifact",
+              (True, b'ORIG\n'), (_r.returncode != 0, Path(_canon).read_bytes()))
+    # a real staged artifact whose digest does not match the declared expectation: the refusal
+    # names reason=staged-digest-mismatch (distinct from a post-replace landed mismatch) and
+    # leaves the canonical file untouched.
+    _staged = str(Path(_t705) / 's.NONCE.staged.md')
+    _sdw('stage', '--path', _staged, stdin=b'real staged bytes\n')
+    _r = _sdw('apply', '--staged', _staged, '--canonical', _canon, '--expect-digest', '0' * 40)
+    assert_eq("#705/AC12 T5: the staged-digest-mismatch refusal names its reason token, canonical untouched",
+              (True, b'ORIG\n'), (b'reason=staged-digest-mismatch' in _r.stdout, Path(_canon).read_bytes()))
+
+# AC5: record-revision records the git hash-object digest of the piped bytes verbatim — the
+# durable comparand the T12 landed re-check later matches against, so its VALUE must be right,
+# not merely present.
+with tempfile.TemporaryDirectory() as _t705:
+    _p = _write_state705(_t705, 's705d', 'N705D', [_round705(1, 'file')])
+    _revise705(_t705, 's705d', 'N705D', 1, stdin_digest=True, stdin='revised bytes\n')
+    _want = _subprocess.run(['git', 'hash-object', '--stdin', '--no-filters'],
+                            input=b'revised bytes\n', capture_output=True).stdout.decode().strip()
+    assert_eq("#705/AC5: the recorded stdin_digest equals git hash-object of the piped bytes",
+              _want, _revisions705(_p)[0].get('stdin_digest'))
 
 
 print()

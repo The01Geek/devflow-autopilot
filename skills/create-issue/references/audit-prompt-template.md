@@ -70,11 +70,11 @@ The draft title and body are embedded below, bracketed by the sentinel tokens `{
 <!-- render-block-end -->
 
 <!-- render-block: file inline -->
-Verify every claim against the repository (you have read access). The following on-disk files are **out of bounds** — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, and `.devflow/tmp/issue-audit-state-<slug>.md`; **any finding derived from those files is void.** (The draft under audit is the artifact under audit, not out of bounds.)
+Verify every claim against the repository (you have read access). The following on-disk files are **out of bounds** — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, `.devflow/tmp/issue-audit-state-<slug>.md`, and any staged canonical-draft artifact `.devflow/tmp/issue-draft-<slug>.*.staged.md`; **any finding derived from those files is void.** (The draft under audit is the artifact under audit, not out of bounds.)
 <!-- render-block-end -->
 
 <!-- render-block: embed -->
-Verify every claim against the repository (you have read access). On this arm the out-of-bounds declaration names exactly these 5 files — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-draft-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, and the **retired** `.devflow/tmp/issue-audit-state-<slug>.md`; **any finding derived from those files is void.** The embedded body above is the sole draft source; the on-disk draft file is untrusted here.
+Verify every claim against the repository (you have read access). On this arm the out-of-bounds declaration names exactly these 6 files — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-draft-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, the **retired** `.devflow/tmp/issue-audit-state-<slug>.md`, and any staged canonical-draft artifact `.devflow/tmp/issue-draft-<slug>.*.staged.md`; **any finding derived from those files is void.** The embedded body above is the sole draft source; the on-disk draft file is untrusted here.
 <!-- render-block-end -->
 
 <!-- render-block: file embed inline -->

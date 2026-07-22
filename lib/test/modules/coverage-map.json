@@ -336,12 +336,12 @@
       "owner": "unmodularized"
     },
     "scripts/reception-record.py": {
-      "note": "",
-      "owner": "unmodularized"
+      "note": "issue #668 receiving-review session-record CLI; driven by lib/test/test_reception_identity.py + its block in the harness-python-guards module",
+      "owner": "harness-python-guards"
     },
     "scripts/reception_identity.py": {
-      "note": "",
-      "owner": "unmodularized"
+      "note": "issue #668 receiving-review session identity library; driven by lib/test/test_reception_identity.py + its block in the harness-python-guards module",
+      "owner": "harness-python-guards"
     },
     "scripts/refresh-app-credentials.sh": {
       "note": "",
@@ -352,8 +352,8 @@
       "owner": "unmodularized"
     },
     "scripts/render-audit-prompt.py": {
-      "note": "issue #600 create-issue Step 3.6 audit-prompt renderer; driven by lib/test/test_render_audit_prompt.py + the #600 block in lib/test/run.sh",
-      "owner": "unmodularized"
+      "note": "issue #600 create-issue Step 3.6 audit-prompt renderer; driven by lib/test/test_render_audit_prompt.py + the #600 block in the harness-python-guards module",
+      "owner": "harness-python-guards"
     },
     "scripts/render-grounding-block.sh": {
       "note": "",
@@ -399,6 +399,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/stage-draft-write.py": {
+      "note": "#705 helper unit tests: lib/test/test_python_scripts.py (stage/emit/apply modes) driven by run.sh",
+      "owner": "unmodularized"
+    },
     "scripts/stale-prose-lint.py": {
       "note": "",
       "owner": "unmodularized"
@@ -440,12 +444,12 @@
       "owner": "unmodularized"
     },
     "scripts/verification-flight.py": {
-      "note": "",
-      "owner": "unmodularized"
+      "note": "issue #528 single-flight verification coordination ledger; driven by lib/test/test_verification_flight.py + its block in the harness-python-guards module",
+      "owner": "harness-python-guards"
     },
     "scripts/verification_baseline.py": {
-      "note": "",
-      "owner": "unmodularized"
+      "note": "issue #527 verification-launch baseline analyzer; driven by lib/test/test_verification_baseline.py + its block in the harness-python-guards module",
+      "owner": "harness-python-guards"
     },
     "scripts/workflow_flight_recorder.py": {
       "note": "",
@@ -1155,7 +1159,7 @@
     },
     "528": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "harness-python-guards"
     },
     "529": {
       "note": "",
@@ -1299,7 +1303,7 @@
     },
     "600": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "create-issue-contract"
     },
     "601": {
       "note": "",
@@ -1430,6 +1434,18 @@
       "owner": "installer-wiring"
     },
     "693": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "705": {
+      "note": "",
+      "owner": "create-issue-contract"
+    },
+    "707": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "711": {
       "note": "",
       "owner": "unmodularized"
     },

@@ -3314,6 +3314,29 @@ def cmd_record_revision(args):
     doc = _load_for_mutation('record-revision', args.slug, args.nonce)
     if not doc['rounds']:
         _fail('record-revision', 'no rounds are recorded; there is nothing to revise')
+    # issue #705: the file-arm staged-write guarantee, enforced by the tool rather than
+    # carried by prose a context compaction can evict. When the latest recorded round's
+    # LAST dispatch attempt is on the file arm, the canonical draft file is currently the
+    # audit substrate — so a revision recorded here MUST carry the intended-bytes digest,
+    # or the post-revision write-failure closure (`latest_revision_landed`,
+    # `record-write-failure`) has no durable comparand and cannot tell a landed replace
+    # from a lost one. The predicate is the PER-ROUND shape
+    # `rounds[-1]['attempts'][-1]['arm']`, deliberately NOT the eligibility site's
+    # `file_arm_epoch` (which reads the creation-epoch round, a record that does not exist
+    # at revision time). On the embed/inline arms the auditor was handed the bytes inline,
+    # so there is no canonical file to bind and the bare (no-digest) call stays legal —
+    # including a run whose earlier round dispatched on the file arm but whose latest round
+    # fell back to embed. On the read-only arm no staging artifact can be written, but the
+    # flag reads `sys.stdin.buffer`, never a file, so a run that merely cannot write a file
+    # satisfies this guard by piping the intended bytes from context.
+    if (doc['rounds'][-1]['attempts'][-1]['arm'] == 'file'
+            and not getattr(args, 'stdin_digest', False)):
+        _fail('record-revision',
+              'the latest recorded round dispatched on the file arm, so this revision must '
+              'carry the intended-bytes digest (file-arm-requires-stdin-digest): pipe the '
+              'revised title-and-body bytes to --stdin-digest. Without it the write-failure '
+              'closure has no durable comparand and a lost canonical replace cannot be '
+              'distinguished from a landed one.')
     # --after-round is the SOLE invalidation evidence on the event-ordering ground
     # (_revision_postdates keys eligibility and T2 on it), so a caller-supplied value
     # below the last completed round would fail that guard OPEN — a revised draft would
