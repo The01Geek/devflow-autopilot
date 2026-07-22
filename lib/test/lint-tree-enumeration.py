@@ -53,8 +53,7 @@ spellings**: `$LIB/..`, the bare substring `ROOT`, `REPO_ROOT`, and an operand t
 is exactly `.`. `ROOT` is matched as a bare substring rather than as `$ROOT`
 precisely so a root reached through a differently-named variable is still seen —
 `grep -r … "$DGH_ROOT/scripts"`, whose variable was assigned
-`"$(cd "$LIB/.." && pwd)"`, matches on that substring. `REPO_ROOT` is subsumed by
-`ROOT` and is listed anyway because the enumeration above is the contract.
+`"$(cd "$LIB/.." && pwd)"`, matches on that substring.
 
 Accepted residuals, each stated with its own reason rather than folded together:
 
@@ -137,7 +136,7 @@ GLOB_CALL_NAMES = ("glob", "iglob", "rglob")
 
 #: Textual fragments that make a shell path operand repository-root-resolving.
 #: Matched as bare substrings — see the docstring on why `ROOT` is not `$ROOT`.
-ROOT_FRAGMENTS = ("$LIB/..", "ROOT", "REPO_ROOT")
+ROOT_FRAGMENTS = ("$LIB/..", "ROOT", "REPO_ROOT")  # REPO_ROOT is subsumed by ROOT; kept because the enumeration IS the contract
 
 #: A `grep` recursion flag, in long form or inside a combined short cluster.
 _GREP_RECURSIVE = re.compile(r"^--recursive$|^--dereference-recursive$|^-[A-Za-z]*[rR]")
@@ -213,6 +212,14 @@ def _read(path: Path) -> tuple[str | None, str | None]:
     population contains one such file today, planted as an adversarial fixture for
     a different lint. An unopenable path is a reported skip, never an absorbed one —
     "audited nothing" must never read as "audited everything, found nothing".
+
+    Deliberate divergence from `lint-gh-api-repo-path.py`'s sibling reader, recorded
+    so the two are not mistaken for a stale copy: that one additionally skips a
+    NUL-carrying file as "not a UTF-8-superset text file". This population is the
+    tracked `.py`/`.sh` files under `lib/test/` — sources, never binaries — and the
+    governing acceptance criterion requires an explicit lossy decode that raises on
+    no tracked file, so a NUL arm here would add a skip path (and with it a non-zero
+    exit) that nothing in this population can legitimately reach.
     """
     try:
         data = path.read_bytes()
@@ -294,9 +301,11 @@ def scan_literals(raw_lines: list[str]) -> list[tuple[int, str]]:
     """Return `(line number, reason)` for every unmarked literal-token candidate."""
     found: list[tuple[int, str]] = []
     for number, raw in enumerate(raw_lines, start=1):
+        if has_marker(raw):
+            continue
         code = strip_comment(raw)
         for token in LITERAL_TOKENS:
-            if token in code and not has_marker(raw):
+            if token in code:
                 found.append((number, f"undeclared recursive walk (`{token}`)"))
                 break
     return found
@@ -413,6 +422,13 @@ def scan_shell(raw_lines: list[str]) -> list[tuple[int, str]]:
     ]
     for number, end, line in fold_continuations(considered):
         if not line.strip():
+            continue
+        # Substring pre-filter before the tokenizer. This arm can only fire on a `find` or
+        # `grep` HEAD, and a head must contain its own name textually, so a line carrying
+        # neither name can never produce one — while `statements_in` never rewrites text, so
+        # skipping cannot change a verdict. It is a large saving on the one 50k-line file in
+        # the population: measured 0.53s -> 0.10s over lib/test/run.sh.
+        if "find" not in line and "grep" not in line:
             continue
         if _marker_lines(raw_lines, number, end):
             continue

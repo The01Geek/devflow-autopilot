@@ -31,7 +31,9 @@ def validate(root: str) -> "tuple[int, list[str]]":
         return 3, [f"PYYAML_MISSING: {exc}"]
 
     bad: "list[str]" = []
-    files = sorted(glob.glob(os.path.join(root, "agents", "*.md"))) + sorted(  # tree-walk-ok: pattern is confined to agents/, which no worktree lives under
+    files = sorted(
+        glob.glob(os.path.join(root, "agents", "*.md"))  # tree-walk-ok: pattern is confined to agents/, which no worktree lives under
+    ) + sorted(
         glob.glob(os.path.join(root, "skills", "**", "SKILL.md"), recursive=True)  # tree-walk-ok: pattern is confined to skills/, which no worktree lives under
     )
     for f in files:

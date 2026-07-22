@@ -47334,6 +47334,13 @@ e711_run() {  # <root> <path…>  -> prints "rc=<n>|<stdout+stderr>"
   rm -f "$list"
   printf 'rc=%s|%s' "$rc" "$out"
 }
+e711_rc() {  # <root> <path…>  -> prints just "rc=<n>"; assert_eq prints the value on a miss,
+             # so a bespoke per-case failure string buys nothing the helper does not already give.
+  # Pure parameter expansion — no tr/sed/cut: this value DECIDES an assertion, and the repo's
+  # guard-class-2 rule keeps such a value off every non-preflight PATH tool.
+  local out; out="$(e711_run "$@")"
+  printf '%s' "${out%%|*}"
+}
 e711_write() {  # <root> <relpath> <line…>  -> writes a fixture file, creating parents
   local root="$1" rel="$2" dir; shift 2
   dir="${rel%/*}"; [ "$dir" = "$rel" ] || mkdir -p "$root/$dir"
@@ -47388,13 +47395,13 @@ print("|".join([
 assert_eq "#711 guard accepts a marked walk" "rc=0|lint-tree-enumeration: audited 1 of 1 files" \
   "$(e711_run "$E711_FX" lib/test/marked.py)"
 assert_eq "#711 a bare tree-walk-ok substring does not exempt" "rc=1" \
-  "$(case "$(e711_run "$E711_FX" lib/test/nearmiss.py)" in rc=1*) echo "rc=1" ;; *) echo "rc=0 (near-miss wrongly exempted)" ;; esac)"
+  "$(e711_rc "$E711_FX" lib/test/nearmiss.py)"
 assert_eq "#711 a marker with an empty reason does not exempt" "rc=1" \
-  "$(case "$(e711_run "$E711_FX" lib/test/emptyreason.py)" in rc=1*) echo "rc=1" ;; *) echo "rc=0 (empty reason wrongly exempted)" ;; esac)"
+  "$(e711_rc "$E711_FX" lib/test/emptyreason.py)"
 assert_eq "#711 a walk token inside a comment is not a candidate" "rc=0|lint-tree-enumeration: audited 1 of 1 files" \
   "$(e711_run "$E711_FX" lib/test/commented.py)"
 assert_eq "#711 a root-anchored glob with a ** component is a candidate" "rc=1" \
-  "$(case "$(e711_run "$E711_FX" lib/test/starglob.py)" in rc=1*) echo "rc=1" ;; *) echo "rc=0 (** component missed)" ;; esac)"
+  "$(e711_rc "$E711_FX" lib/test/starglob.py)"
 assert_eq "#711 guard reports its audited count on the clean path" "rc=0|lint-tree-enumeration: audited 1 of 1 files" \
   "$(e711_run "$E711_FX" lib/test/clean.py)"
 # An unparseable audited file has NOT been audited; reporting clean over it would be the same
@@ -51048,9 +51055,7 @@ _pm_fixture_repo() {  # <assertion-name> [relpath…]
   git -C "$d" config user.name t 2>/dev/null
   local rel dir
   for rel in "$@"; do
-    # `${rel%/*}` is the whole string for a bare filename, so mkdir would create a DIRECTORY
-    # named after the file and the write would then fail — guard on the no-slash case.
-    dir="${rel%/*}"; [ "$dir" = "$rel" ] || mkdir -p "$d/$dir"
+    dir="${rel%/*}"; [ "$dir" = "$rel" ] || mkdir -p "$d/$dir"   # no-slash guard, as in e711_write
     printf '{}\n' > "$d/$rel"
     git -C "$d" add -- "$rel" 2>/dev/null
   done
