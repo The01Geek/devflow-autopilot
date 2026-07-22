@@ -54,10 +54,18 @@ on a developer checkout that has used `git worktree`, so a lean checkout (CI, a 
 
 File **modes are set from the index**, not inherited from the working tree, so a
 `core.fileMode=false` checkout (git's default on Windows) — where the index records
-`100755` while the on-disk bit is absent — builds the same image. The three non-blob
-index states are each skipped with their own distinct named stderr breadcrumb and
-subtracted from the completeness denominator by name, never failing the build: an entry
-with no working-tree file, a gitlink (`160000`), and a symlink (`120000`). Unmerged
+`100755` while the on-disk bit is absent — builds the same image. Three skip arms are
+each taken with their own distinct named stderr breadcrumb and subtracted from the
+completeness denominator by name, never failing the build: two non-blob index modes — a
+gitlink (`160000`) and a symlink (`120000`) — plus an ordinary blob the working tree
+does not carry (tracked-then-deleted), which is a working-tree condition rather than an
+index-mode one and so is triaged by its own `[ ! -f ]` guard rather than the mode
+`case`. A copy failure and a mode-application failure are each counted on their own
+`fail_copy` / `fail_mode` channel — a failure is never a skip, so it can never hide in
+the gap between `total` and `copied`; `_ra_summary_balances` asserts that partition.
+An unestablished enumeration (a failed `git ls-files`, an image that is not there)
+makes *both* the bash builder and the python oracle emit an `unestablished` sentinel
+instead of a vacuous zero, and each sentinel has a caller that drives it. Unmerged
 paths contribute once, not once per stage. The `#619 pristine fixture …` / `#619 fixture
 builder …` assertions check all of this against an independent oracle that re-reads the
 index itself, with the temp-repository arms exercised against a real git index rather
