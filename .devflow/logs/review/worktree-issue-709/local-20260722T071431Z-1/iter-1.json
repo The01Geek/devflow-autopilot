@@ -1,0 +1,21 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-22T07:14:31Z",
+  "loop_role": "fix",
+  "current_step": "loop-control",
+  "current_substep": "read_engine",
+  "pending_dispatch": null,
+  "fix_commit_sha": null,
+  "fix_files": [],
+  "checklist": [],
+  "dispatched_effort": [],
+  "phase3_dispatched": [],
+  "diff_profile": null,
+  "phase3_findings": [],
+  "fix_decisions": [],
+  "convergence_inputs": {"fixes_applied": 0, "fix_diff_lines": 0, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "shadow": {"ran_at": null, "reviewed_sha": null, "verdict": null, "coverage": null, "prompt_addenda": null, "reviewers_dispatched": [], "expected_reviewers": [], "reason": null, "checklist_skipped": null, "phase3_findings": [], "phase2_fails": [], "comparison": null, "promoted_to_iter_next": false},
+  "reference_reads": {"fix_delta": {"status": "not_verified", "outcome": null, "reason": "not yet run"}},
+  "telemetry": {}
+}
