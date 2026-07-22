@@ -23,7 +23,14 @@ Scope boundaries, all deliberate and each asserted by a fixture in the suite:
   producer and describes before-states. `.github/workflows/` and
   `.github/actions/` are excluded on the merits: both run only inside Actions,
   and a checkout-less workflow job has no remote for the placeholders to resolve
-  from, so environment addressing is the *correct* form there.
+  from, so environment addressing is the *correct* form there. `.claude/worktrees/`
+  is excluded for a different reason (issue #711): this scanner's population is a
+  **working-tree** enumeration (`--others`), so it sweeps every sibling git worktree
+  the `EnterWorktree` tool creates there and can report violations that live in
+  another branch's checkout. Until #711 that was survived only by the untracked,
+  harness-managed `.git/info/exclude` line — machine-local state no clone inherits —
+  so the exclusion is carried by the helper itself and the real-tree run is now
+  worktree-immune on a bare clone.
 * The recognized head set is closed: `gh`, `gh.exe`, and a `$VAR` / `${VAR}`
   expansion whose variable **name ends in `GH`** — a suffix test, not a
   `DEVFLOW_GH` equality test, so `$MY_GH` matches too and `$MYTOOL` does not. It
@@ -93,6 +100,7 @@ EXCLUDED_PREFIXES = (
     ".devflow/logs/",
     ".devflow/learnings/",
     ".changeset/",
+    ".claude/worktrees/",
 )
 
 #: Exact paths (not prefixes) that are never read.

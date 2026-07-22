@@ -421,7 +421,7 @@ def unlisted_skill_assets():
             continue
         skill_md = f"skills/{skill}/SKILL.md"
         listed = set(assets)
-        for md_file in sorted(skill_dir.rglob("*.md")):
+        for md_file in sorted(skill_dir.rglob("*.md")):  # tree-walk-ok: scoped to one skill directory, never the repository root
             rel = md_file.relative_to(REPO_ROOT).as_posix()
             if rel == skill_md:
                 continue
