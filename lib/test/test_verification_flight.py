@@ -379,6 +379,47 @@ class TestClaimAndAttach(Harness):
                          "a candidate_identity mismatch is not a reusable pass")
         self.assertFalse(att["satisfies_verification"])
 
+    def test_attach_declared_identity_against_stored_none_is_not_reusable(self):
+        # The asymmetric arm of the same residual: the OWNER declared NO
+        # candidate_identity (a pre-#668 producer), so the handle records None, while
+        # the attacher DOES declare one. Nothing observable proves the stored pass
+        # covers the attacher's content, so it must NOT be reusable — treating the
+        # unprovable pair as a match would fail OPEN. Positive control: the identical
+        # fixture with a matching stored identity IS reusable
+        # (test_attach_candidate_identity_match_is_reusable), so this rejection is
+        # attributable to the stored-None asymmetry and not to an unrelated guard.
+        _, owner = self.claim(_decl())  # owner declares no candidate_identity
+        k, t = owner["flight_key"], owner["token"]
+        self.run_cmd(["mark-running", "--flight", k, "--token", t, "--state-dir", self.state])
+        self.run_cmd(["finish", "--flight", k, "--token", t, "--result", "passed",
+                      "--summary-file", self._write({"command": "x", "skipped_checks": []}),
+                      "--state-dir", self.state, "--logs-dir", self.logs])
+        code, att = self.claim(_decl(candidate_identity="tree-DECLARED"))
+        self.assertEqual(code, vf.EXIT_OK)
+        self.assertEqual(att["role"], "attacher")
+        self.assertEqual(att["flight_key"], k, "the handle is still shared by flight key")
+        self.assertFalse(att["candidate_identity_match"])
+        self.assertFalse(att["reuse_ready"],
+                         "a declared identity against a stored None is not a reusable pass")
+        self.assertFalse(att["satisfies_verification"])
+
+    def test_attach_no_declared_identity_keeps_pre_550_reuse(self):
+        # The complementary non-regression: an attacher that declares NO
+        # candidate_identity against a handle that stored one still reuses the pass
+        # (pre-#550 behaviour), so the tightened predicate did not widen to the
+        # non-declaring caller.
+        _, owner = self.claim(_decl(candidate_identity="tree-STORED"))
+        k, t = owner["flight_key"], owner["token"]
+        self.run_cmd(["mark-running", "--flight", k, "--token", t, "--state-dir", self.state])
+        self.run_cmd(["finish", "--flight", k, "--token", t, "--result", "passed",
+                      "--summary-file", self._write({"command": "x", "skipped_checks": []}),
+                      "--state-dir", self.state, "--logs-dir", self.logs])
+        code, att = self.claim(_decl())
+        self.assertEqual(code, vf.EXIT_OK)
+        self.assertFalse(att["candidate_identity_match"])
+        self.assertTrue(att["reuse_ready"])
+        self.assertTrue(att["satisfies_verification"])
+
     def test_attach_candidate_identity_match_is_reusable(self):
         # The complementary arm: an attacher declaring the SAME candidate_identity as
         # the passed handle reuses it (candidate_identity_match True, reuse_ready True).

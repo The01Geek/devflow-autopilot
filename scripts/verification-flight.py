@@ -751,20 +751,25 @@ def cmd_claim(args) -> int:
     # handle for a DIFFERENT content identity. Now the first consumer that reads the
     # handle's candidate_identity as authoritative (the completion-evidence check)
     # closes that residual here: when the attacher's OWN declared candidate_identity
-    # is present and differs from the handle's recorded one, the attach is not a
-    # reusable pass — force `reuse_ready`/`satisfies_verification` False and surface
-    # `candidate_identity_match: false` so the attacher launches its own verification
-    # rather than consuming a pass bound to other content. descriptor_digest and
-    # flight_key are UNCHANGED (this touches only the attach READ path, never
-    # _derive or the handle write), so every stored handle stays valid. An attacher
-    # that declares no candidate_identity (None) keeps the pre-#550 behaviour.
+    # is present and does not PROVABLY equal the handle's recorded one, the attach is
+    # not a reusable pass — force `reuse_ready`/`satisfies_verification` False and
+    # surface `candidate_identity_match: false` so the attacher launches its own
+    # verification rather than consuming a pass bound to other content.
+    # ASYMMETRY IS NOT A MATCH (the stored-`None` half of the #681 residual): a handle
+    # claimed by a pre-#668 producer that declared NO candidate_identity records None,
+    # so a declaring attacher comparing against it can prove nothing about what content
+    # that pass covered. Requiring `stored_ci is not None` for a *mismatch* made that
+    # unprovable case fall through to reuse — a fail-OPEN admitting a pass bound to
+    # unknown content. The predicate is therefore stated affirmatively: a declaring
+    # attacher is reusable only on an observed equal pair; declared-present against
+    # stored-`None` is non-reusable, the fail-CLOSED direction (cost: one duplicate
+    # suite run). descriptor_digest and flight_key are UNCHANGED (this touches only the
+    # attach READ path, never _derive or the handle write), so every stored handle
+    # stays valid. An attacher that declares no candidate_identity (None) keeps the
+    # pre-#550 behaviour and is unaffected by this arm.
     declared_ci = derived["candidate_identity"]
     stored_ci = flight.get("candidate_identity")
-    ci_mismatch = (
-        declared_ci is not None
-        and stored_ci is not None
-        and declared_ci != stored_ci
-    )
+    ci_mismatch = declared_ci is not None and declared_ci != stored_ci
     # Attach never supplies a current checkout, so it cannot verify the tree —
     # checkout_verified is always False here; a consume must re-anchor via
     # status/wait with --current-checkout-file (see phase-3-review.md).
