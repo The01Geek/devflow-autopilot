@@ -82,8 +82,27 @@ devflow_module_pin_present() { # name literal file
 #   the mutated copy). A framing-only pin that survives the operative mutation reports
 #   RED. An unreadable file, a mktemp failure, a sed error, or a no-op mutation each
 #   record a RED verdict. Cleanup is synchronous on EVERY return path (no trap).
+# #666 overbreadth bound (module copy — this harness carries NO monolith globals, so it
+# duplicates the run.sh constant). The mutated scratch must retain at least 1/20 (5%) of the
+# original's non-whitespace content; a blank-the-file mutation (`1,$d`, `s/.*//`) retains
+# ~0 and is rejected. The 5% bound sits below the most content-destructive LEGIT mutation
+# exercised anywhere (a 2-line test_module_harness.py fixture retaining ~0.154). Calibration
+# is in the issue-666 workpad (module direct-site MIN retention 0.9982).
+DEVFLOW_MODULE_OVERBREADTH_NUM=1
+DEVFLOW_MODULE_OVERBREADTH_DEN=20
+# Non-whitespace-char count with bash builtins ONLY (never wc/grep/sed — this value decides
+# an emitted RED verdict; a missing non-preflight tool must not empty it and pass an
+# overbroad mutation). Private to this harness (mirrors run.sh's _nonws_count).
+_devflow_module_nonws_count() {  # file -> prints non-whitespace char count
+  local line stripped total=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    stripped="${line//[[:space:]]/}"
+    total=$(( total + ${#stripped} ))
+  done < "$1"
+  printf '%s\n' "$total"
+}
 devflow_module_pin_red_under() { # name literal mutation file
-  local name="$1" literal="$2" mutation="$3" file="$4" scratch before after b a
+  local name="$1" literal="$2" mutation="$3" file="$4" scratch before after b a _o _m
   local scratch_root="${DEVFLOW_MODULE_SCRATCH_ROOT:-${TMPDIR:-/tmp}}"
   if [ ! -f "$file" ] || [ ! -r "$file" ]; then
     assert_eq "$name" "PASS->FAIL" "unreadable-file:$file"
@@ -100,6 +119,16 @@ devflow_module_pin_red_under() { # name literal mutation file
   fi
   if cmp -s "$file" "$scratch"; then
     assert_eq "$name" "PASS->FAIL" "mutation-noop"
+    rm -f "$scratch"
+    return 0
+  fi
+  # #666 overbreadth guard: reject a mutation whose mutated scratch retains less than the
+  # 1/DEN fraction of the original's non-whitespace content (a blank-the-file mutation).
+  # Placed immediately after the cmp -s no-op guard; reports through the mutation-overbroad
+  # RED token, matching the existing mutation-errored / mutation-noop shape.
+  _o="$(_devflow_module_nonws_count "$file")"; _m="$(_devflow_module_nonws_count "$scratch")"
+  if [ "$_o" -gt 0 ] && [ "$(( _m * DEVFLOW_MODULE_OVERBREADTH_DEN ))" -lt "$(( _o * DEVFLOW_MODULE_OVERBREADTH_NUM ))" ]; then
+    assert_eq "$name" "PASS->FAIL" "mutation-overbroad"
     rm -f "$scratch"
     return 0
   fi

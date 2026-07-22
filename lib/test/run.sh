@@ -307,6 +307,45 @@ probe_tmp() {  # assertion-name -> prints a temp path (rc 0); on mktemp failure 
   return 1
 }
 
+# ── #666 overbreadth guard: retained-non-whitespace measurement + bound ───────
+# A mutation-taking pin proves it goes RED under a specific regression. But a mutation
+# that BLANKS its target — `1,$d` deletes every line, `s/.*//` empties every line — makes
+# assert_pin_unique go PASS->FAIL for ANY literal at all (before present, after gone),
+# clearing sed's rc and `cmp -s` (the copy is not byte-identical) while proving nothing:
+# the pin's redness comes from the file being destroyed, not the guarded content being
+# removed. `s/.*//` is especially insidious because it leaves the LINE COUNT identical, so
+# a line-count observable reads it as no loss at all — and substitutions are 317 of the 388
+# existing mutations, so it is the likeliest spelling of the defect, not an exotic one.
+# The guard measures RETAINED NON-WHITESPACE CONTENT as a FRACTION of the original and
+# rejects a mutation whose mutated artifact retains too little. A proportional bound
+# decouples the guard from fixture size, so a blanking mutation fails against a fixture of
+# any length. The observable is content, never line count (see `s/.*//` above).
+#
+# The bound (issue #666): the mutated artifact must retain at least OVERBREADTH_MIN_NUM /
+# OVERBREADTH_MIN_DEN = 1/20 of the original's non-whitespace content. Calibration (recorded
+# in the issue-666 workpad): a measured run over every live assert_pin_red_under site in
+# run.sh found a MIN retention of 0.9715, and over every devflow_module_pin_red_under site
+# in lib/test/modules/*.sh a MIN of 0.9982; the most content-destructive LEGIT mutation
+# actually exercised anywhere is a 2-line synthetic fixture in lib/test/test_module_harness.py
+# (`operative sentence here\nkeep`, operative mutation `s/operative sentence here//`), which
+# retains ~0.154. The 1/20 (5%) bound sits comfortably below that 0.154 legit floor and well
+# above the 0.0 a blanking mutation retains, so no existing/exercised pin reddens and a
+# blank-the-target mutation in either spelling (`1,$d`, `s/.*//`) fails.
+OVERBREADTH_MIN_NUM=1
+OVERBREADTH_MIN_DEN=20
+# Count non-whitespace characters in a file with bash builtins ONLY — never `wc`/`grep`/`sed`
+# (guard-class 2, CLAUDE.md): this value decides an emitted FAIL, so a missing non-preflight
+# tool must not empty it and silently pass an overbroad mutation. `${line//[[:space:]]/}`
+# strips every whitespace char; `${#...}` is the length of the remainder.
+_nonws_count() {  # file -> prints the count of non-whitespace characters
+  local line stripped total=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    stripped="${line//[[:space:]]/}"
+    total=$(( total + ${#stripped} ))
+  done < "$1"
+  printf '%s\n' "$total"
+}
+
 # Drift-guard helper: assert LITERAL occurs EXACTLY ONCE in FILE. This is the
 # deterministic (guarantee-class) form of the prose "pin a target-unique phrase" rule —
 # it closes the PR #154 vacuous-guard hole where a raw `grep -qF` whole-file scan stayed
@@ -2225,7 +2264,7 @@ assert_pin_red_on_removal() {  # name literal [file]   (file defaults to $MAXI_S
 # at the git_sandbox/probe_tmp blocks above), and this helper's `|| return 0` inherits that: a
 # temp-alloc failure records a FAIL, never a vacuous pass.
 assert_pin_red_under() {  # name literal mutation [file]   (file defaults to $MAXI_SKILL)
-  local name="$1" literal="$2" mutation="$3" file="${4:-$MAXI_SKILL}" t before after
+  local name="$1" literal="$2" mutation="$3" file="${4:-$MAXI_SKILL}" t before after _o _m
   t="$(probe_tmp "$name (mutation setup)")" || return 0
   # Check sed's own exit status: a MALFORMED mutation program (unbalanced `[`, bad
   # backreference) errors, writes nothing, and `> "$t"` truncates the copy to EMPTY — which
@@ -2243,6 +2282,19 @@ assert_pin_red_under() {  # name literal mutation [file]   (file defaults to $MA
     echo FAIL >> "$RESULTS_FILE"
     printf '  FAIL  %s\n         mutation was a NO-OP (mutated copy byte-identical to original) — a mutation that changes nothing is never a vacuous pass\n         mutation: %s\n         file: %s\n' \
       "$name" "$mutation" "$file"
+    rm -f "$t"
+    return 0
+  fi
+  # #666 overbreadth guard: reject a mutation whose mutated copy retains less than the
+  # OVERBREADTH_MIN_NUM/OVERBREADTH_MIN_DEN fraction of the original's non-whitespace
+  # content — this pin asserts over the WHOLE target, so it measures the whole target.
+  # Placed immediately after the cmp -s no-op guard. A blank-the-file mutation (`1,$d`,
+  # `s/.*//`) retains ~0 and fails here instead of reading as a spurious PASS->FAIL.
+  _o="$(_nonws_count "$file")"; _m="$(_nonws_count "$t")"
+  if [ "$_o" -gt 0 ] && [ "$(( _m * OVERBREADTH_MIN_DEN ))" -lt "$(( _o * OVERBREADTH_MIN_NUM ))" ]; then
+    echo FAIL >> "$RESULTS_FILE"
+    printf '  FAIL  %s\n         mutation is OVERBROAD (mutated copy retains %s of %s non-whitespace chars, below the 1/%s bound) — a mutation that blanks the target proves nothing; narrow it to the operative change\n         mutation: %s\n         file: %s\n' \
+      "$name" "$_m" "$_o" "$OVERBREADTH_MIN_DEN" "$mutation" "$file"
     rm -f "$t"
     return 0
   fi
@@ -2437,6 +2489,7 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   local name="$1" start="$2" end="$3" pattern="$4" op="$5" bound="$6" mutation="$7" file="${8:-$MAXI_SKILL}"
   local pat_rc anchor_rc breach_rc start_count start_match start_line ln m end_line
   local slice mut mut_start_count mut_start_match mut_start_line mut_ln mut_end_line count mut_count
+  local _real_slice_nonws _mut_slice_nonws
 
   # OP is spliced into `[ count OP bound ]` — validate it is one of the five integer
   # comparators so a caller value cannot inject a different test builtin. An invalid OP is a
@@ -2530,6 +2583,12 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
       rm -f "$slice"; return 0
     ;;
   esac
+  # #666 overbreadth guard (part 1 of 2): capture the REAL slice's non-whitespace content
+  # NOW, before step 7 overwrites $slice with the mutated slice. This helper asserts a
+  # COUNT within the sed -n slice, so the guard measures the mutated slice against the real
+  # slice — NOT the whole file, which would be dominated by the unsliced remainder and let a
+  # mutation blanking the whole counted slice of a multi-thousand-line target clear any bound.
+  _real_slice_nonws="$(_nonws_count "$slice")"
 
   # ── 3. Real-file bound: the count must SATISFY OP BOUND on the real file (the `before`
   # conjunct — checked before the mutation, mirroring assert_pin_red_under's before-probe).
@@ -2609,6 +2668,19 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
       rm -f "$slice" "$mut"; return 0
     ;;
   esac
+  # #666 overbreadth guard (part 2 of 2): $slice now holds the MUTATED slice (step 7 above,
+  # after this helper's own anchor re-derivation). Reject a mutation whose mutated slice
+  # retains less than the OVERBREADTH_MIN_NUM/OVERBREADTH_MIN_DEN fraction of the real
+  # slice's non-whitespace content — the blank-the-counted-slice hole `s/.*//` opens (it
+  # empties every line while leaving the line count identical, so sed's rc and cmp -s both
+  # clear). Reports through this helper's own bare-FAIL + distinct-token shape.
+  _mut_slice_nonws="$(_nonws_count "$slice")"
+  if [ "$_real_slice_nonws" -gt 0 ] && [ "$(( _mut_slice_nonws * OVERBREADTH_MIN_DEN ))" -lt "$(( _real_slice_nonws * OVERBREADTH_MIN_NUM ))" ]; then
+    echo FAIL >> "$RESULTS_FILE"; echo MUTATION-OVERBROAD >> "$RESULTS_FILE"
+    printf '  FAIL  %s\n         MUTATION-OVERBROAD — mutated slice retains %s of %s non-whitespace chars (below the 1/%s bound); a mutation that blanks the counted slice proves nothing\n         mutation: %s\n' \
+      "$name" "$_mut_slice_nonws" "$_real_slice_nonws" "$OVERBREADTH_MIN_DEN" "$mutation" >&2
+    rm -f "$slice" "$mut"; return 0
+  fi
 
   # ── 8. Mutated-file bound: the mutation must make the count VIOLATE OP BOUND (the
   # `after` conjunct). The SAME comparison as step 3 (a correct unmutated file cannot fail
@@ -36234,7 +36306,7 @@ assert_eq "#375 lint: no pin literal collides with a comment of its own target (
 # Positive-coverage floor: a regression that silently empties the extraction (build_var_maps /
 # extract_pins resolving zero real-corpus sites) would make the empty-output assertion pass while
 # guarding NOTHING — as vacuous as the framing pins this PR eliminates. Assert the scan actually
-# resolved a lower-bound pin count (currently ~660); a generous floor tolerates ordinary pin churn
+# resolved a lower-bound pin count; a generous floor (asserted below) tolerates ordinary pin churn
 # but catches a corpus-emptying regression. Extract the count with a bash builtin, not a PATH tool
 # whose absence would silently change the compared value (CLAUDE.md non-preflight-tool gotcha); a
 # missing/empty count fails the -ge test → RED (fail-closed), never a false pass.
@@ -36508,9 +36580,13 @@ fi
 # every clean --strict run turned red.
 _PCL687="$LIB/test/pin-corpus-lint.py"
 _ECH687="$LIB/test/extract-command-heads.py"
-# pin-corpus-lint.py: ONE guard from the start of run_lint to the start of _read
-# (the def immediately after _emit_wrapped_or_absent). That contiguous range covers
-# every covered emit — the COLLISION emit in run_lint, the HELP emit in run_wrapped,
+# pin-corpus-lint.py: ONE guard from the start of run_lint to the start of
+# parse_diff (the def immediately after _emit_wrapped_or_absent on this merged tree —
+# issue #666 inserted parse_diff/…/run_mutation_routing between _emit_wrapped_or_absent
+# and _read, so the #687-covered `--strict` subcommands now end at parse_diff, not _read;
+# run_mutation_routing is a SEPARATE always-exit-0 subcommand outside --strict, so its own
+# `print(` emit is deliberately outside this guard). That contiguous range covers
+# every --strict-covered emit — the COLLISION emit in run_lint, the HELP emit in run_wrapped,
 # and the WRAPPED/RELOCATED/ABSENT emits in _emit_wrapped_or_absent — and needs NO
 # exemption: every finding emit in it is routed through _emit, and the _emit helper
 # itself is defined ABOVE run_lint, outside the range. Anchoring over run_lint and
@@ -36518,7 +36594,7 @@ _ECH687="$LIB/test/extract-command-heads.py"
 # between them) in neither region.
 assert_count_red_under "#687 pin-corpus-lint emit-helper guard: no raw stdout write in the run_lint.._emit_wrapped_or_absent range" \
   '^def run_lint\(' \
-  '^def _read\(path\):' \
+  '^def parse_diff\(' \
   'sys\.stdout\.write|os\.write\(1|print\(.*file=sys\.stdout|print\(' \
   -eq 0 \
   's/sys\.stderr\.write\(f"RESOLVED-COUNT/print(f"RESOLVED-COUNT/' \
@@ -36798,6 +36874,251 @@ else
   echo FAIL >> "$RESULTS_FILE"
   printf '  FAIL  #591 T-pinlint: mktemp -d failed (module-corpus guard not exercised; not a vacuous skip)\n' >&2
 fi
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "#666: mutation-routing declaration gate (behavioral-fix-pin classification)"
+# ────────────────────────────────────────────────────────────────────────────
+# The mutation-taking helpers prove a pin is non-vacuous; nothing proved a pin REACHED
+# them. This diff-scoped, fail-closed gate makes the author declare: a pin call site the
+# change ADDS whose helper is not mutation-taking must route through a mutation-taking
+# helper or carry a `# structural-pin-ok: <reason>` marker. Sites the change does not
+# touch are out of scope by construction (no backfill of the existing corpus). The gate
+# has two opposite silent-by-default failure directions and the ACs address them apart:
+#   - TOO NARROW: an untracked new file is absent from `git diff` with rc 0, so its pins
+#     scan against an added-line set containing none of them → composes the added-line set
+#     from `git diff <merge base>` (working tree) PLUS every line of every untracked
+#     lib/test/ file (treated as added).
+#   - TOO WIDE: a base behind the true fork point pulls in already-merged pins → validate
+#     the base (local `main` not an ancestor of `origin/main` → SKIP, never findings).
+# An UNESTABLISHED diff is a SKIP, never an empty one: every failure step (unresolvable
+# origin/main, unresolvable merge base, non-zero diff, un-creatable scratch) takes the skip
+# arm. The gate grades the WORKING TREE like the rest of the suite, so — unlike #434 — it
+# carries NO working-tree-dirty skip arm.
+MR_GATE="#666 mutation-routing declaration gate"
+MR_REPO="$(cd "$LIB/.." && pwd)"
+if ! git -C "$MR_REPO" rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
+  skip "$MR_GATE" blocking-gate "origin/main not resolvable in this checkout"
+else
+  # Base validation — the branch-forked-from-unpushed-local-main hazard. The predicate is
+  # THREE-valued: ancestor (ok), not-an-ancestor (stale local main → skip), and
+  # could-not-establish (rc>=2, e.g. 128 on a shallow clone → skip). An ABSENT refs/heads/main
+  # is the normal GitHub Actions shape (remote-tracking refs + detached HEAD) and passes through.
+  if git -C "$MR_REPO" rev-parse --verify --quiet refs/heads/main >/dev/null 2>&1; then
+    git -C "$MR_REPO" merge-base --is-ancestor refs/heads/main origin/main >/dev/null 2>&1; _mr_anc=$?
+  else
+    _mr_anc=0
+  fi
+  if [ "$_mr_anc" -eq 1 ]; then
+    skip "$MR_GATE" blocking-gate "refs/heads/main exists and is NOT an ancestor of origin/main (branch forked from unpushed local main; the diff would widen onto already-merged pins)"
+  elif [ "$_mr_anc" -ne 0 ]; then
+    skip "$MR_GATE" blocking-gate "local main vs origin/main ancestry could not be established (merge-base --is-ancestor exit $_mr_anc)"
+  else
+    _MR_MB="$(git -C "$MR_REPO" merge-base origin/main HEAD 2>/dev/null)" || _MR_MB=""
+    if [ -z "$_MR_MB" ]; then
+      skip "$MR_GATE" blocking-gate "merge base of origin/main and HEAD did not resolve"
+    elif ! _MR_DIFF="$(probe_tmp "$MR_GATE diff setup")"; then
+      skip "$MR_GATE" blocking-gate "scratch file for the diff could not be created (mktemp failed)"
+    elif ! git -C "$MR_REPO" diff "$_MR_MB" -- lib/test/ > "$_MR_DIFF" 2>/dev/null; then
+      skip "$MR_GATE" blocking-gate "git diff against the merge base ($_MR_MB) exited non-zero"
+      [ "$_MR_DIFF" = /dev/null ] || rm -f "$_MR_DIFF"
+    else
+      # Report the resolved base on stderr, so a widened diff is diagnosable from the run
+      # log rather than presenting as an unexplained batch of findings.
+      printf '  %s: resolved base commit %s\n' "$MR_GATE" "$_MR_MB" >&2
+      # Enumerate untracked lib/test/ files and append each one's lines as synthetic `+`
+      # lines — git diff reports TRACKED paths only, so a newly-created, unstaged module is
+      # absent from it while the modules/*.sh glob still scans it; this is what stops that
+      # combination reporting zero findings at exit 0.
+      _MR_UNTRACKED="$(git -C "$MR_REPO" ls-files --others --exclude-standard -- lib/test/ 2>/dev/null)" || _MR_UNTRACKED=""
+      while IFS= read -r _mr_uf; do
+        [ -n "$_mr_uf" ] || continue
+        [ -r "$MR_REPO/$_mr_uf" ] || continue
+        printf '+++ b/%s\n' "$_mr_uf" >> "$_MR_DIFF"
+        while IFS= read -r _mr_ul || [ -n "$_mr_ul" ]; do
+          printf '+%s\n' "$_mr_ul" >> "$_MR_DIFF"
+        done < "$MR_REPO/$_mr_uf"
+      done <<MR_UNTRACKED_EOF
+$_MR_UNTRACKED
+MR_UNTRACKED_EOF
+      # Tracked set (repo-relative) so a scanned source in NEITHER the diff (tracked) nor the
+      # untracked enumeration records a blocking-gate skip naming it (the fail-closed arm — a
+      # source on disk that the enumeration failed to surface).
+      _MR_TRACKED="$(git -C "$MR_REPO" ls-files -- lib/test/ 2>/dev/null)" || _MR_TRACKED=""
+      for _mr_src in "$SELF_SRC" "$LIB"/test/modules/*.sh; do
+        _mr_rel="${_mr_src#$MR_REPO/}"
+        # Membership: tracked (covered by git diff) OR untracked-enumerated (appended above).
+        if ! printf '%s\n' "$_MR_TRACKED" | grep -qxF "$_mr_rel" \
+           && ! printf '%s\n' "$_MR_UNTRACKED" | grep -qxF "$_mr_rel"; then
+          skip "$MR_GATE ($_mr_rel)" blocking-gate "pin source exists on disk but is neither tracked nor in the untracked enumeration — its added-line set could not be established"
+          continue
+        fi
+        case "$_mr_src" in
+          */create-issue-contract.sh) _mr_vars=( --lib "$LIB" "${CI_MOD_VARS[@]}" ) ;;
+          "$SELF_SRC") _mr_vars=( "${_PCL_ARGS[@]}" ) ;;
+          *) _mr_vars=( --lib "$LIB" ) ;;
+        esac
+        _MR_OUT="$(python3 "$PCL" mutation-routing "$_mr_src" --diff-file "$_MR_DIFF" "${_mr_vars[@]}" 2>/dev/null)"; _MR_RC=$?
+        assert_eq "#666 mutation-routing clean over $(basename "$_mr_src") (exit 0 + no findings)" \
+          "rc=0|" "rc=$_MR_RC|$_MR_OUT"
+      done
+      [ "$_MR_DIFF" = /dev/null ] || rm -f "$_MR_DIFF"
+    fi
+  fi
+fi
+
+# ── #666 mutation-routing synthetic self-tests: prove the gate FLAGS the undeclared add,
+# is SILENT on the declared/mutating/moved/untouched shapes, and covers the enumerated diff
+# boundary cases. Driven through synthetic pin-source + diff fixtures (git-free). Fail CLOSED
+# if the fixture dir can't be created.
+if _F666="$(mktemp -d 2>/dev/null)" && [ -n "$_F666" ] && [ -d "$_F666" ]; then
+  _mr_run() {  # pin-source diff-file -> echoes "rc|stdout" (one finding per line)
+    local out rc
+    out="$(python3 "$PCL" mutation-routing "$1" --diff-file "$2" --lib "$_F666" 2>/dev/null)"; rc=$?
+    printf 'rc=%s|%s' "$rc" "$out"
+  }
+  # A pin source carrying one undeclared add, one declared add, one mutating add, one moved
+  # add, one untouched pre-existing pin, and a definition line.
+  printf '%s\n' \
+    "assert_pin_unique \"undeclared\" 'MR_LIT_UNDECL' \"\$F\"" \
+    "assert_pin_unique \"declared\" 'MR_LIT_DECL' \"\$F\"  # structural-pin-ok: presence only" \
+    "assert_pin_red_under \"mutating\" 'MR_LIT_MUT' 's/x/y/' \"\$F\"" \
+    "assert_pin_unique \"moved\" 'MR_LIT_MOVED' \"\$F\"" \
+    "assert_pin_unique \"untouched\" 'MR_LIT_OLD' \"\$F\"" \
+    "assert_pin_unique() {" \
+    > "$_F666/src.sh"
+  # Diff: adds lines 1-4 and 6 (NOT line 5, the untouched pre-existing pin); deletes the
+  # moved pin's old home (same literal, non-mutation helper → exempts the added move).
+  printf '%s\n' \
+    "--- a/x" "+++ b/x" "@@" \
+    "+assert_pin_unique \"undeclared\" 'MR_LIT_UNDECL' \"\$F\"" \
+    "+assert_pin_unique \"declared\" 'MR_LIT_DECL' \"\$F\"  # structural-pin-ok: presence only" \
+    "+assert_pin_red_under \"mutating\" 'MR_LIT_MUT' 's/x/y/' \"\$F\"" \
+    "+assert_pin_unique \"moved\" 'MR_LIT_MOVED' \"\$F\"" \
+    "+assert_pin_unique() {" \
+    "-assert_pin_unique \"moved (old home)\" 'MR_LIT_MOVED' \"\$OTHER\"" \
+    > "$_F666/diff.txt"
+  _MR_T="$(_mr_run "$_F666/src.sh" "$_F666/diff.txt")"
+  # Exactly ONE finding, for the undeclared add; declared/mutating/moved/untouched/def all silent.
+  assert_eq "#666 mutation-routing: an added undeclared assert_pin_unique site is reported" \
+    "yes" "$(printf '%s' "$_MR_T" | grep -c 'MR_LIT_UNDECL' | grep -qx 1 && echo yes || echo no)"
+  assert_eq "#666 mutation-routing: exactly one finding line total (exit 0)" \
+    "1" "$(printf '%s' "$_MR_T" | grep -c 'MUTATION-ROUTING')"
+  assert_eq "#666 mutation-routing: the marker exempts an added site" \
+    "no" "$(printf '%s' "$_MR_T" | grep -q 'MR_LIT_DECL' && echo yes || echo no)"
+  assert_eq "#666 mutation-routing: an added mutation-taking site draws no finding" \
+    "no" "$(printf '%s' "$_MR_T" | grep -q 'MR_LIT_MUT' && echo yes || echo no)"
+  assert_eq "#666 mutation-routing: a moved pin (same literal, non-mutation deletion) is exempt" \
+    "no" "$(printf '%s' "$_MR_T" | grep -q 'MR_LIT_MOVED' && echo yes || echo no)"
+  assert_eq "#666 mutation-routing: an untouched pre-existing pin is not in scope" \
+    "no" "$(printf '%s' "$_MR_T" | grep -q 'MR_LIT_OLD' && echo yes || echo no)"
+
+  # A bare `structural-pin-ok` substring (no `# … :` form, inside a string arg) does NOT exempt.
+  printf '%s\n' \
+    "assert_pin_unique \"bare-substr\" 'structural-pin-ok not a marker' \"\$F\"" \
+    > "$_F666/bare.sh"
+  printf '%s\n' "--- a/x" "+++ b/x" "@@" \
+    "+assert_pin_unique \"bare-substr\" 'structural-pin-ok not a marker' \"\$F\"" \
+    > "$_F666/bare.diff"
+  _MR_BARE="$(_mr_run "$_F666/bare.sh" "$_F666/bare.diff")"
+  assert_eq "#666 mutation-routing: a bare structural-pin-ok substring does not exempt" \
+    "yes" "$(printf '%s' "$_MR_BARE" | grep -q 'MUTATION-ROUTING' && echo yes || echo no)"
+
+  # A moved site whose helper DOWNGRADES from mutation-taking to non-mutation-taking is NOT
+  # exempt (the one direction the exemption must never launder).
+  printf '%s\n' "assert_pin_unique \"downgrade\" 'MR_LIT_DG' \"\$F\"" > "$_F666/dg.sh"
+  printf '%s\n' "--- a/x" "+++ b/x" "@@" \
+    "+assert_pin_unique \"downgrade\" 'MR_LIT_DG' \"\$F\"" \
+    "-assert_pin_red_under \"was mutating\" 'MR_LIT_DG' 's/x/y/' \"\$F\"" \
+    > "$_F666/dg.diff"
+  _MR_DG="$(_mr_run "$_F666/dg.sh" "$_F666/dg.diff")"
+  assert_eq "#666 mutation-routing: a move that downgrades mutation-taking -> non-mutation draws a finding" \
+    "yes" "$(printf '%s' "$_MR_DG" | grep -q 'MR_LIT_DG' && echo yes || echo no)"
+
+  # One deletion exempts AT MOST ONE addition bearing the same literal (one-to-one).
+  printf '%s\n' \
+    "assert_pin_unique \"dup a\" 'MR_LIT_DUP' \"\$F\"" \
+    "assert_pin_unique \"dup b\" 'MR_LIT_DUP' \"\$F\"" \
+    > "$_F666/dup.sh"
+  printf '%s\n' "--- a/x" "+++ b/x" "@@" \
+    "+assert_pin_unique \"dup a\" 'MR_LIT_DUP' \"\$F\"" \
+    "+assert_pin_unique \"dup b\" 'MR_LIT_DUP' \"\$F\"" \
+    "-assert_pin_unique \"dup old\" 'MR_LIT_DUP' \"\$OTHER\"" \
+    > "$_F666/dup.diff"
+  _MR_DUP="$(_mr_run "$_F666/dup.sh" "$_F666/dup.diff")"
+  assert_eq "#666 mutation-routing: one deletion exempts at most one addition of the same literal" \
+    "1" "$(printf '%s\n' "$_MR_DUP" | grep -c 'MR_LIT_DUP')"
+
+  # A None-literal added site (the literal is an unresolvable variable, not a static string)
+  # is NEVER exempt by move — `None == None` would otherwise pair arbitrary malformed pins —
+  # so it is still reported as `<unresolved-literal>`, even against a same-shaped deletion.
+  printf '%s\n' 'assert_pin_unique "none-lit" "$MR_UNRES" "$F"' > "$_F666/none.sh"
+  printf '%s\n' "--- a/x" "+++ b/x" "@@" \
+    '+assert_pin_unique "none-lit" "$MR_UNRES" "$F"' \
+    '-assert_pin_unique "none old" "$MR_UNRES" "$OTHER"' \
+    > "$_F666/none.diff"
+  _MR_NONE="$(_mr_run "$_F666/none.sh" "$_F666/none.diff")"
+  assert_eq "#666 mutation-routing: a None-literal added site is never exempt by move (still reported)" \
+    "yes" "$(printf '%s' "$_MR_NONE" | grep -q '<unresolved-literal>' && echo yes || echo no)"
+
+  # An empty diff yields no findings; a missing diff file is reported but still exits 0.
+  : > "$_F666/empty.diff"
+  _MR_EMPTY="$(_mr_run "$_F666/src.sh" "$_F666/empty.diff")"
+  assert_eq "#666 mutation-routing: an empty diff yields no findings (exit 0)" "rc=0|" "$_MR_EMPTY"
+  _MR_MISSING="$(python3 "$PCL" mutation-routing "$_F666/src.sh" --diff-file "$_F666/nope.diff" --lib "$_F666" 2>/dev/null)"; _MR_MISS_RC=$?
+  assert_eq "#666 mutation-routing: a missing diff file exits 0 with no findings (reported on stderr)" \
+    "rc=0|" "rc=$_MR_MISS_RC|$_MR_MISSING"
+  rm -rf "$_F666"
+else
+  echo FAIL >> "$RESULTS_FILE"
+  printf '  FAIL  #666 mutation-routing self-tests: mktemp -d failed (gate not exercised; not a vacuous skip)\n' >&2
+fi
+
+# ── #666 overbreadth guard self-tests: a blank-the-target mutation in BOTH spellings
+# (`1,$d` delete-the-lines, `s/.*//` empty-the-lines) is rejected, while the existing
+# single-line mutations still pass. Probed via probe_assert so the intentional REDs never
+# hit the suite tally (the #375 precedent).
+_OBF="$(probe_tmp '#666 overbreadth fixture setup')"
+printf 'OB_LINE_ONE the operative content lives here\nOB_LINE_TWO more operative content here\nOB_LINE_THREE and yet more here\n' > "$_OBF"
+assert_eq "#666 overbreadth: a blank-the-file mutation (1,\$d deletes every line) is rejected (FAIL)" \
+  "FAIL" "$(probe_assert assert_pin_red_under 'ob-del' 'OB_LINE_ONE the operative content lives here' '1,$d' "$_OBF")"
+assert_eq "#666 overbreadth: an s/.*// blanking mutation (empties every line, line count unchanged) is rejected (FAIL)" \
+  "FAIL" "$(probe_assert assert_pin_red_under 'ob-sub' 'OB_LINE_ONE the operative content lives here' 's/.*//' "$_OBF")"
+assert_eq "#666 overbreadth: an existing single-line delete mutation still passes (regression control)" \
+  "PASS" "$(probe_assert assert_pin_red_under 'ob-ok' 'OB_LINE_ONE the operative content lives here' '/OB_LINE_ONE/d' "$_OBF")"
+rm -f "$_OBF"
+
+# #666 overbreadth guard — the per-helper sibling assertions the issue-666 test plan mandates
+# ("one sibling assertion per helper"): assert_count_red_under carries its OWN separately-inlined
+# guard (part 2 of 2), which measures the mutated SLICE (not the whole file), so a blank-the-file
+# mutation reaches it only through the sliced measurement. The fixture keeps the two anchors short
+# and the counted lines long, so a mutation that blanks the counted content of the slice while
+# PRESERVING the anchors (the anchor re-check at step 6 would otherwise fire ANCHOR-COLLAPSE first)
+# retains <5% of the real slice's non-whitespace and trips MUTATION-OVERBROAD — proving the count
+# helper's reject arm actually executes, not merely that its regression controls stay green.
+# Single-char anchors (S / E) keep the anchor lines from dominating the slice's
+# non-whitespace, so blanking the three long counted lines drops retention below the
+# 1/20 bound (5 retained of ~130 → ~4%) and trips MUTATION-OVERBROAD; longer anchors
+# would keep retention above 5% and the reject arm would never fire.
+_OCF="$(probe_tmp '#666 overbreadth count-helper fixture setup')"
+printf 'S\nCOUNTED_alpha the operative counted content lives on line two here\nCOUNTED_bravo the operative counted content lives on line three here\nCOUNTED_charlie the operative counted content lives on line four here\nE\n' > "$_OCF"
+# assert_count_red_under uses the two-line FAIL protocol (echo FAIL; echo <token>), so
+# probe_assert's tail -n 1 returns the CAUSE token — asserting MUTATION-OVERBROAD (not a bare
+# FAIL) attributes the rejection to the overbreadth guard specifically, never a sibling arm
+# (ANCHOR-COLLAPSE / BOUND-VIOLATED) rejecting first (guard-class shape 3 discipline).
+assert_eq "#666 overbreadth: a blank-the-counted-slice mutation is rejected by assert_count_red_under (MUTATION-OVERBROAD)" \
+  "MUTATION-OVERBROAD" "$(probe_assert assert_count_red_under 'ob-count' '^S$' '^E$' '^COUNTED_' -ge 3 's/^COUNTED_.*/x/' "$_OCF")"
+assert_eq "#666 overbreadth: an operative single-counted-line mutation still passes assert_count_red_under (regression control)" \
+  "PASS" "$(probe_assert assert_count_red_under 'ob-count-ok' '^S$' '^E$' '^COUNTED_' -ge 3 's/^COUNTED_bravo.*/kept but renamed harmlessly/' "$_OCF")"
+rm -f "$_OCF"
+
+# #666 the gate's OWN behavioral-fix pin, expressed through assert_pin_red_under (never a plain
+# assert_pin_unique — the gate must obey the rule it enforces). It guards the OPERATIVE clause of
+# the marker-declaration rule in the implement extension; the `sed -E` mutation removes ONLY that
+# clause ("unless its logical line carries a format-strict"), so a framing edit that leaves the
+# clause present-and-unique cannot pass here. Observed RED under the mutation at authoring time.
+assert_pin_red_under "#666: implement extension states the structural-pin-ok declaration rule (operative clause)" \
+  'unless its logical line carries a format-strict' \
+  's/unless its logical line carries a format-strict//' "$LIB/../.devflow/prompt-extensions/implement.md"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "#363 review-engine grounding: skill<->allowlist command-head contract pin"

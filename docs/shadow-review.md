@@ -464,7 +464,15 @@ execution (`assert_pin_red_on_removal` is this repo's whole-line removal-proof f
 (`name literal mutation [file]`): it applies a specific `sed -E` regression — one that deletes *only*
 the operative sentence — to a scratch copy and asserts the pin flips PASS→FAIL under *that* mutation,
 so a framing-only pin the operative mutation leaves present-and-unique is reported RED for vacuity —
-a discrimination whole-line removal cannot make. Second, **confirm the guard
+a discrimination whole-line removal cannot make. That mutation mandate is itself now **mechanically
+enforced** (issue #666): a diff-scoped declaration gate (`pin-corpus-lint.py`'s `mutation-routing`
+subcommand) reports a finding — turning the suite RED — for a pin the change *adds* whose helper is
+not mutation-taking and which carries no format-strict `# structural-pin-ok: <reason>` marker, so a
+behavioral-fix pin authored as a plain `assert_pin_unique` no longer ships silently; a genuine
+structural pin declares itself with the marker (a reviewer-read reason line, like `# raw-guard-ok:`).
+A companion runtime overbreadth guard rejects a mutation that blanks its target — the loophole where
+`1,$d` or `s/.*//` flips any pin PASS→FAIL by destroying the file rather than the guarded content.
+Second, **confirm the guard
 registered**: a green suite is not evidence a guard *ran*, so after adding any guard, confirm its named
 assertion appears in the run as a PASS *and* that the suite's assertion count rose by what was added — a
 guard that silently no-ops (an assertion helper invoked before it is defined, a test file the runner
