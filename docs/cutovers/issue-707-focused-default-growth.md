@@ -8,15 +8,15 @@ kind: growth
 Mandatory prompt rows that grew in this change:
 
 - `.devflow/prompt-extensions/implement.md` — +1,019 bytes (35,956 → 36,975)
-- `.devflow/prompt-extensions/review-and-fix.md` — +874 bytes (21,074 → 21,948)
+- `.devflow/prompt-extensions/review-and-fix.md` — +909 bytes (21,074 → 21,983)
 - `.devflow/prompt-extensions/receiving-code-review.md` — +487 bytes (14,395 → 14,882)
 - `CLAUDE.md` — +951 bytes (71,436 → 72,387)
 
 Coupled ceiling renegotiation this growth forced (the `#530 budget` block in `lib/test/run.sh`
 and its mirror cells in `docs/review-and-fix-budget.md`):
 
-- initial load (root + always-loaded extensions) 8,686 → **8,904** (measured 8,900)
-- maximum active step (initial load + `shadow-review.md`) 20,025 → **20,243** (measured 20,239)
+- initial load (root + always-loaded extensions) 8,686 → **8,907** (measured 8,903)
+- maximum active step (initial load + `shadow-review.md`) 20,025 → **20,246** (measured 20,242)
 
 The plugin-root ceiling (3,567) is untouched — this change edits no `skills/review-and-fix/`
 file.

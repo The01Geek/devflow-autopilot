@@ -30506,8 +30506,9 @@ assert_pin_red_under "#707 implement extension keeps the full suite as the final
 assert_pin_red_under "#707 review-and-fix extension keeps the full suite as the final review/fix gate" \
   'A focused result discharges intermediate iteration only, never the final review/fix gate.' \
   's|A focused result discharges intermediate iteration only, never the final review/fix gate\.|A focused result may be used as the final review/fix gate.|' "$WSR_RAF"
-# #707's five per-file pins are NOT a second loop over the same two files: they join the
-# existing #563 loop below, which already iterates exactly this pair.
+# #707's per-file pins are NOT a second loop over the same two files: they join the
+# existing #563 loop below, which already iterates exactly this pair. (Deliberately
+# count-free — an ordinal here would rot on the next pin added to that loop.)
 # #707 the reflection obligation is implement-only: it is the audit trail that makes a
 # mid-iteration full-suite run a recorded decision rather than a silent reversion to the
 # retired default.
@@ -30527,8 +30528,15 @@ assert_pin_red_under "#707 receiving-code-review.md keeps the final gate and par
 # anywhere is the named regression this issue removed, so the count is pinned at 0 across
 # the whole set rather than per file.
 _WSR_RETIRED_HITS=0
+_WSR_RETIRED_UNREADABLE=0
+_WSR_RETIRED_CONTROL=0
 for _WSR_RETIRED_FILE in "$WSR_IMPL" "$WSR_RAF" "$FDROOT/.devflow/prompt-extensions/receiving-code-review.md" \
   "$WSR_CLAUDE" "$FDROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md"; do
+  # An absence guard cannot tell "the text is gone" from "the file was never read":
+  # pin_count prints 0 for a missing/unreadable path, so a renamed or mistyped member of
+  # this list would contribute a silent zero and the guard would pass BECAUSE it could not
+  # look. Readability is therefore an asserted operand, not an assumption.
+  [ -r "$_WSR_RETIRED_FILE" ] || _WSR_RETIRED_UNREADABLE=$((_WSR_RETIRED_UNREADABLE + 1))
   # Each literal is a DISTINGUISHING span of the retired rule, never a generic English
   # phrase: a bare 'before every commit' would turn the suite RED on an unrelated future
   # sentence in either large mirror document and misattribute it to this regression.
@@ -30539,8 +30547,36 @@ for _WSR_RETIRED_FILE in "$WSR_IMPL" "$WSR_RAF" "$FDROOT/.devflow/prompt-extensi
     _WSR_RETIRED_HITS=$((_WSR_RETIRED_HITS + $(pin_count "$_WSR_RETIRED_LIT" "$_WSR_RETIRED_FILE")))
   done
 done
+assert_eq "#707 every surface the retired-convention sweep reads is readable" "0" "$_WSR_RETIRED_UNREADABLE"
 assert_eq "#707 the retired full-suite-before-every-commit convention survives on no surface" "0" "$_WSR_RETIRED_HITS"
-unset _WSR_RETIRED_HITS _WSR_RETIRED_FILE _WSR_RETIRED_LIT
+# Positive control: a zero-expecting sweep is only meaningful if it can still COUNT. Plant one
+# retired literal in a scratch copy and require the same literal set to find it — so a future
+# edit that mistypes a literal (disarming an arm while the guard stays green) goes RED here.
+if _WSR_RETIRED_PROBE="$(probe_tmp '#707 retired-convention sweep positive control')"; then
+  cat "$WSR_IMPL" > "$_WSR_RETIRED_PROBE"
+  printf 'A focused result is never a completion gate.\n' >> "$_WSR_RETIRED_PROBE"
+  for _WSR_RETIRED_LIT in 'A focused result discharges no gate' \
+    'before every commit, push, and completion claim' \
+    'A focused result is never a completion gate.' 'A focused result never discharges a review/fix gate.' \
+    'A focused pass only accelerates RED/GREEN iteration'; do
+    _WSR_RETIRED_CONTROL=$((_WSR_RETIRED_CONTROL + $(pin_count "$_WSR_RETIRED_LIT" "$_WSR_RETIRED_PROBE")))
+  done
+  assert_eq "#707 retired-convention sweep positive control: a planted retired literal is counted" "1" "$_WSR_RETIRED_CONTROL"
+  rm -f "$_WSR_RETIRED_PROBE"
+fi
+unset _WSR_RETIRED_HITS _WSR_RETIRED_FILE _WSR_RETIRED_LIT _WSR_RETIRED_UNREADABLE _WSR_RETIRED_CONTROL _WSR_RETIRED_PROBE
+# #707 coupled heading invariant: receiving-code-review.md defers to review-and-fix.md's
+# focused-module section BY VERBATIM HEADING, so the heading and its citation are one
+# coupled text. This issue renamed the heading and updated both halves; without this pin a
+# later rename leaves the reception pass deferring to a section that does not exist while
+# every other pin still passes. Pinned on both sides, and mutation-proved on the citing
+# side (the guarded regression is the deference dangling).
+assert_pin_unique "#707 review-and-fix.md carries the heading receiving-code-review.md defers to" \
+  '## Focused test modules are the fix-iteration default' "$WSR_RAF"  # structural-pin-ok: presence of the heading the sibling citation names; the citing side's mutation pin below carries the behavioral proof
+assert_pin_red_under "#707 receiving-code-review.md's deference cites that exact heading" \
+  '"Focused test modules are the fix-iteration default" section governs' \
+  's/"Focused test modules are the fix-iteration default" section governs/"Focused test modules accelerate fix iteration only" section governs/' \
+  "$FDROOT/.devflow/prompt-extensions/receiving-code-review.md"
 # #707 the two coupled mirrors must state the SAME policy the extensions state — a mirror
 # that keeps the retired framing is the desync class the coupled-invariant rule exists to
 # stop, and the absence guard above only proves the old text is gone, not that the new
@@ -38325,7 +38361,7 @@ RAF_ROOT_CEIL=3567
 # ceilings-table cells in lockstep. The max-step ceiling below sits on #621's 19073 base, not
 # #640's 18996 — this branch's +952 is applied to the merged tree's measurement, never to the
 # pre-merge one.
-# #707 raised the initial-load ceiling 8686->8904 and the max-step ceiling 20025->20243: the
+# #707 raised the initial-load ceiling 8686->8907 and the max-step ceiling 20025->20246: the
 # focused-default / parallelized-final-gate policy this issue mandates is stated on BOTH
 # always-loaded extensions (review-and-fix.md and receiving-code-review.md), so it lands on the
 # initial load twice, and the bundle carried only ~4 words of margin. The prose was written to
@@ -38335,8 +38371,8 @@ RAF_ROOT_CEIL=3567
 # renegotiated to the measurement plus the repo's usual ~4 words of headroom. The audited growth
 # decision is docs/cutovers/issue-707-focused-default-growth.md; update
 # docs/review-and-fix-budget.md's ceilings-table and Measured cells in lockstep.
-RAF_LOAD_CEIL=8904
-RAF_MAXSTEP_CEIL=20243
+RAF_LOAD_CEIL=8907
+RAF_MAXSTEP_CEIL=20246
 assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
   "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"
 assert_eq "#530 budget: root + always-loaded extensions (initial load) <= $RAF_LOAD_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W)))" "yes" \

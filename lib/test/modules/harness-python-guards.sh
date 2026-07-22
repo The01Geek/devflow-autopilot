@@ -9,9 +9,9 @@
 # `lib/test/run-module.sh harness-python-guards` instead of the complete suite.
 #
 # Contract: the caller sets LIB and RESULTS_FILE, defines assert_eq, and sources
-# lib/test/module-harness.sh first (which defines the namespaced module pin API and
-# devflow_run_focused_python_test). This module uses assert_eq plus that shared
-# focused-Python-test runner — it references NO monolith helper. The module owns its
+# lib/test/module-harness.sh first. This module uses only helpers that harness defines —
+# assert_eq, devflow_run_focused_python_test, and devflow_module_allocate_owned_directory —
+# and references NO monolith lib/test/run.sh helper. The module owns its
 # private fixture root and cleanup; it never invokes the runner or the full-suite
 # boundary. The inventory in harness-python-guards.inventory.md maps the extracted
 # coverage to its former run.sh locations and records the deliberate exclusions.
@@ -45,7 +45,10 @@ echo "#600 create-issue audit-prompt renderer (render-audit-prompt.py)"
 # file was written and no stdin was read). A source scan cannot see a write routed
 # through subprocess/shutil/os.write or a variable-mode Path.open, so these pins
 # catch the obvious reintroduction and R9 catches the behavior.
-RAP_ROOT="$(mktemp -d "$_hpg_tmp_root/rap.XXXXXX")"
+RAP_ROOT="$(mktemp -d "$_hpg_tmp_root/rap.XXXXXX")" || {
+  printf 'could not allocate the #600 render-audit-prompt fixture\n' >&2
+  return 1
+}
 python3 "$LIB/test/test_render_audit_prompt.py" >"$RAP_ROOT/rap-unit.out" 2>&1
 RAP_UNIT_RC=$?
 # Surface the captured traceback on failure — otherwise the scratch dir is removed
@@ -58,13 +61,22 @@ assert_eq "#600 render-audit-prompt reads no stdin (stateless)" "0" \
   "$(grep -cE 'sys\.stdin|(^|[^a-zA-Z_])input\(' "$LIB/../scripts/render-audit-prompt.py" || true)"
 rm -rf "$RAP_ROOT"
 
-VB_ROOT="$(mktemp -d "$_hpg_tmp_root/vb.XXXXXX")"
+VB_ROOT="$(mktemp -d "$_hpg_tmp_root/vb.XXXXXX")" || {
+  printf 'could not allocate the #527 verification-baseline fixture\n' >&2
+  return 1
+}
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "verification-launch baseline analyzer (issue #527, Wave 1)"
 # ────────────────────────────────────────────────────────────────────────────
-python3 "$LIB/test/test_verification_baseline.py" >"$VB_ROOT/vb-unit.out" 2>&1
-assert_eq "verification baseline: focused Python tests pass" "0" "$?"
+# Route through the shared focused-Python-test runner rather than a bare redirect +
+# positional `$?`: the runner surfaces the captured traceback on a RED (the old form wrote
+# the capture and then removed it unread, leaving only "expected 0, got 1" in the module
+# whose whole purpose is fast diagnosable iteration) and applies its PYTHON_COLORS=0
+# determinism guard. It also removes the positional `$?` read, which a later inserted
+# statement would silently re-point at the wrong command.
+devflow_run_focused_python_test "verification baseline: focused Python tests pass" \
+  "$LIB/test/test_verification_baseline.py" "$VB_ROOT/vb-unit.out"
 # The analyzer is offline (AC #527-2: read-only, launches no verification
 # command and invokes no repository-provided executable) — no subprocess call
 # site in the module. (It imports workflow_flight_recorder, which itself uses
@@ -86,13 +98,17 @@ assert_eq "verification baseline: registry has the cloud_mappings section" "1" \
 
 rm -rf "$VB_ROOT"
 
-VF_ROOT="$(mktemp -d "$_hpg_tmp_root/vf.XXXXXX")"
+VF_ROOT="$(mktemp -d "$_hpg_tmp_root/vf.XXXXXX")" || {
+  printf 'could not allocate the #528 verification-flight fixture\n' >&2
+  return 1
+}
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "single-flight verification coordination ledger (issue #528, Wave 2)"
 # ────────────────────────────────────────────────────────────────────────────
-python3 "$LIB/test/test_verification_flight.py" >"$VF_ROOT/vf-unit.out" 2>&1
-assert_eq "verification flight: focused Python tests pass" "0" "$?"
+# Shared runner, for the reasons stated in the #527 block above.
+devflow_run_focused_python_test "verification flight: focused Python tests pass" \
+  "$LIB/test/test_verification_flight.py" "$VF_ROOT/vf-unit.out"
 # The coordinator is data-only (AC #528-1): it launches no subprocess, spawns no
 # shell, and runs no git — it never becomes a shell-command bypass. Pin the
 # absence of every subprocess / shell-out / exec spelling.
@@ -259,11 +275,16 @@ _hpg_write_map '{"lib/planted-drift.sh": {"owner": "unmodularized", "note": ""}}
 # `git ls-files` is an index read, so staging is enough — no commit, no identity
 # config, no history. A fixture whose git setup fails must not silently degrade
 # into a vacuous control, so the setup outcome is asserted before the arms run.
+# Ambient git configuration is neutralized: a global `core.excludesFile` matching the
+# planted path, or an `init.templateDir`, would change what `git ls-files` reports WITHOUT
+# changing either command's exit status — the drift arm would then pass for the wrong
+# reason. And the setup assertion checks the OUTCOME the arms depend on (the planted unit
+# is actually tracked), never merely that the commands exited 0 (guard-class 1).
 _hpg_cg_setup=fail
-git -C "$_hpg_cg_fixture" init -q >/dev/null 2>&1 \
-  && git -C "$_hpg_cg_fixture" add -A >/dev/null 2>&1 \
-  && _hpg_cg_setup=ok
-assert_eq "#707 planted-defect control: fixture repository was created and staged" "ok" "$_hpg_cg_setup"
+git -c core.excludesFile=/dev/null -c init.templateDir= -C "$_hpg_cg_fixture" init -q >/dev/null 2>&1 \
+  && git -c core.excludesFile=/dev/null -C "$_hpg_cg_fixture" add -A >/dev/null 2>&1 \
+  && case "$(git -C "$_hpg_cg_fixture" ls-files)" in *"lib/planted-drift.sh"*) _hpg_cg_setup=ok ;; esac
+assert_eq "#707 planted-defect control: fixture repository was created and the planted unit is tracked" "ok" "$_hpg_cg_setup"
 _hpg_cg_clean_out="$(python3 "$LIB/test/coverage_map_guard.py" "$_hpg_cg_fixture" 2>&1)"
 assert_eq "#707 planted-defect control: the undrifted fixture is clean (control arm)" "0" "$?"
 assert_eq "#707 planted-defect control: the undrifted fixture reports no violation" "" "$_hpg_cg_clean_out"

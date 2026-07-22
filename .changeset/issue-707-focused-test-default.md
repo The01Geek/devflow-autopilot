@@ -4,7 +4,7 @@ bump: patch
 
 ### Added
 
-- Focused test module `harness-python-guards` (`lib/test/run-module.sh harness-python-guards`), carrying the monolith-only Python guard drivers whose subject is a single code unit and whose verification is self-contained — the `#600` create-issue audit-prompt renderer, the `#527` verification-launch baseline analyzer, the `#528` single-flight verification ledger, the `#668` reception-identity producer, and the `#591` coverage-map ratchet guard (its live-tree invocation and its unit test), plus a planted coverage-map drift as a positive control that the module goes RED when a covered guard breaks. The blocks are moved out of `lib/test/run.sh`, not duplicated: the complete suite still runs them through the `devflow_run_full_suite_module` boundary.
+- Focused test module `harness-python-guards` (`lib/test/run-module.sh harness-python-guards`), carrying the monolith-only Python guard drivers whose subject is a single code unit and whose verification is self-contained — the `#600` create-issue audit-prompt renderer, the `#527` verification-launch baseline analyzer, the `#528` single-flight verification ledger, the `#668` reception-identity producer, and the `#591` coverage-map ratchet guard (its live-tree invocation and its unit test), plus a planted coverage-map drift as a positive control that the module goes RED when the coverage-map guard breaks. The blocks are moved out of `lib/test/run.sh`, not duplicated: the complete suite still runs them through the `devflow_run_full_suite_module` boundary.
 
 ### Changed
 

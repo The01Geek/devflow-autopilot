@@ -22,11 +22,15 @@ complete suite now reaches them only through the boundary call that replaced the
 | `scripts/verification-flight.py` (`lib/test/test_verification_flight.py`) | the `single-flight verification coordination ledger (issue #528, Wave 2)` banner block | `#528` section | the banned-exec-spelling sweep derived atomically from its single source, the declared state sets, and the three-workflow coupled grant invariant |
 | `scripts/reception_identity.py` + `scripts/reception-record.py` (`lib/test/test_reception_identity.py`) | the `receiving-review session artifact producer (issue #668)` banner block | `#668` section | the pair's focused Python tests pass, the library stays importable/stdlib-only, and the CLI imports the library rather than re-implementing the derivation |
 | `lib/test/coverage_map_guard.py` (`lib/test/test_coverage_map_guard.py`) | the `issue #591: coverage-map ratchet guard` banner block | `#591` section | the live-tree ratchet over the shipped tree + map is clean, and the guard's arms pass over synthetic fixtures |
-| — (added by issue #707) | new | `#707` planted-defect control | a coverage-map drift planted in a synthetic git fixture under the module's private root turns the guard RED and names the drifted unit, with the undrifted fixture asserted clean as the control arm |
+| — (added by issue #707) | new | `#707` planted-defect control | a coverage-map drift planted in a synthetic git fixture under the module's private root turns the coverage-map guard RED and names the drifted unit, with the undrifted fixture asserted clean as the control arm. It is a positive control for that guard specifically — the other four covered guards' assertions are clean-tree and absence-grep checks with no planted-failure arm of their own |
 
 ## Deliberate exclusions (Python guards that stay in `lib/test/run.sh`)
 
-Each is excluded for a stated reason, not by omission:
+**The population this table is complete over** is every Python entry point under
+`lib/test/` that `lib/test/run.sh` still drives. Each is excluded for a stated reason, not
+by omission; the criterion is the issue's own — a guard is extraction-eligible when its
+subject is a specific code unit *and* its verification is self-contained (it does not scan
+a whole population or test the module system itself).
 
 | Guard | Reason it is not extracted |
 | --- | --- |
@@ -37,6 +41,14 @@ Each is excluded for a stated reason, not by omission:
 | `lib/test/rb-figure-partition.py` | A whole-tree meta-guard over the governed review-bundle figures. |
 | `lib/test/lint-gh-api-repo-path.py` | A whole-tree meta-guard over every tracked-and-unignored surface. |
 | `lib/test/cloud_writer_contract.py` | A whole-tree meta-guard over the cloud-writer reachability closure and its runtime manifest. |
+| `lib/test/check-review-retrigger-coverage.py` | A population scanner: it enumerates every PR-gating workflow under `.github/workflows/` and asserts the re-trigger list is a superset. Its subject is that whole population, not one code unit. |
+| `lib/test/extract-command-heads.py` | A whole-bundle scanner over every ```bash fence across the skill surfaces, driven against several allowlists. |
+| `lib/test/extract-command-shapes.py` | Same shape: a whole-bundle command-shape scan, not a single-unit verification. |
+| `lib/test/lint-issue-body-refetch.py` | A whole-tree lint over every cut-over site. |
+| `lib/test/validate-frontmatter.py` | A population scanner over every `agents/*.md` and `skills/**/SKILL.md` frontmatter block. |
+| `lib/test/test_python_scripts.py` | Pure-function tests spanning many `scripts/` units at once — its subject is not a single code unit. |
+| `lib/test/normalize-verdicts-test.py` | Eligible in isolation, but its `run.sh` driver is **not**: the `#556` block interleaves this helper's unit run with prose pins over three `agents/*.md` files and a review phase file, so the block's subject is multi-surface. Extracting only the unit-test line would split a block — worse than leaving it whole (the no-duplication rule). |
+| `lib/test/test_prompt_mass_census.py` | Same block-level reason: its driver is the `#551` block, whose live-tree subject is `prompt-mass-census.py` — an already-ineligible whole-tree meta-guard — with this unit run as one assertion inside it. |
 
 ## Shared-label routing caveat
 
@@ -48,11 +60,14 @@ asserts `#600`, and the guard's `--fix` attributes the label to the latter. Rout
 this module), not by the `run_sh_blocks` label. Repair the map with
 `python3 lib/test/coverage_map_guard.py . --fix`, never by hand.
 
+`#707` is split the **other** way and stays `unmodularized`: most of that label's
+assertions are the Part-B prose pins in `lib/test/run.sh`, and only the planted-defect
+control lives here — so a `#707` change is not covered by running this module alone.
+
 The generic test harness, registry validation, module registration, full-suite
 boundary, and module-runner tests stay global so deleting this module cannot also
-delete the checks that prove it is selected and executed. The module uses only
-`assert_eq` plus the shared `devflow_run_focused_python_test` runner from
-`lib/test/module-harness.sh` — it references no monolith `lib/test/run.sh` helper. Its
-coverage-map ownership (the five extracted subjects' `files` entries and the derived
-`run_sh_blocks` labels) is recorded in `lib/test/modules/coverage-map.json`, repaired
-with `python3 lib/test/coverage_map_guard.py . --fix` rather than by hand.
+delete the checks that prove it is selected and executed. The module uses only helpers
+`lib/test/module-harness.sh` defines — `assert_eq`, `devflow_run_focused_python_test`, and
+`devflow_module_allocate_owned_directory` — and references no monolith `lib/test/run.sh`
+helper. Its coverage-map ownership (the five extracted subjects' `files` entries) is
+recorded in `lib/test/modules/coverage-map.json`.

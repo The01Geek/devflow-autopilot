@@ -36,7 +36,7 @@ A focused result discharges intermediate iteration only, never the final review/
 The final gate is preserved, and on the local/interactive and reception/shepherd tiers it is parallelized.
 Before a completion or PR-ready claim, push to trigger CI and start the full local run at the same time; the push is NOT gated on the local run finishing.
 The full local run is `bash lib/test/run.sh` plus every lint gate required by `CLAUDE.md` (using its documented classifier fallback when necessary), and it remains the authoritative local signal because it yields richer failure detail than CI for troubleshooting. A nonempty skip tally is not clean.
-The cloud `/devflow:implement` in-env gate (issue #405) is unchanged and unweakened: such a run verifies in its own environment and never waits on, polls, re-checks, or cites CI for its own progress; the parallel-push allowance above is a local-tier rule only.
+The cloud `/devflow:implement` in-env gate (issue #405) is unchanged and unweakened: such a run verifies in its own environment and never waits on, polls, re-checks, or cites CI for its own progress; the parallel-push allowance above is a local/interactive and reception/shepherd tier rule only.
 
 ## Guard-class shape 1 — existence-vs-sourceability (verify the outcome, not the precondition)
 
