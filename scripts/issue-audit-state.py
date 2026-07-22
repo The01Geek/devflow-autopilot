@@ -1426,6 +1426,28 @@ def _validate_coverage(rnd, num):
         elif anchor is not None and not isinstance(anchor, str):
             raise StateError(f'round {num} coverage entry {pos} anchor {anchor!r} is not '
                              f'a string')
+    # TOTALITY at the read boundary. Every per-entry invariant above is re-enforced, but
+    # totality — the property that makes `backed` mean "every required dimension resolved"
+    # — lives BETWEEN the list and the persisted enumeration, so it needs its own read-back:
+    # `evaluate_coverage` derives `backed` from `all(...)` over the surviving entries, and a
+    # hand-deleted `unestablished`/`skipped` entry leaves an all-backing list that would
+    # launder a truncated coverage into `backed`. `record-coverage` writes `coverage` and
+    # `coverage_expected` into the same round object in the same save, so an absent
+    # enumeration beside a present coverage is itself corruption — refused, not tolerated.
+    expected = rnd.get('coverage_expected')
+    if expected is None:
+        raise StateError(f'round {num} records coverage but no coverage_expected; the '
+                         f'enumeration totality was checked against is written with the '
+                         f'coverage itself, so its absence means the record is corrupt')
+    if not isinstance(expected, list) or not all(
+            isinstance(k, str) and k.strip() for k in expected):
+        raise StateError(f'round {num} coverage_expected {expected!r} is not a list of '
+                         f'non-empty strings')
+    missing = [k for k in expected if k not in seen]
+    if missing:
+        raise StateError(f'round {num} coverage covers fewer dimensions than '
+                         f'coverage_expected enumerates (missing {missing!r}); a truncated '
+                         f'coverage list is never read as backed')
 
 
 def _validate(doc, slug):

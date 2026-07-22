@@ -13600,8 +13600,12 @@ def _cov_read_boundary_matrix(r):
         # restore, so the next shape starts from a valid document
         Path(_statefile()).write_text(_json.dumps(good))
 
+    # The good state carries a BACKING entry followed by a not-backing one, so the
+    # truncation row below can delete the not-backing entry and leave an all-backing list
+    # that a totality-blind read boundary would hand to `evaluate_coverage` as `backed`.
     _clean_round_with_coverage(
-        r, 'g:host-os-variance exercised "a quoted line" — a concrete concern\n')
+        r, 'g:host-os-variance exercised "a quoted line" — a concrete concern\n'
+           'g:degraded-environments skipped\n')
     good = _json.loads(Path(_statefile()).read_text())
     _corrupt(lambda rd: rd.__setitem__('coverage', {'a': 1}), 'a non-list coverage')
     _corrupt(lambda rd: rd.__setitem__('coverage', ['a bare string']), 'a non-object entry')
@@ -13617,6 +13621,14 @@ def _cov_read_boundary_matrix(r):
              'an out-of-set render')
     _corrupt(lambda rd: rd.pop('coverage_render'),
              'coverage present with NO render (would default onto full, which arms the offer)')
+    # Totality, the shape the per-entry rows above cannot reach: deleting a not-backing
+    # entry leaves an all-backing list shorter than `coverage_expected`, which would read
+    # as `backed`. And the enumeration itself is written beside the coverage, so its
+    # absence is corruption too — both fail closed rather than deriving from a truncation.
+    _corrupt(lambda rd: rd['coverage'].pop(),
+             'a coverage list truncated below coverage_expected')
+    _corrupt(lambda rd: rd.pop('coverage_expected'),
+             'coverage present with NO coverage_expected to re-check totality against')
 
 
 _with_run603(_cov_read_boundary_matrix)
