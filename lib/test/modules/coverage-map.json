@@ -273,7 +273,7 @@
     },
     "scripts/install-gh-wrapper.sh": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "installer-wiring"
     },
     "scripts/inventory-workflow-transcripts.py": {
       "note": "",
@@ -460,7 +460,7 @@
       "owner": "unmodularized"
     }
   },
-  "generated_by": "python3 -c \"import re; t=open('lib/test/run.sh').read(); names=re.findall(r'(?m)^\\\\s*(?:assert_eq|assert_true|assert_pin_unique|assert_pin_red_under|assert_pin_red_on_removal|check)\\\\s+\\\"([^\\\"]*)\\\"', t); print('\\\\n'.join(sorted({m for n in names for m in re.findall(r'#(\\\\d{2,4})', n)}, key=int)))\"",
+  "generated_by": "lib/test/coverage_map_guard.py — its shared label derivation (derive_labels) owns the run_sh_blocks half: arm 9 derives the label set from lib/test/run.sh and every lib/test/modules/*.sh at assertion-name position, fails the suite RED on a run.sh label with no entry and on a fully-extracted label misattributed to 'unmodularized', and `python3 lib/test/coverage_map_guard.py . --fix` is the hand-invoked repair.",
   "non_code_exempt": [
     "lib/capability-profiles.json",
     "lib/intervention-surfaces.md",
@@ -821,7 +821,15 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "349": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "350": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "351": {
       "note": "",
       "owner": "unmodularized"
     },
@@ -1025,9 +1033,25 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "462": {
+      "note": "",
+      "owner": "create-issue-contract"
+    },
+    "464": {
+      "note": "",
+      "owner": "create-issue-contract"
+    },
+    "465": {
+      "note": "",
+      "owner": "create-issue-contract"
+    },
     "466": {
       "note": "",
       "owner": "unmodularized"
+    },
+    "467": {
+      "note": "",
+      "owner": "create-issue-contract"
     },
     "469": {
       "note": "",
@@ -1129,6 +1153,14 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "522": {
+      "note": "",
+      "owner": "create-issue-contract"
+    },
+    "528": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "529": {
       "note": "",
       "owner": "unmodularized"
@@ -1139,7 +1171,7 @@
     },
     "533": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "installer-wiring"
     },
     "536": {
       "note": "",
@@ -1157,9 +1189,13 @@
       "note": "",
       "owner": "unmodularized"
     },
-    "544": {
+    "541": {
       "note": "",
       "owner": "unmodularized"
+    },
+    "544": {
+      "note": "",
+      "owner": "installer-wiring"
     },
     "545": {
       "note": "",
@@ -1181,6 +1217,22 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "551": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "554": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "555": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "556": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "557": {
       "note": "",
       "owner": "unmodularized"
@@ -1189,6 +1241,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "559": {
+      "note": "",
+      "owner": "create-issue-contract"
+    },
     "56": {
       "note": "",
       "owner": "unmodularized"
@@ -1196,6 +1252,10 @@
     "560": {
       "note": "",
       "owner": "unmodularized"
+    },
+    "561": {
+      "note": "",
+      "owner": "capability-profiles"
     },
     "562": {
       "note": "",
@@ -1217,6 +1277,14 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "576": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "579": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "582": {
       "note": "",
       "owner": "unmodularized"
@@ -1225,7 +1293,147 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "593": {
+      "note": "",
+      "owner": "create-issue-contract"
+    },
+    "599": {
+      "note": "",
+      "owner": "installer-wiring"
+    },
+    "600": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "601": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "603": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "609": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "610": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "611": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "613": {
+      "note": "",
+      "owner": "create-issue-contract"
+    },
+    "614": {
+      "note": "",
+      "owner": "create-issue-contract"
+    },
+    "618": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "619": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "62": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "620": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "621": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "624": {
+      "note": "",
+      "owner": "regenerate-artifacts"
+    },
+    "626": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "628": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "629": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "640": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "644": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "645": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "655": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "656": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "661": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "664": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "666": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "668": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "671": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "672": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "677": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "681": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "682": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "687": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "690": {
+      "note": "",
+      "owner": "installer-wiring"
+    },
+    "693": {
       "note": "",
       "owner": "unmodularized"
     },

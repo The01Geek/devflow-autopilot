@@ -16,7 +16,7 @@
       "Bash(shellcheck:*)"
     ],
     "execution_diagnostics_enabled": true,
-    "execution_transcript_artifact_enabled": false
+    "execution_transcript_artifact_enabled": true
   },
   "devflow_implement": {
     "effort": "low",
