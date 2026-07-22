@@ -1,0 +1,57 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-22T00:30:00Z",
+  "fix_commit_sha": "f4251cf",
+  "fix_files": [],
+  "loop_role": "fix",
+  "current_step": "loop-exit",
+  "current_substep": null,
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [],
+  "phase3_findings": [],
+  "fix_decisions": [],
+  "convergence_inputs": {
+    "fixes_applied": 0,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "shadow": {
+    "ran_at": "2026-07-22T00:30:00Z",
+    "reviewed_sha": "f4251cf",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter"
+    ],
+    "reason": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 0,
+      "overlap_with_iter_N": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
+  "reference_reads": {
+    "fix_delta": {
+      "status": "verified",
+      "outcome": "clean",
+      "reason": null
+    }
+  },
+  "telemetry": "unavailable"
+}
