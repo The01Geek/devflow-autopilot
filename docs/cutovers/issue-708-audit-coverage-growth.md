@@ -68,5 +68,11 @@ adjudication* — never certified scrutiny. That bound is the issue's own stated
 
 ## Residual
 
-The default path now sits **exactly** at its ceiling. A further addition to any default-path
-member must shed prose first; there is no remaining headroom, and the ceiling is not raisable.
+As shipped, the default path measures **32,619** against the renegotiated **34,249** ceiling — about
+1,630 words (~5% of the measurement) of headroom, which is the full AC6 5% maximum the operator
+authorized in this change. That margin is a one-time renegotiation, not a standing allowance for
+single-change growth: the ratchet-down-only rule resumes immediately, so a later measured reduction
+lowers the recorded ceiling, and the next contributor adding to a default-path member should still
+prefer shedding prose over spending the margin. Re-measure with the suite's python3 word-split
+(`ci614_words` in `lib/test/modules/create-issue-contract.sh`), never `wc -w`; the live figures live
+in `docs/create-issue-budget.md`, which is the record this paragraph defers to.
