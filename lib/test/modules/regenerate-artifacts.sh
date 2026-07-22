@@ -312,7 +312,7 @@ for rec in raw:
     else:
         expected.add(path)
 actual = set()
-for root, _dirs, files in os.walk(image):
+for root, _dirs, files in os.walk(image):  # tree-walk-ok: walks the per-test fixture image, never the repository root, so no sibling worktree is reachable from it
     for f in files:
         actual.add(os.path.relpath(os.path.join(root, f), image))
 print("extra=%d missing=%d skip_missing=%d skip_gitlink=%d skip_symlink=%d"

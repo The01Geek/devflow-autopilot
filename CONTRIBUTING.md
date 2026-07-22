@@ -153,6 +153,23 @@ you declare the classification at authoring time. The gate is diff-scoped (only 
 change adds), so the existing corpus needs no backfill, and a pin merely *moved* between
 files is exempt.
 
+**Declaring a repository-tree walk (issue #711).** `# tree-walk-ok: <reason>` is the third
+member of the same declaration-marker family, in the same one-line-reason framing as
+`# structural-pin-ok:` and `# raw-guard-ok:`. A tracked `.py` or `.sh` file under `lib/test/`
+that enumerates with a recursive walk — `rglob(`, `os.walk(`, `iglob(`, a `recursive=True`
+call, a `glob(` whose pattern carries a `**` component or is not a string literal (these two
+are judged by a Python parse, so they apply to `.py` files only), or a shell `find` / `grep -r`
+rooted at the repository root — must carry that marker on the walk's line, or source its
+population from an index-reading `git ls-files` instead. **The walk's own line is always the
+safe placement.** Span acceptance — the marker anywhere within a statement — applies only to a
+multi-line `glob(`-family call judged by the Python parse and to a `\`-continued shell
+statement; the four literal tokens (`rglob(`, `os.walk(`, `iglob(`, `recursive=True`) are judged
+line by line, so a wrapped one must carry its marker on the token's own line. The reason exists
+because a root-anchored walk descends into every sibling worktree under `.claude/worktrees/`
+and reports a count that has nothing to do with the repository's state. `lib/test/lint-tree-enumeration.py`
+turns the suite RED for an undeclared walk; it never judges what a reason claims, so a marked
+walk still ships — it ships visibly.
+
 ### Regenerating suite-owned artifacts
 
 Several suite gates compare a checked-in generated artifact against what the tree
