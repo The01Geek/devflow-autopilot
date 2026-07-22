@@ -63,9 +63,19 @@ index-mode one and so is triaged by its own `[ ! -f ]` guard rather than the mod
 `case`. A copy failure and a mode-application failure are each counted on their own
 `fail_copy` / `fail_mode` channel — a failure is never a skip, so it can never hide in
 the gap between `total` and `copied`; `_ra_summary_balances` asserts that partition.
-An unestablished enumeration (a failed `git ls-files`, an image that is not there)
-makes *both* the bash builder and the python oracle emit an `unestablished` sentinel
-instead of a vacuous zero, and each sentinel has a caller that drives it. Unmerged
+An unestablished measurement makes *both* the bash builder and the python oracle emit
+an `unestablished` sentinel instead of a vacuous zero — a failed `git ls-files` in
+either half, or, for the oracle alone, an image directory that is not there — and each
+sentinel has a caller that drives it, as do the `fail_copy` channel (a regular file
+planted where a nested entry's parent directory must go) and the `fail_mode` channel (a
+`chmod` stub exiting 1, shadowed onto `PATH` for the duration of one build only, which
+also reproduces the rc-127 absent-`chmod` host). The two structural skip tallies are
+additionally pinned to zero against the **live** index, because builder/oracle agreement
+alone would let a newly tracked symlink or submodule leave every fixture silently
+incomplete while both halves agree about the omission. The symlink index-entry rows are
+gated on a runtime `ln -s` capability probe: a `core.symlinks=false` checkout (Windows
+without the symlink privilege) omits `link.md` from the fixture and announces the gated
+rows on stderr, rather than going RED over a symlink git was never given. Unmerged
 paths contribute once, not once per stage. The `#619 pristine fixture …` / `#619 fixture
 builder …` assertions check all of this against an independent oracle that re-reads the
 index itself, with the temp-repository arms exercised against a real git index rather
