@@ -25,6 +25,11 @@
       "path": "lib/test/modules/regenerate-artifacts.sh",
       "minimum_assertions": 100,
       "description": "Focused #619 batched generated-artifact pass: clean-tree run, mechanical regeneration and idempotency, closure-error vs traceback routing, combined judgment drift with write-scope negatives, --list registry surface and bundle-membership coupling, the three-state exit contract including the infrastructure paths reached despite an in-set exit, per-row infra_marker discrimination for every judgment row with per-line marker scoping, and the budget row's unestablished/untracked/resolved/deleted-member arms"
+    },
+    "installer-wiring": {
+      "path": "lib/test/modules/installer-wiring.sh",
+      "minimum_assertions": 118,
+      "description": "Focused installer and workflow-wiring coverage: the #487/#491 credential-refresher and fresh-gh wrapper workflow wiring, the #533 seven-output install-gh-wrapper.sh validation with its planted-defect controls, the #544 fingerprint-comparison symmetry, the #599 workflow-token and secret-file permission pins, and the #690 Windows mode-probe arms"
     }
   },
   "workflows": {
