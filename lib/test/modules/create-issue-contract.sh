@@ -545,7 +545,7 @@ devflow_module_pin_unique "#522: Step 3.5 summary reports the dimension self-che
 # re-anchors an auditor on prior verdicts exactly as the live file did, and this skill no longer
 # writes (or deletes) that path, so only the out-of-bounds declaration covers it.
 devflow_module_pin_unique "#522: audit-prompt template out-of-bounds names the reasoning artifacts and the staged draft" \
-  'The following on-disk files are **out of bounds** — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, `.devflow/tmp/issue-audit-state-<slug>.md`, and any staged canonical-draft artifact `.devflow/tmp/issue-draft-<slug>.*.staged.md`' "$CI_TMPL_AUDIT"
+  'The following on-disk files are **out of bounds** — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, `.devflow/tmp/issue-audit-state-<slug>.md`, and any staged canonical-draft artifact `.devflow/tmp/issue-draft-<slug>.*.staged.md`' "$CI_TMPL_AUDIT"  # structural-pin-ok: surface-presence pin on the template's out-of-bounds enumeration, not a behavioral-fix pin
 # The retired-.md rationale is itself pinned: it is the one out-of-bounds entry with no live
 # producer, so a future reader who "tidies" it away silently re-opens the re-anchoring channel.
 devflow_module_pin_unique "#546: the retired .md event log stays declared out of bounds (pre-cutover leftovers re-anchor)" \
