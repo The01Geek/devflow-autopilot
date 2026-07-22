@@ -448,6 +448,39 @@ class LabelDerivationTest(unittest.TestCase):
         )
         self.assertEqual(guard.derive_labels(text), {"704"})
 
+    def test_a_name_argument_wrapped_by_a_line_continuation_is_derived(self):
+        # _call_pattern's separator class admits `\`-continuation + newline so a call whose
+        # name argument wraps to the next line is still anchored at name position. Nothing
+        # else exercised the `\`/`\n` members of that class: the live users are self-
+        # redundant (each label is also asserted single-line), so a future narrowing of the
+        # separator to `[ \t]+` would silently under-derive without any unit test going RED.
+        self.assertEqual(
+            guard.derive_labels('assert_eq \\\n  "#801 wrapped name" "1" "1"\n'), {"801"}
+        )
+
+    def test_a_wrapper_forwarding_all_positionals_is_derived(self):
+        # "$@" is a forwarding alias too: a wrapper that passes "$@" into an assertion head's
+        # name slot must be discovered, or a label asserted solely through such a wrapper
+        # underives. The literal-name control forwards "$@" but with a fixed name, so the
+        # head is not in name position and no label is derived.
+        forwarding = (
+            "_wall() {\n"
+            '  assert_eq "$@"\n'
+            "}\n"
+            '_wall "#802 forwarded via all-positionals" "1" "1"\n'
+        )
+        self.assertEqual(guard.derive_labels(forwarding), {"802"})
+        self.assertIn("_wall", guard._assertion_heads(forwarding.split("\n")))
+
+    def test_a_default_expansion_is_not_a_forwarding_alias(self):
+        # `name="${1:-default}"` is a default expansion, not a straight pass-through of "$1",
+        # so `name` must NOT be bound as a forwarding alias — otherwise a wrapper calling
+        # `assert_eq "$name" …` would be treated as forwarding the first positional when it
+        # is not. The bare "$1" and balanced "${1}" hop cases stay aliased (positive control).
+        self.assertNotIn("name", guard._forwarding_aliases('local name="${1:-default}"\n'))
+        self.assertIn("plain", guard._forwarding_aliases('local plain="$1"\n'))
+        self.assertIn("braced", guard._forwarding_aliases('local braced="${1}"\n'))
+
     def test_a_source_deriving_zero_labels_is_an_empty_set(self):
         self.assertEqual(guard.derive_labels('assert_eq "no label here" "1" "1"\n'), set())
 

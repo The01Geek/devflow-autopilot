@@ -176,7 +176,11 @@ def _forwarding_aliases(body: str) -> "set[str]":
     through such a wrapper underived — a vacuous completeness guarantee in the arm
     whose entire job is completeness."""
     aliases = {"1", "@", "{1}"}
-    for name in re.findall(r"(?<![A-Za-z0-9_])([A-Za-z_][A-Za-z0-9_]*)=\"?\$\{?1\}?\"?", body):
+    # Match a pure forward of the first positional only: bare `$1` or the balanced
+    # `${1}`. An unbalanced `\{?1\}?` also swallowed default/alternate-expansion forms
+    # such as `name="${1:-default}"`, binding `name` as a forwarding alias when it is not
+    # a straight pass-through of "$1"; the balanced `\$(?:1|\{1\})` rejects those.
+    for name in re.findall(r"(?<![A-Za-z0-9_])([A-Za-z_][A-Za-z0-9_]*)=\"?\$(?:1|\{1\})\"?", body):
         aliases.add(name)
         aliases.add("{" + name + "}")
     return aliases
@@ -197,8 +201,10 @@ def derive_labels(text: str) -> "set[str]":
     """Return the issue labels TEXT asserts, as bare digit strings.
 
     A label is derived only from the first quoted argument of an assertion call — the
-    assertion NAME. Comments are stripped from consideration by the same rule: a `#`
-    comment carries no assertion head in command position followed by a quoted name."""
+    assertion NAME. Comment lines are excluded two ways that agree: an explicit pre-scan
+    drops every line whose first non-blank character is `#` (below), and, independently, a
+    `#` comment carries no assertion head in command position followed by a quoted name,
+    so it would underive on the positional anchor even without that drop."""
     lines = text.split("\n")
     call_re = _call_pattern(frozenset(_assertion_heads(lines)))
     # An assertion head can never be invoked from inside a `#` comment line, so the
@@ -587,9 +593,12 @@ def _apply_fix(map_value, run_sh_labels, module_labels):
 
 
 def _write_map(path: Path, map_value) -> "str | None":
-    """Serialize with the map's existing shape: 2-space indent, sorted keys, one
+    """Serialize with the map's existing shape: 2-space indent, sorted keys,
+    `ensure_ascii=False` (non-ASCII kept as UTF-8, matching the checked-in file), one
     trailing newline. Byte-identical to the checked-in file when nothing changed, which
-    is what makes a second `--fix` run a no-op.
+    is what makes a second `--fix` run a no-op — the four serialization knobs here are the
+    pinned shape (`indent=2, sort_keys=True, ensure_ascii=False`, `+ "\\n"`); changing any
+    one re-writes every byte and breaks that idempotency.
 
     Returns None on success, or a breadcrumb when the write fails. The write is the one
     remaining path that could leave `--fix` raising a raw traceback instead of this
