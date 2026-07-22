@@ -47348,7 +47348,11 @@ e711_write() {  # <root> <relpath> <line…>  -> writes a fixture file, creating
 }
 
 E711_FX="$(probe_tmp '#711 fixture root')"
-rm -f "$E711_FX"; mkdir -p "$E711_FX"
+# probe_tmp prints the literal /dev/null when mktemp fails (unlike git_sandbox, whose
+# /dev/null/... sentinel fails every downstream mkdir closed by construction). An unguarded
+# `rm -f` on it would, under a root container with a writable /dev, delete the device node and
+# silently change the meaning of every `2>/dev/null` in the rest of the suite.
+case "$E711_FX" in ""|/dev/null) : ;; *) rm -f "$E711_FX"; mkdir -p "$E711_FX" ;; esac
 e711_write "$E711_FX" lib/test/clean.py "import os" "print(os.sep)"
 e711_write "$E711_FX" lib/test/unmarked.py "for p in root.${E711_TOK_R}('*.json'):" "    print(p)"
 e711_write "$E711_FX" lib/test/marked.py \
@@ -47363,14 +47367,48 @@ e711_write "$E711_FX" lib/test/broken.py "def f(:"
 e711_write "$E711_FX" other/outside.py "for p in root.${E711_TOK_R}('*.json'):" "    print(p)"
 # Multi-element fixtures for the cardinality-sensitive part of the report: findings are sorted by
 # line and deduplicated per line, neither of which a single-violation file exercises. `dual.py`
-# plants two violations OUT of line order in the file's own structure and one line that satisfies
-# TWO arms at once (a non-literal pattern that also carries a `**` component), so a broken sort
-# key or a missing dedupe shows up as reordered or duplicated output rather than passing silently.
+# plants two violations OUT of line order in the file's own structure, so a broken sort key shows
+# up as reordered output rather than passing silently. The DEDUPE is exercised separately by
+# `dedupe.py` below: a `**`-pattern line cannot also reach the non-literal-pattern arm (arm 1
+# appends and short-circuits), so no single line of `dual.py` can ever emit two findings — only a
+# line reaching the LITERAL arm and an AST arm at once does, which is what `dedupe.py` plants.
 e711_write "$E711_FX" lib/test/dual.py \
   "a = ROOT.${E711_TOK_G}(joined(\"**\", \"x.json\"))" \
   "b = 1" \
   "c = root.${E711_TOK_R}('*.json')"
 e711_write "$E711_FX" lib/test/second.py "d = root.${E711_TOK_W}(base)"
+# One line reaching the literal arm AND AST arm 1 at once — the only shape that generates a
+# duplicate finding for a single line, so deleting the per-line dedupe reports this line twice.
+e711_write "$E711_FX" lib/test/dedupe.py "e = root.${E711_TOK_R}(\"**/x.json\")"
+# AST arm 2's positive control: a `glob(`-family call whose pattern argument is a plain NAME.
+# No other fixture reaches arm 2 — without this one, deleting the arm leaves the block green.
+e711_write "$E711_FX" lib/test/nonliteral.py "f = ROOT.${E711_TOK_G}(pattern)"
+# Arm 2's documented complement: a call with no positional argument at all is not a candidate.
+e711_write "$E711_FX" lib/test/kwonly.py "g = ROOT.${E711_TOK_G}(pattern=p)"
+
+# --- Shell arm fixtures. Every fixture above is `.py`, so without these the whole shell arm
+# --- (fold_continuations, statements_in, the path-operand scan, ROOT_FRAGMENTS, the substring
+# --- pre-filter) has no positive control and emptying it leaves the suite green. Heads and root
+# --- fragments are assembled from parts for the same reason the Python tokens are: an assembled
+# --- head keeps run.sh's own source below the guard's substring pre-filter, so no fixture line
+# --- here becomes a candidate in the file that writes it.
+E711_TOK_F="fi""nd"; E711_TOK_GR="gr""ep"; E711_RV="RO""OT"
+e711_write "$E711_FX" lib/test/sh_find.sh "${E711_TOK_F} \"\$LIB/../skills\" -name x"
+e711_write "$E711_FX" lib/test/sh_capture.sh "V=\"\$(${E711_TOK_GR} -rlF x \"\$DGH_${E711_RV}/lib\")\""
+e711_write "$E711_FX" lib/test/sh_repo_root.sh "${E711_TOK_GR} -r x \"\$REPO_${E711_RV}/lib\""
+e711_write "$E711_FX" lib/test/sh_marked.sh \
+  "${E711_TOK_F} \"\$LIB/../skills\" -name x  # tree-walk-ok: scoped to a per-test sandbox"
+e711_write "$E711_FX" lib/test/sh_nonroot.sh "${E711_TOK_GR} -rn z \"\$SOMEDIR\""
+e711_write "$E711_FX" lib/test/sh_nonrecursive.sh "${E711_TOK_GR} -n z \"\$${E711_RV}/x\""
+e711_write "$E711_FX" lib/test/sh_continued.sh \
+  "V=\"\$(${E711_TOK_GR} -rlF x \\\\" \
+  "  \"\$${E711_RV}/lib\")\""
+# The three fail-open shapes the inline review fixed, each retained as a live regression control.
+e711_write "$E711_FX" lib/test/sh_paramexp.sh "d=\${rel#*/}; ${E711_TOK_F} \"\$${E711_RV}\" -type f"
+e711_write "$E711_FX" lib/test/sh_optvalue.sh \
+  "V=\"\$(${E711_TOK_GR} -r --include '*.sh' NEEDLE \"\$${E711_RV}\")\""
+e711_write "$E711_FX" lib/test/strmarker.py \
+  "h = [\"# tree-walk-ok: not a comment\", root.${E711_TOK_R}('*.json')]"
 
 # Planted-defect positive control — the assertion that discharges the guard-coverage claim.
 assert_eq "#711 guard flags an unmarked walk in the audited population" "rc=1|lib/test/unmarked.py" \
@@ -47408,6 +47446,54 @@ assert_eq "#711 guard reports its audited count on the clean path" "rc=0|lint-tr
 # fail-open the guard exists to prevent, so it is a named skip and a non-zero exit.
 assert_eq "#711 an unparseable audited file is a named skip, not a silent pass" "yes" \
   "$(case "$(e711_run "$E711_FX" lib/test/broken.py)" in rc=0*) echo "no: exited 0" ;; *"SKIPPED lib/test/broken.py"*) echo yes ;; *) echo no ;; esac)"
+# The OTHER skip arm — an unopenable path — reaches the same fail-closed exit through different
+# code (_read's OSError arm, not the parse arm), so it needs its own control.
+assert_eq "#711 an unreadable selected path is a named skip, not a silent pass" "yes" \
+  "$(case "$(e711_run "$E711_FX" lib/test/no-such-file.py)" in rc=0*) echo "no: exited 0" ;; *"SKIPPED lib/test/no-such-file.py"*) echo yes ;; *) echo no ;; esac)"
+
+# AST arm 2 (a non-literal pattern argument) and the per-line dedupe. Neither is reachable from
+# any fixture above, so without these two assertions deleting either leaves the whole block green.
+assert_eq "#711 a glob call whose pattern is not a literal is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/nonliteral.py)"
+assert_eq "#711 a glob call with no positional pattern argument is not a candidate" \
+  "rc=0|lint-tree-enumeration: audited 1 of 1 files" \
+  "$(e711_run "$E711_FX" lib/test/kwonly.py)"
+assert_eq "#711 one line reaching two arms is reported once" "rc=1|1" \
+  "$(e711_run "$E711_FX" lib/test/dedupe.py | python3 -c 'import re,sys
+t = sys.stdin.read()
+print("rc=%s|%s" % (re.match(r"rc=(\d+)", t).group(1),
+                    ",".join(re.findall(r"^\S+:(\d+): undeclared", t.split("|",1)[1], re.M))))')"
+
+# --- Shell-arm assertions. The arm fires only on a `find`/`grep -r` whose path operand resolves
+# --- to the repository root, so each shape below is asserted against its own negative control:
+# --- emptying ROOT_FRAGMENTS, inverting the substring pre-filter, breaking fold_continuations, or
+# --- narrowing the path-operand scan each turns one of these RED.
+assert_eq "#711 a shell find rooted at the repository root is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_find.sh)"
+assert_eq "#711 a captured recursive grep rooted at the repository root is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_capture.sh)"
+assert_eq "#711 the REPO_ROOT fragment spelling is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_repo_root.sh)"
+assert_eq "#711 a line-continued recursive grep whose root operand wraps is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_continued.sh)"
+assert_eq "#711 a marked shell walk is accepted" "rc=0|lint-tree-enumeration: audited 1 of 1 files" \
+  "$(e711_run "$E711_FX" lib/test/sh_marked.sh)"
+# The shell arm's documented complement, asserted so an over-wide fragment set goes RED here.
+assert_eq "#711 a recursive grep rooted below the repository root is not a candidate" \
+  "rc=0|lint-tree-enumeration: audited 1 of 1 files" \
+  "$(e711_run "$E711_FX" lib/test/sh_nonroot.sh)"
+assert_eq "#711 a non-recursive grep at the repository root is not a candidate" \
+  "rc=0|lint-tree-enumeration: audited 1 of 1 files" \
+  "$(e711_run "$E711_FX" lib/test/sh_nonrecursive.sh)"
+
+# Three fail-open regressions the inline review found and fixed, each kept as a live control.
+# Every one of them reported `audited 1 of 1 files` at exit 0 over a real undeclared walk.
+assert_eq "#711 a shell parameter expansion does not hide the rest of its line" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_paramexp.sh)"
+assert_eq "#711 an option taking a separated value does not hide the root operand" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_optvalue.sh)"
+assert_eq "#711 marker text inside a string literal does not exempt the line" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/strmarker.py)"
 
 # Population selection: a path outside lib/test/ is excluded even while carrying a planted walk,
 # and an all-excluded population is a zero tally at exit 0 — never confused with the fail-closed
@@ -47433,6 +47519,10 @@ assert_eq "#711 an empty pre-exclusion enumeration fails closed" "yes" \
 rm -f "$E711_EMPTY"
 assert_eq "#711 a non-repository root fails closed naming git ls-files" "yes" \
   "$(E711_SB="$(probe_tmp '#711 non-repo root')"
+     # probe_tmp's mktemp-failure sentinel. It has ALREADY recorded a suite FAIL and its own
+     # breadcrumb, so the run is red either way; short-circuiting here avoids `rm -f /dev/null`
+     # (which under root would delete the device node) and a second, misattributed failure.
+     case "$E711_SB" in ""|/dev/null) echo yes; exit 0 ;; esac
      rm -f "$E711_SB"; mkdir -p "$E711_SB"
      E711_OUT3="$(python3 "$E711_LINT" --root "$E711_SB" 2>&1)"
      E711_RC3=$?
@@ -51036,8 +51126,11 @@ print(n if n else "no-committed-baseline", end="")'
 
 # The PRE-FIX expression, retained verbatim as the regression comparand. It is measured against
 # the same decoy fixture as the function above, so the #711 defect stays REPRODUCED in the suite
-# rather than merely described in prose. This is the one candidate token literal that remains in
-# this file, and it carries the declaration marker naming that role.
+# rather than merely described in prose. It carries the declaration marker naming that role — as
+# any candidate token literal in this file must, which is why the fixture bodies above assemble
+# theirs from parts. (Deliberately no count of how many such literals remain: a self-referential
+# tally in a run.sh comment rots on the next edit to this file and nothing turns RED — the
+# PR-#553 class this repository treats as a non-demotable self-contradicting diff.)
 _pm_prefix_walk_count() {  # <root> -> the pre-#711 filesystem-walk count
   python3 -c 'from pathlib import Path; import sys; print(sum(1 for p in Path(sys.argv[1]).rglob("prompt-mass-baseline.json") if p.is_file() and ".devflow/vendor/" not in p.as_posix()), end="")' "$1"  # tree-walk-ok: retained pre-#711 comparand; reproducing the worktree-permeable walk IS its job
 }
@@ -51091,7 +51184,11 @@ rm -rf "$PM_SB_NONE"
 # Accepted-loss control for the unknown-is-not-zero claim: the suppressed input (a broken git) is
 # PRESENT in the fixture, so the claimed absence of a digit is actually exercised.
 PM_SB_STUB="$(_pm_fixture_repo '#711 broken-git fixture' README.md)"
-PM_STUB_BIN="$(mktemp -d)"
+# Routed through probe_tmp rather than a bare `mktemp -d`: on allocation failure probe_tmp records
+# a NAMED suite FAIL, whereas a bare mktemp would leave PM_STUB_BIN empty, make PATH begin with an
+# empty element (the cwd), and turn this into a confusing downstream miss instead of a named one.
+PM_STUB_BIN="$(probe_tmp '#711 broken-git stub bin')"
+case "$PM_STUB_BIN" in ""|/dev/null) : ;; *) rm -f "$PM_STUB_BIN"; mkdir -p "$PM_STUB_BIN" ;; esac
 printf '#!/bin/sh\nexit 3\n' > "$PM_STUB_BIN/git" 2>/dev/null
 chmod +x "$PM_STUB_BIN/git" 2>/dev/null
 assert_eq "#711 an unavailable git emits git-unavailable, never a count" "git-unavailable" \
@@ -51101,9 +51198,12 @@ rm -rf "$PM_SB_STUB" "$PM_STUB_BIN"
 # Call-shape check, deliberately NOT a grep counting occurrences of the retained expression —
 # such a grep matches its own pattern line and can never report the intended count (the repo's
 # #370 pin-in-comment rot class). The needle is assembled from parts inside python3, so the
-# counting expression cannot match itself, and the bound is a LOWER bound so adding a sixth
-# call site never forces a coupled edit here.
-assert_eq "#711 every baseline-count assertion reads the git-sourced function" "yes" \
+# counting expression cannot match itself, and the bound is a LOWER bound so adding a call site
+# never forces a coupled edit here. The assertion is named for what it MEASURES — that the
+# git-sourced function has call sites — not for the stronger claim that no OTHER assertion reads
+# a filesystem walk: a lower bound cannot establish that negative half, and the retained
+# `_pm_prefix_walk_count` comparand is itself a declared walk in this same file.
+assert_eq "#711 the git-sourced baseline count has at least five call sites" "yes" \
   "$(python3 -c 'import sys
 name, path = sys.argv[1], sys.argv[2]
 needle = name + " " + chr(34)

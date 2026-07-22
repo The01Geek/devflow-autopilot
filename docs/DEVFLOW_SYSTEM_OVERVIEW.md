@@ -472,6 +472,25 @@ concurrent PRs to merge without a shared total-row hot spot. The existing Review
 Review-and-Fix word ceilings remain complementary and unchanged: ceilings cap traffic; the
 byte census audits movement.
 
+**Exactly one prompt-mass baseline is committed, and the suite establishes that from the git
+index (issue #711).** The uniqueness check counts `prompt-mass-baseline.json` through
+`git ls-files` — an **index** read, with no `--others` — rather than a recursive filesystem walk
+from the repository root. The walk was worktree-permeable: sibling checkouts under
+`.claude/worktrees/` (this repository's own working mode) each carry their own baseline, so the
+check counted them and failed locally with a number that varied between runs on the same commit,
+while CI's fresh `actions/checkout` never reproduced it. Unknown is never collapsed onto zero —
+a `git` that cannot run reports `git-unavailable` and an empty-but-successful population reports
+`no-committed-baseline`, never a count of `0`. The pre-fix expression is retained in the suite as
+a live comparand, so the defect stays reproduced rather than described.
+
+That enumeration rule is enforced tree-wide by `lib/test/lint-tree-enumeration.py`, a desk-time
+lint alongside `lint-gh-api-repo-path.py`, `lint-issue-body-refetch.py`, `pin-corpus-lint.py`, and
+`coverage_map_guard.py`. It audits the tracked `.py` and `.sh` files under `lib/test/` and turns
+the suite RED for a recursive walk carrying no `# tree-walk-ok: <reason>` marker — the third
+member of the declaration-marker family alongside `# raw-guard-ok:` and `# structural-pin-ok:`. It
+does not bar a walk; it makes one a reviewable declaration. Its module docstring closes the
+audited population, the candidate-token set, and the accepted residuals by enumeration.
+
 Every mandatory-row-moving PR adds one or more append-only records under `docs/cutovers/`.
 Schema 1 recognizes `cutover` (tested ownership transfer plus pin disposition), `trim`
 (editorial reduction), `growth` (justified mandatory bytes), and `relocate` (source rows and

@@ -118,9 +118,12 @@ files is exempt.
 member of the same declaration-marker family, in the same one-line-reason framing as
 `# structural-pin-ok:` and `# raw-guard-ok:`. A tracked `.py` or `.sh` file under `lib/test/`
 that enumerates with a recursive walk — `rglob(`, `os.walk(`, `iglob(`, a `recursive=True`
-call, a `glob(` whose pattern carries a `**` component or is not a string literal, or a shell
-`find` / `grep -r` rooted at the repository root — must carry that marker on the walk's line,
-or source its population from an index-reading `git ls-files` instead. The reason exists
+call, a `glob(` whose pattern carries a `**` component or is not a string literal (these two
+are judged by a Python parse, so they apply to `.py` files only), or a shell `find` / `grep -r`
+rooted at the repository root — must carry that marker on the walk's line, or source its
+population from an index-reading `git ls-files` instead. On a multi-line call or a
+`\`-continued shell statement the marker is accepted anywhere in the statement's span, so a
+wrapped call need not be reflowed; the walk's own line is always safe. The reason exists
 because a root-anchored walk descends into every sibling worktree under `.claude/worktrees/`
 and reports a count that has nothing to do with the repository's state. `lib/test/lint-tree-enumeration.py`
 turns the suite RED for an undeclared walk; it never judges what a reason claims, so a marked

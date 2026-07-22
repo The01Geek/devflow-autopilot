@@ -5,12 +5,15 @@ kind: growth
 
 ## Files
 
-- `CLAUDE.md` — +1,447 bytes (71,436 → 72,883).
+- `CLAUDE.md` — +1,954 bytes (71,436 → 73,390).
 
 Two edits land there. One Conventions bullet is added: the enumeration-source rule requiring a
 suite assertion or lint helper that enumerates the repository tree to source its population from
 an index-reading `git ls-files`, naming the sibling-worktree false-red as the reason and
-`lib/test/lint-tree-enumeration.py` as the enforcing mechanism. The existing `#664` gotcha bullet
+`lib/test/lint-tree-enumeration.py` as the enforcing mechanism. That bullet states the guard's
+enforcement scope precisely — an *undeclared* walk, with the shell arm firing on a path operand
+that resolves to the repository root — and points at the helper's own docstring for the closed
+residual set rather than restating a scope that would drift. The existing `#664` gotcha bullet
 is also reconciled: it enumerates `lib/test/lint-gh-api-repo-path.py`'s exclusion set in prose,
 and this change adds `.claude/worktrees/` to that set, so the prose mirror would otherwise have
 gone stale in the same diff that moved the code.

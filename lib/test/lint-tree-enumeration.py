@@ -44,16 +44,23 @@ Candidate token set, closed by enumeration:
   test is deliberate: `glob.glob(os.path.join(root, "skills", "**", "SKILL.md"))`
   puts the `**` in a *separate* argument from the `glob` call, so a test requiring
   the two in one literal would miss it entirely;
-* a `glob(`-family call whose pattern argument is not a string literal;
-* a shell `find`, and a shell `grep -r` or `grep -R`, whose first path operand
+* a `glob(`-family call whose pattern argument is not a string literal — a call with
+  **no positional argument at all** (`p.glob(pattern=x)`) is not a candidate, since
+  there is no pattern argument to judge;
+* a shell `find`, and a shell `grep -r` or `grep -R`, **any** of whose path operands
   textually contains a repository-root-resolving fragment at any position.
 
 The shell arm's fragments are matched by **property, not by an allowlist of exact
 spellings**: `$LIB/..`, the bare substring `ROOT`, `REPO_ROOT`, and an operand that
-is exactly `.`. `ROOT` is matched as a bare substring rather than as `$ROOT`
-precisely so a root reached through a differently-named variable is still seen —
-`grep -r … "$DGH_ROOT/scripts"`, whose variable was assigned
-`"$(cd "$LIB/.." && pwd)"`, matches on that substring.
+is `.` or begins with `./`. `ROOT` is matched as a bare substring rather than as
+`$ROOT` precisely so a root reached through a differently-named variable is still
+seen — `grep -r … "$DGH_ROOT/scripts"`, whose variable was assigned
+`"$(cd "$LIB/.." && pwd)"`, matches on that substring. **Every** path operand is
+tested rather than a computed "first" one, because selecting one requires an option
+table that would drift: under a first-operand rule
+`grep -r --include '*.sh' NEEDLE "$ROOT"` and `find -maxdepth 2 "$ROOT"` both walk
+past the real path. `grep`'s **pattern** — its first non-option token — is the one
+token deliberately excluded, since it is text to search for, not a path.
 
 Accepted residuals, each stated with its own reason rather than folded together:
 
@@ -85,6 +92,20 @@ Accepted residuals, each stated with its own reason rather than folded together:
   and the shell arm, never the AST arms — so a `glob()` call with a `**` component
   embedded in a `python3 -c` body is reached only if it also carries one of the
   literal tokens.
+* **Head indirection.** A shell walk whose *head* arrives through a variable —
+  `$GREP -r … "$ROOT"`, the shape this repository's own `DEVFLOW_GH`/`DEVFLOW_JQ`
+  resolver convention would produce — is not seen: both the substring pre-filter and
+  the head test compare against the literal names `find`/`grep`. This is the shell
+  arm's analogue of root and pattern indirection, and is listed separately because it
+  escapes at the *head*, not at an operand.
+* **A bare `find` with no path operand.** GNU `find` defaults to `.`; BSD `find`
+  requires the operand. Because the defaulting is not portable, no operand is
+  synthesized and the call is not flagged. `grep`'s implicit `.` **is** synthesized,
+  because it is required by POSIX rather than a GNU extension.
+* **Python string-literal prose.** The comment-awareness rule strips `#` comments
+  only, so a candidate token inside a module docstring or any other triple-quoted
+  string is scanned as code and would demand a marker. Prose in a `#` comment is
+  free; prose in a `\"\"\"` block is not.
 
 Usage:
     lint-tree-enumeration.py [--root DIR] [--files-from PATH]
@@ -228,31 +249,78 @@ def _read(path: Path) -> tuple[str | None, str | None]:
     return data.decode("utf-8", errors="replace").replace("\r\n", "\n"), None
 
 
+def _comment_split(line: str) -> tuple[str, str]:
+    """Return `(code, comment_tail)` for one raw line, quote- and escape-aware.
+
+    A `#` introduces a comment only at a **word boundary** — line start, or preceded
+    by whitespace. Without that rule a shell parameter expansion (`${rel#*/}`,
+    `${x##*/}`) reads as a comment and everything after it is deleted from the code
+    half, so a real walk sharing that logical line becomes invisible and the guard
+    reports clean over it. Those expansions are ordinary idiom throughout this
+    population, so the naive form fails open exactly where this guard claims to fail
+    closed. A backslash escapes the next character, so `\\"` no longer desynchronises
+    the quote state for the remainder of the line.
+    """
+    split = _split_at_hash(line, quotes_active=True)
+    if split is not None:
+        return split
+    # Quote-aware scanning left a quote open at end of line, so this line's quote
+    # state is not self-contained — the commonest cause is a `\`-continued shell
+    # statement whose opening quote is on an earlier line. Scanning it as if the
+    # quote were still open would swallow a real trailing comment (and with it the
+    # declaration marker), so re-scan with quotes inert and let the word-boundary
+    # rule alone decide. Precision is retained on every line whose quotes balance,
+    # which is the case the string-literal exemption hole lives in.
+    fallback = _split_at_hash(line, quotes_active=False)
+    return fallback if fallback is not None else (line, "")
+
+
+def _split_at_hash(line: str, quotes_active: bool) -> tuple[str, str] | None:
+    """Split at the first comment-introducing `#`, or None if quotes were left open."""
+    quote: str | None = None
+    index = 0
+    while index < len(line):
+        char = line[index]
+        # A backslash escapes the next character, so `\"` no longer desynchronises the
+        # quote state for the rest of the line — except inside single quotes, where
+        # both shell and this population's regex idiom take it literally.
+        if char == "\\" and quote != "'":
+            index += 2
+            continue
+        if quote is not None:
+            if char == quote:
+                quote = None
+            index += 1
+            continue
+        if quotes_active and char in ("'", '"'):
+            quote = char
+            index += 1
+            continue
+        if char == "#" and (index == 0 or line[index - 1].isspace()):
+            return line[:index], line[index:]
+        index += 1
+    return None if quote is not None else (line, "")
+
+
 def strip_comment(line: str) -> str:
     """Return `line` with any trailing comment removed, quote-aware.
 
     Candidate detection reads this stripped form, so a token that appears only
     inside a comment is not a candidate — prose describing a walk needs no marker.
-    The **marker** test deliberately reads the RAW line instead: the marker *is* a
-    comment, so stripping it first would make every declaration invisible.
     """
-    quote: str | None = None
-    for index, char in enumerate(line):
-        if quote is not None:
-            if char == quote:
-                quote = None
-            continue
-        if char in ("'", '"'):
-            quote = char
-            continue
-        if char == "#":
-            return line[:index]
-    return line
+    return _comment_split(line)[0]
 
 
 def has_marker(line: str) -> bool:
-    """True when the raw `line` carries a format-strict marker with a reason."""
-    return bool(_MARKER_RE.search(line))
+    """True when `line` carries a format-strict marker with a reason IN ITS COMMENT.
+
+    The marker is tested against the comment tail alone, never the whole raw line:
+    the contract calls it a format-strict *comment* marker, and a raw-line search
+    lets a string literal that merely contains the marker text — `x = ["# tree-walk-ok:
+    y", root.rglob("*")]` — exempt a real walk on that same line. The sibling
+    `pin-corpus-lint.py` marker is quote-aware for the same reason.
+    """
+    return bool(_MARKER_RE.search(_comment_split(line)[1]))
 
 
 def fold_continuations(lines: list[tuple[int, str]]) -> list[tuple[int, int, str]]:
@@ -352,8 +420,9 @@ def scan_python_ast(text: str, raw_lines: list[str]) -> list[tuple[int, str]]:
             )
             continue
         # Arm 2 — a pattern argument that is not a string literal, which no literal
-        # inspection can judge. `rglob`/`iglob` are already literal-token candidates;
-        # they are reached here only when the literal arm was satisfied by a marker.
+        # inspection can judge. `rglob`/`iglob` also fire the literal arm, so an
+        # unmarked one reaches here too; the per-line dedupe in `scan_file` then
+        # collapses the duplicate. A marked call never reaches either arm.
         if not node.args:
             continue
         first = node.args[0]
@@ -365,25 +434,38 @@ def scan_python_ast(text: str, raw_lines: list[str]) -> list[tuple[int, str]]:
     return found
 
 
-def _first_path_operand(tokens: list[str], head_index: int) -> str | None:
-    """Return the first path operand of the shell command at `head_index`.
+def _path_operands(tokens: list[str], head_index: int) -> list[str]:
+    """Return EVERY candidate path operand of the shell command at `head_index`.
 
-    `find`'s first non-option token is its path operand. `grep`'s first non-option
-    token is its *pattern*, so its first path operand is the second — and when
-    there is none, `grep -r` defaults to the current directory, which is the bare
-    `.` operand the fragment set already treats as root-resolving.
+    Deliberately a list, not "the first one". Selecting a single operand requires
+    knowing which options take a **separated** value, and getting that wrong walks
+    right past the real path: under a first-operand rule
+    `grep -r --include '*.sh' NEEDLE "$ROOT"` selects `NEEDLE` and never examines
+    `"$ROOT"`, and `find -maxdepth 2 "$ROOT"` selects `2` — both silently unflagged.
+    Rather than re-derive an option table that would drift against two tools'
+    real surfaces, test them all: an over-fire here is a declarable marker, while an
+    under-fire is the fail-open this guard exists to remove.
+
+    The one token deliberately excluded is `grep`'s **pattern** — its first non-option
+    token — because a pattern is text to search *for*, not a path to search *in*, and
+    testing it would flag `grep -r "ROOT" somedir` on its needle. When `grep -r` has
+    no operand at all it defaults to the current directory, which is the bare `.` the
+    fragment set already treats as root-resolving.
     """
     head = tokens[head_index]
-    skip = 1 if head.endswith("grep") else 0
-    seen = 0
+    is_grep = head.endswith("grep")
+    operands: list[str] = []
+    skipped_pattern = not is_grep
     for token in tokens[head_index + 1 :]:
         if token.startswith("-"):
             continue
-        if seen < skip:
-            seen += 1
+        if not skipped_pattern:
+            skipped_pattern = True
             continue
-        return token
-    return "." if head.endswith("grep") else None
+        operands.append(token)
+    if is_grep and not operands:
+        operands.append(".")
+    return operands
 
 
 def _is_root_operand(operand: str | None) -> bool:
@@ -443,7 +525,9 @@ def scan_shell(raw_lines: list[str]) -> list[tuple[int, str]]:
                 _GREP_RECURSIVE.match(t) for t in tokens[1:]
             ):
                 continue
-            if not _is_root_operand(_first_path_operand(tokens, 0)):
+            if not any(
+                _is_root_operand(operand) for operand in _path_operands(tokens, 0)
+            ):
                 continue
             found.append(
                 (number, f"undeclared recursive walk (shell `{bare}` rooted at the repository root)")
@@ -534,9 +618,14 @@ def main(argv: list[str] | None = None) -> int:
             continue
         file_findings, parse_skip = scan_file(relative, text)
         if parse_skip is not None:
+            # Report the literal-arm findings the scan already collected ALONGSIDE the
+            # skip rather than discarding them. The skip already forces a non-zero exit,
+            # so nothing is weakened — but an unparseable file that also carries an
+            # undeclared walk would otherwise report only the parse failure, costing the
+            # author a second red run for a violation this run already knew about.
             skipped.append((relative, parse_skip))
-            continue
-        read_ok += 1
+        else:
+            read_ok += 1
         for number, reason in file_findings:
             findings.append(
                 f"{relative}:{number}: {reason} — declare it with "

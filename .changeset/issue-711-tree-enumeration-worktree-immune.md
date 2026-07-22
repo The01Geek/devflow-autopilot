@@ -22,4 +22,9 @@ bump: patch
   `.py` or `.sh` file under `lib/test/` enumerates with a recursive walk carrying no
   `# tree-walk-ok: <reason>` declaration. It does not bar a walk — it makes one a reviewable,
   greppable declaration, joining `# raw-guard-ok:` and `# structural-pin-ok:` as the third member
-  of the repository's declaration-marker family.
+  of the repository's declaration-marker family. Its shell arm reads a `#` as a comment only at a
+  word boundary (so a `${var#...}` parameter expansion no longer hides the rest of its line), tests
+  every path operand rather than a computed first one (so an option taking a separated value no
+  longer hides the root operand), and accepts the declaration marker only from a line's comment
+  (so marker text inside a string literal cannot exempt a real walk). Each of the three is a
+  fail-open the guard reported clean over, and each is retained as a suite fixture.
