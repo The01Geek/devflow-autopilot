@@ -1,0 +1,106 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-22T05:40:00Z",
+  "fix_commit_sha": "a380df9c",
+  "fix_files": [
+    ".devflow/prompt-extensions/implement.md",
+    "CONTRIBUTING.md",
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+    "docs/cutovers/issue-707-focused-default-growth.md",
+    "docs/review-and-fix-budget.md",
+    "lib/test/modules/harness-python-guards.inventory.md",
+    "lib/test/modules/harness-python-guards.sh",
+    "lib/test/prompt-mass-baseline.json",
+    "lib/test/run.sh"
+  ],
+  "loop_role": "fix",
+  "promotion_provenance": null,
+  "current_step": "loop-exit",
+  "current_substep": "terminated_by_operator_request",
+  "pending_dispatch": null,
+  "sweep_defs_read": ["review-and-fix.md", "receiving-code-review.md"],
+  "sweep_evidence": {"status": "run"},
+  "batched_regeneration": "run",
+  "checklist": [
+    {"id": "VC-40", "claim": "the inventory's exclusion table is complete over its stated population", "file": "lib/test/modules/harness-python-guards.inventory.md", "verification_mode": "lite", "claim_signature": "absolute_claim:harness-python-guards.inventory.md:exclusion-table-complete", "raw_verdict": "FAIL", "verdict": "FAIL", "evidence": "iteration-1's widened population sentence pulled in five module-driven entry points the table never lists; narrowed to what run.sh drives directly or via test_python_scripts.py, and rows added for cloud_writer_deps.py and regenerate-artifacts.py. Re-enumerated mechanically: every member of the narrowed population is now in one of the two tables."},
+    {"id": "VC-42", "claim": "the retired convention survives on no surface", "file": "lib/test/run.sh", "verification_mode": "lite", "claim_signature": "absolute_claim:run.sh:retired-convention-survives-nowhere", "raw_verdict": "FAIL", "verdict": "FAIL", "evidence": "the sweep carried only framing clauses, so the retired OBLIGATION sentence could be re-added alongside the new prose with every pin green; three obligation spellings added. Nine literals x six files now sweep to zero."},
+    {"id": "VC-44", "claim": "every published budget figure is live-measured", "file": "docs/review-and-fix-budget.md", "verification_mode": "lite", "claim_signature": "data_format_assumption:review-and-fix-budget.md:token-column-obeys-formula", "raw_verdict": "FAIL", "verdict": "FAIL", "evidence": "six token cells were derived by delta arithmetic rather than the doc's own round(words*1.3); recomputed, and a formula check over the whole table now reports zero drifting rows"}
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": null},
+  "phase3_findings": [
+    {"agent": "devflow:code-reviewer", "severity": "Important", "description": "The inventory population sentence widened by iteration 1 is false: five module-driven lib/test/*.py entry points sit inside the declared population and appear in neither table", "defect_signature": {"file": "lib/test/modules/harness-python-guards.inventory.md", "line_range": [29, 53], "kind": "documented_falsehood"}, "corroboration_count": 4, "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "The cloud_writer_contract.py row's iteration-1 annotation ('not driven from run.sh at all') is false — run.sh:50917 drives test_python_scripts.py, which drives the guard", "defect_signature": {"file": "lib/test/modules/harness-python-guards.inventory.md", "line_range": [44, 44], "kind": "documented_falsehood"}, "corroboration_count": 2, "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "The new #591 routing caveat directs the reader to a coverage-map files entry that cannot exist — lib/test/ is an exempt subtree", "defect_signature": {"file": "lib/test/modules/harness-python-guards.inventory.md", "line_range": [65, 72], "kind": "documented_falsehood"}, "corroboration_count": 3, "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "The reworked positive control's comment claims it detects a mistyped literal; it cannot, because the planting and counting loops read the same array", "defect_signature": {"file": "lib/test/run.sh", "line_range": [30592, 30609], "kind": "documented_falsehood"}, "corroboration_count": 2, "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "The claim-gating clause — the half that makes the non-gated push safe — ships unpinned on all five surfaces while its weaker siblings on the same paragraph are mutation-pinned", "defect_signature": {"file": "lib/test/run.sh", "line_range": [30494, 30633], "kind": "test_gap"}, "corroboration_count": 1, "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "The sweep omits the retired rule's operative obligation sentence, so the retired obligation can be re-added alongside the new prose with every pin green (the framing-only-pin hole, #171/#232)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [30547, 30570], "kind": "test_gap"}, "corroboration_count": 1, "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "The CONTRIBUTING.md sweep arm added in iteration 1 is inert — that file's retired form is a sentence none of the swept literals carry — while its comment claims it stops a revert", "defect_signature": {"file": "lib/test/run.sh", "line_range": [30550, 30554], "kind": "documented_falsehood"}, "corroboration_count": 1, "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Important", "description": "Six diff-modified token cells violate the counting formula the same document states (updated by delta arithmetic rather than round(words*1.3))", "defect_signature": {"file": "docs/review-and-fix-budget.md", "line_range": [95, 102], "kind": "documented_falsehood"}, "corroboration_count": 1, "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "The sweep block header still enumerates five surfaces after this change made it six", "defect_signature": {"file": "lib/test/run.sh", "line_range": [30530, 30532], "kind": "documented_falsehood"}, "corroboration_count": 1, "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "The reflection-routing case and the forward reference binding it to the obligation are unpinned (dangling-deference class)", "defect_signature": {"file": ".devflow/prompt-extensions/implement.md", "line_range": [176, 200], "kind": "test_gap"}, "corroboration_count": 1, "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "CONTRIBUTING.md's Submitting-changes step states the parallel rule without the claim gate the other five surfaces carry", "defect_signature": {"file": "CONTRIBUTING.md", "line_range": [334, 337], "kind": "documented_falsehood"}, "corroboration_count": 1, "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "GNU-only \\b in a zero-expecting absence pin: on BSD grep the alternation degrades and the pin can only ever count 0, passing on a macOS desk while failing on Linux CI", "defect_signature": {"file": "lib/test/modules/harness-python-guards.sh", "line_range": [218, 219], "kind": "logic_error"}, "corroboration_count": 1, "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "The overview's 'whole-tree meta-guards stay in the monolith' is false for cloud_writer_contract.py by the inventory's own row; the new reflection bullet names no reflection kind; AC4's mid-iteration scoping is undeclared", "defect_signature": {"file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md", "line_range": [867, 867], "kind": "documented_falsehood"}, "corroboration_count": 2, "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "G-1", "decision": "applied", "commit": "a380df9c"},
+    {"finding_id": "G-2", "decision": "applied", "commit": "a380df9c"},
+    {"finding_id": "G-3", "decision": "applied", "commit": "a380df9c"},
+    {"finding_id": "G-4", "decision": "applied", "commit": "a380df9c"},
+    {"finding_id": "G-5", "decision": "applied", "commit": "a380df9c"},
+    {"finding_id": "G-6", "decision": "applied", "commit": "a380df9c"},
+    {"finding_id": "G-7", "decision": "applied", "commit": "a380df9c"},
+    {"finding_id": "G-8", "decision": "applied", "commit": "a380df9c"},
+    {"finding_id": "G-9", "decision": "applied", "commit": "a380df9c"},
+    {"finding_id": "G-10", "decision": "applied", "commit": "a380df9c"},
+    {"finding_id": "G-11", "decision": "applied", "commit": "a380df9c"},
+    {"finding_id": "G-12", "decision": "applied", "commit": "a380df9c"},
+    {"finding_id": "G-13", "decision": "applied", "commit": "a380df9c"}
+  ],
+  "convergence_inputs": {"fixes_applied": 13, "fix_diff_lines": 168, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "reference_reads": {"fix_delta": {"status": "verified", "outcome": "refixed", "reason": null}},
+  "shadow": {
+    "ran_at": null,
+    "reviewed_sha": null,
+    "verdict": null,
+    "coverage": "not_verified",
+    "prompt_addenda": null,
+    "reviewers_dispatched": [],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": "The operator directed the loop to commit, push, and stop after this iteration. The Step 2.6 shadow pass was therefore never dispatched, so shadow coverage is not_verified and no clean-approve verdict is claimed for this run.",
+    "checklist_skipped": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 0, "overlap_with_iter_N": 0, "new": 0, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false
+  },
+  "telemetry": {
+    "phase_0":   {"calls": 0, "tokens": 0, "wall_clock_s": 20},
+    "phase_0_5": {"calls": 0, "tokens": 0, "wall_clock_s": 1},
+    "phase_1":   {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_1_5": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_2":   {"calls": 0, "tokens": 0, "wall_clock_s": 120},
+    "phase_3":   {"calls": 5, "tokens": 627317, "wall_clock_s": 612},
+    "step_2_5":  {"calls": 0, "tokens": 0, "wall_clock_s": 5, "webfetches": 0},
+    "step_2_6":  {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 40}
+  },
+  "notes": [
+    "Terminal state: NOT a converged clean approve. The loop was stopped by operator request after this iteration, before the Step 2.6 shadow pass and before a third engine pass could confirm the iteration-2 fixes introduced no new defects — and iteration 2 established that iteration 1's fixes DID introduce three documented falsehoods, so that risk is live, not theoretical.",
+    "Verification tier: full. lib/test/run.sh 12252 passed, 0 failed, zero skips at a380df9c; run-module.sh harness-python-guards 31/31 and review-and-fix-contract 68/68; regenerate-artifacts exit 0; shellcheck and ruff clean. The push and the local full run were started together per the policy this PR ships, and the completion claim was made only after reading the local run's summary."
+  ]
+}
