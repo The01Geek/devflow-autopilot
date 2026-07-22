@@ -7,20 +7,25 @@ kind: growth
 
 Mandatory prompt rows that grew in this change:
 
-- `skills/create-issue/references/audit-prompt-template.md` — +1,461 bytes (11,351 → 12,812)
-- `skills/create-issue/references/step-3-6-audit.md` — **−3,999 bytes** (67,283 → 63,284)
+- `skills/create-issue/references/audit-prompt-template.md` — +2,082 bytes (11,351 → 13,433)
+- `skills/create-issue/references/step-3-6-audit.md` — +1,137 bytes (67,283 → 68,420)
 
-The step-3-6 row is a net *shrink*: the coverage procedure's own bytes landed there, but the
-review pass shed more superseded prose than it added (the state owner and its tests are the sole
-tested owner of everything cut). The word-budget rows below are the operative figures — bytes are
-recorded here only because this artifact's schema is byte-keyed.
+Both figures are measured against `origin/main` **after** merging it into this branch, so they
+are this change's own contribution and not the merge's.
 
-No ceiling was renegotiated. The create-issue word budgets are ratchet-down-only, and both
-hold at their existing values (`docs/create-issue-budget.md`):
+The default-path ceiling **was** renegotiated, as a merge collision and at the operator's
+direction (`docs/create-issue-budget.md`, the 2026-07-22 PR #728 decision row):
 
-- root 2,732 (ceiling 2,754, unchanged)
-- default path 31,202 → **31,262** — exactly at the unchanged 31,262 ceiling, zero headroom
-- root + all 9 references 27,198 → 27,258 (`CI614_TOTAL_RECORDED` re-recorded, inside the ±2% band)
+- root 2,732 (ceiling 2,754, **unchanged**)
+- default path 32,475 → **32,619**; ceiling 32,491 → **34,249** (measured + the full AC6 5% maximum)
+- root + all 9 references 27,989 → **28,133** (`CI614_TOTAL_RECORDED` re-recorded)
+
+This change's own coverage prose fits inside the pre-merge ceiling on its own branch — it landed
+at exactly 31,262 there. The overrun appears only when `main`'s #704/#706 union (which had itself
+re-recorded the ceiling to 32,491 with 16 words of headroom) is merged in, so no single change is
+responsible for it. The operator authorized the full 5% maximum rather than another 16-word margin
+that the next PR would collide with immediately; the ratchet resumes at once and this is not a
+precedent for single-change growth.
 
 `audit-prompt-template.md` is renderer-owned and is **not** on the default-path operand, which is
 why the larger of the two growths costs the budget nothing.

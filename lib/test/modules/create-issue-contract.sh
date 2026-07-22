@@ -1108,10 +1108,13 @@ devflow_module_pin_unique "#603: round funding named as the budget-enforcement s
 #    restricted-PATH roundtrip; the remaining pins guard orchestrator-judgment prose with no
 #    code behavior to mutate. Either way these are presence pins, not behavioral-fix pins,
 #    so the mutation-evidence obligation does not attach.
-# issue #708 added `query-coverage`, a SECOND multi-line query, so the contract sentence
-# this pins now names two exceptions; the pin follows the corrected sentence.
-devflow_module_pin_unique "#603/AC14+#708: the multi-line queries are named" \
-  "**\`query-coverage\` prints its decision line then one line per dimension**" "$CI_BUNDLE"  # structural-pin-ok: surface-presence pin over orchestrator-judgment prose (the #603 block's stated class), succeeding the retired one-multi-line-query pin; no code behavior to mutate
+# structural-pin-ok: presence only — this pins that the step-3.6 prose NAMES the multi-line
+# read-back query class, a documentation contract with no code regression a sed mutation could
+# re-introduce. #704 widened the class from one query to three; #708 added `query-coverage` as
+# the fourth, so the literal moved again; the guarded property (the class is stated, not left
+# implicit) is unchanged.
+devflow_module_pin_unique "#603/AC14 (+#704, +#708): the multi-line read-back query class is named" \
+  "**The read-back queries \`query-findings\`, \`query-claim-baselines\`, \`query-finding-evidence\`, and \`query-coverage\` are the multi-line ones**" "$CI_BUNDLE"  # structural-pin-ok: presence only — a documentation contract, no code regression to mutate
 devflow_module_pin_unique "#603/AC1: the ledger fence uses a QUOTED heredoc delimiter" \
   "<<'LEDGER-EOF'" "$CI_BUNDLE"
 devflow_module_pin_unique "#603/AC1: the quoted delimiter is never to be simplified away" \
@@ -1721,7 +1724,7 @@ PY614W
 # edit, and the ratchet-legality assertions below already tie each ceiling to its LIVE
 # measurement. docs/create-issue-budget.md is the sole home of the measured figures.
 CI614_ROOT_CEIL=2754
-CI614_DEFAULT_CEIL=31262
+CI614_DEFAULT_CEIL=34249
 # One comparison shape, shared by both ceilings and by the positive control below, so the
 # three sites cannot drift. An EMPTY measured value reads `no` (fail-closed): a word count
 # that could not be established is never treated as under the ceiling.
@@ -1788,7 +1791,7 @@ for _ci614_ref in $CI614_REFS; do
   CI614_TOTAL_SET+=("$CI_ROOT/skills/create-issue/references/$_ci614_ref.md")
 done
 CI614_TOTAL_W="$(ci614_words "${CI614_TOTAL_SET[@]}")"
-CI614_TOTAL_RECORDED=27258   # docs/create-issue-budget.md, root + all 9 references (issue #708 re-record)
+CI614_TOTAL_RECORDED=28133   # docs/create-issue-budget.md, root + all 9 references (issue #708 merge re-record)
 assert_eq "#614 T3: the root+references total is within +/-2% of the recorded conservation figure (a silent DROP is as RED as a rise)" \
   "yes" "$({ [ -n "$CI614_TOTAL_W" ] \
     && [ "$CI614_TOTAL_W" -ge "$(( CI614_TOTAL_RECORDED * 98 / 100 ))" ] \
@@ -1833,7 +1836,7 @@ devflow_module_pin_unique "#614 T3: the budget doc records the ratchet-down-only
 devflow_module_pin_unique "#614 T3: the budget doc names the root ceiling the suite enforces" \
   'Root ceiling: **2,754 words**' "$CI_ROOT/docs/create-issue-budget.md"
 devflow_module_pin_unique "#614 T3: the budget doc names the default-path ceiling the suite enforces" \
-  'Default-path ceiling: **31,262 words**' "$CI_ROOT/docs/create-issue-budget.md"
+  'Default-path ceiling: **34,249 words**' "$CI_ROOT/docs/create-issue-budget.md"
 devflow_module_pin_unique "#614 T3: the budget doc bans wc -w for these measurements" \
   '**Never `wc -w`.**' "$CI_ROOT/docs/create-issue-budget.md"
 unset -f ci614_words ci614_under

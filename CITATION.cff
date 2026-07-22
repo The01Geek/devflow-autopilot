@@ -14,7 +14,7 @@ authors:
 repository-code: "https://github.com/The01Geek/devflow-autopilot"
 url: "https://github.com/The01Geek/devflow-autopilot"
 license: MIT
-version: 2.20.12
+version: 2.20.13
 keywords:
   - claude-code
   - agentic-ai
