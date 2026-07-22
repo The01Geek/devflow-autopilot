@@ -69,10 +69,11 @@ by `cp -R`-ing a whole top-level directory. A tracked file inside an otherwise-u
 directory makes the directory form copy that directory wholesale: because
 `.claude/settings.json` is tracked, `regenerate-artifacts` used to copy the entire
 untracked `.claude/` tree into every fixture, so a checkout carrying `git worktree`
-checkouts under `.claude/worktrees/` paid 1.4 GB per fixture copy — 1240s of the module's
-runtime on the measured host, against 52.5s once the image was tracked-only. `.devflow/`
-and build caches are excluded by construction under that rule, so a fixture builder needs
-no prune step.
+checkouts under `.claude/worktrees/` paid that whole payload on every fixture copy — the
+dominant cost of a full local suite run. Build caches and `.devflow/` are excluded by
+construction under the tracked-only rule, so a fixture builder needs no prune step. The
+measured before/after figures are recorded once, in
+[`lib/test/modules/regenerate-artifacts.inventory.md`](lib/test/modules/regenerate-artifacts.inventory.md).
 
 #### Coverage-map block ownership (every PR that adds an assertion)
 

@@ -40,10 +40,16 @@ would make the pristine image itself drift and silently invalidate every "no oth
 drifted" premise. What the image must *not* carry is untracked local state: the previous
 builder derived top-level entry **names** from `git ls-files` but copied whole
 **directories**, so because `.claude/settings.json` is tracked the entire untracked
-`.claude/` tree — 1.4 GB of `git worktree` checkouts on a developer host, against ~34 MB
-of tracked content — entered the image and then every per-assertion copy. Nothing
-untracked can enter now, so the `__pycache__` / `.ruff_cache` / `.devflow/tmp` prunes
-that compensated for it are gone with the loop that needed them.
+`.claude/` tree entered the image and then every per-assertion copy. Nothing untracked
+can enter now, so the `__pycache__` / `.ruff_cache` / `.devflow/tmp` prunes that
+compensated for it are gone with the loop that needed them.
+
+**Past-time snapshot (macOS, 18 cores, a checkout carrying 1.4 GB under
+`.claude/worktrees`, `main` @ `607ec800`, 2026-07-21).** Pristine image 1.4 GB → ~34 MB;
+this module 1240.0s → 52.5s; full `lib/test/run.sh` 1850.5s → ~663s. These are recorded
+figures from one host, not re-derived on each run: the payload they measure exists only
+on a developer checkout that has used `git worktree`, so a lean checkout (CI, a cloud
+`/devflow:implement` run) sees no change and must not be cited as evidence either way.
 
 File **modes are set from the index**, not inherited from the working tree, so a
 `core.fileMode=false` checkout (git's default on Windows) — where the index records
@@ -55,6 +61,14 @@ paths contribute once, not once per stage. The `#619 pristine fixture …` / `#6
 builder …` assertions check all of this against an independent oracle that re-reads the
 index itself, with the temp-repository arms exercised against a real git index rather
 than a stubbed `git ls-files`.
+
+**Coupled mirror:** `_ra_build_image` (bash) and `_ra_image_report` (the embedded
+python3 oracle) state the same selection policy — mode triage, unmerged-stage
+de-duplication, the working-tree `isfile` check — in two languages. That independence is
+what makes the oracle a real check rather than a restatement of the builder's own
+bookkeeping, and it is also what makes them a coupled pair: a change to the builder's
+skip policy must be made in the oracle in the **same commit**, or the oracle keeps
+certifying the old policy.
 
 Each fixture-root assertion additionally asserts the **live** checkout's
 `scripts/devflow-cloud-writer-contract.json` is byte-unchanged. Live-tree confinement
