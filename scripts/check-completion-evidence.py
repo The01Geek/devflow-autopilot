@@ -106,6 +106,15 @@ CHANNEL_FOLLOW_UP = "follow-up-issue"
 ALL_CHANNELS = frozenset(
     {CHANNEL_LOOP_RECORD, CHANNEL_CODE_COMMENT, CHANNEL_PR_THREAD, CHANNEL_FOLLOW_UP}
 )
+# A manifest may DECLARE, once at top level, the durable channel its entries carry
+# when they name none individually — the shape the fix loop's own run-scoped
+# deferrals manifest emits (`default_channel: "loop-record"`: the manifest record
+# IS the trace, so no per-entry channel adds information). The declaration is the
+# only way an entry acquires a channel it does not state, so it never widens the
+# guard: a manifest that declares nothing leaves every channel-less entry
+# non-durable exactly as before, and a declaration outside ALL_CHANNELS is
+# discarded rather than honored (fail-closed on a corrupt or hostile literal).
+KEY_DEFAULT_CHANNEL = "default_channel"
 
 
 class Verdict(Exception):
@@ -478,6 +487,11 @@ def _check_deferrals(args) -> str:
     (the manifest omits the file when zero entries survive) — a pass-arm input,
     NOT missing-evidence. Returns a detail fragment (empty on a clean pass) or
     raises a Verdict on the first non-durable / unverifiable trace.
+
+    Each entry's channel is its own `channel`, else the manifest's top-level
+    `default_channel` declaration (see KEY_DEFAULT_CHANNEL) — the shape the fix
+    loop's run-scoped deferrals manifest emits. An entry that resolves to no
+    durable channel by either route is non-durable, unchanged.
     """
     if not args.deferrals:
         return ""
@@ -496,6 +510,13 @@ def _check_deferrals(args) -> str:
     if not entries:
         return ""
 
+    # The manifest-level declaration (see KEY_DEFAULT_CHANNEL). Anything that is
+    # not a string naming one of the four durable channels is discarded here, so
+    # the per-entry membership test below stays the single acceptance point.
+    declared = obj.get(KEY_DEFAULT_CHANNEL)
+    if not isinstance(declared, str) or declared not in ALL_CHANNELS:
+        declared = None
+
     own = None  # resolved lazily, only if a remote trace needs it
     # Collect each entry's failure and emit the LOWEST-RANKED class across ALL
     # entries — non-durable-deferral (token 7) precedes unverifiable-trace (token 8)
@@ -508,6 +529,8 @@ def _check_deferrals(args) -> str:
             if not isinstance(entry, dict):
                 raise Verdict(TOK_NON_DURABLE, "a deferral entry is not an object")
             channel = entry.get("channel")
+            if channel is None:
+                channel = declared
             if channel not in ALL_CHANNELS:
                 raise Verdict(
                     TOK_NON_DURABLE,

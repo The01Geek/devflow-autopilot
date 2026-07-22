@@ -15,4 +15,8 @@ type: Added
   and `degraded: unvalidated (<reason>)` when the check produces no verdict line); the
   `review-and-fix` loop discharges the item at Loop Exit over its run-scoped records, refreshing the
   verification record on an identity-keyed mismatch and carrying any non-pass token into its final
-  verdict line. (#550)
+  verdict line. The loop's run-scoped `deferrals.json` declares its durable channel once at manifest
+  level (`default_channel: "loop-record"`) and the check resolves a channel-less entry from that
+  declaration, so an ordinary loop run with surviving deferrals reports `pass` instead of a spurious
+  `non-durable-deferral`; a declaration outside the four durable channels is discarded, and a
+  per-entry `channel` still wins. (#550)

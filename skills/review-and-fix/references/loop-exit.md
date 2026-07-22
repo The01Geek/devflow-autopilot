@@ -15,11 +15,13 @@ Schema:
 ```json
 {
   "schema_version": 1,
+  "default_channel": "loop-record",
   "pr_branch": "<current branch>",
   "base_branch": "<base_branch from .devflow/config.json; if absent, the repo default branch via `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`, falling back to `main`>",
   "generated_at": "<ISO 8601 UTC>",
   "deferrals": [
     {
+      "finding_id": "<from phase3_findings.finding_id>",
       "agent": "<from phase3_findings.agent>",
       "severity": "<Critical | Important | Suggestion>",
       "file": "<from defect_signature.file>",
@@ -34,6 +36,8 @@ Schema:
   ]
 }
 ```
+
+`default_channel` is the literal `"loop-record"`, declared once at manifest level rather than repeated per entry: this manifest **is** the durable loop record every entry in it is traced by, which is exactly what the completion-evidence check (`scripts/check-completion-evidence.py`, read below at Loop Exit) means by that channel. Emit it verbatim — the check resolves each entry's channel from this declaration, so a manifest that omits it makes every entry read as citing no durable channel and the check reports `non-durable-deferral` against a legitimately-complete run. `finding_id` carries the same identifier the widens-surface guard above joins on, so the check names the offending entry when one fails.
 
 The `disclosure` object is present **only** on a `settled-by-disclosure` entry (copied from that row's `parking_evidence.source`); it is absent on the three ordinary categories. A foreclosure entry carries **no** `follow_up` — the downstream implement Phase 4.0.5 filer passes it through unchanged (files no issue) and `/pr-description` renders it citing the disclosure path in place of an issue number.
 

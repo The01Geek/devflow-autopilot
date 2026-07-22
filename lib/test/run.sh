@@ -49133,6 +49133,67 @@ _cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec
      --repo-root "$CCE_REPO" --deferrals "$CCE_EV/def_mixed_order.json" --own-repo "me/repo"
 assert_eq "#550 deferral class-order: non-durable beats first-listed unverifiable" "non-durable-deferral" "$CCE_TOK"
 CCE_MODE=exists
+# ── LIVE producer<->consumer path: the manifest shape loop-exit.md actually
+#    specifies, fed to the real validator. Every fixture above hand-writes a
+#    channel-shaped entry, so none of them exercises the shipped producer schema —
+#    which is how the two files were able to disagree while both sides' own tests
+#    stayed green (PR #716 review, VC-20). This case reads the JSON fence out of
+#    skills/review-and-fix/references/loop-exit.md, substitutes its <placeholder>
+#    tokens, and asserts the validator passes it. It is deliberately NOT a grep
+#    pin on a literal: it goes RED if the doc drops default_channel, renames it,
+#    or names a channel the validator does not accept — i.e. on the real mismatch.
+CCE_LOOPDOC="$LIB/../skills/review-and-fix/references/loop-exit.md"
+python3 - "$CCE_LOOPDOC" "$CCE_EV/def_from_doc.json" <<'PYEOF'
+import json, re, sys
+doc = open(sys.argv[1], encoding='utf-8').read()
+# The deferrals manifest fence is the first ```json block carrying a "deferrals" key.
+blocks = re.findall(r'```json\n(.*?)```', doc, re.S)
+cand = [b for b in blocks if '"deferrals"' in b]
+if len(cand) != 1:
+    sys.exit(f'expected exactly one deferrals JSON fence in loop-exit.md, found {len(cand)}')
+text = cand[0]
+# The fence documents value SHAPES, not values: <...> placeholders stand in for
+# producer-filled content. Substitute them so the documented shape becomes a real
+# manifest — the array-typed line first, then the remaining in-string placeholders.
+text = re.sub(r'\[<start>, <end>\]', '[1, 2]', text)
+text = re.sub(r'<[^>]*>', 'x', text)
+obj = json.loads(text)
+assert isinstance(obj.get('deferrals'), list) and obj['deferrals'], 'fence carries no sample entry'
+open(sys.argv[2], 'w', encoding='utf-8').write(json.dumps(obj))
+PYEOF
+assert_eq "#550/#716 loop-exit.md deferrals fence parses into a real manifest" "0" "$?"
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec3.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" \
+     --repo-root "$CCE_REPO" --deferrals "$CCE_EV/def_from_doc.json" --own-repo "me/repo"
+assert_eq "#550/#716 live cross-file: loop-exit.md manifest shape passes the validator" "pass" "$CCE_TOK"
+assert_eq "#550/#716 live cross-file: exit 0" "0" "$CCE_RC"
+# Negative control, attributed: the SAME doc-derived manifest with only the
+# manifest-level declaration dropped must be rejected by the deferrals guard
+# specifically (non-durable-deferral) — not by some earlier evidence class — so a
+# pass above cannot be an accident of an inert deferrals arm.
+python3 -c 'import json,sys; o=json.load(open(sys.argv[1])); o.pop("default_channel",None); json.dump(o,open(sys.argv[2],"w"))' \
+  "$CCE_EV/def_from_doc.json" "$CCE_EV/def_from_doc_nodecl.json"
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec3.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" \
+     --repo-root "$CCE_REPO" --deferrals "$CCE_EV/def_from_doc_nodecl.json" --own-repo "me/repo"
+assert_eq "#550/#716 doc manifest minus default_channel: rejected by the deferrals guard" "non-durable-deferral" "$CCE_TOK"
+# A declaration outside the four durable channels is DISCARDED, never honored —
+# the declaration cannot widen the guard past ALL_CHANNELS.
+python3 -c 'import json,sys; o=json.load(open(sys.argv[1])); o["default_channel"]="chat"; json.dump(o,open(sys.argv[2],"w"))' \
+  "$CCE_EV/def_from_doc.json" "$CCE_EV/def_from_doc_baddecl.json"
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec3.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" \
+     --repo-root "$CCE_REPO" --deferrals "$CCE_EV/def_from_doc_baddecl.json" --own-repo "me/repo"
+assert_eq "#550/#716 non-durable default_channel declaration is discarded, not honored" "non-durable-deferral" "$CCE_TOK"
+# A per-entry channel still WINS over the declaration (the declaration only fills
+# a channel-less entry) — an entry naming a bogus channel is not laundered by a
+# valid manifest-level default.
+python3 -c 'import json,sys; o=json.load(open(sys.argv[1])); o["deferrals"][0]["channel"]="chat"; json.dump(o,open(sys.argv[2],"w"))' \
+  "$CCE_EV/def_from_doc.json" "$CCE_EV/def_from_doc_entrywins.json"
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec3.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" \
+     --repo-root "$CCE_REPO" --deferrals "$CCE_EV/def_from_doc_entrywins.json" --own-repo "me/repo"
+assert_eq "#550/#716 per-entry channel overrides the manifest declaration" "non-durable-deferral" "$CCE_TOK"
 # skipped_checks is NOT a list (a hand-mutable producer shape) -> fail-closed to
 # skipped-checks-present (unclassifiable), even though result is a pass value.
 printf '{"result":"passed","candidate_identity":"%s","skipped_checks":{"check":"c1"}}\n' "$CCE_TREE3" > "$CCE_EV/vrec_skipobj.json"
