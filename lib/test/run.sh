@@ -48900,9 +48900,19 @@ ias_instructions() {  # <sandbox-root> <slug> <draft-path> [PATH-override]
   # The draft may live outside the sandbox root (the draft-binding fixture audits a file
   # under its bound root), so an absolute path is taken verbatim.
   case "$draft" in /*) ;; *) draft="$root/$draft" ;; esac
-  python3 "$IAS_RAP" dispatch-instructions --slug "$slug" \
-    --draft-path "$draft" --instructions-path "$root/instr-$slug.md" \
-    > "$root/instr-$slug.md"
+  # Check the generation before hashing. The redirect truncates the target BEFORE the
+  # generator runs, so on any failure (a RenderError, a title-less fixture draft, a
+  # python3 absent from the restricted PATH the 4th argument installs) the file is left
+  # empty and `git hash-object` prints the empty-blob ID — a valid-looking hash that
+  # silently degrades every caller's round to unestablished, which is exactly the
+  # failure class the comment above says this helper exists to prevent.
+  if ! python3 "$IAS_RAP" dispatch-instructions --slug "$slug" \
+      --draft-path "$draft" --instructions-path "$root/instr-$slug.md" \
+      > "$root/instr-$slug.md" || [ ! -s "$root/instr-$slug.md" ]; then
+    printf 'FAIL  ias_instructions(%s): the dispatch-instruction generator failed or wrote no bytes; every fixture using this slug would silently measure the steering gate instead of its own subject\n' "$slug" >&2
+    FAIL=$((FAIL+1))
+    return 1
+  fi
   git hash-object --stdin --no-filters < "$root/instr-$slug.md"
 }
 

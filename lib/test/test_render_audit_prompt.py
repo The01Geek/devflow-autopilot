@@ -865,6 +865,36 @@ class DispatchInstructions(unittest.TestCase):
             self.assertEqual(got.returncode, 0, got.stderr)
             self.assertNotIn("Uniquely Titled Draft", got.stdout)
 
+    def test_D11_the_dispatch_pointer_is_generated_not_authored(self):
+        # AC4 requires the Agent-tool prompt string to be a CANONICALLY-GENERATED pointer,
+        # and four shipped surfaces state it as fact. Nothing generated it until #718: the
+        # orchestrator composed it freehand under a "name only the two paths" rule, so the
+        # claim was false and the auditor's extra-dispatch-content judgment had no
+        # reference form to compare its received message against. The render now emits the
+        # exact pointer line, with both paths substituted.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            draft = root / "issue-draft-ptr.md"
+            instr = root / "issue-audit-dispatch-ptr.md"
+            draft.write_text("# Pointer Row Draft\n\nbody\n", encoding="utf-8")
+            got = run_renderer(["dispatch-instructions", "--slug", "ptr",
+                                "--draft-path", str(draft),
+                                "--instructions-path", str(instr)])
+            self.assertEqual(got.returncode, 0, got.stderr)
+            pointer = [ln for ln in got.stdout.splitlines()
+                       if ln.strip().startswith("dispatch-pointer:")]
+            self.assertEqual(len(pointer), 1, "exactly one generated pointer line")
+            # Both paths really substituted — an unsubstituted slot would ship a pointer
+            # naming a literal placeholder, which is worse than composing it freehand.
+            self.assertIn(str(draft), pointer[0])
+            self.assertIn(str(instr), pointer[0])
+            self.assertNotIn("{DRAFT_PATH}", pointer[0])
+            self.assertNotIn("{INSTRUCTIONS_PATH}", pointer[0])
+            # The pointer sits INSIDE the positional markers, so a tail-cut delivery that
+            # loses it also fails the end-marker check rather than silently shipping a
+            # pointerless instruction file.
+            self.assertEqual(got.stdout.rstrip("\n").splitlines()[-1], "render-end:")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

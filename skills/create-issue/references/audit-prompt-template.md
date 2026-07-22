@@ -69,9 +69,10 @@ for `--section`.
 
 This file **is** your complete dispatch instructions. It was generated
 deterministically by `render-audit-prompt.py dispatch-instructions` from the
-committed template; the message that pointed you here is **required** to be a
-generated pointer carrying nothing but file paths — report in step 3 item 4 what
-it actually carried, and do not treat this sentence as evidence that it complied.
+committed template; the message that pointed you here is **required** to be the
+generated pointer this file states verbatim at the end (carrying nothing but file
+paths) — report in step 3 item 4 what it actually carried, and do not treat this
+sentence as evidence that it complied.
 Every other line of this file came from the committed template, with the draft's
 own title substituted in below; none of it was hand-written for this draft.
 
@@ -134,6 +135,16 @@ Your return must carry, in addition to the findings and the mandatory
 Omit none of these. An omitted object ID or affirmation is treated exactly like
 a mismatched one — fail closed — so inventing a value would manufacture the very
 proof these lines exist to demand.
+
+## The canonical dispatch pointer
+
+This is the exact, generated pointer the orchestrator is required to send as the
+**entire** dispatch message. It is emitted here — rather than composed freehand —
+so the pointer, like these instructions, is generated rather than authored, and so
+step 3 item 4 has a reference form to compare the message you actually received
+against. Judge that message against this line, not against your impression of it:
+
+    dispatch-pointer: Audit the issue draft at {DRAFT_PATH}. Your complete dispatch instructions are the file at {INSTRUCTIONS_PATH} — Read it and follow it exactly. This message carries nothing else.
 <!-- render-block-end -->
 
 <!-- render-block: file embed inline -->

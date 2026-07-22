@@ -16,20 +16,43 @@ kind: cutover
   word-budget operands and outside the #614 routing-table reconciliation, by the same filename
   exemption `issue-template.md` carries) — gains the `di` render blocks, the sole in-repo owner of
   the canonical audit-dispatch instruction prose. Its stale "**The draft title never appears here**"
-  claim is corrected: the title now appears in the `di` blocks, read from the draft file.
+  claim is corrected: the title now appears in the `di` blocks, read from the draft file. The
+  PR-#718 review round added the **generated dispatch pointer** here: four shipped surfaces
+  asserted the Agent-tool prompt string was a *generated* pointer (issue AC4 requires a
+  "canonically-generated" one) while nothing generated it — the orchestrator composed it freehand
+  under a name-only-the-two-paths rule. The `di` render now emits the exact pointer line with both
+  paths substituted, so the claim is true by construction and the auditor's `extra-dispatch-content`
+  judgment has a reference form to compare its received message against. This lands in the template,
+  which no word-budget operand contains.
 - `scripts/render-audit-prompt.py` (not swept) — gains the `dispatch-instructions` mode, the sole
   tested owner of the dispatch-instruction text. Its docstring's falsified claim that the draft
   title "travels in the orchestrator's dispatch preamble prose" is corrected in the same change.
 - `scripts/issue-audit-state.py` (not swept) — `SCHEMA_VERSION` 2 → 3; the sole tested owner of the
   establishment decision (`steering_state`, `regenerate_instructions_digest`), the gated clean
-  ground, the new trigger arm, and the two summary tokens.
+  ground, the new trigger arm, and the two summary tokens. The PR-#718 review round added a
+  **dispatch-time canonicality refusal**: `record-dispatch` now regenerates from the inputs it is
+  about to record and refuses a mismatch by name (`instructions-noncanonical-write`). Without it a
+  host or write tool that alters the generator's bytes on the way to disk (CRLF translation, a
+  trailing-newline normalization) produced a file that could never regenerate, and the divergence
+  surfaced only at `record-return` as `instructions-object-id-mismatch` — reporting a whole-platform
+  write defect to the user as *steering*, at the surface furthest from the site that could still fix
+  it. Scoped deliberately to a regeneration that RAN and DISAGREED: one that cannot run here at all
+  is not evidence of a bad write, so it breadcrumbs and leaves the verdict to the existing
+  return-time `regeneration-failed` arm, which already fails closed.
 - `skills/create-issue/references/step-4-present-create.md`,
   `references/fallback-read-only-sandbox.md`, `references/fallback-audit-dispatch-arms.md`,
   `references/fallback-state-owner-unavailable.md` (mandatory / conditional references) — the
   audit-summary marker, the offer routing, and the unestablished-by-construction arms.
 
-Word accounting (python3 word-split, never `wc -w`): default path 29,973 → 30,948 against an
-unmoved 31,262 ceiling; root unchanged at 2,732. The bulk of the new prose lives in the
+Word accounting (python3 word-split, never `wc -w`): default path 29,973 → 31,041 against an
+unmoved 31,262 ceiling; root unchanged at 2,732. The PR-#718 review round accounts for the last
+93 of those words: two corrections in `step-3-6-audit.md` that a reviewer proved false against
+HEAD (the generator-failure arm claimed the steering marker would name its cause — it renders
+`inputs-unrecorded`; and the `record-return` output contract omitted the `unestablished`/`none`
+pair a refused completion actually prints). Growing a mandatory surface is an audited decision
+under the *Prose cutover* convention, and this is its record: both additions replace a false
+sentence with a true one on the same execution path, neither adds a new rule, and the shipped
+default-path headroom after them is ~0.7% (221 words). The bulk of the new prose lives in the
 renderer-owned template, which no budget operand contains — so the ceiling is not renegotiated and
 `CLAUDE.md` is untouched. Figures and the decision record: `docs/create-issue-budget.md`.
 

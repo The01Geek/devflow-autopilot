@@ -6059,16 +6059,20 @@ _malformed('an instructions record with a newline-carrying draft_path',
 _malformed('an instructions record with a relative template_path',
            dict(_GOOD, rounds=[_round709(instructions=dict(_GOOD_INSTR,
                                                            template_path='t.md'))]))
-# The positive control for the four rows above: the same record shapes, well-formed, are
-# ACCEPTED — so the rows prove the validator discriminates rather than rejecting any
-# round carrying these keys at all.
+# The positive control for the instructions-record rows above: the same record shapes,
+# well-formed, are ACCEPTED — so the rows prove the validator discriminates rather than
+# rejecting any round carrying these keys at all.
 issue_audit_state._validate(dict(_GOOD, rounds=[_round709(instructions=_GOOD_INSTR)]), 's')
 assert_eq("#709 malformed-state matrix: a well-formed steering+instructions round validates "
           "(positive control for the rows above)", True, True)
-# ... and the forged pair does not merely fail validation: it can never ground a clean
-# approve, which is the property the validator is protecting.
-assert_raises("#709 malformed-state matrix: a forged steering pair never grounds an "
-              "approve-mode eligibility read",
+# ... and a SECOND forged pair (a different not-established reason) is refused the same
+# way. This row asserts the refusal at the load boundary only. What makes that refusal
+# protect the approve path is a separate, already-established fact: load_state() runs
+# _validate() on every path that reaches evaluate_eligibility, so a forged pair never
+# arrives there at all. The approve-mode refusal ITSELF is asserted by the CLI rows below
+# (eligible=no reason=steering-unestablished), not here.
+assert_raises("#709 malformed-state matrix: a second forged steering pair — established "
+              "with the inputs-unrecorded reason — is refused at the load boundary",
               issue_audit_state.StateError,
               lambda: issue_audit_state._validate(
                   dict(_GOOD, rounds=[_round709(steering={'state': 'established',
@@ -11977,6 +11981,76 @@ def _row709_degraded_reason(r):
 
 
 _with_run709(_row709_degraded_reason)
+
+
+# The SUMMARY-ONLY steering tokens. `_STEERING_SUMMARY` / `_STEERING_SUMMARY_REASONS`
+# each carry one member the round-level vocabularies do not — `unestablished` and `none`
+# — for the question "was there a completed round to read at all?". A #718 review mutation
+# proved both renders unguarded: flipping the two fallbacks to `established` /
+# `canonical-match` left the whole suite green, so a regression telling the orchestrator
+# that a CARRIAGE-REFUSED round was canonically steered — the exact laundering
+# `_carriage_ok` and `steering_state` exist to stop — shipped clean. These two rows are
+# the guard, and they are what make the two constants' `_require` membership checks
+# non-vacuous for those members.
+def _row709_refused_completion(r):
+    r.generate()
+    assert r.dispatch().returncode == 0
+    # No --carriage-object-id: the completion is REFUSED, so no steering record is
+    # written for the round at all and record-return must render the absent-record pair.
+    got = r('record-return', r.slug, '--round', '1', '--verdict', 'FILE',
+            '--findings-count', '0', nonce=True)
+    assert_eq("#709 summary-only tokens: a refused completion renders the absent-record "
+              "steering pair, never a clean one",
+              True,
+              'steering=unestablished steering_reason=none' in got.stdout)
+    # ... and the same absent-record pair reaches the audit-summary line, so a refused
+    # completion can never be rendered to the user as a canonically-steered round.
+    assert_eq("#709 summary-only tokens: ... and the audit-summary line renders it the "
+              "same way, never as established",
+              True,
+              'steering=unestablished steering_reason=none'
+              in r('query-summary', r.slug, nonce=True).stdout)
+
+
+_with_run709(_row709_refused_completion)
+
+
+def _row709_summary_defaults(r):
+    # A run with no completed round at all: query-summary must still answer with one
+    # decided pair, and that pair is the summary-only one.
+    got = r('query-summary', r.slug, nonce=True)
+    assert_eq("#709 summary-only tokens: a run with no completed round summarises as "
+              "unestablished/none, never as established",
+              True,
+              'steering=unestablished steering_reason=none' in got.stdout)
+
+
+_with_run709(_row709_summary_defaults)
+
+
+# A byte-divergent WRITE (CRLF translation, a trailing-newline normalization) produces an
+# instruction file that can never regenerate. Before #718 the only comparison ran at
+# record-return, so the divergence surfaced as `instructions-object-id-mismatch` and was
+# reported to the user as STEERING — misdiagnosing a whole-platform write defect as an
+# integrity attack, at the surface furthest from the site that can still fix it.
+# record-dispatch now refuses it by name while the round can still be re-dispatched.
+def _row709_noncanonical_write(r):
+    r.generate()
+    raw = Path(r.instr).read_bytes()
+    Path(r.instr).write_bytes(raw.replace(b'\n', b'\r\n'))
+    got = r.dispatch()
+    assert_eq("#709 noncanonical write: a CRLF-translated instruction file is refused AT "
+              "DISPATCH, not misreported as steering at return", 1, got.returncode)
+    assert_eq("#709 noncanonical write: ... and the refusal names the write, not the auditor",
+              True, 'instructions-noncanonical-write' in got.stderr)
+    # Positive control on the SAME fixture: rewritten verbatim it is accepted, so the row
+    # cannot pass because some unrelated precondition rejected the dispatch.
+    Path(r.instr).write_bytes(raw)
+    assert_eq("#709 noncanonical write: positive control — the byte-faithful write is "
+              "accepted", 0, r.dispatch().returncode)
+
+
+_with_run709(_row709_noncanonical_write)
 
 print()
 print(f"{PASS} passed, {FAIL} failed")
