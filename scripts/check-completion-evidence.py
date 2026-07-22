@@ -67,8 +67,8 @@ TOK_UNDISCHARGED = "undischarged-findings"
 TOK_NON_DURABLE = "non-durable-deferral"
 TOK_UNVERIFIABLE = "unverifiable-trace"
 
-# The closed token vocabulary, in evaluation order (pass terminal). ORDERED_TOKENS
-# pins the documented first-failing-class order to the code so a test can assert it;
+# The closed token vocabulary: the terminal affirmative `pass` first, followed by
+# the seven failing classes in the documented first-failing-class evaluation order;
 # ALL_TOKENS closes the set so a raise-site typo cannot ship a garbage verdict line
 # (mirrors verification-flight.py's ALL_STATES / _CodedError closed-vocabulary guard).
 ORDERED_TOKENS = (

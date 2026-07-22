@@ -49060,6 +49060,37 @@ _cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec
      --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" --repo-root "$CCE_REPO"
 assert_eq "#550 undischarged-findings(loop, below-threshold no row): token is pass" "pass" "$CCE_TOK"
 
+# ── Pass-value coverage: the OTHER honest producer value `result: "pass"` ─────
+# The review-and-fix `verification_evidence` producer writes "pass" (the flight
+# handle writes "passed"); every other pass fixture above uses "passed", so this
+# is the positive control for the second member of PASS_RESULT_VALUES. Narrowing
+# that frozenset to {"passed"} makes this fixture resolve verification-not-pass.
+printf '{"result":"pass","candidate_identity":"%s","skipped_checks":[]}\n' "$CCE_TREE2" > "$CCE_EV/vrec_password.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/vrec_password.json" \
+     --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 pass(result=\"pass\", review-and-fix producer value): token" "pass" "$CCE_TOK"
+assert_eq "#550 pass(result=\"pass\"): exit 0" "0" "$CCE_RC"
+assert_eq "#550 pass(result=\"pass\"): single verdict line" "1" "$CCE_NL"
+
+# ── Loop-supplied identity: the production invocation shape --claim-identity ──
+# The loop passes the identity it computed instead of letting the validator
+# re-derive one, so the --claim-identity pin branch is the real Loop-Exit path.
+# Matching value -> pass; a differing value -> stale-candidate (the staleness
+# compare runs against the SUPPLIED identity, not a re-derivation).
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" \
+     --repo-root "$CCE_REPO" --claim-identity "$CCE_TREE2"
+assert_eq "#550 claim-identity(loop-supplied, matches record): token" "pass" "$CCE_TOK"
+assert_eq "#550 claim-identity(loop-supplied, matches record): exit 0" "0" "$CCE_RC"
+# A loop-supplied identity that differs from the record's is stale — and it must
+# be the SUPPLIED value that decides, so this differing value is one the tree
+# would never re-derive (the pin branch is what makes this fixture stale).
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" \
+     --repo-root "$CCE_REPO" --claim-identity "0000000000000000000000000000000000000000"
+assert_eq "#550 claim-identity(loop-supplied, differs from record): token" "stale-candidate" "$CCE_TOK"
+assert_eq "#550 claim-identity(loop-supplied, differs from record): exit 1" "1" "$CCE_RC"
+
 # ── Token 7: non-durable-deferral ────────────────────────────────────────────
 # Baseline loop pass inputs (no undischarged finding, verification pass).
 CCE_LOOPBASE=(--context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec.json" \
