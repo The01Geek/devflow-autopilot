@@ -32,9 +32,9 @@ Both are asserted by `lib/test/modules/create-issue-contract.sh` (driven by the 
 | Ceiling | Operand | Measured | Enforced ceiling |
 | --- | --- | --- | --- |
 | **Root** | `skills/create-issue/SKILL.md` | 2,732 | Root ceiling: **2,754 words** |
-| **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 31,085 | Default-path ceiling: **31,262 words** |
+| **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 31,196 | Default-path ceiling: **31,262 words** |
 
-Each ceiling is at most the implement-time measured value plus **5% headroom** (the AC6 maximum). Both were set from an earlier measurement in this same change and deliberately **not re-raised** when review fixes grew the operands, so the shipped headroom is under 5% on both (root ~0.9%, default path ~0.6%). The suite asserts that legality directly — a ceiling above measured+5% is RED — so a future raise needs a real measurement behind it. The
+Each ceiling is at most the implement-time measured value plus **5% headroom** (the AC6 maximum). Both were set from an earlier measurement in this same change and deliberately **not re-raised** when review fixes grew the operands, so the shipped headroom is under 5% on both (root ~0.8%, default path ~0.2%). The suite asserts that legality directly — a ceiling above measured+5% is RED — so a future raise needs a real measurement behind it. The
 default-path operand deliberately **excludes the four fallback references** — they load only when
 their predicate fires, which is the whole point of the split. `revision-delta.md` is *retained* in the
 operand even though it too is predicate-gated (its trigger is any revise-and-re-gate site): a revision
@@ -63,15 +63,15 @@ Measured at implement time (2026-07-21), python3 word-split:
 | --- | --- | --- |
 | `SKILL.md` (root) | 2,732 | always |
 | `references/step-2-clarify.md` | 4,673 | Step 2 entry |
-| `references/step-3-5-steelman.md` | 2,214 | Step 3.5 entry |
-| `references/revision-delta.md` | 981 | every revision event |
-| `references/step-3-6-audit.md` | 8,327 | Step 3.6 entry |
+| `references/step-3-5-steelman.md` | 2,226 | Step 3.5 entry |
+| `references/revision-delta.md` | 1,004 | every revision event |
+| `references/step-3-6-audit.md` | 8,403 | Step 3.6 entry |
 | `references/step-4-present-create.md` | 5,362 | Step 4 entry |
 | `references/fallback-no-task-tool.md` | 540 | no usable task-tracking tool |
 | `references/fallback-read-only-sandbox.md` | 334 | a `.devflow/tmp/` write is refused |
 | `references/fallback-audit-dispatch-arms.md` | 669 | a non-file audit arm, a retry escalation, or no subagent tool |
 | `references/fallback-state-owner-unavailable.md` | 748 | the state owner stops answering |
-| **root + all 9 references** | **26,580** | — |
+| **root + all 9 references** | **26,691** | — |
 | `references/issue-template.md` | 6,796 | Step 3 (unchanged by the split) |
 | `references/audit-prompt-template.md` | 1,608 | renderer-owned (unchanged by the split) |
 
@@ -157,6 +157,19 @@ this frozen split baseline.
   contract statement and the proportionate-verification wiring, which is included in this figure. The auditor's new reproducible-evidence bar was placed in
   `references/audit-prompt-template.md`, which is **not** in either budgeted operand, precisely so
   the bar could be stated in full without spending default-path headroom.
+
+- **2026-07-22 (PR #706 review round) — review fixes re-measured; ceilings UNCHANGED.** Default path
+  31,085 → **31,196** (+111), conservation total 26,580 → **26,691** (+111, the same prose: it lands
+  entirely in the budgeted step references). The three edits are all review-finding fixes, not new
+  feature prose: `step-3-6-audit.md` (+76) gained the `unestablished`-counts-as-missing rule, the
+  read-a-line-by-its-JSON-quoting rule that replaced an overstated forge-proof absolute, and the
+  baseline-conflict comparison the *full independent verification* arm previously named without a
+  mechanism; `revision-delta.md` (+23) and `step-3-5-steelman.md` (+12) replaced a staleness verdict
+  list that named `unestablished` — a token the tool's closed `fresh`/`stale`/`possibly-stale`
+  vocabulary never prints as a `state=` — with the vocabulary the tool actually reports. The root is
+  again **untouched at 2,732**. Neither ceiling is raised (the ratchet is down-only); default-path
+  headroom narrows to **66 words (~0.2%)**, which is the remaining budget a further change must fit
+  or shed prose to make room for.
 
 When a later change re-measures, append a row here rather than editing an earlier one: the record is
 the history of what the surface cost, and overwriting it loses exactly the drift a budget exists to catch.

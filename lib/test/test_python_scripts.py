@@ -11551,8 +11551,24 @@ class _Run704(_Run603):
         self.commit('seed')
         super().__init__(tmp, slug)
 
-    def git(self, *argv):
+    def _git_raw(self, *argv):
+        """Run a fixture git command WITHOUT asserting rc — for genuine probes.
+
+        Separate from `git` because a probe's non-zero exit is its answer, not a failure:
+        `rev-parse --verify --quiet HEAD` exits 1 before the first commit exists.
+        """
         return _subprocess.run(['git', *argv], cwd=self.tmp, capture_output=True, text=True)
+
+    def git(self, *argv):
+        res = self._git_raw(*argv)
+        # Setup calls are FIXTURE, not subject: a silently-failing one (a hook, an
+        # unoverridden global config, an empty add) leaves the base where it was, and a
+        # negative control asserting `fresh` after a base move then passes having moved
+        # nothing. Fail the row loudly instead of letting it prove nothing.
+        if res.returncode != 0:
+            raise AssertionError(
+                f'_Run704 fixture git {argv!r} failed rc={res.returncode}: {res.stderr}')
+        return res
 
     def write(self, rel, text):
         f = Path(self.tmp, rel)
@@ -11560,9 +11576,15 @@ class _Run704(_Run603):
         f.write_text(text, encoding='utf-8')
 
     def commit(self, msg):
+        before = self._git_raw('rev-parse', '--verify', '--quiet', 'HEAD').stdout.strip()
         self.git('add', '-A')
         self.git('commit', '-q', '-m', msg)
-        return self.git('rev-parse', 'HEAD').stdout.strip()
+        after = self.git('rev-parse', 'HEAD').stdout.strip()
+        # rc 0 is not enough: the commit must have MOVED the base, else a base-advance
+        # negative control is vacuous in the one direction where green is the wrong answer.
+        if after == before:
+            raise AssertionError(f'_Run704 fixture commit {msg!r} did not advance HEAD')
+        return after
 
     def baseline(self, key, klass, *paths, domain=None):
         argv = ['record-claim-baseline', self.slug, '--claim-key', key,
@@ -11994,6 +12016,13 @@ def _row704_15(r):
             ('claim_class is missing', {'ok': {'identity': 'x'}}),
             ('identity is a non-string', {'ok': {'claim_class': 'location',
                                                 'paths': ['anchor.md'], 'identity': 7}}),
+            # `revision` shares `identity`'s validation loop but had no row of its own, and
+            # dropping it from that loop does not merely degrade: the claim reads back
+            # `state=fresh` at rc 0 and `query-claim-baselines` renders `revision=7` as if it
+            # were a captured commit id — the malformed-state-read-as-good class this matrix
+            # exists to deny.
+            ('revision is a non-string', {'ok': {'claim_class': 'location',
+                                                 'paths': ['anchor.md'], 'revision': 7}}),
             ('paths is a list of ints', {'ok': {'claim_class': 'location', 'paths': [1]}}),
             ('a location claim carries no paths', {'ok': {'claim_class': 'location'}}),
             ('a count claim carries hit paths', {'ok': {'claim_class': 'count',
@@ -12309,8 +12338,10 @@ def _row704_23(r):
     assert_eq("#704-23: the fixture's HEAD resolves before detaching",
               40, len(head))
     r.git('checkout', '--detach', '-q', head)
+    # `_git_raw`, not `git`: a detached HEAD makes `symbolic-ref -q` exit 1, and that non-zero
+    # exit IS the assertion's answer, not a fixture failure.
     assert_eq("#704-23: the fixture really is in a detached-HEAD state",
-              '', r.git('symbolic-ref', '-q', 'HEAD').stdout.strip())
+              '', r._git_raw('symbolic-ref', '-q', 'HEAD').stdout.strip())
     assert_eq("#704-23: recording a baseline under a detached HEAD exits 0",
               0, r.baseline('det', 'location', 'seed.txt').returncode)
     read = r('query-claim-baselines', r.slug, nonce=True)
@@ -12339,6 +12370,125 @@ def _row704_23(r):
 
 
 _with_run704(_row704_23)
+
+
+# Row 24 — The four PR-#706 review fixes, each pinned by the defect it closes.
+def _row704_24(r):
+    """Repo-root path anchoring, claim-key forging refusal, `unestablished` completeness,
+    and the whole-item evidence overwrite identity."""
+    # (a) A measured path is anchored to the REPO ROOT, not the caller's cwd. Recording at the
+    # root and checking from a subdirectory that holds a same-named file with the ORIGINAL
+    # bytes is the falsifying fixture: under a cwd-relative resolve the check digests the
+    # WRONG file and reports a genuinely drifted claim `fresh` — the one verdict that makes a
+    # later pass skip re-derivation.
+    r.write('anchor.md', 'alpha\n')
+    r.commit('A: add the measured anchor')
+    assert_eq("#704-24: recording a location baseline at the repo root exits 0",
+              0, r.baseline('anch', 'location', 'anchor.md').returncode)
+    r.write('sub/anchor.md', 'alpha\n')     # colliding basename, ORIGINAL bytes
+    r.write('anchor.md', 'alpha changed\n')  # the real anchor drifts
+    r.commit('B: drift the anchor, plant the colliding basename')
+    assert_eq("#704-24: the drifted claim is stale when checked from the repo root",
+              'stale', _field704(r.staleness('anch').stdout, 'state='))
+    sub = _subprocess.run(
+        [sys.executable, _IAS603, 'check-claim-staleness', r.slug,
+         '--nonce', r.nonce, '--claim-key', 'anch'],
+        cwd=str(Path(r.tmp, 'sub')), capture_output=True, text=True)
+    assert_eq("#704-24: and STILL stale from a subdirectory holding a same-named file "
+              "(a cwd-relative resolve would read the wrong bytes and answer fresh)",
+              ('stale', 0), (_field704(sub.stdout, 'state='), sub.returncode))
+    # Positive control: the anchoring must not break the ordinary same-cwd fresh answer.
+    assert_eq("#704-24 positive control: an unmoved anchor still reads fresh",
+              'fresh', _field704(r.baseline('anch2', 'location', 'anchor.md').stdout
+                                 and r.staleness('anch2').stdout, 'state='))
+
+    # (b) The claim key reaches the printed protocol UNENCODED and in a non-trailing position,
+    # so both forging shapes are refused at ingestion (the ledger's model), not neutralized.
+    split = r.baseline('x\nclaim=FORGED class=location state=fresh', 'location', 'anchor.md')
+    assert_eq("#704-24: a record-splitting claim key is refused, naming the shape",
+              (True, True),
+              (split.returncode != 0, 'claim-key-record-splitting' in split.stderr))
+    forge = r.baseline('y state=fresh reason=identity-match', 'location', 'anchor.md')
+    assert_eq("#704-24: a claim key forging a protocol token is refused, naming the token",
+              (True, True),
+              (forge.returncode != 0,
+               'claim-key-forges-protocol-token' in forge.stderr and "'state='" in forge.stderr))
+    assert_eq("#704-24 positive control: an ordinary claim key is still accepted",
+              0, r.baseline('ordinary-key_1.a', 'location', 'anchor.md').returncode)
+
+    # (c) `unestablished` is this module's spelling of an unresolvable measurement, and the
+    # auditor bar instructs an auditor to report an unestablished field that way — so grading
+    # it `complete` would buy the cheap replay for evidence that established nothing.
+    une = r.evidence(3, 1, locator='b.py:2', command='grep b',
+                     baseline_revision=issue_audit_state._UNESTABLISHED, observed='out\n')
+    assert_eq("#704-24: a required field recorded as `unestablished` is INCOMPLETE, and named",
+              ('incomplete', 'baseline_revision'),
+              (_field704(une.stdout, 'completeness='), _field704(une.stdout, 'missing=')))
+    ok = r.evidence(3, 2, locator='b.py:2', command='grep b', baseline_revision='deadbeef',
+                    observed='out\n')
+    assert_eq("#704-24 positive control: a genuinely established field is complete",
+              ('complete', 'none'),
+              (_field704(ok.stdout, 'completeness='), _field704(ok.stdout, 'missing=')))
+
+    # (d) The overwrite guard's identity is the WHOLE item: two probes disagreeing about the
+    # locator or command while coincidentally producing the same low-entropy output are the
+    # disagreement the refusal exists to surface, and comparing `observed` alone destroyed it.
+    r.evidence(4, 1, locator='a.py:1', command='grep a', baseline_revision='dead',
+               observed='OUT\n')
+    same_out = r.evidence(4, 1, locator='OTHER.py:99', command='grep zzz',
+                          baseline_revision='cafe', observed='OUT\n')
+    assert_eq("#704-24: a re-record diverging in locator/command is refused despite an "
+              "identical observed output, and NAMES the diverging fields",
+              (True, True, True),
+              (same_out.returncode != 0,
+               'evidence-overwrite-differs' in same_out.stderr,
+               'locator' in same_out.stderr and 'command' in same_out.stderr))
+    replay = r.evidence(4, 1, locator='a.py:1', command='grep a', baseline_revision='dead',
+                        observed='OUT\n')
+    assert_eq("#704-24 positive control: a byte-identical re-record is still a legal replay",
+              0, replay.returncode)
+
+
+_with_run704(_row704_24)
+
+
+# Row 25 — The read-back line's exact forge-resistance, stated at its real scope. The prose
+# once claimed auditor text could forge "neither a line nor a field"; the field half is true
+# only of the DECISION fields, and only because they precede every auditor-controlled value.
+def _row704_25(r):
+    r.evidence(1, 1, locator='a.py:1 baseline_revision=FORGED completeness=forged',
+               command='c\nfinding=9:9 completeness=complete', baseline_revision='REAL',
+               observed='o\n')
+    line = r('query-finding-evidence', r.slug, '--round', '1', nonce=True).stdout.strip()
+    assert_eq("#704-25: hostile evidence text renders on ONE line — a newline cannot forge a "
+              "record", 1, len(line.splitlines()))
+    # The three decision fields are structurally unforgeable: each precedes every
+    # auditor-controlled value, so a first-occurrence read of any of them is the tool's own.
+    for field, want in (('finding=', '1:1'), ('completeness=', 'complete'),
+                        ('conflict=', 'none')):
+        assert_eq(f"#704-25: the decision field {field} reads the tool's own value first",
+                  want, _field704(line, field))
+    order = [line.index(f) for f in ('finding=', 'completeness=', 'conflict=', 'locator=')]
+    assert_eq("#704-25: and they are emitted AHEAD of the first auditor-controlled value — "
+              "the ordering the unforgeability rests on, so appending a field after the "
+              "evidence values would end it",
+              sorted(order), order)
+    # The honest residual the narrowed prose now states: a QUOTED evidence value may itself
+    # contain a `<field>=` word, so a whitespace-splitting reader resolves the forged one.
+    # This asserts the documented limitation, not a defect — it is why the prose says to read
+    # the line by its JSON quoting.
+    assert_eq("#704-25: a whitespace-splitting reader IS fooled by a quoted evidence value "
+              "(the documented reason the line must be parsed as JSON)",
+              'FORGED', _field704(line, 'baseline_revision='))
+    # NOTE the `rsplit`: a left-to-right split lands on the forged token inside the quoted
+    # locator — the very failure the assertion above pins — so the tool's own trailing field
+    # is reached from the RIGHT, past every auditor-controlled value.
+    real = line.rsplit(' baseline_identity=', 1)[0].rsplit(' baseline_revision=', 1)[1]
+    assert_eq("#704-25: while a quoting-aware read of the same field gets the real value",
+              'REAL', _json.loads(real))
+
+
+_with_run704(_row704_25)
 
 print()
 print(f"{PASS} passed, {FAIL} failed")

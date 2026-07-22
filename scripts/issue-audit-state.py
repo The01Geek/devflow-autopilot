@@ -628,11 +628,16 @@ def hash_bytes(data):
 
 
 def hash_file(path):
-    """Hash a file's bytes, read in binary. Raises _DigestError when unreadable."""
+    """Hash a file's bytes, read in binary. Raises _DigestError when unreadable.
+
+    The breadcrumb names no file ROLE: the original callers passed a draft, but issue #704's
+    `location_identity` passes arbitrary measured anchors, and a message calling a measured
+    source file "the draft file" sends the reader looking for the wrong artifact.
+    """
     try:
         data = Path(path).read_bytes()
     except OSError as exc:
-        raise _DigestError(f'could not read draft file {path}: {exc}') from exc
+        raise _DigestError(f'could not read {path}: {exc}') from exc
     return hash_bytes(data)
 
 
@@ -657,10 +662,12 @@ _CLAIM_CLASSES = ('count', 'location', 'inventory')
 # and the staleness reader from drifting apart on which classes need a piped domain.
 _FULL_DOMAIN_CLASSES = ('count', 'inventory')
 
-# `unestablished` is the ONE spelling of an unresolvable measurement, shared by the revision
-# and the identity. It is never a value the comparison can match, so a claim carrying it is
-# read as possibly-stale — unknown is not fresh.
-_UNESTABLISHED = 'unestablished'
+# The revision and the identity share the module-level `_UNESTABLISHED` defined above with
+# the issue-#548 unresolved count — deliberately NOT re-assigned here: a second assignment of
+# the same literal would make this block's own "the ONE spelling" claim false, and a later
+# edit to either site would silently lose to whichever ran last. It is never a value the
+# comparison can match, so a claim carrying it is read as possibly-stale — unknown is not
+# fresh.
 
 # Staleness verdicts, closed vocabulary. `possibly-stale` is the fail-closed reading for an
 # absent, unestablished, or un-recomputable baseline; it is deliberately distinct from
@@ -735,12 +742,60 @@ def capture_revision():
     return revision
 
 
+def anchor_measured_path(path):
+    """Normalize one measured path to the SHARED REPO-ROOT ANCHOR, cwd-independently.
+
+    The state file is anchored to the git repo root (`state_path`/`_repo_root`, the #295
+    contract), so a measured path left cwd-relative gives one record two anchors: the same
+    stored `anchor.md` resolves to a DIFFERENT file depending on the directory the later
+    check runs from. That is not a cosmetic mismatch — a subdirectory run whose cwd happens
+    to hold a same-named file digests those bytes and reports a genuinely drifted claim
+    `fresh`, which is the one verdict this feature must never produce (a `fresh` claim is
+    read as verified and skips re-derivation); with no same-named file it degrades every
+    claim to `possibly-stale`, silently defeating the mechanism from any subdirectory.
+
+    So a relative path is resolved against the CALLER's cwd (what the caller meant) and then
+    re-expressed relative to the repo root (what every later reader resolves against). A path
+    outside the root — or a run with no resolvable root — keeps an absolute form, which is
+    equally cwd-independent; only the repo-relative spelling is lost, never the anchor.
+    """
+    root = _repo_root()
+    resolved = Path(path) if Path(path).is_absolute() else (Path.cwd() / path)
+    try:
+        resolved = resolved.resolve()
+    except OSError:
+        # A resolve failure (a broken symlink loop, a permission-denied parent) is not a
+        # reason to fall back to the cwd-relative spelling this function exists to remove.
+        return str(resolved)
+    if root is not None:
+        try:
+            return resolved.relative_to(root.resolve()).as_posix()
+        except ValueError:
+            pass  # outside the repo root — the absolute form below is still cwd-independent
+    return str(resolved)
+
+
+def resolve_measured_path(path):
+    """Resolve a STORED measured path back to a filesystem path, repo-root-anchored.
+
+    The inverse of `anchor_measured_path`: a stored relative path is repo-root-relative by
+    construction, so it must be resolved against the root and never against the cwd.
+    """
+    if Path(path).is_absolute():
+        return path
+    root = _repo_root()
+    return str(root / path) if root is not None else path
+
+
 def location_identity(paths, cache=None):
     """Digest the measured paths' CONTENT, or `unestablished` when any is unmeasurable.
 
     The digested bytes are `<path>\0<object-id>\n` per path, sorted by path, so the
     identity is stable under argument reordering and changes when any measured path's
-    content changes. It reads the WORKING TREE (via `hash_file`), never a committed blob:
+    content changes. The digested `<path>` is the STORED (repo-root-anchored) spelling while
+    the bytes are read through `resolve_measured_path`, so the identity is independent of the
+    directory the check runs from. It reads the WORKING TREE (via `hash_file`), never a
+    committed blob:
     a claim grounded against a dirty worktree must record the dirty content's own identity,
     and a further dirty→dirty edit must therefore mark it stale — the case a global
     `git status --porcelain` cleanliness flag cannot see (#704 AC3).
@@ -756,7 +811,7 @@ def location_identity(paths, cache=None):
         # EAGERLY, so that spelling re-runs the `git hash-object` subprocess on every hit and
         # memoizes nothing. Membership-test first, so a repeated path really is hashed once.
         if path not in memo:
-            memo[path] = hash_file(path)
+            memo[path] = hash_file(resolve_measured_path(path))
         return memo[path]
 
     try:
@@ -850,7 +905,14 @@ def evidence_completeness(entry):
     missing field would silently buy a cheap replay the evidence never earned.
     """
     missing = [f for f in _EVIDENCE_REQUIRED
-               if not isinstance(entry.get(f), str) or not entry[f].strip()]
+               if not isinstance(entry.get(f), str) or not entry[f].strip()
+               # `unestablished` is this module's ONE spelling of an unresolvable
+               # measurement, and the auditor bar instructs an auditor to report a field it
+               # could not establish that way. A string-shape test alone would grade that
+               # `complete` and buy the cheap replay — the same unknown-is-not-a-value
+               # collapse `claim_staleness` refuses when it reads a recorded
+               # `unestablished` baseline as possibly-stale rather than fresh.
+               or entry[f].strip() == _UNESTABLISHED]
     return ('incomplete' if missing else 'complete'), missing
 
 
@@ -3737,6 +3799,22 @@ def cmd_record_claim_baseline(args):
     key = (args.claim_key or '').strip()
     if not key:
         _fail(prefix, 'claim-key-empty: --claim-key must be a non-empty name')
+    # The claim key is printed UNENCODED, and in a NON-trailing position, on all three claim
+    # surfaces (`record-claim-baseline`, `query-claim-baselines`, `check-claim-staleness`), so
+    # it reaches the printed protocol exactly where the sibling evidence channel's JSON
+    # encoding does not apply. The decided answer here is the LEDGER's — refusal, not
+    # neutralization: a claim key is orchestrator-authored and can always be reworded, so
+    # refusing costs nothing, whereas auditor-returned evidence text cannot be sent back for
+    # rewording and is therefore neutralized at its print boundary instead. Both guards run,
+    # since one forges a FIELD and the other a LINE.
+    _splitter = _record_splitting_char(key)
+    if _splitter is not None:
+        _fail(prefix, f'claim-key-record-splitting: --claim-key contains {_splitter!r}, which '
+                      f'would forge a line of this tool\'s printed surface; reword the key')
+    _forged = _forged_protocol_token(key)
+    if _forged is not None:
+        _fail(prefix, f'claim-key-forges-protocol-token: --claim-key contains the reserved '
+                      f'word \'{_forged}=\' of this tool\'s printed surface; reword the key')
     if args.claim_class in _FULL_DOMAIN_CLASSES:
         if args.path:
             _fail(prefix, f'domain-class-paths: a {args.claim_class} claim is identified by '
@@ -3771,8 +3849,12 @@ def cmd_record_claim_baseline(args):
         # arm differs because a MISSING `--domain-stdin` is a caller-contract error — the
         # caller never supplied a measurement — not a measurement that was attempted and
         # failed. `location_identity`'s stderr breadcrumb is the disclosed marker.
-        identity = location_identity(args.path)
-        paths = sorted(set(args.path))
+        # Anchor BEFORE measuring, so the digested path spelling and the bytes read are the
+        # same repo-root-anchored operand the later check will resolve (see
+        # `anchor_measured_path`) — recording the caller's cwd-relative spelling is what let a
+        # subdirectory check read a drifted claim as `fresh`.
+        paths = sorted({anchor_measured_path(p) for p in args.path})
+        identity = location_identity(paths)
     entry = {'claim_class': args.claim_class, 'revision': capture_revision(),
              'identity': identity}
     if paths is not None:
@@ -3801,6 +3883,10 @@ def cmd_check_claim_staleness(args):
     doc = _load_for_mutation(prefix, args.slug, args.nonce)
     claims = doc.get('claims') or {}
     if args.claim_key is not None:
+        # `.strip()` mirrors the writer's own normalization: recording `--claim-key 'k '`
+        # stores `k`, so looking the raw argument up would answer `claim-unknown` for a claim
+        # that WAS recorded. Strip at both sites, or at neither.
+        args.claim_key = args.claim_key.strip()
         if args.claim_key not in claims:
             _fail(prefix, f'claim-unknown: no claim named {args.claim_key!r} is recorded')
         if args.domain_stdin and claims[args.claim_key].get(
@@ -3889,17 +3975,28 @@ def cmd_record_finding_evidence(args):
     key = f'{args.round}:{args.finding_id}'
     store = doc.setdefault('finding_evidence', {})
     prior = store.get(key)
-    if prior is not None and _observed_divergent(prior.get('observed'), entry.get('observed')):
-        # Last-write-wins would silently collapse two disagreeing observations of ONE finding
-        # to the later value — the same one-sided resolution `evidence_conflicts` refuses
-        # across findings. Divergence is judged by `_observed_divergent`, not plain inequality,
-        # so a pair that `_bound_evidence` truncated to byte-identical strings is refused too:
-        # the comparison could not see the bytes past the cap, and unknown is never agreement.
-        # Re-recording identical UNtruncated evidence stays a legal idempotent replay.
-        _fail(prefix, f'evidence-overwrite-differs: {key} already carries evidence whose '
-                      f'observed output differs, or whose equality could not be established '
-                      f'because both are truncated; record the second probe under its own '
-                      f'finding id so the disagreement is surfaced, never overwritten')
+    if prior is not None:
+        # Last-write-wins would silently collapse two disagreeing probes of ONE finding to the
+        # later value — the same one-sided resolution `evidence_conflicts` refuses across
+        # findings. The compared identity is the WHOLE recorded item, not `observed` alone:
+        # two probes that disagree about WHERE the defect is (`locator`) or HOW it was
+        # measured (`command`) while coincidentally producing the same bytes — routine for
+        # low-entropy outputs like `0`, an empty result, or a single count line — are exactly
+        # the disagreement this refusal exists to surface, and comparing only `observed` let
+        # the first probe's locator, command and baseline vanish at `conflict=none`.
+        # `observed` alone is judged by `_observed_divergent`, not plain inequality, so a pair
+        # `_bound_evidence` truncated to byte-identical strings is refused too: the comparison
+        # could not see the bytes past the cap, and unknown is never agreement. A byte-for-byte
+        # identical, untruncated re-record stays a legal idempotent replay.
+        changed = [f for f in _EVIDENCE_FIELDS
+                   if (_observed_divergent(prior.get(f), entry.get(f)) if f == 'observed'
+                       else prior.get(f) != entry.get(f))]
+        if changed:
+            _fail(prefix, f'evidence-overwrite-differs: {key} already carries evidence that '
+                          f'differs in {",".join(changed)} (or whose equality could not be '
+                          f'established because both observations are truncated); record the '
+                          f'second probe under its own finding id so the disagreement is '
+                          f'surfaced, never overwritten')
     store[key] = entry
     _save_or_fail(prefix, doc, args.slug)
     print(f'finding={key} completeness={completeness} '
@@ -3909,10 +4006,21 @@ def cmd_record_finding_evidence(args):
 def cmd_query_finding_evidence(args):
     """Read back per-finding evidence under the channel's own bounded encoding.
 
-    Every stored field is JSON-encoded before printing, so an embedded newline or a
-    `completeness=`-shaped token in auditor text renders as escaped bytes on the finding's
-    own line and can forge neither a line nor a field of this surface. That is this
-    channel's answer to the hazard the ledger transport answers by refusal.
+    Every stored field is JSON-encoded before printing, so an embedded newline in auditor
+    text renders as escaped bytes on the finding's own line and cannot forge a LINE of this
+    surface. That is this channel's answer to the hazard the ledger transport answers by
+    refusal.
+
+    The scope of the field half is narrower and stated exactly, because JSON quoting escapes
+    newlines and quotes but NOT `=` or spaces. The three DECISION fields — `finding=`,
+    `completeness=`, `conflict=` — are unforgeable structurally: each is emitted ahead of
+    every auditor-controlled value and drawn from a closed domain (an `<int>:<int>` key, the
+    two `evidence_completeness` literals, and keys of that same domain). The trailing
+    `_EVIDENCE_FIELDS` values are QUOTED rather than delimited, so auditor text may contain a
+    `<field>=`-shaped word INSIDE its quotes: read this line by its JSON quoting, never by
+    splitting on whitespace and taking the first `<field>=` hit. The decision-fields-first
+    ordering is load-bearing, not cosmetic — a field appended after the evidence values would
+    end it — and is pinned by the `#704-25` row.
     """
     state = _query_state(args.slug)
     if state is not None and state['nonce'] != args.nonce:
@@ -4533,8 +4641,12 @@ def main():
     s = sub.add_parser(
         'query-finding-evidence',
         help='Read back per-finding evidence. Every field is JSON-encoded at the print '
-             'boundary, so instruction-shaped or record-splitting auditor text can forge '
-             'neither a line nor a field. Two items citing one locator with differing '
+             'boundary, so record-splitting auditor text cannot forge a line, and the '
+             'decision fields (finding=, completeness=, conflict=) cannot be forged because '
+             'they precede every auditor-controlled value and come from closed domains. The '
+             'trailing evidence values are quoted rather than delimited, so parse this line '
+             'by its JSON quoting, never by splitting on whitespace. Two items citing one '
+             'locator with differing '
              'observed output are surfaced as `conflict=<ids>`, never auto-resolved; '
              'conflicts are derived over the whole round, so narrowing with --finding-id '
              'still reports a conflicting sibling.')
