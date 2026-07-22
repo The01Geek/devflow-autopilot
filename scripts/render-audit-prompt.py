@@ -483,8 +483,7 @@ _SLUG_STRIP_RE = re.compile(r"[^a-z0-9]+")
 
 def _name_slug(name: str) -> str:
     """Deterministic kebab slug of a dimension's bold name, for its stable key."""
-    slug = _SLUG_STRIP_RE.sub("-", name.strip().lower()).strip("-")
-    return slug
+    return _SLUG_STRIP_RE.sub("-", name.strip().lower()).strip("-")
 
 
 def _one_line(text: str) -> str:
@@ -494,7 +493,7 @@ def _one_line(text: str) -> str:
     second record), so continuation lines are joined with a single space and
     interior runs of whitespace are collapsed.
     """
-    return re.sub(r"\s+", " ", text.replace("\n", " ")).strip()
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def _generic_dimensions(template_text: str) -> list[tuple[str, str]]:

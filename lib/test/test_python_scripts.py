@@ -10654,7 +10654,10 @@ assert_eq("#603-4/AC5: an earlier round's unresolved entry holds the aggregate a
 
 # Row 5/AC6 — the pre-existing trigger arms survive the comparand switch.
 assert_eq("#603-5/AC6: state-unestablished still answers t1 not-hold / t2 hold",
-          {'t1': False, 't2': True, 'reason': 'state-unestablished'},
+          # issue #708 folded the coverage sibling into this same producer, so the tuple
+          # carries a `coverage` key on every arm; it is False on unestablished state
+          # (unknown never fires an offer). The T1/T2 answers are unchanged.
+          {'t1': False, 't2': True, 'coverage': False, 'reason': 'state-unestablished'},
           issue_audit_state.evaluate_triggers(None))
 assert_eq("#603-5/AC6: the no-verdict arm is unchanged",
           (False, True, 'no-verdict-round'),

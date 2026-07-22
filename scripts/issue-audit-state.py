@@ -207,8 +207,11 @@ _COVERAGE_OUTCOMES = ('exercised', 'valid-N/A', 'unestablished', 'skipped')
 _COVERAGE_BACKING_OUTCOMES = ('exercised', 'valid-N/A')
 # The outcomes that require a non-empty anchor/reason passing the text-only floor. An
 # `exercised` outcome whose anchor fails the floor is DOWNGRADED to `unestablished` at
-# record time (unknown is not zero), never rejected.
-_COVERAGE_ANCHORED = ('exercised', 'valid-N/A')
+# record time (unknown is not zero), never rejected. The two roles — what BACKS coverage
+# and what CARRIES an anchor — are the same set by construction, so the coupling is
+# spelled as an alias rather than a second literal that a later edit could silently
+# desync (a divergence would be invisible: nothing compares the two).
+_COVERAGE_ANCHORED = _COVERAGE_BACKING_OUTCOMES
 # One structurally-enforced bound (issue #708): a hard per-anchor character cap over the
 # quoted line plus one concern clause, so no single anchor can balloon. The state owner
 # rejects an over-cap anchor (record time and read boundary alike).
@@ -1577,10 +1580,11 @@ def evaluate_triggers(state):
     raw signal is clean and pre-#548 it fired no offer, so T2's behavior on it is unchanged.
     """
     if state is None:
-        return {'t1': False, 't2': True, 'reason': 'state-unestablished'}
+        return {'t1': False, 't2': True, 'coverage': False,
+                'reason': 'state-unestablished'}
     last = last_completed(state)
     if last is None:
-        return {'t1': False, 't2': False, 'reason': None}
+        return {'t1': False, 't2': False, 'coverage': False, 'reason': None}
     u = _unresolved_int(last)
     # issue #603: T1's comparand is the RUN-WIDE EFFECTIVE count, so a round whose ledger
     # entries the drafter verified fixed (or retired as invalid, or that a FILE re-audit
@@ -1612,7 +1616,8 @@ def evaluate_triggers(state):
         # above (u is not None), never here.
         t2 = True
         reason = 'unadjudicated-round'
-    return {'t1': t1, 't2': t2, 'reason': reason}
+    return {'t1': t1, 't2': t2, 'coverage': evaluate_coverage_trigger(state),
+            'reason': reason}
 
 
 def evaluate_convergence(state):
@@ -1698,14 +1703,17 @@ def evaluate_coverage(state):
     """
     rnd = _coverage_round(state)
     if rnd is None:
-        return {'backing': 'unestablished', 'render': 'none'}
+        return {'backing': 'unestablished', 'render': 'none', 'round': None}
     coverage = rnd.get('coverage')
-    render = rnd.get('coverage_render') or 'full'
     if not coverage:
         # A clean round that recorded no coverage: unknown is not backed.
-        return {'backing': 'unestablished', 'render': 'none'}
+        return {'backing': 'unestablished', 'render': 'none', 'round': rnd}
     backed = all(e.get('outcome') in _COVERAGE_BACKING_OUTCOMES for e in coverage)
-    return {'backing': 'backed' if backed else 'not-backed', 'render': render}
+    backing = 'backed' if backed else 'not-backed'
+    # The closed backing vocabulary is asserted, not merely documented: a token typo'd
+    # here would otherwise ship green, since nothing downstream re-checks it.
+    assert backing in _COVERAGE_BACKINGS
+    return {'backing': backing, 'render': rnd.get('coverage_render') or 'full', 'round': rnd}
 
 
 def evaluate_coverage_trigger(state):
@@ -2813,6 +2821,48 @@ def cmd_record_adjudication(args):
           f'invalid={args.invalid} superseded={superseded}')
 
 
+def _read_stdin_lines(command, what, token):
+    """Read a quoted-heredoc line payload from stdin, or fail closed (issue #708).
+
+    ONE implementation of the fail-closed byte-read the line-oriented stdin transports
+    share — a closed fd (CPython sets `sys.stdin` to None, so an attribute access would
+    otherwise leak a raw traceback), a read error, an undecodable payload, and an empty
+    one. Callers supply their own `command` (for the breadcrumb prefix), the human `what`
+    they are reading, and the `token` their triage vocabulary uses, so every named
+    breadcrumb stays exactly what it was when each caller inlined this block.
+
+    The transport is deliberately line-oriented text, not a structured payload: the
+    skill's fence pipes the lines through a QUOTED-delimiter heredoc, so the shell never
+    expands the `$(...)`, backticks, and quotes that auditor-derived text routinely
+    contains.
+
+    Reading BYTES and decoding explicitly (rather than reading the text wrapper) is
+    load-bearing: decoding INSIDE the read `try` would let a UnicodeDecodeError (a
+    ValueError, not an OSError) escape as a raw traceback on routine input — text lifted
+    from a terminal transcript carrying a mangled smart quote or a truncated multibyte
+    char — breaking the mutation contract's named-breadcrumb half and leaving the skill's
+    stderr triage nothing to match.
+
+    Returns the non-blank lines. Never returns on any degraded shape.
+    """
+    if sys.stdin is None:
+        _fail(command, f'could not read the {what} from stdin: no stdin is attached '
+                       f'(fd 0 is closed)')
+    try:
+        data = sys.stdin.buffer.read()
+    except OSError as exc:
+        _fail(command, f'could not read the {what} from stdin: {exc}')
+    try:
+        raw = data.decode('utf-8')
+    except UnicodeDecodeError as exc:
+        _fail(command, f'the {what} is not valid UTF-8 text ({token}-undecodable): {exc}; '
+                       f'reword the text in plain text and re-issue the call')
+    if not raw.strip():
+        _fail(command, f'--{token}-stdin was given but no {what} lines were received on '
+                       f'stdin ({token}-empty)')
+    return [ln for ln in raw.split('\n') if ln.strip()]
+
+
 def _ingest_ledger(must_revise, unresolved):
     """Read `--ledger-stdin` and build the round's ledger, or fail closed.
 
@@ -2831,30 +2881,7 @@ def _ingest_ledger(must_revise, unresolved):
     command's own: record-revision hashes the bytes and never decodes them, so it has no
     decode step to mirror.
     """
-    if sys.stdin is None:
-        _fail('record-adjudication', 'could not read the finding ledger from stdin: no '
-                                     'stdin is attached (fd 0 is closed)')
-    try:
-        data = sys.stdin.buffer.read()
-    except OSError as exc:
-        _fail('record-adjudication', f'could not read the finding ledger from stdin: {exc}')
-    # Read BYTES like record-revision, then decode explicitly (record-revision hashes the
-    # bytes and never decodes, so the decode arm below is this command's own). Reading the text
-    # wrapper instead would decode INSIDE the try, where a UnicodeDecodeError (a ValueError,
-    # not an OSError) escapes as a raw traceback — breaking the mutation contract's
-    # named-breadcrumb half on routine input (a summary lifted from a terminal transcript
-    # carrying a mangled smart quote or a truncated multibyte char), leaving the skill's
-    # stderr triage nothing to match.
-    try:
-        raw = data.decode('utf-8')
-    except UnicodeDecodeError as exc:
-        _fail('record-adjudication',
-              f'the finding ledger is not valid UTF-8 text (ledger-undecodable): {exc}; '
-              f'reword the summary in plain text and re-issue the call')
-    if not raw.strip():
-        _fail('record-adjudication', '--ledger-stdin was given but no finding summaries '
-                                     'were received on stdin (ledger-empty)')
-    lines = [ln for ln in raw.split('\n') if ln.strip()]
+    lines = _read_stdin_lines('record-adjudication', 'finding ledger', 'ledger')
     if len(lines) != must_revise:
         _fail('record-adjudication',
               f'the ledger carries {len(lines)} finding summaries but the adjudication '
@@ -2957,23 +2984,7 @@ def _ingest_coverage():
     DOWNGRADED to `unestablished` with its anchor dropped — never rejected (unknown is not
     zero, and the coverage record must stay total over required dimensions).
     """
-    if sys.stdin is None:
-        _fail('record-coverage', 'could not read the coverage list from stdin: no stdin is '
-                                 'attached (fd 0 is closed)')
-    try:
-        data = sys.stdin.buffer.read()
-    except OSError as exc:
-        _fail('record-coverage', f'could not read the coverage list from stdin: {exc}')
-    try:
-        raw = data.decode('utf-8')
-    except UnicodeDecodeError as exc:
-        _fail('record-coverage',
-              f'the coverage list is not valid UTF-8 text (coverage-undecodable): {exc}; '
-              f'reword the anchor in plain text and re-issue the call')
-    if not raw.strip():
-        _fail('record-coverage', '--coverage-stdin was given but no coverage lines were '
-                                 'received on stdin (coverage-empty)')
-    lines = [ln for ln in raw.split('\n') if ln.strip()]
+    lines = _read_stdin_lines('record-coverage', 'coverage list', 'coverage')
     coverage = []
     seen = set()
     for idx, line in enumerate(lines, start=1):
@@ -2992,16 +3003,15 @@ def _ingest_coverage():
             _fail('record-coverage',
                   f'coverage line {idx} duplicates key {key!r} (coverage-duplicate-key)')
         seen.add(key)
-        if outcome in _COVERAGE_ANCHORED:
-            err = _coverage_anchor_floor(anchor)
-            if err is not None:
-                # Downgrade, never reject: unknown is not zero. A floor-failing anchor does
-                # not back coverage, so the dimension records `unestablished` with no anchor.
-                coverage.append({'key': key, 'outcome': 'unestablished', 'anchor': None})
-                continue
-            coverage.append({'key': key, 'outcome': outcome, 'anchor': anchor})
-        else:
-            coverage.append({'key': key, 'outcome': outcome, 'anchor': None})
+        if outcome not in _COVERAGE_ANCHORED:
+            anchor = None
+        elif _coverage_anchor_floor(anchor) is not None:
+            # Downgrade, never reject: unknown is not zero. A floor-failing anchor does
+            # not back coverage, so the dimension records `unestablished` with no anchor.
+            outcome, anchor = 'unestablished', None
+        # ONE append for all three arms — the entry shape has a single construction site,
+        # so a later field cannot be added to two arms and missed on the third.
+        coverage.append({'key': key, 'outcome': outcome, 'anchor': anchor})
     return coverage
 
 
@@ -3022,7 +3032,10 @@ def cmd_query_coverage(args):
         return
     cov = evaluate_coverage(state)
     print(f'coverage_backing={cov["backing"]} coverage_render={cov["render"]}')
-    rnd = _coverage_round(state)
+    # The coverage round rides on the SAME derivation that decided the tokens — deriving
+    # it a second time would be two call sites that must agree on which round is
+    # authoritative, the drift #603 removed from the summary fields.
+    rnd = cov['round']
     if rnd is not None:
         for e in rnd.get('coverage') or []:
             anchor = e.get('anchor')
@@ -3797,13 +3810,14 @@ def cmd_query_triggers(args):
         return
     t = evaluate_triggers(state)
     reason = t['reason'] or ''
-    # issue #708: the unbacked-coverage offer trigger, a sibling of T1/T2 on the SAME
-    # boundary offer. `coverage=` renders BEFORE `reason=` so `reason` stays the trailing
+    # issue #708: the unbacked-coverage offer trigger is a sibling of T1/T2 on the SAME
+    # boundary offer, so it is produced by the SAME evaluation rather than a second call
+    # concatenated in the printer (the one-producer discipline #603 established for the
+    # summary fields). `coverage=` renders BEFORE `reason=` so `reason` stays the trailing
     # field the orchestrator's parse already anchors on.
-    coverage = 'hold' if evaluate_coverage_trigger(state) else 'not-hold'
     print(f't1={"hold" if t["t1"] else "not-hold"} '
           f't2={"hold" if t["t2"] else "not-hold"} '
-          f'coverage={coverage} reason={reason}')
+          f'coverage={"hold" if t["coverage"] else "not-hold"} reason={reason}')
 
 
 def _unledgered_revise(state):
