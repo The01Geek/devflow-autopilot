@@ -132,11 +132,16 @@ _fpcap="$(python3 -c 'import os,sys; print(os.name, oct(os.stat(sys.argv[1]).st_
 # platform token on a host missing that tool and, because the relaxed arm is an
 # allowlist test, silently re-select the strict arm on Windows — restoring the
 # bug. The mode expansion deliberately keeps ALL trailing content beyond the
-# first space, so a three-field capture yields a non-octal mode field and takes
-# the strict arm rather than silently discarding the extra field. A multi-line
-# capture (a python3 shim printing a notice to stdout before the value) lands in
-# the same place for the same reason — the mode field carries the newline and is
-# not solely octal — so it too fails closed.
+# first space, so a rejection follows in either of two pollution shapes. When
+# the pollution leaves the mode field non-octal — a leading notice carrying an
+# embedded space, or a newline the mode field then inherits from a multi-line
+# capture (a shim printing a notice ahead of the value) — the octal test fails
+# and the strict arm runs. When the pollution instead displaces the platform
+# token while leaving a clean octal mode that is not the owner-only value, the
+# platform-equality arm does not match and the strict arm runs anyway. The one
+# shape that passes is a space-free notice sitting ahead of a genuine owner-only
+# mode: it passes on the FIRST arm, on the measured mode value alone, which is
+# the guarantee — so that shape is safe.
 _fpos="${_fpcap%% *}"
 _fpmode="${_fpcap#* }"
 [ "$_fpcap" != "$_fpmode" ] || _fpmode=""   # no space in the capture => no mode field at all

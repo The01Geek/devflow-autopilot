@@ -247,8 +247,9 @@ these variables were introduced.
 
 **Why they are opt-in and separate.** An earlier release set both variables
 unconditionally, so the action's `configureGitAuth` startup would resolve the
-repository on a self-hosted Windows runner (otherwise it aborts
-`fatal: not in a git directory`, exit 128, before the agent does any work). But
+repository on a self-hosted Windows runner (otherwise — **inferred**, in the
+both-pins-off default — it aborts `fatal: not in a git directory`, exit 128,
+before the agent does any work; see the evidence label below the table). But
 `GIT_WORK_TREE` also reaches the Claude Code CLI subprocess that installs plugins,
 where it makes `git clone` refuse an existing working tree — so **every** cloud run
 died at plugin install with `fatal: working tree '<path>' already exists.`,
@@ -260,19 +261,37 @@ set is closed by construction:
 
 | `git_dir_pin` | `git_work_tree_pin` | `configureGitAuth` | Plugin install | `git rev-parse --show-toplevel` from a subdirectory |
 | --- | --- | --- | --- | --- |
-| `false` | `false` (**the default**) | fails on self-hosted Windows | succeeds | repository root |
+| `false` | `false` (**the default**) | **inferred** fail — one completed self-hosted-Windows run contradicts it, pending the git-env evidence below | succeeds | repository root |
 | `true` | `false` | succeeds | succeeds | **the subdirectory** — see the silent-miss hazard below |
 | `false` | `true` | succeeds | **fails** unless your marketplace list is local-only | repository root |
 | `true` | `true` | succeeds | **fails** unless your marketplace list is local-only | repository root |
 
 The `configureGitAuth` column is **inferred** from the pinned action's upstream
-source plus a local `git config` proxy — **no cell of it has been observed on a
-self-hosted Windows runner**. The other two columns are measured. Treat the
-`git_dir_pin`-on path as **unverified on Windows**.
+source plus a local `git config` proxy, with one exception now on record. A
+`/devflow:implement` job has completed on a self-hosted Windows runner
+(maintainer-reported from a consumer's runner, 2026-07-21; not independently
+reproducible from this repository, and no run identifier is resolvable by any
+reader here). What that establishes is narrow and certain: `configureGitAuth`
+did not abort on that run. The consumer had set both `git_dir_pin` and
+`git_work_tree_pin` to `true`, but neither variable was in force. `GIT_DIR` was
+**necessarily absent** — the implement tier suppresses the assignment
+(`scripts/emit-git-env.sh`) regardless of the configured value, and `git_dir_pin`
+is not honored on that tier at all. `GIT_WORK_TREE` is **inferred** absent, not
+read: a completed plugin install is inconsistent with an exported `GIT_WORK_TREE`,
+which this table records as failing the remote clone unless the marketplace list
+is local-only, so a run that completed implies the variable was absent. That
+inference has a **named falsifier** — the plugin-install measurement was taken on
+this repository's own **ephemeral** hosted runners, where the marketplace is
+cloned fresh every run; on a **persistent self-hosted** runner a pre-existing
+marketplace checkout could make the clone a no-op and the documented failure would
+never fire, so a completed run with `GIT_WORK_TREE` exported is not excluded. The
+evidence that would replace the inference with a direct observation is the run's
+**git-env step output**, which has not been read. The other two columns are
+measured. Treat the `git_dir_pin`-on path as **unverified on Windows**.
 
 **`git_work_tree_pin` serves a narrow population: adopters whose composed
 marketplace list is local-only.** Such a run never performs the remote clone the
-variable breaks, so for them it fixes `configureGitAuth` while keeping working-tree
+variable breaks, so for them it is **inferred** to fix `configureGitAuth` while keeping working-tree
 resolution correct — the one combination that avoids the `git_dir_pin` relocation
 hazard entirely. **Enabling it outside that population reproduces the outage above.**
 
@@ -371,8 +390,10 @@ self-hosted runner is single-tenant by its own trust model. Narrowing them is tr
 separately.
 
 Clearing this blocker does **not** by itself make the tier usable — see the
-`setup.git_dir_pin` / `setup.git_work_tree_pin` table above for the next expected
-blocker, and note that `git_dir_pin` is not honored on the implement tier.
+`setup.git_dir_pin` / `setup.git_work_tree_pin` table above for the next
+**inferred** blocker (a completed self-hosted-Windows run now contradicts that
+inference; see the evidence label there), and note that `git_dir_pin` is not
+honored on the implement tier.
 
 ### Dispatch-enabled, not certified — run a smoke test first
 

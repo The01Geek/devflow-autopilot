@@ -1,0 +1,6 @@
+---
+bump: patch
+type: Fixed
+---
+
+- **Reconcile the post-#690 Windows `configureGitAuth` evidence label across three surfaces, add a drive-letter `PATH`-split gotcha, and correct an over-general comment in `install-gh-wrapper.sh`.** `docs/cloud-setup.md`, `docs/install.md`, and `.devflow/config.schema.json`'s `setup.git_dir_pin` description now record that a `/devflow:implement` job completed on a self-hosted Windows runner — establishing only that `configureGitAuth` did not abort there — with `GIT_DIR` necessarily absent (the implement tier suppresses it) and `GIT_WORK_TREE` inferred absent from the completed plugin install rather than read, its named falsifier (a pre-existing marketplace checkout on a persistent runner) and the run's git-env step output as the settling evidence both stated; the both-pins-off abort claim is scoped and marked inferred identically at all three sites rather than deleted at one. `CLAUDE.md` gains a Gotchas bullet recording that a Windows-form path in a colon-separated `PATH`-style variable splits at the drive-letter colon, naming `scripts/provision-python3-shim.sh`'s target-directory loop as the live instance and `GITHUB_PATH` as the non-instance. `scripts/install-gh-wrapper.sh`'s multi-line-capture comment now states the full rejection disjunction. No executable line changes. (#699)
