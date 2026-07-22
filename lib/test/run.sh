@@ -30484,8 +30484,9 @@ WSR_TGL='`skills/*/SKILL.md`, `skills/implement/phases/*.md`, `skills/review/pha
 # The evidence marker literal the routing evidence-contract writes and the gate criterion matches.
 WSR_MARK='Writing-skills evidence:'
 
-# #563 focused-module guidance is repo-local prompt behavior: a known module may
-# accelerate RED/GREEN, but it must never replace the complete verification gate.
+# #563 focused-module guidance is repo-local prompt behavior: a covering module is the
+# iteration default (issue #707 inverted it), but it must never replace the complete
+# verification gate at the end.
 # Mutation-prove both load-bearing directions on each operative workflow surface.
 assert_pin_red_under "#563 implement extension selects the focused runner for RED/GREEN" \
   'use `bash lib/test/run-module.sh <module-id>` for RED/GREEN iteration.' \
@@ -30493,14 +30494,202 @@ assert_pin_red_under "#563 implement extension selects the focused runner for RE
 assert_pin_red_under "#563 review-and-fix extension selects the focused runner for RED/GREEN" \
   'use `bash lib/test/run-module.sh <module-id>` for the RED/GREEN loop.' \
   's|use `bash lib/test/run-module\.sh <module-id>` for the RED/GREEN loop\.|use `bash lib/test/run.sh` for the RED/GREEN loop.|' "$WSR_RAF"
-assert_pin_red_under "#563 implement extension keeps the full suite as the completion gate" \
-  'A focused result is never a completion gate.' \
-  's/A focused result is never a completion gate\./A focused result may be used as a completion gate./' "$WSR_IMPL"
-assert_pin_red_under "#563 review-and-fix extension keeps the full suite as the review gate" \
-  'A focused result never discharges a review/fix gate.' \
-  's|A focused result never discharges a review/fix gate\.|A focused result may discharge a review/fix gate.|' "$WSR_RAF"
+# #707 re-anchored the two completion-gate pins: the retired sentences they guarded
+# ('A focused result is never a completion gate.' / '… never discharges a review/fix
+# gate.') stated the retired rule that a focused result discharges NOTHING, and #707
+# replaced it with the narrower guarantee that a focused result discharges intermediate
+# iteration but never the FINAL gate. The guarded regression is unchanged in kind — a
+# focused pass promoted into the final gate — so each pin moves to the new operative
+# sentence and keeps its mutation-taking form.
+assert_pin_red_under "#707 implement extension keeps the full suite as the final completion gate" \
+  'A focused result discharges intermediate iteration only, never the final completion gate.' \
+  's/A focused result discharges intermediate iteration only, never the final completion gate\./A focused result may be used as the final completion gate./' "$WSR_IMPL"
+assert_pin_red_under "#707 review-and-fix extension keeps the full suite as the final review/fix gate" \
+  'A focused result discharges intermediate iteration only, never the final review/fix gate.' \
+  's|A focused result discharges intermediate iteration only, never the final review/fix gate\.|A focused result may be used as the final review/fix gate.|' "$WSR_RAF"
+# The two final-gate pins ABOVE stay unlooped deliberately: their operative sentences
+# differ per file ('final completion gate' vs 'final review/fix gate'), so no single
+# literal covers both. #707's policy pins whose sentence IS shared across the pair are not
+# written as a second loop over the same two files — they join the existing #563 loop
+# below, which already iterates exactly this pair. (Deliberately count-free — an ordinal
+# here would rot on the next pin added to that loop.)
+# #707 the reflection obligation is implement-only: it is the audit trail that makes a
+# mid-iteration full-suite run a recorded decision rather than a silent reversion to the
+# retired default.
+assert_pin_red_under "#707 implement extension requires a reflection justifying a full-suite run" \
+  'record a `## Devflow Reflection` bullet stating why the full run was necessary' \
+  's/, and when you do, record a `## Devflow Reflection` bullet stating why the full run was necessary[^.]*\.$/./' "$WSR_IMPL"
+# #707 the reception/shepherd tier carries the same policy in its own adapted voice, so
+# it needs its own pins — it shares no sentence with the two files above.
+assert_pin_red_under "#707 receiving-code-review.md makes a focused pass sufficient for intermediate iteration" \
+  'a focused pass over the changed surface is enough for an intermediate commit or push' \
+  's/a focused pass over the changed surface is enough for an intermediate commit or push/the full suite runs before every intermediate commit or push/' "$FDROOT/.devflow/prompt-extensions/receiving-code-review.md"
+assert_pin_red_under "#707 receiving-code-review.md keeps the final gate and parallelizes it" \
+  'without gating the push on the local run finishing' \
+  's/without gating the push on the local run finishing/after the local run has finished/' "$FDROOT/.devflow/prompt-extensions/receiving-code-review.md"
+# #707 absence guard: the retired convention text must survive on NO surface — every
+# extension and coupled mirror in the file list below (deliberately count-free: an
+# enumeration here rots the next time a surface joins the loop). A reintroduction anywhere
+# is the named regression this issue removed, so the count is pinned at 0 across the whole
+# set rather than per file.
+_WSR_RETIRED_HITS=0
+_WSR_RETIRED_UNREADABLE=0
+_WSR_RETIRED_CONTROL=0
+# The literal set is written ONCE and read by BOTH the sweep and its positive control
+# below. A hand-duplicated second copy is the coupled-mirror defect this repo calls its
+# dominant pattern: the natural maintenance action on two identical lists is to edit both,
+# which disarms a sweep arm while its control stays green — the control certifying the
+# sweep against its own blind spot. One array, two readers, no drift possible.
+# The set carries the retired rule's OBLIGATION sentences, not only its framing clauses.
+# Framing-only literals are the repo's documented pin hole (#171/#232): the obligation
+# ('Before a commit, phase completion, push, or completion claim, run ...') can be re-added
+# ALONGSIDE the new focused-default prose, leaving both rules stated at once — every
+# mutation pin still green, because the new sentences are intact, and the sweep still 0,
+# because it only looked for the framing. Each entry is a DISTINGUISHING span, never a
+# generic English phrase that a future unrelated sentence would trip.
+_WSR_RETIRED_LITS=(
+  'A focused result discharges no gate'
+  'before every commit, push, and completion claim'
+  'A focused result is never a completion gate.'
+  'A focused result never discharges a review/fix gate.'
+  'A focused pass only accelerates RED/GREEN iteration'
+  'they do not replace the complete pre-commit or CI run'
+  'Before a commit, phase completion, push, or completion claim, run'
+  'run the complete suite and every required lint gate'
+  'Branch, make focused changes, run'
+)
+# CONTRIBUTING.md carries this policy too (issue #707 rewrote its Submitting-changes step
+# and added its focused-default block), so it is swept like every other mirror. Its own
+# retired form was a different sentence from the extensions' — 'Branch, make focused
+# changes, run `bash lib/test/run.sh`' — so that spelling is in the literal set above;
+# without it this arm would be installed and inert, sweeping a file for text it never
+# carried. The sweep only proves the old rule is gone, so the new rule gets its own
+# positive pin below.
+for _WSR_RETIRED_FILE in "$WSR_IMPL" "$WSR_RAF" "$FDROOT/.devflow/prompt-extensions/receiving-code-review.md" \
+  "$WSR_CLAUDE" "$FDROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md" "$FDROOT/CONTRIBUTING.md"; do
+  # An absence guard cannot tell "the text is gone" from "the file was never read":
+  # pin_count prints 0 for a missing/unreadable path, so a renamed or mistyped member of
+  # this list would contribute a silent zero and the guard would pass BECAUSE it could not
+  # look. Readability is therefore an asserted operand, not an assumption.
+  [ -r "$_WSR_RETIRED_FILE" ] || _WSR_RETIRED_UNREADABLE=$((_WSR_RETIRED_UNREADABLE + 1))
+  # Each literal is a DISTINGUISHING span of the retired rule, never a generic English
+  # phrase: a bare 'before every commit' would turn the suite RED on an unrelated future
+  # sentence in either large mirror document and misattribute it to this regression.
+  for _WSR_RETIRED_LIT in "${_WSR_RETIRED_LITS[@]}"; do
+    _WSR_RETIRED_HITS=$((_WSR_RETIRED_HITS + $(pin_count "$_WSR_RETIRED_LIT" "$_WSR_RETIRED_FILE")))
+  done
+done
+assert_eq "#707 every surface the retired-convention sweep reads is readable" "0" "$_WSR_RETIRED_UNREADABLE"
+assert_eq "#707 the retired full-suite-before-every-commit convention survives on no surface" "0" "$_WSR_RETIRED_HITS"
+# Positive control: a zero-expecting sweep is only meaningful if it can still COUNT. Plant
+# EVERY literal of the set — not one representative — in a scratch copy and require the sweep
+# to find each. State its reach honestly: because the planting loop and the counting loop read
+# the SAME array, this control CANNOT detect a mistyped literal (a mistype is planted and then
+# found in its mistyped form, and the tally still matches). What it does prove is that the
+# counting machinery is live for every entry — pin_count resolves, probe_tmp allocated, no
+# entry is unmatchable (an empty string, an embedded newline, a literal grep -oF cannot find).
+# A one-literal control did not even prove that much beyond its one arm. Detecting a mistype
+# would need an independently-authored expected corpus; that is a deliberate non-goal here,
+# since the second copy is exactly the coupled-mirror drift the shared array removed.
+if _WSR_RETIRED_PROBE="$(probe_tmp '#707 retired-convention sweep positive control')"; then
+  cat "$WSR_IMPL" > "$_WSR_RETIRED_PROBE"
+  for _WSR_RETIRED_LIT in "${_WSR_RETIRED_LITS[@]}"; do
+    printf '%s\n' "$_WSR_RETIRED_LIT" >> "$_WSR_RETIRED_PROBE"
+  done
+  for _WSR_RETIRED_LIT in "${_WSR_RETIRED_LITS[@]}"; do
+    _WSR_RETIRED_CONTROL=$((_WSR_RETIRED_CONTROL + $(pin_count "$_WSR_RETIRED_LIT" "$_WSR_RETIRED_PROBE")))
+  done
+  assert_eq "#707 retired-convention sweep positive control: every planted retired literal is counted" \
+    "${#_WSR_RETIRED_LITS[@]}" "$_WSR_RETIRED_CONTROL"
+  rm -f "$_WSR_RETIRED_PROBE"
+fi
+unset _WSR_RETIRED_HITS _WSR_RETIRED_FILE _WSR_RETIRED_LIT _WSR_RETIRED_UNREADABLE _WSR_RETIRED_CONTROL _WSR_RETIRED_PROBE _WSR_RETIRED_LITS
+# #707 coupled heading invariant: receiving-code-review.md defers to review-and-fix.md's
+# focused-module section BY VERBATIM HEADING, so the heading and its citation are one
+# coupled text. This issue renamed the heading and updated both halves; without this pin a
+# later rename leaves the reception pass deferring to a section that does not exist while
+# every other pin still passes. Pinned on both sides, and mutation-proved on the citing
+# side (the guarded regression is the deference dangling).
+# #707 the claim gate on the surfaces outside the two-file loop above. Each states the rule
+# in its own voice, so each needs its own pin; the guarded regression is identical — the
+# parallel-push allowance surviving without the clause that keeps the claim gated.
+assert_pin_red_under "#707 receiving-code-review.md gates the completion claim on reading the local run" \
+  'read that run'"'"'s summary before making one' \
+  's/read that run'"'"'s summary before making one/make one without reading it/' "$FDROOT/.devflow/prompt-extensions/receiving-code-review.md"
+assert_pin_red_under "#707 CLAUDE.md mirror gates the claim, not the push, on the local run" \
+  'but the *claim* is — read the local run'"'"'s summary before making one' \
+  's/but the \*claim\* is — read the local run'"'"'s summary before making one/and neither is the claim/' "$WSR_CLAUDE"
+assert_pin_red_under "#707 overview mirror gates the completion claim on reading the local run" \
+  'but the completion claim is — the run reads that local run'"'"'s summary before claiming' \
+  's/but the completion claim is — the run reads that local run'"'"'s summary before claiming/and neither is the completion claim/' "$FDROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+# #707 CONTRIBUTING.md is the human-facing mirror. The absence sweep above only proves the
+# retired rule is gone there; this proves the new one arrived, so deleting its focused-default
+# block cannot pass green.
+assert_pin_red_under "#707 CONTRIBUTING.md makes the focused module the iteration default" \
+  'reach for `bash lib/test/run.sh` mid-iteration only when no module or' \
+  's/reach for `bash lib\/test\/run.sh` mid-iteration only when no module or/run `bash lib\/test\/run.sh` before every commit, and only when no module or/' "$FDROOT/CONTRIBUTING.md"
+assert_pin_red_under "#707 CONTRIBUTING.md gates calling the branch done on reading the local run" \
+  'is: read the local run'"'"'s summary before you claim it' \
+  's/is: read the local run'"'"'s summary before you claim it/is not/' "$FDROOT/CONTRIBUTING.md"
+# #707 the reflection obligation and the routing case that honors it are a coupled pair: the
+# obligation sentence is pinned above, but deleting the routing bullet silently drops a
+# mid-iteration full run back onto the frictionless-do-not-file arm, with the obligation pin
+# still green. Pin the routing case and the forward reference that binds them.
+assert_pin_red_under "#707 implement.md routes a mid-iteration full-suite run to a Reflection bullet" \
+  '**The run performed a full `lib/test/run.sh` run mid-iteration**' \
+  's/\*\*The run performed a full `lib\/test\/run.sh` run mid-iteration\*\*/**The run performed a full suite run**/' "$WSR_IMPL"
+assert_pin_red_under "#707 implement.md binds the reflection obligation to that routing case" \
+  'The reflection-routing rule below carries this as a named capture case' \
+  's/The reflection-routing rule below carries this as a named capture case/The routing below is unaffected/' "$WSR_IMPL"
+assert_pin_unique "#707 review-and-fix.md carries the heading receiving-code-review.md defers to" \
+  '## Focused test modules are the fix-iteration default' "$WSR_RAF"  # structural-pin-ok: presence of the heading the sibling citation names; the citing side's mutation pin below carries the behavioral proof
+assert_pin_red_under "#707 receiving-code-review.md's deference cites that exact heading" \
+  '"Focused test modules are the fix-iteration default" section governs' \
+  's/"Focused test modules are the fix-iteration default" section governs/"Focused test modules accelerate fix iteration only" section governs/' \
+  "$FDROOT/.devflow/prompt-extensions/receiving-code-review.md"
+# #707 the two coupled mirrors must state the SAME policy the extensions state — a mirror
+# that keeps the retired framing is the desync class the coupled-invariant rule exists to
+# stop, and the absence guard above only proves the old text is gone, not that the new
+# rule arrived.
+assert_pin_red_under "#707 CLAUDE.md mirrors the focused-default / parallelized-final-gate convention" \
+  'focused verification is the iteration default and the final gate is parallelized' \
+  's/focused verification is the iteration default and the final gate is parallelized/the full suite is the gate before every commit/' "$WSR_CLAUDE"
+assert_pin_red_under "#707 the overview doc mirrors the focused-default convention" \
+  'Focused verification is the iteration default: a focused pass covering the changed surface is sufficient for an intermediate commit or push' \
+  's/Focused verification is the iteration default: a focused pass covering the changed surface is sufficient for an intermediate commit or push/A focused pass only accelerates RED-GREEN iteration/' \
+  "$FDROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 for _WSR_FOCUSED_POLICY in "$WSR_IMPL" "$WSR_RAF"; do
   _WSR_FOCUSED_NAME="${_WSR_FOCUSED_POLICY##*/}"
+  # #707: the inverted default and the parallelized final gate are each load-bearing in
+  # BOTH directions, so each gets its own mutation — dropping the focused-sufficiency
+  # sentence re-imposes the retired full-suite-before-every-commit rule, and re-gating the
+  # push on the local run un-parallelizes the final gate this issue exists to overlap.
+  assert_pin_red_under "#707 $_WSR_FOCUSED_NAME makes a focused pass sufficient for an intermediate commit or push" \
+    'a focused pass covering the changed surface is sufficient for an intermediate commit or push.' \
+    's/a focused pass covering the changed surface is sufficient for an intermediate commit or push\./a focused pass covering the changed surface is not sufficient for an intermediate commit or push./' "$_WSR_FOCUSED_POLICY"
+  assert_pin_red_under "#707 $_WSR_FOCUSED_NAME reserves the mid-iteration full suite for uncovered surfaces" \
+    'Run the full suite mid-iteration only when no focused module or path covers the changed surface' \
+    's/Run the full suite mid-iteration only when no focused module or path covers the changed surface/Run the full suite mid-iteration before each commit and push/' "$_WSR_FOCUSED_POLICY"
+  assert_pin_red_under "#707 $_WSR_FOCUSED_NAME does not gate the push on the local final run" \
+    'the push is NOT gated on the local run finishing' \
+    's/the push is NOT gated on the local run finishing/the push waits for the local run to finish/' "$_WSR_FOCUSED_POLICY"
+  assert_pin_red_under "#707 $_WSR_FOCUSED_NAME keeps the local final run authoritative" \
+    'it remains the authoritative local signal' \
+    's/it remains the authoritative local signal/CI is the authoritative signal/' "$_WSR_FOCUSED_POLICY"
+  assert_pin_red_under "#707 $_WSR_FOCUSED_NAME leaves the #405 cloud in-env gate unweakened" \
+    'never waits on, polls, re-checks, or cites CI for its own progress' \
+    's/never waits on, polls, re-checks, or cites CI for its own progress/may wait on and cite CI for its own progress/' "$_WSR_FOCUSED_POLICY"
+  # #707 the claim-gating clause is what makes the non-gated push safe: the push may land
+  # before the local run finishes, but the COMPLETION CLAIM may not. Unpinned, a later prose
+  # trim can delete it and leave "push, do not wait" as the whole rule — push-and-claim with
+  # nobody ever reading the suite result, which is the reversion this clause exists to stop.
+  # Both directions matter, so the mutation deletes the gate rather than rewording it.
+  assert_pin_red_under "#707 $_WSR_FOCUSED_NAME gates the completion claim on reading the local run" \
+    'read the local run'"'"'s summary before you make one' \
+    's/read the local run'"'"'s summary before you make one/make the claim without reading it/' "$_WSR_FOCUSED_POLICY"
+  assert_pin_red_under "#707 $_WSR_FOCUSED_NAME treats a never-started local run as not-a-completion" \
+    'or a run that never started (denied, blocked, or unreached) is not a completion' \
+    's/or a run that never started \(denied, blocked, or unreached\) is not a completion/is not a completion/' "$_WSR_FOCUSED_POLICY"
   assert_pin_red_under "#563 $_WSR_FOCUSED_NAME records the explicitly selected module ID" \
     'Explicitly record the selected ID and' \
     's/Explicitly record the selected ID and/Use the selected ID and/' "$_WSR_FOCUSED_POLICY"
@@ -38253,8 +38442,18 @@ RAF_ROOT_CEIL=3567
 # ceilings-table cells in lockstep. The max-step ceiling below sits on #621's 19073 base, not
 # #640's 18996 — this branch's +952 is applied to the merged tree's measurement, never to the
 # pre-merge one.
-RAF_LOAD_CEIL=8686
-RAF_MAXSTEP_CEIL=20025
+# #707 raised the initial-load ceiling 8686->9007 and the max-step ceiling 20025->20346: the
+# focused-default / parallelized-final-gate policy this issue mandates is stated on BOTH
+# always-loaded extensions (review-and-fix.md and receiving-code-review.md), so it lands on the
+# initial load twice, and the bundle carried only ~4 words of margin. The prose was written to
+# its operative minimum first — each surface states the inverted default, the preserved-and-
+# parallelized final gate, the retained lint-gate and skip-tally guarantees, and (on
+# review-and-fix.md) the unweakened #405 cloud in-env rule — and only then were the ceilings
+# renegotiated to the measurement plus the repo's usual ~4 words of headroom. The audited growth
+# decision is docs/cutovers/issue-707-focused-default-growth.md; update
+# docs/review-and-fix-budget.md's ceilings-table and Measured cells in lockstep.
+RAF_LOAD_CEIL=9007
+RAF_MAXSTEP_CEIL=20346
 assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
   "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"
 assert_eq "#530 budget: root + always-loaded extensions (initial load) <= $RAF_LOAD_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W)))" "yes" \
@@ -48608,29 +48807,6 @@ if ! devflow_run_full_suite_module "$LIB/test/modules/create-issue-contract.sh" 
   exit 1
 fi
 
-# ────────────────────────────────────────────────────────────────────────────
-echo "#600 create-issue audit-prompt renderer (render-audit-prompt.py)"
-# ────────────────────────────────────────────────────────────────────────────
-# R1..R12 are unit-driven in lib/test/test_render_audit_prompt.py (renderer over
-# mktemp fixture trees + a delivery-equivalence matrix that drives the real
-# load-prompt-extension.sh). The two greps below are SOURCE-SHAPE pins that
-# backstop test_R9_statelessness (which is the outcome check — it observes that no
-# file was written and no stdin was read). A source scan cannot see a write routed
-# through subprocess/shutil/os.write or a variable-mode Path.open, so these pins
-# catch the obvious reintroduction and R9 catches the behavior.
-RAP_ROOT="$(mktemp -d)"
-python3 "$LIB/test/test_render_audit_prompt.py" >"$RAP_ROOT/rap-unit.out" 2>&1
-RAP_UNIT_RC=$?
-# Surface the captured traceback on failure — otherwise the scratch dir is removed
-# below and the only signal left is a bare "expected 0, got 1".
-[ "$RAP_UNIT_RC" -eq 0 ] || cat "$RAP_ROOT/rap-unit.out"
-assert_eq "#600 render-audit-prompt: focused Python tests pass" "0" "$RAP_UNIT_RC"
-assert_eq "#600 render-audit-prompt writes no file (stateless)" "0" \
-  "$(grep -cE "open\([^)]*['\"][wax]|\.write_text\(|\.write_bytes\(" "$LIB/../scripts/render-audit-prompt.py" || true)"
-assert_eq "#600 render-audit-prompt reads no stdin (stateless)" "0" \
-  "$(grep -cE 'sys\.stdin|(^|[^a-zA-Z_])input\(' "$LIB/../scripts/render-audit-prompt.py" || true)"
-rm -rf "$RAP_ROOT"
-
 if ! devflow_run_full_suite_module "$LIB/test/modules/workflow-flight-recorder.sh" \
   "workflow-flight-recorder" 68; then
   printf 'ERROR: workflow-flight-recorder boundary could not record its result\n'
@@ -48674,158 +48850,6 @@ if ! devflow_run_full_suite_module "$LIB/test/modules/regenerate-artifacts.sh" \
   exit 1
 fi
 
-VB_ROOT="$(mktemp -d)"
-
-# ────────────────────────────────────────────────────────────────────────────
-echo "verification-launch baseline analyzer (issue #527, Wave 1)"
-# ────────────────────────────────────────────────────────────────────────────
-python3 "$LIB/test/test_verification_baseline.py" >"$VB_ROOT/vb-unit.out" 2>&1
-assert_eq "verification baseline: focused Python tests pass" "0" "$?"
-# The analyzer is offline (AC #527-2: read-only, launches no verification
-# command and invokes no repository-provided executable) — no subprocess call
-# site in the module. (It imports workflow_flight_recorder, which itself uses
-# subprocess for read-only git; the analyzer never calls those functions.)
-assert_eq "verification baseline: analyzer invokes no subprocess" "0" \
-  "$(grep -cE 'subprocess\.(run|Popen|call|check_output|check_call)' "$LIB/../scripts/verification_baseline.py" || true)"
-# Widened evasion sweep (PR #531 review): the dotted-call pin alone is evadable
-# by `from subprocess import run`, `subprocess.getoutput`, `os.system`,
-# `os.popen`, or `pty.spawn` — none of which it matches. The module legitimately
-# imports no subprocess machinery at all, so pin the absence of every spelling.
-assert_eq "verification baseline: no subprocess import or shell-out spelling" "0" \
-  "$(grep -cE '(^|[^a-zA-Z_])(import subprocess|from subprocess import|os\.system|os\.popen|getoutput|check_output|pty\.spawn|import pty)' "$LIB/../scripts/verification_baseline.py" || true)"
-# Registry coupled pins (the test_workflow_flight_recorder registry test asserts
-# the 5-workflow set; these pin the #527 additions the analyzer depends on).
-assert_eq "verification baseline: registry has the review first-message forms" "1" \
-  "$(grep -cF '"/devflow:review", "/review"' "$LIB/../scripts/workflow-flight-recorder-registry.json" || true)"
-assert_eq "verification baseline: registry has the cloud_mappings section" "1" \
-  "$(grep -cF '"cloud_mappings"' "$LIB/../scripts/workflow-flight-recorder-registry.json" || true)"
-
-rm -rf "$VB_ROOT"
-
-VF_ROOT="$(mktemp -d)"
-
-# ────────────────────────────────────────────────────────────────────────────
-echo "single-flight verification coordination ledger (issue #528, Wave 2)"
-# ────────────────────────────────────────────────────────────────────────────
-python3 "$LIB/test/test_verification_flight.py" >"$VF_ROOT/vf-unit.out" 2>&1
-assert_eq "verification flight: focused Python tests pass" "0" "$?"
-# The coordinator is data-only (AC #528-1): it launches no subprocess, spawns no
-# shell, and runs no git — it never becomes a shell-command bypass. Pin the
-# absence of every subprocess / shell-out / exec spelling.
-#
-# The spelling list is NOT written here. It is read from the single source of
-# truth — BANNED_EXEC_SPELLINGS in lib/test/test_verification_flight.py — so this
-# shell sweep and the Python guard cannot drift into disagreeing coverage (the
-# earlier hand-copied 10-alternative regex was a strict subset of the Python-side
-# list, so each guard certified the contract against the other's blind spot).
-# python3 is a hard preflight prerequisite, so deriving the list is safe here.
-VF_SRC="$LIB/../scripts/verification-flight.py"
-VF_SPELLINGS="$(python3 - "$LIB/test/test_verification_flight.py" <<'VFEOF'
-import ast, sys
-
-# Derive ATOMICALLY: collect the whole tuple first, and only then print. A
-# print-as-you-go loop fails OPEN on a partial derivation — a tuple element that is
-# not a bare string literal (a concatenation, an f-string, a name) raises partway
-# through, the elements already printed survive in the caller's variable, and a
-# non-empty check waves the truncated list through as if coverage were complete.
-# Anything unexpected exits non-zero with an empty stdout instead, so the caller's
-# fail-closed check fires.
-spellings = []
-found = False
-tree = ast.parse(open(sys.argv[1], encoding="utf-8").read())
-for node in tree.body:
-    if isinstance(node, ast.Assign) and any(
-        getattr(t, "id", "") == "BANNED_EXEC_SPELLINGS" for t in node.targets
-    ):
-        found = True
-        if not isinstance(node.value, ast.Tuple):
-            sys.exit("BANNED_EXEC_SPELLINGS is not a tuple literal")
-        for elt in node.value.elts:
-            if not (isinstance(elt, ast.Constant) and isinstance(elt.value, str)):
-                sys.exit("BANNED_EXEC_SPELLINGS holds a non-string-literal element")
-            spellings.append(elt.value)
-if not found:
-    sys.exit("BANNED_EXEC_SPELLINGS assignment not found")
-print("\n".join(spellings))
-VFEOF
-)"
-# Fail closed: an empty derivation would make every membership test below vacuous.
-assert_eq "verification flight: banned-spelling list derived from its single source" "yes" \
-  "$([ -n "$VF_SPELLINGS" ] && echo yes || echo no)"
-# Fail closed on a PARTIAL derivation too: the derived line count must equal the
-# tuple's own element count, so a silently-truncated list cannot pass the non-empty
-# check above. (Deriving the expected count independently, from a plain literal
-# count over the source, keeps this from being a self-referential tautology.)
-VF_TUPLE_LEN="$(python3 - "$LIB/test/test_verification_flight.py" <<'VFLEN'
-import ast, sys
-tree = ast.parse(open(sys.argv[1], encoding="utf-8").read())
-for node in tree.body:
-    if isinstance(node, ast.Assign) and any(
-        getattr(t, "id", "") == "BANNED_EXEC_SPELLINGS" for t in node.targets
-    ):
-        print(len(node.value.elts))
-        break
-VFLEN
-)"
-assert_eq "verification flight: banned-spelling derivation is complete (no partial truncation)" \
-  "$VF_TUPLE_LEN" "$(printf '%s\n' "$VF_SPELLINGS" | grep -c .)"
-VF_EXEC_HITS=0
-while IFS= read -r _vf_spelling; do
-  [ -n "$_vf_spelling" ] || continue
-  case "$(grep -cF -- "$_vf_spelling" "$VF_SRC" || true)" in
-    0) : ;;
-    *) VF_EXEC_HITS=$((VF_EXEC_HITS + 1)); echo "  exec-sweep hit: $_vf_spelling" ;;  # RED-path diagnostic only; deliberately NOT the ' NOTE ' skip channel
-  esac
-done <<VFHITS
-$VF_SPELLINGS
-VFHITS
-assert_eq "verification flight: no subprocess / shell-out / exec spelling" "0" "$VF_EXEC_HITS"
-# The exact, exhaustive state set is a coupled invariant with the helper source
-# and the docs — pin the full declared membership (the grep literals enforce exact
-# content) so a dropped/renamed state goes RED.
-assert_eq "verification flight: ALL_STATES declares the active set" "1" "$(grep -cF '"claimed", "running"' "$VF_SRC" || true)"
-assert_eq "verification flight: TERMINAL_STATES declares every terminal state" "1" \
-  "$(grep -cF '"passed", "failed", "timed_out", "cancelled", "stale", "incomplete"' "$VF_SRC" || true)"
-
-# Coupled grant invariant (issue #528 AC): the vendored-literal helper grant must
-# land in BOTH the implement profile (inline Implement review pass) and the light
-# manual-comment profile (manual Review-and-Fix), and must NOT be added to the
-# read-only reviewer profile (standalone CI-grounded Review creates no flight).
-assert_eq "#528 coupled: devflow-implement.yml grants verification-flight.py by vendored path" "1" \
-  "$(grep -cF 'Bash(.devflow/vendor/devflow/scripts/verification-flight.py:*)' "$LIB/../.github/workflows/devflow-implement.yml" || true)"
-assert_eq "#528 coupled: devflow.yml (manual review listener) grants verification-flight.py by vendored path" "1" \
-  "$(grep -cF 'Bash(.devflow/vendor/devflow/scripts/verification-flight.py:*)' "$LIB/../.github/workflows/devflow.yml" || true)"
-assert_eq "#528 coupled: devflow-runner.yml (read-only reviewer) grants NO verification-flight flight helper" "0" \
-  "$(grep -cF 'verification-flight.py' "$LIB/../.github/workflows/devflow-runner.yml" || true)"
-
-rm -rf "$VF_ROOT"
-
-# ────────────────────────────────────────────────────────────────────────────
-echo "receiving-review session artifact producer (issue #668)"
-# ────────────────────────────────────────────────────────────────────────────
-RI_LIB="$LIB/../scripts/reception_identity.py"
-RR_CLI="$LIB/../scripts/reception-record.py"
-RECEPTION_OUT="$(python3 "$LIB/test/test_reception_identity.py" 2>&1)"
-RECEPTION_RC=$?
-assert_eq "reception identity: focused Python tests pass (library + CLI + flight extension)" "0" "$RECEPTION_RC"
-[ "$RECEPTION_RC" -eq 0 ] || while IFS= read -r _ri_line || [ -n "$_ri_line" ]; do printf '    %s\n' "$_ri_line"; done <<< "$RECEPTION_OUT"
-# The library is an importable, non-executable stdlib-only routine (AC1): no exec bit,
-# no PyYAML import, no gh call, no network call.
-assert_eq "reception identity: library carries no executable bit" "no" \
-  "$([ -x "$RI_LIB" ] && echo yes || echo no)"
-assert_eq "reception identity: CLI carries the executable bit" "yes" \
-  "$([ -x "$RR_CLI" ] && echo yes || echo no)"
-assert_eq "reception identity: library imports no PyYAML" "0" \
-  "$(grep -cE '(^|[^a-zA-Z_])(import yaml|from yaml import)' "$RI_LIB" || true)"
-assert_eq "reception identity: library makes no gh call" "0" \
-  "$(grep -cE '"gh"|\bgh \b' "$RI_LIB" || true)"
-# The CLI imports the library rather than re-implementing the derivation (AC2): exactly one
-# copy of the identity format ships. Pin the import and the absence of a second write-tree.
-assert_eq "reception identity: CLI imports the library (single derivation implementation)" "1" \
-  "$(grep -cF 'import reception_identity' "$RR_CLI" || true)"
-assert_eq "reception identity: CLI does not re-implement write-tree" "0" \
-  "$(grep -cF 'write-tree' "$RR_CLI" || true)"
-
 # These integration tests live outside the module whose registration and source
 # boundary they pin, so deleting that boundary cannot delete the test execution.
 MODULE_RUNNER_OUT="$(python3 "$LIB/test/test_module_runner.py" 2>&1)"
@@ -48841,25 +48865,15 @@ if ! MODULE_SIGNAL_MATRIX_CAPABILITY="$(python3 "$LIB/test/test_module_harness.p
     "${MODULE_SIGNAL_MATRIX_CAPABILITY:-POSIX signals and process groups are unavailable}"
 fi
 
-# ────────────────────────────────────────────────────────────────────────────
-echo "issue #591: coverage-map ratchet guard"
-# ────────────────────────────────────────────────────────────────────────────
-# Live-tree ratchet: the guard enumerates git-tracked depth-1 lib/scripts units
-# and cross-references lib/test/modules/coverage-map.json + the registry. A new code
-# unit shipped without a coverage decision — or a stale/misfiled/wrong-shape map —
-# turns THIS suite RED (git + python3 only; guard-class 2). Its arms are exercised
-# with synthetic fixtures by test_coverage_map_guard.py below.
-COVERAGE_GUARD_OUT="$(python3 "$LIB/test/coverage_map_guard.py" "$LIB/.." 2>&1)"
-COVERAGE_GUARD_RC=$?
-assert_eq "#591 coverage-map guard: shipped tree + map is clean" "0" "$COVERAGE_GUARD_RC"
-[ "$COVERAGE_GUARD_RC" -eq 0 ] || while IFS= read -r _cg_line || [ -n "$_cg_line" ]; do printf '    %s\n' "$_cg_line"; done <<< "$COVERAGE_GUARD_OUT"
-# Reuse the shared focused-Python-test runner (module-harness.sh, sourced above)
-# rather than re-implementing its capture/assert/indent idiom — it also applies the
-# PYTHON_COLORS=0 determinism guard the hand-rolled form dropped.
-_CG_UNIT_OUT="$(mktemp)"
-devflow_run_focused_python_test "#591 coverage-map guard: focused Python tests pass" \
-  "$LIB/test/test_coverage_map_guard.py" "$_CG_UNIT_OUT"
-rm -f "$_CG_UNIT_OUT"
+# harness-python-guards contract coverage (issue #707: extracted from this file's
+# #600 / #527 / #528 / #668 / #591 monolith-only Python guard blocks into a focused
+# module). The registry and this full-suite call share the same lower-bound contract;
+# test_module_runner.py parses this operand and rejects any coupling drift.
+if ! devflow_run_full_suite_module "$LIB/test/modules/harness-python-guards.sh" \
+  "harness-python-guards" 31; then
+  printf 'ERROR: harness-python-guards boundary could not record its result\n'
+  exit 1
+fi
 
 # ────────────────────────────────────────────────────────────────────────────
 # ────────────────────────────────────────────────────────────────────────────

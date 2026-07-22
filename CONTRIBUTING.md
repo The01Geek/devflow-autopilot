@@ -49,7 +49,30 @@ in isolation while iterating on their area:
 ```bash
 bash lib/test/run-module.sh create-issue-contract
 bash lib/test/run-module.sh installer-wiring
+bash lib/test/run-module.sh harness-python-guards
 ```
+
+`scripts/workflow-flight-recorder-registry.json`'s `test_modules` block is the
+authoritative list of module IDs — read it there rather than from this sample.
+
+**Focused verification is the iteration default (issue #707).** While iterating,
+run the module that covers the surface you changed rather than the complete
+suite; reach for `bash lib/test/run.sh` mid-iteration only when no module or
+focused path covers that surface. Selection stays explicit — consult
+`lib/test/modules/coverage-map.json` to find a candidate and confirm the ID in
+the registry; changed files never auto-route to a module. The complete suite
+remains the final gate and is not weakened, only overlapped: before calling a
+branch done or PR-ready, push (which starts CI) and start the complete suite
+plus the lint gates locally at the same time, without waiting for the local run
+to finish first. The push is not gated on that run, but calling the branch done
+is: read the local run's summary before you claim it. The local run stays the
+signal you troubleshoot from, because
+its failure detail is richer than CI's, and the issue-#456 skip accounting is
+unchanged — a nonempty skip tally is not clean, and a module may not self-skip,
+so focused iteration cannot launder a skip. The operative statement of this
+policy for agent runs lives in the prompt extensions under
+`.devflow/prompt-extensions/`; the cloud `/devflow:implement` in-env gate
+(issue #405) is untouched by it.
 
 Each module is also executed by the full suite through the fail-closed
 `devflow_run_full_suite_module` boundary, and shares the namespaced pin helpers in
@@ -185,7 +208,10 @@ selectable module, complete all of the following in the same PR:
    the call-site literal are one coupled contract, cross-checked for every module
    by `lib/test/test_module_runner.py`.
 4. **Per-module inventory** — add `lib/test/modules/<module-id>.inventory.md`
-   recording the module's provenance (source baseline + coverage groups).
+   recording the module's provenance (source baseline + coverage groups). When
+   the extraction deliberately leaves sibling candidates in `lib/test/run.sh`,
+   record each one and the reason it stayed, so the residue is a stated decision
+   rather than an omission (`harness-python-guards.inventory.md` is the model).
 5. **CI shellcheck list** — add the module's `.sh` path to the explicit
    shellcheck file list in `.github/workflows/ci.yml` (module files are not
    globbed there).
@@ -307,7 +333,11 @@ resolve the portable `${CLAUDE_SKILL_DIR:-…}` anchor at runtime.
 
 ## Submitting changes
 
-1. Branch, make focused changes, run `bash lib/test/run.sh`.
+1. Branch and make focused changes, iterating on the module that covers the
+   surface you touched (see *Running the tests*). Before opening the PR, push
+   and start `bash lib/test/run.sh` locally at the same time — the two run in
+   parallel, and the local run is the one you troubleshoot from. The push does
+   not wait for it; marking the PR ready does — read its summary first.
 2. Open a PR with a clear description. If your change reaches consumers (the engine surface —
    `skills/`, `agents/`, `lib/`, `scripts/`, the workflows, the config schema), add a
    **changeset** instead of editing `CHANGELOG.md` or `.claude-plugin/plugin.json`: create a
