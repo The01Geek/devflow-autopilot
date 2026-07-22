@@ -7,7 +7,7 @@ kind: growth
 
 Mandatory prompt rows that grew in this change:
 
-- `.devflow/prompt-extensions/implement.md` — +2,158 bytes (35,956 → 38,114)
+- `.devflow/prompt-extensions/implement.md` — +2,520 bytes (35,956 → 38,476)
 - `.devflow/prompt-extensions/review-and-fix.md` — +1,246 bytes (21,074 → 22,320)
 - `.devflow/prompt-extensions/receiving-code-review.md` — +733 bytes (14,395 → 15,128)
 - `CLAUDE.md` — +1,156 bytes (71,436 → 72,592)

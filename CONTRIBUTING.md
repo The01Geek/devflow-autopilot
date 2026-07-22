@@ -64,7 +64,9 @@ the registry; changed files never auto-route to a module. The complete suite
 remains the final gate and is not weakened, only overlapped: before calling a
 branch done or PR-ready, push (which starts CI) and start the complete suite
 plus the lint gates locally at the same time, without waiting for the local run
-to finish first. The local run stays the signal you troubleshoot from, because
+to finish first. The push is not gated on that run, but calling the branch done
+is: read the local run's summary before you claim it. The local run stays the
+signal you troubleshoot from, because
 its failure detail is richer than CI's, and the issue-#456 skip accounting is
 unchanged — a nonempty skip tally is not clean, and a module may not self-skip,
 so focused iteration cannot launder a skip. The operative statement of this
@@ -334,7 +336,8 @@ resolve the portable `${CLAUDE_SKILL_DIR:-…}` anchor at runtime.
 1. Branch and make focused changes, iterating on the module that covers the
    surface you touched (see *Running the tests*). Before opening the PR, push
    and start `bash lib/test/run.sh` locally at the same time — the two run in
-   parallel, and the local run is the one you troubleshoot from.
+   parallel, and the local run is the one you troubleshoot from. The push does
+   not wait for it; marking the PR ready does — read its summary first.
 2. Open a PR with a clear description. If your change reaches consumers (the engine surface —
    `skills/`, `agents/`, `lib/`, `scripts/`, the workflows, the config schema), add a
    **changeset** instead of editing `CHANGELOG.md` or `.claude-plugin/plugin.json`: create a

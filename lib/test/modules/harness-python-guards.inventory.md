@@ -27,8 +27,10 @@ complete suite now reaches them only through the boundary call that replaced the
 ## Deliberate exclusions (Python guards that stay in `lib/test/run.sh`)
 
 **The population this table is complete over** is every Python entry point under
-`lib/test/` the complete suite drives — directly from `lib/test/run.sh`, or through a
-guard or module `lib/test/run.sh` drives. Each is excluded for a stated reason, not
+`lib/test/` that `lib/test/run.sh` drives — either directly, or through a Python guard
+`lib/test/run.sh` itself runs (`test_python_scripts.py`). Entry points driven only by
+*another* registered module are outside it: they are that module's inventory to record,
+not this one's. Each member below is excluded for a stated reason, not
 by omission; the criterion is the issue's own — a guard is extraction-eligible when its
 subject is a specific code unit *and* its verification is self-contained (it does not scan
 a whole population or test the module system itself).
@@ -41,7 +43,9 @@ a whole population or test the module system itself).
 | `lib/test/prompt-mass-census.py` | A whole-tree meta-guard over every prompt surface and the census baseline. |
 | `lib/test/rb-figure-partition.py` | A whole-tree meta-guard over the governed review-bundle figures. |
 | `lib/test/lint-gh-api-repo-path.py` | A whole-tree meta-guard over every tracked-and-unignored surface. |
-| `lib/test/cloud_writer_contract.py` | A whole-tree meta-guard over the cloud-writer reachability closure and its runtime manifest. It is not driven from `lib/test/run.sh` at all — the `regenerate-artifacts` module already carries it — so it is out of scope here twice over. |
+| `lib/test/cloud_writer_contract.py` | A whole-tree meta-guard over the cloud-writer reachability closure and its runtime manifest. The suite reaches it through `lib/test/test_python_scripts.py`, so it is inside the population — but its subject is a whole closure, not one code unit. |
+| `lib/test/cloud_writer_deps.py` | Reached the same way, through `lib/test/test_python_scripts.py`, and part of the same whole-closure subject as the guard above. |
+| `lib/test/regenerate-artifacts.py` | The batched generated-artifact pass itself: its subject is every registered artifact row rather than one code unit, and the `regenerate-artifacts` module already carries its focused coverage. |
 | `lib/test/check-review-retrigger-coverage.py` | A population scanner: it enumerates every PR-gating workflow under `.github/workflows/` and asserts the re-trigger list is a superset. Its subject is that whole population, not one code unit. |
 | `lib/test/extract-command-heads.py` | A whole-bundle scanner over every ```bash fence across the skill surfaces, driven against several allowlists. |
 | `lib/test/extract-command-shapes.py` | Same shape: a whole-bundle command-shape scan, not a single-unit verification. |
@@ -67,10 +71,11 @@ control lives here — so a `#707` change is not covered by running this module 
 
 `#591` is split the same way and likewise stays `unmodularized`: this module carries the
 ratchet guard's live-tree invocation and its unit test, while the label's surface-presence
-pins and the pin-corpus module-coverage block remain in `lib/test/run.sh`. A maintainer
-routing a `#591` change by the `run_sh_blocks` label alone reads `unmodularized` and runs
-the complete suite, unaware this module covers part of it — so route by the `files` entry
-for `lib/test/coverage_map_guard.py` and expect both surfaces to need attention.
+pins and the pin-corpus module-coverage block remain in `lib/test/run.sh`. Unlike `#600`,
+it has **no** `files` entry to route by either: `coverage_map_guard.py` sits under the
+`lib/test/` exempt subtree, so the map never files it. Both of the map's routing surfaces
+are therefore silent on `#591` — route such a change by *this inventory*, and expect the
+module and the `lib/test/run.sh` pins to need attention together.
 
 The generic test harness, registry validation, module registration, full-suite
 boundary, and module-runner tests stay global so deleting this module cannot also
@@ -78,5 +83,5 @@ delete the checks that prove it is selected and executed. The module uses the he
 sourcing contract provides — `assert_eq` from the **caller** (both `lib/test/run.sh` and
 `lib/test/run-module.sh` define it), plus `devflow_run_focused_python_test` and
 `devflow_module_allocate_owned_directory` from `lib/test/module-harness.sh` — and
-references no helper that lives **only** in `lib/test/run.sh`. Its coverage-map ownership (the five extracted subjects' `files` entries) is
+references no helper that lives **only** in `lib/test/run.sh`. Its coverage-map ownership (the extracted subjects' `files` entries — `coverage_map_guard.py` excepted, being under the `lib/test/` exempt subtree, so it has none) is
 recorded in `lib/test/modules/coverage-map.json`.

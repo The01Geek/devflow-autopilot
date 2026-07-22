@@ -30527,10 +30527,11 @@ assert_pin_red_under "#707 receiving-code-review.md makes a focused pass suffici
 assert_pin_red_under "#707 receiving-code-review.md keeps the final gate and parallelizes it" \
   'without gating the push on the local run finishing' \
   's/without gating the push on the local run finishing/after the local run has finished/' "$FDROOT/.devflow/prompt-extensions/receiving-code-review.md"
-# #707 absence guard: the retired convention text must survive on NO surface — the three
-# extensions and both coupled mirrors (CLAUDE.md, the overview doc). A reintroduction
-# anywhere is the named regression this issue removed, so the count is pinned at 0 across
-# the whole set rather than per file.
+# #707 absence guard: the retired convention text must survive on NO surface — every
+# extension and coupled mirror in the file list below (deliberately count-free: an
+# enumeration here rots the next time a surface joins the loop). A reintroduction anywhere
+# is the named regression this issue removed, so the count is pinned at 0 across the whole
+# set rather than per file.
 _WSR_RETIRED_HITS=0
 _WSR_RETIRED_UNREADABLE=0
 _WSR_RETIRED_CONTROL=0
@@ -30539,6 +30540,13 @@ _WSR_RETIRED_CONTROL=0
 # dominant pattern: the natural maintenance action on two identical lists is to edit both,
 # which disarms a sweep arm while its control stays green — the control certifying the
 # sweep against its own blind spot. One array, two readers, no drift possible.
+# The set carries the retired rule's OBLIGATION sentences, not only its framing clauses.
+# Framing-only literals are the repo's documented pin hole (#171/#232): the obligation
+# ('Before a commit, phase completion, push, or completion claim, run ...') can be re-added
+# ALONGSIDE the new focused-default prose, leaving both rules stated at once — every
+# mutation pin still green, because the new sentences are intact, and the sweep still 0,
+# because it only looked for the framing. Each entry is a DISTINGUISHING span, never a
+# generic English phrase that a future unrelated sentence would trip.
 _WSR_RETIRED_LITS=(
   'A focused result discharges no gate'
   'before every commit, push, and completion claim'
@@ -30546,10 +30554,17 @@ _WSR_RETIRED_LITS=(
   'A focused result never discharges a review/fix gate.'
   'A focused pass only accelerates RED/GREEN iteration'
   'they do not replace the complete pre-commit or CI run'
+  'Before a commit, phase completion, push, or completion claim, run'
+  'run the complete suite and every required lint gate'
+  'Branch, make focused changes, run'
 )
 # CONTRIBUTING.md carries this policy too (issue #707 rewrote its Submitting-changes step
-# and added its focused-default block), so it is swept like every other mirror — otherwise
-# a revert of that file to the retired rule passes the whole suite.
+# and added its focused-default block), so it is swept like every other mirror. Its own
+# retired form was a different sentence from the extensions' — 'Branch, make focused
+# changes, run `bash lib/test/run.sh`' — so that spelling is in the literal set above;
+# without it this arm would be installed and inert, sweeping a file for text it never
+# carried. The sweep only proves the old rule is gone, so the new rule gets its own
+# positive pin below.
 for _WSR_RETIRED_FILE in "$WSR_IMPL" "$WSR_RAF" "$FDROOT/.devflow/prompt-extensions/receiving-code-review.md" \
   "$WSR_CLAUDE" "$FDROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md" "$FDROOT/CONTRIBUTING.md"; do
   # An absence guard cannot tell "the text is gone" from "the file was never read":
@@ -30568,9 +30583,14 @@ assert_eq "#707 every surface the retired-convention sweep reads is readable" "0
 assert_eq "#707 the retired full-suite-before-every-commit convention survives on no surface" "0" "$_WSR_RETIRED_HITS"
 # Positive control: a zero-expecting sweep is only meaningful if it can still COUNT. Plant
 # EVERY literal of the set — not one representative — in a scratch copy and require the sweep
-# to count each exactly once, so a mistype of ANY arm (disarming it while the zero-expecting
-# guard stays green) goes RED here. A one-literal control proves only that one arm still
-# counts and leaves the rest of the set uncontrolled, which is the hole this arms shut.
+# to find each. State its reach honestly: because the planting loop and the counting loop read
+# the SAME array, this control CANNOT detect a mistyped literal (a mistype is planted and then
+# found in its mistyped form, and the tally still matches). What it does prove is that the
+# counting machinery is live for every entry — pin_count resolves, probe_tmp allocated, no
+# entry is unmatchable (an empty string, an embedded newline, a literal grep -oF cannot find).
+# A one-literal control did not even prove that much beyond its one arm. Detecting a mistype
+# would need an independently-authored expected corpus; that is a deliberate non-goal here,
+# since the second copy is exactly the coupled-mirror drift the shared array removed.
 if _WSR_RETIRED_PROBE="$(probe_tmp '#707 retired-convention sweep positive control')"; then
   cat "$WSR_IMPL" > "$_WSR_RETIRED_PROBE"
   for _WSR_RETIRED_LIT in "${_WSR_RETIRED_LITS[@]}"; do
@@ -30590,6 +30610,37 @@ unset _WSR_RETIRED_HITS _WSR_RETIRED_FILE _WSR_RETIRED_LIT _WSR_RETIRED_UNREADAB
 # later rename leaves the reception pass deferring to a section that does not exist while
 # every other pin still passes. Pinned on both sides, and mutation-proved on the citing
 # side (the guarded regression is the deference dangling).
+# #707 the claim gate on the surfaces outside the two-file loop above. Each states the rule
+# in its own voice, so each needs its own pin; the guarded regression is identical — the
+# parallel-push allowance surviving without the clause that keeps the claim gated.
+assert_pin_red_under "#707 receiving-code-review.md gates the completion claim on reading the local run" \
+  'read that run'"'"'s summary before making one' \
+  's/read that run'"'"'s summary before making one/make one without reading it/' "$FDROOT/.devflow/prompt-extensions/receiving-code-review.md"
+assert_pin_red_under "#707 CLAUDE.md mirror gates the claim, not the push, on the local run" \
+  'but the *claim* is — read the local run'"'"'s summary before making one' \
+  's/but the \*claim\* is — read the local run'"'"'s summary before making one/and neither is the claim/' "$WSR_CLAUDE"
+assert_pin_red_under "#707 overview mirror gates the completion claim on reading the local run" \
+  'but the completion claim is — the run reads that local run'"'"'s summary before claiming' \
+  's/but the completion claim is — the run reads that local run'"'"'s summary before claiming/and neither is the completion claim/' "$FDROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+# #707 CONTRIBUTING.md is the human-facing mirror. The absence sweep above only proves the
+# retired rule is gone there; this proves the new one arrived, so deleting its focused-default
+# block cannot pass green.
+assert_pin_red_under "#707 CONTRIBUTING.md makes the focused module the iteration default" \
+  'reach for `bash lib/test/run.sh` mid-iteration only when no module or' \
+  's/reach for `bash lib\/test\/run.sh` mid-iteration only when no module or/run `bash lib\/test\/run.sh` before every commit, and only when no module or/' "$FDROOT/CONTRIBUTING.md"
+assert_pin_red_under "#707 CONTRIBUTING.md gates calling the branch done on reading the local run" \
+  'is: read the local run'"'"'s summary before you claim it' \
+  's/is: read the local run'"'"'s summary before you claim it/is not/' "$FDROOT/CONTRIBUTING.md"
+# #707 the reflection obligation and the routing case that honors it are a coupled pair: the
+# obligation sentence is pinned above, but deleting the routing bullet silently drops a
+# mid-iteration full run back onto the frictionless-do-not-file arm, with the obligation pin
+# still green. Pin the routing case and the forward reference that binds them.
+assert_pin_red_under "#707 implement.md routes a mid-iteration full-suite run to a Reflection bullet" \
+  '**The run performed a full `lib/test/run.sh` run mid-iteration**' \
+  's/\*\*The run performed a full `lib\/test\/run.sh` run mid-iteration\*\*/**The run performed a full suite run**/' "$WSR_IMPL"
+assert_pin_red_under "#707 implement.md binds the reflection obligation to that routing case" \
+  'The reflection-routing rule below carries this as a named capture case' \
+  's/The reflection-routing rule below carries this as a named capture case/The routing below is unaffected/' "$WSR_IMPL"
 assert_pin_unique "#707 review-and-fix.md carries the heading receiving-code-review.md defers to" \
   '## Focused test modules are the fix-iteration default' "$WSR_RAF"  # structural-pin-ok: presence of the heading the sibling citation names; the citing side's mutation pin below carries the behavioral proof
 assert_pin_red_under "#707 receiving-code-review.md's deference cites that exact heading" \
@@ -30628,6 +30679,17 @@ for _WSR_FOCUSED_POLICY in "$WSR_IMPL" "$WSR_RAF"; do
   assert_pin_red_under "#707 $_WSR_FOCUSED_NAME leaves the #405 cloud in-env gate unweakened" \
     'never waits on, polls, re-checks, or cites CI for its own progress' \
     's/never waits on, polls, re-checks, or cites CI for its own progress/may wait on and cite CI for its own progress/' "$_WSR_FOCUSED_POLICY"
+  # #707 the claim-gating clause is what makes the non-gated push safe: the push may land
+  # before the local run finishes, but the COMPLETION CLAIM may not. Unpinned, a later prose
+  # trim can delete it and leave "push, do not wait" as the whole rule — push-and-claim with
+  # nobody ever reading the suite result, which is the reversion this clause exists to stop.
+  # Both directions matter, so the mutation deletes the gate rather than rewording it.
+  assert_pin_red_under "#707 $_WSR_FOCUSED_NAME gates the completion claim on reading the local run" \
+    'read the local run'"'"'s summary before you make one' \
+    's/read the local run'"'"'s summary before you make one/make the claim without reading it/' "$_WSR_FOCUSED_POLICY"
+  assert_pin_red_under "#707 $_WSR_FOCUSED_NAME treats a never-started local run as not-a-completion" \
+    'or a run that never started (denied, blocked, or unreached) is not a completion' \
+    's/or a run that never started \(denied, blocked, or unreached\) is not a completion/is not a completion/' "$_WSR_FOCUSED_POLICY"
   assert_pin_red_under "#563 $_WSR_FOCUSED_NAME records the explicitly selected module ID" \
     'Explicitly record the selected ID and' \
     's/Explicitly record the selected ID and/Use the selected ID and/' "$_WSR_FOCUSED_POLICY"

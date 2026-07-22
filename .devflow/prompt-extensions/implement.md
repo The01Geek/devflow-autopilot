@@ -251,8 +251,12 @@ one. Route by whether the run actually had signal:
   covered the changed surface — see *Focused test modules are the iteration default* above) → this
   **is** a `## Devflow Reflection` bullet, even on an otherwise frictionless run. The missing
   focused coverage IS the signal: it names a concrete surface no module reaches, which is exactly
-  the ranked to-do list the retrospective turns into the next extraction ticket. Paying the
-  cheap-gate's LLM pass to surface a coverage gap is the trade this rule buys deliberately.
+  the ranked to-do list the retrospective turns into the next extraction ticket. Record it as
+  an `improvement` (the kind that lands under `### 💡 Improvements`), so two runs reporting the
+  same missing-module signal file it under one heading. This case is scoped to a **mid-iteration**
+  full run — the final-gate run is mandatory on every run, so requiring a bullet for it would trip
+  `cheap-gate.jq` on every PR and carry no signal. Paying the cheap-gate's LLM pass to surface a
+  coverage gap is the trade this rule buys deliberately.
 - **The run was genuinely frictionless end-to-end** (and ran no mid-iteration full suite) → do **not** file a `--reflection` bullet
   for it. Record the confirmation as a `## Progress` note instead:
   `scripts/workpad.py update <ISSUE_NUMBER> --note "dogfood side task ran: frictionless, nothing to capture"`.

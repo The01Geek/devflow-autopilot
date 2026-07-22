@@ -221,7 +221,7 @@ assert_eq "reception identity: CLI carries the executable bit" "yes" \
 assert_eq "reception identity: library imports no PyYAML" "0" \
   "$(grep -cE '(^|[^a-zA-Z_])(import yaml|from yaml import)' "$RI_LIB" || true)"
 assert_eq "reception identity: library makes no gh call" "0" \
-  "$(grep -cE '"gh"|\bgh \b' "$RI_LIB" || true)"
+  "$(grep -cE '"gh"|(^|[^a-zA-Z_])gh ' "$RI_LIB" || true)"
 # The CLI imports the library rather than re-implementing the derivation (AC2): exactly one
 # copy of the identity format ships. Pin the import and the absence of a second write-tree.
 assert_eq "reception identity: CLI imports the library (single derivation implementation)" "1" \

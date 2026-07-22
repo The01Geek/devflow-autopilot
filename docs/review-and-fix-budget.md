@@ -92,14 +92,14 @@ extensions + max active step ≤ 20,346 words).
 | Row | Included paths | Lines | Words | Bytes | ≈Tokens |
 | --- | --- | ---: | ---: | ---: | ---: |
 | **BEFORE** — monolith | `skills/review-and-fix/SKILL.md` (pre-split) | 1,134 | 36,201 | 250,928 | 47,061 |
-| **BEFORE** — always-loaded | monolith + live extension | 1,387 | 39,532 | 273,248 | 51,382 |
-| live extension | `.devflow/prompt-extensions/review-and-fix.md` | 253 | 3,331 | 22,320 | 4,321 |
-| receiving extension | `.devflow/prompt-extensions/receiving-code-review.md` | 139 | 2,258 | 15,128 | 2,928 |
+| **BEFORE** — always-loaded | monolith + live extension | 1,387 | 39,532 | 273,248 | 51,392 |
+| live extension | `.devflow/prompt-extensions/review-and-fix.md` | 253 | 3,331 | 22,320 | 4,330 |
+| receiving extension | `.devflow/prompt-extensions/receiving-code-review.md` | 139 | 2,258 | 15,128 | 2,935 |
 | **AFTER** — plugin root | `skills/review-and-fix/SKILL.md` (thin) | 342 | **3,414** | 27,394 | 4,438 |
-| **AFTER** — actual initial load | root + always-loaded extensions | 734 | **9,003** | 64,842 | 11,687 |
+| **AFTER** — actual initial load | root + always-loaded extensions | 734 | **9,003** | 64,842 | 11,704 |
 | **AFTER** — bundle | root + all `references/*.md` | 1,333 | 42,252 | 298,444 | 54,928 |
-| **AFTER** — normal cumulative path | root + live extension + Σ references | — | 45,583 | — | 59,248 |
-| **AFTER** — maximum active step | root + always-loaded extensions + `shadow-review.md` | — | **20,342** | — | 26,428 |
+| **AFTER** — normal cumulative path | root + live extension + Σ references | — | 45,583 | — | 59,258 |
+| **AFTER** — maximum active step | root + always-loaded extensions + `shadow-review.md` | — | **20,342** | — | 26,445 |
 | reference: `shadow-review.md` | Step 2.6 | 235 | 11,339 | 79,930 | 14,741 |
 | reference: `fixing.md` | Step 3 | 157 | 9,648 | 66,384 | 12,542 |
 | reference: `loop-exit.md` | Loop Exit | 276 | 6,693 | 46,065 | 8,701 |
