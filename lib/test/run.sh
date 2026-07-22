@@ -21455,6 +21455,16 @@ assert_eq "#669 applied: malformed sidecar → honest fallback (session-fallback
   "session-fallback" "$(AE669_field "$AE669_BAD" 'devflow:code-reviewer' 'application_point')"
 assert_eq "#669 applied: schema_version stays 1 (additive sidecar read, no bump)" \
   "1" "$(echo "$AE669_REC" | jq -r '.schema_version')"
+# #700 M2: a NON-JSON / TRUNCATED sidecar (distinct from the wrong-type array above) exercises
+# the load_applied_effort jq parse-FAILURE fallback (`|| printf '{}'`), not the type guard.
+# It must fail CLOSED to the honest fallback and never abort the record.
+printf '{"devflow:code-reviewer":"lo' > "$AE669_DIR/trunc-sidecar.json"   # truncated mid-token
+AE669_TRUNC="$(DEVFLOW_APPLIED_EFFORT_FILE="$AE669_DIR/trunc-sidecar.json" bash "$LIB/efficiency-trace.sh" --workpad-dir "$AE669_DIR" --slug "pr-669" --mode record)"; AE669_TRUNC_RC=$?
+assert_eq "#700 M2: truncated/non-JSON sidecar never aborts the record (parse-failure fallback)" "0" "$AE669_TRUNC_RC"
+assert_eq "#700 M2: truncated/non-JSON sidecar → honest fallback (session-fallback, not agent-definition)" \
+  "session-fallback" "$(AE669_field "$AE669_TRUNC" 'devflow:code-reviewer' 'application_point')"
+assert_eq "#700 M2: truncated/non-JSON sidecar → effective JSON null (unknown is not zero)" \
+  "null" "$(AE669_type "$AE669_TRUNC" 'devflow:code-reviewer' 'effective')"
 rm -rf "$AE669_DIR"
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -21520,7 +21530,69 @@ assert_eq "#700 compose: resolver failure → exit 0 (fail-open)" "0" "$CAE_RC"
 assert_eq "#700 compose: resolver failure → empty agents_args" "" "$CAE_OUT"
 assert_eq "#700 compose: resolver failure → no sidecar" \
   "absent" "$([ -f "$CAE_DIR/s5.json" ] && echo present || echo absent)"
+
+# ── #700 review REJECT fixes (B1 trusted config source, S1 capability default, M1 unwritable
+#    sidecar). A stub that RECORDS its argv so the branch under test is the HELPER's
+#    argument-composition, not the real resolver.
+cat > "$CAE_DIR/stub-argv.py" <<'PY'
+import sys
+open(sys.argv[0] + ".argv", "a").write(" ".join(sys.argv[1:]) + "\n")
+print('{"devflow:code-reviewer":"low"}' if "--applied-sidecar-json" in sys.argv
+      else '{"devflow:code-reviewer":{"effort":"low"}}')
+PY
+# B1: DEVFLOW_AE_CONFIG set → the resolver is invoked with `--config <that file>` on BOTH
+# passes, so the review tier reads per-agent overrides from the trusted base ref, not the
+# PR-head working tree.
+rm -f "$CAE_DIR/stub-argv.py.argv"
+DEVFLOW_RRO="$CAE_DIR/stub-argv.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/b1.json" DEVFLOW_AE_CONFIG="$CAE_DIR/base-cfg.json" bash "$CAE_H" >/dev/null
+assert_eq "#700 B1 compose: DEVFLOW_AE_CONFIG threads --config to BOTH resolver passes" "2" \
+  "$(grep -c -- "--config $CAE_DIR/base-cfg.json" "$CAE_DIR/stub-argv.py.argv")"
+# B1: DEVFLOW_AE_CONFIG UNSET → no --config (working-tree read, legitimate off the review tier).
+rm -f "$CAE_DIR/stub-argv.py.argv"
+DEVFLOW_RRO="$CAE_DIR/stub-argv.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/b1b.json" bash "$CAE_H" >/dev/null
+assert_eq "#700 B1 compose: DEVFLOW_AE_CONFIG unset → no --config (working-tree read)" "0" \
+  "$(grep -c -- "--config" "$CAE_DIR/stub-argv.py.argv")"
+# S1: EFFORT_SUPPORTED explicit EMPTY → coerced to false (unknown is not zero), so the
+# resolver's capability gate fails closed to the honest fallback — NOT rewritten to true.
+rm -f "$CAE_DIR/stub-argv.py.argv"
+DEVFLOW_RRO="$CAE_DIR/stub-argv.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/s1e.json" EFFORT_SUPPORTED="" bash "$CAE_H" >/dev/null
+assert_eq "#700 S1 compose: explicit-empty EFFORT_SUPPORTED → --effort-supported false (fail closed)" "2" \
+  "$(grep -c -- "--effort-supported false" "$CAE_DIR/stub-argv.py.argv")"
+# S1: EFFORT_SUPPORTED UNSET → documented default true.
+rm -f "$CAE_DIR/stub-argv.py.argv"
+DEVFLOW_RRO="$CAE_DIR/stub-argv.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/s1u.json" bash "$CAE_H" >/dev/null
+assert_eq "#700 S1 compose: unset EFFORT_SUPPORTED → --effort-supported true (documented default)" "2" \
+  "$(grep -c -- "--effort-supported true" "$CAE_DIR/stub-argv.py.argv")"
+# S1: a NON-enum EFFORT_SUPPORTED (a garbage value) also fails closed to false.
+rm -f "$CAE_DIR/stub-argv.py.argv"
+DEVFLOW_RRO="$CAE_DIR/stub-argv.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/s1g.json" EFFORT_SUPPORTED="maybe" bash "$CAE_H" >/dev/null
+assert_eq "#700 S1 compose: non-enum EFFORT_SUPPORTED → --effort-supported false (fail closed)" "2" \
+  "$(grep -c -- "--effort-supported false" "$CAE_DIR/stub-argv.py.argv")"
+# M1: the sidecar-write-failure → honest-fallback else arm (applied ⟺ recorded invariant):
+# an UNWRITABLE sidecar path yields empty agents_args (no splice) at exit 0 — never applied.
+# A regular file at the parent position makes both `mkdir -p` and the `>` redirect fail, so
+# the write genuinely cannot succeed (a merely-absent dir would be created by mkdir -p).
+printf 'x' > "$CAE_DIR/blocker"
+CAE_OUT="$(DEVFLOW_RRO="$CAE_DIR/stub-obj.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/blocker/s.json" bash "$CAE_H" 2>/dev/null)"; CAE_RC=$?
+assert_eq "#700 M1 compose: unwritable sidecar → exit 0 (fail-open)" "0" "$CAE_RC"
+assert_eq "#700 M1 compose: unwritable sidecar → empty agents_args (no applied-but-unrecorded splice)" "" "$CAE_OUT"
+
 rm -rf "$CAE_DIR"
+
+# ── #700 S2: applier and recorder must derive the sidecar DEFAULT path by the SAME
+#    repo-root-anchored rule, or a subdir/working-directory invocation makes the composer
+#    write path A while the recorder reads path B (a stale sidecar read as fabricated
+#    telemetry). Coupling pin: both carry the identical repo-root-anchored default literal.
+# Behavioral-fix pin: mutation-routed so it proves it catches the GUARDED regression (a
+# revert to the cwd-relative default that diverges from the recorder), not merely its own
+# line vanishing. Mutation reintroduces the pre-fix cwd-relative literal → the repo-root
+# literal disappears → RED.
+assert_pin_red_under "#700 S2: composer default sidecar is repo-root-anchored — reverting to the cwd-relative default goes RED" \
+  '$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.devflow/tmp/agent-effort-applied.json' \
+  's#\$\(git rev-parse --show-toplevel 2>/dev/null \|\| pwd\)/\.devflow/tmp/agent-effort-applied\.json#.devflow/tmp/agent-effort-applied.json#' \
+  "$LIB/../scripts/compose-applied-effort.sh"
+assert_eq "#700 S2: recorder default (efficiency-trace.sh) is the coupled repo-root-anchored mirror" "1" \
+  "$(pin_count '$(devflow_repo_root)/.devflow/tmp/agent-effort-applied.json' "$LIB/efficiency-trace.sh")"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "efficiency-trace.sh --persist / --self-check (issue #80)"
@@ -33149,6 +33221,29 @@ assert_pin_red_on_removal "#313 security: devflow-runner.yml resolves the provid
 # the cargs step's env: block, which the run-body-identity check excludes, so pin it directly.
 assert_pin_unique "#313 defaults: devflow-runner.yml MODEL falls back to head claude_model when the base-resolved model is empty (bootstrap)" \
   "steps.provider.outputs.model != '' && steps.provider.outputs.model || steps.extract.outputs.claude_model" "$RUNNER_WF"
+
+# #700 B1 (review REJECT): the read-only review tier composes per-agent effort from the
+# TRUSTED BASE-ref config, never the PR-head working tree — else a PR author could lower the
+# merge-gating reviewer's reasoning effort of their own PR. Pinned removal-proof so a revert
+# to the working-tree source (dropping this env key) goes RED. This is the applied-effort
+# sibling of the provider C1 pin above. It lives in the applied_effort step's env: block,
+# which the run-body-identity check excludes (only the env differs across the three tiers),
+# so the "yes,yes,yes,yes" body-identity assertion stays green — B1 is fixed WITHOUT relaxing
+# it (the reviewer's B2 concern that the fix would force the runner body to differ does not
+# arise: env-only diff mirrors the provider step's CONFIG_JSON pattern).
+assert_pin_red_on_removal "#700 B1 security: devflow-runner.yml composes applied effort from the trusted base-ref config file, not PR-head (removal-proof)" \
+  "DEVFLOW_AE_CONFIG: \${{ steps.baseprovision.outputs.config_file }}" "$RUNNER_WF"  # structural-pin-ok: security-presence pin — the guarded regression is removal of the trusted-source env line (sibling of the #313 C1 removal-proof pin); no in-place mutation reintroduces PR-head sourcing
+# The producer half: baseprovision materializes the trusted BASE-ref config ($BASE_JSON,
+# which is {} on any fetch/parse failure) to a FIXED RUNNER_TEMP file and emits its path as
+# `config_file`, so the consumer above always threads a non-empty base-ref path (a missing
+# file resolves to no overrides — fail-closed — never a PR-head read). Removal-proof so a
+# drop of the emission goes RED.
+assert_pin_red_on_removal "#700 B1: baseprovision emits the materialized base-ref config_file output (applied-effort trusted source)" \
+  "config_file=\$AE_CONFIG_FILE" "$RUNNER_WF"  # structural-pin-ok: producer-presence pin — the guarded regression is removal of the base-ref materialization emit; no in-place mutation reintroduces the missing output
+# The implement/command tiers legitimately read their own trusted working tree, so they must
+# NOT carry the base-ref override (its presence there would be a coupled-mirror drift).
+assert_eq "#700 B1: the implement/command compose steps do NOT source base-ref config (working-tree read is legitimate there)" "0,0" \
+  "$(printf '%s' "$(pin_count 'DEVFLOW_AE_CONFIG' "$IMPL_WF")"),$(printf '%s' "$(pin_count 'DEVFLOW_AE_CONFIG' "$LIGHT_WF")")"
 
 # Single-sourcing widened past the jq body (issue #313 /simplify altitude finding):
 # with the section name env-parameterized, the Resolve / Inject / Build-claude_args-head

@@ -38,14 +38,36 @@
 # single quotes — safe to single-quote as one CLI token spliced into claude_args.
 #
 # Env (overridable for tests):
-#   EFFORT_SUPPORTED    provider effort capability (default true)
+#   EFFORT_SUPPORTED    provider effort capability (unset -> true; explicit empty/non-enum
+#                       -> false, failing closed to the honest fallback — #700 S1)
 #   DEVFLOW_RRO         resolver path override (default: vendored, else self-repo)
-#   DEVFLOW_AE_SIDECAR  sidecar output path (default .devflow/tmp/agent-effort-applied.json)
+#   DEVFLOW_AE_SIDECAR  sidecar output path (default: repo-root-anchored
+#                       .devflow/tmp/agent-effort-applied.json — mirrors the recorder, #700 S2)
+#   DEVFLOW_AE_CONFIG   trusted config FILE threaded as --config to the resolver (#700 B1);
+#                       set to the BASE-ref config on the read-only review tier, unset on the
+#                       implement/command tiers (which read their own trusted working tree)
 
 set -uo pipefail
 
-EFFORT_SUPPORTED="${EFFORT_SUPPORTED:-true}"
-SIDECAR="${DEVFLOW_AE_SIDECAR:-.devflow/tmp/agent-effort-applied.json}"
+# "Unknown is not zero" (#700 S1): an UNSET capability falls back to the documented
+# default (true — the Anthropic path, where the model-level Haiku gate still applies), but
+# an EXPLICIT empty value (a provider step whose effort_supported output was empty —
+# capability undetermined) must NOT be rewritten to true and recorded as an applied claim.
+# `-` (not `:-`) so an explicit empty survives the default, then any non-enum value (empty
+# included) is pinned to false, failing closed to the honest fallback.
+EFFORT_SUPPORTED="${EFFORT_SUPPORTED-true}"
+case "$EFFORT_SUPPORTED" in
+  true|false) : ;;
+  *) EFFORT_SUPPORTED=false ;;
+esac
+# Sidecar default is REPO-ROOT-anchored (#700 S2), byte-for-byte the recorder's rule in
+# lib/efficiency-trace.sh (`$(devflow_repo_root)/.devflow/tmp/agent-effort-applied.json`),
+# so applier and recorder resolve the SAME path regardless of cwd — a `working-directory:`
+# or subdir invocation no longer makes the composer write path A while the recorder reads
+# path B. Anchored inline via git (config-source.sh's own devflow_repo_root rule) rather
+# than by sourcing config-source.sh, whose `set -e` would break this helper's fail-open
+# contract. Coupling pinned in lib/test/run.sh.
+SIDECAR="${DEVFLOW_AE_SIDECAR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.devflow/tmp/agent-effort-applied.json}"
 
 # 1. Unconditional stale-sidecar clear (#700 #3) — before the resolver gate, so a run
 #    that applies nothing never leaves a sidecar a later recorder would over-trust.
@@ -62,8 +84,23 @@ if [ ! -f "$RRO" ]; then
   exit 0
 fi
 
+# Trusted config source (#700 B1). On the READ-ONLY review tier the caller sets
+# DEVFLOW_AE_CONFIG to the BASE-ref config file (materialized by baseprovision), so the
+# per-agent effort overrides resolve from the maintainer-controlled base ref — a PR author
+# cannot steer the merge-gating reviewer's reasoning effort of their own PR via head
+# config, mirroring the sibling provider/effort steps' base-ref discipline. Unset/empty →
+# the resolver reads the working-tree config, legitimate on the implement/command tiers
+# which operate on their own trusted tree. A set-but-MISSING path resolves to NO overrides
+# (config-get.sh returns empty for an explicit absent file), never a working-tree fallback
+# — so the review tier fails closed to the honest fallback even if materialization failed.
+# The `${arr[@]+…}` expansion is the bash-3.2-safe empty-array form under `set -u`.
+AE_CONFIG_ARGS=()
+if [ -n "${DEVFLOW_AE_CONFIG:-}" ]; then
+  AE_CONFIG_ARGS=(--config "$DEVFLOW_AE_CONFIG")
+fi
+
 # 3. Compose the startup --agents map and validate it is a non-empty JSON object (#700 #5).
-AGENTS_JSON="$(python3 "$RRO" --known-roster --effort-supported "$EFFORT_SUPPORTED" --applied-agents-json 2>/dev/null || true)"
+AGENTS_JSON="$(python3 "$RRO" --known-roster --effort-supported "$EFFORT_SUPPORTED" "${AE_CONFIG_ARGS[@]+"${AE_CONFIG_ARGS[@]}"}" --applied-agents-json 2>/dev/null || true)"
 if ! printf '%s' "$AGENTS_JSON" | python3 -c 'import json,sys
 try:
     obj = json.load(sys.stdin)
@@ -76,14 +113,15 @@ fi
 
 # 4. Write the applier->recorder sidecar FIRST; emit the splice only if it was written,
 #    so applied ⟺ recorded (#700 #4). A failed write degrades to the honest fallback.
-#    DEFERRED (#700 finding #7 — "consider a single combined emit"): the sidecar is a
-#    SECOND resolver invocation. Not merged into one emit because both maps derive from the
-#    same build_applied_effort gate pass over identical inputs (--known-roster, same
-#    --effort-supported), so the two deterministic calls cannot disagree; a combined
-#    `--applied-*-json` mode is a CLI-contract change with churn but no correctness gain.
-#    Revisit only if the resolver's applied output ever becomes non-deterministic.
+#    DEFERRED (#700 finding #7 — "consider a single combined emit"): this is a SECOND,
+#    independent resolver process — not one gate pass reused. It is not merged into one
+#    emit because each call runs its OWN build_applied_effort gate pass over identical
+#    inputs (--known-roster, the same --effort-supported and --config), and that gate is
+#    deterministic, so the two separate calls cannot disagree; a combined `--applied-*-json`
+#    mode is a CLI-contract change with churn but no correctness gain. Revisit only if the
+#    resolver's applied output ever becomes non-deterministic.
 mkdir -p "$(dirname "$SIDECAR")" 2>/dev/null || true
-if python3 "$RRO" --known-roster --effort-supported "$EFFORT_SUPPORTED" --applied-sidecar-json > "$SIDECAR" 2>/dev/null; then
+if python3 "$RRO" --known-roster --effort-supported "$EFFORT_SUPPORTED" "${AE_CONFIG_ARGS[@]+"${AE_CONFIG_ARGS[@]}"}" --applied-sidecar-json > "$SIDECAR" 2>/dev/null; then
   printf '%s\n' "--agents '$AGENTS_JSON'"
 else
   rm -f "$SIDECAR"

@@ -504,6 +504,26 @@ jobs:
             printf '%s\n' "$BASE_JSON"
             printf '%s\n' "$delim"
           } >> "$GITHUB_OUTPUT"
+          # Materialize the trusted BASE-ref config to a FILE (#700 B1) so the applied-effort
+          # composer can thread it as `--config`: the read-only review tier MUST resolve
+          # per-agent effort overrides from the base ref, never the PR-head working tree, or
+          # a PR author could lower the merge-gating reviewer's reasoning effort of their own
+          # PR (the exact trust boundary the provider/effort steps already honor). BASE_JSON
+          # is ALWAYS valid JSON ({} on any fetch/parse failure), so this write is
+          # unconditional and its failure path carries {} (no overrides → honest fallback),
+          # never PR-head config. The output is the FIXED RUNNER_TEMP path (always non-empty,
+          # outside the PR-writable workspace) even on a write failure — the composer then
+          # points --config at a missing file, which config-get.sh resolves to NO overrides
+          # (an explicit absent file is empty, not a working-tree read), so the tier stays
+          # fail-closed. Emitting an empty path would instead let the composer fall back to
+          # the PR-head tree, re-opening the very hole this fixes.
+          AE_CONFIG_FILE="$RUNNER_TEMP/devflow-applied-config/config.json"
+          mkdir -p "$RUNNER_TEMP/devflow-applied-config" 2>/dev/null || true
+          if ! printf '%s\n' "$BASE_JSON" > "$AE_CONFIG_FILE" 2>/dev/null; then
+            echo "::warning::could not materialize the base-ref config for applied-effort composition into RUNNER_TEMP; the composer will fail closed to the honest fallback (no per-agent effort applied)."
+          fi
+          # Single-line RUNNER_TEMP path → plain key=value is safe.
+          echo "config_file=$AE_CONFIG_FILE" >> "$GITHUB_OUTPUT"
           # Optional pre-installed Claude Code executable path (issue #601), read
           # from setup.claude_code_executable in the SAME trusted base-ref config
           # ($BASE_JSON) as provision_env / runner_tools above — never the PR-head
@@ -981,6 +1001,14 @@ jobs:
         id: applied_effort
         env:
           EFFORT_SUPPORTED: ${{ steps.provider.outputs.effort_supported }}
+          # SECURITY (#700 B1): resolve per-agent effort overrides from the TRUSTED BASE-ref
+          # config (materialized by baseprovision), NEVER the PR-head working tree. This
+          # review runs on the PR head, so a head-sourced override would let a PR author lower
+          # the merge-gating reviewer's reasoning effort of their own PR. Base-ref config is
+          # maintainer-controlled — mirrors the Resolve-effort / Resolve-model-provider steps.
+          # (Only the env differs across the three workflows; the run: body stays byte-identical
+          # — the implement/command tiers leave this unset and read their own trusted tree.)
+          DEVFLOW_AE_CONFIG: ${{ steps.baseprovision.outputs.config_file }}
         run: |
           set -euo pipefail
           CAE=.devflow/vendor/devflow/scripts/compose-applied-effort.sh

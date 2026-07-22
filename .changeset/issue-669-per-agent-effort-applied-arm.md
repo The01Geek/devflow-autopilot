@@ -16,3 +16,13 @@ bump: patch
   reads it to record `effective` and `application_point: agent-definition`. Absent the sidecar
   value the engine records `effective: null` and never `agent-definition` (unknown is not
   zero). The applied `effective` is a spike-grounded proxy, not a per-run measurement.
+
+### Security
+
+- The read-only review tier now composes per-agent effort from the **trusted base-ref
+  config**, never the PR-head working tree: a PR author can no longer lower the merge-gating
+  reviewer's reasoning effort on their own PR. The composer threads the base-ref config
+  (materialized by `baseprovision`) as `--config`, mirroring the sibling provider/effort
+  steps; a missing materialized file fails closed to the honest fallback. An explicit-empty
+  `EFFORT_SUPPORTED` no longer coerces to `true` (fails closed), and the applier's sidecar
+  default path is repo-root-anchored to match the recorder regardless of cwd.
