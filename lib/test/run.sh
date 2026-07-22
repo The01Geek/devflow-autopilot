@@ -47529,7 +47529,15 @@ E711_TOK_R="rglob"; E711_TOK_W="os.walk"; E711_TOK_G="glob"
 e711_run() {  # <root> <path…>  -> prints "rc=<n>|<stdout+stderr>"
   local root="$1"; shift
   local list out rc
-  list="$(probe_tmp '#711 fixture list')" || return 0
+  list="$(probe_tmp '#711 fixture list')" || list=""
+  # probe_tmp prints the literal /dev/null on mktemp failure. Writing the fixture list there
+  # yields an EMPTY population, which the guard fails closed on with rc 1 — so every assertion
+  # whose expected value is the bare string `rc=1` would PASS, having proven nothing about the
+  # walk detection it names. probe_tmp has already recorded its own FAIL, so the run is red
+  # either way; emit a value that can match no expectation, so the misattribution cannot happen.
+  case "$list" in
+    ""|/dev/null) printf 'rc=probe-unavailable|fixture list could not be allocated'; return 0 ;;
+  esac
   printf '%s\n' "$@" > "$list"
   out="$(python3 "$E711_LINT" --root "$root" --files-from "$list" 2>&1)"; rc=$?
   rm -f "$list"
@@ -47619,6 +47627,12 @@ e711_write "$E711_FX" lib/test/sh_negated.sh "! ${E711_TOK_GR} -rq needle \"\$${
 e711_write "$E711_FX" lib/test/sh_ifcond.sh "if ${E711_TOK_F} \"\$${E711_RV}\" -type f; then :; fi"
 e711_write "$E711_FX" lib/test/sh_procsub.sh \
   "while IFS= read -r f; do :; done < <(${E711_TOK_F} \"\$${E711_RV}\" -type f)"
+e711_write "$E711_FX" lib/test/sh_subshell.sh "(${E711_TOK_F} \"\$${E711_RV}\" -name sub)"
+# Span acceptance on the Python side: the marker sits on the wrapped call's CLOSING line.
+e711_write "$E711_FX" lib/test/pyspan.py \
+  "j = ROOT.${E711_TOK_G}(" \
+  "    \"**/y.json\"" \
+  ")  # tree-walk-ok: scoped to a per-test sandbox"
 # The long recursive flags and the operand-less cwd default: both are live arms with no other
 # fixture, so narrowing _GREP_RECURSIVE or dropping the implicit `.` was previously invisible.
 e711_write "$E711_FX" lib/test/sh_longflag.sh "${E711_TOK_GR} --recursive x \"\$${E711_RV}/lib\""
@@ -47689,9 +47703,9 @@ print("rc=%s|%s" % (re.match(r"rc=(\d+)", t).group(1),
 # --- to the repository root, so each shape below is asserted against its own negative control:
 # --- emptying ROOT_FRAGMENTS, inverting the substring pre-filter, breaking fold_continuations, or
 # --- narrowing the path-operand scan each turns one of these RED.
-assert_eq "#711 a shell find rooted at the repository root is a candidate" "rc=1" \
+assert_eq "#711 a shell find over a repository-root path is a candidate" "rc=1" \
   "$(e711_rc "$E711_FX" lib/test/sh_find.sh)"
-assert_eq "#711 a captured recursive grep rooted at the repository root is a candidate" "rc=1" \
+assert_eq "#711 a captured recursive grep over a repository-root path is a candidate" "rc=1" \
   "$(e711_rc "$E711_FX" lib/test/sh_capture.sh)"
 # Named for what it measures: a $REPO_ROOT-spelled operand is a candidate. It is NOT a control
 # for the REPO_ROOT tuple member, which `ROOT` subsumes as its own source comment concedes —
@@ -47734,6 +47748,14 @@ assert_eq "#711 a walk in a compound-command condition is a candidate" "rc=1" \
   "$(e711_rc "$E711_FX" lib/test/sh_ifcond.sh)"
 assert_eq "#711 a walk inside a process substitution is a candidate" "rc=1" \
   "$(e711_rc "$E711_FX" lib/test/sh_procsub.sh)"
+assert_eq "#711 a walk inside a bare subshell is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_subshell.sh)"
+# The AST arms accept a declaration anywhere in a wrapped call's span (the shell analogue is
+# sh_markedcont.sh). Several markers this change plants sit on wrapped calls, so the span logic
+# is load-bearing on shipped code and was otherwise exercised only incidentally by the real tree.
+assert_eq "#711 a marker on the closing line of a wrapped Python call is accepted" \
+  "rc=0|lint-tree-enumeration: audited 1 of 1 files" \
+  "$(e711_run "$E711_FX" lib/test/pyspan.py)"
 # The two shell arms with no other fixture: the long recursive flag and the cwd default.
 assert_eq "#711 a long-form recursive grep flag is a candidate" "rc=1" \
   "$(e711_rc "$E711_FX" lib/test/sh_longflag.sh)"
@@ -51194,7 +51216,12 @@ PM_FN_NAME="_pm_committed_baseline_count"
 # grep participates — the value is produced by git and python3 alone, both preflight-guaranteed.
 _pm_committed_baseline_count() {  # <root> -> digits | git-unavailable | no-committed-baseline
   local out
-  out="$(git -C "$1" ls-files -- '*prompt-mass-baseline.json' 2>/dev/null)" \
+  # The token set is fixed at two by the governing acceptance criterion, and `git-unavailable` is
+  # its name for ANY non-zero `git ls-files` exit — a missing binary, a non-repository root, a
+  # locked or corrupt index. Suppressing git's own stderr would leave the reader with only the
+  # token and send them hunting the wrong cause, so the diagnosis is surfaced on the suite's
+  # stderr while the emitted VALUE stays exactly what the criterion specifies.
+  out="$(git -C "$1" ls-files -- '*prompt-mass-baseline.json')" \
     || { printf 'git-unavailable'; return 0; }
   printf '%s\n' "$out" | python3 -c 'import sys
 n = sum(1 for line in sys.stdin if line.strip())

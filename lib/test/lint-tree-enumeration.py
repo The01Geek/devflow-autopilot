@@ -97,10 +97,11 @@ Accepted residuals, each stated with its own reason rather than folded together:
   resolver convention would produce — is not seen: both the substring pre-filter and
   the head test compare against the literal names `find`/`grep`. This is the shell
   arm's analogue of root and pattern indirection, and is listed separately because it
-  escapes at the *head*, not at an operand. It is **only** the variable case: a head
-  behind a leading `!`, a `VAR=value` prefix, a wrapper (`xargs`/`timeout`/…), a
+  escapes at the *head*, not at an operand. It is the variable case specifically: a
+  head behind a leading `!`, a `VAR=value` prefix, a wrapper (`xargs`/`timeout`/…), a
   redirection, or a reserved word (`if`/`while`/`then`/`do`) **is** reached, via
-  `_head_index`, and a walk inside a `<(…)` process substitution is reached too.
+  `_head_index`, as is a walk inside a `<(…)` process substitution or a bare
+  subshell `(…)`.
 * **A bare `find` with no path operand.** GNU `find` defaults to `.`; BSD `find`
   requires the operand, so the defaulting is not portable and no operand is
   synthesized. `grep -r`'s no-operand default to `.` **is** synthesized: it is
@@ -146,8 +147,31 @@ from pathlib import Path
 # (`VAR="$(grep -rlF … "$ROOT/scripts")"`), which a bare whitespace split never sees.
 _HEADS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "extract-command-heads.py")
 _spec = importlib.util.spec_from_file_location("extract_command_heads", _HEADS_PATH)
+if _spec is None or _spec.loader is None:
+    raise SystemExit(
+        f"lint-tree-enumeration: the shell arm depends on {_HEADS_PATH}, which could not "
+        "be loaded (moved or renamed?); refusing to audit rather than scanning without it"
+    )
 _heads = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_heads)
+try:
+    _spec.loader.exec_module(_heads)
+except OSError as _exc:  # a raw traceback here names the interpreter, not the dependency
+    raise SystemExit(
+        f"lint-tree-enumeration: the shell arm depends on {_HEADS_PATH}, which could not "
+        f"be loaded ({_exc.__class__.__name__}: {_exc}); refusing to audit"
+    ) from _exc
+# The reused surface is private and carries no stability contract, so assert it at LOAD time:
+# a rename in the extractor must fail here, naming what is missing, not mid-scan on one file.
+_REQUIRED_HEADS_ATTRS = (
+    "_split_statements", "_substitutions", "_tokenize", "_normalize",
+    "_ASSIGNMENT", "_REDIRECTION", "RESERVED", "WRAPPERS", "WRAPPERS_WITH_OPERAND",
+)
+_missing = [name for name in _REQUIRED_HEADS_ATTRS if not hasattr(_heads, name)]
+if _missing:
+    raise SystemExit(
+        f"lint-tree-enumeration: {_HEADS_PATH} no longer provides {', '.join(_missing)}; "
+        "the shell arm's statement model depends on it — refusing to audit"
+    )
 
 #: The format-strict declaration marker. A line carrying the bare substring
 #: `tree-walk-ok` without this comment form does **not** exempt it.
@@ -503,10 +527,15 @@ def _head_index(raw_tokens: list[str]) -> int | None:
     `! grep -rq … "$ROOT"`, and `if find "$ROOT" …; then` are all ordinary idiom in
     this population and every one was reported clean under that assumption.
 
-    It differs from `_heads._head_of` in exactly one way, deliberately: `_head_of`
-    returns None on a RESERVED head because for its purposes `if` IS the command
-    being audited, whereas here a leading `if`/`while`/`then`/`do` is a wrapper the
-    walk hides behind, so reserved words are stripped rather than refused.
+    The **deliberate** divergence from `_heads._head_of` is reserved-word handling:
+    `_head_of` returns None on a RESERVED head because for its purposes `if` IS the
+    command being audited, whereas here a leading `if`/`while`/`then`/`do` is a
+    wrapper the walk hides behind, so reserved words are stripped rather than
+    refused. It is not the only difference — `_head_of` also refuses a `-`-prefixed
+    head and truncates at `_MAX_HEAD_WORDS`, neither of which matters to a
+    two-name head test — and this function strips its four classes in one
+    interleaved loop rather than in a fixed order, so an interleaved prefix like
+    `xargs LC_ALL=C grep -r …` is reached here.
     """
     index = 0
     count = len(raw_tokens)
@@ -575,6 +604,15 @@ def statements_in(text: str) -> list[str]:
         current = pending.pop()
         for statement in _heads._split_statements(current):
             found.append(statement)
+            # A bare subshell `(cmd …)` runs `cmd`, so descend to its body the way
+            # `_heads._head_of` does. Without this a walk written `(find "$ROOT" …)`
+            # escapes at the head and is neither flagged nor a named residual.
+            stripped = statement.strip()
+            if stripped.startswith("(") and stripped.endswith(")"):
+                inner = stripped[1:-1]
+                if inner not in seen:
+                    seen.add(inner)
+                    pending.append(inner)
             # `_substitutions` descends `$(…)` only, so a walk inside a PROCESS
             # substitution — `while read f; do …; done < <(find "$ROOT" …)` — would
             # otherwise never be reached by any arm.
@@ -598,7 +636,8 @@ def scan_shell(raw_lines: list[str]) -> list[tuple[int, str]]:
         # `grep` HEAD, and a head must contain its own name textually, so a line carrying
         # neither name can never produce one — while `statements_in` never rewrites text, so
         # skipping cannot change a verdict. It is a large saving on the one 50k-line file in
-        # the population: measured 0.53s -> 0.10s over lib/test/run.sh.
+        # the population (no figure recorded here: a transcribed measurement drifts as that
+        # file grows, and it enforces nothing).
         if "find" not in line and "grep" not in line:
             continue
         if _marker_lines(raw_lines, number, end):
@@ -622,7 +661,7 @@ def scan_shell(raw_lines: list[str]) -> list[tuple[int, str]]:
             ):
                 continue
             found.append(
-                (number, f"undeclared recursive walk (shell `{bare}` rooted at the repository root)")
+                (number, f"undeclared recursive walk (shell `{bare}` over a repository-root path)")
             )
             break
     return found
@@ -699,6 +738,17 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     audited = [path for path in population if is_audited(path)]
+    if population and not audited:
+        # A legal outcome (a fully-excluded non-empty population is `audited 0 of 0` at exit 0),
+        # but standing alone the helper must not let "audited nothing" LOOK like "audited
+        # everything, found nothing" — the same distinction _read insists on per file. A
+        # mis-rooted --root, or a --files-from naming only out-of-scope paths, lands here.
+        print(
+            f"lint-tree-enumeration: note: all {len(population)} enumerated path(s) were "
+            f"excluded; nothing under {AUDITED_PREFIX} with suffix {'/'.join(AUDITED_SUFFIXES)} "
+            "was selected (a wrong --root or an out-of-scope --files-from looks like this)",
+            file=sys.stderr,
+        )
 
     findings: list[str] = []
     skipped: list[tuple[str, str]] = []
