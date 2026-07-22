@@ -24,3 +24,8 @@ boundary offer rather than adding a second pause.
 `coverage-backed` means evidence of the required shape was present and survived
 the text-only anchor floor and the orchestrator's adjudication — never certified
 scrutiny.
+
+The read-boundary totality re-check now rejects a non-truthy (empty-list)
+`coverage_expected`, which `all([])` would otherwise vacuously satisfy — closing
+a direct-state-file-corruption fail-open that could have read a truncated round
+as `backed`.

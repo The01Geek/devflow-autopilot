@@ -13677,6 +13677,11 @@ def _cov_read_boundary_matrix(r):
              'a coverage_expected with a non-string member')
     _corrupt(lambda rd: rd.__setitem__('coverage_expected', ['']),
              'a coverage_expected with an empty-string member')
+    # An EMPTY list is the shape the truncation subtraction cannot catch either: `all([])`
+    # is vacuously true and `missing == []`, so `[]` beside an all-backing coverage would
+    # launder into `backed`. Caught only by the non-truthy-list check itself.
+    _corrupt(lambda rd: rd.__setitem__('coverage_expected', []),
+             'an empty-list coverage_expected the totality subtraction cannot catch')
     # A mapping keyed by the very keys the coverage carries is the shape the downstream
     # totality subtraction CANNOT catch (iterating a dict yields its keys, so nothing reads
     # as missing) — it is caught only by the list-of-non-empty-strings check itself.
@@ -13686,6 +13691,88 @@ def _cov_read_boundary_matrix(r):
 
 
 _with_run603(_cov_read_boundary_matrix)
+
+
+# End-to-end producer↔consumer join (issue #728 Important 2): the renderer's ACTUAL emitted
+# `enumerate-dimensions` keys must be exactly the keyset `record-coverage --expected-keys`
+# can join a coverage list against. The two halves are otherwise exercised only with
+# hand-picked literal keys, so a slug/prefix drift between producer (the renderer) and
+# consumer (record-coverage) — a key the renderer emits with a comma, whitespace, or a
+# shape the totality join cannot round-trip — would ship green. Here the real emitted keys
+# feed BOTH `--expected-keys` and the coverage lines, and the join is asserted `backed`.
+def _cov_producer_consumer_join(r):
+    enum = _subprocess.run(
+        [sys.executable, str(SCRIPTS / 'render-audit-prompt.py'),
+         'enumerate-dimensions'], cwd=r.tmp, capture_output=True, text=True)
+    assert_eq("#728-2: the renderer enumerate-dimensions call exits 0",
+              0, enum.returncode)
+    keys = [ln[len('dim key='):].split(' text=', 1)[0]
+            for ln in enum.stdout.splitlines() if ln.startswith('dim key=')]
+    # The producer must actually emit dimensions, or the join below is vacuously satisfied.
+    assert_eq("#728-2: the renderer emits at least one enumerate-dimensions key",
+              True, len(keys) > 0)
+    r.open_round(1, 'FILE', 0)
+    r.adjudicate(1, 'FILE', 0, '0')
+    # One `exercised` coverage line per REAL emitted key, anchored to pass the text floor.
+    coverage_lines = ''.join(
+        f'{k} exercised "a quoted draft line" — a concrete concern for {k}\n'
+        for k in keys)
+    proc = r('record-coverage', r.slug, '--round', '1', '--render', 'full',
+             '--expected-keys', ','.join(keys),
+             '--coverage-stdin', stdin=coverage_lines, nonce=True)
+    assert_eq("#728-2: record-coverage joins the renderer's real emitted keys (rc 0)",
+              0, proc.returncode)
+    # backed ⇒ every enumerated key matched a coverage line by shared key: the join held
+    # over the whole real keyset, with no unknown-key rejection and no synthesized-
+    # unestablished dimension left over from a producer key the consumer could not parse.
+    assert_eq("#728-2: the producer↔consumer coverage join reads backed over the real keyset",
+              'backed', _summary_field(r, 'coverage_backing'))
+
+
+_with_run603(_cov_producer_consumer_join)
+
+
+# Characterization of what `evaluate_coverage_trigger` ACTUALLY guarantees (issue #728
+# Important 3). The "coverage offer fires at most once per run / yields to T1/T2" property
+# is NOT enforced in this function — it is a pure function of coverage backing+render
+# (`cov['backing'] == 'not-backed' and cov['render'] == 'full'`) and reads NO offer history.
+# The at-most-once/yields behavior lives only in orchestrator prose
+# (skills/create-issue/references/step-3-6-audit.md: "coverage=hold joins the single
+# boundary offer, firing at most once per run and yielding to T1/T2"). We therefore do NOT
+# assert an at-most-once property the code does not implement; we pin the real guarantee —
+# the trigger is stateless w.r.t. offer history, so `coverage=hold` persists across a
+# recorded offer AND at the user-round cap. A future change that (mis)placed at-most-once in
+# the trigger by reading `user_rounds_used` would flip the post-offer arm and turn this RED.
+def _cov_trigger_stateless_wrt_offers(r):
+    r.open_round(1, 'FILE', 0)
+    r.adjudicate(1, 'FILE', 0, '0')
+    # A `skipped` dimension on a FULL render → not-backed → the coverage trigger holds.
+    r('record-coverage', r.slug, '--round', '1', '--render', 'full',
+      '--expected-keys', 'g:host-os-variance',
+      '--coverage-stdin', stdin='g:host-os-variance skipped\n', nonce=True)
+
+    def _cov_trig():
+        return r('query-triggers', r.slug, nonce=True).stdout.split(
+            'coverage=', 1)[1].split()[0]
+
+    assert_eq("#728-3: the coverage trigger holds on a not-backed full-render round",
+              'hold', _cov_trig())
+    # Record an accepted offer: this bumps `user_rounds_used`, the only offer-history state.
+    off = r('record-offer', r.slug, '--accepted', nonce=True)
+    assert_eq("#728-3: record-offer --accepted succeeds", 0, off.returncode)
+    assert_eq("#728-3: the trigger is UNCHANGED by a recorded offer (stateless, not "
+              "at-most-once)", 'hold', _cov_trig())
+    # Exhaust the remaining user-round cap; the trigger still does not yield.
+    r('record-offer', r.slug, '--accepted', nonce=True)
+    r('record-offer', r.slug, '--accepted', nonce=True)
+    capped = r('record-offer', r.slug, '--accepted', nonce=True)
+    assert_eq("#728-3: an accepted offer past the cap is refused (cap owned by record-offer)",
+              True, capped.returncode != 0)
+    assert_eq("#728-3: the trigger STILL holds at the cap — it never yields itself; the "
+              "orchestrator obeys the offer machinery", 'hold', _cov_trig())
+
+
+_with_run603(_cov_trigger_stateless_wrt_offers)
 
 
 # The shared `_read_stdin_lines` extraction must keep each caller's OWN triage vocabulary:

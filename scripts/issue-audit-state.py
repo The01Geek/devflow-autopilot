@@ -1439,10 +1439,15 @@ def _validate_coverage(rnd, num):
         raise StateError(f'round {num} records coverage but no coverage_expected; the '
                          f'enumeration totality was checked against is written with the '
                          f'coverage itself, so its absence means the record is corrupt')
-    if not isinstance(expected, list) or not all(
+    if not isinstance(expected, list) or not expected or not all(
             isinstance(k, str) and k.strip() for k in expected):
-        raise StateError(f'round {num} coverage_expected {expected!r} is not a list of '
-                         f'non-empty strings')
+        # A non-truthy (empty) list defeats totality vacuously: `all([])` is true and
+        # `missing == []`, so an all-backing `coverage` beside `coverage_expected: []`
+        # would launder into `backed`. Refused here, fail-closed to unestablished — the
+        # record path already rejects an empty keyset (coverage-expected-empty), so at the
+        # read boundary this is reachable only by direct state-file corruption.
+        raise StateError(f'round {num} coverage_expected {expected!r} is not a non-empty '
+                         f'list of non-empty strings')
     missing = [k for k in expected if k not in seen]
     if missing:
         raise StateError(f'round {num} coverage covers fewer dimensions than '
