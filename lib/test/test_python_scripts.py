@@ -11678,6 +11678,71 @@ with tempfile.TemporaryDirectory() as _t705:
     assert_eq("#705/AC12 stage: a re-stage lands the whole new bytes (atomic, never a mixture)",
               b'second entirely different whole copy\n', Path(_staged).read_bytes())
 
+# emit byte-exactness with a NON-newline-terminated payload (the trailing-byte case): emit
+# and the --no-filters digest must be byte-transparent, never newline-normalizing.
+with tempfile.TemporaryDirectory() as _t705:
+    _staged = str(Path(_t705) / 's.NONCE.staged.md')
+    _no_nl = b'# Title\n\nbody with no trailing newline'
+    _sdw('stage', '--path', _staged, stdin=_no_nl)
+    _r = _sdw('emit', '--path', _staged)
+    assert_eq("#705/AC19 emit: byte-exact for a payload with no trailing newline",
+              (0, _no_nl), (_r.returncode, _r.stdout))
+
+# T11 (AC6): apply fails closed when the canonical write cannot land, leaving the staging
+# artifact intact for the recovery arm to read back. The parent dir is made unwritable so
+# _atomic_write's mkstemp raises (mirrors run.sh's chmod-555 unpersistable fixture).
+with tempfile.TemporaryDirectory() as _t705:
+    _staged = str(Path(_t705) / 's.NONCE.staged.md')
+    _dig = _sdw('stage', '--path', _staged, stdin=b'body\n').stdout.decode().strip().split('=', 1)[1]
+    _rodir = Path(_t705) / 'ro'
+    _rodir.mkdir()
+    _canon = str(_rodir / 'c.md')
+    os.chmod(str(_rodir), 0o555)
+    try:
+        _r = _sdw('apply', '--staged', _staged, '--canonical', _canon, '--expect-digest', _dig)
+        assert_eq("#705/AC6 T11: apply fails closed (non-zero) when the canonical write cannot land",
+                  True, _r.returncode != 0)
+        assert_eq("#705/AC6 T11: ... and the staging artifact survives the failed apply (recovery arm)",
+                  True, Path(_staged).exists())
+    finally:
+        os.chmod(str(_rodir), 0o755)
+
+# T5 (AC12/AC13): apply against adversarial staging-artifact shapes — the malformed-input
+# matrix a mutable on-disk artifact demands. Each must fail closed and leave canonical intact.
+with tempfile.TemporaryDirectory() as _t705:
+    _canon = str(Path(_t705) / 'c.md')
+    Path(_canon).write_bytes(b'ORIG\n')
+    # absent staging artifact
+    _r = _sdw('apply', '--staged', str(Path(_t705) / 'absent'), '--canonical', _canon,
+              '--expect-digest', '0' * 40)
+    assert_eq("#705/AC12 T5: apply fails closed on an absent staging artifact",
+              (True, b'ORIG\n'), (_r.returncode != 0, Path(_canon).read_bytes()))
+    # non-regular staging artifact (a directory)
+    _d = Path(_t705) / 'dir.staged.md'
+    _d.mkdir()
+    _r = _sdw('apply', '--staged', str(_d), '--canonical', _canon, '--expect-digest', '0' * 40)
+    assert_eq("#705/AC12 T5: apply fails closed on a non-regular staging artifact",
+              (True, b'ORIG\n'), (_r.returncode != 0, Path(_canon).read_bytes()))
+    # a real staged artifact whose digest does not match the declared expectation: the refusal
+    # names reason=staged-digest-mismatch (distinct from a post-replace landed mismatch) and
+    # leaves the canonical file untouched.
+    _staged = str(Path(_t705) / 's.NONCE.staged.md')
+    _sdw('stage', '--path', _staged, stdin=b'real staged bytes\n')
+    _r = _sdw('apply', '--staged', _staged, '--canonical', _canon, '--expect-digest', '0' * 40)
+    assert_eq("#705/AC12 T5: the staged-digest-mismatch refusal names its reason token, canonical untouched",
+              (True, b'ORIG\n'), (b'reason=staged-digest-mismatch' in _r.stdout, Path(_canon).read_bytes()))
+
+# AC5: record-revision records the git hash-object digest of the piped bytes verbatim — the
+# durable comparand the T12 landed re-check later matches against, so its VALUE must be right,
+# not merely present.
+with tempfile.TemporaryDirectory() as _t705:
+    _p = _write_state705(_t705, 's705d', 'N705D', [_round705(1, 'file')])
+    _revise705(_t705, 's705d', 'N705D', 1, stdin_digest=True, stdin='revised bytes\n')
+    _want = _subprocess.run(['git', 'hash-object', '--stdin', '--no-filters'],
+                            input=b'revised bytes\n', capture_output=True).stdout.decode().strip()
+    assert_eq("#705/AC5: the recorded stdin_digest equals git hash-object of the piped bytes",
+              _want, _revisions705(_p)[0].get('stdin_digest'))
+
 
 print()
 print(f"{PASS} passed, {FAIL} failed")
