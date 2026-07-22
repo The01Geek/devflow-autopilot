@@ -5,7 +5,7 @@ kind: growth
 
 ## Files
 
-- `CLAUDE.md` — +1,916 bytes (71,436 → 73,352).
+- `CLAUDE.md` — +1,916 bytes (72,592 → 74,508).
 
 Two edits land there. One Conventions bullet is added: the enumeration-source rule requiring a
 suite assertion or lint helper that enumerates the repository tree to source its population from
