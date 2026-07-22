@@ -9876,8 +9876,13 @@ _CW_REFRESH_ACTION = ("refresh your installed workflows and vendored plugin cont
 # than the compatibility window silently widening. The snapshot is self-checking:
 # if it omits any head the current manifest requires, pairing 2 goes RED
 # (HEAD_ABSENT) at the desk. Prefix helpers keep the vendored-literal form exact.
-_cwv = lambda _n: cwc.VENDOR_PREFIX + "scripts/" + _n
-_cwl = lambda _n: cwc.VENDOR_PREFIX + "lib/" + _n
+def _cwv(_n):
+    return cwc.VENDOR_PREFIX + "scripts/" + _n
+
+
+def _cwl(_n):
+    return cwc.VENDOR_PREFIX + "lib/" + _n
+
 _FROZEN_LEGACY_GRANTS = {
     "implement": {
         _cwv("run-jq.sh"), _cwv("config-get.sh"), _cwv("workpad.py"),
