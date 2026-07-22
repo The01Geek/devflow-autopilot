@@ -48914,10 +48914,13 @@ ias_instructions() {  # <sandbox-root> <slug> <draft-path> [PATH-override]
     # `FAIL=$((FAIL+1))` died with the subshell, and the authoritative count is recomputed
     # at the end as `grep -c '^FAIL$' "$RESULTS_FILE"` anyway. The first version of this
     # guard printed a FAIL-shaped line and still exited 0 — red on screen, green in the
-    # summary. Also emit a sentinel on stdout so the CALLER's own assertion fails loudly
-    # rather than comparing against an empty object ID.
+    # summary. The RESULTS_FILE append is the guard that actually fires; the stdout
+    # sentinel is a belt-and-braces poison value so a downstream digest comparison cannot
+    # match by accident (no call site asserts on it directly). The diagnostic goes to
+    # STDERR, not stdout: every call site is `X="$(ias_instructions …)"`, so a stdout
+    # message is captured into the variable and never reaches the operator.
     echo FAIL >> "$RESULTS_FILE"
-    printf '  FAIL  ias_instructions(%s): the dispatch-instruction generator failed or wrote no bytes; every fixture using this slug would silently measure the steering gate instead of its own subject\n' "$slug"
+    printf '  FAIL  ias_instructions(%s): the dispatch-instruction generator failed or wrote no bytes; every fixture using this slug would silently measure the steering gate instead of its own subject\n' "$slug" >&2
     echo 'GENERATOR-FAILED'
     return 1
   fi

@@ -32,9 +32,9 @@ Both are asserted by `lib/test/modules/create-issue-contract.sh` (driven by the 
 | Ceiling | Operand | Measured | Enforced ceiling |
 | --- | --- | --- | --- |
 | **Root** | `skills/create-issue/SKILL.md` | 2,732 | Root ceiling: **2,754 words** |
-| **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 31,041 | Default-path ceiling: **31,262 words** |
+| **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 31,073 | Default-path ceiling: **31,262 words** |
 
-Each ceiling is at most the implement-time measured value plus **5% headroom** (the AC6 maximum). Both were set from an earlier measurement in this same change and deliberately **not re-raised** when review fixes grew the operands, so the shipped headroom is under 5% on both (root ~0.8%, default path ~0.7%). The suite asserts that legality directly — a ceiling above measured+5% is RED — so a future raise needs a real measurement behind it. The
+Each ceiling is at most the implement-time measured value plus **5% headroom** (the AC6 maximum). Both were set from an earlier measurement in this same change and deliberately **not re-raised** when review fixes grew the operands, so the shipped headroom is under 5% on both (root ~0.8%, default path ~0.6%). The suite asserts that legality directly — a ceiling above measured+5% is RED — so a future raise needs a real measurement behind it. The
 default-path operand deliberately **excludes the four fallback references** — they load only when
 their predicate fires, which is the whole point of the split. `revision-delta.md` is *retained* in the
 operand even though it too is predicate-gated (its trigger is any revise-and-re-gate site): a revision
@@ -65,13 +65,13 @@ Measured at implement time (re-measured 2026-07-21 for issue #709), python3 word
 | `references/step-2-clarify.md` | 4,673 | Step 2 entry |
 | `references/step-3-5-steelman.md` | 2,133 | Step 3.5 entry |
 | `references/revision-delta.md` | 922 | every revision event |
-| `references/step-3-6-audit.md` | 8,516 | Step 3.6 entry |
+| `references/step-3-6-audit.md` | 8,548 | Step 3.6 entry |
 | `references/step-4-present-create.md` | 5,615 | Step 4 entry |
 | `references/fallback-no-task-tool.md` | 540 | no usable task-tracking tool |
 | `references/fallback-read-only-sandbox.md` | 478 | a `.devflow/tmp/` write is refused |
 | `references/fallback-audit-dispatch-arms.md` | 816 | a non-file audit arm, a retry escalation, or no subagent tool |
 | `references/fallback-state-owner-unavailable.md` | 814 | the state owner stops answering |
-| **root + all 9 references** | **27,239** | — |
+| **root + all 9 references** | **27,271** | — |
 | `references/issue-template.md` | 6,450 | Step 3 (unchanged by the split) |
 | `references/audit-prompt-template.md` | 2,288 | renderer-owned; carries the issue-#709 `di` dispatch-instruction blocks |
 
@@ -145,10 +145,10 @@ the history of what the surface cost, and overwriting it loses exactly the drift
   rendered from new `di` blocks in `audit-prompt-template.md` — which is renderer-owned and sits
   outside **both** budget operands, so the bulk of the new prose costs the default path nothing.
   What did land on the default path is the invocation contract, the withhold-then-disclose contract,
-  and the honest-limits statement: default path 29,973 → **31,041**, root unchanged at **2,732**.
-  **Neither ceiling moved** — 31,041 is under the 31,262 default ceiling and inside its ≤5%
+  and the honest-limits statement: default path 29,973 → **31,073**, root unchanged at **2,732**.
+  **Neither ceiling moved** — 31,073 is under the 31,262 default ceiling and inside its ≤5%
   ratchet-legality band, and the root did not change — so this is an ordinary re-measure, not a
   ceiling renegotiation, and `CLAUDE.md` is untouched. The `CI614_TOTAL_RECORDED` conservation
-  anchor was re-anchored 25,814 → **27,239** (the live root+references total) so the ±2% band keeps
+  anchor was re-anchored 25,814 → **27,271** (the live root+references total) so the ±2% band keeps
   guarding against a silent prose drop from the new size rather than reporting this change's
   intended growth as drift.

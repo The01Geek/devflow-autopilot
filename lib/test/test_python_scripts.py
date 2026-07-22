@@ -12050,10 +12050,14 @@ def _row709_dispatch_regeneration_diverged(r):
               True, 'has NOT established which cause' in got.stderr)
     # Fail-closed is preserved: the return-time regeneration still refuses to establish.
     out = r.ret(instructions_oid=r.oid(r.instr), extra='no')
-    assert_eq("#718 dispatch-regeneration: ... and steering is still not established",
-              'instructions-object-id-mismatch', _reason(out))
-    assert_eq("#718 dispatch-regeneration: ... with the mismatch attributed to dispatch, "
-              "not to the auditor",
+    # The attribution must survive on the DURABLE surface, not just on stderr: this reason
+    # is what query-summary and the Step 4 audit-summary line render to the user. A
+    # breadcrumb-only fix would have left the user reading the very misdiagnosis (the
+    # auditor read something else) that the dispatch-time observation exists to correct.
+    assert_eq("#718 dispatch-regeneration: ... and steering is still not established, with "
+              "the cause attributed to dispatch on the DURABLE reason token",
+              'instructions-noncanonical-at-dispatch', _reason(out))
+    assert_eq("#718 dispatch-regeneration: ... and the breadcrumb says so too",
               True, 'not by the auditor' in out.stderr)
 
 
@@ -12078,7 +12082,7 @@ def _row709_pre_dispatch_steering_is_recorded(r):
               True, 'dispatch_regeneration=diverged' in got.stderr)
     out = r.ret(instructions_oid=r.oid(r.instr), extra='no')
     assert_eq("#718 evidence: ... and the round never establishes steering",
-              'instructions-object-id-mismatch', _reason(out))
+              'instructions-noncanonical-at-dispatch', _reason(out))
 
 
 _with_run709(_row709_pre_dispatch_steering_is_recorded)

@@ -57,15 +57,17 @@ kind: cutover
   `references/fallback-state-owner-unavailable.md` (mandatory / conditional references) — the
   audit-summary marker, the offer routing, and the unestablished-by-construction arms.
 
-Word accounting (python3 word-split, never `wc -w`): default path 29,973 → 31,041 against an
+Word accounting (python3 word-split, never `wc -w`): default path 29,973 → 31,073 against an
 unmoved 31,262 ceiling; root unchanged at 2,732. The PR-#718 review round accounts for the last
-93 of those words: two corrections in `step-3-6-audit.md` that a reviewer proved false against
+125 of those words: two corrections in `step-3-6-audit.md` that a reviewer proved false against
 HEAD (the generator-failure arm claimed the steering marker would name its cause — it renders
 `inputs-unrecorded`; and the `record-return` output contract omitted the `unestablished`/`none`
-pair a refused completion actually prints). Growing a mandatory surface is an audited decision
+pair a refused completion actually prints), plus the sentence directing the orchestrator to
+dispatch the generated pointer line and stating that its prefix and indent are framing either
+side may drop. Growing a mandatory surface is an audited decision
 under the *Prose cutover* convention, and this is its record: both additions replace a false
 sentence with a true one on the same execution path, neither adds a new rule, and the shipped
-default-path headroom after them is ~0.7% (221 words). The bulk of the new prose lives in the
+default-path headroom after them is ~0.6% (189 words). The bulk of the new prose lives in the
 renderer-owned template, which no budget operand contains — so the ceiling is not renegotiated and
 `CLAUDE.md` is untouched. Figures and the decision record: `docs/create-issue-budget.md`.
 

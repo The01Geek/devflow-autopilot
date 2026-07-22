@@ -195,6 +195,12 @@ _STEERING_REASON_STATE = {
     'regeneration-failed': 'not-established',
     'instructions-object-id-absent': 'not-established',
     'instructions-object-id-mismatch': 'not-established',
+    # The instruction file already failed its DISPATCH-time regeneration, so the
+    # divergence predates the auditor entirely. Same fail-closed state, but a reason that
+    # points at the write or the recorded inputs rather than at the auditor's reading —
+    # and, unlike a stderr breadcrumb, it survives into `query-summary` and the Step 4
+    # audit-summary line, which is the surface the user is actually pointed at.
+    'instructions-noncanonical-at-dispatch': 'not-established',
     # The auditor did not report the no-extra-content affirmation at all.
     'extra-dispatch-content-unreported': 'not-established',
     # The auditor reported that its dispatch message carried more than the pointer.
@@ -2667,7 +2673,10 @@ def cmd_record_dispatch(args):
         #      new hard stop on a legitimate host, against this change's own contract
         #      that filing is never blocked on any arm.
         # Recording instead keeps the durable trail (the divergence is a fact about the
-        # round, available to record-return and query-summary) and blocks nothing. It
+        # round: `record-return` selects the `instructions-noncanonical-at-dispatch`
+        # reason from it, which `query-summary` and the Step 4 audit-summary line then
+        # render, so the attribution reaches the user and not just a stderr stream) and
+        # blocks nothing. It
         # cannot fail open: the return-time regeneration still owns the verdict and still
         # refuses to establish steering on a mismatch.
         #
@@ -2778,6 +2787,14 @@ def cmd_record_dispatch(args):
         _fail('record-dispatch', 'the embed arm requires --marker naming the entry cause')
     rnd['pending'] = None
     rnd['attempts'].append(attempt)
+    # A divergence observed on ANY attempt of this round is sticky on the round. Without
+    # it the observation is retry-erasable: `steering_state` reads only the LATEST
+    # attempt, so a round whose first attempt diverged and whose retry verified would read
+    # `established` with the earlier divergence surviving in the JSON and seen by nobody —
+    # a narrower version of the same laundering the refusal design was killed for.
+    if attempt['instructions'] and \
+            attempt['instructions'].get('dispatch_regeneration') == 'diverged':
+        rnd['any_dispatch_diverged'] = True
     if args.marker:
         if args.marker not in _EMBED_MARKER_TOKENS:
             _fail('record-dispatch', f'unknown embed marker {args.marker!r}')
@@ -2790,6 +2807,12 @@ def cmd_record_dispatch(args):
     out = f'round={args.round} arm={args.arm} digest={digest} body_digest={body_digest}'
     if attempt['instructions']:
         out += f' instructions_digest={attempt["instructions"]["digest"]}'
+        # Surface the dispatch-time observation on the line the orchestrator reads, not
+        # only on a stderr stream a caller may redirect: this is the site that can still
+        # fix a mangled write or a mis-spelled recorded input.
+        _dreg = attempt['instructions'].get('dispatch_regeneration')
+        if _dreg is not None:
+            out += f' dispatch_regeneration={_dreg}'
     if attempt['sentinel_open']:
         out += (f' sentinel_open={attempt["sentinel_open"]}'
                 f' sentinel_close={attempt["sentinel_close"]}')
@@ -3506,14 +3529,17 @@ def steering_state(slug, attempt, quoted_object_id, extra_dispatch_content):
         # disagreed, the divergence predates the auditor entirely — the file it read was
         # never regenerable — so reporting this as "the auditor read something else"
         # sends the reader at the auditor instead of at the write or the recorded inputs.
-        # The recorded verdict stays the same closed token (fail-closed either way); only
-        # the breadcrumb distinguishes them, which is where a human actually looks.
+        # Both are fail-closed; they differ only in WHERE they send the reader, so the
+        # distinction has to survive on the durable surface, not just on stderr — a
+        # breadcrumb is lost to a redirect or a compacted context, and the user is
+        # contractually pointed at the Step 4 audit-summary line, which renders the reason.
         if inputs.get('dispatch_regeneration') == 'diverged':
             print('record-return: the instruction file already failed its dispatch-time '
                   'regeneration (dispatch_regeneration=diverged), so this mismatch was '
                   'introduced at or before dispatch — not by the auditor. See the '
                   'record-dispatch warning for the causes this tool could not '
                   'distinguish.', file=sys.stderr)
+            return ('not-established', 'instructions-noncanonical-at-dispatch')
         return ('not-established', 'instructions-object-id-mismatch')
     if extra_dispatch_content is None:
         return ('not-established', 'extra-dispatch-content-unreported')
@@ -3528,7 +3554,14 @@ def _steering_established(rnd):
     A round with no steering record at all answers False — the additive field means a
     pre-#709 round, a refused completion, or a degraded arm carries none, and every one
     of those is an unestablished property, never an established one.
+
+    A round on which ANY dispatch attempt diverged from its canonical regeneration
+    (issue #718) also answers False, regardless of what a later attempt recorded: the
+    divergence is a fact about the round's instruction file, and letting a retry erase it
+    would restore the laundering path the dispatch-time refusal was removed for.
     """
+    if rnd.get('any_dispatch_diverged'):
+        return False
     rec = rnd.get('steering')
     return isinstance(rec, dict) and rec.get('state') == 'established'
 
