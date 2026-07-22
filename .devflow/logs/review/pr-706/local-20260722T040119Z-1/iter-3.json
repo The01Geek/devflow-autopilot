@@ -189,5 +189,171 @@
     "ruff": "All checks passed",
     "full_suite": "running against the committed tree a22313c0 at the time of this write"
   },
+  "shadow": {
+    "ran_at": "2026-07-22 (convergence-time trigger, run late — the early engine_self_modifying trigger was missed after iteration 1)",
+    "reviewed_sha": "f82c47e74351c788db8a9bc4d2930d6afc4ac499",
+    "verdict": "REJECT",
+    "coverage": "full",
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:type-design-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:type-design-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "prompt_addenda": [],
+    "blinding": "prior findings, fix decisions, fix_files and workpad withheld; no focus/scoping clause; final-pass reviewer's prior-iteration slot = 'none'; shadow used its OWN diff cache under shadow/diff.patch",
+    "provenance": "extension provenance-clean: `git status --porcelain -- .devflow/prompt-extensions/review-and-fix.md` empty, and the file is absent from the reviewed diff",
+    "phase3_findings": [
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Critical",
+        "description": "The Step 3 drafting-time `record-claim-baseline --nonce` call cannot succeed: `init` (which mints the nonce and creates the state file) is instructed ONLY in Step 3.6, which runs after Steps 3 and 3.5. The claim-baseline half of #704 is inert on its documented path.",
+        "defect_signature": {
+          "file": "skills/create-issue/references/issue-template.md",
+          "line_range": [
+            182,
+            215
+          ],
+          "kind": "api_misuse"
+        },
+        "orchestrator_reproduced": true
+      },
+      {
+        "agent": "devflow:requesting-code-review",
+        "severity": "Important",
+        "description": "Nothing binds a draft claim to its `--claim-key`; the Verified: bullet cites revision=/identity= but never the key, so no consumer can join a claim to its baseline.",
+        "defect_signature": {
+          "file": "skills/create-issue/references/issue-template.md",
+          "line_range": [
+            199,
+            202
+          ],
+          "kind": "logic_error"
+        }
+      },
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Important",
+        "description": "Step 3.5's staleness guard states the verdict vocabulary as total with no arm for the check FAILING (policy-without-mechanism); both sibling sites have one.",
+        "defect_signature": {
+          "file": "skills/create-issue/references/step-3-5-steelman.md",
+          "line_range": [
+            10,
+            10
+          ],
+          "kind": "logic_error"
+        }
+      },
+      {
+        "agent": "devflow:type-design-analyzer",
+        "severity": "Important",
+        "description": "record-claim-baseline is silent last-write-wins: a re-record resets a measurably stale claim to fresh, and a class flip discards the measured paths — no comparison, no breadcrumb, unlike the sibling evidence channel.",
+        "defect_signature": {
+          "file": "scripts/issue-audit-state.py",
+          "line_range": [
+            4176,
+            4193
+          ],
+          "kind": "type_design"
+        }
+      },
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Important",
+        "description": "The #603/AC1 protocol-token coverage guard cannot see _EVIDENCE_FIELDS (harvester resolves only function-local names), so the token coupling is unenforced for the evidence line.",
+        "defect_signature": {
+          "file": "lib/test/test_python_scripts.py",
+          "line_range": [
+            10764,
+            10771
+          ],
+          "kind": "test_gap"
+        }
+      },
+      {
+        "agent": "devflow:requesting-code-review",
+        "severity": "Important",
+        "description": "The module docstring's TWO-CLASS CLI CONTRACT is false: check-claim-staleness is a third shape (read-only, nonce-taking, exits non-zero on caller-contract error) it never names.",
+        "defect_signature": {
+          "file": "scripts/issue-audit-state.py",
+          "line_range": [
+            22,
+            46
+          ],
+          "kind": "comment_drift"
+        }
+      },
+      {
+        "agent": "devflow:comment-analyzer",
+        "severity": "Suggestion",
+        "description": "Three comment_drift items: the budget doc's 'Measured at implement time (2026-07-21)' heading over rows re-measured 2026-07-22; the hash_bytes 'already breadcrumbs' pointer (it raises, the funnel breadcrumbs); and 'fails loudly above' for an arm that is caught and breadcrumbed at exit 0.",
+        "defect_signature": {
+          "file": "scripts/issue-audit-state.py",
+          "line_range": [
+            750,
+            753
+          ],
+          "kind": "comment_drift"
+        }
+      },
+      {
+        "agent": "devflow:requesting-code-review",
+        "severity": "Suggestion",
+        "description": "PR body self-record is stale ('22 rows / 90 assertions' vs an actual 29 rows / 107) — the PR-553 count-rot class; prefer count-free wording.",
+        "defect_signature": {
+          "file": "lib/test/test_python_scripts.py",
+          "line_range": null,
+          "kind": "comment_drift"
+        }
+      },
+      {
+        "agent": "devflow:requesting-code-review",
+        "severity": "Suggestion",
+        "description": "_observed_divergent keys on the truncation-mark SUFFIX, so auditor text ending with that literal forges an un-comparable observation (fails safe).",
+        "defect_signature": {
+          "file": "scripts/issue-audit-state.py",
+          "line_range": [
+            960,
+            975
+          ],
+          "kind": "logic_error"
+        }
+      },
+      {
+        "agent": "devflow:requesting-code-review",
+        "severity": "Suggestion",
+        "description": "_validate_claims' class/paths coupling arms raise StateError where the sibling evidence validator deliberately chose to re-derive — a future claim-class change becomes a run-wide lockout.",
+        "defect_signature": {
+          "file": "scripts/issue-audit-state.py",
+          "line_range": [
+            1043,
+            1055
+          ],
+          "kind": "unhandled_exception"
+        }
+      }
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 10,
+      "overlap_with_iter_3": 0,
+      "new": 10,
+      "new_critical": 1,
+      "new_important": 5
+    },
+    "promoted_to_iter_next": false,
+    "decide_outcome": "outcome 2 — a new Critical and five new Important findings survive; the loop is NOT converged. Promotion into a fix iteration is pending an operator decision on the lifecycle fork (see the Critical).",
+    "note": "Zero overlap with the loop's own findings. The four loop iterations were primed ('did round N introduce a regression?'); this blinded pass audited the feature end-to-end and found its documented path cannot execute."
+  },
   "telemetry": "unavailable"
 }
