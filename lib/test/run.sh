@@ -49751,6 +49751,13 @@ _cce --context abc --context-mode direct --verification-record "$CCE_EV/loop_vre
      --identity-artifact "$CCE_EV/id_notok.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
 assert_eq "#550 anchor with absent claim-context token: token is missing-evidence" "missing-evidence" "$CCE_TOK"
 assert_eq "#550 anchor with absent claim-context token: exit 1" "1" "$CCE_RC"
+# Attribute the rejection to the absent-token guard specifically. The token alone
+# cannot: with that guard disabled, the very next line (the token != context
+# compare) rejects the same fixture under the SAME missing-evidence token, so a
+# token-only assertion stays green against a mutant that removed the guard it
+# names. The breadcrumb is what distinguishes the two.
+assert_eq "#550 anchor with absent claim-context token: rejected BY the absent-token guard" "1" \
+  "$(printf '%s' "$CCE_OUT" | grep -cF 'identity-artifact: no claim-context token to bind')"
 # (c) Malformed-shape matrix over the DEFERRALS manifest — the hand-mutable producer
 #     input the four rows below can each degrade independently. No row yields pass.
 printf '{"deferrals":{"finding_id":"f009"}}\n' > "$CCE_EV/def_notlist.json"
