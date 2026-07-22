@@ -32,9 +32,9 @@ Both are asserted by `lib/test/modules/create-issue-contract.sh` (driven by the 
 | Ceiling | Operand | Measured | Enforced ceiling |
 | --- | --- | --- | --- |
 | **Root** | `skills/create-issue/SKILL.md` | 2,732 | Root ceiling: **2,754 words** |
-| **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 31,196 | Default-path ceiling: **31,262 words** |
+| **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 31,252 | Default-path ceiling: **31,262 words** |
 
-Each ceiling is at most the implement-time measured value plus **5% headroom** (the AC6 maximum). Both were set from an earlier measurement in this same change and deliberately **not re-raised** when review fixes grew the operands, so the shipped headroom is under 5% on both (root ~0.8%, default path ~0.2%). The suite asserts that legality directly — a ceiling above measured+5% is RED — so a future raise needs a real measurement behind it. The
+Each ceiling is at most the implement-time measured value plus **5% headroom** (the AC6 maximum). Both were set from an earlier measurement in this same change and deliberately **not re-raised** when review fixes grew the operands, so the shipped headroom is under 5% on both (root ~0.8%, default path ~0.03%). The suite asserts that legality directly — a ceiling above measured+5% is RED — so a future raise needs a real measurement behind it. The
 default-path operand deliberately **excludes the four fallback references** — they load only when
 their predicate fires, which is the whole point of the split. `revision-delta.md` is *retained* in the
 operand even though it too is predicate-gated (its trigger is any revise-and-re-gate site): a revision
@@ -63,15 +63,15 @@ Measured at implement time (2026-07-21), python3 word-split:
 | --- | --- | --- |
 | `SKILL.md` (root) | 2,732 | always |
 | `references/step-2-clarify.md` | 4,673 | Step 2 entry |
-| `references/step-3-5-steelman.md` | 2,226 | Step 3.5 entry |
-| `references/revision-delta.md` | 1,004 | every revision event |
-| `references/step-3-6-audit.md` | 8,403 | Step 3.6 entry |
+| `references/step-3-5-steelman.md` | 2,245 | Step 3.5 entry |
+| `references/revision-delta.md` | 1,016 | every revision event |
+| `references/step-3-6-audit.md` | 8,428 | Step 3.6 entry |
 | `references/step-4-present-create.md` | 5,362 | Step 4 entry |
 | `references/fallback-no-task-tool.md` | 540 | no usable task-tracking tool |
 | `references/fallback-read-only-sandbox.md` | 334 | a `.devflow/tmp/` write is refused |
 | `references/fallback-audit-dispatch-arms.md` | 669 | a non-file audit arm, a retry escalation, or no subagent tool |
 | `references/fallback-state-owner-unavailable.md` | 748 | the state owner stops answering |
-| **root + all 9 references** | **26,691** | — |
+| **root + all 9 references** | **26,747** | — |
 | `references/issue-template.md` | 6,796 | Step 3 (unchanged by the split) |
 | `references/audit-prompt-template.md` | 1,608 | renderer-owned (unchanged by the split) |
 
@@ -170,6 +170,19 @@ this frozen split baseline.
   again **untouched at 2,732**. Neither ceiling is raised (the ratchet is down-only); default-path
   headroom narrows to **66 words (~0.2%)**, which is the remaining budget a further change must fit
   or shed prose to make room for.
+
+- **2026-07-22 (PR #706 review round 3) — a further review round; ceilings UNCHANGED.** Default
+  path 31,196 → **31,252** (+56), conservation 26,691 → **26,747**. The additions state the
+  `--domain-stdin` class split at the three sites that consult `check-claim-staleness`: a count or
+  inventory claim that does not pipe its re-executed full-domain search can only ever answer
+  `possibly-stale reason=domain-not-recomputed`, so every consuming site previously documented a
+  command that made the feature's own headline benefit unreachable for two of the three claim
+  classes. The first draft of this fix measured 31,274 — **12 words over the ceiling** — and was
+  **shed to fit rather than accommodated by a raise** (the two sibling sites were reduced to a
+  parenthetical pointing at the primary statement in `step-3-6-audit.md`): the ratchet is
+  down-only, and this is what that rule looks like when it binds. Remaining default-path headroom
+  is **10 words (~0.03%)** — the next change to a budgeted member almost certainly has to shed
+  prose to fit, which is the signal to re-partition rather than to renegotiate the ceiling.
 
 When a later change re-measures, append a row here rather than editing an earlier one: the record is
 the history of what the surface cost, and overwriting it loses exactly the drift a budget exists to catch.

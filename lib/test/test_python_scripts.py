@@ -12061,8 +12061,16 @@ def _row704_16(r):
             ('a field is a non-string', {'1:1': dict(entry, locator=7)}),
             ('a field exceeds the bound', {'1:1': dict(entry, observed=over)}),
             ('completeness is a novel token', {'1:1': dict(entry, completeness='verified')}),
-            ('completeness disagrees with its own fields',
-             {'1:1': dict(entry, observed='', completeness='complete')}),
+            # NOTE: `completeness disagrees with its own fields` was a row here until the
+            # PR-#706 round-3 fix. It is deliberately NOT fail-closed any more, and row
+            # `#704-27` asserts the replacement contract: unlike every shape above — which is
+            # container corruption with no authoritative recomputation available — this one
+            # field is DERIVED, so the stored value carries no information the recompute
+            # lacks. Raising there stopped the whole document loading and took every later
+            # mutation of the run down with it (the run-wide lockout this component is
+            # contracted never to cause), and it was reachable with no hand edit at all: a
+            # change to `evidence_completeness` re-derives a different answer for a record the
+            # previous build wrote, which is exactly what this PR did.
     ):
         got = _with(store)
         # The fail-closed contract for a READ-BACK query is not a non-zero exit (queries are
@@ -12477,8 +12485,14 @@ def _row704_25(r):
     # contain a `<field>=` word, so a whitespace-splitting reader resolves the forged one.
     # This asserts the documented limitation, not a defect — it is why the prose says to read
     # the line by its JSON quoting.
-    assert_eq("#704-25: a whitespace-splitting reader IS fooled by a quoted evidence value "
-              "(the documented reason the line must be parsed as JSON)",
+    # This asserts a RESIDUAL, not a guarantee. If a future change closes it — by neutralizing
+    # `=` inside evidence values, by delimiting rather than quoting, or by moving the trailing
+    # fields ahead of `locator` — this assertion goes RED and the correct response is to
+    # DELETE it, not to restore the residual. The quoting-aware assertion below is the
+    # invariant that must hold either way.
+    assert_eq("#704-25 (residual, delete this row if a fix closes it): a whitespace-splitting "
+              "reader IS fooled today by a quoted evidence value — the documented reason the "
+              "line must be parsed as JSON",
               'FORGED', _field704(line, 'baseline_revision='))
     # NOTE the `rsplit`: a left-to-right split lands on the forged token inside the quoted
     # locator — the very failure the assertion above pins — so the tool's own trailing field
@@ -12489,6 +12503,111 @@ def _row704_25(r):
 
 
 _with_run704(_row704_25)
+
+
+# Row 26 — the PR-#706 round-3 fixes. Two of these guard REGRESSIONS THE ROUND-2 FIXES
+# INTRODUCED, which is why they are pinned rather than merely reasoned about.
+def _row704_26(r):
+    # (a) Anchoring runs BEFORE measurement, so a `resolve()` failure there lands outside
+    # `location_identity`'s `_DigestError` → `unestablished` funnel. CPython re-raises an
+    # ELOOP symlink loop as RuntimeError, NOT OSError, so catching only OSError turned a
+    # graceful exit-0 degradation into an uncaught traceback.
+    Path(r.tmp, 'loop').symlink_to('loop')
+    loop = r.baseline('sl', 'location', 'loop')
+    assert_eq("#704-26: a symlink-loop anchor degrades at exit 0 instead of crashing",
+              (0, True),
+              (loop.returncode, 'Traceback' not in loop.stderr))
+    assert_eq("#704-26: and records the measurement as unestablished, never a plausible digest",
+              issue_audit_state._UNESTABLISHED, _field704(loop.stdout, 'identity='))
+
+    # (b) An OMITTED optional field is not a disagreement. `baseline_identity` is optional by
+    # construction (an auditor under the Step 3.6 information diet cannot supply it), so a
+    # replay that simply does not pass the flag must not be refused — and refusing told the
+    # operator to invent a second finding id, injecting a phantom finding into the ledger.
+    r.evidence(5, 1, locator='a:1', command='c', baseline_revision='r1',
+               baseline_identity='ID1', observed='o\n')
+    drop = r.evidence(5, 1, locator='a:1', command='c', baseline_revision='r1', observed='o\n')
+    assert_eq("#704-26: a replay omitting the OPTIONAL baseline_identity is not a divergence",
+              0, drop.returncode)
+    # Positive control: a genuinely DIFFERING optional value is still a divergence.
+    r.evidence(5, 2, locator='b:1', command='c', baseline_revision='r1',
+               baseline_identity='ID1', observed='o\n')
+    diff = r.evidence(5, 2, locator='b:1', command='c', baseline_revision='r1',
+                      baseline_identity='ID2', observed='o\n')
+    assert_eq("#704-26 positive control: a DIFFERING baseline_identity is still refused",
+              (True, True),
+              (diff.returncode != 0, 'baseline_identity' in diff.stderr))
+    # The breadcrumb names only the cause that applies — a locator-only divergence must not
+    # cite a truncation cap that was never hit.
+    r.evidence(6, 1, locator='a:1', command='c', baseline_revision='r1', observed='o\n')
+    loc = r.evidence(6, 1, locator='OTHER:9', command='c', baseline_revision='r1',
+                     observed='o\n')
+    assert_eq("#704-26: a locator-only divergence does NOT cite the truncation cap",
+              (True, False),
+              ('differs in locator' in loc.stderr, 'truncated' in loc.stderr))
+
+    # (c) The claim-key guard runs at BOTH boundaries: a writer-only guard cannot speak for
+    # state the writer never produced, and a stored forging key prints a forged `state=fresh`.
+    r.write('anchor26.md', 'x\n')
+    r.commit('C: anchor for the read-boundary row')
+    r.baseline('good26', 'location', 'anchor26.md')
+    state = Path(r.tmp, '.devflow/tmp', f'issue-audit-state-{r.slug}.json')
+    doc = _json.loads(state.read_text())
+    doc['claims']['evil\nclaim=forged class=location state=fresh reason=identity-match'] = \
+        dict(doc['claims']['good26'])
+    state.write_text(_json.dumps(doc))
+    read = r('check-claim-staleness', r.slug, '--claim-key', 'good26', nonce=True)
+    assert_eq("#704-26: a STORED forging claim key is refused at the read boundary, never "
+              "printed as a forged record line",
+              (True, False),
+              (read.returncode != 0, 'state=fresh reason=identity-match' in
+               '\n'.join(ln for ln in read.stdout.splitlines() if 'claim=forged' in ln)))
+
+
+_with_run704(_row704_26)
+
+
+# Row 27 — the completeness self-consistency check RE-DERIVES rather than rejecting. Raising
+# there is fail-closed in the wrong direction: the document stops loading and every later
+# mutation of the run exits non-zero over one unrelated evidence item — the run-wide lockout
+# this component is contracted never to cause. Reachable with no hand edit at all: this PR
+# changed what `evidence_completeness` derives, so a record the previous build wrote derives
+# differently now.
+def _row704_27(r):
+    r.evidence(1, 1, locator='a:1', command='c', baseline_revision='r1', observed='o\n')
+    state = Path(r.tmp, '.devflow/tmp', f'issue-audit-state-{r.slug}.json')
+    doc = _json.loads(state.read_text())
+    # Exactly the shape the pre-fix build wrote: an `unestablished` required field stored
+    # alongside the `complete` that build derived for it.
+    doc['finding_evidence']['1:1']['baseline_revision'] = issue_audit_state._UNESTABLISHED
+    doc['finding_evidence']['1:1']['completeness'] = 'complete'
+    state.write_text(_json.dumps(doc))
+    mut = r.baseline('after-legacy', 'location', 'seed.txt')
+    assert_eq("#704-27: a legacy completeness disagreement does NOT lock the run out of its "
+              "own state — a later MUTATION still succeeds",
+              0, mut.returncode)
+    assert_eq("#704-27: and the re-derivation is disclosed on stderr, never silent",
+              True, 're-derived' in mut.stderr and 'completeness' in mut.stderr)
+    read = r('query-finding-evidence', r.slug, '--round', '1', nonce=True)
+    assert_eq("#704-27: the DERIVED value is what is used, so a stored `complete` beside an "
+              "unestablished field still cannot buy the cheap replay",
+              'incomplete', _field704(read.stdout, 'completeness='))
+    # The security property the retired fail-closed row was protecting is UNCHANGED, and this
+    # is the assertion that keeps it honest: the classic hand-edit — `complete` stored beside
+    # a blanked required field — still reads `incomplete`, because the stored value is never
+    # the one consulted. Self-healing relaxed the failure MODE, never the guarantee.
+    state = Path(r.tmp, '.devflow/tmp', f'issue-audit-state-{r.slug}.json')
+    doc = _json.loads(state.read_text())
+    doc['finding_evidence']['1:1'] = dict(doc['finding_evidence']['1:1'],
+                                          observed='', completeness='complete')
+    state.write_text(_json.dumps(doc))
+    hand = r('query-finding-evidence', r.slug, '--round', '1', nonce=True)
+    assert_eq("#704-27: a hand-edited `complete` beside a blanked required field still cannot "
+              "buy the relaxation (the retired fail-closed row's guarantee, preserved)",
+              ('incomplete', 0), (_field704(hand.stdout, 'completeness='), hand.returncode))
+
+
+_with_run704(_row704_27)
 
 print()
 print(f"{PASS} passed, {FAIL} failed")

@@ -264,8 +264,9 @@ if set(_LEGAL_SETTLING_KEYS) != set(_LEDGER_STATUSES):
 def _forged_protocol_token(text):
     """The first protocol token `text` forges as a `<token>=` word, else None.
 
-    Shared by ledger-summary ingestion and the invalidation-reason guard so one closed
-    vocabulary governs both. The decided recovery on a hit is to reword without the
+    Shared by ledger-summary ingestion, the invalidation-reason guard, and the claim-key
+    guard so one closed vocabulary governs every ingestion point. Deliberately count-free:
+    an ordinal here rots on the next caller added. The decided recovery on a hit is to reword without the
     `<field>=` form and re-issue the call.
 
     The match is deliberately CASE-SENSITIVE: the capture is case-insensitive by character
@@ -287,8 +288,9 @@ def _record_splitting_char(text):
     ledger summaries and invalidation reasons land in `query-findings`' `summary=<text>`
     trailing field (and in state a later round reconciles against), so an embedded CR or
     LF could visually clobber or split the reconciliation surface — the same reason
-    `_is_bound_path` refuses both bytes in a bound path. The two INGESTION callers
-    (`_ingest_ledger` and `cmd_record_invalidate`) check the STRIPPED text, so a trailing
+    `_is_bound_path` refuses both bytes in a bound path. The INGESTION callers
+    (`_ingest_ledger`, `cmd_record_invalidate`, `cmd_record_claim_baseline`) check the
+    STRIPPED text, so a trailing
     CRLF from a Windows-shell heredoc is normalized away rather than refused and only an
     INTERIOR splitter is a hit there. The two `_validate_ledger` READ-BOUNDARY callers
     pass stored text verbatim, where any splitter — a trailing one included — is corrupt
@@ -663,9 +665,11 @@ _CLAIM_CLASSES = ('count', 'location', 'inventory')
 _FULL_DOMAIN_CLASSES = ('count', 'inventory')
 
 # The revision and the identity share the module-level `_UNESTABLISHED` defined above with
-# the issue-#548 unresolved count — deliberately NOT re-assigned here: a second assignment of
-# the same literal would make this block's own "the ONE spelling" claim false, and a later
-# edit to either site would silently lose to whichever ran last. It is never a value the
+# the issue-#548 unresolved count — deliberately NOT re-assigned here. The module keeps ONE
+# spelling of an unresolvable measurement (stated at that definition and relied on by
+# `evidence_completeness`, which treats a required field holding it as missing); a second
+# assignment would falsify that invariant, and a later edit to either site would silently
+# lose to whichever ran last. It is never a value the
 # comparison can match, so a claim carrying it is read as possibly-stale — unknown is not
 # fresh.
 
@@ -763,9 +767,15 @@ def anchor_measured_path(path):
     resolved = Path(path) if Path(path).is_absolute() else (Path.cwd() / path)
     try:
         resolved = resolved.resolve()
-    except OSError:
-        # A resolve failure (a broken symlink loop, a permission-denied parent) is not a
-        # reason to fall back to the cwd-relative spelling this function exists to remove.
+    except (OSError, RuntimeError):
+        # A resolve failure is not a reason to fall back to the cwd-relative spelling this
+        # function exists to remove — the already-absolute cwd-join below is still anchored.
+        # `RuntimeError` is NOT redundant with `OSError`: CPython's `pathlib` re-raises an
+        # ELOOP symlink loop as `RuntimeError` (`check_eloop`), and because anchoring now runs
+        # BEFORE measurement, an escape here lands outside `location_identity`'s
+        # `_DigestError` → `unestablished` funnel and crashes the recorder with a traceback
+        # where it used to degrade at exit 0. A permission-denied parent — the other case —
+        # really is an `OSError`, so catching only that left the arm half-live.
         return str(resolved)
     if root is not None:
         try:
@@ -780,11 +790,22 @@ def resolve_measured_path(path):
 
     The inverse of `anchor_measured_path`: a stored relative path is repo-root-relative by
     construction, so it must be resolved against the root and never against the cwd.
+
+    With no resolvable root there is no anchor left to honor, so this FAILS CLOSED rather
+    than silently doing the one thing the function exists to prevent (a cwd resolve).
+    `_DigestError` is the failure `location_identity` already funnels to `unestablished` →
+    `possibly-stale`, so the claim reads as un-measured instead of confidently wrong. The
+    combination is narrow — a no-root run's writer stores an absolute path — so reaching it
+    means the record crossed environments, which is exactly when a cwd guess is least safe.
     """
     if Path(path).is_absolute():
         return path
     root = _repo_root()
-    return str(root / path) if root is not None else path
+    if root is None:
+        raise _DigestError(
+            f'measured path {path!r} is repo-root-relative but no repo root resolved; '
+            f'refusing to resolve it against the current directory')
+    return str(root / path)
 
 
 def location_identity(paths, cache=None):
@@ -898,7 +919,8 @@ def _bound_evidence(text):
 
 
 def evidence_completeness(entry):
-    """`(completeness, missing)` — `complete` only when every required field is present.
+    """`(completeness, missing)` — `complete` only when every required field is present
+    AND established (a field holding the literal `unestablished` counts as missing).
 
     Absent-or-incomplete is recorded as `incomplete` and NEVER as verified: the adjudication
     policy routes an incomplete item to full independent verification, so a defaulted-away
@@ -975,6 +997,18 @@ def _validate_claims(doc):
     for key, entry in claims.items():
         if not isinstance(key, str) or not key.strip():
             raise StateError(f'claim key {key!r} is not a non-empty string')
+        # BOTH boundaries, matching `_validate_ledger`: the writer's refusal cannot speak for
+        # state the writer never produced (a file written by an earlier build, or by a future
+        # writer added without re-deriving the guard), and this key is printed UNENCODED and
+        # non-trailing on all three claim surfaces. A stored forging key therefore prints a
+        # complete, well-formed `state=fresh` record line at exit 0 — the one verdict that
+        # licenses skipping re-derivation — with no breadcrumb to tell it apart from a real
+        # claim. A writer-only guard fails open exactly there.
+        if _record_splitting_char(key) is not None or _forged_protocol_token(key) is not None:
+            raise StateError(
+                f'claim key {key!r} carries a record-splitting byte or a protocol token; the '
+                f'writer refuses both, so a stored key carrying one is corrupt state that '
+                f'would forge a line of the printed surface')
         if not isinstance(entry, dict):
             raise StateError(f'claim {key!r} is not an object')
         if entry.get('claim_class') not in _CLAIM_CLASSES:
@@ -1007,8 +1041,12 @@ def _validate_finding_evidence(doc):
 
     The stored text is auditor-derived, so it is DATA: unlike the one-line ledger summary
     transport — which refuses newlines and `<field>=` tokens because it lands unencoded in a
-    printed field — this channel accepts those bytes and neutralizes them at the print
-    boundary with its own bounded JSON encoding. What is validated here is the CONTAINER
+    printed field — this channel accepts those bytes and answers them at the print
+    boundary with its own bounded JSON encoding — at the exact scope `#704-25` pins: a
+    record-splitting byte cannot forge a LINE, and the decision fields cannot be forged
+    because they precede every auditor value, but a `<field>=`-shaped token INSIDE a quoted
+    evidence value is not neutralized for a whitespace-splitting reader, which is why that
+    line must be parsed by its JSON quoting. What is validated here is the CONTAINER
     (keys, types, caps), never the text's content.
     """
     store = doc.get('finding_evidence')
@@ -1037,9 +1075,24 @@ def _validate_finding_evidence(doc):
         if comp not in ('complete', 'incomplete'):
             raise StateError(f'finding-evidence {key!r} completeness {comp!r} is outside the '
                              f'canonical set')
-        if comp != evidence_completeness(entry)[0]:
-            raise StateError(f'finding-evidence {key!r} records completeness {comp!r} but its '
-                             f'fields derive {evidence_completeness(entry)[0]!r}')
+        derived = evidence_completeness(entry)[0]
+        if comp != derived:
+            # RE-DERIVED, never rejected: `completeness` is a pure function of the fields
+            # beside it, so the derivation is authoritative and the stored value carries no
+            # information the recompute lacks. Raising here would be fail-closed in the wrong
+            # direction — the document stops loading, and EVERY later mutation of the run
+            # (`record-return`, `record-adjudication`, `emit-body`) exits non-zero over one
+            # unrelated evidence item, which is the run-wide lockout `_nonneg_int` names as
+            # the thing this component must never do. It is reachable without any hand edit:
+            # a rule change to `evidence_completeness` (this PR made one) re-derives a
+            # different answer for a record the previous build wrote. Recomputing keeps the
+            # whole guarantee the raise was protecting — a hand-edited `complete` beside
+            # blank fields still cannot buy the cheap replay, because the stored value is
+            # never what is used.
+            sys.stderr.write(
+                f'issue-audit-state.py: finding-evidence {key!r} stored completeness '
+                f'{comp!r}; re-derived {derived!r} and using the derived value\n')
+            entry['completeness'] = derived
 
 
 def split_body(raw):
@@ -3951,7 +4004,8 @@ def cmd_record_finding_evidence(args):
     one-line summary and refuses newlines and `<field>=` tokens by contract, so multi-line
     observed output cannot ride on it. This channel is keyed by `<round>:<finding-id>`, caps
     each field, and stores the text VERBATIM as data — the print boundary, not a refusal, is
-    where instruction-shaped or record-splitting bytes are neutralized.
+    where record-splitting bytes are neutralized. Instruction-shaped text is never
+    neutralized and never needs to be: it is stored and printed as data, never executed.
     """
     prefix = 'record-finding-evidence'
     doc = _load_for_mutation(prefix, args.slug, args.nonce)
@@ -3978,7 +4032,8 @@ def cmd_record_finding_evidence(args):
     if prior is not None:
         # Last-write-wins would silently collapse two disagreeing probes of ONE finding to the
         # later value — the same one-sided resolution `evidence_conflicts` refuses across
-        # findings. The compared identity is the WHOLE recorded item, not `observed` alone:
+        # findings. The compared identity is every `_EVIDENCE_FIELDS` value, not `observed`
+        # alone (`completeness` needs no row — it is derived from those same fields):
         # two probes that disagree about WHERE the defect is (`locator`) or HOW it was
         # measured (`command`) while coincidentally producing the same bytes — routine for
         # low-entropy outputs like `0`, an empty result, or a single count line — are exactly
@@ -3987,16 +4042,36 @@ def cmd_record_finding_evidence(args):
         # `observed` alone is judged by `_observed_divergent`, not plain inequality, so a pair
         # `_bound_evidence` truncated to byte-identical strings is refused too: the comparison
         # could not see the bytes past the cap, and unknown is never agreement. A byte-for-byte
-        # identical, untruncated re-record stays a legal idempotent replay.
+        # identical, untruncated re-record stays a legal idempotent replay. `completeness`
+        # needs no row of its own: it is derived from these same fields, so it cannot diverge
+        # independently of them.
+        #
+        # An OMITTED field is not a disagreement. `_EVIDENCE_FIELDS` includes the optional
+        # `baseline_identity`, which the module documents an auditor under the Step 3.6
+        # information diet as unable to supply — so comparing a field absent from BOTH sides,
+        # or newly absent on a replay that simply did not pass the flag, would refuse a probe
+        # that observed nothing different and then tell the operator to invent a second
+        # finding id, injecting a phantom finding into the ledger and into
+        # `evidence_conflicts`' grouping.
         changed = [f for f in _EVIDENCE_FIELDS
-                   if (_observed_divergent(prior.get(f), entry.get(f)) if f == 'observed'
-                       else prior.get(f) != entry.get(f))]
+                   # An OMITTED optional field is not a claim, so it cannot contradict one.
+                   # Required fields keep comparing when absent — dropping one on a re-record
+                   # loses the first probe's data, which is what this guard exists to stop.
+                   if not (f in _EVIDENCE_OPTIONAL and f not in entry)
+                   and (_observed_divergent(prior.get(f), entry.get(f)) if f == 'observed'
+                        else prior.get(f) != entry.get(f))]
         if changed:
-            _fail(prefix, f'evidence-overwrite-differs: {key} already carries evidence that '
-                          f'differs in {",".join(changed)} (or whose equality could not be '
-                          f'established because both observations are truncated); record the '
-                          f'second probe under its own finding id so the disagreement is '
-                          f'surfaced, never overwritten')
+            # Name only the cause that applies: the truncation clause is about `observed`
+            # equality that could not be established, so appending it to a locator-only
+            # divergence sends the reader to investigate a cap that was never hit.
+            both_truncated = ('observed' in changed
+                              and prior.get('observed') == entry.get('observed'))
+            why = ('whose equality could not be established because both observations are '
+                   'truncated' if both_truncated
+                   else f'that differs in {",".join(changed)}')
+            _fail(prefix, f'evidence-overwrite-differs: {key} already carries evidence {why}; '
+                          f'record the second probe under its own finding id so the '
+                          f'disagreement is surfaced, never overwritten')
     store[key] = entry
     _save_or_fail(prefix, doc, args.slug)
     print(f'finding={key} completeness={completeness} '
@@ -4646,8 +4721,8 @@ def main():
              'they precede every auditor-controlled value and come from closed domains. The '
              'trailing evidence values are quoted rather than delimited, so parse this line '
              'by its JSON quoting, never by splitting on whitespace. Two items citing one '
-             'locator with differing '
-             'observed output are surfaced as `conflict=<ids>`, never auto-resolved; '
+             'locator AND running the same command, with differing '
+             'observed output, are surfaced as `conflict=<ids>`, never auto-resolved; '
              'conflicts are derived over the whole round, so narrowing with --finding-id '
              'still reports a conflicting sibling.')
     s.add_argument('slug')
