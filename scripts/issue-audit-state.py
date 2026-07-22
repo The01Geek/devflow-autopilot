@@ -265,8 +265,11 @@ def _forged_protocol_token(text):
     """The first protocol token `text` forges as a `<token>=` word, else None.
 
     Shared by ledger-summary ingestion, the invalidation-reason guard, and the claim-key
-    guard so one closed vocabulary governs every ingestion point. Deliberately count-free:
-    an ordinal here rots on the next caller added. The decided recovery on a hit is to reword without the
+    guard, so one closed vocabulary governs every ingestion point that answers this hazard by
+    REFUSAL. The per-finding evidence channel is deliberately not among them: it stores
+    auditor text verbatim and answers the same hazard at its print boundary instead, so it
+    consults no vocabulary. Deliberately count-free — an ordinal here rots on the next caller
+    added. The decided recovery on a hit is to reword without the
     `<field>=` form and re-issue the call.
 
     The match is deliberately CASE-SENSITIVE: the capture is case-insensitive by character
@@ -292,7 +295,8 @@ def _record_splitting_char(text):
     (`_ingest_ledger`, `cmd_record_invalidate`, `cmd_record_claim_baseline`) check the
     STRIPPED text, so a trailing
     CRLF from a Windows-shell heredoc is normalized away rather than refused and only an
-    INTERIOR splitter is a hit there. The two `_validate_ledger` READ-BOUNDARY callers
+    INTERIOR splitter is a hit there. The READ-BOUNDARY callers (`_validate_ledger`, and
+    `_validate_claims` for a stored claim key)
     pass stored text verbatim, where any splitter — a trailing one included — is corrupt
     state by construction, since the ingestion guards already stripped it before it was
     ever persisted. The decided recovery mirrors the vocabulary refusal: reword the text
@@ -666,8 +670,9 @@ _FULL_DOMAIN_CLASSES = ('count', 'inventory')
 
 # The revision and the identity share the module-level `_UNESTABLISHED` defined above with
 # the issue-#548 unresolved count — deliberately NOT re-assigned here. The module keeps ONE
-# spelling of an unresolvable measurement (stated at that definition and relied on by
-# `evidence_completeness`, which treats a required field holding it as missing); a second
+# spelling of an unresolvable measurement — the invariant this block and
+# `evidence_completeness` both rely on, the latter treating a required field holding it as
+# missing; a second
 # assignment would falsify that invariant, and a later edit to either site would silently
 # lose to whichever ran last. It is never a value the
 # comparison can match, so a claim carrying it is read as possibly-stale — unknown is not
@@ -765,21 +770,29 @@ def anchor_measured_path(path):
     """
     root = _repo_root()
     resolved = Path(path) if Path(path).is_absolute() else (Path.cwd() / path)
+    root_resolved = None
     try:
-        resolved = resolved.resolve()
-    except (OSError, RuntimeError):
-        # A resolve failure is not a reason to fall back to the cwd-relative spelling this
-        # function exists to remove — the already-absolute cwd-join below is still anchored.
-        # `RuntimeError` is NOT redundant with `OSError`: CPython's `pathlib` re-raises an
-        # ELOOP symlink loop as `RuntimeError` (`check_eloop`), and because anchoring now runs
-        # BEFORE measurement, an escape here lands outside `location_identity`'s
-        # `_DigestError` → `unestablished` funnel and crashes the recorder with a traceback
-        # where it used to degrade at exit 0. A permission-denied parent — the other case —
+        # BOTH resolves sit inside this one guard. Splitting them is the shape that shipped a
+        # crash twice: the measured path's resolve was widened to `RuntimeError` while
+        # `root.resolve()` — which raises the SAME family, for the same reasons — sat below
+        # under a `ValueError`-only `except`, so the identical traceback simply moved one line
+        # down. `RuntimeError` is NOT redundant with `OSError`: CPython's `pathlib` re-raises
+        # an ELOOP symlink loop as `RuntimeError` (`check_eloop`); a permission-denied parent
         # really is an `OSError`, so catching only that left the arm half-live.
+        #
+        # It matters here and not elsewhere because anchoring runs BEFORE measurement, so an
+        # escape lands outside `location_identity`'s `_DigestError` → `unestablished` funnel
+        # and crashes the recorder with a traceback where it must degrade at exit 0.
+        resolved = resolved.resolve()
+        if root is not None:
+            root_resolved = root.resolve()
+    except (OSError, RuntimeError):
+        # Not a reason to fall back to the cwd-relative spelling this function exists to
+        # remove: the cwd-join performed above is already absolute, so it is still anchored.
         return str(resolved)
-    if root is not None:
+    if root_resolved is not None:
         try:
-            return resolved.relative_to(root.resolve()).as_posix()
+            return resolved.relative_to(root_resolved).as_posix()
         except ValueError:
             pass  # outside the repo root — the absolute form below is still cwd-independent
     return str(resolved)
@@ -1068,9 +1081,10 @@ def _validate_finding_evidence(doc):
                 raise StateError(f'finding-evidence {key!r} {field} exceeds the '
                                  f'{_EVIDENCE_MAX_CHARS}-char bound')
         # `completeness` GATES the verification scope (a `complete` item buys the cheap
-        # locator replay), so it is validated like any other decided field rather than
-        # trusted: a hand-edited `complete` beside blank required fields would buy a
-        # relaxation the evidence never earned.
+        # locator replay), so it is never trusted as stored: its CONTAINER is validated here
+        # like any other decided field, and its VALUE is re-derived below rather than read —
+        # which is what keeps a hand-edited `complete` beside blank required fields from
+        # buying a relaxation the evidence never earned.
         comp = entry.get('completeness')
         if comp not in ('complete', 'incomplete'):
             raise StateError(f'finding-evidence {key!r} completeness {comp!r} is outside the '
@@ -4060,15 +4074,28 @@ def cmd_record_finding_evidence(args):
                    if not (f in _EVIDENCE_OPTIONAL and f not in entry)
                    and (_observed_divergent(prior.get(f), entry.get(f)) if f == 'observed'
                         else prior.get(f) != entry.get(f))]
+        # An exempted optional field is CARRIED FORWARD, never dropped. Skipping the
+        # comparison is only half the rule: the write below replaces the whole entry, so a
+        # replay that merely omitted the flag would delete the identity the first probe
+        # recorded — at exit 0, with no breadcrumb. That is the same first-probe data loss
+        # this guard exists to stop, arriving through the exemption instead of past it.
+        for _opt in _EVIDENCE_OPTIONAL:
+            if _opt not in entry and _opt in prior:
+                entry[_opt] = prior[_opt]
         if changed:
-            # Name only the cause that applies: the truncation clause is about `observed`
-            # equality that could not be established, so appending it to a locator-only
-            # divergence sends the reader to investigate a cap that was never hit.
-            both_truncated = ('observed' in changed
-                              and prior.get('observed') == entry.get('observed'))
-            why = ('whose equality could not be established because both observations are '
-                   'truncated' if both_truncated
-                   else f'that differs in {",".join(changed)}')
+            # Name every cause that applies, and only those: the truncation clause is about
+            # `observed` equality that could not be established, so attaching it to a
+            # locator-only divergence sends the reader to a cap that was never hit — while
+            # dropping the field list when truncation co-occurs hides the real disagreement.
+            # ADDITIVE, not exclusive. An exclusive selection drops the concrete field list
+            # whenever `observed` happens to be truncated-equal too, so a probe that also
+            # disagrees about its `locator` is reported as a truncation problem alone — the
+            # operator shortens the output, retries, and is refused again by the divergence
+            # that was never named.
+            why = f'that differs in {",".join(changed)}'
+            if 'observed' in changed and prior.get('observed') == entry.get('observed'):
+                why += (' (the `observed` equality could not be established because both '
+                        'observations are truncated)')
             _fail(prefix, f'evidence-overwrite-differs: {key} already carries evidence {why}; '
                           f'record the second probe under its own finding id so the '
                           f'disagreement is surfaced, never overwritten')

@@ -12609,6 +12609,69 @@ def _row704_27(r):
 
 _with_run704(_row704_27)
 
+
+# Row 28 — the PR-#706 round-4 fixes, plus the RENDERED `--help` pin round 3's commit message
+# claimed and did not add.
+def _row704_28(r):
+    # (a) The conflict rule stated in the `query-finding-evidence` help must match
+    # `evidence_conflicts`, which groups by (locator, command) — the help once promised a
+    # conflict on any same-locator disagreement, which would license reading `conflict=none`
+    # as agreement between two probes that simply ran different commands.
+    #
+    # Pinned against the RENDERED help, never the source: the sentence is assembled from
+    # adjacent wrapped string literals, so it lives on no single source line and a `git grep`
+    # for it is vacuous — the #375 wrapped-literal rule.
+    rendered = _subprocess.run([sys.executable, _IAS603, '--help'],
+                               capture_output=True, text=True).stdout
+    flat = ' '.join(rendered.split())
+    assert_eq("#704-28: the rendered --help states the conflict rule's same-command condition",
+              True, 'citing one locator AND running the same command' in flat)
+    assert_eq("#704-28: and tells the reader to parse the line by its JSON quoting",
+              True, 'never by splitting on whitespace' in flat)
+
+    # (b) An exempted optional field is carried forward, not deleted. Skipping the comparison
+    # without carrying the value made a bare replay a silent data loss at exit 0.
+    r.evidence(7, 1, locator='a:1', command='c', baseline_revision='r1',
+               baseline_identity='ID1', observed='o\n')
+    r.evidence(7, 1, locator='a:1', command='c', baseline_revision='r1', observed='o\n')
+    read = r('query-finding-evidence', r.slug, '--round', '7', nonce=True)
+    assert_eq("#704-28: a replay omitting the optional field PRESERVES the recorded value "
+              "(the exemption skips the comparison, never the data)",
+              '"ID1"', _field704(read.stdout, 'baseline_identity='))
+
+    # (c) The refusal names every cause that applies. A divergence that co-occurs with a
+    # truncated-equal `observed` must still name the diverging field.
+    cap = issue_audit_state._EVIDENCE_MAX_CHARS
+    r.evidence(8, 1, locator='L1:1', command='c', baseline_revision='r1',
+               observed='y' * (cap + 1) + 'A')
+    both = r.evidence(8, 1, locator='DIFFERENT:2', command='c', baseline_revision='r1',
+                      observed='y' * (cap + 1) + 'B')
+    assert_eq("#704-28: a divergence co-occurring with truncated-equal observations names "
+              "BOTH the diverging field and the truncation, never the truncation alone",
+              (True, True, True),
+              (both.returncode != 0,
+               'differs in locator' in both.stderr, 'truncated' in both.stderr))
+
+    # (d) `root.resolve()` sits inside the same guard as the measured path's resolve. Both
+    # raise the same family for the same reasons, so guarding only one moved the crash a line
+    # down rather than removing it. Exercised by pointing the repo root at a symlink loop.
+    Path(r.tmp, 'rootloop').symlink_to('rootloop')
+    real_root = issue_audit_state._repo_root
+    try:
+        issue_audit_state._repo_root = lambda: Path(r.tmp, 'rootloop')
+        got = issue_audit_state.anchor_measured_path('seed.txt')
+    except (OSError, RuntimeError) as exc:      # the regression: an escape past the guard
+        got = f'ESCAPED: {type(exc).__name__}'
+    finally:
+        issue_audit_state._repo_root = real_root
+    assert_eq("#704-28: an unresolvable REPO ROOT degrades to the absolute form instead of "
+              "escaping the guard (the crash round 3 moved one line down)",
+              (False, True),
+              (str(got).startswith('ESCAPED:'), str(got).endswith('seed.txt')))
+
+
+_with_run704(_row704_28)
+
 print()
 print(f"{PASS} passed, {FAIL} failed")
 sys.exit(0 if FAIL == 0 else 1)
