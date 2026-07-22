@@ -378,7 +378,6 @@ print("workpad.cmd_id exit-code contract (issue #55 live-comment seeding)")
 # all three codes by stubbing the gh calls (no network).
 import json as _json  # noqa: E402
 import subprocess as _subprocess  # noqa: E402
-import json as _json704  # noqa: E402
 
 
 class _FakeRun:
@@ -11528,15 +11527,18 @@ _with_run603(_row23)
 # `git rev-parse` / `git hash-object` measurements the subcommands take of that repository.
 # A pure-function test could not exercise the baseline capture at all.
 
-_IAS704 = str(SCRIPTS / 'issue-audit-state.py')
+# One module-path constant for one script: `_IAS603` above already names it, and a second
+# binding would give a future path change two sites to find.
 
 
-class _Run704:
+class _Run704(_Run603):
     """A scratch run driven through the real CLI inside its own throwaway git repo.
 
-    Distinct from `_Run603`, whose temp dir is deliberately NOT a repository: every
-    subcommand under test here measures the enclosing repository (a captured revision, a
-    `git hash-object` content identity), so the fixture must be a real commit history.
+    Inherits `_Run603`'s CLI-invocation surface (`__call__`, `_field`) unchanged — the two
+    harnesses differ only in FIXTURE SETUP, not in how they invoke the tool. `_Run603`'s temp
+    dir is deliberately NOT a repository; every subcommand under test here measures the
+    enclosing repository (a captured revision, a `git hash-object` content identity), so this
+    one seeds a real commit history before `init`.
     """
 
     def __init__(self, tmp, slug='s704'):
@@ -11547,8 +11549,7 @@ class _Run704:
         self.git('config', 'commit.gpgsign', 'false')
         self.write('seed.txt', 'seed\n')
         self.commit('seed')
-        self.slug = slug
-        self.nonce = _Run603._field(self('init', slug), 'nonce=', 'init')
+        super().__init__(tmp, slug)
 
     def git(self, *argv):
         return _subprocess.run(['git', *argv], cwd=self.tmp, capture_output=True, text=True)
@@ -11562,13 +11563,6 @@ class _Run704:
         self.git('add', '-A')
         self.git('commit', '-q', '-m', msg)
         return self.git('rev-parse', 'HEAD').stdout.strip()
-
-    def __call__(self, *argv, stdin=None, nonce=False):
-        args = [sys.executable, _IAS704, *argv]
-        if nonce:
-            args += ['--nonce', self.nonce]
-        return _subprocess.run(args, cwd=self.tmp, input=stdin, capture_output=True,
-                               text=True)
 
     def baseline(self, key, klass, *paths, domain=None):
         argv = ['record-claim-baseline', self.slug, '--claim-key', key,
@@ -11601,7 +11595,14 @@ class _Run704:
 
 
 def _field704(text, token):
-    """The whitespace-delimited value of `token` in a printed line, else ''."""
+    """The whitespace-delimited value of `token` in a printed line, else ''.
+
+    Deliberately NOT `_Run603._field`, which asserts the token is present: that one guards a
+    SETUP precondition, where an absent field is a broken fixture. This one reads an
+    ASSERTION operand, where an absent field must flow into `assert_eq` as `''` and be
+    reported as a value mismatch — raising instead would hide the actual output. Do not
+    "unify" these into the asserting form.
+    """
     return text.split(token, 1)[1].split()[0].strip() if token in text else ''
 
 
@@ -11686,11 +11687,11 @@ def _row704_4(r):
     r.write('anchor.md', 'alpha\n')
     r.commit('A')
     r.baseline('claim-present', 'location', 'anchor.md')
-    doc = _json704.loads(Path(r.tmp, '.devflow/tmp/issue-audit-state-s704.json')
+    doc = _json.loads(Path(r.tmp, '.devflow/tmp/issue-audit-state-s704.json')
                          .read_text(encoding='utf-8'))
     doc['claims']['claim-legacy'] = {'claim_class': 'location', 'paths': ['anchor.md']}
     Path(r.tmp, '.devflow/tmp/issue-audit-state-s704.json').write_text(
-        _json704.dumps(doc), encoding='utf-8')
+        _json.dumps(doc), encoding='utf-8')
     got = r.staleness('claim-legacy')
     assert_eq("#704-4: a claim with no recorded baseline reads possibly-stale, never fresh",
               ('possibly-stale', 0), (_field704(got.stdout, 'state='), got.returncode))
@@ -11775,11 +11776,11 @@ def _row704_8(r):
                      str(shallow)], capture_output=True, text=True)
     if shallow.is_dir():
         sh = _subprocess.run(
-            [sys.executable, _IAS704, 'init', 'sh704'], cwd=str(shallow),
+            [sys.executable, _IAS603, 'init', 'sh704'], cwd=str(shallow),
             capture_output=True, text=True)
         sh_nonce = _Run603._field(sh, 'nonce=', 'init (shallow)')
         rec = _subprocess.run(
-            [sys.executable, _IAS704, 'record-claim-baseline', 'sh704', '--nonce', sh_nonce,
+            [sys.executable, _IAS603, 'record-claim-baseline', 'sh704', '--nonce', sh_nonce,
              '--claim-key', 'k', '--claim-class', 'location', '--path', 'anchor.md'],
             cwd=str(shallow), capture_output=True, text=True)
         assert_eq("#704-8: a shallow clone resolves a normal baseline (not unestablished)",
@@ -11844,8 +11845,8 @@ def _row704_10(r):
               True, 'conflict=' in read.stdout)
     assert_eq("#704-10: the conflict is not auto-resolved — BOTH observed values survive",
               (True, True),
-              (_json704.dumps('3\n')[1:-1] in read.stdout,
-               _json704.dumps('7\n')[1:-1] in read.stdout))
+              (_json.dumps('3\n')[1:-1] in read.stdout,
+               _json.dumps('7\n')[1:-1] in read.stdout))
 
 
 _with_run704(_row704_10)
@@ -11894,7 +11895,7 @@ def _row704_12(r):
               any(ln.strip().startswith('completeness=')
                   and 'finding=' not in ln for ln in read.stdout.splitlines()))
     assert_eq("#704-12: the payload round-trips verbatim as data under the bounded encoding",
-              True, _json704.dumps(payload)[1:-1] in read.stdout)
+              True, _json.dumps(payload)[1:-1] in read.stdout)
 
 
 _with_run704(_row704_12)
@@ -11907,16 +11908,16 @@ def _row704_13(r):
     r.write('anchor.md', 'alpha\n')
     r.commit('A')
     sp = Path(r.tmp, '.devflow/tmp/issue-audit-state-s704.json')
-    doc = _json704.loads(sp.read_text(encoding='utf-8'))
+    doc = _json.loads(sp.read_text(encoding='utf-8'))
     doc.pop('claims', None)
     doc.pop('finding_evidence', None)
-    sp.write_text(_json704.dumps(doc), encoding='utf-8')
+    sp.write_text(_json.dumps(doc), encoding='utf-8')
     got = r.baseline('post-upgrade', 'location', 'anchor.md')
     assert_eq("#704-13: an old-schema file lacking the new additive fields still loads",
               0, got.returncode)
-    doc = _json704.loads(sp.read_text(encoding='utf-8'))
+    doc = _json.loads(sp.read_text(encoding='utf-8'))
     doc['schema_version'] = issue_audit_state.SCHEMA_VERSION + 1
-    sp.write_text(_json704.dumps(doc), encoding='utf-8')
+    sp.write_text(_json.dumps(doc), encoding='utf-8')
     bad = r.staleness('post-upgrade')
     assert_eq("#704-13: a mismatched schema_version is rejected fail-closed, never misread",
               True, 'schema_version' in bad.stderr)

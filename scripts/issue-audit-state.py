@@ -665,6 +665,11 @@ _UNESTABLISHED = 'unestablished'
 # absent, unestablished, or un-recomputable baseline; it is deliberately distinct from
 # `stale` so the reader can tell "measured and moved" from "could not be measured".
 _STALENESS_STATES = ('fresh', 'stale', 'possibly-stale')
+# Import-time coupling, mirroring the `_LEGAL_SETTLING_KEYS`/`_LEDGER_STATUSES` assert: a
+# full-domain class that is not a claim class at all would silently route every claim of that
+# name to the location branch, which reads paths a full-domain claim never records.
+assert set(_FULL_DOMAIN_CLASSES) <= set(_CLAIM_CLASSES), (
+    'issue-audit-state.py: _FULL_DOMAIN_CLASSES names a class outside _CLAIM_CLASSES')
 
 # The evidence fields the per-finding completeness check requires. `baseline_identity` is
 # deliberately NOT required: an auditor running under the Step 3.6 information diet can
@@ -678,7 +683,10 @@ _EVIDENCE_FIELDS = _EVIDENCE_REQUIRED + _EVIDENCE_OPTIONAL
 # grow the state file without bound. Truncation is DISCLOSED in the stored bytes rather than
 # silent, so a replay driven from truncated evidence can tell it is reading a prefix.
 _EVIDENCE_MAX_CHARS = 4096
-_EVIDENCE_TRUNCATION_MARK = '…[truncated by issue-audit-state.py at 4096 chars]'
+# Derived from the cap, never restated: a hand-copied number here would make the DISCLOSURE
+# lie the moment the cap moved, which is the one thing a truncation notice must never do.
+_EVIDENCE_TRUNCATION_MARK = (
+    f'…[truncated by issue-audit-state.py at {_EVIDENCE_MAX_CHARS} chars]')
 
 
 def capture_revision():
@@ -698,7 +706,7 @@ def capture_revision():
     return r.stdout.decode('ascii', 'replace').strip() or _UNESTABLISHED
 
 
-def location_identity(paths):
+def location_identity(paths, cache=None):
     """Digest the measured paths' CONTENT, or `unestablished` when any is unmeasurable.
 
     The digested bytes are `<path>\0<object-id>\n` per path, sorted by path, so the
@@ -712,15 +720,14 @@ def location_identity(paths):
     unreadable file, a broken `git hash-object`) rather than digesting a partial set,
     which would produce a plausible identity for a measurement that never completed.
     """
+    memo = cache if cache is not None else {}
     try:
         rows = b''.join(
-            f'{p}\0{hash_file(p)}\n'.encode('utf-8') for p in sorted(set(paths)))
-    except _DigestError:
-        return _UNESTABLISHED
-    if not rows:
-        return _UNESTABLISHED
-    try:
-        return hash_bytes(rows)
+            f'{p}\0{memo.setdefault(p, hash_file(p))}\n'.encode('utf-8')
+            for p in sorted(set(paths)))
+        # One `try` for one policy: ANY measurement failure — and an empty measured set,
+        # which is a measurement that never happened — resolves to `unestablished`.
+        return hash_bytes(rows) if rows else _UNESTABLISHED
     except _DigestError:
         return _UNESTABLISHED
 
@@ -739,6 +746,22 @@ def domain_identity(data):
         return hash_bytes(data)
     except _DigestError:
         return _UNESTABLISHED
+
+
+def recompute_identity(entry, domain_data=None, cache=None):
+    """Recompute one claim's identity the way its CLASS decides, or None if it cannot be.
+
+    The single site that owns the class→identity mapping, so the write path, the per-claim
+    check, and the all-claims check cannot drift apart on what a class is identified by —
+    the same single-decision-site discipline `claim_staleness` applies to the verdict.
+
+    `None` means "not recomputable here", NOT "unestablished": a full-domain class needs a
+    re-executed search result the caller must pipe in, and `claim_staleness` reads that as
+    possibly-stale rather than as a measured difference.
+    """
+    if entry.get('claim_class') in _FULL_DOMAIN_CLASSES:
+        return None if domain_data is None else domain_identity(domain_data)
+    return location_identity(entry.get('paths') or [], cache)
 
 
 def claim_staleness(entry, current_identity):
@@ -795,16 +818,16 @@ def evidence_conflicts(store):
     auto-resolved by picking one value (#704 AC10): both observed values stay recorded and
     both keys name each other, so no reader can collapse the pair silently.
     """
+    by_locator = {}
+    for key, entry in store.items():
+        if entry.get('locator'):
+            by_locator.setdefault(entry['locator'], []).append(key)
     out = {k: [] for k in store}
-    keys = sorted(store)
-    for i, a in enumerate(keys):
-        for b in keys[i + 1:]:
-            ea, eb = store[a], store[b]
-            if ea.get('locator') and ea.get('locator') == eb.get('locator') \
-                    and ea.get('observed') != eb.get('observed'):
-                out[a].append(b)
-                out[b].append(a)
-    return {k: sorted(v) for k, v in out.items()}
+    for group in by_locator.values():
+        for key in group:
+            out[key] = sorted(other for other in group if other != key
+                              and store[other].get('observed') != store[key].get('observed'))
+    return out
 
 
 def _validate_claims(doc):
@@ -3665,34 +3688,31 @@ def cmd_check_claim_staleness(args):
     answer. This informs re-verification; it never gates filing.
     """
     prefix = 'check-claim-staleness'
-    try:
-        doc = load_state(args.slug)
-        _check_nonce(doc, args.nonce)
-    except StateError as exc:
-        _fail(prefix, str(exc))
+    # `_load_for_mutation` is named for its dominant caller but performs no mutation — it is
+    # the shared load-and-check-nonce step, and this nonce-taking query needs exactly that.
+    doc = _load_for_mutation(prefix, args.slug, args.nonce)
     claims = doc.get('claims') or {}
     if args.claim_key is not None:
-        entry = claims.get(args.claim_key)
-        if entry is None:
+        if args.claim_key not in claims:
             _fail(prefix, f'claim-unknown: no claim named {args.claim_key!r} is recorded')
-        klass = entry.get('claim_class')
-        if klass in _FULL_DOMAIN_CLASSES:
-            current = domain_identity(sys.stdin.buffer.read()) if args.domain_stdin else None
-        else:
-            current = location_identity(entry.get('paths') or [])
-        print(_staleness_line(args.claim_key, entry, current))
-        return
-    if not claims:
-        print('claims=none')
-        return
-    for key in sorted(claims):
-        entry = claims[key]
-        # The all-claims form recomputes only what it can establish on its own. A
-        # full-domain class needs a piped search result the caller must re-execute, so it
-        # reports possibly-stale (`domain-not-recomputed`) rather than a fabricated `fresh`.
-        current = (None if entry.get('claim_class') in _FULL_DOMAIN_CLASSES
-                   else location_identity(entry.get('paths') or []))
-        print(_staleness_line(key, entry, current))
+        keys = [args.claim_key]
+    else:
+        if args.domain_stdin:
+            # One piped search result cannot identify several claims with different search
+            # domains, and silently applying it to all of them would manufacture a `fresh`
+            # for every claim whose real domain was never re-executed.
+            _fail(prefix, 'domain-without-claim-key: --domain-stdin identifies ONE claim; '
+                          'pass --claim-key naming it')
+        if not claims:
+            print('claims=none')
+            return
+        keys = sorted(claims)
+    domain = sys.stdin.buffer.read() if args.domain_stdin else None
+    # Memoized across the loop: a path cited by several location claims is hashed once.
+    cache = {}
+    for key in keys:
+        print(_staleness_line(key, claims[key],
+                              recompute_identity(claims[key], domain, cache)))
 
 
 def cmd_query_claim_baselines(args):
@@ -3727,12 +3747,10 @@ def cmd_record_finding_evidence(args):
             observed = raw.decode('utf-8')
         except UnicodeDecodeError:
             _fail(prefix, 'evidence-undecodable: the observed output is not valid UTF-8')
-    entry = {'locator': _bound_evidence(args.locator),
-             'command': _bound_evidence(args.command),
-             'observed': _bound_evidence(observed),
-             'baseline_revision': _bound_evidence(args.baseline_revision),
-             'baseline_identity': _bound_evidence(args.baseline_identity)}
-    entry = {k: v for k, v in entry.items() if v is not None}
+    supplied = (('locator', args.locator), ('command', args.command),
+                ('observed', observed), ('baseline_revision', args.baseline_revision),
+                ('baseline_identity', args.baseline_identity))
+    entry = {k: _bound_evidence(v) for k, v in supplied if v is not None}
     completeness, missing = evidence_completeness(entry)
     entry['completeness'] = completeness
     key = f'{args.round}:{args.finding_id}'
