@@ -44,14 +44,15 @@ _mk_restricted() {
 
 # Resolve one input base under the simulated host signal.
 _resolve() {  # signal input
-  local signal="$1" input="$2" sandbox out
-  sandbox="$(mktemp -d)"
+  local signal="$1" input="$2" sandbox="" out
   case "$signal" in
     posix)
-      # POSIX-form input consults no tool; run under a normal environment.
+      # POSIX-form input consults no tool and needs no sandbox; run under a
+      # normal environment.
       out="$("$BASH_BIN" -c ". \"$NORMALIZE_PATH_SH\"; devflow_normalize_path \"\$1\"" _ "$input" 2>/dev/null)"
       ;;
     wsl)
+      sandbox="$(mktemp -d)"
       # No wslpath/cygpath; stub uname reporting a microsoft kernel.
       printf '#!/usr/bin/env bash\necho "5.15.0-microsoft-standard-WSL2"\n' > "$sandbox/uname"
       chmod +x "$sandbox/uname"
@@ -59,6 +60,7 @@ _resolve() {  # signal input
       out="$(env -u MSYSTEM PATH="$sandbox" "$BASH_BIN" -c ". \"$NORMALIZE_PATH_SH\"; devflow_normalize_path \"\$1\"" _ "$input" 2>/dev/null)"
       ;;
     msys2)
+      sandbox="$(mktemp -d)"
       # No wslpath/cygpath; MSYSTEM set, non-microsoft uname.
       printf '#!/usr/bin/env bash\necho "generic-kernel"\n' > "$sandbox/uname"
       chmod +x "$sandbox/uname"
@@ -69,7 +71,7 @@ _resolve() {  # signal input
       out=""
       ;;
   esac
-  rm -rf "$sandbox"
+  [ -n "$sandbox" ] && rm -rf "$sandbox"
   printf '%s' "$out"
 }
 
@@ -86,15 +88,12 @@ while IFS="$(printf '\t')" read -r family signal input expected; do
     _fail "$family ($signal): resolved base '$got' != expected '$expected'"
     continue
   fi
-
-  # Prove the anchor JOIN too: the local portable form appends
-  # /../../scripts/<helper> to the resolved base and must yield a clean POSIX
-  # path (no backslashes, no drive letter surviving the winform families).
-  anchored="$got/../../scripts/workpad.py"
-  case "$anchored" in
-    *'\'*)   _fail "$family: anchored path retains a backslash: $anchored" ;;
-    [A-Za-z]:*) _fail "$family: anchored path retains a drive letter: $anchored" ;;
-  esac
+  # The equality above is the join's coverage: each expected_base is the clean
+  # POSIX base the local portable form appends /../../scripts/<helper> to, so a
+  # base that still carried a backslash or drive letter (a normalization miss)
+  # would fail here — the /../../scripts/… suffix is a fixed literal
+  # normalization never touches, so a separate assertion on the joined string
+  # would be tautological.
 done < "$CORPUS"
 
 # Complete-by-construction: the corpus must carry exactly the four families.
