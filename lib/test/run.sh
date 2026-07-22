@@ -48802,7 +48802,7 @@ fi
 # The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/create-issue-contract.sh" \
-  "create-issue-contract" 382; then
+  "create-issue-contract" 383; then
   printf 'ERROR: create-issue-contract boundary could not record its result\n'
   exit 1
 fi
@@ -48968,7 +48968,10 @@ LEDGER-EOF
 
     # Revise the draft, record it, then assert approve mode refuses the unaudited bytes.
     printf '# Draft title\n\nBody line one (revised).\nBody line two.\n' > draft.md
-    PATH="$RESTRICTED" python3 "$IAS" record-revision rt --nonce "$NONCE" --after-round 1 > .rt-rev
+    # issue #705: the round dispatched on the file arm, so record-revision now requires the
+    # intended-bytes digest — pipe the revised draft to --stdin-digest.
+    PATH="$RESTRICTED" python3 "$IAS" record-revision rt --nonce "$NONCE" --after-round 1 \
+      --stdin-digest < draft.md > .rt-rev
     PATH="$RESTRICTED" python3 "$IAS" query-eligibility rt --nonce "$NONCE" \
       --mode approve --draft-file draft.md > .rt-elig-bad
     PATH="$RESTRICTED" python3 "$IAS" query-eligibility rt --nonce "$NONCE" \
@@ -49359,7 +49362,9 @@ if [ -d "$OA_SB" ]; then
         --findings-count 1 --carriage-object-id "$OID1" > /dev/null
       # The user revises the draft file to new bytes (D2), then elects to file anyway.
       printf '# T\n\nBody two, revised.\n' > "d-$SLUG.md"
-      python3 "$IAS" record-revision "$SLUG" --nonce "$NS" --after-round 1 > /dev/null
+      # issue #705: file-arm round -> record-revision requires --stdin-digest.
+      python3 "$IAS" record-revision "$SLUG" --nonce "$NS" --after-round 1 \
+        --stdin-digest < "d-$SLUG.md" > /dev/null
       python3 "$IAS" record-override "$SLUG" --nonce "$NS" --kind user-decline \
         --surface step4-approval-after-exhausted-offer --draft-file "d-$SLUG.md" > /dev/null
       printf '%s' "$NS" > ".oa-nonce-$SLUG"
@@ -49763,7 +49768,9 @@ if [ -d "$SR_SB" ]; then
       --surface t1t2-boundary --draft-file draft.md > /dev/null 2>&1
     python3 "$IAS" query-eligibility ov --nonce "$N2" --mode approve \
       --draft-file draft.md > .sr-ov-elig 2>/dev/null
-    python3 "$IAS" record-revision ov --nonce "$N2" --after-round 1 > /dev/null 2>&1
+    # issue #705: file-arm round -> record-revision requires --stdin-digest.
+    python3 "$IAS" record-revision ov --nonce "$N2" --after-round 1 \
+      --stdin-digest < draft.md > /dev/null 2>&1
     python3 "$IAS" query-eligibility ov --nonce "$N2" --mode approve \
       --draft-file draft.md > .sr-ov-stale 2>/dev/null
 
@@ -49837,11 +49844,16 @@ if [ -d "$I3_SB" ]; then
       --draft-file draft.md > /dev/null 2>&1
     python3 "$IAS" record-return it4 --nonce "$N4" --round 1 --verdict REVISE \
       --carriage-object-id "$OID" > /dev/null 2>&1
+    # issue #705: the round dispatched on the file arm, so record-revision requires
+    # --stdin-digest. The out-of-range after-round guard fires BEFORE the stdin read, so the
+    # 0/2 rows still fail with the same plausible-round breadcrumb; the after-round 1 row
+    # reads the bytes and records, so its stdout now carries the stdin_digest field.
     python3 "$IAS" record-revision it4 --nonce "$N4" --after-round 0 \
-      > /dev/null 2> .i3-ar-low; printf '%s' "$?" > .i3-ar-low-rc
+      --stdin-digest < draft.md > /dev/null 2> .i3-ar-low; printf '%s' "$?" > .i3-ar-low-rc
     python3 "$IAS" record-revision it4 --nonce "$N4" --after-round 2 \
-      > /dev/null 2> .i3-ar-high; printf '%s' "$?" > .i3-ar-high-rc
-    python3 "$IAS" record-revision it4 --nonce "$N4" --after-round 1 > .i3-ar-ok 2>&1
+      --stdin-digest < draft.md > /dev/null 2> .i3-ar-high; printf '%s' "$?" > .i3-ar-high-rc
+    python3 "$IAS" record-revision it4 --nonce "$N4" --after-round 1 \
+      --stdin-digest < draft.md > .i3-ar-ok 2>&1
 
     N5="$(python3 "$IAS" init it5 | sed 's/nonce=//')"
     python3 "$IAS" record-dispatch it5 --nonce "$N5" --round 1 --arm file \
@@ -49882,7 +49894,7 @@ if [ -d "$I3_SB" ]; then
   assert_eq "#546 iter3_hardening_rows: an after-round above the last recorded round refuses" \
     "1" "$(cat "$I3_SB/.i3-ar-high-rc" 2>/dev/null)"
   assert_eq "#546 iter3_hardening_rows: the truthful after-round is accepted" \
-    "ordinal=1" "$(cat "$I3_SB/.i3-ar-ok" 2>/dev/null)"
+    "1" "$(grep -cE '^ordinal=1 stdin_digest=[0-9a-f]+$' "$I3_SB/.i3-ar-ok" 2>/dev/null)"
   assert_eq "#546 iter3_hardening_rows: a second attestation refuses (forward-only tamper evidence)" \
     "1" "$(grep -c 'cannot be overwritten' "$I3_SB/.i3-att-again" 2>/dev/null)"
   assert_eq "#546 iter3_hardening_rows: an epoch re-bind after attestation refuses" \
@@ -50113,8 +50125,11 @@ if [ -d "$CS_SB" ]; then
     # unpersistable state: a read-only .devflow/tmp makes the mutation exit non-zero
     # with the named breadcrumb, and a QUERY still answers (read-only contract)
     chmod 555 .devflow/tmp
-    python3 "$IAS" record-revision cs3 --nonce "$N3" --after-round 1 \
-      > /dev/null 2> .cs-nopersist; printf '%s' "$?" > .cs-nopersist-rc
+    # issue #705: the round dispatched on the file arm, so record-revision requires
+    # --stdin-digest. The arm guard and the stdin read both precede save_state, so the
+    # unpersistable failure still surfaces with its could-not-persist breadcrumb.
+    printf '# T\n\nrevised\n' | python3 "$IAS" record-revision cs3 --nonce "$N3" \
+      --after-round 1 --stdin-digest > /dev/null 2> .cs-nopersist; printf '%s' "$?" > .cs-nopersist-rc
     python3 "$IAS" query-triggers cs3 --nonce "$N3" > .cs-nopersist-query 2>/dev/null
     chmod 755 .devflow/tmp
 
@@ -50413,8 +50428,10 @@ PY
     N8="$(python3 "$IAS" init rd8 | sed 's/nonce=//')"
     python3 "$IAS" record-dispatch rd8 --nonce "$N8" --round 1 --arm file \
       --draft-file d2.md > /dev/null 2>&1
-    python3 "$IAS" record-revision rd8 --nonce "$N8" --after-round 0 \
-      > .rd-floor0 2>&1; printf '%s' "$?" > .rd-floor0-rc
+    # issue #705: the round dispatched on the file arm, so record-revision requires
+    # --stdin-digest even while the round is still open (floor 0 positive control).
+    printf '# T\n\nORIG\n' | python3 "$IAS" record-revision rd8 --nonce "$N8" \
+      --after-round 0 --stdin-digest > .rd-floor0 2>&1; printf '%s' "$?" > .rd-floor0-rc
 
     # the attestation twin: bind a real epoch first so the read is actually reached
     N6="$(python3 "$IAS" init rd6 | sed 's/nonce=//')"
