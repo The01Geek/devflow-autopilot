@@ -48974,6 +48974,19 @@ _cce --context abc --context-mode direct --verification-record "$CCE_EV/loop_vre
      --identity-artifact "$CCE_EV/id_wrong.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
 assert_eq "#550 wrong-session anchor: token" "missing-evidence" "$CCE_TOK"
 
+# ── Rebind semantics (#668) the check must not read as continuity ─────────────
+# rebound_from == "unknown" (prior identity unreadable) is UNDETERMINED, not
+# continuity -> missing-evidence, never a false pass.
+printf '{"kind":"reception-identity","claim_context_token":"abc","candidate_identity":"%s","rebound_from":"unknown"}\n' "$CCE_TREE3" > "$CCE_EV/id_rebind_unknown.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/loop_vrec3.json" \
+     --identity-artifact "$CCE_EV/id_rebind_unknown.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 rebind(rebound_from=unknown): token is missing-evidence, never pass" "missing-evidence" "$CCE_TOK"
+# rebound_from == null (identity unchanged) is the ordinary pass-arm input.
+printf '{"kind":"reception-identity","claim_context_token":"abc","candidate_identity":"%s","rebound_from":null}\n' "$CCE_TREE3" > "$CCE_EV/id_rebind_null.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/loop_vrec3.json" \
+     --identity-artifact "$CCE_EV/id_rebind_null.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 rebind(rebound_from=null, unchanged tree): token is pass" "pass" "$CCE_TOK"
+
 # ── Session-directory degraded fixtures (direct): absent artifact, present-but-
 #    empty artifact, and a directory with no artifacts each yield missing-evidence
 #    for a claimed-complete session (never fail-open on a missing preflight fact).

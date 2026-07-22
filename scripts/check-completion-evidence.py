@@ -171,6 +171,28 @@ def _require_token_binding(obj: dict, label: str, context: str) -> None:
         )
 
 
+def _check_rebind(obj: dict, label: str) -> None:
+    """Guard the #668 rebind semantics — `rebound_from == "unknown"` is undetermined.
+
+    The reception producer re-derives the identity on every record; when the prior
+    artifact could not be read it reports `rebound_from: "unknown"`, meaning the
+    rebind comparison **could not be made**. Undetermined is never continuity: an
+    anchor whose rebind is unknown cannot be bound with confidence, so it is
+    missing-evidence (never a silent pass). A concrete `rebound_from` value (an
+    actual rebind against an edited tree) is left to the verification record's
+    stale-candidate check — the tree moved, so the recorded verification identity
+    differs from claim time. `null` (identity unchanged) and an absent field are the
+    ordinary pass-arm inputs.
+    """
+    rebound = obj.get("rebound_from")
+    if rebound == "unknown":
+        raise Verdict(
+            TOK_MISSING,
+            f"{label}: rebind is undetermined (`rebound_from: \"unknown\"`) — the "
+            f"prior identity could not be read, so continuity cannot be established",
+        )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Candidate-identity re-derivation (single source of truth — the #668 routine)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -563,6 +585,7 @@ def _validate(args) -> "tuple[str, str]":
     if args.context_mode == "direct":
         identity_artifact = _require_object(args.identity_artifact, "identity-artifact")
         _require_token_binding(identity_artifact, "identity-artifact", context)
+        _check_rebind(identity_artifact, "identity-artifact")
 
     findings_inventory = _require_object(args.findings_inventory, "findings-inventory")
     _require_token_binding(findings_inventory, "findings-inventory", context)
