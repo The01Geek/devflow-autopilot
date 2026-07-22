@@ -139,21 +139,14 @@ _SEPARATORS = ("|&", "&&", "||", ";", "|", "&", "\n")
 
 
 def _fenced_bash_blocks(text: str) -> list[str]:
-    """Return the bodies of every fence whose info string is exactly `bash`."""
-    blocks: list[str] = []
-    body: list[str] | None = None
-    for line in text.splitlines():
-        stripped = line.strip()
-        if body is None:
-            if stripped == "```bash":
-                body = []
-            continue
-        if stripped == "```":
-            blocks.append("\n".join(body))
-            body = None
-            continue
-        body.append(line)
-    return blocks
+    """Return the bodies of every fence whose info string is exactly `bash`.
+
+    A thin projection of `_fenced_bash_blocks_with_lines` (which additionally
+    tracks each fence's start line) so the fence-detection state machine lives in
+    exactly one place — a change to what counts as a `bash` fence cannot make the
+    line-tracking and line-less scanners disagree.
+    """
+    return [body for _start, body in _fenced_bash_blocks_with_lines(text)]
 
 
 def _strip_comments_and_heredocs(block: str) -> str:
@@ -533,8 +526,10 @@ def _collect(text: str, heads: list[list[str]]) -> None:
 # guard measures the normalized (emission-equivalent) leading token. The policy —
 # which helpers carry a per-helper grant, and which launcher heads a profile
 # grants — is supplied by the caller (cloud_writer_contract.py owns
-# REQUIRED_HELPER_HEADS and the parsed launcher table), so this parser stays
-# policy-free.
+# REQUIRED_HELPER_HEADS and the parsed launcher table). The parser owns only the
+# STRUCTURAL constants of the emission convention (the vendored-path prefix and
+# the bundled-helper path shape below), classifying a token structurally; the
+# per-profile membership decisions stay with the caller.
 
 _VENDORED_LEADING = ".devflow/vendor/devflow/"
 

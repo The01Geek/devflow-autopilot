@@ -1027,16 +1027,20 @@ def check_shape_conformance():
 # LAUNCHER_HEADS), so it tracks the grants rather than a hand-kept list, and it is
 # read BEFORE the wrapper normalization extract-command-heads.py applies — a
 # granted wrapper head (which that parser would otherwise strip) still counts.
-LAUNCHER_HEADS = frozenset(
-    {
-        # env + interpreters: run a following path argument as the command.
-        "env", "python", "python3", "bash", "sh", "ruby", "perl", "node",
-        # process wrappers: exec a following path argument (extract-command-heads
-        # strips these as WRAPPERS, so they must be re-included here — "before
-        # wrapper normalization").
-        "xargs", "timeout", "time", "nice", "nohup", "stdbuf",
-    }
+# env + interpreters: heads that run a following PATH argument as the command.
+# This is genuinely new policy this module owns (a grant string cannot reveal
+# "executes its path argument", so it is not derivable from the grants).
+_INTERPRETER_LAUNCHERS = frozenset(
+    {"env", "python", "python3", "bash", "sh", "ruby", "perl", "node"}
 )
+# The process-wrapper half is NOT re-enumerated: it IS extract-command-heads.py's
+# WRAPPERS set (the heads that parser strips), reused directly so a wrapper added
+# there (e.g. `flock`, `setsid`) is automatically covered here — otherwise a
+# `<new-wrapper> <helper>` escape would pass unseen, a fail-open exactly where the
+# boundary claims to fail closed. Union at import; the WRAPPERS↔LAUNCHER_HEADS
+# containment is pinned in lib/test/test_python_scripts.py so the reuse cannot
+# silently regress to a hand-copy.
+LAUNCHER_HEADS = _INTERPRETER_LAUNCHERS | _heads.WRAPPERS
 
 
 def helper_basenames_for(profile):
@@ -1072,6 +1076,7 @@ def check_helper_boundary(profile_grants=None):
     # grant source (unknown is not zero — an unreadable region must not silently
     # yield an empty launcher set that waves a launcher-prefixed helper through).
     launchers_by_profile = {}
+    basenames_by_profile = {}
     for profile in ROOTS:
         region_text, cause = _grant_source(profile, profile_grants)
         if region_text is None:
@@ -1082,6 +1087,7 @@ def check_helper_boundary(profile_grants=None):
             )
             continue
         launchers_by_profile[profile] = profile_launchers(profile, region_text)
+        basenames_by_profile[profile] = helper_basenames_for(profile)
     for asset, profiles in sorted(shape_audited_assets().items()):
         path = REPO_ROOT / asset
         try:
@@ -1094,7 +1100,7 @@ def check_helper_boundary(profile_grants=None):
         for profile in sorted(profiles):
             if profile not in launchers_by_profile:
                 continue  # its grant-source error is already reported above
-            basenames = helper_basenames_for(profile)
+            basenames = basenames_by_profile[profile]
             launchers = launchers_by_profile[profile]
             for lineno, reason, statement in _heads.helper_boundary_violations(
                 text, basenames, launchers

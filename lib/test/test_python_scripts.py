@@ -7896,6 +7896,16 @@ assert_eq("#701 AC3: main(['helper-boundary']) still exits 0 after the failure-a
 # not a hand-kept constant — so it tracks the grant. Every profile's derived set is
 # a subset of its any-grant command-position tokens, and the read-write implement
 # profile is non-vacuous (it grants env + at least one interpreter/wrapper head).
+# The wrapper half of LAUNCHER_HEADS is REUSED from the parser's WRAPPERS set, not
+# re-enumerated — so a wrapper added to extract-command-heads.py is automatically a
+# launcher head here. Pin the containment so a regression to a hand-copy (which
+# would drop a newly-added wrapper) goes RED.
+assert_eq("#701 AC3: every parser WRAPPERS head is a LAUNCHER_HEAD (reuse, not hand-copy)",
+          True, cwc._heads.WRAPPERS <= cwc.LAUNCHER_HEADS)
+assert_eq("#701 AC3: LAUNCHER_HEADS also carries the interpreter heads a grant string "
+          "cannot reveal",
+          True, {"env", "python3", "bash"} <= cwc.LAUNCHER_HEADS)
+
 _hb_impl_region, _hb_impl_cause = cwc._grant_source("implement", None)
 assert_eq("#701 AC3: the implement grant source is locatable for the launcher table",
           None, _hb_impl_cause)
@@ -8010,9 +8020,10 @@ try:
     assert_eq("#701 AC8: the launcher control set is non-vacuous (>=1 granted launcher)",
               True, bool(_hb_impl_launchers))
     for _hb_l in sorted(_hb_impl_launchers):
-        _hb_op = "1 X" if _hb_l in cwc._heads.WRAPPERS_WITH_OPERAND else ""
+        # A wrapper-with-operand (timeout/nice) needs its own numeric operand before
+        # the helper; every other launcher head takes the helper directly.
         _hb_pre = ("%s 30" % _hb_l) if _hb_l in cwc._heads.WRAPPERS_WITH_OPERAND else _hb_l
-        _hb_stmt = "%s .devflow/vendor/devflow/scripts/apply-labels.sh %s" % (_hb_pre, _hb_op or "1 X")
+        _hb_stmt = "%s .devflow/vendor/devflow/scripts/apply-labels.sh 1 X" % _hb_pre
         _hb_planted.write_text(_hb_base + "\n```bash\n%s\n```\n" % _hb_stmt, encoding="utf-8")
         _hb_errs = cwc.check_helper_boundary()
         assert_eq("#701 AC8: a helper behind the granted launcher head '%s' is observed RED"
