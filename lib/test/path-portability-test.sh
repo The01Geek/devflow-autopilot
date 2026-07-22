@@ -13,8 +13,9 @@
 #
 # Self-contained (invoked from lib/test/run.sh). Prints one FAIL line per
 # mismatch to stderr and exits non-zero; exits 0 with no output when every
-# family resolves as its row specifies. Depends only on a POSIX bash and the
-# coreutils normalize-path.sh itself already requires (tr/grep/uname/dirname).
+# family resolves as its row specifies. Depends only on a POSIX bash, the
+# coreutils normalize-path.sh itself requires (tr/grep/uname), and dirname for
+# this harness's own script-path resolution.
 # The winform families run with wslpath/cygpath ABSENT from a restricted PATH
 # and only uname/MSYSTEM stubbed, so devflow_normalize_path falls through to
 # its env-detected textual arm — mirroring the #247 T4c/T4d env-detect arms
