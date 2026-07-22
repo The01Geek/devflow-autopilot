@@ -85,6 +85,22 @@ so a focused run gets the same fixture isolation as the full suite.
 A per-module inventory (e.g. `lib/test/modules/create-issue-contract.inventory.md`)
 records what it covers.
 
+**A module fixture is built from git-tracked content only (issue #714).** A module that
+needs a repository image must reproduce it from the index (`git ls-files -s -z`), file by
+file, with each file's mode taken from the index rather than from the working tree — never
+by `cp -R`-ing a whole top-level directory. A tracked file inside an otherwise-untracked
+directory makes the directory form copy that directory wholesale: because
+`.claude/settings.json` is tracked, `regenerate-artifacts` used to copy the entire
+untracked `.claude/` tree into every fixture, so a checkout carrying `git worktree`
+checkouts under `.claude/worktrees/` paid that whole payload on every fixture copy — the
+dominant cost of a full local suite run. Build caches and `.devflow/tmp` are excluded by
+construction under the tracked-only rule, so a fixture builder needs no prune step —
+while *tracked* content under an otherwise-ignored directory (`.devflow/config.json` and
+the rest of `.devflow/`, force-added past the ignore rule) is still reproduced, which is
+exactly what completeness requires. The
+measured before/after figures are recorded once, in
+[`lib/test/modules/regenerate-artifacts.inventory.md`](lib/test/modules/regenerate-artifacts.inventory.md).
+
 #### Coverage-map block ownership (every PR that adds an assertion)
 
 `lib/test/modules/coverage-map.json` is the ranked to-do list for future
