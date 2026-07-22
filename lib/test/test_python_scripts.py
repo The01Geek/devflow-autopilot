@@ -9847,6 +9847,237 @@ with tempfile.TemporaryDirectory() as _cw_main:
         cwc.MANIFEST_PATH = _mp_orig
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# issue #703 (deferred from #678): cloud-writer one-version upgrade-skew (AC19)
+# and consumer-provisioning (AC20) fixtures.
+#
+# These fixtures drive the AC18 pre-agent validator (vcwc) and the AC1 closure
+# contract (cwc) IN-PROCESS — every check calls an imported module, so NO fixture
+# executes repo-root helper code (AC19's constraint), consistent with the AC18
+# block above (which routes everything through vcwc/cwc too).
+# ─────────────────────────────────────────────────────────────────────────────
+
+_REPO = SCRIPTS.parent
+
+# The operator-facing refresh action AC19 requires the upgrade docs to state. This
+# literal is COUPLED to docs/install.md's cloud-writer upgrade note — the pairing-1
+# fixture below asserts the sentence is present there, so a docs reword that drops
+# it turns this block RED (the two are one edit).
+_CW_REFRESH_ACTION = ("refresh your installed workflows and vendored plugin content "
+                      "together before your next cloud-writer run")
+
+# Frozen legacy profile grants — the vendored helper heads each cloud profile
+# granted at `legacy_profile_baseline` (cwc.LEGACY_PROFILE_BASELINE, "2.15.13"),
+# the immediately-preceding supported profile set. This is a DELIBERATE frozen
+# snapshot (an enforcement constant, not a live read): pairing 2 below validates
+# the LIVE checked-in manifest against it, so a future PR that adds a newly-
+# required helper head the frozen baseline never granted turns pairing 2 RED —
+# forcing a conscious re-snapshot here in lockstep with the baseline bump, rather
+# than the compatibility window silently widening. The snapshot is self-checking:
+# if it omits any head the current manifest requires, pairing 2 goes RED
+# (HEAD_ABSENT) at the desk. Prefix helpers keep the vendored-literal form exact.
+_cwv = lambda _n: ".devflow/vendor/devflow/scripts/" + _n
+_cwl = lambda _n: ".devflow/vendor/devflow/lib/" + _n
+_FROZEN_LEGACY_GRANTS = {
+    "implement": {
+        _cwv("run-jq.sh"), _cwv("config-get.sh"), _cwv("workpad.py"),
+        _cwv("parse-acs.py"), _cwv("branch-for-issue.py"),
+        _cwv("update-branch-checkpoint.sh"), _cwv("file-deferrals.py"),
+        _cwv("discover-deferral-manifests.py"), _cwv("match-deferrals.py"),
+        _cwv("resolve-review-overrides.py"), _cwv("apply-labels.sh"),
+        _cwv("ensure-label.sh"), _cwv("stale-prose-lint.py"),
+        _cwv("dismiss-stale-rejections.sh"), _cwv("match-lint-adjudications.py"),
+        _cwv("load-prompt-extension.sh"), _cwv("react-to-trigger.sh"),
+        _cwv("extract-doc-needed-paths.sh"), _cwl("efficiency-trace.sh"),
+    },
+    "light-command": {
+        _cwv("run-jq.sh"), _cwv("config-get.sh"), _cwv("workpad.py"),
+        _cwv("parse-acs.py"), _cwv("branch-for-issue.py"),
+        _cwv("update-branch-checkpoint.sh"), _cwv("file-deferrals.py"),
+        _cwv("match-deferrals.py"), _cwv("match-lint-adjudications.py"),
+        _cwv("resolve-review-overrides.py"), _cwv("stale-prose-lint.py"),
+        _cwv("dismiss-stale-rejections.sh"), _cwv("load-prompt-extension.sh"),
+        _cwl("efficiency-trace.sh"),
+    },
+    "review": {
+        _cwv("run-jq.sh"), _cwv("match-deferrals.py"),
+        _cwv("match-lint-adjudications.py"), _cwv("dismiss-stale-rejections.sh"),
+        _cwv("workpad.py"), _cwv("config-get.sh"),
+        _cwv("load-prompt-extension.sh"), _cwv("resolve-review-overrides.py"),
+        _cwv("stale-prose-lint.py"), _cwl("efficiency-trace.sh"),
+    },
+}
+
+# The frozen snapshot must name exactly the three cloud ROOTS profiles, so a
+# fourth cloud profile added to ROOTS forces a frozen entry here rather than
+# silently escaping the skew guard.
+assert_eq("#703 AC19: frozen legacy profiles == the cloud ROOTS profile set",
+          set(cwc.ROOTS), set(_FROZEN_LEGACY_GRANTS))
+
+# ── AC19 pairing 1: NEW workflow + immediately-preceding PLUGIN → stops at AC18.
+# Model the one-version step as a retired helper: the plugin (old) still requires
+# it, the new workflow no longer grants it. This is the natural asymmetry that
+# makes pairing 1 STOP while pairing 2 (below) COMPLETES — the new version dropped
+# a helper, so the old plugin requires a head the new grants lack. The stop is an
+# EXISTING rejection class (HEAD_ABSENT), mirroring the validator's closed matrix.
+with tempfile.TemporaryDirectory() as _sk_base:
+    _skb = Path(_sk_base)
+    (_skb / "scripts").mkdir()
+    (_skb / "scripts" / "kept-703.sh").write_text("echo hi\n", encoding="utf-8")
+    (_skb / "scripts" / "retired-703.sh").write_text("echo bye\n", encoding="utf-8")
+    _kept_head = ".devflow/vendor/devflow/scripts/kept-703.sh"
+    _retired_head = ".devflow/vendor/devflow/scripts/retired-703.sh"
+    _old_plugin_manifest = {
+        "protocol": "devflow-cloud-writer-contract-v1",
+        # the OLD plugin declares its own (older) baseline — the plugin contract state
+        "legacy_profile_baseline": "2.15.12",
+        "files": {
+            "scripts/kept-703.sh": hashlib.sha256(b"echo hi\n").hexdigest(),
+            "scripts/retired-703.sh": hashlib.sha256(b"echo bye\n").hexdigest(),
+        },
+        "required_helper_heads": {"implement": [_kept_head, _retired_head]},
+    }
+    _omp = _skb / "manifest.json"
+    _omp.write_text(json.dumps(_old_plugin_manifest), encoding="utf-8")
+    # the NEW workflow no longer grants the retired head — the workflow contract state
+    _new_workflow_grants = {"implement": {_kept_head}}
+    _p1 = vcwc.validate(
+        _omp, base_dir=_skb,
+        expected_assets=["scripts/kept-703.sh", "scripts/retired-703.sh"],
+        required_profiles=["implement"],
+        profile_grants=_new_workflow_grants,
+    )
+    # Stops at AC18, and ONLY via HEAD_ABSENT: the files exist, hashes match, and
+    # both reached assets are present, so the sole violation is the ungranted head.
+    assert_eq("#703 AC19 pairing1: new-workflow + old-plugin stops at AC18 (HEAD_ABSENT only)",
+              [vcwc.HEAD_ABSENT], _codes(_p1))
+    # The diagnostic names the PLUGIN contract state (the still-required retired head)…
+    assert_eq("#703 AC19 pairing1: the AC18 diagnostic names the plugin-required retired head",
+              True, any(_retired_head in _msg for _code, _msg in _p1))
+    # …and the WORKFLOW contract state is the skew: the new grants dropped it.
+    assert_eq("#703 AC19 pairing1: the new workflow no longer grants the retired head",
+              False, _retired_head in _new_workflow_grants["implement"])
+
+# The operator-facing refresh action + both-contract-state framing live in the
+# upgrade docs (the surface a deploying consumer actually reads). AC19 requires
+# them; assert the docs carry the refresh action and name both contract states
+# (the pre-agent validator and the manifest's declared baseline).
+_install_md = (_REPO / "docs" / "install.md").read_text(encoding="utf-8")
+assert_eq("#703 AC19: install.md states the refresh action for a below-baseline consumer",
+          True, _CW_REFRESH_ACTION in _install_md)
+assert_eq("#703 AC19: install.md names both contract states (validator + legacy_profile_baseline)",
+          True, ("validate-cloud-writer-contract.py" in _install_md
+                 and "legacy_profile_baseline" in _install_md))
+
+# ── AC19 pairing 2: immediately-preceding WORKFLOW + NEW plugin → completes.
+# Validate the LIVE checked-in manifest (the new plugin) under the FROZEN legacy
+# grants (the immediately-preceding workflow). It completes because the current
+# plugin requires no head the legacy baseline did not already grant.
+_live_manifest = _REPO / cwc.MANIFEST_PATH
+_p2 = vcwc.validate(
+    _live_manifest, base_dir=_REPO,
+    expected_assets=cwc.manifest_file_paths(),
+    required_profiles=list(cwc.ROOTS),
+    profile_grants={p: set(h) for p, h in _FROZEN_LEGACY_GRANTS.items()},
+)
+assert_eq("#703 AC19 pairing2: old-workflow (frozen legacy) + new-plugin completes cleanly",
+          [], _p2)
+# Non-vacuous: the guard FAILS on a newly-required denied head. Drop one head from
+# a frozen profile and confirm the live manifest's requirement is now unmet — this
+# is exactly the "test fails on a newly required denied head" tripwire.
+_shrunk_grants = {p: set(h) for p, h in _FROZEN_LEGACY_GRANTS.items()}
+_shrunk_grants["implement"].discard(_cwv("workpad.py"))
+_p2neg = vcwc.validate(
+    _live_manifest, base_dir=_REPO,
+    expected_assets=cwc.manifest_file_paths(),
+    required_profiles=list(cwc.ROOTS),
+    profile_grants=_shrunk_grants,
+)
+assert_eq("#703 AC19 pairing2: a newly-required head absent from the frozen profile is caught",
+          True, vcwc.HEAD_ABSENT in _codes(_p2neg))
+# The "or shape" half: no AC1-reached fence emits a denied shape under the
+# probe-anchored tables (unchanged since the baseline), so the new plugin also
+# introduces no newly-denied command shape.
+assert_eq("#703 AC19 pairing2: no AC1-reached fence emits a denied shape (the 'or shape' half)",
+          [], cwc.check_shape_conformance())
+
+# ─────────────────────────────────────────────────────────────────────────────
+# issue #703 AC20: consumer-provisioning fixtures — fresh install, in-place
+# install.sh refresh, and /devflow:init backfill. Complete by construction for the
+# three supported consumer setup flows: each is asserted to (a) deliver a valid
+# runtime manifest, (b) preserve helper executable bits, and (c) retain
+# consumer-owned config + prompt extensions. Every assertion is in-process (Reads
+# source + calls imported modules) — no fixture executes repo-root helper code.
+# ─────────────────────────────────────────────────────────────────────────────
+_provisioning_flows = ("fresh-install", "install.sh-refresh", "devflow-init-backfill")
+assert_eq("#703 AC20: exactly three supported provisioning flows are covered",
+          3, len(_provisioning_flows))
+
+_install_sh = (_REPO / "install.sh").read_text(encoding="utf-8")
+_vendor_slice = (_REPO / ".github" / "actions" / "vendor-plugin"
+                 / "vendor-slice.sh").read_text(encoding="utf-8")
+_init_skill = (_REPO / "skills" / "init" / "SKILL.md").read_text(encoding="utf-8")
+_scaffold_sh = (_REPO / "scripts" / "scaffold-config.sh").read_text(encoding="utf-8")
+
+# (a) Runtime manifest. Fresh install and in-place refresh deliver the manifest as
+# a byte-copied asset of the vendored scripts/ tree — install.sh and the vendor
+# slice run NO regeneration (regeneration is a maintainer-side operation), so the
+# artifact each flow delivers is exactly the checked-in one, which must itself be
+# internally consistent. /devflow:init never touches the manifest (it preserves
+# whatever the vendored plugin already carries).
+assert_eq("#703 AC20: the checked-in runtime manifest is internally consistent (verify)",
+          0, cwc.main(["verify"]))
+assert_eq("#703 AC20: install.sh runs no manifest regeneration (byte-copies the vendored artifact)",
+          False, "cloud_writer_contract.py generate" in _install_sh)
+assert_eq("#703 AC20: the vendor slice runs no manifest regeneration",
+          False, "cloud_writer_contract.py generate" in _vendor_slice)
+assert_eq("#703 AC20: the vendor slice copies the scripts/ tree (manifest arrives as an asset)",
+          True, "scripts" in _vendor_slice and "cp -R" in _vendor_slice)
+assert_eq("#703 AC20: /devflow:init never touches the runtime manifest (preserves the vendored copy)",
+          True, ("cloud_writer_contract" not in _init_skill
+                 and "devflow-cloud-writer-contract" not in _init_skill))
+
+# (b) Executable bits. install.sh and the vendor slice copy with mode-preserving
+# `cp -R` and never strip modes with `--no-preserve`, so helper executable bits
+# survive a fresh install and an in-place refresh. The by-construction demo below
+# proves the mechanism: a mode-preserving recursive copy keeps the +x bit.
+assert_eq("#703 AC20: install.sh copies trees with mode-preserving cp -R",
+          True, "cp -R" in _install_sh)
+assert_eq("#703 AC20: install.sh never strips modes with --no-preserve",
+          False, "--no-preserve" in _install_sh)
+assert_eq("#703 AC20: the vendor slice never strips modes with --no-preserve",
+          False, "--no-preserve" in _vendor_slice)
+import shutil as _shutil
+import stat as _stat
+with tempfile.TemporaryDirectory() as _xb:
+    _xsrc = Path(_xb) / "src"
+    _xsrc.mkdir()
+    _xh = _xsrc / "helper.sh"
+    _xh.write_text("echo x\n", encoding="utf-8")
+    _xh.chmod(0o755)
+    _xdst = Path(_xb) / "dst"
+    # shutil.copy2 preserves mode, mirroring `cp -R`'s default mode-preserving copy.
+    _shutil.copytree(_xsrc, _xdst, copy_function=_shutil.copy2)
+    assert_eq("#703 AC20: a mode-preserving recursive copy keeps the helper +x bit (cp -R by construction)",
+              True, bool((_xdst / "helper.sh").stat().st_mode & _stat.S_IXUSR))
+
+# (c) Consumer-owned content. All three flows delegate config + prompt-extension
+# provisioning to the SAME shared scaffolder (scripts/scaffold-config.sh), so they
+# cannot drift; that scaffolder preserves an existing config.json (backfill-only,
+# adding only newly-introduced keys, never deleting) and backfills prompt-extension
+# examples per file only when absent, never clobbering a live extension.
+assert_eq("#703 AC20: install.sh delegates config/prompt-extension provisioning to scaffold-config.sh",
+          True, "scaffold-config.sh" in _install_sh)
+assert_eq("#703 AC20: /devflow:init delegates to the same shared scaffold-config.sh",
+          True, "scaffold-config.sh" in _init_skill)
+assert_eq("#703 AC20: scaffold-config.sh preserves an existing config.json (no clobber)",
+          True, 'if [ -f "$CONFIG" ]; then' in _scaffold_sh)
+assert_eq("#703 AC20: scaffold-config.sh config backfill only ADDS keys, never deletes",
+          True, "only ADDS keys, never deletes" in _scaffold_sh)
+assert_eq("#703 AC20: scaffold-config.sh never clobbers a consumer's prompt extension",
+          True, "never clobber" in _scaffold_sh)
+
+
 # ── issue #555: scripts/discover-deferral-manifests.py — fail-closed Phase 4.0.5
 # ── deferrals-manifest discovery. The retired inline `find $SEARCH_DIRS … | sort`
 # ── collapsed a FAILED search and a CLEAN no-match search onto the same empty
