@@ -1,0 +1,59 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-22T04:08:46Z",
+  "fix_commit_sha": "HEAD",
+  "fix_files": [
+    "docs/review-and-fix-budget.md",
+    "docs/cutovers/issue-707-focused-default-growth.md",
+    "lib/test/modules/harness-python-guards.sh",
+    "lib/test/modules/harness-python-guards.inventory.md",
+    "lib/test/modules/coverage-map.json",
+    "lib/test/run.sh",
+    "lib/test/prompt-mass-baseline.json",
+    ".devflow/prompt-extensions/review-and-fix.md",
+    ".changeset/issue-707-focused-test-default.md",
+    "scripts/workflow-flight-recorder-registry.json",
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+  ],
+  "loop_role": "fix",
+  "current_step": "3.5",
+  "current_substep": "fix_delta_verified",
+  "pending_dispatch": null,
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": null},
+  "phase3_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+  "cap_drops": {"count": 0, "by_category": {}},
+  "checklist_summary": {"items": 24, "pass": 21, "fail": 3, "failed_ids": ["VC-14", "VC-20", "VC-22"], "note": "full checklist with per-item verdicts and evidence is in the run's Phase 2 record; the three FAILs were self-authored doc-accuracy defects, all fixed in this iteration"},
+  "phase3_findings": [
+    {"agent": "devflow:comment-analyzer", "severity": "Critical", "description": "docs/review-and-fix-budget.md rewrote a BEFORE comparand so the growth delta could stay unchanged, leaving the doc stating two values for one quantity", "defect_signature": {"file": "docs/review-and-fix-budget.md", "line_range": [146, 149], "kind": "rewritten_historical_baseline"}, "corroboration_count": 4, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:code-reviewer", "severity": "Important", "description": "three derived cells (BEFORE always-loaded row, max-step tokens, net-reduction endpoints) left stale after the live-extension addend moved", "defect_signature": {"file": "docs/review-and-fix-budget.md", "line_range": [95, 140], "kind": "stale_derived_figure"}, "corroboration_count": 3, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:code-reviewer", "severity": "Important", "description": "module header and inventory claim the module uses 'only assert_eq plus devflow_run_focused_python_test' but it also calls devflow_module_allocate_owned_directory", "defect_signature": {"file": "lib/test/modules/harness-python-guards.inventory.md", "line_range": [55, 58], "kind": "documented_falsehood"}, "corroboration_count": 3, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Important", "description": "Part-A AC3's exclusion half is not discharged: run.sh still drives lib/test python guards absent from the inventory's exclusion table, and the table states no population", "defect_signature": {"file": "lib/test/modules/harness-python-guards.inventory.md", "line_range": [399, 411], "kind": "incomplete_exclusion_inventory"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "coverage-map run_sh_blocks 707 named the module while 13 of 18 of that label's assertions live in run.sh, so the map misroutes a #707 change under the newly-inverted default", "defect_signature": {"file": "lib/test/modules/coverage-map.json", "line_range": [1436, 1439], "kind": "partial_extraction_label_misattribution"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "receiving-code-review.md defers to review-and-fix.md's section by verbatim heading with nothing pinning the pair", "defect_signature": {"file": ".devflow/prompt-extensions/receiving-code-review.md", "line_range": [129, 129], "kind": "unpinned_coupled_cross_reference"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "the retired-convention absence sweep passes when a listed file is unreadable (pin_count prints 0), so it cannot distinguish 'gone' from 'never read'", "defect_signature": {"file": "lib/test/run.sh", "line_range": [30529, 30542], "kind": "absence_guard_fails_open_on_missing_file"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "the #527/#528 blocks capture unit-test output and rm it unread, and read $? positionally", "defect_signature": {"file": "lib/test/modules/harness-python-guards.sh", "line_range": [61, 95], "kind": "discarded_failure_diagnostics"}, "corroboration_count": 3, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "unchecked mktemp in the three sub-fixture allocations", "defect_signature": {"file": "lib/test/modules/harness-python-guards.sh", "line_range": [48, 248], "kind": "unchecked_fixture_allocation"}, "corroboration_count": 3, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "the planted-defect fixture inherits ambient git config and its setup assertion checks rc, not the outcome", "defect_signature": {"file": "lib/test/modules/harness-python-guards.sh", "line_range": [262, 265], "kind": "fixture_precondition_not_outcome_verified"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "the positive control covers one of five guards while three surfaces generalize it to all of them", "defect_signature": {"file": "lib/test/modules/harness-python-guards.sh", "line_range": [669, 715], "kind": "positive_control_scope_overclaim"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "the absence guard is the one new guard with no mutation-taking proof that it can still count", "defect_signature": {"file": "lib/test/run.sh", "line_range": [30530, 30543], "kind": "unproven_absence_guard"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "self-referential ordinal count in a run.sh comment (the PR #553 rot class)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [30509, 30510], "kind": "unpinned_count_comment"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:code-reviewer", "severity": "Suggestion", "description": "tier naming drifts inside review-and-fix.md's rewritten section (local/interactive + reception/shepherd vs 'a local-tier rule only')", "defect_signature": {"file": ".devflow/prompt-extensions/review-and-fix.md", "line_range": [39, 40], "kind": "ambiguous_scope_wording"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "the inventory's closing paragraph restated the coverage-map remedy the caveat section already gives", "defect_signature": {"file": "lib/test/modules/harness-python-guards.inventory.md", "line_range": [56, 58], "kind": "redundant_restatement"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:code-reviewer", "severity": "Suggestion", "description": "CONTRIBUTING.md untouched though the issue lists it under Documentation Needed", "defect_signature": {"file": "CONTRIBUTING.md", "line_range": [50, 51], "kind": "doc_surface_not_updated"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "pushed_back"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "a stray .mutbak backup was reported in the worktree", "defect_signature": {"file": "lib/test/modules/harness-python-guards.sh.mutbak", "line_range": [1, 1], "kind": "stray_mutation_backup"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "pushed_back"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-16", "decision": "pushed_back", "source_file": "CONTRIBUTING.md", "claim_text": "CONTRIBUTING.md should be updated", "skip_category": "claim-quality", "evidence": "both agents that raised it also verified nothing in CONTRIBUTING.md is stale: its two run-module lines are explicitly illustrative ('you can run in isolation'), it enumerates no module count, its 6-step checklist is unaffected, and it carries none of the retired phrasings", "parking_evidence": {"basis": "the finding asks for an edit to a file the agents themselves verified is not stale; adding the module to an illustrative example list is optional polish, not a defect", "failing_input": "a reader of CONTRIBUTING.md after this change", "source": "CONTRIBUTING.md lines 45-56 (the examples are introduced as ones 'you can run in isolation while iterating on their area')", "finding_ref": {"iter": 1, "index": 15}}},
+    {"finding_id": "F-17", "decision": "pushed_back", "source_file": "lib/test/modules/harness-python-guards.sh.mutbak", "claim_text": "a stray mutation backup is left in the worktree", "skip_category": "claim-quality", "evidence": "the file does not exist: the mutation check that created it removed it in the same command, and both `ls lib/test/modules/*.mutbak` and `git status --short` show nothing — the agent observed it mid-flight while the check was running", "parking_evidence": {"basis": "transient artifact of a mutation proof that cleaned up after itself; not present in the tree or the commit", "failing_input": "ls lib/test/modules/*.mutbak", "source": "ls + git status --short over the worktree", "finding_ref": {"iter": 1, "index": 16}}}
+  ],
+  "convergence_inputs": {"fixes_applied": 15, "fix_diff_lines": 180, "new_corroborated_critical_count": 0},
+  "reference_reads": {"fix_delta": {"status": "verified", "outcome": "clean", "reason": null}},
+  "sweep_evidence": {"status": "run"},
+  "telemetry": {
+    "phase_0": {"calls": 0, "tokens": 0, "wall_clock_s": 20},
+    "phase_1": {"calls": 1, "tokens": 113979, "wall_clock_s": 121},
+    "phase_2": {"calls": 0, "tokens": 0, "wall_clock_s": 120},
+    "phase_3": {"calls": 5, "tokens": 623044, "wall_clock_s": 484},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 2}
+  }
+}
