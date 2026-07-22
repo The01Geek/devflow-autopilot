@@ -12672,6 +12672,58 @@ def _row704_28(r):
 
 _with_run704(_row704_28)
 
+
+# Row 29 — the refusal message asserts only what was ESTABLISHED, and the carry-forward's
+# soundness condition is enforced rather than assumed.
+def _row704_29(r):
+    cap = issue_audit_state._EVIDENCE_MAX_CHARS
+    over = 'y' * (cap + 1)
+    # Truncation-only: `_observed_divergent` refused because it could not see past the cap.
+    # "unknown is never agreement" is not the claim "these differ", so the message must not
+    # list `observed` under `differs in` — an operator who diffs two identical-up-to-the-cap
+    # outputs finds nothing and reads the refusal as spurious.
+    r.evidence(9, 1, locator='L:1', command='c', baseline_revision='r1', observed=over + 'A')
+    trunc = r.evidence(9, 1, locator='L:1', command='c', baseline_revision='r1',
+                       observed=over + 'B')
+    assert_eq("#704-29: a truncation-only refusal states what it could not establish and "
+              "does NOT assert a difference it never saw",
+              (True, True, False),
+              (trunc.returncode != 0,
+               'could not establish `observed` equality' in trunc.stderr,
+               'differs in observed' in trunc.stderr))
+    # ...while a genuine co-occurring divergence still names its field alongside it.
+    r.evidence(9, 2, locator='L:1', command='c', baseline_revision='r1', observed=over + 'A')
+    both = r.evidence(9, 2, locator='OTHER:2', command='c', baseline_revision='r1',
+                      observed=over + 'B')
+    assert_eq("#704-29: a co-occurring divergence names BOTH the differing field and the "
+              "unestablished equality",
+              (True, True),
+              ('differs in locator' in both.stderr,
+               'could not establish `observed` equality' in both.stderr))
+
+    # The carry-forward derives `completeness` from the REQUIRED fields BEFORE writing an
+    # OPTIONAL one, so it is sound only while the two sets are disjoint. Enforced at import
+    # rather than left as an incidental property a future field could quietly break.
+    assert_eq("#704-29: the required and optional evidence field sets are disjoint",
+              set(),
+              set(issue_audit_state._EVIDENCE_REQUIRED)
+              & set(issue_audit_state._EVIDENCE_OPTIONAL))
+    assert_eq("#704-29: and a stored record's completeness agrees with its own fields after "
+              "an optional carry-forward (the ordering hazard, pinned)",
+              ('complete', 'none', '"ID1"'),
+              (lambda first, replay, read: (
+                  _field704(replay.stdout, 'completeness='),
+                  _field704(replay.stdout, 'missing='),
+                  _field704(read.stdout, 'baseline_identity=')))(
+                  r.evidence(10, 1, locator='a:1', command='c', baseline_revision='r1',
+                             baseline_identity='ID1', observed='o\n'),
+                  r.evidence(10, 1, locator='a:1', command='c', baseline_revision='r1',
+                             observed='o\n'),
+                  r('query-finding-evidence', r.slug, '--round', '10', nonce=True)))
+
+
+_with_run704(_row704_29)
+
 print()
 print(f"{PASS} passed, {FAIL} failed")
 sys.exit(0 if FAIL == 0 else 1)

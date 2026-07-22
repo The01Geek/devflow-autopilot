@@ -711,6 +711,12 @@ assert set(_FULL_DOMAIN_CLASSES) <= set(_CLAIM_CLASSES), (
 _EVIDENCE_REQUIRED = ('locator', 'command', 'observed', 'baseline_revision')
 _EVIDENCE_OPTIONAL = ('baseline_identity',)
 _EVIDENCE_FIELDS = _EVIDENCE_REQUIRED + _EVIDENCE_OPTIONAL
+# Import-time coupling, mirroring the `_FULL_DOMAIN_CLASSES` assert: `cmd_record_finding_evidence`
+# carries an omitted OPTIONAL field forward AFTER deriving `completeness` from the REQUIRED ones,
+# which is only sound while the two sets are disjoint. Overlap them and the stored completeness
+# would silently disagree with the record it was derived from.
+assert not (set(_EVIDENCE_REQUIRED) & set(_EVIDENCE_OPTIONAL)), (
+    'issue-audit-state.py: _EVIDENCE_REQUIRED and _EVIDENCE_OPTIONAL must stay disjoint')
 # Bounded encoding, half one: a length cap, so a hostile or runaway auditor return cannot
 # grow the state file without bound. Truncation is DISCLOSED in the stored bytes rather than
 # silent, so a replay driven from truncated evidence can tell it is reading a prefix.
@@ -4079,26 +4085,38 @@ def cmd_record_finding_evidence(args):
         # replay that merely omitted the flag would delete the identity the first probe
         # recorded — at exit 0, with no breadcrumb. That is the same first-probe data loss
         # this guard exists to stop, arriving through the exemption instead of past it.
+        #
+        # Accepted consequence, named rather than left to be discovered: an optional value is
+        # therefore WRITE-ONCE for the life of the key. Omitting the flag restores it and
+        # supplying a different one is refused, so a probe that must RETRACT a wrong optional
+        # value cannot do it through a replay — the decided recovery is to re-init the run,
+        # never to file a phantom finding id. Reversing this would need an explicit clearing
+        # flag; a bare omission must never mean "clear", which is the Critical this closes.
         for _opt in _EVIDENCE_OPTIONAL:
             if _opt not in entry and _opt in prior:
                 entry[_opt] = prior[_opt]
         if changed:
-            # Name every cause that applies, and only those: the truncation clause is about
-            # `observed` equality that could not be established, so attaching it to a
-            # locator-only divergence sends the reader to a cap that was never hit — while
-            # dropping the field list when truncation co-occurs hides the real disagreement.
-            # ADDITIVE, not exclusive. An exclusive selection drops the concrete field list
-            # whenever `observed` happens to be truncated-equal too, so a probe that also
-            # disagrees about its `locator` is reported as a truncation problem alone — the
-            # operator shortens the output, retries, and is refused again by the divergence
-            # that was never named.
-            why = f'that differs in {",".join(changed)}'
-            if 'observed' in changed and prior.get('observed') == entry.get('observed'):
-                why += (' (the `observed` equality could not be established because both '
-                        'observations are truncated)')
-            _fail(prefix, f'evidence-overwrite-differs: {key} already carries evidence {why}; '
-                          f'record the second probe under its own finding id so the '
-                          f'disagreement is surfaced, never overwritten')
+            # Name every cause that applies, and ONLY what was actually established. Three
+            # ways to get this wrong, all of them observed in this PR's own review rounds:
+            # attaching the truncation clause to a locator-only divergence sends the reader
+            # to a cap that was never hit; dropping the field list when truncation co-occurs
+            # hides the real disagreement; and listing a truncation-only `observed` under
+            # "differs" asserts a difference the comparison explicitly could NOT see —
+            # `_observed_divergent` refused because unknown is never agreement, which is not
+            # the same claim as "these differ". So `observed` is named as a difference only
+            # when it genuinely differed, and the truncation is stated as its own clause.
+            truncated_only = ('observed' in changed
+                              and prior.get('observed') == entry.get('observed'))
+            differing = [f for f in changed if not (f == 'observed' and truncated_only)]
+            clauses = []
+            if differing:
+                clauses.append(f'differs in {",".join(differing)}')
+            if truncated_only:
+                clauses.append('could not establish `observed` equality (both observations '
+                               'are truncated)')
+            _fail(prefix, f'evidence-overwrite-differs: {key} already carries evidence that '
+                          f'{" and ".join(clauses)}; record the second probe under its own '
+                          f'finding id so the disagreement is surfaced, never overwritten')
     store[key] = entry
     _save_or_fail(prefix, doc, args.slug)
     print(f'finding={key} completeness={completeness} '
