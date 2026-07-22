@@ -30,15 +30,28 @@ kind: cutover
 - `scripts/issue-audit-state.py` (not swept) — `SCHEMA_VERSION` 2 → 3; the sole tested owner of the
   establishment decision (`steering_state`, `regenerate_instructions_digest`), the gated clean
   ground, the new trigger arm, and the two summary tokens. The PR-#718 review round added a
-  **dispatch-time canonicality refusal**: `record-dispatch` now regenerates from the inputs it is
-  about to record and refuses a mismatch by name (`instructions-noncanonical-write`). Without it a
-  host or write tool that alters the generator's bytes on the way to disk (CRLF translation, a
-  trailing-newline normalization) produced a file that could never regenerate, and the divergence
-  surfaced only at `record-return` as `instructions-object-id-mismatch` — reporting a whole-platform
-  write defect to the user as *steering*, at the surface furthest from the site that could still fix
-  it. Scoped deliberately to a regeneration that RAN and DISAGREED: one that cannot run here at all
-  is not evidence of a bad write, so it breadcrumbs and leaves the verdict to the existing
-  return-time `regeneration-failed` arm, which already fails closed.
+  **dispatch-time canonicality observation**: `record-dispatch` regenerates from the inputs it is
+  about to record and stores what it saw as `instructions.dispatch_regeneration`
+  (`verified`/`diverged`/`unverified`, a closed vocabulary `_validate` enforces). Without it, any
+  byte divergence surfaced only at `record-return` as `instructions-object-id-mismatch` and was
+  reported to the user as *steering*, at the surface furthest from the site that could still fix it.
+  The divergence has **three reachable causes the tool cannot distinguish** — bytes altered between
+  the generator and the disk (a CRLF or trailing-newline translation), a recorded input whose path
+  *spelling* differs from the one the generator was given (the rendered bytes embed those paths
+  verbatim, and the draft-path cross-check compares RESOLVED paths, so an equivalent spelling passes
+  it and still renders different bytes), or a file edited after generation — so the warning names all
+  three and asserts none.
+
+  It is an observation and **not a refusal**, and review round 2 is why. A refusal (a) could not tell
+  a genuinely steered file from a mangled write, so its own remedy — "re-write it verbatim from the
+  generator stdout" — would overwrite the only evidence of the edit and let the re-dispatch record a
+  clean canonical round, laundering the exact attack the mechanism exists to catch, with nothing
+  persisted about the attempt; and (b) exited before any state write, making it a new hard stop on a
+  legitimate host, against this change's own contract that filing is never blocked on any arm.
+  Recording keeps the durable trail and blocks nothing, and it cannot fail open: the return-time
+  regeneration still owns the verdict and still refuses to establish steering on a mismatch — it now
+  additionally attributes that mismatch to dispatch rather than to the auditor when the dispatch-time
+  observation already disagreed.
 - `skills/create-issue/references/step-4-present-create.md`,
   `references/fallback-read-only-sandbox.md`, `references/fallback-audit-dispatch-arms.md`,
   `references/fallback-state-owner-unavailable.md` (mandatory / conditional references) — the

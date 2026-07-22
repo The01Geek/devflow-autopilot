@@ -142,7 +142,11 @@ This is the exact, generated pointer the orchestrator is required to send as the
 **entire** dispatch message. It is emitted here — rather than composed freehand —
 so the pointer, like these instructions, is generated rather than authored, and so
 step 3 item 4 has a reference form to compare the message you actually received
-against. Judge that message against this line, not against your impression of it:
+against. **The `dispatch-pointer: ` prefix and this block's indentation are the render's
+framing, not part of the message**: the dispatch message is the text that follows the
+prefix, beginning at `Audit the issue draft at`. Judge the message you received against
+that text, not against your impression of it — and do not report `extra-dispatch-content:
+yes` merely because the prefix or the indent is absent from it:
 
     dispatch-pointer: Audit the issue draft at {DRAFT_PATH}. Your complete dispatch instructions are the file at {INSTRUCTIONS_PATH} — Read it and follow it exactly. This message carries nothing else.
 <!-- render-block-end -->

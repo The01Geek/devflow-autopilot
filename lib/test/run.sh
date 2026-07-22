@@ -48909,8 +48909,16 @@ ias_instructions() {  # <sandbox-root> <slug> <draft-path> [PATH-override]
   if ! python3 "$IAS_RAP" dispatch-instructions --slug "$slug" \
       --draft-path "$draft" --instructions-path "$root/instr-$slug.md" \
       > "$root/instr-$slug.md" || [ ! -s "$root/instr-$slug.md" ]; then
-    printf 'FAIL  ias_instructions(%s): the dispatch-instruction generator failed or wrote no bytes; every fixture using this slug would silently measure the steering gate instead of its own subject\n' "$slug" >&2
-    FAIL=$((FAIL+1))
+    # Record the failure through the suite's OWN tally file, not a shell variable: every
+    # call site invokes this helper inside a command substitution, so the subshell's
+    # `FAIL=$((FAIL+1))` died with the subshell, and the authoritative count is recomputed
+    # at the end as `grep -c '^FAIL$' "$RESULTS_FILE"` anyway. The first version of this
+    # guard printed a FAIL-shaped line and still exited 0 — red on screen, green in the
+    # summary. Also emit a sentinel on stdout so the CALLER's own assertion fails loudly
+    # rather than comparing against an empty object ID.
+    echo FAIL >> "$RESULTS_FILE"
+    printf '  FAIL  ias_instructions(%s): the dispatch-instruction generator failed or wrote no bytes; every fixture using this slug would silently measure the steering gate instead of its own subject\n' "$slug"
+    echo 'GENERATOR-FAILED'
     return 1
   fi
   git hash-object --stdin --no-filters < "$root/instr-$slug.md"

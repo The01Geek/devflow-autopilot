@@ -158,6 +158,14 @@ _DEGRADED_REASONS = ('no-subagent-tool', 'dispatch-error', 'no-parseable-verdict
                      # hashable instruction file.
                      'instructions-generation-failed')
 
+# What the DISPATCH-time regeneration observed about the written instruction file
+# (issue #718). `verified` — regenerated and matched. `diverged` — regenerated and did
+# NOT match; the cause (a mangled write, a differently-spelled recorded input, or a
+# post-generation edit) is NOT established by the tool, which is exactly why this is a
+# recorded observation rather than a refusal. `unverified` — the regeneration could not
+# run here at all. Absent means the round predates the field.
+_DISPATCH_REGENERATION = ('verified', 'diverged', 'unverified')
+
 # ── Steering-absence establishment (issue #709) ────────────────────────────────
 # What the auditor was TOLD, recorded beside the existing carriage evidence for what
 # the auditor READ. `established` means the auditor's quoted `git hash-object` ID for
@@ -267,7 +275,8 @@ _PROTOCOL_TOKENS = (
     'action', 'adjudicated', 'adjudicated_verdict', 'advisory', 'arm', 'attestation',
     'basis', 'body_digest', 'bound', 'bound_path', 'bound_root', 'bound_tier', 'cap',
     'cap_reached', 'classification', 'consumer_dimensions_appended', 'converged',
-    'convergence_basis', 'count', 'degraded', 'digest', 'effective_unresolved',
+    'convergence_basis', 'count', 'degraded', 'digest', 'dispatch_regeneration',
+    'effective_unresolved',
     'eligible', 'epoch_round', 'findings', 'findings_count', 'frozen', 'ground', 'id',
     'instructions_digest',
     'invalid', 'invalidated', 'iterate', 'key', 'kind', 'latest_revision_landed',
@@ -971,6 +980,15 @@ def _validate(doc, slug):
                                      f'template_path is not None and not a non-empty '
                                      f'absolute path free of newline/carriage-return '
                                      f'bytes')
+                # issue #718: what the DISPATCH-time regeneration observed. Absent is
+                # legal (a round recorded before this field existed); present must be one
+                # of the closed three, so a hand-edited state cannot invent a reassuring
+                # value and cannot spell `diverged` as something the reader ignores.
+                dreg = instr.get('dispatch_regeneration')
+                if dreg is not None and dreg not in _DISPATCH_REGENERATION:
+                    raise StateError(f'round {num} has an instructions record whose '
+                                     f'dispatch_regeneration is not one of '
+                                     f'{sorted(_DISPATCH_REGENERATION)}')
         # issue #709: the round's steering-absence result. Absent/None is legal (a
         # refused completion, a degraded arm, a pre-#709 round) and reads as
         # unestablished; a present record must name a state AND a reason from the closed
@@ -2623,39 +2641,69 @@ def cmd_record_dispatch(args):
             'draft_path': args.instructions_draft_path,
             'template_path': args.instructions_template,
         }
-        # Prove AT DISPATCH that the bytes on disk are what the generator emits from
-        # these recorded inputs. Without this, a host or write tool that alters the
-        # bytes on the way to disk (CRLF translation, a trailing-newline normalization)
-        # produces a file that can NEVER regenerate — and the only comparison happens
-        # much later, at record-return, where the divergence surfaces as
-        # `instructions-object-id-mismatch` and is reported to the user as STEERING.
-        # That misdiagnoses a whole-platform write defect as an integrity attack, at the
-        # surface furthest from the site that can still fix it. Refusing here names the
-        # real cause while the round can still be re-dispatched, and gives the recorded
-        # `digest` its first reader. Scope: this refuses only a regeneration that RAN and
-        # DISAGREED. A regeneration that cannot run here at all (an unreadable template,
-        # an unimportable generator) is NOT evidence of a bad write, and refusing it would
-        # block the round before the existing return-time `regeneration-failed` arm — which
-        # already fails closed to `not-established` — can report the real cause. So that
-        # shape breadcrumbs and proceeds; nothing is laundered as canonical either way.
-        _regen = None
+        # OBSERVE at dispatch whether the bytes on disk are what the generator emits
+        # from these recorded inputs, and RECORD the answer. This is deliberately an
+        # observation, never a refusal, and the PR-#718 review round is why.
+        #
+        # The problem it solves: the only comparison used to happen at record-return,
+        # where any divergence surfaces as `instructions-object-id-mismatch` and is
+        # reported to the user as STEERING. A host or write tool that alters the bytes on
+        # the way to disk (CRLF translation, a trailing-newline normalization), or a
+        # recorded input whose PATH SPELLING differs from the one the generator was given
+        # (the rendered bytes embed `{INSTRUCTIONS_PATH}`/`{DRAFT_PATH}`/`{TEMPLATE_PATH}`
+        # verbatim, and the draft-path cross-check above compares RESOLVED paths, so an
+        # equivalent-but-differently-spelled path passes it and still renders different
+        # bytes), then makes every round on that host report an attack that never
+        # happened.
+        #
+        # Why it must NOT refuse — two independent reasons, both found by review:
+        #   1. A genuinely STEERED file (hand-edited after generation) diverges here too,
+        #      and the tool cannot tell it apart from a mangled write. A refusal would
+        #      hand the orchestrator "re-write it verbatim from the generator stdout",
+        #      which OVERWRITES THE EVIDENCE and lets the re-dispatch record a clean
+        #      canonical round — laundering the exact integrity attack this mechanism
+        #      exists to catch, with nothing persisted about the attempt.
+        #   2. `_fail` exits before any state write, so the round never opens. That is a
+        #      new hard stop on a legitimate host, against this change's own contract
+        #      that filing is never blocked on any arm.
+        # Recording instead keeps the durable trail (the divergence is a fact about the
+        # round, available to record-return and query-summary) and blocks nothing. It
+        # cannot fail open: the return-time regeneration still owns the verdict and still
+        # refuses to establish steering on a mismatch.
+        #
+        # The recorded value is a closed three-token vocabulary, and the message names
+        # the divergence WITHOUT asserting which cause produced it — the tool has not
+        # established that, and asserting it is what sends an operator to the wrong remedy.
         try:
             _regen = regenerate_instructions_digest(args.slug, attempt['instructions'])
         except _DigestError as exc:
-            print(f'issue-audit-state.py: warning: could not regenerate the dispatch '
-                  f'instructions at '
-                  f'dispatch time to confirm the written file is canonical ({exc}); the '
-                  'round proceeds and the return-time regeneration owns the verdict',
-                  file=sys.stderr)
-        if _regen is not None and _regen != instructions_digest:
-            _fail('record-dispatch',
-                  f'the instruction file at {args.instructions_file} does not match a '
-                  'fresh regeneration from the recorded inputs '
-                  '(instructions-noncanonical-write): its bytes were altered between the '
-                  'generator and the disk — a line-ending or trailing-newline translation '
-                  'by the writing tool is the usual cause. Re-write the file verbatim from '
-                  'the generator stdout; do not hand-edit it. Recording it would make every '
-                  'round on this host report steering that never happened')
+            # Could not run the comparison at all (an unreadable template, an unimportable
+            # generator). NOT evidence of a bad write — but not evidence of a good one
+            # either, so it is recorded as unverified rather than silently omitted.
+            attempt['instructions']['dispatch_regeneration'] = 'unverified'
+            print(f'record-dispatch: warning: could not regenerate the dispatch '
+                  f'instructions to confirm the written file is canonical ({exc}); '
+                  'recorded as dispatch_regeneration=unverified — the return-time '
+                  'regeneration owns the verdict', file=sys.stderr)
+        else:
+            _diverged = _regen != instructions_digest
+            attempt['instructions']['dispatch_regeneration'] = (
+                'diverged' if _diverged else 'verified')
+            if _diverged:
+                print(f'record-dispatch: warning: the instruction file at '
+                      f'{args.instructions_file} does not match a fresh regeneration from '
+                      'the recorded inputs (recorded as dispatch_regeneration=diverged). '
+                      'The round is recorded and filing is not blocked, but steering '
+                      'cannot be established from it. This tool has NOT established which '
+                      'cause produced the divergence; the reachable ones are (a) the bytes '
+                      'were altered between the generator and the disk (a line-ending or '
+                      'trailing-newline translation by the writing tool), (b) a recorded '
+                      '--instructions-file / --instructions-draft-path / '
+                      '--instructions-template spelling differs from the string passed to '
+                      'dispatch-instructions (an equivalent path renders different bytes), '
+                      'or (c) the file was edited after generation. Do NOT overwrite the '
+                      'file before the cause is known: on (c) the written bytes are the '
+                      'only evidence of the edit.', file=sys.stderr)
     if args.arm == 'embed':
         # Delta 3: the sentinels are generated by the tool at dispatch, not chosen ad
         # hoc by the orchestrator, so the carriage compare is against a recorded value.
@@ -3347,16 +3395,17 @@ def _load_generator():
     in-process call keeps the regeneration Windows-safe (no `.sh` exec, #275; no
     interpreter-path guessing) and cannot inherit this process's argv. Its module
     name carries a dash, so it is loaded by file location rather than by `import`.
-    Every failure mode that raises an `Exception` — file absent, unimportable (for any
-    such reason its module body raises, not merely the import-shaped ones), or
-    importable-but-missing either entry point this module calls — raises `_DigestError`
+    Every module-body-execution failure that raises an `Exception` — file absent,
+    unimportable (for any such reason its module body raises, not merely the import-shaped
+    ones), or importable-but-missing either entry point this module calls — raises
+    `_DigestError`
     so the caller records `regeneration-failed`; none of them may read as an established
     comparison, and none may escape as a traceback that would abort `record-return`
     before it saves the round. The two `BaseException` shapes a module body could raise
     — `SystemExit` and `KeyboardInterrupt` — are deliberately NOT absorbed: a generator
-    that calls `sys.exit()` at import time is a broken installation whose traceback the
+    that raises `SystemExit` at import time is a broken installation whose traceback the
     operator should see, and an interrupt must stay interruptible. The shipped generator
-    guards its own `sys.exit` behind `if __name__ == '__main__'`, so neither is reachable
+    raises its `SystemExit` only under `if __name__ == '__main__'`, so neither is reachable
     through this loader today.
     """
     import importlib.util
@@ -3453,6 +3502,18 @@ def steering_state(slug, attempt, quoted_object_id, extra_dispatch_content):
     if not quoted_object_id:
         return ('not-established', 'instructions-object-id-absent')
     if quoted_object_id != canonical:
+        # Attribute the mismatch honestly. When the DISPATCH-time regeneration already
+        # disagreed, the divergence predates the auditor entirely — the file it read was
+        # never regenerable — so reporting this as "the auditor read something else"
+        # sends the reader at the auditor instead of at the write or the recorded inputs.
+        # The recorded verdict stays the same closed token (fail-closed either way); only
+        # the breadcrumb distinguishes them, which is where a human actually looks.
+        if inputs.get('dispatch_regeneration') == 'diverged':
+            print('record-return: the instruction file already failed its dispatch-time '
+                  'regeneration (dispatch_regeneration=diverged), so this mismatch was '
+                  'introduced at or before dispatch — not by the auditor. See the '
+                  'record-dispatch warning for the causes this tool could not '
+                  'distinguish.', file=sys.stderr)
         return ('not-established', 'instructions-object-id-mismatch')
     if extra_dispatch_content is None:
         return ('not-established', 'extra-dispatch-content-unreported')

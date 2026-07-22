@@ -890,10 +890,22 @@ class DispatchInstructions(unittest.TestCase):
             self.assertIn(str(instr), pointer[0])
             self.assertNotIn("{DRAFT_PATH}", pointer[0])
             self.assertNotIn("{INSTRUCTIONS_PATH}", pointer[0])
-            # The pointer sits INSIDE the positional markers, so a tail-cut delivery that
-            # loses it also fails the end-marker check rather than silently shipping a
-            # pointerless instruction file.
-            self.assertEqual(got.stdout.rstrip("\n").splitlines()[-1], "render-end:")
+            # The pointer sits INSIDE the positional markers and at the END of the
+            # block, so a tail-cut delivery that loses it also loses `render-end:` and
+            # fails the positional check rather than silently shipping a pointerless
+            # instruction file. Assert the ORDERING, not merely that the render ends with
+            # the marker — `render-end:` terminates every render regardless of where the
+            # pointer sits, so the bare end-marker check is a tautology with respect to
+            # this property (moving the pointer to the top of the block left it passing).
+            lines = got.stdout.rstrip("\n").splitlines()
+            self.assertEqual(lines[-1], "render-end:")
+            pointer_at = next(i for i, ln in enumerate(lines)
+                              if ln.strip().startswith("dispatch-pointer:"))
+            self.assertGreater(
+                pointer_at, len(lines) - 6,
+                "the pointer must sit at the END of the block, immediately before the "
+                "terminal marker, so a tail cut cannot drop it while leaving the render "
+                "positionally valid")
 
 
 if __name__ == "__main__":

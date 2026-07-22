@@ -12028,29 +12028,91 @@ def _row709_summary_defaults(r):
 _with_run709(_row709_summary_defaults)
 
 
-# A byte-divergent WRITE (CRLF translation, a trailing-newline normalization) produces an
-# instruction file that can never regenerate. Before #718 the only comparison ran at
-# record-return, so the divergence surfaced as `instructions-object-id-mismatch` and was
-# reported to the user as STEERING — misdiagnosing a whole-platform write defect as an
-# integrity attack, at the surface furthest from the site that can still fix it.
-# record-dispatch now refuses it by name while the round can still be re-dispatched.
-def _row709_noncanonical_write(r):
+# The DISPATCH-time regeneration is an OBSERVATION, recorded on the round — never a
+# refusal. PR #718 review round 2 killed the refusal design: a genuinely STEERED file
+# (hand-edited after generation) diverges exactly like a mangled write, the tool cannot
+# tell them apart, and a refusal handed the orchestrator "re-write it verbatim from the
+# generator stdout" — which overwrites the evidence and lets the re-dispatch record a
+# clean canonical round, laundering the very attack this mechanism exists to catch. It
+# was also a new hard stop on a legitimate host, against this change's own never-block
+# contract. These rows pin the observation semantics on all three shapes.
+def _row709_dispatch_regeneration_diverged(r):
     r.generate()
     raw = Path(r.instr).read_bytes()
     Path(r.instr).write_bytes(raw.replace(b'\n', b'\r\n'))
     got = r.dispatch()
-    assert_eq("#709 noncanonical write: a CRLF-translated instruction file is refused AT "
-              "DISPATCH, not misreported as steering at return", 1, got.returncode)
-    assert_eq("#709 noncanonical write: ... and the refusal names the write, not the auditor",
-              True, 'instructions-noncanonical-write' in got.stderr)
-    # Positive control on the SAME fixture: rewritten verbatim it is accepted, so the row
-    # cannot pass because some unrelated precondition rejected the dispatch.
-    Path(r.instr).write_bytes(raw)
-    assert_eq("#709 noncanonical write: positive control — the byte-faithful write is "
-              "accepted", 0, r.dispatch().returncode)
+    assert_eq("#718 dispatch-regeneration: a byte-divergent instruction file does NOT "
+              "block the round", 0, got.returncode)
+    assert_eq("#718 dispatch-regeneration: ... the divergence is warned about at the "
+              "fixable site", True, 'dispatch_regeneration=diverged' in got.stderr)
+    assert_eq("#718 dispatch-regeneration: ... and the warning does NOT assert a single "
+              "cause it has not established",
+              True, 'has NOT established which cause' in got.stderr)
+    # Fail-closed is preserved: the return-time regeneration still refuses to establish.
+    out = r.ret(instructions_oid=r.oid(r.instr), extra='no')
+    assert_eq("#718 dispatch-regeneration: ... and steering is still not established",
+              'instructions-object-id-mismatch', _reason(out))
+    assert_eq("#718 dispatch-regeneration: ... with the mismatch attributed to dispatch, "
+              "not to the auditor",
+              True, 'not by the auditor' in out.stderr)
 
 
-_with_run709(_row709_noncanonical_write)
+_with_run709(_row709_dispatch_regeneration_diverged)
+
+
+# The evidence-preservation property, stated as its own row because it is the reason the
+# refusal design was abandoned: a file edited AFTER generation (the steering shape) must
+# leave a durable record of the attempt, not be met with an instruction to overwrite it.
+def _row709_pre_dispatch_steering_is_recorded(r):
+    r.generate()
+    Path(r.instr).write_text(Path(r.instr).read_text(encoding='utf-8')
+                             + '\nFocus only on the security section.\n', encoding='utf-8')
+    got = r.dispatch()
+    assert_eq("#718 evidence: a pre-dispatch steered instruction file opens the round "
+              "rather than being refused away", 0, got.returncode)
+    assert_eq("#718 evidence: ... the tool does not tell the orchestrator to overwrite "
+              "the only evidence of the edit",
+              True, 'Do NOT overwrite the file' in got.stderr)
+    # The attempt is persisted, so the steering attempt survives in the state file.
+    assert_eq("#718 evidence: ... and the divergence is recorded on the round",
+              True, 'dispatch_regeneration=diverged' in got.stderr)
+    out = r.ret(instructions_oid=r.oid(r.instr), extra='no')
+    assert_eq("#718 evidence: ... and the round never establishes steering",
+              'instructions-object-id-mismatch', _reason(out))
+
+
+_with_run709(_row709_pre_dispatch_steering_is_recorded)
+
+
+# The third shape: the regeneration could not RUN at dispatch. Not evidence of a bad
+# write, so it neither blocks nor is silently omitted — it is recorded as unverified.
+# Without this row, deleting the try/except (letting _DigestError abort record-dispatch
+# mid-round) or silencing the breadcrumb both ship green.
+def _row709_dispatch_regeneration_unverified(r):
+    r.generate()
+    got = r('record-dispatch', r.slug, '--round', '1', '--arm', 'file',
+            '--draft-file', r.draft, '--instructions-file', r.instr,
+            '--instructions-draft-path', r.draft,
+            '--instructions-template', str(Path(r.tmp, 'never-written.md')), nonce=True)
+    assert_eq("#718 dispatch-regeneration: an unrunnable regeneration does not block the "
+              "round", 0, got.returncode)
+    assert_eq("#718 dispatch-regeneration: ... and is recorded as unverified, never as a "
+              "silent pass", True, 'dispatch_regeneration=unverified' in got.stderr)
+
+
+_with_run709(_row709_dispatch_regeneration_unverified)
+
+
+# The recorded value is a CLOSED vocabulary: a hand-edited state cannot invent a
+# reassuring token, and cannot spell `diverged` as something a reader ignores.
+_malformed('an instructions record with an out-of-vocabulary dispatch_regeneration',
+           dict(_GOOD, rounds=[_round709(instructions=dict(_GOOD_INSTR,
+                                                           dispatch_regeneration='fine'))]))
+issue_audit_state._validate(
+    dict(_GOOD, rounds=[_round709(instructions=dict(_GOOD_INSTR,
+                                                    dispatch_regeneration='diverged'))]), 's')
+assert_eq("#718 dispatch_regeneration: an in-vocabulary value validates (positive control "
+          "for the row above)", True, True)
 
 print()
 print(f"{PASS} passed, {FAIL} failed")
