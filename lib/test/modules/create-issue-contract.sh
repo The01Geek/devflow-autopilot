@@ -734,14 +734,15 @@ devflow_module_pin_unique "#522: embed-arm auditor must quote both sentinels plu
 # Write-landing OBSERVATION (issue #522 iteration-3 review I3, repointed by #546). The ROUTING
 # moved to `query-arm` (py #546 arm_routing_rows), but the routing's operand did not: whether
 # the write landed is an observation only the orchestrator can make, and `query-arm` is only as
-# honest as the `--write-landed` it is handed. The original fail-open is unchanged — on a fresh
-# `<slug>` with no leftover, a read-only sandbox lets `rm` succeed vacuously while the write
-# still fails, so an orchestrator that INFERS landing from the delete reports `--write-landed yes`
+# honest as the `--write-landed` it is handed. The original fail-open is unchanged, re-anchored by
+# #705 onto the staged-write failure mode — a read-only sandbox can leave the surrounding turn
+# looking successful while the staging write refuses or `apply` answers `agree=no`, so an
+# orchestrator that INFERS landing from the absence of an error reports `--write-landed yes`
 # for an unwritten path and the tool routes it to the file arm on false evidence. The mutation
 # excises the confirm-explicitly rule, restoring exactly that inference.
-devflow_module_pin_red_under "#522: write-landing is confirmed explicitly, never inferred from the delete" \
-  'rather than inferring it from the delete — on a fresh `<slug>` with no leftover, a read-only sandbox lets the `rm` succeed vacuously while the write still fails' \
-  's/ rather than inferring it from the delete — on a fresh `<slug>` with no leftover, a read-only sandbox lets the `rm` succeed vacuously while the write still fails//' \
+devflow_module_pin_red_under "#522: write-landing is confirmed explicitly, never inferred from the absence of an error" \
+  'rather than inferring it from the absence of an error — a read-only sandbox can leave the surrounding turn looking successful while `stage` refuses the write or `apply` answers `agree=no`' \
+  's/ rather than inferring it from the absence of an error — a read-only sandbox can leave the surrounding turn looking successful while `stage` refuses the write or `apply` answers `agree=no`//' \
   "$CI_BUNDLE"
 # ... and that the observation is REPORTED to the tool rather than acted on: the orchestrator
 # observes, the tool decides. This is the seam the arm-routing rows sit behind.
@@ -1785,7 +1786,7 @@ for _ci614_ref in $CI614_REFS; do
   CI614_TOTAL_SET+=("$CI_ROOT/skills/create-issue/references/$_ci614_ref.md")
 done
 CI614_TOTAL_W="$(ci614_words "${CI614_TOTAL_SET[@]}")"
-CI614_TOTAL_RECORDED=27197   # docs/create-issue-budget.md, root + all 9 references (issue #705 re-record)
+CI614_TOTAL_RECORDED=27198   # docs/create-issue-budget.md, root + all 9 references (issue #705 re-record)
 assert_eq "#614 T3: the root+references total is within +/-2% of the recorded conservation figure (a silent DROP is as RED as a rise)" \
   "yes" "$({ [ -n "$CI614_TOTAL_W" ] \
     && [ "$CI614_TOTAL_W" -ge "$(( CI614_TOTAL_RECORDED * 98 / 100 ))" ] \
