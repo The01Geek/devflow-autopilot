@@ -11109,13 +11109,13 @@ def _row10b(r):
     r.open_round(1, 'REVISE', 1)
     none_line = r('query-summary', r.slug, nonce=True).stdout
     assert_eq("#603-10b/AC11: an unadjudicated latest round renders effective_unresolved=none",
-              True, 'effective_unresolved=none convergence_basis=none coverage_backing=unestablished coverage_render=none bound_root=' in none_line)
+              True, 'effective_unresolved=none convergence_basis=none coverage_backing=unestablished coverage_render=none coverage_reason=no-clean-round bound_root=' in none_line)
     r.adjudicate(1, 'REVISE', 1, 'unestablished')
     unest = r('query-summary', r.slug, nonce=True).stdout
     assert_eq("#603-10b/AC11: an adjudicated-but-unestablished count renders "
               "effective_unresolved=unestablished, never 0",
               True,
-              'effective_unresolved=unestablished convergence_basis=none coverage_backing=unestablished coverage_render=none bound_root=' in unest)
+              'effective_unresolved=unestablished convergence_basis=none coverage_backing=unestablished coverage_render=none coverage_reason=no-clean-round bound_root=' in unest)
     assert_eq("#603-10b/AC11: ... and attestation= stays the trailing field",
               True, unest.strip().endswith('attestation=none'))
 
@@ -11997,6 +11997,85 @@ def _cov_preconditions(r):
 
 
 _with_run603(_cov_preconditions)
+
+
+# ── issue #708, shadow round: the residuals the shadow pass surfaced ──────────────
+
+# The summary line must name WHICH unestablished arm it is. A clean round whose coverage
+# step never ran (denied, skipped, lost to a compaction) previously rendered byte-identically
+# to "this run has no clean round yet" — a silently-unrun mechanism reading as inapplicable.
+def _cov_summary_names_the_arm(r):
+    r.open_round(1, 'FILE', 0)
+    r.adjudicate(1, 'FILE', 0, '0')
+    assert_eq("#708-22: a clean round with no coverage recorded names its arm on the summary",
+              'no-coverage-recorded', _summary_field(r, 'coverage_reason'))
+
+
+_with_run603(_cov_summary_names_the_arm)
+
+
+def _cov_summary_reason_none_when_backed(r):
+    _clean_round_with_coverage(
+        r, 'g:host-os-variance exercised "a quoted line" — a concrete concern\n')
+    assert_eq("#708-22: a recorded, backed run renders coverage_reason=none",
+              ('backed', 'none'),
+              (_summary_field(r, 'coverage_backing'), _summary_field(r, 'coverage_reason')))
+
+
+_with_run603(_cov_summary_reason_none_when_backed)
+
+
+# query-coverage's answering line has a FIXED shape: `reason=` renders on every arm
+# (`none` when there is nothing to name), so a conditionally-absent trailing field can
+# never be confused with a truncated line.
+def _cov_reason_is_unconditional(r):
+    _clean_round_with_coverage(
+        r, 'g:host-os-variance exercised "a quoted line" — a concrete concern\n')
+    line = r('query-coverage', r.slug, nonce=True).stdout.splitlines()[0]
+    assert_eq("#708-23: the answering line carries reason= even when there is none to name",
+              'coverage_backing=backed coverage_render=full reason=none', line)
+
+
+_with_run603(_cov_reason_is_unconditional)
+
+
+# Coverage recorded on a REVISE round is accepted but can never back the run, so the echo
+# says so rather than handing back an unqualified success receipt for inert work.
+def _cov_revise_round_echo_discloses(r):
+    r.open_round(1, 'REVISE', 1)
+    r.adjudicate(1, 'REVISE', 1, '1', 'unresolved: a finding\n')
+    proc = r('record-coverage', r.slug, '--round', '1', '--render', 'full',
+             '--expected-keys', 'g:host-os-variance', '--coverage-stdin',
+             stdin='g:host-os-variance exercised "a line" — a concern\n', nonce=True)
+    assert_eq("#708-24: a REVISE round's coverage echo discloses that it backs nothing",
+              (0, True), (proc.returncode, 'backs_run=no' in proc.stdout))
+    _clean = _clean_round_with_coverage(
+        r, 'g:host-os-variance exercised "a line" — a concern\n', rnd=2)
+    assert_eq("#708-24: ... while an accepted clean round's echo says it does",
+              (0, True), (_clean.returncode, 'backs_run=yes' in _clean.stdout))
+
+
+_with_run603(_cov_revise_round_echo_discloses)
+
+
+# The keyset totality was checked against is PERSISTED, so the claim stays auditable after
+# the call rather than living only in a flag value that vanished with the process.
+def _cov_expected_keys_persisted(r):
+    import glob as _glob
+    import json as _json
+    _clean_round_with_coverage(
+        r,
+        'g:host-os-variance exercised "a quoted line" — a concrete concern\n',
+        expected='g:host-os-variance,g:degraded-environments')
+    path = _glob.glob(str(Path(r.tmp, '.devflow', 'tmp',  # tree-walk-ok: this row's own temp state dir, never the repository tree
+                               'issue-audit-state-*.json')))[0]
+    doc = _json.loads(Path(path).read_text())
+    assert_eq("#708-25: the supplied enumeration is persisted with the round",
+              ['g:host-os-variance', 'g:degraded-environments'],
+              doc['rounds'][0].get('coverage_expected'))
+
+
+_with_run603(_cov_expected_keys_persisted)
 # ── issue #705: the record-revision file-arm staged-write guard ─────────────────────
 # The guard fires on the PER-ROUND shape `rounds[-1]['attempts'][-1]['arm']`, so these
 # rows craft valid state documents on disk (a file-arm latest round, an embed-arm latest

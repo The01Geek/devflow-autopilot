@@ -245,6 +245,7 @@ _PROTOCOL_TOKENS = (
     'basis', 'body_digest', 'bound', 'bound_path', 'bound_root', 'bound_tier', 'cap',
     'cap_reached', 'classification', 'consumer_dimensions_appended', 'converged',
     'convergence_basis', 'count', 'coverage', 'coverage_backing', 'coverage_render',
+    'coverage_reason', 'backs_run',
     'degraded', 'digest', 'effective_unresolved',
     'eligible', 'epoch_round', 'findings', 'findings_count', 'frozen', 'ground', 'id',
     'invalid', 'invalidated', 'iterate', 'key', 'kind', 'latest_revision_landed',
@@ -2166,7 +2167,7 @@ _SUMMARY_FIELDS = (
     # mandatory audit summary line carries the coverage evidence on EVERY arm and outcome —
     # a backed clean run, an unbacked clean run, and every degraded arm alike. Both render
     # as space-free tokens BEFORE `bound_root`, keeping `attestation` the trailing field.
-    'coverage_backing', 'coverage_render',
+    'coverage_backing', 'coverage_render', 'coverage_reason',
 )
 
 
@@ -2201,7 +2202,8 @@ def summary_fields(state, current_digest=None, digest_failed=False):
                         advisory=None, invalid=None, unresolved_must_revise=None,
                         bound_root=None, bound_tier=None,
                         effective_unresolved=None, convergence_basis='none',
-                        coverage_backing='unestablished', coverage_render='none')
+                        coverage_backing='unestablished', coverage_render='none',
+                        coverage_reason='state-unestablished')
     done = completed_rounds(state)
     # Cumulative across every round this run: "how many things did the auditors
     # collectively flag", not merely the last round's tally.
@@ -2303,6 +2305,9 @@ def summary_fields(state, current_digest=None, digest_failed=False):
         # this derivation never feeds `effective_unresolved` or the convergence basis.
         coverage_backing=_coverage['backing'],
         coverage_render=_coverage['render'],
+        # WHICH unestablished arm — a clean round whose coverage step never ran is
+        # otherwise byte-identical on this line to a run with no clean round yet.
+        coverage_reason=_coverage.get('reason') or 'none',
     )
 
 
@@ -2966,6 +2971,17 @@ def cmd_record_coverage(args):
     (byte-identity, cited-line existence) are the orchestrator's and already ran before this
     call. Write-once per round, like adjudication. `--render` records whether the auditor
     rendered every dimension (`full`) or a divergence narrowed the set (`degraded`).
+
+    **Stated residual (the honesty scope this feature claims, and no more).** Both
+    `--expected-keys` and `--render` are ORCHESTRATOR-SUPPLIED: the state owner holds no
+    template and cannot re-derive the enumeration, so it enforces totality against the
+    keyset it is GIVEN, not against the renderer's output. An orchestrator that passes only
+    the keys the auditor returned makes totality vacuous. That seam is inherent to the
+    tool/orchestrator split — what the tool can do, and does, is refuse an unenumerated key,
+    synthesize every missing one as `unestablished`, and PERSIST the supplied keyset
+    (`coverage_expected`) so the claim is auditable after the fact. `coverage-backed`
+    therefore means evidence of the required shape was present and survived the floor and
+    the orchestrator's adjudication — never certified scrutiny.
     """
     doc = _load_for_mutation('record-coverage', args.slug, args.nonce)
     rnd = _find_round(doc, args.round)
@@ -2991,6 +3007,11 @@ def cmd_record_coverage(args):
                                  'and its keys are unique by construction')
     coverage = _ingest_coverage(expected)
     rnd['coverage'] = coverage
+    # Persist the enumeration totality was checked against. The state owner cannot
+    # re-derive it (it holds no template), so `--expected-keys` is an orchestrator-supplied
+    # operand — recording it makes the claim AUDITABLE after the fact instead of leaving
+    # only its effect. The residual is stated in the docstring and the growth artifact.
+    rnd['coverage_expected'] = expected
     rnd['coverage_render'] = args.render
     _save_or_fail('record-coverage', doc, args.slug)
     # The echo carries only fields drawn from the tool's own printed vocabulary
@@ -2999,7 +3020,12 @@ def cmd_record_coverage(args):
     # word and broaden the anchor-refusal vocabulary) is introduced here. `outcome=` names
     # the outcomes recorded, comma-joined, as a value.
     outcomes = ','.join(e['outcome'] for e in coverage) or 'none'
-    print(f'coverage_render={args.render} count={len(coverage)} outcome={outcomes}')
+    # A REVISE round's coverage is recorded but can never back the run (`_coverage_round`
+    # selects the final accepted CLEAN round), so the echo says so rather than reading as
+    # an unqualified success receipt for work no derivation will ever consume.
+    backs = 'yes' if rnd.get('outcome') == 'FILE' else 'no'
+    print(f'coverage_render={args.render} count={len(coverage)} outcome={outcomes} '
+          f'backs_run={backs}')
 
 
 def _ingest_coverage(expected_keys):
@@ -3085,8 +3111,10 @@ def cmd_query_coverage(args):
         print('coverage_backing=unestablished coverage_render=none reason=foreign-nonce')
         return
     cov = evaluate_coverage(state)
-    reason = f' reason={cov["reason"]}' if cov.get('reason') else ''
-    print(f'coverage_backing={cov["backing"]} coverage_render={cov["render"]}{reason}')
+    # `reason=` renders on EVERY arm (`none` when there is nothing to name): a
+    # conditionally-present trailing field cannot be told from a truncated line.
+    print(f'coverage_backing={cov["backing"]} coverage_render={cov["render"]} '
+          f'reason={cov.get("reason") or "none"}')
     # The coverage round rides on the SAME derivation that decided the tokens — deriving
     # it a second time would be two call sites that must agree on which round is
     # authoritative, the drift #603 removed from the summary fields.
@@ -4067,6 +4095,7 @@ def cmd_query_summary(args):
           # bound_root, so attestation stays the trailing anchored field.
           f'coverage_backing={f["coverage_backing"]} '
           f'coverage_render={f["coverage_render"]} '
+          f'coverage_reason={f["coverage_reason"]} '
           f'bound_root={f["bound_root"] or "none"} bound_tier={f["bound_tier"] or "none"} '
           f'attestation={f["attestation"] or "none"}')
 

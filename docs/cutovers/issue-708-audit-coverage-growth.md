@@ -8,7 +8,7 @@ kind: growth
 Mandatory prompt rows that grew in this change:
 
 - `skills/create-issue/references/audit-prompt-template.md` — +2,082 bytes (10,730 → 12,812)
-- `skills/create-issue/references/step-3-6-audit.md` — +525 bytes (62,727 → 63,252)
+- `skills/create-issue/references/step-3-6-audit.md` — +557 bytes (62,727 → 63,284)
 
 No ceiling was renegotiated. The create-issue word budgets are ratchet-down-only, and both
 hold at their existing values (`docs/create-issue-budget.md`):
@@ -44,6 +44,17 @@ helper-cutover convention. The full narration lives in `docs/DEVFLOW_SYSTEM_OVER
 What remains on the mandatory path is only what the orchestrator must *decide*: when to
 enumerate, what to check against the re-read draft, what to adjudicate, what to record, and
 that `coverage=hold` joins the single existing boundary offer rather than adding a second pause.
+
+## Stated residual — what `coverage-backed` does and does not claim
+
+`--expected-keys` and `--render` are **orchestrator-supplied**: the state owner holds no
+template, so it enforces totality against the keyset it is *given*, not against the
+renderer's output. An orchestrator that passed only the keys the auditor returned would make
+totality vacuous. What the tool does close: it refuses an unenumerated key, synthesizes every
+missing enumerated key as `unestablished`, and persists the supplied keyset
+(`coverage_expected`) so the claim is auditable after the fact. So `coverage-backed` means
+*evidence of the required shape was present and survived the floor and the orchestrator's
+adjudication* — never certified scrutiny. That bound is the issue's own stated honesty scope.
 
 ## Residual
 

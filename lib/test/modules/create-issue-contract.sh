@@ -1108,8 +1108,10 @@ devflow_module_pin_unique "#603: round funding named as the budget-enforcement s
 #    restricted-PATH roundtrip; the remaining pins guard orchestrator-judgment prose with no
 #    code behavior to mutate. Either way these are presence pins, not behavioral-fix pins,
 #    so the mutation-evidence obligation does not attach.
-devflow_module_pin_unique "#603/AC14: query-findings is the one multi-line query" \
-  "**\`query-findings\` prints one decided line per ledger entry, and is the tool's one multi-line query**" "$CI_BUNDLE"
+# issue #708 added `query-coverage`, a SECOND multi-line query, so the contract sentence
+# this pins now names two exceptions; the pin follows the corrected sentence.
+devflow_module_pin_unique "#603/AC14+#708: the multi-line queries are named" \
+  "**\`query-coverage\` prints its decision line then one line per dimension**" "$CI_BUNDLE"
 devflow_module_pin_unique "#603/AC1: the ledger fence uses a QUOTED heredoc delimiter" \
   "<<'LEDGER-EOF'" "$CI_BUNDLE"
 devflow_module_pin_unique "#603/AC1: the quoted delimiter is never to be simplified away" \
