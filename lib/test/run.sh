@@ -38292,16 +38292,32 @@ assert_eq "#401 shape-lint exits 0 on the clean review skill" "0" \
 # anchor-as-leading-token + redirect — source forms review-and-fix relies on and that ARE
 # permitted on the tiers it actually runs on (the implement-profile lint below is clean).
 # So the whole bundle is shape-linted under `--profile implement` (root + every reference).
-# The manual-command (devflow.yml) tier's SHAPES are unprobed — matcher-probe.yml carries no
-# manual-command-tier shape-probe job (its review probe and implement-probe jobs cover the two
-# cloud allowlist tiers) — so the implement profile
-# stands in as the closest MEASURED proxy for the manual push path (probe-inference, not
-# measurement; if a shape denial ever surfaces there the real fix is a manual-probe job, not
-# more lint). The manual tier's HEADS are separately covered by the whole-bundle head scan
-# against devflow.yml above. Grants are unchanged — desk-time coverage only.
+# The manual-command (devflow.yml) tier is now DIRECTLY measured: matcher-probe.yml carries a
+# `command-probe` job (issue #696) alongside its review-probe and implement-probe jobs, and
+# extract-command-shapes.py now accepts `--profile command`. The command-tier rule set is
+# deliberately the SAME as the implement tier's (IR1/IR2/IR3), resting on the load-bearing
+# assumption `command`-tier denied shapes ⊆ `implement`-tier denied shapes, which the
+# command-probe job confirms empirically. The manual tier's HEADS are separately covered by the
+# whole-bundle head scan against devflow.yml above. Grants are unchanged — desk-time coverage only.
 for f in "$LIB/../skills/review-and-fix/SKILL.md" "$LIB/../skills/review-and-fix/references"/*.md; do
   assert_eq "#530 review-and-fix shape-lint (implement profile): $(basename "$f") teaches no denied shape" "" \
     "$(python3 "$ECS" --profile implement "$f" 2>&1)"
+done
+
+# #696 workstream B1: drive the review-and-fix bundle (and the review engine files it executes
+# inline, issue #529) under the new `--profile command` mode, so a denied SHAPE on the actual
+# /devflow:review-and-fix PR-comment (command) tier turns the suite RED at the desk. The command
+# tier is a SEPARATE read-write allowlist from implement, directly measured by the command-probe
+# job in matcher-probe.yml. Bundle = review-and-fix root + references + the shared review engine.
+_raf_command_bundle=(
+  "$LIB/../skills/review-and-fix/SKILL.md"
+  "$LIB/../skills/review-and-fix/references"/*.md
+  "$LIB/../skills/review/SKILL.md"
+  "$LIB/../skills/review/phases"/*.md
+)
+for f in "${_raf_command_bundle[@]}"; do
+  assert_eq "#696 review-and-fix command-tier shape-lint: $(basename "$f") teaches no denied shape" "" \
+    "$(python3 "$ECS" --profile command "$f" 2>&1)"
 done
 
 # ── #530 prompt-budget guard (AC3/AC4): the split keeps the thin root and its initial/peak
