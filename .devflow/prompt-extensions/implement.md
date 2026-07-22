@@ -154,7 +154,7 @@ run is denied, do this in order — do not skip to the last rung:
 The standard is *evidence before assertion*: a claim that something works must point to a
 command you actually ran and its observed output, or be explicitly flagged unverified.
 
-## Focused test modules accelerate RED/GREEN only
+## Focused test modules are the iteration default
 
 Before choosing an iteration test, use the task context or test plan — and the coverage map
 (`lib/test/modules/coverage-map.json`, which records the owning module for every `lib/`/`scripts/`
@@ -173,9 +173,16 @@ record the map entry you consulted and still confirm the selected ID in the regi
 Do not infer or automate changed-file-to-module routing.
 When no registered module covers the change, use the full suite during iteration.
 
-A focused result is never a completion gate. Before a commit, phase completion, push, or
-completion claim, run `bash lib/test/run.sh` plus every lint gate required by `CLAUDE.md` (using
-its documented classifier fallback when necessary). A nonempty skip tally is not clean.
+Focused verification is the iteration default: a focused pass covering the changed surface is sufficient for an intermediate commit or push.
+Run the full suite mid-iteration only when no focused module or path covers the changed surface, and when you do, record a `## Devflow Reflection` bullet stating why the full run was necessary (no focused module or path covered the changed surface).
+The reflection-routing rule below carries this as a named capture case, so it stays a Reflection bullet — not the cheap `## Progress` note — even when the run was otherwise frictionless.
+
+A focused result discharges intermediate iteration only, never the final completion gate.
+The final gate is preserved, and on the local/interactive tier it is parallelized.
+Before a completion or PR-ready claim, push to trigger CI and start the full local run at the same time; the push is NOT gated on the local run finishing.
+The **claim** is gated on it: read the local run's summary before you make one. A nonzero failure tally, a nonempty skip tally, or a run that never started (denied, blocked, or unreached) is not a completion — report the failure detail and iterate, and say so explicitly rather than letting the already-landed push stand as the claim.
+The full local run is `bash lib/test/run.sh` plus every lint gate required by `CLAUDE.md` (using its documented classifier fallback when necessary), and it remains the authoritative local signal because it yields richer failure detail than CI for troubleshooting. A nonempty skip tally is not clean.
+The cloud `/devflow:implement` in-env gate (issue #405) is unchanged and unweakened: such a run verifies in its own environment and never waits on, polls, re-checks, or cites CI for its own progress; the parallel-push allowance above is a local/interactive-tier rule only.
 
 ## Interpreter-faithful probes — probe under the shell the artifact actually runs under
 
@@ -240,7 +247,17 @@ one. Route by whether the run actually had signal:
   bullet (an `improvement`, `note`, or `issue-accuracy` per *How to record it* above). That is
   exactly the signal the retrospective must be forced to read; the gate tripping here is
   correct, not waste.
-- **The run was genuinely frictionless end-to-end** → do **not** file a `--reflection` bullet
+- **The run performed a full `lib/test/run.sh` run mid-iteration** (no focused module or path
+  covered the changed surface — see *Focused test modules are the iteration default* above) → this
+  **is** a `## Devflow Reflection` bullet, even on an otherwise frictionless run. The missing
+  focused coverage IS the signal: it names a concrete surface no module reaches, which is exactly
+  the ranked to-do list the retrospective turns into the next extraction ticket. Record it as
+  an `improvement` (the kind that lands under `### 💡 Improvements`), so two runs reporting the
+  same missing-module signal file it under one heading. This case is scoped to a **mid-iteration**
+  full run — the final-gate run is mandatory on every run, so requiring a bullet for it would trip
+  `cheap-gate.jq` on every PR and carry no signal. Paying the cheap-gate's LLM pass to surface a
+  coverage gap is the trade this rule buys deliberately.
+- **The run was genuinely frictionless end-to-end** (and ran no mid-iteration full suite) → do **not** file a `--reflection` bullet
   for it. Record the confirmation as a `## Progress` note instead:
   `scripts/workpad.py update <ISSUE_NUMBER> --note "dogfood side task ran: frictionless, nothing to capture"`.
   A `--note` writes to `## Progress`, which does **not** feed `reflections[]`, so `## Devflow
