@@ -28,6 +28,19 @@
 # that `git rev-parse --show-toplevel` (the #295 repo-root anchoring) still
 # resolves to the checkout root in that state.
 #
+# Scope of the fixtures, stated plainly so no later reader over-reads them: the
+# layouts under lib/test/fixtures/cloud-form-layouts/ are self-contained mock
+# trees, and each _exercise call passes a skill_rel and a cloud_rel that are
+# consistent with each other by construction. What that pair proves is the
+# LAYOUT SHAPE — that a skill base two components below the checkout root,
+# joined with ../../scripts/<helper>, lands on and executes the layout's
+# vendored-literal helper path, in both a spaced and a shallow detached
+# checkout. What it does NOT by itself prove is that the real shipped tree still
+# has that offset; a relocation of the real skills/ or scripts/ would leave
+# these fixtures green. The `real shipped layout` block below is the separate,
+# narrow guard for that residual: it asserts the offset the fixtures encode
+# against the repo's own tracked layout.
+#
 # Self-contained (invoked from lib/test/run.sh). Prints one FAIL line per
 # failure to stderr and exits non-zero; exits 0 silently when every layout ×
 # state resolves and runs the helper. Depends only on a POSIX bash, git
@@ -140,6 +153,11 @@ _exercise() {
   rm -rf "$tmp"
 }
 
+# The offset every fixture call site encodes: the skill base sits this many path
+# components below the layout root, which is what makes ../../scripts resolve to
+# the root-level scripts/ dir.
+SKILL_DEPTH=2
+
 # source-repo: skill at skills/implement, helper at repo-root scripts/.
 _exercise source-repo "skills/implement" "scripts/echo-anchor.sh" spaces
 _exercise source-repo "skills/implement" "scripts/echo-anchor.sh" shallow-detached
@@ -147,6 +165,39 @@ _exercise source-repo "skills/implement" "scripts/echo-anchor.sh" shallow-detach
 # consumer: both vendored under .devflow/vendor/devflow/.
 _exercise consumer ".devflow/vendor/devflow/skills/implement" ".devflow/vendor/devflow/scripts/echo-anchor.sh" spaces
 _exercise consumer ".devflow/vendor/devflow/skills/implement" ".devflow/vendor/devflow/scripts/echo-anchor.sh" shallow-detached
+
+# --- real shipped layout -----------------------------------------------------
+# The fixtures above are mock trees, so on their own they would stay green
+# through a relocation of the real tree. This block is the narrow guard for that
+# residual: every tracked skills/*/SKILL.md must sit exactly SKILL_DEPTH
+# components below the repo root, and a scripts/ dir must exist at that root —
+# together, that is the offset the fixtures encode. It covers the source-repo
+# layout directly; the consumer layout is that same tree copied wholesale under
+# .devflow/vendor/devflow/ by install.sh, which preserves the offset but is not
+# itself asserted here.
+_REPO_ROOT="$(cd "$_SCRIPT_DIR/../.." && pwd -P)"
+if [ ! -d "$_REPO_ROOT/.git" ] && [ ! -f "$_REPO_ROOT/.git" ]; then
+  _fail "real shipped layout: expected the repo root at $_REPO_ROOT"
+else
+  _skills="$(cd "$_REPO_ROOT" && git ls-files 'skills/*/SKILL.md' 'skills/**/SKILL.md' 2>/dev/null | sort -u)"
+  if [ -z "$_skills" ]; then
+    _fail "real shipped layout: no tracked skills/**/SKILL.md found under $_REPO_ROOT"
+  fi
+  while IFS= read -r _p; do
+    [ -n "$_p" ] || continue
+    # Depth of the skill BASE dir = components of the SKILL.md path minus the
+    # file name itself.
+    # Counted with bash builtins only — lib/preflight.sh guarantees no awk/tr/wc.
+    _rest="${_p%/SKILL.md}"; _n=1
+    while [ "$_rest" != "${_rest#*/}" ]; do _rest="${_rest#*/}"; _n=$((_n + 1)); done
+    if [ "$_n" != "$SKILL_DEPTH" ]; then
+      _fail "real shipped layout: $_p sits $_n components below the repo root (fixtures encode $SKILL_DEPTH; ../../scripts would no longer resolve to the root scripts/)"
+    fi
+  done <<EOF
+$_skills
+EOF
+  [ -d "$_REPO_ROOT/scripts" ] || _fail "real shipped layout: no scripts/ dir at the repo root $_REPO_ROOT"
+fi
 
 [ "$FAILS" -eq 0 ] || exit 1
 exit 0

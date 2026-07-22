@@ -31,6 +31,22 @@ checkout, and that `git rev-parse --show-toplevel` — the repo-root anchoring
 the cloud form depends on (#295) — still resolves to the checkout root in a
 shallow detached state.
 
+## What these fixtures do and do not guard
+
+These are self-contained mock trees, and the driver passes each layout's skill
+base and vendored-literal helper path as a pair that is consistent with the
+other by construction. So what they prove is the **layout shape**: a skill base
+two components below the checkout root, joined with `../../scripts/<helper>`,
+resolves to and executes that layout's helper — in a spaced checkout and in a
+shallow detached one. They do **not**, by themselves, guard the real shipped
+`skills/**` ↔ `scripts/` offset: relocating the real tree would leave these
+fixtures green. The driver's separate `real shipped layout` block is the narrow
+guard for that residual — it asserts every tracked `skills/*/SKILL.md` still
+sits at the depth the fixtures encode and that a repo-root `scripts/` exists.
+That block covers the source-repo layout; the consumer layout is that same tree
+copied wholesale under `.devflow/vendor/devflow/` by `install.sh`, which
+preserves the offset but is not itself asserted.
+
 The cloud form itself is a filesystem path join and the driver's
 helper-execution assertion does not call git, so that assertion's outcome is not
 sensitive to the checkout's git state: the two states are expected to agree on
