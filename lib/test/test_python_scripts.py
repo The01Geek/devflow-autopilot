@@ -9857,7 +9857,7 @@ with tempfile.TemporaryDirectory() as _cw_main:
 # block above (which routes everything through vcwc/cwc too).
 # ─────────────────────────────────────────────────────────────────────────────
 
-_REPO = SCRIPTS.parent
+_REPO = cwc.REPO_ROOT
 
 # The operator-facing refresh action AC19 requires the upgrade docs to state. This
 # literal is COUPLED to docs/install.md's cloud-writer upgrade note — the pairing-1
@@ -9876,8 +9876,8 @@ _CW_REFRESH_ACTION = ("refresh your installed workflows and vendored plugin cont
 # than the compatibility window silently widening. The snapshot is self-checking:
 # if it omits any head the current manifest requires, pairing 2 goes RED
 # (HEAD_ABSENT) at the desk. Prefix helpers keep the vendored-literal form exact.
-_cwv = lambda _n: ".devflow/vendor/devflow/scripts/" + _n
-_cwl = lambda _n: ".devflow/vendor/devflow/lib/" + _n
+_cwv = lambda _n: cwc.VENDOR_PREFIX + "scripts/" + _n
+_cwl = lambda _n: cwc.VENDOR_PREFIX + "lib/" + _n
 _FROZEN_LEGACY_GRANTS = {
     "implement": {
         _cwv("run-jq.sh"), _cwv("config-get.sh"), _cwv("workpad.py"),
@@ -10008,11 +10008,12 @@ assert_eq("#703 AC19 pairing2: no AC1-reached fence emits a denied shape (the 'o
 # runtime manifest, (b) preserve helper executable bits, and (c) retain
 # consumer-owned config + prompt extensions. Every assertion is in-process (Reads
 # source + calls imported modules) — no fixture executes repo-root helper code.
+# The three supported flows are fresh-install, in-place install.sh refresh, and
+# /devflow:init backfill; each is covered by its own (a)/(b)/(c) assertion groups
+# below (manifest / executable-bit / consumer-content), which ARE the completeness
+# coverage — no separate enumeration assertion, which would only guard its own
+# literal count.
 # ─────────────────────────────────────────────────────────────────────────────
-_provisioning_flows = ("fresh-install", "install.sh-refresh", "devflow-init-backfill")
-assert_eq("#703 AC20: exactly three supported provisioning flows are covered",
-          3, len(_provisioning_flows))
-
 _install_sh = (_REPO / "install.sh").read_text(encoding="utf-8")
 _vendor_slice = (_REPO / ".github" / "actions" / "vendor-plugin"
                  / "vendor-slice.sh").read_text(encoding="utf-8")
@@ -10070,12 +10071,19 @@ assert_eq("#703 AC20: install.sh delegates config/prompt-extension provisioning 
           True, "scaffold-config.sh" in _install_sh)
 assert_eq("#703 AC20: /devflow:init delegates to the same shared scaffold-config.sh",
           True, "scaffold-config.sh" in _init_skill)
+# Pin the CODE constructs that implement the no-clobber contract, not the prose
+# that describes it (a comment pin goes green even if the logic is inverted):
+#  * config preserved when present — the `[ -f "$CONFIG" ]` guard;
+#  * additive backfill — the jq deep-merge `$ex[0] * $cfg[0]` (config on the right
+#    wins, so user values are kept and only example-introduced keys are added);
+#  * prompt-extension no-clobber — the per-file `[ -e "$pe_target" ] || [ -e
+#    "$pe_live" ]` skip guard (never overwrites an adopter's example or live ext).
 assert_eq("#703 AC20: scaffold-config.sh preserves an existing config.json (no clobber)",
           True, 'if [ -f "$CONFIG" ]; then' in _scaffold_sh)
-assert_eq("#703 AC20: scaffold-config.sh config backfill only ADDS keys, never deletes",
-          True, "only ADDS keys, never deletes" in _scaffold_sh)
-assert_eq("#703 AC20: scaffold-config.sh never clobbers a consumer's prompt extension",
-          True, "never clobber" in _scaffold_sh)
+assert_eq("#703 AC20: scaffold-config.sh backfills additively via the example*config deep-merge",
+          True, "$ex[0] * $cfg[0]" in _scaffold_sh)
+assert_eq("#703 AC20: scaffold-config.sh skips (never clobbers) an existing prompt extension",
+          True, '[ -e "$pe_target" ] || [ -e "$pe_live" ]' in _scaffold_sh)
 
 
 # ── issue #555: scripts/discover-deferral-manifests.py — fail-closed Phase 4.0.5
