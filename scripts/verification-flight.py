@@ -744,10 +744,41 @@ def cmd_claim(args) -> int:
         args.logs_dir, "flight_attached",
         {"flight_key": derived["flight_key"], "attached_state": flight["state"]},
     )
+    # candidate_identity is OUTSIDE the flight key by design (issue #668), so two
+    # declarations sharing a `checkout` fingerprint map to one handle even when
+    # their declared content identities differ. Before issue #550 the attacher
+    # silently received the first claimer's value and could consume its `passed`
+    # handle for a DIFFERENT content identity. Now the first consumer that reads the
+    # handle's candidate_identity as authoritative (the completion-evidence check)
+    # closes that residual here: when the attacher's OWN declared candidate_identity
+    # is present and differs from the handle's recorded one, the attach is not a
+    # reusable pass — force `reuse_ready`/`satisfies_verification` False and surface
+    # `candidate_identity_match: false` so the attacher launches its own verification
+    # rather than consuming a pass bound to other content. descriptor_digest and
+    # flight_key are UNCHANGED (this touches only the attach READ path, never
+    # _derive or the handle write), so every stored handle stays valid. An attacher
+    # that declares no candidate_identity (None) keeps the pre-#550 behaviour.
+    declared_ci = derived["candidate_identity"]
+    stored_ci = flight.get("candidate_identity")
+    ci_mismatch = (
+        declared_ci is not None
+        and stored_ci is not None
+        and declared_ci != stored_ci
+    )
     # Attach never supplies a current checkout, so it cannot verify the tree —
     # checkout_verified is always False here; a consume must re-anchor via
     # status/wait with --current-checkout-file (see phase-3-review.md).
-    _print_public(flight, role="attacher", checkout_verified=False)
+    if ci_mismatch:
+        _print_public(
+            flight, role="attacher", checkout_verified=False,
+            candidate_identity_match=False, reuse_ready=False,
+            satisfies_verification=False,
+        )
+    else:
+        _print_public(
+            flight, role="attacher", checkout_verified=False,
+            candidate_identity_match=(stored_ci is not None and declared_ci is not None),
+        )
     # Attach ALWAYS exits EXIT_OK — the exit status here is role-only ("I attached
     # to an existing flight"), NOT a verdict. Whether the attached flight is a
     # consumable pass is carried in the JSON (`role`, `state`,

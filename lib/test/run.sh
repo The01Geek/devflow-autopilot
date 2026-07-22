@@ -4472,10 +4472,10 @@ assert_pin_red_under "399: reverting Step 0 to settled-fact phrasing re-introduc
   's/the sync state it establishes is not citable as completion-time evidence/the sync state it establishes remains a settled fact for the rest of the session/' "$RECV_SKILL"
 # pin-D (AC5): the closing item gates on all FOUR evidence items, not three.
 assert_pin_unique "399: gate closing item requires all four evidence items" \
-  'Only after all four pass, claim completion' "$RECV_SKILL"
+  'Only after evidence items 1 through 4 are satisfied' "$RECV_SKILL"
 assert_pin_red_under "399: reverting the closing item to all-three drops the branch-sync gate" \
-  'Only after all four pass, claim completion' \
-  's/Only after all four pass, claim completion/Only after all three pass, claim completion/' "$RECV_SKILL"
+  'Only after evidence items 1 through 4 are satisfied' \
+  's/Only after evidence items 1 through 4 are satisfied/Only after evidence items 1 through 3 are satisfied/' "$RECV_SKILL"
 # pin-E (item 4, d3b0ba5/fbaf447): the safety-critical failed-fetch clause — when the fetch
 # does not succeed BOTH the remote-counterpart divergence and the base-branch divergence are
 # unestablished (unknown), never collapsed onto a stale-remote-tracking-ref zero-behind result.

@@ -265,17 +265,16 @@ This is the loop's discharge site for the `devflow:receiving-code-review` Verifi
 
 **Identity-keyed refresh (recovery arm).** When the claim-time candidate identity differs from the verification record's recorded identity — Step 3.5 inner re-fixes are the routine producer of this state; the ordinary verify-then-commit iteration compares equal and triggers nothing — **refresh the verification record first**: one suite re-run recorded through the handle before validating, the recovery arm of a would-be `stale-candidate`. This identity-keyed trigger sits **beside** the existing Loop-exit suite rule's base-merge trigger (that rule is unchanged). A converging no-fix final iteration validates against the handle's last completed run: the content is unchanged, so the recorded identity still equals claim time.
 
+Build the run-scoped operand files (findings inventory + `fix_decisions` union) from this run's `iter-*.json` via the granted jq wrapper first, then invoke the validator as a **single leading-token vendored literal** (never a `VAR="$(…)"` capture — that composite shape is a denied/unproven cloud shape; read the verdict line from the printed tool output instead). `<slug>`/`<run-id>` are this run's values; `<flight_key>` is the handle key from the Step-3 coordination:
+
 ```bash
-# Build the run-scoped operand files (findings inventory + fix_decisions union) from
-# this run's iter-*.json via the granted jq wrapper, then validate. <slug>/<run-id>
-# are this run's values; <flight_key> is the handle key from the Step-3 coordination.
-CCE_VERDICT="$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/check-completion-evidence.py \
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/check-completion-evidence.py \
   --context "<run-id>" --context-mode loop \
   --verification-record ".devflow/tmp/verification-flights/<flight_key>.json" \
   --findings-inventory ".devflow/tmp/review/<slug>/<run-id>/completion-inventory.json" \
   --disposition-ledger ".devflow/tmp/review/<slug>/<run-id>/completion-dispositions.json" \
   --deferrals ".devflow/tmp/review/<slug>/<run-id>/deferrals.json" \
-  --claim-identity "<claim-time candidate identity>" 2>/dev/null)"
+  --claim-identity "<claim-time candidate identity>"
 ```
 
 **Quote, record, and carry the token.** Quote the single verdict line verbatim in the final chat report, and record it in the workpad. Parse its token (the second field). When the token is **not** `pass`, append `— completion evidence: <token>` to the reported final verdict line (`<verdict> — completion evidence: <token>`). Where an issue workpad exists (implement-driven runs), additionally record a `## Devflow Reflection` bullet quoting the verdict line — a non-empty reflections list already forces retrospective analysis, so the outcome is durable with **zero** status-word mirror edits (the closed status-word set, glyph map, and retrospective parsers are untouched). **A validator invocation that produced no verdict line — silent denial (denied/absent helper/no output) and internal failure (exit 2) alike — is the degraded arm:** report `degraded: unvalidated (<reason>)`, never read absent output as `pass`.
