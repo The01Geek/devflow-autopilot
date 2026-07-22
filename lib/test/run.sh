@@ -47551,6 +47551,16 @@ e711_rc() {  # <root> <path…>  -> prints just "rc=<n>"; assert_eq prints the v
   # Pure parameter expansion — no tr/sed/cut: this value DECIDES an assertion, and the repo's
   # guard-class-2 rule keeps such a value off every non-preflight PATH tool.
   local out; out="$(e711_run "$@")"
+  # The guard exits 1 both when it DETECTS a walk and when it refuses to audit at all (the
+  # load-failure arm: the shared extract-command-heads.py could not be resolved). Every
+  # "<shape> is a candidate" assertion compares against the bare string `rc=1`, so a rename of
+  # that shared helper would turn ~20 detection assertions green while nothing was scanned —
+  # the same misattribution the probe_tmp sentinel above is short-circuited to prevent. Emit a
+  # value no expectation can match instead. A `SKIPPED` outcome is deliberately NOT caught here:
+  # it is a real per-file verdict some assertions legitimately expect through rc=1.
+  case "$out" in
+    *"refusing to audit"*) printf 'rc=guard-unusable'; return 0 ;;
+  esac
   printf '%s' "${out%%|*}"
 }
 e711_write() {  # <root> <relpath> <line…>  -> writes a fixture file, creating parents
@@ -51294,7 +51304,13 @@ rm -rf "$PM_SB_TWO"
 # the same misleading red this issue removes. The fixture conflicts the baseline for real.
 PM_SB_CONFLICT="$(_pm_fixture_repo '#711 conflicted-index fixture' lib/test/prompt-mass-baseline.json)"
 case "$PM_SB_CONFLICT" in
-  ""|/dev/null*) : ;;
+  ""|/dev/null*)
+    # Sentinel: git_sandbox has already recorded its own FAIL. Emit an actual no expectation can
+    # match rather than skipping the block silently — a vanished assertion leaves the reader a
+    # tally that quietly lost a check, which is the same misattribution the e711_run sentinel and
+    # the e711_rc guard-unusable token are shaped to prevent.
+    assert_eq "#711 an unmerged index still counts one baseline, not one per stage" "1" \
+      "sandbox-unavailable" ;;
   *)
     git -C "$PM_SB_CONFLICT" checkout -q -b e711_other 2>/dev/null
     printf '{"side":"other"}\n' > "$PM_SB_CONFLICT/lib/test/prompt-mass-baseline.json"
@@ -51303,6 +51319,13 @@ case "$PM_SB_CONFLICT" in
     printf '{"side":"mine"}\n' > "$PM_SB_CONFLICT/lib/test/prompt-mass-baseline.json"
     git -C "$PM_SB_CONFLICT" commit -qam mine 2>/dev/null
     git -C "$PM_SB_CONFLICT" merge e711_other >/dev/null 2>&1
+    # Prove the fixture REACHED the defect-producing shape before trusting the count, the same
+    # way the decoy fixture measures itself through the retained pre-fix walk. Without this, a
+    # merge that silently succeeded would leave one stage, the count would be 1, and the
+    # assertion would pass under the very line-tally mutation it exists to catch.
+    assert_eq "#711 the conflicted-index fixture really holds an unmerged path (3 stages)" "3" \
+      "$(git -C "$PM_SB_CONFLICT" ls-files -- '*prompt-mass-baseline.json' | python3 -c 'import sys
+print(sum(1 for line in sys.stdin if line.strip()), end="")')"
     assert_eq "#711 an unmerged index still counts one baseline, not one per stage" "1" \
       "$(_pm_committed_baseline_count "$PM_SB_CONFLICT")"
     ;;

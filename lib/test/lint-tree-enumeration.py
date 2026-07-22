@@ -158,14 +158,19 @@ from pathlib import Path
 _HEADS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "extract-command-heads.py")
 _spec = importlib.util.spec_from_file_location("extract_command_heads", _HEADS_PATH)
 if _spec is None or _spec.loader is None:
+    # NOT the moved/renamed case: spec_from_file_location returns a populated spec even for a
+    # nonexistent path, so a rename surfaces below as FileNotFoundError. This arm is reachable
+    # essentially only for a path Python does not recognize as importable source.
     raise SystemExit(
-        f"lint-tree-enumeration: the shell arm depends on {_HEADS_PATH}, which could not "
-        "be loaded (moved or renamed?); refusing to audit rather than scanning without it"
+        f"lint-tree-enumeration: the shell arm depends on {_HEADS_PATH}, which Python did not "
+        "recognize as an importable source file; refusing to audit rather than scanning without it"
     )
 _heads = importlib.util.module_from_spec(_spec)
 try:
     _spec.loader.exec_module(_heads)
-except OSError as _exc:  # a raw traceback here names the interpreter, not the dependency
+except Exception as _exc:  # narrower would leave a SyntaxError in the sibling as a raw
+    # traceback naming the interpreter rather than the dependency — the very reader experience
+    # this guard exists to replace. SystemExit still exits non-zero, so this stays fail-closed.
     raise SystemExit(
         f"lint-tree-enumeration: the shell arm depends on {_HEADS_PATH}, which could not "
         f"be loaded ({_exc.__class__.__name__}: {_exc}); refusing to audit"
@@ -580,6 +585,28 @@ def _head_index(raw_tokens: list[str]) -> int | None:
 _PROCESS_SUBSTITUTION = re.compile(r"[<>]\(")
 
 
+def _is_balanced_subshell(statement: str) -> bool:
+    """True when `statement` is ONE parenthesized group, not two adjacent ones.
+
+    A `startswith("(") and endswith(")")` shape test also matches
+    `(cd a && x) || (find "$ROOT" -name y)`, whose inner slice is unbalanced text that would be
+    re-split and re-tokenized as if it were a statement — a source of spurious findings from a
+    mangled fragment. Detection of the outer statement is unaffected either way; this keeps the
+    descent from feeding the splitter something that was never a statement.
+    """
+    if not (statement.startswith("(") and statement.endswith(")")):
+        return False
+    depth = 0
+    for index, char in enumerate(statement):
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return index == len(statement) - 1
+    return False
+
+
 def _process_substitution_bodies(statement: str) -> list[str]:
     """Return the bodies of every `<(…)` / `>(…)` process substitution, brace-matched."""
     bodies: list[str] = []
@@ -618,7 +645,7 @@ def statements_in(text: str) -> list[str]:
             # `_heads._head_of` does. Without this a walk written `(find "$ROOT" …)`
             # escapes at the head and is neither flagged nor a named residual.
             stripped = statement.strip()
-            if stripped.startswith("(") and stripped.endswith(")"):
+            if _is_balanced_subshell(stripped):
                 inner = stripped[1:-1]
                 if inner not in seen:
                     seen.add(inner)
@@ -756,7 +783,10 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"lint-tree-enumeration: note: all {len(population)} enumerated path(s) were "
             f"excluded; nothing under {AUDITED_PREFIX} with suffix {'/'.join(AUDITED_SUFFIXES)} "
-            "was selected (a wrong --root or an out-of-scope --files-from looks like this)",
+            "was selected (a wrong --root or an out-of-scope --files-from looks like this). "
+            "This is a NOTE, not a failure: a fully-excluded non-empty population is a legal "
+            "`audited 0 of 0` at exit 0 by the governing criterion — only a population that is "
+            "empty BEFORE exclusion fails closed",
             file=sys.stderr,
         )
 
