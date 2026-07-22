@@ -34,7 +34,7 @@ Both are asserted by `lib/test/modules/create-issue-contract.sh` (driven by the 
 | **Root** | `skills/create-issue/SKILL.md` | 2,732 | Root ceiling: **2,754 words** |
 | **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 31,085 | Default-path ceiling: **31,262 words** |
 
-Each ceiling is at most the implement-time measured value plus **5% headroom** (the AC6 maximum). Both were set from an earlier measurement in this same change and deliberately **not re-raised** when review fixes grew the operands, so the shipped headroom is under 5% on both (root ~0.9%, default path ~0.7%). The suite asserts that legality directly — a ceiling above measured+5% is RED — so a future raise needs a real measurement behind it. The
+Each ceiling is at most the implement-time measured value plus **5% headroom** (the AC6 maximum). Both were set from an earlier measurement in this same change and deliberately **not re-raised** when review fixes grew the operands, so the shipped headroom is under 5% on both (root ~0.9%, default path ~0.6%). The suite asserts that legality directly — a ceiling above measured+5% is RED — so a future raise needs a real measurement behind it. The
 default-path operand deliberately **excludes the four fallback references** — they load only when
 their predicate fires, which is the whole point of the split. `revision-delta.md` is *retained* in the
 operand even though it too is predicate-gated (its trigger is any revise-and-re-gate site): a revision
@@ -73,7 +73,7 @@ Measured at implement time (2026-07-21), python3 word-split:
 | `references/fallback-state-owner-unavailable.md` | 748 | the state owner stops answering |
 | **root + all 9 references** | **26,580** | — |
 | `references/issue-template.md` | 6,796 | Step 3 (unchanged by the split) |
-| `references/audit-prompt-template.md` | 1,515 | renderer-owned (unchanged by the split) |
+| `references/audit-prompt-template.md` | 1,608 | renderer-owned (unchanged by the split) |
 
 **What the default path sheds.** Before the split every run loaded all 24,473 words of the monolith.
 After it, a run on the default path — task tool usable, writable filesystem, file-arm dispatch, state

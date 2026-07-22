@@ -23,9 +23,10 @@ TWO-CLASS CLI CONTRACT (the skill branches on exactly this):
   * Query subcommands ALWAYS exit 0 once their arguments parse (an argparse usage
     error — a missing required flag or an unknown one — exits 2 before the query logic
     runs) and answer on stdout with a decided single-line
-    token — fail-closed answers included — with exactly one exception: `query-findings`
-    prints one decided line per ledger entry, one of the tool's multi-line queries (a
-    run with no ledger prints the single line `findings=none`). A crashed read is never
+    token — fail-closed answers included — except for the multi-line read-back queries
+    `query-findings`, `query-claim-baselines`, and `query-finding-evidence`, which each
+    print one decided line per record (an empty store prints the single line
+    `findings=none` / `claims=none` / `evidence=none`). A crashed read is never
     presented as a value. Queries are strictly READ-ONLY: the tool-unavailability fallback depends
     on a mutation-persistence failure still leaving the queries answering, so no
     query may write. This is why the eligibility token is *derived* on demand rather
@@ -844,23 +845,45 @@ def evidence_completeness(entry):
     return ('incomplete' if missing else 'complete'), missing
 
 
+def _observed_divergent(a, b):
+    """True when two evidence items' observed outputs must be treated as disagreeing.
+
+    Plain inequality is not sufficient: `_bound_evidence` caps each field, so two probes
+    whose outputs diverge only PAST the cap are stored as byte-identical truncated strings
+    and would compare equal — silently erasing the conflict and buying the cheap replay that
+    "a conflict never collapses silently to either value" exists to deny. So a pair whose
+    observed values are equal but BOTH truncated is reported as divergent: the comparison
+    could not see the bytes that would decide it, and unknown is never agreement.
+    """
+    if a != b:
+        return True
+    return (a or '').endswith(_EVIDENCE_TRUNCATION_MARK)
+
+
 def evidence_conflicts(store):
     """Map each evidence key to the sorted keys it CONFLICTS with, else an empty list.
 
-    Two items conflict when they cite the same locator but report different observed
-    output — two probes that disagree. The conflict is surfaced for verification and never
-    auto-resolved by picking one value (#704 AC10): both observed values stay recorded and
-    both keys name each other, so no reader can collapse the pair silently.
+    Two items conflict when they cite the same locator AND ran the same command but report
+    different observed output — two probes that disagree. The command is part of the key
+    deliberately: two findings legitimately probing one `path:line` with *different*
+    commands normally produce different output without disagreeing about anything, and
+    treating that as a conflict would force full re-verification on every such pair.
+
+    The conflict is surfaced for verification and never auto-resolved by picking one value
+    (#704 AC10): both observed values stay recorded and both keys name each other, so no
+    reader can collapse the pair silently.
     """
-    by_locator = {}
+    by_probe = {}
     for key, entry in store.items():
         if entry.get('locator'):
-            by_locator.setdefault(entry['locator'], []).append(key)
+            by_probe.setdefault((entry['locator'], entry.get('command')), []).append(key)
     out = {k: [] for k in store}
-    for group in by_locator.values():
+    for group in by_probe.values():
         for key in group:
-            out[key] = sorted(other for other in group if other != key
-                              and store[other].get('observed') != store[key].get('observed'))
+            out[key] = sorted(
+                other for other in group
+                if other != key and _observed_divergent(store[other].get('observed'),
+                                                        store[key].get('observed')))
     return out
 
 
@@ -3710,10 +3733,10 @@ def cmd_record_claim_baseline(args):
             _fail(prefix, f'domain-class-paths: a {args.claim_class} claim is identified by '
                           f'its re-executed full-domain search result, not by hit paths; '
                           f'pipe the result with --domain-stdin')
-        # The fourth arm of this guard. Without it the call exits 0 having recorded a baseline
-        # that can never be anything but `possibly-stale` — the operator believes a baseline
-        # landed while the staleness re-check is permanently degraded, and `possibly-stale` is
-        # a legitimate verdict so nothing downstream ever flags the recording error.
+        # Without this the call exits 0 having recorded a baseline that can never be anything
+        # but `possibly-stale` — the operator believes a baseline landed while the staleness
+        # re-check is permanently degraded, and `possibly-stale` is a legitimate verdict, so
+        # nothing downstream ever flags the recording error.
         if not args.domain_stdin:
             _fail(prefix, f'domain-class-no-domain: a {args.claim_class} claim is identified '
                           f'by its re-executed full-domain search result; pipe it with '
@@ -3731,6 +3754,14 @@ def cmd_record_claim_baseline(args):
         if not args.path:
             _fail(prefix, 'location-class-no-paths: a location claim needs at least one '
                           '--path naming the content it was measured from')
+        # Deliberately NOT symmetric with the domain arm's refusal above, and the asymmetry
+        # is the decided contract rather than an oversight: an unmeasurable path is exactly
+        # the "otherwise unresolvable state" issue #704 requires to be RECORDED as
+        # `unestablished` (read back as possibly-stale, never fresh) and to degrade with a
+        # disclosed marker without blocking. Refusing would record nothing at all. The domain
+        # arm differs because a MISSING `--domain-stdin` is a caller-contract error — the
+        # caller never supplied a measurement — not a measurement that was attempted and
+        # failed. `location_identity`'s stderr breadcrumb is the disclosed marker.
         identity = location_identity(args.path)
         paths = sorted(set(args.path))
     entry = {'claim_class': args.claim_class, 'revision': capture_revision(),
@@ -3832,6 +3863,10 @@ def cmd_record_finding_evidence(args):
     observed = None
     if args.observed_stdin:
         raw = sys.stdin.buffer.read()
+        # An empty read is NOT refused: issue #704 requires evidence that is absent or
+        # incomplete to be RECORDED `incomplete` (never verified), which is what
+        # `evidence_completeness` does with an empty `observed`. Refusing would record no
+        # evidence at all and lose the finding's locator and command with it.
         try:
             observed = raw.decode('utf-8')
         except UnicodeDecodeError:
@@ -3843,7 +3878,17 @@ def cmd_record_finding_evidence(args):
     completeness, missing = evidence_completeness(entry)
     entry['completeness'] = completeness
     key = f'{args.round}:{args.finding_id}'
-    doc.setdefault('finding_evidence', {})[key] = entry
+    store = doc.setdefault('finding_evidence', {})
+    prior = store.get(key)
+    if prior is not None and prior.get('observed') != entry.get('observed'):
+        # Last-write-wins would silently collapse two disagreeing observations of ONE finding
+        # to the later value — the same one-sided resolution `evidence_conflicts` refuses
+        # across findings. Re-recording identical evidence is an idempotent replay and stays
+        # legal; a differing one is a caller-contract error that must be seen.
+        _fail(prefix, f'evidence-overwrite-differs: {key} already carries evidence whose '
+                      f'observed output differs; record the second probe under its own '
+                      f'finding id so the disagreement is surfaced, never overwritten')
+    store[key] = entry
     _save_or_fail(prefix, doc, args.slug)
     print(f'finding={key} completeness={completeness} '
           f'missing={",".join(missing) if missing else "none"}')
@@ -4065,7 +4110,8 @@ def cmd_query_findings(args):
     `summary=` is the FINAL field on every line because it is the one field whose value
     may contain spaces; the AC1 vocabulary refusal is what keeps that unambiguous, since
     no summary can carry a `<field>=` word of the tool's own printed surface. This is the
-    tool's multi-line queries, alongside the issue-#704 claim/evidence read-backs.
+    tool's multi-line queries, alongside the issue-#704 claim/evidence read-backs, is
+    this one.
 
     INVARIANT for any future field: `summary=` must REMAIN trailing. A field appended
     after it would end the unambiguous split — the reader could no longer tell a space
@@ -4463,7 +4509,11 @@ def main():
     s.add_argument('--locator')
     s.add_argument('--command')
     s.add_argument('--baseline-revision')
-    s.add_argument('--baseline-identity')
+    s.add_argument('--baseline-identity',
+                   help='The content identity the auditor captured, recorded verbatim as '
+                        'DATA. It is deliberately NOT cross-checked against any recorded '
+                        'claim baseline: the auditor cannot read the state file, so an '
+                        'identity it supplies is a claim to verify, not a key to join on.')
     s.add_argument('--observed-stdin', action='store_true',
                    help='Read the observed output from stdin (multi-line is legal here).')
     s.set_defaults(func=cmd_record_finding_evidence)

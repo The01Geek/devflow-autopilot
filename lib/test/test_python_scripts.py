@@ -11463,8 +11463,8 @@ assert_eq("#603-21/AC12: a ledger whose ingested-unresolved tally disagrees with
           True, 'ingested 0' in _r21 and 'unresolved-must-revise' in _r21.replace('_', '-'))
 
 
-# Row 22/AC8+AC11 — the two unestablished echo paths. `query-findings` is the tool's one
-# multi-line query, so its fail-closed single-line answer is a shape nothing else pins; and
+# Row 22/AC8+AC11 — the two unestablished echo paths. `query-findings` was the tool's first
+# multi-line query, so its fail-closed single-line answer is a shape this row pins; and
 # `remaining=` on a post-close mutation must render the literal token, never a laundered 0,
 # when the run-wide effective count is unestablished (PR #612 review, Suggestion #4).
 def _row22(r):
@@ -12205,6 +12205,86 @@ def _row704_21(r):
 
 
 _with_run704(_row704_21)
+
+
+def _row704_22(r):
+    """The shadow round's residual arms: recompute-at-check-time failure, undecodable
+    evidence, the exact cap boundary, and the truncation-aware conflict rule.
+    """
+    r.write('anchor.md', 'alpha\n')
+    r.commit('A')
+    r.baseline('loc', 'location', 'anchor.md')
+    # `recompute-unestablished` is the arm that separates "could not measure NOW" from
+    # "measured and moved". Falling through to `stale` would falsely assert a measured
+    # difference; an inverted guard would return `fresh`. Both are legal vocabulary tokens,
+    # so row 14's membership check cannot catch either — only this row can.
+    Path(r.tmp, 'anchor.md').unlink()
+    got = r.staleness('loc')
+    assert_eq("#704-22: a path unmeasurable AT CHECK TIME is possibly-stale, never stale",
+              ('possibly-stale', 'recompute-unestablished'),
+              (_field704(got.stdout, 'state='), _field704(got.stdout, 'reason=')))
+
+    _round704(r)
+    # Observed output is the field most likely to carry raw bytes (a grep over a binary, a
+    # truncated capture), and `ledger-undecodable`'s analogue is pinned, so this asymmetry
+    # is closed: a regression to `decode('utf-8', 'replace')` would silently persist mojibake
+    # that later reads as reproducible evidence.
+    bad = _subprocess.run(
+        [sys.executable, _IAS603, 'record-finding-evidence', r.slug, '--nonce', r.nonce,
+         '--round', '1', '--finding-id', '1', '--locator', 'a.py:1', '--command', 'c',
+         '--observed-stdin'], cwd=r.tmp, input=b'\xff\xfe not utf-8', capture_output=True)
+    assert_eq("#704-22: non-UTF-8 observed output is refused as evidence-undecodable",
+              (True, True),
+              (bad.returncode != 0, b'evidence-undecodable' in bad.stderr))
+
+    # The exact-cap boundary: an off-by-one flipped to `<` would append the truncation
+    # disclosure to an UNtruncated field — making the notice itself false, the one thing a
+    # truncation notice must never be.
+    cap = issue_audit_state._EVIDENCE_MAX_CHARS
+    mark = issue_audit_state._EVIDENCE_TRUNCATION_MARK
+    assert_eq("#704-22: a field of exactly the cap passes through unmarked",
+              (cap, False),
+              (len(issue_audit_state._bound_evidence('z' * cap)),
+               issue_audit_state._bound_evidence('z' * cap).endswith(mark)))
+    assert_eq("#704-22: cap+1 is truncated AND discloses it",
+              True, issue_audit_state._bound_evidence('z' * (cap + 1)).endswith(mark))
+
+    # Truncation must not erase a conflict: two probes diverging only PAST the cap store
+    # byte-identical truncated strings, so an equality test alone would report `conflict=none`
+    # and buy the cheap replay that "a conflict never collapses silently" exists to deny.
+    trunc = 'z' * cap + mark
+    both = {'a': {'locator': 'f.py:1', 'command': 'c', 'observed': trunc},
+            'b': {'locator': 'f.py:1', 'command': 'c', 'observed': trunc}}
+    assert_eq("#704-22: two equal-but-TRUNCATED observations are a conflict, not agreement",
+              {'a': ['b'], 'b': ['a']}, issue_audit_state.evidence_conflicts(both))
+    # ...while two identical UNtruncated observations still agree (the negative control that
+    # keeps the truncation rule from flagging every equal pair).
+    same = {'a': {'locator': 'f.py:1', 'command': 'c', 'observed': 'x'},
+            'b': {'locator': 'f.py:1', 'command': 'c', 'observed': 'x'}}
+    assert_eq("#704-22: two identical untruncated observations still agree",
+              {'a': [], 'b': []}, issue_audit_state.evidence_conflicts(same))
+    # Different COMMANDS at one locator normally produce different output without disagreeing
+    # about anything, so they are not a conflict — the docstring's own definition.
+    diffcmd = {'a': {'locator': 'f.py:1', 'command': 'grep -c x f.py', 'observed': '3'},
+               'b': {'locator': 'f.py:1', 'command': 'sed -n 1p f.py', 'observed': 'x'}}
+    assert_eq("#704-22: two DIFFERENT commands at one locator are not a conflict",
+              {'a': [], 'b': []}, issue_audit_state.evidence_conflicts(diffcmd))
+
+    # A same-key re-record whose observation DIFFERS is refused rather than silently
+    # collapsing two disagreeing observations of one finding to the later value.
+    r.evidence(1, 1, locator='a.py:1', command='c', observed='3\n', baseline_revision='rev')
+    again = r.evidence(1, 1, locator='a.py:1', command='c', observed='7\n',
+                       baseline_revision='rev')
+    assert_eq("#704-22: re-recording DIFFERING evidence under one key is refused",
+              (True, True),
+              (again.returncode != 0, 'evidence-overwrite-differs' in again.stderr))
+    idem = r.evidence(1, 1, locator='a.py:1', command='c', observed='3\n',
+                      baseline_revision='rev')
+    assert_eq("#704-22: re-recording IDENTICAL evidence stays an idempotent replay",
+              0, idem.returncode)
+
+
+_with_run704(_row704_22)
 
 print()
 print(f"{PASS} passed, {FAIL} failed")
