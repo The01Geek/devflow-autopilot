@@ -554,9 +554,12 @@ def _leading_exec(statement: str):
     Only tokens that are not themselves executables are skipped: a leading `!`
     negation, `VAR=value` env assignments, and leading redirections. A launcher
     head is deliberately NOT stripped here (that is the whole point — a launcher
-    ahead of a helper must be seen, not normalized away), so `operand_norm` is the
-    launcher's first non-flag operand for the launcher-prefixed check. Returns
-    ``(None, None)`` when no executable token remains.
+    ahead of a helper must be seen, not normalized away), so ``tail_norm`` is the
+    normalized list of every token AFTER the head, which the launcher-prefixed
+    check scans for a helper (a helper can sit behind a launcher's own flags,
+    operand-taking flags like ``xargs -I {}``, or an ``env VAR=val`` assignment, so
+    a single fixed operand position would miss it — fail-closed means scan the
+    whole tail). Returns ``(None, [])`` when no executable token remains.
     """
     statement = statement.strip()
     # A bare subshell `(cmd …)` runs `cmd`; descend, mirroring `_head_of`.
@@ -571,17 +574,10 @@ def _leading_exec(statement: str):
     while i < len(tokens) and _REDIRECTION.match(tokens[i]):
         i += 1
     if i >= len(tokens):
-        return None, None
+        return None, []
     head = _normalize(tokens[i])
-    j = i + 1
-    while j < len(tokens) and tokens[j].startswith("-"):
-        j += 1
-    if head in WRAPPERS_WITH_OPERAND and j < len(tokens) and re.fullmatch(
-        r"[0-9]+[smhd]?", tokens[j]
-    ):
-        j += 1
-    operand = _normalize(tokens[j]) if j < len(tokens) else None
-    return head, operand
+    tail = [_normalize(t) for t in tokens[i + 1:]]
+    return head, tail
 
 
 def _classify_boundary(statement: str, helper_basenames, launchers):
@@ -590,7 +586,7 @@ def _classify_boundary(statement: str, helper_basenames, launchers):
     ``helper_basenames`` are the profile's per-helper-granted bundled-helper
     basenames; ``launchers`` are the profile's granted launcher heads.
     """
-    head, operand = _leading_exec(statement)
+    head, tail = _leading_exec(statement)
     if head is None:
         return None
     # Case A: the leading token itself names a bundled helper.
@@ -605,16 +601,29 @@ def _classify_boundary(statement: str, helper_basenames, launchers):
         if head.startswith("scripts/") or head.startswith("lib/"):
             return ("repo-root-path", head)
         return ("helper-not-leading", head)
-    # Case B: a granted launcher head with a bundled-helper operand.
-    if head in launchers and operand is not None:
-        obn = _helper_basename(operand)
-        if obn is not None and obn in helper_basenames:
-            return ("launcher-prefixed:" + head, operand)
+    # Case B: a granted launcher head followed anywhere by a bundled helper. Scan
+    # the whole tail rather than a single operand slot, so an `env VAR=val <helper>`
+    # assignment or an operand-taking flag (`xargs -I {} <helper>`) cannot hide the
+    # helper behind the launcher — the launcher's broad grant would otherwise
+    # execute it, escaping the per-helper vendored grant.
+    if head in launchers:
+        for tok in tail:
+            obn = _helper_basename(tok)
+            if obn is not None and obn in helper_basenames:
+                return ("launcher-prefixed:" + head, tok)
     return None
 
 
 def _boundary_units(block_text: str):
-    """Every leaf statement (splitting compounds and descending `$(…)`) of a cleaned block."""
+    """Every leaf statement (splitting compounds and descending `$(…)`) of a cleaned block.
+
+    Known limitation (shared with `_head_of`/`extract_heads`): `_split_statements`
+    tracks `$(` depth but not bare `(` subshell depth, so a compound nested in a
+    bare subshell — `(cd d && helper)` — splits on the inner `&&` and the helper
+    token keeps a trailing `)`, which `_helper_basename`'s end-anchor then drops. No
+    current cloud-reached fence nests a compound in a bare subshell; a fix belongs
+    in the shared splitter, not here.
+    """
     units: list[str] = []
     for statement in _split_statements(block_text):
         units.append(statement)
@@ -624,7 +633,14 @@ def _boundary_units(block_text: str):
 
 
 def _fenced_bash_blocks_with_lines(text: str):
-    """``(1-based fence-body start line, block-body)`` for every ```bash fence."""
+    """``(1-based fence-body start line, block-body)`` for every ```bash fence.
+
+    An UNTERMINATED fence (opened but never closed before EOF) is treated as if it
+    closed at EOF, so its body is still scanned. Dropping it would make a guard
+    return "" (clean) for a file whose only escapes live in the dangling fence —
+    a fail-open where "unknown is not zero" demands the content be audited. A
+    well-formed document closes every fence, so this changes nothing there.
+    """
     blocks: list[tuple[int, str]] = []
     body: list[str] | None = None
     start = 0
@@ -640,6 +656,8 @@ def _fenced_bash_blocks_with_lines(text: str):
             body = None
             continue
         body.append(line)
+    if body is not None:
+        blocks.append((start, "\n".join(body)))  # unterminated fence: audit it anyway
     return blocks
 
 

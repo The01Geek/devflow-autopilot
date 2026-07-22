@@ -7939,6 +7939,15 @@ _hb_matrix = {
                     "launcher-prefixed:env"),
     "launch-timeout": ("```bash\ntimeout 30 .devflow/vendor/devflow/scripts/apply-labels.sh 1 X\n```",
                        "launcher-prefixed:timeout"),
+    # A helper hidden behind the launcher's OWN tokens (an `env VAR=val` assignment
+    # or an operand-taking flag) must still be caught — the tail is scanned whole.
+    "launch-env-assign": ("```bash\nenv GH_TOKEN=x .devflow/vendor/devflow/scripts/workpad.py id 5\n```",
+                          "launcher-prefixed:env"),
+    "launch-xargs-flag": ("```bash\nprintf x | xargs -I {} .devflow/vendor/devflow/scripts/workpad.py {}\n```",
+                          "launcher-prefixed:xargs"),
+    # An UNTERMINATED ```bash fence must still be audited (fail-closed), not dropped
+    # as if the file were clean.
+    "unterminated-fence": ("```bash\nscripts/workpad.py id 5", "repo-root-path"),
     "capture-ok":  ("```bash\nWID=$(\"%s\"/../../scripts/workpad.py id 5)\n```" % _hb_A, None),
     "pipe-ok":     ("```bash\nprintf x | \"%s\"/../../scripts/run-jq.sh -r .\n```" % _hb_A, None),
     "echo-arg-ok": ("```bash\necho \"see .devflow/vendor/devflow/scripts/workpad.py here\"\n```", None),
@@ -8000,6 +8009,15 @@ assert_eq("#701 AC8: every path-family reason the classifier returns has a plant
           set(), _hb_reason_literals - set(_hb_path_plants))
 assert_eq("#701 AC8: the reason-literal extraction is non-vacuous",
           True, bool(_hb_reason_literals))
+# The path-family reconciliation matches only static lowercase-hyphen reasons; a
+# colon-PREFIXED reason (the way `launcher-prefixed:<head>` is assembled) escapes
+# it. Pin that the ONLY colon-form reason the classifier returns is the
+# launcher-family one, so a new `return ("<prefix>:" …` that is neither path- nor
+# launcher-family cannot slip past both reconciliations uncontrolled.
+_hb_colon_reasons = set(re.findall(r'return \("([a-z-]+):"', _hb_ech_src))
+assert_eq("#701 AC8: the only colon-form classifier reason is the launcher family "
+          "(a new colon-prefixed reason without a control family goes RED here)",
+          {"launcher-prefixed"}, _hb_colon_reasons)
 try:
     _hb_planted.parent.mkdir(parents=True, exist_ok=True)
     # Non-vacuity baseline: the copied asset is clean before any plant.
