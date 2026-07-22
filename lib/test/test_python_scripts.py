@@ -7483,6 +7483,36 @@ finally:
 assert_eq("#678 AC9-residual: GRANT_REGION_EXTRACTORS restored after the messageless-exit arm",
           [], cwc.check_grant_sync())
 
+# A NON-SystemExit escape from a scoper is a scoper BUG, not its declared refusal
+# channel. _scope_grant_region routes it to the same unavailable arm rather than
+# letting it abort check_grant_sync and take the other profiles' reporting down —
+# and names the exception TYPE so a bug is never rendered as a refusal. Positive
+# control: the two other profiles still report cleanly in the same call, which is
+# the continue-and-report contract the arm exists to preserve.
+_gsr_orig_ext_bug = dict(cwc.GRANT_REGION_EXTRACTORS)
+def _gsr_buggy_scoper(_text):
+    raise ValueError("scoper indexed past the end")
+try:
+    cwc.GRANT_REGION_EXTRACTORS["review"] = _gsr_buggy_scoper
+    _gsr_bug_errs = cwc.check_grant_sync()
+    assert_eq("#678 AC9-residual: a scoper raising a NON-SystemExit is reported as an "
+              "unavailable grant source naming the exception type, not its refusal channel",
+              True, any("grant source unavailable" in e
+                        and "raised ValueError" in e
+                        and "not its declared SystemExit refusal channel" in e
+                        and "scoper indexed past the end" in e
+                        for e in _gsr_bug_errs))
+    # Positive control on the same call: the bug is contained to its own profile.
+    assert_eq("#678 AC9-residual: ...and the non-SystemExit arm does not abort the run — "
+              "no OTHER profile reports an unavailable grant source",
+              False, any("grant source unavailable" in e and "review" not in e
+                         for e in _gsr_bug_errs))
+finally:
+    cwc.GRANT_REGION_EXTRACTORS.clear()
+    cwc.GRANT_REGION_EXTRACTORS.update(_gsr_orig_ext_bug)
+assert_eq("#678 AC9-residual: GRANT_REGION_EXTRACTORS restored after the scoper-bug arm",
+          [], cwc.check_grant_sync())
+
 # (i) The injected `profile_grants` path is UNCHANGED — it injects an
 # already-scoped region, so the synthetic multi-line grant sets used by the #650
 # injected-grant arms and `_cw_healthy_grants()` are not re-scoped (and a scoper's
@@ -7627,6 +7657,40 @@ finally:
     cwc.SKILL_ASSETS["pr-description"] = _sc_orig_pd
     _sc_planted_asset.unlink(missing_ok=True)
 assert_eq("#678 AC4: SKILL_ASSETS restored after the end-to-end emission control",
+          [], cwc.check_shape_conformance())
+
+# The one-line renderer's TRUNCATION branch. Every plant above is short, so the
+# `len(oneline) > 120` arm never fired — an off-by-one or an inverted comparison
+# there would ship unnoticed. Plant a denied fence whose collapsed statement is
+# comfortably over the limit and pin the exact rendered budget (117 chars + the
+# three-character ellipsis), plus a positive control that the SHORT plant above
+# is rendered whole, so this cannot pass by truncating everything.
+_sc_long_asset = cwc.REPO_ROOT / ".devflow" / "tmp" / "sc-678-long.md"
+_sc_orig_pd_long = cwc.SKILL_ASSETS["pr-description"]
+try:
+    _sc_long_asset.parent.mkdir(parents=True, exist_ok=True)
+    _sc_short_stmt = "OUT=$(.devflow/vendor/devflow/scripts/apply-labels.sh 1 X)"
+    _sc_long_asset.write_text(
+        "```bash\n" + _sc_short_stmt + "\nOUT=$(.devflow/vendor/devflow/scripts/"
+        "apply-labels.sh 1 " + "verylonglabelname," * 12 + "X)\n```\n",
+        encoding="utf-8")
+    cwc.SKILL_ASSETS["pr-description"] = list(_sc_orig_pd_long) + [".devflow/tmp/sc-678-long.md"]
+    _sc_long_errs = [e for e in cwc.check_shape_conformance() if "sc-678-long.md" in e]
+    assert_eq("#678 AC4: the truncation plant produces exactly two violations "
+              "(one short, one long)", 2, len(_sc_long_errs))
+    _sc_renders = sorted((e.split("that reaches it: ", 1)[1] for e in _sc_long_errs), key=len)
+    # Positive control: the SHORT statement on the same fixture is rendered whole, so a
+    # renderer that truncated everything could not satisfy both assertions.
+    assert_eq("#678 AC4: a <=120-char statement is rendered whole, un-truncated",
+              _sc_short_stmt, _sc_renders[0])
+    _sc_rendered = _sc_renders[1]
+    assert_eq("#678 AC4: a >120-char statement is truncated to 117 chars plus an ellipsis "
+              "(the renderer's truncation branch, never exercised by the short plants)",
+              (120, True), (len(_sc_rendered), _sc_rendered.endswith("...")))
+finally:
+    cwc.SKILL_ASSETS["pr-description"] = _sc_orig_pd_long
+    _sc_long_asset.unlink(missing_ok=True)
+assert_eq("#678 AC4: SKILL_ASSETS restored after the truncation control",
           [], cwc.check_shape_conformance())
 
 # The live closure carries no denied shape in any profile that HAS a table.

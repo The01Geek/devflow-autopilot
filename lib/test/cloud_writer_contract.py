@@ -471,17 +471,17 @@ def unlisted_skill_assets():
 # (re-derive rather than trusting this note — the point is the direction, which
 # holds by construction, not the coincidence, which does not).
 #
+# (iii) Consumer-spliced grants. devflow-implement.yml's --allowed-tools baseline
+# is followed by a `${{ needs.config.outputs.allowed_tools_extra }}` splice, so a
+# consumer's devflow_implement.allowed_tools entries never appear in the file
+# this guard reads. A widened grant added there is outside the measured surface.
+#
 # (iv) Injected grant sources. check_grant_sync's `profile_grants` parameter is a
 # test-injection seam for ALREADY-SCOPED regions and is returned unscoped. A caller
 # passing a whole workflow through it is refused (see _looks_like_whole_workflow),
 # but that detection is one-sided — a workflow whose leading keys fall outside the
 # characteristic set is not detected and its grants pool whole-file. Only the
 # on-disk read is region-scoped unconditionally.
-#
-# (iii) Consumer-spliced grants. devflow-implement.yml's --allowed-tools baseline
-# is followed by a `${{ needs.config.outputs.allowed_tools_extra }}` splice, so a
-# consumer's devflow_implement.allowed_tools entries never appear in the file
-# this guard reads. A widened grant added there is outside the measured surface.
 #
 # Do not read arm (2) as "no grant can reach a helper" — it is "no PATH-SHAPED
 # grant IN THE COMMITTED WORKFLOW is broader than the vendored literal".
@@ -652,18 +652,21 @@ def _grant_source(profile, profile_grants):
     synthetic grants) and is returned verbatim — injected text is NOT re-scoped,
     so a synthetic fixture spelling one grant per line is never refused by a
     scoper's uniqueness check. Otherwise the profile's ROOTS workflow file is read
-    from disk and narrowed to its own grant-bearing region (issue #678). A missing
-    injected profile, an unreadable/undecodable workflow, or an unlocatable region
-    yields ``None`` so the caller can report a targeted violation rather than
-    silently treating the grant set as empty (unknown is not zero).
+    from disk and narrowed to its own grant-bearing region (issue #678). An
+    injected source that looks like a whole workflow, a missing injected profile,
+    an unreadable/undecodable workflow, or an unlocatable region yields ``None``
+    so the caller can report a targeted violation rather than silently treating
+    the grant set as empty (unknown is not zero).
 
-    ``cause`` is ``None`` on success and otherwise names WHICH of the three
-    distinct no-source conditions fired — an injected profile that is absent or
-    explicitly ``None``, a workflow that could not be read or decoded, or a
-    region that could not be located inside a workflow that read fine. All three
-    take the same "grant source unavailable" violation class (unknown is not
-    zero), but they are three different things to go fix, so each carries its own
-    breadcrumb rather than converging on one indistinguishable message.
+    ``cause`` is ``None`` on success and otherwise names WHICH of the four
+    distinct no-source conditions fired — an injected grant source refused as a
+    whole workflow file rather than an already-scoped region, an injected profile
+    that is absent or explicitly ``None``, a workflow that could not be read or
+    decoded, or a region that could not be located inside a workflow that read
+    fine. All four take the same "grant source unavailable" violation class
+    (unknown is not zero), but they are four different things to go fix, so each
+    carries its own breadcrumb rather than converging on one indistinguishable
+    message.
     """
     if profile_grants is not None:
         text = profile_grants.get(profile)
