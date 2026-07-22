@@ -50579,10 +50579,18 @@ if [ -d "$I6_SB" ]; then
     # is the fail-closed unestablished shape with NO live token, and the stderr
     # breadcrumb names the mismatch so it is not misread as a missing/corrupt record.
     N3="$(python3 "$IAS" init i6c | sed 's/nonce=//')"
+    # issue #709: the positive control below asserts a LIVE eligibility token, which the
+    # clean ground only issues once steering-absence is established — so this epoch
+    # establishes it the way a real run does.
+    python3 "$IAS_RAP" dispatch-instructions --slug i6c \
+      --draft-path "$I6_SB/draft.md" --instructions-path "$I6_SB/instr-i6c.md" > instr-i6c.md
+    IOID6="$(git hash-object --stdin --no-filters < instr-i6c.md)"
     python3 "$IAS" record-dispatch i6c --nonce "$N3" --round 1 --arm file \
-      --draft-file draft.md > /dev/null 2>&1
+      --draft-file draft.md --instructions-file "$I6_SB/instr-i6c.md" \
+      --instructions-draft-path "$I6_SB/draft.md" > /dev/null 2>&1
     python3 "$IAS" record-return i6c --nonce "$N3" --round 1 --verdict FILE \
-      --findings-count 0 --carriage-object-id "$OID" > /dev/null 2>&1
+      --findings-count 0 --carriage-object-id "$OID" \
+      --instructions-object-id "$IOID6" --extra-dispatch-content no > /dev/null 2>&1
     python3 "$IAS" query-summary i6c --nonce badnonce --draft-file draft.md \
       > .i6-fn-sum 2> .i6-fn-err; printf '%s' "$?" > .i6-fn-rc
     # positive control: the correct nonce on the SAME state renders ok + the live token.
@@ -50689,11 +50697,21 @@ if [ -d "$DB_SB" ]; then
     printf '# Draft title\n\nDRIFTED BODY\n' > drift.md
     python3 "$IAS" record-draft-binding do --nonce "$NO" --path "$BR" --tier main-root \
       > /dev/null 2>&1
+    # issue #709: the anti-drift rows below assert a LIVE clean-ground answer, which now
+    # requires established steering — so this epoch establishes it against the BOUND file
+    # (the one the readers must resolve to), never the drifted one.
+    python3 "$IAS_RAP" dispatch-instructions --slug do \
+      --draft-path "$BR/.devflow/tmp/issue-draft-do.md" \
+      --instructions-path "$DB_SB/instr-do.md" > instr-do.md
+    IOIDO="$(git hash-object --stdin --no-filters < instr-do.md)"
     python3 "$IAS" record-dispatch do --nonce "$NO" --round 1 --arm file \
-      --draft-file "$BR/.devflow/tmp/issue-draft-do.md" > /dev/null 2>&1
+      --draft-file "$BR/.devflow/tmp/issue-draft-do.md" \
+      --instructions-file "$DB_SB/instr-do.md" \
+      --instructions-draft-path "$BR/.devflow/tmp/issue-draft-do.md" > /dev/null 2>&1
     OIDO="$(git hash-object --stdin --no-filters < "$BR/.devflow/tmp/issue-draft-do.md")"
     python3 "$IAS" record-return do --nonce "$NO" --round 1 --verdict FILE \
-      --findings-count 0 --carriage-object-id "$OIDO" > /dev/null 2>&1
+      --findings-count 0 --carriage-object-id "$OIDO" \
+      --instructions-object-id "$IOIDO" --extra-dispatch-content no > /dev/null 2>&1
     # emit-body is handed the DRIFTED file, but must emit the BOUND file's body.
     python3 "$IAS" emit-body do --nonce "$NO" --draft-file drift.md > .do-body 2>/dev/null
     # The TWO merge-gating queries share emit-body's `_bound_draft_file(...) or --draft-file`
@@ -50715,11 +50733,16 @@ if [ -d "$DB_SB" ]; then
     python3 "$IAS" init du > /dev/null 2>&1
     NU="$(python3 "$IAS" query-nonce du | sed 's/nonce=//')"
     printf '# Draft title\n\nUNBOUND BODY\n' > ub.md
+    python3 "$IAS_RAP" dispatch-instructions --slug du \
+      --draft-path "$DB_SB/ub.md" --instructions-path "$DB_SB/instr-du.md" > instr-du.md
+    IOIDU="$(git hash-object --stdin --no-filters < instr-du.md)"
     python3 "$IAS" record-dispatch du --nonce "$NU" --round 1 --arm file \
-      --draft-file ub.md > /dev/null 2>&1
+      --draft-file ub.md --instructions-file "$DB_SB/instr-du.md" \
+      --instructions-draft-path "$DB_SB/ub.md" > /dev/null 2>&1
     OIDU="$(git hash-object --stdin --no-filters < ub.md)"
     python3 "$IAS" record-return du --nonce "$NU" --round 1 --verdict FILE \
-      --findings-count 0 --carriage-object-id "$OIDU" > /dev/null 2>&1
+      --findings-count 0 --carriage-object-id "$OIDU" \
+      --instructions-object-id "$IOIDU" --extra-dispatch-content no > /dev/null 2>&1
     python3 "$IAS" emit-body du --nonce "$NU" --draft-file ub.md > .du-body 2>/dev/null
     # A REAL linked worktree: bind its own toplevel and confirm the query round-trips.
     git branch -q wt-562 2>/dev/null
@@ -50783,7 +50806,7 @@ if [ -d "$DB_SB" ]; then
   # values render and that they sit immediately before the trailing `attestation=` field
   # (a re-order or a dropped field fails RED). $BR is the bound root for the `do` epoch.
   assert_eq "#562 draft_binding_cli_rows: query-summary renders bound_root/bound_tier before the trailing attestation field (S#6)" \
-    "1" "$(grep -cF "bound_root=$DB_SB/boundroot bound_tier=main-root attestation=" "$DB_SB/.do-summary" 2>/dev/null)"
+    "1" "$(grep -cF "bound_root=$DB_SB/boundroot bound_tier=main-root steering=established steering_reason=canonical-match attestation=" "$DB_SB/.do-summary" 2>/dev/null)"
   # S#5: a bound run whose latest revision has NOT landed renders the bound-branch
   # `latest_revision_landed=no` — the string a `yes`-hardcoding regression would break.
   assert_eq "#562 draft_binding_cli_rows: a bound run with an unlanded revision renders latest_revision_landed=no (S#5 — bound-branch 'no' was never exercised)" \
