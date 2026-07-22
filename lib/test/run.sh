@@ -33732,6 +33732,31 @@ assert_eq "#253 run-jq.sh: partial deploy preserves the best-effort exit-0 contr
 rm -rf "$JQT0" "$JQT1" "$JQT2" "$JQT2D" "$JQTD" "$NPT4" "$NPT4B" "$NPT4C" "$NPT4D" "$NPT4E" "$NPT4G" "$NPT4I" "$JQTP" "$JQT10" "$JQT6" "$JQT7" "$JQT8" "$SCVJ" "$SCVO" "$PFPC" "$JQT7D" "$JQNEG" "$GENTR" "$RJQ_STUB" "$RJQ_PARTIAL"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "helper-anchor portability + cloud-form layout fixtures (issue #702, AC6/AC7)"
+# ────────────────────────────────────────────────────────────────────────────
+# AC6 (local portability): a focused path-family corpus
+# (lib/test/fixtures/path-portability/families.tsv) drives the REAL
+# devflow_normalize_path over the four supported host-path families — Linux
+# POSIX, macOS POSIX, WSL Windows-form, Git Bash/MSYS2 Windows-form — proving
+# the local portable helper-anchor form resolves for each. The four families
+# are complete by construction for the POSIX-shell contract; the driver asserts
+# the corpus carries exactly them. Complements the #247 T4* stub tests: those
+# pin individual arms of the helper, this pins the family SET as a corpus.
+PP_TEST="$LIB/test/path-portability-test.sh"
+if bash "$PP_TEST" >/dev/null 2>&1; then _PP=ok; else _PP=FAILED; fi
+assert_eq "#702 AC6: path-portability family corpus resolves for all four host-path families" "ok" "$_PP"
+
+# AC7 (source and consumer layouts): a focused integration driver materializes
+# the two committed seed layouts (lib/test/fixtures/cloud-form-layouts/
+# {source-repo,consumer}) into throwaway git checkouts and executes the cloud
+# helper-invocation form against each, with a space in the checkout path AND a
+# shallow detached checkout represented in both. Exit 0 == every layout × state
+# resolved the anchor and ran the vendored-literal helper (sentinel ANCHOR-OK).
+CFL_TEST="$LIB/test/cloud-form-layout-test.sh"
+if bash "$CFL_TEST" >/dev/null 2>&1; then _CFL=ok; else _CFL=FAILED; fi
+assert_eq "#702 AC7: cloud form runs against source-repo + consumer layouts (spaces + shallow detached)" "ok" "$_CFL"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "running-bash diagnostic: preflight.sh devflow-bash breadcrumb + remedy (issue #248)"
 # ────────────────────────────────────────────────────────────────────────────
 # preflight.sh emits a `devflow-bash:` breadcrumb naming the POSIX bash its .sh
