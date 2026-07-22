@@ -168,29 +168,35 @@ _DEGRADED_REASONS = ('no-subagent-tool', 'dispatch-error', 'no-parseable-verdict
 # same fail-closed reason `_carriage_ok` gives. (The SUMMARY surface does carry a third
 # `unestablished` token, for the distinct case of no completed round to report on at all.)
 _STEERING_STATES = ('established', 'not-established')
-# Why, in refusal precedence order. `canonical-match` is the one establishing reason.
-_STEERING_REASONS = (
+# Why, in refusal precedence order, mapped to the ONE state each reason may carry.
+# A mapping rather than a flat tuple because `_validate` must reject a forged PAIR:
+# checking state and reason membership independently would accept
+# `{'state': 'established', 'reason': 'no-instructions-file'}` — precisely the
+# hand-corrupted record the validator exists to stop from walking the run past the
+# gate. `canonical-match` is the one establishing reason.
+_STEERING_REASON_STATE = {
     # The arm never had a hashable instruction file — the embed and inline arms are
     # entered BECAUSE the canonical draft-file write already failed, so steering-absence
     # is unestablished BY CONSTRUCTION there. A designed consequence, not a gap.
-    'no-instructions-file',
+    'no-instructions-file': 'not-established',
     # File arm, but the dispatch recorded no instruction digest / closed inputs, so the
     # tool cannot regenerate the comparand at all.
-    'inputs-unrecorded',
+    'inputs-unrecorded': 'not-established',
     # The regeneration itself failed (generator unimportable, draft unreadable, template
     # unreadable, hashing failed). Unknown is not zero.
-    'regeneration-failed',
-    'instructions-object-id-absent',
-    'instructions-object-id-mismatch',
+    'regeneration-failed': 'not-established',
+    'instructions-object-id-absent': 'not-established',
+    'instructions-object-id-mismatch': 'not-established',
     # The auditor did not report the no-extra-content affirmation at all.
-    'extra-dispatch-content-unreported',
+    'extra-dispatch-content-unreported': 'not-established',
     # The auditor reported that its dispatch message carried more than the pointer.
-    'extra-dispatch-content',
-    'canonical-match',
-)
+    'extra-dispatch-content': 'not-established',
+    'canonical-match': 'established',
+}
 # The closed answer set for the SUMMARY-line steering token: the two round-level states
 # plus `unestablished` for "no completed round, or a completed round that recorded no
-# steering result". Named once so the summary branch and the validator cannot drift.
+# steering result". `summary_fields` asserts its derived token against this set, so the
+# constant is load-bearing rather than a name that merely claims a coupling.
 _STEERING_SUMMARY = _STEERING_STATES + ('unestablished',)
 _NEXT_ACTIONS = (
     'dispatch-embed-retry', 'dispatch-retry-same-arm', 'dispatch-inline-degraded',
@@ -967,9 +973,17 @@ def _validate(doc, slug):
             if steer.get('state') not in _STEERING_STATES:
                 raise StateError(f'round {num} names a steering state outside the '
                                  f'canonical set: {steer.get("state")!r}')
-            if steer.get('reason') not in _STEERING_REASONS:
+            if steer.get('reason') not in _STEERING_REASON_STATE:
                 raise StateError(f'round {num} names a steering reason outside the '
                                  f'canonical set: {steer.get("reason")!r}')
+            # The PAIR, not the two fields independently: a reason may carry exactly
+            # one state, so a record pairing `established` with a refusal reason (or
+            # the reverse) is refused here rather than reaching the eligibility gate.
+            if _STEERING_REASON_STATE[steer['reason']] != steer['state']:
+                raise StateError(
+                    f'round {num} pairs steering state {steer["state"]!r} with reason '
+                    f'{steer["reason"]!r}, which belongs to state '
+                    f'{_STEERING_REASON_STATE[steer["reason"]]!r}')
         if rnd['outcome'] is not None and rnd['outcome'] not in _ROUND_OUTCOMES:
             raise StateError(f'round {num} names an outcome outside the canonical set: '
                              f'{rnd["outcome"]!r}')
@@ -1906,8 +1920,10 @@ def evaluate_eligibility(state, mode, current_digest=None, digest_failed=False):
     # override ground below is untouched, `emit-body`'s other paths are untouched, and
     # Step 4 still presents and files on the user's approval — filing is never blocked on
     # any arm. What is withheld is exactly the coverage-backed clean grounding.
+    # `steering_ok` already implies `clean is not None`, so the guards below test it
+    # alone rather than restating that fact at each site.
     steering_ok = clean is not None and _steering_established(clean)
-    if clean is not None and steering_ok:
+    if steering_ok:
         arm = clean['attempts'][-1]['arm']
         if arm == 'file':
             recorded = clean['attempts'][-1].get('digest')
@@ -2160,6 +2176,13 @@ def summary_fields(state, current_digest=None, digest_failed=False):
     # ONE convergence evaluation feeds both summary fields (issue #603): derived from two
     # independent call sites they could render two fields describing different states.
     _convergence = evaluate_convergence(state)
+    # ONE read of the latest completed round's steering record feeds both summary
+    # fields (issue #709): two independent three-way expressions could drift into
+    # rendering a state and a reason that describe different things.
+    _steer_rec = (last or {}).get('steering') or {}
+    _require(_steer_rec.get('state', 'unestablished') in _STEERING_SUMMARY,
+             f'issue-audit-state: the summary steering token '
+             f'{_steer_rec.get("state")!r} is outside _STEERING_SUMMARY')
     elig = evaluate_eligibility(state, 'approve', current_digest,
                                 digest_failed=digest_failed)
     token = elig['token']
@@ -2245,10 +2268,8 @@ def summary_fields(state, current_digest=None, digest_failed=False):
         # so a run-level roll-up would let a steered early round launder a later revision.
         # `unestablished` (with a `none` reason) is the honest answer when there is no
         # completed round, or when a completed round recorded no steering result at all.
-        steering=((last.get('steering') or {}).get('state', 'unestablished')
-                  if last else 'unestablished'),
-        steering_reason=((last.get('steering') or {}).get('reason')
-                         if last else None),
+        steering=_steer_rec.get('state', 'unestablished'),
+        steering_reason=_steer_rec.get('reason'),
     )
 
 
@@ -3221,9 +3242,9 @@ def _load_generator():
     except (OSError, SyntaxError, ImportError) as exc:
         raise _DigestError(f'could not import the dispatch-instruction generator '
                            f'at {path}: {exc}') from exc
-    if not hasattr(mod, 'render_instructions'):
+    if not hasattr(mod, 'instructions_bytes'):
         raise _DigestError(f'the dispatch-instruction generator at {path} has no '
-                           f'render_instructions entry point')
+                           f'instructions_bytes entry point')
     return mod
 
 
@@ -3237,10 +3258,12 @@ def regenerate_instructions_digest(slug, inputs):
     useless — so comparing against a regeneration from the round's closed inputs is what
     makes the check prove the dispatched file was canonical, not merely unchanged.
 
-    The bytes hashed are `render_instructions(...) + '\\n'` — exactly what the generator's
-    CLI writes to stdout, and therefore exactly what the orchestrator redirects into the
-    instruction file. A divergence here would false-alarm every clean audit, so the
-    trailing newline is part of the contract, not an incidental.
+    The bytes hashed come from the generator's own `instructions_bytes`, which is the
+    single owner of its on-disk framing and is what its CLI writes to stdout — therefore
+    exactly what the orchestrator redirects into the instruction file. Replicating that
+    framing here instead would make a change to the generator's output silently
+    false-alarm every clean audit, which is why the producer owns it and a renderer test
+    couples the two.
     """
     mod = _load_generator()
     template_path = (Path(inputs['template_path']) if inputs.get('template_path')
@@ -3251,7 +3274,7 @@ def regenerate_instructions_digest(slug, inputs):
         raise _DigestError(f'could not read the draft file recorded as a regeneration '
                            f'input ({inputs["draft_path"]}): {exc}') from exc
     try:
-        rendered = mod.render_instructions(
+        rendered = mod.instructions_bytes(
             template_path, slug, inputs['draft_path'], inputs['instructions_path'],
             draft_text)
     except Exception as exc:  # noqa: BLE001 - the generator's own RenderError type is
@@ -3260,14 +3283,14 @@ def regenerate_instructions_digest(slug, inputs):
         # type, so the broad catch is the DECIDED behavior rather than a swallowed error
         # (it re-raises as _DigestError, carrying the specific cause).
         raise _DigestError(f'the dispatch-instruction generator failed: {exc}') from exc
-    return hash_bytes((rendered + '\n').encode('utf-8'))
+    return hash_bytes(rendered)
 
 
 def steering_state(slug, attempt, quoted_object_id, extra_dispatch_content):
     """Establish whether the auditor's instructions were canonical (issue #709).
 
     Returns `(state, reason)` with `state` in `_STEERING_STATES` and `reason` in
-    `_STEERING_REASONS`. The reason precedence below is DECIDED, not incidental: the
+    `_STEERING_REASON_STATE`. The reason precedence below is DECIDED, not incidental: the
     most structural cause wins, so a run that never had an instruction file is never
     diagnosed as an ID mismatch.
 

@@ -771,6 +771,67 @@ class DispatchInstructions(unittest.TestCase):
                                 "--draft-path", str(draft)])
             self.assertEqual((got.returncode != 0, got.stdout), (True, ""))
 
+    def test_D9_instructions_bytes_equals_the_real_cli_stdout(self):
+        # The producer owns its on-disk framing (issue #709). issue-audit-state.py
+        # regenerates through `instructions_bytes`, so if that ever stopped equalling
+        # what the CLI writes, every clean audit would silently go unestablished. This
+        # row is the coupling that makes such a drift RED instead of silent.
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("rap_under_test", RENDERER)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            draft = root / "issue-draft-x.md"
+            draft.write_text("# A drafted title\n\nbody\n", encoding="utf-8")
+            instr = root / "issue-audit-dispatch-x.md"
+            cli = run_renderer([
+                "dispatch-instructions", "--slug", "x",
+                "--draft-path", str(draft), "--instructions-path", str(instr),
+            ])
+            self.assertEqual(cli.returncode, 0, cli.stderr)
+            lib = mod.instructions_bytes(
+                mod._default_template_path(), "x", str(draft), str(instr),
+                draft.read_text(encoding="utf-8"),
+            )
+            self.assertEqual(lib, cli.stdout.encode("utf-8"))
+
+    def test_D10_title_rule_agrees_with_the_state_owner_body_split(self):
+        # draft_title and issue-audit-state.py's split_body are a COUPLED MIRROR of one
+        # decided title rule: the body is defined as everything the title is not. They
+        # cannot share an implementation (one takes str, the other bytes, and the state
+        # owner must not import the renderer on its always-run body-digest path), so
+        # this row is the coupling. A divergence would break either the body digest or
+        # the instruction digest, silently.
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("rap_under_test2", RENDERER)
+        rap = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(rap)
+        spec2 = importlib.util.spec_from_file_location(
+            "ias_under_test", REPO / "scripts" / "issue-audit-state.py")
+        ias = importlib.util.module_from_spec(spec2)
+        spec2.loader.exec_module(ias)
+        for text, has_title in (
+            ("# T\n\nbody\n", True),
+            ("\n\n# T\nbody\n", True),      # leading blank lines skipped
+            ("#\n\nbody\n", True),           # a bare '#' is a title (empty)
+            ("## T\n\nbody\n", False),       # a '##' first line means no title
+            ("plain\n", False),
+        ):
+            body = ias.split_body(text.encode("utf-8")).decode("utf-8")
+            if has_title:
+                # The title line was consumed by BOTH: the renderer lifts it, and the
+                # state owner's body excludes it.
+                rap.draft_title(text)
+                self.assertNotIn(text.strip().splitlines()[0], body, text)
+            else:
+                # No title heading: the renderer refuses, and the body is the whole text.
+                with self.assertRaises(rap.RenderError, msg=text):
+                    rap.draft_title(text)
+                self.assertEqual(body, text, text)
+
     def test_D8_audit_prompt_arms_still_carry_no_title(self):
         # The relocation is scoped: the file/embed/inline/checklist renders must not have
         # gained the title along with the di blocks.

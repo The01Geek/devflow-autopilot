@@ -624,16 +624,11 @@ assert_eq "#600: the consumption-categories enumeration has no sixth member (com
 CI709_DRAFT="$_ci_tmp_root/issue-draft-ci709.md"
 CI709_RENDER="$_ci_tmp_root/di-render-ci709.md"
 printf '# Pinned fixture draft title\n\nfixture body\n' > "$CI709_DRAFT"
-if python3 "$CI_ROOT/scripts/render-audit-prompt.py" dispatch-instructions --slug ci709 \
-    --draft-path "$CI709_DRAFT" --instructions-path "$_ci_tmp_root/i-ci709.md" \
-    > "$CI709_RENDER" 2>/dev/null; then
-  assert_eq "#709: the dispatch-instructions mode renders for a well-formed file-arm draft" \
-    "yes" "yes"
-else
-  assert_eq "#709: the dispatch-instructions mode renders for a well-formed file-arm draft" \
-    "yes" "no"
-  : > "$CI709_RENDER"
-fi
+python3 "$CI_ROOT/scripts/render-audit-prompt.py" dispatch-instructions --slug ci709 \
+  --draft-path "$CI709_DRAFT" --instructions-path "$_ci_tmp_root/i-ci709.md" \
+  > "$CI709_RENDER" 2>/dev/null || : > "$CI709_RENDER"
+assert_eq "#709: the dispatch-instructions mode renders for a well-formed file-arm draft" \
+  "yes" "$([ -s "$CI709_RENDER" ] && echo yes || echo no)"
 devflow_module_pin_unique "#600/#709: the auditor is told to invoke render-audit-prompt.py on the file arm" \
   'render-audit-prompt.py file --slug' "$CI709_RENDER"
 # ── issue #709: the generated-instructions transport contract ──────────────────

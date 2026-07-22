@@ -411,6 +411,28 @@ def _dimensions_block_for_status(status: str, section: str) -> str:
     )
 
 
+def _assemble(blocks, token, slots, template_path) -> str:
+    """Select the blocks carrying ``token``, substitute, and join — fail-closed.
+
+    Shared by every full render. The fail-closed emptiness rule lives here once
+    because it is the load-bearing half: a mode that selects no block (or only blank
+    ones) would otherwise emit a positionally-valid two-marker render carrying no
+    instructions at all, which the delivery check cannot detect. Two copies of that
+    rule could be kept in step only by hand.
+    """
+    parts = [
+        _substitute(body, slots).strip("\n")
+        for arm_set, body in blocks
+        if token in arm_set
+    ]
+    inner = "\n\n".join(p for p in parts if p.strip())
+    if not inner.strip():
+        raise RenderError(
+            f"template selected no non-empty block for {token!r} ({template_path})"
+        )
+    return inner
+
+
 def render_dispatch(
     mode: str,
     template_path: Path,
@@ -437,19 +459,7 @@ def render_dispatch(
         "{CONSUMER_DIMENSIONS}": _dimensions_block_for_status(status, section),
     }
 
-    parts: list[str] = []
-    for arm_set, body in blocks:
-        if mode in arm_set:
-            parts.append(_substitute(body, slots).strip("\n"))
-    inner = "\n\n".join(p for p in parts if p.strip())
-    # Fail CLOSED on an instruction-empty body: a mode that selects no block (or
-    # only blank ones) would otherwise emit a positionally-valid two-marker render
-    # carrying no instructions at all, which the delivery check cannot detect.
-    if not inner.strip():
-        raise RenderError(
-            f"template selected no non-empty block for mode {mode!r} "
-            f"({template_path})"
-        )
+    inner = _assemble(blocks, mode, slots, template_path)
     return f"{STATUS_PREFIX} {status}\n{inner}\n{END_MARKER}"
 
 
@@ -554,21 +564,25 @@ def render_instructions(
         # never be re-scanned as one. Keep it last.
         "{DRAFT_TITLE}": draft_title(draft_text),
     }
-    parts: list[str] = []
-    for arm_set, body in blocks:
-        if _INSTRUCTIONS_TOKEN in arm_set:
-            parts.append(_substitute(body, slots).strip("\n"))
-    inner = "\n\n".join(p for p in parts if p.strip())
-    if not inner.strip():
-        # Same fail-closed shape as render_dispatch: a positionally-valid but
-        # instruction-empty render is exactly what the marker check cannot catch.
-        raise RenderError(
-            f"template selected no non-empty dispatch-instruction block "
-            f"({template_path})"
-        )
+    inner = _assemble(blocks, _INSTRUCTIONS_TOKEN, slots, template_path)
     return (
         f"{INSTRUCTIONS_PREFIX} {INSTRUCTIONS_VERSION}\n{inner}\n{END_MARKER}"
     )
+
+
+def instructions_bytes(*args, **kwargs) -> bytes:
+    """The EXACT bytes the CLI writes for a ``dispatch-instructions`` render.
+
+    The producer owns its own on-disk framing (issue #709). ``issue-audit-state.py``
+    regenerates these bytes and compares digests, so if it replicated the CLI's
+    trailing newline by hand, a change to ``main()``'s framing would silently make
+    every clean audit unestablished — the exact false alarm the determinism contract
+    above exists to prevent. Both ``main()`` and the state owner go through here, and
+    a renderer test asserts this equals the real CLI stdout, so the two cannot drift.
+
+    Arguments are forwarded verbatim to ``render_instructions``.
+    """
+    return (render_instructions(*args, **kwargs) + "\n").encode("utf-8")
 
 
 # --------------------------------------------------------------------------
@@ -730,13 +744,20 @@ def main(argv: list[str]) -> int:
                 raise RenderError(
                     f"could not read the draft file at {args.draft_path}: {exc}"
                 ) from exc
-            out = render_instructions(
-                template_path,
-                args.slug,
-                args.draft_path,
-                args.instructions_path,
-                draft_text,
+            # Write the producer-owned canonical bytes directly rather than falling
+            # through to the shared `out + "\n"` tail below: `instructions_bytes` IS
+            # the on-disk contract the state owner regenerates against, so this mode's
+            # framing must come from that one function, never from a second site.
+            sys.stdout.write(
+                instructions_bytes(
+                    template_path,
+                    args.slug,
+                    args.draft_path,
+                    args.instructions_path,
+                    draft_text,
+                ).decode("utf-8")
             )
+            return 0
         else:  # unreachable: choices already constrain mode
             raise RenderError(f"unknown mode {args.mode}")
     except RenderError as exc:
