@@ -56,7 +56,6 @@ import reception_identity as ri  # noqa: E402
 
 # gh is read only on the remote-trace arm; the Python gh-caller pattern (no probe).
 GH = os.environ.get("DEVFLOW_GH") or "gh"
-GIT = os.environ.get("DEVFLOW_GIT") or "git"
 
 # The eight tokens, in evaluation order (pass is the terminal affirmative).
 TOK_PASS = "pass"
@@ -82,13 +81,15 @@ SKIP_KIND_HOST = "host-capability"
 SKIP_KIND_BLOCKING = "blocking-gate"
 
 # The four durable deferral channels (the skill's stated order of preference).
+# _check_deferrals dispatches on the individual channel constants below, so no
+# local/remote partition is materialized — ALL_CHANNELS is only the membership set.
 CHANNEL_LOOP_RECORD = "loop-record"
 CHANNEL_CODE_COMMENT = "code-comment"
 CHANNEL_PR_THREAD = "pr-thread"
 CHANNEL_FOLLOW_UP = "follow-up-issue"
-LOCAL_CHANNELS = frozenset({CHANNEL_LOOP_RECORD, CHANNEL_CODE_COMMENT})
-REMOTE_CHANNELS = frozenset({CHANNEL_PR_THREAD, CHANNEL_FOLLOW_UP})
-ALL_CHANNELS = LOCAL_CHANNELS | REMOTE_CHANNELS
+ALL_CHANNELS = frozenset(
+    {CHANNEL_LOOP_RECORD, CHANNEL_CODE_COMMENT, CHANNEL_PR_THREAD, CHANNEL_FOLLOW_UP}
+)
 
 
 class Verdict(Exception):
@@ -256,6 +257,13 @@ def _check_verification_pass(vrecord: dict) -> None:
         )
 
 
+def _skip_label(entry: object) -> str:
+    """The display label for one skipped-check entry (shared by the blocking-check
+    and the pass-detail host quote, so the `(unnamed check)` fallback lives once)."""
+    name = entry.get("check") if isinstance(entry, dict) else None
+    return name if isinstance(name, str) and name else "(unnamed check)"
+
+
 def _check_skipped_checks(vrecord: dict) -> None:
     """Token 5. A blocking-gate skip — or a skip with no/unknown kind (fail-closed)
     — is skipped-checks-present even when the result is a pass. host-capability
@@ -273,8 +281,7 @@ def _check_skipped_checks(vrecord: dict) -> None:
     host = []
     for entry in skips:
         kind = entry.get("kind") if isinstance(entry, dict) else None
-        name = entry.get("check") if isinstance(entry, dict) else None
-        label = name if isinstance(name, str) and name else "(unnamed check)"
+        label = _skip_label(entry)
         if kind == SKIP_KIND_HOST:
             host.append(label)
         elif kind == SKIP_KIND_BLOCKING:
@@ -298,7 +305,7 @@ def _host_skip_detail(vrecord: dict) -> str:
     if not isinstance(skips, list):
         return ""
     host = [
-        (e.get("check") if isinstance(e.get("check"), str) and e.get("check") else "(unnamed check)")
+        _skip_label(e)
         for e in skips
         if isinstance(e, dict) and e.get("kind") == SKIP_KIND_HOST
     ]
@@ -427,11 +434,7 @@ def _probe_remote(args, path: str) -> str:
     if proc.returncode == 0:
         return _RemoteProbe.EXISTS
     # gh writes the HTTP status into stderr; a 404 is a definitive absence.
-    err = b""
-    try:
-        err = proc.stderr
-    except Exception:  # noqa: BLE001 - defensive
-        err = b""
+    err = proc.stderr or b""
     if b"404" in err or b"Not Found" in err:
         return _RemoteProbe.ABSENT
     return _RemoteProbe.UNREACHABLE
