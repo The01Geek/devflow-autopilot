@@ -312,7 +312,14 @@ def _check_undischarged_findings(args, findings_inventory: dict, ledger: dict) -
             )
         return
 
-    # Loop context.
+    # Loop context. The effective fix set is scoped by the LOOP's own routing, NOT
+    # by this validator — the validator re-grades no severity (semantic-exclusion,
+    # issue #550). The loop marks each inventory finding it routed into the fix set
+    # with `in_fix_set: true` (or `reject_driver: true` for a REJECT-driver);
+    # born-advisory below-threshold findings the loop did not route carry
+    # in_fix_set falsy and are discharged by the engine's derived-disposition
+    # convention. The validator checks only that every flagged-in-fix-set finding
+    # carries a fix_decisions row.
     findings = findings_inventory.get("findings")
     if not isinstance(findings, list):
         raise Verdict(
@@ -325,34 +332,19 @@ def _check_undischarged_findings(args, findings_inventory: dict, ledger: dict) -
         for d in decisions:
             if isinstance(d, dict) and isinstance(d.get("finding_id"), str):
                 decided_ids.add(d["finding_id"])
-    threshold = args.fix_threshold
     for f in findings:
         if not isinstance(f, dict):
             continue
         fid = f.get("finding_id")
         if not isinstance(fid, str):
             continue
-        in_fix_set = bool(f.get("reject_driver")) or _at_or_above_threshold(
-            f.get("severity"), threshold
-        )
+        in_fix_set = bool(f.get("in_fix_set")) or bool(f.get("reject_driver"))
         if in_fix_set and fid not in decided_ids:
             raise Verdict(
                 TOK_UNDISCHARGED,
-                f"finding {fid} is in the effective fix set (at/above threshold or "
-                f"a REJECT-driver) but carries no fix_decisions row",
+                f"finding {fid} is in the loop's effective fix set but carries no "
+                f"fix_decisions row",
             )
-
-
-# Severity ordering for the loop's fix-threshold scoping. A finding at or above the
-# threshold is in the effective fix set. Unknown severities sort LOW (never forced
-# into the fix set on an unrecognized value — the loop's own routing owns severity).
-_SEVERITY_ORDER = {"advisory": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
-
-
-def _at_or_above_threshold(severity, threshold: str) -> bool:
-    s = _SEVERITY_ORDER.get(severity if isinstance(severity, str) else "", -1)
-    t = _SEVERITY_ORDER.get(threshold, _SEVERITY_ORDER["medium"])
-    return s >= t
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -647,9 +639,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--claim-identity", default=None,
                         help="Pin the claim-time candidate identity (the loop "
                              "passes what it computed); default re-derives it.")
-    parser.add_argument("--fix-threshold", default="medium",
-                        choices=tuple(_SEVERITY_ORDER.keys()),
-                        help="Loop fix-threshold severity (default: medium).")
     parser.add_argument("--own-repo", default=None,
                         help="Override the resolved owner/repo slug (tests).")
     return parser
