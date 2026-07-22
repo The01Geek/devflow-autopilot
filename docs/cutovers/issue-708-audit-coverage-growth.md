@@ -7,8 +7,13 @@ kind: growth
 
 Mandatory prompt rows that grew in this change:
 
-- `skills/create-issue/references/audit-prompt-template.md` — +2,082 bytes (10,730 → 12,812)
-- `skills/create-issue/references/step-3-6-audit.md` — +557 bytes (62,727 → 63,284)
+- `skills/create-issue/references/audit-prompt-template.md` — +1,461 bytes (11,351 → 12,812)
+- `skills/create-issue/references/step-3-6-audit.md` — **−3,999 bytes** (67,283 → 63,284)
+
+The step-3-6 row is a net *shrink*: the coverage procedure's own bytes landed there, but the
+review pass shed more superseded prose than it added (the state owner and its tests are the sole
+tested owner of everything cut). The word-budget rows below are the operative figures — bytes are
+recorded here only because this artifact's schema is byte-keyed.
 
 No ceiling was renegotiated. The create-issue word budgets are ratchet-down-only, and both
 hold at their existing values (`docs/create-issue-budget.md`):
@@ -36,7 +41,7 @@ surfaces have to carry bytes, and neither can be deferred behind a load trigger:
    dimension enumeration are both held, which is the orchestrator, before any reference could
    be loaded conditionally.
 
-The +515 bytes there are the *compressed* residue of a ~2,600-byte first draft. Everything the
+What landed there is the *compressed* residue of a ~2,600-byte first draft. Everything the
 state owner already enforces was cut rather than restated — the closed outcome set, the
 text-only anchor floor, the floor-failure downgrade to `unestablished`, the summary-line fields,
 and the offer cap all live in `scripts/issue-audit-state.py` and its tests, per the repo's
