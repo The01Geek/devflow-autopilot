@@ -56,7 +56,7 @@ Rule table (each keyed to a probe row / run — see .github/workflows/matcher-pr
       `review` profile grants no interpreter (run 29105381021 denials).
 
 CLI:
-    extract-command-shapes.py [--profile review|implement] FILE...
+    extract-command-shapes.py [--profile review|implement|command] FILE...
         -> one `FILE:LINE  RULE  statement` per denied-shape hit, across every FILE
            (a reviewed surface is a BUNDLE — a skill root plus its phase references,
            issue #529 — and each hit stays attributed to the file it came from);
@@ -1044,7 +1044,7 @@ def find_implement_violations(text: str) -> list[tuple[int, str, str]]:
     return hits
 
 
-_USAGE = "usage: extract-command-shapes.py [--profile review|implement] FILE..."
+_USAGE = "usage: extract-command-shapes.py [--profile review|implement|command] FILE..."
 
 
 def main(argv: list[str]) -> int:
@@ -1056,13 +1056,26 @@ def main(argv: list[str]) -> int:
             return 2
         profile = args[1]
         args = args[2:]
-    if len(args) < 1 or profile not in ("review", "implement"):
+    if len(args) < 1 or profile not in ("review", "implement", "command"):
         print(_USAGE, file=sys.stderr)
         return 2
     # The reviewed surface is a bundle (a skill root plus its phase references),
     # so every source is scanned in one call and each hit stays attributed to the
     # file it came from — a moved fence must not escape the scan (issue #529).
-    finder = find_implement_violations if profile == "implement" else find_violations
+    #
+    # The `command` tier (the `/devflow:review-and-fix` PR-comment path, issue #696)
+    # is a SEPARATE read-write allowlist from `implement`, but its denied-shape rule
+    # set is deliberately the SAME as the implement tier's (IR1/IR2/IR3). This rests
+    # on a load-bearing assumption — `command`-tier denied shapes ⊆ `implement`-tier
+    # denied shapes — because the `--profile command` rule set is authored BEFORE any
+    # command-probe evidence exists (matcher-probe.yml's command-probe job is the
+    # empirical confirmation). A probe disagreement is a recognized follow-up (tighten
+    # the rule set here), not a silent regression.
+    finder = (
+        find_implement_violations
+        if profile in ("implement", "command")
+        else find_violations
+    )
     hits: list[tuple[str, int, str, str]] = []
     for path in args:
         with open(path, encoding="utf-8") as handle:
