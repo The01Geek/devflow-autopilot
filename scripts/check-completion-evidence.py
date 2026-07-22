@@ -37,7 +37,7 @@ issues #275/#295, and scripts/file-deferrals.py's Python gh-caller pattern):
   * git is invoked ONLY inside that imported derivation routine (native subprocess,
     argv list, no shell). This module spawns no subprocess of its own except the
     resolved `gh` on the remote-trace arm.
-  * gh is read via `os.environ.get("DEVFLOW_GH") or "gh"` with NO probe.
+  * gh is read via the DEVFLOW_GH env override (defaulting to gh) with NO probe.
   * No decisive value is derived through a non-preflight PATH tool
     (`tr`/`sed`/`wc`/`cut`/`head`).
 """

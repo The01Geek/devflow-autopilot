@@ -97,12 +97,12 @@ extensions + max active step ≤ 20,025 words).
 | receiving extension | `.devflow/prompt-extensions/receiving-code-review.md` | 137 | 2,137 | 14,395 | 2,778 |
 | **AFTER** — plugin root | `skills/review-and-fix/SKILL.md` (thin) | 342 | **3,414** | 27,394 | 4,438 |
 | **AFTER** — actual initial load | root + always-loaded extensions | 726 | **8,682** | 62,863 | 11,287 |
-| **AFTER** — bundle | root + all `references/*.md` | 1,333 | 42,252 | 298,444 | 54,928 |
-| **AFTER** — normal cumulative path | root + live extension + Σ references | — | 45,383 | — | 58,998 |
+| **AFTER** — bundle | root + all `references/*.md` | 1,360 | 42,900 | 303,638 | 55,770 |
+| **AFTER** — normal cumulative path | root + live extension + Σ references | — | 46,031 | — | 59,840 |
 | **AFTER** — maximum active step | root + always-loaded extensions + `shadow-review.md` | — | **20,021** | — | 26,027 |
 | reference: `shadow-review.md` | Step 2.6 | 235 | 11,339 | 79,930 | 14,741 |
-| reference: `fixing.md` | Step 3 | 157 | 9,648 | 66,384 | 12,542 |
-| reference: `loop-exit.md` | Loop Exit | 276 | 6,693 | 46,065 | 8,701 |
+| reference: `fixing.md` | Step 3 | 157 | 9,669 | 66,618 | 12,570 |
+| reference: `loop-exit.md` | Loop Exit | 303 | 7,320 | 51,025 | 9,516 |
 | reference: `loop-control.md` | workpad + field semantics + Main Loop + Steps 0.5–2 | 191 | 5,597 | 39,864 | 7,276 |
 | reference: `pre-fix-gates.md` | Step 2.5 + parked-class sweep | 51 | 2,253 | 16,477 | 2,929 |
 | reference: `fix-delta-gate.md` | Step 3.5 | 29 | 1,482 | 10,304 | 1,927 |
@@ -143,10 +143,10 @@ extensions + max active step ≤ 20,025 words).
   reference at a time. Both sides exclude the receiving extension (see Counting method). The
   *actual* always-loaded surface since issue #620 is the 8,682-word initial-load row above.
 
-- **⚠️ `review-and-fix-split-cumulative-growth` (named justified-growth warning): +6,051 words.**
+- **⚠️ `review-and-fix-split-cumulative-growth` (named justified-growth warning): +6,699 words.**
   The *normal cumulative path* (root + live extension + every reference a full run loads in
-  sequence — the receiving extension excluded, per Counting method) is 45,383 words vs. 39,332
-  before — a net **growth of +6,051 words** (+15.4%). Its drivers are
+  sequence — the receiving extension excluded, per Counting method) is 46,031 words vs. 39,332
+  before — a net **growth of +6,699 words** (+17.0%). Its drivers are
   the routing text the split itself adds (the *Step routing* table, the *Reference-loading
   contract* — entry-gate, canonical-boundary rule, per-reference failure map, always-resident
   re-read rule — the condensed terminal verdict→chat mapping, the durable-operand schema fields,
@@ -159,6 +159,6 @@ extensions + max active step ≤ 20,025 words).
   out of the root into the always-loaded receiving extension — which this figure excludes — so it
   slightly *trimmed* the cumulative path), and the issue-#621 `settled-by-disclosure` foreclosure vocabulary threaded through the fix/park/shadow references, and the issue-#655 generic regenerate-on-conflict pointer added to `fixing.md`'s `CONFLICT` arm (the rule's own +952 lands on the two always-loaded *extensions*, whose term cancels out of this figure — only the reference-side pointer reaches it). It is **justified**: the split trades this cumulative increase for a
   32,787-word reduction in the *mandatory* prompt, on-demand sequential loading (only one step
-  reference resident at a time — peak 20,021 words, not 45,383), and fail-closed reference handling.
+  reference resident at a time — peak 20,021 words, not 46,031), and fail-closed reference handling.
   Cumulative token spend on a full run is not the metric the split optimizes; peak-context and
   per-step focus are.
