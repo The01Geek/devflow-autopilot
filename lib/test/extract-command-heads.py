@@ -548,8 +548,9 @@ def _helper_basename(token: str) -> str | None:
 
 
 def _leading_exec(statement: str):
-    """``(head_norm, operand_norm)`` — the RAW leading executable token and, for a
-    launcher head, its first operand — WITHOUT stripping launcher/wrapper heads.
+    """``(head_norm, tail_norm)`` — the normalized leading executable token and the
+    normalized list of EVERY token after it (returned unconditionally, launcher head
+    or not) — WITHOUT stripping launcher/wrapper heads.
 
     Only tokens that are not themselves executables are skipped: a leading `!`
     negation, `VAR=value` env assignments, and leading redirections. A launcher
