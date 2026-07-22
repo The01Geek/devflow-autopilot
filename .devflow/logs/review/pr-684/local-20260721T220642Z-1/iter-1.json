@@ -2,8 +2,30 @@
   "iter": 1,
   "started_at": "2026-07-21T22:06:42Z",
   "loop_role": "fix",
-  "current_step": "3",
-  "current_substep": "apply_fixes",
+  "current_step": "loop-exit",
+  "current_substep": "converged",
+  "fix_commit_sha": "f2bac4e7",
+  "fix_files": [
+    "lib/test/pin-corpus-lint.py",
+    "lib/test/run.sh",
+    "lib/test/test_module_harness.py"
+  ],
+  "shadow": {
+    "ran_at": "2026-07-21T22:40:00Z",
+    "reviewed_sha": "f2bac4e7",
+    "verdict": "no-new-findings",
+    "coverage": "not_verified",
+    "reason": "bounded fix-delta shadow (independent single-reviewer verification of the 3 fix files), not a full multi-agent fan-out; confirmed every added assertion matches code behavior, no vacuous fixture, docstring accurate — no fix-induced defect",
+    "reviewers_dispatched": [
+      "general-purpose:fix-delta-verifier"
+    ],
+    "comparison": {
+      "shadow_total": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    }
+  },
   "diff_profile": {
     "small_diff": false,
     "config_only": false,
