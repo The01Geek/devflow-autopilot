@@ -1,0 +1,92 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-22T00:00:00Z",
+  "fix_commit_sha": "c12b920",
+  "fix_files": [
+    "lib/test/test_python_scripts.py",
+    "docs/install.md"
+  ],
+  "loop_role": "fix",
+  "current_step": "3",
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": false,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:pr-test-analyzer",
+    "devflow:code-reviewer",
+    "devflow:comment-analyzer"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Important",
+      "description": "docs/install.md overclaimed the pre-agent validator as a live boot gate; its runtime wiring is deferred per DEVFLOW_SYSTEM_OVERVIEW.md",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Important",
+      "description": "docs/install.md misdescribed the HEAD_ABSENT diagnostic (claimed it names the baseline; and mis-attributed required_helper_heads to the workflow)",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "shutil.copytree by-construction demo proved stdlib not cp -R",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "vacuous pairing-1 assertion checked the fixture's own literal grant set",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "loose 'scripts' in vendor-slice grep; bound cp -R to the real copy line instead",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "c12b920"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "c12b920"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "c12b920"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "applied",
+      "commit": "c12b920"
+    },
+    {
+      "finding_id": "F-5",
+      "decision": "applied",
+      "commit": "c12b920"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 5,
+    "fix_diff_lines": 40,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": "unavailable"
+}
