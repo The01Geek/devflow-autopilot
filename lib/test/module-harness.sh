@@ -3,6 +3,91 @@
 # SPDX-License-Identifier: MIT
 # Fail-closed boundary for sourceable modules used by the complete test suite.
 
+# ── Inherited-DEVFLOW_GH fixture isolation (issue #533 AC13, generalized #695) ─
+# The same clearing lib/test/run.sh performs in its preamble, performed here so
+# EVERY caller that sources this harness — the complete suite AND the focused
+# lib/test/run-module.sh runner — runs module bodies under identical isolation.
+# The resolvers treat a non-empty DEVFLOW_GH as the strongest explicit override
+# (no probe), so a value leaked in from the invoking environment would silently
+# outrank every fixture-local PATH stub a module installs, making a focused run
+# report environmental failures on a clean baseline. Both runners source this
+# harness BEFORE any module body, so the clear always precedes module execution.
+# Tests that exercise the override contract reintroduce their own value with a
+# per-invocation `DEVFLOW_GH=… cmd` prefix, which is unaffected by this clear.
+# Disclosed, never silent — and a no-op (no second breadcrumb) under run.sh,
+# whose preamble already unset it before this file is sourced.
+[ -n "${DEVFLOW_GH:-}" ] && printf 'module-harness.sh: clearing inherited DEVFLOW_GH=%s for module fixture isolation (issue #533 AC13); override-contract tests re-set their own value per-invocation\n' "$DEVFLOW_GH" >&2
+unset DEVFLOW_GH
+
+# ── Shared fixture helpers promoted from lib/test/run.sh (issue #695) ─────────
+# These three were defined in the monolith and used by the installer/workflow-
+# wiring coverage extracted into lib/test/modules/installer-wiring.sh. They are
+# PROMOTED, not copied: lib/test/run.sh obtains them by sourcing this file, so no
+# second definition exists anywhere in the tree (the coupled-mirror defect class).
+
+# Extract one step's block from a workflow: from its `- name:` line to the
+# next sibling step's `- name:` (6-space step indent, matching these workflows)
+# OR the enclosing job's end (a 2-space-indented key, i.e. the next job) —
+# without the job-boundary stop, a job's LAST named step would bleed into the
+# following job's header and name-less steps, un-scoping the assertions run
+# against the block. Matched with index() (literal substring), not a regex —
+# the step names carry regex metacharacters ("(optional)").
+mint_blk() {
+  awk -v n="$1" '
+    index($0, "- name: " n){f=1}
+    f && /^      - name:/ && index($0, "- name: " n) == 0{exit}
+    f && /^  [^ ]/{exit}
+    f{print}' "$2"
+}
+
+# Allocate a temp file for a mutation proof, failing the SUITE (not vacuously passing) if
+# mktemp fails. The anti-vacuity proofs build mutated temp copies; under `set -u`
+# without `set -e` a bare `VAR="$(mktemp)"` failure would leave VAR empty, and a control
+# that then reads an empty path silently degrades to its EXPECTED value (e.g. grep over ""
+# prints 0, which a "expected 0" control accepts) — the anti-vacuity proof itself going
+# vacuous, the exact class this helper exists to kill. On mktemp failure this records a
+# suite FAIL under NAME, prints the human breadcrumb to STDERR (so it reaches the operator
+# instead of being captured into the caller's `$(…)`), and prints the safe sink path
+# `/dev/null` to STDOUT. The `/dev/null` is deliberate: an unguarded caller that then does
+# `printf … > "$path"` or greps "$path" causes NO working-tree pollution and no spurious
+# redirect error (an earlier form printed the breadcrumb itself, which a `> "$breadcrumb"`
+# turned into a junk file in the repo cwd). The recorded FAIL still makes the suite go RED,
+# so the proof remains fail-closed whether or not the caller checks the rc 1.
+probe_tmp() {  # assertion-name -> prints a temp path (rc 0); on mktemp failure records a
+               # suite FAIL, prints the breadcrumb to stderr, and prints /dev/null (rc 1)
+  local t
+  t="$(mktemp)" && { printf '%s\n' "$t"; return 0; }
+  echo FAIL >> "$RESULTS_FILE"
+  printf '  FAIL  %s — mktemp failed (mutation proof could not run; not a vacuous pass)\n' "$1" >&2
+  printf '/dev/null\n'
+  return 1
+}
+
+# Run a single assertion function against an ISOLATED results file and echo its verdict
+# (PASS/FAIL) instead of recording it in the tally of whichever runner is executing. Used
+# by the mutation proofs to actually exercise an assertion helper against a mutated target
+# and confirm it goes RED, without that intentional RED counting as a failure. The
+# `RESULTS_FILE=…` prefix on a function call sets the var only for that call's environment
+# (functions are not special builtins), so the caller's RESULTS_FILE is untouched — the
+# contract that keeps a module's executed-assertion count reflecting only real assertions.
+probe_assert() {  # assertion-fn args... -> prints PASS or FAIL (the probed verdict)
+  # Guard mktemp (the runners are `set -u` without `set -e`, so a bare failure would not
+  # abort): an empty $probe would make `tail ""` error and the probe echo empty, surfacing
+  # as a MISLEADING wrong-verdict mismatch instead of an environment failure. Emit a
+  # distinct breadcrumb token so the cause is unambiguous — note it surfaces as an
+  # `assert_eq` mismatch (expected PASS/FAIL, got PROBE_MKTEMP_FAILED), not a recorded
+  # FAIL, so the proof still goes RED but via the comparison rather than the tally.
+  # DETAILS_FILE is redirected alongside RESULTS_FILE because run-module.sh's assert_eq
+  # writes a failure-recap row there on FAIL. Isolating only the tally would keep the
+  # probed RED out of the assertion count but still surface it in the focused runner's
+  # "Failure recap", reading as a real failure. run.sh's assert_eq has no DETAILS_FILE,
+  # so the extra prefix is inert there.
+  local probe; probe="$(mktemp)" || { echo "PROBE_MKTEMP_FAILED"; return 0; }
+  RESULTS_FILE="$probe" DETAILS_FILE="$probe.details" "$@" >/dev/null 2>&1
+  tail -n 1 "$probe"
+  rm -f "$probe" "$probe.details"
+}
+
 # ── Namespaced module pin/count/mutation helpers (issue #577) ────────────────
 # Shared reusable pin machinery for sourceable contract modules, so a module
 # carries NO private copy of it. Caller contract: RESULTS_FILE is set and assert_eq
