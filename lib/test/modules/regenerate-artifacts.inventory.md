@@ -28,13 +28,33 @@ there is no former `run.sh` location to map back to.
 
 Every assertion that runs a row does so against a temp fixture root — including the
 clean-tree arm — never the live checkout. The fixture is a single pristine repository
-image copied per assertion: the module enumerates **every top-level tracked entry** from
-`git ls-files` (deliberately not a hand-picked subset — a subset that missed one would
-make the pristine image itself drift and silently invalidate every "no other row
-drifted" premise), prunes build caches, then `git init`s it with a synthetic
-`refs/remotes/origin/main`. It is built once and copied per assertion because the
-generators resolve their roots from `__file__` or an argv root, so a partial tree would
-exercise the wrong closure.
+image copied per assertion: the module reproduces **every tracked path** the git index
+lists (`git ls-files -s -z`), file by file at its own relative path, then `git init`s it
+with a synthetic `refs/remotes/origin/main`. It is built once and copied per assertion
+because the generators resolve their roots from `__file__` or an argv root, so a partial
+tree would exercise the wrong closure.
+
+**Tracked-only is the fixture rule (issue #714).** Completeness is why the module copies
+the whole tracked set rather than a hand-picked subset — a subset that missed one entry
+would make the pristine image itself drift and silently invalidate every "no other row
+drifted" premise. What the image must *not* carry is untracked local state: the previous
+builder derived top-level entry **names** from `git ls-files` but copied whole
+**directories**, so because `.claude/settings.json` is tracked the entire untracked
+`.claude/` tree — 1.4 GB of `git worktree` checkouts on a developer host, against ~34 MB
+of tracked content — entered the image and then every per-assertion copy. Nothing
+untracked can enter now, so the `__pycache__` / `.ruff_cache` / `.devflow/tmp` prunes
+that compensated for it are gone with the loop that needed them.
+
+File **modes are set from the index**, not inherited from the working tree, so a
+`core.fileMode=false` checkout (git's default on Windows) — where the index records
+`100755` while the on-disk bit is absent — builds the same image. The three non-blob
+index states are each skipped with their own distinct named stderr breadcrumb and
+subtracted from the completeness denominator by name, never failing the build: an entry
+with no working-tree file, a gitlink (`160000`), and a symlink (`120000`). Unmerged
+paths contribute once, not once per stage. The `#619 pristine fixture …` / `#619 fixture
+builder …` assertions check all of this against an independent oracle that re-reads the
+index itself, with the temp-repository arms exercised against a real git index rather
+than a stubbed `git ls-files`.
 
 Each fixture-root assertion additionally asserts the **live** checkout's
 `scripts/devflow-cloud-writer-contract.json` is byte-unchanged. Live-tree confinement

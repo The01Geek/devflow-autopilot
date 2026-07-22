@@ -71,30 +71,283 @@ echo "#619 batched generated-artifact regeneration pass (lib/test/regenerate-art
 # repository image (the generators resolve their roots from __file__ or an argv root,
 # so a partial tree would exercise the wrong closure), and rebuilding it per
 # assertion would dominate the module's runtime.
-# Every top-level tracked entry is copied, not a hand-picked subset: the census reads
-# CLAUDE.md and agents/, the cloud-writer closure reads skills/ and scripts/, and a
-# subset that misses one makes the *pristine* fixture drift, which would silently
-# invalidate every "no other row drifted" premise in this module.
+#
+# The image is built from the git INDEX — every tracked path, copied file by file at
+# its own relative path (issue #714). Completeness is what the pristine fixture needs:
+# the census reads CLAUDE.md and agents/, the cloud-writer closure reads skills/ and
+# scripts/, and a hand-picked subset that misses one makes the *pristine* fixture
+# drift, silently invalidating every "no other row drifted" premise in this module.
+# Copying the complete tracked set satisfies that more strongly than the old
+# whole-top-level-directory `cp -R` did, and it satisfies it without dragging
+# untracked local state in: that loop derived entry NAMES from `git ls-files` but
+# copied whole DIRECTORIES, so because `.claude/settings.json` is tracked the entire
+# untracked `.claude/` tree — 1.4 GB of `git worktree` checkouts on a developer host —
+# was copied into the image and then into every per-assertion copy. Nothing untracked
+# can enter the image now, so the `__pycache__`/`.ruff_cache`/`.devflow/tmp` prunes
+# that compensated for it are gone with the loop that needed them.
+#
+# `git ls-files -s` (preflight-guaranteed) makes the selection and bash parameter
+# expansion does the path arithmetic — never `cut`/`sort`/`awk`, a non-preflight PATH
+# tool must not decide WHICH files get copied (CLAUDE.md's un-guaranteed-tool rule):
+# a missing tool would yield an empty entry list and a hollow fixture.
+_ra_tab=$'\t'
+# Build a tracked-only repository image. Prints one `key=value` summary line so a
+# caller can assert completeness against the FULL index denominator; each of the three
+# non-blob states is skipped with its own distinct named stderr breadcrumb and
+# subtracted from that denominator by name, never failing the build.
+_ra_build_image() {  # <src-repo> <dest>
+  local _src="$1" _dest="$2"
+  local _rec _mode _path _prev='' _total=0 _copied=0
+  local _skip_missing=0 _skip_gitlink=0 _skip_symlink=0
+  mkdir -p "$_dest"
+  while IFS= read -r -d '' _rec; do
+    [ -n "$_rec" ] || continue
+    # `<mode> <sha> <stage>\t<path>` — the path is read whole after the TAB, so a
+    # newline or a space in a filename cannot split one entry into two (-z).
+    _mode="${_rec%% *}"
+    _path="${_rec#*"$_ra_tab"}"
+    # Unmerged paths appear once per stage (1/2/3), contiguously: count and copy the
+    # path once, so the denominator and the image agree on a conflicted tree.
+    [ "$_path" != "$_prev" ] || continue
+    _prev="$_path"
+    _total=$((_total + 1))
+    case "$_mode" in
+      160000)
+        printf 'regenerate-artifacts fixture: skipping gitlink index entry %s\n' "$_path" >&2
+        _skip_gitlink=$((_skip_gitlink + 1)); continue ;;
+      120000)
+        printf 'regenerate-artifacts fixture: skipping symlink index entry %s\n' "$_path" >&2
+        _skip_symlink=$((_skip_symlink + 1)); continue ;;
+    esac
+    if [ ! -f "$_src/$_path" ]; then
+      printf 'regenerate-artifacts fixture: skipping index entry with no working-tree file %s\n' "$_path" >&2
+      _skip_missing=$((_skip_missing + 1)); continue
+    fi
+    # `${var%/*}` returns the WHOLE string when the value has no `/`, so an unguarded
+    # mkdir would create a DIRECTORY named CLAUDE.md and the census would then report
+    # `manifest-listed path is not a regular file: CLAUDE.md`. Guard on `*/*`.
+    case "$_path" in */*) mkdir -p "$_dest/${_path%/*}" ;; esac
+    cp "$_src/$_path" "$_dest/$_path" || continue
+    # The mode comes from the INDEX, not the working tree: on a core.fileMode=false
+    # checkout (git's default on Windows) the index records 100755 while the on-disk
+    # file carries no executable bit, and inheriting that bit would turn the module RED.
+    case "$_mode" in
+      100755) chmod 755 "$_dest/$_path" ;;
+      *)      chmod 644 "$_dest/$_path" ;;
+    esac
+    _copied=$((_copied + 1))
+  done < <(cd "$_src" && git ls-files -s -z)
+  printf 'total=%s copied=%s skip_missing=%s skip_gitlink=%s skip_symlink=%s\n' \
+    "$_total" "$_copied" "$_skip_missing" "$_skip_gitlink" "$_skip_symlink"
+}
+
 _ra_pristine="$_ra_tmp_root/pristine"
-mkdir -p "$_ra_pristine"
-# The top-level name is taken with bash parameter expansion, never `cut`/`sort` — a
-# non-preflight PATH tool must not decide WHICH files get copied (CLAUDE.md's
-# un-guaranteed-tool rule): a missing tool would yield an empty entry list and a
-# hollow fixture. git is preflight-guaranteed.
-_ra_seen=" "
-while IFS= read -r _path; do
-  [ -n "$_path" ] || continue
-  _entry="${_path%%/*}"
-  case "$_ra_seen" in *" $_entry "*) continue ;; esac
-  _ra_seen="$_ra_seen$_entry "
-  cp -R "$RA_REPO/$_entry" "$_ra_pristine/$_entry" 2>/dev/null
-done < <(cd "$RA_REPO" && git ls-files)
-# The loop derives entry NAMES from git ls-files but copies whole directories, so
-# untracked build caches ride along into the image and then into every arm copy — and
-# into the fixture's own `git add -A`, inflating the git legs the budget row measures.
-# Prune them once, here, rather than 8 times downstream.
-find "$_ra_pristine" \( -name __pycache__ -o -name .ruff_cache \) -type d -prune -exec rm -rf {} + 2>/dev/null || :
-rm -rf "$_ra_pristine/.devflow/tmp" 2>/dev/null || :
+_ra_pristine_summary="$(_ra_build_image "$RA_REPO" "$_ra_pristine" 2>/dev/null)"
+# ── Fixture-builder contract (issue #714) ───────────────────────────────────
+# An INDEPENDENT oracle, deliberately not sharing the builder's own bookkeeping: it
+# re-reads the index itself and diffs the resulting expectation against the files
+# actually on disk under the image. `extra` catches untracked content riding in (the
+# 1.4 GB `.claude/worktrees` payload the old builder copied); `missing` catches a
+# silently-dropped mode — the denominator is the FULL de-duplicated index, so dropping
+# a mode fails the count instead of shrinking both sides together. These run BEFORE
+# the `git init` below, so the image carries no `.git/` of its own yet.
+_ra_image_report() {  # <src-repo> <image>  → "extra=N missing=N total=N skip_missing=N skip_gitlink=N skip_symlink=N"
+  python3 - "$1" "$2" <<'RA_PY'
+import os, subprocess, sys
+src, image = sys.argv[1], sys.argv[2]
+raw = subprocess.run(["git", "ls-files", "-s", "-z"], cwd=src,
+                     stdout=subprocess.PIPE).stdout.split(b"\0")
+seen, expected = set(), set()
+skips = {"missing": 0, "gitlink": 0, "symlink": 0}
+for rec in raw:
+    if not rec:
+        continue
+    meta, _, path = rec.partition(b"\t")
+    mode = meta.split(b" ")[0].decode()
+    path = path.decode("utf-8", "surrogateescape")
+    if path in seen:
+        continue
+    seen.add(path)
+    if mode == "160000":
+        skips["gitlink"] += 1
+    elif mode == "120000":
+        skips["symlink"] += 1
+    elif not os.path.isfile(os.path.join(src, path)):
+        skips["missing"] += 1
+    else:
+        expected.add(path)
+actual = set()
+for root, _dirs, files in os.walk(image):
+    for f in files:
+        actual.add(os.path.relpath(os.path.join(root, f), image))
+print("extra=%d missing=%d total=%d skip_missing=%d skip_gitlink=%d skip_symlink=%d"
+      % (len(actual - expected), len(expected - actual), len(seen),
+         skips["missing"], skips["gitlink"], skips["symlink"]))
+RA_PY
+}
+
+RA_PRISTINE_REPORT="$(_ra_image_report "$RA_REPO" "$_ra_pristine")"
+case "$RA_PRISTINE_REPORT" in
+  *"extra=0 "*) assert_eq "#619 pristine fixture holds only tracked content" yes yes ;;
+  *) assert_eq "#619 pristine fixture holds only tracked content" yes "no(untracked paths present: $RA_PRISTINE_REPORT)" ;;
+esac
+case "$RA_PRISTINE_REPORT" in
+  *" missing=0 "*) assert_eq "#619 pristine fixture reproduces every tracked entry the skip arms did not remove" yes yes ;;
+  *) assert_eq "#619 pristine fixture reproduces every tracked entry the skip arms did not remove" yes "no(tracked entries absent from the image: $RA_PRISTINE_REPORT)" ;;
+esac
+# The paired positive control for the two counts above: without a no-separator check
+# an empty image would satisfy `extra=0`, and the directory-shaped-CLAUDE.md
+# regression (`${var%/*}` returning the whole string) would pass unnoticed.
+if [ -f "$_ra_pristine/CLAUDE.md" ] && [ ! -d "$_ra_pristine/CLAUDE.md" ]; then
+  assert_eq "#619 pristine fixture reproduces a no-separator path as a regular file" yes yes
+else
+  assert_eq "#619 pristine fixture reproduces a no-separator path as a regular file" yes \
+    "no(CLAUDE.md is absent or a directory in the image)"
+fi
+# The builder's own bookkeeping must agree with the independent oracle, so a
+# miscounted skip cannot quietly widen the denominator it is subtracted from.
+_ra_same "#619 fixture builder skip tallies agree with the independent oracle" \
+  "${RA_PRISTINE_REPORT#*skip_missing=}" \
+  "${_ra_pristine_summary#*skip_missing=}" \
+  "builder summary '$_ra_pristine_summary' vs oracle '$RA_PRISTINE_REPORT'"
+case "$_ra_pristine_summary" in
+  *"skip_gitlink=0 skip_symlink=0") assert_eq "#619 this checkout tracks no gitlink or symlink entry (skip arms idle here)" yes yes ;;
+  *) assert_eq "#619 this checkout tracks no gitlink or symlink entry (skip arms idle here)" yes "no($_ra_pristine_summary)" ;;
+esac
+# No path under `.claude/worktrees` — the specific 1.4 GB payload the old
+# whole-directory builder copied — may appear in the image.
+if [ -d "$_ra_pristine/.claude/worktrees" ]; then
+  assert_eq "#619 pristine fixture carries no .claude/worktrees payload" yes "no(.claude/worktrees present in the image)"
+else
+  assert_eq "#619 pristine fixture carries no .claude/worktrees payload" yes yes
+fi
+
+# The index-state arms are exercised against a REAL git index in a temp repository,
+# never a stubbed `git ls-files` — that is the boundary each of these proves.
+_ra_ix="$_ra_tmp_root/ixrepo"
+mkdir -p "$_ra_ix/sub dir"
+(
+  cd "$_ra_ix" || exit 1
+  git init -q .
+  git config user.email devflow@example.invalid
+  git config user.name devflow
+  printf 'top\n' > TOP.md
+  printf 'nested\n' > "sub dir/with space.txt"
+  : > empty.txt
+  printf '#!/bin/sh\n' > exec.sh
+  chmod 755 exec.sh
+  printf 'gone\n' > deleted.txt
+  ln -s TOP.md link.md
+  git add -A
+  git commit -q -m seed
+  # Tracked-then-deleted WITHOUT `git rm`: the index still lists it, the working tree
+  # does not carry it.
+  rm -f deleted.txt
+  # core.fileMode=false is git's default on Windows: the index keeps 100755 while the
+  # on-disk bit is dropped. Reproduce that exact disagreement here.
+  git config core.fileMode false
+  chmod 644 exec.sh
+) >/dev/null 2>&1
+_ra_ix_img="$_ra_tmp_root/iximg"
+_ra_ix_err="$_ra_tmp_root/ix.err"
+_ra_ix_summary="$(_ra_build_image "$_ra_ix" "$_ra_ix_img" 2>"$_ra_ix_err")"
+
+# Asserting each arm's breadcrumb is its OWN distinct string is what stops one arm
+# silently covering another. `_ra_has` is defined further down the file, so these use
+# the same case-on-captured-output shape directly.
+_ra_breadcrumb() {  # name file substring
+  case "$(cat "$2" 2>/dev/null)" in
+    *"$3"*) assert_eq "$1" yes yes ;;
+    *) assert_eq "$1" yes "no('$3' absent from the builder's stderr)" ;;
+  esac
+}
+_ra_breadcrumb "#619 fixture builder breadcrumbs the index entry with no working-tree file" \
+  "$_ra_ix_err" "skipping index entry with no working-tree file deleted.txt"
+_ra_breadcrumb "#619 fixture builder breadcrumbs the symlink index entry" \
+  "$_ra_ix_err" "skipping symlink index entry link.md"
+if [ -e "$_ra_ix_img/link.md" ] || [ -e "$_ra_ix_img/deleted.txt" ]; then
+  assert_eq "#619 fixture builder omits the skipped non-blob entries from the image" yes \
+    "no(a skipped entry was materialized)"
+else
+  assert_eq "#619 fixture builder omits the skipped non-blob entries from the image" yes yes
+fi
+case "$_ra_ix_summary" in
+  *"skip_missing=1 skip_gitlink=0 skip_symlink=1") assert_eq "#619 fixture builder subtracts each skip from the denominator by name" yes yes ;;
+  *) assert_eq "#619 fixture builder subtracts each skip from the denominator by name" yes "no($_ra_ix_summary)" ;;
+esac
+RA_IX_REPORT="$(_ra_image_report "$_ra_ix" "$_ra_ix_img")"
+case "$RA_IX_REPORT" in
+  "extra=0 missing=0 "*) assert_eq "#619 fixture builder skip arms leave no completeness gap" yes yes ;;
+  *) assert_eq "#619 fixture builder skip arms leave no completeness gap" yes "no($RA_IX_REPORT)" ;;
+esac
+# Modes come from the index even though the working-tree bit disagrees.
+if [ -x "$_ra_ix_img/exec.sh" ]; then
+  assert_eq "#619 pristine fixture sets modes from the index (100755 stays executable)" yes yes
+else
+  assert_eq "#619 pristine fixture sets modes from the index (100755 stays executable)" yes \
+    "no(exec.sh is not executable in the image; the working-tree bit was inherited)"
+fi
+if [ -x "$_ra_ix_img/TOP.md" ]; then
+  assert_eq "#619 pristine fixture sets modes from the index (100644 stays non-executable)" yes \
+    "no(TOP.md is executable in the image)"
+else
+  assert_eq "#619 pristine fixture sets modes from the index (100644 stays non-executable)" yes yes
+fi
+# Boundary paths: no directory component, a space in the path, and a zero-byte file.
+for _ra_case in "TOP.md" "sub dir/with space.txt" "empty.txt"; do
+  if [ -f "$_ra_ix_img/$_ra_case" ]; then
+    assert_eq "#619 fixture builder reproduces boundary path: $_ra_case" yes yes
+  else
+    assert_eq "#619 fixture builder reproduces boundary path: $_ra_case" yes "no(absent from the image)"
+  fi
+done
+if [ -s "$_ra_ix_img/empty.txt" ]; then
+  assert_eq "#619 fixture builder reproduces a tracked empty file with zero bytes" yes "no(empty.txt is non-empty)"
+else
+  assert_eq "#619 fixture builder reproduces a tracked empty file with zero bytes" yes yes
+fi
+# Gitlink arm: a synthetic 160000 index entry, added with update-index so no real
+# submodule checkout is required.
+_ra_gl="$_ra_tmp_root/glrepo"
+mkdir -p "$_ra_gl"
+(
+  cd "$_ra_gl" || exit 1
+  git init -q .
+  git config user.email devflow@example.invalid
+  git config user.name devflow
+  printf 'x\n' > keep.txt
+  git add -A
+  git commit -q -m seed
+  git update-index --add --cacheinfo 160000,"$(git rev-parse HEAD)",vendored
+) >/dev/null 2>&1
+_ra_gl_summary="$(_ra_build_image "$_ra_gl" "$_ra_tmp_root/glimg" 2>"$_ra_tmp_root/gl.err")"
+_ra_breadcrumb "#619 fixture builder breadcrumbs the gitlink index entry" \
+  "$_ra_tmp_root/gl.err" "skipping gitlink index entry vendored"
+case "$_ra_gl_summary" in
+  *"copied=1 skip_missing=0 skip_gitlink=1 skip_symlink=0") assert_eq "#619 fixture builder skips a gitlink without failing the build" yes yes ;;
+  *) assert_eq "#619 fixture builder skips a gitlink without failing the build" yes "no($_ra_gl_summary)" ;;
+esac
+# Unmerged index: the same path at stages 1/2/3 contributes exactly once.
+_ra_cf="$_ra_tmp_root/cfrepo"
+mkdir -p "$_ra_cf"
+(
+  cd "$_ra_cf" || exit 1
+  git init -q -b main .
+  git config user.email devflow@example.invalid
+  git config user.name devflow
+  printf 'base\n' > c.txt; git add -A; git commit -q -m base
+  git checkout -q -b other
+  printf 'other\n' > c.txt; git add -A; git commit -q -m other
+  git checkout -q main
+  printf 'mine\n' > c.txt; git add -A; git commit -q -m mine
+  git merge other
+) >/dev/null 2>&1
+_ra_cf_summary="$(_ra_build_image "$_ra_cf" "$_ra_tmp_root/cfimg" 2>/dev/null)"
+case "$_ra_cf_summary" in
+  "total=1 copied=1 "*) assert_eq "#619 fixture builder de-duplicates unmerged index stages" yes yes ;;
+  *) assert_eq "#619 fixture builder de-duplicates unmerged index stages" yes "no(expected one entry, got '$_ra_cf_summary')" ;;
+esac
+
 # A fixture must be a git repository: the budget row derives its change set with git,
 # and coverage_map_guard.py enumerates the tracked surface with `git ls-files`. The
 # synthetic origin/main ref is what makes the merge-base leg resolvable; the A6

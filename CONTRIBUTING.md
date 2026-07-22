@@ -62,6 +62,18 @@ so a focused run gets the same fixture isolation as the full suite.
 A per-module inventory (e.g. `lib/test/modules/create-issue-contract.inventory.md`)
 records what it covers.
 
+**A module fixture is built from git-tracked content only (issue #714).** A module that
+needs a repository image must reproduce it from the index (`git ls-files -s -z`), file by
+file, with each file's mode taken from the index rather than from the working tree — never
+by `cp -R`-ing a whole top-level directory. A tracked file inside an otherwise-untracked
+directory makes the directory form copy that directory wholesale: because
+`.claude/settings.json` is tracked, `regenerate-artifacts` used to copy the entire
+untracked `.claude/` tree into every fixture, so a checkout carrying `git worktree`
+checkouts under `.claude/worktrees/` paid 1.4 GB per fixture copy — 1240s of the module's
+runtime on the measured host, against 52.5s once the image was tracked-only. `.devflow/`
+and build caches are excluded by construction under that rule, so a fixture builder needs
+no prune step.
+
 #### Coverage-map block ownership (every PR that adds an assertion)
 
 `lib/test/modules/coverage-map.json` is the ranked to-do list for future
