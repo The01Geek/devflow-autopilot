@@ -13541,6 +13541,44 @@ def _cov_duplicate_key(r):
 _with_run603(_cov_duplicate_key)
 
 
+# The `--expected-keys` operand is itself validated BEFORE anything is written. Both arms
+# are load-bearing rather than cosmetic: an empty keyset makes totality vacuous (`all()`
+# over nothing is true, so every subsequent read would call the round backed), and a
+# repeated expected key lets one dimension's entry satisfy two enumerated slots, masking
+# another dimension's synthesis. Neither may leave a partial record behind.
+def _cov_expected_keys_preconditions(r):
+    import glob as _glob
+
+    def _state_bytes():
+        path = _glob.glob(str(Path(r.tmp, '.devflow', 'tmp',  # tree-walk-ok: this row's own temp state dir, never the repository tree
+                                   'issue-audit-state-*.json')))[0]
+        return Path(path).read_bytes()
+
+    r.open_round(1, 'FILE', 0)
+    r.adjudicate(1, 'FILE', 0, '0')
+    before = _state_bytes()
+    line = 'g:host-os-variance exercised "a quoted line" — a concrete concern\n'
+    empty = r('record-coverage', r.slug, '--round', '1', '--render', 'full',
+              '--expected-keys', ',,', '--coverage-stdin', stdin=line, nonce=True)
+    assert_eq("#708-26: an empty --expected-keys is refused (coverage-expected-empty)",
+              (1, True), (empty.returncode, 'coverage-expected-empty' in empty.stderr))
+    dup = r('record-coverage', r.slug, '--round', '1', '--render', 'full',
+            '--expected-keys', 'g:host-os-variance,g:host-os-variance',
+            '--coverage-stdin', stdin=line, nonce=True)
+    assert_eq("#708-26: a repeated --expected-keys key is refused "
+              "(coverage-expected-duplicate)",
+              (1, True), (dup.returncode, 'coverage-expected-duplicate' in dup.stderr))
+    assert_eq("#708-26: neither refusal wrote anything — the state file is byte-identical",
+              before, _state_bytes())
+    assert_eq("#708-26: ... and the round still records no coverage at all",
+              'coverage_backing=unestablished coverage_render=none '
+              'reason=no-coverage-recorded',
+              r('query-coverage', r.slug, nonce=True).stdout.splitlines()[0])
+
+
+_with_run603(_cov_expected_keys_preconditions)
+
+
 # A clean FILE round that recorded NO coverage at all: the worst failure mode would be
 # `all([]) == True` reporting `backed`. Unknown is never collapsed onto backed, and the
 # answering line NAMES which unestablished arm this is.
@@ -13629,6 +13667,22 @@ def _cov_read_boundary_matrix(r):
              'a coverage list truncated below coverage_expected')
     _corrupt(lambda rd: rd.pop('coverage_expected'),
              'coverage present with NO coverage_expected to re-check totality against')
+    # ... and a PRESENT-but-malformed enumeration is corruption of the same kind: the
+    # totality re-check reads `coverage_expected` as a list of non-empty keys, so a scalar,
+    # a non-string member, or an empty-string member would either detonate the membership
+    # test or silently enumerate a dimension no entry can ever satisfy. Each fails closed.
+    _corrupt(lambda rd: rd.__setitem__('coverage_expected', 'g:host-os-variance'),
+             'a scalar coverage_expected')
+    _corrupt(lambda rd: rd.__setitem__('coverage_expected', [123]),
+             'a coverage_expected with a non-string member')
+    _corrupt(lambda rd: rd.__setitem__('coverage_expected', ['']),
+             'a coverage_expected with an empty-string member')
+    # A mapping keyed by the very keys the coverage carries is the shape the downstream
+    # totality subtraction CANNOT catch (iterating a dict yields its keys, so nothing reads
+    # as missing) — it is caught only by the list-of-non-empty-strings check itself.
+    _corrupt(lambda rd: rd.__setitem__('coverage_expected',
+                                       {k: 1 for k in rd['coverage_expected']}),
+             'a mapping coverage_expected the totality subtraction cannot catch')
 
 
 _with_run603(_cov_read_boundary_matrix)
