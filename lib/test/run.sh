@@ -47563,6 +47563,20 @@ e711_rc() {  # <root> <path…>  -> prints just "rc=<n>"; assert_eq prints the v
   esac
   printf '%s' "${out%%|*}"
 }
+e711_run_outcome() {  # <root> <path…> -> like e711_run, minus the all-excluded NOTE line
+  # The note's WORDING is not this assertion's subject — the rc and the audited tally are. Pinning
+  # the prose verbatim made an ordinary rewording break two unrelated assertions, so the note gets
+  # its own dedicated assertion below and these compare the outcome. Filtered with python3 (a
+  # preflight-guaranteed interpreter), never sed/grep: this value decides an assertion.
+  local out; out="$(e711_run "$@")"
+  printf '%s' "$out" | python3 -c 'import sys
+text = sys.stdin.read()
+# The rc= prefix rides on the FIRST body line, so split it off before filtering — otherwise the
+# note line reads as "rc=0|lint-tree-enumeration: note: …" and no prefix test matches it.
+prefix, _, body = text.partition("|")
+keep = [l for l in body.split("\n") if "lint-tree-enumeration: note:" not in l]
+print(prefix + "|" + "\n".join(keep), end="")'
+}
 e711_write() {  # <root> <relpath> <line…>  -> writes a fixture file, creating parents
   local root="$1" rel="$2" dir; shift 2
   dir="${rel%/*}"; [ "$dir" = "$rel" ] || mkdir -p "$root/$dir"
@@ -47796,15 +47810,22 @@ assert_eq "#711 an absent --root outside a repository breadcrumbs rather than de
 # and an all-excluded population is a zero tally at exit 0 — never confused with the fail-closed
 # arms below, which is the confusion that would let an over-wide exclusion read as a clean audit.
 assert_eq "#711 a path outside the audited population is excluded at exit 0" \
-  "rc=0|lint-tree-enumeration: note: all 1 enumerated path(s) were excluded; nothing under lib/test/ with suffix .py/.sh was selected (a wrong --root or an out-of-scope --files-from looks like this)
-lint-tree-enumeration: audited 0 of 0 files" \
-  "$(e711_run "$E711_FX" other/outside.py)"
+  "rc=0|lint-tree-enumeration: audited 0 of 0 files" \
+  "$(e711_run_outcome "$E711_FX" other/outside.py)"
+# The all-excluded NOTE is asserted on its own, by its stable identifying prefix rather than its
+# full prose: "audited nothing" must not look like "audited everything, found nothing", but the
+# sentence explaining that is free to be reworded without breaking the outcome assertions above.
+assert_eq "#711 a fully-excluded population says so on stderr" "yes" \
+  "$(case "$(e711_run "$E711_FX" other/outside.py)" in
+       *"lint-tree-enumeration: note: all 1 enumerated path(s) were excluded"*) echo yes ;;
+       *) echo no ;;
+     esac)"
+
 # Self-exclusion: the guard's own path is dropped from the population, so a list naming only it
 # audits zero files. The real-tree clean run above is the other half of the same claim.
 assert_eq "#711 the guard does not flag itself" \
-  "rc=0|lint-tree-enumeration: note: all 1 enumerated path(s) were excluded; nothing under lib/test/ with suffix .py/.sh was selected (a wrong --root or an out-of-scope --files-from looks like this)
-lint-tree-enumeration: audited 0 of 0 files" \
-  "$(e711_run "$E711_FX" lib/test/lint-tree-enumeration.py)"
+  "rc=0|lint-tree-enumeration: audited 0 of 0 files" \
+  "$(e711_run_outcome "$E711_FX" lib/test/lint-tree-enumeration.py)"
 
 # Fail-closed arms, measured PRE-exclusion. Both halves of the #664 precedent are imported: a
 # zero pre-exclusion population fails closed with its own breadcrumb, while a fully-excluded
