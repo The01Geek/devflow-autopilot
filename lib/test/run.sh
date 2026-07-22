@@ -49540,7 +49540,7 @@ if [ -d "$MD_SB" ]; then
   assert_eq "#546 malformed-state matrix: a stale pre-cutover .md leftover is never read — state is unestablished" \
     "eligible=no reason=state-unestablished" "$(cat "$MD_SB/.md-elig" 2>/dev/null)"
   assert_eq "#546 malformed-state matrix: ... and T2 holds on unestablished state (unknown is not zero)" \
-    "1" "$(grep -c 't2=hold reason=state-unestablished' "$MD_SB/.md-trig" 2>/dev/null)"
+    "1" "$(grep -c 't2=hold coverage=not-hold reason=state-unestablished' "$MD_SB/.md-trig" 2>/dev/null)"
   rm -rf "$MD_SB"
 fi
 
@@ -50495,7 +50495,7 @@ if [ -d "$I5_SB" ]; then
   assert_eq "#546 iter5_hardening_rows: TWO extra newlines stay a mismatch (the tolerance is bounded to exactly one)" \
     "attestation=mismatch:0" "$(cat "$I5_SB/.i5-att-nl2" 2>/dev/null):$(grep -c 'matched modulo' "$I5_SB/.i5-att-nl2-err" 2>/dev/null)"
   assert_eq "#546 iter5_hardening_rows: query-triggers names a foreign nonce instead of misattributing unestablished" \
-    "t1=not-hold t2=hold reason=foreign-nonce" "$(cat "$I5_SB/.i5-fn-trig" 2>/dev/null)"
+    "t1=not-hold t2=hold coverage=not-hold reason=foreign-nonce" "$(cat "$I5_SB/.i5-fn-trig" 2>/dev/null)"
   assert_eq "#546 iter5_hardening_rows: an attestation-unavailable record may be re-attested (it is the honest unknown, not tamper evidence)" \
     "attestation=match" "$(cat "$I5_SB/.i5-uv-reattest" 2>/dev/null)"
   assert_eq "#546 iter5_hardening_rows: creation cannot bind an OPEN round" \

@@ -11759,7 +11759,7 @@ def _cov_read_boundary(r):
     # Corrupt the recorded outcome directly in the state file.
     import glob as _glob
     import json as _json
-    path = _glob.glob(str(Path(r.tmp, '.devflow', 'tmp',
+    path = _glob.glob(str(Path(r.tmp, '.devflow', 'tmp',  # tree-walk-ok: non-recursive glob inside this row's own temp state dir, never the repository tree
                                 'issue-audit-state-*.json')))[0]
     doc = _json.loads(Path(path).read_text())
     doc['rounds'][0]['coverage'][0]['outcome'] = 'bogus'
