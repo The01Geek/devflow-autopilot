@@ -1438,8 +1438,8 @@
       "owner": "unmodularized"
     },
     "709": {
-      "note": "",
-      "owner": "create-issue-contract"
+      "note": "partially extracted: the module carries the #709 contract pins while the state-owner rows stay in the unmodularized #546 block",
+      "owner": "unmodularized"
     },
     "88": {
       "note": "",

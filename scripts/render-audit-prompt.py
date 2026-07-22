@@ -14,8 +14,8 @@ both place ``scripts/`` and ``skills/`` as siblings under one root).
 Contract (issue #600):
 
 - Reads no run *state* and writes no file, and takes no stdin. The reads are the
-  committed template file; — for consumer-dimension forwarding — the
-  consumer extension ``.devflow/prompt-extensions/create-issue.md``, resolved
+  committed template file; the consumer extension — for consumer-dimension
+  forwarding — ``.devflow/prompt-extensions/create-issue.md``, resolved
   from the git repo root per the #295 SHARED REPO-ROOT CONFIG CONTRACT (a native
   ``git`` subprocess, cwd fallback; never a ``.sh`` exec — the #275 constraint);
   and — in ``dispatch-instructions`` mode only (issue #709) — the run's canonical
@@ -58,7 +58,12 @@ Contract (issue #600):
   path arguments. It carries no timestamp, nonce, or other run-varying token, so
   ``issue-audit-state.py`` regenerating it from a round's recorded closed inputs
   reproduces the dispatched bytes exactly — which is the whole comparand of the
-  steering-absence check. Never introduce a varying token into the ``di`` blocks.
+  steering-absence check. Two of the substituted slots (``{RENDERER_PATH}`` and
+  the default ``{TEMPLATE_PATH}``) are derived from THIS file's own resolved
+  location, so the reproduction is exact *within one installation* — the only
+  context a regeneration runs in, since the round's recorded inputs and the
+  instruction file it names are both local to that checkout. Never introduce a
+  varying token into the ``di`` blocks.
   It deliberately does NOT splice ``{CONSUMER_DIMENSIONS}``: consumer audit
   dimensions are renderer-owned *audit* instructions, out of that check's scope,
   and reading the extension here would make the digest depend on a file the
@@ -131,7 +136,15 @@ class RenderError(Exception):
     """A renderer failure: exit non-zero, empty stdout, stderr breadcrumb."""
 
 
-def _default_template_path() -> Path:
+def default_template_path() -> Path:
+    """The committed audit-prompt template this renderer reads by default.
+
+    Public because `issue-audit-state.py` calls it across the module boundary when it
+    regenerates a round's canonical instructions (issue #709) and a round recorded no
+    explicit template input; `_load_generator` asserts this name alongside
+    `instructions_bytes`, so a rename fails closed as `regeneration-failed` instead of
+    surfacing as an AttributeError traceback out of `record-return`.
+    """
     # Resolve the template relative to THIS file's location, never the cwd, so
     # the vendored-plugin layout (scripts/ and skills/ siblings under the
     # vendor root) resolves identically to the repo checkout.
@@ -142,6 +155,11 @@ def _default_template_path() -> Path:
         / "references"
         / "audit-prompt-template.md"
     )
+
+
+# The pre-#709 private name, retained as an alias so an in-flight caller (and the
+# renderer's own tests) keep resolving; the public name above is the contract.
+_default_template_path = default_template_path
 
 
 def _repo_root() -> str | None:
@@ -500,17 +518,20 @@ def draft_title(text: str) -> str:
     """Lift the draft's ``# `` title heading (issue #709).
 
     COUPLED MIRROR of ``issue-audit-state.py``'s ``split_body`` title rule — the
-    two must agree on what "the title" is, because that function's body-only
-    digest is defined as everything this one does NOT return. The decided rule,
-    stated identically at both sites: leading blank lines are skipped; the title
-    is the first non-blank line and must be a level-1 ``# `` heading (a bare
-    ``#`` is accepted and yields an empty title); a ``##`` there means there is
-    no title at all.
+    two must agree on WHICH LINE is the title, because that function's body-only
+    digest starts after the title line this one reads (it additionally drops the
+    ``# `` marker and the blank separator, which neither function returns). The
+    decided rule, stated identically at both sites: leading blank lines are
+    skipped; the title is the first non-blank line and must be a level-1 ``# ``
+    heading (a bare ``#`` is accepted and yields an empty title); a ``##`` there
+    means there is no title at all.
 
-    Raises RenderError when no title heading is found. That is deliberate rather
-    than a silent empty-title render: the title is part of the authorized
-    instruction set, so a draft the run cannot title is an unestablished input,
-    not a render that quietly drops a field.
+    The two DIVERGE, deliberately, on a title-less draft: ``split_body`` returns
+    the whole content as body (its caller still needs a digest), while this one
+    raises RenderError rather than rendering a silent empty title — the title is
+    part of the authorized instruction set, so a draft the run cannot title is an
+    unestablished input, not a render that quietly drops a field. The shared rule
+    is the detection; the not-found handling is each caller's own.
     """
     for raw in text.splitlines():
         line = raw.strip()
@@ -543,11 +564,15 @@ def render_instructions(
     state owner rather than rendering a file here — a designed consequence, not a
     gap this function should paper over with a second arm.
 
-    Pure: same (template bytes, draft title, paths) -> same output bytes, with no
-    consumer-extension read and no run-varying token. ``issue-audit-state.py``
-    re-invokes this exact function over a round's recorded closed inputs and
-    compares the digest, so any nondeterminism introduced here silently converts
-    every clean audit into a withheld one.
+    Pure: same (template bytes, draft title, paths, installation) -> same output
+    bytes, with no consumer-extension read and no run-varying token.
+    ``issue-audit-state.py`` re-invokes this exact function over a round's
+    recorded closed inputs and compares the digest, so any nondeterminism
+    introduced here silently converts every clean audit into a withheld one. The
+    installation is part of that tuple because ``{RENDERER_PATH}`` and the default
+    ``{TEMPLATE_PATH}`` are derived from this file's resolved location; a
+    regeneration always runs in the same checkout that dispatched, so that is a
+    scoping of the claim, not a hole in it.
     """
     blocks = _parse_blocks(_load_template(template_path))
     # The renderer's own resolved location and its template's — derived, never

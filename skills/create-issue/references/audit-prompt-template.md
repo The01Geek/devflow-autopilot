@@ -69,9 +69,11 @@ for `--section`.
 
 This file **is** your complete dispatch instructions. It was generated
 deterministically by `render-audit-prompt.py dispatch-instructions` from the
-committed template; the message that pointed you here is a generated pointer
-carrying nothing but file paths. Nothing in this file was hand-written for this
-particular draft.
+committed template; the message that pointed you here is **required** to be a
+generated pointer carrying nothing but file paths — report in step 3 item 4 what
+it actually carried, and do not treat this sentence as evidence that it complied.
+Every other line of this file came from the committed template, with the draft's
+own title substituted in below; none of it was hand-written for this draft.
 
 **Draft under audit — title:**
 

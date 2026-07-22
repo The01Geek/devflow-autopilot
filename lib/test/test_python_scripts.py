@@ -6018,6 +6018,61 @@ print("issue-audit-state: iteration-3 hardening (issue #546, PR #552 review)")
 _malformed('a negative findings_count',
            dict(_GOOD, rounds=[dict(_round(1, 'file', 'FILE'), findings_count=-3)]))
 _malformed('a non-boolean reinit_forced', dict(_GOOD, reinit_forced='yes'))
+
+# issue #709 malformed-state rows. The #718 review found the ~10 new `_validate` raise
+# sites carried no matrix row at all — including the state<->reason PAIR check, whose own
+# comment says it exists to stop a forged `{established, no-instructions-file}` record
+# from walking the run past the gate. Without a row, the obvious "simplify" (check the two
+# fields independently) restores that fail-open with a green suite.
+def _round709(**kw):
+    """A completed file-arm round whose steering/instructions records are overridable."""
+    r = _round(1, 'file', 'FILE')
+    if 'instructions' in kw:
+        r['attempts'][0]['instructions'] = kw.pop('instructions')
+    r.update(kw)
+    return r
+
+
+_GOOD_INSTR = {'digest': 'I1', 'instructions_path': '/abs/instr.md',
+               'draft_path': '/abs/draft.md', 'template_path': None}
+_malformed('a steering record that is not an object',
+           dict(_GOOD, rounds=[_round709(steering='established')]))
+_malformed('a steering state outside the closed set',
+           dict(_GOOD, rounds=[_round709(steering={'state': 'probably',
+                                                   'reason': 'canonical-match'})]))
+_malformed('a steering reason outside the closed set',
+           dict(_GOOD, rounds=[_round709(steering={'state': 'not-established',
+                                                   'reason': 'vibes'})]))
+_malformed('a FORGED steering pair (established + a not-established reason)',
+           dict(_GOOD, rounds=[_round709(steering={'state': 'established',
+                                                   'reason': 'no-instructions-file'})]))
+_malformed('an instructions record that is not an object',
+           dict(_GOOD, rounds=[_round709(instructions='I1')]))
+_malformed('an instructions record with an empty digest',
+           dict(_GOOD, rounds=[_round709(instructions=dict(_GOOD_INSTR, digest=''))]))
+_malformed('an instructions record with a relative instructions_path',
+           dict(_GOOD, rounds=[_round709(instructions=dict(_GOOD_INSTR,
+                                                           instructions_path='instr.md'))]))
+_malformed('an instructions record with a newline-carrying draft_path',
+           dict(_GOOD, rounds=[_round709(instructions=dict(_GOOD_INSTR,
+                                                           draft_path='/abs/a\nb.md'))]))
+_malformed('an instructions record with a relative template_path',
+           dict(_GOOD, rounds=[_round709(instructions=dict(_GOOD_INSTR,
+                                                           template_path='t.md'))]))
+# The positive control for the four rows above: the same record shapes, well-formed, are
+# ACCEPTED — so the rows prove the validator discriminates rather than rejecting any
+# round carrying these keys at all.
+issue_audit_state._validate(dict(_GOOD, rounds=[_round709(instructions=_GOOD_INSTR)]), 's')
+assert_eq("#709 malformed-state matrix: a well-formed steering+instructions round validates "
+          "(positive control for the rows above)", True, True)
+# ... and the forged pair does not merely fail validation: it can never ground a clean
+# approve, which is the property the validator is protecting.
+assert_raises("#709 malformed-state matrix: a forged steering pair never grounds an "
+              "approve-mode eligibility read",
+              issue_audit_state.StateError,
+              lambda: issue_audit_state._validate(
+                  dict(_GOOD, rounds=[_round709(steering={'state': 'established',
+                                                          'reason': 'inputs-unrecorded'})]), 's'))
 assert_eq("#546 iter3: _TRANSITION_REASONS gains attestation-already-recorded",
           True, 'attestation-already-recorded' in issue_audit_state._TRANSITION_REASONS)
 
@@ -11542,6 +11597,8 @@ _with_run603(_row23)
 # guarantee is that the auditor's quoted object ID matches a FRESH REGENERATION, and a
 # fixture that hand-writes both sides of that comparison proves nothing about it.
 _RAP709 = str(SCRIPTS / 'render-audit-prompt.py')
+_RAP_TEMPLATE = str(SCRIPTS.parent / 'skills' / 'create-issue' / 'references'
+                    / 'audit-prompt-template.md')
 
 
 class _Run709(_Run603):
@@ -11732,13 +11789,18 @@ assert_eq("#709 move3-7: ... and the summary names the state for the audit-summa
 # round is unestablished rather than silently clean; the specific cause reaches stderr.
 def _row709_regen(r):
     r.generate()
-    # Record a regeneration input that cannot be read back. It must be a path OTHER than
-    # the draft file: the draft is also the carriage comparand, so breaking that file
-    # would exercise the carriage path and refuse the completion before the steering
-    # evaluation this row is about ever runs.
+    # Record a regeneration input that cannot be read back at return time. It must be
+    # neither the draft file nor the instruction file: the draft is also the carriage
+    # comparand (breaking it would exercise the carriage path and refuse the completion
+    # before the steering evaluation this row is about ever runs), and the two draft-path
+    # inputs must now name the same file (the dispatch-time agreement guard). The TEMPLATE
+    # input is the remaining closed input the regeneration reads, and an absolute path to
+    # a file that does not exist passes the dispatch-time shape check and fails only where
+    # this row needs it to — inside the regeneration.
     d = r('record-dispatch', r.slug, '--round', '1', '--arm', 'file',
           '--draft-file', r.draft, '--instructions-file', r.instr,
-          '--instructions-draft-path', str(Path(r.tmp, 'never-written.md')), nonce=True)
+          '--instructions-draft-path', r.draft,
+          '--instructions-template', str(Path(r.tmp, 'never-written.md')), nonce=True)
     assert d.returncode == 0, d.stderr
     oid = r.oid(r.instr)
     got = r.ret(instructions_oid=oid, extra='no')
@@ -11767,6 +11829,28 @@ def _row709_rebind(r):
 
 
 _with_run709(_row709_rebind)
+
+
+# The refusal must name the RIGHT cause. The #718 review found the steering refusal
+# preempted the whole chain below it, so a clean round with unestablished steering AND an
+# unaudited revision reported `steering-unestablished` — sending the user to re-audit when
+# the real remedy is that the draft changed. Asserting only `eligible=no` (as the row
+# above does) cannot see that; these two rows pin the reason on each side.
+def _row709_reason_attribution(r):
+    r.generate()
+    assert r.dispatch(with_instructions=False).returncode == 0
+    r.ret()  # no instructions inputs recorded -> steering never established
+    assert_eq("#709 reason attribution: an unestablished clean round whose identity holds "
+              "names the establishment",
+              'eligible=no reason=steering-unestablished', r.eligibility())
+    Path(r.draft).write_text('# A drafted issue title\n\nrevised body\n', encoding='utf-8')
+    r('record-revision', r.slug, '--after-round', '1', nonce=True)
+    assert_eq("#709 reason attribution: ... but once a revision postdates it, the honest "
+              "cause is the revision, not the steering",
+              'eligible=no reason=unaudited-revision', r.eligibility())
+
+
+_with_run709(_row709_reason_attribution)
 
 # The embed and inline arms have no writable instruction file BY CONSTRUCTION (they are
 # entered because the canonical draft-file write already failed), so they record the
@@ -11804,6 +11888,95 @@ def _row709_halfpair(r):
 
 
 _with_run709(_row709_halfpair)
+
+
+# ... and SYMMETRICALLY: the review found the reverse half was silently accepted, so a
+# dispatch that lost only its --instructions-file argument recorded no instructions object
+# at all and reached the return as `inputs-unrecorded` — an orchestrator arg-slip
+# diagnosed as a design decision.
+def _row709_halfpair_reverse(r):
+    r.generate()
+    got = r('record-dispatch', r.slug, '--round', '1', '--arm', 'file',
+            '--draft-file', r.draft, '--instructions-draft-path', r.draft, nonce=True)
+    assert_eq("#709 closed inputs: --instructions-draft-path without --instructions-file is "
+              "refused too (the reverse half)",
+              (1, True),
+              (got.returncode, 'require --instructions-file' in got.stderr))
+
+
+_with_run709(_row709_halfpair_reverse)
+
+
+# The two draft-path facts must name the SAME file. Left uncompared, a dispatch binding
+# identity to draft Y while generating instructions from draft X regenerates cleanly,
+# establishes steering, and grants the coverage-backed clean ground for Y on the strength
+# of an audit whose instructions pointed at X.
+def _row709_draft_disagreement(r):
+    r.generate()
+    other = Path(r.tmp, 'other-draft.md')
+    other.write_text('# A different draft\n\nbody\n', encoding='utf-8')
+    got = r('record-dispatch', r.slug, '--round', '1', '--arm', 'file',
+            '--draft-file', r.draft, '--instructions-file', r.instr,
+            '--instructions-draft-path', str(other), nonce=True)
+    assert_eq("#709 closed inputs: an --instructions-draft-path naming a DIFFERENT file "
+              "than --draft-file is refused",
+              (1, True),
+              (got.returncode, 'instructions-draft-mismatch' in got.stderr))
+    # Positive control on the same fixture: the identical call with the paths agreeing
+    # succeeds, so the row above proves the comparison fired and not that some other
+    # precondition rejected the dispatch.
+    ok = r('record-dispatch', r.slug, '--round', '1', '--arm', 'file',
+           '--draft-file', r.draft, '--instructions-file', r.instr,
+           '--instructions-draft-path', r.draft, nonce=True)
+    assert_eq("#709 closed inputs: ... and the same call with the paths agreeing is accepted "
+              "(positive control)", 0, ok.returncode)
+
+
+_with_run709(_row709_draft_disagreement)
+
+
+# A recorded non-default --instructions-template really is the comparand's template: a
+# round that records one and then has it read back as canonical establishes, while the
+# regeneration reads THAT file (not the generator's default). Without this row an inverted
+# branch would still pass every other row, since every one of them uses the default.
+def _row709_recorded_template(r):
+    tmpl = Path(r.tmp, 'copied-template.md')
+    tmpl.write_bytes(Path(_RAP_TEMPLATE).read_bytes())
+    got = _subprocess.run(
+        [sys.executable, _RAP709, 'dispatch-instructions', '--slug', r.slug,
+         '--draft-path', r.draft, '--instructions-path', r.instr,
+         '--template-file', str(tmpl)],
+        cwd=r.tmp, capture_output=True, text=True)
+    assert got.returncode == 0, got.stderr
+    Path(r.instr).write_text(got.stdout, encoding='utf-8')
+    d = r('record-dispatch', r.slug, '--round', '1', '--arm', 'file',
+          '--draft-file', r.draft, '--instructions-file', r.instr,
+          '--instructions-draft-path', r.draft,
+          '--instructions-template', str(tmpl), nonce=True)
+    assert d.returncode == 0, d.stderr
+    ret = r.ret(instructions_oid=r.oid(r.instr), extra='no')
+    assert_eq("#709 closed inputs: a recorded --instructions-template is the template the "
+              "regeneration reads", 'canonical-match', _reason(ret))
+
+
+_with_run709(_row709_recorded_template)
+
+
+# The skill's documented generator-failure recovery token must actually be accepted by the
+# state owner: it is validated by argparse `choices`, so any drift between the prose
+# literal and `_DEGRADED_REASONS` fails with rc 2 on the least-exercised path there is —
+# the one taken only when generation has ALREADY failed.
+def _row709_degraded_reason(r):
+    d = r('record-dispatch', r.slug, '--round', '1', '--arm', 'file',
+          '--draft-file', r.draft, nonce=True)
+    assert d.returncode == 0, d.stderr
+    got = r('record-degraded', r.slug, '--round', '1',
+            '--reason', 'instructions-generation-failed', nonce=True)
+    assert_eq("#709 degraded: record-degraded accepts the instructions-generation-failed "
+              "reason the skill prescribes", 0, got.returncode)
+
+
+_with_run709(_row709_degraded_reason)
 
 print()
 print(f"{PASS} passed, {FAIL} failed")

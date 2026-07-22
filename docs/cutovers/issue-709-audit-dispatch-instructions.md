@@ -28,7 +28,7 @@ kind: cutover
   `references/fallback-state-owner-unavailable.md` (mandatory / conditional references) — the
   audit-summary marker, the offer routing, and the unestablished-by-construction arms.
 
-Word accounting (python3 word-split, never `wc -w`): default path 29,973 → 30,783 against an
+Word accounting (python3 word-split, never `wc -w`): default path 29,973 → 30,948 against an
 unmoved 31,262 ceiling; root unchanged at 2,732. The bulk of the new prose lives in the
 renderer-owned template, which no budget operand contains — so the ceiling is not renegotiated and
 `CLAUDE.md` is untouched. Figures and the decision record: `docs/create-issue-budget.md`.
@@ -116,7 +116,7 @@ path. Each divergence row *plants* the defect the gate exists to catch and asser
 - No other pin was retired. The arm-(i) enumeration carried no pin of its own; the
   Information-diet and out-of-bounds prose it sat beside is **preserved** and now carries two new
   preservation pins it did not have before.
-- `CI614_TOTAL_RECORDED` re-anchored 25,814 → 26,958 (the live root+references total), so the ±2%
+- `CI614_TOTAL_RECORDED` re-anchored 25,814 → 27,146 (the live root+references total), so the ±2%
   conservation band keeps guarding against a silent prose drop from the new size rather than
   reporting this change's intended growth as drift. The #614 split's own conservation arithmetic in
   `docs/create-issue-budget.md` is left frozen and is now labelled a past-time snapshot.

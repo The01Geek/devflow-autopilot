@@ -797,6 +797,28 @@ class DispatchInstructions(unittest.TestCase):
             )
             self.assertEqual(lib, cli.stdout.encode("utf-8"))
 
+    def test_D11_a_template_with_no_di_block_fails_closed(self):
+        """The `di` token selecting nothing is a loud failure, never an empty render.
+
+        `_assemble`'s emptiness arm is the only thing standing between a template edit
+        that renames or drops the `di` block and a run whose every file-arm round lands
+        on `regeneration-failed` with no explanation of why.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpl = Path(tmp, "no-di.md")
+            tmpl.write_text(
+                "<!-- render-block: file -->\nonly the file arm lives here\n",
+                encoding="utf-8")
+            draft = Path(tmp, "d.md")
+            draft.write_text("# T\n\nbody\n", encoding="utf-8")
+            got = run_renderer(["dispatch-instructions", "--slug", "x",
+                                "--draft-path", str(draft),
+                                "--instructions-path", str(Path(tmp, "i.md")),
+                                "--template-file", str(tmpl)])
+            self.assertNotEqual(0, got.returncode)
+            self.assertEqual("", got.stdout)
+            self.assertIn("di", got.stderr)
+
     def test_D10_title_rule_agrees_with_the_state_owner_body_split(self):
         # draft_title and issue-audit-state.py's split_body are a COUPLED MIRROR of one
         # decided title rule: the body is defined as everything the title is not. They

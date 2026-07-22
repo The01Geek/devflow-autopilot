@@ -198,6 +198,12 @@ _STEERING_REASON_STATE = {
 # steering result". `summary_fields` asserts its derived token against this set, so the
 # constant is load-bearing rather than a name that merely claims a coupling.
 _STEERING_SUMMARY = _STEERING_STATES + ('unestablished',)
+# ...and the reason's own closed answer set, for the same reason the state has one: a
+# consumer parsing `steering_reason=` off the SUMMARY line needs something pinned to
+# parse against. `none` is a summary-only member (no round ever RECORDS it) — it is
+# what an unestablishable or not-yet-evaluated round renders, exactly as
+# `unestablished` is the state's summary-only member.
+_STEERING_SUMMARY_REASONS = tuple(_STEERING_REASON_STATE) + ('none',)
 _NEXT_ACTIONS = (
     'dispatch-embed-retry', 'dispatch-retry-same-arm', 'dispatch-inline-degraded',
     'proceed', 'revise-and-reaudit', 'revise-then-evaluate-offer', 'round-closed-no-verdict',
@@ -936,10 +942,15 @@ def _validate(doc, slug):
                                      f'string')
             # issue #709: the canonical dispatch-instruction record. `None` (or absent —
             # a v3 round dispatched with no instruction file) is legal and reads as
-            # unestablished; a PRESENT record must be complete, because `record-return`
-            # indexes every one of these keys to regenerate the comparand. A
+            # unestablished; a PRESENT record must be complete. `record-return` INDEXES
+            # `draft_path` and `instructions_path` to regenerate the comparand, so a
             # half-recorded object would raise a KeyError at that mutation site instead
-            # of collapsing here to a named breadcrumb.
+            # of collapsing here to a named breadcrumb. The other two are validated for a
+            # different reason, stated so a later reader does not mistake them for
+            # comparand inputs: `template_path` is read through `.get` (absent means the
+            # generator's own default), and `digest` has no reader at all — it is the
+            # dispatch-time diagnostic the `instructions_digest=` line prints, and it is
+            # deliberately NOT the comparand (see `regenerate_instructions_digest`).
             instr = att.get('instructions')
             if instr is not None:
                 if not isinstance(instr, dict):
@@ -1573,11 +1584,15 @@ def evaluate_triggers(state):
     count (the pre-#548 raw-REVISE token fired the offer, so either low-evidence path must not
     silently drop it — the offer fires rather than being skipped, exactly the absent-comparand
     fail-closed the guard would otherwise fail open on); and whenever state is unestablishable
-    (unknown is not zero). A naming `reason` is surfaced on exactly the three fail-closed arms
-    that need one — `state-unestablished`, `no-verdict-round`, and `unadjudicated-round` — and is `None` when
-    T2 holds purely because a revision postdates a known, audited last round (the offer fires,
-    but there is no anomaly to name). An un-adjudicated *FILE* round is NOT any of these — its
-    raw signal is clean and pre-#548 it fired no offer, so T2's behavior on it is unchanged.
+    (unknown is not zero). A naming `reason` is surfaced on the fail-closed arms that need one
+    — `state-unestablished`, `no-verdict-round`, `unadjudicated-round`, and (issue #709)
+    `steering-unestablished` — and is `None` when T2 holds purely because a revision postdates a
+    known, audited last round WHOSE steering-absence was established (the offer fires, but there
+    is no anomaly to name). An un-adjudicated *FILE* round is none of the pre-#709 arms — its raw
+    signal is clean and pre-#548 it fired no offer — so T2's behavior on it is unchanged EXCEPT
+    where its steering-absence was not established, which is exactly what the #709 arm below
+    names (the Quiet-Killer case: a clean round whose independence could not be established
+    would otherwise withhold the clean ground with no user-facing offer).
     """
     if state is None:
         return {'t1': False, 't2': True, 'reason': 'state-unestablished'}
@@ -1826,6 +1841,44 @@ def _emit_stale_override_remedy(prefix, elig, state, current_digest):
         f'issue-audit-state.py {prefix}: {stale_override_remedy(state, current_digest)}\n')
 
 
+def _clean_identity(state, clean, current_digest):
+    """The `(ground, key)` a clean round supplies on IDENTITY alone, or None.
+
+    Identity only — the issue-#709 steering requirement is deliberately NOT folded in
+    here, because two callers need the identity answer for opposite purposes: the clean
+    grant (which additionally requires established steering) and the
+    `steering-unestablished` refusal (which is the honest diagnosis only where identity
+    already held). Sharing one operation is what keeps the refusal's stated precondition
+    true by construction rather than by a comment claiming the two agree.
+
+    file arm — issue #562 post-revision write-failure closure: byte-digest equality is
+    not sufficient on its own. A recorded revision that postdates the clean round and
+    whose overwrite FAILED leaves the bound file still holding the clean round's
+    byte-identical bytes, so `recorded == current_digest` holds over bytes the user
+    revised away. Require, in addition, that no revision postdates the clean round
+    (mirroring the event-ordering ground). Equality can still hold WITH a postdating
+    revision two ways — the write-failure case and a revise-back-to-clean case — and
+    keying on the revision's existence, not its bytes, refuses both.
+
+    other arms — the weaker event-ordering identity. Note that `evaluate_eligibility`
+    reaches this ground only when steering was established, which the file-arm-only
+    instruction file makes impossible on the embed/inline arms today; those arms
+    therefore ground through the override election instead, which is the withhold-then-
+    disclose outcome issue #709 specifies for them, not an accidental dead branch.
+    """
+    if clean is None:
+        return None
+    if clean['attempts'][-1]['arm'] == 'file':
+        recorded = clean['attempts'][-1].get('digest')
+        if (current_digest is not None and recorded == current_digest
+                and not _revision_postdates(state, clean)):
+            return ('file-identity', current_digest)
+        return None
+    if not _revision_postdates(state, clean):
+        return ('event-ordering', str(revision_ordinal(state)))
+    return None
+
+
 def evaluate_eligibility(state, mode, current_digest=None, digest_failed=False):
     """Presentation eligibility.
 
@@ -1856,10 +1909,14 @@ def evaluate_eligibility(state, mode, current_digest=None, digest_failed=False):
       state-unestablished > draft-undigestible > steering-unestablished >
       no-verdict-round > no-digest-supplied > stale-override > unaudited-revision.
 
-    `steering-unestablished` sits where it does because it is REACHABLE only with a clean
-    round present that the override ground did not rescue — the three reasons after it
-    all require the opposite — so its position expresses specificity, not a race between
-    conditions that could genuinely both apply.
+    `steering-unestablished` sits where it does because it is REACHABLE only when the
+    clean round's IDENTITY already holds (same `_clean_identity` operation the grant
+    consumes) and the override ground did not rescue it — so where it fires, the
+    establishment really is the single missing property. The reasons after it stay
+    reachable on their own states: a clean round with a postdating revision answers
+    `unaudited-revision`, and a digest-less approve query answers `no-digest-supplied`,
+    whether or not steering was established. Its position expresses specificity over
+    states it genuinely diagnoses, not a blanket preemption of the chain below.
 
     `no-digest-supplied` outranks `stale-override` deliberately: an override queried
     with no draft digest was never compared, so nothing went stale — naming the
@@ -1911,10 +1968,13 @@ def evaluate_eligibility(state, mode, current_digest=None, digest_failed=False):
     # been ESTABLISHED for the grounding round — the auditor's quoted instruction-file
     # object ID matched the freshly-regenerated canonical digest AND it reported no extra
     # dispatch content. This gate sits INSIDE the clean block, structurally prior to the
-    # refusal chain below rather than as one more peer reason in it: it can only ever be
-    # reached when identity ALREADY held, so it is by construction the most specific
-    # diagnosis available and can never collide with `no-verdict-round` /
-    # `no-digest-supplied` (both of which require no clean round to exist at all).
+    # refusal chain below rather than as one more peer reason in it: the grant is
+    # withheld at its own return, and the refusal below fires only where the clean
+    # round's identity itself holds. That guard — not a claim that no other reason could
+    # ever match the same state — is what keeps the diagnosis honest: `no-digest-supplied`
+    # and `unaudited-revision` both DO require a clean round (see their own arms below),
+    # so a precedence that preempted them unconditionally would misattribute a stale or
+    # digest-less query to steering.
     #
     # Scope, stated so it is not over-read: only the CLEAN ground is withheld. The
     # override ground below is untouched, `emit-body`'s other paths are untouched, and
@@ -1923,27 +1983,14 @@ def evaluate_eligibility(state, mode, current_digest=None, digest_failed=False):
     # `steering_ok` already implies `clean is not None`, so the guards below test it
     # alone rather than restating that fact at each site.
     steering_ok = clean is not None and _steering_established(clean)
-    if steering_ok:
-        arm = clean['attempts'][-1]['arm']
-        if arm == 'file':
-            recorded = clean['attempts'][-1].get('digest')
-            # issue #562 post-revision write-failure closure: byte-digest equality is no
-            # longer sufficient on its own. A recorded revision that postdates the clean
-            # round and whose overwrite FAILED leaves the bound file still holding the
-            # clean round's byte-identical bytes — so `recorded == current_digest` holds
-            # over bytes the user revised away. Require, in addition, that no revision
-            # postdates the clean round (mirroring the event-ordering ground): a landed
-            # revision normally changes the file's bytes, so the equality usually fails
-            # there. Equality can still hold WITH a postdating revision in two ways — the
-            # write-failure case (the overwrite never landed, so the file keeps the clean
-            # round's bytes) and a revise-back-to-clean case (the revision's bytes happen
-            # to equal the clean round's) — and this guard refuses BOTH by keying on the
-            # revision's existence, not its bytes (answered `unaudited-revision` below).
-            if (current_digest is not None and recorded == current_digest
-                    and not _revision_postdates(state, clean)):
-                return _yes(state, 'file-identity', current_digest)
-        elif not _revision_postdates(state, clean):
-            return _yes(state, 'event-ordering', str(revision_ordinal(state)))
+    # The identity half is computed ONCE, by the shared helper, and consumed twice: here
+    # for the grant, and by the #709 refusal below. A second hand-written copy of the
+    # condition is what made the refusal claim "identity held" over states where it had
+    # not (an unaudited revision, or a digest-less query), so the two now share one
+    # operation by construction rather than by a comment asserting they agree.
+    identity = _clean_identity(state, clean, current_digest)
+    if steering_ok and identity is not None:
+        return _yes(state, identity[0], identity[1])
 
     ov = _valid_override(state, current_digest)
     if ov is not None:
@@ -1959,11 +2006,15 @@ def evaluate_eligibility(state, mode, current_digest=None, digest_failed=False):
                     bound if bound is not None else str(revision_ordinal(state)))
 
     # issue #709 — checked here, immediately after the override ground could not rescue
-    # it, because a clean round whose steering was not established is a MORE specific
-    # cause than anything in the chain below: identity held, the verdict was clean, and
-    # the single missing property is the establishment. Naming it `unaudited-revision`
-    # or `stale-override` instead would send the reader to the wrong remedy.
-    if clean is not None and not steering_ok:
+    # it, and ONLY when the clean round's identity itself holds (`identity is not None`,
+    # the same operation the grant above consumed). That guard is what makes the
+    # diagnosis true rather than merely earliest: on a state where identity did NOT hold
+    # — an unaudited revision postdating the clean round, or an approve query that
+    # supplied no digest — the establishment is not "the single missing property", and
+    # naming it here would send the reader to the wrong remedy while masking the real
+    # one. Those states fall through to the chain below and answer `unaudited-revision`
+    # / `no-digest-supplied` exactly as they did before #709.
+    if identity is not None and not steering_ok:
         return _no('steering-unestablished')
 
     # Refusal precedence, decided (the docstring's tail, in the order checked below):
@@ -2183,6 +2234,9 @@ def summary_fields(state, current_digest=None, digest_failed=False):
     _require(_steer_rec.get('state', 'unestablished') in _STEERING_SUMMARY,
              f'issue-audit-state: the summary steering token '
              f'{_steer_rec.get("state")!r} is outside _STEERING_SUMMARY')
+    _require(_steer_rec.get('reason', 'none') in _STEERING_SUMMARY_REASONS,
+             f'issue-audit-state: the summary steering_reason token '
+             f'{_steer_rec.get("reason")!r} is outside _STEERING_SUMMARY_REASONS')
     elig = evaluate_eligibility(state, 'approve', current_digest,
                                 digest_failed=digest_failed)
     token = elig['token']
@@ -2508,6 +2562,18 @@ def cmd_record_dispatch(args):
     # the round look establishable when it is not. The draft TITLE is deliberately NOT
     # among them — the generator reads it from the draft file at `draft_path`, so no
     # drafter free text is stored here or crosses a regeneration argument.
+    if not args.instructions_file and (args.instructions_draft_path
+                                       or args.instructions_template):
+        # The OTHER half of the pair, refused symmetrically. Accepting a lone
+        # --instructions-draft-path silently recorded NO instructions object at all, so a
+        # dispatch that lost only its --instructions-file argument looked like a
+        # deliberate no-instruction-file round and reached the auditor's return as
+        # `inputs-unrecorded` — an orchestrator arg-slip diagnosed as a design decision.
+        # Refusing here names the slip at the site that can still fix it.
+        _fail('record-dispatch', '--instructions-draft-path/--instructions-template '
+                                 'require --instructions-file (the instruction file the '
+                                 'auditor hashes); without it there is nothing to '
+                                 'regenerate a comparand for')
     if args.instructions_file:
         if args.arm != 'file':
             _fail('record-dispatch', '--instructions-file is a file-arm input; the '
@@ -2523,6 +2589,27 @@ def cmd_record_dispatch(args):
             if _val is not None and not _is_bound_path(_val):
                 _fail('record-dispatch', f'{_flag} {_val!r} is not a non-empty absolute '
                                          f'path free of newline/carriage-return bytes')
+        # The attempt carries two draft-path facts that MUST name the same file: the
+        # `--draft-file` whose bytes became `attempt['digest']` (the identity eligibility
+        # binds to) and the `--instructions-draft-path` the regeneration reads the title
+        # from. Left uncompared, a dispatch naming draft Y for identity and draft X for
+        # the instructions regenerates cleanly, establishes steering, and grants the
+        # coverage-backed clean ground for Y on the strength of an audit whose
+        # instructions pointed at X — the fail-open shape the rest of this record closes.
+        # Compare RESOLVED paths so a relative-vs-absolute or symlinked spelling of the
+        # same file is not refused as a mismatch.
+        try:
+            _identity_draft = Path(args.draft_file).resolve()
+            _instr_draft = Path(args.instructions_draft_path).resolve()
+        except OSError as exc:
+            _fail('record-dispatch', f'could not resolve the draft paths to compare '
+                                     f'them: {exc}')
+        if _identity_draft != _instr_draft:
+            _fail('record-dispatch',
+                  f'--instructions-draft-path {args.instructions_draft_path!r} names a '
+                  f'different file than --draft-file {args.draft_file!r} '
+                  '(instructions-draft-mismatch): the instructions must be generated '
+                  'from the same draft whose bytes this round binds identity to')
         try:
             instructions_digest = hash_bytes(Path(args.instructions_file).read_bytes())
         except OSError as exc:
@@ -3227,9 +3314,11 @@ def _load_generator():
     in-process call keeps the regeneration Windows-safe (no `.sh` exec, #275; no
     interpreter-path guessing) and cannot inherit this process's argv. Its module
     name carries a dash, so it is loaded by file location rather than by `import`.
-    Every failure mode — file absent, unimportable, or importable-but-missing the
-    entry point — raises so the caller records `regeneration-failed`; none of them
-    may read as an established comparison.
+    Every failure mode — file absent, unimportable (for ANY reason its module body
+    raises, not merely the import-shaped ones), or importable-but-missing either entry
+    point this module calls — raises `_DigestError` so the caller records
+    `regeneration-failed`; none of them may read as an established comparison, and none
+    may escape as a traceback that would abort `record-return` before it saves the round.
     """
     import importlib.util
     path = Path(__file__).resolve().parent / 'render-audit-prompt.py'
@@ -3239,12 +3328,16 @@ def _load_generator():
     mod = importlib.util.module_from_spec(spec)
     try:
         spec.loader.exec_module(mod)
-    except (OSError, SyntaxError, ImportError) as exc:
+    except Exception as exc:  # noqa: BLE001 - a module body may raise anything; every
+        # shape is the same decided outcome here (the comparand cannot be regenerated),
+        # and narrowing to the import-shaped exceptions let a ValueError/NameError at
+        # module scope escape as a traceback that aborted record-return mid-round.
         raise _DigestError(f'could not import the dispatch-instruction generator '
                            f'at {path}: {exc}') from exc
-    if not hasattr(mod, 'instructions_bytes'):
-        raise _DigestError(f'the dispatch-instruction generator at {path} has no '
-                           f'instructions_bytes entry point')
+    for entry_point in ('instructions_bytes', 'default_template_path'):
+        if not hasattr(mod, entry_point):
+            raise _DigestError(f'the dispatch-instruction generator at {path} has no '
+                               f'{entry_point} entry point')
     return mod
 
 
@@ -3266,8 +3359,14 @@ def regenerate_instructions_digest(slug, inputs):
     couples the two.
     """
     mod = _load_generator()
-    template_path = (Path(inputs['template_path']) if inputs.get('template_path')
-                     else mod._default_template_path())
+    try:
+        template_path = (Path(inputs['template_path']) if inputs.get('template_path')
+                         else mod.default_template_path())
+    except Exception as exc:  # noqa: BLE001 - same decided arm as the render below: any
+        # failure resolving the comparand's template is a regeneration failure, never a
+        # traceback out of record-return.
+        raise _DigestError(f'could not resolve the dispatch-instruction template: '
+                           f'{exc}') from exc
     try:
         draft_text = Path(inputs['draft_path']).read_text(encoding='utf-8')
     except (OSError, UnicodeDecodeError) as exc:
