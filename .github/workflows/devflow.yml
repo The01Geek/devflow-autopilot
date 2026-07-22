@@ -909,37 +909,25 @@ jobs:
       # startup `--agents` per-agent effort block the spike (docs/agents-seam-probe.md)
       # proved is forwarded and governs, and write the applier->recorder sidecar the
       # in-session recorder (lib/efficiency-trace.sh) reads. Kept as its OWN step (not the
-      # cargs body) so the model/effort composition stays isolated and independently
-      # testable. Best-effort, fail-OPEN: any failure (resolver absent, non-JSON, empty
-      # result) yields an empty agents_args and no sidecar, and the honest fallback stands.
-      # The resolver owns the canonical roster (--known-roster), validates each effort
-      # against the enum, and applies the capability gate (Haiku strip + effort_supported
-      # #313), so the emitted JSON keys are fixed KNOWN_AGENTS ids and values are enum
-      # efforts — safe to single-quote as one CLI token spliced into claude_args. Ordering:
-      # a run before the plugin is vendored simply finds no resolver and fails open to the
-      # honest fallback (never a false applied claim); the self-repo `scripts/` fallback
-      # covers this repo's own runs.
+      # cargs body) so the model/effort composition stays isolated. The branch logic
+      # (resolver-absent fail-open, empty/`{}` short-circuit, JSON-object validation,
+      # unconditional stale-sidecar clear, sidecar-write-then-fallback) lives in the
+      # extracted helper scripts/compose-applied-effort.sh so the suite drives each branch
+      # directly (issue #700 findings #3/#4/#5). Best-effort, fail-OPEN: any failure yields
+      # an empty agents_args and no sidecar, and the honest fallback stands. Invoked at the
+      # vendored path (materialized by vendor-plugin), with the self-repo `scripts/` fallback
+      # for this repo's own runs.
       - name: Compose applied per-agent effort (issue 669)
         id: applied_effort
         env:
           EFFORT_SUPPORTED: ${{ steps.provider.outputs.effort_supported }}
         run: |
           set -euo pipefail
+          CAE=.devflow/vendor/devflow/scripts/compose-applied-effort.sh
+          [ -f "$CAE" ] || CAE=scripts/compose-applied-effort.sh
           AGENTS_ARGS=""
-          RRO=.devflow/vendor/devflow/scripts/resolve-review-overrides.py
-          [ -f "$RRO" ] || RRO=scripts/resolve-review-overrides.py
-          if [ -f "$RRO" ]; then
-            AGENTS_JSON="$(python3 "$RRO" --known-roster --effort-supported "${EFFORT_SUPPORTED:-true}" --applied-agents-json 2>/dev/null || printf '{}')"
-            case "$AGENTS_JSON" in
-              '' | '{}') : ;;
-              *)
-                AGENTS_ARGS="--agents '$AGENTS_JSON'"
-                mkdir -p .devflow/tmp
-                python3 "$RRO" --known-roster --effort-supported "${EFFORT_SUPPORTED:-true}" --applied-sidecar-json \
-                  > .devflow/tmp/agent-effort-applied.json 2>/dev/null \
-                  || rm -f .devflow/tmp/agent-effort-applied.json
-                ;;
-            esac
+          if [ -f "$CAE" ]; then
+            AGENTS_ARGS="$(bash "$CAE")"
           fi
           # Newline-safe heredoc output (mirrors the cargs step's scalar-output form).
           aedelim="AEOUT_$(date +%s%N)_$$"

@@ -359,8 +359,9 @@ def build_applied_effort(resolved, dispatched, *, effort_supported=True):
     The spike (`docs/agents-seam-probe.md`) proved that a startup `--agents`
     agent-definition is forwarded by `claude-code-action` and that its `effort`
     governs a runtime Agent-tool dispatch. This is the pure composition the
-    pre-launch component (the workflow `cargs` step that owns `claude_args`)
-    runs to build that agent-definition and the applier->recorder sidecar.
+    pre-launch component (the workflow's `applied_effort` composer step — a
+    sibling of the `cargs` step, both feeding `claude_args`) runs to build that
+    agent-definition and the applier->recorder sidecar.
 
     For every dispatched agent whose resolved per-agent effort passes the
     capability gate (non-Haiku model AND `effort_supported`), the EMITTED effort
@@ -623,8 +624,8 @@ def main(argv=None):
             "`--agents` agent-definition map {agent: {effort}} as pure JSON on "
             "stdout, INSTEAD of the override map. Only agents whose resolved "
             "per-agent effort passes the capability gate appear; `{}` when none. "
-            "This is the value the pre-launch `cargs` component composes into "
-            "claude_args."
+            "This is the value the pre-launch `applied_effort` composer step "
+            "splices into claude_args."
         ),
     )
     parser.add_argument(

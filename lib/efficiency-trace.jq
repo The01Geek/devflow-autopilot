@@ -244,7 +244,11 @@ def iter_view:
                elif $entry == null then "session-inheritance"
                else $entry.application_point end),
             effective: (if $applied != null then $applied else $entry.effective end),
-            fallback_reason: $entry.fallback_reason
+            # The applied arm has no fallback: null the reason so the row never
+            # reads `application_point: agent-definition` AND a stale session-fallback
+            # reason at once (#700 finding #2). Only the honest-fallback arm carries a
+            # reason.
+            fallback_reason: (if $applied != null then null else $entry.fallback_reason end)
           }
       ],
       agent_verdicts: [

@@ -256,7 +256,7 @@ Per execution tier:
 
 | Tier / dispatch context | Per-agent effort application point | Per-agent effort applied? |
 |---|---|---|
-| **Cloud** review — fresh `claude-code-action` process per run | `agent-definition` (applied) — `session-fallback` for a capability-gated or unresolved effort | **Yes** (applied arm, issue #669) — the [seam spike](agents-seam-probe.md) recorded `SEAM_PROVEN`, so the pre-launch `cargs` component composes each capability-gated per-agent effort into the startup `--agents` agent-definition (`.github/workflows/devflow-implement.yml` / `devflow-runner.yml` / `devflow.yml`) and writes the emitted effort to the applier→recorder sidecar the in-session recorder reads. A Haiku-model or `effort_supported:false` agent is stripped and records `session-fallback`, never `agent-definition`. `effective` is the composed effort — a spike-grounded proxy, not a per-run measurement. |
+| **Cloud** review — fresh `claude-code-action` process per run | `agent-definition` (applied) — `session-fallback` for a capability-gated or unresolved effort | **Yes** (applied arm, issue #669) — the [seam spike](agents-seam-probe.md) recorded `SEAM_PROVEN`, so the pre-launch `applied_effort` composer step composes each capability-gated per-agent effort into the startup `--agents` agent-definition (`.github/workflows/devflow-implement.yml` / `devflow-runner.yml` / `devflow.yml`) and writes the emitted effort to the applier→recorder sidecar the in-session recorder reads. A Haiku-model or `effort_supported:false` agent is stripped and records `session-fallback`, never `agent-definition`. `effective` is the composed effort — a spike-grounded proxy, not a per-run measurement. |
 | **Cloud/local session effort** — `devflow.effort` / `devflow_implement.effort` / `devflow_runner.effort` | `process-start-session` | Session-wide, not per-agent — capability-gated by `effort_supported` (#313). |
 | **Local** review — already-running interactive session dispatching via the Agent tool | `session-fallback` | **No** — the Agent tool carries `model` but no effort, and no per-dispatch `--agents` injection exists; the run reports the limitation and effective fallback with a reason. |
 
@@ -312,8 +312,8 @@ default, and a caller that knows the provider capability passes it in.
 > deterministic verdict helper is `scripts/agents-seam-probe-verdict.py` and whose recorded evidence
 > of record is [agents-seam-probe.md](agents-seam-probe.md) (issue #610). **The probe was dispatched
 > 8× and adjudicated `SEAM_PROVEN`** — fact (i) forwarding proven unanimously, fact (ii) effort
-> governance adjudicated GOVERNED from 4/4 `low` self-reports. Mechanics: the pre-launch `cargs`
-> component calls `resolve-review-overrides.py --known-roster --applied-agents-json` (capability-gated
+> governance adjudicated GOVERNED from 4/4 `low` self-reports. Mechanics: the pre-launch `applied_effort`
+> composer step calls `resolve-review-overrides.py --known-roster --applied-agents-json` (capability-gated
 > composition; Haiku/`effort_supported:false` agents stripped) and appends `--agents '<json>'` to
 > `claude_args`, and writes `--applied-sidecar-json` to `.devflow/tmp/agent-effort-applied.json` — the
 > **single source of truth** for the applied telemetry. The in-session recorder

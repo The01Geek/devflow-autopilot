@@ -21414,6 +21414,12 @@ assert_eq "#669 applied: sidecar agent → application_point agent-definition" \
   "agent-definition" "$(AE669_field "$AE669_REC" 'devflow:code-reviewer' 'application_point')"
 assert_eq "#669 applied: sidecar agent → effective is the emitted effort" \
   "low" "$(AE669_field "$AE669_REC" 'devflow:code-reviewer' 'effective')"
+# #700 finding #2: the applied arm nulls fallback_reason — the record must not read
+# `application_point: agent-definition` AND carry a stale session-fallback reason at
+# once. The iter-1 seed above sets fallback_reason:"honest fallback" on this agent, so
+# an unconditional `fallback_reason: $entry.fallback_reason` would leave it non-null.
+assert_eq "#700 applied: sidecar agent → fallback_reason is nulled (no self-contradictory record)" \
+  "null" "$(AE669_type "$AE669_REC" 'devflow:code-reviewer' 'fallback_reason')"
 # An agent NOT named in the sidecar keeps its honest in-session fallback.
 assert_eq "#669 applied: non-sidecar agent stays session-inheritance" \
   "session-inheritance" "$(AE669_field "$AE669_REC" 'devflow:silent-failure-hunter' 'application_point')"
@@ -21435,6 +21441,71 @@ assert_eq "#669 applied: malformed sidecar → honest fallback (session-fallback
 assert_eq "#669 applied: schema_version stays 1 (additive sidecar read, no bump)" \
   "1" "$(echo "$AE669_REC" | jq -r '.schema_version')"
 rm -rf "$AE669_DIR"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "compose-applied-effort.sh — applied-arm composer branches (issue #700 #3/#4/#5)"
+# ────────────────────────────────────────────────────────────────────────────
+# The applied-arm composer body (resolver-absent fail-open, empty/{} short-circuit,
+# JSON-object validation, UNCONDITIONAL stale-sidecar clear, sidecar-write-then-fallback)
+# was extracted from the triplicated workflow step into scripts/compose-applied-effort.sh
+# so the suite can drive each branch directly — a grep-pin on the workflow step is not
+# coverage of the SELECTION that chooses each arm (CLAUDE.md best-effort-parser rule).
+CAE_H="$LIB/../scripts/compose-applied-effort.sh"
+CAE_DIR="$(mktemp -d)"
+# A stub resolver whose applied-agents-json / applied-sidecar-json output is fixed, so the
+# branch under test is the HELPER's, not the real resolver's config-derivation.
+cat > "$CAE_DIR/stub-obj.py" <<'PY'
+import sys
+if "--applied-sidecar-json" in sys.argv:
+    print('{"devflow:code-reviewer":"low"}')
+else:
+    print('{"devflow:code-reviewer":{"effort":"low"}}')
+PY
+cat > "$CAE_DIR/stub-empty.py" <<'PY'
+print("{}")
+PY
+cat > "$CAE_DIR/stub-array.py" <<'PY'
+print("[1,2,3]")
+PY
+cat > "$CAE_DIR/stub-fail.py" <<'PY'
+import sys
+sys.stderr.write("boom\n")
+sys.exit(1)
+PY
+# 1. Composed effort → prints the --agents splice AND writes the sidecar.
+CAE_OUT="$(DEVFLOW_RRO="$CAE_DIR/stub-obj.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/s1.json" bash "$CAE_H")"; CAE_RC=$?
+assert_eq "#700 compose: composed effort → exit 0" "0" "$CAE_RC"
+assert_eq "#700 compose: composed effort → prints the --agents splice" \
+  "--agents '{\"devflow:code-reviewer\":{\"effort\":\"low\"}}'" "$CAE_OUT"
+assert_eq "#700 compose: composed effort → writes the applier->recorder sidecar" \
+  '{"devflow:code-reviewer":"low"}' "$(cat "$CAE_DIR/s1.json")"
+# 2. Resolver ABSENT → fail-open (empty output, exit 0) AND any stale sidecar is cleared (#3).
+printf '{"stale":"x"}' > "$CAE_DIR/s2.json"
+CAE_OUT="$(DEVFLOW_RRO="$CAE_DIR/nope.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/s2.json" bash "$CAE_H")"; CAE_RC=$?
+assert_eq "#700 compose: resolver absent → exit 0 (fail-open)" "0" "$CAE_RC"
+assert_eq "#700 compose: resolver absent → empty agents_args" "" "$CAE_OUT"
+assert_eq "#700 compose: resolver absent → stale sidecar unconditionally cleared (#3)" \
+  "absent" "$([ -f "$CAE_DIR/s2.json" ] && echo present || echo absent)"
+# 3. Resolver returns a NON-object (a JSON array) → validation rejects it (#5): no splice,
+#    no sidecar (never concatenated/spliced unvalidated).
+printf '{"stale":"y"}' > "$CAE_DIR/s3.json"
+CAE_OUT="$(DEVFLOW_RRO="$CAE_DIR/stub-array.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/s3.json" bash "$CAE_H")"
+assert_eq "#700 compose: non-object resolver output → empty agents_args (#5 validation)" "" "$CAE_OUT"
+assert_eq "#700 compose: non-object resolver output → stale sidecar cleared, none written" \
+  "absent" "$([ -f "$CAE_DIR/s3.json" ] && echo present || echo absent)"
+# 4. Resolver returns {} (no per-agent effort) → empty, no sidecar; a stale one is cleared (#3).
+printf '{"stale":"z"}' > "$CAE_DIR/s4.json"
+CAE_OUT="$(DEVFLOW_RRO="$CAE_DIR/stub-empty.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/s4.json" bash "$CAE_H")"
+assert_eq "#700 compose: {} result → empty agents_args" "" "$CAE_OUT"
+assert_eq "#700 compose: {} result → stale sidecar cleared (#3)" \
+  "absent" "$([ -f "$CAE_DIR/s4.json" ] && echo present || echo absent)"
+# 5. Resolver FAILS (rc≠0, partial/no stdout) → fail-open, no splice, no sidecar.
+CAE_OUT="$(DEVFLOW_RRO="$CAE_DIR/stub-fail.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/s5.json" bash "$CAE_H")"; CAE_RC=$?
+assert_eq "#700 compose: resolver failure → exit 0 (fail-open)" "0" "$CAE_RC"
+assert_eq "#700 compose: resolver failure → empty agents_args" "" "$CAE_OUT"
+assert_eq "#700 compose: resolver failure → no sidecar" \
+  "absent" "$([ -f "$CAE_DIR/s5.json" ] && echo present || echo absent)"
+rm -rf "$CAE_DIR"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "efficiency-trace.sh --persist / --self-check (issue #80)"
@@ -33023,16 +33094,18 @@ for R313_WF in "$IMPL_WF" "$RUNNER_WF" "$LIGHT_WF"; do
   # reaches the process, silently re-collapsing the cloud tier to honest fallback.
   assert_pin_unique "#669 applied: $R313_TAG claude_args consumes the applied-effort agents_args" \
     '${{ steps.applied_effort.outputs.agents_args }}' "$R313_WF"
-  # #669 applied arm: the composer step invokes the resolver's applied modes and
-  # writes the applier->recorder sidecar the in-session recorder reads. Pin the
-  # composition head and the sidecar path so a revert that drops either goes RED.
+  # #669/#700 applied arm: the composer step's branch logic (resolver-absent fail-open,
+  # empty/{} short-circuit, JSON-object validation, stale-sidecar clear, sidecar write)
+  # was extracted into scripts/compose-applied-effort.sh (#700 finding #4) so the suite
+  # drives each branch directly (see the compose-applied-effort.sh branch block earlier in
+  # this suite). The step
+  # itself must INVOKE that helper (vendored-or-self-repo) and capture its output — pin
+  # that wiring so a revert that drops the call goes RED.
   R669_APPLIED="$(mint_blk 'Compose applied per-agent effort (issue 669)' "$R313_WF")"
-  assert_eq "#669 applied: $R313_TAG composer calls the resolver applied-agents-json mode over --known-roster" "yes" \
-    "$(printf '%s' "$R669_APPLIED" | grep -qF -- '--known-roster' \
-       && printf '%s' "$R669_APPLIED" | grep -qF -- '--applied-agents-json' && echo yes || echo no)"
-  assert_eq "#669 applied: $R313_TAG composer writes the applier->recorder sidecar" "yes" \
-    "$(printf '%s' "$R669_APPLIED" | grep -qF -- '--applied-sidecar-json' \
-       && printf '%s' "$R669_APPLIED" | grep -qF '.devflow/tmp/agent-effort-applied.json' && echo yes || echo no)"
+  assert_eq "#700 applied: $R313_TAG composer invokes compose-applied-effort.sh (vendored-or-repo) and captures its output" "yes" \
+    "$(printf '%s' "$R669_APPLIED" | grep -qF '.devflow/vendor/devflow/scripts/compose-applied-effort.sh' \
+       && printf '%s' "$R669_APPLIED" | grep -qF 'scripts/compose-applied-effort.sh' \
+       && printf '%s' "$R669_APPLIED" | grep -qF 'AGENTS_ARGS="$(bash "$CAE")"' && echo yes || echo no)"
 done
 # AC 8 default-path fail-loud OAuth guard (runner-only): the runner relaxed
 # CLAUDE_CODE_OAUTH_TOKEN to an optional workflow_call secret, so it must fail loud when the
