@@ -159,6 +159,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/compose-applied-effort.sh": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "scripts/config-get.sh": {
       "note": "",
       "owner": "unmodularized"
