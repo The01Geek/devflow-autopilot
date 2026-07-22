@@ -1278,6 +1278,30 @@ class NamespacedModulePinHelperTests(unittest.TestCase):
             verdicts, ["PASS", "FAIL", "FAIL", "FAIL"], process.stdout + process.stderr
         )
 
+    def test_pin_red_under_overbroad_blank_mutation_is_red(self) -> None:
+        # #666 overbreadth guard sibling assertion (one per guarded helper). A
+        # blank-the-file mutation (`1,$d` deletes every line; `s/.*//` empties every
+        # line, line count unchanged) retains ~0 non-whitespace and must trip the
+        # `mutation-overbroad` RED — the reject arm the count/module guards would
+        # otherwise leave unverified. Both spellings are exercised so the guard is
+        # proven to fire, not merely that its regression controls stay green.
+        process, verdicts = self._drive(
+            'F="$(mktemp)"; printf "operative sentence here\\nkeep line two here\\n" > "$F"\n'
+            '# Blank-the-file via delete-every-line -> mutation-overbroad -> RED.\n'
+            'devflow_module_pin_red_under "blank delete mutation is RED" '
+            '"operative sentence here" "1,\\$d" "$F"\n'
+            '# Blank-the-file via empty-every-line (line count unchanged) -> RED.\n'
+            'devflow_module_pin_red_under "blank substitute mutation is RED" '
+            '"operative sentence here" "s/.*//" "$F"\n'
+            '# An operative single-line mutation still flips PASS->FAIL (regression control).\n'
+            'devflow_module_pin_red_under "operative mutation still flips" '
+            '"operative sentence here" "s/operative sentence here//" "$F"\n'
+        )
+        self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
+        self.assertEqual(
+            verdicts, ["FAIL", "FAIL", "PASS"], process.stdout + process.stderr
+        )
+
     def test_pin_red_under_mktemp_failure_is_red(self) -> None:
         # The mktemp-failure branch records a RED verdict (never a false PASS) when a
         # scratch copy cannot be allocated. Shadow `mktemp` with a fake that exits 1.

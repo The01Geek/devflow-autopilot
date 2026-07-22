@@ -1,12 +1,12 @@
 {
   "version": 1,
   "files": {
-    ".devflow/prompt-extensions/create-issue.md": 23007,
-    ".devflow/prompt-extensions/implement.md": 34906,
+    ".devflow/prompt-extensions/create-issue.md": 23419,
+    ".devflow/prompt-extensions/implement.md": 35956,
     ".devflow/prompt-extensions/receiving-code-review.md": 14395,
     ".devflow/prompt-extensions/review-and-fix.md": 21074,
     ".devflow/prompt-extensions/review.md": 3280,
-    "CLAUDE.md": 70576,
+    "CLAUDE.md": 71436,
     "agents/checklist-deduper.md": 5537,
     "agents/checklist-generator.md": 14385,
     "agents/checklist-verifier.md": 6526,
