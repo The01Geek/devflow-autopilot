@@ -1004,6 +1004,118 @@ def check_shape_conformance():
     return errors
 
 
+# --- AC2/AC3 (issue #701): helper leading-token boundary over the AC1 closure --
+# AC9 (check_grant_sync) grades the GRANT side — every reachable helper literal is
+# granted tight, and no grant WIDENS the boundary. Its documented scope limit (i)
+# is the launcher/interpreter blind spot: a granted `python3`/`env`/`xargs` head
+# executes any helper as an argument, escaping the per-helper vendored grant, and
+# a leading-token-only grant read cannot see it. This guard closes that surface on
+# the CALL-SITE side: for every cloud-reached fenced command that names a bundled
+# helper, the helper's vendored path must be the FIRST executable token.
+#
+# The #701 policy decision (recorded in docs/cloud-writer-boundary.md): the source
+# keeps the portable `${CLAUDE_SKILL_DIR:-…}` anchor (#275), and this guard
+# measures the EMISSION-TIME normalized token — extract-command-heads.py's
+# `_normalize` reduces the well-formed anchor to the vendored literal, so the
+# sanctioned source form passes as its own cloud form with no duplicate fence
+# (holding the review-bundle word ceiling). AC2 ("emitted with a literal vendored
+# leading token") and AC3 ("a raw-token guard rejecting unexpanded anchors,
+# absolute/repo-root paths, and launcher-prefixed helpers") are both discharged
+# against that emission surface.
+#
+# The launcher table is GENERATED from the profile's parsed grants (∩
+# LAUNCHER_HEADS), so it tracks the grants rather than a hand-kept list, and it is
+# read BEFORE the wrapper normalization extract-command-heads.py applies — a
+# granted wrapper head (which that parser would otherwise strip) still counts.
+# env + interpreters: heads that run a following PATH argument as the command.
+# This is genuinely new policy this module owns (a grant string cannot reveal
+# "executes its path argument", so it is not derivable from the grants).
+_INTERPRETER_LAUNCHERS = frozenset(
+    {"env", "python", "python3", "bash", "sh", "ruby", "perl", "node"}
+)
+# The process-wrapper half is NOT re-enumerated: it IS extract-command-heads.py's
+# WRAPPERS set (the heads that parser strips), reused directly so a wrapper added
+# there (e.g. `flock`, `setsid`) is automatically covered here — otherwise a
+# `<new-wrapper> <helper>` escape would pass unseen, a fail-open exactly where the
+# boundary claims to fail closed. Union at import; the WRAPPERS↔LAUNCHER_HEADS
+# containment is pinned in lib/test/test_python_scripts.py so the reuse cannot
+# silently regress to a hand-copy.
+LAUNCHER_HEADS = _INTERPRETER_LAUNCHERS | _heads.WRAPPERS
+
+
+def helper_basenames_for(profile):
+    """The bundled-helper basenames that carry a per-helper vendored grant in ``profile``."""
+    return frozenset(token.rsplit("/", 1)[-1] for token in REQUIRED_HELPER_HEADS[profile])
+
+
+def profile_launchers(profile, region_text):
+    """The profile's granted launcher heads — its parsed grants ∩ ``LAUNCHER_HEADS``.
+
+    ``region_text`` is the profile's already-scoped grant region (from
+    ``_grant_source``). ``_scan_grants`` returns every ``Bash(<spec>)``
+    command-position token, so a `Bash(python3 -m:*)` grant enumerates as
+    `python3` — the launcher head — before any wrapper normalization.
+    """
+    _vendored, any_grants = _scan_grants(region_text)
+    return frozenset(g for g in any_grants if g in LAUNCHER_HEADS)
+
+
+def check_helper_boundary(profile_grants=None):
+    """AC2/AC3 guard. Return a list of human-readable violations (empty == OK).
+
+    For every AC1-reached asset, under each ROOTS profile whose closure reaches
+    it, require every fenced command that names one of that profile's
+    per-helper-granted bundled helpers to place the helper's vendored path as its
+    leading token. The per-profile launcher table is derived from the profile's
+    parsed grants; ``profile_grants`` injects already-scoped grant regions for
+    tests exactly as ``check_grant_sync`` does (a whole-workflow injection is
+    refused fail-closed by ``_grant_source``).
+    """
+    errors = []
+    # Derive each profile's launcher table once, fail-closed on an unavailable
+    # grant source (unknown is not zero — an unreadable region must not silently
+    # yield an empty launcher set that waves a launcher-prefixed helper through).
+    launchers_by_profile = {}
+    basenames_by_profile = {}
+    for profile in ROOTS:
+        region_text, cause = _grant_source(profile, profile_grants)
+        if region_text is None:
+            errors.append(
+                f"AC3 boundary: profile '{profile}' grant source unavailable "
+                f"({cause}); cannot derive the launcher table, so the leading-token "
+                f"boundary cannot be enforced for its reached assets"
+            )
+            continue
+        launchers_by_profile[profile] = profile_launchers(profile, region_text)
+        basenames_by_profile[profile] = helper_basenames_for(profile)
+    for asset, profiles in sorted(shape_audited_assets().items()):
+        path = REPO_ROOT / asset
+        try:
+            text = path.read_text(encoding="utf-8")
+        # An unreadable/undecodable reached asset is unknown, not clean (mirrors
+        # check_shape_conformance). check_closure() reports a MISSING asset.
+        except (OSError, UnicodeDecodeError) as exc:
+            errors.append(f"AC3 boundary: reached asset '{asset}' could not be read: {exc}")
+            continue
+        for profile in sorted(profiles):
+            if profile not in launchers_by_profile:
+                continue  # its grant-source error is already reported above
+            basenames = basenames_by_profile[profile]
+            launchers = launchers_by_profile[profile]
+            for lineno, reason, statement in _heads.helper_boundary_violations(
+                text, basenames, launchers
+            ):
+                oneline = " ".join(statement.split())
+                if len(oneline) > 120:
+                    oneline = oneline[:117] + "..."
+                errors.append(
+                    f"AC3 boundary: {asset}:{lineno} invokes a bundled helper via a "
+                    f"'{reason}' form under the '{profile}' profile that reaches it — the "
+                    f"vendored path must be the leading token: {oneline}"
+                )
+    return errors
+
+
 def _helper_source_path(vendored_token):
     """Map a vendored leading token to its repository-owned source path.
 
@@ -1063,13 +1175,16 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "command",
-        choices=("check", "generate", "verify", "grant-sync", "shape-conformance"),
+        choices=("check", "generate", "verify", "grant-sync", "shape-conformance",
+                 "helper-boundary"),
         help="check: AC1 closure guard; generate: write the manifest; "
         "verify: assert the checked-in manifest matches the closure; "
         "grant-sync: AC9 guard — every reachable helper literal is granted "
         "tight-scoped in its profile and no grant widens the trust boundary; "
         "shape-conformance: AC4 guard — no AC1-reached fenced command emits a "
-        "denied shape under a profile that reaches it",
+        "denied shape under a profile that reaches it; "
+        "helper-boundary: AC2/AC3 guard — every AC1-reached fenced bundled-helper "
+        "command places the vendored helper path as its leading token",
     )
     args = parser.parse_args(argv)
 
@@ -1102,6 +1217,20 @@ def main(argv=None):
                 print(f"cloud-writer-contract: {e}")
             return 1
         print("cloud-writer-contract: shape-conformance OK")
+        return 0
+
+    # helper-boundary is likewise a standalone guard over the reached fences (AC2/
+    # AC3, issue #701) — it renders no manifest. Same operator-facing status as
+    # grant-sync/shape-conformance: the CI wiring is lib/test/test_python_scripts.py
+    # calling check_helper_boundary() directly, so the absence of a run.sh
+    # invocation is not an ungated guard.
+    if args.command == "helper-boundary":
+        hb_errors = check_helper_boundary()
+        if hb_errors:
+            for e in hb_errors:
+                print(f"cloud-writer-contract: {e}")
+            return 1
+        print("cloud-writer-contract: helper-boundary OK")
         return 0
 
     # generate and verify both render the manifest from the closure, so a closure
