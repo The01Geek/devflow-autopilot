@@ -68,12 +68,20 @@
   "cap_drops": {"count": 0, "by_category": {}},
   "reference_reads": {"fix_delta": {"status": "verified", "outcome": "refixed", "reason": null}},
   "shadow": {
-    "ran_at": null,
-    "reviewed_sha": null,
-    "verdict": null,
-    "coverage": "not_verified",
-    "prompt_addenda": null,
-    "reviewers_dispatched": [],
+    "ran_at": "2026-07-22T07:05:00Z",
+    "reviewed_sha": "a380df9c424ce7caa0ce807e61a22451588c236c",
+    "verdict": "REJECT",
+    "coverage": "full",
+    "prompt_addenda": [
+      "provenance failure (reviewed-diff check): .devflow/prompt-extensions/review-and-fix.md is present in this run's cached changed-file list, so the loaded consumer extension text is NOT provenance-clean. The extension was loaded and honored as required, but its text is a recorded prompt addendum, so this pass cannot produce an attested clean result and Decide outcome 1 is unreachable by construction. The local-status check passed (the file is tracked and unmodified); it is the reviewed-diff check that fails, because this PR edits the extension that governs this loop."
+    ],
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
     "expected_reviewers": [
       "devflow:code-reviewer",
       "devflow:silent-failure-hunter",
@@ -81,12 +89,33 @@
       "devflow:pr-test-analyzer",
       "devflow:requesting-code-review"
     ],
-    "reason": "The operator directed the loop to commit, push, and stop after this iteration. The Step 2.6 shadow pass was therefore never dispatched, so shadow coverage is not_verified and no clean-approve verdict is claimed for this run.",
+    "reason": null,
     "checklist_skipped": null,
-    "phase3_findings": [],
+    "phase3_findings": [
+      {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "The retired-convention sweep arm 'Before a commit, phase completion, push, or completion claim, run' is unmatchable by construction: at the pre-#707 baseline that sentence was line-wrapped, so the literal counts 0 across all six swept files while every other literal counts 1. The obligation arm added to close the framing-only-pin hole is itself inert — the #375 wrapped-literal class reintroduced inside the guard written to prevent it. The positive control is structurally blind to it, because it plants the literal as a single line and then finds it in that planted form.", "defect_signature": {"file": "lib/test/run.sh", "line_range": [30545, 30556], "kind": "test_gap"}, "corroboration_count": 1, "orchestrator_verified": "CONFIRMED by direct execution: the full literal counts 0 at 607ec800 across all six files; the on-line span 'Before a commit, phase completion, push, or' counts 1 in implement.md; the other eight literals each count 1."},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "The new module has no runs_green_through_the_real_runner test, unlike all five pre-existing modules. It is the first module to run git init and multiple python3 heredocs in a module body and to allocate under DEVFLOW_MODULE_OWNED_SCRATCH_ROOT, so it is the one most likely to behave differently under the focused runner than under the full-suite boundary. Such a test would also convert the registry floor from a minimum into an exact-tally assertion.", "defect_signature": {"file": "lib/test/test_module_runner.py", "line_range": [1280, 1302], "kind": "test_gap"}, "corroboration_count": 1, "orchestrator_verified": "CONFIRMED by direct execution: five runs_green_through_the_real_runner tests exist (repository, review-and-fix-contract, create-issue-contract, capability-profiles, installer-wiring); none names harness-python-guards."},
+      {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "The claim-gating clause states a guard the artifact gives the agent no mechanism to observe. Before this change the full suite was a precondition of the push, so the guard was self-enforcing; the diff removes that serialization and replaces it with a purely observational rule, without instructing the run to capture the concurrent launch to a named file, check its launch status, or record an evidence marker. 'A run that never started' has no observable artifact by construction, so the natural terminal state of a refused launch is pushed-nothing-to-read-claim-made — with every mutation pin green because the sentence is intact.", "defect_signature": {"file": ".devflow/prompt-extensions/implement.md", "line_range": [182, 183], "kind": "logic_error"}, "corroboration_count": 1},
+      {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "'no focused module or path covers the changed surface' introduces an undefined second disjunct. The module arm is fully mechanized (coverage map, registry confirmation, recorded ID); 'path' is defined nowhere and carries no recording obligation, so it can always be asserted — discharging the mid-iteration full-suite obligation and, in implement.md, the Devflow Reflection bullet that is the entire audit trail for missing coverage.", "defect_signature": {"file": ".devflow/prompt-extensions/implement.md", "line_range": [177, 177], "kind": "logic_error"}, "corroboration_count": 1},
+      {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "The planted-defect control's header comment claims the two assertions above it are clean-tree checks that cannot distinguish a verified clean tree from a guard reporting nothing. The second of those is the unit test, which carries planted-defect arms over synthetic fixtures — and the same block's sibling comment fifteen lines above says exactly that, so the block self-contradicts. The inventory's parallel claim that the other four covered guards have no planted-failure arm of their own is false in the same way.", "defect_signature": {"file": "lib/test/modules/harness-python-guards.sh", "line_range": [262, 271], "kind": "documented_falsehood"}, "corroboration_count": 1},
+      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "The inventory's #556 exclusion row says the block interleaves the unit run with prose pins over three agents/*.md files and a review phase file; at HEAD it binds two review phase files (phase-2-verification.md and phase-4-verdict.md). A transcribed count that rots on the next edit.", "defect_signature": {"file": "lib/test/modules/harness-python-guards.inventory.md", "line_range": [303, 303], "kind": "documented_falsehood"}, "corroboration_count": 1},
+      {"agent": "devflow:code-reviewer", "severity": "Important", "description": "The #707 coupled-heading-invariant comment block is orphaned: the next statement begins a different rationale (the claim gate) and the three assertions that follow are the claim-gate pins, while the heading pins it actually documents sit ~35 lines further down. A maintainer reading top-down attributes the rationale to the wrong pins.", "defect_signature": {"file": "lib/test/run.sh", "line_range": [30607, 30612], "kind": "comment_drift"}, "corroboration_count": 2},
+      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "The #668 comment enumerates four AC1 properties (no exec bit, no PyYAML import, no gh call, no network call) but only three are asserted — 'no network call' has no pin. Separately, the gh-call regex was changed from \\bgh \\b to (^|[^a-zA-Z_])gh during what the changeset and inventory both describe as a pure move; the change is defensible for BSD portability but is an undocumented behavior delta inside a stated move.", "defect_signature": {"file": "lib/test/modules/harness-python-guards.sh", "line_range": [221, 230], "kind": "comment_drift"}, "corroboration_count": 1},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "Four of the five extracted guard families still have no positive control (disclosed in the inventory). The #528 banned-exec sweep is the highest-value candidate: it asserts its spelling list is non-empty and complete but never proves the counting half is live.", "defect_signature": {"file": "lib/test/modules/harness-python-guards.sh", "line_range": [125, 148], "kind": "test_gap"}, "corroboration_count": 1},
+      {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "The cloud /devflow:implement tier no longer has an explicitly-stated final full-suite obligation in implement.md: the retired sentence was tier-agnostic, its replacement is scoped to local/interactive. The guarantee survives via the unscoped 'never the final completion gate' sentence and CLAUDE.md tier 2, so this is a readability gap rather than a hole. Also: implement.md states the no-covering-module rule twice in adjacent paragraphs with subtly different scope ('registered module' vs 'module or path'), and CONTRIBUTING.md has a stray short line-wrap.", "defect_signature": {"file": ".devflow/prompt-extensions/implement.md", "line_range": [178, 184], "kind": "other"}, "corroboration_count": 1}
+    ],
     "phase2_fails": [],
-    "comparison": {"shadow_total": 0, "overlap_with_iter_N": 0, "new": 0, "new_critical": 0, "new_important": 0},
-    "promoted_to_iter_next": false
+    "comparison": {
+      "shadow_total": 10,
+      "overlap_with_iter_N": 0,
+      "new": 10,
+      "new_critical": 0,
+      "new_important": 6
+    },
+    "promoted_to_iter_next": false,
+    "decide_outcome": 2,
+    "outcome_2_promotion_withheld": "Decide outcome 2 applies — the shadow surfaced six new Important Phase 3 findings under full reviewer coverage, so the loop has NOT converged and would normally promote them into iteration 3 (the cap is 5; iterations 1 and 2 are spent, so the cap is not the reason). Promotion was withheld solely because the operator directed the loop to stop after iteration 2 and not to start another iteration. This is an operator halt, not a convergence: the findings are unfixed and unreviewed.",
+    "over_grade_gate": "Not run: it fires only before an actual outcome-2 promotion, which was withheld by the operator halt. Two of the six new Important findings were instead verified directly by the orchestrator (see orchestrator_verified) and are confirmed, not suspected over-grades; the remaining four are unverified single-source labels, two of them from the empirically over-grading silent-failure-hunter, and would require the gate's recorded technical evaluation before driving any promotion.",
+    "park_calibration_gate": "Not run: it fires only before a Decide outcome-1 conclusion, which is unreachable on this pass (outcome 2, and prompt_addenda is not the attested \"none\")."
   },
   "telemetry": {
     "phase_0":   {"calls": 0, "tokens": 0, "wall_clock_s": 20},
