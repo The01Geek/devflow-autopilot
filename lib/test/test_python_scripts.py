@@ -9954,9 +9954,11 @@ with tempfile.TemporaryDirectory() as _sk_base:
     # The diagnostic names the PLUGIN contract state (the still-required retired head)…
     assert_eq("#703 AC19 pairing1: the AC18 diagnostic names the plugin-required retired head",
               True, any(_retired_head in _msg for _code, _msg in _p1))
-    # …and the WORKFLOW contract state is the skew: the new grants dropped it.
-    assert_eq("#703 AC19 pairing1: the new workflow no longer grants the retired head",
-              False, _retired_head in _new_workflow_grants["implement"])
+    # …and the WORKFLOW contract state is the skew the fixture models: the new
+    # workflow's grants (_new_workflow_grants above) drop the retired head, which
+    # is why the plugin-required head is now ungranted. That asymmetry IS the
+    # HEAD_ABSENT stop asserted above — no separate assertion, which would only
+    # re-check the fixture's own literal grant set.
 
 # The operator-facing refresh action + both-contract-state framing live in the
 # upgrade docs (the surface a deploying consumer actually reads). AC19 requires
@@ -10032,35 +10034,29 @@ assert_eq("#703 AC20: install.sh runs no manifest regeneration (byte-copies the 
           False, "cloud_writer_contract.py generate" in _install_sh)
 assert_eq("#703 AC20: the vendor slice runs no manifest regeneration",
           False, "cloud_writer_contract.py generate" in _vendor_slice)
-assert_eq("#703 AC20: the vendor slice copies the scripts/ tree (manifest arrives as an asset)",
-          True, "scripts" in _vendor_slice and "cp -R" in _vendor_slice)
+assert_eq("#703 AC20: the vendor slice byte-copies the scripts/ tree (manifest arrives as an asset)",
+          True, ('cp -R "$src/.claude-plugin"' in _vendor_slice
+                 and '"$src/scripts"' in _vendor_slice))
 assert_eq("#703 AC20: /devflow:init never touches the runtime manifest (preserves the vendored copy)",
           True, ("cloud_writer_contract" not in _init_skill
                  and "devflow-cloud-writer-contract" not in _init_skill))
 
-# (b) Executable bits. install.sh and the vendor slice copy with mode-preserving
-# `cp -R` and never strip modes with `--no-preserve`, so helper executable bits
-# survive a fresh install and an in-place refresh. The by-construction demo below
-# proves the mechanism: a mode-preserving recursive copy keeps the +x bit.
-assert_eq("#703 AC20: install.sh copies trees with mode-preserving cp -R",
-          True, "cp -R" in _install_sh)
+# (b) Executable bits. `cp -R` preserves file modes by default (it only strips
+# them under `--no-preserve=mode`), so helper executable bits survive a copy by
+# construction — the contract is that install.sh and the vendor slice use a plain
+# mode-preserving `cp -R` and never pass `--no-preserve`. Two exec-bit surfaces:
+# the vendor slice's `cp -R "$src/.claude-plugin" … "$src/scripts" …` byte-copies
+# the vendored helper tree (asserted above), and install.sh's
+# `cp -R "$SRC/.github/actions/$a" …` copies the composite-action helpers. Pin the
+# copy invocations (not a bare "cp -R" that a doc mention could satisfy) and the
+# absence of `--no-preserve`, rather than a stdlib copy demo that would pass
+# regardless of what these files do.
+assert_eq("#703 AC20: install.sh copies the composite-action helpers with mode-preserving cp -R",
+          True, 'cp -R "$SRC/.github/actions/$a"' in _install_sh)
 assert_eq("#703 AC20: install.sh never strips modes with --no-preserve",
           False, "--no-preserve" in _install_sh)
 assert_eq("#703 AC20: the vendor slice never strips modes with --no-preserve",
           False, "--no-preserve" in _vendor_slice)
-import shutil as _shutil
-import stat as _stat
-with tempfile.TemporaryDirectory() as _xb:
-    _xsrc = Path(_xb) / "src"
-    _xsrc.mkdir()
-    _xh = _xsrc / "helper.sh"
-    _xh.write_text("echo x\n", encoding="utf-8")
-    _xh.chmod(0o755)
-    _xdst = Path(_xb) / "dst"
-    # shutil.copy2 preserves mode, mirroring `cp -R`'s default mode-preserving copy.
-    _shutil.copytree(_xsrc, _xdst, copy_function=_shutil.copy2)
-    assert_eq("#703 AC20: a mode-preserving recursive copy keeps the helper +x bit (cp -R by construction)",
-              True, bool((_xdst / "helper.sh").stat().st_mode & _stat.S_IXUSR))
 
 # (c) Consumer-owned content. All three flows delegate config + prompt-extension
 # provisioning to the SAME shared scaffolder (scripts/scaffold-config.sh), so they
