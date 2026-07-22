@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: MIT
 """Static self-scan of `lib/test/run.sh`'s own pin corpus (issue #375).
 
-Two mechanical guards over the suite's pin-helper call sites, so a defect the
+Three mechanical guards over the suite's pin-helper call sites, so a defect the
 parents (#370, #371) had to rediscover in a later shadow instead fails RED at
 authoring time:
 
@@ -44,40 +44,50 @@ authoring time:
   ``relocation diagnosis unavailable`` on stderr and is **never** collapsed to
   ``deleted`` (fail-closed). Without ``--reloc`` the ABSENT emit is unchanged.
 
+* ``mutation-routing`` — the **behavioral-fix-pin declaration gate** (issue #666).
+  A diff-scoped, fail-closed gate: for a pin call site the change ADDS whose helper
+  is not mutation-taking, the author must route through a mutation-taking helper or
+  carry a ``# structural-pin-ok: <reason>`` declaration, else the suite goes RED. A
+  moved pin is exempt (one-to-one on its literal, never across a downgrade to a
+  non-mutation helper). It reuses ``join_logical_lines``/``tokenize``/``extract_pins``
+  and reads a unified diff supplied via ``--diff-file``.
+
 **Fail-closed:** a call site the scanner cannot resolve statically (the literal
 interpolates a variable it cannot resolve, or the target file is a variable with
 no ``--var`` binding and no ``$LIB``-relative assignment) is COUNTED and reported
 on stderr, never silently skipped.
 
-Without ``--strict`` both subcommands exit 0 whether or not they found anything.
-Findings go to stdout (one per line, tab-separated); the unresolvable count and
-per-site detail go to stderr.
+Without ``--strict`` all three subcommands exit 0 whether or not they found
+anything. Findings go to stdout (one per line, tab-separated); the unresolvable
+count and per-site detail go to stderr.
 
-**``--strict`` exit-code mode (issue #687, opt-in, applies to both ``lint`` and
-``wrapped``).** With ``--strict`` a run that writes at least one line to stdout
-exits **3**, and a run that writes none exits 0; the stdout and stderr bytes are
-byte-for-byte what they are without the flag — ``--strict`` changes only the exit
-code. The rule is defined over **whether any line was written to stdout**, not
-over a list of finding tokens, so a finding arm added later is covered the day it
-lands. Every stdout write on a covered path routes through the single ``_emit``
-helper (defined just above ``run_lint``); ``lib/test/run.sh``'s issue-#687
-emit-helper guard, anchored from ``run_lint`` to the end of
-``_emit_wrapped_or_absent``, goes RED if a raw stdout write is introduced inside
-that range — so a future arm printing *informational* output on a covered path
-must route it to ``sys.stderr`` instead. **What ``--strict`` rc 0 does and does
-not assert:** it asserts only that no line was written to stdout; it does **not**
-assert that any pin was resolved. The fail-closed accounting
-(``UNRESOLVED-COUNT`` / ``RESOLVED-COUNT``) is a stderr channel that never moves
-the exit code, so a corpus in which every pin failed to resolve prints nothing and
-exits 0 under ``--strict`` — a caller keying on the exit code still owes the
-separate ``RESOLVED-COUNT`` floor.
+**``--strict`` exit-code mode (issue #687, opt-in, applies to ``lint`` and
+``wrapped``; ``mutation-routing`` keeps its own always-exit-0 contract).** With
+``--strict`` a run that writes at least one line to stdout exits **3**, and a run
+that writes none exits 0; the stdout and stderr bytes are byte-for-byte what they
+are without the flag — ``--strict`` changes only the exit code. The rule is
+defined over **whether any line was written to stdout**, not over a list of
+finding tokens, so a finding arm added later is covered the day it lands. Every
+stdout write on a covered path routes through the single ``_emit`` helper (defined
+just above ``run_lint``); ``lib/test/run.sh``'s issue-#687 emit-helper guard,
+anchored from ``run_lint`` to the end of ``_emit_wrapped_or_absent``, goes RED if
+a raw stdout write is introduced inside that range — so a future arm printing
+*informational* output on a covered path must route it to ``sys.stderr`` instead.
+**What ``--strict`` rc 0 does and does not assert:** it asserts only that no line
+was written to stdout; it does **not** assert that any pin was resolved. The
+fail-closed accounting (``UNRESOLVED-COUNT`` / ``RESOLVED-COUNT``) is a stderr
+channel that never moves the exit code, so a corpus in which every pin failed to
+resolve prints nothing and exits 0 under ``--strict`` — a caller keying on the
+exit code still owes the separate ``RESOLVED-COUNT`` floor.
 
 CLI::
 
-    pin-corpus-lint.py lint    PIN_SOURCE [--strict] [--lib DIR] [--var NAME=PATH ...]
-    pin-corpus-lint.py wrapped PIN_SOURCE [--strict] [--lib DIR] [--var NAME=PATH ...]
-                               [--reloc] [--reloc-search-set FILE]
-                               [--reloc-exclude SUBSTR ...]
+    pin-corpus-lint.py lint            PIN_SOURCE [--strict] [--lib DIR] [--var NAME=PATH ...]
+    pin-corpus-lint.py wrapped         PIN_SOURCE [--strict] [--lib DIR] [--var NAME=PATH ...]
+                                       [--reloc] [--reloc-search-set FILE]
+                                       [--reloc-exclude SUBSTR ...]
+    pin-corpus-lint.py mutation-routing PIN_SOURCE --diff-file FILE
+                                       [--lib DIR] [--var NAME=PATH ...]
 
 ``PIN_SOURCE`` is the shell file whose pin call sites are scanned (``run.sh``
 itself for the real corpus, a synthetic fixture for the self-tests). ``--var``
@@ -91,6 +101,8 @@ ls-files``; ``--reloc-exclude SUBSTR`` (repeatable) drops any tracked path
 containing SUBSTR anywhere in it -- a substring test, not an anchored prefix --
 from the search set (the pin-source file(s) that declare the literal); a token
 that resolves to the same file as a candidate (abspath-equal) is dropped too.
+``--diff-file FILE`` (``mutation-routing`` only, required) supplies the unified
+diff whose added/deleted lines scope the declaration gate.
 
 Known limitation: the search set is read as UTF-8, so a non-UTF-8 tracked file
 (an image, a binary fixture) is an UNREADABLE candidate. That direction is safe
@@ -119,6 +131,14 @@ HELPERS = {
     "pin_count": (0, 1, None),
     "assert_pin_red_on_removal": (1, 2, "MAXI_SKILL"),
     "assert_pin_red_under": (1, 3, "MAXI_SKILL"),
+    # NOTE (#666): `assert_count_red_under` is deliberately NOT registered here. Its
+    # first slot is `pattern` — an ERE counted with `grep -cE` over a `sed -n` line-range
+    # slice — whereas HELPERS' first slot is the fixed-string LITERAL that `lint` and
+    # `wrapped` treat as such. Registering it would make its first call site draw a
+    # `wrapped` finding for an anchor pattern that legitimately matches no literal line
+    # and a `lint` finding false by construction. It needs no registration to be handled
+    # correctly by `mutation-routing`: it is mutation-taking (see MUTATION_TAKING_HELPERS),
+    # which never draws a finding.
     # Namespaced module pin API (module-harness.sh, issue #577) so the meta-lints
     # cover pins that extraction moves out of run.sh into lib/test/modules/*.sh
     # (issue #591). Module pins always pass the target file explicitly — no default.
@@ -887,6 +907,172 @@ def _emit_wrapped_or_absent(pin, pin_source, nlit, nfile, lit, sink,
         )
 
 
+# ── #666 mutation-routing: the behavioral-fix-pin declaration gate ────────────
+# The mutation-taking helpers prove a pin is non-vacuous; NOTHING proved a pin
+# reached them. A behavioral-fix pin authored as a plain `assert_pin_unique` is
+# byte-indistinguishable from a legitimate structural pin, so a framing-only guard
+# ships silently. This diff-scoped, fail-closed gate makes the author STATE the
+# classification: a pin call site the change ADDS whose helper is not
+# mutation-taking must either route through a mutation-taking helper or carry an
+# explicit `# structural-pin-ok: <reason>` declaration (modeled on the repo's one
+# enforced inline marker, `# raw-guard-ok:`). Sites the change does not touch are
+# out of scope by construction — no backfill of the ~1372 existing pins.
+
+# Helpers that MUST declare (non-mutation-taking pins) — complete by construction.
+REQUIRED_DECLARATION_HELPERS = frozenset(
+    {
+        "assert_pin_unique",
+        "assert_pin_red_on_removal",
+        "devflow_module_pin_unique",
+        "devflow_module_pin_present",
+    }
+)
+# Mutation-taking helpers — never draw a finding (they already prove non-vacuity).
+# assert_count_red_under is deliberately NOT in HELPERS (see the note beside HELPERS);
+# it is mutation-taking, so even if it were extracted it would land in this set.
+MUTATION_TAKING_HELPERS = frozenset(
+    {"assert_pin_red_under", "devflow_module_pin_red_under", "assert_count_red_under"}
+)
+# Count-based guards — exempt by helper, grounded in the phase-2 §2.3 scope limiter
+# ("does not apply to count-based guards"). They draw no finding.
+COUNT_HELPERS = frozenset({"pin_count", "devflow_module_pin_count"})
+
+# The declaration marker — format-strict, mirroring count_unallowlisted_raw_skill_guards'
+# `# raw-guard-ok:` exclusion. A bare `structural-pin-ok` substring elsewhere on the line
+# (or inside a quoted string argument) does NOT exempt the site.
+STRUCTURAL_PIN_OK_MARKER = "# structural-pin-ok:"
+
+_DEF_LINE_RE = re.compile(r"^\w+\s*\(\)")
+
+
+def parse_diff(difftext):
+    """Parse a unified diff into (added_set, deleted_lines).
+
+    added_set: the set of added-line CONTENT strings (`+` lines, minus the `+++`
+    file header), CR-stripped so a CRLF target still matches. run.sh appends every
+    line of each untracked lib/test/ file as a synthetic `+` line, so the untracked
+    corpus rides this same channel.
+    deleted_lines: the ordered content of `-` lines (minus `---`), reconstructed
+    into text and re-parsed for pin sites so a MOVED pin's deleted side is known.
+
+    The diff is an external structured format this repo does not author, so its
+    boundary shapes are handled explicitly: `+++`/`---` headers are never content;
+    `@@` hunk headers, context lines (leading space), rename/binary stanzas and
+    blank lines are ignored; a bare `+`/`-` adds/removes an empty line.
+    """
+    added = set()
+    deleted = []
+    for raw in difftext.split("\n"):
+        if raw.startswith("+++") or raw.startswith("---"):
+            continue
+        if raw.startswith("+"):
+            added.add(raw[1:].rstrip("\r"))
+        elif raw.startswith("-"):
+            deleted.append(raw[1:])
+    return added, deleted
+
+
+def _deleted_pin_literals(deleted_lines, lib, overrides):
+    """Multiset (dict literal->count) of pin literals from DELETED pin sites whose
+    helper is a pin helper that is NOT mutation-taking and whose literal resolved —
+    the only deletions that can exempt an added site by move."""
+    counts = {}
+    text = "\n".join(deleted_lines)
+    for pin in extract_pins(text, lib, overrides):
+        lit = pin["literal"]
+        if lit is None:
+            continue
+        if pin["helper"] in MUTATION_TAKING_HELPERS:
+            # A deletion of a mutation-taking site never exempts (an added
+            # non-mutation-taking site paired with it is the silent DOWNGRADE the
+            # gate exists to catch).
+            continue
+        counts[lit] = counts.get(lit, 0) + 1
+    return counts
+
+
+def _site_physical_lines(all_lines, start_lineno, logical_line):
+    """The ORIGINAL physical lines of a call site (with trailing backslashes intact),
+    so they match the diff's added-line content. `logical_line` carries one embedded
+    newline per continuation join, so its newline count is (end - start)."""
+    span = logical_line.count("\n")
+    return all_lines[start_lineno - 1 : start_lineno + span]
+
+
+def _has_structural_pin_ok(physical_lines):
+    """True iff a real `# structural-pin-ok:` COMMENT (quote-aware, format-strict)
+    appears on any physical line of the site — a marker inside a single-quoted string
+    argument is not a comment and does not exempt."""
+    for _, ctext in hash_comment_regions(physical_lines):
+        if STRUCTURAL_PIN_OK_MARKER in ctext:
+            return True
+    return False
+
+
+def run_mutation_routing(pin_source, lib, overrides, md_targets, diff_file):
+    if diff_file is None:
+        sys.stderr.write("MUTATION-ROUTING\tno --diff-file supplied; no findings emitted\n")
+        return 0
+    difftext, err = _read_target(diff_file)
+    if err is not None:
+        # An absent/unreadable diff file is reported, never silently suppressed —
+        # but the run still exits 0 with no findings (run.sh owns the skip decision).
+        sys.stderr.write(f"MUTATION-ROUTING\tdiff-file unreadable ({diff_file}: {err}); no findings emitted\n")
+        return 0
+    added, deleted_lines = parse_diff(difftext)
+    del_literals = _deleted_pin_literals(deleted_lines, lib, overrides)
+
+    text = _read(pin_source)
+    all_lines = text.split("\n")
+    path_vars, literal_vars = build_var_maps(text, lib, overrides)
+    scanned = findings = exempted = 0
+    for lineno, line in join_logical_lines(text):
+        stripped = line.lstrip()
+        if stripped.startswith("#"):
+            continue
+        first = stripped.split(None, 1)
+        if not first or first[0] not in HELPERS:
+            continue
+        # A helper's own `name() {` definition line is not a call site (extract_pins
+        # already skips it because `name()` != `name`, but assert it explicitly so a
+        # future call-shape change cannot make the gate demand a marker on a def line).
+        if _DEF_LINE_RE.match(stripped):
+            continue
+        helper = first[0]
+        if helper not in REQUIRED_DECLARATION_HELPERS:
+            # Mutation-taking and count-based helpers never draw a finding.
+            continue
+        toks = tokenize(stripped)
+        if not toks or "".join(v for _, v in toks[0]) != helper:
+            continue
+        phys = _site_physical_lines(all_lines, lineno, line)
+        # In scope only when EVERY physical line of the site is in the added set.
+        if not phys or any(pl.rstrip("\r") not in added for pl in phys):
+            continue
+        scanned += 1
+        if _has_structural_pin_ok(phys):
+            continue
+        # Resolve the literal for move-exemption (a None literal is never exempt).
+        args = toks[1:]
+        lit_idx, _, _ = HELPERS[helper]
+        literal = resolve_arg(args[lit_idx], literal_vars, path_vars, want_path=False) if lit_idx < len(args) else None
+        if literal is not None and del_literals.get(literal, 0) > 0:
+            del_literals[literal] -= 1  # one-to-one: consume this deletion
+            exempted += 1
+            continue
+        findings += 1
+        print(
+            f"MUTATION-ROUTING\t{pin_source}:{lineno}\t{helper}\t"
+            f"{literal if literal is not None else '<unresolved-literal>'}\t"
+            f"added non-mutation pin site needs a mutation-taking helper or a "
+            f"'# structural-pin-ok: <reason>' declaration"
+        )
+    sys.stderr.write(f"MUTATION-ROUTING-SCANNED\t{scanned}\n")
+    sys.stderr.write(f"MUTATION-ROUTING-EXEMPTED-BY-MOVE\t{exempted}\n")
+    sys.stderr.write(f"MUTATION-ROUTING-FINDINGS\t{findings}\n")
+    return 0
+
+
 def _read(path):
     with open(path, encoding="utf-8") as fh:
         return fh.read()
@@ -908,7 +1094,7 @@ def _read_target(path):
 
 
 def main(argv):
-    if len(argv) < 3 or argv[1] not in ("lint", "wrapped"):
+    if len(argv) < 3 or argv[1] not in ("lint", "wrapped", "mutation-routing"):
         sys.stderr.write(__doc__ or "")
         return 2
     cmd, pin_source = argv[1], argv[2]
@@ -918,10 +1104,14 @@ def main(argv):
     reloc = False
     reloc_search_file = None
     reloc_exclude = []
+    diff_file = None
     strict = False
     i = 3
     while i < len(argv):
-        if argv[i] == "--strict":
+        if argv[i] == "--diff-file" and i + 1 < len(argv):
+            diff_file = argv[i + 1]
+            i += 2
+        elif argv[i] == "--strict":
             # Opt-in exit-code mode (issue #687): make the exit code carry the
             # finding signal so a caller can key on it. Takes no value, so it
             # mirrors --reloc's single-token arm. Off by default → byte-for-byte
@@ -955,6 +1145,8 @@ def main(argv):
         lib = os.path.dirname(os.path.dirname(os.path.abspath(pin_source)))
     if cmd == "lint":
         return run_lint(pin_source, lib, overrides, md_targets, strict=strict)
+    if cmd == "mutation-routing":
+        return run_mutation_routing(pin_source, lib, overrides, md_targets, diff_file)
     return run_wrapped(
         pin_source, lib, overrides, md_targets,
         reloc=reloc, reloc_search_file=reloc_search_file, reloc_exclude=reloc_exclude,
