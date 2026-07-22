@@ -47508,7 +47508,10 @@ E711_LINT="$LIB/test/lint-tree-enumeration.py"
 E711_CLAUDE="$LIB/../CLAUDE.md"
 E711_GROWTH="$LIB/../docs/cutovers/issue-711-tree-enumeration-growth.md"
 
-E711_OUT="$(python3 "$E711_LINT" 2>&1)"; E711_RC=$?
+# Anchored at "$LIB/.." rather than left to resolve from the process cwd: the helper accepts
+# --root, and the repo's #295 contract is to audit the tree the caller means, not whichever git
+# root the cwd happens to sit in. (The --root-absent fallback keeps its own assertion below.)
+E711_OUT="$(python3 "$E711_LINT" --root "$LIB/.." 2>&1)"; E711_RC=$?
 # Comparand is the exit code alone: the audited count would drift with every file added to
 # lib/test/, so the positive-tally check below is a SEPARATE assertion reading the same rc=0 run.
 assert_eq "#711 the real tree audits clean" "rc=0" \
@@ -47767,7 +47770,7 @@ assert_eq "#711 a marked walk on a quote-unbalanced continuation stays declared"
   "rc=0|lint-tree-enumeration: audited 1 of 1 files" \
   "$(e711_run "$E711_FX" lib/test/sh_markedcont.sh)"
 # Population selection normalizes separators, so a backslash-form path still selects in.
-assert_eq "#711 a backslash-form path selects into the audited population" "rc=1" \
+assert_eq "#711 a backslash-form path is not silently dropped from the population" "rc=1" \
   "$(e711_rc "$E711_FX" 'lib\test\backslash.py')"
 # The --root default: with no flag and no git toplevel the helper must breadcrumb, never silently
 # resolve against a wrong root (the #295 no-silent-default contract). Nothing else exercises it.
@@ -47783,12 +47786,14 @@ assert_eq "#711 an absent --root outside a repository breadcrumbs rather than de
 # and an all-excluded population is a zero tally at exit 0 — never confused with the fail-closed
 # arms below, which is the confusion that would let an over-wide exclusion read as a clean audit.
 assert_eq "#711 a path outside the audited population is excluded at exit 0" \
-  "rc=0|lint-tree-enumeration: audited 0 of 0 files" \
+  "rc=0|lint-tree-enumeration: note: all 1 enumerated path(s) were excluded; nothing under lib/test/ with suffix .py/.sh was selected (a wrong --root or an out-of-scope --files-from looks like this)
+lint-tree-enumeration: audited 0 of 0 files" \
   "$(e711_run "$E711_FX" other/outside.py)"
 # Self-exclusion: the guard's own path is dropped from the population, so a list naming only it
 # audits zero files. The real-tree clean run above is the other half of the same claim.
 assert_eq "#711 the guard does not flag itself" \
-  "rc=0|lint-tree-enumeration: audited 0 of 0 files" \
+  "rc=0|lint-tree-enumeration: note: all 1 enumerated path(s) were excluded; nothing under lib/test/ with suffix .py/.sh was selected (a wrong --root or an out-of-scope --files-from looks like this)
+lint-tree-enumeration: audited 0 of 0 files" \
   "$(e711_run "$E711_FX" lib/test/lint-tree-enumeration.py)"
 
 # Fail-closed arms, measured PRE-exclusion. Both halves of the #664 precedent are imported: a
@@ -51224,7 +51229,12 @@ _pm_committed_baseline_count() {  # <root> -> digits | git-unavailable | no-comm
   out="$(git -C "$1" ls-files -- '*prompt-mass-baseline.json')" \
     || { printf 'git-unavailable'; return 0; }
   printf '%s\n' "$out" | python3 -c 'import sys
-n = sum(1 for line in sys.stdin if line.strip())
+# DISTINCT paths, never lines: `git ls-files` prints an unmerged path once per stage (1/2/3),
+# and this baseline is a shared hot-spot artifact that conflicts on ordinary prompt-surface
+# PRs — so a line tally reports `actual: 3` under the message "only one committed prompt-mass
+# baseline exists" and sends the reader hunting a duplicate that does not exist. That is the
+# same misleading red issue #711 exists to remove, re-entering through a different door.
+n = len({line.strip() for line in sys.stdin if line.strip()})
 print(n if n else "no-committed-baseline", end="")'
 }
 
@@ -51276,6 +51286,28 @@ PM_SB_TWO="$(_pm_fixture_repo '#711 duplicate fixture' lib/test/prompt-mass-base
 assert_eq "#711 a genuine second committed baseline still fails the check" "2" \
   "$(_pm_committed_baseline_count "$PM_SB_TWO")"
 rm -rf "$PM_SB_TWO"
+
+# An UNMERGED index is the shape that separates a distinct-path tally from a line tally: git
+# prints a conflicted path once per stage, so a line count reports 3 baselines where one exists.
+# This artifact is a shared hot spot that conflicts on ordinary prompt-surface PRs, so the shape
+# is routine — and a bogus `actual: 3` under "only one committed prompt-mass baseline exists" is
+# the same misleading red this issue removes. The fixture conflicts the baseline for real.
+PM_SB_CONFLICT="$(_pm_fixture_repo '#711 conflicted-index fixture' lib/test/prompt-mass-baseline.json)"
+case "$PM_SB_CONFLICT" in
+  ""|/dev/null*) : ;;
+  *)
+    git -C "$PM_SB_CONFLICT" checkout -q -b e711_other 2>/dev/null
+    printf '{"side":"other"}\n' > "$PM_SB_CONFLICT/lib/test/prompt-mass-baseline.json"
+    git -C "$PM_SB_CONFLICT" commit -qam other 2>/dev/null
+    git -C "$PM_SB_CONFLICT" checkout -q - 2>/dev/null
+    printf '{"side":"mine"}\n' > "$PM_SB_CONFLICT/lib/test/prompt-mass-baseline.json"
+    git -C "$PM_SB_CONFLICT" commit -qam mine 2>/dev/null
+    git -C "$PM_SB_CONFLICT" merge e711_other >/dev/null 2>&1
+    assert_eq "#711 an unmerged index still counts one baseline, not one per stage" "1" \
+      "$(_pm_committed_baseline_count "$PM_SB_CONFLICT")"
+    ;;
+esac
+rm -rf "$PM_SB_CONFLICT"
 
 # Empty-but-successful population: a branch on which the baseline is written but not yet staged,
 # or a worktree checked out at a commit predating the file. Reporting `0` here would be the same

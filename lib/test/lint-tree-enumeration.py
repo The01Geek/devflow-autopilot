@@ -114,6 +114,16 @@ Accepted residuals, each stated with its own reason rather than folded together:
   judged on its own raw line, so a wrapped `rglob(`/`os.walk(`/`iglob(`/`recursive=True`
   call must carry its declaration on the token's line — the walk's own line is always
   the safe placement.
+* **Near-miss spellings of the literal tokens.** The literal arm matches the exact
+  substrings, so whitespace before the paren (`os.walk (root)`, `root.rglob ("*")`),
+  a spaced keyword (`recursive = True`), and an aliased import (`from os import walk;
+  walk(root)`) are not candidates. The set is closed at the spellings the governing
+  acceptance criterion names; these are the near misses just outside it.
+* **A marker on a multi-statement shell line.** The shell arm tests the declaration
+  over the folded span *before* splitting into statements, so one marker on a line
+  carrying two commands declares both — `grep -rn x "$SAFE"  # tree-walk-ok: safe;
+  find "$ROOT"` is accepted whole. The line-scoped marker contract is per line, not
+  per statement.
 * **Python string-literal prose.** The comment-awareness rule strips `#` comments
   only, so a candidate token inside a module docstring or any other triple-quoted
   string is scanned as code and would demand a marker. Prose in a `#` comment is
