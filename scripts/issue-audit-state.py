@@ -24,7 +24,7 @@ TWO-CLASS CLI CONTRACT (the skill branches on exactly this):
     error — a missing required flag or an unknown one — exits 2 before the query logic
     runs) and answer on stdout with a decided single-line
     token — fail-closed answers included — with exactly one exception: `query-findings`
-    prints one decided line per ledger entry and is the tool's one multi-line query (a
+    prints one decided line per ledger entry, one of the tool's multi-line queries (a
     run with no ledger prints the single line `findings=none`). A crashed read is never
     presented as a value. Queries are strictly READ-ONLY: the tool-unavailability fallback depends
     on a mutation-persistence failure still leaving the queries answering, so no
@@ -664,7 +664,22 @@ _UNESTABLISHED = 'unestablished'
 # Staleness verdicts, closed vocabulary. `possibly-stale` is the fail-closed reading for an
 # absent, unestablished, or un-recomputable baseline; it is deliberately distinct from
 # `stale` so the reader can tell "measured and moved" from "could not be measured".
+# Closed vocabulary. Production code returns these literals directly; the closure itself is
+# enforced by the `#704-14` membership assertion in lib/test/test_python_scripts.py, so a
+# future arm returning a novel token turns the suite RED rather than flowing through silently.
 _STALENESS_STATES = ('fresh', 'stale', 'possibly-stale')
+
+
+def _unestablished_breadcrumb(where, detail):
+    """Name the CAUSE beside an `unestablished` sentinel, on stderr, without failing.
+
+    `unestablished` is a single token standing in for a missing path, an unreadable file, an
+    absent `git`, a commit-less repository, and a full disk alike. Collapsing every cause onto
+    it silently is the exact thing `cmd_query_arm`'s contract forbids ("the CAUSE … must never
+    be silently collapsed onto the digest-unrecorded marker"), so the detail goes to stderr
+    while the return value stays best-effort and the exit code stays 0.
+    """
+    sys.stderr.write(f'issue-audit-state.py {where}: unestablished — {detail}\n')
 # Import-time coupling, mirroring the `_LEGAL_SETTLING_KEYS`/`_LEDGER_STATUSES` assert: a
 # full-domain class that is not a claim class at all would silently route every claim of that
 # name to the location branch, which reads paths a full-domain claim never records.
@@ -701,7 +716,11 @@ def capture_revision():
     """
     try:
         r = _run(['git', 'rev-parse', 'HEAD'])
-    except (subprocess.CalledProcessError, OSError):
+    except (subprocess.CalledProcessError, OSError) as exc:
+        # Best-effort and exit-0, but never CAUSE-less: a repo with no commits (benign) and a
+        # `git` that will not execute (the caller's environment is broken) both resolve to the
+        # same sentinel, so the distinguishing detail must reach stderr or it is lost.
+        _unestablished_breadcrumb('capture_revision', f'git rev-parse HEAD failed: {exc}')
         return _UNESTABLISHED
     return r.stdout.decode('ascii', 'replace').strip() or _UNESTABLISHED
 
@@ -721,14 +740,26 @@ def location_identity(paths, cache=None):
     which would produce a plausible identity for a measurement that never completed.
     """
     memo = cache if cache is not None else {}
+
+    def _oid(path):
+        # NOT `memo.setdefault(path, hash_file(path))`: Python evaluates a default argument
+        # EAGERLY, so that spelling re-runs the `git hash-object` subprocess on every hit and
+        # memoizes nothing. Membership-test first, so a repeated path really is hashed once.
+        if path not in memo:
+            memo[path] = hash_file(path)
+        return memo[path]
+
     try:
         rows = b''.join(
-            f'{p}\0{memo.setdefault(p, hash_file(p))}\n'.encode('utf-8')
-            for p in sorted(set(paths)))
+            f'{p}\0{_oid(p)}\n'.encode('utf-8') for p in sorted(set(paths)))
         # One `try` for one policy: ANY measurement failure — and an empty measured set,
         # which is a measurement that never happened — resolves to `unestablished`.
-        return hash_bytes(rows) if rows else _UNESTABLISHED
-    except _DigestError:
+        if not rows:
+            _unestablished_breadcrumb('location_identity', 'no measured paths were supplied')
+            return _UNESTABLISHED
+        return hash_bytes(rows)
+    except _DigestError as exc:
+        _unestablished_breadcrumb('location_identity', str(exc))
         return _UNESTABLISHED
 
 
@@ -741,10 +772,13 @@ def domain_identity(data):
     is indistinguishable here from one that failed to run.
     """
     if not data:
+        _unestablished_breadcrumb(
+            'domain_identity', 'the piped full-domain search result was empty')
         return _UNESTABLISHED
     try:
         return hash_bytes(data)
-    except _DigestError:
+    except _DigestError as exc:
+        _unestablished_breadcrumb('domain_identity', str(exc))
         return _UNESTABLISHED
 
 
@@ -860,6 +894,18 @@ def _validate_claims(doc):
         if paths is not None and (not isinstance(paths, list)
                                   or not all(isinstance(p, str) for p in paths)):
             raise StateError(f'claim {key!r} paths {paths!r} is not a list of strings')
+        # The class↔paths coupling is what makes the per-class identity meaningful, so it is
+        # enforced HERE too, not only in the writer: a pathless `location` claim silently
+        # recomputes to `unestablished` forever, and a `count` carrying paths implies a
+        # hit-path identity this module never records for a full-domain class.
+        if entry['claim_class'] in _FULL_DOMAIN_CLASSES:
+            if paths is not None:
+                raise StateError(f'claim {key!r} is class {entry["claim_class"]!r} but carries '
+                                 f'paths {paths!r}; a full-domain claim is identified by its '
+                                 f'search result, never by hit paths')
+        elif not paths:
+            raise StateError(f'claim {key!r} is a location claim carrying no measured paths; '
+                             f'its identity could never be recomputed')
 
 
 def _validate_finding_evidence(doc):
@@ -889,6 +935,17 @@ def _validate_finding_evidence(doc):
                     _EVIDENCE_TRUNCATION_MARK):
                 raise StateError(f'finding-evidence {key!r} {field} exceeds the '
                                  f'{_EVIDENCE_MAX_CHARS}-char bound')
+        # `completeness` GATES the verification scope (a `complete` item buys the cheap
+        # locator replay), so it is validated like any other decided field rather than
+        # trusted: a hand-edited `complete` beside blank required fields would buy a
+        # relaxation the evidence never earned.
+        comp = entry.get('completeness')
+        if comp not in ('complete', 'incomplete'):
+            raise StateError(f'finding-evidence {key!r} completeness {comp!r} is outside the '
+                             f'canonical set')
+        if comp != evidence_completeness(entry)[0]:
+            raise StateError(f'finding-evidence {key!r} records completeness {comp!r} but its '
+                             f'fields derive {evidence_completeness(entry)[0]!r}')
 
 
 def split_body(raw):
@@ -3653,7 +3710,18 @@ def cmd_record_claim_baseline(args):
             _fail(prefix, f'domain-class-paths: a {args.claim_class} claim is identified by '
                           f'its re-executed full-domain search result, not by hit paths; '
                           f'pipe the result with --domain-stdin')
-        data = sys.stdin.buffer.read() if args.domain_stdin else b''
+        # The fourth arm of this guard. Without it the call exits 0 having recorded a baseline
+        # that can never be anything but `possibly-stale` — the operator believes a baseline
+        # landed while the staleness re-check is permanently degraded, and `possibly-stale` is
+        # a legitimate verdict so nothing downstream ever flags the recording error.
+        if not args.domain_stdin:
+            _fail(prefix, f'domain-class-no-domain: a {args.claim_class} claim is identified '
+                          f'by its re-executed full-domain search result; pipe it with '
+                          f'--domain-stdin')
+        data = sys.stdin.buffer.read()
+        if not data:
+            _fail(prefix, 'domain-class-empty-domain: --domain-stdin produced no bytes; a '
+                          'search that emitted nothing cannot identify a baseline')
         identity = domain_identity(data)
         paths = None
     else:
@@ -3695,6 +3763,14 @@ def cmd_check_claim_staleness(args):
     if args.claim_key is not None:
         if args.claim_key not in claims:
             _fail(prefix, f'claim-unknown: no claim named {args.claim_key!r} is recorded')
+        if args.domain_stdin and claims[args.claim_key].get(
+                'claim_class') not in _FULL_DOMAIN_CLASSES:
+            # Same reasoning as the no-claim-key arm below: a location claim recomputes from
+            # its paths, so piped bytes would be silently discarded while the caller reads the
+            # printed verdict as the answer to the search they just re-ran.
+            _fail(prefix, f'domain-for-location-claim: claim {args.claim_key!r} is a location '
+                          f'claim identified by its measured paths; --domain-stdin would be '
+                          f'discarded')
         keys = [args.claim_key]
     else:
         if args.domain_stdin:
@@ -3716,9 +3792,22 @@ def cmd_check_claim_staleness(args):
 
 
 def cmd_query_claim_baselines(args):
-    """Read back every recorded claim baseline (one line per claim)."""
+    """Read back every recorded claim baseline (one line per claim).
+
+    Carries the same inline fail-closed answers as its sibling queries: a nonce from another
+    run must never read THIS run's baselines as its own (the cross-run re-anchoring the state
+    file's out-of-bounds discipline exists to prevent), and an unestablished state must be
+    distinguishable from a genuinely empty store — a bare `claims=none` for both would let an
+    unreadable state license the cheap replay the new adjudication policy gates on.
+    """
     state = _query_state(args.slug)
-    claims = (state or {}).get('claims') or {}
+    if state is not None and state['nonce'] != args.nonce:
+        print('claims=none reason=foreign-nonce')
+        return
+    if state is None:
+        print('claims=none reason=state-unestablished')
+        return
+    claims = state.get('claims') or {}
     if not claims:
         print('claims=none')
         return
@@ -3769,22 +3858,45 @@ def cmd_query_finding_evidence(args):
     channel's answer to the hazard the ledger transport answers by refusal.
     """
     state = _query_state(args.slug)
-    store = (state or {}).get('finding_evidence') or {}
+    if state is not None and state['nonce'] != args.nonce:
+        print('evidence=none reason=foreign-nonce')
+        return
+    if state is None:
+        print('evidence=none reason=state-unestablished')
+        return
+    store = state.get('finding_evidence') or {}
     want = str(args.round)
-    scoped = {k: v for k, v in store.items() if k.split(':', 1)[0] == want}
-    if args.finding_id is not None:
-        scoped = {k: v for k, v in scoped.items()
-                  if k.split(':', 1)[1] == str(args.finding_id)}
+    round_scoped = {k: v for k, v in store.items() if k.split(':', 1)[0] == want}
+    # Computed over the WHOLE round before any narrowing: a conflict is a relation between two
+    # findings, so deriving it from a single-finding subset would report `conflict=none` by
+    # construction — and that is the exact signal the proportionate-adjudication policy reads
+    # to license a cheap replay.
+    conflicts = evidence_conflicts(round_scoped)
+    scoped = round_scoped if args.finding_id is None else {
+        k: v for k, v in round_scoped.items() if k.split(':', 1)[1] == str(args.finding_id)}
     if not scoped:
         print('evidence=none')
         return
-    conflicts = evidence_conflicts(scoped)
     for key in sorted(scoped, key=lambda k: int(k.split(':', 1)[1])):
         e = scoped[key]
         others = [k.split(':', 1)[1] for k in conflicts.get(key) or []]
         fields = ' '.join(f'{f}={json.dumps(e.get(f, ""))}' for f in _EVIDENCE_FIELDS)
         print(f'finding={key} completeness={e.get("completeness", "incomplete")} '
               f'conflict={",".join(others) if others else "none"} {fields}')
+
+
+def _nonneg_int(text):
+    """argparse type: a non-negative integer.
+
+    The evidence key is `<round>:<finding-id>` and the read boundary requires `[0-9]+:[0-9]+`,
+    so a negative value would persist a document that fails to load on every later subcommand
+    — a run-wide lockout from one mistyped flag, in a component whose contract is that it
+    never blocks issue creation. Constrain it at the boundary instead.
+    """
+    value = int(text)
+    if value < 0:
+        raise argparse.ArgumentTypeError(f'must be a non-negative integer, got {text!r}')
+    return value
 
 
 def cmd_emit_body(args):
@@ -3953,7 +4065,7 @@ def cmd_query_findings(args):
     `summary=` is the FINAL field on every line because it is the one field whose value
     may contain spaces; the AC1 vocabulary refusal is what keeps that unambiguous, since
     no summary can carry a `<field>=` word of the tool's own printed surface. This is the
-    tool's one multi-line query.
+    tool's multi-line queries, alongside the issue-#704 claim/evidence read-backs.
 
     INVARIANT for any future field: `summary=` must REMAIN trailing. A field appended
     after it would end the unambiguous split — the reader could no longer tell a space
@@ -4346,8 +4458,8 @@ def main():
              'item `incomplete`, never verified.')
     s.add_argument('slug')
     s.add_argument('--nonce', required=True)
-    s.add_argument('--round', type=int, required=True)
-    s.add_argument('--finding-id', type=int, required=True)
+    s.add_argument('--round', type=_nonneg_int, required=True)
+    s.add_argument('--finding-id', type=_nonneg_int, required=True)
     s.add_argument('--locator')
     s.add_argument('--command')
     s.add_argument('--baseline-revision')
@@ -4361,11 +4473,13 @@ def main():
         help='Read back per-finding evidence. Every field is JSON-encoded at the print '
              'boundary, so instruction-shaped or record-splitting auditor text can forge '
              'neither a line nor a field. Two items citing one locator with differing '
-             'observed output are surfaced as `conflict=<ids>`, never auto-resolved.')
+             'observed output are surfaced as `conflict=<ids>`, never auto-resolved; '
+             'conflicts are derived over the whole round, so narrowing with --finding-id '
+             'still reports a conflicting sibling.')
     s.add_argument('slug')
     s.add_argument('--nonce', required=True)
-    s.add_argument('--round', type=int, required=True)
-    s.add_argument('--finding-id', type=int)
+    s.add_argument('--round', type=_nonneg_int, required=True)
+    s.add_argument('--finding-id', type=_nonneg_int)
     s.set_defaults(func=cmd_query_finding_evidence)
 
     s = sub.add_parser('emit-body', help='Emit the audited body bytes; refuses with '

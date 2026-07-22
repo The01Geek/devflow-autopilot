@@ -1100,8 +1100,8 @@ devflow_module_pin_unique "#603: round funding named as the budget-enforcement s
 #    restricted-PATH roundtrip; the remaining pins guard orchestrator-judgment prose with no
 #    code behavior to mutate. Either way these are presence pins, not behavioral-fix pins,
 #    so the mutation-evidence obligation does not attach.
-devflow_module_pin_unique "#603/AC14: query-findings is the one multi-line query" \
-  "**\`query-findings\` prints one decided line per ledger entry, and is the tool's one multi-line query**" "$CI_BUNDLE"
+devflow_module_pin_unique "#603/AC14 (+#704): the multi-line read-back query class is named" \
+  "**The read-back queries \`query-findings\`, \`query-claim-baselines\`, and \`query-finding-evidence\` are the multi-line ones**" "$CI_BUNDLE"
 devflow_module_pin_unique "#603/AC1: the ledger fence uses a QUOTED heredoc delimiter" \
   "<<'LEDGER-EOF'" "$CI_BUNDLE"
 devflow_module_pin_unique "#603/AC1: the quoted delimiter is never to be simplified away" \
@@ -1778,7 +1778,7 @@ for _ci614_ref in $CI614_REFS; do
   CI614_TOTAL_SET+=("$CI_ROOT/skills/create-issue/references/$_ci614_ref.md")
 done
 CI614_TOTAL_W="$(ci614_words "${CI614_TOTAL_SET[@]}")"
-CI614_TOTAL_RECORDED=26526   # docs/create-issue-budget.md, root + all 9 references
+CI614_TOTAL_RECORDED=26580   # docs/create-issue-budget.md, root + all 9 references
 assert_eq "#614 T3: the root+references total is within +/-2% of the recorded conservation figure (a silent DROP is as RED as a rise)" \
   "yes" "$({ [ -n "$CI614_TOTAL_W" ] \
     && [ "$CI614_TOTAL_W" -ge "$(( CI614_TOTAL_RECORDED * 98 / 100 ))" ] \

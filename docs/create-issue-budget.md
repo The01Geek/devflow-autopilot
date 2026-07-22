@@ -32,7 +32,7 @@ Both are asserted by `lib/test/modules/create-issue-contract.sh` (driven by the 
 | Ceiling | Operand | Measured | Enforced ceiling |
 | --- | --- | --- | --- |
 | **Root** | `skills/create-issue/SKILL.md` | 2,732 | Root ceiling: **2,754 words** |
-| **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 31,031 | Default-path ceiling: **31,262 words** |
+| **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 31,085 | Default-path ceiling: **31,262 words** |
 
 Each ceiling is at most the implement-time measured value plus **5% headroom** (the AC6 maximum). Both were set from an earlier measurement in this same change and deliberately **not re-raised** when review fixes grew the operands, so the shipped headroom is under 5% on both (root ~0.9%, default path ~0.7%). The suite asserts that legality directly — a ceiling above measured+5% is RED — so a future raise needs a real measurement behind it. The
 default-path operand deliberately **excludes the four fallback references** — they load only when
@@ -65,13 +65,13 @@ Measured at implement time (2026-07-21), python3 word-split:
 | `references/step-2-clarify.md` | 4,673 | Step 2 entry |
 | `references/step-3-5-steelman.md` | 2,214 | Step 3.5 entry |
 | `references/revision-delta.md` | 981 | every revision event |
-| `references/step-3-6-audit.md` | 8,273 | Step 3.6 entry |
+| `references/step-3-6-audit.md` | 8,327 | Step 3.6 entry |
 | `references/step-4-present-create.md` | 5,362 | Step 4 entry |
 | `references/fallback-no-task-tool.md` | 540 | no usable task-tracking tool |
 | `references/fallback-read-only-sandbox.md` | 334 | a `.devflow/tmp/` write is refused |
 | `references/fallback-audit-dispatch-arms.md` | 669 | a non-file audit arm, a retry escalation, or no subagent tool |
 | `references/fallback-state-owner-unavailable.md` | 748 | the state owner stops answering |
-| **root + all 9 references** | **26,526** | — |
+| **root + all 9 references** | **26,580** | — |
 | `references/issue-template.md` | 6,796 | Step 3 (unchanged by the split) |
 | `references/audit-prompt-template.md` | 1,515 | renderer-owned (unchanged by the split) |
 
@@ -147,13 +147,14 @@ this frozen split baseline.
   final pre-merge measurement.
 
 - **2026-07-21 (issue #704) — evidence-provenance prose added; ceilings UNCHANGED.** Default path
-  29,973 → **31,031** (+1,058: the claim-class enumeration and baseline convention in
+  29,973 → **31,085** (+1,112: the claim-class enumeration and baseline convention in
   `issue-template.md`, the proportionate-verification and finding-evidence policy in
   `step-3-6-audit.md`, and the two thin staleness hooks in `step-3-5-steelman.md` and
   `revision-delta.md`). The root is **untouched at 2,732** — it had 22 words of headroom, so the
   change deliberately placed no prose there. Neither ceiling is raised: the ratchet is
   down-only, and the growth was absorbed within the existing default-path headroom, which now
-  stands at 231 words (~0.7%). The auditor's new reproducible-evidence bar was placed in
+  stands at 177 words (~0.6%). The review round then added the reconciled multi-line-query
+  contract statement and the proportionate-verification wiring, which is included in this figure. The auditor's new reproducible-evidence bar was placed in
   `references/audit-prompt-template.md`, which is **not** in either budgeted operand, precisely so
   the bar could be stated in full without spending default-path headroom.
 
