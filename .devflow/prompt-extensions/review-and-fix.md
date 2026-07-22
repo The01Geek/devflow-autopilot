@@ -35,6 +35,7 @@ Run the full suite mid-iteration only when no focused module or path covers the 
 A focused result discharges intermediate iteration only, never the final review/fix gate.
 The final gate is preserved, and on the local/interactive and reception/shepherd tiers it is parallelized.
 Before a completion or PR-ready claim, push to trigger CI and start the full local run at the same time; the push is NOT gated on the local run finishing.
+The **claim** is gated on it: read the local run's summary before you make one. A nonzero failure tally, a nonempty skip tally, or a run that never started (denied, blocked, or unreached) is not a completion — report the failure detail and iterate, and say so explicitly rather than letting the already-landed push stand as the claim.
 The full local run is `bash lib/test/run.sh` plus every lint gate required by `CLAUDE.md` (using its documented classifier fallback when necessary), and it remains the authoritative local signal because it yields richer failure detail than CI for troubleshooting. A nonempty skip tally is not clean.
 The cloud `/devflow:implement` in-env gate (issue #405) is unchanged and unweakened: such a run verifies in its own environment and never waits on, polls, re-checks, or cites CI for its own progress; the parallel-push allowance above is a local/interactive and reception/shepherd tier rule only.
 

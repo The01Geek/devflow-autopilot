@@ -9,9 +9,10 @@
 # `lib/test/run-module.sh harness-python-guards` instead of the complete suite.
 #
 # Contract: the caller sets LIB and RESULTS_FILE, defines assert_eq, and sources
-# lib/test/module-harness.sh first. This module uses only helpers that harness defines —
-# assert_eq, devflow_run_focused_python_test, and devflow_module_allocate_owned_directory —
-# and references NO monolith lib/test/run.sh helper. The module owns its
+# lib/test/module-harness.sh first. This module uses assert_eq (caller-provided, per that
+# contract — both run.sh and run-module.sh define it) plus the harness helpers
+# devflow_run_focused_python_test and devflow_module_allocate_owned_directory, and
+# references NO helper that lives ONLY in lib/test/run.sh. The module owns its
 # private fixture root and cleanup; it never invokes the runner or the full-suite
 # boundary. The inventory in harness-python-guards.inventory.md maps the extracted
 # coverage to its former run.sh locations and records the deliberate exclusions.
@@ -49,12 +50,11 @@ RAP_ROOT="$(mktemp -d "$_hpg_tmp_root/rap.XXXXXX")" || {
   printf 'could not allocate the #600 render-audit-prompt fixture\n' >&2
   return 1
 }
-python3 "$LIB/test/test_render_audit_prompt.py" >"$RAP_ROOT/rap-unit.out" 2>&1
-RAP_UNIT_RC=$?
-# Surface the captured traceback on failure — otherwise the scratch dir is removed
-# below and the only signal left is a bare "expected 0, got 1".
-[ "$RAP_UNIT_RC" -eq 0 ] || cat "$RAP_ROOT/rap-unit.out"
-assert_eq "#600 render-audit-prompt: focused Python tests pass" "0" "$RAP_UNIT_RC"
+# Shared runner, for the reasons stated in the #527 block below: it surfaces the captured
+# traceback on a RED, applies the PYTHON_COLORS=0 determinism guard, and removes the
+# positional `$?` read a later inserted statement would silently re-point at another command.
+devflow_run_focused_python_test "#600 render-audit-prompt: focused Python tests pass" \
+  "$LIB/test/test_render_audit_prompt.py" "$RAP_ROOT/rap-unit.out"
 assert_eq "#600 render-audit-prompt writes no file (stateless)" "0" \
   "$(grep -cE "open\([^)]*['\"][wax]|\.write_text\(|\.write_bytes\(" "$LIB/../scripts/render-audit-prompt.py" || true)"
 assert_eq "#600 render-audit-prompt reads no stdin (stateless)" "0" \
@@ -205,10 +205,13 @@ echo "receiving-review session artifact producer (issue #668)"
 # ────────────────────────────────────────────────────────────────────────────
 RI_LIB="$LIB/../scripts/reception_identity.py"
 RR_CLI="$LIB/../scripts/reception-record.py"
-RECEPTION_OUT="$(python3 "$LIB/test/test_reception_identity.py" 2>&1)"
-RECEPTION_RC=$?
-assert_eq "reception identity: focused Python tests pass (library + CLI + flight extension)" "0" "$RECEPTION_RC"
-[ "$RECEPTION_RC" -eq 0 ] || while IFS= read -r _ri_line || [ -n "$_ri_line" ]; do printf '    %s\n' "$_ri_line"; done <<< "$RECEPTION_OUT"
+RI_ROOT="$(mktemp -d "$_hpg_tmp_root/ri.XXXXXX")" || {
+  printf 'could not allocate the #668 reception-identity capture root\n' >&2
+  return 1
+}
+# Shared runner, for the reasons stated in the #527 block above.
+devflow_run_focused_python_test "reception identity: focused Python tests pass (library + CLI + flight extension)" \
+  "$LIB/test/test_reception_identity.py" "$RI_ROOT/ri-unit.out"
 # The library is an importable, non-executable stdlib-only routine (AC1): no exec bit,
 # no PyYAML import, no gh call, no network call.
 assert_eq "reception identity: library carries no executable bit" "no" \
@@ -225,6 +228,7 @@ assert_eq "reception identity: CLI imports the library (single derivation implem
   "$(grep -cF 'import reception_identity' "$RR_CLI" || true)"
 assert_eq "reception identity: CLI does not re-implement write-tree" "0" \
   "$(grep -cF 'write-tree' "$RR_CLI" || true)"
+rm -rf "$RI_ROOT"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "issue #591: coverage-map ratchet guard"
@@ -241,7 +245,10 @@ assert_eq "#591 coverage-map guard: shipped tree + map is clean" "0" "$COVERAGE_
 # Reuse the shared focused-Python-test runner (module-harness.sh, sourced above)
 # rather than re-implementing its capture/assert/indent idiom — it also applies the
 # PYTHON_COLORS=0 determinism guard the hand-rolled form dropped.
-_CG_UNIT_OUT="$(mktemp "$_hpg_tmp_root/cg-unit.XXXXXX")"
+_CG_UNIT_OUT="$(mktemp "$_hpg_tmp_root/cg-unit.XXXXXX")" || {
+  printf 'could not allocate the #591 coverage-map unit-test capture\n' >&2
+  return 1
+}
 devflow_run_focused_python_test "#591 coverage-map guard: focused Python tests pass" \
   "$LIB/test/test_coverage_map_guard.py" "$_CG_UNIT_OUT"
 rm -f "$_CG_UNIT_OUT"
@@ -286,7 +293,8 @@ git -c core.excludesFile=/dev/null -c init.templateDir= -C "$_hpg_cg_fixture" in
   && case "$(git -C "$_hpg_cg_fixture" ls-files)" in *"lib/planted-drift.sh"*) _hpg_cg_setup=ok ;; esac
 assert_eq "#707 planted-defect control: fixture repository was created and the planted unit is tracked" "ok" "$_hpg_cg_setup"
 _hpg_cg_clean_out="$(python3 "$LIB/test/coverage_map_guard.py" "$_hpg_cg_fixture" 2>&1)"
-assert_eq "#707 planted-defect control: the undrifted fixture is clean (control arm)" "0" "$?"
+_hpg_cg_clean_rc=$?
+assert_eq "#707 planted-defect control: the undrifted fixture is clean (control arm)" "0" "$_hpg_cg_clean_rc"
 assert_eq "#707 planted-defect control: the undrifted fixture reports no violation" "" "$_hpg_cg_clean_out"
 # Plant the drift: drop the tracked unit from `files`, which is exactly the
 # ratchet arm the live-tree invocation above exists to enforce.
