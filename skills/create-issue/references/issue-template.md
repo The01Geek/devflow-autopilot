@@ -179,6 +179,42 @@ pull-request occurrences, a tally over an evidence bundle), cite the specific ev
 consulted — the query output, the source rows — **record-by-record**. Neither arm accepts a count
 from recall.
 
+**Load-bearing claims record the repository baseline they were grounded against.** The claim
+classes are enumerated **first**, and each takes the baseline representation *its own* drift mode
+needs — no single universal identity is imposed across them:
+
+- **Location-sensitive anchor** — a line range, a region boundary, a file-and-section anchor.
+  Identity is a content digest of the **measured paths**, so a base advance touching none of
+  them leaves the claim fresh and only genuinely-affected anchors are re-derived.
+- **Occurrence count or tally** — identity is a digest of the **re-executed search result over
+  the claim's full search domain**, never of the hit paths, so an occurrence added in a file
+  *outside* the original hit set changes it.
+- **Consumer or coupled-site inventory** — the same full-domain identity as a count: the claim is
+  about the whole search domain, not the sites it happened to hit.
+
+Record each with `record-claim-baseline` — `--path` per measured path for a location anchor, the
+re-executed search result piped with `--domain-stdin` for a count or inventory:
+
+```bash
+python3 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/issue-audit-state.py record-claim-baseline "<slug>" --nonce "<nonce>" --claim-key "<key>" --claim-class location --path "<measured path>"
+```
+
+Cite the printed `revision=` and `identity=` on that claim's **"Verified:"** bullet, beside its
+command and hit list. The captured revision accompanies the identity, but the **identity** is what
+the deterministic re-check compares — so the committed-vs-dirty and drift distinctions are made
+**per claim**, never from a global worktree cleanliness flag, which a dirty→dirty edit of the
+measured content leaves unchanged while the content itself drifts.
+
+**The complement is named explicitly and receives no provenance:** an **incidental mention** — a
+file, count, or site named in passing and not load-bearing for the Desired Behavior, an
+acceptance criterion, or the Approach — records no baseline, exactly as it triggers no
+verification above.
+
+**Every arm is best-effort and blocks nothing.** A measurement that cannot be established records
+`unestablished`, and an **absent** baseline field on a state file written before this convention
+reads **identically** — both are **possibly stale** (re-verified), never silently fresh. Neither
+ever blocks issue creation.
+
 **Verifying "the code does X" includes the gates on the path to X.** Confirming that the code
 doing X exists and does X is not complete until you have read the **enclosing gates,
 conditionals, and their defaults** on the path that reaches X — a claim can be true of code that

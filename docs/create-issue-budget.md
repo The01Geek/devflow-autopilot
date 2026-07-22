@@ -32,9 +32,9 @@ Both are asserted by `lib/test/modules/create-issue-contract.sh` (driven by the 
 | Ceiling | Operand | Measured | Enforced ceiling |
 | --- | --- | --- | --- |
 | **Root** | `skills/create-issue/SKILL.md` | 2,732 | Root ceiling: **2,754 words** |
-| **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 29,973 | Default-path ceiling: **31,262 words** |
+| **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 31,031 | Default-path ceiling: **31,262 words** |
 
-Each ceiling is at most the implement-time measured value plus **5% headroom** (the AC6 maximum). Both were set from an earlier measurement in this same change and deliberately **not re-raised** when review fixes grew the operands, so the shipped headroom is under 5% on both (root ~0.9%, default path ~4.3%). The suite asserts that legality directly — a ceiling above measured+5% is RED — so a future raise needs a real measurement behind it. The
+Each ceiling is at most the implement-time measured value plus **5% headroom** (the AC6 maximum). Both were set from an earlier measurement in this same change and deliberately **not re-raised** when review fixes grew the operands, so the shipped headroom is under 5% on both (root ~0.9%, default path ~0.7%). The suite asserts that legality directly — a ceiling above measured+5% is RED — so a future raise needs a real measurement behind it. The
 default-path operand deliberately **excludes the four fallback references** — they load only when
 their predicate fires, which is the whole point of the split. `revision-delta.md` is *retained* in the
 operand even though it too is predicate-gated (its trigger is any revise-and-re-gate site): a revision
@@ -63,16 +63,16 @@ Measured at implement time (2026-07-21), python3 word-split:
 | --- | --- | --- |
 | `SKILL.md` (root) | 2,732 | always |
 | `references/step-2-clarify.md` | 4,673 | Step 2 entry |
-| `references/step-3-5-steelman.md` | 2,133 | Step 3.5 entry |
-| `references/revision-delta.md` | 922 | every revision event |
-| `references/step-3-6-audit.md` | 7,701 | Step 3.6 entry |
+| `references/step-3-5-steelman.md` | 2,214 | Step 3.5 entry |
+| `references/revision-delta.md` | 981 | every revision event |
+| `references/step-3-6-audit.md` | 8,273 | Step 3.6 entry |
 | `references/step-4-present-create.md` | 5,362 | Step 4 entry |
 | `references/fallback-no-task-tool.md` | 540 | no usable task-tracking tool |
 | `references/fallback-read-only-sandbox.md` | 334 | a `.devflow/tmp/` write is refused |
 | `references/fallback-audit-dispatch-arms.md` | 669 | a non-file audit arm, a retry escalation, or no subagent tool |
 | `references/fallback-state-owner-unavailable.md` | 748 | the state owner stops answering |
-| **root + all 9 references** | **25,814** | — |
-| `references/issue-template.md` | 6,450 | Step 3 (unchanged by the split) |
+| **root + all 9 references** | **26,526** | — |
+| `references/issue-template.md` | 6,796 | Step 3 (unchanged by the split) |
 | `references/audit-prompt-template.md` | 1,515 | renderer-owned (unchanged by the split) |
 
 **What the default path sheds.** Before the split every run loaded all 24,473 words of the monolith.
@@ -101,10 +101,22 @@ overhead. That direction is deliberate and fail-safe: understating overhead leav
 the conserved operand, which can only make the ±2% check *harder* to pass, never easier. A future
 re-measure that wants the tighter figure should count the spliced pointers too and record the change here.
 
-- Post-split total (root + all 9 references): **25,814**
+This arithmetic is a **frozen past-time snapshot of the #614 split**, not a live measurement:
+it answers "did the re-partition lose prose?", which is a question about one historical change.
+Re-rendering it against a later total would destroy exactly the record it exists to keep, so it
+is never machine-reconciled (the #656 snapshot exemption).
+
+- Post-split total (root + all 9 references), at the split: **25,814**
 - Minus structural overhead: **24,829**
 - Pre-split baseline: **24,473**
 - **Deviation: +1.45%** — inside the ±2% tolerance.
+
+The **live** root+references total is the table row above, reconciled positionally against the
+suite's own measurement (`CI614_TOTAL_RECORDED` in `lib/test/modules/create-issue-contract.sh`,
+a coupled pair edited together). It sits above the frozen figure because later changes have
+**added** prose deliberately — growth authored on purpose is not the silent drop the ±2%
+conservation band exists to catch, which is why that band tracks the recorded total rather than
+this frozen split baseline.
 
 ### Two recorded corrections to the issue's stated figures
 
@@ -133,6 +145,17 @@ re-measure that wants the tighter figure should count the spliced pointers too a
   against the implement-time baseline of 24,473. Both stale-figure corrections above recorded at the
   same time. The ratchet rule binds every *subsequent* change; these initial values are set from the
   final pre-merge measurement.
+
+- **2026-07-21 (issue #704) — evidence-provenance prose added; ceilings UNCHANGED.** Default path
+  29,973 → **31,031** (+1,058: the claim-class enumeration and baseline convention in
+  `issue-template.md`, the proportionate-verification and finding-evidence policy in
+  `step-3-6-audit.md`, and the two thin staleness hooks in `step-3-5-steelman.md` and
+  `revision-delta.md`). The root is **untouched at 2,732** — it had 22 words of headroom, so the
+  change deliberately placed no prose there. Neither ceiling is raised: the ratchet is
+  down-only, and the growth was absorbed within the existing default-path headroom, which now
+  stands at 231 words (~0.7%). The auditor's new reproducible-evidence bar was placed in
+  `references/audit-prompt-template.md`, which is **not** in either budgeted operand, precisely so
+  the bar could be stated in full without spending default-path headroom.
 
 When a later change re-measures, append a row here rather than editing an earlier one: the record is
 the history of what the surface cost, and overwriting it loses exactly the drift a budget exists to catch.
