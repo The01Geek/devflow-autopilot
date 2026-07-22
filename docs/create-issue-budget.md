@@ -32,7 +32,7 @@ Both are asserted by `lib/test/modules/create-issue-contract.sh` (driven by the 
 | Ceiling | Operand | Measured | Enforced ceiling |
 | --- | --- | --- | --- |
 | **Root** | `skills/create-issue/SKILL.md` | 2,732 | Root ceiling: **2,754 words** |
-| **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 29,973 | Default-path ceiling: **31,262 words** |
+| **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 30,365 | Default-path ceiling: **31,262 words** |
 
 Each ceiling is at most the implement-time measured value plus **5% headroom** (the AC6 maximum). Both were set from an earlier measurement in this same change and deliberately **not re-raised** when review fixes grew the operands, so the shipped headroom is under 5% on both (root ~0.9%, default path ~4.3%). The suite asserts that legality directly — a ceiling above measured+5% is RED — so a future raise needs a real measurement behind it. The
 default-path operand deliberately **excludes the four fallback references** — they load only when
@@ -57,7 +57,10 @@ constants in the contract module, and the two suite pins that assert this docume
 
 ## Post-split per-file table
 
-Measured at implement time (2026-07-21), python3 word-split:
+Measured by python3 word-split (initially 2026-07-21 for issue #614; the
+`step-3-6-audit.md` / `audit-prompt-template.md` rows and the totals re-measured 2026-07-22
+for issue #708, which added the per-dimension coverage procedure and return requirement —
+both still under their unraised ceilings):
 
 | File | Words | Loaded |
 | --- | --- | --- |
@@ -65,15 +68,15 @@ Measured at implement time (2026-07-21), python3 word-split:
 | `references/step-2-clarify.md` | 4,673 | Step 2 entry |
 | `references/step-3-5-steelman.md` | 2,133 | Step 3.5 entry |
 | `references/revision-delta.md` | 922 | every revision event |
-| `references/step-3-6-audit.md` | 7,701 | Step 3.6 entry |
+| `references/step-3-6-audit.md` | 8,093 | Step 3.6 entry |
 | `references/step-4-present-create.md` | 5,362 | Step 4 entry |
 | `references/fallback-no-task-tool.md` | 540 | no usable task-tracking tool |
 | `references/fallback-read-only-sandbox.md` | 334 | a `.devflow/tmp/` write is refused |
 | `references/fallback-audit-dispatch-arms.md` | 669 | a non-file audit arm, a retry escalation, or no subagent tool |
 | `references/fallback-state-owner-unavailable.md` | 748 | the state owner stops answering |
-| **root + all 9 references** | **25,814** | — |
+| **root + all 9 references** | **26,206** | — |
 | `references/issue-template.md` | 6,450 | Step 3 (unchanged by the split) |
-| `references/audit-prompt-template.md` | 1,515 | renderer-owned (unchanged by the split) |
+| `references/audit-prompt-template.md` | 1,807 | renderer-owned (unchanged by the split) |
 
 **What the default path sheds.** Before the split every run loaded all 24,473 words of the monolith.
 After it, a run on the default path — task tool usable, writable filesystem, file-arm dispatch, state
@@ -101,7 +104,9 @@ overhead. That direction is deliberate and fail-safe: understating overhead leav
 the conserved operand, which can only make the ±2% check *harder* to pass, never easier. A future
 re-measure that wants the tighter figure should count the spliced pointers too and record the change here.
 
-- Post-split total (root + all 9 references): **25,814**
+- Post-split total (root + all 9 references), **at the #614 split**: **25,814** (the frozen
+  split-time figure; issue #708 later grew this operand to **26,206** without re-running this
+  one-time split validation — the growth is an ordinary under-ceiling addition, not a re-partition)
 - Minus structural overhead: **24,829**
 - Pre-split baseline: **24,473**
 - **Deviation: +1.45%** — inside the ±2% tolerance.
@@ -130,6 +135,12 @@ re-measure that wants the tighter figure should count the spliced pointers too a
   → ceiling 31,262. Both ceilings were set from earlier measurements in this same change and left
   unraised as review fixes grew the operands, so the shipped headroom is below the 5% maximum on
   both. Conservation +1.45%
+- **2026-07-22 (issue #708) — coverage procedure added, ceilings unchanged.** The per-dimension
+  coverage procedure grew `step-3-6-audit.md` (7,701 → 8,093) and the coverage return requirement grew
+  the renderer-owned `audit-prompt-template.md` (1,515 → 1,807, off the default-path operand). The
+  default-path measured figure rose 29,973 → 30,365 and root+all-9-references 25,814 → 26,206, both
+  still under their ceilings (default-path headroom ~897 words), so **no ceiling was renegotiated** and
+  neither was lowered (the operands grew, not shrank). Measured figures re-recorded above.
   against the implement-time baseline of 24,473. Both stale-figure corrections above recorded at the
   same time. The ratchet rule binds every *subsequent* change; these initial values are set from the
   final pre-merge measurement.
