@@ -154,7 +154,7 @@ run is denied, do this in order — do not skip to the last rung:
 The standard is *evidence before assertion*: a claim that something works must point to a
 command you actually ran and its observed output, or be explicitly flagged unverified.
 
-## Focused test modules accelerate RED/GREEN only
+## Focused test modules are the iteration default
 
 Before choosing an iteration test, use the task context or test plan — and the coverage map
 (`lib/test/modules/coverage-map.json`, which records the owning module for every `lib/`/`scripts/`
@@ -173,9 +173,14 @@ record the map entry you consulted and still confirm the selected ID in the regi
 Do not infer or automate changed-file-to-module routing.
 When no registered module covers the change, use the full suite during iteration.
 
-A focused result is never a completion gate. Before a commit, phase completion, push, or
-completion claim, run `bash lib/test/run.sh` plus every lint gate required by `CLAUDE.md` (using
-its documented classifier fallback when necessary). A nonempty skip tally is not clean.
+Focused verification is the iteration default: a focused pass covering the changed surface is sufficient for an intermediate commit or push.
+Run the full suite mid-iteration only when no focused module or path covers the changed surface, and when you do, record a `## Devflow Reflection` bullet stating why the full run was necessary (no focused module or path covered the changed surface).
+
+A focused result discharges intermediate iteration only, never the final completion gate.
+The final gate is preserved, and on the local/interactive tier it is parallelized.
+Before a completion or PR-ready claim, push to trigger CI and start the full local run at the same time; the push is NOT gated on the local run finishing.
+The full local run is `bash lib/test/run.sh` plus every lint gate required by `CLAUDE.md` (using its documented classifier fallback when necessary), and it remains the authoritative local signal because it yields richer failure detail than CI for troubleshooting. A nonempty skip tally is not clean.
+The cloud `/devflow:implement` in-env gate (issue #405) is unchanged and unweakened: such a run verifies in its own environment and never waits on, polls, re-checks, or cites CI for its own progress; the parallel-push allowance above is a local/interactive-tier rule only.
 
 ## Interpreter-faithful probes — probe under the shell the artifact actually runs under
 

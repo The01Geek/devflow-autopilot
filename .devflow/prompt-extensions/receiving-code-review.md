@@ -122,9 +122,11 @@ A reception pass iterates on a focused module only after recording the selected 
 
 Iterate with the direct leading-token form `lib/test/run-module.sh <module-id>` — a deliberate divergence from the source section's bash-first wording, because direct reception passes run on the local tier, where the classifier routinely denies the `bash <path>` wrapper. Reserve that wrapper for hosts where the direct form is unavailable and it is permitted.
 
-A focused result discharges no gate: before every commit, push, and completion claim run the full `lib/test/run.sh` plus every lint gate `CLAUDE.md` requires; a nonempty skip tally is not clean. A fix no registered module covers iterates on the full suite.
+Focused verification is the iteration default here: a focused pass over the changed surface is enough for an intermediate commit or push, and a fix no registered module or path covers iterates on the full suite.
 
-On loop runs `.devflow/prompt-extensions/review-and-fix.md`'s "Focused test modules accelerate fix iteration only" section governs and this one defers — that section already loads there, and it is this section's source of record, adapted rather than mirrored in lockstep.
+A focused result discharges intermediate iteration only, never the final gate — that gate is preserved, and on this reception/shepherd tier it is parallelized: before a completion or PR-ready claim, push to trigger CI and start the full `lib/test/run.sh` run (plus every lint gate `CLAUDE.md` requires) at the same time, without gating the push on the local run finishing. That local run stays the authoritative local signal because its failure detail is richer than CI's for troubleshooting; a nonempty skip tally is not clean.
+
+On loop runs `.devflow/prompt-extensions/review-and-fix.md`'s "Focused test modules are the fix-iteration default" section governs and this one defers — that section already loads there, and it is this section's source of record, adapted rather than mirrored in lockstep.
 
 ## Push form in reception passes
 
