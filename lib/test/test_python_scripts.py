@@ -7861,6 +7861,173 @@ for _sc_profile, _sc_table in sorted(cwc.PROFILE_SHAPE_TABLES.items()):
                   True, any(_sc_rule == rule for _, rule, _ in _sc_hits))
 
 # ─────────────────────────────────────────────────────────────────────────────
+# AC2/AC3 (issue #701) — helper leading-token boundary over the AC1 closure.
+# The source keeps the portable ${CLAUDE_SKILL_DIR:-…} anchor (#275); the guard
+# measures the EMISSION-TIME normalized leading token (_normalize reduces a
+# well-formed anchor to the vendored literal), so the sanctioned source form
+# passes as its own cloud form. Every other command-position helper reference —
+# a malformed/unexpanded anchor, an absolute path, a repo-root path, or a helper
+# behind a granted launcher head — is a boundary escape. The launcher table is
+# GENERATED from the profile's parsed grants (∩ LAUNCHER_HEADS), so it tracks the
+# grants rather than a hand-list, and AC8's launcher controls are one plant per
+# granted launcher head, observed RED one at a time.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# The live closure is clean — the sanctioned anchored source form is accepted as
+# its own cloud-emission equivalent, so no reworked/duplicated fence is needed.
+assert_eq("#701 AC2/AC3: check_helper_boundary() reports no violations on the live closure",
+          [], cwc.check_helper_boundary())
+
+# The operator-facing CLI arm (the subcommand the module docstring names). Driven
+# directly above, but a typo in the print/return path would otherwise ship green.
+assert_eq("#701 AC3: main(['helper-boundary']) exits 0 on the live closure",
+          0, cwc.main(["helper-boundary"]))
+_hb_orig_check = cwc.check_helper_boundary
+try:
+    cwc.check_helper_boundary = lambda *a, **k: ["AC3 boundary: synthetic violation"]
+    assert_eq("#701 AC3: main(['helper-boundary']) exits 1 when violations exist",
+              1, cwc.main(["helper-boundary"]))
+finally:
+    cwc.check_helper_boundary = _hb_orig_check
+assert_eq("#701 AC3: main(['helper-boundary']) still exits 0 after the failure-arm probe",
+          0, cwc.main(["helper-boundary"]))
+
+# The launcher table is DERIVED FROM the profile's parsed grants (∩ LAUNCHER_HEADS),
+# not a hand-kept constant — so it tracks the grant. Every profile's derived set is
+# a subset of its any-grant command-position tokens, and the read-write implement
+# profile is non-vacuous (it grants env + at least one interpreter/wrapper head).
+_hb_impl_region, _hb_impl_cause = cwc._grant_source("implement", None)
+assert_eq("#701 AC3: the implement grant source is locatable for the launcher table",
+          None, _hb_impl_cause)
+_hb_impl_vend, _hb_impl_any = cwc._scan_grants(_hb_impl_region)
+_hb_impl_launchers = cwc.profile_launchers("implement", _hb_impl_region)
+assert_eq("#701 AC3: the implement launcher table is exactly its granted heads ∩ "
+          "LAUNCHER_HEADS (generated from parsed grants, never a hand-list)",
+          _hb_impl_any & cwc.LAUNCHER_HEADS, _hb_impl_launchers)
+assert_eq("#701 AC3: the implement launcher table is non-vacuous and grants env",
+          (True, True), (bool(_hb_impl_launchers), "env" in _hb_impl_launchers))
+# The review profile deliberately grants NO python3 head (#650 scope note), so its
+# launcher table must not carry one — a regression that re-added it would show here.
+_hb_rev_region, _ = cwc._grant_source("review", None)
+assert_eq("#701 AC3: the review launcher table carries no python3 head (review grants none)",
+          False, "python3" in cwc.profile_launchers("review", _hb_rev_region))
+
+# Unit-level classification matrix over extract-command-heads.py's parser: each
+# escape class is caught and named, the sanctioned forms are clean, and a helper
+# named as a mere ARGUMENT (an echo, a $(…) capture body's outer statement, a
+# piped run-jq) is not a false positive.
+_hb_ech = cwc._heads
+_hb_A = "${CLAUDE_SKILL_DIR:-x}"
+_hb_names = {"workpad.py", "apply-labels.sh"}
+_hb_launch = {"env", "python3", "xargs", "bash", "timeout"}
+_hb_matrix = {
+    "sanctioned":  ("```bash\n\"%s\"/../../scripts/workpad.py id 5\n```" % _hb_A, None),
+    "absolute":    ("```bash\n/home/runner/scripts/workpad.py id 5\n```", "absolute-path"),
+    "repo-root":   ("```bash\nscripts/workpad.py id 5\n```", "repo-root-path"),
+    "unexpanded":  ("```bash\n\"%s\"/../scripts/workpad.py id 5\n```" % _hb_A, "unexpanded-anchor"),
+    "launch-env":  ("```bash\nenv .devflow/vendor/devflow/scripts/workpad.py id 5\n```",
+                    "launcher-prefixed:env"),
+    "launch-timeout": ("```bash\ntimeout 30 .devflow/vendor/devflow/scripts/apply-labels.sh 1 X\n```",
+                       "launcher-prefixed:timeout"),
+    "capture-ok":  ("```bash\nWID=$(\"%s\"/../../scripts/workpad.py id 5)\n```" % _hb_A, None),
+    "pipe-ok":     ("```bash\nprintf x | \"%s\"/../../scripts/run-jq.sh -r .\n```" % _hb_A, None),
+    "echo-arg-ok": ("```bash\necho \"see .devflow/vendor/devflow/scripts/workpad.py here\"\n```", None),
+}
+for _hb_name, (_hb_txt, _hb_expect) in sorted(_hb_matrix.items()):
+    _hb_got = [r for _, r, _ in _hb_ech.helper_boundary_violations(_hb_txt, _hb_names, _hb_launch)]
+    if _hb_expect is None:
+        assert_eq("#701 AC3: '%s' is clean (no boundary escape, no false positive)" % _hb_name,
+                  [], _hb_got)
+    else:
+        assert_eq("#701 AC3: '%s' is classified '%s'" % (_hb_name, _hb_expect),
+                  True, _hb_expect in _hb_got)
+
+# A vendored helper NOT carrying a per-helper grant in this profile is exempt: the
+# guard governs only REQUIRED_HELPER_HEADS basenames, so a `python3 <helper>` form
+# for an interpreter-run helper (refresh-pr-run-link.py) is not flagged.
+assert_eq("#701 AC3: a helper outside the per-helper-grant set is not governed",
+          [], _hb_ech.helper_boundary_violations(
+              "```bash\npython3 .devflow/vendor/devflow/scripts/refresh-pr-run-link.py x\n```",
+              _hb_names, _hb_launch))
+
+# Fail-closed on an unavailable grant source (unknown is not zero): a profile whose
+# grant region cannot be derived must REPORT that its launcher table is underivable,
+# never silently yield an empty launcher set that waves a launcher-prefixed helper
+# through. Inject a whole-workflow (refused by _grant_source) for one profile.
+_hb_inject = {p: _hb_impl_region for p in cwc.ROOTS}
+_hb_inject["review"] = "on:\n  push:\njobs:\n  x:\n    steps: []\n"  # looks like a whole workflow
+_hb_fc = cwc.check_helper_boundary(profile_grants=_hb_inject)
+assert_eq("#701 AC3: an unavailable grant source is reported, not silently empty "
+          "(unknown is not zero)",
+          True, any("grant source unavailable" in e and "'review'" in e for e in _hb_fc))
+
+# AC8 POSITIVE CONTROLS — copy-based mutations, each observed RED one at a time
+# through check_helper_boundary's own per-asset loop (the SKILL_ASSETS seam the
+# AC4 end-to-end control uses). The PATH family is one plant per reason class; the
+# LAUNCHER family is generated FROM the parsed launcher table (one plant per
+# granted launcher head), so a launcher head added to a grant without a control
+# here turns the completeness assertion RED. pr-description is reached under
+# implement (and light-command), NOT review — so the implement launcher table
+# governs it.
+_hb_asset_key = "pr-description"
+_hb_orig_pd = cwc.SKILL_ASSETS[_hb_asset_key]
+_hb_planted = cwc.REPO_ROOT / ".devflow" / "tmp" / "hb-701-planted.md"
+# Path-family plants: reason class -> a fenced statement exhibiting it.
+_hb_path_plants = {
+    "unexpanded-anchor":  '"%s"/../scripts/apply-labels.sh 1 X' % _hb_A,
+    "absolute-path":      "/home/runner/scripts/apply-labels.sh 1 X",
+    "repo-root-path":     "scripts/apply-labels.sh 1 X",
+    # a helper-shaped path under some other prefix: neither vendored, absolute,
+    # repo-root, nor anchor — the classifier's fallback reason.
+    "helper-not-leading": "vendor/scripts/apply-labels.sh 1 X",
+}
+# The reason vocabulary the guard can emit, reconstructed from the classifier so a
+# new reason added to _classify_boundary without a control here is caught.
+_hb_ech_src = (cwc.REPO_ROOT / "lib/test/extract-command-heads.py").read_text(encoding="utf-8")
+_hb_reason_literals = set(re.findall(r'return \("([a-z-]+)"', _hb_ech_src))
+assert_eq("#701 AC8: every path-family reason the classifier returns has a planted control "
+          "(a new reason added to _classify_boundary without one goes RED here)",
+          set(), _hb_reason_literals - set(_hb_path_plants))
+assert_eq("#701 AC8: the reason-literal extraction is non-vacuous",
+          True, bool(_hb_reason_literals))
+try:
+    _hb_planted.parent.mkdir(parents=True, exist_ok=True)
+    # Non-vacuity baseline: the copied asset is clean before any plant.
+    _hb_base = (cwc.REPO_ROOT / "skills/pr-description/SKILL.md").read_text(encoding="utf-8")
+    _hb_planted.write_text(_hb_base, encoding="utf-8")
+    cwc.SKILL_ASSETS[_hb_asset_key] = list(_hb_orig_pd) + [".devflow/tmp/hb-701-planted.md"]
+    assert_eq("#701 AC8: the copied plant asset is clean before any mutation",
+              [], [e for e in cwc.check_helper_boundary() if "hb-701-planted.md" in e])
+    # PATH family — one plant per reason class, each observed RED end-to-end.
+    for _hb_reason, _hb_stmt in sorted(_hb_path_plants.items()):
+        _hb_planted.write_text(_hb_base + "\n```bash\n%s\n```\n" % _hb_stmt, encoding="utf-8")
+        _hb_errs = cwc.check_helper_boundary()
+        assert_eq("#701 AC8: planting a '%s' cloud call site is observed RED" % _hb_reason,
+                  True, any("hb-701-planted.md" in e and "'%s'" % _hb_reason in e
+                            for e in _hb_errs))
+    # LAUNCHER family — one plant per granted launcher head in the implement table,
+    # generated from the parsed launcher table (complete by construction).
+    assert_eq("#701 AC8: the launcher control set is non-vacuous (>=1 granted launcher)",
+              True, bool(_hb_impl_launchers))
+    for _hb_l in sorted(_hb_impl_launchers):
+        _hb_op = "1 X" if _hb_l in cwc._heads.WRAPPERS_WITH_OPERAND else ""
+        _hb_pre = ("%s 30" % _hb_l) if _hb_l in cwc._heads.WRAPPERS_WITH_OPERAND else _hb_l
+        _hb_stmt = "%s .devflow/vendor/devflow/scripts/apply-labels.sh %s" % (_hb_pre, _hb_op or "1 X")
+        _hb_planted.write_text(_hb_base + "\n```bash\n%s\n```\n" % _hb_stmt, encoding="utf-8")
+        _hb_errs = cwc.check_helper_boundary()
+        assert_eq("#701 AC8: a helper behind the granted launcher head '%s' is observed RED"
+                  % _hb_l,
+                  True, any("hb-701-planted.md" in e and "launcher-prefixed:%s" % _hb_l in e
+                            for e in _hb_errs))
+finally:
+    cwc.SKILL_ASSETS[_hb_asset_key] = _hb_orig_pd
+    _hb_planted.unlink(missing_ok=True)
+assert_eq("#701 AC8: SKILL_ASSETS restored after the controls",
+          _hb_orig_pd, cwc.SKILL_ASSETS[_hb_asset_key])
+assert_eq("#701 AC8: the live closure is clean after the controls",
+          [], cwc.check_helper_boundary())
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Cloud-writer trust-closure dependency classification (issue #583, AC5).
 # The classification is import/source-derived + exec-declared; the guard rejects
 # a repo-owned edge that escapes the vendored tree and an external edge that
