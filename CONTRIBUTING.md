@@ -57,6 +57,21 @@ Each module is also executed by the full suite through the fail-closed
 A per-module inventory (e.g. `lib/test/modules/create-issue-contract.inventory.md`)
 records what it covers.
 
+**Behavioral-fix pins vs. structural pins (issue #666).** A **behavioral-fix pin** —
+one you add *specifically because* removing the pinned text would re-introduce a
+named bug — must be expressed through a mutation-taking helper (`assert_pin_red_under`
+/ `devflow_module_pin_red_under`), which proves the pin flips PASS→FAIL under a
+specific `sed -E` regression. A plain **structural** pin (`assert_pin_unique` /
+`assert_pin_red_on_removal` / `devflow_module_pin_unique` / `devflow_module_pin_present`)
+whose removal breaks no behavioral guarantee is fine, but a pin call site your change
+*adds* through one of those non-mutation helpers must carry a format-strict
+`# structural-pin-ok: <reason>` marker on its logical line — a one-line reason, the same
+reviewable artifact as the existing `# raw-guard-ok:` convention. `lib/test/run.sh`'s
+`mutation-routing` gate turns the suite RED for an added, undeclared non-mutation pin, so
+you declare the classification at authoring time. The gate is diff-scoped (only pins the
+change adds), so the existing corpus needs no backfill, and a pin merely *moved* between
+files is exempt.
+
 ### Regenerating suite-owned artifacts
 
 Several suite gates compare a checked-in generated artifact against what the tree

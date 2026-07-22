@@ -112,6 +112,19 @@ the old unfalsifiable attestation that "the pin literal is a substring of the op
 note that testifies about the pin proves nothing a reviewer can re-run; a note that states the
 mutation and the observed RED verdict does.
 
+This mandate is now **mechanically enforced** (issue #666). `lib/test/pin-corpus-lint.py`'s
+`mutation-routing` gate, driven from `lib/test/run.sh`, reports a finding — turning the suite RED —
+for any pin call site the change *adds* whose helper is not mutation-taking
+(`assert_pin_unique`, `assert_pin_red_on_removal`, `devflow_module_pin_unique`,
+`devflow_module_pin_present`) unless its logical line carries a format-strict
+`# structural-pin-ok: <reason>` declaration. So a genuine **structural** pin — a surface-presence
+or contract-presence pin whose removal breaks no behavioral guarantee — must carry that marker (a
+one-line reason, the same reviewable artifact as the existing `# raw-guard-ok:` convention), and a
+**behavioral-fix** pin must instead route through `assert_pin_red_under` per the rule above. The
+gate is diff-scoped: it only flags pins the change adds, so the existing corpus needs no backfill.
+Do not silence it with a false reason — the marker's reason is a reviewer-read diff line, exactly
+like `# raw-guard-ok:`.
+
 ## Verification under classifier friction — never ship an unverified assumption
 
 The sandbox permission classifier in this repo frequently denies the very commands that
