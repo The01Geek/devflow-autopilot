@@ -33805,7 +33805,11 @@ echo "helper-anchor portability + cloud-form layout fixtures (issue #702, AC6/AC
 # the corpus carries exactly them. Complements the #247 T4* stub tests: those
 # pin individual arms of the helper, this pins the family SET as a corpus.
 PP_TEST="$LIB/test/path-portability-test.sh"
-if bash "$PP_TEST" >/dev/null 2>&1; then _PP=ok; else _PP=FAILED; fi
+# Capture the driver's per-FAIL stderr so a RED run names the failing family
+# instead of only "expected ok, got FAILED"; the success path stays quiet.
+_PP_ERR="$(mktemp)"
+if bash "$PP_TEST" >/dev/null 2>"$_PP_ERR"; then _PP=ok; else _PP=FAILED; echo "  driver stderr (path-portability-test.sh):"; cat "$_PP_ERR"; fi
+rm -f "$_PP_ERR"
 assert_eq "#702 AC6: path-portability family corpus resolves for all four host-path families" "ok" "$_PP"
 
 # AC7 (source and consumer layouts): a focused integration driver materializes
@@ -33815,7 +33819,10 @@ assert_eq "#702 AC6: path-portability family corpus resolves for all four host-p
 # shallow detached checkout represented in both. Exit 0 == every layout × state
 # resolved the anchor and ran the vendored-literal helper (sentinel ANCHOR-OK).
 CFL_TEST="$LIB/test/cloud-form-layout-test.sh"
-if bash "$CFL_TEST" >/dev/null 2>&1; then _CFL=ok; else _CFL=FAILED; fi
+# Same diagnostic capture as AC6: on failure, surface which layout x state broke.
+_CFL_ERR="$(mktemp)"
+if bash "$CFL_TEST" >/dev/null 2>"$_CFL_ERR"; then _CFL=ok; else _CFL=FAILED; echo "  driver stderr (cloud-form-layout-test.sh):"; cat "$_CFL_ERR"; fi
+rm -f "$_CFL_ERR"
 assert_eq "#702 AC7: cloud form runs against source-repo + consumer layouts (spaces + shallow detached)" "ok" "$_CFL"
 
 # ────────────────────────────────────────────────────────────────────────────
