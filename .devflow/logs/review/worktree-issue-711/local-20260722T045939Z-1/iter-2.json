@@ -1,0 +1,115 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-22T06:20:00Z",
+  "fix_commit_sha": "10cd22df",
+  "fix_files": [
+    ".changeset/issue-711-tree-enumeration-worktree-immune.md",
+    "CLAUDE.md",
+    "CONTRIBUTING.md",
+    "docs/cutovers/issue-711-tree-enumeration-growth.md",
+    "lib/test/fixtures/ghapi-repo-path/exroot/.claude/worktrees/w/planted.sh",
+    "lib/test/lint-tree-enumeration.py",
+    "lib/test/prompt-mass-baseline.json",
+    "lib/test/run.sh"
+  ],
+  "loop_role": "fix",
+  "current_step": "2.6",
+  "current_substep": "run_shadow_fanout",
+  "pending_dispatch": {
+    "kind": "shadow_reviewer_fanout",
+    "roster": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:type-design-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "dispatched_at": "2026-07-22T06:25:00Z"
+  },
+  "sweep_defs_read": ["phase-2-implement.md"],
+  "sweep_evidence": {"status": "run"},
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "detect_all_audit": true,
+    "checklist_skipped": null
+  },
+  "checklist": [],
+  "dispatched_effort": [],
+  "phase3_dispatched": [
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:type-design-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {"agent": "devflow:silent-failure-hunter", "severity": "Critical", "description": "scan_shell took tokens[0] as the command head, so a walk behind a leading env assignment, a process wrapper, a redirection, a negation, or a compound-command condition was silently unaudited; six shapes measured reporting 'audited 1 of 1 files' at exit 0 over a real undeclared root-anchored walk", "defect_signature": {"file": "lib/test/lint-tree-enumeration.py", "line_range": [517, 523], "kind": "logic_error"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Important", "description": "A walk inside a <(...) process substitution is never reached: statements_in descends $(...) only", "defect_signature": {"file": "lib/test/lint-tree-enumeration.py", "line_range": [517, 527], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "CONTRIBUTING.md's diff-added span-acceptance sentence is false for the literal-token arm, which is strictly per-line — an author who wraps an rglob( call and follows the doc gets a red suite the doc says cannot happen", "defect_signature": {"file": "CONTRIBUTING.md", "line_range": [123, 126], "kind": "documented_falsehood"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "The changeset attributes two scanner-wide properties to 'its shell arm'; the marker-in-string-literal fixture is a .py file, so as written the note says a Python line is still exempt", "defect_signature": {"file": ".changeset/issue-711-tree-enumeration-worktree-immune.md", "line_range": [25, 30], "kind": "documented_falsehood"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "A run.sh comment calls the guard 'the third member of the desk-time static-lint family' while naming three existing members; the ordinal belongs to the declaration-marker family (PR #553 self-referential-count rot class)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [47301, 47302], "kind": "comment_drift"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Important", "description": "lib/test/fixtures/ghapi-repo-path/exroot/.claude/worktrees/w/planted.sh does not exist, so the worktree-immunity assertion discharges via an unreadable-file skip rather than proving suppression of a real violation — and it falsifies the #664 block's 'every excluded-prefix file carries a planted violation'", "defect_signature": {"file": "lib/test/run.sh", "line_range": [47236, 47268], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Important", "description": "Three probe_tmp /dev/null sentinel removals remain unguarded while the diff guards three others of the same class", "defect_signature": {"file": "lib/test/run.sh", "line_range": [47514, 51196], "kind": "api_misuse"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "The POSIX justification for synthesizing grep's implicit '.' is wrong — POSIX grep has no -r and defaults to stdin, not '.'", "defect_signature": {"file": "lib/test/lint-tree-enumeration.py", "line_range": [101, 104], "kind": "comment_drift"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "CLAUDE.md's residual parenthetical lists five of eight and undercuts its own 'read it there' instruction; the line-scoped literal arm is missing from the docstring's closed residual enumeration", "defect_signature": {"file": "CLAUDE.md", "line_range": [76, 76], "kind": "comment_drift"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:type-design-analyzer", "severity": "Suggestion", "description": "_comment_split's fallback else arm is unreachable and _is_root_operand keeps a vestigial None guard whose producer can no longer emit None — both advertise states that cannot occur, and the None guard answers False (the fail-open direction)", "defect_signature": {"file": "lib/test/lint-tree-enumeration.py", "line_range": [274, 275], "kind": "type_design"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "Mutation testing: narrowing _GREP_RECURSIVE to the short cluster, neutering the operand-less grep cwd default, and removing the unbalanced-quote fallback each produce ZERO assertion flips — three live arms with no fixture", "defect_signature": {"file": "lib/test/run.sh", "line_range": [47430, 47530], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "The --root default fallback branch and is_audited's backslash normalization are unexercised; the REPO_ROOT assertion is named for a coverage claim it does not hold (ROOT subsumes the member)", "defect_signature": {"file": "lib/test/lint-tree-enumeration.py", "line_range": [588, 601], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "The #484 tree-walk-ok marker reason names two of the find's three operands", "defect_signature": {"file": "lib/test/run.sh", "line_range": [8152, 8153], "kind": "comment_drift"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "Mutation verification of the iteration-1 fixes: all five named mutations (scan_shell disabled, ROOT_FRAGMENTS emptied, _path_operands reverted to first-operand, has_marker reverted to raw-line, _comment_split word-boundary removed) turn the #711 block RED. No assertion stays green under the mutation it names.", "defect_signature": {"file": "lib/test/run.sh", "line_range": [47300, 47540], "kind": "other"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "advisory"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-2-13", "decision": "advisory", "source_file": "lib/test/run.sh", "claim_text": "all five iteration-1 mutations turn the block RED", "skip_category": "advisory-parked", "evidence": "a positive verification result, not a defect; recorded as the mutation evidence discharging the iteration-1 behavioral-fix pins", "parking_evidence": {"basis": "the finding reports a passing verification rather than a defect", "failing_input": null, "source": "lib/test/run.sh #711 block under five named mutations", "finding_ref": {"iter": 2, "index": 13}}}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 13,
+    "fix_diff_lines": 268,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "reference_reads": {"fix_delta": {"status": "verified", "outcome": "clean", "reason": null}},
+  "shadow": {
+    "ran_at": "2026-07-22T06:25:00Z",
+    "reviewed_sha": "dee44ee5",
+    "verdict": null,
+    "coverage": null,
+    "prompt_addenda": "none — provenance-clean Phase 3 prompts, no prior-findings handoff, no scoping clauses",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:type-design-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:type-design-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 0, "overlap_with_iter_N": 0, "new": 0, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false
+  },
+  "telemetry": {
+    "phase_0": {"calls": 0, "tokens": 0, "wall_clock_s": 30},
+    "phase_0_5": {"calls": 0, "tokens": 0, "wall_clock_s": 5},
+    "phase_1": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_1_5": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_2": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_3": {"calls": 5, "tokens": 0, "wall_clock_s": 260},
+    "step_2_5": {"calls": 0, "tokens": 0, "wall_clock_s": 30, "webfetches": 0},
+    "step_2_6": {"calls": 6, "tokens": 0, "wall_clock_s": 0},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 120}
+  }
+}
