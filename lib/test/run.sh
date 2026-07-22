@@ -33108,7 +33108,7 @@ for R313_WF in "$IMPL_WF" "$RUNNER_WF" "$LIGHT_WF"; do
   # output — otherwise the composed startup `--agents` block is built but never
   # reaches the process, silently re-collapsing the cloud tier to honest fallback.
   assert_pin_unique "#669 applied: $R313_TAG claude_args consumes the applied-effort agents_args" \
-    '${{ steps.applied_effort.outputs.agents_args }}' "$R313_WF"
+    '${{ steps.applied_effort.outputs.agents_args }}' "$R313_WF"  # structural-pin-ok: producer→consumer wiring presence pin (mirrors the cargs pin above), not a guarded-content regression
   # #669/#700 applied arm: the composer step's branch logic (resolver-absent fail-open,
   # empty/{} short-circuit, JSON-object validation, stale-sidecar clear, sidecar write)
   # was extracted into scripts/compose-applied-effort.sh (#700 finding #4) so the suite
