@@ -151,6 +151,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/check-completion-evidence.py": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "scripts/classify-id-exit.sh": {
       "note": "",
       "owner": "unmodularized"
@@ -1217,6 +1221,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "550": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "551": {
       "note": "",
       "owner": "unmodularized"
@@ -1450,6 +1458,10 @@
       "owner": "unmodularized"
     },
     "711": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "716": {
       "note": "",
       "owner": "unmodularized"
     },
