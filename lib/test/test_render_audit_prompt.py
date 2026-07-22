@@ -382,12 +382,12 @@ class MarkersAndContract(unittest.TestCase):
 
     def test_R9_statelessness(self):
         ext = self._ext("## Audit dimensions\n- **x** — d\n")
-        before = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+        before = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}  # tree-walk-ok: self.root is a per-test sandbox, not the repository root
         run_renderer(["embed", "--slug", "s",
                       "--sentinel-open", "AUDIT-AA11BB-OPEN",
                       "--sentinel-close", "AUDIT-AA11BB-CLOSE",
                       "--extension-file", str(ext)])
-        after = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+        after = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}  # tree-walk-ok: self.root is a per-test sandbox, not the repository root
         self.assertEqual(before, after)  # no file written, no fixture mutation
 
     def test_R10_failure_arms(self):

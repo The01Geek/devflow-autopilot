@@ -1,0 +1,25 @@
+---
+bump: patch
+---
+
+### Fixed
+
+- The test suite's `only one committed prompt-mass baseline exists` check now counts baselines
+  from the git index (`git ls-files`) instead of walking the filesystem from the repository root.
+  The old walk descended into every sibling git worktree under `.claude/worktrees/` and counted
+  their copies, so the check failed on any working checkout that carried worktrees — with a
+  number that varied between runs on the same commit — while CI's fresh checkout stayed green.
+  Unknown is never collapsed onto zero: an unavailable `git` reports `git-unavailable` and an
+  empty-but-successful population reports `no-committed-baseline`, never a count of `0`.
+- `lib/test/lint-gh-api-repo-path.py` now carries its own `.claude/worktrees/` exclusion. Its
+  population is a working-tree enumeration, which was worktree-immune only through an untracked
+  `.git/info/exclude` line that no clone inherits, so on a bare clone it could report violations
+  living in another branch's checkout.
+
+### Added
+
+- `lib/test/lint-tree-enumeration.py`, a desk-time guard that turns the suite red when a tracked
+  `.py` or `.sh` file under `lib/test/` enumerates with a recursive walk carrying no
+  `# tree-walk-ok: <reason>` declaration. It does not bar a walk — it makes one a reviewable,
+  greppable declaration, joining `# raw-guard-ok:` and `# structural-pin-ok:` as the third member
+  of the repository's declaration-marker family.
