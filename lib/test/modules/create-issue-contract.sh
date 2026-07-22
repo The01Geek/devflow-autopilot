@@ -1111,7 +1111,7 @@ devflow_module_pin_unique "#603: round funding named as the budget-enforcement s
 # issue #708 added `query-coverage`, a SECOND multi-line query, so the contract sentence
 # this pins now names two exceptions; the pin follows the corrected sentence.
 devflow_module_pin_unique "#603/AC14+#708: the multi-line queries are named" \
-  "**\`query-coverage\` prints its decision line then one line per dimension**" "$CI_BUNDLE"
+  "**\`query-coverage\` prints its decision line then one line per dimension**" "$CI_BUNDLE"  # structural-pin-ok: surface-presence pin over orchestrator-judgment prose (the #603 block's stated class), succeeding the retired one-multi-line-query pin; no code behavior to mutate
 devflow_module_pin_unique "#603/AC1: the ledger fence uses a QUOTED heredoc delimiter" \
   "<<'LEDGER-EOF'" "$CI_BUNDLE"
 devflow_module_pin_unique "#603/AC1: the quoted delimiter is never to be simplified away" \
