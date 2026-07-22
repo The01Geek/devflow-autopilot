@@ -456,7 +456,7 @@ class RegistryAndOccurrenceTests(unittest.TestCase):
                 ]
                 self.assertEqual(len(rows), 1)
                 self.assertEqual(rows[0].load_class, "reference")
-        resolved = sorted(path.name for path in ROOT.glob(reference_glob))
+        resolved = sorted(path.name for path in ROOT.glob(reference_glob))  # tree-walk-ok: reference_glob resolves under skills/, which no worktree lives under
         self.assertEqual(
             resolved,
             [
@@ -965,7 +965,7 @@ class ManifestObserverTests(unittest.TestCase):
 
         self.assertFalse((self.root / "must-not-exist.jsonl").exists())
         self.assertFalse((self.root / ".devflow/tmp/workflow-runs").exists())
-        self.assertFalse(any(self.root.rglob("transcript.jsonl")))
+        self.assertFalse(any(self.root.rglob("transcript.jsonl")))  # tree-walk-ok: self.root is a per-test sandbox, not the repository root
 
     def test_manifest_dirty_tree_distinguishes_clean_dirty_and_failed_status(self) -> None:
         cases = [

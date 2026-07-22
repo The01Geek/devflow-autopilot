@@ -32,7 +32,7 @@ Both are asserted by `lib/test/modules/create-issue-contract.sh` (driven by the 
 | Ceiling | Operand | Measured | Enforced ceiling |
 | --- | --- | --- | --- |
 | **Root** | `skills/create-issue/SKILL.md` | 2,732 | Root ceiling: **2,754 words** |
-| **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 31,246 | Default-path ceiling: **31,262 words** |
+| **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 32,475 | Default-path ceiling: **32,491 words** |
 
 Each ceiling is at most the implement-time measured value plus **5% headroom** (the AC6 maximum). Both were set from an earlier measurement in this same change and deliberately **not re-raised** when review fixes grew the operands, so the shipped headroom is under 5% on both (root ~0.8%, default path ~0.05%). The suite asserts that legality directly — a ceiling above measured+5% is RED — so a future raise needs a real measurement behind it. The
 default-path operand deliberately **excludes the four fallback references** — they load only when
@@ -66,19 +66,19 @@ the decision record below for when each was last re-measured:
 | `references/step-2-clarify.md` | 4,673 | Step 2 entry |
 | `references/step-3-5-steelman.md` | 2,237 | Step 3.5 entry |
 | `references/revision-delta.md` | 986 | every revision event |
-| `references/step-3-6-audit.md` | 8,324 | Step 3.6 entry |
-| `references/step-4-present-create.md` | 5,362 | Step 4 entry |
+| `references/step-3-6-audit.md` | 9,463 | Step 3.6 entry |
+| `references/step-4-present-create.md` | 5,452 | Step 4 entry |
 | `references/fallback-no-task-tool.md` | 540 | no usable task-tracking tool |
-| `references/fallback-read-only-sandbox.md` | 334 | a `.devflow/tmp/` write is refused |
-| `references/fallback-audit-dispatch-arms.md` | 669 | a non-file audit arm, a retry escalation, or no subagent tool |
+| `references/fallback-read-only-sandbox.md` | 484 | a `.devflow/tmp/` write is refused |
+| `references/fallback-audit-dispatch-arms.md` | 674 | a non-file audit arm, a retry escalation, or no subagent tool |
 | `references/fallback-state-owner-unavailable.md` | 748 | the state owner stops answering |
-| **root + all 9 references** | **26,605** | — |
+| **root + all 9 references** | **27,989** | — |
 | `references/issue-template.md` | 6,932 | Step 3 (unchanged by the split) |
-| `references/audit-prompt-template.md` | 1,608 | renderer-owned (unchanged by the split) |
+| `references/audit-prompt-template.md` | 1,618 | renderer-owned (unchanged by the split) |
 
 **What the default path sheds.** Before the split every run loaded all 24,473 words of the monolith.
 After it, a run on the default path — task tool usable, writable filesystem, file-arm dispatch, state
-owner available — never loads the four fallback references: **2,291 words** of predicate-gated prose,
+owner available — never loads the four fallback references: **2,446 words** of predicate-gated prose,
 and the always-loaded surface drops from 24,473 to **2,732**.
 
 ## Conservation check
@@ -119,6 +119,11 @@ a coupled pair edited together). It sits above the frozen figure because later c
 conservation band exists to catch, which is why that band tracks the recorded total rather than
 this frozen split baseline.
 
+**Issue #705's addition is the worked example of that.** #705 added the *Staged canonical-draft
+write* shared procedure and the staged-artifact enumeration entries — new contract prose authored
+on purpose, not a shed — and the recorded total was re-centred on the new measurement rather than
+read as a conservation failure.
+
 ### Two recorded corrections to the issue's stated figures
 
 1. **The baseline.** Issue #614 states a pre-split baseline of **21,704 words**, measured when the
@@ -146,6 +151,13 @@ this frozen split baseline.
   against the implement-time baseline of 24,473. Both stale-figure corrections above recorded at the
   same time. The ratchet rule binds every *subsequent* change; these initial values are set from the
   final pre-merge measurement.
+
+- **2026-07-22 (issue #705) — staged canonical-draft write added.** Added the *Staged canonical-draft write*
+  shared procedure and the staged-artifact enumeration entries, raising the root-plus-references total
+  25,814 → **27,198** and the default-path measured 29,973 → **31,202** (ceiling unchanged at 31,262, ~0.2%
+  headroom). Root unchanged at 2,732. `CI614_TOTAL_RECORDED` re-recorded 25,814 → 27,198. No ceiling raised.
+  (The figures are the final pre-merge measurement: a review fix re-anchored the write-landing
+  confirmation prose off the retired delete step, moving both totals by one word.)
 
 - **2026-07-21 (issue #704) — evidence-provenance prose added; ceilings UNCHANGED.** Default path
   29,973 → **31,085** (+1,112: the claim-class enumeration and baseline convention in
@@ -197,6 +209,20 @@ this frozen split baseline.
   under by shedding, not by raising: the verdict-vocabulary gloss was reduced to one statement
   instead of three copies, and this PR's own earlier review-round prose was compressed to its
   operative core. Headroom is **16 words (~0.05%)**. Both ceilings are untouched.
+
+- **2026-07-22 (PR #706 merge with `main`) — a MERGE-COLLISION ceiling re-record; the ratchet is
+  suspended for this one event and resumes immediately.** Merging `main` into this branch brings
+  together two growths that were each authored *within their own branch's headroom* and neither of
+  which exceeded the ceiling alone: #705's staged canonical-draft write (default path 29,973 →
+  31,202 on `main`) and #704's evidence-provenance prose (29,973 → 31,246 on this branch). Their
+  union measures **32,475** — 1,213 over the 31,262 ceiling — and no single change is responsible
+  for the overrun, so there is no change to shed prose *from*. The ceiling is therefore re-recorded
+  to **32,491** (measured + a 16-word margin, far inside the AC6 measured-plus-5% legality bound),
+  and the conservation figure `CI614_TOTAL_RECORDED` is re-centred 26,605/27,198 → **27,989**. This
+  is a deliberate, human-authorized departure from the one-directional ratchet stated above, recorded here so it
+  is auditable rather than silent; it is **not** a precedent for accommodating growth inside a
+  single change, where the rule binds unchanged. Root is untouched at **2,732**. Headroom is 16
+  words (~0.05%).
 
 When a later change re-measures, append a row here rather than editing an earlier one: the record is
 the history of what the surface cost, and overwriting it loses exactly the drift a budget exists to catch.

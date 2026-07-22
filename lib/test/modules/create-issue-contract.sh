@@ -484,6 +484,11 @@ devflow_module_pin_red_under "#522/#600: template reads the draft file as the so
 devflow_module_pin_red_under "#522: draft file is NOT on the file-arm out-of-bounds list" \
   'is **not** on the file-arm out-of-bounds list' \
   's/is \*\*not\*\* on the file-arm out-of-bounds list/is on the file-arm out-of-bounds list/' "$CI_BUNDLE"
+# (3a) #705: the file-arm skill-prose enumeration carries a count word that was covered by no
+#      pin. Ground it so the count cannot silently disagree with its own five-path list — the
+#      staged canonical-draft artifact is the fifth path.
+devflow_module_pin_unique "#705: file-arm skill-prose out-of-bounds names exactly the 5 paths (staging added)" \
+  'naming exactly these 5 paths — `.devflow/tmp/issue-derivation-<slug>.md`, the audit report `.devflow/tmp/issue-audit-<slug>.md`, the state owner'"'"'s record `.devflow/tmp/issue-audit-state-<slug>.json`, the **retired** event log `.devflow/tmp/issue-audit-state-<slug>.md`, and any staged canonical-draft artifact `.devflow/tmp/issue-draft-<slug>.*.staged.md`' "$CI_BUNDLE"  # structural-pin-ok: surface-presence pin on new #705 enumeration prose, not a behavioral-fix pin
 # (4) The user-chosen-rounds OFFER at the Step 3.6 → Step 4 boundary. #546 moved the trigger
 #     EVALUATION into the tool (`query-triggers` answers `t1=…  t2=…  reason=…`), so the old
 #     "evaluate exactly these **2 offer triggers**" literal is gone; T1, T2, and the
@@ -539,8 +544,8 @@ devflow_module_pin_unique "#522: Step 3.5 summary reports the dimension self-che
 # joined it, and the RETIRED `.md` event log stays named — a pre-cutover leftover on disk
 # re-anchors an auditor on prior verdicts exactly as the live file did, and this skill no longer
 # writes (or deletes) that path, so only the out-of-bounds declaration covers it.
-devflow_module_pin_unique "#522: audit-prompt template out-of-bounds names exactly the 4 reasoning artifacts" \
-  'The following on-disk files are **out of bounds** — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, and `.devflow/tmp/issue-audit-state-<slug>.md`' "$CI_TMPL_AUDIT"
+devflow_module_pin_unique "#522: audit-prompt template out-of-bounds names the reasoning artifacts and the staged draft" \
+  'The following on-disk files are **out of bounds** — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, `.devflow/tmp/issue-audit-state-<slug>.md`, and any staged canonical-draft artifact `.devflow/tmp/issue-draft-<slug>.*.staged.md`' "$CI_TMPL_AUDIT"  # structural-pin-ok: surface-presence pin on the template's out-of-bounds enumeration, not a behavioral-fix pin
 # The retired-.md rationale is itself pinned: it is the one out-of-bounds entry with no live
 # producer, so a future reader who "tidies" it away silently re-opens the re-anchoring channel.
 devflow_module_pin_unique "#546: the retired .md event log stays declared out of bounds (pre-cutover leftovers re-anchor)" \
@@ -630,8 +635,10 @@ devflow_module_pin_unique "#600: template owns the amended two-transport read-or
 # Embed-arm out-of-bounds list (the inverse of the file arm's list — re-adds the draft path):
 # symmetric with the file-arm template-enumeration pin above. #546 widened it 4 → 5 files, in
 # lockstep with the file arm's 3 → 4: the state `.json` and the retired `.md` are both named.
-devflow_module_pin_unique "#522: embed arm out-of-bounds names exactly the 5 files (draft re-added)" \
-  'On this arm the out-of-bounds declaration names exactly these 5 files — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-draft-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, and the **retired** `.devflow/tmp/issue-audit-state-<slug>.md`' "$CI_BUNDLE"
+# #705 widened it 5 → 6 (file arm 4 → 5): the staged canonical-draft artifact is added, because
+# after a failed replace it holds bytes the canonical file does not.
+devflow_module_pin_unique "#522/#705: embed arm out-of-bounds names exactly the 6 files (staging added)" \
+  'On this arm the out-of-bounds declaration names exactly these 6 files — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-draft-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, the **retired** `.devflow/tmp/issue-audit-state-<slug>.md`, and any staged canonical-draft artifact `.devflow/tmp/issue-draft-<slug>.*.staged.md`' "$CI_BUNDLE"  # structural-pin-ok: surface-presence pin on #705-widened enumeration prose, not a behavioral-fix pin
 # ── #546 RECONCILIATION: the carriage COMPARE, the event log, the retry bounds, and T1/T2.
 #
 # The #522 block used to pin, as prose, the whole deterministic half of the carriage/identity
@@ -727,19 +734,20 @@ devflow_module_pin_unique "#522: embed-arm auditor must quote both sentinels plu
 # Write-landing OBSERVATION (issue #522 iteration-3 review I3, repointed by #546). The ROUTING
 # moved to `query-arm` (py #546 arm_routing_rows), but the routing's operand did not: whether
 # the write landed is an observation only the orchestrator can make, and `query-arm` is only as
-# honest as the `--write-landed` it is handed. The original fail-open is unchanged — on a fresh
-# `<slug>` with no leftover, a read-only sandbox lets `rm` succeed vacuously while the write
-# still fails, so an orchestrator that INFERS landing from the delete reports `--write-landed yes`
+# honest as the `--write-landed` it is handed. The original fail-open is unchanged, re-anchored by
+# #705 onto the staged-write failure mode — a read-only sandbox can leave the surrounding turn
+# looking successful while the staging write refuses or `apply` answers `agree=no`, so an
+# orchestrator that INFERS landing from the absence of an error reports `--write-landed yes`
 # for an unwritten path and the tool routes it to the file arm on false evidence. The mutation
 # excises the confirm-explicitly rule, restoring exactly that inference.
-devflow_module_pin_red_under "#522: write-landing is confirmed explicitly, never inferred from the delete" \
-  'rather than inferring it from the delete — on a fresh `<slug>` with no leftover, a read-only sandbox lets the `rm` succeed vacuously while the write still fails' \
-  's/ rather than inferring it from the delete — on a fresh `<slug>` with no leftover, a read-only sandbox lets the `rm` succeed vacuously while the write still fails//' \
+devflow_module_pin_red_under "#522: write-landing is confirmed explicitly, never inferred from the absence of an error" \
+  'rather than inferring it from the absence of an error — a read-only sandbox can leave the surrounding turn looking successful while `stage` refuses the write or `apply` answers `agree=no`' \
+  's/ rather than inferring it from the absence of an error — a read-only sandbox can leave the surrounding turn looking successful while `stage` refuses the write or `apply` answers `agree=no`//' \
   "$CI_BUNDLE"
 # ... and that the observation is REPORTED to the tool rather than acted on: the orchestrator
 # observes, the tool decides. This is the seam the arm-routing rows sit behind.
 devflow_module_pin_unique "#546: the write-landing observation is reported to the tool, which decides the arm" \
-  'pass it as `--write-landed yes|no` to `query-arm`, which decides the arm' "$CI_BUNDLE"
+  'pass the procedure'\''s `agree=` answer as `--write-landed yes|no` to `query-arm`, which decides the arm' "$CI_BUNDLE"
 devflow_module_pin_unique "#546: the dispatch arm is the tool's answer, never the orchestrator's" \
   '**The arm is the tool'\''s answer, never yours.**' "$CI_BUNDLE"
 # Verdict EXTRACTION is LLM work; verdict CLASSIFICATION is not. The tool validates the token
@@ -1715,7 +1723,7 @@ PY614W
 # edit, and the ratchet-legality assertions below already tie each ceiling to its LIVE
 # measurement. docs/create-issue-budget.md is the sole home of the measured figures.
 CI614_ROOT_CEIL=2754
-CI614_DEFAULT_CEIL=31262
+CI614_DEFAULT_CEIL=32491
 # One comparison shape, shared by both ceilings and by the positive control below, so the
 # three sites cannot drift. An EMPTY measured value reads `no` (fail-closed): a word count
 # that could not be established is never treated as under the ceiling.
@@ -1782,7 +1790,7 @@ for _ci614_ref in $CI614_REFS; do
   CI614_TOTAL_SET+=("$CI_ROOT/skills/create-issue/references/$_ci614_ref.md")
 done
 CI614_TOTAL_W="$(ci614_words "${CI614_TOTAL_SET[@]}")"
-CI614_TOTAL_RECORDED=26605   # docs/create-issue-budget.md, root + all 9 references
+CI614_TOTAL_RECORDED=27989   # docs/create-issue-budget.md, root + all 9 references
 assert_eq "#614 T3: the root+references total is within +/-2% of the recorded conservation figure (a silent DROP is as RED as a rise)" \
   "yes" "$({ [ -n "$CI614_TOTAL_W" ] \
     && [ "$CI614_TOTAL_W" -ge "$(( CI614_TOTAL_RECORDED * 98 / 100 ))" ] \
@@ -1827,7 +1835,7 @@ devflow_module_pin_unique "#614 T3: the budget doc records the ratchet-down-only
 devflow_module_pin_unique "#614 T3: the budget doc names the root ceiling the suite enforces" \
   'Root ceiling: **2,754 words**' "$CI_ROOT/docs/create-issue-budget.md"
 devflow_module_pin_unique "#614 T3: the budget doc names the default-path ceiling the suite enforces" \
-  'Default-path ceiling: **31,262 words**' "$CI_ROOT/docs/create-issue-budget.md"
+  'Default-path ceiling: **32,491 words**' "$CI_ROOT/docs/create-issue-budget.md"
 devflow_module_pin_unique "#614 T3: the budget doc bans wc -w for these measurements" \
   '**Never `wc -w`.**' "$CI_ROOT/docs/create-issue-budget.md"
 unset -f ci614_words ci614_under
