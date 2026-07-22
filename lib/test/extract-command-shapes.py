@@ -94,6 +94,15 @@ import sys
 # the two guards can never disagree about what a "statement" is.
 _HEADS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "extract-command-heads.py")
 _spec = importlib.util.spec_from_file_location("extract_command_heads", _HEADS_PATH)
+# `spec_from_file_location` returns None when it can find no loader for the path's
+# suffix, so without this the failure is `AttributeError: 'NoneType' object has no
+# attribute 'loader'` at IMPORT — loud but naming nothing. This module is reached at
+# import by lib/test/cloud_writer_contract.py, which the pre-agent validator
+# (scripts/validate-cloud-writer-contract.py) imports, so that unactionable shape
+# would surface there. Guarded here as well as at that caller: guarding only the
+# caller leaves this hop, one level down, still able to produce it.
+if _spec is None or _spec.loader is None:
+    raise ImportError(f"devflow: cannot load sibling helper {_HEADS_PATH}")
 _heads = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_heads)
 
@@ -456,6 +465,19 @@ def _cat_heredoc_violation(statement: str) -> bool:
     has_redirect = any(_REDIR.match(t) for t in tokens)
     has_heredoc = any(t.startswith("<<") for t in tokens)
     return has_redirect and has_heredoc
+
+
+# The two profiles' rule-id sets, exported so a consumer that must enumerate the
+# tables (lib/test/cloud_writer_contract.py's AC4 shape-conformance guard, issue
+# #678) reads them from here rather than mirroring the ids into a second list that
+# silently goes stale when a rule is added. The `#678 AC8` control loop in
+# lib/test/test_python_scripts.py drives one planted violation per id listed here
+# and asserts the owning finder emits it, so listing an id no finder emits turns
+# the suite RED; its companion `a planted control exists for every rule id`
+# assertion turns the reverse drift RED — a rule added to a finder and to these
+# sets without a control.
+REVIEW_RULES = frozenset({"R1", "R2", "R3", "R4"})
+IMPLEMENT_RULES = frozenset({"IR1", "IR2", "IR3"})
 
 
 def classify(statement: str) -> list[str]:
