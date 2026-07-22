@@ -499,8 +499,8 @@ devflow_module_pin_unique "#705: file-arm skill-prose out-of-bounds names exactl
 #     never make an orchestrator open its mouth. Inverting the offer into a silent proceed
 #     re-opens the ship-unconverged channel this boundary exists to close.
 devflow_module_pin_red_under "#522: a held trigger offers one more audit round at the Step 3.6->4 boundary" \
-  'While **either** holds, **offer one more audit round via the runner' \
-  's/While \*\*either\*\* holds, \*\*offer one more audit round/While either holds, proceed to Step 4 without offering a round/' \
+  'While **any** holds, **offer one more audit round via the runner' \
+  's/While \*\*any\*\* holds, \*\*offer one more audit round/While any holds, proceed to Step 4 without offering a round/' \
   "$CI_BUNDLE"
 # The offer's non-silent arms, which stay prose obligations on the orchestrator: a silent
 # non-response never dispatches and never proceeds (unknown is not consent), and the

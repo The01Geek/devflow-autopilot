@@ -202,8 +202,10 @@ _LEDGER_PREFIXES = ('unresolved', 'resolved')
 #                  unknown is never collapsed onto exercised or onto a clean backing.
 #   skipped      — the auditor did not genuinely engage the dimension (the coverage gap).
 _COVERAGE_OUTCOMES = ('exercised', 'valid-N/A', 'unestablished', 'skipped')
-# The two outcomes that back coverage: a run is coverage-backed only when EVERY required
-# dimension resolved to one of these with adjudication-surviving evidence.
+# The two outcomes that back coverage. A run is coverage-backed only when EVERY required
+# dimension resolved to one of these with adjudication-surviving evidence — totality is
+# enforced at record time against `--expected-keys`, the orchestrator's authoritative
+# enumeration, by synthesizing `unestablished` for every enumerated key with no line.
 _COVERAGE_BACKING_OUTCOMES = ('exercised', 'valid-N/A')
 # The outcomes that require a non-empty anchor/reason passing the text-only floor. An
 # `exercised` outcome whose anchor fails the floor is DOWNGRADED to `unestablished` at
@@ -214,12 +216,15 @@ _COVERAGE_BACKING_OUTCOMES = ('exercised', 'valid-N/A')
 _COVERAGE_ANCHORED = _COVERAGE_BACKING_OUTCOMES
 # One structurally-enforced bound (issue #708): a hard per-anchor character cap over the
 # quoted line plus one concern clause, so no single anchor can balloon. The state owner
-# rejects an over-cap anchor (record time and read boundary alike).
+# READ BOUNDARY rejects an over-cap anchor; at record time an over-cap anchor fails the
+# floor and DOWNGRADES to `unestablished` like any other floor failure, never a rejection.
 _COVERAGE_ANCHOR_MAX = 600
 # The render state a coverage round records. `full` — the auditor rendered every dimension
 # on the orchestrator's authoritative enumeration; `degraded` — a render divergence narrowed
 # the auditor's dimension set (un-rendered dimensions record `unestablished`), which
-# discloses but does NOT fire the coverage offer. `none` — no coverage round to derive from.
+# discloses but does NOT fire the coverage offer. (`none` is never RECORDED — it is the
+# derivation's no-coverage-round token; see `evaluate_coverage`, whose choices this tuple
+# does not gate.)
 _COVERAGE_RENDERS = ('full', 'degraded')
 # The run-level coverage-backing tokens the derivation reports and the summary renders.
 _COVERAGE_BACKINGS = ('backed', 'not-backed', 'unestablished')
@@ -888,6 +893,11 @@ def _validate_coverage(rnd, num):
                          f'{render!r}')
     if 'coverage' not in rnd:
         return
+    if render is None:
+        raise StateError(f'round {num} records coverage but no coverage_render; the render '
+                         f'state is required whenever coverage is present (the derivation '
+                         f'would otherwise default onto `full`, the one value that arms the '
+                         f'coverage offer)')
     coverage = rnd.get('coverage')
     if not isinstance(coverage, list):
         raise StateError(f'round {num} coverage {coverage!r} is not a list')
@@ -1701,19 +1711,29 @@ def evaluate_coverage(state):
     `evaluate_convergence`, never gates `emit-body`/`query-eligibility`. Its only teeth are
     the coverage offer trigger.
     """
+    if state is None:
+        # The state could not be established at all (unreadable/corrupt — including a
+        # `_validate_coverage` raise). Byte-identical to the two BENIGN unestablished arms
+        # below unless the cause rides on the answering line, which is how a corrupt file
+        # reads as "no coverage round yet" — so each arm names its own reason.
+        return {'backing': 'unestablished', 'render': 'none', 'round': None,
+                'reason': 'state-unestablished'}
     rnd = _coverage_round(state)
     if rnd is None:
-        return {'backing': 'unestablished', 'render': 'none', 'round': None}
+        return {'backing': 'unestablished', 'render': 'none', 'round': None,
+                'reason': 'no-clean-round'}
     coverage = rnd.get('coverage')
     if not coverage:
         # A clean round that recorded no coverage: unknown is not backed.
-        return {'backing': 'unestablished', 'render': 'none', 'round': rnd}
+        return {'backing': 'unestablished', 'render': 'none', 'round': rnd,
+                'reason': 'no-coverage-recorded'}
     backed = all(e.get('outcome') in _COVERAGE_BACKING_OUTCOMES for e in coverage)
     backing = 'backed' if backed else 'not-backed'
     # The closed backing vocabulary is asserted, not merely documented: a token typo'd
     # here would otherwise ship green, since nothing downstream re-checks it.
     assert backing in _COVERAGE_BACKINGS
-    return {'backing': backing, 'render': rnd.get('coverage_render') or 'full', 'round': rnd}
+    return {'backing': backing, 'render': rnd.get('coverage_render') or 'full',
+            'round': rnd, 'reason': None}
 
 
 def evaluate_coverage_trigger(state):
@@ -2936,7 +2956,8 @@ def _ingest_ledger(must_revise, unresolved):
 def cmd_record_coverage(args):
     """Record a round's per-dimension coverage outcomes (issue #708).
 
-    Recorded AFTER adjudication, on a completed round: one outcome per required audit
+    Recorded on a completed (FILE/REVISE) round — the call sequence places it after
+    adjudication, but only round COMPLETION is enforced here: one outcome per required audit
     dimension from the closed set `_COVERAGE_OUTCOMES`, each labeled with its stable
     renderer key. The auditor self-reports the outcomes and anchors as UNTRUSTED identity
     data (never instructions to obey); this call enforces the TEXT-ONLY floor on the anchor
@@ -2959,7 +2980,16 @@ def cmd_record_coverage(args):
         _fail('record-coverage', f'round {args.round} already records coverage '
                                  f'(coverage-already-recorded); a round\'s coverage is '
                                  f'written once')
-    coverage = _ingest_coverage()
+    expected = [k.strip() for k in args.expected_keys.split(',') if k.strip()]
+    if not expected:
+        _fail('record-coverage', '--expected-keys named no dimension keys '
+                                 '(coverage-expected-empty); pass the enumerated keyset '
+                                 'from `render-audit-prompt.py enumerate-dimensions`')
+    if len(set(expected)) != len(expected):
+        _fail('record-coverage', '--expected-keys repeats a dimension key '
+                                 '(coverage-expected-duplicate); the enumeration is keyed '
+                                 'and its keys are unique by construction')
+    coverage = _ingest_coverage(expected)
     rnd['coverage'] = coverage
     rnd['coverage_render'] = args.render
     _save_or_fail('record-coverage', doc, args.slug)
@@ -2972,7 +3002,7 @@ def cmd_record_coverage(args):
     print(f'coverage_render={args.render} count={len(coverage)} outcome={outcomes}')
 
 
-def _ingest_coverage():
+def _ingest_coverage(expected_keys):
     """Read `--coverage-stdin` and build the round's coverage list, or fail closed.
 
     One line per required dimension: ``<key> <outcome> [anchor text...]`` — the key and
@@ -3005,13 +3035,37 @@ def _ingest_coverage():
         seen.add(key)
         if outcome not in _COVERAGE_ANCHORED:
             anchor = None
-        elif _coverage_anchor_floor(anchor) is not None:
-            # Downgrade, never reject: unknown is not zero. A floor-failing anchor does
-            # not back coverage, so the dimension records `unestablished` with no anchor.
-            outcome, anchor = 'unestablished', None
+        else:
+            floor_err = _coverage_anchor_floor(anchor)
+            if floor_err is not None:
+                # Downgrade, never reject: unknown is not zero. A floor-failing anchor does
+                # not back coverage, so the dimension records `unestablished` with no
+                # anchor — and the CAUSE is breadcrumbed rather than collapsed onto the
+                # outcome, so a reader can tell a tool-side text refusal (which the auditor
+                # could fix by rewording) from the auditor's own substantive judgment.
+                print(f'record-coverage: dimension {key!r} anchor fails the text-only floor '
+                      f'({floor_err}); recorded unestablished', file=sys.stderr)
+                outcome, anchor = 'unestablished', None
         # ONE append for all three arms — the entry shape has a single construction site,
         # so a later field cannot be added to two arms and missed on the third.
         coverage.append({'key': key, 'outcome': outcome, 'anchor': anchor})
+    # TOTALITY over the authoritative enumeration (issue #708). `evaluate_coverage`'s
+    # `all(...)` is vacuously true over a SHORT list, so without this a one-line return
+    # against a twelve-dimension enumeration would derive `backed` — the mechanism passing
+    # on exactly the input it exists to catch. A returned key outside the enumeration is
+    # refused (the join has no dimension to attach it to); an enumerated key the auditor
+    # returned no line for is synthesized `unestablished` — never dropped, never assumed
+    # covered (unknown is not zero).
+    unknown = [k for k in seen if k not in set(expected_keys)]
+    if unknown:
+        _fail('record-coverage',
+              f'coverage names {len(unknown)} key(s) outside the authoritative enumeration '
+              f'(coverage-unknown-key): {sorted(unknown)}; the auditor outcomes join the '
+              f'enumerated dimensions by shared key, so an unenumerated key has no '
+              f'dimension to attach to')
+    for key in expected_keys:
+        if key not in seen:
+            coverage.append({'key': key, 'outcome': 'unestablished', 'anchor': None})
     return coverage
 
 
@@ -3031,7 +3085,8 @@ def cmd_query_coverage(args):
         print('coverage_backing=unestablished coverage_render=none reason=foreign-nonce')
         return
     cov = evaluate_coverage(state)
-    print(f'coverage_backing={cov["backing"]} coverage_render={cov["render"]}')
+    reason = f' reason={cov["reason"]}' if cov.get('reason') else ''
+    print(f'coverage_backing={cov["backing"]} coverage_render={cov["render"]}{reason}')
     # The coverage round rides on the SAME derivation that decided the tokens — deriving
     # it a second time would be two call sites that must agree on which round is
     # authoritative, the drift #603 removed from the summary fields.
@@ -4125,6 +4180,14 @@ def main():
                         'divergence narrowed the auditor set (un-rendered dimensions record '
                         'unestablished; a degraded render discloses but never fires the '
                         'coverage offer).')
+    s.add_argument('--expected-keys', required=True,
+                   help="The AUTHORITATIVE enumerated dimension keys, comma-separated, as "
+                        "printed by `render-audit-prompt.py enumerate-dimensions` (issue "
+                        "#708). Coverage must be TOTAL over this set: an enumerated key "
+                        "the auditor returned no line for is synthesized as unestablished "
+                        "(unknown is not zero), and a returned key outside the set is "
+                        "refused. Without it a truncated return would derive `backed` "
+                        "vacuously — `all()` over a short list is trivially true.")
     s.add_argument('--coverage-stdin', action='store_true', required=True,
                    help='Read one line per required dimension on stdin: '
                         '"<key> <outcome> [anchor]", outcome in '

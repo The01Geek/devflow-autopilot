@@ -8,7 +8,7 @@ kind: growth
 Mandatory prompt rows that grew in this change:
 
 - `skills/create-issue/references/audit-prompt-template.md` — +2,082 bytes (10,730 → 12,812)
-- `skills/create-issue/references/step-3-6-audit.md` — +515 bytes (62,727 → 63,242)
+- `skills/create-issue/references/step-3-6-audit.md` — +525 bytes (62,727 → 63,252)
 
 No ceiling was renegotiated. The create-issue word budgets are ratchet-down-only, and both
 hold at their existing values (`docs/create-issue-budget.md`):

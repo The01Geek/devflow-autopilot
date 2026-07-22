@@ -699,6 +699,50 @@ class EnumerateDimensions(unittest.TestCase):
             self.assertTrue(text.strip())
             self.assertNotIn("\n", text)
 
+    def test_generic_dimension_count_is_stable(self):
+        # The COUNT is the operand the coverage join and the totality check consume, so a
+        # template edit that drops or adds a generic dimension must be a visible, reviewed
+        # diff rather than a silently shorter enumeration. Checked-in literal under
+        # CLAUDE.md's enforcement-constant exemption (the constant IS the enforcement).
+        with tempfile.TemporaryDirectory() as d:
+            ext = Path(d) / "create-issue.md"  # absent -> generic floor only
+            r = run_renderer(["enumerate-dimensions", "--extension-file", str(ext)])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        _, dims = self._parse(r.stdout)
+        self.assertEqual(len(dims), 9, [k for k, _ in dims])
+
+    def test_two_checklist_blocks_fail_closed(self):
+        # Two checklist blocks would silently MERGE two dimension sets into one
+        # enumeration, and the merged keyset is what coverage totality is checked against.
+        # The uniqueness the docstring states is enforced, not merely described.
+        import re as _re
+        tmpl = TEMPLATE.read_text(encoding="utf-8")
+        block = _re.search(r"<!-- render-block:[^>]*checklist[^>]*-->.*?(?=<!-- render-block:|\Z)",
+                           tmpl, _re.S)
+        self.assertIsNotNone(block, "no checklist block found in the shipped template")
+        with tempfile.TemporaryDirectory() as d:
+            dup = Path(d) / "tmpl.md"
+            dup.write_text(tmpl + "\n" + block.group(0), encoding="utf-8")
+            r = run_renderer(["enumerate-dimensions", "--template-file", str(dup)])
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("checklist blocks", r.stderr)
+
+    def test_consumer_section_with_no_bullets_enumerates_generic_only(self):
+        # A prose-only consumer section (a best-effort parse over consumer-authored
+        # markdown) yields NO c: entries — it must not invent one, and it must not drop
+        # the generic floor either.
+        with tempfile.TemporaryDirectory() as d:
+            ext = write_ext(
+                Path(d),
+                "## Audit dimensions\n\nThis repo has no extra dimensions to add.\n",
+            )
+            r = run_renderer(["enumerate-dimensions", "--extension-file", str(ext)])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        _, dims = self._parse(r.stdout)
+        keys = [k for k, _ in dims]
+        self.assertEqual([k for k in keys if k.startswith("c:")], [])
+        self.assertEqual(len(keys), 9)
+
     def test_deterministic_stable_keys_across_renders(self):
         # The orchestrator's render and the auditor's render must key identically.
         r1 = run_renderer(["enumerate-dimensions"])

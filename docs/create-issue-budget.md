@@ -34,7 +34,7 @@ Both are asserted by `lib/test/modules/create-issue-contract.sh` (driven by the 
 | **Root** | `skills/create-issue/SKILL.md` | 2,732 | Root ceiling: **2,754 words** |
 | **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 31,262 | Default-path ceiling: **31,262 words** |
 
-Each ceiling is at most the implement-time measured value plus **5% headroom** (the AC6 maximum). Both were set from an earlier measurement in this same change and deliberately **not re-raised** when review fixes grew the operands, so the shipped headroom is under 5% on both (root ~0.9%, default path ~4.3%). The suite asserts that legality directly — a ceiling above measured+5% is RED — so a future raise needs a real measurement behind it. The
+Each ceiling is at most the implement-time measured value plus **5% headroom** (the AC6 maximum). Both were set from an earlier measurement in this same change and deliberately **not re-raised** when review fixes grew the operands, so the shipped headroom is under 5% on both (root ~0.9%, default path 0% — since issue #708 the default path sits exactly at its ceiling; see the 2026-07-22 record row). The suite asserts that legality directly — a ceiling above measured+5% is RED — so a future raise needs a real measurement behind it. The
 default-path operand deliberately **excludes the four fallback references** — they load only when
 their predicate fires, which is the whole point of the split. `revision-delta.md` is *retained* in the
 operand even though it too is predicate-gated (its trigger is any revise-and-re-gate site): a revision

@@ -38,8 +38,10 @@ Contract (issue #600):
   section-extraction hook; the Step 2 ``## Evidence axes`` forwarding consumes
   it as a standalone call, while the Step 3.6 ``## Audit dimensions`` hook
   consumes the same extraction *rule* spliced into a dispatch arm as
-  ``{CONSUMER_DIMENSIONS}``, not via a standalone ``extract`` call), and
-  ``status-only`` (the orchestrator's fail-fast one-line probe).
+  ``{CONSUMER_DIMENSIONS}``, not via a standalone ``extract`` call),
+  ``status-only`` (the orchestrator's fail-fast one-line probe), and
+  ``enumerate-dimensions`` (the issue #708 keyed dimension enumeration the
+  Step 3.6 coverage join reads as its authoritative operand).
 - Output contract: stdout's FIRST line is ``render-status:`` with a value from
   the closed set {appended, absent, unestablished}; stdout's LAST line is the
   fixed terminal marker ``render-end:`` on every full render, so a truncated
@@ -506,6 +508,14 @@ def _generic_dimensions(template_text: str) -> list[tuple[str, str]]:
     """
     blocks = _parse_blocks(template_text)
     checklist_bodies = [body for arm_set, body in blocks if "checklist" in arm_set]
+    if len(checklist_bodies) > 1:
+        # The uniqueness this function's docstring states is now ENFORCED, not merely
+        # described: two checklist blocks would silently merge two dimension sets into one
+        # enumeration, and the merged keyset is what coverage totality is checked against.
+        raise RenderError(
+            f"template malformed: {len(checklist_bodies)} checklist blocks carry a "
+            f"generic audit-dimension list; exactly one is required"
+        )
     if not checklist_bodies:
         raise RenderError(
             "template malformed: no checklist block carrying the generic "
