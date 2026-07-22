@@ -12282,9 +12282,63 @@ def _row704_22(r):
                       baseline_revision='rev')
     assert_eq("#704-22: re-recording IDENTICAL evidence stays an idempotent replay",
               0, idem.returncode)
+    # The overwrite guard judges divergence with `_observed_divergent`, NOT plain inequality:
+    # two >cap observations that differ only PAST the cap store as byte-identical truncated
+    # strings, so an equality test would accept the second as a replay and overwrite the first
+    # — the same one-sided collapse `evidence_conflicts` refuses across findings. A plain `!=`
+    # guard turns this row RED while the untruncated replay row above stays GREEN.
+    over = 'y' * (cap + 1)
+    r.evidence(1, 2, locator='b.py:1', command='c', observed=over + 'FIRST',
+               baseline_revision='rev')
+    collide = r.evidence(1, 2, locator='b.py:1', command='c', observed=over + 'SECOND',
+                         baseline_revision='rev')
+    assert_eq("#704-22: a same-key re-record diverging only PAST the cap is refused",
+              (True, True),
+              (collide.returncode != 0, 'evidence-overwrite-differs' in collide.stderr))
 
 
 _with_run704(_row704_22)
+
+
+# Row 23 — `capture_revision`'s two remaining shapes, both of which a docstring once got
+# wrong. A DETACHED HEAD is not a failure state (`git rev-parse HEAD` resolves it), so it
+# must record the real commit id; and an rc-0 call that prints NOTHING — the shimmed-`git`
+# shape — must name its cause on stderr rather than collapsing to a bare sentinel.
+def _row704_23(r):
+    head = r.git('rev-parse', 'HEAD').stdout.strip()
+    assert_eq("#704-23: the fixture's HEAD resolves before detaching",
+              40, len(head))
+    r.git('checkout', '--detach', '-q', head)
+    assert_eq("#704-23: the fixture really is in a detached-HEAD state",
+              '', r.git('symbolic-ref', '-q', 'HEAD').stdout.strip())
+    assert_eq("#704-23: recording a baseline under a detached HEAD exits 0",
+              0, r.baseline('det', 'location', 'seed.txt').returncode)
+    read = r('query-claim-baselines', r.slug, nonce=True)
+    line = [ln for ln in read.stdout.splitlines() if 'claim=det' in ln][0]
+    assert_eq("#704-23: a detached HEAD records the REAL revision, never unestablished",
+              head, _field704(line, 'revision='))
+
+    # rc 0 with empty stdout: exercised against the function directly, because a PATH-level
+    # `git` shim would also break the `git hash-object` calls the CLI path depends on and the
+    # test would pass for the wrong reason.
+    class _Empty:
+        stdout = b'  \n'
+
+    real_run, real_err = issue_audit_state._run, sys.stderr
+    sys.stderr = io.StringIO()
+    try:
+        issue_audit_state._run = lambda *a, **k: _Empty()
+        got = issue_audit_state.capture_revision()
+        crumb = sys.stderr.getvalue()
+    finally:
+        issue_audit_state._run, sys.stderr = real_run, real_err
+    assert_eq("#704-23: an rc-0 git that prints no revision resolves as unestablished",
+              issue_audit_state._UNESTABLISHED, got)
+    assert_eq("#704-23: and names the CAUSE on stderr rather than a bare sentinel",
+              True, 'capture_revision' in crumb and 'printed no revision' in crumb)
+
+
+_with_run704(_row704_23)
 
 print()
 print(f"{PASS} passed, {FAIL} failed")

@@ -709,7 +709,7 @@ def capture_revision():
     """The current commit id, or `unestablished` when it cannot be resolved.
 
     Deliberately best-effort and exit-0: a repository with no commits yet, a `git` that is
-    absent or shimmed, and a detached/corrupt HEAD all resolve to `unestablished` rather
+    absent or shimmed, and an unresolvable/corrupt HEAD all resolve to `unestablished` rather
     than failing the call — nothing in create-issue may block issue creation (#704 AC13).
     The revision is recorded ALONGSIDE the per-claim identity, never instead of it: the
     identity is what the deterministic re-check compares, and a global revision compare is
@@ -723,7 +723,16 @@ def capture_revision():
         # same sentinel, so the distinguishing detail must reach stderr or it is lost.
         _unestablished_breadcrumb('capture_revision', f'git rev-parse HEAD failed: {exc}')
         return _UNESTABLISHED
-    return r.stdout.decode('ascii', 'replace').strip() or _UNESTABLISHED
+    revision = r.stdout.decode('ascii', 'replace').strip()
+    if not revision:
+        # rc 0 with empty stdout is the shimmed-`git` shape the sibling `hash_bytes` guard
+        # already breadcrumbs: the call SUCCEEDED and still established nothing, so collapsing
+        # it to the sentinel silently would lose the only detail that distinguishes it from a
+        # repo with no commits (which fails loudly above).
+        _unestablished_breadcrumb(
+            'capture_revision', 'git rev-parse HEAD succeeded but printed no revision')
+        return _UNESTABLISHED
+    return revision
 
 
 def location_identity(paths, cache=None):
@@ -3880,13 +3889,16 @@ def cmd_record_finding_evidence(args):
     key = f'{args.round}:{args.finding_id}'
     store = doc.setdefault('finding_evidence', {})
     prior = store.get(key)
-    if prior is not None and prior.get('observed') != entry.get('observed'):
+    if prior is not None and _observed_divergent(prior.get('observed'), entry.get('observed')):
         # Last-write-wins would silently collapse two disagreeing observations of ONE finding
         # to the later value — the same one-sided resolution `evidence_conflicts` refuses
-        # across findings. Re-recording identical evidence is an idempotent replay and stays
-        # legal; a differing one is a caller-contract error that must be seen.
+        # across findings. Divergence is judged by `_observed_divergent`, not plain inequality,
+        # so a pair that `_bound_evidence` truncated to byte-identical strings is refused too:
+        # the comparison could not see the bytes past the cap, and unknown is never agreement.
+        # Re-recording identical UNtruncated evidence stays a legal idempotent replay.
         _fail(prefix, f'evidence-overwrite-differs: {key} already carries evidence whose '
-                      f'observed output differs; record the second probe under its own '
+                      f'observed output differs, or whose equality could not be established '
+                      f'because both are truncated; record the second probe under its own '
                       f'finding id so the disagreement is surfaced, never overwritten')
     store[key] = entry
     _save_or_fail(prefix, doc, args.slug)
@@ -4109,9 +4121,9 @@ def cmd_query_findings(args):
 
     `summary=` is the FINAL field on every line because it is the one field whose value
     may contain spaces; the AC1 vocabulary refusal is what keeps that unambiguous, since
-    no summary can carry a `<field>=` word of the tool's own printed surface. This is the
-    tool's multi-line queries, alongside the issue-#704 claim/evidence read-backs, is
-    this one.
+    no summary can carry a `<field>=` word of the tool's own printed surface. This is one of
+    the tool's multi-line read-back queries, alongside the issue-#704
+    `query-claim-baselines` and `query-finding-evidence`.
 
     INVARIANT for any future field: `summary=` must REMAIN trailing. A field appended
     after it would end the unambiguous split — the reader could no longer tell a space
