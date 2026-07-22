@@ -38,6 +38,16 @@ Each is excluded for a stated reason, not by omission:
 | `lib/test/lint-gh-api-repo-path.py` | A whole-tree meta-guard over every tracked-and-unignored surface. |
 | `lib/test/cloud_writer_contract.py` | A whole-tree meta-guard over the cloud-writer reachability closure and its runtime manifest. |
 
+## Shared-label routing caveat
+
+`coverage-map.json`'s `run_sh_blocks` entry carries a single `owner` string, so a label
+two modules both assert can name only one of them. That is live here for `#600`: this
+module holds the render-audit-prompt driver, while `create-issue-contract.sh` also
+asserts `#600`, and the guard's `--fix` attributes the label to the latter. Route a
+`#600` change by the `files` entry for `scripts/render-audit-prompt.py` (which names
+this module), not by the `run_sh_blocks` label. Repair the map with
+`python3 lib/test/coverage_map_guard.py . --fix`, never by hand.
+
 The generic test harness, registry validation, module registration, full-suite
 boundary, and module-runner tests stay global so deleting this module cannot also
 delete the checks that prove it is selected and executed. The module uses only

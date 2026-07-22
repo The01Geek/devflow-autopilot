@@ -30506,29 +30506,8 @@ assert_pin_red_under "#707 implement extension keeps the full suite as the final
 assert_pin_red_under "#707 review-and-fix extension keeps the full suite as the final review/fix gate" \
   'A focused result discharges intermediate iteration only, never the final review/fix gate.' \
   's|A focused result discharges intermediate iteration only, never the final review/fix gate\.|A focused result may be used as the final review/fix gate.|' "$WSR_RAF"
-# #707 the inverted default and the parallelized final gate are each load-bearing in
-# BOTH directions, so each gets its own mutation: dropping the focused-sufficiency
-# sentence re-imposes the retired full-suite-before-every-commit rule, and re-gating the
-# push on the local run un-parallelizes the final gate this issue exists to overlap.
-for _WSR_FOCUSED_POLICY in "$WSR_IMPL" "$WSR_RAF"; do
-  _WSR_FOCUSED_NAME="${_WSR_FOCUSED_POLICY##*/}"
-  assert_pin_red_under "#707 $_WSR_FOCUSED_NAME makes a focused pass sufficient for an intermediate commit or push" \
-    'a focused pass covering the changed surface is sufficient for an intermediate commit or push.' \
-    's/a focused pass covering the changed surface is sufficient for an intermediate commit or push\./a focused pass covering the changed surface is not sufficient for an intermediate commit or push./' "$_WSR_FOCUSED_POLICY"
-  assert_pin_red_under "#707 $_WSR_FOCUSED_NAME reserves the mid-iteration full suite for uncovered surfaces" \
-    'Run the full suite mid-iteration only when no focused module or path covers the changed surface' \
-    's/Run the full suite mid-iteration only when no focused module or path covers the changed surface/Run the full suite mid-iteration before every commit and push/' "$_WSR_FOCUSED_POLICY"
-  assert_pin_red_under "#707 $_WSR_FOCUSED_NAME does not gate the push on the local final run" \
-    'the push is NOT gated on the local run finishing' \
-    's/the push is NOT gated on the local run finishing/the push waits for the local run to finish/' "$_WSR_FOCUSED_POLICY"
-  assert_pin_red_under "#707 $_WSR_FOCUSED_NAME keeps the local final run authoritative" \
-    'it remains the authoritative local signal' \
-    's/it remains the authoritative local signal/CI is the authoritative signal/' "$_WSR_FOCUSED_POLICY"
-  assert_pin_red_under "#707 $_WSR_FOCUSED_NAME leaves the #405 cloud in-env gate unweakened" \
-    'never waits on, polls, re-checks, or cites CI for its own progress' \
-    's/never waits on, polls, re-checks, or cites CI for its own progress/may wait on and cite CI for its own progress/' "$_WSR_FOCUSED_POLICY"
-done
-unset _WSR_FOCUSED_POLICY _WSR_FOCUSED_NAME
+# #707's five per-file pins are NOT a second loop over the same two files: they join the
+# existing #563 loop below, which already iterates exactly this pair.
 # #707 the reflection obligation is implement-only: it is the audit trail that makes a
 # mid-iteration full-suite run a recorded decision rather than a silent reversion to the
 # retired default.
@@ -30550,7 +30529,11 @@ assert_pin_red_under "#707 receiving-code-review.md keeps the final gate and par
 _WSR_RETIRED_HITS=0
 for _WSR_RETIRED_FILE in "$WSR_IMPL" "$WSR_RAF" "$FDROOT/.devflow/prompt-extensions/receiving-code-review.md" \
   "$WSR_CLAUDE" "$FDROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md"; do
-  for _WSR_RETIRED_LIT in 'discharges no gate' 'before every commit' \
+  # Each literal is a DISTINGUISHING span of the retired rule, never a generic English
+  # phrase: a bare 'before every commit' would turn the suite RED on an unrelated future
+  # sentence in either large mirror document and misattribute it to this regression.
+  for _WSR_RETIRED_LIT in 'A focused result discharges no gate' \
+    'before every commit, push, and completion claim' \
     'A focused result is never a completion gate.' 'A focused result never discharges a review/fix gate.' \
     'A focused pass only accelerates RED/GREEN iteration'; do
     _WSR_RETIRED_HITS=$((_WSR_RETIRED_HITS + $(pin_count "$_WSR_RETIRED_LIT" "$_WSR_RETIRED_FILE")))
@@ -30571,6 +30554,25 @@ assert_pin_red_under "#707 the overview doc mirrors the focused-default conventi
   "$FDROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 for _WSR_FOCUSED_POLICY in "$WSR_IMPL" "$WSR_RAF"; do
   _WSR_FOCUSED_NAME="${_WSR_FOCUSED_POLICY##*/}"
+  # #707: the inverted default and the parallelized final gate are each load-bearing in
+  # BOTH directions, so each gets its own mutation — dropping the focused-sufficiency
+  # sentence re-imposes the retired full-suite-before-every-commit rule, and re-gating the
+  # push on the local run un-parallelizes the final gate this issue exists to overlap.
+  assert_pin_red_under "#707 $_WSR_FOCUSED_NAME makes a focused pass sufficient for an intermediate commit or push" \
+    'a focused pass covering the changed surface is sufficient for an intermediate commit or push.' \
+    's/a focused pass covering the changed surface is sufficient for an intermediate commit or push\./a focused pass covering the changed surface is not sufficient for an intermediate commit or push./' "$_WSR_FOCUSED_POLICY"
+  assert_pin_red_under "#707 $_WSR_FOCUSED_NAME reserves the mid-iteration full suite for uncovered surfaces" \
+    'Run the full suite mid-iteration only when no focused module or path covers the changed surface' \
+    's/Run the full suite mid-iteration only when no focused module or path covers the changed surface/Run the full suite mid-iteration before each commit and push/' "$_WSR_FOCUSED_POLICY"
+  assert_pin_red_under "#707 $_WSR_FOCUSED_NAME does not gate the push on the local final run" \
+    'the push is NOT gated on the local run finishing' \
+    's/the push is NOT gated on the local run finishing/the push waits for the local run to finish/' "$_WSR_FOCUSED_POLICY"
+  assert_pin_red_under "#707 $_WSR_FOCUSED_NAME keeps the local final run authoritative" \
+    'it remains the authoritative local signal' \
+    's/it remains the authoritative local signal/CI is the authoritative signal/' "$_WSR_FOCUSED_POLICY"
+  assert_pin_red_under "#707 $_WSR_FOCUSED_NAME leaves the #405 cloud in-env gate unweakened" \
+    'never waits on, polls, re-checks, or cites CI for its own progress' \
+    's/never waits on, polls, re-checks, or cites CI for its own progress/may wait on and cite CI for its own progress/' "$_WSR_FOCUSED_POLICY"
   assert_pin_red_under "#563 $_WSR_FOCUSED_NAME records the explicitly selected module ID" \
     'Explicitly record the selected ID and' \
     's/Explicitly record the selected ID and/Use the selected ID and/' "$_WSR_FOCUSED_POLICY"

@@ -22,7 +22,11 @@
 # the runner's own EXIT handling. Do not source this module directly in a runner's
 # top-level shell without restoring the trap.
 
-_hpg_tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/devflow-harness-python-guards.XXXXXX")" || {
+# Allocate through the harness's shared owned-directory allocator (template validation
+# plus the pre-existing-directory rejection a bare `mktemp -d` cannot make) rather than
+# re-implementing that check here.
+_hpg_tmp_root="$(devflow_module_allocate_owned_directory \
+  "${TMPDIR:-/tmp}/devflow-harness-python-guards.XXXXXX")" || {
   printf 'could not allocate harness-python-guards fixture\n' >&2
   return 1
 }
@@ -242,9 +246,16 @@ mkdir -p "$_hpg_cg_fixture/lib/test/modules" "$_hpg_cg_fixture/scripts"
 : > "$_hpg_cg_fixture/lib/test/run.sh"
 printf '%s\n' '{"schema_version": 1, "test_modules": {}}' \
   > "$_hpg_cg_fixture/scripts/workflow-flight-recorder-registry.json"
+# One template for both arms, parameterized on the ONLY field that differs (`files`).
+# Two hand-written copies of the map schema would let the control arm and the drift arm
+# diverge in some other key, which would make the control pass — or fail — for a reason
+# unrelated to the planted drift, defeating its whole purpose.
+_hpg_write_map() {  # files-object -> writes the fixture's coverage map
+  printf '{"schema_version": 1, "files": %s, "run_sh_blocks": {}, "non_code_exempt": ["scripts/workflow-flight-recorder-registry.json", "lib/test/modules/coverage-map.json"], "exempt_subtrees": ["lib/test/"], "generated_by": "harness-python-guards planted-defect fixture"}\n' \
+    "$1" > "$_hpg_cg_fixture/lib/test/modules/coverage-map.json"
+}
 # Undrifted map: the planted unit is listed, so the guard must report nothing.
-printf '%s\n' '{"schema_version": 1, "files": {"lib/planted-drift.sh": {"owner": "unmodularized", "note": ""}}, "run_sh_blocks": {}, "non_code_exempt": ["scripts/workflow-flight-recorder-registry.json", "lib/test/modules/coverage-map.json"], "exempt_subtrees": ["lib/test/"], "generated_by": "harness-python-guards planted-defect fixture"}' \
-  > "$_hpg_cg_fixture/lib/test/modules/coverage-map.json"
+_hpg_write_map '{"lib/planted-drift.sh": {"owner": "unmodularized", "note": ""}}'
 # `git ls-files` is an index read, so staging is enough — no commit, no identity
 # config, no history. A fixture whose git setup fails must not silently degrade
 # into a vacuous control, so the setup outcome is asserted before the arms run.
@@ -258,8 +269,7 @@ assert_eq "#707 planted-defect control: the undrifted fixture is clean (control 
 assert_eq "#707 planted-defect control: the undrifted fixture reports no violation" "" "$_hpg_cg_clean_out"
 # Plant the drift: drop the tracked unit from `files`, which is exactly the
 # ratchet arm the live-tree invocation above exists to enforce.
-printf '%s\n' '{"schema_version": 1, "files": {}, "run_sh_blocks": {}, "non_code_exempt": ["scripts/workflow-flight-recorder-registry.json", "lib/test/modules/coverage-map.json"], "exempt_subtrees": ["lib/test/"], "generated_by": "harness-python-guards planted-defect fixture"}' \
-  > "$_hpg_cg_fixture/lib/test/modules/coverage-map.json"
+_hpg_write_map '{}'
 _hpg_cg_drift_out="$(python3 "$LIB/test/coverage_map_guard.py" "$_hpg_cg_fixture" 2>&1)"
 _hpg_cg_drift_rc=$?
 assert_eq "#707 planted-defect control: the planted coverage-map drift turns the guard RED" "yes" \
