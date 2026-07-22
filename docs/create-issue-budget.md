@@ -32,9 +32,9 @@ Both are asserted by `lib/test/modules/create-issue-contract.sh` (driven by the 
 | Ceiling | Operand | Measured | Enforced ceiling |
 | --- | --- | --- | --- |
 | **Root** | `skills/create-issue/SKILL.md` | 2,732 | Root ceiling: **2,754 words** |
-| **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 31,252 | Default-path ceiling: **31,262 words** |
+| **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 31,246 | Default-path ceiling: **31,262 words** |
 
-Each ceiling is at most the implement-time measured value plus **5% headroom** (the AC6 maximum). Both were set from an earlier measurement in this same change and deliberately **not re-raised** when review fixes grew the operands, so the shipped headroom is under 5% on both (root ~0.8%, default path ~0.03%). The suite asserts that legality directly — a ceiling above measured+5% is RED — so a future raise needs a real measurement behind it. The
+Each ceiling is at most the implement-time measured value plus **5% headroom** (the AC6 maximum). Both were set from an earlier measurement in this same change and deliberately **not re-raised** when review fixes grew the operands, so the shipped headroom is under 5% on both (root ~0.8%, default path ~0.05%). The suite asserts that legality directly — a ceiling above measured+5% is RED — so a future raise needs a real measurement behind it. The
 default-path operand deliberately **excludes the four fallback references** — they load only when
 their predicate fires, which is the whole point of the split. `revision-delta.md` is *retained* in the
 operand even though it too is predicate-gated (its trigger is any revise-and-re-gate site): a revision
@@ -57,22 +57,23 @@ constants in the contract module, and the two suite pins that assert this docume
 
 ## Post-split per-file table
 
-Measured at implement time (2026-07-21), python3 word-split:
+Live figures (python3 word-split). Rows are re-measured whenever a change moves them — see
+the decision record below for when each was last re-measured:
 
 | File | Words | Loaded |
 | --- | --- | --- |
 | `SKILL.md` (root) | 2,732 | always |
 | `references/step-2-clarify.md` | 4,673 | Step 2 entry |
-| `references/step-3-5-steelman.md` | 2,245 | Step 3.5 entry |
-| `references/revision-delta.md` | 1,016 | every revision event |
-| `references/step-3-6-audit.md` | 8,428 | Step 3.6 entry |
+| `references/step-3-5-steelman.md` | 2,237 | Step 3.5 entry |
+| `references/revision-delta.md` | 986 | every revision event |
+| `references/step-3-6-audit.md` | 8,324 | Step 3.6 entry |
 | `references/step-4-present-create.md` | 5,362 | Step 4 entry |
 | `references/fallback-no-task-tool.md` | 540 | no usable task-tracking tool |
 | `references/fallback-read-only-sandbox.md` | 334 | a `.devflow/tmp/` write is refused |
 | `references/fallback-audit-dispatch-arms.md` | 669 | a non-file audit arm, a retry escalation, or no subagent tool |
 | `references/fallback-state-owner-unavailable.md` | 748 | the state owner stops answering |
-| **root + all 9 references** | **26,747** | — |
-| `references/issue-template.md` | 6,796 | Step 3 (unchanged by the split) |
+| **root + all 9 references** | **26,605** | — |
+| `references/issue-template.md` | 6,932 | Step 3 (unchanged by the split) |
 | `references/audit-prompt-template.md` | 1,608 | renderer-owned (unchanged by the split) |
 
 **What the default path sheds.** Before the split every run loaded all 24,473 words of the monolith.
@@ -183,6 +184,19 @@ this frozen split baseline.
   down-only, and this is what that rule looks like when it binds. Remaining default-path headroom
   is **10 words (~0.03%)** — the next change to a budgeted member almost certainly has to shed
   prose to fit, which is the signal to re-partition rather than to renegotiate the ceiling.
+
+- **2026-07-22 (PR #706 shadow round) — the audit run's opening MOVED; ceilings UNCHANGED.** A
+  blinded shadow review found the claim-baseline convention inert on its documented path: `init`
+  mints the nonce and creates the state file, and it was instructed only at Step 3.6 — after the
+  Step 3 and Step 3.5 sites that record and consume baselines — so every baseline call exited
+  non-zero with no state file and the whole mechanism shipped dead. The nonce/`init` block therefore
+  **moved** from `step-3-6-audit.md` (−104) to `issue-template.md` (+136, the move plus the
+  `claim=` key citation the consumers need to join on), with `step-3-6-audit.md` keeping a pointer
+  and a no-state fallback. Default path 31,252 → **31,246**; conservation 26,747 → **26,605**.
+  The first draft of this round measured **31,503 — 241 words over the ceiling**, and was brought
+  under by shedding, not by raising: the verdict-vocabulary gloss was reduced to one statement
+  instead of three copies, and this PR's own earlier review-round prose was compressed to its
+  operative core. Headroom is **16 words (~0.05%)**. Both ceilings are untouched.
 
 When a later change re-measures, append a row here rather than editing an earlier one: the record is
 the history of what the surface cost, and overwriting it loses exactly the drift a budget exists to catch.

@@ -184,23 +184,37 @@ classes are enumerated **first**, and each takes the baseline representation *it
 needs — no single universal identity is imposed across them:
 
 - **Location-sensitive anchor** — a line range, a region boundary, a file-and-section anchor.
-  Identity is a content digest of the **measured paths**, so a base advance touching none of
-  them leaves the claim fresh and only genuinely-affected anchors are re-derived.
-- **Occurrence count or tally** — identity is a digest of the **re-executed search result over
-  the claim's full search domain**, never of the hit paths, so an occurrence added in a file
-  *outside* the original hit set changes it.
+  Identity is a content digest of the **measured paths**, so a base advance touching none of them
+  leaves the claim fresh.
+- **Occurrence count or tally** — identity digests the **re-executed search result over the
+  claim's full search domain**, never the hit paths, so an occurrence added *outside* the
+  original hit set changes it.
 - **Consumer or coupled-site inventory** — the same full-domain identity as a count: the claim is
-  about the whole search domain, not the sites it happened to hit.
+  about the domain, not the sites it happened to hit.
 
-Record each with `record-claim-baseline` — `--path` per measured path for a location anchor, the
-re-executed search result piped with `--domain-stdin` for a count or inventory:
+**The audit run opens here**, at the first nonce-taking call — not at Step 3.6, which reuses it
+and re-opens nothing. **Nonce.** `init` mints this run's nonce and prints `nonce=…`; hold it and
+substitute it into every later call. It is a value you carry, not a shell variable that survives
+between Bash calls. After a context compaction, recover it with `query-nonce "<slug>"` — recovery
+restores single-run continuity but **cannot discriminate a foreign same-slug run in the same cwd**
+(a disclosed limitation). Open the run with a **cold-start `init`** (no `--nonce` — that omission
+is what selects the ported delete-leftover-first wipe; a `--nonce` on `init` is only for a same-run
+re-init and needs `--force` over recorded rounds):
+
+```bash
+python3 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/issue-audit-state.py init "<slug>"
+```
+
+Record each claim with `record-claim-baseline` — `--path` per measured path for a location anchor,
+the re-executed search result piped with `--domain-stdin` for a count or inventory:
 
 ```bash
 python3 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/issue-audit-state.py record-claim-baseline "<slug>" --nonce "<nonce>" --claim-key "<key>" --claim-class location --path "<measured path>"
 ```
 
-Cite the printed `revision=` and `identity=` on that claim's **"Verified:"** bullet, beside its
-command and hit list. The captured revision accompanies the identity, but the **identity** is what
+Cite the printed `claim=` key with `revision=` and `identity=` on that claim's **"Verified:"**
+bullet, beside its command and hit list — the key is the only join Steps 3.5 and 3.6 have. A
+non-zero call records nothing: omit all three rather than inventing them. The captured revision accompanies the identity, but the **identity** is what
 the deterministic re-check compares — so the committed-vs-dirty and drift distinctions are made
 **per claim**, never from a global worktree cleanliness flag, which a dirty→dirty edit of the
 measured content leaves unchanged while the content itself drifts.
@@ -211,8 +225,8 @@ acceptance criterion, or the Approach — records no baseline, exactly as it tri
 verification above.
 
 **Every arm is best-effort and blocks nothing.** A measurement that cannot be established records
-`unestablished`, and an **absent** baseline field on a state file written before this convention
-reads **identically** — both are **possibly stale** (re-verified), never silently fresh. Neither
+`unestablished`, and an **absent** baseline field reads **identically** — both are **possibly
+stale** (re-verified), never silently fresh. Neither
 ever blocks issue creation.
 
 **Verifying "the code does X" includes the gates on the path to X.** Confirming that the code

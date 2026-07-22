@@ -33,6 +33,12 @@ TWO-CLASS CLI CONTRACT (the skill branches on exactly this):
     than persisted at issue time.
   * Mutation subcommands exit non-zero with a specific named stderr breadcrumb, for
     an illegal transition and for an unpersistable state alike.
+  * `check-claim-staleness` is neither, and the skill routes it by its OWN exit code: it is a
+    nonce-taking, strictly READ-ONLY staleness check that prints one line per claim yet exits
+    non-zero on a caller-contract error (`claim-unknown`, `domain-for-location-claim`,
+    `domain-without-claim-key`). Reading it by the query contract above would treat a
+    mistyped `--claim-key` as an unpersistable-state mutation failure. Kept in lockstep with
+    `skills/create-issue/references/step-3-6-audit.md`, which states the same carve-out.
   * `emit-body` is neither: it is a gated emitter. It exits 0 with the audited body
     bytes when eligibility grounds them, and non-zero with EMPTY stdout otherwise —
     so on the file-identity ground a caller that ignores the exit code cannot post an
@@ -748,9 +754,11 @@ def capture_revision():
     revision = r.stdout.decode('ascii', 'replace').strip()
     if not revision:
         # rc 0 with empty stdout is the shimmed-`git` shape the sibling `hash_bytes` guard
-        # already breadcrumbs: the call SUCCEEDED and still established nothing, so collapsing
-        # it to the sentinel silently would lose the only detail that distinguishes it from a
-        # repo with no commits (which fails loudly above).
+        # REJECTS (it raises `_DigestError`; the cause reaches stderr through
+        # `location_identity`'s funnel, not from `hash_bytes` itself): the call SUCCEEDED and
+        # still established nothing, so collapsing it to the sentinel silently would lose the
+        # only detail that distinguishes it from a repo with no commits — which is caught as a
+        # `git` failure above and breadcrumbed the same way, at exit 0 like every arm here.
         _unestablished_breadcrumb(
             'capture_revision', 'git rev-parse HEAD succeeded but printed no revision')
         return _UNESTABLISHED
@@ -969,7 +977,12 @@ def _observed_divergent(a, b):
     """
     if a != b:
         return True
-    return (a or '').endswith(_EVIDENCE_TRUNCATION_MARK)
+    # Gated on the LENGTH `_bound_evidence` truncation actually produces, not on the suffix
+    # alone: the mark is a fixed literal an auditor's own observed output can end with without
+    # ever having been capped, and a suffix-only test lets that text force a refusal on a
+    # byte-identical replay and manufacture a conflict between two agreeing probes.
+    return (len(a or '') == _EVIDENCE_MAX_CHARS + len(_EVIDENCE_TRUNCATION_MARK)
+            and (a or '').endswith(_EVIDENCE_TRUNCATION_MARK))
 
 
 def evidence_conflicts(store):
@@ -3932,7 +3945,31 @@ def cmd_record_claim_baseline(args):
              'identity': identity}
     if paths is not None:
         entry['paths'] = paths
-    doc.setdefault('claims', {})[key] = entry
+    claims = doc.setdefault('claims', {})
+    prior_claim = claims.get(key)
+    if prior_claim is not None:
+        # A CLASS change under one key is a different claim, not a re-measurement of this one:
+        # accepting it silently swaps the identity basis and discards the measured `paths` a
+        # location claim was grounded on, leaving the original claim's basis unrecoverable.
+        # Refused rather than breadcrumbed, because the correct action is always a different
+        # key — the sibling evidence channel's remedy, for the same reason.
+        if prior_claim.get('claim_class') != args.claim_class:
+            _fail(prefix, f'claim-class-changed: {key!r} is recorded as a '
+                          f'{prior_claim.get("claim_class")!r} claim; a {args.claim_class!r} '
+                          f'claim is identified differently, so record it under its own key '
+                          f'rather than replacing this one')
+        # A re-baseline is LEGAL — re-deriving a stale claim and re-grounding it is the
+        # documented workflow — but it silently moves a measurably `stale` claim to `fresh`,
+        # the verdict that licenses skipping re-derivation. Deliberately NOT refused (that
+        # would break the intended flow) and never silent either: the transition is disclosed
+        # so a reader can tell a re-grounding from an original grounding.
+        prior_identity = prior_claim.get('identity')
+        if isinstance(prior_identity, str) and prior_identity and prior_identity != identity:
+            sys.stderr.write(
+                f'issue-audit-state.py {prefix}: re-baselined {key!r} — recorded identity '
+                f'{prior_identity} superseded by {identity}; any earlier `stale` verdict for '
+                f'this claim now reads `fresh` against the new baseline\n')
+    claims[key] = entry
     _save_or_fail(prefix, doc, args.slug)
     print(f'claim={key} class={entry["claim_class"]} revision={entry["revision"]} '
           f'identity={entry["identity"]}')

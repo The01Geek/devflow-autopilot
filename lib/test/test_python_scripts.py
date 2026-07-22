@@ -10769,6 +10769,17 @@ assert_eq("#603/AC1: _PROTOCOL_TOKENS covers every key= token the printers emit"
 assert_eq("#603/AC1 control: the harvest reaches query-findings' own emitted fields",
           {'id', 'status', 'summary', 'round'},
           {'id', 'status', 'summary', 'round'} & _printed603)
+# The harvester resolves only names assigned INSIDE the emitting function, so it cannot see
+# `query-finding-evidence`'s field names — they come from the module-level `_EVIDENCE_FIELDS`
+# via a generator expression. Those five tokens are in `_PROTOCOL_TOKENS` today because #704
+# hand-added them; without this row the coupling is unenforced, and a sixth evidence field
+# would ship emitted-but-unlisted, leaving `_forged_protocol_token` unable to refuse a claim
+# key or ledger summary forging it — the exact hazard #704-24/#704-25 close.
+assert_eq("#603/AC1 (+#704): every _EVIDENCE_FIELDS name the evidence line emits is a "
+          "protocol token, which the AST harvest above cannot reach",
+          set(),
+          set(issue_audit_state._EVIDENCE_FIELDS)
+          - set(issue_audit_state._PROTOCOL_TOKENS))
 
 # Row 11/AC12 — the corrupt-state matrix over the hand-corruptible ledger fields.
 # POSITIVE CONTROL, first: every row below asserts only that _validate RAISES, which a
@@ -12723,6 +12734,55 @@ def _row704_29(r):
 
 
 _with_run704(_row704_29)
+
+
+# Row 30 — the shadow-review findings: the claim record's update invariant, and the
+# truncation test keyed on a length rather than a content-reachable suffix.
+def _row704_30(r):
+    r.write('anchor30.md', 'alpha\n')
+    r.commit('A: anchor for the update-invariant row')
+    r.baseline('c30', 'location', 'anchor30.md')
+    # A CLASS change under one key silently swapped the identity basis and discarded the
+    # measured paths the location claim was grounded on — unrecoverable, and the resulting
+    # document is well-formed for its new class, so no read-boundary check catches it.
+    flip = r.baseline('c30', 'count', domain='hits\n')
+    assert_eq("#704-30: a class change under a recorded claim key is refused, naming both "
+              "classes",
+              (True, True),
+              (flip.returncode != 0, 'claim-class-changed' in flip.stderr))
+    read = r('query-claim-baselines', r.slug, nonce=True)
+    line = [ln for ln in read.stdout.splitlines() if 'claim=c30' in ln][0]
+    assert_eq("#704-30: and the original claim keeps its class (the refusal left no partial "
+              "write)",
+              'location', _field704(line, 'class='))
+    # A re-baseline stays LEGAL — re-grounding a re-derived claim is the documented workflow —
+    # but it moves a measurably stale claim to fresh, so it is disclosed rather than silent.
+    r.write('anchor30.md', 'alpha drifted\n')
+    r.commit('B: drift the anchor')
+    assert_eq("#704-30: the drifted claim reads stale before re-grounding",
+              'stale', _field704(r.staleness('c30').stdout, 'state='))
+    rebase = r.baseline('c30', 'location', 'anchor30.md')
+    assert_eq("#704-30: re-baselining the same claim is still allowed (rc 0) ...",
+              0, rebase.returncode)
+    assert_eq("#704-30: ... and DISCLOSES the superseded identity, so a re-grounding is never "
+              "silently indistinguishable from an original grounding",
+              True, 're-baselined' in rebase.stderr and 'superseded' in rebase.stderr)
+    assert_eq("#704-30: the re-grounded claim then reads fresh",
+              'fresh', _field704(r.staleness('c30').stdout, 'state='))
+
+    # `_observed_divergent` keys on the LENGTH truncation produces, not the mark as a suffix:
+    # auditor text can legitimately end with that literal without ever having been capped, and
+    # a suffix-only test let it force a refusal on a byte-identical replay.
+    mark = issue_audit_state._EVIDENCE_TRUNCATION_MARK
+    assert_eq("#704-30: an UNtruncated observation that merely ends with the truncation mark "
+              "is not divergent from itself",
+              False, issue_audit_state._observed_divergent('short' + mark, 'short' + mark))
+    capped = 'z' * issue_audit_state._EVIDENCE_MAX_CHARS + mark
+    assert_eq("#704-30 positive control: a genuinely truncated pair is still divergent",
+              True, issue_audit_state._observed_divergent(capped, capped))
+
+
+_with_run704(_row704_30)
 
 print()
 print(f"{PASS} passed, {FAIL} failed")
