@@ -399,6 +399,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/stage-draft-write.py": {
+      "note": "#705 helper unit tests: lib/test/test_python_scripts.py (stage/emit/apply modes) driven by run.sh",
+      "owner": "unmodularized"
+    },
     "scripts/stale-prose-lint.py": {
       "note": "",
       "owner": "unmodularized"

@@ -488,7 +488,7 @@ devflow_module_pin_red_under "#522: draft file is NOT on the file-arm out-of-bou
 #      pin. Ground it so the count cannot silently disagree with its own five-path list — the
 #      staged canonical-draft artifact is the fifth path.
 devflow_module_pin_unique "#705: file-arm skill-prose out-of-bounds names exactly the 5 paths (staging added)" \
-  'naming exactly these 5 paths — `.devflow/tmp/issue-derivation-<slug>.md`, the audit report `.devflow/tmp/issue-audit-<slug>.md`, the state owner'"'"'s record `.devflow/tmp/issue-audit-state-<slug>.json`, the **retired** event log `.devflow/tmp/issue-audit-state-<slug>.md`, and any staged canonical-draft artifact `.devflow/tmp/issue-draft-<slug>.*.staged.md`' "$CI_BUNDLE"
+  'naming exactly these 5 paths — `.devflow/tmp/issue-derivation-<slug>.md`, the audit report `.devflow/tmp/issue-audit-<slug>.md`, the state owner'"'"'s record `.devflow/tmp/issue-audit-state-<slug>.json`, the **retired** event log `.devflow/tmp/issue-audit-state-<slug>.md`, and any staged canonical-draft artifact `.devflow/tmp/issue-draft-<slug>.*.staged.md`' "$CI_BUNDLE"  # structural-pin-ok: surface-presence pin on new #705 enumeration prose, not a behavioral-fix pin
 # (4) The user-chosen-rounds OFFER at the Step 3.6 → Step 4 boundary. #546 moved the trigger
 #     EVALUATION into the tool (`query-triggers` answers `t1=…  t2=…  reason=…`), so the old
 #     "evaluate exactly these **2 offer triggers**" literal is gone; T1, T2, and the
@@ -638,7 +638,7 @@ devflow_module_pin_unique "#600: template owns the amended two-transport read-or
 # #705 widened it 5 → 6 (file arm 4 → 5): the staged canonical-draft artifact is added, because
 # after a failed replace it holds bytes the canonical file does not.
 devflow_module_pin_unique "#522/#705: embed arm out-of-bounds names exactly the 6 files (staging added)" \
-  'On this arm the out-of-bounds declaration names exactly these 6 files — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-draft-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, the **retired** `.devflow/tmp/issue-audit-state-<slug>.md`, and any staged canonical-draft artifact `.devflow/tmp/issue-draft-<slug>.*.staged.md`' "$CI_BUNDLE"
+  'On this arm the out-of-bounds declaration names exactly these 6 files — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-draft-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, the **retired** `.devflow/tmp/issue-audit-state-<slug>.md`, and any staged canonical-draft artifact `.devflow/tmp/issue-draft-<slug>.*.staged.md`' "$CI_BUNDLE"  # structural-pin-ok: surface-presence pin on #705-widened enumeration prose, not a behavioral-fix pin
 # ── #546 RECONCILIATION: the carriage COMPARE, the event log, the retry bounds, and T1/T2.
 #
 # The #522 block used to pin, as prose, the whole deterministic half of the carriage/identity
