@@ -28,4 +28,13 @@ Each layout ships one trivial executable helper, `scripts/echo-anchor.sh`
 prints the sentinel `ANCHOR-OK`. The driver asserts the helper runs (exit 0,
 sentinel emitted) when reached through the cloud form inside each materialized
 checkout, and that `git rev-parse --show-toplevel` — the repo-root anchoring
-the cloud form depends on (#295) — still resolves in a shallow detached state.
+the cloud form depends on (#295) — still resolves to the checkout root in a
+shallow detached state.
+
+The cloud form itself is a filesystem path join and the driver's
+helper-execution assertion does not call git, so that assertion's outcome is not
+sensitive to the checkout's git state: the two states are expected to agree on
+it. What the shallow-detached variant adds over the spaces variant is the
+git-state-sensitive coverage — the shallow and detached self-checks, the
+one-reachable-commit (truncated history) check, and the `--show-toplevel`
+resolution under that state.

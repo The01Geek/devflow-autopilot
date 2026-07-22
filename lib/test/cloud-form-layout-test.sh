@@ -19,6 +19,15 @@
 # in both fixtures (the spaces-normal variant covers spaces; the
 # shallow-detached variant covers spaces AND a shallow detached checkout).
 #
+# Scope of what each state buys, stated plainly: the cloud form under test is a
+# filesystem path join, and this driver's helper-execution assertion does not
+# call git, so its outcome is not sensitive to the checkout's git state — the
+# spaces and shallow-detached variants are expected to agree on it. The
+# shallow-detached variant's distinct value is in the git-state-sensitive
+# assertions: the shallow/detached self-checks, the truncated-history check, and
+# that `git rev-parse --show-toplevel` (the #295 repo-root anchoring) still
+# resolves to the checkout root in that state.
+#
 # Self-contained (invoked from lib/test/run.sh). Prints one FAIL line per
 # failure to stderr and exits non-zero; exits 0 silently when every layout ×
 # state resolves and runs the helper. Depends only on a POSIX bash, git
@@ -68,6 +77,10 @@ _exercise() {
   if [ "$state" = shallow-detached ]; then
     local origin="$tmp/origin"
     _seed_repo "$layout" "$origin" || { _fail "$label: could not seed origin repo"; rm -rf "$tmp"; return; }
+    # Give the origin more than one commit, so --depth 1 actually truncates
+    # history and the one-reachable-commit check below can distinguish a shallow
+    # clone from a full one.
+    _git -C "$origin" commit -q --allow-empty -m "second commit" || { _fail "$label: could not add second origin commit"; rm -rf "$tmp"; return; }
     if ! _git clone --depth 1 -q "file://$origin" "$checkout" 2>/dev/null; then
       _fail "$label: shallow clone (--depth 1) failed"; rm -rf "$tmp"; return
     fi
@@ -80,16 +93,29 @@ _exercise() {
     if [ "$(_git -C "$checkout" rev-parse --abbrev-ref HEAD 2>/dev/null)" != "HEAD" ]; then
       _fail "$label: HEAD is not detached"
     fi
+    # State-sensitive and specific to this variant: a --depth 1 clone has a
+    # truncated history, so exactly one commit is reachable from HEAD. The
+    # spaces variant (a full seeded repo) does not carry this property.
+    if [ "$(_git -C "$checkout" rev-list --count HEAD 2>/dev/null)" != "1" ]; then
+      _fail "$label: shallow checkout does not have exactly one reachable commit"
+    fi
   else
     _seed_repo "$layout" "$checkout" || { _fail "$label: could not seed checkout"; rm -rf "$tmp"; return; }
   fi
 
-  # The repo-root anchoring the cloud form depends on (#295) must still resolve.
-  local toplevel
+  # The repo-root anchoring the cloud form depends on (#295) must still resolve —
+  # and resolve to THIS checkout's root, not merely to something non-empty.
+  # Compare against the physical path, since --show-toplevel reports one and
+  # mktemp -d can hand back a symlinked prefix.
+  local toplevel expected_top
   toplevel="$(_git -C "$checkout" rev-parse --show-toplevel 2>/dev/null)"
+  expected_top="$(cd "$checkout" && pwd -P)"
   if [ -z "$toplevel" ]; then
     _fail "$label: git rev-parse --show-toplevel did not resolve"
     rm -rf "$tmp"; return
+  fi
+  if [ "$toplevel" != "$expected_top" ]; then
+    _fail "$label: --show-toplevel resolved to '$toplevel' (expected '$expected_top')"
   fi
 
   # The cloud form: the anchor base joined with /../../scripts/<helper>. Its
