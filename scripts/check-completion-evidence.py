@@ -49,6 +49,7 @@ import json
 import os
 import subprocess
 import sys
+from enum import Enum
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -447,15 +448,21 @@ def _own_repo(args) -> "str | None":
     return slug or None
 
 
-class _RemoteProbe:
-    """Outcome of probing one remote trace target."""
+class _RemoteProbe(str, Enum):
+    """Outcome of probing one remote trace target.
+
+    A closed str-Enum: membership is the set of members below and nothing else,
+    so an out-of-vocabulary outcome is unrepresentable rather than merely
+    undocumented. The `str` mixin keeps every existing comparison and any string
+    formatting behaving exactly as the prior class-of-constants did.
+    """
 
     EXISTS = "exists"
     ABSENT = "absent"        # a definitive 404 (target does not exist)
     UNREACHABLE = "unreach"  # gh could not reach GitHub
 
 
-def _probe_remote(args, path: str) -> str:
+def _probe_remote(args, path: str) -> _RemoteProbe:
     """Probe a remote GitHub API path (best-effort, via the resolved gh).
 
     Returns one of _RemoteProbe.{EXISTS, ABSENT, UNREACHABLE}. A 404 is ABSENT

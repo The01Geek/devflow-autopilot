@@ -49360,7 +49360,11 @@ CCE_TREE="$(cd "$CCE_REPO" && git rev-parse 'HEAD^{tree}')"
 cat > "$CCE_BIN/gh" <<'EOF'
 #!/usr/bin/env bash
 case "$1" in
-  repo) printf '%s\n' "${GH_STUB_OWN:-me/repo}" ;;
+  repo)
+    # __FAIL__ models an unresolvable own-repo slug (`gh repo view` non-zero), the
+    # input that drives _own_repo to None.
+    if [ "${GH_STUB_OWN:-me/repo}" = "__FAIL__" ]; then exit 1; fi
+    printf '%s\n' "${GH_STUB_OWN:-me/repo}" ;;
   api)
     case "${GH_STUB_MODE:-exists}" in
       exists) exit 0 ;;
@@ -49376,7 +49380,7 @@ chmod +x "$CCE_BIN/gh"
 # invoke gh; --own-repo overrides `gh repo view`, so the stub is inert elsewhere).
 # grep -c . counts non-empty lines — a single verdict line reads 1, no output reads 0.
 _cce() {
-  CCE_OUT="$(PATH="$CCE_BIN:$PATH" GH_STUB_MODE="${CCE_MODE:-exists}" GH_STUB_OWN="me/repo" DEVFLOW_GH="gh" \
+  CCE_OUT="$(PATH="$CCE_BIN:$PATH" GH_STUB_MODE="${CCE_MODE:-exists}" GH_STUB_OWN="${CCE_OWN:-me/repo}" DEVFLOW_GH="gh" \
             python3 "$CCE" "$@" 2>/dev/null)"; CCE_RC=$?
   if [ -z "$CCE_OUT" ]; then CCE_NL=0; else CCE_NL="$(printf '%s\n' "$CCE_OUT" | grep -c .)"; fi
   CCE_TOK="$(printf '%s\n' "$CCE_OUT" | awk 'NR==1{print $2}')"
@@ -49712,6 +49716,79 @@ for CCE_M in array scalar falsy wrongtype empty truncated missing; do
   assert_eq "#550 malformed-matrix(vrec=$CCE_M): exit 1" "1" "$CCE_RC"
   assert_eq "#550 malformed-matrix(vrec=$CCE_M): exactly one verdict line (no traceback, no silent no-output)" "1" "$CCE_NL"
 done
+
+# The loop operand set refreshed against the CURRENT tree — CCE_LOOPBASE pins the
+# pre-cc-marker verification record, which by this point in the file would route
+# every row below to stale-candidate instead of the class it means to pin.
+CCE_LOOPBASE3=(--context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec3.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" --repo-root "$CCE_REPO")
+# ── Fail-closed branches that were reachable but untested (PR #716 review,
+#    coverage-hardening Suggestion). Each row plants exactly its own branch's
+#    trigger and asserts the named token — these arms are fail-closed by
+#    construction, so an untested one is a guard nobody has ever seen fire.
+# (a) A verification record present and parseable but carrying NO candidate_identity:
+#     the currency compare has no comparand -> missing-evidence, never a value token
+#     and never pass. (Planted beside otherwise-honest anchors, so the token is
+#     attributable to this operand alone.)
+printf '{"result":"passed","skipped_checks":[]}\n' > "$CCE_EV/vrec_noident.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/vrec_noident.json" \
+     --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 vrec without candidate_identity: token is missing-evidence" "missing-evidence" "$CCE_TOK"
+assert_eq "#550 vrec without candidate_identity: exit 1" "1" "$CCE_RC"
+assert_eq "#550 vrec without candidate_identity: single verdict line" "1" "$CCE_NL"
+# Positive control on the SAME fixture: adding only the candidate_identity makes it
+# pass, so the rejection above is attributable to that one absent field and not to
+# an unrelated precondition in the fixture.
+printf '{"result":"passed","candidate_identity":"%s","skipped_checks":[]}\n' "$CCE_TREE3" > "$CCE_EV/vrec_noident_ctl.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/vrec_noident_ctl.json" \
+     --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 vrec candidate_identity control: same fixture plus the field passes" "pass" "$CCE_TOK"
+# (b) A session anchor with NO claim-context token at all: a required artifact with
+#     no discriminator cannot be bound -> missing-evidence (the absent-token sibling
+#     of the wrong-session case above, which pins only a MISmatching token).
+printf '{"kind":"reception-identity","candidate_identity":"%s"}\n' "$CCE_TREE3" > "$CCE_EV/id_notok.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/loop_vrec3.json" \
+     --identity-artifact "$CCE_EV/id_notok.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 anchor with absent claim-context token: token is missing-evidence" "missing-evidence" "$CCE_TOK"
+assert_eq "#550 anchor with absent claim-context token: exit 1" "1" "$CCE_RC"
+# (c) Malformed-shape matrix over the DEFERRALS manifest — the hand-mutable producer
+#     input the four rows below can each degrade independently. No row yields pass.
+printf '{"deferrals":{"finding_id":"f009"}}\n' > "$CCE_EV/def_notlist.json"
+printf '{"deferrals":["not-an-object"]}\n'     > "$CCE_EV/def_notobj.json"
+printf '{"deferrals":[{"finding_id":"f010","channel":"code-comment","ref":{}}]}\n' > "$CCE_EV/def_cc_noref.json"
+printf '{"deferrals":[{"finding_id":"f011","channel":"follow-up-issue","ref":{"repo":"me/repo"}}]}\n' > "$CCE_EV/def_remote_nopath.json"
+for CCE_D in notlist notobj cc_noref remote_nopath; do
+  _cce "${CCE_LOOPBASE3[@]}" --deferrals "$CCE_EV/def_${CCE_D}.json" --own-repo "me/repo"
+  assert_eq "#550 deferrals malformed-matrix($CCE_D): a non-pass token, never pass" "1" \
+    "$([ "$CCE_TOK" != pass ] && [ -n "$CCE_TOK" ] && echo 1 || echo 0)"
+  assert_eq "#550 deferrals malformed-matrix($CCE_D): exit 1" "1" "$CCE_RC"
+  assert_eq "#550 deferrals malformed-matrix($CCE_D): exactly one verdict line (no traceback)" "1" "$CCE_NL"
+done
+# Attribute each rejection to the guard that owns it, not merely to "it failed":
+# a non-list manifest is a structural read failure (missing-evidence), while the
+# three well-formed-but-underspecified entries are the deferrals guard's own class.
+_cce "${CCE_LOOPBASE3[@]}" --deferrals "$CCE_EV/def_notlist.json" --own-repo "me/repo"
+assert_eq "#550 deferrals malformed(entries not a list): missing-evidence" "missing-evidence" "$CCE_TOK"
+for CCE_D in notobj cc_noref remote_nopath; do
+  _cce "${CCE_LOOPBASE3[@]}" --deferrals "$CCE_EV/def_${CCE_D}.json" --own-repo "me/repo"
+  assert_eq "#550 deferrals malformed($CCE_D): attributed to the deferrals guard" "non-durable-deferral" "$CCE_TOK"
+done
+# (d) _own_repo resolves to None (`gh repo view` non-zero and no --own-repo): a 404
+#     is then OUTSIDE provable scope for every repo, so the own-repo 404 fixture that
+#     yields non-durable-deferral WITH --own-repo must yield unverifiable-trace here.
+#     Absence is unknown, never a fabrication accusation, when scope is unestablished.
+CCE_MODE=absent; CCE_OWN=__FAIL__
+_cce "${CCE_LOOPBASE3[@]}" --deferrals "$CCE_EV/def_remote_own.json"
+assert_eq "#550 _own_repo unresolvable: own-repo 404 is unverifiable-trace, not provable absence" \
+  "unverifiable-trace" "$CCE_TOK"
+assert_eq "#550 _own_repo unresolvable: exit 1" "1" "$CCE_RC"
+# Positive control on the same fixture and the same gh mode: supplying --own-repo
+# (the only differing property) flips it to the provable-absence class, so the arm
+# above is attributable to the unresolvable slug and not to an inert probe.
+_cce "${CCE_LOOPBASE3[@]}" --deferrals "$CCE_EV/def_remote_own.json" --own-repo "me/repo"
+assert_eq "#550 _own_repo control: same fixture with a resolved slug is non-durable-deferral" \
+  "non-durable-deferral" "$CCE_TOK"
+CCE_MODE=exists; CCE_OWN=me/repo
 
 # ── Internal-error: an unresolvable repo root (identity re-derivation fails)
 #    exits 2 and prints NO verdict line. ────────────────────────────────────────
