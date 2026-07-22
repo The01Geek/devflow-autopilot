@@ -14,9 +14,12 @@
 # Self-contained (invoked from lib/test/run.sh). Prints one FAIL line per
 # mismatch to stderr and exits non-zero; exits 0 with no output when every
 # family resolves as its row specifies. Depends only on a POSIX bash and the
-# coreutils normalize-path.sh itself already requires (tr/grep/uname/dirname);
-# it stubs wslpath/cygpath/uname exactly as the #247 T4* block does so the run
-# is hermetic on any host.
+# coreutils normalize-path.sh itself already requires (tr/grep/uname/dirname).
+# The winform families run with wslpath/cygpath ABSENT from a restricted PATH
+# and only uname/MSYSTEM stubbed, so devflow_normalize_path falls through to
+# its env-detected textual arm — mirroring the #247 T4c/T4d env-detect arms
+# (not the T4a/T4b tiers, which stub a fake wslpath/cygpath) — hermetically on
+# any host.
 
 set -u
 

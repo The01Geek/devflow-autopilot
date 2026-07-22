@@ -21,8 +21,8 @@
 #
 # Self-contained (invoked from lib/test/run.sh). Prints one FAIL line per
 # failure to stderr and exits non-zero; exits 0 silently when every layout ×
-# state resolves and runs the helper. Depends only on a POSIX bash and git
-# (a hard preflight prerequisite).
+# state resolves and runs the helper. Depends only on a POSIX bash, git
+# (a hard preflight prerequisite), and standard coreutils (mktemp/cp/mkdir/rm).
 
 set -u
 
@@ -40,9 +40,10 @@ _git() { git -c user.email=devflow@example.invalid -c user.name=devflow -c commi
 # Copy a seed layout into $dest and make it a committed git repo.
 _seed_repo() {  # seed_name dest
   local seed="$SEED_ROOT/$1" dest="$2"
-  mkdir -p "$dest"
-  # Copy contents (including dotfiles) into dest.
-  cp -R "$seed/." "$dest/"
+  mkdir -p "$dest" || return 1
+  # Copy contents (including dotfiles) into dest — check it so a failed/partial
+  # copy is attributed here, not at a confusing later commit/exec step.
+  cp -R "$seed/." "$dest/" || return 1
   _git -C "$dest" init -q || return 1
   _git -C "$dest" add -A || return 1
   _git -C "$dest" commit -q -m "seed $1" || return 1
