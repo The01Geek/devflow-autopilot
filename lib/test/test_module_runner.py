@@ -1355,7 +1355,7 @@ class ModuleRunnerTests(unittest.TestCase):
         harness_text = (ROOT / "lib/test/module-harness.sh").read_text(encoding="utf-8")
         shell_sources = {
             str(path.relative_to(ROOT)): path.read_text(encoding="utf-8", errors="replace")
-            for path in sorted(ROOT.glob("lib/**/*.sh")) + sorted(ROOT.glob("scripts/**/*.sh"))
+            for path in sorted(ROOT.glob("lib/**/*.sh")) + sorted(ROOT.glob("scripts/**/*.sh"))  # tree-walk-ok: both patterns are confined to lib/ and scripts/, which no worktree lives under
         }
         for helper in PROMOTED_HARNESS_HELPERS:
             with self.subTest(helper=helper):

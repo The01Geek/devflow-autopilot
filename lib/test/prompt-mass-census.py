@@ -184,7 +184,7 @@ def _measure_files(root: Path, files: set[str]) -> dict[str, int]:
 def _swept_files(root: Path) -> set[str]:
     swept: set[str] = set()
     for pattern in SWEEP_PATTERNS:
-        for path in root.glob(pattern):
+        for path in root.glob(pattern):  # tree-walk-ok: pattern is a SWEEP_PATTERNS member; every pattern is prefix-scoped under skills/, agents/, .devflow/ or a bare filename
             if path.is_file():
                 swept.add(path.relative_to(root).as_posix())
     return swept
