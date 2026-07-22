@@ -1,0 +1,411 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-22T04:01:19Z",
+  "loop_role": "fix",
+  "current_step": "4.5",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "fix_commit_sha": "572343a8",
+  "fix_files": [
+    "scripts/issue-audit-state.py",
+    "lib/test/test_python_scripts.py",
+    "lib/test/modules/create-issue-contract.sh",
+    "lib/test/prompt-mass-baseline.json",
+    "docs/create-issue-budget.md",
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+    ".changeset/issue-704-evidence-provenance.md",
+    "skills/create-issue/references/step-3-6-audit.md",
+    "skills/create-issue/references/step-3-5-steelman.md",
+    "skills/create-issue/references/revision-delta.md"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "resolved_config": {
+    "max_iterations": 5,
+    "fix_severity_threshold": "suggestion"
+  },
+  "batched_regeneration": "run",
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:type-design-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "checklist_summary": {
+    "generated": 39,
+    "batches": 2,
+    "deduped_to": 39,
+    "verified_by_agent": 16,
+    "verified_by_direct_execution": 23,
+    "passed": 39,
+    "failed": 0,
+    "inconclusive": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "phase0_6_stale_prose": {
+    "exit_code": 0,
+    "stale_rows": 0,
+    "unresolvable_rows": 6
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Critical",
+      "description": "A location claim's measured paths were stored cwd-relative while the state file is repo-root-anchored, so a check run from a subdirectory holding a same-named file reported a genuinely drifted claim `fresh`.",
+      "defect_signature": {
+        "file": "scripts/issue-audit-state.py",
+        "line_range": [
+          738,
+          782
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "orchestrator_reproduced": true,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Important",
+      "description": "--claim-key was neither vocabulary-refused nor encoded, so it forged a field and a whole record line on all three claim surfaces.",
+      "defect_signature": {
+        "file": "scripts/issue-audit-state.py",
+        "line_range": [
+          3733,
+          3849
+        ],
+        "kind": "api_misuse"
+      },
+      "corroboration_count": 2,
+      "orchestrator_reproduced": true,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Critical",
+      "description": "evidence_completeness graded a required field holding the literal `unestablished` as complete, buying the cheap-replay arm for evidence that established nothing \u2014 and the diff-added auditor bar instructs auditors to use exactly that spelling.",
+      "defect_signature": {
+        "file": "scripts/issue-audit-state.py",
+        "line_range": [
+          845,
+          854
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "orchestrator_reproduced": true,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "The evidence overwrite guard compared only `observed`, so a re-record diverging in locator/command/baseline was silently accepted last-write-wins at conflict=none.",
+      "defect_signature": {
+        "file": "scripts/issue-audit-state.py",
+        "line_range": [
+          3891,
+          3903
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 2,
+      "orchestrator_reproduced": true,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Important",
+      "description": "The 'can forge neither a line nor a field' absolute overstated the field half: JSON quoting escapes newlines but not `=`/spaces, so a quoted evidence value shadows a later field for a whitespace-splitting reader.",
+      "defect_signature": {
+        "file": "scripts/issue-audit-state.py",
+        "line_range": [
+          3910,
+          3920
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "orchestrator_reproduced": true,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "step-3-6-audit's full-verification arm named a 'conflicts with a recorded claim baseline' trigger with no stated detection mechanism (policy-without-mechanism).",
+      "defect_signature": {
+        "file": "skills/create-issue/references/step-3-6-audit.md",
+        "line_range": [
+          152,
+          152
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "orchestrator-phase2",
+      "severity": "Suggestion",
+      "description": "revision-delta.md and step-3-5-steelman.md named `unestablished` as a reported staleness state; the closed vocabulary is fresh/stale/possibly-stale only.",
+      "defect_signature": {
+        "file": "skills/create-issue/references/revision-delta.md",
+        "line_range": [
+          10,
+          10
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "orchestrator_reproduced": true,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "docs/create-issue-budget.md's diff-modified headroom sentence said root ~0.9%; measured is 0.80%.",
+      "defect_signature": {
+        "file": "docs/create-issue-budget.md",
+        "line_range": [
+          37,
+          37
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "orchestrator_reproduced": true,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "_UNESTABLISHED was assigned twice at module scope, falsifying the #704 block's own 'the ONE spelling' claim.",
+      "defect_signature": {
+        "file": "scripts/issue-audit-state.py",
+        "line_range": [
+          663,
+          663
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "check-claim-staleness looked up --claim-key verbatim while the writer stripped it, so a padded key answered claim-unknown for a recorded claim.",
+      "defect_signature": {
+        "file": "scripts/issue-audit-state.py",
+        "line_range": [
+          3796,
+          3801
+        ],
+        "kind": "api_misuse"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "hash_file's breadcrumb called every unreadable path 'the draft file', misdescribing location_identity's measured anchors.",
+      "defect_signature": {
+        "file": "scripts/issue-audit-state.py",
+        "line_range": [
+          634,
+          634
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "orchestrator_reproduced": true,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "The _validate_claims `revision`-field type check was unpinned; dropping it makes a corrupt state read state=fresh at rc 0 and render revision=7 as provenance.",
+      "defect_signature": {
+        "file": "lib/test/test_python_scripts.py",
+        "line_range": [
+          11986,
+          11999
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Important",
+      "description": "_Run704.git/.commit discarded return codes, so a failed fixture commit let base-advance negative controls pass vacuously.",
+      "defect_signature": {
+        "file": "lib/test/test_python_scripts.py",
+        "line_range": [
+          11554,
+          11565
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "The `inventory` claim class is never exercised behaviorally (fails closed and loudly; every full-domain row measures `count`).",
+      "defect_signature": {
+        "file": "lib/test/test_python_scripts.py",
+        "line_range": [
+          11657,
+          11681
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "--claim-class argparse choices rejection and the single-key domain-not-recomputed path remain unpinned; the analyzer itself recommends closing them as won't-fix.",
+      "defect_signature": {
+        "file": "lib/test/test_python_scripts.py",
+        "line_range": null,
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "deferred"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-14",
+      "decision": "deferred",
+      "source_file": "lib/test/test_python_scripts.py",
+      "claim_text": "the inventory claim class is never exercised behaviorally",
+      "skip_category": "uncategorized",
+      "evidence": "criticality 4 per the raising agent: the class fails CLOSED and loudly (an inventory baseline is refused with location-class-domain when the routing narrows), so no silent misidentification is possible; recorded rather than fixed to keep this round's fix set to the defects that fail open.",
+      "parking_evidence": {
+        "basis": "the untested path fails closed and loudly, so its absence cannot produce a wrong answer \u2014 only a loud refusal",
+        "failing_input": "an inventory-class baseline under a narrowed _FULL_DOMAIN_CLASSES",
+        "source": "lib/test/test_python_scripts.py:11657-11681",
+        "finding_ref": {
+          "iter": 1,
+          "index": 13
+        }
+      }
+    },
+    {
+      "finding_id": "F-15",
+      "decision": "deferred",
+      "source_file": "lib/test/test_python_scripts.py",
+      "claim_text": "--claim-class choices rejection and single-key domain-not-recomputed are unpinned",
+      "skip_category": "out-of-scope",
+      "evidence": "the raising agent graded both criticality 2-3 and recommended closing them as won't-fix: the first would pin argparse stdlib behavior (the module's own read boundary is already pinned by #704-15), and the second shares one decision site with the all-claims form #704-14 already covers, so no mutation could break the forms asymmetrically.",
+      "parking_evidence": {
+        "basis": "both pin stdlib behavior or a shared decision site an existing row already covers",
+        "failing_input": "an invalid --claim-class token; a single-key check with no piped domain",
+        "source": "scripts/issue-audit-state.py:4481 and cmd_check_claim_staleness",
+        "finding_ref": {
+          "iter": 1,
+          "index": 14
+        }
+      }
+    }
+  ],
+  "mutation_evidence": [
+    {
+      "pin": "#704-24 subdirectory anchoring",
+      "mutation": "restore cwd-relative hash_file(path) and sorted(set(args.path))",
+      "observed": "RED (1 failed)"
+    },
+    {
+      "pin": "#704-24 claim-key refusals",
+      "mutation": "delete the two claim-key guards",
+      "observed": "RED (2 failed)"
+    },
+    {
+      "pin": "#704-24 unestablished completeness",
+      "mutation": "drop the _UNESTABLISHED arm from evidence_completeness",
+      "observed": "RED (1 failed)"
+    },
+    {
+      "pin": "#704-24 whole-item overwrite identity",
+      "mutation": "narrow the compared field set back to ('observed',)",
+      "observed": "RED (1 failed)"
+    }
+  ],
+  "verification_evidence": {
+    "python_tests": "1932 passed, 0 failed",
+    "create_issue_contract_module": "382 passed, 0 failed",
+    "regenerate_artifacts": "all artifacts reconciled \u2014 exit 0",
+    "shellcheck": "clean",
+    "ruff": "All checks passed",
+    "full_suite": "12326 passed, 0 failed, 1 skipped",
+    "skipped_checks": [
+      {
+        "name": "#434 stale-prose self-scan",
+        "kind": "blocking-gate",
+        "reason": "working tree dirty at suite time",
+        "discharged": "re-run against committed HEAD after the fix commit: exit 0, 0 STALE rows"
+      }
+    ]
+  },
+  "budget_remeasure": {
+    "root_words": 2732,
+    "root_ceiling": 2754,
+    "root_headroom_pct": 0.8,
+    "default_path_words": 31196,
+    "default_path_ceiling": 31262,
+    "default_path_headroom": 66,
+    "conservation_total": 26691,
+    "previous_conservation_total": 26580,
+    "ceilings_raised": false
+  },
+  "telemetry": {
+    "phase_0": {
+      "calls": 0,
+      "tokens": 0
+    },
+    "phase_0_5": {
+      "calls": 0,
+      "tokens": 0
+    },
+    "phase_0_6": {
+      "calls": 0,
+      "tokens": 0
+    },
+    "phase_1": {
+      "calls": 2,
+      "tokens": 223969
+    },
+    "phase_1_5": {
+      "calls": 1,
+      "tokens": 71264
+    },
+    "phase_2": {
+      "calls": 16,
+      "tokens": 1105000
+    },
+    "phase_3": {
+      "calls": 6,
+      "tokens": 695170
+    },
+    "phase_4_x": {
+      "calls": 0,
+      "tokens": 0
+    }
+  }
+}

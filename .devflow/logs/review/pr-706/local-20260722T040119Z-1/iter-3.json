@@ -1,0 +1,193 @@
+{
+  "iter": 3,
+  "loop_role": "fix",
+  "current_step": "3.5",
+  "current_substep": "post_fix_verification",
+  "pending_dispatch": null,
+  "fix_commit_sha": "a22313c0",
+  "prior_fix_commits": [
+    "dd19372f",
+    "572343a8",
+    "0a80f58e"
+  ],
+  "fix_files": [
+    "scripts/issue-audit-state.py",
+    "lib/test/test_python_scripts.py"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer"
+  ],
+  "phase3_roster_note": "Scoped fan-out: iteration 3 targeted the round-3 delta specifically, because rounds 2 and 3 each shipped a regression inside their own fix. type-design-analyzer and pr-test-analyzer were not re-dispatched this iteration — their iteration-2 findings were all applied or deliberately deferred, and the round-3 delta introduced no new type or test surface. This is a recorded narrowing, not full-roster coverage.",
+  "phase3_findings": [
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Critical",
+      "description": "The round-3 optional-field exemption skipped the comparison but not the unconditional whole-entry write, so a replay omitting --baseline-identity silently DELETED the value the first probe recorded, at exit 0 with no breadcrumb.",
+      "defect_signature": {
+        "file": "scripts/issue-audit-state.py",
+        "line_range": [
+          4057,
+          4075
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 2,
+      "orchestrator_reproduced": true,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Critical",
+      "description": "root.resolve() sat outside the guard round 3 widened, so the identical ELOOP RuntimeError traceback moved one line down instead of being removed.",
+      "defect_signature": {
+        "file": "scripts/issue-audit-state.py",
+        "line_range": [
+          773,
+          786
+        ],
+        "kind": "unhandled_exception"
+      },
+      "corroboration_count": 1,
+      "orchestrator_reproduced": true,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Important",
+      "description": "The both_truncated message was exclusive, dropping the diverging-field list whenever observed was truncated-equal — diagnosing a truncation cap while the real disagreement went unnamed.",
+      "defect_signature": {
+        "file": "scripts/issue-audit-state.py",
+        "line_range": [
+          4067,
+          4074
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 3,
+      "orchestrator_reproduced": true,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Important",
+      "description": "The de-counted _forged_protocol_token docstring replaced a rotted ordinal with an over-claim ('governs every ingestion point'), which the evidence channel falsifies.",
+      "defect_signature": {
+        "file": "scripts/issue-audit-state.py",
+        "line_range": [
+          264,
+          270
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "orchestrator_reproduced": true,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "_record_splitting_char's sibling sentence still counted its read-boundary callers and omitted _validate_claims, added in the same commit.",
+      "defect_signature": {
+        "file": "scripts/issue-audit-state.py",
+        "line_range": [
+          291,
+          297
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "The _UNESTABLISHED comment pointed at a definition site that does not state the invariant it cites.",
+      "defect_signature": {
+        "file": "scripts/issue-audit-state.py",
+        "line_range": [
+          667,
+          673
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "_validate_finding_evidence's pre-existing 'validated like any other decided field' framing read against its own block once the value became re-derived.",
+      "defect_signature": {
+        "file": "scripts/issue-audit-state.py",
+        "line_range": [
+          1083,
+          1087
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Important",
+      "description": "Round 3's COMMIT MESSAGE claimed the query-finding-evidence help fix was 'pinned against the rendered --help'. No such pin existed — a fix-comment over-claim.",
+      "defect_signature": {
+        "file": "lib/test/test_python_scripts.py",
+        "line_range": null,
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "orchestrator_reproduced": true,
+      "fix_decision": "applied",
+      "resolution": "Made true rather than retracted: row #704-28 adds the rendered-help pin, and round 4's commit message states the correction explicitly."
+    }
+  ],
+  "mutation_evidence": [
+    {
+      "pin": "#704-28 optional carry-forward",
+      "mutation": "delete the carry-forward loop",
+      "observed": "RED (1 failed)"
+    },
+    {
+      "pin": "#704-28 additive refusal message",
+      "mutation": "restore the exclusive truncation clause",
+      "observed": "RED (1 failed)"
+    },
+    {
+      "pin": "#704-28 single resolve guard",
+      "mutation": "move root.resolve() back outside the guard",
+      "observed": "RED (1 failed)"
+    }
+  ],
+  "retired_pins": [
+    {
+      "pin": "#704-16 'completeness disagrees with its own fields' fail-closed row",
+      "retired_in": "0a80f58e",
+      "reason": "The behavior deliberately changed to self-healing re-derivation; the row asserted the old fail-closed contract. Retired in the same commit as the behavior change, with the reasoning recorded in place and the security guarantee it protected re-asserted directly by #704-27.",
+      "guarantee_preserved_by": "#704-27: a hand-edited `complete` beside a blanked required field still reads `incomplete`."
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 8,
+    "new_corroborated_critical_count": 2,
+    "note": "Non-converged at the end of iteration 3: two Criticals this iteration were regressions introduced by iteration 2's own fixes. Iteration 4 verification is required before any clean-verdict claim."
+  },
+  "verification_evidence": {
+    "python_tests": "1946 passed, 0 failed",
+    "regenerate_artifacts": "all artifacts reconciled — exit 0",
+    "shellcheck": "clean",
+    "ruff": "All checks passed",
+    "full_suite": "running against the committed tree a22313c0 at the time of this write"
+  },
+  "telemetry": "unavailable"
+}
