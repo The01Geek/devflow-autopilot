@@ -8150,7 +8150,7 @@ assert_eq "#484 withheld list is exactly gh pr checkout, git rev-list, mktemp" \
 # A failed/empty find becomes a sentinel path, which `_impl_ungranted` turns into
 # `__extractor_error__`; roster discovery can never masquerade as zero heads.
 if ! _impl_files="$(find "$LIB/../skills/implement" "$LIB/../skills"/review* "$LIB/../skills/requesting-code-review" -type f -name '*.md' -print 2>"$E484/roster.err")" \
-   || [ -z "$_impl_files" ]; then
+   || [ -z "$_impl_files" ]; then  # tree-walk-ok: all three operands are scoped to skills/ (implement, review*, requesting-code-review), which no worktree lives under
   _impl_files="$E484/__roster_error__"
 fi
 assert_eq "#484 recursive roster includes nested implement phase files" "yes" \
@@ -30780,7 +30780,7 @@ assert_eq "#506 Writing-skills evidence marker is present in the contract and bo
 # contributes zero assertions and silently passes; the SP_VENDORED_FILES non-empty assertion
 # directly below is what closes that hole, so the two must stay paired. The vendored skill paths
 # are alphanumeric/hyphen (no spaces), so the unquoted find word-split is safe.
-SP_VENDORED_FILES=$(find "$FDROOT/skills/requesting-code-review" "$FDROOT/skills/receiving-code-review" -type f 2>/dev/null)
+SP_VENDORED_FILES=$(find "$FDROOT/skills/requesting-code-review" "$FDROOT/skills/receiving-code-review" -type f 2>/dev/null)  # tree-walk-ok: scoped to two named skill directories, never the repository root
 # Fail CLOSED on an empty iteration set: if the two vendored trees were deleted/renamed
 # wholesale, `find` returns nothing and the loop below would contribute ZERO assertions — a
 # silent pass on the exact botched-re-vendor regression this block exists to catch (the
@@ -32385,12 +32385,12 @@ assert_eq "#245 T10: preflight, gh genuinely absent → does NOT emit the shim-s
 #    backstop), and every Python gh-caller reads DEVFLOW_GH with no argv0 "gh"
 #    literal left behind. ──
 DGH_ROOT="$(cd "$LIB/.." && pwd)"
-DGH_HARDCODE="$(grep -rlF 'DEVFLOW_GH:=gh}' "$DGH_ROOT/scripts" "$DGH_ROOT/lib" --include='*.sh' 2>/dev/null | grep -v '/test/' | grep -c . || true)"
+DGH_HARDCODE="$(grep -rlF 'DEVFLOW_GH:=gh}' "$DGH_ROOT/scripts" "$DGH_ROOT/lib" --include='*.sh' 2>/dev/null | grep -v '/test/' | grep -c . || true)"  # tree-walk-ok: scoped to $DGH_ROOT/scripts and $DGH_ROOT/lib, which no worktree lives under
 assert_eq "#245 peer-completeness: no shell helper retains the bare DEVFLOW_GH:=gh default" "0" "$DGH_HARDCODE"
 # Exclude the resolver itself from the sourcing count (its own header contains the
 # literal 'resolve-gh.sh'); without the exclusion the count self-matches to 14 and
 # one converted helper could silently drop the sourcing while >=13 stays green.
-DGH_SOURCED="$(grep -rlF 'resolve-gh.sh' "$DGH_ROOT/scripts" "$DGH_ROOT/lib" --include='*.sh' 2>/dev/null | grep -v '/test/' | grep -v 'lib/resolve-gh\.sh$' | grep -c . || true)"
+DGH_SOURCED="$(grep -rlF 'resolve-gh.sh' "$DGH_ROOT/scripts" "$DGH_ROOT/lib" --include='*.sh' 2>/dev/null | grep -v '/test/' | grep -v 'lib/resolve-gh\.sh$' | grep -c . || true)"  # tree-walk-ok: scoped to $DGH_ROOT/scripts and $DGH_ROOT/lib, which no worktree lives under
 assert_eq "#245 peer-completeness: >=13 helpers source resolve-gh.sh (all gh-callers converted, resolver excluded from its own count)" "yes" \
   "$([ "$DGH_SOURCED" -ge 13 ] && echo yes || echo no)"
 # The bare-call grep the block comment promises: no non-comment, non-diagnostic
@@ -32399,7 +32399,7 @@ assert_eq "#245 peer-completeness: >=13 helpers source resolve-gh.sh (all gh-cal
 # authorize-actor.sh / react-to-trigger.sh) — the two pins above stay green on it.
 DGH_BARE="$(grep -rnE '(^|[[:space:]`;|&(])gh[[:space:]]+(api|pr|issue|label|repo|auth|search|run|workflow)([[:space:]]|$)' \
   "$DGH_ROOT/scripts" "$DGH_ROOT/lib" --include='*.sh' 2>/dev/null \
-  | grep -v '/test/' | grep -v 'resolve-gh\.sh:' | grep -vE ':[[:space:]]*#' | grep -vE '(echo|printf) ' | grep -c . || true)"
+  | grep -v '/test/' | grep -v 'resolve-gh\.sh:' | grep -vE ':[[:space:]]*#' | grep -vE '(echo|printf) ' | grep -c . || true)"  # tree-walk-ok: scoped to $DGH_ROOT/scripts and $DGH_ROOT/lib, which no worktree lives under
 assert_eq "#245 peer-completeness: no non-comment bare gh <subcommand> call survives outside the resolver" "0" "$DGH_BARE"
 # Per-script Python routing pins: each enumerated Python gh-caller reads the
 # documented DEVFLOW_GH override and keeps no bare-"gh" argv0 literal. T4/T8
@@ -32885,7 +32885,7 @@ DJQ_ROOT="$(cd "$LIB/.." && pwd)"
 # call sites to the converted form) + scripts/run-jq.sh (issue #253 — the
 # agent-tier jq wrapper skill bodies invoke by path; it sources resolve-jq.sh
 # exactly as the .sh helpers do).
-DJQ_SOURCED="$(grep -rlE 'resolve-(jq|bin)\.sh' "$DJQ_ROOT/scripts" "$DJQ_ROOT/lib" "$DJQ_ROOT/install.sh" --include='*.sh' 2>/dev/null | grep -v '/test/' | grep -v 'lib/resolve-bin\.sh$' | grep -v 'lib/resolve-jq\.sh$' | grep -c . || true)"
+DJQ_SOURCED="$(grep -rlE 'resolve-(jq|bin)\.sh' "$DJQ_ROOT/scripts" "$DJQ_ROOT/lib" "$DJQ_ROOT/install.sh" --include='*.sh' 2>/dev/null | grep -v '/test/' | grep -v 'lib/resolve-bin\.sh$' | grep -v 'lib/resolve-jq\.sh$' | grep -c . || true)"  # tree-walk-ok: scoped to $DJQ_ROOT/scripts, /lib and install.sh, which no worktree lives under
 assert_eq "#247 peer-completeness: >=16 helpers reference the shared resolver (all jq-callers + resolve-gh.sh + run-jq.sh converted)" "yes" \
   "$([ "$DJQ_SOURCED" -ge 16 ] && echo yes || echo no)"
 # Exclusions are deliberately MINIMAL (a blanket echo/printf line-exclusion
@@ -32900,7 +32900,7 @@ assert_eq "#247 peer-completeness: >=16 helpers reference the shared resolver (a
 # reintroductions go RED too.
 DJQ_BARE="$(grep -rnE '(^|[[:space:]|&;(`])jq[[:space:]]+(-|'"'"'|"|\.|empty|length|keys|type|to_entries)' \
   "$DJQ_ROOT/scripts" "$DJQ_ROOT/lib" "$DJQ_ROOT/install.sh" --include='*.sh' 2>/dev/null \
-  | grep -v '/test/' | grep -v 'resolve-bin\.sh:' | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' | grep -vE 'jq(\.exe)? --version' | grep -c . || true)"
+  | grep -v '/test/' | grep -v 'resolve-bin\.sh:' | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' | grep -vE 'jq(\.exe)? --version' | grep -c . || true)"  # tree-walk-ok: scoped to $DJQ_ROOT/scripts, /lib and install.sh, which no worktree lives under
 assert_eq "#247 peer-completeness: no bare invocation-position jq call survives outside the resolver" "0" "$DJQ_BARE"
 
 # ── Skills-tier jq pin (issue #253, widened by #271) — the DJQ_BARE grep above
@@ -32944,7 +32944,7 @@ assert_eq "#253 skills-jq: scripts/run-jq.sh is committed executable (100755)" "
 # (flag/quoted-program/path/bareword-filter forms), excluding the resolver's own
 # `--version` probe shape and the wrapper path itself.
 SKILL_JQ_BARE="$(
-  find "$LIB/../skills" -type f -name '*.md' 2>/dev/null | while IFS= read -r _f; do
+  find "$LIB/../skills" -type f -name '*.md' 2>/dev/null | while IFS= read -r _f; do  # tree-walk-ok: scoped to skills/, which no worktree lives under
     awk '
       /^[[:space:]]*```(bash|sh|shell)[[:space:]]*$/ { inb=1; next }
       /^[[:space:]]*```[[:space:]]*$/ { inb=0; next }
@@ -47439,7 +47439,7 @@ assert_eq "#664 scanner: every excluded prefix keeps its planted violation out o
   "$(e664_run "$E664_FX/exroot" \
       lib/test/planted.sh docs/planted.sh .github/workflows/planted.yml \
       .github/actions/act/planted.sh .devflow/logs/planted.md .devflow/learnings/planted.md \
-      .changeset/planted.md CHANGELOG.md included/planted.sh \
+      .changeset/planted.md CHANGELOG.md .claude/worktrees/w/planted.sh included/planted.sh \
     | python3 -c 'import re,sys
 t = sys.stdin.read()
 body = t.split("|", 1)[1]
@@ -47455,6 +47455,16 @@ print("|".join([
 assert_eq "#664 scanner: an all-excluded population is a zero tally at exit 0, not a failure" \
   "rc=0|lint-gh-api-repo-path: audited 0 of 0 files" \
   "$(e664_run "$E664_FX/exroot" lib/test/planted.sh docs/planted.sh)"
+
+# issue #711: this scanner's population is a WORKING-TREE enumeration (--others), so before the
+# helper carried its own .claude/worktrees/ exclusion it swept every sibling worktree and could
+# report a violation living in another branch's checkout. It survived only through the untracked,
+# harness-managed .git/info/exclude line — machine-local state a bare clone does not inherit —
+# so this assertion drives the exclusion directly through --files-from, where that line has no
+# say at all, and therefore holds on a clone that lacks it.
+assert_eq "#711 the gh-api lint is worktree-immune without the local exclude" \
+  "rc=0|lint-gh-api-repo-path: audited 0 of 0 files" \
+  "$(e664_run "$E664_FX/exroot" .claude/worktrees/w/planted.sh)"
 
 # Fail-closed arms, measured PRE-exclusion, each naming which of the two occurred.
 assert_eq "#664 scanner: an empty pre-exclusion population fails closed with its own breadcrumb" "yes" \
@@ -47485,6 +47495,419 @@ assert_pin_red_under "#664 fence: the resolved comment id is admitted only when 
   '[ -n "$TRIGGER_COMMENT_ID" ] && [ -z "${TRIGGER_COMMENT_ID//[0-9]/}" ]' \
   's|^if \[ -n "\$TRIGGER_COMMENT_ID" \] && \[ -z .*\]; then$|if [ -n "$TRIGGER_COMMENT_ID" ]; then|' \
   "$E664_IMPL"
+
+echo "#711 tree enumeration: a repository-root recursive walk is declared, not silent"
+# The guard joins the desk-time static-lint family (extract-command-heads.py, pin-corpus-lint.py,
+# lint-gh-api-repo-path.py, lint-issue-body-refetch.py, coverage_map_guard.py — deliberately no
+# ordinal: it is the THIRD member of the DECLARATION-MARKER family, which is a different set, and
+# a count of this one accretes) and is driven the same way: the real tree as the
+# live gate, plus synthetic fixtures through --root/--files-from. Its audited population INCLUDES
+# lib/test/, which is why its fixtures are written into probe_tmp scratch rather than checked in —
+# a tracked fixture carrying an unmarked walk would be caught by the guard's own real-tree run.
+E711_LINT="$LIB/test/lint-tree-enumeration.py"
+E711_CLAUDE="$LIB/../CLAUDE.md"
+E711_GROWTH="$LIB/../docs/cutovers/issue-711-tree-enumeration-growth.md"
+
+# Anchored at "$LIB/.." rather than left to resolve from the process cwd: the helper accepts
+# --root, and the repo's #295 contract is to audit the tree the caller means, not whichever git
+# root the cwd happens to sit in. (The --root-absent fallback keeps its own assertion below.)
+E711_OUT="$(python3 "$E711_LINT" --root "$LIB/.." 2>&1)"; E711_RC=$?
+# Comparand is the exit code alone: the audited count would drift with every file added to
+# lib/test/, so the positive-tally check below is a SEPARATE assertion reading the same rc=0 run.
+assert_eq "#711 the real tree audits clean" "rc=0" \
+  "$([ "$E711_RC" -eq 0 ] && printf 'rc=0' || printf 'rc=%s | %s' "$E711_RC" "$E711_OUT")"
+assert_eq "#711 the real-tree run audited a positive number of files" "yes" \
+  "$(printf '%s' "$E711_OUT" | python3 -c 'import re,sys
+m = re.search(r"audited (\d+) of", sys.stdin.read())
+print("yes" if m and int(m.group(1)) > 0 else "no")')"
+# The real-tree population contains one file that is not valid UTF-8 (an adversarial fixture
+# planted for the #664 lint, whose own population excludes lib/test/). A decode that raised, or
+# that dropped the file, would show up here as a skip — and any skip refuses to report clean.
+assert_eq "#711 the real tree decodes without raising" "yes" \
+  "$(case "$E711_OUT" in *"SKIPPED"*) echo "no: $E711_OUT" ;; *) echo yes ;; esac)"
+
+# Fixture driver. Bodies are composed from PARTS at write time so no candidate token literal
+# lands in this file's own source — every fixture line would otherwise need a marker of its own.
+E711_TOK_R="rglob"; E711_TOK_W="os.walk"; E711_TOK_G="glob"
+e711_run() {  # <root> <path…>  -> prints "rc=<n>|<stdout+stderr>"
+  local root="$1"; shift
+  local list out rc
+  list="$(probe_tmp '#711 fixture list')" || list=""
+  # probe_tmp prints the literal /dev/null on mktemp failure. Writing the fixture list there
+  # yields an EMPTY population, which the guard fails closed on with rc 1 — so every assertion
+  # whose expected value is the bare string `rc=1` would PASS, having proven nothing about the
+  # walk detection it names. probe_tmp has already recorded its own FAIL, so the run is red
+  # either way; emit a value that can match no expectation, so the misattribution cannot happen.
+  case "$list" in
+    ""|/dev/null) printf 'rc=probe-unavailable|fixture list could not be allocated'; return 0 ;;
+  esac
+  printf '%s\n' "$@" > "$list"
+  out="$(python3 "$E711_LINT" --root "$root" --files-from "$list" 2>&1)"; rc=$?
+  rm -f "$list"
+  printf 'rc=%s|%s' "$rc" "$out"
+}
+e711_rc() {  # <root> <path…>  -> prints just "rc=<n>"; assert_eq prints the value on a miss,
+             # so a bespoke per-case failure string buys nothing the helper does not already give.
+  # Pure parameter expansion — no tr/sed/cut: this value DECIDES an assertion, and the repo's
+  # guard-class-2 rule keeps such a value off every non-preflight PATH tool.
+  local out; out="$(e711_run "$@")"
+  # The guard exits 1 both when it DETECTS a walk and when it refuses to audit at all (the
+  # load-failure arm: the shared extract-command-heads.py could not be resolved). Every
+  # "<shape> is a candidate" assertion compares against the bare string `rc=1`, so a rename of
+  # that shared helper would turn ~20 detection assertions green while nothing was scanned —
+  # the same misattribution the probe_tmp sentinel above is short-circuited to prevent. Emit a
+  # value no expectation can match instead. A `SKIPPED` outcome is deliberately NOT caught here:
+  # it is a real per-file verdict some assertions legitimately expect through rc=1.
+  case "$out" in
+    *"refusing to audit"*) printf 'rc=guard-unusable'; return 0 ;;
+  esac
+  printf '%s' "${out%%|*}"
+}
+e711_run_outcome() {  # <root> <path…> -> like e711_run, minus the all-excluded NOTE line
+  # The note's WORDING is not this assertion's subject — the rc and the audited tally are. Pinning
+  # the prose verbatim made an ordinary rewording break two unrelated assertions, so the note gets
+  # its own dedicated assertion below and these compare the outcome. Filtered with python3 (a
+  # preflight-guaranteed interpreter), never sed/grep: this value decides an assertion.
+  local out; out="$(e711_run "$@")"
+  printf '%s' "$out" | python3 -c 'import sys
+text = sys.stdin.read()
+# The rc= prefix rides on the FIRST body line, so split it off before filtering — otherwise the
+# note line reads as "rc=0|lint-tree-enumeration: note: …" and no prefix test matches it.
+prefix, _, body = text.partition("|")
+keep = [l for l in body.split("\n") if "lint-tree-enumeration: note:" not in l]
+print(prefix + "|" + "\n".join(keep), end="")'
+}
+e711_write() {  # <root> <relpath> <line…>  -> writes a fixture file, creating parents
+  local root="$1" rel="$2" dir; shift 2
+  dir="${rel%/*}"; [ "$dir" = "$rel" ] || mkdir -p "$root/$dir"
+  printf '%s\n' "$@" > "$root/$rel"
+}
+
+E711_FX="$(probe_tmp '#711 fixture root')"
+# probe_tmp prints the literal /dev/null when mktemp fails (unlike git_sandbox, whose
+# /dev/null/... sentinel fails every downstream mkdir closed by construction). An unguarded
+# `rm -f` on it would, under a root container with a writable /dev, delete the device node and
+# silently change the meaning of every `2>/dev/null` in the rest of the suite.
+case "$E711_FX" in ""|/dev/null) : ;; *) rm -f "$E711_FX"; mkdir -p "$E711_FX" ;; esac
+e711_write "$E711_FX" lib/test/clean.py "import os" "print(os.sep)"
+e711_write "$E711_FX" lib/test/unmarked.py "for p in root.${E711_TOK_R}('*.json'):" "    print(p)"
+e711_write "$E711_FX" lib/test/marked.py \
+  "for p in root.${E711_TOK_R}('*.json'):  # tree-walk-ok: scoped to a per-test sandbox" "    print(p)"
+e711_write "$E711_FX" lib/test/nearmiss.py \
+  "for p in root.${E711_TOK_R}('*.json'):  # tree-walk-ok scoped to a per-test sandbox" "    print(p)"
+e711_write "$E711_FX" lib/test/emptyreason.py \
+  "for p in root.${E711_TOK_R}('*.json'):  # tree-walk-ok:" "    print(p)"
+e711_write "$E711_FX" lib/test/commented.py "# a walk would be ${E711_TOK_W}(root) here" "print(1)"
+e711_write "$E711_FX" lib/test/starglob.py "paths = ROOT.${E711_TOK_G}(\"**/x.json\")"
+e711_write "$E711_FX" lib/test/broken.py "def f(:"
+e711_write "$E711_FX" other/outside.py "for p in root.${E711_TOK_R}('*.json'):" "    print(p)"
+# Multi-element fixtures for the cardinality-sensitive part of the report: findings are sorted by
+# line and deduplicated per line, neither of which a single-violation file exercises. `dual.py`
+# plants two violations OUT of line order in the file's own structure, so a broken sort key shows
+# up as reordered output rather than passing silently. The DEDUPE is exercised separately by
+# `dedupe.py` below: a `**`-pattern line cannot also reach the non-literal-pattern arm (arm 1
+# appends and short-circuits), so no single line of `dual.py` can ever emit two findings — only a
+# line reaching the LITERAL arm and an AST arm at once does, which is what `dedupe.py` plants.
+e711_write "$E711_FX" lib/test/dual.py \
+  "a = ROOT.${E711_TOK_G}(joined(\"**\", \"x.json\"))" \
+  "b = 1" \
+  "c = root.${E711_TOK_R}('*.json')"
+e711_write "$E711_FX" lib/test/second.py "d = root.${E711_TOK_W}(base)"
+# One line reaching the literal arm AND AST arm 1 at once — the only shape that generates a
+# duplicate finding for a single line, so deleting the per-line dedupe reports this line twice.
+e711_write "$E711_FX" lib/test/dedupe.py "e = root.${E711_TOK_R}(\"**/x.json\")"
+# AST arm 2's positive control: a `glob(`-family call whose pattern argument is a plain NAME.
+# No other fixture reaches arm 2 — without this one, deleting the arm leaves the block green.
+e711_write "$E711_FX" lib/test/nonliteral.py "f = ROOT.${E711_TOK_G}(pattern)"
+# Arm 2's documented complement: a call with no positional argument at all is not a candidate.
+e711_write "$E711_FX" lib/test/kwonly.py "g = ROOT.${E711_TOK_G}(pattern=p)"
+# Positive controls for the two LITERAL_TOKENS members no other fixture reaches. Both shapes are
+# deliberately invisible to BOTH AST arms — a plain string pattern with no `**` component — so the
+# literal arm is the only thing that can flag them, and deleting either tuple member turns exactly
+# one of these RED instead of leaving the whole block green. Tokens are assembled from parts for
+# the same reason as the rest: an intact literal here would make run.sh its own candidate.
+E711_TOK_I="ig""lob"; E711_TOK_RT="recursive""=True"
+e711_write "$E711_FX" lib/test/iglob.py "k = ${E711_TOK_G}.${E711_TOK_I}(\"*.txt\")"
+e711_write "$E711_FX" lib/test/recursivekw.py "l = ${E711_TOK_G}.${E711_TOK_G}(\"*.txt\", ${E711_TOK_RT})"
+# Minor #2's uncovered branch: a file that is BOTH unparseable and carries a literal-arm walk.
+# `broken.py` carries no walk token, so the "report literal findings alongside the parse skip"
+# path was unexercised — deleting that report would have left the block green.
+e711_write "$E711_FX" lib/test/brokenwalk.py "m = root.${E711_TOK_R}('*.json')" "def f(:"
+# The residual docstring now states positively that a keyword-LITERAL `**` pattern is still
+# caught (the `**`-component arm reads every string constant in the call, whatever its argument
+# position). `kwonly.py`'s pattern is a NAME, so it cannot discharge that claim — this fixture is
+# the control that keeps the stated contract from becoming a documented falsehood.
+e711_write "$E711_FX" lib/test/kwstar.py "n = ROOT.${E711_TOK_G}(pattern=\"**/x.json\")"
+
+# --- Shell arm fixtures. Every fixture above is `.py`, so without these the whole shell arm
+# --- (fold_continuations, statements_in, the path-operand scan, ROOT_FRAGMENTS, the substring
+# --- pre-filter) has no positive control and emptying it leaves the suite green. Heads and root
+# --- fragments are assembled from parts for the same reason the Python tokens are: an assembled
+# --- head keeps run.sh's own source below the guard's substring pre-filter, so no fixture line
+# --- here becomes a candidate in the file that writes it.
+E711_TOK_F="fi""nd"; E711_TOK_GR="gr""ep"; E711_RV="RO""OT"
+e711_write "$E711_FX" lib/test/sh_find.sh "${E711_TOK_F} \"\$LIB/../skills\" -name x"
+e711_write "$E711_FX" lib/test/sh_capture.sh "V=\"\$(${E711_TOK_GR} -rlF x \"\$DGH_${E711_RV}/lib\")\""
+e711_write "$E711_FX" lib/test/sh_repo_root.sh "${E711_TOK_GR} -r x \"\$REPO_${E711_RV}/lib\""
+e711_write "$E711_FX" lib/test/sh_marked.sh \
+  "${E711_TOK_F} \"\$LIB/../skills\" -name x  # tree-walk-ok: scoped to a per-test sandbox"
+e711_write "$E711_FX" lib/test/sh_nonroot.sh "${E711_TOK_GR} -rn z \"\$SOMEDIR\""
+e711_write "$E711_FX" lib/test/sh_nonrecursive.sh "${E711_TOK_GR} -n z \"\$${E711_RV}/x\""
+e711_write "$E711_FX" lib/test/sh_continued.sh \
+  "V=\"\$(${E711_TOK_GR} -rlF x \\\\" \
+  "  \"\$${E711_RV}/lib\")\""
+# The three fail-open shapes the inline review fixed, each retained as a live regression control.
+e711_write "$E711_FX" lib/test/sh_paramexp.sh "d=\${rel#*/}; ${E711_TOK_F} \"\$${E711_RV}\" -type f"
+e711_write "$E711_FX" lib/test/sh_optvalue.sh \
+  "V=\"\$(${E711_TOK_GR} -r --include '*.sh' NEEDLE \"\$${E711_RV}\")\""
+e711_write "$E711_FX" lib/test/strmarker.py \
+  "h = [\"# tree-walk-ok: not a comment\", root.${E711_TOK_R}('*.json')]"
+# Head POSITION. The head is located through extract-command-heads.py's own classification, not
+# assumed to be token 0; each shape below reported `audited 1 of 1 files` at exit 0 before that.
+e711_write "$E711_FX" lib/test/sh_envprefix.sh "LC_ALL=C ${E711_TOK_GR} -rn needle \"\$${E711_RV}\""
+e711_write "$E711_FX" lib/test/sh_wrapper.sh "timeout 5 ${E711_TOK_F} \"\$${E711_RV}\" -type f"
+e711_write "$E711_FX" lib/test/sh_redirect.sh ">out ${E711_TOK_F} \"\$${E711_RV}\" -type f"
+e711_write "$E711_FX" lib/test/sh_negated.sh "! ${E711_TOK_GR} -rq needle \"\$${E711_RV}\""
+e711_write "$E711_FX" lib/test/sh_ifcond.sh "if ${E711_TOK_F} \"\$${E711_RV}\" -type f; then :; fi"
+e711_write "$E711_FX" lib/test/sh_procsub.sh \
+  "while IFS= read -r f; do :; done < <(${E711_TOK_F} \"\$${E711_RV}\" -type f)"
+e711_write "$E711_FX" lib/test/sh_subshell.sh "(${E711_TOK_F} \"\$${E711_RV}\" -name sub)"
+# Span acceptance on the Python side: the marker sits on the wrapped call's CLOSING line.
+e711_write "$E711_FX" lib/test/pyspan.py \
+  "j = ROOT.${E711_TOK_G}(" \
+  "    \"**/y.json\"" \
+  ")  # tree-walk-ok: scoped to a per-test sandbox"
+# The long recursive flags and the operand-less cwd default: both are live arms with no other
+# fixture, so narrowing _GREP_RECURSIVE or dropping the implicit `.` was previously invisible.
+e711_write "$E711_FX" lib/test/sh_longflag.sh "${E711_TOK_GR} --recursive x \"\$${E711_RV}/lib\""
+e711_write "$E711_FX" lib/test/sh_cwddefault.sh "${E711_TOK_GR} -rn NEEDLE"
+# The unbalanced-quote fallback in _comment_split: this line's opening quote lives on the PREVIOUS
+# physical line, so a quote-aware-only split would swallow the marker and report a declared walk.
+e711_write "$E711_FX" lib/test/sh_markedcont.sh \
+  "V=\"\$(${E711_TOK_F} \"\$${E711_RV}/lib\" \\\\" \
+  "  -name x)\"  # tree-walk-ok: scoped to a per-test sandbox"
+# is_audited's separator normalization: a backslash-form path still selects into the population.
+e711_write "$E711_FX" lib/test/backslash.py "i = root.${E711_TOK_R}('*.json')"
+
+# Planted-defect positive control — the assertion that discharges the guard-coverage claim.
+assert_eq "#711 guard flags an unmarked walk in the audited population" "rc=1|lib/test/unmarked.py" \
+  "$(e711_run "$E711_FX" lib/test/unmarked.py | python3 -c 'import re,sys
+t = sys.stdin.read()
+print("rc=%s|%s" % (re.match(r"rc=(\d+)", t).group(1),
+                    ",".join(re.findall(r"^(\S+):\d+: undeclared", t.split("|",1)[1], re.M))))')"
+assert_eq "#711 two violations in one file are reported once each, in line order" "rc=1|1,3" \
+  "$(e711_run "$E711_FX" lib/test/dual.py | python3 -c 'import re,sys
+t = sys.stdin.read()
+print("rc=%s|%s" % (re.match(r"rc=(\d+)", t).group(1),
+                    ",".join(re.findall(r"^\S+:(\d+): undeclared", t.split("|",1)[1], re.M))))')"
+assert_eq "#711 two violating files exit non-zero once, reporting both" "rc=1|lib/test/dual.py,lib/test/dual.py,lib/test/second.py|2" \
+  "$(e711_run "$E711_FX" lib/test/dual.py lib/test/second.py | python3 -c 'import re,sys
+t = sys.stdin.read()
+body = t.split("|", 1)[1]
+print("|".join([
+    "rc=" + re.match(r"rc=(\d+)", t).group(1),
+    ",".join(re.findall(r"^(\S+):\d+: undeclared", body, re.M)),
+    re.search(r"audited (\d+) of", body).group(1),
+]))')"
+assert_eq "#711 guard accepts a marked walk" "rc=0|lint-tree-enumeration: audited 1 of 1 files" \
+  "$(e711_run "$E711_FX" lib/test/marked.py)"
+assert_eq "#711 a bare tree-walk-ok substring does not exempt" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/nearmiss.py)"
+assert_eq "#711 a marker with an empty reason does not exempt" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/emptyreason.py)"
+assert_eq "#711 a walk token inside a comment is not a candidate" "rc=0|lint-tree-enumeration: audited 1 of 1 files" \
+  "$(e711_run "$E711_FX" lib/test/commented.py)"
+assert_eq "#711 a root-anchored glob with a ** component is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/starglob.py)"
+assert_eq "#711 guard reports its audited count on the clean path" "rc=0|lint-tree-enumeration: audited 1 of 1 files" \
+  "$(e711_run "$E711_FX" lib/test/clean.py)"
+# An unparseable audited file has NOT been audited; reporting clean over it would be the same
+# fail-open the guard exists to prevent, so it is a named skip and a non-zero exit.
+assert_eq "#711 a keyword-literal ** pattern is still a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/kwstar.py)"
+assert_eq "#711 an unparseable audited file is a named skip, not a silent pass" "yes" \
+  "$(case "$(e711_run "$E711_FX" lib/test/broken.py)" in rc=0*) echo "no: exited 0" ;; *"SKIPPED lib/test/broken.py"*) echo yes ;; *) echo no ;; esac)"
+# The OTHER skip arm — an unopenable path — reaches the same fail-closed exit through different
+# code (_read's OSError arm, not the parse arm), so it needs its own control.
+assert_eq "#711 an unreadable selected path is a named skip, not a silent pass" "yes" \
+  "$(case "$(e711_run "$E711_FX" lib/test/no-such-file.py)" in rc=0*) echo "no: exited 0" ;; *"SKIPPED lib/test/no-such-file.py"*) echo yes ;; *) echo no ;; esac)"
+
+# AST arm 2 (a non-literal pattern argument) and the per-line dedupe. Neither is reachable from
+# any fixture above, so without these two assertions deleting either leaves the whole block green.
+assert_eq "#711 a glob call whose pattern is not a literal is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/nonliteral.py)"
+assert_eq "#711 a glob call with no positional pattern argument is not a candidate" \
+  "rc=0|lint-tree-enumeration: audited 1 of 1 files" \
+  "$(e711_run "$E711_FX" lib/test/kwonly.py)"
+# The literal arm's two otherwise-uncovered members. The reason string is part of the comparand:
+# it names the token that fired, so a fixture accidentally flagged by an AST arm instead cannot
+# masquerade as the control this assertion claims to be.
+assert_eq "#711 an iglob call with a plain literal pattern is a literal-arm candidate" \
+  "rc=1|1:${E711_TOK_I}(" \
+  "$(e711_run "$E711_FX" lib/test/iglob.py | python3 -c 'import re,sys
+t = sys.stdin.read()
+b = t.split("|",1)[1]
+m = re.search(r"^\S+:(\d+): undeclared recursive walk \(`([^`]+)`\)", b, re.M)
+print("rc=%s|%s" % (re.match(r"rc=(\d+)", t).group(1), "%s:%s" % m.groups() if m else "none"))')"
+assert_eq "#711 a recursive= keyword glob is a literal-arm candidate" \
+  "rc=1|1:${E711_TOK_RT}" \
+  "$(e711_run "$E711_FX" lib/test/recursivekw.py | python3 -c 'import re,sys
+t = sys.stdin.read()
+b = t.split("|",1)[1]
+m = re.search(r"^\S+:(\d+): undeclared recursive walk \(`([^`]+)`\)", b, re.M)
+print("rc=%s|%s" % (re.match(r"rc=(\d+)", t).group(1), "%s:%s" % m.groups() if m else "none"))')"
+# An unparseable file that ALSO carries a literal-arm walk reports BOTH — the finding is not
+# discarded by the parse skip, so the author does not pay a second red run for a known violation.
+assert_eq "#711 a parse skip still reports the literal-arm findings it already collected" \
+  "rc=1|finding=1|skip=1" \
+  "$(e711_run "$E711_FX" lib/test/brokenwalk.py | python3 -c 'import re,sys
+t = sys.stdin.read()
+b = t.split("|",1)[1]
+print("|".join([
+    "rc=" + re.match(r"rc=(\d+)", t).group(1),
+    "finding=%d" % len(re.findall(r"^lib/test/brokenwalk\.py:\d+: undeclared", b, re.M)),
+    "skip=%d" % len(re.findall(r"SKIPPED lib/test/brokenwalk\.py", b)),
+]))')"
+assert_eq "#711 one line reaching two arms is reported once" "rc=1|1" \
+  "$(e711_run "$E711_FX" lib/test/dedupe.py | python3 -c 'import re,sys
+t = sys.stdin.read()
+print("rc=%s|%s" % (re.match(r"rc=(\d+)", t).group(1),
+                    ",".join(re.findall(r"^\S+:(\d+): undeclared", t.split("|",1)[1], re.M))))')"
+
+# --- Shell-arm assertions. The arm fires only on a `find`/`grep -r` whose path operand resolves
+# --- to the repository root, so each shape below is asserted against its own negative control:
+# --- emptying ROOT_FRAGMENTS, inverting the substring pre-filter, breaking fold_continuations, or
+# --- narrowing the path-operand scan each turns one of these RED.
+assert_eq "#711 a shell find over a repository-root path is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_find.sh)"
+assert_eq "#711 a captured recursive grep over a repository-root path is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_capture.sh)"
+# Named for what it measures: a $REPO_ROOT-spelled operand is a candidate. It is NOT a control
+# for the REPO_ROOT tuple member, which `ROOT` subsumes as its own source comment concedes —
+# dropping that member changes no verdict, by construction.
+assert_eq "#711 a REPO_ROOT-spelled operand is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_repo_root.sh)"
+assert_eq "#711 a line-continued recursive grep whose root operand wraps is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_continued.sh)"
+assert_eq "#711 a marked shell walk is accepted" "rc=0|lint-tree-enumeration: audited 1 of 1 files" \
+  "$(e711_run "$E711_FX" lib/test/sh_marked.sh)"
+# The shell arm's documented complement, asserted so an over-wide fragment set goes RED here.
+assert_eq "#711 a recursive grep rooted below the repository root is not a candidate" \
+  "rc=0|lint-tree-enumeration: audited 1 of 1 files" \
+  "$(e711_run "$E711_FX" lib/test/sh_nonroot.sh)"
+assert_eq "#711 a non-recursive grep at the repository root is not a candidate" \
+  "rc=0|lint-tree-enumeration: audited 1 of 1 files" \
+  "$(e711_run "$E711_FX" lib/test/sh_nonrecursive.sh)"
+
+# Three fail-open regressions the inline review found and fixed, each kept as a live control.
+# Every one of them reported `audited 1 of 1 files` at exit 0 over a real undeclared walk.
+assert_eq "#711 a shell parameter expansion does not hide the rest of its line" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_paramexp.sh)"
+assert_eq "#711 an option taking a separated value does not hide the root operand" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_optvalue.sh)"
+assert_eq "#711 marker text inside a string literal does not exempt the line" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/strmarker.py)"
+
+# Head POSITION — six shapes that put something before the command. Each reported clean before
+# the head was located through the shared classification, and each is one character of ordinary
+# idiom away from the sites this suite already writes.
+assert_eq "#711 a walk behind a leading env assignment is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_envprefix.sh)"
+assert_eq "#711 a walk behind a process wrapper is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_wrapper.sh)"
+assert_eq "#711 a walk behind a leading redirection is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_redirect.sh)"
+assert_eq "#711 a negated walk is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_negated.sh)"
+assert_eq "#711 a walk in a compound-command condition is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_ifcond.sh)"
+assert_eq "#711 a walk inside a process substitution is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_procsub.sh)"
+assert_eq "#711 a walk inside a bare subshell is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_subshell.sh)"
+# The AST arms accept a declaration anywhere in a wrapped call's span (the shell analogue is
+# sh_markedcont.sh). Several markers this change plants sit on wrapped calls, so the span logic
+# is load-bearing on shipped code and was otherwise exercised only incidentally by the real tree.
+assert_eq "#711 a marker on the closing line of a wrapped Python call is accepted" \
+  "rc=0|lint-tree-enumeration: audited 1 of 1 files" \
+  "$(e711_run "$E711_FX" lib/test/pyspan.py)"
+# The two shell arms with no other fixture: the long recursive flag and the cwd default.
+assert_eq "#711 a long-form recursive grep flag is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_longflag.sh)"
+assert_eq "#711 an operand-less recursive grep defaults to the cwd and is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_cwddefault.sh)"
+# The unbalanced-quote fallback: without it the marker on this continued statement is swallowed
+# and a correctly-declared walk is reported — a false positive, the fallback's whole purpose.
+assert_eq "#711 a marked walk on a quote-unbalanced continuation stays declared" \
+  "rc=0|lint-tree-enumeration: audited 1 of 1 files" \
+  "$(e711_run "$E711_FX" lib/test/sh_markedcont.sh)"
+# Population selection normalizes separators, so a backslash-form path still selects in.
+assert_eq "#711 a backslash-form path is not silently dropped from the population" "rc=1" \
+  "$(e711_rc "$E711_FX" 'lib\test\backslash.py')"
+# The --root default: with no flag and no git toplevel the helper must breadcrumb, never silently
+# resolve against a wrong root (the #295 no-silent-default contract). Nothing else exercises it.
+assert_eq "#711 an absent --root outside a repository breadcrumbs rather than defaulting silently" "yes" \
+  "$(E711_NR="$(probe_tmp '#711 no-root cwd')"
+     case "$E711_NR" in ""|/dev/null) echo yes; exit 0 ;; esac
+     rm -f "$E711_NR"; mkdir -p "$E711_NR"
+     E711_NROUT="$(cd "$E711_NR" && python3 "$E711_LINT" 2>&1)"
+     rm -rf "$E711_NR" 2>/dev/null || true
+     case "$E711_NROUT" in *"no git toplevel"*) echo yes ;; *) echo "no: $E711_NROUT" ;; esac)"
+
+# Population selection: a path outside lib/test/ is excluded even while carrying a planted walk,
+# and an all-excluded population is a zero tally at exit 0 — never confused with the fail-closed
+# arms below, which is the confusion that would let an over-wide exclusion read as a clean audit.
+assert_eq "#711 a path outside the audited population is excluded at exit 0" \
+  "rc=0|lint-tree-enumeration: audited 0 of 0 files" \
+  "$(e711_run_outcome "$E711_FX" other/outside.py)"
+# The all-excluded NOTE is asserted on its own, by its stable identifying prefix rather than its
+# full prose: "audited nothing" must not look like "audited everything, found nothing", but the
+# sentence explaining that is free to be reworded without breaking the outcome assertions above.
+assert_eq "#711 a fully-excluded population says so on stderr" "yes" \
+  "$(case "$(e711_run "$E711_FX" other/outside.py)" in
+       *"lint-tree-enumeration: note: all 1 enumerated path(s) were excluded"*) echo yes ;;
+       *) echo no ;;
+     esac)"
+
+# Self-exclusion: the guard's own path is dropped from the population, so a list naming only it
+# audits zero files. The real-tree clean run above is the other half of the same claim.
+assert_eq "#711 the guard does not flag itself" \
+  "rc=0|lint-tree-enumeration: audited 0 of 0 files" \
+  "$(e711_run_outcome "$E711_FX" lib/test/lint-tree-enumeration.py)"
+
+# Fail-closed arms, measured PRE-exclusion. Both halves of the #664 precedent are imported: a
+# zero pre-exclusion population fails closed with its own breadcrumb, while a fully-excluded
+# non-empty one is the legal `audited 0 of 0` above. Without the first half a wrong cwd or a
+# non-repository root would make the guard audit nothing and report a clean pass.
+E711_EMPTY="$(probe_tmp '#711 empty list')"
+: > "$E711_EMPTY"
+assert_eq "#711 an empty pre-exclusion enumeration fails closed" "yes" \
+  "$(E711_OUT2="$(python3 "$E711_LINT" --root "$E711_FX" --files-from "$E711_EMPTY" 2>&1)"
+     case "$?:$E711_OUT2" in 0:*) echo "no: exited 0" ;; *"yielded zero paths before any exclusion"*) echo yes ;; *) echo no ;; esac)"
+case "$E711_EMPTY" in ""|/dev/null) : ;; *) rm -f "$E711_EMPTY" ;; esac   # probe_tmp sentinel: never rm /dev/null
+assert_eq "#711 a non-repository root fails closed naming git ls-files" "yes" \
+  "$(E711_SB="$(probe_tmp '#711 non-repo root')"
+     # probe_tmp's mktemp-failure sentinel. It has ALREADY recorded a suite FAIL and its own
+     # breadcrumb, so the run is red either way; short-circuiting here avoids `rm -f /dev/null`
+     # (which under root would delete the device node) and a second, misattributed failure.
+     case "$E711_SB" in ""|/dev/null) echo yes; exit 0 ;; esac
+     rm -f "$E711_SB"; mkdir -p "$E711_SB"
+     E711_OUT3="$(python3 "$E711_LINT" --root "$E711_SB" 2>&1)"
+     E711_RC3=$?
+     rmdir "$E711_SB" 2>/dev/null || true
+     case "$E711_RC3:$E711_OUT3" in 0:*) echo "no: exited 0" ;; *"git ls-files exited"*) echo yes ;; *) echo no ;; esac)"
+
+# The guard is a pure read: running it twice over the same population yields byte-identical output.
+assert_eq "#711 the guard is idempotent over one population" "same" \
+  "$([ "$(e711_run "$E711_FX" lib/test/clean.py)" = "$(e711_run "$E711_FX" lib/test/clean.py)" ] && echo same || echo differ)"
+case "$E711_FX" in ""|/dev/null) : ;; *) rm -rf "$E711_FX" ;; esac   # probe_tmp sentinel: never rm -rf /dev/null
+
+# Documentation surfaces. Both are surface-presence pins: the rule's behavioral guarantee is
+# carried by the guard's own fixture-driven assertions above, not by a prose-removal check.
+assert_pin_unique "#711 CLAUDE.md carries the enumeration-source rule" \
+  'sources its population from an index-reading `git ls-files`' "$E711_CLAUDE"  # structural-pin-ok: surface-presence pin on the Conventions rule; the enumeration behaviour it describes is proven by the fixture-driven #711 assertions above
+assert_eq "#711 the growth artifact exists" "yes" \
+  "$([ -f "$E711_GROWTH" ] && echo yes || echo no)"
 
 echo "#693 issue-body cache: no cut-over site re-fetches the body"
 IBR_LINT="$LIB/test/lint-issue-body-refetch.py"
@@ -48802,7 +49225,7 @@ fi
 # The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/create-issue-contract.sh" \
-  "create-issue-contract" 394; then
+  "create-issue-contract" 395; then
   printf 'ERROR: create-issue-contract boundary could not record its result\n'
   exit 1
 fi
@@ -49025,7 +49448,10 @@ LEDGER-EOF
 
     # Revise the draft, record it, then assert approve mode refuses the unaudited bytes.
     printf '# Draft title\n\nBody line one (revised).\nBody line two.\n' > draft.md
-    PATH="$RESTRICTED" python3 "$IAS" record-revision rt --nonce "$NONCE" --after-round 1 > .rt-rev
+    # issue #705: the round dispatched on the file arm, so record-revision now requires the
+    # intended-bytes digest — pipe the revised draft to --stdin-digest.
+    PATH="$RESTRICTED" python3 "$IAS" record-revision rt --nonce "$NONCE" --after-round 1 \
+      --stdin-digest < draft.md > .rt-rev
     PATH="$RESTRICTED" python3 "$IAS" query-eligibility rt --nonce "$NONCE" \
       --mode approve --draft-file draft.md > .rt-elig-bad
     PATH="$RESTRICTED" python3 "$IAS" query-eligibility rt --nonce "$NONCE" \
@@ -49456,7 +49882,9 @@ if [ -d "$OA_SB" ]; then
         --findings-count 1 --carriage-object-id "$OID1" > /dev/null
       # The user revises the draft file to new bytes (D2), then elects to file anyway.
       printf '# T\n\nBody two, revised.\n' > "d-$SLUG.md"
-      python3 "$IAS" record-revision "$SLUG" --nonce "$NS" --after-round 1 > /dev/null
+      # issue #705: file-arm round -> record-revision requires --stdin-digest.
+      python3 "$IAS" record-revision "$SLUG" --nonce "$NS" --after-round 1 \
+        --stdin-digest < "d-$SLUG.md" > /dev/null
       python3 "$IAS" record-override "$SLUG" --nonce "$NS" --kind user-decline \
         --surface step4-approval-after-exhausted-offer --draft-file "d-$SLUG.md" > /dev/null
       printf '%s' "$NS" > ".oa-nonce-$SLUG"
@@ -49860,7 +50288,9 @@ if [ -d "$SR_SB" ]; then
       --surface t1t2-boundary --draft-file draft.md > /dev/null 2>&1
     python3 "$IAS" query-eligibility ov --nonce "$N2" --mode approve \
       --draft-file draft.md > .sr-ov-elig 2>/dev/null
-    python3 "$IAS" record-revision ov --nonce "$N2" --after-round 1 > /dev/null 2>&1
+    # issue #705: file-arm round -> record-revision requires --stdin-digest.
+    python3 "$IAS" record-revision ov --nonce "$N2" --after-round 1 \
+      --stdin-digest < draft.md > /dev/null 2>&1
     python3 "$IAS" query-eligibility ov --nonce "$N2" --mode approve \
       --draft-file draft.md > .sr-ov-stale 2>/dev/null
 
@@ -49934,11 +50364,16 @@ if [ -d "$I3_SB" ]; then
       --draft-file draft.md > /dev/null 2>&1
     python3 "$IAS" record-return it4 --nonce "$N4" --round 1 --verdict REVISE \
       --carriage-object-id "$OID" > /dev/null 2>&1
+    # issue #705: the round dispatched on the file arm, so record-revision requires
+    # --stdin-digest. The out-of-range after-round guard fires BEFORE the stdin read, so the
+    # 0/2 rows still fail with the same plausible-round breadcrumb; the after-round 1 row
+    # reads the bytes and records, so its stdout now carries the stdin_digest field.
     python3 "$IAS" record-revision it4 --nonce "$N4" --after-round 0 \
-      > /dev/null 2> .i3-ar-low; printf '%s' "$?" > .i3-ar-low-rc
+      --stdin-digest < draft.md > /dev/null 2> .i3-ar-low; printf '%s' "$?" > .i3-ar-low-rc
     python3 "$IAS" record-revision it4 --nonce "$N4" --after-round 2 \
-      > /dev/null 2> .i3-ar-high; printf '%s' "$?" > .i3-ar-high-rc
-    python3 "$IAS" record-revision it4 --nonce "$N4" --after-round 1 > .i3-ar-ok 2>&1
+      --stdin-digest < draft.md > /dev/null 2> .i3-ar-high; printf '%s' "$?" > .i3-ar-high-rc
+    python3 "$IAS" record-revision it4 --nonce "$N4" --after-round 1 \
+      --stdin-digest < draft.md > .i3-ar-ok 2>&1
 
     N5="$(python3 "$IAS" init it5 | sed 's/nonce=//')"
     python3 "$IAS" record-dispatch it5 --nonce "$N5" --round 1 --arm file \
@@ -49979,7 +50414,7 @@ if [ -d "$I3_SB" ]; then
   assert_eq "#546 iter3_hardening_rows: an after-round above the last recorded round refuses" \
     "1" "$(cat "$I3_SB/.i3-ar-high-rc" 2>/dev/null)"
   assert_eq "#546 iter3_hardening_rows: the truthful after-round is accepted" \
-    "ordinal=1" "$(cat "$I3_SB/.i3-ar-ok" 2>/dev/null)"
+    "1" "$(grep -cE '^ordinal=1 stdin_digest=[0-9a-f]+$' "$I3_SB/.i3-ar-ok" 2>/dev/null)"
   assert_eq "#546 iter3_hardening_rows: a second attestation refuses (forward-only tamper evidence)" \
     "1" "$(grep -c 'cannot be overwritten' "$I3_SB/.i3-att-again" 2>/dev/null)"
   assert_eq "#546 iter3_hardening_rows: an epoch re-bind after attestation refuses" \
@@ -50221,8 +50656,11 @@ if [ -d "$CS_SB" ]; then
     # unpersistable state: a read-only .devflow/tmp makes the mutation exit non-zero
     # with the named breadcrumb, and a QUERY still answers (read-only contract)
     chmod 555 .devflow/tmp
-    python3 "$IAS" record-revision cs3 --nonce "$N3" --after-round 1 \
-      > /dev/null 2> .cs-nopersist; printf '%s' "$?" > .cs-nopersist-rc
+    # issue #705: the round dispatched on the file arm, so record-revision requires
+    # --stdin-digest. The arm guard and the stdin read both precede save_state, so the
+    # unpersistable failure still surfaces with its could-not-persist breadcrumb.
+    printf '# T\n\nrevised\n' | python3 "$IAS" record-revision cs3 --nonce "$N3" \
+      --after-round 1 --stdin-digest > /dev/null 2> .cs-nopersist; printf '%s' "$?" > .cs-nopersist-rc
     python3 "$IAS" query-triggers cs3 --nonce "$N3" > .cs-nopersist-query 2>/dev/null
     chmod 755 .devflow/tmp
 
@@ -50521,8 +50959,10 @@ PY
     N8="$(python3 "$IAS" init rd8 | sed 's/nonce=//')"
     python3 "$IAS" record-dispatch rd8 --nonce "$N8" --round 1 --arm file \
       --draft-file d2.md > /dev/null 2>&1
-    python3 "$IAS" record-revision rd8 --nonce "$N8" --after-round 0 \
-      > .rd-floor0 2>&1; printf '%s' "$?" > .rd-floor0-rc
+    # issue #705: the round dispatched on the file arm, so record-revision requires
+    # --stdin-digest even while the round is still open (floor 0 positive control).
+    printf '# T\n\nORIG\n' | python3 "$IAS" record-revision rd8 --nonce "$N8" \
+      --after-round 0 --stdin-digest > .rd-floor0 2>&1; printf '%s' "$?" > .rd-floor0-rc
 
     # the attestation twin: bind a real epoch first so the read is actually reached
     N6="$(python3 "$IAS" init rd6 | sed 's/nonce=//')"
@@ -50982,6 +51422,163 @@ PMC_BASELINE="$LIB/test/prompt-mass-baseline.json"
 PMC_CLAUDE="$LIB/../CLAUDE.md"
 PMC_EXT_IMPL="$LIB/../.devflow/prompt-extensions/implement.md"
 PMC_EXT_RAF="$LIB/../.devflow/prompt-extensions/review-and-fix.md"
+PM_RUN_SH="$LIB/test/run.sh"
+PM_FN_NAME="_pm_committed_baseline_count"
+
+# issue #711: the baseline-uniqueness count is sourced from the git INDEX, which is what this
+# check's own wording ("committed") always claimed. Its predecessor walked the filesystem from
+# the repository root, so it descended into every sibling worktree under .claude/worktrees/ —
+# this repository's own working mode — and counted their copies, failing locally with a number
+# that varied between runs on the same commit while CI (a fresh checkout with no worktrees)
+# stayed green. `git ls-files` reads the index and is therefore independent of the untracked
+# .git/info/exclude line that is the ONLY thing keeping .claude/worktrees/ out of a working-tree
+# enumeration. The .devflow/vendor/ substring filter the predecessor carried is dropped: vendored
+# paths are untracked here, so an index population excludes them by construction.
+#
+# Unknown is never zero (the repo's standing rule): the two non-count outcomes emit distinct
+# tokens instead of a digit, so assert_eq reports `actual: git-unavailable` /
+# `actual: no-committed-baseline` rather than a plausible-looking `0`. No tr/sed/wc/cut/head/awk/
+# grep participates — the value is produced by git and python3 alone, both preflight-guaranteed.
+_pm_committed_baseline_count() {  # <root> -> digits | git-unavailable | no-committed-baseline
+  local out
+  # The token set is fixed at two by the governing acceptance criterion, and `git-unavailable` is
+  # its name for ANY non-zero `git ls-files` exit — a missing binary, a non-repository root, a
+  # locked or corrupt index. Suppressing git's own stderr would leave the reader with only the
+  # token and send them hunting the wrong cause, so the diagnosis is surfaced on the suite's
+  # stderr while the emitted VALUE stays exactly what the criterion specifies.
+  out="$(git -C "$1" ls-files -- '*prompt-mass-baseline.json')" \
+    || { printf 'git-unavailable'; return 0; }
+  printf '%s\n' "$out" | python3 -c 'import sys
+# DISTINCT paths, never lines: `git ls-files` prints an unmerged path once per stage (1/2/3),
+# and this baseline is a shared hot-spot artifact that conflicts on ordinary prompt-surface
+# PRs — so a line tally reports `actual: 3` under the message "only one committed prompt-mass
+# baseline exists" and sends the reader hunting a duplicate that does not exist. That is the
+# same misleading red issue #711 exists to remove, re-entering through a different door.
+n = len({line.strip() for line in sys.stdin if line.strip()})
+print(n if n else "no-committed-baseline", end="")'
+}
+
+# The PRE-FIX expression, retained verbatim as the regression comparand. It is measured against
+# the same decoy fixture as the function above, so the #711 defect stays REPRODUCED in the suite
+# rather than merely described in prose. It carries the declaration marker naming that role — as
+# any candidate token literal in this file must, which is why the fixture bodies above assemble
+# theirs from parts. (Deliberately no count of how many such literals remain: a self-referential
+# tally in a run.sh comment rots on the next edit to this file and nothing turns RED — the
+# PR-#553 class this repository treats as a non-demotable self-contradicting diff.)
+_pm_prefix_walk_count() {  # <root> -> the pre-#711 filesystem-walk count
+  python3 -c 'from pathlib import Path; import sys; print(sum(1 for p in Path(sys.argv[1]).rglob("prompt-mass-baseline.json") if p.is_file() and ".devflow/vendor/" not in p.as_posix()), end="")' "$1"  # tree-walk-ok: retained pre-#711 comparand; reproducing the worktree-permeable walk IS its job
+}
+
+# <assertion-name> [relpath…] -> prints an initialised sandbox repo with each relpath committed.
+# Every fixture is built in a git_sandbox directory OUTSIDE the working tree: the tracked
+# .gitignore carries no .claude entry, so a worktree-shaped decoy written into the real checkout
+# would be untracked AND unignored, `git add -A` would sweep it into a commit, and the fixed
+# check would then fail for a real reason.
+_pm_fixture_repo() {  # <assertion-name> [relpath…]
+  local d name="$1"; shift
+  d="$(git_sandbox "$name")" || { printf '%s' "$d"; return 0; }
+  git -C "$d" init -q 2>/dev/null
+  git -C "$d" config user.email t@t 2>/dev/null
+  git -C "$d" config user.name t 2>/dev/null
+  local rel dir
+  for rel in "$@"; do
+    dir="${rel%/*}"; [ "$dir" = "$rel" ] || mkdir -p "$d/$dir"   # no-slash guard, as in e711_write
+    printf '{}\n' > "$d/$rel"
+    git -C "$d" add -- "$rel" 2>/dev/null
+  done
+  git -C "$d" commit -qm fixture --allow-empty 2>/dev/null
+  printf '%s' "$d"
+}
+
+# The one-committed-plus-untracked-decoy fixture, measured TWICE — once through the git-sourced
+# function and once through the retained pre-fix walk. The decoy is written but never staged, so
+# the index holds exactly one baseline while the filesystem holds two.
+PM_SB_DECOY="$(_pm_fixture_repo '#711 decoy fixture' lib/test/prompt-mass-baseline.json)"
+mkdir -p "$PM_SB_DECOY/.claude/worktrees/w/lib/test" 2>/dev/null
+printf '{}\n' > "$PM_SB_DECOY/.claude/worktrees/w/lib/test/prompt-mass-baseline.json" 2>/dev/null
+assert_eq "#711 baseline count is git-sourced and worktree-immune" "1" \
+  "$(_pm_committed_baseline_count "$PM_SB_DECOY")"
+assert_eq "#711 pre-fix walk reproduces the defect on the same fixture" "2" \
+  "$(_pm_prefix_walk_count "$PM_SB_DECOY")"
+rm -rf "$PM_SB_DECOY"
+
+PM_SB_TWO="$(_pm_fixture_repo '#711 duplicate fixture' lib/test/prompt-mass-baseline.json other/prompt-mass-baseline.json)"
+assert_eq "#711 a genuine second committed baseline still fails the check" "2" \
+  "$(_pm_committed_baseline_count "$PM_SB_TWO")"
+rm -rf "$PM_SB_TWO"
+
+# An UNMERGED index is the shape that separates a distinct-path tally from a line tally: git
+# prints a conflicted path once per stage, so a line count reports 3 baselines where one exists.
+# This artifact is a shared hot spot that conflicts on ordinary prompt-surface PRs, so the shape
+# is routine — and a bogus `actual: 3` under "only one committed prompt-mass baseline exists" is
+# the same misleading red this issue removes. The fixture conflicts the baseline for real.
+PM_SB_CONFLICT="$(_pm_fixture_repo '#711 conflicted-index fixture' lib/test/prompt-mass-baseline.json)"
+case "$PM_SB_CONFLICT" in
+  ""|/dev/null*)
+    # Sentinel: git_sandbox has already recorded its own FAIL. Emit an actual no expectation can
+    # match rather than skipping the block silently — a vanished assertion leaves the reader a
+    # tally that quietly lost a check, which is the same misattribution the e711_run sentinel and
+    # the e711_rc guard-unusable token are shaped to prevent.
+    assert_eq "#711 an unmerged index still counts one baseline, not one per stage" "1" \
+      "sandbox-unavailable" ;;
+  *)
+    git -C "$PM_SB_CONFLICT" checkout -q -b e711_other 2>/dev/null
+    printf '{"side":"other"}\n' > "$PM_SB_CONFLICT/lib/test/prompt-mass-baseline.json"
+    git -C "$PM_SB_CONFLICT" commit -qam other 2>/dev/null
+    git -C "$PM_SB_CONFLICT" checkout -q - 2>/dev/null
+    printf '{"side":"mine"}\n' > "$PM_SB_CONFLICT/lib/test/prompt-mass-baseline.json"
+    git -C "$PM_SB_CONFLICT" commit -qam mine 2>/dev/null
+    git -C "$PM_SB_CONFLICT" merge e711_other >/dev/null 2>&1
+    # Prove the fixture REACHED the defect-producing shape before trusting the count, the same
+    # way the decoy fixture measures itself through the retained pre-fix walk. Without this, a
+    # merge that silently succeeded would leave one stage, the count would be 1, and the
+    # assertion would pass under the very line-tally mutation it exists to catch.
+    assert_eq "#711 the conflicted-index fixture really holds an unmerged path (3 stages)" "3" \
+      "$(git -C "$PM_SB_CONFLICT" ls-files -- '*prompt-mass-baseline.json' | python3 -c 'import sys
+print(sum(1 for line in sys.stdin if line.strip()), end="")')"
+    assert_eq "#711 an unmerged index still counts one baseline, not one per stage" "1" \
+      "$(_pm_committed_baseline_count "$PM_SB_CONFLICT")"
+    ;;
+esac
+rm -rf "$PM_SB_CONFLICT"
+
+# Empty-but-successful population: a branch on which the baseline is written but not yet staged,
+# or a worktree checked out at a commit predating the file. Reporting `0` here would be the same
+# collapse-onto-a-real-value the git-unavailable token exists to prevent.
+PM_SB_NONE="$(_pm_fixture_repo '#711 empty-population fixture' README.md)"
+assert_eq "#711 an empty committed population emits no-committed-baseline" "no-committed-baseline" \
+  "$(_pm_committed_baseline_count "$PM_SB_NONE")"
+rm -rf "$PM_SB_NONE"
+
+# Accepted-loss control for the unknown-is-not-zero claim: the suppressed input (a broken git) is
+# PRESENT in the fixture, so the claimed absence of a digit is actually exercised.
+PM_SB_STUB="$(_pm_fixture_repo '#711 broken-git fixture' README.md)"
+# Routed through probe_tmp rather than a bare `mktemp -d`: on allocation failure probe_tmp records
+# a NAMED suite FAIL, whereas a bare mktemp would leave PM_STUB_BIN empty, make PATH begin with an
+# empty element (the cwd), and turn this into a confusing downstream miss instead of a named one.
+PM_STUB_BIN="$(probe_tmp '#711 broken-git stub bin')"
+case "$PM_STUB_BIN" in ""|/dev/null) : ;; *) rm -f "$PM_STUB_BIN"; mkdir -p "$PM_STUB_BIN" ;; esac
+printf '#!/bin/sh\nexit 3\n' > "$PM_STUB_BIN/git" 2>/dev/null
+chmod +x "$PM_STUB_BIN/git" 2>/dev/null
+assert_eq "#711 an unavailable git emits git-unavailable, never a count" "git-unavailable" \
+  "$(PATH="$PM_STUB_BIN:$PATH" _pm_committed_baseline_count "$PM_SB_STUB")"
+rm -rf "$PM_SB_STUB"
+case "$PM_STUB_BIN" in ""|/dev/null) : ;; *) rm -rf "$PM_STUB_BIN" ;; esac   # probe_tmp sentinel: never rm -rf /dev/null
+
+# Call-shape check, deliberately NOT a grep counting occurrences of the retained expression —
+# such a grep matches its own pattern line and can never report the intended count (the repo's
+# #370 pin-in-comment rot class). The needle is assembled from parts inside python3, so the
+# counting expression cannot match itself, and the bound is a LOWER bound so adding a call site
+# never forces a coupled edit here. The assertion is named for what it MEASURES — that the
+# git-sourced function has call sites — not for the stronger claim that no OTHER assertion reads
+# a filesystem walk: a lower bound cannot establish that negative half, and the retained
+# `_pm_prefix_walk_count` comparand is itself a declared walk in this same file.
+assert_eq "#711 the git-sourced baseline count has at least five call sites" "yes" \
+  "$(python3 -c 'import sys
+name, path = sys.argv[1], sys.argv[2]
+needle = name + " " + chr(34)
+calls = sum(1 for line in open(path, encoding="utf-8", errors="replace") if needle in line)
+print("yes" if calls >= 5 else "no: %d" % calls)' "$PM_FN_NAME" "$PM_RUN_SH")"
 
 # The helper's behavioral boundary carries the issue's T1–T18 fixture matrix. Run it from
 # the suite rather than relying on a standalone developer command, then run the helper itself
@@ -51012,7 +51609,7 @@ assert_pin_unique "#551 manifest states the mandatory-vs-reference classificatio
 assert_eq "#551 direct census grant appears in both writable cloud config profiles" "2" \
   "$(grep -cF 'Bash(lib/test/prompt-mass-census.py:*)' "$LIB/../.devflow/config.json")"
 assert_eq "#551 only one committed prompt-mass baseline exists" "1" \
-  "$(python3 -c 'from pathlib import Path; import sys; print(sum(1 for p in Path(sys.argv[1]).rglob("prompt-mass-baseline.json") if p.is_file() and ".devflow/vendor/" not in p.as_posix()))' "$LIB/..")"
+  "$(_pm_committed_baseline_count "$LIB/..")"
 assert_pin_unique "#551 baseline is a per-file mirror with no committed totals key" \
   '"files": {' "$PMC_BASELINE"
 assert_eq "#551 baseline carries no group-total rows" "0" \

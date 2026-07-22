@@ -28,13 +28,66 @@ there is no former `run.sh` location to map back to.
 
 Every assertion that runs a row does so against a temp fixture root — including the
 clean-tree arm — never the live checkout. The fixture is a single pristine repository
-image copied per assertion: the module enumerates **every top-level tracked entry** from
-`git ls-files` (deliberately not a hand-picked subset — a subset that missed one would
-make the pristine image itself drift and silently invalidate every "no other row
-drifted" premise), prunes build caches, then `git init`s it with a synthetic
-`refs/remotes/origin/main`. It is built once and copied per assertion because the
-generators resolve their roots from `__file__` or an argv root, so a partial tree would
-exercise the wrong closure.
+image copied per assertion: the module reproduces **every tracked blob** the git index
+lists (`git ls-files -s -z`, minus the three named skip arms below), file by file at its
+own relative path, then `git init`s it
+with a synthetic `refs/remotes/origin/main`. It is built once and copied per assertion
+because the generators resolve their roots from `__file__` or an argv root, so a partial
+tree would exercise the wrong closure.
+
+**Tracked-only is the fixture rule (issue #714).** Completeness is why the module copies
+the whole tracked set rather than a hand-picked subset — a subset that missed one entry
+would make the pristine image itself drift and silently invalidate every "no other row
+drifted" premise. What the image must *not* carry is untracked local state: the previous
+builder derived top-level entry **names** from `git ls-files` but copied whole
+**directories**, so because `.claude/settings.json` is tracked the entire untracked
+`.claude/` tree entered the image and then every per-assertion copy. Nothing untracked
+can enter now, so the `__pycache__` / `.ruff_cache` / `.devflow/tmp` prunes that
+compensated for it are gone with the loop that needed them.
+
+**Past-time snapshot (macOS, 18 cores, a checkout carrying 1.4 GB under
+`.claude/worktrees`, `main` @ `607ec800`, 2026-07-21).** Pristine image 1.4 GB → ~34 MB;
+this module 1240.0s → 52.5s; full `lib/test/run.sh` 1850.5s → ~663s. These are recorded
+figures from one host, not re-derived on each run: the payload they measure exists only
+on a developer checkout that has used `git worktree`, so a lean checkout (CI, a cloud
+`/devflow:implement` run) sees no change and must not be cited as evidence either way.
+
+File **modes are set from the index**, not inherited from the working tree, so a
+`core.fileMode=false` checkout (git's default on Windows) — where the index records
+`100755` while the on-disk bit is absent — builds the same image. Three skip arms are
+each taken with their own distinct named stderr breadcrumb and subtracted from the
+completeness denominator by name, never failing the build: two non-blob index modes — a
+gitlink (`160000`) and a symlink (`120000`) — plus an ordinary blob the working tree
+does not carry (tracked-then-deleted), which is a working-tree condition rather than an
+index-mode one and so is triaged by its own `[ ! -f ]` guard rather than the mode
+`case`. A copy failure and a mode-application failure are each counted on their own
+`fail_copy` / `fail_mode` channel — a failure is never a skip, so it can never hide in
+the gap between `total` and `copied`; `_ra_summary_balances` asserts that partition.
+An unestablished measurement makes *both* the bash builder and the python oracle emit
+an `unestablished` sentinel instead of a vacuous zero — a failed `git ls-files` in
+either half, or, for the oracle alone, an image directory that is not there — and each
+sentinel has a caller that drives it, as do the `fail_copy` channel (a regular file
+planted where a nested entry's parent directory must go) and the `fail_mode` channel (a
+`chmod` stub exiting 1, shadowed onto `PATH` for the duration of one build only, which
+also reproduces the rc-127 absent-`chmod` host). The two structural skip tallies are
+additionally pinned to zero against the **live** index, because builder/oracle agreement
+alone would let a newly tracked symlink or submodule leave every fixture silently
+incomplete while both halves agree about the omission. The symlink index-entry rows are
+gated on a runtime `ln -s` capability probe: a `core.symlinks=false` checkout (Windows
+without the symlink privilege) omits `link.md` from the fixture and announces the gated
+rows on stderr, rather than going RED over a symlink git was never given. Unmerged
+paths contribute once, not once per stage. The `#619 pristine fixture …` / `#619 fixture
+builder …` assertions check all of this against an independent oracle that re-reads the
+index itself, with the temp-repository arms exercised against a real git index rather
+than a stubbed `git ls-files`.
+
+**Coupled mirror:** `_ra_build_image` (bash) and `_ra_image_report` (the embedded
+python3 oracle) state the same selection policy — mode triage, unmerged-stage
+de-duplication, the working-tree `isfile` check — in two languages. That independence is
+what makes the oracle a real check rather than a restatement of the builder's own
+bookkeeping, and it is also what makes them a coupled pair: a change to the builder's
+skip policy must be made in the oracle in the **same commit**, or the oracle keeps
+certifying the old policy.
 
 Each fixture-root assertion additionally asserts the **live** checkout's
 `scripts/devflow-cloud-writer-contract.json` is byte-unchanged. Live-tree confinement

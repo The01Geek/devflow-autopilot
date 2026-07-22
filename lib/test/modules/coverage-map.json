@@ -399,6 +399,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/stage-draft-write.py": {
+      "note": "#705 helper unit tests: lib/test/test_python_scripts.py (stage/emit/apply modes) driven by run.sh",
+      "owner": "unmodularized"
+    },
     "scripts/stale-prose-lint.py": {
       "note": "",
       "owner": "unmodularized"
@@ -1433,12 +1437,20 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "705": {
+      "note": "",
+      "owner": "create-issue-contract"
+    },
     "707": {
       "note": "",
       "owner": "unmodularized"
     },
     "709": {
       "note": "partially extracted: the module carries the #709 contract pins while the state-owner rows stay in the unmodularized #546 block",
+      "owner": "unmodularized"
+    },
+    "711": {
+      "note": "",
       "owner": "unmodularized"
     },
     "88": {

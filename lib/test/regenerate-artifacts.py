@@ -377,7 +377,7 @@ def watch_list(row, root):
         # already handles) instead of letting an OSError escape as a traceback.
         try:
             found = sorted(
-                p.relative_to(root).as_posix() for p in (root / parent).glob(leaf)
+                p.relative_to(root).as_posix() for p in (root / parent).glob(leaf)  # tree-walk-ok: pattern comes from a registry row whose parent scopes it below the repository root
             )
         except OSError:
             missing.append(pattern)

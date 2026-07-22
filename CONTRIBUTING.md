@@ -85,6 +85,22 @@ so a focused run gets the same fixture isolation as the full suite.
 A per-module inventory (e.g. `lib/test/modules/create-issue-contract.inventory.md`)
 records what it covers.
 
+**A module fixture is built from git-tracked content only (issue #714).** A module that
+needs a repository image must reproduce it from the index (`git ls-files -s -z`), file by
+file, with each file's mode taken from the index rather than from the working tree — never
+by `cp -R`-ing a whole top-level directory. A tracked file inside an otherwise-untracked
+directory makes the directory form copy that directory wholesale: because
+`.claude/settings.json` is tracked, `regenerate-artifacts` used to copy the entire
+untracked `.claude/` tree into every fixture, so a checkout carrying `git worktree`
+checkouts under `.claude/worktrees/` paid that whole payload on every fixture copy — the
+dominant cost of a full local suite run. Build caches and `.devflow/tmp` are excluded by
+construction under the tracked-only rule, so a fixture builder needs no prune step —
+while *tracked* content under an otherwise-ignored directory (`.devflow/config.json` and
+the rest of `.devflow/`, force-added past the ignore rule) is still reproduced, which is
+exactly what completeness requires. The
+measured before/after figures are recorded once, in
+[`lib/test/modules/regenerate-artifacts.inventory.md`](lib/test/modules/regenerate-artifacts.inventory.md).
+
 #### Coverage-map block ownership (every PR that adds an assertion)
 
 `lib/test/modules/coverage-map.json` is the ranked to-do list for future
@@ -136,6 +152,23 @@ reviewable artifact as the existing `# raw-guard-ok:` convention. `lib/test/run.
 you declare the classification at authoring time. The gate is diff-scoped (only pins the
 change adds), so the existing corpus needs no backfill, and a pin merely *moved* between
 files is exempt.
+
+**Declaring a repository-tree walk (issue #711).** `# tree-walk-ok: <reason>` is the third
+member of the same declaration-marker family, in the same one-line-reason framing as
+`# structural-pin-ok:` and `# raw-guard-ok:`. A tracked `.py` or `.sh` file under `lib/test/`
+that enumerates with a recursive walk — `rglob(`, `os.walk(`, `iglob(`, a `recursive=True`
+call, a `glob(` whose pattern carries a `**` component or is not a string literal (these two
+are judged by a Python parse, so they apply to `.py` files only), or a shell `find` / `grep -r`
+rooted at the repository root — must carry that marker on the walk's line, or source its
+population from an index-reading `git ls-files` instead. **The walk's own line is always the
+safe placement.** Span acceptance — the marker anywhere within a statement — applies only to a
+multi-line `glob(`-family call judged by the Python parse and to a `\`-continued shell
+statement; the four literal tokens (`rglob(`, `os.walk(`, `iglob(`, `recursive=True`) are judged
+line by line, so a wrapped one must carry its marker on the token's own line. The reason exists
+because a root-anchored walk descends into every sibling worktree under `.claude/worktrees/`
+and reports a count that has nothing to do with the repository's state. `lib/test/lint-tree-enumeration.py`
+turns the suite RED for an undeclared walk; it never judges what a reason claims, so a marked
+walk still ships — it ships visibly.
 
 ### Regenerating suite-owned artifacts
 

@@ -10,4 +10,6 @@
 
 **Step 4 — the presentation gate.** **In a read-only sandbox, rely solely on the visible inline-in-chat audit block re-posted this turn and do not trust any on-disk `issue-audit-<slug>.md`** (it can only be a stale leftover — the same read-only distrust rule the Step 2 gate applies).
 
+**Step 3.6 / Step 4 — the staged canonical-draft write.** When the filesystem refuses the staging write of the *Staged canonical-draft write* shared procedure — `stage` cannot land the artifact — the run takes this arm: it **reports the reduced durability** (the intended bytes have no durable on-disk copy, so an interruption is unrecoverable and a partially-applied revision is undetectable across turns), presents the draft from the **in-context rendered bytes**, and **proceeds — filing is never blocked on this arm.** A revision write on this arm still satisfies `record-revision`'s file-arm guard by piping the intended bytes to `--stdin-digest` from context (the flag reads stdin, never the artifact), so a run that merely cannot write a file is never blocked by that guard; and the resolution gate's evidence is those piped in-context bytes rather than a landed canonical file. This arm covers the draft write the other arms above do not.
+
 <!-- devflow:create-issue-ref step=fallback-read-only-sandbox file=skills/create-issue/references/fallback-read-only-sandbox.md end -->

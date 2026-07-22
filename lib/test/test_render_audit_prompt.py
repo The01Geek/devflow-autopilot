@@ -29,11 +29,11 @@ TEMPLATE = REPO / "skills" / "create-issue" / "references" / "audit-prompt-templ
 READ_INSTRUCTION = "Read the draft file"
 DRAFT_UNREADABLE_EMIT = "If you cannot read the file, return **no findings** and end with"
 HASH_OBJECT = "run `git hash-object --no-filters` on that draft file and quote the object ID it prints verbatim"
-FOUR_PATH_OOB = (
+FILE_ARM_OOB = (
     "The following on-disk files are **out of bounds** — "
     "`.devflow/tmp/issue-derivation-"
 )
-FIVE_FILE_OOB = "the out-of-bounds declaration names exactly these 5 files"
+EMBED_ARM_OOB = "the out-of-bounds declaration names exactly these 6 files"
 READ_ORDERING_AMENDED = (
     "before any repository read other than the renderer invocation, or the "
     "documented template-file fallback read, that produced these instructions"
@@ -88,10 +88,10 @@ class DispatchArms(unittest.TestCase):
         out = r.stdout
         self.assertIn(READ_INSTRUCTION, out)
         self.assertIn(READ_ORDERING_AMENDED, out)  # amended two-transport ordering
-        self.assertIn(FOUR_PATH_OOB, out)
+        self.assertIn(FILE_ARM_OOB, out)
         self.assertIn(HASH_OBJECT, out)
         self.assertIn("/abs/issue-draft-my-slug.md", out)  # draft path slot
-        self.assertNotIn(FIVE_FILE_OOB, out)  # 4-path, not the embed 5-path
+        self.assertNotIn(EMBED_ARM_OOB, out)  # file-arm list, not the embed-arm list
 
     def test_R2_embed_arm(self):
         r = run_renderer(
@@ -105,7 +105,7 @@ class DispatchArms(unittest.TestCase):
         out = r.stdout
         self.assertIn("AUDIT-ABC123-OPEN", out)
         self.assertIn("AUDIT-ABC123-CLOSE", out)
-        self.assertIn(FIVE_FILE_OOB, out)
+        self.assertIn(EMBED_ARM_OOB, out)
         self.assertIn("spliced here by the dispatch prompt", out)  # splice slot
         self.assertNotIn(READ_INSTRUCTION, out)
         self.assertNotIn("THIS STDIN MUST BE IGNORED", out)
@@ -117,7 +117,7 @@ class DispatchArms(unittest.TestCase):
         out = r.stdout
         self.assertNotIn(READ_INSTRUCTION, out)  # no read-the-file instruction
         self.assertNotIn(DRAFT_UNREADABLE_EMIT, out)  # no DRAFT-UNREADABLE emit option
-        self.assertIn(FOUR_PATH_OOB, out)  # still declares reasoning artifacts OOB
+        self.assertIn(FILE_ARM_OOB, out)  # still declares reasoning artifacts OOB
 
     def test_R11_checklist_mode(self):
         r = run_renderer(["checklist", "--extension-file", str(self.ext)])
@@ -131,7 +131,7 @@ class DispatchArms(unittest.TestCase):
         # No arm carriage / out-of-bounds / cap material.
         self.assertNotIn("at most five findings", out)
         self.assertNotIn(READ_INSTRUCTION, out)
-        self.assertNotIn(FOUR_PATH_OOB, out)
+        self.assertNotIn(FILE_ARM_OOB, out)
 
 
 class Extraction(unittest.TestCase):
@@ -382,12 +382,12 @@ class MarkersAndContract(unittest.TestCase):
 
     def test_R9_statelessness(self):
         ext = self._ext("## Audit dimensions\n- **x** — d\n")
-        before = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+        before = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}  # tree-walk-ok: self.root is a per-test sandbox, not the repository root
         run_renderer(["embed", "--slug", "s",
                       "--sentinel-open", "AUDIT-AA11BB-OPEN",
                       "--sentinel-close", "AUDIT-AA11BB-CLOSE",
                       "--extension-file", str(ext)])
-        after = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+        after = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}  # tree-walk-ok: self.root is a per-test sandbox, not the repository root
         self.assertEqual(before, after)  # no file written, no fixture mutation
 
     def test_R10_failure_arms(self):
