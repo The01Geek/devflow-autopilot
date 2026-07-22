@@ -1,0 +1,184 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-22T00:00:00Z",
+  "fix_commit_sha": "92f9a61",
+  "fix_files": [
+    "lib/test/path-portability-test.sh",
+    "lib/test/cloud-form-layout-test.sh"
+  ],
+  "loop_role": "fix",
+  "current_step": "2.6",
+  "current_substep": "run_shadow_fanout",
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": false,
+    "checklist_skipped": "intentional"
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:pr-test-analyzer",
+    "devflow:comment-analyzer"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Important",
+      "description": "path-portability-test.sh header claimed it stubs wslpath/cygpath/uname; the body correctly omits wslpath/cygpath (only uname/MSYSTEM stubbed) — mirror-fact drift.",
+      "defect_signature": {
+        "file": "lib/test/path-portability-test.sh",
+        "line_range": [
+          15,
+          20
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "unchecked mkdir/cp -R in _seed_repo; a failed copy is caught downstream but attributed to a confusing later step.",
+      "defect_signature": {
+        "file": "lib/test/cloud-form-layout-test.sh",
+        "line_range": [
+          36,
+          40
+        ],
+        "kind": "unchecked_return"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "AC7 join depth (../../scripts) is hardcoded in the driver, not sourced from the live SKILL anchor string; a production anchor-depth regression would not be caught.",
+      "defect_signature": {
+        "file": "lib/test/cloud-form-layout-test.sh",
+        "line_range": [
+          88,
+          88
+        ],
+        "kind": "coverage_seam"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "AC7 consumer layout is hand-crafted, not coupled to install.sh's actual vendored path; an installer path change would not be caught here.",
+      "defect_signature": {
+        "file": "lib/test/fixtures/cloud-form-layouts/consumer",
+        "line_range": [
+          1,
+          1
+        ],
+        "kind": "coverage_seam"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "AC7 executes via bash <path>, a shape the real cloud runner deny-floors; this is a resolution test not a permission test (shapes covered separately by extract-command-shapes.py).",
+      "defect_signature": {
+        "file": "lib/test/cloud-form-layout-test.sh",
+        "line_range": [
+          97,
+          97
+        ],
+        "kind": "informational"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "advisory"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "92f9a61"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "92f9a61"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "deferred",
+      "source_file": "lib/test/cloud-form-layout-test.sh",
+      "claim_text": "AC7 join depth hardcoded, not sourced from the live SKILL anchor",
+      "skip_category": "out-of-scope",
+      "evidence": "AC7 requires executing the cloud form against the two layouts with spaces + shallow-detached represented; coupling the fixture depth to the live SKILL anchor string is a broader robustness enhancement beyond the AC's wording — surfaced for follow-up.",
+      "parking_evidence": {
+        "basis": "the deferred check exceeds AC7's stated scope (resolution across layouts/properties), not a defect in what the AC requires",
+        "failing_input": "a future SKILL anchor drifting to a different ../ depth",
+        "source": "lib/test/cloud-form-layout-test.sh:88",
+        "finding_ref": {
+          "iter": 1,
+          "index": 2
+        }
+      }
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "deferred",
+      "source_file": "lib/test/fixtures/cloud-form-layouts/consumer",
+      "claim_text": "consumer layout not coupled to install.sh vendored path",
+      "skip_category": "out-of-scope",
+      "evidence": "AC7 requires the consumer layout be represented (it is); coupling it to install.sh's actual copy destination is a separate installer-contract test — surfaced for follow-up.",
+      "parking_evidence": {
+        "basis": "the AC requires representation of the consumer layout, not an install.sh coupling assertion",
+        "failing_input": "install.sh changing its vendored copy destination",
+        "source": "lib/test/fixtures/cloud-form-layouts/consumer",
+        "finding_ref": {
+          "iter": 1,
+          "index": 3
+        }
+      }
+    },
+    {
+      "finding_id": "F-5",
+      "decision": "advisory",
+      "source_file": "lib/test/cloud-form-layout-test.sh",
+      "claim_text": "executes via bash <path> which the cloud runner deny-floors",
+      "skip_category": "advisory-parked",
+      "evidence": "This is a path-resolution integration test, not a permission-shape test; cloud command-shape denial is covered separately by extract-command-shapes.py. No AC7 coverage gap.",
+      "parking_evidence": {
+        "basis": "resolution test vs permission test are distinct concerns; the latter is covered by extract-command-shapes.py",
+        "failing_input": "n/a — not a coverage gap against AC7 wording",
+        "source": "lib/test/cloud-form-layout-test.sh:97",
+        "finding_ref": {
+          "iter": 1,
+          "index": 4
+        }
+      }
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 2,
+    "fix_diff_lines": 12,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "shadow": {
+    "ran_at": null,
+    "reviewed_sha": null,
+    "verdict": null,
+    "coverage": null,
+    "reviewers_dispatched": [],
+    "expected_reviewers": [],
+    "promoted_to_iter_next": false
+  },
+  "telemetry": "unavailable"
+}
