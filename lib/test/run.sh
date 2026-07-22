@@ -48966,6 +48966,38 @@ _cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec
      --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" \
      --repo-root "$CCE_REPO" --deferrals "$CCE_EV/absent-deferrals.json"
 assert_eq "#550 deferral pass(zero-deferral, no deferrals.json): token" "pass" "$CCE_TOK"
+# A durable remote citation: a follow-up-issue trace in the OWN repo whose gh-stub
+# target EXISTS -> pass (the durable remote happy path).
+printf '{"deferrals":[{"finding_id":"f006","channel":"follow-up-issue","ref":{"repo":"me/repo","api_path":"repos/me/repo/issues/1"}}]}\n' > "$CCE_EV/def_remote_exists.json"
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec3.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" \
+     --repo-root "$CCE_REPO" --deferrals "$CCE_EV/def_remote_exists.json" --own-repo "me/repo"
+assert_eq "#550 deferral pass(remote follow-up-issue EXISTS): token" "pass" "$CCE_TOK"
+assert_eq "#550 deferral pass(remote EXISTS): exit 0" "0" "$CCE_RC"
+# Cross-entry class ordering: a deferrals list whose FIRST entry is an out-of-scope
+# 404 (unverifiable) and a LATER entry is chat-only (provable non-durable) emits the
+# LOWEST-RANKED class non-durable-deferral, never the first-listed entry's
+# unverifiable-trace (first-failing-CLASS, not first-failing-ENTRY).
+printf '{"deferrals":[{"finding_id":"f007","channel":"follow-up-issue","ref":{"repo":"other/repo","api_path":"repos/other/repo/issues/1"}},{"finding_id":"f008","channel":"chat"}]}\n' > "$CCE_EV/def_mixed_order.json"
+CCE_MODE=absent
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec3.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" \
+     --repo-root "$CCE_REPO" --deferrals "$CCE_EV/def_mixed_order.json" --own-repo "me/repo"
+assert_eq "#550 deferral class-order: non-durable beats first-listed unverifiable" "non-durable-deferral" "$CCE_TOK"
+CCE_MODE=exists
+# skipped_checks is NOT a list (a hand-mutable producer shape) -> fail-closed to
+# skipped-checks-present (unclassifiable), even though result is a pass value.
+printf '{"result":"passed","candidate_identity":"%s","skipped_checks":{"check":"c1"}}\n' "$CCE_TREE3" > "$CCE_EV/vrec_skipobj.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/vrec_skipobj.json" \
+     --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 skipped-checks-present(skipped_checks not a list): token" "skipped-checks-present" "$CCE_TOK"
+assert_eq "#550 skipped-checks-present(not a list): exit 1" "1" "$CCE_RC"
+# Loop: an in-fix-set finding whose finding_id is MISSING (malformed producer shape)
+# fails CLOSED to undischarged-findings, never silently skipped toward pass.
+printf '{"claim_context_token":"run1","findings":[{"in_fix_set":true}]}\n' > "$CCE_EV/loop_inv_noid.json"
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec3.json" \
+     --findings-inventory "$CCE_EV/loop_inv_noid.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" --repo-root "$CCE_REPO"
+assert_eq "#550 undischarged-findings(loop, in-fix-set malformed finding_id): token" "undischarged-findings" "$CCE_TOK"
 
 # ── Wrong-session anchor: a well-formed preflight artifact whose claim-context
 #    token differs from the operand -> missing-evidence (session-binding control).
@@ -49028,8 +49060,10 @@ assert_eq "#550 internal-error(no git repo): NO verdict line" "0" "$CCE_NL"
 
 # ── Semantic-judgment exclusion (code-reading obligation over the shipped source):
 #    the validator source spawns NO subprocess whose head is anything other than
-#    git and the resolved gh (the module constants GIT / GH). It re-grades no
-#    severity, re-runs no test suite. This is an AST negative, not a grep. ──────
+#    the resolved gh (constant GH — its single subprocess head, on the remote-trace
+#    arm); git runs only inside the imported reception_identity routine, so the
+#    "GIT" allowlist entry below is defensive and unexercised in this module. It
+#    re-grades no severity, re-runs no test suite. An AST negative, not a grep. ──
 CCE_SEMANTIC="$(python3 - "$CCE" <<'SEMEOF'
 import ast, sys
 src = open(sys.argv[1], encoding="utf-8").read()

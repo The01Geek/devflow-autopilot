@@ -67,6 +67,22 @@ TOK_UNDISCHARGED = "undischarged-findings"
 TOK_NON_DURABLE = "non-durable-deferral"
 TOK_UNVERIFIABLE = "unverifiable-trace"
 
+# The closed token vocabulary, in evaluation order (pass terminal). ORDERED_TOKENS
+# pins the documented first-failing-class order to the code so a test can assert it;
+# ALL_TOKENS closes the set so a raise-site typo cannot ship a garbage verdict line
+# (mirrors verification-flight.py's ALL_STATES / _CodedError closed-vocabulary guard).
+ORDERED_TOKENS = (
+    TOK_PASS,
+    TOK_MISSING,
+    TOK_STALE,
+    TOK_NOT_PASS,
+    TOK_SKIPPED,
+    TOK_UNDISCHARGED,
+    TOK_NON_DURABLE,
+    TOK_UNVERIFIABLE,
+)
+ALL_TOKENS = frozenset(ORDERED_TOKENS)
+
 # A verification record satisfies the pass check when its result is one of these.
 # Two honest producers write a verification record: the #528 flight handle records
 # `result: "passed"`, while the review-and-fix `verification_evidence` records
@@ -101,6 +117,10 @@ class Verdict(Exception):
     """
 
     def __init__(self, token: str, detail: str):
+        # Closed-vocabulary guard: a mistyped token is a programming error, not a
+        # verdict to ship. Caught by main()'s broad handler → exit 2, no verdict line.
+        if token not in ALL_TOKENS:
+            raise ValueError(f"Verdict token {token!r} is not one of {sorted(ALL_TOKENS)}")
         super().__init__(token)
         self.token = token
         self.detail = detail
@@ -320,10 +340,12 @@ def _check_undischarged_findings(args, findings_inventory: dict, ledger: dict) -
     Scoped per context, because #668 landed a single append-only ledger whose
     finding ids the helper assigns:
 
-      * Loop context: the effective fix set is the inventory's findings at or above
-        the fix threshold plus any REJECT-driver. Each must have a fix_decisions
-        row (joined by finding id). Below-threshold born-advisory findings are
-        discharged by the engine's derived-disposition convention and need no row.
+      * Loop context: the effective fix set is exactly the inventory findings the
+        loop flagged `in_fix_set` (its own routing already applied the threshold)
+        plus any `reject_driver` — this validator re-grades no severity. Each must
+        have a fix_decisions row (joined by finding id). Findings the loop did not
+        flag are discharged by the engine's derived-disposition convention and need
+        no row.
       * Direct context: the validator cannot enumerate which findings ought to
         carry a row (there is no independent inventory), so it checks the ledger's
         completeness attestation only — a claimed-complete session whose ledger
@@ -364,11 +386,20 @@ def _check_undischarged_findings(args, findings_inventory: dict, ledger: dict) -
     for f in findings:
         if not isinstance(f, dict):
             continue
-        fid = f.get("finding_id")
-        if not isinstance(fid, str):
-            continue
         in_fix_set = bool(f.get("in_fix_set")) or bool(f.get("reject_driver"))
-        if in_fix_set and fid not in decided_ids:
+        if not in_fix_set:
+            continue
+        fid = f.get("finding_id")
+        # An in-fix-set finding whose id is missing or non-string is a malformed
+        # producer shape — fail CLOSED (unknown is never pass), never skip it, or a
+        # producer bug that drops the id would silently exempt a routed finding.
+        if not isinstance(fid, str) or not fid:
+            raise Verdict(
+                TOK_UNDISCHARGED,
+                "an in-fix-set finding carries no usable string finding_id, so its "
+                "disposition cannot be joined (malformed findings inventory)",
+            )
+        if fid not in decided_ids:
             raise Verdict(
                 TOK_UNDISCHARGED,
                 f"finding {fid} is in the loop's effective fix set but carries no "
@@ -466,28 +497,48 @@ def _check_deferrals(args) -> str:
         return ""
 
     own = None  # resolved lazily, only if a remote trace needs it
+    # Collect each entry's failure and emit the LOWEST-RANKED class across ALL
+    # entries — non-durable-deferral (token 7) precedes unverifiable-trace (token 8)
+    # in the fixed order, so a provable non-durable failure is never masked by an
+    # earlier-listed unverifiable one (first-failing-CLASS, not first-failing-entry).
+    non_durable = None
+    unverifiable = None
     for entry in entries:
-        if not isinstance(entry, dict):
-            raise Verdict(TOK_NON_DURABLE, "a deferral entry is not an object")
-        channel = entry.get("channel")
-        if channel not in ALL_CHANNELS:
-            raise Verdict(
-                TOK_NON_DURABLE,
-                f"deferral {entry.get('finding_id')!r} cites no durable channel "
-                f"(channel={channel!r}; expected one of "
-                f"{'/'.join(sorted(ALL_CHANNELS))})",
-            )
-        if channel == CHANNEL_LOOP_RECORD:
-            # The deferral record itself is the trace — its presence here is the
-            # durable channel. Nothing further to check.
-            continue
-        if channel == CHANNEL_CODE_COMMENT:
-            _check_code_comment(args, entry)
-            continue
-        # Remote channels (pr-thread / follow-up-issue).
-        if own is None:
-            own = _own_repo(args)
-        _check_remote_trace(args, entry, own)
+        try:
+            if not isinstance(entry, dict):
+                raise Verdict(TOK_NON_DURABLE, "a deferral entry is not an object")
+            channel = entry.get("channel")
+            if channel not in ALL_CHANNELS:
+                raise Verdict(
+                    TOK_NON_DURABLE,
+                    f"deferral {entry.get('finding_id')!r} cites no durable channel "
+                    f"(channel={channel!r}; expected one of "
+                    f"{'/'.join(sorted(ALL_CHANNELS))})",
+                )
+            if channel == CHANNEL_LOOP_RECORD:
+                # The deferral record itself is the trace — its presence here is the
+                # durable channel. Nothing further to check.
+                continue
+            if channel == CHANNEL_CODE_COMMENT:
+                _check_code_comment(args, entry)
+                continue
+            # Remote channels (pr-thread / follow-up-issue).
+            if own is None:
+                own = _own_repo(args)
+            _check_remote_trace(args, entry, own)
+        except Verdict as v:
+            if v.token == TOK_NON_DURABLE:
+                if non_durable is None:
+                    non_durable = v
+            elif v.token == TOK_UNVERIFIABLE:
+                if unverifiable is None:
+                    unverifiable = v
+            else:
+                raise  # any other class is structural — surface it immediately
+    if non_durable is not None:
+        raise non_durable
+    if unverifiable is not None:
+        raise unverifiable
     return ""
 
 
@@ -548,6 +599,16 @@ def _check_remote_trace(args, entry: dict, own: "str | None") -> None:
             TOK_UNVERIFIABLE,
             f"deferral {entry.get('finding_id')!r} remote trace could not be "
             f"checked (GitHub unreachable at validation time)",
+        )
+    if outcome != _RemoteProbe.ABSENT:
+        # Defensive: _probe_remote is closed to the three outcomes and EXISTS /
+        # UNREACHABLE are handled above, so this is unreachable today — but a stray
+        # value must fail SAFE (unknown), never default into the provable-absence
+        # arm below, which would emit a false fabrication accusation.
+        raise Verdict(
+            TOK_UNVERIFIABLE,
+            f"deferral {entry.get('finding_id')!r} remote trace outcome was "
+            f"indeterminate (probe returned no definitive result)",
         )
     # ABSENT (a definitive 404).
     in_own_scope = (
@@ -671,6 +732,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: "list[str] | None" = None) -> int:
+    # The verdict line carries a U+2014 em-dash; force a UTF-8-capable stdout so a
+    # non-pass verdict emitted from the except-Verdict handler below cannot raise an
+    # UnicodeEncodeError under an ASCII/C-locale runner (the LC_ALL=C class this repo
+    # documents) and escape uncaught. Best-effort: a non-reconfigurable stdout (a
+    # test-substituted stream) is left as-is.
+    _reconf = getattr(sys.stdout, "reconfigure", None)
+    if callable(_reconf):
+        try:
+            _reconf(encoding="utf-8", errors="backslashreplace")
+        except (ValueError, OSError):
+            pass
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
