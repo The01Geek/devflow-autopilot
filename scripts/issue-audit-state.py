@@ -75,7 +75,14 @@ if sys.version_info < (3, 11):
 # schema-version-mismatch fail-closed matrix row (#546's matrix; no new versioning
 # discipline is invented), forcing a re-init of any in-flight v1 run. Blast radius is
 # small: these state files are ephemeral per-run scratch under .devflow/tmp/.
-SCHEMA_VERSION = 2
+#
+# Bumped 2 → 3 for issue #709: the additive per-attempt `instructions` record (the
+# canonical dispatch-instruction digest plus the round's CLOSED regeneration inputs)
+# and the per-round `steering` establishment result. Same reasoning as the 1 → 2 bump:
+# additive-optional fields still get the bump so an in-flight v2 run re-inits through
+# the existing schema-mismatch fail-closed matrix row rather than being read by code
+# that would treat its absent steering record as an established one.
+SCHEMA_VERSION = 3
 
 # ── Canonical token sets ────────────────────────────────────────────────────────
 # The transition table below may reference no token outside these sets; the
@@ -145,7 +152,46 @@ _OVERRIDE_KINDS = ('user-decline', 'cap-reached')
 _OVERRIDE_SURFACES = (
     't1t2-boundary', 'step4-offer', 'step4-approval-after-exhausted-offer',
 )
-_DEGRADED_REASONS = ('no-subagent-tool', 'dispatch-error', 'no-parseable-verdict-exhausted')
+_DEGRADED_REASONS = ('no-subagent-tool', 'dispatch-error', 'no-parseable-verdict-exhausted',
+                     # issue #709: the canonical dispatch-instruction generator could not
+                     # be invoked or produced no usable output, so the round ran without a
+                     # hashable instruction file.
+                     'instructions-generation-failed')
+
+# ── Steering-absence establishment (issue #709) ────────────────────────────────
+# What the auditor was TOLD, recorded beside the existing carriage evidence for what
+# the auditor READ. `established` means the auditor's quoted `git hash-object` ID for
+# the canonical dispatch-instruction file equalled the digest of the FRESHLY-REGENERATED
+# canonical instructions AND the auditor reported no extra dispatch content. Everything
+# else is `not-established` — there is deliberately no third "unknown" state at the ROUND
+# level, because absent evidence is treated exactly like mismatched evidence here for the
+# same fail-closed reason `_carriage_ok` gives. (The SUMMARY surface does carry a third
+# `unestablished` token, for the distinct case of no completed round to report on at all.)
+_STEERING_STATES = ('established', 'not-established')
+# Why, in refusal precedence order. `canonical-match` is the one establishing reason.
+_STEERING_REASONS = (
+    # The arm never had a hashable instruction file — the embed and inline arms are
+    # entered BECAUSE the canonical draft-file write already failed, so steering-absence
+    # is unestablished BY CONSTRUCTION there. A designed consequence, not a gap.
+    'no-instructions-file',
+    # File arm, but the dispatch recorded no instruction digest / closed inputs, so the
+    # tool cannot regenerate the comparand at all.
+    'inputs-unrecorded',
+    # The regeneration itself failed (generator unimportable, draft unreadable, template
+    # unreadable, hashing failed). Unknown is not zero.
+    'regeneration-failed',
+    'instructions-object-id-absent',
+    'instructions-object-id-mismatch',
+    # The auditor did not report the no-extra-content affirmation at all.
+    'extra-dispatch-content-unreported',
+    # The auditor reported that its dispatch message carried more than the pointer.
+    'extra-dispatch-content',
+    'canonical-match',
+)
+# The closed answer set for the SUMMARY-line steering token: the two round-level states
+# plus `unestablished` for "no completed round, or a completed round that recorded no
+# steering result". Named once so the summary branch and the validator cannot drift.
+_STEERING_SUMMARY = _STEERING_STATES + ('unestablished',)
 _NEXT_ACTIONS = (
     'dispatch-embed-retry', 'dispatch-retry-same-arm', 'dispatch-inline-degraded',
     'proceed', 'revise-and-reaudit', 'revise-then-evaluate-offer', 'round-closed-no-verdict',
@@ -155,6 +201,9 @@ _ELIGIBILITY_REASONS = (
     'unaudited-revision', 'stale-override', 'no-verdict-round', 'state-unestablished',
     'foreign-nonce', 'no-revision-recorded', 'draft-undigestible',
     'no-digest-supplied',
+    # issue #709: draft identity held on the clean round, but steering-absence was not
+    # established for it, so the coverage-backed clean ground is withheld.
+    'steering-unestablished',
 )
 _GROUNDS = ('file-identity', 'event-ordering', 'override')
 
@@ -208,12 +257,14 @@ _PROTOCOL_TOKENS = (
     'cap_reached', 'classification', 'consumer_dimensions_appended', 'converged',
     'convergence_basis', 'count', 'degraded', 'digest', 'effective_unresolved',
     'eligible', 'epoch_round', 'findings', 'findings_count', 'frozen', 'ground', 'id',
+    'instructions_digest',
     'invalid', 'invalidated', 'iterate', 'key', 'kind', 'latest_revision_landed',
     'marker', 'markers',
     'must_revise', 'non_bound_root', 'nonce', 'ordinal', 'outcome', 'reason',
     'reinit_forced', 'remaining', 'reopened', 'revision_ordinal', 'revisions_applied',
     'round', 'rounds_run', 'sentinel_close', 'sentinel_open', 'state', 'status',
-    'stdin_digest', 'summary', 'superseded', 't1', 't2', 'tier', 'token',
+    'stdin_digest', 'steering', 'steering_reason',
+    'summary', 'superseded', 't1', 't2', 'tier', 'token',
     'unledgered_revise', 'unresolved',
     'unresolved_must_revise', 'user_declined', 'user_rounds_used', 'verdict',
 )
@@ -877,6 +928,48 @@ def _validate(doc, slug):
                 if val is not None and not isinstance(val, str):
                     raise StateError(f'round {num} has an attempt whose {key} is not a '
                                      f'string')
+            # issue #709: the canonical dispatch-instruction record. `None` (or absent —
+            # a v3 round dispatched with no instruction file) is legal and reads as
+            # unestablished; a PRESENT record must be complete, because `record-return`
+            # indexes every one of these keys to regenerate the comparand. A
+            # half-recorded object would raise a KeyError at that mutation site instead
+            # of collapsing here to a named breadcrumb.
+            instr = att.get('instructions')
+            if instr is not None:
+                if not isinstance(instr, dict):
+                    raise StateError(f'round {num} has an attempt whose instructions '
+                                     f'record is not an object')
+                d = instr.get('digest')
+                if not isinstance(d, str) or not d:
+                    raise StateError(f'round {num} has an instructions record whose '
+                                     f'digest is missing or not a non-empty string')
+                for key in ('instructions_path', 'draft_path'):
+                    if not _is_bound_path(instr.get(key)):
+                        raise StateError(f'round {num} has an instructions record whose '
+                                         f'{key} is not a non-empty absolute path free '
+                                         f'of newline/carriage-return bytes')
+                tmpl = instr.get('template_path')
+                if tmpl is not None and not _is_bound_path(tmpl):
+                    raise StateError(f'round {num} has an instructions record whose '
+                                     f'template_path is not None and not a non-empty '
+                                     f'absolute path free of newline/carriage-return '
+                                     f'bytes')
+        # issue #709: the round's steering-absence result. Absent/None is legal (a
+        # refused completion, a degraded arm, a pre-#709 round) and reads as
+        # unestablished; a present record must name a state AND a reason from the closed
+        # sets, so a hand-corrupted `{'state': 'established'}` with a forged or missing
+        # reason cannot walk the run past the gate that field exists to hold.
+        steer = rnd.get('steering')
+        if steer is not None:
+            if not isinstance(steer, dict):
+                raise StateError(f'round {num} has a steering record that is not an '
+                                 f'object')
+            if steer.get('state') not in _STEERING_STATES:
+                raise StateError(f'round {num} names a steering state outside the '
+                                 f'canonical set: {steer.get("state")!r}')
+            if steer.get('reason') not in _STEERING_REASONS:
+                raise StateError(f'round {num} names a steering reason outside the '
+                                 f'canonical set: {steer.get("reason")!r}')
         if rnd['outcome'] is not None and rnd['outcome'] not in _ROUND_OUTCOMES:
             raise StateError(f'round {num} names an outcome outside the canonical set: '
                              f'{rnd["outcome"]!r}')
@@ -1508,6 +1601,17 @@ def evaluate_triggers(state):
         # above (u is not None), never here.
         t2 = True
         reason = 'unadjudicated-round'
+    elif last.get('outcome') in ('FILE', 'REVISE') and not _steering_established(last):
+        # issue #709 — the "Quiet Killer" arm. A round that returned `VERDICT: FILE` with
+        # zero findings and no revision fires NONE of the arms above: T1 needs an
+        # unresolved must-revise finding, and the two T2 arms above need a verdict-less or
+        # an unadjudicated-REVISE round. So without this arm a steered-or-unestablished
+        # clean round would withhold the clean ground SILENTLY, with no user-facing offer
+        # to restore a verified-independent audit. Firing T2 routes it through the
+        # existing boundary-offer surface, which never blocks filing: on decline the run
+        # proceeds to presentation with the state disclosed.
+        t2 = True
+        reason = 'steering-unestablished'
     return {'t1': t1, 't2': t2, 'reason': reason}
 
 
@@ -1722,13 +1826,26 @@ def evaluate_eligibility(state, mode, current_digest=None, digest_failed=False):
           ground — weaker than byte identity, and disclosed as such).
       (b) an explicitly recorded override that is still current.
 
+    Ground (a) additionally requires, since issue #709, that the grounding round
+    ESTABLISHED steering-absence — the auditor's quoted canonical-instruction-file
+    object ID matched the freshly-regenerated canonical digest and it reported no extra
+    dispatch content. That requirement is structurally PRIOR to the refusal chain below
+    rather than a peer of it: it gates ground (a)'s own return, so it is reachable only
+    where identity already held. Ground (b) is deliberately untouched — an explicit user
+    override is a human decision that does not rest on the audit's independence.
+
     `iterate` covers only the in-loop re-presentation of a just-revised draft while its
     re-audit offer is pending. `iterate-ok` is never a ground for acting on approval and
     never a ground for creation.
 
     Reason precedence when several could apply is decided, not incidental:
-      state-unestablished > draft-undigestible > no-verdict-round > no-digest-supplied >
-      stale-override > unaudited-revision.
+      state-unestablished > draft-undigestible > steering-unestablished >
+      no-verdict-round > no-digest-supplied > stale-override > unaudited-revision.
+
+    `steering-unestablished` sits where it does because it is REACHABLE only with a clean
+    round present that the override ground did not rescue — the three reasons after it
+    all require the opposite — so its position expresses specificity, not a race between
+    conditions that could genuinely both apply.
 
     `no-digest-supplied` outranks `stale-override` deliberately: an override queried
     with no draft digest was never compared, so nothing went stale — naming the
@@ -1776,7 +1893,21 @@ def evaluate_eligibility(state, mode, current_digest=None, digest_failed=False):
         if rnd.get('outcome') == 'REVISE':
             break
 
-    if clean is not None:
+    # issue #709: the coverage-backed clean ground now requires steering-absence to have
+    # been ESTABLISHED for the grounding round — the auditor's quoted instruction-file
+    # object ID matched the freshly-regenerated canonical digest AND it reported no extra
+    # dispatch content. This gate sits INSIDE the clean block, structurally prior to the
+    # refusal chain below rather than as one more peer reason in it: it can only ever be
+    # reached when identity ALREADY held, so it is by construction the most specific
+    # diagnosis available and can never collide with `no-verdict-round` /
+    # `no-digest-supplied` (both of which require no clean round to exist at all).
+    #
+    # Scope, stated so it is not over-read: only the CLEAN ground is withheld. The
+    # override ground below is untouched, `emit-body`'s other paths are untouched, and
+    # Step 4 still presents and files on the user's approval — filing is never blocked on
+    # any arm. What is withheld is exactly the coverage-backed clean grounding.
+    steering_ok = clean is not None and _steering_established(clean)
+    if clean is not None and steering_ok:
         arm = clean['attempts'][-1]['arm']
         if arm == 'file':
             recorded = clean['attempts'][-1].get('digest')
@@ -1810,6 +1941,14 @@ def evaluate_eligibility(state, mode, current_digest=None, digest_failed=False):
         bound = ov.get('draft_digest')
         return _yes(state, 'override',
                     bound if bound is not None else str(revision_ordinal(state)))
+
+    # issue #709 — checked here, immediately after the override ground could not rescue
+    # it, because a clean round whose steering was not established is a MORE specific
+    # cause than anything in the chain below: identity held, the verdict was clean, and
+    # the single missing property is the establishment. Naming it `unaudited-revision`
+    # or `stale-override` instead would send the reader to the wrong remedy.
+    if clean is not None and not steering_ok:
+        return _no('steering-unestablished')
 
     # Refusal precedence, decided (the docstring's tail, in the order checked below):
     # no-verdict-round > no-digest-supplied > stale-override > unaudited-revision.
@@ -1969,6 +2108,10 @@ _SUMMARY_FIELDS = (
     # render as space-free tokens BEFORE `bound_root`, so `attestation` stays the
     # contractually-trailing field the #546 CLI pins anchor on.
     'effective_unresolved', 'convergence_basis',
+    # issue #709: the steering-absence establishment of the LATEST completed round and
+    # the closed reason token behind it. Both render as space-free tokens BEFORE
+    # `attestation`, which stays the contractually-trailing field.
+    'steering', 'steering_reason',
 )
 
 
@@ -2002,7 +2145,8 @@ def summary_fields(state, current_digest=None, digest_failed=False):
                         attestation=None, adjudicated_verdict=None, must_revise=None,
                         advisory=None, invalid=None, unresolved_must_revise=None,
                         bound_root=None, bound_tier=None,
-                        effective_unresolved=None, convergence_basis='none')
+                        effective_unresolved=None, convergence_basis='none',
+                        steering='unestablished', steering_reason=None)
     done = completed_rounds(state)
     # Cumulative across every round this run: "how many things did the auditors
     # collectively flag", not merely the last round's tally.
@@ -2096,6 +2240,15 @@ def summary_fields(state, current_digest=None, digest_failed=False):
         # a reader can see the at-close count AND what post-close settling left.
         effective_unresolved=_convergence['effective'],
         convergence_basis=_convergence['basis'],
+        # issue #709: the LATEST completed round's steering-absence establishment, read
+        # from that round only — the property binds to the audited bytes, not to the run,
+        # so a run-level roll-up would let a steered early round launder a later revision.
+        # `unestablished` (with a `none` reason) is the honest answer when there is no
+        # completed round, or when a completed round recorded no steering result at all.
+        steering=((last.get('steering') or {}).get('state', 'unestablished')
+                  if last else 'unestablished'),
+        steering_reason=((last.get('steering') or {}).get('reason')
+                         if last else None),
     )
 
 
@@ -2322,7 +2475,46 @@ def cmd_record_dispatch(args):
     except _DigestError as exc:
         _fail('record-dispatch', str(exc))
     attempt = {'arm': args.arm, 'digest': digest, 'body_digest': body_digest,
-               'sentinel_open': None, 'sentinel_close': None}
+               'sentinel_open': None, 'sentinel_close': None,
+               # issue #709: the canonical dispatch-instruction record. `None` means the
+               # round had no hashable instruction file, which is UNESTABLISHED, never
+               # established-clean by omission.
+               'instructions': None}
+    # issue #709 — the round's CLOSED regeneration inputs, recorded at dispatch. They are
+    # what `record-return` re-runs the generator over, so an input the tool cannot record
+    # fails the whole record CLOSED (no partial `instructions` object): without every
+    # input the regeneration cannot happen at all, and a half-recorded object would make
+    # the round look establishable when it is not. The draft TITLE is deliberately NOT
+    # among them — the generator reads it from the draft file at `draft_path`, so no
+    # drafter free text is stored here or crosses a regeneration argument.
+    if args.instructions_file:
+        if args.arm != 'file':
+            _fail('record-dispatch', '--instructions-file is a file-arm input; the '
+                                     f'{args.arm} arm has no hashable instruction file')
+        if not args.instructions_draft_path:
+            _fail('record-dispatch', '--instructions-file requires '
+                                     '--instructions-draft-path (the exact --draft-path '
+                                     'value the generator was invoked with); without it '
+                                     'the canonical instructions cannot be regenerated')
+        for _flag, _val in (('--instructions-file', args.instructions_file),
+                            ('--instructions-draft-path', args.instructions_draft_path),
+                            ('--instructions-template', args.instructions_template)):
+            if _val is not None and not _is_bound_path(_val):
+                _fail('record-dispatch', f'{_flag} {_val!r} is not a non-empty absolute '
+                                         f'path free of newline/carriage-return bytes')
+        try:
+            instructions_digest = hash_bytes(Path(args.instructions_file).read_bytes())
+        except OSError as exc:
+            _fail('record-dispatch', f'could not read the dispatch-instruction file '
+                                     f'{args.instructions_file}: {exc}')
+        except _DigestError as exc:
+            _fail('record-dispatch', str(exc))
+        attempt['instructions'] = {
+            'digest': instructions_digest,
+            'instructions_path': args.instructions_file,
+            'draft_path': args.instructions_draft_path,
+            'template_path': args.instructions_template,
+        }
     if args.arm == 'embed':
         # Delta 3: the sentinels are generated by the tool at dispatch, not chosen ad
         # hoc by the orchestrator, so the carriage compare is against a recorded value.
@@ -2407,6 +2599,8 @@ def cmd_record_dispatch(args):
     except StateError as exc:
         _fail('record-dispatch', str(exc))
     out = f'round={args.round} arm={args.arm} digest={digest} body_digest={body_digest}'
+    if attempt['instructions']:
+        out += f' instructions_digest={attempt["instructions"]["digest"]}'
     if attempt['sentinel_open']:
         out += (f' sentinel_open={attempt["sentinel_open"]}'
                 f' sentinel_close={attempt["sentinel_close"]}')
@@ -2463,6 +2657,14 @@ def cmd_record_return(args):
     # never recorded: an unproven findings tally must not leak into the summary via a
     # later clean retry that omits its own count.
     if cls in ('accept-file', 'accept-revise'):
+        # issue #709: establish steering-absence on the SAME guard the findings tally
+        # uses. A refused completion (failed carriage / no parseable verdict) records
+        # nothing, so its round keeps `steering: None` — read as unestablished by
+        # `_steering_established`, never as clean.
+        st_state, st_reason = steering_state(
+            args.slug, attempt, args.instructions_object_id,
+            args.extra_dispatch_content)
+        rnd['steering'] = {'state': st_state, 'reason': st_reason}
         if args.findings_count is not None:
             if args.findings_count < 0:
                 _fail('record-return', f'--findings-count {args.findings_count} is '
@@ -2474,7 +2676,10 @@ def cmd_record_return(args):
         save_state(doc, args.slug)
     except StateError as exc:
         _fail('record-return', str(exc))
-    print(f'classification={cls} outcome={rnd["outcome"] or "pending"}')
+    _st = rnd.get('steering')
+    print(f'classification={cls} outcome={rnd["outcome"] or "pending"} '
+          f'steering={_st["state"] if _st else "unestablished"} '
+          f'steering_reason={_st["reason"] if _st else "none"}')
 
 
 def cmd_record_adjudication(args):
@@ -2987,6 +3192,123 @@ def cmd_record_invalidate(args):
         entry['invalidation_provenance'] = ordinal
     _save_or_fail('record-invalidate', doc, args.slug)
     print(f'round={args.round} invalidated={len(entries)} remaining={_remaining(doc)}')
+
+
+def _load_generator():
+    """Import `render-audit-prompt.py` as a module and return it (issue #709).
+
+    The canonical dispatch-instruction generator is this tool's sibling in
+    `scripts/`, resolved relative to THIS file (never the cwd), so the repo checkout
+    and the vendored plugin layout resolve identically — the same anchoring the
+    generator itself uses for its template.
+
+    Imported rather than sub-processed: the generator is a pure function, so an
+    in-process call keeps the regeneration Windows-safe (no `.sh` exec, #275; no
+    interpreter-path guessing) and cannot inherit this process's argv. Its module
+    name carries a dash, so it is loaded by file location rather than by `import`.
+    Every failure mode — file absent, unimportable, or importable-but-missing the
+    entry point — raises so the caller records `regeneration-failed`; none of them
+    may read as an established comparison.
+    """
+    import importlib.util
+    path = Path(__file__).resolve().parent / 'render-audit-prompt.py'
+    spec = importlib.util.spec_from_file_location('devflow_render_audit_prompt', path)
+    if spec is None or spec.loader is None:
+        raise _DigestError(f'could not load the dispatch-instruction generator at {path}')
+    mod = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(mod)
+    except (OSError, SyntaxError, ImportError) as exc:
+        raise _DigestError(f'could not import the dispatch-instruction generator '
+                           f'at {path}: {exc}') from exc
+    if not hasattr(mod, 'render_instructions'):
+        raise _DigestError(f'the dispatch-instruction generator at {path} has no '
+                           f'render_instructions entry point')
+    return mod
+
+
+def regenerate_instructions_digest(slug, inputs):
+    """Regenerate the canonical dispatch instructions and return their digest.
+
+    This is the comparand the auditor's quoted object ID is matched against, and it is
+    deliberately the FRESHLY-REGENERATED digest rather than the write-time digest the
+    dispatch recorded. A hand-written *steered* instruction file that never went through
+    the generator would hash equal to its own recorded digest — self-consistent and
+    useless — so comparing against a regeneration from the round's closed inputs is what
+    makes the check prove the dispatched file was canonical, not merely unchanged.
+
+    The bytes hashed are `render_instructions(...) + '\\n'` — exactly what the generator's
+    CLI writes to stdout, and therefore exactly what the orchestrator redirects into the
+    instruction file. A divergence here would false-alarm every clean audit, so the
+    trailing newline is part of the contract, not an incidental.
+    """
+    mod = _load_generator()
+    template_path = (Path(inputs['template_path']) if inputs.get('template_path')
+                     else mod._default_template_path())
+    try:
+        draft_text = Path(inputs['draft_path']).read_text(encoding='utf-8')
+    except (OSError, UnicodeDecodeError) as exc:
+        raise _DigestError(f'could not read the draft file recorded as a regeneration '
+                           f'input ({inputs["draft_path"]}): {exc}') from exc
+    try:
+        rendered = mod.render_instructions(
+            template_path, slug, inputs['draft_path'], inputs['instructions_path'],
+            draft_text)
+    except Exception as exc:  # noqa: BLE001 - the generator's own RenderError type is
+        # not importable by name here without coupling to its module identity; every
+        # failure lands on the same fail-closed `regeneration-failed` arm regardless of
+        # type, so the broad catch is the DECIDED behavior rather than a swallowed error
+        # (it re-raises as _DigestError, carrying the specific cause).
+        raise _DigestError(f'the dispatch-instruction generator failed: {exc}') from exc
+    return hash_bytes((rendered + '\n').encode('utf-8'))
+
+
+def steering_state(slug, attempt, quoted_object_id, extra_dispatch_content):
+    """Establish whether the auditor's instructions were canonical (issue #709).
+
+    Returns `(state, reason)` with `state` in `_STEERING_STATES` and `reason` in
+    `_STEERING_REASONS`. The reason precedence below is DECIDED, not incidental: the
+    most structural cause wins, so a run that never had an instruction file is never
+    diagnosed as an ID mismatch.
+
+    Fail-closed, exactly like `_carriage_ok`: an ABSENT quoted object ID and an ABSENT
+    no-extra-content affirmation are treated as a mismatch and a positive report
+    respectively. Absent evidence is never established-clean by omission — that is the
+    fail-open hazard this whole surface exists to close.
+    """
+    if attempt['arm'] != 'file':
+        return ('not-established', 'no-instructions-file')
+    inputs = attempt.get('instructions')
+    if not inputs:
+        return ('not-established', 'inputs-unrecorded')
+    try:
+        canonical = regenerate_instructions_digest(slug, inputs)
+    except _DigestError as exc:
+        # Never silent: the specific regeneration cause reaches stderr even though the
+        # recorded reason is the coarse closed token.
+        print(f'record-return: steering-absence could not be established: {exc}',
+              file=sys.stderr)
+        return ('not-established', 'regeneration-failed')
+    if not quoted_object_id:
+        return ('not-established', 'instructions-object-id-absent')
+    if quoted_object_id != canonical:
+        return ('not-established', 'instructions-object-id-mismatch')
+    if extra_dispatch_content is None:
+        return ('not-established', 'extra-dispatch-content-unreported')
+    if extra_dispatch_content != 'no':
+        return ('not-established', 'extra-dispatch-content')
+    return ('established', 'canonical-match')
+
+
+def _steering_established(rnd):
+    """True iff this round recorded an ESTABLISHED steering result.
+
+    A round with no steering record at all answers False — the additive field means a
+    pre-#709 round, a refused completion, or a degraded arm carries none, and every one
+    of those is an unestablished property, never an established one.
+    """
+    rec = rnd.get('steering')
+    return isinstance(rec, dict) and rec.get('state') == 'established'
 
 
 def _carriage_ok(attempt, args):
@@ -3662,6 +3984,11 @@ def cmd_query_summary(args):
           f'unresolved_must_revise={umr} effective_unresolved={eff} '
           f'convergence_basis={f["convergence_basis"]} '
           f'bound_root={f["bound_root"] or "none"} bound_tier={f["bound_tier"] or "none"} '
+          # issue #709: both steering tokens render HERE, before `attestation` — that
+          # field is the contractually-trailing one (`attestation=…$`), so nothing may
+          # follow it.
+          f'steering={f["steering"]} '
+          f'steering_reason={f["steering_reason"] or "none"} '
           f'attestation={f["attestation"] or "none"}')
 
 
@@ -3715,6 +4042,20 @@ def main():
                    'embed and inline arms.')
     s.add_argument('--draft-file', help='Required on the file arm; bytes on stdin '
                                         'otherwise.')
+    s.add_argument('--instructions-file', help='File arm only (issue #709): the absolute '
+                   'path of the canonical dispatch-instruction file the orchestrator '
+                   'wrote from `render-audit-prompt.py dispatch-instructions`. Recording '
+                   'it (with --instructions-draft-path) is what makes steering-absence '
+                   'establishable for this round; omitting it leaves the round '
+                   'unestablished, never established-clean.')
+    s.add_argument('--instructions-draft-path', help='Required with --instructions-file: '
+                   'the exact absolute --draft-path value the generator was invoked with. '
+                   'It is a CLOSED regeneration input — record-return re-runs the '
+                   'generator over it (reading the draft title from that file) to '
+                   'reproduce the canonical bytes.')
+    s.add_argument('--instructions-template', help='Optional closed regeneration input: '
+                   'an absolute --template-file override the generator was invoked with. '
+                   'Omit to record the generator default.')
     s.add_argument('--marker', choices=_EMBED_MARKER_TOKENS,
                    help='The embed-arm entry marker, when entering the embed arm.')
     s.set_defaults(func=cmd_record_dispatch)
@@ -3732,6 +4073,17 @@ def main():
                                                 '(file arm).')
     s.add_argument('--carriage-sentinel-open')
     s.add_argument('--carriage-sentinel-close')
+    s.add_argument('--instructions-object-id', help='Issue #709: the object ID the '
+                   'auditor quoted for the canonical dispatch-instruction FILE it read. '
+                   'Compared against the freshly-regenerated canonical digest. An absent '
+                   'value is treated exactly like a mismatched one (fail closed).')
+    s.add_argument('--extra-dispatch-content', choices=('yes', 'no'),
+                   help='Issue #709: the auditor\'s best-effort report of whether its '
+                        'dispatch message carried anything beyond the generated pointer. '
+                        'Omitted reads as unreported, which does NOT establish '
+                        'steering-absence. Its silence is not a proof — a positive report '
+                        'withholds the clean ground, but a `no` only narrows the '
+                        'un-hashable pointer channel, it does not prove it clean.')
     s.set_defaults(func=cmd_record_return)
 
     s = sub.add_parser('record-adjudication',

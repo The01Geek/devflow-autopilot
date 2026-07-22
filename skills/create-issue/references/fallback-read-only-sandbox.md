@@ -6,6 +6,8 @@
 
 **Step 3.6 — the audit report artifact.** In a **read-only sandbox** the write fails (as the delete does); fall back to a **visible inline-in-chat block** carrying the audit findings and verdict, and — per the Step 2 distrust rule — **do not trust any on-disk `issue-audit-<slug>.md`** (it can only be a stale leftover).
 
+**Step 3.6 — the canonical dispatch-instruction file (issue #709).** In a read-only sandbox the `issue-audit-dispatch-<slug>.md` write fails exactly as the draft write does, so there is no on-disk instruction file for the auditor to hash and **steering-absence is unestablished by construction on this arm** — a designed consequence of hashing a *file*, stated plainly, not a defect to work around. **Do not trust an on-disk `issue-audit-dispatch-<slug>.md`** (it can only be a stale leftover, and hashing it would attest a file this run did not write); omit `--instructions-file` from `record-dispatch` rather than pointing it at one. The round's audit summary line carries the `audit independence unestablished` marker beside this arm's existing degraded markers, the coverage-backed clean grounding is withheld, and — as on every arm — **filing is never blocked**: the user's explicit approval still files the issue through the documented Step 4 override election.
+
 **Step 4 — the presentation gate.** **In a read-only sandbox, rely solely on the visible inline-in-chat audit block re-posted this turn and do not trust any on-disk `issue-audit-<slug>.md`** (it can only be a stale leftover — the same read-only distrust rule the Step 2 gate applies).
 
 <!-- devflow:create-issue-ref step=fallback-read-only-sandbox file=skills/create-issue/references/fallback-read-only-sandbox.md end -->
