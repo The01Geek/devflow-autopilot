@@ -83,21 +83,44 @@ _ra_has_file() {  # name file substring
 # Extract one `key=value` field from a builder/oracle summary line with bash parameter
 # expansion (never `cut`/`awk` — the un-guaranteed-tool rule), so an assertion pins the
 # field it cares about rather than the summary line's printf order.
+# The match is anchored on a leading SPACE boundary (the summary is space-prefixed
+# first), because an unanchored `${1#*"$2"=}` would let `missing` match inside
+# `skip_missing=` and silently return the wrong field's value — which would land on the
+# real key only by accident of printf order, the exact property this helper exists to
+# stop an assertion depending on. An absent key returns the sentinel `unset`, which is
+# equal to no expected count and so fails loudly rather than reading as zero.
 _ra_field() {  # summary key
-  local _rest="${1#*"$2"=}"
-  [ "$_rest" != "$1" ] || { printf 'unset'; return 0; }
+  local _s=" $1" _rest
+  _rest="${_s#* "$2"=}"
+  [ "$_rest" != "$_s" ] || { printf 'unset'; return 0; }
   printf '%s' "${_rest%% *}"
 }
-# Seed a temp git repository with the module's fixture identity. The three index-state
-# repos below share it, so a future `git config` addition is a one-line change.
+# `_ra_same` over two DERIVED field values: an absent key on both sides would otherwise
+# compare `unset` to `unset` and pass, so the sentinel is rejected before the compare.
+# That is reachable by exactly the coupled-mirror rename the oracle's header warns about.
+_ra_same_field() {  # name expected-summary actual-summary key fail-detail
+  local _e _a
+  _e="$(_ra_field "$2" "$4")"; _a="$(_ra_field "$3" "$4")"
+  if [ "$_e" = unset ] || [ "$_a" = unset ]; then
+    assert_eq "$1" yes "no(field '$4' is absent from a summary — $5)"
+    return 0
+  fi
+  _ra_same "$1" "$_e" "$_a" "$5"
+}
+# Seed a temp git repository with the module's fixture identity. The index-state repos
+# below share it, so a future `git config` addition is a one-line change. `rerere` is
+# disabled explicitly: it is inherited from the developer's global config and would
+# auto-resolve the conflicted-index fixture, silently emptying the arm that fixture
+# exists to exercise. Returns the seeding rc so a caller never builds on a dead repo.
 _ra_seed_repo() {  # dir [git-init-flags...]
   local _d="$1"; shift
-  mkdir -p "$_d"
+  mkdir -p "$_d" || return 1
   (
     cd "$_d" || exit 1
-    git init -q "$@" .
-    git config user.email devflow@example.invalid
-    git config user.name devflow
+    git init -q "$@" . &&
+    git config user.email devflow@example.invalid &&
+    git config user.name devflow &&
+    git config rerere.enabled false
   ) >/dev/null 2>&1
 }
 
@@ -134,9 +157,9 @@ echo "#619 batched generated-artifact regeneration pass (lib/test/regenerate-art
 _ra_build_image() {  # <src-repo> <dest>
   local _src="$1" _dest="$2"
   local _rec _mode _path _prev='' _total=0 _copied=0 _tab
-  local _skip_missing=0 _skip_gitlink=0 _skip_symlink=0
+  local _skip_missing=0 _skip_gitlink=0 _skip_symlink=0 _fail_copy=0
   _tab=$'\t'
-  mkdir -p "$_dest"
+  mkdir -p "$_dest" || return 1
   while IFS= read -r -d '' _rec; do
     [ -n "$_rec" ] || continue
     # `<mode> <sha> <stage>\t<path>` — the path is read whole after the TAB, so a
@@ -163,8 +186,16 @@ _ra_build_image() {  # <src-repo> <dest>
     # `${var%/*}` returns the WHOLE string when the value has no `/`, so an unguarded
     # mkdir would create a DIRECTORY named CLAUDE.md and the census would then report
     # `manifest-listed path is not a regular file: CLAUDE.md`. Guard on `*/*`.
-    case "$_path" in */*) mkdir -p "$_dest/${_path%/*}" ;; esac
-    cp "$_src/$_path" "$_dest/$_path" || continue
+    # A copy that FAILS is not a skip: it is counted and breadcrumbed on its own
+    # `fail_copy` channel, never swallowed into the gap between `total` and `copied`.
+    # `cp` is not preflight-guaranteed, so an rc-127 host must fail loudly here rather
+    # than silently produce a hollow image (the parent mkdir is checked for the same
+    # reason — its failure would otherwise make every nested path fail to copy).
+    if ! { case "$_path" in */*) mkdir -p "$_dest/${_path%/*}" ;; esac
+           cp "$_src/$_path" "$_dest/$_path"; }; then
+      printf 'regenerate-artifacts fixture: FAILED to copy tracked entry %s\n' "$_path" >&2
+      _fail_copy=$((_fail_copy + 1)); continue
+    fi
     # The mode comes from the INDEX, not the working tree: on a core.fileMode=false
     # checkout (git's default on Windows) the index records 100755 while the on-disk
     # file carries no executable bit, and inheriting that bit would turn the module RED.
@@ -174,12 +205,31 @@ _ra_build_image() {  # <src-repo> <dest>
     esac
     _copied=$((_copied + 1))
   done < <(cd "$_src" && git ls-files -s -z)
-  printf 'total=%s copied=%s skip_missing=%s skip_gitlink=%s skip_symlink=%s\n' \
-    "$_total" "$_copied" "$_skip_missing" "$_skip_gitlink" "$_skip_symlink"
+  printf 'total=%s copied=%s fail_copy=%s skip_missing=%s skip_gitlink=%s skip_symlink=%s\n' \
+    "$_total" "$_copied" "$_fail_copy" "$_skip_missing" "$_skip_gitlink" "$_skip_symlink"
+}
+# Every de-duplicated index entry the builder saw must be accounted for exactly once —
+# copied, failed, or skipped by a named arm. Without this the `cp`/`mkdir` failure arm
+# would be a silent shortfall detectable only by the oracle, and the oracle is the very
+# thing this pairing exists to stop the module depending on alone.
+_ra_summary_balances() {  # name summary
+  local _t _sum _k
+  _t="$(_ra_field "$2" total)"; _sum=0
+  for _k in copied fail_copy skip_missing skip_gitlink skip_symlink; do
+    case "$(_ra_field "$2" "$_k")" in
+      ''|*[!0-9]*) assert_eq "$1" yes "no(field '$_k' unusable in summary: $2)"; return 0 ;;
+      *) _sum=$((_sum + $(_ra_field "$2" "$_k"))) ;;
+    esac
+  done
+  _ra_same "$1" "$_t" "$_sum" "total does not equal copied+fail_copy+skips — summary: $2"
 }
 
 _ra_pristine="$_ra_tmp_root/pristine"
-_ra_pristine_summary="$(_ra_build_image "$RA_REPO" "$_ra_pristine" 2>/dev/null)"
+# The live-checkout build's stderr is CAPTURED, not discarded: it is the one build whose
+# breadcrumbs name real repository paths, so a skip arm firing on the live index (a newly
+# tracked symlink or submodule) or a copy failure must be readable, not merely counted.
+_ra_pristine_err="$_ra_tmp_root/pristine.err"
+_ra_pristine_summary="$(_ra_build_image "$RA_REPO" "$_ra_pristine" 2>"$_ra_pristine_err")"
 # ── Fixture-builder contract (issue #714) ───────────────────────────────────
 # An INDEPENDENT oracle, deliberately not sharing the builder's own bookkeeping: it
 # re-reads the index itself and diffs the resulting expectation against the files
@@ -197,8 +247,22 @@ _ra_image_report() {  # <src-repo> <image>  → "extra=N missing=N skip_missing=
   python3 - "$1" "$2" <<'RA_PY'
 import os, subprocess, sys
 src, image = sys.argv[1], sys.argv[2]
-raw = subprocess.run(["git", "ls-files", "-s", "-z"], cwd=src,
-                     stdout=subprocess.PIPE).stdout.split(b"\0")
+# UNKNOWN IS NOT ZERO. A failed `git ls-files` (broken git, `src` not a repository, an
+# unreadable index — every one of which also empties the image) would otherwise yield an
+# empty expectation AND an empty actual, printing `extra=0 missing=0`: a vacuous clean
+# from the one artifact whose whole job is to catch the builder lying. Emit an
+# `unestablished` sentinel instead, which equals no expected count and so fails loudly.
+_r = subprocess.run(["git", "ls-files", "-s", "-z"], cwd=src,
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+if _r.returncode != 0 or not os.path.isdir(image):
+    print("extra=unestablished missing=unestablished skip_missing=unestablished "
+          "skip_gitlink=unestablished skip_symlink=unestablished")
+    sys.stderr.write("regenerate-artifacts oracle: could not establish the index/image "
+                     "for %s -> %s (rc=%d): %s\n"
+                     % (src, image, _r.returncode,
+                        _r.stderr.decode("utf-8", "replace").strip()))
+    sys.exit(0)
+raw = _r.stdout.split(b"\0")
 seen, expected = set(), set()
 skips = {"missing": 0, "gitlink": 0, "symlink": 0}
 for rec in raw:
@@ -229,9 +293,16 @@ RA_PY
 }
 
 RA_PRISTINE_REPORT="$(_ra_image_report "$RA_REPO" "$_ra_pristine")"
-_ra_ok "#619 pristine fixture holds only tracked content" \
+_ra_ok "#619 pristine fixture holds no untracked content" \
   "$([ "$(_ra_field "$RA_PRISTINE_REPORT" extra)" = 0 ] && printf yes)" \
   "untracked paths present: $RA_PRISTINE_REPORT"
+# `extra=0` alone is satisfied by an EMPTY image, so it is a partition with the
+# completeness assertion below and the no-separator control — never read alone.
+_ra_summary_balances "#619 pristine fixture builder accounts for every index entry it saw" \
+  "$_ra_pristine_summary"
+_ra_same "#619 pristine fixture builder copied every tracked blob without a copy failure" \
+  0 "$(_ra_field "$_ra_pristine_summary" fail_copy)" \
+  "copy failures on the live checkout; stderr: $(tr '\n' '|' <"$_ra_pristine_err" 2>/dev/null)"
 _ra_ok "#619 pristine fixture reproduces every tracked entry the skip arms did not remove" \
   "$([ "$(_ra_field "$RA_PRISTINE_REPORT" missing)" = 0 ] && printf yes)" \
   "tracked entries absent from the image: $RA_PRISTINE_REPORT"
@@ -245,8 +316,8 @@ _ra_ok "#619 pristine fixture reproduces a no-separator path as a regular file" 
 # miscounted skip cannot quietly widen the denominator it is subtracted from. Compared
 # field by field, so neither summary line's printf order is what the assertion pins.
 for _ra_k in skip_missing skip_gitlink skip_symlink; do
-  _ra_same "#619 fixture builder $_ra_k tally agrees with the independent oracle" \
-    "$(_ra_field "$RA_PRISTINE_REPORT" "$_ra_k")" "$(_ra_field "$_ra_pristine_summary" "$_ra_k")" \
+  _ra_same_field "#619 fixture builder $_ra_k tally agrees with the independent oracle" \
+    "$RA_PRISTINE_REPORT" "$_ra_pristine_summary" "$_ra_k" \
     "builder summary '$_ra_pristine_summary' vs oracle '$RA_PRISTINE_REPORT'"
 done
 # No path under `.claude/worktrees` — the untracked payload the old whole-directory
@@ -258,12 +329,18 @@ _ra_ok "#619 pristine fixture carries no .claude/worktrees payload" \
 # The index-state arms are exercised against a REAL git index in a temp repository,
 # never a stubbed `git ls-files` — that is the boundary each of these proves.
 _ra_ix="$_ra_tmp_root/ixrepo"
-_ra_seed_repo "$_ra_ix"
+_ra_ok "#619 index-state fixture repository seeded" \
+  "$(_ra_seed_repo "$_ra_ix" && printf yes)" \
+  "git init/config failed; every index-state arm below would run against a dead repo"
 mkdir -p "$_ra_ix/sub dir"
 (
   cd "$_ra_ix" || exit 1
   printf 'top\n' > TOP.md
   printf 'nested\n' > "sub dir/with space.txt"
+  # A NEWLINE in a filename is the load-bearing half of the `-z` claim: without -z the
+  # space case still works (the path is taken whole after the TAB) but this one splits
+  # one index entry into two. The space fixture alone cannot catch that mutation.
+  printf 'newline\n' > "$(printf 'new\nline.txt')"
   : > empty.txt
   printf '#!/bin/sh\n' > exec.sh
   chmod 755 exec.sh
@@ -301,6 +378,17 @@ RA_IX_REPORT="$(_ra_image_report "$_ra_ix" "$_ra_ix_img")"
 _ra_ok "#619 fixture builder skip arms leave no completeness gap" \
   "$([ "$(_ra_field "$RA_IX_REPORT" extra)" = 0 ] && [ "$(_ra_field "$RA_IX_REPORT" missing)" = 0 ] && printf yes)" \
   "$RA_IX_REPORT"
+# Positive control for the pair above: `extra=0 missing=0` is also what an EMPTY index
+# against an empty image reports, so pin the count of blobs this fixture actually has
+# (TOP.md, sub dir/with space.txt, new\nline.txt, empty.txt, exec.sh — deleted.txt and
+# link.md are the two skipped arms).
+_ra_same "#619 the index-state fixture image is non-empty (completeness pair is live)" \
+  5 "$(_ra_field "$_ra_ix_summary" copied)" "summary: $_ra_ix_summary"
+_ra_summary_balances "#619 index-state fixture builder accounts for every index entry it saw" \
+  "$_ra_ix_summary"
+_ra_ok "#619 fixture builder reproduces a path containing a newline (the -z contract)" \
+  "$([ -f "$_ra_ix_img/$(printf 'new\nline.txt')" ] && printf yes)" \
+  "a newline-bearing tracked path was split or lost — the -z read is not holding"
 # Modes come from the index even though the working-tree bit disagrees.
 _ra_ok "#619 pristine fixture sets modes from the index (100755 stays executable)" \
   "$([ -x "$_ra_ix_img/exec.sh" ] && printf yes)" \
@@ -318,7 +406,8 @@ _ra_ok "#619 fixture builder reproduces a tracked empty file with zero bytes" \
 # Gitlink arm: a synthetic 160000 index entry, added with update-index so no real
 # submodule checkout is required.
 _ra_gl="$_ra_tmp_root/glrepo"
-_ra_seed_repo "$_ra_gl"
+_ra_ok "#619 gitlink fixture repository seeded" "$(_ra_seed_repo "$_ra_gl" && printf yes)" \
+  "git init/config failed; the gitlink arm would run against a dead repo"
 (
   cd "$_ra_gl" || exit 1
   printf 'x\n' > keep.txt
@@ -336,7 +425,9 @@ for _ra_k in "copied 1" "skip_gitlink 1" "skip_missing 0" "skip_symlink 0"; do
 done
 # Unmerged index: the same path at stages 1/2/3 contributes exactly once.
 _ra_cf="$_ra_tmp_root/cfrepo"
-_ra_seed_repo "$_ra_cf" -b main
+_ra_ok "#619 unmerged-index fixture repository seeded" \
+  "$(_ra_seed_repo "$_ra_cf" -b main && printf yes)" \
+  "git init/config failed; the unmerged-stage arm would run against a dead repo"
 (
   cd "$_ra_cf" || exit 1
   printf 'base\n' > c.txt; git add -A; git commit -q -m base
@@ -346,6 +437,19 @@ _ra_seed_repo "$_ra_cf" -b main
   printf 'mine\n' > c.txt; git add -A; git commit -q -m mine
   git merge other
 ) >/dev/null 2>&1
+# PRECONDITION, asserted rather than assumed: `total 1` / `copied 1` is ALSO what a
+# clean single-file repo reports, so without proving the index really is unmerged this
+# arm would keep passing while exercising no de-duplication at all — a future git that
+# auto-resolves, or an inherited rerere, would empty it silently. Count the stage-2/3
+# rows `git ls-files -u` reports for the conflicted path (bash builtin arithmetic; no
+# `wc`, which is not preflight-guaranteed and must not decide an emitted value).
+_ra_cf_unmerged=0
+while IFS= read -r _ra_line; do
+  [ -n "$_ra_line" ] && _ra_cf_unmerged=$((_ra_cf_unmerged + 1))
+done < <(cd "$_ra_cf" && git ls-files -u 2>/dev/null)
+_ra_ok "#619 the unmerged-index fixture really has a conflicted path (de-dup arm is live)" \
+  "$([ "$_ra_cf_unmerged" -ge 2 ] && printf yes)" \
+  "git ls-files -u reported $_ra_cf_unmerged stage rows; the merge did not conflict, so the de-duplication below would be vacuous"
 _ra_cf_summary="$(_ra_build_image "$_ra_cf" "$_ra_tmp_root/cfimg" 2>/dev/null)"
 for _ra_k in "total 1" "copied 1"; do
   set -- $_ra_k

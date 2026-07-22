@@ -28,8 +28,9 @@ there is no former `run.sh` location to map back to.
 
 Every assertion that runs a row does so against a temp fixture root — including the
 clean-tree arm — never the live checkout. The fixture is a single pristine repository
-image copied per assertion: the module reproduces **every tracked path** the git index
-lists (`git ls-files -s -z`), file by file at its own relative path, then `git init`s it
+image copied per assertion: the module reproduces **every tracked blob** the git index
+lists (`git ls-files -s -z`, minus the three named skip arms below), file by file at its
+own relative path, then `git init`s it
 with a synthetic `refs/remotes/origin/main`. It is built once and copied per assertion
 because the generators resolve their roots from `__file__` or an argv root, so a partial
 tree would exercise the wrong closure.

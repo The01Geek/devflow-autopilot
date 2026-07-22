@@ -70,8 +70,11 @@ directory makes the directory form copy that directory wholesale: because
 `.claude/settings.json` is tracked, `regenerate-artifacts` used to copy the entire
 untracked `.claude/` tree into every fixture, so a checkout carrying `git worktree`
 checkouts under `.claude/worktrees/` paid that whole payload on every fixture copy — the
-dominant cost of a full local suite run. Build caches and `.devflow/` are excluded by
-construction under the tracked-only rule, so a fixture builder needs no prune step. The
+dominant cost of a full local suite run. Build caches and `.devflow/tmp` are excluded by
+construction under the tracked-only rule, so a fixture builder needs no prune step —
+while *tracked* content under an otherwise-ignored directory (`.devflow/config.json` and
+the rest of `.devflow/`, force-added past the ignore rule) is still reproduced, which is
+exactly what completeness requires. The
 measured before/after figures are recorded once, in
 [`lib/test/modules/regenerate-artifacts.inventory.md`](lib/test/modules/regenerate-artifacts.inventory.md).
 
