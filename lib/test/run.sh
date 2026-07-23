@@ -47714,7 +47714,8 @@ PY745
 )"
 # The floor above governs the value; this pin governs the thing the value actually selects.
 # Without it the download URL could hardcode a version (or drift to 0.9.x) while the env key
-# still read v0.11.0 — every other #745 assertion would pass and CI would install 0.9.0.
+# still read v0.11.0 — every other assertion in this block would pass and CI would
+# install 0.9.0.
 assert_pin_red_under "#745 ci.yml: the download URL resolves the pinned version, not a hardcoded one" \
   'shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz' \
   's|shellcheck-\$\{SHELLCHECK_VERSION\}\.linux|shellcheck-v0.9.0.linux|' "$CI745"

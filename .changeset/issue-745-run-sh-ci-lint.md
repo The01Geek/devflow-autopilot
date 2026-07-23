@@ -12,10 +12,11 @@ bump: patch
   0.9.0, where the flag errors and the equivalent directive has no effect. All 60 findings in the
   file are resolved — fixed where real, annotated with a reason where the check was a false
   positive.
-- Fixed a live defect class the missing lint had let accumulate: eight assert labels used markdown
+- Fixed a live defect class the missing lint had let accumulate: assert labels that used markdown
   backticks inside a double-quoted string, which bash executes as command substitution — so the
   suite was running stray `--issue`, `must`, `after`, and `follow-up` commands on every run and
-  rendering those assertion names with the backticked span deleted.
+  rendering those assertion names with the backticked span deleted. Every such label is fixed,
+  and the suite now guards the class (below).
 
 ### Added
 
@@ -25,6 +26,6 @@ bump: patch
   linted; both are now covered, and the carve-out holds with no exemption beyond the fixtures dir.
 - A suite guard against the backtick-in-assert-label class above. ShellCheck cannot gate it —
   backticks are reported as `SC2006`, a *style*-severity check that `--severity=warning` filters
-  out, so only two of the eight instances were caught at all, and only incidentally (their contents
-  happened to parse as a flag or a keyword). The new scan fails RED on any unescaped backtick in an
-  assertion label; an escaped ``\` `` is inert and stays legal.
+  out, so only a minority of the live instances were caught at all, and only incidentally (their
+  contents happened to parse as a flag or a keyword). The new scan fails RED on any unescaped
+  backtick in an assertion label; an escaped ``\` `` is inert and stays legal.
