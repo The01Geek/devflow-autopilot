@@ -10,13 +10,17 @@ Source baseline: `2e9283f4` (`origin/main` after issue #745 landed).
 
 The extracted region was one box-comment section in `lib/test/run.sh` — `#431
 build-experiment-records.py — the unified experiment record (join)` — of which
-1,531 lines carrying 133 `assert_eq` assertions moved here. The floor is 130, three
-below the measured 133.
+1,531 lines moved here. Its assertion floor is recorded once, in
+`scripts/workflow-flight-recorder-registry.json`, and enforced on every run by
+`lib/test/run-module.sh`; `test_module_runner.py` reconciles that floor against the
+`lib/test/run.sh` call-site literal. This inventory deliberately states no exact
+assertion count — the registry is the single source, so a count copied here could
+drift out of it silently.
 
 ## The extraction is deliberately partial
 
-The section's trailing 26-line `#431 producer pins` block **stays in
-`lib/test/run.sh`**. Those five `assert_pin_red_under` pins assert against
+The section's trailing `#431 producer pins` block **stays in
+`lib/test/run.sh`**. Its `assert_pin_red_under` pins assert against
 `lib/efficiency-trace.jq`, `lib/efficiency-trace.sh`,
 `.github/workflows/devflow-review.yml`, `lib/open-state-pr.sh` and the
 review-and-fix skill bundle — none of which is this assembler's own surface — and
@@ -35,7 +39,7 @@ violation.
 | Joined record fields | `#431` join rows | join section | each joined field of the unified experiment record resolves from the expected source |
 | Config fingerprint | `#431` `config_fingerprint` rows | fingerprint section | the stamp's partial-flag arm, its `None` arm, and the canonical hash |
 | Batch failure honesty | `#431` `Tfail` rows | failure section | an all-candidates-failed batch exits non-zero rather than reporting a silent success, and prior store lines are left unchanged |
-| Producer pins | `#431 producer pins` | **stays in `lib/test/run.sh`** | the five cross-surface `assert_pin_red_under` pins listed above |
+| Producer pins | `#431 producer pins` | **stays in `lib/test/run.sh`** | the cross-surface `assert_pin_red_under` pins listed above |
 
 The generic test harness, registry validation, module registration, full-suite
 boundary, and module-runner tests stay global so deleting this module cannot also

@@ -8,11 +8,14 @@ assertions, and the complete suite calls the same module through
 
 Source baseline: `2e9283f4` (`origin/main` after issue #745 landed).
 
-The extracted region was **2 adjacent box-comment sections** in `lib/test/run.sh`,
-853 lines carrying 128 assertions (107 `assert_eq`, 10 `assert_pin_unique`, 11
-`assert_pin_red_under`): `#408 cloud review no-verdict auto-resume backstop` and
-`#414 review stall-backstop post-and-annotate helper extraction`. The floor is 124,
-four below the measured 128.
+The extracted region was **2 adjacent box-comment sections** in `lib/test/run.sh`
+spanning 853 lines: `#408 cloud review no-verdict auto-resume backstop` and
+`#414 review stall-backstop post-and-annotate helper extraction`. Its assertion
+floor is recorded once, in `scripts/workflow-flight-recorder-registry.json`, and
+enforced on every run by `lib/test/run-module.sh`; `test_module_runner.py`
+reconciles that floor against the `lib/test/run.sh` call-site literal. This
+inventory deliberately states no exact assertion count — the registry is the single
+source, so a count copied here could drift out of it silently.
 
 | Contract group | Former `lib/test/run.sh` section | Module destination | Representative contract |
 | --- | --- | --- | --- |
@@ -28,8 +31,8 @@ The generic test harness, registry validation, module registration, full-suite
 boundary, and module-runner tests stay global so deleting this module cannot also
 delete the checks that prove it is selected and executed.
 
-Rewrite performed during extraction: the 10 `assert_pin_unique` calls became
-`devflow_module_pin_unique` and the 11 `assert_pin_red_under` calls became
+Rewrite performed during extraction: every `assert_pin_unique` call became
+`devflow_module_pin_unique` and every `assert_pin_red_under` call became
 `devflow_module_pin_red_under` — a mechanical 1:1 rename onto the namespaced module
 pin API, literals, mutations and targets unchanged. Two run.sh globals are
 re-derived in the module header rather than inherited:

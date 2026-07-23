@@ -10,12 +10,16 @@ boundary.
 Source baseline: `2e9283f4` (`origin/main` after issue #745 landed).
 
 The extracted region was **11 consecutive box-comment sections** in
-`lib/test/run.sh`, 2,058 lines carrying 266 assertions (260 `assert_eq`, 4
-`assert_pin_unique`, 2 `assert_pin_red_under`). It ran from the section
+`lib/test/run.sh` spanning 2,058 lines. It ran from the section
 `derive-review-verdict.sh (#249 HEAD-scoped, fail-closed verdict deriver)` through
 `resolve-command-trigger.sh` inclusive. **It stops there deliberately:** the very
 next section defines `react()`, which four later `run.sh` sections still call, so
-moving it would strand them. The floor is 258, eight below the measured 266.
+moving it would strand them. Its assertion floor is recorded once, in
+`scripts/workflow-flight-recorder-registry.json`, and enforced on every run by
+`lib/test/run-module.sh`; `test_module_runner.py` reconciles that floor against the
+`lib/test/run.sh` call-site literal. This inventory deliberately states no exact
+assertion count — the registry is the single source, so a count copied here could
+drift out of it silently.
 
 | Contract group | Former `lib/test/run.sh` section | Module destination | Representative contract |
 | --- | --- | --- | --- |

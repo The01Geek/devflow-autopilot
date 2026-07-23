@@ -10,17 +10,22 @@ Source baseline: `2e9283f4` (`origin/main` after issue #745 landed).
 
 The extracted region was one contiguous box-comment section in `lib/test/run.sh` —
 the section titled `load-prompt-extension.sh (consumer prompt-extension reader)`,
-491 lines carrying 94 `assert_eq` assertions and no pin primitive at all. It was
+491 lines using `assert_eq` alone and no pin primitive at all. It was
 chosen as the tranche's zero-rewrite range: the section referenced exactly one
 run.sh-global (`LIB`, which the module contract already binds), defined no function
 consumed elsewhere, and called no monolith-only helper, so the assertions moved
-verbatim. The floor is 92, two below the measured 94.
+verbatim. Its assertion floor is recorded once, in
+`scripts/workflow-flight-recorder-registry.json`, and enforced on every run by
+`lib/test/run-module.sh`; `test_module_runner.py` reconciles that floor against the
+`lib/test/run.sh` call-site literal. This inventory deliberately states no exact
+assertion count — the registry is the single source, so a count copied here could
+drift out of it silently.
 
 | Contract group | Former `lib/test/run.sh` coverage | Module destination | Representative contract |
 | --- | --- | --- | --- |
-| Present / absent / empty extension | AC 1–3 rows | `prompt-extension-reader.sh` / basic-arms section | a present extension prints verbatim and exits 0; an absent one prints nothing and still exits 0 |
-| Skill-name validation | AC 4 rows | name-guard section | a name containing `/` or `..` is refused with exit 2 before the filesystem is touched |
-| Unreadable / symlink / permission arms | AC 5 rows | degraded-fixture section | an unreadable or symlinked extension fails closed rather than printing partial content |
+| Present / absent / empty extension | the AC 1–3 rows | `prompt-extension-reader.sh` / basic-arms section | a present extension prints verbatim and exits 0; an absent one prints nothing and still exits 0 |
+| Skill-name validation | the AC 4 rows | name-guard section | a name containing `/` or `..` is refused with exit 2 before the filesystem is touched |
+| Unreadable / symlink / permission arms | the AC 5 rows | degraded-fixture section | an unreadable or symlinked extension fails closed rather than printing partial content |
 | `--section` selector | AC 8 rows | section-selector section | `--section` emits only the named section, and a missing section is not an error |
 | `--section` × name guards | traversal rows | section-selector section | the path-traversal refusal still fires when `--section` is present, so the flag is never a bypass |
 
