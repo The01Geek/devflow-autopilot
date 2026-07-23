@@ -72,7 +72,7 @@ the decision record below for when each was last re-measured:
 | `references/fallback-read-only-sandbox.md` | 484 | a `.devflow/tmp/` write is refused |
 | `references/fallback-audit-dispatch-arms.md` | 674 | a non-file audit arm, a retry escalation, or no subagent tool |
 | `references/fallback-state-owner-unavailable.md` | 748 | the state owner stops answering |
-| **root + all 9 references** | **28,133** | — |
+| **root + all 9 references** | **28,182** | — |
 | `references/issue-template.md` | 6,932 | Step 3 (unchanged by the split) |
 | `references/audit-prompt-template.md` | 1,910 | renderer-owned (unchanged by the split) |
 
@@ -237,6 +237,16 @@ read as a conservation failure.
   one-directional ratchet, recorded here so it is auditable rather than silent; the ratchet
   resumes immediately, and it remains **not** a precedent for accommodating growth inside a
   single change. Headroom is now ~5%.
+
+- **2026-07-22 (PR #732, issue #729) — conservation figure re-centred; both ceilings untouched.**
+  #729 makes the Step 3.6 audit dimensions declared data rather than a scrape of rendered prose.
+  Two default-path members grow: `step-3-6-audit.md` gains the degraded arm for an enumeration
+  that now exits non-zero on a malformed declaration (a failure mode that previously had no rule),
+  and the audit template documents the declaration convention. Default path measures **32,668**
+  against the unchanged **34,249** ceiling, and root is unchanged at **2,732** against **2,754** —
+  so neither ceiling moves and the ratchet is not touched. Only `CI614_TOTAL_RECORDED`, the
+  two-sided conservation band, is re-centred 28,133 → **28,182** (+49 words, ~0.2%, well inside the
+  ±2% band it was already passing) so the doc's recorded total keeps matching the live count.
 
 When a later change re-measures, append a row here rather than editing an earlier one: the record is
 the history of what the surface cost, and overwriting it loses exactly the drift a budget exists to catch.
