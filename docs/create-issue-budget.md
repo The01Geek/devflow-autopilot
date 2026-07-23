@@ -32,17 +32,20 @@ Both are asserted by `lib/test/modules/create-issue-contract.sh` (driven by the 
 | Ceiling | Operand | Measured | Enforced ceiling |
 | --- | --- | --- | --- |
 | **Root** | `skills/create-issue/SKILL.md` | 2,732 | Root ceiling: **2,754 words** |
-| **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 33,768 | Default-path ceiling: **33,917 words** |
+| **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 34,262 | Default-path ceiling: **34,800 words** |
 
-Each ceiling is at most the implement-time measured value plus **5% headroom** (the AC6 maximum). Both were set from an earlier measurement in this same change and deliberately **not re-raised** when review fixes grew the operands, so the shipped headroom is under 5% on both (root ~0.8%; the default path was renegotiated to the full 5% at the #705 + #709 merge and has since been consumed back to ~0.4% at the #708 + #729 merge re-measure — see the record below). The suite asserts that legality directly — a ceiling above measured+5% is RED — so a future raise needs a real measurement behind it. The
+Each ceiling is at most the implement-time measured value plus **5% headroom** (the AC6 maximum). The root ceiling was set from an earlier measurement and deliberately **not re-raised** when review fixes grew the operand (shipped headroom ~0.8%). The default-path ceiling was renegotiated at the #743 merge — the advisory/invalid per-finding record + calibration prose (issue #743) moved the measured default path past the prior 33,917 ceiling — to **34,800** words, a conservative fixed margin (~1.6%) above the measured 34,262, deliberately **well under** the 5% legal maximum the suite enforces rather than the full-5% AC6 maximum (see the record below). The suite asserts that legality directly — a ceiling above measured+5% is RED — so a future raise needs a real measurement behind it. The
 default-path operand deliberately **excludes the four fallback references** — they load only when
 their predicate fires, which is the whole point of the split. `revision-delta.md` is *retained* in the
 operand even though it too is predicate-gated (its trigger is any revise-and-re-gate site): a revision
 is the common case, so counting it keeps the ceiling conservative rather than flattering.
 
-**The ceilings are ratchet-down-only.** A measured *reduction* lowers the recorded ceiling to the new
-measured-plus-5% in the same change; a ceiling is **never raised** to accommodate growth. Growth is
-resolved by shedding prose or by moving it behind a load trigger, not by moving the line.
+**The ceilings are ratchet-down-only by default.** A measured *reduction* lowers the recorded ceiling to
+the new measured-plus-5% in the same change; ordinary growth is resolved by shedding prose or by moving
+it behind a load trigger, not by moving the line. A **raise** is legal only as an explicit
+issue-authorized departure recorded in the decision record below (the #614 AC6 entry that set 33,917 and
+the #743 entry that raised the default path to 34,800 for the calibration prose are the two such
+departures) — never a silent accommodation of growth.
 
 **Every figure on this page is a hand-recorded implement-time snapshot except the two the suite
 reconciles positionally** — the recorded **root** measurement and the recorded **root + all 9
@@ -69,13 +72,13 @@ the decision record below for when each was last re-measured:
 | `references/step-2-clarify.md` | 4,673 | Step 2 entry |
 | `references/step-3-5-steelman.md` | 2,237 | Step 3.5 entry |
 | `references/revision-delta.md` | 986 | every revision event |
-| `references/step-3-6-audit.md` | 10,503 | Step 3.6 entry |
-| `references/step-4-present-create.md` | 5,705 | Step 4 entry |
+| `references/step-3-6-audit.md` | 10,890 | Step 3.6 entry |
+| `references/step-4-present-create.md` | 5,812 | Step 4 entry |
 | `references/fallback-no-task-tool.md` | 540 | no usable task-tracking tool |
 | `references/fallback-read-only-sandbox.md` | 628 | a `.devflow/tmp/` write is refused |
 | `references/fallback-audit-dispatch-arms.md` | 821 | a non-file audit arm, a retry escalation, or no subagent tool |
-| `references/fallback-state-owner-unavailable.md` | 814 | the state owner stops answering |
-| **root + all 9 references** | **29,639** | — |
+| `references/fallback-state-owner-unavailable.md` | 880 | the state owner stops answering |
+| **root + all 9 references** | **30,221** | — |
 | `references/issue-template.md` | 6,932 | Step 3 (unchanged by the split) |
 | `references/audit-prompt-template.md` | 3,110 | renderer-owned; carries the issue-#708 enumerate-dimensions checklist and the issue-#709 `di` dispatch-instruction blocks |
 
@@ -299,3 +302,32 @@ the history of what the surface cost, and overwriting it loses exactly the drift
   +2,941 bytes); what reached a budgeted member is `step-3-6-audit.md`'s degraded-arm route for a
   non-zero `enumerate-dimensions` exit (+295 bytes), recorded in
   `docs/cutovers/issue-729-declared-dimension-keys-growth.md`.
+- **2026-07-23 (issue #743) — this-issue-authorized ceiling renegotiation.** The advisory/invalid
+  per-finding record floor and calibration layer (issue #743) added operative obligation prose to
+  `step-3-6-audit.md` (the per-finding-records paragraph, the calibration paragraph, the `query-triggers`
+  `calibration=` field, the lifecycle diagram, and the query enumeration → **10,890 words**) and
+  `step-4-present-create.md` (the pre-approval per-finding disclosure block → **5,812 words**), plus a
+  disclosure line in the predicate-gated `fallback-state-owner-unavailable.md` (**880 words**, outside
+  the default path). This moved the measured default path to **34,262 words**, past the prior **33,917**
+  ceiling, and the root-plus-references total to **30,199** (`CI614_TOTAL_RECORDED` re-anchored
+  29,639 → 30,199). **The growth remedy followed the ladder:** the prose was trimmed first (redundant
+  parentheticals removed), then — because the remainder is *operative obligation* prose, not rare-path
+  detail eligible for re-partition into a gated reference — the **default-path ceiling was renegotiated**
+  from 33,917 to **34,800 words**, this issue's AC explicitly authorizing the raise. 34,800 is a
+  conservative fixed margin (~1.6%) above the measured 34,262, deliberately **well under** the ≤5% legal
+  maximum (35,975) rather than the full-5% AC6 maximum, so the suite's legality-band assertion stays
+  green and future small edits are not trapped. The two mirror sites moved together: `CI614_DEFAULT_CEIL`
+  (33917 → 34800) and its ceiling-phrase pin (the `Default-path ceiling:` literal the T3 assertion
+  reconciles against the table row above) in `lib/test/modules/create-issue-contract.sh`. Root unchanged at **2,732** (ceiling 2,754). This is a
+  renegotiation, so it is recorded here as the explicit-human-decision precedent shape the #614 AC6
+  entry established; the autonomous `/devflow:implement` run made the ceiling-constant and doc edits
+  directly under this issue's authorization.
+- **2026-07-23 (issue #743, receiving-review fix pass) — documentation-truthfulness correction.** The
+  standalone review REJECTed two documented-falsehood defects in the shipped prose: the `auditor_block`
+  "byte-preserved/verbatim" claim overstated the store (which truncates any block past the 4,096-char
+  evidence cap), and a canonical `REVISE` example still passed `--advisory 1` with no records file (now
+  floor-invalid). Qualifying the byte-preservation prose in `step-3-6-audit.md` added **+22 words**,
+  moving the measured default path **34,262 → 34,284** (ceiling **34,800** unchanged, headroom ~1.5%) and
+  the root-plus-references total **30,199 → 30,221** (`CI614_TOTAL_RECORDED` re-anchored to 30,221). No
+  ceiling renegotiation — the raise authorized above absorbs it; the `step-3-6-audit.md` growth-cutover
+  artifact byte figure moved 78,098 → 78,210 in lockstep.
