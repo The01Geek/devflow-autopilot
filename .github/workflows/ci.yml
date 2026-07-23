@@ -66,26 +66,34 @@ jobs:
       #      dataflow ("extended analysis") pass on: it allocates ~15 GB and the
       #      16 GB runner is evicted mid-analysis with "The runner has received a
       #      shutdown signal" (observed 6/6 runs across 5 head SHAs, PR #734).
-      #      --extended-analysis=false brings it to 1.15 GB / ~10 s. Measured
-      #      cost on THIS file: none — a chunked A/B of the whole file produced
-      #      a byte-identical finding set both ways. Repo-wide (issue #745) the
-      #      flag dropped only SC2319; no other check disappeared.
+      #      --extended-analysis=false brings it to 1.15 GB / ~10 s. Cost, as
+      #      measured on 2026-07-23 against ShellCheck 0.11.0: none on this file
+      #      — a chunked A/B of the whole file produced a byte-identical finding
+      #      set both ways. (Issue #745 recorded SC2319 x4 dropping corpus-wide
+      #      at authoring time; that no longer reproduces under 0.11.0. Both are
+      #      past-time snapshots, not invariants — re-measure after an upgrade.)
       #   2. ubuntu-latest (Ubuntu 24.04) ships ShellCheck 0.9.0, which predates
-      #      --extended-analysis (added in 0.10.0). On 0.9.0 the flag ERRORS and
-      #      the equivalent `# shellcheck extended-analysis=false` directive is
-      #      silently ignored (SC1107) — so without this pin the run.sh step
-      #      would OOM exactly as before. Pin >= 0.10.0 rather than depending on
-      #      the image's tool version, which drifts with the runner image.
+      #      --extended-analysis (added in 0.10.0 — per its release notes; the
+      #      runner's tool version is an external fact, observed in PR #734, not
+      #      a repo-verified invariant). On 0.9.0 the flag ERRORS, and the
+      #      equivalent `# shellcheck extended-analysis=false` directive has no
+      #      effect — it is reported as an unknown directive (SC1107) and
+      #      ignored — so the lint OOMs exactly as if the flag were absent. Pin
+      #      >= 0.10.0 rather than depending on the image's tool version, which
+      #      drifts with the runner image. lib/test/run.sh asserts the floor.
       # Installed onto PATH so every ShellCheck step below uses the pinned build.
       - name: Pin ShellCheck (>= 0.10.0, required by --extended-analysis)
         env:
           SHELLCHECK_VERSION: v0.11.0
         run: |
-          # pipefail: without it a failed download (404, rate limit, network) leaves tar
-          # reading an empty stream and the step's status comes from tar alone — the exact
-          # silent-fallback-to-the-image's-0.9.0 outcome this pin exists to prevent. The
-          # `shellcheck --version` at the end is the positive confirmation that the pinned
-          # binary, not the image's, is the one on PATH.
+          # pipefail so a failed download (404, rate limit, network) is reported as the
+          # curl failure it is, rather than as tar's downstream "not found in archive". The
+          # step fails either way — tar exits nonzero on the missing member and `set -e`
+          # stops the job — so this is attribution, not the only thing standing between the
+          # job and the image's 0.9.0. The flag itself is self-verifying: 0.9.0 rejects
+          # --extended-analysis outright, so a wrong binary reddens the run.sh step rather
+          # than silently under-linting. `shellcheck --version` below prints for the log; it
+          # asserts nothing — the version FLOOR is asserted in lib/test/run.sh.
           set -o pipefail
           curl -fsSL \
             "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" \
@@ -126,7 +134,7 @@ jobs:
           shellcheck --severity=warning -e SC1091 lib/test/describe-budget-delta.sh
 
       # lib/test/run.sh is the suite driver — the largest and most-edited shell
-      # file in the repo, and until issue #745 the only one shipping unlinted.
+      # file in the repo, and the last one brought under the lint (issue #745).
       # It gets its own step (rather than joining the list above) because it is
       # the sole file that needs --extended-analysis=false; see the pin step's
       # comment for why the flag and the >= 0.10.0 pin are both required. This

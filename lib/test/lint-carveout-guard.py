@@ -25,8 +25,15 @@ backslash-joined or across POSIX trailing-`|`/`&&`/`||` continuations, both of w
 are folded before the glob search) rather than reporting full coverage from the
 explicit list alone. A red guard is the safe direction: it forces human attention.
 
-KNOWN LIMITATION (best-effort caveat): a shellcheck step gated inactive by a job- or
-step-level `if:` (e.g. `if: false`) is still read as live coverage — this reader does
+KNOWN LIMITATIONS (best-effort caveats). (1) The glob-exclusion probe only distrusts the
+`git ls-files` glob when that glob and the literal `shellcheck` land on ONE
+continuation-folded line. A pipeline restructured so they are not co-located (a `> "$list"`
+in one statement and `xargs shellcheck < "$list"` in another) leaves the probe with nothing
+to inspect, and it returns "trusted" — after which the `grep -v '^lib/test/'` exclusion could
+be narrowed or removed unnoticed. Folding more onto one line is the fail-closed direction, so
+the recognized shapes are covered; an un-co-located restructure is not. (2) A shellcheck step
+gated inactive by a job- or step-level `if:` (e.g. `if: false`) is still read as live
+coverage — this reader does
 not evaluate `if:` conditions. Disabling a lint step that way would let its files read
 as covered though CI lints nothing; it takes an implausible self-sabotaging edit, and
 the `if:` surface is not part of the reconciled contract, so it is left uncovered.
@@ -196,6 +203,17 @@ def tracked_lib_test_scripts(repo_root: Path) -> list[str]:
         p = line.strip()
         if p and p not in seen:
             seen.append(p)
+    if not seen:
+        # Zero rows is an UNESTABLISHED population, not an empty one: git pathspecs are
+        # resolved relative to the invocation, so a --repo-root pointing at a subdirectory, a
+        # sparse checkout, or a rename of lib/test/ all yield zero rows with rc 0. Reporting
+        # OK there is the fail-OPEN direction in the one helper whose contract is to fail
+        # closed. (--files-file callers bypass this path entirely, so the synthetic fixtures
+        # may still legitimately supply an empty list.)
+        raise GuardError(
+            f"git ls-files enumerated ZERO lib/test/**/*.sh files under {repo_root} — the "
+            "population is unestablished, not empty (fail-closed: not reporting coverage)"
+        )
     return seen
 
 
@@ -203,18 +221,23 @@ def check(ci_text: str, files: list[str]) -> tuple[bool, str]:
     """Return (ok, message). ok=False on the first offending file. Fail-closed
     conditions propagate as GuardError to the caller."""
     linted = derive_ci_linted(ci_text)
-    for f in files:
-        if f.startswith(EXEMPT_PREFIX):
-            continue  # deliberately-unlinted fixture side of the partition
-        if f in linted:
-            continue  # CI-linted side of the partition
+    # Collect EVERY offender, not just the first: reporting one at a time makes a human fix
+    # them one red CI run at a time.
+    offenders = [
+        f for f in files
+        if not f.startswith(EXEMPT_PREFIX)  # deliberately-unlinted fixture side
+        and f not in linted                 # CI-linted side
+    ]
+    if offenders:
         return (
             False,
-            f"FAIL: {f} is a tracked lib/test/**/*.sh file that CI does not lint and "
-            f"that is NOT under the exempt prefix `{EXEMPT_PREFIX}` — it landed on the "
-            "not-CI-linted, not-exempt side of the partition. Add it to a shellcheck "
-            "invocation in .github/workflows/ci.yml, or (if it is a deliberately "
-            f"unlintable fixture) move it under {EXEMPT_PREFIX}.",
+            f"FAIL: {', '.join(offenders)} "
+            f"{'is a tracked' if len(offenders) == 1 else 'are tracked'} lib/test/**/*.sh "
+            f"{'file' if len(offenders) == 1 else 'files'} that CI does not lint and "
+            f"that {'is' if len(offenders) == 1 else 'are'} NOT under the exempt prefix "
+            f"`{EXEMPT_PREFIX}` — landed on the not-CI-linted, not-exempt side of the "
+            "partition. Add to a shellcheck invocation in .github/workflows/ci.yml, or (if "
+            f"deliberately unlintable fixtures) move under {EXEMPT_PREFIX}.",
         )
     return (True, "OK")
 
@@ -245,11 +268,13 @@ def main(argv: list[str] | None = None) -> int:
             raise GuardError(f"could not read {ci_path}: {exc}")
 
         if args.files_file:
-            files = [
-                ln.strip()
-                for ln in Path(args.files_file).read_text(encoding="utf-8").splitlines()
-                if ln.strip()
-            ]
+            try:
+                files_text = Path(args.files_file).read_text(encoding="utf-8")
+            except OSError as exc:
+                # Mirror the ci_path read above: an unreadable path must reach the GuardError
+                # handler so the documented `FAIL: <reason>` stdout verdict is still emitted.
+                raise GuardError(f"could not read --files-file {args.files_file}: {exc}")
+            files = [ln.strip() for ln in files_text.splitlines() if ln.strip()]
         else:
             files = tracked_lib_test_scripts(repo_root)
 

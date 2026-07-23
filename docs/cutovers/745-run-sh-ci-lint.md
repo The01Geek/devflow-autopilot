@@ -5,7 +5,7 @@ kind: growth
 
 ## Files
 
-- `CLAUDE.md` — +1286 bytes (baseline row 74508 → 75794).
+- `CLAUDE.md` — +1296 bytes (baseline row 74508 → 75804).
 
 No other mandatory row moved; no prose was removed or relocated, and no decision changed owner.
 

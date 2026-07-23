@@ -9911,10 +9911,10 @@ assert_eq "#547/#572 Important: the second-declaration block returns the BLOCKED
 # Important #3: bare `after #N` mid-sentence is narrative provenance, not a dependency —
 # it must NOT block; but a line-opening `After #N` is a genuine declaration and DOES.
 P547R_AFTERNARR="$(_p547r --issue 102)"; P547R_AFTERNARR_RC=$?
-assert_eq "#547/#572 Important: mid-sentence `after #N` provenance does not block" "PROCEED" "$P547R_AFTERNARR"
-assert_eq "#547/#572 Important: the narrative-`after` line proceeds (exit 0)" "0" "$P547R_AFTERNARR_RC"
+assert_eq "#547/#572 Important: mid-sentence 'after #N' provenance does not block" "PROCEED" "$P547R_AFTERNARR"
+assert_eq "#547/#572 Important: the narrative-'after' line proceeds (exit 0)" "0" "$P547R_AFTERNARR_RC"
 P547R_AFTERDECL="$(_p547r --issue 103)"
-assert_eq "#547/#572 Important: a line-opening `After #N` stays a recognized declaration (OPEN #10 blocks)" "BLOCKED 10" "$P547R_AFTERDECL"
+assert_eq "#547/#572 Important: a line-opening 'After #N' stays a recognized declaration (OPEN #10 blocks)" "BLOCKED 10" "$P547R_AFTERDECL"
 # Important #4: the production --issue path — a happy body reaching PROCEED via the
 # real `--issue` → issue_body() → _gh_issue_view fetch (not --body-file), and a
 # body-fetch failure reaching the third UNAVAILABLE arm (`UNAVAILABLE issue`/exit 3).
@@ -9936,7 +9936,7 @@ P547R_SOFT_ERR="$(PATH="$P547R/bin:$PATH" python3 "$P547R_HELPER" dependencies -
 P547R_SOFT_OUT="$(_p547r --issue 104)"; P547R_SOFT_RC=$?
 assert_eq "#547/#572 Important: an unrecognized dependency-flavoured phrasing still proceeds" "PROCEED" "$P547R_SOFT_OUT"
 assert_eq "#547/#572 Important: the unrecognized-phrasing proceed returns exit 0" "0" "$P547R_SOFT_RC"
-assert_eq "#547/#572 Important: an unrecognized `#N` near a dependency keyword emits a stderr breadcrumb" "yes" \
+assert_eq "#547/#572 Important: an unrecognized '#N' near a dependency keyword emits a stderr breadcrumb" "yes" \
   "$(printf '%s' "$P547R_SOFT_ERR" | grep -qF 'unrecognized dependency-flavoured reference to #11' && echo yes || echo no)"
 # Soft-keyword SUPPRESSION: when a recognized declaration IS present on the same
 # line as a soft keyword, the breadcrumb must NOT fire (the `not spans` guard) and
@@ -10000,8 +10000,8 @@ assert_eq "#547/#572 test-gap: the same #N on two separate lines is deduped (BLO
 # `must merge after` and `follow-up to` had no coverage; each names the OPEN #10, so
 # a keyword dropped from the DECLARATIONS tuple would stop recognizing it and flip
 # BLOCKED 10 → PROCEED (discriminating, not vacuous).
-assert_eq "#547/#572 Suggestion 5: the `must merge after` keyword is recognized (OPEN #10 blocks)" "BLOCKED 10" "$(_p547r --issue 112)"
-assert_eq "#547/#572 Suggestion 5: the `follow-up to` keyword is recognized (OPEN #10 blocks)" "BLOCKED 10" "$(_p547r --issue 113)"
+assert_eq "#547/#572 Suggestion 5: the 'must merge after' keyword is recognized (OPEN #10 blocks)" "BLOCKED 10" "$(_p547r --issue 112)"
+assert_eq "#547/#572 Suggestion 5: the 'follow-up to' keyword is recognized (OPEN #10 blocks)" "BLOCKED 10" "$(_p547r --issue 113)"
 # Suggestion 5: _NUMBER_RUN non-joiner over-match NEGATIVE. `superseded by` is not a
 # run joiner, so only the CLOSED #11 is captured; the trailing OPEN #10 stays out →
 # PROCEED 11. A regression widening _NUMBER_RUN to sweep any trailing #N would grab
@@ -24210,10 +24210,25 @@ assert_eq "et-synth(placeholder): the refusal breadcrumb names the unsubstituted
 # verdict through two tools DevFlow's preflight does not guarantee. `nullglob` makes an
 # absent or unreadable DIR answer "no", matching the old `2>/dev/null` behaviour.
 _dir_nonempty() (
+  # Two self-containment guards, both fail-CLOSED, both reachable:
+  #   - `[ -d "$1" ]` first: an empty/unset $1 would otherwise glob the filesystem ROOT and
+  #     answer yes, and a path that is a regular file would glob nothing meaningful.
+  #   - `set +f`: under a glob-disabled caller (this file exercises `set -f` in the
+  #     _489_noglob_restore probe) the pattern would stay literal, leaving $# = 1 and
+  #     answering yes for an empty or absent directory.
+  [ -d "$1" ] || { echo no; return; }
+  set +f
   shopt -s nullglob dotglob
   set -- "$1"/*
   [ "$#" -gt 0 ] && echo yes || echo no
 )
+# Positive control for _dir_nonempty: every call site below asserts "no", so a helper stuck
+# at "no" (a glob typo, nullglob not taking, a quoting slip) would pass all of them
+# vacuously. Assert the "yes" direction once against a directory known to be non-empty.
+assert_eq "#745 _dir_nonempty: answers yes for a directory known to be non-empty (positive control)" "yes" \
+  "$(_dir_nonempty "$ETSPH_REPO/.devflow")"
+assert_eq "#745 _dir_nonempty: answers no for an absent directory (fails closed)" "no" \
+  "$(_dir_nonempty "$ETSPH_REPO/.devflow/definitely-absent")"
 assert_eq "et-synth(placeholder): NO placeholder-identity dir is fabricated" "no" \
   "$([ -d "$ETSPH_REPO/.devflow/tmp/review/<slug>" ] && echo yes || echo no)"
 assert_eq "et-synth(placeholder): NO record is written under a placeholder identity" "no" \
@@ -26451,11 +26466,11 @@ assert_eq "489/AC4: all-or-nothing — the VALID sibling is dropped alongside th
 # `..` traversal and absolute paths explicitly, but those arms are UNREACHABLE through the
 # filesystem walk (a file literally named `..` cannot exist; rel is always artifact-relative),
 # so a direct call is their only honest coverage.
-# The four `. "$_489_VAL"` sources below name a path composed at run time from $LIB, so
+# The `. "$_489_VAL"` sources below name a path composed at run time from $LIB, so
 # ShellCheck cannot resolve the target statically (SC1090) — the non-constant twin of
 # SC1091, which the CI lint job already excludes repo-wide for the same reason. For the
 # same reason DVT_LIB_ONLY reads as unused (SC2034): it is consumed by that unfollowable
-# sourced file (validate-efficiency-trace.sh), not by this script.
+# sourced helper ($_489_VAL, scripts/validate-telemetry-artifact.sh), not by this script.
 _489_pathsafe() {  # rel -> "safe"/"unsafe" via _dvt_path_safe
   # shellcheck disable=SC1090,SC2034
   ( DVT_LIB_ONLY=1; . "$_489_VAL"; _dvt_path_safe "$1" && echo safe || echo unsafe )
@@ -47625,6 +47640,28 @@ assert_eq "#456 ci.yml: shipped lib/test orchestrators are added to shellcheck s
   "$(grep -qF 'lib/test/module-harness.sh lib/test/run-module.sh lib/test/summary.sh' \
        "$LIB/../.github/workflows/ci.yml" && echo yes || echo no)"
 #
+# ── #745 no UNESCAPED backtick may appear in an assertion label ──
+# The defect this issue fixed: a markdown backtick inside a double-quoted assert label is
+# command substitution, so bash EXECUTES the label's own prose (`--issue notanint` ran
+# `--issue`; `must merge after` ran `must`) and the assertion's name renders with the span
+# deleted. The CI lint does NOT gate this class — ShellCheck reports backticks as SC2006,
+# which is `style` severity and therefore filtered out by the `--severity=warning` every
+# lint step uses. Only 2 of the 8 live instances were caught at all, and only incidentally,
+# as SC2215/SC1010 because their contents happened to parse as a flag or a keyword. So the
+# class needs its own guard: scan every assertion label for an UNESCAPED backtick. An
+# escaped \` is inert (bash does not substitute it) and stays legal, which is what the many
+# existing \`…\` labels use.
+assert_eq "#745 no assertion label carries an unescaped backtick (bash would execute it)" "" \
+  "$(python3 - "$SELF_SRC" <<'PY745'
+import re, sys
+out = []
+for n, line in enumerate(open(sys.argv[1], encoding="utf-8"), 1):
+    m = re.match(r'\s*(?:assert_\w+|devflow_module_pin\w*)\s+"((?:[^"\\]|\\.)*)"', line)
+    if m and re.search(r'(?<!\\)`', m.group(1)):
+        out.append(str(n))
+print(" ".join(out))
+PY745
+)"
 # ── #745 ci.yml lints lib/test/run.sh, with the flag AND the pin that make it possible ──
 # The carve-out guard below proves run.sh is NAMED to a shellcheck invocation. It cannot see
 # the two properties that make that invocation actually survive on a 16 GB ubuntu-latest
@@ -47641,21 +47678,39 @@ assert_pin_red_under "#745 ci.yml: ShellCheck is pinned rather than taken from t
   's|sudo install -m 0755 .*/usr/local/bin/shellcheck|true|' "$CI745"
 # The pinned version must satisfy the >= 0.10.0 floor --extended-analysis needs; a pin at
 # 0.9.x would install a binary that rejects the flag, so the version itself is the contract.
-assert_eq "#745 ci.yml: the pinned SHELLCHECK_VERSION is >= 0.10.0" "yes" \
+assert_eq "#745 ci.yml: every pinned SHELLCHECK_VERSION is >= 0.10.0" "yes" \
   "$(python3 - "$CI745" <<'PY745'
 import re, sys
-m = re.search(r"SHELLCHECK_VERSION:\s*v?(\d+)\.(\d+)\.(\d+)", open(sys.argv[1], encoding="utf-8").read())
-print("yes" if m and (int(m.group(1)), int(m.group(2))) >= (0, 10) else "no")
+# ALL matches, and the MINIMUM must clear the floor: a first-match read let a comment
+# mentioning any version shadow a genuinely downgraded `env:` key. Absent = "no" (a floor
+# nothing declares is unestablished, not satisfied).
+vs = [(int(a), int(b)) for a, b, _c in
+      re.findall(r"SHELLCHECK_VERSION:\s*v?(\d+)\.(\d+)\.(\d+)",
+                 open(sys.argv[1], encoding="utf-8").read())]
+print("yes" if vs and min(vs) >= (0, 10) else "no")
 PY745
 )"
-# AC2: the job stays on a standard runner and never tolerates a failing lint step. The
-# escape-hatch scan matches the `key:` FORM, never a bare mention — this file's own prose
-# says "continue-on-error", and a substring scan would count that comment as a hatch (the
-# #370 count-inflation trap); the app-token blocks above use the same `key:`-form guard.
+# The floor above governs the value; this pin governs the thing the value actually selects.
+# Without it the download URL could hardcode a version (or drift to 0.9.x) while the env key
+# still read v0.11.0 — every other #745 assertion would pass and CI would install 0.9.0.
+assert_pin_red_under "#745 ci.yml: the download URL resolves the pinned version, not a hardcoded one" \
+  'shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz' \
+  's|shellcheck-\$\{SHELLCHECK_VERSION\}\.linux|shellcheck-v0.9.0.linux|' "$CI745"
+# AC2: the job stays on a standard runner and never tolerates a failing lint step.
+# Both scans are scoped to the `lint:` job, and both anchors are load-bearing:
+#   - `runs-on: ubuntu-latest[[:space:]]*$` is ANCHORED. Unanchored, `ubuntu-latest-16-cores`
+#     contains the literal and satisfies the very assertion whose contract is "no larger
+#     runner" — the AC2 regression could not be caught by its own guard.
+#   - the job-scope reset accepts ANY job-name character class, not just lowercase: `lint:`
+#     is currently the last job, so a later appended `Notify:`/`test2:` would otherwise never
+#     reset the scope and its content would leak into both scans.
+#   - the escape-hatch scan matches the `key:` FORM, never a bare mention, so a
+#     `continue-on-error` occurring in any comment can never be counted as a hatch (the #370
+#     count-inflation trap); the app-token blocks above use the same `key:`-form guard.
 assert_eq "#745 ci.yml: the lint job runs on standard ubuntu-latest (no larger runner)" "yes" \
-  "$(awk '/^  lint:/{inlint=1; next} /^  [a-z_-]+:/{inlint=0} inlint && /runs-on: ubuntu-latest/{f=1} END{print (f?"yes":"no")}' "$CI745")"
+  "$(awk '/^  lint:/{inlint=1; next} /^  [A-Za-z0-9_-]+:/{inlint=0} inlint && /runs-on: ubuntu-latest[[:space:]]*$/{f=1} END{print (f?"yes":"no")}' "$CI745")"
 assert_eq "#745 ci.yml: the lint job carries no continue-on-error escape hatch" "0" \
-  "$(awk '/^  lint:/{inlint=1; next} /^  [a-z_-]+:/{inlint=0} inlint && /^[[:space:]]*continue-on-error:/{n++} END{print n+0}' "$CI745")"
+  "$(awk '/^  lint:/{inlint=1; next} /^  [A-Za-z0-9_-]+:/{inlint=0} inlint && /^[[:space:]]*continue-on-error:[[:space:]]*true/{n++} END{print n+0}' "$CI745")"
 #
 # ── #717/#745 lib/test lint carve-out guard (lib/test/lint-carveout-guard.py) ──
 # The guard reads ci.yml, derives which lib/test/**/*.sh files CI lints, and fails
@@ -47664,7 +47719,7 @@ assert_eq "#745 ci.yml: the lint job carries no continue-on-error escape hatch" 
 # REAL ci.yml + tree AND a matrix of synthetic ci.yml fixtures (the CLAUDE.md
 # best-effort-parser discipline applied to a workflow-YAML input).
 LCG_PY="$LIB/test/lint-carveout-guard.py"
-LCG_CI="$CI745"   # same file the #745 pins above read; one spelling, not two
+LCG_CI="$CI745"   # alias of $CI745 so the ci.yml path literal is written once
 # _lcg CI_FILE FILES_FILE -> "<exit>|<verdict-word>" (OK / FAIL); verdict = text up to first ':'
 _lcg() {
   local out ec
