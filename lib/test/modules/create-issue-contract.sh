@@ -1164,7 +1164,7 @@ devflow_module_pin_unique "#603: round funding named as the budget-enforcement s
 # the fourth, so the literal moved again; the guarded property (the class is stated, not left
 # implicit) is unchanged.
 devflow_module_pin_unique "#603/AC14 (+#704, +#708): the multi-line read-back query class is named" \
-  "**The read-back queries \`query-findings\`, \`query-claim-baselines\`, \`query-finding-evidence\`, and \`query-coverage\` are the multi-line ones**" "$CI_BUNDLE"  # structural-pin-ok: presence only — a documentation contract, no code regression to mutate
+  "**The read-back queries \`query-findings\`, \`query-claim-baselines\`, \`query-finding-evidence\`, \`query-coverage\`, and \`query-adjudication-records\` are the multi-line ones**" "$CI_BUNDLE"  # structural-pin-ok: presence only — a documentation contract, no code regression to mutate
 devflow_module_pin_unique "#603/AC1: the ledger fence uses a QUOTED heredoc delimiter" \
   "<<'LEDGER-EOF'" "$CI_BUNDLE"
 devflow_module_pin_unique "#603/AC1: the quoted delimiter is never to be simplified away" \
@@ -1757,8 +1757,12 @@ unset -f ci614_purity
 # T3 (AC6/AC7) — the two word budgets. Words are counted by python3 `.split()`, NEVER
 # `wc -w`: GNU and BSD `wc -w` disagree in two directions on this corpus (CLAUDE.md's
 # review-bundle record), so a `wc`-derived ceiling passes at one desk and fails at another.
-# Both ceilings are ratchet-DOWN-only — a measured reduction lowers the recorded ceiling in
-# docs/create-issue-budget.md; neither is ever raised to accommodate growth.
+# Both ceilings are ratchet-DOWN-only by default — a measured reduction lowers the recorded
+# ceiling in docs/create-issue-budget.md — and a RAISE is legal only as an explicit
+# issue-authorized departure recorded in that doc's decision record (the #614 AC6 entry that
+# set 33917, and the #743 entry that raised the default-path ceiling for the advisory/invalid
+# calibration prose, are the two such departures); an ordinary growth is never accommodated by
+# a silent raise.
 # Sums per file rather than concatenating the bytes first (run.sh's _rb_words replicates
 # `cat`, because its operand IS an already-concatenated bundle). Summing is the correct
 # shape for a multi-file operand: concatenating would join a file's last word to the next
@@ -1774,7 +1778,11 @@ PY614W
 # edit, and the ratchet-legality assertions below already tie each ceiling to its LIVE
 # measurement. docs/create-issue-budget.md is the sole home of the measured figures.
 CI614_ROOT_CEIL=2754
-CI614_DEFAULT_CEIL=33917
+# #743 authorized departure: the advisory/invalid per-finding record + calibration prose in
+# step-3-6-audit.md and step-4-present-create.md moved the measured default path past 33917.
+# Raised to 34800 (a conservative fixed margin above the measured figure, well under the ≤5%
+# legal maximum the assertion below enforces). See docs/create-issue-budget.md's decision record.
+CI614_DEFAULT_CEIL=34800
 # One comparison shape, shared by both ceilings and by the positive control below, so the
 # three sites cannot drift. An EMPTY measured value reads `no` (fail-closed): a word count
 # that could not be established is never treated as under the ceiling.
@@ -1841,7 +1849,7 @@ for _ci614_ref in $CI614_REFS; do
   CI614_TOTAL_SET+=("$CI_ROOT/skills/create-issue/references/$_ci614_ref.md")
 done
 CI614_TOTAL_W="$(ci614_words "${CI614_TOTAL_SET[@]}")"
-CI614_TOTAL_RECORDED=29639   # docs/create-issue-budget.md, root + all 9 references (issue #729 merge re-record)
+CI614_TOTAL_RECORDED=30199   # docs/create-issue-budget.md, root + all 9 references (issue #743 re-record)
 assert_eq "#614 T3: the root+references total is within +/-2% of the recorded conservation figure (a silent DROP is as RED as a rise)" \
   "yes" "$({ [ -n "$CI614_TOTAL_W" ] \
     && [ "$CI614_TOTAL_W" -ge "$(( CI614_TOTAL_RECORDED * 98 / 100 ))" ] \
@@ -1886,7 +1894,7 @@ devflow_module_pin_unique "#614 T3: the budget doc records the ratchet-down-only
 devflow_module_pin_unique "#614 T3: the budget doc names the root ceiling the suite enforces" \
   'Root ceiling: **2,754 words**' "$CI_ROOT/docs/create-issue-budget.md"
 devflow_module_pin_unique "#614 T3: the budget doc names the default-path ceiling the suite enforces" \
-  'Default-path ceiling: **33,917 words**' "$CI_ROOT/docs/create-issue-budget.md"
+  'Default-path ceiling: **34,800 words**' "$CI_ROOT/docs/create-issue-budget.md"
 devflow_module_pin_unique "#614 T3: the budget doc bans wc -w for these measurements" \
   '**Never `wc -w`.**' "$CI_ROOT/docs/create-issue-budget.md"
 unset -f ci614_words ci614_under
