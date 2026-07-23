@@ -619,22 +619,110 @@ _devflow_restore_signal_traps() { # saved-hup saved-int saved-term
   [ -z "$saved_term" ] || eval "$saved_term"
 }
 
+# ── Run-wide live-child registry (issue #720) ────────────────────────────────
+# _devflow_full_suite_signal was once a single scalar child slot (module_pid +
+# module_scratch_root + module_results_file locals), so one delivered signal
+# terminated ONE process group. The bounded Python-suite pool keeps several
+# children live at once — and keeps them live across a module boundary that
+# installs its own copy of these same traps — so a single delivered signal must
+# terminate EVERY live child's group before the handler exits. This registry is
+# that run-wide set: both devflow_run_full_suite_module (a single-element set)
+# and devflow_pool_open register their children here, and the shared handler
+# forwards to every entry. Indexed pid list + associative scratch/tally maps,
+# initialized at source time so `set -u` never trips on the first ${#...[@]}.
+_DEVFLOW_LIVE_CHILD_PIDS=()
+declare -A _DEVFLOW_LIVE_CHILD_SCRATCH=()
+declare -A _DEVFLOW_LIVE_CHILD_TALLY=()
+
+# ── Bounded concurrent Python-suite pool state (issue #720) ───────────────────
+# The pool opens at one call site (devflow_pool_open), stays open while the main
+# shell runs the last module boundary and ~2000 lines of assertions, and joins at
+# another (devflow_pool_join) — so its state is module-global, not call-local.
+# _DEVFLOW_POOL_LAUNCHING / _PENDING_SIGNAL are the pool's launch-window guard,
+# the sibling of devflow_run_full_suite_module's module_launching / pending slot.
+_DEVFLOW_POOL_OPEN=0
+_DEVFLOW_POOL_WIDTH=0
+_DEVFLOW_POOL_LAUNCHING=0
+_DEVFLOW_POOL_PENDING_SIGNAL=""
+_DEVFLOW_POOL_MONITOR_WAS_ON=0
+_DEVFLOW_POOL_SAVED_HUP=""
+_DEVFLOW_POOL_SAVED_INT=""
+_DEVFLOW_POOL_SAVED_TERM=""
+_DEVFLOW_POOL_PENDING_NAMES=()
+_DEVFLOW_POOL_PENDING_SCRIPTS=()
+_DEVFLOW_POOL_PENDING_MODES=()
+_DEVFLOW_POOL_INFLIGHT_PIDS=()
+declare -A _DEVFLOW_POOL_PID_NAME=()
+declare -A _DEVFLOW_POOL_PID_SCRIPT=()
+declare -A _DEVFLOW_POOL_PID_MODE=()
+declare -A _DEVFLOW_POOL_PID_SCRATCH=()
+declare -A _DEVFLOW_POOL_PID_TALLY=()
+declare -A _DEVFLOW_POOL_PID_OUTPUT=()
+declare -A _DEVFLOW_POOL_PID_ATTEMPT=()
+# Per self-tally suite (keyed by name): the PASS/FAIL line count it contributed to
+# RESULTS_FILE, and its own `N passed, M failed` summary line — captured at reap so
+# lib/test/run.sh can assert, positionally against that line, that a self-tally
+# suite's whole assertion count reached RESULTS_FILE (issue #720; a uniformly
+# dropped verdict is caught even though the width-1/width-N equality would agree).
+declare -A _DEVFLOW_POOL_SELFTALLY_LINES=()
+declare -A _DEVFLOW_POOL_SELFTALLY_SUMMARY=()
+
+_devflow_register_live_child() { # pid scratch-root tally-file
+  local pid="$1"
+  _DEVFLOW_LIVE_CHILD_PIDS+=("$pid")
+  _DEVFLOW_LIVE_CHILD_SCRATCH["$pid"]="$2"
+  _DEVFLOW_LIVE_CHILD_TALLY["$pid"]="$3"
+}
+
+_devflow_deregister_live_child() { # pid
+  local pid="$1" p
+  local -a keep=()
+  # Rebuild the pid list without $pid. The [ -gt 0 ] guard keeps an empty
+  # "${keep[@]}" expansion off bash 4.0–4.3's set -u trap (same discipline as
+  # _suite_cleanup's own length guards in lib/test/run.sh).
+  if [ "${#_DEVFLOW_LIVE_CHILD_PIDS[@]}" -gt 0 ]; then
+    for p in "${_DEVFLOW_LIVE_CHILD_PIDS[@]}"; do
+      [ "$p" = "$pid" ] || keep+=("$p")
+    done
+  fi
+  if [ "${#keep[@]}" -gt 0 ]; then
+    _DEVFLOW_LIVE_CHILD_PIDS=("${keep[@]}")
+  else
+    _DEVFLOW_LIVE_CHILD_PIDS=()
+  fi
+  unset '_DEVFLOW_LIVE_CHILD_SCRATCH[$pid]'
+  unset '_DEVFLOW_LIVE_CHILD_TALLY[$pid]'
+}
+
 _devflow_full_suite_signal() { # signal
-  local signal_name="$1"
-  if [ "${module_launching:-0}" -eq 1 ]; then
+  local signal_name="$1" pid scratch tally
+  # The launch-window guard now covers BOTH the single-module launch
+  # (module_launching, a devflow_run_full_suite_module local) AND the pool launch
+  # (_DEVFLOW_POOL_LAUNCHING, a global): a signal delivered mid-launch, before the
+  # child pid is registered, is stashed for replay by whichever launcher is active
+  # rather than lost. Writing both pending slots is harmless — each launcher reads
+  # only its own.
+  if [ "${module_launching:-0}" -eq 1 ] || [ "${_DEVFLOW_POOL_LAUNCHING:-0}" -eq 1 ]; then
     module_pending_signal="$signal_name"
+    _DEVFLOW_POOL_PENDING_SIGNAL="$signal_name"
     return 0
   fi
   # Ignore a second delivery while forwarding, boundedly reaping, and cleaning.
   trap '' HUP INT TERM
-  if [ -n "${module_pid:-}" ]; then
-    _devflow_terminate_process_group "$signal_name" "$module_pid" 3 || :
-    module_pid=""
+  # Forward to every live child's process group and clean its scratch/tally. This
+  # single loop subsumes the former single module_pid slot (registered as a
+  # one-element set by devflow_run_full_suite_module) and every pooled child.
+  if [ "${#_DEVFLOW_LIVE_CHILD_PIDS[@]}" -gt 0 ]; then
+    for pid in "${_DEVFLOW_LIVE_CHILD_PIDS[@]}"; do
+      [ -n "$pid" ] || continue
+      _devflow_terminate_process_group "$signal_name" "$pid" 3 || :
+      scratch="${_DEVFLOW_LIVE_CHILD_SCRATCH[$pid]:-}"
+      tally="${_DEVFLOW_LIVE_CHILD_TALLY[$pid]:-}"
+      [ -z "$scratch" ] || _devflow_cleanup_module_scratch "$scratch" || :
+      [ -z "$tally" ] || _devflow_cleanup_full_suite_tally "$tally" || :
+    done
+    _DEVFLOW_LIVE_CHILD_PIDS=()
   fi
-  _devflow_cleanup_module_scratch "${module_scratch_root:-}" || :
-  module_scratch_root=""
-  _devflow_cleanup_full_suite_tally "${module_results_file:-}" || :
-  module_results_file=""
   # The boundary owns only these temporary signal traps. Leave the caller's EXIT
   # trap installed so its top-level registry cleanup still runs on this exit.
   exit 1
@@ -751,6 +839,12 @@ devflow_run_full_suite_module() { # module-path module-name minimum-assertions
   module_pid=$!
   _devflow_test_write_pid "$module_group_pid_file" "$module_pid" \
     "module supervisor" || :
+  # Register this single child in the run-wide registry (a one-element set) so the
+  # generalized signal handler forwards to it exactly as it did through the former
+  # module_pid scalar slot (issue #720). Registered after the pid is known so a
+  # signal that arrives before this point is caught by the module_launching guard.
+  _devflow_register_live_child "$module_pid" "$module_scratch_root" \
+    "$module_results_file"
   module_launching=0
   [ "$monitor_was_on" -eq 1 ] || set +m
   _devflow_test_write_pid "${DEVFLOW_TEST_MODULE_PID_FILE:-}" "$module_pid" \
@@ -763,6 +857,11 @@ devflow_run_full_suite_module() { # module-path module-name minimum-assertions
   else
     module_rc=$?
   fi
+  # Deregister on the no-signal path: the child is reaped, so a late signal must
+  # not try to terminate its (now-recycled) pid or double-clean its scratch/tally
+  # (the normal cleanup below owns that). The signal path never reaches here — it
+  # exit 1s the whole runner after cleaning every registered child.
+  _devflow_deregister_live_child "$module_pid"
   module_pid=""
 
   if ! assertion_count="$(_devflow_valid_result_count "$module_results_file")"; then
@@ -807,4 +906,322 @@ devflow_run_full_suite_module() { # module-path module-name minimum-assertions
   # associated failure recording.
   _devflow_restore_signal_traps "$saved_hup" "$saved_int" "$saved_term"
   return "$boundary_rc"
+}
+
+# ── Bounded concurrent Python-suite pool (issue #720) ─────────────────────────
+# A generalization of devflow_run_full_suite_module from one child to a bounded
+# set: it reuses that function's scratch/tally/trap-restore machinery and the same
+# _devflow_supervise_module process-group launch, but keeps several suites live at
+# once behind a width limit. It is opened at one call site and joined at another
+# so the long pole overlaps the module boundary and the shell tail; it installs NO
+# EXIT trap of its own (lib/test/run.sh's single `trap _suite_cleanup EXIT` stays
+# the sole EXIT handler) and cleans every temporary it creates on its own path.
+#
+# Membership modes:
+#   single-verdict  — the suite reports one exit status; the pool writes exactly
+#                     one PASS/FAIL line to its private tally from that status
+#                     (mirrors devflow_run_focused_python_test's assert_eq name 0 rc).
+#   self-tally      — the suite emits one PASS/FAIL per assertion itself, into the
+#                     tally path the pool exports as DEVFLOW_POOL_TALLY_FILE.
+#
+# Width override: the single named environment variable DEVFLOW_POOL_WIDTH takes
+# precedence over the cpu_count probe when it is a positive integer; otherwise the
+# width is min(os.cpu_count(), 4), falling back to 1 when that probe yields no
+# positive integer. Because the cap decides a selection, it is derived through the
+# preflight-guaranteed python3 (never a non-preflight PATH tool — CLAUDE.md
+# guard-class 2) and a non-positive-integer probe fails closed to width 1.
+_devflow_pool_resolve_width() {
+  local override="${DEVFLOW_POOL_WIDTH:-}" probe
+  case "$override" in
+    ''|*[!0-9]*) : ;;
+    *) if [ "$override" -ge 1 ]; then printf '%s\n' "$override"; return 0; fi ;;
+  esac
+  # DEVFLOW_TEST_POOL_CPU_PROBE substitutes the probe's OUTPUT (not a different
+  # command) so a test can exercise the empty / 0 / non-numeric fallback arms;
+  # +x honors an explicitly-empty injected value.
+  if [ -n "${DEVFLOW_TEST_POOL_CPU_PROBE+x}" ]; then
+    probe="$DEVFLOW_TEST_POOL_CPU_PROBE"
+  else
+    probe="$(python3 -c 'import os; print(min(os.cpu_count() or 1, 4))' 2>/dev/null)" || probe=""
+  fi
+  case "$probe" in
+    ''|*[!0-9]*) printf '1\n'; return 0 ;;
+  esac
+  [ "$probe" -ge 1 ] && printf '%s\n' "$probe" || printf '1\n'
+}
+
+_devflow_pool_pending_shift() {
+  local -a n=() s=() m=() ; local i
+  if [ "${#_DEVFLOW_POOL_PENDING_NAMES[@]}" -gt 1 ]; then
+    for ((i=1; i<${#_DEVFLOW_POOL_PENDING_NAMES[@]}; i++)); do
+      n+=("${_DEVFLOW_POOL_PENDING_NAMES[$i]}")
+      s+=("${_DEVFLOW_POOL_PENDING_SCRIPTS[$i]}")
+      m+=("${_DEVFLOW_POOL_PENDING_MODES[$i]}")
+    done
+  fi
+  if [ "${#n[@]}" -gt 0 ]; then
+    _DEVFLOW_POOL_PENDING_NAMES=("${n[@]}"); _DEVFLOW_POOL_PENDING_SCRIPTS=("${s[@]}"); _DEVFLOW_POOL_PENDING_MODES=("${m[@]}")
+  else
+    _DEVFLOW_POOL_PENDING_NAMES=(); _DEVFLOW_POOL_PENDING_SCRIPTS=(); _DEVFLOW_POOL_PENDING_MODES=()
+  fi
+}
+
+_devflow_pool_inflight_remove() { # pid
+  local pid="$1" p ; local -a keep=()
+  if [ "${#_DEVFLOW_POOL_INFLIGHT_PIDS[@]}" -gt 0 ]; then
+    for p in "${_DEVFLOW_POOL_INFLIGHT_PIDS[@]}"; do
+      [ "$p" = "$pid" ] || keep+=("$p")
+    done
+  fi
+  if [ "${#keep[@]}" -gt 0 ]; then
+    _DEVFLOW_POOL_INFLIGHT_PIDS=("${keep[@]}")
+  else
+    _DEVFLOW_POOL_INFLIGHT_PIDS=()
+  fi
+}
+
+_devflow_pool_output_has_rendezvous_timeout() { # output-file
+  local f="$1" line
+  [ -n "$f" ] && [ -r "$f" ] || return 1
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      *"module supervisor PID rendezvous timed out"*) return 0 ;;
+    esac
+  done < "$f"
+  return 1
+}
+
+# The per-suite worker body: run the suite and record its verdict(s) into the
+# private tally. Runs inside the supervised worker (single-verdict) or directly
+# (serial retry). Fails CLOSED: a non-zero exit always yields at least one FAIL
+# line, even for a self-tally suite that crashed mid-run after recording only
+# PASS lines (a nonzero exit with no FAIL recorded would otherwise mask the crash).
+_devflow_pool_run_one() { # name script mode tally
+  local name="$1" script="$2" mode="$3" tally="$4" rc _hasfail=0 _l
+  case "$mode" in
+    self-tally)
+      DEVFLOW_POOL_TALLY_FILE="$tally" PYTHON_COLORS=0 python3 "$script"
+      rc=$?
+      if [ "$rc" -ne 0 ]; then
+        while IFS= read -r _l || [ -n "$_l" ]; do
+          [ "$_l" = "FAIL" ] && { _hasfail=1; break; }
+        done < "$tally" 2>/dev/null
+        [ "$_hasfail" -eq 1 ] || printf 'FAIL\n' >> "$tally"
+      fi
+      ;;
+    *)
+      PYTHON_COLORS=0 python3 "$script"
+      rc=$?
+      if [ "$rc" -eq 0 ]; then printf 'PASS\n' >> "$tally"; else printf 'FAIL\n' >> "$tally"; fi
+      ;;
+  esac
+  return "$rc"
+}
+
+# Serial fallback for a suite whose supervisor PID rendezvous timed out under pool
+# saturation (issue #720 AC): re-run it directly with no supervisor and no process
+# group, so a transient rendezvous timeout is absorbed rather than recorded as a
+# suite failure. Writes verdict(s) to the same private tally.
+_devflow_pool_run_serial() { # name script mode tally
+  local name="$1" script="$2" mode="$3" tally="$4" out rc _l
+  out="$(mktemp "${TMPDIR:-/tmp}/devflow-pool-serial.XXXXXX")" || out=/dev/null
+  ( _devflow_pool_run_one "$name" "$script" "$mode" "$tally" ) > "$out" 2>&1
+  rc=$?
+  if [ "$rc" -ne 0 ] && [ "$out" != /dev/null ] && [ -f "$out" ]; then
+    while IFS= read -r _l || [ -n "$_l" ]; do printf '    %s\n' "$_l"; done < "$out"
+  fi
+  [ "$out" = /dev/null ] || rm -f "$out"
+  return "$rc"
+}
+
+_devflow_pool_launch_suite() { # name script mode attempt
+  local name="$1" script="$2" mode="$3" attempt="$4"
+  local tally scratch output group_pid_file worker_pid_file monitor_was_on=0 pid
+  if ! tally="$(mktemp "${TMPDIR:-/tmp}/devflow-pool-tally.XXXXXX")"; then
+    printf 'FAIL\n' >> "$RESULTS_FILE"
+    printf '  FAIL  pool suite %s — could not allocate private tally\n' "$name" >&2
+    return 0
+  fi
+  output="$(mktemp "${TMPDIR:-/tmp}/devflow-pool-out.XXXXXX")" || output=/dev/null
+  if ! scratch="$(devflow_module_allocate_owned_directory \
+    "${TMPDIR:-/tmp}/devflow-module-scratch.XXXXXX")"; then
+    printf 'FAIL\n' >> "$RESULTS_FILE"
+    printf '  FAIL  pool suite %s — could not allocate private scratch root\n' "$name" >&2
+    rm -f "$tally"; [ "$output" = /dev/null ] || rm -f "$output"
+    return 0
+  fi
+  if ! _devflow_validate_module_scratch "$scratch"; then
+    _devflow_discard_unvalidated_module_scratch "$scratch" || :
+    printf 'FAIL\n' >> "$RESULTS_FILE"
+    printf '  FAIL  pool suite %s — allocated an unsafe private scratch root\n' "$name" >&2
+    rm -f "$tally"; [ "$output" = /dev/null ] || rm -f "$output"
+    return 0
+  fi
+  group_pid_file="$scratch/supervisor.pid"
+  worker_pid_file="$scratch/worker.pid"
+
+  case "$-" in
+    *m*) monitor_was_on=1 ;;
+    *) set -m ;;
+  esac
+  _DEVFLOW_POOL_LAUNCHING=1
+  (
+    # Each pooled suite gets its own TMPDIR pointed at its private scratch root, so
+    # every mktemp-derived temporary it (or a run-module.sh it drives) allocates is
+    # isolated from the other pooled suites and from the main shell.
+    TMPDIR="$scratch"
+    export TMPDIR
+    # Deliberately do NOT export DEVFLOW_MODULE_OWNED_SCRATCH_ROOT here (unlike
+    # devflow_run_full_suite_module, which does so for the sourced shell MODULE it
+    # runs): a pooled member is a standalone python3 suite that never consumes that
+    # hint, and test_module_runner.py in particular EXERCISES the harness code keyed
+    # on it — an inherited value would point that code at the suite's own live TMPDIR
+    # and its cleanup would delete the scratch out from under the running suite
+    # (issue #720). Unset any inherited value so a nested harness the suite drives
+    # never sees a stale one.
+    unset DEVFLOW_MODULE_OWNED_SCRATCH_ROOT
+    # shellcheck disable=SC2329
+    _devflow_pool_suite_body() {
+      set -u
+      _devflow_pool_run_one "$name" "$script" "$mode" "$tally"
+    }
+    _devflow_supervise_module _devflow_pool_suite_body \
+      "$group_pid_file" "$worker_pid_file"
+  ) > "$output" 2>&1 &
+  pid=$!
+  # Forced-timeout hook (issue #720 AC test): skip the supervisor PID-file write on
+  # attempt 1 so the rendezvous deliberately times out and the serial-retry path is
+  # exercised. Normal launches write it exactly as devflow_run_full_suite_module does.
+  if [ "${DEVFLOW_POOL_FORCE_RENDEZVOUS_TIMEOUT:-}" = "$name" ] && [ "$attempt" -eq 1 ]; then
+    :
+  else
+    _devflow_test_write_pid "$group_pid_file" "$pid" "pool supervisor" || :
+  fi
+  _DEVFLOW_POOL_LAUNCHING=0
+  [ "$monitor_was_on" -eq 1 ] || set +m
+
+  _DEVFLOW_POOL_INFLIGHT_PIDS+=("$pid")
+  _DEVFLOW_POOL_PID_NAME["$pid"]="$name"
+  _DEVFLOW_POOL_PID_SCRIPT["$pid"]="$script"
+  _DEVFLOW_POOL_PID_MODE["$pid"]="$mode"
+  _DEVFLOW_POOL_PID_SCRATCH["$pid"]="$scratch"
+  _DEVFLOW_POOL_PID_TALLY["$pid"]="$tally"
+  _DEVFLOW_POOL_PID_OUTPUT["$pid"]="$output"
+  _DEVFLOW_POOL_PID_ATTEMPT["$pid"]="$attempt"
+  _devflow_register_live_child "$pid" "$scratch" "$tally"
+  if [ -n "$_DEVFLOW_POOL_PENDING_SIGNAL" ]; then
+    _devflow_full_suite_signal "$_DEVFLOW_POOL_PENDING_SIGNAL"
+  fi
+}
+
+_devflow_pool_launch_next() {
+  local name="${_DEVFLOW_POOL_PENDING_NAMES[0]}"
+  local script="${_DEVFLOW_POOL_PENDING_SCRIPTS[0]}"
+  local mode="${_DEVFLOW_POOL_PENDING_MODES[0]}"
+  _devflow_pool_pending_shift
+  _devflow_pool_launch_suite "$name" "$script" "$mode" 1
+}
+
+_devflow_pool_reap() { # pid rc
+  local pid="$1" rc="$2" _l
+  local name="${_DEVFLOW_POOL_PID_NAME[$pid]:-?}"
+  local script="${_DEVFLOW_POOL_PID_SCRIPT[$pid]:-}"
+  local mode="${_DEVFLOW_POOL_PID_MODE[$pid]:-}"
+  local scratch="${_DEVFLOW_POOL_PID_SCRATCH[$pid]:-}"
+  local tally="${_DEVFLOW_POOL_PID_TALLY[$pid]:-}"
+  local output="${_DEVFLOW_POOL_PID_OUTPUT[$pid]:-}"
+  _devflow_deregister_live_child "$pid"
+  _devflow_pool_inflight_remove "$pid"
+
+  # A supervisor PID rendezvous timeout (rc != 0, empty tally, timeout marker in
+  # the captured output) is absorbed by re-running the suite serially, not recorded
+  # as a suite failure.
+  if [ "$rc" -ne 0 ] && [ ! -s "$tally" ] && \
+    _devflow_pool_output_has_rendezvous_timeout "$output"; then
+    [ -z "$scratch" ] || _devflow_cleanup_module_scratch "$scratch" || :
+    scratch=""
+    [ -z "$output" ] || rm -f "$output"; output=""
+    _devflow_pool_run_serial "$name" "$script" "$mode" "$tally"
+    rc=$?
+  fi
+
+  # Every pooled verdict reaches PASS/FAIL through RESULTS_FILE, after validation.
+  if _devflow_valid_result_count "$tally" >/dev/null; then
+    if ! cat "$tally" >> "$RESULTS_FILE"; then
+      printf 'FAIL\n' >> "$RESULTS_FILE"
+      printf '  FAIL  pool suite %s — could not append private tally to results\n' "$name" >&2
+    fi
+  else
+    printf 'FAIL\n' >> "$RESULTS_FILE"
+    printf '  FAIL  pool suite %s — private tally missing/unreadable after execution\n' "$name" >&2
+  fi
+
+  if [ "$rc" -ne 0 ] && [ -n "$output" ] && [ -f "$output" ]; then
+    while IFS= read -r _l || [ -n "$_l" ]; do printf '    %s\n' "$_l"; done < "$output"
+  fi
+
+  # Capture the self-tally count/summary before cleanup so run.sh can assert the
+  # whole assertion count reached RESULTS_FILE (issue #720).
+  if [ "$mode" = "self-tally" ] && [ -n "$tally" ] && [ -f "$tally" ]; then
+    _DEVFLOW_POOL_SELFTALLY_LINES["$name"]="$(grep -cE '^(PASS|FAIL)$' "$tally" 2>/dev/null || printf '0')"
+    if [ -n "$output" ] && [ -f "$output" ]; then
+      _DEVFLOW_POOL_SELFTALLY_SUMMARY["$name"]="$(grep -E '^[0-9]+ passed, [0-9]+ failed' "$output" 2>/dev/null | tail -1)"
+    fi
+  fi
+
+  [ -z "$scratch" ] || _devflow_cleanup_module_scratch "$scratch" || :
+  [ -z "$tally" ] || rm -f "$tally"
+  [ -n "$output" ] && [ "$output" != /dev/null ] && rm -f "$output"
+  unset '_DEVFLOW_POOL_PID_NAME[$pid]' '_DEVFLOW_POOL_PID_SCRIPT[$pid]' \
+    '_DEVFLOW_POOL_PID_MODE[$pid]' '_DEVFLOW_POOL_PID_SCRATCH[$pid]' \
+    '_DEVFLOW_POOL_PID_TALLY[$pid]' '_DEVFLOW_POOL_PID_OUTPUT[$pid]' \
+    '_DEVFLOW_POOL_PID_ATTEMPT[$pid]'
+}
+
+# Open the pool: resolve width, save+install the HUP/INT/TERM traps, and launch up
+# to `width` suites. Args are triples: name script mode (mode ∈ single-verdict |
+# self-tally). The remaining suites, if any, launch during join as slots free.
+devflow_pool_open() { # name1 script1 mode1 [name2 script2 mode2 ...]
+  _DEVFLOW_POOL_PENDING_NAMES=(); _DEVFLOW_POOL_PENDING_SCRIPTS=(); _DEVFLOW_POOL_PENDING_MODES=()
+  _DEVFLOW_POOL_INFLIGHT_PIDS=()
+  _DEVFLOW_POOL_PENDING_SIGNAL=""
+  _DEVFLOW_POOL_WIDTH="$(_devflow_pool_resolve_width)"
+  while [ "$#" -ge 3 ]; do
+    _DEVFLOW_POOL_PENDING_NAMES+=("$1")
+    _DEVFLOW_POOL_PENDING_SCRIPTS+=("$2")
+    _DEVFLOW_POOL_PENDING_MODES+=("$3")
+    shift 3
+  done
+  _DEVFLOW_POOL_SAVED_HUP="$(trap -p HUP)"
+  _DEVFLOW_POOL_SAVED_INT="$(trap -p INT)"
+  _DEVFLOW_POOL_SAVED_TERM="$(trap -p TERM)"
+  trap '_devflow_full_suite_signal HUP' HUP
+  trap '_devflow_full_suite_signal INT' INT
+  trap '_devflow_full_suite_signal TERM' TERM
+  _DEVFLOW_POOL_OPEN=1
+  # In-flight children never exceed the resolved width: launch min(width, count).
+  while [ "${#_DEVFLOW_POOL_PENDING_NAMES[@]}" -gt 0 ] && \
+    [ "${#_DEVFLOW_POOL_INFLIGHT_PIDS[@]}" -lt "$_DEVFLOW_POOL_WIDTH" ]; do
+    _devflow_pool_launch_next
+  done
+}
+
+# Join the pool: reap every in-flight child (launching pending suites as slots free
+# so the width limit still holds), append each verdict to RESULTS_FILE, then restore
+# the caller's signal traps. Installs no EXIT trap; leaves _suite_cleanup the sole
+# EXIT handler. Must be called before the RESULTS_FILE tally is counted.
+devflow_pool_join() {
+  [ "${_DEVFLOW_POOL_OPEN:-0}" -eq 1 ] || return 0
+  local pid rc
+  while [ "${#_DEVFLOW_POOL_INFLIGHT_PIDS[@]}" -gt 0 ]; do
+    pid="${_DEVFLOW_POOL_INFLIGHT_PIDS[0]}"
+    if wait "$pid"; then rc=0; else rc=$?; fi
+    _devflow_pool_reap "$pid" "$rc"
+    if [ "${#_DEVFLOW_POOL_PENDING_NAMES[@]}" -gt 0 ]; then
+      _devflow_pool_launch_next
+    fi
+  done
+  _devflow_restore_signal_traps "$_DEVFLOW_POOL_SAVED_HUP" \
+    "$_DEVFLOW_POOL_SAVED_INT" "$_DEVFLOW_POOL_SAVED_TERM"
+  _DEVFLOW_POOL_OPEN=0
 }

@@ -1040,7 +1040,7 @@ class ModuleRunnerTests(unittest.TestCase):
             ],
         )
         self.assertIn('FAIL="$(devflow_fold_module_failures "$FAIL")"', run_text)
-        self.assertIn('python3 "$LIB/test/test_module_runner.py"', run_text)
+        self.assertIn('"$LIB/test/test_module_runner.py" single-verdict', run_text)
         self.assertNotIn('IFR_MANIFEST="$LIB/../scripts/capture-workflow-manifest.py"', run_text)
         module_text = module.read_text(encoding="utf-8")
         self.assertTrue(
@@ -1049,7 +1049,7 @@ class ModuleRunnerTests(unittest.TestCase):
                 "# SPDX-License-Identifier: MIT\n"
             )
         )
-        self.assertNotIn('python3 "$LIB/test/test_module_runner.py"', module_text)
+        self.assertNotIn('"$LIB/test/test_module_runner.py" single-verdict', module_text)
         self.assertIn(
             'IFR_MANIFEST="$LIB/../scripts/capture-workflow-manifest.py"',
             module_text,
@@ -1147,7 +1147,7 @@ class ModuleRunnerTests(unittest.TestCase):
         )
         self.assertIsNotNone(floor_match)
         self.assertEqual(int(floor_match.group(1)), floor)
-        self.assertIn('python3 "$LIB/test/test_module_runner.py"', run_text)
+        self.assertIn('"$LIB/test/test_module_runner.py" single-verdict', run_text)
 
         module_text = REVIEW_AND_FIX_MODULE_SOURCE.read_text(encoding="utf-8")
         self.assertTrue(
@@ -1157,7 +1157,7 @@ class ModuleRunnerTests(unittest.TestCase):
             )
         )
         self.assertIn("Contract: the caller sets LIB and RESULTS_FILE", module_text)
-        self.assertNotIn('python3 "$LIB/test/test_module_runner.py"', module_text)
+        self.assertNotIn('"$LIB/test/test_module_runner.py" single-verdict', module_text)
         self.assertNotIn("devflow_run_full_suite_module", module_text)
         self.assertIn("review-and-fix-contract.inventory.md", module_text)
         self.assertIn(
@@ -1191,7 +1191,7 @@ class ModuleRunnerTests(unittest.TestCase):
         )
         self.assertIsNotNone(floor_match)
         self.assertEqual(int(floor_match.group(1)), floor)
-        self.assertIn('python3 "$LIB/test/test_module_runner.py"', run_text)
+        self.assertIn('"$LIB/test/test_module_runner.py" single-verdict', run_text)
 
         module_text = CREATE_ISSUE_MODULE_SOURCE.read_text(encoding="utf-8")
         self.assertTrue(
@@ -1804,6 +1804,118 @@ class ModuleRunnerTests(unittest.TestCase):
         # Same outcome: the full-suite boundary's tally carries the mutation's FAIL,
         # exactly as the focused runner reported it non-zero above.
         self.assertIn("FAIL", boundary_verdicts, full_suite.stdout + full_suite.stderr)
+
+
+# ── issue #720: bounded concurrent Python-suite pool membership completeness ──
+# Every lib/test/test_*.py on disk is classified into exactly one of three named
+# categories. A file that appears in none (a new suite nobody routed) or in more
+# than one is a defect this cross-check turns RED — so the pool's membership list
+# and the serial/module-driven exclusions can never silently drift from the files.
+POOLED_SUITES = (
+    "test_module_runner.py",
+    "test_prompt_mass_census.py",
+    "test_python_scripts.py",
+)
+SERIAL_BY_EXCLUSION_SUITES = ("test_module_harness.py",)
+MODULE_DRIVEN_SUITES = (
+    "test_render_audit_prompt.py",
+    "test_verification_baseline.py",
+    "test_verification_flight.py",
+    "test_reception_identity.py",
+    "test_coverage_map_guard.py",
+    "test_workflow_flight_recorder.py",
+    "test_workflow_analyzer.py",
+)
+
+
+def discover_test_suites(test_dir):
+    """Return the sorted test_*.py basenames directly in test_dir (issue #720).
+
+    Takes a directory argument so the completeness cross-check can be pointed at a
+    scratch root in tests — the planted-defect fixture never lands in lib/test/.
+    Single-level glob rooted at the given directory, never a repository-root walk.
+    """
+    return sorted(path.name for path in Path(test_dir).glob("test_*.py"))
+
+
+def classify_test_suites(
+    test_dir,
+    pooled=POOLED_SUITES,
+    serial=SERIAL_BY_EXCLUSION_SUITES,
+    module_driven=MODULE_DRIVEN_SUITES,
+):
+    """Cross-check discovery in test_dir against the three named categories.
+
+    Returns a list of human-readable violations (empty when every discovered file
+    is in exactly one category and every classified file exists on disk).
+    """
+    classified = list(pooled) + list(serial) + list(module_driven)
+    violations = []
+    counts = {}
+    for name in classified:
+        counts[name] = counts.get(name, 0) + 1
+    for name in sorted(counts):
+        if counts[name] > 1:
+            violations.append(f"{name}: appears in more than one category")
+    discovered = set(discover_test_suites(test_dir))
+    classified_set = set(classified)
+    for name in sorted(discovered - classified_set):
+        violations.append(f"{name}: on disk but in none of the three categories")
+    for name in sorted(classified_set - discovered):
+        violations.append(f"{name}: classified but not found on disk in {test_dir}")
+    return violations
+
+
+class PoolMembershipCompletenessTests(unittest.TestCase):
+    def test_every_test_py_on_disk_is_classified_exactly_once(self) -> None:
+        violations = classify_test_suites(ROOT / "lib/test")
+        self.assertEqual(violations, [], violations)
+
+    def test_the_three_membership_lists_are_pairwise_disjoint(self) -> None:
+        pooled = set(POOLED_SUITES)
+        serial = set(SERIAL_BY_EXCLUSION_SUITES)
+        module_driven = set(MODULE_DRIVEN_SUITES)
+        self.assertEqual(pooled & serial, set())
+        self.assertEqual(pooled & module_driven, set())
+        self.assertEqual(serial & module_driven, set())
+        # The pool opens exactly these three — the membership list by construction.
+        self.assertEqual(
+            pooled,
+            {
+                "test_module_runner.py",
+                "test_prompt_mass_census.py",
+                "test_python_scripts.py",
+            },
+        )
+
+    def test_a_planted_unclassified_suite_is_caught(self) -> None:
+        # Positive control for the completeness claim: a throwaway test_*.py created
+        # under a scratch directory the discovery function is pointed at (never inside
+        # lib/test/) must be reported unclassified, proving the cross-check would fail
+        # RED on a newly-added suite nobody routed into a category.
+        with tempfile.TemporaryDirectory() as scratch:
+            for name in (
+                POOLED_SUITES + SERIAL_BY_EXCLUSION_SUITES + MODULE_DRIVEN_SUITES
+            ):
+                (Path(scratch) / name).write_text("", encoding="utf-8")
+            (Path(scratch) / "test_planted_zzz.py").write_text("", encoding="utf-8")
+            violations = classify_test_suites(scratch)
+            self.assertTrue(
+                any("test_planted_zzz.py" in v for v in violations), violations
+            )
+
+    def test_the_pool_is_invoked_only_from_run_sh(self) -> None:
+        # The pool driver lives in module-harness.sh but is opened only by the full
+        # suite: run-module.sh (the focused module runner) must never call it, and its
+        # module-self-skip refusal stays intact.
+        run_module_text = RUNNER_SOURCE.read_text(encoding="utf-8")
+        self.assertNotIn("devflow_pool_open", run_module_text)
+        self.assertIn(
+            "modules may not self-skip (module contract)", run_module_text
+        )
+        run_text = (ROOT / "lib/test/run.sh").read_text(encoding="utf-8")
+        self.assertIn("devflow_pool_open", run_text)
+        self.assertIn("devflow_pool_join", run_text)
 
 
 if __name__ == "__main__":
