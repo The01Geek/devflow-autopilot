@@ -31280,6 +31280,19 @@ assert_pin_red_under "#730 review.md advisory is silent when the marker is prese
 assert_pin_red_under "#730 review-and-fix.md advisory is silent when the marker is present on a local PR" \
   'When the marker is present on either surface the clause is silent' \
   's/When the marker is present on either surface the clause is silent/When the marker is present the clause still emits a finding/' "$WSR_RAF"
+# Tier discriminator (#747 review, Minor test-coverage): the load-bearing predicate that
+# selects every behavior above — a `gha:` checkpoint row means CLOUD, its absence means
+# local/interactive — was guarded only by cross-copy byte-identity, so a reword inverting the
+# classification applied identically to both copies would pass byte-identity AND the three
+# clause pins above (their literals untouched) and ship a silently-inverted advisory. Pin the
+# discriminator sentence per file; the mutation flips the gha-checkpoint classification from
+# cloud to local/interactive, exactly the inversion byte-identity cannot catch.
+assert_pin_red_under "#730 review.md tier discriminator classifies a gha-checkpoint workpad as cloud" \
+  'row is a **cloud** run' \
+  's/row is a \*\*cloud\*\* run/row is a **local\/interactive** run/' "$WSR_REV"
+assert_pin_red_under "#730 review-and-fix.md tier discriminator classifies a gha-checkpoint workpad as cloud" \
+  'row is a **cloud** run' \
+  's/row is a \*\*cloud\*\* run/row is a **local\/interactive** run/' "$WSR_RAF"
 
 # (3b) Property-based vendoring invariant (the skills-tree twin of the #139 agents/*.md loop):
 # EVERY file under the two vendored skill dirs must NOT carry the first-party `2026 Daniel Radman`
@@ -38226,7 +38239,7 @@ assert_eq "#529 AC2: the split is at least 25,327 words below the 33,815 baselin
 # condition and the assertion label read from one literal instead of two hand-synced
 # copies. The CLAUDE.md-mirror pin below is DELIBERATELY a separate spelled-out literal:
 # it asserts CLAUDE.md carries the same phrase, so it cannot itself be derived from this
-# variable (a rendered `≤ 30,076 words` phrase is what a reader greps for in the bullet).
+# variable (a rendered `≤ 30,609 words` phrase is what a reader greps for in the bullet).
 # #730 (deferred from #719) raised this 30076->30609: the tier-scoped Verification-evidence
 # marker ADVISORY is stated on the shipped review extension (.devflow/prompt-extensions/review.md),
 # which is on the shipped-default per-pass path, pushing _rb_shipped_w from 30016 to 30549. The
@@ -38846,8 +38859,8 @@ rm -f "$_rb_acc" "$_rb_exempt" "$_rb_mut_a" "$_rb_acc_drop" "$_rb_mut_c" "$_rb_e
 # ── #656 AC5 — pin CLAUDE.md's enforcement CONSTANTS (8,500 and 60) ───────────────
 # 8,500 is the root+extension ceiling literal; 60 is RB_SHIPPED_MARGIN, which never moves.
 # Both are live-enforced, so a CLAUDE.md edit to either must turn the suite RED — extending
-# the existing 32,399/30,076 ceiling-phrase pin pattern. 30,100 is DELIBERATELY NOT pinned:
-# it is the at-most-30,100 target (#642 already achieved it; the live ceiling is now 30,076,
+# the existing 32,399/30,076/30,609 ceiling-phrase pin pattern. 30,100 is DELIBERATELY NOT pinned:
+# it is the at-most-30,100 target (#642 already achieved it; the live ceiling is now 30,609,
 # and 30,100 remains only as target prose), NOT an enforcement constant — pinning it would
 # trap a future renegotiation that lowers the target further. Registered-exempt for that reason.
 assert_pin_unique "#656 AC5: CLAUDE.md pins the root+extension 8,500-word ceiling constant" \
