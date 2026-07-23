@@ -1450,6 +1450,55 @@ class ModuleRunnerTests(unittest.TestCase):
             )
             self.assertTrue(list(Path(log_dir).iterdir()))
 
+    def test_harness_python_guards_module_runs_green_through_the_real_runner(self) -> None:
+        """Issue #719: the harness-python-guards module — added by #710 — is driven
+        through its OWN runner (run-module.sh), the very assertion issue #695 exists to
+        make, which #710 never added. The floor is read from the registry and compared
+        for EQUALITY, so the test carries no second copy of the floor value: the registry
+        entry, the module's emitted tally, and the run.sh call-site floor are one coupled
+        triple, reconciled together."""
+        registry = json.loads(
+            (ROOT / "scripts/workflow-flight-recorder-registry.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        floor = registry["test_modules"]["harness-python-guards"][
+            "minimum_assertions"
+        ]
+        environment = os.environ.copy()
+        environment.pop("DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE", None)
+        with tempfile.TemporaryDirectory() as log_dir:
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(RUNNER_SOURCE),
+                    "--log-dir",
+                    log_dir,
+                    "harness-python-guards",
+                ],
+                cwd=ROOT,
+                env=environment,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(
+                result.returncode,
+                0,
+                result.stdout[-4000:] + result.stderr[-4000:],
+            )
+            # Membership in the LINE list, not a substring of the whole stdout: a bare substring
+            # match would also accept a summary line that grew a trailing clause (a skip tally,
+            # say — a skipped assertion is never a clean pass, issue #456), so this pins the
+            # runner's exact summary format. The floor is still read from the registry, so the
+            # coupled triple keeps its single source of truth.
+            self.assertIn(
+                f"Module harness-python-guards: {floor} passed, 0 failed",
+                result.stdout.splitlines(),
+            )
+            self.assertTrue(list(Path(log_dir).iterdir()))
+
     def test_create_issue_self_allocated_root_rejects_unsafe_mktemp_output(self) -> None:
         source = CREATE_ISSUE_MODULE_SOURCE.read_text(encoding="utf-8")
         boundary = "# The implement-skill bundle backs the #467 D2 Phase-2.4 leg"
