@@ -310,17 +310,43 @@ pin_count() {  # literal file -> prints occurrence count (always a single intege
 # blank-the-target mutation in either spelling (`1,$d`, `s/.*//`) fails.
 OVERBREADTH_MIN_NUM=1
 OVERBREADTH_MIN_DEN=20
-# Count non-whitespace characters in a file with bash builtins ONLY — never `wc`/`grep`/`sed`
-# (guard-class 2, CLAUDE.md): this value decides an emitted FAIL, so a missing non-preflight
-# tool must not empty it and silently pass an overbroad mutation. `${line//[[:space:]]/}`
-# strips every whitespace char; `${#...}` is the length of the remainder.
-_nonws_count() {  # file -> prints the count of non-whitespace characters
-  local line stripped total=0
-  while IFS= read -r line || [ -n "$line" ]; do
-    stripped="${line//[[:space:]]/}"
-    total=$(( total + ${#stripped} ))
-  done < "$1"
-  printf '%s\n' "$total"
+# Count non-whitespace characters via python3 (issue #736). python3 is a hard preflight
+# prerequisite (lib/preflight.sh's guaranteed set), so guard-class 2 (CLAUDE.md — "a value
+# that decides an EMITTED result must not be derived through a NON-preflight PATH tool")
+# PERMITS it exactly as it permits `_rb_words`'s python3 count; a missing tr/wc/sed WOULD
+# silently empty this value and pass an overbroad mutation, but a missing python3 cannot —
+# it fails the derivation, which this helper reports as `unestablished` so the guard FAILs.
+# A "whitespace" character is one of exactly the six-member literal set
+#   { space, tab (\t), newline (\n), carriage return (\r), form feed (\x0c), vertical tab (\x0b) }
+# — complete by construction and, being a fixed codepoint set rather than the locale-sensitive
+# `[[:space:]]` class the old bash loop used, host-independent (the old loop counted U+00A0/U+2028
+# differently under C vs C.UTF-8; this does not). Two files are counted in ONE interpreter
+# process and the results published through the caller-visible globals `_NONWS_1` (and `_NONWS_2`
+# when a second file is given) rather than stdout — so a call site never wraps this in `$( … )`
+# and a mutation-taking assertion spends at most one invocation. On any derivation failure both
+# globals are set to the non-integer sentinel `unestablished` and the function returns 1, so a
+# guard reading them compares against no established comparand and FAILs, never silently passing.
+_nonws_count() {  # file1 [file2] -> sets _NONWS_1 [and _NONWS_2]; returns 1 on a failed derivation
+  local _out _rc
+  _NONWS_1=unestablished; _NONWS_2=unestablished
+  _out="$(python3 -c '
+import sys
+_WS = frozenset("\t\n\r\x0b\x0c ")  # tab LF CR VT FF space — the six-member set (#736)
+for _p in sys.argv[1:]:
+    with open(_p, "rb") as _fh:
+        _t = _fh.read().decode("utf-8", "surrogateescape")
+    print(sum(1 for _c in _t if _c not in _WS))
+' "$@" 2>/dev/null)"
+  _rc=$?
+  [ "$_rc" -eq 0 ] || return 1
+  # Read one line per file into the output globals with the `read` builtin (no non-preflight
+  # mid-pipe tool). A short/garbled read leaves the `unestablished` sentinel in place.
+  { IFS= read -r _NONWS_1; [ "$#" -lt 2 ] || IFS= read -r _NONWS_2; } <<< "$_out"
+  case "$_NONWS_1" in ''|*[!0-9]*) _NONWS_1=unestablished; return 1 ;; esac
+  if [ "$#" -ge 2 ]; then
+    case "$_NONWS_2" in ''|*[!0-9]*) _NONWS_2=unestablished; return 1 ;; esac
+  fi
+  return 0
 }
 
 # Drift-guard helper: assert LITERAL occurs EXACTLY ONCE in FILE. This is the
@@ -2300,7 +2326,18 @@ assert_pin_red_under() {  # name literal mutation [file]   (file defaults to $MA
   # content — this pin asserts over the WHOLE target, so it measures the whole target.
   # Placed immediately after the cmp -s no-op guard. A blank-the-file mutation (`1,$d`,
   # `s/.*//`) retains ~0 and fails here instead of reading as a spurious PASS->FAIL.
-  _o="$(_nonws_count "$file")"; _m="$(_nonws_count "$t")"
+  # ONE _nonws_count call covers both artifacts (issue #736): it sets `_NONWS_1` (original)
+  # and `_NONWS_2` (mutated). A failed derivation returns non-zero + the `unestablished`
+  # sentinel; record a FAIL naming the unestablished bound rather than doing arithmetic on a
+  # comparand never established — a broken count is never a silent pass of an overbroad mutation.
+  if ! _nonws_count "$file" "$t"; then
+    echo FAIL >> "$RESULTS_FILE"
+    printf '  FAIL  %s\n         OVERBREADTH-COUNT-UNESTABLISHED — the non-whitespace count derivation (python3) failed for the original or mutated artifact; the overbreadth bound is unestablished, not satisfied\n         mutation: %s\n         file: %s\n' \
+      "$name" "$mutation" "$file"
+    rm -f "$t"
+    return 0
+  fi
+  _o="$_NONWS_1"; _m="$_NONWS_2"
   if [ "$_o" -gt 0 ] && [ "$(( _m * OVERBREADTH_MIN_DEN ))" -lt "$(( _o * OVERBREADTH_MIN_NUM ))" ]; then
     echo FAIL >> "$RESULTS_FILE"
     printf '  FAIL  %s\n         mutation is OVERBROAD (mutated copy retains %s of %s non-whitespace chars, below the 1/%s bound) — a mutation that blanks the target proves nothing; narrow it to the operative change\n         mutation: %s\n         file: %s\n' \
@@ -2598,7 +2635,16 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   # COUNT within the sed -n slice, so the guard measures the mutated slice against the real
   # slice — NOT the whole file, which would be dominated by the unsliced remainder and let a
   # mutation blanking the whole counted slice of a multi-thousand-line target clear any bound.
-  _real_slice_nonws="$(_nonws_count "$slice")"
+  # This helper is the named exception to the one-invocation rule (issue #736): the real and
+  # mutated slices are separated in time by the mutation that overwrites $slice, so it spends
+  # one single-file _nonws_count invocation per measurement (reading `_NONWS_1`). A failed
+  # derivation is recorded as COUNT-UNESTABLISHED, never compared against an unestablished bound.
+  if ! _nonws_count "$slice"; then
+    echo FAIL >> "$RESULTS_FILE"; echo COUNT-UNESTABLISHED >> "$RESULTS_FILE"
+    printf '  FAIL  %s\n         COUNT-UNESTABLISHED — non-whitespace count derivation (python3) failed on the real slice; the overbreadth bound is unestablished, not satisfied\n         file: %s\n' "$name" "$file" >&2
+    rm -f "$slice"; return 0
+  fi
+  _real_slice_nonws="$_NONWS_1"
 
   # ── 3. Real-file bound: the count must SATISFY OP BOUND on the real file (the `before`
   # conjunct — checked before the mutation, mirroring assert_pin_red_under's before-probe).
@@ -2684,7 +2730,12 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   # slice's non-whitespace content — the blank-the-counted-slice hole `s/.*//` opens (it
   # empties every line while leaving the line count identical, so sed's rc and cmp -s both
   # clear). Reports through this helper's own bare-FAIL + distinct-token shape.
-  _mut_slice_nonws="$(_nonws_count "$slice")"
+  if ! _nonws_count "$slice"; then
+    echo FAIL >> "$RESULTS_FILE"; echo COUNT-UNESTABLISHED >> "$RESULTS_FILE"
+    printf '  FAIL  %s\n         COUNT-UNESTABLISHED — non-whitespace count derivation (python3) failed on the mutated slice; the overbreadth bound is unestablished, not satisfied\n         mutation: %s\n' "$name" "$mutation" >&2
+    rm -f "$slice" "$mut"; return 0
+  fi
+  _mut_slice_nonws="$_NONWS_1"
   if [ "$_real_slice_nonws" -gt 0 ] && [ "$(( _mut_slice_nonws * OVERBREADTH_MIN_DEN ))" -lt "$(( _real_slice_nonws * OVERBREADTH_MIN_NUM ))" ]; then
     echo FAIL >> "$RESULTS_FILE"; echo MUTATION-OVERBROAD >> "$RESULTS_FILE"
     printf '  FAIL  %s\n         MUTATION-OVERBROAD — mutated slice retains %s of %s non-whitespace chars (below the 1/%s bound); a mutation that blanks the counted slice proves nothing\n         mutation: %s\n' \
@@ -37520,6 +37571,122 @@ rm -f "$_OCF"
 assert_pin_red_under "#666: implement extension states the structural-pin-ok declaration rule (operative clause)" \
   'unless its logical line carries a format-strict' \
   's/unless its logical line carries a format-strict//' "$LIB/../.devflow/prompt-extensions/implement.md"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "#736 overbreadth-count helper: python3 derivation, locale-invariance, shape matrix"
+# ────────────────────────────────────────────────────────────────────────────
+# The overbreadth guard's non-whitespace count is now derived through python3 over an explicit
+# six-member whitespace set (issue #736): host-independent (a fixed codepoint set, not the
+# locale-sensitive `[[:space:]]` class), one interpreter process per assertion covering both
+# artifacts, published through caller-visible globals so no call site wraps the helper in `$( … )`.
+
+# (a) Recurrence guard (mirrors the #505 AC1 "emitted values come from python3" form): the
+# count derivation in each helper's body goes through python3. A revert to the old bash
+# `${line//[[:space:]]/}` loop removes the `python3 -c` call from the function body → RED.
+# Scoped to the FUNCTION BODY via python3 region extraction (not a whole-file grep) so this
+# guard's own text cannot self-satisfy it. Discharged as a positive control at authoring time
+# (planted revert observed RED, restored observed GREEN — recorded in the PR).
+_736_body_derives_py3() {  # file funcname -> "python3" iff that function's body calls python3 -c
+  python3 - "$1" "$2" <<'PYEOF'
+import re, sys
+src = open(sys.argv[1], encoding="utf-8").read()
+m = re.search(r'\n' + re.escape(sys.argv[2]) + r'\(\)\s*\{.*?\n\}\n', src, re.S)
+print("python3" if (m and "python3 -c" in m.group(0)) else "MISSING")
+PYEOF
+}
+assert_eq "#736 recurrence: run.sh _nonws_count derives its count through python3 (guard-class 2)" \
+  "python3" "$(_736_body_derives_py3 "$LIB/test/run.sh" _nonws_count)"
+assert_eq "#736 recurrence: module-harness _devflow_module_nonws_count derives through python3 (guard-class 2)" \
+  "python3" "$(_736_body_derives_py3 "$LIB/test/module-harness.sh" _devflow_module_nonws_count)"
+
+# (b) Assignment contract: no call site wraps a counting helper in a command substitution
+# (the helpers publish through globals, never stdout). The ERE matches the literal `$(<helper>`;
+# this assertion line spells the pattern with backslash-escaped `\$\(` so it does not self-match.
+assert_eq "#736 assignment-contract: no call site wraps _nonws_count in a command substitution (run.sh)" \
+  "0" "$(grep -cE '\$\(_nonws_count' "$LIB/test/run.sh")"
+assert_eq "#736 assignment-contract: no call site wraps _devflow_module_nonws_count in a command substitution (module-harness.sh)" \
+  "0" "$(grep -cE '\$\(_devflow_module_nonws_count' "$LIB/test/module-harness.sh")"
+
+# (c) One-invocation: a single assert_pin_red_under spends exactly ONE _nonws_count call,
+# covering the original and the mutated artifact together. Shadow the helper INSIDE a subshell
+# (so the real helper is never mutated for later assertions) with a counter that persists via a
+# temp file; `$(<file)` is a bash builtin (no non-preflight tool). Counting-helper invocations,
+# not interpreter invocations — assert_pin_red_under spends zero python3 today via the grep-based
+# pin_count, so the property is stated over the counting helper the AC names.
+_736_CNT="$(probe_tmp '#736 one-invocation counter')"; printf '0' > "$_736_CNT"
+_736_OIF="$(probe_tmp '#736 one-invocation fixture')"
+printf 'PIN_ONE operative line here\nPIN_TWO another line here\n' > "$_736_OIF"
+(
+  _nonws_count() { local n; n="$(<"$_736_CNT")"; printf '%s' "$(( n + 1 ))" > "$_736_CNT"; _NONWS_1=100; _NONWS_2=99; return 0; }
+  probe_assert assert_pin_red_under 'oi' 'PIN_ONE operative line here' '/PIN_ONE/d' "$_736_OIF" >/dev/null
+)
+assert_eq "#736 one-invocation: a single assert_pin_red_under spends exactly one _nonws_count call (both artifacts in one call)" \
+  "1" "$(<"$_736_CNT")"
+rm -f "$_736_CNT" "$_736_OIF"
+
+# (d) Locale invariance + divergence witness. A standalone bash bracket-expression witness
+# retains the pre-#736 locale-sensitive derivation over a fixed U+00A0/U+2028 input; the
+# behavioural probe runs it under each locale NAME and compares the RESULT (never `locale -a`
+# membership, whose spelling diverges from the accepted name). When a divergent pair exists the
+# witness's divergence is asserted AND the new helper's invariance across the same pair is
+# asserted; when no divergent pair resolves on the host, the invariance is asserted trivially and
+# the degraded arm is reported THROUGH THE ASSERTION NAME — no `  NOTE ` emit, no skip (the #456
+# meta-assertion forbids a NOTE outside skip(), and a per-host recurring skip is never clean).
+_736_bracket_witness() {  # locale-SENSITIVE bash bracket-expression count (the pre-#736 idiom)
+  local line stripped total=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    stripped="${line//[[:space:]]/}"; total=$(( total + ${#stripped} ))
+  done < "$1"; printf '%s\n' "$total"
+}
+_736_LFX="$(probe_tmp '#736 locale divergence fixture')"
+printf 'a\xc2\xa0\xe2\x80\xa8XY\n' > "$_736_LFX"   # a + U+00A0 (NBSP) + U+2028 (LSEP) + X + Y
+_736_wa="$(LC_ALL=C _736_bracket_witness "$_736_LFX")"
+_736_wb="$(LC_ALL=C.UTF-8 _736_bracket_witness "$_736_LFX")"
+_736_nc="$(LC_ALL=C; _nonws_count "$_736_LFX"; printf '%s' "$_NONWS_1")"
+_736_nd="$(LC_ALL=C.UTF-8; _nonws_count "$_736_LFX"; printf '%s' "$_NONWS_1")"
+if [ "$_736_wa" != "$_736_wb" ]; then
+  assert_eq "#736 locale-divergence witness: bash bracket-expression count DIFFERS across C / C.UTF-8 (the invariance below has a witness)" \
+    "differ" "differ"
+  assert_eq "#736 locale-invariance: new _nonws_count is identical under C and C.UTF-8 (a pair the bracket witness diverges on)" \
+    "$_736_nc" "$_736_nd"
+else
+  assert_eq "#736 locale-invariance: no behaviourally-divergent C/C.UTF-8 pair resolves on this host (bracket witness agrees); new _nonws_count invariance asserted trivially (degraded arm — no NOTE, no skip)" \
+    "$_736_nc" "$_736_nd"
+fi
+rm -f "$_736_LFX"
+
+# (e) Input-shape matrix for the counting helper (the CLAUDE.md adversarial-matrix analogue for a
+# reader of arbitrary file bytes): empty, whitespace-only, no-trailing-newline, all six set
+# members, U+00A0/U+2028, non-UTF-8 bytes (must return a count, not raise), a failed derivation
+# (must fail closed to the sentinel + non-zero), and a production-realistic real tracked file the
+# change does NOT edit (asserted against an independent reference count over the same bytes, never
+# a checked-in literal).
+_736_SF="$(probe_tmp '#736 shape fixture')"
+printf '' > "$_736_SF"; _nonws_count "$_736_SF"; assert_eq "#736 shape empty file: count 0" "0" "$_NONWS_1"
+printf '  \t\n \n' > "$_736_SF"; _nonws_count "$_736_SF"; assert_eq "#736 shape whitespace-only: count 0" "0" "$_NONWS_1"
+printf 'abc' > "$_736_SF"; _nonws_count "$_736_SF"; assert_eq "#736 shape no-trailing-newline: count 3" "3" "$_NONWS_1"
+printf 'a \tb\r\v\fc\n' > "$_736_SF"; _nonws_count "$_736_SF"; assert_eq "#736 shape all six set members present: counts only a,b,c" "3" "$_NONWS_1"
+printf 'a\xc2\xa0\xe2\x80\xa8XY\n' > "$_736_SF"; _nonws_count "$_736_SF"; assert_eq "#736 shape U+00A0/U+2028: counted as non-whitespace (a,NBSP,LSEP,X,Y)" "5" "$_NONWS_1"
+printf 'a\xff\xfeb\n' > "$_736_SF"
+if _nonws_count "$_736_SF"; then assert_eq "#736 shape non-UTF-8 bytes: derivation returns a count, does not raise" "4" "$_NONWS_1"
+else assert_eq "#736 shape non-UTF-8 bytes: derivation returns a count, does not raise" "a-count" "raised"; fi
+rm -f "$_736_SF"
+# Fail-closed: a failed derivation (nonexistent path) returns non-zero and leaves the non-integer
+# sentinel, so a guard reading it FAILs rather than comparing against a comparand never established.
+if _nonws_count "$LIB/test/.__736_nonexistent__"; then
+  assert_eq "#736 shape failed derivation: returns non-zero + sentinel (fail-closed)" "nonzero" "returned-zero"
+else
+  assert_eq "#736 shape failed derivation: returns non-zero + sentinel (fail-closed)" "unestablished" "$_NONWS_1"
+fi
+# Production-realistic fixture: a real tracked file the change does NOT edit, versus an
+# independent python3 reference count over the same bytes computed in this same assertion.
+_736_REAL="$LIB/../CONTRIBUTING.md"
+_nonws_count "$_736_REAL"
+_736_ref="$(python3 -c 'import sys
+t = open(sys.argv[1], "rb").read().decode("utf-8", "surrogateescape")
+print(sum(1 for c in t if c not in "\t\n\r\x0b\x0c "))' "$_736_REAL")"
+assert_eq "#736 shape production-realistic (CONTRIBUTING.md): _nonws_count equals an independent reference count over the same bytes" \
+  "$_736_ref" "$_NONWS_1"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "#363 review-engine grounding: skill<->allowlist command-head contract pin"

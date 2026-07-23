@@ -175,16 +175,37 @@ devflow_module_pin_present() { # name literal file
 # is in the issue-666 workpad (module direct-site MIN retention 0.9982).
 DEVFLOW_MODULE_OVERBREADTH_NUM=1
 DEVFLOW_MODULE_OVERBREADTH_DEN=20
-# Non-whitespace-char count with bash builtins ONLY (never wc/grep/sed — this value decides
-# an emitted RED verdict; a missing non-preflight tool must not empty it and pass an
-# overbroad mutation). Private to this harness (mirrors run.sh's _nonws_count).
-_devflow_module_nonws_count() {  # file -> prints non-whitespace char count
-  local line stripped total=0
-  while IFS= read -r line || [ -n "$line" ]; do
-    stripped="${line//[[:space:]]/}"
-    total=$(( total + ${#stripped} ))
-  done < "$1"
-  printf '%s\n' "$total"
+# Non-whitespace-char count via python3 (issue #736), mirroring run.sh's _nonws_count. python3
+# is a hard preflight prerequisite, so guard-class 2 PERMITS it (a missing tr/wc/sed would
+# silently empty this value and pass an overbroad mutation; a missing python3 fails the
+# derivation instead, which this helper reports as `unestablished` so the guard verdict is RED).
+# A "whitespace" char is one of exactly the six-member literal set
+#   { space, tab (\t), newline (\n), carriage return (\r), form feed (\x0c), vertical tab (\x0b) }
+# — complete by construction and host-independent (a fixed codepoint set, not the locale-sensitive
+# `[[:space:]]` class the old bash loop used). Two files are counted in ONE interpreter process
+# and published through the caller-visible globals `_MOD_NONWS_1`/`_MOD_NONWS_2` (never stdout),
+# so a call site never wraps this in `$( … )` and the guard spends one invocation. On a failed
+# derivation both globals become the sentinel `unestablished` and the function returns 1.
+# Private to this harness (it carries NO run.sh globals, so it duplicates the derivation).
+_devflow_module_nonws_count() {  # file1 [file2] -> sets _MOD_NONWS_1 [and _MOD_NONWS_2]; returns 1 on failure
+  local _out _rc
+  _MOD_NONWS_1=unestablished; _MOD_NONWS_2=unestablished
+  _out="$(python3 -c '
+import sys
+_WS = frozenset("\t\n\r\x0b\x0c ")  # tab LF CR VT FF space — the six-member set (#736)
+for _p in sys.argv[1:]:
+    with open(_p, "rb") as _fh:
+        _t = _fh.read().decode("utf-8", "surrogateescape")
+    print(sum(1 for _c in _t if _c not in _WS))
+' "$@" 2>/dev/null)"
+  _rc=$?
+  [ "$_rc" -eq 0 ] || return 1
+  { IFS= read -r _MOD_NONWS_1; [ "$#" -lt 2 ] || IFS= read -r _MOD_NONWS_2; } <<< "$_out"
+  case "$_MOD_NONWS_1" in ''|*[!0-9]*) _MOD_NONWS_1=unestablished; return 1 ;; esac
+  if [ "$#" -ge 2 ]; then
+    case "$_MOD_NONWS_2" in ''|*[!0-9]*) _MOD_NONWS_2=unestablished; return 1 ;; esac
+  fi
+  return 0
 }
 devflow_module_pin_red_under() { # name literal mutation file
   local name="$1" literal="$2" mutation="$3" file="$4" scratch before after b a _o _m
@@ -210,8 +231,16 @@ devflow_module_pin_red_under() { # name literal mutation file
   # #666 overbreadth guard: reject a mutation whose mutated scratch retains less than the
   # 1/DEN fraction of the original's non-whitespace content (a blank-the-file mutation).
   # Placed immediately after the cmp -s no-op guard; reports through the mutation-overbroad
-  # RED token, matching the existing mutation-errored / mutation-noop shape.
-  _o="$(_devflow_module_nonws_count "$file")"; _m="$(_devflow_module_nonws_count "$scratch")"
+  # RED token, matching the existing mutation-errored / mutation-noop shape. ONE
+  # _devflow_module_nonws_count call covers both artifacts (issue #736), setting `_MOD_NONWS_1`
+  # (original) and `_MOD_NONWS_2` (mutated); a failed derivation records a distinct
+  # count-unestablished RED, never arithmetic on a comparand never established.
+  if ! _devflow_module_nonws_count "$file" "$scratch"; then
+    assert_eq "$name" "PASS->FAIL" "count-unestablished"
+    rm -f "$scratch"
+    return 0
+  fi
+  _o="$_MOD_NONWS_1"; _m="$_MOD_NONWS_2"
   if [ "$_o" -gt 0 ] && [ "$(( _m * DEVFLOW_MODULE_OVERBREADTH_DEN ))" -lt "$(( _o * DEVFLOW_MODULE_OVERBREADTH_NUM ))" ]; then
     assert_eq "$name" "PASS->FAIL" "mutation-overbroad"
     rm -f "$scratch"
