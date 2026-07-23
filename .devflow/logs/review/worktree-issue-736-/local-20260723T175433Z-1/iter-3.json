@@ -1,0 +1,114 @@
+{
+  "iter": 3,
+  "fix_commit_sha": null,
+  "fix_files": [],
+  "loop_role": "fix",
+  "current_step": "2.6",
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_findings": [],
+  "fix_decisions": [],
+  "engine_verdict": "APPROVE",
+  "convergence_inputs": {
+    "fixes_applied": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "shadow": {
+    "ran_at": "2026-07-23T18:30:00Z",
+    "reviewed_sha": "18146ca4",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {
+        "agent": "devflow:comment-analyzer",
+        "severity": "Suggestion",
+        "description": "helper rationale duplicated across 3 prose sites (advisory, no defect_signature) — DECLINED: the coupled self-contained-copy is the issue's intentional AC2 design",
+        "defect_signature": {
+          "file": "lib/test/module-harness.sh",
+          "line_range": null,
+          "kind": "comment_drift"
+        }
+      },
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Suggestion",
+        "description": "missing-python3 path not directly simulated (covered transitively; agent: no action needed)",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            126,
+            147
+          ],
+          "kind": "test_gap"
+        }
+      },
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Suggestion",
+        "description": "short rc-0 python output not tested (agent: cannot occur, non-gap)",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            141,
+            145
+          ],
+          "kind": "test_gap"
+        }
+      },
+      {
+        "agent": "devflow:requesting-code-review",
+        "severity": "Suggestion",
+        "description": "block-(d) LC_ALL-export comment; empirically VERIFIED accurate under bash (the suite's shebang) — export to python3 child confirmed C.UTF-8; not a defect",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            37653,
+            37662
+          ],
+          "kind": "comment_drift"
+        }
+      }
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 4,
+      "overlap_with_iter_N": 0,
+      "new": 4,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
+  "park_calibration_gate": "clean — no parked finding re-raised by the shadow (iter-1 F-4 2>/dev/null advisory not re-raised as a finding)",
+  "note": "Clean convergence + shadow full-coverage agreement. All 4 new shadow observations are Suggestion-level/advisory (below verdict_severity_threshold); none Critical/Important, so Decide outcome 1 (no promotion). production helper logic confirmed correct across 3 iterations + shadow.",
+  "telemetry": "unavailable"
+}
