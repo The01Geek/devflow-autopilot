@@ -24,6 +24,18 @@ on:
 permissions:
   contents: read
 
+# The shellcheck release every directly-invoked shellcheck in CI runs against,
+# declared ONCE here so the `lint` job and the dedicated `shellcheck-run-sh` job
+# below can never drift onto two different analyzers. Both jobs install THIS
+# release (see their "Install pinned ShellCheck" steps) instead of the
+# ubuntu-latest runner image's rolling build, so a linter upgrade is a deliberate
+# one-line change here rather than an image bump that reddens every open PR at once
+# with no diff that caused it (issue #717). actionlint bundles its own shellcheck
+# for analysing workflow `run:` blocks; that is a different surface (workflow YAML,
+# not the repo's .sh files) and is intentionally not pinned by this value.
+env:
+  SHELLCHECK_VERSION: v0.11.0
+
 jobs:
   test:
     name: lib + python tests
@@ -60,13 +72,35 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      # shellcheck ships on ubuntu-latest runners — no extra action needed.
+      # Install the SHELLCHECK_VERSION release pinned at the workflow level (issue
+      # #717). Deviation from the issue's "version-pinned marketplace action": no
+      # marketplace action installs shellcheck onto PATH — the popular ones (ludeeus,
+      # reviewdog, sudo-bot) RUN shellcheck with their own invocation and cannot
+      # reproduce this step's `git ls-files | grep | xargs` scope, and the dedicated
+      # job below is pinned by its AC to the exact `shellcheck …` command. So both
+      # jobs install the koalaman-canonical release here and invoke shellcheck
+      # directly. See the workpad AC-rewrite note for issue #717. `set -euo pipefail`
+      # + `curl -f` make a failed download/extract fail the job (never a silent
+      # fall-through to the runner image's build); /usr/local/bin precedes /usr/bin
+      # on PATH so the pinned binary shadows the preinstalled one.
+      - name: Install pinned ShellCheck ${{ env.SHELLCHECK_VERSION }}
+        run: |
+          set -euo pipefail
+          url="https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          curl -fsSL "$url" -o /tmp/shellcheck.tar.xz
+          tar -xJf /tmp/shellcheck.tar.xz -C /tmp
+          sudo install -m 0755 "/tmp/shellcheck-${SHELLCHECK_VERSION}/shellcheck" /usr/local/bin/shellcheck
+          shellcheck --version
+
       # --severity=warning keeps the gate on real issues and drops info/style
       # nags. SC1091 ("can't follow sourced file") is excluded: helpers source
       # each other via ${CLAUDE_SKILL_DIR}-relative paths that don't resolve at
       # lint time. The lib/test gh-stubs are deliberately minimal fixtures, not
       # shipped code, so they're out of scope. Piping into xargs (rather than
       # shellcheck $(...)) avoids the SC2046 word-split this very job would flag.
+      # lib/test/run.sh is linted by the dedicated `shellcheck-run-sh` job below
+      # (it is superlinearly slow on that one file, so it gets its own job); the
+      # lib/test lint carve-out is enforced by lib/test/run.sh's own guard.
       - name: ShellCheck (lib + scripts)
         run: |
           git ls-files '*.sh' | grep -v '^lib/test/' \
@@ -77,6 +111,7 @@ jobs:
           # they are added explicitly rather than shipping unlinted.
           shellcheck --severity=warning -e SC1091 \
             lib/test/module-harness.sh lib/test/run-module.sh lib/test/summary.sh \
+            lib/test/cloud-form-layout-test.sh lib/test/path-portability-test.sh \
             lib/test/modules/workflow-flight-recorder.sh \
             lib/test/modules/review-and-fix-contract.sh \
             lib/test/modules/create-issue-contract.sh \
@@ -108,3 +143,33 @@ jobs:
         run: |
           python3 -m pip install --quiet ruff
           git ls-files '*.py' | xargs -r ruff check
+
+  # lib/test/run.sh is the repo's largest shell file and shellcheck's runtime is
+  # superlinear in file length on it (~10 min on this one file), so it gets a
+  # dedicated job rather than being appended to the `lint` job above. Deliberately
+  # a SEPARATE job with NO `needs:` on `lint`, so the two run in parallel and a slow
+  # run.sh lint never serializes behind (or blocks) the rest of the lint gate
+  # (issue #717). Merge is gated on this job only once a human adds it to the
+  # branch-protection required-check set (the existing required check is
+  # `lib + python tests`); until then it reports without blocking.
+  shellcheck-run-sh:
+    name: shellcheck (lib/test/run.sh)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # Install the SAME workflow-pinned release the `lint` job installs (issue
+      # #717), so a single analyzer version covers every directly-invoked shellcheck
+      # in CI. `set -euo pipefail` + `curl -f` fail the job on a bad install rather
+      # than falling through to the runner image's build.
+      - name: Install pinned ShellCheck ${{ env.SHELLCHECK_VERSION }}
+        run: |
+          set -euo pipefail
+          url="https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          curl -fsSL "$url" -o /tmp/shellcheck.tar.xz
+          tar -xJf /tmp/shellcheck.tar.xz -C /tmp
+          sudo install -m 0755 "/tmp/shellcheck-${SHELLCHECK_VERSION}/shellcheck" /usr/local/bin/shellcheck
+          shellcheck --version
+
+      - name: ShellCheck (lib/test/run.sh)
+        run: shellcheck --severity=warning -e SC1091 lib/test/run.sh

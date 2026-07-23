@@ -19,8 +19,10 @@
 # scripts/ vendors wholesale into every consumer install under
 # .devflow/vendor/devflow/, and a test-only reporter is dead weight there.
 # (describe-denial-count.sh, the pattern this follows, IS in scripts/ because a
-# workflow really does call it.) CI shellchecks this file explicitly, the same
-# carve-out lib/test/summary.sh takes, since lib/test/ is otherwise excluded.
+# workflow really does call it.) CI shellchecks this file via the explicit
+# lib/test list (the `git ls-files '*.sh' | grep -v '^lib/test/'` glob excludes
+# lib/test/); the lint-carveout-guard.py guard fails the suite RED if a shipped
+# lib/test script drops off that list (issue #717).
 #
 # Usage:  describe-budget-delta.sh <row-name> <before> <after>
 # Exit:   0 always (a reporter must never gate the suite).

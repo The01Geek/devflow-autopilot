@@ -2495,6 +2495,28 @@ probe_two_line() {  # assertion-fn args... -> prints verdict, cause-token, probe
 # unknown-is-not-zero rule: an unestablished count is never collapsed onto a real value).
 # Reuses probe_tmp for the scratch copies and the sed-rc + cmp -s no-op guards verbatim
 # from assert_pin_red_under.
+#
+# _int_cmp LEFT OP RIGHT — integer comparison that dispatches OP through a case with one
+# literal-operator arm per member of the closed set `-eq -le -lt -ge -gt` (exactly these
+# five, complete by construction), each running a literal `[ ]` test and returning its
+# exit status. A structural rewrite of the two `[ "$n" "$op" "$bound" ]` splices below:
+# the analyzer cannot parse a `[ ]` whose comparator is a variable (SC1072/SC1073 abort the
+# whole file), and a per-line disable directive does not suppress a PARSE error — so the
+# operator is dispatched here instead of spliced. The default arm returns 2, so an operator outside
+# the closed set produces an ERRORED comparison status (never a satisfied 0), which the two
+# call sites below both fail closed on. `_int_cmp` presumes numeric operands (assert_count_red_under
+# validates OP and BOUND upstream and proves the counts numeric before calling); the inner
+# `[ ]` still errors (rc 2) on a non-numeric operand, preserving the fail-closed direction.
+_int_cmp() {  # left op right -> 0 satisfied, 1 not satisfied, 2 invalid op / errored compare
+  case "$2" in
+    -eq) [ "$1" -eq "$3" ] ;;
+    -le) [ "$1" -le "$3" ] ;;
+    -lt) [ "$1" -lt "$3" ] ;;
+    -ge) [ "$1" -ge "$3" ] ;;
+    -gt) [ "$1" -gt "$3" ] ;;
+    *) return 2 ;;
+  esac
+}
 assert_count_red_under() {  # name start end pattern op bound mutation [file]
   local name="$1" start="$2" end="$3" pattern="$4" op="$5" bound="$6" mutation="$7" file="${8:-$MAXI_SKILL}"
   local pat_rc anchor_rc breach_rc start_count start_match start_line ln m end_line
@@ -2602,8 +2624,11 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
 
   # ── 3. Real-file bound: the count must SATISFY OP BOUND on the real file (the `before`
   # conjunct — checked before the mutation, mirroring assert_pin_red_under's before-probe).
-  # A correct unmutated file cannot fail here by construction. ──
-  if ! [ "$count" "$op" "$bound" ] 2>/dev/null; then
+  # A correct unmutated file cannot fail here by construction. The `_int_cmp` call replaces
+  # the old `[ "$count" "$op" "$bound" ]` splice; `if !` inverts every non-zero status, so a
+  # not-satisfied (rc 1) AND an errored/invalid-op comparison (rc >= 2) both route to the
+  # BOUND-VIOLATED-ON-REAL-FILE arm — the same fail-closed direction the old `! [ ]` had. ──
+  if ! _int_cmp "$count" "$op" "$bound" 2>/dev/null; then
     echo FAIL >> "$RESULTS_FILE"; echo BOUND-VIOLATED-ON-REAL-FILE >> "$RESULTS_FILE"
     printf '  FAIL  %s\n         BOUND-VIOLATED-ON-REAL-FILE — real count %s does not satisfy %s %s\n         file: %s\n' \
       "$name" "$count" "$op" "$bound" "$file" >&2
@@ -2693,17 +2718,19 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   fi
 
   # ── 8. Mutated-file bound: the mutation must make the count VIOLATE OP BOUND (the
-  # `after` conjunct). The SAME comparison as step 3 (a correct unmutated file cannot fail
-  # the helper by construction). Capture the comparison's OWN rc rather than branching on
-  # `if [ … ]` directly, and fail closed the same way step 3 does: step 3 wraps the test in
-  # `! [ … ]`, so an errored `[ ]` (rc>=2, swallowed by 2>/dev/null) routes to its FAIL arm.
-  # Only a clean rc 1 (a genuine bound violation) proceeds to PASS here; rc 0 (still satisfies
-  # → BOUND-NOT-BREACHED) AND rc>=2 (an errored comparison) both fail closed to
-  # BOUND-NOT-BREACHED, never falling through to a spurious PASS. Unreachable today (mut_count
-  # is proven numeric at step 7, op and bound are validated upstream) — defense-in-depth so the
-  # two mirror comparisons fail in the same direction. A bare `!`-invert is NOT the fix: it
-  # would route the errored rc>=2 to PASS (fail-open, worse), so the rc is captured explicitly. ──
-  [ "$mut_count" "$op" "$bound" ] 2>/dev/null; breach_rc=$?
+  # `after` conjunct). The SAME comparison as step 3, now via the `_int_cmp` helper that
+  # replaced the old `[ "$mut_count" "$op" "$bound" ]` splice (a correct unmutated file
+  # cannot fail the helper by construction). Capture the helper's OWN rc rather than branching
+  # on it directly, and fail closed the same way step 3 does: step 3 wraps the call in `! …`,
+  # so an errored/invalid-op status (rc>=2) routes to its FAIL arm. Only a clean rc 1 (a
+  # genuine bound violation — `_int_cmp` returns 1 when the count does not satisfy OP BOUND)
+  # proceeds to PASS here; rc 0 (still satisfies → BOUND-NOT-BREACHED) AND rc>=2 (an errored
+  # or invalid-op comparison) both fail closed to BOUND-NOT-BREACHED, never falling through to
+  # a spurious PASS. Largely unreachable today (mut_count is proven numeric at step 7, op and
+  # bound are validated upstream) — defense-in-depth so the two mirror comparisons fail in the
+  # same direction. A bare `!`-invert is NOT the fix: it would route the errored rc>=2 to PASS
+  # (fail-open, worse), so the rc is captured explicitly and every value other than 1 fails. ──
+  _int_cmp "$mut_count" "$op" "$bound" 2>/dev/null; breach_rc=$?
   if [ "$breach_rc" -ne 1 ]; then
     echo FAIL >> "$RESULTS_FILE"; echo BOUND-NOT-BREACHED >> "$RESULTS_FILE"
     printf '  FAIL  %s\n         BOUND-NOT-BREACHED — mutated count %s still satisfies %s %s (the mutation did not breach the bound)\n         mutation: %s\n' \
@@ -2916,6 +2943,24 @@ assert_eq "#536 ERE dialect (through the helper, step 7): the MUTATED-slice coun
   "PASS|" "$(_acru_probe assert_count_red_under 'erestep7' 'ACRU_START sentinel' 'ACRU_END sentinel' '^(alpha|beta)$' -le 1 's/^noise line$/beta/' "$ACRU_ERE3")"
 rm -f "$ACRU_ERE3"
 rm -f "$ACRU_FX"
+# ── #717 _int_cmp direct contract self-tests ──
+# The operator dispatch that replaced the two `[ "$n" "$op" "$bound" ]` splices in
+# assert_count_red_under. One assertion per member of the closed set (holds→0, not→1) plus
+# an out-of-set operator (→2). The BOUND-VIOLATED-ON-REAL-FILE / BOUND-NOT-BREACHED arms
+# that CONSUME these statuses stay covered by the #536 probes above (a satisfied real count,
+# an unbreached mutation), so this block pins the helper's raw 0/1/2 contract directly.
+_intcmp_rc() { _int_cmp "$1" "$2" "$3"; printf '%s' "$?"; }
+assert_eq "#717 _int_cmp -eq holds → 0" "0" "$(_intcmp_rc 2 -eq 2)"
+assert_eq "#717 _int_cmp -eq does not hold → 1" "1" "$(_intcmp_rc 2 -eq 3)"
+assert_eq "#717 _int_cmp -le holds → 0" "0" "$(_intcmp_rc 2 -le 3)"
+assert_eq "#717 _int_cmp -le does not hold → 1" "1" "$(_intcmp_rc 4 -le 3)"
+assert_eq "#717 _int_cmp -lt holds → 0" "0" "$(_intcmp_rc 2 -lt 3)"
+assert_eq "#717 _int_cmp -lt does not hold → 1" "1" "$(_intcmp_rc 3 -lt 3)"
+assert_eq "#717 _int_cmp -ge holds → 0" "0" "$(_intcmp_rc 3 -ge 3)"
+assert_eq "#717 _int_cmp -ge does not hold → 1" "1" "$(_intcmp_rc 2 -ge 3)"
+assert_eq "#717 _int_cmp -gt holds → 0" "0" "$(_intcmp_rc 4 -gt 3)"
+assert_eq "#717 _int_cmp -gt does not hold → 1" "1" "$(_intcmp_rc 3 -gt 3)"
+assert_eq "#717 _int_cmp an operator outside the closed set → 2 (errored, never satisfied)" "2" "$(_intcmp_rc 2 -ne 2)"
 # Issue #500 parked-class sweep contract pins. These stay below the
 # assert_pin_red_under definition so the behavioral mutations below execute.
 assert_pin_unique "#500: parked-class sweep contract heading is present" \
@@ -2966,6 +3011,8 @@ assert_pin_red_under "#510 review round 5: a non-verified sweep is never a clean
 assert_pin_red_under "#500: missing threshold promotion route goes RED" \
   'A discovered sibling at or above `$FIX_THRESHOLD` enters Step 2.5 → Step 3 as a promoted iteration using the same machinery as Decide outcome 2.' \
   's/A discovered sibling at or above `\$FIX_THRESHOLD` enters/A discovered sibling below `\$FIX_THRESHOLD` enters/' "$ST_RAF"
+# the pin literal quotes skill prose containing a real curly apostrophe (U+2019); retyping it to ASCII would silently break the pin against its target (issue #717).
+# shellcheck disable=SC1112
 assert_pin_red_under "#500: missing phase3_findings registration goes RED" \
   'Append every discovered sibling to the triggering iteration’s `phase3_findings` with its assigned severity and full `defect_signature` before the shadow runs.' \
   's/with its assigned severity and full `defect_signature` before the shadow runs/with its assigned severity and full `defect_signature` after the shadow runs/' "$ST_RAF"
@@ -9016,11 +9063,11 @@ I682STUB
   # Canonicalize heredoc-form stdin into "KEY=VALUE;…" (single-line values, which is
   # what the helper emits — a value's newlines are collapsed by the helper).
   _i682_canon() {
-    local line key delim val out='' state=0
+    local line key val out='' state=0
     while IFS= read -r line; do
       if [ "$state" -eq 0 ]; then
         case "$line" in
-          GIT_*'<<'*) key="${line%%<<*}"; delim="${line#*<<}"; state=1 ;;
+          GIT_*'<<'*) key="${line%%<<*}"; state=1 ;;
         esac
       elif [ "$state" -eq 1 ]; then
         val="$line"; state=2
@@ -9805,7 +9852,7 @@ assert_eq "#547/#572 Important: the second-declaration block returns the BLOCKED
 P547R_AFTERNARR="$(_p547r --issue 102)"; P547R_AFTERNARR_RC=$?
 assert_eq "#547/#572 Important: mid-sentence `after #N` provenance does not block" "PROCEED" "$P547R_AFTERNARR"
 assert_eq "#547/#572 Important: the narrative-`after` line proceeds (exit 0)" "0" "$P547R_AFTERNARR_RC"
-P547R_AFTERDECL="$(_p547r --issue 103)"; P547R_AFTERDECL_RC=$?
+P547R_AFTERDECL="$(_p547r --issue 103)"
 assert_eq "#547/#572 Important: a line-opening `After #N` stays a recognized declaration (OPEN #10 blocks)" "BLOCKED 10" "$P547R_AFTERDECL"
 # Important #4: the production --issue path — a happy body reaching PROCEED via the
 # real `--issue` → issue_body() → _gh_issue_view fetch (not --body-file), and a
@@ -9820,7 +9867,7 @@ assert_eq "#547/#572 Important: the --issue body-fetch failure returns the unava
 # `--issue notanint` type-coercion error routes to UNAVAILABLE(3), never argparse's
 # default 2 (which the §1.3.5 gate would misread as a real BLOCKED verdict).
 PATH="$P547R/bin:$PATH" python3 "$P547R_HELPER" dependencies --issue notanint >/dev/null 2>&1; P547R_COERCE_RC=$?
-assert_eq "#547/#572 Important: `--issue notanint` exits UNAVAILABLE(3), not the BLOCKED code (2)" "3" "$P547R_COERCE_RC"
+assert_eq "#547/#572 Important: \`--issue notanint\` exits UNAVAILABLE(3), not the BLOCKED code (2)" "3" "$P547R_COERCE_RC"
 # Important #6: a dependency-flavoured phrasing outside the recognized vocabulary
 # proceeds (exit 0, observability not a new block) BUT emits a stderr breadcrumb so a
 # missed declaration is observable — the breadcrumb must name the referenced number.
@@ -9914,7 +9961,7 @@ assert_eq "#547/#572 Suggestion 5: the non-set state UNAVAILABLE stays in the {0
 # The `is not None` guard is what routes it here; reverting to `if args.body_file:`
 # flips the output to `UNAVAILABLE issue`, so this pins the diagnostic surface.
 P547R_EMPTYBF="$(PATH="$P547R/bin:$PATH" python3 "$P547R_HELPER" dependencies --body-file "" 2>/dev/null)"; P547R_EMPTYBF_RC=$?
-assert_eq "#547/#572 Suggestion 2: empty `--body-file \"\"` fails closed on the body path (UNAVAILABLE body)" "UNAVAILABLE body" "$P547R_EMPTYBF"
+assert_eq "#547/#572 Suggestion 2: empty \`--body-file \"\"\` fails closed on the body path (UNAVAILABLE body)" "UNAVAILABLE body" "$P547R_EMPTYBF"
 assert_eq "#547/#572 Suggestion 2: the empty-body-file failure returns the unavailable exit class" "3" "$P547R_EMPTYBF_RC"
 rm -rf "$P547R"
 
@@ -12624,7 +12671,7 @@ SC_BADMODEL="$(mktemp -d)"; mkdir -p "$SC_BADMODEL/.devflow"
 jq '.devflow_review.agent_overrides["devflow:checklist-generator"] = {"model":"claude-haiku-4-5-20251001","effort":"high"}
     | .devflow_review.agent_overrides["devflow:checklist-verifier"] = {"model":{"oops":true},"effort":"low"}' \
   "$TPL_DIR/config.example.json" > "$SC_BADMODEL/.devflow/config.json"
-SC_BADMODEL_OUT="$(bash "$SC" "$SC_BADMODEL" 2>&1)"; SC_BADMODEL_RC=$?
+bash "$SC" "$SC_BADMODEL" >/dev/null 2>&1; SC_BADMODEL_RC=$?
 assert_eq "scaffold-robustness: non-string model entry does not abort the scaffold (exit 0)" \
   "0" "$SC_BADMODEL_RC"
 assert_eq "scaffold-robustness: valid Haiku sibling still has its effort stripped despite a non-string-model entry" \
@@ -12987,7 +13034,7 @@ rm -f "$LPE_DIR/.devflow/prompt-extensions/broken.md"
 # at <skill>.md (a fat-fingered `mkdir`) and a symlink resolving to a directory both
 # have -f false and would otherwise drop the extension silently (same class).
 mkdir "$LPE_DIR/.devflow/prompt-extensions/adir.md"
-ADIR_OUT="$(cd "$LPE_DIR" && bash "$LPE" adir 2>/tmp/devflow-lpe-adir.err)"; ADIR_RC=$?
+(cd "$LPE_DIR" && bash "$LPE" adir 2>/tmp/devflow-lpe-adir.err) >/dev/null; ADIR_RC=$?
 assert_eq "lpe: directory at <skill>.md → exit non-zero (not silent no-op)" "yes" \
   "$([ "$ADIR_RC" -ne 0 ] && echo yes || echo no)"
 assert_eq "lpe: directory at <skill>.md → breadcrumb 'not a regular file'" "yes" \
@@ -16324,7 +16371,7 @@ assert_eq "#275 behavioral: the canonical anchor literal executes and reaches th
 # And with the var EMPTY the same literal must fail (the placeholder is not a real path) —
 # proving the fallback text is inert as a path, not accidentally resolvable.
 PA_BEHAV_EMPTY_RC=0
-(cd "$LIB/.." && CLAUDE_SKILL_DIR= bash -c "$PA_BEHAV_CMD" >/dev/null 2>&1) || PA_BEHAV_EMPTY_RC=$?
+(cd "$LIB/.." && CLAUDE_SKILL_DIR='' bash -c "$PA_BEHAV_CMD" >/dev/null 2>&1) || PA_BEHAV_EMPTY_RC=$?
 assert_eq "#275 behavioral: the unsubstituted placeholder does NOT resolve (empty var -> non-zero)" "yes" \
   "$([ "$PA_BEHAV_EMPTY_RC" -ne 0 ] && echo yes || echo no)"  # raw-guard-ok: behavioral rc check, not a content pin
 # Doc presence pins (#275 AC: the four Windows/Copilot-CLI operator gotchas are documented).
@@ -18889,7 +18936,7 @@ chmod +x "$DI_STUB/gh"
 # duplicate=true expectation below would spuriously read duplicate=false. The
 # carve-out tests set GITHUB_EVENT_PATH explicitly, so clearing it here (empty →
 # the script's `[ -n ... ]` guard skips the self-derive) isolates the default set.
-di() { DEVFLOW_GH="$DI_STUB/gh" GITHUB_EVENT_PATH= REPO=o/r RUN_ID="$1" CONTEXT_NUMBER="$2" \
+di() { DEVFLOW_GH="$DI_STUB/gh" GITHUB_EVENT_PATH='' REPO=o/r RUN_ID="$1" CONTEXT_NUMBER="$2" \
   DEDUPE_RUNS_JSON="$3" bash "$DIR" 2>/dev/null; }
 
 # 1. An OLDER (smaller databaseId) active run for the same thread → duplicate.
@@ -18928,7 +18975,7 @@ assert_eq "di: empty run list → not duplicate" "duplicate=false" \
 
 # 9. gh query failure → fail OPEN (run proceeds), never silently swallowed.
 assert_eq "di: gh failure → fail open (not duplicate)" "duplicate=false" \
-  "$(DEVFLOW_GH="$DI_STUB/gh" GITHUB_EVENT_PATH= REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 DEDUPE_GH_RC=1 bash "$DIR" 2>/dev/null)"
+  "$(DEVFLOW_GH="$DI_STUB/gh" GITHUB_EVENT_PATH='' REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 DEDUPE_GH_RC=1 bash "$DIR" 2>/dev/null)"
 
 # 10. Missing/invalid CONTEXT_NUMBER → fail open (cannot dedupe without a thread).
 assert_eq "di: missing context number → fail open" "duplicate=false" \
@@ -18953,7 +19000,7 @@ assert_eq "di: malformed run-list JSON → fail open (not duplicate)" "duplicate
 #     spuriously suppress a legitimate /devflow:implement. Record the gh argv and
 #     assert the flag is present.
 DI_REC="$(mktemp)"
-DEVFLOW_GH="$DI_STUB/gh" GITHUB_EVENT_PATH= REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 DEDUPE_RUNS_JSON='[]' \
+DEVFLOW_GH="$DI_STUB/gh" GITHUB_EVENT_PATH='' REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 DEDUPE_RUNS_JSON='[]' \
   DI_ARGS_REC="$DI_REC" bash "$DIR" >/dev/null 2>&1
 assert_eq "di: run list is scoped to --workflow devflow-implement.yml" "1" \
   "$(grep -c -- '--workflow devflow-implement.yml' "$DI_REC")"
@@ -19917,7 +19964,7 @@ for site in "${APP_SITES[@]}"; do
   # GITHUB_TOKEN — the exact silent degradation the fail-loud contract exists
   # to prevent, reached via a wiring typo.
   assert_eq "app-token: $f.yml '$name' carries id: $id (couples to steps.$id.outputs.token)" "1" \
-    "$(printf '%s\n' "$blk" | grep -cE "^[[:space:]]*id:[[:space:]]*$id[[:space:]]*\$")"
+    "$(printf '%s\n' "$blk" | grep -cE "^[[:space:]]*id:[[:space:]]*${id}[[:space:]]*\$")"
   if [ "$scopes" = "FULL" ]; then
     # Writers stay full-installation-scope: NO permission-* downscope input
     # (adding one would silently narrow the writers' Workflows: write push).
@@ -19976,7 +20023,7 @@ for site in "${REVIEWER_SITES[@]}"; do
   assert_eq "reviewer-token: $f.yml '$name' is fail-loud (no continue-on-error)" "" \
     "$(printf '%s\n' "$blk" | grep -E '^[[:space:]]*continue-on-error:' || true)"
   assert_eq "reviewer-token: $f.yml '$name' carries id: $id (couples to steps.$id.outputs.token)" "1" \
-    "$(printf '%s\n' "$blk" | grep -cE "^[[:space:]]*id:[[:space:]]*$id[[:space:]]*\$")"
+    "$(printf '%s\n' "$blk" | grep -cE "^[[:space:]]*id:[[:space:]]*${id}[[:space:]]*\$")"
   # Downscoped review perm set: exactly the 4 read/write inputs, no write-widener.
   for p in 'permission-contents: read' 'permission-issues: read' 'permission-pull-requests: write' 'permission-actions: read'; do
     assert_eq "reviewer-token: $f.yml '$name' declares $p" "1" \
@@ -20075,6 +20122,8 @@ assert_eq "app-token: devflow-runner.yml has exactly 1 mint step (DevFlow-Review
   "$(grep -cE 'uses:[[:space:]]*actions/create-github-app-token@' "$WF/devflow-runner.yml")"
 # Consumers: each token is consumed with the fallback that IS the unset-opt-in
 # path keeping behavior identical for non-adopters.
+# single-element consumer list is a deliberately-extensible loop over the workflow(s) consuming the app-token fallback (issue #717).
+# shellcheck disable=SC2043
 for f in devflow-implement; do
   assert_eq "app-token: $f.yml consumes github_token: steps.app-token || secrets.GITHUB_TOKEN" "1" \
     "$(grep -cF 'github_token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}' "$WF/$f.yml")"
@@ -22098,8 +22147,8 @@ rm -rf "$HC_E"
 
 # ── A6: skeleton arm (no record for this run-id) ─────────────────────────────
 HC_SK="$(_hc_repo "hc skeleton")"
-HC_SK_ERR="$( ( cd "$HC_SK" && GITHUB_RUN_ID=555 GITHUB_RUN_ATTEMPT=1 DEVFLOW_EXECUTION_COST="$HC_COST" \
-    DEVFLOW_EXECUTION_PR=42 DEVFLOW_COMMAND_CLASS=review-and-fix bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"
+( cd "$HC_SK" && GITHUB_RUN_ID=555 GITHUB_RUN_ATTEMPT=1 DEVFLOW_EXECUTION_COST="$HC_COST" \
+    DEVFLOW_EXECUTION_PR=42 DEVFLOW_COMMAND_CLASS=review-and-fix bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
 assert_eq "hc-skeleton(A6): no record + PR + record-deriving class → a pr-<N> skeleton is written" "yes" \
   "$(_et_on_branch "$HC_SK" ".devflow/logs/efficiency/pr-42-555-1.json")"
 assert_eq "hc-skeleton(A6): skeleton shape — schema_version/source/synthesized/iterations/per_iteration/telemetry" \
@@ -24101,7 +24150,7 @@ assert_eq "et-synth(placeholder): the refusal breadcrumb names the unsubstituted
 assert_eq "et-synth(placeholder): NO placeholder-identity dir is fabricated" "no" \
   "$([ -d "$ETSPH_REPO/.devflow/tmp/review/<slug>" ] && echo yes || echo no)"
 assert_eq "et-synth(placeholder): NO record is written under a placeholder identity" "no" \
-  "$(ls "$ETSPH_REPO/.devflow/logs/efficiency/" 2>/dev/null | grep -q . && echo yes || echo no)"
+  "$([ -n "$(ls -A "$ETSPH_REPO/.devflow/logs/efficiency/" 2>/dev/null)" ] && echo yes || echo no)"
 # The BASENAME-DERIVED route: a literal '<slug>/<run-id>' DIRECTORY (left by a
 # non-substituting agent running a workpad-dir mkdir fence verbatim) reaches
 # discovery mode without passing through argv — persist_one's twin guard must
@@ -24112,9 +24161,9 @@ assert_eq "et-synth(placeholder): discovery over a literal <slug>/<run-id> dir e
 assert_eq "et-synth(placeholder): the basename-derived placeholder identity is refused with its own breadcrumb" "yes" \
   "$(printf '%s' "$ETSPH_ERR2" | grep -qF "unsubstituted '<placeholder>' identity" && echo yes || echo no)"
 assert_eq "et-synth(placeholder): discovery fabricates NO synthesized workpad under the placeholder dir" "no" \
-  "$(ls "$ETSPH_REPO/.devflow/tmp/review/<slug>/<run-id>/" 2>/dev/null | grep -q . && echo yes || echo no)"
+  "$([ -n "$(ls -A "$ETSPH_REPO/.devflow/tmp/review/<slug>/<run-id>/" 2>/dev/null)" ] && echo yes || echo no)"
 assert_eq "et-synth(placeholder): discovery writes NO placeholder-named record" "no" \
-  "$(ls "$ETSPH_REPO/.devflow/logs/efficiency/" 2>/dev/null | grep -q . && echo yes || echo no)"
+  "$([ -n "$(ls -A "$ETSPH_REPO/.devflow/logs/efficiency/" 2>/dev/null)" ] && echo yes || echo no)"
 rm -rf "$ETSPH_REPO"
 
 # rc-3's uncreatable-target-dir arm: a read-only SLUG PARENT (mkdir -p of a
@@ -24902,6 +24951,8 @@ printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergen
 assert_eq "tb(#441 SFH-4a): positive control — a readable store DOES accept the append" "yes" \
   "$(git -C "$TB_UT_REPO" cat-file -e refs/heads/devflow-telemetry:.devflow/logs/efficiency/pr-1-run-b.json >/dev/null 2>&1 && echo yes || echo no)"
 # Now break the tip TREE object (the commit stays readable → ref still PRESENT).
+# the literal braces are git revision syntax (`^{tree}`), not a brace expansion (issue #717).
+# shellcheck disable=SC1083
 TB_UT_TREE="$(git -C "$TB_UT_REPO" rev-parse refs/heads/devflow-telemetry^{tree})"
 TB_UT_TIP="$(git -C "$TB_UT_REPO" rev-parse refs/heads/devflow-telemetry)"
 rm -f "$TB_UT_REPO/.git/objects/${TB_UT_TREE:0:2}/${TB_UT_TREE:2}"
@@ -25498,6 +25549,8 @@ assert_eq "tb(#442): list_blobs on a readable store lists the record (positive c
       "$LIB/telemetry-branch.sh" "$TB_LBU_REPO" ) 2>/dev/null | grep -q 'iter-1.json' && echo yes || echo no)"
 # Now make the tip's TREE object unreadable (ref still resolves → the "present but unreadable"
 # case), and assert the breadcrumb fires instead of a silent empty listing.
+# the literal braces are git revision syntax (`^{tree}`), not a brace expansion (issue #717).
+# shellcheck disable=SC1083
 TB_LBU_TREE="$(git -C "$TB_LBU_REPO" rev-parse refs/heads/devflow-telemetry^{tree})"
 rm -f "$TB_LBU_REPO/.git/objects/${TB_LBU_TREE:0:2}/${TB_LBU_TREE:2}"
 TB_LBU_ERR="$( ( cd "$TB_LBU_REPO" && DEVFLOW_CONFIG_FILE=/dev/null bash -c 'set -euo pipefail; . "$1"; devflow_telemetry_list_blobs "$2" refs/heads/devflow-telemetry ".devflow/logs/review/"' _ \
@@ -25928,6 +25981,8 @@ git -C "$I469_LB" config user.email t@e.com; git -C "$I469_LB" config user.name 
 mkdir -p "$I469_LB/.devflow"; printf 'tmp/\n' > "$I469_LB/.devflow/.gitignore"
 git -C "$I469_LB" add -A; git -C "$I469_LB" commit -qm seed
 _i469_lb() {  # $1=fetch-status; drives list_blobs on the ABSENT telemetry ref, returns stderr
+  # `2>&1 1>/dev/null` is the deliberate capture-stderr-discard-stdout idiom (issue #717).
+  # shellcheck disable=SC2069
   ( cd "$I469_LB" && DEVFLOW_CONFIG_FILE=/dev/null _DEVFLOW_TELEMETRY_FETCH_STATUS="$1" \
     bash -c 'set -uo pipefail; . "$1"; devflow_telemetry_list_blobs "$2" refs/heads/devflow-telemetry ".devflow/logs/review/"' \
     _ "$LIB/telemetry-branch.sh" "$I469_LB" ) 2>&1 1>/dev/null
@@ -26334,9 +26389,13 @@ assert_eq "489/AC4: all-or-nothing — the VALID sibling is dropped alongside th
 # filesystem walk (a file literally named `..` cannot exist; rel is always artifact-relative),
 # so a direct call is their only honest coverage.
 _489_pathsafe() {  # rel -> "safe"/"unsafe" via _dvt_path_safe
+  # the sourced path is a dynamic test-fixture location shellcheck cannot resolve (issue #717).
+  # shellcheck disable=SC1090
   ( DVT_LIB_ONLY=1; . "$_489_VAL"; _dvt_path_safe "$1" && echo safe || echo unsafe )
 }
 _489_admitted() {  # rel -> "admit"/"deny" via _dvt_admitted
+  # the sourced path is a dynamic test-fixture location shellcheck cannot resolve (issue #717).
+  # shellcheck disable=SC1090
   ( DVT_LIB_ONLY=1; . "$_489_VAL"; _dvt_admitted "$1" && echo admit || echo deny )
 }
 assert_eq "489/AC4: _dvt_path_safe rejects a '..' traversal component (AC4 names it)" "unsafe" "$(_489_pathsafe '.devflow/logs/review/a/b/../c.json')"
@@ -26353,6 +26412,8 @@ assert_eq "489/AC4: _dvt_admitted denies an over-deep review path" "deny" "$(_48
 # DEFAULT, not to "unlimited/off" — the distinction tests (10)/(12) cannot make with a clean
 # artifact (which admits under both correct fallback AND the bug). This is the real fail-closed
 # guarantee for both caps (they share _dvt_num).
+# the sourced path is a dynamic test-fixture location shellcheck cannot resolve (issue #717).
+# shellcheck disable=SC1090
 _489_num() { ( DVT_LIB_ONLY=1; . "$_489_VAL"; _dvt_num "$1" "$2" ); }
 assert_eq "489/AC4: _dvt_num coerces a non-numeric override to the DEFAULT (not unlimited)" "500" "$(_489_num 'notanumber' 500)"
 assert_eq "489/AC4: _dvt_num coerces an empty override to the DEFAULT" "500" "$(_489_num '' 500)"
@@ -26416,6 +26477,8 @@ assert_eq "489/AC4(Sug#1): the count cap short-circuits the walk (names it)" "ye
 # (22) Sug#5: _dvt_path_safe restores the caller's noglob state — call it from a glob-OFF caller
 # (set -f) and confirm noglob is still on afterward (the predicate must be self-contained and
 # never clobber a glob-off caller; the save/restore around its IFS split is otherwise untested).
+# DVT_LIB_ONLY is read by the sourced fixture library and its source path is dynamic — neither is visible to shellcheck (issue #717).
+# shellcheck disable=SC2034,SC1090
 _489_noglob_restore() { ( DVT_LIB_ONLY=1; . "$_489_VAL"; set -f; _dvt_path_safe '.devflow/logs/efficiency/x-1.json' >/dev/null; case "$-" in *f*) echo on ;; *) echo off ;; esac ); }
 assert_eq "489/AC4(Sug#5): _dvt_path_safe restores a glob-OFF caller's noglob state" "on" "$(_489_noglob_restore)"
 
@@ -29370,7 +29433,7 @@ assert_eq "pls: fresh → breadcrumb says review before committing (AC8)" "yes" 
 PLS_KEEP="$(mktemp -d)"; mkdir -p "$PLS_KEEP/.claude"
 printf '%s\n' '{"extraKnownMarketplaces":{"other-mp":{"source":{"source":"github","repo":"acme/other"},"autoUpdate":false}},"env":{"FOO":"bar"},"permissions":{"defaultMode":"plan"},"customTopKey":123}' \
   > "$PLS_KEEP/.claude/settings.json"
-PLS_KEEP_OUT="$(bash "$PLS" "$PLS_KEEP" 2>&1)"; PLS_KEEP_RC=$?
+bash "$PLS" "$PLS_KEEP" >/dev/null 2>&1; PLS_KEEP_RC=$?
 PLS_SK="$PLS_KEEP/.claude/settings.json"
 assert_eq "pls: keep → exit 0" "0" "$PLS_KEEP_RC"
 assert_eq "pls: keep → other marketplace repo preserved (AC4)" "acme/other" \
@@ -29551,21 +29614,21 @@ assert_eq "pls: wrong-typed container → breadcrumb names the extraKnownMarketp
 # malformed: DevFlow keys are added, exit 0.
 PLS_EMPTY="$(mktemp -d)"; mkdir -p "$PLS_EMPTY/.claude"
 : > "$PLS_EMPTY/.claude/settings.json"
-PLS_EMPTY_OUT="$(bash "$PLS" "$PLS_EMPTY" 2>&1)"; PLS_EMPTY_RC=$?
+bash "$PLS" "$PLS_EMPTY" >/dev/null 2>&1; PLS_EMPTY_RC=$?
 assert_eq "pls: empty file → exit 0 (not malformed)" "0" "$PLS_EMPTY_RC"
 assert_eq "pls: empty file → marketplace added" "true" \
   "$(jq -r '.extraKnownMarketplaces["devflow-marketplace"].autoUpdate' "$PLS_EMPTY/.claude/settings.json" 2>/dev/null)"
 
 PLS_WS="$(mktemp -d)"; mkdir -p "$PLS_WS/.claude"
 printf '   \n\t\n' > "$PLS_WS/.claude/settings.json"
-PLS_WS_OUT="$(bash "$PLS" "$PLS_WS" 2>&1)"; PLS_WS_RC=$?
+bash "$PLS" "$PLS_WS" >/dev/null 2>&1; PLS_WS_RC=$?
 assert_eq "pls: whitespace-only file → exit 0 (treated as empty, not malformed)" "0" "$PLS_WS_RC"
 assert_eq "pls: whitespace-only → marketplace added" "true" \
   "$(jq -r '.extraKnownMarketplaces["devflow-marketplace"].autoUpdate' "$PLS_WS/.claude/settings.json" 2>/dev/null)"
 
 PLS_OBJ="$(mktemp -d)"; mkdir -p "$PLS_OBJ/.claude"
 printf '%s' '{}' > "$PLS_OBJ/.claude/settings.json"
-PLS_OBJ_OUT="$(bash "$PLS" "$PLS_OBJ" 2>&1)"; PLS_OBJ_RC=$?
+bash "$PLS" "$PLS_OBJ" >/dev/null 2>&1; PLS_OBJ_RC=$?
 assert_eq "pls: {} → exit 0" "0" "$PLS_OBJ_RC"
 assert_eq "pls: {} → enabledPlugins added" "true" \
   "$(jq -r '.enabledPlugins["devflow@devflow-marketplace"]' "$PLS_OBJ/.claude/settings.json" 2>/dev/null)"
@@ -29719,7 +29782,7 @@ for _v in false null; do
   assert_eq "pam: --apply over $_v leaf → breadcrumb says NOT selectable (AC4)" "yes" \
     "$(printf '%s' "$PAM_FN_OUT" | grep -qi 'NOT selectable' && echo yes || echo no)"
   assert_eq "pam: --apply over $_v leaf → breadcrumb shows the literal '$_v', not a blank value (AC4)" "yes" \
-    "$(printf '%s' "$PAM_FN_OUT" | grep -qE "CLAUDE_CODE_ENABLE_AUTO_MODE=$_v[[:space:]]" && echo yes || echo no)"
+    "$(printf '%s' "$PAM_FN_OUT" | grep -qE "CLAUDE_CODE_ENABLE_AUTO_MODE=${_v}[[:space:]]" && echo yes || echo no)"
   rm -rf "$PAM_FN"
 done
 
@@ -29796,7 +29859,7 @@ assert_eq "pam: --apply env-as-null → breadcrumb specifically names the env pa
 # AC 3 (fail-closed): non-object root (array) → exit non-zero, file unchanged.
 PAM_ARR="$(mktemp -d)"; PAM_A_SF="$PAM_ARR/settings.json"
 printf '%s' '[1,2,3]' > "$PAM_A_SF"
-PAM_A_OUT="$(bash "$PAM" --apply "$PAM_A_SF" 2>&1)"; PAM_A_RC=$?
+bash "$PAM" --apply "$PAM_A_SF" >/dev/null 2>&1; PAM_A_RC=$?
 assert_eq "pam: --apply array root → exit non-zero" "yes" \
   "$([ "$PAM_A_RC" -ne 0 ] && echo yes || echo no)"
 assert_eq "pam: --apply array root → file unchanged" '[1,2,3]' "$(cat "$PAM_A_SF")"
@@ -29808,7 +29871,7 @@ assert_eq "pam: --apply array root → file unchanged" '[1,2,3]' "$(cat "$PAM_A_
 # every other test yet detonate `$defaults * $existing` under `set -u` on a scalar root.
 PAM_SCALAR="$(mktemp -d)"; PAM_S_SF="$PAM_SCALAR/settings.json"
 printf '%s' '42' > "$PAM_S_SF"
-PAM_S_OUT="$(bash "$PAM" --apply "$PAM_S_SF" 2>&1)"; PAM_S_RC=$?
+bash "$PAM" --apply "$PAM_S_SF" >/dev/null 2>&1; PAM_S_RC=$?
 assert_eq "pam: --apply scalar root → exit non-zero (fail-closed, AC3)" "yes" \
   "$([ "$PAM_S_RC" -ne 0 ] && echo yes || echo no)"
 assert_eq "pam: --apply scalar root → file byte-for-byte unchanged (AC3)" '42' "$(cat "$PAM_S_SF")"
@@ -29824,7 +29887,7 @@ assert_eq "pam: --apply empty file → key added" "1" \
 # AC 1 (user scope): with no target arg, the default target is $HOME/.claude/settings.json.
 # Use an isolated HOME so the real one is never touched.
 PAM_HOME="$(mktemp -d)"
-PAM_H_OUT="$(HOME="$PAM_HOME" bash "$PAM" --apply 2>&1)"; PAM_H_RC=$?
+HOME="$PAM_HOME" bash "$PAM" --apply >/dev/null 2>&1; PAM_H_RC=$?
 assert_eq "pam: --apply default target → exit 0" "0" "$PAM_H_RC"
 assert_eq "pam: --apply default target → wrote \$HOME/.claude/settings.json (user scope, AC1)" "1" \
   "$(jq -r '.env.CLAUDE_CODE_ENABLE_AUTO_MODE' "$PAM_HOME/.claude/settings.json" 2>/dev/null)"
@@ -29980,7 +30043,7 @@ assert_eq "pam: gate Anthropic-direct --apply missing target → breadcrumb is t
 # settings read and this cell goes RED (exit 2 leaks through on Anthropic-direct).
 PAM_GATE_BAD="$(mktemp -d)"; PAM_GB_SF="$PAM_GATE_BAD/settings.json"
 printf '%s' '{ not valid json' > "$PAM_GB_SF"
-PAM_GB_OUT="$("${PAM_NO3P[@]}" bash "$PAM" --apply "$PAM_GB_SF" 2>&1)"; PAM_GB_RC=$?
+"${PAM_NO3P[@]}" bash "$PAM" --apply "$PAM_GB_SF" >/dev/null 2>&1; PAM_GB_RC=$?
 assert_eq "pam: gate precedes shape-validation → malformed file exits 0 on Anthropic-direct (AC5)" "0" "$PAM_GB_RC"
 assert_eq "pam: gate precedes shape-validation → malformed file left unchanged (AC5)" '{ not valid json' \
   "$(cat "$PAM_GB_SF")"
@@ -30024,7 +30087,7 @@ done
 # AC 4 ("any one of the three set truthy" → third-party): a truthy var alongside non-truthy
 # siblings still routes to third-party (the step runs). Proves the OR, not an AND, over the three.
 PAM_MIX="$(mktemp -d)"; PAM_MIX_SF="$PAM_MIX/settings.json"
-PAM_MIX_OUT="$("${PAM_NO3P[@]}" CLAUDE_CODE_USE_BEDROCK=0 CLAUDE_CODE_USE_VERTEX="" CLAUDE_CODE_USE_FOUNDRY=1 bash "$PAM" --apply "$PAM_MIX_SF" 2>&1)"; PAM_MIX_RC=$?
+"${PAM_NO3P[@]}" CLAUDE_CODE_USE_BEDROCK=0 CLAUDE_CODE_USE_VERTEX="" CLAUDE_CODE_USE_FOUNDRY=1 bash "$PAM" --apply "$PAM_MIX_SF" >/dev/null 2>&1; PAM_MIX_RC=$?
 assert_eq "pam: gate one-of-three truthy (FOUNDRY=1, others off) → third-party, exit 0 (AC4)" "0" "$PAM_MIX_RC"
 assert_eq "pam: gate one-of-three truthy → step runs, auto-mode key written (AC4)" "1" \
   "$(jq -r '.env.CLAUDE_CODE_ENABLE_AUTO_MODE' "$PAM_MIX_SF" 2>/dev/null)"
@@ -31836,7 +31899,7 @@ EOF
   # ── AC2/AC3: alternate `python` (>=3.11), no python3 → shim installed; forwards args+exit. ──
   T1="$(mktemp -d)"; build_stub_bin "$T1"; make_fake_python "$T1/python" "3.11.5" 3 11
   T1BIN="$(mktemp -d)"
-  PPS_OUT="$(PATH="$T1" bash "$PPS" --apply "$T1BIN" 2>&1)"; PPS_RC=$?
+  PATH="$T1" bash "$PPS" --apply "$T1BIN" >/dev/null 2>&1; PPS_RC=$?
   assert_eq "#225 pps: alternate python, no python3 → exit 0 (AC2)" "0" "$PPS_RC"
   assert_eq "#225 pps: shim created at target dir (AC2)" "yes" "$([ -f "$T1BIN/python3" ] && echo yes || echo no)"
   assert_eq "#225 pps: shim execs the alternate, NEVER python3 (no recursion) (AC3)" "yes" \
@@ -31885,7 +31948,7 @@ EOF
   make_fake_python "$TPY3/_py3delegate" "3.11.4" 3 11
   make_fake_py "$TPY3/py" "$TPY3/_py3delegate"
   TPY3BIN="$(mktemp -d)"
-  PPS_PY3_OUT="$(PATH="$TPY3" bash "$PPS" --apply "$TPY3BIN" 2>&1)"; PPS_PY3_RC=$?
+  PATH="$TPY3" bash "$PPS" --apply "$TPY3BIN" >/dev/null 2>&1; PPS_PY3_RC=$?
   assert_eq "#225 pps: py -3 host, no python3 → exit 0 (AC4)" "0" "$PPS_PY3_RC"
   assert_eq "#225 pps: py -3 host → shim written (AC2)" "yes" "$([ -f "$TPY3BIN/python3" ] && echo yes || echo no)"
   assert_eq "#225 pps: py -3 host → shim body is the two-word 'exec py -3 \"\$@\"' (AC3)" "yes" \
@@ -31921,7 +31984,7 @@ EOF
   # A DevFlow shim a prior run wrote (carries the marker) → re-apply is an idempotent rewrite (exit 0).
   TCRBIN="$(mktemp -d)"
   PATH="$TCF" bash "$PPS" --apply "$TCRBIN" >/dev/null 2>&1   # first apply writes the marked shim
-  PPS_RE_OUT="$(PATH="$TCF" bash "$PPS" --apply "$TCRBIN" 2>&1)"; PPS_RE_RC=$?
+  PATH="$TCF" bash "$PPS" --apply "$TCRBIN" >/dev/null 2>&1; PPS_RE_RC=$?
   assert_eq "#225 pps: re-apply over DevFlow's own shim → exit 0 (idempotent rewrite, AC9)" "0" "$PPS_RE_RC"
   assert_eq "#225 pps: re-applied shim still present and still the alternate exec" "yes" \
     "$(grep -q '^exec python "\$@"' "$TCRBIN/python3" && echo yes || echo no)"
@@ -33567,6 +33630,8 @@ print(next(s["run"] for j in d["jobs"].values() for s in j.get("steps",[]) if s.
     # the action's JS tokeniser still splits on it — the allowlist must reject it in
     # EVERY locale (C forced here), and a backslash (token-merge class) likewise.
     R313_RC=0
+    # printf cannot meaningfully fail here, so masking its unchecked return value is intentional (issue #717).
+    # shellcheck disable=SC2155
     R313_OUT="$( export LC_ALL=C MODEL="$(printf 'x\302\240--dangerously-skip-permissions')" EFFORT=high EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" 2>&1 )" || R313_RC=$?
     assert_eq "#313 cargs-body: NBSP-embedded MODEL fails loud under LC_ALL=C (allowlist, locale-proof)" "1" "$R313_RC"
     assert_eq "#313 cargs-body: NBSP MODEL rejection is attributed to the allowlist arm" "yes" \
@@ -35601,7 +35666,7 @@ cat > "$T414C/scripts/request-review-backstop.sh" <<'EOF'
 printf 'decision=fire\nreason=guarantee-class\nattempt=1\nmarker=<!-- m -->\n'
 EOF
 chmod +x "$T414C/scripts/request-review-backstop.sh"
-OUT_NOPOST=$(cd "$T414C" && PR_NUMBER=99 HEAD_SHA=abc REPO=o/r VERDICT=incomplete APP_TOKEN_PRESENT=true bash "$PRBC" 2>&1); RC_NOPOST=$?
+OUT_NOPOST=$(cd "$T414C" && PR_NUMBER=99 HEAD_SHA=abc REPO=o/r VERDICT=incomplete APP_TOKEN_PRESENT=true bash "$PRBC" 2>&1)
 assert_eq "#414 post-issue-comment.sh absent -> post-helper-absent ::warning::" "yes" \
   "$(printf '%s\n' "$OUT_NOPOST" | grep -qF '::warning::review stall backstop: post-issue-comment.sh absent' && echo yes || echo no)"
 assert_eq "#414 post-absent -> NEVER a fired-re-trigger ::notice::" "no" \
@@ -41966,7 +42031,7 @@ assert_eq "#503 checked cache fence success exits zero" "0" "$SP503_FENCE_RC"
 assert_eq "#503 checked cache fence success publishes and emits identical bytes" \
   "$(/bin/cat "$SP503_FENCE_CACHE/diff.patch")" "$SP503_FENCE_OUT"
 assert_eq "#503 checked cache fence success removes raw and filtered candidates" \
-  "0" "$(test ! -e "$SP503_FENCE_CACHE/diff.raw-candidate" && test ! -e "$SP503_FENCE_CACHE/diff.candidate"; echo $?)"
+  "0" "$(test ! -e "$SP503_FENCE_CACHE/diff.raw-candidate" && test ! -e "$SP503_FENCE_CACHE/diff.candidate" && echo 0 || echo 1)"
 
 for SP503_FAIL_STAGE in DIFF AWK PROMOTE CAT; do
   printf '%s\n' stale-cache > "$SP503_FENCE_CACHE/diff.patch"
@@ -41985,7 +42050,7 @@ for SP503_FAIL_STAGE in DIFF AWK PROMOTE CAT; do
   assert_eq "#503 checked cache fence $SP503_FAIL_STAGE failure preserves its observed rc" \
     "$(case "$SP503_FAIL_STAGE" in DIFF) echo 23;; AWK) echo 24;; PROMOTE) echo 25;; CAT) echo 26;; esac)" "$SP503_FENCE_RC"
   assert_eq "#503 checked cache fence $SP503_FAIL_STAGE failure removes stale cache and candidates" \
-    "0" "$(test ! -e "$SP503_FENCE_CACHE/diff.patch" && test ! -e "$SP503_FENCE_CACHE/diff.raw-candidate" && test ! -e "$SP503_FENCE_CACHE/diff.candidate"; echo $?)"
+    "0" "$(test ! -e "$SP503_FENCE_CACHE/diff.patch" && test ! -e "$SP503_FENCE_CACHE/diff.raw-candidate" && test ! -e "$SP503_FENCE_CACHE/diff.candidate" && echo 0 || echo 1)"
 done
 
 # A dropped renderer substitution must itself fail closed. Use real git here:
@@ -41995,7 +42060,7 @@ printf '%s\n' stale-cache > "$SP503_FENCE_CACHE/diff.patch"
 SP503_UNRESOLVED_RC=$?
 assert_eq "#503 unresolved local-base placeholder fails nonzero" "128" "$SP503_UNRESOLVED_RC"
 assert_eq "#503 unresolved local-base placeholder publishes no authoritative cache" \
-  "0" "$(test ! -e "$SP503_FENCE_CACHE/diff.patch"; echo $?)"
+  "0" "$(test ! -e "$SP503_FENCE_CACHE/diff.patch" && echo 0 || echo 1)"
 rm -rf "$SP503_FENCE_DIR"
 
 # Execute the skill's exact base-resolution fence as well. The observer appended
@@ -42075,7 +42140,7 @@ for SP503_BASE_FAIL_MODE in unreachable retry_fail deleted_unreachable transient
   assert_eq "#503 base fence $SP503_BASE_FAIL_MODE preserves the terminal rc" \
     "$SP503_BASE_EXPECT_RC" "$SP503_BASE_RC"
   assert_eq "#503 base fence $SP503_BASE_FAIL_MODE removes stale and candidate caches" \
-    "0" "$(test ! -e "$SP503_BASE_CACHE/diff.patch" && test ! -e "$SP503_BASE_CACHE/diff.raw-candidate" && test ! -e "$SP503_BASE_CACHE/diff.candidate"; echo $?)"
+    "0" "$(test ! -e "$SP503_BASE_CACHE/diff.patch" && test ! -e "$SP503_BASE_CACHE/diff.raw-candidate" && test ! -e "$SP503_BASE_CACHE/diff.candidate" && echo 0 || echo 1)"
 done
 rm -rf "$SP503_BASE_DIR"
 
@@ -42103,7 +42168,7 @@ for SP503_CAPTURE_SHAPE in custom empty failure; do
     failure) MOCK_CONFIG_VALUE=ignored; MOCK_CONFIG_RC=9; SP503_CAPTURE_EXPECT=origin/main ;;
   esac
   SP503_REVIEW_BASE="$(CLAUDE_SKILL_DIR="$SP503_CAPTURE_DIR/a/b" MOCK_CONFIG_VALUE="$MOCK_CONFIG_VALUE" MOCK_CONFIG_RC="$MOCK_CONFIG_RC" bash "$SP503_CAPTURE_DIR/review-capture.sh" 2>/dev/null | tail -1)"
-  SP503_RAF_BASE="$(CLAUDE_SKILL_DIR="$SP503_CAPTURE_DIR/a/b" PR_BASE_BRANCH= MOCK_CONFIG_VALUE="$MOCK_CONFIG_VALUE" MOCK_CONFIG_RC="$MOCK_CONFIG_RC" bash "$SP503_CAPTURE_DIR/raf-capture.sh" 2>/dev/null | tail -1)"
+  SP503_RAF_BASE="$(CLAUDE_SKILL_DIR="$SP503_CAPTURE_DIR/a/b" PR_BASE_BRANCH='' MOCK_CONFIG_VALUE="$MOCK_CONFIG_VALUE" MOCK_CONFIG_RC="$MOCK_CONFIG_RC" bash "$SP503_CAPTURE_DIR/raf-capture.sh" 2>/dev/null | tail -1)"
   assert_eq "#503 AC8 $SP503_CAPTURE_SHAPE Phase0.2 resolves the expected current-branch operand" "$SP503_CAPTURE_EXPECT" "$SP503_REVIEW_BASE"
   assert_eq "#503 AC8 $SP503_CAPTURE_SHAPE item6a resolves byte-identically to Phase0.2" "$SP503_REVIEW_BASE" "$SP503_RAF_BASE"
 done
@@ -42124,7 +42189,7 @@ SP503_RAF_PR_OK="$(CLAUDE_SKILL_DIR="$SP503_CAPTURE_DIR/a/b" PR_BASE_BRANCH=main
 assert_eq "#503 N2 item6a PR-mode arm honors the carried HEAD_OVERRIDE_BASE operand (REVIEW_DIFF_BASE=\$HEAD_OVERRIDE_BASE)" \
   "REVIEW_DIFF_BASE=origin/main" "$SP503_RAF_PR_OK"
 # (b) operand NOT threaded (empty) → fail closed with exit 65 before any diff base is set.
-CLAUDE_SKILL_DIR="$SP503_CAPTURE_DIR/a/b" PR_BASE_BRANCH=main HEAD_OVERRIDE_BASE= bash "$SP503_RAF_PRMODE" >/dev/null 2>&1
+CLAUDE_SKILL_DIR="$SP503_CAPTURE_DIR/a/b" PR_BASE_BRANCH=main HEAD_OVERRIDE_BASE='' bash "$SP503_RAF_PRMODE" >/dev/null 2>&1
 assert_eq "#503 N2 item6a PR-mode arm fails closed (exit 65) when Phase 0.2's HEAD_OVERRIDE_BASE operand was not carried" \
   "65" "$?"
 # (c) F1 fail-open closed (shadow-promoted, corroborated x3): operand carried but the
@@ -42132,7 +42197,7 @@ assert_eq "#503 N2 item6a PR-mode arm fails closed (exit 65) when Phase 0.2's HE
 # honor the carried base (origin/release/2.0), NOT silently fall to the current-branch
 # base (origin/$config-base). Before the operand-first restructure this fell to the else
 # arm and re-scoped to origin/main — the #503 base-misattribution class via a side door.
-SP503_RAF_PR_C="$(CLAUDE_SKILL_DIR="$SP503_CAPTURE_DIR/a/b" PR_BASE_BRANCH= HEAD_OVERRIDE_BASE=origin/release/2.0 bash "$SP503_RAF_PRMODE" 2>/dev/null | tail -1)"
+SP503_RAF_PR_C="$(CLAUDE_SKILL_DIR="$SP503_CAPTURE_DIR/a/b" PR_BASE_BRANCH='' HEAD_OVERRIDE_BASE=origin/release/2.0 bash "$SP503_RAF_PRMODE" 2>/dev/null | tail -1)"
 assert_eq "#503 N2(c) item6a honors a carried operand even when the PR_BASE_BRANCH mode-signal is absent (fail-open F1 closed)" \
   "REVIEW_DIFF_BASE=origin/release/2.0" "$SP503_RAF_PR_C"
 rm -rf "$SP503_CAPTURE_DIR"
@@ -42411,6 +42476,8 @@ spl_repo_at() {  # content_file repo_relative_path -> repo dir
   printf '%s\n' "$d"
 }
 spl_stderr_base() {  # repo_dir base_rev -> the lint's stderr
+  # `2>&1 >/dev/null` is the deliberate capture-stderr-discard-stdout idiom (issue #717).
+  # shellcheck disable=SC2069
   ( cd "$1" 2>/dev/null || exit
     git diff "$2" HEAD 2>/dev/null | python3 "$SPL" --rev HEAD 2>&1 >/dev/null )
 }
@@ -45710,7 +45777,7 @@ assert_eq "#438 exec-shape(no-sibling): breadcrumb names the missing resolver" "
 assert_eq "#438 exec-shape(no-sibling): still produces a correct record via bare jq" "yes" \
   "$(env -u DEVFLOW_JQ bash "$EES_ORPHAN/extract-execution-shape.sh" "$EES_FIX/exec-shape-full-array.json" 2>/dev/null | grep -qxF 'usage: present' && echo yes || echo no)"
 assert_eq "#438 exec-shape(no-sibling): an EMPTY DEVFLOW_JQ degrades to bare jq, not an empty exec" "yes" \
-  "$(DEVFLOW_JQ= bash "$EES_ORPHAN/extract-execution-shape.sh" "$EES_FIX/exec-shape-full-array.json" 2>/dev/null | grep -qxF 'usage: present' && echo yes || echo no)"
+  "$(DEVFLOW_JQ='' bash "$EES_ORPHAN/extract-execution-shape.sh" "$EES_FIX/exec-shape-full-array.json" 2>/dev/null | grep -qxF 'usage: present' && echo yes || echo no)"
 rm -rf "$EES_TMP"
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -45944,7 +46011,7 @@ assert_eq "#438 stop-hook(no-sibling): breadcrumb still written and correct via 
   "$(jq -r '.token_shape' "$(_shp_marker "$SHP_ORPH")" 2>/dev/null)"
 SHP_ORPH2="$SHP_TMP/orphanrun2"; mkdir -p "$SHP_ORPH2"
 cp "$SHP_ORPH/t.jsonl" "$SHP_ORPH2/t.jsonl"
-_shp_payload "$SHP_ORPH2" "$SHP_ORPH2/t.jsonl" | DEVFLOW_JQ= bash "$SHP_ORPHAN/stop-hook-probe.sh" >/dev/null 2>&1
+_shp_payload "$SHP_ORPH2" "$SHP_ORPH2/t.jsonl" | DEVFLOW_JQ='' bash "$SHP_ORPHAN/stop-hook-probe.sh" >/dev/null 2>&1
 assert_eq "#438 stop-hook(no-sibling): an EMPTY DEVFLOW_JQ degrades to bare jq, not an empty exec" "real" \
   "$(jq -r '.token_shape' "$(_shp_marker "$SHP_ORPH2")" 2>/dev/null)"
 
@@ -46956,6 +47023,126 @@ assert_eq "#456 ci.yml: the 'lib + python tests' job checkout sets fetch-depth: 
 assert_eq "#456 ci.yml: shipped lib/test orchestrators are added to shellcheck scope" "yes" \
   "$(grep -qF 'lib/test/module-harness.sh lib/test/run-module.sh lib/test/summary.sh' \
        "$LIB/../.github/workflows/ci.yml" && echo yes || echo no)"
+#
+# ── #717 lib/test lint carve-out guard (lib/test/lint-carveout-guard.py) ──
+# The guard reads ci.yml, derives which lib/test/**/*.sh files CI lints, and fails
+# closed / names the offending path when a tracked lib/test file is neither CI-linted
+# nor under the exempt prefix lib/test/fixtures/. These assertions drive it over the
+# REAL ci.yml + tree AND a matrix of synthetic ci.yml fixtures (the CLAUDE.md
+# best-effort-parser discipline applied to a workflow-YAML input).
+LCG_PY="$LIB/test/lint-carveout-guard.py"
+LCG_CI="$LIB/../.github/workflows/ci.yml"
+# _lcg CI_FILE FILES_FILE -> "<exit>|<verdict-word>" (OK / FAIL); verdict = text up to first ':'
+_lcg() {
+  local out ec
+  out="$(python3 "$LCG_PY" --ci-file "$1" --files-file "$2" 2>/dev/null)"; ec=$?
+  printf '%s|%s' "$ec" "${out%%:*}"
+}
+# Real-tree pass: the guard passes over the real ci.yml + real git ls-files tree.
+assert_eq "#717 guard: passes over the real ci.yml + tracked tree" "0|OK" \
+  "$(out="$(cd "$LIB/.." && python3 "$LCG_PY" --repo-root . 2>/dev/null)"; ec=$?; printf '%s|%s' "$ec" "${out%%:*}")"
+# lib/test/run.sh itself is present in the real ci.yml's CI-linted set (AC): check the
+# real ci.yml against a files list of exactly run.sh.
+LCG_ONLY_RUNSH="$(probe_tmp '#717 guard: run.sh-only files list')"
+printf '%s\n' 'lib/test/run.sh' > "$LCG_ONLY_RUNSH"
+assert_eq "#717 guard: lib/test/run.sh is in the real ci.yml CI-linted set" "0|OK" \
+  "$(_lcg "$LCG_CI" "$LCG_ONLY_RUNSH")"
+rm -f "$LCG_ONLY_RUNSH"
+# Synthetic well-formed ci.yml: glob (exact exclusion), explicit list, run.sh job.
+LCG_FX_OK="$(probe_tmp '#717 guard: well-formed ci.yml fixture')"
+cat > "$LCG_FX_OK" <<'YAML'
+name: CI
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          git ls-files '*.sh' | grep -v '^lib/test/' \
+            | xargs -r shellcheck --severity=warning -e SC1091
+          shellcheck --severity=warning -e SC1091 \
+            lib/test/alpha.sh lib/test/modules/beta.sh
+  runsh:
+    runs-on: ubuntu-latest
+    steps:
+      - run: shellcheck --severity=warning -e SC1091 lib/test/run.sh
+YAML
+# Synthetic ci.yml whose glob exclusion is NARROWED (not the exact recognized form).
+LCG_FX_GLOB="$(probe_tmp '#717 guard: narrowed-glob ci.yml fixture')"
+cat > "$LCG_FX_GLOB" <<'YAML'
+name: CI
+jobs:
+  lint:
+    steps:
+      - run: |
+          git ls-files '*.sh' | grep -v '^lib/test/fixtures/' | xargs -r shellcheck --severity=warning -e SC1091
+          shellcheck --severity=warning -e SC1091 lib/test/alpha.sh
+YAML
+# Synthetic ci.yml naming a lib/test path ONLY in a comment (not a shellcheck arg).
+LCG_FX_CMT="$(probe_tmp '#717 guard: comment-only-path ci.yml fixture')"
+cat > "$LCG_FX_CMT" <<'YAML'
+name: CI
+jobs:
+  lint:
+    steps:
+      - run: |
+          git ls-files '*.sh' | grep -v '^lib/test/' | xargs -r shellcheck --severity=warning -e SC1091
+          # lib/test/delta.sh is linted elsewhere (a comment, never coverage)
+          shellcheck --severity=warning -e SC1091 lib/test/alpha.sh
+YAML
+# Synthetic ci.yml with NO shellcheck invocation anywhere.
+LCG_FX_NOSC="$(probe_tmp '#717 guard: no-shellcheck ci.yml fixture')"
+cat > "$LCG_FX_NOSC" <<'YAML'
+name: CI
+jobs:
+  build:
+    steps:
+      - run: echo "no shellcheck here"
+YAML
+LCG_FX_BAD="$(probe_tmp '#717 guard: non-YAML ci.yml fixture')"
+printf 'a: b: c\n' > "$LCG_FX_BAD"
+LCG_FX_EMPTY="$(probe_tmp '#717 guard: empty ci.yml fixture')"
+: > "$LCG_FX_EMPTY"
+# File lists (synthetic tracked-file populations).
+LCG_L_OK="$(probe_tmp '#717 guard: covered files')"
+printf '%s\n' 'lib/test/alpha.sh' 'lib/test/modules/beta.sh' 'lib/test/run.sh' 'lib/test/fixtures/malformed.sh' > "$LCG_L_OK"
+LCG_L_MISS="$(probe_tmp '#717 guard: files with one uncovered')"
+printf '%s\n' 'lib/test/alpha.sh' 'lib/test/modules/beta.sh' 'lib/test/run.sh' 'lib/test/gamma.sh' > "$LCG_L_MISS"
+LCG_L_FX="$(probe_tmp '#717 guard: files with a new fixture')"
+printf '%s\n' 'lib/test/alpha.sh' 'lib/test/modules/beta.sh' 'lib/test/run.sh' 'lib/test/fixtures/new-adversarial.sh' > "$LCG_L_FX"
+LCG_L_CMT="$(probe_tmp '#717 guard: files incl. comment-only path')"
+printf '%s\n' 'lib/test/alpha.sh' 'lib/test/delta.sh' > "$LCG_L_CMT"
+LCG_L_ALPHA="$(probe_tmp '#717 guard: alpha-only files')"
+printf '%s\n' 'lib/test/alpha.sh' > "$LCG_L_ALPHA"
+# Case a — well-formed, every non-fixture file covered → PASS.
+assert_eq "#717 guard: well-formed ci.yml covering every non-fixture file passes" "0|OK" \
+  "$(_lcg "$LCG_FX_OK" "$LCG_L_OK")"
+# Case b — one file named nowhere → FAIL (the planted-defect positive control).
+assert_eq "#717 guard: a missing lib/test file fails the guard (planted-defect control)" "1|FAIL" \
+  "$(_lcg "$LCG_FX_OK" "$LCG_L_MISS")"
+assert_eq "#717 guard: the failure names the exact offending path" "yes" \
+  "$(python3 "$LCG_PY" --ci-file "$LCG_FX_OK" --files-file "$LCG_L_MISS" 2>/dev/null | grep -qF 'lib/test/gamma.sh' && echo yes || echo no)"
+# Case c — a new lib/test/fixtures/ file named nowhere → PASS (exempt prefix works).
+assert_eq "#717 guard: a new lib/test/fixtures/ file is exempt and passes" "0|OK" \
+  "$(_lcg "$LCG_FX_OK" "$LCG_L_FX")"
+# Case d — no shellcheck invocation at all → fail closed naming ci.yml.
+assert_eq "#717 guard: absent shellcheck invocations fail closed" "1|FAIL" \
+  "$(_lcg "$LCG_FX_NOSC" "$LCG_L_OK")"
+assert_eq "#717 guard: the absent-invocation failure names .github/workflows/ci.yml" "yes" \
+  "$(python3 "$LCG_PY" --ci-file "$LCG_FX_NOSC" --files-file "$LCG_L_OK" 2>/dev/null | grep -qF '.github/workflows/ci.yml' && echo yes || echo no)"
+# Case e — empty file → fail closed.
+assert_eq "#717 guard: an empty ci.yml fails closed" "1|FAIL" \
+  "$(_lcg "$LCG_FX_EMPTY" "$LCG_L_OK")"
+# Case f — not valid YAML → fail closed naming ci.yml.
+assert_eq "#717 guard: a non-YAML ci.yml fails closed" "1|FAIL" \
+  "$(_lcg "$LCG_FX_BAD" "$LCG_L_OK")"
+# Case g — a path named ONLY in a comment is not counted as covered → FAIL.
+assert_eq "#717 guard: a lib/test path named only in a comment is not covered" "1|FAIL" \
+  "$(_lcg "$LCG_FX_CMT" "$LCG_L_CMT")"
+# Case h — the glob's lib/test exclusion narrowed from the exact form → fail closed.
+assert_eq "#717 guard: a narrowed glob exclusion fails closed" "1|FAIL" \
+  "$(_lcg "$LCG_FX_GLOB" "$LCG_L_ALPHA")"
+rm -f "$LCG_FX_OK" "$LCG_FX_GLOB" "$LCG_FX_CMT" "$LCG_FX_NOSC" "$LCG_FX_BAD" "$LCG_FX_EMPTY" \
+      "$LCG_L_OK" "$LCG_L_MISS" "$LCG_L_FX" "$LCG_L_CMT" "$LCG_L_ALPHA"
 #
 # review-and-fix: verification_evidence gains a skipped_checks list, and the not-a-clean-pass
 # clause stays repo-agnostic (names no lib/test/run.sh / lib + python tests / --flag).
@@ -48281,7 +48468,7 @@ _a487_hdr() { git config --file "$CFG487" --get 'http.https://github.com/.extrah
 # (DEVFLOW_APP_ID set) would see a non-empty app_id, skip the `mint: DEVFLOW_APP_ID empty`
 # guard, and the assertion would fail — an environment-dependent test, not a real
 # regression. The empty assignment makes the "missing inputs" intent env-independent.
-_a1_err="$(DEVFLOW_APP_ID= DEVFLOW_REFRESH_CONFIG_FILE="$D487/none" DEVFLOW_REFRESH_TOKEN_FILE="$TOK487" \
+_a1_err="$(DEVFLOW_APP_ID='' DEVFLOW_REFRESH_CONFIG_FILE="$D487/none" DEVFLOW_REFRESH_TOKEN_FILE="$TOK487" \
   bash "$REFRESH_SH" cycle </dev/null 2>&1 1>/dev/null)"; _a1_rc=$?
 assert_eq "#487 arm1: missing inputs exits 0" "0" "$_a1_rc"
 assert_eq "#487 arm1: emits the SPECIFIC guard ::warning:: (DEVFLOW_APP_ID empty), not just any breadcrumb" "yes" \
@@ -51656,21 +51843,21 @@ if [ -d "$DB_SB" ]; then
     python3 "$IAS" query-draft-binding dr --nonce "$NR" > .dr-unlanded 2>/dev/null
     # Bound-path source override: bind a root, put the canonical draft under it, and prove
     # emit-body reads the BOUND file, not a drifted --draft-file (the anti-drift property).
-    python3 "$IAS" init do > /dev/null 2>&1
-    NO="$(python3 "$IAS" query-nonce do | sed 's/nonce=//')"
+    python3 "$IAS" init 'do' > /dev/null 2>&1
+    NO="$(python3 "$IAS" query-nonce 'do' | sed 's/nonce=//')"
     BR="$DB_SB/boundroot"
     mkdir -p "$BR/.devflow/tmp"
     printf '# Draft title\n\nBOUND BODY\n' > "$BR/.devflow/tmp/issue-draft-do.md"
     printf '# Draft title\n\nDRIFTED BODY\n' > drift.md
-    python3 "$IAS" record-draft-binding do --nonce "$NO" --path "$BR" --tier main-root \
+    python3 "$IAS" record-draft-binding 'do' --nonce "$NO" --path "$BR" --tier main-root \
       > /dev/null 2>&1
-    python3 "$IAS" record-dispatch do --nonce "$NO" --round 1 --arm file \
+    python3 "$IAS" record-dispatch 'do' --nonce "$NO" --round 1 --arm file \
       --draft-file "$BR/.devflow/tmp/issue-draft-do.md" > /dev/null 2>&1
     OIDO="$(git hash-object --stdin --no-filters < "$BR/.devflow/tmp/issue-draft-do.md")"
-    python3 "$IAS" record-return do --nonce "$NO" --round 1 --verdict FILE \
+    python3 "$IAS" record-return 'do' --nonce "$NO" --round 1 --verdict FILE \
       --findings-count 0 --carriage-object-id "$OIDO" > /dev/null 2>&1
     # emit-body is handed the DRIFTED file, but must emit the BOUND file's body.
-    python3 "$IAS" emit-body do --nonce "$NO" --draft-file drift.md > .do-body 2>/dev/null
+    python3 "$IAS" emit-body 'do' --nonce "$NO" --draft-file drift.md > .do-body 2>/dev/null
     # The TWO merge-gating queries share emit-body's `_bound_draft_file(...) or --draft-file`
     # resolution — but only emit-body's anti-drift was proven above. query-eligibility
     # --mode approve is the answer the skill obeys at the merge gate; query-summary renders
@@ -51680,9 +51867,9 @@ if [ -d "$DB_SB" ]; then
     # a regression dropping the bound-first prefix from either query grounds on drift.md's
     # digest instead, answering `eligible=no`/`token=none` and re-opening the compacted-
     # context drift this feature closes (issue #562, review Important #1).
-    python3 "$IAS" query-eligibility do --nonce "$NO" --mode approve --draft-file drift.md \
+    python3 "$IAS" query-eligibility 'do' --nonce "$NO" --mode approve --draft-file drift.md \
       > .do-elig 2>/dev/null
-    python3 "$IAS" query-summary do --nonce "$NO" --draft-file drift.md > .do-summary 2>/dev/null
+    python3 "$IAS" query-summary 'do' --nonce "$NO" --draft-file drift.md > .do-summary 2>/dev/null
     # Unbound-run reader fallback (review Suggestion #7): the bound `do` rows above prove the
     # BOUND-first branch; the unbound arm (`_bound_draft_file` returns None → readers fall back
     # to the caller `--draft-file`) is otherwise only covered transitively. Record NO binding,

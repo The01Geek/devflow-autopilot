@@ -246,8 +246,16 @@ selectable module, complete all of the following in the same PR:
    record each one and the reason it stayed, so the residue is a stated decision
    rather than an omission (`harness-python-guards.inventory.md` is the model).
 5. **CI shellcheck list** — add the module's `.sh` path to the explicit
-   shellcheck file list in `.github/workflows/ci.yml` (module files are not
-   globbed there).
+   shellcheck file list in `.github/workflows/ci.yml` (the `git ls-files '*.sh'
+   | grep -v '^lib/test/'` glob excludes `lib/test/`, so shipped `lib/test/`
+   scripts are not globbed there). This step is now enforced: the
+   `lib/test/lint-carveout-guard.py` guard (driven by `lib/test/run.sh`) reads
+   `ci.yml`, derives which `lib/test/**/*.sh` files CI lints, and fails the suite
+   RED naming any tracked `lib/test/**/*.sh` file that is neither CI-linted nor
+   under the exempt `lib/test/fixtures/` prefix — so a new module left off the
+   list no longer ships unlinted. A deliberately-unlintable file belongs under
+   `lib/test/fixtures/` (the single exempt prefix); everything else must be
+   linted.
 6. **Coverage-map ownership** — update `lib/test/modules/coverage-map.json` so
    each `lib/`/`scripts/` depth-1 unit the module now owns names it as `owner`
    (the coverage ratchet, `lib/test/coverage_map_guard.py`, fails the suite RED
