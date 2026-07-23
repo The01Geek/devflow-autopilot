@@ -50290,6 +50290,34 @@ _POOL720_RDV="$( (
 assert_eq "#720 pool: a forced rendezvous timeout is absorbed by serial retry, tallies unchanged" "2 0" "$_POOL720_RDV"
 assert_eq "#720 pool: the serial-retry path actually RAN for the forced-timeout suite (not a vacuous pass)" "pa" "$(grep -m1 '^pa$' "$_POOL720_RMARK" 2>/dev/null || printf 'no-retry')"
 rm -f "$_POOL720_RMARK"
+# issue #720 review: force the rendezvous timeout on a SELF-TALLY suite (the case above
+# forces it on single-verdict `pa`). The serial-retry's $output-reuse — reap truncating and
+# reusing $output as the retry's capture, and _devflow_pool_run_serial writing the retried
+# suite's combined stdout there — exists SPECIFICALLY so a retried self-tally suite still
+# re-emits its `N passed, M failed` summary line; nulling it would drop the summary and
+# inject a spurious coverage FAIL. Assert BOTH the tally count survives (td = 3 PASS) AND
+# the summary line is recaptured after the retry (the code the single-verdict case cannot
+# exercise, since a single-verdict suite has no summary). A retry MARKER is asserted PRESENT
+# so this cannot pass vacuously if the forced-timeout hook ever regressed to never firing.
+_POOL720_STRMARK="$(mktemp)"
+_POOL720_ST_RDV="$( (
+  export DEVFLOW_TEST_POOL_RETRY_MARKER="$_POOL720_STRMARK" DEVFLOW_POOL_FORCE_RENDEZVOUS_TIMEOUT=td DEVFLOW_POOL_WIDTH=2
+  RESULTS_FILE="$(mktemp)"
+  devflow_pool_open td "$POOL720_FIX/td.py" self-tally pb "$POOL720_FIX/pb.py" single-verdict
+  devflow_pool_join
+  printf 'COUNTS %s %s SUMMARY=%s LINES=%s\n' \
+    "$(grep -c '^PASS$' "$RESULTS_FILE")" "$(grep -c '^FAIL$' "$RESULTS_FILE")" \
+    "${_DEVFLOW_POOL_SELFTALLY_SUMMARY[td]:-MISSING}" "${_DEVFLOW_POOL_SELFTALLY_LINES[td]:-MISSING}"
+  rm -f "$RESULTS_FILE"
+) 2>/dev/null | tail -1 )"
+# td (self-tally, 3 PASS) + pb (single-verdict, 1 PASS) = 4 PASS, 0 FAIL; after the forced
+# timeout on td, its summary ("3 passed, 0 failed") is recaptured and its 3 tally lines are
+# folded into RESULTS_FILE.
+assert_eq "#720 pool: a forced rendezvous timeout on a SELF-TALLY suite re-emits its summary and folds its tally after serial retry" \
+  "COUNTS 4 0 SUMMARY=3 passed, 0 failed LINES=3" "$_POOL720_ST_RDV"
+assert_eq "#720 pool: the serial-retry path actually RAN for the forced-timeout self-tally suite (not a vacuous pass)" \
+  "td" "$(grep -m1 '^td$' "$_POOL720_STRMARK" 2>/dev/null || printf 'no-retry')"
+rm -f "$_POOL720_STRMARK"
 # The pool restores the caller's HUP/INT/TERM traps byte-for-byte and the live-child
 # registry is empty after join (every child deregistered). The pool installs NO EXIT trap
 # of its own — that single-EXIT-trap invariant is pinned structurally by
@@ -50306,7 +50334,7 @@ _POOL720_TRAPS="$( (
 ) 2>/dev/null | tail -1 )"
 assert_eq "#720 pool: caller HUP/INT/TERM traps byte-identical and registry empty after join" "clean" "$_POOL720_TRAPS"
 unset -f _pool720_run
-unset POOL720_FIX _POOL720_CORE _POOL720_W1 _POOL720_W2 _POOL720_CORE_C _POOL720_W1_C _POOL720_W2_C _POOL720_BAD _POOL720_ZERO _POOL720_RDV _POOL720_RMARK _POOL720_TRAPS
+unset POOL720_FIX _POOL720_CORE _POOL720_W1 _POOL720_W2 _POOL720_CORE_C _POOL720_W1_C _POOL720_W2_C _POOL720_BAD _POOL720_ZERO _POOL720_RDV _POOL720_RMARK _POOL720_TRAPS _POOL720_ST_RDV _POOL720_STRMARK
 
 # These integration tests live outside the module whose registration and source
 # boundary they pin, so deleting that boundary cannot delete the test execution.
@@ -52761,12 +52789,13 @@ if ! devflow_tally_is_derivable "$SKIP"; then
   exit 1
 fi
 # PASS and FAIL take the SAME fail-closed guard (#456 round 3): each is a `grep -c` derivation
-# with the same rc>=2 empty-value failure shape. Without the guard an emptied PASS or FAIL is
-# silently coerced to 0 by later arithmetic — the final FAIL-equals-zero exit predicate would
-# abort with a bare `[: -eq` error that names nothing, and a summary over an emptied PASS would
-# render a confident under-count. Unknown is not zero for ANY of the three tallies — refuse
-# loudly, up front. (issue #720 retired the out-of-band `$((PASS + PY_PASS))` python-tally
-# arithmetic this comment once named; test_python_scripts.py now folds through RESULTS_FILE.)
+# with the same rc>=2 empty-value failure shape. Without the guard an emptied FAIL reaches the
+# final FAIL-equals-zero exit predicate, whose `-eq` then aborts on the empty value with a bare
+# `[: -eq` error that names nothing; an emptied PASS is no longer consumed by any arithmetic
+# (issue #720 retired the out-of-band `$((PASS + PY_PASS))` python-tally arithmetic this comment
+# once named — test_python_scripts.py now folds through RESULTS_FILE), so it would instead render
+# a blank, garbled `" passed, N failed"` summary field. Unknown is not zero for ANY of the three
+# tallies — refuse loudly, up front.
 if ! devflow_tally_is_derivable "$PASS"; then
   printf 'ERROR: PASS tally underivable from %s (grep error, not an empty log) — refusing to render a summary over it\n' "$RESULTS_FILE"
   exit 1
