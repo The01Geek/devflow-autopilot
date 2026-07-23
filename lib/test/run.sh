@@ -2536,6 +2536,28 @@ probe_two_line() {  # assertion-fn args... -> prints verdict, cause-token, probe
 # unknown-is-not-zero rule: an unestablished count is never collapsed onto a real value).
 # Reuses probe_tmp for the scratch copies and the sed-rc + cmp -s no-op guards verbatim
 # from assert_pin_red_under.
+#
+# _int_cmp LEFT OP RIGHT — integer comparison that dispatches OP through a case with one
+# literal-operator arm per member of the closed set `-eq -le -lt -ge -gt` (exactly these
+# operators, complete by construction), each running a literal `[ ]` test and returning its
+# exit status. A structural rewrite of the `[ "$n" "$op" "$bound" ]` splices below:
+# the analyzer cannot parse a `[ ]` whose comparator is a variable (SC1072/SC1073 abort the
+# whole file), and a per-line disable directive does not suppress a PARSE error — so the
+# operator is dispatched here instead of spliced. The default arm returns 2, so an operator outside
+# the closed set produces an ERRORED comparison status (never a satisfied 0), which each
+# call site below fails closed on. `_int_cmp` presumes numeric operands (assert_count_red_under
+# validates OP and BOUND upstream and proves the counts numeric before calling); the inner
+# `[ ]` still errors (rc 2) on a non-numeric operand, preserving the fail-closed direction.
+_int_cmp() {  # left op right -> 0 satisfied, 1 not satisfied, 2 invalid op / errored compare
+  case "$2" in
+    -eq) [ "$1" -eq "$3" ] ;;
+    -le) [ "$1" -le "$3" ] ;;
+    -lt) [ "$1" -lt "$3" ] ;;
+    -ge) [ "$1" -ge "$3" ] ;;
+    -gt) [ "$1" -gt "$3" ] ;;
+    *) return 2 ;;
+  esac
+}
 assert_count_red_under() {  # name start end pattern op bound mutation [file]
   local name="$1" start="$2" end="$3" pattern="$4" op="$5" bound="$6" mutation="$7" file="${8:-$MAXI_SKILL}"
   local pat_rc anchor_rc breach_rc start_count start_match start_line ln m end_line
@@ -2652,8 +2674,11 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
 
   # ── 3. Real-file bound: the count must SATISFY OP BOUND on the real file (the `before`
   # conjunct — checked before the mutation, mirroring assert_pin_red_under's before-probe).
-  # A correct unmutated file cannot fail here by construction. ──
-  if ! [ "$count" "$op" "$bound" ] 2>/dev/null; then
+  # A correct unmutated file cannot fail here by construction. The `_int_cmp` call replaces
+  # the old `[ "$count" "$op" "$bound" ]` splice; `if !` inverts every non-zero status, so a
+  # not-satisfied (rc 1) AND an errored/invalid-op comparison (rc >= 2) both route to the
+  # BOUND-VIOLATED-ON-REAL-FILE arm — the same fail-closed direction the old `! [ ]` had. ──
+  if ! _int_cmp "$count" "$op" "$bound" 2>/dev/null; then
     echo FAIL >> "$RESULTS_FILE"; echo BOUND-VIOLATED-ON-REAL-FILE >> "$RESULTS_FILE"
     printf '  FAIL  %s\n         BOUND-VIOLATED-ON-REAL-FILE — real count %s does not satisfy %s %s\n         file: %s\n' \
       "$name" "$count" "$op" "$bound" "$file" >&2
@@ -2748,17 +2773,19 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   fi
 
   # ── 8. Mutated-file bound: the mutation must make the count VIOLATE OP BOUND (the
-  # `after` conjunct). The SAME comparison as step 3 (a correct unmutated file cannot fail
-  # the helper by construction). Capture the comparison's OWN rc rather than branching on
-  # `if [ … ]` directly, and fail closed the same way step 3 does: step 3 wraps the test in
-  # `! [ … ]`, so an errored `[ ]` (rc>=2, swallowed by 2>/dev/null) routes to its FAIL arm.
-  # Only a clean rc 1 (a genuine bound violation) proceeds to PASS here; rc 0 (still satisfies
-  # → BOUND-NOT-BREACHED) AND rc>=2 (an errored comparison) both fail closed to
-  # BOUND-NOT-BREACHED, never falling through to a spurious PASS. Unreachable today (mut_count
-  # is proven numeric at step 7, op and bound are validated upstream) — defense-in-depth so the
-  # two mirror comparisons fail in the same direction. A bare `!`-invert is NOT the fix: it
-  # would route the errored rc>=2 to PASS (fail-open, worse), so the rc is captured explicitly. ──
-  [ "$mut_count" "$op" "$bound" ] 2>/dev/null; breach_rc=$?
+  # `after` conjunct). The SAME comparison as step 3, now via the `_int_cmp` helper that
+  # replaced the old `[ "$mut_count" "$op" "$bound" ]` splice (a correct unmutated file
+  # cannot fail the helper by construction). Capture the helper's OWN rc rather than branching
+  # on it directly, and fail closed the same way step 3 does: step 3 wraps the call in `! …`,
+  # so an errored/invalid-op status (rc>=2) routes to its FAIL arm. Only a clean rc 1 (a
+  # genuine bound violation — `_int_cmp` returns 1 when the count does not satisfy OP BOUND)
+  # proceeds to PASS here; rc 0 (still satisfies → BOUND-NOT-BREACHED) AND rc>=2 (an errored
+  # or invalid-op comparison) both fail closed to BOUND-NOT-BREACHED, never falling through to
+  # a spurious PASS. Largely unreachable today (mut_count is proven numeric at step 7, op and
+  # bound are validated upstream) — defense-in-depth so both mirror comparisons fail in the
+  # same direction. A bare `!`-invert is NOT the fix: it would route the errored rc>=2 to PASS
+  # (fail-open, worse), so the rc is captured explicitly and every value other than 1 fails. ──
+  _int_cmp "$mut_count" "$op" "$bound" 2>/dev/null; breach_rc=$?
   if [ "$breach_rc" -ne 1 ]; then
     echo FAIL >> "$RESULTS_FILE"; echo BOUND-NOT-BREACHED >> "$RESULTS_FILE"
     printf '  FAIL  %s\n         BOUND-NOT-BREACHED — mutated count %s still satisfies %s %s (the mutation did not breach the bound)\n         mutation: %s\n' \
@@ -2971,6 +2998,28 @@ assert_eq "#536 ERE dialect (through the helper, step 7): the MUTATED-slice coun
   "PASS|" "$(_acru_probe assert_count_red_under 'erestep7' 'ACRU_START sentinel' 'ACRU_END sentinel' '^(alpha|beta)$' -le 1 's/^noise line$/beta/' "$ACRU_ERE3")"
 rm -f "$ACRU_ERE3"
 rm -f "$ACRU_FX"
+# ── #717 _int_cmp direct contract self-tests ──
+# The operator dispatch that replaced the two `[ "$n" "$op" "$bound" ]` splices in
+# assert_count_red_under. One assertion per member of the closed set (holds→0, not→1) plus
+# an out-of-set operator (→2). The BOUND-VIOLATED-ON-REAL-FILE / BOUND-NOT-BREACHED arms
+# that CONSUME these statuses stay covered by the #536 probes above (a satisfied real count,
+# an unbreached mutation), so this block pins the helper's raw 0/1/2 contract directly.
+_intcmp_rc() { _int_cmp "$1" "$2" "$3"; printf '%s' "$?"; }
+assert_eq "#717 _int_cmp -eq holds → 0" "0" "$(_intcmp_rc 2 -eq 2)"
+assert_eq "#717 _int_cmp -eq does not hold → 1" "1" "$(_intcmp_rc 2 -eq 3)"
+assert_eq "#717 _int_cmp -le holds → 0" "0" "$(_intcmp_rc 2 -le 3)"
+assert_eq "#717 _int_cmp -le does not hold → 1" "1" "$(_intcmp_rc 4 -le 3)"
+assert_eq "#717 _int_cmp -lt holds → 0" "0" "$(_intcmp_rc 2 -lt 3)"
+assert_eq "#717 _int_cmp -lt does not hold → 1" "1" "$(_intcmp_rc 3 -lt 3)"
+assert_eq "#717 _int_cmp -ge holds → 0" "0" "$(_intcmp_rc 3 -ge 3)"
+assert_eq "#717 _int_cmp -ge does not hold → 1" "1" "$(_intcmp_rc 2 -ge 3)"
+assert_eq "#717 _int_cmp -gt holds → 0" "0" "$(_intcmp_rc 4 -gt 3)"
+assert_eq "#717 _int_cmp -gt does not hold → 1" "1" "$(_intcmp_rc 3 -gt 3)"
+assert_eq "#717 _int_cmp an operator outside the closed set → 2 (errored, never satisfied)" "2" "$(_intcmp_rc 2 -ne 2)"
+# A non-numeric OPERAND on an in-set operator: the inner `[ ]` errors (rc 2), so the helper
+# stays fail-closed (never a satisfied 0) — pins the comment's asserted-but-otherwise-untested
+# non-numeric-operand claim (callers validate numerics upstream, so this is defense-in-depth).
+assert_eq "#717 _int_cmp a non-numeric operand → 2 (errored, never satisfied)" "2" "$(_intcmp_rc x -eq 2 2>/dev/null)"
 # Issue #500 parked-class sweep contract pins. These stay below the
 # assert_pin_red_under definition so the behavioral mutations below execute.
 assert_pin_unique "#500: parked-class sweep contract heading is present" \
