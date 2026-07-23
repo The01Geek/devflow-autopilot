@@ -1,0 +1,231 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-23T14:50:28Z",
+  "fix_commit_sha": "30731be4",
+  "fix_files": [
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+    ".changeset/issue-720-concurrent-python-pool.md",
+    "lib/test/run.sh",
+    "lib/test/module-harness.sh",
+    "lib/test/test_module_runner.py"
+  ],
+  "loop_role": "fix",
+  "current_step": "3",
+  "current_substep": null,
+  "mode": "current-branch",
+  "engine_verdict": "REJECT",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "detect_all_audit": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:type-design-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "completeness_critic": {
+    "ran": true,
+    "population": "every test_*.py on disk under lib/test/",
+    "independent_signal": "git ls-files (index read, #711-safe) — distinct from the audit's Path.glob",
+    "result": "complete: all 11 disk suites classified into exactly one of pooled(3)/serial(1)/module-driven(7); no finding"
+  },
+  "phase3_findings": [
+    {
+      "id": "F-1",
+      "agent": "devflow:comment-analyzer",
+      "severity": "Critical",
+      "description": "documented_falsehood: §19 + run.sh comment claim test_module_runner.py never executes harness-python-guards; it does (test_module_runner.py:1453)",
+      "defect_signature": {
+        "file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+        "line_range": [
+          916,
+          916
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F-2",
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "launch-window race: pool registers live child after clearing _DEVFLOW_POOL_LAUNCHING, orphaning a child on a signal in the window",
+      "defect_signature": {
+        "file": "lib/test/module-harness.sh",
+        "line_range": [
+          1104,
+          1114
+        ],
+        "kind": "race"
+      },
+      "corroboration_count": 3,
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F-3",
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "dropped-pending-suites: devflow_pool_join loop gated only on inflight>0; a mid-stream launch-allocation failure at width<count can exit with pending unlaunched",
+      "defect_signature": {
+        "file": "lib/test/module-harness.sh",
+        "line_range": [
+          null,
+          null
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "deferred"
+    },
+    {
+      "id": "F-4",
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "min(os.cpu_count(),4) in doc+changeset omits the `or 1` None-guard the code uses",
+      "defect_signature": {
+        "file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+        "line_range": [
+          916,
+          916
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "id": "F-5",
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "self-tally summary derived via grep/tail (non-preflight PATH tools); fails closed",
+      "defect_signature": {
+        "file": "lib/test/module-harness.sh",
+        "line_range": [
+          494,
+          499
+        ],
+        "kind": "api_misuse"
+      },
+      "corroboration_count": 3,
+      "fix_decision": "deferred"
+    },
+    {
+      "id": "F-6",
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "serial-retry path runs with main-shell TMPDIR rather than an isolated scratch root",
+      "defect_signature": {
+        "file": "lib/test/module-harness.sh",
+        "line_range": [
+          322,
+          333
+        ],
+        "kind": "leak"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "deferred"
+    },
+    {
+      "id": "F-7",
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "classify_test_suites mislabels an intra-category duplicate as cross-category",
+      "defect_signature": {
+        "file": "lib/test/test_module_runner.py",
+        "line_range": [
+          1906,
+          1908
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "deferred"
+    },
+    {
+      "id": "F-8",
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "test gaps: rendezvous-retry-on-self-tally, width-cap-bounds-concurrency, worker-nonzero-no-verdict arms untested",
+      "defect_signature": {
+        "file": "lib/test/module-harness.sh",
+        "line_range": [
+          442,
+          499
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "deferred"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "30731be4"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "30731be4"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "applied",
+      "commit": "30731be4"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "deferred",
+      "skip_category": "out-of-scope",
+      "evidence": "Latent, not reachable in the shipped path: production width is min(cpu,4) >= 3 so devflow_pool_open pre-launches all 3 suites and pending is empty, so devflow_pool_join never takes the refill arm. Only reachable via DEVFLOW_POOL_WIDTH=1 plus a mktemp/scratch allocation failure. A correct minimal fix (loop while inflight>0 || pending>0, refilling when drained) is safe but needs an allocation-failure injection hook + a non-vacuous test; deferred to a follow-up rather than rushed into a heavily-pinned file this pass."
+    },
+    {
+      "finding_id": "F-5",
+      "decision": "deferred",
+      "skip_category": "uncategorized",
+      "evidence": "Real guard-class-2 style (corroborated x3) but fails CLOSED (missing grep -> empty summary -> run.sh else-arm records an explicit FAIL). Consistency-only; defer to a follow-up bash-builtin scan."
+    },
+    {
+      "finding_id": "F-6",
+      "decision": "deferred",
+      "skip_category": "uncategorized",
+      "evidence": "Isolation gap only on the rare rendezvous-timeout retry; low impact. Follow-up."
+    },
+    {
+      "finding_id": "F-7",
+      "decision": "deferred",
+      "skip_category": "uncategorized",
+      "evidence": "Cosmetic diagnostic wording; the defect is still caught."
+    },
+    {
+      "finding_id": "F-8",
+      "decision": "deferred",
+      "skip_category": "uncategorized",
+      "evidence": "Defensive coverage improvements; the reviewed correctness paths are covered. Follow-up."
+    }
+  ],
+  "verification_evidence": {
+    "affected_suites": {
+      "test_module_runner.py": "68 passed OK",
+      "test_module_harness.py": "42 passed OK",
+      "test_python_scripts.py": "2195 passed, 0 failed"
+    },
+    "full_suite": "12941 passed, 0 failed, 1 skipped (pre-commit: #434 stale-prose self-scan self-skipped on dirty tree)",
+    "skipped_checks": [
+      "#434 stale-prose self-scan (blocking-gate) — pre-commit dirty-tree self-skip; re-run post-commit"
+    ],
+    "shellcheck": "module-harness.sh clean",
+    "ruff": "test_module_runner.py clean",
+    "new_pin_mutation_check": "test_pool_registers_live_child_before_clearing_launch_guard verified RED on re-inverted ordering, GREEN on the fix"
+  },
+  "telemetry": "unavailable"
+}
