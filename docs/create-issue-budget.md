@@ -32,9 +32,9 @@ Both are asserted by `lib/test/modules/create-issue-contract.sh` (driven by the 
 | Ceiling | Operand | Measured | Enforced ceiling |
 | --- | --- | --- | --- |
 | **Root** | `skills/create-issue/SKILL.md` | 2,732 | Root ceiling: **2,754 words** |
-| **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 32,475 | Default-path ceiling: **32,491 words** |
+| **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 32,619 | Default-path ceiling: **34,249 words** |
 
-Each ceiling is at most the implement-time measured value plus **5% headroom** (the AC6 maximum). Both were set from an earlier measurement in this same change and deliberately **not re-raised** when review fixes grew the operands, so the shipped headroom is under 5% on both (root ~0.8%, default path ~0.05%). The suite asserts that legality directly — a ceiling above measured+5% is RED — so a future raise needs a real measurement behind it. The
+Each ceiling is at most the implement-time measured value plus **5% headroom** (the AC6 maximum). Both were set from an earlier measurement in this same change and deliberately **not re-raised** when review fixes grew the operands, so the shipped headroom is at most 5% on both (root ~0.8%, default path 5.0% — see the issue #708 merge row, where the operator authorized the full AC6 maximum so ordinary PRs stop colliding with the line). The suite asserts that legality directly — a ceiling above measured+5% is RED — so a future raise needs a real measurement behind it. The
 default-path operand deliberately **excludes the four fallback references** — they load only when
 their predicate fires, which is the whole point of the split. `revision-delta.md` is *retained* in the
 operand even though it too is predicate-gated (its trigger is any revise-and-re-gate site): a revision
@@ -66,15 +66,15 @@ the decision record below for when each was last re-measured:
 | `references/step-2-clarify.md` | 4,673 | Step 2 entry |
 | `references/step-3-5-steelman.md` | 2,237 | Step 3.5 entry |
 | `references/revision-delta.md` | 986 | every revision event |
-| `references/step-3-6-audit.md` | 9,463 | Step 3.6 entry |
+| `references/step-3-6-audit.md` | 9,607 | Step 3.6 entry |
 | `references/step-4-present-create.md` | 5,452 | Step 4 entry |
 | `references/fallback-no-task-tool.md` | 540 | no usable task-tracking tool |
 | `references/fallback-read-only-sandbox.md` | 484 | a `.devflow/tmp/` write is refused |
 | `references/fallback-audit-dispatch-arms.md` | 674 | a non-file audit arm, a retry escalation, or no subagent tool |
 | `references/fallback-state-owner-unavailable.md` | 748 | the state owner stops answering |
-| **root + all 9 references** | **27,989** | — |
+| **root + all 9 references** | **28,133** | — |
 | `references/issue-template.md` | 6,932 | Step 3 (unchanged by the split) |
-| `references/audit-prompt-template.md` | 1,618 | renderer-owned (unchanged by the split) |
+| `references/audit-prompt-template.md` | 1,910 | renderer-owned (unchanged by the split) |
 
 **What the default path sheds.** Before the split every run loaded all 24,473 words of the monolith.
 After it, a run on the default path — task tool usable, writable filesystem, file-arm dispatch, state
@@ -223,6 +223,20 @@ read as a conservation failure.
   is auditable rather than silent; it is **not** a precedent for accommodating growth inside a
   single change, where the rule binds unchanged. Root is untouched at **2,732**. Headroom is 16
   words (~0.05%).
+
+- **2026-07-22 (PR #728, issue #708) — MERGE-COLLISION ceiling re-record, at the operator's
+  direction set to the full AC6 maximum.** #708's Step 3.6 per-dimension coverage procedure was
+  authored inside its own branch's headroom (default path landed at exactly **31,262**, the
+  then-ceiling). Merging `main` brought in the #704/#706 union that had already re-recorded the
+  ceiling to 32,491 with 16 words of headroom, and the two measure **32,619** together — the same
+  merge-collision class the row above describes, where no single change is responsible for the
+  overrun. Rather than another 16-word margin that the next PR collides with immediately, the
+  operator authorized the **full measured-plus-5% AC6 maximum**: the ceiling is re-recorded to
+  **34,249** (measured 32,619 + 5%), and `CI614_TOTAL_RECORDED` is re-centred 27,989 → **28,133**.
+  Root is untouched at **2,732**. This is a deliberate, human-authorized departure from the
+  one-directional ratchet, recorded here so it is auditable rather than silent; the ratchet
+  resumes immediately, and it remains **not** a precedent for accommodating growth inside a
+  single change. Headroom is now ~5%.
 
 When a later change re-measures, append a row here rather than editing an earlier one: the record is
 the history of what the surface cost, and overwriting it loses exactly the drift a budget exists to catch.

@@ -199,6 +199,43 @@ _PRE_REVISION = 'pre-revision'
 # no way for the two halves to disagree.
 _LEDGER_PREFIXES = ('unresolved', 'resolved')
 
+# ── Per-dimension coverage vocabulary (issue #708) ─────────────────────────────────
+# The closed set of coverage outcomes an auditor records per required audit dimension,
+# guarded at record time and re-enforced at the read boundary in `_validate_coverage`.
+# Complete by construction:
+#   exercised    — the dimension was engaged, backed by a checkable anchor.
+#   valid-N/A    — the draft plainly does not touch the dimension (a cheap one-line reason).
+#   unestablished— the outcome could not be established (a degraded arm, a floor failure);
+#                  unknown is never collapsed onto exercised or onto a clean backing.
+#   skipped      — the auditor did not genuinely engage the dimension (the coverage gap).
+_COVERAGE_OUTCOMES = ('exercised', 'valid-N/A', 'unestablished', 'skipped')
+# The two outcomes that back coverage. A run is coverage-backed only when EVERY required
+# dimension resolved to one of these with adjudication-surviving evidence — totality is
+# enforced at record time against `--expected-keys`, the orchestrator's authoritative
+# enumeration, by synthesizing `unestablished` for every enumerated key with no line.
+_COVERAGE_BACKING_OUTCOMES = ('exercised', 'valid-N/A')
+# The outcomes that require a non-empty anchor/reason passing the text-only floor. An
+# `exercised` outcome whose anchor fails the floor is DOWNGRADED to `unestablished` at
+# record time (unknown is not zero), never rejected. The two roles — what BACKS coverage
+# and what CARRIES an anchor — are the same set by construction, so the coupling is
+# spelled as an alias rather than a second literal that a later edit could silently
+# desync (a divergence would be invisible: nothing compares the two).
+_COVERAGE_ANCHORED = _COVERAGE_BACKING_OUTCOMES
+# One structurally-enforced bound (issue #708): a hard per-anchor character cap over the
+# quoted line plus one concern clause, so no single anchor can balloon. The state owner
+# READ BOUNDARY rejects an over-cap anchor; at record time an over-cap anchor fails the
+# floor and DOWNGRADES to `unestablished` like any other floor failure, never a rejection.
+_COVERAGE_ANCHOR_MAX = 600
+# The render state a coverage round records. `full` — the auditor rendered every dimension
+# on the orchestrator's authoritative enumeration; `degraded` — a render divergence narrowed
+# the auditor's dimension set (un-rendered dimensions record `unestablished`), which
+# discloses but does NOT fire the coverage offer. (`none` is never RECORDED — it is the
+# derivation's no-coverage-round token; see `evaluate_coverage`, whose choices this tuple
+# does not gate.)
+_COVERAGE_RENDERS = ('full', 'degraded')
+# The run-level coverage-backing tokens the derivation reports and the summary renders.
+_COVERAGE_BACKINGS = ('backed', 'not-backed', 'unestablished')
+
 # Every `key=` token this tool's queries and mutations PRINT. Ledger summaries and
 # invalidation reasons are refused when they contain a word of the form `<token>=` drawn
 # from this set: ledger text is identity data, never instruction and NEVER protocol, so
@@ -210,12 +247,15 @@ _LEDGER_PREFIXES = ('unresolved', 'resolved')
 # need a new arm in that row). Widening it beyond `query-findings`' own fields is deliberate — the
 # never-protocol property must hold for the whole printed surface, not one line of it.
 _PROTOCOL_TOKENS = (
-    'action', 'adjudicated', 'adjudicated_verdict', 'advisory', 'arm', 'attestation',
+    'action', 'adjudicated', 'adjudicated_verdict', 'advisory', 'anchor', 'arm',
+    'attestation', 'backs_run',
     'baseline_identity', 'baseline_revision',
     'basis', 'body_digest', 'bound', 'bound_path', 'bound_root', 'bound_tier', 'cap',
     'cap_reached', 'claim', 'claims', 'class', 'classification', 'command',
     'completeness', 'conflict', 'consumer_dimensions_appended', 'converged',
-    'convergence_basis', 'count', 'degraded', 'digest', 'effective_unresolved',
+    'convergence_basis', 'count', 'coverage', 'coverage_backing', 'coverage_reason',
+    'coverage_render',
+    'degraded', 'digest', 'effective_unresolved',
     'eligible', 'epoch_round', 'evidence', 'finding', 'findings', 'findings_count',
     'frozen', 'ground', 'id', 'identity',
     'invalid', 'invalidated', 'iterate', 'key', 'kind', 'latest_revision_landed',
@@ -1313,6 +1353,108 @@ def _validate_ledger(doc, rnd, num):
                          f'unresolved entries but unresolved_must_revise is {umr}')
 
 
+def _coverage_anchor_floor(text):
+    """The text-only anchor floor (issue #708), as an error token or None.
+
+    Split by where the operand lives: this is the TOOL-SIDE floor over the anchor text
+    ALONE — non-empty, within the per-anchor length cap, no record-splitting byte, and no
+    protocol-vocabulary `<field>=` token drawn from the tool's own printed surface. It
+    reuses the ledger-anchor guard family (`_record_splitting_char` / `_forged_protocol_token`)
+    so one closed vocabulary governs both — auditor-derived coverage text is identity data,
+    never protocol and never an instruction to obey. The DATA-dependent checks (byte-identity
+    against the rendered dimension text, and the cited-draft-line existence check) are the
+    ORCHESTRATOR's, run against data the state owner does not hold; they are not enforced here.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return 'anchor-empty'
+    if len(text) > _COVERAGE_ANCHOR_MAX:
+        return 'anchor-over-cap'
+    if _record_splitting_char(text) is not None:
+        return 'anchor-control-char'
+    if _forged_protocol_token(text) is not None:
+        return 'anchor-protocol-vocabulary'
+    return None
+
+
+def _validate_coverage(rnd, num):
+    """Re-enforce the per-dimension-coverage invariants at the READ boundary (issue #708).
+
+    Absent is legal (a round records no coverage, and every pre-change round record none) —
+    present-but-wrong-shape is corrupt, the same additive-optional pattern the per-finding
+    ledger and `draft_binding` follow. Every violation raises StateError, collapsing the
+    whole file to unestablished (the fail-closed environmental class), so a hand-corrupted
+    coverage entry can never reach the derivation/trigger/summary as if established.
+    """
+    render = rnd.get('coverage_render')
+    if render is not None and render not in _COVERAGE_RENDERS:
+        raise StateError(f'round {num} names a coverage render outside the canonical set: '
+                         f'{render!r}')
+    if 'coverage' not in rnd:
+        return
+    if render is None:
+        raise StateError(f'round {num} records coverage but no coverage_render; the render '
+                         f'state is required whenever coverage is present (the derivation '
+                         f'would otherwise default onto `full`, the one value that arms the '
+                         f'coverage offer)')
+    coverage = rnd.get('coverage')
+    if not isinstance(coverage, list):
+        raise StateError(f'round {num} coverage {coverage!r} is not a list')
+    seen = set()
+    for pos, entry in enumerate(coverage, start=1):
+        if not isinstance(entry, dict):
+            raise StateError(f'round {num} coverage entry {pos} is not an object')
+        key = entry.get('key')
+        if not isinstance(key, str) or not key.strip():
+            raise StateError(f'round {num} coverage entry {pos} key {key!r} is not a '
+                             f'non-empty string')
+        if key in seen:
+            raise StateError(f'round {num} coverage entry {pos} duplicates key {key!r}')
+        seen.add(key)
+        outcome = entry.get('outcome')
+        if outcome not in _COVERAGE_OUTCOMES:
+            raise StateError(f'round {num} coverage entry {pos} names an outcome outside '
+                             f'the canonical set: {outcome!r}')
+        anchor = entry.get('anchor')
+        if outcome in _COVERAGE_ANCHORED:
+            # An anchored outcome that reached persistence carries a floor-passing anchor:
+            # ingestion downgrades a floor-failing exercised/valid-N/A to `unestablished`
+            # BEFORE the write, so a hand-corrupted anchor on such an outcome is refused.
+            err = _coverage_anchor_floor(anchor)
+            if err is not None:
+                raise StateError(f'round {num} coverage entry {pos} ({outcome}) anchor '
+                                 f'fails the text-only floor ({err})')
+        elif anchor is not None and not isinstance(anchor, str):
+            raise StateError(f'round {num} coverage entry {pos} anchor {anchor!r} is not '
+                             f'a string')
+    # TOTALITY at the read boundary. Every per-entry invariant above is re-enforced, but
+    # totality — the property that makes `backed` mean "every required dimension resolved"
+    # — lives BETWEEN the list and the persisted enumeration, so it needs its own read-back:
+    # `evaluate_coverage` derives `backed` from `all(...)` over the surviving entries, and a
+    # hand-deleted `unestablished`/`skipped` entry leaves an all-backing list that would
+    # launder a truncated coverage into `backed`. `record-coverage` writes `coverage` and
+    # `coverage_expected` into the same round object in the same save, so an absent
+    # enumeration beside a present coverage is itself corruption — refused, not tolerated.
+    expected = rnd.get('coverage_expected')
+    if expected is None:
+        raise StateError(f'round {num} records coverage but no coverage_expected; the '
+                         f'enumeration totality was checked against is written with the '
+                         f'coverage itself, so its absence means the record is corrupt')
+    if not isinstance(expected, list) or not expected or not all(
+            isinstance(k, str) and k.strip() for k in expected):
+        # A non-truthy (empty) list defeats totality vacuously: `all([])` is true and
+        # `missing == []`, so an all-backing `coverage` beside `coverage_expected: []`
+        # would launder into `backed`. Refused here, fail-closed to unestablished — the
+        # record path already rejects an empty keyset (coverage-expected-empty), so at the
+        # read boundary this is reachable only by direct state-file corruption.
+        raise StateError(f'round {num} coverage_expected {expected!r} is not a non-empty '
+                         f'list of non-empty strings')
+    missing = [k for k in expected if k not in seen]
+    if missing:
+        raise StateError(f'round {num} coverage covers fewer dimensions than '
+                         f'coverage_expected enumerates (missing {missing!r}); a truncated '
+                         f'coverage list is never read as backed')
+
+
 def _validate(doc, slug):
     """Validate a loaded document, or raise StateError naming the specific violation.
 
@@ -1461,6 +1603,9 @@ def _validate(doc, slug):
         # status or a resolution naming no recorded revision would otherwise reach the
         # convergence decision as if it were a verified fix.
         _validate_ledger(doc, rnd, num)
+        # Per-dimension coverage (issue #708). The coverage derivation, the offer trigger,
+        # and the summary line read these, so a hand-corrupted entry must fail closed HERE.
+        _validate_coverage(rnd, num)
     for ov in doc['overrides']:
         if not isinstance(ov, dict) or ov.get('kind') not in _OVERRIDE_KINDS:
             raise StateError('an override record names a kind outside the canonical set')
@@ -1972,10 +2117,11 @@ def evaluate_triggers(state):
     raw signal is clean and pre-#548 it fired no offer, so T2's behavior on it is unchanged.
     """
     if state is None:
-        return {'t1': False, 't2': True, 'reason': 'state-unestablished'}
+        return {'t1': False, 't2': True, 'coverage': False,
+                'reason': 'state-unestablished'}
     last = last_completed(state)
     if last is None:
-        return {'t1': False, 't2': False, 'reason': None}
+        return {'t1': False, 't2': False, 'coverage': False, 'reason': None}
     u = _unresolved_int(last)
     # issue #603: T1's comparand is the RUN-WIDE EFFECTIVE count, so a round whose ledger
     # entries the drafter verified fixed (or retired as invalid, or that a FILE re-audit
@@ -2007,7 +2153,8 @@ def evaluate_triggers(state):
         # above (u is not None), never here.
         t2 = True
         reason = 'unadjudicated-round'
-    return {'t1': t1, 't2': t2, 'reason': reason}
+    return {'t1': t1, 't2': t2, 'coverage': evaluate_coverage_trigger(state),
+            'reason': reason}
 
 
 def evaluate_convergence(state):
@@ -2054,6 +2201,80 @@ def evaluate_convergence(state):
             'reason': None if converged else 'unresolved-must-revise-remain',
             'basis': _convergence_basis(state, converged),
             'effective': eff}
+
+
+def _coverage_round(state):
+    """The final accepted round coverage-backing derives from, or None.
+
+    Coverage attaches ONLY to a run whose final accepted round is a clean auditor
+    `VERDICT: FILE` (issue #708): a no-clean-round convergence (the resolution-basis /
+    resolution-stale path) carries no per-dimension coverage, so it derives
+    `unestablished`. `last_completed` is the run's final accepted round; it is a
+    coverage round only when its outcome is `FILE`.
+    """
+    if state is None:
+        return None
+    last = last_completed(state)
+    if last is None or last.get('outcome') != 'FILE':
+        return None
+    return last
+
+
+def evaluate_coverage(state):
+    """The run's coverage-backing, derived from the final accepted clean round (issue #708).
+
+    Returns `{'backing': <token>, 'render': <token>}`:
+      - `backing` in `_COVERAGE_BACKINGS`. `backed` only when the final accepted round is
+        a clean `FILE` round carrying a recorded coverage list in which EVERY entry is
+        `exercised` or `valid-N/A`; `not-backed` when any surviving `skipped`/`unestablished`
+        entry remains on that otherwise-clean round; `unestablished` when there is no clean
+        auditor round to carry coverage, or the clean round recorded no coverage at all
+        (unknown is never collapsed onto backed).
+      - `render` in `('full', 'degraded', 'none')` — the coverage round's recorded render
+        state, or `none` when there is no coverage round. A `degraded` render discloses but
+        does not fire the coverage offer (that is the trigger's job).
+
+    Coverage-backing is a DISTINCT axis from convergence: it never redefines
+    `evaluate_convergence`, never gates `emit-body`/`query-eligibility`. Its only teeth are
+    the coverage offer trigger.
+    """
+    if state is None:
+        # The state could not be established at all (unreadable/corrupt — including a
+        # `_validate_coverage` raise). Byte-identical to the two BENIGN unestablished arms
+        # below unless the cause rides on the answering line, which is how a corrupt file
+        # reads as "no coverage round yet" — so each arm names its own reason.
+        return {'backing': 'unestablished', 'render': 'none', 'round': None,
+                'reason': 'state-unestablished'}
+    rnd = _coverage_round(state)
+    if rnd is None:
+        return {'backing': 'unestablished', 'render': 'none', 'round': None,
+                'reason': 'no-clean-round'}
+    coverage = rnd.get('coverage')
+    if not coverage:
+        # A clean round that recorded no coverage: unknown is not backed.
+        return {'backing': 'unestablished', 'render': 'none', 'round': rnd,
+                'reason': 'no-coverage-recorded'}
+    backed = all(e.get('outcome') in _COVERAGE_BACKING_OUTCOMES for e in coverage)
+    backing = 'backed' if backed else 'not-backed'
+    # The closed backing vocabulary is asserted, not merely documented: a token typo'd
+    # here would otherwise ship green, since nothing downstream re-checks it.
+    assert backing in _COVERAGE_BACKINGS
+    return {'backing': backing, 'render': rnd.get('coverage_render') or 'full',
+            'round': rnd, 'reason': None}
+
+
+def evaluate_coverage_trigger(state):
+    """Whether the unbacked-coverage offer trigger holds (issue #708).
+
+    A sibling of T1/T2, routed through the existing offer machinery and the existing
+    user-round cap. It fires ONLY on a genuinely-unbacked FULL-render clean audit — a
+    `skipped`/empty/generic-adjudicated anchor on a dimension the auditor DID render. A
+    legitimately narrowed (`degraded`) render discloses but never fires, so a consumer whose
+    auditor takes a fallback rung is not offered-at every run; a non-clean or no-coverage run
+    (backing `unestablished`) never fires either — filing is never blocked by this trigger.
+    """
+    cov = evaluate_coverage(state)
+    return cov['backing'] == 'not-backed' and cov['render'] == 'full'
 
 
 def issue_token(nonce, ground, key):
@@ -2468,6 +2689,11 @@ _SUMMARY_FIELDS = (
     # render as space-free tokens BEFORE `bound_root`, so `attestation` stays the
     # contractually-trailing field the #546 CLI pins anchor on.
     'effective_unresolved', 'convergence_basis',
+    # issue #708: the run's coverage-backing and the coverage round's render state, so the
+    # mandatory audit summary line carries the coverage evidence on EVERY arm and outcome —
+    # a backed clean run, an unbacked clean run, and every degraded arm alike. Both render
+    # as space-free tokens BEFORE `bound_root`, keeping `attestation` the trailing field.
+    'coverage_backing', 'coverage_render', 'coverage_reason',
 )
 
 
@@ -2501,7 +2727,9 @@ def summary_fields(state, current_digest=None, digest_failed=False):
                         attestation=None, adjudicated_verdict=None, must_revise=None,
                         advisory=None, invalid=None, unresolved_must_revise=None,
                         bound_root=None, bound_tier=None,
-                        effective_unresolved=None, convergence_basis='none')
+                        effective_unresolved=None, convergence_basis='none',
+                        coverage_backing='unestablished', coverage_render='none',
+                        coverage_reason='state-unestablished')
     done = completed_rounds(state)
     # Cumulative across every round this run: "how many things did the auditors
     # collectively flag", not merely the last round's tally.
@@ -2515,6 +2743,9 @@ def summary_fields(state, current_digest=None, digest_failed=False):
     # ONE convergence evaluation feeds both summary fields (issue #603): derived from two
     # independent call sites they could render two fields describing different states.
     _convergence = evaluate_convergence(state)
+    # issue #708: one coverage evaluation feeds both coverage summary fields, for the same
+    # single-source reason.
+    _coverage = evaluate_coverage(state)
     elig = evaluate_eligibility(state, 'approve', current_digest,
                                 digest_failed=digest_failed)
     token = elig['token']
@@ -2595,6 +2826,14 @@ def summary_fields(state, current_digest=None, digest_failed=False):
         # a reader can see the at-close count AND what post-close settling left.
         effective_unresolved=_convergence['effective'],
         convergence_basis=_convergence['basis'],
+        # issue #708: the run's coverage-backing and the coverage round's render state,
+        # derived from the final accepted clean round. A distinct axis from convergence —
+        # this derivation never feeds `effective_unresolved` or the convergence basis.
+        coverage_backing=_coverage['backing'],
+        coverage_render=_coverage['render'],
+        # WHICH unestablished arm — a clean round whose coverage step never ran is
+        # otherwise byte-identical on this line to a run with no clean round yet.
+        coverage_reason=_coverage.get('reason') or 'none',
     )
 
 
@@ -3137,6 +3376,48 @@ def cmd_record_adjudication(args):
           f'invalid={args.invalid} superseded={superseded}')
 
 
+def _read_stdin_lines(command, what, token):
+    """Read a quoted-heredoc line payload from stdin, or fail closed (issue #708).
+
+    ONE implementation of the fail-closed byte-read the line-oriented stdin transports
+    share — a closed fd (CPython sets `sys.stdin` to None, so an attribute access would
+    otherwise leak a raw traceback), a read error, an undecodable payload, and an empty
+    one. Callers supply their own `command` (for the breadcrumb prefix), the human `what`
+    they are reading, and the `token` their triage vocabulary uses, so every named
+    breadcrumb stays exactly what it was when each caller inlined this block.
+
+    The transport is deliberately line-oriented text, not a structured payload: the
+    skill's fence pipes the lines through a QUOTED-delimiter heredoc, so the shell never
+    expands the `$(...)`, backticks, and quotes that auditor-derived text routinely
+    contains.
+
+    Reading BYTES and decoding explicitly (rather than reading the text wrapper) is
+    load-bearing: decoding INSIDE the read `try` would let a UnicodeDecodeError (a
+    ValueError, not an OSError) escape as a raw traceback on routine input — text lifted
+    from a terminal transcript carrying a mangled smart quote or a truncated multibyte
+    char — breaking the mutation contract's named-breadcrumb half and leaving the skill's
+    stderr triage nothing to match.
+
+    Returns the non-blank lines. Never returns on any degraded shape.
+    """
+    if sys.stdin is None:
+        _fail(command, f'could not read the {what} from stdin: no stdin is attached '
+                       f'(fd 0 is closed)')
+    try:
+        data = sys.stdin.buffer.read()
+    except OSError as exc:
+        _fail(command, f'could not read the {what} from stdin: {exc}')
+    try:
+        raw = data.decode('utf-8')
+    except UnicodeDecodeError as exc:
+        _fail(command, f'the {what} is not valid UTF-8 text ({token}-undecodable): {exc}; '
+                       f'reword the text in plain text and re-issue the call')
+    if not raw.strip():
+        _fail(command, f'--{token}-stdin was given but no {what} lines were received on '
+                       f'stdin ({token}-empty)')
+    return [ln for ln in raw.split('\n') if ln.strip()]
+
+
 def _ingest_ledger(must_revise, unresolved):
     """Read `--ledger-stdin` and build the round's ledger, or fail closed.
 
@@ -3155,30 +3436,7 @@ def _ingest_ledger(must_revise, unresolved):
     command's own: record-revision hashes the bytes and never decodes them, so it has no
     decode step to mirror.
     """
-    if sys.stdin is None:
-        _fail('record-adjudication', 'could not read the finding ledger from stdin: no '
-                                     'stdin is attached (fd 0 is closed)')
-    try:
-        data = sys.stdin.buffer.read()
-    except OSError as exc:
-        _fail('record-adjudication', f'could not read the finding ledger from stdin: {exc}')
-    # Read BYTES like record-revision, then decode explicitly (record-revision hashes the
-    # bytes and never decodes, so the decode arm below is this command's own). Reading the text
-    # wrapper instead would decode INSIDE the try, where a UnicodeDecodeError (a ValueError,
-    # not an OSError) escapes as a raw traceback — breaking the mutation contract's
-    # named-breadcrumb half on routine input (a summary lifted from a terminal transcript
-    # carrying a mangled smart quote or a truncated multibyte char), leaving the skill's
-    # stderr triage nothing to match.
-    try:
-        raw = data.decode('utf-8')
-    except UnicodeDecodeError as exc:
-        _fail('record-adjudication',
-              f'the finding ledger is not valid UTF-8 text (ledger-undecodable): {exc}; '
-              f'reword the summary in plain text and re-issue the call')
-    if not raw.strip():
-        _fail('record-adjudication', '--ledger-stdin was given but no finding summaries '
-                                     'were received on stdin (ledger-empty)')
-    lines = [ln for ln in raw.split('\n') if ln.strip()]
+    lines = _read_stdin_lines('record-adjudication', 'finding ledger', 'ledger')
     if len(lines) != must_revise:
         _fail('record-adjudication',
               f'the ledger carries {len(lines)} finding summaries but the adjudication '
@@ -3228,6 +3486,174 @@ def _ingest_ledger(must_revise, unresolved):
               f'adjudication names {unresolved} unresolved must-revise findings '
               f'(ledger-unresolved-count)')
     return ledger
+
+
+def cmd_record_coverage(args):
+    """Record a round's per-dimension coverage outcomes (issue #708).
+
+    Recorded on a completed (FILE/REVISE) round — the call sequence places it after
+    adjudication, but only round COMPLETION is enforced here: one outcome per required audit
+    dimension from the closed set `_COVERAGE_OUTCOMES`, each labeled with its stable
+    renderer key. The auditor self-reports the outcomes and anchors as UNTRUSTED identity
+    data (never instructions to obey); this call enforces the TEXT-ONLY floor on the anchor
+    alone, and DOWNGRADES a floor-failing `exercised`/`valid-N/A` to `unestablished` (unknown
+    is not zero) rather than rejecting the whole call — the data-dependent checks
+    (byte-identity, cited-line existence) are the orchestrator's and already ran before this
+    call. Write-once per round, like adjudication. `--render` records whether the auditor
+    rendered every dimension (`full`) or a divergence narrowed the set (`degraded`).
+
+    **Stated residual (the honesty scope this feature claims, and no more).** Both
+    `--expected-keys` and `--render` are ORCHESTRATOR-SUPPLIED: the state owner holds no
+    template and cannot re-derive the enumeration, so it enforces totality against the
+    keyset it is GIVEN, not against the renderer's output. An orchestrator that passes only
+    the keys the auditor returned makes totality vacuous. That seam is inherent to the
+    tool/orchestrator split — what the tool can do, and does, is refuse an unenumerated key,
+    synthesize every missing one as `unestablished`, and PERSIST the supplied keyset
+    (`coverage_expected`) so the claim is auditable after the fact. `coverage-backed`
+    therefore means evidence of the required shape was present and survived the floor and
+    the orchestrator's adjudication — never certified scrutiny.
+    """
+    doc = _load_for_mutation('record-coverage', args.slug, args.nonce)
+    rnd = _find_round(doc, args.round)
+    if rnd is None:
+        _fail('record-coverage', f'no round {args.round} recorded; coverage cannot precede '
+                                 'its dispatch and return')
+    if rnd.get('outcome') not in ('FILE', 'REVISE'):
+        _fail('record-coverage', f'round {args.round} is not an accepted, completed round '
+                                 f'(outcome {rnd.get("outcome")!r}); only a FILE/REVISE '
+                                 f'round carries dimensions to cover')
+    if 'coverage' in rnd:
+        _fail('record-coverage', f'round {args.round} already records coverage '
+                                 f'(coverage-already-recorded); a round\'s coverage is '
+                                 f'written once')
+    expected = [k.strip() for k in args.expected_keys.split(',') if k.strip()]
+    if not expected:
+        _fail('record-coverage', '--expected-keys named no dimension keys '
+                                 '(coverage-expected-empty); pass the enumerated keyset '
+                                 'from `render-audit-prompt.py enumerate-dimensions`')
+    if len(set(expected)) != len(expected):
+        _fail('record-coverage', '--expected-keys repeats a dimension key '
+                                 '(coverage-expected-duplicate); the enumeration is keyed '
+                                 'and its keys are unique by construction')
+    coverage = _ingest_coverage(expected)
+    rnd['coverage'] = coverage
+    # Persist the enumeration totality was checked against. The state owner cannot
+    # re-derive it (it holds no template), so `--expected-keys` is an orchestrator-supplied
+    # operand — recording it makes the claim AUDITABLE after the fact instead of leaving
+    # only its effect. The residual is stated in the docstring and the growth artifact.
+    rnd['coverage_expected'] = expected
+    rnd['coverage_render'] = args.render
+    _save_or_fail('record-coverage', doc, args.slug)
+    # The echo carries only fields drawn from the tool's own printed vocabulary
+    # (`_PROTOCOL_TOKENS`) — the per-outcome breakdown is read back through
+    # `query-coverage`, so no per-outcome `<field>=` token (which would forge a protocol
+    # word and broaden the anchor-refusal vocabulary) is introduced here. `outcome=` names
+    # the outcomes recorded, comma-joined, as a value.
+    outcomes = ','.join(e['outcome'] for e in coverage) or 'none'
+    # A REVISE round's coverage is recorded but can never back the run (`_coverage_round`
+    # selects the final accepted CLEAN round), so the echo says so rather than reading as
+    # an unqualified success receipt for work no derivation will ever consume.
+    backs = 'yes' if rnd.get('outcome') == 'FILE' else 'no'
+    print(f'coverage_render={args.render} count={len(coverage)} outcome={outcomes} '
+          f'backs_run={backs}')
+
+
+def _ingest_coverage(expected_keys):
+    """Read `--coverage-stdin` and build the round's coverage list, or fail closed.
+
+    One line per required dimension: ``<key> <outcome> [anchor text...]`` — the key and
+    outcome are the first two whitespace-delimited tokens; the anchor is the rest of the
+    line (a quoted draft line plus one concern clause, for `exercised`; a one-line reason,
+    for `valid-N/A`). Mirrors `_ingest_ledger`'s byte-read + fail-closed decode/empty arms
+    and its quoted-heredoc transport, so auditor-derived anchor text never traverses shell
+    quoting. An `exercised`/`valid-N/A` line whose anchor FAILS the text-only floor is
+    DOWNGRADED to `unestablished` with its anchor dropped — never rejected (unknown is not
+    zero, and the coverage record must stay total over required dimensions).
+    """
+    lines = _read_stdin_lines('record-coverage', 'coverage list', 'coverage')
+    coverage = []
+    seen = set()
+    for idx, line in enumerate(lines, start=1):
+        parts = line.strip().split(None, 2)
+        if len(parts) < 2:
+            _fail('record-coverage',
+                  f'coverage line {idx} needs at least a key and an outcome '
+                  f'(coverage-line-shape); the form is "<key> <outcome> [anchor]"')
+        key, outcome = parts[0], parts[1]
+        anchor = parts[2].strip() if len(parts) == 3 else None
+        if outcome not in _COVERAGE_OUTCOMES:
+            _fail('record-coverage',
+                  f'coverage line {idx} names an outcome outside the canonical set '
+                  f'{_COVERAGE_OUTCOMES} (coverage-outcome): {outcome!r}')
+        if key in seen:
+            _fail('record-coverage',
+                  f'coverage line {idx} duplicates key {key!r} (coverage-duplicate-key)')
+        seen.add(key)
+        if outcome not in _COVERAGE_ANCHORED:
+            anchor = None
+        else:
+            floor_err = _coverage_anchor_floor(anchor)
+            if floor_err is not None:
+                # Downgrade, never reject: unknown is not zero. A floor-failing anchor does
+                # not back coverage, so the dimension records `unestablished` with no
+                # anchor — and the CAUSE is breadcrumbed rather than collapsed onto the
+                # outcome, so a reader can tell a tool-side text refusal (which the auditor
+                # could fix by rewording) from the auditor's own substantive judgment.
+                print(f'record-coverage: dimension {key!r} anchor fails the text-only floor '
+                      f'({floor_err}); recorded unestablished', file=sys.stderr)
+                outcome, anchor = 'unestablished', None
+        # ONE append for all three arms — the entry shape has a single construction site,
+        # so a later field cannot be added to two arms and missed on the third.
+        coverage.append({'key': key, 'outcome': outcome, 'anchor': anchor})
+    # TOTALITY over the authoritative enumeration (issue #708). `evaluate_coverage`'s
+    # `all(...)` is vacuously true over a SHORT list, so without this a one-line return
+    # against a twelve-dimension enumeration would derive `backed` — the mechanism passing
+    # on exactly the input it exists to catch. A returned key outside the enumeration is
+    # refused (the join has no dimension to attach it to); an enumerated key the auditor
+    # returned no line for is synthesized `unestablished` — never dropped, never assumed
+    # covered (unknown is not zero).
+    unknown = [k for k in seen if k not in set(expected_keys)]
+    if unknown:
+        _fail('record-coverage',
+              f'coverage names {len(unknown)} key(s) outside the authoritative enumeration '
+              f'(coverage-unknown-key): {sorted(unknown)}; the auditor outcomes join the '
+              f'enumerated dimensions by shared key, so an unenumerated key has no '
+              f'dimension to attach to')
+    for key in expected_keys:
+        if key not in seen:
+            coverage.append({'key': key, 'outcome': 'unestablished', 'anchor': None})
+    return coverage
+
+
+def cmd_query_coverage(args):
+    """The run's coverage-backing, read back durably (issue #708).
+
+    Read-only and exit-0 like its sibling queries, with the same inline fail-closed
+    foreign-nonce answer. The FIRST line is the decided token line
+    `coverage_backing=<token> coverage_render=<token>` — the orchestrator reads its
+    coverage decision from state, never from context recall, so the decision survives a
+    compaction. Subsequent lines (one per dimension of the coverage round) carry the durable
+    per-dimension outcomes: `key=<k> outcome=<o> anchor=<text>` (anchor trailing, may
+    contain spaces — the anchor floor bars it forging a `<field>=` token).
+    """
+    state = _query_state(args.slug)
+    if state is not None and state['nonce'] != args.nonce:
+        print('coverage_backing=unestablished coverage_render=none reason=foreign-nonce')
+        return
+    cov = evaluate_coverage(state)
+    # `reason=` renders on EVERY arm (`none` when there is nothing to name): a
+    # conditionally-present trailing field cannot be told from a truncated line.
+    print(f'coverage_backing={cov["backing"]} coverage_render={cov["render"]} '
+          f'reason={cov.get("reason") or "none"}')
+    # The coverage round rides on the SAME derivation that decided the tokens — deriving
+    # it a second time would be two call sites that must agree on which round is
+    # authoritative, the drift #603 removed from the summary fields.
+    rnd = cov['round']
+    if rnd is not None:
+        for e in rnd.get('coverage') or []:
+            anchor = e.get('anchor')
+            trailer = f' anchor={anchor}' if anchor is not None else ''
+            print(f'key={e["key"]} outcome={e["outcome"]}{trailer}')
 
 
 # ── The post-close ledger channels (issue #603) ───────────────────────────────────
@@ -4333,13 +4759,21 @@ def cmd_query_triggers(args):
     state = _query_state(args.slug)
     if state is not None and state['nonce'] != args.nonce:
         # Fail closed like the sibling queries, but NAME the cause: the state file is
-        # valid, the caller is foreign — 'state-unestablished' would misattribute.
-        print('t1=not-hold t2=hold reason=foreign-nonce')
+        # valid, the caller is foreign — 'state-unestablished' would misattribute. The
+        # coverage field stays present (not-hold) so the line shape is identical on every
+        # arm and the orchestrator's hand-parse never sees a field appear/disappear.
+        print('t1=not-hold t2=hold coverage=not-hold reason=foreign-nonce')
         return
     t = evaluate_triggers(state)
     reason = t['reason'] or ''
+    # issue #708: the unbacked-coverage offer trigger is a sibling of T1/T2 on the SAME
+    # boundary offer, so it is produced by the SAME evaluation rather than a second call
+    # concatenated in the printer (the one-producer discipline #603 established for the
+    # summary fields). `coverage=` renders BEFORE `reason=` so `reason` stays the trailing
+    # field the orchestrator's parse already anchors on.
     print(f't1={"hold" if t["t1"] else "not-hold"} '
-          f't2={"hold" if t["t2"] else "not-hold"} reason={reason}')
+          f't2={"hold" if t["t2"] else "not-hold"} '
+          f'coverage={"hold" if t["coverage"] else "not-hold"} reason={reason}')
 
 
 def _unledgered_revise(state):
@@ -4531,6 +4965,11 @@ def cmd_query_summary(args):
           f'adjudicated_verdict={adj_v} must_revise={mr} advisory={adv} invalid={inv} '
           f'unresolved_must_revise={umr} effective_unresolved={eff} '
           f'convergence_basis={f["convergence_basis"]} '
+          # issue #708: the coverage-backing and render tokens — space-free, before
+          # bound_root, so attestation stays the trailing anchored field.
+          f'coverage_backing={f["coverage_backing"]} '
+          f'coverage_render={f["coverage_render"]} '
+          f'coverage_reason={f["coverage_reason"]} '
           f'bound_root={f["bound_root"] or "none"} bound_tier={f["bound_tier"] or "none"} '
           f'attestation={f["attestation"] or "none"}')
 
@@ -4631,6 +5070,33 @@ def main():
                         'performs a bare stdin read. A FILE verdict and a REVISE + '
                         "'unestablished' adjudication take no flag and record no ledger.")
     s.set_defaults(func=cmd_record_adjudication)
+
+    s = sub.add_parser('record-coverage',
+                       help="Record a completed round's per-dimension coverage outcomes "
+                            '(issue #708).')
+    s.add_argument('slug')
+    s.add_argument('--nonce', required=True)
+    s.add_argument('--round', type=int, required=True)
+    s.add_argument('--render', choices=_COVERAGE_RENDERS, required=True,
+                   help="'full' when the auditor rendered every dimension on the "
+                        "orchestrator's authoritative enumeration; 'degraded' when a render "
+                        'divergence narrowed the auditor set (un-rendered dimensions record '
+                        'unestablished; a degraded render discloses but never fires the '
+                        'coverage offer).')
+    s.add_argument('--expected-keys', required=True,
+                   help="The AUTHORITATIVE enumerated dimension keys, comma-separated, as "
+                        "printed by `render-audit-prompt.py enumerate-dimensions` (issue "
+                        "#708). Coverage must be TOTAL over this set: an enumerated key "
+                        "the auditor returned no line for is synthesized as unestablished "
+                        "(unknown is not zero), and a returned key outside the set is "
+                        "refused. Without it a truncated return would derive `backed` "
+                        "vacuously — `all()` over a short list is trivially true.")
+    s.add_argument('--coverage-stdin', action='store_true', required=True,
+                   help='Read one line per required dimension on stdin: '
+                        '"<key> <outcome> [anchor]", outcome in '
+                        + repr(_COVERAGE_OUTCOMES) + '. An exercised/valid-N/A anchor '
+                        'failing the text-only floor is downgraded to unestablished.')
+    s.set_defaults(func=cmd_record_coverage)
 
     s = sub.add_parser('record-revision', help='Record that the draft was revised.')
     s.add_argument('slug')
@@ -4877,6 +5343,13 @@ def main():
     s.add_argument('slug')
     s.add_argument('--nonce', required=True)
     s.set_defaults(func=cmd_query_findings)
+
+    s = sub.add_parser('query-coverage',
+                       help="The run's coverage-backing, derived from the final accepted "
+                            'clean round (#708); the durable coverage read-back.')
+    s.add_argument('slug')
+    s.add_argument('--nonce', required=True)
+    s.set_defaults(func=cmd_query_coverage)
 
     s = sub.add_parser('query-eligibility', help='Presentation eligibility in approve or '
                                                  'iterate mode.')
