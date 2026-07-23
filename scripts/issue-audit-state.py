@@ -1584,6 +1584,22 @@ def _validate_adjudication_records(rnd, num):
             continue
         if not isinstance(records, list):
             raise StateError(f'round {num} {cls}_records {records!r} is not a list')
+        # Re-assert the record-time count<->records totality at the READ boundary, exactly as
+        # `_validate_coverage` re-derives against `coverage_expected` (issue #743): ingestion
+        # enforces `len(records) == --<cls>` bidirectionally, but the count is stored on the
+        # round SEPARATELY from the records list, so a hand-deleted record would leave a
+        # shorter list beside a stale count and could launder `under-evidenced` into `clear`
+        # (a deleted impact-bearing unevidenced entry vanishes from the derivation). Only
+        # enforce when the count is a settled non-negative int (the round-schema arm above
+        # already shape-checked it), so a legacy round with the records but no count is not
+        # rejected. Fail closed to unestablished — the calibration axis is disclosure-only,
+        # but this file's read boundary treats direct state corruption as in-scope.
+        count = rnd.get(f'{cls}_count')
+        if (isinstance(count, int) and not isinstance(count, bool) and count >= 0
+                and len(records) != count):
+            raise StateError(f'round {num} {cls}_records carries {len(records)} record(s) but '
+                             f'{cls}_count is {count} (records-count-mismatch); a truncated '
+                             f'records list is never read as calibration-clear')
         seen_ids = set()
         for pos, entry in enumerate(records, start=1):
             if not isinstance(entry, dict):

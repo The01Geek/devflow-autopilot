@@ -15074,6 +15074,96 @@ def _row743_clear(r):
 _with_run603(_row743_clear)
 
 
+def _row743_render_tooth(r):
+    # The calibration trigger is `under-evidenced OR render != reported`. _row743_clear
+    # exercises backing=clear + render=reported (both operands false → trigger no). This
+    # isolates the RENDER operand: an evidenced impact-bearing advisory (backing=clear) that
+    # the run has NOT reported rendering fires the trigger on the render tooth alone — the
+    # disclosure of an unrendered-but-otherwise-clean grade before the approval election.
+    # Without this row a mutation dropping the `render != 'reported'` operand ships green.
+    r.open_round(1)
+    evidenced = dict(_A743, evidence='probed: default present, no KeyError')
+    _adj743(r, 1, must=1, advisory=1, invalid=0, adv=[evidenced], ledger='unresolved: f\n')
+    cal = r('query-calibration', r.slug, nonce=True).stdout
+    assert_eq("#743 render-tooth: clear backing + UNreported render still fires the trigger",
+              True, ('calibration_backing=clear' in cal
+                     and 'adjudication_render=unreported' in cal
+                     and 'calibration_trigger=yes' in cal))
+    # --landed no records `unreported` (the else branch of the render mapping); then --landed
+    # yes flips it and, backing being clear, the trigger clears (both operands now false).
+    rr = r('record-adjudication-render', r.slug, '--round', '1', '--landed', 'no', nonce=True)
+    assert_eq("#743 render: --landed no records adjudication_render=unreported",
+              True, rr.returncode == 0 and 'adjudication_render=unreported' in rr.stdout)
+    r('record-adjudication-render', r.slug, '--round', '1', '--landed', 'yes', nonce=True)
+    cal2 = r('query-calibration', r.slug, nonce=True).stdout
+    assert_eq("#743 render-tooth: clear backing + reported render clears the trigger",
+              True, 'calibration_trigger=no' in cal2)
+
+
+_with_run603(_row743_render_tooth)
+
+
+def _row743_more_refusals(r):
+    r.open_round(1)
+    # evidence-field refusal arms (the field that decides under-evidenced vs clear).
+    bad = dict(_A743, evidence='sneaky summary= token')
+    p = _adj743(r, 1, advisory=1, adv=[bad], ledger='unresolved: f\n')
+    assert_eq("#743: a protocol <field>= token in evidence is refused (advisory-evidence-protocol-vocabulary)",
+              True, p.returncode != 0 and 'advisory-evidence-protocol-vocabulary' in p.stderr)
+    bad = dict(_A743, evidence='line\nbreak')
+    p = _adj743(r, 1, advisory=1, adv=[bad], ledger='unresolved: f\n')
+    assert_eq("#743: a record-splitting byte in evidence is refused (advisory-evidence-control-char)",
+              True, p.returncode != 0 and 'advisory-evidence-control-char' in p.stderr)
+    # a non-object entry inside a valid array (distinct from not-json / not-list).
+    p = _adj743(r, 1, advisory=1, adv=[123], ledger='unresolved: f\n')
+    assert_eq("#743: a non-object record entry is refused (advisory-record-not-object)",
+              True, p.returncode != 0 and 'advisory-record-not-object' in p.stderr)
+    # the INVALID class shares the ingest helper but its breadcrumbs carry the invalid
+    # prefix — a hard-coded 'advisory' prefix would ship green without this row.
+    bad = dict(_INV743, impact_class='bogus')
+    p = _adj743(r, 1, invalid=1, inv=[bad], ledger='unresolved: f\n')
+    assert_eq("#743: an out-of-set invalid-class impact_class is refused (invalid-impact-class)",
+              True, p.returncode != 0 and 'invalid-impact-class' in p.stderr)
+    p = _adj743(r, 1, invalid=1, ledger='unresolved: f\n')
+    assert_eq("#743: --invalid N with no records file is refused (invalid-records-required, driven)",
+              True, p.returncode != 0 and 'invalid-records-required' in p.stderr)
+    # a corrected call still succeeds (round stayed adjudicable through every refusal).
+    assert_eq("#743: after the invalid-class refusals the round is still adjudicable",
+              0, _adj743(r, 1, must=1, advisory=0, invalid=1, inv=[_INV743],
+                         ledger='unresolved: f\n').returncode)
+
+
+_with_run603(_row743_more_refusals)
+
+
+def _row743_cardinality(r):
+    # 2.3.7 collection-cardinality: the unevidenced id derivation sorts+joins, exercised here
+    # with TWO impact-bearing unevidenced advisory records so a wrong sort key or separator is
+    # caught (a single-element row exercises neither the comparator nor the join).
+    r.open_round(1)
+    a1 = dict(_A743, summary='first unevidenced', impact_class='safety')
+    a2 = dict(_A743, summary='second unevidenced', impact_class='scope')
+    _adj743(r, 1, must=1, advisory=2, invalid=0, adv=[a1, a2], ledger='unresolved: f\n')
+    cal = r('query-calibration', r.slug, nonce=True).stdout
+    assert_eq("#743 cardinality: two unevidenced impact-bearing ids join sorted as 1,2",
+              True, 'calibration_backing=under-evidenced' in cal and 'unevidenced=1,2' in cal)
+    out = r('query-adjudication-records', r.slug, '--round', '1', '--record-class',
+            'advisory', nonce=True).stdout.strip().split('\n')
+    assert_eq("#743 cardinality: both advisory records read back, id order 1 then 2",
+              True, len(out) == 2 and 'id=1 ' in out[0] and 'id=2 ' in out[1])
+    # query foreign-nonce arm fails closed on both read-back queries.
+    assert_eq("#743: query-adjudication-records fails closed on a foreign nonce",
+              'records=none reason=foreign-nonce',
+              r('query-adjudication-records', r.slug, '--round', '1',
+                '--nonce', 'badnonce').stdout.strip())
+    assert_eq("#743: query-calibration fails closed on a foreign nonce",
+              True, 'reason=foreign-nonce' in r('query-calibration', r.slug,
+                                                 '--nonce', 'badnonce').stdout)
+
+
+_with_run603(_row743_cardinality)
+
+
 # Read-boundary corruption arms — a hand-corrupted record fails closed (StateError →
 # unestablished), never a traceback reaching the derivation/summary. Driven through the
 # module's _validate directly on a minimal doc, mirroring the #603/#704 corrupt-state matrix.
@@ -15104,6 +15194,19 @@ for _label, _patch in [
      lambda rd: rd.__setitem__('adjudication_render', 'sideways')),
     ('a duplicate record id',
      lambda rd: rd['advisory_records'].append(dict(rd['advisory_records'][0]))),
+    ('a record-splitting byte in a stored rationale',
+     lambda rd: rd['advisory_records'][0].__setitem__('rationale', 'a\rb')),
+    ('a stored id below 1',
+     lambda rd: rd['advisory_records'][0].__setitem__('id', 0)),
+    # issue #743 finding: a records list shorter than its stored count must fail closed at the
+    # read boundary (the truncated-list launder the type-design review surfaced), symmetric
+    # with _validate_coverage's totality guard. Here len(advisory_records)=1 but count=2.
+    ('a records list shorter than its stored count (truncation launder)',
+     lambda rd: rd.__setitem__('advisory_count', 2)),
+    # the invalid class rides the SAME per-class loop — corrupt its list to prove both classes
+    # are validated (a loop that iterated only 'advisory' would miss this).
+    ('an invalid_records that is not a list',
+     lambda rd: rd.__setitem__('invalid_records', 'notalist')),
 ]:
     _raised743 = False
     try:
