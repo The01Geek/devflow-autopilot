@@ -2498,13 +2498,13 @@ probe_two_line() {  # assertion-fn args... -> prints verdict, cause-token, probe
 #
 # _int_cmp LEFT OP RIGHT — integer comparison that dispatches OP through a case with one
 # literal-operator arm per member of the closed set `-eq -le -lt -ge -gt` (exactly these
-# five, complete by construction), each running a literal `[ ]` test and returning its
-# exit status. A structural rewrite of the two `[ "$n" "$op" "$bound" ]` splices below:
+# operators, complete by construction), each running a literal `[ ]` test and returning its
+# exit status. A structural rewrite of the `[ "$n" "$op" "$bound" ]` splices below:
 # the analyzer cannot parse a `[ ]` whose comparator is a variable (SC1072/SC1073 abort the
 # whole file), and a per-line disable directive does not suppress a PARSE error — so the
 # operator is dispatched here instead of spliced. The default arm returns 2, so an operator outside
-# the closed set produces an ERRORED comparison status (never a satisfied 0), which the two
-# call sites below both fail closed on. `_int_cmp` presumes numeric operands (assert_count_red_under
+# the closed set produces an ERRORED comparison status (never a satisfied 0), which each
+# call site below fails closed on. `_int_cmp` presumes numeric operands (assert_count_red_under
 # validates OP and BOUND upstream and proves the counts numeric before calling); the inner
 # `[ ]` still errors (rc 2) on a non-numeric operand, preserving the fail-closed direction.
 _int_cmp() {  # left op right -> 0 satisfied, 1 not satisfied, 2 invalid op / errored compare
@@ -2727,7 +2727,7 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   # proceeds to PASS here; rc 0 (still satisfies → BOUND-NOT-BREACHED) AND rc>=2 (an errored
   # or invalid-op comparison) both fail closed to BOUND-NOT-BREACHED, never falling through to
   # a spurious PASS. Largely unreachable today (mut_count is proven numeric at step 7, op and
-  # bound are validated upstream) — defense-in-depth so the two mirror comparisons fail in the
+  # bound are validated upstream) — defense-in-depth so both mirror comparisons fail in the
   # same direction. A bare `!`-invert is NOT the fix: it would route the errored rc>=2 to PASS
   # (fail-open, worse), so the rc is captured explicitly and every value other than 1 fails. ──
   _int_cmp "$mut_count" "$op" "$bound" 2>/dev/null; breach_rc=$?
@@ -2961,6 +2961,10 @@ assert_eq "#717 _int_cmp -ge does not hold → 1" "1" "$(_intcmp_rc 2 -ge 3)"
 assert_eq "#717 _int_cmp -gt holds → 0" "0" "$(_intcmp_rc 4 -gt 3)"
 assert_eq "#717 _int_cmp -gt does not hold → 1" "1" "$(_intcmp_rc 3 -gt 3)"
 assert_eq "#717 _int_cmp an operator outside the closed set → 2 (errored, never satisfied)" "2" "$(_intcmp_rc 2 -ne 2)"
+# A non-numeric OPERAND on an in-set operator: the inner `[ ]` errors (rc 2), so the helper
+# stays fail-closed (never a satisfied 0) — pins the comment's asserted-but-otherwise-untested
+# non-numeric-operand claim (callers validate numerics upstream, so this is defense-in-depth).
+assert_eq "#717 _int_cmp a non-numeric operand → 2 (errored, never satisfied)" "2" "$(_intcmp_rc x -eq 2 2>/dev/null)"
 # Issue #500 parked-class sweep contract pins. These stay below the
 # assert_pin_red_under definition so the behavioral mutations below execute.
 assert_pin_unique "#500: parked-class sweep contract heading is present" \
@@ -47463,7 +47467,48 @@ assert_eq "#717 guard: a lib/test path named only in a comment is not covered" "
 # Case h — the glob's lib/test exclusion narrowed from the exact form → fail closed.
 assert_eq "#717 guard: a narrowed glob exclusion fails closed" "1|FAIL" \
   "$(_lcg "$LCG_FX_GLOB" "$LCG_L_ALPHA")"
+# Case i — the SAME narrowed exclusion but written across POSIX trailing-pipe
+# continuations (bare `|` line-ends, no backslash) instead of a backslash-joined line.
+# Left unfolded this pipeline spans several physical lines and escapes the single-line
+# glob search entirely (fail-OPEN); the operator-continuation fold makes it fail closed
+# like Case h regardless of pipe layout (issue #717 review — corroborated fail-open gap).
+LCG_FX_PIPE="$(probe_tmp '#717 guard: trailing-pipe narrowed-glob ci.yml fixture')"
+cat > "$LCG_FX_PIPE" <<'YAML'
+name: CI
+jobs:
+  lint:
+    steps:
+      - run: |
+          git ls-files '*.sh' |
+            grep -v '^lib/test/fixtures/' |
+            xargs -r shellcheck --severity=warning -e SC1091
+          shellcheck --severity=warning -e SC1091 lib/test/alpha.sh
+YAML
+assert_eq "#717 guard: a narrowed exclusion across trailing-pipe continuations fails closed" "1|FAIL" \
+  "$(_lcg "$LCG_FX_PIPE" "$LCG_L_ALPHA")"
+# Case j — the glob's `grep -v` exclusion removed ENTIRELY (a different way to regress it
+# than narrowing): the glob line reaches shellcheck with no exclusion at all, so the
+# `not m` predicate in _glob_exclusion_ok fires → fail closed.
+LCG_FX_NOGREP="$(probe_tmp '#717 guard: no-grep-exclusion ci.yml fixture')"
+cat > "$LCG_FX_NOGREP" <<'YAML'
+name: CI
+jobs:
+  lint:
+    steps:
+      - run: |
+          git ls-files '*.sh' | xargs -r shellcheck --severity=warning -e SC1091
+          shellcheck --severity=warning -e SC1091 lib/test/alpha.sh
+YAML
+assert_eq "#717 guard: a glob pipeline with no grep exclusion at all fails closed" "1|FAIL" \
+  "$(_lcg "$LCG_FX_NOGREP" "$LCG_L_ALPHA")"
+# Case k — valid YAML mapping but NO `jobs:` key (a ci.yml restructure that moves lint
+# out of jobs:) → the distinct no-jobs-mapping fail-closed arm fires.
+LCG_FX_NOJOBS="$(probe_tmp '#717 guard: no-jobs-mapping ci.yml fixture')"
+printf 'name: CI\n' > "$LCG_FX_NOJOBS"
+assert_eq "#717 guard: a ci.yml with no jobs: mapping fails closed" "1|FAIL" \
+  "$(_lcg "$LCG_FX_NOJOBS" "$LCG_L_ALPHA")"
 rm -f "$LCG_FX_OK" "$LCG_FX_GLOB" "$LCG_FX_CMT" "$LCG_FX_NOSC" "$LCG_FX_BAD" "$LCG_FX_EMPTY" \
+      "$LCG_FX_PIPE" "$LCG_FX_NOGREP" "$LCG_FX_NOJOBS" \
       "$LCG_L_OK" "$LCG_L_MISS" "$LCG_L_FX" "$LCG_L_CMT" "$LCG_L_ALPHA"
 #
 # review-and-fix: verification_evidence gains a skipped_checks list, and the not-a-clean-pass

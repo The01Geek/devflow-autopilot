@@ -18,10 +18,18 @@ when any tracked `lib/test/**/*.sh` file is neither in that set nor under the si
 declared exempt prefix `lib/test/fixtures/`.
 
 It is a BEST-EFFORT reader of a human-maintained YAML file, so it fails CLOSED on
-every shape it cannot interpret (unreadable/empty/non-YAML ci.yml; no shellcheck
-invocation locatable; the `git ls-files '*.sh'` glob's `lib/test/` exclusion changed
-from the exact recognized form) rather than reporting full coverage from the
+every shape it cannot interpret (unreadable/empty/non-YAML ci.yml; no `jobs:` mapping;
+no shellcheck invocation locatable; the `git ls-files '*.sh'` glob's `lib/test/`
+exclusion changed from the exact recognized form — whether the pipeline is written
+backslash-joined or across POSIX trailing-`|`/`&&`/`||` continuations, both of which
+are folded before the glob search) rather than reporting full coverage from the
 explicit list alone. A red guard is the safe direction: it forces human attention.
+
+KNOWN LIMITATION (best-effort caveat): a shellcheck step gated inactive by a job- or
+step-level `if:` (e.g. `if: false`) is still read as live coverage — this reader does
+not evaluate `if:` conditions. Disabling a lint step that way would let its files read
+as covered though CI lints nothing; it takes an implausible self-sabotaging edit, and
+the `if:` surface is not part of the reconciled contract, so it is left uncovered.
 
 Exit 0 = every tracked lib/test file is CI-linted or under the exempt prefix.
 Exit 1 = a fail-closed condition, or an offending uncovered non-exempt file.
@@ -140,6 +148,17 @@ def derive_ci_linted(ci_text: str) -> set[str]:
     run_text = _collect_run_blocks(ci_text)
     # Comment-strip + join line-continuations ONCE; both derivations below read it.
     cleaned = _strip_shell_comments(run_text).replace("\\\n", " ")
+    # Also fold POSIX operator-continuations: a physical line ending in an unquoted
+    # trailing `|`, `&&`, or `||` continues onto the next line with NO backslash. Left
+    # unjoined, a `git ls-files '*.sh' | grep -v … | xargs … shellcheck` pipeline
+    # written across such lines would span several physical lines, so
+    # _glob_exclusion_ok's single-line search finds no glob line, returns True, and the
+    # lib/test/ exclusion could be narrowed or removed unnoticed — a fail-OPEN gap in a
+    # guard whose whole promise is fail-closed (issue #717 review). Preserve the operator
+    # (\1) so _shellcheck_invocations still sees its command-start delimiters. Folding
+    # more onto one line is the fail-CLOSED direction, consistent with this best-effort
+    # parser's contract. `||` is matched before the single `|` by alternation order.
+    cleaned = re.sub(r"(\|\||&&|\|)[ \t]*\n[ \t]*", r"\1 ", cleaned)
     invocations = _shellcheck_invocations(cleaned)
     if not invocations:
         raise GuardError(
