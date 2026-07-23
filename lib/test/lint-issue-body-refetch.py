@@ -50,9 +50,10 @@ duplicate that exclusion: widening `AUDITED_PREFIX` is a deliberate act, and the
 immunity is pinned by an assertion in `lib/test/run.sh` (the `#725` block) that
 plants a worktree-shaped decoy carrying a real re-fetch violation, drives it
 through `--files-from` (so no `.git/info/exclude` line has any say), proves the
-real helper does not report it, and proves a scratch copy with the prefix widened
-DOES report it — so the pin guards the prefix property, not a merely-deselected
-path.
+real helper does not report it, and proves the same decoy — with the helper's
+`AUDITED_PREFIX` widened in-process (importlib, so the shipped file's own sibling
+imports still resolve) — DOES report it, so the pin guards the prefix property,
+not a merely-deselected path.
 
 Detected re-fetch forms (at minimum these five):
   1. `gh issue view` requesting `body` in its `--json` field list.

@@ -48175,6 +48175,32 @@ got = m.exclude_worktree_paths({
 })
 print(",".join(sorted(got)))' "$E725_RA_LINT")"
 
+# AC4 (integration): the exclude_worktree_paths pin above covers the function in isolation, but
+# the guarded regression is removal of its CALL SITE in budget_row (the function stays defined and
+# the isolated pin stays green). So drive the real budget_row over a monkeypatched change set whose
+# untracked leg carries a worktree copy of a watch-glob-matching review-phase file, against the
+# real repo root (so watch_list resolves its members with none missing). WITH the call-site filter
+# the copy is dropped and the row is clean; drop the filter and the copy matches the watch glob from
+# the right, enters the intersection, and the row reports JUDGMENT drift — so this pin turns RED on
+# the call-site removal the isolated pin cannot see.
+assert_eq "#725 regenerate-artifacts budget_row excludes a worktree copy from the untracked change set (AC4 call-site pin)" \
+  "clean:(False, False)" \
+  "$(E725_RA_LINT="$E725_RA_LINT" python3 -c '
+import importlib.util, os
+spec = importlib.util.spec_from_file_location("ra", os.environ["E725_RA_LINT"])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+root = m.default_repo_root()
+row = next(r for r in m.ROWS if r["name"] == "review-bundle-budget")
+decoy = ".claude/worktrees/w/skills/review/phases/decoy.md"
+def fake(root_, argv):
+    return {decoy} if argv == ("git", "ls-files", "--others", "--exclude-standard") else set()
+m._git_paths = fake
+report = []
+res = m.budget_row(row, root, report)
+verdict = "clean" if report and report[-1].lstrip().startswith("[review-bundle-budget] clean") else "drift"
+print("%s:%s" % (verdict, res))
+')"
+
 # #466 mla-rule-drift (coupled site): match-lint-adjudications.py excludes R4 from carry-forward
 # because R4's detail carries no referent. That exclusion is a DENY-list, so a NEW stale-prose
 # rule would silently inherit eligibility. Pin the lint's emitted STALE rule-id set: adding a
