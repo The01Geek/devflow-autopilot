@@ -1904,6 +1904,24 @@ class PoolMembershipCompletenessTests(unittest.TestCase):
                 any("test_planted_zzz.py" in v for v in violations), violations
             )
 
+    def test_module_harness_installs_no_exit_trap(self) -> None:
+        # issue #720: the pool lives in lib/test/module-harness.sh, so run.sh's
+        # single-EXIT-trap scan (which reads run.sh source only) cannot see a
+        # `trap … EXIT` added inside a pool function — and the runtime pool-trap
+        # assertion in run.sh deliberately cannot inspect EXIT (bash resets a
+        # subshell's inherited EXIT trap on entry). Scan module-harness.sh's own
+        # source for any EXIT-trap installer so a future `trap _pool_cleanup EXIT`
+        # inside the pool, which would silently displace run.sh's _suite_cleanup at
+        # runtime, is caught structurally. Strip+comment-skip mirrors the run.sh scan.
+        harness_text = HARNESS_SOURCE.read_text(encoding="utf-8")
+        exit_traps = [
+            stripped
+            for stripped in (line.strip() for line in harness_text.splitlines())
+            if not stripped.startswith("#")
+            and re.match(r"^trap\s+\S.*\sEXIT$", stripped)
+        ]
+        self.assertEqual(exit_traps, [], f"module-harness.sh installs an EXIT trap: {exit_traps}")
+
     def test_the_pool_is_invoked_only_from_run_sh(self) -> None:
         # The pool driver lives in module-harness.sh but is opened only by the full
         # suite: run-module.sh (the focused module runner) must never call it, and its

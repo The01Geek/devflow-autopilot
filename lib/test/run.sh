@@ -49895,6 +49895,9 @@ printf 'print("pool fixture ok")\nimport sys; sys.exit(0)\n' > "$POOL720_FIX/pa.
 printf 'print("pool fixture ok")\nimport sys; sys.exit(0)\n' > "$POOL720_FIX/pb.py"
 printf 'import sys\nprint("POOL720_FIXTURE_BOOM")\nsys.exit(1)\n' > "$POOL720_FIX/fc.py"
 printf 'import os\nopen(os.environ["DEVFLOW_POOL_TALLY_FILE"],"a").write("PASS\\nPASS\\nPASS\\n")\nprint("3 passed, 0 failed")\n' > "$POOL720_FIX/td.py"
+# A self-tally suite that records ZERO verdicts but exits 0 — exercises the reap's
+# zero-assertion fail-closed guard (a silently-empty pooled suite must FAIL, not vanish).
+printf 'print("0 passed, 0 failed")\nimport sys; sys.exit(0)\n' > "$POOL720_FIX/zt.py"
 
 _pool720_run() {  # width  -> prints the pool's failure output then "COUNTS <pass> <fail>"
   (
@@ -49916,6 +49919,13 @@ _POOL720_CORE_C="$(printf '%s\n' "$_POOL720_CORE" | grep '^COUNTS ' | tail -1)"
 _POOL720_W1_C="$(printf '%s\n' "$_POOL720_W1" | grep '^COUNTS ' | tail -1)"
 assert_eq "#720 pool: every named suite's verdict reaches RESULTS_FILE (core-derived width)" "COUNTS 5 1" "$_POOL720_CORE_C"
 assert_eq "#720 pool: tallies at core-derived width equal tallies at width 1 (equivalence gate)" "$_POOL720_CORE_C" "$_POOL720_W1_C"
+# A forced width of 2 guarantees ≥2 in-flight children even on a single-core host, where the
+# core-derived width above would itself be 1 and the equivalence gate would compare width-1
+# to width-1 (vacuous). This anchors the concurrency-vs-serial equivalence to a real
+# multi-in-flight run regardless of host core count (issue #720 review).
+_POOL720_W2="$(_pool720_run 2 2>/dev/null)"
+_POOL720_W2_C="$(printf '%s\n' "$_POOL720_W2" | grep '^COUNTS ' | tail -1)"
+assert_eq "#720 pool: tallies at forced width 2 (≥2 in-flight) equal tallies at width 1" "$_POOL720_W1_C" "$_POOL720_W2_C"
 assert_eq "#720 pool: a planted failing fixture fails the run identically at width 1 (positive control)" "COUNTS 5 1" "$_POOL720_W1_C"
 case "$_POOL720_CORE" in
   *POOL720_FIXTURE_BOOM*) assert_eq "#720 pool: a failing suite increments FAIL and its captured output is printed" "yes" "yes" ;;
@@ -49933,10 +49943,31 @@ assert_eq "#720 pool width: a non-positive override is ignored and the probe is 
 # A suite whose script does not exist fails CLOSED (FAIL), never skipped.
 _POOL720_BAD="$( ( RESULTS_FILE="$(mktemp)"; devflow_pool_open bad "$POOL720_FIX/nope.py" single-verdict; devflow_pool_join; printf '%s %s\n' "$(grep -c '^PASS$' "$RESULTS_FILE")" "$(grep -c '^FAIL$' "$RESULTS_FILE")"; rm -f "$RESULTS_FILE" ) 2>/dev/null | tail -1 )"
 assert_eq "#720 pool: a suite whose script path does not exist fails closed (FAIL, not skipped)" "0 1" "$_POOL720_BAD"
+# A self-tally suite that records zero verdicts fails CLOSED (the reap's zero-assertion
+# guard), never silently contributing nothing with '0 failed'.
+_POOL720_ZERO="$( ( RESULTS_FILE="$(mktemp)"; devflow_pool_open zt "$POOL720_FIX/zt.py" self-tally; devflow_pool_join; printf '%s %s\n' "$(grep -c '^PASS$' "$RESULTS_FILE")" "$(grep -c '^FAIL$' "$RESULTS_FILE")"; rm -f "$RESULTS_FILE" ) 2>/dev/null | tail -1 )"
+assert_eq "#720 pool: a self-tally suite recording zero assertions fails closed (FAIL, not a silent empty)" "0 1" "$_POOL720_ZERO"
 # A supervisor PID-rendezvous timeout under saturation is absorbed by the serial-retry
 # path (the retry is exercised by forcing a real timeout, not by asserting timeouts away).
-_POOL720_RDV="$( ( RESULTS_FILE="$(mktemp)"; DEVFLOW_POOL_FORCE_RENDEZVOUS_TIMEOUT=pa DEVFLOW_POOL_WIDTH=2 devflow_pool_open pa "$POOL720_FIX/pa.py" single-verdict pb "$POOL720_FIX/pb.py" single-verdict; devflow_pool_join; printf '%s %s\n' "$(grep -c '^PASS$' "$RESULTS_FILE")" "$(grep -c '^FAIL$' "$RESULTS_FILE")"; rm -f "$RESULTS_FILE" ) 2>/dev/null | tail -1 )"
+# A retry-ran MARKER (DEVFLOW_TEST_POOL_RETRY_MARKER) is asserted PRESENT so this cannot pass
+# vacuously: if the forced-timeout hook or the marker-detection predicate ever regressed to
+# never firing, `pa` would run normally and the tally would still be "2 0" — but the marker
+# would be empty, turning this RED instead of a false green (issue #720 review).
+_POOL720_RMARK="$(mktemp)"
+# EXPORT the hooks subshell-wide (not as an `open`-only command prefix): the timeout is
+# forced at launch (open) but the serial retry — and its marker write — happen in join, so a
+# command-prefix scoped to `open` would leave join's run_serial without the marker.
+_POOL720_RDV="$( (
+  export DEVFLOW_TEST_POOL_RETRY_MARKER="$_POOL720_RMARK" DEVFLOW_POOL_FORCE_RENDEZVOUS_TIMEOUT=pa DEVFLOW_POOL_WIDTH=2
+  RESULTS_FILE="$(mktemp)"
+  devflow_pool_open pa "$POOL720_FIX/pa.py" single-verdict pb "$POOL720_FIX/pb.py" single-verdict
+  devflow_pool_join
+  printf '%s %s\n' "$(grep -c '^PASS$' "$RESULTS_FILE")" "$(grep -c '^FAIL$' "$RESULTS_FILE")"
+  rm -f "$RESULTS_FILE"
+) 2>/dev/null | tail -1 )"
 assert_eq "#720 pool: a forced rendezvous timeout is absorbed by serial retry, tallies unchanged" "2 0" "$_POOL720_RDV"
+assert_eq "#720 pool: the serial-retry path actually RAN for the forced-timeout suite (not a vacuous pass)" "pa" "$(grep -m1 '^pa$' "$_POOL720_RMARK" 2>/dev/null || printf 'no-retry')"
+rm -f "$_POOL720_RMARK"
 # The pool restores the caller's HUP/INT/TERM traps byte-for-byte and the live-child
 # registry is empty after join (every child deregistered). The pool installs NO EXIT trap
 # of its own — that single-EXIT-trap invariant is pinned structurally by
@@ -49953,14 +49984,14 @@ _POOL720_TRAPS="$( (
 ) 2>/dev/null | tail -1 )"
 assert_eq "#720 pool: caller HUP/INT/TERM traps byte-identical and registry empty after join" "clean" "$_POOL720_TRAPS"
 unset -f _pool720_run
-unset POOL720_FIX _POOL720_CORE _POOL720_W1 _POOL720_CORE_C _POOL720_W1_C _POOL720_BAD _POOL720_RDV _POOL720_TRAPS
+unset POOL720_FIX _POOL720_CORE _POOL720_W1 _POOL720_W2 _POOL720_CORE_C _POOL720_W1_C _POOL720_W2_C _POOL720_BAD _POOL720_ZERO _POOL720_RDV _POOL720_RMARK _POOL720_TRAPS
 
 # These integration tests live outside the module whose registration and source
 # boundary they pin, so deleting that boundary cannot delete the test execution.
 #
 # issue #720: open the bounded concurrent Python-suite pool HERE, at the former
-# test_module_runner.py driver site — after all six preceding
-# devflow_run_full_suite_module calls (so no pooled suite runs a module it itself
+# test_module_runner.py driver site — after every preceding
+# devflow_run_full_suite_module call (so no pooled suite runs a module it itself
 # executes) and before the harness-python-guards boundary below. The three pooled
 # suites overlap that last module and the ~2000-line shell tail that follows it,
 # and the pool joins just before the RESULTS_FILE tally is counted

@@ -638,7 +638,7 @@ declare -A _DEVFLOW_LIVE_CHILD_TALLY=()
 # The pool opens at one call site (devflow_pool_open), stays open while the main
 # shell runs the last module boundary and ~2000 lines of assertions, and joins at
 # another (devflow_pool_join) — so its state is module-global, not call-local.
-# _DEVFLOW_POOL_LAUNCHING / _PENDING_SIGNAL are the pool's launch-window guard,
+# _DEVFLOW_POOL_LAUNCHING / _DEVFLOW_POOL_PENDING_SIGNAL are the pool's launch-window guard,
 # the sibling of devflow_run_full_suite_module's module_launching / pending slot.
 _DEVFLOW_POOL_OPEN=0
 _DEVFLOW_POOL_WIDTH=0
@@ -1019,16 +1019,22 @@ _devflow_pool_run_one() { # name script mode tally
 # Serial fallback for a suite whose supervisor PID rendezvous timed out under pool
 # saturation (issue #720 AC): re-run it directly with no supervisor and no process
 # group, so a transient rendezvous timeout is absorbed rather than recorded as a
-# suite failure. Writes verdict(s) to the same private tally.
-_devflow_pool_run_serial() { # name script mode tally
-  local name="$1" script="$2" mode="$3" tally="$4" out rc _l
-  out="$(mktemp "${TMPDIR:-/tmp}/devflow-pool-serial.XXXXXX")" || out=/dev/null
+# suite failure. Writes verdict(s) to the same private tally, and its combined stdout
+# to the caller-provided OUTPUT path so the reap's self-tally summary capture still
+# sees the suite's `N passed, M failed` line after a retry (issue #720 review — a
+# retried self-tally suite would otherwise lose its summary and the run.sh coverage
+# cross-check would inject a spurious FAIL). The reap prints OUTPUT on failure, so this
+# does not print it itself.
+_devflow_pool_run_serial() { # name script mode tally output
+  local name="$1" script="$2" mode="$3" tally="$4" out="$5" rc
+  [ -n "$out" ] || out=/dev/null
+  # Test hook: record that the serial-retry path ACTUALLY executed, so a forced-timeout
+  # test asserts the retry ran rather than passing vacuously when the timeout was never
+  # triggered/detected (issue #720 review).
+  [ -z "${DEVFLOW_TEST_POOL_RETRY_MARKER:-}" ] || \
+    printf '%s\n' "$name" >> "$DEVFLOW_TEST_POOL_RETRY_MARKER" 2>/dev/null || :
   ( _devflow_pool_run_one "$name" "$script" "$mode" "$tally" ) > "$out" 2>&1
   rc=$?
-  if [ "$rc" -ne 0 ] && [ "$out" != /dev/null ] && [ -f "$out" ]; then
-    while IFS= read -r _l || [ -n "$_l" ]; do printf '    %s\n' "$_l"; done < "$out"
-  fi
-  [ "$out" = /dev/null ] || rm -f "$out"
   return "$rc"
 }
 
@@ -1120,7 +1126,7 @@ _devflow_pool_launch_next() {
 }
 
 _devflow_pool_reap() { # pid rc
-  local pid="$1" rc="$2" _l _pool_count=""
+  local pid="$1" rc="$2" _l _pool_count="" _hasfail=0
   local name="${_DEVFLOW_POOL_PID_NAME[$pid]:-?}"
   local script="${_DEVFLOW_POOL_PID_SCRIPT[$pid]:-}"
   local mode="${_DEVFLOW_POOL_PID_MODE[$pid]:-}"
@@ -1137,8 +1143,15 @@ _devflow_pool_reap() { # pid rc
     _devflow_pool_output_has_rendezvous_timeout "$output"; then
     [ -z "$scratch" ] || _devflow_cleanup_module_scratch "$scratch" || :
     scratch=""
-    [ -z "$output" ] || rm -f "$output"; output=""
-    _devflow_pool_run_serial "$name" "$script" "$mode" "$tally"
+    # Reuse $output (truncated) as the serial retry's capture so the self-tally summary
+    # capture below still sees the retried suite's `N passed, M failed` line — nulling
+    # it here would drop the summary and inject a spurious FAIL (issue #720 review).
+    if [ -n "$output" ] && [ "$output" != /dev/null ]; then
+      : > "$output" 2>/dev/null || :
+    else
+      output="$(mktemp "${TMPDIR:-/tmp}/devflow-pool-out.XXXXXX")" || output=/dev/null
+    fi
+    _devflow_pool_run_serial "$name" "$script" "$mode" "$tally" "$output"
     rc=$?
   fi
 
@@ -1157,6 +1170,25 @@ _devflow_pool_reap() { # pid rc
     printf '  FAIL  pool suite %s — private tally missing/unreadable after execution\n' "$name" >&2
   fi
 
+  # Fail-closed guards mirroring devflow_run_full_suite_module (issue #720 review): a
+  # NONZERO worker exit not already reflected as a FAIL — a kill/crash the rendezvous
+  # branch did not absorb, whose worker never reached _devflow_pool_run_one's own
+  # fail-closed append — and a validated-but-EMPTY tally (zero assertions) each record a
+  # FAIL, so a killed or silently-empty pooled suite can never vanish with '0 failed'.
+  if [ "$rc" -ne 0 ]; then
+    _hasfail=0
+    while IFS= read -r _l || [ -n "$_l" ]; do
+      [ "$_l" = "FAIL" ] && { _hasfail=1; break; }
+    done < "$tally" 2>/dev/null
+    if [ "$_hasfail" -eq 0 ]; then
+      printf 'FAIL\n' >> "$RESULTS_FILE"
+      printf '  FAIL  pool suite %s — worker exited with status %s (no verdict recorded)\n' "$name" "$rc" >&2
+    fi
+  elif [ "$_pool_count" = "0" ]; then
+    printf 'FAIL\n' >> "$RESULTS_FILE"
+    printf '  FAIL  pool suite %s — executed zero assertions\n' "$name" >&2
+  fi
+
   if [ "$rc" -ne 0 ] && [ -n "$output" ] && [ -f "$output" ]; then
     while IFS= read -r _l || [ -n "$_l" ]; do printf '    %s\n' "$_l"; done < "$output"
   fi
@@ -1172,7 +1204,13 @@ _devflow_pool_reap() { # pid rc
     fi
   fi
 
-  [ -z "$scratch" ] || _devflow_cleanup_module_scratch "$scratch" || :
+  # A scratch-cleanup failure records a FAIL, matching devflow_run_full_suite_module's
+  # boundary (issue #720 review): a pooled suite that leaks an undeletable scratch tree
+  # is a real fault, not a silent best-effort skip.
+  if [ -n "$scratch" ] && ! _devflow_cleanup_module_scratch "$scratch"; then
+    printf 'FAIL\n' >> "$RESULTS_FILE"
+    printf '  FAIL  pool suite %s — could not remove private scratch root\n' "$name" >&2
+  fi
   [ -z "$tally" ] || rm -f "$tally"
   [ -n "$output" ] && [ "$output" != /dev/null ] && rm -f "$output"
   unset '_DEVFLOW_POOL_PID_NAME[$pid]' '_DEVFLOW_POOL_PID_SCRIPT[$pid]' \
