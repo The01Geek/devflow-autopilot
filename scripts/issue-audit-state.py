@@ -3615,6 +3615,19 @@ def cmd_record_return(args):
         st_state, st_reason = steering_state(
             args.slug, attempt, args.instructions_object_id,
             args.extra_dispatch_content)
+        # issue #718 laundering guard, folded to the single stored source (issue #709
+        # shadow finding): a round on which ANY dispatch attempt diverged from its
+        # canonical regeneration can never be `established`, regardless of what the
+        # auditor's return quotes on a later clean attempt. Without this fold a
+        # diverged-then-corrected round stores `established`, and the REPORT surfaces
+        # (this record-return stdout line and the Step 4 audit-summary `steering=` token
+        # in summary_fields) would assert `established` while the eligibility/triggers
+        # gates — which read `_steering_established`, honoring the round-level sticky flag
+        # — correctly withhold. Folding it into the stored record keeps all four consumers
+        # (both gates and both report surfaces) in agreement by construction.
+        if st_state == 'established' and rnd.get('any_dispatch_diverged'):
+            st_state, st_reason = ('not-established',
+                                   'instructions-noncanonical-at-dispatch')
         rnd['steering'] = {'state': st_state, 'reason': st_reason}
         if args.findings_count is not None:
             if args.findings_count < 0:

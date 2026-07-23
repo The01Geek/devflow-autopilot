@@ -13786,6 +13786,47 @@ def _row709_dispatch_regeneration_diverged(r):
 _with_run709(_row709_dispatch_regeneration_diverged)
 
 
+# issue #709 shadow finding (silent-failure-hunter, PR #718 review): the #718 sticky
+# `any_dispatch_diverged` flag was honored at the DECISION gates (`_steering_established`)
+# but NOT at the two REPORT surfaces. On the equal branch — the auditor quotes the
+# CANONICAL object id (a corrected/different file) on a round whose dispatch already
+# diverged — `steering_state` returned `established`, so record-return stdout and the
+# durable Step 4 audit-summary `steering=` token asserted `steering=established` while the
+# eligibility/triggers gates withheld the clean ground. A user reading the summary was
+# told independence was established on exactly the round the sticky flag exists to
+# neutralize. The fold at record-return's single stored source makes all four consumers
+# agree. This row is RED before that fold on the two report surfaces.
+def _row709_diverged_then_canonical_oid_reports_not_established(r):
+    r.generate()
+    canonical_oid = r.oid(r.instr)          # the canonical file's object id
+    raw = Path(r.instr).read_bytes()
+    Path(r.instr).write_bytes(raw.replace(b'\n', b'\r\n'))   # divergent dispatch write
+    got = r.dispatch()
+    assert_eq("#709 shadow: a divergent dispatch does not block the round",
+              0, got.returncode)
+    assert_eq("#709 shadow: ... and the divergence is recorded (sticky set)",
+              True, 'dispatch_regeneration=diverged' in got.stderr)
+    # The auditor quotes the CANONICAL object id with no extra content — the equal branch
+    # that formerly stored `established` on a diverged round.
+    out = r.ret(instructions_oid=canonical_oid, extra='no')
+    # Report surface 1 — record-return stdout — reports not-established (folded at source).
+    assert_eq("#709 shadow: a diverged round with a canonical-oid return reports "
+              "not-established on record-return stdout, never established",
+              True, 'steering=not-established' in out.stdout)
+    assert_eq("#709 shadow: ... with the dispatch-attributed reason on the durable token",
+              'instructions-noncanonical-at-dispatch', _reason(out))
+    # Report surface 2 — the durable Step 4 audit-summary line — agrees, so the user is
+    # never told independence was established on a diverged round.
+    assert_eq("#709 shadow: ... and the Step 4 audit-summary steering token agrees",
+              True, 'steering=not-established' in r.summary())
+    # And the decision gate withholds the clean ground (parity, belt-and-suspenders).
+    assert_eq("#709 shadow: ... and the clean eligibility ground is withheld",
+              True, 'eligible=yes' not in r.eligibility())
+
+
+_with_run709(_row709_diverged_then_canonical_oid_reports_not_established)
+
+
 # The evidence-preservation property, stated as its own row because it is the reason the
 # refusal design was abandoned: a file edited AFTER generation (the steering shape) must
 # leave a durable record of the attempt, not be met with an instruction to overwrite it.
