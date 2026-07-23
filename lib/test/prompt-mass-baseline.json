@@ -1,7 +1,7 @@
 {
   "version": 1,
   "files": {
-    ".devflow/prompt-extensions/create-issue.md": 23419,
+    ".devflow/prompt-extensions/create-issue.md": 23870,
     ".devflow/prompt-extensions/implement.md": 38476,
     ".devflow/prompt-extensions/receiving-code-review.md": 15128,
     ".devflow/prompt-extensions/review-and-fix.md": 22320,
@@ -18,7 +18,7 @@
     "agents/silent-failure-hunter.md": 11756,
     "agents/type-design-analyzer.md": 5559,
     "skills/create-issue/SKILL.md": 17926,
-    "skills/create-issue/references/audit-prompt-template.md": 15027,
+    "skills/create-issue/references/audit-prompt-template.md": 15807,
     "skills/create-issue/references/fallback-audit-dispatch-arms.md": 5049,
     "skills/create-issue/references/fallback-no-task-tool.md": 3693,
     "skills/create-issue/references/fallback-read-only-sandbox.md": 3122,
@@ -27,7 +27,7 @@
     "skills/create-issue/references/revision-delta.md": 6672,
     "skills/create-issue/references/step-2-clarify.md": 31085,
     "skills/create-issue/references/step-3-5-steelman.md": 15461,
-    "skills/create-issue/references/step-3-6-audit.md": 68420,
+    "skills/create-issue/references/step-3-6-audit.md": 68715,
     "skills/create-issue/references/step-4-present-create.md": 37408,
     "skills/docs-bootstrap-external/SKILL.md": 14736,
     "skills/docs-bootstrap-internal/SKILL.md": 11034,

@@ -46,13 +46,20 @@ same block/slot rules by hand.
   with the marker stripped, so the two projections render from one declaration.
   Rewording a bullet therefore leaves its key byte-identical. The renderer fails
   closed (rc≠0, empty stdout, stderr breadcrumb) on a bullet carrying no
-  declaration, a declaration followed by no bullet, a key that is not lowercase
-  kebab-case, or a duplicate key — the checklist prose and the keyset cannot
-  drift apart silently. A manual arm reading this file by hand applies the same
-  rule: strip the marker lines from the emitted prose. A consumer
-  `## Audit dimensions` bullet may carry the same marker (keyed `c:<declared-key>`);
-  when it does not, its key is derived from its content — the bold-lead name's
-  slug, else a hash of the bullet text — never its position.
+  declaration, a declaration binding no bullet (stacked, or at the block's end), a
+  declaration separated from its bullet by a non-blank line, a key that is not
+  lowercase kebab-case, or a duplicate key. **Every one of those arms fires on the
+  render path as well as the enumeration path**, which is what makes "the checklist
+  prose and the keyset cannot drift apart silently" structural rather than merely
+  asserted: a defect cannot render happily while the enumeration dies. A manual arm
+  reading this file by hand applies the same rule: strip the marker lines from the
+  emitted prose. A consumer `## Audit dimensions` bullet may carry the same marker
+  (keyed `c:<declared-key>`) and is held to the **same** fail-closed arms, with a
+  breadcrumb naming the consumer extension rather than this template; when it
+  carries none, its key is derived from its content — the bold-lead name's slug,
+  else a hash of the bullet text — never its position. Those two fallbacks are
+  insertion-stable but not reword-stable, so a consumer who wants a durable key
+  declares one.
 
 ## Extraction rule (for the `## Audit dimensions` / `## Evidence axes` forwarding)
 
@@ -124,7 +131,7 @@ Verify every claim against the repository (you have read access). On this arm th
 <!-- render-block-end -->
 
 <!-- render-block: file embed inline -->
-**Per-dimension coverage return (issue #708) — a record of scrutiny already performed, emitted AFTER the five-finding + Quiet-Killer hunt (which keeps precedence).** For **each** required audit dimension above (the generic checklist plus any consumer `## Audit dimensions` section), report exactly one coverage outcome, labeled with the dimension's **stable key**. Obtain the keys by running the renderer's enumeration mode first — `render-audit-prompt.py enumerate-dimensions` — whose `dim key=<key> text=…` lines are the authoritative dimension list (the same deterministic keys the orchestrator holds, so your outcomes join by key). Emit one line per dimension in a fenced `COVERAGE` block, each line `<key> <outcome> [anchor]`:
+**Per-dimension coverage return (issue #708) — a record of scrutiny already performed, emitted AFTER the five-finding + Quiet-Killer hunt (which keeps precedence).** For **each** required audit dimension above (the generic checklist plus any consumer `## Audit dimensions` section), report exactly one coverage outcome, labeled with the dimension's **stable key**. Obtain the keys by running the renderer's enumeration mode first — `render-audit-prompt.py enumerate-dimensions` — whose `dim key=<key> text=…` lines are the authoritative dimension list (the same deterministic keys the orchestrator holds, so your outcomes join by key). **If you cannot run the enumeration, report `unestablished` rather than inventing keys** — the declared keys do not appear in this prose, so a guessed key joins to nothing and silently drops a dimension from the coverage totality. Emit one line per dimension in a fenced `COVERAGE` block, each line `<key> <outcome> [anchor]`:
 
 - `<outcome>` is exactly one of **`exercised`**, **`valid-N/A`**, **`unestablished`**, **`skipped`**.
 - **`exercised`** requires a checkable **anchor**: a quoted draft line plus the concrete concern examined, or a specific repository fact checked. A dimension you engaged and found clean is `exercised` **without** any finding — never fabricate a finding to evidence coverage. The anchor is length-bounded (one quoted line plus one concern clause).

@@ -968,6 +968,11 @@ class DeclaredDimensionKeys(unittest.TestCase):
          "<!-- dim-key: host-os-variance -->",
          "<!-- dim-key: consumer-repo-setup-variance -->",
          "duplicate generic dimension key"),
+        ("non-adjacent declaration",
+         "<!-- dim-key: host-os-variance -->\n- **Host-OS variance**",
+         "<!-- dim-key: host-os-variance -->\nan intervening prose line\n"
+         "- **Host-OS variance**",
+         "is not adjacent to its bullet"),
     )
 
     def test_declaration_defects_fail_closed(self):
@@ -980,9 +985,125 @@ class DeclaredDimensionKeys(unittest.TestCase):
                 self.assertNotEqual(r.returncode, 0, r.stdout)
                 self.assertEqual(r.stdout, "")
                 self.assertIn(breadcrumb, r.stderr)
+                # Attribution: the breadcrumb names the file at fault, so an operator
+                # never debugs their own extension over a template defect.
+                self.assertIn("template malformed", r.stderr, name)
+
+    def test_declaration_defects_fail_closed_on_the_RENDER_path_too(self):
+        # #729's property is that the checklist prose and the enumeration are two
+        # projections of ONE declaration. If only `enumerate-dimensions` validated, a
+        # template whose bullet lost its declaration would render the prose happily
+        # while the enumeration died — the two projections drifting silently, which is
+        # exactly what the design forbids. Every mode that EMITS the block validates.
+        tmpl = self._shipped_template().replace(
+            "<!-- dim-key: host-os-variance -->\n", "", 1
+        )
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "tmpl.md"
+            p.write_text(tmpl, encoding="utf-8")
+            for args in (["checklist"], ["inline", "--slug", "x"],
+                         ["file", "--slug", "x", "--draft-path", "/tmp/d.md"]):
+                with self.subTest(mode=args[0]):
+                    r = run_renderer([*args, "--template-file", str(p)])
+                    self.assertNotEqual(r.returncode, 0, args)
+                    self.assertEqual(r.stdout, "", args)
+                    self.assertIn("carries no dim-key declaration", r.stderr, args)
+
+    def test_a_template_with_no_checklist_block_still_renders(self):
+        # Scope guard for the render-path validation above: a template carrying no
+        # checklist block emits no dimension prose, so it has nothing to drift and must
+        # keep rendering. Without this the validation would turn a legal bare file-arm
+        # template into a hard failure — a contract change #729 never asked for, and
+        # the shape that broke R18's positive control when the check was first written.
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "tmpl.md"
+            p.write_text(
+                "<!-- render-block: file -->\nbody\n<!-- render-block-end -->\n",
+                encoding="utf-8",
+            )
+            r = run_renderer(["file", "--slug", "s", "--draft-path", "/a/d.md",
+                              "--template-file", str(p)])
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    # ---- Consumer-side declaration defects: symmetric with the generic arm.
+    # The consumer extension is the one file in this contract a THIRD PARTY authors,
+    # so before this table every shape below silently discarded the declaration and
+    # fell back to the reword-unstable key the consumer was trying to pin — the #729
+    # defect wearing a different hat, on the arm nobody guarded.
+    CONSUMER_FAIL_CLOSED_ARMS = (
+        ("stacked declaration",
+         "## Audit dimensions\n\n<!-- dim-key: first -->\n<!-- dim-key: second -->\n"
+         "- **A** \u2014 x.\n",
+         "declares no bullet"),
+        ("trailing declaration",
+         "## Audit dimensions\n\n- **A** \u2014 x.\n<!-- dim-key: trailing -->\n",
+         "declares no bullet"),
+        ("non-adjacent declaration",
+         "## Audit dimensions\n\n<!-- dim-key: k -->\n\nintervening prose\n\n"
+         "- **A** \u2014 x.\n",
+         "is not adjacent to its bullet"),
+        ("malformed key",
+         "## Audit dimensions\n\n<!-- dim-key: Bad Key -->\n- **A** \u2014 x.\n",
+         "is not lowercase kebab-case"),
+        ("duplicate key",
+         "## Audit dimensions\n\n- **Billing edge** \u2014 refunds.\n"
+         "- **Billing edge** \u2014 proration.\n",
+         "duplicate consumer dimension key"),
+    )
+
+    def test_consumer_declaration_defects_fail_closed(self):
+        for name, body, breadcrumb in self.CONSUMER_FAIL_CLOSED_ARMS:
+            with self.subTest(arm=name):
+                with tempfile.TemporaryDirectory() as d:
+                    ext = write_ext(Path(d), body)
+                    enum = run_renderer(["enumerate-dimensions",
+                                         "--extension-file", str(ext)])
+                    # The RENDER path fails closed identically — otherwise the auditor
+                    # gets a full prompt while the orchestrator's operand call dies.
+                    rend = run_renderer(["inline", "--slug", "x",
+                                         "--extension-file", str(ext)])
+                for r in (enum, rend):
+                    self.assertNotEqual(r.returncode, 0, name)
+                    self.assertEqual(r.stdout, "", name)
+                    self.assertIn(breadcrumb, r.stderr, name)
+                    # Attribution: names the CONSUMER's file, not this repo's template,
+                    # so an operator debugs the file actually at fault.
+                    self.assertIn("consumer extension malformed", r.stderr, name)
+
+    def test_a_blank_line_between_declaration_and_bullet_stays_legal(self):
+        # Positive control for both adjacency arms: the enforcement rejects an
+        # intervening *non-blank* line only. Without this row the adjacency check could
+        # tighten to "literally the previous line" and silently break ordinary
+        # formatting in the template and in every consumer extension.
+        body = ("## Audit dimensions\n\n<!-- dim-key: spaced -->\n\n"
+                "- **A** \u2014 x.\n")
+        with tempfile.TemporaryDirectory() as d:
+            dims = self._dims(["--extension-file", str(write_ext(Path(d), body))])
+        self.assertIn("c:spaced", [k for k, _ in dims])
+
+    def test_hash_arm_keys_are_distinct_and_track_their_own_text(self):
+        # `_consumer_key`'s hash arm documents two properties beyond the
+        # insertion-stability one pinned above: distinct bullets get distinct keys, and
+        # editing a plain bullet's text DOES rekey it — the residual instability the
+        # design accepts and tells consumers to pin with a declaration. Pinning it as
+        # intended behavior keeps it from being rediscovered later as a regression.
+        two = "## Audit dimensions\n\n- first plain bullet.\n- second plain bullet.\n"
+        edited = "## Audit dimensions\n\n- first plain bullet, reworded.\n"
+        with tempfile.TemporaryDirectory() as d:
+            keys_two = [k for k, _ in self._dims(["--extension-file",
+                                                  str(write_ext(Path(d), two))])
+                        if k.startswith("c:h")]
+        with tempfile.TemporaryDirectory() as d:
+            keys_edited = [k for k, _ in self._dims(["--extension-file",
+                                                     str(write_ext(Path(d), edited))])
+                           if k.startswith("c:h")]
+        self.assertEqual(len(keys_two), 2)
+        self.assertEqual(len(set(keys_two)), 2)  # distinct texts -> distinct keys
+        self.assertEqual(len(keys_edited), 1)
+        self.assertNotIn(keys_edited[0], keys_two)  # a text edit DOES rekey
 
     def test_colliding_consumer_keys_fail_closed_with_the_remedy(self):
-        # Two consumer bullets sharing a bold name would silently coalesce into one
+        # Consumer bullets sharing a bold name would silently coalesce into one
         # enumerated dimension — the exact silent-key-merge class #729 removes.
         body = ("## Audit dimensions\n\n"
                 "- **Billing edge** — refunds.\n"

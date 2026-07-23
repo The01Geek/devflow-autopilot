@@ -22,12 +22,23 @@ bump: patch
 ### Fixed
 
 - The renderer now fails closed (rc≠0, empty stdout, a stderr breadcrumb naming
-  the specific shape) on a checklist bullet carrying no key declaration, a
-  declaration followed by no bullet, a key that is not lowercase kebab-case, a
-  duplicate generic key, or two consumer dimensions resolving to one key — the
-  last naming the `dim-key` disambiguation remedy. Previously a colliding or
-  reworded dimension could silently coalesce or rekey the enumeration that
-  per-dimension coverage totality is checked against.
+  the specific shape) on a bullet carrying no key declaration, a declaration
+  binding no bullet, a declaration separated from its bullet by a non-blank line,
+  a key that is not lowercase kebab-case, and a duplicate key. Previously a
+  colliding or reworded dimension could silently coalesce or rekey the enumeration
+  that per-dimension coverage totality is checked against.
+- **Both projections enforce those arms, and both arms are enforced symmetrically.**
+  Validation runs on the render path as well as `enumerate-dimensions`, so a
+  template or consumer defect can no longer render a full audit prompt while the
+  orchestrator's operand call dies; and the consumer `## Audit dimensions` section
+  is held to the same arms as this repo's own template, with the breadcrumb naming
+  the consumer extension rather than the template so an operator debugs the file
+  actually at fault. Consumer declarations were previously discarded in silence,
+  which left a consumer believing they had pinned a durable key while the
+  enumeration quietly used the reword-unstable fallback instead.
+- `.devflow/prompt-extensions/create-issue.md`'s own nine audit dimensions now
+  carry explicit declarations, so this repo's consumer keys stop tracking bold
+  leads that embed issue numbers.
 
 Coverage recorded under the previous derivation needs no migration: the state
 owner treats coverage keys as opaque strings and checks a round's totality
