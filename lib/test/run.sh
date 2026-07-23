@@ -47664,7 +47664,7 @@ assert_eq "#745 ci.yml: the lint job carries no continue-on-error escape hatch" 
 # REAL ci.yml + tree AND a matrix of synthetic ci.yml fixtures (the CLAUDE.md
 # best-effort-parser discipline applied to a workflow-YAML input).
 LCG_PY="$LIB/test/lint-carveout-guard.py"
-LCG_CI="$LIB/../.github/workflows/ci.yml"
+LCG_CI="$CI745"   # same file the #745 pins above read; one spelling, not two
 # _lcg CI_FILE FILES_FILE -> "<exit>|<verdict-word>" (OK / FAIL); verdict = text up to first ':'
 _lcg() {
   local out ec
