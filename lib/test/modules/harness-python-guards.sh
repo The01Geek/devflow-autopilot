@@ -169,24 +169,33 @@ VFLEN
 )"
 assert_eq "verification flight: banned-spelling derivation is complete (no partial truncation)" \
   "$VF_TUPLE_LEN" "$(printf '%s\n' "$VF_SPELLINGS" | grep -c .)"
-VF_EXEC_HITS=0
-while IFS= read -r _vf_spelling; do
-  [ -n "$_vf_spelling" ] || continue
-  case "$(grep -cF -- "$_vf_spelling" "$VF_SRC" || true)" in
-    0) : ;;
-    *) VF_EXEC_HITS=$((VF_EXEC_HITS + 1)); echo "  exec-sweep hit: $_vf_spelling" ;;  # RED-path diagnostic only; deliberately NOT the ' NOTE ' skip channel
-  esac
-done <<VFHITS
-$VF_SPELLINGS
-VFHITS
+# The exec sweep is factored into ONE function that both the real zero-expecting assertion AND
+# the #719 positive control below invoke, so the control drives the REAL counting code path
+# rather than a second copy of it. A duplicate control loop would prove only that grep -cF
+# counts fixed strings while a regression in the real loop (an inverted case arm, a dropped
+# `+ 1`, a swept-file swap) escaped — the exact duplicate-mirror blind spot #719 removed from
+# the run.sh retired-convention control. The per-spelling hit diagnostic goes to STDERR (a
+# RED-path breadcrumb) so it never pollutes the count captured from stdout.
+_vf_exec_sweep_count() {  # swept-file ; spelling stream on stdin -> prints the hit count
+  local _f="$1" _sp _hits=0
+  while IFS= read -r _sp; do
+    [ -n "$_sp" ] || continue
+    case "$(grep -cF -- "$_sp" "$_f" || true)" in
+      0) : ;;
+      *) _hits=$((_hits + 1)); printf '  exec-sweep hit: %s\n' "$_sp" >&2 ;;
+    esac
+  done
+  printf '%s\n' "$_hits"
+}
+VF_EXEC_HITS="$(printf '%s\n' "$VF_SPELLINGS" | _vf_exec_sweep_count "$VF_SRC")"
 assert_eq "verification flight: no subprocess / shell-out / exec spelling" "0" "$VF_EXEC_HITS"
 # #719 positive control: the zero-expecting exec sweep above is only meaningful if its COUNTING
 # half is live — a broken counter (a mistyped grep, an empty spelling stream, a swallowed loop)
 # would pass the "expected 0" sweep by counting nothing, certifying a coordinator it never read.
-# Plant EVERY derived spelling into a scratch copy of the real coordinator and require the sweep
-# to count each, so the sweep's hit tally over the planted copy must equal the derived list's own
-# element count. The comparand (VF_TUPLE_LEN) is derived independently from the tuple, not from
-# the sweep, so this is not a self-referential tautology.
+# Plant EVERY derived spelling into a scratch copy of the real coordinator and require the SAME
+# `_vf_exec_sweep_count` function the real assertion runs to count each, so a regression in the
+# sweep's counting code turns BOTH red. The comparand (VF_TUPLE_LEN) is derived independently
+# from the tuple, not from the sweep, so this is not a self-referential tautology.
 VF_PLANT="$(mktemp "$VF_ROOT/vf-plant.XXXXXX")" || {
   printf 'could not allocate the #528 positive-control fixture\n' >&2
   return 1
@@ -198,16 +207,7 @@ while IFS= read -r _vf_spelling; do
 done <<VFPLANT
 $VF_SPELLINGS
 VFPLANT
-VF_PLANT_HITS=0
-while IFS= read -r _vf_spelling; do
-  [ -n "$_vf_spelling" ] || continue
-  case "$(grep -cF -- "$_vf_spelling" "$VF_PLANT" || true)" in
-    0) : ;;
-    *) VF_PLANT_HITS=$((VF_PLANT_HITS + 1)) ;;
-  esac
-done <<VFPLANTHITS
-$VF_SPELLINGS
-VFPLANTHITS
+VF_PLANT_HITS="$(printf '%s\n' "$VF_SPELLINGS" | _vf_exec_sweep_count "$VF_PLANT")"
 assert_eq "#528 banned-exec sweep positive control: every planted spelling is counted (counting half is live)" \
   "$VF_TUPLE_LEN" "$VF_PLANT_HITS"
 rm -f "$VF_PLANT"
