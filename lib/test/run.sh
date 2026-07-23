@@ -51098,6 +51098,15 @@ LEDGER-EOF
     PATH="$RESTRICTED" python3 "$IAS" record-adjudication rt --nonce "$NONCE" --round 2 \
       --verdict FILE --must-revise 0 --advisory 1 --invalid 0 --unresolved-must-revise 0 \
       --advisory-records-file adv-rt.json > /dev/null
+    # #743: read back the round-2 advisory record and the calibration axis under the SAME
+    # restricted PATH (git + python3 only), proving the new read-back + calibration + render
+    # commands derive nothing through a non-preflight PATH tool. Round 2 recorded one
+    # clearly-optional, evidenced advisory (adv-rt.json) → calibration-clear, but its render is
+    # unreported until reported, so the disclosure trigger holds on the render tooth alone.
+    PATH="$RESTRICTED" python3 "$IAS" query-adjudication-records rt --nonce "$NONCE" --round 2 > .rt-adjrec
+    PATH="$RESTRICTED" python3 "$IAS" query-calibration rt --nonce "$NONCE" > .rt-calib
+    PATH="$RESTRICTED" python3 "$IAS" record-adjudication-render rt --nonce "$NONCE" --round 2 --landed yes > .rt-render
+    PATH="$RESTRICTED" python3 "$IAS" query-calibration rt --nonce "$NONCE" > .rt-calib2
     PATH="$RESTRICTED" python3 "$IAS" query-convergence rt --nonce "$NONCE" > .rt-conv-file
     # #548: query-convergence must fail closed on a FOREIGN nonce over this SAME converged
     # state — a foreign caller must never read a converged verdict off another run. Every
@@ -51134,6 +51143,14 @@ LEDGER-EOF
     "1" "$(grep -c 'adjudicated_verdict=FILE must_revise=0 advisory=1 invalid=0 unresolved_must_revise=0' "$IAS_SB/.rt-summary" 2>/dev/null)"
   assert_eq "#548 cli_roundtrip_restricted_path: record-adjudication echoes the adjudicated payload" \
     "adjudicated=REVISE unresolved=2 must_revise=2 advisory=0 invalid=0 superseded=0" "$(cat "$IAS_SB/.rt-adj" 2>/dev/null)"
+  assert_eq "#743 cli_roundtrip_restricted_path: query-adjudication-records reads back the round-2 advisory record" \
+    "1" "$(grep -c 'record_class=advisory round=2 id=1 impact_class=clearly-optional impact_bearing=no evidence_state=recorded' "$IAS_SB/.rt-adjrec" 2>/dev/null)"
+  assert_eq "#743 cli_roundtrip_restricted_path: an evidenced clearly-optional advisory is calibration-clear, but the unreported render holds the disclosure trigger" \
+    "1" "$(grep -c 'calibration_backing=clear adjudication_render=unreported calibration_trigger=yes' "$IAS_SB/.rt-calib" 2>/dev/null)"
+  assert_eq "#743 cli_roundtrip_restricted_path: record-adjudication-render reports the rendering" \
+    "adjudication_render=reported round=2" "$(cat "$IAS_SB/.rt-render" 2>/dev/null)"
+  assert_eq "#743 cli_roundtrip_restricted_path: after a reported render on an all-clear round the calibration trigger clears" \
+    "1" "$(grep -c 'calibration_trigger=no' "$IAS_SB/.rt-calib2" 2>/dev/null)"
   assert_eq "#603 cli_roundtrip_restricted_path: query-findings re-emits an auditor summary byte-verbatim (the quoted-delimiter heredoc performed no expansion)" \
     "round=1 id=2 status=unresolved summary=second finding \$(not expanded) \`nor this\`" \
     "$(sed -n 2p "$IAS_SB/.rt-findings" 2>/dev/null)"
