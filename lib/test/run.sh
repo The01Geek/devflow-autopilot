@@ -38227,7 +38227,15 @@ assert_eq "#529 AC2: the split is at least 25,327 words below the 33,815 baselin
 # copies. The CLAUDE.md-mirror pin below is DELIBERATELY a separate spelled-out literal:
 # it asserts CLAUDE.md carries the same phrase, so it cannot itself be derived from this
 # variable (a rendered `≤ 30,076 words` phrase is what a reader greps for in the bullet).
-RB_SHIPPED_CEIL=30076
+# #730 (deferred from #719) raised this 30076->30609: the tier-scoped Verification-evidence
+# marker ADVISORY is stated on the shipped review extension (.devflow/prompt-extensions/review.md),
+# which is on the shipped-default per-pass path, pushing _rb_shipped_w from 30016 to 30549. The
+# advisory prose was written to its operative minimum (input population, tier discriminator,
+# by-classification behavior, covered population, accepted residual) and only then was the ceiling
+# renegotiated to the measured 30549 plus the fixed 60-word margin. The audited growth decision is
+# docs/cutovers/issue-730-verification-evidence-advisory-growth.md; reconcile every mirror the
+# decision record lists in lockstep.
+RB_SHIPPED_CEIL=30609
 # The sanctioned margin is its own named constant so the bound below, the assertion label, and
 # the budget doc's Margin cell all read from ONE literal (PR #639 review, Suggestion-4: the
 # margin was a bare `60` in the condition plus hand-maintained prose in three docs — the same
@@ -38447,7 +38455,7 @@ RECORD
 # assert_pin_unique also fails if the phrase appears twice, catching a stray duplicate.
 RB_CLAUDEMD="$LIB/../CLAUDE.md"
 assert_pin_unique "#618: CLAUDE.md's review-bundle bullet carries the re-anchored ceiling phrase (≤-prefixed, mirror of the suite literal)" \
-  'shipped-default per-pass path ≤ 30,076 words' "$RB_CLAUDEMD"
+  'shipped-default per-pass path ≤ 30,609 words' "$RB_CLAUDEMD"
 # #618 (pr-test-analyzer Finding 2): the static pin above catches a suite-literal↔CLAUDE.md
 # drift, but NOT a stale RB_SHIPPED_CEIL while the pin literal + CLAUDE.md are updated in
 # tandem. Bind the GATE CONSTANT to the CLAUDE.md phrase directly, via a dynamic grep whose
@@ -39226,8 +39234,17 @@ RAF_ROOT_CEIL=3567
 # ceilings renegotiated to the measurement plus the repo's usual ~4 words of headroom. The audited
 # growth decision is docs/cutovers/issue-719-verification-evidence-marker-growth.md; update
 # docs/review-and-fix-budget.md's ceilings-table and Measured cells in lockstep.
-RAF_LOAD_CEIL=9468
-RAF_MAXSTEP_CEIL=20807
+# #730 (deferred from #719) raised the initial-load ceiling 9468->9941 and the max-step ceiling
+# 20807->21280: the tier-scoped Verification-evidence marker ADVISORY is stated on the review-and-fix
+# extension (RAF_EXT, .devflow/prompt-extensions/review-and-fix.md) — the always-loaded surface on this
+# bundle — taking it 3573->4046 words, so the initial load moves 9464->9937 and the peak step
+# 20803->21276 (the receiving extension is untouched). The advisory prose was written to its operative
+# minimum first and only then were the ceilings renegotiated to the measurement plus the repo's usual
+# ~4 words of headroom. The
+# audited growth decision is docs/cutovers/issue-730-verification-evidence-advisory-growth.md; update
+# docs/review-and-fix-budget.md's ceilings-table and Measured cells in lockstep.
+RAF_LOAD_CEIL=9941
+RAF_MAXSTEP_CEIL=21280
 assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
   "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"
 assert_eq "#530 budget: root + always-loaded extensions (initial load) <= $RAF_LOAD_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W)))" "yes" \
