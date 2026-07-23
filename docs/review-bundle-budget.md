@@ -65,10 +65,10 @@ budget contract later changes are held to.
 | Row | Before — lines / words / bytes / ~tokens | After — lines / words / bytes / ~tokens |
 |---|---|---|
 | Root (`skills/review/SKILL.md`) | 1,559 / 33,378 / 233,903 / 58,476 | 358 / 7,262 / 49,226 / 12,307 |
-| Complete bundle | 1,604 / 33,815 / 237,113 / 59,279 | 1,732 / 34,517 / 245,565 / 61,392 |
-| Default per-pass unique path | 1,604 / 33,815 / 237,113 / 59,279 | 1,542 / 27,990 / 200,390 / 50,098 |
+| Complete bundle | 1,604 / 33,815 / 237,113 / 59,279 | 1,749 / 34,990 / 248,993 / 62,249 |
+| Default per-pass unique path | 1,604 / 33,815 / 237,113 / 59,279 | 1,559 / 28,463 / 203,818 / 50,955 |
 | Max incremental phase read | 1,559 / 33,378 / 233,903 / 58,476 | 243 / 5,905 / 42,117 / 10,530 |
-| Consumer extension (shipped repo copy) | 45 / 437 / 3,210 / 803 | 45 / 439 / 3,280 / 820 |
+| Consumer extension (shipped repo copy) | 45 / 437 / 3,210 / 803 | 62 / 912 / 6,708 / 1,677 |
 <!-- rb:governed-end static-size -->
 
 <!-- The After columns above are current-measured (machine-reconciled live by
@@ -82,14 +82,14 @@ budget contract later changes are held to.
 - **Root** — `skills/review/SKILL.md` alone.
 - **Complete bundle** — root + shipped extension + all ten references, each once. It **grows**
   <!-- rb:governed-begin complete-bundle-growth -->
-  against baseline by **702 words**; <!-- rb:fig --> see *Justified growth* below.
+  against baseline by **1,175 words**; <!-- rb:fig --> see *Justified growth* below.
   <!-- rb:governed-end complete-bundle-growth -->
 - **Default per-pass unique path** — root + shipped extension + each source a pass requires when
   **no blocker fast path** and **no stale-prose predicate** holds, each counted **exactly once**:
   the six always/standalone references, *excluding* the four gated ones (6,527 words). This is the
   conservative reading — it counts `phase-4-4-github-post.md`, which a standalone pass loads and a
   `/devflow:review-and-fix` pass does not, so the review-and-fix default path is *smaller* still
-  (27,063 words). **This metric makes no retained-context claim**: it counts what a pass must read,
+  (27,536 words). **This metric makes no retained-context claim**: it counts what a pass must read,
   not what stays resident.
 - **Max incremental phase read** — the largest single reference **by words** (`phase-4-verdict.md`,
   5,905). By *bytes* the largest is **also** `phase-4-verdict.md` (42,117 B) — after #642's reduction
@@ -103,9 +103,9 @@ budget contract later changes are held to.
 <!-- rb:governed-begin ceilings -->
 | Contract | Ceiling | Measured | Margin |
 |---|---|---|---|
-| Root + shipped extension (AC2) | ≤ 8,500 words | **7,701** | 799 |
-| Reduction vs the 33,815 baseline (AC2) | ≥ 25,327 words | **26,114** | 787 |
-| Shipped-default per-pass path (AC3, #618 re-anchored, #642 shed) | ≤ 30,076 words | **30,076** | 60 |
+| Root + shipped extension (AC2) | ≤ 8,500 words | **8,174** | 326 |
+| Reduction vs the 33,815 baseline (AC2) | ≥ 25,327 words | **25,641** | 314 |
+| Shipped-default per-pass path (AC3, #618 re-anchored, #642 shed) | ≤ 30,609 words | **30,549** | 60 |
 <!-- rb:governed-end ceilings -->
 
 <!-- Measured + Margin cells are current-measured (machine-reconciled live).
@@ -118,7 +118,7 @@ The AC3 gate's margin is **thin by construction** — the ceiling is the live me
 margin directly. Re-measure with the `python3` counter above (`lib/test/run.sh`'s `_rb_words`) before
 adding prose — a `wc -w` reading will disagree with the record on some hosts.
 
-The **default per-pass unique path** (no stale-prose predicate) still measures **27,990** words and is
+The **default per-pass unique path** (no stale-prose predicate) still measures **28,463** words and is
 reported in the *Static size* table above, but it is **no longer a ceiling**: issue #618 retired it as
 the gated comparand because it measures a configuration nobody runs by default (see the decision record).
 
@@ -148,8 +148,15 @@ its own project, carrying behavioral-preservation ACs (the engine-content pins o
 the prose-cutover procedure, and the frozen merge-gating-judge economics of #425) — shed ~2,323 words
 of review-engine prose from the shipped-default path (32,339 → **30,016**) by condensing non-pinned
 rationale, preserving every pinned literal and every operative decision. That brought the path under the
-at-most-30,100-word target, and the escape-valve procedure lowered the ceiling to **≤ 30,076 words**
-(the measured 30,016 plus the fixed 60-word margin). This ceiling is **no longer interim**.
+at-most-30,100-word target, and the escape-valve procedure lowered the ceiling to **30,016 + 60 = 30,076
+words** at that time. This ceiling is **no longer interim**.
+
+**#730 (deferred from #719) — advisory prose, ceiling raised.** The tier-scoped Verification-evidence
+marker advisory added to the shipped review extension (`.devflow/prompt-extensions/review.md`, on the
+shipped-default path) moved `_rb_shipped_w` 30,016 → **30,549**, past the #642 ceiling. Per the
+escape-valve procedure the ceiling was re-anchored **upward** to **≤ 30,609 words** (the measured 30,549
+plus the fixed 60-word margin) and every mirror the list below names was reconciled in the same change.
+The audited growth decision is [`docs/cutovers/issue-730-verification-evidence-advisory-growth.md`](cutovers/issue-730-verification-evidence-advisory-growth.md).
 
 **The escape-valve procedure (the sanctioned honest move, now recorded here).** The valve arms on
 **either direction** of ceiling drift, and only on ceiling drift:
@@ -213,10 +220,10 @@ a hypothetical configuration; AC5 measures reality, so each row carries the refe
 actually loads:
 
 <!-- rb:governed-begin exec-weighted -->
-- **`standalone_path`** (215,273 B / 53,819 tok) — the AC3 default set **plus** <!-- rb:fig -->
+- **`standalone_path`** (218,701 B / 54,676 tok) — the AC3 default set **plus** <!-- rb:fig -->
   `phases/phase-0-6-stale-prose-lint.md`, whose gate defaults **true**, so an ordinary standalone pass
   reads it. Includes `phases/phase-4-4-github-post.md` (a standalone pass posts to GitHub).
-- **`raf_path`** (209,132 B / 52,283 tok) — the same, **minus** the standalone-only <!-- rb:fig -->
+- **`raf_path`** (212,560 B / 53,140 tok) — the same, **minus** the standalone-only <!-- rb:fig -->
   `phase-4-4-github-post.md`, which `/devflow:review-and-fix` skips entirely.
 - `phases/phase-0-3-6-blocker-recheck.md` is in **neither**: its predicate needs a prior REJECT driven
   solely by carve-out blockers, so an ordinary pass never loads it — and on a hit it *replaces* Phases
@@ -224,10 +231,10 @@ actually loads:
 
 | Path | Formula | Before (bytes / ~tokens) | After (bytes / ~tokens) | Delta |
 |---|---|---|---|---|
-| Standalone review (1 pass) | `standalone_path × 1` | 237,113 / 59,279 | 215,273 / 53,819 | **−21,840 / −5,460** |
-| One normal + shadow pass | `raf_path × 2` | 474,226 / 118,558 | 418,264 / 104,566 | **−55,962 / −13,992** |
-| Bounded multi-iteration (2 iters + shadow) | `raf_path × (N+1)`, N=2 | 711,339 / 177,837 | 627,396 / 156,849 | **−83,943 / −20,988** |
-| Bounded multi-iteration (3 iters + shadow) | `raf_path × (N+1)`, N=3 | 948,452 / 237,116 | 836,528 / 209,132 | **−111,924 / −27,984** |
+| Standalone review (1 pass) | `standalone_path × 1` | 237,113 / 59,279 | 218,701 / 54,676 | **−18,412 / −4,603** |
+| One normal + shadow pass | `raf_path × 2` | 474,226 / 118,558 | 425,120 / 106,280 | **−49,106 / −12,278** |
+| Bounded multi-iteration (2 iters + shadow) | `raf_path × (N+1)`, N=2 | 711,339 / 177,837 | 637,680 / 159,420 | **−73,659 / −18,417** |
+| Bounded multi-iteration (3 iters + shadow) | `raf_path × (N+1)`, N=3 | 948,452 / 237,116 | 850,240 / 212,560 | **−98,212 / −24,556** |
 <!-- rb:governed-end exec-weighted -->
 
 <!-- After + Delta cells (and the two prose-bullet after figures) are
@@ -262,7 +269,7 @@ against the figure this page publishes, so the two cannot drift apart.
 ## Justified growth
 
 <!-- rb:governed-begin justified-growth -->
-The **complete bundle** grows by **702 words / 8,452 bytes** against baseline. <!-- rb:fig --> That is the
+The **complete bundle** grows by **1,175 words / 11,880 bytes** against baseline. <!-- rb:fig --> That is the
 <!-- rb:governed-end justified-growth -->
 expected cost of the split and is stated rather than hidden: the root gained the bundle-identity
 contract, the boundary contract, and the routing table (~960 words), and each reference carries a
