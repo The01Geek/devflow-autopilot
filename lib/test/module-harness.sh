@@ -1046,7 +1046,16 @@ _devflow_pool_launch_suite() { # name script mode attempt
     printf '  FAIL  pool suite %s — could not allocate private tally\n' "$name" >&2
     return 0
   fi
-  output="$(mktemp "${TMPDIR:-/tmp}/devflow-pool-out.XXXXXX")" || output=/dev/null
+  # A failed output-capture mktemp falls back to /dev/null, which for a self-tally suite
+  # means its `N passed, M failed` summary is never captured — the reap then records a
+  # "#720 ... could not capture its summary line" FAIL that reads like a capture-logic
+  # bug rather than the real cause (output tempfile allocation failed under TMPDIR
+  # exhaustion/quota). Breadcrumb the real cause so that eventual FAIL is actionable
+  # (best-effort: continue with /dev/null; the FAIL is fail-closed over-reporting).
+  if ! output="$(mktemp "${TMPDIR:-/tmp}/devflow-pool-out.XXXXXX")"; then
+    output=/dev/null
+    printf 'devflow-pool: suite %s — output-capture tempfile allocation failed (TMPDIR full/quota?); a self-tally summary will be uncapturable and recorded as a FAIL downstream\n' "$name" >&2
+  fi
   if ! scratch="$(devflow_module_allocate_owned_directory \
     "${TMPDIR:-/tmp}/devflow-module-scratch.XXXXXX")"; then
     printf 'FAIL\n' >> "$RESULTS_FILE"
@@ -1155,8 +1164,9 @@ _devflow_pool_reap() { # pid rc
     # it here would drop the summary and inject a spurious FAIL (issue #720 review).
     if [ -n "$output" ] && [ "$output" != /dev/null ]; then
       : > "$output" 2>/dev/null || :
-    else
-      output="$(mktemp "${TMPDIR:-/tmp}/devflow-pool-out.XXXXXX")" || output=/dev/null
+    elif ! output="$(mktemp "${TMPDIR:-/tmp}/devflow-pool-out.XXXXXX")"; then
+      output=/dev/null
+      printf 'devflow-pool: suite %s — retry output-capture tempfile allocation failed (TMPDIR full/quota?); a self-tally summary will be uncapturable and recorded as a FAIL downstream\n' "$name" >&2
     fi
     _devflow_pool_run_serial "$name" "$script" "$mode" "$tally" "$output"
     rc=$?

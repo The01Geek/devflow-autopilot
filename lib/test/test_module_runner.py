@@ -2020,6 +2020,32 @@ class PoolMembershipCompletenessTests(unittest.TestCase):
         self.assertIn("devflow_pool_open", run_text)
         self.assertIn("devflow_pool_join", run_text)
 
+    def test_pooled_suites_constant_matches_the_run_sh_pool_invocation(self) -> None:
+        # issue #720 review: POOLED_SUITES declares the pool's membership, but the
+        # membership/disjointness checks above pin it only against the FILESYSTEM. That
+        # leaves the removal direction unpinned — dropping a suite from run.sh's real
+        # devflow_pool_open call while leaving it in POOLED_SUITES would pass cleanly, so
+        # a suite could silently stop executing while the completeness guard stayed green.
+        # Pin POOLED_SUITES to the ACTUAL wiring: parse run.sh's real pool invocation —
+        # the triples whose script is a "$LIB/test/test_*.py" path (the fixture opens in
+        # run.sh's #720 test block use "$POOL720_FIX/..." / bare names, so this pattern
+        # excludes them) — and assert the pooled set equals POOLED_SUITES exactly. Now
+        # both drift directions (add-to-run.sh-only, remove-from-run.sh-only) go RED.
+        run_text = (ROOT / "lib/test/run.sh").read_text(encoding="utf-8")
+        triples = re.findall(
+            r'"(test_[A-Za-z0-9_]+\.py)"\s+"\$LIB/test/test_[A-Za-z0-9_]+\.py"\s+'
+            r"(single-verdict|self-tally)",
+            run_text,
+        )
+        pooled_in_run_sh = {name for name, _mode in triples}
+        self.assertEqual(
+            pooled_in_run_sh,
+            set(POOLED_SUITES),
+            "POOLED_SUITES does not match run.sh's real devflow_pool_open invocation "
+            f"(run.sh pools {sorted(pooled_in_run_sh)}, constant declares "
+            f"{sorted(POOLED_SUITES)})",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
