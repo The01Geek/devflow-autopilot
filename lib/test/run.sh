@@ -33925,7 +33925,11 @@ names = ["Resolve model provider",
          "Inject provider endpoint (provider-routed sections only)",
          "Build claude_args head (model + conditional effort)",
          # issue #669 applied arm: the per-agent effort composer is triplicated
-         # scaffolding too (identical env AND run: across the three workflows).
+         # scaffolding too — identical `run:` BODIES across the three workflows,
+         # which is all this checker compares (it reads st["run"], never st["env"]).
+         # The env deliberately DIFFERS: devflow-runner.yml alone carries
+         # DEVFLOW_AE_CONFIG (the #700 B1 trusted base-ref source), pinned present
+         # on the runner and absent (0,0) on the implement/command tiers below.
          "Compose applied per-agent effort (issue 669)"]
 bodies = {n: [] for n in names}
 for f in files:

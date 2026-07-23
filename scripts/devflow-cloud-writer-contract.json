@@ -1,6 +1,6 @@
 {
   "files": {
-    "lib/efficiency-trace.sh": "b670069c208556bcc25bfb76660e5977a07b5c754475bbfd2fc08b0b076139a9",
+    "lib/efficiency-trace.sh": "b6d34982d8e32f71978a36224140d909771c4db9db6e7d2dbf069e91fcbf45bd",
     "scripts/apply-labels.sh": "7ea8de21f888b038ab0d6a2324b197e6e865144caf51d8b7a765d06996ab3ad2",
     "scripts/branch-for-issue.py": "e44aa7e0d8e743c9ea6c0b650e39376b91cefb5ce7eaca22803f3f50f5a0f1a9",
     "scripts/config-get.sh": "a418b2e05a7a2205ae8f7495b3c05f65660694a96c580895048b4688b0fa195e",

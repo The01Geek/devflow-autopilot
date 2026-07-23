@@ -246,21 +246,48 @@ compute_config_fingerprint() {
 # (post-capability-gate) it composed into the startup `--agents` agent-definition.
 # The in-session recorder reads it here so `effective` and the applied
 # `application_point: agent-definition` have a single source of truth (AC2).
-# Best-effort and fail-CLOSED to `{}`: an absent/unreadable/non-object sidecar
-# yields no applied entries, so the recorder keeps the honest `effective: null`
-# fallback and never records `agent-definition` — a missing sidecar is never
-# coerced into an unearned applied value (unknown is not zero). The path is
+# Best-effort and fail-CLOSED to `{}`: an absent/unreadable/malformed/non-object
+# sidecar — and any per-agent value that is not a valid effort enum string —
+# yields no applied entry, so the recorder keeps the honest `effective: null`
+# fallback and never records `agent-definition` — a missing or unusable sidecar is
+# never coerced into an unearned applied value (unknown is not zero). The path is
 # `DEVFLOW_APPLIED_EFFORT_FILE` when set, else `.devflow/tmp/agent-effort-applied.json`
 # under the repo root. jq is a hard preflight prerequisite, so this value that
 # decides an emitted field is derived through a preflight-guaranteed tool.
+#
+# TWO fail-closed properties this function owns, each with its own guarded regression:
+#
+#  (1) SINGLE-DOCUMENT capture (#700 review, F3). `jq` over a file whose valid JSON
+#      prefix is followed by trailing garbage PRINTS the parsed prefix and THEN exits
+#      nonzero, so a `cmd || printf '{}'` fallback APPENDS a second document and the
+#      caller's `--argjson` then rejects the two-document string — aborting the whole
+#      record (total telemetry loss), the opposite of fail-closed. So capture into a
+#      variable and branch on the exit status, emitting EITHER the parsed object OR the
+#      `{}` fallback — never their concatenation.
+#
+#  (2) VALUE-level enum validation (#700 review, F2). Validating only that the TOP LEVEL
+#      is an object leaves every per-agent VALUE unchecked, so a valid-falsy `""` (or a
+#      `0`, an object, or a non-enum string like `"turbo"`) is non-null and drives
+#      `application_point: agent-definition` with a junk `effective` — the unearned
+#      applied claim this contract exists to forbid, and the documented six-shape
+#      valid-falsy row. Keep only entries whose value is one of the effort enum
+#      strings; every other entry is dropped, so the agent falls back honestly.
 load_applied_effort() {
-  local file="${DEVFLOW_APPLIED_EFFORT_FILE:-}"
+  local file="${DEVFLOW_APPLIED_EFFORT_FILE:-}" out
   if [ -z "$file" ]; then
     file="$(devflow_repo_root)/.devflow/tmp/agent-effort-applied.json"
   fi
   [ -f "$file" ] || { printf '{}\n'; return 0; }
-  "$DEVFLOW_JQ" -c 'if type == "object" then . else {} end' "$file" 2>/dev/null \
-    || printf '{}\n'
+  if out="$("$DEVFLOW_JQ" -c '
+        if type == "object"
+        then with_entries(select(.value | type == "string"
+               and (. == "low" or . == "medium" or . == "high"
+                    or . == "xhigh" or . == "max")))
+        else {} end' "$file" 2>/dev/null)" && [ -n "$out" ]; then
+    printf '%s\n' "$out"
+  else
+    printf '{}\n'
+  fi
 }
 
 emit_jq() {
