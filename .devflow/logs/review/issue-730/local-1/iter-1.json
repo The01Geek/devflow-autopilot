@@ -1,7 +1,7 @@
 {
   "iter": 1,
   "loop_role": "fix",
-  "current_step": "2.6",
+  "current_step": "loop-exit",
   "fix_files": [],
   "phase3_dispatched": [
     "devflow:code-reviewer",
@@ -20,6 +20,23 @@
     "fixes_applied": 0,
     "fix_diff_lines": 0,
     "new_corroborated_critical_count": 0
+  },
+  "shadow": {
+    "ran_at": "local",
+    "reviewed_sha": "862f4579ec34ba0544f29946224c8a9235f2852a",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "devflow:silent-failure-hunter"
+    ],
+    "phase3_findings": [],
+    "comparison": {
+      "shadow_total": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
   },
   "telemetry": "unavailable"
 }
