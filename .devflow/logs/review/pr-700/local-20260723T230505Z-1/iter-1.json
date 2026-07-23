@@ -1,0 +1,23 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-23T23:05:05Z",
+  "loop_role": "fix",
+  "current_step": "loop-control",
+  "current_substep": "phase_1_checklist",
+  "pending_dispatch": {"kind": "checklist_generator_batches", "roster": ["devflow:checklist-generator"], "dispatched_at": "2026-07-23T23:10:00Z"},
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "checklist": [],
+  "dispatched_effort": [],
+  "phase3_dispatched": [],
+  "phase3_findings": [],
+  "fix_decisions": [],
+  "convergence_inputs": {"fixes_applied": 0, "fix_diff_lines": 0, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "telemetry": {}
+}
