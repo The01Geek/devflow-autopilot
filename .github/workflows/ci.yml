@@ -60,7 +60,40 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      # shellcheck ships on ubuntu-latest runners — no extra action needed.
+      # Pin ShellCheck instead of using the runner image's (issue #745). Two
+      # coupled requirements force this, and BOTH are load-bearing:
+      #   1. lib/test/run.sh (>50k lines) cannot be analysed with ShellCheck's
+      #      dataflow ("extended analysis") pass on: it allocates ~15 GB and the
+      #      16 GB runner is evicted mid-analysis with "The runner has received a
+      #      shutdown signal" (observed 6/6 runs across 5 head SHAs, PR #734).
+      #      --extended-analysis=false brings it to 1.15 GB / ~10 s. Measured
+      #      cost on THIS file: none — a chunked A/B of the whole file produced
+      #      a byte-identical finding set both ways. Repo-wide (issue #745) the
+      #      flag dropped only SC2319; no other check disappeared.
+      #   2. ubuntu-latest (Ubuntu 24.04) ships ShellCheck 0.9.0, which predates
+      #      --extended-analysis (added in 0.10.0). On 0.9.0 the flag ERRORS and
+      #      the equivalent `# shellcheck extended-analysis=false` directive is
+      #      silently ignored (SC1107) — so without this pin the run.sh step
+      #      would OOM exactly as before. Pin >= 0.10.0 rather than depending on
+      #      the image's tool version, which drifts with the runner image.
+      # Installed onto PATH so every ShellCheck step below uses the pinned build.
+      - name: Pin ShellCheck (>= 0.10.0, required by --extended-analysis)
+        env:
+          SHELLCHECK_VERSION: v0.11.0
+        run: |
+          # pipefail: without it a failed download (404, rate limit, network) leaves tar
+          # reading an empty stream and the step's status comes from tar alone — the exact
+          # silent-fallback-to-the-image's-0.9.0 outcome this pin exists to prevent. The
+          # `shellcheck --version` at the end is the positive confirmation that the pinned
+          # binary, not the image's, is the one on PATH.
+          set -o pipefail
+          curl -fsSL \
+            "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" \
+            | tar -xJf - "shellcheck-${SHELLCHECK_VERSION}/shellcheck"
+          sudo install -m 0755 "shellcheck-${SHELLCHECK_VERSION}/shellcheck" /usr/local/bin/shellcheck
+          rm -rf "shellcheck-${SHELLCHECK_VERSION}"
+          shellcheck --version
+
       # --severity=warning keeps the gate on real issues and drops info/style
       # nags. SC1091 ("can't follow sourced file") is excluded: helpers source
       # each other via ${CLAUDE_SKILL_DIR}-relative paths that don't resolve at
@@ -83,12 +116,24 @@ jobs:
             lib/test/modules/capability-profiles.sh \
             lib/test/modules/regenerate-artifacts.sh \
             lib/test/modules/installer-wiring.sh \
-            lib/test/modules/harness-python-guards.sh
+            lib/test/modules/harness-python-guards.sh \
+            lib/test/cloud-form-layout-test.sh \
+            lib/test/path-portability-test.sh
           # lib/test/describe-budget-delta.sh is the #529 budget-delta reporter the suite
           # drives (a branch-selecting message composer, extracted per CLAUDE.md's
           # inline-shell rule). Same carve-out: real shell, so it is linted even
           # though lib/test/ is excluded above.
           shellcheck --severity=warning -e SC1091 lib/test/describe-budget-delta.sh
+
+      # lib/test/run.sh is the suite driver — the largest and most-edited shell
+      # file in the repo, and until issue #745 the only one shipping unlinted.
+      # It gets its own step (rather than joining the list above) because it is
+      # the sole file that needs --extended-analysis=false; see the pin step's
+      # comment for why the flag and the >= 0.10.0 pin are both required. This
+      # runs on the standard ubuntu-latest runner, and its failure is not tolerated.
+      - name: ShellCheck (lib/test/run.sh)
+        run: |
+          shellcheck --severity=warning -e SC1091 --extended-analysis=false lib/test/run.sh
 
       # actionlint validates workflow syntax and runs shellcheck over run: blocks.
       # SHELLCHECK_OPTS mirrors the severity policy; SC2034 is excluded because

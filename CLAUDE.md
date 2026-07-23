@@ -8,8 +8,11 @@ DevFlow is a single [Claude Code](https://code.claude.com) plugin published at t
 bash lib/preflight.sh      # verify git/gh/jq/python3.11+/PyYAML on PATH
 bash lib/test/run.sh       # full suite: jq filters + shell helpers + python; gh-stubbed, no network/auth
 git ls-files '*.sh' | grep -v '^lib/test/' | xargs -r shellcheck --severity=warning -e SC1091
+shellcheck --severity=warning -e SC1091 --extended-analysis=false lib/test/run.sh
 git ls-files '*.py' | xargs -r ruff check
 ```
+
+**The `lib/test/run.sh` lint needs ShellCheck ≥ 0.10.0 and the `--extended-analysis=false` flag — both, or it does not work (issue #745).** ShellCheck's dataflow ("extended analysis") pass allocates on the order of 15 GB on a file this size; with the flag it is 1.15 GB / ~10 s, and it costs this file nothing — a chunked A/B of the whole file returns a byte-identical finding set with the flag on and off (repo-wide, only SC2319 was lost). But `--extended-analysis` (and the equivalent `# shellcheck extended-analysis=false` directive) landed in **0.10.0**: on 0.9.x — which is what `ubuntu-latest`/Ubuntu 24.04 ships — the flag errors and the directive is silently ignored (SC1107), so the lint OOMs exactly as if the flag were absent. CI therefore installs a pinned ≥ 0.10.0 binary rather than using the runner image's; at the desk, check `shellcheck --version` before concluding the lint is broken. The remaining `lib/test/**/*.sh` files are linted by the explicit list in `.github/workflows/ci.yml`, and `lib/test/lint-carveout-guard.py` (driven from `lib/test/run.sh`) turns the suite RED if a tracked `lib/test` script is neither in that CI-linted set nor under `lib/test/fixtures/`.
 
 CI (`.github/workflows/ci.yml`) runs the same suite + lint on every PR. The **required** status check is the job name **`lib + python tests`** (not "CI", which is the workflow name and never resolves). CI checks out full history (`fetch-depth: 0`) so `origin/main` resolves and the `#434` stale-prose self-scan runs live there rather than self-skipping (issue #456).
 
