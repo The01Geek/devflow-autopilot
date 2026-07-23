@@ -139,21 +139,14 @@ _SEPARATORS = ("|&", "&&", "||", ";", "|", "&", "\n")
 
 
 def _fenced_bash_blocks(text: str) -> list[str]:
-    """Return the bodies of every fence whose info string is exactly `bash`."""
-    blocks: list[str] = []
-    body: list[str] | None = None
-    for line in text.splitlines():
-        stripped = line.strip()
-        if body is None:
-            if stripped == "```bash":
-                body = []
-            continue
-        if stripped == "```":
-            blocks.append("\n".join(body))
-            body = None
-            continue
-        body.append(line)
-    return blocks
+    """Return the bodies of every fence whose info string is exactly `bash`.
+
+    A thin projection of `_fenced_bash_blocks_with_lines` (which additionally
+    tracks each fence's start line) so the fence-detection state machine lives in
+    exactly one place — a change to what counts as a `bash` fence cannot make the
+    line-tracking and line-less scanners disagree.
+    """
+    return [body for _start, body in _fenced_bash_blocks_with_lines(text)]
 
 
 def _strip_comments_and_heredocs(block: str) -> str:
@@ -513,6 +506,199 @@ def _collect(text: str, heads: list[list[str]]) -> None:
         head = _head_of(statement)
         if head is not None:
             heads.append(head)
+
+
+# --- Helper leading-token boundary (issue #701) -------------------------------
+# A cloud-reached ```bash fenced command that invokes a bundled helper must place
+# that helper's vendored path as the command's FIRST executable token. The
+# portable `${CLAUDE_SKILL_DIR:-…}/../../scripts/x` source anchor normalizes to the
+# vendored literal `.devflow/vendor/devflow/scripts/x` (see `_ANCHOR`/`_normalize`),
+# so the sanctioned source form passes as its own cloud-emission equivalent — no
+# duplicate cloud fence, so the #275 portability contract and the review-bundle
+# word ceiling both hold. Every OTHER form that still names a bundled helper in
+# command position is a boundary escape and is classified: a malformed/unexpanded
+# anchor, an absolute path, a repo-root path, or a helper preceded by a granted
+# launcher head (`env`/`xargs`/interpreter/process-wrapper), which would match the
+# launcher's own broad grant instead of the per-helper vendored grant.
+#
+# This is the emission-time surface AC2/AC3 were restated against (issue #701's
+# Desired-Behavior second option): the source keeps the portable anchor, and the
+# guard measures the normalized (emission-equivalent) leading token. The policy —
+# which helpers carry a per-helper grant, and which launcher heads a profile
+# grants — is supplied by the caller (cloud_writer_contract.py owns
+# REQUIRED_HELPER_HEADS and the parsed launcher table). The parser owns only the
+# STRUCTURAL constants of the emission convention (the vendored-path prefix and
+# the bundled-helper path shape below), classifying a token structurally; the
+# per-profile membership decisions stay with the caller.
+
+_VENDORED_LEADING = ".devflow/vendor/devflow/"
+
+# A command-position token whose final path component is `scripts/<name>` or
+# `lib/<name>` with a helper extension. Matched against the NORMALIZED token, so
+# the vendored form, an absolute path, a repo-root path, and a malformed anchor
+# all surface their basename; only the sanctioned vendored form additionally
+# starts with `_VENDORED_LEADING`.
+_HELPER_PATH_RE = re.compile(r"(?:^|/)(?:scripts|lib)/([A-Za-z0-9._-]+\.(?:py|sh|jq))$")
+
+
+def _helper_basename(token: str) -> str | None:
+    """The bundled-helper basename a normalized command-position token names, or None."""
+    m = _HELPER_PATH_RE.search(token)
+    return m.group(1) if m else None
+
+
+def _leading_exec(statement: str):
+    """``(head_norm, tail_norm)`` — the normalized leading executable token and the
+    normalized list of EVERY token after it (returned unconditionally, launcher head
+    or not) — WITHOUT stripping launcher/wrapper heads.
+
+    Only tokens that are not themselves executables are skipped: a leading `!`
+    negation, `VAR=value` env assignments, and leading redirections. A launcher
+    head is deliberately NOT stripped here (that is the whole point — a launcher
+    ahead of a helper must be seen, not normalized away), so ``tail_norm`` is the
+    normalized list of every token AFTER the head, which the launcher-prefixed
+    check scans for a helper (a helper can sit behind a launcher's own flags,
+    operand-taking flags like ``xargs -I {}``, or an ``env VAR=val`` assignment, so
+    a single fixed operand position would miss it — fail-closed means scan the
+    whole tail). Returns ``(None, [])`` when no executable token remains.
+    """
+    statement = statement.strip()
+    # A bare subshell `(cmd …)` runs `cmd`; descend, mirroring `_head_of`.
+    if statement.startswith("(") and statement.endswith(")"):
+        return _leading_exec(statement[1:-1])
+    tokens = _tokenize(statement)
+    i = 0
+    while i < len(tokens) and tokens[i] == "!":
+        i += 1
+    while i < len(tokens) and _ASSIGNMENT.match(tokens[i]):
+        i += 1
+    while i < len(tokens) and _REDIRECTION.match(tokens[i]):
+        i += 1
+    if i >= len(tokens):
+        return None, []
+    head = _normalize(tokens[i])
+    tail = [_normalize(t) for t in tokens[i + 1:]]
+    return head, tail
+
+
+def _classify_boundary(statement: str, helper_basenames, launchers):
+    """``(reason, token)`` for one statement that escapes the helper boundary, else None.
+
+    ``helper_basenames`` are the profile's per-helper-granted bundled-helper
+    basenames; ``launchers`` are the profile's granted launcher heads.
+    """
+    head, tail = _leading_exec(statement)
+    if head is None:
+        return None
+    # Case A: the leading token itself names a bundled helper.
+    bn = _helper_basename(head)
+    if bn is not None and bn in helper_basenames:
+        if head.startswith(_VENDORED_LEADING):
+            return None  # sanctioned vendored literal (or an anchor normalized to it)
+        if "CLAUDE_SKILL_DIR" in head:
+            return ("unexpanded-anchor", head)
+        if head.startswith("/"):
+            return ("absolute-path", head)
+        if head.startswith("scripts/") or head.startswith("lib/"):
+            return ("repo-root-path", head)
+        return ("helper-not-leading", head)
+    # Case B: a granted launcher head followed anywhere by a bundled helper. Scan
+    # the whole tail rather than a single operand slot, so an `env VAR=val <helper>`
+    # assignment or an operand-taking flag (`xargs -I {} <helper>`) cannot hide the
+    # helper behind the launcher — the launcher's broad grant would otherwise
+    # execute it, escaping the per-helper vendored grant.
+    if head in launchers:
+        for tok in tail:
+            obn = _helper_basename(tok)
+            if obn is not None and obn in helper_basenames:
+                return ("launcher-prefixed:" + head, tok)
+    return None
+
+
+def _boundary_units(block_text: str):
+    """Every leaf statement (splitting compounds and descending `$(…)`) of a cleaned block.
+
+    Known limitation (shared with `_head_of`/`extract_heads`): `_split_statements`
+    tracks `$(` depth but not bare `(` subshell depth, so a compound nested in a
+    bare subshell — `(cd d && helper)` — splits on the inner `&&` and the helper
+    token keeps a trailing `)`, which `_helper_basename`'s end-anchor then drops. No
+    current cloud-reached fence nests a compound in a bare subshell; a fix belongs
+    in the shared splitter, not here.
+    """
+    units: list[str] = []
+    for statement in _split_statements(block_text):
+        units.append(statement)
+        for body in _substitutions(statement):
+            units.extend(_boundary_units(body))
+    return units
+
+
+def _fenced_bash_blocks_with_lines(text: str):
+    """``(1-based fence-body start line, block-body)`` for every ```bash fence.
+
+    An UNTERMINATED fence (opened but never closed before EOF) is treated as if it
+    closed at EOF, so its body is still scanned. Dropping it would make a guard
+    return "" (clean) for a file whose only escapes live in the dangling fence —
+    a fail-open where "unknown is not zero" demands the content be audited. A
+    well-formed document closes every fence, so this changes nothing there.
+    """
+    blocks: list[tuple[int, str]] = []
+    body: list[str] | None = None
+    start = 0
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        stripped = line.strip()
+        if body is None:
+            if stripped == "```bash":
+                body = []
+                start = lineno + 1
+            continue
+        if stripped == "```":
+            blocks.append((start, "\n".join(body)))
+            body = None
+            continue
+        body.append(line)
+    if body is not None:
+        blocks.append((start, "\n".join(body)))  # unterminated fence: audit it anyway
+    return blocks
+
+
+def _attribute_boundary_line(statement, start, block_line_count, lines):
+    """Best-effort source line for a statement: its first fragment found verbatim in
+    the fence's source lines, else the fence start."""
+    probe = statement.strip().split("\n", 1)[0][:40]
+    for off in range(block_line_count):
+        src_idx = start - 1 + off
+        if src_idx >= len(lines):
+            break
+        if probe and probe in lines[src_idx]:
+            return start + off
+    return start
+
+
+def helper_boundary_violations(text: str, helper_basenames, launchers):
+    """``(lineno, reason, statement)`` for every ```bash fenced command in ``text``
+    that names a bundled helper (basename in ``helper_basenames``) anywhere other
+    than as its vendored leading token.
+
+    ``launchers`` are the profile's granted launcher heads, so a helper executed
+    through one (`env`/`xargs`/`python3`/`bash`/`timeout`/…) is caught even though
+    `_head_of` would normally strip a wrapper away.
+    """
+    lines = text.splitlines()
+    hits: list[tuple[int, str, str]] = []
+    for start, block in _fenced_bash_blocks_with_lines(text):
+        cleaned = _join_continuations(
+            _strip_case_patterns(_strip_comments_and_heredocs(block))
+        )
+        block_line_count = len(block.split("\n"))
+        for unit in _boundary_units(cleaned):
+            v = _classify_boundary(unit, helper_basenames, launchers)
+            if v is None:
+                continue
+            reason, _token = v
+            lineno = _attribute_boundary_line(unit, start, block_line_count, lines)
+            hits.append((lineno, reason, unit.strip()))
+    return hits
 
 
 def tools_allowlist_line(text: str) -> str:

@@ -908,5 +908,141 @@ class DispatchInstructions(unittest.TestCase):
                 "positionally valid")
 
 
+class EnumerateDimensions(unittest.TestCase):
+    """issue #708 — the canonical keyed effective-dimension enumeration.
+
+    This is the authoritative operand the orchestrator joins the auditor's
+    per-dimension coverage outcomes to, so it must be positionally delivered,
+    keyed disjointly across arms, count-stable, and single-line per entry.
+    """
+
+    def _parse(self, out):
+        lines = out.splitlines()
+        self.assertTrue(lines[0].startswith("render-status: "), out)
+        self.assertEqual(lines[-1], "render-end:", out)
+        dims = []
+        for ln in lines[1:-1]:
+            self.assertTrue(ln.startswith("dim key="), ln)
+            rest = ln[len("dim key="):]
+            key, _, text = rest.partition(" text=")
+            self.assertTrue(_, ln)  # the ` text=` separator is present
+            dims.append((key, text))
+        return lines[0], dims
+
+    def test_generic_floor_enumeration(self):
+        # No consumer extension present -> generic floor only.
+        with tempfile.TemporaryDirectory() as d:
+            ext = Path(d) / "create-issue.md"  # does not exist -> absent
+            r = run_renderer(["enumerate-dimensions", "--extension-file", str(ext)])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        status, dims = self._parse(r.stdout)
+        self.assertTrue(status.startswith("render-status: absent"))
+        keys = [k for k, _ in dims]
+        # Every generic dimension is present and `g:`-keyed; none `c:`-keyed.
+        self.assertTrue(all(k.startswith("g:") for k in keys), keys)
+        self.assertIn("g:consumer-repo-setup-variance", keys)
+        self.assertIn("g:authoring-discipline-defects", keys)
+        self.assertIn("g:adversarial-third-party-input", keys)
+        # Keys are unique (count-stable, no collision).
+        self.assertEqual(len(keys), len(set(keys)))
+        # Each dimension text is single-line and non-empty.
+        for _, text in dims:
+            self.assertTrue(text.strip())
+            self.assertNotIn("\n", text)
+
+    def test_generic_dimension_count_is_stable(self):
+        # The COUNT is the operand the coverage join and the totality check consume, so a
+        # template edit that drops or adds a generic dimension must be a visible, reviewed
+        # diff rather than a silently shorter enumeration. Checked-in literal under
+        # CLAUDE.md's enforcement-constant exemption (the constant IS the enforcement).
+        with tempfile.TemporaryDirectory() as d:
+            ext = Path(d) / "create-issue.md"  # absent -> generic floor only
+            r = run_renderer(["enumerate-dimensions", "--extension-file", str(ext)])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        _, dims = self._parse(r.stdout)
+        self.assertEqual(len(dims), 9, [k for k, _ in dims])
+
+    def test_two_checklist_blocks_fail_closed(self):
+        # Two checklist blocks would silently MERGE two dimension sets into one
+        # enumeration, and the merged keyset is what coverage totality is checked against.
+        # The uniqueness the docstring states is enforced, not merely described.
+        import re as _re
+        tmpl = TEMPLATE.read_text(encoding="utf-8")
+        block = _re.search(r"<!-- render-block:[^>]*checklist[^>]*-->.*?(?=<!-- render-block:|\Z)",
+                           tmpl, _re.S)
+        self.assertIsNotNone(block, "no checklist block found in the shipped template")
+        with tempfile.TemporaryDirectory() as d:
+            dup = Path(d) / "tmpl.md"
+            dup.write_text(tmpl + "\n" + block.group(0), encoding="utf-8")
+            r = run_renderer(["enumerate-dimensions", "--template-file", str(dup)])
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("checklist blocks", r.stderr)
+
+    def test_consumer_section_with_no_bullets_enumerates_generic_only(self):
+        # A prose-only consumer section (a best-effort parse over consumer-authored
+        # markdown) yields NO c: entries — it must not invent one, and it must not drop
+        # the generic floor either.
+        with tempfile.TemporaryDirectory() as d:
+            ext = write_ext(
+                Path(d),
+                "## Audit dimensions\n\nThis repo has no extra dimensions to add.\n",
+            )
+            r = run_renderer(["enumerate-dimensions", "--extension-file", str(ext)])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        _, dims = self._parse(r.stdout)
+        keys = [k for k, _ in dims]
+        self.assertEqual([k for k in keys if k.startswith("c:")], [])
+        self.assertEqual(len(keys), 9)
+
+    def test_deterministic_stable_keys_across_renders(self):
+        # The orchestrator's render and the auditor's render must key identically.
+        r1 = run_renderer(["enumerate-dimensions"])
+        r2 = run_renderer(["enumerate-dimensions"])
+        self.assertEqual(r1.returncode, 0, r1.stderr)
+        self.assertEqual(r1.stdout, r2.stdout)
+
+    def test_consumer_dimensions_appended_and_split(self):
+        with tempfile.TemporaryDirectory() as d:
+            ext = write_ext(
+                Path(d),
+                "## Audit dimensions\n\n"
+                "- **Billing edge** — refunds and proration.\n"
+                "- Multi-tenant isolation across orgs.\n"
+                "  a continued line folds in.\n",
+            )
+            r = run_renderer(["enumerate-dimensions", "--extension-file", str(ext)])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        status, dims = self._parse(r.stdout)
+        self.assertTrue(status.startswith("render-status: appended"))
+        keys = [k for k, _ in dims]
+        # Generic-floor keys plus consumer `c:1`, `c:2` — disjoint by prefix.
+        self.assertIn("c:1", keys)
+        self.assertIn("c:2", keys)
+        self.assertEqual(len(keys), len(set(keys)))  # unique across both arms
+        c1 = dict(dims)["c:1"]
+        c2 = dict(dims)["c:2"]
+        self.assertIn("Billing edge", c1)
+        self.assertIn("Multi-tenant isolation", c2)
+        self.assertIn("a continued line folds in", c2)  # continuation folded
+        self.assertNotIn("\n", c2)
+
+    def test_unestablished_consumer_status_is_disclosed(self):
+        # A present-but-unreadable extension (a directory in its place) -> the
+        # consumer status is unestablished, never laundered into absent; generic
+        # floor still enumerates.
+        with tempfile.TemporaryDirectory() as d:
+            extdir = Path(d) / ".devflow" / "prompt-extensions"
+            extdir.mkdir(parents=True)
+            (extdir / "create-issue.md").mkdir()  # a directory, not a file
+            r = run_renderer(
+                ["enumerate-dimensions",
+                 "--extension-file", str(extdir / "create-issue.md")]
+            )
+        self.assertEqual(r.returncode, 0, r.stderr)
+        status, dims = self._parse(r.stdout)
+        self.assertTrue(status.startswith("render-status: unestablished"))
+        self.assertTrue(all(k.startswith("g:") for k, _ in dims))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

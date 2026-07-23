@@ -50,7 +50,9 @@ Contract (issue #600):
   it as a standalone call, while the Step 3.6 ``## Audit dimensions`` hook
   consumes the same extraction *rule* spliced into a dispatch arm as
   ``{CONSUMER_DIMENSIONS}``, not via a standalone ``extract`` call),
-  ``status-only`` (the orchestrator's fail-fast one-line probe), and
+  ``status-only`` (the orchestrator's fail-fast one-line probe),
+  ``enumerate-dimensions`` (the issue #708 keyed dimension enumeration the
+  Step 3.6 coverage join reads as its authoritative operand), and
   ``dispatch-instructions`` (issue #709 — the canonical, file-arm-only
   audit-DISPATCH instructions the auditor is pointed at and hashes).
 - Determinism (issue #709, load-bearing): ``dispatch-instructions`` is a pure
@@ -89,6 +91,7 @@ Contract (issue #600):
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -104,6 +107,7 @@ INSTRUCTIONS_VERSION = "1"
 # Closed vocabularies (complete by construction).
 _MODES = (
     "file", "embed", "inline", "checklist", "extract", "status-only",
+    "enumerate-dimensions",
     "dispatch-instructions",
 )
 _DISPATCH_ARMS = ("file", "embed", "inline")
@@ -611,6 +615,150 @@ def instructions_bytes(*args, **kwargs) -> bytes:
 
 
 # --------------------------------------------------------------------------
+# Effective-dimension enumeration (issue #708).
+#
+# The Step 3.6 coverage mechanism needs a canonical, keyed, count-stable list of
+# every required audit dimension — the *authoritative operand* the orchestrator
+# joins the auditor's per-dimension coverage outcomes to, and the comparand for
+# the byte-identity floor. Because the renderer is deterministic, the auditor's
+# own render (the #600 compact-preamble transport) and the orchestrator's render
+# assign the SAME stable key to the same dimension, so the join is by shared key,
+# never positional or name inference.
+#
+# Two dimension arms, keyed disjointly so keys are unique across the whole list:
+#   - generic-floor dimensions: the bold-lead bullets in the template's
+#     `## Audit dimensions` checklist block. Key `g:<name-slug>`.
+#   - consumer dimensions: the per-bullet split of the consumer
+#     `## Audit dimensions` section (present only when appended). Key `c:<n>`.
+#
+# Output shape (positionally delimited like every other full render):
+#   render-status: <appended|absent|unestablished>
+#   dim key=<key> text=<single-line rendered dimension text>
+#   ...
+#   render-end:
+# --------------------------------------------------------------------------
+_DIM_LINE_PREFIX = "dim key="
+_DIM_TEXT_SEP = " text="
+# A generic-floor dimension bullet: `- **Name** — ...` (an em-dash lead follows,
+# but only the bold name is captured for the slug; the whole bullet is the text).
+_GENERIC_DIM_RE = re.compile(r"^- \*\*(.+?)\*\*")
+_SLUG_STRIP_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _name_slug(name: str) -> str:
+    """Deterministic kebab slug of a dimension's bold name, for its stable key."""
+    return _SLUG_STRIP_RE.sub("-", name.strip().lower()).strip("-")
+
+
+def _one_line(text: str) -> str:
+    """Collapse a dimension's text to a single line (join wrapped/continued lines).
+
+    A `dim ` output line must never carry an embedded newline (it would forge a
+    second record), so continuation lines are joined with a single space and
+    interior runs of whitespace are collapsed.
+    """
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _generic_dimensions(template_text: str) -> list[tuple[str, str]]:
+    """The generic-floor dimensions as (key, single-line-text), template order.
+
+    Selects the one checklist block (the block whose arm set includes
+    ``checklist`` — unique in the template) and returns each bold-lead bullet.
+    Keys are ``g:<name-slug>`` and MUST be unique (a collision is a template
+    defect, so it fails closed rather than silently coalescing two dimensions).
+    """
+    blocks = _parse_blocks(template_text)
+    checklist_bodies = [body for arm_set, body in blocks if "checklist" in arm_set]
+    if len(checklist_bodies) > 1:
+        # The uniqueness this function's docstring states is now ENFORCED, not merely
+        # described: two checklist blocks would silently merge two dimension sets into one
+        # enumeration, and the merged keyset is what coverage totality is checked against.
+        raise RenderError(
+            f"template malformed: {len(checklist_bodies)} checklist blocks carry a "
+            f"generic audit-dimension list; exactly one is required"
+        )
+    if not checklist_bodies:
+        raise RenderError(
+            "template malformed: no checklist block carrying the generic "
+            "audit-dimension list"
+        )
+    dims: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for body in checklist_bodies:
+        for raw in body.splitlines():
+            line = raw.rstrip()
+            m = _GENERIC_DIM_RE.match(line)
+            if not m:
+                continue
+            slug = _name_slug(m.group(1))
+            if not slug:
+                raise RenderError(
+                    f"template malformed: generic dimension {m.group(1)!r} "
+                    "has an empty slug"
+                )
+            key = f"g:{slug}"
+            if key in seen:
+                raise RenderError(
+                    f"template malformed: duplicate generic dimension key {key!r}"
+                )
+            seen.add(key)
+            # The rendered text is the bullet with its leading `- ` marker stripped.
+            dims.append((key, _one_line(line[2:])))
+    if not dims:
+        raise RenderError(
+            "template malformed: checklist block carries no generic dimension bullets"
+        )
+    return dims
+
+
+def _split_consumer_dimensions(section: str) -> list[str]:
+    """Split a consumer ``## Audit dimensions`` section into per-dimension texts.
+
+    Each top-level ``- `` bullet (column 0) starts a new dimension; a non-bullet
+    or indented continuation line folds into the current dimension's text. Leading
+    prose before the first bullet, and blank lines, are ignored. Returns the
+    single-line text of each dimension in file order.
+    """
+    dims: list[str] = []
+    current: list[str] | None = None
+    for raw in section.splitlines():
+        line = raw.rstrip()
+        if line.startswith("- "):
+            if current is not None:
+                dims.append(_one_line(" ".join(current)))
+            current = [line[2:]]
+        elif current is not None:
+            if line.strip():
+                current.append(line)
+    if current is not None:
+        dims.append(_one_line(" ".join(current)))
+    return [d for d in dims if d]
+
+
+def enumerate_dimensions(
+    template_path: Path, ext_path: Path
+) -> tuple[str, list[tuple[str, str]]]:
+    """Return (consumer-status, [(key, text), ...]) — generic then consumer."""
+    generic = _generic_dimensions(_load_template(template_path))
+    status, section = consumer_dimensions(ext_path, _HOOKS["audit-dimensions"])
+    entries = list(generic)
+    if status == _STATUS_APPENDED:
+        for n, text in enumerate(_split_consumer_dimensions(section), start=1):
+            entries.append((f"c:{n}", text))
+    return status, entries
+
+
+def render_enumerate(template_path: Path, ext_path: Path) -> str:
+    status, entries = enumerate_dimensions(template_path, ext_path)
+    lines = [f"{STATUS_PREFIX} {status}"]
+    for key, text in entries:
+        lines.append(f"{_DIM_LINE_PREFIX}{key}{_DIM_TEXT_SEP}{text}")
+    lines.append(END_MARKER)
+    return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------
 # CLI.
 # --------------------------------------------------------------------------
 _KEBAB_ALPHABET = frozenset("abcdefghijklmnopqrstuvwxyz0123456789-")
@@ -748,6 +896,8 @@ def main(argv: list[str]) -> int:
             out = render_extract(args.hook, ext_path)
         elif args.mode == "status-only":
             out = render_status_only(ext_path)
+        elif args.mode == "enumerate-dimensions":
+            out = render_enumerate(template_path, ext_path)
         elif args.mode == "dispatch-instructions":
             if args.slug is None:
                 raise RenderError("--slug is required for dispatch-instructions")

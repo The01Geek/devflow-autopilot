@@ -499,8 +499,8 @@ devflow_module_pin_unique "#705: file-arm skill-prose out-of-bounds names exactl
 #     never make an orchestrator open its mouth. Inverting the offer into a silent proceed
 #     re-opens the ship-unconverged channel this boundary exists to close.
 devflow_module_pin_red_under "#522: a held trigger offers one more audit round at the Step 3.6->4 boundary" \
-  'While **either** holds, **offer one more audit round via the runner' \
-  's/While \*\*either\*\* holds, \*\*offer one more audit round/While either holds, proceed to Step 4 without offering a round/' \
+  'While **any** holds, **offer one more audit round via the runner' \
+  's/While \*\*any\*\* holds, \*\*offer one more audit round/While any holds, proceed to Step 4 without offering a round/' \
   "$CI_BUNDLE"
 # The offer's non-silent arms, which stay prose obligations on the orchestrator: a silent
 # non-response never dispatches and never proceeds (unknown is not consent), and the
@@ -1160,10 +1160,11 @@ devflow_module_pin_unique "#603: round funding named as the budget-enforcement s
 #    so the mutation-evidence obligation does not attach.
 # structural-pin-ok: presence only — this pins that the step-3.6 prose NAMES the multi-line
 # read-back query class, a documentation contract with no code regression a sed mutation could
-# re-introduce. #704 widened the class from one query to three, so the literal moved; the
-# guarded property (the class is stated, not left implicit) is unchanged.
-devflow_module_pin_unique "#603/AC14 (+#704): the multi-line read-back query class is named" \
-  "**The read-back queries \`query-findings\`, \`query-claim-baselines\`, and \`query-finding-evidence\` are the multi-line ones**" "$CI_BUNDLE"  # structural-pin-ok: presence only — a documentation contract, no code regression to mutate
+# re-introduce. #704 widened the class from one query to three; #708 added `query-coverage` as
+# the fourth, so the literal moved again; the guarded property (the class is stated, not left
+# implicit) is unchanged.
+devflow_module_pin_unique "#603/AC14 (+#704, +#708): the multi-line read-back query class is named" \
+  "**The read-back queries \`query-findings\`, \`query-claim-baselines\`, \`query-finding-evidence\`, and \`query-coverage\` are the multi-line ones**" "$CI_BUNDLE"  # structural-pin-ok: presence only — a documentation contract, no code regression to mutate
 devflow_module_pin_unique "#603/AC1: the ledger fence uses a QUOTED heredoc delimiter" \
   "<<'LEDGER-EOF'" "$CI_BUNDLE"
 devflow_module_pin_unique "#603/AC1: the quoted delimiter is never to be simplified away" \
@@ -1840,7 +1841,7 @@ for _ci614_ref in $CI614_REFS; do
   CI614_TOTAL_SET+=("$CI_ROOT/skills/create-issue/references/$_ci614_ref.md")
 done
 CI614_TOTAL_W="$(ci614_words "${CI614_TOTAL_SET[@]}")"
-CI614_TOTAL_RECORDED=29446   # docs/create-issue-budget.md, root + all 9 references
+CI614_TOTAL_RECORDED=29590   # docs/create-issue-budget.md, root + all 9 references (issue #708+#709 merge re-record)
 assert_eq "#614 T3: the root+references total is within +/-2% of the recorded conservation figure (a silent DROP is as RED as a rise)" \
   "yes" "$({ [ -n "$CI614_TOTAL_W" ] \
     && [ "$CI614_TOTAL_W" -ge "$(( CI614_TOTAL_RECORDED * 98 / 100 ))" ] \

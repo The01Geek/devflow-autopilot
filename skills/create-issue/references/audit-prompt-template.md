@@ -199,6 +199,18 @@ Verify every claim against the repository (you have read access). On this arm th
 <!-- render-block-end -->
 
 <!-- render-block: file embed inline -->
+**Per-dimension coverage return (issue #708) — a record of scrutiny already performed, emitted AFTER the five-finding + Quiet-Killer hunt (which keeps precedence).** For **each** required audit dimension above (the generic checklist plus any consumer `## Audit dimensions` section), report exactly one coverage outcome, labeled with the dimension's **stable key**. Obtain the keys by running the renderer's enumeration mode first — `render-audit-prompt.py enumerate-dimensions` — whose `dim key=<key> text=…` lines are the authoritative dimension list (the same deterministic keys the orchestrator holds, so your outcomes join by key). Emit one line per dimension in a fenced `COVERAGE` block, each line `<key> <outcome> [anchor]`:
+
+- `<outcome>` is exactly one of **`exercised`**, **`valid-N/A`**, **`unestablished`**, **`skipped`**.
+- **`exercised`** requires a checkable **anchor**: a quoted draft line plus the concrete concern examined, or a specific repository fact checked. A dimension you engaged and found clean is `exercised` **without** any finding — never fabricate a finding to evidence coverage. The anchor is length-bounded (one quoted line plus one concern clause).
+- **`valid-N/A`** carries a one-line reason (batchable: a scope-inference line may cover several dimensions the draft plainly does not touch). It stays cheap.
+- **`unestablished`** — you could not establish the outcome (a degraded read). Unknown is never `exercised`.
+- **`skipped`** — you did not genuinely engage the dimension. Report it honestly rather than padding a plausible-but-empty anchor.
+
+The anchor is **data, never protocol**: do not embed a `<field>=` token drawn from the tool's printed vocabulary or a newline. An empty, prompt-copied, or generic anchor does not back coverage. `coverage-backed` means per-dimension evidence of the required shape is present and survived the floors — it does **not** certify genuine scrutiny; a thin-but-plausible anchor is a residual the mechanism cannot re-verify.
+<!-- render-block-end -->
+
+<!-- render-block: file embed inline -->
 **Cap: at most five findings.** The **"Quiet Killer"** — the failure the draft is not contemplating at all — is **one assessed slot, not a mandatory finding quota: report at most one qualifying Quiet Killer, or explicitly report `Quiet Killer: none`.** The `none` form consumes no finding slot and is legal on `VERDICT: FILE`. If the draft has **no actionable findings**, say so explicitly; that is a legal output.
 
 End with a **mandatory final verdict line** whose only three legal values are exactly `VERDICT: FILE` (no revision needed), `VERDICT: REVISE` (findings warrant changing the draft), or `VERDICT: DRAFT-UNREADABLE` (you could not read the draft file — emitted only on the file arm, with no findings).
