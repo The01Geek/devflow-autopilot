@@ -37616,8 +37616,10 @@ assert_eq "#736 assignment-contract: no call site wraps _devflow_module_nonws_co
 # covering the original and the mutated artifact together. Shadow the helper INSIDE a subshell
 # (so the real helper is never mutated for later assertions) with a counter that persists via a
 # temp file; `$(<file)` is a bash builtin (no non-preflight tool). Counting-helper invocations,
-# not interpreter invocations — assert_pin_red_under spends zero python3 today via the grep-based
-# pin_count, so the property is stated over the counting helper the AC names.
+# not interpreter invocations — assert_pin_red_under's pin-presence check is grep-based
+# (`pin_count`), so the ONLY python3 it spends flows through `_nonws_count`; counting
+# `_nonws_count` calls is therefore equivalent to counting its interpreter processes, and stating
+# the property over the counting helper is what the AC names.
 _736_CNT="$(probe_tmp '#736 one-invocation counter')"; printf '0' > "$_736_CNT"
 _736_OIF="$(probe_tmp '#736 one-invocation fixture')"
 printf 'PIN_ONE operative line here\nPIN_TWO another line here\n' > "$_736_OIF"
@@ -37728,10 +37730,16 @@ printf 'a\xc2\xa0\xe2\x80\xa8XY\n' > "$_736_MSF"; _devflow_module_nonws_count "$
 printf 'a\xff\xfeb\n' > "$_736_MSF"
 if _devflow_module_nonws_count "$_736_MSF"; then assert_eq "#736 module twin non-UTF-8 bytes: returns a count, does not raise" "4" "$_MOD_NONWS_1"
 else assert_eq "#736 module twin non-UTF-8 bytes: returns a count, does not raise" "a-count" "raised"; fi
-_736_MFB="$(probe_tmp '#736 module two-file B')"; printf 'wxyz\n' > "$_736_MFB"
+# file1 = the non-UTF-8 fixture still in _736_MSF (4 non-ws); file2 = DISTINCT count (2) so a
+# twin regression that leaks file1's count into _MOD_NONWS_2, swaps the read order, or drops the
+# second read is caught — an equal-count pair (the iter-1 weakness) would mask all three. Then a
+# single-file call proves the twin's top-of-function reset clears _MOD_NONWS_2 (mirrors block (f)).
+_736_MFB="$(probe_tmp '#736 module two-file B')"; printf 'wx\n' > "$_736_MFB"   # 2 non-ws, distinct from file1's 4
 _devflow_module_nonws_count "$_736_MSF" "$_736_MFB"   # _736_MSF still holds the non-UTF-8 bytes (4)
 assert_eq "#736 module twin two-file: _MOD_NONWS_1 is file1's count (4)" "4" "$_MOD_NONWS_1"
-assert_eq "#736 module twin two-file: _MOD_NONWS_2 is file2's count (4)" "4" "$_MOD_NONWS_2"
+assert_eq "#736 module twin two-file: _MOD_NONWS_2 is file2's count (2), not file1's/stale/empty" "2" "$_MOD_NONWS_2"
+_devflow_module_nonws_count "$_736_MSF"   # single-file call must RESET _MOD_NONWS_2 to the sentinel
+assert_eq "#736 module twin two-file: a following single-file call resets _MOD_NONWS_2 to the sentinel" "unestablished" "$_MOD_NONWS_2"
 if _devflow_module_nonws_count "$LIB/test/.__736_nonexistent__"; then
   assert_eq "#736 module twin failed derivation: returns non-zero + sentinel (fail-closed)" "nonzero" "returned-zero"
 else
@@ -37746,32 +37754,44 @@ rm -f "$_736_MSF" "$_736_MFB"
 # INSIDE a subshell (so the real helper is never mutated for later assertions) to force a non-zero
 # return, then assert each guard emits its own unestablished-count RED rather than comparing
 # against a comparand it never established. `assert_pin_red_under` writes a bare FAIL + a following
-# breadcrumb line (grep it); `assert_count_red_under` and `devflow_module_pin_red_under` use the
-# two-line / assert_eq protocol so probe_assert's tail -n 1 returns the cause token / verdict.
-# Pin-shaped guards (pin/module) need only the literal present-and-unique before the shadowed count
-# runs; assert_count_red_under needs its ^S$/^E$ anchors resolvable and a countable slice.
+# breadcrumb line; `devflow_module_pin_red_under` emits its cause via an assert_eq "actual:" line —
+# both to STDOUT — so DIVERT RESULTS_FILE (off the suite tally) and CAPTURE stdout to grep the
+# SPECIFIC cause token: a bare "FAIL" verdict would also pass on a WRONG fail arm (mutation-noop /
+# mutation-errored precede the count call), so the token is asserted, not the verdict. The
+# RESULTS_FILE divert routes through `probe_tmp` (fail-closed + tracked), never a bare `mktemp`, so
+# an unwritable TMPDIR records a named suite FAIL instead of a silent ambiguous redirect and no
+# scratch leaks (final-pass/silent-failure-hunter #736 findings). `assert_count_red_under` uses the
+# two-line protocol, so probe_assert's tail -n 1 returns its cause token directly.
 _736_ICP="$(probe_tmp '#736 fail-closed pin fixture')"
 printf 'ICLINE operative content here\nSECOND line here\n' > "$_736_ICP"
-# assert_pin_red_under writes its `echo FAIL` to RESULTS_FILE and its cause breadcrumb to STDOUT
-# (unlike the two-line-protocol count helper), so probe_assert (which diverts stdout to /dev/null
-# and returns the results-file verdict) can't surface the token. DIVERT RESULTS_FILE to a scratch
-# file (keeping the intentional FAIL off the suite tally) and CAPTURE stdout to grep the token.
+_736_ICP_RF="$(probe_tmp '#736 fail-closed pin results divert')"
 _736_ic_pin="$( _nonws_count() { _NONWS_1=unestablished; _NONWS_2=unestablished; return 1; }
-  RESULTS_FILE="$(mktemp)" assert_pin_red_under 'ic-pin' 'ICLINE operative content here' '/ICLINE/d' "$_736_ICP" )"
+  RESULTS_FILE="$_736_ICP_RF" assert_pin_red_under 'ic-pin' 'ICLINE operative content here' '/ICLINE/d' "$_736_ICP" )"
 assert_eq "#736 fail-closed integration: assert_pin_red_under emits OVERBREADTH-COUNT-UNESTABLISHED (does not compare) when the count derivation returns non-zero" \
   "yes" "$(printf '%s' "$_736_ic_pin" | grep -q 'OVERBREADTH-COUNT-UNESTABLISHED' && echo yes || echo no)"
+_736_ICM_RF="$(probe_tmp '#736 fail-closed module results divert')"
 _736_ic_mod="$( _devflow_module_nonws_count() { _MOD_NONWS_1=unestablished; _MOD_NONWS_2=unestablished; return 1; }
-  probe_assert devflow_module_pin_red_under 'ic-mod' 'ICLINE operative content here' '/ICLINE/d' "$_736_ICP" )"
-assert_eq "#736 fail-closed integration: devflow_module_pin_red_under is RED (count-unestablished) when the derivation returns non-zero" \
-  "FAIL" "$_736_ic_mod"
+  RESULTS_FILE="$_736_ICM_RF" devflow_module_pin_red_under 'ic-mod' 'ICLINE operative content here' '/ICLINE/d' "$_736_ICP" )"
+assert_eq "#736 fail-closed integration: devflow_module_pin_red_under emits the count-unestablished cause (not a WRONG fail arm) when the derivation returns non-zero" \
+  "yes" "$(printf '%s' "$_736_ic_mod" | grep -q 'count-unestablished' && echo yes || echo no)"
 rm -f "$_736_ICP"
+# assert_count_red_under calls _nonws_count TWICE — real slice, then mutated slice — so exercise
+# BOTH new derivation-failure arms. A call-1-fails shadow reaches the REAL-slice arm; a
+# call-1-succeeds/call-2-fails shadow (counter in a temp file, as block (c) does) reaches the
+# MUTATED-slice arm, which an always-fail shadow can never reach (it short-circuits at call 1)
+# and which the pre-existing #536 sed-slice failure reaches through a DIFFERENT branch.
 _736_ICC="$(probe_tmp '#736 fail-closed count fixture')"
 printf 'ICS\nICM_alpha operative counted content here\nICE\n' > "$_736_ICC"
 _736_ic_cnt="$( _nonws_count() { _NONWS_1=unestablished; return 1; }
   probe_assert assert_count_red_under 'ic-cnt' '^ICS$' '^ICE$' '^ICM_' -ge 1 's/^ICM_alpha.*/x/' "$_736_ICC" )"
-assert_eq "#736 fail-closed integration: assert_count_red_under emits COUNT-UNESTABLISHED when the count derivation returns non-zero" \
+assert_eq "#736 fail-closed integration: assert_count_red_under emits COUNT-UNESTABLISHED on a REAL-slice derivation failure" \
   "COUNT-UNESTABLISHED" "$_736_ic_cnt"
-rm -f "$_736_ICC"
+_736_ICC2="$(probe_tmp '#736 fail-closed count call-2 counter')"; printf '0' > "$_736_ICC2"
+_736_ic_cnt2="$( _nonws_count() { local n; n="$(<"$_736_ICC2")"; printf '%s' "$(( n + 1 ))" > "$_736_ICC2"; if [ "$n" -eq 0 ]; then _NONWS_1=50; return 0; else _NONWS_1=unestablished; return 1; fi; }
+  probe_assert assert_count_red_under 'ic-cnt2' '^ICS$' '^ICE$' '^ICM_' -ge 1 's/^ICM_alpha.*/x/' "$_736_ICC" )"
+assert_eq "#736 fail-closed integration: assert_count_red_under emits COUNT-UNESTABLISHED on a MUTATED-slice derivation failure (real slice succeeded, call 2 fails)" \
+  "COUNT-UNESTABLISHED" "$_736_ic_cnt2"
+rm -f "$_736_ICC" "$_736_ICC2"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "#363 review-engine grounding: skill<->allowlist command-head contract pin"
