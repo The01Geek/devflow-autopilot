@@ -83,6 +83,41 @@ from pathlib import Path, PurePosixPath
 
 MECHANICAL_ARTIFACT = "scripts/devflow-cloud-writer-contract.json"
 
+# Sibling git worktrees the harness parks here. The budget rows below derive their
+# change set partly from `git ls-files --others`, whose `--others` leg sweeps every
+# such worktree on any clone whose machine-local `.git/info/exclude` lacks the harness
+# line — state no clone inherits. A worktree-nested phase-file copy
+# (`.claude/worktrees/<w>/skills/review/phases/x.md`) matches a budget row's
+# `watch_globs` pattern from the right (PurePosixPath.match), so without this exclusion a
+# review-phase edit in ANOTHER branch's checkout would be reported as stale-budget drift
+# on THIS one — the environment-dependent, CI-invisible red issue #711 exists to remove.
+# This helper takes the EXPLICIT-EXCLUSION form (issue #725), mirroring
+# lint-gh-api-repo-path.py's EXCLUDED_PREFIXES rather than lint-issue-body-refetch.py's
+# assertion-only form: the budget rows genuinely need the working-tree read, so the
+# exclusion lives in the helper and does not rest on the uninherited exclude line. It is
+# pinned by the `#725` block in lib/test/run.sh (exclude_worktree_paths keeps the real
+# path and drops the worktree copy).
+WORKTREE_PREFIX = ".claude/worktrees/"
+
+
+def exclude_worktree_paths(paths):
+    """Drop sibling-worktree paths from an untracked-file set (issue #711/#725).
+
+    See WORKTREE_PREFIX above for why: `git ls-files --others` sees every harness
+    worktree, and a phase-file copy under one matches a budget row's watch glob from
+    the right, so a change confined to another branch's checkout must not enter the
+    watch-list intersection here.
+
+    `None` — the unestablished set `_git_paths` returns when its git call failed — passes
+    through as `None` rather than raising or becoming an empty set. Collapsing it onto
+    `set()` here is the failure this pass-through exists to prevent: the caller's
+    `is None` check is what routes an unreadable leg to the `unestablished` arm, and an
+    emptied leg would instead report a clean record for a change set never read.
+    """
+    if paths is None:
+        return None
+    return {p for p in paths if not p.startswith(WORKTREE_PREFIX)}
+
 # The closed set of conflict-resolution classes (issue #655). A merge conflict in a
 # checked-in generated artifact must never be hand-merged: hand-merged bytes match no
 # source of truth, and the row's own gate then reports the result as drift with a remedy
@@ -512,6 +547,11 @@ def budget_row(row, root, report):
     untracked = _git_paths(
         root, ("git", "ls-files", "--others", "--exclude-standard")
     )
+    # Drop sibling worktrees the `--others` leg sweeps in (issue #711/#725). Only the
+    # untracked leg can carry them: `git diff HEAD` and `origin/main...HEAD` are over
+    # tracked files, which never include a nested worktree's checkout.
+    if untracked is not None:
+        untracked = exclude_worktree_paths(untracked)
     # Three-dot syntax IS the merge-base-then-diff composition, in one process rather
     # than two — and it degrades identically (exit 128, hence None) when
     # refs/remotes/origin/main is absent, which is what the `unestablished` arm keys on.
