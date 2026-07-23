@@ -50204,12 +50204,140 @@ rm -rf "$CCE_ROOT"
 unset -f _cce
 unset CCE_MODE CCE_LOOPBASE
 
+# ── issue #720: bounded concurrent Python-suite pool contract ────────────────
+# Self-contained behavioral assertions for the pool (defined in module-harness.sh).
+# Each scenario runs in a SUBSHELL with a private RESULTS_FILE and throwaway python
+# fixtures created OUTSIDE the tracked lib/test/ tree (under a scratch root), so no
+# fixture appears in lib/test/ and every _DEVFLOW_POOL_* / _DEVFLOW_LIVE_CHILD_*
+# global mutation and every trap install/restore stays isolated from the outer suite
+# and from the real pool opened just below.
+POOL720_FIX="$(mktemp -d "${TMPDIR:-/tmp}/devflow-pool720-fix.XXXXXX")"
+_suite_tmp_dir "$POOL720_FIX"
+printf 'print("pool fixture ok")\nimport sys; sys.exit(0)\n' > "$POOL720_FIX/pa.py"
+printf 'print("pool fixture ok")\nimport sys; sys.exit(0)\n' > "$POOL720_FIX/pb.py"
+printf 'import sys\nprint("POOL720_FIXTURE_BOOM")\nsys.exit(1)\n' > "$POOL720_FIX/fc.py"
+printf 'import os\nopen(os.environ["DEVFLOW_POOL_TALLY_FILE"],"a").write("PASS\\nPASS\\nPASS\\n")\nprint("3 passed, 0 failed")\n' > "$POOL720_FIX/td.py"
+# A self-tally suite that records ZERO verdicts but exits 0 — exercises the reap's
+# zero-assertion fail-closed guard (a silently-empty pooled suite must FAIL, not vanish).
+printf 'print("0 passed, 0 failed")\nimport sys; sys.exit(0)\n' > "$POOL720_FIX/zt.py"
+
+_pool720_run() {  # width  -> prints the pool's failure output then "COUNTS <pass> <fail>"
+  (
+    RESULTS_FILE="$(mktemp)"
+    DEVFLOW_POOL_WIDTH="$1" devflow_pool_open \
+      pa "$POOL720_FIX/pa.py" single-verdict \
+      pb "$POOL720_FIX/pb.py" single-verdict \
+      fc "$POOL720_FIX/fc.py" single-verdict \
+      td "$POOL720_FIX/td.py" self-tally
+    devflow_pool_join
+    printf 'COUNTS %s %s\n' "$(grep -c '^PASS$' "$RESULTS_FILE")" "$(grep -c '^FAIL$' "$RESULTS_FILE")"
+    rm -f "$RESULTS_FILE"
+  )
+}
+# pa+pb = 2 PASS, fc = 1 FAIL, td (self-tally) = 3 PASS  ->  5 PASS, 1 FAIL.
+_POOL720_CORE="$(_pool720_run "" 2>/dev/null)"
+_POOL720_W1="$(_pool720_run 1 2>/dev/null)"
+_POOL720_CORE_C="$(printf '%s\n' "$_POOL720_CORE" | grep '^COUNTS ' | tail -1)"
+_POOL720_W1_C="$(printf '%s\n' "$_POOL720_W1" | grep '^COUNTS ' | tail -1)"
+assert_eq "#720 pool: every named suite's verdict reaches RESULTS_FILE (core-derived width)" "COUNTS 5 1" "$_POOL720_CORE_C"
+assert_eq "#720 pool: tallies at core-derived width equal tallies at width 1 (equivalence gate)" "$_POOL720_CORE_C" "$_POOL720_W1_C"
+# A forced width of 2 guarantees ≥2 in-flight children even on a single-core host, where the
+# core-derived width above would itself be 1 and the equivalence gate would compare width-1
+# to width-1 (vacuous). This anchors the concurrency-vs-serial equivalence to a real
+# multi-in-flight run regardless of host core count (issue #720 review).
+_POOL720_W2="$(_pool720_run 2 2>/dev/null)"
+_POOL720_W2_C="$(printf '%s\n' "$_POOL720_W2" | grep '^COUNTS ' | tail -1)"
+assert_eq "#720 pool: tallies at forced width 2 (≥2 in-flight) equal tallies at width 1" "$_POOL720_W1_C" "$_POOL720_W2_C"
+assert_eq "#720 pool: a planted failing fixture fails the run identically at width 1 (positive control)" "COUNTS 5 1" "$_POOL720_W1_C"
+case "$_POOL720_CORE" in
+  *POOL720_FIXTURE_BOOM*) assert_eq "#720 pool: a failing suite increments FAIL and its captured output is printed" "yes" "yes" ;;
+  *) assert_eq "#720 pool: a failing suite increments FAIL and its captured output is printed" "yes" "no" ;;
+esac
+# Width resolution: override wins only when a positive integer; otherwise the cpu_count
+# probe, falling back to width 1 on empty / zero / non-numeric (functional assertions —
+# each fails RED if the positive-integer validation in _devflow_pool_resolve_width is removed;
+# the mutation-check that confirms this is recorded in the issue #720 workpad).
+assert_eq "#720 pool width: a positive-integer DEVFLOW_POOL_WIDTH override wins over the probe" "3" "$(DEVFLOW_POOL_WIDTH=3 _devflow_pool_resolve_width)"
+assert_eq "#720 pool width: falls back to 1 on an empty cpu_count probe" "1" "$(DEVFLOW_TEST_POOL_CPU_PROBE= _devflow_pool_resolve_width)"
+assert_eq "#720 pool width: falls back to 1 on a zero cpu_count probe" "1" "$(DEVFLOW_TEST_POOL_CPU_PROBE=0 _devflow_pool_resolve_width)"
+assert_eq "#720 pool width: falls back to 1 on a non-numeric cpu_count probe" "1" "$(DEVFLOW_TEST_POOL_CPU_PROBE=abc _devflow_pool_resolve_width)"
+assert_eq "#720 pool width: a non-positive override is ignored and the probe is used" "2" "$(DEVFLOW_POOL_WIDTH=0 DEVFLOW_TEST_POOL_CPU_PROBE=2 _devflow_pool_resolve_width)"
+# A suite whose script does not exist fails CLOSED (FAIL), never skipped.
+_POOL720_BAD="$( ( RESULTS_FILE="$(mktemp)"; devflow_pool_open bad "$POOL720_FIX/nope.py" single-verdict; devflow_pool_join; printf '%s %s\n' "$(grep -c '^PASS$' "$RESULTS_FILE")" "$(grep -c '^FAIL$' "$RESULTS_FILE")"; rm -f "$RESULTS_FILE" ) 2>/dev/null | tail -1 )"
+assert_eq "#720 pool: a suite whose script path does not exist fails closed (FAIL, not skipped)" "0 1" "$_POOL720_BAD"
+# A self-tally suite that records zero verdicts fails CLOSED (the reap's zero-assertion
+# guard), never silently contributing nothing with '0 failed'.
+_POOL720_ZERO="$( ( RESULTS_FILE="$(mktemp)"; devflow_pool_open zt "$POOL720_FIX/zt.py" self-tally; devflow_pool_join; printf '%s %s\n' "$(grep -c '^PASS$' "$RESULTS_FILE")" "$(grep -c '^FAIL$' "$RESULTS_FILE")"; rm -f "$RESULTS_FILE" ) 2>/dev/null | tail -1 )"
+assert_eq "#720 pool: a self-tally suite recording zero assertions fails closed (FAIL, not a silent empty)" "0 1" "$_POOL720_ZERO"
+# A supervisor PID-rendezvous timeout under saturation is absorbed by the serial-retry
+# path (the retry is exercised by forcing a real timeout, not by asserting timeouts away).
+# A retry-ran MARKER (DEVFLOW_TEST_POOL_RETRY_MARKER) is asserted PRESENT so this cannot pass
+# vacuously: if the forced-timeout hook or the marker-detection predicate ever regressed to
+# never firing, `pa` would run normally and the tally would still be "2 0" — but the marker
+# would be empty, turning this RED instead of a false green (issue #720 review).
+_POOL720_RMARK="$(mktemp)"
+# EXPORT the hooks subshell-wide (not as an `open`-only command prefix): the timeout is
+# forced at launch (open) but the serial retry — and its marker write — happen in join, so a
+# command-prefix scoped to `open` would leave join's run_serial without the marker.
+_POOL720_RDV="$( (
+  export DEVFLOW_TEST_POOL_RETRY_MARKER="$_POOL720_RMARK" DEVFLOW_POOL_FORCE_RENDEZVOUS_TIMEOUT=pa DEVFLOW_POOL_WIDTH=2
+  RESULTS_FILE="$(mktemp)"
+  devflow_pool_open pa "$POOL720_FIX/pa.py" single-verdict pb "$POOL720_FIX/pb.py" single-verdict
+  devflow_pool_join
+  printf '%s %s\n' "$(grep -c '^PASS$' "$RESULTS_FILE")" "$(grep -c '^FAIL$' "$RESULTS_FILE")"
+  rm -f "$RESULTS_FILE"
+) 2>/dev/null | tail -1 )"
+assert_eq "#720 pool: a forced rendezvous timeout is absorbed by serial retry, tallies unchanged" "2 0" "$_POOL720_RDV"
+assert_eq "#720 pool: the serial-retry path actually RAN for the forced-timeout suite (not a vacuous pass)" "pa" "$(grep -m1 '^pa$' "$_POOL720_RMARK" 2>/dev/null || printf 'no-retry')"
+rm -f "$_POOL720_RMARK"
+# The pool restores the caller's HUP/INT/TERM traps byte-for-byte and the live-child
+# registry is empty after join (every child deregistered). The pool installs NO EXIT trap
+# of its own — that single-EXIT-trap invariant is pinned structurally by
+# test_module_runner.py's exit-trap scan over run.sh's source (a subshell's inherited EXIT
+# trap is reset by bash on entry, so it is not a reliable in-subshell comparand here).
+_POOL720_TRAPS="$( (
+  RESULTS_FILE="$(mktemp)"
+  _bh="$(trap -p HUP)"; _bi="$(trap -p INT)"; _bt="$(trap -p TERM)"
+  DEVFLOW_POOL_WIDTH=2 devflow_pool_open pa "$POOL720_FIX/pa.py" single-verdict pb "$POOL720_FIX/pb.py" single-verdict >/dev/null
+  devflow_pool_join
+  _ah="$(trap -p HUP)"; _ai="$(trap -p INT)"; _at="$(trap -p TERM)"
+  if [ "$_bh" = "$_ah" ] && [ "$_bi" = "$_ai" ] && [ "$_bt" = "$_at" ] && [ "${#_DEVFLOW_LIVE_CHILD_PIDS[@]}" -eq 0 ]; then printf 'clean\n'; else printf 'DIRTY\n'; fi
+  rm -f "$RESULTS_FILE"
+) 2>/dev/null | tail -1 )"
+assert_eq "#720 pool: caller HUP/INT/TERM traps byte-identical and registry empty after join" "clean" "$_POOL720_TRAPS"
+unset -f _pool720_run
+unset POOL720_FIX _POOL720_CORE _POOL720_W1 _POOL720_W2 _POOL720_CORE_C _POOL720_W1_C _POOL720_W2_C _POOL720_BAD _POOL720_ZERO _POOL720_RDV _POOL720_RMARK _POOL720_TRAPS
+
 # These integration tests live outside the module whose registration and source
 # boundary they pin, so deleting that boundary cannot delete the test execution.
-MODULE_RUNNER_OUT="$(python3 "$LIB/test/test_module_runner.py" 2>&1)"
-MODULE_RUNNER_RC=$?
-assert_eq "test module runner: focused Python tests pass" "0" "$MODULE_RUNNER_RC"
-[ "$MODULE_RUNNER_RC" -eq 0 ] || while IFS= read -r _mr_line || [ -n "$_mr_line" ]; do printf '    %s\n' "$_mr_line"; done <<< "$MODULE_RUNNER_OUT"
+#
+# issue #720: open the bounded concurrent Python-suite pool HERE, at the former
+# test_module_runner.py driver site — after every preceding
+# devflow_run_full_suite_module call (those boundaries are complete, so no pooled
+# suite races the main shell on them) and before the harness-python-guards boundary
+# below — which the pooled test_module_runner.py itself drives through its own
+# run-module.sh subprocess, so that boundary runs in the main shell and in the pooled
+# suite concurrently; the overlap is safe because each execution uses its own isolated
+# owned scratch root, not shared mutable state. The three pooled
+# suites overlap that last module and the ~2000-line shell tail that follows it,
+# and the pool joins just before the RESULTS_FILE tally is counted
+# (devflow_pool_join, further down). Membership is exactly these three:
+# test_module_runner.py and test_prompt_mass_census.py report one verdict apiece
+# (single-verdict); test_python_scripts.py reports one PASS/FAIL per assertion into
+# the tally path the pool exports (self-tally). Their former standalone driver
+# sites — test_prompt_mass_census.py's $PMC_TEST run and test_python_scripts.py's
+# awk-parsed block — are deleted below; every pooled verdict reaches PASS/FAIL
+# through RESULTS_FILE.
+devflow_pool_open \
+  "test_module_runner.py" "$LIB/test/test_module_runner.py" single-verdict \
+  "test_prompt_mass_census.py" "$LIB/test/test_prompt_mass_census.py" single-verdict \
+  "test_python_scripts.py" "$LIB/test/test_python_scripts.py" self-tally
+
+# test_module_harness.py runs SERIALLY on the main shell, OUTSIDE the pool — both its
+# full-suite invocation and its --signal-matrix-capability probe. The supervisor forks
+# its worker with job control disabled, and this suite asserts on the SIGINT disposition
+# (trap -- '' SIGINT) its children inherit; a pooled child forked under job control off
+# would corrupt exactly that, so it is excluded by name rather than pooled and hoped for.
 MODULE_HARNESS_OUT="$(python3 "$LIB/test/test_module_harness.py" 2>&1)"
 MODULE_HARNESS_RC=$?
 assert_eq "test module full-suite boundary: focused Python tests pass" "0" "$MODULE_HARNESS_RC"
@@ -52347,7 +52475,8 @@ fi
 
 # ── issue #551: mandatory prompt-byte census + prose-cutover policy ──────────
 PMC="$LIB/test/prompt-mass-census.py"
-PMC_TEST="$LIB/test/test_prompt_mass_census.py"
+# test_prompt_mass_census.py (formerly $PMC_TEST here) now runs inside the issue #720
+# concurrent pool opened above — its standalone driver is deleted, so no $PMC_TEST var.
 PMC_MANIFEST="$LIB/test/prompt-mass-manifest.json"
 PMC_BASELINE="$LIB/test/prompt-mass-baseline.json"
 PMC_CLAUDE="$LIB/../CLAUDE.md"
@@ -52511,16 +52640,11 @@ needle = name + " " + chr(34)
 calls = sum(1 for line in open(path, encoding="utf-8", errors="replace") if needle in line)
 print("yes" if calls >= 5 else "no: %d" % calls)' "$PM_FN_NAME" "$PM_RUN_SH")"
 
-# The helper's behavioral boundary carries the issue's T1–T18 fixture matrix. Run it from
-# the suite rather than relying on a standalone developer command, then run the helper itself
-# over the real checkout so a stale committed mirror turns this required gate RED.
-if PMC_TEST_OUT="$(python3 "$PMC_TEST" 2>&1)"; then
-  echo PASS >> "$RESULTS_FILE"
-  printf '  PASS  #551 prompt-mass census behavioral fixtures (T1–T18)\n'
-else
-  echo FAIL >> "$RESULTS_FILE"
-  printf '  FAIL  #551 prompt-mass census behavioral fixtures (T1–T18)\n%s\n' "$PMC_TEST_OUT"
-fi
+# The helper's behavioral boundary carries the issue's T1–T18 fixture matrix. That suite
+# (test_prompt_mass_census.py, referenced by $PMC_TEST) now runs inside the issue #720
+# concurrent pool opened far above — its former standalone driver here is deleted, its
+# verdict reaches RESULTS_FILE through the pool tally. The helper itself is still run over
+# the real checkout here so a stale committed mirror turns this required gate RED.
 if PMC_REAL_OUT="$("$PMC" 2>&1)"; then
   echo PASS >> "$RESULTS_FILE"
   printf '  PASS  #551 prompt-mass census exact mirror over the real tree\n'
@@ -52587,6 +52711,35 @@ assert_pin_unique "#551 gate states the keep-both mechanical residual" \
 assert_eq "#551 gated criterion adds no fenced command" "0" \
   "$(grep -c '^```' "$LIB/../skills/review/phases/phase-4-1-8-prose-cutover.md" 2>/dev/null)"
 
+# issue #720: join the concurrent Python-suite pool BEFORE the RESULTS_FILE tally is
+# counted, so every pooled verdict is folded into the grep -c derivations below, covered
+# by the fail-closed derivability guards, and counted like every other verdict. This is
+# the pool's sole join point; it restores the caller's signal traps and installs no EXIT
+# trap (the single `trap _suite_cleanup EXIT` above stays the only EXIT handler).
+devflow_pool_join
+
+# issue #720: assert test_python_scripts.py's contribution to RESULTS_FILE equals the
+# assertion count it reports on its own `N passed, M failed` summary line — parsed
+# POSITIONALLY from that line (field 1 = passed, field 3 = failed), never a checked-in
+# total, so a uniformly-dropped verdict is caught even though the width-1/width-N
+# equality would agree. The self-tally line count and summary were captured at reap.
+_PS_LINES="${_DEVFLOW_POOL_SELFTALLY_LINES[test_python_scripts.py]:-}"
+_PS_SUMMARY="${_DEVFLOW_POOL_SELFTALLY_SUMMARY[test_python_scripts.py]:-}"
+if [ -n "$_PS_SUMMARY" ]; then
+  # Positional parse with bash word-splitting (not awk — a value feeding an assertion,
+  # kept off non-preflight PATH tools per guard-class 2): "N passed, M failed".
+  # shellcheck disable=SC2086
+  set -- $_PS_SUMMARY
+  _PS_TOTAL=$(( ${1:-0} + ${3:-0} ))
+  assert_eq "#720 test_python_scripts.py: RESULTS_FILE contribution equals its summary passed+failed" \
+    "$_PS_TOTAL" "${_PS_LINES:-unestablished}"
+else
+  # Summary not captured (e.g. a rendezvous-retry emptied the captured output): record
+  # a FAIL rather than silently skipping the coverage check.
+  echo FAIL >> "$RESULTS_FILE"
+  printf '  FAIL  #720 test_python_scripts.py: could not capture its summary line to verify RESULTS_FILE contribution\n' >&2
+fi
+
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
 # SKIP tally (issue #456): derived with `grep -c` over SKIPS_FILE, the same mechanism as
@@ -52608,11 +52761,12 @@ if ! devflow_tally_is_derivable "$SKIP"; then
   exit 1
 fi
 # PASS and FAIL take the SAME fail-closed guard (#456 round 3): each is a `grep -c` derivation
-# with the same rc>=2 empty-value failure shape. Without the guard an emptied PASS is silently
-# laundered back into a number by the python-tally arithmetic below (`$((PASS + PY_PASS))`
-# evaluates an empty variable as 0), rendering a confident under-count; an emptied FAIL on the
-# python-green path aborts at the exit predicate with a bare `[: -eq` error that names nothing.
-# Unknown is not zero for ANY of the three tallies — refuse loudly, up front.
+# with the same rc>=2 empty-value failure shape. Without the guard an emptied PASS or FAIL is
+# silently coerced to 0 by later arithmetic — the final FAIL-equals-zero exit predicate would
+# abort with a bare `[: -eq` error that names nothing, and a summary over an emptied PASS would
+# render a confident under-count. Unknown is not zero for ANY of the three tallies — refuse
+# loudly, up front. (issue #720 retired the out-of-band `$((PASS + PY_PASS))` python-tally
+# arithmetic this comment once named; test_python_scripts.py now folds through RESULTS_FILE.)
 if ! devflow_tally_is_derivable "$PASS"; then
   printf 'ERROR: PASS tally underivable from %s (grep error, not an empty log) — refusing to render a summary over it\n' "$RESULTS_FILE"
   exit 1
@@ -52626,20 +52780,12 @@ if ! FAIL="$(devflow_fold_module_failures "$FAIL")"; then
   exit 1
 fi
 
-# ────────────────────────────────────────────────────────────────────────────
-echo "python scripts (workpad._apply_mutations, parse_acs._is_post_merge)"
-PY_OUT="$(python3 "$(dirname "$0")/test_python_scripts.py" 2>&1)"
-PY_RC=$?
-PY_SUMMARY="$(echo "$PY_OUT" | awk '/passed,/ { p=$1; f=$3 } END { print p" "f }')"
-PY_PASS="$(echo "$PY_SUMMARY" | awk '{ print $1 }')"
-PY_FAIL="$(echo "$PY_SUMMARY" | awk '{ print $2 }')"
-[ -n "$PY_PASS" ] && PASS=$((PASS + PY_PASS))
-if [ "$PY_RC" -eq 0 ] && [ -n "$PY_PASS" ]; then
-  printf '  PASS  %s python assertions\n' "$PY_PASS"
-else
-  FAIL=$((FAIL + ${PY_FAIL:-1}))
-  echo "$PY_OUT" | sed 's/^/    /'
-fi
+# issue #720: test_python_scripts.py's former standalone driver — a `python3` run whose
+# `N passed, M failed` summary was parsed with awk and added to PASS/FAIL out of band,
+# bypassing RESULTS_FILE and the fail-closed derivability guards — is DELETED. That suite
+# now runs inside the concurrent pool (self-tally mode), appending one PASS/FAIL line per
+# assertion to its private tally, which is folded into RESULTS_FILE at the join above and
+# counted by the grep -c derivations like every other verdict.
 
 # ────────────────────────────────────────────────────────────────────────────
 echo

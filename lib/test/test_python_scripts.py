@@ -71,14 +71,39 @@ discover_deferrals = _load(
 PASS = 0
 FAIL = 0
 
+# When this suite runs inside lib/test/run.sh's bounded concurrent pool (issue #720)
+# the pool exports DEVFLOW_POOL_TALLY_FILE and expects one PASS/FAIL line per
+# assertion appended to it, so the suite's whole assertion count reaches
+# RESULTS_FILE (a single collapsed verdict would silently drop this suite's ~1800
+# assertions from the reported total). When the variable is unset — a standalone
+# `python3 lib/test/test_python_scripts.py` run — this is a no-op, so direct
+# invocation is unchanged. Append-only, one line per verdict, matching the tally
+# grammar _devflow_valid_result_count enforces (PASS/FAIL lines only).
+_POOL_TALLY_FILE = os.environ.get("DEVFLOW_POOL_TALLY_FILE")
+
+
+def _pool_tally(verdict):
+    if not _POOL_TALLY_FILE:
+        return
+    try:
+        with open(_POOL_TALLY_FILE, "a", encoding="utf-8") as _fh:
+            _fh.write(verdict + "\n")
+    except OSError:
+        # Best-effort: a tally-write failure must not abort the suite, but the
+        # pool's fail-closed reap (empty/short tally on a non-zero exit) still
+        # catches a suite whose verdicts never landed.
+        pass
+
 
 def assert_eq(name, expected, actual):
     global PASS, FAIL
     if expected == actual:
         PASS += 1
+        _pool_tally("PASS")
         print(f"  PASS  {name}")
     else:
         FAIL += 1
+        _pool_tally("FAIL")
         print(f"  FAIL  {name}\n         expected: {expected!r}\n         actual:   {actual!r}")
 
 
@@ -88,13 +113,16 @@ def assert_raises(name, exc_type, fn):
         fn()
     except exc_type as e:
         PASS += 1
+        _pool_tally("PASS")
         print(f"  PASS  {name} (raised: {e})")
         return
     except Exception as e:
         FAIL += 1
+        _pool_tally("FAIL")
         print(f"  FAIL  {name}\n         expected {exc_type.__name__}, got {type(e).__name__}: {e}")
         return
     FAIL += 1
+    _pool_tally("FAIL")
     print(f"  FAIL  {name}\n         expected {exc_type.__name__}, no exception raised")
 
 
