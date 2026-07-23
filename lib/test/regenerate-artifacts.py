@@ -107,7 +107,15 @@ def exclude_worktree_paths(paths):
     worktree, and a phase-file copy under one matches a budget row's watch glob from
     the right, so a change confined to another branch's checkout must not enter the
     watch-list intersection here.
+
+    `None` — the unestablished set `_git_paths` returns when its git call failed — passes
+    through as `None` rather than raising or becoming an empty set. Collapsing it onto
+    `set()` here is the failure this pass-through exists to prevent: the caller's
+    `is None` check is what routes an unreadable leg to the `unestablished` arm, and an
+    emptied leg would instead report a clean record for a change set never read.
     """
+    if paths is None:
+        return None
     return {p for p in paths if not p.startswith(WORKTREE_PREFIX)}
 
 # The closed set of conflict-resolution classes (issue #655). A merge conflict in a

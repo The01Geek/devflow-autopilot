@@ -48497,6 +48497,35 @@ got = m.exclude_worktree_paths({
 })
 print(",".join(sorted(got)))' "$E725_RA_LINT")"
 
+# AC4 (contract): exclude_worktree_paths passes an unestablished (`None`) leg through as None.
+# `_git_paths` returns None when its git call failed, and budget_row's `is None` check is what
+# routes that to the `unestablished` arm. A filter that raised on None, or collapsed it onto an
+# empty set, would either abort the row or report a CLEAN record for a change set never read —
+# the repo's unknown-is-not-zero rule. Pinned so a second caller cannot re-derive the contract.
+assert_eq "#725 regenerate-artifacts exclude_worktree_paths passes an unestablished None leg through (AC4 contract)" \
+  "None" \
+  "$(python3 -c 'import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ra", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+print(repr(m.exclude_worktree_paths(None)))' "$E725_RA_LINT")"
+
+# AC4 (boundary): the filter is anchored at the START of the path, not a substring test. A real
+# repo path that merely CONTAINS the prefix (a directory literally named for it, or a sibling
+# suffix such as `.claude/worktrees-archive/`) is kept, while a deeper-nested worktree path is
+# dropped. A substring or over-broad predicate would silently deselect real changed files, which
+# reads as a clean budget record rather than as a failure.
+assert_eq "#725 regenerate-artifacts exclude_worktree_paths anchors at the path start, drops deep nesting (AC4 boundary)" \
+  ".claude/worktrees-archive/a.md,docs/.claude/worktrees/w/a.md" \
+  "$(python3 -c 'import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ra", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+got = m.exclude_worktree_paths({
+    "docs/.claude/worktrees/w/a.md",
+    ".claude/worktrees-archive/a.md",
+    ".claude/worktrees/w/deep/nested/skills/review/phases/x.md",
+})
+print(",".join(sorted(got)))' "$E725_RA_LINT")"
+
 # AC4 (integration): the exclude_worktree_paths pin above covers the function in isolation, but
 # the guarded regression is removal of its CALL SITE in budget_row (the function stays defined and
 # the isolated pin stays green). So drive the real budget_row over a monkeypatched change set whose
