@@ -88,11 +88,19 @@ def _pool_tally(verdict):
     try:
         with open(_POOL_TALLY_FILE, "a", encoding="utf-8") as _fh:
             _fh.write(verdict + "\n")
-    except OSError:
+    except OSError as _e:
         # Best-effort: a tally-write failure must not abort the suite, but the
         # pool's fail-closed reap (empty/short tally on a non-zero exit) still
-        # catches a suite whose verdicts never landed.
-        pass
+        # catches a suite whose verdicts never landed. Emit a stderr breadcrumb
+        # naming the real cause (the tally path + verdict) so an operator seeing
+        # the downstream "RESULTS_FILE contribution equals summary" mismatch is
+        # pointed at the tally WRITE, not just the symptom — the repo's best-effort
+        # convention (always continue, but leave a breadcrumb; cf. resolve-bin.sh).
+        print(
+            f"devflow-pool: #720 tally write failed for {_POOL_TALLY_FILE!r} "
+            f"(verdict {verdict}): {_e}",
+            file=sys.stderr,
+        )
 
 
 def assert_eq(name, expected, actual):
