@@ -1,0 +1,14 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-23T16:11:22Z",
+  "loop_role": "fix",
+  "current_step": "loop-control",
+  "current_substep": "run_engine",
+  "config": {
+    "max_iterations": 5,
+    "fix_severity_threshold": "suggestion"
+  },
+  "pr_number": 733,
+  "run_id": "local-20260723T161122Z-1",
+  "telemetry": "unavailable"
+}
