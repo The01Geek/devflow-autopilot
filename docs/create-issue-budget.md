@@ -32,7 +32,7 @@ Both are asserted by `lib/test/modules/create-issue-contract.sh` (driven by the 
 | Ceiling | Operand | Measured | Enforced ceiling |
 | --- | --- | --- | --- |
 | **Root** | `skills/create-issue/SKILL.md` | 3,207 | Root ceiling: **3,527 words** |
-| **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 34,584 | Default-path ceiling: **38,042 words** |
+| **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 35,100 | Default-path ceiling: **38,042 words** |
 
 Each ceiling is at most the implement-time measured value plus **10% headroom**, widened from 5% by the issue-#749 renegotiation recorded below after successive intentional additions collided with the line on nearly every PR. The suite asserts that legality directly — a ceiling above measured+10% is RED — so a raise still needs a real measurement behind it, and the band bounds how much unmeasured growth a raise can pre-authorize. The
 default-path operand also deliberately **excludes `skills/docs-verify/SKILL.md`**, which Step 1 loads on every
@@ -75,19 +75,19 @@ the decision record below for when each was last re-measured:
 | `references/step-2-clarify.md` | 4,843 | Step 2 entry |
 | `references/step-3-5-steelman.md` | 2,237 | Step 3.5 entry |
 | `references/revision-delta.md` | 986 | every revision event |
-| `references/step-3-6-audit.md` | 10,550 | Step 3.6 entry |
-| `references/step-4-present-create.md` | 5,756 | Step 4 entry |
+| `references/step-3-6-audit.md` | 10,959 | Step 3.6 entry |
+| `references/step-4-present-create.md` | 5,863 | Step 4 entry |
 | `references/fallback-no-task-tool.md` | 540 | no usable task-tracking tool |
 | `references/fallback-read-only-sandbox.md` | 772 | a `.devflow/tmp/` write is refused |
 | `references/fallback-audit-dispatch-arms.md` | 827 | a non-file audit arm, a retry escalation, or no subagent tool |
-| `references/fallback-state-owner-unavailable.md` | 814 | the state owner stops answering |
-| **root + all 9 references** | **30,572** | — |
+| `references/fallback-state-owner-unavailable.md` | 880 | the state owner stops answering |
+| **root + all 9 references** | **31,154** | — |
 | `references/issue-template.md` | 7,005 | Step 3 (unchanged by the split) |
 | `references/audit-prompt-template.md` | 3,118 | renderer-owned; carries the issue-#708 enumerate-dimensions checklist and the issue-#709 `di` dispatch-instruction blocks |
 
 **What the default path sheds.** Before the split every run loaded all 24,473 words of the monolith.
 After it, a run on the default path — task tool usable, writable filesystem, file-arm dispatch, state
-owner available — never loads the four fallback references: **2,993 words** of predicate-gated prose,
+owner available — never loads the four fallback references: **3,059 words** of predicate-gated prose,
 and the always-loaded surface drops from 24,473 to **3,207**.
 
 ## Conservation check
@@ -317,7 +317,10 @@ the history of what the surface cost, and overwriting it loses exactly the drift
   pick a remedy silently. **The human requester authorized the raise** and, seeing that the previous
   5% band had been consumed to ~0.4% within three merges, widened the band itself to **10%** so the
   ceiling stops being re-collided with on nearly every PR. Root **2,732 → 3,207** measured, ceiling
-  2,754 → **3,527**; default path **33,768 → 34,584** measured, ceiling 33,917 → **38,042**; both are
-  measured-plus-10% exactly. `CI614_TOTAL_RECORDED` re-anchored 29,639 → **30,572**. The two ratchet
+  2,754 → **3,527**; default path **33,768 → 35,100** measured (34,584 before the branch was rebased onto main's
+  concurrently-landed prose), ceiling 33,917 → **38,042**. The root ceiling is measured-plus-10%
+  exactly; the default-path ceiling was set from the pre-rebase measurement and deliberately not
+  re-raised afterwards, so its shipped headroom is ~8.4% rather than the full band.
+  `CI614_TOTAL_RECORDED` re-anchored 29,639 → **31,154**. The two ratchet
   -legality assertions in the contract module move 105 → 110 in the same commit. The one-directional
   rule binds again from here — a measured reduction lowers these figures.
