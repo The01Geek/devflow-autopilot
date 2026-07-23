@@ -8,8 +8,8 @@ type: Fixed
   to a literal that actually exists on a single baseline line, and its self-referential planting
   control was replaced by a
   baseline-corpus control that validates every literal against the pre-#707 baseline blobs read
-  through `git show` (with a planted-defect positive control and four fail-closed degraded-input
-  arms). The `harness-python-guards` focused module is now driven through its own runner by a
+  through `git show` (with a planted-defect positive control and five fail-closed arms — four
+  degraded corpus-build inputs plus a member carrying no parallel baseline ref). The `harness-python-guards` focused module is now driven through its own runner by a
   `runs_green_through_the_real_runner` test, and `CONTRIBUTING.md`'s module-authoring checklist
   requires that test going forward. The parallelized final gate now produces an inspectable
   artifact: the local/interactive tier captures its full-suite launch to a named file and records

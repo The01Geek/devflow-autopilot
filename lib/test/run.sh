@@ -30631,7 +30631,7 @@ _WSR_RETIRED_LITS=(
 # not a generic phrase.
 # #719 per-member baseline ref (parallel to _WSR_RETIRED_LITS by index — bash 3.2 has
 # no associative arrays). Each member is validated by the baseline-corpus control below
-# against the blob at the ref where its retired text EXISTED. All nine share the pre-#707
+# against the blob at the ref where its retired text EXISTED. Every member shares the pre-#707
 # baseline 607ec800 today; a literal retired by a LATER change carries its own later ref,
 # so the control never demands a postdated literal match a ref that predates it. A member
 # with NO parallel ref (a shorter refs array) turns the control RED naming that member, so
@@ -30685,11 +30685,14 @@ assert_eq "#707 the retired full-suite-before-every-commit convention survives o
 # the pre-#707 baseline blobs read through `git show <ref>:<file>` — so a literal that cannot
 # match its real baseline text turns the suite RED at the desk. It extends the #528 derived-LIST
 # discipline to a derived CORPUS.
-# Fail-closed contract, exactly four degraded inputs (complete by construction):
+# Fail-closed contract, exactly five arms (complete by construction) — four degraded corpus-build
+# inputs plus the authoring arm below them:
 #   unresolvable ref (shallow clone)  -> skip blocking-gate (a real gate that should have run here)
 #   swept file with no blob at ref    -> RED naming the input (never pass by counting zero)
 #   empty `git show` output           -> RED naming the input (never pass by counting zero)
 #   failed scratch allocation         -> skip host-capability
+#   member with no parallel ref       -> RED naming the member (an authoring defect in the parallel
+#                                        arrays, not a corpus input; exercised by control 2)
 # The unresolvable-ref and allocation arms are HOST-capability limits, not tree defects, so a
 # shallow local clone routes to `skip` (recorded skipped — not a clean pass, not a hard failure)
 # while CI's full-history checkout (fetch-depth: 0, #456) runs the gate for real. The retired
@@ -30780,6 +30783,11 @@ _wsr_run_baseline_corpus_control() {
           # RED naming the unresolved input — never allowed to pass by counting zero literals.
           assert_eq "$name — every swept file resolves to a non-empty baseline blob at '$ref'" "OK" "$tok"
           rm -f "$corpus"; return 0 ;;
+        *)
+          # Unreachable by construction today — but an unforeseen producer token must never fall
+          # through to counting against a possibly-stale corpus. RED naming the token instead.
+          assert_eq "$name — the corpus builder emitted a known status token at '$ref'" "OK" "$tok"
+          rm -f "$corpus"; return 0 ;;
       esac
     fi
     n="$(pin_count "$lit" "$corpus")"
@@ -30800,23 +30808,36 @@ _WSR_BCC_REFS=("${_WSR_RETIRED_REFS[@]}")
 _wsr_run_baseline_corpus_control "#719 retired-convention baseline-corpus control" "" ok
 # ── Positive controls: prove the control detects each defect it exists for, in ISOLATION so
 # the intentional RED / skip never counts against the suite tally. ────────────────────────────
+# Controls 1-4 share ONE isolated results/skips pair, allocated once and truncated between runs.
+# The allocation is guarded: an unguarded `$(mktemp)` here would fail loud but with a MISDIRECTED
+# diagnosis (an empty RESULTS_FILE path reads as the control finding nothing), so a host that
+# cannot allocate scratch routes to skip host-capability exactly like the control's own arm.
+if _WSR_BCC_PR="$(mktemp 2>/dev/null)" && _WSR_BCC_PS="$(mktemp 2>/dev/null)"; then
+# Controls 1-2 drive the control over the REAL baseline refs, so they need those refs to resolve.
+# On a shallow clone they would otherwise route to `skip` inside the control and their
+# `grep -q '^FAIL'` meta-assertions would flip to a spurious hard suite FAIL — contradicting this
+# block's own documented shallow-clone tolerance (controls 5/6/7 avoid it via `git_sandbox`).
+_WSR_BCC_REFS_OK=yes
+for _WSR_BCC_R in "${_WSR_RETIRED_REFS[@]}"; do
+  git -C "$FDROOT" rev-parse --verify --quiet "${_WSR_BCC_R}^{commit}" >/dev/null 2>&1 || _WSR_BCC_REFS_OK=no
+done
+if [ "$_WSR_BCC_REFS_OK" = yes ]; then
 # (1) Planted-defect control: append one deliberately-unmatchable member — the ORIGINAL
 # full-sentence span that WRAPS a line break at the baseline (the exact #719 defect) — and
 # observe the control go RED naming it.
-_WSR_BCC_PR="$(mktemp)"; _WSR_BCC_PS="$(mktemp)"
+: > "$_WSR_BCC_PR"; : > "$_WSR_BCC_PS"
 _WSR_BCC_REPO="$FDROOT"
 _WSR_BCC_FILES=("${_WSR_SWEPT_RELPATHS[@]}")
 _WSR_BCC_LITS=("${_WSR_RETIRED_LITS[@]}" 'Before a commit, phase completion, push, or completion claim, run')
-_WSR_BCC_REFS=("${_WSR_RETIRED_REFS[@]}" '607ec800')
+_WSR_BCC_REFS=("${_WSR_RETIRED_REFS[@]}" "${_WSR_RETIRED_REFS[0]}")
 _WSR_BCC_PLANTED_OUT="$( RESULTS_FILE="$_WSR_BCC_PR" SKIPS_FILE="$_WSR_BCC_PS" _wsr_run_baseline_corpus_control '#719 planted-defect control' '' ok 2>&1 )"
 assert_eq "#719 baseline-corpus control: a planted line-wrapping member is caught RED" \
   "yes" "$(grep -q '^FAIL' "$_WSR_BCC_PR" && echo yes || echo no)"
 assert_eq "#719 baseline-corpus control: the planted member is NAMED in the RED output" \
   "yes" "$(printf '%s' "$_WSR_BCC_PLANTED_OUT" | grep -qF 'completion claim, run' && echo yes || echo no)"
-rm -f "$_WSR_BCC_PR" "$_WSR_BCC_PS"
 # (2) Missing-ref control: a member with no parallel ref (refs array one short) goes RED naming
 # the member — the array cannot grow past the control by omission.
-_WSR_BCC_PR="$(mktemp)"; _WSR_BCC_PS="$(mktemp)"
+: > "$_WSR_BCC_PR"; : > "$_WSR_BCC_PS"
 _WSR_BCC_LITS=("${_WSR_RETIRED_LITS[@]}" 'a later retirement literal with no ref')
 _WSR_BCC_REFS=("${_WSR_RETIRED_REFS[@]}")
 _WSR_BCC_NOREF_OUT="$( RESULTS_FILE="$_WSR_BCC_PR" SKIPS_FILE="$_WSR_BCC_PS" _wsr_run_baseline_corpus_control '#719 missing-ref control' '' ok 2>&1 )"
@@ -30824,10 +30845,13 @@ assert_eq "#719 baseline-corpus control: a member with no parallel baseline ref 
   "yes" "$(grep -q '^FAIL' "$_WSR_BCC_PR" && echo yes || echo no)"
 assert_eq "#719 baseline-corpus control: the ref-less member is NAMED in the RED output" \
   "yes" "$(printf '%s' "$_WSR_BCC_NOREF_OUT" | grep -qF 'no ref' && echo yes || echo no)"
-rm -f "$_WSR_BCC_PR" "$_WSR_BCC_PS"
+else
+  skip "#719 baseline-corpus control: planted-defect and missing-ref controls" blocking-gate \
+    "a baseline ref in _WSR_RETIRED_REFS does not resolve (shallow clone?); these two controls drive the REAL refs — CI's full-history checkout is authoritative"
+fi
 # (3) Unresolvable-ref control: a bogus baseline ref routes to skip blocking-gate (NOT a FAIL,
-# NOT a pass) — the shallow-clone host-limit arm.
-_WSR_BCC_PR="$(mktemp)"; _WSR_BCC_PS="$(mktemp)"
+# NOT a pass) — the shallow-clone host-limit arm. Ref-resolution-independent by construction.
+: > "$_WSR_BCC_PR"; : > "$_WSR_BCC_PS"
 _WSR_BCC_LITS=("${_WSR_RETIRED_LITS[@]}")
 _WSR_BCC_REFS=("${_WSR_RETIRED_REFS[@]}")
 RESULTS_FILE="$_WSR_BCC_PR" SKIPS_FILE="$_WSR_BCC_PS" _wsr_run_baseline_corpus_control '#719 bad-ref control' 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef' ok >/dev/null 2>&1
@@ -30835,15 +30859,18 @@ assert_eq "#719 baseline-corpus control: an unresolvable baseline ref routes to 
   "yes" "$(grep -q '^blocking-gate	' "$_WSR_BCC_PS" && echo yes || echo no)"
 assert_eq "#719 baseline-corpus control: an unresolvable baseline ref records NO suite FAIL" \
   "no" "$(grep -q '^FAIL' "$_WSR_BCC_PR" && echo yes || echo no)"
-rm -f "$_WSR_BCC_PR" "$_WSR_BCC_PS"
 # (4) Failed-scratch-allocation control: routes to skip host-capability (NOT a FAIL).
-_WSR_BCC_PR="$(mktemp)"; _WSR_BCC_PS="$(mktemp)"
+: > "$_WSR_BCC_PR"; : > "$_WSR_BCC_PS"
 RESULTS_FILE="$_WSR_BCC_PR" SKIPS_FILE="$_WSR_BCC_PS" _wsr_run_baseline_corpus_control '#719 alloc-fail control' '' fail >/dev/null 2>&1
 assert_eq "#719 baseline-corpus control: a failed scratch allocation routes to skip host-capability" \
   "yes" "$(grep -q '^host-capability	' "$_WSR_BCC_PS" && echo yes || echo no)"
 assert_eq "#719 baseline-corpus control: a failed scratch allocation records NO suite FAIL" \
   "no" "$(grep -q '^FAIL' "$_WSR_BCC_PR" && echo yes || echo no)"
 rm -f "$_WSR_BCC_PR" "$_WSR_BCC_PS"
+else
+  skip "#719 baseline-corpus control: isolated positive controls 1-4" host-capability \
+    "mktemp failed; the isolated results/skips pair the controls inspect could not be allocated"
+fi
 # (5) Missing-blob and (6) empty-output controls: build a throwaway git repo with controlled
 # blobs (a file carrying every literal, an empty file, and a referenced-but-absent path) and
 # drive the control against it — each degraded git input goes RED naming the input, proving the
@@ -30860,28 +30887,28 @@ if _WSR_BCC_SBX="$(git_sandbox '#719 baseline-corpus degraded-input sandbox')"; 
   _WSR_BCC_REPO="$_WSR_BCC_SBX"
   _WSR_BCC_LITS=("${_WSR_RETIRED_LITS[@]}")
   _WSR_BCC_REFS=()   # use the ref-override so every member shares $_WSR_BCC_SBX_REF
-  # (5) missing blob: a referenced path that does not exist at the ref
-  _WSR_BCC_PR="$(mktemp)"; _WSR_BCC_PS="$(mktemp)"
+  # (5) missing blob: a referenced path that does not exist at the ref. The scratch pair is
+  # allocated once for controls 5-7 and guarded for the same misdirected-diagnosis reason as the
+  # pair above; a failed allocation skips host-capability rather than reading as a silent control.
+  if _WSR_BCC_PR="$(mktemp 2>/dev/null)" && _WSR_BCC_PS="$(mktemp 2>/dev/null)"; then
   _WSR_BCC_FILES=('ghost.md' 'real.md')
   _WSR_BCC_NOBLOB_OUT="$( RESULTS_FILE="$_WSR_BCC_PR" SKIPS_FILE="$_WSR_BCC_PS" _wsr_run_baseline_corpus_control '#719 missing-blob control' "$_WSR_BCC_SBX_REF" ok 2>&1 )"
   assert_eq "#719 baseline-corpus control: a swept file with no blob at the ref is caught RED" \
     "yes" "$(grep -q '^FAIL' "$_WSR_BCC_PR" && echo yes || echo no)"
   assert_eq "#719 baseline-corpus control: the missing blob is NAMED in the RED output" \
     "yes" "$(printf '%s' "$_WSR_BCC_NOBLOB_OUT" | grep -qF 'ghost.md' && echo yes || echo no)"
-  rm -f "$_WSR_BCC_PR" "$_WSR_BCC_PS"
   # (6) empty output: a swept file whose git show is empty
-  _WSR_BCC_PR="$(mktemp)"; _WSR_BCC_PS="$(mktemp)"
+  : > "$_WSR_BCC_PR"; : > "$_WSR_BCC_PS"
   _WSR_BCC_FILES=('empty.md' 'real.md')
   _WSR_BCC_EMPTY_OUT="$( RESULTS_FILE="$_WSR_BCC_PR" SKIPS_FILE="$_WSR_BCC_PS" _wsr_run_baseline_corpus_control '#719 empty-output control' "$_WSR_BCC_SBX_REF" ok 2>&1 )"
   assert_eq "#719 baseline-corpus control: an empty git-show blob is caught RED" \
     "yes" "$(grep -q '^FAIL' "$_WSR_BCC_PR" && echo yes || echo no)"
   assert_eq "#719 baseline-corpus control: the empty blob is NAMED in the RED output" \
     "yes" "$(printf '%s' "$_WSR_BCC_EMPTY_OUT" | grep -qF 'empty.md' && echo yes || echo no)"
-  rm -f "$_WSR_BCC_PR" "$_WSR_BCC_PS"
   # (7) idempotency: run the control twice over the same clean sandbox input and require
   # byte-identical result tallies, and require the scratch corpus removed after the run.
   _WSR_BCC_FILES=('real.md')
-  _WSR_BCC_R1="$(mktemp)"; _WSR_BCC_R2="$(mktemp)"; _WSR_BCC_S0="$(mktemp)"
+  if _WSR_BCC_R1="$(mktemp 2>/dev/null)" && _WSR_BCC_R2="$(mktemp 2>/dev/null)" && _WSR_BCC_S0="$(mktemp 2>/dev/null)"; then
   RESULTS_FILE="$_WSR_BCC_R1" SKIPS_FILE="$_WSR_BCC_S0" _wsr_run_baseline_corpus_control '#719 idempotency probe' "$_WSR_BCC_SBX_REF" ok >/dev/null 2>&1
   assert_eq "#719 baseline-corpus control: the scratch corpus is removed after the run" \
     "gone" "$([ -e "$_WSR_BCC_LAST_CORPUS" ] && echo present || echo gone)"
@@ -30889,11 +30916,20 @@ if _WSR_BCC_SBX="$(git_sandbox '#719 baseline-corpus degraded-input sandbox')"; 
   assert_eq "#719 baseline-corpus control: re-running over the same input yields an identical tally" \
     "yes" "$(cmp -s "$_WSR_BCC_R1" "$_WSR_BCC_R2" && echo yes || echo no)"
   rm -f "$_WSR_BCC_R1" "$_WSR_BCC_R2" "$_WSR_BCC_S0"
+  else
+    skip "#719 baseline-corpus control: idempotency probe" host-capability \
+      "mktemp failed; the isolated result files the probe compares could not be allocated"
+  fi
+  rm -f "$_WSR_BCC_PR" "$_WSR_BCC_PS"
+  else
+    skip "#719 baseline-corpus control: degraded-git-input controls 5-7" host-capability \
+      "mktemp failed; the isolated results/skips pair the controls inspect could not be allocated"
+  fi
   rm -rf "$_WSR_BCC_SBX"
 fi
 unset _WSR_RETIRED_HITS _WSR_RETIRED_FILE _WSR_RETIRED_LIT _WSR_RETIRED_UNREADABLE _WSR_RETIRED_CONTROL _WSR_RETIRED_PROBE _WSR_RETIRED_LITS _WSR_RETIRED_REFS
 unset _WSR_SWEPT_RELPATHS _WSR_BCC_LITS _WSR_BCC_REFS _WSR_BCC_FILES _WSR_BCC_REPO _WSR_BCC_LAST_CORPUS
-unset _WSR_BCC_PR _WSR_BCC_PS _WSR_BCC_PLANTED_OUT _WSR_BCC_NOREF_OUT _WSR_BCC_L _WSR_BCC_SBX _WSR_BCC_SBX_REF _WSR_BCC_NOBLOB_OUT _WSR_BCC_EMPTY_OUT _WSR_BCC_R1 _WSR_BCC_R2 _WSR_BCC_S0 2>/dev/null || true
+unset _WSR_BCC_REFS_OK _WSR_BCC_R _WSR_BCC_PR _WSR_BCC_PS _WSR_BCC_PLANTED_OUT _WSR_BCC_NOREF_OUT _WSR_BCC_L _WSR_BCC_SBX _WSR_BCC_SBX_REF _WSR_BCC_NOBLOB_OUT _WSR_BCC_EMPTY_OUT _WSR_BCC_R1 _WSR_BCC_R2 _WSR_BCC_S0 2>/dev/null || true
 # #707 the claim gate on the surfaces outside the two-file loop above. Each states the rule
 # in its own voice, so each needs its own pin; the guarded regression is identical — the
 # parallel-push allowance surviving without the clause that keeps the claim gated.

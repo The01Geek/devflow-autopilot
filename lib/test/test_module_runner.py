@@ -1488,9 +1488,14 @@ class ModuleRunnerTests(unittest.TestCase):
                 0,
                 result.stdout[-4000:] + result.stderr[-4000:],
             )
+            # Membership in the LINE list, not a substring of the whole stdout: a bare substring
+            # match would also accept a summary line that grew a trailing clause (a skip tally,
+            # say — a skipped assertion is never a clean pass, issue #456), so this pins the
+            # runner's exact summary format. The floor is still read from the registry, so the
+            # coupled triple keeps its single source of truth.
             self.assertIn(
                 f"Module harness-python-guards: {floor} passed, 0 failed",
-                result.stdout,
+                result.stdout.splitlines(),
             )
             self.assertTrue(list(Path(log_dir).iterdir()))
 
