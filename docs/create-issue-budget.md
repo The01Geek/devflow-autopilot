@@ -78,7 +78,7 @@ the decision record below for when each was last re-measured:
 | `references/fallback-read-only-sandbox.md` | 628 | a `.devflow/tmp/` write is refused |
 | `references/fallback-audit-dispatch-arms.md` | 821 | a non-file audit arm, a retry escalation, or no subagent tool |
 | `references/fallback-state-owner-unavailable.md` | 880 | the state owner stops answering |
-| **root + all 9 references** | **30,199** | — |
+| **root + all 9 references** | **30,221** | — |
 | `references/issue-template.md` | 6,932 | Step 3 (unchanged by the split) |
 | `references/audit-prompt-template.md` | 3,110 | renderer-owned; carries the issue-#708 enumerate-dimensions checklist and the issue-#709 `di` dispatch-instruction blocks |
 
@@ -322,3 +322,12 @@ the history of what the surface cost, and overwriting it loses exactly the drift
   renegotiation, so it is recorded here as the explicit-human-decision precedent shape the #614 AC6
   entry established; the autonomous `/devflow:implement` run made the ceiling-constant and doc edits
   directly under this issue's authorization.
+- **2026-07-23 (issue #743, receiving-review fix pass) — documentation-truthfulness correction.** The
+  standalone review REJECTed two documented-falsehood defects in the shipped prose: the `auditor_block`
+  "byte-preserved/verbatim" claim overstated the store (which truncates any block past the 4,096-char
+  evidence cap), and a canonical `REVISE` example still passed `--advisory 1` with no records file (now
+  floor-invalid). Qualifying the byte-preservation prose in `step-3-6-audit.md` added **+22 words**,
+  moving the measured default path **34,262 → 34,284** (ceiling **34,800** unchanged, headroom ~1.5%) and
+  the root-plus-references total **30,199 → 30,221** (`CI614_TOTAL_RECORDED` re-anchored to 30,221). No
+  ceiling renegotiation — the raise authorized above absorbs it; the `step-3-6-audit.md` growth-cutover
+  artifact byte figure moved 78,098 → 78,210 in lockstep.

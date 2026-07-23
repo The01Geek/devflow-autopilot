@@ -1589,14 +1589,21 @@ def _validate_adjudication_records(rnd, num):
         # enforces `len(records) == --<cls>` bidirectionally, but the count is stored on the
         # round SEPARATELY from the records list, so a hand-deleted record would leave a
         # shorter list beside a stale count and could launder `under-evidenced` into `clear`
-        # (a deleted impact-bearing unevidenced entry vanishes from the derivation). Only
-        # enforce when the count is a settled non-negative int (the round-schema arm above
-        # already shape-checked it), so a legacy round with the records but no count is not
-        # rejected. Fail closed to unestablished — the calibration axis is disclosure-only,
-        # but this file's read boundary treats direct state corruption as in-scope.
+        # (a deleted impact-bearing unevidenced entry vanishes from the derivation). A round
+        # that carries records ALWAYS carries the settled count beside them: `cmd_record_
+        # adjudication` writes `<cls>_count` unconditionally and `<cls>_records` only when a
+        # file was supplied, and every pre-#743 round carries neither — so a present records
+        # list with an absent or non-int count is reachable only by the very corruption this
+        # boundary defends against (delete BOTH the record and its count). Fail closed on it
+        # rather than short-circuit past — a records list with no settled count is never read
+        # as calibration-clear. The calibration axis is disclosure-only, but this file's read
+        # boundary treats direct state corruption as in-scope.
         count = rnd.get(f'{cls}_count')
-        if (isinstance(count, int) and not isinstance(count, bool) and count >= 0
-                and len(records) != count):
+        if not (isinstance(count, int) and not isinstance(count, bool) and count >= 0):
+            raise StateError(f'round {num} {cls}_records is present but {cls}_count is '
+                             f'{count!r} (records-without-count); a records list with no '
+                             f'settled count is never read as calibration-clear')
+        if len(records) != count:
             raise StateError(f'round {num} {cls}_records carries {len(records)} record(s) but '
                              f'{cls}_count is {count} (records-count-mismatch); a truncated '
                              f'records list is never read as calibration-clear')
@@ -2575,6 +2582,13 @@ def evaluate_calibration(state):
     A DISTINCT axis from convergence and coverage: it never redefines evaluate_convergence and
     never gates emit-body/query-eligibility. Its only teeth are the calibration offer trigger,
     the disclosure surface, and the summary — filing is never blocked on any arm.
+
+    Scoped to the FINAL adjudicated round by design (mirroring the coverage/summary
+    `last_completed` scoping): a superseding later adjudication retires an earlier round's
+    calibration trigger, so an under-evidenced impact-bearing advisory from an earlier round no
+    longer fires the offer once a later round is adjudicated. This is a deliberate choice, not a
+    dropped signal — the earlier round's per-finding records stay readable via
+    `query-adjudication-records`; only the live disclosure trigger follows the latest round.
     """
     if state is None:
         return {'backing': 'unestablished', 'render': 'none', 'unevidenced': [],
@@ -4167,7 +4181,7 @@ def _ingest_adjudication_records(cls, path, count):
     the JSON with the Write tool (no shell quoting) exactly as it authors a `--reflection-file`
     payload. Each record's orchestrator-authored fields (`summary`, `rationale`, `impact_class`,
     optional `evidence`) follow the ledger refusal discipline; the auditor's returned finding
-    block is stored VERBATIM (the record-finding-evidence discipline) and neutralized at the
+    block is stored VERBATIM under the evidence cap (the record-finding-evidence discipline) and neutralized at the
     print boundary, never reworded to satisfy a refusal — it is a comparand to preserve.
 
     `cls` is the class token (`advisory`/`invalid`), used as the breadcrumb prefix so every
@@ -6150,8 +6164,9 @@ def main():
                         'refused against --advisory 0. Each object carries a one-line '
                         '`summary`, a one-line `rationale`, an `impact_class` from '
                         + repr(_IMPACT_CLASSES) + ', an optional one-line `evidence`, and the '
-                        "auditor's complete returned finding block byte-preserved in "
-                        '`auditor_block` (multi-line, stored verbatim). The count must match '
+                        "auditor's returned finding block byte-preserved up to the evidence "
+                        'cap in `auditor_block` (multi-line; a longer block is truncated with '
+                        'the truncation disclosed in the stored bytes). The count must match '
                         '--advisory exactly.')
     s.add_argument('--invalid-records-file',
                    help='Path to a JSON array of per-finding INVALID records (issue #743), '

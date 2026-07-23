@@ -15069,6 +15069,13 @@ def _row743_clear(r):
     cal = r('query-calibration', r.slug, nonce=True).stdout
     assert_eq("#743: an evidenced impact-bearing advisory + reported render clears the trigger",
               True, 'calibration_backing=clear' in cal and 'calibration_trigger=no' in cal)
+    # read-back marks the RECORDED evidence_state on an impact-bearing advisory (the positive
+    # counterpart of _row743_roundtrip's impact_bearing=yes evidence_state=absent row — the
+    # evidence field is what decides under-evidenced vs clear, so both states are pinned).
+    rb = r('query-adjudication-records', r.slug, '--round', '1', '--record-class',
+           'advisory', nonce=True).stdout
+    assert_eq("#743: read-back marks an evidenced impact-bearing advisory evidence_state=recorded",
+              True, 'impact_bearing=yes evidence_state=recorded' in rb)
 
 
 _with_run603(_row743_clear)
@@ -15164,6 +15171,28 @@ def _row743_cardinality(r):
 _with_run603(_row743_cardinality)
 
 
+def _row743_invalid_only(r):
+    # calibration on an INVALID-only round: invalid records carry no impact-bearing advisory, so
+    # the derivation has nothing under-evidenced to surface — backing is clear (records present,
+    # no unevidenced impact-bearing advisory), not unestablished (which is the no-records arm).
+    # The unevidenced-id derivation reads ONLY advisory records, so an invalid record can never
+    # populate it; this row pins that an invalid-only adjudication is calibration-clean.
+    r.open_round(1)
+    _adj743(r, 1, must=1, advisory=0, invalid=1, inv=[_INV743], ledger='unresolved: f\n')
+    r('record-adjudication-render', r.slug, '--round', '1', '--landed', 'yes', nonce=True)
+    cal = r('query-calibration', r.slug, nonce=True).stdout
+    assert_eq("#743 invalid-only: an invalid-only adjudicated round is calibration-clear "
+              "(backing clear, trigger no, no unevidenced ids)",
+              True, ('calibration_backing=clear' in cal and 'calibration_trigger=no' in cal
+                     and 'unevidenced=none' in cal))
+    out = r('query-adjudication-records', r.slug, '--round', '1', '--record-class',
+            'invalid', nonce=True).stdout.strip().split('\n')
+    assert_eq("#743 invalid-only: the invalid record reads back on its own class", 1, len(out))
+
+
+_with_run603(_row743_invalid_only)
+
+
 # Read-boundary corruption arms — a hand-corrupted record fails closed (StateError →
 # unestablished), never a traceback reaching the derivation/summary. Driven through the
 # module's _validate directly on a minimal doc, mirroring the #603/#704 corrupt-state matrix.
@@ -15223,6 +15252,37 @@ try:
 except issue_audit_state.StateError:
     _ok743 = False
 assert_eq("#743 read-boundary control: the un-patched advisory-record doc validates", True, _ok743)
+
+
+# issue #743 (receiving-review Important): a round carrying a records list but NO settled count
+# is reachable only by the corruption this boundary defends against — cmd_record_adjudication
+# writes <cls>_count unconditionally and <cls>_records only when a file was supplied, and every
+# pre-#743 round carries neither. The read boundary must fail CLOSED on present-records/absent-
+# count rather than short-circuit past it (else a corruptor who deletes BOTH an impact-bearing
+# unevidenced advisory record and its count launders under-evidenced into clear). Attribute the
+# rejection to the records-without-count breadcrumb so a DIFFERENT guard firing first cannot
+# masquerade as this one, and carry a positive control (the un-patched doc above validates) so
+# an unrelated precondition cannot pass as this rejection.
+_msg743wc = ''
+try:
+    issue_audit_state._validate(_mkdoc743(lambda rd: rd.pop('advisory_count')), 's743v')
+except issue_audit_state.StateError as _e743wc:
+    _msg743wc = str(_e743wc)
+assert_eq("#743 read-boundary: advisory_records present but advisory_count absent fails closed "
+          "(records-without-count)", True, 'records-without-count' in _msg743wc)
+# the invalid class rides the SAME per-class loop — prove the absent-count guard covers it too
+# (a loop that read the count only for 'advisory' would ship this green).
+_msg743wci = ''
+try:
+    issue_audit_state._validate(
+        _mkdoc743(lambda rd: (rd.__setitem__('invalid_records',
+                                              [dict(rd['advisory_records'][0])]),
+                              rd.pop('invalid_count'))),
+        's743v')
+except issue_audit_state.StateError as _e743wci:
+    _msg743wci = str(_e743wci)
+assert_eq("#743 read-boundary: invalid_records present but invalid_count absent fails closed "
+          "(records-without-count)", True, 'records-without-count' in _msg743wci)
 
 
 print()

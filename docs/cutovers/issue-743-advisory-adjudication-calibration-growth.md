@@ -5,7 +5,9 @@ kind: growth
 
 ## Files
 
-- `skills/create-issue/references/step-3-6-audit.md` — mandatory row, +3338 bytes (baseline 74760 → 78098).
+- `skills/create-issue/references/step-3-6-audit.md` — mandatory row, +3450 bytes (baseline 74760 → 78210).
+  (The receiving-review fix pass added +112 bytes to qualify the `auditor_block` byte-preservation prose
+  against the 4,096-char evidence cap — a documentation-truthfulness correction, not new obligation prose.)
 - `skills/create-issue/references/step-4-present-create.md` — mandatory row, +958 bytes (baseline 39324 → 40282).
 
 (`skills/create-issue/references/fallback-state-owner-unavailable.md` also grew +478 bytes, but it is a `reference`-class conditional file, not a mandatory row, so it needs no growth coverage here.)
