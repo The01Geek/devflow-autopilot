@@ -50313,8 +50313,12 @@ unset POOL720_FIX _POOL720_CORE _POOL720_W1 _POOL720_W2 _POOL720_CORE_C _POOL720
 #
 # issue #720: open the bounded concurrent Python-suite pool HERE, at the former
 # test_module_runner.py driver site — after every preceding
-# devflow_run_full_suite_module call (so no pooled suite runs a module it itself
-# executes) and before the harness-python-guards boundary below. The three pooled
+# devflow_run_full_suite_module call (those boundaries are complete, so no pooled
+# suite races the main shell on them) and before the harness-python-guards boundary
+# below — which the pooled test_module_runner.py itself drives through its own
+# run-module.sh subprocess, so that boundary runs in the main shell and in the pooled
+# suite concurrently; the overlap is safe because each execution uses its own isolated
+# owned scratch root, not shared mutable state. The three pooled
 # suites overlap that last module and the ~2000-line shell tail that follows it,
 # and the pool joins just before the RESULTS_FILE tally is counted
 # (devflow_pool_join, further down). Membership is exactly these three:

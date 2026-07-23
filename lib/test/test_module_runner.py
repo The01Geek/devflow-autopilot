@@ -1971,6 +1971,42 @@ class PoolMembershipCompletenessTests(unittest.TestCase):
         ]
         self.assertEqual(exit_traps, [], f"module-harness.sh installs an EXIT trap: {exit_traps}")
 
+    def test_pool_registers_live_child_before_clearing_launch_guard(self) -> None:
+        # issue #720 launch-window race: in _devflow_pool_launch_suite the pooled child
+        # must be entered into the run-wide live-child registry BEFORE the launch-window
+        # guard (_DEVFLOW_POOL_LAUNCHING) is cleared, mirroring
+        # devflow_run_full_suite_module's register-before-unguard ordering. If the clear
+        # precedes the registration, a HUP/INT/TERM delivered in that window sees both
+        # launch guards at 0 and the just-forked pid still absent from the registry, so the
+        # signal handler terminates the other children and exits while this child is left
+        # running orphaned against the checkout. This structurally pins the fixed ordering
+        # so a re-inversion goes RED at the desk (the dedicated SIGINT test cannot hit the
+        # narrow window deterministically).
+        harness_text = HARNESS_SOURCE.read_text(encoding="utf-8")
+        match = re.search(
+            r"^_devflow_pool_launch_suite\(\) \{(.*?)^\}",
+            harness_text,
+            re.DOTALL | re.MULTILINE,
+        )
+        self.assertIsNotNone(
+            match, "could not locate _devflow_pool_launch_suite in module-harness.sh"
+        )
+        body = match.group(1)
+        register_at = body.find("_devflow_register_live_child")
+        clear_at = body.find("_DEVFLOW_POOL_LAUNCHING=0")
+        self.assertNotEqual(
+            register_at, -1, "register call missing from _devflow_pool_launch_suite"
+        )
+        self.assertNotEqual(
+            clear_at, -1, "launch-guard clear missing from _devflow_pool_launch_suite"
+        )
+        self.assertLess(
+            register_at,
+            clear_at,
+            "_devflow_pool_launch_suite clears _DEVFLOW_POOL_LAUNCHING before registering "
+            "the live child — reopens the issue #720 launch-window orphan race",
+        )
+
     def test_the_pool_is_invoked_only_from_run_sh(self) -> None:
         # The pool driver lives in module-harness.sh but is opened only by the full
         # suite: run-module.sh (the focused module runner) must never call it, and its

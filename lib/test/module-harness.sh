@@ -1101,9 +1101,6 @@ _devflow_pool_launch_suite() { # name script mode attempt
   else
     _devflow_test_write_pid "$group_pid_file" "$pid" "pool supervisor" || :
   fi
-  _DEVFLOW_POOL_LAUNCHING=0
-  [ "$monitor_was_on" -eq 1 ] || set +m
-
   _DEVFLOW_POOL_INFLIGHT_PIDS+=("$pid")
   _DEVFLOW_POOL_PID_NAME["$pid"]="$name"
   _DEVFLOW_POOL_PID_SCRIPT["$pid"]="$script"
@@ -1111,7 +1108,17 @@ _devflow_pool_launch_suite() { # name script mode attempt
   _DEVFLOW_POOL_PID_SCRATCH["$pid"]="$scratch"
   _DEVFLOW_POOL_PID_TALLY["$pid"]="$tally"
   _DEVFLOW_POOL_PID_OUTPUT["$pid"]="$output"
+  # Register in the run-wide live-child registry BEFORE clearing the launch-window
+  # guard, mirroring devflow_run_full_suite_module's register-before-unguard ordering
+  # (issue #720). A HUP/INT/TERM delivered in the window between the guard clear and
+  # this registration would otherwise see both launch guards at 0 and this just-forked
+  # pid still absent from _DEVFLOW_LIVE_CHILD_PIDS, so _devflow_full_suite_signal would
+  # terminate the already-registered children and exit while this child is left running
+  # orphaned against the checkout. With the guard still 1 across this registration, such
+  # a signal is stashed in _DEVFLOW_POOL_PENDING_SIGNAL and replayed just below.
   _devflow_register_live_child "$pid" "$scratch" "$tally"
+  _DEVFLOW_POOL_LAUNCHING=0
+  [ "$monitor_was_on" -eq 1 ] || set +m
   if [ -n "$_DEVFLOW_POOL_PENDING_SIGNAL" ]; then
     _devflow_full_suite_signal "$_DEVFLOW_POOL_PENDING_SIGNAL"
   fi
