@@ -23,7 +23,14 @@ Scope boundaries, all deliberate and each asserted by a fixture in the suite:
   producer and describes before-states. `.github/workflows/` and
   `.github/actions/` are excluded on the merits: both run only inside Actions,
   and a checkout-less workflow job has no remote for the placeholders to resolve
-  from, so environment addressing is the *correct* form there.
+  from, so environment addressing is the *correct* form there. `.claude/worktrees/`
+  is excluded for a different reason (issue #711): this scanner's population is a
+  **working-tree** enumeration (`--others`), so it sweeps every sibling git worktree
+  the `EnterWorktree` tool creates there and can report violations that live in
+  another branch's checkout. Until #711 that was survived only by the untracked,
+  harness-managed `.git/info/exclude` line — machine-local state no clone inherits —
+  so the exclusion is carried by the helper itself and the real-tree run is now
+  worktree-immune on a bare clone.
 * The recognized head set is closed: `gh`, `gh.exe`, and a `$VAR` / `${VAR}`
   expansion whose variable **name ends in `GH`** — a suffix test, not a
   `DEVFLOW_GH` equality test, so `$MY_GH` matches too and `$MYTOOL` does not. It
@@ -70,7 +77,6 @@ import argparse
 import importlib.util
 import os
 import re
-import subprocess
 import sys
 from pathlib import Path
 
@@ -83,6 +89,36 @@ _spec = importlib.util.spec_from_file_location("extract_command_heads", _HEADS_P
 _heads = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_heads)
 
+# The population enumeration, the file reader, the `EnumerationError` fail-closed
+# contract, and the `--root` / `--files-from` preamble are shared with the other
+# `git ls-files` lints (issue #724), imported by path with the same idiom used for
+# `extract-command-heads.py` above. Assert the names this file uses at LOAD time so
+# a rename fails here naming the dependency, not mid-scan.
+_POP_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lint_population.py")
+_pop_spec = importlib.util.spec_from_file_location("lint_population", _POP_PATH)
+_pop = importlib.util.module_from_spec(_pop_spec)
+_pop_spec.loader.exec_module(_pop)
+_REQUIRED_POP_ATTRS = (
+    "EnumerationError", "enumerate_population", "read_source",
+    "add_population_arguments", "resolve_root", "LS_FILES_WORKING_TREE",
+)
+_pop_missing = [name for name in _REQUIRED_POP_ATTRS if not hasattr(_pop, name)]
+if _pop_missing:
+    raise SystemExit(
+        f"lint-gh-api-repo-path: {_POP_PATH} no longer provides "
+        f"{', '.join(_pop_missing)}; refusing to audit"
+    )
+
+#: The shared fail-closed enumeration error, re-exported so `main`'s `except` clause
+#: names it locally.
+EnumerationError = _pop.EnumerationError
+
+#: This lint's population can contain binaries/UTF-16 (it audits the whole tree
+#: minus a few prefixes), so a NUL-carrying file is reported as a skip rather than
+#: scanned: `skip_nul=True`. This is the axis the shared reader exposes; the sibling
+#: `lint-tree-enumeration.py` passes `False`.
+_SKIP_NUL = True
+
 #: Path prefixes whose files are never read. See the module docstring for why
 #: each one is here.
 EXCLUDED_PREFIXES = (
@@ -93,6 +129,7 @@ EXCLUDED_PREFIXES = (
     ".devflow/logs/",
     ".devflow/learnings/",
     ".changeset/",
+    ".claude/worktrees/",
 )
 
 #: Exact paths (not prefixes) that are never read.
@@ -110,82 +147,12 @@ _GH_VAR_HEAD = re.compile(r"^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$")
 _FORBIDDEN = ("$GITHUB_REPOSITORY", "${GITHUB_REPOSITORY}")
 
 
-class EnumerationError(Exception):
-    """The audited population could not be established. Always fails closed."""
-
-
-def enumerate_population(root: Path, files_from: Path | None) -> list[str]:
-    """Return the repo-relative paths to consider, before exclusions.
-
-    Raises `EnumerationError` when the source cannot be read or yields nothing —
-    the two arms that must never be mistaken for a clean audit.
-    """
-    if files_from is not None:
-        try:
-            raw = files_from.read_text(encoding="utf-8")
-        except OSError as exc:
-            raise EnumerationError(
-                f"--files-from list could not be read ({files_from}): {exc}"
-            ) from exc
-    else:
-        try:
-            proc = subprocess.run(
-                ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
-                cwd=str(root),
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-        except OSError as exc:
-            raise EnumerationError(f"git ls-files could not be run: {exc}") from exc
-        if proc.returncode != 0:
-            raise EnumerationError(
-                "git ls-files exited "
-                f"{proc.returncode}: {proc.stderr.strip() or '(no stderr)'}"
-            )
-        raw = proc.stdout
-
-    # Strip ONLY the line terminator: a path with leading/trailing spaces is legal in
-    # git, and trimming it would yield a path that cannot open — silently dropping a
-    # real file from the audit through the skip arm below.
-    paths = [line.rstrip("\r\n") for line in raw.split("\n") if line.rstrip("\r\n")]
-    if not paths:
-        raise EnumerationError(
-            "the enumeration yielded zero paths before any exclusion was applied"
-        )
-    return paths
-
-
 def is_audited(path: str) -> bool:
     """True when `path` survives the population exclusions."""
     normalized = path.replace("\\", "/")
     if normalized in EXCLUDED_PATHS:
         return False
     return not any(normalized.startswith(p) for p in EXCLUDED_PREFIXES)
-
-
-def _read(path: Path) -> tuple[str | None, str | None]:
-    """Return `(text, skip_reason)` — exactly one of the two is None.
-
-    A stray non-UTF-8 byte never drops a file from the audit (it decodes with
-    replacement and is scanned to completion). Two shapes genuinely cannot be
-    audited and are reported as skips rather than absorbed: an unopenable path (a
-    deleted-but-still-listed entry, a directory, a permission or symlink-loop
-    error — the enumeration is a snapshot the filesystem may have moved past), and
-    a non-UTF-8-superset encoding such as UTF-16, whose NUL-interleaved bytes
-    decode to text in which no `gh api` token can ever match. Both used to return
-    a bare None that `main` skipped silently, so a wholly unreadable population
-    printed a plausible tally and exited 0 — "audited nothing" reading as "audited
-    everything, found nothing", the exact failure this scanner exists to prevent.
-    """
-    try:
-        data = path.read_bytes()
-    except OSError as exc:
-        return None, f"unreadable ({exc.__class__.__name__}: {exc})"
-    text = data.decode("utf-8", errors="replace").replace("\r\n", "\n")
-    if "\x00" in text:
-        return None, "not a UTF-8-superset text file (NUL bytes — binary, UTF-16, or similar)"
-    return text, None
 
 
 def considered_lines(text: str, markdown: bool) -> list[tuple[int, str]]:
@@ -311,43 +278,17 @@ def main(argv: list[str] | None = None) -> int:
             "surface that can run outside GitHub Actions."
         )
     )
-    parser.add_argument(
-        "--root",
-        default=None,
-        help="repository root to enumerate and resolve paths against (default: the git toplevel, else the cwd)",
-    )
-    parser.add_argument(
-        "--files-from",
-        default=None,
-        help="read the population from this newline-separated path list instead of git ls-files",
-    )
+    _pop.add_population_arguments(parser)
     args = parser.parse_args(argv)
 
-    if args.root is not None:
-        root = Path(args.root)
-    else:
-        proc = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if proc.returncode == 0 and proc.stdout.strip():
-            root = Path(proc.stdout.strip())
-        else:
-            # Never a silent default (the #295 repo-root contract): a wrong root feeds
-            # straight into the read loop, and with --files-from it would otherwise
-            # produce a green run over files that do not exist.
-            root = Path.cwd()
-            print(
-                "lint-gh-api-repo-path: no git toplevel "
-                f"({proc.stderr.strip() or 'git rev-parse failed'}); "
-                f"resolving paths against the cwd {root}",
-                file=sys.stderr,
-            )
+    root = _pop.resolve_root(args.root, tool="lint-gh-api-repo-path")
 
     try:
-        population = enumerate_population(root, Path(args.files_from) if args.files_from else None)
+        population = _pop.enumerate_population(
+            root,
+            Path(args.files_from) if args.files_from else None,
+            ls_files_argv=_pop.LS_FILES_WORKING_TREE,
+        )
     except EnumerationError as exc:
         print(f"lint-gh-api-repo-path: enumeration unusable: {exc}", file=sys.stderr)
         return 1
@@ -358,7 +299,7 @@ def main(argv: list[str] | None = None) -> int:
     skipped: list[tuple[str, str]] = []
     read_ok = 0
     for relative in audited:
-        text, skip_reason = _read(root / relative)
+        text, skip_reason = _pop.read_source(root / relative, skip_nul=_SKIP_NUL)
         if text is None:
             skipped.append((relative, skip_reason or "unknown"))
             continue

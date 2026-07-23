@@ -484,6 +484,11 @@ devflow_module_pin_red_under "#522/#600: template reads the draft file as the so
 devflow_module_pin_red_under "#522: draft file is NOT on the file-arm out-of-bounds list" \
   'is **not** on the file-arm out-of-bounds list' \
   's/is \*\*not\*\* on the file-arm out-of-bounds list/is on the file-arm out-of-bounds list/' "$CI_BUNDLE"
+# (3a) #705: the file-arm skill-prose enumeration carries a count word that was covered by no
+#      pin. Ground it so the count cannot silently disagree with its own five-path list — the
+#      staged canonical-draft artifact is the fifth path.
+devflow_module_pin_unique "#705: file-arm skill-prose out-of-bounds names exactly the 5 paths (staging added)" \
+  'naming exactly these 5 paths — `.devflow/tmp/issue-derivation-<slug>.md`, the audit report `.devflow/tmp/issue-audit-<slug>.md`, the state owner'"'"'s record `.devflow/tmp/issue-audit-state-<slug>.json`, the **retired** event log `.devflow/tmp/issue-audit-state-<slug>.md`, and any staged canonical-draft artifact `.devflow/tmp/issue-draft-<slug>.*.staged.md`' "$CI_BUNDLE"  # structural-pin-ok: surface-presence pin on new #705 enumeration prose, not a behavioral-fix pin
 # (4) The user-chosen-rounds OFFER at the Step 3.6 → Step 4 boundary. #546 moved the trigger
 #     EVALUATION into the tool (`query-triggers` answers `t1=…  t2=…  reason=…`), so the old
 #     "evaluate exactly these **2 offer triggers**" literal is gone; T1, T2, and the
@@ -494,8 +499,8 @@ devflow_module_pin_red_under "#522: draft file is NOT on the file-arm out-of-bou
 #     never make an orchestrator open its mouth. Inverting the offer into a silent proceed
 #     re-opens the ship-unconverged channel this boundary exists to close.
 devflow_module_pin_red_under "#522: a held trigger offers one more audit round at the Step 3.6->4 boundary" \
-  'While **either** holds, **offer one more audit round via the runner' \
-  's/While \*\*either\*\* holds, \*\*offer one more audit round/While either holds, proceed to Step 4 without offering a round/' \
+  'While **any** holds, **offer one more audit round via the runner' \
+  's/While \*\*any\*\* holds, \*\*offer one more audit round/While any holds, proceed to Step 4 without offering a round/' \
   "$CI_BUNDLE"
 # The offer's non-silent arms, which stay prose obligations on the orchestrator: a silent
 # non-response never dispatches and never proceeds (unknown is not consent), and the
@@ -539,8 +544,8 @@ devflow_module_pin_unique "#522: Step 3.5 summary reports the dimension self-che
 # joined it, and the RETIRED `.md` event log stays named — a pre-cutover leftover on disk
 # re-anchors an auditor on prior verdicts exactly as the live file did, and this skill no longer
 # writes (or deletes) that path, so only the out-of-bounds declaration covers it.
-devflow_module_pin_unique "#522: audit-prompt template out-of-bounds names exactly the 4 reasoning artifacts" \
-  'The following on-disk files are **out of bounds** — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, and `.devflow/tmp/issue-audit-state-<slug>.md`' "$CI_TMPL_AUDIT"
+devflow_module_pin_unique "#522: audit-prompt template out-of-bounds names the reasoning artifacts and the staged draft" \
+  'The following on-disk files are **out of bounds** — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, `.devflow/tmp/issue-audit-state-<slug>.md`, and any staged canonical-draft artifact `.devflow/tmp/issue-draft-<slug>.*.staged.md`' "$CI_TMPL_AUDIT"  # structural-pin-ok: surface-presence pin on the template's out-of-bounds enumeration, not a behavioral-fix pin
 # The retired-.md rationale is itself pinned: it is the one out-of-bounds entry with no live
 # producer, so a future reader who "tidies" it away silently re-opens the re-anchoring channel.
 devflow_module_pin_unique "#546: the retired .md event log stays declared out of bounds (pre-cutover leftovers re-anchor)" \
@@ -600,8 +605,10 @@ for _m600 in \
   assert_eq "#600 absence: moved audit-prompt sentence left the SKILL ($_m600)" "0" \
     "$(grep -cF "$_m600" "$CI_BUNDLE")"
 done
-# The SKILL carries the compact-preamble transport contract (five categories,
-# the renderer invocation, and the positional two-marker delivery check).
+# The SKILL carries the dispatch transport contract (five consumption categories and
+# the positional two-marker delivery check). Since issue #709 arm (i)'s transport is the
+# generated-instructions one and the renderer invocation itself lives in the generated
+# instructions, not in this prose — its pin moved with it, below.
 # Phase 0.6 tags the "complete by construction" consumption-categories sentence as a
 # count-locked claim, so bind the count to an assertion (the repo's pin-or-don't-write
 # policy): if a sixth consumption category is added without amending the enumeration,
@@ -611,8 +618,56 @@ devflow_module_pin_unique "#600: the consumption-categories enumeration reaches 
   '(v) The **`state-owner unavailable` fallback' "$CI_BUNDLE"
 assert_eq "#600: the consumption-categories enumeration has no sixth member (complete-by-construction claim stays true)" \
   "0" "$(devflow_module_pin_count '(vi)' "$CI_BUNDLE")"
-devflow_module_pin_unique "#600: SKILL invokes render-audit-prompt.py on the file arm" \
-  'render-audit-prompt.py file --slug' "$CI_BUNDLE"
+# issue #709 relocated this invocation out of the skill prose and into the canonical
+# dispatch-instruction blocks the generator emits, so the pin follows the content to the
+# template. The guarded regression is unchanged: the auditor is still told to run the
+# renderer on the file arm, and dropping that instruction still turns this RED.
+# The template assembles this invocation from a slot ({RENDERER_PATH}), so it lives on no
+# single SOURCE line: pin the RENDERED surface instead, per the #375 wrapped-literal rule.
+# Rendering it here also proves the mode is invocable at all — a fixture draft in, canonical
+# instructions out — which a source grep cannot establish.
+CI709_DRAFT="$_ci_tmp_root/issue-draft-ci709.md"
+CI709_RENDER="$_ci_tmp_root/di-render-ci709.md"
+printf '# Pinned fixture draft title\n\nfixture body\n' > "$CI709_DRAFT"
+python3 "$CI_ROOT/scripts/render-audit-prompt.py" dispatch-instructions --slug ci709 \
+  --draft-path "$CI709_DRAFT" --instructions-path "$_ci_tmp_root/i-ci709.md" \
+  > "$CI709_RENDER" 2>/dev/null || : > "$CI709_RENDER"
+assert_eq "#709: the dispatch-instructions mode renders for a well-formed file-arm draft" \
+  "yes" "$([ -s "$CI709_RENDER" ] && echo yes || echo no)"
+devflow_module_pin_unique "#600/#709: the auditor is told to invoke render-audit-prompt.py on the file arm" \
+  'render-audit-prompt.py file --slug' "$CI709_RENDER"
+# ── issue #709: the generated-instructions transport contract ──────────────────
+# These are STRUCTURAL contract-presence pins: the operative gate lives in the Python
+# state owner and is driven end-to-end in lib/test/test_python_scripts.py's #709 rows
+# (including the planted-steering positive controls), so removing any literal below
+# breaks no behavioral guarantee the suite otherwise proves — it removes the skill-side
+# instruction that makes the gate reachable, which is a prose-presence property.
+devflow_module_pin_unique "#709: the dispatch prompt is a generated pointer, not freehand prose" \
+  'the Agent-tool prompt string is a **generated pointer**' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the behavioral gate is proven by the #709 state-owner rows
+devflow_module_pin_unique "#709: the skill invokes the dispatch-instructions generator" \
+  'render-audit-prompt.py dispatch-instructions --slug' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the behavioral gate is proven by the #709 state-owner rows
+devflow_module_pin_unique "#709: the closed regeneration inputs are forwarded at dispatch" \
+  '--instructions-file "<instructions path>" --instructions-draft-path' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the behavioral gate is proven by the #709 state-owner rows
+devflow_module_pin_unique "#709: an absent auditor value is never invented" \
+  'Omit either flag when the return carried no such line' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the behavioral gate is proven by the #709 state-owner rows
+devflow_module_pin_unique "#709: the residual is disclosed as narrowed, never proven clean" \
+  'The mechanism narrows the wrapper channel; it does not close it.' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the behavioral gate is proven by the #709 state-owner rows
+devflow_module_pin_unique "#709: a clean audit is never described as provably steering-free" \
+  'Never describe a clean audit as provably steering-free.' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the behavioral gate is proven by the #709 state-owner rows
+devflow_module_pin_unique "#709: withhold-then-disclose never blocks filing" \
+  '**Filing is never blocked on any arm.**' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the behavioral gate is proven by the #709 state-owner rows
+# The Information-diet omission rule and the out-of-bounds declaration are PRESERVED by the
+# cutover, not superseded by it — the narrow scope is the whole point, so pin that they
+# survived rather than trusting the diff review to have noticed their absence.
+devflow_module_pin_unique "#709: the cutover preserved the information-diet omission rule" \
+  'It **omits the drafting conversation, the Step 1 findings report, and the Step 2 derivation artifact**' "$CI_BUNDLE"  # structural-pin-ok: preservation pin over prose the #709 cutover must not remove
+devflow_module_pin_unique "#709: the cutover preserved the out-of-bounds declaration" \
+  'reasoning artifacts out of bounds' "$CI_BUNDLE"  # structural-pin-ok: preservation pin over prose the #709 cutover must not remove
+devflow_module_pin_unique "#709: Step 4 renders the steering marker on the audit-summary line" \
+  'audit independence unestablished' "$CI_ROOT/skills/create-issue/references/step-4-present-create.md"  # structural-pin-ok: contract-presence over skill prose; the behavioral gate is proven by the #709 state-owner rows
+devflow_module_pin_unique "#709: the withheld state routes through the existing re-audit offer" \
+  'takes this same sanctioned path' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the behavioral gate is proven by the #709 state-owner rows
+
 devflow_module_pin_unique "#600: SKILL states the positional two-marker delivery check" \
   'first line begins `render-status:`' "$CI_BUNDLE"
 devflow_module_pin_unique "#600: SKILL derives the appended flag from the auditor returned quote" \
@@ -630,8 +685,10 @@ devflow_module_pin_unique "#600: template owns the amended two-transport read-or
 # Embed-arm out-of-bounds list (the inverse of the file arm's list — re-adds the draft path):
 # symmetric with the file-arm template-enumeration pin above. #546 widened it 4 → 5 files, in
 # lockstep with the file arm's 3 → 4: the state `.json` and the retired `.md` are both named.
-devflow_module_pin_unique "#522: embed arm out-of-bounds names exactly the 5 files (draft re-added)" \
-  'On this arm the out-of-bounds declaration names exactly these 5 files — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-draft-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, and the **retired** `.devflow/tmp/issue-audit-state-<slug>.md`' "$CI_BUNDLE"
+# #705 widened it 5 → 6 (file arm 4 → 5): the staged canonical-draft artifact is added, because
+# after a failed replace it holds bytes the canonical file does not.
+devflow_module_pin_unique "#522/#705: embed arm out-of-bounds names exactly the 6 files (staging added)" \
+  'On this arm the out-of-bounds declaration names exactly these 6 files — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-draft-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, the **retired** `.devflow/tmp/issue-audit-state-<slug>.md`, and any staged canonical-draft artifact `.devflow/tmp/issue-draft-<slug>.*.staged.md`' "$CI_BUNDLE"  # structural-pin-ok: surface-presence pin on #705-widened enumeration prose, not a behavioral-fix pin
 # ── #546 RECONCILIATION: the carriage COMPARE, the event log, the retry bounds, and T1/T2.
 #
 # The #522 block used to pin, as prose, the whole deterministic half of the carriage/identity
@@ -727,19 +784,20 @@ devflow_module_pin_unique "#522: embed-arm auditor must quote both sentinels plu
 # Write-landing OBSERVATION (issue #522 iteration-3 review I3, repointed by #546). The ROUTING
 # moved to `query-arm` (py #546 arm_routing_rows), but the routing's operand did not: whether
 # the write landed is an observation only the orchestrator can make, and `query-arm` is only as
-# honest as the `--write-landed` it is handed. The original fail-open is unchanged — on a fresh
-# `<slug>` with no leftover, a read-only sandbox lets `rm` succeed vacuously while the write
-# still fails, so an orchestrator that INFERS landing from the delete reports `--write-landed yes`
+# honest as the `--write-landed` it is handed. The original fail-open is unchanged, re-anchored by
+# #705 onto the staged-write failure mode — a read-only sandbox can leave the surrounding turn
+# looking successful while the staging write refuses or `apply` answers `agree=no`, so an
+# orchestrator that INFERS landing from the absence of an error reports `--write-landed yes`
 # for an unwritten path and the tool routes it to the file arm on false evidence. The mutation
 # excises the confirm-explicitly rule, restoring exactly that inference.
-devflow_module_pin_red_under "#522: write-landing is confirmed explicitly, never inferred from the delete" \
-  'rather than inferring it from the delete — on a fresh `<slug>` with no leftover, a read-only sandbox lets the `rm` succeed vacuously while the write still fails' \
-  's/ rather than inferring it from the delete — on a fresh `<slug>` with no leftover, a read-only sandbox lets the `rm` succeed vacuously while the write still fails//' \
+devflow_module_pin_red_under "#522: write-landing is confirmed explicitly, never inferred from the absence of an error" \
+  'rather than inferring it from the absence of an error — a read-only sandbox can leave the surrounding turn looking successful while `stage` refuses the write or `apply` answers `agree=no`' \
+  's/ rather than inferring it from the absence of an error — a read-only sandbox can leave the surrounding turn looking successful while `stage` refuses the write or `apply` answers `agree=no`//' \
   "$CI_BUNDLE"
 # ... and that the observation is REPORTED to the tool rather than acted on: the orchestrator
 # observes, the tool decides. This is the seam the arm-routing rows sit behind.
 devflow_module_pin_unique "#546: the write-landing observation is reported to the tool, which decides the arm" \
-  'pass it as `--write-landed yes|no` to `query-arm`, which decides the arm' "$CI_BUNDLE"
+  'pass the procedure'\''s `agree=` answer as `--write-landed yes|no` to `query-arm`, which decides the arm' "$CI_BUNDLE"
 devflow_module_pin_unique "#546: the dispatch arm is the tool's answer, never the orchestrator's" \
   '**The arm is the tool'\''s answer, never yours.**' "$CI_BUNDLE"
 # Verdict EXTRACTION is LLM work; verdict CLASSIFICATION is not. The tool validates the token
@@ -1100,8 +1158,13 @@ devflow_module_pin_unique "#603: round funding named as the budget-enforcement s
 #    restricted-PATH roundtrip; the remaining pins guard orchestrator-judgment prose with no
 #    code behavior to mutate. Either way these are presence pins, not behavioral-fix pins,
 #    so the mutation-evidence obligation does not attach.
-devflow_module_pin_unique "#603/AC14: query-findings is the one multi-line query" \
-  "**\`query-findings\` prints one decided line per ledger entry, and is the tool's one multi-line query**" "$CI_BUNDLE"
+# structural-pin-ok: presence only — this pins that the step-3.6 prose NAMES the multi-line
+# read-back query class, a documentation contract with no code regression a sed mutation could
+# re-introduce. #704 widened the class from one query to three; #708 added `query-coverage` as
+# the fourth, so the literal moved again; the guarded property (the class is stated, not left
+# implicit) is unchanged.
+devflow_module_pin_unique "#603/AC14 (+#704, +#708): the multi-line read-back query class is named" \
+  "**The read-back queries \`query-findings\`, \`query-claim-baselines\`, \`query-finding-evidence\`, and \`query-coverage\` are the multi-line ones**" "$CI_BUNDLE"  # structural-pin-ok: presence only — a documentation contract, no code regression to mutate
 devflow_module_pin_unique "#603/AC1: the ledger fence uses a QUOTED heredoc delimiter" \
   "<<'LEDGER-EOF'" "$CI_BUNDLE"
 devflow_module_pin_unique "#603/AC1: the quoted delimiter is never to be simplified away" \
@@ -1711,7 +1774,7 @@ PY614W
 # edit, and the ratchet-legality assertions below already tie each ceiling to its LIVE
 # measurement. docs/create-issue-budget.md is the sole home of the measured figures.
 CI614_ROOT_CEIL=2754
-CI614_DEFAULT_CEIL=31262
+CI614_DEFAULT_CEIL=33917
 # One comparison shape, shared by both ceilings and by the positive control below, so the
 # three sites cannot drift. An EMPTY measured value reads `no` (fail-closed): a word count
 # that could not be established is never treated as under the ceiling.
@@ -1778,7 +1841,7 @@ for _ci614_ref in $CI614_REFS; do
   CI614_TOTAL_SET+=("$CI_ROOT/skills/create-issue/references/$_ci614_ref.md")
 done
 CI614_TOTAL_W="$(ci614_words "${CI614_TOTAL_SET[@]}")"
-CI614_TOTAL_RECORDED=25814   # docs/create-issue-budget.md, root + all 9 references
+CI614_TOTAL_RECORDED=29639   # docs/create-issue-budget.md, root + all 9 references (issue #729 merge re-record)
 assert_eq "#614 T3: the root+references total is within +/-2% of the recorded conservation figure (a silent DROP is as RED as a rise)" \
   "yes" "$({ [ -n "$CI614_TOTAL_W" ] \
     && [ "$CI614_TOTAL_W" -ge "$(( CI614_TOTAL_RECORDED * 98 / 100 ))" ] \
@@ -1823,7 +1886,7 @@ devflow_module_pin_unique "#614 T3: the budget doc records the ratchet-down-only
 devflow_module_pin_unique "#614 T3: the budget doc names the root ceiling the suite enforces" \
   'Root ceiling: **2,754 words**' "$CI_ROOT/docs/create-issue-budget.md"
 devflow_module_pin_unique "#614 T3: the budget doc names the default-path ceiling the suite enforces" \
-  'Default-path ceiling: **31,262 words**' "$CI_ROOT/docs/create-issue-budget.md"
+  'Default-path ceiling: **33,917 words**' "$CI_ROOT/docs/create-issue-budget.md"
 devflow_module_pin_unique "#614 T3: the budget doc bans wc -w for these measurements" \
   '**Never `wc -w`.**' "$CI_ROOT/docs/create-issue-budget.md"
 unset -f ci614_words ci614_under

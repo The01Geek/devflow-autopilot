@@ -18,7 +18,7 @@ precondition.
 
 Template: [Prose cutover](implement.md#prose-cutover).
 
-## Focused test modules accelerate fix iteration only
+## Focused test modules are the fix-iteration default
 
 Before choosing a test, use finding context, test plan, or coverage map
 (`lib/test/modules/coverage-map.json`) to identify a candidate module, then confirm its ID
@@ -29,9 +29,17 @@ Do not infer or automate changed-file-to-module routing. For **local review-and-
 run exactly `bash lib/test/run-module.sh review-and-fix-contract`; if the `bash` wrapper is denied, use the runner path as leading token instead. When no module covers the fix, use
 the full suite during iteration. Cloud-tier runs use `lib/test/run-module.sh <module-id>` (direct leading-token form) when the tier grants it and a registered module covers the fix; otherwise they use the already-permitted complete suite without requesting new permissions.
 
-A focused result never discharges a review/fix gate. Before a commit, phase completion, push,
-or completion claim, run `bash lib/test/run.sh` plus every lint gate required by `CLAUDE.md`
-(using its documented classifier fallback when necessary). A nonempty skip tally is not clean.
+Focused verification is the fix-iteration default: a focused pass covering the changed surface is sufficient for an intermediate commit or push.
+Run the full suite mid-iteration only when no registered module covers the changed surface.
+
+A focused result discharges intermediate iteration only, never the final review/fix gate.
+The final gate is preserved, and on the local/interactive and reception/shepherd tiers it is parallelized.
+Before a completion or PR-ready claim, push to trigger CI and start the full local run at the same time; the push is NOT gated on the local run finishing.
+The **claim** is gated on it: read the local run's summary before you make one. A nonzero failure tally, a nonempty skip tally, or a run that never started (denied, blocked, or unreached) is not a completion — report the failure detail and iterate, and say so explicitly rather than letting the already-landed push stand as the claim.
+The full local run is `bash lib/test/run.sh` plus every lint gate required by `CLAUDE.md` (using its documented classifier fallback when necessary), and it remains the authoritative local signal because it yields richer failure detail than CI for troubleshooting. A nonempty skip tally is not clean.
+The cloud `/devflow:implement` in-env gate (issue #405) is unchanged and unweakened: such a run verifies in its own environment and never waits on, polls, re-checks, or cites CI for its own progress; the parallel-push allowance above is a local/interactive and reception/shepherd tier rule only.
+
+**Local/interactive tier — capture the parallel full-suite launch and record a `Verification evidence:` marker (issue #719).** Because the parallelized gate launches the full local run *concurrently* with the CI-triggering push rather than serialized behind it, a launch that is denied, blocked, or never reached leaves no trace. So on the **local/interactive tier** capture the full-suite launch to a named file under `.devflow/tmp/` (redirect `bash lib/test/run.sh` to e.g. `.devflow/tmp/verification-<ISSUE_NUMBER>.log`) and, before the completion claim, record the exact marker literal `Verification evidence:` in the workpad through `scripts/workpad.py` with the **`note`** reflection kind — a bullet carrying the run's **pass, fail, and skip tallies** and the **captured file's path**. A launch that never started produces an **absent capture file**, so the refused-launch terminal is an inspectable state, not an indistinguishable one. Use `note` because it is the only kind `lib/cheap-gate.jq` does not treat as friction. **Fallback:** a reception pass with no linked issue (`lib/fetch-pr-context.sh` emits `NoIssue`) has no workpad — record the marker in the **PR description**; a run with **neither** workpad nor PR names that terminal and reports the evidence **unrecordable** rather than stalling. This is **artifact vocabulary plus a captured artifact, not runtime enforcement**: no gate consumes it here, `lib/cheap-gate.jq` is deliberately not wired to it (its population is predominantly cloud runs this scoping excludes), and runtime enforcement is deferred to **issue #730**. The cloud tiers keep the issue-#405 in-env rule and gain **no** capture obligation (the cloud matchers deny the redirect/capture shapes, issues #401/#455).
 
 ## Guard-class shape 1 — existence-vs-sourceability (verify the outcome, not the precondition)
 

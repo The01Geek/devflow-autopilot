@@ -310,17 +310,47 @@ pin_count() {  # literal file -> prints occurrence count (always a single intege
 # blank-the-target mutation in either spelling (`1,$d`, `s/.*//`) fails.
 OVERBREADTH_MIN_NUM=1
 OVERBREADTH_MIN_DEN=20
-# Count non-whitespace characters in a file with bash builtins ONLY — never `wc`/`grep`/`sed`
-# (guard-class 2, CLAUDE.md): this value decides an emitted FAIL, so a missing non-preflight
-# tool must not empty it and silently pass an overbroad mutation. `${line//[[:space:]]/}`
-# strips every whitespace char; `${#...}` is the length of the remainder.
-_nonws_count() {  # file -> prints the count of non-whitespace characters
-  local line stripped total=0
-  while IFS= read -r line || [ -n "$line" ]; do
-    stripped="${line//[[:space:]]/}"
-    total=$(( total + ${#stripped} ))
-  done < "$1"
-  printf '%s\n' "$total"
+# Count non-whitespace characters via python3 (issue #736). python3 is a hard preflight
+# prerequisite (lib/preflight.sh's guaranteed set), so guard-class 2 (CLAUDE.md — "a value
+# that decides an EMITTED result must not be derived through a NON-preflight PATH tool")
+# PERMITS it exactly as it permits `_rb_words`'s python3 count; a missing tr/wc/sed WOULD
+# silently empty this value and pass an overbroad mutation, but a missing python3 cannot —
+# it fails the derivation, which this helper reports as `unestablished` so the guard FAILs.
+# A "whitespace" character is one of exactly the six-member literal set
+#   { space, tab (\t), newline (\n), carriage return (\r), form feed (\x0c), vertical tab (\x0b) }
+# — complete by construction and, being a fixed codepoint set rather than the locale-sensitive
+# `[[:space:]]` class the old bash loop used, host-independent (the old loop *could* count
+# U+00A0/U+2028 differently across C / C.UTF-8 on hosts where the #736 witness diverges; this
+# does not). Two files are counted in ONE interpreter process and the results published through
+# the caller-visible globals `_NONWS_1` (and `_NONWS_2` when a second file is given) rather than
+# stdout — so a call site never wraps this in `$( … )` and a SINGLE-TARGET mutation-taking
+# assertion (`assert_pin_red_under`, `devflow_module_pin_red_under`) spends one invocation
+# covering both artifacts; `assert_count_red_under`, whose real and mutated slices are separated
+# in time by the mutation that overwrites the slice, is the named exception below and spends one
+# invocation per measurement. On any derivation failure both
+# globals are set to the non-integer sentinel `unestablished` and the function returns 1, so a
+# guard reading them compares against no established comparand and FAILs, never silently passing.
+_nonws_count() {  # file1 [file2] -> sets _NONWS_1 [and _NONWS_2]; returns 1 on a failed derivation
+  local _out _rc
+  _NONWS_1=unestablished; _NONWS_2=unestablished
+  _out="$(python3 -c '
+import sys
+_WS = frozenset("\t\n\r\x0b\x0c ")  # tab LF CR VT FF space — the six-member set (#736)
+for _p in sys.argv[1:]:
+    with open(_p, "rb") as _fh:
+        _t = _fh.read().decode("utf-8", "surrogateescape")
+    print(sum(1 for _c in _t if _c not in _WS))
+' "$@" 2>/dev/null)"
+  _rc=$?
+  [ "$_rc" -eq 0 ] || return 1
+  # Read one line per file into the output globals with the `read` builtin (no non-preflight
+  # mid-pipe tool). A short/garbled read leaves the `unestablished` sentinel in place.
+  { IFS= read -r _NONWS_1; [ "$#" -lt 2 ] || IFS= read -r _NONWS_2; } <<< "$_out"
+  case "$_NONWS_1" in ''|*[!0-9]*) _NONWS_1=unestablished; return 1 ;; esac
+  if [ "$#" -ge 2 ]; then
+    case "$_NONWS_2" in ''|*[!0-9]*) _NONWS_2=unestablished; return 1 ;; esac
+  fi
+  return 0
 }
 
 # Drift-guard helper: assert LITERAL occurs EXACTLY ONCE in FILE. This is the
@@ -1855,6 +1885,58 @@ assert_pin_unique "#379(AC6): R4 shape Flag names the hand-derived-predicate tel
 # AC11 — each new shape/rule names the PR #340 cost it would have eliminated (3 in the extension)
 assert_eq "#379(AC11): extension records the PR #340 cost eliminated for each of shape 3, shape 4, and the probe rule" \
   "3" "$(pin_count 'this would have eliminated' "$RAF379")"
+
+# ── issue #550: completion-evidence gate in receiving-code-review + loop wiring ──
+CCE550_RCV="$LIB/../skills/receiving-code-review/SKILL.md"
+CCE550_LOOPEXIT="$LIB/../skills/review-and-fix/references/loop-exit.md"
+CCE550_FIXING="$LIB/../skills/review-and-fix/references/fixing.md"
+CCE550_PHASE3="$LIB/../skills/implement/phases/phase-3-review.md"
+# The Verification Gate carries the fifth evidence item: run the bundled check, quote
+# the verdict line verbatim, and phrase "complete" only on a quoted `pass`.
+assert_pin_unique "#550: Verification Gate carries the completion-evidence check (quote verbatim)" \
+  'quote its single verdict line verbatim' "$CCE550_RCV"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
+assert_pin_unique "#550: completion claim is phrased complete only on a quoted pass" \
+  'Phrase the claim "complete" only when the quoted line carries `pass`' "$CCE550_RCV"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
+# The degraded arm: no verdict line -> `degraded: unvalidated (<reason>)`, never pass.
+assert_pin_unique "#550: absent verdict line takes the degraded: unvalidated arm" \
+  'phrase the claim `degraded: unvalidated (<reason>)`' "$CCE550_RCV"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
+assert_pin_unique "#550: no-quoted-line is an undischarged gate a later pass re-checks" \
+  'A completion claim that carries **no** quoted verdict line is an undischarged gate' "$CCE550_RCV"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
+# Item 3 records the suite run through the durable verification handle.
+assert_pin_unique "#550: gate records the suite run through the durable verification handle" \
+  'Record this suite run through the durable verification handle bundled with the review tooling' "$CCE550_RCV"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
+# Scoping-sentence rewrite: names Loop Exit as the loop's discharge site for the item.
+# Mutation evidence (AC): restoring the superseded sentence (dropping the Loop-Exit
+# clause) turns this pin RED.
+assert_pin_red_under "#550: scoping sentence names Loop Exit as the loop's completion-evidence discharge site" \
+  'the loop discharges the completion-evidence item (item 5) at its **Loop Exit**' \
+  's/the loop discharges the completion-evidence item \(item 5\) at its \*\*Loop Exit\*\*/no additional invocation needed/' \
+  "$CCE550_RCV"
+# The vendored body stays repo-agnostic: the new text introduces NO repo-internal
+# validator path and NO DevFlow step numbers (extends the #379/sev(rcv) negatives).
+assert_eq "#550: receiving-code-review body carries no repo-internal validator path" "no" \
+  "$(grep -qF 'scripts/check-completion-evidence.py' "$CCE550_RCV" && echo yes || echo no)"
+assert_eq "#550: receiving-code-review body has no repo-specific test path (extends sev(rcv))" "no" \
+  "$(grep -qF 'lib/test/run.sh' "$CCE550_RCV" && echo yes || echo no)"
+# Loop Exit runs the validator over run-scoped records and carries the token.
+assert_pin_unique "#550: Loop Exit runs the completion-evidence validator via the portable anchor" \
+  'invoke it via the portable anchor as a single leading-token vendored literal' "$CCE550_LOOPEXIT"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
+assert_pin_unique "#550: Loop Exit carries a non-pass token into the reported verdict line" \
+  'to the reported final verdict line (`<verdict> — completion evidence: <token>`)' "$CCE550_LOOPEXIT"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
+assert_pin_unique "#550: Loop Exit records a non-pass verdict as a Devflow Reflection bullet (no status-word edits)" \
+  'record a `## Devflow Reflection` bullet quoting the verdict line' "$CCE550_LOOPEXIT"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
+assert_pin_unique "#550: Loop Exit treats a no-verdict-line invocation as the degraded arm" \
+  'report `degraded: unvalidated (<reason>)`, never read absent output as `pass`' "$CCE550_LOOPEXIT"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
+assert_pin_unique "#550: Loop Exit refreshes the verification record on an identity-keyed mismatch" \
+  'refresh the verification record first' "$CCE550_LOOPEXIT"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
+# The verification_evidence "Consumption is deferred" caveat now names the validator.
+assert_pin_unique "#550: verification_evidence caveat names the completion-evidence check as consumer" \
+  'read at **Loop Exit** by the completion-evidence check (`scripts/check-completion-evidence.py`)' "$CCE550_FIXING"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
+# Dispatch surfaces reference the plugin-qualified copy explicitly.
+assert_pin_unique "#550: implement Phase 3 wrapper names the plugin-qualified receiving-code-review" \
+  '`devflow:receiving-code-review`' "$CCE550_PHASE3"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
+assert_pin_unique "#550: Loop Exit names the plugin-qualified receiving-code-review copy" \
+  '`devflow:receiving-code-review` Verification Gate' "$CCE550_LOOPEXIT"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
 # AC7 — interpreter-faithful probe rule in BOTH extensions (operative half, single-line in each)
 assert_pin_unique "#379(AC7): review-and-fix extension carries the interpreter-faithful probe rule" \
   'prefer mutation evidence over a hand probe when the two disagree' "$RAF379"
@@ -2248,7 +2330,18 @@ assert_pin_red_under() {  # name literal mutation [file]   (file defaults to $MA
   # content — this pin asserts over the WHOLE target, so it measures the whole target.
   # Placed immediately after the cmp -s no-op guard. A blank-the-file mutation (`1,$d`,
   # `s/.*//`) retains ~0 and fails here instead of reading as a spurious PASS->FAIL.
-  _o="$(_nonws_count "$file")"; _m="$(_nonws_count "$t")"
+  # ONE _nonws_count call covers both artifacts (issue #736): it sets `_NONWS_1` (original)
+  # and `_NONWS_2` (mutated). A failed derivation returns non-zero + the `unestablished`
+  # sentinel; record a FAIL naming the unestablished bound rather than doing arithmetic on a
+  # comparand never established — a broken count is never a silent pass of an overbroad mutation.
+  if ! _nonws_count "$file" "$t"; then
+    echo FAIL >> "$RESULTS_FILE"
+    printf '  FAIL  %s\n         OVERBREADTH-COUNT-UNESTABLISHED — the non-whitespace count derivation (python3) failed for the original or mutated artifact; the overbreadth bound is unestablished, not satisfied\n         mutation: %s\n         file: %s\n' \
+      "$name" "$mutation" "$file"
+    rm -f "$t"
+    return 0
+  fi
+  _o="$_NONWS_1"; _m="$_NONWS_2"
   if [ "$_o" -gt 0 ] && [ "$(( _m * OVERBREADTH_MIN_DEN ))" -lt "$(( _o * OVERBREADTH_MIN_NUM ))" ]; then
     echo FAIL >> "$RESULTS_FILE"
     printf '  FAIL  %s\n         mutation is OVERBROAD (mutated copy retains %s of %s non-whitespace chars, below the 1/%s bound) — a mutation that blanks the target proves nothing; narrow it to the operative change\n         mutation: %s\n         file: %s\n' \
@@ -2443,6 +2536,28 @@ probe_two_line() {  # assertion-fn args... -> prints verdict, cause-token, probe
 # unknown-is-not-zero rule: an unestablished count is never collapsed onto a real value).
 # Reuses probe_tmp for the scratch copies and the sed-rc + cmp -s no-op guards verbatim
 # from assert_pin_red_under.
+#
+# _int_cmp LEFT OP RIGHT — integer comparison that dispatches OP through a case with one
+# literal-operator arm per member of the closed set `-eq -le -lt -ge -gt` (exactly these
+# operators, complete by construction), each running a literal `[ ]` test and returning its
+# exit status. A structural rewrite of the `[ "$n" "$op" "$bound" ]` splices below:
+# the analyzer cannot parse a `[ ]` whose comparator is a variable (SC1072/SC1073 abort the
+# whole file), and a per-line disable directive does not suppress a PARSE error — so the
+# operator is dispatched here instead of spliced. The default arm returns 2, so an operator outside
+# the closed set produces an ERRORED comparison status (never a satisfied 0), which each
+# call site below fails closed on. `_int_cmp` presumes numeric operands (assert_count_red_under
+# validates OP and BOUND upstream and proves the counts numeric before calling); the inner
+# `[ ]` still errors (rc 2) on a non-numeric operand, preserving the fail-closed direction.
+_int_cmp() {  # left op right -> 0 satisfied, 1 not satisfied, 2 invalid op / errored compare
+  case "$2" in
+    -eq) [ "$1" -eq "$3" ] ;;
+    -le) [ "$1" -le "$3" ] ;;
+    -lt) [ "$1" -lt "$3" ] ;;
+    -ge) [ "$1" -ge "$3" ] ;;
+    -gt) [ "$1" -gt "$3" ] ;;
+    *) return 2 ;;
+  esac
+}
 assert_count_red_under() {  # name start end pattern op bound mutation [file]
   local name="$1" start="$2" end="$3" pattern="$4" op="$5" bound="$6" mutation="$7" file="${8:-$MAXI_SKILL}"
   local pat_rc anchor_rc breach_rc start_count start_match start_line ln m end_line
@@ -2546,12 +2661,24 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   # COUNT within the sed -n slice, so the guard measures the mutated slice against the real
   # slice — NOT the whole file, which would be dominated by the unsliced remainder and let a
   # mutation blanking the whole counted slice of a multi-thousand-line target clear any bound.
-  _real_slice_nonws="$(_nonws_count "$slice")"
+  # This helper is the named exception to the one-invocation rule (issue #736): the real and
+  # mutated slices are separated in time by the mutation that overwrites $slice, so it spends
+  # one single-file _nonws_count invocation per measurement (reading `_NONWS_1`). A failed
+  # derivation is recorded as COUNT-UNESTABLISHED, never compared against an unestablished bound.
+  if ! _nonws_count "$slice"; then
+    echo FAIL >> "$RESULTS_FILE"; echo COUNT-UNESTABLISHED >> "$RESULTS_FILE"
+    printf '  FAIL  %s\n         COUNT-UNESTABLISHED — non-whitespace count derivation (python3) failed on the real slice; the overbreadth bound is unestablished, not satisfied\n         file: %s\n' "$name" "$file" >&2
+    rm -f "$slice"; return 0
+  fi
+  _real_slice_nonws="$_NONWS_1"
 
   # ── 3. Real-file bound: the count must SATISFY OP BOUND on the real file (the `before`
   # conjunct — checked before the mutation, mirroring assert_pin_red_under's before-probe).
-  # A correct unmutated file cannot fail here by construction. ──
-  if ! [ "$count" "$op" "$bound" ] 2>/dev/null; then
+  # A correct unmutated file cannot fail here by construction. The `_int_cmp` call replaces
+  # the old `[ "$count" "$op" "$bound" ]` splice; `if !` inverts every non-zero status, so a
+  # not-satisfied (rc 1) AND an errored/invalid-op comparison (rc >= 2) both route to the
+  # BOUND-VIOLATED-ON-REAL-FILE arm — the same fail-closed direction the old `! [ ]` had. ──
+  if ! _int_cmp "$count" "$op" "$bound" 2>/dev/null; then
     echo FAIL >> "$RESULTS_FILE"; echo BOUND-VIOLATED-ON-REAL-FILE >> "$RESULTS_FILE"
     printf '  FAIL  %s\n         BOUND-VIOLATED-ON-REAL-FILE — real count %s does not satisfy %s %s\n         file: %s\n' \
       "$name" "$count" "$op" "$bound" "$file" >&2
@@ -2632,7 +2759,12 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   # slice's non-whitespace content — the blank-the-counted-slice hole `s/.*//` opens (it
   # empties every line while leaving the line count identical, so sed's rc and cmp -s both
   # clear). Reports through this helper's own bare-FAIL + distinct-token shape.
-  _mut_slice_nonws="$(_nonws_count "$slice")"
+  if ! _nonws_count "$slice"; then
+    echo FAIL >> "$RESULTS_FILE"; echo COUNT-UNESTABLISHED >> "$RESULTS_FILE"
+    printf '  FAIL  %s\n         COUNT-UNESTABLISHED — non-whitespace count derivation (python3) failed on the mutated slice; the overbreadth bound is unestablished, not satisfied\n         mutation: %s\n' "$name" "$mutation" >&2
+    rm -f "$slice" "$mut"; return 0
+  fi
+  _mut_slice_nonws="$_NONWS_1"
   if [ "$_real_slice_nonws" -gt 0 ] && [ "$(( _mut_slice_nonws * OVERBREADTH_MIN_DEN ))" -lt "$(( _real_slice_nonws * OVERBREADTH_MIN_NUM ))" ]; then
     echo FAIL >> "$RESULTS_FILE"; echo MUTATION-OVERBROAD >> "$RESULTS_FILE"
     printf '  FAIL  %s\n         MUTATION-OVERBROAD — mutated slice retains %s of %s non-whitespace chars (below the 1/%s bound); a mutation that blanks the counted slice proves nothing\n         mutation: %s\n' \
@@ -2641,17 +2773,19 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   fi
 
   # ── 8. Mutated-file bound: the mutation must make the count VIOLATE OP BOUND (the
-  # `after` conjunct). The SAME comparison as step 3 (a correct unmutated file cannot fail
-  # the helper by construction). Capture the comparison's OWN rc rather than branching on
-  # `if [ … ]` directly, and fail closed the same way step 3 does: step 3 wraps the test in
-  # `! [ … ]`, so an errored `[ ]` (rc>=2, swallowed by 2>/dev/null) routes to its FAIL arm.
-  # Only a clean rc 1 (a genuine bound violation) proceeds to PASS here; rc 0 (still satisfies
-  # → BOUND-NOT-BREACHED) AND rc>=2 (an errored comparison) both fail closed to
-  # BOUND-NOT-BREACHED, never falling through to a spurious PASS. Unreachable today (mut_count
-  # is proven numeric at step 7, op and bound are validated upstream) — defense-in-depth so the
-  # two mirror comparisons fail in the same direction. A bare `!`-invert is NOT the fix: it
-  # would route the errored rc>=2 to PASS (fail-open, worse), so the rc is captured explicitly. ──
-  [ "$mut_count" "$op" "$bound" ] 2>/dev/null; breach_rc=$?
+  # `after` conjunct). The SAME comparison as step 3, now via the `_int_cmp` helper that
+  # replaced the old `[ "$mut_count" "$op" "$bound" ]` splice (a correct unmutated file
+  # cannot fail the helper by construction). Capture the helper's OWN rc rather than branching
+  # on it directly, and fail closed the same way step 3 does: step 3 wraps the call in `! …`,
+  # so an errored/invalid-op status (rc>=2) routes to its FAIL arm. Only a clean rc 1 (a
+  # genuine bound violation — `_int_cmp` returns 1 when the count does not satisfy OP BOUND)
+  # proceeds to PASS here; rc 0 (still satisfies → BOUND-NOT-BREACHED) AND rc>=2 (an errored
+  # or invalid-op comparison) both fail closed to BOUND-NOT-BREACHED, never falling through to
+  # a spurious PASS. Largely unreachable today (mut_count is proven numeric at step 7, op and
+  # bound are validated upstream) — defense-in-depth so both mirror comparisons fail in the
+  # same direction. A bare `!`-invert is NOT the fix: it would route the errored rc>=2 to PASS
+  # (fail-open, worse), so the rc is captured explicitly and every value other than 1 fails. ──
+  _int_cmp "$mut_count" "$op" "$bound" 2>/dev/null; breach_rc=$?
   if [ "$breach_rc" -ne 1 ]; then
     echo FAIL >> "$RESULTS_FILE"; echo BOUND-NOT-BREACHED >> "$RESULTS_FILE"
     printf '  FAIL  %s\n         BOUND-NOT-BREACHED — mutated count %s still satisfies %s %s (the mutation did not breach the bound)\n         mutation: %s\n' \
@@ -2864,6 +2998,28 @@ assert_eq "#536 ERE dialect (through the helper, step 7): the MUTATED-slice coun
   "PASS|" "$(_acru_probe assert_count_red_under 'erestep7' 'ACRU_START sentinel' 'ACRU_END sentinel' '^(alpha|beta)$' -le 1 's/^noise line$/beta/' "$ACRU_ERE3")"
 rm -f "$ACRU_ERE3"
 rm -f "$ACRU_FX"
+# ── #717 _int_cmp direct contract self-tests ──
+# The operator dispatch that replaced the two `[ "$n" "$op" "$bound" ]` splices in
+# assert_count_red_under. One assertion per member of the closed set (holds→0, not→1) plus
+# an out-of-set operator (→2). The BOUND-VIOLATED-ON-REAL-FILE / BOUND-NOT-BREACHED arms
+# that CONSUME these statuses stay covered by the #536 probes above (a satisfied real count,
+# an unbreached mutation), so this block pins the helper's raw 0/1/2 contract directly.
+_intcmp_rc() { _int_cmp "$1" "$2" "$3"; printf '%s' "$?"; }
+assert_eq "#717 _int_cmp -eq holds → 0" "0" "$(_intcmp_rc 2 -eq 2)"
+assert_eq "#717 _int_cmp -eq does not hold → 1" "1" "$(_intcmp_rc 2 -eq 3)"
+assert_eq "#717 _int_cmp -le holds → 0" "0" "$(_intcmp_rc 2 -le 3)"
+assert_eq "#717 _int_cmp -le does not hold → 1" "1" "$(_intcmp_rc 4 -le 3)"
+assert_eq "#717 _int_cmp -lt holds → 0" "0" "$(_intcmp_rc 2 -lt 3)"
+assert_eq "#717 _int_cmp -lt does not hold → 1" "1" "$(_intcmp_rc 3 -lt 3)"
+assert_eq "#717 _int_cmp -ge holds → 0" "0" "$(_intcmp_rc 3 -ge 3)"
+assert_eq "#717 _int_cmp -ge does not hold → 1" "1" "$(_intcmp_rc 2 -ge 3)"
+assert_eq "#717 _int_cmp -gt holds → 0" "0" "$(_intcmp_rc 4 -gt 3)"
+assert_eq "#717 _int_cmp -gt does not hold → 1" "1" "$(_intcmp_rc 3 -gt 3)"
+assert_eq "#717 _int_cmp an operator outside the closed set → 2 (errored, never satisfied)" "2" "$(_intcmp_rc 2 -ne 2)"
+# A non-numeric OPERAND on an in-set operator: the inner `[ ]` errors (rc 2), so the helper
+# stays fail-closed (never a satisfied 0) — pins the comment's asserted-but-otherwise-untested
+# non-numeric-operand claim (callers validate numerics upstream, so this is defense-in-depth).
+assert_eq "#717 _int_cmp a non-numeric operand → 2 (errored, never satisfied)" "2" "$(_intcmp_rc x -eq 2 2>/dev/null)"
 # Issue #500 parked-class sweep contract pins. These stay below the
 # assert_pin_red_under definition so the behavioral mutations below execute.
 assert_pin_unique "#500: parked-class sweep contract heading is present" \
@@ -4420,10 +4576,10 @@ assert_pin_red_under "399: reverting Step 0 to settled-fact phrasing re-introduc
   's/the sync state it establishes is not citable as completion-time evidence/the sync state it establishes remains a settled fact for the rest of the session/' "$RECV_SKILL"
 # pin-D (AC5): the closing item gates on all FOUR evidence items, not three.
 assert_pin_unique "399: gate closing item requires all four evidence items" \
-  'Only after all four pass, claim completion' "$RECV_SKILL"
+  'Only after evidence items 1 through 4 are satisfied' "$RECV_SKILL"
 assert_pin_red_under "399: reverting the closing item to all-three drops the branch-sync gate" \
-  'Only after all four pass, claim completion' \
-  's/Only after all four pass, claim completion/Only after all three pass, claim completion/' "$RECV_SKILL"
+  'Only after evidence items 1 through 4 are satisfied' \
+  's/Only after evidence items 1 through 4 are satisfied/Only after evidence items 1 through 3 are satisfied/' "$RECV_SKILL"
 # pin-E (item 4, d3b0ba5/fbaf447): the safety-critical failed-fetch clause — when the fetch
 # does not succeed BOTH the remote-counterpart divergence and the base-branch divergence are
 # unestablished (unknown), never collapsed onto a stale-remote-tracking-ref zero-behind result.
@@ -8149,8 +8305,8 @@ assert_eq "#484 withheld list is exactly gh pr checkout, git rev-list, mktemp" \
 # while the guard still claims those recursive roots as coverage.
 # A failed/empty find becomes a sentinel path, which `_impl_ungranted` turns into
 # `__extractor_error__`; roster discovery can never masquerade as zero heads.
-if ! _impl_files="$(find "$LIB/../skills/implement" "$LIB/../skills"/review* "$LIB/../skills/requesting-code-review" -type f -name '*.md' -print 2>"$E484/roster.err")" \
-   || [ -z "$_impl_files" ]; then
+if ! _impl_files="$(find "$LIB/../skills/implement" "$LIB/../skills"/review* "$LIB/../skills/requesting-code-review" "$LIB/../skills/receiving-code-review" -type f -name '*.md' -print 2>"$E484/roster.err")" \
+   || [ -z "$_impl_files" ]; then  # tree-walk-ok: every operand is scoped to skills/ (implement, review*, requesting-code-review, receiving-code-review), which no worktree lives under
   _impl_files="$E484/__roster_error__"
 fi
 assert_eq "#484 recursive roster includes nested implement phase files" "yes" \
@@ -8162,6 +8318,13 @@ assert_eq "#484 recursive roster includes the dispatched requesting-code-review 
 # references from the implement-profile head audit while the two pins above stay green.
 assert_eq "#539 recursive roster includes the review-and-fix step references" "yes" \
   "$(printf '%s\n' "$_impl_files" | grep -qxF "$LIB/../skills/review-and-fix/references/loop-control.md" && echo yes || echo no)"  # raw-guard-ok: roster membership assertion is scoped to the extractor input
+# #550: receiving-code-review now runs the completion-evidence check via the portable
+# anchor, so its fenced heads must be audited on the implement profile too. Dropping
+# skills/receiving-code-review from the find roster above turns this pin RED (the
+# mutation-run evidence is recorded in the PR: removing the roster arg makes
+# _impl_files omit this SKILL.md and this membership check flips yes->no).
+assert_eq "#550 recursive roster includes the receiving-code-review skill" "yes" \
+  "$(printf '%s\n' "$_impl_files" | grep -qxF "$LIB/../skills/receiving-code-review/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: roster membership assertion is scoped to the extractor input
 assert_eq "#484 every implement-tier head is granted or withheld (zero ungranted real heads)" "" \
   "$(for f in $_impl_files; do _impl_ungranted "$f" "$IMPL_YML" implement-block; done | sort -u | tr '\n' ' ' | sed 's/ *$//')"
 
@@ -30672,8 +30835,9 @@ WSR_TGL='`skills/*/SKILL.md`, `skills/implement/phases/*.md`, `skills/review/pha
 # The evidence marker literal the routing evidence-contract writes and the gate criterion matches.
 WSR_MARK='Writing-skills evidence:'
 
-# #563 focused-module guidance is repo-local prompt behavior: a known module may
-# accelerate RED/GREEN, but it must never replace the complete verification gate.
+# #563 focused-module guidance is repo-local prompt behavior: a covering module is the
+# iteration default (issue #707 inverted it), but it must never replace the complete
+# verification gate at the end.
 # Mutation-prove both load-bearing directions on each operative workflow surface.
 assert_pin_red_under "#563 implement extension selects the focused runner for RED/GREEN" \
   'use `bash lib/test/run-module.sh <module-id>` for RED/GREEN iteration.' \
@@ -30681,14 +30845,470 @@ assert_pin_red_under "#563 implement extension selects the focused runner for RE
 assert_pin_red_under "#563 review-and-fix extension selects the focused runner for RED/GREEN" \
   'use `bash lib/test/run-module.sh <module-id>` for the RED/GREEN loop.' \
   's|use `bash lib/test/run-module\.sh <module-id>` for the RED/GREEN loop\.|use `bash lib/test/run.sh` for the RED/GREEN loop.|' "$WSR_RAF"
-assert_pin_red_under "#563 implement extension keeps the full suite as the completion gate" \
-  'A focused result is never a completion gate.' \
-  's/A focused result is never a completion gate\./A focused result may be used as a completion gate./' "$WSR_IMPL"
-assert_pin_red_under "#563 review-and-fix extension keeps the full suite as the review gate" \
-  'A focused result never discharges a review/fix gate.' \
-  's|A focused result never discharges a review/fix gate\.|A focused result may discharge a review/fix gate.|' "$WSR_RAF"
+# #707 re-anchored the two completion-gate pins: the retired sentences they guarded
+# ('A focused result is never a completion gate.' / '… never discharges a review/fix
+# gate.') stated the retired rule that a focused result discharges NOTHING, and #707
+# replaced it with the narrower guarantee that a focused result discharges intermediate
+# iteration but never the FINAL gate. The guarded regression is unchanged in kind — a
+# focused pass promoted into the final gate — so each pin moves to the new operative
+# sentence and keeps its mutation-taking form.
+assert_pin_red_under "#707 implement extension keeps the full suite as the final completion gate" \
+  'A focused result discharges intermediate iteration only, never the final completion gate.' \
+  's/A focused result discharges intermediate iteration only, never the final completion gate\./A focused result may be used as the final completion gate./' "$WSR_IMPL"
+assert_pin_red_under "#707 review-and-fix extension keeps the full suite as the final review/fix gate" \
+  'A focused result discharges intermediate iteration only, never the final review/fix gate.' \
+  's|A focused result discharges intermediate iteration only, never the final review/fix gate\.|A focused result may be used as the final review/fix gate.|' "$WSR_RAF"
+# The two final-gate pins ABOVE stay unlooped deliberately: their operative sentences
+# differ per file ('final completion gate' vs 'final review/fix gate'), so no single
+# literal covers both. #707's policy pins whose sentence IS shared across the pair are not
+# written as a second loop over the same two files — they join the existing #563 loop
+# below, which already iterates exactly this pair. (Deliberately count-free — an ordinal
+# here would rot on the next pin added to that loop.)
+# #707 the reflection obligation is implement-only: it is the audit trail that makes a
+# mid-iteration full-suite run a recorded decision rather than a silent reversion to the
+# retired default.
+assert_pin_red_under "#707 implement extension requires a reflection justifying a full-suite run" \
+  'record a `## Devflow Reflection` bullet stating why the full run was necessary' \
+  's/, and when you do, record a `## Devflow Reflection` bullet stating why the full run was necessary[^.]*\.$/./' "$WSR_IMPL"
+# #707 the reception/shepherd tier carries the same policy in its own adapted voice, so
+# it needs its own pins — it shares no sentence with the two files above.
+assert_pin_red_under "#707 receiving-code-review.md makes a focused pass sufficient for intermediate iteration" \
+  'a focused pass over the changed surface is enough for an intermediate commit or push' \
+  's/a focused pass over the changed surface is enough for an intermediate commit or push/the full suite runs before every intermediate commit or push/' "$FDROOT/.devflow/prompt-extensions/receiving-code-review.md"
+assert_pin_red_under "#707 receiving-code-review.md keeps the final gate and parallelizes it" \
+  'without gating the push on the local run finishing' \
+  's/without gating the push on the local run finishing/after the local run has finished/' "$FDROOT/.devflow/prompt-extensions/receiving-code-review.md"
+# #707 absence guard: the retired convention text must survive on NO surface — every
+# extension and coupled mirror in the file list below (deliberately count-free: an
+# enumeration here rots the next time a surface joins the loop). A reintroduction anywhere
+# is the named regression this issue removed, so the count is pinned at 0 across the whole
+# set rather than per file.
+_WSR_RETIRED_HITS=0
+_WSR_RETIRED_UNREADABLE=0
+_WSR_RETIRED_CONTROL=0
+# The literal set is written ONCE and read by BOTH the sweep and its positive control
+# below. A hand-duplicated second copy is the coupled-mirror defect this repo calls its
+# dominant pattern: the natural maintenance action on two identical lists is to edit both,
+# which disarms a sweep arm while its control stays green — the control certifying the
+# sweep against its own blind spot. One array, two readers, no drift possible.
+# The set carries the retired rule's OBLIGATION sentences, not only its framing clauses.
+# Framing-only literals are the repo's documented pin hole (#171/#232): the obligation
+# ('Before a commit, phase completion, push, or completion claim, run ...') can be re-added
+# ALONGSIDE the new focused-default prose, leaving both rules stated at once — every
+# mutation pin still green, because the new sentences are intact, and the sweep still 0,
+# because it only looked for the framing. Each entry is a DISTINGUISHING span, never a
+# generic English phrase that a future unrelated sentence would trip.
+_WSR_RETIRED_LITS=(
+  'A focused result discharges no gate'
+  'before every commit, push, and completion claim'
+  'A focused result is never a completion gate.'
+  'A focused result never discharges a review/fix gate.'
+  'A focused pass only accelerates RED/GREEN iteration'
+  'they do not replace the complete pre-commit or CI run'
+  'Before a commit, phase completion, push, or'
+  'run the complete suite and every required lint gate'
+  'Branch, make focused changes, run'
+)
+# #719 the 'Before a commit, phase completion, push, or' arm is RE-SPANNED (named, not
+# indexed — an ordinal here would rot on any insertion of an earlier arm). Its retired
+# obligation sentence
+# ('Before a commit, phase completion, push, or completion claim, run ...') was
+# LINE-WRAPPED at the pre-#707 baseline, wrapping after '…push, or', and pin_count
+# is line-based (grep -oF) — so the full-sentence span matched NOTHING on any swept
+# surface at 607ec800 and the arm was unmatchable by construction (the repo's own
+# #375 wrapped-literal class, reintroduced inside the guard written to prevent it).
+# The on-line span 'Before a commit, phase completion, push, or' is what actually
+# exists on a single baseline line (in implement.md), so the baseline-corpus control
+# below can validate it. It is still a DISTINGUISHING span of the retired obligation,
+# not a generic phrase.
+# #719 per-member baseline ref (parallel to _WSR_RETIRED_LITS by index — bash 3.2 has
+# no associative arrays). Each member is validated by the baseline-corpus control below
+# against the blob at the ref where its retired text EXISTED. Every member shares the pre-#707
+# baseline 607ec800 today; a literal retired by a LATER change carries its own later ref,
+# so the control never demands a postdated literal match a ref that predates it. A member
+# with NO parallel ref (a shorter refs array) turns the control RED naming that member, so
+# the literal array cannot grow past the control by omission. 607ec800 is a past-time
+# snapshot (issue #656 prefer-generated-evidence EXCEPTION — a fixed historical ref, not a
+# live-rendered figure), registered with that rationale rather than rendered.
+_WSR_RETIRED_REFS=(
+  '607ec800'
+  '607ec800'
+  '607ec800'
+  '607ec800'
+  '607ec800'
+  '607ec800'
+  '607ec800'
+  '607ec800'
+  '607ec800'
+)
+# CONTRIBUTING.md carries this policy too (issue #707 rewrote its Submitting-changes step
+# and added its focused-default block), so it is swept like every other mirror. Its own
+# retired form was a different sentence from the extensions' — 'Branch, make focused
+# changes, run `bash lib/test/run.sh`' — so that spelling is in the literal set above;
+# without it this arm would be installed and inert, sweeping a file for text it never
+# carried. The sweep only proves the old rule is gone, so the new rule gets its own
+# positive pin below.
+for _WSR_RETIRED_FILE in "$WSR_IMPL" "$WSR_RAF" "$FDROOT/.devflow/prompt-extensions/receiving-code-review.md" \
+  "$WSR_CLAUDE" "$FDROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md" "$FDROOT/CONTRIBUTING.md"; do
+  # An absence guard cannot tell "the text is gone" from "the file was never read":
+  # pin_count prints 0 for a missing/unreadable path, so a renamed or mistyped member of
+  # this list would contribute a silent zero and the guard would pass BECAUSE it could not
+  # look. Readability is therefore an asserted operand, not an assumption.
+  [ -r "$_WSR_RETIRED_FILE" ] || _WSR_RETIRED_UNREADABLE=$((_WSR_RETIRED_UNREADABLE + 1))
+  # Each literal is a DISTINGUISHING span of the retired rule, never a generic English
+  # phrase: a bare 'before every commit' would turn the suite RED on an unrelated future
+  # sentence in either large mirror document and misattribute it to this regression.
+  for _WSR_RETIRED_LIT in "${_WSR_RETIRED_LITS[@]}"; do
+    _WSR_RETIRED_HITS=$((_WSR_RETIRED_HITS + $(pin_count "$_WSR_RETIRED_LIT" "$_WSR_RETIRED_FILE")))
+  done
+done
+assert_eq "#707 every surface the retired-convention sweep reads is readable" "0" "$_WSR_RETIRED_UNREADABLE"
+assert_eq "#707 the retired full-suite-before-every-commit convention survives on no surface" "0" "$_WSR_RETIRED_HITS"
+# ── #719 baseline-corpus control (REPLACES the self-referential planting control) ──
+# The retired control planted the sweep's OWN literal array into a scratch file and counted it
+# there, so — because the planting loop and the counting loop read the SAME array — it was blind
+# BY CONSTRUCTION to a member that is unmatchable against the REAL retired text. That is exactly
+# the #719 defect: the re-spanned arm's full-sentence span wrapped a line break at the baseline, so
+# grep -oF (line-based) could never match it on any swept surface, yet the self-referential
+# control still tallied because it planted and then found the same unmatchable string. The old
+# control's own comment conceded it could not detect a MISTYPED literal; it did not anticipate an
+# UNMATCHABLE one, the same blind spot by a different route.
+# This control replaces that with an INDEPENDENTLY-AUTHORED corpus the repo does not re-author —
+# the pre-#707 baseline blobs read through `git show <ref>:<file>` — so a literal that cannot
+# match its real baseline text turns the suite RED at the desk. It extends the #528 derived-LIST
+# discipline to a derived CORPUS.
+# Fail-closed contract, exactly five arms (complete by construction) — four degraded corpus-build
+# inputs plus the authoring arm below them:
+#   unresolvable ref (shallow clone)  -> skip blocking-gate (a real gate that should have run here)
+#   swept file with no blob at ref    -> RED naming the input (never pass by counting zero)
+#   empty `git show` output           -> RED naming the input (never pass by counting zero)
+#   failed scratch allocation         -> skip host-capability
+#   member with no parallel ref       -> RED naming the member (an authoring defect in the parallel
+#                                        arrays, not a corpus input; exercised by control 2)
+# The unresolvable-ref and allocation arms are HOST-capability limits, not tree defects, so a
+# shallow local clone routes to `skip` (recorded skipped — not a clean pass, not a hard failure)
+# while CI's full-history checkout (fetch-depth: 0, #456) runs the gate for real. The retired
+# control's `if probe_tmp; then … fi` shape (no else, no skip) is deliberately NOT copied.
+_WSR_SWEPT_RELPATHS=(
+  '.devflow/prompt-extensions/implement.md'
+  '.devflow/prompt-extensions/review-and-fix.md'
+  '.devflow/prompt-extensions/receiving-code-review.md'
+  'CLAUDE.md'
+  'docs/DEVFLOW_SYSTEM_OVERVIEW.md'
+  'CONTRIBUTING.md'
+)
+# Build the baseline corpus for (repo, ref) over FILES into OUT (truncated first, so a re-run
+# cannot ACCUMULATE planted content). Prints exactly one status token; the ref/blob/empty
+# distinctions are what let the control fail closed per the contract above, never collapse an
+# unestablished `git show` onto a zero count (the repo's unknown-is-not-zero rule).
+#   OK            corpus built, every blob resolved and non-empty
+#   BADREF        ref does not resolve as a commit in repo (shallow clone)
+#   NOBLOB:<file> ref resolves but a swept file has no blob at that ref (added after it)
+#   EMPTY:<file>  git show resolved but produced empty output
+_wsr_build_baseline_corpus() {  # repo ref out file...
+  local repo="$1" ref="$2" out="$3"; shift 3
+  if ! git -C "$repo" rev-parse --verify --quiet "${ref}^{commit}" >/dev/null 2>&1; then
+    printf 'BADREF\n'; return 1
+  fi
+  : > "$out"
+  local f blob
+  for f in "$@"; do
+    # One `git show` distinguishes all three states after the ref already resolved above: a
+    # missing blob makes it exit nonzero (NOBLOB); an existing-but-empty blob exits 0 with empty
+    # stdout (EMPTY); a normal blob exits 0 with content. The separate `cat-file -e` probe the
+    # first draft used was a redundant second git fork per file.
+    if ! blob="$(git -C "$repo" show "${ref}:${f}" 2>/dev/null)"; then
+      printf 'NOBLOB:%s\n' "$f"; return 1
+    fi
+    if [ -z "$blob" ]; then
+      printf 'EMPTY:%s\n' "$f"; return 1
+    fi
+    printf '%s\n' "$blob" >> "$out"
+  done
+  printf 'OK\n'; return 0
+}
+# Run the control over the caller-set input arrays (_WSR_BCC_LITS / _WSR_BCC_REFS parallel by
+# index — bash 3.2 has no associative arrays; _WSR_BCC_FILES swept relpaths; _WSR_BCC_REPO the
+# git dir). Emits real assert_eq/skip so the REAL invocation records real results; the positive
+# controls below call it with RESULTS_FILE/SKIPS_FILE redirected to isolated files and inspect
+# those, so their intentional RED/skip never enters the suite tally.
+#   $1 name   $2 ref-override (empty = per-member ref)   $3 alloc-mode (ok|fail)
+_WSR_BCC_LAST_CORPUS=""
+_wsr_run_baseline_corpus_control() {
+  local name="$1" ref_override="$2" alloc_mode="$3"
+  local corpus cur_ref="" i lit ref n tok unmatched="" noref=""
+  # Scratch allocation — the allocation degraded arm. A forced 'fail' mode or a real mktemp
+  # failure routes to skip host-capability (NOT probe_tmp, which would record a FAIL): a host
+  # that cannot allocate scratch is a host-capability limit, not a tree defect.
+  if [ "$alloc_mode" = fail ]; then
+    skip "$name — scratch corpus allocation" host-capability "mktemp unavailable (forced); baseline-corpus control could not build its scratch corpus"
+    return 0
+  fi
+  corpus="$(mktemp 2>/dev/null)" || {
+    skip "$name — scratch corpus allocation" host-capability "mktemp failed; baseline-corpus control could not build its scratch corpus"
+    return 0
+  }
+  _WSR_BCC_LAST_CORPUS="$corpus"
+  for (( i=0; i<${#_WSR_BCC_LITS[@]}; i++ )); do
+    lit="${_WSR_BCC_LITS[$i]}"
+    if [ -n "$ref_override" ]; then
+      ref="$ref_override"
+    elif [ "$i" -lt "${#_WSR_BCC_REFS[@]}" ] && [ -n "${_WSR_BCC_REFS[$i]}" ]; then
+      ref="${_WSR_BCC_REFS[$i]}"
+    else
+      # A member with NO parallel ref (a shorter refs array, or an empty entry) is RED naming it:
+      # the literal array cannot grow past the control by omission.
+      noref="${noref}
+  - ${lit}"
+      continue
+    fi
+    # Build (or reuse) the corpus for this ref. One-entry cache: consecutive same-ref members
+    # reuse the built corpus, so the ref-uniform real set builds it exactly once.
+    if [ "$ref" != "$cur_ref" ]; then
+      tok="$(_wsr_build_baseline_corpus "$_WSR_BCC_REPO" "$ref" "$corpus" "${_WSR_BCC_FILES[@]}")"
+      case "$tok" in
+        OK) cur_ref="$ref" ;;
+        BADREF)
+          skip "$name — baseline ref '$ref'" blocking-gate "ref does not resolve (shallow clone?); baseline-corpus gate could not run here — CI's full-history checkout is authoritative"
+          rm -f "$corpus"; return 0 ;;
+        NOBLOB:*|EMPTY:*)
+          # RED naming the unresolved input — never allowed to pass by counting zero literals.
+          assert_eq "$name — every swept file resolves to a non-empty baseline blob at '$ref'" "OK" "$tok"
+          rm -f "$corpus"; return 0 ;;
+        *)
+          # Unreachable by construction today — but an unforeseen producer token must never fall
+          # through to counting against a possibly-stale corpus. RED naming the token instead.
+          assert_eq "$name — the corpus builder emitted a known status token at '$ref'" "OK" "$tok"
+          rm -f "$corpus"; return 0 ;;
+      esac
+    fi
+    n="$(pin_count "$lit" "$corpus")"
+    [ "$n" -ge 1 ] || unmatched="${unmatched}
+  - ${lit}"
+  done
+  rm -f "$corpus"
+  # RED (naming the offenders) when any member has no parallel ref, or matches no baseline
+  # surface; a clean run records two PASSes.
+  assert_eq "$name — every retired literal carries a parallel baseline ref" "" "$noref"
+  assert_eq "$name — every retired literal matches its independently-authored baseline corpus" "" "$unmatched"
+}
+# The REAL invocation — validates the live _WSR_RETIRED_LITS against the pre-#707 baseline.
+_WSR_BCC_REPO="$FDROOT"
+_WSR_BCC_FILES=("${_WSR_SWEPT_RELPATHS[@]}")
+_WSR_BCC_LITS=("${_WSR_RETIRED_LITS[@]}")
+_WSR_BCC_REFS=("${_WSR_RETIRED_REFS[@]}")
+_wsr_run_baseline_corpus_control "#719 retired-convention baseline-corpus control" "" ok
+# ── Positive controls: prove the control detects each defect it exists for, in ISOLATION so
+# the intentional RED / skip never counts against the suite tally. ────────────────────────────
+# Controls 1-4 share ONE isolated results/skips pair, allocated once and truncated between runs.
+# The allocation is guarded: an unguarded `$(mktemp)` here would fail loud but with a MISDIRECTED
+# diagnosis (an empty RESULTS_FILE path reads as the control finding nothing), so a host that
+# cannot allocate scratch routes to skip host-capability exactly like the control's own arm.
+if _WSR_BCC_PR="$(mktemp 2>/dev/null)" && _WSR_BCC_PS="$(mktemp 2>/dev/null)"; then
+# Controls 1-2 drive the control over the REAL baseline refs, so they need those refs to resolve.
+# On a shallow clone they would otherwise route to `skip` inside the control and their
+# `grep -q '^FAIL'` meta-assertions would flip to a spurious hard suite FAIL — contradicting this
+# block's own documented shallow-clone tolerance (controls 5/6/7 avoid it via `git_sandbox`).
+_WSR_BCC_REFS_OK=yes
+for _WSR_BCC_R in "${_WSR_RETIRED_REFS[@]}"; do
+  git -C "$FDROOT" rev-parse --verify --quiet "${_WSR_BCC_R}^{commit}" >/dev/null 2>&1 || _WSR_BCC_REFS_OK=no
+done
+if [ "$_WSR_BCC_REFS_OK" = yes ]; then
+# (1) Planted-defect control: append one deliberately-unmatchable member — the ORIGINAL
+# full-sentence span that WRAPS a line break at the baseline (the exact #719 defect) — and
+# observe the control go RED naming it.
+: > "$_WSR_BCC_PR"; : > "$_WSR_BCC_PS"
+_WSR_BCC_REPO="$FDROOT"
+_WSR_BCC_FILES=("${_WSR_SWEPT_RELPATHS[@]}")
+_WSR_BCC_LITS=("${_WSR_RETIRED_LITS[@]}" 'Before a commit, phase completion, push, or completion claim, run')
+_WSR_BCC_REFS=("${_WSR_RETIRED_REFS[@]}" "${_WSR_RETIRED_REFS[0]}")
+_WSR_BCC_PLANTED_OUT="$( RESULTS_FILE="$_WSR_BCC_PR" SKIPS_FILE="$_WSR_BCC_PS" _wsr_run_baseline_corpus_control '#719 planted-defect control' '' ok 2>&1 )"
+assert_eq "#719 baseline-corpus control: a planted line-wrapping member is caught RED" \
+  "yes" "$(grep -q '^FAIL' "$_WSR_BCC_PR" && echo yes || echo no)"
+assert_eq "#719 baseline-corpus control: the planted member is NAMED in the RED output" \
+  "yes" "$(printf '%s' "$_WSR_BCC_PLANTED_OUT" | grep -qF 'completion claim, run' && echo yes || echo no)"
+# (2) Missing-ref control: a member with no parallel ref (refs array one short) goes RED naming
+# the member — the array cannot grow past the control by omission.
+: > "$_WSR_BCC_PR"; : > "$_WSR_BCC_PS"
+_WSR_BCC_LITS=("${_WSR_RETIRED_LITS[@]}" 'a later retirement literal with no ref')
+_WSR_BCC_REFS=("${_WSR_RETIRED_REFS[@]}")
+_WSR_BCC_NOREF_OUT="$( RESULTS_FILE="$_WSR_BCC_PR" SKIPS_FILE="$_WSR_BCC_PS" _wsr_run_baseline_corpus_control '#719 missing-ref control' '' ok 2>&1 )"
+assert_eq "#719 baseline-corpus control: a member with no parallel baseline ref is caught RED" \
+  "yes" "$(grep -q '^FAIL' "$_WSR_BCC_PR" && echo yes || echo no)"
+assert_eq "#719 baseline-corpus control: the ref-less member is NAMED in the RED output" \
+  "yes" "$(printf '%s' "$_WSR_BCC_NOREF_OUT" | grep -qF 'no ref' && echo yes || echo no)"
+else
+  skip "#719 baseline-corpus control: planted-defect and missing-ref controls" blocking-gate \
+    "a baseline ref in _WSR_RETIRED_REFS does not resolve (shallow clone?); these two controls drive the REAL refs — CI's full-history checkout is authoritative"
+fi
+# (3) Unresolvable-ref control: a bogus baseline ref routes to skip blocking-gate (NOT a FAIL,
+# NOT a pass) — the shallow-clone host-limit arm. Ref-resolution-independent by construction.
+: > "$_WSR_BCC_PR"; : > "$_WSR_BCC_PS"
+_WSR_BCC_LITS=("${_WSR_RETIRED_LITS[@]}")
+_WSR_BCC_REFS=("${_WSR_RETIRED_REFS[@]}")
+RESULTS_FILE="$_WSR_BCC_PR" SKIPS_FILE="$_WSR_BCC_PS" _wsr_run_baseline_corpus_control '#719 bad-ref control' 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef' ok >/dev/null 2>&1
+assert_eq "#719 baseline-corpus control: an unresolvable baseline ref routes to skip blocking-gate" \
+  "yes" "$(grep -q '^blocking-gate	' "$_WSR_BCC_PS" && echo yes || echo no)"
+assert_eq "#719 baseline-corpus control: an unresolvable baseline ref records NO suite FAIL" \
+  "no" "$(grep -q '^FAIL' "$_WSR_BCC_PR" && echo yes || echo no)"
+# (4) Failed-scratch-allocation control: routes to skip host-capability (NOT a FAIL).
+: > "$_WSR_BCC_PR"; : > "$_WSR_BCC_PS"
+RESULTS_FILE="$_WSR_BCC_PR" SKIPS_FILE="$_WSR_BCC_PS" _wsr_run_baseline_corpus_control '#719 alloc-fail control' '' fail >/dev/null 2>&1
+assert_eq "#719 baseline-corpus control: a failed scratch allocation routes to skip host-capability" \
+  "yes" "$(grep -q '^host-capability	' "$_WSR_BCC_PS" && echo yes || echo no)"
+assert_eq "#719 baseline-corpus control: a failed scratch allocation records NO suite FAIL" \
+  "no" "$(grep -q '^FAIL' "$_WSR_BCC_PR" && echo yes || echo no)"
+rm -f "$_WSR_BCC_PR" "$_WSR_BCC_PS"
+else
+  skip "#719 baseline-corpus control: isolated positive controls 1-4" host-capability \
+    "mktemp failed; the isolated results/skips pair the controls inspect could not be allocated"
+fi
+# (5) Missing-blob and (6) empty-output controls: build a throwaway git repo with controlled
+# blobs (a file carrying every literal, an empty file, and a referenced-but-absent path) and
+# drive the control against it — each degraded git input goes RED naming the input, proving the
+# real git mechanism (not a mock) fails closed.
+if _WSR_BCC_SBX="$(git_sandbox '#719 baseline-corpus degraded-input sandbox')"; then
+  git -C "$_WSR_BCC_SBX" init -q
+  {
+    for _WSR_BCC_L in "${_WSR_RETIRED_LITS[@]}"; do printf '%s\n' "$_WSR_BCC_L"; done
+  } > "$_WSR_BCC_SBX/real.md"
+  : > "$_WSR_BCC_SBX/empty.md"
+  git -C "$_WSR_BCC_SBX" add real.md empty.md
+  git -C "$_WSR_BCC_SBX" -c user.email=t@t -c user.name=t commit -qm baseline >/dev/null 2>&1
+  _WSR_BCC_SBX_REF="$(git -C "$_WSR_BCC_SBX" rev-parse HEAD)"
+  _WSR_BCC_REPO="$_WSR_BCC_SBX"
+  _WSR_BCC_LITS=("${_WSR_RETIRED_LITS[@]}")
+  _WSR_BCC_REFS=()   # use the ref-override so every member shares $_WSR_BCC_SBX_REF
+  # (5) missing blob: a referenced path that does not exist at the ref. The scratch pair is
+  # allocated once for controls 5-7 and guarded for the same misdirected-diagnosis reason as the
+  # pair above; a failed allocation skips host-capability rather than reading as a silent control.
+  if _WSR_BCC_PR="$(mktemp 2>/dev/null)" && _WSR_BCC_PS="$(mktemp 2>/dev/null)"; then
+  _WSR_BCC_FILES=('ghost.md' 'real.md')
+  _WSR_BCC_NOBLOB_OUT="$( RESULTS_FILE="$_WSR_BCC_PR" SKIPS_FILE="$_WSR_BCC_PS" _wsr_run_baseline_corpus_control '#719 missing-blob control' "$_WSR_BCC_SBX_REF" ok 2>&1 )"
+  assert_eq "#719 baseline-corpus control: a swept file with no blob at the ref is caught RED" \
+    "yes" "$(grep -q '^FAIL' "$_WSR_BCC_PR" && echo yes || echo no)"
+  assert_eq "#719 baseline-corpus control: the missing blob is NAMED in the RED output" \
+    "yes" "$(printf '%s' "$_WSR_BCC_NOBLOB_OUT" | grep -qF 'ghost.md' && echo yes || echo no)"
+  # (6) empty output: a swept file whose git show is empty
+  : > "$_WSR_BCC_PR"; : > "$_WSR_BCC_PS"
+  _WSR_BCC_FILES=('empty.md' 'real.md')
+  _WSR_BCC_EMPTY_OUT="$( RESULTS_FILE="$_WSR_BCC_PR" SKIPS_FILE="$_WSR_BCC_PS" _wsr_run_baseline_corpus_control '#719 empty-output control' "$_WSR_BCC_SBX_REF" ok 2>&1 )"
+  assert_eq "#719 baseline-corpus control: an empty git-show blob is caught RED" \
+    "yes" "$(grep -q '^FAIL' "$_WSR_BCC_PR" && echo yes || echo no)"
+  assert_eq "#719 baseline-corpus control: the empty blob is NAMED in the RED output" \
+    "yes" "$(printf '%s' "$_WSR_BCC_EMPTY_OUT" | grep -qF 'empty.md' && echo yes || echo no)"
+  # (7) idempotency: run the control twice over the same clean sandbox input and require
+  # byte-identical result tallies, and require the scratch corpus removed after the run.
+  _WSR_BCC_FILES=('real.md')
+  if _WSR_BCC_R1="$(mktemp 2>/dev/null)" && _WSR_BCC_R2="$(mktemp 2>/dev/null)" && _WSR_BCC_S0="$(mktemp 2>/dev/null)"; then
+  RESULTS_FILE="$_WSR_BCC_R1" SKIPS_FILE="$_WSR_BCC_S0" _wsr_run_baseline_corpus_control '#719 idempotency probe' "$_WSR_BCC_SBX_REF" ok >/dev/null 2>&1
+  assert_eq "#719 baseline-corpus control: the scratch corpus is removed after the run" \
+    "gone" "$([ -e "$_WSR_BCC_LAST_CORPUS" ] && echo present || echo gone)"
+  RESULTS_FILE="$_WSR_BCC_R2" SKIPS_FILE="$_WSR_BCC_S0" _wsr_run_baseline_corpus_control '#719 idempotency probe' "$_WSR_BCC_SBX_REF" ok >/dev/null 2>&1
+  assert_eq "#719 baseline-corpus control: re-running over the same input yields an identical tally" \
+    "yes" "$(cmp -s "$_WSR_BCC_R1" "$_WSR_BCC_R2" && echo yes || echo no)"
+  rm -f "$_WSR_BCC_R1" "$_WSR_BCC_R2" "$_WSR_BCC_S0"
+  else
+    skip "#719 baseline-corpus control: idempotency probe" host-capability \
+      "mktemp failed; the isolated result files the probe compares could not be allocated"
+  fi
+  rm -f "$_WSR_BCC_PR" "$_WSR_BCC_PS"
+  else
+    skip "#719 baseline-corpus control: degraded-git-input controls 5-7" host-capability \
+      "mktemp failed; the isolated results/skips pair the controls inspect could not be allocated"
+  fi
+  rm -rf "$_WSR_BCC_SBX"
+fi
+unset _WSR_RETIRED_HITS _WSR_RETIRED_FILE _WSR_RETIRED_LIT _WSR_RETIRED_UNREADABLE _WSR_RETIRED_CONTROL _WSR_RETIRED_PROBE _WSR_RETIRED_LITS _WSR_RETIRED_REFS
+unset _WSR_SWEPT_RELPATHS _WSR_BCC_LITS _WSR_BCC_REFS _WSR_BCC_FILES _WSR_BCC_REPO _WSR_BCC_LAST_CORPUS
+unset _WSR_BCC_REFS_OK _WSR_BCC_R _WSR_BCC_PR _WSR_BCC_PS _WSR_BCC_PLANTED_OUT _WSR_BCC_NOREF_OUT _WSR_BCC_L _WSR_BCC_SBX _WSR_BCC_SBX_REF _WSR_BCC_NOBLOB_OUT _WSR_BCC_EMPTY_OUT _WSR_BCC_R1 _WSR_BCC_R2 _WSR_BCC_S0 2>/dev/null || true
+# #707 the claim gate on the surfaces outside the two-file loop above. Each states the rule
+# in its own voice, so each needs its own pin; the guarded regression is identical — the
+# parallel-push allowance surviving without the clause that keeps the claim gated.
+assert_pin_red_under "#707 receiving-code-review.md gates the completion claim on reading the local run" \
+  'read that run'"'"'s summary before making one' \
+  's/read that run'"'"'s summary before making one/make one without reading it/' "$FDROOT/.devflow/prompt-extensions/receiving-code-review.md"
+assert_pin_red_under "#707 CLAUDE.md mirror gates the claim, not the push, on the local run" \
+  'but the *claim* is — read the local run'"'"'s summary before making one' \
+  's/but the \*claim\* is — read the local run'"'"'s summary before making one/and neither is the claim/' "$WSR_CLAUDE"
+assert_pin_red_under "#707 overview mirror gates the completion claim on reading the local run" \
+  'but the completion claim is — the run reads that local run'"'"'s summary before claiming' \
+  's/but the completion claim is — the run reads that local run'"'"'s summary before claiming/and neither is the completion claim/' "$FDROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+# #707 CONTRIBUTING.md is the human-facing mirror. The absence sweep above only proves the
+# retired rule is gone there; this proves the new one arrived, so deleting its focused-default
+# block cannot pass green.
+assert_pin_red_under "#707 CONTRIBUTING.md makes the focused module the iteration default" \
+  'reach for `bash lib/test/run.sh` mid-iteration only when no registered' \
+  's/reach for `bash lib\/test\/run.sh` mid-iteration only when no registered/run `bash lib\/test\/run.sh` before every commit, and only when no registered/' "$FDROOT/CONTRIBUTING.md"
+assert_pin_red_under "#707 CONTRIBUTING.md gates calling the branch done on reading the local run" \
+  'is: read the local run'"'"'s summary before you claim it' \
+  's/is: read the local run'"'"'s summary before you claim it/is not/' "$FDROOT/CONTRIBUTING.md"
+# #707 the reflection obligation and the routing case that honors it are a coupled pair: the
+# obligation sentence is pinned above, but deleting the routing bullet silently drops a
+# mid-iteration full run back onto the frictionless-do-not-file arm, with the obligation pin
+# still green. Pin the routing case and the forward reference that binds them.
+assert_pin_red_under "#707 implement.md routes a mid-iteration full-suite run to a Reflection bullet" \
+  '**The run performed a full `lib/test/run.sh` run mid-iteration**' \
+  's/\*\*The run performed a full `lib\/test\/run.sh` run mid-iteration\*\*/**The run performed a full suite run**/' "$WSR_IMPL"
+assert_pin_red_under "#707 implement.md binds the reflection obligation to that routing case" \
+  'The reflection-routing rule below carries this as a named capture case' \
+  's/The reflection-routing rule below carries this as a named capture case/The routing below is unaffected/' "$WSR_IMPL"
+# #707 coupled heading invariant (#719: relocated to sit immediately above the two heading
+# pins it documents — it previously sat orphaned above the claim-gate pins): receiving-code-
+# review.md defers to review-and-fix.md's focused-module section BY VERBATIM HEADING, so the
+# heading and its citation are one coupled text. #707 renamed the heading and updated both
+# halves; without these pins a later rename leaves the reception pass deferring to a section
+# that does not exist while every other pin still passes. Pinned on both sides, and
+# mutation-proved on the citing side (the guarded regression is the deference dangling).
+assert_pin_unique "#707 review-and-fix.md carries the heading receiving-code-review.md defers to" \
+  '## Focused test modules are the fix-iteration default' "$WSR_RAF"  # structural-pin-ok: presence of the heading the sibling citation names; the citing side's mutation pin below carries the behavioral proof
+assert_pin_red_under "#707 receiving-code-review.md's deference cites that exact heading" \
+  '"Focused test modules are the fix-iteration default" section governs' \
+  's/"Focused test modules are the fix-iteration default" section governs/"Focused test modules accelerate fix iteration only" section governs/' \
+  "$FDROOT/.devflow/prompt-extensions/receiving-code-review.md"
+# #707 the two coupled mirrors must state the SAME policy the extensions state — a mirror
+# that keeps the retired framing is the desync class the coupled-invariant rule exists to
+# stop, and the absence guard above only proves the old text is gone, not that the new
+# rule arrived.
+assert_pin_red_under "#707 CLAUDE.md mirrors the focused-default / parallelized-final-gate convention" \
+  'focused verification is the iteration default and the final gate is parallelized' \
+  's/focused verification is the iteration default and the final gate is parallelized/the full suite is the gate before every commit/' "$WSR_CLAUDE"
+assert_pin_red_under "#707 the overview doc mirrors the focused-default convention" \
+  'Focused verification is the iteration default: a focused pass covering the changed surface is sufficient for an intermediate commit or push' \
+  's/Focused verification is the iteration default: a focused pass covering the changed surface is sufficient for an intermediate commit or push/A focused pass only accelerates RED-GREEN iteration/' \
+  "$FDROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 for _WSR_FOCUSED_POLICY in "$WSR_IMPL" "$WSR_RAF"; do
   _WSR_FOCUSED_NAME="${_WSR_FOCUSED_POLICY##*/}"
+  # #707: the inverted default and the parallelized final gate are each load-bearing in
+  # BOTH directions, so each gets its own mutation — dropping the focused-sufficiency
+  # sentence re-imposes the retired full-suite-before-every-commit rule, and re-gating the
+  # push on the local run un-parallelizes the final gate this issue exists to overlap.
+  assert_pin_red_under "#707 $_WSR_FOCUSED_NAME makes a focused pass sufficient for an intermediate commit or push" \
+    'a focused pass covering the changed surface is sufficient for an intermediate commit or push.' \
+    's/a focused pass covering the changed surface is sufficient for an intermediate commit or push\./a focused pass covering the changed surface is not sufficient for an intermediate commit or push./' "$_WSR_FOCUSED_POLICY"
+  assert_pin_red_under "#707 $_WSR_FOCUSED_NAME reserves the mid-iteration full suite for uncovered surfaces" \
+    'Run the full suite mid-iteration only when no registered module covers the changed surface' \
+    's/Run the full suite mid-iteration only when no registered module covers the changed surface/Run the full suite mid-iteration before each commit and push/' "$_WSR_FOCUSED_POLICY"
+  assert_pin_red_under "#707 $_WSR_FOCUSED_NAME does not gate the push on the local final run" \
+    'the push is NOT gated on the local run finishing' \
+    's/the push is NOT gated on the local run finishing/the push waits for the local run to finish/' "$_WSR_FOCUSED_POLICY"
+  assert_pin_red_under "#707 $_WSR_FOCUSED_NAME keeps the local final run authoritative" \
+    'it remains the authoritative local signal' \
+    's/it remains the authoritative local signal/CI is the authoritative signal/' "$_WSR_FOCUSED_POLICY"
+  assert_pin_red_under "#707 $_WSR_FOCUSED_NAME leaves the #405 cloud in-env gate unweakened" \
+    'never waits on, polls, re-checks, or cites CI for its own progress' \
+    's/never waits on, polls, re-checks, or cites CI for its own progress/may wait on and cite CI for its own progress/' "$_WSR_FOCUSED_POLICY"
+  # #707 the claim-gating clause is what makes the non-gated push safe: the push may land
+  # before the local run finishes, but the COMPLETION CLAIM may not. Unpinned, a later prose
+  # trim can delete it and leave "push, do not wait" as the whole rule — push-and-claim with
+  # nobody ever reading the suite result, which is the reversion this clause exists to stop.
+  # Both directions matter, so the mutation deletes the gate rather than rewording it.
+  assert_pin_red_under "#707 $_WSR_FOCUSED_NAME gates the completion claim on reading the local run" \
+    'read the local run'"'"'s summary before you make one' \
+    's/read the local run'"'"'s summary before you make one/make the claim without reading it/' "$_WSR_FOCUSED_POLICY"
+  assert_pin_red_under "#707 $_WSR_FOCUSED_NAME treats a never-started local run as not-a-completion" \
+    'or a run that never started (denied, blocked, or unreached) is not a completion' \
+    's/or a run that never started \(denied, blocked, or unreached\) is not a completion/is not a completion/' "$_WSR_FOCUSED_POLICY"
   assert_pin_red_under "#563 $_WSR_FOCUSED_NAME records the explicitly selected module ID" \
     'Explicitly record the selected ID and' \
     's/Explicitly record the selected ID and/Use the selected ID and/' "$_WSR_FOCUSED_POLICY"
@@ -30718,6 +31338,49 @@ assert_pin_unique "#591 overview doc mirror carries the amended cloud focused-ru
   "$FDROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 assert_pin_unique "#591 CONTRIBUTING.md carries the module-authoring checklist heading" \
   '### Authoring a new focused module' "$FDROOT/CONTRIBUTING.md"
+
+# ── #719 Verification-evidence marker + undefined-disjunct deletion + cloud full-suite obligation ──
+# Finding 1 (unobservable claim gate): each of the three prompt extensions must state, on the
+# local/interactive tier, that a launch that never started is OBSERVABLE as an absent capture
+# file — the named regression is the claim gate becoming unobservable again. Behavioral-fix pins,
+# so the mutation removes the operative observability sentence and the pin goes RED.
+assert_pin_red_under "#719 implement.md makes a marker-less completion claim an inspectable defect" \
+  'a completion claim without the marker is an **inspectable** defect' \
+  's/a completion claim without the marker is an \*\*inspectable\*\* defect/a completion claim needs no marker/' "$WSR_IMPL"
+assert_pin_red_under "#719 review-and-fix.md makes a never-started launch observable as an absent file" \
+  'A launch that never started produces an **absent capture file**' \
+  's/A launch that never started produces an \*\*absent capture file\*\*/A launch leaves no artifact/' "$WSR_RAF"
+assert_pin_red_under "#719 receiving-code-review.md makes a never-started launch observable as an absent file" \
+  'A launch that never started leaves an **absent capture file**' \
+  's/A launch that never started leaves an \*\*absent capture file\*\*/A launch leaves no artifact/' "$FDROOT/.devflow/prompt-extensions/receiving-code-review.md"
+# The exact marker literal `Verification evidence:` must be present on each extension (it appears
+# more than once per file — the sentence plus the workpad.py recipe — so a presence count, not a
+# uniqueness pin).
+assert_eq "#719 implement.md records the exact Verification evidence marker literal" "yes" \
+  "$([ "$(pin_count 'Verification evidence:' "$WSR_IMPL")" -ge 1 ] && echo yes || echo no)"
+assert_eq "#719 review-and-fix.md records the exact Verification evidence marker literal" "yes" \
+  "$([ "$(pin_count 'Verification evidence:' "$WSR_RAF")" -ge 1 ] && echo yes || echo no)"
+assert_eq "#719 receiving-code-review.md records the exact Verification evidence marker literal" "yes" \
+  "$([ "$(pin_count 'Verification evidence:' "$FDROOT/.devflow/prompt-extensions/receiving-code-review.md")" -ge 1 ] && echo yes || echo no)"
+# G13 (#719): implement.md states a final full-suite obligation whose scope covers the cloud tier,
+# so the tier-agnostic guarantee is legible on the extension itself, not only via CLAUDE.md tier 2.
+assert_pin_red_under "#719 implement.md states a cloud-tier final full-suite obligation" \
+  'The final full-suite obligation binds the cloud tier too' \
+  's/The final full-suite obligation binds the cloud tier too/The cloud tier has no full-suite obligation/' "$WSR_IMPL"
+# Finding 2 (undefined `or path` disjunct): the full-suite trigger carries exactly one defined
+# disjunct on every operative policy surface. Each surface carried the disjunct on a single line
+# (matchable-when-present, so this absence sweep is not the #719 wrapped-literal trap), in the
+# exact form named per surface; a reintroduction turns the suite RED.
+assert_eq "#719 implement.md carries no undefined path disjunct in the full-suite trigger" "0" \
+  "$(pin_count 'module or path' "$WSR_IMPL")"
+assert_eq "#719 review-and-fix.md carries no undefined path disjunct in the full-suite trigger" "0" \
+  "$(pin_count 'module or path' "$WSR_RAF")"
+assert_eq "#719 receiving-code-review.md carries no undefined path disjunct in the full-suite trigger" "0" \
+  "$(pin_count 'module or path' "$FDROOT/.devflow/prompt-extensions/receiving-code-review.md")"
+assert_eq "#719 overview mirror carries no undefined path disjunct in the full-suite trigger" "0" \
+  "$(pin_count 'module or path' "$FDROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md")"
+assert_eq "#719 CONTRIBUTING.md carries no undefined path disjunct in the full-suite trigger" "0" \
+  "$(pin_count 'focused path' "$FDROOT/CONTRIBUTING.md")"
 
 # (a) implement.md routing-rule operative sentence.
 assert_pin_unique "#506 implement.md carries the prompt-surface routing operative sentence" \
@@ -30779,7 +31442,7 @@ assert_eq "#506 Writing-skills evidence marker is present in the contract and bo
 # contributes zero assertions and silently passes; the SP_VENDORED_FILES non-empty assertion
 # directly below is what closes that hole, so the two must stay paired. The vendored skill paths
 # are alphanumeric/hyphen (no spaces), so the unquoted find word-split is safe.
-SP_VENDORED_FILES=$(find "$FDROOT/skills/requesting-code-review" "$FDROOT/skills/receiving-code-review" -type f 2>/dev/null)
+SP_VENDORED_FILES=$(find "$FDROOT/skills/requesting-code-review" "$FDROOT/skills/receiving-code-review" -type f 2>/dev/null)  # tree-walk-ok: scoped to two named skill directories, never the repository root
 # Fail CLOSED on an empty iteration set: if the two vendored trees were deleted/renamed
 # wholesale, `find` returns nothing and the loop below would contribute ZERO assertions — a
 # silent pass on the exact botched-re-vendor regression this block exists to catch (the
@@ -32384,12 +33047,12 @@ assert_eq "#245 T10: preflight, gh genuinely absent → does NOT emit the shim-s
 #    backstop), and every Python gh-caller reads DEVFLOW_GH with no argv0 "gh"
 #    literal left behind. ──
 DGH_ROOT="$(cd "$LIB/.." && pwd)"
-DGH_HARDCODE="$(grep -rlF 'DEVFLOW_GH:=gh}' "$DGH_ROOT/scripts" "$DGH_ROOT/lib" --include='*.sh' 2>/dev/null | grep -v '/test/' | grep -c . || true)"
+DGH_HARDCODE="$(grep -rlF 'DEVFLOW_GH:=gh}' "$DGH_ROOT/scripts" "$DGH_ROOT/lib" --include='*.sh' 2>/dev/null | grep -v '/test/' | grep -c . || true)"  # tree-walk-ok: scoped to $DGH_ROOT/scripts and $DGH_ROOT/lib, which no worktree lives under
 assert_eq "#245 peer-completeness: no shell helper retains the bare DEVFLOW_GH:=gh default" "0" "$DGH_HARDCODE"
 # Exclude the resolver itself from the sourcing count (its own header contains the
 # literal 'resolve-gh.sh'); without the exclusion the count self-matches to 14 and
 # one converted helper could silently drop the sourcing while >=13 stays green.
-DGH_SOURCED="$(grep -rlF 'resolve-gh.sh' "$DGH_ROOT/scripts" "$DGH_ROOT/lib" --include='*.sh' 2>/dev/null | grep -v '/test/' | grep -v 'lib/resolve-gh\.sh$' | grep -c . || true)"
+DGH_SOURCED="$(grep -rlF 'resolve-gh.sh' "$DGH_ROOT/scripts" "$DGH_ROOT/lib" --include='*.sh' 2>/dev/null | grep -v '/test/' | grep -v 'lib/resolve-gh\.sh$' | grep -c . || true)"  # tree-walk-ok: scoped to $DGH_ROOT/scripts and $DGH_ROOT/lib, which no worktree lives under
 assert_eq "#245 peer-completeness: >=13 helpers source resolve-gh.sh (all gh-callers converted, resolver excluded from its own count)" "yes" \
   "$([ "$DGH_SOURCED" -ge 13 ] && echo yes || echo no)"
 # The bare-call grep the block comment promises: no non-comment, non-diagnostic
@@ -32398,7 +33061,7 @@ assert_eq "#245 peer-completeness: >=13 helpers source resolve-gh.sh (all gh-cal
 # authorize-actor.sh / react-to-trigger.sh) — the two pins above stay green on it.
 DGH_BARE="$(grep -rnE '(^|[[:space:]`;|&(])gh[[:space:]]+(api|pr|issue|label|repo|auth|search|run|workflow)([[:space:]]|$)' \
   "$DGH_ROOT/scripts" "$DGH_ROOT/lib" --include='*.sh' 2>/dev/null \
-  | grep -v '/test/' | grep -v 'resolve-gh\.sh:' | grep -vE ':[[:space:]]*#' | grep -vE '(echo|printf) ' | grep -c . || true)"
+  | grep -v '/test/' | grep -v 'resolve-gh\.sh:' | grep -vE ':[[:space:]]*#' | grep -vE '(echo|printf) ' | grep -c . || true)"  # tree-walk-ok: scoped to $DGH_ROOT/scripts and $DGH_ROOT/lib, which no worktree lives under
 assert_eq "#245 peer-completeness: no non-comment bare gh <subcommand> call survives outside the resolver" "0" "$DGH_BARE"
 # Per-script Python routing pins: each enumerated Python gh-caller reads the
 # documented DEVFLOW_GH override and keeps no bare-"gh" argv0 literal. T4/T8
@@ -32410,7 +33073,10 @@ assert_eq "#245 peer-completeness: no non-comment bare gh <subcommand> call surv
 # (grep -l DEVFLOW_GH over scripts/*.py) — the loop had under-counted it;
 # preflight.py (issue #547) is the newest — the early dependency-preflight gate's
 # `gh issue view` state/body reads route through the same DEVFLOW_GH pattern.
-for DGH_PY in workpad.py file-deferrals.py match-deferrals.py parse-acs.py export-workflow-lifecycle-census.py build-experiment-records.py preflight.py; do
+# check-completion-evidence.py (issue #550) reads gh only on its remote-trace arm
+# (`gh api` for a pr-thread / follow-up-issue trace, `gh repo view` for own-repo
+# scope) — the same DEVFLOW_GH-no-probe pattern.
+for DGH_PY in workpad.py file-deferrals.py match-deferrals.py parse-acs.py export-workflow-lifecycle-census.py build-experiment-records.py preflight.py check-completion-evidence.py; do
   assert_eq "#245 python routing: $DGH_PY reads DEVFLOW_GH (or-\"gh\" form)" "1" \
     "$(grep -cF 'os.environ.get("DEVFLOW_GH") or "gh"' "$DGH_ROOT/scripts/$DGH_PY" || true)"
   assert_eq "#245 python routing: $DGH_PY keeps no bare-\"gh\" argv0 literal" "0" \
@@ -32884,7 +33550,7 @@ DJQ_ROOT="$(cd "$LIB/.." && pwd)"
 # call sites to the converted form) + scripts/run-jq.sh (issue #253 — the
 # agent-tier jq wrapper skill bodies invoke by path; it sources resolve-jq.sh
 # exactly as the .sh helpers do).
-DJQ_SOURCED="$(grep -rlE 'resolve-(jq|bin)\.sh' "$DJQ_ROOT/scripts" "$DJQ_ROOT/lib" "$DJQ_ROOT/install.sh" --include='*.sh' 2>/dev/null | grep -v '/test/' | grep -v 'lib/resolve-bin\.sh$' | grep -v 'lib/resolve-jq\.sh$' | grep -c . || true)"
+DJQ_SOURCED="$(grep -rlE 'resolve-(jq|bin)\.sh' "$DJQ_ROOT/scripts" "$DJQ_ROOT/lib" "$DJQ_ROOT/install.sh" --include='*.sh' 2>/dev/null | grep -v '/test/' | grep -v 'lib/resolve-bin\.sh$' | grep -v 'lib/resolve-jq\.sh$' | grep -c . || true)"  # tree-walk-ok: scoped to $DJQ_ROOT/scripts, /lib and install.sh, which no worktree lives under
 assert_eq "#247 peer-completeness: >=16 helpers reference the shared resolver (all jq-callers + resolve-gh.sh + run-jq.sh converted)" "yes" \
   "$([ "$DJQ_SOURCED" -ge 16 ] && echo yes || echo no)"
 # Exclusions are deliberately MINIMAL (a blanket echo/printf line-exclusion
@@ -32899,7 +33565,7 @@ assert_eq "#247 peer-completeness: >=16 helpers reference the shared resolver (a
 # reintroductions go RED too.
 DJQ_BARE="$(grep -rnE '(^|[[:space:]|&;(`])jq[[:space:]]+(-|'"'"'|"|\.|empty|length|keys|type|to_entries)' \
   "$DJQ_ROOT/scripts" "$DJQ_ROOT/lib" "$DJQ_ROOT/install.sh" --include='*.sh' 2>/dev/null \
-  | grep -v '/test/' | grep -v 'resolve-bin\.sh:' | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' | grep -vE 'jq(\.exe)? --version' | grep -c . || true)"
+  | grep -v '/test/' | grep -v 'resolve-bin\.sh:' | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' | grep -vE 'jq(\.exe)? --version' | grep -c . || true)"  # tree-walk-ok: scoped to $DJQ_ROOT/scripts, /lib and install.sh, which no worktree lives under
 assert_eq "#247 peer-completeness: no bare invocation-position jq call survives outside the resolver" "0" "$DJQ_BARE"
 
 # ── Skills-tier jq pin (issue #253, widened by #271) — the DJQ_BARE grep above
@@ -32943,7 +33609,7 @@ assert_eq "#253 skills-jq: scripts/run-jq.sh is committed executable (100755)" "
 # (flag/quoted-program/path/bareword-filter forms), excluding the resolver's own
 # `--version` probe shape and the wrapper path itself.
 SKILL_JQ_BARE="$(
-  find "$LIB/../skills" -type f -name '*.md' 2>/dev/null | while IFS= read -r _f; do
+  find "$LIB/../skills" -type f -name '*.md' 2>/dev/null | while IFS= read -r _f; do  # tree-walk-ok: scoped to skills/, which no worktree lives under
     awk '
       /^[[:space:]]*```(bash|sh|shell)[[:space:]]*$/ { inb=1; next }
       /^[[:space:]]*```[[:space:]]*$/ { inb=0; next }
@@ -33772,6 +34438,38 @@ assert_eq "#253 run-jq.sh: partial deploy emits the specific 'could not source l
 assert_eq "#253 run-jq.sh: partial deploy preserves the best-effort exit-0 contract" "0" "$RJQ_PRC"
 
 rm -rf "$JQT0" "$JQT1" "$JQT2" "$JQT2D" "$JQTD" "$NPT4" "$NPT4B" "$NPT4C" "$NPT4D" "$NPT4E" "$NPT4G" "$NPT4I" "$JQTP" "$JQT10" "$JQT6" "$JQT7" "$JQT8" "$SCVJ" "$SCVO" "$PFPC" "$JQT7D" "$JQNEG" "$GENTR" "$RJQ_STUB" "$RJQ_PARTIAL"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "helper-anchor portability + cloud-form layout fixtures (issue #702, AC6/AC7)"
+# ────────────────────────────────────────────────────────────────────────────
+# AC6 (local portability): a focused path-family corpus
+# (lib/test/fixtures/path-portability/families.tsv) drives the REAL
+# devflow_normalize_path over the four supported host-path families — Linux
+# POSIX, macOS POSIX, WSL Windows-form, Git Bash/MSYS2 Windows-form — proving
+# the local portable helper-anchor form resolves for each. The four families
+# are complete by construction for the POSIX-shell contract; the driver asserts
+# the corpus carries exactly them. Complements the #247 T4* stub tests: those
+# pin individual arms of the helper, this pins the family SET as a corpus.
+PP_TEST="$LIB/test/path-portability-test.sh"
+# Capture the driver's per-FAIL stderr so a RED run names the failing family
+# instead of only "expected ok, got FAILED"; the success path stays quiet.
+_PP_ERR="$(mktemp)"
+if bash "$PP_TEST" >/dev/null 2>"$_PP_ERR"; then _PP=ok; else _PP=FAILED; echo "  driver stderr (path-portability-test.sh):"; cat "$_PP_ERR"; fi
+rm -f "$_PP_ERR"
+assert_eq "#702 AC6: path-portability family corpus resolves for all four host-path families" "ok" "$_PP"
+
+# AC7 (source and consumer layouts): a focused integration driver materializes
+# the two committed seed layouts (lib/test/fixtures/cloud-form-layouts/
+# {source-repo,consumer}) into throwaway git checkouts and executes the cloud
+# helper-invocation form against each, with a space in the checkout path AND a
+# shallow detached checkout represented in both. Exit 0 == every layout × state
+# resolved the anchor and ran the vendored-literal helper (sentinel ANCHOR-OK).
+CFL_TEST="$LIB/test/cloud-form-layout-test.sh"
+# Same diagnostic capture as AC6: on failure, surface which layout x state broke.
+_CFL_ERR="$(mktemp)"
+if bash "$CFL_TEST" >/dev/null 2>"$_CFL_ERR"; then _CFL=ok; else _CFL=FAILED; echo "  driver stderr (cloud-form-layout-test.sh):"; cat "$_CFL_ERR"; fi
+rm -f "$_CFL_ERR"
+assert_eq "#702 AC7: cloud form runs against source-repo + consumer layouts (spaces + shallow detached)" "ok" "$_CFL"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "running-bash diagnostic: preflight.sh devflow-bash breadcrumb + remedy (issue #248)"
@@ -37159,6 +37857,223 @@ assert_pin_red_under "#666: implement extension states the structural-pin-ok dec
   's/unless its logical line carries a format-strict//' "$LIB/../.devflow/prompt-extensions/implement.md"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "#736 overbreadth-count helper: python3 derivation, locale-invariance, shape matrix"
+# ────────────────────────────────────────────────────────────────────────────
+# The overbreadth guard's non-whitespace count is now derived through python3 over an explicit
+# six-member whitespace set (issue #736): host-independent (a fixed codepoint set, not the
+# locale-sensitive `[[:space:]]` class), one interpreter process per single-target assertion
+# covering both artifacts (`assert_count_red_under` is the named exception — one per measurement),
+# published through caller-visible globals so no call site wraps the helper in `$( … )`.
+
+# (a) Recurrence guard (mirrors the #505 AC1 "emitted values come from python3" form): the
+# count derivation in each helper's body goes through python3. A revert to the old bash
+# `${line//[[:space:]]/}` loop removes the `python3 -c` call from the function body → RED.
+# Scoped to the FUNCTION BODY via python3 region extraction (not a whole-file grep) so this
+# guard's own text cannot self-satisfy it. Discharged as a positive control at authoring time
+# (planted revert observed RED, restored observed GREEN — recorded in the PR).
+_736_body_derives_py3() {  # file funcname -> "python3" iff that function's body calls python3 -c
+  python3 - "$1" "$2" <<'PYEOF'
+import re, sys
+src = open(sys.argv[1], encoding="utf-8").read()
+m = re.search(r'\n' + re.escape(sys.argv[2]) + r'\(\)\s*\{.*?\n\}\n', src, re.S)
+print("python3" if (m and "python3 -c" in m.group(0)) else "MISSING")
+PYEOF
+}
+assert_eq "#736 recurrence: run.sh _nonws_count derives its count through python3 (guard-class 2)" \
+  "python3" "$(_736_body_derives_py3 "$LIB/test/run.sh" _nonws_count)"
+assert_eq "#736 recurrence: module-harness _devflow_module_nonws_count derives through python3 (guard-class 2)" \
+  "python3" "$(_736_body_derives_py3 "$LIB/test/module-harness.sh" _devflow_module_nonws_count)"
+
+# (b) Assignment contract: no call site wraps a counting helper in a command substitution
+# (the helpers publish through globals, never stdout). The ERE matches the literal `$(<helper>`;
+# this assertion line spells the pattern with backslash-escaped `\$\(` so it does not self-match.
+assert_eq "#736 assignment-contract: no call site wraps _nonws_count in a command substitution (run.sh)" \
+  "0" "$(grep -cE '\$\(_nonws_count' "$LIB/test/run.sh")"
+assert_eq "#736 assignment-contract: no call site wraps _devflow_module_nonws_count in a command substitution (module-harness.sh)" \
+  "0" "$(grep -cE '\$\(_devflow_module_nonws_count' "$LIB/test/module-harness.sh")"
+
+# (c) One-invocation: a single assert_pin_red_under spends exactly ONE _nonws_count call,
+# covering the original and the mutated artifact together. Shadow the helper INSIDE a subshell
+# (so the real helper is never mutated for later assertions) with a counter that persists via a
+# temp file; `$(<file)` is a bash builtin (no non-preflight tool). Counting-helper invocations,
+# not interpreter invocations — assert_pin_red_under's pin-presence check is grep-based
+# (`pin_count`), so the ONLY python3 it spends flows through `_nonws_count`; counting
+# `_nonws_count` calls is therefore equivalent to counting its interpreter processes, and stating
+# the property over the counting helper is what the AC names.
+_736_CNT="$(probe_tmp '#736 one-invocation counter')"; printf '0' > "$_736_CNT"
+_736_OIF="$(probe_tmp '#736 one-invocation fixture')"
+printf 'PIN_ONE operative line here\nPIN_TWO another line here\n' > "$_736_OIF"
+(
+  _nonws_count() { local n; n="$(<"$_736_CNT")"; printf '%s' "$(( n + 1 ))" > "$_736_CNT"; _NONWS_1=100; _NONWS_2=99; return 0; }
+  probe_assert assert_pin_red_under 'oi' 'PIN_ONE operative line here' '/PIN_ONE/d' "$_736_OIF" >/dev/null
+)
+assert_eq "#736 one-invocation: a single assert_pin_red_under spends exactly one _nonws_count call (both artifacts in one call)" \
+  "1" "$(<"$_736_CNT")"
+rm -f "$_736_CNT" "$_736_OIF"
+
+# (d) Locale invariance + divergence witness. A standalone bash bracket-expression witness
+# retains the pre-#736 locale-sensitive derivation over a fixed U+00A0/U+2028 input; the
+# behavioural probe runs it under each locale NAME and compares the RESULT (never `locale -a`
+# membership, whose spelling diverges from the accepted name). When a divergent pair exists the
+# witness's divergence is asserted AND the new helper's invariance across the same pair is
+# asserted; when no divergent pair resolves on the host, the invariance is asserted trivially and
+# the degraded arm is reported THROUGH THE ASSERTION NAME — no `  NOTE ` emit, no skip (the #456
+# meta-assertion forbids a NOTE outside skip(), and a per-host recurring skip is never clean).
+_736_bracket_witness() {  # locale-SENSITIVE bash bracket-expression count (the pre-#736 idiom)
+  local line stripped total=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    stripped="${line//[[:space:]]/}"; total=$(( total + ${#stripped} ))
+  done < "$1"; printf '%s\n' "$total"
+}
+_736_LFX="$(probe_tmp '#736 locale divergence fixture')"
+printf 'a\xc2\xa0\xe2\x80\xa8XY\n' > "$_736_LFX"   # a + U+00A0 (NBSP) + U+2028 (LSEP) + X + Y
+# Run each side with the locale name as a COMMAND-PREFIX assignment (`LC_ALL=C <cmd>`), NOT a
+# bare `LC_ALL=C; <cmd>` statement: only the prefix form exports LC_ALL into the environment of
+# the invoked command and its python3/`[[:space:]]` child, so the probe genuinely exercises each
+# locale rather than comparing the helper to itself under one effective locale. The new helper is
+# locale-invariant by construction (fixed codepoints + explicit utf-8 decode), so its two sides
+# stay equal — but now that equality is observed with python3 actually run under each named
+# locale, which is what makes the differential test genuine (silent-failure-hunter #736 finding).
+_736_wa="$(LC_ALL=C _736_bracket_witness "$_736_LFX")"
+_736_wb="$(LC_ALL=C.UTF-8 _736_bracket_witness "$_736_LFX")"
+_736_nc="$(LC_ALL=C _nonws_count "$_736_LFX"; printf '%s' "$_NONWS_1")"
+_736_nd="$(LC_ALL=C.UTF-8 _nonws_count "$_736_LFX"; printf '%s' "$_NONWS_1")"
+if [ "$_736_wa" != "$_736_wb" ]; then
+  assert_eq "#736 locale-divergence witness: bash bracket-expression count DIFFERS across C / C.UTF-8 (the invariance below has a witness)" \
+    "differ" "differ"
+  assert_eq "#736 locale-invariance: new _nonws_count is identical under C and C.UTF-8 (a pair the bracket witness diverges on)" \
+    "$_736_nc" "$_736_nd"
+else
+  assert_eq "#736 locale-invariance: no behaviourally-divergent C/C.UTF-8 pair resolves on this host (bracket witness agrees); new _nonws_count invariance asserted trivially (degraded arm — no NOTE, no skip)" \
+    "$_736_nc" "$_736_nd"
+fi
+rm -f "$_736_LFX"
+
+# (e) Input-shape matrix for the counting helper (the CLAUDE.md adversarial-matrix analogue for a
+# reader of arbitrary file bytes): empty, whitespace-only, no-trailing-newline, all six set
+# members, U+00A0/U+2028, non-UTF-8 bytes (must return a count, not raise), a failed derivation
+# (must fail closed to the sentinel + non-zero), and a production-realistic real tracked file the
+# change does NOT edit (asserted against an independent reference count over the same bytes, never
+# a checked-in literal).
+_736_SF="$(probe_tmp '#736 shape fixture')"
+printf '' > "$_736_SF"; _nonws_count "$_736_SF"; assert_eq "#736 shape empty file: count 0" "0" "$_NONWS_1"
+printf '  \t\n \n' > "$_736_SF"; _nonws_count "$_736_SF"; assert_eq "#736 shape whitespace-only: count 0" "0" "$_NONWS_1"
+printf 'abc' > "$_736_SF"; _nonws_count "$_736_SF"; assert_eq "#736 shape no-trailing-newline: count 3" "3" "$_NONWS_1"
+printf 'a \tb\r\v\fc\n' > "$_736_SF"; _nonws_count "$_736_SF"; assert_eq "#736 shape all six set members present: counts only a,b,c" "3" "$_NONWS_1"
+printf 'a\xc2\xa0\xe2\x80\xa8XY\n' > "$_736_SF"; _nonws_count "$_736_SF"; assert_eq "#736 shape U+00A0/U+2028: counted as non-whitespace (a,NBSP,LSEP,X,Y)" "5" "$_NONWS_1"
+printf 'a\xff\xfeb\n' > "$_736_SF"
+if _nonws_count "$_736_SF"; then assert_eq "#736 shape non-UTF-8 bytes: derivation returns a count, does not raise" "4" "$_NONWS_1"
+else assert_eq "#736 shape non-UTF-8 bytes: derivation returns a count, does not raise" "a-count" "raised"; fi
+rm -f "$_736_SF"
+# Fail-closed: a failed derivation (nonexistent path) returns non-zero and leaves the non-integer
+# sentinel, so a guard reading it FAILs rather than comparing against a comparand never established.
+if _nonws_count "$LIB/test/.__736_nonexistent__"; then
+  assert_eq "#736 shape failed derivation: returns non-zero + sentinel (fail-closed)" "nonzero" "returned-zero"
+else
+  assert_eq "#736 shape failed derivation: returns non-zero + sentinel (fail-closed)" "unestablished" "$_NONWS_1"
+fi
+# Production-realistic fixture: a real tracked file the change does NOT edit, versus an
+# independent python3 reference count over the same bytes computed in this same assertion.
+_736_REAL="$LIB/../CONTRIBUTING.md"
+_nonws_count "$_736_REAL"
+_736_ref="$(python3 -c 'import sys
+t = open(sys.argv[1], "rb").read().decode("utf-8", "surrogateescape")
+print(sum(1 for c in t if c not in "\t\n\r\x0b\x0c "))' "$_736_REAL")"
+assert_eq "#736 shape production-realistic (CONTRIBUTING.md): _nonws_count equals an independent reference count over the same bytes" \
+  "$_736_ref" "$_NONWS_1"
+
+# (f) Two-file mode: the merged one-call form is the whole point of the rewrite, so assert
+# DIRECTLY that `_NONWS_2` receives FILE2's count (not file1's, not stale, not empty) in a single
+# invocation over two files with DISTINCT counts — the shape (e) matrix and the (c) one-invocation
+# stub never exercise (pr-test-analyzer #736 finding). A follow-up SINGLE-file call then proves the
+# top-of-function reset clears `_NONWS_2` back to the sentinel (a regression dropping the reset
+# would leak file2's count into a later single-file caller).
+_736_FA="$(probe_tmp '#736 two-file A')"; printf 'abc\n' > "$_736_FA"        # 3 non-ws
+_736_FB="$(probe_tmp '#736 two-file B')"; printf 'wxyz\n' > "$_736_FB"       # 4 non-ws
+_nonws_count "$_736_FA" "$_736_FB"
+assert_eq "#736 two-file: _NONWS_1 is file1's count (3)" "3" "$_NONWS_1"
+assert_eq "#736 two-file: _NONWS_2 is file2's count (4), not file1's/stale/empty" "4" "$_NONWS_2"
+_nonws_count "$_736_FA"   # single-file call must RESET _NONWS_2 to the sentinel
+assert_eq "#736 two-file: a following single-file call resets _NONWS_2 to the sentinel" "unestablished" "$_NONWS_2"
+rm -f "$_736_FA" "$_736_FB"
+
+# (g) Module-harness twin behavioral matrix. `_devflow_module_nonws_count` is an INDEPENDENT copy
+# (it carries no run.sh globals) that can drift, and its raw counting/fail-closed/two-file
+# behavior is otherwise only reached indirectly through test_module_harness.py's
+# devflow_module_pin_red_under path — never asserted directly (pr-test-analyzer #736 finding). The
+# module harness is sourced into run.sh (near the top), so the twin is callable here; it publishes
+# through `_MOD_NONWS_1`/`_MOD_NONWS_2`.
+_736_MSF="$(probe_tmp '#736 module shape fixture')"
+printf '' > "$_736_MSF"; _devflow_module_nonws_count "$_736_MSF"; assert_eq "#736 module twin shape empty: count 0" "0" "$_MOD_NONWS_1"
+printf 'a \tb\r\v\fc\n' > "$_736_MSF"; _devflow_module_nonws_count "$_736_MSF"; assert_eq "#736 module twin shape six set members: counts only a,b,c" "3" "$_MOD_NONWS_1"
+printf 'a\xc2\xa0\xe2\x80\xa8XY\n' > "$_736_MSF"; _devflow_module_nonws_count "$_736_MSF"; assert_eq "#736 module twin shape U+00A0/U+2028: 5 non-whitespace" "5" "$_MOD_NONWS_1"
+printf 'a\xff\xfeb\n' > "$_736_MSF"
+if _devflow_module_nonws_count "$_736_MSF"; then assert_eq "#736 module twin non-UTF-8 bytes: returns a count, does not raise" "4" "$_MOD_NONWS_1"
+else assert_eq "#736 module twin non-UTF-8 bytes: returns a count, does not raise" "a-count" "raised"; fi
+# file1 = the non-UTF-8 fixture still in _736_MSF (4 non-ws); file2 = DISTINCT count (2) so a
+# twin regression that leaks file1's count into _MOD_NONWS_2, swaps the read order, or drops the
+# second read is caught — an equal-count pair (the iter-1 weakness) would mask all three. Then a
+# single-file call proves the twin's top-of-function reset clears _MOD_NONWS_2 (mirrors block (f)).
+_736_MFB="$(probe_tmp '#736 module two-file B')"; printf 'wx\n' > "$_736_MFB"   # 2 non-ws, distinct from file1's 4
+_devflow_module_nonws_count "$_736_MSF" "$_736_MFB"   # _736_MSF still holds the non-UTF-8 bytes (4)
+assert_eq "#736 module twin two-file: _MOD_NONWS_1 is file1's count (4)" "4" "$_MOD_NONWS_1"
+assert_eq "#736 module twin two-file: _MOD_NONWS_2 is file2's count (2), not file1's/stale/empty" "2" "$_MOD_NONWS_2"
+_devflow_module_nonws_count "$_736_MSF"   # single-file call must RESET _MOD_NONWS_2 to the sentinel
+assert_eq "#736 module twin two-file: a following single-file call resets _MOD_NONWS_2 to the sentinel" "unestablished" "$_MOD_NONWS_2"
+if _devflow_module_nonws_count "$LIB/test/.__736_nonexistent__"; then
+  assert_eq "#736 module twin failed derivation: returns non-zero + sentinel (fail-closed)" "nonzero" "returned-zero"
+else
+  assert_eq "#736 module twin failed derivation: returns non-zero + sentinel (fail-closed)" "unestablished" "$_MOD_NONWS_1"
+fi
+rm -f "$_736_MSF" "$_736_MFB"
+
+# (h) Fail-closed INTEGRATION: the consuming arms that emit a RED token when the derivation
+# returns non-zero are the whole design intent, yet are unexercised — the pre-existing #536
+# COUNT-UNESTABLISHED tests reach that token through a sed-slice failure, a DIFFERENT branch that
+# fires before the _nonws_count call (pr-test-analyzer #736 finding). Shadow the counting helper
+# INSIDE a subshell (so the real helper is never mutated for later assertions) to force a non-zero
+# return, then assert each guard emits its own unestablished-count RED rather than comparing
+# against a comparand it never established. `assert_pin_red_under` writes a bare FAIL + a following
+# breadcrumb line; `devflow_module_pin_red_under` emits its cause via an assert_eq "actual:" line —
+# both to STDOUT — so DIVERT RESULTS_FILE (off the suite tally) and CAPTURE stdout to grep the
+# SPECIFIC cause token: a bare "FAIL" verdict would also pass on a WRONG fail arm (mutation-noop /
+# mutation-errored precede the count call), so the token is asserted, not the verdict. The
+# RESULTS_FILE divert routes through `probe_tmp` (fail-closed + tracked), never a bare `mktemp`, so
+# an unwritable TMPDIR records a named suite FAIL instead of a silent ambiguous redirect and no
+# scratch leaks (final-pass/silent-failure-hunter #736 findings). `assert_count_red_under` uses the
+# two-line protocol, so probe_assert's tail -n 1 returns its cause token directly.
+_736_ICP="$(probe_tmp '#736 fail-closed pin fixture')"
+printf 'ICLINE operative content here\nSECOND line here\n' > "$_736_ICP"
+_736_ICP_RF="$(probe_tmp '#736 fail-closed pin results divert')"
+_736_ic_pin="$( _nonws_count() { _NONWS_1=unestablished; _NONWS_2=unestablished; return 1; }
+  RESULTS_FILE="$_736_ICP_RF" assert_pin_red_under 'ic-pin' 'ICLINE operative content here' '/ICLINE/d' "$_736_ICP" )"
+assert_eq "#736 fail-closed integration: assert_pin_red_under emits OVERBREADTH-COUNT-UNESTABLISHED (does not compare) when the count derivation returns non-zero" \
+  "yes" "$(printf '%s' "$_736_ic_pin" | grep -q 'OVERBREADTH-COUNT-UNESTABLISHED' && echo yes || echo no)"
+_736_ICM_RF="$(probe_tmp '#736 fail-closed module results divert')"
+_736_ic_mod="$( _devflow_module_nonws_count() { _MOD_NONWS_1=unestablished; _MOD_NONWS_2=unestablished; return 1; }
+  RESULTS_FILE="$_736_ICM_RF" devflow_module_pin_red_under 'ic-mod' 'ICLINE operative content here' '/ICLINE/d' "$_736_ICP" )"
+assert_eq "#736 fail-closed integration: devflow_module_pin_red_under emits the count-unestablished cause (not a WRONG fail arm) when the derivation returns non-zero" \
+  "yes" "$(printf '%s' "$_736_ic_mod" | grep -q 'count-unestablished' && echo yes || echo no)"
+rm -f "$_736_ICP"
+# assert_count_red_under calls _nonws_count TWICE — real slice, then mutated slice — so exercise
+# BOTH new derivation-failure arms. A call-1-fails shadow reaches the REAL-slice arm; a
+# call-1-succeeds/call-2-fails shadow (counter in a temp file, as block (c) does) reaches the
+# MUTATED-slice arm, which an always-fail shadow can never reach (it short-circuits at call 1)
+# and which the pre-existing #536 sed-slice failure reaches through a DIFFERENT branch.
+_736_ICC="$(probe_tmp '#736 fail-closed count fixture')"
+printf 'ICS\nICM_alpha operative counted content here\nICE\n' > "$_736_ICC"
+_736_ic_cnt="$( _nonws_count() { _NONWS_1=unestablished; return 1; }
+  probe_assert assert_count_red_under 'ic-cnt' '^ICS$' '^ICE$' '^ICM_' -ge 1 's/^ICM_alpha.*/x/' "$_736_ICC" )"
+assert_eq "#736 fail-closed integration: assert_count_red_under emits COUNT-UNESTABLISHED on a REAL-slice derivation failure" \
+  "COUNT-UNESTABLISHED" "$_736_ic_cnt"
+_736_ICC2="$(probe_tmp '#736 fail-closed count call-2 counter')"; printf '0' > "$_736_ICC2"
+_736_ic_cnt2="$( _nonws_count() { local n; n="$(<"$_736_ICC2")"; printf '%s' "$(( n + 1 ))" > "$_736_ICC2"; if [ "$n" -eq 0 ]; then _NONWS_1=50; return 0; else _NONWS_1=unestablished; return 1; fi; }
+  probe_assert assert_count_red_under 'ic-cnt2' '^ICS$' '^ICE$' '^ICM_' -ge 1 's/^ICM_alpha.*/x/' "$_736_ICC" )"
+assert_eq "#736 fail-closed integration: assert_count_red_under emits COUNT-UNESTABLISHED on a MUTATED-slice derivation failure (real slice succeeded, call 2 fails)" \
+  "COUNT-UNESTABLISHED" "$_736_ic_cnt2"
+rm -f "$_736_ICC" "$_736_ICC2"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "#363 review-engine grounding: skill<->allowlist command-head contract pin"
 # ────────────────────────────────────────────────────────────────────────────
 # skills/review/SKILL.md runs under TWO allowlists — devflow-runner.yml's `review`
@@ -38484,8 +39399,29 @@ RAF_ROOT_CEIL=3567
 # ceilings-table cells in lockstep. The max-step ceiling below sits on #621's 19073 base, not
 # #640's 18996 — this branch's +952 is applied to the merged tree's measurement, never to the
 # pre-merge one.
-RAF_LOAD_CEIL=8686
-RAF_MAXSTEP_CEIL=20025
+# #707 raised the initial-load ceiling 8686->9007 and the max-step ceiling 20025->20346: the
+# focused-default / parallelized-final-gate policy this issue mandates is stated on BOTH
+# always-loaded extensions (review-and-fix.md and receiving-code-review.md), so it lands on the
+# initial load twice, and the bundle carried only ~4 words of margin. The prose was written to
+# its operative minimum first — each surface states the inverted default, the preserved-and-
+# parallelized final gate, the retained lint-gate and skip-tally guarantees, and (on
+# review-and-fix.md) the unweakened #405 cloud in-env rule — and only then were the ceilings
+# renegotiated to the measurement plus the repo's usual ~4 words of headroom. The audited growth
+# decision is docs/cutovers/issue-707-focused-default-growth.md; update
+# docs/review-and-fix-budget.md's ceilings-table and Measured cells in lockstep.
+# #719 raised the initial-load ceiling 9007->9468 and the max-step ceiling 20346->20807: the
+# unobservable-claim-gate repair (finding 1) adds the `Verification evidence:` marker + capture
+# mechanism to BOTH always-loaded extensions (review-and-fix.md and receiving-code-review.md), so
+# it lands on the initial load twice; the deletion of the undefined `or path` disjunct trims a few
+# words back, but the marker prose dominates and the bundle carried only ~4 words of margin. The
+# prose was written to its operative minimum first — each surface states the capture-to-a-named-
+# file mechanism, the absent-file observability, the `note` kind, the workpad/PR/neither fallback,
+# the artifact-not-enforcement framing, and the #405 cloud carve-out — and only then were the
+# ceilings renegotiated to the measurement plus the repo's usual ~4 words of headroom. The audited
+# growth decision is docs/cutovers/issue-719-verification-evidence-marker-growth.md; update
+# docs/review-and-fix-budget.md's ceilings-table and Measured cells in lockstep.
+RAF_LOAD_CEIL=9468
+RAF_MAXSTEP_CEIL=20807
 assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
   "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"
 assert_eq "#530 budget: root + always-loaded extensions (initial load) <= $RAF_LOAD_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W)))" "yes" \
@@ -38539,7 +39475,7 @@ done
 assert_eq "#620 budget: maintainer note's prose root ceiling matches RAF_ROOT_CEIL ($RAF_ROOT_CEIL)" "yes" \
   "$(case "$_raf_doc_nocommas" in *"The root sits below its ${RAF_ROOT_CEIL}-word"*) echo yes;; *) echo no;; esac)"
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +6,051 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +6,808 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute
@@ -47471,7 +48407,7 @@ assert_eq "#664 scanner: every excluded prefix keeps its planted violation out o
   "$(e664_run "$E664_FX/exroot" \
       lib/test/planted.sh docs/planted.sh .github/workflows/planted.yml \
       .github/actions/act/planted.sh .devflow/logs/planted.md .devflow/learnings/planted.md \
-      .changeset/planted.md CHANGELOG.md included/planted.sh \
+      .changeset/planted.md CHANGELOG.md .claude/worktrees/w/planted.sh included/planted.sh \
     | python3 -c 'import re,sys
 t = sys.stdin.read()
 body = t.split("|", 1)[1]
@@ -47487,6 +48423,16 @@ print("|".join([
 assert_eq "#664 scanner: an all-excluded population is a zero tally at exit 0, not a failure" \
   "rc=0|lint-gh-api-repo-path: audited 0 of 0 files" \
   "$(e664_run "$E664_FX/exroot" lib/test/planted.sh docs/planted.sh)"
+
+# issue #711: this scanner's population is a WORKING-TREE enumeration (--others), so before the
+# helper carried its own .claude/worktrees/ exclusion it swept every sibling worktree and could
+# report a violation living in another branch's checkout. It survived only through the untracked,
+# harness-managed .git/info/exclude line — machine-local state a bare clone does not inherit —
+# so this assertion drives the exclusion directly through --files-from, where that line has no
+# say at all, and therefore holds on a clone that lacks it.
+assert_eq "#711 the gh-api lint is worktree-immune without the local exclude" \
+  "rc=0|lint-gh-api-repo-path: audited 0 of 0 files" \
+  "$(e664_run "$E664_FX/exroot" .claude/worktrees/w/planted.sh)"
 
 # Fail-closed arms, measured PRE-exclusion, each naming which of the two occurred.
 assert_eq "#664 scanner: an empty pre-exclusion population fails closed with its own breadcrumb" "yes" \
@@ -47517,6 +48463,419 @@ assert_pin_red_under "#664 fence: the resolved comment id is admitted only when 
   '[ -n "$TRIGGER_COMMENT_ID" ] && [ -z "${TRIGGER_COMMENT_ID//[0-9]/}" ]' \
   's|^if \[ -n "\$TRIGGER_COMMENT_ID" \] && \[ -z .*\]; then$|if [ -n "$TRIGGER_COMMENT_ID" ]; then|' \
   "$E664_IMPL"
+
+echo "#711 tree enumeration: a repository-root recursive walk is declared, not silent"
+# The guard joins the desk-time static-lint family (extract-command-heads.py, pin-corpus-lint.py,
+# lint-gh-api-repo-path.py, lint-issue-body-refetch.py, coverage_map_guard.py — deliberately no
+# ordinal: it is the THIRD member of the DECLARATION-MARKER family, which is a different set, and
+# a count of this one accretes) and is driven the same way: the real tree as the
+# live gate, plus synthetic fixtures through --root/--files-from. Its audited population INCLUDES
+# lib/test/, which is why its fixtures are written into probe_tmp scratch rather than checked in —
+# a tracked fixture carrying an unmarked walk would be caught by the guard's own real-tree run.
+E711_LINT="$LIB/test/lint-tree-enumeration.py"
+E711_CLAUDE="$LIB/../CLAUDE.md"
+E711_GROWTH="$LIB/../docs/cutovers/issue-711-tree-enumeration-growth.md"
+
+# Anchored at "$LIB/.." rather than left to resolve from the process cwd: the helper accepts
+# --root, and the repo's #295 contract is to audit the tree the caller means, not whichever git
+# root the cwd happens to sit in. (The --root-absent fallback keeps its own assertion below.)
+E711_OUT="$(python3 "$E711_LINT" --root "$LIB/.." 2>&1)"; E711_RC=$?
+# Comparand is the exit code alone: the audited count would drift with every file added to
+# lib/test/, so the positive-tally check below is a SEPARATE assertion reading the same rc=0 run.
+assert_eq "#711 the real tree audits clean" "rc=0" \
+  "$([ "$E711_RC" -eq 0 ] && printf 'rc=0' || printf 'rc=%s | %s' "$E711_RC" "$E711_OUT")"
+assert_eq "#711 the real-tree run audited a positive number of files" "yes" \
+  "$(printf '%s' "$E711_OUT" | python3 -c 'import re,sys
+m = re.search(r"audited (\d+) of", sys.stdin.read())
+print("yes" if m and int(m.group(1)) > 0 else "no")')"
+# The real-tree population contains one file that is not valid UTF-8 (an adversarial fixture
+# planted for the #664 lint, whose own population excludes lib/test/). A decode that raised, or
+# that dropped the file, would show up here as a skip — and any skip refuses to report clean.
+assert_eq "#711 the real tree decodes without raising" "yes" \
+  "$(case "$E711_OUT" in *"SKIPPED"*) echo "no: $E711_OUT" ;; *) echo yes ;; esac)"
+
+# Fixture driver. Bodies are composed from PARTS at write time so no candidate token literal
+# lands in this file's own source — every fixture line would otherwise need a marker of its own.
+E711_TOK_R="rglob"; E711_TOK_W="os.walk"; E711_TOK_G="glob"
+e711_run() {  # <root> <path…>  -> prints "rc=<n>|<stdout+stderr>"
+  local root="$1"; shift
+  local list out rc
+  list="$(probe_tmp '#711 fixture list')" || list=""
+  # probe_tmp prints the literal /dev/null on mktemp failure. Writing the fixture list there
+  # yields an EMPTY population, which the guard fails closed on with rc 1 — so every assertion
+  # whose expected value is the bare string `rc=1` would PASS, having proven nothing about the
+  # walk detection it names. probe_tmp has already recorded its own FAIL, so the run is red
+  # either way; emit a value that can match no expectation, so the misattribution cannot happen.
+  case "$list" in
+    ""|/dev/null) printf 'rc=probe-unavailable|fixture list could not be allocated'; return 0 ;;
+  esac
+  printf '%s\n' "$@" > "$list"
+  out="$(python3 "$E711_LINT" --root "$root" --files-from "$list" 2>&1)"; rc=$?
+  rm -f "$list"
+  printf 'rc=%s|%s' "$rc" "$out"
+}
+e711_rc() {  # <root> <path…>  -> prints just "rc=<n>"; assert_eq prints the value on a miss,
+             # so a bespoke per-case failure string buys nothing the helper does not already give.
+  # Pure parameter expansion — no tr/sed/cut: this value DECIDES an assertion, and the repo's
+  # guard-class-2 rule keeps such a value off every non-preflight PATH tool.
+  local out; out="$(e711_run "$@")"
+  # The guard exits 1 both when it DETECTS a walk and when it refuses to audit at all (the
+  # load-failure arm: the shared extract-command-heads.py could not be resolved). Every
+  # "<shape> is a candidate" assertion compares against the bare string `rc=1`, so a rename of
+  # that shared helper would turn ~20 detection assertions green while nothing was scanned —
+  # the same misattribution the probe_tmp sentinel above is short-circuited to prevent. Emit a
+  # value no expectation can match instead. A `SKIPPED` outcome is deliberately NOT caught here:
+  # it is a real per-file verdict some assertions legitimately expect through rc=1.
+  case "$out" in
+    *"refusing to audit"*) printf 'rc=guard-unusable'; return 0 ;;
+  esac
+  printf '%s' "${out%%|*}"
+}
+e711_run_outcome() {  # <root> <path…> -> like e711_run, minus the all-excluded NOTE line
+  # The note's WORDING is not this assertion's subject — the rc and the audited tally are. Pinning
+  # the prose verbatim made an ordinary rewording break two unrelated assertions, so the note gets
+  # its own dedicated assertion below and these compare the outcome. Filtered with python3 (a
+  # preflight-guaranteed interpreter), never sed/grep: this value decides an assertion.
+  local out; out="$(e711_run "$@")"
+  printf '%s' "$out" | python3 -c 'import sys
+text = sys.stdin.read()
+# The rc= prefix rides on the FIRST body line, so split it off before filtering — otherwise the
+# note line reads as "rc=0|lint-tree-enumeration: note: …" and no prefix test matches it.
+prefix, _, body = text.partition("|")
+keep = [l for l in body.split("\n") if "lint-tree-enumeration: note:" not in l]
+print(prefix + "|" + "\n".join(keep), end="")'
+}
+e711_write() {  # <root> <relpath> <line…>  -> writes a fixture file, creating parents
+  local root="$1" rel="$2" dir; shift 2
+  dir="${rel%/*}"; [ "$dir" = "$rel" ] || mkdir -p "$root/$dir"
+  printf '%s\n' "$@" > "$root/$rel"
+}
+
+E711_FX="$(probe_tmp '#711 fixture root')"
+# probe_tmp prints the literal /dev/null when mktemp fails (unlike git_sandbox, whose
+# /dev/null/... sentinel fails every downstream mkdir closed by construction). An unguarded
+# `rm -f` on it would, under a root container with a writable /dev, delete the device node and
+# silently change the meaning of every `2>/dev/null` in the rest of the suite.
+case "$E711_FX" in ""|/dev/null) : ;; *) rm -f "$E711_FX"; mkdir -p "$E711_FX" ;; esac
+e711_write "$E711_FX" lib/test/clean.py "import os" "print(os.sep)"
+e711_write "$E711_FX" lib/test/unmarked.py "for p in root.${E711_TOK_R}('*.json'):" "    print(p)"
+e711_write "$E711_FX" lib/test/marked.py \
+  "for p in root.${E711_TOK_R}('*.json'):  # tree-walk-ok: scoped to a per-test sandbox" "    print(p)"
+e711_write "$E711_FX" lib/test/nearmiss.py \
+  "for p in root.${E711_TOK_R}('*.json'):  # tree-walk-ok scoped to a per-test sandbox" "    print(p)"
+e711_write "$E711_FX" lib/test/emptyreason.py \
+  "for p in root.${E711_TOK_R}('*.json'):  # tree-walk-ok:" "    print(p)"
+e711_write "$E711_FX" lib/test/commented.py "# a walk would be ${E711_TOK_W}(root) here" "print(1)"
+e711_write "$E711_FX" lib/test/starglob.py "paths = ROOT.${E711_TOK_G}(\"**/x.json\")"
+e711_write "$E711_FX" lib/test/broken.py "def f(:"
+e711_write "$E711_FX" other/outside.py "for p in root.${E711_TOK_R}('*.json'):" "    print(p)"
+# Multi-element fixtures for the cardinality-sensitive part of the report: findings are sorted by
+# line and deduplicated per line, neither of which a single-violation file exercises. `dual.py`
+# plants two violations OUT of line order in the file's own structure, so a broken sort key shows
+# up as reordered output rather than passing silently. The DEDUPE is exercised separately by
+# `dedupe.py` below: a `**`-pattern line cannot also reach the non-literal-pattern arm (arm 1
+# appends and short-circuits), so no single line of `dual.py` can ever emit two findings — only a
+# line reaching the LITERAL arm and an AST arm at once does, which is what `dedupe.py` plants.
+e711_write "$E711_FX" lib/test/dual.py \
+  "a = ROOT.${E711_TOK_G}(joined(\"**\", \"x.json\"))" \
+  "b = 1" \
+  "c = root.${E711_TOK_R}('*.json')"
+e711_write "$E711_FX" lib/test/second.py "d = root.${E711_TOK_W}(base)"
+# One line reaching the literal arm AND AST arm 1 at once — the only shape that generates a
+# duplicate finding for a single line, so deleting the per-line dedupe reports this line twice.
+e711_write "$E711_FX" lib/test/dedupe.py "e = root.${E711_TOK_R}(\"**/x.json\")"
+# AST arm 2's positive control: a `glob(`-family call whose pattern argument is a plain NAME.
+# No other fixture reaches arm 2 — without this one, deleting the arm leaves the block green.
+e711_write "$E711_FX" lib/test/nonliteral.py "f = ROOT.${E711_TOK_G}(pattern)"
+# Arm 2's documented complement: a call with no positional argument at all is not a candidate.
+e711_write "$E711_FX" lib/test/kwonly.py "g = ROOT.${E711_TOK_G}(pattern=p)"
+# Positive controls for the two LITERAL_TOKENS members no other fixture reaches. Both shapes are
+# deliberately invisible to BOTH AST arms — a plain string pattern with no `**` component — so the
+# literal arm is the only thing that can flag them, and deleting either tuple member turns exactly
+# one of these RED instead of leaving the whole block green. Tokens are assembled from parts for
+# the same reason as the rest: an intact literal here would make run.sh its own candidate.
+E711_TOK_I="ig""lob"; E711_TOK_RT="recursive""=True"
+e711_write "$E711_FX" lib/test/iglob.py "k = ${E711_TOK_G}.${E711_TOK_I}(\"*.txt\")"
+e711_write "$E711_FX" lib/test/recursivekw.py "l = ${E711_TOK_G}.${E711_TOK_G}(\"*.txt\", ${E711_TOK_RT})"
+# Minor #2's uncovered branch: a file that is BOTH unparseable and carries a literal-arm walk.
+# `broken.py` carries no walk token, so the "report literal findings alongside the parse skip"
+# path was unexercised — deleting that report would have left the block green.
+e711_write "$E711_FX" lib/test/brokenwalk.py "m = root.${E711_TOK_R}('*.json')" "def f(:"
+# The residual docstring now states positively that a keyword-LITERAL `**` pattern is still
+# caught (the `**`-component arm reads every string constant in the call, whatever its argument
+# position). `kwonly.py`'s pattern is a NAME, so it cannot discharge that claim — this fixture is
+# the control that keeps the stated contract from becoming a documented falsehood.
+e711_write "$E711_FX" lib/test/kwstar.py "n = ROOT.${E711_TOK_G}(pattern=\"**/x.json\")"
+
+# --- Shell arm fixtures. Every fixture above is `.py`, so without these the whole shell arm
+# --- (fold_continuations, statements_in, the path-operand scan, ROOT_FRAGMENTS, the substring
+# --- pre-filter) has no positive control and emptying it leaves the suite green. Heads and root
+# --- fragments are assembled from parts for the same reason the Python tokens are: an assembled
+# --- head keeps run.sh's own source below the guard's substring pre-filter, so no fixture line
+# --- here becomes a candidate in the file that writes it.
+E711_TOK_F="fi""nd"; E711_TOK_GR="gr""ep"; E711_RV="RO""OT"
+e711_write "$E711_FX" lib/test/sh_find.sh "${E711_TOK_F} \"\$LIB/../skills\" -name x"
+e711_write "$E711_FX" lib/test/sh_capture.sh "V=\"\$(${E711_TOK_GR} -rlF x \"\$DGH_${E711_RV}/lib\")\""
+e711_write "$E711_FX" lib/test/sh_repo_root.sh "${E711_TOK_GR} -r x \"\$REPO_${E711_RV}/lib\""
+e711_write "$E711_FX" lib/test/sh_marked.sh \
+  "${E711_TOK_F} \"\$LIB/../skills\" -name x  # tree-walk-ok: scoped to a per-test sandbox"
+e711_write "$E711_FX" lib/test/sh_nonroot.sh "${E711_TOK_GR} -rn z \"\$SOMEDIR\""
+e711_write "$E711_FX" lib/test/sh_nonrecursive.sh "${E711_TOK_GR} -n z \"\$${E711_RV}/x\""
+e711_write "$E711_FX" lib/test/sh_continued.sh \
+  "V=\"\$(${E711_TOK_GR} -rlF x \\\\" \
+  "  \"\$${E711_RV}/lib\")\""
+# The three fail-open shapes the inline review fixed, each retained as a live regression control.
+e711_write "$E711_FX" lib/test/sh_paramexp.sh "d=\${rel#*/}; ${E711_TOK_F} \"\$${E711_RV}\" -type f"
+e711_write "$E711_FX" lib/test/sh_optvalue.sh \
+  "V=\"\$(${E711_TOK_GR} -r --include '*.sh' NEEDLE \"\$${E711_RV}\")\""
+e711_write "$E711_FX" lib/test/strmarker.py \
+  "h = [\"# tree-walk-ok: not a comment\", root.${E711_TOK_R}('*.json')]"
+# Head POSITION. The head is located through extract-command-heads.py's own classification, not
+# assumed to be token 0; each shape below reported `audited 1 of 1 files` at exit 0 before that.
+e711_write "$E711_FX" lib/test/sh_envprefix.sh "LC_ALL=C ${E711_TOK_GR} -rn needle \"\$${E711_RV}\""
+e711_write "$E711_FX" lib/test/sh_wrapper.sh "timeout 5 ${E711_TOK_F} \"\$${E711_RV}\" -type f"
+e711_write "$E711_FX" lib/test/sh_redirect.sh ">out ${E711_TOK_F} \"\$${E711_RV}\" -type f"
+e711_write "$E711_FX" lib/test/sh_negated.sh "! ${E711_TOK_GR} -rq needle \"\$${E711_RV}\""
+e711_write "$E711_FX" lib/test/sh_ifcond.sh "if ${E711_TOK_F} \"\$${E711_RV}\" -type f; then :; fi"
+e711_write "$E711_FX" lib/test/sh_procsub.sh \
+  "while IFS= read -r f; do :; done < <(${E711_TOK_F} \"\$${E711_RV}\" -type f)"
+e711_write "$E711_FX" lib/test/sh_subshell.sh "(${E711_TOK_F} \"\$${E711_RV}\" -name sub)"
+# Span acceptance on the Python side: the marker sits on the wrapped call's CLOSING line.
+e711_write "$E711_FX" lib/test/pyspan.py \
+  "j = ROOT.${E711_TOK_G}(" \
+  "    \"**/y.json\"" \
+  ")  # tree-walk-ok: scoped to a per-test sandbox"
+# The long recursive flags and the operand-less cwd default: both are live arms with no other
+# fixture, so narrowing _GREP_RECURSIVE or dropping the implicit `.` was previously invisible.
+e711_write "$E711_FX" lib/test/sh_longflag.sh "${E711_TOK_GR} --recursive x \"\$${E711_RV}/lib\""
+e711_write "$E711_FX" lib/test/sh_cwddefault.sh "${E711_TOK_GR} -rn NEEDLE"
+# The unbalanced-quote fallback in _comment_split: this line's opening quote lives on the PREVIOUS
+# physical line, so a quote-aware-only split would swallow the marker and report a declared walk.
+e711_write "$E711_FX" lib/test/sh_markedcont.sh \
+  "V=\"\$(${E711_TOK_F} \"\$${E711_RV}/lib\" \\\\" \
+  "  -name x)\"  # tree-walk-ok: scoped to a per-test sandbox"
+# is_audited's separator normalization: a backslash-form path still selects into the population.
+e711_write "$E711_FX" lib/test/backslash.py "i = root.${E711_TOK_R}('*.json')"
+
+# Planted-defect positive control — the assertion that discharges the guard-coverage claim.
+assert_eq "#711 guard flags an unmarked walk in the audited population" "rc=1|lib/test/unmarked.py" \
+  "$(e711_run "$E711_FX" lib/test/unmarked.py | python3 -c 'import re,sys
+t = sys.stdin.read()
+print("rc=%s|%s" % (re.match(r"rc=(\d+)", t).group(1),
+                    ",".join(re.findall(r"^(\S+):\d+: undeclared", t.split("|",1)[1], re.M))))')"
+assert_eq "#711 two violations in one file are reported once each, in line order" "rc=1|1,3" \
+  "$(e711_run "$E711_FX" lib/test/dual.py | python3 -c 'import re,sys
+t = sys.stdin.read()
+print("rc=%s|%s" % (re.match(r"rc=(\d+)", t).group(1),
+                    ",".join(re.findall(r"^\S+:(\d+): undeclared", t.split("|",1)[1], re.M))))')"
+assert_eq "#711 two violating files exit non-zero once, reporting both" "rc=1|lib/test/dual.py,lib/test/dual.py,lib/test/second.py|2" \
+  "$(e711_run "$E711_FX" lib/test/dual.py lib/test/second.py | python3 -c 'import re,sys
+t = sys.stdin.read()
+body = t.split("|", 1)[1]
+print("|".join([
+    "rc=" + re.match(r"rc=(\d+)", t).group(1),
+    ",".join(re.findall(r"^(\S+):\d+: undeclared", body, re.M)),
+    re.search(r"audited (\d+) of", body).group(1),
+]))')"
+assert_eq "#711 guard accepts a marked walk" "rc=0|lint-tree-enumeration: audited 1 of 1 files" \
+  "$(e711_run "$E711_FX" lib/test/marked.py)"
+assert_eq "#711 a bare tree-walk-ok substring does not exempt" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/nearmiss.py)"
+assert_eq "#711 a marker with an empty reason does not exempt" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/emptyreason.py)"
+assert_eq "#711 a walk token inside a comment is not a candidate" "rc=0|lint-tree-enumeration: audited 1 of 1 files" \
+  "$(e711_run "$E711_FX" lib/test/commented.py)"
+assert_eq "#711 a root-anchored glob with a ** component is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/starglob.py)"
+assert_eq "#711 guard reports its audited count on the clean path" "rc=0|lint-tree-enumeration: audited 1 of 1 files" \
+  "$(e711_run "$E711_FX" lib/test/clean.py)"
+# An unparseable audited file has NOT been audited; reporting clean over it would be the same
+# fail-open the guard exists to prevent, so it is a named skip and a non-zero exit.
+assert_eq "#711 a keyword-literal ** pattern is still a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/kwstar.py)"
+assert_eq "#711 an unparseable audited file is a named skip, not a silent pass" "yes" \
+  "$(case "$(e711_run "$E711_FX" lib/test/broken.py)" in rc=0*) echo "no: exited 0" ;; *"SKIPPED lib/test/broken.py"*) echo yes ;; *) echo no ;; esac)"
+# The OTHER skip arm — an unopenable path — reaches the same fail-closed exit through different
+# code (_read's OSError arm, not the parse arm), so it needs its own control.
+assert_eq "#711 an unreadable selected path is a named skip, not a silent pass" "yes" \
+  "$(case "$(e711_run "$E711_FX" lib/test/no-such-file.py)" in rc=0*) echo "no: exited 0" ;; *"SKIPPED lib/test/no-such-file.py"*) echo yes ;; *) echo no ;; esac)"
+
+# AST arm 2 (a non-literal pattern argument) and the per-line dedupe. Neither is reachable from
+# any fixture above, so without these two assertions deleting either leaves the whole block green.
+assert_eq "#711 a glob call whose pattern is not a literal is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/nonliteral.py)"
+assert_eq "#711 a glob call with no positional pattern argument is not a candidate" \
+  "rc=0|lint-tree-enumeration: audited 1 of 1 files" \
+  "$(e711_run "$E711_FX" lib/test/kwonly.py)"
+# The literal arm's two otherwise-uncovered members. The reason string is part of the comparand:
+# it names the token that fired, so a fixture accidentally flagged by an AST arm instead cannot
+# masquerade as the control this assertion claims to be.
+assert_eq "#711 an iglob call with a plain literal pattern is a literal-arm candidate" \
+  "rc=1|1:${E711_TOK_I}(" \
+  "$(e711_run "$E711_FX" lib/test/iglob.py | python3 -c 'import re,sys
+t = sys.stdin.read()
+b = t.split("|",1)[1]
+m = re.search(r"^\S+:(\d+): undeclared recursive walk \(`([^`]+)`\)", b, re.M)
+print("rc=%s|%s" % (re.match(r"rc=(\d+)", t).group(1), "%s:%s" % m.groups() if m else "none"))')"
+assert_eq "#711 a recursive= keyword glob is a literal-arm candidate" \
+  "rc=1|1:${E711_TOK_RT}" \
+  "$(e711_run "$E711_FX" lib/test/recursivekw.py | python3 -c 'import re,sys
+t = sys.stdin.read()
+b = t.split("|",1)[1]
+m = re.search(r"^\S+:(\d+): undeclared recursive walk \(`([^`]+)`\)", b, re.M)
+print("rc=%s|%s" % (re.match(r"rc=(\d+)", t).group(1), "%s:%s" % m.groups() if m else "none"))')"
+# An unparseable file that ALSO carries a literal-arm walk reports BOTH — the finding is not
+# discarded by the parse skip, so the author does not pay a second red run for a known violation.
+assert_eq "#711 a parse skip still reports the literal-arm findings it already collected" \
+  "rc=1|finding=1|skip=1" \
+  "$(e711_run "$E711_FX" lib/test/brokenwalk.py | python3 -c 'import re,sys
+t = sys.stdin.read()
+b = t.split("|",1)[1]
+print("|".join([
+    "rc=" + re.match(r"rc=(\d+)", t).group(1),
+    "finding=%d" % len(re.findall(r"^lib/test/brokenwalk\.py:\d+: undeclared", b, re.M)),
+    "skip=%d" % len(re.findall(r"SKIPPED lib/test/brokenwalk\.py", b)),
+]))')"
+assert_eq "#711 one line reaching two arms is reported once" "rc=1|1" \
+  "$(e711_run "$E711_FX" lib/test/dedupe.py | python3 -c 'import re,sys
+t = sys.stdin.read()
+print("rc=%s|%s" % (re.match(r"rc=(\d+)", t).group(1),
+                    ",".join(re.findall(r"^\S+:(\d+): undeclared", t.split("|",1)[1], re.M))))')"
+
+# --- Shell-arm assertions. The arm fires only on a `find`/`grep -r` whose path operand resolves
+# --- to the repository root, so each shape below is asserted against its own negative control:
+# --- emptying ROOT_FRAGMENTS, inverting the substring pre-filter, breaking fold_continuations, or
+# --- narrowing the path-operand scan each turns one of these RED.
+assert_eq "#711 a shell find over a repository-root path is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_find.sh)"
+assert_eq "#711 a captured recursive grep over a repository-root path is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_capture.sh)"
+# Named for what it measures: a $REPO_ROOT-spelled operand is a candidate. It is NOT a control
+# for the REPO_ROOT tuple member, which `ROOT` subsumes as its own source comment concedes —
+# dropping that member changes no verdict, by construction.
+assert_eq "#711 a REPO_ROOT-spelled operand is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_repo_root.sh)"
+assert_eq "#711 a line-continued recursive grep whose root operand wraps is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_continued.sh)"
+assert_eq "#711 a marked shell walk is accepted" "rc=0|lint-tree-enumeration: audited 1 of 1 files" \
+  "$(e711_run "$E711_FX" lib/test/sh_marked.sh)"
+# The shell arm's documented complement, asserted so an over-wide fragment set goes RED here.
+assert_eq "#711 a recursive grep rooted below the repository root is not a candidate" \
+  "rc=0|lint-tree-enumeration: audited 1 of 1 files" \
+  "$(e711_run "$E711_FX" lib/test/sh_nonroot.sh)"
+assert_eq "#711 a non-recursive grep at the repository root is not a candidate" \
+  "rc=0|lint-tree-enumeration: audited 1 of 1 files" \
+  "$(e711_run "$E711_FX" lib/test/sh_nonrecursive.sh)"
+
+# Three fail-open regressions the inline review found and fixed, each kept as a live control.
+# Every one of them reported `audited 1 of 1 files` at exit 0 over a real undeclared walk.
+assert_eq "#711 a shell parameter expansion does not hide the rest of its line" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_paramexp.sh)"
+assert_eq "#711 an option taking a separated value does not hide the root operand" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_optvalue.sh)"
+assert_eq "#711 marker text inside a string literal does not exempt the line" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/strmarker.py)"
+
+# Head POSITION — six shapes that put something before the command. Each reported clean before
+# the head was located through the shared classification, and each is one character of ordinary
+# idiom away from the sites this suite already writes.
+assert_eq "#711 a walk behind a leading env assignment is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_envprefix.sh)"
+assert_eq "#711 a walk behind a process wrapper is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_wrapper.sh)"
+assert_eq "#711 a walk behind a leading redirection is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_redirect.sh)"
+assert_eq "#711 a negated walk is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_negated.sh)"
+assert_eq "#711 a walk in a compound-command condition is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_ifcond.sh)"
+assert_eq "#711 a walk inside a process substitution is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_procsub.sh)"
+assert_eq "#711 a walk inside a bare subshell is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_subshell.sh)"
+# The AST arms accept a declaration anywhere in a wrapped call's span (the shell analogue is
+# sh_markedcont.sh). Several markers this change plants sit on wrapped calls, so the span logic
+# is load-bearing on shipped code and was otherwise exercised only incidentally by the real tree.
+assert_eq "#711 a marker on the closing line of a wrapped Python call is accepted" \
+  "rc=0|lint-tree-enumeration: audited 1 of 1 files" \
+  "$(e711_run "$E711_FX" lib/test/pyspan.py)"
+# The two shell arms with no other fixture: the long recursive flag and the cwd default.
+assert_eq "#711 a long-form recursive grep flag is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_longflag.sh)"
+assert_eq "#711 an operand-less recursive grep defaults to the cwd and is a candidate" "rc=1" \
+  "$(e711_rc "$E711_FX" lib/test/sh_cwddefault.sh)"
+# The unbalanced-quote fallback: without it the marker on this continued statement is swallowed
+# and a correctly-declared walk is reported — a false positive, the fallback's whole purpose.
+assert_eq "#711 a marked walk on a quote-unbalanced continuation stays declared" \
+  "rc=0|lint-tree-enumeration: audited 1 of 1 files" \
+  "$(e711_run "$E711_FX" lib/test/sh_markedcont.sh)"
+# Population selection normalizes separators, so a backslash-form path still selects in.
+assert_eq "#711 a backslash-form path is not silently dropped from the population" "rc=1" \
+  "$(e711_rc "$E711_FX" 'lib\test\backslash.py')"
+# The --root default: with no flag and no git toplevel the helper must breadcrumb, never silently
+# resolve against a wrong root (the #295 no-silent-default contract). Nothing else exercises it.
+assert_eq "#711 an absent --root outside a repository breadcrumbs rather than defaulting silently" "yes" \
+  "$(E711_NR="$(probe_tmp '#711 no-root cwd')"
+     case "$E711_NR" in ""|/dev/null) echo yes; exit 0 ;; esac
+     rm -f "$E711_NR"; mkdir -p "$E711_NR"
+     E711_NROUT="$(cd "$E711_NR" && python3 "$E711_LINT" 2>&1)"
+     rm -rf "$E711_NR" 2>/dev/null || true
+     case "$E711_NROUT" in *"no git toplevel"*) echo yes ;; *) echo "no: $E711_NROUT" ;; esac)"
+
+# Population selection: a path outside lib/test/ is excluded even while carrying a planted walk,
+# and an all-excluded population is a zero tally at exit 0 — never confused with the fail-closed
+# arms below, which is the confusion that would let an over-wide exclusion read as a clean audit.
+assert_eq "#711 a path outside the audited population is excluded at exit 0" \
+  "rc=0|lint-tree-enumeration: audited 0 of 0 files" \
+  "$(e711_run_outcome "$E711_FX" other/outside.py)"
+# The all-excluded NOTE is asserted on its own, by its stable identifying prefix rather than its
+# full prose: "audited nothing" must not look like "audited everything, found nothing", but the
+# sentence explaining that is free to be reworded without breaking the outcome assertions above.
+assert_eq "#711 a fully-excluded population says so on stderr" "yes" \
+  "$(case "$(e711_run "$E711_FX" other/outside.py)" in
+       *"lint-tree-enumeration: note: all 1 enumerated path(s) were excluded"*) echo yes ;;
+       *) echo no ;;
+     esac)"
+
+# Self-exclusion: the guard's own path is dropped from the population, so a list naming only it
+# audits zero files. The real-tree clean run above is the other half of the same claim.
+assert_eq "#711 the guard does not flag itself" \
+  "rc=0|lint-tree-enumeration: audited 0 of 0 files" \
+  "$(e711_run_outcome "$E711_FX" lib/test/lint-tree-enumeration.py)"
+
+# Fail-closed arms, measured PRE-exclusion. Both halves of the #664 precedent are imported: a
+# zero pre-exclusion population fails closed with its own breadcrumb, while a fully-excluded
+# non-empty one is the legal `audited 0 of 0` above. Without the first half a wrong cwd or a
+# non-repository root would make the guard audit nothing and report a clean pass.
+E711_EMPTY="$(probe_tmp '#711 empty list')"
+: > "$E711_EMPTY"
+assert_eq "#711 an empty pre-exclusion enumeration fails closed" "yes" \
+  "$(E711_OUT2="$(python3 "$E711_LINT" --root "$E711_FX" --files-from "$E711_EMPTY" 2>&1)"
+     case "$?:$E711_OUT2" in 0:*) echo "no: exited 0" ;; *"yielded zero paths before any exclusion"*) echo yes ;; *) echo no ;; esac)"
+case "$E711_EMPTY" in ""|/dev/null) : ;; *) rm -f "$E711_EMPTY" ;; esac   # probe_tmp sentinel: never rm /dev/null
+assert_eq "#711 a non-repository root fails closed naming git ls-files" "yes" \
+  "$(E711_SB="$(probe_tmp '#711 non-repo root')"
+     # probe_tmp's mktemp-failure sentinel. It has ALREADY recorded a suite FAIL and its own
+     # breadcrumb, so the run is red either way; short-circuiting here avoids `rm -f /dev/null`
+     # (which under root would delete the device node) and a second, misattributed failure.
+     case "$E711_SB" in ""|/dev/null) echo yes; exit 0 ;; esac
+     rm -f "$E711_SB"; mkdir -p "$E711_SB"
+     E711_OUT3="$(python3 "$E711_LINT" --root "$E711_SB" 2>&1)"
+     E711_RC3=$?
+     rmdir "$E711_SB" 2>/dev/null || true
+     case "$E711_RC3:$E711_OUT3" in 0:*) echo "no: exited 0" ;; *"git ls-files exited"*) echo yes ;; *) echo no ;; esac)"
+
+# The guard is a pure read: running it twice over the same population yields byte-identical output.
+assert_eq "#711 the guard is idempotent over one population" "same" \
+  "$([ "$(e711_run "$E711_FX" lib/test/clean.py)" = "$(e711_run "$E711_FX" lib/test/clean.py)" ] && echo same || echo differ)"
+case "$E711_FX" in ""|/dev/null) : ;; *) rm -rf "$E711_FX" ;; esac   # probe_tmp sentinel: never rm -rf /dev/null
+
+# Documentation surfaces. Both are surface-presence pins: the rule's behavioral guarantee is
+# carried by the guard's own fixture-driven assertions above, not by a prose-removal check.
+assert_pin_unique "#711 CLAUDE.md carries the enumeration-source rule" \
+  'sources its population from an index-reading `git ls-files`' "$E711_CLAUDE"  # structural-pin-ok: surface-presence pin on the Conventions rule; the enumeration behaviour it describes is proven by the fixture-driven #711 assertions above
+assert_eq "#711 the growth artifact exists" "yes" \
+  "$([ -f "$E711_GROWTH" ] && echo yes || echo no)"
 
 echo "#693 issue-body cache: no cut-over site re-fetches the body"
 IBR_LINT="$LIB/test/lint-issue-body-refetch.py"
@@ -47634,6 +48993,212 @@ assert_pin_red_under "#693 hand-off only: the cache is reached by explicit path,
   'never decides to use the cache by testing for the file in the tree' \
   's/never decides to use the cache by testing for the file in the tree/decides to use the cache by testing for the file in the tree/' \
   "$IBR_P1"
+
+echo "#725 worktree-immunity residuals pinned in the two remaining working-tree enumerations"
+# lint-issue-body-refetch.py takes the ASSERTION form (its worktree immunity is a PREFIX
+# consequence of is_audited, not an in-helper exclusion — widening AUDITED_PREFIX is a
+# deliberate act). Build a temp root carrying a worktree-shaped decoy that holds a real
+# re-fetch violation, drive it through --files-from so no .git/info/exclude line has any
+# say (AC2), and prove the real helper does NOT report it (AC1).
+E725_IBR_FX="$(probe_tmp '#725 ibr worktree fixture root')"
+case "$E725_IBR_FX" in ""|/dev/null) : ;; *) rm -f "$E725_IBR_FX"; mkdir -p "$E725_IBR_FX" ;; esac
+E725_IBR_DECOY=".claude/worktrees/w/skills/implement/phases/phase-1-setup.md"
+e711_write "$E725_IBR_FX" "$E725_IBR_DECOY" '```bash' 'gh issue view 725 --json body --jq .body' '```'
+assert_eq "#725 lint-issue-body-refetch does not report a worktree-shaped decoy (prefix immunity, AC1/AC2)" \
+  "rc=0|lint-issue-body-refetch: audited 0 of 0 files" \
+  "$(ibr_run "$E725_IBR_FX" "$E725_IBR_DECOY")"
+# AC3: the immunity is the prefix and nothing else. Widen the audited population by mutating
+# AUDITED_PREFIX to "" and prove the SAME decoy is now flagged — so the assertion above is
+# guarding the prefix property, not a path that merely happens to be deselected. This is the
+# mutation-against-the-guarded-property discipline (the #375 rule), applied to the helper's own
+# selection constant. The mutation runs the REAL helper file in-process (importlib), so its
+# sibling extract-command-heads.py import resolves against lib/test/ — a scratch copy in a temp
+# dir could not, and the mutation must exercise the shipped code, only with its prefix widened.
+assert_eq "#725 widening lint-issue-body-refetch's prefix reaches the decoy (mutation proves the pin, AC3)" "yes" \
+  "$(E725_IBR_FX="$E725_IBR_FX" E725_IBR_DECOY="$E725_IBR_DECOY" IBR_LINT="$IBR_LINT" python3 -c '
+import importlib.util, io, os, contextlib, tempfile
+fx = os.environ["E725_IBR_FX"]; decoy = os.environ["E725_IBR_DECOY"]
+lst = tempfile.mktemp()
+open(lst, "w").write(decoy + "\n")
+spec = importlib.util.spec_from_file_location("ibr", os.environ["IBR_LINT"])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+m.AUDITED_PREFIX = ""   # widen the audited population to reach the worktree-shaped decoy
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+    rc = m.main(["--root", fx, "--files-from", lst])
+out = buf.getvalue()
+os.unlink(lst)
+print("yes" if rc == 1 and decoy in out and "(gh-issue-view-body)" in out else "no: rc=%s | %s" % (rc, out))
+')"
+case "$E725_IBR_FX" in ""|/dev/null) : ;; *) rm -rf "$E725_IBR_FX" ;; esac
+
+# regenerate-artifacts.py takes the EXPLICIT-EXCLUSION form (its budget rows genuinely need
+# the working-tree read). Pin exclude_worktree_paths directly (fixture-driven, no git): a
+# worktree copy of a review-phase file is dropped while the real path is kept (AC4). A worktree
+# copy matches a watch glob from the right (PurePosixPath.match), so without this filter the
+# copy would enter the watch-list intersection and read as stale-budget drift.
+E725_RA_LINT="$LIB/test/regenerate-artifacts.py"
+assert_eq "#725 regenerate-artifacts drops a sibling-worktree path from the untracked set, keeps the real one (AC4)" \
+  "skills/review/phases/x.md" \
+  "$(python3 -c 'import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ra", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+got = m.exclude_worktree_paths({
+    ".claude/worktrees/w/skills/review/phases/x.md",
+    "skills/review/phases/x.md",
+})
+print(",".join(sorted(got)))' "$E725_RA_LINT")"
+
+# AC4 (contract): exclude_worktree_paths passes an unestablished (`None`) leg through as None.
+# `_git_paths` returns None when its git call failed, and budget_row's `is None` check is what
+# routes that to the `unestablished` arm. A filter that raised on None, or collapsed it onto an
+# empty set, would either abort the row or report a CLEAN record for a change set never read —
+# the repo's unknown-is-not-zero rule. Pinned so a second caller cannot re-derive the contract.
+assert_eq "#725 regenerate-artifacts exclude_worktree_paths passes an unestablished None leg through (AC4 contract)" \
+  "None" \
+  "$(python3 -c 'import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ra", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+print(repr(m.exclude_worktree_paths(None)))' "$E725_RA_LINT")"
+
+# AC4 (boundary): the filter is anchored at the START of the path, not a substring test. A real
+# repo path that merely CONTAINS the prefix (a directory literally named for it, or a sibling
+# suffix such as `.claude/worktrees-archive/`) is kept, while a deeper-nested worktree path is
+# dropped. A substring or over-broad predicate would silently deselect real changed files, which
+# reads as a clean budget record rather than as a failure.
+assert_eq "#725 regenerate-artifacts exclude_worktree_paths anchors at the path start, drops deep nesting (AC4 boundary)" \
+  ".claude/worktrees-archive/a.md,docs/.claude/worktrees/w/a.md" \
+  "$(python3 -c 'import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ra", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+got = m.exclude_worktree_paths({
+    "docs/.claude/worktrees/w/a.md",
+    ".claude/worktrees-archive/a.md",
+    ".claude/worktrees/w/deep/nested/skills/review/phases/x.md",
+})
+print(",".join(sorted(got)))' "$E725_RA_LINT")"
+
+# AC4 (integration): the exclude_worktree_paths pin above covers the function in isolation, but
+# the guarded regression is removal of its CALL SITE in budget_row (the function stays defined and
+# the isolated pin stays green). So drive the real budget_row over a monkeypatched change set whose
+# untracked leg carries a worktree copy of a watch-glob-matching review-phase file, against the
+# real repo root (so watch_list resolves its members with none missing). WITH the call-site filter
+# the copy is dropped and the row is clean; drop the filter and the copy matches the watch glob from
+# the right, enters the intersection, and the row reports JUDGMENT drift — so this pin turns RED on
+# the call-site removal the isolated pin cannot see.
+assert_eq "#725 regenerate-artifacts budget_row excludes a worktree copy from the untracked change set (AC4 call-site pin)" \
+  "clean:(False, False)" \
+  "$(E725_RA_LINT="$E725_RA_LINT" python3 -c '
+import importlib.util, os
+spec = importlib.util.spec_from_file_location("ra", os.environ["E725_RA_LINT"])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+root = m.default_repo_root()
+row = next(r for r in m.ROWS if r["name"] == "review-bundle-budget")
+decoy = ".claude/worktrees/w/skills/review/phases/decoy.md"
+def fake(root_, argv):
+    return {decoy} if argv == ("git", "ls-files", "--others", "--exclude-standard") else set()
+m._git_paths = fake
+report = []
+res = m.budget_row(row, root, report)
+verdict = "clean" if report and report[-1].lstrip().startswith("[review-bundle-budget] clean") else "drift"
+print("%s:%s" % (verdict, res))
+')"
+
+echo "#724 shared population reader (lint_population.py) — its own fail-closed arms, driven directly"
+# Three of the git ls-files lints (lint-tree-enumeration, lint-gh-api-repo-path,
+# lint-issue-body-refetch) now share one population reader (issue #724): the enumeration, the
+# EnumerationError fail-closed contract, the file reader, and the --root/--files-from preamble.
+# AC5 already re-runs every #664/#693/#711/#725 assertion through the callers; this block drives
+# the shared module's own arms directly, so a regression in lint_population.py that no caller
+# fixture happens to exercise still turns the suite RED here. All fixtures are self-contained
+# (a temp dir + --files-from lists), never the real tree, so no repo file count leaks in.
+E724_POP="$LIB/test/lint_population.py"
+assert_eq "#724 lint_population is importable and exposes its contract surface" \
+  "EnumerationError enumerate_population read_source add_population_arguments resolve_root LS_FILES_INDEX LS_FILES_WORKING_TREE" \
+  "$(E724_POP="$E724_POP" python3 -c '
+import importlib.util, os
+s = importlib.util.spec_from_file_location("lint_population", os.environ["E724_POP"])
+m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
+names = ["EnumerationError","enumerate_population","read_source","add_population_arguments","resolve_root","LS_FILES_INDEX","LS_FILES_WORKING_TREE"]
+print(" ".join(n for n in names if hasattr(m, n)))
+')"
+# The two ls-files argv presets are the parameterisation axis (AC2): they must differ, and the
+# index preset must carry no --others (its worktree immunity is exactly that absence).
+assert_eq "#724 the index and working-tree ls-files presets are distinct, and only the working-tree one lists untracked files" \
+  "index=('git', 'ls-files') wt-has-others=True index-has-others=False distinct=True" \
+  "$(E724_POP="$E724_POP" python3 -c '
+import importlib.util, os
+s = importlib.util.spec_from_file_location("lint_population", os.environ["E724_POP"])
+m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
+print("index=%r wt-has-others=%s index-has-others=%s distinct=%s" % (
+  tuple(m.LS_FILES_INDEX), "--others" in m.LS_FILES_WORKING_TREE,
+  "--others" in m.LS_FILES_INDEX, m.LS_FILES_INDEX != m.LS_FILES_WORKING_TREE))
+')"
+# enumerate_population fail-closed arms: an unreadable --files-from, an empty population, and a
+# failing ls-files argv each raise EnumerationError (never a silent empty list read as clean).
+assert_eq "#724 enumerate_population fails closed on unreadable/empty/failing-argv" \
+  "unreadable=EnumerationError empty=EnumerationError badargv=EnumerationError" \
+  "$(E724_POP="$E724_POP" python3 -c '
+import importlib.util, os, tempfile
+from pathlib import Path
+s = importlib.util.spec_from_file_location("lint_population", os.environ["E724_POP"])
+m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
+d = tempfile.mkdtemp()
+def arm(fn):
+    try:
+        fn(); return "no-raise"
+    except m.EnumerationError: return "EnumerationError"
+    except Exception as e: return "wrong:%s" % type(e).__name__
+u = arm(lambda: m.enumerate_population(Path(d), Path(d)/"nope.txt", ls_files_argv=m.LS_FILES_INDEX))
+empty = Path(d)/"empty.txt"; empty.write_text("")
+e = arm(lambda: m.enumerate_population(Path(d), empty, ls_files_argv=m.LS_FILES_INDEX))
+# A ls-files argv naming a git subcommand that exits non-zero drives the returncode!=0 arm.
+b = arm(lambda: m.enumerate_population(Path(d), None, ls_files_argv=("git","ls-files","--no-such-flag")))
+print("unreadable=%s empty=%s badargv=%s" % (u, e, b))
+')"
+# read_source: the NUL policy is the caller-selected axis (AC3). skip_nul=True reports a
+# NUL-carrying file as a skip; skip_nul=False keeps it and scans to completion; an unopenable
+# path is always a reported skip under either policy.
+assert_eq "#724 read_source honors the NUL policy axis and always reports an unopenable path" \
+  "nul-skip=skipped nul-keep=kept-with-nul unreadable=skipped" \
+  "$(E724_POP="$E724_POP" python3 -c '
+import importlib.util, os, tempfile
+from pathlib import Path
+s = importlib.util.spec_from_file_location("lint_population", os.environ["E724_POP"])
+m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
+d = tempfile.mkdtemp(); f = Path(d)/"nul.bin"; f.write_bytes(b"head\x00tail")
+skip = m.read_source(f, skip_nul=True)
+keep = m.read_source(f, skip_nul=False)
+un = m.read_source(Path(d)/"nope", skip_nul=False)
+print("nul-skip=%s nul-keep=%s unreadable=%s" % (
+  "skipped" if skip[0] is None and "NUL" in skip[1] else "NO",
+  "kept-with-nul" if keep[0] is not None and "\x00" in keep[0] else "NO",
+  "skipped" if un[0] is None and un[1].startswith("unreadable") else "NO"))
+')"
+# resolve_root: an explicit --root wins verbatim; with none, a non-git root falls back to the
+# cwd and announces it under the caller-supplied tool name (never a silent default, #295).
+assert_eq "#724 resolve_root honors an explicit root and, in a non-git dir, falls back to cwd with a tool-named breadcrumb" \
+  "explicit=ok fallback=cwd breadcrumb=named" \
+  "$(E724_POP="$E724_POP" python3 -c '
+import importlib.util, io, os, tempfile, contextlib
+from pathlib import Path
+s = importlib.util.spec_from_file_location("lint_population", os.environ["E724_POP"])
+m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
+expl = m.resolve_root("/some/explicit/root", tool="unit-test")
+d = tempfile.mkdtemp(); cwd = os.getcwd()
+try:
+    os.chdir(d)  # a bare temp dir is not a git repo, so rev-parse fails and cwd is the fallback
+    buf = io.StringIO()
+    with contextlib.redirect_stderr(buf):
+        got = m.resolve_root(None, tool="unit-test")
+    err = buf.getvalue()
+finally:
+    os.chdir(cwd)
+print("explicit=%s fallback=%s breadcrumb=%s" % (
+  "ok" if expl == Path("/some/explicit/root") else "NO:%s" % expl,
+  "cwd" if got == Path(d).resolve() or got == Path(d) else "NO:%s" % got,
+  "named" if err.startswith("unit-test: no git toplevel") else "NO:%s" % err))
+')"
 
 # #466 mla-rule-drift (coupled site): match-lint-adjudications.py excludes R4 from carry-forward
 # because R4's detail carries no referent. That exclusion is a DENY-list, so a NEW stale-prose
@@ -48834,33 +50399,10 @@ fi
 # The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/create-issue-contract.sh" \
-  "create-issue-contract" 382; then
+  "create-issue-contract" 395; then
   printf 'ERROR: create-issue-contract boundary could not record its result\n'
   exit 1
 fi
-
-# ────────────────────────────────────────────────────────────────────────────
-echo "#600 create-issue audit-prompt renderer (render-audit-prompt.py)"
-# ────────────────────────────────────────────────────────────────────────────
-# R1..R12 are unit-driven in lib/test/test_render_audit_prompt.py (renderer over
-# mktemp fixture trees + a delivery-equivalence matrix that drives the real
-# load-prompt-extension.sh). The two greps below are SOURCE-SHAPE pins that
-# backstop test_R9_statelessness (which is the outcome check — it observes that no
-# file was written and no stdin was read). A source scan cannot see a write routed
-# through subprocess/shutil/os.write or a variable-mode Path.open, so these pins
-# catch the obvious reintroduction and R9 catches the behavior.
-RAP_ROOT="$(mktemp -d)"
-python3 "$LIB/test/test_render_audit_prompt.py" >"$RAP_ROOT/rap-unit.out" 2>&1
-RAP_UNIT_RC=$?
-# Surface the captured traceback on failure — otherwise the scratch dir is removed
-# below and the only signal left is a bare "expected 0, got 1".
-[ "$RAP_UNIT_RC" -eq 0 ] || cat "$RAP_ROOT/rap-unit.out"
-assert_eq "#600 render-audit-prompt: focused Python tests pass" "0" "$RAP_UNIT_RC"
-assert_eq "#600 render-audit-prompt writes no file (stateless)" "0" \
-  "$(grep -cE "open\([^)]*['\"][wax]|\.write_text\(|\.write_bytes\(" "$LIB/../scripts/render-audit-prompt.py" || true)"
-assert_eq "#600 render-audit-prompt reads no stdin (stateless)" "0" \
-  "$(grep -cE 'sys\.stdin|(^|[^a-zA-Z_])input\(' "$LIB/../scripts/render-audit-prompt.py" || true)"
-rm -rf "$RAP_ROOT"
 
 if ! devflow_run_full_suite_module "$LIB/test/modules/workflow-flight-recorder.sh" \
   "workflow-flight-recorder" 68; then
@@ -48905,164 +50447,683 @@ if ! devflow_run_full_suite_module "$LIB/test/modules/regenerate-artifacts.sh" \
   exit 1
 fi
 
-VB_ROOT="$(mktemp -d)"
-
 # ────────────────────────────────────────────────────────────────────────────
-echo "verification-launch baseline analyzer (issue #527, Wave 1)"
+echo "completion-evidence validator (issue #550)"
 # ────────────────────────────────────────────────────────────────────────────
-python3 "$LIB/test/test_verification_baseline.py" >"$VB_ROOT/vb-unit.out" 2>&1
-assert_eq "verification baseline: focused Python tests pass" "0" "$?"
-# The analyzer is offline (AC #527-2: read-only, launches no verification
-# command and invokes no repository-provided executable) — no subprocess call
-# site in the module. (It imports workflow_flight_recorder, which itself uses
-# subprocess for read-only git; the analyzer never calls those functions.)
-assert_eq "verification baseline: analyzer invokes no subprocess" "0" \
-  "$(grep -cE 'subprocess\.(run|Popen|call|check_output|check_call)' "$LIB/../scripts/verification_baseline.py" || true)"
-# Widened evasion sweep (PR #531 review): the dotted-call pin alone is evadable
-# by `from subprocess import run`, `subprocess.getoutput`, `os.system`,
-# `os.popen`, or `pty.spawn` — none of which it matches. The module legitimately
-# imports no subprocess machinery at all, so pin the absence of every spelling.
-assert_eq "verification baseline: no subprocess import or shell-out spelling" "0" \
-  "$(grep -cE '(^|[^a-zA-Z_])(import subprocess|from subprocess import|os\.system|os\.popen|getoutput|check_output|pty\.spawn|import pty)' "$LIB/../scripts/verification_baseline.py" || true)"
-# Registry coupled pins (the test_workflow_flight_recorder registry test asserts
-# the 5-workflow set; these pin the #527 additions the analyzer depends on).
-assert_eq "verification baseline: registry has the review first-message forms" "1" \
-  "$(grep -cF '"/devflow:review", "/review"' "$LIB/../scripts/workflow-flight-recorder-registry.json" || true)"
-assert_eq "verification baseline: registry has the cloud_mappings section" "1" \
-  "$(grep -cF '"cloud_mappings"' "$LIB/../scripts/workflow-flight-recorder-registry.json" || true)"
+# scripts/check-completion-evidence.py validates a receiving-review completion
+# claim against current, producer-owned evidence and prints exactly one
+# `completion-check: <token> — <detail>` line. These fixtures plant, per token,
+# exactly that token's trigger condition and assert the emitted token, the single
+# verdict line, and the exit code (0 for pass, 1 for each non-pass, 2 + no line
+# for an internal failure). Evidence artifacts live OUTSIDE the fixture repo tree
+# (as they do under the gitignored .devflow/tmp/), so they never perturb the
+# content identity the validator re-derives.
+CCE="$LIB/../scripts/check-completion-evidence.py"
+CCE_ROOT="$(mktemp -d)"
+CCE_REPO="$CCE_ROOT/repo"; CCE_EV="$CCE_ROOT/ev"; CCE_BIN="$CCE_ROOT/bin"
+mkdir -p "$CCE_REPO" "$CCE_EV" "$CCE_BIN"
+( cd "$CCE_REPO" && git init -q && git config user.email t@t && git config user.name t \
+    && printf 'hello\n' > f.txt && git add -A && git commit -qm init ) >/dev/null 2>&1
+# For a clean committed tree, `git write-tree` (what the validator re-derives) equals
+# HEAD^{tree}, so this is the claim-time candidate identity for the honest sequence.
+CCE_TREE="$(cd "$CCE_REPO" && git rev-parse 'HEAD^{tree}')"
+# A gh stub for the remote-trace arms (no network): GH_STUB_MODE selects exists(0) /
+# absent(HTTP 404) / unreach(other non-zero); GH_STUB_OWN answers `gh repo view`.
+cat > "$CCE_BIN/gh" <<'EOF'
+#!/usr/bin/env bash
+case "$1" in
+  repo)
+    # __FAIL__ models an unresolvable own-repo slug (`gh repo view` non-zero), the
+    # input that drives _own_repo to None.
+    if [ "${GH_STUB_OWN:-me/repo}" = "__FAIL__" ]; then exit 1; fi
+    printf '%s\n' "${GH_STUB_OWN:-me/repo}" ;;
+  api)
+    case "${GH_STUB_MODE:-exists}" in
+      exists) exit 0 ;;
+      absent) echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;
+      *) echo "error connecting: dial tcp: no route to host" >&2; exit 1 ;;
+    esac ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$CCE_BIN/gh"
+# _cce runs the validator and captures token (field 2), exit code, and verdict-line
+# count. The stub dir is on PATH for every call (only the remote-deferral cases ever
+# invoke gh; --own-repo overrides `gh repo view`, so the stub is inert elsewhere).
+# grep -c . counts non-empty lines — a single verdict line reads 1, no output reads 0.
+_cce() {
+  CCE_OUT="$(PATH="$CCE_BIN:$PATH" GH_STUB_MODE="${CCE_MODE:-exists}" GH_STUB_OWN="${CCE_OWN:-me/repo}" DEVFLOW_GH="gh" \
+            python3 "$CCE" "$@" 2>/dev/null)"; CCE_RC=$?
+  if [ -z "$CCE_OUT" ]; then CCE_NL=0; else CCE_NL="$(printf '%s\n' "$CCE_OUT" | grep -c .)"; fi
+  CCE_TOK="$(printf '%s\n' "$CCE_OUT" | awk 'NR==1{print $2}')"
+}
+CCE_MODE=exists
+# Evidence artifact writers (JSON via printf so no shell-quote traversal of content).
+printf '{"result":"passed","candidate_identity":"%s","skipped_checks":[]}\n' "$CCE_TREE" > "$CCE_EV/vrec.json"
+printf '{"kind":"reception-identity","claim_context_token":"abc","candidate_identity":"%s"}\n' "$CCE_TREE" > "$CCE_EV/id.json"
+printf '{"kind":"reception-findings","claim_context_token":"abc","findings":[{"finding_id":"f001","disposition":"fixed"}]}\n' > "$CCE_EV/find.json"
 
-rm -rf "$VB_ROOT"
+# ── Token 1: pass (direct) — honest sequence, all classes affirmative ─────────
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/vrec.json" \
+     --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 pass(direct): token" "pass" "$CCE_TOK"
+assert_eq "#550 pass(direct): exit 0" "0" "$CCE_RC"
+assert_eq "#550 pass(direct): single verdict line" "1" "$CCE_NL"
 
-VF_ROOT="$(mktemp -d)"
+# ── Untracked-at-derivation coverage: a brand-new file committed in the same
+#    sequence still yields pass (derivation included it pre-commit; HEAD^{tree}
+#    after commit equals that derived value on a clean tree). ──────────────────
+( cd "$CCE_REPO" && printf 'new\n' > g.txt && git add -A && git commit -qm add-untracked ) >/dev/null 2>&1
+CCE_TREE2="$(cd "$CCE_REPO" && git rev-parse 'HEAD^{tree}')"
+printf '{"result":"passed","candidate_identity":"%s","skipped_checks":[]}\n' "$CCE_TREE2" > "$CCE_EV/vrec2.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/vrec2.json" \
+     --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 pass(direct, new-file-committed): token" "pass" "$CCE_TOK"
+assert_eq "#550 pass(direct, new-file-committed): exit 0" "0" "$CCE_RC"
 
-# ────────────────────────────────────────────────────────────────────────────
-echo "single-flight verification coordination ledger (issue #528, Wave 2)"
-# ────────────────────────────────────────────────────────────────────────────
-python3 "$LIB/test/test_verification_flight.py" >"$VF_ROOT/vf-unit.out" 2>&1
-assert_eq "verification flight: focused Python tests pass" "0" "$?"
-# The coordinator is data-only (AC #528-1): it launches no subprocess, spawns no
-# shell, and runs no git — it never becomes a shell-command bypass. Pin the
-# absence of every subprocess / shell-out / exec spelling.
-#
-# The spelling list is NOT written here. It is read from the single source of
-# truth — BANNED_EXEC_SPELLINGS in lib/test/test_verification_flight.py — so this
-# shell sweep and the Python guard cannot drift into disagreeing coverage (the
-# earlier hand-copied 10-alternative regex was a strict subset of the Python-side
-# list, so each guard certified the contract against the other's blind spot).
-# python3 is a hard preflight prerequisite, so deriving the list is safe here.
-VF_SRC="$LIB/../scripts/verification-flight.py"
-VF_SPELLINGS="$(python3 - "$LIB/test/test_verification_flight.py" <<'VFEOF'
+# ── Token 2: missing-evidence — an absent required reference ──────────────────
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/nope.json" \
+     --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 missing-evidence(absent vrec): token" "missing-evidence" "$CCE_TOK"
+assert_eq "#550 missing-evidence(absent vrec): exit 1" "1" "$CCE_RC"
+assert_eq "#550 missing-evidence(absent vrec): single verdict line" "1" "$CCE_NL"
+
+# ── Token 3: stale-candidate — one tracked byte changed after the verified state.
+#    (vrec2 records CCE_TREE2; mutate a tracked file so the re-derived tree differs.)
+printf 'mutated\n' > "$CCE_REPO/f.txt"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/vrec2.json" \
+     --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 stale-candidate(tracked byte changed): token" "stale-candidate" "$CCE_TOK"
+assert_eq "#550 stale-candidate: exit 1" "1" "$CCE_RC"
+assert_eq "#550 stale-candidate: single verdict line" "1" "$CCE_NL"
+( cd "$CCE_REPO" && git checkout -q -- f.txt ) >/dev/null 2>&1   # restore clean tree
+
+# ── Precedence: missing-evidence beats stale-candidate (presence before value).
+#    Absent vrec beside stale-looking anchors -> missing, not stale. ────────────
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/gone.json" \
+     --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 precedence: missing-evidence beats stale-candidate" "missing-evidence" "$CCE_TOK"
+
+# ── Token 4: verification-not-pass — result is the sanctioned ungranted-consumer
+#    producer shape `result: "skipped"` with a reason. ─────────────────────────
+printf '{"result":"skipped","reason":"suite command not granted","candidate_identity":"%s","skipped_checks":[]}\n' "$CCE_TREE2" > "$CCE_EV/vrec_skip.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/vrec_skip.json" \
+     --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 verification-not-pass(result=skipped): token" "verification-not-pass" "$CCE_TOK"
+assert_eq "#550 verification-not-pass: exit 1" "1" "$CCE_RC"
+assert_eq "#550 verification-not-pass: single verdict line" "1" "$CCE_NL"
+
+# ── Token 5: skipped-checks-present — a pass result with a blocking-gate skip ──
+printf '{"result":"passed","candidate_identity":"%s","skipped_checks":[{"check":"c1","kind":"blocking-gate","reason":"r"}]}\n' "$CCE_TREE2" > "$CCE_EV/vrec_block.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/vrec_block.json" \
+     --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 skipped-checks-present(blocking-gate): token" "skipped-checks-present" "$CCE_TOK"
+assert_eq "#550 skipped-checks-present: exit 1" "1" "$CCE_RC"
+# A skip with NO kind is treated as blocking (fail-closed on the unclassified shape).
+printf '{"result":"passed","candidate_identity":"%s","skipped_checks":[{"check":"c1","reason":"r"}]}\n' "$CCE_TREE2" > "$CCE_EV/vrec_nokind.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/vrec_nokind.json" \
+     --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 skipped-checks-present(no-kind, fail-closed): token" "skipped-checks-present" "$CCE_TOK"
+# A record whose ONLY skips are host-capability-kind is a pass, with those skips
+# quoted in the detail (surfaced, never laundered) — the suppressed input is present.
+printf '{"result":"passed","candidate_identity":"%s","skipped_checks":[{"check":"T6b","kind":"host-capability","reason":"r"}]}\n' "$CCE_TREE2" > "$CCE_EV/vrec_host.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/vrec_host.json" \
+     --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 skipped-checks(host-capability only): token is pass" "pass" "$CCE_TOK"
+assert_eq "#550 skipped-checks(host-capability only): exit 0" "0" "$CCE_RC"
+assert_eq "#550 skipped-checks(host-capability only): skip is quoted in detail (surfaced)" "1" \
+  "$(printf '%s' "$CCE_OUT" | grep -cF 'host-capability skips surfaced: T6b')"
+
+# ── Token 6: undischarged-findings ───────────────────────────────────────────
+# Direct: a claimed-complete session whose ledger records zero dispositions.
+printf '{"kind":"reception-findings","claim_context_token":"abc","findings":[]}\n' > "$CCE_EV/find_empty.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/vrec2.json" \
+     --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find_empty.json" --repo-root "$CCE_REPO"
+assert_eq "#550 undischarged-findings(direct, zero dispositions): token" "undischarged-findings" "$CCE_TOK"
+assert_eq "#550 undischarged-findings(direct): exit 1" "1" "$CCE_RC"
+# Its detail must NOT imply per-finding coverage a direct session cannot assert.
+assert_eq "#550 undischarged-findings(direct): detail states completeness-only, not per-finding" "1" \
+  "$(printf '%s' "$CCE_OUT" | grep -cF 'per-finding coverage is not asserted')"
+# Loop: an in-fix-set finding with no fix_decisions row.
+printf '{"claim_context_token":"run1","candidate_identity":"%s"}\n' "$CCE_TREE2" > "$CCE_EV/loop_id.json"
+printf '{"claim_context_token":"run1","findings":[{"finding_id":"f001","in_fix_set":true}]}\n' > "$CCE_EV/loop_inv.json"
+printf '{"fix_decisions":[]}\n' > "$CCE_EV/loop_ledger_empty.json"
+printf '{"result":"passed","candidate_identity":"%s","skipped_checks":[]}\n' "$CCE_TREE2" > "$CCE_EV/loop_vrec.json"
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec.json" \
+     --findings-inventory "$CCE_EV/loop_inv.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" --repo-root "$CCE_REPO"
+assert_eq "#550 undischarged-findings(loop, in-fix-set no row): token" "undischarged-findings" "$CCE_TOK"
+# Loop: a below-threshold (not-in-fix-set) finding with no row is a pass (derived
+# disposition discharges born-advisory findings).
+printf '{"claim_context_token":"run1","findings":[{"finding_id":"f001","in_fix_set":false}]}\n' > "$CCE_EV/loop_inv_below.json"
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" --repo-root "$CCE_REPO"
+assert_eq "#550 undischarged-findings(loop, below-threshold no row): token is pass" "pass" "$CCE_TOK"
+
+# ── Pass-value coverage: the OTHER honest producer value `result: "pass"` ─────
+# The review-and-fix `verification_evidence` producer writes "pass" (the flight
+# handle writes "passed"); every other pass fixture above uses "passed", so this
+# is the positive control for the second member of PASS_RESULT_VALUES. Narrowing
+# that frozenset to {"passed"} makes this fixture resolve verification-not-pass.
+printf '{"result":"pass","candidate_identity":"%s","skipped_checks":[]}\n' "$CCE_TREE2" > "$CCE_EV/vrec_password.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/vrec_password.json" \
+     --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 pass(result=\"pass\", review-and-fix producer value): token" "pass" "$CCE_TOK"
+assert_eq "#550 pass(result=\"pass\"): exit 0" "0" "$CCE_RC"
+assert_eq "#550 pass(result=\"pass\"): single verdict line" "1" "$CCE_NL"
+
+# ── Loop-supplied identity: the production invocation shape --claim-identity ──
+# The loop passes the identity it computed instead of letting the validator
+# re-derive one, so the --claim-identity pin branch is the real Loop-Exit path.
+# Matching value -> pass; a differing value -> stale-candidate (the staleness
+# compare runs against the SUPPLIED identity, not a re-derivation).
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" \
+     --repo-root "$CCE_REPO" --claim-identity "$CCE_TREE2"
+assert_eq "#550 claim-identity(loop-supplied, matches record): token" "pass" "$CCE_TOK"
+assert_eq "#550 claim-identity(loop-supplied, matches record): exit 0" "0" "$CCE_RC"
+# A loop-supplied identity that differs from the record's is stale — and it must
+# be the SUPPLIED value that decides, so this differing value is one the tree
+# would never re-derive (the pin branch is what makes this fixture stale).
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" \
+     --repo-root "$CCE_REPO" --claim-identity "0000000000000000000000000000000000000000"
+assert_eq "#550 claim-identity(loop-supplied, differs from record): token" "stale-candidate" "$CCE_TOK"
+assert_eq "#550 claim-identity(loop-supplied, differs from record): exit 1" "1" "$CCE_RC"
+
+# ── Token 7: non-durable-deferral ────────────────────────────────────────────
+# Baseline loop pass inputs (no undischarged finding, verification pass).
+CCE_LOOPBASE=(--context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" --repo-root "$CCE_REPO")
+# A chat-only deferral (channel not one of the four durable channels).
+printf '{"deferrals":[{"finding_id":"f003","channel":"chat"}]}\n' > "$CCE_EV/def_chat.json"
+_cce "${CCE_LOOPBASE[@]}" --deferrals "$CCE_EV/def_chat.json"
+assert_eq "#550 non-durable-deferral(chat-only): token" "non-durable-deferral" "$CCE_TOK"
+assert_eq "#550 non-durable-deferral(chat-only): exit 1" "1" "$CCE_RC"
+# A code-comment trace whose marker is absent at the cited in-tree site.
+printf '{"deferrals":[{"finding_id":"f002","channel":"code-comment","ref":{"file":"f.txt","marker":"ABSENT-MARKER"}}]}\n' > "$CCE_EV/def_cc_absent.json"
+_cce "${CCE_LOOPBASE[@]}" --deferrals "$CCE_EV/def_cc_absent.json"
+assert_eq "#550 non-durable-deferral(code-comment marker absent): token" "non-durable-deferral" "$CCE_TOK"
+# A remote trace in the validator's OWN repo whose target the gh stub reports 404
+# (read access established) — provable absence.
+printf '{"deferrals":[{"finding_id":"f004","channel":"follow-up-issue","ref":{"repo":"me/repo","api_path":"repos/me/repo/issues/9999"}}]}\n' > "$CCE_EV/def_remote_own.json"
+CCE_MODE=absent
+_cce "${CCE_LOOPBASE[@]}" --deferrals "$CCE_EV/def_remote_own.json" --own-repo "me/repo"
+assert_eq "#550 non-durable-deferral(remote 404 in own repo): token" "non-durable-deferral" "$CCE_TOK"
+CCE_MODE=exists
+
+# ── Token 8: unverifiable-trace ──────────────────────────────────────────────
+# A remote trace OUTSIDE the credential's provable scope whose target 404s —
+# absence there is unknown; asserted to never yield non-durable-deferral.
+printf '{"deferrals":[{"finding_id":"f005","channel":"follow-up-issue","ref":{"repo":"other/repo","api_path":"repos/other/repo/issues/1"}}]}\n' > "$CCE_EV/def_remote_other.json"
+CCE_MODE=absent
+_cce "${CCE_LOOPBASE[@]}" --deferrals "$CCE_EV/def_remote_other.json" --own-repo "me/repo"
+assert_eq "#550 unverifiable-trace(remote 404 outside scope): token" "unverifiable-trace" "$CCE_TOK"
+assert_eq "#550 unverifiable-trace(outside scope) is NOT non-durable" "0" \
+  "$([ "$CCE_TOK" = "non-durable-deferral" ] && echo 1 || echo 0)"
+# A remote trace with the gh stub unreachable.
+CCE_MODE=unreach
+_cce "${CCE_LOOPBASE[@]}" --deferrals "$CCE_EV/def_remote_own.json" --own-repo "me/repo"
+assert_eq "#550 unverifiable-trace(gh unreachable): token" "unverifiable-trace" "$CCE_TOK"
+CCE_MODE=exists
+
+# ── Deferral pass-arms: loop-record present, code-comment present, omit-on-zero
+printf '{"deferrals":[{"finding_id":"f001","channel":"loop-record"}]}\n' > "$CCE_EV/def_loop.json"
+_cce "${CCE_LOOPBASE[@]}" --deferrals "$CCE_EV/def_loop.json"
+assert_eq "#550 deferral pass(loop-record present): token" "pass" "$CCE_TOK"
+printf '# DEFERRED-f002 tracked at HEAD, see follow-up\n' >> "$CCE_REPO/f.txt"
+( cd "$CCE_REPO" && git add -A && git commit -qm cc-marker ) >/dev/null 2>&1
+CCE_TREE3="$(cd "$CCE_REPO" && git rev-parse 'HEAD^{tree}')"
+printf '{"result":"passed","candidate_identity":"%s","skipped_checks":[]}\n' "$CCE_TREE3" > "$CCE_EV/loop_vrec3.json"
+printf '{"deferrals":[{"finding_id":"f002","channel":"code-comment","ref":{"file":"f.txt","marker":"DEFERRED-f002"}}]}\n' > "$CCE_EV/def_cc.json"
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec3.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" \
+     --repo-root "$CCE_REPO" --deferrals "$CCE_EV/def_cc.json"
+assert_eq "#550 deferral pass(code-comment marker present): token" "pass" "$CCE_TOK"
+# Zero-deferral clean run with NO deferrals.json on disk (omit-on-zero producer state).
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec3.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" \
+     --repo-root "$CCE_REPO" --deferrals "$CCE_EV/absent-deferrals.json"
+assert_eq "#550 deferral pass(zero-deferral, no deferrals.json): token" "pass" "$CCE_TOK"
+# A durable remote citation: a follow-up-issue trace in the OWN repo whose gh-stub
+# target EXISTS -> pass (the durable remote happy path).
+printf '{"deferrals":[{"finding_id":"f006","channel":"follow-up-issue","ref":{"repo":"me/repo","api_path":"repos/me/repo/issues/1"}}]}\n' > "$CCE_EV/def_remote_exists.json"
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec3.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" \
+     --repo-root "$CCE_REPO" --deferrals "$CCE_EV/def_remote_exists.json" --own-repo "me/repo"
+assert_eq "#550 deferral pass(remote follow-up-issue EXISTS): token" "pass" "$CCE_TOK"
+assert_eq "#550 deferral pass(remote EXISTS): exit 0" "0" "$CCE_RC"
+# Cross-entry class ordering: a deferrals list whose FIRST entry is an out-of-scope
+# 404 (unverifiable) and a LATER entry is chat-only (provable non-durable) emits the
+# LOWEST-RANKED class non-durable-deferral, never the first-listed entry's
+# unverifiable-trace (first-failing-CLASS, not first-failing-ENTRY).
+printf '{"deferrals":[{"finding_id":"f007","channel":"follow-up-issue","ref":{"repo":"other/repo","api_path":"repos/other/repo/issues/1"}},{"finding_id":"f008","channel":"chat"}]}\n' > "$CCE_EV/def_mixed_order.json"
+CCE_MODE=absent
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec3.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" \
+     --repo-root "$CCE_REPO" --deferrals "$CCE_EV/def_mixed_order.json" --own-repo "me/repo"
+assert_eq "#550 deferral class-order: non-durable beats first-listed unverifiable" "non-durable-deferral" "$CCE_TOK"
+CCE_MODE=exists
+# ── LIVE producer<->consumer path: the manifest shape loop-exit.md actually
+#    specifies, fed to the real validator. Every fixture above hand-writes a
+#    channel-shaped entry, so none of them exercises the shipped producer schema —
+#    which is how the two files were able to disagree while both sides' own tests
+#    stayed green (PR #716 review, VC-20). This case reads the JSON fence out of
+#    skills/review-and-fix/references/loop-exit.md, substitutes its <placeholder>
+#    tokens, and asserts the validator passes it. It is deliberately NOT a grep
+#    pin on a literal: it goes RED if the doc drops default_channel, renames it,
+#    or names a channel the validator does not accept — i.e. on the real mismatch.
+CCE_LOOPDOC="$LIB/../skills/review-and-fix/references/loop-exit.md"
+python3 - "$CCE_LOOPDOC" "$CCE_EV/def_from_doc.json" <<'PYEOF'
+import json, re, sys
+doc = open(sys.argv[1], encoding='utf-8').read()
+# The deferrals manifest fence is the first ```json block carrying a "deferrals" key.
+blocks = re.findall(r'```json\n(.*?)```', doc, re.S)
+cand = [b for b in blocks if '"deferrals"' in b]
+if len(cand) != 1:
+    sys.exit(f'expected exactly one deferrals JSON fence in loop-exit.md, found {len(cand)}')
+text = cand[0]
+# The fence documents value SHAPES, not values: <...> placeholders stand in for
+# producer-filled content. Substitute them so the documented shape becomes a real
+# manifest — the array-typed line first, then the remaining in-string placeholders.
+text = re.sub(r'\[<start>, <end>\]', '[1, 2]', text)
+text = re.sub(r'<[^>]*>', 'x', text)
+obj = json.loads(text)
+assert isinstance(obj.get('deferrals'), list) and obj['deferrals'], 'fence carries no sample entry'
+open(sys.argv[2], 'w', encoding='utf-8').write(json.dumps(obj))
+PYEOF
+assert_eq "#550/#716 loop-exit.md deferrals fence parses into a real manifest" "0" "$?"
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec3.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" \
+     --repo-root "$CCE_REPO" --deferrals "$CCE_EV/def_from_doc.json" --own-repo "me/repo"
+assert_eq "#550/#716 live cross-file: loop-exit.md manifest shape passes the validator" "pass" "$CCE_TOK"
+assert_eq "#550/#716 live cross-file: exit 0" "0" "$CCE_RC"
+# Negative control, attributed: the SAME doc-derived manifest with only the
+# manifest-level declaration dropped must be rejected by the deferrals guard
+# specifically (non-durable-deferral) — not by some earlier evidence class — so a
+# pass above cannot be an accident of an inert deferrals arm.
+python3 -c 'import json,sys; o=json.load(open(sys.argv[1])); o.pop("default_channel",None); json.dump(o,open(sys.argv[2],"w"))' \
+  "$CCE_EV/def_from_doc.json" "$CCE_EV/def_from_doc_nodecl.json"
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec3.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" \
+     --repo-root "$CCE_REPO" --deferrals "$CCE_EV/def_from_doc_nodecl.json" --own-repo "me/repo"
+assert_eq "#550/#716 doc manifest minus default_channel: rejected by the deferrals guard" "non-durable-deferral" "$CCE_TOK"
+# A declaration outside the four durable channels is DISCARDED, never honored —
+# the declaration cannot widen the guard past ALL_CHANNELS.
+python3 -c 'import json,sys; o=json.load(open(sys.argv[1])); o["default_channel"]="chat"; json.dump(o,open(sys.argv[2],"w"))' \
+  "$CCE_EV/def_from_doc.json" "$CCE_EV/def_from_doc_baddecl.json"
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec3.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" \
+     --repo-root "$CCE_REPO" --deferrals "$CCE_EV/def_from_doc_baddecl.json" --own-repo "me/repo"
+assert_eq "#550/#716 non-durable default_channel declaration is discarded, not honored" "non-durable-deferral" "$CCE_TOK"
+# A per-entry channel still WINS over the declaration (the declaration only fills
+# a channel-less entry) — an entry naming a bogus channel is not laundered by a
+# valid manifest-level default.
+python3 -c 'import json,sys; o=json.load(open(sys.argv[1])); o["deferrals"][0]["channel"]="chat"; json.dump(o,open(sys.argv[2],"w"))' \
+  "$CCE_EV/def_from_doc.json" "$CCE_EV/def_from_doc_entrywins.json"
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec3.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" \
+     --repo-root "$CCE_REPO" --deferrals "$CCE_EV/def_from_doc_entrywins.json" --own-repo "me/repo"
+assert_eq "#550/#716 per-entry channel overrides the manifest declaration" "non-durable-deferral" "$CCE_TOK"
+# skipped_checks is NOT a list (a hand-mutable producer shape) -> fail-closed to
+# skipped-checks-present (unclassifiable), even though result is a pass value.
+printf '{"result":"passed","candidate_identity":"%s","skipped_checks":{"check":"c1"}}\n' "$CCE_TREE3" > "$CCE_EV/vrec_skipobj.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/vrec_skipobj.json" \
+     --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 skipped-checks-present(skipped_checks not a list): token" "skipped-checks-present" "$CCE_TOK"
+assert_eq "#550 skipped-checks-present(not a list): exit 1" "1" "$CCE_RC"
+# Loop: an in-fix-set finding whose finding_id is MISSING (malformed producer shape)
+# fails CLOSED to undischarged-findings, never silently skipped toward pass.
+printf '{"claim_context_token":"run1","findings":[{"in_fix_set":true}]}\n' > "$CCE_EV/loop_inv_noid.json"
+_cce --context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec3.json" \
+     --findings-inventory "$CCE_EV/loop_inv_noid.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" --repo-root "$CCE_REPO"
+assert_eq "#550 undischarged-findings(loop, in-fix-set malformed finding_id): token" "undischarged-findings" "$CCE_TOK"
+
+# ── Wrong-session anchor: a well-formed preflight artifact whose claim-context
+#    token differs from the operand -> missing-evidence (session-binding control).
+printf '{"kind":"reception-identity","claim_context_token":"WRONGSESSION","candidate_identity":"%s"}\n' "$CCE_TREE3" > "$CCE_EV/id_wrong.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/loop_vrec3.json" \
+     --identity-artifact "$CCE_EV/id_wrong.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 wrong-session anchor: token" "missing-evidence" "$CCE_TOK"
+
+# ── Rebind semantics (#668) the check must not read as continuity ─────────────
+# rebound_from == "unknown" (prior identity unreadable) is UNDETERMINED, not
+# continuity -> missing-evidence, never a false pass.
+printf '{"kind":"reception-identity","claim_context_token":"abc","candidate_identity":"%s","rebound_from":"unknown"}\n' "$CCE_TREE3" > "$CCE_EV/id_rebind_unknown.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/loop_vrec3.json" \
+     --identity-artifact "$CCE_EV/id_rebind_unknown.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 rebind(rebound_from=unknown): token is missing-evidence, never pass" "missing-evidence" "$CCE_TOK"
+# rebound_from == null (identity unchanged) is the ordinary pass-arm input.
+printf '{"kind":"reception-identity","claim_context_token":"abc","candidate_identity":"%s","rebound_from":null}\n' "$CCE_TREE3" > "$CCE_EV/id_rebind_null.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/loop_vrec3.json" \
+     --identity-artifact "$CCE_EV/id_rebind_null.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 rebind(rebound_from=null, unchanged tree): token is pass" "pass" "$CCE_TOK"
+
+# ── Session-directory degraded fixtures (direct): absent artifact, present-but-
+#    empty artifact, and a directory with no artifacts each yield missing-evidence
+#    for a claimed-complete session (never fail-open on a missing preflight fact).
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/loop_vrec3.json" \
+     --identity-artifact "$CCE_EV/absent-id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 session-degraded(absent identity artifact): token" "missing-evidence" "$CCE_TOK"
+printf '' > "$CCE_EV/id_empty.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/loop_vrec3.json" \
+     --identity-artifact "$CCE_EV/id_empty.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 session-degraded(empty identity artifact): token" "missing-evidence" "$CCE_TOK"
+
+# ── Malformed-shape matrix over the verification-record JSON input. Each degraded
+#    shape yields a named non-pass token at exit 1 with a single verdict line; no
+#    row yields pass, no row raises an uncaught traceback (rc is 1, never a Python
+#    crash to a bare stderr with no verdict line). ─────────────────────────────
+printf '[1,2,3]\n'        > "$CCE_EV/m_array.json"
+printf '42\n'             > "$CCE_EV/m_scalar.json"
+printf 'false\n'          > "$CCE_EV/m_falsy.json"
+printf '"a string"\n'     > "$CCE_EV/m_wrongtype.json"
+printf ''                 > "$CCE_EV/m_empty.json"
+printf '{"result":"pas'   > "$CCE_EV/m_truncated.json"
+for CCE_M in array scalar falsy wrongtype empty truncated missing; do
+  if [ "$CCE_M" = missing ]; then CCE_MF="$CCE_EV/m_does_not_exist.json"; else CCE_MF="$CCE_EV/m_${CCE_M}.json"; fi
+  _cce --context abc --context-mode direct --verification-record "$CCE_MF" \
+       --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+  assert_eq "#550 malformed-matrix(vrec=$CCE_M): a non-pass token, never pass" "1" \
+    "$([ "$CCE_TOK" != pass ] && [ -n "$CCE_TOK" ] && echo 1 || echo 0)"
+  assert_eq "#550 malformed-matrix(vrec=$CCE_M): exit 1" "1" "$CCE_RC"
+  assert_eq "#550 malformed-matrix(vrec=$CCE_M): exactly one verdict line (no traceback, no silent no-output)" "1" "$CCE_NL"
+done
+
+# The loop operand set refreshed against the CURRENT tree — CCE_LOOPBASE pins the
+# pre-cc-marker verification record, which by this point in the file would route
+# every row below to stale-candidate instead of the class it means to pin.
+CCE_LOOPBASE3=(--context run1 --context-mode loop --verification-record "$CCE_EV/loop_vrec3.json" \
+     --findings-inventory "$CCE_EV/loop_inv_below.json" --disposition-ledger "$CCE_EV/loop_ledger_empty.json" --repo-root "$CCE_REPO")
+# ── Fail-closed branches that were reachable but untested (PR #716 review,
+#    coverage-hardening Suggestion). Each row plants exactly its own branch's
+#    trigger and asserts the named token — these arms are fail-closed by
+#    construction, so an untested one is a guard nobody has ever seen fire.
+# (a) A verification record present and parseable but carrying NO candidate_identity:
+#     the currency compare has no comparand -> missing-evidence, never a value token
+#     and never pass. (Planted beside otherwise-honest anchors, so the token is
+#     attributable to this operand alone.)
+printf '{"result":"passed","skipped_checks":[]}\n' > "$CCE_EV/vrec_noident.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/vrec_noident.json" \
+     --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 vrec without candidate_identity: token is missing-evidence" "missing-evidence" "$CCE_TOK"
+assert_eq "#550 vrec without candidate_identity: exit 1" "1" "$CCE_RC"
+assert_eq "#550 vrec without candidate_identity: single verdict line" "1" "$CCE_NL"
+# Positive control on the SAME fixture: adding only the candidate_identity makes it
+# pass, so the rejection above is attributable to that one absent field and not to
+# an unrelated precondition in the fixture.
+printf '{"result":"passed","candidate_identity":"%s","skipped_checks":[]}\n' "$CCE_TREE3" > "$CCE_EV/vrec_noident_ctl.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/vrec_noident_ctl.json" \
+     --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 vrec candidate_identity control: same fixture plus the field passes" "pass" "$CCE_TOK"
+# (b) A session anchor with NO claim-context token at all: a required artifact with
+#     no discriminator cannot be bound -> missing-evidence (the absent-token sibling
+#     of the wrong-session case above, which pins only a MISmatching token).
+printf '{"kind":"reception-identity","candidate_identity":"%s"}\n' "$CCE_TREE3" > "$CCE_EV/id_notok.json"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/loop_vrec3.json" \
+     --identity-artifact "$CCE_EV/id_notok.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_REPO"
+assert_eq "#550 anchor with absent claim-context token: token is missing-evidence" "missing-evidence" "$CCE_TOK"
+assert_eq "#550 anchor with absent claim-context token: exit 1" "1" "$CCE_RC"
+# Attribute the rejection to the absent-token guard specifically. The token alone
+# cannot: with that guard disabled, the very next line (the token != context
+# compare) rejects the same fixture under the SAME missing-evidence token, so a
+# token-only assertion stays green against a mutant that removed the guard it
+# names. The breadcrumb is what distinguishes the two.
+assert_eq "#550 anchor with absent claim-context token: rejected BY the absent-token guard" "1" \
+  "$(printf '%s' "$CCE_OUT" | grep -cF 'identity-artifact: no claim-context token to bind')"
+# (c) Malformed-shape matrix over the DEFERRALS manifest — the hand-mutable producer
+#     input the four rows below can each degrade independently. No row yields pass.
+printf '{"deferrals":{"finding_id":"f009"}}\n' > "$CCE_EV/def_notlist.json"
+printf '{"deferrals":["not-an-object"]}\n'     > "$CCE_EV/def_notobj.json"
+printf '{"deferrals":[{"finding_id":"f010","channel":"code-comment","ref":{}}]}\n' > "$CCE_EV/def_cc_noref.json"
+printf '{"deferrals":[{"finding_id":"f011","channel":"follow-up-issue","ref":{"repo":"me/repo"}}]}\n' > "$CCE_EV/def_remote_nopath.json"
+for CCE_D in notlist notobj cc_noref remote_nopath; do
+  _cce "${CCE_LOOPBASE3[@]}" --deferrals "$CCE_EV/def_${CCE_D}.json" --own-repo "me/repo"
+  assert_eq "#550 deferrals malformed-matrix($CCE_D): a non-pass token, never pass" "1" \
+    "$([ "$CCE_TOK" != pass ] && [ -n "$CCE_TOK" ] && echo 1 || echo 0)"
+  assert_eq "#550 deferrals malformed-matrix($CCE_D): exit 1" "1" "$CCE_RC"
+  assert_eq "#550 deferrals malformed-matrix($CCE_D): exactly one verdict line (no traceback)" "1" "$CCE_NL"
+done
+# Attribute each rejection to the guard that owns it, not merely to "it failed":
+# a non-list manifest is a structural read failure (missing-evidence), while the
+# three well-formed-but-underspecified entries are the deferrals guard's own class.
+_cce "${CCE_LOOPBASE3[@]}" --deferrals "$CCE_EV/def_notlist.json" --own-repo "me/repo"
+assert_eq "#550 deferrals malformed(entries not a list): missing-evidence" "missing-evidence" "$CCE_TOK"
+for CCE_D in notobj cc_noref remote_nopath; do
+  _cce "${CCE_LOOPBASE3[@]}" --deferrals "$CCE_EV/def_${CCE_D}.json" --own-repo "me/repo"
+  assert_eq "#550 deferrals malformed($CCE_D): attributed to the deferrals guard" "non-durable-deferral" "$CCE_TOK"
+done
+# (d) _own_repo resolves to None (`gh repo view` non-zero and no --own-repo): a 404
+#     is then OUTSIDE provable scope for every repo, so the own-repo 404 fixture that
+#     yields non-durable-deferral WITH --own-repo must yield unverifiable-trace here.
+#     Absence is unknown, never a fabrication accusation, when scope is unestablished.
+CCE_MODE=absent; CCE_OWN=__FAIL__
+_cce "${CCE_LOOPBASE3[@]}" --deferrals "$CCE_EV/def_remote_own.json"
+assert_eq "#550 _own_repo unresolvable: own-repo 404 is unverifiable-trace, not provable absence" \
+  "unverifiable-trace" "$CCE_TOK"
+assert_eq "#550 _own_repo unresolvable: exit 1" "1" "$CCE_RC"
+# Positive control on the same fixture and the same gh mode: supplying --own-repo
+# (the only differing property) flips it to the provable-absence class, so the arm
+# above is attributable to the unresolvable slug and not to an inert probe.
+_cce "${CCE_LOOPBASE3[@]}" --deferrals "$CCE_EV/def_remote_own.json" --own-repo "me/repo"
+assert_eq "#550 _own_repo control: same fixture with a resolved slug is non-durable-deferral" \
+  "non-durable-deferral" "$CCE_TOK"
+CCE_MODE=exists; CCE_OWN=me/repo
+
+# ── Internal-error: an unresolvable repo root (identity re-derivation fails)
+#    exits 2 and prints NO verdict line. ────────────────────────────────────────
+CCE_NOGIT="$CCE_ROOT/nogit"; mkdir -p "$CCE_NOGIT"
+_cce --context abc --context-mode direct --verification-record "$CCE_EV/vrec2.json" \
+     --identity-artifact "$CCE_EV/id.json" --findings-inventory "$CCE_EV/find.json" --repo-root "$CCE_NOGIT"
+assert_eq "#550 internal-error(no git repo): exit 2" "2" "$CCE_RC"
+assert_eq "#550 internal-error(no git repo): NO verdict line" "0" "$CCE_NL"
+
+# ── Semantic-judgment exclusion (code-reading obligation over the shipped source):
+#    the validator source spawns NO subprocess whose head is anything other than
+#    the resolved gh (constant GH — its single subprocess head, on the remote-trace
+#    arm); git runs only inside the imported reception_identity routine, so the
+#    "GIT" allowlist entry below is defensive and unexercised in this module. It
+#    re-grades no severity, re-runs no test suite. An AST negative, not a grep. ──
+CCE_SEMANTIC="$(python3 - "$CCE" <<'SEMEOF'
 import ast, sys
-
-# Derive ATOMICALLY: collect the whole tuple first, and only then print. A
-# print-as-you-go loop fails OPEN on a partial derivation — a tuple element that is
-# not a bare string literal (a concatenation, an f-string, a name) raises partway
-# through, the elements already printed survive in the caller's variable, and a
-# non-empty check waves the truncated list through as if coverage were complete.
-# Anything unexpected exits non-zero with an empty stdout instead, so the caller's
-# fail-closed check fires.
-spellings = []
-found = False
-tree = ast.parse(open(sys.argv[1], encoding="utf-8").read())
-for node in tree.body:
-    if isinstance(node, ast.Assign) and any(
-        getattr(t, "id", "") == "BANNED_EXEC_SPELLINGS" for t in node.targets
-    ):
-        found = True
-        if not isinstance(node.value, ast.Tuple):
-            sys.exit("BANNED_EXEC_SPELLINGS is not a tuple literal")
-        for elt in node.value.elts:
-            if not (isinstance(elt, ast.Constant) and isinstance(elt.value, str)):
-                sys.exit("BANNED_EXEC_SPELLINGS holds a non-string-literal element")
-            spellings.append(elt.value)
-if not found:
-    sys.exit("BANNED_EXEC_SPELLINGS assignment not found")
-print("\n".join(spellings))
-VFEOF
+src = open(sys.argv[1], encoding="utf-8").read()
+tree = ast.parse(src)
+ALLOWED_HEADS = {"GIT", "GH"}
+SPAWNERS = {"run", "Popen", "call", "check_call", "check_output"}
+bad = []
+for node in ast.walk(tree):
+    if isinstance(node, ast.Call):
+        f = node.func
+        # subprocess.<spawner>(...) — the only subprocess surface in this module.
+        is_spawn = (
+            isinstance(f, ast.Attribute)
+            and f.attr in SPAWNERS
+            and isinstance(f.value, ast.Name)
+            and f.value.id == "subprocess"
+        )
+        if not is_spawn or not node.args:
+            continue
+        argv = node.args[0]
+        if not isinstance(argv, ast.List) or not argv.elts:
+            bad.append("non-list-or-empty argv to subprocess")
+            continue
+        head = argv.elts[0]
+        if isinstance(head, ast.Name) and head.id in ALLOWED_HEADS:
+            continue
+        bad.append(ast.dump(head))
+# Also: no import of a test runner and no in-module severity ordering table.
+if "_SEVERITY_ORDER" in src:
+    bad.append("re-introduced a severity-ordering table (severity comparison)")
+print("clean" if not bad else "DIRTY:" + ";".join(bad))
+SEMEOF
 )"
-# Fail closed: an empty derivation would make every membership test below vacuous.
-assert_eq "verification flight: banned-spelling list derived from its single source" "yes" \
-  "$([ -n "$VF_SPELLINGS" ] && echo yes || echo no)"
-# Fail closed on a PARTIAL derivation too: the derived line count must equal the
-# tuple's own element count, so a silently-truncated list cannot pass the non-empty
-# check above. (Deriving the expected count independently, from a plain literal
-# count over the source, keeps this from being a self-referential tautology.)
-VF_TUPLE_LEN="$(python3 - "$LIB/test/test_verification_flight.py" <<'VFLEN'
-import ast, sys
-tree = ast.parse(open(sys.argv[1], encoding="utf-8").read())
-for node in tree.body:
-    if isinstance(node, ast.Assign) and any(
-        getattr(t, "id", "") == "BANNED_EXEC_SPELLINGS" for t in node.targets
-    ):
-        print(len(node.value.elts))
-        break
-VFLEN
-)"
-assert_eq "verification flight: banned-spelling derivation is complete (no partial truncation)" \
-  "$VF_TUPLE_LEN" "$(printf '%s\n' "$VF_SPELLINGS" | grep -c .)"
-VF_EXEC_HITS=0
-while IFS= read -r _vf_spelling; do
-  [ -n "$_vf_spelling" ] || continue
-  case "$(grep -cF -- "$_vf_spelling" "$VF_SRC" || true)" in
-    0) : ;;
-    *) VF_EXEC_HITS=$((VF_EXEC_HITS + 1)); echo "  exec-sweep hit: $_vf_spelling" ;;  # RED-path diagnostic only; deliberately NOT the ' NOTE ' skip channel
-  esac
-done <<VFHITS
-$VF_SPELLINGS
-VFHITS
-assert_eq "verification flight: no subprocess / shell-out / exec spelling" "0" "$VF_EXEC_HITS"
-# The exact, exhaustive state set is a coupled invariant with the helper source
-# and the docs — pin the full declared membership (the grep literals enforce exact
-# content) so a dropped/renamed state goes RED.
-assert_eq "verification flight: ALL_STATES declares the active set" "1" "$(grep -cF '"claimed", "running"' "$VF_SRC" || true)"
-assert_eq "verification flight: TERMINAL_STATES declares every terminal state" "1" \
-  "$(grep -cF '"passed", "failed", "timed_out", "cancelled", "stale", "incomplete"' "$VF_SRC" || true)"
+assert_eq "#550 semantic-exclusion: validator spawns only git/gh, no severity table" "clean" "$CCE_SEMANTIC"
 
-# Coupled grant invariant (issue #528 AC): the vendored-literal helper grant must
-# land in BOTH the implement profile (inline Implement review pass) and the light
-# manual-comment profile (manual Review-and-Fix), and must NOT be added to the
-# read-only reviewer profile (standalone CI-grounded Review creates no flight).
-assert_eq "#528 coupled: devflow-implement.yml grants verification-flight.py by vendored path" "1" \
-  "$(grep -cF 'Bash(.devflow/vendor/devflow/scripts/verification-flight.py:*)' "$LIB/../.github/workflows/devflow-implement.yml" || true)"
-assert_eq "#528 coupled: devflow.yml (manual review listener) grants verification-flight.py by vendored path" "1" \
-  "$(grep -cF 'Bash(.devflow/vendor/devflow/scripts/verification-flight.py:*)' "$LIB/../.github/workflows/devflow.yml" || true)"
-assert_eq "#528 coupled: devflow-runner.yml (read-only reviewer) grants NO verification-flight flight helper" "0" \
-  "$(grep -cF 'verification-flight.py' "$LIB/../.github/workflows/devflow-runner.yml" || true)"
+rm -rf "$CCE_ROOT"
+unset -f _cce
+unset CCE_MODE CCE_LOOPBASE
 
-rm -rf "$VF_ROOT"
+# ── issue #720: bounded concurrent Python-suite pool contract ────────────────
+# Self-contained behavioral assertions for the pool (defined in module-harness.sh).
+# Each scenario runs in a SUBSHELL with a private RESULTS_FILE and throwaway python
+# fixtures created OUTSIDE the tracked lib/test/ tree (under a scratch root), so no
+# fixture appears in lib/test/ and every _DEVFLOW_POOL_* / _DEVFLOW_LIVE_CHILD_*
+# global mutation and every trap install/restore stays isolated from the outer suite
+# and from the real pool opened just below.
+POOL720_FIX="$(mktemp -d "${TMPDIR:-/tmp}/devflow-pool720-fix.XXXXXX")"
+_suite_tmp_dir "$POOL720_FIX"
+printf 'print("pool fixture ok")\nimport sys; sys.exit(0)\n' > "$POOL720_FIX/pa.py"
+printf 'print("pool fixture ok")\nimport sys; sys.exit(0)\n' > "$POOL720_FIX/pb.py"
+printf 'import sys\nprint("POOL720_FIXTURE_BOOM")\nsys.exit(1)\n' > "$POOL720_FIX/fc.py"
+printf 'import os\nopen(os.environ["DEVFLOW_POOL_TALLY_FILE"],"a").write("PASS\\nPASS\\nPASS\\n")\nprint("3 passed, 0 failed")\n' > "$POOL720_FIX/td.py"
+# A self-tally suite that records ZERO verdicts but exits 0 — exercises the reap's
+# zero-assertion fail-closed guard (a silently-empty pooled suite must FAIL, not vanish).
+printf 'print("0 passed, 0 failed")\nimport sys; sys.exit(0)\n' > "$POOL720_FIX/zt.py"
 
-# ────────────────────────────────────────────────────────────────────────────
-echo "receiving-review session artifact producer (issue #668)"
-# ────────────────────────────────────────────────────────────────────────────
-RI_LIB="$LIB/../scripts/reception_identity.py"
-RR_CLI="$LIB/../scripts/reception-record.py"
-RECEPTION_OUT="$(python3 "$LIB/test/test_reception_identity.py" 2>&1)"
-RECEPTION_RC=$?
-assert_eq "reception identity: focused Python tests pass (library + CLI + flight extension)" "0" "$RECEPTION_RC"
-[ "$RECEPTION_RC" -eq 0 ] || while IFS= read -r _ri_line || [ -n "$_ri_line" ]; do printf '    %s\n' "$_ri_line"; done <<< "$RECEPTION_OUT"
-# The library is an importable, non-executable stdlib-only routine (AC1): no exec bit,
-# no PyYAML import, no gh call, no network call.
-assert_eq "reception identity: library carries no executable bit" "no" \
-  "$([ -x "$RI_LIB" ] && echo yes || echo no)"
-assert_eq "reception identity: CLI carries the executable bit" "yes" \
-  "$([ -x "$RR_CLI" ] && echo yes || echo no)"
-assert_eq "reception identity: library imports no PyYAML" "0" \
-  "$(grep -cE '(^|[^a-zA-Z_])(import yaml|from yaml import)' "$RI_LIB" || true)"
-assert_eq "reception identity: library makes no gh call" "0" \
-  "$(grep -cE '"gh"|\bgh \b' "$RI_LIB" || true)"
-# The CLI imports the library rather than re-implementing the derivation (AC2): exactly one
-# copy of the identity format ships. Pin the import and the absence of a second write-tree.
-assert_eq "reception identity: CLI imports the library (single derivation implementation)" "1" \
-  "$(grep -cF 'import reception_identity' "$RR_CLI" || true)"
-assert_eq "reception identity: CLI does not re-implement write-tree" "0" \
-  "$(grep -cF 'write-tree' "$RR_CLI" || true)"
+_pool720_run() {  # width  -> prints the pool's failure output then "COUNTS <pass> <fail>"
+  (
+    RESULTS_FILE="$(mktemp)"
+    DEVFLOW_POOL_WIDTH="$1" devflow_pool_open \
+      pa "$POOL720_FIX/pa.py" single-verdict \
+      pb "$POOL720_FIX/pb.py" single-verdict \
+      fc "$POOL720_FIX/fc.py" single-verdict \
+      td "$POOL720_FIX/td.py" self-tally
+    devflow_pool_join
+    printf 'COUNTS %s %s\n' "$(grep -c '^PASS$' "$RESULTS_FILE")" "$(grep -c '^FAIL$' "$RESULTS_FILE")"
+    rm -f "$RESULTS_FILE"
+  )
+}
+# pa+pb = 2 PASS, fc = 1 FAIL, td (self-tally) = 3 PASS  ->  5 PASS, 1 FAIL.
+_POOL720_CORE="$(_pool720_run "" 2>/dev/null)"
+_POOL720_W1="$(_pool720_run 1 2>/dev/null)"
+_POOL720_CORE_C="$(printf '%s\n' "$_POOL720_CORE" | grep '^COUNTS ' | tail -1)"
+_POOL720_W1_C="$(printf '%s\n' "$_POOL720_W1" | grep '^COUNTS ' | tail -1)"
+assert_eq "#720 pool: every named suite's verdict reaches RESULTS_FILE (core-derived width)" "COUNTS 5 1" "$_POOL720_CORE_C"
+assert_eq "#720 pool: tallies at core-derived width equal tallies at width 1 (equivalence gate)" "$_POOL720_CORE_C" "$_POOL720_W1_C"
+# A forced width of 2 guarantees ≥2 in-flight children even on a single-core host, where the
+# core-derived width above would itself be 1 and the equivalence gate would compare width-1
+# to width-1 (vacuous). This anchors the concurrency-vs-serial equivalence to a real
+# multi-in-flight run regardless of host core count (issue #720 review).
+_POOL720_W2="$(_pool720_run 2 2>/dev/null)"
+_POOL720_W2_C="$(printf '%s\n' "$_POOL720_W2" | grep '^COUNTS ' | tail -1)"
+assert_eq "#720 pool: tallies at forced width 2 (≥2 in-flight) equal tallies at width 1" "$_POOL720_W1_C" "$_POOL720_W2_C"
+assert_eq "#720 pool: a planted failing fixture fails the run identically at width 1 (positive control)" "COUNTS 5 1" "$_POOL720_W1_C"
+case "$_POOL720_CORE" in
+  *POOL720_FIXTURE_BOOM*) assert_eq "#720 pool: a failing suite increments FAIL and its captured output is printed" "yes" "yes" ;;
+  *) assert_eq "#720 pool: a failing suite increments FAIL and its captured output is printed" "yes" "no" ;;
+esac
+# Width resolution: override wins only when a positive integer; otherwise the cpu_count
+# probe, falling back to width 1 on empty / zero / non-numeric (functional assertions —
+# each fails RED if the positive-integer validation in _devflow_pool_resolve_width is removed;
+# the mutation-check that confirms this is recorded in the issue #720 workpad).
+assert_eq "#720 pool width: a positive-integer DEVFLOW_POOL_WIDTH override wins over the probe" "3" "$(DEVFLOW_POOL_WIDTH=3 _devflow_pool_resolve_width)"
+assert_eq "#720 pool width: falls back to 1 on an empty cpu_count probe" "1" "$(DEVFLOW_TEST_POOL_CPU_PROBE= _devflow_pool_resolve_width)"
+assert_eq "#720 pool width: falls back to 1 on a zero cpu_count probe" "1" "$(DEVFLOW_TEST_POOL_CPU_PROBE=0 _devflow_pool_resolve_width)"
+assert_eq "#720 pool width: falls back to 1 on a non-numeric cpu_count probe" "1" "$(DEVFLOW_TEST_POOL_CPU_PROBE=abc _devflow_pool_resolve_width)"
+assert_eq "#720 pool width: a non-positive override is ignored and the probe is used" "2" "$(DEVFLOW_POOL_WIDTH=0 DEVFLOW_TEST_POOL_CPU_PROBE=2 _devflow_pool_resolve_width)"
+# A suite whose script does not exist fails CLOSED (FAIL), never skipped.
+_POOL720_BAD="$( ( RESULTS_FILE="$(mktemp)"; devflow_pool_open bad "$POOL720_FIX/nope.py" single-verdict; devflow_pool_join; printf '%s %s\n' "$(grep -c '^PASS$' "$RESULTS_FILE")" "$(grep -c '^FAIL$' "$RESULTS_FILE")"; rm -f "$RESULTS_FILE" ) 2>/dev/null | tail -1 )"
+assert_eq "#720 pool: a suite whose script path does not exist fails closed (FAIL, not skipped)" "0 1" "$_POOL720_BAD"
+# A self-tally suite that records zero verdicts fails CLOSED (the reap's zero-assertion
+# guard), never silently contributing nothing with '0 failed'.
+_POOL720_ZERO="$( ( RESULTS_FILE="$(mktemp)"; devflow_pool_open zt "$POOL720_FIX/zt.py" self-tally; devflow_pool_join; printf '%s %s\n' "$(grep -c '^PASS$' "$RESULTS_FILE")" "$(grep -c '^FAIL$' "$RESULTS_FILE")"; rm -f "$RESULTS_FILE" ) 2>/dev/null | tail -1 )"
+assert_eq "#720 pool: a self-tally suite recording zero assertions fails closed (FAIL, not a silent empty)" "0 1" "$_POOL720_ZERO"
+# A supervisor PID-rendezvous timeout under saturation is absorbed by the serial-retry
+# path (the retry is exercised by forcing a real timeout, not by asserting timeouts away).
+# A retry-ran MARKER (DEVFLOW_TEST_POOL_RETRY_MARKER) is asserted PRESENT so this cannot pass
+# vacuously: if the forced-timeout hook or the marker-detection predicate ever regressed to
+# never firing, `pa` would run normally and the tally would still be "2 0" — but the marker
+# would be empty, turning this RED instead of a false green (issue #720 review).
+_POOL720_RMARK="$(mktemp)"
+# EXPORT the hooks subshell-wide (not as an `open`-only command prefix): the timeout is
+# forced at launch (open) but the serial retry — and its marker write — happen in join, so a
+# command-prefix scoped to `open` would leave join's run_serial without the marker.
+_POOL720_RDV="$( (
+  export DEVFLOW_TEST_POOL_RETRY_MARKER="$_POOL720_RMARK" DEVFLOW_POOL_FORCE_RENDEZVOUS_TIMEOUT=pa DEVFLOW_POOL_WIDTH=2
+  RESULTS_FILE="$(mktemp)"
+  devflow_pool_open pa "$POOL720_FIX/pa.py" single-verdict pb "$POOL720_FIX/pb.py" single-verdict
+  devflow_pool_join
+  printf '%s %s\n' "$(grep -c '^PASS$' "$RESULTS_FILE")" "$(grep -c '^FAIL$' "$RESULTS_FILE")"
+  rm -f "$RESULTS_FILE"
+) 2>/dev/null | tail -1 )"
+assert_eq "#720 pool: a forced rendezvous timeout is absorbed by serial retry, tallies unchanged" "2 0" "$_POOL720_RDV"
+assert_eq "#720 pool: the serial-retry path actually RAN for the forced-timeout suite (not a vacuous pass)" "pa" "$(grep -m1 '^pa$' "$_POOL720_RMARK" 2>/dev/null || printf 'no-retry')"
+rm -f "$_POOL720_RMARK"
+# issue #720 review: force the rendezvous timeout on a SELF-TALLY suite (the case above
+# forces it on single-verdict `pa`). The serial-retry's $output-reuse — reap truncating and
+# reusing $output as the retry's capture, and _devflow_pool_run_serial writing the retried
+# suite's combined stdout there — exists SPECIFICALLY so a retried self-tally suite still
+# re-emits its `N passed, M failed` summary line; nulling it would drop the summary and
+# inject a spurious coverage FAIL. Assert BOTH the tally count survives (td = 3 PASS) AND
+# the summary line is recaptured after the retry (the code the single-verdict case cannot
+# exercise, since a single-verdict suite has no summary). A retry MARKER is asserted PRESENT
+# so this cannot pass vacuously if the forced-timeout hook ever regressed to never firing.
+_POOL720_STRMARK="$(mktemp)"
+_POOL720_ST_RDV="$( (
+  export DEVFLOW_TEST_POOL_RETRY_MARKER="$_POOL720_STRMARK" DEVFLOW_POOL_FORCE_RENDEZVOUS_TIMEOUT=td DEVFLOW_POOL_WIDTH=2
+  RESULTS_FILE="$(mktemp)"
+  devflow_pool_open td "$POOL720_FIX/td.py" self-tally pb "$POOL720_FIX/pb.py" single-verdict
+  devflow_pool_join
+  printf 'COUNTS %s %s SUMMARY=%s LINES=%s\n' \
+    "$(grep -c '^PASS$' "$RESULTS_FILE")" "$(grep -c '^FAIL$' "$RESULTS_FILE")" \
+    "${_DEVFLOW_POOL_SELFTALLY_SUMMARY[td]:-MISSING}" "${_DEVFLOW_POOL_SELFTALLY_LINES[td]:-MISSING}"
+  rm -f "$RESULTS_FILE"
+) 2>/dev/null | tail -1 )"
+# td (self-tally, 3 PASS) + pb (single-verdict, 1 PASS) = 4 PASS, 0 FAIL; after the forced
+# timeout on td, its summary ("3 passed, 0 failed") is recaptured and its 3 tally lines are
+# folded into RESULTS_FILE.
+assert_eq "#720 pool: a forced rendezvous timeout on a SELF-TALLY suite re-emits its summary and folds its tally after serial retry" \
+  "COUNTS 4 0 SUMMARY=3 passed, 0 failed LINES=3" "$_POOL720_ST_RDV"
+assert_eq "#720 pool: the serial-retry path actually RAN for the forced-timeout self-tally suite (not a vacuous pass)" \
+  "td" "$(grep -m1 '^td$' "$_POOL720_STRMARK" 2>/dev/null || printf 'no-retry')"
+rm -f "$_POOL720_STRMARK"
+# The pool restores the caller's HUP/INT/TERM traps byte-for-byte and the live-child
+# registry is empty after join (every child deregistered). The pool installs NO EXIT trap
+# of its own — that single-EXIT-trap invariant is pinned structurally by
+# test_module_runner.py's exit-trap scan over run.sh's source (a subshell's inherited EXIT
+# trap is reset by bash on entry, so it is not a reliable in-subshell comparand here).
+_POOL720_TRAPS="$( (
+  RESULTS_FILE="$(mktemp)"
+  _bh="$(trap -p HUP)"; _bi="$(trap -p INT)"; _bt="$(trap -p TERM)"
+  DEVFLOW_POOL_WIDTH=2 devflow_pool_open pa "$POOL720_FIX/pa.py" single-verdict pb "$POOL720_FIX/pb.py" single-verdict >/dev/null
+  devflow_pool_join
+  _ah="$(trap -p HUP)"; _ai="$(trap -p INT)"; _at="$(trap -p TERM)"
+  if [ "$_bh" = "$_ah" ] && [ "$_bi" = "$_ai" ] && [ "$_bt" = "$_at" ] && [ "${#_DEVFLOW_LIVE_CHILD_PIDS[@]}" -eq 0 ]; then printf 'clean\n'; else printf 'DIRTY\n'; fi
+  rm -f "$RESULTS_FILE"
+) 2>/dev/null | tail -1 )"
+assert_eq "#720 pool: caller HUP/INT/TERM traps byte-identical and registry empty after join" "clean" "$_POOL720_TRAPS"
+unset -f _pool720_run
+unset POOL720_FIX _POOL720_CORE _POOL720_W1 _POOL720_W2 _POOL720_CORE_C _POOL720_W1_C _POOL720_W2_C _POOL720_BAD _POOL720_ZERO _POOL720_RDV _POOL720_RMARK _POOL720_TRAPS _POOL720_ST_RDV _POOL720_STRMARK
 
 # These integration tests live outside the module whose registration and source
 # boundary they pin, so deleting that boundary cannot delete the test execution.
-MODULE_RUNNER_OUT="$(python3 "$LIB/test/test_module_runner.py" 2>&1)"
-MODULE_RUNNER_RC=$?
-assert_eq "test module runner: focused Python tests pass" "0" "$MODULE_RUNNER_RC"
-[ "$MODULE_RUNNER_RC" -eq 0 ] || while IFS= read -r _mr_line || [ -n "$_mr_line" ]; do printf '    %s\n' "$_mr_line"; done <<< "$MODULE_RUNNER_OUT"
+#
+# issue #720: open the bounded concurrent Python-suite pool HERE, at the former
+# test_module_runner.py driver site — after every preceding
+# devflow_run_full_suite_module call (those boundaries are complete, so no pooled
+# suite races the main shell on them) and before the harness-python-guards boundary
+# below — which the pooled test_module_runner.py itself drives through its own
+# run-module.sh subprocess, so that boundary runs in the main shell and in the pooled
+# suite concurrently; the overlap is safe because each execution uses its own isolated
+# owned scratch root, not shared mutable state. The three pooled
+# suites overlap that last module and the ~2000-line shell tail that follows it,
+# and the pool joins just before the RESULTS_FILE tally is counted
+# (devflow_pool_join, further down). Membership is exactly these three:
+# test_module_runner.py and test_prompt_mass_census.py report one verdict apiece
+# (single-verdict); test_python_scripts.py reports one PASS/FAIL per assertion into
+# the tally path the pool exports (self-tally). Their former standalone driver
+# sites — test_prompt_mass_census.py's $PMC_TEST run and test_python_scripts.py's
+# awk-parsed block — are deleted below; every pooled verdict reaches PASS/FAIL
+# through RESULTS_FILE.
+devflow_pool_open \
+  "test_module_runner.py" "$LIB/test/test_module_runner.py" single-verdict \
+  "test_prompt_mass_census.py" "$LIB/test/test_prompt_mass_census.py" single-verdict \
+  "test_python_scripts.py" "$LIB/test/test_python_scripts.py" self-tally
+
+# test_module_harness.py runs SERIALLY on the main shell, OUTSIDE the pool — both its
+# full-suite invocation and its --signal-matrix-capability probe. The supervisor forks
+# its worker with job control disabled, and this suite asserts on the SIGINT disposition
+# (trap -- '' SIGINT) its children inherit; a pooled child forked under job control off
+# would corrupt exactly that, so it is excluded by name rather than pooled and hoped for.
 MODULE_HARNESS_OUT="$(python3 "$LIB/test/test_module_harness.py" 2>&1)"
 MODULE_HARNESS_RC=$?
 assert_eq "test module full-suite boundary: focused Python tests pass" "0" "$MODULE_HARNESS_RC"
@@ -49072,31 +51133,67 @@ if ! MODULE_SIGNAL_MATRIX_CAPABILITY="$(python3 "$LIB/test/test_module_harness.p
     "${MODULE_SIGNAL_MATRIX_CAPABILITY:-POSIX signals and process groups are unavailable}"
 fi
 
-# ────────────────────────────────────────────────────────────────────────────
-echo "issue #591: coverage-map ratchet guard"
-# ────────────────────────────────────────────────────────────────────────────
-# Live-tree ratchet: the guard enumerates git-tracked depth-1 lib/scripts units
-# and cross-references lib/test/modules/coverage-map.json + the registry. A new code
-# unit shipped without a coverage decision — or a stale/misfiled/wrong-shape map —
-# turns THIS suite RED (git + python3 only; guard-class 2). Its arms are exercised
-# with synthetic fixtures by test_coverage_map_guard.py below.
-COVERAGE_GUARD_OUT="$(python3 "$LIB/test/coverage_map_guard.py" "$LIB/.." 2>&1)"
-COVERAGE_GUARD_RC=$?
-assert_eq "#591 coverage-map guard: shipped tree + map is clean" "0" "$COVERAGE_GUARD_RC"
-[ "$COVERAGE_GUARD_RC" -eq 0 ] || while IFS= read -r _cg_line || [ -n "$_cg_line" ]; do printf '    %s\n' "$_cg_line"; done <<< "$COVERAGE_GUARD_OUT"
-# Reuse the shared focused-Python-test runner (module-harness.sh, sourced above)
-# rather than re-implementing its capture/assert/indent idiom — it also applies the
-# PYTHON_COLORS=0 determinism guard the hand-rolled form dropped.
-_CG_UNIT_OUT="$(mktemp)"
-devflow_run_focused_python_test "#591 coverage-map guard: focused Python tests pass" \
-  "$LIB/test/test_coverage_map_guard.py" "$_CG_UNIT_OUT"
-rm -f "$_CG_UNIT_OUT"
+# harness-python-guards contract coverage (issue #707: extracted from this file's
+# #600 / #527 / #528 / #668 / #591 monolith-only Python guard blocks into a focused
+# module). The registry and this full-suite call share the same lower-bound contract;
+# test_module_runner.py parses this operand and rejects any coupling drift.
+if ! devflow_run_full_suite_module "$LIB/test/modules/harness-python-guards.sh" \
+  "harness-python-guards" 33; then
+  printf 'ERROR: harness-python-guards boundary could not record its result\n'
+  exit 1
+fi
 
 # ────────────────────────────────────────────────────────────────────────────
 # ────────────────────────────────────────────────────────────────────────────
 echo "issue #546: issue-audit-state.py — the create-issue audit-lifecycle state owner"
 
 IAS="$LIB/../scripts/issue-audit-state.py"
+# issue #709: the canonical dispatch-instruction generator the state owner regenerates
+# from. Fixtures below whose subject is NOT steering still have to ESTABLISH it, because
+# the clean eligibility ground now requires it — so they generate the instruction file,
+# record it as the round's closed inputs, and quote the auditor's two return values.
+IAS_RAP="$LIB/../scripts/render-audit-prompt.py"
+
+# The generate-then-hash half of that recipe, hoisted so no fixture hand-inlines it: a
+# missed or mistyped site does NOT fail loudly — the round degrades to unestablished and
+# the fixture silently starts measuring the steering gate instead of its own subject.
+# Writes <sandbox>/instr-<slug>.md (per-slug because the out-of-bounds paths the
+# instructions carry embed the slug, so cross-slug reuse would legitimately mismatch) and
+# prints the object ID the auditor would quote. The optional 4th argument overrides PATH
+# for the generation itself (the restricted-PATH fixtures use it, which additionally
+# proves the generator derives nothing through a non-preflight PATH tool).
+ias_instructions() {  # <sandbox-root> <slug> <draft-path> [PATH-override]
+  local root="$1" slug="$2" draft="$3"
+  local PATH="${4:-$PATH}"
+  # The draft may live outside the sandbox root (the draft-binding fixture audits a file
+  # under its bound root), so an absolute path is taken verbatim.
+  case "$draft" in /*) ;; *) draft="$root/$draft" ;; esac
+  # Check the generation before hashing. The redirect truncates the target BEFORE the
+  # generator runs, so on any failure (a RenderError, a title-less fixture draft, a
+  # python3 absent from the restricted PATH the 4th argument installs) the file is left
+  # empty and `git hash-object` prints the empty-blob ID — a valid-looking hash that
+  # silently degrades every caller's round to unestablished, which is exactly the
+  # failure class the comment above says this helper exists to prevent.
+  if ! python3 "$IAS_RAP" dispatch-instructions --slug "$slug" \
+      --draft-path "$draft" --instructions-path "$root/instr-$slug.md" \
+      > "$root/instr-$slug.md" || [ ! -s "$root/instr-$slug.md" ]; then
+    # Record the failure through the suite's OWN tally file, not a shell variable: every
+    # call site invokes this helper inside a command substitution, so the subshell's
+    # `FAIL=$((FAIL+1))` died with the subshell, and the authoritative count is recomputed
+    # at the end as `grep -c '^FAIL$' "$RESULTS_FILE"` anyway. The first version of this
+    # guard printed a FAIL-shaped line and still exited 0 — red on screen, green in the
+    # summary. The RESULTS_FILE append is the guard that actually fires; the stdout
+    # sentinel is a belt-and-braces poison value so a downstream digest comparison cannot
+    # match by accident (no call site asserts on it directly). The diagnostic goes to
+    # STDERR, not stdout: every call site is `X="$(ias_instructions …)"`, so a stdout
+    # message is captured into the variable and never reaches the operator.
+    echo FAIL >> "$RESULTS_FILE"
+    printf '  FAIL  ias_instructions(%s): the dispatch-instruction generator failed or wrote no bytes; every fixture using this slug would silently measure the steering gate instead of its own subject\n' "$slug" >&2
+    echo 'GENERATOR-FAILED'
+    return 1
+  fi
+  git hash-object --stdin --no-filters < "$root/instr-$slug.md"
+}
 
 # §11 coupled doc site: the overview must describe the TOOL-owned lifecycle, not the retired
 # prose state machine. Coupled with the SKILL cutover — a reader who trusts §11's description
@@ -49159,11 +51256,22 @@ if [ -d "$IAS_SB" ]; then
 
     PATH="$RESTRICTED" python3 "$IAS" query-arm rt --nonce "$NONCE" \
       --write-landed yes --draft-file draft.md > .rt-arm
+    # issue #709: this fixture's subject is the restricted-PATH lifecycle, not steering, so
+    # it ESTABLISHES steering-absence the way a real run does — generate the canonical
+    # dispatch instructions, record them as the round's closed inputs, and quote the two
+    # auditor return values. Without this the clean ground below is withheld and every
+    # eligibility/emit row here would be asserting the steering gate instead of its own
+    # subject. The generator runs under the SAME restricted PATH, which additionally
+    # proves it derives nothing through a non-preflight PATH tool.
+    IOID="$(ias_instructions "$IAS_SB" rt draft.md "$RESTRICTED")"
     PATH="$RESTRICTED" python3 "$IAS" record-dispatch rt --nonce "$NONCE" \
-      --round 1 --arm file --draft-file draft.md > .rt-dispatch
+      --round 1 --arm file --draft-file draft.md \
+      --instructions-file "$IAS_SB/instr-rt.md" \
+      --instructions-draft-path "$IAS_SB/draft.md" > .rt-dispatch
     OID="$(PATH="$RESTRICTED" git hash-object --stdin --no-filters < draft.md)"
     PATH="$RESTRICTED" python3 "$IAS" record-return rt --nonce "$NONCE" --round 1 \
-      --verdict REVISE --findings-count 2 --carriage-object-id "$OID" > .rt-return
+      --verdict REVISE --findings-count 2 --carriage-object-id "$OID" \
+      --instructions-object-id "$IOID" --extra-dispatch-content no > .rt-return
     PATH="$RESTRICTED" python3 "$IAS" query-next-action rt --nonce "$NONCE" --round 1 > .rt-next
     # #548: adjudicate the REVISE round (2 unresolved must-revise) — T1 now consumes the
     # post-adjudication unresolved count, so it holds only after this record, not on the raw
@@ -49185,7 +51293,10 @@ LEDGER-EOF
 
     # Revise the draft, record it, then assert approve mode refuses the unaudited bytes.
     printf '# Draft title\n\nBody line one (revised).\nBody line two.\n' > draft.md
-    PATH="$RESTRICTED" python3 "$IAS" record-revision rt --nonce "$NONCE" --after-round 1 > .rt-rev
+    # issue #705: the round dispatched on the file arm, so record-revision now requires the
+    # intended-bytes digest — pipe the revised draft to --stdin-digest.
+    PATH="$RESTRICTED" python3 "$IAS" record-revision rt --nonce "$NONCE" --after-round 1 \
+      --stdin-digest < draft.md > .rt-rev
     PATH="$RESTRICTED" python3 "$IAS" query-eligibility rt --nonce "$NONCE" \
       --mode approve --draft-file draft.md > .rt-elig-bad
     PATH="$RESTRICTED" python3 "$IAS" query-eligibility rt --nonce "$NONCE" \
@@ -49199,11 +51310,17 @@ LEDGER-EOF
     PATH="$RESTRICTED" python3 "$IAS" query-convergence rt --nonce "$NONCE" > .rt-conv-resolved
 
     # A clean round on the revised bytes, then approve mode must ground eligible.
+    # Regenerate the instructions AFTER the revision: the generator reads the title from
+    # the draft file, so a round must be established against the bytes it actually audits.
+    IOID2="$(ias_instructions "$IAS_SB" rt draft.md "$RESTRICTED")"
     PATH="$RESTRICTED" python3 "$IAS" record-dispatch rt --nonce "$NONCE" \
-      --round 2 --arm file --draft-file draft.md > /dev/null
+      --round 2 --arm file --draft-file draft.md \
+      --instructions-file "$IAS_SB/instr-rt.md" \
+      --instructions-draft-path "$IAS_SB/draft.md" > /dev/null
     OID2="$(PATH="$RESTRICTED" git hash-object --stdin --no-filters < draft.md)"
     PATH="$RESTRICTED" python3 "$IAS" record-return rt --nonce "$NONCE" --round 2 \
-      --verdict FILE --findings-count 0 --carriage-object-id "$OID2" > /dev/null
+      --verdict FILE --findings-count 0 --carriage-object-id "$OID2" \
+      --instructions-object-id "$IOID2" --extra-dispatch-content no > /dev/null
     # #548: adjudicate the clean round (FILE, 0 unresolved must-revise) — the run now converges.
     PATH="$RESTRICTED" python3 "$IAS" record-adjudication rt --nonce "$NONCE" --round 2 \
       --verdict FILE --must-revise 0 --advisory 1 --invalid 0 --unresolved-must-revise 0 > /dev/null
@@ -49225,7 +51342,8 @@ LEDGER-EOF
   assert_eq "#546 cli_roundtrip_restricted_path: query-arm routes a landed write to the file arm" \
     "arm=file marker=none" "$(cat "$IAS_SB/.rt-arm" 2>/dev/null)"
   assert_eq "#546 cli_roundtrip_restricted_path: a REVISE return classifies accept-revise" \
-    "classification=accept-revise outcome=REVISE" "$(cat "$IAS_SB/.rt-return" 2>/dev/null)"
+    "classification=accept-revise outcome=REVISE steering=established steering_reason=canonical-match" \
+    "$(cat "$IAS_SB/.rt-return" 2>/dev/null)"
   assert_eq "#546 cli_roundtrip_restricted_path: the automatic re-audit is the next action" \
     "action=revise-and-reaudit" "$(cat "$IAS_SB/.rt-next" 2>/dev/null)"
   assert_eq "#548 cli_roundtrip_restricted_path: T1 holds after a REVISE round is ADJUDICATED (not on the raw token)" \
@@ -49293,14 +51411,22 @@ for FILTER_MODE in autocrlf textauto; do
     printf '# T\r\n\r\nCRLF body line.\r\n' > draft.md
     NONCE="$(python3 "$IAS" init crlf | sed 's/nonce=//')"
     # The dispatch digest, as the tool records it.
+    # issue #709: establish steering so the eligibility rows below still measure the
+    # DIGEST agreement they are about. The instruction file is deliberately generated
+    # under the same filter config, which additionally proves the instruction-file hash
+    # is filter-immune for the same reason the draft digest is.
+    IOID="$(ias_instructions "$CRLF_SB" crlf draft.md)"
     python3 "$IAS" record-dispatch crlf --nonce "$NONCE" --round 1 --arm file \
-      --draft-file draft.md | sed -E 's/.*digest=([0-9a-f]+) body_digest.*/\1/' > .crlf-dispatch
+      --draft-file draft.md --instructions-file "$CRLF_SB/instr-crlf.md" \
+      --instructions-draft-path "$CRLF_SB/draft.md" \
+      | sed -E 's/.*digest=([0-9a-f]+) body_digest.*/\1/' > .crlf-dispatch
     # The digest the AMENDED auditor instruction produces.
     git hash-object --no-filters draft.md > .crlf-auditor
     # The eligibility digest (the tool re-reads the file's bytes in binary and re-hashes).
     OID="$(git hash-object --stdin --no-filters < draft.md)"
     python3 "$IAS" record-return crlf --nonce "$NONCE" --round 1 --verdict FILE \
-      --findings-count 0 --carriage-object-id "$OID" > /dev/null
+      --findings-count 0 --carriage-object-id "$OID" \
+      --instructions-object-id "$IOID" --extra-dispatch-content no > /dev/null
     python3 "$IAS" query-eligibility crlf --nonce "$NONCE" --mode approve \
       --draft-file draft.md | sed -E 's/.*key=([0-9a-f]+).*/\1/' > .crlf-elig
     # The path-mode form, recorded ONLY to show the divergence this rule exists to avoid.
@@ -49331,7 +51457,7 @@ if [ -d "$MD_SB" ]; then
   assert_eq "#546 malformed-state matrix: a stale pre-cutover .md leftover is never read — state is unestablished" \
     "eligible=no reason=state-unestablished" "$(cat "$MD_SB/.md-elig" 2>/dev/null)"
   assert_eq "#546 malformed-state matrix: ... and T2 holds on unestablished state (unknown is not zero)" \
-    "1" "$(grep -c 't2=hold reason=state-unestablished' "$MD_SB/.md-trig" 2>/dev/null)"
+    "1" "$(grep -c 't2=hold coverage=not-hold reason=state-unestablished' "$MD_SB/.md-trig" 2>/dev/null)"
   rm -rf "$MD_SB"
 fi
 
@@ -49484,6 +51610,17 @@ if [ -d "$EA_SB" ]; then
     SC="$(printf '%s' "$D" | tr ' ' '\n' | sed -n 's/^sentinel_close=//p')"
     python3 "$IAS" record-return ea --nonce "$N" --round 1 --verdict FILE --findings-count 0 \
       --carriage-sentinel-open "$SO" --carriage-sentinel-close "$SC" < /dev/null > /dev/null
+    # issue #709: the embed arm has no writable canonical instruction file — it is entered
+    # BECAUSE the draft-file write failed — so steering-absence is unestablished by
+    # construction and the coverage-backed clean ground is withheld here. Capture that
+    # designed consequence first (it is the AC6 statement, made observable), then reach
+    # this block's actual subject through the documented Step 4 override election, which
+    # is exactly how a real run files on this arm. Filing is not blocked; the clean
+    # GROUNDING is what was withheld.
+    python3 "$IAS" query-eligibility ea --nonce "$N" --mode approve --draft-file d.md \
+      < /dev/null > .ea-elig-preoverride 2>&1
+    python3 "$IAS" record-override ea --nonce "$N" --kind user-decline \
+      --surface step4-offer < /dev/null > /dev/null
     python3 "$IAS" record-creation-epoch ea --nonce "$N" --round 1 < /dev/null > /dev/null
     python3 "$IAS" emit-body ea --nonce "$N" --draft-file d.md < /dev/null > .ea-body 2>&1
     python3 "$IAS" query-eligibility ea --nonce "$N" --mode approve --draft-file d.md \
@@ -49499,8 +51636,10 @@ if [ -d "$EA_SB" ]; then
   )
   assert_eq "#546 embed_arm_emit_rows: an embed-arm epoch emits the audited body" \
     "Embed body." "$(cat "$EA_SB/.ea-body" 2>/dev/null)"
-  assert_eq "#546 embed_arm_emit_rows: ... on the event-ordering ground, keyed by the revision ordinal (NOT a digest)" \
-    "1" "$(grep -c 'eligible=yes ground=event-ordering .*key=0' "$EA_SB/.ea-elig" 2>/dev/null)"
+  assert_eq "#709 embed_arm_emit_rows: the clean ground is withheld here BY CONSTRUCTION (no hashable instruction file)" \
+    "eligible=no reason=steering-unestablished" "$(cat "$EA_SB/.ea-elig-preoverride" 2>/dev/null)"
+  assert_eq "#546/#709 embed_arm_emit_rows: ... and the user's override still grounds the emit, keyed by the revision ordinal (NOT a digest)" \
+    "1" "$(grep -c 'eligible=yes ground=override .*key=0' "$EA_SB/.ea-elig" 2>/dev/null)"
   assert_eq "#546 embed_arm_emit_rows: the disclosed residual — swapped draft bytes still emit, because this arm cannot byte-bind" \
     "SWAPPED body." "$(cat "$EA_SB/.ea-swapped" 2>/dev/null)"
   assert_eq "#546 embed_arm_emit_rows: ... and the post-hoc attestation is the detection surface that catches that swap" \
@@ -49518,10 +51657,16 @@ if [ -d "$CB_SB" ]; then
     mkdir -p .devflow/tmp
     printf '# T\n\nThe body.\n' > d.md
     N="$(python3 "$IAS" init cb | sed 's/nonce=//')"
-    python3 "$IAS" record-dispatch cb --nonce "$N" --round 1 --arm file --draft-file d.md > /dev/null
+    # issue #709: establish steering so these attestation rows keep measuring the
+    # attestation, not the new gate. One generated instruction file serves every epoch
+    # here — they all audit the same d.md bytes, and the generator is deterministic.
+    IOID="$(ias_instructions "$CB_SB" cb d.md)"
+    python3 "$IAS" record-dispatch cb --nonce "$N" --round 1 --arm file --draft-file d.md \
+      --instructions-file "$CB_SB/instr-cb.md" --instructions-draft-path "$CB_SB/d.md" > /dev/null
     OID="$(git hash-object --stdin --no-filters < d.md)"
     python3 "$IAS" record-return cb --nonce "$N" --round 1 --verdict FILE \
-      --findings-count 0 --carriage-object-id "$OID" > /dev/null
+      --findings-count 0 --carriage-object-id "$OID" \
+      --instructions-object-id "$IOID" --extra-dispatch-content no > /dev/null
     python3 "$IAS" record-creation-epoch cb --nonce "$N" --round 1 > /dev/null
     # The gated body emitter's bytes hash to the recorded body-only digest (round-trip).
     python3 "$IAS" emit-body cb --nonce "$N" --draft-file d.md \
@@ -49530,9 +51675,15 @@ if [ -d "$CB_SB" ]; then
     # fetch-failure arms each get their OWN epoch on a fresh slug.
     for CASE in mm uv; do
       NC="$(python3 "$IAS" init "cb$CASE" | sed 's/nonce=//')"
-      python3 "$IAS" record-dispatch "cb$CASE" --nonce "$NC" --round 1 --arm file --draft-file d.md > /dev/null
+      # The instructions are per-SLUG: regenerate for this epoch's slug so its recorded
+      # digest is the one the tool will reproduce (a cross-slug reuse would legitimately
+      # mismatch — the out-of-bounds paths carry the slug).
+      IOIDC="$(ias_instructions "$CB_SB" "cb$CASE" d.md)"
+      python3 "$IAS" record-dispatch "cb$CASE" --nonce "$NC" --round 1 --arm file --draft-file d.md \
+        --instructions-file "$CB_SB/instr-cb$CASE.md" --instructions-draft-path "$CB_SB/d.md" > /dev/null
       python3 "$IAS" record-return "cb$CASE" --nonce "$NC" --round 1 --verdict FILE \
-        --findings-count 0 --carriage-object-id "$OID" > /dev/null
+        --findings-count 0 --carriage-object-id "$OID" \
+        --instructions-object-id "$IOIDC" --extra-dispatch-content no > /dev/null
       python3 "$IAS" record-creation-epoch "cb$CASE" --nonce "$NC" --round 1 > /dev/null
       printf '%s\n' "$NC" > ".cb-nonce-$CASE"
     done
@@ -49576,7 +51727,9 @@ if [ -d "$OA_SB" ]; then
         --findings-count 1 --carriage-object-id "$OID1" > /dev/null
       # The user revises the draft file to new bytes (D2), then elects to file anyway.
       printf '# T\n\nBody two, revised.\n' > "d-$SLUG.md"
-      python3 "$IAS" record-revision "$SLUG" --nonce "$NS" --after-round 1 > /dev/null
+      # issue #705: file-arm round -> record-revision requires --stdin-digest.
+      python3 "$IAS" record-revision "$SLUG" --nonce "$NS" --after-round 1 \
+        --stdin-digest < "d-$SLUG.md" > /dev/null
       python3 "$IAS" record-override "$SLUG" --nonce "$NS" --kind user-decline \
         --surface step4-approval-after-exhausted-offer --draft-file "d-$SLUG.md" > /dev/null
       printf '%s' "$NS" > ".oa-nonce-$SLUG"
@@ -49980,7 +52133,9 @@ if [ -d "$SR_SB" ]; then
       --surface t1t2-boundary --draft-file draft.md > /dev/null 2>&1
     python3 "$IAS" query-eligibility ov --nonce "$N2" --mode approve \
       --draft-file draft.md > .sr-ov-elig 2>/dev/null
-    python3 "$IAS" record-revision ov --nonce "$N2" --after-round 1 > /dev/null 2>&1
+    # issue #705: file-arm round -> record-revision requires --stdin-digest.
+    python3 "$IAS" record-revision ov --nonce "$N2" --after-round 1 \
+      --stdin-digest < draft.md > /dev/null 2>&1
     python3 "$IAS" query-eligibility ov --nonce "$N2" --mode approve \
       --draft-file draft.md > .sr-ov-stale 2>/dev/null
 
@@ -50015,8 +52170,8 @@ if [ -d "$SR_SB" ]; then
     "1" "$(grep -c 'classification=no-parseable-verdict' "$SR_SB/.sr-bad" 2>/dev/null)"
   assert_eq "#546 shadow_round_rows: the tool-generated sentinel pair round-trips to an accepted FILE close" \
     "1" "$(grep -c 'outcome=FILE' "$SR_SB/.sr-good" 2>/dev/null)"
-  assert_eq "#546 shadow_round_rows: ... confirmed closed via query-triggers (no pending offer trigger)" \
-    "1" "$(grep -c 't1=not-hold t2=not-hold' "$SR_SB/.sr-trig" 2>/dev/null)"
+  assert_eq "#546/#709 shadow_round_rows: ... closed with no FINDINGS trigger; the only trigger is the embed arm's by-construction steering state" \
+    "1" "$(grep -c 't1=not-hold t2=hold coverage=not-hold reason=steering-unestablished' "$SR_SB/.sr-trig" 2>/dev/null)"
   assert_eq "#546 shadow_round_rows: a CLI-recorded override grounds eligibility (producer/consumer agree)" \
     "1" "$(grep -c 'eligible=yes ground=override' "$SR_SB/.sr-ov-elig" 2>/dev/null)"
   assert_eq "#546 shadow_round_rows: a later revision stales the CLI-recorded override" \
@@ -50054,11 +52209,16 @@ if [ -d "$I3_SB" ]; then
       --draft-file draft.md > /dev/null 2>&1
     python3 "$IAS" record-return it4 --nonce "$N4" --round 1 --verdict REVISE \
       --carriage-object-id "$OID" > /dev/null 2>&1
+    # issue #705: the round dispatched on the file arm, so record-revision requires
+    # --stdin-digest. The out-of-range after-round guard fires BEFORE the stdin read, so the
+    # 0/2 rows still fail with the same plausible-round breadcrumb; the after-round 1 row
+    # reads the bytes and records, so its stdout now carries the stdin_digest field.
     python3 "$IAS" record-revision it4 --nonce "$N4" --after-round 0 \
-      > /dev/null 2> .i3-ar-low; printf '%s' "$?" > .i3-ar-low-rc
+      --stdin-digest < draft.md > /dev/null 2> .i3-ar-low; printf '%s' "$?" > .i3-ar-low-rc
     python3 "$IAS" record-revision it4 --nonce "$N4" --after-round 2 \
-      > /dev/null 2> .i3-ar-high; printf '%s' "$?" > .i3-ar-high-rc
-    python3 "$IAS" record-revision it4 --nonce "$N4" --after-round 1 > .i3-ar-ok 2>&1
+      --stdin-digest < draft.md > /dev/null 2> .i3-ar-high; printf '%s' "$?" > .i3-ar-high-rc
+    python3 "$IAS" record-revision it4 --nonce "$N4" --after-round 1 \
+      --stdin-digest < draft.md > .i3-ar-ok 2>&1
 
     N5="$(python3 "$IAS" init it5 | sed 's/nonce=//')"
     python3 "$IAS" record-dispatch it5 --nonce "$N5" --round 1 --arm file \
@@ -50099,7 +52259,7 @@ if [ -d "$I3_SB" ]; then
   assert_eq "#546 iter3_hardening_rows: an after-round above the last recorded round refuses" \
     "1" "$(cat "$I3_SB/.i3-ar-high-rc" 2>/dev/null)"
   assert_eq "#546 iter3_hardening_rows: the truthful after-round is accepted" \
-    "ordinal=1" "$(cat "$I3_SB/.i3-ar-ok" 2>/dev/null)"
+    "1" "$(grep -cE '^ordinal=1 stdin_digest=[0-9a-f]+$' "$I3_SB/.i3-ar-ok" 2>/dev/null)"
   assert_eq "#546 iter3_hardening_rows: a second attestation refuses (forward-only tamper evidence)" \
     "1" "$(grep -c 'cannot be overwritten' "$I3_SB/.i3-att-again" 2>/dev/null)"
   assert_eq "#546 iter3_hardening_rows: an epoch re-bind after attestation refuses" \
@@ -50161,7 +52321,6 @@ if [ -d "$I5_SB" ]; then
     mkdir -p .devflow/tmp
     printf '# T\n\nbody\n' > draft.md
     OID="$(git hash-object --stdin --no-filters < draft.md)"
-
     N="$(python3 "$IAS" init i5 | sed 's/nonce=//')"
     python3 "$IAS" record-dispatch i5 --nonce "$N" --round 1 --arm file \
       --draft-file draft.md > /dev/null 2>&1
@@ -50189,20 +52348,26 @@ if [ -d "$I5_SB" ]; then
 
     # no-digest-supplied: approve query with no --draft-file over a file-arm clean epoch
     N3="$(python3 "$IAS" init i5c | sed 's/nonce=//')"
+    IOID_I5C="$(ias_instructions "$I5_SB" i5c draft.md)"
     python3 "$IAS" record-dispatch i5c --nonce "$N3" --round 1 --arm file \
-      --draft-file draft.md > /dev/null 2>&1
+      --draft-file draft.md --instructions-file "$I5_SB/instr-i5c.md" \
+      --instructions-draft-path "$I5_SB/draft.md" > /dev/null 2>&1
     python3 "$IAS" record-return i5c --nonce "$N3" --round 1 --verdict FILE \
-      --carriage-object-id "$OID" > /dev/null 2>&1
+      --carriage-object-id "$OID" --instructions-object-id "$IOID_I5C" \
+      --extra-dispatch-content no > /dev/null 2>&1
     python3 "$IAS" query-eligibility i5c --nonce "$N3" --mode approve > .i5-nodig 2>/dev/null
 
     # emit-body on a title-only draft fails loudly (never exit-0-empty)
     printf '# Only a title\n' > title-only.md
     N4="$(python3 "$IAS" init i5d | sed 's/nonce=//')"
+    IOID_I5D="$(ias_instructions "$I5_SB" i5d title-only.md)"
     python3 "$IAS" record-dispatch i5d --nonce "$N4" --round 1 --arm file \
-      --draft-file title-only.md > /dev/null 2>&1
+      --draft-file title-only.md --instructions-file "$I5_SB/instr-i5d.md" \
+      --instructions-draft-path "$I5_SB/title-only.md" > /dev/null 2>&1
     TOID="$(git hash-object --stdin --no-filters < title-only.md)"
     python3 "$IAS" record-return i5d --nonce "$N4" --round 1 --verdict FILE \
-      --carriage-object-id "$TOID" > /dev/null 2>&1
+      --carriage-object-id "$TOID" --instructions-object-id "$IOID_I5D" \
+      --extra-dispatch-content no > /dev/null 2>&1
     python3 "$IAS" emit-body i5d --nonce "$N4" --draft-file title-only.md \
       > .i5-empty-out 2> .i5-empty-err; printf '%s' "$?" > .i5-empty-rc
 
@@ -50230,10 +52395,13 @@ if [ -d "$I5_SB" ]; then
     # bounded-tolerance negative control: TWO extra newlines stay a mismatch. Fresh slug
     # (the i5c epoch above is already attested match — forward-only).
     N6="$(python3 "$IAS" init i5f | sed 's/nonce=//')"
+    IOID_I5F="$(ias_instructions "$I5_SB" i5f draft.md)"
     python3 "$IAS" record-dispatch i5f --nonce "$N6" --round 1 --arm file \
-      --draft-file draft.md > /dev/null 2>&1
+      --draft-file draft.md --instructions-file "$I5_SB/instr-i5f.md" \
+      --instructions-draft-path "$I5_SB/draft.md" > /dev/null 2>&1
     python3 "$IAS" record-return i5f --nonce "$N6" --round 1 --verdict FILE \
-      --carriage-object-id "$OID" > /dev/null 2>&1
+      --carriage-object-id "$OID" --instructions-object-id "$IOID_I5F" \
+      --extra-dispatch-content no > /dev/null 2>&1
     python3 "$IAS" record-creation-epoch i5f --nonce "$N6" --round 1 > /dev/null 2>&1
     { python3 "$IAS" emit-body i5f --nonce "$N6" --draft-file draft.md; printf '\n\n'; } \
       | python3 "$IAS" record-creation-attestation i5f --nonce "$N6" > .i5-att-nl2 2> .i5-att-nl2-err
@@ -50244,10 +52412,13 @@ if [ -d "$I5_SB" ]; then
     # attestation-unavailable is re-attestable: record unavailable, then a corrective
     # retry attests the genuine bytes to match
     N7="$(python3 "$IAS" init i5g | sed 's/nonce=//')"
+    IOID_I5G="$(ias_instructions "$I5_SB" i5g draft.md)"
     python3 "$IAS" record-dispatch i5g --nonce "$N7" --round 1 --arm file \
-      --draft-file draft.md > /dev/null 2>&1
+      --draft-file draft.md --instructions-file "$I5_SB/instr-i5g.md" \
+      --instructions-draft-path "$I5_SB/draft.md" > /dev/null 2>&1
     python3 "$IAS" record-return i5g --nonce "$N7" --round 1 --verdict FILE \
-      --carriage-object-id "$OID" > /dev/null 2>&1
+      --carriage-object-id "$OID" --instructions-object-id "$IOID_I5G" \
+      --extra-dispatch-content no > /dev/null 2>&1
     python3 "$IAS" record-creation-epoch i5g --nonce "$N7" --round 1 > /dev/null 2>&1
     python3 "$IAS" record-creation-attestation i5g --nonce "$N7" --attestation-unavailable > /dev/null 2>&1
     python3 "$IAS" emit-body i5g --nonce "$N7" --draft-file draft.md \
@@ -50277,7 +52448,7 @@ if [ -d "$I5_SB" ]; then
   assert_eq "#546 iter5_hardening_rows: TWO extra newlines stay a mismatch (the tolerance is bounded to exactly one)" \
     "attestation=mismatch:0" "$(cat "$I5_SB/.i5-att-nl2" 2>/dev/null):$(grep -c 'matched modulo' "$I5_SB/.i5-att-nl2-err" 2>/dev/null)"
   assert_eq "#546 iter5_hardening_rows: query-triggers names a foreign nonce instead of misattributing unestablished" \
-    "t1=not-hold t2=hold reason=foreign-nonce" "$(cat "$I5_SB/.i5-fn-trig" 2>/dev/null)"
+    "t1=not-hold t2=hold coverage=not-hold reason=foreign-nonce" "$(cat "$I5_SB/.i5-fn-trig" 2>/dev/null)"
   assert_eq "#546 iter5_hardening_rows: an attestation-unavailable record may be re-attested (it is the honest unknown, not tamper evidence)" \
     "attestation=match" "$(cat "$I5_SB/.i5-uv-reattest" 2>/dev/null)"
   assert_eq "#546 iter5_hardening_rows: creation cannot bind an OPEN round" \
@@ -50330,8 +52501,11 @@ if [ -d "$CS_SB" ]; then
     # unpersistable state: a read-only .devflow/tmp makes the mutation exit non-zero
     # with the named breadcrumb, and a QUERY still answers (read-only contract)
     chmod 555 .devflow/tmp
-    python3 "$IAS" record-revision cs3 --nonce "$N3" --after-round 1 \
-      > /dev/null 2> .cs-nopersist; printf '%s' "$?" > .cs-nopersist-rc
+    # issue #705: the round dispatched on the file arm, so record-revision requires
+    # --stdin-digest. The arm guard and the stdin read both precede save_state, so the
+    # unpersistable failure still surfaces with its could-not-persist breadcrumb.
+    printf '# T\n\nrevised\n' | python3 "$IAS" record-revision cs3 --nonce "$N3" \
+      --after-round 1 --stdin-digest > /dev/null 2> .cs-nopersist; printf '%s' "$?" > .cs-nopersist-rc
     python3 "$IAS" query-triggers cs3 --nonce "$N3" > .cs-nopersist-query 2>/dev/null
     chmod 755 .devflow/tmp
 
@@ -50630,8 +52804,10 @@ PY
     N8="$(python3 "$IAS" init rd8 | sed 's/nonce=//')"
     python3 "$IAS" record-dispatch rd8 --nonce "$N8" --round 1 --arm file \
       --draft-file d2.md > /dev/null 2>&1
-    python3 "$IAS" record-revision rd8 --nonce "$N8" --after-round 0 \
-      > .rd-floor0 2>&1; printf '%s' "$?" > .rd-floor0-rc
+    # issue #705: the round dispatched on the file arm, so record-revision requires
+    # --stdin-digest even while the round is still open (floor 0 positive control).
+    printf '# T\n\nORIG\n' | python3 "$IAS" record-revision rd8 --nonce "$N8" \
+      --after-round 0 --stdin-digest > .rd-floor0 2>&1; printf '%s' "$?" > .rd-floor0-rc
 
     # the attestation twin: bind a real epoch first so the read is actually reached
     N6="$(python3 "$IAS" init rd6 | sed 's/nonce=//')"
@@ -50722,10 +52898,16 @@ if [ -d "$I6_SB" ]; then
     # is the fail-closed unestablished shape with NO live token, and the stderr
     # breadcrumb names the mismatch so it is not misread as a missing/corrupt record.
     N3="$(python3 "$IAS" init i6c | sed 's/nonce=//')"
+    # issue #709: the positive control below asserts a LIVE eligibility token, which the
+    # clean ground only issues once steering-absence is established — so this epoch
+    # establishes it the way a real run does.
+    IOID6="$(ias_instructions "$I6_SB" i6c draft.md)"
     python3 "$IAS" record-dispatch i6c --nonce "$N3" --round 1 --arm file \
-      --draft-file draft.md > /dev/null 2>&1
+      --draft-file draft.md --instructions-file "$I6_SB/instr-i6c.md" \
+      --instructions-draft-path "$I6_SB/draft.md" > /dev/null 2>&1
     python3 "$IAS" record-return i6c --nonce "$N3" --round 1 --verdict FILE \
-      --findings-count 0 --carriage-object-id "$OID" > /dev/null 2>&1
+      --findings-count 0 --carriage-object-id "$OID" \
+      --instructions-object-id "$IOID6" --extra-dispatch-content no > /dev/null 2>&1
     python3 "$IAS" query-summary i6c --nonce badnonce --draft-file draft.md \
       > .i6-fn-sum 2> .i6-fn-err; printf '%s' "$?" > .i6-fn-rc
     # positive control: the correct nonce on the SAME state renders ok + the live token.
@@ -50832,11 +53014,18 @@ if [ -d "$DB_SB" ]; then
     printf '# Draft title\n\nDRIFTED BODY\n' > drift.md
     python3 "$IAS" record-draft-binding do --nonce "$NO" --path "$BR" --tier main-root \
       > /dev/null 2>&1
+    # issue #709: the anti-drift rows below assert a LIVE clean-ground answer, which now
+    # requires established steering — so this epoch establishes it against the BOUND file
+    # (the one the readers must resolve to), never the drifted one.
+    IOIDO="$(ias_instructions "$DB_SB" do "$BR/.devflow/tmp/issue-draft-do.md")"
     python3 "$IAS" record-dispatch do --nonce "$NO" --round 1 --arm file \
-      --draft-file "$BR/.devflow/tmp/issue-draft-do.md" > /dev/null 2>&1
+      --draft-file "$BR/.devflow/tmp/issue-draft-do.md" \
+      --instructions-file "$DB_SB/instr-do.md" \
+      --instructions-draft-path "$BR/.devflow/tmp/issue-draft-do.md" > /dev/null 2>&1
     OIDO="$(git hash-object --stdin --no-filters < "$BR/.devflow/tmp/issue-draft-do.md")"
     python3 "$IAS" record-return do --nonce "$NO" --round 1 --verdict FILE \
-      --findings-count 0 --carriage-object-id "$OIDO" > /dev/null 2>&1
+      --findings-count 0 --carriage-object-id "$OIDO" \
+      --instructions-object-id "$IOIDO" --extra-dispatch-content no > /dev/null 2>&1
     # emit-body is handed the DRIFTED file, but must emit the BOUND file's body.
     python3 "$IAS" emit-body do --nonce "$NO" --draft-file drift.md > .do-body 2>/dev/null
     # The TWO merge-gating queries share emit-body's `_bound_draft_file(...) or --draft-file`
@@ -50858,11 +53047,14 @@ if [ -d "$DB_SB" ]; then
     python3 "$IAS" init du > /dev/null 2>&1
     NU="$(python3 "$IAS" query-nonce du | sed 's/nonce=//')"
     printf '# Draft title\n\nUNBOUND BODY\n' > ub.md
+    IOIDU="$(ias_instructions "$DB_SB" du ub.md)"
     python3 "$IAS" record-dispatch du --nonce "$NU" --round 1 --arm file \
-      --draft-file ub.md > /dev/null 2>&1
+      --draft-file ub.md --instructions-file "$DB_SB/instr-du.md" \
+      --instructions-draft-path "$DB_SB/ub.md" > /dev/null 2>&1
     OIDU="$(git hash-object --stdin --no-filters < ub.md)"
     python3 "$IAS" record-return du --nonce "$NU" --round 1 --verdict FILE \
-      --findings-count 0 --carriage-object-id "$OIDU" > /dev/null 2>&1
+      --findings-count 0 --carriage-object-id "$OIDU" \
+      --instructions-object-id "$IOIDU" --extra-dispatch-content no > /dev/null 2>&1
     python3 "$IAS" emit-body du --nonce "$NU" --draft-file ub.md > .du-body 2>/dev/null
     # A REAL linked worktree: bind its own toplevel and confirm the query round-trips.
     git branch -q wt-562 2>/dev/null
@@ -50926,7 +53118,7 @@ if [ -d "$DB_SB" ]; then
   # values render and that they sit immediately before the trailing `attestation=` field
   # (a re-order or a dropped field fails RED). $BR is the bound root for the `do` epoch.
   assert_eq "#562 draft_binding_cli_rows: query-summary renders bound_root/bound_tier before the trailing attestation field (S#6)" \
-    "1" "$(grep -cF "bound_root=$DB_SB/boundroot bound_tier=main-root attestation=" "$DB_SB/.do-summary" 2>/dev/null)"
+    "1" "$(grep -cF "bound_root=$DB_SB/boundroot bound_tier=main-root steering=established steering_reason=canonical-match attestation=" "$DB_SB/.do-summary" 2>/dev/null)"
   # S#5: a bound run whose latest revision has NOT landed renders the bound-branch
   # `latest_revision_landed=no` — the string a `yes`-hardcoding regression would break.
   assert_eq "#562 draft_binding_cli_rows: a bound run with an unlanded revision renders latest_revision_landed=no (S#5 — bound-branch 'no' was never exercised)" \
@@ -51069,23 +53261,176 @@ fi
 
 # ── issue #551: mandatory prompt-byte census + prose-cutover policy ──────────
 PMC="$LIB/test/prompt-mass-census.py"
-PMC_TEST="$LIB/test/test_prompt_mass_census.py"
+# test_prompt_mass_census.py (formerly $PMC_TEST here) now runs inside the issue #720
+# concurrent pool opened above — its standalone driver is deleted, so no $PMC_TEST var.
 PMC_MANIFEST="$LIB/test/prompt-mass-manifest.json"
 PMC_BASELINE="$LIB/test/prompt-mass-baseline.json"
 PMC_CLAUDE="$LIB/../CLAUDE.md"
 PMC_EXT_IMPL="$LIB/../.devflow/prompt-extensions/implement.md"
 PMC_EXT_RAF="$LIB/../.devflow/prompt-extensions/review-and-fix.md"
+PM_RUN_SH="$LIB/test/run.sh"
+PM_FN_NAME="_pm_committed_baseline_count"
 
-# The helper's behavioral boundary carries the issue's T1–T18 fixture matrix. Run it from
-# the suite rather than relying on a standalone developer command, then run the helper itself
-# over the real checkout so a stale committed mirror turns this required gate RED.
-if PMC_TEST_OUT="$(python3 "$PMC_TEST" 2>&1)"; then
-  echo PASS >> "$RESULTS_FILE"
-  printf '  PASS  #551 prompt-mass census behavioral fixtures (T1–T18)\n'
-else
-  echo FAIL >> "$RESULTS_FILE"
-  printf '  FAIL  #551 prompt-mass census behavioral fixtures (T1–T18)\n%s\n' "$PMC_TEST_OUT"
-fi
+# issue #711: the baseline-uniqueness count is sourced from the git INDEX, which is what this
+# check's own wording ("committed") always claimed. Its predecessor walked the filesystem from
+# the repository root, so it descended into every sibling worktree under .claude/worktrees/ —
+# this repository's own working mode — and counted their copies, failing locally with a number
+# that varied between runs on the same commit while CI (a fresh checkout with no worktrees)
+# stayed green. `git ls-files` reads the index and is therefore independent of the untracked
+# .git/info/exclude line that is the ONLY thing keeping .claude/worktrees/ out of a working-tree
+# enumeration. The .devflow/vendor/ substring filter the predecessor carried is dropped: vendored
+# paths are untracked here, so an index population excludes them by construction.
+#
+# Unknown is never zero (the repo's standing rule): the two non-count outcomes emit distinct
+# tokens instead of a digit, so assert_eq reports `actual: git-unavailable` /
+# `actual: no-committed-baseline` rather than a plausible-looking `0`. No tr/sed/wc/cut/head/awk/
+# grep participates — the value is produced by git and python3 alone, both preflight-guaranteed.
+_pm_committed_baseline_count() {  # <root> -> digits | git-unavailable | no-committed-baseline
+  local out
+  # The token set is fixed at two by the governing acceptance criterion, and `git-unavailable` is
+  # its name for ANY non-zero `git ls-files` exit — a missing binary, a non-repository root, a
+  # locked or corrupt index. Suppressing git's own stderr would leave the reader with only the
+  # token and send them hunting the wrong cause, so the diagnosis is surfaced on the suite's
+  # stderr while the emitted VALUE stays exactly what the criterion specifies.
+  out="$(git -C "$1" ls-files -- '*prompt-mass-baseline.json')" \
+    || { printf 'git-unavailable'; return 0; }
+  printf '%s\n' "$out" | python3 -c 'import sys
+# DISTINCT paths, never lines: `git ls-files` prints an unmerged path once per stage (1/2/3),
+# and this baseline is a shared hot-spot artifact that conflicts on ordinary prompt-surface
+# PRs — so a line tally reports `actual: 3` under the message "only one committed prompt-mass
+# baseline exists" and sends the reader hunting a duplicate that does not exist. That is the
+# same misleading red issue #711 exists to remove, re-entering through a different door.
+n = len({line.strip() for line in sys.stdin if line.strip()})
+print(n if n else "no-committed-baseline", end="")'
+}
+
+# The PRE-FIX expression, retained verbatim as the regression comparand. It is measured against
+# the same decoy fixture as the function above, so the #711 defect stays REPRODUCED in the suite
+# rather than merely described in prose. It carries the declaration marker naming that role — as
+# any candidate token literal in this file must, which is why the fixture bodies above assemble
+# theirs from parts. (Deliberately no count of how many such literals remain: a self-referential
+# tally in a run.sh comment rots on the next edit to this file and nothing turns RED — the
+# PR-#553 class this repository treats as a non-demotable self-contradicting diff.)
+_pm_prefix_walk_count() {  # <root> -> the pre-#711 filesystem-walk count
+  python3 -c 'from pathlib import Path; import sys; print(sum(1 for p in Path(sys.argv[1]).rglob("prompt-mass-baseline.json") if p.is_file() and ".devflow/vendor/" not in p.as_posix()), end="")' "$1"  # tree-walk-ok: retained pre-#711 comparand; reproducing the worktree-permeable walk IS its job
+}
+
+# <assertion-name> [relpath…] -> prints an initialised sandbox repo with each relpath committed.
+# Every fixture is built in a git_sandbox directory OUTSIDE the working tree: the tracked
+# .gitignore carries no .claude entry, so a worktree-shaped decoy written into the real checkout
+# would be untracked AND unignored, `git add -A` would sweep it into a commit, and the fixed
+# check would then fail for a real reason.
+_pm_fixture_repo() {  # <assertion-name> [relpath…]
+  local d name="$1"; shift
+  d="$(git_sandbox "$name")" || { printf '%s' "$d"; return 0; }
+  git -C "$d" init -q 2>/dev/null
+  git -C "$d" config user.email t@t 2>/dev/null
+  git -C "$d" config user.name t 2>/dev/null
+  local rel dir
+  for rel in "$@"; do
+    dir="${rel%/*}"; [ "$dir" = "$rel" ] || mkdir -p "$d/$dir"   # no-slash guard, as in e711_write
+    printf '{}\n' > "$d/$rel"
+    git -C "$d" add -- "$rel" 2>/dev/null
+  done
+  git -C "$d" commit -qm fixture --allow-empty 2>/dev/null
+  printf '%s' "$d"
+}
+
+# The one-committed-plus-untracked-decoy fixture, measured TWICE — once through the git-sourced
+# function and once through the retained pre-fix walk. The decoy is written but never staged, so
+# the index holds exactly one baseline while the filesystem holds two.
+PM_SB_DECOY="$(_pm_fixture_repo '#711 decoy fixture' lib/test/prompt-mass-baseline.json)"
+mkdir -p "$PM_SB_DECOY/.claude/worktrees/w/lib/test" 2>/dev/null
+printf '{}\n' > "$PM_SB_DECOY/.claude/worktrees/w/lib/test/prompt-mass-baseline.json" 2>/dev/null
+assert_eq "#711 baseline count is git-sourced and worktree-immune" "1" \
+  "$(_pm_committed_baseline_count "$PM_SB_DECOY")"
+assert_eq "#711 pre-fix walk reproduces the defect on the same fixture" "2" \
+  "$(_pm_prefix_walk_count "$PM_SB_DECOY")"
+rm -rf "$PM_SB_DECOY"
+
+PM_SB_TWO="$(_pm_fixture_repo '#711 duplicate fixture' lib/test/prompt-mass-baseline.json other/prompt-mass-baseline.json)"
+assert_eq "#711 a genuine second committed baseline still fails the check" "2" \
+  "$(_pm_committed_baseline_count "$PM_SB_TWO")"
+rm -rf "$PM_SB_TWO"
+
+# An UNMERGED index is the shape that separates a distinct-path tally from a line tally: git
+# prints a conflicted path once per stage, so a line count reports 3 baselines where one exists.
+# This artifact is a shared hot spot that conflicts on ordinary prompt-surface PRs, so the shape
+# is routine — and a bogus `actual: 3` under "only one committed prompt-mass baseline exists" is
+# the same misleading red this issue removes. The fixture conflicts the baseline for real.
+PM_SB_CONFLICT="$(_pm_fixture_repo '#711 conflicted-index fixture' lib/test/prompt-mass-baseline.json)"
+case "$PM_SB_CONFLICT" in
+  ""|/dev/null*)
+    # Sentinel: git_sandbox has already recorded its own FAIL. Emit an actual no expectation can
+    # match rather than skipping the block silently — a vanished assertion leaves the reader a
+    # tally that quietly lost a check, which is the same misattribution the e711_run sentinel and
+    # the e711_rc guard-unusable token are shaped to prevent.
+    assert_eq "#711 an unmerged index still counts one baseline, not one per stage" "1" \
+      "sandbox-unavailable" ;;
+  *)
+    git -C "$PM_SB_CONFLICT" checkout -q -b e711_other 2>/dev/null
+    printf '{"side":"other"}\n' > "$PM_SB_CONFLICT/lib/test/prompt-mass-baseline.json"
+    git -C "$PM_SB_CONFLICT" commit -qam other 2>/dev/null
+    git -C "$PM_SB_CONFLICT" checkout -q - 2>/dev/null
+    printf '{"side":"mine"}\n' > "$PM_SB_CONFLICT/lib/test/prompt-mass-baseline.json"
+    git -C "$PM_SB_CONFLICT" commit -qam mine 2>/dev/null
+    git -C "$PM_SB_CONFLICT" merge e711_other >/dev/null 2>&1
+    # Prove the fixture REACHED the defect-producing shape before trusting the count, the same
+    # way the decoy fixture measures itself through the retained pre-fix walk. Without this, a
+    # merge that silently succeeded would leave one stage, the count would be 1, and the
+    # assertion would pass under the very line-tally mutation it exists to catch.
+    assert_eq "#711 the conflicted-index fixture really holds an unmerged path (3 stages)" "3" \
+      "$(git -C "$PM_SB_CONFLICT" ls-files -- '*prompt-mass-baseline.json' | python3 -c 'import sys
+print(sum(1 for line in sys.stdin if line.strip()), end="")')"
+    assert_eq "#711 an unmerged index still counts one baseline, not one per stage" "1" \
+      "$(_pm_committed_baseline_count "$PM_SB_CONFLICT")"
+    ;;
+esac
+rm -rf "$PM_SB_CONFLICT"
+
+# Empty-but-successful population: a branch on which the baseline is written but not yet staged,
+# or a worktree checked out at a commit predating the file. Reporting `0` here would be the same
+# collapse-onto-a-real-value the git-unavailable token exists to prevent.
+PM_SB_NONE="$(_pm_fixture_repo '#711 empty-population fixture' README.md)"
+assert_eq "#711 an empty committed population emits no-committed-baseline" "no-committed-baseline" \
+  "$(_pm_committed_baseline_count "$PM_SB_NONE")"
+rm -rf "$PM_SB_NONE"
+
+# Accepted-loss control for the unknown-is-not-zero claim: the suppressed input (a broken git) is
+# PRESENT in the fixture, so the claimed absence of a digit is actually exercised.
+PM_SB_STUB="$(_pm_fixture_repo '#711 broken-git fixture' README.md)"
+# Routed through probe_tmp rather than a bare `mktemp -d`: on allocation failure probe_tmp records
+# a NAMED suite FAIL, whereas a bare mktemp would leave PM_STUB_BIN empty, make PATH begin with an
+# empty element (the cwd), and turn this into a confusing downstream miss instead of a named one.
+PM_STUB_BIN="$(probe_tmp '#711 broken-git stub bin')"
+case "$PM_STUB_BIN" in ""|/dev/null) : ;; *) rm -f "$PM_STUB_BIN"; mkdir -p "$PM_STUB_BIN" ;; esac
+printf '#!/bin/sh\nexit 3\n' > "$PM_STUB_BIN/git" 2>/dev/null
+chmod +x "$PM_STUB_BIN/git" 2>/dev/null
+assert_eq "#711 an unavailable git emits git-unavailable, never a count" "git-unavailable" \
+  "$(PATH="$PM_STUB_BIN:$PATH" _pm_committed_baseline_count "$PM_SB_STUB")"
+rm -rf "$PM_SB_STUB"
+case "$PM_STUB_BIN" in ""|/dev/null) : ;; *) rm -rf "$PM_STUB_BIN" ;; esac   # probe_tmp sentinel: never rm -rf /dev/null
+
+# Call-shape check, deliberately NOT a grep counting occurrences of the retained expression —
+# such a grep matches its own pattern line and can never report the intended count (the repo's
+# #370 pin-in-comment rot class). The needle is assembled from parts inside python3, so the
+# counting expression cannot match itself, and the bound is a LOWER bound so adding a call site
+# never forces a coupled edit here. The assertion is named for what it MEASURES — that the
+# git-sourced function has call sites — not for the stronger claim that no OTHER assertion reads
+# a filesystem walk: a lower bound cannot establish that negative half, and the retained
+# `_pm_prefix_walk_count` comparand is itself a declared walk in this same file.
+assert_eq "#711 the git-sourced baseline count has at least five call sites" "yes" \
+  "$(python3 -c 'import sys
+name, path = sys.argv[1], sys.argv[2]
+needle = name + " " + chr(34)
+calls = sum(1 for line in open(path, encoding="utf-8", errors="replace") if needle in line)
+print("yes" if calls >= 5 else "no: %d" % calls)' "$PM_FN_NAME" "$PM_RUN_SH")"
+
+# The helper's behavioral boundary carries the issue's T1–T18 fixture matrix. That suite
+# (test_prompt_mass_census.py, referenced by $PMC_TEST) now runs inside the issue #720
+# concurrent pool opened far above — its former standalone driver here is deleted, its
+# verdict reaches RESULTS_FILE through the pool tally. The helper itself is still run over
+# the real checkout here so a stale committed mirror turns this required gate RED.
 if PMC_REAL_OUT="$("$PMC" 2>&1)"; then
   echo PASS >> "$RESULTS_FILE"
   printf '  PASS  #551 prompt-mass census exact mirror over the real tree\n'
@@ -51105,7 +53450,7 @@ assert_pin_unique "#551 manifest states the mandatory-vs-reference classificatio
 assert_eq "#551 direct census grant appears in both writable cloud config profiles" "2" \
   "$(grep -cF 'Bash(lib/test/prompt-mass-census.py:*)' "$LIB/../.devflow/config.json")"
 assert_eq "#551 only one committed prompt-mass baseline exists" "1" \
-  "$(python3 -c 'from pathlib import Path; import sys; print(sum(1 for p in Path(sys.argv[1]).rglob("prompt-mass-baseline.json") if p.is_file() and ".devflow/vendor/" not in p.as_posix()))' "$LIB/..")"
+  "$(_pm_committed_baseline_count "$LIB/..")"
 assert_pin_unique "#551 baseline is a per-file mirror with no committed totals key" \
   '"files": {' "$PMC_BASELINE"
 assert_eq "#551 baseline carries no group-total rows" "0" \
@@ -51152,6 +53497,35 @@ assert_pin_unique "#551 gate states the keep-both mechanical residual" \
 assert_eq "#551 gated criterion adds no fenced command" "0" \
   "$(grep -c '^```' "$LIB/../skills/review/phases/phase-4-1-8-prose-cutover.md" 2>/dev/null)"
 
+# issue #720: join the concurrent Python-suite pool BEFORE the RESULTS_FILE tally is
+# counted, so every pooled verdict is folded into the grep -c derivations below, covered
+# by the fail-closed derivability guards, and counted like every other verdict. This is
+# the pool's sole join point; it restores the caller's signal traps and installs no EXIT
+# trap (the single `trap _suite_cleanup EXIT` above stays the only EXIT handler).
+devflow_pool_join
+
+# issue #720: assert test_python_scripts.py's contribution to RESULTS_FILE equals the
+# assertion count it reports on its own `N passed, M failed` summary line — parsed
+# POSITIONALLY from that line (field 1 = passed, field 3 = failed), never a checked-in
+# total, so a uniformly-dropped verdict is caught even though the width-1/width-N
+# equality would agree. The self-tally line count and summary were captured at reap.
+_PS_LINES="${_DEVFLOW_POOL_SELFTALLY_LINES[test_python_scripts.py]:-}"
+_PS_SUMMARY="${_DEVFLOW_POOL_SELFTALLY_SUMMARY[test_python_scripts.py]:-}"
+if [ -n "$_PS_SUMMARY" ]; then
+  # Positional parse with bash word-splitting (not awk — a value feeding an assertion,
+  # kept off non-preflight PATH tools per guard-class 2): "N passed, M failed".
+  # shellcheck disable=SC2086
+  set -- $_PS_SUMMARY
+  _PS_TOTAL=$(( ${1:-0} + ${3:-0} ))
+  assert_eq "#720 test_python_scripts.py: RESULTS_FILE contribution equals its summary passed+failed" \
+    "$_PS_TOTAL" "${_PS_LINES:-unestablished}"
+else
+  # Summary not captured (e.g. a rendezvous-retry emptied the captured output): record
+  # a FAIL rather than silently skipping the coverage check.
+  echo FAIL >> "$RESULTS_FILE"
+  printf '  FAIL  #720 test_python_scripts.py: could not capture its summary line to verify RESULTS_FILE contribution\n' >&2
+fi
+
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
 # SKIP tally (issue #456): derived with `grep -c` over SKIPS_FILE, the same mechanism as
@@ -51173,11 +53547,13 @@ if ! devflow_tally_is_derivable "$SKIP"; then
   exit 1
 fi
 # PASS and FAIL take the SAME fail-closed guard (#456 round 3): each is a `grep -c` derivation
-# with the same rc>=2 empty-value failure shape. Without the guard an emptied PASS is silently
-# laundered back into a number by the python-tally arithmetic below (`$((PASS + PY_PASS))`
-# evaluates an empty variable as 0), rendering a confident under-count; an emptied FAIL on the
-# python-green path aborts at the exit predicate with a bare `[: -eq` error that names nothing.
-# Unknown is not zero for ANY of the three tallies — refuse loudly, up front.
+# with the same rc>=2 empty-value failure shape. Without the guard an emptied FAIL reaches the
+# final FAIL-equals-zero exit predicate, whose `-eq` then aborts on the empty value with a bare
+# `[: -eq` error that names nothing; an emptied PASS is no longer consumed by any arithmetic
+# (issue #720 retired the out-of-band `$((PASS + PY_PASS))` python-tally arithmetic this comment
+# once named — test_python_scripts.py now folds through RESULTS_FILE), so it would instead render
+# a blank, garbled `" passed, N failed"` summary field. Unknown is not zero for ANY of the three
+# tallies — refuse loudly, up front.
 if ! devflow_tally_is_derivable "$PASS"; then
   printf 'ERROR: PASS tally underivable from %s (grep error, not an empty log) — refusing to render a summary over it\n' "$RESULTS_FILE"
   exit 1
@@ -51191,20 +53567,12 @@ if ! FAIL="$(devflow_fold_module_failures "$FAIL")"; then
   exit 1
 fi
 
-# ────────────────────────────────────────────────────────────────────────────
-echo "python scripts (workpad._apply_mutations, parse_acs._is_post_merge)"
-PY_OUT="$(python3 "$(dirname "$0")/test_python_scripts.py" 2>&1)"
-PY_RC=$?
-PY_SUMMARY="$(echo "$PY_OUT" | awk '/passed,/ { p=$1; f=$3 } END { print p" "f }')"
-PY_PASS="$(echo "$PY_SUMMARY" | awk '{ print $1 }')"
-PY_FAIL="$(echo "$PY_SUMMARY" | awk '{ print $2 }')"
-[ -n "$PY_PASS" ] && PASS=$((PASS + PY_PASS))
-if [ "$PY_RC" -eq 0 ] && [ -n "$PY_PASS" ]; then
-  printf '  PASS  %s python assertions\n' "$PY_PASS"
-else
-  FAIL=$((FAIL + ${PY_FAIL:-1}))
-  echo "$PY_OUT" | sed 's/^/    /'
-fi
+# issue #720: test_python_scripts.py's former standalone driver — a `python3` run whose
+# `N passed, M failed` summary was parsed with awk and added to PASS/FAIL out of band,
+# bypassing RESULTS_FILE and the fail-closed derivability guards — is DELETED. That suite
+# now runs inside the concurrent pool (self-tally mode), appending one PASS/FAIL line per
+# assertion to its private tally, which is folded into RESULTS_FILE at the join above and
+# counted by the grep -c derivations like every other verdict.
 
 # ────────────────────────────────────────────────────────────────────────────
 echo

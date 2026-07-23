@@ -13,19 +13,30 @@ both place ``scripts/`` and ``skills/`` as siblings under one root).
 
 Contract (issue #600):
 
-- Stateless: reads no run state, writes no file, takes no stdin. The only reads
-  are the committed template file and — for consumer-dimension forwarding — the
-  consumer extension ``.devflow/prompt-extensions/create-issue.md``, resolved
+- Reads no run *state* and writes no file, and takes no stdin. The reads are the
+  committed template file; the consumer extension — for consumer-dimension
+  forwarding — ``.devflow/prompt-extensions/create-issue.md``, resolved
   from the git repo root per the #295 SHARED REPO-ROOT CONFIG CONTRACT (a native
-  ``git`` subprocess, cwd fallback; never a ``.sh`` exec — the #275 constraint).
+  ``git`` subprocess, cwd fallback; never a ``.sh`` exec — the #275 constraint);
+  and — in ``dispatch-instructions`` mode only (issue #709) — the run's canonical
+  draft file, read solely to lift its ``# `` title heading. Writing the rendered
+  dispatch instructions to disk is the ORCHESTRATOR's job, never this script's:
+  the no-write half of this contract is what keeps the module a pure function of
+  its inputs, which is in turn what lets ``issue-audit-state.py`` regenerate the
+  canonical bytes and compare digests.
 - Closed argument surface: closed-vocabulary mode/arm/hook tokens, a kebab-case
   slug, single-line absolute paths, and the machine-generated sentinel pair. No
-  free-text parameter reaches the rendered instruction block: every slot filled
-  from an argument (``<slug>``, ``{DRAFT_PATH}``, and the ``{SENTINEL_OPEN}`` /
+  free-text parameter reaches any rendered block: every slot filled
+  from an argument (``<slug>``, ``{DRAFT_PATH}``, ``{INSTRUCTIONS_PATH}``, and
+  the ``{SENTINEL_OPEN}`` /
   ``{SENTINEL_CLOSE}`` pair) is shape-checked at the parse boundary, and the
-  draft title never crosses a command line at all — it travels in the
-  orchestrator's dispatch preamble prose. (``{CONSUMER_DIMENSIONS}`` is the one
-  remaining slot; it is filled from committed consumer-extension file content,
+  draft title never crosses a command line at all — in ``dispatch-instructions``
+  mode it is read from the draft file this module was given the path to, and
+  substituted LAST (beside ``{CONSUMER_DIMENSIONS}``) so drafter text is never
+  re-scanned for slot tokens; the audit-prompt blocks
+  (``file``/``embed``/``inline``/``checklist``) never carry it at all.
+  (``{CONSUMER_DIMENSIONS}`` is the other file-content
+  slot; it is filled from committed consumer-extension file content,
   never from an argument, and is substituted LAST so it is never re-scanned.) The ``--template-file`` /
   ``--extension-file`` test overrides are read-paths that are never substituted
   into the block, and are deliberately left untyped so an explicit empty value
@@ -38,8 +49,27 @@ Contract (issue #600):
   section-extraction hook; the Step 2 ``## Evidence axes`` forwarding consumes
   it as a standalone call, while the Step 3.6 ``## Audit dimensions`` hook
   consumes the same extraction *rule* spliced into a dispatch arm as
-  ``{CONSUMER_DIMENSIONS}``, not via a standalone ``extract`` call), and
-  ``status-only`` (the orchestrator's fail-fast one-line probe).
+  ``{CONSUMER_DIMENSIONS}``, not via a standalone ``extract`` call),
+  ``status-only`` (the orchestrator's fail-fast one-line probe),
+  ``enumerate-dimensions`` (the issue #708 keyed dimension enumeration the
+  Step 3.6 coverage join reads as its authoritative operand), and
+  ``dispatch-instructions`` (issue #709 — the canonical, file-arm-only
+  audit-DISPATCH instructions the auditor is pointed at and hashes).
+- Determinism (issue #709, load-bearing): ``dispatch-instructions`` is a pure
+  function of the template file, the draft file's title, and its shape-checked
+  path arguments. It carries no timestamp, nonce, or other run-varying token, so
+  ``issue-audit-state.py`` regenerating it from a round's recorded closed inputs
+  reproduces the dispatched bytes exactly — which is the whole comparand of the
+  steering-absence check. Two of the substituted slots (``{RENDERER_PATH}`` and
+  the default ``{TEMPLATE_PATH}``) are derived from THIS file's own resolved
+  location, so the reproduction is exact *within one installation* — the only
+  context a regeneration runs in, since the round's recorded inputs and the
+  instruction file it names are both local to that checkout. Never introduce a
+  varying token into the ``di`` blocks.
+  It deliberately does NOT splice ``{CONSUMER_DIMENSIONS}``: consumer audit
+  dimensions are renderer-owned *audit* instructions, out of that check's scope,
+  and reading the extension here would make the digest depend on a file the
+  dispatch does not carry.
 - Output contract: stdout's FIRST line is ``render-status:`` with a value from
   the closed set {appended, absent, unestablished}; stdout's LAST line is the
   fixed terminal marker ``render-end:`` on every full render, so a truncated
@@ -48,7 +78,12 @@ Contract (issue #600):
   only in checklist/extract mode — the dispatch arms follow it with the
   verdict/cap block). ``status-only`` prints
   exactly the one status line (it IS one line; no end marker).
-- Failure (unusable arguments, unreadable template file) exits non-zero with
+  ``dispatch-instructions`` has its OWN positional marker pair — first line
+  ``dispatch-instructions:`` with the format version, last line ``render-end:``
+  — because it reads no consumer extension and so has no ``render-status:``
+  answer to report.
+- Failure (unusable arguments, unreadable template file, an unreadable or
+  title-less draft file in ``dispatch-instructions`` mode) exits non-zero with
   EMPTY stdout and a stderr breadcrumb — which, together with out-of-position
   markers, is the no-contract-output signal the skill's degraded arms key on.
 """
@@ -56,16 +91,31 @@ Contract (issue #600):
 from __future__ import annotations
 
 import argparse
+import hashlib
+import re
 import subprocess
 import sys
 from pathlib import Path
 
 STATUS_PREFIX = "render-status:"
 END_MARKER = "render-end:"
+# issue #709: the dispatch-instructions render's own leading positional marker.
+# The version suffix is a FIXED literal, not a runtime value — it is part of the
+# hashed bytes, so it may only change when the canonical form itself changes.
+INSTRUCTIONS_PREFIX = "dispatch-instructions:"
+INSTRUCTIONS_VERSION = "1"
 
 # Closed vocabularies (complete by construction).
-_MODES = ("file", "embed", "inline", "checklist", "extract", "status-only")
+_MODES = (
+    "file", "embed", "inline", "checklist", "extract", "status-only",
+    "enumerate-dimensions",
+    "dispatch-instructions",
+)
 _DISPATCH_ARMS = ("file", "embed", "inline")
+# The template block-selection token for the issue-#709 dispatch-instruction
+# blocks. It is deliberately NOT a member of _DISPATCH_ARMS: those name the audit
+# arms the state owner routes, and `di` selects a different artifact entirely.
+_INSTRUCTIONS_TOKEN = "di"
 # Extraction hooks map to the two consumer section headings they forward.
 _HOOKS = {
     "audit-dimensions": "## Audit dimensions",
@@ -86,12 +136,41 @@ _BLOCK_OPEN_PREFIX = "<!-- render-block:"
 _BLOCK_OPEN_SUFFIX = "-->"
 _BLOCK_CLOSE = "<!-- render-block-end -->"
 
+# Dimension-key declaration marker (issue #729). A line
+#   <!-- dim-key: <lowercase-kebab> -->
+# immediately above a `- ` bullet DECLARES that dimension's stable identity. It is
+# machine data: `enumerate_dimensions` reads it, and every rendering path strips it,
+# so the checklist prose and the enumeration are two projections of ONE declaration
+# rather than the enumeration being a regex scrape of the prose (the pre-#729 shape,
+# where rewording a bold name silently rekeyed a dimension the state owner had
+# already recorded durably).
+_DIM_KEY_TOKEN = "dim-key:"
+# Built FROM the token, never beside it: the marker spelling lives in exactly one
+# place, so renaming it can never leave `_strip_dim_key_markers`' fast path matching
+# a token the pattern no longer recognizes (a silently no-op stripper).
+_DIM_KEY_RE = re.compile(r"^<!--\s*" + re.escape(_DIM_KEY_TOKEN) + r"\s*(.*?)\s*-->$")
+# The declared-key alphabet: lowercase kebab, no leading/trailing/doubled hyphen.
+# This is STRICTER than the CLI's `_kebab_slug` alphabet check (which accepts
+# `-lead`, `trail-`, `a--b`) and is the canonical shape `_name_slug` produces, so a
+# declared key and a derived one never collide by casing. The two are deliberately
+# not one check: `_kebab_slug` bounds a caller-supplied CLI argument, while a
+# declaration is committed repo content held to the canonical form.
+_DIM_KEY_SHAPE_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
 
 class RenderError(Exception):
     """A renderer failure: exit non-zero, empty stdout, stderr breadcrumb."""
 
 
-def _default_template_path() -> Path:
+def default_template_path() -> Path:
+    """The committed audit-prompt template this renderer reads by default.
+
+    Public because `issue-audit-state.py` calls it across the module boundary when it
+    regenerates a round's canonical instructions (issue #709) and a round recorded no
+    explicit template input; `_load_generator` asserts this name alongside
+    `instructions_bytes`, so a rename fails closed as `regeneration-failed` instead of
+    surfacing as an AttributeError traceback out of `record-return`.
+    """
     # Resolve the template relative to THIS file's location, never the cwd, so
     # the vendored-plugin layout (scripts/ and skills/ siblings under the
     # vendor root) resolves identically to the repo checkout.
@@ -102,6 +181,11 @@ def _default_template_path() -> Path:
         / "references"
         / "audit-prompt-template.md"
     )
+
+
+# The pre-#709 private name, retained as an alias so an in-flight caller (and the
+# renderer's own tests) keep resolving; the public name above is the contract.
+_default_template_path = default_template_path
 
 
 def _repo_root() -> str | None:
@@ -153,6 +237,28 @@ def _default_extension_path() -> Path:
 #   present-but-unreadable / broken symlink
 #     / present-but-non-regular file       -> unestablished (never "absent")
 # --------------------------------------------------------------------------
+def _strip_dim_key_markers(text: str) -> str:
+    """Drop every `<!-- dim-key: … -->` declaration line (issue #729).
+
+    Applied to every RENDERING path, so the auditor-facing prose is byte-identical
+    to the pre-#729 render. The *derived text* on the key path is never taken from
+    this function's output — `_consumer_section_raw` returns the unstripped section
+    and calls this only to decide emptiness.
+
+    `keepends=True` + `"".join` is load-bearing, not style: a `splitlines()`/`"\\n".join`
+    round-trip rewrites CRLF to LF and drops a trailing newline, so a consumer section
+    would be line-ending-normalized or not depending on whether it happened to declare
+    a key. Every non-declaration byte survives verbatim.
+    """
+    if _DIM_KEY_TOKEN not in text:
+        return text
+    kept = [
+        ln for ln in text.splitlines(keepends=True)
+        if not _DIM_KEY_RE.match(ln.strip())
+    ]
+    return "".join(kept)
+
+
 def _read_extension(path: Path) -> tuple[str, str]:
     """Return (state, text). state is one of 'ok' / 'absent' / 'unestablished'.
 
@@ -275,17 +381,59 @@ def extract_section(text: str, heading: str) -> str:
     return body
 
 
-def consumer_dimensions(ext_path: Path, heading: str) -> tuple[str, str]:
-    """Return (status, section_text) for a consumer section forwarding hook."""
+def _consumer_section_raw(ext_path: Path, heading: str) -> tuple[str, str]:
+    """Return (status, RAW section text) — declaration markers retained.
+
+    The key-derivation projection (issue #729). Only `enumerate_dimensions` wants
+    this; every rendering path takes `consumer_dimensions` below, which is the same
+    section with the markers stripped. Two named accessors rather than one raw
+    return the callers must each remember to strip: the projection a caller needs
+    is chosen by which function it calls, not by a comment it has to obey.
+    """
     state, text = _read_extension(ext_path)
     if state == "unestablished":
         return (_STATUS_UNESTABLISHED, "")
     if state == "absent":
         return (_STATUS_ABSENT, "")
     section = extract_section(text, heading)
-    if not section:
+    # The emptiness decision is taken on the STRIPPED text: a section carrying only
+    # declaration markers declares no dimensions, so it is `absent` — reporting it
+    # `appended` would pair a complete status with an instruction-empty splice.
+    if not _strip_dim_key_markers(section).strip():
         return (_STATUS_ABSENT, "")
     return (_STATUS_APPENDED, section)
+
+
+def consumer_dimensions(ext_path: Path, heading: str) -> tuple[str, str]:
+    """Return (status, RENDER-READY section text) for a consumer forwarding hook.
+
+    The rendering projection: identical to `_consumer_section_raw` with the #729
+    declaration markers stripped, so no rendering caller can leak machine data into
+    the auditor-facing prompt by forgetting to strip.
+
+    It is also where a consumer's declarations are **validated on the render path**.
+    Every rendering caller funnels through here, so this one call is what stops a
+    malformed consumer declaration from rendering happily while `enumerate-dimensions`
+    dies — the render/enumeration drift the generic arm's `render_dispatch` check
+    closes on the template side. `consumer_entries` is called for its fail-closed
+    arms only; its return value is the key-derivation path's business.
+
+    **Two scope limits, both load-bearing.** (1) Validation applies only to the
+    `## Audit dimensions` hook: this accessor is heading-parameterized and
+    `render_extract` also asks it for `## Evidence axes`, a section that declares no
+    dimensions, is never enumerated, and is never joined to anything — validating it
+    would fail ordinary consumer prose (two axes sharing a bold lead) with a remedy
+    that means nothing there. (2) On this path a **derived**-key collision degrades
+    rather than raises: a declared collision is an authoring defect the consumer can
+    fix, but two bold leads that happen to slug alike are a renderer-internal
+    ambiguity, and escalating that to a hard failure would deny the auditor the whole
+    audit prompt over a formatting coincidence in a third-party file. The enumeration
+    path stays strict, so the ambiguity still surfaces there as a degraded render.
+    """
+    status, section = _consumer_section_raw(ext_path, heading)
+    if status == _STATUS_APPENDED and heading == _HOOKS["audit-dimensions"]:
+        consumer_entries(section, strict_derived=False)
+    return (status, _strip_dim_key_markers(section))
 
 
 # --------------------------------------------------------------------------
@@ -360,6 +508,7 @@ def _section_placeholder(status: str) -> str:
 
 def _dimensions_block_for_status(status: str, section: str) -> str:
     if status == _STATUS_APPENDED:
+        # Already render-ready: `consumer_dimensions` is the stripped projection.
         return section
     if status == _STATUS_ABSENT:
         return "(no consumer audit dimensions)"
@@ -369,6 +518,36 @@ def _dimensions_block_for_status(status: str, section: str) -> str:
         f"unknown consumer-extension status {status!r} (expected one of "
         f"{_STATUS_ABSENT}, {_STATUS_UNESTABLISHED}, {_STATUS_APPENDED})"
     )
+
+
+def _assemble(blocks, token, slots, template_path) -> str:
+    """Select the blocks carrying ``token``, substitute, and join — fail-closed.
+
+    Shared by every full render. The fail-closed emptiness rule lives here once
+    because it is the load-bearing half: a mode that selects no block (or only blank
+    ones) would otherwise emit a positionally-valid two-marker render carrying no
+    instructions at all, which the delivery check cannot detect. Two copies of that
+    rule could be kept in step only by hand.
+
+    Strips the #729 declaration markers from each selected body BEFORE
+    substitution, so a substituted-last value that legitimately contains one —
+    ``{CONSUMER_DIMENSIONS}``, already stripped by ``consumer_dimensions`` — is
+    never re-scanned. Every full render shares this chokepoint, which is what
+    keeps the markers off every auditor-facing prose surface. On a block
+    carrying no marker the strip short-circuits, so the canonical instructions
+    render (whose digest is verified) is byte-unchanged by it.
+    """
+    parts = [
+        _substitute(_strip_dim_key_markers(body), slots).strip("\n")
+        for arm_set, body in blocks
+        if token in arm_set
+    ]
+    inner = "\n\n".join(p for p in parts if p.strip())
+    if not inner.strip():
+        raise RenderError(
+            f"template selected no non-empty block for {token!r} ({template_path})"
+        )
+    return inner
 
 
 def render_dispatch(
@@ -383,7 +562,25 @@ def render_dispatch(
     """Assemble a full render for a dispatch arm (``mode`` in _DISPATCH_ARMS) or
     the checklist self-check (``mode == "checklist"``). ``mode`` doubles as the
     block-selection token, so the checklist branch passes ``"checklist"``."""
-    blocks = _parse_blocks(_load_template(template_path))
+    template_text = _load_template(template_path)
+    blocks = _parse_blocks(template_text)
+
+    # Validate the dimension declarations on the RENDER path too (issue #729), not
+    # only in `enumerate-dimensions`: without this a template whose bullet lost its
+    # declaration renders the prose happily while the enumeration — the operand
+    # coverage totality is checked against — dies, exactly the silent drift between
+    # the two projections this design forbids. Validating here is what makes the
+    # no-silent-drift property structural rather than merely asserted in prose.
+    # (The consumer section's declarations are validated by `consumer_dimensions`
+    # below — the rendering projection is the chokepoint every render path shares.)
+    #
+    # Scoped to renders that actually EMIT the checklist block: a template carrying
+    # no checklist block emits no dimension prose, so it has nothing to drift and
+    # must keep rendering (a bare file-arm template is a legal fixture). Widening
+    # this to every render would turn that absence into a hard failure — a contract
+    # change this issue never asked for.
+    if any("checklist" in arm_set and mode in arm_set for arm_set, _ in blocks):
+        _generic_dimensions(template_text)
 
     status, section = consumer_dimensions(ext_path, _HOOKS["audit-dimensions"])
     # `{CONSUMER_DIMENSIONS}` is substituted LAST (dict-insertion order): the
@@ -397,19 +594,10 @@ def render_dispatch(
         "{CONSUMER_DIMENSIONS}": _dimensions_block_for_status(status, section),
     }
 
-    parts: list[str] = []
-    for arm_set, body in blocks:
-        if mode in arm_set:
-            parts.append(_substitute(body, slots).strip("\n"))
-    inner = "\n\n".join(p for p in parts if p.strip())
-    # Fail CLOSED on an instruction-empty body: a mode that selects no block (or
-    # only blank ones) would otherwise emit a positionally-valid two-marker render
-    # carrying no instructions at all, which the delivery check cannot detect.
-    if not inner.strip():
-        raise RenderError(
-            f"template selected no non-empty block for mode {mode!r} "
-            f"({template_path})"
-        )
+    # `_assemble` strips the #729 declaration markers before substitution, so the
+    # already-stripped `{CONSUMER_DIMENSIONS}` value is never re-scanned — the
+    # substituted-last invariant above.
+    inner = _assemble(blocks, mode, slots, template_path)
     return f"{STATUS_PREFIX} {status}\n{inner}\n{END_MARKER}"
 
 
@@ -444,6 +632,433 @@ def render_extract(hook: str, ext_path: Path) -> str:
 def render_status_only(ext_path: Path) -> str:
     status, _ = consumer_dimensions(ext_path, _HOOKS["audit-dimensions"])
     return f"{STATUS_PREFIX} {status}"
+
+
+def draft_title(text: str) -> str:
+    """Lift the draft's ``# `` title heading (issue #709).
+
+    COUPLED MIRROR of ``issue-audit-state.py``'s ``split_body`` title rule — the
+    two must agree on WHICH LINE is the title, because that function's body-only
+    digest starts after the title line this one reads (it additionally drops the
+    ``# `` marker and the blank separator, which neither function returns). The
+    decided rule, stated identically at both sites: leading blank lines are
+    skipped; the title is the first non-blank line and must be a level-1 ``# ``
+    heading (a bare ``#`` is accepted and yields an empty title); a ``##`` there
+    means there is no title at all.
+
+    The two DIVERGE, deliberately, on a title-less draft: ``split_body`` returns
+    the whole content as body (its caller still needs a digest), while this one
+    raises RenderError rather than rendering a silent empty title — the title is
+    part of the authorized instruction set, so a draft the run cannot title is an
+    unestablished input, not a render that quietly drops a field. The shared rule
+    is the detection; the not-found handling is each caller's own.
+    """
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if line == "#":
+            return ""
+        if line.startswith("# "):
+            return line[2:].strip()
+        raise RenderError(
+            "the draft file's first non-blank line is not a '# ' title heading, "
+            "so the draft title could not be established"
+        )
+    raise RenderError("the draft file is empty, so it carries no title heading")
+
+
+def render_instructions(
+    template_path: Path,
+    slug: str,
+    draft_path: str,
+    instructions_path: str,
+    draft_text: str,
+) -> str:
+    """Render the canonical file-arm audit-DISPATCH instructions (issue #709).
+
+    File arm only, by construction: the mechanism's whole proof is that the
+    auditor hashes an on-disk instruction file, and the embed and inline arms are
+    entered precisely BECAUSE the canonical draft-file write already failed. Those
+    arms therefore record steering-absence as unestablished-by-construction in the
+    state owner rather than rendering a file here — a designed consequence, not a
+    gap this function should paper over with a second arm.
+
+    Pure: same (template bytes, draft title, paths, installation) -> same output
+    bytes, with no consumer-extension read and no run-varying token.
+    ``issue-audit-state.py`` re-invokes this exact function over a round's
+    recorded closed inputs and compares the digest, so any nondeterminism
+    introduced here silently converts every clean audit into a withheld one. The
+    installation is part of that tuple because ``{RENDERER_PATH}`` and the default
+    ``{TEMPLATE_PATH}`` are derived from this file's resolved location; a
+    regeneration always runs in the same checkout that dispatched, so that is a
+    scoping of the claim, not a hole in it.
+    """
+    blocks = _parse_blocks(_load_template(template_path))
+    # The renderer's own resolved location and its template's — derived, never
+    # taken from an argument, so they cannot carry injected text and so the
+    # regeneration reproduces them without needing them recorded as inputs.
+    slots = {
+        "<slug>": slug,
+        "{DRAFT_PATH}": draft_path,
+        "{INSTRUCTIONS_PATH}": instructions_path,
+        "{RENDERER_PATH}": str(Path(__file__).resolve()),
+        "{TEMPLATE_PATH}": str(template_path),
+        # Drafter-authored text, substituted LAST for the same reason
+        # {CONSUMER_DIMENSIONS} is: a title containing a literal slot token must
+        # never be re-scanned as one. Keep it last.
+        "{DRAFT_TITLE}": draft_title(draft_text),
+    }
+    inner = _assemble(blocks, _INSTRUCTIONS_TOKEN, slots, template_path)
+    return (
+        f"{INSTRUCTIONS_PREFIX} {INSTRUCTIONS_VERSION}\n{inner}\n{END_MARKER}"
+    )
+
+
+def instructions_bytes(*args, **kwargs) -> bytes:
+    """The EXACT bytes the CLI writes for a ``dispatch-instructions`` render.
+
+    The producer owns its own on-disk framing (issue #709). ``issue-audit-state.py``
+    regenerates these bytes and compares digests, so if it replicated the CLI's
+    trailing newline by hand, a change to ``main()``'s framing would silently make
+    every clean audit unestablished — the exact false alarm the determinism contract
+    above exists to prevent. Both ``main()`` and the state owner go through here, and
+    a renderer test asserts this equals the real CLI stdout, so the two cannot drift.
+
+    Arguments are forwarded verbatim to ``render_instructions``.
+    """
+    return (render_instructions(*args, **kwargs) + "\n").encode("utf-8")
+
+
+# --------------------------------------------------------------------------
+# Effective-dimension enumeration (issue #708).
+#
+# The Step 3.6 coverage mechanism needs a canonical, keyed, count-stable list of
+# every required audit dimension — the *authoritative operand* the orchestrator
+# joins the auditor's per-dimension coverage outcomes to, and the comparand for
+# the byte-identity floor. Because the renderer is deterministic, the auditor's
+# own render (the #600 compact-preamble transport) and the orchestrator's render
+# assign the SAME stable key to the same dimension, so the join is by shared key,
+# never positional or name inference.
+#
+# The dimension arms are keyed disjointly, so keys are unique across the whole list.
+# Since issue #729 every key is DECLARED or content-derived, never a projection of
+# a bullet's position or current wording:
+#   - generic-floor dimensions: the bullets in the template's `## Audit dimensions`
+#     checklist block, each declaring its key on the line above it. Key
+#     `g:<declared-key>`; an undeclared bullet fails closed.
+#   - consumer dimensions: the per-bullet split of the consumer
+#     `## Audit dimensions` section (present only when appended). Key
+#     `c:<declared-key>`, else `c:<bold-name-slug>`, else `c:h<hash>`.
+#
+# Migration (issue #729). The template's declared keys are exactly the slugs the
+# pre-#729 scrape produced, so no generic key changed value; a consumer key that
+# was `c:<n>` does change. Neither breaks a recorded run: `issue-audit-state.py`
+# treats coverage keys as opaque strings and checks a round's totality against the
+# `coverage_expected` keyset persisted IN THAT ROUND, never against a fresh
+# enumeration — so a run recorded under the previous derivation stays readable and
+# keeps its coverage backing with no rekeying step.
+#
+# Output shape (positionally delimited like every other full render):
+#   render-status: <appended|absent|unestablished>
+#   dim key=<key> text=<single-line rendered dimension text>
+#   ...
+#   render-end:
+# --------------------------------------------------------------------------
+_DIM_LINE_PREFIX = "dim key="
+_DIM_TEXT_SEP = " text="
+# A dimension's bold lead: `**Name**` at the start of the bullet's TEXT (the bullet's
+# `- ` marker already stripped). Since #729 this drives the CONSUMER fallback key
+# only — a generic key is read from its declaration, never matched out of the prose —
+# so it is anchored at the text, not at a bullet marker the caller would have to
+# re-synthesize.
+_BOLD_LEAD_RE = re.compile(r"^\*\*(.+?)\*\*")
+_SLUG_STRIP_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _name_slug(name: str) -> str:
+    """Deterministic kebab slug of a dimension's bold name (consumer fallback key)."""
+    return _SLUG_STRIP_RE.sub("-", name.strip().lower()).strip("-")
+
+
+def _one_line(text: str) -> str:
+    """Collapse a dimension's text to a single line (join wrapped/continued lines).
+
+    A `dim ` output line must never carry an embedded newline (it would forge a
+    second record), so continuation lines are joined with a single space and
+    interior runs of whitespace are collapsed.
+    """
+    return re.sub(r"\s+", " ", text).strip()
+
+
+# Which file a declaration defect is attributable to. The breadcrumb must name the
+# file at fault: the generic arm parses THIS repo's committed template, the consumer
+# arm parses a third-party `.devflow/prompt-extensions/create-issue.md`, and an
+# operator who cannot tell the two apart debugs the wrong file.
+_SOURCE_TEMPLATE = "template"
+_SOURCE_CONSUMER = "consumer extension"
+
+
+def _declared_key(line: str, source: str = _SOURCE_TEMPLATE) -> str | None:
+    """The key declared by a `<!-- dim-key: … -->` line, or None if not one.
+
+    Raises RenderError on a marker whose key is not lowercase kebab-case: a
+    malformed declaration is a defect in the declaring file, never a key to coin.
+    `source` names that file's role so the breadcrumb is attributable.
+    """
+    m = _DIM_KEY_RE.match(line.strip())
+    if not m:
+        return None
+    key = m.group(1)
+    if not _DIM_KEY_SHAPE_RE.match(key):
+        raise RenderError(
+            f"{source} malformed: dim-key declaration {key!r} is not lowercase "
+            f"kebab-case (letters, digits, single hyphens)"
+        )
+    return key
+
+
+def _generic_dimensions(template_text: str) -> list[tuple[str, str]]:
+    """The generic-floor dimensions as (key, single-line-text), template order.
+
+    Selects the one checklist block (the block whose arm set includes
+    ``checklist`` — unique in the template) and returns each top-level bullet
+    paired with the ``<!-- dim-key: … -->`` declaration on the line above it.
+
+    Keys are ``g:<declared-key>`` — read from the DECLARATION, never slugged from
+    the bullet's prose (issue #729), so rewording a bullet leaves its key
+    byte-identical. Every fail-closed arm below exists to keep the two projections
+    (the human-facing checklist prose and this enumeration) from drifting apart
+    silently: an undeclared bullet, an orphan declaration, or a duplicate key is a
+    template defect that raises rather than coining or coalescing a key.
+    """
+    blocks = _parse_blocks(template_text)
+    checklist_bodies = [body for arm_set, body in blocks if "checklist" in arm_set]
+    if len(checklist_bodies) > 1:
+        # The uniqueness this function's docstring states is now ENFORCED, not merely
+        # described: two checklist blocks would silently merge two dimension sets into one
+        # enumeration, and the merged keyset is what coverage totality is checked against.
+        raise RenderError(
+            f"template malformed: {len(checklist_bodies)} checklist blocks carry a "
+            f"generic audit-dimension list; exactly one is required"
+        )
+    if not checklist_bodies:
+        raise RenderError(
+            "template malformed: no checklist block carrying the generic "
+            "audit-dimension list"
+        )
+    dims: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for body in checklist_bodies:
+        pending: str | None = None
+        for raw in body.splitlines():
+            line = raw.rstrip()
+            declared = _declared_key(line, _SOURCE_TEMPLATE)
+            if declared is not None:
+                if pending is not None:
+                    raise RenderError(
+                        f"template malformed: dim-key declaration {pending!r} "
+                        f"declares no bullet (another declaration reached before "
+                        f"any `- ` dimension bullet)"
+                    )
+                pending = declared
+                continue
+            if not line.startswith("- "):
+                # Adjacency enforcement: a blank line between a declaration and its
+                # bullet is ordinary formatting, but any OTHER intervening line
+                # breaks the binding — otherwise a declaration silently binds to a
+                # distant bullet and mis-keys it, which no other arm would catch.
+                if line.strip() and pending is not None:
+                    raise RenderError(
+                        f"template malformed: dim-key declaration {pending!r} is not "
+                        f"adjacent to its bullet ({line[:60]!r} intervenes); a "
+                        f"declaration binds only the `- ` bullet immediately below it"
+                    )
+                continue
+            if pending is None:
+                raise RenderError(
+                    f"template malformed: generic dimension bullet {line[:60]!r} "
+                    f"carries no dim-key declaration on the line above it; every "
+                    f"checklist bullet declares its stable key"
+                )
+            key = f"g:{pending}"
+            pending = None
+            if key in seen:
+                raise RenderError(
+                    f"template malformed: duplicate generic dimension key {key!r}"
+                )
+            seen.add(key)
+            # The rendered text is the bullet with its leading `- ` marker stripped.
+            dims.append((key, _one_line(line[2:])))
+        if pending is not None:
+            raise RenderError(
+                f"template malformed: dim-key declaration {pending!r} declares no "
+                f"bullet (the checklist block ends before the next `- ` bullet)"
+            )
+    if not dims:
+        raise RenderError(
+            "template malformed: checklist block carries no generic dimension bullets"
+        )
+    return dims
+
+
+def _split_consumer_dimensions(section: str) -> list[tuple[str | None, str]]:
+    """Split a consumer ``## Audit dimensions`` section into per-dimension entries.
+
+    Each top-level ``- `` bullet (column 0) starts a new dimension; a non-bullet
+    or indented continuation line folds into the current dimension's text. A
+    ``<!-- dim-key: … -->`` declaration line binds the bullet **immediately below**
+    it and is never folded into any dimension's text. Leading prose before the
+    first bullet, and blank lines, are ignored. Returns ``(declared-key-or-None,
+    single-line text)`` per dimension in file order.
+
+    **The declaration arms fail closed, symmetrically with the generic arm** — a
+    stacked declaration, a trailing declaration that binds no bullet, and a
+    declaration separated from its bullet all raise with a *consumer-scoped*
+    breadcrumb. Silently discarding one of those is the pre-#729 defect wearing a
+    different hat: the consumer believes they pinned a durable key while the
+    enumeration quietly used the reword-unstable fallback instead, and the loss is
+    invisible until a later round's keyset diverges. An *absent* declaration is a
+    different thing entirely and stays legal — that is the documented content-derived
+    fallback (see `_consumer_key`), not a malformed declaration.
+    """
+    dims: list[tuple[str | None, str]] = []
+    current: list[str] | None = None
+    current_key: str | None = None
+    pending: str | None = None
+
+    def _flush() -> None:
+        if current is not None:
+            text = _one_line(" ".join(current))
+            if text:
+                dims.append((current_key, text))
+
+    for raw in section.splitlines():
+        line = raw.rstrip()
+        declared = _declared_key(line, _SOURCE_CONSUMER)
+        if declared is not None:
+            if pending is not None:
+                raise RenderError(
+                    f"consumer extension malformed: dim-key declaration {pending!r} "
+                    f"declares no bullet (another declaration reached before any "
+                    f"`- ` dimension bullet); give each bullet its own declaration "
+                    f"on the line immediately above it"
+                )
+            # A declaration terminates the preceding bullet: it belongs to the NEXT
+            # one, and folding it into the previous dimension's text would both
+            # corrupt that text and lose the binding.
+            _flush()
+            current = None
+            current_key = None
+            pending = declared
+            continue
+        if line.startswith("- "):
+            _flush()
+            current = [line[2:]]
+            current_key = pending
+            pending = None
+        elif current is not None:
+            if line.strip():
+                current.append(line)
+        elif line.strip() and pending is not None:
+            # Adjacency, consumer side (mirrors the generic arm): a blank line is
+            # ordinary formatting, any other intervening line breaks the binding.
+            raise RenderError(
+                f"consumer extension malformed: dim-key declaration {pending!r} is "
+                f"not adjacent to its bullet ({line[:60]!r} intervenes); a "
+                f"declaration binds only the `- ` bullet immediately below it"
+            )
+    if pending is not None:
+        raise RenderError(
+            f"consumer extension malformed: dim-key declaration {pending!r} declares "
+            f"no bullet (the `## Audit dimensions` section ends before the next `- ` "
+            f"bullet)"
+        )
+    _flush()
+    return dims
+
+
+def _consumer_key(declared: str | None, text: str) -> str:
+    """The insertion-stable key of one consumer dimension (issue #729).
+
+    Precedence, every arm content-derived rather than positional so inserting a
+    bullet mid-section never rekeys its siblings (the pre-#729 ``c:<n>`` defect):
+
+    1. an explicit ``<!-- dim-key: … -->`` declaration, when the consumer supplies
+       one — the only arm the consumer controls exactly;
+    2. the slug of the bullet's bold lead (``- **Name** — …``), which is how this
+       repo's own consumer dimensions are written;
+    3. a truncated SHA-256 of the dimension's single-line text, for a bullet with
+       no bold lead — stable under insertion, and it changes only when the
+       dimension's own text changes (which a consumer can pin by adding a
+       declaration).
+    """
+    if declared:
+        return f"c:{declared}"
+    m = _BOLD_LEAD_RE.match(text)
+    if m:
+        slug = _name_slug(m.group(1))
+        if slug:
+            return f"c:{slug}"
+    return "c:h" + hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+
+
+def consumer_entries(
+    section: str, *, strict_derived: bool = True
+) -> list[tuple[str, str]]:
+    """The consumer dimensions as validated (key, single-line-text) pairs.
+
+    The single owner of "what dimensions does this consumer section declare, and
+    what are their keys" — split, key derivation, and the duplicate check together.
+    BOTH the key-derivation path (`enumerate_dimensions`) and the rendering path
+    (`consumer_dimensions`, for its fail-closed arms) call it, so no consumer-side
+    defect can fail one projection while the other renders happily. Both projections call it, so a
+    consumer-side duplicate cannot fail the enumeration while the render succeeds.
+    """
+    entries: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for declared, text in _split_consumer_dimensions(section):
+        key = _consumer_key(declared, text)
+        if key in seen and not declared and not strict_derived:
+            # A DERIVED collision on the render path: disambiguate deterministically
+            # instead of denying the auditor the prompt (see `consumer_dimensions`).
+            key = "c:h" + hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+        if key in seen:
+            # Two consumer dimensions resolving to one key would silently coalesce
+            # into a single enumerated dimension, and the merged keyset is what
+            # coverage totality is checked against — the same defect the generic
+            # duplicate arm refuses. Name the remedy, since the file at fault is
+            # the consumer's, not this repo's.
+            raise RenderError(
+                f"consumer extension malformed: duplicate consumer dimension key "
+                f"{key!r}; give each colliding bullet its own explicit "
+                f"`<!-- dim-key: <lowercase-kebab> -->` declaration to disambiguate"
+            )
+        seen.add(key)
+        entries.append((key, text))
+    return entries
+
+
+def enumerate_dimensions(
+    template_path: Path, ext_path: Path
+) -> tuple[str, list[tuple[str, str]]]:
+    """Return (consumer-status, [(key, text), ...]) — generic then consumer."""
+    generic = _generic_dimensions(_load_template(template_path))
+    # The RAW projection: this is the one caller that needs the declaration markers.
+    status, section = _consumer_section_raw(ext_path, _HOOKS["audit-dimensions"])
+    entries = list(generic)
+    if status == _STATUS_APPENDED:
+        entries.extend(consumer_entries(section))
+    return status, entries
+
+
+def render_enumerate(template_path: Path, ext_path: Path) -> str:
+    status, entries = enumerate_dimensions(template_path, ext_path)
+    lines = [f"{STATUS_PREFIX} {status}"]
+    for key, text in entries:
+        lines.append(f"{_DIM_LINE_PREFIX}{key}{_DIM_TEXT_SEP}{text}")
+    lines.append(END_MARKER)
+    return "\n".join(lines)
 
 
 # --------------------------------------------------------------------------
@@ -515,6 +1130,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("mode", choices=_MODES)
     parser.add_argument("--slug", type=_kebab_slug)
     parser.add_argument("--draft-path", type=_abs_path)  # absolute path (file arm)
+    # issue #709: where the generated dispatch instructions are written. It is
+    # rendered INTO the instructions (the auditor is told which file to hash), so
+    # it takes the same shape check as every other substituted path.
+    parser.add_argument("--instructions-path", type=_abs_path)
     parser.add_argument("--sentinel-open", type=_sentinel)
     parser.add_argument("--sentinel-close", type=_sentinel)
     parser.add_argument("--hook", choices=tuple(_HOOKS))
@@ -580,6 +1199,43 @@ def main(argv: list[str]) -> int:
             out = render_extract(args.hook, ext_path)
         elif args.mode == "status-only":
             out = render_status_only(ext_path)
+        elif args.mode == "enumerate-dimensions":
+            out = render_enumerate(template_path, ext_path)
+        elif args.mode == "dispatch-instructions":
+            if args.slug is None:
+                raise RenderError("--slug is required for dispatch-instructions")
+            if not args.draft_path:
+                raise RenderError(
+                    "--draft-path is required for dispatch-instructions"
+                )
+            if not args.instructions_path:
+                raise RenderError(
+                    "--instructions-path is required for dispatch-instructions"
+                )
+            try:
+                draft_text = Path(args.draft_path).read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError) as exc:
+                # Fail closed with the SPECIFIC cause rather than rendering a
+                # title-less instruction file: an unreadable draft is an
+                # unestablished input, and a rendered-anyway file would hash
+                # cleanly while carrying less than the authorized set.
+                raise RenderError(
+                    f"could not read the draft file at {args.draft_path}: {exc}"
+                ) from exc
+            # Write the producer-owned canonical bytes directly rather than falling
+            # through to the shared `out + "\n"` tail below: `instructions_bytes` IS
+            # the on-disk contract the state owner regenerates against, so this mode's
+            # framing must come from that one function, never from a second site.
+            sys.stdout.write(
+                instructions_bytes(
+                    template_path,
+                    args.slug,
+                    args.draft_path,
+                    args.instructions_path,
+                    draft_text,
+                ).decode("utf-8")
+            )
+            return 0
         else:  # unreachable: choices already constrain mode
             raise RenderError(f"unknown mode {args.mode}")
     except RenderError as exc:

@@ -15,11 +15,13 @@ Schema:
 ```json
 {
   "schema_version": 1,
+  "default_channel": "loop-record",
   "pr_branch": "<current branch>",
   "base_branch": "<base_branch from .devflow/config.json; if absent, the repo default branch via `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`, falling back to `main`>",
   "generated_at": "<ISO 8601 UTC>",
   "deferrals": [
     {
+      "finding_id": "<from phase3_findings.finding_id>",
       "agent": "<from phase3_findings.agent>",
       "severity": "<Critical | Important | Suggestion>",
       "file": "<from defect_signature.file>",
@@ -34,6 +36,8 @@ Schema:
   ]
 }
 ```
+
+`default_channel` is the literal `"loop-record"`, declared once at manifest level rather than repeated per entry: this manifest **is** the durable loop record every entry in it is traced by, which is exactly what the completion-evidence check (`scripts/check-completion-evidence.py`, read below at Loop Exit) means by that channel. Emit it verbatim — the check resolves each entry's channel from this declaration, so a manifest that omits it makes every entry read as citing no durable channel and the check reports `non-durable-deferral` against a legitimately-complete run. `finding_id` carries the same identifier the widens-surface guard above joins on, so the check names the offending entry when one fails.
 
 The `disclosure` object is present **only** on a `settled-by-disclosure` entry (copied from that row's `parking_evidence.source`); it is absent on the three ordinary categories. A foreclosure entry carries **no** `follow_up` — the downstream implement Phase 4.0.5 filer passes it through unchanged (files no issue) and `/pr-description` renders it citing the disclosure path in place of an issue number.
 
@@ -251,6 +255,33 @@ Item 6 requires `base_checkpoint` on **every** iteration whose checkpoint ran, i
 **Why a `CONFLICT` needs no loop-exit re-run — and the dependency that makes that true.** A resolved Checkpoint-3 `CONFLICT` lands a *real* base merge and pushes it, yet records `base_checkpoint.token == "CONFLICT"`, so the `UPDATED` test above does not fire on it. That is safe **only because the `CONFLICT` arm runs the project test suite on the resolved tree itself** before committing — the merge is already locally verified when it lands, so a second run at Loop Exit would be redundant. This is a *dependency*, not a coincidence: if the `CONFLICT` arm's suite run is ever relaxed — including via its own explicitly-permitted "suite unrunnable on this tier → commit and push locally-unverified" sub-arm — then that merge ships unverified and this rule will not catch it. In that sub-arm specifically, the resolution is recorded as locally-unverified and **CI is the validating gate**; do not read the `UPDATED`-only test above as covering it.
 
 Three arms: a **pass** finishes the loop normally; an **absent / ungranted / unrunnable** suite proceeds with a locally-unverified record (CI validates); a **failure** is reported loudly in the chat report and recorded in the Loop-Exit record naming the merge commit — the state is already pushed, so there is no publish to withhold, and the loud record is the honest terminal action.
+
+### Completion-evidence check (Loop Exit discharge of the receiving-review item)
+
+This is the loop's discharge site for the `devflow:receiving-code-review` Verification Gate's completion-evidence item (that skill's scoping sentence names Loop Exit as this site — DevFlow's own dispatch surfaces name the plugin-qualified copy, never a side-by-side upstream `receiving-code-review` copy that lacks this gate). Run the bundled validator over this run's **run-scoped records** and quote its verdict line in the final report. The validator is `scripts/check-completion-evidence.py`; invoke it via the portable anchor as a single leading-token vendored literal (the probe-proven cloud grant form; locally the `python3 <path>` fallback), never a `bash <path>` wrapper.
+
+**Operands (all run-scoped — the loop states what it cites; the validator checks only what is stated):**
+- **Verification record** — the #528 durable status handle's flight file (`.devflow/tmp/verification-flights/<flight_key>.json`), read as the **single** loop-side verification operand. Never a raw per-iteration `verification_evidence` record: a per-iteration record's run can legitimately predate Step 3.5's inner re-fix commits, and a converging no-fix iteration legitimately records a whole-run skip.
+- **Findings inventory** — the per-iteration Phase-3 findings union from the run's `iter-<N>.json` records, written to a run-scoped temp file carrying `claim_context_token: "<run-id>"` and a `findings` array; each finding the loop routed into the effective fix set is marked `in_fix_set: true` (a REJECT-driver additionally `reject_driver: true`) by the loop's **own** routing — the validator performs no severity comparison.
+- **Disposition ledger** — the `fix_decisions` union, written to a run-scoped temp file as `{ "fix_decisions": [ … ] }`.
+- **Deferrals** — this run's `deferrals.json` (the Pre-mapping manifest above), or omitted when zero entries survived (the established zero-deferral state — a `pass`-arm input, never `missing-evidence`).
+- **Claim-time candidate identity** — computed by the loop (the same content-based derivation the reception producer ships) and passed with `--claim-identity`; `--context <run-id> --context-mode loop`.
+
+**Identity-keyed refresh (recovery arm).** When the claim-time candidate identity differs from the verification record's recorded identity — Step 3.5 inner re-fixes are the routine producer of this state; the ordinary verify-then-commit iteration compares equal and triggers nothing — **refresh the verification record first**: one suite re-run recorded through the handle before validating, the recovery arm of a would-be `stale-candidate`. This identity-keyed trigger sits **beside** the existing Loop-exit suite rule's base-merge trigger (that rule is unchanged). A converging no-fix final iteration validates against the handle's last completed run: the content is unchanged, so the recorded identity still equals claim time.
+
+Build the run-scoped operand files (findings inventory + `fix_decisions` union) from this run's `iter-*.json` via the granted jq wrapper first, then invoke the validator as a **single leading-token vendored literal** (never a `VAR="$(…)"` capture — that composite shape is a denied/unproven cloud shape; read the verdict line from the printed tool output instead). `<slug>`/`<run-id>` are this run's values; `<flight_key>` is the handle key from the Step-3 coordination:
+
+```bash
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/check-completion-evidence.py \
+  --context "<run-id>" --context-mode loop \
+  --verification-record ".devflow/tmp/verification-flights/<flight_key>.json" \
+  --findings-inventory ".devflow/tmp/review/<slug>/<run-id>/completion-inventory.json" \
+  --disposition-ledger ".devflow/tmp/review/<slug>/<run-id>/completion-dispositions.json" \
+  --deferrals ".devflow/tmp/review/<slug>/<run-id>/deferrals.json" \
+  --claim-identity "<claim-time candidate identity>"
+```
+
+**Quote, record, and carry the token.** Quote the single verdict line verbatim in the final chat report, and record it in the workpad. Parse its token (the second field). When the token is **not** `pass`, append `— completion evidence: <token>` to the reported final verdict line (`<verdict> — completion evidence: <token>`). Where an issue workpad exists (implement-driven runs), additionally record a `## Devflow Reflection` bullet quoting the verdict line — a non-empty reflections list already forces retrospective analysis, so the outcome is durable with **zero** status-word mirror edits (the closed status-word set, glyph map, and retrospective parsers are untouched). **A validator invocation that produced no verdict line — silent denial (denied/absent helper/no output) and internal failure (exit 2) alike — is the degraded arm:** report `degraded: unvalidated (<reason>)`, never read absent output as `pass`.
 
 ### Persistence self-check (Layer 2 — warn-only backstop)
 

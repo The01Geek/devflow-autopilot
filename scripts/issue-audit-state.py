@@ -23,15 +23,22 @@ TWO-CLASS CLI CONTRACT (the skill branches on exactly this):
   * Query subcommands ALWAYS exit 0 once their arguments parse (an argparse usage
     error — a missing required flag or an unknown one — exits 2 before the query logic
     runs) and answer on stdout with a decided single-line
-    token — fail-closed answers included — with exactly one exception: `query-findings`
-    prints one decided line per ledger entry and is the tool's one multi-line query (a
-    run with no ledger prints the single line `findings=none`). A crashed read is never
+    token — fail-closed answers included — except for the multi-line read-back queries
+    `query-findings`, `query-claim-baselines`, and `query-finding-evidence`, which each
+    print one decided line per record (an empty store prints the single line
+    `findings=none` / `claims=none` / `evidence=none`). A crashed read is never
     presented as a value. Queries are strictly READ-ONLY: the tool-unavailability fallback depends
     on a mutation-persistence failure still leaving the queries answering, so no
     query may write. This is why the eligibility token is *derived* on demand rather
     than persisted at issue time.
   * Mutation subcommands exit non-zero with a specific named stderr breadcrumb, for
     an illegal transition and for an unpersistable state alike.
+  * `check-claim-staleness` is neither, and the skill routes it by its OWN exit code: it is a
+    nonce-taking, strictly READ-ONLY staleness check that prints one line per claim yet exits
+    non-zero on a caller-contract error (`claim-unknown`, `domain-for-location-claim`,
+    `domain-without-claim-key`). Reading it by the query contract above would treat a
+    mistyped `--claim-key` as an unpersistable-state mutation failure. Kept in lockstep with
+    `skills/create-issue/references/step-3-6-audit.md`, which states the same carve-out.
   * `emit-body` is neither: it is a gated emitter. It exits 0 with the audited body
     bytes when eligibility grounds them, and non-zero with EMPTY stdout otherwise —
     so on the file-identity ground a caller that ignores the exit code cannot post an
@@ -75,7 +82,14 @@ if sys.version_info < (3, 11):
 # schema-version-mismatch fail-closed matrix row (#546's matrix; no new versioning
 # discipline is invented), forcing a re-init of any in-flight v1 run. Blast radius is
 # small: these state files are ephemeral per-run scratch under .devflow/tmp/.
-SCHEMA_VERSION = 2
+#
+# Bumped 2 → 3 for issue #709: the additive per-attempt `instructions` record (the
+# canonical dispatch-instruction digest plus the round's CLOSED regeneration inputs)
+# and the per-round `steering` establishment result. Same reasoning as the 1 → 2 bump:
+# additive-optional fields still get the bump so an in-flight v2 run re-inits through
+# the existing schema-mismatch fail-closed matrix row rather than being read by code
+# that would treat its absent steering record as an established one.
+SCHEMA_VERSION = 3
 
 # ── Canonical token sets ────────────────────────────────────────────────────────
 # The transition table below may reference no token outside these sets; the
@@ -145,7 +159,72 @@ _OVERRIDE_KINDS = ('user-decline', 'cap-reached')
 _OVERRIDE_SURFACES = (
     't1t2-boundary', 'step4-offer', 'step4-approval-after-exhausted-offer',
 )
-_DEGRADED_REASONS = ('no-subagent-tool', 'dispatch-error', 'no-parseable-verdict-exhausted')
+_DEGRADED_REASONS = ('no-subagent-tool', 'dispatch-error', 'no-parseable-verdict-exhausted',
+                     # issue #709: the canonical dispatch-instruction generator could not
+                     # be invoked or produced no usable output, so the round ran without a
+                     # hashable instruction file.
+                     'instructions-generation-failed')
+
+# What the DISPATCH-time regeneration observed about the written instruction file
+# (issue #718). `verified` — regenerated and matched. `diverged` — regenerated and did
+# NOT match; the cause (a mangled write, a differently-spelled recorded input, or a
+# post-generation edit) is NOT established by the tool, which is exactly why this is a
+# recorded observation rather than a refusal. `unverified` — the regeneration could not
+# run here at all. Absent means the round predates the field.
+_DISPATCH_REGENERATION = ('verified', 'diverged', 'unverified')
+
+# ── Steering-absence establishment (issue #709) ────────────────────────────────
+# What the auditor was TOLD, recorded beside the existing carriage evidence for what
+# the auditor READ. `established` means the auditor's quoted `git hash-object` ID for
+# the canonical dispatch-instruction file equalled the digest of the FRESHLY-REGENERATED
+# canonical instructions AND the auditor reported no extra dispatch content. Everything
+# else is `not-established` — there is deliberately no third "unknown" state at the ROUND
+# level, because absent evidence is treated exactly like mismatched evidence here for the
+# same fail-closed reason `_carriage_ok` gives. (The SUMMARY surface does carry a third
+# `unestablished` token, for the distinct case of no completed round to report on at all.)
+_STEERING_STATES = ('established', 'not-established')
+# Why, in refusal precedence order, mapped to the ONE state each reason may carry.
+# A mapping rather than a flat tuple because `_validate` must reject a forged PAIR:
+# checking state and reason membership independently would accept
+# `{'state': 'established', 'reason': 'no-instructions-file'}` — precisely the
+# hand-corrupted record the validator exists to stop from walking the run past the
+# gate. `canonical-match` is the one establishing reason.
+_STEERING_REASON_STATE = {
+    # The arm never had a hashable instruction file — the embed and inline arms are
+    # entered BECAUSE the canonical draft-file write already failed, so steering-absence
+    # is unestablished BY CONSTRUCTION there. A designed consequence, not a gap.
+    'no-instructions-file': 'not-established',
+    # File arm, but the dispatch recorded no instruction digest / closed inputs, so the
+    # tool cannot regenerate the comparand at all.
+    'inputs-unrecorded': 'not-established',
+    # The regeneration itself failed (generator unimportable, draft unreadable, template
+    # unreadable, hashing failed). Unknown is not zero.
+    'regeneration-failed': 'not-established',
+    'instructions-object-id-absent': 'not-established',
+    'instructions-object-id-mismatch': 'not-established',
+    # The instruction file already failed its DISPATCH-time regeneration, so the
+    # divergence predates the auditor entirely. Same fail-closed state, but a reason that
+    # points at the write or the recorded inputs rather than at the auditor's reading —
+    # and, unlike a stderr breadcrumb, it survives into `query-summary` and the Step 4
+    # audit-summary line, which is the surface the user is actually pointed at.
+    'instructions-noncanonical-at-dispatch': 'not-established',
+    # The auditor did not report the no-extra-content affirmation at all.
+    'extra-dispatch-content-unreported': 'not-established',
+    # The auditor reported that its dispatch message carried more than the pointer.
+    'extra-dispatch-content': 'not-established',
+    'canonical-match': 'established',
+}
+# The closed answer set for the SUMMARY-line steering token: the two round-level states
+# plus `unestablished` for "no completed round, or a completed round that recorded no
+# steering result". `summary_fields` asserts its derived token against this set, so the
+# constant is load-bearing rather than a name that merely claims a coupling.
+_STEERING_SUMMARY = _STEERING_STATES + ('unestablished',)
+# ...and the reason's own closed answer set, for the same reason the state has one: a
+# consumer parsing `steering_reason=` off the SUMMARY line needs something pinned to
+# parse against. `none` is a summary-only member (no round ever RECORDS it) — it is
+# what an unestablishable or not-yet-evaluated round renders, exactly as
+# `unestablished` is the state's summary-only member.
+_STEERING_SUMMARY_REASONS = tuple(_STEERING_REASON_STATE) + ('none',)
 _NEXT_ACTIONS = (
     'dispatch-embed-retry', 'dispatch-retry-same-arm', 'dispatch-inline-degraded',
     'proceed', 'revise-and-reaudit', 'revise-then-evaluate-offer', 'round-closed-no-verdict',
@@ -155,6 +234,9 @@ _ELIGIBILITY_REASONS = (
     'unaudited-revision', 'stale-override', 'no-verdict-round', 'state-unestablished',
     'foreign-nonce', 'no-revision-recorded', 'draft-undigestible',
     'no-digest-supplied',
+    # issue #709: draft identity held on the clean round, but steering-absence was not
+    # established for it, so the coverage-backed clean ground is withheld.
+    'steering-unestablished',
 )
 _GROUNDS = ('file-identity', 'event-ordering', 'override')
 
@@ -192,6 +274,43 @@ _PRE_REVISION = 'pre-revision'
 # no way for the two halves to disagree.
 _LEDGER_PREFIXES = ('unresolved', 'resolved')
 
+# ── Per-dimension coverage vocabulary (issue #708) ─────────────────────────────────
+# The closed set of coverage outcomes an auditor records per required audit dimension,
+# guarded at record time and re-enforced at the read boundary in `_validate_coverage`.
+# Complete by construction:
+#   exercised    — the dimension was engaged, backed by a checkable anchor.
+#   valid-N/A    — the draft plainly does not touch the dimension (a cheap one-line reason).
+#   unestablished— the outcome could not be established (a degraded arm, a floor failure);
+#                  unknown is never collapsed onto exercised or onto a clean backing.
+#   skipped      — the auditor did not genuinely engage the dimension (the coverage gap).
+_COVERAGE_OUTCOMES = ('exercised', 'valid-N/A', 'unestablished', 'skipped')
+# The two outcomes that back coverage. A run is coverage-backed only when EVERY required
+# dimension resolved to one of these with adjudication-surviving evidence — totality is
+# enforced at record time against `--expected-keys`, the orchestrator's authoritative
+# enumeration, by synthesizing `unestablished` for every enumerated key with no line.
+_COVERAGE_BACKING_OUTCOMES = ('exercised', 'valid-N/A')
+# The outcomes that require a non-empty anchor/reason passing the text-only floor. An
+# `exercised` outcome whose anchor fails the floor is DOWNGRADED to `unestablished` at
+# record time (unknown is not zero), never rejected. The two roles — what BACKS coverage
+# and what CARRIES an anchor — are the same set by construction, so the coupling is
+# spelled as an alias rather than a second literal that a later edit could silently
+# desync (a divergence would be invisible: nothing compares the two).
+_COVERAGE_ANCHORED = _COVERAGE_BACKING_OUTCOMES
+# One structurally-enforced bound (issue #708): a hard per-anchor character cap over the
+# quoted line plus one concern clause, so no single anchor can balloon. The state owner
+# READ BOUNDARY rejects an over-cap anchor; at record time an over-cap anchor fails the
+# floor and DOWNGRADES to `unestablished` like any other floor failure, never a rejection.
+_COVERAGE_ANCHOR_MAX = 600
+# The render state a coverage round records. `full` — the auditor rendered every dimension
+# on the orchestrator's authoritative enumeration; `degraded` — a render divergence narrowed
+# the auditor's dimension set (un-rendered dimensions record `unestablished`), which
+# discloses but does NOT fire the coverage offer. (`none` is never RECORDED — it is the
+# derivation's no-coverage-round token; see `evaluate_coverage`, whose choices this tuple
+# does not gate.)
+_COVERAGE_RENDERS = ('full', 'degraded')
+# The run-level coverage-backing tokens the derivation reports and the summary renders.
+_COVERAGE_BACKINGS = ('backed', 'not-backed', 'unestablished')
+
 # Every `key=` token this tool's queries and mutations PRINT. Ledger summaries and
 # invalidation reasons are refused when they contain a word of the form `<token>=` drawn
 # from this set: ledger text is identity data, never instruction and NEVER protocol, so
@@ -203,17 +322,24 @@ _LEDGER_PREFIXES = ('unresolved', 'resolved')
 # need a new arm in that row). Widening it beyond `query-findings`' own fields is deliberate — the
 # never-protocol property must hold for the whole printed surface, not one line of it.
 _PROTOCOL_TOKENS = (
-    'action', 'adjudicated', 'adjudicated_verdict', 'advisory', 'arm', 'attestation',
+    'action', 'adjudicated', 'adjudicated_verdict', 'advisory', 'anchor', 'arm',
+    'attestation', 'backs_run',
+    'baseline_identity', 'baseline_revision',
     'basis', 'body_digest', 'bound', 'bound_path', 'bound_root', 'bound_tier', 'cap',
-    'cap_reached', 'classification', 'consumer_dimensions_appended', 'converged',
-    'convergence_basis', 'count', 'degraded', 'digest', 'effective_unresolved',
-    'eligible', 'epoch_round', 'findings', 'findings_count', 'frozen', 'ground', 'id',
+    'cap_reached', 'claim', 'claims', 'class', 'classification', 'command', 'completeness',
+    'conflict', 'consumer_dimensions_appended', 'converged', 'convergence_basis', 'count',
+    'coverage', 'coverage_backing', 'coverage_reason', 'coverage_render',
+    'degraded', 'digest', 'dispatch_regeneration', 'effective_unresolved', 'eligible',
+    'epoch_round', 'evidence', 'finding', 'findings', 'findings_count', 'frozen', 'ground',
+    'id', 'identity', 'instructions_digest',
     'invalid', 'invalidated', 'iterate', 'key', 'kind', 'latest_revision_landed',
-    'marker', 'markers',
-    'must_revise', 'non_bound_root', 'nonce', 'ordinal', 'outcome', 'reason',
-    'reinit_forced', 'remaining', 'reopened', 'revision_ordinal', 'revisions_applied',
+    'locator', 'marker', 'markers', 'missing',
+    'must_revise', 'non_bound_root', 'nonce', 'observed', 'ordinal', 'outcome', 'reason',
+    'reinit_forced', 'remaining', 'reopened', 'revision', 'revision_ordinal',
+    'revisions_applied',
     'round', 'rounds_run', 'sentinel_close', 'sentinel_open', 'state', 'status',
-    'stdin_digest', 'summary', 'superseded', 't1', 't2', 'tier', 'token',
+    'stdin_digest', 'steering', 'steering_reason',
+    'summary', 'superseded', 't1', 't2', 'tier', 'token',
     'unledgered_revise', 'unresolved',
     'unresolved_must_revise', 'user_declined', 'user_rounds_used', 'verdict',
 )
@@ -259,8 +385,12 @@ if set(_LEGAL_SETTLING_KEYS) != set(_LEDGER_STATUSES):
 def _forged_protocol_token(text):
     """The first protocol token `text` forges as a `<token>=` word, else None.
 
-    Shared by ledger-summary ingestion and the invalidation-reason guard so one closed
-    vocabulary governs both. The decided recovery on a hit is to reword without the
+    Shared by ledger-summary ingestion, the invalidation-reason guard, and the claim-key
+    guard, so one closed vocabulary governs every ingestion point that answers this hazard by
+    REFUSAL. The per-finding evidence channel is deliberately not among them: it stores
+    auditor text verbatim and answers the same hazard at its print boundary instead, so it
+    consults no vocabulary. Deliberately count-free — an ordinal here rots on the next caller
+    added. The decided recovery on a hit is to reword without the
     `<field>=` form and re-issue the call.
 
     The match is deliberately CASE-SENSITIVE: the capture is case-insensitive by character
@@ -282,10 +412,12 @@ def _record_splitting_char(text):
     ledger summaries and invalidation reasons land in `query-findings`' `summary=<text>`
     trailing field (and in state a later round reconciles against), so an embedded CR or
     LF could visually clobber or split the reconciliation surface — the same reason
-    `_is_bound_path` refuses both bytes in a bound path. The two INGESTION callers
-    (`_ingest_ledger` and `cmd_record_invalidate`) check the STRIPPED text, so a trailing
+    `_is_bound_path` refuses both bytes in a bound path. The INGESTION callers
+    (`_ingest_ledger`, `cmd_record_invalidate`, `cmd_record_claim_baseline`) check the
+    STRIPPED text, so a trailing
     CRLF from a Windows-shell heredoc is normalized away rather than refused and only an
-    INTERIOR splitter is a hit there. The two `_validate_ledger` READ-BOUNDARY callers
+    INTERIOR splitter is a hit there. The READ-BOUNDARY callers (`_validate_ledger`, and
+    `_validate_claims` for a stored claim key)
     pass stored text verbatim, where any splitter — a trailing one included — is corrupt
     state by construction, since the ingestion guards already stripped it before it was
     ever persisted. The decided recovery mirrors the vocabulary refusal: reword the text
@@ -623,12 +755,492 @@ def hash_bytes(data):
 
 
 def hash_file(path):
-    """Hash a file's bytes, read in binary. Raises _DigestError when unreadable."""
+    """Hash a file's bytes, read in binary. Raises _DigestError when unreadable.
+
+    The breadcrumb names no file ROLE: the original callers passed a draft, but issue #704's
+    `location_identity` passes arbitrary measured anchors, and a message calling a measured
+    source file "the draft file" sends the reader looking for the wrong artifact.
+    """
     try:
         data = Path(path).read_bytes()
     except OSError as exc:
-        raise _DigestError(f'could not read draft file {path}: {exc}') from exc
+        raise _DigestError(f'could not read {path}: {exc}') from exc
     return hash_bytes(data)
+
+
+# ── issue #704: repository-baseline claim provenance and per-finding evidence ──
+#
+# Two additive payloads extend this state owner rather than a new helper: both must survive a
+# context compaction and be read back by the drafting, steelman, audit, and adjudication
+# stages, which is the same durability argument that put the per-finding ledger here (#603).
+
+# The claim classes the design enumerates FIRST, each with its own decided baseline
+# representation — deliberately not one universal identity (issue #704, AC1):
+#   * `location`  — a line range, region boundary, or file-and-section anchor. Identity is a
+#                   content digest of the specific measured PATHS, so an unrelated base
+#                   advance that touches none of them leaves the claim fresh.
+#   * `count`     — an occurrence tally. Identity is a digest of the RE-EXECUTED full-domain
+#                   search result, so an occurrence added in a file outside the original hit
+#                   set changes the identity. A hit-path digest would miss exactly that.
+#   * `inventory` — a consumer / coupled-site list. Same full-domain identity as `count`: the
+#                   claim is about the whole search domain, not the paths it happened to hit.
+_CLAIM_CLASSES = ('count', 'location', 'inventory')
+# The two full-domain classes share one recompute rule; naming the set once keeps the writer
+# and the staleness reader from drifting apart on which classes need a piped domain.
+_FULL_DOMAIN_CLASSES = ('count', 'inventory')
+
+# The revision and the identity share the module-level `_UNESTABLISHED` defined above with
+# the issue-#548 unresolved count — deliberately NOT re-assigned here. The module keeps ONE
+# spelling of an unresolvable measurement — the invariant this block and
+# `evidence_completeness` both rely on, the latter treating a required field holding it as
+# missing; a second
+# assignment would falsify that invariant, and a later edit to either site would silently
+# lose to whichever ran last. It is never a value the
+# comparison can match, so a claim carrying it is read as possibly-stale — unknown is not
+# fresh.
+
+# Staleness verdicts, closed vocabulary. `possibly-stale` is the fail-closed reading for an
+# absent, unestablished, or un-recomputable baseline; it is deliberately distinct from
+# `stale` so the reader can tell "measured and moved" from "could not be measured".
+# Closed vocabulary. Production code returns these literals directly; the closure itself is
+# enforced by the `#704-14` membership assertion in lib/test/test_python_scripts.py, so a
+# future arm returning a novel token turns the suite RED rather than flowing through silently.
+_STALENESS_STATES = ('fresh', 'stale', 'possibly-stale')
+
+
+def _unestablished_breadcrumb(where, detail):
+    """Name the CAUSE beside an `unestablished` sentinel, on stderr, without failing.
+
+    `unestablished` is a single token standing in for a missing path, an unreadable file, an
+    absent `git`, a commit-less repository, and a full disk alike. Collapsing every cause onto
+    it silently is the exact thing `cmd_query_arm`'s contract forbids ("the CAUSE … must never
+    be silently collapsed onto the digest-unrecorded marker"), so the detail goes to stderr
+    while the return value stays best-effort and the exit code stays 0.
+    """
+    sys.stderr.write(f'issue-audit-state.py {where}: unestablished — {detail}\n')
+# Import-time coupling, mirroring the `_LEGAL_SETTLING_KEYS`/`_LEDGER_STATUSES` assert: a
+# full-domain class that is not a claim class at all would silently route every claim of that
+# name to the location branch, which reads paths a full-domain claim never records.
+assert set(_FULL_DOMAIN_CLASSES) <= set(_CLAIM_CLASSES), (
+    'issue-audit-state.py: _FULL_DOMAIN_CLASSES names a class outside _CLAIM_CLASSES')
+
+# The evidence fields the per-finding completeness check requires. `baseline_identity` is
+# deliberately NOT required: an auditor running under the Step 3.6 information diet can
+# capture the base revision it read, but the state file that holds per-claim identities is
+# out of bounds to it, so requiring an identity would make every auditor-supplied evidence
+# item incomplete by construction.
+_EVIDENCE_REQUIRED = ('locator', 'command', 'observed', 'baseline_revision')
+_EVIDENCE_OPTIONAL = ('baseline_identity',)
+_EVIDENCE_FIELDS = _EVIDENCE_REQUIRED + _EVIDENCE_OPTIONAL
+# Import-time coupling, mirroring the `_FULL_DOMAIN_CLASSES` assert: `cmd_record_finding_evidence`
+# carries an omitted OPTIONAL field forward AFTER deriving `completeness` from the REQUIRED ones,
+# which is only sound while the two sets are disjoint. Overlap them and the stored completeness
+# would silently disagree with the record it was derived from.
+assert not (set(_EVIDENCE_REQUIRED) & set(_EVIDENCE_OPTIONAL)), (
+    'issue-audit-state.py: _EVIDENCE_REQUIRED and _EVIDENCE_OPTIONAL must stay disjoint')
+# Bounded encoding, half one: a length cap, so a hostile or runaway auditor return cannot
+# grow the state file without bound. Truncation is DISCLOSED in the stored bytes rather than
+# silent, so a replay driven from truncated evidence can tell it is reading a prefix.
+_EVIDENCE_MAX_CHARS = 4096
+# Derived from the cap, never restated: a hand-copied number here would make the DISCLOSURE
+# lie the moment the cap moved, which is the one thing a truncation notice must never do.
+_EVIDENCE_TRUNCATION_MARK = (
+    f'…[truncated by issue-audit-state.py at {_EVIDENCE_MAX_CHARS} chars]')
+
+
+def capture_revision():
+    """The current commit id, or `unestablished` when it cannot be resolved.
+
+    Deliberately best-effort and exit-0: a repository with no commits yet, a `git` that is
+    absent or shimmed, and an unresolvable/corrupt HEAD all resolve to `unestablished` rather
+    than failing the call — nothing in create-issue may block issue creation (#704 AC13).
+    The revision is recorded ALONGSIDE the per-claim identity, never instead of it: the
+    identity is what the deterministic re-check compares, and a global revision compare is
+    exactly the false-positive design AC4's location-class negative control forbids.
+    """
+    try:
+        r = _run(['git', 'rev-parse', 'HEAD'])
+    except (subprocess.CalledProcessError, OSError) as exc:
+        # Best-effort and exit-0, but never CAUSE-less: a repo with no commits (benign) and a
+        # `git` that will not execute (the caller's environment is broken) both resolve to the
+        # same sentinel, so the distinguishing detail must reach stderr or it is lost.
+        _unestablished_breadcrumb('capture_revision', f'git rev-parse HEAD failed: {exc}')
+        return _UNESTABLISHED
+    revision = r.stdout.decode('ascii', 'replace').strip()
+    if not revision:
+        # rc 0 with empty stdout is the shimmed-`git` shape the sibling `hash_bytes` guard
+        # REJECTS (it raises `_DigestError`; the cause reaches stderr through
+        # `location_identity`'s funnel, not from `hash_bytes` itself): the call SUCCEEDED and
+        # still established nothing, so collapsing it to the sentinel silently would lose the
+        # only detail that distinguishes it from a repo with no commits — which is caught as a
+        # `git` failure above and breadcrumbed the same way, at exit 0 like every arm here.
+        _unestablished_breadcrumb(
+            'capture_revision', 'git rev-parse HEAD succeeded but printed no revision')
+        return _UNESTABLISHED
+    return revision
+
+
+def anchor_measured_path(path):
+    """Normalize one measured path to the SHARED REPO-ROOT ANCHOR, cwd-independently.
+
+    The state file is anchored to the git repo root (`state_path`/`_repo_root`, the #295
+    contract), so a measured path left cwd-relative gives one record two anchors: the same
+    stored `anchor.md` resolves to a DIFFERENT file depending on the directory the later
+    check runs from. That is not a cosmetic mismatch — a subdirectory run whose cwd happens
+    to hold a same-named file digests those bytes and reports a genuinely drifted claim
+    `fresh`, which is the one verdict this feature must never produce (a `fresh` claim is
+    read as verified and skips re-derivation); with no same-named file it degrades every
+    claim to `possibly-stale`, silently defeating the mechanism from any subdirectory.
+
+    So a relative path is resolved against the CALLER's cwd (what the caller meant) and then
+    re-expressed relative to the repo root (what every later reader resolves against). A path
+    outside the root — or a run with no resolvable root — keeps an absolute form, which is
+    equally cwd-independent; only the repo-relative spelling is lost, never the anchor.
+    """
+    root = _repo_root()
+    resolved = Path(path) if Path(path).is_absolute() else (Path.cwd() / path)
+    root_resolved = None
+    try:
+        # BOTH resolves sit inside this one guard. Splitting them is the shape that shipped a
+        # crash twice: the measured path's resolve was widened to `RuntimeError` while
+        # `root.resolve()` — which raises the SAME family, for the same reasons — sat below
+        # under a `ValueError`-only `except`, so the identical traceback simply moved one line
+        # down. `RuntimeError` is NOT redundant with `OSError`: CPython's `pathlib` re-raises
+        # an ELOOP symlink loop as `RuntimeError` (`check_eloop`); a permission-denied parent
+        # really is an `OSError`, so catching only that left the arm half-live.
+        #
+        # It matters here and not elsewhere because anchoring runs BEFORE measurement, so an
+        # escape lands outside `location_identity`'s `_DigestError` → `unestablished` funnel
+        # and crashes the recorder with a traceback where it must degrade at exit 0.
+        resolved = resolved.resolve()
+        if root is not None:
+            root_resolved = root.resolve()
+    except (OSError, RuntimeError):
+        # Not a reason to fall back to the cwd-relative spelling this function exists to
+        # remove: the cwd-join performed above is already absolute, so it is still anchored.
+        return str(resolved)
+    if root_resolved is not None:
+        try:
+            return resolved.relative_to(root_resolved).as_posix()
+        except ValueError:
+            pass  # outside the repo root — the absolute form below is still cwd-independent
+    return str(resolved)
+
+
+def resolve_measured_path(path):
+    """Resolve a STORED measured path back to a filesystem path, repo-root-anchored.
+
+    The inverse of `anchor_measured_path`: a stored relative path is repo-root-relative by
+    construction, so it must be resolved against the root and never against the cwd.
+
+    With no resolvable root there is no anchor left to honor, so this FAILS CLOSED rather
+    than silently doing the one thing the function exists to prevent (a cwd resolve).
+    `_DigestError` is the failure `location_identity` already funnels to `unestablished` →
+    `possibly-stale`, so the claim reads as un-measured instead of confidently wrong. The
+    combination is narrow — a no-root run's writer stores an absolute path — so reaching it
+    means the record crossed environments, which is exactly when a cwd guess is least safe.
+    """
+    if Path(path).is_absolute():
+        return path
+    root = _repo_root()
+    if root is None:
+        raise _DigestError(
+            f'measured path {path!r} is repo-root-relative but no repo root resolved; '
+            f'refusing to resolve it against the current directory')
+    return str(root / path)
+
+
+def location_identity(paths, cache=None):
+    """Digest the measured paths' CONTENT, or `unestablished` when any is unmeasurable.
+
+    The digested bytes are `<path>\0<object-id>\n` per path, sorted by path, so the
+    identity is stable under argument reordering and changes when any measured path's
+    content changes. The digested `<path>` is the STORED (repo-root-anchored) spelling while
+    the bytes are read through `resolve_measured_path`, so the identity is independent of the
+    directory the check runs from. It reads the WORKING TREE (via `hash_file`), never a
+    committed blob:
+    a claim grounded against a dirty worktree must record the dirty content's own identity,
+    and a further dirty→dirty edit must therefore mark it stale — the case a global
+    `git status --porcelain` cleanliness flag cannot see (#704 AC3).
+
+    Fails closed to `unestablished` on ANY measurement failure (a missing path, an
+    unreadable file, a broken `git hash-object`) rather than digesting a partial set,
+    which would produce a plausible identity for a measurement that never completed.
+    """
+    memo = cache if cache is not None else {}
+
+    def _oid(path):
+        # NOT `memo.setdefault(path, hash_file(path))`: Python evaluates a default argument
+        # EAGERLY, so that spelling re-runs the `git hash-object` subprocess on every hit and
+        # memoizes nothing. Membership-test first, so a repeated path really is hashed once.
+        if path not in memo:
+            memo[path] = hash_file(resolve_measured_path(path))
+        return memo[path]
+
+    try:
+        rows = b''.join(
+            f'{p}\0{_oid(p)}\n'.encode('utf-8') for p in sorted(set(paths)))
+        # One `try` for one policy: ANY measurement failure — and an empty measured set,
+        # which is a measurement that never happened — resolves to `unestablished`.
+        if not rows:
+            _unestablished_breadcrumb('location_identity', 'no measured paths were supplied')
+            return _UNESTABLISHED
+        return hash_bytes(rows)
+    except _DigestError as exc:
+        _unestablished_breadcrumb('location_identity', str(exc))
+        return _UNESTABLISHED
+
+
+def domain_identity(data):
+    """Digest a re-executed full-domain search result, or `unestablished`.
+
+    The caller re-executes its own search and pipes the result; this module never executes
+    a caller- or auditor-supplied search string (the input-is-data rule, #704 AC12). Empty
+    input is `unestablished`, not a valid digest of nothing: a search that produced no bytes
+    is indistinguishable here from one that failed to run.
+    """
+    if not data:
+        _unestablished_breadcrumb(
+            'domain_identity', 'the piped full-domain search result was empty')
+        return _UNESTABLISHED
+    try:
+        return hash_bytes(data)
+    except _DigestError as exc:
+        _unestablished_breadcrumb('domain_identity', str(exc))
+        return _UNESTABLISHED
+
+
+def recompute_identity(entry, domain_data=None, cache=None):
+    """Recompute one claim's identity the way its CLASS decides, or None if it cannot be.
+
+    The single site that owns the class→identity mapping, so the write path, the per-claim
+    check, and the all-claims check cannot drift apart on what a class is identified by —
+    the same single-decision-site discipline `claim_staleness` applies to the verdict.
+
+    `None` means "not recomputable here", NOT "unestablished": a full-domain class needs a
+    re-executed search result the caller must pipe in, and `claim_staleness` reads that as
+    possibly-stale rather than as a measured difference.
+    """
+    if entry.get('claim_class') in _FULL_DOMAIN_CLASSES:
+        return None if domain_data is None else domain_identity(domain_data)
+    return location_identity(entry.get('paths') or [], cache)
+
+
+def claim_staleness(entry, current_identity):
+    """`(state, reason)` for one claim, given its freshly-recomputed identity.
+
+    The single decision site both the per-claim and the all-claims form route through, so
+    the two forms cannot disagree. `current_identity` is None when the caller could not
+    recompute (a full-domain class with no piped domain), which is possibly-stale — never
+    fresh, and never `stale`, which would falsely assert a measured difference.
+    """
+    recorded = entry.get('identity')
+    if not isinstance(recorded, str) or not recorded:
+        # Absent baseline: a state file written before this feature and read after an
+        # in-session plugin upgrade. Identical to `unestablished` by decision (#704 AC6) —
+        # the schema-compat "fields default" behavior maps it to possibly-stale, never to
+        # empty-means-fresh.
+        return 'possibly-stale', 'baseline-absent'
+    if recorded == _UNESTABLISHED:
+        return 'possibly-stale', 'baseline-unestablished'
+    if current_identity is None:
+        return 'possibly-stale', 'domain-not-recomputed'
+    if current_identity == _UNESTABLISHED:
+        return 'possibly-stale', 'recompute-unestablished'
+    return ('fresh', 'identity-match') if current_identity == recorded \
+        else ('stale', 'identity-changed')
+
+
+def _bound_evidence(text):
+    """Cap one evidence field, disclosing any truncation in the stored bytes."""
+    if text is None:
+        return None
+    if len(text) <= _EVIDENCE_MAX_CHARS:
+        return text
+    return text[:_EVIDENCE_MAX_CHARS] + _EVIDENCE_TRUNCATION_MARK
+
+
+def evidence_completeness(entry):
+    """`(completeness, missing)` — `complete` only when every required field is present
+    AND established (a field holding the literal `unestablished` counts as missing).
+
+    Absent-or-incomplete is recorded as `incomplete` and NEVER as verified: the adjudication
+    policy routes an incomplete item to full independent verification, so a defaulted-away
+    missing field would silently buy a cheap replay the evidence never earned.
+    """
+    missing = [f for f in _EVIDENCE_REQUIRED
+               if not isinstance(entry.get(f), str) or not entry[f].strip()
+               # `unestablished` is this module's ONE spelling of an unresolvable
+               # measurement, and the auditor bar instructs an auditor to report a field it
+               # could not establish that way. A string-shape test alone would grade that
+               # `complete` and buy the cheap replay — the same unknown-is-not-a-value
+               # collapse `claim_staleness` refuses when it reads a recorded
+               # `unestablished` baseline as possibly-stale rather than fresh.
+               or entry[f].strip() == _UNESTABLISHED]
+    return ('incomplete' if missing else 'complete'), missing
+
+
+def _observed_divergent(a, b):
+    """True when two evidence items' observed outputs must be treated as disagreeing.
+
+    Plain inequality is not sufficient: `_bound_evidence` caps each field, so two probes
+    whose outputs diverge only PAST the cap are stored as byte-identical truncated strings
+    and would compare equal — silently erasing the conflict and buying the cheap replay that
+    "a conflict never collapses silently to either value" exists to deny. So a pair whose
+    observed values are equal but BOTH truncated is reported as divergent: the comparison
+    could not see the bytes that would decide it, and unknown is never agreement.
+    """
+    if a != b:
+        return True
+    # Gated on the LENGTH `_bound_evidence` truncation actually produces, not on the suffix
+    # alone: the mark is a fixed literal an auditor's own observed output can end with without
+    # ever having been capped, and a suffix-only test lets that text force a refusal on a
+    # byte-identical replay and manufacture a conflict between two agreeing probes.
+    return (len(a or '') == _EVIDENCE_MAX_CHARS + len(_EVIDENCE_TRUNCATION_MARK)
+            and (a or '').endswith(_EVIDENCE_TRUNCATION_MARK))
+
+
+def evidence_conflicts(store):
+    """Map each evidence key to the sorted keys it CONFLICTS with, else an empty list.
+
+    Two items conflict when they cite the same locator AND ran the same command but report
+    different observed output — two probes that disagree. The command is part of the key
+    deliberately: two findings legitimately probing one `path:line` with *different*
+    commands normally produce different output without disagreeing about anything, and
+    treating that as a conflict would force full re-verification on every such pair.
+
+    The conflict is surfaced for verification and never auto-resolved by picking one value
+    (#704 AC10): both observed values stay recorded and both keys name each other, so no
+    reader can collapse the pair silently.
+    """
+    by_probe = {}
+    for key, entry in store.items():
+        if entry.get('locator'):
+            by_probe.setdefault((entry['locator'], entry.get('command')), []).append(key)
+    out = {k: [] for k in store}
+    for group in by_probe.values():
+        for key in group:
+            out[key] = sorted(
+                other for other in group
+                if other != key and _observed_divergent(store[other].get('observed'),
+                                                        store[key].get('observed')))
+    return out
+
+
+def _validate_claims(doc):
+    """Re-enforce the claim-provenance shape at the READ boundary.
+
+    Absent is legal (every pre-change state file, and every run that grounds no claim);
+    present-but-wrong-shape is corrupt, the same pattern `draft_binding` and the per-finding
+    ledger follow. A MISSING baseline inside a present entry is deliberately legal — that is
+    the legacy/mid-upgrade shape AC6 requires to read as possibly-stale rather than as a
+    corrupt file that collapses the whole record.
+    """
+    claims = doc.get('claims')
+    if claims is None:
+        return
+    if not isinstance(claims, dict):
+        raise StateError(f'claims payload {claims!r} is not an object')
+    for key, entry in claims.items():
+        if not isinstance(key, str) or not key.strip():
+            raise StateError(f'claim key {key!r} is not a non-empty string')
+        # BOTH boundaries, matching `_validate_ledger`: the writer's refusal cannot speak for
+        # state the writer never produced (a file written by an earlier build, or by a future
+        # writer added without re-deriving the guard), and this key is printed UNENCODED and
+        # non-trailing on all three claim surfaces. A stored forging key therefore prints a
+        # complete, well-formed `state=fresh` record line at exit 0 — the one verdict that
+        # licenses skipping re-derivation — with no breadcrumb to tell it apart from a real
+        # claim. A writer-only guard fails open exactly there.
+        if _record_splitting_char(key) is not None or _forged_protocol_token(key) is not None:
+            raise StateError(
+                f'claim key {key!r} carries a record-splitting byte or a protocol token; the '
+                f'writer refuses both, so a stored key carrying one is corrupt state that '
+                f'would forge a line of the printed surface')
+        if not isinstance(entry, dict):
+            raise StateError(f'claim {key!r} is not an object')
+        if entry.get('claim_class') not in _CLAIM_CLASSES:
+            raise StateError(f'claim {key!r} names a class outside the canonical set: '
+                             f'{entry.get("claim_class")!r}')
+        for field in ('identity', 'revision'):
+            val = entry.get(field)
+            if val is not None and (not isinstance(val, str) or not val.strip()):
+                raise StateError(f'claim {key!r} {field} {val!r} is not a non-empty string')
+        paths = entry.get('paths')
+        if paths is not None and (not isinstance(paths, list)
+                                  or not all(isinstance(p, str) for p in paths)):
+            raise StateError(f'claim {key!r} paths {paths!r} is not a list of strings')
+        # The class↔paths coupling is what makes the per-class identity meaningful, so it is
+        # enforced HERE too, not only in the writer: a pathless `location` claim silently
+        # recomputes to `unestablished` forever, and a `count` carrying paths implies a
+        # hit-path identity this module never records for a full-domain class.
+        if entry['claim_class'] in _FULL_DOMAIN_CLASSES:
+            if paths is not None:
+                raise StateError(f'claim {key!r} is class {entry["claim_class"]!r} but carries '
+                                 f'paths {paths!r}; a full-domain claim is identified by its '
+                                 f'search result, never by hit paths')
+        elif not paths:
+            raise StateError(f'claim {key!r} is a location claim carrying no measured paths; '
+                             f'its identity could never be recomputed')
+
+
+def _validate_finding_evidence(doc):
+    """Re-enforce the per-finding evidence shape at the READ boundary.
+
+    The stored text is auditor-derived, so it is DATA: unlike the one-line ledger summary
+    transport — which refuses newlines and `<field>=` tokens because it lands unencoded in a
+    printed field — this channel accepts those bytes and answers them at the print
+    boundary with its own bounded JSON encoding — at the exact scope `#704-25` pins: a
+    record-splitting byte cannot forge a LINE, and the decision fields cannot be forged
+    because they precede every auditor value, but a `<field>=`-shaped token INSIDE a quoted
+    evidence value is not neutralized for a whitespace-splitting reader, which is why that
+    line must be parsed by its JSON quoting. What is validated here is the CONTAINER
+    (keys, types, caps), never the text's content.
+    """
+    store = doc.get('finding_evidence')
+    if store is None:
+        return
+    if not isinstance(store, dict):
+        raise StateError(f'finding_evidence payload {store!r} is not an object')
+    for key, entry in store.items():
+        if not isinstance(key, str) or not re.fullmatch(r'[0-9]+:[0-9]+', key or ''):
+            raise StateError(f'finding-evidence key {key!r} is not <round>:<finding-id>')
+        if not isinstance(entry, dict):
+            raise StateError(f'finding-evidence {key!r} is not an object')
+        for field in _EVIDENCE_FIELDS:
+            val = entry.get(field)
+            if val is not None and not isinstance(val, str):
+                raise StateError(f'finding-evidence {key!r} {field} {val!r} is not a string')
+            if isinstance(val, str) and len(val) > _EVIDENCE_MAX_CHARS + len(
+                    _EVIDENCE_TRUNCATION_MARK):
+                raise StateError(f'finding-evidence {key!r} {field} exceeds the '
+                                 f'{_EVIDENCE_MAX_CHARS}-char bound')
+        # `completeness` GATES the verification scope (a `complete` item buys the cheap
+        # locator replay), so it is never trusted as stored: its CONTAINER is validated here
+        # like any other decided field, and its VALUE is re-derived below rather than read —
+        # which is what keeps a hand-edited `complete` beside blank required fields from
+        # buying a relaxation the evidence never earned.
+        comp = entry.get('completeness')
+        if comp not in ('complete', 'incomplete'):
+            raise StateError(f'finding-evidence {key!r} completeness {comp!r} is outside the '
+                             f'canonical set')
+        derived = evidence_completeness(entry)[0]
+        if comp != derived:
+            # RE-DERIVED, never rejected: `completeness` is a pure function of the fields
+            # beside it, so the derivation is authoritative and the stored value carries no
+            # information the recompute lacks. Raising here would be fail-closed in the wrong
+            # direction — the document stops loading, and EVERY later mutation of the run
+            # (`record-return`, `record-adjudication`, `emit-body`) exits non-zero over one
+            # unrelated evidence item, which is the run-wide lockout `_nonneg_int` names as
+            # the thing this component must never do. It is reachable without any hand edit:
+            # a rule change to `evidence_completeness` (this PR made one) re-derives a
+            # different answer for a record the previous build wrote. Recomputing keeps the
+            # whole guarantee the raise was protecting — a hand-edited `complete` beside
+            # blank fields still cannot buy the cheap replay, because the stored value is
+            # never what is used.
+            sys.stderr.write(
+                f'issue-audit-state.py: finding-evidence {key!r} stored completeness '
+                f'{comp!r}; re-derived {derived!r} and using the derived value\n')
+            entry['completeness'] = derived
 
 
 def split_body(raw):
@@ -816,6 +1428,108 @@ def _validate_ledger(doc, rnd, num):
                          f'unresolved entries but unresolved_must_revise is {umr}')
 
 
+def _coverage_anchor_floor(text):
+    """The text-only anchor floor (issue #708), as an error token or None.
+
+    Split by where the operand lives: this is the TOOL-SIDE floor over the anchor text
+    ALONE — non-empty, within the per-anchor length cap, no record-splitting byte, and no
+    protocol-vocabulary `<field>=` token drawn from the tool's own printed surface. It
+    reuses the ledger-anchor guard family (`_record_splitting_char` / `_forged_protocol_token`)
+    so one closed vocabulary governs both — auditor-derived coverage text is identity data,
+    never protocol and never an instruction to obey. The DATA-dependent checks (byte-identity
+    against the rendered dimension text, and the cited-draft-line existence check) are the
+    ORCHESTRATOR's, run against data the state owner does not hold; they are not enforced here.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return 'anchor-empty'
+    if len(text) > _COVERAGE_ANCHOR_MAX:
+        return 'anchor-over-cap'
+    if _record_splitting_char(text) is not None:
+        return 'anchor-control-char'
+    if _forged_protocol_token(text) is not None:
+        return 'anchor-protocol-vocabulary'
+    return None
+
+
+def _validate_coverage(rnd, num):
+    """Re-enforce the per-dimension-coverage invariants at the READ boundary (issue #708).
+
+    Absent is legal (a round records no coverage, and every pre-change round record none) —
+    present-but-wrong-shape is corrupt, the same additive-optional pattern the per-finding
+    ledger and `draft_binding` follow. Every violation raises StateError, collapsing the
+    whole file to unestablished (the fail-closed environmental class), so a hand-corrupted
+    coverage entry can never reach the derivation/trigger/summary as if established.
+    """
+    render = rnd.get('coverage_render')
+    if render is not None and render not in _COVERAGE_RENDERS:
+        raise StateError(f'round {num} names a coverage render outside the canonical set: '
+                         f'{render!r}')
+    if 'coverage' not in rnd:
+        return
+    if render is None:
+        raise StateError(f'round {num} records coverage but no coverage_render; the render '
+                         f'state is required whenever coverage is present (the derivation '
+                         f'would otherwise default onto `full`, the one value that arms the '
+                         f'coverage offer)')
+    coverage = rnd.get('coverage')
+    if not isinstance(coverage, list):
+        raise StateError(f'round {num} coverage {coverage!r} is not a list')
+    seen = set()
+    for pos, entry in enumerate(coverage, start=1):
+        if not isinstance(entry, dict):
+            raise StateError(f'round {num} coverage entry {pos} is not an object')
+        key = entry.get('key')
+        if not isinstance(key, str) or not key.strip():
+            raise StateError(f'round {num} coverage entry {pos} key {key!r} is not a '
+                             f'non-empty string')
+        if key in seen:
+            raise StateError(f'round {num} coverage entry {pos} duplicates key {key!r}')
+        seen.add(key)
+        outcome = entry.get('outcome')
+        if outcome not in _COVERAGE_OUTCOMES:
+            raise StateError(f'round {num} coverage entry {pos} names an outcome outside '
+                             f'the canonical set: {outcome!r}')
+        anchor = entry.get('anchor')
+        if outcome in _COVERAGE_ANCHORED:
+            # An anchored outcome that reached persistence carries a floor-passing anchor:
+            # ingestion downgrades a floor-failing exercised/valid-N/A to `unestablished`
+            # BEFORE the write, so a hand-corrupted anchor on such an outcome is refused.
+            err = _coverage_anchor_floor(anchor)
+            if err is not None:
+                raise StateError(f'round {num} coverage entry {pos} ({outcome}) anchor '
+                                 f'fails the text-only floor ({err})')
+        elif anchor is not None and not isinstance(anchor, str):
+            raise StateError(f'round {num} coverage entry {pos} anchor {anchor!r} is not '
+                             f'a string')
+    # TOTALITY at the read boundary. Every per-entry invariant above is re-enforced, but
+    # totality — the property that makes `backed` mean "every required dimension resolved"
+    # — lives BETWEEN the list and the persisted enumeration, so it needs its own read-back:
+    # `evaluate_coverage` derives `backed` from `all(...)` over the surviving entries, and a
+    # hand-deleted `unestablished`/`skipped` entry leaves an all-backing list that would
+    # launder a truncated coverage into `backed`. `record-coverage` writes `coverage` and
+    # `coverage_expected` into the same round object in the same save, so an absent
+    # enumeration beside a present coverage is itself corruption — refused, not tolerated.
+    expected = rnd.get('coverage_expected')
+    if expected is None:
+        raise StateError(f'round {num} records coverage but no coverage_expected; the '
+                         f'enumeration totality was checked against is written with the '
+                         f'coverage itself, so its absence means the record is corrupt')
+    if not isinstance(expected, list) or not expected or not all(
+            isinstance(k, str) and k.strip() for k in expected):
+        # A non-truthy (empty) list defeats totality vacuously: `all([])` is true and
+        # `missing == []`, so an all-backing `coverage` beside `coverage_expected: []`
+        # would launder into `backed`. Refused here, fail-closed to unestablished — the
+        # record path already rejects an empty keyset (coverage-expected-empty), so at the
+        # read boundary this is reachable only by direct state-file corruption.
+        raise StateError(f'round {num} coverage_expected {expected!r} is not a non-empty '
+                         f'list of non-empty strings')
+    missing = [k for k in expected if k not in seen]
+    if missing:
+        raise StateError(f'round {num} coverage covers fewer dimensions than '
+                         f'coverage_expected enumerates (missing {missing!r}); a truncated '
+                         f'coverage list is never read as backed')
+
+
 def _validate(doc, slug):
     """Validate a loaded document, or raise StateError naming the specific violation.
 
@@ -877,6 +1591,70 @@ def _validate(doc, slug):
                 if val is not None and not isinstance(val, str):
                     raise StateError(f'round {num} has an attempt whose {key} is not a '
                                      f'string')
+            # issue #709: the canonical dispatch-instruction record. `None` (or absent —
+            # a v3 round dispatched with no instruction file) is legal and reads as
+            # unestablished; a PRESENT record must be complete. `record-return` INDEXES
+            # `draft_path` and `instructions_path` to regenerate the comparand, so a
+            # half-recorded object would raise a KeyError at that mutation site instead
+            # of collapsing here to a named breadcrumb. The other two are validated for a
+            # different reason, stated so a later reader does not mistake them for
+            # comparand inputs: `template_path` is read through `.get` (absent means the
+            # generator's own default), and `digest` has no reader at all — it is the
+            # dispatch-time diagnostic the `instructions_digest=` line prints, and it is
+            # deliberately NOT the comparand (see `regenerate_instructions_digest`).
+            instr = att.get('instructions')
+            if instr is not None:
+                if not isinstance(instr, dict):
+                    raise StateError(f'round {num} has an attempt whose instructions '
+                                     f'record is not an object')
+                d = instr.get('digest')
+                if not isinstance(d, str) or not d:
+                    raise StateError(f'round {num} has an instructions record whose '
+                                     f'digest is missing or not a non-empty string')
+                for key in ('instructions_path', 'draft_path'):
+                    if not _is_bound_path(instr.get(key)):
+                        raise StateError(f'round {num} has an instructions record whose '
+                                         f'{key} is not a non-empty absolute path free '
+                                         f'of newline/carriage-return bytes')
+                tmpl = instr.get('template_path')
+                if tmpl is not None and not _is_bound_path(tmpl):
+                    raise StateError(f'round {num} has an instructions record whose '
+                                     f'template_path is not None and not a non-empty '
+                                     f'absolute path free of newline/carriage-return '
+                                     f'bytes')
+                # issue #718: what the DISPATCH-time regeneration observed. Absent is
+                # legal (a round recorded before this field existed); present must be one
+                # of the closed three, so a hand-edited state cannot invent a reassuring
+                # value and cannot spell `diverged` as something the reader ignores.
+                dreg = instr.get('dispatch_regeneration')
+                if dreg is not None and dreg not in _DISPATCH_REGENERATION:
+                    raise StateError(f'round {num} has an instructions record whose '
+                                     f'dispatch_regeneration is not one of '
+                                     f'{sorted(_DISPATCH_REGENERATION)}')
+        # issue #709: the round's steering-absence result. Absent/None is legal (a
+        # refused completion, a degraded arm, a pre-#709 round) and reads as
+        # unestablished; a present record must name a state AND a reason from the closed
+        # sets, so a hand-corrupted `{'state': 'established'}` with a forged or missing
+        # reason cannot walk the run past the gate that field exists to hold.
+        steer = rnd.get('steering')
+        if steer is not None:
+            if not isinstance(steer, dict):
+                raise StateError(f'round {num} has a steering record that is not an '
+                                 f'object')
+            if steer.get('state') not in _STEERING_STATES:
+                raise StateError(f'round {num} names a steering state outside the '
+                                 f'canonical set: {steer.get("state")!r}')
+            if steer.get('reason') not in _STEERING_REASON_STATE:
+                raise StateError(f'round {num} names a steering reason outside the '
+                                 f'canonical set: {steer.get("reason")!r}')
+            # The PAIR, not the two fields independently: a reason may carry exactly
+            # one state, so a record pairing `established` with a refusal reason (or
+            # the reverse) is refused here rather than reaching the eligibility gate.
+            if _STEERING_REASON_STATE[steer['reason']] != steer['state']:
+                raise StateError(
+                    f'round {num} pairs steering state {steer["state"]!r} with reason '
+                    f'{steer["reason"]!r}, which belongs to state '
+                    f'{_STEERING_REASON_STATE[steer["reason"]]!r}')
         if rnd['outcome'] is not None and rnd['outcome'] not in _ROUND_OUTCOMES:
             raise StateError(f'round {num} names an outcome outside the canonical set: '
                              f'{rnd["outcome"]!r}')
@@ -964,6 +1742,9 @@ def _validate(doc, slug):
         # status or a resolution naming no recorded revision would otherwise reach the
         # convergence decision as if it were a verified fix.
         _validate_ledger(doc, rnd, num)
+        # Per-dimension coverage (issue #708). The coverage derivation, the offer trigger,
+        # and the summary line read these, so a hand-corrupted entry must fail closed HERE.
+        _validate_coverage(rnd, num)
     for ov in doc['overrides']:
         if not isinstance(ov, dict) or ov.get('kind') not in _OVERRIDE_KINDS:
             raise StateError('an override record names a kind outside the canonical set')
@@ -1087,6 +1868,8 @@ def _validate(doc, slug):
         for entry in wf:
             if not isinstance(entry, int) or isinstance(entry, bool):
                 raise StateError(f'a write_failures entry {entry!r} is not an integer')
+    _validate_claims(doc)
+    _validate_finding_evidence(doc)
     return doc
 
 
@@ -1466,17 +2249,22 @@ def evaluate_triggers(state):
     count (the pre-#548 raw-REVISE token fired the offer, so either low-evidence path must not
     silently drop it — the offer fires rather than being skipped, exactly the absent-comparand
     fail-closed the guard would otherwise fail open on); and whenever state is unestablishable
-    (unknown is not zero). A naming `reason` is surfaced on exactly the three fail-closed arms
-    that need one — `state-unestablished`, `no-verdict-round`, and `unadjudicated-round` — and is `None` when
-    T2 holds purely because a revision postdates a known, audited last round (the offer fires,
-    but there is no anomaly to name). An un-adjudicated *FILE* round is NOT any of these — its
-    raw signal is clean and pre-#548 it fired no offer, so T2's behavior on it is unchanged.
+    (unknown is not zero). A naming `reason` is surfaced on the fail-closed arms that need one
+    — `state-unestablished`, `no-verdict-round`, `unadjudicated-round`, and (issue #709)
+    `steering-unestablished` — and is `None` when T2 holds purely because a revision postdates a
+    known, audited last round WHOSE steering-absence was established (the offer fires, but there
+    is no anomaly to name). An un-adjudicated *FILE* round is none of the pre-#709 arms — its raw
+    signal is clean and pre-#548 it fired no offer — so T2's behavior on it is unchanged EXCEPT
+    where its steering-absence was not established, which is exactly what the #709 arm below
+    names (the Quiet-Killer case: a clean round whose independence could not be established
+    would otherwise withhold the clean ground with no user-facing offer).
     """
     if state is None:
-        return {'t1': False, 't2': True, 'reason': 'state-unestablished'}
+        return {'t1': False, 't2': True, 'coverage': False,
+                'reason': 'state-unestablished'}
     last = last_completed(state)
     if last is None:
-        return {'t1': False, 't2': False, 'reason': None}
+        return {'t1': False, 't2': False, 'coverage': False, 'reason': None}
     u = _unresolved_int(last)
     # issue #603: T1's comparand is the RUN-WIDE EFFECTIVE count, so a round whose ledger
     # entries the drafter verified fixed (or retired as invalid, or that a FILE re-audit
@@ -1508,7 +2296,19 @@ def evaluate_triggers(state):
         # above (u is not None), never here.
         t2 = True
         reason = 'unadjudicated-round'
-    return {'t1': t1, 't2': t2, 'reason': reason}
+    elif last.get('outcome') in ('FILE', 'REVISE') and not _steering_established(last):
+        # issue #709 — the "Quiet Killer" arm. A round that returned `VERDICT: FILE` with
+        # zero findings and no revision fires NONE of the arms above: T1 needs an
+        # unresolved must-revise finding, and the two T2 arms above need a verdict-less or
+        # an unadjudicated-REVISE round. So without this arm a steered-or-unestablished
+        # clean round would withhold the clean ground SILENTLY, with no user-facing offer
+        # to restore a verified-independent audit. Firing T2 routes it through the
+        # existing boundary-offer surface, which never blocks filing: on decline the run
+        # proceeds to presentation with the state disclosed.
+        t2 = True
+        reason = 'steering-unestablished'
+    return {'t1': t1, 't2': t2, 'coverage': evaluate_coverage_trigger(state),
+            'reason': reason}
 
 
 def evaluate_convergence(state):
@@ -1555,6 +2355,80 @@ def evaluate_convergence(state):
             'reason': None if converged else 'unresolved-must-revise-remain',
             'basis': _convergence_basis(state, converged),
             'effective': eff}
+
+
+def _coverage_round(state):
+    """The final accepted round coverage-backing derives from, or None.
+
+    Coverage attaches ONLY to a run whose final accepted round is a clean auditor
+    `VERDICT: FILE` (issue #708): a no-clean-round convergence (the resolution-basis /
+    resolution-stale path) carries no per-dimension coverage, so it derives
+    `unestablished`. `last_completed` is the run's final accepted round; it is a
+    coverage round only when its outcome is `FILE`.
+    """
+    if state is None:
+        return None
+    last = last_completed(state)
+    if last is None or last.get('outcome') != 'FILE':
+        return None
+    return last
+
+
+def evaluate_coverage(state):
+    """The run's coverage-backing, derived from the final accepted clean round (issue #708).
+
+    Returns `{'backing': <token>, 'render': <token>}`:
+      - `backing` in `_COVERAGE_BACKINGS`. `backed` only when the final accepted round is
+        a clean `FILE` round carrying a recorded coverage list in which EVERY entry is
+        `exercised` or `valid-N/A`; `not-backed` when any surviving `skipped`/`unestablished`
+        entry remains on that otherwise-clean round; `unestablished` when there is no clean
+        auditor round to carry coverage, or the clean round recorded no coverage at all
+        (unknown is never collapsed onto backed).
+      - `render` in `('full', 'degraded', 'none')` — the coverage round's recorded render
+        state, or `none` when there is no coverage round. A `degraded` render discloses but
+        does not fire the coverage offer (that is the trigger's job).
+
+    Coverage-backing is a DISTINCT axis from convergence: it never redefines
+    `evaluate_convergence`, never gates `emit-body`/`query-eligibility`. Its only teeth are
+    the coverage offer trigger.
+    """
+    if state is None:
+        # The state could not be established at all (unreadable/corrupt — including a
+        # `_validate_coverage` raise). Byte-identical to the two BENIGN unestablished arms
+        # below unless the cause rides on the answering line, which is how a corrupt file
+        # reads as "no coverage round yet" — so each arm names its own reason.
+        return {'backing': 'unestablished', 'render': 'none', 'round': None,
+                'reason': 'state-unestablished'}
+    rnd = _coverage_round(state)
+    if rnd is None:
+        return {'backing': 'unestablished', 'render': 'none', 'round': None,
+                'reason': 'no-clean-round'}
+    coverage = rnd.get('coverage')
+    if not coverage:
+        # A clean round that recorded no coverage: unknown is not backed.
+        return {'backing': 'unestablished', 'render': 'none', 'round': rnd,
+                'reason': 'no-coverage-recorded'}
+    backed = all(e.get('outcome') in _COVERAGE_BACKING_OUTCOMES for e in coverage)
+    backing = 'backed' if backed else 'not-backed'
+    # The closed backing vocabulary is asserted, not merely documented: a token typo'd
+    # here would otherwise ship green, since nothing downstream re-checks it.
+    assert backing in _COVERAGE_BACKINGS
+    return {'backing': backing, 'render': rnd.get('coverage_render') or 'full',
+            'round': rnd, 'reason': None}
+
+
+def evaluate_coverage_trigger(state):
+    """Whether the unbacked-coverage offer trigger holds (issue #708).
+
+    A sibling of T1/T2, routed through the existing offer machinery and the existing
+    user-round cap. It fires ONLY on a genuinely-unbacked FULL-render clean audit — a
+    `skipped`/empty/generic-adjudicated anchor on a dimension the auditor DID render. A
+    legitimately narrowed (`degraded`) render discloses but never fires, so a consumer whose
+    auditor takes a fallback rung is not offered-at every run; a non-clean or no-coverage run
+    (backing `unestablished`) never fires either — filing is never blocked by this trigger.
+    """
+    cov = evaluate_coverage(state)
+    return cov['backing'] == 'not-backed' and cov['render'] == 'full'
 
 
 def issue_token(nonce, ground, key):
@@ -1708,6 +2582,44 @@ def _emit_stale_override_remedy(prefix, elig, state, current_digest):
         f'issue-audit-state.py {prefix}: {stale_override_remedy(state, current_digest)}\n')
 
 
+def _clean_identity(state, clean, current_digest):
+    """The `(ground, key)` a clean round supplies on IDENTITY alone, or None.
+
+    Identity only — the issue-#709 steering requirement is deliberately NOT folded in
+    here, because two callers need the identity answer for opposite purposes: the clean
+    grant (which additionally requires established steering) and the
+    `steering-unestablished` refusal (which is the honest diagnosis only where identity
+    already held). Sharing one operation is what keeps the refusal's stated precondition
+    true by construction rather than by a comment claiming the two agree.
+
+    file arm — issue #562 post-revision write-failure closure: byte-digest equality is
+    not sufficient on its own. A recorded revision that postdates the clean round and
+    whose overwrite FAILED leaves the bound file still holding the clean round's
+    byte-identical bytes, so `recorded == current_digest` holds over bytes the user
+    revised away. Require, in addition, that no revision postdates the clean round
+    (mirroring the event-ordering ground). Equality can still hold WITH a postdating
+    revision two ways — the write-failure case and a revise-back-to-clean case — and
+    keying on the revision's existence, not its bytes, refuses both.
+
+    other arms — the weaker event-ordering identity. Note that `evaluate_eligibility`
+    reaches this ground only when steering was established, which the file-arm-only
+    instruction file makes impossible on the embed/inline arms today; those arms
+    therefore ground through the override election instead, which is the withhold-then-
+    disclose outcome issue #709 specifies for them, not an accidental dead branch.
+    """
+    if clean is None:
+        return None
+    if clean['attempts'][-1]['arm'] == 'file':
+        recorded = clean['attempts'][-1].get('digest')
+        if (current_digest is not None and recorded == current_digest
+                and not _revision_postdates(state, clean)):
+            return ('file-identity', current_digest)
+        return None
+    if not _revision_postdates(state, clean):
+        return ('event-ordering', str(revision_ordinal(state)))
+    return None
+
+
 def evaluate_eligibility(state, mode, current_digest=None, digest_failed=False):
     """Presentation eligibility.
 
@@ -1722,13 +2634,30 @@ def evaluate_eligibility(state, mode, current_digest=None, digest_failed=False):
           ground — weaker than byte identity, and disclosed as such).
       (b) an explicitly recorded override that is still current.
 
+    Ground (a) additionally requires, since issue #709, that the grounding round
+    ESTABLISHED steering-absence — the auditor's quoted canonical-instruction-file
+    object ID matched the freshly-regenerated canonical digest and it reported no extra
+    dispatch content. That requirement is structurally PRIOR to the refusal chain below
+    rather than a peer of it: it gates ground (a)'s own return, so it is reachable only
+    where identity already held. Ground (b) is deliberately untouched — an explicit user
+    override is a human decision that does not rest on the audit's independence.
+
     `iterate` covers only the in-loop re-presentation of a just-revised draft while its
     re-audit offer is pending. `iterate-ok` is never a ground for acting on approval and
     never a ground for creation.
 
     Reason precedence when several could apply is decided, not incidental:
-      state-unestablished > draft-undigestible > no-verdict-round > no-digest-supplied >
-      stale-override > unaudited-revision.
+      state-unestablished > draft-undigestible > steering-unestablished >
+      no-verdict-round > no-digest-supplied > stale-override > unaudited-revision.
+
+    `steering-unestablished` sits where it does because it is REACHABLE only when the
+    clean round's IDENTITY already holds (same `_clean_identity` operation the grant
+    consumes) and the override ground did not rescue it — so where it fires, the
+    establishment really is the single missing property. The reasons after it stay
+    reachable on their own states: a clean round with a postdating revision answers
+    `unaudited-revision`, and a digest-less approve query answers `no-digest-supplied`,
+    whether or not steering was established. Its position expresses specificity over
+    states it genuinely diagnoses, not a blanket preemption of the chain below.
 
     `no-digest-supplied` outranks `stale-override` deliberately: an override queried
     with no draft digest was never compared, so nothing went stale — naming the
@@ -1776,27 +2705,33 @@ def evaluate_eligibility(state, mode, current_digest=None, digest_failed=False):
         if rnd.get('outcome') == 'REVISE':
             break
 
-    if clean is not None:
-        arm = clean['attempts'][-1]['arm']
-        if arm == 'file':
-            recorded = clean['attempts'][-1].get('digest')
-            # issue #562 post-revision write-failure closure: byte-digest equality is no
-            # longer sufficient on its own. A recorded revision that postdates the clean
-            # round and whose overwrite FAILED leaves the bound file still holding the
-            # clean round's byte-identical bytes — so `recorded == current_digest` holds
-            # over bytes the user revised away. Require, in addition, that no revision
-            # postdates the clean round (mirroring the event-ordering ground): a landed
-            # revision normally changes the file's bytes, so the equality usually fails
-            # there. Equality can still hold WITH a postdating revision in two ways — the
-            # write-failure case (the overwrite never landed, so the file keeps the clean
-            # round's bytes) and a revise-back-to-clean case (the revision's bytes happen
-            # to equal the clean round's) — and this guard refuses BOTH by keying on the
-            # revision's existence, not its bytes (answered `unaudited-revision` below).
-            if (current_digest is not None and recorded == current_digest
-                    and not _revision_postdates(state, clean)):
-                return _yes(state, 'file-identity', current_digest)
-        elif not _revision_postdates(state, clean):
-            return _yes(state, 'event-ordering', str(revision_ordinal(state)))
+    # issue #709: the coverage-backed clean ground now requires steering-absence to have
+    # been ESTABLISHED for the grounding round — the auditor's quoted instruction-file
+    # object ID matched the freshly-regenerated canonical digest AND it reported no extra
+    # dispatch content. This gate sits INSIDE the clean block, structurally prior to the
+    # refusal chain below rather than as one more peer reason in it: the grant is
+    # withheld at its own return, and the refusal below fires only where the clean
+    # round's identity itself holds. That guard — not a claim that no other reason could
+    # ever match the same state — is what keeps the diagnosis honest: `no-digest-supplied`
+    # and `unaudited-revision` both DO require a clean round (see their own arms below),
+    # so a precedence that preempted them unconditionally would misattribute a stale or
+    # digest-less query to steering.
+    #
+    # Scope, stated so it is not over-read: only the CLEAN ground is withheld. The
+    # override ground below is untouched, `emit-body`'s other paths are untouched, and
+    # Step 4 still presents and files on the user's approval — filing is never blocked on
+    # any arm. What is withheld is exactly the coverage-backed clean grounding.
+    # `steering_ok` already implies `clean is not None`, so the guards below test it
+    # alone rather than restating that fact at each site.
+    steering_ok = clean is not None and _steering_established(clean)
+    # The identity half is computed ONCE, by the shared helper, and consumed twice: here
+    # for the grant, and by the #709 refusal below. A second hand-written copy of the
+    # condition is what made the refusal claim "identity held" over states where it had
+    # not (an unaudited revision, or a digest-less query), so the two now share one
+    # operation by construction rather than by a comment asserting they agree.
+    identity = _clean_identity(state, clean, current_digest)
+    if steering_ok and identity is not None:
+        return _yes(state, identity[0], identity[1])
 
     ov = _valid_override(state, current_digest)
     if ov is not None:
@@ -1810,6 +2745,18 @@ def evaluate_eligibility(state, mode, current_digest=None, digest_failed=False):
         bound = ov.get('draft_digest')
         return _yes(state, 'override',
                     bound if bound is not None else str(revision_ordinal(state)))
+
+    # issue #709 — checked here, immediately after the override ground could not rescue
+    # it, and ONLY when the clean round's identity itself holds (`identity is not None`,
+    # the same operation the grant above consumed). That guard is what makes the
+    # diagnosis true rather than merely earliest: on a state where identity did NOT hold
+    # — an unaudited revision postdating the clean round, or an approve query that
+    # supplied no digest — the establishment is not "the single missing property", and
+    # naming it here would send the reader to the wrong remedy while masking the real
+    # one. Those states fall through to the chain below and answer `unaudited-revision`
+    # / `no-digest-supplied` exactly as they did before #709.
+    if identity is not None and not steering_ok:
+        return _no('steering-unestablished')
 
     # Refusal precedence, decided (the docstring's tail, in the order checked below):
     # no-verdict-round > no-digest-supplied > stale-override > unaudited-revision.
@@ -1969,6 +2916,15 @@ _SUMMARY_FIELDS = (
     # render as space-free tokens BEFORE `bound_root`, so `attestation` stays the
     # contractually-trailing field the #546 CLI pins anchor on.
     'effective_unresolved', 'convergence_basis',
+    # issue #708: the run's coverage-backing and the coverage round's render state, so the
+    # mandatory audit summary line carries the coverage evidence on EVERY arm and outcome —
+    # a backed clean run, an unbacked clean run, and every degraded arm alike. Both render
+    # as space-free tokens BEFORE `bound_root`, keeping `attestation` the trailing field.
+    'coverage_backing', 'coverage_render', 'coverage_reason',
+    # issue #709: the steering-absence establishment of the LATEST completed round and
+    # the closed reason token behind it. Both render as space-free tokens BEFORE
+    # `attestation`, which stays the contractually-trailing field.
+    'steering', 'steering_reason',
 )
 
 
@@ -2002,7 +2958,10 @@ def summary_fields(state, current_digest=None, digest_failed=False):
                         attestation=None, adjudicated_verdict=None, must_revise=None,
                         advisory=None, invalid=None, unresolved_must_revise=None,
                         bound_root=None, bound_tier=None,
-                        effective_unresolved=None, convergence_basis='none')
+                        effective_unresolved=None, convergence_basis='none',
+                        coverage_backing='unestablished', coverage_render='none',
+                        coverage_reason='state-unestablished',
+                        steering='unestablished', steering_reason=None)
     done = completed_rounds(state)
     # Cumulative across every round this run: "how many things did the auditors
     # collectively flag", not merely the last round's tally.
@@ -2016,6 +2975,19 @@ def summary_fields(state, current_digest=None, digest_failed=False):
     # ONE convergence evaluation feeds both summary fields (issue #603): derived from two
     # independent call sites they could render two fields describing different states.
     _convergence = evaluate_convergence(state)
+    # issue #708: one coverage evaluation feeds both coverage summary fields, for the same
+    # single-source reason.
+    _coverage = evaluate_coverage(state)
+    # ONE read of the latest completed round's steering record feeds both summary
+    # fields (issue #709): two independent three-way expressions could drift into
+    # rendering a state and a reason that describe different things.
+    _steer_rec = (last or {}).get('steering') or {}
+    _require(_steer_rec.get('state', 'unestablished') in _STEERING_SUMMARY,
+             f'issue-audit-state: the summary steering token '
+             f'{_steer_rec.get("state")!r} is outside _STEERING_SUMMARY')
+    _require(_steer_rec.get('reason', 'none') in _STEERING_SUMMARY_REASONS,
+             f'issue-audit-state: the summary steering_reason token '
+             f'{_steer_rec.get("reason")!r} is outside _STEERING_SUMMARY_REASONS')
     elig = evaluate_eligibility(state, 'approve', current_digest,
                                 digest_failed=digest_failed)
     token = elig['token']
@@ -2096,6 +3068,21 @@ def summary_fields(state, current_digest=None, digest_failed=False):
         # a reader can see the at-close count AND what post-close settling left.
         effective_unresolved=_convergence['effective'],
         convergence_basis=_convergence['basis'],
+        # issue #708: the run's coverage-backing and the coverage round's render state,
+        # derived from the final accepted clean round. A distinct axis from convergence —
+        # this derivation never feeds `effective_unresolved` or the convergence basis.
+        coverage_backing=_coverage['backing'],
+        coverage_render=_coverage['render'],
+        # WHICH unestablished arm — a clean round whose coverage step never ran is
+        # otherwise byte-identical on this line to a run with no clean round yet.
+        coverage_reason=_coverage.get('reason') or 'none',
+        # issue #709: the LATEST completed round's steering-absence establishment, read
+        # from that round only — the property binds to the audited bytes, not to the run,
+        # so a run-level roll-up would let a steered early round launder a later revision.
+        # `unestablished` (with a `none` reason) is the honest answer when there is no
+        # completed round, or when a completed round recorded no steering result at all.
+        steering=_steer_rec.get('state', 'unestablished'),
+        steering_reason=_steer_rec.get('reason'),
     )
 
 
@@ -2107,7 +3094,11 @@ def _new_doc(slug, nonce):
             'rounds': [], 'revisions': [], 'overrides': [], 'creation': None,
             # issue #562: the tiered draft-root binding (recorded once) and the
             # per-run canonical-write-failure log at the bound path.
-            'draft_binding': None, 'write_failures': []}
+            'draft_binding': None, 'write_failures': [],
+            # issue #704: the per-claim repository-baseline provenance records and the
+            # dedicated per-finding evidence channel. Both are additive under the UNCHANGED
+            # schema_version, so a state file written before this feature still loads.
+            'claims': {}, 'finding_evidence': {}}
 
 
 def cmd_init(args):
@@ -2322,7 +3313,145 @@ def cmd_record_dispatch(args):
     except _DigestError as exc:
         _fail('record-dispatch', str(exc))
     attempt = {'arm': args.arm, 'digest': digest, 'body_digest': body_digest,
-               'sentinel_open': None, 'sentinel_close': None}
+               'sentinel_open': None, 'sentinel_close': None,
+               # issue #709: the canonical dispatch-instruction record. `None` means the
+               # round had no hashable instruction file, which is UNESTABLISHED, never
+               # established-clean by omission.
+               'instructions': None}
+    # issue #709 — the round's CLOSED regeneration inputs, recorded at dispatch. They are
+    # what `record-return` re-runs the generator over, so an input the tool cannot record
+    # fails the whole record CLOSED (no partial `instructions` object): without every
+    # input the regeneration cannot happen at all, and a half-recorded object would make
+    # the round look establishable when it is not. The draft TITLE is deliberately NOT
+    # among them — the generator reads it from the draft file at `draft_path`, so no
+    # drafter free text is stored here or crosses a regeneration argument.
+    if not args.instructions_file and (args.instructions_draft_path
+                                       or args.instructions_template):
+        # The OTHER half of the pair, refused symmetrically. Accepting a lone
+        # --instructions-draft-path silently recorded NO instructions object at all, so a
+        # dispatch that lost only its --instructions-file argument looked like a
+        # deliberate no-instruction-file round and reached the auditor's return as
+        # `inputs-unrecorded` — an orchestrator arg-slip diagnosed as a design decision.
+        # Refusing here names the slip at the site that can still fix it.
+        _fail('record-dispatch', '--instructions-draft-path/--instructions-template '
+                                 'require --instructions-file (the instruction file the '
+                                 'auditor hashes); without it there is nothing to '
+                                 'regenerate a comparand for')
+    if args.instructions_file:
+        if args.arm != 'file':
+            _fail('record-dispatch', '--instructions-file is a file-arm input; the '
+                                     f'{args.arm} arm has no hashable instruction file')
+        if not args.instructions_draft_path:
+            _fail('record-dispatch', '--instructions-file requires '
+                                     '--instructions-draft-path (the exact --draft-path '
+                                     'value the generator was invoked with); without it '
+                                     'the canonical instructions cannot be regenerated')
+        for _flag, _val in (('--instructions-file', args.instructions_file),
+                            ('--instructions-draft-path', args.instructions_draft_path),
+                            ('--instructions-template', args.instructions_template)):
+            if _val is not None and not _is_bound_path(_val):
+                _fail('record-dispatch', f'{_flag} {_val!r} is not a non-empty absolute '
+                                         f'path free of newline/carriage-return bytes')
+        # The attempt carries two draft-path facts that MUST name the same file: the
+        # `--draft-file` whose bytes became `attempt['digest']` (the identity eligibility
+        # binds to) and the `--instructions-draft-path` the regeneration reads the title
+        # from. Left uncompared, a dispatch naming draft Y for identity and draft X for
+        # the instructions regenerates cleanly, establishes steering, and grants the
+        # coverage-backed clean ground for Y on the strength of an audit whose
+        # instructions pointed at X — the fail-open shape the rest of this record closes.
+        # Compare RESOLVED paths so a relative-vs-absolute or symlinked spelling of the
+        # same file is not refused as a mismatch.
+        try:
+            _identity_draft = Path(args.draft_file).resolve()
+            _instr_draft = Path(args.instructions_draft_path).resolve()
+        except OSError as exc:
+            _fail('record-dispatch', f'could not resolve the draft paths to compare '
+                                     f'them: {exc}')
+        if _identity_draft != _instr_draft:
+            _fail('record-dispatch',
+                  f'--instructions-draft-path {args.instructions_draft_path!r} names a '
+                  f'different file than --draft-file {args.draft_file!r} '
+                  '(instructions-draft-mismatch): the instructions must be generated '
+                  'from the same draft whose bytes this round binds identity to')
+        try:
+            instructions_digest = hash_bytes(Path(args.instructions_file).read_bytes())
+        except OSError as exc:
+            _fail('record-dispatch', f'could not read the dispatch-instruction file '
+                                     f'{args.instructions_file}: {exc}')
+        except _DigestError as exc:
+            _fail('record-dispatch', str(exc))
+        attempt['instructions'] = {
+            'digest': instructions_digest,
+            'instructions_path': args.instructions_file,
+            'draft_path': args.instructions_draft_path,
+            'template_path': args.instructions_template,
+        }
+        # OBSERVE at dispatch whether the bytes on disk are what the generator emits
+        # from these recorded inputs, and RECORD the answer. This is deliberately an
+        # observation, never a refusal, and the PR-#718 review round is why.
+        #
+        # The problem it solves: the only comparison used to happen at record-return,
+        # where any divergence surfaces as `instructions-object-id-mismatch` and is
+        # reported to the user as STEERING. A host or write tool that alters the bytes on
+        # the way to disk (CRLF translation, a trailing-newline normalization), or a
+        # recorded input whose PATH SPELLING differs from the one the generator was given
+        # (the rendered bytes embed `{INSTRUCTIONS_PATH}`/`{DRAFT_PATH}`/`{TEMPLATE_PATH}`
+        # verbatim, and the draft-path cross-check above compares RESOLVED paths, so an
+        # equivalent-but-differently-spelled path passes it and still renders different
+        # bytes), then makes every round on that host report an attack that never
+        # happened.
+        #
+        # Why it must NOT refuse — two independent reasons, both found by review:
+        #   1. A genuinely STEERED file (hand-edited after generation) diverges here too,
+        #      and the tool cannot tell it apart from a mangled write. A refusal would
+        #      hand the orchestrator "re-write it verbatim from the generator stdout",
+        #      which OVERWRITES THE EVIDENCE and lets the re-dispatch record a clean
+        #      canonical round — laundering the exact integrity attack this mechanism
+        #      exists to catch, with nothing persisted about the attempt.
+        #   2. `_fail` exits before any state write, so the round never opens. That is a
+        #      new hard stop on a legitimate host, against this change's own contract
+        #      that filing is never blocked on any arm.
+        # Recording instead keeps the durable trail (the divergence is a fact about the
+        # round: `record-return` selects the `instructions-noncanonical-at-dispatch`
+        # reason from it, which `query-summary` and the Step 4 audit-summary line then
+        # render, so the attribution reaches the user and not just a stderr stream) and
+        # blocks nothing. It
+        # cannot fail open: the return-time regeneration still owns the verdict and still
+        # refuses to establish steering on a mismatch.
+        #
+        # The recorded value is a closed three-token vocabulary, and the message names
+        # the divergence WITHOUT asserting which cause produced it — the tool has not
+        # established that, and asserting it is what sends an operator to the wrong remedy.
+        try:
+            _regen = regenerate_instructions_digest(args.slug, attempt['instructions'])
+        except _DigestError as exc:
+            # Could not run the comparison at all (an unreadable template, an unimportable
+            # generator). NOT evidence of a bad write — but not evidence of a good one
+            # either, so it is recorded as unverified rather than silently omitted.
+            attempt['instructions']['dispatch_regeneration'] = 'unverified'
+            print(f'record-dispatch: warning: could not regenerate the dispatch '
+                  f'instructions to confirm the written file is canonical ({exc}); '
+                  'recorded as dispatch_regeneration=unverified — the return-time '
+                  'regeneration owns the verdict', file=sys.stderr)
+        else:
+            _diverged = _regen != instructions_digest
+            attempt['instructions']['dispatch_regeneration'] = (
+                'diverged' if _diverged else 'verified')
+            if _diverged:
+                print(f'record-dispatch: warning: the instruction file at '
+                      f'{args.instructions_file} does not match a fresh regeneration from '
+                      'the recorded inputs (recorded as dispatch_regeneration=diverged). '
+                      'The round is recorded and filing is not blocked, but steering '
+                      'cannot be established from it. This tool has NOT established which '
+                      'cause produced the divergence; the reachable ones are (a) the bytes '
+                      'were altered between the generator and the disk (a line-ending or '
+                      'trailing-newline translation by the writing tool), (b) a recorded '
+                      '--instructions-file / --instructions-draft-path / '
+                      '--instructions-template spelling differs from the string passed to '
+                      'dispatch-instructions (an equivalent path renders different bytes), '
+                      'or (c) the file was edited after generation. Do NOT overwrite the '
+                      'file before the cause is known: on (c) the written bytes are the '
+                      'only evidence of the edit.', file=sys.stderr)
     if args.arm == 'embed':
         # Delta 3: the sentinels are generated by the tool at dispatch, not chosen ad
         # hoc by the orchestrator, so the carriage compare is against a recorded value.
@@ -2397,6 +3526,14 @@ def cmd_record_dispatch(args):
         _fail('record-dispatch', 'the embed arm requires --marker naming the entry cause')
     rnd['pending'] = None
     rnd['attempts'].append(attempt)
+    # A divergence observed on ANY attempt of this round is sticky on the round. Without
+    # it the observation is retry-erasable: `steering_state` reads only the LATEST
+    # attempt, so a round whose first attempt diverged and whose retry verified would read
+    # `established` with the earlier divergence surviving in the JSON and seen by nobody —
+    # a narrower version of the same laundering the refusal design was killed for.
+    if attempt['instructions'] and \
+            attempt['instructions'].get('dispatch_regeneration') == 'diverged':
+        rnd['any_dispatch_diverged'] = True
     if args.marker:
         if args.marker not in _EMBED_MARKER_TOKENS:
             _fail('record-dispatch', f'unknown embed marker {args.marker!r}')
@@ -2407,6 +3544,14 @@ def cmd_record_dispatch(args):
     except StateError as exc:
         _fail('record-dispatch', str(exc))
     out = f'round={args.round} arm={args.arm} digest={digest} body_digest={body_digest}'
+    if attempt['instructions']:
+        out += f' instructions_digest={attempt["instructions"]["digest"]}'
+        # Surface the dispatch-time observation on the line the orchestrator reads, not
+        # only on a stderr stream a caller may redirect: this is the site that can still
+        # fix a mangled write or a mis-spelled recorded input.
+        _dreg = attempt['instructions'].get('dispatch_regeneration')
+        if _dreg is not None:
+            out += f' dispatch_regeneration={_dreg}'
     if attempt['sentinel_open']:
         out += (f' sentinel_open={attempt["sentinel_open"]}'
                 f' sentinel_close={attempt["sentinel_close"]}')
@@ -2463,6 +3608,27 @@ def cmd_record_return(args):
     # never recorded: an unproven findings tally must not leak into the summary via a
     # later clean retry that omits its own count.
     if cls in ('accept-file', 'accept-revise'):
+        # issue #709: establish steering-absence on the SAME guard the findings tally
+        # uses. A refused completion (failed carriage / no parseable verdict) records
+        # nothing, so its round keeps `steering: None` — read as unestablished by
+        # `_steering_established`, never as clean.
+        st_state, st_reason = steering_state(
+            args.slug, attempt, args.instructions_object_id,
+            args.extra_dispatch_content)
+        # issue #718 laundering guard, folded to the single stored source (issue #709
+        # shadow finding): a round on which ANY dispatch attempt diverged from its
+        # canonical regeneration can never be `established`, regardless of what the
+        # auditor's return quotes on a later clean attempt. Without this fold a
+        # diverged-then-corrected round stores `established`, and the REPORT surfaces
+        # (this record-return stdout line and the Step 4 audit-summary `steering=` token
+        # in summary_fields) would assert `established` while the eligibility/triggers
+        # gates — which read `_steering_established`, honoring the round-level sticky flag
+        # — correctly withhold. Folding it into the stored record keeps all four consumers
+        # (both gates and both report surfaces) in agreement by construction.
+        if st_state == 'established' and rnd.get('any_dispatch_diverged'):
+            st_state, st_reason = ('not-established',
+                                   'instructions-noncanonical-at-dispatch')
+        rnd['steering'] = {'state': st_state, 'reason': st_reason}
         if args.findings_count is not None:
             if args.findings_count < 0:
                 _fail('record-return', f'--findings-count {args.findings_count} is '
@@ -2474,7 +3640,10 @@ def cmd_record_return(args):
         save_state(doc, args.slug)
     except StateError as exc:
         _fail('record-return', str(exc))
-    print(f'classification={cls} outcome={rnd["outcome"] or "pending"}')
+    _st = rnd.get('steering')
+    print(f'classification={cls} outcome={rnd["outcome"] or "pending"} '
+          f'steering={_st["state"] if _st else "unestablished"} '
+          f'steering_reason={_st["reason"] if _st else "none"}')
 
 
 def cmd_record_adjudication(args):
@@ -2634,6 +3803,48 @@ def cmd_record_adjudication(args):
           f'invalid={args.invalid} superseded={superseded}')
 
 
+def _read_stdin_lines(command, what, token):
+    """Read a quoted-heredoc line payload from stdin, or fail closed (issue #708).
+
+    ONE implementation of the fail-closed byte-read the line-oriented stdin transports
+    share — a closed fd (CPython sets `sys.stdin` to None, so an attribute access would
+    otherwise leak a raw traceback), a read error, an undecodable payload, and an empty
+    one. Callers supply their own `command` (for the breadcrumb prefix), the human `what`
+    they are reading, and the `token` their triage vocabulary uses, so every named
+    breadcrumb stays exactly what it was when each caller inlined this block.
+
+    The transport is deliberately line-oriented text, not a structured payload: the
+    skill's fence pipes the lines through a QUOTED-delimiter heredoc, so the shell never
+    expands the `$(...)`, backticks, and quotes that auditor-derived text routinely
+    contains.
+
+    Reading BYTES and decoding explicitly (rather than reading the text wrapper) is
+    load-bearing: decoding INSIDE the read `try` would let a UnicodeDecodeError (a
+    ValueError, not an OSError) escape as a raw traceback on routine input — text lifted
+    from a terminal transcript carrying a mangled smart quote or a truncated multibyte
+    char — breaking the mutation contract's named-breadcrumb half and leaving the skill's
+    stderr triage nothing to match.
+
+    Returns the non-blank lines. Never returns on any degraded shape.
+    """
+    if sys.stdin is None:
+        _fail(command, f'could not read the {what} from stdin: no stdin is attached '
+                       f'(fd 0 is closed)')
+    try:
+        data = sys.stdin.buffer.read()
+    except OSError as exc:
+        _fail(command, f'could not read the {what} from stdin: {exc}')
+    try:
+        raw = data.decode('utf-8')
+    except UnicodeDecodeError as exc:
+        _fail(command, f'the {what} is not valid UTF-8 text ({token}-undecodable): {exc}; '
+                       f'reword the text in plain text and re-issue the call')
+    if not raw.strip():
+        _fail(command, f'--{token}-stdin was given but no {what} lines were received on '
+                       f'stdin ({token}-empty)')
+    return [ln for ln in raw.split('\n') if ln.strip()]
+
+
 def _ingest_ledger(must_revise, unresolved):
     """Read `--ledger-stdin` and build the round's ledger, or fail closed.
 
@@ -2652,30 +3863,7 @@ def _ingest_ledger(must_revise, unresolved):
     command's own: record-revision hashes the bytes and never decodes them, so it has no
     decode step to mirror.
     """
-    if sys.stdin is None:
-        _fail('record-adjudication', 'could not read the finding ledger from stdin: no '
-                                     'stdin is attached (fd 0 is closed)')
-    try:
-        data = sys.stdin.buffer.read()
-    except OSError as exc:
-        _fail('record-adjudication', f'could not read the finding ledger from stdin: {exc}')
-    # Read BYTES like record-revision, then decode explicitly (record-revision hashes the
-    # bytes and never decodes, so the decode arm below is this command's own). Reading the text
-    # wrapper instead would decode INSIDE the try, where a UnicodeDecodeError (a ValueError,
-    # not an OSError) escapes as a raw traceback — breaking the mutation contract's
-    # named-breadcrumb half on routine input (a summary lifted from a terminal transcript
-    # carrying a mangled smart quote or a truncated multibyte char), leaving the skill's
-    # stderr triage nothing to match.
-    try:
-        raw = data.decode('utf-8')
-    except UnicodeDecodeError as exc:
-        _fail('record-adjudication',
-              f'the finding ledger is not valid UTF-8 text (ledger-undecodable): {exc}; '
-              f'reword the summary in plain text and re-issue the call')
-    if not raw.strip():
-        _fail('record-adjudication', '--ledger-stdin was given but no finding summaries '
-                                     'were received on stdin (ledger-empty)')
-    lines = [ln for ln in raw.split('\n') if ln.strip()]
+    lines = _read_stdin_lines('record-adjudication', 'finding ledger', 'ledger')
     if len(lines) != must_revise:
         _fail('record-adjudication',
               f'the ledger carries {len(lines)} finding summaries but the adjudication '
@@ -2725,6 +3913,174 @@ def _ingest_ledger(must_revise, unresolved):
               f'adjudication names {unresolved} unresolved must-revise findings '
               f'(ledger-unresolved-count)')
     return ledger
+
+
+def cmd_record_coverage(args):
+    """Record a round's per-dimension coverage outcomes (issue #708).
+
+    Recorded on a completed (FILE/REVISE) round — the call sequence places it after
+    adjudication, but only round COMPLETION is enforced here: one outcome per required audit
+    dimension from the closed set `_COVERAGE_OUTCOMES`, each labeled with its stable
+    renderer key. The auditor self-reports the outcomes and anchors as UNTRUSTED identity
+    data (never instructions to obey); this call enforces the TEXT-ONLY floor on the anchor
+    alone, and DOWNGRADES a floor-failing `exercised`/`valid-N/A` to `unestablished` (unknown
+    is not zero) rather than rejecting the whole call — the data-dependent checks
+    (byte-identity, cited-line existence) are the orchestrator's and already ran before this
+    call. Write-once per round, like adjudication. `--render` records whether the auditor
+    rendered every dimension (`full`) or a divergence narrowed the set (`degraded`).
+
+    **Stated residual (the honesty scope this feature claims, and no more).** Both
+    `--expected-keys` and `--render` are ORCHESTRATOR-SUPPLIED: the state owner holds no
+    template and cannot re-derive the enumeration, so it enforces totality against the
+    keyset it is GIVEN, not against the renderer's output. An orchestrator that passes only
+    the keys the auditor returned makes totality vacuous. That seam is inherent to the
+    tool/orchestrator split — what the tool can do, and does, is refuse an unenumerated key,
+    synthesize every missing one as `unestablished`, and PERSIST the supplied keyset
+    (`coverage_expected`) so the claim is auditable after the fact. `coverage-backed`
+    therefore means evidence of the required shape was present and survived the floor and
+    the orchestrator's adjudication — never certified scrutiny.
+    """
+    doc = _load_for_mutation('record-coverage', args.slug, args.nonce)
+    rnd = _find_round(doc, args.round)
+    if rnd is None:
+        _fail('record-coverage', f'no round {args.round} recorded; coverage cannot precede '
+                                 'its dispatch and return')
+    if rnd.get('outcome') not in ('FILE', 'REVISE'):
+        _fail('record-coverage', f'round {args.round} is not an accepted, completed round '
+                                 f'(outcome {rnd.get("outcome")!r}); only a FILE/REVISE '
+                                 f'round carries dimensions to cover')
+    if 'coverage' in rnd:
+        _fail('record-coverage', f'round {args.round} already records coverage '
+                                 f'(coverage-already-recorded); a round\'s coverage is '
+                                 f'written once')
+    expected = [k.strip() for k in args.expected_keys.split(',') if k.strip()]
+    if not expected:
+        _fail('record-coverage', '--expected-keys named no dimension keys '
+                                 '(coverage-expected-empty); pass the enumerated keyset '
+                                 'from `render-audit-prompt.py enumerate-dimensions`')
+    if len(set(expected)) != len(expected):
+        _fail('record-coverage', '--expected-keys repeats a dimension key '
+                                 '(coverage-expected-duplicate); the enumeration is keyed '
+                                 'and its keys are unique by construction')
+    coverage = _ingest_coverage(expected)
+    rnd['coverage'] = coverage
+    # Persist the enumeration totality was checked against. The state owner cannot
+    # re-derive it (it holds no template), so `--expected-keys` is an orchestrator-supplied
+    # operand — recording it makes the claim AUDITABLE after the fact instead of leaving
+    # only its effect. The residual is stated in the docstring and the growth artifact.
+    rnd['coverage_expected'] = expected
+    rnd['coverage_render'] = args.render
+    _save_or_fail('record-coverage', doc, args.slug)
+    # The echo carries only fields drawn from the tool's own printed vocabulary
+    # (`_PROTOCOL_TOKENS`) — the per-outcome breakdown is read back through
+    # `query-coverage`, so no per-outcome `<field>=` token (which would forge a protocol
+    # word and broaden the anchor-refusal vocabulary) is introduced here. `outcome=` names
+    # the outcomes recorded, comma-joined, as a value.
+    outcomes = ','.join(e['outcome'] for e in coverage) or 'none'
+    # A REVISE round's coverage is recorded but can never back the run (`_coverage_round`
+    # selects the final accepted CLEAN round), so the echo says so rather than reading as
+    # an unqualified success receipt for work no derivation will ever consume.
+    backs = 'yes' if rnd.get('outcome') == 'FILE' else 'no'
+    print(f'coverage_render={args.render} count={len(coverage)} outcome={outcomes} '
+          f'backs_run={backs}')
+
+
+def _ingest_coverage(expected_keys):
+    """Read `--coverage-stdin` and build the round's coverage list, or fail closed.
+
+    One line per required dimension: ``<key> <outcome> [anchor text...]`` — the key and
+    outcome are the first two whitespace-delimited tokens; the anchor is the rest of the
+    line (a quoted draft line plus one concern clause, for `exercised`; a one-line reason,
+    for `valid-N/A`). Mirrors `_ingest_ledger`'s byte-read + fail-closed decode/empty arms
+    and its quoted-heredoc transport, so auditor-derived anchor text never traverses shell
+    quoting. An `exercised`/`valid-N/A` line whose anchor FAILS the text-only floor is
+    DOWNGRADED to `unestablished` with its anchor dropped — never rejected (unknown is not
+    zero, and the coverage record must stay total over required dimensions).
+    """
+    lines = _read_stdin_lines('record-coverage', 'coverage list', 'coverage')
+    coverage = []
+    seen = set()
+    for idx, line in enumerate(lines, start=1):
+        parts = line.strip().split(None, 2)
+        if len(parts) < 2:
+            _fail('record-coverage',
+                  f'coverage line {idx} needs at least a key and an outcome '
+                  f'(coverage-line-shape); the form is "<key> <outcome> [anchor]"')
+        key, outcome = parts[0], parts[1]
+        anchor = parts[2].strip() if len(parts) == 3 else None
+        if outcome not in _COVERAGE_OUTCOMES:
+            _fail('record-coverage',
+                  f'coverage line {idx} names an outcome outside the canonical set '
+                  f'{_COVERAGE_OUTCOMES} (coverage-outcome): {outcome!r}')
+        if key in seen:
+            _fail('record-coverage',
+                  f'coverage line {idx} duplicates key {key!r} (coverage-duplicate-key)')
+        seen.add(key)
+        if outcome not in _COVERAGE_ANCHORED:
+            anchor = None
+        else:
+            floor_err = _coverage_anchor_floor(anchor)
+            if floor_err is not None:
+                # Downgrade, never reject: unknown is not zero. A floor-failing anchor does
+                # not back coverage, so the dimension records `unestablished` with no
+                # anchor — and the CAUSE is breadcrumbed rather than collapsed onto the
+                # outcome, so a reader can tell a tool-side text refusal (which the auditor
+                # could fix by rewording) from the auditor's own substantive judgment.
+                print(f'record-coverage: dimension {key!r} anchor fails the text-only floor '
+                      f'({floor_err}); recorded unestablished', file=sys.stderr)
+                outcome, anchor = 'unestablished', None
+        # ONE append for all three arms — the entry shape has a single construction site,
+        # so a later field cannot be added to two arms and missed on the third.
+        coverage.append({'key': key, 'outcome': outcome, 'anchor': anchor})
+    # TOTALITY over the authoritative enumeration (issue #708). `evaluate_coverage`'s
+    # `all(...)` is vacuously true over a SHORT list, so without this a one-line return
+    # against a twelve-dimension enumeration would derive `backed` — the mechanism passing
+    # on exactly the input it exists to catch. A returned key outside the enumeration is
+    # refused (the join has no dimension to attach it to); an enumerated key the auditor
+    # returned no line for is synthesized `unestablished` — never dropped, never assumed
+    # covered (unknown is not zero).
+    unknown = [k for k in seen if k not in set(expected_keys)]
+    if unknown:
+        _fail('record-coverage',
+              f'coverage names {len(unknown)} key(s) outside the authoritative enumeration '
+              f'(coverage-unknown-key): {sorted(unknown)}; the auditor outcomes join the '
+              f'enumerated dimensions by shared key, so an unenumerated key has no '
+              f'dimension to attach to')
+    for key in expected_keys:
+        if key not in seen:
+            coverage.append({'key': key, 'outcome': 'unestablished', 'anchor': None})
+    return coverage
+
+
+def cmd_query_coverage(args):
+    """The run's coverage-backing, read back durably (issue #708).
+
+    Read-only and exit-0 like its sibling queries, with the same inline fail-closed
+    foreign-nonce answer. The FIRST line is the decided token line
+    `coverage_backing=<token> coverage_render=<token>` — the orchestrator reads its
+    coverage decision from state, never from context recall, so the decision survives a
+    compaction. Subsequent lines (one per dimension of the coverage round) carry the durable
+    per-dimension outcomes: `key=<k> outcome=<o> anchor=<text>` (anchor trailing, may
+    contain spaces — the anchor floor bars it forging a `<field>=` token).
+    """
+    state = _query_state(args.slug)
+    if state is not None and state['nonce'] != args.nonce:
+        print('coverage_backing=unestablished coverage_render=none reason=foreign-nonce')
+        return
+    cov = evaluate_coverage(state)
+    # `reason=` renders on EVERY arm (`none` when there is nothing to name): a
+    # conditionally-present trailing field cannot be told from a truncated line.
+    print(f'coverage_backing={cov["backing"]} coverage_render={cov["render"]} '
+          f'reason={cov.get("reason") or "none"}')
+    # The coverage round rides on the SAME derivation that decided the tokens — deriving
+    # it a second time would be two call sites that must agree on which round is
+    # authoritative, the drift #603 removed from the summary fields.
+    rnd = cov['round']
+    if rnd is not None:
+        for e in rnd.get('coverage') or []:
+            anchor = e.get('anchor')
+            trailer = f' anchor={anchor}' if anchor is not None else ''
+            print(f'key={e["key"]} outcome={e["outcome"]}{trailer}')
 
 
 # ── The post-close ledger channels (issue #603) ───────────────────────────────────
@@ -2989,6 +4345,166 @@ def cmd_record_invalidate(args):
     print(f'round={args.round} invalidated={len(entries)} remaining={_remaining(doc)}')
 
 
+def _load_generator():
+    """Import `render-audit-prompt.py` as a module and return it (issue #709).
+
+    The canonical dispatch-instruction generator is this tool's sibling in
+    `scripts/`, resolved relative to THIS file (never the cwd), so the repo checkout
+    and the vendored plugin layout resolve identically — the same anchoring the
+    generator itself uses for its template.
+
+    Imported rather than sub-processed: the generator is a pure function, so an
+    in-process call keeps the regeneration Windows-safe (no `.sh` exec, #275; no
+    interpreter-path guessing) and cannot inherit this process's argv. Its module
+    name carries a dash, so it is loaded by file location rather than by `import`.
+    Every module-body-execution failure that raises an `Exception` — file absent,
+    unimportable (for any such reason its module body raises, not merely the import-shaped
+    ones), or importable-but-missing either entry point this module calls — raises
+    `_DigestError`
+    so the caller records `regeneration-failed`; none of them may read as an established
+    comparison, and none may escape as a traceback that would abort `record-return`
+    before it saves the round. The two `BaseException` shapes a module body could raise
+    — `SystemExit` and `KeyboardInterrupt` — are deliberately NOT absorbed: a generator
+    that raises `SystemExit` at import time is a broken installation whose traceback the
+    operator should see, and an interrupt must stay interruptible. The shipped generator
+    raises its `SystemExit` only under `if __name__ == '__main__'`, so neither is reachable
+    through this loader today.
+    """
+    import importlib.util
+    path = Path(__file__).resolve().parent / 'render-audit-prompt.py'
+    spec = importlib.util.spec_from_file_location('devflow_render_audit_prompt', path)
+    if spec is None or spec.loader is None:
+        raise _DigestError(f'could not load the dispatch-instruction generator at {path}')
+    mod = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(mod)
+    except Exception as exc:  # noqa: BLE001 - a module body may raise anything; every
+        # shape is the same decided outcome here (the comparand cannot be regenerated),
+        # and narrowing to the import-shaped exceptions let a ValueError/NameError at
+        # module scope escape as a traceback that aborted record-return mid-round.
+        raise _DigestError(f'could not import the dispatch-instruction generator '
+                           f'at {path}: {exc}') from exc
+    for entry_point in ('instructions_bytes', 'default_template_path'):
+        if not hasattr(mod, entry_point):
+            raise _DigestError(f'the dispatch-instruction generator at {path} has no '
+                               f'{entry_point} entry point')
+    return mod
+
+
+def regenerate_instructions_digest(slug, inputs):
+    """Regenerate the canonical dispatch instructions and return their digest.
+
+    This is the comparand the auditor's quoted object ID is matched against, and it is
+    deliberately the FRESHLY-REGENERATED digest rather than the write-time digest the
+    dispatch recorded. A hand-written *steered* instruction file that never went through
+    the generator would hash equal to its own recorded digest — self-consistent and
+    useless — so comparing against a regeneration from the round's closed inputs is what
+    makes the check prove the dispatched file was canonical, not merely unchanged.
+
+    The bytes hashed come from the generator's own `instructions_bytes`, which is the
+    single owner of its on-disk framing and is what its CLI writes to stdout — therefore
+    exactly what the orchestrator redirects into the instruction file. Replicating that
+    framing here instead would make a change to the generator's output silently
+    false-alarm every clean audit, which is why the producer owns it and a renderer test
+    couples the two.
+    """
+    mod = _load_generator()
+    try:
+        template_path = (Path(inputs['template_path']) if inputs.get('template_path')
+                         else mod.default_template_path())
+    except Exception as exc:  # noqa: BLE001 - same decided arm as the render below: any
+        # failure resolving the comparand's template is a regeneration failure, never a
+        # traceback out of record-return.
+        raise _DigestError(f'could not resolve the dispatch-instruction template: '
+                           f'{exc}') from exc
+    try:
+        draft_text = Path(inputs['draft_path']).read_text(encoding='utf-8')
+    except (OSError, UnicodeDecodeError) as exc:
+        raise _DigestError(f'could not read the draft file recorded as a regeneration '
+                           f'input ({inputs["draft_path"]}): {exc}') from exc
+    try:
+        rendered = mod.instructions_bytes(
+            template_path, slug, inputs['draft_path'], inputs['instructions_path'],
+            draft_text)
+    except Exception as exc:  # noqa: BLE001 - the generator's own RenderError type is
+        # not importable by name here without coupling to its module identity; every
+        # failure lands on the same fail-closed `regeneration-failed` arm regardless of
+        # type, so the broad catch is the DECIDED behavior rather than a swallowed error
+        # (it re-raises as _DigestError, carrying the specific cause).
+        raise _DigestError(f'the dispatch-instruction generator failed: {exc}') from exc
+    return hash_bytes(rendered)
+
+
+def steering_state(slug, attempt, quoted_object_id, extra_dispatch_content):
+    """Establish whether the auditor's instructions were canonical (issue #709).
+
+    Returns `(state, reason)` with `state` in `_STEERING_STATES` and `reason` in
+    `_STEERING_REASON_STATE`. The reason precedence below is DECIDED, not incidental: the
+    most structural cause wins, so a run that never had an instruction file is never
+    diagnosed as an ID mismatch.
+
+    Fail-closed, exactly like `_carriage_ok`: an ABSENT quoted object ID and an ABSENT
+    no-extra-content affirmation are treated as a mismatch and a positive report
+    respectively. Absent evidence is never established-clean by omission — that is the
+    fail-open hazard this whole surface exists to close.
+    """
+    if attempt['arm'] != 'file':
+        return ('not-established', 'no-instructions-file')
+    inputs = attempt.get('instructions')
+    if not inputs:
+        return ('not-established', 'inputs-unrecorded')
+    try:
+        canonical = regenerate_instructions_digest(slug, inputs)
+    except _DigestError as exc:
+        # Never silent: the specific regeneration cause reaches stderr even though the
+        # recorded reason is the coarse closed token.
+        print(f'record-return: steering-absence could not be established: {exc}',
+              file=sys.stderr)
+        return ('not-established', 'regeneration-failed')
+    if not quoted_object_id:
+        return ('not-established', 'instructions-object-id-absent')
+    if quoted_object_id != canonical:
+        # Attribute the mismatch honestly. When the DISPATCH-time regeneration already
+        # disagreed, the divergence predates the auditor entirely — the file it read was
+        # never regenerable — so reporting this as "the auditor read something else"
+        # sends the reader at the auditor instead of at the write or the recorded inputs.
+        # Both are fail-closed; they differ only in WHERE they send the reader, so the
+        # distinction has to survive on the durable surface, not just on stderr — a
+        # breadcrumb is lost to a redirect or a compacted context, and the user is
+        # contractually pointed at the Step 4 audit-summary line, which renders the reason.
+        if inputs.get('dispatch_regeneration') == 'diverged':
+            print('record-return: the instruction file already failed its dispatch-time '
+                  'regeneration (dispatch_regeneration=diverged), so this mismatch was '
+                  'introduced at or before dispatch — not by the auditor. See the '
+                  'record-dispatch warning for the causes this tool could not '
+                  'distinguish.', file=sys.stderr)
+            return ('not-established', 'instructions-noncanonical-at-dispatch')
+        return ('not-established', 'instructions-object-id-mismatch')
+    if extra_dispatch_content is None:
+        return ('not-established', 'extra-dispatch-content-unreported')
+    if extra_dispatch_content != 'no':
+        return ('not-established', 'extra-dispatch-content')
+    return ('established', 'canonical-match')
+
+
+def _steering_established(rnd):
+    """True iff this round recorded an ESTABLISHED steering result.
+
+    A round with no steering record at all answers False — the additive field means a
+    pre-#709 round, a refused completion, or a degraded arm carries none, and every one
+    of those is an unestablished property, never an established one.
+
+    A round on which ANY dispatch attempt diverged from its canonical regeneration
+    (issue #718) also answers False, regardless of what a later attempt recorded: the
+    divergence is a fact about the round's instruction file, and letting a retry erase it
+    would restore the laundering path the dispatch-time refusal was removed for.
+    """
+    if rnd.get('any_dispatch_diverged'):
+        return False
+    rec = rnd.get('steering')
+    return isinstance(rec, dict) and rec.get('state') == 'established'
+
+
 def _carriage_ok(attempt, args):
     """Compare the auditor's quoted carriage evidence against recorded values.
 
@@ -3011,6 +4527,29 @@ def cmd_record_revision(args):
     doc = _load_for_mutation('record-revision', args.slug, args.nonce)
     if not doc['rounds']:
         _fail('record-revision', 'no rounds are recorded; there is nothing to revise')
+    # issue #705: the file-arm staged-write guarantee, enforced by the tool rather than
+    # carried by prose a context compaction can evict. When the latest recorded round's
+    # LAST dispatch attempt is on the file arm, the canonical draft file is currently the
+    # audit substrate — so a revision recorded here MUST carry the intended-bytes digest,
+    # or the post-revision write-failure closure (`latest_revision_landed`,
+    # `record-write-failure`) has no durable comparand and cannot tell a landed replace
+    # from a lost one. The predicate is the PER-ROUND shape
+    # `rounds[-1]['attempts'][-1]['arm']`, deliberately NOT the eligibility site's
+    # `file_arm_epoch` (which reads the creation-epoch round, a record that does not exist
+    # at revision time). On the embed/inline arms the auditor was handed the bytes inline,
+    # so there is no canonical file to bind and the bare (no-digest) call stays legal —
+    # including a run whose earlier round dispatched on the file arm but whose latest round
+    # fell back to embed. On the read-only arm no staging artifact can be written, but the
+    # flag reads `sys.stdin.buffer`, never a file, so a run that merely cannot write a file
+    # satisfies this guard by piping the intended bytes from context.
+    if (doc['rounds'][-1]['attempts'][-1]['arm'] == 'file'
+            and not getattr(args, 'stdin_digest', False)):
+        _fail('record-revision',
+              'the latest recorded round dispatched on the file arm, so this revision must '
+              'carry the intended-bytes digest (file-arm-requires-stdin-digest): pipe the '
+              'revised title-and-body bytes to --stdin-digest. Without it the write-failure '
+              'closure has no durable comparand and a lost canonical replace cannot be '
+              'distinguished from a landed one.')
     # --after-round is the SOLE invalidation evidence on the event-ordering ground
     # (_revision_postdates keys eligibility and T2 on it), so a caller-supplied value
     # below the last completed round would fail that guard OPEN — a revised draft would
@@ -3375,6 +4914,349 @@ def cmd_record_creation_attestation(args):
     print(f'attestation={status}')
 
 
+def cmd_record_claim_baseline(args):
+    """Record one load-bearing claim's repository baseline: revision + per-class identity."""
+    prefix = 'record-claim-baseline'
+    doc = _load_for_mutation(prefix, args.slug, args.nonce)
+    key = (args.claim_key or '').strip()
+    if not key:
+        _fail(prefix, 'claim-key-empty: --claim-key must be a non-empty name')
+    # The claim key is printed UNENCODED, and in a NON-trailing position, on all three claim
+    # surfaces (`record-claim-baseline`, `query-claim-baselines`, `check-claim-staleness`), so
+    # it reaches the printed protocol exactly where the sibling evidence channel's JSON
+    # encoding does not apply. The decided answer here is the LEDGER's — refusal, not
+    # neutralization: a claim key is orchestrator-authored and can always be reworded, so
+    # refusing costs nothing, whereas auditor-returned evidence text cannot be sent back for
+    # rewording and is therefore neutralized at its print boundary instead. Both guards run,
+    # since one forges a FIELD and the other a LINE.
+    _splitter = _record_splitting_char(key)
+    if _splitter is not None:
+        _fail(prefix, f'claim-key-record-splitting: --claim-key contains {_splitter!r}, which '
+                      f'would forge a line of this tool\'s printed surface; reword the key')
+    _forged = _forged_protocol_token(key)
+    if _forged is not None:
+        _fail(prefix, f'claim-key-forges-protocol-token: --claim-key contains the reserved '
+                      f'word \'{_forged}=\' of this tool\'s printed surface; reword the key')
+    if args.claim_class in _FULL_DOMAIN_CLASSES:
+        if args.path:
+            _fail(prefix, f'domain-class-paths: a {args.claim_class} claim is identified by '
+                          f'its re-executed full-domain search result, not by hit paths; '
+                          f'pipe the result with --domain-stdin')
+        # Without this the call exits 0 having recorded a baseline that can never be anything
+        # but `possibly-stale` — the operator believes a baseline landed while the staleness
+        # re-check is permanently degraded, and `possibly-stale` is a legitimate verdict, so
+        # nothing downstream ever flags the recording error.
+        if not args.domain_stdin:
+            _fail(prefix, f'domain-class-no-domain: a {args.claim_class} claim is identified '
+                          f'by its re-executed full-domain search result; pipe it with '
+                          f'--domain-stdin')
+        data = sys.stdin.buffer.read()
+        if not data:
+            _fail(prefix, 'domain-class-empty-domain: --domain-stdin produced no bytes; a '
+                          'search that emitted nothing cannot identify a baseline')
+        identity = domain_identity(data)
+        paths = None
+    else:
+        if args.domain_stdin:
+            _fail(prefix, 'location-class-domain: a location claim is identified by a digest '
+                          'of its measured paths; pass --path, not --domain-stdin')
+        if not args.path:
+            _fail(prefix, 'location-class-no-paths: a location claim needs at least one '
+                          '--path naming the content it was measured from')
+        # Deliberately NOT symmetric with the domain arm's refusal above, and the asymmetry
+        # is the decided contract rather than an oversight: an unmeasurable path is exactly
+        # the "otherwise unresolvable state" issue #704 requires to be RECORDED as
+        # `unestablished` (read back as possibly-stale, never fresh) and to degrade with a
+        # disclosed marker without blocking. Refusing would record nothing at all. The domain
+        # arm differs because a MISSING `--domain-stdin` is a caller-contract error — the
+        # caller never supplied a measurement — not a measurement that was attempted and
+        # failed. `location_identity`'s stderr breadcrumb is the disclosed marker.
+        # Anchor BEFORE measuring, so the digested path spelling and the bytes read are the
+        # same repo-root-anchored operand the later check will resolve (see
+        # `anchor_measured_path`) — recording the caller's cwd-relative spelling is what let a
+        # subdirectory check read a drifted claim as `fresh`.
+        paths = sorted({anchor_measured_path(p) for p in args.path})
+        identity = location_identity(paths)
+    entry = {'claim_class': args.claim_class, 'revision': capture_revision(),
+             'identity': identity}
+    if paths is not None:
+        entry['paths'] = paths
+    claims = doc.setdefault('claims', {})
+    prior_claim = claims.get(key)
+    if prior_claim is not None:
+        # A CLASS change under one key is a different claim, not a re-measurement of this one:
+        # accepting it silently swaps the identity basis and discards the measured `paths` a
+        # location claim was grounded on, leaving the original claim's basis unrecoverable.
+        # Refused rather than breadcrumbed, because the correct action is always a different
+        # key — the sibling evidence channel's remedy, for the same reason.
+        if prior_claim.get('claim_class') != args.claim_class:
+            _fail(prefix, f'claim-class-changed: {key!r} is recorded as a '
+                          f'{prior_claim.get("claim_class")!r} claim; a {args.claim_class!r} '
+                          f'claim is identified differently, so record it under its own key '
+                          f'rather than replacing this one')
+        # A re-baseline is LEGAL — re-deriving a stale claim and re-grounding it is the
+        # documented workflow — but it silently moves a measurably `stale` claim to `fresh`,
+        # the verdict that licenses skipping re-derivation. Deliberately NOT refused (that
+        # would break the intended flow) and never silent either: the transition is disclosed
+        # so a reader can tell a re-grounding from an original grounding.
+        prior_identity = prior_claim.get('identity')
+        if isinstance(prior_identity, str) and prior_identity and prior_identity != identity:
+            sys.stderr.write(
+                f'issue-audit-state.py {prefix}: re-baselined {key!r} — recorded identity '
+                f'{prior_identity} superseded by {identity}; any earlier `stale` verdict for '
+                f'this claim now reads `fresh` against the new baseline\n')
+    claims[key] = entry
+    _save_or_fail(prefix, doc, args.slug)
+    print(f'claim={key} class={entry["claim_class"]} revision={entry["revision"]} '
+          f'identity={entry["identity"]}')
+
+
+def _staleness_line(key, entry, current_identity):
+    state, reason = claim_staleness(entry, current_identity)
+    return f'claim={key} class={entry.get("claim_class")} state={state} reason={reason}'
+
+
+def cmd_check_claim_staleness(args):
+    """Deterministically re-check recorded claim baselines against current content.
+
+    Recomputes each claim's identity the way its CLASS decides and compares it to the
+    recorded one — no repository history is read, so a shallow clone resolves a normal
+    answer. This informs re-verification; it never gates filing.
+    """
+    prefix = 'check-claim-staleness'
+    # `_load_for_mutation` is named for its dominant caller but performs no mutation — it is
+    # the shared load-and-check-nonce step, and this nonce-taking query needs exactly that.
+    doc = _load_for_mutation(prefix, args.slug, args.nonce)
+    claims = doc.get('claims') or {}
+    if args.claim_key is not None:
+        # `.strip()` mirrors the writer's own normalization: recording `--claim-key 'k '`
+        # stores `k`, so looking the raw argument up would answer `claim-unknown` for a claim
+        # that WAS recorded. Strip at both sites, or at neither.
+        args.claim_key = args.claim_key.strip()
+        if args.claim_key not in claims:
+            _fail(prefix, f'claim-unknown: no claim named {args.claim_key!r} is recorded')
+        if args.domain_stdin and claims[args.claim_key].get(
+                'claim_class') not in _FULL_DOMAIN_CLASSES:
+            # Same reasoning as the no-claim-key arm below: a location claim recomputes from
+            # its paths, so piped bytes would be silently discarded while the caller reads the
+            # printed verdict as the answer to the search they just re-ran.
+            _fail(prefix, f'domain-for-location-claim: claim {args.claim_key!r} is a location '
+                          f'claim identified by its measured paths; --domain-stdin would be '
+                          f'discarded')
+        keys = [args.claim_key]
+    else:
+        if args.domain_stdin:
+            # One piped search result cannot identify several claims with different search
+            # domains, and silently applying it to all of them would manufacture a `fresh`
+            # for every claim whose real domain was never re-executed.
+            _fail(prefix, 'domain-without-claim-key: --domain-stdin identifies ONE claim; '
+                          'pass --claim-key naming it')
+        if not claims:
+            print('claims=none')
+            return
+        keys = sorted(claims)
+    domain = sys.stdin.buffer.read() if args.domain_stdin else None
+    # Memoized across the loop: a path cited by several location claims is hashed once.
+    cache = {}
+    for key in keys:
+        print(_staleness_line(key, claims[key],
+                              recompute_identity(claims[key], domain, cache)))
+
+
+def cmd_query_claim_baselines(args):
+    """Read back every recorded claim baseline (one line per claim).
+
+    Carries the same inline fail-closed answers as its sibling queries: a nonce from another
+    run must never read THIS run's baselines as its own (the cross-run re-anchoring the state
+    file's out-of-bounds discipline exists to prevent), and an unestablished state must be
+    distinguishable from a genuinely empty store — a bare `claims=none` for both would let an
+    unreadable state license the cheap replay the new adjudication policy gates on.
+    """
+    state = _query_state(args.slug)
+    if state is not None and state['nonce'] != args.nonce:
+        print('claims=none reason=foreign-nonce')
+        return
+    if state is None:
+        print('claims=none reason=state-unestablished')
+        return
+    claims = state.get('claims') or {}
+    if not claims:
+        print('claims=none')
+        return
+    for key in sorted(claims):
+        e = claims[key]
+        print(f'claim={key} class={e.get("claim_class")} '
+              f'revision={e.get("revision") or _UNESTABLISHED} '
+              f'identity={e.get("identity") or _UNESTABLISHED}')
+
+
+def cmd_record_finding_evidence(args):
+    """Record one finding's reproducible evidence on the dedicated per-finding channel.
+
+    Deliberately NOT `record-adjudication --ledger-stdin`: that transport carries a
+    one-line summary and refuses newlines and `<field>=` tokens by contract, so multi-line
+    observed output cannot ride on it. This channel is keyed by `<round>:<finding-id>`, caps
+    each field, and stores the text VERBATIM as data — the print boundary, not a refusal, is
+    where record-splitting bytes are neutralized. Instruction-shaped text is never
+    neutralized and never needs to be: it is stored and printed as data, never executed.
+    """
+    prefix = 'record-finding-evidence'
+    doc = _load_for_mutation(prefix, args.slug, args.nonce)
+    observed = None
+    if args.observed_stdin:
+        raw = sys.stdin.buffer.read()
+        # An empty read is NOT refused: issue #704 requires evidence that is absent or
+        # incomplete to be RECORDED `incomplete` (never verified), which is what
+        # `evidence_completeness` does with an empty `observed`. Refusing would record no
+        # evidence at all and lose the finding's locator and command with it.
+        try:
+            observed = raw.decode('utf-8')
+        except UnicodeDecodeError:
+            _fail(prefix, 'evidence-undecodable: the observed output is not valid UTF-8')
+    supplied = (('locator', args.locator), ('command', args.command),
+                ('observed', observed), ('baseline_revision', args.baseline_revision),
+                ('baseline_identity', args.baseline_identity))
+    entry = {k: _bound_evidence(v) for k, v in supplied if v is not None}
+    completeness, missing = evidence_completeness(entry)
+    entry['completeness'] = completeness
+    key = f'{args.round}:{args.finding_id}'
+    store = doc.setdefault('finding_evidence', {})
+    prior = store.get(key)
+    if prior is not None:
+        # Last-write-wins would silently collapse two disagreeing probes of ONE finding to the
+        # later value — the same one-sided resolution `evidence_conflicts` refuses across
+        # findings. The compared identity is every `_EVIDENCE_FIELDS` value, not `observed`
+        # alone (`completeness` needs no row — it is derived from those same fields):
+        # two probes that disagree about WHERE the defect is (`locator`) or HOW it was
+        # measured (`command`) while coincidentally producing the same bytes — routine for
+        # low-entropy outputs like `0`, an empty result, or a single count line — are exactly
+        # the disagreement this refusal exists to surface, and comparing only `observed` let
+        # the first probe's locator, command and baseline vanish at `conflict=none`.
+        # `observed` alone is judged by `_observed_divergent`, not plain inequality, so a pair
+        # `_bound_evidence` truncated to byte-identical strings is refused too: the comparison
+        # could not see the bytes past the cap, and unknown is never agreement. A byte-for-byte
+        # identical, untruncated re-record stays a legal idempotent replay. `completeness`
+        # needs no row of its own: it is derived from these same fields, so it cannot diverge
+        # independently of them.
+        #
+        # An OMITTED field is not a disagreement. `_EVIDENCE_FIELDS` includes the optional
+        # `baseline_identity`, which the module documents an auditor under the Step 3.6
+        # information diet as unable to supply — so comparing a field absent from BOTH sides,
+        # or newly absent on a replay that simply did not pass the flag, would refuse a probe
+        # that observed nothing different and then tell the operator to invent a second
+        # finding id, injecting a phantom finding into the ledger and into
+        # `evidence_conflicts`' grouping.
+        changed = [f for f in _EVIDENCE_FIELDS
+                   # An OMITTED optional field is not a claim, so it cannot contradict one.
+                   # Required fields keep comparing when absent — dropping one on a re-record
+                   # loses the first probe's data, which is what this guard exists to stop.
+                   if not (f in _EVIDENCE_OPTIONAL and f not in entry)
+                   and (_observed_divergent(prior.get(f), entry.get(f)) if f == 'observed'
+                        else prior.get(f) != entry.get(f))]
+        # An exempted optional field is CARRIED FORWARD, never dropped. Skipping the
+        # comparison is only half the rule: the write below replaces the whole entry, so a
+        # replay that merely omitted the flag would delete the identity the first probe
+        # recorded — at exit 0, with no breadcrumb. That is the same first-probe data loss
+        # this guard exists to stop, arriving through the exemption instead of past it.
+        #
+        # Accepted consequence, named rather than left to be discovered: an optional value is
+        # therefore WRITE-ONCE for the life of the key. Omitting the flag restores it and
+        # supplying a different one is refused, so a probe that must RETRACT a wrong optional
+        # value cannot do it through a replay — the decided recovery is to re-init the run,
+        # never to file a phantom finding id. Reversing this would need an explicit clearing
+        # flag; a bare omission must never mean "clear", which is the Critical this closes.
+        for _opt in _EVIDENCE_OPTIONAL:
+            if _opt not in entry and _opt in prior:
+                entry[_opt] = prior[_opt]
+        if changed:
+            # Name every cause that applies, and ONLY what was actually established. Three
+            # ways to get this wrong, all of them observed in this PR's own review rounds:
+            # attaching the truncation clause to a locator-only divergence sends the reader
+            # to a cap that was never hit; dropping the field list when truncation co-occurs
+            # hides the real disagreement; and listing a truncation-only `observed` under
+            # "differs" asserts a difference the comparison explicitly could NOT see —
+            # `_observed_divergent` refused because unknown is never agreement, which is not
+            # the same claim as "these differ". So `observed` is named as a difference only
+            # when it genuinely differed, and the truncation is stated as its own clause.
+            truncated_only = ('observed' in changed
+                              and prior.get('observed') == entry.get('observed'))
+            differing = [f for f in changed if not (f == 'observed' and truncated_only)]
+            clauses = []
+            if differing:
+                clauses.append(f'differs in {",".join(differing)}')
+            if truncated_only:
+                clauses.append('could not establish `observed` equality (both observations '
+                               'are truncated)')
+            _fail(prefix, f'evidence-overwrite-differs: {key} already carries evidence that '
+                          f'{" and ".join(clauses)}; record the second probe under its own '
+                          f'finding id so the disagreement is surfaced, never overwritten')
+    store[key] = entry
+    _save_or_fail(prefix, doc, args.slug)
+    print(f'finding={key} completeness={completeness} '
+          f'missing={",".join(missing) if missing else "none"}')
+
+
+def cmd_query_finding_evidence(args):
+    """Read back per-finding evidence under the channel's own bounded encoding.
+
+    Every stored field is JSON-encoded before printing, so an embedded newline in auditor
+    text renders as escaped bytes on the finding's own line and cannot forge a LINE of this
+    surface. That is this channel's answer to the hazard the ledger transport answers by
+    refusal.
+
+    The scope of the field half is narrower and stated exactly, because JSON quoting escapes
+    newlines and quotes but NOT `=` or spaces. The three DECISION fields — `finding=`,
+    `completeness=`, `conflict=` — are unforgeable structurally: each is emitted ahead of
+    every auditor-controlled value and drawn from a closed domain (an `<int>:<int>` key, the
+    two `evidence_completeness` literals, and keys of that same domain). The trailing
+    `_EVIDENCE_FIELDS` values are QUOTED rather than delimited, so auditor text may contain a
+    `<field>=`-shaped word INSIDE its quotes: read this line by its JSON quoting, never by
+    splitting on whitespace and taking the first `<field>=` hit. The decision-fields-first
+    ordering is load-bearing, not cosmetic — a field appended after the evidence values would
+    end it — and is pinned by the `#704-25` row.
+    """
+    state = _query_state(args.slug)
+    if state is not None and state['nonce'] != args.nonce:
+        print('evidence=none reason=foreign-nonce')
+        return
+    if state is None:
+        print('evidence=none reason=state-unestablished')
+        return
+    store = state.get('finding_evidence') or {}
+    want = str(args.round)
+    round_scoped = {k: v for k, v in store.items() if k.split(':', 1)[0] == want}
+    # Computed over the WHOLE round before any narrowing: a conflict is a relation between two
+    # findings, so deriving it from a single-finding subset would report `conflict=none` by
+    # construction — and that is the exact signal the proportionate-adjudication policy reads
+    # to license a cheap replay.
+    conflicts = evidence_conflicts(round_scoped)
+    scoped = round_scoped if args.finding_id is None else {
+        k: v for k, v in round_scoped.items() if k.split(':', 1)[1] == str(args.finding_id)}
+    if not scoped:
+        print('evidence=none')
+        return
+    for key in sorted(scoped, key=lambda k: int(k.split(':', 1)[1])):
+        e = scoped[key]
+        others = [k.split(':', 1)[1] for k in conflicts.get(key) or []]
+        fields = ' '.join(f'{f}={json.dumps(e.get(f, ""))}' for f in _EVIDENCE_FIELDS)
+        print(f'finding={key} completeness={e.get("completeness", "incomplete")} '
+              f'conflict={",".join(others) if others else "none"} {fields}')
+
+
+def _nonneg_int(text):
+    """argparse type: a non-negative integer.
+
+    The evidence key is `<round>:<finding-id>` and the read boundary requires `[0-9]+:[0-9]+`,
+    so a negative value would persist a document that fails to load on every later subcommand
+    — a run-wide lockout from one mistyped flag, in a component whose contract is that it
+    never blocks issue creation. Constrain it at the boundary instead.
+    """
+    value = int(text)
+    if value < 0:
+        raise argparse.ArgumentTypeError(f'must be a non-negative integer, got {text!r}')
+    return value
+
+
 def cmd_emit_body(args):
     """Gated body emitter. Non-zero + EMPTY stdout when eligibility does not ground it."""
     try:
@@ -3464,13 +5346,21 @@ def cmd_query_triggers(args):
     state = _query_state(args.slug)
     if state is not None and state['nonce'] != args.nonce:
         # Fail closed like the sibling queries, but NAME the cause: the state file is
-        # valid, the caller is foreign — 'state-unestablished' would misattribute.
-        print('t1=not-hold t2=hold reason=foreign-nonce')
+        # valid, the caller is foreign — 'state-unestablished' would misattribute. The
+        # coverage field stays present (not-hold) so the line shape is identical on every
+        # arm and the orchestrator's hand-parse never sees a field appear/disappear.
+        print('t1=not-hold t2=hold coverage=not-hold reason=foreign-nonce')
         return
     t = evaluate_triggers(state)
     reason = t['reason'] or ''
+    # issue #708: the unbacked-coverage offer trigger is a sibling of T1/T2 on the SAME
+    # boundary offer, so it is produced by the SAME evaluation rather than a second call
+    # concatenated in the printer (the one-producer discipline #603 established for the
+    # summary fields). `coverage=` renders BEFORE `reason=` so `reason` stays the trailing
+    # field the orchestrator's parse already anchors on.
     print(f't1={"hold" if t["t1"] else "not-hold"} '
-          f't2={"hold" if t["t2"] else "not-hold"} reason={reason}')
+          f't2={"hold" if t["t2"] else "not-hold"} '
+          f'coverage={"hold" if t["coverage"] else "not-hold"} reason={reason}')
 
 
 def _unledgered_revise(state):
@@ -3540,8 +5430,9 @@ def cmd_query_findings(args):
 
     `summary=` is the FINAL field on every line because it is the one field whose value
     may contain spaces; the AC1 vocabulary refusal is what keeps that unambiguous, since
-    no summary can carry a `<field>=` word of the tool's own printed surface. This is the
-    tool's one multi-line query.
+    no summary can carry a `<field>=` word of the tool's own printed surface. This is one of
+    the tool's multi-line read-back queries, alongside the issue-#704
+    `query-claim-baselines` and `query-finding-evidence`.
 
     INVARIANT for any future field: `summary=` must REMAIN trailing. A field appended
     after it would end the unambiguous split — the reader could no longer tell a space
@@ -3661,7 +5552,17 @@ def cmd_query_summary(args):
           f'adjudicated_verdict={adj_v} must_revise={mr} advisory={adv} invalid={inv} '
           f'unresolved_must_revise={umr} effective_unresolved={eff} '
           f'convergence_basis={f["convergence_basis"]} '
+          # issue #708: the coverage-backing and render tokens — space-free, before
+          # bound_root, so attestation stays the trailing anchored field.
+          f'coverage_backing={f["coverage_backing"]} '
+          f'coverage_render={f["coverage_render"]} '
+          f'coverage_reason={f["coverage_reason"]} '
           f'bound_root={f["bound_root"] or "none"} bound_tier={f["bound_tier"] or "none"} '
+          # issue #709: both steering tokens render HERE, before `attestation` — that
+          # field is the contractually-trailing one (`attestation=…$`), so nothing may
+          # follow it.
+          f'steering={f["steering"]} '
+          f'steering_reason={f["steering_reason"] or "none"} '
           f'attestation={f["attestation"] or "none"}')
 
 
@@ -3715,6 +5616,20 @@ def main():
                    'embed and inline arms.')
     s.add_argument('--draft-file', help='Required on the file arm; bytes on stdin '
                                         'otherwise.')
+    s.add_argument('--instructions-file', help='File arm only (issue #709): the absolute '
+                   'path of the canonical dispatch-instruction file the orchestrator '
+                   'wrote from `render-audit-prompt.py dispatch-instructions`. Recording '
+                   'it (with --instructions-draft-path) is what makes steering-absence '
+                   'establishable for this round; omitting it leaves the round '
+                   'unestablished, never established-clean.')
+    s.add_argument('--instructions-draft-path', help='Required with --instructions-file: '
+                   'the exact absolute --draft-path value the generator was invoked with. '
+                   'It is a CLOSED regeneration input — record-return re-runs the '
+                   'generator over it (reading the draft title from that file) to '
+                   'reproduce the canonical bytes.')
+    s.add_argument('--instructions-template', help='Optional closed regeneration input: '
+                   'an absolute --template-file override the generator was invoked with. '
+                   'Omit to record the generator default.')
     s.add_argument('--marker', choices=_EMBED_MARKER_TOKENS,
                    help='The embed-arm entry marker, when entering the embed arm.')
     s.set_defaults(func=cmd_record_dispatch)
@@ -3732,6 +5647,17 @@ def main():
                                                 '(file arm).')
     s.add_argument('--carriage-sentinel-open')
     s.add_argument('--carriage-sentinel-close')
+    s.add_argument('--instructions-object-id', help='Issue #709: the object ID the '
+                   'auditor quoted for the canonical dispatch-instruction FILE it read. '
+                   'Compared against the freshly-regenerated canonical digest. An absent '
+                   'value is treated exactly like a mismatched one (fail closed).')
+    s.add_argument('--extra-dispatch-content', choices=('yes', 'no'),
+                   help='Issue #709: the auditor\'s best-effort report of whether its '
+                        'dispatch message carried anything beyond the generated pointer. '
+                        'Omitted reads as unreported, which does NOT establish '
+                        'steering-absence. Its silence is not a proof — a positive report '
+                        'withholds the clean ground, but a `no` only narrows the '
+                        'un-hashable pointer channel, it does not prove it clean.')
     s.set_defaults(func=cmd_record_return)
 
     s = sub.add_parser('record-adjudication',
@@ -3761,6 +5687,33 @@ def main():
                         'performs a bare stdin read. A FILE verdict and a REVISE + '
                         "'unestablished' adjudication take no flag and record no ledger.")
     s.set_defaults(func=cmd_record_adjudication)
+
+    s = sub.add_parser('record-coverage',
+                       help="Record a completed round's per-dimension coverage outcomes "
+                            '(issue #708).')
+    s.add_argument('slug')
+    s.add_argument('--nonce', required=True)
+    s.add_argument('--round', type=int, required=True)
+    s.add_argument('--render', choices=_COVERAGE_RENDERS, required=True,
+                   help="'full' when the auditor rendered every dimension on the "
+                        "orchestrator's authoritative enumeration; 'degraded' when a render "
+                        'divergence narrowed the auditor set (un-rendered dimensions record '
+                        'unestablished; a degraded render discloses but never fires the '
+                        'coverage offer).')
+    s.add_argument('--expected-keys', required=True,
+                   help="The AUTHORITATIVE enumerated dimension keys, comma-separated, as "
+                        "printed by `render-audit-prompt.py enumerate-dimensions` (issue "
+                        "#708). Coverage must be TOTAL over this set: an enumerated key "
+                        "the auditor returned no line for is synthesized as unestablished "
+                        "(unknown is not zero), and a returned key outside the set is "
+                        "refused. Without it a truncated return would derive `backed` "
+                        "vacuously — `all()` over a short list is trivially true.")
+    s.add_argument('--coverage-stdin', action='store_true', required=True,
+                   help='Read one line per required dimension on stdin: '
+                        '"<key> <outcome> [anchor]", outcome in '
+                        + repr(_COVERAGE_OUTCOMES) + '. An exercised/valid-N/A anchor '
+                        'failing the text-only floor is downgraded to unestablished.')
+    s.set_defaults(func=cmd_record_coverage)
 
     s = sub.add_parser('record-revision', help='Record that the draft was revised.')
     s.add_argument('slug')
@@ -3885,6 +5838,87 @@ def main():
                    help='The fetch failed; report unavailable, never a pass.')
     s.set_defaults(func=cmd_record_creation_attestation)
 
+    s = sub.add_parser(
+        'record-claim-baseline',
+        help='Record a load-bearing claim\'s repository baseline: the captured revision plus '
+             'a per-class measured-content identity. A location claim is identified by a '
+             'digest of its --path content; a count or inventory claim by a digest of the '
+             're-executed full-domain search result piped with --domain-stdin. Any '
+             'unresolvable measurement records the identity as `unestablished`, which the '
+             'staleness check reads as possibly stale, never as fresh.')
+    s.add_argument('slug')
+    s.add_argument('--nonce', required=True)
+    s.add_argument('--claim-key', required=True)
+    s.add_argument('--claim-class', required=True, choices=list(_CLAIM_CLASSES))
+    s.add_argument('--path', action='append', default=[],
+                   help='A measured path (location class only; repeatable).')
+    s.add_argument('--domain-stdin', action='store_true',
+                   help='Read the re-executed full-domain search result from stdin '
+                        '(count/inventory classes only).')
+    s.set_defaults(func=cmd_record_claim_baseline)
+
+    s = sub.add_parser(
+        'check-claim-staleness',
+        help='Deterministically compare recorded claim baselines against freshly-recomputed '
+             'identities. Prints `state=fresh|stale|possibly-stale` per claim. Reads no '
+             'repository history, so a shallow clone resolves a normal answer. An absent or '
+             'unestablished baseline reads possibly-stale — unknown is never fresh.')
+    s.add_argument('slug')
+    s.add_argument('--nonce', required=True)
+    s.add_argument('--claim-key', help='Check one claim (required to recompute a '
+                                       'count/inventory domain).')
+    s.add_argument('--domain-stdin', action='store_true',
+                   help='Read the re-executed full-domain search result from stdin.')
+    s.set_defaults(func=cmd_check_claim_staleness)
+
+    s = sub.add_parser('query-claim-baselines',
+                       help='Read back every recorded claim baseline.')
+    s.add_argument('slug')
+    s.add_argument('--nonce', required=True)
+    s.set_defaults(func=cmd_query_claim_baselines)
+
+    s = sub.add_parser(
+        'record-finding-evidence',
+        help='Record one finding\'s reproducible evidence (locator, command, observed '
+             'output, captured baseline) on the dedicated per-finding channel keyed by '
+             'finding id — never the one-line `record-adjudication --ledger-stdin` summary '
+             'transport, which refuses newlines and `<field>=` tokens. The text is stored '
+             'verbatim as DATA and is never executed; a missing required field records the '
+             'item `incomplete`, never verified.')
+    s.add_argument('slug')
+    s.add_argument('--nonce', required=True)
+    s.add_argument('--round', type=_nonneg_int, required=True)
+    s.add_argument('--finding-id', type=_nonneg_int, required=True)
+    s.add_argument('--locator')
+    s.add_argument('--command')
+    s.add_argument('--baseline-revision')
+    s.add_argument('--baseline-identity',
+                   help='The content identity the auditor captured, recorded verbatim as '
+                        'DATA. It is deliberately NOT cross-checked against any recorded '
+                        'claim baseline: the auditor cannot read the state file, so an '
+                        'identity it supplies is a claim to verify, not a key to join on.')
+    s.add_argument('--observed-stdin', action='store_true',
+                   help='Read the observed output from stdin (multi-line is legal here).')
+    s.set_defaults(func=cmd_record_finding_evidence)
+
+    s = sub.add_parser(
+        'query-finding-evidence',
+        help='Read back per-finding evidence. Every field is JSON-encoded at the print '
+             'boundary, so record-splitting auditor text cannot forge a line, and the '
+             'decision fields (finding=, completeness=, conflict=) cannot be forged because '
+             'they precede every auditor-controlled value and come from closed domains. The '
+             'trailing evidence values are quoted rather than delimited, so parse this line '
+             'by its JSON quoting, never by splitting on whitespace. Two items citing one '
+             'locator AND running the same command, with differing '
+             'observed output, are surfaced as `conflict=<ids>`, never auto-resolved; '
+             'conflicts are derived over the whole round, so narrowing with --finding-id '
+             'still reports a conflicting sibling.')
+    s.add_argument('slug')
+    s.add_argument('--nonce', required=True)
+    s.add_argument('--round', type=_nonneg_int, required=True)
+    s.add_argument('--finding-id', type=_nonneg_int)
+    s.set_defaults(func=cmd_query_finding_evidence)
+
     s = sub.add_parser('emit-body', help='Emit the audited body bytes; refuses with '
                                          'empty stdout when not eligible.')
     s.add_argument('slug')
@@ -3926,6 +5960,13 @@ def main():
     s.add_argument('slug')
     s.add_argument('--nonce', required=True)
     s.set_defaults(func=cmd_query_findings)
+
+    s = sub.add_parser('query-coverage',
+                       help="The run's coverage-backing, derived from the final accepted "
+                            'clean round (#708); the durable coverage read-back.')
+    s.add_argument('slug')
+    s.add_argument('--nonce', required=True)
+    s.set_defaults(func=cmd_query_coverage)
 
     s = sub.add_parser('query-eligibility', help='Presentation eligibility in approve or '
                                                  'iterate mode.')

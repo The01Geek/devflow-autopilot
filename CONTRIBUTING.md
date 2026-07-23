@@ -49,7 +49,30 @@ in isolation while iterating on their area:
 ```bash
 bash lib/test/run-module.sh create-issue-contract
 bash lib/test/run-module.sh installer-wiring
+bash lib/test/run-module.sh harness-python-guards
 ```
+
+`scripts/workflow-flight-recorder-registry.json`'s `test_modules` block is the
+authoritative list of module IDs — read it there rather than from this sample.
+
+**Focused verification is the iteration default (issue #707).** While iterating,
+run the module that covers the surface you changed rather than the complete
+suite; reach for `bash lib/test/run.sh` mid-iteration only when no registered
+module covers that surface. Selection stays explicit — consult
+`lib/test/modules/coverage-map.json` to find a candidate and confirm the ID in
+the registry; changed files never auto-route to a module. The complete suite
+remains the final gate and is not weakened, only overlapped: before calling a
+branch done or PR-ready, push (which starts CI) and start the complete suite
+plus the lint gates locally at the same time, without waiting for the local run
+to finish first. The push is not gated on that run, but calling the branch done
+is: read the local run's summary before you claim it. The local run stays the
+signal you troubleshoot from, because
+its failure detail is richer than CI's, and the issue-#456 skip accounting is
+unchanged — a nonempty skip tally is not clean, and a module may not self-skip,
+so focused iteration cannot launder a skip. The operative statement of this
+policy for agent runs lives in the prompt extensions under
+`.devflow/prompt-extensions/`; the cloud `/devflow:implement` in-env gate
+(issue #405) is untouched by it.
 
 Each module is also executed by the full suite through the fail-closed
 `devflow_run_full_suite_module` boundary, and shares the namespaced pin helpers in
@@ -61,6 +84,22 @@ defining its own), and it clears an inherited `DEVFLOW_GH` before sourcing a mod
 so a focused run gets the same fixture isolation as the full suite.
 A per-module inventory (e.g. `lib/test/modules/create-issue-contract.inventory.md`)
 records what it covers.
+
+**A module fixture is built from git-tracked content only (issue #714).** A module that
+needs a repository image must reproduce it from the index (`git ls-files -s -z`), file by
+file, with each file's mode taken from the index rather than from the working tree — never
+by `cp -R`-ing a whole top-level directory. A tracked file inside an otherwise-untracked
+directory makes the directory form copy that directory wholesale: because
+`.claude/settings.json` is tracked, `regenerate-artifacts` used to copy the entire
+untracked `.claude/` tree into every fixture, so a checkout carrying `git worktree`
+checkouts under `.claude/worktrees/` paid that whole payload on every fixture copy — the
+dominant cost of a full local suite run. Build caches and `.devflow/tmp` are excluded by
+construction under the tracked-only rule, so a fixture builder needs no prune step —
+while *tracked* content under an otherwise-ignored directory (`.devflow/config.json` and
+the rest of `.devflow/`, force-added past the ignore rule) is still reproduced, which is
+exactly what completeness requires. The
+measured before/after figures are recorded once, in
+[`lib/test/modules/regenerate-artifacts.inventory.md`](lib/test/modules/regenerate-artifacts.inventory.md).
 
 #### Coverage-map block ownership (every PR that adds an assertion)
 
@@ -113,6 +152,23 @@ reviewable artifact as the existing `# raw-guard-ok:` convention. `lib/test/run.
 you declare the classification at authoring time. The gate is diff-scoped (only pins the
 change adds), so the existing corpus needs no backfill, and a pin merely *moved* between
 files is exempt.
+
+**Declaring a repository-tree walk (issue #711).** `# tree-walk-ok: <reason>` is the third
+member of the same declaration-marker family, in the same one-line-reason framing as
+`# structural-pin-ok:` and `# raw-guard-ok:`. A tracked `.py` or `.sh` file under `lib/test/`
+that enumerates with a recursive walk — `rglob(`, `os.walk(`, `iglob(`, a `recursive=True`
+call, a `glob(` whose pattern carries a `**` component or is not a string literal (these two
+are judged by a Python parse, so they apply to `.py` files only), or a shell `find` / `grep -r`
+rooted at the repository root — must carry that marker on the walk's line, or source its
+population from an index-reading `git ls-files` instead. **The walk's own line is always the
+safe placement.** Span acceptance — the marker anywhere within a statement — applies only to a
+multi-line `glob(`-family call judged by the Python parse and to a `\`-continued shell
+statement; the four literal tokens (`rglob(`, `os.walk(`, `iglob(`, `recursive=True`) are judged
+line by line, so a wrapped one must carry its marker on the token's own line. The reason exists
+because a root-anchored walk descends into every sibling worktree under `.claude/worktrees/`
+and reports a count that has nothing to do with the repository's state. `lib/test/lint-tree-enumeration.py`
+turns the suite RED for an undeclared walk; it never judges what a reason claims, so a marked
+walk still ships — it ships visibly.
 
 ### Regenerating suite-owned artifacts
 
@@ -185,7 +241,10 @@ selectable module, complete all of the following in the same PR:
    the call-site literal are one coupled contract, cross-checked for every module
    by `lib/test/test_module_runner.py`.
 4. **Per-module inventory** — add `lib/test/modules/<module-id>.inventory.md`
-   recording the module's provenance (source baseline + coverage groups).
+   recording the module's provenance (source baseline + coverage groups). When
+   the extraction deliberately leaves sibling candidates in `lib/test/run.sh`,
+   record each one and the reason it stayed, so the residue is a stated decision
+   rather than an omission (`harness-python-guards.inventory.md` is the model).
 5. **CI shellcheck list** — add the module's `.sh` path to the explicit
    shellcheck file list in `.github/workflows/ci.yml` (module files are not
    globbed there).
@@ -211,6 +270,16 @@ selectable module, complete all of the following in the same PR:
    monolith helper). Comply **by reference** to that header — do not restate its
    cleanup/trap terms here, so this checklist cannot go stale as the contract
    evolves.
+8. **Focused-runner smoke test** — add a `runs_green_through_the_real_runner` test
+   for the module to `lib/test/test_module_runner.py`, matching the shape the
+   existing module tests use: invoke `lib/test/run-module.sh <module-id>`, read the
+   module's `minimum_assertions` floor from
+   `scripts/workflow-flight-recorder-registry.json`, and assert the emitted summary
+   line equals `Module <module-id>: {floor} passed, 0 failed` (read the floor from
+   the registry, never a second hard-coded copy). This drives the module through its
+   *own* runner — the assertion issue #695 exists to make — so the convention that
+   the existing modules already follow stops being convention by accident (issue
+   #719).
 
 The suite reports passed, failed, and *skipped* tallies (issue
 #456) — so `0 failed` is never mistaken for "everything ran." A check can
@@ -307,7 +376,11 @@ resolve the portable `${CLAUDE_SKILL_DIR:-…}` anchor at runtime.
 
 ## Submitting changes
 
-1. Branch, make focused changes, run `bash lib/test/run.sh`.
+1. Branch and make focused changes, iterating on the module that covers the
+   surface you touched (see *Running the tests*). Before opening the PR, push
+   and start `bash lib/test/run.sh` locally at the same time — the two run in
+   parallel, and the local run is the one you troubleshoot from. The push does
+   not wait for it; marking the PR ready does — read its summary first.
 2. Open a PR with a clear description. If your change reaches consumers (the engine surface —
    `skills/`, `agents/`, `lib/`, `scripts/`, the workflows, the config schema), add a
    **changeset** instead of editing `CHANGELOG.md` or `.claude-plugin/plugin.json`: create a

@@ -4,6 +4,248 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.21.4] — 2026-07-23
+
+### Changed
+### Changed
+
+- `/devflow:create-issue` Step 3.6 audit dimensions are now first-class keyed data
+  rather than a scrape of rendered prose (PR #732, issue #729). Each generic
+  dimension in `skills/create-issue/references/audit-prompt-template.md` declares
+  its stable key on a `<!-- dim-key: <lowercase-kebab> -->` line above its
+  checklist bullet; `scripts/render-audit-prompt.py`'s `enumerate-dimensions`
+  emits that declared key as `g:<declared-key>` and every rendering path strips
+  the marker, so the human-facing checklist and the machine enumeration are two
+  projections of one declaration. Rewording a dimension therefore leaves its key
+  byte-identical, where previously it silently rekeyed a dimension that
+  `scripts/issue-audit-state.py` had already recorded durably. Consumer
+  `## Audit dimensions` bullets are keyed from their own optional declaration,
+  else their bold-lead name slug, else a hash of their text — retiring the
+  positional `c:<n>` keys that reshuffled whenever a consumer inserted a bullet
+  mid-section.
+
+### Fixed
+
+- The renderer now fails closed (rc≠0, empty stdout, a stderr breadcrumb naming
+  the specific shape) on a bullet carrying no key declaration, a declaration
+  binding no bullet, a declaration separated from its bullet by a non-blank line,
+  a key that is not lowercase kebab-case, and a duplicate key. Previously a
+  colliding or reworded dimension could silently coalesce or rekey the enumeration
+  that per-dimension coverage totality is checked against.
+- **Both projections enforce those arms, and both arms are enforced symmetrically.**
+  Validation runs on the render path as well as `enumerate-dimensions`, so a
+  template or consumer defect can no longer render a full audit prompt while the
+  orchestrator's operand call dies; and the consumer `## Audit dimensions` section
+  is held to the same arms as this repo's own template **for the declarations it does
+  carry**, with the breadcrumb naming the consumer extension rather than the template so
+  an operator debugs the file actually at fault. An absent declaration remains legal (it
+  selects the content-derived fallback), and a collision between two *derived* keys
+  degrades on the render path rather than denying the auditor the prompt over a slug
+  coincidence in a third-party file. Consumer declarations were previously discarded in silence,
+  which left a consumer believing they had pinned a durable key while the
+  enumeration quietly used the reword-unstable fallback instead.
+- `.devflow/prompt-extensions/create-issue.md`'s own nine audit dimensions now
+  carry explicit declarations, so this repo's consumer keys stop tracking bold
+  leads that embed issue numbers.
+
+Coverage recorded under the previous derivation needs no migration: the state
+owner treats coverage keys as opaque strings and checks a round's totality
+against the `coverage_expected` keyset persisted in that round, never against a
+fresh enumeration.
+
+## [2.21.3] — 2026-07-23
+
+### Changed
+Run the test suite's focused Python suites through a bounded concurrent pool.
+
+`test_module_runner.py`, `test_prompt_mass_census.py`, and `test_python_scripts.py`
+now execute concurrently in a `min(os.cpu_count() or 1, 4)`-wide pool
+(`devflow_pool_open`/`devflow_pool_join` in `lib/test/module-harness.sh`), overlapping
+the long pole with the last module boundary and the shell tail. The full-suite signal
+handler is generalized from a single scalar child slot to a run-wide live-child
+registry so one delivered signal terminates every in-flight child. Measured on an
+18-core host, the full suite drops from ~649s to ~572s (~12%). No behavior change for
+consumers — this is test-infrastructure only (PR #733, issue #720).
+
+## [2.21.2] — 2026-07-23
+
+### Fixed
+- **Armed the inert guards and mechanized the unenforced verification policy shipped by #707.**
+  The retired-convention sweep's `Before a commit, phase completion, push, or` arm was re-spanned
+  to a literal that actually exists on a single baseline line, and its self-referential planting
+  control was replaced by a
+  baseline-corpus control that validates every literal against the pre-#707 baseline blobs read
+  through `git show` (with a planted-defect positive control and five fail-closed arms — four
+  degraded corpus-build inputs plus a member carrying no parallel baseline ref). The `harness-python-guards` focused module is now driven through its own runner by a
+  `runs_green_through_the_real_runner` test, and `CONTRIBUTING.md`'s module-authoring checklist
+  requires that test going forward. The parallelized final gate now produces an inspectable
+  artifact: the local/interactive tier captures its full-suite launch to a named file and records
+  a `Verification evidence:` marker in the workpad, so a refused launch is observable rather than
+  invisible (runtime enforcement deferred to #730). The undefined `or path` disjunct was deleted
+  from every operative policy surface, and the `#528`/`#556`/`#668` guards and their comments were
+  corrected. (#719)
+
+## [2.21.1] — 2026-07-23
+
+### Changed
+### Added
+
+- `/devflow:create-issue`'s Step 3.6 fresh-context audit now dispatches **canonically-generated, hash-verified instructions** instead of a freehand orchestrator preamble (issue #709, PR #718). `scripts/render-audit-prompt.py` gains a deterministic `dispatch-instructions` mode that renders the whole authorized instruction set — the draft title (read from the draft file, never a command-line argument), the draft path, the renderer invocation, the template path, the positional-marker rule, the fallback ladder, the out-of-bounds declaration, and the return contract — from new `di` blocks in the committed template. The run writes those bytes to `.devflow/tmp/issue-audit-dispatch-<slug>.md` and dispatches a generated pointer to that file and the draft file and nothing else — the pointer line is itself emitted by the render, so it is generated rather than authored, and it doubles as the reference form the auditor compares its received dispatch message against.
+
+### Changed
+
+- `scripts/issue-audit-state.py` (state schema 2 → 3) records the round's closed regeneration inputs at dispatch and, at return, **regenerates** the canonical instructions from them and compares the digest against the object ID the auditor quotes for the instruction file it read — regenerating rather than re-reading its own write-time digest is what catches a hand-written steered file that bypassed the generator. The coverage-backed clean (`VERDICT: FILE`) eligibility ground now additionally requires that match plus the auditor's `extra-dispatch-content: no` affirmation; `query-summary` reports the outcome as the new `steering` / `steering_reason` tokens, rendered before the contractually-trailing `attestation` field, and `query-triggers` gains an arm so even a zero-finding clean round with an unestablished state is offered one unsteered re-dispatch.
+- `record-dispatch` regenerates the instruction bytes from the inputs it is about to record and stores what it observed as `dispatch_regeneration` (`verified`/`diverged`/`unverified`), so a divergence is surfaced at the site that can still fix it instead of surfacing later as a steering accusation against the auditor. It **records rather than refuses**: the three reachable causes — a mangled write, a differently-spelled recorded path, or a file edited after generation — are indistinguishable to the tool, so refusing would risk telling a steering orchestrator to overwrite the only evidence of its edit, and would block a round on a legitimate host. Filing is never blocked, and the return-time regeneration still owns the verdict.
+- Every absence fails closed with its own reason token — an absent quoted ID, an absent affirmation, unrecorded dispatch inputs, or a failed regeneration are each unestablished, never established-clean by omission. **Filing is never blocked on any arm**: where the property is unestablished — including the embed, inline and read-only-sandbox arms, which by construction have no writable instruction file to hash — the audit-summary line carries an `audit independence unestablished` marker and the user's explicit approval still files the issue through the documented override election.
+- The guarantee is scoped honestly: the file hash proves the instruction *content* was canonical, while the un-hashable Agent-tool prompt string is covered only by canonical generation plus the auditor's best-effort affirmation. That channel is **narrowed, not closed**, and no surface describes a clean audit as provably steering-free.
+
+## [2.21.0] — 2026-07-23
+
+### Changed
+Require positive per-dimension coverage evidence in the create-issue Step 3.6
+fresh-context audit (issue #708). `render-audit-prompt.py` gains an
+`enumerate-dimensions` mode that emits a canonical, keyed, count-stable list of
+every required audit dimension (generic-floor `g:<slug>` entries plus consumer
+`c:<n>` entries), so the orchestrator holds an authoritative operand to join the
+auditor's per-dimension coverage outcomes to and to run the byte-identity floor
+against.
+
+`scripts/issue-audit-state.py` gains the coverage half of that contract:
+`record-coverage` persists a round's per-dimension outcomes and enforces
+**totality** against an orchestrator-supplied `--expected-keys` keyset — refusing
+an unenumerated key, synthesizing every missing enumerated key as
+`unestablished`, and persisting the supplied keyset so the claim stays auditable.
+`query-coverage` reports the recorded outcomes with reason discriminators
+distinguishing the ways coverage can fail to hold. The boundary trigger gains a
+`coverage=` field and the summary line a `coverage_reason=` field, so a run that
+is not coverage-backed says why. `coverage=hold` joins the single existing
+boundary offer rather than adding a second pause.
+
+`coverage-backed` means evidence of the required shape was present and survived
+the text-only anchor floor and the orchestrator's adjudication — never certified
+scrutiny.
+
+The read-boundary totality re-check now rejects a non-truthy (empty-list)
+`coverage_expected`, which `all([])` would otherwise vacuously satisfy — closing
+a direct-state-file-corruption fail-open that could have read a truncated round
+as `backed`.
+
+## [2.20.14] — 2026-07-22
+
+### Added
+- **Gate receiving-review completion claims on a producer-owned completion-evidence check.** A new
+  thin, deterministic validator (`scripts/check-completion-evidence.py`, python3 stdlib-only,
+  repo-agnostic) validates a receiving-code-review completion claim against current, producer-owned
+  evidence — the durable verification record, the candidate-identity and findings anchors, the
+  disposition ledger, and deferral traces — and prints exactly one `completion-check: <token> — <detail>`
+  verdict line (one of eight tokens: `pass`, `missing-evidence`, `stale-candidate`,
+  `verification-not-pass`, `skipped-checks-present`, `undischarged-findings`, `non-durable-deferral`,
+  `unverifiable-trace`). The `receiving-code-review` Verification Gate gains a fifth evidence item
+  that runs the check and quotes its verdict verbatim (phrasing "complete" only on a quoted `pass`,
+  and `degraded: unvalidated (<reason>)` when the check produces no verdict line); the
+  `review-and-fix` loop discharges the item at Loop Exit over its run-scoped records, refreshing the
+  verification record on an identity-keyed mismatch and carrying any non-pass token into its final
+  verdict line. The loop's run-scoped `deferrals.json` declares its durable channel once at manifest
+  level (`default_channel: "loop-record"`) and the check resolves a channel-less entry from that
+  declaration, so an ordinary loop run with surviving deferrals reports `pass` instead of a spurious
+  `non-durable-deferral`; a declaration outside the four durable channels is discarded, and a
+  per-entry `channel` still wins. (#550)
+
+## [2.20.13] — 2026-07-22
+
+### Changed
+### Added
+
+- `/devflow:create-issue` now records **repository-baseline provenance** for load-bearing
+  claims and **reproducible evidence** for audit findings, both owned by
+  `scripts/issue-audit-state.py` so they survive a context compaction.
+  - New subcommands `record-claim-baseline`, `check-claim-staleness`, and
+    `query-claim-baselines`. A claim records a captured revision plus a **per-class
+    measured-content identity** — a content digest of the measured paths for a
+    location-sensitive anchor, a digest of the re-executed **full-domain** search result for a
+    count or coupled-site inventory — so the staleness re-check localizes: an unrelated base
+    advance leaves a location anchor fresh, while an occurrence added outside the original hit
+    set marks a count stale. The comparison reads no repository history, so a shallow clone
+    resolves a normal baseline.
+  - New subcommands `record-finding-evidence` and `query-finding-evidence`, a **dedicated
+    per-finding evidence channel keyed by finding id** with its own bounded encoding —
+    deliberately not the one-line `record-adjudication --ledger-stdin` summary transport,
+    which refuses newlines and `<field>=` tokens by contract. Evidence text is stored as data
+    and JSON-encoded at the print boundary, so record-splitting auditor text cannot forge a
+    line, and the decision fields (`finding=`, `completeness=`, `conflict=`) cannot be forged
+    because they precede every auditor-controlled value and come from closed domains. The
+    trailing evidence values are quoted rather than delimited, so the line is read by its JSON
+    quoting, not by whitespace splitting. The text is never executed.
+  - The Step 3.6 auditor's per-finding bar now requires a locator, the exact command, its
+    observed output, and the baseline revision it was captured against; adjudication became
+    **proportionate in scope** — a low-risk finding with complete, non-conflicting evidence has
+    its conclusion re-derived from the locator by a bounded check rather than a fresh
+    whole-repository investigation, while high-risk, conflicting, and incomplete findings are
+    fully independently verified. Whether the conclusion is checked is unchanged.
+
+All new fields are additive under the unchanged `schema_version`, so an existing on-disk state
+file still loads; an absent baseline reads as possibly-stale, never as fresh. Every arm is
+best-effort and never blocks issue creation.
+
+## [2.20.12] — 2026-07-22
+
+### Changed
+### Fixed
+
+- The test suite's `only one committed prompt-mass baseline exists` check now counts baselines
+  from the git index (`git ls-files`) instead of walking the filesystem from the repository root.
+  The old walk descended into every sibling git worktree under `.claude/worktrees/` and counted
+  their copies, so the check failed on any working checkout that carried worktrees — with a
+  number that varied between runs on the same commit — while CI's fresh checkout stayed green.
+  Unknown is never collapsed onto zero: an unavailable `git` reports `git-unavailable` and an
+  empty-but-successful population reports `no-committed-baseline`, never a count of `0`.
+- `lib/test/lint-gh-api-repo-path.py` now carries its own `.claude/worktrees/` exclusion. Its
+  population is a working-tree enumeration, which was worktree-immune only through an untracked
+  `.git/info/exclude` line that no clone inherits, so on a bare clone it could report violations
+  living in another branch's checkout.
+
+### Added
+
+- `lib/test/lint-tree-enumeration.py`, a desk-time guard that turns the suite red when a tracked
+  `.py` or `.sh` file under `lib/test/` enumerates with a recursive walk carrying no
+  `# tree-walk-ok: <reason>` declaration. It does not bar a walk — it makes one a reviewable,
+  greppable declaration, joining `# raw-guard-ok:` and `# structural-pin-ok:` as the third member
+  of the repository's declaration-marker family. Its scanner reads a `#` as a comment only at a
+  word boundary (so a `${var#...}` parameter expansion no longer hides the rest of its line) and
+  accepts the declaration marker only from a line's comment (so marker text inside a string
+  literal cannot exempt a real walk); its shell arm tests every path operand rather than a
+  computed first one (so an option taking a separated value no longer hides the root operand), and
+  locates the command head through the shared `extract-command-heads.py` classification instead of
+  assuming leading position (so a walk behind `LC_ALL=C`, `xargs`, `timeout`, a redirection, `!`,
+  or an `if`/`while` condition is reached, as is one inside a `<(…)` process substitution). Each
+  was a fail-open the guard reported clean over, and each is retained as a suite fixture.
+
+## [2.20.11] — 2026-07-22
+
+### Added
+- **`/devflow:create-issue` canonical-draft writes are now durable.** A new bundled helper
+  `scripts/stage-draft-write.py` (stage/emit/apply modes) stages the intended title-and-body
+  bytes to a nonce-keyed artifact, replaces the canonical draft in one atomic `os.replace`, and
+  re-digests the result to prove the replace landed. A single shared *Staged canonical-draft
+  write* procedure, referenced from every write site, records a revision's `stdin_digest`,
+  records a `record-write-failure` on disagreement, and runs a cross-turn landed re-check — so
+  an interruption after the first staging write is recoverable and a partially-applied revision
+  wave is a detectable state instead of a silent divergence. `issue-audit-state.py record-revision`
+  now refuses a file-arm-latest-round revision that carries no `--stdin-digest`, so the
+  write-failure closure shipped in #562 is enforced by the tool and reachable from the skill for
+  the first time. (#705)
+
+## [2.20.10] — 2026-07-22
+
+### Changed
+### Added
+
+- Focused test module `harness-python-guards` (`lib/test/run-module.sh harness-python-guards`), carrying the monolith-only Python guard drivers whose subject is a single code unit and whose verification is self-contained — the `#600` create-issue audit-prompt renderer, the `#527` verification-launch baseline analyzer, the `#528` single-flight verification ledger, the `#668` reception-identity producer, and the `#591` coverage-map ratchet guard (its live-tree invocation and its unit test), plus a planted coverage-map drift as a positive control that the module goes RED when the coverage-map guard breaks. The blocks are moved out of `lib/test/run.sh`, not duplicated: the complete suite still runs them through the `devflow_run_full_suite_module` boundary.
+
+### Changed
+
+- Focused verification is now the iteration default in the `implement`, `review-and-fix`, and `receiving-code-review` prompt extensions: a focused pass covering the changed surface is sufficient for an intermediate commit or push, and a full `lib/test/run.sh` run mid-iteration happens only when no focused module or path covers the changed surface — an implement run that performs one records a `## Devflow Reflection` bullet saying why. The final gate is preserved and, on the local/interactive and reception/shepherd tiers, parallelized: the push that triggers CI and the local full-suite run start together, the push is not gated on the local run, and the local run remains the authoritative local signal. The cloud `/devflow:implement` in-env gate (issue #405) and the issue-#456 skip accounting are unchanged.
+
 ## [2.20.9] — 2026-07-22
 
 ### Changed
