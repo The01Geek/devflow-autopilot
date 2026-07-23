@@ -13,19 +13,30 @@ both place ``scripts/`` and ``skills/`` as siblings under one root).
 
 Contract (issue #600):
 
-- Stateless: reads no run state, writes no file, takes no stdin. The only reads
-  are the committed template file and — for consumer-dimension forwarding — the
-  consumer extension ``.devflow/prompt-extensions/create-issue.md``, resolved
+- Reads no run *state* and writes no file, and takes no stdin. The reads are the
+  committed template file; the consumer extension — for consumer-dimension
+  forwarding — ``.devflow/prompt-extensions/create-issue.md``, resolved
   from the git repo root per the #295 SHARED REPO-ROOT CONFIG CONTRACT (a native
-  ``git`` subprocess, cwd fallback; never a ``.sh`` exec — the #275 constraint).
+  ``git`` subprocess, cwd fallback; never a ``.sh`` exec — the #275 constraint);
+  and — in ``dispatch-instructions`` mode only (issue #709) — the run's canonical
+  draft file, read solely to lift its ``# `` title heading. Writing the rendered
+  dispatch instructions to disk is the ORCHESTRATOR's job, never this script's:
+  the no-write half of this contract is what keeps the module a pure function of
+  its inputs, which is in turn what lets ``issue-audit-state.py`` regenerate the
+  canonical bytes and compare digests.
 - Closed argument surface: closed-vocabulary mode/arm/hook tokens, a kebab-case
   slug, single-line absolute paths, and the machine-generated sentinel pair. No
-  free-text parameter reaches the rendered instruction block: every slot filled
-  from an argument (``<slug>``, ``{DRAFT_PATH}``, and the ``{SENTINEL_OPEN}`` /
+  free-text parameter reaches any rendered block: every slot filled
+  from an argument (``<slug>``, ``{DRAFT_PATH}``, ``{INSTRUCTIONS_PATH}``, and
+  the ``{SENTINEL_OPEN}`` /
   ``{SENTINEL_CLOSE}`` pair) is shape-checked at the parse boundary, and the
-  draft title never crosses a command line at all — it travels in the
-  orchestrator's dispatch preamble prose. (``{CONSUMER_DIMENSIONS}`` is the one
-  remaining slot; it is filled from committed consumer-extension file content,
+  draft title never crosses a command line at all — in ``dispatch-instructions``
+  mode it is read from the draft file this module was given the path to, and
+  substituted LAST (beside ``{CONSUMER_DIMENSIONS}``) so drafter text is never
+  re-scanned for slot tokens; the audit-prompt blocks
+  (``file``/``embed``/``inline``/``checklist``) never carry it at all.
+  (``{CONSUMER_DIMENSIONS}`` is the other file-content
+  slot; it is filled from committed consumer-extension file content,
   never from an argument, and is substituted LAST so it is never re-scanned.) The ``--template-file`` /
   ``--extension-file`` test overrides are read-paths that are never substituted
   into the block, and are deliberately left untyped so an explicit empty value
@@ -39,9 +50,26 @@ Contract (issue #600):
   it as a standalone call, while the Step 3.6 ``## Audit dimensions`` hook
   consumes the same extraction *rule* spliced into a dispatch arm as
   ``{CONSUMER_DIMENSIONS}``, not via a standalone ``extract`` call),
-  ``status-only`` (the orchestrator's fail-fast one-line probe), and
+  ``status-only`` (the orchestrator's fail-fast one-line probe),
   ``enumerate-dimensions`` (the issue #708 keyed dimension enumeration the
-  Step 3.6 coverage join reads as its authoritative operand).
+  Step 3.6 coverage join reads as its authoritative operand), and
+  ``dispatch-instructions`` (issue #709 — the canonical, file-arm-only
+  audit-DISPATCH instructions the auditor is pointed at and hashes).
+- Determinism (issue #709, load-bearing): ``dispatch-instructions`` is a pure
+  function of the template file, the draft file's title, and its shape-checked
+  path arguments. It carries no timestamp, nonce, or other run-varying token, so
+  ``issue-audit-state.py`` regenerating it from a round's recorded closed inputs
+  reproduces the dispatched bytes exactly — which is the whole comparand of the
+  steering-absence check. Two of the substituted slots (``{RENDERER_PATH}`` and
+  the default ``{TEMPLATE_PATH}``) are derived from THIS file's own resolved
+  location, so the reproduction is exact *within one installation* — the only
+  context a regeneration runs in, since the round's recorded inputs and the
+  instruction file it names are both local to that checkout. Never introduce a
+  varying token into the ``di`` blocks.
+  It deliberately does NOT splice ``{CONSUMER_DIMENSIONS}``: consumer audit
+  dimensions are renderer-owned *audit* instructions, out of that check's scope,
+  and reading the extension here would make the digest depend on a file the
+  dispatch does not carry.
 - Output contract: stdout's FIRST line is ``render-status:`` with a value from
   the closed set {appended, absent, unestablished}; stdout's LAST line is the
   fixed terminal marker ``render-end:`` on every full render, so a truncated
@@ -50,7 +78,12 @@ Contract (issue #600):
   only in checklist/extract mode — the dispatch arms follow it with the
   verdict/cap block). ``status-only`` prints
   exactly the one status line (it IS one line; no end marker).
-- Failure (unusable arguments, unreadable template file) exits non-zero with
+  ``dispatch-instructions`` has its OWN positional marker pair — first line
+  ``dispatch-instructions:`` with the format version, last line ``render-end:``
+  — because it reads no consumer extension and so has no ``render-status:``
+  answer to report.
+- Failure (unusable arguments, unreadable template file, an unreadable or
+  title-less draft file in ``dispatch-instructions`` mode) exits non-zero with
   EMPTY stdout and a stderr breadcrumb — which, together with out-of-position
   markers, is the no-contract-output signal the skill's degraded arms key on.
 """
@@ -65,13 +98,23 @@ from pathlib import Path
 
 STATUS_PREFIX = "render-status:"
 END_MARKER = "render-end:"
+# issue #709: the dispatch-instructions render's own leading positional marker.
+# The version suffix is a FIXED literal, not a runtime value — it is part of the
+# hashed bytes, so it may only change when the canonical form itself changes.
+INSTRUCTIONS_PREFIX = "dispatch-instructions:"
+INSTRUCTIONS_VERSION = "1"
 
 # Closed vocabularies (complete by construction).
 _MODES = (
     "file", "embed", "inline", "checklist", "extract", "status-only",
     "enumerate-dimensions",
+    "dispatch-instructions",
 )
 _DISPATCH_ARMS = ("file", "embed", "inline")
+# The template block-selection token for the issue-#709 dispatch-instruction
+# blocks. It is deliberately NOT a member of _DISPATCH_ARMS: those name the audit
+# arms the state owner routes, and `di` selects a different artifact entirely.
+_INSTRUCTIONS_TOKEN = "di"
 # Extraction hooks map to the two consumer section headings they forward.
 _HOOKS = {
     "audit-dimensions": "## Audit dimensions",
@@ -97,7 +140,15 @@ class RenderError(Exception):
     """A renderer failure: exit non-zero, empty stdout, stderr breadcrumb."""
 
 
-def _default_template_path() -> Path:
+def default_template_path() -> Path:
+    """The committed audit-prompt template this renderer reads by default.
+
+    Public because `issue-audit-state.py` calls it across the module boundary when it
+    regenerates a round's canonical instructions (issue #709) and a round recorded no
+    explicit template input; `_load_generator` asserts this name alongside
+    `instructions_bytes`, so a rename fails closed as `regeneration-failed` instead of
+    surfacing as an AttributeError traceback out of `record-return`.
+    """
     # Resolve the template relative to THIS file's location, never the cwd, so
     # the vendored-plugin layout (scripts/ and skills/ siblings under the
     # vendor root) resolves identically to the repo checkout.
@@ -108,6 +159,11 @@ def _default_template_path() -> Path:
         / "references"
         / "audit-prompt-template.md"
     )
+
+
+# The pre-#709 private name, retained as an alias so an in-flight caller (and the
+# renderer's own tests) keep resolving; the public name above is the contract.
+_default_template_path = default_template_path
 
 
 def _repo_root() -> str | None:
@@ -377,6 +433,28 @@ def _dimensions_block_for_status(status: str, section: str) -> str:
     )
 
 
+def _assemble(blocks, token, slots, template_path) -> str:
+    """Select the blocks carrying ``token``, substitute, and join — fail-closed.
+
+    Shared by every full render. The fail-closed emptiness rule lives here once
+    because it is the load-bearing half: a mode that selects no block (or only blank
+    ones) would otherwise emit a positionally-valid two-marker render carrying no
+    instructions at all, which the delivery check cannot detect. Two copies of that
+    rule could be kept in step only by hand.
+    """
+    parts = [
+        _substitute(body, slots).strip("\n")
+        for arm_set, body in blocks
+        if token in arm_set
+    ]
+    inner = "\n\n".join(p for p in parts if p.strip())
+    if not inner.strip():
+        raise RenderError(
+            f"template selected no non-empty block for {token!r} ({template_path})"
+        )
+    return inner
+
+
 def render_dispatch(
     mode: str,
     template_path: Path,
@@ -403,19 +481,7 @@ def render_dispatch(
         "{CONSUMER_DIMENSIONS}": _dimensions_block_for_status(status, section),
     }
 
-    parts: list[str] = []
-    for arm_set, body in blocks:
-        if mode in arm_set:
-            parts.append(_substitute(body, slots).strip("\n"))
-    inner = "\n\n".join(p for p in parts if p.strip())
-    # Fail CLOSED on an instruction-empty body: a mode that selects no block (or
-    # only blank ones) would otherwise emit a positionally-valid two-marker render
-    # carrying no instructions at all, which the delivery check cannot detect.
-    if not inner.strip():
-        raise RenderError(
-            f"template selected no non-empty block for mode {mode!r} "
-            f"({template_path})"
-        )
+    inner = _assemble(blocks, mode, slots, template_path)
     return f"{STATUS_PREFIX} {status}\n{inner}\n{END_MARKER}"
 
 
@@ -450,6 +516,102 @@ def render_extract(hook: str, ext_path: Path) -> str:
 def render_status_only(ext_path: Path) -> str:
     status, _ = consumer_dimensions(ext_path, _HOOKS["audit-dimensions"])
     return f"{STATUS_PREFIX} {status}"
+
+
+def draft_title(text: str) -> str:
+    """Lift the draft's ``# `` title heading (issue #709).
+
+    COUPLED MIRROR of ``issue-audit-state.py``'s ``split_body`` title rule — the
+    two must agree on WHICH LINE is the title, because that function's body-only
+    digest starts after the title line this one reads (it additionally drops the
+    ``# `` marker and the blank separator, which neither function returns). The
+    decided rule, stated identically at both sites: leading blank lines are
+    skipped; the title is the first non-blank line and must be a level-1 ``# ``
+    heading (a bare ``#`` is accepted and yields an empty title); a ``##`` there
+    means there is no title at all.
+
+    The two DIVERGE, deliberately, on a title-less draft: ``split_body`` returns
+    the whole content as body (its caller still needs a digest), while this one
+    raises RenderError rather than rendering a silent empty title — the title is
+    part of the authorized instruction set, so a draft the run cannot title is an
+    unestablished input, not a render that quietly drops a field. The shared rule
+    is the detection; the not-found handling is each caller's own.
+    """
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if line == "#":
+            return ""
+        if line.startswith("# "):
+            return line[2:].strip()
+        raise RenderError(
+            "the draft file's first non-blank line is not a '# ' title heading, "
+            "so the draft title could not be established"
+        )
+    raise RenderError("the draft file is empty, so it carries no title heading")
+
+
+def render_instructions(
+    template_path: Path,
+    slug: str,
+    draft_path: str,
+    instructions_path: str,
+    draft_text: str,
+) -> str:
+    """Render the canonical file-arm audit-DISPATCH instructions (issue #709).
+
+    File arm only, by construction: the mechanism's whole proof is that the
+    auditor hashes an on-disk instruction file, and the embed and inline arms are
+    entered precisely BECAUSE the canonical draft-file write already failed. Those
+    arms therefore record steering-absence as unestablished-by-construction in the
+    state owner rather than rendering a file here — a designed consequence, not a
+    gap this function should paper over with a second arm.
+
+    Pure: same (template bytes, draft title, paths, installation) -> same output
+    bytes, with no consumer-extension read and no run-varying token.
+    ``issue-audit-state.py`` re-invokes this exact function over a round's
+    recorded closed inputs and compares the digest, so any nondeterminism
+    introduced here silently converts every clean audit into a withheld one. The
+    installation is part of that tuple because ``{RENDERER_PATH}`` and the default
+    ``{TEMPLATE_PATH}`` are derived from this file's resolved location; a
+    regeneration always runs in the same checkout that dispatched, so that is a
+    scoping of the claim, not a hole in it.
+    """
+    blocks = _parse_blocks(_load_template(template_path))
+    # The renderer's own resolved location and its template's — derived, never
+    # taken from an argument, so they cannot carry injected text and so the
+    # regeneration reproduces them without needing them recorded as inputs.
+    slots = {
+        "<slug>": slug,
+        "{DRAFT_PATH}": draft_path,
+        "{INSTRUCTIONS_PATH}": instructions_path,
+        "{RENDERER_PATH}": str(Path(__file__).resolve()),
+        "{TEMPLATE_PATH}": str(template_path),
+        # Drafter-authored text, substituted LAST for the same reason
+        # {CONSUMER_DIMENSIONS} is: a title containing a literal slot token must
+        # never be re-scanned as one. Keep it last.
+        "{DRAFT_TITLE}": draft_title(draft_text),
+    }
+    inner = _assemble(blocks, _INSTRUCTIONS_TOKEN, slots, template_path)
+    return (
+        f"{INSTRUCTIONS_PREFIX} {INSTRUCTIONS_VERSION}\n{inner}\n{END_MARKER}"
+    )
+
+
+def instructions_bytes(*args, **kwargs) -> bytes:
+    """The EXACT bytes the CLI writes for a ``dispatch-instructions`` render.
+
+    The producer owns its own on-disk framing (issue #709). ``issue-audit-state.py``
+    regenerates these bytes and compares digests, so if it replicated the CLI's
+    trailing newline by hand, a change to ``main()``'s framing would silently make
+    every clean audit unestablished — the exact false alarm the determinism contract
+    above exists to prevent. Both ``main()`` and the state owner go through here, and
+    a renderer test asserts this equals the real CLI stdout, so the two cannot drift.
+
+    Arguments are forwarded verbatim to ``render_instructions``.
+    """
+    return (render_instructions(*args, **kwargs) + "\n").encode("utf-8")
 
 
 # --------------------------------------------------------------------------
@@ -665,6 +827,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("mode", choices=_MODES)
     parser.add_argument("--slug", type=_kebab_slug)
     parser.add_argument("--draft-path", type=_abs_path)  # absolute path (file arm)
+    # issue #709: where the generated dispatch instructions are written. It is
+    # rendered INTO the instructions (the auditor is told which file to hash), so
+    # it takes the same shape check as every other substituted path.
+    parser.add_argument("--instructions-path", type=_abs_path)
     parser.add_argument("--sentinel-open", type=_sentinel)
     parser.add_argument("--sentinel-close", type=_sentinel)
     parser.add_argument("--hook", choices=tuple(_HOOKS))
@@ -732,6 +898,41 @@ def main(argv: list[str]) -> int:
             out = render_status_only(ext_path)
         elif args.mode == "enumerate-dimensions":
             out = render_enumerate(template_path, ext_path)
+        elif args.mode == "dispatch-instructions":
+            if args.slug is None:
+                raise RenderError("--slug is required for dispatch-instructions")
+            if not args.draft_path:
+                raise RenderError(
+                    "--draft-path is required for dispatch-instructions"
+                )
+            if not args.instructions_path:
+                raise RenderError(
+                    "--instructions-path is required for dispatch-instructions"
+                )
+            try:
+                draft_text = Path(args.draft_path).read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError) as exc:
+                # Fail closed with the SPECIFIC cause rather than rendering a
+                # title-less instruction file: an unreadable draft is an
+                # unestablished input, and a rendered-anyway file would hash
+                # cleanly while carrying less than the authorized set.
+                raise RenderError(
+                    f"could not read the draft file at {args.draft_path}: {exc}"
+                ) from exc
+            # Write the producer-owned canonical bytes directly rather than falling
+            # through to the shared `out + "\n"` tail below: `instructions_bytes` IS
+            # the on-disk contract the state owner regenerates against, so this mode's
+            # framing must come from that one function, never from a second site.
+            sys.stdout.write(
+                instructions_bytes(
+                    template_path,
+                    args.slug,
+                    args.draft_path,
+                    args.instructions_path,
+                    draft_text,
+                ).decode("utf-8")
+            )
+            return 0
         else:  # unreachable: choices already constrain mode
             raise RenderError(f"unknown mode {args.mode}")
     except RenderError as exc:
