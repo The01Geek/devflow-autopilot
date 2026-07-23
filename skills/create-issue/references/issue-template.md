@@ -97,12 +97,11 @@ it during the no-options check:
 
 - **Relevant Classes/Files** — specific files from the findings (see load-bearing-premise
   verification below).
-- **Documentation Drift** — the declared landing site for the Step 1 pass's **drift detail**
-  field. When the Step 1 verdict was `DRIFT FOUND` or `DOCS MISSING`, name the doc path(s) and
-  the specific inaccurate, outdated, or missing sections the pass reported, so the drift the
-  implementer will encounter is carried into the issue instead of terminating in Step 1. Omit
-  this bullet only on a `DOCS ACCURATE` verdict, and say so explicitly when the Step 1 evidence
-  is marked degraded — an unestablished drift picture is never rendered as a clean one.
+- **Documentation Drift** — the landing site for the Step 1 pass's **drift detail** field. On a
+  `DRIFT FOUND` or `DOCS MISSING` verdict, name the doc path(s) and the specific inaccurate,
+  outdated, or missing sections reported, so the drift terminates here rather than in Step 1.
+  Omit only on `DOCS ACCURATE`; say so explicitly when the Step 1 evidence is degraded, since an
+  unestablished drift picture is never rendered as a clean one.
 - **Architecture Alignment** — how this fits existing patterns.
 - **Dependencies** — the specific service/module/library this depends on. If a library is
   needed, name the **one** chosen (decided in Step 2), not a shortlist.
