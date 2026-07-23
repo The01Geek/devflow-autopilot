@@ -149,7 +149,6 @@ import ast
 import importlib.util
 import os
 import re
-import subprocess
 import sys
 from pathlib import Path
 
@@ -192,6 +191,37 @@ if _missing:
         "the shell arm's statement model depends on it — refusing to audit"
     )
 
+# The population enumeration, the file reader, the `EnumerationError` fail-closed
+# contract, and the `--root` / `--files-from` preamble are shared with the other
+# `git ls-files` lints (issue #724). Import the module by path with the same idiom
+# used for `extract-command-heads.py` above, and — because that module's surface
+# carries no stability contract — assert the names this file uses at LOAD time, so a
+# rename fails here naming the dependency rather than mid-scan.
+_POP_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lint_population.py")
+_pop_spec = importlib.util.spec_from_file_location("lint_population", _POP_PATH)
+_pop = importlib.util.module_from_spec(_pop_spec)
+try:
+    _pop_spec.loader.exec_module(_pop)
+except Exception as _exc:
+    raise SystemExit(
+        f"lint-tree-enumeration: the shared population reader {_POP_PATH} could not "
+        f"be loaded ({_exc.__class__.__name__}: {_exc}); refusing to audit"
+    ) from _exc
+_REQUIRED_POP_ATTRS = (
+    "EnumerationError", "enumerate_population", "read_source",
+    "add_population_arguments", "resolve_root", "LS_FILES_INDEX",
+)
+_pop_missing = [name for name in _REQUIRED_POP_ATTRS if not hasattr(_pop, name)]
+if _pop_missing:
+    raise SystemExit(
+        f"lint-tree-enumeration: {_POP_PATH} no longer provides "
+        f"{', '.join(_pop_missing)}; refusing to audit"
+    )
+
+#: The shared fail-closed enumeration error, re-exported so `main`'s `except` clause
+#: and this module's own fixtures name it locally.
+EnumerationError = _pop.EnumerationError
+
 #: The format-strict declaration marker. A line carrying the bare substring
 #: `tree-walk-ok` without this comment form does **not** exempt it.
 TREE_WALK_OK_MARKER = "# tree-walk-ok:"
@@ -220,55 +250,6 @@ _GREP_RECURSIVE = re.compile(r"^--recursive$|^--dereference-recursive$|^-[A-Za-z
 _MARKER_RE = re.compile(re.escape(TREE_WALK_OK_MARKER) + r"\s*\S")
 
 
-class EnumerationError(Exception):
-    """The audited population could not be established. Always fails closed."""
-
-
-def enumerate_population(root: Path, files_from: Path | None) -> list[str]:
-    """Return the repo-relative paths to consider, before exclusions.
-
-    Raises `EnumerationError` when the source cannot be read or yields nothing —
-    the two arms that must never be mistaken for a clean audit. The git arm is
-    index-reading (`git ls-files` with no `--others`), which is the whole point of
-    this guard: a working-tree enumeration at the repository root is exactly the
-    worktree-permeable shape it exists to remove.
-    """
-    if files_from is not None:
-        try:
-            raw = files_from.read_text(encoding="utf-8")
-        except OSError as exc:
-            raise EnumerationError(
-                f"--files-from list could not be read ({files_from}): {exc}"
-            ) from exc
-    else:
-        try:
-            proc = subprocess.run(
-                ["git", "ls-files"],
-                cwd=str(root),
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-        except OSError as exc:
-            raise EnumerationError(f"git ls-files could not be run: {exc}") from exc
-        if proc.returncode != 0:
-            raise EnumerationError(
-                "git ls-files exited "
-                f"{proc.returncode}: {proc.stderr.strip() or '(no stderr)'}"
-            )
-        raw = proc.stdout
-
-    # Strip ONLY the line terminator: a path with leading/trailing spaces is legal in
-    # git, and trimming it would yield a path that cannot open — silently dropping a
-    # real file from the audit through the skip arm below.
-    paths = [line.rstrip("\r\n") for line in raw.split("\n") if line.rstrip("\r\n")]
-    if not paths:
-        raise EnumerationError(
-            "the enumeration yielded zero paths before any exclusion was applied"
-        )
-    return paths
-
-
 def is_audited(path: str) -> bool:
     """True when `path` survives the population exclusions."""
     normalized = path.replace("\\", "/")
@@ -279,28 +260,16 @@ def is_audited(path: str) -> bool:
     return normalized.endswith(AUDITED_SUFFIXES)
 
 
-def _read(path: Path) -> tuple[str | None, str | None]:
-    """Return `(text, skip_reason)` — exactly one of the two is None.
-
-    Decoding is explicitly lossy (`errors="replace"`), so a tracked file that is
-    not valid UTF-8 is scanned to completion rather than raising: the audited
-    population contains one such file today, planted as an adversarial fixture for
-    a different lint. An unopenable path is a reported skip, never an absorbed one —
-    "audited nothing" must never read as "audited everything, found nothing".
-
-    Deliberate divergence from `lint-gh-api-repo-path.py`'s sibling reader, recorded
-    so the two are not mistaken for a stale copy: that one additionally skips a
-    NUL-carrying file as "not a UTF-8-superset text file". This population is the
-    tracked `.py`/`.sh` files under `lib/test/` — sources, never binaries — and the
-    governing acceptance criterion requires an explicit lossy decode that raises on
-    no tracked file, so a NUL arm here would add a skip path (and with it a non-zero
-    exit) that nothing in this population can legitimately reach.
-    """
-    try:
-        data = path.read_bytes()
-    except OSError as exc:
-        return None, f"unreadable ({exc.__class__.__name__}: {exc})"
-    return data.decode("utf-8", errors="replace").replace("\r\n", "\n"), None
+#: The NUL-byte policy this lint hands `lint_population.read_source`. This
+#: population is the tracked `.py`/`.sh` files under `lib/test/` — sources, never
+#: binaries — and the governing acceptance criterion requires an explicit lossy
+#: decode that raises on no tracked file (the population contains one adversarial
+#: non-UTF-8 fixture, planted for a different lint, that must be scanned to
+#: completion). So NUL bytes are KEPT, not skipped: `skip_nul=False`. This is the
+#: deliberate divergence from `lint-gh-api-repo-path.py`, which skips a NUL-carrying
+#: file as "not a UTF-8-superset text file" — the axis the shared reader exposes so
+#: neither behavior needs a second copy.
+_SKIP_NUL = False
 
 
 def _comment_split(line: str) -> tuple[str, str]:
@@ -737,43 +706,17 @@ def main(argv: list[str] | None = None) -> int:
             "tree with an undeclared recursive walk."
         )
     )
-    parser.add_argument(
-        "--root",
-        default=None,
-        help="repository root to enumerate and resolve paths against (default: the git toplevel, else the cwd)",
-    )
-    parser.add_argument(
-        "--files-from",
-        default=None,
-        help="read the population from this newline-separated path list instead of git ls-files",
-    )
+    _pop.add_population_arguments(parser)
     args = parser.parse_args(argv)
 
-    if args.root is not None:
-        root = Path(args.root)
-    else:
-        proc = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if proc.returncode == 0 and proc.stdout.strip():
-            root = Path(proc.stdout.strip())
-        else:
-            # Never a silent default (the #295 repo-root contract): a wrong root feeds
-            # straight into the read loop, and with --files-from it would otherwise
-            # produce a green run over files that do not exist.
-            root = Path.cwd()
-            print(
-                "lint-tree-enumeration: no git toplevel "
-                f"({proc.stderr.strip() or 'git rev-parse failed'}); "
-                f"resolving paths against the cwd {root}",
-                file=sys.stderr,
-            )
+    root = _pop.resolve_root(args.root, tool="lint-tree-enumeration")
 
     try:
-        population = enumerate_population(root, Path(args.files_from) if args.files_from else None)
+        population = _pop.enumerate_population(
+            root,
+            Path(args.files_from) if args.files_from else None,
+            ls_files_argv=_pop.LS_FILES_INDEX,
+        )
     except EnumerationError as exc:
         print(f"lint-tree-enumeration: enumeration unusable: {exc}", file=sys.stderr)
         return 1
@@ -798,7 +741,7 @@ def main(argv: list[str] | None = None) -> int:
     skipped: list[tuple[str, str]] = []
     read_ok = 0
     for relative in audited:
-        text, skip_reason = _read(root / relative)
+        text, skip_reason = _pop.read_source(root / relative, skip_nul=_SKIP_NUL)
         if text is None:
             skipped.append((relative, skip_reason or "unknown"))
             continue
