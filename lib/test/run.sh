@@ -31244,6 +31244,56 @@ assert_eq "#506 Writing-skills evidence marker is present in the contract and bo
   "yes|yes|yes" \
   "$(grep_present "$WSR_MARK" "$WSR_IMPL")|$(grep_present "$WSR_MARK" "$WSR_RAF")|$(grep_present "$WSR_MARK" "$WSR_REV")"
 
+# ── #730 Verification-evidence marker tier-scoped advisory (byte-identical twin) ──────
+# The advisory clause is appended to BOTH review extensions as a new `## ` section after the
+# routing-gate section, so the existing routing-gate→EOF byte-identity extract (WSR_GATE_REV /
+# WSR_GATE_RAF, asserted equal above) already proves the two copies identical over the appended
+# clause too. These pins add: the heading present-and-unique in each copy (lockstep), the
+# `Verification evidence:` marker literal present in each, and the three BEHAVIORAL clauses
+# (cloud-silent / local-marker-absent-fires / local-marker-present-silent) each mutation-proven
+# per file with assert_pin_red_under — the guarded regression is the advisory inverting its
+# silent/fire behavior on a classification, and each mutation flips exactly that behavior.
+VEA_HEAD='## Verification-evidence marker advisory (tier-scoped, non-blocking)'
+assert_pin_unique "#730 advisory heading present-and-unique in review.md" "$VEA_HEAD" "$WSR_REV"  # structural-pin-ok: presence+uniqueness of the advisory section heading in a shipped extension, not a behavioral-fix pin (the three behavioral clauses below route through assert_pin_red_under)
+assert_pin_unique "#730 advisory heading present-and-unique in review-and-fix.md" "$VEA_HEAD" "$WSR_RAF"  # structural-pin-ok: presence+uniqueness of the advisory section heading in a shipped extension, not a behavioral-fix pin (the three behavioral clauses below route through assert_pin_red_under)
+assert_eq "#730 advisory clause names the Verification evidence marker in both copies (lockstep)" \
+  "yes|yes" \
+  "$(grep -qF 'Verification evidence:' "$WSR_REV" && echo yes || echo no)|$(grep -qF 'Verification evidence:' "$WSR_RAF" && echo yes || echo no)"
+# Behavioral clause 1 — cloud-classified PR → silent.
+assert_pin_red_under "#730 review.md advisory is silent on a cloud-classified PR" \
+  'the clause is silent and emits no finding' \
+  's/the clause is silent and emits no finding/the clause emits an advisory finding/' "$WSR_REV"
+assert_pin_red_under "#730 review-and-fix.md advisory is silent on a cloud-classified PR" \
+  'the clause is silent and emits no finding' \
+  's/the clause is silent and emits no finding/the clause emits an advisory finding/' "$WSR_RAF"
+# Behavioral clause 2 — local/interactive PR + marker absent from both surfaces → fires one advisory.
+assert_pin_red_under "#730 review.md advisory fires when the marker is absent on a local PR" \
+  'the review emits one advisory (non-blocking) finding naming the missing' \
+  's|the review emits one advisory \(non-blocking\) finding naming the missing|the review stays silent about the missing|' "$WSR_REV"
+assert_pin_red_under "#730 review-and-fix.md advisory fires when the marker is absent on a local PR" \
+  'the review emits one advisory (non-blocking) finding naming the missing' \
+  's|the review emits one advisory \(non-blocking\) finding naming the missing|the review stays silent about the missing|' "$WSR_RAF"
+# Behavioral clause 3 — local/interactive PR + marker present on either surface → silent.
+assert_pin_red_under "#730 review.md advisory is silent when the marker is present on a local PR" \
+  'When the marker is present on either surface the clause is silent' \
+  's/When the marker is present on either surface the clause is silent/When the marker is present the clause still emits a finding/' "$WSR_REV"
+assert_pin_red_under "#730 review-and-fix.md advisory is silent when the marker is present on a local PR" \
+  'When the marker is present on either surface the clause is silent' \
+  's/When the marker is present on either surface the clause is silent/When the marker is present the clause still emits a finding/' "$WSR_RAF"
+# Tier discriminator (#747 review, Minor test-coverage): the load-bearing predicate that
+# selects every behavior above — a `gha:` checkpoint row means CLOUD, its absence means
+# local/interactive — was guarded only by cross-copy byte-identity, so a reword inverting the
+# classification applied identically to both copies would pass byte-identity AND the three
+# clause pins above (their literals untouched) and ship a silently-inverted advisory. Pin the
+# discriminator sentence per file; the mutation flips the gha-checkpoint classification from
+# cloud to local/interactive, exactly the inversion byte-identity cannot catch.
+assert_pin_red_under "#730 review.md tier discriminator classifies a gha-checkpoint workpad as cloud" \
+  'row is a **cloud** run' \
+  's/row is a \*\*cloud\*\* run/row is a **local\/interactive** run/' "$WSR_REV"
+assert_pin_red_under "#730 review-and-fix.md tier discriminator classifies a gha-checkpoint workpad as cloud" \
+  'row is a **cloud** run' \
+  's/row is a \*\*cloud\*\* run/row is a **local\/interactive** run/' "$WSR_RAF"
+
 # (3b) Property-based vendoring invariant (the skills-tree twin of the #139 agents/*.md loop):
 # EVERY file under the two vendored skill dirs must NOT carry the first-party `2026 Daniel Radman`
 # SPDX header (the license-preservation half) — proved mechanically over EVERY vendored file incl.
@@ -38189,8 +38239,16 @@ assert_eq "#529 AC2: the split is at least 25,327 words below the 33,815 baselin
 # condition and the assertion label read from one literal instead of two hand-synced
 # copies. The CLAUDE.md-mirror pin below is DELIBERATELY a separate spelled-out literal:
 # it asserts CLAUDE.md carries the same phrase, so it cannot itself be derived from this
-# variable (a rendered `≤ 30,076 words` phrase is what a reader greps for in the bullet).
-RB_SHIPPED_CEIL=30076
+# variable (a rendered `≤ 30,609 words` phrase is what a reader greps for in the bullet).
+# #730 (deferred from #719) raised this 30076->30609: the tier-scoped Verification-evidence
+# marker ADVISORY is stated on the shipped review extension (.devflow/prompt-extensions/review.md),
+# which is on the shipped-default per-pass path, pushing _rb_shipped_w from 30016 to 30549. The
+# advisory prose was written to its operative minimum (input population, tier discriminator,
+# by-classification behavior, covered population, accepted residual) and only then was the ceiling
+# renegotiated to the measured 30549 plus the fixed 60-word margin. The audited growth decision is
+# docs/cutovers/issue-730-verification-evidence-advisory-growth.md; reconcile every mirror the
+# decision record lists in lockstep.
+RB_SHIPPED_CEIL=30609
 # The sanctioned margin is its own named constant so the bound below, the assertion label, and
 # the budget doc's Margin cell all read from ONE literal (PR #639 review, Suggestion-4: the
 # margin was a bare `60` in the condition plus hand-maintained prose in three docs — the same
@@ -38410,7 +38468,7 @@ RECORD
 # assert_pin_unique also fails if the phrase appears twice, catching a stray duplicate.
 RB_CLAUDEMD="$LIB/../CLAUDE.md"
 assert_pin_unique "#618: CLAUDE.md's review-bundle bullet carries the re-anchored ceiling phrase (≤-prefixed, mirror of the suite literal)" \
-  'shipped-default per-pass path ≤ 30,076 words' "$RB_CLAUDEMD"
+  'shipped-default per-pass path ≤ 30,609 words' "$RB_CLAUDEMD"
 # #618 (pr-test-analyzer Finding 2): the static pin above catches a suite-literal↔CLAUDE.md
 # drift, but NOT a stale RB_SHIPPED_CEIL while the pin literal + CLAUDE.md are updated in
 # tandem. Bind the GATE CONSTANT to the CLAUDE.md phrase directly, via a dynamic grep whose
@@ -38706,6 +38764,7 @@ cat > "$_rb_exempt" <<'RBEXEMPT'
 33815
 237113
 59279
+45
 437
 3210
 803
@@ -38800,8 +38859,8 @@ rm -f "$_rb_acc" "$_rb_exempt" "$_rb_mut_a" "$_rb_acc_drop" "$_rb_mut_c" "$_rb_e
 # ── #656 AC5 — pin CLAUDE.md's enforcement CONSTANTS (8,500 and 60) ───────────────
 # 8,500 is the root+extension ceiling literal; 60 is RB_SHIPPED_MARGIN, which never moves.
 # Both are live-enforced, so a CLAUDE.md edit to either must turn the suite RED — extending
-# the existing 32,399/30,076 ceiling-phrase pin pattern. 30,100 is DELIBERATELY NOT pinned:
-# it is the at-most-30,100 target (#642 already achieved it; the live ceiling is now 30,076,
+# the existing 32,399/30,076/30,609 ceiling-phrase pin pattern. 30,100 is DELIBERATELY NOT pinned:
+# it is the at-most-30,100 target (#642 already achieved it; the live ceiling is now 30,609,
 # and 30,100 remains only as target prose), NOT an enforcement constant — pinning it would
 # trap a future renegotiation that lowers the target further. Registered-exempt for that reason.
 assert_pin_unique "#656 AC5: CLAUDE.md pins the root+extension 8,500-word ceiling constant" \
@@ -39189,8 +39248,17 @@ RAF_ROOT_CEIL=3567
 # ceilings renegotiated to the measurement plus the repo's usual ~4 words of headroom. The audited
 # growth decision is docs/cutovers/issue-719-verification-evidence-marker-growth.md; update
 # docs/review-and-fix-budget.md's ceilings-table and Measured cells in lockstep.
-RAF_LOAD_CEIL=9468
-RAF_MAXSTEP_CEIL=20807
+# #730 (deferred from #719) raised the initial-load ceiling 9468->9941 and the max-step ceiling
+# 20807->21280: the tier-scoped Verification-evidence marker ADVISORY is stated on the review-and-fix
+# extension (RAF_EXT, .devflow/prompt-extensions/review-and-fix.md) — the always-loaded surface on this
+# bundle — taking it 3573->4046 words, so the initial load moves 9464->9937 and the peak step
+# 20803->21276 (the receiving extension is untouched). The advisory prose was written to its operative
+# minimum first and only then were the ceilings renegotiated to the measurement plus the repo's usual
+# ~4 words of headroom. The
+# audited growth decision is docs/cutovers/issue-730-verification-evidence-advisory-growth.md; update
+# docs/review-and-fix-budget.md's ceilings-table and Measured cells in lockstep.
+RAF_LOAD_CEIL=9941
+RAF_MAXSTEP_CEIL=21280
 assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
   "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"
 assert_eq "#530 budget: root + always-loaded extensions (initial load) <= $RAF_LOAD_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W)))" "yes" \
