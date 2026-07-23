@@ -4,6 +4,20 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.21.1] — 2026-07-23
+
+### Changed
+### Added
+
+- `/devflow:create-issue`'s Step 3.6 fresh-context audit now dispatches **canonically-generated, hash-verified instructions** instead of a freehand orchestrator preamble (issue #709, PR #718). `scripts/render-audit-prompt.py` gains a deterministic `dispatch-instructions` mode that renders the whole authorized instruction set — the draft title (read from the draft file, never a command-line argument), the draft path, the renderer invocation, the template path, the positional-marker rule, the fallback ladder, the out-of-bounds declaration, and the return contract — from new `di` blocks in the committed template. The run writes those bytes to `.devflow/tmp/issue-audit-dispatch-<slug>.md` and dispatches a generated pointer to that file and the draft file and nothing else — the pointer line is itself emitted by the render, so it is generated rather than authored, and it doubles as the reference form the auditor compares its received dispatch message against.
+
+### Changed
+
+- `scripts/issue-audit-state.py` (state schema 2 → 3) records the round's closed regeneration inputs at dispatch and, at return, **regenerates** the canonical instructions from them and compares the digest against the object ID the auditor quotes for the instruction file it read — regenerating rather than re-reading its own write-time digest is what catches a hand-written steered file that bypassed the generator. The coverage-backed clean (`VERDICT: FILE`) eligibility ground now additionally requires that match plus the auditor's `extra-dispatch-content: no` affirmation; `query-summary` reports the outcome as the new `steering` / `steering_reason` tokens, rendered before the contractually-trailing `attestation` field, and `query-triggers` gains an arm so even a zero-finding clean round with an unestablished state is offered one unsteered re-dispatch.
+- `record-dispatch` regenerates the instruction bytes from the inputs it is about to record and stores what it observed as `dispatch_regeneration` (`verified`/`diverged`/`unverified`), so a divergence is surfaced at the site that can still fix it instead of surfacing later as a steering accusation against the auditor. It **records rather than refuses**: the three reachable causes — a mangled write, a differently-spelled recorded path, or a file edited after generation — are indistinguishable to the tool, so refusing would risk telling a steering orchestrator to overwrite the only evidence of its edit, and would block a round on a legitimate host. Filing is never blocked, and the return-time regeneration still owns the verdict.
+- Every absence fails closed with its own reason token — an absent quoted ID, an absent affirmation, unrecorded dispatch inputs, or a failed regeneration are each unestablished, never established-clean by omission. **Filing is never blocked on any arm**: where the property is unestablished — including the embed, inline and read-only-sandbox arms, which by construction have no writable instruction file to hash — the audit-summary line carries an `audit independence unestablished` marker and the user's explicit approval still files the issue through the documented override election.
+- The guarantee is scoped honestly: the file hash proves the instruction *content* was canonical, while the un-hashable Agent-tool prompt string is covered only by canonical generation plus the auditor's best-effort affirmation. That channel is **narrowed, not closed**, and no surface describes a clean audit as provably steering-free.
+
 ## [2.21.0] — 2026-07-23
 
 ### Changed
