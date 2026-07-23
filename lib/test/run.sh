@@ -31254,11 +31254,11 @@ assert_eq "#506 Writing-skills evidence marker is present in the contract and bo
 # per file with assert_pin_red_under — the guarded regression is the advisory inverting its
 # silent/fire behavior on a classification, and each mutation flips exactly that behavior.
 VEA_HEAD='## Verification-evidence marker advisory (tier-scoped, non-blocking)'
-assert_pin_unique "#730 advisory heading present-and-unique in review.md" "$VEA_HEAD" "$WSR_REV"
-assert_pin_unique "#730 advisory heading present-and-unique in review-and-fix.md" "$VEA_HEAD" "$WSR_RAF"
+assert_pin_unique "#730 advisory heading present-and-unique in review.md" "$VEA_HEAD" "$WSR_REV"  # structural-pin-ok: presence+uniqueness of the advisory section heading in a shipped extension, not a behavioral-fix pin (the three behavioral clauses below route through assert_pin_red_under)
+assert_pin_unique "#730 advisory heading present-and-unique in review-and-fix.md" "$VEA_HEAD" "$WSR_RAF"  # structural-pin-ok: presence+uniqueness of the advisory section heading in a shipped extension, not a behavioral-fix pin (the three behavioral clauses below route through assert_pin_red_under)
 assert_eq "#730 advisory clause names the Verification evidence marker in both copies (lockstep)" \
   "yes|yes" \
-  "$(grep_present 'Verification evidence:' "$WSR_REV")|$(grep_present 'Verification evidence:' "$WSR_RAF")"
+  "$(grep -qF 'Verification evidence:' "$WSR_REV" && echo yes || echo no)|$(grep -qF 'Verification evidence:' "$WSR_RAF" && echo yes || echo no)"
 # Behavioral clause 1 — cloud-classified PR → silent.
 assert_pin_red_under "#730 review.md advisory is silent on a cloud-classified PR" \
   'the clause is silent and emits no finding' \
@@ -38751,6 +38751,7 @@ cat > "$_rb_exempt" <<'RBEXEMPT'
 33815
 237113
 59279
+45
 437
 3210
 803
