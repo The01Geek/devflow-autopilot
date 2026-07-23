@@ -31244,6 +31244,43 @@ assert_eq "#506 Writing-skills evidence marker is present in the contract and bo
   "yes|yes|yes" \
   "$(grep_present "$WSR_MARK" "$WSR_IMPL")|$(grep_present "$WSR_MARK" "$WSR_RAF")|$(grep_present "$WSR_MARK" "$WSR_REV")"
 
+# ── #730 Verification-evidence marker tier-scoped advisory (byte-identical twin) ──────
+# The advisory clause is appended to BOTH review extensions as a new `## ` section after the
+# routing-gate section, so the existing routing-gate→EOF byte-identity extract (WSR_GATE_REV /
+# WSR_GATE_RAF, asserted equal above) already proves the two copies identical over the appended
+# clause too. These pins add: the heading present-and-unique in each copy (lockstep), the
+# `Verification evidence:` marker literal present in each, and the three BEHAVIORAL clauses
+# (cloud-silent / local-marker-absent-fires / local-marker-present-silent) each mutation-proven
+# per file with assert_pin_red_under — the guarded regression is the advisory inverting its
+# silent/fire behavior on a classification, and each mutation flips exactly that behavior.
+VEA_HEAD='## Verification-evidence marker advisory (tier-scoped, non-blocking)'
+assert_pin_unique "#730 advisory heading present-and-unique in review.md" "$VEA_HEAD" "$WSR_REV"
+assert_pin_unique "#730 advisory heading present-and-unique in review-and-fix.md" "$VEA_HEAD" "$WSR_RAF"
+assert_eq "#730 advisory clause names the Verification evidence marker in both copies (lockstep)" \
+  "yes|yes" \
+  "$(grep_present 'Verification evidence:' "$WSR_REV")|$(grep_present 'Verification evidence:' "$WSR_RAF")"
+# Behavioral clause 1 — cloud-classified PR → silent.
+assert_pin_red_under "#730 review.md advisory is silent on a cloud-classified PR" \
+  'the clause is silent and emits no finding' \
+  's/the clause is silent and emits no finding/the clause emits an advisory finding/' "$WSR_REV"
+assert_pin_red_under "#730 review-and-fix.md advisory is silent on a cloud-classified PR" \
+  'the clause is silent and emits no finding' \
+  's/the clause is silent and emits no finding/the clause emits an advisory finding/' "$WSR_RAF"
+# Behavioral clause 2 — local/interactive PR + marker absent from both surfaces → fires one advisory.
+assert_pin_red_under "#730 review.md advisory fires when the marker is absent on a local PR" \
+  'the review emits one advisory (non-blocking) finding naming the missing' \
+  's|the review emits one advisory \(non-blocking\) finding naming the missing|the review stays silent about the missing|' "$WSR_REV"
+assert_pin_red_under "#730 review-and-fix.md advisory fires when the marker is absent on a local PR" \
+  'the review emits one advisory (non-blocking) finding naming the missing' \
+  's|the review emits one advisory \(non-blocking\) finding naming the missing|the review stays silent about the missing|' "$WSR_RAF"
+# Behavioral clause 3 — local/interactive PR + marker present on either surface → silent.
+assert_pin_red_under "#730 review.md advisory is silent when the marker is present on a local PR" \
+  'When the marker is present on either surface the clause is silent' \
+  's/When the marker is present on either surface the clause is silent/When the marker is present the clause still emits a finding/' "$WSR_REV"
+assert_pin_red_under "#730 review-and-fix.md advisory is silent when the marker is present on a local PR" \
+  'When the marker is present on either surface the clause is silent' \
+  's/When the marker is present on either surface the clause is silent/When the marker is present the clause still emits a finding/' "$WSR_RAF"
+
 # (3b) Property-based vendoring invariant (the skills-tree twin of the #139 agents/*.md loop):
 # EVERY file under the two vendored skill dirs must NOT carry the first-party `2026 Daniel Radman`
 # SPDX header (the license-preservation half) — proved mechanically over EVERY vendored file incl.
