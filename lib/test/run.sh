@@ -30617,7 +30617,9 @@ _WSR_RETIRED_LITS=(
   'run the complete suite and every required lint gate'
   'Branch, make focused changes, run'
 )
-# #719 the 7th arm is RE-SPANNED. Its retired obligation sentence
+# #719 the 'Before a commit, phase completion, push, or' arm is RE-SPANNED (named, not
+# indexed — an ordinal here would rot on any insertion of an earlier arm). Its retired
+# obligation sentence
 # ('Before a commit, phase completion, push, or completion claim, run ...') was
 # LINE-WRAPPED at the pre-#707 baseline, wrapping after '…push, or', and pin_count
 # is line-based (grep -oF) — so the full-sentence span matched NOTHING on any swept
@@ -30674,7 +30676,7 @@ assert_eq "#707 the retired full-suite-before-every-commit convention survives o
 # The retired control planted the sweep's OWN literal array into a scratch file and counted it
 # there, so — because the planting loop and the counting loop read the SAME array — it was blind
 # BY CONSTRUCTION to a member that is unmatchable against the REAL retired text. That is exactly
-# the #719 defect: the 7th arm's full-sentence span wrapped a line break at the baseline, so
+# the #719 defect: the re-spanned arm's full-sentence span wrapped a line break at the baseline, so
 # grep -oF (line-based) could never match it on any swept surface, yet the self-referential
 # control still tallied because it planted and then found the same unmatchable string. The old
 # control's own comment conceded it could not detect a MISTYPED literal; it did not anticipate an

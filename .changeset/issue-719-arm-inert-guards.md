@@ -4,8 +4,9 @@ type: Fixed
 ---
 
 - **Armed the inert guards and mechanized the unenforced verification policy shipped by #707.**
-  The retired-convention sweep's ninth arm was re-spanned to a literal that actually exists on a
-  single baseline line, and its self-referential planting control was replaced by a
+  The retired-convention sweep's `Before a commit, phase completion, push, or` arm was re-spanned
+  to a literal that actually exists on a single baseline line, and its self-referential planting
+  control was replaced by a
   baseline-corpus control that validates every literal against the pre-#707 baseline blobs read
   through `git show` (with a planted-defect positive control and four fail-closed degraded-input
   arms). The `harness-python-guards` focused module is now driven through its own runner by a

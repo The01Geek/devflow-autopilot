@@ -261,10 +261,24 @@ assert_eq "reception identity: library makes no gh call" "0" \
   "$(grep -cE '"gh"|(^|[^a-zA-Z_])gh ' "$RI_LIB" || true)"
 # #719: the comment above enumerates four AC1 properties (no exec bit, no PyYAML import, no gh
 # call, no network call); the fourth had no assertion, so the enumeration over-claimed its own
-# coverage. Pin the network-call absence too — a stdlib-only importable routine opens no socket
-# and pulls in no HTTP client. The boundary mirrors the gh-call sweep's portable form.
-assert_eq "reception identity: library makes no network call" "0" \
-  "$(grep -cE '(^|[^a-zA-Z_])(import socket|import urllib|import http|import ssl|from socket import|from urllib|from http|import requests|import httpx|urlopen)' "$RI_LIB" || true)"
+# coverage. Pin the network-call absence — but NOT by enumerating banned modules: a banned-list
+# alternation accepts a SUPERSET of what it names, so every stdlib network module the list omits
+# (smtplib, ftplib, asyncio, xmlrpc, telnetlib, …) fails OPEN, which is the guard-accepts-more-
+# than-its-consumer class CLAUDE.md warns about. Pin the library's ENTIRE import set instead —
+# an exact-match allowlist fails CLOSED: any added import, network or otherwise, turns this RED
+# and must be re-adjudicated. ast.walk covers function-level imports too, so a lazily-imported
+# network module cannot slip past a top-level-only scan. python3 is a hard preflight prerequisite
+# and any failure yields empty output, which mismatches and goes RED (never a silent pass).
+assert_eq "reception identity: library imports exactly the permitted stdlib set (no network module)" \
+  "__future__ os shutil subprocess tempfile" \
+  "$(python3 -c 'import ast,sys
+mods=set()
+for n in ast.walk(ast.parse(open(sys.argv[1], encoding="utf-8").read())):
+    if isinstance(n, ast.Import):
+        mods.update(a.name.split(".")[0] for a in n.names)
+    elif isinstance(n, ast.ImportFrom):
+        mods.add((n.module or "").split(".")[0])
+print(" ".join(sorted(mods)))' "$RI_LIB" 2>/dev/null || true)"
 # The CLI imports the library rather than re-implementing the derivation (AC2): exactly one
 # copy of the identity format ships. Pin the import and the absence of a second write-tree.
 assert_eq "reception identity: CLI imports the library (single derivation implementation)" "1" \
