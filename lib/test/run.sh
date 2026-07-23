@@ -24226,9 +24226,10 @@ _dir_nonempty() (
 # at "no" (a glob typo, nullglob not taking, a quoting slip) would pass all of them
 # vacuously. Assert the "yes" direction once against a directory known to be non-empty.
 assert_eq "#745 _dir_nonempty: answers yes for a directory known to be non-empty (positive control)" "yes" \
-  "$(_dir_nonempty "$ETSPH_REPO/.devflow")"
+  "$(_dir_nonempty "$ETSPH_REPO/.git")"   # git init above provably created it; .devflow is NOT created here
+                                          # (the placeholder --persist call refuses and writes nothing)
 assert_eq "#745 _dir_nonempty: answers no for an absent directory (fails closed)" "no" \
-  "$(_dir_nonempty "$ETSPH_REPO/.devflow/definitely-absent")"
+  "$(_dir_nonempty "$ETSPH_REPO/definitely-absent")"
 assert_eq "et-synth(placeholder): NO placeholder-identity dir is fabricated" "no" \
   "$([ -d "$ETSPH_REPO/.devflow/tmp/review/<slug>" ] && echo yes || echo no)"
 assert_eq "et-synth(placeholder): NO record is written under a placeholder identity" "no" \
@@ -47654,12 +47655,33 @@ assert_eq "#456 ci.yml: shipped lib/test orchestrators are added to shellcheck s
 assert_eq "#745 no assertion label carries an unescaped backtick (bash would execute it)" "" \
   "$(python3 - "$SELF_SRC" <<'PY745'
 import re, sys
+# Three scoping requirements, each a false-negative class the first draft had:
+#   - the call need not START a line (`[ -d x ] && assert_eq "..."`, `);  assert_eq "..."`,
+#     a `case` arm, a `VAR=v assert_eq "..."`), so match at any command-start position;
+#   - the label may sit on a CONTINUATION line (`assert_pin_red_under \` then the label),
+#     so scan the whole file text with DOTALL rather than line by line;
+#   - a doubled backslash before a backtick is a LITERAL backslash plus a LIVE backtick, so
+#     a plain `(?<!\\)` lookbehind is unsound — walk the label consuming `\\`/`\X` pairs
+#     instead, and flag the first backtick that survives.
+text = open(sys.argv[1], encoding="utf-8").read()
+CALL = re.compile(
+    r'(?:^|[;&|(){}]|&&|\|\||\s)\s*(?:assert_\w+|devflow_module_pin\w*)'
+    r'(?:\s*\\\s*\n)?\s+"((?:[^"\\]|\\.)*)"', re.M)
+def live_backtick(label):
+    i = 0
+    while i < len(label):
+        if label[i] == "\\":
+            i += 2          # consume the escape pair: \\ or \` or \" ...
+            continue
+        if label[i] == "`":
+            return True     # reached unescaped -> bash substitutes it
+        i += 1
+    return False
 out = []
-for n, line in enumerate(open(sys.argv[1], encoding="utf-8"), 1):
-    m = re.match(r'\s*(?:assert_\w+|devflow_module_pin\w*)\s+"((?:[^"\\]|\\.)*)"', line)
-    if m and re.search(r'(?<!\\)`', m.group(1)):
-        out.append(str(n))
-print(" ".join(out))
+for m in CALL.finditer(text):
+    if live_backtick(m.group(1)):
+        out.append(str(text.count("\n", 0, m.start(1)) + 1))
+print(" ".join(sorted(set(out), key=int)))
 PY745
 )"
 # ── #745 ci.yml lints lib/test/run.sh, with the flag AND the pin that make it possible ──
@@ -47704,13 +47726,17 @@ assert_pin_red_under "#745 ci.yml: the download URL resolves the pinned version,
 #   - the job-scope reset accepts ANY job-name character class, not just lowercase: `lint:`
 #     is currently the last job, so a later appended `Notify:`/`test2:` would otherwise never
 #     reset the scope and its content would leak into both scans.
-#   - the escape-hatch scan matches the `key:` FORM, never a bare mention, so a
-#     `continue-on-error` occurring in any comment can never be counted as a hatch (the #370
-#     count-inflation trap); the app-token blocks above use the same `key:`-form guard.
+#   - the escape-hatch scan matches the `key:` FORM (a comment line starts with `#`, so a
+#     `continue-on-error` mentioned in prose can never be counted as a hatch — the #370
+#     count-inflation trap; the app-token blocks above use the same guard). It deliberately
+#     does NOT match on the VALUE `true`: Actions also accepts `"true"`, `True`, and a
+#     `${{ … }}` expression, each of which tolerates a failing lint step, so a value match
+#     would be the fail-open direction. Only an explicit `false` — which tolerates nothing —
+#     is excluded.
 assert_eq "#745 ci.yml: the lint job runs on standard ubuntu-latest (no larger runner)" "yes" \
   "$(awk '/^  lint:/{inlint=1; next} /^  [A-Za-z0-9_-]+:/{inlint=0} inlint && /runs-on: ubuntu-latest[[:space:]]*$/{f=1} END{print (f?"yes":"no")}' "$CI745")"
 assert_eq "#745 ci.yml: the lint job carries no continue-on-error escape hatch" "0" \
-  "$(awk '/^  lint:/{inlint=1; next} /^  [A-Za-z0-9_-]+:/{inlint=0} inlint && /^[[:space:]]*continue-on-error:[[:space:]]*true/{n++} END{print n+0}' "$CI745")"
+  "$(awk '/^  lint:/{inlint=1; next} /^  [A-Za-z0-9_-]+:/{inlint=0} inlint && /^[[:space:]]*continue-on-error:/ && $0 !~ /:[[:space:]]*false[[:space:]]*$/{n++} END{print n+0}' "$CI745")"
 #
 # ── #717/#745 lib/test lint carve-out guard (lib/test/lint-carveout-guard.py) ──
 # The guard reads ci.yml, derives which lib/test/**/*.sh files CI lints, and fails
