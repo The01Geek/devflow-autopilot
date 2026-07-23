@@ -30716,10 +30716,13 @@ _wsr_build_baseline_corpus() {  # repo ref out file...
   : > "$out"
   local f blob
   for f in "$@"; do
-    if ! git -C "$repo" cat-file -e "${ref}:${f}" >/dev/null 2>&1; then
+    # One `git show` distinguishes all three states after the ref already resolved above: a
+    # missing blob makes it exit nonzero (NOBLOB); an existing-but-empty blob exits 0 with empty
+    # stdout (EMPTY); a normal blob exits 0 with content. The separate `cat-file -e` probe the
+    # first draft used was a redundant second git fork per file.
+    if ! blob="$(git -C "$repo" show "${ref}:${f}" 2>/dev/null)"; then
       printf 'NOBLOB:%s\n' "$f"; return 1
     fi
-    blob="$(git -C "$repo" show "${ref}:${f}" 2>/dev/null)"
     if [ -z "$blob" ]; then
       printf 'EMPTY:%s\n' "$f"; return 1
     fi
