@@ -36,6 +36,25 @@ allowances, recognized by a literal in the offending logical line:
 
 A detected form anywhere ELSE in an audited file is a failure.
 
+Worktree immunity (issue #711/#725) — the ASSERTION form, not an in-helper
+exclusion. The default enumeration is `git ls-files --cached --others
+--exclude-standard`, whose `--others` leg sweeps every sibling git worktree the
+harness parks under `.claude/worktrees/`, on any clone whose machine-local
+`.git/info/exclude` lacks the harness line. A worktree-nested path such as
+`.claude/worktrees/<w>/skills/implement/phases/phase-1-setup.md` is never
+reported all the same, because `is_audited` requires the `skills/implement/`
+prefix and that path fails it. That immunity is a PREFIX CONSEQUENCE, so — unlike
+`lint-gh-api-repo-path.py`, whose audited population is defined by exclusion and
+which therefore carries its own `.claude/worktrees/` line — this scanner does NOT
+duplicate that exclusion: widening `AUDITED_PREFIX` is a deliberate act, and the
+immunity is pinned by an assertion in `lib/test/run.sh` (the `#725` block) that
+plants a worktree-shaped decoy carrying a real re-fetch violation, drives it
+through `--files-from` (so no `.git/info/exclude` line has any say), proves the
+real helper does not report it, and proves the same decoy — with the helper's
+`AUDITED_PREFIX` widened in-process (importlib, so the shipped file's own sibling
+imports still resolve) — DOES report it, so the pin guards the prefix property,
+not a merely-deselected path.
+
 Detected re-fetch forms (at minimum these five):
   1. `gh issue view` requesting `body` in its `--json` field list.
   2. `gh issue view` with no `--json` at all (its default human output prints

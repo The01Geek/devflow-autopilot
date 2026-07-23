@@ -48442,6 +48442,116 @@ assert_pin_red_under "#693 hand-off only: the cache is reached by explicit path,
   's/never decides to use the cache by testing for the file in the tree/decides to use the cache by testing for the file in the tree/' \
   "$IBR_P1"
 
+echo "#725 worktree-immunity residuals pinned in the two remaining working-tree enumerations"
+# lint-issue-body-refetch.py takes the ASSERTION form (its worktree immunity is a PREFIX
+# consequence of is_audited, not an in-helper exclusion — widening AUDITED_PREFIX is a
+# deliberate act). Build a temp root carrying a worktree-shaped decoy that holds a real
+# re-fetch violation, drive it through --files-from so no .git/info/exclude line has any
+# say (AC2), and prove the real helper does NOT report it (AC1).
+E725_IBR_FX="$(probe_tmp '#725 ibr worktree fixture root')"
+case "$E725_IBR_FX" in ""|/dev/null) : ;; *) rm -f "$E725_IBR_FX"; mkdir -p "$E725_IBR_FX" ;; esac
+E725_IBR_DECOY=".claude/worktrees/w/skills/implement/phases/phase-1-setup.md"
+e711_write "$E725_IBR_FX" "$E725_IBR_DECOY" '```bash' 'gh issue view 725 --json body --jq .body' '```'
+assert_eq "#725 lint-issue-body-refetch does not report a worktree-shaped decoy (prefix immunity, AC1/AC2)" \
+  "rc=0|lint-issue-body-refetch: audited 0 of 0 files" \
+  "$(ibr_run "$E725_IBR_FX" "$E725_IBR_DECOY")"
+# AC3: the immunity is the prefix and nothing else. Widen the audited population by mutating
+# AUDITED_PREFIX to "" and prove the SAME decoy is now flagged — so the assertion above is
+# guarding the prefix property, not a path that merely happens to be deselected. This is the
+# mutation-against-the-guarded-property discipline (the #375 rule), applied to the helper's own
+# selection constant. The mutation runs the REAL helper file in-process (importlib), so its
+# sibling extract-command-heads.py import resolves against lib/test/ — a scratch copy in a temp
+# dir could not, and the mutation must exercise the shipped code, only with its prefix widened.
+assert_eq "#725 widening lint-issue-body-refetch's prefix reaches the decoy (mutation proves the pin, AC3)" "yes" \
+  "$(E725_IBR_FX="$E725_IBR_FX" E725_IBR_DECOY="$E725_IBR_DECOY" IBR_LINT="$IBR_LINT" python3 -c '
+import importlib.util, io, os, contextlib, tempfile
+fx = os.environ["E725_IBR_FX"]; decoy = os.environ["E725_IBR_DECOY"]
+lst = tempfile.mktemp()
+open(lst, "w").write(decoy + "\n")
+spec = importlib.util.spec_from_file_location("ibr", os.environ["IBR_LINT"])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+m.AUDITED_PREFIX = ""   # widen the audited population to reach the worktree-shaped decoy
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+    rc = m.main(["--root", fx, "--files-from", lst])
+out = buf.getvalue()
+os.unlink(lst)
+print("yes" if rc == 1 and decoy in out and "(gh-issue-view-body)" in out else "no: rc=%s | %s" % (rc, out))
+')"
+case "$E725_IBR_FX" in ""|/dev/null) : ;; *) rm -rf "$E725_IBR_FX" ;; esac
+
+# regenerate-artifacts.py takes the EXPLICIT-EXCLUSION form (its budget rows genuinely need
+# the working-tree read). Pin exclude_worktree_paths directly (fixture-driven, no git): a
+# worktree copy of a review-phase file is dropped while the real path is kept (AC4). A worktree
+# copy matches a watch glob from the right (PurePosixPath.match), so without this filter the
+# copy would enter the watch-list intersection and read as stale-budget drift.
+E725_RA_LINT="$LIB/test/regenerate-artifacts.py"
+assert_eq "#725 regenerate-artifacts drops a sibling-worktree path from the untracked set, keeps the real one (AC4)" \
+  "skills/review/phases/x.md" \
+  "$(python3 -c 'import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ra", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+got = m.exclude_worktree_paths({
+    ".claude/worktrees/w/skills/review/phases/x.md",
+    "skills/review/phases/x.md",
+})
+print(",".join(sorted(got)))' "$E725_RA_LINT")"
+
+# AC4 (contract): exclude_worktree_paths passes an unestablished (`None`) leg through as None.
+# `_git_paths` returns None when its git call failed, and budget_row's `is None` check is what
+# routes that to the `unestablished` arm. A filter that raised on None, or collapsed it onto an
+# empty set, would either abort the row or report a CLEAN record for a change set never read —
+# the repo's unknown-is-not-zero rule. Pinned so a second caller cannot re-derive the contract.
+assert_eq "#725 regenerate-artifacts exclude_worktree_paths passes an unestablished None leg through (AC4 contract)" \
+  "None" \
+  "$(python3 -c 'import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ra", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+print(repr(m.exclude_worktree_paths(None)))' "$E725_RA_LINT")"
+
+# AC4 (boundary): the filter is anchored at the START of the path, not a substring test. A real
+# repo path that merely CONTAINS the prefix (a directory literally named for it, or a sibling
+# suffix such as `.claude/worktrees-archive/`) is kept, while a deeper-nested worktree path is
+# dropped. A substring or over-broad predicate would silently deselect real changed files, which
+# reads as a clean budget record rather than as a failure.
+assert_eq "#725 regenerate-artifacts exclude_worktree_paths anchors at the path start, drops deep nesting (AC4 boundary)" \
+  ".claude/worktrees-archive/a.md,docs/.claude/worktrees/w/a.md" \
+  "$(python3 -c 'import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ra", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+got = m.exclude_worktree_paths({
+    "docs/.claude/worktrees/w/a.md",
+    ".claude/worktrees-archive/a.md",
+    ".claude/worktrees/w/deep/nested/skills/review/phases/x.md",
+})
+print(",".join(sorted(got)))' "$E725_RA_LINT")"
+
+# AC4 (integration): the exclude_worktree_paths pin above covers the function in isolation, but
+# the guarded regression is removal of its CALL SITE in budget_row (the function stays defined and
+# the isolated pin stays green). So drive the real budget_row over a monkeypatched change set whose
+# untracked leg carries a worktree copy of a watch-glob-matching review-phase file, against the
+# real repo root (so watch_list resolves its members with none missing). WITH the call-site filter
+# the copy is dropped and the row is clean; drop the filter and the copy matches the watch glob from
+# the right, enters the intersection, and the row reports JUDGMENT drift — so this pin turns RED on
+# the call-site removal the isolated pin cannot see.
+assert_eq "#725 regenerate-artifacts budget_row excludes a worktree copy from the untracked change set (AC4 call-site pin)" \
+  "clean:(False, False)" \
+  "$(E725_RA_LINT="$E725_RA_LINT" python3 -c '
+import importlib.util, os
+spec = importlib.util.spec_from_file_location("ra", os.environ["E725_RA_LINT"])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+root = m.default_repo_root()
+row = next(r for r in m.ROWS if r["name"] == "review-bundle-budget")
+decoy = ".claude/worktrees/w/skills/review/phases/decoy.md"
+def fake(root_, argv):
+    return {decoy} if argv == ("git", "ls-files", "--others", "--exclude-standard") else set()
+m._git_paths = fake
+report = []
+res = m.budget_row(row, root, report)
+verdict = "clean" if report and report[-1].lstrip().startswith("[review-bundle-budget] clean") else "drift"
+print("%s:%s" % (verdict, res))
+')"
+
 # #466 mla-rule-drift (coupled site): match-lint-adjudications.py excludes R4 from carry-forward
 # because R4's detail carries no referent. That exclusion is a DENY-list, so a NEW stale-prose
 # rule would silently inherit eligibility. Pin the lint's emitted STALE rule-id set: adding a
