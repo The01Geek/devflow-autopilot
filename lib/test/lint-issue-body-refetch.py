@@ -96,7 +96,6 @@ import argparse
 import importlib.util
 import os
 import re
-import subprocess
 import sys
 from pathlib import Path
 
@@ -107,6 +106,36 @@ _HEADS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "extract-
 _spec = importlib.util.spec_from_file_location("extract_command_heads", _HEADS_PATH)
 _heads = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_heads)
+
+# The population enumeration, the file reader, the `EnumerationError` fail-closed
+# contract, and the `--root` / `--files-from` preamble are shared with the other
+# `git ls-files` lints (issue #724), imported by path with the same idiom used for
+# `extract-command-heads.py` above. Assert the names this file uses at LOAD time so
+# a rename fails here naming the dependency, not mid-scan.
+_POP_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lint_population.py")
+_pop_spec = importlib.util.spec_from_file_location("lint_population", _POP_PATH)
+_pop = importlib.util.module_from_spec(_pop_spec)
+_pop_spec.loader.exec_module(_pop)
+_REQUIRED_POP_ATTRS = (
+    "EnumerationError", "enumerate_population", "read_source",
+    "add_population_arguments", "resolve_root", "LS_FILES_WORKING_TREE",
+)
+_pop_missing = [name for name in _REQUIRED_POP_ATTRS if not hasattr(_pop, name)]
+if _pop_missing:
+    raise SystemExit(
+        f"lint-issue-body-refetch: {_POP_PATH} no longer provides "
+        f"{', '.join(_pop_missing)}; refusing to audit"
+    )
+
+#: The shared fail-closed enumeration error, re-exported so `main`'s `except` clause
+#: names it locally.
+EnumerationError = _pop.EnumerationError
+
+#: This lint audits Markdown/source under `skills/implement/`; a NUL-carrying file
+#: (binary, UTF-16) is reported as a skip rather than scanned: `skip_nul=True`. The
+#: sibling `lint-tree-enumeration.py` passes `False` — the axis the shared reader
+#: exposes so neither needs a second copy.
+_SKIP_NUL = True
 
 #: The positive audited set: tracked files under this prefix.
 AUDITED_PREFIX = "skills/implement/"
@@ -134,64 +163,9 @@ _GH_VAR_HEAD = re.compile(r"^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$")
 _ISSUE_RESOURCE = re.compile(r"(^|/)issues/[^/]+/?$")
 
 
-class EnumerationError(Exception):
-    """The audited population could not be established. Always fails closed."""
-
-
-def enumerate_population(root: Path, files_from: Path | None) -> list[str]:
-    """Return the repo-relative paths to consider, before the prefix filter.
-
-    Raises `EnumerationError` when the source cannot be read or yields nothing —
-    the two arms that must never be mistaken for a clean audit.
-    """
-    if files_from is not None:
-        try:
-            raw = files_from.read_text(encoding="utf-8")
-        except OSError as exc:
-            raise EnumerationError(
-                f"--files-from list could not be read ({files_from}): {exc}"
-            ) from exc
-    else:
-        try:
-            proc = subprocess.run(
-                ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
-                cwd=str(root),
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-        except OSError as exc:
-            raise EnumerationError(f"git ls-files could not be run: {exc}") from exc
-        if proc.returncode != 0:
-            raise EnumerationError(
-                "git ls-files exited "
-                f"{proc.returncode}: {proc.stderr.strip() or '(no stderr)'}"
-            )
-        raw = proc.stdout
-
-    paths = [line.rstrip("\r\n") for line in raw.split("\n") if line.rstrip("\r\n")]
-    if not paths:
-        raise EnumerationError(
-            "the enumeration yielded zero paths before any filter was applied"
-        )
-    return paths
-
-
 def is_audited(path: str) -> bool:
     """True when `path` is inside the positive audited prefix."""
     return path.replace("\\", "/").startswith(AUDITED_PREFIX)
-
-
-def _read(path: Path) -> tuple[str | None, str | None]:
-    """Return `(text, skip_reason)` — exactly one of the two is None."""
-    try:
-        data = path.read_bytes()
-    except OSError as exc:
-        return None, f"unreadable ({exc.__class__.__name__}: {exc})"
-    text = data.decode("utf-8", errors="replace").replace("\r\n", "\n")
-    if "\x00" in text:
-        return None, "not a UTF-8-superset text file (NUL bytes — binary, UTF-16, or similar)"
-    return text, None
 
 
 def considered_lines(text: str, markdown: bool) -> list[tuple[int, str]]:
@@ -359,40 +333,17 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Fail when a cut-over site re-fetches the GitHub issue body (issue #693)."
     )
-    parser.add_argument(
-        "--root",
-        default=None,
-        help="repository root to enumerate and resolve paths against (default: the git toplevel, else the cwd)",
-    )
-    parser.add_argument(
-        "--files-from",
-        default=None,
-        help="read the population from this newline-separated path list instead of git ls-files",
-    )
+    _pop.add_population_arguments(parser)
     args = parser.parse_args(argv)
 
-    if args.root is not None:
-        root = Path(args.root)
-    else:
-        proc = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if proc.returncode == 0 and proc.stdout.strip():
-            root = Path(proc.stdout.strip())
-        else:
-            root = Path.cwd()
-            print(
-                "lint-issue-body-refetch: no git toplevel "
-                f"({proc.stderr.strip() or 'git rev-parse failed'}); "
-                f"resolving paths against the cwd {root}",
-                file=sys.stderr,
-            )
+    root = _pop.resolve_root(args.root, tool="lint-issue-body-refetch")
 
     try:
-        population = enumerate_population(root, Path(args.files_from) if args.files_from else None)
+        population = _pop.enumerate_population(
+            root,
+            Path(args.files_from) if args.files_from else None,
+            ls_files_argv=_pop.LS_FILES_WORKING_TREE,
+        )
     except EnumerationError as exc:
         print(f"lint-issue-body-refetch: enumeration unusable: {exc}", file=sys.stderr)
         return 1
@@ -403,7 +354,7 @@ def main(argv: list[str] | None = None) -> int:
     skipped: list[tuple[str, str]] = []
     read_ok = 0
     for relative in audited:
-        text, skip_reason = _read(root / relative)
+        text, skip_reason = _pop.read_source(root / relative, skip_nul=_SKIP_NUL)
         if text is None:
             skipped.append((relative, skip_reason or "unknown"))
             continue

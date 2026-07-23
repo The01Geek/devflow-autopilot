@@ -106,5 +106,10 @@ jobs:
 
       - name: ruff (python)
         run: |
-          python3 -m pip install --quiet ruff
+          # Pin ruff: an unpinned `pip install ruff` picked up 0.16.0 the day it
+          # released, whose expanded default ruleset (EXE001/PIE810/SIM102/TRY004/…)
+          # flagged ~645 pre-existing findings repo-wide and turned this job red on
+          # every branch at once. Pin to a known-green minor so a ruff release is an
+          # explicit, reviewable bump rather than a silent tree-wide breakage.
+          python3 -m pip install --quiet 'ruff==0.15.*'
           git ls-files '*.py' | xargs -r ruff check

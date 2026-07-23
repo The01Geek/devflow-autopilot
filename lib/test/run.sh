@@ -48824,6 +48824,102 @@ verdict = "clean" if report and report[-1].lstrip().startswith("[review-bundle-b
 print("%s:%s" % (verdict, res))
 ')"
 
+echo "#724 shared population reader (lint_population.py) — its own fail-closed arms, driven directly"
+# Three of the git ls-files lints (lint-tree-enumeration, lint-gh-api-repo-path,
+# lint-issue-body-refetch) now share one population reader (issue #724): the enumeration, the
+# EnumerationError fail-closed contract, the file reader, and the --root/--files-from preamble.
+# AC5 already re-runs every #664/#693/#711/#725 assertion through the callers; this block drives
+# the shared module's own arms directly, so a regression in lint_population.py that no caller
+# fixture happens to exercise still turns the suite RED here. All fixtures are self-contained
+# (a temp dir + --files-from lists), never the real tree, so no repo file count leaks in.
+E724_POP="$LIB/test/lint_population.py"
+assert_eq "#724 lint_population is importable and exposes its contract surface" \
+  "EnumerationError enumerate_population read_source add_population_arguments resolve_root LS_FILES_INDEX LS_FILES_WORKING_TREE" \
+  "$(E724_POP="$E724_POP" python3 -c '
+import importlib.util, os
+s = importlib.util.spec_from_file_location("lint_population", os.environ["E724_POP"])
+m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
+names = ["EnumerationError","enumerate_population","read_source","add_population_arguments","resolve_root","LS_FILES_INDEX","LS_FILES_WORKING_TREE"]
+print(" ".join(n for n in names if hasattr(m, n)))
+')"
+# The two ls-files argv presets are the parameterisation axis (AC2): they must differ, and the
+# index preset must carry no --others (its worktree immunity is exactly that absence).
+assert_eq "#724 the index and working-tree ls-files presets are distinct, and only the working-tree one lists untracked files" \
+  "index=('git', 'ls-files') wt-has-others=True index-has-others=False distinct=True" \
+  "$(E724_POP="$E724_POP" python3 -c '
+import importlib.util, os
+s = importlib.util.spec_from_file_location("lint_population", os.environ["E724_POP"])
+m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
+print("index=%r wt-has-others=%s index-has-others=%s distinct=%s" % (
+  tuple(m.LS_FILES_INDEX), "--others" in m.LS_FILES_WORKING_TREE,
+  "--others" in m.LS_FILES_INDEX, m.LS_FILES_INDEX != m.LS_FILES_WORKING_TREE))
+')"
+# enumerate_population fail-closed arms: an unreadable --files-from, an empty population, and a
+# failing ls-files argv each raise EnumerationError (never a silent empty list read as clean).
+assert_eq "#724 enumerate_population fails closed on unreadable/empty/failing-argv" \
+  "unreadable=EnumerationError empty=EnumerationError badargv=EnumerationError" \
+  "$(E724_POP="$E724_POP" python3 -c '
+import importlib.util, os, tempfile
+from pathlib import Path
+s = importlib.util.spec_from_file_location("lint_population", os.environ["E724_POP"])
+m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
+d = tempfile.mkdtemp()
+def arm(fn):
+    try:
+        fn(); return "no-raise"
+    except m.EnumerationError: return "EnumerationError"
+    except Exception as e: return "wrong:%s" % type(e).__name__
+u = arm(lambda: m.enumerate_population(Path(d), Path(d)/"nope.txt", ls_files_argv=m.LS_FILES_INDEX))
+empty = Path(d)/"empty.txt"; empty.write_text("")
+e = arm(lambda: m.enumerate_population(Path(d), empty, ls_files_argv=m.LS_FILES_INDEX))
+# A ls-files argv naming a git subcommand that exits non-zero drives the returncode!=0 arm.
+b = arm(lambda: m.enumerate_population(Path(d), None, ls_files_argv=("git","ls-files","--no-such-flag")))
+print("unreadable=%s empty=%s badargv=%s" % (u, e, b))
+')"
+# read_source: the NUL policy is the caller-selected axis (AC3). skip_nul=True reports a
+# NUL-carrying file as a skip; skip_nul=False keeps it and scans to completion; an unopenable
+# path is always a reported skip under either policy.
+assert_eq "#724 read_source honors the NUL policy axis and always reports an unopenable path" \
+  "nul-skip=skipped nul-keep=kept-with-nul unreadable=skipped" \
+  "$(E724_POP="$E724_POP" python3 -c '
+import importlib.util, os, tempfile
+from pathlib import Path
+s = importlib.util.spec_from_file_location("lint_population", os.environ["E724_POP"])
+m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
+d = tempfile.mkdtemp(); f = Path(d)/"nul.bin"; f.write_bytes(b"head\x00tail")
+skip = m.read_source(f, skip_nul=True)
+keep = m.read_source(f, skip_nul=False)
+un = m.read_source(Path(d)/"nope", skip_nul=False)
+print("nul-skip=%s nul-keep=%s unreadable=%s" % (
+  "skipped" if skip[0] is None and "NUL" in skip[1] else "NO",
+  "kept-with-nul" if keep[0] is not None and "\x00" in keep[0] else "NO",
+  "skipped" if un[0] is None and un[1].startswith("unreadable") else "NO"))
+')"
+# resolve_root: an explicit --root wins verbatim; with none, a non-git root falls back to the
+# cwd and announces it under the caller-supplied tool name (never a silent default, #295).
+assert_eq "#724 resolve_root honors an explicit root and, in a non-git dir, falls back to cwd with a tool-named breadcrumb" \
+  "explicit=ok fallback=cwd breadcrumb=named" \
+  "$(E724_POP="$E724_POP" python3 -c '
+import importlib.util, io, os, tempfile, contextlib
+from pathlib import Path
+s = importlib.util.spec_from_file_location("lint_population", os.environ["E724_POP"])
+m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
+expl = m.resolve_root("/some/explicit/root", tool="unit-test")
+d = tempfile.mkdtemp(); cwd = os.getcwd()
+try:
+    os.chdir(d)  # a bare temp dir is not a git repo, so rev-parse fails and cwd is the fallback
+    buf = io.StringIO()
+    with contextlib.redirect_stderr(buf):
+        got = m.resolve_root(None, tool="unit-test")
+    err = buf.getvalue()
+finally:
+    os.chdir(cwd)
+print("explicit=%s fallback=%s breadcrumb=%s" % (
+  "ok" if expl == Path("/some/explicit/root") else "NO:%s" % expl,
+  "cwd" if got == Path(d).resolve() or got == Path(d) else "NO:%s" % got,
+  "named" if err.startswith("unit-test: no git toplevel") else "NO:%s" % err))
+')"
+
 # #466 mla-rule-drift (coupled site): match-lint-adjudications.py excludes R4 from carry-forward
 # because R4's detail carries no referent. That exclusion is a DENY-list, so a NEW stale-prose
 # rule would silently inherit eligibility. Pin the lint's emitted STALE rule-id set: adding a
