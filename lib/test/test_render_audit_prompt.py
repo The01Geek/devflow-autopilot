@@ -679,6 +679,257 @@ class TemplateFileOwnership(unittest.TestCase):
             self.assertIn(lit, t, lit)
 
 
+class DispatchInstructions(unittest.TestCase):
+    """Issue #709: the canonical audit-DISPATCH instruction render.
+
+    Its whole value rests on two properties the audit-prompt modes do not need:
+    determinism (the state owner regenerates these bytes and compares digests, so any
+    run-varying token would false-alarm every clean audit) and title-from-the-draft-file
+    (the security contract forbids drafter free text on a command line).
+    """
+
+    def _render(self, root, title="# A drafted title", extra_body="body\n", **over):
+        draft = root / "issue-draft-x.md"
+        draft.write_text(f"{title}\n\n{extra_body}", encoding="utf-8")
+        args = [
+            "dispatch-instructions", "--slug", over.get("slug", "x"),
+            "--draft-path", str(draft),
+            "--instructions-path", str(root / "issue-audit-dispatch-x.md"),
+        ]
+        return draft, run_renderer(args)
+
+    def test_D1_renders_with_positional_markers(self):
+        with tempfile.TemporaryDirectory() as td:
+            _, got = self._render(Path(td))
+            self.assertEqual(got.returncode, 0, got.stderr)
+            lines = got.stdout.splitlines()
+            self.assertTrue(lines[0].startswith("dispatch-instructions:"), lines[0])
+            self.assertEqual(lines[-1], "render-end:")
+
+    def test_D2_title_is_read_from_the_draft_file(self):
+        # The title reaches the render, and it reaches it from the FILE — no --title
+        # argument exists, which is the security contract this asserts by construction.
+        with tempfile.TemporaryDirectory() as td:
+            _, got = self._render(Path(td), title="# Uniquely Titled Draft")
+            self.assertIn("Uniquely Titled Draft", got.stdout)
+            self.assertNotIn("--title", run_renderer(["--help"]).stdout)
+
+    def test_D3_deterministic_across_runs(self):
+        with tempfile.TemporaryDirectory() as td:
+            _, a = self._render(Path(td))
+            _, b = self._render(Path(td))
+            self.assertEqual(a.stdout, b.stdout)
+
+    def test_D4_title_substituted_last_is_not_rescanned(self):
+        # A title carrying a literal slot token must survive verbatim, never be treated
+        # as a slot — the same substituted-last discipline {CONSUMER_DIMENSIONS} has.
+        with tempfile.TemporaryDirectory() as td:
+            _, got = self._render(Path(td), title="# Title with {DRAFT_PATH} inside")
+            self.assertIn("Title with {DRAFT_PATH} inside", got.stdout)
+
+    def test_D5_reads_no_consumer_extension(self):
+        # A consumer extension must not reach these bytes: the digest would then depend
+        # on a file the dispatch does not carry, so a consumer edit between dispatch and
+        # return would withhold every clean audit in that repo. Driven through the
+        # explicit --extension-file override rather than an on-disk extension, so the row
+        # proves the mode IGNORES a consumer section it was pointed straight at, not
+        # merely that path resolution happened to miss one.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ext = write_ext(root, "## Audit dimensions\n\n- CONSUMER-MARKER\n")
+            draft = root / "issue-draft-x.md"
+            draft.write_text("# A drafted title\n\nbody\n", encoding="utf-8")
+            base = ["dispatch-instructions", "--slug", "x", "--draft-path", str(draft),
+                    "--instructions-path", str(root / "i.md")]
+            plain = run_renderer(base)
+            withext = run_renderer(base + ["--extension-file", str(ext)])
+            self.assertNotIn("CONSUMER-MARKER", plain.stdout)
+            self.assertEqual(plain.stdout, withext.stdout)
+
+    def test_D6_carries_the_authorized_set(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            draft, got = self._render(root)
+            for lit in (
+                str(draft),                                   # the draft path
+                "render-audit-prompt.py file --slug",         # the renderer invocation
+                "audit-prompt-template.md",                   # the template-file path
+                "render-status:",                             # the positional marker rule
+                "out of bounds",                              # the out-of-bounds declaration
+                "instructions-object-id:",                    # the return contract
+                "extra-dispatch-content:",
+                str(root / "issue-audit-dispatch-x.md"),      # the file to hash
+            ):
+                self.assertIn(lit, got.stdout, lit)
+
+    def test_D7_fail_closed_arms(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            # A draft whose first non-blank line is not a `# ` heading has no
+            # establishable title, so the render fails rather than emitting a
+            # title-less file that would hash cleanly while carrying less than the
+            # authorized set.
+            _, no_title = self._render(root, title="## Not a title")
+            self.assertEqual(no_title.returncode, 1)
+            self.assertEqual(no_title.stdout, "")
+            self.assertIn("title", no_title.stderr)
+            # An unreadable draft, and each missing required argument.
+            for args in (
+                ["dispatch-instructions", "--slug", "x", "--draft-path",
+                 str(root / "absent.md"), "--instructions-path", str(root / "i.md")],
+                ["dispatch-instructions", "--slug", "x",
+                 "--instructions-path", str(root / "i.md")],
+                ["dispatch-instructions", "--draft-path", str(root / "d.md"),
+                 "--instructions-path", str(root / "i.md")],
+            ):
+                got = run_renderer(args)
+                self.assertNotEqual(got.returncode, 0, args)
+                self.assertEqual(got.stdout, "", args)
+                self.assertTrue(got.stderr.strip(), args)
+            # A draft file present but with an absent --instructions-path argument.
+            draft = root / "d2.md"
+            draft.write_text("# T\n\nb\n", encoding="utf-8")
+            got = run_renderer(["dispatch-instructions", "--slug", "x",
+                                "--draft-path", str(draft)])
+            self.assertEqual((got.returncode != 0, got.stdout), (True, ""))
+
+    def test_D9_instructions_bytes_equals_the_real_cli_stdout(self):
+        # The producer owns its on-disk framing (issue #709). issue-audit-state.py
+        # regenerates through `instructions_bytes`, so if that ever stopped equalling
+        # what the CLI writes, every clean audit would silently go unestablished. This
+        # row is the coupling that makes such a drift RED instead of silent.
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("rap_under_test", RENDERER)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            draft = root / "issue-draft-x.md"
+            draft.write_text("# A drafted title\n\nbody\n", encoding="utf-8")
+            instr = root / "issue-audit-dispatch-x.md"
+            cli = run_renderer([
+                "dispatch-instructions", "--slug", "x",
+                "--draft-path", str(draft), "--instructions-path", str(instr),
+            ])
+            self.assertEqual(cli.returncode, 0, cli.stderr)
+            lib = mod.instructions_bytes(
+                mod._default_template_path(), "x", str(draft), str(instr),
+                draft.read_text(encoding="utf-8"),
+            )
+            self.assertEqual(lib, cli.stdout.encode("utf-8"))
+
+    def test_D11_a_template_with_no_di_block_fails_closed(self):
+        """The `di` token selecting nothing is a loud failure, never an empty render.
+
+        `_assemble`'s emptiness arm is the only thing standing between a template edit
+        that renames or drops the `di` block and a run whose every file-arm round lands
+        on `regeneration-failed` with no explanation of why.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpl = Path(tmp, "no-di.md")
+            tmpl.write_text(
+                "<!-- render-block: file -->\nonly the file arm lives here\n",
+                encoding="utf-8")
+            draft = Path(tmp, "d.md")
+            draft.write_text("# T\n\nbody\n", encoding="utf-8")
+            got = run_renderer(["dispatch-instructions", "--slug", "x",
+                                "--draft-path", str(draft),
+                                "--instructions-path", str(Path(tmp, "i.md")),
+                                "--template-file", str(tmpl)])
+            self.assertNotEqual(0, got.returncode)
+            self.assertEqual("", got.stdout)
+            self.assertIn("di", got.stderr)
+
+    def test_D10_title_rule_agrees_with_the_state_owner_body_split(self):
+        # draft_title and issue-audit-state.py's split_body are a COUPLED MIRROR of one
+        # decided title rule: the body is defined as everything the title is not. They
+        # cannot share an implementation (one takes str, the other bytes, and the state
+        # owner must not import the renderer on its always-run body-digest path), so
+        # this row is the coupling. A divergence would break either the body digest or
+        # the instruction digest, silently.
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("rap_under_test2", RENDERER)
+        rap = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(rap)
+        spec2 = importlib.util.spec_from_file_location(
+            "ias_under_test", REPO / "scripts" / "issue-audit-state.py")
+        ias = importlib.util.module_from_spec(spec2)
+        spec2.loader.exec_module(ias)
+        for text, has_title in (
+            ("# T\n\nbody\n", True),
+            ("\n\n# T\nbody\n", True),      # leading blank lines skipped
+            ("#\n\nbody\n", True),           # a bare '#' is a title (empty)
+            ("## T\n\nbody\n", False),       # a '##' first line means no title
+            ("plain\n", False),
+        ):
+            body = ias.split_body(text.encode("utf-8")).decode("utf-8")
+            if has_title:
+                # The title line was consumed by BOTH: the renderer lifts it, and the
+                # state owner's body excludes it.
+                rap.draft_title(text)
+                self.assertNotIn(text.strip().splitlines()[0], body, text)
+            else:
+                # No title heading: the renderer refuses, and the body is the whole text.
+                with self.assertRaises(rap.RenderError, msg=text):
+                    rap.draft_title(text)
+                self.assertEqual(body, text, text)
+
+    def test_D8_audit_prompt_arms_still_carry_no_title(self):
+        # The relocation is scoped: the file/embed/inline/checklist renders must not have
+        # gained the title along with the di blocks.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            draft = root / "issue-draft-x.md"
+            draft.write_text("# Uniquely Titled Draft\n\nbody\n", encoding="utf-8")
+            got = run_renderer(["file", "--slug", "x", "--draft-path", str(draft)])
+            self.assertEqual(got.returncode, 0, got.stderr)
+            self.assertNotIn("Uniquely Titled Draft", got.stdout)
+
+    def test_D11_the_dispatch_pointer_is_generated_not_authored(self):
+        # AC4 requires the Agent-tool prompt string to be a CANONICALLY-GENERATED pointer,
+        # and four shipped surfaces state it as fact. Nothing generated it until #718: the
+        # orchestrator composed it freehand under a "name only the two paths" rule, so the
+        # claim was false and the auditor's extra-dispatch-content judgment had no
+        # reference form to compare its received message against. The render now emits the
+        # exact pointer line, with both paths substituted.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            draft = root / "issue-draft-ptr.md"
+            instr = root / "issue-audit-dispatch-ptr.md"
+            draft.write_text("# Pointer Row Draft\n\nbody\n", encoding="utf-8")
+            got = run_renderer(["dispatch-instructions", "--slug", "ptr",
+                                "--draft-path", str(draft),
+                                "--instructions-path", str(instr)])
+            self.assertEqual(got.returncode, 0, got.stderr)
+            pointer = [ln for ln in got.stdout.splitlines()
+                       if ln.strip().startswith("dispatch-pointer:")]
+            self.assertEqual(len(pointer), 1, "exactly one generated pointer line")
+            # Both paths really substituted — an unsubstituted slot would ship a pointer
+            # naming a literal placeholder, which is worse than composing it freehand.
+            self.assertIn(str(draft), pointer[0])
+            self.assertIn(str(instr), pointer[0])
+            self.assertNotIn("{DRAFT_PATH}", pointer[0])
+            self.assertNotIn("{INSTRUCTIONS_PATH}", pointer[0])
+            # The pointer sits INSIDE the positional markers and at the END of the
+            # block, so a tail-cut delivery that loses it also loses `render-end:` and
+            # fails the positional check rather than silently shipping a pointerless
+            # instruction file. Assert the ORDERING, not merely that the render ends with
+            # the marker — `render-end:` terminates every render regardless of where the
+            # pointer sits, so the bare end-marker check is a tautology with respect to
+            # this property (moving the pointer to the top of the block left it passing).
+            lines = got.stdout.rstrip("\n").splitlines()
+            self.assertEqual(lines[-1], "render-end:")
+            pointer_at = next(i for i, ln in enumerate(lines)
+                              if ln.strip().startswith("dispatch-pointer:"))
+            self.assertGreater(
+                pointer_at, len(lines) - 6,
+                "the pointer must sit at the END of the block, immediately before the "
+                "terminal marker, so a tail cut cannot drop it while leaving the render "
+                "positionally valid")
+
+
 class EnumerateDimensions(unittest.TestCase):
     """issue #708 — the canonical keyed effective-dimension enumeration.
 

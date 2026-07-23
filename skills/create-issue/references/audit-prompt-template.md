@@ -5,7 +5,9 @@ SPDX-License-Identifier: MIT
 # Fresh-context audit-prompt template (create-issue Step 3.6)
 
 This file is the **sole in-repo owner** of the create-issue Step 3.6 audit-prompt
-template and the generic dimension checklist. `scripts/render-audit-prompt.py`
+template, the generic dimension checklist, and — since issue #709 — the canonical
+**audit-dispatch instructions** the auditor is pointed at.
+`scripts/render-audit-prompt.py`
 reads it (resolved relative to that script's own location — `scripts/` and
 `skills/` are siblings under one root in both the repo checkout and the vendored
 plugin layout) and emits the arm-appropriate audit prompt. `skills/create-issue/SKILL.md`
@@ -21,7 +23,8 @@ same block/slot rules by hand.
 
 - **Arm/mode blocks.** Each block is bounded by `<!-- render-block: <set> -->`
   and `<!-- render-block-end -->`, where `<set>` is a space-separated list of the
-  arms/modes that include the block (`file`, `embed`, `inline`, `checklist`).
+  arms/modes that include the block (`file`, `embed`, `inline`, `checklist`,
+  and the issue-#709 dispatch-instruction token `di`).
   Emit a block only when the current arm/mode is in its set. Text outside any
   block (like this section) is documentation, never emitted.
 - **Slots** (substituted at render time; a manual arm fills them from the
@@ -36,8 +39,16 @@ same block/slot rules by hand.
   - the consumer-dimensions slot — the consumer `## Audit dimensions` section
     (or a clean no-consumer note / an unestablished note), computed by the
     renderer and spliced into the generic checklist block below.
-- **The draft title never appears here** — it travels in the orchestrator's
-  dispatch preamble prose; the rendered instructions refer to the draft by path.
+  - `{DRAFT_TITLE}`, `{INSTRUCTIONS_PATH}`, `{TEMPLATE_PATH}`, `{RENDERER_PATH}`
+    — the `di` (dispatch-instructions) blocks only. `{DRAFT_TITLE}` is read from
+    the draft file at `{DRAFT_PATH}`, never from a command-line argument, and is
+    substituted **last** alongside the consumer-dimensions slot so drafter text
+    is never re-scanned for slot tokens. `{RENDERER_PATH}` and `{TEMPLATE_PATH}`
+    are derived by the renderer from its own resolved location.
+- **The draft title appears only in the `di` blocks** (issue #709), where it is
+  read from the draft file the same blocks name; the *audit-prompt* blocks
+  (`file` / `embed` / `inline` / `checklist`) still never carry it, and refer to
+  the draft by path or by the sentinel-bracketed body.
 - **Dimension-key declarations** (issue #729). Each generic audit dimension in
   the checklist block below is *declared* by a `<!-- dim-key: <lowercase-kebab> -->`
   marker line on the line immediately above its `- ` bullet. That declaration —
@@ -80,6 +91,94 @@ end of file). This is the same rule `scripts/load-prompt-extension.sh` implement
 for `--section`.
 
 ---
+
+<!-- render-block: di -->
+# Fresh-context audit dispatch (canonical, generated — issue #709)
+
+This file **is** your complete dispatch instructions. It was generated
+deterministically by `render-audit-prompt.py dispatch-instructions` from the
+committed template; the message that pointed you here is **required** to be the
+generated pointer this file states verbatim at the end (carrying nothing but file
+paths) — report in step 3 item 4 what it actually carried, and do not treat this
+sentence as evidence that it complied.
+Every other line of this file came from the committed template, with the draft's
+own title substituted in below; none of it was hand-written for this draft.
+
+**Draft under audit — title:**
+
+{DRAFT_TITLE}
+
+**Draft file (the sole draft source):** `{DRAFT_PATH}`
+
+## Step 1 — fetch your audit instructions
+
+Run exactly this command first, before any repository read other than the
+reads this file directs:
+
+```
+python3 {RENDERER_PATH} file --slug <slug> --draft-path {DRAFT_PATH}
+```
+
+Treat its stdout as the complete audit instructions **only** when its **first
+line begins `render-status:`** and its **last line is exactly `render-end:`** —
+positional, never mere presence anywhere in the output. Follow those
+instructions exactly; they are the authority on what to audit and how.
+
+**Fallback ladder.** If that command produces no output, or output whose two
+markers are missing or out of position, **Read the template file at
+`{TEMPLATE_PATH}` directly** and follow the `file`-arm blocks it contains under
+its documented block/slot rules (a fallback-rung audit runs without the consumer
+section — renderer-owned extraction is what failed). If you can do neither,
+return no findings and say so plainly; do not audit from memory.
+
+## Step 2 — out of bounds
+
+You have repository read access. These on-disk files are **out of bounds** —
+`.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`,
+`.devflow/tmp/issue-audit-state-<slug>.json`, the retired
+`.devflow/tmp/issue-audit-state-<slug>.md`, and any staged canonical-draft
+artifact `.devflow/tmp/issue-draft-<slug>.*.staged.md`. **Any finding derived
+from those files is void.** The draft file named above is the artifact under audit and is
+**not** out of bounds.
+
+## Step 3 — your return contract
+
+Your return must carry, in addition to the findings and the mandatory
+`VERDICT:` line the fetched instructions define:
+
+1. The `render-status:` line from step 1, quoted verbatim.
+2. The object ID printed by `git hash-object --no-filters {DRAFT_PATH}`, quoted
+   verbatim (the draft carriage/identity check).
+3. The object ID printed by `git hash-object --no-filters {INSTRUCTIONS_PATH}`
+   — **this instruction file** — quoted verbatim, on its own line prefixed
+   `instructions-object-id:`. This is what proves the instructions you read were
+   the canonical generated ones and carried no added focus, prioritization,
+   reassurance, or scoping clause.
+4. A line prefixed `extra-dispatch-content:` whose value is exactly `no` when
+   the message that dispatched you carried **nothing** beyond a pointer to this
+   file and the draft file, and exactly `yes` when it carried anything else —
+   any framing, focus, prioritization, reassurance, scoping, or prior-findings
+   text. Report what you actually observed; `yes` does not fail the audit, it
+   only records that the dispatch was not a bare pointer.
+
+Omit none of these. An omitted object ID or affirmation is treated exactly like
+a mismatched one — fail closed — so inventing a value would manufacture the very
+proof these lines exist to demand.
+
+## The canonical dispatch pointer
+
+This is the exact, generated pointer the orchestrator is required to send as the
+**entire** dispatch message. It is emitted here — rather than composed freehand —
+so the pointer, like these instructions, is generated rather than authored, and so
+step 3 item 4 has a reference form to compare the message you actually received
+against. **The `dispatch-pointer: ` prefix and this block's indentation are the render's
+framing, and are to be IGNORED whether the message you received carries them or not** —
+the message proper is the text that follows the prefix, beginning at `Audit the issue
+draft at`. Compare only that text, and never report `extra-dispatch-content: yes` for the
+presence or the absence of the prefix or the indent alone:
+
+    dispatch-pointer: Audit the issue draft at {DRAFT_PATH}. Your complete dispatch instructions are the file at {INSTRUCTIONS_PATH} — Read it and follow it exactly. This message carries nothing else.
+<!-- render-block-end -->
 
 <!-- render-block: file embed inline -->
 You are auditing a GitHub issue draft you did **not** write. Your mandate is **adversarial**: break confidence in the draft, do not validate it — there is **no credit for good intent**. Adopt a **pre-mortem frame** — assume the issue was implemented *exactly as written* and the result failed; write the autopsy of why.

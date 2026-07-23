@@ -8,12 +8,12 @@ kind: growth
 Two **mandatory** rows grow in this diff (issue #729, PR #732):
 
 - `skills/create-issue/references/step-3-6-audit.md` — group `create-issue-flow`,
-  +295 bytes (68,420 → 68,715).
+  +295 bytes (74,465 → 74,760).
 - `.devflow/prompt-extensions/create-issue.md` — group `extensions`, +451 bytes
   (23,419 → 23,870).
 
-`skills/create-issue/references/audit-prompt-template.md` also grows (+780 bytes,
-15,027 → 15,807), but its row is class `reference` (`conditional-references`), so it
+`skills/create-issue/references/audit-prompt-template.md` also grows (+2,941 bytes,
+18,826 → 21,767), but its row is class `reference` (`conditional-references`), so it
 is untolled by the Review gate and is recorded here only so the baseline diff reads
 completely.
 

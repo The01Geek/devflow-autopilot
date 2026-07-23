@@ -605,8 +605,10 @@ for _m600 in \
   assert_eq "#600 absence: moved audit-prompt sentence left the SKILL ($_m600)" "0" \
     "$(grep -cF "$_m600" "$CI_BUNDLE")"
 done
-# The SKILL carries the compact-preamble transport contract (five categories,
-# the renderer invocation, and the positional two-marker delivery check).
+# The SKILL carries the dispatch transport contract (five consumption categories and
+# the positional two-marker delivery check). Since issue #709 arm (i)'s transport is the
+# generated-instructions one and the renderer invocation itself lives in the generated
+# instructions, not in this prose — its pin moved with it, below.
 # Phase 0.6 tags the "complete by construction" consumption-categories sentence as a
 # count-locked claim, so bind the count to an assertion (the repo's pin-or-don't-write
 # policy): if a sixth consumption category is added without amending the enumeration,
@@ -616,8 +618,56 @@ devflow_module_pin_unique "#600: the consumption-categories enumeration reaches 
   '(v) The **`state-owner unavailable` fallback' "$CI_BUNDLE"
 assert_eq "#600: the consumption-categories enumeration has no sixth member (complete-by-construction claim stays true)" \
   "0" "$(devflow_module_pin_count '(vi)' "$CI_BUNDLE")"
-devflow_module_pin_unique "#600: SKILL invokes render-audit-prompt.py on the file arm" \
-  'render-audit-prompt.py file --slug' "$CI_BUNDLE"
+# issue #709 relocated this invocation out of the skill prose and into the canonical
+# dispatch-instruction blocks the generator emits, so the pin follows the content to the
+# template. The guarded regression is unchanged: the auditor is still told to run the
+# renderer on the file arm, and dropping that instruction still turns this RED.
+# The template assembles this invocation from a slot ({RENDERER_PATH}), so it lives on no
+# single SOURCE line: pin the RENDERED surface instead, per the #375 wrapped-literal rule.
+# Rendering it here also proves the mode is invocable at all — a fixture draft in, canonical
+# instructions out — which a source grep cannot establish.
+CI709_DRAFT="$_ci_tmp_root/issue-draft-ci709.md"
+CI709_RENDER="$_ci_tmp_root/di-render-ci709.md"
+printf '# Pinned fixture draft title\n\nfixture body\n' > "$CI709_DRAFT"
+python3 "$CI_ROOT/scripts/render-audit-prompt.py" dispatch-instructions --slug ci709 \
+  --draft-path "$CI709_DRAFT" --instructions-path "$_ci_tmp_root/i-ci709.md" \
+  > "$CI709_RENDER" 2>/dev/null || : > "$CI709_RENDER"
+assert_eq "#709: the dispatch-instructions mode renders for a well-formed file-arm draft" \
+  "yes" "$([ -s "$CI709_RENDER" ] && echo yes || echo no)"
+devflow_module_pin_unique "#600/#709: the auditor is told to invoke render-audit-prompt.py on the file arm" \
+  'render-audit-prompt.py file --slug' "$CI709_RENDER"
+# ── issue #709: the generated-instructions transport contract ──────────────────
+# These are STRUCTURAL contract-presence pins: the operative gate lives in the Python
+# state owner and is driven end-to-end in lib/test/test_python_scripts.py's #709 rows
+# (including the planted-steering positive controls), so removing any literal below
+# breaks no behavioral guarantee the suite otherwise proves — it removes the skill-side
+# instruction that makes the gate reachable, which is a prose-presence property.
+devflow_module_pin_unique "#709: the dispatch prompt is a generated pointer, not freehand prose" \
+  'the Agent-tool prompt string is a **generated pointer**' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the behavioral gate is proven by the #709 state-owner rows
+devflow_module_pin_unique "#709: the skill invokes the dispatch-instructions generator" \
+  'render-audit-prompt.py dispatch-instructions --slug' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the behavioral gate is proven by the #709 state-owner rows
+devflow_module_pin_unique "#709: the closed regeneration inputs are forwarded at dispatch" \
+  '--instructions-file "<instructions path>" --instructions-draft-path' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the behavioral gate is proven by the #709 state-owner rows
+devflow_module_pin_unique "#709: an absent auditor value is never invented" \
+  'Omit either flag when the return carried no such line' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the behavioral gate is proven by the #709 state-owner rows
+devflow_module_pin_unique "#709: the residual is disclosed as narrowed, never proven clean" \
+  'The mechanism narrows the wrapper channel; it does not close it.' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the behavioral gate is proven by the #709 state-owner rows
+devflow_module_pin_unique "#709: a clean audit is never described as provably steering-free" \
+  'Never describe a clean audit as provably steering-free.' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the behavioral gate is proven by the #709 state-owner rows
+devflow_module_pin_unique "#709: withhold-then-disclose never blocks filing" \
+  '**Filing is never blocked on any arm.**' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the behavioral gate is proven by the #709 state-owner rows
+# The Information-diet omission rule and the out-of-bounds declaration are PRESERVED by the
+# cutover, not superseded by it — the narrow scope is the whole point, so pin that they
+# survived rather than trusting the diff review to have noticed their absence.
+devflow_module_pin_unique "#709: the cutover preserved the information-diet omission rule" \
+  'It **omits the drafting conversation, the Step 1 findings report, and the Step 2 derivation artifact**' "$CI_BUNDLE"  # structural-pin-ok: preservation pin over prose the #709 cutover must not remove
+devflow_module_pin_unique "#709: the cutover preserved the out-of-bounds declaration" \
+  'reasoning artifacts out of bounds' "$CI_BUNDLE"  # structural-pin-ok: preservation pin over prose the #709 cutover must not remove
+devflow_module_pin_unique "#709: Step 4 renders the steering marker on the audit-summary line" \
+  'audit independence unestablished' "$CI_ROOT/skills/create-issue/references/step-4-present-create.md"  # structural-pin-ok: contract-presence over skill prose; the behavioral gate is proven by the #709 state-owner rows
+devflow_module_pin_unique "#709: the withheld state routes through the existing re-audit offer" \
+  'takes this same sanctioned path' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the behavioral gate is proven by the #709 state-owner rows
+
 devflow_module_pin_unique "#600: SKILL states the positional two-marker delivery check" \
   'first line begins `render-status:`' "$CI_BUNDLE"
 devflow_module_pin_unique "#600: SKILL derives the appended flag from the auditor returned quote" \
@@ -1724,7 +1774,7 @@ PY614W
 # edit, and the ratchet-legality assertions below already tie each ceiling to its LIVE
 # measurement. docs/create-issue-budget.md is the sole home of the measured figures.
 CI614_ROOT_CEIL=2754
-CI614_DEFAULT_CEIL=34249
+CI614_DEFAULT_CEIL=33917
 # One comparison shape, shared by both ceilings and by the positive control below, so the
 # three sites cannot drift. An EMPTY measured value reads `no` (fail-closed): a word count
 # that could not be established is never treated as under the ceiling.
@@ -1791,7 +1841,7 @@ for _ci614_ref in $CI614_REFS; do
   CI614_TOTAL_SET+=("$CI_ROOT/skills/create-issue/references/$_ci614_ref.md")
 done
 CI614_TOTAL_W="$(ci614_words "${CI614_TOTAL_SET[@]}")"
-CI614_TOTAL_RECORDED=28182   # docs/create-issue-budget.md, root + all 9 references (issue #729 re-centre)
+CI614_TOTAL_RECORDED=29639   # docs/create-issue-budget.md, root + all 9 references (issue #729 merge re-record)
 assert_eq "#614 T3: the root+references total is within +/-2% of the recorded conservation figure (a silent DROP is as RED as a rise)" \
   "yes" "$({ [ -n "$CI614_TOTAL_W" ] \
     && [ "$CI614_TOTAL_W" -ge "$(( CI614_TOTAL_RECORDED * 98 / 100 ))" ] \
@@ -1836,7 +1886,7 @@ devflow_module_pin_unique "#614 T3: the budget doc records the ratchet-down-only
 devflow_module_pin_unique "#614 T3: the budget doc names the root ceiling the suite enforces" \
   'Root ceiling: **2,754 words**' "$CI_ROOT/docs/create-issue-budget.md"
 devflow_module_pin_unique "#614 T3: the budget doc names the default-path ceiling the suite enforces" \
-  'Default-path ceiling: **34,249 words**' "$CI_ROOT/docs/create-issue-budget.md"
+  'Default-path ceiling: **33,917 words**' "$CI_ROOT/docs/create-issue-budget.md"
 devflow_module_pin_unique "#614 T3: the budget doc bans wc -w for these measurements" \
   '**Never `wc -w`.**' "$CI_ROOT/docs/create-issue-budget.md"
 unset -f ci614_words ci614_under
