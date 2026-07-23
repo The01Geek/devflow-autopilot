@@ -1,0 +1,30 @@
+{
+  "iter": 1,
+  "fix_commit_sha": "dcadcd29790e516f3236a0ee4654c3e8e8cd1df2",
+  "fix_files": [
+    "lib/test/prompt-mass-baseline.json",
+    "lib/test/run.sh",
+    "lib/test/test_reception_identity.py",
+    "scripts/devflow-cloud-writer-contract.json",
+    "scripts/reception-record.py",
+    "scripts/reception_identity.py",
+    "skills/receiving-code-review/SKILL.md"
+  ],
+  "loop_role": "fix",
+  "synthesized": true,
+  "sweep_defs_read": {
+    "status": "unrecoverable",
+    "reason": "fix-commit-only synthesis: no iteration record was found for this run, and a fix commit carries no trace of which sweep definitions were read"
+  },
+  "sweep_evidence": {
+    "status": "unrecoverable",
+    "reason": "fix-commit-only synthesis: no iteration record was found for this run, and a fix commit carries no trace of the sweep outcomes"
+  },
+  "reference_reads": {
+    "fix_delta": {
+      "status": "unrecoverable",
+      "reason": "fix-commit-only synthesis: no iteration record was found for this run, and a fix commit carries no trace of whether the Step 3.5 fix-delta gate ran"
+    }
+  },
+  "telemetry": "unavailable"
+}
