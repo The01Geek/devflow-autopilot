@@ -1,0 +1,130 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-23T00:00:00Z",
+  "fix_commit_sha": "0b51b72f",
+  "fix_files": [
+    "scripts/issue-audit-state.py",
+    "lib/test/test_python_scripts.py"
+  ],
+  "loop_role": "fix",
+  "current_step": "3",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "checklist_skipped": false
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:pr-test-analyzer",
+    "devflow:comment-analyzer",
+    "devflow:type-design-analyzer"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Important",
+      "description": "Read boundary did not re-enforce count==len(records); a truncated advisory_records list could launder under-evidenced->clear, symmetric with the gap _validate_coverage's totality guard closes.",
+      "defect_signature": {
+        "file": "scripts/issue-audit-state.py",
+        "line_range": [
+          1563,
+          1620
+        ],
+        "kind": "missing_read_boundary_invariant"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "The calibration trigger's render tooth (clear backing + unreported render -> trigger yes) was never isolated; a mutation dropping the render operand would ship green (vacuous coverage of an OR operand).",
+      "defect_signature": {
+        "file": "lib/test/test_python_scripts.py",
+        "line_range": [
+          14990,
+          15010
+        ],
+        "kind": "vacuous_test_coverage"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "Untested branches: --landed no mapping, evidence-field refusals, invalid-class refusal breadcrumbs, record-not-object ingest arm, multi-id unevidenced sort/join (cardinality), query foreign-nonce arms.",
+      "defect_signature": {
+        "file": "lib/test/test_python_scripts.py",
+        "line_range": [
+          15010,
+          15080
+        ],
+        "kind": "test_coverage_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "0b51b72f"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "0b51b72f"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "0b51b72f"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 2,
+    "fix_diff_lines": 95,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "reference_reads": {
+    "fix_delta": {
+      "status": "verified",
+      "outcome": "clean",
+      "reason": null
+    }
+  },
+  "shadow": {
+    "ran_at": "2026-07-23T00:00:00Z",
+    "reviewed_sha": "0b51b72f",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": [
+      "pr-review-toolkit:code-reviewer"
+    ],
+    "expected_reviewers": [
+      "pr-review-toolkit:code-reviewer"
+    ],
+    "reason": null,
+    "phase3_findings": [],
+    "comparison": {
+      "shadow_total": 0,
+      "overlap_with_iter_N": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
+  "notes": "code-reviewer, silent-failure-hunter, comment-analyzer all returned clean. Applied the two Important findings (read-boundary totality guard; render-tooth test isolation, mutation-verified RED) plus the Suggestion-level coverage gaps. Full python suite 2256 passed, 0 failed; ruff clean.",
+  "telemetry": "unavailable"
+}
