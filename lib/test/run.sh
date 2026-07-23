@@ -49506,7 +49506,7 @@ fi
 # The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/create-issue-contract.sh" \
-  "create-issue-contract" 383; then
+  "create-issue-contract" 395; then
   printf 'ERROR: create-issue-contract boundary could not record its result\n'
   exit 1
 fi
@@ -50099,6 +50099,52 @@ fi
 echo "issue #546: issue-audit-state.py — the create-issue audit-lifecycle state owner"
 
 IAS="$LIB/../scripts/issue-audit-state.py"
+# issue #709: the canonical dispatch-instruction generator the state owner regenerates
+# from. Fixtures below whose subject is NOT steering still have to ESTABLISH it, because
+# the clean eligibility ground now requires it — so they generate the instruction file,
+# record it as the round's closed inputs, and quote the auditor's two return values.
+IAS_RAP="$LIB/../scripts/render-audit-prompt.py"
+
+# The generate-then-hash half of that recipe, hoisted so no fixture hand-inlines it: a
+# missed or mistyped site does NOT fail loudly — the round degrades to unestablished and
+# the fixture silently starts measuring the steering gate instead of its own subject.
+# Writes <sandbox>/instr-<slug>.md (per-slug because the out-of-bounds paths the
+# instructions carry embed the slug, so cross-slug reuse would legitimately mismatch) and
+# prints the object ID the auditor would quote. The optional 4th argument overrides PATH
+# for the generation itself (the restricted-PATH fixtures use it, which additionally
+# proves the generator derives nothing through a non-preflight PATH tool).
+ias_instructions() {  # <sandbox-root> <slug> <draft-path> [PATH-override]
+  local root="$1" slug="$2" draft="$3"
+  local PATH="${4:-$PATH}"
+  # The draft may live outside the sandbox root (the draft-binding fixture audits a file
+  # under its bound root), so an absolute path is taken verbatim.
+  case "$draft" in /*) ;; *) draft="$root/$draft" ;; esac
+  # Check the generation before hashing. The redirect truncates the target BEFORE the
+  # generator runs, so on any failure (a RenderError, a title-less fixture draft, a
+  # python3 absent from the restricted PATH the 4th argument installs) the file is left
+  # empty and `git hash-object` prints the empty-blob ID — a valid-looking hash that
+  # silently degrades every caller's round to unestablished, which is exactly the
+  # failure class the comment above says this helper exists to prevent.
+  if ! python3 "$IAS_RAP" dispatch-instructions --slug "$slug" \
+      --draft-path "$draft" --instructions-path "$root/instr-$slug.md" \
+      > "$root/instr-$slug.md" || [ ! -s "$root/instr-$slug.md" ]; then
+    # Record the failure through the suite's OWN tally file, not a shell variable: every
+    # call site invokes this helper inside a command substitution, so the subshell's
+    # `FAIL=$((FAIL+1))` died with the subshell, and the authoritative count is recomputed
+    # at the end as `grep -c '^FAIL$' "$RESULTS_FILE"` anyway. The first version of this
+    # guard printed a FAIL-shaped line and still exited 0 — red on screen, green in the
+    # summary. The RESULTS_FILE append is the guard that actually fires; the stdout
+    # sentinel is a belt-and-braces poison value so a downstream digest comparison cannot
+    # match by accident (no call site asserts on it directly). The diagnostic goes to
+    # STDERR, not stdout: every call site is `X="$(ias_instructions …)"`, so a stdout
+    # message is captured into the variable and never reaches the operator.
+    echo FAIL >> "$RESULTS_FILE"
+    printf '  FAIL  ias_instructions(%s): the dispatch-instruction generator failed or wrote no bytes; every fixture using this slug would silently measure the steering gate instead of its own subject\n' "$slug" >&2
+    echo 'GENERATOR-FAILED'
+    return 1
+  fi
+  git hash-object --stdin --no-filters < "$root/instr-$slug.md"
+}
 
 # §11 coupled doc site: the overview must describe the TOOL-owned lifecycle, not the retired
 # prose state machine. Coupled with the SKILL cutover — a reader who trusts §11's description
@@ -50161,11 +50207,22 @@ if [ -d "$IAS_SB" ]; then
 
     PATH="$RESTRICTED" python3 "$IAS" query-arm rt --nonce "$NONCE" \
       --write-landed yes --draft-file draft.md > .rt-arm
+    # issue #709: this fixture's subject is the restricted-PATH lifecycle, not steering, so
+    # it ESTABLISHES steering-absence the way a real run does — generate the canonical
+    # dispatch instructions, record them as the round's closed inputs, and quote the two
+    # auditor return values. Without this the clean ground below is withheld and every
+    # eligibility/emit row here would be asserting the steering gate instead of its own
+    # subject. The generator runs under the SAME restricted PATH, which additionally
+    # proves it derives nothing through a non-preflight PATH tool.
+    IOID="$(ias_instructions "$IAS_SB" rt draft.md "$RESTRICTED")"
     PATH="$RESTRICTED" python3 "$IAS" record-dispatch rt --nonce "$NONCE" \
-      --round 1 --arm file --draft-file draft.md > .rt-dispatch
+      --round 1 --arm file --draft-file draft.md \
+      --instructions-file "$IAS_SB/instr-rt.md" \
+      --instructions-draft-path "$IAS_SB/draft.md" > .rt-dispatch
     OID="$(PATH="$RESTRICTED" git hash-object --stdin --no-filters < draft.md)"
     PATH="$RESTRICTED" python3 "$IAS" record-return rt --nonce "$NONCE" --round 1 \
-      --verdict REVISE --findings-count 2 --carriage-object-id "$OID" > .rt-return
+      --verdict REVISE --findings-count 2 --carriage-object-id "$OID" \
+      --instructions-object-id "$IOID" --extra-dispatch-content no > .rt-return
     PATH="$RESTRICTED" python3 "$IAS" query-next-action rt --nonce "$NONCE" --round 1 > .rt-next
     # #548: adjudicate the REVISE round (2 unresolved must-revise) — T1 now consumes the
     # post-adjudication unresolved count, so it holds only after this record, not on the raw
@@ -50204,11 +50261,17 @@ LEDGER-EOF
     PATH="$RESTRICTED" python3 "$IAS" query-convergence rt --nonce "$NONCE" > .rt-conv-resolved
 
     # A clean round on the revised bytes, then approve mode must ground eligible.
+    # Regenerate the instructions AFTER the revision: the generator reads the title from
+    # the draft file, so a round must be established against the bytes it actually audits.
+    IOID2="$(ias_instructions "$IAS_SB" rt draft.md "$RESTRICTED")"
     PATH="$RESTRICTED" python3 "$IAS" record-dispatch rt --nonce "$NONCE" \
-      --round 2 --arm file --draft-file draft.md > /dev/null
+      --round 2 --arm file --draft-file draft.md \
+      --instructions-file "$IAS_SB/instr-rt.md" \
+      --instructions-draft-path "$IAS_SB/draft.md" > /dev/null
     OID2="$(PATH="$RESTRICTED" git hash-object --stdin --no-filters < draft.md)"
     PATH="$RESTRICTED" python3 "$IAS" record-return rt --nonce "$NONCE" --round 2 \
-      --verdict FILE --findings-count 0 --carriage-object-id "$OID2" > /dev/null
+      --verdict FILE --findings-count 0 --carriage-object-id "$OID2" \
+      --instructions-object-id "$IOID2" --extra-dispatch-content no > /dev/null
     # #548: adjudicate the clean round (FILE, 0 unresolved must-revise) — the run now converges.
     PATH="$RESTRICTED" python3 "$IAS" record-adjudication rt --nonce "$NONCE" --round 2 \
       --verdict FILE --must-revise 0 --advisory 1 --invalid 0 --unresolved-must-revise 0 > /dev/null
@@ -50230,7 +50293,8 @@ LEDGER-EOF
   assert_eq "#546 cli_roundtrip_restricted_path: query-arm routes a landed write to the file arm" \
     "arm=file marker=none" "$(cat "$IAS_SB/.rt-arm" 2>/dev/null)"
   assert_eq "#546 cli_roundtrip_restricted_path: a REVISE return classifies accept-revise" \
-    "classification=accept-revise outcome=REVISE" "$(cat "$IAS_SB/.rt-return" 2>/dev/null)"
+    "classification=accept-revise outcome=REVISE steering=established steering_reason=canonical-match" \
+    "$(cat "$IAS_SB/.rt-return" 2>/dev/null)"
   assert_eq "#546 cli_roundtrip_restricted_path: the automatic re-audit is the next action" \
     "action=revise-and-reaudit" "$(cat "$IAS_SB/.rt-next" 2>/dev/null)"
   assert_eq "#548 cli_roundtrip_restricted_path: T1 holds after a REVISE round is ADJUDICATED (not on the raw token)" \
@@ -50298,14 +50362,22 @@ for FILTER_MODE in autocrlf textauto; do
     printf '# T\r\n\r\nCRLF body line.\r\n' > draft.md
     NONCE="$(python3 "$IAS" init crlf | sed 's/nonce=//')"
     # The dispatch digest, as the tool records it.
+    # issue #709: establish steering so the eligibility rows below still measure the
+    # DIGEST agreement they are about. The instruction file is deliberately generated
+    # under the same filter config, which additionally proves the instruction-file hash
+    # is filter-immune for the same reason the draft digest is.
+    IOID="$(ias_instructions "$CRLF_SB" crlf draft.md)"
     python3 "$IAS" record-dispatch crlf --nonce "$NONCE" --round 1 --arm file \
-      --draft-file draft.md | sed -E 's/.*digest=([0-9a-f]+) body_digest.*/\1/' > .crlf-dispatch
+      --draft-file draft.md --instructions-file "$CRLF_SB/instr-crlf.md" \
+      --instructions-draft-path "$CRLF_SB/draft.md" \
+      | sed -E 's/.*digest=([0-9a-f]+) body_digest.*/\1/' > .crlf-dispatch
     # The digest the AMENDED auditor instruction produces.
     git hash-object --no-filters draft.md > .crlf-auditor
     # The eligibility digest (the tool re-reads the file's bytes in binary and re-hashes).
     OID="$(git hash-object --stdin --no-filters < draft.md)"
     python3 "$IAS" record-return crlf --nonce "$NONCE" --round 1 --verdict FILE \
-      --findings-count 0 --carriage-object-id "$OID" > /dev/null
+      --findings-count 0 --carriage-object-id "$OID" \
+      --instructions-object-id "$IOID" --extra-dispatch-content no > /dev/null
     python3 "$IAS" query-eligibility crlf --nonce "$NONCE" --mode approve \
       --draft-file draft.md | sed -E 's/.*key=([0-9a-f]+).*/\1/' > .crlf-elig
     # The path-mode form, recorded ONLY to show the divergence this rule exists to avoid.
@@ -50489,6 +50561,17 @@ if [ -d "$EA_SB" ]; then
     SC="$(printf '%s' "$D" | tr ' ' '\n' | sed -n 's/^sentinel_close=//p')"
     python3 "$IAS" record-return ea --nonce "$N" --round 1 --verdict FILE --findings-count 0 \
       --carriage-sentinel-open "$SO" --carriage-sentinel-close "$SC" < /dev/null > /dev/null
+    # issue #709: the embed arm has no writable canonical instruction file — it is entered
+    # BECAUSE the draft-file write failed — so steering-absence is unestablished by
+    # construction and the coverage-backed clean ground is withheld here. Capture that
+    # designed consequence first (it is the AC6 statement, made observable), then reach
+    # this block's actual subject through the documented Step 4 override election, which
+    # is exactly how a real run files on this arm. Filing is not blocked; the clean
+    # GROUNDING is what was withheld.
+    python3 "$IAS" query-eligibility ea --nonce "$N" --mode approve --draft-file d.md \
+      < /dev/null > .ea-elig-preoverride 2>&1
+    python3 "$IAS" record-override ea --nonce "$N" --kind user-decline \
+      --surface step4-offer < /dev/null > /dev/null
     python3 "$IAS" record-creation-epoch ea --nonce "$N" --round 1 < /dev/null > /dev/null
     python3 "$IAS" emit-body ea --nonce "$N" --draft-file d.md < /dev/null > .ea-body 2>&1
     python3 "$IAS" query-eligibility ea --nonce "$N" --mode approve --draft-file d.md \
@@ -50504,8 +50587,10 @@ if [ -d "$EA_SB" ]; then
   )
   assert_eq "#546 embed_arm_emit_rows: an embed-arm epoch emits the audited body" \
     "Embed body." "$(cat "$EA_SB/.ea-body" 2>/dev/null)"
-  assert_eq "#546 embed_arm_emit_rows: ... on the event-ordering ground, keyed by the revision ordinal (NOT a digest)" \
-    "1" "$(grep -c 'eligible=yes ground=event-ordering .*key=0' "$EA_SB/.ea-elig" 2>/dev/null)"
+  assert_eq "#709 embed_arm_emit_rows: the clean ground is withheld here BY CONSTRUCTION (no hashable instruction file)" \
+    "eligible=no reason=steering-unestablished" "$(cat "$EA_SB/.ea-elig-preoverride" 2>/dev/null)"
+  assert_eq "#546/#709 embed_arm_emit_rows: ... and the user's override still grounds the emit, keyed by the revision ordinal (NOT a digest)" \
+    "1" "$(grep -c 'eligible=yes ground=override .*key=0' "$EA_SB/.ea-elig" 2>/dev/null)"
   assert_eq "#546 embed_arm_emit_rows: the disclosed residual — swapped draft bytes still emit, because this arm cannot byte-bind" \
     "SWAPPED body." "$(cat "$EA_SB/.ea-swapped" 2>/dev/null)"
   assert_eq "#546 embed_arm_emit_rows: ... and the post-hoc attestation is the detection surface that catches that swap" \
@@ -50523,10 +50608,16 @@ if [ -d "$CB_SB" ]; then
     mkdir -p .devflow/tmp
     printf '# T\n\nThe body.\n' > d.md
     N="$(python3 "$IAS" init cb | sed 's/nonce=//')"
-    python3 "$IAS" record-dispatch cb --nonce "$N" --round 1 --arm file --draft-file d.md > /dev/null
+    # issue #709: establish steering so these attestation rows keep measuring the
+    # attestation, not the new gate. One generated instruction file serves every epoch
+    # here — they all audit the same d.md bytes, and the generator is deterministic.
+    IOID="$(ias_instructions "$CB_SB" cb d.md)"
+    python3 "$IAS" record-dispatch cb --nonce "$N" --round 1 --arm file --draft-file d.md \
+      --instructions-file "$CB_SB/instr-cb.md" --instructions-draft-path "$CB_SB/d.md" > /dev/null
     OID="$(git hash-object --stdin --no-filters < d.md)"
     python3 "$IAS" record-return cb --nonce "$N" --round 1 --verdict FILE \
-      --findings-count 0 --carriage-object-id "$OID" > /dev/null
+      --findings-count 0 --carriage-object-id "$OID" \
+      --instructions-object-id "$IOID" --extra-dispatch-content no > /dev/null
     python3 "$IAS" record-creation-epoch cb --nonce "$N" --round 1 > /dev/null
     # The gated body emitter's bytes hash to the recorded body-only digest (round-trip).
     python3 "$IAS" emit-body cb --nonce "$N" --draft-file d.md \
@@ -50535,9 +50626,15 @@ if [ -d "$CB_SB" ]; then
     # fetch-failure arms each get their OWN epoch on a fresh slug.
     for CASE in mm uv; do
       NC="$(python3 "$IAS" init "cb$CASE" | sed 's/nonce=//')"
-      python3 "$IAS" record-dispatch "cb$CASE" --nonce "$NC" --round 1 --arm file --draft-file d.md > /dev/null
+      # The instructions are per-SLUG: regenerate for this epoch's slug so its recorded
+      # digest is the one the tool will reproduce (a cross-slug reuse would legitimately
+      # mismatch — the out-of-bounds paths carry the slug).
+      IOIDC="$(ias_instructions "$CB_SB" "cb$CASE" d.md)"
+      python3 "$IAS" record-dispatch "cb$CASE" --nonce "$NC" --round 1 --arm file --draft-file d.md \
+        --instructions-file "$CB_SB/instr-cb$CASE.md" --instructions-draft-path "$CB_SB/d.md" > /dev/null
       python3 "$IAS" record-return "cb$CASE" --nonce "$NC" --round 1 --verdict FILE \
-        --findings-count 0 --carriage-object-id "$OID" > /dev/null
+        --findings-count 0 --carriage-object-id "$OID" \
+        --instructions-object-id "$IOIDC" --extra-dispatch-content no > /dev/null
       python3 "$IAS" record-creation-epoch "cb$CASE" --nonce "$NC" --round 1 > /dev/null
       printf '%s\n' "$NC" > ".cb-nonce-$CASE"
     done
@@ -51024,8 +51121,8 @@ if [ -d "$SR_SB" ]; then
     "1" "$(grep -c 'classification=no-parseable-verdict' "$SR_SB/.sr-bad" 2>/dev/null)"
   assert_eq "#546 shadow_round_rows: the tool-generated sentinel pair round-trips to an accepted FILE close" \
     "1" "$(grep -c 'outcome=FILE' "$SR_SB/.sr-good" 2>/dev/null)"
-  assert_eq "#546 shadow_round_rows: ... confirmed closed via query-triggers (no pending offer trigger)" \
-    "1" "$(grep -c 't1=not-hold t2=not-hold' "$SR_SB/.sr-trig" 2>/dev/null)"
+  assert_eq "#546/#709 shadow_round_rows: ... closed with no FINDINGS trigger; the only trigger is the embed arm's by-construction steering state" \
+    "1" "$(grep -c 't1=not-hold t2=hold coverage=not-hold reason=steering-unestablished' "$SR_SB/.sr-trig" 2>/dev/null)"
   assert_eq "#546 shadow_round_rows: a CLI-recorded override grounds eligibility (producer/consumer agree)" \
     "1" "$(grep -c 'eligible=yes ground=override' "$SR_SB/.sr-ov-elig" 2>/dev/null)"
   assert_eq "#546 shadow_round_rows: a later revision stales the CLI-recorded override" \
@@ -51175,7 +51272,6 @@ if [ -d "$I5_SB" ]; then
     mkdir -p .devflow/tmp
     printf '# T\n\nbody\n' > draft.md
     OID="$(git hash-object --stdin --no-filters < draft.md)"
-
     N="$(python3 "$IAS" init i5 | sed 's/nonce=//')"
     python3 "$IAS" record-dispatch i5 --nonce "$N" --round 1 --arm file \
       --draft-file draft.md > /dev/null 2>&1
@@ -51203,20 +51299,26 @@ if [ -d "$I5_SB" ]; then
 
     # no-digest-supplied: approve query with no --draft-file over a file-arm clean epoch
     N3="$(python3 "$IAS" init i5c | sed 's/nonce=//')"
+    IOID_I5C="$(ias_instructions "$I5_SB" i5c draft.md)"
     python3 "$IAS" record-dispatch i5c --nonce "$N3" --round 1 --arm file \
-      --draft-file draft.md > /dev/null 2>&1
+      --draft-file draft.md --instructions-file "$I5_SB/instr-i5c.md" \
+      --instructions-draft-path "$I5_SB/draft.md" > /dev/null 2>&1
     python3 "$IAS" record-return i5c --nonce "$N3" --round 1 --verdict FILE \
-      --carriage-object-id "$OID" > /dev/null 2>&1
+      --carriage-object-id "$OID" --instructions-object-id "$IOID_I5C" \
+      --extra-dispatch-content no > /dev/null 2>&1
     python3 "$IAS" query-eligibility i5c --nonce "$N3" --mode approve > .i5-nodig 2>/dev/null
 
     # emit-body on a title-only draft fails loudly (never exit-0-empty)
     printf '# Only a title\n' > title-only.md
     N4="$(python3 "$IAS" init i5d | sed 's/nonce=//')"
+    IOID_I5D="$(ias_instructions "$I5_SB" i5d title-only.md)"
     python3 "$IAS" record-dispatch i5d --nonce "$N4" --round 1 --arm file \
-      --draft-file title-only.md > /dev/null 2>&1
+      --draft-file title-only.md --instructions-file "$I5_SB/instr-i5d.md" \
+      --instructions-draft-path "$I5_SB/title-only.md" > /dev/null 2>&1
     TOID="$(git hash-object --stdin --no-filters < title-only.md)"
     python3 "$IAS" record-return i5d --nonce "$N4" --round 1 --verdict FILE \
-      --carriage-object-id "$TOID" > /dev/null 2>&1
+      --carriage-object-id "$TOID" --instructions-object-id "$IOID_I5D" \
+      --extra-dispatch-content no > /dev/null 2>&1
     python3 "$IAS" emit-body i5d --nonce "$N4" --draft-file title-only.md \
       > .i5-empty-out 2> .i5-empty-err; printf '%s' "$?" > .i5-empty-rc
 
@@ -51244,10 +51346,13 @@ if [ -d "$I5_SB" ]; then
     # bounded-tolerance negative control: TWO extra newlines stay a mismatch. Fresh slug
     # (the i5c epoch above is already attested match — forward-only).
     N6="$(python3 "$IAS" init i5f | sed 's/nonce=//')"
+    IOID_I5F="$(ias_instructions "$I5_SB" i5f draft.md)"
     python3 "$IAS" record-dispatch i5f --nonce "$N6" --round 1 --arm file \
-      --draft-file draft.md > /dev/null 2>&1
+      --draft-file draft.md --instructions-file "$I5_SB/instr-i5f.md" \
+      --instructions-draft-path "$I5_SB/draft.md" > /dev/null 2>&1
     python3 "$IAS" record-return i5f --nonce "$N6" --round 1 --verdict FILE \
-      --carriage-object-id "$OID" > /dev/null 2>&1
+      --carriage-object-id "$OID" --instructions-object-id "$IOID_I5F" \
+      --extra-dispatch-content no > /dev/null 2>&1
     python3 "$IAS" record-creation-epoch i5f --nonce "$N6" --round 1 > /dev/null 2>&1
     { python3 "$IAS" emit-body i5f --nonce "$N6" --draft-file draft.md; printf '\n\n'; } \
       | python3 "$IAS" record-creation-attestation i5f --nonce "$N6" > .i5-att-nl2 2> .i5-att-nl2-err
@@ -51258,10 +51363,13 @@ if [ -d "$I5_SB" ]; then
     # attestation-unavailable is re-attestable: record unavailable, then a corrective
     # retry attests the genuine bytes to match
     N7="$(python3 "$IAS" init i5g | sed 's/nonce=//')"
+    IOID_I5G="$(ias_instructions "$I5_SB" i5g draft.md)"
     python3 "$IAS" record-dispatch i5g --nonce "$N7" --round 1 --arm file \
-      --draft-file draft.md > /dev/null 2>&1
+      --draft-file draft.md --instructions-file "$I5_SB/instr-i5g.md" \
+      --instructions-draft-path "$I5_SB/draft.md" > /dev/null 2>&1
     python3 "$IAS" record-return i5g --nonce "$N7" --round 1 --verdict FILE \
-      --carriage-object-id "$OID" > /dev/null 2>&1
+      --carriage-object-id "$OID" --instructions-object-id "$IOID_I5G" \
+      --extra-dispatch-content no > /dev/null 2>&1
     python3 "$IAS" record-creation-epoch i5g --nonce "$N7" --round 1 > /dev/null 2>&1
     python3 "$IAS" record-creation-attestation i5g --nonce "$N7" --attestation-unavailable > /dev/null 2>&1
     python3 "$IAS" emit-body i5g --nonce "$N7" --draft-file draft.md \
@@ -51741,10 +51849,16 @@ if [ -d "$I6_SB" ]; then
     # is the fail-closed unestablished shape with NO live token, and the stderr
     # breadcrumb names the mismatch so it is not misread as a missing/corrupt record.
     N3="$(python3 "$IAS" init i6c | sed 's/nonce=//')"
+    # issue #709: the positive control below asserts a LIVE eligibility token, which the
+    # clean ground only issues once steering-absence is established — so this epoch
+    # establishes it the way a real run does.
+    IOID6="$(ias_instructions "$I6_SB" i6c draft.md)"
     python3 "$IAS" record-dispatch i6c --nonce "$N3" --round 1 --arm file \
-      --draft-file draft.md > /dev/null 2>&1
+      --draft-file draft.md --instructions-file "$I6_SB/instr-i6c.md" \
+      --instructions-draft-path "$I6_SB/draft.md" > /dev/null 2>&1
     python3 "$IAS" record-return i6c --nonce "$N3" --round 1 --verdict FILE \
-      --findings-count 0 --carriage-object-id "$OID" > /dev/null 2>&1
+      --findings-count 0 --carriage-object-id "$OID" \
+      --instructions-object-id "$IOID6" --extra-dispatch-content no > /dev/null 2>&1
     python3 "$IAS" query-summary i6c --nonce badnonce --draft-file draft.md \
       > .i6-fn-sum 2> .i6-fn-err; printf '%s' "$?" > .i6-fn-rc
     # positive control: the correct nonce on the SAME state renders ok + the live token.
@@ -51851,11 +51965,19 @@ if [ -d "$DB_SB" ]; then
     printf '# Draft title\n\nDRIFTED BODY\n' > drift.md
     python3 "$IAS" record-draft-binding 'do' --nonce "$NO" --path "$BR" --tier main-root \
       > /dev/null 2>&1
+    # issue #709: the anti-drift rows below assert a LIVE clean-ground answer, which now
+    # requires established steering — so this epoch establishes it against the BOUND file
+    # (the one the readers must resolve to), never the drifted one.
+    # (issue #717: the 'do' slug is quoted so shellcheck does not read it as a loop keyword — SC1010.)
+    IOIDO="$(ias_instructions "$DB_SB" 'do' "$BR/.devflow/tmp/issue-draft-do.md")"
     python3 "$IAS" record-dispatch 'do' --nonce "$NO" --round 1 --arm file \
-      --draft-file "$BR/.devflow/tmp/issue-draft-do.md" > /dev/null 2>&1
+      --draft-file "$BR/.devflow/tmp/issue-draft-do.md" \
+      --instructions-file "$DB_SB/instr-do.md" \
+      --instructions-draft-path "$BR/.devflow/tmp/issue-draft-do.md" > /dev/null 2>&1
     OIDO="$(git hash-object --stdin --no-filters < "$BR/.devflow/tmp/issue-draft-do.md")"
     python3 "$IAS" record-return 'do' --nonce "$NO" --round 1 --verdict FILE \
-      --findings-count 0 --carriage-object-id "$OIDO" > /dev/null 2>&1
+      --findings-count 0 --carriage-object-id "$OIDO" \
+      --instructions-object-id "$IOIDO" --extra-dispatch-content no > /dev/null 2>&1
     # emit-body is handed the DRIFTED file, but must emit the BOUND file's body.
     python3 "$IAS" emit-body 'do' --nonce "$NO" --draft-file drift.md > .do-body 2>/dev/null
     # The TWO merge-gating queries share emit-body's `_bound_draft_file(...) or --draft-file`
@@ -51877,11 +51999,14 @@ if [ -d "$DB_SB" ]; then
     python3 "$IAS" init du > /dev/null 2>&1
     NU="$(python3 "$IAS" query-nonce du | sed 's/nonce=//')"
     printf '# Draft title\n\nUNBOUND BODY\n' > ub.md
+    IOIDU="$(ias_instructions "$DB_SB" du ub.md)"
     python3 "$IAS" record-dispatch du --nonce "$NU" --round 1 --arm file \
-      --draft-file ub.md > /dev/null 2>&1
+      --draft-file ub.md --instructions-file "$DB_SB/instr-du.md" \
+      --instructions-draft-path "$DB_SB/ub.md" > /dev/null 2>&1
     OIDU="$(git hash-object --stdin --no-filters < ub.md)"
     python3 "$IAS" record-return du --nonce "$NU" --round 1 --verdict FILE \
-      --findings-count 0 --carriage-object-id "$OIDU" > /dev/null 2>&1
+      --findings-count 0 --carriage-object-id "$OIDU" \
+      --instructions-object-id "$IOIDU" --extra-dispatch-content no > /dev/null 2>&1
     python3 "$IAS" emit-body du --nonce "$NU" --draft-file ub.md > .du-body 2>/dev/null
     # A REAL linked worktree: bind its own toplevel and confirm the query round-trips.
     git branch -q wt-562 2>/dev/null
@@ -51945,7 +52070,7 @@ if [ -d "$DB_SB" ]; then
   # values render and that they sit immediately before the trailing `attestation=` field
   # (a re-order or a dropped field fails RED). $BR is the bound root for the `do` epoch.
   assert_eq "#562 draft_binding_cli_rows: query-summary renders bound_root/bound_tier before the trailing attestation field (S#6)" \
-    "1" "$(grep -cF "bound_root=$DB_SB/boundroot bound_tier=main-root attestation=" "$DB_SB/.do-summary" 2>/dev/null)"
+    "1" "$(grep -cF "bound_root=$DB_SB/boundroot bound_tier=main-root steering=established steering_reason=canonical-match attestation=" "$DB_SB/.do-summary" 2>/dev/null)"
   # S#5: a bound run whose latest revision has NOT landed renders the bound-branch
   # `latest_revision_landed=no` — the string a `yes`-hardcoding regression would break.
   assert_eq "#562 draft_binding_cli_rows: a bound run with an unlanded revision renders latest_revision_landed=no (S#5 — bound-branch 'no' was never exercised)" \

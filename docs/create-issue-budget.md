@@ -32,9 +32,9 @@ Both are asserted by `lib/test/modules/create-issue-contract.sh` (driven by the 
 | Ceiling | Operand | Measured | Enforced ceiling |
 | --- | --- | --- | --- |
 | **Root** | `skills/create-issue/SKILL.md` | 2,732 | Root ceiling: **2,754 words** |
-| **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 32,619 | Default-path ceiling: **34,249 words** |
+| **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 33,719 | Default-path ceiling: **33,917 words** |
 
-Each ceiling is at most the implement-time measured value plus **5% headroom** (the AC6 maximum). Both were set from an earlier measurement in this same change and deliberately **not re-raised** when review fixes grew the operands, so the shipped headroom is at most 5% on both (root ~0.8%, default path 5.0% — see the issue #708 merge row, where the operator authorized the full AC6 maximum so ordinary PRs stop colliding with the line). The suite asserts that legality directly — a ceiling above measured+5% is RED — so a future raise needs a real measurement behind it. The
+Each ceiling is at most the implement-time measured value plus **5% headroom** (the AC6 maximum). Both were set from an earlier measurement in this same change and deliberately **not re-raised** when review fixes grew the operands, so the shipped headroom is under 5% on both (root ~0.8%; the default path was renegotiated to the full 5% at the #705 + #709 merge and has since been consumed back to ~0.6% at the #708 merge re-measure — see the record below). The suite asserts that legality directly — a ceiling above measured+5% is RED — so a future raise needs a real measurement behind it. The
 default-path operand deliberately **excludes the four fallback references** — they load only when
 their predicate fires, which is the whole point of the split. `revision-delta.md` is *retained* in the
 operand even though it too is predicate-gated (its trigger is any revise-and-re-gate site): a revision
@@ -66,15 +66,15 @@ the decision record below for when each was last re-measured:
 | `references/step-2-clarify.md` | 4,673 | Step 2 entry |
 | `references/step-3-5-steelman.md` | 2,237 | Step 3.5 entry |
 | `references/revision-delta.md` | 986 | every revision event |
-| `references/step-3-6-audit.md` | 9,607 | Step 3.6 entry |
-| `references/step-4-present-create.md` | 5,452 | Step 4 entry |
+| `references/step-3-6-audit.md` | 10,454 | Step 3.6 entry |
+| `references/step-4-present-create.md` | 5,705 | Step 4 entry |
 | `references/fallback-no-task-tool.md` | 540 | no usable task-tracking tool |
-| `references/fallback-read-only-sandbox.md` | 484 | a `.devflow/tmp/` write is refused |
-| `references/fallback-audit-dispatch-arms.md` | 674 | a non-file audit arm, a retry escalation, or no subagent tool |
-| `references/fallback-state-owner-unavailable.md` | 748 | the state owner stops answering |
-| **root + all 9 references** | **28,133** | — |
+| `references/fallback-read-only-sandbox.md` | 628 | a `.devflow/tmp/` write is refused |
+| `references/fallback-audit-dispatch-arms.md` | 821 | a non-file audit arm, a retry escalation, or no subagent tool |
+| `references/fallback-state-owner-unavailable.md` | 814 | the state owner stops answering |
+| **root + all 9 references** | **29,590** | — |
 | `references/issue-template.md` | 6,932 | Step 3 (unchanged by the split) |
-| `references/audit-prompt-template.md` | 1,910 | renderer-owned (unchanged by the split) |
+| `references/audit-prompt-template.md` | 2,688 | renderer-owned; carries the issue-#708 enumerate-dimensions checklist and the issue-#709 `di` dispatch-instruction blocks |
 
 **What the default path sheds.** Before the split every run loaded all 24,473 words of the monolith.
 After it, a run on the default path — task tool usable, writable filesystem, file-arm dispatch, state
@@ -240,3 +240,36 @@ read as a conservation failure.
 
 When a later change re-measures, append a row here rather than editing an earlier one: the record is
 the history of what the surface cost, and overwriting it loses exactly the drift a budget exists to catch.
+
+- **2026-07-21 (issue #709) — dispatch-instruction generator; no ceiling renegotiation.** The
+  canonical audit-dispatch instructions moved out of `step-3-6-audit.md`'s freehand arm-(i)
+  preamble-composition prose and into `render-audit-prompt.py`'s `dispatch-instructions` mode,
+  rendered from new `di` blocks in `audit-prompt-template.md` — which is renderer-owned and sits
+  outside **both** budget operands, so the bulk of the new prose costs the default path nothing.
+  What did land on the default path is the invocation contract, the withhold-then-disclose contract,
+  and the honest-limits statement: default path 29,973 → **31,073**, root unchanged at **2,732**.
+  **Neither ceiling moved** — 31,073 is under the 31,262 default ceiling and inside its ≤5%
+  ratchet-legality band, and the root did not change — so this is an ordinary re-measure, not a
+  ceiling renegotiation, and `CLAUDE.md` is untouched. The `CI614_TOTAL_RECORDED` conservation
+  anchor was re-anchored 25,814 → **27,271** (the live root+references total) so the ±2% band keeps
+  guarding against a silent prose drop from the new size rather than reporting this change's
+  intended growth as drift.
+
+- **2026-07-22 (the #705 + #709 merge) — default-path ceiling renegotiated.** Merging issue #705's
+  staged-canonical-draft prose with issue #709's dispatch-instruction prose put the default path at
+  **32,302 words** — each change fit under the 31,262 ceiling alone, their union did not. The
+  one-directional ratchet stated above was suspended for this single raise by explicit human decision, on the ground
+  that successive intentional feature additions were colliding with a ceiling set at ~0.6% headroom.
+  The new ceiling is the AC6 **maximum**: measured 32,302 plus the full 5% headroom = **33,917**.
+  Root unchanged at 2,732 (ceiling 2,754). `CI614_TOTAL_RECORDED` re-anchored to **28,655** (the live
+  root+references total, carrying both changes' prose plus the merge's staged-artifact addition to
+  the #709 out-of-bounds block). That rule binds again from here — a measured reduction lowers
+  this figure.
+
+- **2026-07-22 (the #704 + #716 merge into the same branch) — re-measure only, no ceiling move.**
+  Merging main's issue-#704 (baseline-grounded claim provenance) and issue-#550 work into the
+  already-merged #705 + #709 branch raised the default path 32,302 → **33,575** and the
+  root-plus-references total 28,655 → **29,446** (`CI614_TOTAL_RECORDED` re-anchored to match).
+  **No ceiling moved:** 33,575 is under the 33,917 set in the entry above and well inside its
+  ≤5% legality band, so the raise granted there absorbed this growth rather than needing a second
+  renegotiation. The shipped default-path headroom is now ~1.0%. Root unchanged at 2,732.
