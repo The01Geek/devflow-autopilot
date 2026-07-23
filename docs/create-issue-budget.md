@@ -35,7 +35,11 @@ Both are asserted by `lib/test/modules/create-issue-contract.sh` (driven by the 
 | **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 34,584 | Default-path ceiling: **38,042 words** |
 
 Each ceiling is at most the implement-time measured value plus **10% headroom**, widened from 5% by the issue-#749 renegotiation recorded below after successive intentional additions collided with the line on nearly every PR. The suite asserts that legality directly — a ceiling above measured+10% is RED — so a raise still needs a real measurement behind it, and the band bounds how much unmeasured growth a raise can pre-authorize. The
-default-path operand deliberately **excludes the four fallback references** — they load only when
+default-path operand also deliberately **excludes `skills/docs-verify/SKILL.md`**, which Step 1 loads on every
+default-path run: it is *dispatched into a peer's context* and never read into the orchestrator's, so
+its words cost the caller's prompt nothing and counting them here would misreport the budget these
+ceilings exist to bound (its byte row is tracked instead by `lib/test/prompt-mass-baseline.json`). The
+operand deliberately **excludes the four fallback references** — they load only when
 their predicate fires, which is the whole point of the split. `revision-delta.md` is *retained* in the
 operand even though it too is predicate-gated (its trigger is any revise-and-re-gate site): a revision
 is the common case, so counting it keeps the ceiling conservative rather than flattering.
