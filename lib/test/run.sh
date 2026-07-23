@@ -319,11 +319,15 @@ OVERBREADTH_MIN_DEN=20
 # A "whitespace" character is one of exactly the six-member literal set
 #   { space, tab (\t), newline (\n), carriage return (\r), form feed (\x0c), vertical tab (\x0b) }
 # — complete by construction and, being a fixed codepoint set rather than the locale-sensitive
-# `[[:space:]]` class the old bash loop used, host-independent (the old loop counted U+00A0/U+2028
-# differently under C vs C.UTF-8; this does not). Two files are counted in ONE interpreter
-# process and the results published through the caller-visible globals `_NONWS_1` (and `_NONWS_2`
-# when a second file is given) rather than stdout — so a call site never wraps this in `$( … )`
-# and a mutation-taking assertion spends at most one invocation. On any derivation failure both
+# `[[:space:]]` class the old bash loop used, host-independent (the old loop *could* count
+# U+00A0/U+2028 differently across C / C.UTF-8 on hosts where the #736 witness diverges; this
+# does not). Two files are counted in ONE interpreter process and the results published through
+# the caller-visible globals `_NONWS_1` (and `_NONWS_2` when a second file is given) rather than
+# stdout — so a call site never wraps this in `$( … )` and a SINGLE-TARGET mutation-taking
+# assertion (`assert_pin_red_under`, `devflow_module_pin_red_under`) spends one invocation
+# covering both artifacts; `assert_count_red_under`, whose real and mutated slices are separated
+# in time by the mutation that overwrites the slice, is the named exception below and spends one
+# invocation per measurement. On any derivation failure both
 # globals are set to the non-integer sentinel `unestablished` and the function returns 1, so a
 # guard reading them compares against no established comparand and FAILs, never silently passing.
 _nonws_count() {  # file1 [file2] -> sets _NONWS_1 [and _NONWS_2]; returns 1 on a failed derivation
@@ -37577,8 +37581,9 @@ echo "#736 overbreadth-count helper: python3 derivation, locale-invariance, shap
 # ────────────────────────────────────────────────────────────────────────────
 # The overbreadth guard's non-whitespace count is now derived through python3 over an explicit
 # six-member whitespace set (issue #736): host-independent (a fixed codepoint set, not the
-# locale-sensitive `[[:space:]]` class), one interpreter process per assertion covering both
-# artifacts, published through caller-visible globals so no call site wraps the helper in `$( … )`.
+# locale-sensitive `[[:space:]]` class), one interpreter process per single-target assertion
+# covering both artifacts (`assert_count_red_under` is the named exception — one per measurement),
+# published through caller-visible globals so no call site wraps the helper in `$( … )`.
 
 # (a) Recurrence guard (mirrors the #505 AC1 "emitted values come from python3" form): the
 # count derivation in each helper's body goes through python3. A revert to the old bash
@@ -37640,10 +37645,17 @@ _736_bracket_witness() {  # locale-SENSITIVE bash bracket-expression count (the 
 }
 _736_LFX="$(probe_tmp '#736 locale divergence fixture')"
 printf 'a\xc2\xa0\xe2\x80\xa8XY\n' > "$_736_LFX"   # a + U+00A0 (NBSP) + U+2028 (LSEP) + X + Y
+# Run each side with the locale name as a COMMAND-PREFIX assignment (`LC_ALL=C <cmd>`), NOT a
+# bare `LC_ALL=C; <cmd>` statement: only the prefix form exports LC_ALL into the environment of
+# the invoked command and its python3/`[[:space:]]` child, so the probe genuinely exercises each
+# locale rather than comparing the helper to itself under one effective locale. The new helper is
+# locale-invariant by construction (fixed codepoints + explicit utf-8 decode), so its two sides
+# stay equal — but now that equality is observed with python3 actually run under each named
+# locale, which is what makes the differential test genuine (silent-failure-hunter #736 finding).
 _736_wa="$(LC_ALL=C _736_bracket_witness "$_736_LFX")"
 _736_wb="$(LC_ALL=C.UTF-8 _736_bracket_witness "$_736_LFX")"
-_736_nc="$(LC_ALL=C; _nonws_count "$_736_LFX"; printf '%s' "$_NONWS_1")"
-_736_nd="$(LC_ALL=C.UTF-8; _nonws_count "$_736_LFX"; printf '%s' "$_NONWS_1")"
+_736_nc="$(LC_ALL=C _nonws_count "$_736_LFX"; printf '%s' "$_NONWS_1")"
+_736_nd="$(LC_ALL=C.UTF-8 _nonws_count "$_736_LFX"; printf '%s' "$_NONWS_1")"
 if [ "$_736_wa" != "$_736_wb" ]; then
   assert_eq "#736 locale-divergence witness: bash bracket-expression count DIFFERS across C / C.UTF-8 (the invariance below has a witness)" \
     "differ" "differ"
@@ -37687,6 +37699,79 @@ t = open(sys.argv[1], "rb").read().decode("utf-8", "surrogateescape")
 print(sum(1 for c in t if c not in "\t\n\r\x0b\x0c "))' "$_736_REAL")"
 assert_eq "#736 shape production-realistic (CONTRIBUTING.md): _nonws_count equals an independent reference count over the same bytes" \
   "$_736_ref" "$_NONWS_1"
+
+# (f) Two-file mode: the merged one-call form is the whole point of the rewrite, so assert
+# DIRECTLY that `_NONWS_2` receives FILE2's count (not file1's, not stale, not empty) in a single
+# invocation over two files with DISTINCT counts — the shape (e) matrix and the (c) one-invocation
+# stub never exercise (pr-test-analyzer #736 finding). A follow-up SINGLE-file call then proves the
+# top-of-function reset clears `_NONWS_2` back to the sentinel (a regression dropping the reset
+# would leak file2's count into a later single-file caller).
+_736_FA="$(probe_tmp '#736 two-file A')"; printf 'abc\n' > "$_736_FA"        # 3 non-ws
+_736_FB="$(probe_tmp '#736 two-file B')"; printf 'wxyz\n' > "$_736_FB"       # 4 non-ws
+_nonws_count "$_736_FA" "$_736_FB"
+assert_eq "#736 two-file: _NONWS_1 is file1's count (3)" "3" "$_NONWS_1"
+assert_eq "#736 two-file: _NONWS_2 is file2's count (4), not file1's/stale/empty" "4" "$_NONWS_2"
+_nonws_count "$_736_FA"   # single-file call must RESET _NONWS_2 to the sentinel
+assert_eq "#736 two-file: a following single-file call resets _NONWS_2 to the sentinel" "unestablished" "$_NONWS_2"
+rm -f "$_736_FA" "$_736_FB"
+
+# (g) Module-harness twin behavioral matrix. `_devflow_module_nonws_count` is an INDEPENDENT copy
+# (it carries no run.sh globals) that can drift, and its raw counting/fail-closed/two-file
+# behavior is otherwise only reached indirectly through test_module_harness.py's
+# devflow_module_pin_red_under path — never asserted directly (pr-test-analyzer #736 finding). The
+# module harness is sourced into run.sh (near the top), so the twin is callable here; it publishes
+# through `_MOD_NONWS_1`/`_MOD_NONWS_2`.
+_736_MSF="$(probe_tmp '#736 module shape fixture')"
+printf '' > "$_736_MSF"; _devflow_module_nonws_count "$_736_MSF"; assert_eq "#736 module twin shape empty: count 0" "0" "$_MOD_NONWS_1"
+printf 'a \tb\r\v\fc\n' > "$_736_MSF"; _devflow_module_nonws_count "$_736_MSF"; assert_eq "#736 module twin shape six set members: counts only a,b,c" "3" "$_MOD_NONWS_1"
+printf 'a\xc2\xa0\xe2\x80\xa8XY\n' > "$_736_MSF"; _devflow_module_nonws_count "$_736_MSF"; assert_eq "#736 module twin shape U+00A0/U+2028: 5 non-whitespace" "5" "$_MOD_NONWS_1"
+printf 'a\xff\xfeb\n' > "$_736_MSF"
+if _devflow_module_nonws_count "$_736_MSF"; then assert_eq "#736 module twin non-UTF-8 bytes: returns a count, does not raise" "4" "$_MOD_NONWS_1"
+else assert_eq "#736 module twin non-UTF-8 bytes: returns a count, does not raise" "a-count" "raised"; fi
+_736_MFB="$(probe_tmp '#736 module two-file B')"; printf 'wxyz\n' > "$_736_MFB"
+_devflow_module_nonws_count "$_736_MSF" "$_736_MFB"   # _736_MSF still holds the non-UTF-8 bytes (4)
+assert_eq "#736 module twin two-file: _MOD_NONWS_1 is file1's count (4)" "4" "$_MOD_NONWS_1"
+assert_eq "#736 module twin two-file: _MOD_NONWS_2 is file2's count (4)" "4" "$_MOD_NONWS_2"
+if _devflow_module_nonws_count "$LIB/test/.__736_nonexistent__"; then
+  assert_eq "#736 module twin failed derivation: returns non-zero + sentinel (fail-closed)" "nonzero" "returned-zero"
+else
+  assert_eq "#736 module twin failed derivation: returns non-zero + sentinel (fail-closed)" "unestablished" "$_MOD_NONWS_1"
+fi
+rm -f "$_736_MSF" "$_736_MFB"
+
+# (h) Fail-closed INTEGRATION: the consuming arms that emit a RED token when the derivation
+# returns non-zero are the whole design intent, yet are unexercised — the pre-existing #536
+# COUNT-UNESTABLISHED tests reach that token through a sed-slice failure, a DIFFERENT branch that
+# fires before the _nonws_count call (pr-test-analyzer #736 finding). Shadow the counting helper
+# INSIDE a subshell (so the real helper is never mutated for later assertions) to force a non-zero
+# return, then assert each guard emits its own unestablished-count RED rather than comparing
+# against a comparand it never established. `assert_pin_red_under` writes a bare FAIL + a following
+# breadcrumb line (grep it); `assert_count_red_under` and `devflow_module_pin_red_under` use the
+# two-line / assert_eq protocol so probe_assert's tail -n 1 returns the cause token / verdict.
+# Pin-shaped guards (pin/module) need only the literal present-and-unique before the shadowed count
+# runs; assert_count_red_under needs its ^S$/^E$ anchors resolvable and a countable slice.
+_736_ICP="$(probe_tmp '#736 fail-closed pin fixture')"
+printf 'ICLINE operative content here\nSECOND line here\n' > "$_736_ICP"
+# assert_pin_red_under writes its `echo FAIL` to RESULTS_FILE and its cause breadcrumb to STDOUT
+# (unlike the two-line-protocol count helper), so probe_assert (which diverts stdout to /dev/null
+# and returns the results-file verdict) can't surface the token. DIVERT RESULTS_FILE to a scratch
+# file (keeping the intentional FAIL off the suite tally) and CAPTURE stdout to grep the token.
+_736_ic_pin="$( _nonws_count() { _NONWS_1=unestablished; _NONWS_2=unestablished; return 1; }
+  RESULTS_FILE="$(mktemp)" assert_pin_red_under 'ic-pin' 'ICLINE operative content here' '/ICLINE/d' "$_736_ICP" )"
+assert_eq "#736 fail-closed integration: assert_pin_red_under emits OVERBREADTH-COUNT-UNESTABLISHED (does not compare) when the count derivation returns non-zero" \
+  "yes" "$(printf '%s' "$_736_ic_pin" | grep -q 'OVERBREADTH-COUNT-UNESTABLISHED' && echo yes || echo no)"
+_736_ic_mod="$( _devflow_module_nonws_count() { _MOD_NONWS_1=unestablished; _MOD_NONWS_2=unestablished; return 1; }
+  probe_assert devflow_module_pin_red_under 'ic-mod' 'ICLINE operative content here' '/ICLINE/d' "$_736_ICP" )"
+assert_eq "#736 fail-closed integration: devflow_module_pin_red_under is RED (count-unestablished) when the derivation returns non-zero" \
+  "FAIL" "$_736_ic_mod"
+rm -f "$_736_ICP"
+_736_ICC="$(probe_tmp '#736 fail-closed count fixture')"
+printf 'ICS\nICM_alpha operative counted content here\nICE\n' > "$_736_ICC"
+_736_ic_cnt="$( _nonws_count() { _NONWS_1=unestablished; return 1; }
+  probe_assert assert_count_red_under 'ic-cnt' '^ICS$' '^ICE$' '^ICM_' -ge 1 's/^ICM_alpha.*/x/' "$_736_ICC" )"
+assert_eq "#736 fail-closed integration: assert_count_red_under emits COUNT-UNESTABLISHED when the count derivation returns non-zero" \
+  "COUNT-UNESTABLISHED" "$_736_ic_cnt"
+rm -f "$_736_ICC"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "#363 review-engine grounding: skill<->allowlist command-head contract pin"
