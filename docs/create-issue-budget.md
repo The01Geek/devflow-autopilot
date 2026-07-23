@@ -32,7 +32,7 @@ Both are asserted by `lib/test/modules/create-issue-contract.sh` (driven by the 
 | Ceiling | Operand | Measured | Enforced ceiling |
 | --- | --- | --- | --- |
 | **Root** | `skills/create-issue/SKILL.md` | 2,732 | Root ceiling: **2,754 words** |
-| **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 32,619 | Default-path ceiling: **34,249 words** |
+| **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 32,668 | Default-path ceiling: **34,249 words** |
 
 Each ceiling is at most the implement-time measured value plus **5% headroom** (the AC6 maximum). Both were set from an earlier measurement in this same change and deliberately **not re-raised** when review fixes grew the operands, so the shipped headroom is at most 5% on both (root ~0.8%, default path 5.0% — see the issue #708 merge row, where the operator authorized the full AC6 maximum so ordinary PRs stop colliding with the line). The suite asserts that legality directly — a ceiling above measured+5% is RED — so a future raise needs a real measurement behind it. The
 default-path operand deliberately **excludes the four fallback references** — they load only when
@@ -66,7 +66,7 @@ the decision record below for when each was last re-measured:
 | `references/step-2-clarify.md` | 4,673 | Step 2 entry |
 | `references/step-3-5-steelman.md` | 2,237 | Step 3.5 entry |
 | `references/revision-delta.md` | 986 | every revision event |
-| `references/step-3-6-audit.md` | 9,607 | Step 3.6 entry |
+| `references/step-3-6-audit.md` | 9,656 | Step 3.6 entry |
 | `references/step-4-present-create.md` | 5,452 | Step 4 entry |
 | `references/fallback-no-task-tool.md` | 540 | no usable task-tracking tool |
 | `references/fallback-read-only-sandbox.md` | 484 | a `.devflow/tmp/` write is refused |
@@ -74,7 +74,7 @@ the decision record below for when each was last re-measured:
 | `references/fallback-state-owner-unavailable.md` | 748 | the state owner stops answering |
 | **root + all 9 references** | **28,182** | — |
 | `references/issue-template.md` | 6,932 | Step 3 (unchanged by the split) |
-| `references/audit-prompt-template.md` | 1,910 | renderer-owned (unchanged by the split) |
+| `references/audit-prompt-template.md` | 2,249 | renderer-owned (unchanged by the split) |
 
 **What the default path sheds.** Before the split every run loaded all 24,473 words of the monolith.
 After it, a run on the default path — task tool usable, writable filesystem, file-arm dispatch, state
@@ -240,9 +240,10 @@ read as a conservation failure.
 
 - **2026-07-22 (PR #732, issue #729) — conservation figure re-centred; both ceilings untouched.**
   #729 makes the Step 3.6 audit dimensions declared data rather than a scrape of rendered prose.
-  Two default-path members grow: `step-3-6-audit.md` gains the degraded arm for an enumeration
-  that now exits non-zero on a malformed declaration (a failure mode that previously had no rule),
-  and the audit template documents the declaration convention. Default path measures **32,668**
+  One default-path member grows: `step-3-6-audit.md` (+49 words) gains the degraded arm for an
+  enumeration that now exits non-zero on a malformed declaration (a failure mode that previously
+  had no rule). The audit template also grows, but it is renderer-owned and sits outside the
+  default-path operand, so it moves neither ceiling. Default path measures **32,668**
   against the unchanged **34,249** ceiling, and root is unchanged at **2,732** against **2,754** —
   so neither ceiling moves and the ratchet is not touched. Only `CI614_TOTAL_RECORDED`, the
   two-sided conservation band, is re-centred 28,133 → **28,182** (+49 words, ~0.2%, well inside the

@@ -1045,9 +1045,9 @@ class DeclaredDimensionKeys(unittest.TestCase):
         ("malformed key",
          "## Audit dimensions\n\n<!-- dim-key: Bad Key -->\n- **A** \u2014 x.\n",
          "is not lowercase kebab-case"),
-        ("duplicate key",
-         "## Audit dimensions\n\n- **Billing edge** \u2014 refunds.\n"
-         "- **Billing edge** \u2014 proration.\n",
+        ("declared duplicate key",
+         "## Audit dimensions\n\n<!-- dim-key: k -->\n- **A** \u2014 a.\n"
+         "<!-- dim-key: k -->\n- **B** \u2014 b.\n",
          "duplicate consumer dimension key"),
     )
 
@@ -1069,6 +1069,59 @@ class DeclaredDimensionKeys(unittest.TestCase):
                     # Attribution: names the CONSUMER's file, not this repo's template,
                     # so an operator debugs the file actually at fault.
                     self.assertIn("consumer extension malformed", r.stderr, name)
+
+    def test_a_DERIVED_consumer_collision_degrades_on_render_but_not_on_enumeration(self):
+        # A *declared* collision is an authoring defect the consumer can fix, so it is
+        # fatal everywhere (pinned by the table above). Two bold leads that merely slug
+        # alike are a renderer-internal ambiguity in a third-party file — escalating
+        # that to a hard failure would deny the auditor the whole audit prompt over a
+        # formatting coincidence, so the render degrades (disambiguating by content
+        # hash) while the enumeration, whose keyset must be unambiguous, stays strict.
+        body = ("## Audit dimensions\n\n- **Billing edge** \u2014 refunds.\n"
+                "- **Billing edge** \u2014 proration.\n")
+        with tempfile.TemporaryDirectory() as d:
+            ext = write_ext(Path(d), body)
+            rend = run_renderer(["inline", "--slug", "x", "--extension-file", str(ext)])
+            enum = run_renderer(["enumerate-dimensions", "--extension-file", str(ext)])
+        self.assertEqual(rend.returncode, 0, rend.stderr)
+        self.assertIn("Billing edge", rend.stdout)
+        self.assertNotEqual(enum.returncode, 0, enum.stdout)
+        self.assertEqual(enum.stdout, "")
+        self.assertIn("duplicate consumer dimension key", enum.stderr)
+
+    def test_the_evidence_axes_hook_is_exempt_from_dimension_validation(self):
+        # `consumer_dimensions` is heading-parameterized and `render_extract` also asks
+        # it for `## Evidence axes` — a section that declares no dimensions, is never
+        # enumerated, and is never joined to anything. Applying the #729 arms there
+        # would fail ordinary consumer prose (two axes sharing a bold lead) with a
+        # remedy that means nothing in that section, silently dropping the consumer's
+        # evidence axes from every run. Both shapes must extract cleanly.
+        for name, body in (
+            ("duplicate bold leads",
+             "## Evidence axes\n\n- **Producers** \u2014 a.\n- **Producers** \u2014 b.\n"),
+            ("a stray dim-key marker",
+             "## Evidence axes\n\n<!-- dim-key: stray -->\n\nprose\n\n- **A** \u2014 a.\n"),
+        ):
+            with self.subTest(shape=name):
+                with tempfile.TemporaryDirectory() as d:
+                    ext = write_ext(Path(d), body)
+                    r = run_renderer(["extract", "--hook", "evidence-axes",
+                                      "--extension-file", str(ext)])
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertTrue(r.stdout.startswith("render-status: appended"), name)
+
+    def test_the_generic_end_of_block_orphan_raise_is_reached(self):
+        # The table's stacked-declaration row reaches the in-loop raise; this reaches
+        # the POST-loop one, whose message is distinct. Without it that arm is unpinned.
+        tmpl = self._shipped_template().rstrip("\n")
+        tmpl = tmpl.replace(
+            "{CONSUMER_DIMENSIONS}",
+            "{CONSUMER_DIMENSIONS}\n\n<!-- dim-key: dangling -->", 1
+        )
+        r = self._run_on_template(tmpl)
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(r.stdout, "")
+        self.assertIn("the checklist block ends before the next", r.stderr)
 
     def test_a_blank_line_between_declaration_and_bullet_stays_legal(self):
         # Positive control for both adjacency arms: the enforcement rejects an

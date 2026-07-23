@@ -54,9 +54,15 @@ same block/slot rules by hand.
   asserted: a defect cannot render happily while the enumeration dies. A manual arm
   reading this file by hand applies the same rule: strip the marker lines from the
   emitted prose. A consumer `## Audit dimensions` bullet may carry the same marker
-  (keyed `c:<declared-key>`) and is held to the **same** fail-closed arms, with a
-  breadcrumb naming the consumer extension rather than this template; when it
-  carries none, its key is derived from its content — the bold-lead name's slug,
+  (keyed `c:<declared-key>`) and is held to the same fail-closed arms **for the
+  declarations it does carry**, with a breadcrumb naming the consumer extension rather
+  than this template. Three deliberate asymmetries: an *absent* consumer declaration is
+  legal (it selects the content-derived fallback below, where an undeclared *template*
+  bullet raises); a section carrying only declarations and no bullets declares no
+  dimensions, so it reads `absent` rather than raising; and a collision between two
+  *derived* keys degrades on the render path (it is a slug coincidence in a third-party
+  file, not an authoring defect) while staying fatal in the enumeration, whose keyset
+  must be unambiguous. When a bullet carries no declaration, its key is derived from its content — the bold-lead name's slug,
   else a hash of the bullet text — never its position. Those two fallbacks are
   insertion-stable but not reword-stable, so a consumer who wants a durable key
   declares one.

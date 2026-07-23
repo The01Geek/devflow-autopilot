@@ -31,9 +31,12 @@ bump: patch
   Validation runs on the render path as well as `enumerate-dimensions`, so a
   template or consumer defect can no longer render a full audit prompt while the
   orchestrator's operand call dies; and the consumer `## Audit dimensions` section
-  is held to the same arms as this repo's own template, with the breadcrumb naming
-  the consumer extension rather than the template so an operator debugs the file
-  actually at fault. Consumer declarations were previously discarded in silence,
+  is held to the same arms as this repo's own template **for the declarations it does
+  carry**, with the breadcrumb naming the consumer extension rather than the template so
+  an operator debugs the file actually at fault. An absent declaration remains legal (it
+  selects the content-derived fallback), and a collision between two *derived* keys
+  degrades on the render path rather than denying the auditor the prompt over a slug
+  coincidence in a third-party file. Consumer declarations were previously discarded in silence,
   which left a consumer believing they had pinned a durable key while the
   enumeration quietly used the reword-unstable fallback instead.
 - `.devflow/prompt-extensions/create-issue.md`'s own nine audit dimensions now

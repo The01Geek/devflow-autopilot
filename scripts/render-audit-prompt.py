@@ -361,10 +361,22 @@ def consumer_dimensions(ext_path: Path, heading: str) -> tuple[str, str]:
     dies — the render/enumeration drift the generic arm's `render_dispatch` check
     closes on the template side. `consumer_entries` is called for its fail-closed
     arms only; its return value is the key-derivation path's business.
+
+    **Two scope limits, both load-bearing.** (1) Validation applies only to the
+    `## Audit dimensions` hook: this accessor is heading-parameterized and
+    `render_extract` also asks it for `## Evidence axes`, a section that declares no
+    dimensions, is never enumerated, and is never joined to anything — validating it
+    would fail ordinary consumer prose (two axes sharing a bold lead) with a remedy
+    that means nothing there. (2) On this path a **derived**-key collision degrades
+    rather than raises: a declared collision is an authoring defect the consumer can
+    fix, but two bold leads that happen to slug alike are a renderer-internal
+    ambiguity, and escalating that to a hard failure would deny the auditor the whole
+    audit prompt over a formatting coincidence in a third-party file. The enumeration
+    path stays strict, so the ambiguity still surfaces there as a degraded render.
     """
     status, section = _consumer_section_raw(ext_path, heading)
-    if status == _STATUS_APPENDED:
-        consumer_entries(section)
+    if status == _STATUS_APPENDED and heading == _HOOKS["audit-dimensions"]:
+        consumer_entries(section, strict_derived=False)
     return (status, _strip_dim_key_markers(section))
 
 
@@ -824,22 +836,26 @@ def _consumer_key(declared: str | None, text: str) -> str:
     return "c:h" + hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
 
 
-def consumer_entries(section: str) -> list[tuple[str, str]]:
+def consumer_entries(
+    section: str, *, strict_derived: bool = True
+) -> list[tuple[str, str]]:
     """The consumer dimensions as validated (key, single-line-text) pairs.
 
     The single owner of "what dimensions does this consumer section declare, and
     what are their keys" — split, key derivation, and the duplicate check together.
     BOTH the key-derivation path (`enumerate_dimensions`) and the rendering path
     (`consumer_dimensions`, for its fail-closed arms) call it, so no consumer-side
-    defect can fail one projection while the other renders happily. Splitting the
-    duplicate check away from the split — its previous home in
-    `enumerate_dimensions` — is what let a duplicate key fail the enumeration while
-    the render succeeded, the render/enumeration drift #729 exists to close.
+    defect can fail one projection while the other renders happily. Both projections call it, so a
+    consumer-side duplicate cannot fail the enumeration while the render succeeds.
     """
     entries: list[tuple[str, str]] = []
     seen: set[str] = set()
     for declared, text in _split_consumer_dimensions(section):
         key = _consumer_key(declared, text)
+        if key in seen and not declared and not strict_derived:
+            # A DERIVED collision on the render path: disambiguate deterministically
+            # instead of denying the auditor the prompt (see `consumer_dimensions`).
+            key = "c:h" + hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
         if key in seen:
             # Two consumer dimensions resolving to one key would silently coalesce
             # into a single enumerated dimension, and the merged keyset is what
