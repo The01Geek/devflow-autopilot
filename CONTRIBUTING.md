@@ -57,8 +57,8 @@ authoritative list of module IDs — read it there rather than from this sample.
 
 **Focused verification is the iteration default (issue #707).** While iterating,
 run the module that covers the surface you changed rather than the complete
-suite; reach for `bash lib/test/run.sh` mid-iteration only when no module or
-focused path covers that surface. Selection stays explicit — consult
+suite; reach for `bash lib/test/run.sh` mid-iteration only when no registered
+module covers that surface. Selection stays explicit — consult
 `lib/test/modules/coverage-map.json` to find a candidate and confirm the ID in
 the registry; changed files never auto-route to a module. The complete suite
 remains the final gate and is not weakened, only overlapped: before calling a
@@ -278,6 +278,16 @@ selectable module, complete all of the following in the same PR:
    monolith helper). Comply **by reference** to that header — do not restate its
    cleanup/trap terms here, so this checklist cannot go stale as the contract
    evolves.
+8. **Focused-runner smoke test** — add a `runs_green_through_the_real_runner` test
+   for the module to `lib/test/test_module_runner.py`, matching the shape the
+   existing module tests use: invoke `lib/test/run-module.sh <module-id>`, read the
+   module's `minimum_assertions` floor from
+   `scripts/workflow-flight-recorder-registry.json`, and assert the emitted summary
+   line equals `Module <module-id>: {floor} passed, 0 failed` (read the floor from
+   the registry, never a second hard-coded copy). This drives the module through its
+   *own* runner — the assertion issue #695 exists to make — so the convention that
+   the existing modules already follow stops being convention by accident (issue
+   #719).
 
 The suite reports passed, failed, and *skipped* tallies (issue
 #456) — so `0 failed` is never mistaken for "everything ran." A check can
