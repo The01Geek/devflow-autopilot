@@ -1,0 +1,147 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-23T14:44:37Z",
+  "fix_commit_sha": "96918c6c",
+  "fix_files": [
+    "lib/test/lint-carveout-guard.py",
+    "lib/test/run.sh"
+  ],
+  "loop_role": "fix",
+  "current_step": "3",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "checklist": [],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:pr-test-analyzer",
+    "devflow:comment-analyzer"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": "intentional"
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "_glob_exclusion_ok in lint-carveout-guard.py fails OPEN (returns True) when the git-ls-files|grep|xargs shellcheck pipeline is written across POSIX trailing-pipe continuations instead of a backslash-joined line, letting the lib/test/ exclusion be narrowed/removed unnoticed",
+      "defect_signature": {
+        "file": "lib/test/lint-carveout-guard.py",
+        "line_range": [
+          113,
+          142
+        ],
+        "kind": "guard_fail_open"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "rot-prone self-referential counts (\"two splices\", \"two call sites\", \"these five\", \"two mirror comparisons\") in run.sh _int_cmp comments — the PR #553 documented-falsehood REJECT class",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          2500,
+          2731
+        ],
+        "kind": "convention_violation"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "untested fail-closed arms of the guard: no-jobs-mapping, grep-removed-entirely, and _int_cmp non-numeric operand",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          47349,
+          47467
+        ],
+        "kind": "test_coverage"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "an if:-gated (if: false) shellcheck step is still counted as live coverage — the guard does not evaluate if: conditions",
+      "defect_signature": {
+        "file": "lib/test/lint-carveout-guard.py",
+        "line_range": [
+          89,
+          96
+        ],
+        "kind": "guard_fail_open"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "advisory"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "96918c6c"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "96918c6c"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "96918c6c"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "advisory",
+      "source_file": "lib/test/lint-carveout-guard.py",
+      "claim_text": "if:-gated shellcheck step counted as coverage",
+      "skip_category": "advisory-parked",
+      "evidence": "implausible self-sabotaging edit; if: surface not part of the reconciled contract; documented as a KNOWN LIMITATION in the guard docstring rather than fixed"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 3,
+    "fix_diff_lines": 70,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "shadow": {
+    "ran_at": null,
+    "reviewed_sha": null,
+    "verdict": null,
+    "coverage": "not_verified",
+    "reason": "interactive local resume of /devflow:implement Phase 3.3; the four first-party review agents were dispatched over the diff and their findings adjudicated + fixed, but the full multi-agent shadow fan-out was not run as a separate pass",
+    "reviewers_dispatched": [],
+    "expected_reviewers": [],
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 0,
+      "overlap_with_iter_N": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
+  "telemetry": "unavailable"
+}
