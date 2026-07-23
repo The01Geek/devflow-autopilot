@@ -96,27 +96,26 @@ def _collect_run_blocks(ci_text: str) -> str:
     return "\n".join(runs)
 
 
-def _shellcheck_invocations(run_text: str) -> list[str]:
+def _shellcheck_invocations(cleaned: str) -> list[str]:
     """Return each direct `shellcheck ...` invocation as one joined-continuation
-    string. Comments are stripped first; backslash-newline continuations are joined
-    so a multi-line explicit list becomes one segment."""
-    cleaned = _strip_shell_comments(run_text)
-    joined = cleaned.replace("\\\n", " ")
+    string. `cleaned` is the comment-stripped, continuation-joined run-block text
+    (produced once by the caller)."""
     invocations: list[str] = []
     # A shellcheck command begins at a `shellcheck` token that starts a command
     # (line start, after `|`, `;`, `&&`, `||`, or `xargs [-r] `). Capture to the next
     # newline (its arguments are all on the joined line).
-    for line in joined.split("\n"):
+    for line in cleaned.split("\n"):
         for m in re.finditer(r"(?:^|\||;|&&|\|\||xargs(?:\s+-\w+)*\s+)\s*shellcheck\b", line):
             invocations.append(line[m.end():])
     return invocations
 
 
-def _glob_exclusion_ok(run_text: str) -> bool:
+def _glob_exclusion_ok(cleaned: str) -> bool:
     """True iff a `git ls-files '*.sh'` pipeline that feeds shellcheck carries the
     EXACT recognized `grep -v '^lib/test/'` exclusion. If such a glob pipeline exists
-    but its exclusion differs (removed/narrowed), return False → fail closed."""
-    cleaned = _strip_shell_comments(run_text).replace("\\\n", " ")
+    but its exclusion differs (removed/narrowed), return False → fail closed. `cleaned`
+    is the comment-stripped, continuation-joined run-block text (produced once by the
+    caller)."""
     # Find a `git ls-files '*.sh'` pipeline that eventually reaches shellcheck.
     glob_lines = [
         ln
@@ -139,13 +138,15 @@ def derive_ci_linted(ci_text: str) -> set[str]:
     """Derive the set of lib/test/**/*.sh paths CI lints. Raises GuardError on any
     fail-closed condition."""
     run_text = _collect_run_blocks(ci_text)
-    invocations = _shellcheck_invocations(run_text)
+    # Comment-strip + join line-continuations ONCE; both derivations below read it.
+    cleaned = _strip_shell_comments(run_text).replace("\\\n", " ")
+    invocations = _shellcheck_invocations(cleaned)
     if not invocations:
         raise GuardError(
             "could not locate any shellcheck invocation in "
             ".github/workflows/ci.yml (fail-closed: not reporting coverage)"
         )
-    if not _glob_exclusion_ok(run_text):
+    if not _glob_exclusion_ok(cleaned):
         raise GuardError(
             "the `git ls-files '*.sh'` glob's lib/test/ exclusion is not the exact "
             f"recognized form `grep -v '{RECOGNIZED_GLOB_EXCLUSION}'` in "
