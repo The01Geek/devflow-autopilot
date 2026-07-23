@@ -48120,6 +48120,61 @@ assert_pin_red_under "#693 hand-off only: the cache is reached by explicit path,
   's/never decides to use the cache by testing for the file in the tree/decides to use the cache by testing for the file in the tree/' \
   "$IBR_P1"
 
+echo "#725 worktree-immunity residuals pinned in the two remaining working-tree enumerations"
+# lint-issue-body-refetch.py takes the ASSERTION form (its worktree immunity is a PREFIX
+# consequence of is_audited, not an in-helper exclusion — widening AUDITED_PREFIX is a
+# deliberate act). Build a temp root carrying a worktree-shaped decoy that holds a real
+# re-fetch violation, drive it through --files-from so no .git/info/exclude line has any
+# say (AC2), and prove the real helper does NOT report it (AC1).
+E725_IBR_FX="$(probe_tmp '#725 ibr worktree fixture root')"
+case "$E725_IBR_FX" in ""|/dev/null) : ;; *) rm -f "$E725_IBR_FX"; mkdir -p "$E725_IBR_FX" ;; esac
+E725_IBR_DECOY=".claude/worktrees/w/skills/implement/phases/phase-1-setup.md"
+e711_write "$E725_IBR_FX" "$E725_IBR_DECOY" '```bash' 'gh issue view 725 --json body --jq .body' '```'
+assert_eq "#725 lint-issue-body-refetch does not report a worktree-shaped decoy (prefix immunity, AC1/AC2)" \
+  "rc=0|lint-issue-body-refetch: audited 0 of 0 files" \
+  "$(ibr_run "$E725_IBR_FX" "$E725_IBR_DECOY")"
+# AC3: the immunity is the prefix and nothing else. Widen the audited population by mutating
+# AUDITED_PREFIX to "" and prove the SAME decoy is now flagged — so the assertion above is
+# guarding the prefix property, not a path that merely happens to be deselected. This is the
+# mutation-against-the-guarded-property discipline (the #375 rule), applied to the helper's own
+# selection constant. The mutation runs the REAL helper file in-process (importlib), so its
+# sibling extract-command-heads.py import resolves against lib/test/ — a scratch copy in a temp
+# dir could not, and the mutation must exercise the shipped code, only with its prefix widened.
+assert_eq "#725 widening lint-issue-body-refetch's prefix reaches the decoy (mutation proves the pin, AC3)" "yes" \
+  "$(E725_IBR_FX="$E725_IBR_FX" E725_IBR_DECOY="$E725_IBR_DECOY" IBR_LINT="$IBR_LINT" python3 -c '
+import importlib.util, io, os, contextlib, tempfile
+fx = os.environ["E725_IBR_FX"]; decoy = os.environ["E725_IBR_DECOY"]
+lst = tempfile.mktemp()
+open(lst, "w").write(decoy + "\n")
+spec = importlib.util.spec_from_file_location("ibr", os.environ["IBR_LINT"])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+m.AUDITED_PREFIX = ""   # widen the audited population to reach the worktree-shaped decoy
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+    rc = m.main(["--root", fx, "--files-from", lst])
+out = buf.getvalue()
+os.unlink(lst)
+print("yes" if rc == 1 and decoy in out and "(gh-issue-view-body)" in out else "no: rc=%s | %s" % (rc, out))
+')"
+case "$E725_IBR_FX" in ""|/dev/null) : ;; *) rm -rf "$E725_IBR_FX" ;; esac
+
+# regenerate-artifacts.py takes the EXPLICIT-EXCLUSION form (its budget rows genuinely need
+# the working-tree read). Pin exclude_worktree_paths directly (fixture-driven, no git): a
+# worktree copy of a review-phase file is dropped while the real path is kept (AC4). A worktree
+# copy matches a watch glob from the right (PurePosixPath.match), so without this filter the
+# copy would enter the watch-list intersection and read as stale-budget drift.
+E725_RA_LINT="$LIB/test/regenerate-artifacts.py"
+assert_eq "#725 regenerate-artifacts drops a sibling-worktree path from the untracked set, keeps the real one (AC4)" \
+  "skills/review/phases/x.md" \
+  "$(python3 -c 'import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ra", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+got = m.exclude_worktree_paths({
+    ".claude/worktrees/w/skills/review/phases/x.md",
+    "skills/review/phases/x.md",
+})
+print(",".join(sorted(got)))' "$E725_RA_LINT")"
+
 # #466 mla-rule-drift (coupled site): match-lint-adjudications.py excludes R4 from carry-forward
 # because R4's detail carries no referent. That exclusion is a DENY-list, so a NEW stale-prose
 # rule would silently inherit eligibility. Pin the lint's emitted STALE rule-id set: adding a
