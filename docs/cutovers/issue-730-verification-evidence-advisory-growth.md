@@ -24,8 +24,8 @@ Coupled ceiling renegotiations this growth forced:
     60-word margin)
 
 The plugin-root ceilings (review-and-fix 3,567; review-engine AC2 8,500) are untouched — this
-change edits no `skills/` file. `lib/cheap-gate.jq` gained the advisory-input handling but is not a
-mandatory prompt row.
+change edits no `skills/` file. `lib/cheap-gate.jq` gained only a head comment recording why it
+stays unwired to the marker, and is not a mandatory prompt row.
 
 ## Justification
 
