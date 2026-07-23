@@ -1,0 +1,25 @@
+{
+  "iter": 1,
+  "loop_role": "fix",
+  "current_step": "2.6",
+  "fix_files": [],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer"
+  ],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true
+  },
+  "phase3_findings": [],
+  "fix_decisions": [],
+  "convergence_inputs": {
+    "fixes_applied": 0,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "telemetry": "unavailable"
+}
