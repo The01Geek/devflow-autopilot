@@ -2,13 +2,181 @@
   "iter": 1,
   "started_at": "2026-07-23T16:11:22Z",
   "loop_role": "fix",
-  "current_step": "loop-control",
-  "current_substep": "run_engine",
+  "current_step": "2",
+  "current_substep": "aggregate_verdict",
   "config": {
     "max_iterations": 5,
     "fix_severity_threshold": "suggestion"
   },
   "pr_number": 733,
   "run_id": "local-20260723T161122Z-1",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "detect_all_audit": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:type-design-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Critical",
+      "description": "run.sh ~52764 PASS/FAIL guard comment: 'emptied PASS coerced to 0 by later arithmetic / confident under-count' is false against HEAD post-#720 (no arithmetic consumes PASS; summary.sh prints %s). Diff-modified comment, self-contradicting diff.",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          52763,
+          52768
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "self-tally rendezvous-retry summary-recapture path untested: forced-timeout test uses single-verdict 'pa'; the output-reuse code was added for self-tally retry.",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          657,
+          677
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Important",
+      "description": "POOLED_SUITES not pinned to run.sh's actual devflow_pool_open arg list; removal-direction drift passes silently.",
+      "defect_signature": {
+        "file": "lib/test/test_module_runner.py",
+        "line_range": [
+          1017,
+          1092
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "_pool_tally swallows OSError with bare pass, no stderr breadcrumb (repo best-effort convention wants one).",
+      "defect_signature": {
+        "file": "lib/test/test_python_scripts.py",
+        "line_range": [
+          99,
+          109
+        ],
+        "kind": "other"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "output=/dev/null mktemp fallback misattributes tempfile exhaustion to 'summary capture' failure; wants breadcrumb.",
+      "defect_signature": {
+        "file": "lib/test/module-harness.sh",
+        "line_range": [
+          343,
+          343
+        ],
+        "kind": "other"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "in-flight width bound never asserted (equivalence gates are width-invariant, cannot catch oversubscription).",
+      "defect_signature": {
+        "file": "lib/test/module-harness.sh",
+        "line_range": [
+          543,
+          547
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "_devflow_pool_run_one self-tally nonzero-after-only-PASS guard has no direct fixture.",
+      "defect_signature": {
+        "file": "lib/test/module-harness.sh",
+        "line_range": [
+          291,
+          311
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "interleaved failure output from multiple concurrent failing suites untested.",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          493,
+          495
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "scattered parallel-array/map representation; alignment invariant only in prose (bash-inherent).",
+      "defect_signature": {
+        "file": "lib/test/module-harness.sh",
+        "line_range": [
+          640,
+          660
+        ],
+        "kind": "type_design"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "pool globals partially reset by devflow_pool_open (self-tally maps, PID maps not cleared); latent, single-use today.",
+      "defect_signature": {
+        "file": "lib/test/module-harness.sh",
+        "line_range": [
+          525,
+          548
+        ],
+        "kind": "type_design"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "deferred"
+    }
+  ],
   "telemetry": "unavailable"
 }
