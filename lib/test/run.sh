@@ -21628,6 +21628,37 @@ assert_eq "#700 M2: truncated/non-JSON sidecar → honest fallback (session-fall
   "session-fallback" "$(AE669_field "$AE669_TRUNC" 'devflow:code-reviewer' 'application_point')"
 assert_eq "#700 M2: truncated/non-JSON sidecar → effective JSON null (unknown is not zero)" \
   "null" "$(AE669_type "$AE669_TRUNC" 'devflow:code-reviewer' 'effective')"
+
+# ── #700 review F3: a sidecar whose VALID JSON PREFIX is followed by trailing garbage is a
+#    distinct shape from the truncated one above, and it used to ABORT THE WHOLE RECORD:
+#    jq PRINTS the parsed object and THEN exits nonzero, so the `|| printf '{}'` fallback
+#    APPENDED a second document and --argjson rejected the two-document string (rc=2, zero
+#    bytes of record output — total telemetry loss, the opposite of the documented
+#    "fail-CLOSED to {}" contract). The fix captures into a variable and branches on the
+#    exit status, emitting EITHER the parsed object OR the fallback, never both.
+printf '{"devflow:code-reviewer":"low"} garbage' > "$AE669_DIR/prefix-garbage.json"
+AE669_PG="$(DEVFLOW_APPLIED_EFFORT_FILE="$AE669_DIR/prefix-garbage.json" bash "$LIB/efficiency-trace.sh" --workpad-dir "$AE669_DIR" --slug "pr-669" --mode record)"; AE669_PG_RC=$?
+assert_eq "#700 F3: valid-prefix+trailing-garbage sidecar never aborts the record (single-document capture)" "0" "$AE669_PG_RC"
+assert_eq "#700 F3: valid-prefix+trailing-garbage sidecar still emits a record (not zero bytes)" \
+  "1" "$(printf '%s' "$AE669_PG" | grep -c 'schema_version' || true)"
+assert_eq "#700 F3: valid-prefix+trailing-garbage sidecar → honest fallback (session-fallback)" \
+  "session-fallback" "$(AE669_field "$AE669_PG" 'devflow:code-reviewer' 'application_point')"
+
+# ── #700 review F2: the sidecar's per-agent VALUE matrix. Validating only that the TOP
+#    LEVEL is an object left every value unchecked, so a valid-falsy "" (and 0, an object,
+#    a JSON null, and a non-enum string) was non-null and drove
+#    `application_point: agent-definition` with a junk `effective` — the unearned applied
+#    claim the contract forbids, and the documented six-shape valid-falsy row (#312/#304).
+#    Every non-enum value must now fall back honestly. The valid-enum row above is the
+#    positive control proving these assertions are not vacuous.
+for AE669_SHAPE in '""' '0' '{"effort":"low"}' 'null' '"turbo"' '[ "low" ]'; do
+  printf '{"devflow:code-reviewer":%s}' "$AE669_SHAPE" > "$AE669_DIR/val.json"
+  AE669_VAL="$(DEVFLOW_APPLIED_EFFORT_FILE="$AE669_DIR/val.json" bash "$LIB/efficiency-trace.sh" --workpad-dir "$AE669_DIR" --slug "pr-669" --mode record)"
+  assert_eq "#700 F2: non-enum sidecar value $AE669_SHAPE → application_point stays session-fallback (no unearned applied claim)" \
+    "session-fallback" "$(AE669_field "$AE669_VAL" 'devflow:code-reviewer' 'application_point')"
+  assert_eq "#700 F2: non-enum sidecar value $AE669_SHAPE → effective stays JSON null (unknown is not zero)" \
+    "null" "$(AE669_type "$AE669_VAL" 'devflow:code-reviewer' 'effective')"
+done
 rm -rf "$AE669_DIR"
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -21661,7 +21692,7 @@ sys.stderr.write("boom\n")
 sys.exit(1)
 PY
 # 1. Composed effort → prints the --agents splice AND writes the sidecar.
-CAE_OUT="$(DEVFLOW_RRO="$CAE_DIR/stub-obj.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/s1.json" bash "$CAE_H")"; CAE_RC=$?
+CAE_OUT="$(DEVFLOW_RRO="$CAE_DIR/stub-obj.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/s1.json" DEVFLOW_AE_APPLY=1 bash "$CAE_H")"; CAE_RC=$?
 assert_eq "#700 compose: composed effort → exit 0" "0" "$CAE_RC"
 assert_eq "#700 compose: composed effort → prints the --agents splice" \
   "--agents '{\"devflow:code-reviewer\":{\"effort\":\"low\"}}'" "$CAE_OUT"
@@ -21669,7 +21700,7 @@ assert_eq "#700 compose: composed effort → writes the applier->recorder sideca
   '{"devflow:code-reviewer":"low"}' "$(cat "$CAE_DIR/s1.json")"
 # 2. Resolver ABSENT → fail-open (empty output, exit 0) AND any stale sidecar is cleared (#3).
 printf '{"stale":"x"}' > "$CAE_DIR/s2.json"
-CAE_OUT="$(DEVFLOW_RRO="$CAE_DIR/nope.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/s2.json" bash "$CAE_H")"; CAE_RC=$?
+CAE_OUT="$(DEVFLOW_RRO="$CAE_DIR/nope.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/s2.json" DEVFLOW_AE_APPLY=1 bash "$CAE_H")"; CAE_RC=$?
 assert_eq "#700 compose: resolver absent → exit 0 (fail-open)" "0" "$CAE_RC"
 assert_eq "#700 compose: resolver absent → empty agents_args" "" "$CAE_OUT"
 assert_eq "#700 compose: resolver absent → stale sidecar unconditionally cleared (#3)" \
@@ -21677,18 +21708,18 @@ assert_eq "#700 compose: resolver absent → stale sidecar unconditionally clear
 # 3. Resolver returns a NON-object (a JSON array) → validation rejects it (#5): no splice,
 #    no sidecar (never concatenated/spliced unvalidated).
 printf '{"stale":"y"}' > "$CAE_DIR/s3.json"
-CAE_OUT="$(DEVFLOW_RRO="$CAE_DIR/stub-array.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/s3.json" bash "$CAE_H")"
+CAE_OUT="$(DEVFLOW_RRO="$CAE_DIR/stub-array.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/s3.json" DEVFLOW_AE_APPLY=1 bash "$CAE_H")"
 assert_eq "#700 compose: non-object resolver output → empty agents_args (#5 validation)" "" "$CAE_OUT"
 assert_eq "#700 compose: non-object resolver output → stale sidecar cleared, none written" \
   "absent" "$([ -f "$CAE_DIR/s3.json" ] && echo present || echo absent)"
 # 4. Resolver returns {} (no per-agent effort) → empty, no sidecar; a stale one is cleared (#3).
 printf '{"stale":"z"}' > "$CAE_DIR/s4.json"
-CAE_OUT="$(DEVFLOW_RRO="$CAE_DIR/stub-empty.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/s4.json" bash "$CAE_H")"
+CAE_OUT="$(DEVFLOW_RRO="$CAE_DIR/stub-empty.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/s4.json" DEVFLOW_AE_APPLY=1 bash "$CAE_H")"
 assert_eq "#700 compose: {} result → empty agents_args" "" "$CAE_OUT"
 assert_eq "#700 compose: {} result → stale sidecar cleared (#3)" \
   "absent" "$([ -f "$CAE_DIR/s4.json" ] && echo present || echo absent)"
 # 5. Resolver FAILS (rc≠0, partial/no stdout) → fail-open, no splice, no sidecar.
-CAE_OUT="$(DEVFLOW_RRO="$CAE_DIR/stub-fail.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/s5.json" bash "$CAE_H")"; CAE_RC=$?
+CAE_OUT="$(DEVFLOW_RRO="$CAE_DIR/stub-fail.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/s5.json" DEVFLOW_AE_APPLY=1 bash "$CAE_H")"; CAE_RC=$?
 assert_eq "#700 compose: resolver failure → exit 0 (fail-open)" "0" "$CAE_RC"
 assert_eq "#700 compose: resolver failure → empty agents_args" "" "$CAE_OUT"
 assert_eq "#700 compose: resolver failure → no sidecar" \
@@ -21707,28 +21738,28 @@ PY
 # passes, so the review tier reads per-agent overrides from the trusted base ref, not the
 # PR-head working tree.
 rm -f "$CAE_DIR/stub-argv.py.argv"
-DEVFLOW_RRO="$CAE_DIR/stub-argv.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/b1.json" DEVFLOW_AE_CONFIG="$CAE_DIR/base-cfg.json" bash "$CAE_H" >/dev/null
+DEVFLOW_RRO="$CAE_DIR/stub-argv.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/b1.json" DEVFLOW_AE_CONFIG="$CAE_DIR/base-cfg.json" DEVFLOW_AE_APPLY=1 bash "$CAE_H" >/dev/null
 assert_eq "#700 B1 compose: DEVFLOW_AE_CONFIG threads --config to BOTH resolver passes" "2" \
   "$(grep -c -- "--config $CAE_DIR/base-cfg.json" "$CAE_DIR/stub-argv.py.argv")"
 # B1: DEVFLOW_AE_CONFIG UNSET → no --config (working-tree read, legitimate off the review tier).
 rm -f "$CAE_DIR/stub-argv.py.argv"
-DEVFLOW_RRO="$CAE_DIR/stub-argv.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/b1b.json" bash "$CAE_H" >/dev/null
+DEVFLOW_RRO="$CAE_DIR/stub-argv.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/b1b.json" DEVFLOW_AE_APPLY=1 bash "$CAE_H" >/dev/null
 assert_eq "#700 B1 compose: DEVFLOW_AE_CONFIG unset → no --config (working-tree read)" "0" \
   "$(grep -c -- "--config" "$CAE_DIR/stub-argv.py.argv")"
 # S1: EFFORT_SUPPORTED explicit EMPTY → coerced to false (unknown is not zero), so the
 # resolver's capability gate fails closed to the honest fallback — NOT rewritten to true.
 rm -f "$CAE_DIR/stub-argv.py.argv"
-DEVFLOW_RRO="$CAE_DIR/stub-argv.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/s1e.json" EFFORT_SUPPORTED="" bash "$CAE_H" >/dev/null
+DEVFLOW_RRO="$CAE_DIR/stub-argv.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/s1e.json" EFFORT_SUPPORTED="" DEVFLOW_AE_APPLY=1 bash "$CAE_H" >/dev/null
 assert_eq "#700 S1 compose: explicit-empty EFFORT_SUPPORTED → --effort-supported false (fail closed)" "2" \
   "$(grep -c -- "--effort-supported false" "$CAE_DIR/stub-argv.py.argv")"
 # S1: EFFORT_SUPPORTED UNSET → documented default true.
 rm -f "$CAE_DIR/stub-argv.py.argv"
-DEVFLOW_RRO="$CAE_DIR/stub-argv.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/s1u.json" bash "$CAE_H" >/dev/null
+DEVFLOW_RRO="$CAE_DIR/stub-argv.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/s1u.json" DEVFLOW_AE_APPLY=1 bash "$CAE_H" >/dev/null
 assert_eq "#700 S1 compose: unset EFFORT_SUPPORTED → --effort-supported true (documented default)" "2" \
   "$(grep -c -- "--effort-supported true" "$CAE_DIR/stub-argv.py.argv")"
 # S1: a NON-enum EFFORT_SUPPORTED (a garbage value) also fails closed to false.
 rm -f "$CAE_DIR/stub-argv.py.argv"
-DEVFLOW_RRO="$CAE_DIR/stub-argv.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/s1g.json" EFFORT_SUPPORTED="maybe" bash "$CAE_H" >/dev/null
+DEVFLOW_RRO="$CAE_DIR/stub-argv.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/s1g.json" EFFORT_SUPPORTED="maybe" DEVFLOW_AE_APPLY=1 bash "$CAE_H" >/dev/null
 assert_eq "#700 S1 compose: non-enum EFFORT_SUPPORTED → --effort-supported false (fail closed)" "2" \
   "$(grep -c -- "--effort-supported false" "$CAE_DIR/stub-argv.py.argv")"
 # M1: the sidecar-write-failure → honest-fallback else arm (applied ⟺ recorded invariant):
@@ -21736,9 +21767,40 @@ assert_eq "#700 S1 compose: non-enum EFFORT_SUPPORTED → --effort-supported fal
 # A regular file at the parent position makes both `mkdir -p` and the `>` redirect fail, so
 # the write genuinely cannot succeed (a merely-absent dir would be created by mkdir -p).
 printf 'x' > "$CAE_DIR/blocker"
-CAE_OUT="$(DEVFLOW_RRO="$CAE_DIR/stub-obj.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/blocker/s.json" bash "$CAE_H" 2>/dev/null)"; CAE_RC=$?
+CAE_OUT="$(DEVFLOW_RRO="$CAE_DIR/stub-obj.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/blocker/s.json" DEVFLOW_AE_APPLY=1 bash "$CAE_H" 2>/dev/null)"; CAE_RC=$?
 assert_eq "#700 M1 compose: unwritable sidecar → exit 0 (fail-open)" "0" "$CAE_RC"
 assert_eq "#700 M1 compose: unwritable sidecar → empty agents_args (no applied-but-unrecorded splice)" "" "$CAE_OUT"
+
+# ── #700 review F1: the applied arm is INERT BY DEFAULT. The spike proved a fully-defined
+#    NEW agent ({"seam-probe-agent":{description,prompt,effort}}); this composer emits an
+#    effort-only entry keyed by an ALREADY-INSTALLED plugin agent id. That shape is
+#    unmeasured, and under this repo's own agent_overrides.default.effort it would emit an
+#    entry for every non-Haiku roster member — so if --agents SHADOWS rather than patches,
+#    every merge-gating review agent degrades to a prompt-less stub. AC1 is therefore
+#    deferred behind DEVFLOW_AE_APPLY until a probe row measures THIS shape; AC2 (the
+#    telemetry half) ships. Inert must mean NO splice AND NO sidecar — a sidecar without a
+#    splice would make application_point: agent-definition an unearned claim.
+printf '{"stale":"inert"}' > "$CAE_DIR/inert.json"
+CAE_OUT="$(DEVFLOW_RRO="$CAE_DIR/stub-obj.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/inert.json" bash "$CAE_H" 2>/dev/null)"; CAE_RC=$?
+assert_eq "#700 F1 compose: applied arm inert by default → exit 0" "0" "$CAE_RC"
+assert_eq "#700 F1 compose: applied arm inert by default → NO --agents splice" "" "$CAE_OUT"
+assert_eq "#700 F1 compose: applied arm inert by default → NO sidecar (an unspliced sidecar would be an unearned applied claim)" \
+  "absent" "$([ -f "$CAE_DIR/inert.json" ] && echo present || echo absent)"
+# The gate is opt-in, not a removal: with it set the composer still composes (every arm
+# above runs under DEVFLOW_AE_APPLY=1), so the machinery stays live and tested.
+CAE_OUT="$(DEVFLOW_RRO="$CAE_DIR/stub-obj.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/optin.json" DEVFLOW_AE_APPLY=1 bash "$CAE_H" 2>/dev/null)"
+assert_eq "#700 F1 compose: DEVFLOW_AE_APPLY=1 re-enables the splice (gate is opt-in, not a removal)" \
+  "--agents '{\"devflow:code-reviewer\":{\"effort\":\"low\"}}'" "$CAE_OUT"
+# #700 review F12: the sidecar pass's OUTPUT is validated, not just its exit status. A pass
+# exiting 0 with `{}` must NOT emit the splice (applied-but-unrecorded).
+cat > "$CAE_DIR/stub-halfempty.py" <<'PY'
+import sys
+print("{}" if "--applied-sidecar-json" in sys.argv else '{"devflow:code-reviewer":{"effort":"low"}}')
+PY
+CAE_OUT="$(DEVFLOW_RRO="$CAE_DIR/stub-halfempty.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/he.json" DEVFLOW_AE_APPLY=1 bash "$CAE_H" 2>/dev/null)"
+assert_eq "#700 F12 compose: sidecar pass exits 0 with {} → no splice (applied never exceeds recorded)" "" "$CAE_OUT"
+assert_eq "#700 F12 compose: sidecar pass exits 0 with {} → no sidecar left behind" \
+  "absent" "$([ -f "$CAE_DIR/he.json" ] && echo present || echo absent)"
 
 rm -rf "$CAE_DIR"
 

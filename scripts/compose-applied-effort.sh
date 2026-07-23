@@ -28,9 +28,11 @@
 #      empty, `{}`, or partial-then-nonzero output, all fall through to the honest fallback
 #      — never concatenated onto a fallback and spliced into `--agents` unvalidated.
 #   4. Write the applier->recorder sidecar (a second resolver pass, post-capability-gate)
-#      FIRST, and emit the `--agents` splice ONLY if that write succeeded, so applied ⟺
-#      recorded stays invariant (the split-brain build_applied_effort avoids by returning
-#      both from one gate pass). A failed sidecar write degrades this run to the honest
+#      FIRST, and emit the `--agents` splice ONLY if that pass produced a usable map AND
+#      the write succeeded, so applied implies recorded (the split-brain avoided INSIDE
+#      `build_applied_effort`, which returns both maps from one gate pass; this shell
+#      composer runs the resolver twice, so it re-validates rather than inheriting that
+#      guarantee). A failed or empty sidecar pass degrades this run to the honest
 #      fallback — never applied-but-unrecorded (issue #700 finding #4's false-negative path).
 #
 # The emitted JSON keys are fixed KNOWN_AGENTS ids and values are enum efforts (the
@@ -71,7 +73,41 @@ SIDECAR="${DEVFLOW_AE_SIDECAR:-$(git rev-parse --show-toplevel 2>/dev/null || pw
 
 # 1. Unconditional stale-sidecar clear (#700 #3) — before the resolver gate, so a run
 #    that applies nothing never leaves a sidecar a later recorder would over-trust.
-rm -f "$SIDECAR"
+#    CHECKED (#700 review, F15): `rm -f` suppresses the not-found error but still returns
+#    nonzero on a REAL removal failure (read-only mount, immutable file, unwritable dir).
+#    Proceeding past that would leave a sidecar of unknown provenance on disk while this
+#    run applies nothing — precisely the fabricated `agent-definition` telemetry the clear
+#    exists to prevent — so refuse to apply rather than continue with it surviving.
+if ! rm -f "$SIDECAR" 2>/dev/null && [ -e "$SIDECAR" ]; then
+  printf 'compose-applied-effort: could not clear the stale sidecar %s; refusing to apply (a surviving stale sidecar would be recorded as applied effort this run never emitted)\n' "$SIDECAR" >&2
+  printf '%s\n' ""
+  exit 0
+fi
+
+# 1b. APPLY GATE — default OFF (#700 review, F1: the seam shape is NOT spike-proven).
+# The `agents-seam-probe` spike proved a fully-defined NEW agent
+# (`{"seam-probe-agent":{"description":…,"prompt":…,"effort":"low"}}`) is forwarded and
+# governs. This composer emits something structurally DIFFERENT: an effort-only entry
+# keyed by an ALREADY-INSTALLED plugin agent id containing a colon
+# (`{"devflow:code-reviewer":{"effort":"low"}}`). Nothing measured establishes that such
+# an entry PATCHES the installed agent rather than DEFINING/SHADOWING it, nor that a
+# definition lacking `description`/`prompt` validates at all. The blast radius is not
+# hypothetical: under this repo's own `agent_overrides.default.effort` every non-Haiku
+# member of the roster gets an entry, so if `--agents` shadows, every merge-gating review
+# agent silently degrades to a prompt-less stub on every cloud run.
+#
+# So AC1 (the APPLICATION half) is deferred until a probe row measures THIS shape, while
+# AC2 (the telemetry half — build_applied_effort, the sidecar contract, the recorder, and
+# their tests) ships. With the gate off this helper composes NOTHING and writes NO
+# sidecar: emitting a sidecar for an effort that was never spliced into `claude_args`
+# would make `application_point: agent-definition` and `effective` false claims, the exact
+# unearned-applied-value defect the AC2 contract forbids. Flip DEVFLOW_AE_APPLY=1 (and
+# restore the `claude_args` splice) once the probe records the shape as proven.
+if [ "${DEVFLOW_AE_APPLY:-0}" != "1" ]; then
+  printf 'compose-applied-effort: applied arm inert (DEVFLOW_AE_APPLY not set) — the effort-only/installed-agent-id `--agents` shape is not spike-proven; honest fallback stands, no sidecar written\n' >&2
+  printf '%s\n' ""
+  exit 0
+fi
 
 # 2. Resolve the resolver.
 RRO="${DEVFLOW_RRO:-}"
@@ -80,6 +116,12 @@ if [ -z "$RRO" ]; then
   [ -f "$RRO" ] || RRO=scripts/resolve-review-overrides.py
 fi
 if [ ! -f "$RRO" ]; then
+  # Breadcrumb (#700 review, F8): every fail-open path names its cause on stderr, matching
+  # this repo's best-effort-helper contract (lib/resolve-bin.sh, scripts/ensure-label.sh,
+  # scripts/apply-labels.sh, lib/normalize-path.sh all pair always-exit-0 with a
+  # breadcrumb). Silent fail-open is indistinguishable from "nothing configured", which is
+  # exactly the #502 vendor-skew state an operator most needs to diagnose.
+  printf 'compose-applied-effort: resolver not found at the vendored or self-repo path (%s); no per-agent effort applied (honest fallback)\n' "$RRO" >&2
   printf '%s\n' ""
   exit 0
 fi
@@ -100,13 +142,20 @@ if [ -n "${DEVFLOW_AE_CONFIG:-}" ]; then
 fi
 
 # 3. Compose the startup --agents map and validate it is a non-empty JSON object (#700 #5).
-AGENTS_JSON="$(python3 "$RRO" --known-roster --effort-supported "$EFFORT_SUPPORTED" "${AE_CONFIG_ARGS[@]+"${AE_CONFIG_ARGS[@]}"}" --applied-agents-json 2>/dev/null || true)"
+# stderr is deliberately NOT suppressed (#700 review, F9): the resolver's own
+# unknown-agent-drift and config-shape warnings are the only channel naming a diagnosable
+# cause, and its comment says it warns "so it isn't a silent no-op". This helper is that
+# resolver's only production caller, so routing its stderr to /dev/null would make the
+# warning path dead in the deployed configuration. Only stdout is captured, so stderr
+# reaches the workflow log without corrupting the composed value.
+AGENTS_JSON="$(python3 "$RRO" --known-roster --effort-supported "$EFFORT_SUPPORTED" "${AE_CONFIG_ARGS[@]+"${AE_CONFIG_ARGS[@]}"}" --applied-agents-json || true)"
 if ! printf '%s' "$AGENTS_JSON" | python3 -c 'import json,sys
 try:
     obj = json.load(sys.stdin)
 except Exception:
     sys.exit(1)
 sys.exit(0 if isinstance(obj, dict) and obj else 1)' 2>/dev/null; then
+  printf 'compose-applied-effort: resolver produced no usable per-agent effort (absent, empty, `{}`, or a non-object) — no per-agent effort applied (honest fallback)\n' >&2
   printf '%s\n' ""
   exit 0
 fi
@@ -116,15 +165,36 @@ fi
 #    DEFERRED (#700 finding #7 — "consider a single combined emit"): this is a SECOND,
 #    independent resolver process — not one gate pass reused. It is not merged into one
 #    emit because each call runs its OWN build_applied_effort gate pass over identical
-#    inputs (--known-roster, the same --effort-supported and --config), and that gate is
-#    deterministic, so the two separate calls cannot disagree; a combined `--applied-*-json`
-#    mode is a CLI-contract change with churn but no correctness gain. Revisit only if the
-#    resolver's applied output ever becomes non-deterministic.
+#    inputs (--known-roster, the same --effort-supported and --config), and that gate is a
+#    pure function of those inputs, so for a FIXED config the two calls agree. That is a
+#    weaker guarantee than `build_applied_effort`'s own single-pass one — the two processes
+#    each re-read the config from disk, so a config changing between them could diverge —
+#    which is why BOTH passes' outputs are now validated independently above rather than
+#    the second inheriting the first's result. A combined `--applied-*-json` mode remains a
+#    CLI-contract change with churn but no correctness gain.
+#    The sidecar pass's OUTPUT is validated too, not merely its exit status (#700 review,
+#    F12): emitting the splice on exit status alone left the asymmetric hole where a pass
+#    that exits 0 with empty/`{}` stdout yields a sidecar the recorder reads as `{}` while
+#    `--agents` WAS applied — applied-but-unrecorded, the very invariant this ordering
+#    exists to hold. Validate both passes the same way.
 mkdir -p "$(dirname "$SIDECAR")" 2>/dev/null || true
-if python3 "$RRO" --known-roster --effort-supported "$EFFORT_SUPPORTED" "${AE_CONFIG_ARGS[@]+"${AE_CONFIG_ARGS[@]}"}" --applied-sidecar-json > "$SIDECAR" 2>/dev/null; then
+SIDECAR_JSON="$(python3 "$RRO" --known-roster --effort-supported "$EFFORT_SUPPORTED" "${AE_CONFIG_ARGS[@]+"${AE_CONFIG_ARGS[@]}"}" --applied-sidecar-json || true)"
+if ! printf '%s' "$SIDECAR_JSON" | python3 -c 'import json,sys
+try:
+    obj = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+sys.exit(0 if isinstance(obj, dict) and obj else 1)' 2>/dev/null; then
+  rm -f "$SIDECAR"
+  printf 'compose-applied-effort: sidecar pass produced no usable map (absent, empty, `{}`, or a non-object); refusing to emit the --agents splice so applied never exceeds recorded — honest fallback\n' >&2
+  printf '%s\n' ""
+  exit 0
+fi
+if printf '%s\n' "$SIDECAR_JSON" > "$SIDECAR" 2>/dev/null; then
   printf '%s\n' "--agents '$AGENTS_JSON'"
 else
   rm -f "$SIDECAR"
+  printf 'compose-applied-effort: could not write the applier->recorder sidecar at %s; degrading to the honest fallback rather than applying an effort no recorder would see\n' "$SIDECAR" >&2
   printf '%s\n' ""
 fi
 exit 0
