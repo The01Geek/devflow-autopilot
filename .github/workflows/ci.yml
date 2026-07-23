@@ -125,6 +125,10 @@ jobs:
             lib/test/modules/regenerate-artifacts.sh \
             lib/test/modules/installer-wiring.sh \
             lib/test/modules/harness-python-guards.sh \
+            lib/test/modules/prompt-extension-reader.sh \
+            lib/test/modules/review-trigger-helpers.sh \
+            lib/test/modules/review-stall-backstop.sh \
+            lib/test/modules/experiment-records.sh \
             lib/test/cloud-form-layout-test.sh \
             lib/test/path-portability-test.sh
           # lib/test/describe-budget-delta.sh is the #529 budget-delta reporter the suite

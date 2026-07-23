@@ -655,7 +655,7 @@
     },
     "249": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "review-trigger-helpers"
     },
     "253": {
       "note": "",
@@ -755,7 +755,7 @@
     },
     "314": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "review-trigger-helpers"
     },
     "320": {
       "note": "",
@@ -763,7 +763,7 @@
     },
     "321": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "review-trigger-helpers"
     },
     "322": {
       "note": "",
@@ -783,11 +783,11 @@
     },
     "329": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "review-trigger-helpers"
     },
     "331": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "review-trigger-helpers"
     },
     "332": {
       "note": "",
@@ -827,7 +827,7 @@
     },
     "349": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "review-trigger-helpers"
     },
     "350": {
       "note": "",
@@ -835,11 +835,11 @@
     },
     "351": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "review-trigger-helpers"
     },
     "353": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "review-trigger-helpers"
     },
     "356": {
       "note": "",
@@ -919,7 +919,7 @@
     },
     "403": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "experiment-records"
     },
     "404": {
       "note": "",
@@ -931,7 +931,7 @@
     },
     "408": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "review-stall-backstop"
     },
     "409": {
       "note": "",
@@ -943,15 +943,15 @@
     },
     "414": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "review-stall-backstop"
     },
     "415": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "review-stall-backstop"
     },
     "42": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "review-trigger-helpers"
     },
     "423": {
       "note": "",
@@ -970,7 +970,7 @@
       "owner": "unmodularized"
     },
     "431": {
-      "note": "",
+      "note": "partially extracted (issue #746): lib/test/modules/experiment-records.sh carries the build-experiment-records.py assembler coverage, while the trailing '#431 producer pins' block stays in lib/test/run.sh because its five assert_pin_red_under pins target efficiency-trace.{jq,sh}, devflow-review.yml, open-state-pr.sh and the run.sh-global $MAXI_BUNDLE — surfaces the assembler does not own",
       "owner": "unmodularized"
     },
     "434": {
@@ -979,7 +979,7 @@
     },
     "435": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "experiment-records"
     },
     "437": {
       "note": "",
@@ -1327,7 +1327,7 @@
     },
     "610": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "review-stall-backstop"
     },
     "611": {
       "note": "",

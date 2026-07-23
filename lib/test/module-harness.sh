@@ -345,6 +345,38 @@ _devflow_test_append_cleanup_marker() { # path
   _devflow_test_ensure_cleanup_marker "$1" "runner-cleanup" "runner"
 }
 
+# devflow_module_build_bundle LABEL OUTPUT_FILE MEMBER...
+#   Module-side skill-bundle builder (issue #746). Concatenates every MEMBER into
+#   OUTPUT_FILE, one trailing newline per member, so a content-survival pin can
+#   target the whole bundle rather than guessing which reference a sentence lives
+#   in. Deliberately NOT a relocation of the monolith's `_build_skill_bundle`:
+#   that one reports a bad member by writing `FAIL` straight into the caller's
+#   `$RESULTS_FILE`, a raw-tally side effect a module must not perform. Here an
+#   unusable member (missing, empty, unreadable, or a failed append) is reported
+#   through `assert_eq`, the module contract's only sanctioned failure channel, so
+#   the member's absence lands in the tally as a named RED assertion rather than
+#   an anonymous one. Fails LOUD per member and keeps going, so one missing
+#   reference does not mask the next; returns 1 when any member failed.
+devflow_module_build_bundle() { # label output-file member...
+  local label="$1" out="$2" member="" rc=0
+  shift 2
+  : > "$out" || {
+    assert_eq "$label bundle: output file writable" "yes" "no"
+    return 1
+  }
+  for member in "$@"; do
+    if [ -r "$member" ] && [ -s "$member" ] && cat "$member" >> "$out"; then
+      printf '\n' >> "$out"
+    else
+      # Named per member: a bare "bundle failed" cannot tell the reader WHICH
+      # reference vanished, which is the whole diagnostic value of failing loud.
+      assert_eq "$label bundle member usable: $member" "yes" "no"
+      rc=1
+    fi
+  done
+  return "$rc"
+}
+
 devflow_module_allocate_owned_directory() { # mktemp-template
   local template="$1" candidate="" candidate_physical="" existing=""
   local existing_physical=""
