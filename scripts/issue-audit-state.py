@@ -2583,7 +2583,7 @@ def evaluate_calibration(state):
             'unevidenced': unevidenced, 'round': rnd, 'reason': None}
 
 
-def evaluate_calibration_trigger(state):
+def evaluate_calibration_trigger(state, cal=None):
     """Whether the calibration disclosure offer trigger holds (issue #743).
 
     A never-blocking sibling of T1/T2 and the coverage trigger, routed through the same offer
@@ -2593,8 +2593,13 @@ def evaluate_calibration_trigger(state):
     a grade that would otherwise reach the approval election undisclosed. A run whose records
     are all evidenced/optional AND reported rendered does not fire; a run with no records never
     fires. Filing is never blocked by this trigger — its teeth are disclosure only.
+
+    `cal` may be a precomputed `evaluate_calibration(state)` result: the two callers that render
+    the backing/render fields beside the trigger (`summary_fields`, `cmd_query_calibration`)
+    pass the value they already hold, so the calibration derivation runs once, not twice.
     """
-    cal = evaluate_calibration(state)
+    if cal is None:
+        cal = evaluate_calibration(state)
     if cal['backing'] == 'unestablished':
         return False
     return cal['backing'] == 'under-evidenced' or cal['render'] != 'reported'
@@ -3260,7 +3265,7 @@ def summary_fields(state, current_digest=None, digest_failed=False):
         # `effective_unresolved`, the convergence basis, or coverage backing.
         calibration_backing=_calibration['backing'],
         adjudication_render=_calibration['render'],
-        calibration_trigger=evaluate_calibration_trigger(state),
+        calibration_trigger=evaluate_calibration_trigger(state, _calibration),
         # issue #709: the LATEST completed round's steering-absence establishment, read
         # from that round only — the property binds to the audited bytes, not to the run,
         # so a run-level roll-up would let a steered early round launder a later revision.
@@ -5664,7 +5669,7 @@ def cmd_query_calibration(args):
               'calibration_trigger=no unevidenced=none reason=foreign-nonce')
         return
     cal = evaluate_calibration(state)
-    trig = 'yes' if evaluate_calibration_trigger(state) else 'no'
+    trig = 'yes' if evaluate_calibration_trigger(state, cal) else 'no'
     ids = ','.join(str(i) for i in cal['unevidenced']) if cal['unevidenced'] else 'none'
     print(f'calibration_backing={cal["backing"]} adjudication_render={cal["render"]} '
           f'calibration_trigger={trig} unevidenced={ids} '
