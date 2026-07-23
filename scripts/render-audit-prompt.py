@@ -58,6 +58,7 @@ Contract (issue #600):
 from __future__ import annotations
 
 import argparse
+import hashlib
 import re
 import subprocess
 import sys
@@ -91,6 +92,21 @@ _STATUS_UNESTABLISHED = "unestablished"
 _BLOCK_OPEN_PREFIX = "<!-- render-block:"
 _BLOCK_OPEN_SUFFIX = "-->"
 _BLOCK_CLOSE = "<!-- render-block-end -->"
+
+# Dimension-key declaration marker (issue #729). A line
+#   <!-- dim-key: <lowercase-kebab> -->
+# immediately above a `- ` bullet DECLARES that dimension's stable identity. It is
+# machine data: `enumerate_dimensions` reads it, and every rendering path strips it,
+# so the checklist prose and the enumeration are two projections of ONE declaration
+# rather than the enumeration being a regex scrape of the prose (the pre-#729 shape,
+# where rewording a bold name silently rekeyed a dimension the state owner had
+# already recorded durably).
+_DIM_KEY_RE = re.compile(r"^<!--\s*dim-key:\s*(.*?)\s*-->$")
+_DIM_KEY_TOKEN = "dim-key:"
+# The declared-key alphabet. Deliberately the same lowercase-kebab shape the CLI's
+# `_kebab_slug` enforces and the same shape `_name_slug` produces, so a declared key
+# and a derived one are drawn from one vocabulary and can never collide by casing.
+_DIM_KEY_SHAPE_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
 class RenderError(Exception):
@@ -159,6 +175,18 @@ def _default_extension_path() -> Path:
 #   present-but-unreadable / broken symlink
 #     / present-but-non-regular file       -> unestablished (never "absent")
 # --------------------------------------------------------------------------
+def _strip_dim_key_markers(text: str) -> str:
+    """Drop every `<!-- dim-key: … -->` declaration line (issue #729).
+
+    Applied to every RENDERING path so the auditor-facing prose is byte-identical
+    to the pre-#729 render; never applied on the path that derives keys.
+    """
+    if _DIM_KEY_TOKEN not in text:
+        return text
+    kept = [ln for ln in text.splitlines() if not _DIM_KEY_RE.match(ln.strip())]
+    return "\n".join(kept)
+
+
 def _read_extension(path: Path) -> tuple[str, str]:
     """Return (state, text). state is one of 'ok' / 'absent' / 'unestablished'.
 
@@ -289,7 +317,13 @@ def consumer_dimensions(ext_path: Path, heading: str) -> tuple[str, str]:
     if state == "absent":
         return (_STATUS_ABSENT, "")
     section = extract_section(text, heading)
-    if not section:
+    # The emptiness decision is taken on the STRIPPED text (issue #729) while the
+    # RAW text is returned: a section carrying only declaration markers declares no
+    # dimensions, so it is `absent` — reporting it `appended` would pair a complete
+    # status with an instruction-empty splice. Callers that render strip; the one
+    # caller that derives keys needs the markers, which is why the raw text is what
+    # crosses this boundary.
+    if not _strip_dim_key_markers(section).strip():
         return (_STATUS_ABSENT, "")
     return (_STATUS_APPENDED, section)
 
@@ -366,7 +400,10 @@ def _section_placeholder(status: str) -> str:
 
 def _dimensions_block_for_status(status: str, section: str) -> str:
     if status == _STATUS_APPENDED:
-        return section
+        # The declaration markers are machine data (issue #729): they carry the
+        # dimension's identity for `enumerate-dimensions`, never instructions for
+        # the auditor, so the spliced prose is the section with them stripped.
+        return _strip_dim_key_markers(section)
     if status == _STATUS_ABSENT:
         return "(no consumer audit dimensions)"
     if status == _STATUS_UNESTABLISHED:
@@ -406,7 +443,13 @@ def render_dispatch(
     parts: list[str] = []
     for arm_set, body in blocks:
         if mode in arm_set:
-            parts.append(_substitute(body, slots).strip("\n"))
+            # Strip the #729 declaration markers BEFORE substitution, so a
+            # `{CONSUMER_DIMENSIONS}` value (already stripped by
+            # `_dimensions_block_for_status`) is never re-scanned — the
+            # substituted-last invariant above.
+            parts.append(
+                _substitute(_strip_dim_key_markers(body), slots).strip("\n")
+            )
     inner = "\n\n".join(p for p in parts if p.strip())
     # Fail CLOSED on an instruction-empty body: a mode that selects no block (or
     # only blank ones) would otherwise emit a positionally-valid two-marker render
@@ -443,7 +486,11 @@ def render_extract(hook: str, ext_path: Path) -> str:
     # An empty body between markers is positionally valid but instruction-empty,
     # the shape render_dispatch fails closed on.
     status, section = consumer_dimensions(ext_path, heading)
-    body = section if status == _STATUS_APPENDED else _section_placeholder(status)
+    body = (
+        _strip_dim_key_markers(section)
+        if status == _STATUS_APPENDED
+        else _section_placeholder(status)
+    )
     return f"{STATUS_PREFIX} {status}\n{body}\n{END_MARKER}"
 
 
@@ -463,11 +510,23 @@ def render_status_only(ext_path: Path) -> str:
 # assign the SAME stable key to the same dimension, so the join is by shared key,
 # never positional or name inference.
 #
-# Two dimension arms, keyed disjointly so keys are unique across the whole list:
-#   - generic-floor dimensions: the bold-lead bullets in the template's
-#     `## Audit dimensions` checklist block. Key `g:<name-slug>`.
+# Two dimension arms, keyed disjointly so keys are unique across the whole list.
+# Since issue #729 every key is DECLARED or content-derived, never a projection of
+# a bullet's position or current wording:
+#   - generic-floor dimensions: the bullets in the template's `## Audit dimensions`
+#     checklist block, each declaring its key on the line above it. Key
+#     `g:<declared-key>`; an undeclared bullet fails closed.
 #   - consumer dimensions: the per-bullet split of the consumer
-#     `## Audit dimensions` section (present only when appended). Key `c:<n>`.
+#     `## Audit dimensions` section (present only when appended). Key
+#     `c:<declared-key>`, else `c:<bold-name-slug>`, else `c:h<hash>`.
+#
+# Migration (issue #729). The template's declared keys are exactly the slugs the
+# pre-#729 scrape produced, so no generic key changed value; a consumer key that
+# was `c:<n>` does change. Neither breaks a recorded run: `issue-audit-state.py`
+# treats coverage keys as opaque strings and checks a round's totality against the
+# `coverage_expected` keyset persisted IN THAT ROUND, never against a fresh
+# enumeration — so a run recorded under the previous derivation stays readable and
+# keeps its coverage backing with no rekeying step.
 #
 # Output shape (positionally delimited like every other full render):
 #   render-status: <appended|absent|unestablished>
@@ -477,14 +536,15 @@ def render_status_only(ext_path: Path) -> str:
 # --------------------------------------------------------------------------
 _DIM_LINE_PREFIX = "dim key="
 _DIM_TEXT_SEP = " text="
-# A generic-floor dimension bullet: `- **Name** — ...` (an em-dash lead follows,
-# but only the bold name is captured for the slug; the whole bullet is the text).
+# A bold-lead dimension bullet: `- **Name** — ...`, capturing only the bold name.
+# Since #729 this drives the CONSUMER fallback key only — a generic key is read from
+# its declaration, never matched out of the prose.
 _GENERIC_DIM_RE = re.compile(r"^- \*\*(.+?)\*\*")
 _SLUG_STRIP_RE = re.compile(r"[^a-z0-9]+")
 
 
 def _name_slug(name: str) -> str:
-    """Deterministic kebab slug of a dimension's bold name, for its stable key."""
+    """Deterministic kebab slug of a dimension's bold name (consumer fallback key)."""
     return _SLUG_STRIP_RE.sub("-", name.strip().lower()).strip("-")
 
 
@@ -498,13 +558,37 @@ def _one_line(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _declared_key(line: str) -> str | None:
+    """The key declared by a `<!-- dim-key: … -->` line, or None if not one.
+
+    Raises RenderError on a marker whose key is not lowercase kebab-case: a
+    malformed declaration is a defect in the declaring file, never a key to coin.
+    """
+    m = _DIM_KEY_RE.match(line.strip())
+    if not m:
+        return None
+    key = m.group(1)
+    if not _DIM_KEY_SHAPE_RE.match(key):
+        raise RenderError(
+            f"dim-key declaration {key!r} is not lowercase kebab-case "
+            f"(letters, digits, single hyphens)"
+        )
+    return key
+
+
 def _generic_dimensions(template_text: str) -> list[tuple[str, str]]:
     """The generic-floor dimensions as (key, single-line-text), template order.
 
     Selects the one checklist block (the block whose arm set includes
-    ``checklist`` — unique in the template) and returns each bold-lead bullet.
-    Keys are ``g:<name-slug>`` and MUST be unique (a collision is a template
-    defect, so it fails closed rather than silently coalescing two dimensions).
+    ``checklist`` — unique in the template) and returns each top-level bullet
+    paired with the ``<!-- dim-key: … -->`` declaration on the line above it.
+
+    Keys are ``g:<declared-key>`` — read from the DECLARATION, never slugged from
+    the bullet's prose (issue #729), so rewording a bullet leaves its key
+    byte-identical. Every fail-closed arm below exists to keep the two projections
+    (the human-facing checklist prose and this enumeration) from drifting apart
+    silently: an undeclared bullet, an orphan declaration, or a duplicate key is a
+    template defect that raises rather than coining or coalescing a key.
     """
     blocks = _parse_blocks(template_text)
     checklist_bodies = [body for arm_set, body in blocks if "checklist" in arm_set]
@@ -524,18 +608,29 @@ def _generic_dimensions(template_text: str) -> list[tuple[str, str]]:
     dims: list[tuple[str, str]] = []
     seen: set[str] = set()
     for body in checklist_bodies:
+        pending: str | None = None
         for raw in body.splitlines():
             line = raw.rstrip()
-            m = _GENERIC_DIM_RE.match(line)
-            if not m:
+            declared = _declared_key(line)
+            if declared is not None:
+                if pending is not None:
+                    raise RenderError(
+                        f"template malformed: dim-key declaration {pending!r} "
+                        f"declares no bullet (the next non-blank line is another "
+                        f"declaration, not a `- ` dimension bullet)"
+                    )
+                pending = declared
                 continue
-            slug = _name_slug(m.group(1))
-            if not slug:
+            if not line.startswith("- "):
+                continue
+            if pending is None:
                 raise RenderError(
-                    f"template malformed: generic dimension {m.group(1)!r} "
-                    "has an empty slug"
+                    f"template malformed: generic dimension bullet {line[:60]!r} "
+                    f"carries no dim-key declaration on the line above it; every "
+                    f"checklist bullet declares its stable key"
                 )
-            key = f"g:{slug}"
+            key = f"g:{pending}"
+            pending = None
             if key in seen:
                 raise RenderError(
                     f"template malformed: duplicate generic dimension key {key!r}"
@@ -543,6 +638,11 @@ def _generic_dimensions(template_text: str) -> list[tuple[str, str]]:
             seen.add(key)
             # The rendered text is the bullet with its leading `- ` marker stripped.
             dims.append((key, _one_line(line[2:])))
+        if pending is not None:
+            raise RenderError(
+                f"template malformed: dim-key declaration {pending!r} declares no "
+                f"bullet (the checklist block ends before the next `- ` bullet)"
+            )
     if not dims:
         raise RenderError(
             "template malformed: checklist block carries no generic dimension bullets"
@@ -550,28 +650,74 @@ def _generic_dimensions(template_text: str) -> list[tuple[str, str]]:
     return dims
 
 
-def _split_consumer_dimensions(section: str) -> list[str]:
-    """Split a consumer ``## Audit dimensions`` section into per-dimension texts.
+def _split_consumer_dimensions(section: str) -> list[tuple[str | None, str]]:
+    """Split a consumer ``## Audit dimensions`` section into per-dimension entries.
 
     Each top-level ``- `` bullet (column 0) starts a new dimension; a non-bullet
-    or indented continuation line folds into the current dimension's text. Leading
-    prose before the first bullet, and blank lines, are ignored. Returns the
-    single-line text of each dimension in file order.
+    or indented continuation line folds into the current dimension's text. A
+    ``<!-- dim-key: … -->`` declaration line binds to the bullet that follows it
+    and is never folded into any dimension's text. Leading prose before the first
+    bullet, and blank lines, are ignored. Returns ``(declared-key-or-None,
+    single-line text)`` per dimension in file order.
     """
-    dims: list[str] = []
+    dims: list[tuple[str | None, str]] = []
     current: list[str] | None = None
+    current_key: str | None = None
+    pending: str | None = None
+
+    def _flush() -> None:
+        if current is not None:
+            text = _one_line(" ".join(current))
+            if text:
+                dims.append((current_key, text))
+
     for raw in section.splitlines():
         line = raw.rstrip()
+        declared = _declared_key(line)
+        if declared is not None:
+            # A declaration terminates the preceding bullet: it belongs to the NEXT
+            # one, and folding it into the previous dimension's text would both
+            # corrupt that text and lose the binding.
+            _flush()
+            current = None
+            current_key = None
+            pending = declared
+            continue
         if line.startswith("- "):
-            if current is not None:
-                dims.append(_one_line(" ".join(current)))
+            _flush()
             current = [line[2:]]
+            current_key = pending
+            pending = None
         elif current is not None:
             if line.strip():
                 current.append(line)
-    if current is not None:
-        dims.append(_one_line(" ".join(current)))
-    return [d for d in dims if d]
+    _flush()
+    return dims
+
+
+def _consumer_key(declared: str | None, text: str) -> str:
+    """The insertion-stable key of one consumer dimension (issue #729).
+
+    Precedence, every arm content-derived rather than positional so inserting a
+    bullet mid-section never rekeys its siblings (the pre-#729 ``c:<n>`` defect):
+
+    1. an explicit ``<!-- dim-key: … -->`` declaration, when the consumer supplies
+       one — the only arm the consumer controls exactly;
+    2. the slug of the bullet's bold lead (``- **Name** — …``), which is how this
+       repo's own consumer dimensions are written;
+    3. a truncated SHA-256 of the dimension's single-line text, for a bullet with
+       no bold lead — stable under insertion, and it changes only when the
+       dimension's own text changes (which a consumer can pin by adding a
+       declaration).
+    """
+    if declared:
+        return f"c:{declared}"
+    m = _GENERIC_DIM_RE.match(f"- {text}")
+    if m:
+        slug = _name_slug(m.group(1))
+        if slug:
+            return f"c:{slug}"
+    return "c:h" + hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
 
 
 def enumerate_dimensions(
@@ -582,8 +728,23 @@ def enumerate_dimensions(
     status, section = consumer_dimensions(ext_path, _HOOKS["audit-dimensions"])
     entries = list(generic)
     if status == _STATUS_APPENDED:
-        for n, text in enumerate(_split_consumer_dimensions(section), start=1):
-            entries.append((f"c:{n}", text))
+        seen = {k for k, _ in entries}
+        for declared, text in _split_consumer_dimensions(section):
+            key = _consumer_key(declared, text)
+            if key in seen:
+                # Two consumer dimensions resolving to one key would silently
+                # coalesce into a single enumerated dimension, and the merged keyset
+                # is what coverage totality is checked against — the same defect the
+                # generic duplicate arm refuses. Name the remedy, since the file at
+                # fault is the consumer's, not this repo's.
+                raise RenderError(
+                    f"consumer extension malformed: duplicate consumer dimension "
+                    f"key {key!r}; give each colliding bullet its own explicit "
+                    f"`<!-- dim-key: <lowercase-kebab> -->` declaration to "
+                    f"disambiguate"
+                )
+            seen.add(key)
+            entries.append((key, text))
     return status, entries
 
 

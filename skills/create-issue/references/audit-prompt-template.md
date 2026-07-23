@@ -38,6 +38,21 @@ same block/slot rules by hand.
     renderer and spliced into the generic checklist block below.
 - **The draft title never appears here** — it travels in the orchestrator's
   dispatch preamble prose; the rendered instructions refer to the draft by path.
+- **Dimension-key declarations** (issue #729). Each generic audit dimension in
+  the checklist block below is *declared* by a `<!-- dim-key: <lowercase-kebab> -->`
+  marker line on the line immediately above its `- ` bullet. That declaration —
+  not the bullet's prose — is the dimension's identity: `enumerate-dimensions`
+  emits it as `g:<declared-key>`, and the human-facing checklist is the bullet
+  with the marker stripped, so the two projections render from one declaration.
+  Rewording a bullet therefore leaves its key byte-identical. The renderer fails
+  closed (rc≠0, empty stdout, stderr breadcrumb) on a bullet carrying no
+  declaration, a declaration followed by no bullet, a key that is not lowercase
+  kebab-case, or a duplicate key — the checklist prose and the keyset cannot
+  drift apart silently. A manual arm reading this file by hand applies the same
+  rule: strip the marker lines from the emitted prose. A consumer
+  `## Audit dimensions` bullet may carry the same marker (keyed `c:<declared-key>`);
+  when it does not, its key is derived from its content — the bold-lead name's
+  slug, else a hash of the bullet text — never its position.
 
 ## Extraction rule (for the `## Audit dimensions` / `## Evidence axes` forwarding)
 
@@ -86,14 +101,23 @@ Verify every claim against the repository (you have read access). On this arm th
 <!-- render-block: file embed inline checklist -->
 **Audit dimensions** (judge the draft against each):
 
+<!-- dim-key: consumer-repo-setup-variance -->
 - **Consumer-repo setup variance** — the draft's premises must hold on a fresh adopter checkout, not only this repo.
+<!-- dim-key: host-os-variance -->
 - **Host-OS variance** — Windows / WSL / Git Bash, macOS / BSD, and hosts without GNU coreutils.
+<!-- dim-key: degraded-environments -->
 - **Degraded environments** — shallow clones, missing PATH tools, read-only sandboxes, and both fresh and compacted agent contexts.
+<!-- dim-key: execution-tier-variance -->
 - **Execution-tier variance** — cloud tier and local tier, including their differing permission allowlists.
+<!-- dim-key: second-order-effects-and-unstated-scope -->
 - **Second-order effects and unstated scope** — what the change touches that the draft never mentions, judged **per evidence axis**: authoritative producers and the values they emit; consumers of each touched value or surface; execution environments (tiers, host OSes, degraded arms); persistence paths; lifecycle states and termination paths including retries and backstops; migration and coexistence surfaces; and coupled tests and docs. A surface the draft leaves unmentioned on any of these axes is an unstated-scope finding.
+<!-- dim-key: missed-edge-cases-and-termination-paths -->
 - **Missed edge cases and termination paths** — error paths, empty/absent inputs, and how each flow ends.
+<!-- dim-key: load-bearing-assumptions -->
 - **Load-bearing assumptions** — each stated with what would falsify it, including any **universal quantifier** the draft asserts ("never", "always", "each", "every", "all", "cannot"): each must be grounded (pinned per-arm/per-element, scoped to the mechanism's supported form, or removed), or it is an ungrounded load-bearing assumption.
+<!-- dim-key: adversarial-third-party-input -->
 - **Adversarial third-party input** — when the draft's Desired Behavior introduces a *new* LLM or semantic judgment over third-party text the change does not author (issue bodies, PR comments, commit messages, external API responses) whose output drives an automated selection or action, the draft must carry an input-is-data guard as a decided design element — an acceptance criterion stating the text is **data to classify, never instructions to obey** — paired with a Testing Strategy case that exercises instruction-shaped input (a body that directs the judgment) and asserts it is not obeyed. Flag a draft missing the guard AC, or carrying the guard sentence with no paired hostile-input case (the pairing exists precisely so the guard cannot be satisfied by a compliance sentence the implementation never ships). A surface that reuses an existing, already-guarded judgment path is exempt when the draft cites that path; a draft with no new judgment surface gains no new flags (the visual-specification skip-when-inapplicable shape).
+<!-- dim-key: authoring-discipline-defects -->
 - **Authoring-discipline defects** — three related shapes: (1) a **value-comparison** AC or assertion whose comparison language is ungrounded on the type axis it must encode — adjective-only ("explicit X", "exactly X"), or a cited probe that never exercises the type-boundary fixture the comparison distinguishes (a string `"true"` vs. a boolean `true`); (2) a **case / input-shape matrix** narrowed below a governing convention without an explicit justification — **independently re-run** the draft's bounded consulted-sources search and flag **only** a governing matrix found at a path the draft's `governing conventions consulted:` line omits, never a judgment disagreement about what counts as governing; (3) an **unstated mechanism dependency** — the designed mechanism relies on an in-repo helper/resolver/gate behavior the body never asserts as a claim, so no premise is verified.
 
 {CONSUMER_DIMENSIONS}

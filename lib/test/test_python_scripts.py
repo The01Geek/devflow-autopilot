@@ -13732,6 +13732,50 @@ def _cov_producer_consumer_join(r):
 _with_run603(_cov_producer_consumer_join)
 
 
+# Migration path for coverage recorded under the PRE-#729 key derivation (issue #729 AC4).
+# Before #729 a generic key was a slug scraped from the rendered checklist prose and a
+# consumer key was the bullet's 1-based POSITION (`c:1`, `c:2`); both are now declared or
+# content-derived, so the consumer half of that vocabulary is retired. The stated migration
+# path is that there is NO migration step: the state owner treats coverage keys as opaque
+# strings and checks a round's totality against the `coverage_expected` keyset persisted IN
+# THAT ROUND — never against a fresh `enumerate-dimensions` run — so a run recorded under
+# the old derivation stays readable and keeps its backing. That claim is only worth as much
+# as a test that records a legacy keyset the CURRENT renderer would never emit and reads it
+# back, which is what this does.
+def _cov_legacy_keyset_still_readable(r):
+    enum = _subprocess.run(
+        [sys.executable, str(SCRIPTS / 'render-audit-prompt.py'),
+         'enumerate-dimensions'], cwd=r.tmp, capture_output=True, text=True)
+    assert_eq("#729: the renderer enumerate-dimensions call exits 0", 0, enum.returncode)
+    current = {ln[len('dim key='):].split(' text=', 1)[0]
+               for ln in enum.stdout.splitlines() if ln.startswith('dim key=')}
+    legacy = ['g:consumer-repo-setup-variance', 'c:1', 'c:2']
+    # Non-vacuity: the positional consumer keys are NOT in the current enumeration, so this
+    # round genuinely carries a keyset the post-#729 renderer cannot produce.
+    assert_eq("#729: the retired positional consumer keys are absent from today's enumeration",
+              True, 'c:1' not in current and 'c:2' not in current)
+    r.open_round(1, 'FILE', 0)
+    r.adjudicate(1, 'FILE', 0, '0')
+    coverage_lines = ''.join(
+        f'{k} exercised "a quoted draft line" — a concrete concern for {k}\n'
+        for k in legacy)
+    proc = r('record-coverage', r.slug, '--round', '1', '--render', 'full',
+             '--expected-keys', ','.join(legacy),
+             '--coverage-stdin', stdin=coverage_lines, nonce=True)
+    assert_eq("#729: a legacy-derivation coverage keyset records cleanly (rc 0)",
+              0, proc.returncode)
+    # Readable AND backed: totality resolved against the round's OWN stored
+    # coverage_expected, so the retired keys are not read as missing dimensions.
+    assert_eq("#729: a run recorded under the previous derivation stays coverage-backed",
+              'backed', _summary_field(r, 'coverage_backing'))
+    cov = r('query-coverage', r.slug, nonce=True).stdout
+    assert_eq("#729: query-coverage reads the legacy-keyed round back",
+              True, 'backed' in cov)
+
+
+_with_run603(_cov_legacy_keyset_still_readable)
+
+
 # Characterization of what `evaluate_coverage_trigger` ACTUALLY guarantees (issue #728
 # Important 3). The "coverage offer fires at most once per run / yields to T1/T2" property
 # is NOT enforced in this function — it is a pure function of coverage backing+render
