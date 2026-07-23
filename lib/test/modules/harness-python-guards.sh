@@ -180,6 +180,37 @@ done <<VFHITS
 $VF_SPELLINGS
 VFHITS
 assert_eq "verification flight: no subprocess / shell-out / exec spelling" "0" "$VF_EXEC_HITS"
+# #719 positive control: the zero-expecting exec sweep above is only meaningful if its COUNTING
+# half is live — a broken counter (a mistyped grep, an empty spelling stream, a swallowed loop)
+# would pass the "expected 0" sweep by counting nothing, certifying a coordinator it never read.
+# Plant EVERY derived spelling into a scratch copy of the real coordinator and require the sweep
+# to count each, so the sweep's hit tally over the planted copy must equal the derived list's own
+# element count. The comparand (VF_TUPLE_LEN) is derived independently from the tuple, not from
+# the sweep, so this is not a self-referential tautology.
+VF_PLANT="$(mktemp "$VF_ROOT/vf-plant.XXXXXX")" || {
+  printf 'could not allocate the #528 positive-control fixture\n' >&2
+  return 1
+}
+cat "$VF_SRC" > "$VF_PLANT"
+while IFS= read -r _vf_spelling; do
+  [ -n "$_vf_spelling" ] || continue
+  printf '%s\n' "$_vf_spelling" >> "$VF_PLANT"
+done <<VFPLANT
+$VF_SPELLINGS
+VFPLANT
+VF_PLANT_HITS=0
+while IFS= read -r _vf_spelling; do
+  [ -n "$_vf_spelling" ] || continue
+  case "$(grep -cF -- "$_vf_spelling" "$VF_PLANT" || true)" in
+    0) : ;;
+    *) VF_PLANT_HITS=$((VF_PLANT_HITS + 1)) ;;
+  esac
+done <<VFPLANTHITS
+$VF_SPELLINGS
+VFPLANTHITS
+assert_eq "#528 banned-exec sweep positive control: every planted spelling is counted (counting half is live)" \
+  "$VF_TUPLE_LEN" "$VF_PLANT_HITS"
+rm -f "$VF_PLANT"
 # The exact, exhaustive state set is a coupled invariant with the helper source
 # and the docs — pin the full declared membership (the grep literals enforce exact
 # content) so a dropped/renamed state goes RED.
@@ -220,8 +251,20 @@ assert_eq "reception identity: CLI carries the executable bit" "yes" \
   "$([ -x "$RR_CLI" ] && echo yes || echo no)"
 assert_eq "reception identity: library imports no PyYAML" "0" \
   "$(grep -cE '(^|[^a-zA-Z_])(import yaml|from yaml import)' "$RI_LIB" || true)"
+# The gh-call sweep's boundary is `(^|[^a-zA-Z_])gh ` — a deliberate BSD-PORTABILITY delta from
+# the `\bgh \b` word-boundary spelling: BSD `grep -E` (macOS) does not honor GNU's `\b`
+# word-boundary escape, so `\bgh \b` matches nothing there and the guard fails OPEN on exactly
+# the platform CLAUDE.md's portability convention targets. `(^|[^a-zA-Z_])` is the portable
+# left-boundary and the trailing space is the right one; the behavior is identical to `\bgh \b`
+# on a leading-token `gh ` call and is portable across GNU and BSD grep.
 assert_eq "reception identity: library makes no gh call" "0" \
   "$(grep -cE '"gh"|(^|[^a-zA-Z_])gh ' "$RI_LIB" || true)"
+# #719: the comment above enumerates four AC1 properties (no exec bit, no PyYAML import, no gh
+# call, no network call); the fourth had no assertion, so the enumeration over-claimed its own
+# coverage. Pin the network-call absence too — a stdlib-only importable routine opens no socket
+# and pulls in no HTTP client. The boundary mirrors the gh-call sweep's portable form.
+assert_eq "reception identity: library makes no network call" "0" \
+  "$(grep -cE '(^|[^a-zA-Z_])(import socket|import urllib|import http|import ssl|from socket import|from urllib|from http|import requests|import httpx|urlopen)' "$RI_LIB" || true)"
 # The CLI imports the library rather than re-implementing the derivation (AC2): exactly one
 # copy of the identity format ships. Pin the import and the absence of a second write-tree.
 assert_eq "reception identity: CLI imports the library (single derivation implementation)" "1" \
@@ -254,10 +297,16 @@ devflow_run_focused_python_test "#591 coverage-map guard: focused Python tests p
 rm -f "$_CG_UNIT_OUT"
 
 # ── Planted-defect positive control (issue #707 AC) ──────────────────────────
-# The two assertions above are clean-tree checks: on their own they cannot
-# distinguish "the guard verified a clean tree" from "the guard silently reported
-# nothing." This control closes that gap for the module as a whole — it plants a
-# real coverage-map drift and requires the module to observe it. The mutation is
+# #719: describe the two assertions above ACCURATELY. The FIRST — the shipped-tree
+# clean check (`#591 coverage-map guard: shipped tree + map is clean`) — is a
+# clean-tree assertion that on its own cannot distinguish "the guard verified a
+# clean tree" from "the guard silently reported nothing", because a live green tells
+# the reader nothing about whether the guard could still observe a defect. The
+# SECOND — the focused unit test `test_coverage_map_guard.py` — is NOT in that
+# position: it already carries planted-defect arms over synthetic fixtures (as the
+# control below it does), so it does distinguish the two states for the guard's arms.
+# This control closes the remaining gap for the module's LIVE-TREE path specifically —
+# it plants a real coverage-map drift and requires the module to observe it. The mutation is
 # applied ONLY to a synthetic git repository under this module's private fixture
 # root; the shipped tree and its tracked coverage-map are never written to (the
 # in-place mutation hazard of issues #201/#218). The pair is deliberate: the

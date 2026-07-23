@@ -33,7 +33,7 @@
     },
     "harness-python-guards": {
       "path": "lib/test/modules/harness-python-guards.sh",
-      "minimum_assertions": 31,
+      "minimum_assertions": 33,
       "description": "Focused monolith-only Python guard drivers whose subject is a single code unit and whose verification is self-contained: the #600 render-audit-prompt renderer, the #527 verification-launch baseline analyzer, the #528 single-flight verification ledger, the #668 reception-identity producer, and the #591 coverage-map ratchet guard (live-tree invocation, unit test, and a planted coverage-map drift as the coverage-map guard's positive control)"
     }
   },
