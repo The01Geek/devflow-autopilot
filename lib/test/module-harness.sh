@@ -644,7 +644,6 @@ _DEVFLOW_POOL_OPEN=0
 _DEVFLOW_POOL_WIDTH=0
 _DEVFLOW_POOL_LAUNCHING=0
 _DEVFLOW_POOL_PENDING_SIGNAL=""
-_DEVFLOW_POOL_MONITOR_WAS_ON=0
 _DEVFLOW_POOL_SAVED_HUP=""
 _DEVFLOW_POOL_SAVED_INT=""
 _DEVFLOW_POOL_SAVED_TERM=""
@@ -658,7 +657,6 @@ declare -A _DEVFLOW_POOL_PID_MODE=()
 declare -A _DEVFLOW_POOL_PID_SCRATCH=()
 declare -A _DEVFLOW_POOL_PID_TALLY=()
 declare -A _DEVFLOW_POOL_PID_OUTPUT=()
-declare -A _DEVFLOW_POOL_PID_ATTEMPT=()
 # Per self-tally suite (keyed by name): the PASS/FAIL line count it contributed to
 # RESULTS_FILE, and its own `N passed, M failed` summary line — captured at reap so
 # lib/test/run.sh can assert, positionally against that line, that a self-tally
@@ -1107,7 +1105,6 @@ _devflow_pool_launch_suite() { # name script mode attempt
   _DEVFLOW_POOL_PID_SCRATCH["$pid"]="$scratch"
   _DEVFLOW_POOL_PID_TALLY["$pid"]="$tally"
   _DEVFLOW_POOL_PID_OUTPUT["$pid"]="$output"
-  _DEVFLOW_POOL_PID_ATTEMPT["$pid"]="$attempt"
   _devflow_register_live_child "$pid" "$scratch" "$tally"
   if [ -n "$_DEVFLOW_POOL_PENDING_SIGNAL" ]; then
     _devflow_full_suite_signal "$_DEVFLOW_POOL_PENDING_SIGNAL"
@@ -1123,7 +1120,7 @@ _devflow_pool_launch_next() {
 }
 
 _devflow_pool_reap() { # pid rc
-  local pid="$1" rc="$2" _l
+  local pid="$1" rc="$2" _l _pool_count=""
   local name="${_DEVFLOW_POOL_PID_NAME[$pid]:-?}"
   local script="${_DEVFLOW_POOL_PID_SCRIPT[$pid]:-}"
   local mode="${_DEVFLOW_POOL_PID_MODE[$pid]:-}"
@@ -1146,12 +1143,16 @@ _devflow_pool_reap() { # pid rc
   fi
 
   # Every pooled verdict reaches PASS/FAIL through RESULTS_FILE, after validation.
-  if _devflow_valid_result_count "$tally" >/dev/null; then
+  # _devflow_valid_result_count both validates the tally grammar (PASS/FAIL lines
+  # only) AND prints the PASS+FAIL line count — capture that count rather than
+  # re-grepping for the self-tally cross-check below.
+  if _pool_count="$(_devflow_valid_result_count "$tally")"; then
     if ! cat "$tally" >> "$RESULTS_FILE"; then
       printf 'FAIL\n' >> "$RESULTS_FILE"
       printf '  FAIL  pool suite %s — could not append private tally to results\n' "$name" >&2
     fi
   else
+    _pool_count=""
     printf 'FAIL\n' >> "$RESULTS_FILE"
     printf '  FAIL  pool suite %s — private tally missing/unreadable after execution\n' "$name" >&2
   fi
@@ -1161,9 +1162,11 @@ _devflow_pool_reap() { # pid rc
   fi
 
   # Capture the self-tally count/summary before cleanup so run.sh can assert the
-  # whole assertion count reached RESULTS_FILE (issue #720).
-  if [ "$mode" = "self-tally" ] && [ -n "$tally" ] && [ -f "$tally" ]; then
-    _DEVFLOW_POOL_SELFTALLY_LINES["$name"]="$(grep -cE '^(PASS|FAIL)$' "$tally" 2>/dev/null || printf '0')"
+  # whole assertion count reached RESULTS_FILE (issue #720). The line count reuses
+  # the validated count above; an invalid tally leaves it empty (surfaced as
+  # 'unestablished' by the run.sh assertion rather than a fabricated 0).
+  if [ "$mode" = "self-tally" ]; then
+    _DEVFLOW_POOL_SELFTALLY_LINES["$name"]="$_pool_count"
     if [ -n "$output" ] && [ -f "$output" ]; then
       _DEVFLOW_POOL_SELFTALLY_SUMMARY["$name"]="$(grep -E '^[0-9]+ passed, [0-9]+ failed' "$output" 2>/dev/null | tail -1)"
     fi
@@ -1174,8 +1177,7 @@ _devflow_pool_reap() { # pid rc
   [ -n "$output" ] && [ "$output" != /dev/null ] && rm -f "$output"
   unset '_DEVFLOW_POOL_PID_NAME[$pid]' '_DEVFLOW_POOL_PID_SCRIPT[$pid]' \
     '_DEVFLOW_POOL_PID_MODE[$pid]' '_DEVFLOW_POOL_PID_SCRATCH[$pid]' \
-    '_DEVFLOW_POOL_PID_TALLY[$pid]' '_DEVFLOW_POOL_PID_OUTPUT[$pid]' \
-    '_DEVFLOW_POOL_PID_ATTEMPT[$pid]'
+    '_DEVFLOW_POOL_PID_TALLY[$pid]' '_DEVFLOW_POOL_PID_OUTPUT[$pid]'
 }
 
 # Open the pool: resolve width, save+install the HUP/INT/TERM traps, and launch up
