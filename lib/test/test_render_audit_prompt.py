@@ -50,6 +50,28 @@ def run_renderer(args, stdin=None):
     )
 
 
+def parse_dims(testcase, out):
+    """Parse an `enumerate-dimensions` render into [(key, text), …].
+
+    Module-level (not a method) so BOTH enumeration test classes assert the same
+    positional output contract — first line `render-status: `, last line
+    `render-end:`, every body line `dim key=<key> text=<text>`. A per-class copy
+    that dropped those assertions would let a delimiter regression pass every test
+    in the copying class.
+    """
+    lines = out.splitlines()
+    testcase.assertTrue(lines[0].startswith("render-status: "), out)
+    testcase.assertEqual(lines[-1], "render-end:", out)
+    dims = []
+    for ln in lines[1:-1]:
+        testcase.assertTrue(ln.startswith("dim key="), ln)
+        rest = ln[len("dim key="):]
+        key, sep, text = rest.partition(" text=")
+        testcase.assertTrue(sep, ln)  # the ` text=` separator is present
+        dims.append((key, text))
+    return lines[0], dims
+
+
 def run_loader(cwd, section="## Audit dimensions"):
     return subprocess.run(
         ["bash", str(LOADER), "create-issue", "--section", section],
@@ -666,17 +688,7 @@ class EnumerateDimensions(unittest.TestCase):
     """
 
     def _parse(self, out):
-        lines = out.splitlines()
-        self.assertTrue(lines[0].startswith("render-status: "), out)
-        self.assertEqual(lines[-1], "render-end:", out)
-        dims = []
-        for ln in lines[1:-1]:
-            self.assertTrue(ln.startswith("dim key="), ln)
-            rest = ln[len("dim key="):]
-            key, _, text = rest.partition(" text=")
-            self.assertTrue(_, ln)  # the ` text=` separator is present
-            dims.append((key, text))
-        return lines[0], dims
+        return parse_dims(self, out)
 
     def test_generic_floor_enumeration(self):
         # No consumer extension present -> generic floor only.
@@ -767,12 +779,12 @@ class EnumerateDimensions(unittest.TestCase):
         # Consumer keys are CONTENT-derived, never positional (issue #729): a
         # bold-lead bullet keys off its name slug, a bullet with no bold lead off a
         # content hash. Both survive a mid-section insertion; `c:<n>` did not.
-        self.assertIn("c:billing-edge", keys)
-        self.assertEqual([k for k in keys if k.startswith("c:")][1][:3], "c:h")
-        self.assertEqual([k for k in keys if k in ("c:1", "c:2")], [])
+        c_keys = [k for k in keys if k.startswith("c:")]
+        self.assertIn("c:billing-edge", c_keys)
+        self.assertTrue(c_keys[1].startswith("c:h"), c_keys)
+        self.assertEqual([k for k in c_keys if k in ("c:1", "c:2")], [])
         self.assertEqual(len(keys), len(set(keys)))  # unique across both arms
         by_key = dict(dims)
-        c_keys = [k for k in keys if k.startswith("c:")]
         self.assertIn("Billing edge", by_key["c:billing-edge"])
         c2 = by_key[c_keys[1]]
         self.assertIn("Multi-tenant isolation", c2)
@@ -812,23 +824,28 @@ class DeclaredDimensionKeys(unittest.TestCase):
     MARKER = "<!-- dim-key:"
 
     def _dims(self, args):
+        # Shares parse_dims with EnumerateDimensions, so these tests assert the
+        # positional output contract rather than assuming it.
         r = run_renderer(["enumerate-dimensions", *args])
         self.assertEqual(r.returncode, 0, r.stderr)
-        lines = r.stdout.splitlines()
-        out = []
-        for ln in lines[1:-1]:
-            rest = ln[len("dim key="):]
-            key, _, text = rest.partition(" text=")
-            out.append((key, text))
-        return out
+        return parse_dims(self, r.stdout)[1]
 
     def _shipped_template(self):
         return TEMPLATE.read_text(encoding="utf-8")
 
-    def _tmpl_with(self, d, text):
-        p = Path(d) / "tmpl.md"
-        p.write_text(text, encoding="utf-8")
-        return p
+    def _dims_from_template(self, text):
+        """Enumerate against a one-off template built from `text`."""
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "tmpl.md"
+            p.write_text(text, encoding="utf-8")
+            return dict(self._dims(["--template-file", str(p)]))
+
+    def _run_on_template(self, text):
+        """Run enumerate-dimensions against a one-off template, returning the proc."""
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "tmpl.md"
+            p.write_text(text, encoding="utf-8")
+            return run_renderer(["enumerate-dimensions", "--template-file", str(p)])
 
     # ---- AC1: the declaration is the single source both projections render from.
     def test_shipped_template_declares_every_generic_dimension(self):
@@ -887,9 +904,7 @@ class DeclaredDimensionKeys(unittest.TestCase):
         reworded = tmpl.replace(
             target, "- **Operating-system spread across supported hosts** —", 1
         )
-        with tempfile.TemporaryDirectory() as d:
-            after = dict(self._dims(["--template-file",
-                                     str(self._tmpl_with(d, reworded))]))
+        after = self._dims_from_template(reworded)
         self.assertEqual(sorted(before), sorted(after))
         self.assertIn("g:host-os-variance", after)
         # The key is byte-identical; only the rendered text moved.
@@ -935,50 +950,36 @@ class DeclaredDimensionKeys(unittest.TestCase):
         self.assertIn(before[0], after)
 
     # ---- Fail-closed arms: the declaration cannot silently drift from the prose.
-    def test_undeclared_generic_bullet_fails_closed(self):
-        tmpl = self._shipped_template().replace(
-            "<!-- dim-key: host-os-variance -->\n", "", 1
-        )
-        with tempfile.TemporaryDirectory() as d:
-            r = run_renderer(["enumerate-dimensions", "--template-file",
-                              str(self._tmpl_with(d, tmpl))])
-        self.assertNotEqual(r.returncode, 0, r.stdout)
-        self.assertEqual(r.stdout, "")
-        self.assertIn("carries no dim-key declaration", r.stderr)
+    # Table-driven so every arm carries the SAME assertion set (rc!=0, empty stdout,
+    # a specific stderr breadcrumb) and a fifth arm is a row, not another copied block
+    # that quietly omits one of the three.
+    FAIL_CLOSED_ARMS = (
+        ("undeclared bullet",
+         "<!-- dim-key: host-os-variance -->\n", "",
+         "carries no dim-key declaration"),
+        ("orphan declaration",
+         "<!-- dim-key: host-os-variance -->",
+         "<!-- dim-key: host-os-variance -->\n<!-- dim-key: orphan -->",
+         "declares no bullet"),
+        ("malformed key",
+         "<!-- dim-key: host-os-variance -->", "<!-- dim-key: Host OS -->",
+         "is not lowercase kebab-case"),
+        ("duplicate key",
+         "<!-- dim-key: host-os-variance -->",
+         "<!-- dim-key: consumer-repo-setup-variance -->",
+         "duplicate generic dimension key"),
+    )
 
-    def test_orphan_declaration_marker_fails_closed(self):
-        tmpl = self._shipped_template().replace(
-            "<!-- dim-key: host-os-variance -->",
-            "<!-- dim-key: host-os-variance -->\n<!-- dim-key: orphan -->",
-            1,
-        )
-        with tempfile.TemporaryDirectory() as d:
-            r = run_renderer(["enumerate-dimensions", "--template-file",
-                              str(self._tmpl_with(d, tmpl))])
-        self.assertNotEqual(r.returncode, 0, r.stdout)
-        self.assertIn("declares no bullet", r.stderr)
-
-    def test_malformed_declared_key_fails_closed(self):
-        tmpl = self._shipped_template().replace(
-            "<!-- dim-key: host-os-variance -->", "<!-- dim-key: Host OS -->", 1
-        )
-        with tempfile.TemporaryDirectory() as d:
-            r = run_renderer(["enumerate-dimensions", "--template-file",
-                              str(self._tmpl_with(d, tmpl))])
-        self.assertNotEqual(r.returncode, 0, r.stdout)
-        self.assertIn("is not lowercase kebab-case", r.stderr)
-
-    def test_duplicate_declared_key_fails_closed(self):
-        tmpl = self._shipped_template().replace(
-            "<!-- dim-key: host-os-variance -->",
-            "<!-- dim-key: consumer-repo-setup-variance -->",
-            1,
-        )
-        with tempfile.TemporaryDirectory() as d:
-            r = run_renderer(["enumerate-dimensions", "--template-file",
-                              str(self._tmpl_with(d, tmpl))])
-        self.assertNotEqual(r.returncode, 0, r.stdout)
-        self.assertIn("duplicate generic dimension key", r.stderr)
+    def test_declaration_defects_fail_closed(self):
+        tmpl = self._shipped_template()
+        for name, old, new, breadcrumb in self.FAIL_CLOSED_ARMS:
+            with self.subTest(arm=name):
+                # Non-vacuity: the mutation really applies to the shipped template.
+                self.assertIn(old, tmpl, name)
+                r = self._run_on_template(tmpl.replace(old, new, 1))
+                self.assertNotEqual(r.returncode, 0, r.stdout)
+                self.assertEqual(r.stdout, "")
+                self.assertIn(breadcrumb, r.stderr)
 
     def test_colliding_consumer_keys_fail_closed_with_the_remedy(self):
         # Two consumer bullets sharing a bold name would silently coalesce into one
@@ -1003,9 +1004,11 @@ class DeclaredDimensionKeys(unittest.TestCase):
             r = run_renderer(["enumerate-dimensions", "--extension-file", str(ext)])
             i = run_renderer(["inline", "--slug", "x", "--extension-file", str(ext)])
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertTrue(r.stdout.splitlines()[0].startswith("render-status: absent"))
-        self.assertEqual([k for k, _ in self._dims(["--extension-file", str(ext)])
-                          if k.startswith("c:")], [])
+        # Parse the SAME render rather than re-invoking: a second call outside the
+        # tmpdir would exercise the missing-file arm, not the marker-only one.
+        status, dims = parse_dims(self, r.stdout)
+        self.assertTrue(status.startswith("render-status: absent"))
+        self.assertEqual([k for k, _ in dims if k.startswith("c:")], [])
         self.assertEqual(i.returncode, 0, i.stderr)
         self.assertIn("(no consumer audit dimensions)", i.stdout)
 

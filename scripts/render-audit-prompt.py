@@ -101,11 +101,17 @@ _BLOCK_CLOSE = "<!-- render-block-end -->"
 # rather than the enumeration being a regex scrape of the prose (the pre-#729 shape,
 # where rewording a bold name silently rekeyed a dimension the state owner had
 # already recorded durably).
-_DIM_KEY_RE = re.compile(r"^<!--\s*dim-key:\s*(.*?)\s*-->$")
 _DIM_KEY_TOKEN = "dim-key:"
-# The declared-key alphabet. Deliberately the same lowercase-kebab shape the CLI's
-# `_kebab_slug` enforces and the same shape `_name_slug` produces, so a declared key
-# and a derived one are drawn from one vocabulary and can never collide by casing.
+# Built FROM the token, never beside it: the marker spelling lives in exactly one
+# place, so renaming it can never leave `_strip_dim_key_markers`' fast path matching
+# a token the pattern no longer recognizes (a silently no-op stripper).
+_DIM_KEY_RE = re.compile(r"^<!--\s*" + re.escape(_DIM_KEY_TOKEN) + r"\s*(.*?)\s*-->$")
+# The declared-key alphabet: lowercase kebab, no leading/trailing/doubled hyphen.
+# This is STRICTER than the CLI's `_kebab_slug` alphabet check (which accepts
+# `-lead`, `trail-`, `a--b`) and is the canonical shape `_name_slug` produces, so a
+# declared key and a derived one never collide by casing. The two are deliberately
+# not one check: `_kebab_slug` bounds a caller-supplied CLI argument, while a
+# declaration is committed repo content held to the canonical form.
 _DIM_KEY_SHAPE_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
@@ -309,23 +315,38 @@ def extract_section(text: str, heading: str) -> str:
     return body
 
 
-def consumer_dimensions(ext_path: Path, heading: str) -> tuple[str, str]:
-    """Return (status, section_text) for a consumer section forwarding hook."""
+def _consumer_section_raw(ext_path: Path, heading: str) -> tuple[str, str]:
+    """Return (status, RAW section text) — declaration markers retained.
+
+    The key-derivation projection (issue #729). Only `enumerate_dimensions` wants
+    this; every rendering path takes `consumer_dimensions` below, which is the same
+    section with the markers stripped. Two named accessors rather than one raw
+    return the callers must each remember to strip: the projection a caller needs
+    is chosen by which function it calls, not by a comment it has to obey.
+    """
     state, text = _read_extension(ext_path)
     if state == "unestablished":
         return (_STATUS_UNESTABLISHED, "")
     if state == "absent":
         return (_STATUS_ABSENT, "")
     section = extract_section(text, heading)
-    # The emptiness decision is taken on the STRIPPED text (issue #729) while the
-    # RAW text is returned: a section carrying only declaration markers declares no
-    # dimensions, so it is `absent` — reporting it `appended` would pair a complete
-    # status with an instruction-empty splice. Callers that render strip; the one
-    # caller that derives keys needs the markers, which is why the raw text is what
-    # crosses this boundary.
+    # The emptiness decision is taken on the STRIPPED text: a section carrying only
+    # declaration markers declares no dimensions, so it is `absent` — reporting it
+    # `appended` would pair a complete status with an instruction-empty splice.
     if not _strip_dim_key_markers(section).strip():
         return (_STATUS_ABSENT, "")
     return (_STATUS_APPENDED, section)
+
+
+def consumer_dimensions(ext_path: Path, heading: str) -> tuple[str, str]:
+    """Return (status, RENDER-READY section text) for a consumer forwarding hook.
+
+    The rendering projection: identical to `_consumer_section_raw` with the #729
+    declaration markers stripped, so no rendering caller can leak machine data into
+    the auditor-facing prompt by forgetting to strip.
+    """
+    status, section = _consumer_section_raw(ext_path, heading)
+    return (status, _strip_dim_key_markers(section))
 
 
 # --------------------------------------------------------------------------
@@ -400,10 +421,8 @@ def _section_placeholder(status: str) -> str:
 
 def _dimensions_block_for_status(status: str, section: str) -> str:
     if status == _STATUS_APPENDED:
-        # The declaration markers are machine data (issue #729): they carry the
-        # dimension's identity for `enumerate-dimensions`, never instructions for
-        # the auditor, so the spliced prose is the section with them stripped.
-        return _strip_dim_key_markers(section)
+        # Already render-ready: `consumer_dimensions` is the stripped projection.
+        return section
     if status == _STATUS_ABSENT:
         return "(no consumer audit dimensions)"
     if status == _STATUS_UNESTABLISHED:
@@ -486,11 +505,7 @@ def render_extract(hook: str, ext_path: Path) -> str:
     # An empty body between markers is positionally valid but instruction-empty,
     # the shape render_dispatch fails closed on.
     status, section = consumer_dimensions(ext_path, heading)
-    body = (
-        _strip_dim_key_markers(section)
-        if status == _STATUS_APPENDED
-        else _section_placeholder(status)
-    )
+    body = section if status == _STATUS_APPENDED else _section_placeholder(status)
     return f"{STATUS_PREFIX} {status}\n{body}\n{END_MARKER}"
 
 
@@ -536,10 +551,12 @@ def render_status_only(ext_path: Path) -> str:
 # --------------------------------------------------------------------------
 _DIM_LINE_PREFIX = "dim key="
 _DIM_TEXT_SEP = " text="
-# A bold-lead dimension bullet: `- **Name** — ...`, capturing only the bold name.
-# Since #729 this drives the CONSUMER fallback key only — a generic key is read from
-# its declaration, never matched out of the prose.
-_GENERIC_DIM_RE = re.compile(r"^- \*\*(.+?)\*\*")
+# A dimension's bold lead: `**Name**` at the start of the bullet's TEXT (the bullet's
+# `- ` marker already stripped). Since #729 this drives the CONSUMER fallback key
+# only — a generic key is read from its declaration, never matched out of the prose —
+# so it is anchored at the text, not at a bullet marker the caller would have to
+# re-synthesize.
+_BOLD_LEAD_RE = re.compile(r"^\*\*(.+?)\*\*")
 _SLUG_STRIP_RE = re.compile(r"[^a-z0-9]+")
 
 
@@ -712,7 +729,7 @@ def _consumer_key(declared: str | None, text: str) -> str:
     """
     if declared:
         return f"c:{declared}"
-    m = _GENERIC_DIM_RE.match(f"- {text}")
+    m = _BOLD_LEAD_RE.match(text)
     if m:
         slug = _name_slug(m.group(1))
         if slug:
@@ -725,7 +742,8 @@ def enumerate_dimensions(
 ) -> tuple[str, list[tuple[str, str]]]:
     """Return (consumer-status, [(key, text), ...]) — generic then consumer."""
     generic = _generic_dimensions(_load_template(template_path))
-    status, section = consumer_dimensions(ext_path, _HOOKS["audit-dimensions"])
+    # The RAW projection: this is the one caller that needs the declaration markers.
+    status, section = _consumer_section_raw(ext_path, _HOOKS["audit-dimensions"])
     entries = list(generic)
     if status == _STATUS_APPENDED:
         seen = {k for k, _ in entries}
