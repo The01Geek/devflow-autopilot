@@ -33,7 +33,7 @@ FILE_ARM_OOB = (
     "The following on-disk files are **out of bounds** — "
     "`.devflow/tmp/issue-derivation-"
 )
-EMBED_ARM_OOB = "the out-of-bounds declaration names exactly these 6 files"
+EMBED_ARM_OOB = "the out-of-bounds declaration names exactly these 7 files"
 READ_ORDERING_AMENDED = (
     "before any repository read other than the renderer invocation, or the "
     "documented template-file fallback read, that produced these instructions"
