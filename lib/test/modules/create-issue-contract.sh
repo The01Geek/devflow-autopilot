@@ -1909,6 +1909,140 @@ devflow_module_pin_unique "#614 T7/AC13: the axis cites the GNU/BSD wc -w diverg
   'GNU and BSD `wc -w` disagree in two directions on this repo'"'"'s own prompt corpus' "$CI_EXT"
 unset -f ci614_marker_id
 
+# ---------------------------------------------------------------------------
+# #749 — Step 1's two-arm, duty-floor-bounded docs-verification pass.
+# CI_DV is the docs-verify peer's own skill: it is loaded on the default path but sits
+# OUTSIDE both ceiling operands (it is dispatched into a peer's context, never read into
+# the orchestrator's), which is why it is measured nowhere above and pinned here.
+CI_DV="$CI_ROOT/skills/docs-verify/SKILL.md"
+
+# AC13 — surface-presence pins over the peer's declared interface: the mode flag, every
+# verdict token, and every report-output field name. AC19 states these carry NO mutation
+# obligation (they guard an interface's existence, not a named behavioral regression), so
+# each declares itself structural.
+devflow_module_pin_present "#749/AC13: docs-verify declares the --report-only mode flag" \
+  '`--report-only`' "$CI_DV"  # structural-pin-ok: AC19 exempts AC13's surface-presence pins from the mutation obligation
+devflow_module_pin_present "#749/AC13: docs-verify declares the DOCS ACCURATE verdict token" \
+  'DOCS ACCURATE' "$CI_DV"  # structural-pin-ok: AC19 exempts AC13's surface-presence pins from the mutation obligation
+devflow_module_pin_present "#749/AC13: docs-verify declares the DRIFT FOUND verdict token" \
+  'DRIFT FOUND' "$CI_DV"  # structural-pin-ok: AC19 exempts AC13's surface-presence pins from the mutation obligation
+devflow_module_pin_present "#749/AC13: docs-verify declares the DOCS MISSING verdict token" \
+  'DOCS MISSING' "$CI_DV"  # structural-pin-ok: AC19 exempts AC13's surface-presence pins from the mutation obligation
+# One row per declared report-output field. Named individually rather than as one blob so a
+# dropped field is attributable — a report contract that loses a field silently is exactly
+# how Step 1's escalation comparands stop resolving.
+ci749_field() {  # <field label>
+  devflow_module_pin_present "#749/AC13: docs-verify's report-only output declares the $1 field" \
+    "- **$1:**" "$CI_DV"  # structural-pin-ok: AC19 exempts AC13's surface-presence pins from the mutation obligation
+}
+ci749_field 'Verdict'
+ci749_field 'Relevant code files'
+ci749_field 'Current behavior'
+ci749_field 'Drift detail'
+ci749_field 'Search space surveyed'
+ci749_field 'Duty statuses'
+ci749_field 'Bearing observations'
+unset -f ci749_field
+# AC26 — the search-space operand extends the previously closed flag-then-topic grammar, and
+# BOTH execution steps read it. The no-operand default is stated, so an absent operand is a
+# defined behavior rather than an unbounded survey by omission.
+devflow_module_pin_unique "#749/AC26: docs-verify's argument grammar carries the search-space operand" \
+  'Grammar: `[--report-only] [--search-space <pathspec>] <topic…>`.' "$CI_DV"  # structural-pin-ok: grammar-declaration presence; the behavioral read is pinned by the two rows below
+devflow_module_pin_present "#749/AC26: the locate-documentation step reads the operand" \
+  'Steps 1 and 2 both read it.' "$CI_DV"  # structural-pin-ok: contract-presence over the operand's declaration site
+devflow_module_pin_red_under "#749/AC26: the search-codebase step searches the supplied operand, not the whole tree" \
+  '**searching the supplied `--search-space` operand**' \
+  's/\*\*searching the supplied `--search-space` operand\*\*/searching the whole codebase/' "$CI_DV"
+# AC1/AC2 — the duty floor is the breadth bound, every duty returns a status, a
+# judged-not-engaged duty still returns a bearing observation, and the pass is a leaf.
+devflow_module_pin_red_under "#749/AC1: the duty floor — not the search space — bounds a report-only pass" \
+  'the **duty floor — not the size of the search space — bounds the work.**' \
+  's/duty floor — not the size of the search space — bounds the work/search space bounds the work/' "$CI_DV"
+devflow_module_pin_red_under "#749/AC1: a status is returned for ALL six duties, not only the engaged ones" \
+  'for **all six** duties, not only the assigned ones' \
+  's/for \*\*all six\*\* duties, not only the assigned ones/for the assigned duties/' "$CI_DV"
+devflow_module_pin_red_under "#749/AC1: a judged-not-engaged duty still returns a bearing observation or an explicit none-token" \
+  'the paths opened that bear on it, or `none-observed`' \
+  's/, or `none-observed`//' "$CI_DV"
+devflow_module_pin_red_under "#749/AC2: a report-only pass dispatches no subagent of its own, naming nested dispatch as the reason" \
+  '**A report-only pass dispatches no subagent of its own** — nested dispatch is unsupported' \
+  's/dispatches no subagent of its own\*\* — nested dispatch is unsupported/may dispatch its own subagent — nested dispatch is supported/' "$CI_DV"
+
+# AC19 — the arm-selection contract, one row per case in the comparative-evaluation list.
+# Each guards a named behavioral regression, so each takes a mutation.
+devflow_module_pin_red_under "#749/AC19: the arms are selected BEFORE any dispatch, from the pre-pass duty operand" \
+  '**Two arms, selected before any dispatch** by a pre-pass operand' \
+  's/selected before any dispatch\*\* by a pre-pass operand/selected after the first dispatch\*\* by the returned verdict/' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC19: a topic engaging NO duty routes to the shallow arm, not to no pass at all" \
+  'and the arm for a topic engaging **no** duty' \
+  's/, and the arm for a topic engaging \*\*no\*\* duty//' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC19: the full floor enters the deep arm directly, without a shallow first pass" \
+  'the **full** floor, entered directly' \
+  's/the \*\*full\*\* floor, entered directly/the **full** floor, entered after a shallow pass/' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC19: the selection operand is derived with python3 or bash builtins, never a non-preflight PATH tool" \
+  'never `tr`, `sed`, `wc`, `cut` or `head`' \
+  's/, never `tr`, `sed`, `wc`, `cut` or `head`, which preflight does not guarantee and whose absence fails open//' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC6: the verdict token drives escalation ONLY, never arm selection" \
+  'is the verdict token'"'"'s **only** role, never the arm selector' \
+  's/is the verdict token'"'"'s \*\*only\*\* role, never the arm selector/is one of the verdict token'"'"'s roles alongside arm selection/' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC6: escalation also fires on an unestablished duty and on a non-empty bearing observation" \
+  'on an **unestablished** duty, and on any **judged-not-engaged** duty whose returned bearing observation is non-empty' \
+  's/, and on any \*\*judged-not-engaged\*\* duty whose returned bearing observation is non-empty//' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC4: the two legs are disjoint BY CONSTRUCTION, never by asserted disjointness" \
+  'the tracked tree **minus that location'"'"'s subtree** — never an assertion they are already disjoint' \
+  's/ — never an assertion they are already disjoint//' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC4: each leg reaches its peer as the search-space operand, not as dispatch-prompt prose" \
+  'docs-verify'"'"'s **search-space operand**, never as dispatch-prompt prose' \
+  's/, never as dispatch-prompt prose its own contract overrides//' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC4: an empty documentation leg is an established absence ONLY when the location is absent" \
+  'an **established absence only when the location itself is absent**' \
+  's/an \*\*established absence only when the location itself is absent\*\*/an established absence/' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC4: a location that reads cleanly but holds no index entries is unestablished, not clean coverage" \
+  'holds **no git-index entries**' \
+  's/, and when it exists and reads cleanly yet holds \*\*no git-index entries\*\*[^.]*\.//' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC5: unequal peer returns degrade to the surviving leg, naming the failed one" \
+  'degrade to the surviving leg with a breadcrumb naming the failed leg, never reporting a partial verification as complete' \
+  's/, never reporting a partial verification as complete//' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC8: the ORCHESTRATOR, never a peer, writes the evidence artifact — on both arms" \
+  'The **orchestrator — never a peer** — writes the returned evidence' \
+  's/The \*\*orchestrator — never a peer\*\* — writes/A peer writes/' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC8: Step 1 clears the evidence artifact and the run pointer ON ENTRY, before any dispatch" \
+  'Both deletes run on every path including the degraded one' \
+  's/Both deletes run on every path including the degraded one/Both deletes run on the default path/' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC11: the degraded arm is bounded, breadcrumbed, and never terminates the run" \
+  'It never terminates the run and never presents a half-verification as whole.' \
+  's/It never terminates the run and never presents a half-verification as whole\.//' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC12: an unresolvable helper anchor routes to the degraded arm" \
+  'or one whose helper anchor cannot resolve' \
+  's/ — or one whose helper anchor cannot resolve —//' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC25: an absent run pointer is unestablished and routes to the title-derived fallback" \
+  'an absent pointer is recorded **unestablished** and routes to the title-derived fallback' \
+  's/an absent pointer is recorded \*\*unestablished\*\* and routes to the title-derived fallback/an absent pointer is re-derived from the title/' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC25: the concurrent-run overwrite of the pointer is a DISCLOSED residual, not an omission" \
+  '**Disclosed residual:** the pointer carries no run-identity token' \
+  's/\*\*Disclosed residual:\*\* the pointer carries no run-identity token/The pointer carries a run-identity token/' "$CI_SKILL"
+
+# AC22 — the Step 1 evidence artifact is read as a best-effort parser reads agent-mutable
+# markdown. One row per malformed shape the matrix requires, plus the absent-file row whose
+# routing DIFFERS (unestablished, not a re-run) and the complete-prior-run-artifact case.
+CI749_CLARIFY="$CI_ROOT/skills/create-issue/references/step-2-clarify.md"
+devflow_module_pin_red_under "#749/AC22: the artifact reader is governed by the best-effort-parser contract" \
+  '**Treat it as a best-effort parser treats agent-mutable markdown.**' \
+  's/\*\*Treat it as a best-effort parser treats agent-mutable markdown\.\*\*//' "$CI749_CLARIFY"
+devflow_module_pin_red_under "#749/AC22: empty-or-truncated, missing-or-duplicated marker, and non-canonical layout each re-run the pass" \
+  'routes to **re-running the Step 1 pass**, never a partial parse' \
+  's/, never a partial parse//' "$CI749_CLARIFY"
+devflow_module_pin_red_under "#749/AC22: an ABSENT artifact after a completed Step 1 is unestablished, never a silent re-dispatch" \
+  'is instead recorded `unestablished — Step 1 evidence artifact absent`' \
+  's/is instead recorded `unestablished — Step 1 evidence artifact absent`/is instead re-derived by re-dispatching the deep arm/' "$CI749_CLARIFY"
+devflow_module_pin_red_under "#749/AC22: a complete prior-run artifact cannot survive into this run (the on-entry delete is the guard)" \
+  'so a prior run'"'"'s leftover on the same deterministic slug cannot read as this run'"'"'s' \
+  's/, so a prior run'"'"'s leftover on the same deterministic slug cannot read as this run'"'"'s//' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC9: degraded Step 1 evidence carries its degradation into the entries it seeds" \
+  'Degraded Step 1 evidence carries its degradation into the entries it seeds.' \
+  's/Degraded Step 1 evidence carries its degradation into the entries it seeds\.//' "$CI749_CLARIFY"
+unset -v CI_DV CI749_CLARIFY
+
 # Complete normal cleanup explicitly so a removal or marker failure changes the
 # module status. EXIT remains a fallback for earlier returns and shell errors.
 if ! _ci_cleanup; then
