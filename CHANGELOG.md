@@ -4,6 +4,38 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.21.3] — 2026-07-23
+
+### Changed
+Run the test suite's focused Python suites through a bounded concurrent pool.
+
+`test_module_runner.py`, `test_prompt_mass_census.py`, and `test_python_scripts.py`
+now execute concurrently in a `min(os.cpu_count() or 1, 4)`-wide pool
+(`devflow_pool_open`/`devflow_pool_join` in `lib/test/module-harness.sh`), overlapping
+the long pole with the last module boundary and the shell tail. The full-suite signal
+handler is generalized from a single scalar child slot to a run-wide live-child
+registry so one delivered signal terminates every in-flight child. Measured on an
+18-core host, the full suite drops from ~649s to ~572s (~12%). No behavior change for
+consumers — this is test-infrastructure only (PR #733, issue #720).
+
+## [2.21.2] — 2026-07-23
+
+### Fixed
+- **Armed the inert guards and mechanized the unenforced verification policy shipped by #707.**
+  The retired-convention sweep's `Before a commit, phase completion, push, or` arm was re-spanned
+  to a literal that actually exists on a single baseline line, and its self-referential planting
+  control was replaced by a
+  baseline-corpus control that validates every literal against the pre-#707 baseline blobs read
+  through `git show` (with a planted-defect positive control and five fail-closed arms — four
+  degraded corpus-build inputs plus a member carrying no parallel baseline ref). The `harness-python-guards` focused module is now driven through its own runner by a
+  `runs_green_through_the_real_runner` test, and `CONTRIBUTING.md`'s module-authoring checklist
+  requires that test going forward. The parallelized final gate now produces an inspectable
+  artifact: the local/interactive tier captures its full-suite launch to a named file and records
+  a `Verification evidence:` marker in the workpad, so a refused launch is observable rather than
+  invisible (runtime enforcement deferred to #730). The undefined `or path` disjunct was deleted
+  from every operative policy surface, and the `#528`/`#556`/`#668` guards and their comments were
+  corrected. (#719)
+
 ## [2.21.1] — 2026-07-23
 
 ### Changed

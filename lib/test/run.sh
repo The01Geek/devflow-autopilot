@@ -30613,9 +30613,41 @@ _WSR_RETIRED_LITS=(
   'A focused result never discharges a review/fix gate.'
   'A focused pass only accelerates RED/GREEN iteration'
   'they do not replace the complete pre-commit or CI run'
-  'Before a commit, phase completion, push, or completion claim, run'
+  'Before a commit, phase completion, push, or'
   'run the complete suite and every required lint gate'
   'Branch, make focused changes, run'
+)
+# #719 the 'Before a commit, phase completion, push, or' arm is RE-SPANNED (named, not
+# indexed — an ordinal here would rot on any insertion of an earlier arm). Its retired
+# obligation sentence
+# ('Before a commit, phase completion, push, or completion claim, run ...') was
+# LINE-WRAPPED at the pre-#707 baseline, wrapping after '…push, or', and pin_count
+# is line-based (grep -oF) — so the full-sentence span matched NOTHING on any swept
+# surface at 607ec800 and the arm was unmatchable by construction (the repo's own
+# #375 wrapped-literal class, reintroduced inside the guard written to prevent it).
+# The on-line span 'Before a commit, phase completion, push, or' is what actually
+# exists on a single baseline line (in implement.md), so the baseline-corpus control
+# below can validate it. It is still a DISTINGUISHING span of the retired obligation,
+# not a generic phrase.
+# #719 per-member baseline ref (parallel to _WSR_RETIRED_LITS by index — bash 3.2 has
+# no associative arrays). Each member is validated by the baseline-corpus control below
+# against the blob at the ref where its retired text EXISTED. Every member shares the pre-#707
+# baseline 607ec800 today; a literal retired by a LATER change carries its own later ref,
+# so the control never demands a postdated literal match a ref that predates it. A member
+# with NO parallel ref (a shorter refs array) turns the control RED naming that member, so
+# the literal array cannot grow past the control by omission. 607ec800 is a past-time
+# snapshot (issue #656 prefer-generated-evidence EXCEPTION — a fixed historical ref, not a
+# live-rendered figure), registered with that rationale rather than rendered.
+_WSR_RETIRED_REFS=(
+  '607ec800'
+  '607ec800'
+  '607ec800'
+  '607ec800'
+  '607ec800'
+  '607ec800'
+  '607ec800'
+  '607ec800'
+  '607ec800'
 )
 # CONTRIBUTING.md carries this policy too (issue #707 rewrote its Submitting-changes step
 # and added its focused-default block), so it is swept like every other mirror. Its own
@@ -30640,35 +30672,264 @@ for _WSR_RETIRED_FILE in "$WSR_IMPL" "$WSR_RAF" "$FDROOT/.devflow/prompt-extensi
 done
 assert_eq "#707 every surface the retired-convention sweep reads is readable" "0" "$_WSR_RETIRED_UNREADABLE"
 assert_eq "#707 the retired full-suite-before-every-commit convention survives on no surface" "0" "$_WSR_RETIRED_HITS"
-# Positive control: a zero-expecting sweep is only meaningful if it can still COUNT. Plant
-# EVERY literal of the set — not one representative — in a scratch copy and require the sweep
-# to find each. State its reach honestly: because the planting loop and the counting loop read
-# the SAME array, this control CANNOT detect a mistyped literal (a mistype is planted and then
-# found in its mistyped form, and the tally still matches). What it does prove is that the
-# counting machinery is live for every entry — pin_count resolves, probe_tmp allocated, no
-# entry is unmatchable (an empty string, an embedded newline, a literal grep -oF cannot find).
-# A one-literal control did not even prove that much beyond its one arm. Detecting a mistype
-# would need an independently-authored expected corpus; that is a deliberate non-goal here,
-# since the second copy is exactly the coupled-mirror drift the shared array removed.
-if _WSR_RETIRED_PROBE="$(probe_tmp '#707 retired-convention sweep positive control')"; then
-  cat "$WSR_IMPL" > "$_WSR_RETIRED_PROBE"
-  for _WSR_RETIRED_LIT in "${_WSR_RETIRED_LITS[@]}"; do
-    printf '%s\n' "$_WSR_RETIRED_LIT" >> "$_WSR_RETIRED_PROBE"
+# ── #719 baseline-corpus control (REPLACES the self-referential planting control) ──
+# The retired control planted the sweep's OWN literal array into a scratch file and counted it
+# there, so — because the planting loop and the counting loop read the SAME array — it was blind
+# BY CONSTRUCTION to a member that is unmatchable against the REAL retired text. That is exactly
+# the #719 defect: the re-spanned arm's full-sentence span wrapped a line break at the baseline, so
+# grep -oF (line-based) could never match it on any swept surface, yet the self-referential
+# control still tallied because it planted and then found the same unmatchable string. The old
+# control's own comment conceded it could not detect a MISTYPED literal; it did not anticipate an
+# UNMATCHABLE one, the same blind spot by a different route.
+# This control replaces that with an INDEPENDENTLY-AUTHORED corpus the repo does not re-author —
+# the pre-#707 baseline blobs read through `git show <ref>:<file>` — so a literal that cannot
+# match its real baseline text turns the suite RED at the desk. It extends the #528 derived-LIST
+# discipline to a derived CORPUS.
+# Fail-closed contract, exactly five arms (complete by construction) — four degraded corpus-build
+# inputs plus the authoring arm below them:
+#   unresolvable ref (shallow clone)  -> skip blocking-gate (a real gate that should have run here)
+#   swept file with no blob at ref    -> RED naming the input (never pass by counting zero)
+#   empty `git show` output           -> RED naming the input (never pass by counting zero)
+#   failed scratch allocation         -> skip host-capability
+#   member with no parallel ref       -> RED naming the member (an authoring defect in the parallel
+#                                        arrays, not a corpus input; exercised by control 2)
+# The unresolvable-ref and allocation arms are HOST-capability limits, not tree defects, so a
+# shallow local clone routes to `skip` (recorded skipped — not a clean pass, not a hard failure)
+# while CI's full-history checkout (fetch-depth: 0, #456) runs the gate for real. The retired
+# control's `if probe_tmp; then … fi` shape (no else, no skip) is deliberately NOT copied.
+_WSR_SWEPT_RELPATHS=(
+  '.devflow/prompt-extensions/implement.md'
+  '.devflow/prompt-extensions/review-and-fix.md'
+  '.devflow/prompt-extensions/receiving-code-review.md'
+  'CLAUDE.md'
+  'docs/DEVFLOW_SYSTEM_OVERVIEW.md'
+  'CONTRIBUTING.md'
+)
+# Build the baseline corpus for (repo, ref) over FILES into OUT (truncated first, so a re-run
+# cannot ACCUMULATE planted content). Prints exactly one status token; the ref/blob/empty
+# distinctions are what let the control fail closed per the contract above, never collapse an
+# unestablished `git show` onto a zero count (the repo's unknown-is-not-zero rule).
+#   OK            corpus built, every blob resolved and non-empty
+#   BADREF        ref does not resolve as a commit in repo (shallow clone)
+#   NOBLOB:<file> ref resolves but a swept file has no blob at that ref (added after it)
+#   EMPTY:<file>  git show resolved but produced empty output
+_wsr_build_baseline_corpus() {  # repo ref out file...
+  local repo="$1" ref="$2" out="$3"; shift 3
+  if ! git -C "$repo" rev-parse --verify --quiet "${ref}^{commit}" >/dev/null 2>&1; then
+    printf 'BADREF\n'; return 1
+  fi
+  : > "$out"
+  local f blob
+  for f in "$@"; do
+    # One `git show` distinguishes all three states after the ref already resolved above: a
+    # missing blob makes it exit nonzero (NOBLOB); an existing-but-empty blob exits 0 with empty
+    # stdout (EMPTY); a normal blob exits 0 with content. The separate `cat-file -e` probe the
+    # first draft used was a redundant second git fork per file.
+    if ! blob="$(git -C "$repo" show "${ref}:${f}" 2>/dev/null)"; then
+      printf 'NOBLOB:%s\n' "$f"; return 1
+    fi
+    if [ -z "$blob" ]; then
+      printf 'EMPTY:%s\n' "$f"; return 1
+    fi
+    printf '%s\n' "$blob" >> "$out"
   done
-  for _WSR_RETIRED_LIT in "${_WSR_RETIRED_LITS[@]}"; do
-    _WSR_RETIRED_CONTROL=$((_WSR_RETIRED_CONTROL + $(pin_count "$_WSR_RETIRED_LIT" "$_WSR_RETIRED_PROBE")))
+  printf 'OK\n'; return 0
+}
+# Run the control over the caller-set input arrays (_WSR_BCC_LITS / _WSR_BCC_REFS parallel by
+# index — bash 3.2 has no associative arrays; _WSR_BCC_FILES swept relpaths; _WSR_BCC_REPO the
+# git dir). Emits real assert_eq/skip so the REAL invocation records real results; the positive
+# controls below call it with RESULTS_FILE/SKIPS_FILE redirected to isolated files and inspect
+# those, so their intentional RED/skip never enters the suite tally.
+#   $1 name   $2 ref-override (empty = per-member ref)   $3 alloc-mode (ok|fail)
+_WSR_BCC_LAST_CORPUS=""
+_wsr_run_baseline_corpus_control() {
+  local name="$1" ref_override="$2" alloc_mode="$3"
+  local corpus cur_ref="" i lit ref n tok unmatched="" noref=""
+  # Scratch allocation — the allocation degraded arm. A forced 'fail' mode or a real mktemp
+  # failure routes to skip host-capability (NOT probe_tmp, which would record a FAIL): a host
+  # that cannot allocate scratch is a host-capability limit, not a tree defect.
+  if [ "$alloc_mode" = fail ]; then
+    skip "$name — scratch corpus allocation" host-capability "mktemp unavailable (forced); baseline-corpus control could not build its scratch corpus"
+    return 0
+  fi
+  corpus="$(mktemp 2>/dev/null)" || {
+    skip "$name — scratch corpus allocation" host-capability "mktemp failed; baseline-corpus control could not build its scratch corpus"
+    return 0
+  }
+  _WSR_BCC_LAST_CORPUS="$corpus"
+  for (( i=0; i<${#_WSR_BCC_LITS[@]}; i++ )); do
+    lit="${_WSR_BCC_LITS[$i]}"
+    if [ -n "$ref_override" ]; then
+      ref="$ref_override"
+    elif [ "$i" -lt "${#_WSR_BCC_REFS[@]}" ] && [ -n "${_WSR_BCC_REFS[$i]}" ]; then
+      ref="${_WSR_BCC_REFS[$i]}"
+    else
+      # A member with NO parallel ref (a shorter refs array, or an empty entry) is RED naming it:
+      # the literal array cannot grow past the control by omission.
+      noref="${noref}
+  - ${lit}"
+      continue
+    fi
+    # Build (or reuse) the corpus for this ref. One-entry cache: consecutive same-ref members
+    # reuse the built corpus, so the ref-uniform real set builds it exactly once.
+    if [ "$ref" != "$cur_ref" ]; then
+      tok="$(_wsr_build_baseline_corpus "$_WSR_BCC_REPO" "$ref" "$corpus" "${_WSR_BCC_FILES[@]}")"
+      case "$tok" in
+        OK) cur_ref="$ref" ;;
+        BADREF)
+          skip "$name — baseline ref '$ref'" blocking-gate "ref does not resolve (shallow clone?); baseline-corpus gate could not run here — CI's full-history checkout is authoritative"
+          rm -f "$corpus"; return 0 ;;
+        NOBLOB:*|EMPTY:*)
+          # RED naming the unresolved input — never allowed to pass by counting zero literals.
+          assert_eq "$name — every swept file resolves to a non-empty baseline blob at '$ref'" "OK" "$tok"
+          rm -f "$corpus"; return 0 ;;
+        *)
+          # Unreachable by construction today — but an unforeseen producer token must never fall
+          # through to counting against a possibly-stale corpus. RED naming the token instead.
+          assert_eq "$name — the corpus builder emitted a known status token at '$ref'" "OK" "$tok"
+          rm -f "$corpus"; return 0 ;;
+      esac
+    fi
+    n="$(pin_count "$lit" "$corpus")"
+    [ "$n" -ge 1 ] || unmatched="${unmatched}
+  - ${lit}"
   done
-  assert_eq "#707 retired-convention sweep positive control: every planted retired literal is counted" \
-    "${#_WSR_RETIRED_LITS[@]}" "$_WSR_RETIRED_CONTROL"
-  rm -f "$_WSR_RETIRED_PROBE"
+  rm -f "$corpus"
+  # RED (naming the offenders) when any member has no parallel ref, or matches no baseline
+  # surface; a clean run records two PASSes.
+  assert_eq "$name — every retired literal carries a parallel baseline ref" "" "$noref"
+  assert_eq "$name — every retired literal matches its independently-authored baseline corpus" "" "$unmatched"
+}
+# The REAL invocation — validates the live _WSR_RETIRED_LITS against the pre-#707 baseline.
+_WSR_BCC_REPO="$FDROOT"
+_WSR_BCC_FILES=("${_WSR_SWEPT_RELPATHS[@]}")
+_WSR_BCC_LITS=("${_WSR_RETIRED_LITS[@]}")
+_WSR_BCC_REFS=("${_WSR_RETIRED_REFS[@]}")
+_wsr_run_baseline_corpus_control "#719 retired-convention baseline-corpus control" "" ok
+# ── Positive controls: prove the control detects each defect it exists for, in ISOLATION so
+# the intentional RED / skip never counts against the suite tally. ────────────────────────────
+# Controls 1-4 share ONE isolated results/skips pair, allocated once and truncated between runs.
+# The allocation is guarded: an unguarded `$(mktemp)` here would fail loud but with a MISDIRECTED
+# diagnosis (an empty RESULTS_FILE path reads as the control finding nothing), so a host that
+# cannot allocate scratch routes to skip host-capability exactly like the control's own arm.
+if _WSR_BCC_PR="$(mktemp 2>/dev/null)" && _WSR_BCC_PS="$(mktemp 2>/dev/null)"; then
+# Controls 1-2 drive the control over the REAL baseline refs, so they need those refs to resolve.
+# On a shallow clone they would otherwise route to `skip` inside the control and their
+# `grep -q '^FAIL'` meta-assertions would flip to a spurious hard suite FAIL — contradicting this
+# block's own documented shallow-clone tolerance (controls 5/6/7 avoid it via `git_sandbox`).
+_WSR_BCC_REFS_OK=yes
+for _WSR_BCC_R in "${_WSR_RETIRED_REFS[@]}"; do
+  git -C "$FDROOT" rev-parse --verify --quiet "${_WSR_BCC_R}^{commit}" >/dev/null 2>&1 || _WSR_BCC_REFS_OK=no
+done
+if [ "$_WSR_BCC_REFS_OK" = yes ]; then
+# (1) Planted-defect control: append one deliberately-unmatchable member — the ORIGINAL
+# full-sentence span that WRAPS a line break at the baseline (the exact #719 defect) — and
+# observe the control go RED naming it.
+: > "$_WSR_BCC_PR"; : > "$_WSR_BCC_PS"
+_WSR_BCC_REPO="$FDROOT"
+_WSR_BCC_FILES=("${_WSR_SWEPT_RELPATHS[@]}")
+_WSR_BCC_LITS=("${_WSR_RETIRED_LITS[@]}" 'Before a commit, phase completion, push, or completion claim, run')
+_WSR_BCC_REFS=("${_WSR_RETIRED_REFS[@]}" "${_WSR_RETIRED_REFS[0]}")
+_WSR_BCC_PLANTED_OUT="$( RESULTS_FILE="$_WSR_BCC_PR" SKIPS_FILE="$_WSR_BCC_PS" _wsr_run_baseline_corpus_control '#719 planted-defect control' '' ok 2>&1 )"
+assert_eq "#719 baseline-corpus control: a planted line-wrapping member is caught RED" \
+  "yes" "$(grep -q '^FAIL' "$_WSR_BCC_PR" && echo yes || echo no)"
+assert_eq "#719 baseline-corpus control: the planted member is NAMED in the RED output" \
+  "yes" "$(printf '%s' "$_WSR_BCC_PLANTED_OUT" | grep -qF 'completion claim, run' && echo yes || echo no)"
+# (2) Missing-ref control: a member with no parallel ref (refs array one short) goes RED naming
+# the member — the array cannot grow past the control by omission.
+: > "$_WSR_BCC_PR"; : > "$_WSR_BCC_PS"
+_WSR_BCC_LITS=("${_WSR_RETIRED_LITS[@]}" 'a later retirement literal with no ref')
+_WSR_BCC_REFS=("${_WSR_RETIRED_REFS[@]}")
+_WSR_BCC_NOREF_OUT="$( RESULTS_FILE="$_WSR_BCC_PR" SKIPS_FILE="$_WSR_BCC_PS" _wsr_run_baseline_corpus_control '#719 missing-ref control' '' ok 2>&1 )"
+assert_eq "#719 baseline-corpus control: a member with no parallel baseline ref is caught RED" \
+  "yes" "$(grep -q '^FAIL' "$_WSR_BCC_PR" && echo yes || echo no)"
+assert_eq "#719 baseline-corpus control: the ref-less member is NAMED in the RED output" \
+  "yes" "$(printf '%s' "$_WSR_BCC_NOREF_OUT" | grep -qF 'no ref' && echo yes || echo no)"
+else
+  skip "#719 baseline-corpus control: planted-defect and missing-ref controls" blocking-gate \
+    "a baseline ref in _WSR_RETIRED_REFS does not resolve (shallow clone?); these two controls drive the REAL refs — CI's full-history checkout is authoritative"
 fi
-unset _WSR_RETIRED_HITS _WSR_RETIRED_FILE _WSR_RETIRED_LIT _WSR_RETIRED_UNREADABLE _WSR_RETIRED_CONTROL _WSR_RETIRED_PROBE _WSR_RETIRED_LITS
-# #707 coupled heading invariant: receiving-code-review.md defers to review-and-fix.md's
-# focused-module section BY VERBATIM HEADING, so the heading and its citation are one
-# coupled text. This issue renamed the heading and updated both halves; without this pin a
-# later rename leaves the reception pass deferring to a section that does not exist while
-# every other pin still passes. Pinned on both sides, and mutation-proved on the citing
-# side (the guarded regression is the deference dangling).
+# (3) Unresolvable-ref control: a bogus baseline ref routes to skip blocking-gate (NOT a FAIL,
+# NOT a pass) — the shallow-clone host-limit arm. Ref-resolution-independent by construction.
+: > "$_WSR_BCC_PR"; : > "$_WSR_BCC_PS"
+_WSR_BCC_LITS=("${_WSR_RETIRED_LITS[@]}")
+_WSR_BCC_REFS=("${_WSR_RETIRED_REFS[@]}")
+RESULTS_FILE="$_WSR_BCC_PR" SKIPS_FILE="$_WSR_BCC_PS" _wsr_run_baseline_corpus_control '#719 bad-ref control' 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef' ok >/dev/null 2>&1
+assert_eq "#719 baseline-corpus control: an unresolvable baseline ref routes to skip blocking-gate" \
+  "yes" "$(grep -q '^blocking-gate	' "$_WSR_BCC_PS" && echo yes || echo no)"
+assert_eq "#719 baseline-corpus control: an unresolvable baseline ref records NO suite FAIL" \
+  "no" "$(grep -q '^FAIL' "$_WSR_BCC_PR" && echo yes || echo no)"
+# (4) Failed-scratch-allocation control: routes to skip host-capability (NOT a FAIL).
+: > "$_WSR_BCC_PR"; : > "$_WSR_BCC_PS"
+RESULTS_FILE="$_WSR_BCC_PR" SKIPS_FILE="$_WSR_BCC_PS" _wsr_run_baseline_corpus_control '#719 alloc-fail control' '' fail >/dev/null 2>&1
+assert_eq "#719 baseline-corpus control: a failed scratch allocation routes to skip host-capability" \
+  "yes" "$(grep -q '^host-capability	' "$_WSR_BCC_PS" && echo yes || echo no)"
+assert_eq "#719 baseline-corpus control: a failed scratch allocation records NO suite FAIL" \
+  "no" "$(grep -q '^FAIL' "$_WSR_BCC_PR" && echo yes || echo no)"
+rm -f "$_WSR_BCC_PR" "$_WSR_BCC_PS"
+else
+  skip "#719 baseline-corpus control: isolated positive controls 1-4" host-capability \
+    "mktemp failed; the isolated results/skips pair the controls inspect could not be allocated"
+fi
+# (5) Missing-blob and (6) empty-output controls: build a throwaway git repo with controlled
+# blobs (a file carrying every literal, an empty file, and a referenced-but-absent path) and
+# drive the control against it — each degraded git input goes RED naming the input, proving the
+# real git mechanism (not a mock) fails closed.
+if _WSR_BCC_SBX="$(git_sandbox '#719 baseline-corpus degraded-input sandbox')"; then
+  git -C "$_WSR_BCC_SBX" init -q
+  {
+    for _WSR_BCC_L in "${_WSR_RETIRED_LITS[@]}"; do printf '%s\n' "$_WSR_BCC_L"; done
+  } > "$_WSR_BCC_SBX/real.md"
+  : > "$_WSR_BCC_SBX/empty.md"
+  git -C "$_WSR_BCC_SBX" add real.md empty.md
+  git -C "$_WSR_BCC_SBX" -c user.email=t@t -c user.name=t commit -qm baseline >/dev/null 2>&1
+  _WSR_BCC_SBX_REF="$(git -C "$_WSR_BCC_SBX" rev-parse HEAD)"
+  _WSR_BCC_REPO="$_WSR_BCC_SBX"
+  _WSR_BCC_LITS=("${_WSR_RETIRED_LITS[@]}")
+  _WSR_BCC_REFS=()   # use the ref-override so every member shares $_WSR_BCC_SBX_REF
+  # (5) missing blob: a referenced path that does not exist at the ref. The scratch pair is
+  # allocated once for controls 5-7 and guarded for the same misdirected-diagnosis reason as the
+  # pair above; a failed allocation skips host-capability rather than reading as a silent control.
+  if _WSR_BCC_PR="$(mktemp 2>/dev/null)" && _WSR_BCC_PS="$(mktemp 2>/dev/null)"; then
+  _WSR_BCC_FILES=('ghost.md' 'real.md')
+  _WSR_BCC_NOBLOB_OUT="$( RESULTS_FILE="$_WSR_BCC_PR" SKIPS_FILE="$_WSR_BCC_PS" _wsr_run_baseline_corpus_control '#719 missing-blob control' "$_WSR_BCC_SBX_REF" ok 2>&1 )"
+  assert_eq "#719 baseline-corpus control: a swept file with no blob at the ref is caught RED" \
+    "yes" "$(grep -q '^FAIL' "$_WSR_BCC_PR" && echo yes || echo no)"
+  assert_eq "#719 baseline-corpus control: the missing blob is NAMED in the RED output" \
+    "yes" "$(printf '%s' "$_WSR_BCC_NOBLOB_OUT" | grep -qF 'ghost.md' && echo yes || echo no)"
+  # (6) empty output: a swept file whose git show is empty
+  : > "$_WSR_BCC_PR"; : > "$_WSR_BCC_PS"
+  _WSR_BCC_FILES=('empty.md' 'real.md')
+  _WSR_BCC_EMPTY_OUT="$( RESULTS_FILE="$_WSR_BCC_PR" SKIPS_FILE="$_WSR_BCC_PS" _wsr_run_baseline_corpus_control '#719 empty-output control' "$_WSR_BCC_SBX_REF" ok 2>&1 )"
+  assert_eq "#719 baseline-corpus control: an empty git-show blob is caught RED" \
+    "yes" "$(grep -q '^FAIL' "$_WSR_BCC_PR" && echo yes || echo no)"
+  assert_eq "#719 baseline-corpus control: the empty blob is NAMED in the RED output" \
+    "yes" "$(printf '%s' "$_WSR_BCC_EMPTY_OUT" | grep -qF 'empty.md' && echo yes || echo no)"
+  # (7) idempotency: run the control twice over the same clean sandbox input and require
+  # byte-identical result tallies, and require the scratch corpus removed after the run.
+  _WSR_BCC_FILES=('real.md')
+  if _WSR_BCC_R1="$(mktemp 2>/dev/null)" && _WSR_BCC_R2="$(mktemp 2>/dev/null)" && _WSR_BCC_S0="$(mktemp 2>/dev/null)"; then
+  RESULTS_FILE="$_WSR_BCC_R1" SKIPS_FILE="$_WSR_BCC_S0" _wsr_run_baseline_corpus_control '#719 idempotency probe' "$_WSR_BCC_SBX_REF" ok >/dev/null 2>&1
+  assert_eq "#719 baseline-corpus control: the scratch corpus is removed after the run" \
+    "gone" "$([ -e "$_WSR_BCC_LAST_CORPUS" ] && echo present || echo gone)"
+  RESULTS_FILE="$_WSR_BCC_R2" SKIPS_FILE="$_WSR_BCC_S0" _wsr_run_baseline_corpus_control '#719 idempotency probe' "$_WSR_BCC_SBX_REF" ok >/dev/null 2>&1
+  assert_eq "#719 baseline-corpus control: re-running over the same input yields an identical tally" \
+    "yes" "$(cmp -s "$_WSR_BCC_R1" "$_WSR_BCC_R2" && echo yes || echo no)"
+  rm -f "$_WSR_BCC_R1" "$_WSR_BCC_R2" "$_WSR_BCC_S0"
+  else
+    skip "#719 baseline-corpus control: idempotency probe" host-capability \
+      "mktemp failed; the isolated result files the probe compares could not be allocated"
+  fi
+  rm -f "$_WSR_BCC_PR" "$_WSR_BCC_PS"
+  else
+    skip "#719 baseline-corpus control: degraded-git-input controls 5-7" host-capability \
+      "mktemp failed; the isolated results/skips pair the controls inspect could not be allocated"
+  fi
+  rm -rf "$_WSR_BCC_SBX"
+fi
+unset _WSR_RETIRED_HITS _WSR_RETIRED_FILE _WSR_RETIRED_LIT _WSR_RETIRED_UNREADABLE _WSR_RETIRED_CONTROL _WSR_RETIRED_PROBE _WSR_RETIRED_LITS _WSR_RETIRED_REFS
+unset _WSR_SWEPT_RELPATHS _WSR_BCC_LITS _WSR_BCC_REFS _WSR_BCC_FILES _WSR_BCC_REPO _WSR_BCC_LAST_CORPUS
+unset _WSR_BCC_REFS_OK _WSR_BCC_R _WSR_BCC_PR _WSR_BCC_PS _WSR_BCC_PLANTED_OUT _WSR_BCC_NOREF_OUT _WSR_BCC_L _WSR_BCC_SBX _WSR_BCC_SBX_REF _WSR_BCC_NOBLOB_OUT _WSR_BCC_EMPTY_OUT _WSR_BCC_R1 _WSR_BCC_R2 _WSR_BCC_S0 2>/dev/null || true
 # #707 the claim gate on the surfaces outside the two-file loop above. Each states the rule
 # in its own voice, so each needs its own pin; the guarded regression is identical — the
 # parallel-push allowance surviving without the clause that keeps the claim gated.
@@ -30685,8 +30946,8 @@ assert_pin_red_under "#707 overview mirror gates the completion claim on reading
 # retired rule is gone there; this proves the new one arrived, so deleting its focused-default
 # block cannot pass green.
 assert_pin_red_under "#707 CONTRIBUTING.md makes the focused module the iteration default" \
-  'reach for `bash lib/test/run.sh` mid-iteration only when no module or' \
-  's/reach for `bash lib\/test\/run.sh` mid-iteration only when no module or/run `bash lib\/test\/run.sh` before every commit, and only when no module or/' "$FDROOT/CONTRIBUTING.md"
+  'reach for `bash lib/test/run.sh` mid-iteration only when no registered' \
+  's/reach for `bash lib\/test\/run.sh` mid-iteration only when no registered/run `bash lib\/test\/run.sh` before every commit, and only when no registered/' "$FDROOT/CONTRIBUTING.md"
 assert_pin_red_under "#707 CONTRIBUTING.md gates calling the branch done on reading the local run" \
   'is: read the local run'"'"'s summary before you claim it' \
   's/is: read the local run'"'"'s summary before you claim it/is not/' "$FDROOT/CONTRIBUTING.md"
@@ -30700,6 +30961,13 @@ assert_pin_red_under "#707 implement.md routes a mid-iteration full-suite run to
 assert_pin_red_under "#707 implement.md binds the reflection obligation to that routing case" \
   'The reflection-routing rule below carries this as a named capture case' \
   's/The reflection-routing rule below carries this as a named capture case/The routing below is unaffected/' "$WSR_IMPL"
+# #707 coupled heading invariant (#719: relocated to sit immediately above the two heading
+# pins it documents — it previously sat orphaned above the claim-gate pins): receiving-code-
+# review.md defers to review-and-fix.md's focused-module section BY VERBATIM HEADING, so the
+# heading and its citation are one coupled text. #707 renamed the heading and updated both
+# halves; without these pins a later rename leaves the reception pass deferring to a section
+# that does not exist while every other pin still passes. Pinned on both sides, and
+# mutation-proved on the citing side (the guarded regression is the deference dangling).
 assert_pin_unique "#707 review-and-fix.md carries the heading receiving-code-review.md defers to" \
   '## Focused test modules are the fix-iteration default' "$WSR_RAF"  # structural-pin-ok: presence of the heading the sibling citation names; the citing side's mutation pin below carries the behavioral proof
 assert_pin_red_under "#707 receiving-code-review.md's deference cites that exact heading" \
@@ -30727,8 +30995,8 @@ for _WSR_FOCUSED_POLICY in "$WSR_IMPL" "$WSR_RAF"; do
     'a focused pass covering the changed surface is sufficient for an intermediate commit or push.' \
     's/a focused pass covering the changed surface is sufficient for an intermediate commit or push\./a focused pass covering the changed surface is not sufficient for an intermediate commit or push./' "$_WSR_FOCUSED_POLICY"
   assert_pin_red_under "#707 $_WSR_FOCUSED_NAME reserves the mid-iteration full suite for uncovered surfaces" \
-    'Run the full suite mid-iteration only when no focused module or path covers the changed surface' \
-    's/Run the full suite mid-iteration only when no focused module or path covers the changed surface/Run the full suite mid-iteration before each commit and push/' "$_WSR_FOCUSED_POLICY"
+    'Run the full suite mid-iteration only when no registered module covers the changed surface' \
+    's/Run the full suite mid-iteration only when no registered module covers the changed surface/Run the full suite mid-iteration before each commit and push/' "$_WSR_FOCUSED_POLICY"
   assert_pin_red_under "#707 $_WSR_FOCUSED_NAME does not gate the push on the local final run" \
     'the push is NOT gated on the local run finishing' \
     's/the push is NOT gated on the local run finishing/the push waits for the local run to finish/' "$_WSR_FOCUSED_POLICY"
@@ -30778,6 +31046,49 @@ assert_pin_unique "#591 overview doc mirror carries the amended cloud focused-ru
   "$FDROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 assert_pin_unique "#591 CONTRIBUTING.md carries the module-authoring checklist heading" \
   '### Authoring a new focused module' "$FDROOT/CONTRIBUTING.md"
+
+# ── #719 Verification-evidence marker + undefined-disjunct deletion + cloud full-suite obligation ──
+# Finding 1 (unobservable claim gate): each of the three prompt extensions must state, on the
+# local/interactive tier, that a launch that never started is OBSERVABLE as an absent capture
+# file — the named regression is the claim gate becoming unobservable again. Behavioral-fix pins,
+# so the mutation removes the operative observability sentence and the pin goes RED.
+assert_pin_red_under "#719 implement.md makes a marker-less completion claim an inspectable defect" \
+  'a completion claim without the marker is an **inspectable** defect' \
+  's/a completion claim without the marker is an \*\*inspectable\*\* defect/a completion claim needs no marker/' "$WSR_IMPL"
+assert_pin_red_under "#719 review-and-fix.md makes a never-started launch observable as an absent file" \
+  'A launch that never started produces an **absent capture file**' \
+  's/A launch that never started produces an \*\*absent capture file\*\*/A launch leaves no artifact/' "$WSR_RAF"
+assert_pin_red_under "#719 receiving-code-review.md makes a never-started launch observable as an absent file" \
+  'A launch that never started leaves an **absent capture file**' \
+  's/A launch that never started leaves an \*\*absent capture file\*\*/A launch leaves no artifact/' "$FDROOT/.devflow/prompt-extensions/receiving-code-review.md"
+# The exact marker literal `Verification evidence:` must be present on each extension (it appears
+# more than once per file — the sentence plus the workpad.py recipe — so a presence count, not a
+# uniqueness pin).
+assert_eq "#719 implement.md records the exact Verification evidence marker literal" "yes" \
+  "$([ "$(pin_count 'Verification evidence:' "$WSR_IMPL")" -ge 1 ] && echo yes || echo no)"
+assert_eq "#719 review-and-fix.md records the exact Verification evidence marker literal" "yes" \
+  "$([ "$(pin_count 'Verification evidence:' "$WSR_RAF")" -ge 1 ] && echo yes || echo no)"
+assert_eq "#719 receiving-code-review.md records the exact Verification evidence marker literal" "yes" \
+  "$([ "$(pin_count 'Verification evidence:' "$FDROOT/.devflow/prompt-extensions/receiving-code-review.md")" -ge 1 ] && echo yes || echo no)"
+# G13 (#719): implement.md states a final full-suite obligation whose scope covers the cloud tier,
+# so the tier-agnostic guarantee is legible on the extension itself, not only via CLAUDE.md tier 2.
+assert_pin_red_under "#719 implement.md states a cloud-tier final full-suite obligation" \
+  'The final full-suite obligation binds the cloud tier too' \
+  's/The final full-suite obligation binds the cloud tier too/The cloud tier has no full-suite obligation/' "$WSR_IMPL"
+# Finding 2 (undefined `or path` disjunct): the full-suite trigger carries exactly one defined
+# disjunct on every operative policy surface. Each surface carried the disjunct on a single line
+# (matchable-when-present, so this absence sweep is not the #719 wrapped-literal trap), in the
+# exact form named per surface; a reintroduction turns the suite RED.
+assert_eq "#719 implement.md carries no undefined path disjunct in the full-suite trigger" "0" \
+  "$(pin_count 'module or path' "$WSR_IMPL")"
+assert_eq "#719 review-and-fix.md carries no undefined path disjunct in the full-suite trigger" "0" \
+  "$(pin_count 'module or path' "$WSR_RAF")"
+assert_eq "#719 receiving-code-review.md carries no undefined path disjunct in the full-suite trigger" "0" \
+  "$(pin_count 'module or path' "$FDROOT/.devflow/prompt-extensions/receiving-code-review.md")"
+assert_eq "#719 overview mirror carries no undefined path disjunct in the full-suite trigger" "0" \
+  "$(pin_count 'module or path' "$FDROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md")"
+assert_eq "#719 CONTRIBUTING.md carries no undefined path disjunct in the full-suite trigger" "0" \
+  "$(pin_count 'focused path' "$FDROOT/CONTRIBUTING.md")"
 
 # (a) implement.md routing-rule operative sentence.
 assert_pin_unique "#506 implement.md carries the prompt-surface routing operative sentence" \
@@ -38546,8 +38857,19 @@ RAF_ROOT_CEIL=3567
 # renegotiated to the measurement plus the repo's usual ~4 words of headroom. The audited growth
 # decision is docs/cutovers/issue-707-focused-default-growth.md; update
 # docs/review-and-fix-budget.md's ceilings-table and Measured cells in lockstep.
-RAF_LOAD_CEIL=9007
-RAF_MAXSTEP_CEIL=20346
+# #719 raised the initial-load ceiling 9007->9468 and the max-step ceiling 20346->20807: the
+# unobservable-claim-gate repair (finding 1) adds the `Verification evidence:` marker + capture
+# mechanism to BOTH always-loaded extensions (review-and-fix.md and receiving-code-review.md), so
+# it lands on the initial load twice; the deletion of the undefined `or path` disjunct trims a few
+# words back, but the marker prose dominates and the bundle carried only ~4 words of margin. The
+# prose was written to its operative minimum first — each surface states the capture-to-a-named-
+# file mechanism, the absent-file observability, the `note` kind, the workpad/PR/neither fallback,
+# the artifact-not-enforcement framing, and the #405 cloud carve-out — and only then were the
+# ceilings renegotiated to the measurement plus the repo's usual ~4 words of headroom. The audited
+# growth decision is docs/cutovers/issue-719-verification-evidence-marker-growth.md; update
+# docs/review-and-fix-budget.md's ceilings-table and Measured cells in lockstep.
+RAF_LOAD_CEIL=9468
+RAF_MAXSTEP_CEIL=20807
 assert_eq "#530 budget: plugin root <= $RAF_ROOT_CEIL words (measured $RAF_ROOT_W)" "yes" \
   "$([ "$RAF_ROOT_W" -le "$RAF_ROOT_CEIL" ] && echo yes || echo no)"
 assert_eq "#530 budget: root + always-loaded extensions (initial load) <= $RAF_LOAD_CEIL words (measured $((RAF_ROOT_W+RAF_EXT_W+RAF_RCR_W)))" "yes" \
@@ -49882,12 +50204,140 @@ rm -rf "$CCE_ROOT"
 unset -f _cce
 unset CCE_MODE CCE_LOOPBASE
 
+# ── issue #720: bounded concurrent Python-suite pool contract ────────────────
+# Self-contained behavioral assertions for the pool (defined in module-harness.sh).
+# Each scenario runs in a SUBSHELL with a private RESULTS_FILE and throwaway python
+# fixtures created OUTSIDE the tracked lib/test/ tree (under a scratch root), so no
+# fixture appears in lib/test/ and every _DEVFLOW_POOL_* / _DEVFLOW_LIVE_CHILD_*
+# global mutation and every trap install/restore stays isolated from the outer suite
+# and from the real pool opened just below.
+POOL720_FIX="$(mktemp -d "${TMPDIR:-/tmp}/devflow-pool720-fix.XXXXXX")"
+_suite_tmp_dir "$POOL720_FIX"
+printf 'print("pool fixture ok")\nimport sys; sys.exit(0)\n' > "$POOL720_FIX/pa.py"
+printf 'print("pool fixture ok")\nimport sys; sys.exit(0)\n' > "$POOL720_FIX/pb.py"
+printf 'import sys\nprint("POOL720_FIXTURE_BOOM")\nsys.exit(1)\n' > "$POOL720_FIX/fc.py"
+printf 'import os\nopen(os.environ["DEVFLOW_POOL_TALLY_FILE"],"a").write("PASS\\nPASS\\nPASS\\n")\nprint("3 passed, 0 failed")\n' > "$POOL720_FIX/td.py"
+# A self-tally suite that records ZERO verdicts but exits 0 — exercises the reap's
+# zero-assertion fail-closed guard (a silently-empty pooled suite must FAIL, not vanish).
+printf 'print("0 passed, 0 failed")\nimport sys; sys.exit(0)\n' > "$POOL720_FIX/zt.py"
+
+_pool720_run() {  # width  -> prints the pool's failure output then "COUNTS <pass> <fail>"
+  (
+    RESULTS_FILE="$(mktemp)"
+    DEVFLOW_POOL_WIDTH="$1" devflow_pool_open \
+      pa "$POOL720_FIX/pa.py" single-verdict \
+      pb "$POOL720_FIX/pb.py" single-verdict \
+      fc "$POOL720_FIX/fc.py" single-verdict \
+      td "$POOL720_FIX/td.py" self-tally
+    devflow_pool_join
+    printf 'COUNTS %s %s\n' "$(grep -c '^PASS$' "$RESULTS_FILE")" "$(grep -c '^FAIL$' "$RESULTS_FILE")"
+    rm -f "$RESULTS_FILE"
+  )
+}
+# pa+pb = 2 PASS, fc = 1 FAIL, td (self-tally) = 3 PASS  ->  5 PASS, 1 FAIL.
+_POOL720_CORE="$(_pool720_run "" 2>/dev/null)"
+_POOL720_W1="$(_pool720_run 1 2>/dev/null)"
+_POOL720_CORE_C="$(printf '%s\n' "$_POOL720_CORE" | grep '^COUNTS ' | tail -1)"
+_POOL720_W1_C="$(printf '%s\n' "$_POOL720_W1" | grep '^COUNTS ' | tail -1)"
+assert_eq "#720 pool: every named suite's verdict reaches RESULTS_FILE (core-derived width)" "COUNTS 5 1" "$_POOL720_CORE_C"
+assert_eq "#720 pool: tallies at core-derived width equal tallies at width 1 (equivalence gate)" "$_POOL720_CORE_C" "$_POOL720_W1_C"
+# A forced width of 2 guarantees ≥2 in-flight children even on a single-core host, where the
+# core-derived width above would itself be 1 and the equivalence gate would compare width-1
+# to width-1 (vacuous). This anchors the concurrency-vs-serial equivalence to a real
+# multi-in-flight run regardless of host core count (issue #720 review).
+_POOL720_W2="$(_pool720_run 2 2>/dev/null)"
+_POOL720_W2_C="$(printf '%s\n' "$_POOL720_W2" | grep '^COUNTS ' | tail -1)"
+assert_eq "#720 pool: tallies at forced width 2 (≥2 in-flight) equal tallies at width 1" "$_POOL720_W1_C" "$_POOL720_W2_C"
+assert_eq "#720 pool: a planted failing fixture fails the run identically at width 1 (positive control)" "COUNTS 5 1" "$_POOL720_W1_C"
+case "$_POOL720_CORE" in
+  *POOL720_FIXTURE_BOOM*) assert_eq "#720 pool: a failing suite increments FAIL and its captured output is printed" "yes" "yes" ;;
+  *) assert_eq "#720 pool: a failing suite increments FAIL and its captured output is printed" "yes" "no" ;;
+esac
+# Width resolution: override wins only when a positive integer; otherwise the cpu_count
+# probe, falling back to width 1 on empty / zero / non-numeric (functional assertions —
+# each fails RED if the positive-integer validation in _devflow_pool_resolve_width is removed;
+# the mutation-check that confirms this is recorded in the issue #720 workpad).
+assert_eq "#720 pool width: a positive-integer DEVFLOW_POOL_WIDTH override wins over the probe" "3" "$(DEVFLOW_POOL_WIDTH=3 _devflow_pool_resolve_width)"
+assert_eq "#720 pool width: falls back to 1 on an empty cpu_count probe" "1" "$(DEVFLOW_TEST_POOL_CPU_PROBE= _devflow_pool_resolve_width)"
+assert_eq "#720 pool width: falls back to 1 on a zero cpu_count probe" "1" "$(DEVFLOW_TEST_POOL_CPU_PROBE=0 _devflow_pool_resolve_width)"
+assert_eq "#720 pool width: falls back to 1 on a non-numeric cpu_count probe" "1" "$(DEVFLOW_TEST_POOL_CPU_PROBE=abc _devflow_pool_resolve_width)"
+assert_eq "#720 pool width: a non-positive override is ignored and the probe is used" "2" "$(DEVFLOW_POOL_WIDTH=0 DEVFLOW_TEST_POOL_CPU_PROBE=2 _devflow_pool_resolve_width)"
+# A suite whose script does not exist fails CLOSED (FAIL), never skipped.
+_POOL720_BAD="$( ( RESULTS_FILE="$(mktemp)"; devflow_pool_open bad "$POOL720_FIX/nope.py" single-verdict; devflow_pool_join; printf '%s %s\n' "$(grep -c '^PASS$' "$RESULTS_FILE")" "$(grep -c '^FAIL$' "$RESULTS_FILE")"; rm -f "$RESULTS_FILE" ) 2>/dev/null | tail -1 )"
+assert_eq "#720 pool: a suite whose script path does not exist fails closed (FAIL, not skipped)" "0 1" "$_POOL720_BAD"
+# A self-tally suite that records zero verdicts fails CLOSED (the reap's zero-assertion
+# guard), never silently contributing nothing with '0 failed'.
+_POOL720_ZERO="$( ( RESULTS_FILE="$(mktemp)"; devflow_pool_open zt "$POOL720_FIX/zt.py" self-tally; devflow_pool_join; printf '%s %s\n' "$(grep -c '^PASS$' "$RESULTS_FILE")" "$(grep -c '^FAIL$' "$RESULTS_FILE")"; rm -f "$RESULTS_FILE" ) 2>/dev/null | tail -1 )"
+assert_eq "#720 pool: a self-tally suite recording zero assertions fails closed (FAIL, not a silent empty)" "0 1" "$_POOL720_ZERO"
+# A supervisor PID-rendezvous timeout under saturation is absorbed by the serial-retry
+# path (the retry is exercised by forcing a real timeout, not by asserting timeouts away).
+# A retry-ran MARKER (DEVFLOW_TEST_POOL_RETRY_MARKER) is asserted PRESENT so this cannot pass
+# vacuously: if the forced-timeout hook or the marker-detection predicate ever regressed to
+# never firing, `pa` would run normally and the tally would still be "2 0" — but the marker
+# would be empty, turning this RED instead of a false green (issue #720 review).
+_POOL720_RMARK="$(mktemp)"
+# EXPORT the hooks subshell-wide (not as an `open`-only command prefix): the timeout is
+# forced at launch (open) but the serial retry — and its marker write — happen in join, so a
+# command-prefix scoped to `open` would leave join's run_serial without the marker.
+_POOL720_RDV="$( (
+  export DEVFLOW_TEST_POOL_RETRY_MARKER="$_POOL720_RMARK" DEVFLOW_POOL_FORCE_RENDEZVOUS_TIMEOUT=pa DEVFLOW_POOL_WIDTH=2
+  RESULTS_FILE="$(mktemp)"
+  devflow_pool_open pa "$POOL720_FIX/pa.py" single-verdict pb "$POOL720_FIX/pb.py" single-verdict
+  devflow_pool_join
+  printf '%s %s\n' "$(grep -c '^PASS$' "$RESULTS_FILE")" "$(grep -c '^FAIL$' "$RESULTS_FILE")"
+  rm -f "$RESULTS_FILE"
+) 2>/dev/null | tail -1 )"
+assert_eq "#720 pool: a forced rendezvous timeout is absorbed by serial retry, tallies unchanged" "2 0" "$_POOL720_RDV"
+assert_eq "#720 pool: the serial-retry path actually RAN for the forced-timeout suite (not a vacuous pass)" "pa" "$(grep -m1 '^pa$' "$_POOL720_RMARK" 2>/dev/null || printf 'no-retry')"
+rm -f "$_POOL720_RMARK"
+# The pool restores the caller's HUP/INT/TERM traps byte-for-byte and the live-child
+# registry is empty after join (every child deregistered). The pool installs NO EXIT trap
+# of its own — that single-EXIT-trap invariant is pinned structurally by
+# test_module_runner.py's exit-trap scan over run.sh's source (a subshell's inherited EXIT
+# trap is reset by bash on entry, so it is not a reliable in-subshell comparand here).
+_POOL720_TRAPS="$( (
+  RESULTS_FILE="$(mktemp)"
+  _bh="$(trap -p HUP)"; _bi="$(trap -p INT)"; _bt="$(trap -p TERM)"
+  DEVFLOW_POOL_WIDTH=2 devflow_pool_open pa "$POOL720_FIX/pa.py" single-verdict pb "$POOL720_FIX/pb.py" single-verdict >/dev/null
+  devflow_pool_join
+  _ah="$(trap -p HUP)"; _ai="$(trap -p INT)"; _at="$(trap -p TERM)"
+  if [ "$_bh" = "$_ah" ] && [ "$_bi" = "$_ai" ] && [ "$_bt" = "$_at" ] && [ "${#_DEVFLOW_LIVE_CHILD_PIDS[@]}" -eq 0 ]; then printf 'clean\n'; else printf 'DIRTY\n'; fi
+  rm -f "$RESULTS_FILE"
+) 2>/dev/null | tail -1 )"
+assert_eq "#720 pool: caller HUP/INT/TERM traps byte-identical and registry empty after join" "clean" "$_POOL720_TRAPS"
+unset -f _pool720_run
+unset POOL720_FIX _POOL720_CORE _POOL720_W1 _POOL720_W2 _POOL720_CORE_C _POOL720_W1_C _POOL720_W2_C _POOL720_BAD _POOL720_ZERO _POOL720_RDV _POOL720_RMARK _POOL720_TRAPS
+
 # These integration tests live outside the module whose registration and source
 # boundary they pin, so deleting that boundary cannot delete the test execution.
-MODULE_RUNNER_OUT="$(python3 "$LIB/test/test_module_runner.py" 2>&1)"
-MODULE_RUNNER_RC=$?
-assert_eq "test module runner: focused Python tests pass" "0" "$MODULE_RUNNER_RC"
-[ "$MODULE_RUNNER_RC" -eq 0 ] || while IFS= read -r _mr_line || [ -n "$_mr_line" ]; do printf '    %s\n' "$_mr_line"; done <<< "$MODULE_RUNNER_OUT"
+#
+# issue #720: open the bounded concurrent Python-suite pool HERE, at the former
+# test_module_runner.py driver site — after every preceding
+# devflow_run_full_suite_module call (those boundaries are complete, so no pooled
+# suite races the main shell on them) and before the harness-python-guards boundary
+# below — which the pooled test_module_runner.py itself drives through its own
+# run-module.sh subprocess, so that boundary runs in the main shell and in the pooled
+# suite concurrently; the overlap is safe because each execution uses its own isolated
+# owned scratch root, not shared mutable state. The three pooled
+# suites overlap that last module and the ~2000-line shell tail that follows it,
+# and the pool joins just before the RESULTS_FILE tally is counted
+# (devflow_pool_join, further down). Membership is exactly these three:
+# test_module_runner.py and test_prompt_mass_census.py report one verdict apiece
+# (single-verdict); test_python_scripts.py reports one PASS/FAIL per assertion into
+# the tally path the pool exports (self-tally). Their former standalone driver
+# sites — test_prompt_mass_census.py's $PMC_TEST run and test_python_scripts.py's
+# awk-parsed block — are deleted below; every pooled verdict reaches PASS/FAIL
+# through RESULTS_FILE.
+devflow_pool_open \
+  "test_module_runner.py" "$LIB/test/test_module_runner.py" single-verdict \
+  "test_prompt_mass_census.py" "$LIB/test/test_prompt_mass_census.py" single-verdict \
+  "test_python_scripts.py" "$LIB/test/test_python_scripts.py" self-tally
+
+# test_module_harness.py runs SERIALLY on the main shell, OUTSIDE the pool — both its
+# full-suite invocation and its --signal-matrix-capability probe. The supervisor forks
+# its worker with job control disabled, and this suite asserts on the SIGINT disposition
+# (trap -- '' SIGINT) its children inherit; a pooled child forked under job control off
+# would corrupt exactly that, so it is excluded by name rather than pooled and hoped for.
 MODULE_HARNESS_OUT="$(python3 "$LIB/test/test_module_harness.py" 2>&1)"
 MODULE_HARNESS_RC=$?
 assert_eq "test module full-suite boundary: focused Python tests pass" "0" "$MODULE_HARNESS_RC"
@@ -49902,7 +50352,7 @@ fi
 # module). The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/harness-python-guards.sh" \
-  "harness-python-guards" 31; then
+  "harness-python-guards" 33; then
   printf 'ERROR: harness-python-guards boundary could not record its result\n'
   exit 1
 fi
@@ -52025,7 +52475,8 @@ fi
 
 # ── issue #551: mandatory prompt-byte census + prose-cutover policy ──────────
 PMC="$LIB/test/prompt-mass-census.py"
-PMC_TEST="$LIB/test/test_prompt_mass_census.py"
+# test_prompt_mass_census.py (formerly $PMC_TEST here) now runs inside the issue #720
+# concurrent pool opened above — its standalone driver is deleted, so no $PMC_TEST var.
 PMC_MANIFEST="$LIB/test/prompt-mass-manifest.json"
 PMC_BASELINE="$LIB/test/prompt-mass-baseline.json"
 PMC_CLAUDE="$LIB/../CLAUDE.md"
@@ -52189,16 +52640,11 @@ needle = name + " " + chr(34)
 calls = sum(1 for line in open(path, encoding="utf-8", errors="replace") if needle in line)
 print("yes" if calls >= 5 else "no: %d" % calls)' "$PM_FN_NAME" "$PM_RUN_SH")"
 
-# The helper's behavioral boundary carries the issue's T1–T18 fixture matrix. Run it from
-# the suite rather than relying on a standalone developer command, then run the helper itself
-# over the real checkout so a stale committed mirror turns this required gate RED.
-if PMC_TEST_OUT="$(python3 "$PMC_TEST" 2>&1)"; then
-  echo PASS >> "$RESULTS_FILE"
-  printf '  PASS  #551 prompt-mass census behavioral fixtures (T1–T18)\n'
-else
-  echo FAIL >> "$RESULTS_FILE"
-  printf '  FAIL  #551 prompt-mass census behavioral fixtures (T1–T18)\n%s\n' "$PMC_TEST_OUT"
-fi
+# The helper's behavioral boundary carries the issue's T1–T18 fixture matrix. That suite
+# (test_prompt_mass_census.py, referenced by $PMC_TEST) now runs inside the issue #720
+# concurrent pool opened far above — its former standalone driver here is deleted, its
+# verdict reaches RESULTS_FILE through the pool tally. The helper itself is still run over
+# the real checkout here so a stale committed mirror turns this required gate RED.
 if PMC_REAL_OUT="$("$PMC" 2>&1)"; then
   echo PASS >> "$RESULTS_FILE"
   printf '  PASS  #551 prompt-mass census exact mirror over the real tree\n'
@@ -52265,6 +52711,35 @@ assert_pin_unique "#551 gate states the keep-both mechanical residual" \
 assert_eq "#551 gated criterion adds no fenced command" "0" \
   "$(grep -c '^```' "$LIB/../skills/review/phases/phase-4-1-8-prose-cutover.md" 2>/dev/null)"
 
+# issue #720: join the concurrent Python-suite pool BEFORE the RESULTS_FILE tally is
+# counted, so every pooled verdict is folded into the grep -c derivations below, covered
+# by the fail-closed derivability guards, and counted like every other verdict. This is
+# the pool's sole join point; it restores the caller's signal traps and installs no EXIT
+# trap (the single `trap _suite_cleanup EXIT` above stays the only EXIT handler).
+devflow_pool_join
+
+# issue #720: assert test_python_scripts.py's contribution to RESULTS_FILE equals the
+# assertion count it reports on its own `N passed, M failed` summary line — parsed
+# POSITIONALLY from that line (field 1 = passed, field 3 = failed), never a checked-in
+# total, so a uniformly-dropped verdict is caught even though the width-1/width-N
+# equality would agree. The self-tally line count and summary were captured at reap.
+_PS_LINES="${_DEVFLOW_POOL_SELFTALLY_LINES[test_python_scripts.py]:-}"
+_PS_SUMMARY="${_DEVFLOW_POOL_SELFTALLY_SUMMARY[test_python_scripts.py]:-}"
+if [ -n "$_PS_SUMMARY" ]; then
+  # Positional parse with bash word-splitting (not awk — a value feeding an assertion,
+  # kept off non-preflight PATH tools per guard-class 2): "N passed, M failed".
+  # shellcheck disable=SC2086
+  set -- $_PS_SUMMARY
+  _PS_TOTAL=$(( ${1:-0} + ${3:-0} ))
+  assert_eq "#720 test_python_scripts.py: RESULTS_FILE contribution equals its summary passed+failed" \
+    "$_PS_TOTAL" "${_PS_LINES:-unestablished}"
+else
+  # Summary not captured (e.g. a rendezvous-retry emptied the captured output): record
+  # a FAIL rather than silently skipping the coverage check.
+  echo FAIL >> "$RESULTS_FILE"
+  printf '  FAIL  #720 test_python_scripts.py: could not capture its summary line to verify RESULTS_FILE contribution\n' >&2
+fi
+
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
 # SKIP tally (issue #456): derived with `grep -c` over SKIPS_FILE, the same mechanism as
@@ -52286,11 +52761,12 @@ if ! devflow_tally_is_derivable "$SKIP"; then
   exit 1
 fi
 # PASS and FAIL take the SAME fail-closed guard (#456 round 3): each is a `grep -c` derivation
-# with the same rc>=2 empty-value failure shape. Without the guard an emptied PASS is silently
-# laundered back into a number by the python-tally arithmetic below (`$((PASS + PY_PASS))`
-# evaluates an empty variable as 0), rendering a confident under-count; an emptied FAIL on the
-# python-green path aborts at the exit predicate with a bare `[: -eq` error that names nothing.
-# Unknown is not zero for ANY of the three tallies — refuse loudly, up front.
+# with the same rc>=2 empty-value failure shape. Without the guard an emptied PASS or FAIL is
+# silently coerced to 0 by later arithmetic — the final FAIL-equals-zero exit predicate would
+# abort with a bare `[: -eq` error that names nothing, and a summary over an emptied PASS would
+# render a confident under-count. Unknown is not zero for ANY of the three tallies — refuse
+# loudly, up front. (issue #720 retired the out-of-band `$((PASS + PY_PASS))` python-tally
+# arithmetic this comment once named; test_python_scripts.py now folds through RESULTS_FILE.)
 if ! devflow_tally_is_derivable "$PASS"; then
   printf 'ERROR: PASS tally underivable from %s (grep error, not an empty log) — refusing to render a summary over it\n' "$RESULTS_FILE"
   exit 1
@@ -52304,20 +52780,12 @@ if ! FAIL="$(devflow_fold_module_failures "$FAIL")"; then
   exit 1
 fi
 
-# ────────────────────────────────────────────────────────────────────────────
-echo "python scripts (workpad._apply_mutations, parse_acs._is_post_merge)"
-PY_OUT="$(python3 "$(dirname "$0")/test_python_scripts.py" 2>&1)"
-PY_RC=$?
-PY_SUMMARY="$(echo "$PY_OUT" | awk '/passed,/ { p=$1; f=$3 } END { print p" "f }')"
-PY_PASS="$(echo "$PY_SUMMARY" | awk '{ print $1 }')"
-PY_FAIL="$(echo "$PY_SUMMARY" | awk '{ print $2 }')"
-[ -n "$PY_PASS" ] && PASS=$((PASS + PY_PASS))
-if [ "$PY_RC" -eq 0 ] && [ -n "$PY_PASS" ]; then
-  printf '  PASS  %s python assertions\n' "$PY_PASS"
-else
-  FAIL=$((FAIL + ${PY_FAIL:-1}))
-  echo "$PY_OUT" | sed 's/^/    /'
-fi
+# issue #720: test_python_scripts.py's former standalone driver — a `python3` run whose
+# `N passed, M failed` summary was parsed with awk and added to PASS/FAIL out of band,
+# bypassing RESULTS_FILE and the fail-closed derivability guards — is DELETED. That suite
+# now runs inside the concurrent pool (self-tally mode), appending one PASS/FAIL line per
+# assertion to its private tally, which is folded into RESULTS_FILE at the join above and
+# counted by the grep -c derivations like every other verdict.
 
 # ────────────────────────────────────────────────────────────────────────────
 echo

@@ -1040,7 +1040,7 @@ class ModuleRunnerTests(unittest.TestCase):
             ],
         )
         self.assertIn('FAIL="$(devflow_fold_module_failures "$FAIL")"', run_text)
-        self.assertIn('python3 "$LIB/test/test_module_runner.py"', run_text)
+        self.assertIn('"$LIB/test/test_module_runner.py" single-verdict', run_text)
         self.assertNotIn('IFR_MANIFEST="$LIB/../scripts/capture-workflow-manifest.py"', run_text)
         module_text = module.read_text(encoding="utf-8")
         self.assertTrue(
@@ -1049,7 +1049,7 @@ class ModuleRunnerTests(unittest.TestCase):
                 "# SPDX-License-Identifier: MIT\n"
             )
         )
-        self.assertNotIn('python3 "$LIB/test/test_module_runner.py"', module_text)
+        self.assertNotIn('"$LIB/test/test_module_runner.py" single-verdict', module_text)
         self.assertIn(
             'IFR_MANIFEST="$LIB/../scripts/capture-workflow-manifest.py"',
             module_text,
@@ -1147,7 +1147,7 @@ class ModuleRunnerTests(unittest.TestCase):
         )
         self.assertIsNotNone(floor_match)
         self.assertEqual(int(floor_match.group(1)), floor)
-        self.assertIn('python3 "$LIB/test/test_module_runner.py"', run_text)
+        self.assertIn('"$LIB/test/test_module_runner.py" single-verdict', run_text)
 
         module_text = REVIEW_AND_FIX_MODULE_SOURCE.read_text(encoding="utf-8")
         self.assertTrue(
@@ -1157,7 +1157,7 @@ class ModuleRunnerTests(unittest.TestCase):
             )
         )
         self.assertIn("Contract: the caller sets LIB and RESULTS_FILE", module_text)
-        self.assertNotIn('python3 "$LIB/test/test_module_runner.py"', module_text)
+        self.assertNotIn('"$LIB/test/test_module_runner.py" single-verdict', module_text)
         self.assertNotIn("devflow_run_full_suite_module", module_text)
         self.assertIn("review-and-fix-contract.inventory.md", module_text)
         self.assertIn(
@@ -1191,7 +1191,7 @@ class ModuleRunnerTests(unittest.TestCase):
         )
         self.assertIsNotNone(floor_match)
         self.assertEqual(int(floor_match.group(1)), floor)
-        self.assertIn('python3 "$LIB/test/test_module_runner.py"', run_text)
+        self.assertIn('"$LIB/test/test_module_runner.py" single-verdict', run_text)
 
         module_text = CREATE_ISSUE_MODULE_SOURCE.read_text(encoding="utf-8")
         self.assertTrue(
@@ -1447,6 +1447,55 @@ class ModuleRunnerTests(unittest.TestCase):
             self.assertIn(
                 f"Module create-issue-contract: {floor} passed, 0 failed",
                 result.stdout,
+            )
+            self.assertTrue(list(Path(log_dir).iterdir()))
+
+    def test_harness_python_guards_module_runs_green_through_the_real_runner(self) -> None:
+        """Issue #719: the harness-python-guards module — added by #710 — is driven
+        through its OWN runner (run-module.sh), the very assertion issue #695 exists to
+        make, which #710 never added. The floor is read from the registry and compared
+        for EQUALITY, so the test carries no second copy of the floor value: the registry
+        entry, the module's emitted tally, and the run.sh call-site floor are one coupled
+        triple, reconciled together."""
+        registry = json.loads(
+            (ROOT / "scripts/workflow-flight-recorder-registry.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        floor = registry["test_modules"]["harness-python-guards"][
+            "minimum_assertions"
+        ]
+        environment = os.environ.copy()
+        environment.pop("DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE", None)
+        with tempfile.TemporaryDirectory() as log_dir:
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(RUNNER_SOURCE),
+                    "--log-dir",
+                    log_dir,
+                    "harness-python-guards",
+                ],
+                cwd=ROOT,
+                env=environment,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(
+                result.returncode,
+                0,
+                result.stdout[-4000:] + result.stderr[-4000:],
+            )
+            # Membership in the LINE list, not a substring of the whole stdout: a bare substring
+            # match would also accept a summary line that grew a trailing clause (a skip tally,
+            # say — a skipped assertion is never a clean pass, issue #456), so this pins the
+            # runner's exact summary format. The floor is still read from the registry, so the
+            # coupled triple keeps its single source of truth.
+            self.assertIn(
+                f"Module harness-python-guards: {floor} passed, 0 failed",
+                result.stdout.splitlines(),
             )
             self.assertTrue(list(Path(log_dir).iterdir()))
 
@@ -1804,6 +1853,172 @@ class ModuleRunnerTests(unittest.TestCase):
         # Same outcome: the full-suite boundary's tally carries the mutation's FAIL,
         # exactly as the focused runner reported it non-zero above.
         self.assertIn("FAIL", boundary_verdicts, full_suite.stdout + full_suite.stderr)
+
+
+# ── issue #720: bounded concurrent Python-suite pool membership completeness ──
+# Every lib/test/test_*.py on disk is classified into exactly one of three named
+# categories. A file that appears in none (a new suite nobody routed) or in more
+# than one is a defect this cross-check turns RED — so the pool's membership list
+# and the serial/module-driven exclusions can never silently drift from the files.
+POOLED_SUITES = (
+    "test_module_runner.py",
+    "test_prompt_mass_census.py",
+    "test_python_scripts.py",
+)
+SERIAL_BY_EXCLUSION_SUITES = ("test_module_harness.py",)
+MODULE_DRIVEN_SUITES = (
+    "test_render_audit_prompt.py",
+    "test_verification_baseline.py",
+    "test_verification_flight.py",
+    "test_reception_identity.py",
+    "test_coverage_map_guard.py",
+    "test_workflow_flight_recorder.py",
+    "test_workflow_analyzer.py",
+)
+
+
+def discover_test_suites(test_dir):
+    """Return the sorted test_*.py basenames directly in test_dir (issue #720).
+
+    Takes a directory argument so the completeness cross-check can be pointed at a
+    scratch root in tests — the planted-defect fixture never lands in lib/test/.
+    Single-level glob rooted at the given directory, never a repository-root walk.
+    """
+    return sorted(path.name for path in Path(test_dir).glob("test_*.py"))
+
+
+def classify_test_suites(
+    test_dir,
+    pooled=POOLED_SUITES,
+    serial=SERIAL_BY_EXCLUSION_SUITES,
+    module_driven=MODULE_DRIVEN_SUITES,
+):
+    """Cross-check discovery in test_dir against the three named categories.
+
+    Returns a list of human-readable violations (empty when every discovered file
+    is in exactly one category and every classified file exists on disk).
+    """
+    classified = list(pooled) + list(serial) + list(module_driven)
+    violations = []
+    counts = {}
+    for name in classified:
+        counts[name] = counts.get(name, 0) + 1
+    for name in sorted(counts):
+        if counts[name] > 1:
+            violations.append(f"{name}: appears in more than one category")
+    discovered = set(discover_test_suites(test_dir))
+    classified_set = set(classified)
+    for name in sorted(discovered - classified_set):
+        violations.append(f"{name}: on disk but in none of the three categories")
+    for name in sorted(classified_set - discovered):
+        violations.append(f"{name}: classified but not found on disk in {test_dir}")
+    return violations
+
+
+class PoolMembershipCompletenessTests(unittest.TestCase):
+    def test_every_test_py_on_disk_is_classified_exactly_once(self) -> None:
+        violations = classify_test_suites(ROOT / "lib/test")
+        self.assertEqual(violations, [], violations)
+
+    def test_the_three_membership_lists_are_pairwise_disjoint(self) -> None:
+        pooled = set(POOLED_SUITES)
+        serial = set(SERIAL_BY_EXCLUSION_SUITES)
+        module_driven = set(MODULE_DRIVEN_SUITES)
+        self.assertEqual(pooled & serial, set())
+        self.assertEqual(pooled & module_driven, set())
+        self.assertEqual(serial & module_driven, set())
+        # The pool opens exactly these three — the membership list by construction.
+        self.assertEqual(
+            pooled,
+            {
+                "test_module_runner.py",
+                "test_prompt_mass_census.py",
+                "test_python_scripts.py",
+            },
+        )
+
+    def test_a_planted_unclassified_suite_is_caught(self) -> None:
+        # Positive control for the completeness claim: a throwaway test_*.py created
+        # under a scratch directory the discovery function is pointed at (never inside
+        # lib/test/) must be reported unclassified, proving the cross-check would fail
+        # RED on a newly-added suite nobody routed into a category.
+        with tempfile.TemporaryDirectory() as scratch:
+            for name in (
+                POOLED_SUITES + SERIAL_BY_EXCLUSION_SUITES + MODULE_DRIVEN_SUITES
+            ):
+                (Path(scratch) / name).write_text("", encoding="utf-8")
+            (Path(scratch) / "test_planted_zzz.py").write_text("", encoding="utf-8")
+            violations = classify_test_suites(scratch)
+            self.assertTrue(
+                any("test_planted_zzz.py" in v for v in violations), violations
+            )
+
+    def test_module_harness_installs_no_exit_trap(self) -> None:
+        # issue #720: the pool lives in lib/test/module-harness.sh, so run.sh's
+        # single-EXIT-trap scan (which reads run.sh source only) cannot see a
+        # `trap … EXIT` added inside a pool function — and the runtime pool-trap
+        # assertion in run.sh deliberately cannot inspect EXIT (bash resets a
+        # subshell's inherited EXIT trap on entry). Scan module-harness.sh's own
+        # source for any EXIT-trap installer so a future `trap _pool_cleanup EXIT`
+        # inside the pool, which would silently displace run.sh's _suite_cleanup at
+        # runtime, is caught structurally. Strip+comment-skip mirrors the run.sh scan.
+        harness_text = HARNESS_SOURCE.read_text(encoding="utf-8")
+        exit_traps = [
+            stripped
+            for stripped in (line.strip() for line in harness_text.splitlines())
+            if not stripped.startswith("#")
+            and re.match(r"^trap\s+\S.*\sEXIT$", stripped)
+        ]
+        self.assertEqual(exit_traps, [], f"module-harness.sh installs an EXIT trap: {exit_traps}")
+
+    def test_pool_registers_live_child_before_clearing_launch_guard(self) -> None:
+        # issue #720 launch-window race: in _devflow_pool_launch_suite the pooled child
+        # must be entered into the run-wide live-child registry BEFORE the launch-window
+        # guard (_DEVFLOW_POOL_LAUNCHING) is cleared, mirroring
+        # devflow_run_full_suite_module's register-before-unguard ordering. If the clear
+        # precedes the registration, a HUP/INT/TERM delivered in that window sees both
+        # launch guards at 0 and the just-forked pid still absent from the registry, so the
+        # signal handler terminates the other children and exits while this child is left
+        # running orphaned against the checkout. This structurally pins the fixed ordering
+        # so a re-inversion goes RED at the desk (the dedicated SIGINT test cannot hit the
+        # narrow window deterministically).
+        harness_text = HARNESS_SOURCE.read_text(encoding="utf-8")
+        match = re.search(
+            r"^_devflow_pool_launch_suite\(\) \{(.*?)^\}",
+            harness_text,
+            re.DOTALL | re.MULTILINE,
+        )
+        self.assertIsNotNone(
+            match, "could not locate _devflow_pool_launch_suite in module-harness.sh"
+        )
+        body = match.group(1)
+        register_at = body.find("_devflow_register_live_child")
+        clear_at = body.find("_DEVFLOW_POOL_LAUNCHING=0")
+        self.assertNotEqual(
+            register_at, -1, "register call missing from _devflow_pool_launch_suite"
+        )
+        self.assertNotEqual(
+            clear_at, -1, "launch-guard clear missing from _devflow_pool_launch_suite"
+        )
+        self.assertLess(
+            register_at,
+            clear_at,
+            "_devflow_pool_launch_suite clears _DEVFLOW_POOL_LAUNCHING before registering "
+            "the live child — reopens the issue #720 launch-window orphan race",
+        )
+
+    def test_the_pool_is_invoked_only_from_run_sh(self) -> None:
+        # The pool driver lives in module-harness.sh but is opened only by the full
+        # suite: run-module.sh (the focused module runner) must never call it, and its
+        # module-self-skip refusal stays intact.
+        run_module_text = RUNNER_SOURCE.read_text(encoding="utf-8")
+        self.assertNotIn("devflow_pool_open", run_module_text)
+        self.assertIn(
+            "modules may not self-skip (module contract)", run_module_text
+        )
+        run_text = (ROOT / "lib/test/run.sh").read_text(encoding="utf-8")
+        self.assertIn("devflow_pool_open", run_text)
+        self.assertIn("devflow_pool_join", run_text)
 
 
 if __name__ == "__main__":

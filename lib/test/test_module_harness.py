@@ -979,6 +979,108 @@ class SignalCleanupMatrixTests(unittest.TestCase):
                     os.waitpid(child_pid, 0)
                 os.close(master_fd)
 
+    def test_sigint_terminates_every_pooled_child(self) -> None:
+        # issue #720: a SIGINT delivered to the suite's foreground process group must
+        # terminate EVERY pooled python3 child — each launched into its own supervisor
+        # process group — leaving nothing running against the checkout. This exercises
+        # the generalized run-wide live-child registry: the single scalar module_pid
+        # slot could terminate one group, so with three pooled children a single-slot
+        # handler would orphan two. The handler forwards to every registered child.
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            fixtures = root / "fix"
+            ready = root / "ready"
+            controlled_tmp = root / "tmp"
+            for directory in (fixtures, ready, controlled_tmp):
+                directory.mkdir()
+            sleeper = fixtures / "sleeper.py"
+            sleeper.write_text(
+                "import os, time\n"
+                f'open(os.path.join(r"{ready}", str(os.getpid())), "w").close()\n'
+                "time.sleep(60)\n",
+                encoding="utf-8",
+            )
+            driver = root / "pool-driver.sh"
+            driver.write_text(
+                "#!/usr/bin/env bash\n"
+                "set -u\n"
+                f'RESULTS_FILE="{root / "results"}"\n'
+                f'MODULE_FAILURES_FILE="{root / "failures"}"\n'
+                f'SKIPS_FILE="{root / "skips"}"\n'
+                '> "$RESULTS_FILE"; > "$MODULE_FAILURES_FILE"; > "$SKIPS_FILE"\n'
+                'assert_eq() { if [ "$2" = "$3" ]; then printf "PASS\\n" >> "$RESULTS_FILE"; '
+                'else printf "FAIL\\n" >> "$RESULTS_FILE"; fi; }\n'
+                f'. "{HARNESS}"\n'
+                "DEVFLOW_POOL_WIDTH=3 devflow_pool_open \\\n"
+                f'  s1 "{sleeper}" single-verdict \\\n'
+                f'  s2 "{sleeper}" single-verdict \\\n'
+                f'  s3 "{sleeper}" single-verdict\n'
+                "devflow_pool_join\n",
+                encoding="utf-8",
+            )
+            environment = os.environ.copy()
+            environment["TMPDIR"] = str(controlled_tmp)
+            process = subprocess.Popen(
+                ["bash", str(driver)],
+                cwd=root,
+                env=environment,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                start_new_session=True,
+            )
+            try:
+                deadline = time.monotonic() + 15
+                while time.monotonic() < deadline:
+                    if len(list(ready.iterdir())) >= 3 or process.poll() is not None:
+                        break
+                    time.sleep(0.05)
+                child_pids = sorted(
+                    int(path.name) for path in ready.iterdir() if path.name.isdigit()
+                )
+                self.assertEqual(
+                    len(child_pids),
+                    3,
+                    f"pooled children did not all start; pids={child_pids}, "
+                    f"rc={process.poll()}",
+                )
+                for pid in child_pids:
+                    self.assertTrue(
+                        self._pid_exists(pid), f"child {pid} not running pre-signal"
+                    )
+                # Deliver SIGINT to the driver's foreground process group. The pooled
+                # children sit in SEPARATE supervisor groups, so only the driver's
+                # handler forwarding can reach them — which is the property under test.
+                os.killpg(process.pid, signal.SIGINT)
+                stdout, stderr = process.communicate(timeout=30)
+                self.assertNotEqual(
+                    process.returncode,
+                    0,
+                    f"stdout={stdout[-2000:]}\nstderr={stderr[-2000:]}",
+                )
+                grace = time.monotonic() + 8
+                while time.monotonic() < grace and any(
+                    self._pid_exists(pid) for pid in child_pids
+                ):
+                    time.sleep(0.05)
+                survivors = [pid for pid in child_pids if self._pid_exists(pid)]
+                self.assertEqual(
+                    survivors, [], f"pooled children survived SIGINT: {survivors}"
+                )
+            finally:
+                if process.poll() is None:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    process.communicate(timeout=3)
+                for path in ready.iterdir():
+                    if path.name.isdigit():
+                        try:
+                            os.kill(int(path.name), signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+
     def test_full_suite_cleanup_failures_record_boundary_failure(self) -> None:
         for target, pattern in (
             ("scratch", "*devflow-module-scratch.*"),
