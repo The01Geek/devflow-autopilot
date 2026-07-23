@@ -247,7 +247,13 @@ selectable module, complete all of the following in the same PR:
    rather than an omission (`harness-python-guards.inventory.md` is the model).
 5. **CI shellcheck list** — add the module's `.sh` path to the explicit
    shellcheck file list in `.github/workflows/ci.yml` (module files are not
-   globbed there).
+   globbed there; the glob excludes `lib/test/` because that tree carries
+   deliberately-malformed fixtures). This is enforced:
+   `lib/test/lint-carveout-guard.py`, driven from the suite, turns the run RED
+   and names the path when a tracked `lib/test/**/*.sh` file is neither in the
+   set `ci.yml` actually lints nor under the one exempt prefix
+   `lib/test/fixtures/` (issue #745). Put the new file on one side or the other
+   — there is no third option.
 6. **Coverage-map ownership** — update `lib/test/modules/coverage-map.json` so
    each `lib/`/`scripts/` depth-1 unit the module now owns names it as `owner`
    (the coverage ratchet, `lib/test/coverage_map_guard.py`, fails the suite RED
