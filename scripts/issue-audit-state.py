@@ -311,6 +311,32 @@ _COVERAGE_RENDERS = ('full', 'degraded')
 # The run-level coverage-backing tokens the derivation reports and the summary renders.
 _COVERAGE_BACKINGS = ('backed', 'not-backed', 'unestablished')
 
+# ── Advisory/invalid per-finding adjudication records + calibration (issue #743) ─────
+# The closed impact-class set every advisory/invalid per-finding record tags itself with.
+# The first four are IMPACT-BEARING — an advisory grade on a finding bearing on any of them
+# is convergence-safe only with recorded evidence (the Stage-3 calibration layer). The
+# fifth, `clearly-optional`, is the recorded complement: a genuinely-optional improvement
+# that stays on the existing non-blocking path and adds no user question on a clean run.
+_IMPACT_BEARING_CLASSES = ('implementation-correctness', 'scope', 'safety', 'verifiability')
+_IMPACT_OPTIONAL = 'clearly-optional'
+_IMPACT_CLASSES = _IMPACT_BEARING_CLASSES + (_IMPACT_OPTIONAL,)
+# The per-finding record classes record-adjudication ingests beside the must-revise ledger.
+_ADJUDICATION_RECORD_CLASSES = ('advisory', 'invalid')
+# The reported-observation states of the Step-4 pre-approval rendering. The tool cannot
+# observe chat, so the run REPORTS whether it rendered the records to the user (the
+# `--write-landed` reported-observation pattern). `unreported` is the honest default until
+# the run reports the rendering; the summary and the calibration trigger surface an
+# unreported rendering rather than letting it pass silently. This self-attestation residual
+# is named in docs/advisory-adjudication-calibration.md.
+_ADJUDICATION_RENDER_STATES = ('reported', 'unreported')
+# The run-level calibration-backing tokens the derivation reports and the summary renders.
+# `clear` — every impact-bearing advisory record carries recorded evidence (or there are no
+# impact-bearing advisory records); `under-evidenced` — at least one impact-bearing advisory
+# record carries no evidence; `unestablished` — no adjudicated round with records to derive
+# from. Calibration NEVER gates eligibility/emit-body (filing is never blocked on any arm):
+# its only teeth are disclosure, the summary surface, and the never-blocking boundary offer.
+_CALIBRATION_BACKINGS = ('clear', 'under-evidenced', 'unestablished')
+
 # Every `key=` token this tool's queries and mutations PRINT. Ledger summaries and
 # invalidation reasons are refused when they contain a word of the form `<token>=` drawn
 # from this set: ledger text is identity data, never instruction and NEVER protocol, so
@@ -342,6 +368,13 @@ _PROTOCOL_TOKENS = (
     'summary', 'superseded', 't1', 't2', 'tier', 'token',
     'unledgered_revise', 'unresolved',
     'unresolved_must_revise', 'user_declined', 'user_rounds_used', 'verdict',
+    # issue #743: tokens the advisory/invalid record read-back, the calibration query, and
+    # the render report emit. Widening the vocabulary keeps auditor-derived summaries and
+    # rationales unable to forge any of these fields of the tool's own printed surface.
+    'adjudication_render', 'auditor_block', 'calibration', 'calibration_backing',
+    'calibration_trigger',
+    'evidence_state', 'impact_bearing', 'impact_class', 'landed', 'rationale',
+    'record_class', 'records', 'unevidenced',
 )
 
 
@@ -1530,6 +1563,84 @@ def _validate_coverage(rnd, num):
                          f'coverage list is never read as backed')
 
 
+def _validate_adjudication_records(rnd, num):
+    """Re-enforce the advisory/invalid per-finding record invariants at the READ boundary
+    (issue #743).
+
+    Absent is legal (a round records no advisory/invalid grades, and EVERY pre-change round
+    records none — the decided pre-change-state arm) — present-but-wrong-shape is corrupt, the
+    same additive-optional pattern the per-finding ledger and coverage follow. Every violation
+    raises StateError, collapsing the whole file to unestablished (the fail-closed
+    environmental class), so a hand-corrupted record can never reach the read-back, the
+    calibration derivation, or the summary as if established.
+    """
+    render = rnd.get('adjudication_render')
+    if render is not None and render not in _ADJUDICATION_RENDER_STATES:
+        raise StateError(f'round {num} names an adjudication_render outside the canonical '
+                         f'set: {render!r}')
+    for cls in _ADJUDICATION_RECORD_CLASSES:
+        records = rnd.get(f'{cls}_records')
+        if records is None:
+            continue
+        if not isinstance(records, list):
+            raise StateError(f'round {num} {cls}_records {records!r} is not a list')
+        # Re-assert the record-time count<->records totality at the READ boundary, exactly as
+        # `_validate_coverage` re-derives against `coverage_expected` (issue #743): ingestion
+        # enforces `len(records) == --<cls>` bidirectionally, but the count is stored on the
+        # round SEPARATELY from the records list, so a hand-deleted record would leave a
+        # shorter list beside a stale count and could launder `under-evidenced` into `clear`
+        # (a deleted impact-bearing unevidenced entry vanishes from the derivation). A round
+        # that carries records ALWAYS carries the settled count beside them: `cmd_record_
+        # adjudication` writes `<cls>_count` unconditionally and `<cls>_records` only when a
+        # file was supplied, and every pre-#743 round carries neither — so a present records
+        # list with an absent or non-int count is reachable only by the very corruption this
+        # boundary defends against (delete BOTH the record and its count). Fail closed on it
+        # rather than short-circuit past — a records list with no settled count is never read
+        # as calibration-clear. The calibration axis is disclosure-only, but this file's read
+        # boundary treats direct state corruption as in-scope.
+        count = rnd.get(f'{cls}_count')
+        if not (isinstance(count, int) and not isinstance(count, bool) and count >= 0):
+            raise StateError(f'round {num} {cls}_records is present but {cls}_count is '
+                             f'{count!r} (records-without-count); a records list with no '
+                             f'settled count is never read as calibration-clear')
+        if len(records) != count:
+            raise StateError(f'round {num} {cls}_records carries {len(records)} record(s) but '
+                             f'{cls}_count is {count} (records-count-mismatch); a truncated '
+                             f'records list is never read as calibration-clear')
+        seen_ids = set()
+        for pos, entry in enumerate(records, start=1):
+            if not isinstance(entry, dict):
+                raise StateError(f'round {num} {cls} record {pos} is not an object')
+            rid = entry.get('id')
+            if not isinstance(rid, int) or isinstance(rid, bool) or rid < 1:
+                raise StateError(f'round {num} {cls} record {pos} id {rid!r} is not a '
+                                 f'positive integer')
+            if rid in seen_ids:
+                raise StateError(f'round {num} {cls} record {pos} duplicates id {rid}')
+            seen_ids.add(rid)
+            for field in ('summary', 'rationale', 'auditor_block'):
+                val = entry.get(field)
+                if not isinstance(val, str) or not val.strip():
+                    raise StateError(f'round {num} {cls} record {pos} {field} is missing or '
+                                     f'not a non-empty string')
+            # summary/rationale are one-line identity data — a record-splitting byte would
+            # forge a LINE of the read-back surface. auditor_block is exempt: it is stored
+            # VERBATIM and JSON-encoded at the print boundary, so its newlines render as
+            # escaped bytes and cannot split a line.
+            for field in ('summary', 'rationale'):
+                if _record_splitting_char(entry[field]) is not None:
+                    raise StateError(f'round {num} {cls} record {pos} {field} carries a '
+                                     f'record-splitting byte')
+            if entry.get('impact_class') not in _IMPACT_CLASSES:
+                raise StateError(f'round {num} {cls} record {pos} names an impact_class '
+                                 f'outside the canonical set: {entry.get("impact_class")!r}')
+            ev = entry.get('evidence')
+            if ev is not None and (not isinstance(ev, str)
+                                   or _record_splitting_char(ev) is not None):
+                raise StateError(f'round {num} {cls} record {pos} evidence {ev!r} is not a '
+                                 f'one-line string')
+
+
 def _validate(doc, slug):
     """Validate a loaded document, or raise StateError naming the specific violation.
 
@@ -1745,6 +1856,10 @@ def _validate(doc, slug):
         # Per-dimension coverage (issue #708). The coverage derivation, the offer trigger,
         # and the summary line read these, so a hand-corrupted entry must fail closed HERE.
         _validate_coverage(rnd, num)
+        # Per-finding advisory/invalid records (issue #743). The read-back, the calibration
+        # derivation and trigger, and the summary line read these, so a hand-corrupted entry
+        # must fail closed HERE rather than reach those surfaces as if established.
+        _validate_adjudication_records(rnd, num)
     for ov in doc['overrides']:
         if not isinstance(ov, dict) or ov.get('kind') not in _OVERRIDE_KINDS:
             raise StateError('an override record names a kind outside the canonical set')
@@ -2260,11 +2375,12 @@ def evaluate_triggers(state):
     would otherwise withhold the clean ground with no user-facing offer).
     """
     if state is None:
-        return {'t1': False, 't2': True, 'coverage': False,
+        return {'t1': False, 't2': True, 'coverage': False, 'calibration': False,
                 'reason': 'state-unestablished'}
     last = last_completed(state)
     if last is None:
-        return {'t1': False, 't2': False, 'coverage': False, 'reason': None}
+        return {'t1': False, 't2': False, 'coverage': False, 'calibration': False,
+                'reason': None}
     u = _unresolved_int(last)
     # issue #603: T1's comparand is the RUN-WIDE EFFECTIVE count, so a round whose ledger
     # entries the drafter verified fixed (or retired as invalid, or that a FILE re-audit
@@ -2307,8 +2423,11 @@ def evaluate_triggers(state):
         # proceeds to presentation with the state disclosed.
         t2 = True
         reason = 'steering-unestablished'
+    # issue #743: the calibration disclosure trigger is a never-blocking sibling of T1/T2 and
+    # coverage on the SAME boundary offer, so it rides this one evaluation rather than a
+    # second call the printer concatenates (the one-producer discipline).
     return {'t1': t1, 't2': t2, 'coverage': evaluate_coverage_trigger(state),
-            'reason': reason}
+            'calibration': evaluate_calibration_trigger(state), 'reason': reason}
 
 
 def evaluate_convergence(state):
@@ -2429,6 +2548,91 @@ def evaluate_coverage_trigger(state):
     """
     cov = evaluate_coverage(state)
     return cov['backing'] == 'not-backed' and cov['render'] == 'full'
+
+
+def _calibration_round(state):
+    """The round the calibration axis derives from: the latest completed adjudicated round.
+
+    Advisory/invalid records are the LATEST completed round's, exactly as the #548 summary
+    reads the adjudicated verdict from `last_completed`: a run's calibration is the state of
+    its final adjudication, not a cumulative roll-up, so a resolved earlier round does not
+    keep a run under-evidenced.
+    """
+    if state is None:
+        return None
+    last = last_completed(state)
+    if last is None or last.get('adjudicated_verdict') is None:
+        return None
+    return last
+
+
+def evaluate_calibration(state):
+    """The run's advisory-adjudication calibration, from the final adjudicated round (#743).
+
+    Returns `{'backing', 'render', 'unevidenced', 'round', 'reason'}`:
+      - `backing` in `_CALIBRATION_BACKINGS`. `under-evidenced` when the final adjudicated
+        round carries at least one IMPACT-BEARING advisory record with no recorded evidence;
+        `clear` when it carries advisory/invalid records and every impact-bearing advisory
+        record is evidenced; `unestablished` when there is no adjudicated round, or that round
+        carries no advisory/invalid records at all (unknown is never collapsed onto clear).
+      - `render` — the round's reported-observation render state (`reported`/`unreported`), or
+        `none` when there is no calibration round.
+      - `unevidenced` — the sorted ids of the impact-bearing advisory records with no evidence.
+
+    A DISTINCT axis from convergence and coverage: it never redefines evaluate_convergence and
+    never gates emit-body/query-eligibility. Its only teeth are the calibration offer trigger,
+    the disclosure surface, and the summary — filing is never blocked on any arm.
+
+    Scoped to the FINAL adjudicated round by design (mirroring the coverage/summary
+    `last_completed` scoping): a superseding later adjudication retires an earlier round's
+    calibration trigger, so an under-evidenced impact-bearing advisory from an earlier round no
+    longer fires the offer once a later round is adjudicated. This is a deliberate choice, not a
+    dropped signal — the earlier round's per-finding records stay readable via
+    `query-adjudication-records`; only the live disclosure trigger follows the latest round.
+    """
+    if state is None:
+        return {'backing': 'unestablished', 'render': 'none', 'unevidenced': [],
+                'round': None, 'reason': 'state-unestablished'}
+    rnd = _calibration_round(state)
+    if rnd is None:
+        return {'backing': 'unestablished', 'render': 'none', 'unevidenced': [],
+                'round': None, 'reason': 'no-adjudicated-round'}
+    advisory = rnd.get('advisory_records') or []
+    invalid = rnd.get('invalid_records') or []
+    if not advisory and not invalid:
+        # A round adjudicated with no advisory/invalid grades has nothing to calibrate.
+        return {'backing': 'unestablished', 'render': 'none', 'unevidenced': [],
+                'round': rnd, 'reason': 'no-records'}
+    unevidenced = sorted(
+        r['id'] for r in advisory
+        if r.get('impact_class') in _IMPACT_BEARING_CLASSES
+        and not (r.get('evidence') or '').strip())
+    backing = 'under-evidenced' if unevidenced else 'clear'
+    assert backing in _CALIBRATION_BACKINGS
+    return {'backing': backing, 'render': rnd.get('adjudication_render') or 'unreported',
+            'unevidenced': unevidenced, 'round': rnd, 'reason': None}
+
+
+def evaluate_calibration_trigger(state, cal=None):
+    """Whether the calibration disclosure offer trigger holds (issue #743).
+
+    A never-blocking sibling of T1/T2 and the coverage trigger, routed through the same offer
+    machinery and user-round cap. It fires when the run holds an impact-bearing advisory grade
+    with no recorded evidence (`backing == 'under-evidenced'`), OR when it holds advisory/invalid
+    records whose Step-4 rendering the run has not reported (`render != 'reported'`) — either is
+    a grade that would otherwise reach the approval election undisclosed. A run whose records
+    are all evidenced/optional AND reported rendered does not fire; a run with no records never
+    fires. Filing is never blocked by this trigger — its teeth are disclosure only.
+
+    `cal` may be a precomputed `evaluate_calibration(state)` result: the two callers that render
+    the backing/render fields beside the trigger (`summary_fields`, `cmd_query_calibration`)
+    pass the value they already hold, so the calibration derivation runs once, not twice.
+    """
+    if cal is None:
+        cal = evaluate_calibration(state)
+    if cal['backing'] == 'unestablished':
+        return False
+    return cal['backing'] == 'under-evidenced' or cal['render'] != 'reported'
 
 
 def issue_token(nonce, ground, key):
@@ -2921,6 +3125,10 @@ _SUMMARY_FIELDS = (
     # a backed clean run, an unbacked clean run, and every degraded arm alike. Both render
     # as space-free tokens BEFORE `bound_root`, keeping `attestation` the trailing field.
     'coverage_backing', 'coverage_render', 'coverage_reason',
+    # issue #743: the run's advisory-adjudication calibration backing, the render
+    # reported-observation state, and the never-blocking disclosure trigger. All render as
+    # space-free tokens BEFORE `attestation`, which stays the contractually-trailing field.
+    'calibration_backing', 'adjudication_render', 'calibration_trigger',
     # issue #709: the steering-absence establishment of the LATEST completed round and
     # the closed reason token behind it. Both render as space-free tokens BEFORE
     # `attestation`, which stays the contractually-trailing field.
@@ -2961,6 +3169,8 @@ def summary_fields(state, current_digest=None, digest_failed=False):
                         effective_unresolved=None, convergence_basis='none',
                         coverage_backing='unestablished', coverage_render='none',
                         coverage_reason='state-unestablished',
+                        calibration_backing='unestablished', adjudication_render='none',
+                        calibration_trigger=False,
                         steering='unestablished', steering_reason=None)
     done = completed_rounds(state)
     # Cumulative across every round this run: "how many things did the auditors
@@ -2978,6 +3188,9 @@ def summary_fields(state, current_digest=None, digest_failed=False):
     # issue #708: one coverage evaluation feeds both coverage summary fields, for the same
     # single-source reason.
     _coverage = evaluate_coverage(state)
+    # issue #743: one calibration evaluation feeds the backing + render summary fields and
+    # the trigger, for the same single-source reason.
+    _calibration = evaluate_calibration(state)
     # ONE read of the latest completed round's steering record feeds both summary
     # fields (issue #709): two independent three-way expressions could drift into
     # rendering a state and a reason that describe different things.
@@ -3076,6 +3289,13 @@ def summary_fields(state, current_digest=None, digest_failed=False):
         # WHICH unestablished arm — a clean round whose coverage step never ran is
         # otherwise byte-identical on this line to a run with no clean round yet.
         coverage_reason=_coverage.get('reason') or 'none',
+        # issue #743: the calibration backing, the render reported-observation state, and the
+        # never-blocking disclosure trigger — derived from the final adjudicated round. A
+        # distinct axis from convergence and coverage: this derivation never feeds
+        # `effective_unresolved`, the convergence basis, or coverage backing.
+        calibration_backing=_calibration['backing'],
+        adjudication_render=_calibration['render'],
+        calibration_trigger=evaluate_calibration_trigger(state, _calibration),
         # issue #709: the LATEST completed round's steering-absence establishment, read
         # from that round only — the property binds to the audited bytes, not to the run,
         # so a run-level roll-up would let a steered early round launder a later revision.
@@ -3767,6 +3987,32 @@ def cmd_record_adjudication(args):
               f'--ledger-stdin carrying {args.must_revise} status-prefixed finding '
               f'summaries (ledger-required); the ledger is the durable identity record '
               f'the post-close resolution channels name entries from')
+    # ── Per-finding advisory/invalid records (issue #743) ──────────────────────────
+    # The deterministic recording floor: a non-zero --advisory/--invalid count REQUIRES a
+    # matching per-finding records file (like --ledger-stdin's ledger-required floor), so the
+    # floor is total over post-change rounds. A zero count with no file records nothing,
+    # keeping the pre-#743 call shape byte-compatible for a round with no advisory/invalid
+    # grade. A records file supplied against a zero count is refused by the count arm inside
+    # the ingest helper. Both are resolved BEFORE any state write, so a refused call leaves
+    # the round still adjudicable.
+    adv_records = None
+    if getattr(args, 'advisory_records_file', None) is not None:
+        adv_records = _ingest_adjudication_records('advisory', args.advisory_records_file,
+                                                   args.advisory)
+    elif args.advisory > 0:
+        _fail('record-adjudication',
+              f'--advisory {args.advisory} requires --advisory-records-file supplying '
+              f'{args.advisory} per-finding record(s) (advisory-records-required); every '
+              f'advisory grade carries a durable per-finding record')
+    inv_records = None
+    if getattr(args, 'invalid_records_file', None) is not None:
+        inv_records = _ingest_adjudication_records('invalid', args.invalid_records_file,
+                                                   args.invalid)
+    elif args.invalid > 0:
+        _fail('record-adjudication',
+              f'--invalid {args.invalid} requires --invalid-records-file supplying '
+              f'{args.invalid} per-finding record(s) (invalid-records-required); every '
+              f'invalid grade carries a durable per-finding record')
     rnd['adjudicated_verdict'] = args.verdict
     rnd['must_revise_count'] = args.must_revise
     rnd['advisory_count'] = args.advisory
@@ -3774,6 +4020,16 @@ def cmd_record_adjudication(args):
     rnd['unresolved_must_revise'] = unresolved
     if ledger is not None:
         rnd['findings'] = ledger
+    # issue #743: the durable per-finding records, and the render observation seeded to its
+    # honest default. The run reports the Step-4 pre-approval rendering via
+    # record-adjudication-render; until it does, the summary and calibration surfaces read
+    # `unreported` rather than letting an unrendered grade pass silently.
+    if adv_records is not None:
+        rnd['advisory_records'] = adv_records
+    if inv_records is not None:
+        rnd['invalid_records'] = inv_records
+    if adv_records or inv_records:
+        rnd['adjudication_render'] = 'unreported'
     # ── FILE supersession (issue #603 AC21) ───────────────────────────────────────
     # An auditor-accepted clean round is the strongest terminal, exactly as before this
     # change: recording a FILE adjudication marks every PRIOR unresolved entry
@@ -3913,6 +4169,145 @@ def _ingest_ledger(must_revise, unresolved):
               f'adjudication names {unresolved} unresolved must-revise findings '
               f'(ledger-unresolved-count)')
     return ledger
+
+
+def _ingest_adjudication_records(cls, path, count):
+    """Read a class's per-finding advisory/invalid records from a JSON file, or fail closed.
+
+    The deterministic recording floor (issue #743): every advisory and invalid grade a run
+    records carries a durable per-finding record, so a self-grade is REVIEWABLE rather than
+    an integer no reader can re-examine. Deliberately a FILE, not stdin: record-adjudication
+    already reads stdin for `--ledger-stdin`, and a process has one stdin — the skill authors
+    the JSON with the Write tool (no shell quoting) exactly as it authors a `--reflection-file`
+    payload. Each record's orchestrator-authored fields (`summary`, `rationale`, `impact_class`,
+    optional `evidence`) follow the ledger refusal discipline; the auditor's returned finding
+    block is stored VERBATIM under the evidence cap (the record-finding-evidence discipline) and neutralized at the
+    print boundary, never reworded to satisfy a refusal — it is a comparand to preserve.
+
+    `cls` is the class token (`advisory`/`invalid`), used as the breadcrumb prefix so every
+    named refusal states which class detonated. Returns the list of records (each an object
+    the read boundary re-validates), or never returns on any degraded shape.
+    """
+    try:
+        raw = Path(path).read_bytes()
+    except OSError as exc:
+        _fail('record-adjudication',
+              f'could not read the {cls} records file {path!r} ({cls}-records-unreadable): '
+              f'{exc}')
+    try:
+        text = raw.decode('utf-8')
+    except UnicodeDecodeError as exc:
+        _fail('record-adjudication',
+              f'the {cls} records file is not valid UTF-8 ({cls}-records-undecodable): {exc}')
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        _fail('record-adjudication',
+              f'the {cls} records file is not valid JSON ({cls}-records-not-json): {exc}')
+    if not isinstance(parsed, list):
+        _fail('record-adjudication',
+              f'the {cls} records file is not a JSON array ({cls}-records-not-list); one '
+              f'object per {cls} finding is required')
+    if len(parsed) != count:
+        # BOTH directions in one arm: --<cls> N above the supplied record count and the
+        # converse over-supply are the same self-inconsistent shape — the count and the
+        # durable payload must agree exactly, or the floor is not total over the class.
+        _fail('record-adjudication',
+              f'--{cls} names {count} finding(s) but the {cls} records file supplies '
+              f'{len(parsed)} ({cls}-records-count); the per-class count and the per-finding '
+              f'records must agree exactly (neither over- nor under-supplied)')
+    records = []
+    for idx, item in enumerate(parsed, start=1):
+        if not isinstance(item, dict):
+            _fail('record-adjudication',
+                  f'{cls} record {idx} is not a JSON object ({cls}-record-not-object)')
+        # summary and rationale: orchestrator-authored one-line identity data.
+        entry = {'id': idx}
+        for field in ('summary', 'rationale'):
+            val = item.get(field)
+            if not isinstance(val, str) or not val.strip():
+                _fail('record-adjudication',
+                      f'{cls} record {idx} has an empty or non-string {field} '
+                      f'({cls}-empty-{field}); it is one line of identity data')
+            val = val.strip()
+            splitter = _record_splitting_char(val)
+            if splitter is not None:
+                _fail('record-adjudication',
+                      f'{cls} record {idx} {field} contains the record-splitting character '
+                      f'{splitter!r} ({cls}-{field}-control-char); reword it without the '
+                      f'embedded newline or carriage return and re-issue the call')
+            forged = _forged_protocol_token(val)
+            if forged is not None:
+                _fail('record-adjudication',
+                      f'{cls} record {idx} {field} contains the protocol token '
+                      f'{forged + "="!r} ({cls}-{field}-protocol-vocabulary); the field is '
+                      f'identity data, never protocol — reword it without the <field>= form')
+            entry[field] = val
+        # impact_class: a value from the closed set, with clearly-optional as the complement.
+        tag = item.get('impact_class')
+        if tag not in _IMPACT_CLASSES:
+            _fail('record-adjudication',
+                  f'{cls} record {idx} names an impact_class outside the canonical set '
+                  f'{_IMPACT_CLASSES} ({cls}-impact-class): {tag!r}')
+        entry['impact_class'] = tag
+        # evidence: OPTIONAL one-line orchestrator text. Absent/empty is legal — that is
+        # precisely the under-evidenced state the calibration layer surfaces; when PRESENT it
+        # follows the same one-line refusal discipline as summary/rationale.
+        ev = item.get('evidence')
+        if ev is not None:
+            if not isinstance(ev, str):
+                _fail('record-adjudication',
+                      f'{cls} record {idx} evidence is not a string ({cls}-evidence-type)')
+            ev = ev.strip()
+            if ev:
+                splitter = _record_splitting_char(ev)
+                if splitter is not None:
+                    _fail('record-adjudication',
+                          f'{cls} record {idx} evidence contains the record-splitting '
+                          f'character {splitter!r} ({cls}-evidence-control-char)')
+                forged = _forged_protocol_token(ev)
+                if forged is not None:
+                    _fail('record-adjudication',
+                          f'{cls} record {idx} evidence contains the protocol token '
+                          f'{forged + "="!r} ({cls}-evidence-protocol-vocabulary)')
+                entry['evidence'] = ev
+        # auditor_block: the auditor's complete returned finding block, byte-preserved (the
+        # comparand's extent is the auditor's, not a grader-selected excerpt). Stored VERBATIM
+        # under the evidence cap and neutralized at print — never reworded to satisfy a refusal.
+        block = item.get('auditor_block')
+        if not isinstance(block, str) or not block.strip():
+            _fail('record-adjudication',
+                  f'{cls} record {idx} has an empty or non-string auditor_block '
+                  f'({cls}-empty-auditor-block); the auditor-verbatim finding block is the '
+                  f'comparand every later review compares the grade against')
+        entry['auditor_block'] = _bound_evidence(block)
+        records.append(entry)
+    return records
+
+
+def cmd_record_adjudication_render(args):
+    """Record the run's observation that it rendered the round's advisory/invalid records to
+    the user before the approval election (issue #743, the `--write-landed` pattern).
+
+    The tool cannot observe chat, so this is a REPORTED observation, not a fact the tool
+    checks: `--landed yes` records `reported`, `--landed no` records `unreported`. An
+    unreported rendering is surfaced (never silently passed) through the calibration trigger
+    and the summary. Idempotent: re-reporting the same value is a legal replay.
+    """
+    doc = _load_for_mutation('record-adjudication-render', args.slug, args.nonce)
+    rnd = _find_round(doc, args.round)
+    if rnd is None:
+        _fail('record-adjudication-render', f'no round {args.round} recorded (no-such-round)')
+    if rnd.get('adjudicated_verdict') is None:
+        _fail('record-adjudication-render', f'round {args.round} is not adjudicated '
+                                            f'(not-adjudicated); the render is reported after '
+                                            f'adjudication records the findings to render')
+    if not (rnd.get('advisory_records') or rnd.get('invalid_records')):
+        _fail('record-adjudication-render', f'round {args.round} recorded no advisory or '
+                                            f'invalid records to render (no-records)')
+    rnd['adjudication_render'] = 'reported' if args.landed == 'yes' else 'unreported'
+    _save_or_fail('record-adjudication-render', doc, args.slug)
+    print(f'adjudication_render={rnd["adjudication_render"]} round={args.round}')
 
 
 def cmd_record_coverage(args):
@@ -5243,6 +5638,74 @@ def cmd_query_finding_evidence(args):
               f'conflict={",".join(others) if others else "none"} {fields}')
 
 
+def cmd_query_adjudication_records(args):
+    """Read back a round's advisory/invalid per-finding records (issue #743).
+
+    A query-class command: exit 0 once arguments parse. One decided line per record, every
+    auditor-controlled field JSON-encoded so an embedded newline in the auditor-verbatim block
+    renders as escaped bytes and cannot forge a LINE of this surface (the finding-evidence
+    print-boundary discipline this channel shares). The DECISION fields lead and are
+    structurally unforgeable — `record_class`, `round`, `id`, `impact_class`, `impact_bearing`,
+    `evidence_state` are each emitted ahead of every auditor-controlled value and drawn from a
+    closed domain; the trailing QUOTED fields carry auditor text, and `summary` trails last,
+    matching the query-findings line discipline. Read this line by its JSON quoting, never by
+    splitting on whitespace and taking the first `<field>=` hit.
+    """
+    state = _query_state(args.slug)
+    if state is not None and state['nonce'] != args.nonce:
+        print('records=none reason=foreign-nonce')
+        return
+    if state is None:
+        print('records=none reason=state-unestablished')
+        return
+    rnd = _find_round(state, args.round)
+    if rnd is None:
+        print('records=none reason=no-such-round')
+        return
+    classes = (_ADJUDICATION_RECORD_CLASSES if args.record_class is None
+               else (args.record_class,))
+    lines = []
+    for cls in classes:
+        for entry in rnd.get(f'{cls}_records') or []:
+            bearing = ('yes' if entry.get('impact_class') in _IMPACT_BEARING_CLASSES
+                       else 'no')
+            evstate = 'recorded' if (entry.get('evidence') or '').strip() else 'absent'
+            lines.append(
+                f'record_class={cls} round={args.round} id={entry["id"]} '
+                f'impact_class={entry.get("impact_class")} impact_bearing={bearing} '
+                f'evidence_state={evstate} '
+                f'auditor_block={json.dumps(entry.get("auditor_block", ""))} '
+                f'evidence={json.dumps(entry.get("evidence", ""))} '
+                f'rationale={json.dumps(entry.get("rationale", ""))} '
+                f'summary={json.dumps(entry.get("summary", ""))}')
+    if not lines:
+        print('records=none')
+        return
+    for line in lines:
+        print(line)
+
+
+def cmd_query_calibration(args):
+    """Read the run's calibration backing, render state, and trigger (issue #743).
+
+    `calibration_backing=<token> adjudication_render=<token> calibration_trigger=<yes|no>
+    unevidenced=<ids|none> reason=<token>` — the orchestrator reads these to decide the
+    never-blocking disclosure offer, exactly as it reads query-coverage for the coverage offer.
+    A query-class command: exit 0 once arguments parse.
+    """
+    state = _query_state(args.slug)
+    if state is not None and state['nonce'] != args.nonce:
+        print('calibration_backing=unestablished adjudication_render=none '
+              'calibration_trigger=no unevidenced=none reason=foreign-nonce')
+        return
+    cal = evaluate_calibration(state)
+    trig = 'yes' if evaluate_calibration_trigger(state, cal) else 'no'
+    ids = ','.join(str(i) for i in cal['unevidenced']) if cal['unevidenced'] else 'none'
+    print(f'calibration_backing={cal["backing"]} adjudication_render={cal["render"]} '
+          f'calibration_trigger={trig} unevidenced={ids} '
+          f'reason={cal.get("reason") or "none"}')
+
+
 def _nonneg_int(text):
     """argparse type: a non-negative integer.
 
@@ -5349,7 +5812,8 @@ def cmd_query_triggers(args):
         # valid, the caller is foreign — 'state-unestablished' would misattribute. The
         # coverage field stays present (not-hold) so the line shape is identical on every
         # arm and the orchestrator's hand-parse never sees a field appear/disappear.
-        print('t1=not-hold t2=hold coverage=not-hold reason=foreign-nonce')
+        print('t1=not-hold t2=hold coverage=not-hold calibration=not-hold '
+              'reason=foreign-nonce')
         return
     t = evaluate_triggers(state)
     reason = t['reason'] or ''
@@ -5358,9 +5822,12 @@ def cmd_query_triggers(args):
     # concatenated in the printer (the one-producer discipline #603 established for the
     # summary fields). `coverage=` renders BEFORE `reason=` so `reason` stays the trailing
     # field the orchestrator's parse already anchors on.
+    # issue #743: the calibration disclosure trigger renders BEFORE `reason=` (which stays
+    # the trailing field the orchestrator's parse anchors on), a sibling of `coverage=`.
     print(f't1={"hold" if t["t1"] else "not-hold"} '
           f't2={"hold" if t["t2"] else "not-hold"} '
-          f'coverage={"hold" if t["coverage"] else "not-hold"} reason={reason}')
+          f'coverage={"hold" if t["coverage"] else "not-hold"} '
+          f'calibration={"hold" if t["calibration"] else "not-hold"} reason={reason}')
 
 
 def _unledgered_revise(state):
@@ -5557,6 +6024,11 @@ def cmd_query_summary(args):
           f'coverage_backing={f["coverage_backing"]} '
           f'coverage_render={f["coverage_render"]} '
           f'coverage_reason={f["coverage_reason"]} '
+          # issue #743: the calibration axis — space-free tokens before bound_root, so
+          # attestation stays the trailing anchored field.
+          f'calibration_backing={f["calibration_backing"]} '
+          f'adjudication_render={f["adjudication_render"]} '
+          f'calibration_trigger={_yn(f["calibration_trigger"])} '
           f'bound_root={f["bound_root"] or "none"} bound_tier={f["bound_tier"] or "none"} '
           # issue #709: both steering tokens render HERE, before `attestation` — that
           # field is the contractually-trailing one (`attestation=…$`), so nothing may
@@ -5686,7 +6158,53 @@ def main():
                         'ledger. Flag-gated like --stdin-digest, so the tool never '
                         'performs a bare stdin read. A FILE verdict and a REVISE + '
                         "'unestablished' adjudication take no flag and record no ledger.")
+    s.add_argument('--advisory-records-file',
+                   help='Path to a JSON array of per-finding ADVISORY records (issue #743), '
+                        'required whenever --advisory > 0 (advisory-records-required) and '
+                        'refused against --advisory 0. Each object carries a one-line '
+                        '`summary`, a one-line `rationale`, an `impact_class` from '
+                        + repr(_IMPACT_CLASSES) + ', an optional one-line `evidence`, and the '
+                        "auditor's returned finding block byte-preserved up to the evidence "
+                        'cap in `auditor_block` (multi-line; a longer block is truncated with '
+                        'the truncation disclosed in the stored bytes). The count must match '
+                        '--advisory exactly.')
+    s.add_argument('--invalid-records-file',
+                   help='Path to a JSON array of per-finding INVALID records (issue #743), '
+                        'same shape and discipline as --advisory-records-file, required '
+                        'whenever --invalid > 0 (invalid-records-required).')
     s.set_defaults(func=cmd_record_adjudication)
+
+    s = sub.add_parser('record-adjudication-render',
+                       help='Report that the round\'s advisory/invalid records were rendered '
+                            'to the user before approval (issue #743, the --write-landed '
+                            'reported-observation pattern).')
+    s.add_argument('slug')
+    s.add_argument('--nonce', required=True)
+    s.add_argument('--round', type=int, required=True)
+    s.add_argument('--landed', choices=('yes', 'no'), required=True,
+                   help='yes records `reported`, no records `unreported`; the tool cannot '
+                        'observe chat, so this is a reported observation. An unreported '
+                        'rendering is surfaced through the calibration trigger and summary.')
+    s.set_defaults(func=cmd_record_adjudication_render)
+
+    s = sub.add_parser('query-adjudication-records',
+                       help='Read back a round\'s advisory/invalid per-finding records '
+                            '(issue #743). Exit 0 once arguments parse; one decided line per '
+                            'record, auditor fields JSON-encoded, summary trailing.')
+    s.add_argument('slug')
+    s.add_argument('--nonce', required=True)
+    s.add_argument('--round', type=int, required=True)
+    s.add_argument('--record-class', choices=_ADJUDICATION_RECORD_CLASSES,
+                   help='Restrict to one class; omit to read both.')
+    s.set_defaults(func=cmd_query_adjudication_records)
+
+    s = sub.add_parser('query-calibration',
+                       help='Read the run\'s advisory-adjudication calibration backing, '
+                            'render state, and never-blocking disclosure trigger (issue '
+                            '#743). Exit 0 once arguments parse.')
+    s.add_argument('slug')
+    s.add_argument('--nonce', required=True)
+    s.set_defaults(func=cmd_query_calibration)
 
     s = sub.add_parser('record-coverage',
                        help="Record a completed round's per-dimension coverage outcomes "
