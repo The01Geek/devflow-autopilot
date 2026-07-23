@@ -1758,12 +1758,10 @@ unset -f ci614_purity
 # T3 (AC6/AC7) — the two word budgets. Words are counted by python3 `.split()`, NEVER
 # `wc -w`: GNU and BSD `wc -w` disagree in two directions on this corpus (CLAUDE.md's
 # review-bundle record), so a `wc`-derived ceiling passes at one desk and fails at another.
-# Both ceilings are ratchet-DOWN-only by default — a measured reduction lowers the recorded
-# ceiling in docs/create-issue-budget.md — and a RAISE is legal only as an explicit
-# issue-authorized departure recorded in that doc's decision record (the #614 AC6 entry that
-# set 33917, and the #743 entry that raised the default-path ceiling for the advisory/invalid
-# calibration prose, are the two such departures); an ordinary growth is never accommodated by
-# a silent raise.
+# Both ceilings are ratchet-DOWN-only — a measured reduction lowers the recorded ceiling in
+# docs/create-issue-budget.md; a RAISE is not an ordinary re-measure, it is an explicit human
+# renegotiation recorded in that document's decision record (the issue-#749 entry is the
+# worked example: headroom widened to 10% after repeated per-PR collisions).
 # Sums per file rather than concatenating the bytes first (run.sh's _rb_words replicates
 # `cat`, because its operand IS an already-concatenated bundle). Summing is the correct
 # shape for a multi-file operand: concatenating would join a file's last word to the next
@@ -1778,18 +1776,16 @@ PY614W
 # exemption). Deliberately NO measured value in these comments: it would rot on the next prose
 # edit, and the ratchet-legality assertions below already tie each ceiling to its LIVE
 # measurement. docs/create-issue-budget.md is the sole home of the measured figures.
-CI614_ROOT_CEIL=2754
-# #743 authorized departure: the advisory/invalid per-finding record + calibration prose in
-# step-3-6-audit.md and step-4-present-create.md moved the measured default path past 33917.
-# Raised to 34800 (a conservative fixed margin above the measured figure, well under the ≤5%
-# legal maximum the assertion below enforces). See docs/create-issue-budget.md's decision record.
-CI614_DEFAULT_CEIL=34800
+CI614_ROOT_CEIL=3527
+CI614_DEFAULT_CEIL=38042
 # One comparison shape, shared by both ceilings and by the positive control below, so the
 # three sites cannot drift. An EMPTY measured value reads `no` (fail-closed): a word count
 # that could not be established is never treated as under the ceiling.
 ci614_under() { { [ -n "$1" ] && [ "$1" -le "$2" ]; } 2>/dev/null && echo yes || echo no; }
 CI614_ROOT_W="$(ci614_words "$CI_SKILL")"
-assert_eq "#614 T3: the always-loaded root is at or under its recorded ceiling ($CI614_ROOT_CEIL words)" \
+# The measured value rides in the assertion NAME so a PASSING run publishes it too: a ceiling
+# check that only speaks when it fails leaves the live headroom invisible until it is gone.
+assert_eq "#614 T3: the always-loaded root is at or under its recorded ceiling (measured $CI614_ROOT_W of $CI614_ROOT_CEIL words)" \
   "yes" "$(ci614_under "$CI614_ROOT_W" "$CI614_ROOT_CEIL")"
 # The operand is DERIVED from the step roster, never hand-listed: a hand list drifts silently
 # when a step reference is renamed or dropped — the measured total FALLS, so the ceiling
@@ -1805,7 +1801,7 @@ set -- $CI614_STEP_REFS
 assert_eq "#614 T3: the default-path operand covers the root, every step reference, and the template" \
   "$(( $# + 2 ))" "${#CI614_DEFAULT_SET[@]}"
 CI614_DEFAULT_W="$(ci614_words "${CI614_DEFAULT_SET[@]}")"
-assert_eq "#614 T3: the default-path read set is at or under its recorded ceiling ($CI614_DEFAULT_CEIL words)" \
+assert_eq "#614 T3: the default-path read set is at or under its recorded ceiling (measured $CI614_DEFAULT_W of $CI614_DEFAULT_CEIL words)" \
   "yes" "$(ci614_under "$CI614_DEFAULT_W" "$CI614_DEFAULT_CEIL")"
 # AC7 positive control: the root-ceiling assertion must report RED against a deliberately
 # over-ceiling root. Plant the defect on a COPY (the working tree is never mutated) and
@@ -1832,14 +1828,14 @@ assert_eq "#614 T3/AC7 positive control: an over-ceiling operand turns the defau
   "clean=yes|planted=no" \
   "clean=$(ci614_under "$CI614_DEFAULT_W" "$CI614_DEFAULT_CEIL")|planted=$(ci614_under "$CI614_PLANT_W" "$CI614_DEFAULT_CEIL")"
 rm -f "$CI614_PLANT"
-# Ratchet enforcement (shadow finding): a ceiling is only legal at at-most measured+5%, so a
+# Ratchet enforcement (shadow finding): a ceiling is only legal at at-most measured+10%, so a
 # future change cannot simply RAISE the constant to admit growth — the module constant and the
 # doc literals are coupled and would be edited together in one commit, leaving no RED. Tying
 # each ceiling to its own live measurement makes a growth-by-ceiling-bump visibly illegal.
-assert_eq "#614 T3: the root ceiling is at most the measured value plus 5% (a raise needs a real measurement)" \
-  "yes" "$({ [ -n "$CI614_ROOT_W" ] && [ "$CI614_ROOT_CEIL" -le "$(( CI614_ROOT_W * 105 / 100 ))" ]; } 2>/dev/null && echo yes || echo no)"
-assert_eq "#614 T3: the default-path ceiling is at most the measured value plus 5% (a raise needs a real measurement)" \
-  "yes" "$({ [ -n "$CI614_DEFAULT_W" ] && [ "$CI614_DEFAULT_CEIL" -le "$(( CI614_DEFAULT_W * 105 / 100 ))" ]; } 2>/dev/null && echo yes || echo no)"
+assert_eq "#614 T3: the root ceiling is at most the measured value plus 10% (a raise needs a real measurement)" \
+  "yes" "$({ [ -n "$CI614_ROOT_W" ] && [ "$CI614_ROOT_CEIL" -le "$(( CI614_ROOT_W * 110 / 100 ))" ]; } 2>/dev/null && echo yes || echo no)"
+assert_eq "#614 T3: the default-path ceiling is at most the measured value plus 10% (a raise needs a real measurement)" \
+  "yes" "$({ [ -n "$CI614_DEFAULT_W" ] && [ "$CI614_DEFAULT_CEIL" -le "$(( CI614_DEFAULT_W * 110 / 100 ))" ]; } 2>/dev/null && echo yes || echo no)"
 
 # Conservation guard (shadow finding): the ceilings are ONE-SIDED, so a re-partition that
 # DROPS a paragraph no pin happens to cover makes the word count merely go down — which reads
@@ -1850,7 +1846,7 @@ for _ci614_ref in $CI614_REFS; do
   CI614_TOTAL_SET+=("$CI_ROOT/skills/create-issue/references/$_ci614_ref.md")
 done
 CI614_TOTAL_W="$(ci614_words "${CI614_TOTAL_SET[@]}")"
-CI614_TOTAL_RECORDED=30221   # docs/create-issue-budget.md, root + all 9 references (issue #743 receiving-review re-record)
+CI614_TOTAL_RECORDED=30572   # docs/create-issue-budget.md, root + all 9 references (issue #749 re-record)
 assert_eq "#614 T3: the root+references total is within +/-2% of the recorded conservation figure (a silent DROP is as RED as a rise)" \
   "yes" "$({ [ -n "$CI614_TOTAL_W" ] \
     && [ "$CI614_TOTAL_W" -ge "$(( CI614_TOTAL_RECORDED * 98 / 100 ))" ] \
@@ -1893,9 +1889,9 @@ assert_eq "#614 T3: the budget doc exists" "yes" \
 devflow_module_pin_unique "#614 T3: the budget doc records the ratchet-down-only rule" \
   'ratchet-down-only' "$CI_ROOT/docs/create-issue-budget.md"
 devflow_module_pin_unique "#614 T3: the budget doc names the root ceiling the suite enforces" \
-  'Root ceiling: **2,754 words**' "$CI_ROOT/docs/create-issue-budget.md"
+  'Root ceiling: **3,527 words**' "$CI_ROOT/docs/create-issue-budget.md"
 devflow_module_pin_unique "#614 T3: the budget doc names the default-path ceiling the suite enforces" \
-  'Default-path ceiling: **34,800 words**' "$CI_ROOT/docs/create-issue-budget.md"
+  'Default-path ceiling: **38,042 words**' "$CI_ROOT/docs/create-issue-budget.md"
 devflow_module_pin_unique "#614 T3: the budget doc bans wc -w for these measurements" \
   '**Never `wc -w`.**' "$CI_ROOT/docs/create-issue-budget.md"
 unset -f ci614_words ci614_under
