@@ -50935,7 +50935,7 @@ if [ -d "$SR_SB" ]; then
   assert_eq "#546 shadow_round_rows: the tool-generated sentinel pair round-trips to an accepted FILE close" \
     "1" "$(grep -c 'outcome=FILE' "$SR_SB/.sr-good" 2>/dev/null)"
   assert_eq "#546/#709 shadow_round_rows: ... closed with no FINDINGS trigger; the only trigger is the embed arm's by-construction steering state" \
-    "1" "$(grep -c 't1=not-hold t2=hold reason=steering-unestablished' "$SR_SB/.sr-trig" 2>/dev/null)"
+    "1" "$(grep -c 't1=not-hold t2=hold coverage=not-hold reason=steering-unestablished' "$SR_SB/.sr-trig" 2>/dev/null)"
   assert_eq "#546 shadow_round_rows: a CLI-recorded override grounds eligibility (producer/consumer agree)" \
     "1" "$(grep -c 'eligible=yes ground=override' "$SR_SB/.sr-ov-elig" 2>/dev/null)"
   assert_eq "#546 shadow_round_rows: a later revision stales the CLI-recorded override" \
