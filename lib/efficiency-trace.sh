@@ -257,13 +257,21 @@ compute_config_fingerprint() {
 #
 # TWO fail-closed properties this function owns, each with its own guarded regression:
 #
-#  (1) SINGLE-DOCUMENT capture (#700 review, F3). `jq` over a file whose valid JSON
-#      prefix is followed by trailing garbage PRINTS the parsed prefix and THEN exits
-#      nonzero, so a `cmd || printf '{}'` fallback APPENDS a second document and the
-#      caller's `--argjson` then rejects the two-document string — aborting the whole
-#      record (total telemetry loss), the opposite of fail-closed. So capture into a
-#      variable and branch on the exit status, emitting EITHER the parsed object OR the
-#      `{}` fallback — never their concatenation.
+#  (1) SINGLE-DOCUMENT output (#700 review, F3 + the fix-delta gate's multi-document
+#      follow-up). The caller's `--argjson` accepts exactly ONE JSON document, and this
+#      function must therefore emit exactly one on every input — otherwise the whole
+#      record aborts (rc=2, zero bytes: total telemetry loss, the opposite of
+#      fail-closed). TWO distinct malformed inputs reach that same shape, so both are
+#      guarded:
+#        - trailing garbage after a valid prefix: `jq` PRINTS the parsed prefix and THEN
+#          exits nonzero, so a `cmd || printf '{}'` fallback APPENDS a second document.
+#          Guarded by capturing into a variable and branching on the exit status —
+#          emitting EITHER the parsed object OR the `{}` fallback, never their
+#          concatenation.
+#        - a multi-document file (`{...}\n{...}`): jq streams it as N documents, filters
+#          each, and exits 0 — so exit-status branching alone does NOT catch it. Guarded
+#          by `-s` (slurp) plus the `length == 1` arity test below, which fails CLOSED on
+#          every arity but one (0 = empty file, >=2 = multi-document).
 #
 #  (2) VALUE-level enum validation (#700 review, F2). Validating only that the TOP LEVEL
 #      is an object leaves every per-agent VALUE unchecked, so a valid-falsy `""` (or a
@@ -278,9 +286,19 @@ load_applied_effort() {
     file="$(devflow_repo_root)/.devflow/tmp/agent-effort-applied.json"
   fi
   [ -f "$file" ] || { printf '{}\n'; return 0; }
-  if out="$("$DEVFLOW_JQ" -c '
-        if type == "object"
-        then with_entries(select(.value | type == "string"
+  # `-s` (slurp) is load-bearing, not a style choice: without it jq streams a
+  # MULTI-DOCUMENT file (`{...}\n{...}`) as N successive documents, applies the
+  # filter to each, and exits 0 — so `out` holds N objects, the non-empty test
+  # passes, and `--argjson` then rejects the N-document string and aborts the
+  # WHOLE record (rc=2, zero bytes). That is the same total-telemetry-loss shape
+  # the trailing-garbage fix closed, reachable by a different malformed input, so
+  # the guard has to be against the arity, not against one way of breaking it.
+  # Slurping yields exactly ONE array, and a sidecar is well-formed only when that
+  # array holds exactly one object; every other arity (0 = empty file, >=2 =
+  # multi-document) is malformed and fails CLOSED to `{}`.
+  if out="$("$DEVFLOW_JQ" -c -s '
+        if length == 1 and (.[0] | type) == "object"
+        then .[0] | with_entries(select(.value | type == "string"
                and (. == "low" or . == "medium" or . == "high"
                     or . == "xhigh" or . == "max")))
         else {} end' "$file" 2>/dev/null)" && [ -n "$out" ]; then

@@ -21619,7 +21619,8 @@ assert_eq "#669 applied: malformed sidecar → honest fallback (session-fallback
 assert_eq "#669 applied: schema_version stays 1 (additive sidecar read, no bump)" \
   "1" "$(echo "$AE669_REC" | jq -r '.schema_version')"
 # #700 M2: a NON-JSON / TRUNCATED sidecar (distinct from the wrong-type array above) exercises
-# the load_applied_effort jq parse-FAILURE fallback (`|| printf '{}'`), not the type guard.
+# the load_applied_effort jq parse-FAILURE branch (the capture-then-branch `{}` fallback),
+# not the type guard.
 # It must fail CLOSED to the honest fallback and never abort the record.
 printf '{"devflow:code-reviewer":"lo' > "$AE669_DIR/trunc-sidecar.json"   # truncated mid-token
 AE669_TRUNC="$(DEVFLOW_APPLIED_EFFORT_FILE="$AE669_DIR/trunc-sidecar.json" bash "$LIB/efficiency-trace.sh" --workpad-dir "$AE669_DIR" --slug "pr-669" --mode record)"; AE669_TRUNC_RC=$?
@@ -21644,13 +21645,37 @@ assert_eq "#700 F3: valid-prefix+trailing-garbage sidecar still emits a record (
 assert_eq "#700 F3: valid-prefix+trailing-garbage sidecar → honest fallback (session-fallback)" \
   "session-fallback" "$(AE669_field "$AE669_PG" 'devflow:code-reviewer' 'application_point')"
 
+# ── #700 fix-delta gate: a MULTI-DOCUMENT sidecar (`{...}\n{...}`) reaches the SAME
+#    total-telemetry-loss shape as the trailing-garbage row above by a different route,
+#    and the exit-status branching that fixed F3 does NOT catch it: jq streams the file as
+#    N documents, filters each, and exits 0, so the capture is non-empty and `--argjson`
+#    then rejects the N-document string (rc=2, ZERO bytes of record). Guarded by `-s` plus
+#    the `length == 1` arity test. Asserting the record is non-empty is the load-bearing
+#    assertion here — "exit 0 with zero bytes" is the shape that actually shipped, so an
+#    rc-only assertion would not have caught the regression this row exists for.
+printf '{"devflow:code-reviewer":"low"}\n{"devflow:code-reviewer":"low"}\n' > "$AE669_DIR/multidoc.json"
+AE669_MD="$(DEVFLOW_APPLIED_EFFORT_FILE="$AE669_DIR/multidoc.json" bash "$LIB/efficiency-trace.sh" --workpad-dir "$AE669_DIR" --slug "pr-669" --mode record)"; AE669_MD_RC=$?
+assert_eq "#700 fix-delta: multi-document sidecar never aborts the record" "0" "$AE669_MD_RC"
+assert_eq "#700 fix-delta: multi-document sidecar still emits a record (not zero bytes)" \
+  "1" "$(printf '%s' "$AE669_MD" | grep -c 'schema_version' || true)"
+assert_eq "#700 fix-delta: multi-document sidecar → honest fallback (session-fallback)" \
+  "session-fallback" "$(AE669_field "$AE669_MD" 'devflow:code-reviewer' 'application_point')"
+assert_eq "#700 fix-delta: multi-document sidecar → effective JSON null (unknown is not zero)" \
+  "null" "$(AE669_type "$AE669_MD" 'devflow:code-reviewer' 'effective')"
+
 # ── #700 review F2: the sidecar's per-agent VALUE matrix. Validating only that the TOP
 #    LEVEL is an object left every value unchecked, so a valid-falsy "" (and 0, an object,
-#    a JSON null, and a non-enum string) was non-null and drove
+#    and a non-enum string) was non-null and drove
 #    `application_point: agent-definition` with a junk `effective` — the unearned applied
 #    claim the contract forbids, and the documented six-shape valid-falsy row (#312/#304).
 #    Every non-enum value must now fall back honestly. The valid-enum row above is the
 #    positive control proving these assertions are not vacuous.
+#    NOT-VACUITY CAVEAT, stated so a reader does not over-credit this loop: the `null` row
+#    is a REGRESSION GUARD, not one of the shapes this fix rescued. A JSON null value
+#    already took the honest arm before the fix — the old top-level-only filter passed it
+#    through as null and lib/efficiency-trace.jq branches on `$applied != null` — so that
+#    row passes identically with the guarded bug reintroduced. It is kept to pin the
+#    behavior against a future filter change; the other five rows are the load-bearing ones.
 for AE669_SHAPE in '""' '0' '{"effort":"low"}' 'null' '"turbo"' '[ "low" ]'; do
   printf '{"devflow:code-reviewer":%s}' "$AE669_SHAPE" > "$AE669_DIR/val.json"
   AE669_VAL="$(DEVFLOW_APPLIED_EFFORT_FILE="$AE669_DIR/val.json" bash "$LIB/efficiency-trace.sh" --workpad-dir "$AE669_DIR" --slug "pr-669" --mode record)"
@@ -21786,7 +21811,12 @@ assert_eq "#700 F1 compose: applied arm inert by default → exit 0" "0" "$CAE_R
 assert_eq "#700 F1 compose: applied arm inert by default → NO --agents splice" "" "$CAE_OUT"
 assert_eq "#700 F1 compose: applied arm inert by default → NO sidecar (an unspliced sidecar would be an unearned applied claim)" \
   "absent" "$([ -f "$CAE_DIR/inert.json" ] && echo present || echo absent)"
-# The gate is opt-in, not a removal: with it set the composer still composes (every arm
+# The gate is a deferral, not a removal — but "opt-in" here means opt-in FOR THIS SUITE, not
+# for an operator: no deployed tier sets DEVFLOW_AE_APPLY (pinned at zero across all three
+# workflows by the `#700 F1` assertion in the workflow-pin block), and there is no config key
+# that forwards it, so arming the arm is a `.github/workflows/` edit. What this row proves is
+# that the machinery below the gate is intact and re-arms cleanly once a probe row lands.
+# With the gate set the composer still composes (every arm
 # above runs under DEVFLOW_AE_APPLY=1), so the machinery stays live and tested.
 CAE_OUT="$(DEVFLOW_RRO="$CAE_DIR/stub-obj.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/optin.json" DEVFLOW_AE_APPLY=1 bash "$CAE_H" 2>/dev/null)"
 assert_eq "#700 F1 compose: DEVFLOW_AE_APPLY=1 re-enables the splice (gate is opt-in, not a removal)" \
@@ -33972,6 +34002,23 @@ assert_pin_red_on_removal "#700 B1: baseprovision emits the materialized base-re
 # NOT carry the base-ref override (its presence there would be a coupled-mirror drift).
 assert_eq "#700 B1: the implement/command compose steps do NOT source base-ref config (working-tree read is legitimate there)" "0,0" \
   "$(printf '%s' "$(pin_count 'DEVFLOW_AE_CONFIG' "$IMPL_WF")"),$(printf '%s' "$(pin_count 'DEVFLOW_AE_CONFIG' "$LIGHT_WF")")"
+
+# #700 F1 (deferral guard): the applied arm's blast radius — if `--agents` SHADOWS rather
+# than patches an installed agent, every merge-gating review agent degrades to a
+# prompt-less stub on every cloud run — is currently held off by exactly one thing: no
+# shipped tier sets DEVFLOW_AE_APPLY. That deferral was otherwise guarded only by an env
+# var's ABSENCE, with nothing going RED if a future edit armed it. Pin all three tiers at
+# zero occurrences of the literal — deliberately the strictest form: not "no assignment" but
+# "the name does not appear at all", so any edit that so much as mentions it in these files
+# has to come past this assertion. That costs pointer purity — the workflow step comments
+# describe the gate WITHOUT naming the variable and defer to
+# scripts/compose-applied-effort.sh section 1b for the name — which is the documented
+# resolution (reword the pointer, never weaken the pin), not an oversight.
+# Relax this ONLY when an agents-seam-probe row measures the effort-only /
+# already-installed-agent-id `--agents` shape (see scripts/compose-applied-effort.sh
+# step 1b); flipping the gate without that probe row is the regression this pin exists for.
+assert_eq "#700 F1: no shipped tier arms the unproven --agents shape (DEVFLOW_AE_APPLY unset everywhere)" "0,0,0" \
+  "$(printf '%s' "$(pin_count 'DEVFLOW_AE_APPLY' "$RUNNER_WF")"),$(printf '%s' "$(pin_count 'DEVFLOW_AE_APPLY' "$IMPL_WF")"),$(printf '%s' "$(pin_count 'DEVFLOW_AE_APPLY' "$LIGHT_WF")")"
 
 # Single-sourcing widened past the jq body (issue #313 /simplify altitude finding):
 # with the section name env-parameterized, the Resolve / Inject / Build-claude_args-head

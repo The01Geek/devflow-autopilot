@@ -74,11 +74,19 @@ session's `--effort high` — with **zero** `high` self-reports (no counter-evid
 human adjudicated the unanimous self-report as GOVERNED and re-ran the verdict helper with
 `--adjudicated-governed`, which yields `SEAM_PROVEN`.
 
-**Decision: the applied arm SHIPS** (issue #669) — a valid resolved per-agent effort may
-be composed into the process-start `--agents` agent-definition, and the cloud per-agent
-row in `docs/review-agent-overrides.md` flips off honest fallback. Fact (ii) remains a
-model self-report, however consistent, so the applied arm treats `effective` as a proxy
-grounded once by this spike, not a per-run measurement (issue #669 AC2).
+**Decision: the seam is PROVEN for the shape this probe measured; the applied arm is
+DEFERRED for the shape the composer emits** (issue #669). The eight runs establish the
+verdict for a **fully-defined new agent** — an entry carrying `description`, `prompt`, and
+`effort`. `scripts/compose-applied-effort.sh` emits something structurally different: an
+**effort-only** entry keyed by an **already-installed** plugin agent id. No row here
+measures that shape, so nothing establishes whether it patches the installed agent or
+defines/shadows it — and if it shadows, every merge-gating review agent degrades to a
+prompt-less stub. The applied arm therefore ships gated OFF behind `DEVFLOW_AE_APPLY`
+(unset in all three workflows) and the cloud per-agent row in
+`docs/review-agent-overrides.md` keeps the honest fallback. Arming it requires a probe row
+for the effort-only/installed-id shape. Fact (ii) also remains a model self-report, however
+consistent, so when the arm is armed it treats `effective` as a proxy grounded once by this
+spike, not a per-run measurement (issue #669 AC2).
 
 | Date | Run link | Verdict | Fact (i) | Fact (ii) self-report | Adjudication |
 |---|---|---|---|---|---|

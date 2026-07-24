@@ -985,10 +985,18 @@ jobs:
           adelim="OUT_EOF_$(date +%s%N)_$$"
           { printf 'args<<%s\n' "$adelim"; printf '%s\n' "$ARGS"; printf '%s\n' "$adelim"; } >> "$GITHUB_OUTPUT"
 
-      # Applied arm (issue #669, SEAM_PROVEN cloud per-agent-effort seam): compose the
-      # startup `--agents` per-agent effort block the spike (docs/agents-seam-probe.md)
-      # proved is forwarded and governs, and write the applier->recorder sidecar the
-      # in-session recorder (lib/efficiency-trace.sh) reads. Kept as its OWN step (not the
+      # Applied arm (issue #669): compose the startup `--agents` per-agent effort block
+      # and write the applier->recorder sidecar the in-session recorder
+      # (lib/efficiency-trace.sh) reads.
+      #
+      # DEFERRED / INERT BY DEFAULT: the helper short-circuits unless the apply gate env var
+      # is set to 1, which this workflow deliberately does NOT do, so as shipped it always emits
+      # an EMPTY agents_args and writes no sidecar, and the honest session-fallback stands.
+      # The spike (docs/agents-seam-probe.md) proved the seam for a fully-defined NEW agent;
+      # the composer emits an effort-only entry keyed by an already-INSTALLED agent id — an
+      # unmeasured shape. See scripts/compose-applied-effort.sh section 1b. Arming it is a
+      # one-line env addition here, gated on a probe row for that shape (pinned at zero
+      # across all three tiers by lib/test/run.sh's `#700 F1` assertion). Kept as its OWN step (not the
       # cargs body) so the model/effort composition stays isolated. The branch logic
       # (resolver-absent fail-open, empty/`{}` short-circuit, JSON-object validation,
       # unconditional stale-sidecar clear, sidecar-write-then-fallback) lives in the

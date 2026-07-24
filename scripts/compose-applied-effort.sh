@@ -15,7 +15,10 @@
 # sidecar file. ALWAYS exits 0 (fail-open to the honest fallback — never a false applied
 # claim, never a hard abort that would break the launch).
 #
-# Behavior, in order:
+# Behavior, in order (steps 2-4 run ONLY when the step-1b apply gate is armed; with
+# `DEVFLOW_AE_APPLY` unset — the SHIPPED default in all three workflows — this helper
+# short-circuits after step 1, printing the empty string and writing no sidecar, so the
+# `--agents` composition below does not occur in any default configuration):
 #   1. Unconditionally remove any pre-existing sidecar (issue #700 finding #3): a stale
 #      sidecar left by a prior run on a reused workspace (self-hosted runners are not
 #      cleaned by default) would otherwise be read by the in-session recorder as fabricated
@@ -101,8 +104,12 @@ fi
 # their tests) ships. With the gate off this helper composes NOTHING and writes NO
 # sidecar: emitting a sidecar for an effort that was never spliced into `claude_args`
 # would make `application_point: agent-definition` and `effective` false claims, the exact
-# unearned-applied-value defect the AC2 contract forbids. Flip DEVFLOW_AE_APPLY=1 (and
-# restore the `claude_args` splice) once the probe records the shape as proven.
+# unearned-applied-value defect the AC2 contract forbids. To arm the arm once the probe
+# records the shape as proven, set `DEVFLOW_AE_APPLY: 1` in the three workflow composer
+# steps — that is the ONLY edit required. The `claude_args` splice was never removed: all
+# three workflows still carry `${{ steps.applied_effort.outputs.agents_args }}` (pinned
+# present by lib/test/run.sh), and it simply resolves to the empty string while this gate
+# is off, so it becomes live automatically. Do NOT go looking for a splice to restore.
 if [ "${DEVFLOW_AE_APPLY:-0}" != "1" ]; then
   printf 'compose-applied-effort: applied arm inert (DEVFLOW_AE_APPLY not set) — the effort-only/installed-agent-id `--agents` shape is not spike-proven; honest fallback stands, no sidecar written\n' >&2
   printf '%s\n' ""

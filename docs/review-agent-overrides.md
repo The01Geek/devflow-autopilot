@@ -247,7 +247,7 @@ Each dispatched review agent's effort decision carries an **application point** 
 
 | Application point | Meaning |
 |---|---|
-| `agent-definition` | The resolved per-agent effort was composed into the **proven** process-start `--agents` agent-definition seam (the applied arm). This arm ships on the cloud tier because the [seam spike](agents-seam-probe.md) recorded `SEAM_PROVEN` (issue #669) — see below. `effective` is the emitted effort, a spike-grounded proxy, not a per-run measurement. |
+| `agent-definition` | The resolved per-agent effort was composed into the process-start `--agents` agent-definition seam (the applied arm). **This arm does NOT currently ship — it is gated OFF by default** (`DEVFLOW_AE_APPLY`, unset in all three workflows), so no shipped tier records this value; see the deferral note below. `effective` would be the emitted effort, a spike-grounded proxy, not a per-run measurement. |
 | `process-start-session` | The section-level session effort (`devflow.effort` / `devflow_implement.effort` / `devflow_runner.effort`) composed into `--effort` at process start — session-wide, inherited by all subagents, capability-gated by `providers.*.effort_supported` (#313). Not per-agent. |
 | `session-fallback` | A resolved **per-agent** effort override the tier **cannot apply** (or a capability-restricted one). The override is not emitted; the agent inherits the session effort; the resolver reports the fallback with a reason. |
 | `session-inheritance` | A dispatched agent with **no** per-agent effort override — it simply inherits the session effort. All-null effort block, no fallback reason. |
@@ -256,7 +256,7 @@ Per execution tier:
 
 | Tier / dispatch context | Per-agent effort application point | Per-agent effort applied? |
 |---|---|---|
-| **Cloud** review — fresh `claude-code-action` process per run | `agent-definition` (applied) — `session-fallback` for a capability-gated or unresolved effort | **Yes** (applied arm, issue #669) — the [seam spike](agents-seam-probe.md) recorded `SEAM_PROVEN`, so the pre-launch `applied_effort` composer step composes each capability-gated per-agent effort into the startup `--agents` agent-definition (`.github/workflows/devflow-implement.yml` / `devflow-runner.yml` / `devflow.yml`) and writes the emitted effort to the applier→recorder sidecar the in-session recorder reads. A Haiku-model or `effort_supported:false` agent is stripped and records `session-fallback`, never `agent-definition`. `effective` is the composed effort — a spike-grounded proxy, not a per-run measurement. |
+| **Cloud** review — fresh `claude-code-action` process per run | `session-fallback` | **No — deferred (issue #669, application half).** The machinery ships (the `applied_effort` composer step is wired into `.github/workflows/devflow-implement.yml` / `devflow-runner.yml` / `devflow.yml`, and the applier→recorder sidecar contract and its recorder are complete and tested), but the composer is **inert by default**: it short-circuits unless `DEVFLOW_AE_APPLY=1`, which no shipped tier sets. Every cloud agent therefore still records `session-fallback`. The gate is off because the composed shape — an effort-only entry keyed by an already-installed plugin agent id — is **not** what the [seam spike](agents-seam-probe.md) measured, and nothing establishes it patches rather than shadows the installed agent. See the deferral note below. |
 | **Cloud/local session effort** — `devflow.effort` / `devflow_implement.effort` / `devflow_runner.effort` | `process-start-session` | Session-wide, not per-agent — capability-gated by `effort_supported` (#313). |
 | **Local** review — already-running interactive session dispatching via the Agent tool | `session-fallback` | **No** — the Agent tool carries `model` but no effort, and no per-dispatch `--agents` injection exists; the run reports the limitation and effective fallback with a reason. |
 
@@ -304,9 +304,20 @@ default, and a caller that knows the provider capability passes it in.
 > Closing it needs a caller-supplied session model (the tier decides which section supplies it, so
 > the resolver cannot derive it alone) and is deferred follow-up work, not a silent gap.
 
-> **Spike-gated applied arm (`agent-definition`) — SHIPPED (issue #669).** The per-agent *applied*
-> arm composes the resolved effort into the process-start `--agents` agent-definition the platform
-> reads at launch. It ships only because an empirical spike in the real `claude-code-action` proved
+> **Spike-gated applied arm (`agent-definition`) — BUILT BUT DEFERRED, gated OFF (issue #669).** The
+> per-agent *applied* arm composes the resolved effort into the process-start `--agents`
+> agent-definition the platform reads at launch. **It does not currently ship:** the composer
+> short-circuits unless `DEVFLOW_AE_APPLY=1`, which no workflow sets, so every cloud agent records
+> `session-fallback`. The reason is a shape gap, not a missing implementation. The spike proved the
+> seam for a **fully-defined new agent** (`description` + `prompt` + `effort`); this composer emits
+> something structurally different — an **effort-only** entry keyed by an **already-installed**
+> plugin agent id. Nothing measured establishes that such an entry *patches* the installed agent
+> rather than *defining/shadowing* it, and if it shadows, every merge-gating review agent degrades
+> to a prompt-less stub on every cloud run. Arming it is a `.github/workflows/` edit (a
+> `workflows`-scoped push), gated on a probe row measuring **this** shape. The spike below remains
+> the evidence of record for the shape it did measure:
+>
+> The spike is an empirical run in the real `claude-code-action` proving
 > the startup `--agents` effort seam is reachable AND governs a runtime Agent-tool dispatch. That
 > spike is the [`agents-seam-probe.yml`](../.github/workflows/agents-seam-probe.yml) probe, whose
 > deterministic verdict helper is `scripts/agents-seam-probe-verdict.py` and whose recorded evidence
