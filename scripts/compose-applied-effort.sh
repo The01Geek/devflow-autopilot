@@ -106,7 +106,9 @@ fi
 # would make `application_point: agent-definition` and `effective` false claims, the exact
 # unearned-applied-value defect the AC2 contract forbids. To arm the arm once the probe
 # records the shape as proven, set `DEVFLOW_AE_APPLY: 1` in the three workflow composer
-# steps — that is the ONLY edit required. The `claude_args` splice was never removed: all
+# steps AND relax the `#700 F1` assertion in lib/test/run.sh, which deliberately pins ZERO
+# occurrences of that name across all three workflows — so arming the gate without touching
+# that pin turns the required test suite RED on purpose, as the tripwire for exactly this. The `claude_args` splice was never removed: all
 # three workflows still carry `${{ steps.applied_effort.outputs.agents_args }}` (pinned
 # present by lib/test/run.sh), and it simply resolves to the empty string while this gate
 # is off, so it becomes live automatically. Do NOT go looking for a splice to restore.

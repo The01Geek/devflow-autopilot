@@ -21650,9 +21650,12 @@ assert_eq "#700 F3: valid-prefix+trailing-garbage sidecar → honest fallback (s
 #    and the exit-status branching that fixed F3 does NOT catch it: jq streams the file as
 #    N documents, filters each, and exits 0, so the capture is non-empty and `--argjson`
 #    then rejects the N-document string (rc=2, ZERO bytes of record). Guarded by `-s` plus
-#    the `length == 1` arity test. Asserting the record is non-empty is the load-bearing
-#    assertion here — "exit 0 with zero bytes" is the shape that actually shipped, so an
-#    rc-only assertion would not have caught the regression this row exists for.
+#    the `length == 1` arity test. BOTH the rc row and the non-empty-record row below are
+#    load-bearing, and the rc row is the primary one: the pre-fix failure was rc=2 with zero
+#    bytes (jq: invalid JSON text passed to --argjson), so the rc assertion alone catches a
+#    re-regression. The non-empty-record row is kept because it pins the CONSEQUENCE the rc
+#    is a proxy for — a future refactor could swallow the nonzero rc while still losing the
+#    record, and that shape would pass an rc-only check.
 printf '{"devflow:code-reviewer":"low"}\n{"devflow:code-reviewer":"low"}\n' > "$AE669_DIR/multidoc.json"
 AE669_MD="$(DEVFLOW_APPLIED_EFFORT_FILE="$AE669_DIR/multidoc.json" bash "$LIB/efficiency-trace.sh" --workpad-dir "$AE669_DIR" --slug "pr-669" --mode record)"; AE669_MD_RC=$?
 assert_eq "#700 fix-delta: multi-document sidecar never aborts the record" "0" "$AE669_MD_RC"

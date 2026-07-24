@@ -31,12 +31,12 @@ unit-tested helper [`scripts/agents-seam-probe-verdict.py`](../scripts/agents-se
 
 | Verdict | Meaning | Applied arm ships? |
 |---|---|---|
-| `SEAM_PROVEN` | Fact (i) forwarding proven **and** a human adjudicated fact (ii) as GOVERNED (passing `--adjudicated-governed`). | **Yes** — implement the applied arm; flip the cloud per-agent row off honest fallback. |
+| `SEAM_PROVEN` | Fact (i) forwarding proven **and** a human adjudicated fact (ii) as GOVERNED (passing `--adjudicated-governed`). | **Only for the shape the probe measured.** A verdict is evidence about the entry shape that was dispatched — here, a fully-defined NEW agent (`description` + `prompt` + `effort`). Composing a structurally different entry (e.g. effort-only, keyed by an already-installed agent id) is a separate, unmeasured shape and stays on honest fallback until its own row lands. See the Decision below. |
 | `SEAM_FORWARDED` | Fact (i) proven; fact (ii) not yet adjudicated. | No — honest fallback stays until a human adjudicates the recorded self-report. |
 | `SEAM_UNPROVEN` | The subagent type was dispatched but no seam marker appeared (the `--agents` block was not forwarded). | No — honest fallback stays. |
 | `INCONCLUSIVE` | Nothing conclusive was measured (execution file absent/unparseable, or no dispatch attempted). | No — re-run the probe. |
 
-**The applied arm ships only on `SEAM_PROVEN` — i.e. only when BOTH facts are proven.**
+**The applied arm ships only on `SEAM_PROVEN` — i.e. only when BOTH facts are proven, and then only for the entry shape that verdict was measured on.**
 This is issue #610 AC1's contingency: *"The per-agent applied arm is implemented only if
 the probe proves both facts; otherwise the cloud per-agent row is honest fallback
 identical to local, and no per-agent effort application code ships."*

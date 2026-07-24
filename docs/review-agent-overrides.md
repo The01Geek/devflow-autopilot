@@ -323,7 +323,10 @@ default, and a caller that knows the provider capability passes it in.
 > deterministic verdict helper is `scripts/agents-seam-probe-verdict.py` and whose recorded evidence
 > of record is [agents-seam-probe.md](agents-seam-probe.md) (issue #610). **The probe was dispatched
 > 8× and adjudicated `SEAM_PROVEN`** — fact (i) forwarding proven unanimously, fact (ii) effort
-> governance adjudicated GOVERNED from 4/4 `low` self-reports. Mechanics: the pre-launch `applied_effort`
+> governance adjudicated GOVERNED from 4/4 `low` self-reports — **for a fully-defined new agent, not
+> for the effort-only/installed-id entry this composer emits.** Mechanics, stated in the present tense
+> for the armed configuration (**none of it occurs while the gate is off**, which is how it ships): the
+> pre-launch `applied_effort`
 > composer step calls `resolve-review-overrides.py --known-roster --applied-agents-json` (capability-gated
 > composition; Haiku/`effort_supported:false` agents stripped) and appends `--agents '<json>'` to
 > `claude_args`, and writes `--applied-sidecar-json` to `.devflow/tmp/agent-effort-applied.json` — the
