@@ -42,8 +42,23 @@ EOF
 # Local-tier run has no run URL: drop the broken "[View run]()" line rather than
 # leaving a placeholder link in the PR body.
 [ -n "$RUN_URL" ] || BODY=$(printf '%s\n' "$BODY" | grep -vF '[View run]()')
-gh pr create --base "$BASE" --draft --title "{issue title}" --body "$BODY"
+# Existing-PR guard (resume path): a §2.0 gate-fire resume — or any run whose §1.4
+# resume pre-check adopted an already-open PR — reaches §3.1 with the PR already
+# created by the prior attempt, and a bare `gh pr create` would abort with "a pull
+# request already exists". Query the current (checked-out feature) branch's open PR
+# first, in the SAME block; adopt it when present, create only when absent. The
+# query prints the open PR's number for the current head, or empty when none. A
+# transport failure also yields empty here: that degrades to attempting create,
+# whose own "already exists" error is a safe no-op — never a duplicate PR.
+EXISTING_PR=$(gh pr view --json number --jq '.number' 2>/dev/null || true)
+if [ -n "$EXISTING_PR" ]; then
+  echo "devflow: §3.1 adopting the already-open PR #$EXISTING_PR for this branch (resume path); skipping gh pr create"
+else
+  gh pr create --base "$BASE" --draft --title "{issue title}" --body "$BODY"
+fi
 ```
+
+**On the adopt arm, do NOT re-write the PR body** — the prior attempt's body (and its §1.4-refreshed `[View run]` line) stands; re-creating or re-bodying it would clobber a human's edits. The workpad `PR` link is (re-)populated from the resolved PR below either way, so the adopt and create arms converge.
 
 Then populate the workpad's `PR` link from the freshly-created draft PR, and **print the PR number** — you need it as a literal in the label call below, and a shell variable does not survive into a later separate command on the cloud runner:
 ```bash

@@ -7199,6 +7199,33 @@ assert_pin_unique "#168 create-path: SKILL guards branch-for-issue.py exit statu
 assert_pin_unique "#168 create-path: SKILL guards against an empty BRANCH name" \
   '[ -n "$BRANCH" ]' "$IMPL_SKILL"
 
+# ── Issue #755: Phase 2 §2.0 resume-idempotency gate ──
+# A stalled cloud run that stall_backstop auto-resumes must NOT re-dispatch the Phase 2
+# code-explorer/code-architect subagents from scratch. The gate (phase-2-implement.md §2.0)
+# fires on (a) a `resume-kind: in-flight` marker + (b) a committed non-placeholder Plan, and
+# then skips the two dispatches. BEHAVIORAL-FIX PIN: the operative sentence is the skip
+# directive itself — its removal ALONE re-introduces the "resumed run re-dispatches Phase 2
+# discovery from scratch" behavior — so it is pinned through assert_pin_red_under with a
+# `sed -E` mutation that removes only that directive (a framing-only pin would go RED).
+assert_pin_red_under "#755: Phase 2 §2.0 gate skip-dispatch directive is operative (removal re-introduces re-discovery from scratch)" \
+  'skip the Phase 2.1 `code-explorer` discovery dispatch and the Phase 2.2 `code-architect` dispatch plus re-planning' \
+  's|skip the Phase 2.1 `code-explorer` discovery dispatch and the Phase 2.2 `code-architect` dispatch plus re-planning|re-run full discovery|' "$P2_FILE"
+# Seed-literal coupling (repo-wide): the gate's "non-placeholder Plan" discriminator (conjunct
+# b) is the workpad.py new-body `## Plan` seed. If the seed literal changes in the producer but
+# not the gate, the gate mis-fires on a fresh run. Bind both copies so a one-sided seed edit
+# goes RED here (in addition to the existing lib/test/test_python_scripts.py notebook consumer).
+WP755_PY="$LIB/../scripts/workpad.py"
+assert_eq "#755: workpad.py new-body Plan seed literal present (producer of the §2.0 gate discriminator)" "yes" \
+  "$(grep -qF -e '- [ ] _(planning in progress)_' "$WP755_PY" && echo yes || echo no)"
+assert_eq "#755: Phase 2 §2.0 gate carries the same Plan seed literal as workpad.py new-body (coupled discriminator)" "yes" \
+  "$(grep -qF -e '- [ ] _(planning in progress)_' "$P2_FILE" && echo yes || echo no)"
+# resume-kind marker writer/reader coupling (conjunct a): Phase 1.3 writes it, the §2.0 gate
+# reads it. Bind the pair so neither half can be dropped without the other going RED.
+assert_eq "#755: Phase 1.3 writes the durable resume-kind marker (writer of §2.0 conjunct a)" "yes" \
+  "$(grep -qF 'resume-kind: {in-flight|terminal-re-trigger|fresh}' "$P1_FILE" && echo yes || echo no)"
+assert_eq "#755: Phase 2 §2.0 gate reads the resume-kind: in-flight marker (reader of conjunct a)" "yes" \
+  "$(grep -qF 'resume-kind: in-flight' "$P2_FILE" && echo yes || echo no)"
+
 # ── Issue #493: Phase 1.4 §1.4 PR-body run-link refresh (cloud resume) ──
 # On a resumed cloud run that reaches §1.4 and finds an existing open PR, the
 # draft PR body's [View run](...) line (written once at PR creation by Phase 3.1)
