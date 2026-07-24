@@ -16,7 +16,10 @@
 #
 # Usage: resolve-existing-pr.sh --issue <number> [--branch <name>] [--base <ref>]
 #   --issue   the issue this run implements; used for the closes-issue validation.
-#   --branch  the head branch. Omitted → read here via `git branch --show-current`.
+#   --branch  the head branch. Omitted → read here via `git branch --show-current`. An
+#             explicitly-passed EMPTY value is honored verbatim and routes to REFUSED —
+#             it is not treated as omitted (the same "an explicit empty value is not a
+#             request for the default" discipline config-get.sh's own arg gate carries).
 #   --base    the run's base branch. Omitted → re-derived via config-get.sh (.base_branch,
 #             falling back to `main`), the same read Phase 3.1's create arm performs. The
 #             helper derives it internally because a `$BASE` resolved in one skill fence does
@@ -85,9 +88,12 @@ ISSUE=""; BRANCH=""; BASE=""; BRANCH_SET=""
 # forever — an unbounded hang that prints no token, leaves no breadcrumb, and never exits. That
 # is strictly worse than any wrong answer: the caller's contract routes "no output at all" to
 # REFUSED only for a process that TERMINATES, so a hang burns the whole job budget instead.
-# The shape is reachable from the §3.1 fence, whose `--issue "$ISSUE_NUMBER"` collapses to a
-# bare `--issue` if that value is ever empty. Fail closed to REFUSED, like every other
-# unusable-operand path here.
+# The shape is reachable from the §3.1 fence, and the guard covers BOTH spellings of an empty
+# issue number, which fail differently: an UNQUOTED `--issue $ISSUE_NUMBER` drops the word
+# entirely when the value is empty, leaving a bare trailing `--issue` — the hang; a QUOTED
+# `--issue "$ISSUE_NUMBER"` instead passes an empty-but-present operand, which the numeric
+# guard below refuses. Fail closed to REFUSED either way, like every other unusable-operand
+# path here.
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --issue|--branch|--base)
@@ -118,6 +124,12 @@ case "$ISSUE" in
         printf '%s\n' REFUSED
         exit 3 ;;
 esac
+# Strip leading zeros. The closes-issue check compares this against the API's `.number`
+# rendered with `tostring`, so `007` would compare as "007" against "7" and report a
+# spurious closes-issue failure on a PR whose validation in fact held — the same
+# misreported-check class the absent-base sentinel below exists to eliminate. `10#` forces
+# base-10 (a bare `$((007))` would read it as octal).
+ISSUE=$((10#$ISSUE))
 
 # Read the branch in its OWN statement when the caller did not supply one. An inner
 # `$(git branch --show-current)` inside the query's `--head` would hide its own failure from
@@ -155,7 +167,19 @@ fi
 # BUILTIN rather than `cat`, which lib/preflight.sh does not guarantee.
 GH_ERR="$(mktemp 2>/dev/null)" || GH_ERR=/dev/null
 if ! PR_JSON="$("$DEVFLOW_GH" pr list --head "$BRANCH" --state open --json number,createdAt,baseRefName,closingIssuesReferences 2>"$GH_ERR")"; then
-    echo "devflow: resolve-existing-pr.sh: 'gh pr list' exited non-zero for branch '$BRANCH'; could not establish whether an open PR exists: $([ -s "$GH_ERR" ] && printf '%s' "$(<"$GH_ERR")" || printf 'no error output captured')" >&2
+    # THREE states, never two: gh printed a cause / gh printed nothing / the capture CHANNEL
+    # was unavailable (mktemp failed, so the redirect went to /dev/null). Collapsing the third
+    # onto the second would assert that gh was silent when in fact its message was discarded —
+    # "unknown is not zero" applied to the diagnostics channel, on the one path whose whole job
+    # is naming the cause.
+    if [ "$GH_ERR" = /dev/null ]; then
+        _gh_why="gh's stderr could not be captured (mktemp unavailable); see gh's own output above"
+    elif [ -s "$GH_ERR" ]; then
+        _gh_why="$(<"$GH_ERR")"
+    else
+        _gh_why="gh printed no error output"
+    fi
+    echo "devflow: resolve-existing-pr.sh: 'gh pr list' exited non-zero for branch '$BRANCH'; could not establish whether an open PR exists: $_gh_why" >&2
     [ "$GH_ERR" = /dev/null ] || rm -f "$GH_ERR"
     printf '%s\n' REFUSED
     exit 3
@@ -203,7 +227,14 @@ PR_LINE="$("$DEVFLOW_JQ" -r --arg iss "$ISSUE" '
       end' <<<"$PR_JSON" 2>"$JQ_ERR")" || PR_LINE=""
 
 if [ -z "$PR_LINE" ]; then
-    echo "devflow: resolve-existing-pr.sh: the open-PR listing for branch '$BRANCH' could not be parsed; could not establish whether an open PR exists: $([ -s "$JQ_ERR" ] && printf '%s' "$(<"$JQ_ERR")" || printf 'jq exited 0 but produced no line')" >&2
+    if [ "$JQ_ERR" = /dev/null ]; then
+        _jq_why="jq's stderr could not be captured (mktemp unavailable); see jq's own output above"
+    elif [ -s "$JQ_ERR" ]; then
+        _jq_why="$(<"$JQ_ERR")"
+    else
+        _jq_why="jq exited 0 but produced no line"
+    fi
+    echo "devflow: resolve-existing-pr.sh: the open-PR listing for branch '$BRANCH' could not be parsed; could not establish whether an open PR exists: $_jq_why" >&2
     [ "$JQ_ERR" = /dev/null ] || rm -f "$JQ_ERR"
     printf '%s\n' REFUSED
     exit 3
@@ -228,7 +259,7 @@ case "$PR_NUMBER" in
         exit 3 ;;
 esac
 
-# AC1 validation. The #755 guard adopted on head-branch match ALONE, so an unrelated open PR
+# Adoption validation (issue #782). The #755 guard adopted on head-branch match ALONE, so an unrelated open PR
 # sharing the branch — a human's manual PR, a branch-name collision — was adopted silently,
 # with no `Resolves #N` line and no comparison against the run's base. Each check that did not
 # hold is named individually (the conjunctive both-failed case is the union of the two), so
@@ -246,7 +277,7 @@ esac
 if [ -z "$BASE" ]; then
     BASE="$("$_DIR/config-get.sh" .base_branch main)" || BASE=""
     if [ -z "$BASE" ]; then
-        echo "devflow: resolve-existing-pr.sh: base_branch read failed (malformed config or missing python3); falling back to 'main' for the base-ref validation" >&2
+        echo "devflow: resolve-existing-pr.sh: base_branch read failed (a malformed config, a missing python3, or config-get.sh itself absent/non-executable beside this helper); falling back to 'main' for the base-ref validation" >&2
         BASE=main
     fi
 fi
@@ -268,7 +299,13 @@ if [ -n "$FAILED" ]; then
     else
         _base_clause="targets base '$PR_BASE' (expected '$BASE')"
     fi
-    echo "devflow: resolve-existing-pr.sh: adopting open PR #$PR_NUMBER on branch '$BRANCH', but validation failed ($FAILED): it lists closingIssuesReferences=$PR_CLOSES for issue #$ISSUE and $_base_clause" >&2
+    # Recite ONLY the clauses whose check failed. Naming the base in a closes-issue-only
+    # warning ("targets base 'main' (expected 'main')") reads as if the base were implicated
+    # too, and this text is quoted verbatim into a durable workpad note.
+    _why=""
+    case ",$FAILED," in *,closes-issue,*) _why="it does not list issue #$ISSUE in closingIssuesReferences" ;; esac
+    case ",$FAILED," in *,base-ref,*) _why="${_why:+$_why; }$_base_clause" ;; esac
+    echo "devflow: resolve-existing-pr.sh: adopting open PR #$PR_NUMBER on branch '$BRANCH', but validation failed ($FAILED): $_why" >&2
     printf '%s\n' "ADOPT $PR_NUMBER WARN:$FAILED"
     exit 0
 fi

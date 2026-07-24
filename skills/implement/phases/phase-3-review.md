@@ -14,7 +14,7 @@ Output: `Phase 3/4: Review & Fix — creating PR and running review...`
 
 Handle the printed token **per the implement-driven outcome-handling contract in phase-1-setup.md §1.4.1** (record on the issue workpad; `Blocked` on `MERGE_IN_PROGRESS` or a failed conflict resolution; resolve a `CONFLICT` and re-run the Phase 2.3.0 sweep before continuing; record-and-continue on `UNVERIFIED`/`PUSH_REJECTED`). **Do not open the draft PR on a tree the run has hard-stopped on**: `MERGE_IN_PROGRESS`, an unresolved (or suite-failed, aborted) `CONFLICT`, and a `PUSH_REJECTED` whose stderr carries the failed-restore `WARNING` (see §1.4.1's `PUSH_REJECTED` caveat) each stop the run instead. **Every other token proceeds to open the draft PR** — `UP_TO_DATE`, `UPDATED`, `DISABLED`, a *resolved* `CONFLICT`, and equally the record-and-continue outcomes `UNVERIFIED` and an ordinary (restore-succeeded) `PUSH_REJECTED`: those two are *degraded but non-fatal* by the §1.4.1 contract, and the branch is simply not vouched current (the #429 read-target rules stay in force). Withholding the PR on them would contradict the contract's own "record and continue" and would leave the run wedged at Phase 3.1 with no PR and no stop.
 
-**Resolve whether this run ADOPTS an already-open PR or CREATES one — through the extracted resolver, emitted as its own leading-token command.** A §2.0 gate-fire resume — or any run whose §1.4 resume pre-check adopted an already-open PR — reaches §3.1 with the PR already created by a prior attempt, and a bare `gh pr create` would abort with "a pull request already exists". That decision is *branch-selecting* logic, so it is not inline shell here: it lives in a helper the suite drives arm-by-arm, whose header states the full contract (why the query is open-scoped rather than `gh pr view`, why an empty branch name never reaches the query, how the newest PR on a shared head is selected, and why an unresolvable query never collapses onto "none found"). Pass only the issue number — the helper re-derives the head branch and the base internally, because neither survives the shell boundary between this command and the next:
+**Resolve whether this run ADOPTS an already-open PR or CREATES one — through the extracted resolver, emitted as its own leading-token command.** A §2.0 gate-fire resume — or any run whose §1.4 resume pre-check adopted an already-open PR — reaches §3.1 with the PR already created by a prior attempt, and a bare `gh pr create` would abort with "a pull request already exists". That decision is *branch-selecting* logic, so it is not inline shell here: it lives in a helper the suite drives arm-by-arm, whose comments state the full contract (why the query is open-scoped rather than `gh pr view`, why an empty branch name never reaches the query, how the newest PR on a shared head is selected, and why an unresolvable query never collapses onto "none found"). Pass only the issue number — the helper re-derives the head branch and the base internally, because neither survives the shell boundary between this command and the next:
 
 ```bash
 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/resolve-existing-pr.sh --issue $ISSUE_NUMBER
@@ -91,11 +91,14 @@ PR_URL=$(gh pr view <adopted-pr> --json url --jq '.url') || PR_URL=""
 # already have PATCHed a broken `[#N]()` link that the remedy cannot undo.
 if [ -n "$PR_URL" ]; then
   "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --pr-link "[#<adopted-pr>]($PR_URL)"
+  printf 'pr-link: ok\n'
+else
+  printf 'pr-link: unresolved\n'
 fi
 echo "draft PR number: [<adopted-pr>]"
 ```
 
-An empty `PR_URL` writes no link (the guard above) and routes exactly like the create arm's failures below: record it durably (`--reflection-kind dropped-failed`) and apply no label. The `draft PR number` line still prints, because the adopted number is known regardless of whether its URL resolved.
+**Route on the `pr-link:` token this fence prints — the guard's outcome is an observable, not an inference.** Both arms print one, exactly as the create fence's `create:` tokens do, because an empty `PR_URL` is otherwise indistinguishable from a successful write: the guard suppresses the link (writing first and remedying after would already have PATCHed a broken `[#N]()` link the remedy cannot undo), and the `draft PR number` line still prints regardless, because the adopted number is known whether or not its URL resolved — so neither of the two exits below would fire. On `pr-link: unresolved` — **or no `pr-link:` line at all**, a harness refusal, which answers nothing — the workpad carries no `PR` link: record it durably with `--reflection-kind dropped-failed` and apply no label, exactly as the create arm's failures below are recorded. On `pr-link: ok` the link is written; continue.
 
 **On the CREATE arm**, use the original fence:
 ```bash

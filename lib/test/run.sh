@@ -7459,17 +7459,32 @@ assert_eq "#782 validation: a closes-issue-only mismatch names closes-issue alon
 # ── DIFFERENT diagnoses deserving separate breadcrumbs; an undriven arm can collapse onto a
 # ── sibling's message unnoticed, which would defeat exactly that design.
 #
-# A value-taking flag given no value. This row is the regression guard for a REAL defect the
+# A value-taking flag given no value. These rows are the regression guard for a REAL defect the
 # review caught: `shift 2` with one positional left FAILS and shifts nothing, so the arg loop
 # re-matched the same flag forever — an unbounded hang emitting no token and no breadcrumb.
-# It is driven under `timeout` so a re-introduced hang fails THIS row instead of wedging the
-# whole suite; the timeout exit (124) is not 3, so the assertion goes RED either way.
-assert_eq "#782 arm: a value-taking flag with no value -> REFUSED, and does NOT hang" "REFUSED|3" \
-  "$(: > "$S782/ghlog"; _o="$(GHLOG="$S782/ghlog" REP_FIXTURE="$S782/one.json" REP_RC="" DEVFLOW_GH="$S782/gh" \
-      timeout 10 bash "$REP_SH" --issue 2>"$S782/err")" && _s=0 || _s=$?; printf '%s|%s\n' "$_o" "$_s")"
-assert_eq "#782 arm: a trailing --branch with no value -> REFUSED, and does NOT hang" "REFUSED|3" \
-  "$(: > "$S782/ghlog"; _o="$(GHLOG="$S782/ghlog" REP_FIXTURE="$S782/one.json" REP_RC="" DEVFLOW_GH="$S782/gh" \
-      timeout 10 bash "$REP_SH" --issue 782 --branch 2>"$S782/err")" && _s=0 || _s=$?; printf '%s|%s\n' "$_o" "$_s")"
+# They run under a TIMEOUT so a re-introduced hang fails THESE rows instead of wedging the whole
+# suite (a timeout exit of 124 is not 3, so the assertion goes RED either way).
+#
+# `timeout(1)` is GNU coreutils and stock macOS/BSD ships neither it nor a `gtimeout` unless the
+# user installed coreutils, so the binary is RESOLVED rather than assumed — CLAUDE.md's
+# portability convention forbids depending on a tool outside the preflight-guaranteed set. With
+# neither binary present the rows SELF-SKIP as `host-capability` (the #456 kind for "the host
+# cannot express the condition") rather than failing with a 127 that would misattribute a
+# missing binary to the argument loop. Resolution is via `command -v`, a bash builtin.
+REP_TIMEOUT="$(command -v timeout || command -v gtimeout || true)"
+if [ -z "$REP_TIMEOUT" ]; then
+  skip "#782 arm: a value-taking flag with no value -> REFUSED, and does NOT hang" host-capability \
+    "neither timeout nor gtimeout is on PATH (GNU coreutils); the hang guard needs a bounded run so a re-introduced infinite loop cannot wedge the suite"
+  skip "#782 arm: a trailing --branch with no value -> REFUSED, and does NOT hang" host-capability \
+    "neither timeout nor gtimeout is on PATH (GNU coreutils); the hang guard needs a bounded run so a re-introduced infinite loop cannot wedge the suite"
+else
+  assert_eq "#782 arm: a value-taking flag with no value -> REFUSED, and does NOT hang" "REFUSED|3" \
+    "$(: > "$S782/ghlog"; _o="$(GHLOG="$S782/ghlog" REP_FIXTURE="$S782/one.json" REP_RC="" DEVFLOW_GH="$S782/gh" \
+        "$REP_TIMEOUT" 10 bash "$REP_SH" --issue 2>"$S782/err")" && _s=0 || _s=$?; printf '%s|%s\n' "$_o" "$_s")"
+  assert_eq "#782 arm: a trailing --branch with no value -> REFUSED, and does NOT hang" "REFUSED|3" \
+    "$(: > "$S782/ghlog"; _o="$(GHLOG="$S782/ghlog" REP_FIXTURE="$S782/one.json" REP_RC="" DEVFLOW_GH="$S782/gh" \
+        "$REP_TIMEOUT" 10 bash "$REP_SH" --issue 782 --branch 2>"$S782/err")" && _s=0 || _s=$?; printf '%s|%s\n' "$_o" "$_s")"
+fi
 assert_eq "#782 arm: an unrecognized argument -> REFUSED (never a guess)" "REFUSED|3" \
   "$(rep782 "$S782/one.json" "" --issue 782 --branch feature-x --bogus x)"
 assert_eq "#782 arm: a non-numeric --issue -> REFUSED (the closes-issue check cannot be established)" "REFUSED|3" \
@@ -7478,6 +7493,60 @@ assert_eq "#782 arm: gh exits 0 but prints nothing -> REFUSED (an empty listing 
   "$(rep782 "$S782/empty-output.json" "" --issue 782 --base main --branch feature-x)"
 assert_eq "#782 arm: an unparseable listing -> REFUSED (never a clean 'none found')" "REFUSED|3" \
   "$(rep782 "$S782/malformed.json" "" --issue 782 --base main --branch feature-x)"
+# ── The PRODUCTION invocation form: §3.1 passes only --issue, so the internal
+# ── `git branch --show-current` read is the one path production always takes — and it was the
+# ── only path with no driver. Every other row supplies --branch explicitly, which sets
+# ── BRANCH_SET and skips the read entirely, so the #755 own-statement-branch-read regression
+# ── would have had the mutation pin as its sole signal.
+R782_GITREPO="$(mktemp -d)"
+if git -C "$R782_GITREPO" init -q 2>/dev/null &&
+   git -C "$R782_GITREPO" -c user.email=t@e -c user.name=t commit -q --allow-empty -m seed 2>/dev/null &&
+   git -C "$R782_GITREPO" checkout -q -b feature-derived 2>/dev/null; then
+  : > "$S782/ghlog"
+  ( cd "$R782_GITREPO" && GHLOG="$S782/ghlog" REP_FIXTURE="$S782/one.json" REP_RC="" DEVFLOW_GH="$S782/gh" \
+      bash "$REP_SH" --issue 782 --base main >/dev/null 2>"$S782/err" )
+  assert_eq "#782 --branch omitted: the branch is read internally and reaches the query as --head" "yes" \
+    "$(case "$(cat "$S782/ghlog")" in *"--head feature-derived"*) echo yes ;; *) echo no ;; esac)"
+  # A detached HEAD is exactly what `git branch --show-current` prints EMPTY for — the shape
+  # the empty-branch guard exists for, reached here through the real read rather than a
+  # supplied `--branch ""`.
+  if git -C "$R782_GITREPO" checkout -q --detach 2>/dev/null; then
+    : > "$S782/ghlog"
+    _o="$( cd "$R782_GITREPO" && GHLOG="$S782/ghlog" REP_FIXTURE="$S782/one.json" REP_RC="" DEVFLOW_GH="$S782/gh" \
+        bash "$REP_SH" --issue 782 --base main 2>"$S782/err" )" && _s=0 || _s=$?
+    assert_eq "#782 --branch omitted on a DETACHED HEAD: the empty read is REFUSED" "REFUSED|3" \
+      "$(printf '%s|%s\n' "$_o" "$_s")"
+    assert_eq "#782 --branch omitted on a DETACHED HEAD: ... and gh was never invoked" "yes" \
+      "$([ -s "$S782/ghlog" ] && echo no || echo yes)"
+  else
+    skip "#782 --branch omitted on a DETACHED HEAD: the empty read is REFUSED" host-capability \
+      "git could not detach HEAD in the scratch repository"
+  fi
+else
+  skip "#782 --branch omitted: the branch is read internally and reaches the query as --head" host-capability \
+    "git could not initialize a scratch repository for the internal branch-read rows"
+fi
+rm -rf "$R782_GITREPO"
+# ── The partial-deployment arms: the header claims EVERY path breadcrumbs, and the four
+# ── degraded resolver fallbacks are the ones the stubbed rows above never reach (they always
+# ── set DEVFLOW_GH, so the `:=` short-circuits). Copy the helper WITHOUT its lib/ sibling and
+# ── let it resolve `gh` off a PATH carrying only the stub, so the existence-vs-sourceability
+# ── class (#247) is driven rather than asserted.
+R782_PARTIAL="$(mktemp -d)"
+if mkdir -p "$R782_PARTIAL/scripts" && cp "$REP_SH" "$R782_PARTIAL/scripts/" 2>/dev/null; then
+  : > "$S782/ghlog"
+  _o="$(GHLOG="$S782/ghlog" REP_FIXTURE="$S782/one.json" REP_RC="" PATH="$S782:/usr/bin:/bin" \
+      env -u DEVFLOW_GH -u DEVFLOW_JQ bash "$R782_PARTIAL/scripts/resolve-existing-pr.sh" \
+      --issue 782 --base main --branch feature-x 2>"$S782/err")" && _s=0 || _s=$?
+  assert_eq "#782 partial deployment (scripts/ without lib/): still emits ONE well-formed token, never a set -u abort" "ADOPT 11 OK|0" \
+    "$(printf '%s|%s\n' "$_o" "$_s")"
+  assert_eq "#782 partial deployment: ... and breadcrumbs the real cause, naming resolve-gh.sh" "yes" \
+    "$(case "$(cat "$S782/err")" in *"resolve-gh.sh"*) echo yes ;; *) echo no ;; esac)"
+else
+  skip "#782 partial deployment (scripts/ without lib/): still emits ONE well-formed token, never a set -u abort" host-capability \
+    "could not stage a lib-less copy of the helper"
+fi
+rm -rf "$R782_PARTIAL"
 # ── The JSON boundary row: an absent baseRefName must fail ONLY base-ref, and must not shift
 # ── the field split so that closes-issue is reported failed when it in fact held.
 assert_eq "#782 validation: an absent baseRefName fails base-ref ALONE (no field-shift into closes-issue)" \
@@ -7548,6 +7617,26 @@ assert_pin_red_under "#782 (re-anchors #755): the helper reads the branch in its
   's@--head "\$BRANCH"@--head "$(git branch --show-current)"@' "$REP_SH"
 # The §3.1 fence must invoke the extracted helper as its own leading token — the extraction is
 # only real if the skill routes through it rather than keeping a second inline copy.
+# BEHAVIORAL-FIX PIN (§3.1 CREATE arm, policy-without-mechanism): the create fence prints a
+# routing token on each arm so the caller READS the create's outcome instead of inferring it.
+# The mutation replaces the success arm's emission with a no-op `:` — valid shell, and exactly
+# the reviewed defect restored: the routing prose still tells the reader to route on a token
+# that is no longer printed, so a successful create is indistinguishable from a refused fence
+# and the run takes the terminal-stop arm on a PR that exists.
+assert_pin_red_under "#782: §3.1's create fence prints a routing token, so the create's outcome is observable" \
+  "printf 'create: ok" \
+  "s@printf 'create: ok.*@:@" \
+  "$IMPL_PHASES_DIR/phase-3-review.md"
+# BEHAVIORAL-FIX PIN (§3.1 adopt arm — the issue-#782 visibility obligation itself): a WARN
+# adoption must be recorded DURABLY on the workpad, not merely breadcrumbed to stderr. Making a
+# wrong-PR adoption visible is the whole point of the validation, and stderr vanishes with the
+# transcript, so weakening this clause re-opens precisely the silent adoption #782 closes. The
+# mutation removes the workpad call while LEAVING the "adoption still proceeds / visibility
+# obligation" framing intact — so a framing-only pin would survive it and be reported RED.
+assert_pin_red_under "#782: a WARN adoption records the failed checks durably on the workpad, not only on stderr" \
+  'record them durably first with `workpad.py update $ISSUE_NUMBER --reflection-kind note' \
+  's@record them durably first with `workpad.py update \$ISSUE_NUMBER --reflection-kind note@note them@' \
+  "$IMPL_PHASES_DIR/phase-3-review.md"
 assert_pin_unique "#782: §3.1 invokes the extracted resolver as a leading-token vendored-literal helper" \
   'scripts/resolve-existing-pr.sh' "$IMPL_PHASES_DIR/phase-3-review.md"  # structural-pin-ok: surface-presence pin that the skill routes through the helper; the arm behavior it selects is driven above
 rm -rf "$S782"
