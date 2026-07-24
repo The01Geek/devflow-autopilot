@@ -1,0 +1,62 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-24T01:00:00Z",
+  "fix_commit_sha": null,
+  "fix_files": [],
+  "loop_role": "fix",
+  "current_step": "loop-exit",
+  "current_substep": null,
+  "sweep_defs_read": [],
+  "sweep_evidence": {"status": "not-run", "reason": "no fixes applied"},
+  "checklist": [
+    {"id": "VC-1", "claim": "receiving-code-review line is repo-agnostic (no lib/test/, .devflow/, run-module.sh, or DevFlow step number)", "file": "skills/receiving-code-review/SKILL.md", "verification_mode": "agent", "claim_signature": "repo-agnostic:receiving-code-review:rig-reuse-line", "verdict": "PASS", "evidence": "code-reviewer + comment-analyzer confirmed generic language only; #550 repo-agnostic pins green", "reused_from_iter_prev": false},
+    {"id": "VC-2", "claim": "budget figures internally consistent and matching run.sh pins (fixing.md 9,845 words; cumulative +6,984)", "file": "docs/review-and-fix-budget.md", "verification_mode": "agent", "claim_signature": "budget:review-and-fix:fixing-remeasure", "verdict": "PASS", "evidence": "code-reviewer verified 47231-40247=6984, 17.4%; run.sh _raf_words recompute green", "reused_from_iter_prev": false},
+    {"id": "VC-3", "claim": "12 #754 pins target uniquely-existing text in their named bundles", "file": "lib/test/run.sh", "verification_mode": "agent", "claim_signature": "pins:754:surface-presence-unique", "verdict": "PASS", "evidence": "pr-test-analyzer verified per-bundle uniqueness; suite 13110 passed", "reused_from_iter_prev": false}
+  ],
+  "dispatched_effort": [],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer"
+  ],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "the bolded operative lead sentence and the 'Rebuild it when the surface has changed' sentence are unpinned; covered by A8/A1/A2/A3 and the writing-skills micro-test", "defect_signature": {"file": "lib/test/run.sh", "line_range": [4417, 4445], "kind": "test-coverage-residual"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "below-threshold"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "below-threshold", "source_file": "lib/test/run.sh", "claim_text": "bolded lead sentence and rebuild sentence unpinned", "skip_category": "below-threshold-parked", "evidence": "parked-origin: below-threshold"}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 0,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "reference_reads": {},
+  "shadow": {
+    "ran_at": "2026-07-24T01:00:00Z",
+    "reviewed_sha": "a23fd94",
+    "verdict": "APPROVE",
+    "coverage": "not_verified",
+    "reviewers_dispatched": ["general-purpose-shadow"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": "bounded single independent blind reviewer over the whole diff rather than the full standalone Phase-3 roster; shadow AGREED (found no new findings) but roster coverage is not the full fan-out, so coverage=not_verified",
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 0, "overlap_with_iter_N": 0, "new": 0, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false
+  },
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "duration_s": 90,
+    "skipped_checks": [{"check": "#434 stale-prose self-scan", "kind": "blocking-gate", "reason": "working tree dirty (grades committed HEAD); runs live in CI against committed HEAD"}]
+  },
+  "telemetry": "unavailable"
+}
