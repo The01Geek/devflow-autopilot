@@ -60,6 +60,12 @@
       "dismissed_by": "retrospective-weekly",
       "reason": "meta-plugin-issue",
       "meta_issue": "https://github.com/The01Geek/devflow-autopilot/issues/347"
+    },
+    "fabricated-claim": {
+      "dismissed_at": "2026-07-24T02:25:21Z",
+      "dismissed_by": "retrospective-weekly",
+      "reason": "meta-plugin-issue",
+      "meta_issue": "https://github.com/The01Geek/devflow-autopilot/issues/761"
     }
   }
 }
