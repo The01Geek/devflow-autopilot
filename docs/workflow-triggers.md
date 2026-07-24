@@ -310,8 +310,9 @@ not raw ISO-8601.
   write. Either way it is created *before* the branch. The `Run` link is built
   from `$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID`
   (standard env vars — no workflow wiring needed); the `Branch` line is filled the
-  instant the branch exists, and the `PR` link once the draft PR is created in
-  Phase 3.1.
+  instant the branch exists, and the `PR` link once the draft PR is resolved in
+  Phase 3.1 — freshly created, or, on a resume whose prior attempt already opened
+  one, adopted by Phase 3.1's existing-PR guard.
 
 ### Status-glyph / reaction vocabulary
 

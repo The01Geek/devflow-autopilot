@@ -3409,15 +3409,29 @@ assert_pin_red_under "#554(rev): overclaim reintroduction (per-agent effort appl
 assert_pin_red_under "#425(rev): the N≥2 exclusion threshold is operative (relaxing to N≥1 goes RED)" \
   'on a fix-loop iteration **N ≥ 2**, drop from the Phase-3 launch list' \
   's/fix-loop iteration \*\*N ≥ 2\*\*/fix-loop iteration **N ≥ 1**/' "$ST_REV"
-# #425(rev): the engine_self_modifying-precedence invariant. On an engine_self_modifying diff,
-# Phase 0.5 forces the always-on four ON; the first-only exclusion must OVERRIDE that force so an
-# opted-in always-on agent (this repo's code-reviewer) is still dropped on iterations ≥ 2. A reword
-# that inverts the precedence (exclusion yields to the always-on force) silently re-admits the
-# positionally-worthless late dispatches this feature exists to stop, and would pass the suite green
-# without this pin. Semantic mutation overrides → yields-to re-introduces exactly that regression.
-assert_pin_red_under "#425(rev): the first-only exclusion overrides the engine_self_modifying always-on force (inverting the precedence goes RED)" \
-  'this exclusion **overrides** Phase 0.5' \
-  's/this exclusion \*\*overrides\*\* Phase 0.5/this exclusion **yields to** Phase 0.5/' "$ST_REV"
+# #425(rev): the first-only-exclusion precedence invariant. Phase 3.1 states the four always-on
+# agents are roster members on every profile; the first-only exclusion must OVERRIDE that membership
+# rule so an opted-in always-on agent (this repo's code-reviewer) is still dropped on iterations ≥ 2.
+# A reword that inverts the precedence (exclusion yields to the always-on-roster membership) silently
+# re-admits the positionally-worthless late dispatches this feature exists to stop, and would pass the
+# suite green without this pin. Semantic mutation overrides → yields-to re-introduces exactly that
+# regression. (Re-anchored from the removed Phase 0.5 always-on force onto the Phase 3.1 membership
+# statement, issue #769.)
+assert_pin_red_under "#425(rev): the first-only exclusion overrides the Phase 3.1 always-on-roster membership (inverting the precedence goes RED)" \
+  'this exclusion **overrides** the Phase 3.1 rule that the four always-on agents are roster members' \
+  's/this exclusion \*\*overrides\*\* the Phase 3.1 rule/this exclusion **yields to** the Phase 3.1 rule/' "$ST_REV"
+# #769: always-on roster membership — the guarantee that moved from Phase 0.5 to its Phase 3.1
+# home (phase-3-agents.md §3.1). The four always-on agents are roster members on EVERY diff
+# profile; the structural-applicability gates and the iterations exclusion decide the rest. This
+# is the guarantee's replacement home now that engine_self_modifying no longer forces the roster.
+# et(#52) authors its own phase3_dispatched fixture and only tests trace passthrough, so it is NOT
+# treated as covering this — a real roster change (a lean profile dropping an always-on reviewer)
+# stays green there. Mutation makes a lean profile drop an always-on reviewer; the pin flips
+# PASS->FAIL. Targets phase-3-agents.md (§3.1 is the contract's home, not merely somewhere in the bundle).
+P31_AGENTS="$LIB/../skills/review/phases/phase-3-agents.md"
+assert_pin_red_under "#769: always-on roster membership on every profile (a lean profile dropping an always-on reviewer goes RED)" \
+  'are roster members on every diff profile; the two structural-applicability gates and the' \
+  's/are roster members on every diff profile/are roster members only on non-lean profiles/' "$P31_AGENTS"
 # ---------------------------------------------------------------------------
 # issue #621: settled-by-disclosure foreclosure disposition. Prose pins scope
 # to $ST_RAF (review-and-fix root+references bundle) plus the two doc mirrors.
@@ -5335,6 +5349,32 @@ assert_pin_unique "#167 critic: Phase 0.5 TABLE ROW forces the pass (a forced ex
   'a *forced extra pass*, not a checklist or cost override' "$REVIEW_SKILL"
 assert_pin_unique "#167 critic: Phase 0.5 rule excludes the false-positive shapes (single-target grep / fixed list)" \
   'a check over a fixed hand-listed set is **not** this shape' "$REVIEW_SKILL"
+# ── issue #769: the Phase 0.5 signal contract (engine_self_modifying is checklist-only;
+# small_diff scales no part of the roster). Sited beside the detect_all_audit row pins above.
+# These target phase-0-setup.md as the 4th arg (location-sensitive: the guarantee is that the
+# contract lives in §0.5, so a pin satisfied by the sentence surviving anywhere in the
+# concatenated bundle would not hold it there). Mutation-taking form over the three amended
+# sentences — each mutation re-introduces the named regression (a roster-forcing reword, or an
+# invented small_diff roster-scaling claim), flipping PASS->FAIL. The guarantee about the four
+# always-on agents being roster members on every profile now lives at its Phase 3.1 home
+# (phase-3-agents.md), pinned below (search "#769: always-on roster membership"); et(#52) is a
+# trace-passthrough assertion and is NOT treated as covering it.
+P05_SETUP="$LIB/../skills/review/phases/phase-0-setup.md"
+assert_pin_red_under "#769: engine_self_modifying definition is checklist-only (a roster-forcing reword goes RED)" \
+  'This flag forces no part of the Phase 3 roster' \
+  's/This flag forces no part of the Phase 3 roster/This flag forces the four always-on Phase 3 agents on/' "$P05_SETUP"
+assert_pin_red_under "#769: small_diff definition scales no part of the Phase 3 roster (a scaling reword goes RED)" \
+  'scales no part of the Phase 3 roster' \
+  's/scales no part of the Phase 3 roster/scales the Phase 3 roster/' "$P05_SETUP"
+assert_pin_red_under "#769: engine_self_modifying profile-table row forces no Phase 3 agent on (restoring a roster-force clause goes RED)" \
+  'This flag forces **no** Phase 3 agent on' \
+  's/This flag forces \*\*no\*\* Phase 3 agent on/This flag forces all four always-on Phase 3 agents on/' "$P05_SETUP"
+# The two profile-table rows this change does NOT amend — surface-presence pins over unamended
+# text (assert_pin_unique), each carrying a structural-pin-ok declaration (mutation-routing gate #666).
+assert_pin_unique "#769: small_diff AND config_only profile-table row present (surface presence over unamended text)" \
+  'Skip Phase 1 + Phase 2 (checklist gen + verify) entirely. Set `checklist_skipped = "intentional"`.' "$P05_SETUP"  # structural-pin-ok: surface presence over an unamended profile-table row (#769)
+assert_pin_unique "#769: small_diff-alone profile-table row present (surface presence over unamended text)" \
+  'Run Phase 1+2 normally. In Phase 3.1, apply the `has_new_types` gate for `type-design-analyzer` and the unified `pr-test-analyzer` test-relevance predicate.' "$P05_SETUP"  # structural-pin-ok: surface presence over an unamended profile-table row (#769)
 # Mutation proofs (AC2/AC7 guarantee-class): deleting a load-bearing contract literal turns
 # its pin RED. The third arg routes the removal through the relevant file (the generalized
 # helper defaults to $MAXI_SKILL when omitted). These exercise the engine-prose pins above on
@@ -7257,6 +7297,75 @@ assert_pin_unique "#168 create-path: SKILL guards branch-for-issue.py exit statu
   'branch-for-issue.py failed' "$IMPL_SKILL"
 assert_pin_unique "#168 create-path: SKILL guards against an empty BRANCH name" \
   '[ -n "$BRANCH" ]' "$IMPL_SKILL"
+
+# ── Issue #755: Phase 2 §2.0 resume-idempotency gate ──
+# A stalled cloud run that stall_backstop auto-resumes must NOT re-dispatch the Phase 2
+# code-explorer/code-architect subagents from scratch. The gate (phase-2-implement.md §2.0)
+# fires on (a) a `resume-kind: in-flight` marker + (b) a committed non-placeholder Plan, and
+# then skips the two dispatches. BEHAVIORAL-FIX PIN: the operative sentence is the skip
+# directive itself — rewriting it ALONE re-introduces the "resumed run re-dispatches Phase 2
+# discovery from scratch" behavior — so it is pinned through assert_pin_red_under with a
+# `sed -E` mutation that rewrites only that directive back to its pre-fix behavior. A
+# framing-only literal would SURVIVE that mutation, and the assertion would then FAIL,
+# reporting the pin as non-behavioral.
+assert_pin_red_under "#755: Phase 2 §2.0 gate skip-dispatch directive is operative (removal re-introduces re-discovery from scratch)" \
+  'skip the Phase 2.1 `code-explorer` discovery dispatch and the Phase 2.2 `code-architect` dispatch plus re-planning' \
+  's|skip the Phase 2.1 `code-explorer` discovery dispatch and the Phase 2.2 `code-architect` dispatch plus re-planning|re-run full discovery|' "$P2_FILE"
+# Seed-literal coupling (repo-wide): the gate's "non-placeholder Plan" discriminator (conjunct
+# b) is the workpad.py new-body `## Plan` seed. If the seed literal changes in the producer but
+# not the gate, the gate mis-fires on a fresh run. Bind both copies so a one-sided seed edit
+# goes RED here — in addition to the existing `new-body` placeholder assertion in
+# lib/test/test_python_scripts.py, which is a WEAKER sibling: it matches only the inner
+# `_(planning in progress)_` substring of the generated body, not the full pinned row.
+WP755_PY="$LIB/../scripts/workpad.py"
+# Each of the four pins below is a half of a CROSS-FILE coupling, so its guarded regression is a
+# two-file divergence that no single-file mutation reproduces — hence the structural declaration
+# rather than a mutation-taking helper. The gate's own operative behavior is pinned behaviorally
+# by the assert_pin_red_under above. assert_pin_unique (not a raw grep) is the repo idiom: it also
+# fails a DUPLICATED literal, which a raw scan would let pass with the guarded sentence deleted
+# (the PR #154 vacuous-guard hole).
+assert_pin_unique "#755: workpad.py new-body Plan seed literal present (producer of the §2.0 gate discriminator)" \
+  '- [ ] _(planning in progress)_' "$WP755_PY"  # structural-pin-ok: producer half of the two-file seed coupling; the guarded regression is a one-sided seed edit (a divergence), not a single-file deletion
+assert_pin_unique "#755: Phase 2 §2.0 gate carries the same Plan seed literal as workpad.py new-body (coupled discriminator)" \
+  '- [ ] _(planning in progress)_' "$P2_FILE"  # structural-pin-ok: consumer half of the same two-file seed coupling
+# resume-kind marker writer/reader coupling (conjunct a): Phase 1.3 writes it, the §2.0 gate
+# reads it. Bind the pair so neither half can be dropped without the other going RED.
+assert_pin_unique "#755: Phase 1.3 writes the durable resume-kind marker (writer of §2.0 conjunct a)" \
+  'Emit the decided kind as a bare literal' "$P1_FILE"  # structural-pin-ok: writer half of a cross-file writer/reader pair; the guarded regression (writer dropped, reader surviving) is a two-file divergence
+assert_pin_unique "#755: Phase 2 §2.0 gate reads the resume-kind: in-flight marker (reader of conjunct a)" \
+  'resume-kind: in-flight' "$P2_FILE"  # structural-pin-ok: reader half of the same writer/reader pair
+# BEHAVIORAL-FIX PIN (conjunct-a fail-open): the Phase 1.3 fence must emit a BARE token, never
+# the brace template — whose own text contains `in-flight`, so a containment-style read of an
+# unsubstituted template ARMS conjunct (a) on a terminal re-trigger and fires the gate over a
+# stale all-`- [x]` Plan. The mutation flips the §2.0 READER's comparison rule to containment —
+# the exact state in which an unsubstituted template would arm conjunct (a) — so removing the
+# exact-value rule re-opens the fail-open. (The writer half is covered separately by the
+# assert_pin_unique on 'Emit the decided kind as a bare literal' in $P1_FILE above.)
+assert_pin_red_under "#755: §2.0 conjunct (a) compares by exact value, not containment (an unsubstituted template must not arm the gate)" \
+  'Compare by exact value, never by containment' \
+  's|Compare by exact value, never by containment|Compare by containment|' "$P2_FILE"
+# BEHAVIORAL-FIX PIN (§3.1 existing-PR guard): the guard is executable branch-selecting shell,
+# the class CLAUDE.md requires real coverage for. Reverting it to the `gh pr view` form
+# re-introduces the defect: that command takes no --state filter and resolves the branch's PR
+# across OPEN/CLOSED/MERGED, so a closed prior PR is silently adopted and the run proceeds with
+# no live PR. The mutation swaps the open-scoped list query back to the unscoped view form.
+# Target is spelled from IMPL_PHASES_DIR, which IS in scope here; $P3_FILE is not assigned
+# until far below this block, so using it would silently target the helper's default file.
+assert_pin_red_under "#755: §3.1 existing-PR guard queries OPEN-scoped (gh pr list --state open), never the unscoped gh pr view" \
+  'gh pr list --head "$HEAD_BRANCH" --state open --json number,createdAt' \
+  's|gh pr list --head "\$HEAD_BRANCH" --state open --json number,createdAt|gh pr view --json number|' "$IMPL_PHASES_DIR/phase-3-review.md"
+# BEHAVIORAL-FIX PIN (§3.1 empty-branch fail-closed): the branch is read in its OWN statement
+# because an inner `$(git branch --show-current)` failure is invisible to the outer `||` and
+# git prints EMPTY on a detached HEAD — collapsing the query to an UNFILTERED repo-wide
+# `gh pr list --state open` that exits 0, so the run adopts an arbitrary unrelated PR. The
+# mutation INLINES the branch read back into the query — literally re-introducing the defect,
+# not merely deleting the pinned line: it rewrites `--head "$HEAD_BRANCH"` to the inlined
+# `--head "$(git branch --show-current)"` form, whose inner failure the outer `||` cannot see.
+# The pin literal is the query's guarded operand, so the mutation flips it RED by restoring
+# the regression rather than by blanking the target (the vacuity assert_pin_red_under rules out).
+assert_pin_red_under "#755: §3.1 reads the branch in its own statement and treats an empty read as REFUSED (never an unfiltered repo-wide query)" \
+  'gh pr list --head "$HEAD_BRANCH"' \
+  's@--head "\$HEAD_BRANCH"@--head "$(git branch --show-current)"@' "$IMPL_PHASES_DIR/phase-3-review.md"
 
 # ── Issue #493: Phase 1.4 §1.4 PR-body run-link refresh (cloud resume) ──
 # On a resumed cloud run that reaches §1.4 and finds an existing open PR, the

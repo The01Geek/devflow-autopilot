@@ -205,9 +205,10 @@ A degraded pass must **never** clear a PR with a clean verdict. The guard is the
   - `devflow:type-design-analyzer` iff `has_new_types` is true, and
     `devflow:pr-test-analyzer` iff the test-relevance predicate matches, per
     `/devflow:review`'s Phase 3.1 gates.
-- **`engine_self_modifying` adds and removes nothing here.** That override forces the full
-  checklist and the four always-on agents on, but the two structural-applicability gates survive
-  it — so the expected roster is still "four always-on + each analyzer whose gate is true." Do not
+- **`engine_self_modifying` adds and removes nothing here.** That flag is a checklist-only
+  override — it forces the full checklist but no Phase 3 agent; the four always-on agents are
+  roster members on every profile and the two structural-applicability gates decide the rest —
+  so the expected roster is still "four always-on + each analyzer whose gate is true." Do not
   force the analyzers into the expected roster on an engine-self-modifying diff; that would
   manufacture a phantom shortfall.
 - **`devflow:requesting-code-review` is an always-on shadow-roster member.** The final-pass

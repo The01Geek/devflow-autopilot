@@ -171,7 +171,7 @@ Skip /devflow:review's Phase 4.4 (formal GitHub review posting). The fix loop is
 
 Every drift incident this skill has had traces to one of those rationalizations. Violating the letter of /devflow:review's phases is violating the spirit, even when the paraphrase reads correct. The engine-defined iter-N≥2 prior-findings handoff is sanctioned only for Step-1 loop iterations, never for a shadow prompt; provenance-clean extension text is the only sanctioned shadow-prompt addition.
 
-The engine produces, for this iteration: a verdict in {APPROVE, APPROVE with notes, APPROVE WITH CAVEAT, APPROVE WITH ADVISORY NOTES, REJECT} (matching `/devflow:review`'s Phase 4.1 enum) plus a markdown report. Phase 0.5 flags (`small_diff`, `config_only`, `has_new_types`, `engine_self_modifying`, `checklist_skipped`) apply unchanged. **The fix loop's iteration cap is still `$MAX_ITERS`** (the configured cap; default 5) — Phase 0.5 only scales agent dispatch, not the loop.
+The engine produces, for this iteration: a verdict in {APPROVE, APPROVE with notes, APPROVE WITH CAVEAT, APPROVE WITH ADVISORY NOTES, REJECT} (matching `/devflow:review`'s Phase 4.1 enum) plus a markdown report. Phase 0.5 flags (`small_diff`, `config_only`, `has_new_types`, `engine_self_modifying`, `checklist_skipped`) apply unchanged. **The fix loop's iteration cap is still `$MAX_ITERS`** (the configured cap; default 5) — Phase 0.5 scales the checklist, not the loop and not the Phase 3 roster.
 
 ### Step 2: Check Verdict
 

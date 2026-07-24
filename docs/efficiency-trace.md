@@ -77,16 +77,16 @@ silent `code-reviewer` may genuinely have under-earned its cost; on a config-onl
 engine-self-modifying jq/docs change, the *same* silence is correct — that reviewer's domain simply
 wasn't in the diff. Aggregating raw `null`-rate across diff shapes would systematically recommend
 cutting the generalist agents, which is backwards. So each iteration carries a `diff_profile`: the
-engine's Phase 0.5 classification (`small_diff`, `config_only`, `has_new_types`,
-`engine_self_modifying`, and `checklist_skipped`; Phase 0.5's fifth flag `detect_all_audit` is
+engine's Phase 0.5 classification (the four profile-shaping flags `small_diff`, `config_only`,
+`has_new_types`, `engine_self_modifying`, plus the derived `checklist_skipped` member; Phase 0.5's fifth flag `detect_all_audit` is
 not persisted — it only forces the completeness-critic pass and never shapes the profile). The cross-run analyzer **must segment by
 `diff_profile`** before drawing any cut conclusion — a `null` on a diff outside the agent's domain is
 not a cut signal.
 
-The `engine_self_modifying` override (Phase 0.5) no longer force-dispatches every Phase 3 agent: it
-keeps the full checklist and the four always-on agents firing, but `type-design-analyzer` and
-`pr-test-analyzer` keep their structural-applicability gates on every profile (`has_new_types` for
-the former, the test-relevance predicate for the latter). So on a docs-only / config-only engine PR
+The `engine_self_modifying` flag (Phase 0.5) is a checklist-only override — it forces the full
+checklist but no Phase 3 agent. The four always-on agents are roster members on every profile, and
+`type-design-analyzer` and `pr-test-analyzer` keep their structural-applicability gates on every
+profile (`has_new_types` for the former, the test-relevance predicate for the latter). So on a docs-only / config-only engine PR
 those two analyzers are correctly skipped rather than padding the dispatch roster with `null` /
 `corroborating`-only runs — which is exactly what made the earlier engine-PR records overstate cost.
 
