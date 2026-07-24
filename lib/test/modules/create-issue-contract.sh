@@ -35,9 +35,10 @@ CI_TMPL_AUDIT="$CI_ROOT/skills/create-issue/references/audit-prompt-template.md"
 # LOCATION-sensitive pin (it asserts a sentence lives in a specific surface) keeps a
 # specific-file target. Each reference is also bound by name so a specific-file pin
 # resolves under the pin-corpus meta-guard.
-# shellcheck disable=SC2034  # AC5 specific-file pin-retarget seams: run.sh binds each of these
-# through CI_MOD_VARS so a step-reference retarget resolves under the pin-corpus meta-guard.
-# The four fallback siblings below are live T4 purity operands; these five are seams only.
+# AC5 specific-file pin-retarget seams: run.sh binds each of these through CI_MOD_VARS so a
+# step-reference retarget resolves under the pin-corpus meta-guard. The four fallback siblings
+# below are live T4 purity operands; the seams carry an SC2034 disable only while nothing in
+# the module reads them — CI_REF_STEP2 is read by the #749/AC22 block, so it carries none.
 CI_REF_STEP2="$CI_ROOT/skills/create-issue/references/step-2-clarify.md"
 # shellcheck disable=SC2034  # pin-retarget seam (see the block comment above)
 CI_REF_STEP35="$CI_ROOT/skills/create-issue/references/step-3-5-steelman.md"
@@ -1920,14 +1921,18 @@ CI_DV="$CI_ROOT/skills/docs-verify/SKILL.md"
 # verdict token, and every report-output field name. AC19 states these carry NO mutation
 # obligation (they guard an interface's existence, not a named behavioral regression), so
 # each declares itself structural.
-devflow_module_pin_present "#749/AC13: docs-verify declares the --report-only mode flag" \
-  '`--report-only`' "$CI_DV"  # structural-pin-ok: AC19 exempts AC13's surface-presence pins from the mutation obligation
-devflow_module_pin_present "#749/AC13: docs-verify declares the DOCS ACCURATE verdict token" \
-  'DOCS ACCURATE' "$CI_DV"  # structural-pin-ok: AC19 exempts AC13's surface-presence pins from the mutation obligation
-devflow_module_pin_present "#749/AC13: docs-verify declares the DRIFT FOUND verdict token" \
-  'DRIFT FOUND' "$CI_DV"  # structural-pin-ok: AC19 exempts AC13's surface-presence pins from the mutation obligation
-devflow_module_pin_present "#749/AC13: docs-verify declares the DOCS MISSING verdict token" \
-  'DOCS MISSING' "$CI_DV"  # structural-pin-ok: AC19 exempts AC13's surface-presence pins from the mutation obligation
+# The mode flag and the three verdict tokens are the same surface-presence shape, so they
+# ride one helper — the sibling of ci749_field below — rather than four copies of the row
+# and its exemption comment.
+ci749_iface() {  # <what it declares> <pin literal>
+  devflow_module_pin_present "#749/AC13: docs-verify declares the $1" \
+    "$2" "$CI_DV"  # structural-pin-ok: AC19 exempts AC13's surface-presence pins from the mutation obligation
+}
+ci749_iface '--report-only mode flag' '`--report-only`'
+ci749_iface 'DOCS ACCURATE verdict token' 'DOCS ACCURATE'
+ci749_iface 'DRIFT FOUND verdict token' 'DRIFT FOUND'
+ci749_iface 'DOCS MISSING verdict token' 'DOCS MISSING'
+unset -f ci749_iface
 # One row per declared report-output field. Named individually rather than as one blob so a
 # dropped field is attributable — a report contract that loses a field silently is exactly
 # how Step 1's escalation comparands stop resolving.
@@ -2025,23 +2030,22 @@ devflow_module_pin_red_under "#749/AC25: the concurrent-run overwrite of the poi
 # AC22 — the Step 1 evidence artifact is read as a best-effort parser reads agent-mutable
 # markdown. One row per malformed shape the matrix requires, plus the absent-file row whose
 # routing DIFFERS (unestablished, not a re-run) and the complete-prior-run-artifact case.
-CI749_CLARIFY="$CI_ROOT/skills/create-issue/references/step-2-clarify.md"
 devflow_module_pin_red_under "#749/AC22: the artifact reader is governed by the best-effort-parser contract" \
   '**Treat it as a best-effort parser treats agent-mutable markdown.**' \
-  's/\*\*Treat it as a best-effort parser treats agent-mutable markdown\.\*\*//' "$CI749_CLARIFY"
+  's/\*\*Treat it as a best-effort parser treats agent-mutable markdown\.\*\*//' "$CI_REF_STEP2"
 devflow_module_pin_red_under "#749/AC22: empty-or-truncated, missing-or-duplicated marker, and non-canonical layout each re-run the pass" \
   'routes to **re-running the Step 1 pass**, never a partial parse' \
-  's/, never a partial parse//' "$CI749_CLARIFY"
+  's/, never a partial parse//' "$CI_REF_STEP2"
 devflow_module_pin_red_under "#749/AC22: an ABSENT artifact after a completed Step 1 is unestablished, never a silent re-dispatch" \
   'is instead recorded `unestablished — Step 1 evidence artifact absent`' \
-  's/is instead recorded `unestablished — Step 1 evidence artifact absent`/is instead re-derived by re-dispatching the deep arm/' "$CI749_CLARIFY"
+  's/is instead recorded `unestablished — Step 1 evidence artifact absent`/is instead re-derived by re-dispatching the deep arm/' "$CI_REF_STEP2"
 devflow_module_pin_red_under "#749/AC22: a complete prior-run artifact cannot survive into this run (the on-entry delete is the guard)" \
   'so a prior run'"'"'s leftover on the same deterministic slug cannot read as this run'"'"'s' \
   's/, so a prior run'"'"'s leftover on the same deterministic slug cannot read as this run'"'"'s//' "$CI_SKILL"
 devflow_module_pin_red_under "#749/AC9: degraded Step 1 evidence carries its degradation into the entries it seeds" \
   'Degraded Step 1 evidence carries its degradation into the entries it seeds.' \
-  's/Degraded Step 1 evidence carries its degradation into the entries it seeds\.//' "$CI749_CLARIFY"
-unset -v CI_DV CI749_CLARIFY
+  's/Degraded Step 1 evidence carries its degradation into the entries it seeds\.//' "$CI_REF_STEP2"
+unset -v CI_DV
 
 # Complete normal cleanup explicitly so a removal or marker failure changes the
 # module status. EXIT remains a fallback for earlier returns and shell errors.
