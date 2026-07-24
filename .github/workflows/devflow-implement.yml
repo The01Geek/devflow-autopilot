@@ -1146,7 +1146,7 @@ jobs:
           # lib/test/run.sh #484 guard deliberately audits all shared fenced source,
           # including standalone-only Phase 4.4, so every audited head is granted or
           # withheld with rationale even when normal inline control flow cannot reach it.
-          # devflow-capability-manifest: region=implement manifest_version=8 sha256=402a058a5be532c9a0e464a09ad7839434fa8badf956339c8a47ea59dbe29c1e
+          # devflow-capability-manifest: region=implement manifest_version=9 sha256=b1a0d132ba29de7668bc4cec46f81747bb24217fc5fee8f046b5599fc5983996
           claude_args: >-
             ${{ steps.cargs.outputs.args }}
             --allowed-tools
@@ -1229,6 +1229,7 @@ jobs:
             Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*),
             Bash(.devflow/vendor/devflow/scripts/apply-labels.sh:*),
             Bash(.devflow/vendor/devflow/scripts/ensure-label.sh:*),
+            Bash(.devflow/vendor/devflow/scripts/resolve-existing-pr.sh:*),
             Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*),
             Bash(.devflow/vendor/devflow/scripts/stale-prose-lint.py:*),
             Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*),

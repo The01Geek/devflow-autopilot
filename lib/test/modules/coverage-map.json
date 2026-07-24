@@ -404,6 +404,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/resolve-existing-pr.sh": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "scripts/resolve-review-overrides.py": {
       "focused_test": "lib/test/test_python_scripts.py",
       "note": "",
@@ -1572,6 +1576,10 @@
       "owner": "create-issue-contract"
     },
     "769": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "782": {
       "note": "",
       "owner": "unmodularized"
     },
