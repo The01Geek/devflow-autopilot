@@ -1308,11 +1308,12 @@ class DeclaredDimensionKeys(unittest.TestCase):
         for r in (rend, enum):
             self.assertNotEqual(r.returncode, 0, r.stdout)
             self.assertEqual(r.stdout, "")
-            # The breadcrumb names the file at fault and the block that carries the
-            # stray declaration, so an operator debugs the right block.
+            # The breadcrumb names the block's arm set, so an operator debugs the
+            # right block. `file` here is that block's arm NAME (`arms: file`), not
+            # a template path — the message carries no path.
             self.assertIn("template malformed", r.stderr)
             self.assertIn("non-checklist render-block", r.stderr)
-            self.assertIn("file", r.stderr)
+            self.assertIn("arms: file", r.stderr)
 
     # ---- Consumer-side declaration defects: symmetric with the generic arm.
     # The consumer extension is the one file in this contract a THIRD PARTY authors,
