@@ -3,18 +3,7 @@
   "started_at": "2026-07-23T23:05:05Z",
   "loop_role": "fix",
   "current_step": "2.6",
-  "current_substep": "run_shadow_fanout",
-  "pending_dispatch": {
-    "kind": "shadow_reviewer_fanout",
-    "roster": [
-      "devflow:code-reviewer",
-      "devflow:silent-failure-hunter",
-      "devflow:comment-analyzer",
-      "devflow:pr-test-analyzer",
-      "devflow:requesting-code-review"
-    ],
-    "dispatched_at": "2026-07-24T00:01:41Z"
-  },
+  "current_substep": "shadow_recorded",
   "diff_profile": {
     "small_diff": false,
     "config_only": false,
@@ -466,5 +455,257 @@
   },
   "sweep_evidence": {
     "status": "run"
+  },
+  "reference_reads": {
+    "fix_delta": {
+      "status": "verified",
+      "outcome": "refixed",
+      "reason": null
+    }
+  },
+  "shadow": {
+    "ran_at": "2026-07-24T00:12:00Z",
+    "reviewed_sha": "54eb698a40dff2e1089f220c5daf3697ca483dd3",
+    "verdict": "REJECT",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": null,
+    "checklist_skipped": null,
+    "trigger": "early (engine_self_modifying, after iteration 1)",
+    "phase3_findings": [
+      {
+        "agent": "devflow:code-reviewer",
+        "severity": "Critical",
+        "description": "Docs assert the applied arm ships and applies on the cloud tier; the shipped composer is inert by default (DEVFLOW_AE_APPLY set by no workflow), so no per-agent effort is applied and agent-definition is never recorded.",
+        "defect_signature": {
+          "file": "docs/review-agent-overrides.md",
+          "line_range": [
+            250,
+            319
+          ],
+          "kind": "documented_falsehood"
+        },
+        "corroboration_count": 5
+      },
+      {
+        "agent": "devflow:requesting-code-review",
+        "severity": "Critical",
+        "description": "The changeset states a configured per-agent effort 'takes effect instead of the honest fallback'. False against HEAD, and consolidate-changesets.py prepends this verbatim into the public CHANGELOG on merge.",
+        "defect_signature": {
+          "file": ".changeset/issue-669-per-agent-effort-applied-arm.md",
+          "line_range": [
+            11,
+            24
+          ],
+          "kind": "documented_falsehood"
+        },
+        "corroboration_count": 2
+      },
+      {
+        "agent": "devflow:comment-analyzer",
+        "severity": "Critical",
+        "description": "compose-applied-effort.sh tells a maintainer to 'restore the claude_args splice' when arming the gate. The splice was never removed - all three workflows carry it at HEAD and run.sh pins it present.",
+        "defect_signature": {
+          "file": "scripts/compose-applied-effort.sh",
+          "line_range": [
+            104,
+            105
+          ],
+          "kind": "documented_falsehood"
+        },
+        "corroboration_count": 3
+      },
+      {
+        "agent": "devflow:comment-analyzer",
+        "severity": "Important",
+        "description": "run.sh comment cites the '|| printf {}' fallback form as current; the F3 fix in this same PR replaced it with a capture-then-branch form.",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            21622,
+            21622
+          ],
+          "kind": "documented_falsehood"
+        },
+        "corroboration_count": 2
+      },
+      {
+        "agent": "devflow:code-reviewer",
+        "severity": "Important",
+        "description": "The three triplicated workflow step comments describe the step as composing --agents and writing the sidecar, with no mention of the default-off gate, so an operator reads the step as live.",
+        "defect_signature": {
+          "file": ".github/workflows/devflow-runner.yml",
+          "line_range": [
+            986,
+            1000
+          ],
+          "kind": "documented_falsehood"
+        },
+        "corroboration_count": 3
+      },
+      {
+        "agent": "devflow:requesting-code-review",
+        "severity": "Important",
+        "description": "docs/agents-seam-probe.md records 'Decision: the applied arm SHIPS', contradicting the shipped gate; this is the evidence-of-record the next probe dispatch is adjudicated against.",
+        "defect_signature": {
+          "file": "docs/agents-seam-probe.md",
+          "line_range": [
+            242,
+            246
+          ],
+          "kind": "documented_falsehood"
+        },
+        "corroboration_count": 1
+      },
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Important",
+        "description": "The workflow's helper-absent branch is silent AND co-gates the stale-sidecar clear: with neither helper path present (the #502 vendor-skew state) no breadcrumb is emitted and a PR-committed sidecar is never cleared, so the recorder reads author-supplied values as genuine applied telemetry.",
+        "defect_signature": {
+          "file": ".github/workflows/devflow-runner.yml",
+          "line_range": [
+            1010,
+            1020
+          ],
+          "kind": "logic_error"
+        },
+        "corroboration_count": 1
+      },
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Important",
+        "description": "No test asserts the shipped workflows leave the apply gate off; the deferral of an unmeasured --agents shape was guarded only by an env var's absence.",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            33904,
+            33921
+          ],
+          "kind": "test_gap"
+        },
+        "corroboration_count": 1
+      },
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Important",
+        "description": "Every composer test stubs the resolver with space-free JSON while the real producer (json.dumps) emits spaces, so the asserted splice literal is a shape the shipped resolver never produces and the space-bearing claude_args path is unexercised.",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            21672,
+            21732
+          ],
+          "kind": "test_gap"
+        },
+        "corroboration_count": 1
+      },
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Important",
+        "description": "$applied_effort is now a required jq arg with no vendor-skew coverage: an old .sh paired with a new .jq yields a compile error and total telemetry loss rather than fail-closed degradation.",
+        "defect_signature": {
+          "file": "lib/efficiency-trace.jq",
+          "line_range": [
+            237,
+            237
+          ],
+          "kind": "test_gap"
+        },
+        "corroboration_count": 1
+      },
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Important",
+        "description": "The applier/recorder default-path handoff is pinned by two literals but never behaviorally driven.",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            21734,
+            21747
+          ],
+          "kind": "test_gap"
+        },
+        "corroboration_count": 1
+      },
+      {
+        "agent": "devflow:requesting-code-review",
+        "severity": "Important",
+        "description": "DEVFLOW_AE_APPLY is forwarded by no workflow env and absent from config.schema.json, so arming the arm is a workflows-scoped code change, not an operator action.",
+        "defect_signature": {
+          "file": "scripts/compose-applied-effort.sh",
+          "line_range": [
+            100,
+            110
+          ],
+          "kind": "api_misuse"
+        },
+        "corroboration_count": 1
+      },
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Suggestion",
+        "description": "A sidecar naming an agent outside $effort_roster is silently dropped; correct but unasserted.",
+        "defect_signature": {
+          "file": "lib/efficiency-trace.jq",
+          "line_range": [
+            236,
+            238
+          ],
+          "kind": "test_gap"
+        },
+        "corroboration_count": 1
+      },
+      {
+        "agent": "devflow:comment-analyzer",
+        "severity": "Suggestion",
+        "description": "build_applied_effort docstring implies a live production path without noting the composer that calls it is inert by default.",
+        "defect_signature": {
+          "file": "scripts/resolve-review-overrides.py",
+          "line_range": [
+            356,
+            391
+          ],
+          "kind": "comment_drift"
+        },
+        "corroboration_count": 1
+      },
+      {
+        "agent": "devflow:requesting-code-review",
+        "severity": "Suggestion",
+        "description": "run.sh's 'gate is opt-in' framing is true of the helper but reads as operator opt-in; no deployed tier sets it.",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            21789,
+            21793
+          ],
+          "kind": "comment_drift"
+        },
+        "corroboration_count": 1
+      }
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 15,
+      "overlap_with_iter_1": 1,
+      "new": 14,
+      "new_critical": 3,
+      "new_important": 9
+    },
+    "promoted_to_iter_next": true
   }
 }
