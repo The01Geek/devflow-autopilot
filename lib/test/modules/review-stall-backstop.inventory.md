@@ -37,7 +37,11 @@ Rewrite performed during extraction: every `assert_pin_unique` call became
 pin API, literals, mutations and targets unchanged. Two run.sh globals are
 re-derived in the module header rather than inherited:
 
-- `REPO_ROOT`, computed from `LIB` exactly as the monolith computes it.
+- `REPO_ROOT`, derived from `LIB` but spelled `$LIB/..` — deliberately NOT the
+  monolith's `$(cd "$LIB/.." && pwd)` form — so `pin-corpus-lint.py`'s resolver,
+  which understands a `$LIB/relative` assignment but cannot see through a command
+  substitution, can resolve every REPO_ROOT-derived pin target (the module header
+  states this reason in full).
 - `REVIEW_BUNDLE`, the concatenated review-engine bundle (thin root plus every
   phase reference) that two `#408` pins target so their sentences may live in the
   root or in any reference. The module rebuilds it with

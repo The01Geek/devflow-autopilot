@@ -75,8 +75,13 @@ assert_eq "lpe: empty skill name → empty stdout" "" "$EMPTY_NAME_OUT"
 
 # Present-but-unreadable file → refused LOUDLY (exit 2 + breadcrumb), never the
 # silent empty no-op the calling skill reads as "proceed unchanged" (which would
-# drop the consumer's extension). Root bypasses the permission bits, so this only
-# asserts for an ordinary user — skip under root rather than reporting a false FAIL.
+# drop the consumer's extension). Root bypasses the permission bits, so a chmod 000
+# file is still readable there and the guard cannot fire. Rather than SKIP the three
+# assertions under root — which would drop the executed count below this module's
+# equality floor and turn a root run into a false FAIL (issue #746 review Suggestion) —
+# run three assertions in EITHER environment: the non-root arm pins the loud refusal;
+# the root arm pins the read-through the bypassed bits actually produce. The count is
+# then constant across environments, so the floor is no longer host-sensitive.
 printf 'unreadable content' > "$LPE_DIR/.devflow/prompt-extensions/locked.md"
 chmod 000 "$LPE_DIR/.devflow/prompt-extensions/locked.md"
 if [ "$(id -u)" -ne 0 ] && [ ! -r "$LPE_DIR/.devflow/prompt-extensions/locked.md" ]; then
@@ -86,6 +91,17 @@ if [ "$(id -u)" -ne 0 ] && [ ! -r "$LPE_DIR/.devflow/prompt-extensions/locked.md
   assert_eq "lpe: unreadable present file → no content leaked to stdout" "" "$LOCK_OUT"
   assert_eq "lpe: unreadable present file → breadcrumb says 'not readable'" "yes" \
     "$(grep -qF 'not readable' /tmp/devflow-lpe-lock.err && echo yes || echo no)"
+else
+  # Root (or any host where the bits do not deny): the file is readable, so the helper
+  # reads it through and emits it at exit 0 — the guard is bypassed, not triggered.
+  # Assert exactly that, so the arm still contributes its three assertions to the floor.
+  LOCK_OUT="$(cd "$LPE_DIR" && bash "$LPE" locked 2>/tmp/devflow-lpe-lock.err)"; LOCK_RC=$?
+  assert_eq "lpe: unreadable-bits file under root → read through at exit 0 (bits bypassed)" "yes" \
+    "$([ "$LOCK_RC" -eq 0 ] && echo yes || echo no)"
+  assert_eq "lpe: unreadable-bits file under root → content emitted" "yes" \
+    "$(printf '%s' "$LOCK_OUT" | grep -qF 'unreadable content' && echo yes || echo no)"
+  assert_eq "lpe: unreadable-bits file under root → no 'not readable' breadcrumb (guard bypassed)" "yes" \
+    "$(grep -qF 'not readable' /tmp/devflow-lpe-lock.err && echo no || echo yes)"
 fi
 chmod 644 "$LPE_DIR/.devflow/prompt-extensions/locked.md"   # restore so rm -rf can clean up
 
