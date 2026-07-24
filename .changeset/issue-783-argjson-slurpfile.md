@@ -10,8 +10,11 @@ type: Fixed
   summary arrays — to `jq` through `--argjson` argv slots, which overflow the kernel argument
   limit once the corpus is large enough. They now route those corpus-sized operands through
   `--slurpfile <file>` (a file read) instead; bounded scalars keep `--argjson` under an inline
-  `# argjson-ok:` marker. A new `lib/test/lint-argjson-transport.py` guard (driven from
-  `lib/test/run.sh`, with behavioral-fix pins and a planted-defect positive control) turns the
-  suite RED if any of those three helpers regains an unmarked `--argjson`. The misleading
+  `# argjson-ok:` marker that declares the scalar operand names it vouches for. A new
+  `lib/test/lint-argjson-transport.py` guard (driven from `lib/test/run.sh`, with behavioral-fix
+  pins and planted-defect / corpus-revert positive controls) turns the suite RED if any of those
+  three helpers routes a corpus-sized operand through `--argjson` again — an `--argjson` with no
+  marker, or one whose operand name the marker does not declare (so a corpus operand cannot be
+  masked by a marked scalar sharing its jq invocation). The misleading
   `actionable-patterns.sh` failure breadcrumb that blamed the cooldown comparison now names the
   output-build / operand-size cause. (#783)

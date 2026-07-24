@@ -47739,6 +47739,27 @@ assert_pin_red_under "#783 scan.sh EXISTING set routed via --slurpfile" \
 assert_pin_red_under "#783 SKILL.md Step 9 patterns routed via --slurpfile" \
   '--slurpfile patterns ' 's/--slurpfile patterns /--argjson patterns /' "$LIB/../skills/retrospective-weekly/SKILL.md"
 
+# Guard delivers its guarantee (issue #783 review, per-operand-name scoping): the
+# grep-pins above only prove a LITERAL changed under mutation. This block proves the
+# LINT ITSELF turns RED when a corpus operand is reverted from --slurpfile to --argjson
+# on a jq invocation that ALSO carries marked scalars — the block-marker must NOT exempt
+# the whole logical line (the vacuous-guard hole the review found: min/cooldown_epoch's
+# marker was masking a reverted --argjson pattern_view). Each reverts one real corpus
+# operand in a copy of the shipped file and asserts the lint reports RED.
+E783_REV="$(probe_tmp '#783 corpus-revert copy')"
+if [ -n "$E783_REV" ] && [ "$E783_REV" != /dev/null ]; then
+  sed 's/--slurpfile pattern_view/--argjson pattern_view/' "$LIB/actionable-patterns.sh" > "$E783_REV"
+  assert_eq "#783 lint catches a corpus operand (pattern_view) reverted beside marked scalars (RED)" "1" \
+    "$(python3 "$E783_LINT" "$E783_REV" >/dev/null 2>&1; echo $?)"
+  sed 's/--slurpfile a /--argjson a /' "$LIB/scan.sh" > "$E783_REV"
+  assert_eq "#783 lint catches scan.sh _add_candidates 'a' reverted beside marked scalar 'b' (RED)" "1" \
+    "$(python3 "$E783_LINT" "$E783_REV" >/dev/null 2>&1; echo $?)"
+  sed 's/--slurpfile analyzed /--argjson analyzed /' "$LIB/../skills/retrospective-weekly/SKILL.md" > "$E783_REV"
+  assert_eq "#783 lint catches SKILL.md Step 9 'analyzed' reverted beside the marked scalars (RED)" "1" \
+    "$(python3 "$E783_LINT" "$E783_REV" >/dev/null 2>&1; echo $?)"
+  rm -f "$E783_REV"
+fi
+
 # Reproduction (bug-fix first-fail): an oversized operand aborts jq via --argjson
 # (the defect) and completes via --slurpfile (the fix) — same program, same input.
 # ~3 MB exceeds both Linux MAX_ARG_STRLEN (128 KB/arg) and macOS ARG_MAX (~1 MB).

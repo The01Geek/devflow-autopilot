@@ -12,9 +12,12 @@ macOS ``ARG_MAX`` total) ``execve`` rejects it before jq runs and the loop abort
 with ``jq: Argument list too long``. The fix routes every corpus-sized operand
 through ``--slurpfile <file>`` (a file read, dereferenced ``[0]``); a genuine
 bounded scalar (a count, an epoch int, a boolean flag) may stay ``--argjson`` but
-must *declare* itself with an inline ``# argjson-ok: <reason>`` marker. This guard
-turns the suite RED when an aggregating helper regains an unmarked ``--argjson``,
-so the E2BIG regression cannot ship silently.
+must *declare itself by name* in a ``# argjson-ok: <names> <reason>`` marker. This
+guard turns the suite RED when an aggregating helper routes a corpus-sized operand
+through ``--argjson`` again — either an ``--argjson`` with no applicable marker, or
+one whose operand name the marker does not declare as a bounded scalar (a corpus
+operand reverted from ``--slurpfile`` even though marked scalars share its jq
+invocation) — so the E2BIG regression cannot ship silently.
 
 It is a member of the repository's declaration-marker lint family, alongside
 ``# raw-guard-ok:`` / ``# structural-pin-ok:`` / ``# tree-walk-ok:``.
@@ -37,27 +40,39 @@ loop's path. The file set is a hardcoded closed list — this guard reads exactl
 these three named paths and performs **no** repository-tree walk (so the #711
 tree-enumeration convention is not engaged).
 
-Marker coverage rule (robust to shell continuation): jq invocations here span
-multiple physical lines via backslash-continuation, and shell forbids a ``#``
-comment mid-continuation, so a marker may not always sit inline on the
-``--argjson`` line. A ``--argjson`` occurrence counts only when it appears in the
-*code* portion of a line (before any inline ``#`` comment) — a ``--argjson``
-mentioned inside explanatory comment prose is not a jq flag and is ignored.
-Symmetrically, a ``# argjson-ok:`` marker only exempts when it sits in the
-*comment* portion — a marker string appearing inside a quoted jq/shell literal
-does not. Both the code/comment split and the marker split are the family's
-quote- and escape-aware ``_comment_split`` (reused from ``lint-tree-enumeration.py``,
-not re-derived), so a ``#`` inside a string literal is not mistaken for a comment.
-A real occurrence is COVERED when either the *logical line* that carries it
-(physical lines joined across backslash-continuations) has a ``# argjson-ok:``
-marker in one of its comment tails, or the contiguous comment block immediately
-preceding that logical line contains a ``# argjson-ok:`` marker (the block-marker
-form placed directly above the jq head, which may itself span several comment
-lines). Anything else is a violation.
+Marker coverage rule — PER-OPERAND-NAME, not per-line (robust to shell
+continuation): jq invocations here span multiple physical lines via backslash-
+continuation, and shell forbids a ``#`` comment mid-continuation, so a marker may
+not sit inline on each ``--argjson`` line — a ``# argjson-ok:`` marker on the
+line's inline comment tail, OR in the contiguous comment/blank block immediately
+above the logical line, applies to it. A ``--argjson`` occurrence counts only when
+it appears in the *code* portion of a line (before any inline ``#`` comment) — a
+``--argjson`` mentioned inside explanatory comment prose is not a jq flag and is
+ignored. Symmetrically, a ``# argjson-ok:`` marker only exempts when it sits in the
+*comment* portion — a marker string appearing inside a quoted jq/shell literal does
+not. Both the code/comment split and the marker split are the family's quote- and
+escape-aware ``_comment_split`` (reused from ``lint-tree-enumeration.py``, not
+re-derived), so a ``#`` inside a string literal is not mistaken for a comment.
+
+The exemption is **scoped to the operand names the marker declares, never the whole
+logical line** (issue #783 review — the load-bearing fix). A single backslash-joined
+jq invocation routinely mixes corpus-sized ``--slurpfile`` operands with genuinely
+bounded ``--argjson`` scalars carrying the marker; if the marker exempted the whole
+line, a corpus operand reverted from ``--slurpfile`` back to ``--argjson`` on that
+same invocation would be masked by the scalars' marker — the exact E2BIG regression
+this guard exists to catch, silently uncaught. So a marker declares the scalar
+operand names it vouches for (the identifier tokens after ``# argjson-ok:`` — e.g.
+``min, cooldown_epoch``), and a logical line is COVERED only when it has an applicable
+marker AND **every** ``--argjson NAME`` on it is a declared name. A ``--argjson``
+operand whose name the marker does not declare (a reverted corpus operand:
+``pattern_view`` / ``a`` / ``analyzed`` …) is a violation even though marked scalars
+share its line. A logical line with a code ``--argjson`` flag and no applicable marker
+at all is likewise a violation.
 """
 
 import importlib.util
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -83,6 +98,11 @@ if _tree_missing:
 
 FLAG = "--argjson"
 MARKER = "# argjson-ok:"
+
+#: The operand name after a ``--argjson`` flag (``--argjson pattern_view`` → ``pattern_view``).
+_ARGJSON_NAME_RE = re.compile(r"--argjson\s+([A-Za-z_][A-Za-z0-9_]*)")
+#: An identifier token, used to read the DECLARED scalar names out of a marker line.
+_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 # The closed, hardcoded in-scope set (repo-root-relative). Resolved against this
 # file's own location (lib/test/lint-argjson-transport.py → parents[2] == repo
@@ -118,35 +138,70 @@ def _has_code_flag(joined):
     return any(FLAG in _tree.strip_comment(pl) for pl in joined.split("\n"))
 
 
-def _marker_in_comment(line):
-    """True when the ``# argjson-ok:`` marker sits in the COMMENT tail of ``line``
-    (never inside a quoted literal), using the family's quote-aware split."""
-    return MARKER in _tree._comment_split(line)[1]
+def _argjson_names(joined):
+    """The operand name of every ``--argjson`` in the CODE portion of the logical
+    line (quote-aware split, so a ``--argjson`` inside a string literal is ignored)."""
+    names = []
+    for pl in joined.split("\n"):
+        names.extend(_ARGJSON_NAME_RE.findall(_tree.strip_comment(pl)))
+    return names
+
+
+def _marker_line_for(lines, start, joined):
+    """Return the single comment line carrying ``# argjson-ok:`` that applies to this
+    logical line — the inline comment tail of one of its physical lines (never a marker
+    inside a quoted literal, thanks to the quote-aware split), or the ``# argjson-ok:``
+    line in the contiguous comment/blank block immediately preceding it. ``None`` if no
+    marker applies. The DECLARED scalar names are read from this one line."""
+    for pl in joined.split("\n"):
+        if MARKER in _tree._comment_split(pl)[1]:
+            return _tree._comment_split(pl)[1]
+    j = start - 1
+    while j >= 0 and (lines[j].strip() == "" or lines[j].lstrip().startswith("#")):
+        if MARKER in lines[j]:
+            return lines[j]
+        j -= 1
+    return None
+
+
+def _declared_names(marker_line):
+    """The set of scalar operand names a marker line declares as ``--argjson``-safe —
+    every identifier token appearing after the ``# argjson-ok:`` token on that line. The
+    rationale prose that follows the names is a harmless superset (a prose word is simply
+    a name no ``--argjson`` operand happens to use); what matters is that a corpus operand
+    name (``pattern_view``/``a``/``analyzed`` …) is NOT among them, so reverting its
+    ``--slurpfile`` to ``--argjson`` yields an undeclared name and fires."""
+    after = marker_line[marker_line.find(MARKER) + len(MARKER):]
+    return set(_NAME_RE.findall(after))
 
 
 def audit_text(text):
-    """Return a list of (physical_line_number, snippet) for each unmarked
-    ``--argjson`` occurrence."""
+    """Return a list of (physical_line_number, snippet) for each violating logical line.
+
+    A logical line with a code ``--argjson`` flag violates when it carries no applicable
+    ``# argjson-ok:`` marker at all, OR carries one but has a ``--argjson`` operand whose
+    name the marker does not declare. The latter is the load-bearing case (issue #783
+    review): the marker exempts only the *bounded scalar operands it names*, never the
+    whole logical line — so a corpus operand reverted from ``--slurpfile`` to ``--argjson``
+    on a jq invocation that also carries marked scalars is caught, not masked by the
+    scalars' marker."""
     findings = []
     lines = text.split("\n")
     for start, joined in _logical_lines(lines):
         if not _has_code_flag(joined):
             continue
-        # Covered if the marker rides in a comment tail of the same logical line
-        # (inline form, valid for a single-line command with a trailing comment), ...
-        covered = any(_marker_in_comment(pl) for pl in joined.split("\n"))
-        if not covered:
-            # ... or the contiguous comment/blank block immediately preceding this
-            # logical line contains the marker (block-marker form above the jq
-            # head, which may itself span several comment lines).
-            j = start - 1
-            while j >= 0 and (lines[j].strip() == "" or lines[j].lstrip().startswith("#")):
-                if _marker_in_comment(lines[j]):
-                    covered = True
-                    break
-                j -= 1
-        if not covered:
+        names = _argjson_names(joined)
+        marker_line = _marker_line_for(lines, start, joined)
+        if marker_line is None:
             findings.append((start + 1, joined.strip().splitlines()[0][:100]))
+            continue
+        declared = _declared_names(marker_line)
+        undeclared = [n for n in names if n not in declared]
+        if undeclared:
+            head = joined.strip().splitlines()[0][:80]
+            findings.append(
+                (start + 1, f"--argjson operand(s) {undeclared} not declared in marker: {head}")
+            )
     return findings
 
 
