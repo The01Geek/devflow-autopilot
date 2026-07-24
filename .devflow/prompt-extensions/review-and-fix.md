@@ -16,7 +16,7 @@ precondition.
 > `#247`/`PR #340` reproduction walkthroughs were trimmed for prompt budget (issue #530) to at
 > most a one-line summary (some carry none). Full context: issue #247 / PR #340 history.
 
-Template: [Prose cutover](implement.md#prose-cutover).
+Template: [Keeping prompt prose lean](implement.md#keeping-prompt-prose-lean-advisory).
 
 ## Focused test modules are the fix-iteration default
 
@@ -212,10 +212,6 @@ Act on its report first: commit a changed manifest with its causing edits, and r
 **Any outcome but exit 0 or a fully-reported exit 1** — exit 2, a traceback, an empty or truncated report, an unattributable exit code — means an artifact went unchecked: unknown, not clean. Judge residually, never by hunting a named token. Never record `run`; record `batched-regeneration: skipped` naming what you saw, and fall back to serial discovery.
 
 If the matcher refuses the invocation **twice**, stop — record the refusal and proceed to the suite run rather than iterating variants (the issue-401 two-denials discipline). On a run that maintains a workpad, record one line before each full-suite run — `batched-regeneration: run|refused|skipped`.
-
-## Review-bundle ceiling self-apply (issue #618)
-
-The `#618 AC3` gate holds the **shipped-default per-pass path ≤ 30,609 words** — a ceiling of the live `_rb_words` measurement plus **60 words** (#642 completed #618's Arm B and retired the interim status). Two assertions arm the valve, and a RED in **either** direction is ceiling drift, not a code defect: the path *grew* past the ceiling, or a prose *reduction* widened the gap past the margin (any trim of a shipped-default member does this). On either, the maintainer's recorded #618 decision authorizes a fix loop to **self-apply the escape valve** instead of stalling: re-measure with `_rb_words`, set measured **+60**, and reconcile every mirror — `lib/test/run.sh` (**both** the `RB_SHIPPED_CEIL` constant and the spelled-out `assert_pin_unique` ceiling literal), `docs/review-bundle-budget.md`, `CLAUDE.md`'s `≤`-prefixed ceiling phrase, and **this section's own ceiling phrase above** — editing `CLAUDE.md` **directly** (#366 carve-out; `skills/implement/SKILL.md` untouched), else the pin traps the fix loop. Record old/measured/new in the workpad and PR. Full procedure and scope (ceiling drift only — never lower the *target* toward at most 30,100, touch `#529 AC2`, or change the margin): [`docs/review-bundle-budget.md`](../../docs/review-bundle-budget.md)'s decision record.
 
 ## Prompt-surface edit routing evidence gate
 

@@ -40,8 +40,6 @@ a whole population or test the module system itself).
 | `lib/test/test_module_runner.py` | It tests the focused-module runner itself — module registration, the registry-floor ↔ call-site coupling, and the per-module contracts. A module that ran it would be circular: deleting the module could delete the check that proves modules are selected and executed. |
 | `lib/test/test_module_harness.py` | Same circularity: it tests the full-suite boundary a module is executed through. Its driver block also owns a legitimate `skip … host-capability` arm for the signal matrix, and **modules may not self-skip**, so the block cannot move into one. |
 | `lib/test/pin-corpus-lint.py` | A whole-tree meta-guard: it scans the pin corpus across the repository rather than verifying one code unit, so it fails the self-containment half of the criterion. |
-| `lib/test/prompt-mass-census.py` | A whole-tree meta-guard over every prompt surface and the census baseline. |
-| `lib/test/rb-figure-partition.py` | A whole-tree meta-guard over the governed review-bundle figures. |
 | `lib/test/lint-gh-api-repo-path.py` | A whole-tree meta-guard over every tracked-and-unignored surface. |
 | `lib/test/cloud_writer_contract.py` | A whole-tree meta-guard over the cloud-writer reachability closure and its runtime manifest. The suite reaches it through `lib/test/test_python_scripts.py`, so it is inside the population — but its subject is a whole closure, not one code unit. |
 | `lib/test/cloud_writer_deps.py` | Reached the same way, through `lib/test/test_python_scripts.py`, and part of the same whole-closure subject as the guard above. |
@@ -53,7 +51,6 @@ a whole population or test the module system itself).
 | `lib/test/validate-frontmatter.py` | A population scanner over every `agents/*.md` and `skills/**/SKILL.md` frontmatter block. |
 | `lib/test/test_python_scripts.py` | Pure-function tests spanning many `scripts/` units at once — its subject is not a single code unit. |
 | `lib/test/normalize-verdicts-test.py` | Eligible in isolation, but its `run.sh` driver is **not**: the `#556` block interleaves this helper's unit run with prose pins over the `checklist-generator`, `checklist-deduper`, and `checklist-verifier` agents and the review phase files `phase-2-verification.md` and `phase-4-verdict.md`, so the block's subject is multi-surface. Extracting only the unit-test line would split a block — worse than leaving it whole (the no-duplication rule). |
-| `lib/test/test_prompt_mass_census.py` | Same block-level reason: its driver is the `#551` block, whose live-tree subject is `prompt-mass-census.py` — an already-ineligible whole-tree meta-guard — with this unit run as one assertion inside it. |
 
 ## Shared-label routing caveat
 

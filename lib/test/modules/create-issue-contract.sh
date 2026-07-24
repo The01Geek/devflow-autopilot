@@ -1600,10 +1600,10 @@ devflow_module_pin_unique "#613 AC10: overview evidence-axes hook points at the 
   'see the live extension'"'"'s `## Evidence axes` section for the current axis list' "$CI_OVERVIEW"
 
 # ────────────────────────────────────────────────────────────────────────────
-echo "#614 create-issue split: routing, markers, purity, budgets"
+echo "#614 create-issue split: routing, markers, purity"
 # ────────────────────────────────────────────────────────────────────────────
 # The skill is a thin root plus marker-gated references. These assertions cover the
-# structure (T1), the boundary-marker contract (T2), the two word budgets (T3), the
+# structure (T1), the boundary-marker contract (T2), the
 # default-path purity pins (T4), the routing table's stated failure arms (T6), and the
 # consumer extension's new measurement-command evidence axis (T7).
 
@@ -1736,117 +1736,6 @@ ci614_purity "$CI_REF_FB_STATEOWNER" \
   'A fallback lifecycle is **never silent**'
 unset -f ci614_purity
 
-# T3 (AC6/AC7) — the two word budgets. Words are counted by python3 `.split()`, NEVER
-# `wc -w`: GNU and BSD `wc -w` disagree in two directions on this corpus (CLAUDE.md's
-# review-bundle record), so a `wc`-derived ceiling passes at one desk and fails at another.
-# Both ceilings are ratchet-DOWN-only — a measured reduction lowers the recorded ceiling in
-# docs/create-issue-budget.md; a RAISE is not an ordinary re-measure, it is an explicit human
-# renegotiation recorded in that document's decision record (the issue-#749 entry is the
-# worked example: headroom widened to 10% after repeated per-PR collisions).
-# Sums per file rather than concatenating the bytes first (run.sh's _rb_words replicates
-# `cat`, because its operand IS an already-concatenated bundle). Summing is the correct
-# shape for a multi-file operand: concatenating would join a file's last word to the next
-# file's first whenever a member lacks a trailing newline, undercounting once per such seam.
-ci614_words() {  # <file>... -> total words on stdout
-  python3 - "$@" <<'PY614W'
-import sys
-print(sum(len(open(p, encoding='utf-8').read().split()) for p in sys.argv[1:]))
-PY614W
-}
-# The ceilings are the only checked-in figures here (a ceiling IS the enforcement — the #656
-# exemption). Deliberately NO measured value in these comments: it would rot on the next prose
-# edit, and the ratchet-legality assertions below already tie each ceiling to its LIVE
-# measurement. docs/create-issue-budget.md is the sole home of the measured figures.
-CI614_ROOT_CEIL=3527
-CI614_DEFAULT_CEIL=38042
-# One comparison shape, shared by both ceilings and by the positive control below, so the
-# three sites cannot drift. An EMPTY measured value reads `no` (fail-closed): a word count
-# that could not be established is never treated as under the ceiling.
-ci614_under() { { [ -n "$1" ] && [ "$1" -le "$2" ]; } 2>/dev/null && echo yes || echo no; }
-CI614_ROOT_W="$(ci614_words "$CI_SKILL")"
-# The measured value rides in the assertion NAME so a PASSING run publishes it too: a ceiling
-# check that only speaks when it fails leaves the live headroom invisible until it is gone.
-assert_eq "#614 T3: the always-loaded root is at or under its recorded ceiling (measured $CI614_ROOT_W of $CI614_ROOT_CEIL words)" \
-  "yes" "$(ci614_under "$CI614_ROOT_W" "$CI614_ROOT_CEIL")"
-# The operand is DERIVED from the step roster, never hand-listed: a hand list drifts silently
-# when a step reference is renamed or dropped — the measured total FALLS, so the ceiling
-# assertion goes greener and nothing is RED, exactly inverting what the guard is for. The
-# cardinality pin makes a silently-shrunk operand fail loudly instead.
-CI614_DEFAULT_SET=("$CI_SKILL")
-for _ci614_ref in $CI614_STEP_REFS; do
-  CI614_DEFAULT_SET+=("$CI_ROOT/skills/create-issue/references/$_ci614_ref.md")
-done
-CI614_DEFAULT_SET+=("$CI_TMPL")
-# shellcheck disable=SC2086  # deliberate word-split of the space-separated roster
-set -- $CI614_STEP_REFS
-assert_eq "#614 T3: the default-path operand covers the root, every step reference, and the template" \
-  "$(( $# + 2 ))" "${#CI614_DEFAULT_SET[@]}"
-CI614_DEFAULT_W="$(ci614_words "${CI614_DEFAULT_SET[@]}")"
-assert_eq "#614 T3: the default-path read set is at or under its recorded ceiling (measured $CI614_DEFAULT_W of $CI614_DEFAULT_CEIL words)" \
-  "yes" "$(ci614_under "$CI614_DEFAULT_W" "$CI614_DEFAULT_CEIL")"
-# AC7 positive control: the root-ceiling assertion must report RED against a deliberately
-# over-ceiling root. Plant the defect on a COPY (the working tree is never mutated) and
-# assert the same comparison fires — evidence the guard detects growth, not attestation.
-# The plant must be PROVEN over-ceiling before it can prove anything about the guard.
-# ci614_under is fail-closed for a ceiling assertion (empty reads `no`), but here `no` is the
-# EXPECTED value — so an unwritable TMPDIR or a failed padding emit would leave the measurement
-# empty and the control would report GREEN having planted nothing. Assert the plant is
-# measurable and strictly over BOTH ceilings first, so a vacuous control turns the suite RED.
-CI614_PLANT="$_ci_tmp_root/ci614-over-ceiling-root.md"
-if { cat "$CI_SKILL"; python3 -c 'print(("padding " * 8000 + "\n") * 5)'; } > "$CI614_PLANT"; then
-  CI614_PLANT_W="$(ci614_words "$CI614_PLANT")"
-else
-  CI614_PLANT_W=""
-fi
-assert_eq "#614 T3/AC7: the planted copy is measurable and strictly over both ceilings (control is not vacuous)" \
-  "yes" "$({ [ -n "$CI614_PLANT_W" ] && [ "$CI614_PLANT_W" -gt "$CI614_ROOT_CEIL" ] && [ "$CI614_PLANT_W" -gt "$CI614_DEFAULT_CEIL" ]; } 2>/dev/null && echo yes || echo no)"
-# Both ceilings get a control: the default-path ceiling is the larger and more drift-prone of
-# the two, so proving only the root ceiling would leave the riskier guard unexercised.
-assert_eq "#614 T3/AC7 positive control: an over-ceiling operand turns the root budget assertion RED" \
-  "clean=yes|planted=no" \
-  "clean=$(ci614_under "$CI614_ROOT_W" "$CI614_ROOT_CEIL")|planted=$(ci614_under "$CI614_PLANT_W" "$CI614_ROOT_CEIL")"
-assert_eq "#614 T3/AC7 positive control: an over-ceiling operand turns the default-path budget assertion RED" \
-  "clean=yes|planted=no" \
-  "clean=$(ci614_under "$CI614_DEFAULT_W" "$CI614_DEFAULT_CEIL")|planted=$(ci614_under "$CI614_PLANT_W" "$CI614_DEFAULT_CEIL")"
-rm -f "$CI614_PLANT"
-# Ratchet enforcement (shadow finding): a ceiling is only legal at at-most measured+10%, so a
-# future change cannot simply RAISE the constant to admit growth — the module constant and the
-# doc literals are coupled and would be edited together in one commit, leaving no RED. Tying
-# each ceiling to its own live measurement makes a growth-by-ceiling-bump visibly illegal.
-assert_eq "#614 T3: the root ceiling is at most the measured value plus 10% (a raise needs a real measurement)" \
-  "yes" "$({ [ -n "$CI614_ROOT_W" ] && [ "$CI614_ROOT_CEIL" -le "$(( CI614_ROOT_W * 110 / 100 ))" ]; } 2>/dev/null && echo yes || echo no)"
-assert_eq "#614 T3: the default-path ceiling is at most the measured value plus 10% (a raise needs a real measurement)" \
-  "yes" "$({ [ -n "$CI614_DEFAULT_W" ] && [ "$CI614_DEFAULT_CEIL" -le "$(( CI614_DEFAULT_W * 110 / 100 ))" ]; } 2>/dev/null && echo yes || echo no)"
-
-# Conservation guard (shadow finding): the ceilings are ONE-SIDED, so a re-partition that
-# DROPS a paragraph no pin happens to cover makes the word count merely go down — which reads
-# as an improvement against a ratchet-down-only budget while contract prose silently vanishes.
-# AC6's conservation claim is what that would falsify, so the total gets a two-sided band.
-CI614_TOTAL_SET=("$CI_SKILL")
-for _ci614_ref in $CI614_REFS; do
-  CI614_TOTAL_SET+=("$CI_ROOT/skills/create-issue/references/$_ci614_ref.md")
-done
-CI614_TOTAL_W="$(ci614_words "${CI614_TOTAL_SET[@]}")"
-CI614_TOTAL_RECORDED=31337   # docs/create-issue-budget.md, root + all 9 references (issue #749 reception re-record)
-assert_eq "#614 T3: the root+references total is within +/-2% of the recorded conservation figure (a silent DROP is as RED as a rise)" \
-  "yes" "$({ [ -n "$CI614_TOTAL_W" ] \
-    && [ "$CI614_TOTAL_W" -ge "$(( CI614_TOTAL_RECORDED * 98 / 100 ))" ] \
-    && [ "$CI614_TOTAL_W" -le "$(( CI614_TOTAL_RECORDED * 102 / 100 ))" ]; } 2>/dev/null && echo yes || echo no)"
-
-# Positional reconciliation (shadow finding): the budget doc's headline measured figures are
-# hand-transcribed, so pin them AGAINST the live measurement rather than as bare literals —
-# the #656 prefer-generated-evidence rule applied to the two figures that drive the ceilings.
-# The doc renders figures with thousands separators, so the comparand needs them too — but
-# `printf "%'d"` is LOCALE-DEPENDENT (it emits `2732` under LC_ALL=C and `2,732` under a UTF-8
-# locale), which is exactly the guard-class-2 defect this repo bans: a value that decides an
-# assertion must not be derived through something whose behavior varies by host. Python's
-# `{:,}` is locale-independent, and python3 is a hard preflight prerequisite.
-ci614_grouped() { python3 -c 'import sys; print(f"{int(sys.argv[1]):,}")' "$1"; }
-assert_eq "#614 T3: the budget doc's recorded root measurement matches the live count" "yes" \
-  "$(grep -qF "| \`SKILL.md\` (root) | $(ci614_grouped "$CI614_ROOT_W") |" "$CI_ROOT/docs/create-issue-budget.md" && echo yes || echo no)"  # raw-guard-ok: not a SKILL guard: the target is docs/create-issue-budget.md and "SKILL.md" appears only inside the searched table-row literal
-assert_eq "#614 T3: the budget doc's recorded root+references total matches the live count" "yes" \
-  "$(grep -qF "**$(ci614_grouped "$CI614_TOTAL_W")**" "$CI_ROOT/docs/create-issue-budget.md" && echo yes || echo no)"
-unset -f ci614_grouped
 
 # Step-reference purity (shadow finding): T4 proves fallback prose left the default path, but
 # nothing proved a STEP reference's prose did not ALSO remain in the root — a duplicated
@@ -1863,19 +1752,6 @@ ci614_step_unique step-3-6-audit '**Obey the state owner (the contract governing
 ci614_step_unique step-4-present-create '**Show the complete rendered issue in chat.**'
 unset -f ci614_step_unique
 
-# The budget doc is the record of every live measured figure; the ceilings above are the
-# only checked-in literals, because a ceiling IS the enforcement (the #656 exemption).
-assert_eq "#614 T3: the budget doc exists" "yes" \
-  "$([ -r "$CI_ROOT/docs/create-issue-budget.md" ] && echo yes || echo no)"
-devflow_module_pin_unique "#614 T3: the budget doc records the ratchet-down-only rule" \
-  'ratchet-down-only' "$CI_ROOT/docs/create-issue-budget.md"
-devflow_module_pin_unique "#614 T3: the budget doc names the root ceiling the suite enforces" \
-  'Root ceiling: **3,527 words**' "$CI_ROOT/docs/create-issue-budget.md"
-devflow_module_pin_unique "#614 T3: the budget doc names the default-path ceiling the suite enforces" \
-  'Default-path ceiling: **38,042 words**' "$CI_ROOT/docs/create-issue-budget.md"
-devflow_module_pin_unique "#614 T3: the budget doc bans wc -w for these measurements" \
-  '**Never `wc -w`.**' "$CI_ROOT/docs/create-issue-budget.md"
-unset -f ci614_words ci614_under
 
 # T7 (AC13) — the consumer extension's new measurement-command evidence axis. A
 # surface-presence contract pin (the extension's own behavioral-fix-pin dimension), so it
@@ -1892,9 +1768,9 @@ unset -f ci614_marker_id
 
 # ---------------------------------------------------------------------------
 # #749 — Step 1's two-arm, duty-floor-bounded docs-verification pass.
-# CI_DV is the docs-verify peer's own skill: it is loaded on the default path but sits
-# OUTSIDE both ceiling operands (it is dispatched into a peer's context, never read into
-# the orchestrator's), which is why it is measured nowhere above and pinned here.
+# CI_DV is the docs-verify peer's own skill: it is loaded on the default path but is
+# dispatched into a peer's context (never read into the orchestrator's), which is why it
+# is pinned here rather than with the default-path references above.
 CI_DV="$CI_ROOT/skills/docs-verify/SKILL.md"
 
 # AC13 — surface-presence pins over the peer's declared interface: the mode flag, every

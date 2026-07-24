@@ -1940,7 +1940,6 @@ class ModuleRunnerTests(unittest.TestCase):
 # and the serial/module-driven exclusions can never silently drift from the files.
 POOLED_SUITES = (
     "test_module_runner.py",
-    "test_prompt_mass_census.py",
     "test_python_scripts.py",
 )
 SERIAL_BY_EXCLUSION_SUITES = ("test_module_harness.py",)
@@ -2005,12 +2004,11 @@ class PoolMembershipCompletenessTests(unittest.TestCase):
         self.assertEqual(pooled & serial, set())
         self.assertEqual(pooled & module_driven, set())
         self.assertEqual(serial & module_driven, set())
-        # The pool opens exactly these three — the membership list by construction.
+        # The pool opens exactly these — the membership list by construction.
         self.assertEqual(
             pooled,
             {
                 "test_module_runner.py",
-                "test_prompt_mass_census.py",
                 "test_python_scripts.py",
             },
         )

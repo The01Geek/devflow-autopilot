@@ -273,120 +273,12 @@ bullet nor this Progress note has skipped the side task; empty-and-silent is not
 invent findings to fill Reflection — the frictionless *Progress note* is the honest terminal
 state for a clean run, precisely so you never have to.
 
-## Prose cutover
+## Keeping prompt prose lean (advisory)
 
-Mandatory prompt prose is an implementation surface, not an append-only log. When an
-executable helper becomes the sole tested owner of a workflow decision on every consuming
-path, remove the superseded decision logic, its duplicated branch/enum mirrors, and its
-obsolete prose pins in the **same change**. Keep policy, human decision points, invocation
-contracts (including fail-closed handling when the helper is absent), and essential stop
-conditions in the skill. Move rare-path explanation to a progressively loaded reference;
-never move operative decision logic out of the normal path merely to lower its byte count.
-
-### Sole tested owner: the complete five-condition bar
-
-All five conditions below must hold **for each consuming path** before its decision-owning
-prose is superseded:
-
-1. **Every consumer reaches the helper.** Each tier (local interactive, cloud review, cloud
-   implement) and supported host family (macOS/BSD, Linux, Windows through WSL / Git Bash /
-   MSYS2) that previously executed the prose decision now invokes the helper.
-2. **Every branch is driven.** The suite exercises every helper branch, including arm order
-   whenever selection precedence affects the result.
-3. **Every invoking tier grants it.** Both review-tier grant surfaces and the implement-tier
-   grant surface include the helper. Any command shape not already probe-proven carries
-   matcher-probe evidence before the cutover relies on it.
-4. **Vendored halves ship together.** When the cutover crosses the `install.sh`-shipped /
-   `devflow_version`-vendored boundary, both halves land together and the upgrade coupling is
-   documented.
-5. **Removed pins retain behavioral proof.** Helper-behavior tests that absorb removed prose
-   pins carry planted-defect mutation evidence under the repo's behavioral-fix-pin rule.
-
-Ownership is judged **per consuming path**. While even one path still consumes the prose
-decision, that prose is not superseded and stays. Relocating decision-owning prose is not a
-removal: the owner survives at its destination. Deleting decision-owning prose before one
-sole tested owner satisfies all five conditions is unauthorized.
-
-### Pin conservation and retained content
-
-List every removed prose pin in the cutover artifact. Map it to the helper-behavior test that
-now absorbs the guarded regression and cite the planted-defect mutation that turns that test
-red. If no behavioral obligation remains, record a concrete retirement reason instead. Never
-delete a pin merely to make a prose deletion green.
-
-Do not trim these retained categories: policy; a user or maintainer decision; the contract
-for invoking the helper; the observable fail-closed response when the helper is unavailable,
-malformed, or denied; and stop conditions an agent must act on. Explanations of rare failures
-may move to conditional references, but the branch that decides what the run does remains in
-the mandatory path unless the tested helper owns it.
-
-### Mandatory-byte census and baseline updates
-
-`lib/test/prompt-mass-manifest.json` groups prompt surfaces as `mandatory` or `reference`.
-A file loaded unconditionally on any flow's normal path — including mandatory-at-entry phase
-or step references — is `mandatory`; `reference` is reserved for genuinely conditional
-rare-path files. The same file may belong to multiple workflow groups because group totals
-are independent. `lib/test/prompt-mass-baseline.json` contains one byte row per measured file
-of both classes and no total rows; the census derives group totals at report time.
-
-Every byte difference is intentional: growth and reduction both fail until the baseline row
-is updated. Reference movement remains visible in the baseline diff but is untolled by the
-Review gate; mandatory movement requires an artifact below. The word-denominated,
-path-weighted Review and Review-and-Fix ceilings remain separate and unchanged: those ceilings
-cap traffic, while this byte mirror audits movement. Do not re-express or remove either
-contract when updating the other.
-
-To compute canonical replacement rows, run the direct executable locally when permitted, or
-use the interpreter fallback:
-
-```bash
-lib/test/prompt-mass-census.py --write-baseline
-python3 lib/test/prompt-mass-census.py --write-baseline
-```
-
-Copy the printed JSON into `lib/test/prompt-mass-baseline.json` with the Write/Edit tool, then
-run the full suite. On a cloud tier, treat the direct `.py` command shape as unproven until a
-matcher-probe row establishes it; no step may depend on the config grant added by the same PR,
-because cloud config is resolved from the default branch before that PR runs. Concurrent PRs
-that edit non-adjacent baseline rows normally merge; same or adjacent rows (including the last
-row's comma context) may conflict loudly.
-Resolve such a conflict under the Merge conflicts in generated artifacts section.
-
-### Cutover artifact template (schema 1)
-
-Every mandatory-row-moving PR adds a uniquely named `docs/cutovers/<slug>.md` file in that
-same diff. Start it with exactly one schema and kind:
-
-```markdown
----
-schema: 1
-kind: cutover | trim | growth | relocate
----
-```
-
-Then use the exact schema-1 headings for the selected kind:
-
-- `cutover`: `## Files`, `## Consuming paths`, `## Branch coverage`, `## Grants and probes`,
-  `## Shipping coupling`, `## Mutation evidence`, and `## Pin disposition`. Cite the five
-  sole-owner conditions and map every removed prose pin to its absorbing behavioral test or
-  recorded retirement reason.
-- `trim`: `## Files`, `## Rationale`, and `## Ownership`. Name each trimmed file, give a
-  one-line editorial rationale, and state that ownership did not change.
-- `growth`: `## Files` and `## Justification`. Name every grown or added mandatory file and
-  explain in one line why those bytes belong on the mandatory path.
-- `relocate`: `## Source rows` and `## Destinations`. Name each source baseline row and its
-  destination file and manifest group.
-
-The body must contain evidence, not empty headings. Artifacts are append-only history. A later
-template change mints a new schema version and freezes a new heading set; it never re-validates
-old schema-1 artifacts against newer headings. A malformed or pre-existing artifact discharges
-no Review gate arm, and artifact file lists must cover every mandatory row the diff moves.
-
-The gate recognizes four audited decisions: `cutover` (ownership transfers and prose leaves),
-`trim` (editorial reduction with no ownership change), `growth` (new mandatory bytes), and
-`relocate` (bytes move without deleting their owner). A diff that both grows and reduces
-mandatory rows needs matching coverage for both directions; one `cutover` may cover both when
-the same ownership transfer causes both movements.
+Prefer moving rare-path detail and long explanations into progressively loaded references
+rather than growing mandatory prompt prose; when a tested helper owns a decision, let the
+skill point at it instead of restating the branch logic. Keep the mandatory path lean. This
+is guidance, not a gate — there is no byte census, ceiling, or cutover artifact to satisfy.
 
 ## Prompt-surface edit routing (repo policy)
 
@@ -483,9 +375,9 @@ drift.
 
 ## Batched artifact regeneration
 
-After applying edits and before each full-suite re-verify run, run `python3 lib/test/regenerate-artifacts.py` once. Loop-induced edits drift the repo's checked-in generated records — editing a reached skill asset drifts the cloud-writer runtime manifest, adding prompt prose drifts the mandatory-byte census baseline, editing the capability manifest drifts the generated workflow literals, and adding review-bundle prose stales the budget record — and discovering each one a full suite run at a time is the dominant cost of a Phase 2-3 iteration. The helper is the sole enumeration point for this repo's suite-owned generated artifacts, so this section deliberately lists no artifact inventory of its own — an inventory duplicated into prose is one that silently goes stale as artifacts are added.
+After applying edits and before each full-suite re-verify run, run `python3 lib/test/regenerate-artifacts.py` once. Loop-induced edits drift the repo's checked-in generated records — editing a reached skill asset drifts the cloud-writer runtime manifest, and editing the capability manifest drifts the generated workflow literals — and discovering each one a full suite run at a time is the dominant cost of a Phase 2-3 iteration. The helper is the sole enumeration point for this repo's suite-owned generated artifacts, so this section deliberately lists no artifact inventory of its own — an inventory duplicated into prose is one that silently goes stale as artifacts are added.
 
-Act on its report before starting the suite run: commit a changed manifest together with the edits that caused it, and resolve every printed exit-1-forcing judgment item under the governing policy that item names. Informational lines require reading, not action.
+Act on its report before starting the suite run: commit a changed manifest together with the edits that caused it, and resolve every printed exit-1-forcing judgment item under the governing policy that item names. Informational lines require reading, not action. A merge conflict in one of these regenerated records is resolved under the Merge conflicts in generated artifacts section, never by hand-merging its bytes.
 
 **If the helper reports an INFRASTRUCTURE failure (its final line names it, and the run exits 2), at least one artifact was NEVER CHECKED.** Do not read those lines as informational: an unchecked artifact is unknown, not clean, and the report names the row that failed. Treat the batched pass as **undischarged** — record `batched-regeneration: skipped` naming the failing row (the pass ran but established nothing, so it discharges exactly as a skipped pass does), and fall back to the status-quo serial discovery for that artifact. Never record `run` on an exit-2 report.
 
