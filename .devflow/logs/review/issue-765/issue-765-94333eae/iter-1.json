@@ -1,26 +1,26 @@
 {
   "iter": 1,
   "started_at": "2026-07-24T00:00:00Z",
+  "fix_commit_sha": "03763498",
+  "fix_files": [
+    "lib/test/run.sh",
+    "CLAUDE.md",
+    "CONTRIBUTING.md",
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+    ".devflow/prompt-extensions/review-and-fix.md",
+    "lib/test/cloud_writer_contract.py",
+    "lib/test/extract-command-heads.py"
+  ],
   "loop_role": "fix",
-  "current_step": "loop-control",
-  "current_substep": "phase-3-agents-dispatched",
-  "pending_dispatch": {
-    "kind": "phase3_review_fanout",
-    "roster": [
-      "devflow:code-reviewer",
-      "devflow:silent-failure-hunter",
-      "devflow:comment-analyzer",
-      "devflow:pr-test-analyzer",
-      "devflow:requesting-code-review"
-    ],
-    "dispatched_at": "2026-07-24T00:00:00Z"
-  },
+  "current_step": "loop-exit",
+  "current_substep": "converged",
+  "pending_dispatch": null,
   "diff_profile": {
     "small_diff": false,
     "config_only": false,
     "has_new_types": false,
     "engine_self_modifying": true,
-    "checklist_skipped": null
+    "checklist_skipped": true
   },
   "phase3_dispatched": [
     "devflow:code-reviewer",
@@ -29,12 +29,71 @@
     "devflow:pr-test-analyzer",
     "devflow:requesting-code-review"
   ],
-  "phase3_findings": [],
-  "fix_decisions": [],
-  "shadow": {
-    "ran_at": null,
-    "verdict": null,
-    "coverage": null
+  "phase3_findings": [
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Important",
+      "description": "lib/test/run.sh:316 reworded comment said the suite has 'python3 word counts' but the surviving python3 counts are non-whitespace CHARACTER counts (_nonws_count); the word counters (_rb_words/_raf_words) were deleted by this change.",
+      "defect_signature": {"file": "lib/test/run.sh", "line_range": [316, 316], "kind": "documented_falsehood"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review + devflow:code-reviewer",
+      "severity": "Important",
+      "description": "Four surviving pointers to the renamed 'Prose cutover' section (implement.md section was renamed to 'Keeping prompt prose lean (advisory)'): CLAUDE.md:83, .devflow/prompt-extensions/review-and-fix.md:19 (broken markdown anchor), docs/DEVFLOW_SYSTEM_OVERVIEW.md:476 (also a false 'complete sole-owner bar lives there' claim), and CONTRIBUTING.md:373 (missed by the reviewers, caught by orchestrator full-tree grep).",
+      "defect_signature": {"file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md", "line_range": [476, 476], "kind": "documented_falsehood"},
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "a489760d", "note": "run.sh:316 'word counts' -> 'non-whitespace character counts'"},
+    {"finding_id": "F-2", "decision": "applied", "commit": "a489760d", "note": "repointed all 4 'Prose cutover' references to 'Keeping prompt prose lean'; sole-owner discipline survives in CLAUDE.md Helper-cutover bullet; dropped false 'complete sole-owner bar' claim"}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 6,
+    "fix_diff_lines": 14,
+    "new_corroborated_critical_count": 0
   },
-  "telemetry": "unavailable"
+  "shadow": {
+    "ran_at": "2026-07-24T00:00:00Z",
+    "reviewed_sha": "02af504c",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:comment-analyzer",
+      "devflow:silent-failure-hunter",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:comment-analyzer",
+      "devflow:silent-failure-hunter",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "phase3_findings": [
+      {
+        "agent": "devflow:code-reviewer + devflow:comment-analyzer",
+        "severity": "Important",
+        "description": "Two pre-existing (diff-untouched) comments still cite the deleted 'review-bundle word ceiling' as a live constraint: lib/test/cloud_writer_contract.py:1020 and lib/test/extract-command-heads.py:518. The retirement sweep missed them.",
+        "defect_signature": {"file": "lib/test/cloud_writer_contract.py", "line_range": [1020, 1020], "kind": "comment_drift"},
+        "corroboration_count": 2,
+        "fix_decision": "applied"
+      }
+    ],
+    "comparison": {"shadow_total": 1, "overlap_with_iter_1": 0, "new": 1, "new_critical": 0, "new_important": 1},
+    "promoted_to_iter_next": false,
+    "reason": "shadow surfaced 1 corroborated non-Critical comment_drift finding (2 stale word-ceiling clauses); fixed in commit 03763498; the final-pass shadow reviewer independently reviewed the POST-fix tree and verified the clauses are gone, giving the fix delta its independent pass. No Critical, no unresolved Important."
+  },
+  "reference_reads": {"fix_delta": {"status": "verified", "outcome": "refixed", "reason": null}},
+  "telemetry": {
+    "phase_3": {"calls": 5, "wall_clock_s": 291},
+    "step_2_6": {"calls": 5, "wall_clock_s": 357}
+  }
 }
