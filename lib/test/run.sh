@@ -4414,6 +4414,35 @@ assert_pin_unique "#312 item 10: Phase 3.2 triage evaluates against generality/c
   '*generality / consumer-facing* ACs' "$IMPL_SKILL_BUNDLE"
 assert_pin_unique "#312 item 10: Phase 3.2 names the filter-narrowing consumer-boundary re-check" \
   'narrows an event, input, or filter surface re-runs the consumer-boundary question' "$IMPL_SKILL_BUNDLE"
+# ---- #754: throwaway-scaffold reuse lines on the three verification/fix-iteration surfaces ----
+# All surface-presence pins: each asserts an added advisory sentence exists on its surface. The
+# behavioral steering proof is the writing-skills RED/GREEN + no-guidance-control micro-test
+# recorded in the workpad "Writing-skills evidence:" marker, not these pins — so no code/behavioral
+# regression is guarded here and each carries the structural-pin-ok declaration (issue #666 gate).
+assert_pin_unique "#754 A1: phase-2 §2.3 names the throwaway-scaffold reuse case" \
+  'This is the throwaway-scaffold twin of the focused-module iteration default and the 2.2.4 production-code Reuse gate' "$IMPL_SKILL_BUNDLE"  # structural-pin-ok: surface-presence pin (advisory sentence exists; steering proven by the writing-skills RED/GREEN micro-test)
+assert_pin_unique "#754 A2: receiving-code-review carries the rig-reuse principle (repo-agnostic)" \
+  'Where your workflow offers no persistent channel, this reuse holds only within a single uninterrupted iteration span' "$ST_RCV"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
+assert_pin_unique "#754 A3/A11: fixing.md names the two-arm rig-location channel" \
+  'the workpad `--note` when implement-driven (`$ISSUE_NUMBER` present), otherwise the run-scoped' "$MAXI_BUNDLE"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
+assert_pin_unique "#754 A7: phase-2 rig set is an illustrative open floor" \
+  'an illustrative floor, not a closed list — any other disposable rig counts' "$IMPL_SKILL_BUNDLE"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
+assert_pin_unique "#754 A7: receiving rig set is an illustrative open floor" \
+  'an illustrative floor, not a closed list — any other disposable rig counts' "$ST_RCV"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
+assert_pin_unique "#754 A7: fixing rig set is an illustrative open floor" \
+  'an illustrative floor, not a closed list — any other disposable rig counts' "$MAXI_BUNDLE"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
+assert_pin_unique "#754 A8: phase-2 gates reuse on the current code shape" \
+  'only after confirming it still exercises the current code shape' "$IMPL_SKILL_BUNDLE"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
+assert_pin_unique "#754 A8: receiving gates reuse on the current code shape" \
+  'only after confirming it still exercises the current code shape' "$ST_RCV"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
+assert_pin_unique "#754 A8: fixing gates reuse on the current code shape" \
+  'only after confirming it still exercises the current code shape' "$MAXI_BUNDLE"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
+assert_pin_unique "#754 A10: phase-2 keeps the rig under an already-ignored scratch path" \
+  'would land as a gitlink' "$IMPL_SKILL_BUNDLE"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
+assert_pin_unique "#754 A10: receiving keeps the rig under a VCS-ignored path" \
+  'a nested scratch repo never lands as a gitlink' "$ST_RCV"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
+assert_pin_unique "#754 A10: fixing keeps the rig under an already-ignored scratch path" \
+  'would land as a gitlink' "$MAXI_BUNDLE"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
 assert_pin_unique "fix-delta gate: input-shape matrix asserts fail-closed direction (not open)" \
   'not open, on each' "$MAXI_SKILL"
 assert_pin_unique "fix-delta gate: per-iteration result recorded as a Devflow Reflection bullet" \
@@ -39351,7 +39380,7 @@ done
 assert_eq "#620 budget: maintainer note's prose root ceiling matches RAF_ROOT_CEIL ($RAF_ROOT_CEIL)" "yes" \
   "$(case "$_raf_doc_nocommas" in *"The root sits below its ${RAF_ROOT_CEIL}-word"*) echo yes;; *) echo no;; esac)"
 assert_pin_unique "#530 budget: table names the justified-growth warning with its delta" \
-  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +6,808 words' "$RAF_BUDGET_DOC"
+  '`review-and-fix-split-cumulative-growth` (named justified-growth warning): +6,984 words' "$RAF_BUDGET_DOC"
 # #539 review (the REJECT): the table's derived word cells must be TRUE against a fresh
 # measurement, not merely textually self-consistent — the pin above passed while the
 # cumulative cell was stale because it matches the doc's own number, not reality. Recompute
