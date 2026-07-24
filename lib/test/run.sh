@@ -505,7 +505,7 @@ GS_PROBE="$(mktemp)"   # real mktemp, captured BEFORE the shadow below
 ) 2>/dev/null
 assert_eq "#161 git_sandbox: forced mktemp failure records a suite FAIL (RED, not vacuous)" \
   "FAIL" "$(tail -n 1 "$GS_PROBE")"
-rm -f "$GS_PROBE"
+rm -f "$GS_PROBE" "$GS_PROBE.names"   # .names: record_fail's #789 sibling of this diverted tally
 assert_eq "#161 git_sandbox: forced mktemp failure leaves the real-repo working tree unchanged" \
   "$GS_STATUS_BEFORE" "$(git -C "$GS_REPO_ROOT" status --porcelain 2>/dev/null)"
 assert_eq "#161 git_sandbox: forced mktemp failure leaves the real-repo HEAD unchanged" \
@@ -28777,7 +28777,7 @@ assert_eq "#719 baseline-corpus control: a failed scratch allocation routes to s
   "yes" "$(grep -q '^host-capability	' "$_WSR_BCC_PS" && echo yes || echo no)"
 assert_eq "#719 baseline-corpus control: a failed scratch allocation records NO suite FAIL" \
   "no" "$(grep -q '^FAIL' "$_WSR_BCC_PR" && echo yes || echo no)"
-rm -f "$_WSR_BCC_PR" "$_WSR_BCC_PS"
+rm -f "$_WSR_BCC_PR" "$_WSR_BCC_PR.names" "$_WSR_BCC_PS"
 else
   skip "#719 baseline-corpus control: isolated positive controls 1-4" host-capability \
     "mktemp failed; the isolated results/skips pair the controls inspect could not be allocated"
@@ -28826,12 +28826,12 @@ if _WSR_BCC_SBX="$(git_sandbox '#719 baseline-corpus degraded-input sandbox')"; 
   RESULTS_FILE="$_WSR_BCC_R2" SKIPS_FILE="$_WSR_BCC_S0" _wsr_run_baseline_corpus_control '#719 idempotency probe' "$_WSR_BCC_SBX_REF" ok >/dev/null 2>&1
   assert_eq "#719 baseline-corpus control: re-running over the same input yields an identical tally" \
     "yes" "$(cmp -s "$_WSR_BCC_R1" "$_WSR_BCC_R2" && echo yes || echo no)"
-  rm -f "$_WSR_BCC_R1" "$_WSR_BCC_R2" "$_WSR_BCC_S0"
+  rm -f "$_WSR_BCC_R1" "$_WSR_BCC_R1.names" "$_WSR_BCC_R2" "$_WSR_BCC_R2.names" "$_WSR_BCC_S0"
   else
     skip "#719 baseline-corpus control: idempotency probe" host-capability \
       "mktemp failed; the isolated result files the probe compares could not be allocated"
   fi
-  rm -f "$_WSR_BCC_PR" "$_WSR_BCC_PS"
+  rm -f "$_WSR_BCC_PR" "$_WSR_BCC_PR.names" "$_WSR_BCC_PS"
   else
     skip "#719 baseline-corpus control: degraded-git-input controls 5-7" host-capability \
       "mktemp failed; the isolated results/skips pair the controls inspect could not be allocated"
@@ -28987,6 +28987,52 @@ assert_pin_unique "#591 overview doc mirror carries the amended cloud focused-ru
   "$FDROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 assert_pin_unique "#591 CONTRIBUTING.md carries the module-authoring checklist heading" \
   '### Authoring a new focused module' "$FDROOT/CONTRIBUTING.md"
+
+# ── #789 coupled mirrors + the named-flake rule ──────────────────────────────
+# The three prompt extensions are the operative surface; CLAUDE.md, CONTRIBUTING.md and the
+# overview doc are their coupled mirrors, and a mirror that keeps the pre-#789 "no registered
+# MODULE covers it -> full suite" rule is the desync the coupled-invariant convention exists
+# to stop (the retired-literal sweep above only proves the #707-era text is gone, never that
+# the #789 rule arrived). Behavioral-fix pins: each mutation re-introduces the shell-module-only
+# routing that sent every covered Python change to the ~10-minute suite.
+assert_pin_red_under "#789 CLAUDE.md mirrors the covering-focused-test routing" \
+  'or, for a `scripts/*.py`/`lib/*.py` unit, the `lib/test/test_*.py` file its `lib/test/modules/coverage-map.json` entry names in a `focused_test` field' \
+  's/or, for a `scripts\/\*\.py`\/`lib\/\*\.py` unit, the `lib\/test\/test_\*\.py` file its `lib\/test\/modules\/coverage-map\.json` entry names in a `focused_test` field//' "$WSR_CLAUDE"
+assert_pin_red_under "#789 CLAUDE.md mirrors the coalescing uncovered-surface fallback" \
+  'a second mid-iteration cycle on that same uncovered surface extracts a durable module instead' \
+  's/a second mid-iteration cycle on that same uncovered surface extracts a durable module instead/every mid-iteration cycle on an uncovered surface uses the full suite/' "$WSR_CLAUDE"
+assert_pin_red_under "#789 CONTRIBUTING.md mirrors the covering-focused-test routing" \
+  'the `lib/test/test_*.py` file its coverage-map entry names in a' \
+  's/the `lib\/test\/test_\*\.py` file its coverage-map entry names in a/nothing, because only a shell module counts as a/' "$FDROOT/CONTRIBUTING.md"
+# CONTRIBUTING.md is HARD-WRAPPED, so a pin literal here must live on ONE physical line —
+# a `sed` mutation is line-based and a span crossing the wrap is a silent no-op, which
+# assert_pin_red_under reports rather than passing vacuously (the #375 wrapped-literal trap,
+# caught here at the desk). This literal is line-local by construction.
+assert_pin_red_under "#789 CONTRIBUTING.md mirrors the coalescing uncovered-surface fallback" \
+  'second mid-iteration cycle on that same uncovered surface extracts a durable' \
+  's/second mid-iteration cycle on that same uncovered surface extracts a durable/second mid-iteration cycle on that same uncovered surface also re-runs the complete/' "$FDROOT/CONTRIBUTING.md"
+assert_pin_red_under "#789 the overview doc mirrors the two-tier focused-test set" \
+  'Two tiers of focused test qualify (issue #789)' \
+  's/Two tiers of focused test qualify \(issue #789\)/Only a registered shell module qualifies/' \
+  "$FDROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+assert_pin_red_under "#789 the overview doc mirrors the failure recap and its preserved exit status" \
+  'the suite'"'"'s exit status is preserved through the recap' \
+  's/the suite'"'"'s exit status is preserved through the recap/the recap replaces the exit status/' \
+  "$FDROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+# AC8/AC9: the known-flaky set is EXACTLY this one test, and the isolation command is what
+# makes confirming non-reproduction cheap. The complement clause is the load-bearing half —
+# without it "known flake" generalizes into a licence to dismiss any red assertion, which is
+# strictly worse than having no flake documentation at all.
+assert_pin_unique "#789 CLAUDE.md names the single known-flaky test" \
+  'test_missing_supervisor_pid_rendezvous_fails_boundedly` in class `SignalCleanupMatrixTests' "$WSR_CLAUDE"  # structural-pin-ok: presence of the named test the rule is scoped to; the complement clause below carries the behavioral proof
+assert_pin_unique "#789 CLAUDE.md gives the direct-token flake isolation command" \
+  'lib/test/test_module_harness.py SignalCleanupMatrixTests.test_missing_supervisor_pid_rendezvous_fails_boundedly' "$WSR_CLAUDE"  # structural-pin-ok: presence of the runnable command; removing it re-introduces no named regression, only the cost of a full re-run
+assert_pin_red_under "#789 CLAUDE.md fail-closes the known-flaky complement" \
+  '**No other failing assertion is ever dismissed as a flake**' \
+  's/\*\*No other failing assertion is ever dismissed as a flake\*\* —/A failing assertion may be dismissed as a flake —/' "$WSR_CLAUDE"
+assert_pin_red_under "#789 CLAUDE.md scopes the flake confirmation to the sole-failure case" \
+  'applies **only** when this exact-named test is the *sole* failing assertion' \
+  's/applies \*\*only\*\* when this exact-named test is the \*sole\* failing assertion/applies whenever this test is among the failing assertions/' "$WSR_CLAUDE"
 
 # ── #719 Verification-evidence marker + undefined-disjunct deletion + cloud full-suite obligation ──
 # Finding 1 (unobservable claim gate): each of the three prompt extensions must state, on the
@@ -48028,7 +48074,8 @@ devflow_render_test_summary "$PASS" "$FAIL" "$SKIP" "$SKIPS_FILE"
 # monolith, which has no DETAILS_FILE: the identifiers come from record_fail's
 # "$RESULTS_FILE.names" record, populated at every FAIL site, so a failure printed to
 # STDERR is re-listed here exactly like one printed to stdout. That bi-stream coverage is
-# the point — the raw stream is ~47,600 lines and half the FAIL sites write to stderr, so
+# the point — the raw stream runs to tens of thousands of lines and most FAIL sites write
+# their detail to stderr, so
 # without this a reader recovering "which assertion failed?" scrolls the capture or, worse,
 # relaunches a ~10-minute suite.
 #

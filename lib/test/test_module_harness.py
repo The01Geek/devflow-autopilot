@@ -1723,7 +1723,7 @@ rm -f "$RESULTS_FILE" "$RESULTS_FILE.names" "$SKIPS_FILE"
         )
 
     def test_a_stderr_only_failure_is_still_recapped_on_stdout(self):
-        # The bi-stream case AC6 names: ~15 of run.sh's ~40 FAIL sites print their detail to
+        # The bi-stream case AC6 names: most of run.sh's FAIL sites print their detail to
         # stderr. The identifier record is stream-independent, so the recap must list a
         # stderr failure exactly like a stdout one.
         rc, out, err = self._drive(self._fail("stderr-only assertion", stderr=True))
