@@ -121,14 +121,15 @@ class HappyPathTest(unittest.TestCase):
 
 
 class ReductionDetectionTest(unittest.TestCase):
-    def test_after_fixture_has_strictly_lower_resident_total(self):
+    def test_after_fixture_has_strictly_lower_peak_and_reemission(self):
         # Proves the eval DETECTS a modeled reduction (passes by construction; NOT a
-        # claim that the shipped skill edit reduces real runs).
+        # claim that the shipped skill edit reduces real runs). The reemission_count
+        # drop carries the real reduction signal; peak_context is the residency proxy.
         before, _ = CICE.eval_corpus(os.path.join(_FIX, "before"))
         after, _ = CICE.eval_corpus(os.path.join(_FIX, "after"))
         self.assertEqual(len(before), 1)
         self.assertEqual(len(after), 1)
-        self.assertLess(after[0]["resident_total"], before[0]["resident_total"])
+        self.assertLess(after[0]["peak_context"], before[0]["peak_context"])
         self.assertLess(after[0]["reemission_count"], before[0]["reemission_count"])
 
 
@@ -321,6 +322,64 @@ class SecurityTest(unittest.TestCase):
                     self.skipTest("symlinks unavailable on this host")
                 runs, _ = CICE.eval_corpus(corpus)
                 self.assertEqual(runs, [], "eval read a file outside the corpus root")
+
+    def test_symlink_escape_is_tallied_and_breadcrumbed(self):
+        # The escape is not merely skipped from reading — it is TALLIED under
+        # `escaped_path` and breadcrumbed to stderr, never silently dropped.
+        with tempfile.TemporaryDirectory() as outside:
+            with open(os.path.join(outside, "secret.jsonl"), "w", encoding="utf-8") as fh:
+                fh.write('{"type":"assistant","attributionSkill":"devflow:create-issue",'
+                         '"message":{"usage":{"input_tokens":7}}}\n')
+            with tempfile.TemporaryDirectory() as corpus:
+                link = os.path.join(corpus, "escape.jsonl")
+                try:
+                    os.symlink(os.path.join(outside, "secret.jsonl"), link)
+                except (OSError, NotImplementedError):
+                    self.skipTest("symlinks unavailable on this host")
+                err = io.StringIO()
+                import sys
+                saved = sys.stderr
+                sys.stderr = err
+                try:
+                    runs, skipped = CICE.eval_corpus(corpus)
+                finally:
+                    sys.stderr = saved
+                self.assertEqual(runs, [])
+                self.assertEqual(skipped["escaped_path"], 1)
+                self.assertIn("escape.jsonl", err.getvalue())
+
+    def test_walk_error_is_recorded(self):
+        # An os.walk that cannot descend a directory (permission denied) records the
+        # error via the onerror callback under `walk_error` — default onerror=None
+        # would swallow it silently.
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            self.skipTest("running as root: chmod-based permission block is ineffective")
+        with tempfile.TemporaryDirectory() as corpus:
+            blocked = os.path.join(corpus, "blocked")
+            os.makedirs(blocked)
+            with open(os.path.join(blocked, "s.jsonl"), "w", encoding="utf-8") as fh:
+                fh.write('{"type":"assistant","attributionSkill":"devflow:create-issue",'
+                         '"message":{"usage":{"input_tokens":1}}}\n')
+            os.chmod(blocked, 0o000)
+            try:
+                # Verify the host actually enforces the permission block; skip if not.
+                try:
+                    os.listdir(blocked)
+                    self.skipTest("host does not enforce dir permission block")
+                except OSError:
+                    pass
+                err = io.StringIO()
+                import sys
+                saved = sys.stderr
+                sys.stderr = err
+                try:
+                    runs, skipped = CICE.eval_corpus(corpus)
+                finally:
+                    sys.stderr = saved
+                self.assertEqual(skipped["walk_error"], 1)
+                self.assertIn("blocked", err.getvalue())
+            finally:
+                os.chmod(blocked, 0o700)
 
 
 if __name__ == "__main__":

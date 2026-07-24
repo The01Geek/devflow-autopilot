@@ -254,7 +254,6 @@ class RunAccumulator:
             "turn_count": self.turn_count,
             "peak_context": peak,
             "final_context": final,
-            "resident_total": peak,
             "total_output_tokens": self.total_output_tokens,
             "compact_boundary_count": self.compact_boundary_count,
             "repeated_read_count": self.repeated_read_count,
@@ -262,15 +261,33 @@ class RunAccumulator:
         }
 
 
-def _iter_session_files(corpus_root):
+def _iter_session_files(corpus_root, skipped):
     """Yield JSONL session file paths under the corpus root, deterministically.
 
     Skips any entry whose real path escapes the corpus root (a symlink out), so the
     eval never reads outside the supplied directory. Sorted for determinism.
+
+    Both walk-level drops are TALLIED and breadcrumbed, never silent (mirroring the
+    per-record and unreadable-file skip discipline): a `.jsonl` whose real path
+    escapes the corpus root is counted under `escaped_path`, and a directory-walk
+    error (a permission-denied dir, a vanished tree) is counted under `walk_error`
+    via the `os.walk` `onerror` callback — default `onerror=None` would swallow it.
     """
     root_real = os.path.realpath(corpus_root)
     collected = []
-    for dirpath, dirnames, filenames in os.walk(corpus_root):
+
+    def _on_walk_error(exc):
+        # A directory os.walk could not descend (permissions, a race deletion): tally
+        # and breadcrumb so the aggregate is never silently computed over a corpus the
+        # walk under-enumerated. `exc.filename` names the offending directory.
+        skipped["walk_error"] += 1
+        sys.stderr.write(
+            "warning: skipping unwalkable corpus directory {}: {}\n".format(
+                getattr(exc, "filename", "?"), exc
+            )
+        )
+
+    for dirpath, dirnames, filenames in os.walk(corpus_root, onerror=_on_walk_error):
         dirnames.sort()
         for name in sorted(filenames):
             if not name.endswith(".jsonl"):
@@ -278,6 +295,14 @@ def _iter_session_files(corpus_root):
             full = os.path.join(dirpath, name)
             real = os.path.realpath(full)
             if real != root_real and not real.startswith(root_real + os.sep):
+                # A symlink (or other entry) whose real path escapes the corpus root:
+                # never read, but tally + breadcrumb so the drop is visible, not silent.
+                skipped["escaped_path"] += 1
+                sys.stderr.write(
+                    "warning: skipping session file escaping corpus root {}\n".format(
+                        full
+                    )
+                )
                 continue
             collected.append(full)
     collected.sort()
@@ -291,8 +316,15 @@ def eval_corpus(corpus_root, large_block_chars=LARGE_BLOCK_MIN_CHARS):
     skipped: dict of {reason: count} of malformed records the parser stepped over.
     """
     runs = []
-    skipped = {"non_json_line": 0, "not_object": 0, "no_type": 0, "unreadable_file": 0}
-    for session_file in _iter_session_files(corpus_root):
+    skipped = {
+        "non_json_line": 0,
+        "not_object": 0,
+        "no_type": 0,
+        "unreadable_file": 0,
+        "escaped_path": 0,
+        "walk_error": 0,
+    }
+    for session_file in _iter_session_files(corpus_root, skipped):
         acc = RunAccumulator(os.path.basename(session_file), large_block_chars)
         try:
             handle = open(session_file, "r", encoding="utf-8", errors="replace")
