@@ -4,6 +4,81 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.21.8] — 2026-07-24
+
+### Fixed
+- **Reject a `<!-- dim-key: … -->` dimension declaration authored outside the checklist
+  block in the create-issue audit-prompt template.** `render-audit-prompt.py` stripped the
+  declaration marker from every rendered block but validated declarations only in the
+  checklist block, so a declaration in a `file`/`embed`/`inline`/`di` block was silently
+  stripped from the auditor-facing prose and never enumerated while its bullet still
+  rendered as a keyless, dimension-shaped instruction. It now fails closed on every render
+  and enumeration path with a breadcrumb naming the block that carries the stray
+  declaration. (#735)
+
+## [2.21.7] — 2026-07-23
+
+### Added
+- **Step 3.6 advisory and invalid grades are now durable, user-visible, and
+  calibration-checked before convergence.** Each advisory or invalid adjudication carries a
+  durable per-finding record — a one-line summary and rationale, an impact-class tag, and the
+  auditor's returned finding block byte-preserved up to the evidence cap (a longer block is
+  truncated with the truncation disclosed in the stored bytes) — recorded through the state owner
+  (`record-adjudication --advisory-records-file`/`--invalid-records-file`, refused when a
+  class count and its supplied records disagree, or on an empty/record-splitting/protocol
+  or out-of-set-tag field), read back with `query-adjudication-records`, and rendered to the
+  user before the approval election (`record-adjudication-render`). A never-blocking
+  calibration layer (`query-calibration`, a `calibration=` sibling of the coverage boundary
+  offer) surfaces an advisory grade on an impact-bearing finding
+  (`implementation-correctness`/`scope`/`safety`/`verifiability`) that carries no recorded
+  evidence, so an under-evidenced grade is named to the maintainer rather than silently
+  converged past. Filing is never blocked on any arm. The pre-#743 call shape (zero advisory
+  and zero invalid) is byte-identical. Evidence record:
+  `docs/advisory-adjudication-calibration.md`. (#743)
+
+## [2.21.6] — 2026-07-23
+
+### Changed
+### Fixed
+
+- `lib/test/run.sh` is now analysed by ShellCheck in CI (PR #750, issue #745). The suite driver — the
+  largest and most-edited shell file in the repo — had never been linted, because the obvious job
+  deterministically evicts the runner: ShellCheck's dataflow pass allocates ~15 GB on a file this
+  size. The lint job now installs a pinned ShellCheck ≥ 0.10.0 and runs it with
+  `--extended-analysis=false` (1.15 GB, ~10 s). Both halves are required: `ubuntu-latest` ships
+  0.9.0, where the flag errors and the equivalent directive has no effect. All 60 findings in the
+  file are resolved — fixed where real, annotated with a reason where the check was a false
+  positive.
+- Fixed a live defect class the missing lint had let accumulate: assert labels that used markdown
+  backticks inside a double-quoted string, which bash executes as command substitution — so the
+  suite was running stray `--issue`, `must`, `after`, and `follow-up` commands on every run and
+  rendering those assertion names with the backticked span deleted. Every such label is fixed,
+  and the suite now guards the class (below).
+
+### Added
+
+- `lib/test/lint-carveout-guard.py`, driven from the suite, fails RED when a tracked
+  `lib/test/**/*.sh` file is neither CI-linted nor under `lib/test/fixtures/`. It immediately caught
+  two more scripts (`cloud-form-layout-test.sh`, `path-portability-test.sh`) that CI had never
+  linted; both are now covered, and the carve-out holds with no exemption beyond the fixtures dir.
+- A suite guard against the backtick-in-assert-label class above. ShellCheck cannot gate it —
+  backticks are reported as `SC2006`, a *style*-severity check that `--severity=warning` filters
+  out, so only a minority of the live instances were caught at all, and only incidentally (their
+  contents happened to parse as a flag or a keyword). The new scan fails RED on any unescaped
+  backtick in an assertion label; an escaped ``\` `` is inert and stays legal.
+
+## [2.21.5] — 2026-07-23
+
+### Added
+- **Surface a missing `Verification evidence:` marker as a tier-scoped advisory review finding.** The
+  shared review engine gains a non-blocking advisory clause (byte-identical in
+  `.devflow/prompt-extensions/review.md` and `review-and-fix.md`) that classifies each PR by tier from
+  the workpad `## Progress` `<!-- devflow:checkpoint gha:… -->` rows and, on a local/interactive PR that
+  claims completion with the `Verification evidence:` marker absent from both the workpad and the PR
+  description, emits one advisory finding — never raising the verdict on its own. It is silent on
+  cloud-classified PRs and on local PRs whose marker is present. `lib/cheap-gate.jq` records why it stays
+  unwired to the marker (its input population is merged, predominantly-cloud watched-author PRs). (#747)
+
 ## [2.21.4] — 2026-07-23
 
 ### Changed

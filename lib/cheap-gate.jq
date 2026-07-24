@@ -4,6 +4,15 @@
 # because all observable signals are clean. This is a pure filter with no
 # side-effects; it never touches disk or network.
 #
+# Deliberately UNWIRED to the `Verification evidence:` marker (issue #730): that
+# marker is recorded on the local/interactive tier only, but this gate's input
+# population — via lib/scan.sh — is merged, predominantly-cloud watched-author
+# PRs, the exact population the marker's local/interactive scoping excludes. A
+# clause reading it here would read as armed yet almost never legitimately fire.
+# The marker's runtime consumer is instead the shared review engine's tier-scoped
+# advisory (.devflow/prompt-extensions/review.md and its byte-identical twin
+# review-and-fix.md), whose per-PR input population contains those surfaces.
+#
 # Invocation:
 #   jq -c -f lib/cheap-gate.jq <context-bundle.json
 #
