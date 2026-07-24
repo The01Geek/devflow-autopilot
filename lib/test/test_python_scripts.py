@@ -145,6 +145,12 @@ def make_args(**overrides):
         marker=None,
         reconcile_reproduction=None, record_classification=None,
         checkpoint=[], expect_comment_id=None, expect_status=None,
+        # issue #781 scope-decision records — this fixture encodes cmd_update's
+        # arg shape, so every attribute `_apply_mutations` /
+        # `_has_non_checkpoint_mutation` reads must be present here or those
+        # reads raise AttributeError on every test that builds args this way.
+        scope_decision_deferred=[], scope_decision_rewritten=[],
+        bind_scope_decisions=None,
     )
     base.update(overrides)
     return argparse.Namespace(**base)

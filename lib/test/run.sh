@@ -8444,8 +8444,8 @@ assert_pin_red_under "#781: the Phase-0.2 metadata fence reads the parsed \$PR_N
 # ONE argv element, matching no PR, so the stale-REJECT dismissal silently no-ops
 # after an APPROVE and the PR stays wedged at CHANGES_REQUESTED.
 assert_pin_red_under "#781: the stale-REJECT dismissal is passed the parsed \$PR_NUMBER" \
-  'the quoted form reaches `dismiss-stale-rejections.sh` as a single argv element' \
-  's/, so an extended argument string is handed over whole, matches no PR, and the stale-REJECT dismissal silently no-ops after an APPROVE//' \
+  'Pass `"$PR_NUMBER"` here, never `"$ARGUMENTS"`' \
+  's/Pass `"\$PR_NUMBER"` here, never `"\$ARGUMENTS"`/Pass `"$ARGUMENTS"` here/' \
   "$ST_REV"
 
 # The three shadow-review reconciliations. Defect restored in each case: the shadow
@@ -8466,7 +8466,7 @@ assert_pin_red_under "#781: the Blinding boundary excepts the criteria block, an
   "$RAF_SHADOW781"
 assert_pin_red_under "#781: the shadow exception is sound only because the block is box-neutralized" \
   'shipping the box column would smuggle exactly the loop state this boundary bars' \
-  's/, so shipping the box column would smuggle exactly the loop state this boundary bars//' \
+  's/ — so shipping the box column would smuggle exactly the loop state this boundary bars//' \
   "$RAF_SHADOW781"
 
 # Defect restored at ONE of the two coupled implement-side invocation sites: the
@@ -8500,7 +8500,7 @@ assert_pin_red_under "#781: implement §3.4's retag emits its own rewritten scop
 # future writer that changes membership or text without a record silently makes the
 # whole comparand untrustworthy while every check still reads green.
 assert_pin_red_under "#781: the workpad-comparand assumption ships with its falsifier" \
-  'falsified if any writer path can change the set.s membership or a criterion.s text without emitting a scope-decision record' \
+  "falsified if any writer path can change the set's membership or a criterion's text without emitting a scope-decision record" \
   's/ The assumption is falsified if any writer path can change the set.s membership or a criterion.s text without emitting a scope-decision record\.//' \
   "$IMPL_SKILL_BUNDLE"
 
@@ -8513,14 +8513,14 @@ assert_pin_red_under "#781: §1.1.5 caps the rank-1 acceptance-criterion populat
   's/`issue_acceptance` items occupy \*\*at most 25\*\* of the 100 kept items, and the remaining 75 are filled from ranks 2 through 6 in the order above\.//' \
   "$ST_REV"
 assert_pin_red_under "#781: the sub-cap's action is announced, not merely inferred" \
-  'issue_acceptance kept: {A} of 25' \
-  's/ issue_acceptance kept: \{A\} of 25;//' \
+  'count alongside the per-category drops, so a reader sees the sub-cap acting rather than inferring it' \
+  's/ That announcement reports the `issue_acceptance kept: \{A\} of 25` count alongside the per-category drops, so a reader sees the sub-cap acting rather than inferring it\.//' \
   "$ST_REV"
 # Defect restored: the criteria arrive as ordinary narrative, so the generator emits
 # no item tagged issue_acceptance and the rank-1 category stays empty — the exact
 # defect this issue names.
 assert_pin_red_under "#781: §1.2 injects the criteria as a labelled specification block" \
-  'The block below is this PR.s specification — not background, and not the narrative issue body' \
+  "The block below is this PR's specification — not background, and not the narrative issue body" \
   's/The block below is this PR.s specification — not background, and not the narrative issue body\.//' \
   "$ST_REV"
 
@@ -35743,8 +35743,8 @@ assert_eq "#363 every already-pinned arm shape (incl. optional-leading-paren) st
 # alone would not catch a duplicate head silently gained (or lost). Whoever next adds
 # a command to a review-skill fence updates these two numbers in the same commit,
 # per CLAUDE.md's coupled-invariant rule.
-assert_eq "#363 the review-skill head set matches the reviewed count (occurrences over the whole bundle; last change: #529 split the engine into a thin root + gated phase references and added the AC7 bundle-identity fence, whose git hash-object call and anchor echo take 134 -> 136; both heads were already granted and already in the distinct set, so the distinct count is unchanged)" \
-  "136" "$(python3 -c 'import importlib.util,sys
+assert_eq "#363 the review-skill head set matches the reviewed count (occurrences over the whole bundle; last change: #781 added Phase 0.4's acs-resolve fence, whose case/test/echo/cat heads take 136 -> 142; every one was already granted and already in the distinct set, so the distinct count is unchanged)" \
+  "142" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 print(len(m.extract_heads(open(sys.argv[2],encoding="utf-8").read())))' "$ECH" "$REVIEW_BUNDLE")"
 assert_eq "#363 the review-skill head set matches the reviewed count (32 distinct names over the whole bundle; #529 moved fences into references and added only already-counted heads (git hash-object, echo), so the distinct set is unchanged)" \
