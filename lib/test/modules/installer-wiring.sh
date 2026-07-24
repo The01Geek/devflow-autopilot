@@ -179,13 +179,22 @@ done
 # Fail-fast prose rule (surface-presence class, per the issue's Testing Strategy): the
 # two-strikes bad-credential rule is present in both skill files. Pinned via
 # devflow_module_pin_unique (the sanctioned unique-literal guard, not a raw echo-driven grep).
+# Pin targets are spelled as $LIB-/$WF-relative assignments (not inline "$LIB/../…" / "$WF/…"
+# pin args) so the pin-corpus-lint static resolver reaches them and the wrapped/pin-in-comment
+# meta-guards actually CHECK these pins instead of surfacing them UNRESOLVED (issue #757).
+_iw_impl_skill="$LIB/../skills/implement/SKILL.md"
+_iw_raf_loopctl="$LIB/../skills/review-and-fix/references/loop-control.md"
+_iw_vc_yml="$WF/version-consolidate.yml"
+_iw_refresh_sh="$LIB/../scripts/refresh-app-credentials.sh"
+_iw_ghfresh_sh="$LIB/../scripts/gh-fresh.sh"
+_iw_runner_yml="$WF/devflow-runner.yml"
 devflow_module_pin_unique "#487 fail-fast prose: skills/implement/SKILL.md carries the expired-credential two-strikes rule" \
-  'Expired-credential fail-fast (two strikes' "$LIB/../skills/implement/SKILL.md"
+  'Expired-credential fail-fast (two strikes' "$_iw_impl_skill"
 devflow_module_pin_unique "#487 fail-fast prose: review-and-fix loop-control reference carries the expired-credential two-strikes rule" \
-  'Expired-credential fail-fast (two strikes' "$LIB/../skills/review-and-fix/references/loop-control.md"
+  'Expired-credential fail-fast (two strikes' "$_iw_raf_loopctl"
 # The compaction-immune sibling signal (the wrapper diagnostic literal) is named in the prose.
 devflow_module_pin_unique "#487 fail-fast prose: implement rule names the gh-fresh.sh diagnostic sibling" \
-  'devflow-gh-fresh' "$LIB/../skills/implement/SKILL.md"
+  'devflow-gh-fresh' "$_iw_impl_skill"
 
 # ── issue #599 AC21: preserved producer safety contracts (numbered (1)–(5) below) ──
 # The deferred cloud-writer call-site rework (the other ACs of #599) reworks helper
@@ -206,7 +215,7 @@ devflow_module_pin_unique "#487 fail-fast prose: implement rule names the gh-fre
 devflow_module_pin_red_under "#599 AC21(1) workflow token permissions: version-consolidate.yml seeds the App token into checkout (unseeding it runs the bump push as github-actions[bot], rejected by main's ruleset)" \
   'token: ${{ steps.app-token.outputs.token }}' \
   's/token: \$\{\{ steps\.app-token\.outputs\.token \}\}/token: \$\{\{ secrets.GITHUB_TOKEN \}\}/' \
-  "$WF/version-consolidate.yml"
+  "$_iw_vc_yml"
 
 # (2) Refresh/cleanup steps — the detached credential refresher (issue #487) is
 # retired on EVERY exit path. The existing #487 wiring pin asserts the Stop step
@@ -222,7 +231,7 @@ assert_eq "#599 AC21(2) refresh/cleanup steps: devflow-implement.yml Stop step i
 devflow_module_pin_red_under "#599 AC21(3) secret-file permissions: refresh-app-credentials.sh writes the token file under umask 077 (relaxing it leaks the token to same-uid readers)" \
   '( umask 077; printf '"'"'%s'"'"' "$token" > "$tmp" )' \
   's/umask 077/umask 022/' \
-  "$LIB/../scripts/refresh-app-credentials.sh"
+  "$_iw_refresh_sh"
 
 # (4) Bad-credential two-strike diagnostics — the gh-fresh.sh wrapper (issue #487)
 # recognizes the expired/bad-credential signature that drives the two-strike stop and
@@ -231,7 +240,7 @@ devflow_module_pin_red_under "#599 AC21(3) secret-file permissions: refresh-app-
 devflow_module_pin_red_under "#599 AC21(4) bad-credential two-strike diagnostics: gh-fresh.sh SIG matches HTTP 401 / Bad credentials / Authentication failed (weakening it silences the fail-fast signal)" \
   "SIG='HTTP 401|Bad credentials|fatal: Authentication failed for'" \
   's/Bad credentials\|fatal: Authentication failed for/NEVER_MATCHES/' \
-  "$LIB/../scripts/gh-fresh.sh"
+  "$_iw_ghfresh_sh"
 
 # (5) Direct-review identity split — the read-only DevFlow-Reviewer token (issue
 # #300/#402) is handed to the review action's github_token, but is NEVER seeded into
@@ -240,7 +249,7 @@ devflow_module_pin_red_under "#599 AC21(4) bad-credential two-strike diagnostics
 devflow_module_pin_red_under "#599 AC21(5a) direct-review identity split: devflow-runner.yml review action consumes the downscoped reviewer token (dropping it collapses review posts back onto github-actions)" \
   'github_token: ${{ steps.reviewer-token.outputs.token || secrets.GITHUB_TOKEN }}' \
   's/steps\.reviewer-token\.outputs\.token \|\| //' \
-  "$WF/devflow-runner.yml"
+  "$_iw_runner_yml"
 # Precise checkout-step extraction (NOT mint_blk, which exits only on the next
 # `- name:` step and would over-span the runner's `- id:`-only follow-on steps):
 # print from the checkout step name until the next 6-space step boundary.

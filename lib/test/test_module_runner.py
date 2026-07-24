@@ -52,6 +52,46 @@ MODULE_SKIP_CALL_RE = re.compile(r"^[ \t]*skip(?:[ \t]|$)", re.MULTILINE)
 PROMOTED_HARNESS_HELPERS = ("mint_blk", "probe_tmp", "probe_assert")
 
 
+def module_wiring_failures(
+    module_id: str,
+    expected_path: str,
+    run_text: str,
+    ci_text: str,
+    registry: dict,
+    root: Path,
+) -> list[str]:
+    """The four-coupling wiring check for ONE module (issue #757 reverse orphan check),
+    factored so both the real disk-driven test and its non-vacuity proof drive the same
+    logic. Returns a list of coupling failures (empty == fully wired) across: a registry
+    entry whose ``path`` matches; a run.sh ``devflow_run_full_suite_module`` call plus a
+    call-site floor literal equal to the registry ``minimum_assertions``; a ci.yml
+    shellcheck listing; and a provenance ``<id>.inventory.md``. A missing/malformed
+    registry mapping is itself a coupling failure (fail-closed), and the floor comparison
+    is skipped when the registry floor is unavailable (its own failure is already recorded)."""
+    failures: list[str] = []
+    mapping = registry.get("test_modules", {}).get(module_id)
+    registry_floor = None
+    if not isinstance(mapping, dict) or mapping.get("path") != expected_path:
+        failures.append("no registry entry with a matching path")
+    else:
+        registry_floor = mapping.get("minimum_assertions")
+    if (
+        f'devflow_run_full_suite_module "$LIB/test/modules/{module_id}.sh"'
+        not in run_text
+    ):
+        failures.append("no run.sh full-suite call")
+    floor_match = re.search(rf'"{re.escape(module_id)}" ([0-9]+); then', run_text)
+    if floor_match is None:
+        failures.append("no run.sh call-site floor literal")
+    elif isinstance(registry_floor, int) and int(floor_match.group(1)) != registry_floor:
+        failures.append("run.sh call-site floor != registry minimum_assertions")
+    if expected_path not in ci_text:
+        failures.append("not listed in ci.yml shellcheck set")
+    if not (root / f"lib/test/modules/{module_id}.inventory.md").is_file():
+        failures.append("no provenance inventory (<id>.inventory.md)")
+    return failures
+
+
 class ModuleRunnerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary_directory = tempfile.TemporaryDirectory()
@@ -1122,95 +1162,13 @@ class ModuleRunnerTests(unittest.TestCase):
         self.assertFalse(os.path.exists(registered_file))
         self.assertFalse(os.path.exists(registered_dir))
 
-    def test_repository_registry_maps_the_review_and_fix_contract_module(self) -> None:
-        registry = json.loads(
-            (ROOT / "scripts/workflow-flight-recorder-registry.json").read_text(
-                encoding="utf-8"
-            )
-        )
-        mapping = registry["test_modules"]["review-and-fix-contract"]
-        self.assertEqual(
-            mapping["path"], "lib/test/modules/review-and-fix-contract.sh"
-        )
-        floor = mapping["minimum_assertions"]
-        self.assertIsInstance(floor, int)
-        self.assertGreater(floor, 0)
-        self.assertTrue(REVIEW_AND_FIX_MODULE_SOURCE.is_file())
-
-        run_text = (ROOT / "lib/test/run.sh").read_text(encoding="utf-8")
-        self.assertIn(
-            'devflow_run_full_suite_module "$LIB/test/modules/review-and-fix-contract.sh"',
-            run_text,
-        )
-        floor_match = re.search(
-            r'"review-and-fix-contract" ([0-9]+); then', run_text
-        )
-        self.assertIsNotNone(floor_match)
-        self.assertEqual(int(floor_match.group(1)), floor)
-        self.assertIn('"$LIB/test/test_module_runner.py" single-verdict', run_text)
-
-        module_text = REVIEW_AND_FIX_MODULE_SOURCE.read_text(encoding="utf-8")
-        self.assertTrue(
-            module_text.startswith(
-                "# SPDX-FileCopyrightText: 2026 Daniel Radman\n"
-                "# SPDX-License-Identifier: MIT\n"
-            )
-        )
-        self.assertIn("Contract: the caller sets LIB and RESULTS_FILE", module_text)
-        self.assertNotIn('"$LIB/test/test_module_runner.py" single-verdict', module_text)
-        self.assertNotIn("devflow_run_full_suite_module", module_text)
-        self.assertIn("review-and-fix-contract.inventory.md", module_text)
-        self.assertIn(
-            "lib/test/modules/review-and-fix-contract.sh",
-            (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"),
-        )
-
-    def test_repository_registry_maps_the_create_issue_contract_module(self) -> None:
-        registry = json.loads(
-            (ROOT / "scripts/workflow-flight-recorder-registry.json").read_text(
-                encoding="utf-8"
-            )
-        )
-        mapping = registry["test_modules"]["create-issue-contract"]
-        self.assertEqual(
-            mapping["path"], "lib/test/modules/create-issue-contract.sh"
-        )
-        floor = mapping["minimum_assertions"]
-        self.assertIsInstance(floor, int)
-        self.assertGreater(floor, 0)
-        self.assertTrue(CREATE_ISSUE_MODULE_SOURCE.is_file())
-
-        run_text = (ROOT / "lib/test/run.sh").read_text(encoding="utf-8")
-        self.assertIn(
-            'devflow_run_full_suite_module "$LIB/test/modules/create-issue-contract.sh"',
-            run_text,
-        )
-        # The full-suite call operand and the registry floor are one coupled contract.
-        floor_match = re.search(
-            r'"create-issue-contract" ([0-9]+); then', run_text
-        )
-        self.assertIsNotNone(floor_match)
-        self.assertEqual(int(floor_match.group(1)), floor)
-        self.assertIn('"$LIB/test/test_module_runner.py" single-verdict', run_text)
-
-        module_text = CREATE_ISSUE_MODULE_SOURCE.read_text(encoding="utf-8")
-        self.assertTrue(
-            module_text.startswith(
-                "# SPDX-FileCopyrightText: 2026 Daniel Radman\n"
-                "# SPDX-License-Identifier: MIT\n"
-            )
-        )
-        self.assertIn("Contract: the caller sets LIB and RESULTS_FILE", module_text)
-        # A module never invokes the runner or the full-suite boundary itself.
-        self.assertNotIn("devflow_run_full_suite_module", module_text)
-        self.assertIn("create-issue-contract.inventory.md", module_text)
-        self.assertIn(
-            "lib/test/modules/create-issue-contract.sh",
-            (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"),
-        )
-        # The provenance inventory exists and is not a second behavioral source.
-        inventory = ROOT / "lib/test/modules/create-issue-contract.inventory.md"
-        self.assertTrue(inventory.is_file())
+    # Issue #757 removed test_repository_registry_maps_the_review_and_fix_contract_module and
+    # test_repository_registry_maps_the_create_issue_contract_module: their four-coupling
+    # reconciliation (registry path, run.sh call + floor, ci.yml listing, inventory) is fully
+    # owned by the forward generalized check below AND the reverse disk-driven orphan check
+    # (test_every_module_file_on_disk_is_fully_wired), so the per-module copies were duplicates
+    # (helper-cutover rule). Each module's green run-through the real runner is retained in its
+    # own *_runs_green_through_the_real_runner test.
 
     def test_every_registered_module_floor_matches_its_run_sh_call_site(self) -> None:
         # Issue #591: generalized coupling cross-check. Iterating every test_modules
@@ -1276,6 +1234,83 @@ class ModuleRunnerTests(unittest.TestCase):
                     MODULE_SKIP_CALL_RE.search(module_code),
                     f"{module_id} calls skip; modules may not self-skip",
                 )
+
+    def test_every_module_file_on_disk_is_fully_wired(self) -> None:
+        # Issue #757 REVERSE orphan check. The forward check above iterates the REGISTRY, so it
+        # cannot see a module FILE that carries no registry entry at all — a new
+        # lib/test/modules/<name>.sh committed without registering it is silently uncovered.
+        # This enumerates every *.sh ON DISK and demands each is registered and wired across all
+        # four couplings, so coverage cannot be forgotten for a future module by construction.
+        registry = json.loads(
+            (ROOT / "scripts/workflow-flight-recorder-registry.json").read_text(encoding="utf-8")
+        )
+        run_text = (ROOT / "lib/test/run.sh").read_text(encoding="utf-8")
+        ci_text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        module_files = sorted((ROOT / "lib/test/modules").glob("*.sh"))
+        # A corpus-emptying regression (a bad glob, a moved dir) would make the loop vacuous;
+        # assert the disk set is non-trivial (>= the modules registered as of #757).
+        self.assertGreaterEqual(len(module_files), 11)
+        for module_file in module_files:
+            module_id = module_file.stem
+            with self.subTest(module=module_id):
+                expected_path = f"lib/test/modules/{module_id}.sh"
+                self.assertEqual(
+                    module_wiring_failures(
+                        module_id, expected_path, run_text, ci_text, registry, ROOT
+                    ),
+                    [],
+                    f"{module_id} is not fully wired across the four couplings",
+                )
+
+    def test_reverse_wiring_check_fails_when_any_coupling_is_removed(self) -> None:
+        # Non-vacuity proof for the reverse check: the AC requires it to FAIL when ANY one of
+        # the four couplings is removed. Drive module_wiring_failures over synthetic inputs — a
+        # fully-wired baseline (empty result), then one input per coupling with exactly that
+        # coupling removed (each must surface a failure). The inventory coupling reads the real
+        # filesystem, so build the baseline inventory under the setUp temp root.
+        module_id = "synthetic-mod"
+        expected_path = f"lib/test/modules/{module_id}.sh"
+        (self.modules_dir / f"{module_id}.inventory.md").write_text("prov\n", encoding="utf-8")
+        good_registry = {
+            "test_modules": {module_id: {"path": expected_path, "minimum_assertions": 5}}
+        }
+        good_run = (
+            f'devflow_run_full_suite_module "$LIB/test/modules/{module_id}.sh" \\\n'
+            f'  "{module_id}" 5; then'
+        )
+        good_ci = f"    shellcheck {expected_path}\n"
+
+        # Baseline: fully wired -> no failures.
+        self.assertEqual(
+            module_wiring_failures(module_id, expected_path, good_run, good_ci, good_registry, self.root),
+            [],
+        )
+
+        # (1) registry entry removed.
+        self.assertTrue(
+            module_wiring_failures(module_id, expected_path, good_run, good_ci, {"test_modules": {}}, self.root)
+        )
+        # (2) run.sh full-suite call + floor removed.
+        self.assertTrue(
+            module_wiring_failures(module_id, expected_path, "", good_ci, good_registry, self.root)
+        )
+        # (2b) run.sh floor literal disagrees with the registry floor.
+        bad_floor_run = (
+            f'devflow_run_full_suite_module "$LIB/test/modules/{module_id}.sh" \\\n'
+            f'  "{module_id}" 999; then'
+        )
+        self.assertTrue(
+            module_wiring_failures(module_id, expected_path, bad_floor_run, good_ci, good_registry, self.root)
+        )
+        # (3) ci.yml listing removed.
+        self.assertTrue(
+            module_wiring_failures(module_id, expected_path, good_run, "", good_registry, self.root)
+        )
+        # (4) provenance inventory removed.
+        (self.modules_dir / f"{module_id}.inventory.md").unlink()
+        self.assertTrue(
+            module_wiring_failures(module_id, expected_path, good_run, good_ci, good_registry, self.root)
+        )
 
     def test_installer_wiring_module_runs_green_through_the_real_runner(self) -> None:
         """Issue #695: the extracted module runs green through the real focused runner at

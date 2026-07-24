@@ -1473,12 +1473,18 @@ assert_eq "#655 implement.md's cross-reference names the rule's actual heading l
 # has no way to evaluate in a repo with no guidance, and falls through to the surrounding
 # resolve-it-yourself arm — hand-merging exactly what the sentence forbids.
 RA_ARM_POINTER='if you cannot establish whether the conflicted file is generated, stop and mark it needs-human-reconciliation rather than hand-merging'
+# Targets spelled as $RA_REPO-relative assignments (not inline "$RA_REPO/…" pin args) so the
+# pin-corpus-lint static resolver reaches them and the wrapped/pin-in-comment meta-guards
+# actually CHECK these pins instead of surfacing them UNRESOLVED (issue #757).
+_ra_arm_impl="$RA_REPO/skills/implement/phases/phase-1-setup.md"
+_ra_arm_raf="$RA_REPO/skills/review-and-fix/references/fixing.md"
+_ra_arm_rcv="$RA_REPO/skills/receiving-code-review/SKILL.md"
 devflow_module_pin_unique "#655 the implement checkpoint CONFLICT arm carries the generic pointer" \
-  "$RA_ARM_POINTER" "$RA_REPO/skills/implement/phases/phase-1-setup.md"
+  "$RA_ARM_POINTER" "$_ra_arm_impl"
 devflow_module_pin_unique "#655 the review-and-fix CONFLICT arm carries the generic pointer" \
-  "$RA_ARM_POINTER" "$RA_REPO/skills/review-and-fix/references/fixing.md"
+  "$RA_ARM_POINTER" "$_ra_arm_raf"
 devflow_module_pin_unique "#655 the receiving-code-review branch-update arm carries the generic pointer" \
-  "$RA_ARM_POINTER" "$RA_REPO/skills/receiving-code-review/SKILL.md"
+  "$RA_ARM_POINTER" "$_ra_arm_rcv"
 # The vendored skill ships to consumers, so its pointer must name no DevFlow-internal
 # helper — the same repo-agnostic boundary its upstream MIT body already carries.
 assert_eq "#655 the vendored receiving-code-review pointer names no DevFlow-internal helper" "0" \

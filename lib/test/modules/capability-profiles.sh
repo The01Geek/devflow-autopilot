@@ -258,7 +258,11 @@ _cap_fail "#561 T13o target workflow unreadable (breadcrumb, not traceback)"    
 # which syncs matcher-probe.yml's IMPLEMENT baseline with devflow-implement.yml's baked
 # baseline. Pin the operative clause narrowly (this is the capability-manifest module, never
 # a retired #450 block) so a reword that re-legitimizes hand-editing either literal goes RED.
+# Target spelled as a $LIB-relative assignment (not an inline "$LIB/../…" pin arg) so the
+# pin-corpus-lint static resolver reaches it and the wrapped/pin-in-comment meta-guards
+# actually CHECK these pins rather than surfacing them UNRESOLVED (issue #757).
+_cap_claude="$LIB/../CLAUDE.md"
 devflow_module_pin_unique "#555 CLAUDE.md documents the implement-tier bundled-helper grant flow" \
-  'Implement-tier bundled-helper grant flow (issue #555)' "$LIB/../CLAUDE.md"
+  'Implement-tier bundled-helper grant flow (issue #555)' "$_cap_claude"
 devflow_module_pin_unique "#555 CLAUDE.md forbids hand-editing either generated workflow literal for such a grant" \
-  '**Never hand-edit either workflow literal** to add such a grant.' "$LIB/../CLAUDE.md"
+  '**Never hand-edit either workflow literal** to add such a grant.' "$_cap_claude"

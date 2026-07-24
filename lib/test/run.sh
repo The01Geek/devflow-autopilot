@@ -34154,42 +34154,49 @@ for _mod in "$LIB"/test/modules/*.sh; do
   _MOD_WRAP_STRICT_OUT="$(python3 "$PCL" wrapped "$_mod" --lib "$LIB" "${_mod_vars[@]}" --strict 2>/dev/null)"; _MOD_WRAP_STRICT_RC=$?
   assert_eq "#687 pin-corpus wrapped --strict exits 0 over clean module $(basename "$_mod")" "rc=0|" "rc=$_MOD_WRAP_STRICT_RC|$_MOD_WRAP_STRICT_OUT"
 done
-# Resolution floor: the meta-guards only actually CHECK a pin whose target file resolves.
-# create-issue-contract.sh carries the module corpus's namespaced pins whose targets need
-# --var resolution, so a regression breaking that resolution would leave every pin
-# UNRESOLVED (surfaced, not asserted) and the wrapped guard would scan nothing while still
-# reading clean. Pin a RESOLVED-COUNT floor over its wrapped scan (the module-internal
-# runtime bundle temps stay unresolved; $CI_BUNDLE is bound above so its pins do resolve)
-# so a resolution regression turns RED, not green.
-_CI_WRAP_ERR="$(mktemp)"
-python3 "$PCL" wrapped "$LIB/test/modules/create-issue-contract.sh" --lib "$LIB" "${CI_MOD_VARS[@]}" >/dev/null 2>"$_CI_WRAP_ERR" || true
-_CI_WRAP_RESOLVED="$(grep '^RESOLVED-COUNT' "$_CI_WRAP_ERR" 2>/dev/null | tail -1)"; _CI_WRAP_RESOLVED="${_CI_WRAP_RESOLVED##*$'\t'}"
-assert_eq "#591 pin-corpus: create-issue module pin targets still resolve (>=150 for the wrapped meta-guard)" \
-  "yes" "$({ [ -n "$_CI_WRAP_RESOLVED" ] && [ "$_CI_WRAP_RESOLVED" -ge 150 ]; } 2>/dev/null && echo yes || echo no)"
-rm -f "$_CI_WRAP_ERR"
-
-# issue #746: the same floor obligation for the tranche modules that CARRY pins. Without
-# it a resolution regression — the $LIB-relative REPO_ROOT spelling replaced by a command
-# substitution, or a dropped RSB_MOD_VARS binding — leaves every pin UNRESOLVED, and the
-# lint/wrapped assertions above still read rc=0 with empty output, i.e. green over a corpus
-# in which nothing was checked. The floor is derived from the module's own pin call sites
-# rather than transcribed, so adding or removing a pin moves the comparand with it and no
-# hand-maintained count can rot; the assertion is EQUALITY, so an unresolved pin is RED.
-# Only the two pin-carrying modules are listed: experiment-records.sh and
-# prompt-extension-reader.sh define no pin at all, so a resolution floor over them would
-# compare 0 against 0 and assert nothing.
-for _rmod in review-stall-backstop review-trigger-helpers; do
-  case "$_rmod" in
-    review-stall-backstop) _rmod_vars=("${RSB_MOD_VARS[@]}") ;;
-    *)                     _rmod_vars=() ;;
+# Resolution floor (issue #757, generalizing #591's create-issue `>=150` floor and #746's
+# hand-listed tranche loop into ONE glob-derived, equality-checked, self-extending pass). The
+# meta-guards only actually CHECK a pin whose target file resolves; an UNRESOLVED pin is
+# surfaced on stderr but never asserted, i.e. silently exempt. A resolution regression — a
+# dropped --var binding, a $LIB-relative target respelled as a command substitution — would
+# leave pins UNRESOLVED while the lint/wrapped assertions above still read rc=0 with empty
+# output, i.e. green over a corpus in which nothing was checked. So for EVERY registered module
+# carrying pins, assert the wrapped scan's RESOLVED-COUNT EQUALS the module's committed
+# `resolved_pin_floor` (in the registry, alongside `minimum_assertions`). The loop globs the
+# module directory and `continue`s on a module with zero pins, so it is self-extending: a new
+# pin-carrying module gets covered automatically, and — because a missing floor becomes a
+# sentinel no count equals — one added without a `resolved_pin_floor` fails CLOSED here rather
+# than being silently exempt. Equality (not `>=`) makes BOTH a resolution regression (fewer pins
+# resolve) and an unaccounted-for new resolvable pin (more resolve) RED, forcing the floor to
+# track the module's real resolved-pin surface. The floor is NOT the module's TOTAL pin count:
+# create-issue-contract.sh and regenerate-artifacts.sh legitimately carry pins whose targets are
+# per-run mktemp temps / loop-var paths that no static resolver can reach, so the committed floor
+# is the resolvable subset (measured), not the grep count. The per-module --var arms mirror the
+# #591 lint/wrapped loop above (create-issue's literal-valued CI_MOD_VARS, review-stall-backstop's
+# REVIEW_BUNDLE path-vars); other modules resolve on --lib alone.
+_R757="$LIB/../scripts/workflow-flight-recorder-registry.json"
+for _mod in "$LIB"/test/modules/*.sh; do
+  _m757_id="$(basename "$_mod" .sh)"
+  _m757_pins="$(grep -cE '^[[:space:]]*devflow_module_pin_' "$_mod")"
+  [ "$_m757_pins" -eq 0 ] && continue
+  case "$_m757_id" in
+    create-issue-contract) _m757_vars=( --lib "$LIB" "${CI_MOD_VARS[@]}" ) ;;
+    review-stall-backstop) _m757_vars=( --lib "$LIB" "${RSB_MOD_VARS[@]}" ) ;;
+    *)                     _m757_vars=( --lib "$LIB" ) ;;
   esac
-  _RM_PINS="$(grep -cE '^[[:space:]]*devflow_module_pin_' "$LIB/test/modules/$_rmod.sh")"
-  _RM_ERR="$(mktemp)"
-  python3 "$PCL" wrapped "$LIB/test/modules/$_rmod.sh" --lib "$LIB" "${_rmod_vars[@]}" >/dev/null 2>"$_RM_ERR" || true
-  _RM_RESOLVED="$(grep '^RESOLVED-COUNT' "$_RM_ERR" 2>/dev/null | tail -1)"; _RM_RESOLVED="${_RM_RESOLVED##*$'\t'}"
-  assert_eq "#746 pin-corpus: every $_rmod pin target resolves for the wrapped meta-guard" \
-    "$_RM_PINS" "$_RM_RESOLVED"
-  rm -f "$_RM_ERR"
+  _M757_ERR="$(mktemp)"
+  python3 "$PCL" wrapped "$_mod" "${_m757_vars[@]}" >/dev/null 2>"$_M757_ERR" || true
+  _M757_RESOLVED="$(grep '^RESOLVED-COUNT' "$_M757_ERR" 2>/dev/null | tail -1)"; _M757_RESOLVED="${_M757_RESOLVED##*$'\t'}"
+  rm -f "$_M757_ERR"
+  # Read the committed floor; a non-integer / absent value collapses to a sentinel that no
+  # RESOLVED-COUNT equals, so a pin-carrying module with no valid floor fails CLOSED.
+  _M757_FLOOR="$(python3 -c 'import json,sys
+d=json.load(open(sys.argv[1]))["test_modules"].get(sys.argv[2]) or {}
+v=d.get("resolved_pin_floor")
+print(v if isinstance(v, int) and not isinstance(v, bool) else "")' "$_R757" "$_m757_id")"
+  [ -n "$_M757_FLOOR" ] || _M757_FLOOR="MISSING-resolved_pin_floor"
+  assert_eq "#757 pin-corpus: $_m757_id pin targets resolve for the wrapped meta-guard (RESOLVED-COUNT == registry resolved_pin_floor)" \
+    "$_M757_FLOOR" "$_M757_RESOLVED"
 done
 
 # T-pinlint: a MODULE-file pin source carrying an off-line (wrapped) devflow_module_pin_*

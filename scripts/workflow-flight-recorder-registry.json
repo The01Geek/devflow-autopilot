@@ -14,21 +14,25 @@
     "create-issue-contract": {
       "path": "lib/test/modules/create-issue-contract.sh",
       "minimum_assertions": 436,
+      "resolved_pin_floor": 274,
       "description": "Focused create-issue Step 3.6 audit, state-owner cutover, authoring-discipline, and revision-delta contracts"
     },
     "capability-profiles": {
       "path": "lib/test/modules/capability-profiles.sh",
       "minimum_assertions": 61,
+      "resolved_pin_floor": 2,
       "description": "Focused #561 capability-profile manifest generator: --check clean pass, manifest and region adversarial matrices, planted-defect controls, idempotency/determinism, no-runtime-read, PR #588 hardening, and the #555 implement-tier bundled-helper grant-flow CLAUDE.md pins"
     },
     "regenerate-artifacts": {
       "path": "lib/test/modules/regenerate-artifacts.sh",
       "minimum_assertions": 100,
+      "resolved_pin_floor": 6,
       "description": "Focused #619 batched generated-artifact pass: clean-tree run, mechanical regeneration and idempotency, closure-error vs traceback routing, combined judgment drift with write-scope negatives, --list registry surface and bundle-membership coupling, the three-state exit contract including the infrastructure paths reached despite an in-set exit, per-row infra_marker discrimination for every judgment row with per-line marker scoping, and the budget row's unestablished/untracked/resolved/deleted-member arms"
     },
     "installer-wiring": {
       "path": "lib/test/modules/installer-wiring.sh",
       "minimum_assertions": 118,
+      "resolved_pin_floor": 7,
       "description": "Focused installer and workflow-wiring coverage: the #487/#491 credential-refresher and fresh-gh wrapper workflow wiring, the #533 seven-output install-gh-wrapper.sh validation with its planted-defect controls, the #544 fingerprint-comparison symmetry, the #599 workflow-token and secret-file permission pins, and the #690 Windows mode-probe arms"
     },
     "harness-python-guards": {
@@ -44,11 +48,13 @@
     "review-trigger-helpers": {
       "path": "lib/test/modules/review-trigger-helpers.sh",
       "minimum_assertions": 403,
+      "resolved_pin_floor": 6,
       "description": "Focused review and implement trigger-helper contracts: derive-review-verdict.sh (#249 HEAD-scoped fail-closed deriver), derive-review-preconditions.sh (#304 branch-freshness and other-CI-green gate), parse-engine-error.sh, surface-execution-diagnostics.sh (#329) with its workflow wiring (#331), the execution-transcript artifact config key and scrub/gate hardening (#409), resolve-implement-trigger.sh, dedupe-implement-run.sh, authorize-actor.sh, detect-standalone-command.sh and resolve-command-trigger.sh"
     },
     "review-stall-backstop": {
       "path": "lib/test/modules/review-stall-backstop.sh",
       "minimum_assertions": 128,
+      "resolved_pin_floor": 21,
       "description": "Focused cloud-review stall-backstop coverage: the #408 no-verdict auto-resume backstop (request-review-backstop.sh, its devflow-review.yml/devflow.yml wiring and grounding-block coupling) and the #414 post-and-annotate helper extraction (post-review-backstop-comment.sh plus the ScheduleWakeup and agents-seam probe verdict readers)"
     },
     "experiment-records": {
