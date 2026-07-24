@@ -45305,6 +45305,21 @@ if ! MODULE_SIGNAL_MATRIX_CAPABILITY="$(python3 "$LIB/test/test_module_harness.p
     "${MODULE_SIGNAL_MATRIX_CAPABILITY:-POSIX signals and process groups are unavailable}"
 fi
 
+# issue #767: the create-issue runtime main-thread context eval
+# (scripts/create-issue-context-eval.py) and its committed synthetic fixtures.
+# Runs SERIALLY on the main shell, like test_module_harness.py above — a focused
+# unittest whose non-zero exit surfaces here with its own output. It witnesses every
+# #767 AC the eval/fixtures can (per-run + aggregate metrics, the synthetic
+# before/after reduction-detection, the CI-reconcilable fixture-derived figure, the
+# missing-corpus diagnostic, the no-transcript/no-owner-id scan with its planted
+# positive control, malformed-record degradation, determinism, and the symlink-escape
+# guard); the orchestrator-instruction reduction's preservation is a code-reading
+# obligation recorded in docs/create-issue-context.md, not a suite test.
+CICE_TEST_OUT="$(python3 "$LIB/test/test_create_issue_context_eval.py" 2>&1)"
+CICE_TEST_RC=$?
+assert_eq "issue #767: create-issue context eval focused tests pass" "0" "$CICE_TEST_RC"
+[ "$CICE_TEST_RC" -eq 0 ] || while IFS= read -r _cice_line || [ -n "$_cice_line" ]; do printf '    %s\n' "$_cice_line"; done <<< "$CICE_TEST_OUT"
+
 # harness-python-guards contract coverage (issue #707: extracted from this file's
 # #600 / #527 / #528 / #668 / #591 monolith-only Python guard blocks into a focused
 # module). The registry and this full-suite call share the same lower-bound contract;

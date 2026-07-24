@@ -1,0 +1,7 @@
+PLANTED POSITIVE CONTROL — do not treat as clean. This file deliberately carries an
+owner-specific identifier and a transcript-shaped line so the no-secrets detector in
+lib/test/test_create_issue_context_eval.py is proven to FIRE on the shape it guards
+(not merely to pass on a clean tree). It is excluded by name from the clean scan.
+
+owner path: /Users/the01geek/repos/devflow-autopilot
+{"type":"assistant","attributionSkill":"devflow:create-issue","message":{"usage":{"input_tokens":123}}}

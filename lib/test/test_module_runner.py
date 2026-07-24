@@ -1942,7 +1942,13 @@ POOLED_SUITES = (
     "test_module_runner.py",
     "test_python_scripts.py",
 )
-SERIAL_BY_EXCLUSION_SUITES = ("test_module_harness.py",)
+SERIAL_BY_EXCLUSION_SUITES = (
+    "test_module_harness.py",
+    # issue #767: the create-issue context eval's focused unittest runs serially on
+    # the main shell (invoked directly by run.sh, like test_module_harness.py above),
+    # not through the pool or a full-suite module.
+    "test_create_issue_context_eval.py",
+)
 MODULE_DRIVEN_SUITES = (
     "test_render_audit_prompt.py",
     "test_verification_baseline.py",
