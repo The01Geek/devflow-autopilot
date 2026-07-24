@@ -67,7 +67,7 @@ for _wf487 in devflow-implement devflow; do
   # Behavioral-fix pin: deleting the `env -u DEVFLOW_APP_PRIVATE_KEY` line reintroduces
   # the /proc/<pid>/environ PEM exposure, so it must flip the pin RED.
   devflow_module_pin_red_under "#487 wiring: $_wf487.yml env -u DEVFLOW_APP_PRIVATE_KEY present (deleting it reopens the /proc PEM leak)" \
-    'env -u DEVFLOW_APP_PRIVATE_KEY' '/env -u DEVFLOW_APP_PRIVATE_KEY/d' "$_WFF487"
+    'env -u DEVFLOW_APP_PRIVATE_KEY' '/env -u DEVFLOW_APP_PRIVATE_KEY/d' "$_WFF487"  # runtime-pin-ok: target "$_WFF487" is bound by the enclosing `for _wf487 …` loop, unresolvable by the static meta-guard
   # No `background:` step key anywhere (would break actionlint).
   assert_eq "#487 wiring: $_wf487.yml uses no 'background:' step key (actionlint-safe)" "0" \
     "$(grep -cE '^[[:space:]]*background:[[:space:]]*true' "$_WFF487")"

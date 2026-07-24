@@ -34168,6 +34168,10 @@ CI_MOD_VARS=(
   --var "CI_OVERVIEW=docs/DEVFLOW_SYSTEM_OVERVIEW.md"
   --var "CI_CLAUDE=CLAUDE.md"
   --var "CI_INVENTORY=lib/test/modules/create-issue-contract.inventory.md"
+  # CI_ROOT lets the meta-guard resolve the module's own `$CI_ROOT/…` assignments
+  # (CI_CLOUD_SETUP, CI_IMPL_DOC, CI_DV) and inline `$CI_ROOT/…` pin targets; without
+  # it those pins stay unresolved — surfaced on stderr but never asserted (issue #757).
+  --var "CI_ROOT=$LIB/.."
 )
 # issue #746: review-stall-backstop.sh is another module whose pin TARGETS need
 # --var resolution. Its #408 skill pins target the review-engine bundle, which the
@@ -34208,47 +34212,40 @@ for _mod in "$LIB"/test/modules/*.sh; do
   assert_eq "#591 pin-corpus lint clean over module $(basename "$_mod")" "rc=0|" "rc=$_MOD_LINT_RC|$_MOD_LINT_OUT"
   _MOD_LINT_STRICT_OUT="$(python3 "$PCL" lint "$_mod" --lib "$LIB" "${_mod_vars[@]}" --strict 2>/dev/null)"; _MOD_LINT_STRICT_RC=$?
   assert_eq "#687 pin-corpus lint --strict exits 0 over clean module $(basename "$_mod")" "rc=0|" "rc=$_MOD_LINT_STRICT_RC|$_MOD_LINT_STRICT_OUT"
-  _MOD_WRAP_OUT="$(python3 "$PCL" wrapped "$_mod" --lib "$LIB" "${_mod_vars[@]}" 2>/dev/null)"; _MOD_WRAP_RC=$?
+  # The plain wrapped run's STDERR carries the RESOLVED-COUNT tally the #757 resolution
+  # floor below reads, so capture it to a temp rather than discarding it — one wrapped
+  # invocation serves both the clean-scan assertion and the floor (no second glob, no
+  # second subprocess).
+  _MOD_WRAP_ERR="$(mktemp)"
+  _MOD_WRAP_OUT="$(python3 "$PCL" wrapped "$_mod" --lib "$LIB" "${_mod_vars[@]}" 2>"$_MOD_WRAP_ERR")"; _MOD_WRAP_RC=$?
   assert_eq "#591 pin-corpus wrapped clean over module $(basename "$_mod")" "rc=0|" "rc=$_MOD_WRAP_RC|$_MOD_WRAP_OUT"
   _MOD_WRAP_STRICT_OUT="$(python3 "$PCL" wrapped "$_mod" --lib "$LIB" "${_mod_vars[@]}" --strict 2>/dev/null)"; _MOD_WRAP_STRICT_RC=$?
   assert_eq "#687 pin-corpus wrapped --strict exits 0 over clean module $(basename "$_mod")" "rc=0|" "rc=$_MOD_WRAP_STRICT_RC|$_MOD_WRAP_STRICT_OUT"
-done
-# Resolution floor: the meta-guards only actually CHECK a pin whose target file resolves.
-# create-issue-contract.sh carries the module corpus's namespaced pins whose targets need
-# --var resolution, so a regression breaking that resolution would leave every pin
-# UNRESOLVED (surfaced, not asserted) and the wrapped guard would scan nothing while still
-# reading clean. Pin a RESOLVED-COUNT floor over its wrapped scan (the module-internal
-# runtime bundle temps stay unresolved; $CI_BUNDLE is bound above so its pins do resolve)
-# so a resolution regression turns RED, not green.
-_CI_WRAP_ERR="$(mktemp)"
-python3 "$PCL" wrapped "$LIB/test/modules/create-issue-contract.sh" --lib "$LIB" "${CI_MOD_VARS[@]}" >/dev/null 2>"$_CI_WRAP_ERR" || true
-_CI_WRAP_RESOLVED="$(grep '^RESOLVED-COUNT' "$_CI_WRAP_ERR" 2>/dev/null | tail -1)"; _CI_WRAP_RESOLVED="${_CI_WRAP_RESOLVED##*$'\t'}"
-assert_eq "#591 pin-corpus: create-issue module pin targets still resolve (>=150 for the wrapped meta-guard)" \
-  "yes" "$({ [ -n "$_CI_WRAP_RESOLVED" ] && [ "$_CI_WRAP_RESOLVED" -ge 150 ]; } 2>/dev/null && echo yes || echo no)"
-rm -f "$_CI_WRAP_ERR"
-
-# issue #746: the same floor obligation for the tranche modules that CARRY pins. Without
-# it a resolution regression — the $LIB-relative REPO_ROOT spelling replaced by a command
-# substitution, or a dropped RSB_MOD_VARS binding — leaves every pin UNRESOLVED, and the
-# lint/wrapped assertions above still read rc=0 with empty output, i.e. green over a corpus
-# in which nothing was checked. The floor is derived from the module's own pin call sites
-# rather than transcribed, so adding or removing a pin moves the comparand with it and no
-# hand-maintained count can rot; the assertion is EQUALITY, so an unresolved pin is RED.
-# Only the two pin-carrying modules are listed: experiment-records.sh and
-# prompt-extension-reader.sh define no pin at all, so a resolution floor over them would
-# compare 0 against 0 and assert nothing.
-for _rmod in review-stall-backstop review-trigger-helpers; do
-  case "$_rmod" in
-    review-stall-backstop) _rmod_vars=("${RSB_MOD_VARS[@]}") ;;
-    *)                     _rmod_vars=() ;;
-  esac
-  _RM_PINS="$(grep -cE '^[[:space:]]*devflow_module_pin_' "$LIB/test/modules/$_rmod.sh")"
-  _RM_ERR="$(mktemp)"
-  python3 "$PCL" wrapped "$LIB/test/modules/$_rmod.sh" --lib "$LIB" "${_rmod_vars[@]}" >/dev/null 2>"$_RM_ERR" || true
-  _RM_RESOLVED="$(grep '^RESOLVED-COUNT' "$_RM_ERR" 2>/dev/null | tail -1)"; _RM_RESOLVED="${_RM_RESOLVED##*$'\t'}"
-  assert_eq "#746 pin-corpus: every $_rmod pin target resolves for the wrapped meta-guard" \
-    "$_RM_PINS" "$_RM_RESOLVED"
-  rm -f "$_RM_ERR"
+  # Resolution floor (issue #757 — glob-derived, self-extending, equality), folded into this
+  # same per-module loop. The meta-guards only actually CHECK a pin whose target file
+  # resolves; an UNRESOLVED pin is surfaced on stderr but never asserted, so a resolution
+  # regression (a dropped --var binding, a $CI_ROOT/REPO_ROOT spelling the resolver cannot
+  # follow) would leave pins silently exempt while the wrapped assertion above still reads
+  # rc=0 over a corpus in which nothing was checked. This floor turns that RED. It supersedes
+  # the former hand-listed create-issue (`>=150`) and tranche (#591/#746) floors: it derives
+  # the EXPECTED resolved count as (the module's own devflow_module_pin_* call sites MINUS the
+  # pins it declares genuinely unresolvable with a trailing `# runtime-pin-ok:` marker —
+  # runtime scratch-root temps, loop-bound targets, function-positional literals) and asserts
+  # EQUALITY against the RESOLVED-COUNT the wrapped run above emitted. Nothing is transcribed,
+  # so adding or removing a pin moves the comparand with it and no hand-maintained list or
+  # count can rot; a new pin-carrying module is covered the moment it lands on disk. A module
+  # with zero pins contributes no floor (0 == 0 asserts nothing) and is skipped.
+  _F_PINS="$(grep -cE '^[[:space:]]*devflow_module_pin_' "$_mod")"
+  if [ "$_F_PINS" -gt 0 ]; then
+    # Declared-unresolvable pins: a `runtime-pin-ok:` marker on a NON-comment line (the pin's
+    # target/continuation line — never a wholly-comment line, so a header mentioning the
+    # convention is not miscounted). Each such pin is subtracted from the expected count.
+    _F_RUNTIME="$(grep -E 'runtime-pin-ok:' "$_mod" | grep -cvE '^[[:space:]]*#')"
+    _F_RESOLVED="$(grep '^RESOLVED-COUNT' "$_MOD_WRAP_ERR" 2>/dev/null | tail -1)"; _F_RESOLVED="${_F_RESOLVED##*$'\t'}"
+    assert_eq "#757 pin-corpus: every resolvable $(basename "$_mod") pin target resolves for the wrapped meta-guard (call sites $_F_PINS − runtime-declared $_F_RUNTIME)" \
+      "$(( _F_PINS - _F_RUNTIME ))" "$_F_RESOLVED"
+  fi
+  rm -f "$_MOD_WRAP_ERR"
 done
 
 # T-pinlint: a MODULE-file pin source carrying an off-line (wrapped) devflow_module_pin_*
