@@ -8227,10 +8227,27 @@ assert_eq("#583 AC5: workpad.py's gh subprocess edge is external, authorized by 
 assert_eq("#583 AC5: workpad.py's git subprocess edge is external, git-preflight-authorized",
           (True, "external"),
           ("git" in _wp_exec, _wp_exec["git"].klass if "git" in _wp_exec else None))
+# Scoped to the EXTERNAL import edges: issue #781 gave workpad.py its first
+# repo-owned import (scripts/section_parse.py, the shared section-parsing rules
+# it and parse-acs.py both call), so an unscoped "every import is stdlib" claim
+# would now be false. The repo-owned edge gets its own assertion below rather
+# than being waved through by a loosened predicate.
 assert_eq("#583 AC5: workpad.py's standard-library imports are all external and preflight-authorized",
           True,
           all(e.klass == "external" and e.auth and "python3 standard library" in e.auth
-              for e in _cwd_edges("scripts/workpad.py", "import")))
+              for e in _cwd_edges("scripts/workpad.py", "import")
+              if e.klass == "external"))
+_wp_import_repo = {e.target for e in _cwd_edges("scripts/workpad.py", "import")
+                   if e.klass == "repo-owned"}
+assert_eq("#583 AC5: workpad.py's section_parse import is a repo-owned edge beneath the vendored tree",
+          (True, True),
+          ("scripts/section_parse.py" in _wp_import_repo,
+           cwd.resolves_beneath_vendor("scripts/section_parse.py")))
+assert_eq("#583 AC5: parse-acs.py imports the same repo-owned section_parse module",
+          True,
+          "scripts/section_parse.py" in {
+              e.target for e in _cwd_edges("scripts/parse-acs.py", "import")
+              if e.klass == "repo-owned"})
 
 # Positive fixture 2 — run-jq.sh: the sourced resolver (repo-owned, beneath the
 # vendored tree) and the jq delegation (external, jq-preflight-authorized).

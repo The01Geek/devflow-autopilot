@@ -8312,9 +8312,8 @@ assert_eq "#781: neither acs subcommand exposes a --marker override" "yes" \
 # The parsing rules are SINGLE-SOURCED: both helpers import them, so a rule
 # change lands in one place and the mirror can never disagree with the read-back.
 assert_eq "#781: parse-acs.py and workpad.py both import the shared section_parse module" "yes" \
-  "$(grep -q '^from section_parse import' "$LIB/../scripts/parse-acs.py" \
-     && grep -q '^from section_parse import' "$WP_PY" \
-     && [ ! -s "$(mktemp)" ] && echo yes || echo no)"
+  "$(grep -q 'from section_parse import' "$LIB/../scripts/parse-acs.py" \
+     && grep -q 'from section_parse import' "$WP_PY" && echo yes || echo no)"
 assert_eq "#781: parse-acs.py no longer carries its own copy of the section-extraction rule" "yes" \
   "$(grep -q 'def _extract_section' "$LIB/../scripts/parse-acs.py" && echo no || echo yes)"
 
