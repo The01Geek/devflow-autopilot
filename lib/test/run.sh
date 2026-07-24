@@ -7347,29 +7347,35 @@ assert_pin_unique "#168 create-path: SKILL guards against an empty BRANCH name" 
 # invocation now runs at the END of §1.4 on every arm; the pins below are behavioral-fix pins
 # whose mutations RE-INTRODUCE that gating, plus negative controls asserting the machinery this
 # issue declares out of scope stays put.
-U779_P1="$IMPL_PHASES_DIR/phase-1-setup.md"
-U779_P4="$IMPL_PHASES_DIR/phase-4-documentation.md"
+# Reuses the file-scope $P1_FILE / $P4_FILE (declared with the #429 block above) rather than
+# introducing a third and fourth alias for the same two paths — the single-alias-per-path rule
+# $P4_FILE's own declaration comment states.
 
 # (a) Arm-independence. The operative sentence is the arm enumeration; the mutation narrows it
 # back to the adopted-branch arm, which is exactly the #779 bug.
 assert_pin_red_under "#779: the Phase 1 checkpoint invocation runs on every §1.4 arm (re-narrowing to the adopted arm → RED)" \
   'runs on the new-branch arm, on the adopted-branch arm, and on the **landed-resume** arm' \
   's#runs on the new-branch arm, on the adopted-branch arm, and on the \*\*landed-resume\*\* arm#runs on the adopted-branch arm only#' \
-  "$U779_P1"
+  "$P1_FILE"
 # The invocation takes no arm operand — the property that makes this a relocation, not a
 # redesign. Mutation re-introduces an arm-naming operand on the call.
 assert_pin_red_under "#779: the relocated invocation reads no operand naming which §1.4 arm was taken" \
   'reads no operand naming which arm was taken' \
   's#reads no operand naming which arm was taken#reads the §1.4 arm as its first operand#' \
-  "$U779_P1"
+  "$P1_FILE"
 
 # (b) Position: the invocation is the LAST thing §1.4 does — after the create fence, after the
 # `Branch` line fill, and before §1.5. A positional assert_eq (not a pin helper), so a
 # relocation back under the freshness/adopt block flips it without needing a text mutation.
-U779_INV_LN=$(grep -nF '/../../scripts/update-branch-checkpoint.sh' "$U779_P1" | head -1 | cut -d: -f1)
-U779_CO_LN=$(grep -nF 'git checkout -b "$BRANCH" "origin/$BASE"' "$U779_P1" | head -1 | cut -d: -f1)
-U779_BR_LN=$(grep -nF -- '--branch "$(git branch --show-current)"' "$U779_P1" | head -1 | cut -d: -f1)
-U779_15_LN=$(grep -nF '### 1.5 Push Branch' "$U779_P1" | head -1 | cut -d: -f1)
+# One awk pass over the file resolves all four first-hit line numbers (four grep|head|cut
+# pipelines would read phase-1-setup.md four times and fork twelve processes for the same
+# answer). Each anchor records only its FIRST match, mirroring the `head -1` idiom.
+eval "$(awk '
+  i==0 && index($0, "/../../scripts/update-branch-checkpoint.sh") { print "U779_INV_LN=" NR; i=1 }
+  c==0 && index($0, "git checkout -b \"$BRANCH\" \"origin/$BASE\"") { print "U779_CO_LN=" NR; c=1 }
+  b==0 && index($0, "--branch \"$(git branch --show-current)\"") { print "U779_BR_LN=" NR; b=1 }
+  p==0 && index($0, "### 1.5 Push Branch") { print "U779_15_LN=" NR; p=1 }
+' "$P1_FILE")"
 assert_eq "#779: the checkpoint invocation is the last §1.4 step (after the create fence and the Branch fill, before §1.5)" "yes" \
   "$([ -n "$U779_INV_LN" ] && [ -n "$U779_CO_LN" ] && [ -n "$U779_BR_LN" ] && [ -n "$U779_15_LN" ] \
      && [ "$U779_INV_LN" -gt "$U779_CO_LN" ] && [ "$U779_INV_LN" -gt "$U779_BR_LN" ] \
@@ -7381,7 +7387,7 @@ assert_eq "#779: the checkpoint invocation is the last §1.4 step (after the cre
 assert_pin_red_under "#779: the §1.4 create fence fetches the base with the forced refspec (unforced restore → RED)" \
   'git fetch origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" || { echo "devflow: could not fetch base branch' \
   's#\+refs/heads/\$BASE:refs/remotes/origin/\$BASE#\$BASE#g' \
-  "$U779_P1"
+  "$P1_FILE"
 
 # (d) CONFLICT from the relocated Phase 1 checkpoint routes to Blocked on every arm — the AC's
 # authorized fallback, taken because no discriminator for the landed-resume arm is establishable
@@ -7391,23 +7397,23 @@ assert_pin_red_under "#779: the §1.4 create fence fetches the base with the for
 assert_pin_red_under "#779: a CONFLICT at the Phase 1 checkpoint routes to Blocked on every arm (override deleted → RED)" \
   'routes to `Blocked` as needs-human-reconciliation on every arm' \
   '/routes to `Blocked` as needs-human-reconciliation on every arm/d' \
-  "$U779_P1"
+  "$P1_FILE"
 # The reason the fallback was taken is recorded in the shipped prose (AC5 makes selecting the
 # discriminator part of the deliverable), keyed on the append-only workpad property that makes a
 # prior attempt's note indistinguishable from this run's.
 assert_pin_red_under "#779: the shipped prose records why no landed-resume discriminator is establishable" \
   'append-only with no in-place marker writer' \
   's#append-only with no in-place marker writer#run-scoped#' \
-  "$U779_P1"
+  "$P1_FILE"
 
 # (e) Negative controls — machinery this issue declares OUT of scope. `#168` already pins the
 # create-fence guard and the Signal-2 assignment and `#362` the resume pre-check clauses; these
 # two cover the remaining scope boundary, so a later change that quietly hoists the binding or
 # widens the landed-resume arm is caught rather than absorbed.
 assert_pin_unique "#779 negative control: the landed-resume arm still skips both signals (unchanged by this issue)" \
-  'Skip branch creation and both signals entirely' "$U779_P1"  # structural-pin-ok: negative control for the #779 scope boundary (asserts pre-existing prose this issue must not touch is still present; guards no regression this diff introduces)
+  'Skip branch creation and both signals entirely' "$P1_FILE"  # structural-pin-ok: negative control for the #779 scope boundary (asserts pre-existing prose this issue must not touch is still present; guards no regression this diff introduces)
 assert_pin_unique "#779 negative control: §1.4.0.5 Verdict B still names the adopted-branch arm only" \
-  'On the adopted-branch arm only (`USE_CURRENT` set — the arm every *resumed* run takes)' "$U779_P1"  # structural-pin-ok: negative control proving the Verdict B population does not silently widen (asserts pre-existing prose; guards no regression this diff introduces)
+  'On the adopted-branch arm only (`USE_CURRENT` set — the arm every *resumed* run takes)' "$P1_FILE"  # structural-pin-ok: negative control proving the Verdict B population does not silently widen (asserts pre-existing prose; guards no regression this diff introduces)
 
 # (f) Phase 4.3 publish gate. The leading-word read is the operative shape: a whole-line test
 # against `UPDATED` is false for every real merge (`emit "UPDATED $BEHIND"` prints `UPDATED 3`)
@@ -7415,42 +7421,42 @@ assert_pin_unique "#779 negative control: §1.4.0.5 Verdict B still names the ad
 assert_pin_red_under "#779: checkpoint 4 grades the FIRST whitespace-delimited field, not the whole line" \
   'first whitespace-delimited field' \
   's#first whitespace-delimited field#whole emitted line#' \
-  "$U779_P4"
+  "$P4_FILE"
 assert_pin_red_under "#779: checkpoint 4 refuses gh pr ready and the Complete flip on a non-clean token (refusal deleted → RED)" \
   '**refuse to run `gh pr ready` and refuse to flip `Status` to `Complete`.**' \
   '/refuse to run `gh pr ready` and refuse to flip/d' \
-  "$U779_P4"
+  "$P4_FILE"
 # CONFLICT is exempt from the refusal: it resolves per the inherited contract and the helper is
 # re-invoked, and THAT line's first field is what the gate reads. The mutation folds CONFLICT
 # into the refusal set, which is the fail-closed-too-far regression.
 assert_pin_red_under "#779: a CONFLICT at checkpoint 4 resolves and re-invokes rather than taking the refusal arm" \
   'the checkpoint helper is then **re-invoked**' \
   's#the checkpoint helper is then \*\*re-invoked\*\*#the refusal arm is taken#' \
-  "$U779_P4"
+  "$P4_FILE"
 # The success-path channel: a note naming the observed token on UPDATED/UP_TO_DATE/DISABLED
 # alike, so a green run carries evidence of the comparison's result. §1.4.1's no-traffic rule
 # for checkpoints 1-3 is unchanged, which is why this had to be a checkpoint-4-specific addition.
 assert_pin_red_under "#779: checkpoint 4 records the observed token before publishing on every clean token" \
   'clean, proceeding to the publish decision' \
   '/clean, proceeding to the publish decision/d' \
-  "$U779_P4"
+  "$P4_FILE"
 # The observable discriminator for "no token reported" — "produced no output at all" is unusable
 # because the helper rebinds fd 1 to stderr and a successful invocation is never silent.
 assert_pin_red_under "#779: the no-token discriminator is stated observably (no line leading with a documented token)" \
   'no line whose leading word is a member of the helper' \
   's#no line whose leading word is a member of the helper#the invocation produced no output at all, which for the helper#' \
-  "$U779_P4"
+  "$P4_FILE"
 # A tier that REFUSES the invocation is a distinct case from a non-clean token: it publishes,
 # per §1.4.1's degraded posture. Routing it to Blocked would end every such run at its last step
 # with no escape, since the off-switch yields DISABLED only when the helper actually runs.
 assert_pin_red_under "#779: a tier-refused checkpoint-4 invocation records a degraded reflection and publishes" \
   'It does **not** route to `Blocked`: converting a permission boundary into a run-ending stop' \
   '/It does \*\*not\*\* route to `Blocked`: converting a permission boundary/d' \
-  "$U779_P4"
+  "$P4_FILE"
 # The clean/non-clean partition is complete by construction against the helper's own header.
 assert_pin_unique "#779: checkpoint 4 names the clean set exactly" \
-  'The clean set is `UPDATED`, `UP_TO_DATE`, `DISABLED`' "$U779_P4"  # structural-pin-ok: contract-presence pin (the partition's behavior is guarded by the refusal-arm and CONFLICT-exemption mutation pins above; this only asserts the set is named)
-unset U779_P1 U779_P4 U779_INV_LN U779_CO_LN U779_BR_LN U779_15_LN
+  'The clean set is `UPDATED`, `UP_TO_DATE`, `DISABLED`' "$P4_FILE"  # structural-pin-ok: contract-presence pin (the partition's behavior is guarded by the refusal-arm and CONFLICT-exemption mutation pins above; this only asserts the set is named)
+unset U779_INV_LN U779_CO_LN U779_BR_LN U779_15_LN
 
 # ── Issue #755: Phase 2 §2.0 resume-idempotency gate ──
 # A stalled cloud run that stall_backstop auto-resumes must NOT re-dispatch the Phase 2
