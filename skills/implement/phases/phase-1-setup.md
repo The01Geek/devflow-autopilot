@@ -178,6 +178,20 @@ Then, in **both** cases, reconcile the skeleton to the (recorded or read) classi
 ```
 (The two `update` calls may be combined into one when recording — `--record-classification … --reconcile-reproduction …` — since both mutate `## Progress`.) A non-bug verdict never deletes a **ticked** "reproduction captured" row or a populated `## Reproduction` section — those stay as historical evidence, annotated by the superseding `classification: ` note; reconciliation only removes the *unticked* bug-only row when the classification is non-bug, and adds it when bug-report and absent.
 
+**Record the durable `resume-kind:` marker (every entry — the reader is the Phase 2 §2.0 resume gate).** Alongside the classification, record a durable `## Progress` note stating which of three run kinds this triage decided, so the Phase 2 resume gate (`phase-2-implement.md` §2.0) has a compaction-surviving signal to read back — the live `Status` cannot serve this because Phase 1.3 overwrites it to `Setup` on every arm. The marker is a plain durable `--note` (the same site and durable-note pattern as the `classification: ` note), so it introduces no runtime-code change; the gate reads the **most recent** `resume-kind:` note fail-closed. The kind follows directly from the resume semantics decided above (and mirrors the lifecycle-event row selected in triage step 3):
+
+- **In-flight resume** — the *do-not-re-classify* arm (a non-terminal `Status` with a `classification: ` note already present, i.e. adoption of an **interim** workpad from an earlier in-flight execution) → `resume-kind: in-flight`.
+- **Terminal re-trigger** — a re-trigger after a *terminal* workpad `Status` (🎉/👎/💥/🛑 — the operator's issue-edit correction channel), re-classified fresh → `resume-kind: terminal-re-trigger`.
+- **Fresh run** — `WORKPAD_ID` was empty, or a resume that found no `classification: ` note (a gate-created skeleton carrying only the run-started note, or a prior run that died before recording) → `resume-kind: fresh`.
+
+```bash
+# Substitute the decided kind (in-flight | terminal-re-trigger | fresh). Combinable
+# with the --record-classification / --reconcile-reproduction call above (all three
+# mutate ## Progress). Only `resume-kind: in-flight` — as the newest such note —
+# arms conjunct (a) of the Phase 2 §2.0 gate; the other two never fire it.
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --note "resume-kind: {in-flight|terminal-re-trigger|fresh}"
+```
+
 **Write the run marker (both arms — fresh create and resume).** Immediately after the workpad exists (created above, or detected on the resume arm), write an empty run-marker file so a local-tier Stop-hook guard knows an implement run is in flight for this issue. The workpad remains the source of truth for the run's `Status`; the marker only gates *whether* the guard queries it, so ordinary sessions never pay a network call on stop. It lives under the gitignored `.devflow/tmp/`, anchored to the repo (or worktree) root, and is removed at every terminal `Status` transition by the *Outcome reaction* block in the orchestrator:
 
 ```bash
