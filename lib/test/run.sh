@@ -7347,8 +7347,8 @@ assert_pin_unique "#168 create-path: SKILL guards against an empty BRANCH name" 
 # invocation now runs at the END of §1.4 on every arm; the pins below are behavioral-fix pins
 # whose mutations RE-INTRODUCE that gating, plus negative controls asserting the machinery this
 # issue declares out of scope stays put.
-# Reuses the file-scope $P1_FILE / $P4_FILE (declared with the #429 block above) rather than
-# introducing a third and fourth alias for the same two paths — the single-alias-per-path rule
+# Reuses the file-scope $P1_FILE / $P4_FILE (declared above with their parent $IMPL_PHASES_DIR) rather
+# than introducing a third and fourth alias for the same two paths — the single-alias-per-path rule
 # $P4_FILE's own declaration comment states.
 
 # (a) Arm-independence. The operative sentence is the arm enumeration; the mutation narrows it
@@ -7362,6 +7362,13 @@ assert_pin_red_under "#779: the Phase 1 checkpoint invocation runs on every §1.
 assert_pin_red_under "#779: the relocated invocation reads no operand naming which §1.4 arm was taken" \
   'reads no operand naming which arm was taken' \
   's#reads no operand naming which arm was taken#reads the §1.4 arm as its first operand#' \
+  "$P1_FILE"
+
+# The §1.4.1 de-gating sentence is the diff's core relocation claim; pin it explicitly rather
+# than relying on the positional assert below catching a re-gated fence as a side effect.
+assert_pin_red_under "#779: §1.4.1 states the invocation is not made there and not gated on USE_CURRENT (re-gate → RED)" \
+  'is **not** made here and is **not** gated on `USE_CURRENT`' \
+  's#is \*\*not\*\* made here and is \*\*not\*\* gated on `USE_CURRENT`#is made here, gated on `USE_CURRENT`#' \
   "$P1_FILE"
 
 # (b) Position: the invocation is the LAST thing §1.4 does — after the create fence, after the
@@ -7389,6 +7396,12 @@ assert_pin_red_under "#779: the §1.4 create fence fetches the base with the for
   's#git fetch origin "\+refs/heads/\$BASE:refs/remotes/origin/\$BASE" \|\| \{ echo "devflow: could not fetch#git fetch origin "\$BASE" || { echo "devflow: could not fetch#' \
   "$P1_FILE"
 
+# The skill prose asserts its refspec is "the same forced refspec update-branch-checkpoint.sh
+# uses"; without this the helper could change its refspec and the claim would silently become a
+# documented falsehood while the suite stayed green (the repo's coupled-invariant class).
+assert_pin_unique "#779: the checkpoint helper fetches the base with the same forced refspec the §1.4 sites use" \
+  'git fetch origin "+refs/heads/$BASE:refs/remotes/origin/$BASE"' "$LIB/../scripts/update-branch-checkpoint.sh"  # structural-pin-ok: coupled-mirror presence pin joining the helper's fetch literal to the two §1.4 prose sites the mutation pins above guard
+
 # (d) CONFLICT from the relocated Phase 1 checkpoint routes to Blocked on every arm — the AC's
 # authorized fallback, taken because no discriminator for the landed-resume arm is establishable
 # at this call site. The mutation deletes the override, restoring an unqualified pointer to
@@ -7401,10 +7414,8 @@ assert_pin_red_under "#779: a CONFLICT at the Phase 1 checkpoint routes to Block
 # The reason the fallback was taken is recorded in the shipped prose (AC5 makes selecting the
 # discriminator part of the deliverable), keyed on the append-only workpad property that makes a
 # prior attempt's note indistinguishable from this run's.
-assert_pin_red_under "#779: the shipped prose records why no landed-resume discriminator is establishable" \
-  'append-only with no in-place marker writer' \
-  's#append-only with no in-place marker writer#run-scoped#' \
-  "$P1_FILE"
+assert_pin_unique "#779: the shipped prose records why no landed-resume discriminator is establishable" \
+  'append-only with no in-place marker writer' "$P1_FILE"  # structural-pin-ok: AC6 requires the discriminator decision be recorded in the shipped prose; this asserts that rationale is present, while the behavior it explains (CONFLICT -> Blocked on every arm) is guarded by the mutation pin above
 
 # (e) Negative controls — machinery this issue declares OUT of scope. `#168` already pins the
 # create-fence guard and the Signal-2 assignment and `#362` the resume pre-check clauses; these
@@ -7413,7 +7424,7 @@ assert_pin_red_under "#779: the shipped prose records why no landed-resume discr
 assert_pin_unique "#779 negative control: the landed-resume arm still skips both signals (unchanged by this issue)" \
   'Skip branch creation and both signals entirely' "$P1_FILE"  # structural-pin-ok: negative control for the #779 scope boundary (asserts pre-existing prose this issue must not touch is still present; guards no regression this diff introduces)
 assert_pin_unique "#779 negative control: §1.4.0.5 Verdict B still names the adopted-branch arm only" \
-  'On the adopted-branch arm only (`USE_CURRENT` set — the arm every *resumed* run takes)' "$P1_FILE"  # structural-pin-ok: negative control proving the Verdict B population does not silently widen (asserts pre-existing prose; guards no regression this diff introduces)
+  'On the adopted-branch arm only (`USE_CURRENT` set' "$P1_FILE"  # structural-pin-ok: negative control proving the Verdict B population does not silently widen (asserts pre-existing prose; guards no regression this diff introduces)
 
 # (f) Phase 4.3 publish gate. The leading-word read is the operative shape: a whole-line test
 # against `UPDATED` is false for every real merge (`emit "UPDATED $BEHIND"` prints `UPDATED 3`)
@@ -7439,6 +7450,13 @@ assert_pin_red_under "#779: a CONFLICT at checkpoint 4 resolves and re-invokes r
 assert_pin_red_under "#779: checkpoint 4 records the observed token before publishing on every clean token" \
   'clean, proceeding to the publish decision' \
   '/clean, proceeding to the publish decision/d' \
+  "$P4_FILE"
+# The ORDERING clause is separately operative: without it the note can assert the run is
+# proceeding to publish on an UPDATED run the post-merge suite then routes to Blocked — a
+# workpad self-record contradicting what happened. The pin above only proves the note exists.
+assert_pin_red_under "#779: on UPDATED the token note is recorded only AFTER the post-merge suite passes" \
+  'record it **after** the post-merge suite re-run above has passed' \
+  's#record it \*\*after\*\* the post-merge suite re-run above has passed#record it before the post-merge suite re-run above#' \
   "$P4_FILE"
 # The observable discriminator for "no token reported" — "produced no output at all" is unusable
 # because the helper rebinds fd 1 to stderr and a successful invocation is never silent.
@@ -40944,7 +40962,13 @@ UBC_TOKENS_ONELINE=$(printf '%s ' $UBC_TOKENS)
 assert_eq "#779 ubc-token-arms: the helper header enumerates the expected seven-token contract" \
   "CONFLICT DISABLED MERGE_IN_PROGRESS PUSH_REJECTED UNVERIFIED UPDATED UP_TO_DATE" \
   "${UBC_TOKENS_ONELINE% }"
-UBC_P4_BODY=$(cat "$UBC_P4")
+# Scoped to the checkpoint-4 SECTION (its heading through the publish-decision heading that
+# terminates it), not the whole ~600-line file: a whole-file presence test would be satisfied
+# by a token named anywhere else in the file while having NO checkpoint-4 routing — exactly the
+# fall-through-to-publish regression this check exists to catch.
+UBC_P4_BODY=$(awk '/^\*\*Base-branch update checkpoint 4 \(pre-ready\)/{f=1} f{print} f && /^\*\*Publish decision/{exit}' "$UBC_P4")
+assert_eq "#779 ubc-token-arms: the checkpoint-4 section extraction is non-empty (a failed extract would vacuously pass every token)" "yes" \
+  "$([ -n "$UBC_P4_BODY" ] && echo yes || echo no)"
 UBC_UNMAPPED=""
 for _t in $UBC_TOKENS; do
   case "$UBC_P4_BODY" in *"\`$_t\`"*) ;; *) UBC_UNMAPPED="$UBC_UNMAPPED $_t" ;; esac

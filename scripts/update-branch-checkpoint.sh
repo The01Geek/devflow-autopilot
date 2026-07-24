@@ -32,7 +32,10 @@
 # HOW A CALLER MATCHES THE TOKEN (binding on every call site, issue #779): compare the
 # FIRST WHITESPACE-DELIMITED FIELD of the emitted line, never the line as a whole — `UPDATED`
 # is emitted as `UPDATED <behind>` (e.g. `UPDATED 3`), so a whole-line equality test against
-# `UPDATED` is false for every real merge and fails OPEN on exactly the runs that reconciled.
+# `UPDATED` is false for every real merge — misgrading the successful-merge case in whichever
+# direction the call site's routing then takes (at checkpoints 1-3, treating a landed merge as
+# degraded-and-continue; at checkpoint 4's publish gate, blocking the publish on exactly the
+# runs that in fact reconciled).
 # And "the helper reported nothing" is NOT observable as "no output at all": fd 1 is rebound to
 # stderr below, so git's own chatter interleaves with the token and a successful invocation is
 # never silent — the observable discriminator is that NO line's leading word is a member of the
