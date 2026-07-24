@@ -25,25 +25,13 @@
 # assembler's own surface — and one of them binds the run.sh-global $MAXI_BUNDLE.
 # So the #431 coverage-map label remains partially in run.sh and its owner stays
 # `unmodularized`; that is a recorded decision, not an oversight.
+#
+# No private fixture root and no EXIT trap here, deliberately — same reasoning as
+# review-trigger-helpers.sh: the extracted body owns and removes its own fixture tree
+# exactly as it did inline in lib/test/run.sh, both callers already allocate and clean a
+# boundary-owned scratch root, and a TMPDIR redirect could not contain a bare `mktemp -d`
+# on macOS/BSD anyway.
 
-_exr_tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/devflow-exr-module.XXXXXX")" || {
-  assert_eq "experiment-records module: private fixture root allocated" "yes" "no"
-  return 0 2>/dev/null || exit 0
-}
-_exr_outer_tmpdir="${TMPDIR:-}"
-TMPDIR="$_exr_tmp_root"
-export TMPDIR
-_exr_cleanup() {
-  if [ -n "${_exr_outer_tmpdir:-}" ]; then
-    TMPDIR="$_exr_outer_tmpdir"
-    export TMPDIR
-  else
-    unset TMPDIR
-  fi
-  [ -n "${_exr_tmp_root:-}" ] && rm -rf "$_exr_tmp_root"
-  return 0
-}
-trap _exr_cleanup EXIT
 
 # Drives the assembler over fixture stores with a DEVFLOW_GH stub (the stub
 # contract) and a per-scenario repo-root, then asserts the joined record fields.

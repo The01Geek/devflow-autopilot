@@ -17,22 +17,18 @@
 # the runner's own EXIT handling. Do not source this module directly in a runner's
 # top-level shell without restoring the trap.
 
-_rsb_tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/devflow-rsb-module.XXXXXX")" || {
+# Allocate through the harness's shared owned-directory allocator (template validation
+# plus the pre-existing-directory rejection a bare `mktemp -d` cannot make) rather than
+# re-implementing that check here. This module keeps a private root because it builds
+# one real artifact into it (the review-engine bundle below); the sibling modules in
+# this tranche allocate none and rely on the boundary-owned scratch root instead.
+_rsb_tmp_root="$(devflow_module_allocate_owned_directory \
+  "${TMPDIR:-/tmp}/devflow-review-stall-backstop.XXXXXX")" || {
   assert_eq "review-stall-backstop module: private fixture root allocated" "yes" "no"
   return 0 2>/dev/null || exit 0
 }
-_rsb_outer_tmpdir="${TMPDIR:-}"
-TMPDIR="$_rsb_tmp_root"
-export TMPDIR
 _rsb_cleanup() {
-  if [ -n "${_rsb_outer_tmpdir:-}" ]; then
-    TMPDIR="$_rsb_outer_tmpdir"
-    export TMPDIR
-  else
-    unset TMPDIR
-  fi
-  [ -n "${_rsb_tmp_root:-}" ] && rm -rf "$_rsb_tmp_root"
-  return 0
+  rm -rf "$_rsb_tmp_root"
 }
 trap _rsb_cleanup EXIT
 

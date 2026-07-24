@@ -12,28 +12,12 @@
 # fixture root and cleanup; it never invokes the runner or the full-suite
 # boundary. The inventory in prompt-extension-reader.inventory.md maps the
 # extracted coverage to its former run.sh location. Modules may not self-skip.
-# The `trap _lpe_cleanup EXIT` below relies on a sourcing contract: both callers
-# (module-harness.sh's full-suite boundary and run-module.sh) source this module
-# inside a ( ... ) subshell, so the trap fires at subshell exit and cannot clobber
-# the runner's own EXIT handling. Do not source this module directly in a runner's
-# top-level shell without restoring the trap.
+# No private fixture root and no EXIT trap here, deliberately: the extracted body
+# allocates its two fixture trees with its own `mktemp -d` and removes them on its own
+# clean path, exactly as it did inline in lib/test/run.sh. Both callers already allocate
+# a boundary-owned scratch root and clean it on every path, so a module-level root would
+# only add a second ownership layer over the same directories.
 
-_lpe_tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/devflow-lpe-module.XXXXXX")" || {
-  assert_eq "lpe module: private fixture root allocated" "yes" "no"
-  return 0 2>/dev/null || exit 0
-}
-_lpe_cleanup() {
-  [ -n "${_lpe_tmp_root:-}" ] && rm -rf "$_lpe_tmp_root"
-  # The extracted body allocates its two fixture trees with its own `mktemp -d`
-  # and removes them on its own clean path. This trap is the crash-path backstop
-  # for exactly those two, so an assertion that aborts mid-body cannot strand a
-  # fixture tree in TMPDIR. Guarded expansions: either may be unset if the body
-  # died before its allocation.
-  [ -n "${LPE_DIR:-}" ] && rm -rf "$LPE_DIR"
-  [ -n "${LPE_SEC_DIR:-}" ] && rm -rf "$LPE_SEC_DIR"
-  return 0
-}
-trap _lpe_cleanup EXIT
 
 # The helper prints .devflow/prompt-extensions/<skill>.md verbatim (relative to
 # CWD) when present, nothing otherwise; it validates the skill-name argument and

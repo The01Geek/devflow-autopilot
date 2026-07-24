@@ -16,29 +16,17 @@
 # the runner's own EXIT handling. Do not source this module directly in a runner's
 # top-level shell without restoring the trap.
 #
-# TMPDIR is redirected to the module's own root for the whole body: the extracted
-# sections allocate eleven fixture trees with bare `mktemp -d` and remove them on
-# their own clean paths, so pointing TMPDIR at a single owned root makes the trap a
-# complete crash-path backstop for all of them without editing eleven call sites.
+# No private fixture root and no EXIT trap here, deliberately. The extracted sections
+# allocate their own fixture trees with bare `mktemp -d` and remove them on their own
+# clean paths, exactly as they did inline in lib/test/run.sh — the move preserves that
+# behavior rather than adding a second ownership layer. Both callers already allocate a
+# boundary-owned scratch root and export TMPDIR to it, and clean it on every path
+# including forced termination, so an extra module-level root would be redundant there.
+# It would also not be the "complete crash-path backstop" it looks like: a bare
+# `mktemp -d` does NOT honor a runtime TMPDIR override on macOS/BSD (it uses the Darwin
+# confstr temp dir — the same portability trap lib/test/run-module.sh documents at its
+# own mktemp calls), so a redirect could not contain these call sites anyway.
 
-_rth_tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/devflow-rth-module.XXXXXX")" || {
-  assert_eq "review-trigger-helpers module: private fixture root allocated" "yes" "no"
-  return 0 2>/dev/null || exit 0
-}
-_rth_outer_tmpdir="${TMPDIR:-}"
-TMPDIR="$_rth_tmp_root"
-export TMPDIR
-_rth_cleanup() {
-  if [ -n "${_rth_outer_tmpdir:-}" ]; then
-    TMPDIR="$_rth_outer_tmpdir"
-    export TMPDIR
-  else
-    unset TMPDIR
-  fi
-  [ -n "${_rth_tmp_root:-}" ] && rm -rf "$_rth_tmp_root"
-  return 0
-}
-trap _rth_cleanup EXIT
 
 # The one run.sh global the extracted sections read that a module does not
 # receive: the config resolver five #329/#409 key-read assertions invoke. The

@@ -23,10 +23,12 @@ drift out of it silently.
 
 | Contract group | Former `lib/test/run.sh` coverage | Module destination | Representative contract |
 | --- | --- | --- | --- |
-| Present / absent / empty extension | the AC 1–3 rows | `prompt-extension-reader.sh` / basic-arms section | a present extension prints verbatim and exits 0; an absent one prints nothing and still exits 0 |
-| Skill-name validation | the AC 4 rows | name-guard section | a name containing `/` or `..` is refused with exit 2 before the filesystem is touched |
-| Unreadable / symlink / permission arms | the AC 5 rows | degraded-fixture section | an unreadable or symlinked extension fails closed rather than printing partial content |
-| `--section` selector | AC 8 rows | section-selector section | `--section` emits only the named section, and a missing section is not an error |
+| Present / absent / empty extension | the AC 1–3 rows | `prompt-extension-reader.sh` / basic-arms section | a present extension prints verbatim and exits 0; an absent or empty one prints nothing and still exits 0 |
+| Byte-verbatim output | the AC 4 rows | basic-arms section | output is byte-for-byte verbatim including multi-byte UTF-8, and a trailing newline is neither added nor stripped |
+| Skill-name validation | the AC 5 rows | name-guard section | a name containing `/` or `..` is refused before any read, with a non-zero exit and no stdout |
+| Non-regular-file and symlink arms | the present-but-not-a-regular-file rows | degraded-fixture section | a directory at `<skill>.md` is refused loudly rather than dropped silently, while a committed symlink inside the extensions dir is followed by design |
+| Read-only and idempotent | the AC 8 rows | idempotency section | a re-run produces identical output and leaves the source file unchanged |
+| `--section` selector | the `--section` rows | section-selector section | `--section` emits only the named section, and a missing section is not an error |
 | `--section` × name guards | traversal rows | section-selector section | the path-traversal refusal still fires when `--section` is present, so the flag is never a bypass |
 
 The generic test harness, registry validation, module registration, full-suite

@@ -2,6 +2,16 @@
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
 # Fail-closed boundary for sourceable modules used by the complete test suite.
+#
+# MODULE-AUTHORING NOTE (issue #746) — spell a re-derived repo root as the
+# $LIB-relative assignment `REPO_ROOT="$LIB/.."`, NOT as run.sh's
+# `REPO_ROOT="$(cd "$LIB/.." && pwd)"`. Both name the same directory at run time, but
+# lib/test/pin-corpus-lint.py's path resolver understands a `VAR="$LIB/relative"`
+# assignment and bails on anything containing a command substitution. Copy the
+# substitution form and every pin targeting a REPO_ROOT-derived var silently becomes
+# UNRESOLVED — surfaced on that lint's stderr but never asserted, so the pins are
+# exempt from the pin-in-comment and wrapped-literal meta-guards while the suite stays
+# green. Teaching the resolver that one idiom is the deeper fix and is filed separately.
 
 # ── Inherited-DEVFLOW_GH fixture isolation (issue #533 AC13, generalized #695) ─
 # The same clearing lib/test/run.sh performs in its preamble, performed here so
@@ -361,7 +371,7 @@ devflow_module_build_bundle() { # label output-file member...
   local label="$1" out="$2" member="" rc=0
   shift 2
   : > "$out" || {
-    assert_eq "$label bundle: output file writable" "yes" "no"
+    assert_eq "$label output file writable" "yes" "no"
     return 1
   }
   for member in "$@"; do
@@ -370,7 +380,7 @@ devflow_module_build_bundle() { # label output-file member...
     else
       # Named per member: a bare "bundle failed" cannot tell the reader WHICH
       # reference vanished, which is the whole diagnostic value of failing loud.
-      assert_eq "$label bundle member usable: $member" "yes" "no"
+      assert_eq "$label member usable: $member" "usable" "missing-empty-or-unreadable"
       rc=1
     fi
   done

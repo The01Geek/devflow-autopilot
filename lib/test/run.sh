@@ -34197,6 +34197,12 @@ MR_UNTRACKED_EOF
           skip "$MR_GATE ($_mr_rel)" blocking-gate "pin source exists on disk but is neither tracked nor in the untracked enumeration — its added-line set could not be established"
           continue
         fi
+        # NOTE the deliberate asymmetry with the #591 pin-lint loop above, which also
+        # carries a review-stall-backstop arm: `mutation-routing` resolves only the pin
+        # LITERAL, never the pin's target PATH, so a module whose extra bindings are
+        # path-vars (review-stall-backstop's REVIEW_BUNDLE) correctly needs no arm here.
+        # create-issue keeps one because CI_MOD_VARS also binds literal-valued vars. Add
+        # an arm here only for a module that needs a LITERAL resolved.
         case "$_mr_src" in
           */create-issue-contract.sh) _mr_vars=( --lib "$LIB" "${CI_MOD_VARS[@]}" ) ;;
           "$SELF_SRC") _mr_vars=( "${_PCL_ARGS[@]}" ) ;;
@@ -40434,12 +40440,10 @@ assert_eq "#629 located_by_text: no relocation-demoted row is emitted for it" "n
 # ────────────────────────────────────────────────────────────────────────────
 echo "#431 build-experiment-records.py — the unified experiment record (join)"
 # ────────────────────────────────────────────────────────────────────────────
-# Extracted to lib/test/modules/experiment-records.sh (issue #746). The
-# trailing "#431 producer pins" block below deliberately STAYS here: those
-# five pins target lib/efficiency-trace.{jq,sh}, devflow-review.yml,
-# lib/open-state-pr.sh and $MAXI_BUNDLE — surfaces the assembler does not
-# own — so the #431 coverage-map label is only partially extracted and its
-# owner stays 'unmodularized'. See the module's .inventory.md.
+# Extracted to lib/test/modules/experiment-records.sh (issue #746) — a partial
+# extraction: the "#431 producer pins" block below deliberately stays here. The
+# module header and its .inventory.md carry the rationale and the resulting
+# coverage-map decision; do not restate it here, so the two cannot drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/experiment-records.sh" \
   "experiment-records" 130; then
   printf 'ERROR: experiment-records boundary could not record its result\n'
