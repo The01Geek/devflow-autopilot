@@ -35,9 +35,10 @@ CI_TMPL_AUDIT="$CI_ROOT/skills/create-issue/references/audit-prompt-template.md"
 # LOCATION-sensitive pin (it asserts a sentence lives in a specific surface) keeps a
 # specific-file target. Each reference is also bound by name so a specific-file pin
 # resolves under the pin-corpus meta-guard.
-# shellcheck disable=SC2034  # AC5 specific-file pin-retarget seams: run.sh binds each of these
-# through CI_MOD_VARS so a step-reference retarget resolves under the pin-corpus meta-guard.
-# The four fallback siblings below are live T4 purity operands; these five are seams only.
+# AC5 specific-file pin-retarget seams: run.sh binds each of these through CI_MOD_VARS so a
+# step-reference retarget resolves under the pin-corpus meta-guard. The four fallback siblings
+# below are live T4 purity operands; the seams carry an SC2034 disable only while nothing in
+# the module reads them — CI_REF_STEP2 is read by the #749/AC22 block, so it carries none.
 CI_REF_STEP2="$CI_ROOT/skills/create-issue/references/step-2-clarify.md"
 # shellcheck disable=SC2034  # pin-retarget seam (see the block comment above)
 CI_REF_STEP35="$CI_ROOT/skills/create-issue/references/step-3-5-steelman.md"
@@ -170,35 +171,19 @@ trap _ci_cleanup_on_signal HUP INT TERM
 # survives in a different member. On the clean path no assertion is added (count
 # unchanged); a bad member adds exactly one FAIL.
 CI_IMPL_BUNDLE="$_ci_tmp_root/implement-skill-bundle.md"
-: > "$CI_IMPL_BUNDLE"
-for _ci_bundle_member in "$CI_ROOT/skills/implement/SKILL.md" "$CI_ROOT"/skills/implement/phases/*.md; do
-  if [ -r "$_ci_bundle_member" ] && [ -s "$_ci_bundle_member" ]; then
-    cat "$_ci_bundle_member" >> "$CI_IMPL_BUNDLE"
-    printf '\n' >> "$CI_IMPL_BUNDLE"
-  else
-    assert_eq "ci module: implement-bundle member usable: $_ci_bundle_member" \
-      "usable" "missing-empty-or-unreadable"
-  fi
-done
+devflow_module_build_bundle "ci module: implement-bundle" "$CI_IMPL_BUNDLE" \
+  "$CI_ROOT/skills/implement/SKILL.md" "$CI_ROOT"/skills/implement/phases/*.md
 
 # The review-and-fix bundle backs the #467 D2 review-and-fix leg. Since #530 the
 # skill is a thin SKILL.md root plus step references (phases in references/*.md),
 # so the widened fix-delta-gate sentence lives in a reference member, not the
-# root. Assemble root + references member by member with the SAME fail-LOUD-per-
+# root. Assembled through the same shared builder, with the SAME fail-LOUD-per-
 # member contract as the implement bundle above: a missing/empty/unreadable
 # member records a FAIL naming that member, so a corrupt engine file cannot pass
 # the pin green just because the pinned sentence survives elsewhere.
 CI_MAXI_BUNDLE="$_ci_tmp_root/review-and-fix-skill-bundle.md"
-: > "$CI_MAXI_BUNDLE"
-for _ci_maxi_member in "$CI_ROOT/skills/review-and-fix/SKILL.md" "$CI_ROOT"/skills/review-and-fix/references/*.md; do
-  if [ -r "$_ci_maxi_member" ] && [ -s "$_ci_maxi_member" ]; then
-    cat "$_ci_maxi_member" >> "$CI_MAXI_BUNDLE"
-    printf '\n' >> "$CI_MAXI_BUNDLE"
-  else
-    assert_eq "ci module: review-and-fix-bundle member usable: $_ci_maxi_member" \
-      "usable" "missing-empty-or-unreadable"
-  fi
-done
+devflow_module_build_bundle "ci module: review-and-fix-bundle" "$CI_MAXI_BUNDLE" \
+  "$CI_ROOT/skills/review-and-fix/SKILL.md" "$CI_ROOT"/skills/review-and-fix/references/*.md
 
 # The create-issue bundle (#614) backs every content-survival pin over the split
 # skill. run.sh hoists an identical build and binds it as the CI_BUNDLE --var so the
@@ -213,17 +198,13 @@ done
 # own dedicated targets ($CI_TMPL / $CI_TMPL_AUDIT) and are unchanged by the split, so
 # including them would only add uniqueness collisions for prose that never moved.
 CI_BUNDLE="$_ci_tmp_root/create-issue-skill-bundle.md"
-: > "$CI_BUNDLE"
-for _ci_bundle_ref in "$CI_SKILL" "$CI_ROOT"/skills/create-issue/references/*.md; do
+_ci_bundle_members=("$CI_SKILL")
+for _ci_bundle_ref in "$CI_ROOT"/skills/create-issue/references/*.md; do
   case "${_ci_bundle_ref##*/}" in issue-template.md|audit-prompt-template.md) continue ;; esac
-  if [ -r "$_ci_bundle_ref" ] && [ -s "$_ci_bundle_ref" ]; then
-    cat "$_ci_bundle_ref" >> "$CI_BUNDLE"
-    printf '\n' >> "$CI_BUNDLE"
-  else
-    assert_eq "ci module: create-issue-bundle member usable: $_ci_bundle_ref" \
-      "usable" "missing-empty-or-unreadable"
-  fi
+  _ci_bundle_members+=("$_ci_bundle_ref")
 done
+devflow_module_build_bundle "ci module: create-issue-bundle" "$CI_BUNDLE" \
+  "${_ci_bundle_members[@]}"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "create-issue contract: module surfaces and inventory"
@@ -485,10 +466,10 @@ devflow_module_pin_red_under "#522: draft file is NOT on the file-arm out-of-bou
   'is **not** on the file-arm out-of-bounds list' \
   's/is \*\*not\*\* on the file-arm out-of-bounds list/is on the file-arm out-of-bounds list/' "$CI_BUNDLE"
 # (3a) #705: the file-arm skill-prose enumeration carries a count word that was covered by no
-#      pin. Ground it so the count cannot silently disagree with its own five-path list — the
-#      staged canonical-draft artifact is the fifth path.
-devflow_module_pin_unique "#705: file-arm skill-prose out-of-bounds names exactly the 5 paths (staging added)" \
-  'naming exactly these 5 paths — `.devflow/tmp/issue-derivation-<slug>.md`, the audit report `.devflow/tmp/issue-audit-<slug>.md`, the state owner'"'"'s record `.devflow/tmp/issue-audit-state-<slug>.json`, the **retired** event log `.devflow/tmp/issue-audit-state-<slug>.md`, and any staged canonical-draft artifact `.devflow/tmp/issue-draft-<slug>.*.staged.md`' "$CI_BUNDLE"  # structural-pin-ok: surface-presence pin on new #705 enumeration prose, not a behavioral-fix pin
+#      pin. Ground it so the count cannot silently disagree with its own path list — #749 added
+#      the Step 1 evidence artifact as the sixth path, after #705's staged canonical-draft fifth.
+devflow_module_pin_unique "#749: file-arm skill-prose out-of-bounds names exactly the 6 paths (Step 1 evidence added)" \
+  'naming exactly these 6 paths — `.devflow/tmp/issue-derivation-<slug>.md`, the Step 1 evidence artifact `.devflow/tmp/issue-step1-<slug>.md`, the audit report `.devflow/tmp/issue-audit-<slug>.md`, the state owner'"'"'s record `.devflow/tmp/issue-audit-state-<slug>.json`, the **retired** event log `.devflow/tmp/issue-audit-state-<slug>.md`, and any staged canonical-draft artifact `.devflow/tmp/issue-draft-<slug>.*.staged.md`' "$CI_BUNDLE"  # structural-pin-ok: surface-presence pin on the #749-widened enumeration prose, not a behavioral-fix pin
 # (4) The user-chosen-rounds OFFER at the Step 3.6 → Step 4 boundary. #546 moved the trigger
 #     EVALUATION into the tool (`query-triggers` answers `t1=…  t2=…  reason=…`), so the old
 #     "evaluate exactly these **2 offer triggers**" literal is gone; T1, T2, and the
@@ -545,7 +526,7 @@ devflow_module_pin_unique "#522: Step 3.5 summary reports the dimension self-che
 # re-anchors an auditor on prior verdicts exactly as the live file did, and this skill no longer
 # writes (or deletes) that path, so only the out-of-bounds declaration covers it.
 devflow_module_pin_unique "#522: audit-prompt template out-of-bounds names the reasoning artifacts and the staged draft" \
-  'The following on-disk files are **out of bounds** — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, `.devflow/tmp/issue-audit-state-<slug>.md`, and any staged canonical-draft artifact `.devflow/tmp/issue-draft-<slug>.*.staged.md`' "$CI_TMPL_AUDIT"  # structural-pin-ok: surface-presence pin on the template's out-of-bounds enumeration, not a behavioral-fix pin
+  'The following on-disk files are **out of bounds** — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-step1-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, `.devflow/tmp/issue-audit-state-<slug>.md`, and any staged canonical-draft artifact `.devflow/tmp/issue-draft-<slug>.*.staged.md`' "$CI_TMPL_AUDIT"  # structural-pin-ok: surface-presence pin on the template's out-of-bounds enumeration, not a behavioral-fix pin
 # The retired-.md rationale is itself pinned: it is the one out-of-bounds entry with no live
 # producer, so a future reader who "tidies" it away silently re-opens the re-anchoring channel.
 devflow_module_pin_unique "#546: the retired .md event log stays declared out of bounds (pre-cutover leftovers re-anchor)" \
@@ -686,9 +667,10 @@ devflow_module_pin_unique "#600: template owns the amended two-transport read-or
 # symmetric with the file-arm template-enumeration pin above. #546 widened it 4 → 5 files, in
 # lockstep with the file arm's 3 → 4: the state `.json` and the retired `.md` are both named.
 # #705 widened it 5 → 6 (file arm 4 → 5): the staged canonical-draft artifact is added, because
-# after a failed replace it holds bytes the canonical file does not.
-devflow_module_pin_unique "#522/#705: embed arm out-of-bounds names exactly the 6 files (staging added)" \
-  'On this arm the out-of-bounds declaration names exactly these 6 files — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-draft-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, the **retired** `.devflow/tmp/issue-audit-state-<slug>.md`, and any staged canonical-draft artifact `.devflow/tmp/issue-draft-<slug>.*.staged.md`' "$CI_BUNDLE"  # structural-pin-ok: surface-presence pin on #705-widened enumeration prose, not a behavioral-fix pin
+# after a failed replace it holds bytes the canonical file does not. #749 widened it again
+# 6 → 7 (file arm 5 → 6): the Step 1 evidence artifact holds the drafter's own grounding.
+devflow_module_pin_unique "#522/#705/#749: embed arm out-of-bounds names exactly the 7 files (Step 1 evidence added)" \
+  'On this arm the out-of-bounds declaration names exactly these 7 files — `.devflow/tmp/issue-derivation-<slug>.md`, the Step 1 evidence artifact `.devflow/tmp/issue-step1-<slug>.md`, `.devflow/tmp/issue-draft-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, the **retired** `.devflow/tmp/issue-audit-state-<slug>.md`, and any staged canonical-draft artifact `.devflow/tmp/issue-draft-<slug>.*.staged.md`' "$CI_BUNDLE"  # structural-pin-ok: surface-presence pin on the #749-widened enumeration prose (#705 widened it to 6; #749 added the Step 1 evidence artifact), not a behavioral-fix pin
 # ── #546 RECONCILIATION: the carriage COMPARE, the event log, the retry bounds, and T1/T2.
 #
 # The #522 block used to pin, as prose, the whole deterministic half of the carriage/identity
@@ -1757,12 +1739,10 @@ unset -f ci614_purity
 # T3 (AC6/AC7) — the two word budgets. Words are counted by python3 `.split()`, NEVER
 # `wc -w`: GNU and BSD `wc -w` disagree in two directions on this corpus (CLAUDE.md's
 # review-bundle record), so a `wc`-derived ceiling passes at one desk and fails at another.
-# Both ceilings are ratchet-DOWN-only by default — a measured reduction lowers the recorded
-# ceiling in docs/create-issue-budget.md — and a RAISE is legal only as an explicit
-# issue-authorized departure recorded in that doc's decision record (the #614 AC6 entry that
-# set 33917, and the #743 entry that raised the default-path ceiling for the advisory/invalid
-# calibration prose, are the two such departures); an ordinary growth is never accommodated by
-# a silent raise.
+# Both ceilings are ratchet-DOWN-only — a measured reduction lowers the recorded ceiling in
+# docs/create-issue-budget.md; a RAISE is not an ordinary re-measure, it is an explicit human
+# renegotiation recorded in that document's decision record (the issue-#749 entry is the
+# worked example: headroom widened to 10% after repeated per-PR collisions).
 # Sums per file rather than concatenating the bytes first (run.sh's _rb_words replicates
 # `cat`, because its operand IS an already-concatenated bundle). Summing is the correct
 # shape for a multi-file operand: concatenating would join a file's last word to the next
@@ -1777,18 +1757,16 @@ PY614W
 # exemption). Deliberately NO measured value in these comments: it would rot on the next prose
 # edit, and the ratchet-legality assertions below already tie each ceiling to its LIVE
 # measurement. docs/create-issue-budget.md is the sole home of the measured figures.
-CI614_ROOT_CEIL=2754
-# #743 authorized departure: the advisory/invalid per-finding record + calibration prose in
-# step-3-6-audit.md and step-4-present-create.md moved the measured default path past 33917.
-# Raised to 34800 (a conservative fixed margin above the measured figure, well under the ≤5%
-# legal maximum the assertion below enforces). See docs/create-issue-budget.md's decision record.
-CI614_DEFAULT_CEIL=34800
+CI614_ROOT_CEIL=3527
+CI614_DEFAULT_CEIL=38042
 # One comparison shape, shared by both ceilings and by the positive control below, so the
 # three sites cannot drift. An EMPTY measured value reads `no` (fail-closed): a word count
 # that could not be established is never treated as under the ceiling.
 ci614_under() { { [ -n "$1" ] && [ "$1" -le "$2" ]; } 2>/dev/null && echo yes || echo no; }
 CI614_ROOT_W="$(ci614_words "$CI_SKILL")"
-assert_eq "#614 T3: the always-loaded root is at or under its recorded ceiling ($CI614_ROOT_CEIL words)" \
+# The measured value rides in the assertion NAME so a PASSING run publishes it too: a ceiling
+# check that only speaks when it fails leaves the live headroom invisible until it is gone.
+assert_eq "#614 T3: the always-loaded root is at or under its recorded ceiling (measured $CI614_ROOT_W of $CI614_ROOT_CEIL words)" \
   "yes" "$(ci614_under "$CI614_ROOT_W" "$CI614_ROOT_CEIL")"
 # The operand is DERIVED from the step roster, never hand-listed: a hand list drifts silently
 # when a step reference is renamed or dropped — the measured total FALLS, so the ceiling
@@ -1804,7 +1782,7 @@ set -- $CI614_STEP_REFS
 assert_eq "#614 T3: the default-path operand covers the root, every step reference, and the template" \
   "$(( $# + 2 ))" "${#CI614_DEFAULT_SET[@]}"
 CI614_DEFAULT_W="$(ci614_words "${CI614_DEFAULT_SET[@]}")"
-assert_eq "#614 T3: the default-path read set is at or under its recorded ceiling ($CI614_DEFAULT_CEIL words)" \
+assert_eq "#614 T3: the default-path read set is at or under its recorded ceiling (measured $CI614_DEFAULT_W of $CI614_DEFAULT_CEIL words)" \
   "yes" "$(ci614_under "$CI614_DEFAULT_W" "$CI614_DEFAULT_CEIL")"
 # AC7 positive control: the root-ceiling assertion must report RED against a deliberately
 # over-ceiling root. Plant the defect on a COPY (the working tree is never mutated) and
@@ -1831,14 +1809,14 @@ assert_eq "#614 T3/AC7 positive control: an over-ceiling operand turns the defau
   "clean=yes|planted=no" \
   "clean=$(ci614_under "$CI614_DEFAULT_W" "$CI614_DEFAULT_CEIL")|planted=$(ci614_under "$CI614_PLANT_W" "$CI614_DEFAULT_CEIL")"
 rm -f "$CI614_PLANT"
-# Ratchet enforcement (shadow finding): a ceiling is only legal at at-most measured+5%, so a
+# Ratchet enforcement (shadow finding): a ceiling is only legal at at-most measured+10%, so a
 # future change cannot simply RAISE the constant to admit growth — the module constant and the
 # doc literals are coupled and would be edited together in one commit, leaving no RED. Tying
 # each ceiling to its own live measurement makes a growth-by-ceiling-bump visibly illegal.
-assert_eq "#614 T3: the root ceiling is at most the measured value plus 5% (a raise needs a real measurement)" \
-  "yes" "$({ [ -n "$CI614_ROOT_W" ] && [ "$CI614_ROOT_CEIL" -le "$(( CI614_ROOT_W * 105 / 100 ))" ]; } 2>/dev/null && echo yes || echo no)"
-assert_eq "#614 T3: the default-path ceiling is at most the measured value plus 5% (a raise needs a real measurement)" \
-  "yes" "$({ [ -n "$CI614_DEFAULT_W" ] && [ "$CI614_DEFAULT_CEIL" -le "$(( CI614_DEFAULT_W * 105 / 100 ))" ]; } 2>/dev/null && echo yes || echo no)"
+assert_eq "#614 T3: the root ceiling is at most the measured value plus 10% (a raise needs a real measurement)" \
+  "yes" "$({ [ -n "$CI614_ROOT_W" ] && [ "$CI614_ROOT_CEIL" -le "$(( CI614_ROOT_W * 110 / 100 ))" ]; } 2>/dev/null && echo yes || echo no)"
+assert_eq "#614 T3: the default-path ceiling is at most the measured value plus 10% (a raise needs a real measurement)" \
+  "yes" "$({ [ -n "$CI614_DEFAULT_W" ] && [ "$CI614_DEFAULT_CEIL" -le "$(( CI614_DEFAULT_W * 110 / 100 ))" ]; } 2>/dev/null && echo yes || echo no)"
 
 # Conservation guard (shadow finding): the ceilings are ONE-SIDED, so a re-partition that
 # DROPS a paragraph no pin happens to cover makes the word count merely go down — which reads
@@ -1849,7 +1827,7 @@ for _ci614_ref in $CI614_REFS; do
   CI614_TOTAL_SET+=("$CI_ROOT/skills/create-issue/references/$_ci614_ref.md")
 done
 CI614_TOTAL_W="$(ci614_words "${CI614_TOTAL_SET[@]}")"
-CI614_TOTAL_RECORDED=30221   # docs/create-issue-budget.md, root + all 9 references (issue #743 receiving-review re-record)
+CI614_TOTAL_RECORDED=31337   # docs/create-issue-budget.md, root + all 9 references (issue #749 reception re-record)
 assert_eq "#614 T3: the root+references total is within +/-2% of the recorded conservation figure (a silent DROP is as RED as a rise)" \
   "yes" "$({ [ -n "$CI614_TOTAL_W" ] \
     && [ "$CI614_TOTAL_W" -ge "$(( CI614_TOTAL_RECORDED * 98 / 100 ))" ] \
@@ -1865,7 +1843,7 @@ assert_eq "#614 T3: the root+references total is within +/-2% of the recorded co
 # `{:,}` is locale-independent, and python3 is a hard preflight prerequisite.
 ci614_grouped() { python3 -c 'import sys; print(f"{int(sys.argv[1]):,}")' "$1"; }
 assert_eq "#614 T3: the budget doc's recorded root measurement matches the live count" "yes" \
-  "$(grep -qF "| \`SKILL.md\` (root) | $(ci614_grouped "$CI614_ROOT_W") |" "$CI_ROOT/docs/create-issue-budget.md" && echo yes || echo no)"
+  "$(grep -qF "| \`SKILL.md\` (root) | $(ci614_grouped "$CI614_ROOT_W") |" "$CI_ROOT/docs/create-issue-budget.md" && echo yes || echo no)"  # raw-guard-ok: not a SKILL guard: the target is docs/create-issue-budget.md and "SKILL.md" appears only inside the searched table-row literal
 assert_eq "#614 T3: the budget doc's recorded root+references total matches the live count" "yes" \
   "$(grep -qF "**$(ci614_grouped "$CI614_TOTAL_W")**" "$CI_ROOT/docs/create-issue-budget.md" && echo yes || echo no)"
 unset -f ci614_grouped
@@ -1892,9 +1870,9 @@ assert_eq "#614 T3: the budget doc exists" "yes" \
 devflow_module_pin_unique "#614 T3: the budget doc records the ratchet-down-only rule" \
   'ratchet-down-only' "$CI_ROOT/docs/create-issue-budget.md"
 devflow_module_pin_unique "#614 T3: the budget doc names the root ceiling the suite enforces" \
-  'Root ceiling: **2,754 words**' "$CI_ROOT/docs/create-issue-budget.md"
+  'Root ceiling: **3,527 words**' "$CI_ROOT/docs/create-issue-budget.md"
 devflow_module_pin_unique "#614 T3: the budget doc names the default-path ceiling the suite enforces" \
-  'Default-path ceiling: **34,800 words**' "$CI_ROOT/docs/create-issue-budget.md"
+  'Default-path ceiling: **38,042 words**' "$CI_ROOT/docs/create-issue-budget.md"
 devflow_module_pin_unique "#614 T3: the budget doc bans wc -w for these measurements" \
   '**Never `wc -w`.**' "$CI_ROOT/docs/create-issue-budget.md"
 unset -f ci614_words ci614_under
@@ -1911,6 +1889,215 @@ devflow_module_pin_unique "#614 T7/AC13: an unestablishable measurement records 
 devflow_module_pin_unique "#614 T7/AC13: the axis cites the GNU/BSD wc -w divergence as its motivating defect" \
   'GNU and BSD `wc -w` disagree in two directions on this repo'"'"'s own prompt corpus' "$CI_EXT"
 unset -f ci614_marker_id
+
+# ---------------------------------------------------------------------------
+# #749 — Step 1's two-arm, duty-floor-bounded docs-verification pass.
+# CI_DV is the docs-verify peer's own skill: it is loaded on the default path but sits
+# OUTSIDE both ceiling operands (it is dispatched into a peer's context, never read into
+# the orchestrator's), which is why it is measured nowhere above and pinned here.
+CI_DV="$CI_ROOT/skills/docs-verify/SKILL.md"
+
+# AC13 — surface-presence pins over the peer's declared interface: the mode flag, every
+# verdict token, and every report-output field name. AC19 states these carry NO mutation
+# obligation (they guard an interface's existence, not a named behavioral regression), so
+# each declares itself structural.
+# The mode flag and the three verdict tokens are the same surface-presence shape, so they
+# ride one helper — the sibling of ci749_field below — rather than four copies of the row
+# and its exemption comment.
+ci749_iface() {  # <what it declares> <pin literal>
+  devflow_module_pin_present "#749/AC13: docs-verify declares the $1" \
+    "$2" "$CI_DV"  # structural-pin-ok: AC19 exempts AC13's surface-presence pins from the mutation obligation
+}
+ci749_iface '--report-only mode flag' '`--report-only`'
+ci749_iface 'discharged duty-status token' '`discharged` — carried out on this run.'
+ci749_iface 'unestablished duty-status token' '`unestablished` — engaged but could not be discharged.'
+ci749_iface 'judged-not-engaged duty-status token' '`judged-not-engaged` — judged not to bear on this topic.'
+ci749_iface 'DOCS ACCURATE verdict token' 'DOCS ACCURATE'
+ci749_iface 'DRIFT FOUND verdict token' 'DRIFT FOUND'
+ci749_iface 'DOCS MISSING verdict token' 'DOCS MISSING'
+unset -f ci749_iface
+# The count word '**all six**' is pinned above; ground it against the enumeration it counts, or a
+# dropped duty leaves the count self-contradicting while every #749 pin stays green (the #705
+# count-vs-list class, whose out-of-bounds pin is the precedent).
+devflow_module_pin_red_under "#749/AC1: the six-duty floor enumerates the duties its count word counts" \
+  'exactly these six duties: exact operand and population identity; code-versus-doc authority; reachability and writer classification; sibling consumer and output enumeration; coupled-doc and guard propagation; and reusable contradictions' \
+  's/; and reusable contradictions//' "$CI_DV"
+# AC19's comparative-evaluation list includes the code-versus-doc-disagreement case; the sentence it
+# rests on is the peer's own authority rule, which carried no pin.
+devflow_module_pin_red_under "#749/AC19: code is authoritative when documentation and code disagree" \
+  '**The codebase is the source of truth**' \
+  's/\*\*The codebase is the source of truth\*\*/**Documentation is the source of truth**/' "$CI_DV"
+# AC26's grammar extension is behavioral, not merely declarative: a value-taking flag must consume its
+# operand WITHOUT the topic test, or `--search-space docs/ …` absorbs the pathspec into the topic and
+# the peer silently surveys the unbounded default — the regression the operand exists to close.
+devflow_module_pin_red_under "#749/AC26: a value-taking flag consumes its operand without the topic test" \
+  'the single argument immediately after it is consumed as its value **without applying the topic test**' \
+  's/ \*\*without applying the topic test\*\*//' "$CI_DV"
+devflow_module_pin_red_under "#749/AC26: a --search-space with no following argument is refused, never parsed as empty" \
+  'is likewise malformed: report it and refuse the run — never parse it as an empty value' \
+  's/ — never parse it as an empty value//' "$CI_DV"
+devflow_module_pin_red_under "#749/AC26: a supplied-but-empty operand is unestablished, never the no-operand default" \
+  'does **not** fall through to the no-operand default' \
+  's/does \*\*not\*\* fall through to the no-operand default/falls through to the no-operand default/' "$CI_DV"
+# One row per declared report-output field. Named individually rather than as one blob so a
+# dropped field is attributable — a report contract that loses a field silently is exactly
+# how Step 1's escalation comparands stop resolving.
+ci749_field() {  # <field label>
+  devflow_module_pin_present "#749/AC13: docs-verify's report-only output declares the $1 field" \
+    "- **$1:**" "$CI_DV"  # structural-pin-ok: AC19 exempts AC13's surface-presence pins from the mutation obligation
+}
+ci749_field 'Verdict'
+ci749_field 'Relevant code files'
+ci749_field 'Current behavior'
+ci749_field 'Drift detail'
+ci749_field 'Search space surveyed'
+# AC7 — the drift-detail field's declared landing site in the issue template. Its counterpart
+# producer field is pinned by `ci749_field 'Drift detail'` above; without this the consumer end
+# of that pair is unpinned and the landing site could be dropped green.
+devflow_module_pin_present "#749/AC7: the issue template declares the drift-detail landing site" \
+  '- **Documentation Drift** —' "$CI_TMPL"  # structural-pin-ok: surface-presence over a declared landing site, matching AC13's field pins
+ci749_field 'Duty statuses'
+ci749_field 'Bearing observations'
+unset -f ci749_field
+# AC26 — the search-space operand extends the previously closed flag-then-topic grammar, and
+# BOTH execution steps read it. The no-operand default is stated, so an absent operand is a
+# defined behavior rather than an unbounded survey by omission.
+devflow_module_pin_unique "#749/AC26: docs-verify's argument grammar carries the search-space operand" \
+  'Grammar: `[--report-only] [--search-space <pathspec>] <topic…>`.' "$CI_DV"  # structural-pin-ok: grammar-declaration presence; the behavioral read is pinned by the two rows below
+devflow_module_pin_present "#749/AC26: the operand's declaration site states both steps read it" \
+  'Steps 1 and 2 both read it.' "$CI_DV"  # structural-pin-ok: contract-presence over the operand's declaration site
+# The declaration above is prose; the locate-documentation step's own read is the behavior a
+# revert to the hardcoded internal-docs location would destroy while leaving that prose intact.
+devflow_module_pin_red_under "#749/AC26: the locate-documentation step searches the supplied operand, not the hardcoded internal-docs location" \
+  '**within the supplied `--search-space` operand**' \
+  's/\*\*within the supplied `--search-space` operand\*\*/within `[[INTERNAL_DOC_LOCATION]]`/' "$CI_DV"
+# An unrecognized `--`-prefixed token must be refused, not stripped as a bare flag: stripping it
+# drops the caller into the default WRITE mode, which makes file changes (fail-open).
+devflow_module_pin_red_under "#749: an unrecognized --flag is refused, never stripped into a write-mode fall-through" \
+  'never strip it as a bare flag' \
+  's/never strip it as a bare flag/strip it as a bare flag/' "$CI_DV"
+devflow_module_pin_red_under "#749/AC26: the search-codebase step searches the supplied operand, not the whole tree" \
+  '**searching the supplied `--search-space` operand**' \
+  's/\*\*searching the supplied `--search-space` operand\*\*/searching the whole codebase/' "$CI_DV"
+# AC1/AC2 — the duty floor is the breadth bound, every duty returns a status, a
+# judged-not-engaged duty still returns a bearing observation, and the pass is a leaf.
+devflow_module_pin_red_under "#749/AC1: the duty floor — not the search space — bounds a report-only pass" \
+  'the **duty floor — not the size of the search space — bounds the work.**' \
+  's/duty floor — not the size of the search space — bounds the work/search space bounds the work/' "$CI_DV"
+devflow_module_pin_red_under "#749/AC1: a status is returned for ALL six duties, not only the engaged ones" \
+  'for **all six** duties, not only the assigned ones' \
+  's/for \*\*all six\*\* duties, not only the assigned ones/for the assigned duties/' "$CI_DV"
+devflow_module_pin_red_under "#749/AC1: a judged-not-engaged duty still returns a bearing observation or an explicit none-token" \
+  'the paths opened that bear on it, or `none-observed`' \
+  's/, or `none-observed`//' "$CI_DV"
+devflow_module_pin_red_under "#749/AC2: a report-only pass dispatches no subagent of its own, naming nested dispatch as the reason" \
+  '**A report-only pass dispatches no subagent of its own** — nested dispatch is unsupported' \
+  's/dispatches no subagent of its own\*\* — nested dispatch is unsupported/may dispatch its own subagent — nested dispatch is supported/' "$CI_DV"
+
+# AC19 — the arm-selection contract, one row per case in the comparative-evaluation list.
+# Each guards a named behavioral regression, so each takes a mutation.
+devflow_module_pin_red_under "#749/AC19: the arms are selected BEFORE any dispatch, from the pre-pass duty operand" \
+  '**Two arms, selected before any dispatch** by a pre-pass operand' \
+  's/selected before any dispatch\*\* by a pre-pass operand/selected after the first dispatch\*\* by the returned verdict/' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC19: a topic engaging NO duty routes to the shallow arm, not to no pass at all" \
+  'and the arm for a topic engaging **no** duty' \
+  's/, and the arm for a topic engaging \*\*no\*\* duty//' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC19: the full floor enters the deep arm directly, without a shallow first pass" \
+  'the **full** floor, entered directly' \
+  's/the \*\*full\*\* floor, entered directly/the **full** floor, entered after a shallow pass/' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC19: the selection operand is derived with python3 or bash builtins, never a non-preflight PATH tool" \
+  'never `tr`, `sed`, `wc`, `cut` or `head`' \
+  's/, never `tr`, `sed`, `wc`, `cut` or `head`, which preflight does not guarantee and whose absence fails open//' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC6: the verdict token drives escalation ONLY, never arm selection" \
+  'is the verdict token'"'"'s **only** role, never the arm selector' \
+  's/is the verdict token'"'"'s \*\*only\*\* role, never the arm selector/is one of the verdict token'"'"'s roles alongside arm selection/' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC6: escalation also fires on an unestablished duty and on a non-empty bearing observation" \
+  'on an **unestablished** duty, and on any **judged-not-engaged** duty whose returned bearing observation is non-empty' \
+  's/, and on any \*\*judged-not-engaged\*\* duty whose returned bearing observation is non-empty//' "$CI_SKILL"
+# The `none-observed` exclusion is the operative half of that comparand: the producer ALWAYS emits
+# the field, so a naive non-empty test escalates every shallow arm to deep. A revert dropping the
+# qualifier leaves the literal above intact, so the comparand needs its own mutation pin.
+devflow_module_pin_red_under "#749/AC6: the escalation comparand excludes the producer's explicit none-observed token" \
+  'escalate on any value other than `none-observed`' \
+  's/escalate on any value other than `none-observed`/escalate on any non-empty value/' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC4: the two legs are disjoint BY CONSTRUCTION, never by asserted disjointness" \
+  'the tracked tree **minus that location'"'"'s subtree** — never an assertion they are already disjoint' \
+  's/ — never an assertion they are already disjoint//' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC4: each leg reaches its peer as the search-space operand, not as dispatch-prompt prose" \
+  'docs-verify'"'"'s **search-space operand**, never as dispatch-prompt prose' \
+  's/, never as dispatch-prompt prose its own contract overrides//' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC4: an empty documentation leg is an established absence ONLY when the location is absent" \
+  'an **established absence only when the location itself is absent**' \
+  's/an \*\*established absence only when the location itself is absent\*\*/an established absence/' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC4: a location that reads cleanly but holds no index entries is unestablished, not clean coverage" \
+  'holds **no git-index entries**' \
+  's/, and when it exists and reads cleanly yet holds \*\*no git-index entries\*\*[^.]*\.//' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC5: unequal peer returns degrade to the surviving leg, naming the failed one" \
+  'degrade to the surviving leg with a breadcrumb naming the failed leg, never reporting a partial verification as complete' \
+  's/, never reporting a partial verification as complete//' "$CI_SKILL"
+# An INCOMPLETE return (a peer that succeeds but omits/malforms a duty status or a bearing
+# observation) is a distinct branch from the unequal-returns case above — a succeeding peer whose
+# report is short of the floor must not read as a discharged floor.
+devflow_module_pin_red_under "#749/AC5: an incomplete peer return records the duty unestablished, never a discharged floor" \
+  'records that duty **unestablished** with a breadcrumb naming the missing field, never a discharged floor' \
+  's/records that duty \*\*unestablished\*\* with a breadcrumb naming the missing field, never a discharged floor/records that duty discharged/' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC8: the ORCHESTRATOR, never a peer, writes the evidence artifact — on both arms" \
+  'The **orchestrator — never a peer** — writes the returned evidence' \
+  's/The \*\*orchestrator — never a peer\*\* — writes/A peer writes/' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC8: Step 1 clears the evidence artifact and the run pointer ON ENTRY, before any dispatch" \
+  'Both deletes run on every path including the degraded one' \
+  's/Both deletes run on every path including the degraded one/Both deletes run on the default path/' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC11: the degraded arm is bounded, breadcrumbed, and never terminates the run" \
+  'It never terminates the run and never presents a half-verification as whole.' \
+  's/It never terminates the run and never presents a half-verification as whole\.//' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC12: an unresolvable helper anchor routes to the degraded arm" \
+  'or one whose helper anchor cannot resolve' \
+  's/ — or one whose helper anchor cannot resolve —//' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC25: an unestablished run pointer routes to the title-derived fallback" \
+  'is recorded **unestablished** and routes to the title-derived fallback' \
+  's/is recorded \*\*unestablished\*\* and routes to the title-derived fallback/is re-derived from the title/' "$CI_SKILL"
+# The valid-falsy row of the repo's best-effort-parser matrix: "absent or unreadable" alone leaves a
+# present-but-empty / whitespace / torn-multi-line value reading as an ESTABLISHED slug, yielding an
+# artifact path keyed on an empty stem. The declared single-slug shape is what makes that decidable.
+devflow_module_pin_red_under "#749/AC25: an empty or malformed pointer value is unestablished, never an established slug" \
+  '**empty, whitespace-only, or not that single-slug shape**' \
+  's/, \*\*empty, whitespace-only, or not that single-slug shape\*\* \(a torn concurrent write\)//' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC25: the concurrent-run overwrite of the pointer is a DISCLOSED residual, not an omission" \
+  '**Disclosed residual:** the pointer carries no run-identity token' \
+  's/\*\*Disclosed residual:\*\* the pointer carries no run-identity token/The pointer carries a run-identity token/' "$CI_SKILL"
+
+# AC22 — the Step 1 evidence artifact is read as a best-effort parser reads agent-mutable
+# markdown. One row per malformed shape the matrix requires, plus the absent-file row whose
+# routing DIFFERS (unestablished, not a re-run) and the complete-prior-run-artifact case.
+devflow_module_pin_red_under "#749/AC22: the artifact reader is governed by the best-effort-parser contract" \
+  '**Treat it as a best-effort parser treats agent-mutable markdown.**' \
+  's/\*\*Treat it as a best-effort parser treats agent-mutable markdown\.\*\*//' "$CI_REF_STEP2"
+devflow_module_pin_red_under "#749/AC22: empty-or-truncated, missing-or-duplicated marker, and non-canonical layout each re-run the pass" \
+  'routes to **re-running the Step 1 pass**, never a partial parse' \
+  's/, never a partial parse//' "$CI_REF_STEP2"
+# The routing clause above guards only the ROUTE. Each malformed shape that routes there needs its own
+# row, or deleting a shape from the enumeration leaves the routing literal present exactly once and the
+# pin GREEN — AC22 requires the shapes covered, not merely the destination. Same reasoning as
+# ci749_field's per-field rows: named individually so a dropped member is attributable.
+devflow_module_pin_red_under "#749/AC22: an empty-or-truncated artifact is one of the shapes that re-runs the pass" \
+  'An **empty or truncated** file' \
+  's/An \*\*empty or truncated\*\* file, //' "$CI_REF_STEP2"
+devflow_module_pin_red_under "#749/AC22: a missing-or-duplicated section marker is one of the shapes that re-runs the pass" \
+  'a **missing or duplicated** section marker' \
+  's/a \*\*missing or duplicated\*\* section marker, //' "$CI_REF_STEP2"
+devflow_module_pin_red_under "#749/AC22: a non-canonical layout is one of the shapes that re-runs the pass" \
+  'or a **non-canonical layout** routes to' \
+  's/or a \*\*non-canonical layout\*\* routes to/routes to/' "$CI_REF_STEP2"
+devflow_module_pin_red_under "#749/AC22: an ABSENT artifact after a completed Step 1 is unestablished, never a silent re-dispatch" \
+  'is instead recorded `unestablished — Step 1 evidence artifact absent`' \
+  's/is instead recorded `unestablished — Step 1 evidence artifact absent`/is instead re-derived by re-dispatching the deep arm/' "$CI_REF_STEP2"
+devflow_module_pin_red_under "#749/AC22: a complete prior-run artifact cannot survive into this run (the on-entry delete is the guard)" \
+  'so a prior run'"'"'s leftover on the same deterministic slug cannot read as this run'"'"'s' \
+  's/, so a prior run'"'"'s leftover on the same deterministic slug cannot read as this run'"'"'s//' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC9: degraded Step 1 evidence carries its degradation into the entries it seeds" \
+  'Degraded Step 1 evidence carries its degradation into the entries it seeds.' \
+  's/Degraded Step 1 evidence carries its degradation into the entries it seeds\.//' "$CI_REF_STEP2"
+unset -v CI_DV
 
 # Complete normal cleanup explicitly so a removal or marker failure changes the
 # module status. EXIT remains a fallback for earlier returns and shell errors.

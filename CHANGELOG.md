@@ -4,6 +4,50 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.21.11] — 2026-07-24
+
+### Added
+- **Name the throwaway verification-scaffold reuse case in the implement + fix-loop engine
+  prose.** Adds one per-surface-adapted advisory line to `skills/implement/phases/phase-2-implement.md`
+  §2.3, `skills/receiving-code-review/SKILL.md`, and `skills/review-and-fix/references/fixing.md`:
+  when RED/GREEN iteration builds a disposable rig to exercise code in isolation (a scratch repo,
+  a fixture config, an interpreter/CLI wrapper), keep it under an already-ignored scratch path,
+  record its location on the surface's own channel, and reuse it on later iterations instead of
+  rebuilding it — but only after confirming it still exercises the current code shape (rebuild when
+  that shape changed, so a stale rig is never reused into a false pass). Narrows the residual reuse
+  gap the focused-module iteration default (#707) and §2.2.4's production-code Reuse gate leave open,
+  adding no new gate, command, config key, or tool grant. (#754)
+
+## [2.21.10] — 2026-07-24
+
+### Changed
+- **Adopt a go-forward single-source-of-truth documentation/contract policy and redirect the retrospective remedy heuristic.** The `retrospective-audit` skill's proposal-selection step now prefers collapsing a drift/desync/coupled-mirror root cause to a single canonical source over adding a new pin plus a mirror copy, so the self-improvement loop stops proposing remedies that grow the redundancy apparatus that caused the drift. (#762)
+
+## [2.21.9] — 2026-07-24
+
+### Changed
+### Changed
+
+- `/devflow:create-issue` Step 1 now runs a two-arm, duty-floor-bounded docs-verification pass
+  instead of one unconditional whole-repository sweep. A pre-pass judgement of the duties a topic
+  engages selects a shallow arm (one peer over the union of both legs) or a deep arm (two parallel
+  peers over disjoint legs — the `.docs.internal` location, and the tracked tree minus that
+  subtree, both enumerated from the git index). The verdict token drives escalation only, never
+  arm selection.
+- `/devflow:docs-verify` report-only mode is bounded by a six-duty floor rather than by the size of
+  the search space, returns a status for every duty with a bearing observation on each
+  judged-not-engaged one, and accepts an
+  explicit `--search-space` operand that both its locate-documentation and search-codebase steps
+  read. A report-only pass dispatches no subagent of its own; escalation is a return-value contract.
+
+### Added
+
+- Step 1 writes a run-scoped evidence artifact `.devflow/tmp/issue-step1-<slug>.md` (the
+  orchestrator, never a peer, on both arms) and binds the run slug behind the fixed pointer
+  `.devflow/tmp/issue-run-slug`, which later steps read instead of re-deriving one.
+- A bounded inline degraded arm for a failed, unavailable, rejected, or anchor-unresolvable pass.
+  It breadcrumbs the failure kind and never terminates the run.
+
 ## [2.21.8] — 2026-07-24
 
 ### Fixed
