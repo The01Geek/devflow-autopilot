@@ -175,7 +175,7 @@ COOLDOWN_EPOCH="$(python3 -c "import datetime as d; print(int((d.datetime.now(d.
 printf '%s' "$PATTERN_VIEW"   > "$_JQ_TMP/pattern_view.json"
 printf '%s' "$OPEN_ISSUE_MAP" > "$_JQ_TMP/open_issue_map.json"
 OUTPUT="$(
-  # argjson-ok: min, cooldown_epoch are bounded scalars (a small int and an epoch
+  # argjson-ok: min, cooldown_epoch -- bounded scalars (a small int and an epoch
   # int) — safe as argv; the corpus-sized operands above use --slurpfile.
   "$DEVFLOW_JQ" -n --slurpfile pattern_view    "$_JQ_TMP/pattern_view.json" \
         --slurpfile open_issue_map  "$_JQ_TMP/open_issue_map.json" \

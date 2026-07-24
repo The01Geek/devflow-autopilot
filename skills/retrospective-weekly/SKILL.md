@@ -176,7 +176,7 @@ missing workpad audit trail — `Absent` means the linked issue *did* resolve bu
 carried no workpad comment, so this is not restricted to issueless PRs). It is a suite-driven helper, never inline prose:
 
 ```bash
-DISP=$($LIB/../scripts/run-jq.sh -c --argjson gate "$GATE" -f $LIB/dispatch-disposition.jq < "$CTX")  # argjson-ok: gate is one PR's cheap-gate result (bounded)
+DISP=$($LIB/../scripts/run-jq.sh -c --argjson gate "$GATE" -f $LIB/dispatch-disposition.jq < "$CTX")  # argjson-ok: gate -- one PR's cheap-gate result (bounded)
 ```
 
 `DISP` is `{"disposition": "skip"|"dispatch", "reason": "<string>"}`. It returns
@@ -194,7 +194,7 @@ one-line run-report record — costing **zero** LLM dispatches. Do **not** add i
 ```bash
 # $number is this PR (the loop variable); DISP's .reason is the skip reason line.
 SKIP_REASON=$(printf '%s' "$DISP" | $LIB/../scripts/run-jq.sh -r '.reason')
-# argjson-ok: pr is a scalar PR number.
+# argjson-ok: pr -- scalar PR number.
 $LIB/../scripts/run-jq.sh -cn --argjson pr "$number" --arg reason "$SKIP_REASON" \
   '{kind:"skip", pr:$pr, reason:$reason}' >> .devflow/tmp/new-entries.jsonl
 skip_records+=("PR #$number skipped (mechanical, no DevFlow provenance): $SKIP_REASON")
@@ -247,7 +247,7 @@ operate on the file. For each result:
    on the bundle's `workpad_final_status` (a mechanical field, not the skip text):
    - **`Cancelled`** → a **permanently-terminal** skip → append a marker entry so
      the PR is seen as handled next run:
-     `$LIB/../scripts/run-jq.sh -cn --argjson pr <n> --arg reason "<the skip .reason>" '{kind:"skip", pr:$pr, reason:$reason}' >> .devflow/tmp/new-entries.jsonl` # argjson-ok: pr is a scalar PR number
+     `$LIB/../scripts/run-jq.sh -cn --argjson pr <n> --arg reason "<the skip .reason>" '{kind:"skip", pr:$pr, reason:$reason}' >> .devflow/tmp/new-entries.jsonl` # argjson-ok: pr -- scalar PR number
    - an **interim** state (`Setup`/`Discovering`/…/`Documenting`) → a **transient**
      skip → append **no** marker, so the PR stays unprocessed and is re-scanned
      while it remains inside the 7-day merge lookback.
@@ -600,7 +600,20 @@ printf '%s' "$RECURRING_TARGETS_JSON"       > "$_SUMMARY_TMP/recurring_targets.j
 printf '%s\n' "${intervention_issues[@]:-}" | $LIB/../scripts/run-jq.sh -sc '.' > "$_SUMMARY_TMP/intervention_issues.json"
 printf '%s\n' "${cooldown_skipped[@]:-}"    | $LIB/../scripts/run-jq.sh -sc '.' > "$_SUMMARY_TMP/cooldown_skipped.json"
 printf '%s\n' "${blockers[@]:-}"            | $LIB/../scripts/run-jq.sh -sc '.' > "$_SUMMARY_TMP/blockers.json"
-# argjson-ok: prs_scanned, clean_count, analyzed_count, skipped_count, state_pr are
+# Same fail-loud property for the four INLINE producers above. Their `> file` redirect
+# truncates the file before the pipeline runs, so a failing jq (unresolvable binary, a
+# malformed element under -sc '.') leaves the file EMPTY — and an empty --slurpfile
+# operand is []→[0]=null, silently emitting skips/blockers:null where --argjson aborted
+# loud. On success each writes at minimum `[]` (non-empty), so an empty file is
+# unambiguously producer failure. Guard by file, not by variable, because these operands
+# never pass through a shell variable.
+for _op in skips intervention_issues cooldown_skipped blockers; do
+  [ -s "$_SUMMARY_TMP/$_op.json" ] || {
+    echo "devflow retrospective Step 9: $_op.json is empty — its inline jq producer failed" >&2
+    rm -rf "$_SUMMARY_TMP"; exit 1
+  }
+done
+# argjson-ok: prs_scanned, clean_count, analyzed_count, skipped_count, state_pr --
 # bounded scalars (counts and one PR number) — safe as argv.
 SUMMARY_JSON="$($LIB/../scripts/run-jq.sh -nc \
   --argjson prs_scanned           "$prs_scanned" \

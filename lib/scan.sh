@@ -85,7 +85,8 @@ _add_candidates() {  # $1 = JSON array of PR objects
     # scan window and, on a large first-run backlog, would overflow the kernel arg
     # limit as an --argjson argv slot (jq: "Argument list too long", issue #783).
     printf '%s' "$CANDIDATES" > "$_a_file"
-    # argjson-ok: b ($1) is one bounded API page (<= per-page limit), safe as argv.
+    # argjson-ok: b -- $1 is one bounded batch (a single PR or one <= per-page-limit
+    # page), safe as argv.
     # Clean up on the jq-abort path too: under `set -e` a nonzero jq would skip the
     # trailing `rm -f` and orphan the temp in $TMPDIR. A localized `|| { rm; return 1; }`
     # cleans then re-raises (the function returns nonzero, so `set -e` still aborts the
@@ -142,7 +143,7 @@ if [ -n "$EXPLICIT_PRS" ]; then
         # degraded gate: --prs is the operator-named ad-hoc path, so a per-PR
         # breadcrumb on stderr is the right granularity rather than a hard exit.
         set +e
-        # argjson-ok: watched is a bounded scalar (boolean flag).
+        # argjson-ok: watched -- bounded scalar (boolean flag).
         _SEL="$(echo "$_PRJSON" | "$DEVFLOW_JQ" -c --arg impl "$IMPL_PREFIX" --argjson watched "$_WATCHED" \
             "select($RETRO_PREDICATE) | {number, headRefName, mergedAt}" 2>"$PRS_ERR")"
         _SEL_RC=$?
@@ -156,7 +157,7 @@ if [ -n "$EXPLICIT_PRS" ]; then
         _add_candidates "[$_SEL]"
     done
     rm -f "$PRS_ERR"
-    echo "$CANDIDATES" | "$DEVFLOW_JQ" -c --argjson cap "$MAX_PRS" 'sort_by(.mergedAt) | [.[0:$cap][] | {number, headRefName, mergedAt}]'  # argjson-ok: cap is a scalar int
+    echo "$CANDIDATES" | "$DEVFLOW_JQ" -c --argjson cap "$MAX_PRS" 'sort_by(.mergedAt) | [.[0:$cap][] | {number, headRefName, mergedAt}]'  # argjson-ok: cap -- scalar int
     exit 0
 fi
 
@@ -214,7 +215,7 @@ else
                     --json number,headRefName,author,mergedAt,labels,closingIssuesReferences --limit 100 2>"$FETCH_ERR")"; then
                 # These are watched-author results, so $watched is true for the
                 # closes-issue path (b). Filter locally with the shared predicate.
-                # argjson-ok: watched is a bounded scalar literal (true).
+                # argjson-ok: watched -- bounded scalar literal (true).
                 BATCH="$(echo "$BATCH" | "$DEVFLOW_JQ" --arg impl "$IMPL_PREFIX" --argjson watched true \
                     "[.[] | select($RETRO_PREDICATE) | {number, headRefName, mergedAt}]" 2>"$FETCH_ERR")" \
                     || { echo "::warning::scan: jq reshape failed for author:${_form} ($(tr '\n' ' ' < "$FETCH_ERR" | cut -c1-300)); treating as empty" >&2; BATCH='[]'; DEGRADED=1; }
@@ -348,4 +349,4 @@ N="$(echo "$UNPROC" | "$DEVFLOW_JQ" 'length')"
 if [ "$N" -gt "$MAX_PRS" ]; then
     echo "scan: $N unprocessed PRs, capping to $MAX_PRS" >&2
 fi
-echo "$UNPROC" | "$DEVFLOW_JQ" -c --argjson cap "$MAX_PRS" '[.[0:$cap][] | {number, headRefName, mergedAt}]'  # argjson-ok: cap is a scalar int
+echo "$UNPROC" | "$DEVFLOW_JQ" -c --argjson cap "$MAX_PRS" '[.[0:$cap][] | {number, headRefName, mergedAt}]'  # argjson-ok: cap -- scalar int

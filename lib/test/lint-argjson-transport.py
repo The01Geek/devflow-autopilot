@@ -12,7 +12,7 @@ macOS ``ARG_MAX`` total) ``execve`` rejects it before jq runs and the loop abort
 with ``jq: Argument list too long``. The fix routes every corpus-sized operand
 through ``--slurpfile <file>`` (a file read, dereferenced ``[0]``); a genuine
 bounded scalar (a count, an epoch int, a boolean flag) may stay ``--argjson`` but
-must *declare itself by name* in a ``# argjson-ok: <names> <reason>`` marker. This
+must *declare itself by name* in a ``# argjson-ok: <names> -- <reason>`` marker. This
 guard turns the suite RED when an aggregating helper routes a corpus-sized operand
 through ``--argjson`` again — either an ``--argjson`` with no applicable marker, or
 one whose operand name the marker does not declare as a bounded scalar (a corpus
@@ -61,13 +61,19 @@ bounded ``--argjson`` scalars carrying the marker; if the marker exempted the wh
 line, a corpus operand reverted from ``--slurpfile`` back to ``--argjson`` on that
 same invocation would be masked by the scalars' marker — the exact E2BIG regression
 this guard exists to catch, silently uncaught. So a marker declares the scalar
-operand names it vouches for (the identifier tokens after ``# argjson-ok:`` — e.g.
-``min, cooldown_epoch``), and a logical line is COVERED only when it has an applicable
-marker AND **every** ``--argjson NAME`` on it is a declared name. A ``--argjson``
-operand whose name the marker does not declare (a reverted corpus operand:
-``pattern_view`` / ``a`` / ``analyzed`` …) is a violation even though marked scalars
-share its line. A logical line with a code ``--argjson`` flag and no applicable marker
-at all is likewise a violation.
+operand names it vouches for, and a logical line is COVERED only when it has an
+applicable marker AND **every** ``--argjson NAME`` on it is a declared name. A
+``--argjson`` operand whose name the marker does not declare (a reverted corpus
+operand: ``pattern_view`` / ``a`` / ``analyzed`` …) is a violation even though marked
+scalars share its line. A logical line with a code ``--argjson`` flag and no applicable
+marker at all is likewise a violation.
+
+The marker's grammar is **delimited** — ``# argjson-ok: <names> -- <reason>`` — and only
+the pre-``--`` segment declares names (see ``_declared_names``). Reading names from the
+whole tail would make the declared set a superset containing the rationale's prose words,
+which is a live hazard for short operand names: scan.sh's corpus operand ``a`` would be
+masked by any future marker reword that happened to contain a standalone "a". A marker
+missing the delimiter is malformed and exempts nothing.
 """
 
 import importlib.util
@@ -103,6 +109,11 @@ MARKER = "# argjson-ok:"
 _ARGJSON_NAME_RE = re.compile(r"--argjson\s+([A-Za-z_][A-Za-z0-9_]*)")
 #: An identifier token, used to read the DECLARED scalar names out of a marker line.
 _NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+#: The ``--`` delimiter separating a marker's declared-names segment from its free-text
+#: rationale. Whitespace-delimited on the left, and on the right by whitespace or the
+#: line end, so a name segment cannot absorb it and a bare ``--`` closing the line still
+#: parses as a delimiter (an empty rationale is an authoring choice, not a parse error).
+_DELIM_RE = re.compile(r"\s--(?=\s|$)")
 
 # The closed, hardcoded in-scope set (repo-root-relative). Resolved against this
 # file's own location (lib/test/lint-argjson-transport.py → parents[2] == repo
@@ -165,22 +176,37 @@ def _marker_line_for(lines, start, joined):
 
 
 def _declared_names(marker_line):
-    """The set of scalar operand names a marker line declares as ``--argjson``-safe —
-    every identifier token appearing after the ``# argjson-ok:`` token on that line. The
-    rationale prose that follows the names is a harmless superset (a prose word is simply
-    a name no ``--argjson`` operand happens to use); what matters is that a corpus operand
-    name (``pattern_view``/``a``/``analyzed`` …) is NOT among them, so reverting its
-    ``--slurpfile`` to ``--argjson`` yields an undeclared name and fires."""
+    """The set of scalar operand names a marker line declares as ``--argjson``-safe, or
+    ``None`` when the marker is malformed.
+
+    The grammar is delimited: ``# argjson-ok: <names> -- <reason>``. Only the segment
+    BEFORE the ``--`` delimiter contributes names; the free-text rationale after it
+    contributes none. Reading names from the whole tail (the pre-review behavior) made
+    the declared set a superset that included rationale prose words, so a single-letter
+    corpus operand name — scan.sh's ``a`` — was protected only by the marker wording
+    happening not to contain a standalone "a". A reword ("b is *a* bounded scalar")
+    would then have silently exempted a ``--slurpfile a`` → ``--argjson a`` revert,
+    reopening E2BIG for that operand with the suite green. The delimiter makes the
+    declared set depend on the names segment alone, so no rationale wording can widen it.
+
+    A marker with no delimiter is MALFORMED and exempts nothing (fail-closed): treating
+    it as declaring every prose token is the very superset this grammar removes, and
+    treating it as declaring nothing-but-silently would hide the authoring mistake.
+    """
     after = marker_line[marker_line.find(MARKER) + len(MARKER):]
-    return set(_NAME_RE.findall(after))
+    parts = _DELIM_RE.split(after, maxsplit=1)
+    if len(parts) < 2:
+        return None
+    return set(_NAME_RE.findall(parts[0]))
 
 
 def audit_text(text):
     """Return a list of (physical_line_number, snippet) for each violating logical line.
 
     A logical line with a code ``--argjson`` flag violates when it carries no applicable
-    ``# argjson-ok:`` marker at all, OR carries one but has a ``--argjson`` operand whose
-    name the marker does not declare. The latter is the load-bearing case (issue #783
+    ``# argjson-ok:`` marker at all, carries a marker that is malformed (no ``--``
+    delimiter), OR carries a well-formed one but has a ``--argjson`` operand whose name
+    the marker does not declare. The last is the load-bearing case (issue #783
     review): the marker exempts only the *bounded scalar operands it names*, never the
     whole logical line — so a corpus operand reverted from ``--slurpfile`` to ``--argjson``
     on a jq invocation that also carries marked scalars is caught, not masked by the
@@ -196,6 +222,16 @@ def audit_text(text):
             findings.append((start + 1, joined.strip().splitlines()[0][:100]))
             continue
         declared = _declared_names(marker_line)
+        if declared is None:
+            head = joined.strip().splitlines()[0][:80]
+            findings.append(
+                (
+                    start + 1,
+                    "malformed '# argjson-ok:' marker — expected "
+                    "'# argjson-ok: <names> -- <reason>': " + head,
+                )
+            )
+            continue
         undeclared = [n for n in names if n not in declared]
         if undeclared:
             head = joined.strip().splitlines()[0][:80]
@@ -230,7 +266,7 @@ def main(argv):
                 f"{path}:{lineno}: unmarked --argjson in a corpus-aggregating "
                 f"retrospective helper — route a corpus-sized operand through "
                 f"--slurpfile, or declare a bounded scalar with a "
-                f"'# argjson-ok: <reason>' marker (issue #783): {snippet}"
+                f"'# argjson-ok: <names> -- <reason>' marker (issue #783): {snippet}"
             )
 
     if violations:
