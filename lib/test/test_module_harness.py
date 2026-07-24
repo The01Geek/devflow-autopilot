@@ -1626,32 +1626,17 @@ class NamespacedModulePinHelperTests(unittest.TestCase):
 
 
 # ── Failure recap (issue #789) ────────────────────────────────────────────────
-# lib/test/run.sh's terminal `Failure recap` is driven here rather than by running the
-# ~10-minute suite: the two blocks under test — `record_fail` and the recap `if` at the
-# tail — are extracted VERBATIM from the shipped run.sh by source slice and evaluated in a
-# standalone bash driver. Extracting rather than restating is what keeps this from becoming
-# a copy that silently diverges: a rewrite of either block changes what these tests execute.
-_RECORD_FAIL_SLICE = ("/^record_fail() {/,/^}/p", "record_fail() {")
-_RECAP_SLICE = (
-    '/^if \\[ "\\$FAIL" -gt 0 \\] && \\[ -s "\\$RESULTS_FILE.names" \\]; then$/,/^fi$/p',
-    "Failure recap:",
-)
-
-
-def _slice_run_sh(program: str, sentinel: str) -> str:
-    """Return a `sed -n` slice of run.sh, failing loudly if it is empty or wrong.
-
-    An empty slice would make every assertion below vacuous — the driver would run no
-    recap code at all and a clean-looking `0 passed` would "prove" the recap is silent."""
-    text = subprocess.run(
-        ["sed", "-n", program, str(RUN_SH)], capture_output=True, text=True, check=True
-    ).stdout
-    if sentinel not in text:
-        raise AssertionError(
-            f"run.sh slice {program!r} did not yield the expected block "
-            f"(sentinel {sentinel!r} absent) — the extraction is stale, not the behavior"
-        )
-    return text
+# The recap is `devflow_render_failure_recap` in lib/test/summary.sh and `record_fail` in
+# lib/test/module-harness.sh — both real, sourceable shell functions, so these tests SOURCE
+# the shipped files and call them, exactly as the issue-#456 tests drive
+# devflow_render_test_summary. No source slicing, no extraction layer that a reformat could
+# silently invalidate.
+HARNESS_SH = ROOT / "lib/test/module-harness.sh"
+# The two spellings the shipped producers use to write the suite tally. Assembled from parts
+# rather than written whole so this file's own source can never be mistaken for a producer by
+# a future scanner over the corpus.
+_TALLY_WRITE_ECHO = 'echo FAIL >> "$' + 'RESULTS_FILE"'
+_TALLY_WRITE_PRINTF = "printf 'FAIL" + chr(92) + 'n' + "' >> \"$" + 'RESULTS_FILE"'
 
 
 class FailureRecapTests(unittest.TestCase):
@@ -1659,22 +1644,22 @@ class FailureRecapTests(unittest.TestCase):
     disturbing a clean run's summary bytes or the suite's exit status."""
 
     def _drive(self, seed: str):
-        """Run the extracted record_fail + recap over SEED, returning (rc, stdout, stderr)."""
-        record_fail = _slice_run_sh(*_RECORD_FAIL_SLICE)
-        recap = _slice_run_sh(*_RECAP_SLICE)
+        """Run record_fail + the recap renderer over SEED, returning (rc, stdout, stderr)."""
         script = f"""
 set -u
 RESULTS_FILE="$(mktemp)"
 SKIPS_FILE="$(mktemp)"
 . "{SUMMARY_SH}"
-{record_fail}
+# module-harness.sh defines record_fail; source only that function so the harness's own
+# fixture-isolation preamble does not run in this micro-driver.
+eval "$(sed -n '/^record_fail() {{/,/^}}/p' "{HARNESS_SH}")"
 {seed}
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
 SKIP=$(grep -c . "$SKIPS_FILE" || true)
 echo
 devflow_render_test_summary "$PASS" "$FAIL" "$SKIP" "$SKIPS_FILE"
-{recap}
+devflow_render_failure_recap "$FAIL" "$RESULTS_FILE.names"
 rm -f "$RESULTS_FILE" "$RESULTS_FILE.names" "$SKIPS_FILE"
 [ "$FAIL" -eq 0 ]
 """
@@ -1687,9 +1672,9 @@ rm -f "$RESULTS_FILE" "$RESULTS_FILE.names" "$SKIPS_FILE"
     def _recap_bullets(out: str) -> "list[str]":
         """The recap's bullet lines, VERBATIM (leading indent included).
 
-        The indent is part of the asserted shape — it is what run-module.sh's recap uses
-        and what makes the bullets read as a nested list under the header — so the lines
-        are compared unstripped; only surrounding blank lines are dropped."""
+        The indent is part of the asserted shape — it is what run-module.sh's recap uses and
+        what makes the bullets read as a nested list under the header — so the lines are
+        compared unstripped; only surrounding blank lines are dropped."""
         body = out.split("Failure recap:", 1)[1]
         return [line for line in body.split("\n") if line.strip()]
 
@@ -1704,8 +1689,8 @@ rm -f "$RESULTS_FILE" "$RESULTS_FILE.names" "$SKIPS_FILE"
         rc, out, _ = self._drive(":")
         self.assertEqual(rc, 0)
         self.assertNotIn("Failure recap", out)
-        # Byte-identical to the pre-#789 terminal output for a clean run: the blank line
-        # devflow_render_test_summary is called after, then its own single summary line.
+        # Byte-identical to the pre-#789 terminal output for a clean run: the blank line the
+        # caller echoes, then devflow_render_test_summary's own single summary line.
         self.assertEqual(out, "\n0 passed, 0 failed\n")
 
     def test_one_failure_is_listed_by_its_identifier(self):
@@ -1753,22 +1738,46 @@ rm -f "$RESULTS_FILE" "$RESULTS_FILE.names" "$SKIPS_FILE"
         self.assertEqual(rc, 1)
         self.assertIn("  - (unnamed check)\n", out)
 
-    def test_every_tallied_fail_site_in_run_sh_records_an_identifier(self):
-        """A FAIL site that increments the tally but records no identifier would make the
-        recap under-report — the recap would look complete while omitting the very failure
-        the reader is chasing. This walks the shipped run.sh and requires each non-comment
-        `echo FAIL >> "$RESULTS_FILE"` to carry a record_fail on its own or the next line."""
-        lines = RUN_SH.read_text(encoding="utf-8").split("\n")
+    def test_a_tallied_failure_with_no_identifier_is_reported_as_incomplete(self):
+        # The reconciliation the SKIP half already performs, applied to failures: a FAIL site
+        # that tallied but recorded no identifier must not yield a short list that reads
+        # complete. This is the shape that would otherwise hide exactly the failure a reader
+        # is chasing.
+        seed = self._fail("alpha") + 'echo FAIL >> "$RESULTS_FILE"\n'
+        rc, out, _ = self._drive(seed)
+        self.assertEqual(rc, 1)
+        self.assertIn("  - alpha", out)
+        self.assertIn("recorded no identifier", out)
+        self.assertIn("the recap is INCOMPLETE", out)
+
+    def test_an_absent_identifier_record_says_so_rather_than_printing_an_empty_recap(self):
+        seed = 'echo FAIL >> "$RESULTS_FILE"\nrm -f "$RESULTS_FILE.names"\n'
+        rc, out, _ = self._drive(seed)
+        self.assertEqual(rc, 1)
+        self.assertIn("Failure recap:", out)
+        self.assertIn("absent or unreadable", out)
+
+    def test_every_tallied_fail_site_records_an_identifier(self):
+        """A FAIL site that increments the tally but records no identifier makes the recap
+        under-report — it would look complete while omitting the very failure the reader is
+        chasing. This walks BOTH shipped producers of the suite tally (run.sh and the harness
+        the pool arms live in) and BOTH spellings of the tally write, because scanning only
+        run.sh for only the `echo` spelling is exactly how the harness's nine sites were
+        missed in the first place."""
         missing = []
-        for index, line in enumerate(lines):
-            if 'echo FAIL >> "$RESULTS_FILE"' not in line:
-                continue
-            if line.lstrip().startswith("#"):
-                continue
-            following = lines[index + 1] if index + 1 < len(lines) else ""
-            if "record_fail" not in line and "record_fail" not in following:
-                missing.append(f"lib/test/run.sh:{index + 1}: {line.strip()}")
-        self.assertEqual(missing, [], "FAIL sites with no identifier record")
+        for source in (RUN_SH, HARNESS_SH):
+            lines = source.read_text(encoding="utf-8").split("\n")
+            for index, line in enumerate(lines):
+                writes_tally = (
+                    _TALLY_WRITE_ECHO in line or _TALLY_WRITE_PRINTF in line
+                )
+                if not writes_tally or line.lstrip().startswith("#"):
+                    continue
+                window = lines[index : index + 3]
+                if not any("record_fail" in candidate for candidate in window):
+                    rel = source.relative_to(ROOT)
+                    missing.append(f"{rel}:{index + 1}: {line.strip()}")
+        self.assertEqual(missing, [], "tally writes with no identifier record")
 
 
 if __name__ == "__main__":

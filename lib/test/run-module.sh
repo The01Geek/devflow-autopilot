@@ -90,7 +90,11 @@ cleanup() {
   local cleanup_rc=0
   [ "$RUNNER_CLEANUP_DONE" -eq 0 ] || return 0
   [ -z "$SELECTOR_STDERR" ] || rm -f "$SELECTOR_STDERR" || cleanup_rc=1
-  [ -z "$RESULTS_FILE" ] || rm -f "$RESULTS_FILE" || cleanup_rc=1
+  # `.names` is record_fail's identifier record (issue #789), whose path is DERIVED from
+  # RESULTS_FILE — module-harness.sh defines record_fail and this runner sources it, so a
+  # focused run whose probe_tmp or pool arm fails writes one here too. Removed alongside
+  # the tally it belongs to rather than left as /tmp litter.
+  [ -z "$RESULTS_FILE" ] || rm -f "$RESULTS_FILE" "$RESULTS_FILE.names" || cleanup_rc=1
   [ -z "$DETAILS_FILE" ] || rm -f "$DETAILS_FILE" || cleanup_rc=1
   _devflow_cleanup_module_scratch "$MODULE_SCRATCH_ROOT" || cleanup_rc=1
   _devflow_test_append_cleanup_marker \

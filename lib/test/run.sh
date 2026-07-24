@@ -93,9 +93,7 @@ _suite_cleanup() {
   # registering each one at its diversion site — is what keeps the coverage from depending
   # on a per-site edit somebody can forget. `rm -f` on a path that was never created is a
   # silent no-op, so the sweep is free for every registered file that has no sibling.
-  local _sc_f
-  for _sc_f in ${_SUITE_TMP_FILES[@]+"${_SUITE_TMP_FILES[@]}"}; do rm -f "$_sc_f.names"; done
-  [ "${#_SUITE_TMP_FILES[@]}" -gt 0 ] && rm -f "${_SUITE_TMP_FILES[@]}"
+  [ "${#_SUITE_TMP_FILES[@]}" -gt 0 ] && rm -f "${_SUITE_TMP_FILES[@]}" "${_SUITE_TMP_FILES[@]/%/.names}"
   [ "${#_SUITE_TMP_DIRS[@]}" -gt 0 ] && rm -rf "${_SUITE_TMP_DIRS[@]}"
   return 0
 }
@@ -104,31 +102,12 @@ _suite_tmp_file "$RESULTS_FILE"
 _suite_tmp_file "$MODULE_FAILURES_FILE"
 _suite_tmp_file "$SKIPS_FILE"
 
-# record_fail <name> — the failing assertion's IDENTIFIER record (issue #789), the FAIL
-# sibling of skip()'s SKIPS_FILE. RESULTS_FILE carries only the bare `PASS`/`FAIL` verdict
-# token, so a completed run's tally says how many assertions failed but never which — and
-# recovering that meant scrolling ~47,600 lines of captured output or, worse, relaunching a
-# ~10-minute suite. Every FAIL site calls this alongside its `echo FAIL >> "$RESULTS_FILE"`,
-# so the record covers the STDERR half of the suite's bi-stream failure output as well as
-# the stdout half; the terminal `Failure recap` at the tail re-lists it.
-#
-# The record's path is DERIVED from RESULTS_FILE rather than held in a global of its own,
-# and that is load-bearing: the probes and meta-guards divert a recorded FAIL away from the
-# suite tally by rebinding the variable for one call (`RESULTS_FILE="$probe" assert_…`), so
-# a derived sibling follows every such diversion automatically and a probe's internal FAIL
-# can never leak into the real run's recap. A second global would have to be rebound at
-# every diversion site, and the one that was missed would be silent.
-#
-# Sanitization is bash-builtin only (never tr/sed): this value is EMITTED, and CLAUDE.md
-# guard-class 2 bars a non-preflight PATH tool from deciding an emitted result — an absent
-# tool would empty the identifier silently. Tab/newline/CR collapse to a space so one
-# failure is always one line, and an empty name degrades to the same "(unnamed check)"
-# placeholder skip() uses rather than a blank recap bullet.
-record_fail() {  # name
-  local _rf_name="${1//[$'\t'$'\n'$'\r']/ }"
-  [ -n "$_rf_name" ] || _rf_name="(unnamed check)"
-  printf '%s\n' "$_rf_name" >> "$RESULTS_FILE.names"
-}
+# record_fail (the failing assertion's IDENTIFIER record, issue #789) is defined in
+# lib/test/module-harness.sh, sourced just above. It lives THERE rather than here because the
+# harness writes the suite tally at its own FAIL sites (the pool arms, probe_tmp's mktemp
+# failure): a definition private to run.sh would leave those failures tallied but absent from
+# the recap, which is worse than no recap — a "Failure recap:" header that reads complete and
+# silently omits entries. One definition, both producers.
 # shellcheck source=lib/test/summary.sh disable=SC1091
 . "$LIB/test/summary.sh"
 # shellcheck source=lib/test/module-harness.sh disable=SC1091
@@ -2600,6 +2579,15 @@ _int_cmp() {  # left op right -> 0 satisfied, 1 not satisfied, 2 invalid op / er
     *) return 2 ;;
   esac
 }
+# _acru_fail <token> <name>: the failure triple every assert_count_red_under arm writes —
+# the whole-line FAIL the tally counts, the arm's own diagnostic TOKEN (which the tally's
+# `^FAIL$` match deliberately ignores and the contract self-tests read), and the #789
+# identifier record. It exists because the arms below are ~20 copies of the same three
+# statements: adding the identifier record required touching every one of them, and two
+# drifted in the ordering before this helper collapsed them. One shape, one edit.
+_acru_fail() {  # token name
+  echo FAIL >> "$RESULTS_FILE"; echo "$1" >> "$RESULTS_FILE"; record_fail "$2"
+}
 assert_count_red_under() {  # name start end pattern op bound mutation [file]
   local name="$1" start="$2" end="$3" pattern="$4" op="$5" bound="$6" mutation="$7" file="${8:-$MAXI_SKILL}"
   local pat_rc anchor_rc breach_rc start_count start_match start_line ln m end_line
@@ -2612,13 +2600,13 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   # FAIL + token so the tally stays whole-line honest.
   case "$op" in
     -eq|-le|-lt|-ge|-gt) ;;
-    *) echo FAIL >> "$RESULTS_FILE"; record_fail "$name"; echo INVALID-OP >> "$RESULTS_FILE"
+    *) _acru_fail INVALID-OP "$name"
        printf '  FAIL  %s\n         INVALID-OP — op must be one of -eq -le -lt -ge -gt (got: %s)\n' "$name" "$op" >&2
        return 0 ;;
   esac
   # BOUND is spliced into the same `[ ]` — require a non-negative integer.
   case "$bound" in
-    ''|*[!0-9]*) echo FAIL >> "$RESULTS_FILE"; record_fail "$name"; echo INVALID-BOUND >> "$RESULTS_FILE"
+    ''|*[!0-9]*) _acru_fail INVALID-BOUND "$name"
        printf '  FAIL  %s\n         INVALID-BOUND — bound must be a non-negative integer (got: %s)\n' "$name" "$bound" >&2
        return 0 ;;
   esac
@@ -2633,13 +2621,13 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   # ANCHOR-UNESTABLISHED path — the pre-fix behavior — mis-diagnosed a malformed anchor).
   start_count="$(grep -cE -- "$start" "$file" 2>/dev/null)"; anchor_rc=$?
   if [ "$anchor_rc" -ge 2 ]; then
-    echo FAIL >> "$RESULTS_FILE"; echo ANCHOR-PATTERN-ERROR >> "$RESULTS_FILE"; record_fail "$name"
+    _acru_fail ANCHOR-PATTERN-ERROR "$name"
     printf '  FAIL  %s\n         ANCHOR-PATTERN-ERROR — START anchor grep exited with status %s (a malformed or wrong-dialect ERE), not a match count\n         start: %s\n         file: %s\n' \
       "$name" "$anchor_rc" "$start" "$file" >&2
     return 0
   fi
   if [ "$start_count" != "1" ]; then
-    echo FAIL >> "$RESULTS_FILE"; echo ANCHOR-UNESTABLISHED >> "$RESULTS_FILE"; record_fail "$name"
+    _acru_fail ANCHOR-UNESTABLISHED "$name"
     printf '  FAIL  %s\n         ANCHOR-UNESTABLISHED — START must match exactly one line (got: %s)\n         start: %s\n         file: %s\n' \
       "$name" "${start_count:-<unestablished>}" "$start" "$file" >&2
     return 0
@@ -2656,7 +2644,7 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   # a grep error and a genuine zero-match both yield no lines).
   grep -cE -- "$end" "$file" >/dev/null 2>&1; anchor_rc=$?
   if [ "$anchor_rc" -ge 2 ]; then
-    echo FAIL >> "$RESULTS_FILE"; echo ANCHOR-PATTERN-ERROR >> "$RESULTS_FILE"; record_fail "$name"
+    _acru_fail ANCHOR-PATTERN-ERROR "$name"
     printf '  FAIL  %s\n         ANCHOR-PATTERN-ERROR — END anchor grep exited with status %s (a malformed or wrong-dialect ERE), not a match count\n         end: %s\n         file: %s\n' \
       "$name" "$anchor_rc" "$end" "$file" >&2
     return 0
@@ -2668,7 +2656,7 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
     [ "$m" -gt "$start_line" ] 2>/dev/null && { end_line="$m"; break; }
   done < <(grep -nE -- "$end" "$file" 2>/dev/null)
   if [ -z "$end_line" ]; then
-    echo FAIL >> "$RESULTS_FILE"; echo ANCHOR-UNESTABLISHED >> "$RESULTS_FILE"; record_fail "$name"
+    _acru_fail ANCHOR-UNESTABLISHED "$name"
     printf '  FAIL  %s\n         ANCHOR-UNESTABLISHED — END must match at least one line after START (line %s)\n         end: %s\n         file: %s\n' \
       "$name" "$start_line" "$end" "$file" >&2
     return 0
@@ -2679,20 +2667,20 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   # scratch file — NO PIPE — so the counting grep's own rc survives. ──
   slice="$(probe_tmp "$name (slice setup)")" || return 0
   if ! sed -n "${start_line},${end_line}p" "$file" > "$slice" 2>/dev/null; then
-    echo FAIL >> "$RESULTS_FILE"; echo COUNT-UNESTABLISHED >> "$RESULTS_FILE"; record_fail "$name"
+    _acru_fail COUNT-UNESTABLISHED "$name"
     printf '  FAIL  %s\n         COUNT-UNESTABLISHED — slice command (sed) exited non-zero; the count is unestablished, not zero\n         file: %s\n' "$name" "$file" >&2
     rm -f "$slice"; return 0
   fi
   count="$(grep -cE -- "$pattern" "$slice" 2>/dev/null)"; pat_rc=$?
   if [ "$pat_rc" -ge 2 ]; then
-    echo FAIL >> "$RESULTS_FILE"; echo PATTERN-ERROR >> "$RESULTS_FILE"; record_fail "$name"
+    _acru_fail PATTERN-ERROR "$name"
     printf '  FAIL  %s\n         PATTERN-ERROR — counting grep exited with status %s (a malformed or wrong-dialect ERE), not zero matches\n         pattern: %s\n' \
       "$name" "$pat_rc" "$pattern" >&2
     rm -f "$slice"; return 0
   fi
   case "$count" in
     ''|*[!0-9]*)
-      echo FAIL >> "$RESULTS_FILE"; echo COUNT-UNESTABLISHED >> "$RESULTS_FILE"; record_fail "$name"
+      _acru_fail COUNT-UNESTABLISHED "$name"
       printf '  FAIL  %s\n         COUNT-UNESTABLISHED — count is non-numeric or empty (got: %s)\n         pattern: %s\n' \
         "$name" "${count:-<empty>}" "$pattern" >&2
       rm -f "$slice"; return 0
@@ -2708,7 +2696,7 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   # one single-file _nonws_count invocation per measurement (reading `_NONWS_1`). A failed
   # derivation is recorded as COUNT-UNESTABLISHED, never compared against an unestablished bound.
   if ! _nonws_count "$slice"; then
-    echo FAIL >> "$RESULTS_FILE"; echo COUNT-UNESTABLISHED >> "$RESULTS_FILE"; record_fail "$name"
+    _acru_fail COUNT-UNESTABLISHED "$name"
     printf '  FAIL  %s\n         COUNT-UNESTABLISHED — non-whitespace count derivation (python3) failed on the real slice; the overbreadth bound is unestablished, not satisfied\n         file: %s\n' "$name" "$file" >&2
     rm -f "$slice"; return 0
   fi
@@ -2721,7 +2709,7 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   # not-satisfied (rc 1) AND an errored/invalid-op comparison (rc >= 2) both route to the
   # BOUND-VIOLATED-ON-REAL-FILE arm — the same fail-closed direction the old `! [ ]` had. ──
   if ! _int_cmp "$count" "$op" "$bound" 2>/dev/null; then
-    echo FAIL >> "$RESULTS_FILE"; echo BOUND-VIOLATED-ON-REAL-FILE >> "$RESULTS_FILE"; record_fail "$name"
+    _acru_fail BOUND-VIOLATED-ON-REAL-FILE "$name"
     printf '  FAIL  %s\n         BOUND-VIOLATED-ON-REAL-FILE — real count %s does not satisfy %s %s\n         file: %s\n' \
       "$name" "$count" "$op" "$bound" "$file" >&2
     rm -f "$slice"; return 0
@@ -2732,7 +2720,7 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   # would read as a spurious transition — record MUTATION-ERROR instead). ──
   mut="$(probe_tmp "$name (mutation setup)")" || { rm -f "$slice"; return 0; }
   if ! sed -E "$mutation" "$file" > "$mut" 2>/dev/null; then
-    echo FAIL >> "$RESULTS_FILE"; echo MUTATION-ERROR >> "$RESULTS_FILE"; record_fail "$name"
+    _acru_fail MUTATION-ERROR "$name"
     printf '  FAIL  %s\n         MUTATION-ERROR — mutation sed program errored (not a valid regression)\n         mutation: %s\n         file: %s\n' \
       "$name" "$mutation" "$file" >&2
     rm -f "$slice" "$mut"; return 0
@@ -2740,7 +2728,7 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   # ── 5. No-op mutation: a byte-identical copy changes nothing, so EVERY pin would pass
   # vacuously — record MUTATION-NOOP (mirrors assert_pin_red_under's cmp -s guard). ──
   if cmp -s "$file" "$mut"; then
-    echo FAIL >> "$RESULTS_FILE"; echo MUTATION-NOOP >> "$RESULTS_FILE"; record_fail "$name"
+    _acru_fail MUTATION-NOOP "$name"
     printf '  FAIL  %s\n         MUTATION-NOOP — mutated copy byte-identical to original (a mutation that changes nothing is never a vacuous pass)\n         mutation: %s\n' \
       "$name" "$mutation" >&2
     rm -f "$slice" "$mut"; return 0
@@ -2753,7 +2741,7 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   # after START on the mutated copy; if the mutation destroyed an anchor → ANCHOR-COLLAPSE. ──
   mut_start_count="$(grep -cE -- "$start" "$mut" 2>/dev/null)" || mut_start_count=""
   if [ "$mut_start_count" != "1" ]; then
-    echo FAIL >> "$RESULTS_FILE"; echo ANCHOR-COLLAPSE >> "$RESULTS_FILE"; record_fail "$name"
+    _acru_fail ANCHOR-COLLAPSE "$name"
     printf '  FAIL  %s\n         ANCHOR-COLLAPSE — mutation destroyed the START anchor on the mutated copy (matches: %s); the regression is the collapse, not the operative change\n         mutation: %s\n' \
       "$name" "${mut_start_count:-<unestablished>}" "$mutation" >&2
     rm -f "$slice" "$mut"; return 0
@@ -2767,7 +2755,7 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
     [ "$m" -gt "$mut_start_line" ] 2>/dev/null && { mut_end_line="$m"; break; }
   done < <(grep -nE -- "$end" "$mut" 2>/dev/null)
   if [ -z "$mut_end_line" ]; then
-    echo FAIL >> "$RESULTS_FILE"; echo ANCHOR-COLLAPSE >> "$RESULTS_FILE"; record_fail "$name"
+    _acru_fail ANCHOR-COLLAPSE "$name"
     printf '  FAIL  %s\n         ANCHOR-COLLAPSE — mutation destroyed the END anchor on the mutated copy (no END after START)\n         mutation: %s\n' \
       "$name" "$mutation" >&2
     rm -f "$slice" "$mut"; return 0
@@ -2775,21 +2763,21 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
 
   # ── 7. Slice + count on the MUTATED copy (same command/rc discipline as step 2). ──
   if ! sed -n "${mut_start_line},${mut_end_line}p" "$mut" > "$slice" 2>/dev/null; then
-    echo FAIL >> "$RESULTS_FILE"; echo COUNT-UNESTABLISHED >> "$RESULTS_FILE"; record_fail "$name"
+    _acru_fail COUNT-UNESTABLISHED "$name"
     printf '  FAIL  %s\n         COUNT-UNESTABLISHED — mutated slice command (sed) exited non-zero; the count is unestablished, not zero\n         mutation: %s\n         file: %s\n' \
       "$name" "$mutation" "$file" >&2
     rm -f "$slice" "$mut"; return 0
   fi
   mut_count="$(grep -cE -- "$pattern" "$slice" 2>/dev/null)"; pat_rc=$?
   if [ "$pat_rc" -ge 2 ]; then
-    echo FAIL >> "$RESULTS_FILE"; echo PATTERN-ERROR >> "$RESULTS_FILE"; record_fail "$name"
+    _acru_fail PATTERN-ERROR "$name"
     printf '  FAIL  %s\n         PATTERN-ERROR — counting grep exited with status %s on the mutated slice\n         pattern: %s\n' \
       "$name" "$pat_rc" "$pattern" >&2
     rm -f "$slice" "$mut"; return 0
   fi
   case "$mut_count" in
     ''|*[!0-9]*)
-      echo FAIL >> "$RESULTS_FILE"; echo COUNT-UNESTABLISHED >> "$RESULTS_FILE"; record_fail "$name"
+      _acru_fail COUNT-UNESTABLISHED "$name"
       printf '  FAIL  %s\n         COUNT-UNESTABLISHED — mutated count is non-numeric or empty (got: %s)\n         mutation: %s\n         file: %s\n' \
         "$name" "${mut_count:-<empty>}" "$mutation" "$file" >&2
       rm -f "$slice" "$mut"; return 0
@@ -2802,13 +2790,13 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   # empties every line while leaving the line count identical, so sed's rc and cmp -s both
   # clear). Reports through this helper's own bare-FAIL + distinct-token shape.
   if ! _nonws_count "$slice"; then
-    echo FAIL >> "$RESULTS_FILE"; echo COUNT-UNESTABLISHED >> "$RESULTS_FILE"; record_fail "$name"
+    _acru_fail COUNT-UNESTABLISHED "$name"
     printf '  FAIL  %s\n         COUNT-UNESTABLISHED — non-whitespace count derivation (python3) failed on the mutated slice; the overbreadth bound is unestablished, not satisfied\n         mutation: %s\n' "$name" "$mutation" >&2
     rm -f "$slice" "$mut"; return 0
   fi
   _mut_slice_nonws="$_NONWS_1"
   if [ "$_real_slice_nonws" -gt 0 ] && [ "$(( _mut_slice_nonws * OVERBREADTH_MIN_DEN ))" -lt "$(( _real_slice_nonws * OVERBREADTH_MIN_NUM ))" ]; then
-    echo FAIL >> "$RESULTS_FILE"; echo MUTATION-OVERBROAD >> "$RESULTS_FILE"; record_fail "$name"
+    _acru_fail MUTATION-OVERBROAD "$name"
     printf '  FAIL  %s\n         MUTATION-OVERBROAD — mutated slice retains %s of %s non-whitespace chars (below the 1/%s bound); a mutation that blanks the counted slice proves nothing\n         mutation: %s\n' \
       "$name" "$_mut_slice_nonws" "$_real_slice_nonws" "$OVERBREADTH_MIN_DEN" "$mutation" >&2
     rm -f "$slice" "$mut"; return 0
@@ -2829,7 +2817,7 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   # (fail-open, worse), so the rc is captured explicitly and every value other than 1 fails. ──
   _int_cmp "$mut_count" "$op" "$bound" 2>/dev/null; breach_rc=$?
   if [ "$breach_rc" -ne 1 ]; then
-    echo FAIL >> "$RESULTS_FILE"; echo BOUND-NOT-BREACHED >> "$RESULTS_FILE"; record_fail "$name"
+    _acru_fail BOUND-NOT-BREACHED "$name"
     printf '  FAIL  %s\n         BOUND-NOT-BREACHED — mutated count %s still satisfies %s %s (the mutation did not breach the bound)\n         mutation: %s\n' \
       "$name" "$mut_count" "$op" "$bound" "$mutation" >&2
     rm -f "$slice" "$mut"; return 0
@@ -48359,32 +48347,11 @@ echo
 # "N passed, M failed, K skipped" + one line per skipped check otherwise. The exit
 # predicate below is unchanged — a skip never fails the suite.
 devflow_render_test_summary "$PASS" "$FAIL" "$SKIP" "$SKIPS_FILE"
-# Failure recap (issue #789) — adapts run-module.sh's `Failure recap:` shape to the
-# monolith, which has no DETAILS_FILE: the identifiers come from record_fail's
-# "$RESULTS_FILE.names" record, populated at every FAIL site, so a failure printed to
-# STDERR is re-listed here exactly like one printed to stdout. That bi-stream coverage is
-# the point — the raw stream runs to tens of thousands of lines and most FAIL sites write
-# their detail to stderr, so
-# without this a reader recovering "which assertion failed?" scrolls the capture or, worse,
-# relaunches a ~10-minute suite.
-#
-# Gated on FAIL > 0, so a CLEAN run's terminal output is byte-identical to before this
-# block existed and devflow_render_test_summary's own bytes are untouched (preserving the
-# #456 summary contract). Deliberately a plain `while IFS= read -r` over the file rather
-# than a pipeline: a pipe would put the loop in a subshell and, more importantly, this
-# block must not sit between the summary and the exit predicate in a way that can mask the
-# status. It cannot — the FAIL-is-zero exit predicate remains the file's last statement,
-# unmoved (this comment states that WITHOUT quoting the predicate: the #456 guard counts the
-# literal's occurrences and expects exactly one, so a comment quoting it inflates the count
-# and turns the guard RED — the #370 pin-in-comment defect). A failing suite therefore still
-# exits non-zero THROUGH the recap, which matters beyond tidiness:
-# scripts/verification-flight.py (#528) records the single-flight terminal state from the
-# suite's exit status, and a masked code would record `passed` for a RED run.
-if [ "$FAIL" -gt 0 ] && [ -s "$RESULTS_FILE.names" ]; then
-  echo
-  echo "Failure recap:"
-  while IFS= read -r _recap_name; do
-    printf '  - %s\n' "$_recap_name"
-  done < "$RESULTS_FILE.names"
-fi
+# Failure recap (issue #789) — one bullet per failing assertion, from the identifier record
+# record_fail appends to at every FAIL site (both streams). Rendered by summary.sh alongside
+# devflow_render_test_summary rather than inline here: that file already owns the
+# itemize-a-population-from-a-record-file shape, including the reconciliation that surfaces a
+# tally/record disagreement instead of printing a short list that reads complete. It prints
+# NOTHING when FAIL is 0, so a clean run's terminal output is unchanged (the #456 contract).
+devflow_render_failure_recap "$FAIL" "$RESULTS_FILE.names"
 [ "$FAIL" -eq 0 ]

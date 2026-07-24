@@ -125,3 +125,55 @@ devflow_render_test_summary() {
       "$((emitted - skip))" "$skip"
   fi
 }
+
+# devflow_render_failure_recap FAIL NAMES_FILE
+#
+# Print the suite's terminal `Failure recap` to stdout — one bullet per failing assertion
+# identifier, read from the record run.sh's `record_fail` appends to at every FAIL site
+# (issue #789). It lives here, beside devflow_render_test_summary, because this file already
+# IS the "itemize a population from a sibling record file" renderer: the SKIP half above does
+# exactly this job, down to the announced-tally-vs-itemized-lines reconciliation, and a second
+# inline copy at run.sh's tail would be a weaker one that nothing could unit-test directly.
+#
+#   FAIL == 0   → prints NOTHING and returns 0. A clean run's terminal output is therefore
+#                 byte-identical to the pre-#789 output (the issue-#456 contract), by the same
+#                 early-return shape the skip == 0 arm above uses.
+#   FAIL  > 0   → a blank line, `Failure recap:`, then `  - <identifier>` per recorded line.
+#
+# The recap's value is that it covers BOTH streams: roughly three quarters of the suite's FAIL
+# sites print their detail to stderr, so a reader recovering "which assertion failed?" from a
+# stdout-only capture sees the tally and none of the names. The record is stream-independent.
+#
+# This function never sets the exit code — run.sh's FAIL-is-zero predicate remains its last
+# statement, so a failing suite still exits non-zero through the recap. That is load-bearing
+# beyond tidiness: scripts/verification-flight.py records the single-flight terminal state from
+# that exit status, and a masked code would record a pass for a RED suite.
+devflow_render_failure_recap() {
+  local fail="${1-}" names_file="${2-}" line emitted=0
+  # An underivable FAIL is not a reason to print a recap over an unknown population; the
+  # caller's own fail-closed guard has already refused to render a summary in that case.
+  devflow_tally_is_derivable "$fail" || return 0
+  [ "$fail" -gt 0 ] || return 0
+  echo
+  echo "Failure recap:"
+  if [ -z "$names_file" ] || [ ! -f "$names_file" ] || [ ! -r "$names_file" ]; then
+    printf '  - (detail unavailable — the failure-identifier record is absent or unreadable)\n'
+    return 0
+  fi
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ -n "$line" ] || continue
+    printf '  - %s\n' "$line"
+    emitted=$((emitted + 1))
+  done < "$names_file"
+  # Same two-directional reconciliation the SKIP half performs, and for the same reason: a
+  # header that reads complete while the bullets are short is exactly the laundering this file
+  # exists to prevent. A shortfall means some FAIL site tallied a failure without recording an
+  # identifier — the reader is shown a list that silently omits the failure they are chasing.
+  if [ "$emitted" -lt "$fail" ]; then
+    printf '  - (%s of %s failure(s) recorded no identifier — the recap is INCOMPLETE; scan the captured output for `  FAIL ` lines)\n' \
+      "$((fail - emitted))" "$fail"
+  elif [ "$emitted" -gt "$fail" ]; then
+    printf '  - (the identifier record lists %s more failure(s) than the announced tally of %s — tally and record disagree; the failure population of this run is unverified)\n' \
+      "$((emitted - fail))" "$fail"
+  fi
+}

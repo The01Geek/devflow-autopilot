@@ -14,6 +14,32 @@
 # green. Teaching the resolver that one idiom would be the deeper fix (not filed — so
 # this note, not a tracked issue, is what keeps the spelling requirement discoverable).
 
+# record_fail <name> — the failing assertion's IDENTIFIER record (issue #789), the FAIL
+# sibling of skip()'s SKIPS_FILE. RESULTS_FILE carries only the bare `PASS`/`FAIL` verdict
+# token, so a completed run's tally says how many assertions failed but never which — and
+# recovering that meant scrolling ~47,600 lines of captured output or, worse, relaunching a
+# ~10-minute suite. Every FAIL site calls this alongside its `echo FAIL >> "$RESULTS_FILE"`,
+# so the record covers the STDERR half of the suite's bi-stream failure output as well as
+# the stdout half; the terminal `Failure recap` at the tail re-lists it.
+#
+# The record's path is DERIVED from RESULTS_FILE rather than held in a global of its own,
+# and that is load-bearing: the probes and meta-guards divert a recorded FAIL away from the
+# suite tally by rebinding the variable for one call (`RESULTS_FILE="$probe" assert_…`), so
+# a derived sibling follows every such diversion automatically and a probe's internal FAIL
+# can never leak into the real run's recap. A second global would have to be rebound at
+# every diversion site, and the one that was missed would be silent.
+#
+# Sanitization is bash-builtin only (never tr/sed): this value is EMITTED, and CLAUDE.md
+# guard-class 2 bars a non-preflight PATH tool from deciding an emitted result — an absent
+# tool would empty the identifier silently. Tab/newline/CR collapse to a space so one
+# failure is always one line, and an empty name degrades to the same "(unnamed check)"
+# placeholder skip() uses rather than a blank recap bullet.
+record_fail() {  # name
+  local _rf_name="${1//[$'\t'$'\n'$'\r']/ }"
+  [ -n "$_rf_name" ] || _rf_name="(unnamed check)"
+  printf '%s\n' "$_rf_name" >> "$RESULTS_FILE.names"
+}
+
 # ── Inherited-DEVFLOW_GH fixture isolation (issue #533 AC13, generalized #695) ─
 # The same clearing lib/test/run.sh performs in its preamble, performed here so
 # EVERY caller that sources this harness — the complete suite AND the focused
@@ -70,6 +96,7 @@ probe_tmp() {  # assertion-name -> prints a temp path (rc 0); on mktemp failure 
   t="$(mktemp)" && { printf '%s\n' "$t"; return 0; }
   echo FAIL >> "$RESULTS_FILE"
   printf '  FAIL  %s — mktemp failed (mutation proof could not run; not a vacuous pass)\n' "$1" >&2
+  record_fail "$1 — mktemp failed (mutation proof could not run)"
   printf '/dev/null\n'
   return 1
 }
@@ -1120,6 +1147,7 @@ _devflow_pool_launch_suite() { # name script mode attempt
   if ! tally="$(mktemp "${TMPDIR:-/tmp}/devflow-pool-tally.XXXXXX")"; then
     printf 'FAIL\n' >> "$RESULTS_FILE"
     printf '  FAIL  pool suite %s — could not allocate private tally\n' "$name" >&2
+    record_fail "pool suite $name — could not allocate private tally"
     return 0
   fi
   # A failed output-capture mktemp falls back to /dev/null, which for a self-tally suite
@@ -1136,6 +1164,7 @@ _devflow_pool_launch_suite() { # name script mode attempt
     "${TMPDIR:-/tmp}/devflow-module-scratch.XXXXXX")"; then
     printf 'FAIL\n' >> "$RESULTS_FILE"
     printf '  FAIL  pool suite %s — could not allocate private scratch root\n' "$name" >&2
+    record_fail "pool suite $name — could not allocate private scratch root"
     rm -f "$tally"; [ "$output" = /dev/null ] || rm -f "$output"
     return 0
   fi
@@ -1143,6 +1172,7 @@ _devflow_pool_launch_suite() { # name script mode attempt
     _devflow_discard_unvalidated_module_scratch "$scratch" || :
     printf 'FAIL\n' >> "$RESULTS_FILE"
     printf '  FAIL  pool suite %s — allocated an unsafe private scratch root\n' "$name" >&2
+    record_fail "pool suite $name — allocated an unsafe private scratch root"
     rm -f "$tally"; [ "$output" = /dev/null ] || rm -f "$output"
     return 0
   fi
@@ -1256,11 +1286,13 @@ _devflow_pool_reap() { # pid rc
     if ! cat "$tally" >> "$RESULTS_FILE"; then
       printf 'FAIL\n' >> "$RESULTS_FILE"
       printf '  FAIL  pool suite %s — could not append private tally to results\n' "$name" >&2
+      record_fail "pool suite $name — could not append private tally to results"
     fi
   else
     _pool_count=""
     printf 'FAIL\n' >> "$RESULTS_FILE"
     printf '  FAIL  pool suite %s — private tally missing/unreadable after execution\n' "$name" >&2
+    record_fail "pool suite $name — private tally missing/unreadable after execution"
   fi
 
   # Fail-closed guards mirroring devflow_run_full_suite_module (issue #720 review): a
@@ -1276,10 +1308,12 @@ _devflow_pool_reap() { # pid rc
     if [ "$_hasfail" -eq 0 ]; then
       printf 'FAIL\n' >> "$RESULTS_FILE"
       printf '  FAIL  pool suite %s — worker exited with status %s (no verdict recorded)\n' "$name" "$rc" >&2
+      record_fail "pool suite $name — worker exited with status $rc (no verdict recorded)"
     fi
   elif [ "$_pool_count" = "0" ]; then
     printf 'FAIL\n' >> "$RESULTS_FILE"
     printf '  FAIL  pool suite %s — executed zero assertions\n' "$name" >&2
+    record_fail "pool suite $name — executed zero assertions"
   fi
 
   if [ "$rc" -ne 0 ] && [ -n "$output" ] && [ -f "$output" ]; then
@@ -1303,6 +1337,7 @@ _devflow_pool_reap() { # pid rc
   if [ -n "$scratch" ] && ! _devflow_cleanup_module_scratch "$scratch"; then
     printf 'FAIL\n' >> "$RESULTS_FILE"
     printf '  FAIL  pool suite %s — could not remove private scratch root\n' "$name" >&2
+    record_fail "pool suite $name — could not remove private scratch root"
   fi
   [ -z "$tally" ] || rm -f "$tally"
   [ -n "$output" ] && [ "$output" != /dev/null ] && rm -f "$output"

@@ -505,7 +505,7 @@ def _arm10(files, tracked, executable_files):
             )
             continue
         name = target.rsplit("/", 1)[-1]
-        if not (name.startswith("test_") and name.endswith(".py")):
+        if not (name.startswith("test_") and _ext(target) == ".py"):
             violations.append(
                 f"[arm10] coverage-map files entry {path!r} focused_test {value!r} does not "
                 f"name a lib/test/test_*.py file; {ARM10_REMEDY}"
