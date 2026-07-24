@@ -169,6 +169,12 @@ devflow_render_failure_recap() {
   # header that reads complete while the bullets are short is exactly the laundering this file
   # exists to prevent. A shortfall means some FAIL site tallied a failure without recording an
   # identifier — the reader is shown a list that silently omits the failure they are chasing.
+  #
+  # One shortfall source is STRUCTURAL and expected rather than a defect: a pooled or module
+  # suite records its verdicts to a PRIVATE tally that module-harness.sh folds in wholesale
+  # (`cat "$tally" >> "$RESULTS_FILE"`), so its failures raise the count without ever passing
+  # through record_fail. The honest report for that is exactly this line — the named failures
+  # plus a count of the unnamed — never a short list presented as the whole population.
   if [ "$emitted" -lt "$fail" ]; then
     printf '  - (%s of %s failure(s) recorded no identifier — the recap is INCOMPLETE; scan the captured output for `  FAIL ` lines)\n' \
       "$((fail - emitted))" "$fail"

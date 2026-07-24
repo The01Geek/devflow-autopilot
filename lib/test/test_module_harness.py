@@ -1631,7 +1631,6 @@ class NamespacedModulePinHelperTests(unittest.TestCase):
 # the shipped files and call them, exactly as the issue-#456 tests drive
 # devflow_render_test_summary. No source slicing, no extraction layer that a reformat could
 # silently invalidate.
-HARNESS_SH = ROOT / "lib/test/module-harness.sh"
 # The two spellings the shipped producers use to write the suite tally. Assembled from parts
 # rather than written whole so this file's own source can never be mistaken for a producer by
 # a future scanner over the corpus.
@@ -1652,7 +1651,7 @@ SKIPS_FILE="$(mktemp)"
 . "{SUMMARY_SH}"
 # module-harness.sh defines record_fail; source only that function so the harness's own
 # fixture-isolation preamble does not run in this micro-driver.
-eval "$(sed -n '/^record_fail() {{/,/^}}/p' "{HARNESS_SH}")"
+eval "$(sed -n '/^record_fail() {{/,/^}}/p' "{HARNESS}")"
 {seed}
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
@@ -1765,7 +1764,7 @@ rm -f "$RESULTS_FILE" "$RESULTS_FILE.names" "$SKIPS_FILE"
         run.sh for only the `echo` spelling is exactly how the harness's nine sites were
         missed in the first place."""
         missing = []
-        for source in (RUN_SH, HARNESS_SH):
+        for source in (RUN_SH, HARNESS):
             lines = source.read_text(encoding="utf-8").split("\n")
             for index, line in enumerate(lines):
                 writes_tally = (

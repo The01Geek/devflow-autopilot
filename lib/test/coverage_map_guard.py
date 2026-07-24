@@ -473,9 +473,12 @@ ARM10_REMEDY = (
 def _focused_test_target(value: str) -> str:
     """The file path of a `focused_test` value, dropping an optional `::selector` suffix.
 
-    A recorded value may narrow to a single test (`lib/test/test_module_harness.py::Cls.test`)
-    exactly like the flake isolation command; only the path before `::` names a file, so that
-    is what the tracked/naming/mode checks read."""
+    A recorded value may narrow to a single test (`lib/test/test_module_harness.py::Cls.test`).
+    The `::` is this FIELD's own separator, deliberately not the space-separated form a
+    unittest selector takes on the command line (`lib/test/test_module_harness.py Cls.test`) —
+    a space would make the value ambiguous with a path containing one. Only the part before
+    `::` names a file, so that is what the tracked/naming/mode checks read; a consumer turning
+    the value into a command splits on `::` and passes the selector as a separate argv word."""
     return value.split("::", 1)[0]
 
 
