@@ -3409,15 +3409,29 @@ assert_pin_red_under "#554(rev): overclaim reintroduction (per-agent effort appl
 assert_pin_red_under "#425(rev): the N≥2 exclusion threshold is operative (relaxing to N≥1 goes RED)" \
   'on a fix-loop iteration **N ≥ 2**, drop from the Phase-3 launch list' \
   's/fix-loop iteration \*\*N ≥ 2\*\*/fix-loop iteration **N ≥ 1**/' "$ST_REV"
-# #425(rev): the engine_self_modifying-precedence invariant. On an engine_self_modifying diff,
-# Phase 0.5 forces the always-on four ON; the first-only exclusion must OVERRIDE that force so an
-# opted-in always-on agent (this repo's code-reviewer) is still dropped on iterations ≥ 2. A reword
-# that inverts the precedence (exclusion yields to the always-on force) silently re-admits the
-# positionally-worthless late dispatches this feature exists to stop, and would pass the suite green
-# without this pin. Semantic mutation overrides → yields-to re-introduces exactly that regression.
-assert_pin_red_under "#425(rev): the first-only exclusion overrides the engine_self_modifying always-on force (inverting the precedence goes RED)" \
-  'this exclusion **overrides** Phase 0.5' \
-  's/this exclusion \*\*overrides\*\* Phase 0.5/this exclusion **yields to** Phase 0.5/' "$ST_REV"
+# #425(rev): the first-only-exclusion precedence invariant. Phase 3.1 states the four always-on
+# agents are roster members on every profile; the first-only exclusion must OVERRIDE that membership
+# rule so an opted-in always-on agent (this repo's code-reviewer) is still dropped on iterations ≥ 2.
+# A reword that inverts the precedence (exclusion yields to the always-on-roster membership) silently
+# re-admits the positionally-worthless late dispatches this feature exists to stop, and would pass the
+# suite green without this pin. Semantic mutation overrides → yields-to re-introduces exactly that
+# regression. (Re-anchored from the removed Phase 0.5 always-on force onto the Phase 3.1 membership
+# statement, issue #769.)
+assert_pin_red_under "#425(rev): the first-only exclusion overrides the Phase 3.1 always-on-roster membership (inverting the precedence goes RED)" \
+  'this exclusion **overrides** the Phase 3.1 rule that the four always-on agents are roster members' \
+  's/this exclusion \*\*overrides\*\* the Phase 3.1 rule/this exclusion **yields to** the Phase 3.1 rule/' "$ST_REV"
+# #769: always-on roster membership — the guarantee that moved from Phase 0.5 to its Phase 3.1
+# home (phase-3-agents.md §3.1). The four always-on agents are roster members on EVERY diff
+# profile; the structural-applicability gates and the iterations exclusion decide the rest. This
+# is the guarantee's replacement home now that engine_self_modifying no longer forces the roster.
+# et(#52) authors its own phase3_dispatched fixture and only tests trace passthrough, so it is NOT
+# treated as covering this — a real roster change (a lean profile dropping an always-on reviewer)
+# stays green there. Mutation makes a lean profile drop an always-on reviewer; the pin flips
+# PASS->FAIL. Targets phase-3-agents.md (§3.1 is the contract's home, not merely somewhere in the bundle).
+P31_AGENTS="$LIB/../skills/review/phases/phase-3-agents.md"
+assert_pin_red_under "#769: always-on roster membership on every profile (a lean profile dropping an always-on reviewer goes RED)" \
+  'are roster members on every diff profile; the two structural-applicability gates and the' \
+  's/are roster members on every diff profile/are roster members only on non-lean profiles/' "$P31_AGENTS"
 # ---------------------------------------------------------------------------
 # issue #621: settled-by-disclosure foreclosure disposition. Prose pins scope
 # to $ST_RAF (review-and-fix root+references bundle) plus the two doc mirrors.
@@ -5335,6 +5349,32 @@ assert_pin_unique "#167 critic: Phase 0.5 TABLE ROW forces the pass (a forced ex
   'a *forced extra pass*, not a checklist or cost override' "$REVIEW_SKILL"
 assert_pin_unique "#167 critic: Phase 0.5 rule excludes the false-positive shapes (single-target grep / fixed list)" \
   'a check over a fixed hand-listed set is **not** this shape' "$REVIEW_SKILL"
+# ── issue #769: the Phase 0.5 signal contract (engine_self_modifying is checklist-only;
+# small_diff scales no part of the roster). Sited beside the detect_all_audit row pins above.
+# These target phase-0-setup.md as the 4th arg (location-sensitive: the guarantee is that the
+# contract lives in §0.5, so a pin satisfied by the sentence surviving anywhere in the
+# concatenated bundle would not hold it there). Mutation-taking form over the three amended
+# sentences — each mutation re-introduces the named regression (a roster-forcing reword, or an
+# invented small_diff roster-scaling claim), flipping PASS->FAIL. The guarantee about the four
+# always-on agents being roster members on every profile now lives at its Phase 3.1 home
+# (phase-3-agents.md), pinned below (search "#769: always-on roster membership"); et(#52) is a
+# trace-passthrough assertion and is NOT treated as covering it.
+P05_SETUP="$LIB/../skills/review/phases/phase-0-setup.md"
+assert_pin_red_under "#769: engine_self_modifying definition is checklist-only (a roster-forcing reword goes RED)" \
+  'This flag forces no part of the Phase 3 roster' \
+  's/This flag forces no part of the Phase 3 roster/This flag forces the four always-on Phase 3 agents on/' "$P05_SETUP"
+assert_pin_red_under "#769: small_diff definition scales no part of the Phase 3 roster (a scaling reword goes RED)" \
+  'scales no part of the Phase 3 roster' \
+  's/scales no part of the Phase 3 roster/scales the Phase 3 roster/' "$P05_SETUP"
+assert_pin_red_under "#769: engine_self_modifying profile-table row forces no Phase 3 agent on (restoring a roster-force clause goes RED)" \
+  'This flag forces **no** Phase 3 agent on' \
+  's/This flag forces \*\*no\*\* Phase 3 agent on/This flag forces all four always-on Phase 3 agents on/' "$P05_SETUP"
+# The two profile-table rows this change does NOT amend — surface-presence pins over unamended
+# text (assert_pin_unique), each carrying a structural-pin-ok declaration (mutation-routing gate #666).
+assert_pin_unique "#769: small_diff AND config_only profile-table row present (surface presence over unamended text)" \
+  'Skip Phase 1 + Phase 2 (checklist gen + verify) entirely. Set `checklist_skipped = "intentional"`.' "$P05_SETUP"  # structural-pin-ok: surface presence over an unamended profile-table row (#769)
+assert_pin_unique "#769: small_diff-alone profile-table row present (surface presence over unamended text)" \
+  'Run Phase 1+2 normally. In Phase 3.1, apply the `has_new_types` gate for `type-design-analyzer` and the unified `pr-test-analyzer` test-relevance predicate.' "$P05_SETUP"  # structural-pin-ok: surface presence over an unamended profile-table row (#769)
 # Mutation proofs (AC2/AC7 guarantee-class): deleting a load-bearing contract literal turns
 # its pin RED. The third arg routes the removal through the relevant file (the generalized
 # helper defaults to $MAXI_SKILL when omitted). These exercise the engine-prose pins above on
