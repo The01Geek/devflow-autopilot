@@ -7417,12 +7417,52 @@ assert_pin_red_under "#779: a CONFLICT at the Phase 1 checkpoint routes to Block
 assert_pin_unique "#779: the shipped prose records why no landed-resume discriminator is establishable" \
   'append-only with no in-place marker writer' "$P1_FILE"  # structural-pin-ok: AC6 requires the discriminator decision be recorded in the shipped prose; this asserts that rationale is present, while the behavior it explains (CONFLICT -> Blocked on every arm) is guarded by the mutation pin above
 
+# (g) The landed-resume BRIDGING clause — the single instruction routing that arm to the relocated
+# checkpoint. Without it the arm reads "skip both signals entirely" and falls through to §1.5,
+# reproducing #779 exactly; the negative-control pin below does NOT catch that, because its literal
+# is a PREFIX of the same line and survives the clause's deletion.
+assert_pin_red_under "#779: the landed-resume arm is routed to the relocated checkpoint (drop the bridge → RED)" \
+  'Skipping the signals never skips the checkpoint' \
+  's#, \*\*then take the \*Base-branch update checkpoint 1 — invocation\* step at the end of §1\.4 before continuing to §1\.5\*\*[^.]*\. Skipping the signals never skips the checkpoint\.##' \
+  "$P1_FILE"
+
+# (h) Checkpoint 4's CONFLICT re-invocation BOUND — without it the gate is a resolve-and-re-invoke
+# loop with no exit on a persistently conflicting base.
+assert_pin_red_under "#779: the checkpoint-4 CONFLICT re-invocation is bounded to one (drop the bound → RED)" \
+  'The re-invocation is **bounded to one**' \
+  's#The re-invocation is \*\*bounded to one\*\*: a second consecutive `CONFLICT` takes the refusal arm below rather than resolving again\.##' \
+  "$P4_FILE"
+
+# (i) The tool-boundary test must PRECEDE the routing list; if it moves after, every reported
+# denial falls into the "empty or unrecognized field" refusal arm and Blocks. Positional, so a
+# reorder flips it without needing a text mutation.
+U779_TB_LN=$(grep -nF 'and be honest about which denials are observable' "$P4_FILE" | head -1 | cut -d: -f1)
+U779_RT_LN=$(grep -nF 'Publish gate (checkpoint-4-specific' "$P4_FILE" | head -1 | cut -d: -f1)
+assert_eq "#779: the checkpoint-4 tool-boundary test precedes the token routing list" "yes" \
+  "$([ -n "$U779_TB_LN" ] && [ -n "$U779_RT_LN" ] && [ "$U779_TB_LN" -lt "$U779_RT_LN" ] && echo yes || echo no)"
+
+# (j) The checkpoint-4 override of §1.4.1's inherited record-and-continue arm. Both halves of a
+# two-sided contract: the refusal sentence is pinned above, this is the disambiguation that keeps
+# §1.4.1's inherited arm from winning for a reader routing by the contract.
+assert_pin_red_under "#779: checkpoint 4 overrides §1.4.1's record-and-continue arm for UNVERIFIED/PUSH_REJECTED" \
+  'that record-and-continue arm is checkpoints 1-3 only' \
+  's#that record-and-continue arm is checkpoints 1-3 only#that record-and-continue arm applies at every checkpoint#' \
+  "$P4_FILE"
+
+# (k) The helper header's caller-matching contract, which phase-4 cites as authority ("the matching
+# rule scripts/update-branch-checkpoint.sh's own header states"). Delete the header block and that
+# citation becomes a documented falsehood with nothing else turning RED.
+assert_pin_red_under "#779: the helper header states the first-field matching rule phase-4 cites as its authority" \
+  'HOW A CALLER MATCHES THE TOKEN' \
+  's#HOW A CALLER MATCHES THE TOKEN#how a caller may optionally match the token#' \
+  "$LIB/../scripts/update-branch-checkpoint.sh"
+
 # (e) Negative controls — machinery this issue declares OUT of scope. `#168` already pins the
 # create-fence guard and the Signal-2 assignment and `#362` the resume pre-check clauses; these
 # two cover the remaining scope boundary, so a later change that quietly hoists the binding or
 # widens the landed-resume arm is caught rather than absorbed.
-assert_pin_unique "#779 negative control: the landed-resume arm still skips both signals (unchanged by this issue)" \
-  'Skip branch creation and both signals entirely' "$P1_FILE"  # structural-pin-ok: negative control for the #779 scope boundary (asserts pre-existing prose this issue must not touch is still present; guards no regression this diff introduces)
+assert_pin_unique "#779 negative control: the landed-resume arm still skips both signals" \
+  'Skip branch creation and both signals entirely' "$P1_FILE"  # structural-pin-ok: negative control for the #779 scope boundary (asserts the signal-skip clause this issue extends with a forward-routing sentence but must never remove; guards no regression this diff introduces)
 assert_pin_unique "#779 negative control: §1.4.0.5 Verdict B still names the adopted-branch arm only" \
   'On the adopted-branch arm only (`USE_CURRENT` set' "$P1_FILE"  # structural-pin-ok: negative control proving the Verdict B population does not silently widen (asserts pre-existing prose; guards no regression this diff introduces)
 
@@ -7474,7 +7514,7 @@ assert_pin_red_under "#779: a tier-refused checkpoint-4 invocation records a deg
 # The clean/non-clean partition is complete by construction against the helper's own header.
 assert_pin_unique "#779: checkpoint 4 names the clean set exactly" \
   'The clean set is `UPDATED`, `UP_TO_DATE`, `DISABLED`' "$P4_FILE"  # structural-pin-ok: contract-presence pin (the partition's behavior is guarded by the refusal-arm and CONFLICT-exemption mutation pins above; this only asserts the set is named)
-unset U779_INV_LN U779_CO_LN U779_BR_LN U779_15_LN
+unset U779_INV_LN U779_CO_LN U779_BR_LN U779_15_LN U779_TB_LN U779_RT_LN
 
 # ── Issue #755: Phase 2 §2.0 resume-idempotency gate ──
 # A stalled cloud run that stall_backstop auto-resumes must NOT re-dispatch the Phase 2
