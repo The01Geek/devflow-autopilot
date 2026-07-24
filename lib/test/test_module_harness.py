@@ -21,6 +21,8 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
+RUN_SH = ROOT / "lib/test/run.sh"
+SUMMARY_SH = ROOT / "lib/test/summary.sh"
 HARNESS = ROOT / "lib/test/module-harness.sh"
 RUNNER = ROOT / "lib/test/run-module.sh"
 CREATE_ISSUE_MODULE = ROOT / "lib/test/modules/create-issue-contract.sh"
@@ -1621,6 +1623,294 @@ class NamespacedModulePinHelperTests(unittest.TestCase):
             [],
             f"mutation scratch survived: {leftover}",
         )
+
+
+# ── Failure recap (issue #789) ────────────────────────────────────────────────
+# The recap is `devflow_render_failure_recap` in lib/test/summary.sh and `record_fail` in
+# lib/test/module-harness.sh — both real, sourceable shell functions, so these tests SOURCE
+# the shipped files and call them, exactly as the issue-#456 tests drive
+# devflow_render_test_summary. No source slicing, no extraction layer that a reformat could
+# silently invalidate.
+# The two spellings the shipped producers use to write the suite tally. Assembled from parts
+# rather than written whole so this file's own source can never be mistaken for a producer by
+# a future scanner over the corpus.
+_TALLY_WRITE_ECHO = 'echo FAIL >> "$' + 'RESULTS_FILE"'
+_TALLY_WRITE_PRINTF = "printf 'FAIL" + chr(92) + 'n' + "' >> \"$" + 'RESULTS_FILE"'
+# The pooled worker's tally is a DIFFERENT target variable, so a scan keyed only on
+# RESULTS_FILE is blind to the parent-written verdicts there.
+_TALLY_WRITE_POOL = "printf 'FAIL" + chr(92) + 'n' + "' >> \"$" + 'tally"'
+_TALLY_WRITES = (_TALLY_WRITE_ECHO, _TALLY_WRITE_PRINTF, _TALLY_WRITE_POOL)
+
+
+class FailureRecapTests(unittest.TestCase):
+    """AC6/AC7: the recap re-lists every FAIL identifier, on both streams, without
+    disturbing a clean run's summary bytes or the suite's exit status."""
+
+    def _drive(self, seed: str):
+        """Run record_fail + the recap renderer over SEED, returning (rc, stdout, stderr)."""
+        script = f"""
+set -u
+RESULTS_FILE="$(mktemp)"
+SKIPS_FILE="$(mktemp)"
+. "{SUMMARY_SH}"
+# module-harness.sh defines record_fail; source only that function so the harness's own
+# fixture-isolation preamble does not run in this micro-driver.
+eval "$(sed -n '/^record_fail() {{/,/^}}/p' "{HARNESS}")"
+# Fail loudly if the slice did not define the function: without this the zero-failure case
+# would pass off a fixture that was never established (a missing sed, a reindented body).
+type record_fail >/dev/null 2>&1 || {{ echo "record_fail was not defined by the slice" >&2; exit 99; }}
+{seed}
+PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
+FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
+SKIP=$(grep -c . "$SKIPS_FILE" || true)
+echo
+devflow_render_test_summary "$PASS" "$FAIL" "$SKIP" "$SKIPS_FILE"
+devflow_render_failure_recap "$FAIL" "$RESULTS_FILE.names"
+rm -f "$RESULTS_FILE" "$RESULTS_FILE.names" "$SKIPS_FILE"
+[ "$FAIL" -eq 0 ]
+"""
+        proc = subprocess.run(
+            ["bash", "-c", script], capture_output=True, text=True, cwd=str(ROOT)
+        )
+        return proc.returncode, proc.stdout, proc.stderr
+
+    @staticmethod
+    def _recap_bullets(out: str) -> "list[str]":
+        """The recap's bullet lines, VERBATIM (leading indent included).
+
+        The indent is part of the asserted shape — it is what run-module.sh's recap uses and
+        what makes the bullets read as a nested list under the header — so the lines are
+        compared unstripped; only surrounding blank lines are dropped."""
+        body = out.split("Failure recap:", 1)[1]
+        return [line for line in body.split("\n") if line.strip()]
+
+    @staticmethod
+    def _fail(name: str, *, stderr: bool = False) -> str:
+        detail = (
+            f"printf '  FAIL  {name}\\n' >&2\n" if stderr else f"printf '  FAIL  {name}\\n'\n"
+        )
+        return f'echo FAIL >> "$RESULTS_FILE"\n{detail}record_fail "{name}"\n'
+
+    def test_zero_failures_prints_no_recap_and_the_pre_change_summary(self):
+        rc, out, _ = self._drive(":")
+        self.assertEqual(rc, 0)
+        self.assertNotIn("Failure recap", out)
+        # Byte-identical to the pre-#789 terminal output for a clean run: the blank line the
+        # caller echoes, then devflow_render_test_summary's own single summary line.
+        self.assertEqual(out, "\n0 passed, 0 failed\n")
+
+    def test_one_failure_is_listed_by_its_identifier(self):
+        rc, out, _ = self._drive(self._fail("alpha assertion"))
+        self.assertEqual(rc, 1)
+        self.assertIn("Failure recap:", out)
+        self.assertIn("  - alpha assertion\n", out)
+
+    def test_many_failures_are_all_listed_in_order(self):
+        seed = "".join(self._fail(n) for n in ("alpha", "beta", "gamma"))
+        rc, out, _ = self._drive(seed)
+        self.assertEqual(rc, 1)
+        self.assertEqual(
+            self._recap_bullets(out), ["  - alpha", "  - beta", "  - gamma"]
+        )
+
+    def test_a_stderr_only_failure_is_still_recapped_on_stdout(self):
+        # The bi-stream case AC6 names: most of run.sh's FAIL sites print their detail to
+        # stderr. The identifier record is stream-independent, so the recap must list a
+        # stderr failure exactly like a stdout one.
+        rc, out, err = self._drive(self._fail("stderr-only assertion", stderr=True))
+        self.assertEqual(rc, 1)
+        self.assertIn("  FAIL  stderr-only assertion", err)
+        self.assertNotIn("  FAIL  stderr-only assertion", out)
+        self.assertIn("  - stderr-only assertion\n", out)
+
+    def test_a_failing_run_still_exits_nonzero_through_the_recap(self):
+        # #528's verification-flight handle reads the suite's EXIT STATUS to record the
+        # terminal state, so a recap that masked it would record `passed` for a RED suite.
+        rc, out, _ = self._drive(self._fail("alpha"))
+        self.assertIn("Failure recap:", out)
+        self.assertNotEqual(rc, 0)
+
+    def test_delimiter_bearing_identifier_stays_one_line(self):
+        seed = (
+            'echo FAIL >> "$RESULTS_FILE"\n'
+            "record_fail \"$(printf 'tab\\there\\nand newline')\"\n"
+        )
+        rc, out, _ = self._drive(seed)
+        self.assertEqual(rc, 1)
+        self.assertEqual(self._recap_bullets(out), ["  - tab here and newline"])
+
+    def test_empty_identifier_degrades_to_the_named_placeholder(self):
+        rc, out, _ = self._drive('echo FAIL >> "$RESULTS_FILE"\nrecord_fail ""\n')
+        self.assertEqual(rc, 1)
+        self.assertIn("  - (unnamed check)\n", out)
+
+    def test_a_tallied_failure_with_no_identifier_is_reported_as_incomplete(self):
+        # The reconciliation the SKIP half already performs, applied to failures: a FAIL site
+        # that tallied but recorded no identifier must not yield a short list that reads
+        # complete. This is the shape that would otherwise hide exactly the failure a reader
+        # is chasing.
+        seed = self._fail("alpha") + 'echo FAIL >> "$RESULTS_FILE"\n'
+        rc, out, _ = self._drive(seed)
+        self.assertEqual(rc, 1)
+        self.assertIn("  - alpha", out)
+        self.assertIn("recorded no identifier", out)
+        self.assertIn("the recap is INCOMPLETE", out)
+
+    def test_an_absent_identifier_record_is_quantified_not_called_unavailable(self):
+        # "Absent" and "unreadable" are different causes with different remedies, and a bare
+        # "unavailable" would send the reader to debug the recap machinery while hiding how
+        # much of the failure population went unnamed. Both arms state the count.
+        seed = 'echo FAIL >> "$RESULTS_FILE"\nrm -f "$RESULTS_FILE.names"\n'
+        rc, out, _ = self._drive(seed)
+        self.assertEqual(rc, 1)
+        self.assertIn("Failure recap:", out)
+        self.assertIn("0 of 1 failure(s) recorded an identifier", out)
+        self.assertIn("no record was written", out)
+
+    def test_an_unreadable_identifier_record_names_that_distinct_cause(self):
+        seed = (
+            'echo FAIL >> "$RESULTS_FILE"\n'
+            'record_fail "alpha"\n'
+            'chmod 000 "$RESULTS_FILE.names"\n'
+        )
+        rc, out, _ = self._drive(seed)
+        self.assertEqual(rc, 1)
+        if "could be named" not in out:
+            # A root-running environment can read a 000 file, so the arm is unreachable there
+            # — assert the reachable half rather than encoding a false expectation.
+            self.assertIn("  - alpha", out)
+            return
+        self.assertIn("0 of 1 failure(s) could be named", out)
+        self.assertIn("exists but is unreadable", out)
+
+    def test_every_tallied_fail_site_records_an_identifier(self):
+        """A FAIL site that increments the tally but records no identifier makes the recap
+        under-report — it would look complete while omitting the very failure the reader is
+        chasing. The scanned population is every SHELL producer that can reach the suite
+        tally, not just the two obvious files: `lib/test/modules/*.sh` write to the tally
+        directly (their private tally is folded), and the harness writes a parent verdict to
+        a pooled worker's `$tally`. Scanning one file for one spelling is precisely how the
+        harness's own sites were missed in the first place, so the set is widened rather than
+        the invariant narrowed. (`lib/test/test_python_scripts.py` is the one producer NOT
+        scanned here: it is Python, cannot call the shell `record_fail`, and writes its own
+        `.names` sibling — `test_python_pool_producer_records_identifiers` covers it.)"""
+        sources = [RUN_SH, HARNESS] + sorted((ROOT / "lib/test/modules").glob("*.sh"))
+        missing = []
+        for source in sources:
+            lines = source.read_text(encoding="utf-8").split("\n")
+            for index, line in enumerate(lines):
+                writes_tally = any(spelling in line for spelling in _TALLY_WRITES)
+                if not writes_tally or line.lstrip().startswith("#"):
+                    continue
+                # The invariant is "a tally write is PAIRED with an identifier write", not
+                # "calls record_fail": a site whose tally is a pooled worker's `$tally`
+                # writes the sibling directly, because record_fail derives its path from
+                # RESULTS_FILE and would put the name in the wrong file.
+                window = lines[index : index + 3]
+                paired = any(
+                    "record_fail" in candidate or ".names" in candidate
+                    for candidate in window
+                )
+                if not paired:
+                    rel = source.relative_to(ROOT)
+                    missing.append(f"{rel}:{index + 1}: {line.strip()}")
+        self.assertEqual(missing, [], "tally writes with no identifier record")
+
+    def test_python_pool_producer_records_identifiers(self):
+        # test_python_scripts.py is the suite's LARGEST failure population and tallies from
+        # Python, so it cannot call the shell record_fail. It writes the same `.names`
+        # sibling directly; without that, ~1800 assertions would be counted and none named.
+        source = (ROOT / "lib/test/test_python_scripts.py").read_text(encoding="utf-8")
+        self.assertIn('_POOL_TALLY_FILE + ".names"', source)
+        unnamed = [
+            f"lib/test/test_python_scripts.py:{i + 1}: {line.strip()}"
+            for i, line in enumerate(source.split("\n"))
+            if '_pool_tally("FAIL"' in line and '_pool_tally("FAIL", ' not in line
+        ]
+        self.assertEqual(unnamed, [], "FAIL tally writes that pass no identifier")
+
+    def test_a_module_failure_identifier_reaches_the_parent_recap(self):
+        """End-to-end over the fold: a module's private tally is written under a REBOUND
+        RESULTS_FILE, so its identifiers land in that private tally's sibling. Only the fold
+        puts them in front of the reader — delete it and every module failure is counted and
+        unnamed, which is the state this whole surface exists to remove."""
+        with tempfile.TemporaryDirectory() as tmp:
+            module = Path(tmp) / "sample.sh"
+            module.write_text(
+                'echo FAIL >> "$RESULTS_FILE"\n'
+                'record_fail "inner module assertion alpha"\n'
+                'echo FAIL >> "$RESULTS_FILE"\n'
+                'record_fail "inner module assertion beta"\n'
+                'echo PASS >> "$RESULTS_FILE"\n',
+                encoding="utf-8",
+            )
+            script = f"""
+set -u
+RESULTS_FILE="$(mktemp)"
+MODULE_FAILURES_FILE="$(mktemp)"
+SKIPS_FILE="$(mktemp)"
+. "{SUMMARY_SH}"
+. "{HARNESS}"
+devflow_run_full_suite_module "{module}" "sample" 1 >/dev/null 2>&1 || true
+FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
+devflow_render_failure_recap "$FAIL" "$RESULTS_FILE.names"
+rm -f "$RESULTS_FILE" "$RESULTS_FILE.names" "$MODULE_FAILURES_FILE" "$SKIPS_FILE"
+"""
+            proc = subprocess.run(
+                ["bash", "-c", script], capture_output=True, text=True, cwd=str(ROOT)
+            )
+            self.assertIn("  - inner module assertion alpha", proc.stdout, proc.stderr)
+            # Two failures, so the fold's APPEND (not overwrite) semantics are exercised.
+            self.assertIn("  - inner module assertion beta", proc.stdout, proc.stderr)
+            self.assertNotIn("recorded no identifier", proc.stdout)
+
+    def test_a_clean_module_produces_no_sibling_and_no_spurious_boundary_failure(self):
+        # The fold is guarded on a non-empty sibling; an unguarded `cat` of a missing file
+        # would make every CLEAN module emit a boundary FAIL.
+        with tempfile.TemporaryDirectory() as tmp:
+            module = Path(tmp) / "clean.sh"
+            module.write_text('echo PASS >> "$RESULTS_FILE"\n', encoding="utf-8")
+            script = f"""
+set -u
+RESULTS_FILE="$(mktemp)"
+MODULE_FAILURES_FILE="$(mktemp)"
+SKIPS_FILE="$(mktemp)"
+. "{SUMMARY_SH}"
+. "{HARNESS}"
+devflow_run_full_suite_module "{module}" "clean" 1 >/dev/null 2>&1 || true
+printf 'tally:%s names:%s boundary:%s\\n' \
+  "$(grep -c '^FAIL$' "$RESULTS_FILE" || true)" \
+  "$( [ -e "$RESULTS_FILE.names" ] && echo present || echo absent )" \
+  "$(grep -c '^FAIL$' "$MODULE_FAILURES_FILE" || true)"
+rm -f "$RESULTS_FILE" "$RESULTS_FILE.names" "$MODULE_FAILURES_FILE" "$SKIPS_FILE"
+"""
+            proc = subprocess.run(
+                ["bash", "-c", script], capture_output=True, text=True, cwd=str(ROOT)
+            )
+            self.assertIn("tally:0", proc.stdout, proc.stderr)
+            self.assertIn("boundary:0", proc.stdout, proc.stderr)
+
+    def test_acru_fail_writes_the_verdict_token_and_identifier_in_order(self):
+        # 20 call sites depend on this ORDER: the whole-line FAIL the tally counts, then the
+        # arm's diagnostic token (which the `^FAIL$` match ignores and the contract
+        # self-tests read positionally), then the identifier.
+        script = f"""
+set -u
+RESULTS_FILE="$(mktemp)"
+eval "$(sed -n '/^_acru_fail() {{/,/^}}/p' "{RUN_SH}")"
+eval "$(sed -n '/^record_fail() {{/,/^}}/p' "{HARNESS}")"
+type _acru_fail >/dev/null 2>&1 || {{ echo "slice failed" >&2; exit 99; }}
+name="the assertion name"
+_acru_fail INVALID-OP "$name"
+printf 'TALLY[%s] NAMES[%s]\\n' "$(cat "$RESULTS_FILE" | tr '\\n' ',')" "$(cat "$RESULTS_FILE.names")"
+rm -f "$RESULTS_FILE" "$RESULTS_FILE.names"
+"""
+        proc = subprocess.run(
+            ["bash", "-c", script], capture_output=True, text=True, cwd=str(ROOT)
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("TALLY[FAIL,INVALID-OP,]", proc.stdout)
+        self.assertIn("NAMES[the assertion name]", proc.stdout)
 
 
 if __name__ == "__main__":

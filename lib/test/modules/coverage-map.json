@@ -120,6 +120,7 @@
       "owner": "unmodularized"
     },
     "scripts/analyze-workflow-runs.py": {
+      "focused_test": "lib/test/test_workflow_analyzer.py",
       "note": "",
       "owner": "unmodularized"
     },
@@ -136,6 +137,7 @@
       "owner": "unmodularized"
     },
     "scripts/branch-for-issue.py": {
+      "focused_test": "lib/test/test_python_scripts.py",
       "note": "",
       "owner": "unmodularized"
     },
@@ -144,10 +146,12 @@
       "owner": "unmodularized"
     },
     "scripts/capture-implement-session.py": {
+      "focused_test": "lib/test/test_workflow_flight_recorder.py",
       "note": "",
       "owner": "unmodularized"
     },
     "scripts/capture-workflow-manifest.py": {
+      "focused_test": "lib/test/test_workflow_flight_recorder.py",
       "note": "",
       "owner": "unmodularized"
     },
@@ -176,6 +180,7 @@
       "owner": "unmodularized"
     },
     "scripts/create-issue-context-eval.py": {
+      "focused_test": "lib/test/test_create_issue_context_eval.py",
       "note": "issue #767 create-issue runtime-context eval; tested directly by lib/test/test_create_issue_context_eval.py (serial)",
       "owner": "unmodularized"
     },
@@ -220,6 +225,7 @@
       "owner": "unmodularized"
     },
     "scripts/discover-deferral-manifests.py": {
+      "focused_test": "lib/test/test_python_scripts.py",
       "note": "",
       "owner": "unmodularized"
     },
@@ -236,6 +242,7 @@
       "owner": "unmodularized"
     },
     "scripts/export-workflow-lifecycle-census.py": {
+      "focused_test": "lib/test/test_verification_baseline.py",
       "note": "",
       "owner": "unmodularized"
     },
@@ -252,6 +259,7 @@
       "owner": "unmodularized"
     },
     "scripts/file-deferrals.py": {
+      "focused_test": "lib/test/test_python_scripts.py",
       "note": "",
       "owner": "unmodularized"
     },
@@ -272,6 +280,7 @@
       "owner": "unmodularized"
     },
     "scripts/import-workflow-transcript.py": {
+      "focused_test": "lib/test/test_workflow_flight_recorder.py",
       "note": "",
       "owner": "unmodularized"
     },
@@ -280,10 +289,12 @@
       "owner": "installer-wiring"
     },
     "scripts/inventory-workflow-transcripts.py": {
+      "focused_test": "lib/test/test_workflow_flight_recorder.py",
       "note": "",
       "owner": "unmodularized"
     },
     "scripts/issue-audit-state.py": {
+      "focused_test": "lib/test/test_python_scripts.py",
       "note": "",
       "owner": "unmodularized"
     },
@@ -292,6 +303,7 @@
       "owner": "unmodularized"
     },
     "scripts/match-deferrals.py": {
+      "focused_test": "lib/test/test_python_scripts.py",
       "note": "",
       "owner": "unmodularized"
     },
@@ -304,6 +316,7 @@
       "owner": "unmodularized"
     },
     "scripts/parse-acs.py": {
+      "focused_test": "lib/test/test_python_scripts.py",
       "note": "",
       "owner": "unmodularized"
     },
@@ -396,6 +409,7 @@
       "owner": "unmodularized"
     },
     "scripts/resolve-review-overrides.py": {
+      "focused_test": "lib/test/test_python_scripts.py",
       "note": "",
       "owner": "unmodularized"
     },
@@ -416,6 +430,7 @@
       "owner": "unmodularized"
     },
     "scripts/stale-prose-lint.py": {
+      "focused_test": "lib/test/test_python_scripts.py",
       "note": "",
       "owner": "unmodularized"
     },
@@ -448,6 +463,7 @@
       "owner": "unmodularized"
     },
     "scripts/validate-cloud-writer-contract.py": {
+      "focused_test": "lib/test/test_python_scripts.py",
       "note": "",
       "owner": "unmodularized"
     },
@@ -464,10 +480,12 @@
       "owner": "harness-python-guards"
     },
     "scripts/workflow_flight_recorder.py": {
+      "focused_test": "lib/test/test_workflow_flight_recorder.py",
       "note": "",
       "owner": "unmodularized"
     },
     "scripts/workpad.py": {
+      "focused_test": "lib/test/test_python_scripts.py",
       "note": "",
       "owner": "unmodularized"
     }
@@ -1567,6 +1585,10 @@
     },
     "783": {
       "note": "",
+      "owner": "unmodularized"
+    },
+    "789": {
+      "note": "issue #789 tiered focused-verification policy pins (the _WSR_FOCUSED_POLICY loop's #789 arms, the receiving-code-review.md adaptation pins, and the CLAUDE.md/CONTRIBUTING.md/overview mirror + named-flake pins); the run.sh Failure recap itself is covered behaviourally by lib/test/test_module_harness.py's FailureRecapTests",
       "owner": "unmodularized"
     },
     "88": {

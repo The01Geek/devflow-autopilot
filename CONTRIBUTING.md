@@ -55,12 +55,19 @@ bash lib/test/run-module.sh harness-python-guards
 `scripts/workflow-flight-recorder-registry.json`'s `test_modules` block is the
 authoritative list of module IDs — read it there rather than from this sample.
 
-**Focused verification is the iteration default (issue #707).** While iterating,
-run the module that covers the surface you changed rather than the complete
-suite; reach for `bash lib/test/run.sh` mid-iteration only when no registered
-module covers that surface. Selection stays explicit — consult
-`lib/test/modules/coverage-map.json` to find a candidate and confirm the ID in
-the registry; changed files never auto-route to a module. The complete suite
+**Focused verification is the iteration default (issues #707, #789).** While
+iterating, run the focused test that covers the surface you changed rather than
+the complete suite. Two kinds of focused test count: a registered shell module,
+run as `bash lib/test/run-module.sh <module-id>`; and, for a `scripts/*.py` or
+`lib/*.py` unit, the `lib/test/test_*.py` file its coverage-map entry names in a
+`focused_test` field — invoked as a direct leading token (`lib/test/test_python_scripts.py`),
+never as `python3 <path>`, so the same command works on the cloud tier, where the
+interpreter-head shape is denied. Reach for `bash lib/test/run.sh` mid-iteration
+only for a surface no focused test covers, and then only for its first cycle: a
+second mid-iteration cycle on that same uncovered surface extracts a durable
+module instead of paying the complete suite again. Selection stays explicit —
+consult `lib/test/modules/coverage-map.json` to find a candidate and confirm a
+module ID in the registry; changed files never auto-route to a module. The complete suite
 remains the final gate and is not weakened, only overlapped: before calling a
 branch done or PR-ready, push (which starts CI) and start the complete suite
 plus the lint gates locally at the same time, without waiting for the local run
@@ -69,7 +76,11 @@ is: read the local run's summary before you claim it. The local run stays the
 signal you troubleshoot from, because
 its failure detail is richer than CI's, and the issue-#456 skip accounting is
 unchanged — a nonempty skip tally is not clean, and a module may not self-skip,
-so focused iteration cannot launder a skip. The operative statement of this
+so focused iteration cannot launder a skip. A mid-iteration issue-#434
+stale-prose `blocking-gate` skip on a dirty tree is expected and clears once the
+tree is committed, so do not re-run the complete suite mid-iteration just to
+clear it. When the complete suite does run and fails, read its terminal
+`Failure recap` from the captured output rather than relaunching it. The operative statement of this
 policy for agent runs lives in the prompt extensions under
 `.devflow/prompt-extensions/`; the cloud `/devflow:implement` in-env gate
 (issue #405) is untouched by it.
@@ -255,7 +266,14 @@ selectable module, complete all of the following in the same PR:
    `lib/test/fixtures/` (issue #745). Put the new file on one side or the other
    — there is no third option.
 6. **Coverage-map ownership** — update `lib/test/modules/coverage-map.json` so
-   each `lib/`/`scripts/` depth-1 unit the module now owns names it as `owner`
+   each `lib/`/`scripts/` depth-1 unit the module now owns names it as `owner`.
+   `owner` answers "which registered shell module carries this unit", so a
+   `scripts/*.py` or `lib/*.py` helper whose coverage lives in a
+   `lib/test/test_*.py` file correctly stays `unmodularized` and instead records
+   that test in the optional `focused_test` field (issue #789), which the ratchet
+   validates as a git-tracked, `test_*.py`-named file that is executable in the
+   index — the exec bit is what makes it invocable as a direct leading token on
+   the cloud tier. Record the mapping explicitly; it is never inferred
    (the coverage ratchet, `lib/test/coverage_map_guard.py`, fails the suite RED
    on a stale, misfiled, or unlisted unit). If the ratchet fires on a code
    extension outside the five depth-1 patterns, extend the pattern set (a map +

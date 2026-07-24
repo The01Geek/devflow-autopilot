@@ -14,6 +14,34 @@
 # green. Teaching the resolver that one idiom would be the deeper fix (not filed — so
 # this note, not a tracked issue, is what keeps the spelling requirement discoverable).
 
+# record_fail <name> — the failing assertion's IDENTIFIER record (issue #789), the FAIL
+# sibling of skip()'s SKIPS_FILE. RESULTS_FILE carries only the bare `PASS`/`FAIL` verdict
+# token, so a completed run's tally says how many assertions failed but never which — and
+# recovering that meant scrolling ~47,600 lines of captured output or, worse, relaunching a
+# ~10-minute suite. Every site that writes a FAIL to the tally calls this alongside that
+# write — in run.sh, here, and inside a module or pooled worker, whose private record is
+# folded into the parent's beside its verdict tally — so the record covers the STDERR half
+# of the suite's bi-stream failure output as well as the stdout half, and the boundary
+# channel too. The terminal `Failure recap` at the tail re-lists it.
+#
+# The record's path is DERIVED from RESULTS_FILE rather than held in a global of its own,
+# and that is load-bearing: the probes and meta-guards divert a recorded FAIL away from the
+# suite tally by rebinding the variable for one call (`RESULTS_FILE="$probe" assert_…`), so
+# a derived sibling follows every such diversion automatically and a probe's internal FAIL
+# can never leak into the real run's recap. A second global would have to be rebound at
+# every diversion site, and the one that was missed would be silent.
+#
+# Sanitization is bash-builtin only (never tr/sed): this value is EMITTED, and CLAUDE.md
+# guard-class 2 bars a non-preflight PATH tool from deciding an emitted result — an absent
+# tool would empty the identifier silently. Tab/newline/CR collapse to a space so one
+# failure is always one line, and an empty name degrades to the same "(unnamed check)"
+# placeholder skip() uses rather than a blank recap bullet.
+record_fail() {  # name
+  local _rf_name="${1//[$'\t'$'\n'$'\r']/ }"
+  [ -n "$_rf_name" ] || _rf_name="(unnamed check)"
+  printf '%s\n' "$_rf_name" >> "$RESULTS_FILE.names"
+}
+
 # ── Inherited-DEVFLOW_GH fixture isolation (issue #533 AC13, generalized #695) ─
 # The same clearing lib/test/run.sh performs in its preamble, performed here so
 # EVERY caller that sources this harness — the complete suite AND the focused
@@ -70,6 +98,7 @@ probe_tmp() {  # assertion-name -> prints a temp path (rc 0); on mktemp failure 
   t="$(mktemp)" && { printf '%s\n' "$t"; return 0; }
   echo FAIL >> "$RESULTS_FILE"
   printf '  FAIL  %s — mktemp failed (mutation proof could not run; not a vacuous pass)\n' "$1" >&2
+  record_fail "$1 — mktemp failed (mutation proof could not run)"
   printf '/dev/null\n'
   return 1
 }
@@ -96,7 +125,11 @@ probe_assert() {  # assertion-fn args... -> prints PASS or FAIL (the probed verd
   local probe; probe="$(mktemp)" || { echo "PROBE_MKTEMP_FAILED"; return 0; }
   RESULTS_FILE="$probe" DETAILS_FILE="$probe.details" "$@" >/dev/null 2>&1
   tail -n 1 "$probe"
-  rm -f "$probe" "$probe.details"
+  # `$probe.names` is run.sh's record_fail sibling (issue #789): because its path is derived
+  # from RESULTS_FILE, the diversion above sends the probed assertion's identifier there too
+  # — which is exactly the isolation wanted (a probed FAIL never reaches the real run's
+  # recap), but it means this cleanup owns the sibling as much as it owns `$probe.details`.
+  rm -f "$probe" "$probe.details" "$probe.names"
 }
 
 # ── Namespaced module pin/count/mutation helpers (issue #577) ────────────────
@@ -301,12 +334,20 @@ devflow_run_focused_python_test() { # assertion-name script-path output-path
   assert_eq "$assertion_name" "0" "$test_rc"
 }
 
-_devflow_record_module_failure() {
+_devflow_record_module_failure() {  # [identifier]
   if ! printf 'FAIL\n' >> "$MODULE_FAILURES_FILE"; then
     printf 'ERROR: could not record boundary failure in %s\n' \
       "$MODULE_FAILURES_FILE" >&2
     return 1
   fi
+  # A boundary failure reaches the suite tally through MODULE_FAILURES_FILE, not through
+  # RESULTS_FILE, so it bypasses the FAIL-site pairing record_fail is called at everywhere
+  # else — and would have been counted-but-unnamed in the #789 recap. Record its identifier
+  # here, at the single chokepoint every boundary failure passes through, so the pairing
+  # holds for this channel by construction rather than by a per-caller edit. The optional
+  # argument keeps every existing zero-argument call site valid: an omitted identifier
+  # degrades to record_fail's own "(unnamed check)" placeholder, never to no bullet at all.
+  record_fail "${1-module boundary failure}"
 }
 
 devflow_fold_module_failures() { # current-failure-count
@@ -673,7 +714,11 @@ _devflow_test_pause_before_pid_capture() { # state-file
 _devflow_cleanup_full_suite_tally() { # tally-path
   local tally_path="$1"
   [ -n "$tally_path" ] || return 0
-  if ! rm -f "$tally_path"; then
+  # The `.names` sibling is record_fail's identifier record for this tally (issue #789),
+  # already folded into the parent's record by the caller; remove it with the tally it
+  # belongs to rather than leaving it in TMPDIR. `rm -f` on an absent sibling is a no-op,
+  # so a module that recorded no failure costs nothing here.
+  if ! rm -f "$tally_path" "$tally_path.names"; then
     printf 'devflow: could not remove private module tally: %s\n' "$tally_path" >&2
     return 1
   fi
@@ -812,33 +857,33 @@ devflow_run_full_suite_module() { # module-path module-name minimum-assertions
 
   case "$minimum_assertions" in
     ''|*[!0-9]*|????????*)
-      _devflow_record_module_failure || return 1
+      _devflow_record_module_failure "test module $module_name — invalid minimum assertion count" || return 1
       printf '  FAIL  test module %s — invalid minimum assertion count: %s\n' \
         "$module_name" "$minimum_assertions" >&2
       return 0
       ;;
   esac
   if [ "$minimum_assertions" -lt 1 ] || [ "$minimum_assertions" -gt 1000000 ]; then
-    _devflow_record_module_failure || return 1
+    _devflow_record_module_failure "test module $module_name — invalid minimum assertion count" || return 1
     printf '  FAIL  test module %s — invalid minimum assertion count: %s\n' \
       "$module_name" "$minimum_assertions" >&2
     return 0
   fi
 
   if ! _devflow_valid_result_count >/dev/null; then
-    _devflow_record_module_failure || return 1
+    _devflow_record_module_failure "test module $module_name — result tally unreadable before module execution" || return 1
     printf '  FAIL  test module %s — result tally unreadable before module execution\n' "$module_name" >&2
     return 0
   fi
 
   if [ ! -f "$module_path" ] || [ ! -r "$module_path" ]; then
-    _devflow_record_module_failure || return 1
+    _devflow_record_module_failure "test module $module_name — missing or unreadable" || return 1
     printf '  FAIL  test module %s — missing or unreadable: %s\n' "$module_name" "$module_path" >&2
     return 0
   fi
 
   if ! module_results_file="$(mktemp "${TMPDIR:-/tmp}/devflow-module-tally.XXXXXX")"; then
-    _devflow_record_module_failure || return 1
+    _devflow_record_module_failure "test module $module_name — could not allocate private result tally" || return 1
     printf '  FAIL  test module %s — could not allocate private result tally\n' \
       "$module_name" >&2
     return 0
@@ -846,7 +891,7 @@ devflow_run_full_suite_module() { # module-path module-name minimum-assertions
   if ! module_scratch_root="$(devflow_module_allocate_owned_directory \
     "${TMPDIR:-/tmp}/devflow-module-scratch.XXXXXX")"; then
     _devflow_cleanup_full_suite_tally "$module_results_file" || :
-    _devflow_record_module_failure || return 1
+    _devflow_record_module_failure "test module $module_name — could not allocate private scratch root" || return 1
     printf '  FAIL  test module %s — could not allocate private scratch root\n' \
       "$module_name" >&2
     return 0
@@ -855,7 +900,7 @@ devflow_run_full_suite_module() { # module-path module-name minimum-assertions
     _devflow_discard_unvalidated_module_scratch "$module_scratch_root" || :
     module_scratch_root=""
     _devflow_cleanup_full_suite_tally "$module_results_file" || :
-    _devflow_record_module_failure || return 1
+    _devflow_record_module_failure "test module $module_name — allocated an unsafe private scratch root" || return 1
     printf '  FAIL  test module %s — allocated an unsafe private scratch root\n' \
       "$module_name" >&2
     return 0
@@ -936,39 +981,51 @@ devflow_run_full_suite_module() { # module-path module-name minimum-assertions
 
   if ! assertion_count="$(_devflow_valid_result_count "$module_results_file")"; then
     tally_valid=0
-    _devflow_record_module_failure || boundary_rc=1
+    _devflow_record_module_failure "test module $module_name — result tally unreadable after module execution" || boundary_rc=1
     printf '  FAIL  test module %s — result tally unreadable after module execution\n' "$module_name" >&2
   fi
 
   # This is the caller tally, not the worker shadow.
   # shellcheck disable=SC2031
   if [ "$tally_valid" -eq 1 ] && ! cat "$module_results_file" >> "$RESULTS_FILE"; then
-    _devflow_record_module_failure || boundary_rc=1
+    _devflow_record_module_failure "test module $module_name — could not append private result tally" || boundary_rc=1
     printf '  FAIL  test module %s — could not append private result tally\n' \
       "$module_name" >&2
   fi
+  # Fold the worker's IDENTIFIER record (issue #789) beside its verdict tally. The worker
+  # rebinds RESULTS_FILE to its private tally, and record_fail derives its path from that
+  # binding — so a module assertion's identifier lands in "$module_results_file.names",
+  # which nothing read until this fold. Without it the recap counts every module failure
+  # and names none of them: the largest population in the suite would reach the reader only
+  # as the renderer's unnamed-shortfall line. Guarded on non-empty because a module with no
+  # failures writes no sibling at all, and `cat` of a missing file is an error, not a no-op.
+  if [ -s "$module_results_file.names" ] && ! cat "$module_results_file.names" >> "$RESULTS_FILE.names"; then
+    _devflow_record_module_failure "test module $module_name — could not append private failure-identifier record" || boundary_rc=1
+    printf '  FAIL  test module %s — could not append private failure-identifier record\n' \
+      "$module_name" >&2
+  fi
   if ! _devflow_cleanup_module_scratch "$module_scratch_root"; then
-    _devflow_record_module_failure || boundary_rc=1
+    _devflow_record_module_failure "test module $module_name — could not remove private scratch root" || boundary_rc=1
     printf '  FAIL  test module %s — could not remove private scratch root\n' \
       "$module_name" >&2
   fi
   module_scratch_root=""
   if ! _devflow_cleanup_full_suite_tally "$module_results_file"; then
-    _devflow_record_module_failure || boundary_rc=1
+    _devflow_record_module_failure "test module $module_name — could not remove private result tally" || boundary_rc=1
     printf '  FAIL  test module %s — could not remove private result tally\n' \
       "$module_name" >&2
   fi
   module_results_file=""
 
   if [ "$module_rc" -ne 0 ]; then
-    _devflow_record_module_failure || boundary_rc=1
+    _devflow_record_module_failure "test module $module_name — exited with status $module_rc" || boundary_rc=1
     printf '  FAIL  test module %s — exited with status %s\n' "$module_name" "$module_rc" >&2
   fi
   if [ "$tally_valid" -eq 1 ] && [ "$assertion_count" -eq 0 ]; then
-    _devflow_record_module_failure || boundary_rc=1
+    _devflow_record_module_failure "test module $module_name — executed zero assertions" || boundary_rc=1
     printf '  FAIL  test module %s — executed zero assertions\n' "$module_name" >&2
   elif [ "$tally_valid" -eq 1 ] && [ "$assertion_count" -lt "$minimum_assertions" ]; then
-    _devflow_record_module_failure || boundary_rc=1
+    _devflow_record_module_failure "test module $module_name — executed $assertion_count assertions; minimum is $minimum_assertions" || boundary_rc=1
     printf '  FAIL  test module %s — executed %s assertions; minimum is %s\n' \
       "$module_name" "$assertion_count" "$minimum_assertions" >&2
   fi
@@ -1076,13 +1133,19 @@ _devflow_pool_run_one() { # name script mode tally
         while IFS= read -r _l || [ -n "$_l" ]; do
           [ "$_l" = "FAIL" ] && { _hasfail=1; break; }
         done < "$tally" 2>/dev/null
-        [ "$_hasfail" -eq 1 ] || printf 'FAIL\n' >> "$tally"
+        # Self-tally backstop: the worker exited non-zero but recorded no FAIL of its own.
+        # The identifier goes to the SAME sibling the fold below reads, so this parent-written
+        # verdict is named like a worker-written one (issue #789) — the tally and the record
+        # must always be written as a pair, whichever side writes them.
+        [ "$_hasfail" -eq 1 ] || { printf 'FAIL\n' >> "$tally"; printf '%s\n' "pool suite $name — worker exited $rc with no verdict recorded" >> "$tally.names"; }
       fi
       ;;
     *)
       PYTHON_COLORS=0 python3 "$script"
       rc=$?
-      if [ "$rc" -eq 0 ]; then printf 'PASS\n' >> "$tally"; else printf 'FAIL\n' >> "$tally"; fi
+      # single-verdict mode: the parent writes the suite's one verdict. A FAIL owes an
+      # identifier in the sibling the fold reads, same pairing rule as everywhere else.
+      if [ "$rc" -eq 0 ]; then printf 'PASS\n' >> "$tally"; else printf 'FAIL\n' >> "$tally"; printf '%s\n' "pool suite $name — exited $rc" >> "$tally.names"; fi
       ;;
   esac
   return "$rc"
@@ -1116,6 +1179,7 @@ _devflow_pool_launch_suite() { # name script mode attempt
   if ! tally="$(mktemp "${TMPDIR:-/tmp}/devflow-pool-tally.XXXXXX")"; then
     printf 'FAIL\n' >> "$RESULTS_FILE"
     printf '  FAIL  pool suite %s — could not allocate private tally\n' "$name" >&2
+    record_fail "pool suite $name — could not allocate private tally"
     return 0
   fi
   # A failed output-capture mktemp falls back to /dev/null, which for a self-tally suite
@@ -1132,6 +1196,7 @@ _devflow_pool_launch_suite() { # name script mode attempt
     "${TMPDIR:-/tmp}/devflow-module-scratch.XXXXXX")"; then
     printf 'FAIL\n' >> "$RESULTS_FILE"
     printf '  FAIL  pool suite %s — could not allocate private scratch root\n' "$name" >&2
+    record_fail "pool suite $name — could not allocate private scratch root"
     rm -f "$tally"; [ "$output" = /dev/null ] || rm -f "$output"
     return 0
   fi
@@ -1139,6 +1204,7 @@ _devflow_pool_launch_suite() { # name script mode attempt
     _devflow_discard_unvalidated_module_scratch "$scratch" || :
     printf 'FAIL\n' >> "$RESULTS_FILE"
     printf '  FAIL  pool suite %s — allocated an unsafe private scratch root\n' "$name" >&2
+    record_fail "pool suite $name — allocated an unsafe private scratch root"
     rm -f "$tally"; [ "$output" = /dev/null ] || rm -f "$output"
     return 0
   fi
@@ -1252,11 +1318,22 @@ _devflow_pool_reap() { # pid rc
     if ! cat "$tally" >> "$RESULTS_FILE"; then
       printf 'FAIL\n' >> "$RESULTS_FILE"
       printf '  FAIL  pool suite %s — could not append private tally to results\n' "$name" >&2
+      record_fail "pool suite $name — could not append private tally to results"
+    fi
+    # The pooled suite's identifier record (issue #789), folded for the same reason as the
+    # sourced-module fold above: the worker's record_fail wrote into "$tally.names" because
+    # RESULTS_FILE was rebound to "$tally", and only this fold puts those names in front of
+    # the reader. Guarded on non-empty — a clean pooled suite writes no sibling.
+    if [ -s "$tally.names" ] && ! cat "$tally.names" >> "$RESULTS_FILE.names"; then
+      printf 'FAIL\n' >> "$RESULTS_FILE"
+      printf '  FAIL  pool suite %s — could not append private failure-identifier record\n' "$name" >&2
+      record_fail "pool suite $name — could not append private failure-identifier record"
     fi
   else
     _pool_count=""
     printf 'FAIL\n' >> "$RESULTS_FILE"
     printf '  FAIL  pool suite %s — private tally missing/unreadable after execution\n' "$name" >&2
+    record_fail "pool suite $name — private tally missing/unreadable after execution"
   fi
 
   # Fail-closed guards mirroring devflow_run_full_suite_module (issue #720 review): a
@@ -1272,10 +1349,12 @@ _devflow_pool_reap() { # pid rc
     if [ "$_hasfail" -eq 0 ]; then
       printf 'FAIL\n' >> "$RESULTS_FILE"
       printf '  FAIL  pool suite %s — worker exited with status %s (no verdict recorded)\n' "$name" "$rc" >&2
+      record_fail "pool suite $name — worker exited with status $rc (no verdict recorded)"
     fi
   elif [ "$_pool_count" = "0" ]; then
     printf 'FAIL\n' >> "$RESULTS_FILE"
     printf '  FAIL  pool suite %s — executed zero assertions\n' "$name" >&2
+    record_fail "pool suite $name — executed zero assertions"
   fi
 
   if [ "$rc" -ne 0 ] && [ -n "$output" ] && [ -f "$output" ]; then
@@ -1299,8 +1378,9 @@ _devflow_pool_reap() { # pid rc
   if [ -n "$scratch" ] && ! _devflow_cleanup_module_scratch "$scratch"; then
     printf 'FAIL\n' >> "$RESULTS_FILE"
     printf '  FAIL  pool suite %s — could not remove private scratch root\n' "$name" >&2
+    record_fail "pool suite $name — could not remove private scratch root"
   fi
-  [ -z "$tally" ] || rm -f "$tally"
+  [ -z "$tally" ] || rm -f "$tally" "$tally.names"   # .names: the #789 identifier sibling, folded above
   [ -n "$output" ] && [ "$output" != /dev/null ] && rm -f "$output"
   unset '_DEVFLOW_POOL_PID_NAME[$pid]' '_DEVFLOW_POOL_PID_SCRIPT[$pid]' \
     '_DEVFLOW_POOL_PID_MODE[$pid]' '_DEVFLOW_POOL_PID_SCRATCH[$pid]' \
