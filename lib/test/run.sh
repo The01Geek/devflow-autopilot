@@ -6187,10 +6187,10 @@ assert_pin_red_under "#761: §4.2 audits three claim classes, not behavioral-onl
   's/three claim classes — behavioral, verification, and artifact-existence/behavioral claims only/' "$P4_FILE"
 assert_pin_red_under "#761: §4.2 verification class binds Test-Plan/coverage rows to tests in the diff (narrow → RED)" \
   "**Verification claims** — comparand: the tests actually present in this PR's diff." \
-  '/^2\. \*\*Verification claims\*\*/d;/^3\. \*\*Artifact-existence claims\*\*/d' "$P4_FILE"
+  '/^2\. \*\*Verification claims\*\*/d' "$P4_FILE"
 assert_pin_red_under "#761: §4.2 artifact-existence class requires a resolvable identifier (narrow → RED)" \
   "**Artifact-existence claims** — comparand: the artifact's own resolvable identifier" \
-  '/^2\. \*\*Verification claims\*\*/d;/^3\. \*\*Artifact-existence claims\*\*/d' "$P4_FILE"
+  '/^3\. \*\*Artifact-existence claims\*\*/d' "$P4_FILE"
 # The behavioral class + its comparand are the preserved class-1 obligation (unchanged from the
 # pre-#761 §4.2); a presence pin, not a behavioral-fix regression pin.
 assert_pin_unique "#761: §4.2 preserves the behavioral class and its shipped-code-path comparand" \
