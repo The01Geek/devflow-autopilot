@@ -7263,16 +7263,20 @@ assert_pin_unique "#168 create-path: SKILL guards against an empty BRANCH name" 
 # code-explorer/code-architect subagents from scratch. The gate (phase-2-implement.md §2.0)
 # fires on (a) a `resume-kind: in-flight` marker + (b) a committed non-placeholder Plan, and
 # then skips the two dispatches. BEHAVIORAL-FIX PIN: the operative sentence is the skip
-# directive itself — its removal ALONE re-introduces the "resumed run re-dispatches Phase 2
+# directive itself — rewriting it ALONE re-introduces the "resumed run re-dispatches Phase 2
 # discovery from scratch" behavior — so it is pinned through assert_pin_red_under with a
-# `sed -E` mutation that removes only that directive (a framing-only pin would go RED).
+# `sed -E` mutation that rewrites only that directive back to its pre-fix behavior. A
+# framing-only literal would SURVIVE that mutation, and the assertion would then FAIL,
+# reporting the pin as non-behavioral.
 assert_pin_red_under "#755: Phase 2 §2.0 gate skip-dispatch directive is operative (removal re-introduces re-discovery from scratch)" \
   'skip the Phase 2.1 `code-explorer` discovery dispatch and the Phase 2.2 `code-architect` dispatch plus re-planning' \
   's|skip the Phase 2.1 `code-explorer` discovery dispatch and the Phase 2.2 `code-architect` dispatch plus re-planning|re-run full discovery|' "$P2_FILE"
 # Seed-literal coupling (repo-wide): the gate's "non-placeholder Plan" discriminator (conjunct
 # b) is the workpad.py new-body `## Plan` seed. If the seed literal changes in the producer but
 # not the gate, the gate mis-fires on a fresh run. Bind both copies so a one-sided seed edit
-# goes RED here (in addition to the existing lib/test/test_python_scripts.py notebook consumer).
+# goes RED here — in addition to the existing `new-body` placeholder assertion in
+# lib/test/test_python_scripts.py, which is a WEAKER sibling: it matches only the inner
+# `_(planning in progress)_` substring of the generated body, not the full pinned row.
 WP755_PY="$LIB/../scripts/workpad.py"
 # Each of the four pins below is a half of a CROSS-FILE coupling, so its guarded regression is a
 # two-file divergence that no single-file mutation reproduces — hence the structural declaration
@@ -7287,9 +7291,27 @@ assert_pin_unique "#755: Phase 2 §2.0 gate carries the same Plan seed literal a
 # resume-kind marker writer/reader coupling (conjunct a): Phase 1.3 writes it, the §2.0 gate
 # reads it. Bind the pair so neither half can be dropped without the other going RED.
 assert_pin_unique "#755: Phase 1.3 writes the durable resume-kind marker (writer of §2.0 conjunct a)" \
-  'resume-kind: {in-flight|terminal-re-trigger|fresh}' "$P1_FILE"  # structural-pin-ok: writer half of a cross-file writer/reader pair; the guarded regression (writer dropped, reader surviving) is a two-file divergence
+  'Emit the decided kind as a bare literal' "$P1_FILE"  # structural-pin-ok: writer half of a cross-file writer/reader pair; the guarded regression (writer dropped, reader surviving) is a two-file divergence
 assert_pin_unique "#755: Phase 2 §2.0 gate reads the resume-kind: in-flight marker (reader of conjunct a)" \
   'resume-kind: in-flight' "$P2_FILE"  # structural-pin-ok: reader half of the same writer/reader pair
+# BEHAVIORAL-FIX PIN (conjunct-a fail-open): the Phase 1.3 fence must emit a BARE token, never
+# the brace template — whose own text contains `in-flight`, so a containment-style read of an
+# unsubstituted template ARMS conjunct (a) on a terminal re-trigger and fires the gate over a
+# stale all-`- [x]` Plan. The mutation restores the template fence; the pin is the exact-value
+# rule that makes such a template inert, so removing it re-opens the fail-open.
+assert_pin_red_under "#755: §2.0 conjunct (a) compares by exact value, not containment (an unsubstituted template must not arm the gate)" \
+  'Compare by exact value, never by containment' \
+  's|Compare by exact value, never by containment|Compare by containment|' "$P2_FILE"
+# BEHAVIORAL-FIX PIN (§3.1 existing-PR guard): the guard is executable branch-selecting shell,
+# the class CLAUDE.md requires real coverage for. Reverting it to the `gh pr view` form
+# re-introduces the defect: that command takes no --state filter and resolves the branch's PR
+# across OPEN/CLOSED/MERGED, so a closed prior PR is silently adopted and the run proceeds with
+# no live PR. The mutation swaps the open-scoped list query back to the unscoped view form.
+# Target is spelled from IMPL_PHASES_DIR, which IS in scope here; $P3_FILE is not assigned
+# until far below this block, so using it would silently target the helper's default file.
+assert_pin_red_under "#755: §3.1 existing-PR guard queries OPEN-scoped (gh pr list --state open), never the unscoped gh pr view" \
+  'gh pr list --head "$(git branch --show-current)" --state open --json number' \
+  's|gh pr list --head .\$\(git branch --show-current\). --state open --json number|gh pr view --json number|' "$IMPL_PHASES_DIR/phase-3-review.md"
 
 # ── Issue #493: Phase 1.4 §1.4 PR-body run-link refresh (cloud resume) ──
 # On a resumed cloud run that reaches §1.4 and finds an existing open PR, the

@@ -45,13 +45,36 @@ EOF
 # Existing-PR guard (resume path): a §2.0 gate-fire resume — or any run whose §1.4
 # resume pre-check adopted an already-open PR — reaches §3.1 with the PR already
 # created by the prior attempt, and a bare `gh pr create` would abort with "a pull
-# request already exists". Query the current (checked-out feature) branch's open PR
-# first, in the SAME block; adopt it when present, create only when absent. The
-# query prints the open PR's number for the current head, or empty when none. A
-# transport failure also yields empty here: that degrades to attempting create,
-# whose own "already exists" error is a safe no-op — never a duplicate PR.
-EXISTING_PR=$(gh pr view --json number --jq '.number' 2>/dev/null || true)
-if [ -n "$EXISTING_PR" ]; then
+# request already exists". Adopt that PR when present, create only when absent.
+#
+# The query is the OPEN-SCOPED, branch-explicit `gh pr list --head … --state open`
+# form §1.4's resume pre-check already uses — deliberately NOT `gh pr view`, which
+# takes no `--state` filter and resolves "the pull request that belongs to the
+# current branch" across OPEN/CLOSED/MERGED (`gh pr view --help`). With `gh pr
+# view`, a branch whose only PR was CLOSED yields a non-empty capture, the create
+# is skipped, and every consumer below — the workpad PR link, the DevFlow label,
+# Phase 4.2's description, Phase 4.3's publish — runs against a closed PR while
+# the run has no live PR at all. `phase-1-setup.md` forbids the same re-resolution
+# for the sibling reason (it cannot discriminate multiple PRs on one head branch).
+#
+# An unresolvable query and a genuine "no open PR" must NOT collapse: `.[0].number
+# // empty` prints empty for a clean "none found", and the `|| EXISTING_PR=REFUSED`
+# in the SAME statement (never a `$?` read in a later one — issue #284) marks a
+# failed/refused query. REFUSED takes neither arm: creating on an unresolved query
+# risks a second PR, and adopting is impossible, so it stops with a breadcrumb.
+# This is also the arm a MATCHER REFUSAL of the capture shape lands in — the same
+# `VAR=$(gh pr view …)` capture this file calls unproven on the implement tier
+# below — so a refusal can never silently swallow the create path: a refused
+# capture prints no assignment at all, leaving EXISTING_PR unset, which the `-z`
+# test routes here rather than to a create the harness may also refuse.
+EXISTING_PR=$(gh pr list --head "$(git branch --show-current)" --state open --json number --jq '.[0].number // empty') || EXISTING_PR=REFUSED
+# `${EXISTING_PR-REFUSED}` is the UNSET-only form (no colon): a refused capture
+# leaves the variable unset and routes here, while a clean "no open PR" is the
+# EMPTY string and must fall through to create. The `:-` form would fire on empty
+# too and would strand every fresh run with no PR at all.
+if [ "${EXISTING_PR-REFUSED}" = REFUSED ]; then
+  echo "devflow: §3.1 could not resolve whether an open PR exists for this branch (gh pr list failed or was refused); refusing to create — a second PR would duplicate a prior attempt's. Resolve and re-run." >&2
+elif [ -n "$EXISTING_PR" ]; then
   echo "devflow: §3.1 adopting the already-open PR #$EXISTING_PR for this branch (resume path); skipping gh pr create"
 else
   gh pr create --base "$BASE" --draft --title "{issue title}" --body "$BODY"
