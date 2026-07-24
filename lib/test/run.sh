@@ -47704,6 +47704,18 @@ if [ -n "$E783_FX" ] && [ "$E783_FX" != /dev/null ]; then
   printf '%s\n' '# a comment that merely mentions --argjson is not a flag' 'echo hi' > "$E783_FX"
   assert_eq "#783 positive control: --argjson in comment prose is not flagged (GREEN)" "0" \
     "$(python3 "$E783_LINT" "$E783_FX" >/dev/null 2>&1; echo $?)"
+  # Quote-awareness (pins the reused lint-tree-enumeration.py split — a naive first-`#`
+  # split would regress both these to GREEN, silently reopening the E2BIG hole):
+  # (a) a `#` inside a quoted literal must NOT truncate the code half — the real unmarked
+  #     --argjson after it stays visible → RED.
+  printf '%s\n' 'jq -n --arg note "count # of prs" --argjson big "$BIG" ".x"' > "$E783_FX"
+  assert_eq "#783 positive control: a quoted # before an unmarked --argjson is still RED" "1" \
+    "$(python3 "$E783_LINT" "$E783_FX" >/dev/null 2>&1; echo $?)"
+  # (b) a `# argjson-ok:` marker sitting inside a quoted literal (not a real comment) must
+  #     NOT exempt the unmarked --argjson on that line → RED.
+  printf '%s\n' 'jq -n --argjson big "$BIG" --arg s "# argjson-ok: fake" ".x"' > "$E783_FX"
+  assert_eq "#783 positive control: a # argjson-ok: marker inside a quoted literal does not exempt (RED)" "1" \
+    "$(python3 "$E783_LINT" "$E783_FX" >/dev/null 2>&1; echo $?)"
   rm -f "$E783_FX"
 fi
 
@@ -47730,6 +47742,11 @@ assert_pin_red_under "#783 SKILL.md Step 9 patterns routed via --slurpfile" \
 # Reproduction (bug-fix first-fail): an oversized operand aborts jq via --argjson
 # (the defect) and completes via --slurpfile (the fix) — same program, same input.
 # ~3 MB exceeds both Linux MAX_ARG_STRLEN (128 KB/arg) and macOS ARG_MAX (~1 MB).
+# NOTE (load-bearing environmental precondition): the "aborts via --argjson" assertion
+# below relies on that arg-limit ceiling. It holds across the CI + local matrix (Linux
+# 128 KB/arg is a hard per-arg cap; default macOS ARG_MAX ~1 MB), but a host with an
+# unusually large arg limit would let the oversized --argjson through and flip that
+# assertion to a spurious FAIL — an environmental artifact, not a real regression.
 E783_BIGF="$(probe_tmp '#783 oversized operand')"
 if [ -n "$E783_BIGF" ] && [ "$E783_BIGF" != /dev/null ]; then
   python3 -c 'import json,sys; json.dump({"k%d"%i:"x"*40 for i in range(60000)}, open(sys.argv[1],"w"))' "$E783_BIGF"

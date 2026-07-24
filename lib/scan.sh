@@ -86,7 +86,13 @@ _add_candidates() {  # $1 = JSON array of PR objects
     # limit as an --argjson argv slot (jq: "Argument list too long", issue #783).
     printf '%s' "$CANDIDATES" > "$_a_file"
     # argjson-ok: b ($1) is one bounded API page (<= per-page limit), safe as argv.
-    CANDIDATES="$("$DEVFLOW_JQ" -nc --slurpfile a "$_a_file" --argjson b "$1" '$a[0] + $b | unique_by(.number)')"
+    # Clean up on the jq-abort path too: under `set -e` a nonzero jq would skip the
+    # trailing `rm -f` and orphan the temp in $TMPDIR. A localized `|| { rm; return 1; }`
+    # cleans then re-raises (the function returns nonzero, so `set -e` still aborts the
+    # caller) — preferred here over a `trap` because this file uses sequential single-owner
+    # EXIT traps and a trap set in this function would clobber the active one.
+    CANDIDATES="$("$DEVFLOW_JQ" -nc --slurpfile a "$_a_file" --argjson b "$1" '$a[0] + $b | unique_by(.number)')" \
+      || { rm -f "$_a_file"; return 1; }
     rm -f "$_a_file"
 }
 
@@ -331,7 +337,12 @@ esac
 # array, so the reference dereferences $e[0].
 _e_file="$(mktemp)"
 printf '%s' "$EXISTING" > "$_e_file"
-UNPROC="$(echo "$CANDIDATES" | "$DEVFLOW_JQ" --slurpfile e "$_e_file" '[.[] | select(.number as $n | ($e[0] | index($n) | not))] | sort_by(.mergedAt)')"
+# Clean up on the jq-abort path too: under `set -e` a nonzero jq (or the piped read)
+# would skip the trailing `rm -f` and orphan the temp. The localized `|| { rm; exit 1; }`
+# cleans then re-raises with the same rc the surrounding code uses on error (line above),
+# rather than a `trap` that would clobber the active RESP/ERR EXIT trap set earlier.
+UNPROC="$(echo "$CANDIDATES" | "$DEVFLOW_JQ" --slurpfile e "$_e_file" '[.[] | select(.number as $n | ($e[0] | index($n) | not))] | sort_by(.mergedAt)')" \
+  || { rm -f "$_e_file"; exit 1; }
 rm -f "$_e_file"
 N="$(echo "$UNPROC" | "$DEVFLOW_JQ" 'length')"
 if [ "$N" -gt "$MAX_PRS" ]; then

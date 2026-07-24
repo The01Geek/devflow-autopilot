@@ -212,6 +212,6 @@ OUTPUT="$(
         }
     ]
   '
-)" || { echo "::error::actionable-patterns: failed to build the actionable-pattern output (jq exited non-zero — e.g. an oversized operand overflowing the arg limit, now mitigated via --slurpfile, or a malformed pattern view)" >&2; exit 1; }
+)" || { echo "::error::actionable-patterns: failed to build the actionable-pattern output (jq exited non-zero — e.g. a malformed pattern view; the former oversized-operand arg-limit overflow is now mitigated via --slurpfile)" >&2; exit 1; }
 
 printf '%s\n' "$OUTPUT"

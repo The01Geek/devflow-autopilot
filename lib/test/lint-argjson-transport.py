@@ -29,10 +29,13 @@ Audited population, closed by enumeration (the three corpus-AGGREGATING helpers)
 The complement is deliberately out of scope and left unchanged: ``lib/
 fetch-pr-context.sh`` is per-PR (bounded by one PR) and already ``--slurpfile``-
 compliant; ``lib/materialize-retrospectives.sh`` passes single-PR / single-line
-operands; ``lib/efficiency-trace.sh`` is not on the retrospective loop's path. The
-file set is a hardcoded closed list — this guard reads exactly these three named
-paths and performs **no** repository-tree walk (so the #711 tree-enumeration
-convention is not engaged).
+operands; ``skills/retrospective/SKILL.md`` is the Stage A subagent that analyzes
+**one** PR from its pre-fetched context bundle, so its ``--argjson`` operands
+(``bundle``/``categories``/``descriptors``/``suggested_interventions``) are per-PR
+bounded, not corpus-sized; ``lib/efficiency-trace.sh`` is not on the retrospective
+loop's path. The file set is a hardcoded closed list — this guard reads exactly
+these three named paths and performs **no** repository-tree walk (so the #711
+tree-enumeration convention is not engaged).
 
 Marker coverage rule (robust to shell continuation): jq invocations here span
 multiple physical lines via backslash-continuation, and shell forbids a ``#``
