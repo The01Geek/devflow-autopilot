@@ -712,7 +712,6 @@ def cmd_acs_resolve(args):
             state = _ACS_SOURCE_WORKPAD_READ_FAILED
         else:
             raise
-        section_lines = []
 
     decisions = _parse_scope_decisions(comment_body, args.pr)
 
@@ -843,8 +842,12 @@ _AC_PENDING_PLACEHOLDER = '_(pending — mirrored from the issue when the run be
 # check it exists to gate.
 _SCOPE_DECISION_KINDS = ('deferred', 'rewritten')
 _SCOPE_DECISION_PENDING_PR = 'pending'
+# The kind alternation is BUILT from `_SCOPE_DECISION_KINDS` rather than
+# re-spelled, so the constant is the single place a new kind is added — a
+# re-spelled alternation would silently keep matching only the old two.
 _SCOPE_DECISION_RE = re.compile(
-    r'<!-- devflow:scope-decision pr=(\d+|pending) kind=(deferred|rewritten) '
+    r'<!-- devflow:scope-decision pr=(\d+|' + _SCOPE_DECISION_PENDING_PR + r') '
+    r'kind=(' + '|'.join(_SCOPE_DECISION_KINDS) + r') '
     r'text=([A-Za-z0-9+/=]*)(?: newtext=([A-Za-z0-9+/=]*))? -->'
 )
 
@@ -2330,7 +2333,7 @@ def _validate_scope_decision_pr(raw: str, flag: str) -> str:
     the run had in fact audited.
     """
     value = raw.strip()
-    if value == _SCOPE_DECISION_PENDING_PR or (value.isdigit() and value):
+    if value == _SCOPE_DECISION_PENDING_PR or value.isdigit():
         return value
     raise _UpdateError(
         f"{flag}: PR must be a decimal number or the literal "

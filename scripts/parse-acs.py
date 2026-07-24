@@ -64,7 +64,12 @@ from pathlib import Path
 # `lib/test/test_python_scripts.py` drives this directory's helpers) does not.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from section_parse import extract_section, parse_checkboxes  # noqa: E402
+from section_parse import (  # noqa: E402
+    POST_MERGE_TAG,
+    extract_section,
+    parse_checkboxes,
+    render_line,
+)
 
 # The gh binary to shell out to. `DEVFLOW_GH` (the documented override the shell
 # helpers resolve via lib/resolve-gh.sh) wins when set and non-empty; else `gh`.
@@ -201,11 +206,15 @@ def _render_md(criteria: list[dict], test_plan: list[dict]) -> str:
 
 
 def _render_md_line(item: dict) -> str:
-    box = '[x]' if item['ticked'] else '[ ]'
+    # Both the containment test and the appended tag read the SHARED
+    # `POST_MERGE_TAG` constant rather than re-spelling the literal here. The
+    # read side (`workpad.py`'s post-merge filter) already tests that constant,
+    # so a re-spelled writer literal would drift from it silently and stop the
+    # filter matching — the exact failure the constant exists to prevent.
     text = item['text']
-    if item['post_merge'] and '(post-merge)' not in text:
-        text = f'{text} (post-merge)'
-    return f'- {box} {text}'
+    if item['post_merge'] and POST_MERGE_TAG.strip() not in text:
+        text = f'{text}{POST_MERGE_TAG}'
+    return render_line({'text': text, 'ticked': item['ticked']})
 
 
 def main():
