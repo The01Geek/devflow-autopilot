@@ -1847,7 +1847,7 @@ for _ci614_ref in $CI614_REFS; do
   CI614_TOTAL_SET+=("$CI_ROOT/skills/create-issue/references/$_ci614_ref.md")
 done
 CI614_TOTAL_W="$(ci614_words "${CI614_TOTAL_SET[@]}")"
-CI614_TOTAL_RECORDED=31272   # docs/create-issue-budget.md, root + all 9 references (issue #749 re-record)
+CI614_TOTAL_RECORDED=31337   # docs/create-issue-budget.md, root + all 9 references (issue #749 reception re-record)
 assert_eq "#614 T3: the root+references total is within +/-2% of the recorded conservation figure (a silent DROP is as RED as a rise)" \
   "yes" "$({ [ -n "$CI614_TOTAL_W" ] \
     && [ "$CI614_TOTAL_W" -ge "$(( CI614_TOTAL_RECORDED * 98 / 100 ))" ] \
@@ -1954,7 +1954,7 @@ devflow_module_pin_red_under "#749/AC26: a value-taking flag consumes its operan
   'the single argument immediately after it is consumed as its value **without applying the topic test**' \
   's/ \*\*without applying the topic test\*\*//' "$CI_DV"
 devflow_module_pin_red_under "#749/AC26: a --search-space with no following argument is refused, never parsed as empty" \
-  'is a malformed invocation: report it and refuse the run — never parse it as an empty value' \
+  'is likewise malformed: report it and refuse the run — never parse it as an empty value' \
   's/ — never parse it as an empty value//' "$CI_DV"
 devflow_module_pin_red_under "#749/AC26: a supplied-but-empty operand is unestablished, never the no-operand default" \
   'does **not** fall through to the no-operand default' \
@@ -1971,6 +1971,11 @@ ci749_field 'Relevant code files'
 ci749_field 'Current behavior'
 ci749_field 'Drift detail'
 ci749_field 'Search space surveyed'
+# AC7 — the drift-detail field's declared landing site in the issue template. Its counterpart
+# producer field is pinned by `ci749_field 'Drift detail'` above; without this the consumer end
+# of that pair is unpinned and the landing site could be dropped green.
+devflow_module_pin_present "#749/AC7: the issue template declares the drift-detail landing site" \
+  '- **Documentation Drift** —' "$CI_TMPL"  # structural-pin-ok: surface-presence over a declared landing site, matching AC13's field pins
 ci749_field 'Duty statuses'
 ci749_field 'Bearing observations'
 unset -f ci749_field
@@ -1979,8 +1984,18 @@ unset -f ci749_field
 # defined behavior rather than an unbounded survey by omission.
 devflow_module_pin_unique "#749/AC26: docs-verify's argument grammar carries the search-space operand" \
   'Grammar: `[--report-only] [--search-space <pathspec>] <topic…>`.' "$CI_DV"  # structural-pin-ok: grammar-declaration presence; the behavioral read is pinned by the two rows below
-devflow_module_pin_present "#749/AC26: the locate-documentation step reads the operand" \
+devflow_module_pin_present "#749/AC26: the operand's declaration site states both steps read it" \
   'Steps 1 and 2 both read it.' "$CI_DV"  # structural-pin-ok: contract-presence over the operand's declaration site
+# The declaration above is prose; the locate-documentation step's own read is the behavior a
+# revert to the hardcoded internal-docs location would destroy while leaving that prose intact.
+devflow_module_pin_red_under "#749/AC26: the locate-documentation step searches the supplied operand, not the hardcoded internal-docs location" \
+  '**within the supplied `--search-space` operand**' \
+  's/\*\*within the supplied `--search-space` operand\*\*/within `[[INTERNAL_DOC_LOCATION]]`/' "$CI_DV"
+# An unrecognized `--`-prefixed token must be refused, not stripped as a bare flag: stripping it
+# drops the caller into the default WRITE mode, which makes file changes (fail-open).
+devflow_module_pin_red_under "#749: an unrecognized --flag is refused, never stripped into a write-mode fall-through" \
+  'never strip it as a bare flag' \
+  's/never strip it as a bare flag/strip it as a bare flag/' "$CI_DV"
 devflow_module_pin_red_under "#749/AC26: the search-codebase step searches the supplied operand, not the whole tree" \
   '**searching the supplied `--search-space` operand**' \
   's/\*\*searching the supplied `--search-space` operand\*\*/searching the whole codebase/' "$CI_DV"
@@ -2019,6 +2034,12 @@ devflow_module_pin_red_under "#749/AC6: the verdict token drives escalation ONLY
 devflow_module_pin_red_under "#749/AC6: escalation also fires on an unestablished duty and on a non-empty bearing observation" \
   'on an **unestablished** duty, and on any **judged-not-engaged** duty whose returned bearing observation is non-empty' \
   's/, and on any \*\*judged-not-engaged\*\* duty whose returned bearing observation is non-empty//' "$CI_SKILL"
+# The `none-observed` exclusion is the operative half of that comparand: the producer ALWAYS emits
+# the field, so a naive non-empty test escalates every shallow arm to deep. A revert dropping the
+# qualifier leaves the literal above intact, so the comparand needs its own mutation pin.
+devflow_module_pin_red_under "#749/AC6: the escalation comparand excludes the producer's explicit none-observed token" \
+  'escalate on any value other than `none-observed`' \
+  's/escalate on any value other than `none-observed`/escalate on any non-empty value/' "$CI_SKILL"
 devflow_module_pin_red_under "#749/AC4: the two legs are disjoint BY CONSTRUCTION, never by asserted disjointness" \
   'the tracked tree **minus that location'"'"'s subtree** — never an assertion they are already disjoint' \
   's/ — never an assertion they are already disjoint//' "$CI_SKILL"
@@ -2034,6 +2055,12 @@ devflow_module_pin_red_under "#749/AC4: a location that reads cleanly but holds 
 devflow_module_pin_red_under "#749/AC5: unequal peer returns degrade to the surviving leg, naming the failed one" \
   'degrade to the surviving leg with a breadcrumb naming the failed leg, never reporting a partial verification as complete' \
   's/, never reporting a partial verification as complete//' "$CI_SKILL"
+# An INCOMPLETE return (a peer that succeeds but omits/malforms a duty status or a bearing
+# observation) is a distinct branch from the unequal-returns case above — a succeeding peer whose
+# report is short of the floor must not read as a discharged floor.
+devflow_module_pin_red_under "#749/AC5: an incomplete peer return records the duty unestablished, never a discharged floor" \
+  'records that duty **unestablished** with a breadcrumb naming the missing field, never a discharged floor' \
+  's/records that duty \*\*unestablished\*\* with a breadcrumb naming the missing field, never a discharged floor/records that duty discharged/' "$CI_SKILL"
 devflow_module_pin_red_under "#749/AC8: the ORCHESTRATOR, never a peer, writes the evidence artifact — on both arms" \
   'The **orchestrator — never a peer** — writes the returned evidence' \
   's/The \*\*orchestrator — never a peer\*\* — writes/A peer writes/' "$CI_SKILL"
@@ -2046,9 +2073,15 @@ devflow_module_pin_red_under "#749/AC11: the degraded arm is bounded, breadcrumb
 devflow_module_pin_red_under "#749/AC12: an unresolvable helper anchor routes to the degraded arm" \
   'or one whose helper anchor cannot resolve' \
   's/ — or one whose helper anchor cannot resolve —//' "$CI_SKILL"
-devflow_module_pin_red_under "#749/AC25: an absent run pointer is unestablished and routes to the title-derived fallback" \
-  'an absent pointer is recorded **unestablished** and routes to the title-derived fallback' \
-  's/an absent pointer is recorded \*\*unestablished\*\* and routes to the title-derived fallback/an absent pointer is re-derived from the title/' "$CI_SKILL"
+devflow_module_pin_red_under "#749/AC25: an unestablished run pointer routes to the title-derived fallback" \
+  'is recorded **unestablished** and routes to the title-derived fallback' \
+  's/is recorded \*\*unestablished\*\* and routes to the title-derived fallback/is re-derived from the title/' "$CI_SKILL"
+# The valid-falsy row of the repo's best-effort-parser matrix: "absent or unreadable" alone leaves a
+# present-but-empty / whitespace / torn-multi-line value reading as an ESTABLISHED slug, yielding an
+# artifact path keyed on an empty stem. The declared single-slug shape is what makes that decidable.
+devflow_module_pin_red_under "#749/AC25: an empty or malformed pointer value is unestablished, never an established slug" \
+  '**empty, whitespace-only, or not that single-slug shape**' \
+  's/, \*\*empty, whitespace-only, or not that single-slug shape\*\* \(a torn concurrent write\)//' "$CI_SKILL"
 devflow_module_pin_red_under "#749/AC25: the concurrent-run overwrite of the pointer is a DISCLOSED residual, not an omission" \
   '**Disclosed residual:** the pointer carries no run-identity token' \
   's/\*\*Disclosed residual:\*\* the pointer carries no run-identity token/The pointer carries a run-identity token/' "$CI_SKILL"
