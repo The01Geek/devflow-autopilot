@@ -55,8 +55,12 @@ CI_REF_FB_STATEOWNER="$CI_ROOT/skills/create-issue/references/fallback-state-own
 CI_EXT="$CI_ROOT/.devflow/prompt-extensions/create-issue.md"
 CI_OVERVIEW="$CI_ROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 CI_CLAUDE="$CI_ROOT/CLAUDE.md"
-CI_CLOUD_SETUP="$CI_ROOT/docs/cloud-setup.md"       # #593 grant-timing bootstrap consumer doc
-CI_IMPL_DOC="$CI_ROOT/docs/implement-skill.md"      # #593 grant-timing bootstrap consumer doc
+# #593 grant-timing bootstrap consumer docs. The comment sits on its own line, not
+# trailing the assignment: pin-corpus-lint's assignment-RHS resolver (issue #757) does
+# not strip a trailing comment, so `VAR="$CI_ROOT/…"  # note` leaves VAR unresolved and
+# its pins silently exempt from the wrapped / pin-in-comment meta-guards.
+CI_CLOUD_SETUP="$CI_ROOT/docs/cloud-setup.md"
+CI_IMPL_DOC="$CI_ROOT/docs/implement-skill.md"
 # review-and-fix is a BUNDLE since #530 (thin SKILL.md root + phases in
 # references/*.md); the #467 D2 fix-delta-gate sentence now lives in a reference
 # member, so the leg pins against the assembled CI_MAXI_BUNDLE (built below,
@@ -616,7 +620,7 @@ python3 "$CI_ROOT/scripts/render-audit-prompt.py" dispatch-instructions --slug c
 assert_eq "#709: the dispatch-instructions mode renders for a well-formed file-arm draft" \
   "yes" "$([ -s "$CI709_RENDER" ] && echo yes || echo no)"
 devflow_module_pin_unique "#600/#709: the auditor is told to invoke render-audit-prompt.py on the file arm" \
-  'render-audit-prompt.py file --slug' "$CI709_RENDER"
+  'render-audit-prompt.py file --slug' "$CI709_RENDER"  # runtime-pin-ok: target is a module-internal render output built under the runtime scratch root, unresolvable by the static meta-guard
 # ── issue #709: the generated-instructions transport contract ──────────────────
 # These are STRUCTURAL contract-presence pins: the operative gate lives in the Python
 # state owner and is driven end-to-end in lib/test/test_python_scripts.py's #709 rows
@@ -975,9 +979,9 @@ devflow_module_pin_unique "#467 D1: introduction trigger names a blanket testing
 devflow_module_pin_unique "#467 D2 (CLAUDE.md leg): best-effort-parser gotcha widened to mutable-markdown/external-format" \
   'The governed surface is broader than config JSON' "$CI_CLAUDE"
 devflow_module_pin_unique "#467 D2 (Phase 2.4 leg): dry-trace rule widened to mutable-markdown/external-format" \
-  'The governed surface is broader than config JSON' "$CI_IMPL_BUNDLE"
+  'The governed surface is broader than config JSON' "$CI_IMPL_BUNDLE"  # runtime-pin-ok: target is the module-internal implement-skill bundle built under the runtime scratch root, unresolvable by the static meta-guard
 devflow_module_pin_unique "#467 D2 (review-and-fix leg): fix-delta matrix widened to mutable-markdown/external-format" \
-  'widens to a parser over agent- or human-mutable markdown and a reader of a new external structured format' "$CI_MAXI_BUNDLE"
+  'widens to a parser over agent- or human-mutable markdown and a reader of a new external structured format' "$CI_MAXI_BUNDLE"  # runtime-pin-ok: target is the module-internal review-and-fix bundle built under the runtime scratch root, unresolvable by the static meta-guard
 devflow_module_pin_unique "#467 D3: extension authoring-discipline dimension demands the input-type-appropriate matrix" \
   'input-type analogue** for the widened surfaces' "$CI_EXT"
 # D3 count guard — the extension's dimension-bullet count is guard-locked. Since issue #548
@@ -1809,7 +1813,7 @@ CI_DV="$CI_ROOT/skills/docs-verify/SKILL.md"
 # and its exemption comment.
 ci749_iface() {  # <what it declares> <pin literal>
   devflow_module_pin_present "#749/AC13: docs-verify declares the $1" \
-    "$2" "$CI_DV"  # structural-pin-ok: AC19 exempts AC13's surface-presence pins from the mutation obligation
+    "$2" "$CI_DV"  # structural-pin-ok: AC19 exempts AC13's surface-presence pins from the mutation obligation; runtime-pin-ok: the pin literal is the helper's $2 positional, resolved at each call site and unresolvable at the definition
 }
 ci749_iface '--report-only mode flag' '`--report-only`'
 ci749_iface 'discharged duty-status token' '`discharged` — carried out on this run.'
@@ -1847,7 +1851,7 @@ devflow_module_pin_red_under "#749/AC26: a supplied-but-empty operand is unestab
 # how Step 1's escalation comparands stop resolving.
 ci749_field() {  # <field label>
   devflow_module_pin_present "#749/AC13: docs-verify's report-only output declares the $1 field" \
-    "- **$1:**" "$CI_DV"  # structural-pin-ok: AC19 exempts AC13's surface-presence pins from the mutation obligation
+    "- **$1:**" "$CI_DV"  # structural-pin-ok: AC19 exempts AC13's surface-presence pins from the mutation obligation; runtime-pin-ok: the pin literal is the helper's $1 positional, resolved at each call site and unresolvable at the definition
 }
 ci749_field 'Verdict'
 ci749_field 'Relevant code files'

@@ -945,7 +945,7 @@ assert_eq "#619 A5c an unlaunchable command (nonexistent root) exits 2" "2" "$(c
 # root, so the line legitimately appears once per command row — pinning the current
 # number would be a mirror-fact that rots the moment a row is added.
 devflow_module_pin_present "#619 A5c the launch failure is named as such" \
-  'INFRASTRUCTURE the command failed to launch' "$_ra_tmp_root/a5c.out"
+  'INFRASTRUCTURE the command failed to launch' "$_ra_tmp_root/a5c.out"  # runtime-pin-ok: target is a runtime scratch-root output file, unresolvable by the static meta-guard
 _ra_live_unchanged "#619 A5c live manifest byte-unchanged after the launch-failure run"
 
 # ── A5d — the coverage-map row's JUDGMENT arm (its drift path was unexercised) ───
@@ -1429,9 +1429,9 @@ RA_EXT_DIR="$RA_REPO/.devflow/prompt-extensions"
 RA_RULE_HEADING='## Merge conflicts in generated artifacts'
 for _ext in implement review-and-fix receiving-code-review; do
   devflow_module_pin_unique "#655 the conflict rule has its own section in $_ext.md" \
-    "$RA_RULE_HEADING" "$RA_EXT_DIR/$_ext.md"
+    "$RA_RULE_HEADING" "$RA_EXT_DIR/$_ext.md"  # runtime-pin-ok: target path interpolates the `for _ext …` loop var, unresolvable by the static meta-guard
   devflow_module_pin_unique "#655 the conflict rule cites --list as the oracle in $_ext.md" \
-    'python3 lib/test/regenerate-artifacts.py --list' "$RA_EXT_DIR/$_ext.md"
+    'python3 lib/test/regenerate-artifacts.py --list' "$RA_EXT_DIR/$_ext.md"  # runtime-pin-ok: target path interpolates the `for _ext …` loop var, unresolvable by the static meta-guard
 done
 # Byte-identity across the three copies: extract each section (heading to the next `## `)
 # and require all three to be equal. A per-file presence pin cannot catch a copy that

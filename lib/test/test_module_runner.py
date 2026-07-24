@@ -22,7 +22,6 @@ ROOT = Path(__file__).resolve().parents[2]
 RUNNER_SOURCE = ROOT / "lib/test/run-module.sh"
 HARNESS_SOURCE = ROOT / "lib/test/module-harness.sh"
 WORKFLOW_MODULE_SOURCE = ROOT / "lib/test/modules/workflow-flight-recorder.sh"
-REVIEW_AND_FIX_MODULE_SOURCE = ROOT / "lib/test/modules/review-and-fix-contract.sh"
 CREATE_ISSUE_MODULE_SOURCE = ROOT / "lib/test/modules/create-issue-contract.sh"
 CAPABILITY_PROFILES_MODULE_SOURCE = ROOT / "lib/test/modules/capability-profiles.sh"
 
@@ -1122,132 +1121,67 @@ class ModuleRunnerTests(unittest.TestCase):
         self.assertFalse(os.path.exists(registered_file))
         self.assertFalse(os.path.exists(registered_dir))
 
-    def test_repository_registry_maps_the_review_and_fix_contract_module(self) -> None:
-        registry = json.loads(
-            (ROOT / "scripts/workflow-flight-recorder-registry.json").read_text(
-                encoding="utf-8"
-            )
-        )
-        mapping = registry["test_modules"]["review-and-fix-contract"]
-        self.assertEqual(
-            mapping["path"], "lib/test/modules/review-and-fix-contract.sh"
-        )
-        floor = mapping["minimum_assertions"]
-        self.assertIsInstance(floor, int)
-        self.assertGreater(floor, 0)
-        self.assertTrue(REVIEW_AND_FIX_MODULE_SOURCE.is_file())
-
-        run_text = (ROOT / "lib/test/run.sh").read_text(encoding="utf-8")
-        self.assertIn(
-            'devflow_run_full_suite_module "$LIB/test/modules/review-and-fix-contract.sh"',
-            run_text,
-        )
-        floor_match = re.search(
-            r'"review-and-fix-contract" ([0-9]+); then', run_text
-        )
-        self.assertIsNotNone(floor_match)
-        self.assertEqual(int(floor_match.group(1)), floor)
-        self.assertIn('"$LIB/test/test_module_runner.py" single-verdict', run_text)
-
-        module_text = REVIEW_AND_FIX_MODULE_SOURCE.read_text(encoding="utf-8")
-        self.assertTrue(
-            module_text.startswith(
-                "# SPDX-FileCopyrightText: 2026 Daniel Radman\n"
-                "# SPDX-License-Identifier: MIT\n"
-            )
-        )
-        self.assertIn("Contract: the caller sets LIB and RESULTS_FILE", module_text)
-        self.assertNotIn('"$LIB/test/test_module_runner.py" single-verdict', module_text)
-        self.assertNotIn("devflow_run_full_suite_module", module_text)
-        self.assertIn("review-and-fix-contract.inventory.md", module_text)
-        self.assertIn(
-            "lib/test/modules/review-and-fix-contract.sh",
-            (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"),
-        )
-
-    def test_repository_registry_maps_the_create_issue_contract_module(self) -> None:
-        registry = json.loads(
-            (ROOT / "scripts/workflow-flight-recorder-registry.json").read_text(
-                encoding="utf-8"
-            )
-        )
-        mapping = registry["test_modules"]["create-issue-contract"]
-        self.assertEqual(
-            mapping["path"], "lib/test/modules/create-issue-contract.sh"
-        )
-        floor = mapping["minimum_assertions"]
-        self.assertIsInstance(floor, int)
-        self.assertGreater(floor, 0)
-        self.assertTrue(CREATE_ISSUE_MODULE_SOURCE.is_file())
-
-        run_text = (ROOT / "lib/test/run.sh").read_text(encoding="utf-8")
-        self.assertIn(
-            'devflow_run_full_suite_module "$LIB/test/modules/create-issue-contract.sh"',
-            run_text,
-        )
-        # The full-suite call operand and the registry floor are one coupled contract.
-        floor_match = re.search(
-            r'"create-issue-contract" ([0-9]+); then', run_text
-        )
-        self.assertIsNotNone(floor_match)
-        self.assertEqual(int(floor_match.group(1)), floor)
-        self.assertIn('"$LIB/test/test_module_runner.py" single-verdict', run_text)
-
-        module_text = CREATE_ISSUE_MODULE_SOURCE.read_text(encoding="utf-8")
-        self.assertTrue(
-            module_text.startswith(
-                "# SPDX-FileCopyrightText: 2026 Daniel Radman\n"
-                "# SPDX-License-Identifier: MIT\n"
-            )
-        )
-        self.assertIn("Contract: the caller sets LIB and RESULTS_FILE", module_text)
-        # A module never invokes the runner or the full-suite boundary itself.
-        self.assertNotIn("devflow_run_full_suite_module", module_text)
-        self.assertIn("create-issue-contract.inventory.md", module_text)
-        self.assertIn(
-            "lib/test/modules/create-issue-contract.sh",
-            (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"),
-        )
-        # The provenance inventory exists and is not a second behavioral source.
-        inventory = ROOT / "lib/test/modules/create-issue-contract.inventory.md"
-        self.assertTrue(inventory.is_file())
-
-    def test_every_registered_module_floor_matches_its_run_sh_call_site(self) -> None:
-        # Issue #591: generalized coupling cross-check. Iterating every test_modules
-        # entry (instead of a hand-written per-module test) covers current AND future
-        # modules — the registry floor, the run.sh full-suite call-site floor literal,
-        # the module path, its ci.yml shellcheck listing, and its provenance inventory
-        # are one coupled contract, so the authoring checklist needs no cross-check item.
+    def test_every_on_disk_module_is_fully_wired(self) -> None:
+        # Issue #757: REVERSE orphan check. Enumerate the modules that exist ON DISK
+        # (never the registry) and demand each be wired across ALL FOUR couplings —
+        # registered, called from run.sh's full-suite boundary at a floor matching the
+        # registry, listed in ci.yml's explicit shellcheck set, and paired with a
+        # provenance inventory — plus the module contract. This is fail-closed by
+        # construction: a new module file cannot slip in registered-but-uncalled, or
+        # (the gap the forward registry-driven check could never catch) present on disk
+        # but absent from the registry entirely. #746 was the PR that demonstrated four
+        # modules could be extracted at once while the per-module coupling tests were a
+        # convention followed by accident; this loop makes the convention mechanical, so
+        # the authoring checklist needs no cross-check item and no future module can be
+        # forgotten. It subsumes the former forward registry→run.sh floor cross-check and
+        # the per-module review-and-fix / create-issue reconciliation tests.
         registry = json.loads(
             (ROOT / "scripts/workflow-flight-recorder-registry.json").read_text(encoding="utf-8")
         )
-        run_text = (ROOT / "lib/test/run.sh").read_text(encoding="utf-8")
-        ci_text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         modules = registry["test_modules"]
         self.assertIsInstance(modules, dict)
-        self.assertGreaterEqual(len(modules), 4)  # the 4 modules registered as of #591
-        for module_id, mapping in modules.items():
+        run_text = (ROOT / "lib/test/run.sh").read_text(encoding="utf-8")
+        ci_text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        on_disk = sorted((ROOT / "lib/test/modules").glob("*.sh"))
+        self.assertTrue(on_disk, "no module files found on disk")
+        for module_path in on_disk:
+            module_id = module_path.stem
             with self.subTest(module=module_id):
                 expected_path = f"lib/test/modules/{module_id}.sh"
+                # (1) registry entry whose path matches
+                self.assertIn(
+                    module_id,
+                    modules,
+                    f"{expected_path} exists on disk but is unregistered in "
+                    "scripts/workflow-flight-recorder-registry.json",
+                )
+                mapping = modules[module_id]
                 self.assertEqual(mapping["path"], expected_path)
                 floor = mapping["minimum_assertions"]
                 self.assertIsInstance(floor, int)
                 self.assertGreater(floor, 0)
-                self.assertTrue((ROOT / expected_path).is_file())
-                # run.sh full-suite call + coupled floor literal
+                # (2) run.sh full-suite call + coupled floor literal == registry floor
                 self.assertIn(
                     f'devflow_run_full_suite_module "$LIB/test/modules/{module_id}.sh"',
                     run_text,
+                    f"{module_id} is on disk but never invoked from run.sh's full-suite boundary",
                 )
                 floor_match = re.search(rf'"{re.escape(module_id)}" ([0-9]+); then', run_text)
                 self.assertIsNotNone(floor_match, f"no run.sh call-site floor for {module_id}")
                 self.assertEqual(int(floor_match.group(1)), floor)
-                # ci.yml shellcheck listing (explicit, not globbed)
-                self.assertIn(expected_path, ci_text)
-                # provenance inventory exists for every registered module
-                self.assertTrue((ROOT / f"lib/test/modules/{module_id}.inventory.md").is_file())
-                # module contract header, and never self-invokes the boundary
-                module_text = (ROOT / expected_path).read_text(encoding="utf-8")
+                # (3) ci.yml explicit shellcheck listing (lib/test/ is otherwise excluded)
+                self.assertIn(
+                    expected_path,
+                    ci_text,
+                    f"{expected_path} is not in ci.yml's explicit shellcheck list",
+                )
+                # (4) provenance inventory pairing
+                self.assertTrue(
+                    (ROOT / f"lib/test/modules/{module_id}.inventory.md").is_file(),
+                    f"{module_id} has no lib/test/modules/{module_id}.inventory.md",
+                )
+                # Module contract header, and it never self-invokes the boundary.
+                module_text = module_path.read_text(encoding="utf-8")
                 self.assertTrue(
                     module_text.startswith(
                         "# SPDX-FileCopyrightText: 2026 Daniel Radman\n"

@@ -276,14 +276,12 @@ def _resolve_path_rhs(rhs, lib, path_vars):
     m = _VARREF.match(r)
     if m:
         return path_vars.get(m.group(1))
-    # `$LIB/relative...` or `${LIB}/...`
-    m = re.match(r"^\$\{?LIB\}?/(.*)$", r)
-    if m and lib is not None:
-        return os.path.normpath(os.path.join(lib, m.group(1)))
-    # `$OTHER/relative...`
-    m = re.match(r"^\$\{?(\w+)\}?/(.*)$", r)
-    if m and m.group(1) in path_vars:
-        return os.path.normpath(os.path.join(path_vars[m.group(1)], m.group(2)))
+    # `$LIB/rel` / `${LIB}/rel` / `$OTHER/rel` — the shared inline var-prefixed
+    # path grammar, so this and resolve_arg's inline target resolution stay one
+    # owner (issue #757).
+    inline = _resolve_inline_var_path(r, lib, path_vars)
+    if inline is not None:
+        return inline
     # A bare literal path (no `$`).
     if "$" not in r and "(" not in r and r:
         # Only treat as a path if it looks like one (has a slash or extension).
@@ -292,11 +290,39 @@ def _resolve_path_rhs(rhs, lib, path_vars):
     return None
 
 
-def resolve_arg(segments, literal_vars, path_vars, want_path):
+_INLINE_LIB = re.compile(r"^\$\{?LIB\}?/(.*)$")
+_INLINE_VAR = re.compile(r"^\$\{?(\w+)\}?/(.*)$")
+
+
+def _resolve_inline_var_path(s, lib, path_vars):
+    """Resolve an inline var-prefixed path reference — ``$LIB/rel`` / ``${LIB}/rel``,
+    or ``$OTHER/rel`` / ``${OTHER}/rel`` where OTHER is a known path var — to a
+    filesystem path, or None when it is neither shape (or the referenced var is
+    unknown).
+
+    This is the inline counterpart of the whole-``$VAR`` resolution ``resolve_arg``
+    already performs. A pin's target file argument is frequently written inline —
+    ``devflow_module_pin_unique "…" '…' "$LIB/../CLAUDE.md"`` — rather than as a
+    pre-assigned whole-``$VAR`` token, and without this an inline target stays
+    unresolved: surfaced on stderr but never asserted, i.e. silently exempt from the
+    wrapped / pin-in-comment meta-guards while the guards still read rc 0 (issue
+    #757). Applied only for ``want_path`` targets, never for pinned literals, so
+    literal resolution is unchanged."""
+    m = _INLINE_LIB.match(s)
+    if m and lib is not None:
+        return os.path.normpath(os.path.join(lib, m.group(1)))
+    m = _INLINE_VAR.match(s)
+    if m and m.group(1) in path_vars:
+        return os.path.normpath(os.path.join(path_vars[m.group(1)], m.group(2)))
+    return None
+
+
+def resolve_arg(segments, literal_vars, path_vars, want_path, lib=None):
     """Resolve one argument's segments to a string, or None if unresolvable.
 
     want_path=True resolves against path_vars (target file); otherwise against
-    literal_vars (the pinned literal).
+    literal_vars (the pinned literal). ``lib`` enables inline ``$LIB/rel`` /
+    ``$VAR/rel`` path resolution for ``want_path`` targets (issue #757).
     """
     out = []
     for kind, val in segments:
@@ -305,7 +331,8 @@ def resolve_arg(segments, literal_vars, path_vars, want_path):
         elif kind == "dq":
             # Neutralize backslash-escaped metacharacters first: `\$`, `` \` ``, `\"`,
             # `\\` are literal, not interpolation. Only an UNescaped `$`/backtick that
-            # remains is real interpolation (and then only a whole `$VAR` resolves).
+            # remains is real interpolation (a whole `$VAR`, or — for a path target —
+            # an inline `$VAR/rel` prefix).
             NUL, TCK = "\x00d", "\x00t"
             neutral = (
                 val.replace("\\\\", "\x00b")
@@ -315,12 +342,16 @@ def resolve_arg(segments, literal_vars, path_vars, want_path):
             )
             if "$" in neutral or "`" in neutral:
                 m = _VARREF.match(neutral)
-                if not m:
+                if m:
+                    repl = (path_vars if want_path else literal_vars).get(m.group(1))
+                    if repl is None:
+                        return None
+                    out.append(repl)
+                    continue
+                inline = _resolve_inline_var_path(neutral, lib, path_vars) if want_path else None
+                if inline is None:
                     return None
-                repl = (path_vars if want_path else literal_vars).get(m.group(1))
-                if repl is None:
-                    return None
-                out.append(repl)
+                out.append(inline)
             else:
                 out.append(neutral.replace(NUL, "$").replace(TCK, "`").replace("\x00b", "\\"))
         else:  # bare
@@ -331,7 +362,10 @@ def resolve_arg(segments, literal_vars, path_vars, want_path):
                     return None
                 out.append(repl)
             elif "$" in val:
-                return None
+                inline = _resolve_inline_var_path(val, lib, path_vars) if want_path else None
+                if inline is None:
+                    return None
+                out.append(inline)
             else:
                 out.append(val)
     return "".join(out)
@@ -359,9 +393,9 @@ def extract_pins(text, lib, overrides):
             # the "never silently skipped" contract.
             yield {"lineno": lineno, "helper": first[0], "literal": None, "file": None}
             continue
-        literal = resolve_arg(args[lit_idx], literal_vars, path_vars, want_path=False)
+        literal = resolve_arg(args[lit_idx], literal_vars, path_vars, want_path=False, lib=lib)
         if file_idx < len(args):
-            fpath = resolve_arg(args[file_idx], literal_vars, path_vars, want_path=True)
+            fpath = resolve_arg(args[file_idx], literal_vars, path_vars, want_path=True, lib=lib)
         elif default_file is not None:
             fpath = path_vars.get(default_file)
         else:
