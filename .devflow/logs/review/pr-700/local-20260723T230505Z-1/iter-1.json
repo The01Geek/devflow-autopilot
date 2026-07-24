@@ -1,460 +1,470 @@
 {
- "iter": 1,
- "started_at": "2026-07-23T23:05:05Z",
- "loop_role": "fix",
- "current_step": "3",
- "current_substep": null,
- "pending_dispatch": null,
- "diff_profile": {
-  "small_diff": false,
-  "config_only": false,
-  "has_new_types": false,
-  "engine_self_modifying": true,
-  "checklist_skipped": null
- },
- "dispatched_effort": [
-  {
-   "agent": "devflow:checklist-generator",
-   "phase": "1",
-   "requested": "low",
-   "resolved": "low",
-   "application_point": "session-fallback",
-   "effective": null,
-   "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
-  },
-  {
-   "agent": "devflow:checklist-deduper",
-   "phase": "1.5",
-   "requested": "low",
-   "resolved": "low",
-   "application_point": "session-fallback",
-   "effective": null,
-   "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
-  },
-  {
-   "agent": "devflow:code-reviewer",
-   "phase": "3",
-   "requested": "low",
-   "resolved": "low",
-   "application_point": "session-fallback",
-   "effective": null,
-   "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
-  },
-  {
-   "agent": "devflow:silent-failure-hunter",
-   "phase": "3",
-   "requested": "low",
-   "resolved": "low",
-   "application_point": "session-fallback",
-   "effective": null,
-   "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
-  },
-  {
-   "agent": "devflow:comment-analyzer",
-   "phase": "3",
-   "requested": "low",
-   "resolved": "low",
-   "application_point": "session-fallback",
-   "effective": null,
-   "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
-  },
-  {
-   "agent": "devflow:pr-test-analyzer",
-   "phase": "3",
-   "requested": "low",
-   "resolved": "low",
-   "application_point": "session-fallback",
-   "effective": null,
-   "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
-  },
-  {
-   "agent": "devflow:requesting-code-review",
-   "phase": "3",
-   "requested": "low",
-   "resolved": "low",
-   "application_point": "session-fallback",
-   "effective": null,
-   "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
-  }
- ],
- "phase3_dispatched": [
-  "devflow:code-reviewer",
-  "devflow:silent-failure-hunter",
-  "devflow:comment-analyzer",
-  "devflow:pr-test-analyzer",
-  "devflow:requesting-code-review"
- ],
- "phase3_findings": [
-  {
-   "agent": "devflow:code-reviewer",
-   "severity": "Critical",
-   "id": "F-1",
-   "description": "The composed --agents payload is an effort-only entry keyed by an INSTALLED plugin agent id ({\"devflow:code-reviewer\":{\"effort\":\"low\"}}) with no description/prompt. The spike (agents-seam-probe.yml) proved only a fully-defined NEW agent (seam-probe-agent with description+prompt+effort). Nothing establishes that (a) a definition missing description/prompt is accepted, or (b) an entry keyed to an installed plugin agent PATCHES its effort rather than DEFINING/SHADOWING it. ORCHESTRATOR-CONFIRMED: this repo's own config carries `default: {effort: low}`, so `bash scripts/compose-applied-effort.sh` emits prompt-less definitions for ALL NINE review subagents. If --agents shadows, every merge-gating reviewer degrades to a prompt-less definition on the next cloud run.",
-   "defect_signature": {
-    "file": "scripts/resolve-review-overrides.py",
-    "line_range": [
-     396,
-     402
+  "iter": 1,
+  "started_at": "2026-07-23T23:05:05Z",
+  "loop_role": "fix",
+  "current_step": "2.6",
+  "current_substep": "run_shadow_fanout",
+  "pending_dispatch": {
+    "kind": "shadow_reviewer_fanout",
+    "roster": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
     ],
-    "kind": "api_misuse"
-   },
-   "corroboration_count": 1,
-   "orchestrator_verified": true
+    "dispatched_at": "2026-07-24T00:01:41Z"
   },
-  {
-   "agent": "devflow:pr-test-analyzer",
-   "severity": "Critical",
-   "id": "F-2",
-   "description": "Valid-falsy sidecar value coerced into an applied claim. lib/efficiency-trace.jq branches on `$applied != null` only, so a sidecar entry with value \"\" (or 0, {}, or a non-enum string) is non-null and emits application_point: agent-definition with effective: \"\" \u2014 an unearned applied claim, violating the code's own 'unknown is not zero' contract and AC2. ORCHESTRATOR-CONFIRMED by execution: value \"\" -> {\"application_point\":\"agent-definition\",\"effective\":\"\"}; value {\"effort\":\"low\"} -> effective is a DICT; value \"turbo\" -> effective \"turbo\". The six-shape matrix is swept only at container level, never per-agent value level.",
-   "defect_signature": {
-    "file": "lib/efficiency-trace.jq",
-    "line_range": [
-     223,
-     253
-    ],
-    "kind": "logic_error"
-   },
-   "corroboration_count": 2,
-   "orchestrator_verified": true
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
   },
-  {
-   "agent": "devflow:comment-analyzer",
-   "severity": "Critical",
-   "id": "F-3",
-   "description": "load_applied_effort's 'fail-CLOSED to {}' contract is false for a valid-JSON-prefix-plus-trailing-garbage sidecar: jq emits the parsed object AND exits 5, so `|| printf '{}'` appends a SECOND document; --argjson then rejects the two-document string and the WHOLE record aborts. ORCHESTRATOR-CONFIRMED by execution: sidecar '{\"devflow:code-reviewer\":\"low\"} garbage' -> rc=2, ZERO bytes of record output, 'jq: invalid JSON text passed to --argjson'. Both a documented falsehood and a real availability defect (total telemetry loss). The M2 test only covers a TRUNCATED sidecar (jq emits nothing), which is why the claim reads as covered.",
-   "defect_signature": {
-    "file": "lib/efficiency-trace.sh",
-    "line_range": [
-     246,
-     258
-    ],
-    "kind": "documented_falsehood"
-   },
-   "corroboration_count": 2,
-   "orchestrator_verified": true
-  },
-  {
-   "agent": "devflow:code-reviewer",
-   "severity": "Critical",
-   "id": "F-4",
-   "description": "B1 trust boundary is bypassable: the review job checks out the PR HEAD (devflow-runner.yml:159 `ref: ${{ inputs.ref }}`) and the new composer step runs `bash \"$CAE\"` with a `scripts/compose-applied-effort.sh` fallback and NO vendor_source=='fetch' gate. Both the composer and the resolver are ordinary tracked files a PR author can edit, so a PR can ignore DEVFLOW_AE_CONFIG entirely. This is the exact #402/#404 'a floor the PR controls is no floor' class the SAME workflow already guards against for lib/efficiency-trace.sh via harden-stop-hooks.sh \u2014 the new helpers were not added to that hardened set. Consequently three diff-added absolute claims are false against HEAD (changeset 'a PR author can no longer lower...'; composer header 'cannot steer...'; step comment 'NEVER the PR-head working tree' \u2014 true of the config, not of the code that reads it).",
-   "defect_signature": {
-    "file": ".github/workflows/devflow-runner.yml",
-    "line_range": [
-     1000,
-     1021
-    ],
-    "kind": "security"
-   },
-   "corroboration_count": 2,
-   "orchestrator_verified": true
-  },
-  {
-   "agent": "devflow:comment-analyzer",
-   "severity": "Critical",
-   "id": "F-5",
-   "description": "Self-contradicting diff: lib/test/run.sh:33927-33929 comment says the composer step is 'triplicated scaffolding too (identical env AND run: across the three workflows)', but the SAME PR asserts the opposite twice \u2014 run.sh:33896 'only the env differs across the three tiers' and run.sh:33912 pins DEVFLOW_AE_CONFIG count '0,0' on impl/command. The checker itself only compares st['run'], never env. ORCHESTRATOR-CONFIRMED by reading all three sites.",
-   "defect_signature": {
-    "file": "lib/test/run.sh",
-    "line_range": [
-     33927,
-     33929
-    ],
-    "kind": "documented_falsehood"
-   },
-   "corroboration_count": 1,
-   "orchestrator_verified": true
-  },
-  {
-   "agent": "devflow:silent-failure-hunter",
-   "severity": "Critical",
-   "id": "F-6",
-   "description": "The unconditional stale-sidecar clear lives INSIDE the helper it protects. When neither the vendored nor the self-repo helper path exists (the documented #502 consumer-skew state), the workflow step's `if [ -f \"$CAE\" ]` is skipped and `rm -f \"$SIDECAR\"` never runs \u2014 so a sidecar present in the checked-out tree is read by the recorder as genuine applied telemetry. On the review tier that tree is the PR HEAD, and .devflow/tmp/ being gitignored is no barrier (`git add -f`). ORCHESTRATOR-CONFIRMED: no workflow references agent-effort-applied.json, so the clear exists only in the helper. This also falsifies the triplicated step comment 'any failure yields an empty agents_args and no sidecar'.",
-   "defect_signature": {
-    "file": ".github/workflows/devflow-runner.yml",
-    "line_range": [
-     996,
-     1021
-    ],
-    "kind": "security"
-   },
-   "corroboration_count": 2,
-   "orchestrator_verified": true
-  },
-  {
-   "agent": "devflow:pr-test-analyzer",
-   "severity": "Important",
-   "id": "F-7",
-   "description": "Two B1 security pins are presence-only (assert_pin_red_on_removal) carrying `# structural-pin-ok:` rationales that are factually false: 'no in-place mutation reintroduces PR-head sourcing'. A mutation plainly exists \u2014 sed the value ${{ steps.baseprovision.outputs.config_file }} to a head-derived expression, reintroducing the guarded regression while leaving a DEVFLOW_AE_CONFIG: line present. These are behavioral security fixes, so the repo's #666 mutation-routing convention requires assert_pin_red_under. The marker rationale is itself a documented falsehood. ORCHESTRATOR-CONFIRMED by reading run.sh:33900-33908.",
-   "defect_signature": {
-    "file": "lib/test/run.sh",
-    "line_range": [
-     33891,
-     33907
-    ],
-    "kind": "test_gap"
-   },
-   "corroboration_count": 1,
-   "orchestrator_verified": true
-  },
-  {
-   "agent": "devflow:silent-failure-hunter",
-   "severity": "Important",
-   "id": "F-8",
-   "description": "compose-applied-effort.sh emits NO stderr breadcrumb on ANY of its five fail-open paths (resolver absent, resolver failure, non-object/empty JSON, mkdir failure, sidecar write failure). This repo's best-effort-helper contract (lib/resolve-bin.sh, scripts/ensure-label.sh, scripts/apply-labels.sh, lib/normalize-path.sh) always pairs 'always exit 0' with a stderr breadcrumb. Fail-open without a breadcrumb is silent failure: an operator cannot distinguish 'the capability gate stripped it' from 'the composer never ran'.",
-   "defect_signature": {
-    "file": "scripts/compose-applied-effort.sh",
-    "line_range": [
-     76,
-     130
-    ],
-    "kind": "logic_error"
-   },
-   "corroboration_count": 1
-  },
-  {
-   "agent": "devflow:silent-failure-hunter",
-   "severity": "Important",
-   "id": "F-9",
-   "description": "`2>/dev/null` on BOTH resolver invocations discards the resolver's documented config-shape and unknown-agent-drift warnings \u2014 the only channel naming the diagnosable cause. The resolver's own comment says it warns 'so it isn't a silent no-op', and this PR's new main() comment asserts 'config-shape warnings still go to stderr above' while this PR simultaneously ships the only production caller and routes that stderr to /dev/null. The warning path is dead in the deployed configuration.",
-   "defect_signature": {
-    "file": "scripts/compose-applied-effort.sh",
-    "line_range": [
-     103,
-     124
-    ],
-    "kind": "logic_error"
-   },
-   "corroboration_count": 1
-  },
-  {
-   "agent": "devflow:comment-analyzer",
-   "severity": "Important",
-   "id": "F-10",
-   "description": "compose-applied-effort.sh header bullet 4 attributes the applied-recorded invariant to 'the split-brain build_applied_effort avoids by returning both from one gate pass', while the deferral note ~80 lines later states 'this is a SECOND, independent resolver process \u2014 not one gate pass reused'. Read together in one file they contradict. The absolute 'the two separate calls cannot disagree' also overreaches: two processes each re-read the config from disk, so determinism holds only for an unchanged config.",
-   "defect_signature": {
-    "file": "scripts/compose-applied-effort.sh",
-    "line_range": [
-     30,
-     34
-    ],
-    "kind": "comment_drift"
-   },
-   "corroboration_count": 1
-  },
-  {
-   "agent": "devflow:pr-test-analyzer",
-   "severity": "Important",
-   "id": "F-11",
-   "description": "Applier-recorder default-path coupling is never behaviorally proven. The S2 assertions pin two DIFFERENT literals in two files, each counted only in its own file; nothing asserts the two expressions resolve to the same path. Every recorder test sets DEVFLOW_APPLIED_EFFORT_FILE and every composer test sets DEVFLOW_AE_SIDECAR, so the default branch of both is untested. Compounded by the two env-var names differing (DEVFLOW_AE_SIDECAR vs DEVFLOW_APPLIED_EFFORT_FILE) for one channel.",
-   "defect_signature": {
-    "file": "lib/test/run.sh",
-    "line_range": [
-     21735,
-     21752
-    ],
-    "kind": "test_gap"
-   },
-   "corroboration_count": 2
-  },
-  {
-   "agent": "devflow:pr-test-analyzer",
-   "severity": "Important",
-   "id": "F-12",
-   "description": "Sidecar-write-succeeds-but-empty is an uncovered applied-implies-recorded hole: step 4 emits the splice on the second resolver call's EXIT STATUS alone, never validating its content, while call 1's content IS validated. A pass exiting 0 with empty/{} stdout produces a sidecar the recorder parses to {} while --agents was applied \u2014 applied-but-unrecorded, the invariant the block exists to hold. Asymmetric guard.",
-   "defect_signature": {
-    "file": "scripts/compose-applied-effort.sh",
-    "line_range": [
-     122,
-     130
-    ],
-    "kind": "logic_error"
-   },
-   "corroboration_count": 2
-  },
-  {
-   "agent": "devflow:silent-failure-hunter",
-   "severity": "Suggestion",
-   "id": "F-13",
-   "description": "--applied-agents-json and --applied-sidecar-json are silently mutually-preferential (`payload = agents_defs if args.applied_agents_json else sidecar`) rather than mutually exclusive. A caller passing both writes the agent-definition map into the sidecar path; the recorder would then set effective to a dict. Use add_mutually_exclusive_group().",
-   "defect_signature": {
-    "file": "scripts/resolve-review-overrides.py",
-    "line_range": [
-     691,
-     700
-    ],
-    "kind": "api_misuse"
-   },
-   "corroboration_count": 2
-  },
-  {
-   "agent": "devflow:pr-test-analyzer",
-   "severity": "Suggestion",
-   "id": "F-14",
-   "description": "Resolver-path resolution branch uncovered: DEVFLOW_RRO is set in every composer test, so the vendored -> self-repo fallback chain (which decides which resolver runs in a consumer repo) is never exercised. A typo in the vendored literal would ship green.",
-   "defect_signature": {
-    "file": "scripts/compose-applied-effort.sh",
-    "line_range": [
-     88,
-     96
-    ],
-    "kind": "test_gap"
-   },
-   "corroboration_count": 1
-  },
-  {
-   "agent": "devflow:silent-failure-hunter",
-   "severity": "Suggestion",
-   "id": "F-15",
-   "description": "`rm -f \"$SIDECAR\"` return value is unchecked; rm -f still returns nonzero on a real removal failure (read-only mount, immutable file). The header states the invariant unconditionally ('a run that applies NOTHING leaves no sidecar'), which is false when the removal fails.",
-   "defect_signature": {
-    "file": "scripts/compose-applied-effort.sh",
-    "line_range": [
-     72,
-     74
-    ],
-    "kind": "logic_error"
-   },
-   "corroboration_count": 1
-  },
-  {
-   "agent": "devflow:comment-analyzer",
-   "severity": "Suggestion",
-   "id": "F-16",
-   "description": "Phase 0.6 stale-prose lint reported an UNRESOLVABLE R3 count-locked row: docs/agents-seam-probe.md:67 'recognition-only (8 files)'. Per this repo's pin-or-don't-write policy an exact-count claim in shipped prose must be bound to a suite pin or reworded drift-proof.",
-   "defect_signature": {
-    "file": "docs/agents-seam-probe.md",
-    "line_range": [
-     67,
-     67
-    ],
-    "kind": "other"
-   },
-   "corroboration_count": 1
-  }
- ],
- "fix_decisions": [
-  {
-   "finding_id": "F-2",
-   "decision": "applied",
-   "commit": "b1504a9d/54eb698a"
-  },
-  {
-   "finding_id": "F-3",
-   "decision": "applied",
-   "commit": "b1504a9d/54eb698a"
-  },
-  {
-   "finding_id": "F-5",
-   "decision": "applied",
-   "commit": "b1504a9d/54eb698a"
-  },
-  {
-   "finding_id": "F-8",
-   "decision": "applied",
-   "commit": "b1504a9d/54eb698a"
-  },
-  {
-   "finding_id": "F-9",
-   "decision": "applied",
-   "commit": "b1504a9d/54eb698a"
-  },
-  {
-   "finding_id": "F-10",
-   "decision": "applied",
-   "commit": "b1504a9d/54eb698a"
-  },
-  {
-   "finding_id": "F-12",
-   "decision": "applied",
-   "commit": "b1504a9d/54eb698a"
-  },
-  {
-   "finding_id": "F-15",
-   "decision": "applied",
-   "commit": "b1504a9d/54eb698a"
-  },
-  {
-   "finding_id": "F-1",
-   "decision": "applied",
-   "commit": "54eb698a",
-   "evidence": "AC1 application half deferred behind DEVFLOW_AE_APPLY (default off) per operator decision; AC2 telemetry half ships"
-  },
-  {
-   "finding_id": "F-4",
-   "decision": "deferred",
-   "skip_category": "uncategorized",
-   "evidence": "trusted-source ladder for the composer step: operator-approved, NOT YET IMPLEMENTED this iteration"
-  },
-  {
-   "finding_id": "F-6",
-   "decision": "deferred",
-   "skip_category": "uncategorized",
-   "evidence": "stale-sidecar clear still inside the helper; helper-absent path unguarded"
-  },
-  {
-   "finding_id": "F-7",
-   "decision": "deferred",
-   "skip_category": "uncategorized",
-   "evidence": "B1 pins still presence-only with a false structural-pin-ok rationale"
-  },
-  {
-   "finding_id": "F-11",
-   "decision": "deferred",
-   "skip_category": "uncategorized",
-   "evidence": "applier/recorder default-path coupling still not behaviorally proven"
-  },
-  {
-   "finding_id": "F-13",
-   "decision": "deferred",
-   "skip_category": "uncategorized",
-   "evidence": "--applied-*-json flags still silently mutually-preferential"
-  },
-  {
-   "finding_id": "F-14",
-   "decision": "deferred",
-   "skip_category": "uncategorized",
-   "evidence": "resolver vendored->self-repo fallback branch still uncovered"
-  },
-  {
-   "finding_id": "F-16",
-   "decision": "deferred",
-   "skip_category": "uncategorized",
-   "evidence": "docs/agents-seam-probe.md count-locked claim still unpinned"
-  }
- ],
- "convergence_inputs": {
-  "fixes_applied": 9,
-  "fix_diff_lines": null,
-  "new_corroborated_critical_count": 6
- },
- "cap_drops": {
-  "count": 0,
-  "by_category": {}
- },
- "telemetry": {},
- "fix_commit_sha": "54eb698a",
- "fix_files": [
-  "lib/efficiency-trace.sh",
-  "lib/test/run.sh",
-  "scripts/compose-applied-effort.sh",
-  "scripts/devflow-cloud-writer-contract.json"
- ],
- "verification_evidence": {
-  "command": "bash lib/test/run.sh",
-  "result": "pass",
-  "duration_s": null,
-  "skipped_checks": [],
-  "capture_file": ".devflow/tmp/verification-700.log",
-  "totals": "13082 passed, 0 failed, 0 skipped"
- },
- "stale_prose_check": {
-  "rows": [
-   "UNRESOLVABLE\tR3\tdocs/agents-seam-probe.md\t67\tcount-locked: recognition-only (8 files)"
+  "dispatched_effort": [
+    {
+      "agent": "devflow:checklist-generator",
+      "phase": "1",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
+    },
+    {
+      "agent": "devflow:checklist-deduper",
+      "phase": "1.5",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
+    },
+    {
+      "agent": "devflow:code-reviewer",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
+    }
   ],
-  "note": "exit 0, no STALE rows; 1 UNRESOLVABLE (informational, never gates)"
- },
- "sweep_evidence": {
-  "status": "run"
- }
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Critical",
+      "id": "F-1",
+      "description": "The composed --agents payload is an effort-only entry keyed by an INSTALLED plugin agent id ({\"devflow:code-reviewer\":{\"effort\":\"low\"}}) with no description/prompt. The spike (agents-seam-probe.yml) proved only a fully-defined NEW agent (seam-probe-agent with description+prompt+effort). Nothing establishes that (a) a definition missing description/prompt is accepted, or (b) an entry keyed to an installed plugin agent PATCHES its effort rather than DEFINING/SHADOWING it. ORCHESTRATOR-CONFIRMED: this repo's own config carries `default: {effort: low}`, so `bash scripts/compose-applied-effort.sh` emits prompt-less definitions for ALL NINE review subagents. If --agents shadows, every merge-gating reviewer degrades to a prompt-less definition on the next cloud run.",
+      "defect_signature": {
+        "file": "scripts/resolve-review-overrides.py",
+        "line_range": [
+          396,
+          402
+        ],
+        "kind": "api_misuse"
+      },
+      "corroboration_count": 1,
+      "orchestrator_verified": true
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Critical",
+      "id": "F-2",
+      "description": "Valid-falsy sidecar value coerced into an applied claim. lib/efficiency-trace.jq branches on `$applied != null` only, so a sidecar entry with value \"\" (or 0, {}, or a non-enum string) is non-null and emits application_point: agent-definition with effective: \"\" \u2014 an unearned applied claim, violating the code's own 'unknown is not zero' contract and AC2. ORCHESTRATOR-CONFIRMED by execution: value \"\" -> {\"application_point\":\"agent-definition\",\"effective\":\"\"}; value {\"effort\":\"low\"} -> effective is a DICT; value \"turbo\" -> effective \"turbo\". The six-shape matrix is swept only at container level, never per-agent value level.",
+      "defect_signature": {
+        "file": "lib/efficiency-trace.jq",
+        "line_range": [
+          223,
+          253
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 2,
+      "orchestrator_verified": true
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Critical",
+      "id": "F-3",
+      "description": "load_applied_effort's 'fail-CLOSED to {}' contract is false for a valid-JSON-prefix-plus-trailing-garbage sidecar: jq emits the parsed object AND exits 5, so `|| printf '{}'` appends a SECOND document; --argjson then rejects the two-document string and the WHOLE record aborts. ORCHESTRATOR-CONFIRMED by execution: sidecar '{\"devflow:code-reviewer\":\"low\"} garbage' -> rc=2, ZERO bytes of record output, 'jq: invalid JSON text passed to --argjson'. Both a documented falsehood and a real availability defect (total telemetry loss). The M2 test only covers a TRUNCATED sidecar (jq emits nothing), which is why the claim reads as covered.",
+      "defect_signature": {
+        "file": "lib/efficiency-trace.sh",
+        "line_range": [
+          246,
+          258
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 2,
+      "orchestrator_verified": true
+    },
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Critical",
+      "id": "F-4",
+      "description": "B1 trust boundary is bypassable: the review job checks out the PR HEAD (devflow-runner.yml:159 `ref: ${{ inputs.ref }}`) and the new composer step runs `bash \"$CAE\"` with a `scripts/compose-applied-effort.sh` fallback and NO vendor_source=='fetch' gate. Both the composer and the resolver are ordinary tracked files a PR author can edit, so a PR can ignore DEVFLOW_AE_CONFIG entirely. This is the exact #402/#404 'a floor the PR controls is no floor' class the SAME workflow already guards against for lib/efficiency-trace.sh via harden-stop-hooks.sh \u2014 the new helpers were not added to that hardened set. Consequently three diff-added absolute claims are false against HEAD (changeset 'a PR author can no longer lower...'; composer header 'cannot steer...'; step comment 'NEVER the PR-head working tree' \u2014 true of the config, not of the code that reads it).",
+      "defect_signature": {
+        "file": ".github/workflows/devflow-runner.yml",
+        "line_range": [
+          1000,
+          1021
+        ],
+        "kind": "security"
+      },
+      "corroboration_count": 2,
+      "orchestrator_verified": true
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Critical",
+      "id": "F-5",
+      "description": "Self-contradicting diff: lib/test/run.sh:33927-33929 comment says the composer step is 'triplicated scaffolding too (identical env AND run: across the three workflows)', but the SAME PR asserts the opposite twice \u2014 run.sh:33896 'only the env differs across the three tiers' and run.sh:33912 pins DEVFLOW_AE_CONFIG count '0,0' on impl/command. The checker itself only compares st['run'], never env. ORCHESTRATOR-CONFIRMED by reading all three sites.",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          33927,
+          33929
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "orchestrator_verified": true
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Critical",
+      "id": "F-6",
+      "description": "The unconditional stale-sidecar clear lives INSIDE the helper it protects. When neither the vendored nor the self-repo helper path exists (the documented #502 consumer-skew state), the workflow step's `if [ -f \"$CAE\" ]` is skipped and `rm -f \"$SIDECAR\"` never runs \u2014 so a sidecar present in the checked-out tree is read by the recorder as genuine applied telemetry. On the review tier that tree is the PR HEAD, and .devflow/tmp/ being gitignored is no barrier (`git add -f`). ORCHESTRATOR-CONFIRMED: no workflow references agent-effort-applied.json, so the clear exists only in the helper. This also falsifies the triplicated step comment 'any failure yields an empty agents_args and no sidecar'.",
+      "defect_signature": {
+        "file": ".github/workflows/devflow-runner.yml",
+        "line_range": [
+          996,
+          1021
+        ],
+        "kind": "security"
+      },
+      "corroboration_count": 2,
+      "orchestrator_verified": true
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "id": "F-7",
+      "description": "Two B1 security pins are presence-only (assert_pin_red_on_removal) carrying `# structural-pin-ok:` rationales that are factually false: 'no in-place mutation reintroduces PR-head sourcing'. A mutation plainly exists \u2014 sed the value ${{ steps.baseprovision.outputs.config_file }} to a head-derived expression, reintroducing the guarded regression while leaving a DEVFLOW_AE_CONFIG: line present. These are behavioral security fixes, so the repo's #666 mutation-routing convention requires assert_pin_red_under. The marker rationale is itself a documented falsehood. ORCHESTRATOR-CONFIRMED by reading run.sh:33900-33908.",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          33891,
+          33907
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "orchestrator_verified": true
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "id": "F-8",
+      "description": "compose-applied-effort.sh emits NO stderr breadcrumb on ANY of its five fail-open paths (resolver absent, resolver failure, non-object/empty JSON, mkdir failure, sidecar write failure). This repo's best-effort-helper contract (lib/resolve-bin.sh, scripts/ensure-label.sh, scripts/apply-labels.sh, lib/normalize-path.sh) always pairs 'always exit 0' with a stderr breadcrumb. Fail-open without a breadcrumb is silent failure: an operator cannot distinguish 'the capability gate stripped it' from 'the composer never ran'.",
+      "defect_signature": {
+        "file": "scripts/compose-applied-effort.sh",
+        "line_range": [
+          76,
+          130
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "id": "F-9",
+      "description": "`2>/dev/null` on BOTH resolver invocations discards the resolver's documented config-shape and unknown-agent-drift warnings \u2014 the only channel naming the diagnosable cause. The resolver's own comment says it warns 'so it isn't a silent no-op', and this PR's new main() comment asserts 'config-shape warnings still go to stderr above' while this PR simultaneously ships the only production caller and routes that stderr to /dev/null. The warning path is dead in the deployed configuration.",
+      "defect_signature": {
+        "file": "scripts/compose-applied-effort.sh",
+        "line_range": [
+          103,
+          124
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Important",
+      "id": "F-10",
+      "description": "compose-applied-effort.sh header bullet 4 attributes the applied-recorded invariant to 'the split-brain build_applied_effort avoids by returning both from one gate pass', while the deferral note ~80 lines later states 'this is a SECOND, independent resolver process \u2014 not one gate pass reused'. Read together in one file they contradict. The absolute 'the two separate calls cannot disagree' also overreaches: two processes each re-read the config from disk, so determinism holds only for an unchanged config.",
+      "defect_signature": {
+        "file": "scripts/compose-applied-effort.sh",
+        "line_range": [
+          30,
+          34
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "id": "F-11",
+      "description": "Applier-recorder default-path coupling is never behaviorally proven. The S2 assertions pin two DIFFERENT literals in two files, each counted only in its own file; nothing asserts the two expressions resolve to the same path. Every recorder test sets DEVFLOW_APPLIED_EFFORT_FILE and every composer test sets DEVFLOW_AE_SIDECAR, so the default branch of both is untested. Compounded by the two env-var names differing (DEVFLOW_AE_SIDECAR vs DEVFLOW_APPLIED_EFFORT_FILE) for one channel.",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          21735,
+          21752
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 2
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "id": "F-12",
+      "description": "Sidecar-write-succeeds-but-empty is an uncovered applied-implies-recorded hole: step 4 emits the splice on the second resolver call's EXIT STATUS alone, never validating its content, while call 1's content IS validated. A pass exiting 0 with empty/{} stdout produces a sidecar the recorder parses to {} while --agents was applied \u2014 applied-but-unrecorded, the invariant the block exists to hold. Asymmetric guard.",
+      "defect_signature": {
+        "file": "scripts/compose-applied-effort.sh",
+        "line_range": [
+          122,
+          130
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 2
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "id": "F-13",
+      "description": "--applied-agents-json and --applied-sidecar-json are silently mutually-preferential (`payload = agents_defs if args.applied_agents_json else sidecar`) rather than mutually exclusive. A caller passing both writes the agent-definition map into the sidecar path; the recorder would then set effective to a dict. Use add_mutually_exclusive_group().",
+      "defect_signature": {
+        "file": "scripts/resolve-review-overrides.py",
+        "line_range": [
+          691,
+          700
+        ],
+        "kind": "api_misuse"
+      },
+      "corroboration_count": 2
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "id": "F-14",
+      "description": "Resolver-path resolution branch uncovered: DEVFLOW_RRO is set in every composer test, so the vendored -> self-repo fallback chain (which decides which resolver runs in a consumer repo) is never exercised. A typo in the vendored literal would ship green.",
+      "defect_signature": {
+        "file": "scripts/compose-applied-effort.sh",
+        "line_range": [
+          88,
+          96
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "id": "F-15",
+      "description": "`rm -f \"$SIDECAR\"` return value is unchecked; rm -f still returns nonzero on a real removal failure (read-only mount, immutable file). The header states the invariant unconditionally ('a run that applies NOTHING leaves no sidecar'), which is false when the removal fails.",
+      "defect_signature": {
+        "file": "scripts/compose-applied-effort.sh",
+        "line_range": [
+          72,
+          74
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "id": "F-16",
+      "description": "Phase 0.6 stale-prose lint reported an UNRESOLVABLE R3 count-locked row: docs/agents-seam-probe.md:67 'recognition-only (8 files)'. Per this repo's pin-or-don't-write policy an exact-count claim in shipped prose must be bound to a suite pin or reworded drift-proof.",
+      "defect_signature": {
+        "file": "docs/agents-seam-probe.md",
+        "line_range": [
+          67,
+          67
+        ],
+        "kind": "other"
+      },
+      "corroboration_count": 1
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "b1504a9d/54eb698a"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "b1504a9d/54eb698a"
+    },
+    {
+      "finding_id": "F-5",
+      "decision": "applied",
+      "commit": "b1504a9d/54eb698a"
+    },
+    {
+      "finding_id": "F-8",
+      "decision": "applied",
+      "commit": "b1504a9d/54eb698a"
+    },
+    {
+      "finding_id": "F-9",
+      "decision": "applied",
+      "commit": "b1504a9d/54eb698a"
+    },
+    {
+      "finding_id": "F-10",
+      "decision": "applied",
+      "commit": "b1504a9d/54eb698a"
+    },
+    {
+      "finding_id": "F-12",
+      "decision": "applied",
+      "commit": "b1504a9d/54eb698a"
+    },
+    {
+      "finding_id": "F-15",
+      "decision": "applied",
+      "commit": "b1504a9d/54eb698a"
+    },
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "54eb698a",
+      "evidence": "AC1 application half deferred behind DEVFLOW_AE_APPLY (default off) per operator decision; AC2 telemetry half ships"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "deferred",
+      "skip_category": "uncategorized",
+      "evidence": "trusted-source ladder for the composer step: operator-approved, NOT YET IMPLEMENTED this iteration"
+    },
+    {
+      "finding_id": "F-6",
+      "decision": "deferred",
+      "skip_category": "uncategorized",
+      "evidence": "stale-sidecar clear still inside the helper; helper-absent path unguarded"
+    },
+    {
+      "finding_id": "F-7",
+      "decision": "deferred",
+      "skip_category": "uncategorized",
+      "evidence": "B1 pins still presence-only with a false structural-pin-ok rationale"
+    },
+    {
+      "finding_id": "F-11",
+      "decision": "deferred",
+      "skip_category": "uncategorized",
+      "evidence": "applier/recorder default-path coupling still not behaviorally proven"
+    },
+    {
+      "finding_id": "F-13",
+      "decision": "deferred",
+      "skip_category": "uncategorized",
+      "evidence": "--applied-*-json flags still silently mutually-preferential"
+    },
+    {
+      "finding_id": "F-14",
+      "decision": "deferred",
+      "skip_category": "uncategorized",
+      "evidence": "resolver vendored->self-repo fallback branch still uncovered"
+    },
+    {
+      "finding_id": "F-16",
+      "decision": "deferred",
+      "skip_category": "uncategorized",
+      "evidence": "docs/agents-seam-probe.md count-locked claim still unpinned"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 9,
+    "fix_diff_lines": null,
+    "new_corroborated_critical_count": 6
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": {},
+  "fix_commit_sha": "54eb698a",
+  "fix_files": [
+    "lib/efficiency-trace.sh",
+    "lib/test/run.sh",
+    "scripts/compose-applied-effort.sh",
+    "scripts/devflow-cloud-writer-contract.json"
+  ],
+  "verification_evidence": {
+    "command": "bash lib/test/run.sh",
+    "result": "pass",
+    "duration_s": null,
+    "skipped_checks": [],
+    "capture_file": ".devflow/tmp/verification-700.log",
+    "totals": "13082 passed, 0 failed, 0 skipped"
+  },
+  "stale_prose_check": {
+    "rows": [
+      "UNRESOLVABLE\tR3\tdocs/agents-seam-probe.md\t67\tcount-locked: recognition-only (8 files)"
+    ],
+    "note": "exit 0, no STALE rows; 1 UNRESOLVABLE (informational, never gates)"
+  },
+  "sweep_evidence": {
+    "status": "run"
+  }
 }
