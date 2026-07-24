@@ -15,11 +15,13 @@ Before this module the rules lived only in `parse-acs.py`, so the second reader
 would have had to re-implement them and the two could silently disagree about
 what a section even is. Keeping them here means a rule change lands once.
 
-This module is IMPORTED IN-PROCESS by both callers, never exec'd as a
-subprocess and never reached through a `.sh` hop: Windows refuses to exec a
-shell helper from Python ([WinError 193], issue #275), and both callers live in
-`scripts/`, which is `sys.path[0]` when either is run as a script — so a plain
-`from section_parse import ...` resolves with no path manipulation.
+This module is IMPORTED IN-PROCESS by both callers, never exec'd as a subprocess
+and never reached through a `.sh` hop: Windows refuses to exec a shell helper
+from Python ([WinError 193], issue #275). Both callers add their own directory to
+`sys.path` before importing it — running them as scripts would put `scripts/`
+there anyway, but a consumer that loads them through
+`importlib.util.spec_from_file_location` (how `lib/test/test_python_scripts.py`
+drives this directory) would not.
 
 Stdlib-only and side-effect-free: no `gh`, no `subprocess`, no environment
 reads, no stream reconfiguration. I/O and the post-merge TRIGGER-PHRASE

@@ -120,7 +120,8 @@ Prompt:
 Invoke the `/devflow:requesting-code-review` skill to perform a final-pass code review. Pass the following context into the skill:
 
 - Description: {one-line summary — "PR #<N>: <title>" or "Current branch <name> vs <base_branch>"}
-- Plan / Requirements: {the PR body if available, else the originating issue body from Phase 0.4, else "No spec available — review against general project standards from CLAUDE.md"}
+- Acceptance criteria — THE SPECIFICATION this PR must satisfy; judge the change against these: {Phase 0.4's resolved acceptance_criteria, box-neutralized, else "No acceptance criteria resolved."}
+- PR description — the AUTHOR'S ACCOUNT of the change, not the specification; use it for context only: {the PR body if available, else "No PR description available."}
 - Base SHA: {head_override PR mode: $HEAD_OVERRIDE_BASE (the fetched origin/$PR_BASE_BRANCH tip, or $PR_BASE_SHA after confirmed deletion); standalone PR mode: $PR_BASE_SHA/baseRefOid paired with the unchanged gh pr diff result; current-branch mode: origin/$BASE — always the base the cached diff.patch is scoped to}
 - Head SHA: {PR_HEAD_SHA or current HEAD}
 - Diff path: `{DIFF_PATH}` (the full diff, cached to disk by Phase 0.2 — Read it directly rather than re-fetching)
@@ -130,6 +131,8 @@ Return your findings in the standard Phase-3 output format: ### Strengths / ### 
 
 {paste the defect_signature paragraph above}
 ```
+
+**Acceptance-criteria context (all callers).** Substitute Phase 0.4's resolved `acceptance_criteria` into the acceptance-criteria line above, and name its `acceptance_criteria_source` beside it. The criteria arrive **box-neutralized** — every criterion rendered unticked — because a tick is the code author's own assertion that the criterion is satisfied, and the merge-gating judge must never be handed a specification pre-annotated by the party it is judging; Phase 0.4 already neutralizes them, so nothing is re-stripped here. The two lines are independent: an absent PR body never suppresses the acceptance-criteria line, and absent criteria never suppress the PR-description line. Only when **neither** resolved, replace both with `"No spec available — review against general project standards from CLAUDE.md"`. Unlike the *Prior-findings context* block above, the acceptance criteria are **not** withheld from the Step 2.6 shadow fan-out: withholding a specification from an audit pass makes it audit against the wrong specification, which is the defect this contract repairs.
 
 **Phase 3.1 structural-applicability gates (apply to this launch list on every diff profile):**
 

@@ -13,7 +13,7 @@ Covers areas that are silent-failure-class regressions if they drift:
   documented false-positive cases (`monitoring` substring, generic
   "errors swallowed" prose, `click` substring, `workflow runner` vs
   `workflow run`, and `commenting on a` previous-decision prose).
-- `parse_acs._extract_section` / `_parse_checkboxes` / `_render_md` — the
+- `section_parse.extract_section` (re-exported through `parse_acs`) / `parse_acs._parse_checkboxes` / `_render_md` — the
   case-insensitive, level-bounded heading match (a differently-cased heading
   still matches, but a trailing-colon / wrong-level heading must yield zero
   items, not a silent miss that trivially passes the implement skill's
@@ -1844,7 +1844,7 @@ assert_eq("invariant: ## Acceptance Criteria still present and before Devflow Re
           True, '## Acceptance Criteria' in out
           and out.index('## Acceptance Criteria') < out.index('## Devflow Reflection'))
 _ac = parse_acs._parse_checkboxes(
-    parse_acs._extract_section(out, 'Acceptance Criteria'))
+    parse_acs.extract_section(out, 'Acceptance Criteria'))
 assert_eq("invariant: AC section parses to 2 checkboxes after mutation", 2, len(_ac))
 assert_eq("invariant: AC one ticked is visible to the parser", True,
           any(i['text'] == 'AC one' and i['ticked'] for i in _ac))
@@ -2209,7 +2209,7 @@ for phrase in [
     assert_eq(f"NOT post-merge: {phrase!r}", False, parse_acs._is_post_merge(phrase))
 
 
-print("parse_acs._extract_section / _parse_checkboxes / _render_md")
+print("parse_acs.extract_section / _parse_checkboxes / _render_md")
 
 AC_BODY = """## Summary
 intro text
@@ -2226,7 +2226,7 @@ not a checkbox line
 - [ ] should not appear
 """
 
-_items = parse_acs._parse_checkboxes(parse_acs._extract_section(AC_BODY, 'Acceptance Criteria'))
+_items = parse_acs._parse_checkboxes(parse_acs.extract_section(AC_BODY, 'Acceptance Criteria'))
 assert_eq("extract: 4 AC checkboxes (deeper heading does not terminate)", 4, len(_items))
 assert_eq("extract: first text", 'first', _items[0]['text'])
 assert_eq("extract: second ticked", True, _items[1]['ticked'])
@@ -2237,23 +2237,23 @@ assert_eq("extract: stops at sibling '## Notes' (excluded)", False,
 # Case-insensitive, level-bounded heading match — the silent-miss guards.
 # Casing is forgiven, but a trailing colon / wrong level still must not match.
 assert_eq("extract: lowercase heading → matches (case-insensitive)", 4,
-          len(parse_acs._parse_checkboxes(parse_acs._extract_section(
+          len(parse_acs._parse_checkboxes(parse_acs.extract_section(
               AC_BODY.replace('## Acceptance Criteria', '## acceptance criteria'),
               'Acceptance Criteria'))))
 assert_eq("extract: uppercase heading → matches (case-insensitive)", 4,
-          len(parse_acs._parse_checkboxes(parse_acs._extract_section(
+          len(parse_acs._parse_checkboxes(parse_acs.extract_section(
               AC_BODY.replace('## Acceptance Criteria', '## ACCEPTANCE CRITERIA'),
               'Acceptance Criteria'))))
 assert_eq("extract: trailing-colon heading → no section", [],
-          parse_acs._extract_section(
+          parse_acs.extract_section(
               AC_BODY.replace('## Acceptance Criteria', '## Acceptance Criteria:'),
               'Acceptance Criteria'))
 assert_eq("extract: level-3 heading matches", 1,
           len(parse_acs._parse_checkboxes(
-              parse_acs._extract_section("### Acceptance Criteria\n- [ ] x\n",
+              parse_acs.extract_section("### Acceptance Criteria\n- [ ] x\n",
                                          'Acceptance Criteria'))))
 assert_eq("extract: level-4 heading not matched (only ##/###)", 0,
-          len(parse_acs._extract_section("#### Acceptance Criteria\n- [ ] x\n",
+          len(parse_acs.extract_section("#### Acceptance Criteria\n- [ ] x\n",
                                          'Acceptance Criteria')))
 
 assert_eq("render_md: empty → sentinel", '_(none provided in issue body)_',
@@ -2287,7 +2287,7 @@ WRAPPED_AC = """## Acceptance Criteria
 - [ ] The deploy step is exercised and the result is confirmed
       in production after the release ships.
 """
-_w = parse_acs._parse_checkboxes(parse_acs._extract_section(WRAPPED_AC, 'Acceptance Criteria'))
+_w = parse_acs._parse_checkboxes(parse_acs.extract_section(WRAPPED_AC, 'Acceptance Criteria'))
 assert_eq("wrap: two items parsed", 2, len(_w))
 assert_eq("wrap: item1 continuation lines joined verbatim into one string",
           "The parser joins each checkbox item's indented continuation lines into "
@@ -2312,7 +2312,7 @@ Prose paragraph at column zero closes the item.
       This indented line belongs to the prose, not the ticked item.
 - [ ] Final standalone item.
 """
-_b = parse_acs._parse_checkboxes(parse_acs._extract_section(WRAPPED_AC_BOUNDARY, 'Acceptance Criteria'))
+_b = parse_acs._parse_checkboxes(parse_acs.extract_section(WRAPPED_AC_BOUNDARY, 'Acceptance Criteria'))
 assert_eq("over-join: only the two checkbox items are parsed (prose lines are not items)",
           2, len(_b))
 assert_eq("over-join: wrapped `- [x]` preserves ticked=True", True, _b[0]['ticked'])
@@ -2335,7 +2335,7 @@ WRAPPED_AC_BLANKSEP = """## Acceptance Criteria
       This indented line follows a BLANK line and must not join item 1.
 - [ ] Second standalone item.
 """
-_bs = parse_acs._parse_checkboxes(parse_acs._extract_section(WRAPPED_AC_BLANKSEP, 'Acceptance Criteria'))
+_bs = parse_acs._parse_checkboxes(parse_acs.extract_section(WRAPPED_AC_BLANKSEP, 'Acceptance Criteria'))
 assert_eq("blank-sep: only the two checkbox items are parsed (blank line closed item 1)",
           2, len(_bs))
 assert_eq("blank-sep: item1 joins only its pre-blank continuation",
@@ -2347,7 +2347,7 @@ assert_eq("blank-sep: an indented line after a blank line is NOT absorbed (bound
 # (the continuation guard is `line[:1] in (' ', '\t')`); prior fixtures used only space
 # indentation, leaving the `\t` branch unexercised.
 WRAPPED_AC_TAB = "## Acceptance Criteria\n- [ ] Tab-wrapped criterion first line\n\tand its tab-indented continuation.\n"
-_t = parse_acs._parse_checkboxes(parse_acs._extract_section(WRAPPED_AC_TAB, 'Acceptance Criteria'))
+_t = parse_acs._parse_checkboxes(parse_acs.extract_section(WRAPPED_AC_TAB, 'Acceptance Criteria'))
 assert_eq("tab-cont: one item parsed", 1, len(_t))
 assert_eq("tab-cont: tab-indented continuation is joined into the criterion",
           "Tab-wrapped criterion first line and its tab-indented continuation.", _t[0]['text'])
@@ -2359,7 +2359,7 @@ assert_eq("tab-cont: tab-indented continuation is joined into the criterion",
 WRAPPED_AC_SPLITTRIG = ("## Acceptance Criteria\n"
                         "- [ ] Update the changelog after\n"
                         "      merge so the entry reconciles.\n")
-_st = parse_acs._parse_checkboxes(parse_acs._extract_section(WRAPPED_AC_SPLITTRIG, 'Acceptance Criteria'))
+_st = parse_acs._parse_checkboxes(parse_acs.extract_section(WRAPPED_AC_SPLITTRIG, 'Acceptance Criteria'))
 assert_eq("split-trigger: one item parsed", 1, len(_st))
 assert_eq("split-trigger: 'after merge' split across the wrap still classifies post-merge",
           True, _st[0]['post_merge'])

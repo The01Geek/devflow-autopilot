@@ -59,6 +59,8 @@ For each changed file, find every place the NEW or MODIFIED code:
 
 **Absolute claims** — a diff-added doc line, comment, example, or help string that asserts a **universal**: that some property holds in *all* cases, or that *no* input can produce some outcome. The claim qualifies when its text carries a universal quantifier or a closed-guarantee phrasing — e.g. "no X can Y", "every", "never", "always", "cannot", "in all cases", "is caught by the same rule", "handles every". These are the highest-value verification targets precisely because a reviewer *reading* the claim confirms nothing — only a *failed attempt to falsify* it does. So an absolute-claim item does not ask the verifier to re-read the code; its `verify_hint` instructs the verifier to **construct an input satisfying the claim's antecedent and observe whether the consequent actually holds** (build the falsifying case — the crafted multi-pair sequence, the ticked-row, the boundary input the universal says is covered — and run it). A merely *scoped* claim ("in the common case", "for a single retag", "usually") is **not** an absolute claim and does not warrant an item under this category.
 
+**Issue acceptance** — when the orchestrator supplies an `<acceptance_criteria>` block, emit one item per criterion in it, each tagged `"category": "issue_acceptance"`, with a claim that cites that criterion and a `verify_hint` naming where in the changed files the criterion is meant to be satisfied. That block is the PR's specification; a narrative `<issue>` block, when also supplied, is background and is not itself a source of `issue_acceptance` items. Use `issue_acceptance` only for a criterion carried in that block — never as a general-purpose tag for an item that merely mentions the issue.
+
 ### Step 2b: Variance-recovery filter (only when a prior-iteration checklist is supplied)
 
 When the caller provides a prior-iteration checklist:
@@ -82,7 +84,7 @@ Return a JSON array of checklist items. Each item:
 [
   {
     "id": "VC-1",
-    "category": "dependency_interaction | test_mock_alignment | data_format_assumption | api_contract | string_presence | absolute_claim",
+    "category": "dependency_interaction | test_mock_alignment | data_format_assumption | api_contract | string_presence | absolute_claim | issue_acceptance",
     "claim": "Human-readable description of what the code assumes",
     "claim_provenance": "generated_paraphrase | source_authored",
     "source_excerpt": "verbatim authored text under scrutiny (source_authored items only)",
@@ -149,7 +151,7 @@ Examples:
 
 Every item MUST carry `claim_provenance`, one of exactly two values, so a downstream executable normalizer can tell a wording artifact apart from a source-authored assertion:
 
-- **`generated_paraphrase`** — the `claim` text is YOUR OWN rewording of what the code assumes or does. This is the default for the enumeration categories (`dependency_interaction`, `test_mock_alignment`, `data_format_assumption`, `api_contract`, `string_presence`), where you distill code behavior into a human-readable sentence. Omit `source_excerpt` on these items.
+- **`generated_paraphrase`** — the `claim` text is YOUR OWN rewording of what the code assumes or does. This is the default for the enumeration categories (`dependency_interaction`, `test_mock_alignment`, `data_format_assumption`, `api_contract`, `string_presence`, `issue_acceptance`), where you distill code behavior into a human-readable sentence. Omit `source_excerpt` on these items.
 - **`source_authored`** — the claim's *subject* is text authored in the source itself: a comment, a documentation line, a test assertion, an example, or a help string whose literal wording is what is under scrutiny. **Every `absolute_claim` item is `source_authored`** (the universal it asserts is authored in the diff). On a `source_authored` item, `source_excerpt` is **required** and MUST carry the verbatim authored text under scrutiny (copied exactly, not paraphrased).
 
 The decision rule: ask "is the `claim` my rewording of code behavior, or is it about a specific piece of text a human wrote in the source?" The former is `generated_paraphrase`; the latter is `source_authored` and carries the `source_excerpt`.

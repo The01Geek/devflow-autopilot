@@ -7998,6 +7998,538 @@ assert_eq "#258: workpad.py carries the terminal --status Complete self-record g
   "$(grep -q '_terminal_complete_gate' "$WP_PY" && grep -q "(post-merge)" "$WP_PY" && echo yes || echo no)"
 rm -rf "$S258"
 
+# ── issue #781: workpad-sourced acceptance criteria (acs / acs-resolve) ────────
+# The review engine used to source the criteria it judges a PR against from the
+# GitHub issue BODY, while /devflow:implement's authoritative criteria live in
+# the workpad comment (Phase 2.2.5 narrows the set, 2.2.6 rewrites text, 3.4
+# retags) — and a blind 200-line truncation could drop the section entirely.
+# `workpad.py acs` reads the workpad's section back out; `acs-resolve` resolves
+# BOTH surfaces, runs the PR-identity guard, selects the reviewer-facing value,
+# names the source, and reports normalized divergence.
+#
+# Driven here as real CLI subprocesses against a gh stub over the full
+# input-shape matrix the issue's testing strategy enumerates (production-realistic
+# fixture, missing/duplicate/non-canonical/empty/truncated section, both
+# sentinels, cross-PR workpad, unbound record, read failure, post-merge +
+# Test-Plan mixture, byte-identical re-run) — asserting the SPECIFIC output for
+# each shape, never merely that it exits 0.
+S781="$(mktemp -d)"
+cat > "$S781/gh" <<'STUB'
+#!/usr/bin/env bash
+# gh stub for workpad.py acs / acs-resolve. $WP781_BODY selects the workpad
+# fixture, $WP781_ISSUE the issue-body fixture; the two failure knobs are each
+# driven by a scenario below (no declared-but-unused knobs).
+j="$*"
+if [[ "$j" == *"repo view"* ]]; then echo "owner/repo"; exit 0; fi
+if [[ "$j" == *"issue view"* ]]; then cat "$WP781_ISSUE"; exit 0; fi
+if [[ "$j" == *"/comments"* ]]; then
+  if [ "${WP781_COMMENT_FAIL:-}" = "1" ]; then echo "gh: stubbed transport failure" >&2; exit 1; fi
+  if [ "${WP781_NO_WORKPAD:-}" = "1" ]; then echo '[]'; exit 0; fi
+  python3 -c 'import json,sys;print(json.dumps([{"id":7,"body":open(sys.argv[1]).read()}]))' "$WP781_BODY"
+  exit 0
+fi
+echo '[]'
+STUB
+chmod +x "$S781/gh"
+
+# The issue body every scenario compares against: three criteria, untagged (the
+# issue body never carries the ` (post-merge)` tag — parse-acs.py synthesizes it
+# at mirror time, which is why the divergence comparand must be UNfiltered).
+cat > "$S781/issue.md" <<'ISSUEMD'
+## Background
+Narrative that would be truncated away on a long body.
+
+## Acceptance Criteria
+
+- [ ] Criterion A
+- [ ] Criterion B
+- [ ] Criterion C
+ISSUEMD
+
+# Production-realistic workpad: a real run's section order, a ticked criterion, a
+# ` (post-merge)`-tagged one, a mirrored ## Test Plan item, and a bound
+# scope-decision record. text= is base64 of "Criterion C".
+cat > "$S781/wp-real.md" <<'WPMD'
+<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #999
+
+**Status:** 🚀 Reviewing
+**Branch:** `feat`
+**Last updated:** 2026-07-24 10:00 UTC
+
+## Progress
+- [x] **Setup** — branch & workpad
+  - 10:00:01 — scope decision: this PR delivers A and B. <!-- devflow:scope-decision pr=143 kind=deferred text=Q3JpdGVyaW9uIEM= -->
+
+## Plan
+- [x] step one
+
+## Acceptance Criteria
+- [x] Criterion A
+- [ ] Criterion B (post-merge)
+
+- [ ] Test-plan item one
+
+## Devflow Reflection
+<details>
+<summary>Devflow Reflection (click to expand)</summary>
+
+</details>
+WPMD
+
+_wp781_variant() { python3 - "$S781/wp-real.md" "$1" "$2" "$3" <<'PY'
+import sys, pathlib
+src, dest, old, new = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+pathlib.Path(dest).write_text(pathlib.Path(src).read_text().replace(old, new))
+PY
+}
+_AC781='- [x] Criterion A
+- [ ] Criterion B (post-merge)
+
+- [ ] Test-plan item one'
+_wp781_variant "$S781/wp-crosspr.md"    'pr=143' 'pr=999'
+_wp781_variant "$S781/wp-pending.md"    'pr=143' 'pr=pending'
+_wp781_variant "$S781/wp-rewritten.md" \
+  '<!-- devflow:scope-decision pr=143 kind=deferred text=Q3JpdGVyaW9uIEM= -->' \
+  '<!-- devflow:scope-decision pr=143 kind=rewritten text=Q3JpdGVyaW9uIEM= newtext=Q3JpdGVyaW9uIEMy -->'
+_wp781_variant "$S781/wp-unmirrored.md" "$_AC781" '_(pending — mirrored from the issue when the run begins)_'
+_wp781_variant "$S781/wp-sentinel.md"   "$_AC781" '_(none provided in issue body)_'
+_wp781_variant "$S781/wp-empty.md"      "$_AC781" ''
+_wp781_variant "$S781/wp-noheading.md"  '## Acceptance Criteria' '## Something Else'
+_wp781_variant "$S781/wp-h3.md"         '## Acceptance Criteria' '### Acceptance Criteria'
+_wp781_variant "$S781/wp-colon.md"      '## Acceptance Criteria' '## Acceptance Criteria:'
+_wp781_variant "$S781/wp-case.md"       '## Acceptance Criteria' '## ACCEPTANCE criteria'
+_wp781_variant "$S781/wp-star.md"       '- [x] Criterion A' '* [x] Criterion A'
+_wp781_variant "$S781/wp-subheading.md" '- [ ] Test-plan item one' '### Sub
+- [ ] Criterion D'
+_wp781_variant "$S781/wp-norecord.md" \
+  '<!-- devflow:scope-decision pr=143 kind=deferred text=Q3JpdGVyaW9uIEM= -->' 'no record here'
+# Duplicate `## Acceptance Criteria` heading: the FIRST section must win, never a
+# silent concatenation of both.
+{ cat "$S781/wp-real.md"; printf '\n## Acceptance Criteria\n- [ ] Criterion Z\n'; } > "$S781/wp-dupe.md"
+# Truncated: the body is cut mid-section, so the section is terminated by
+# end-of-input rather than a sibling heading.
+python3 -c 'import sys,pathlib;p=pathlib.Path(sys.argv[1]);pathlib.Path(sys.argv[2]).write_text(p.read_text().split("- [ ] Test-plan")[0].rstrip()+"\n- [ ] Criterion trunc")' \
+  "$S781/wp-real.md" "$S781/wp-trunc.md"
+
+# run781 <workpad-fixture> <args...> → prints the exit code; out/err left on disk.
+run781() {
+  local body="$1"; shift
+  WP781_BODY="$body" WP781_ISSUE="$S781/issue.md" DEVFLOW_GH="$S781/gh" \
+    python3 "$WP_PY" "$@" >"$S781/out" 2>"$S781/err"
+  echo $?
+}
+
+# ---- `acs` extraction contract ------------------------------------------------
+# Verbatim by default: tick state preserved, the (post-merge) tag preserved, and
+# the mirrored Test-Plan item carried through. This is the divergence comparand.
+_c="$(run781 "$S781/wp-real.md" acs 999)"
+assert_eq "#781: acs exits 0 on a resolvable workpad" "0" "$_c"
+assert_eq "#781: acs prints the section VERBATIM (tick state + (post-merge) tag + mirrored Test-Plan item)" \
+  '- [x] Criterion A|- [ ] Criterion B (post-merge)|- [ ] Test-plan item one' \
+  "$(tr '\n' '|' < "$S781/out" | sed 's/|$//')"
+
+# The reviewer-facing form: post-merge criteria excluded, every box neutralized.
+_c="$(run781 "$S781/wp-real.md" acs 999 --exclude-post-merge --neutralize-boxes)"
+assert_eq "#781: acs --exclude-post-merge --neutralize-boxes drops tagged rows and unticks the rest" \
+  '- [ ] Criterion A|- [ ] Test-plan item one' \
+  "$(tr '\n' '|' < "$S781/out" | sed 's/|$//')"
+
+# Re-running against an unchanged workpad is byte-identical (a pure read: no
+# PATCH, no timestamp, nothing time-varying in the output).
+run781 "$S781/wp-real.md" acs 999 >/dev/null; cp "$S781/out" "$S781/rerun-a"
+run781 "$S781/wp-real.md" acs 999 >/dev/null; cp "$S781/out" "$S781/rerun-b"
+assert_eq "#781: acs output is byte-identical on re-run against an unchanged workpad" "yes" \
+  "$(cmp -s "$S781/rerun-a" "$S781/rerun-b" && echo yes || echo no)"
+
+# Clean absence: exit 2 with empty stdout AND empty stderr — the empty stderr is
+# what lets Phase 0.4 tell it from argparse's own exit 2.
+_c="$(WP781_NO_WORKPAD=1 run781 "$S781/wp-real.md" acs 999)"
+assert_eq "#781: acs exits 2 when no workpad comment exists" "2" "$_c"
+assert_eq "#781: the clean-absence exit 2 leaves stdout AND stderr empty" "yes" \
+  "$([ -s "$S781/out" ] || [ -s "$S781/err" ] && echo no || echo yes)"
+# argparse's exit 2 is the same code with NON-empty stderr — the discrimination
+# Phase 0.4 applies. Without this control the empty-stderr rule is untested.
+assert_eq "#781: argparse's exit 2 on a malformed invocation carries NON-empty stderr" "yes" \
+  "$(python3 "$WP_PY" acs not-a-number >/dev/null 2>"$S781/argerr"; [ -s "$S781/argerr" ] && echo yes || echo no)"
+
+# A read failure is a DIFFERENT non-zero shape, so a gh transport blip is never
+# routed as "this PR has no workpad".
+_c="$(WP781_COMMENT_FAIL=1 run781 "$S781/wp-real.md" acs 999)"
+assert_eq "#781: acs exits 3 (not 2) on a gh read failure" "3" "$_c"
+
+# The two sentinels both yield nothing, and both must be DISTINGUISHABLE: they
+# make opposite claims about whether the issue had criteria at all.
+run781 "$S781/wp-sentinel.md" acs 999 --emit-source-token >/dev/null
+assert_eq "#781: the absence sentinel yields nothing and reports issue-body" "issue-body" "$(cat "$S781/out")"
+run781 "$S781/wp-unmirrored.md" acs 999 --emit-source-token >/dev/null
+assert_eq "#781: the un-mirrored placeholder reports a DISTINCT workpad-unmirrored token" \
+  "workpad-unmirrored" "$(cat "$S781/out")"
+run781 "$S781/wp-sentinel.md" acs 999 >/dev/null
+assert_eq "#781: a section that yields nothing prints empty stdout at exit 0" "" "$(cat "$S781/out")"
+
+# Non-canonical layout and section-termination edges.
+for _f in h3 case star; do
+  run781 "$S781/wp-$_f.md" acs 999 >/dev/null
+  assert_eq "#781: non-canonical layout ($_f) still resolves the section" \
+    '- [x] Criterion A|- [ ] Criterion B (post-merge)|- [ ] Test-plan item one' \
+    "$(tr '\n' '|' < "$S781/out" | sed 's/|$//')"
+done
+run781 "$S781/wp-colon.md" acs 999 --emit-source-token >/dev/null
+assert_eq "#781: a trailing-colon heading does NOT match (casing alone is forgiven)" "issue-body" "$(cat "$S781/out")"
+run781 "$S781/wp-noheading.md" acs 999 --emit-source-token >/dev/null
+assert_eq "#781: a missing section yields nothing" "issue-body" "$(cat "$S781/out")"
+run781 "$S781/wp-empty.md" acs 999 --emit-source-token >/dev/null
+assert_eq "#781: a present-but-empty section yields nothing" "issue-body" "$(cat "$S781/out")"
+run781 "$S781/wp-dupe.md" acs 999 >/dev/null
+assert_eq "#781: a duplicate heading does NOT concatenate — the first section wins" \
+  '- [x] Criterion A|- [ ] Criterion B (post-merge)|- [ ] Test-plan item one' \
+  "$(tr '\n' '|' < "$S781/out" | sed 's/|$//')"
+run781 "$S781/wp-subheading.md" acs 999 >/dev/null
+assert_eq "#781: a deeper ### sub-heading does NOT terminate the section" \
+  '- [x] Criterion A|- [ ] Criterion B (post-merge)|- [ ] Criterion D' \
+  "$(tr '\n' '|' < "$S781/out" | sed 's/|$//')"
+run781 "$S781/wp-trunc.md" acs 999 >/dev/null
+assert_eq "#781: a body truncated mid-section terminates the section at end-of-input" \
+  '- [x] Criterion A|- [ ] Criterion B (post-merge)|- [ ] Criterion trunc' \
+  "$(tr '\n' '|' < "$S781/out" | sed 's/|$//')"
+
+# ---- `acs-resolve` selection, source token and divergence ---------------------
+_src781() { grep '^source: ' "$S781/out" | sed 's/^source: //'; }
+_div781() { sed -n '/^divergence:$/,$p' "$S781/out" | sed '1d' | tr '\n' '|' | sed 's/|$//'; }
+
+_c="$(run781 "$S781/wp-real.md" acs-resolve 999 --pr 143)"
+assert_eq "#781: acs-resolve exits 0 on a resolvable state" "0" "$_c"
+assert_eq "#781: the workpad supplies the criteria when it resolves" "workpad" "$(_src781)"
+assert_eq "#781: the reviewer-facing value is post-merge-filtered AND box-neutralized" \
+  '- [ ] Criterion A|- [ ] Test-plan item one' \
+  "$(sed -n '/^criteria:$/,/^divergence:$/p' "$S781/out" | sed '1d;$d' | tr '\n' '|' | sed 's/|$//')"
+# `Criterion B (post-merge)` normalizes to `Criterion B`, so the tagged workpad
+# row still MATCHES the untagged issue-body row — this is the whole reason the
+# comparand is resolved unfiltered while only the reviewer-facing value is filtered.
+assert_eq "#781: a covered drop is reported as an audited DEFERRED decision, not a finding" \
+  'DEFERRED: Criterion C' "$(_div781)"
+assert_eq "#781: the post-merge tag is stripped for comparison (a tagged row still matches its untagged twin)" \
+  "no" "$(_div781 | grep -q 'Criterion B' && echo yes || echo no)"
+assert_eq "#781: a workpad-side addition (the mirrored Test-Plan item) is NEVER a finding" \
+  "no" "$(_div781 | grep -q 'Test-plan' && echo yes || echo no)"
+
+run781 "$S781/wp-rewritten.md" acs-resolve 999 --pr 143 >/dev/null
+assert_eq "#781: a rewritten record reports the text change with both texts" \
+  'CHANGED: Criterion C -> Criterion C2' "$(_div781)"
+
+run781 "$S781/wp-norecord.md" acs-resolve 999 --pr 143 >/dev/null
+assert_eq "#781: an UNCOVERED narrowing is reported as a DROP finding" 'DROP: Criterion C' "$(_div781)"
+assert_eq "#781: a narrowed workpad carrying zero records fails CLOSED to pr-identity-mismatch" \
+  "pr-identity-mismatch" "$(_src781)"
+
+run781 "$S781/wp-crosspr.md" acs-resolve 999 --pr 143 >/dev/null
+assert_eq "#781: a record naming ANOTHER PR routes to the issue body under pr-identity-mismatch" \
+  "pr-identity-mismatch" "$(_src781)"
+run781 "$S781/wp-pending.md" acs-resolve 999 --pr 143 >/dev/null
+assert_eq "#781: an UNBOUND pr=pending record covers nothing (fails closed)" \
+  "pr-identity-mismatch" "$(_src781)"
+assert_eq "#781: the pr-identity-mismatch arm falls back to the issue body's criteria" \
+  '- [ ] Criterion A|- [ ] Criterion B|- [ ] Criterion C' \
+  "$(sed -n '/^criteria:$/,/^divergence:$/p' "$S781/out" | sed '1d;$d' | tr '\n' '|' | sed 's/|$//')"
+
+run781 "$S781/wp-unmirrored.md" acs-resolve 999 --pr 143 >/dev/null
+assert_eq "#781: an un-mirrored workpad reports its own token, never the plain issue-body one" \
+  "workpad-unmirrored" "$(_src781)"
+run781 "$S781/wp-sentinel.md" acs-resolve 999 --pr 143 >/dev/null
+assert_eq "#781: the absence sentinel routes to the ordinary issue-body token" "issue-body" "$(_src781)"
+WP781_NO_WORKPAD=1 run781 "$S781/wp-real.md" acs-resolve 999 --pr 143 >/dev/null
+assert_eq "#781: a PR with no workpad at all routes to the ordinary issue-body token" "issue-body" "$(_src781)"
+_c="$(WP781_COMMENT_FAIL=1 run781 "$S781/wp-real.md" acs-resolve 999 --pr 143)"
+assert_eq "#781: a failed workpad read is ROUTED (exit 0), never a run-ending error" "0" "$_c"
+assert_eq "#781: a failed workpad read reports workpad-read-failed, never a normal issue-body resolution" \
+  "workpad-read-failed" "$(_src781)"
+
+# No criteria on EITHER surface → the gap is reported explicitly.
+printf '## Background\nnothing here\n' > "$S781/issue-empty.md"
+WP781_BODY="$S781/wp-sentinel.md" WP781_ISSUE="$S781/issue-empty.md" DEVFLOW_GH="$S781/gh" \
+  python3 "$WP_PY" acs-resolve 999 --pr 143 >"$S781/out" 2>"$S781/err"
+assert_eq "#781: neither surface supplying criteria reports the gap as 'none'" "none" "$(_src781)"
+
+# The criteria value is exempt from any line cap: the issue body's section begins
+# far past line 200 and must still resolve in full.
+{ printf '## Background\n'; for _i in $(seq 1 400); do printf 'filler line %s\n' "$_i"; done;
+  printf '\n## Acceptance Criteria\n\n- [ ] Criterion A\n- [ ] Criterion B\n- [ ] Criterion C\n'; } > "$S781/issue-long.md"
+WP781_NO_WORKPAD=1 WP781_BODY="$S781/wp-real.md" WP781_ISSUE="$S781/issue-long.md" DEVFLOW_GH="$S781/gh" \
+  python3 "$WP_PY" acs-resolve 999 --pr 143 >"$S781/out" 2>"$S781/err"
+assert_eq "#781: a criteria section beginning past line 200 resolves in full (no line cap)" \
+  '- [ ] Criterion A|- [ ] Criterion B|- [ ] Criterion C' \
+  "$(sed -n '/^criteria:$/,/^divergence:$/p' "$S781/out" | sed '1d;$d' | tr '\n' '|' | sed 's/|$//')"
+
+# ---- scope-decision record write path ----------------------------------------
+# `--bind-scope-decisions` is what makes a Phase-2 record usable at review time,
+# and its idempotency is what keeps a resumed run from re-binding to a new PR.
+assert_eq "#781: scope-decision helpers round-trip, fail closed, and bind idempotently" \
+  "pending-covers-nothing=0 bound=1 rebind-idempotent=143 undecodable=0 normalized=Criterion X" \
+  "$(python3 - "$WP_PY" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location('wp', sys.argv[1])
+wp = importlib.util.module_from_spec(spec); spec.loader.exec_module(wp)
+rec = wp._render_scope_decision('pending', 'deferred', '  Criterion   X (post-merge) ')
+bound = wp._bind_scope_decisions(rec, 143)
+rebound = wp._bind_scope_decisions(bound, 999)
+bad = '<!-- devflow:scope-decision pr=143 kind=deferred text=!!!! -->'
+print(
+    f"pending-covers-nothing={len(wp._parse_scope_decisions(rec, 143))} "
+    f"bound={len(wp._parse_scope_decisions(bound, 143))} "
+    f"rebind-idempotent={143 if wp._parse_scope_decisions(rebound, 143) else 0} "
+    f"undecodable={len(wp._parse_scope_decisions(bad, 143))} "
+    f"normalized={wp._parse_scope_decisions(bound, 143)[0]['text']}"
+)
+PY
+)"
+# A malformed PR value or an empty criterion text is STRUCTURAL — no record is
+# written at all, rather than one that silently covers the wrong row (or none).
+assert_eq "#781: a malformed scope-decision PR value aborts structurally" "yes" \
+  "$(python3 - "$WP_PY" <<'PY'
+import argparse, importlib.util, sys
+spec = importlib.util.spec_from_file_location('wp', sys.argv[1])
+wp = importlib.util.module_from_spec(spec); spec.loader.exec_module(wp)
+ok = []
+for args in (argparse.Namespace(scope_decision_deferred=[('not-a-pr', 'X')], scope_decision_rewritten=[]),
+             argparse.Namespace(scope_decision_deferred=[('143', '   ')], scope_decision_rewritten=[])):
+    try:
+        wp._render_scope_decisions(args); ok.append(False)
+    except wp._UpdateError:
+        ok.append(True)
+print('yes' if all(ok) else 'no')
+PY
+)"
+
+# The extractor must read the IMPLEMENT workpad marker and expose no channel
+# through which /devflow:review's own `devflow:review-progress` marker could
+# reach it — so neither acs subcommand accepts --marker.
+assert_eq "#781: neither acs subcommand exposes a --marker override" "yes" \
+  "$(python3 "$WP_PY" acs 1 --marker x >/dev/null 2>&1; _a=$?; \
+     python3 "$WP_PY" acs-resolve 1 --pr 1 --marker x >/dev/null 2>&1; _b=$?; \
+     [ "$_a" = 2 ] && [ "$_b" = 2 ] && echo yes || echo no)"
+
+# The parsing rules are SINGLE-SOURCED: both helpers import them, so a rule
+# change lands in one place and the mirror can never disagree with the read-back.
+assert_eq "#781: parse-acs.py and workpad.py both import the shared section_parse module" "yes" \
+  "$(grep -q '^from section_parse import' "$LIB/../scripts/parse-acs.py" \
+     && grep -q '^from section_parse import' "$WP_PY" \
+     && [ ! -s "$(mktemp)" ] && echo yes || echo no)"
+assert_eq "#781: parse-acs.py no longer carries its own copy of the section-extraction rule" "yes" \
+  "$(grep -q 'def _extract_section' "$LIB/../scripts/parse-acs.py" && echo no || echo yes)"
+rm -rf "$S781"
+
+# ── issue #781: workpad-sourced acceptance criteria — prompt-surface pins ─────
+# Every pin below is a BEHAVIORAL-FIX pin: its mutation re-introduces a NAMED
+# defect by removing only the operative sentence, so a framing-only pin that
+# survived the mutation would be reported RED. `$ST_REV` is the concatenated
+# review bundle (a sentence may move between references without breaking a pin);
+# `$IMPL_SKILL_BUNDLE` is the implement bundle. `$RAF_SHADOW781` targets the
+# shadow reference, which belongs to neither bundle.
+RAF_SHADOW781="$LIB/../skills/review-and-fix/references/shadow-review.md"
+
+# Defect restored: the issue number is derived from the PR body / branch name even
+# when the caller supplied one, so a caller-supplied --issue is compared against a
+# derivation instead of suppressing it — and a PR whose closes-reference was dropped
+# still resolves nothing.
+assert_pin_red_under "#781: Phase 0.4 states the issue-number precedence, caller value first" \
+  'a caller-supplied `--issue N` value (bound as `$ISSUE_OVERRIDE` by the two skill roots), then the PR body' \
+  's/a caller-supplied `--issue N` value \(bound as `\$ISSUE_OVERRIDE` by the two skill roots\), then the PR body/the PR body/' \
+  "$ST_REV"
+
+# Defect restored: the engine reads requirements off the issue body again, so a run
+# that narrowed (2.2.5), rewrote (2.2.6) or retagged (3.4) its criteria is judged
+# against the superseded set — a REJECT for descoped work.
+assert_pin_red_under "#781: Phase 0.4 sources the criteria from the workpad, not the issue body" \
+  'so the criteria this engine judges against are resolved by `scripts/workpad.py acs-resolve`, never read off the issue body directly' \
+  's/so the criteria this engine judges against are resolved by `scripts\/workpad\.py acs-resolve`, never read off the issue body directly//' \
+  "$ST_REV"
+
+# Defect restored: the blind 200-line cap applies to the criteria too, so on a long
+# body — DevFlow's own house style puts Background and Evidence ahead of the criteria
+# — the whole section is dropped and compliance runs against zero criteria.
+assert_pin_red_under "#781: the criteria value is exempt from the 200-line truncation" \
+  'The 200-line truncation bounds `issue_context` alone and never the acceptance-criteria value' \
+  's/The 200-line truncation bounds `issue_context` alone and never the acceptance-criteria value, which `acs-resolve` locates structurally and carries in full however far into the body its section begins\.//' \
+  "$ST_REV"
+
+# Defect restored: the criteria reach the merge-gating judge carrying their tick
+# column — a specification pre-annotated by the party being judged, and (per the
+# shadow reference) a smuggled fix decision.
+assert_pin_red_under "#781: Phase 0.4 injects the criteria box-neutralized" \
+  'shipping the box column would hand the merge-gating judge a specification pre-annotated by the party it is judging' \
+  's/shipping the box column would hand the merge-gating judge a specification pre-annotated by the party it is judging/the box column is carried through/' \
+  "$ST_REV"
+
+# Defect restored: a gh transport blip and a legitimately criteria-less workpad
+# collapse onto one report line, so a failed read presents as a normal issue-body
+# resolution and a run whose mirroring silently failed reads like an ordinary
+# non-implement PR.
+assert_pin_red_under "#781: the six source tokens are reported distinctly (read-failure and un-mirrored routing)" \
+  '`workpad-read-failed` is a transport failure that must not present as a normal issue-body resolution' \
+  's/, and `workpad-read-failed` is a transport failure that must not present as a normal issue-body resolution//' \
+  "$ST_REV"
+assert_pin_red_under "#781: Phase 4 refuses to collapse two source wordings" \
+  'the six wordings are deliberately distinct and collapsing any two destroys the signal this section carries' \
+  's/ — the six wordings are deliberately distinct and collapsing any two destroys the signal this section carries//' \
+  "$ST_REV"
+
+# Defect restored: divergence is compared over raw section text, so every implement
+# PR reports divergence (the workpad carries post-merge tags and mirrored Test-Plan
+# items the issue body does not) and the notice carries no signal.
+assert_pin_red_under "#781: the divergence predicate is defined over normalized criterion sets" \
+  'NORMALIZED criterion sets — ` (post-merge)` tag stripped, tick state ignored, whitespace collapsed — and never over raw section text' \
+  's/NORMALIZED criterion sets — ` \(post-merge\)` tag stripped, tick state ignored, whitespace collapsed — and never over raw section text/the two section texts/' \
+  "$ST_REV"
+
+# Defect restored: an audited scope decision is re-raised as a finding (or, worse,
+# an unexplained drop is laundered as audited) because the check reads the
+# agent-authored free-text note instead of the delimited record.
+assert_pin_red_under "#781: the membership check reads the delimited record, never the free-text note" \
+  'the check reads the delimited scope-decision record the run writes and never its free-text note' \
+  's/ — the check reads the delimited scope-decision record the run writes and never its free-text note//' \
+  "$ST_REV"
+assert_pin_red_under "#781: an uncovered drop is a finding while a recorded decision is not" \
+  'a criterion the issue body carries that the workpad set dropped with no recorded decision behind it and IS a finding' \
+  's/that the workpad set dropped with no recorded decision behind it and IS a finding/that the workpad set dropped/' \
+  "$ST_REV"
+
+# Defect restored: a workpad-side addition is reported as divergence, so every
+# implement PR raises the mirrored ## Test Plan items as findings.
+assert_pin_red_under "#781: a workpad-side addition is never a finding" \
+  'A criterion present in the workpad and absent from the issue body is never a finding' \
+  's/A criterion present in the workpad and absent from the issue body is never a finding and is never reported/Report a criterion present in the workpad and absent from the issue body/' \
+  "$ST_REV"
+
+# Defect restored: a run that resolved an issue but no criteria reports the
+# compliance check as SKIPPED rather than as a gap, so the absence is invisible.
+assert_pin_red_under "#781: a criteria-less run reports a gap, never a skipped check" \
+  'the second one never claims the compliance check was skipped, because criteria-less is a reportable gap while issue-less is an absent subject' \
+  's/ \*\*These two states are distinct and the second one never claims the compliance check was skipped, because criteria-less is a reportable gap while issue-less is an absent subject\*\*//' \
+  "$ST_REV"
+
+# Defect restored: the final-pass reviewer gets ONE Plan/Requirements slot again,
+# whose winning arm at Phase 3.3 is the thin placeholder PR body — so the
+# merge-gating judge reviews against a placeholder and the issue-body arm is
+# unreachable.
+assert_pin_red_under "#781: the final-pass prompt carries a separate acceptance-criteria line" \
+  'Acceptance criteria — THE SPECIFICATION this PR must satisfy' \
+  's/^- Acceptance criteria — THE SPECIFICATION this PR must satisfy.*$//' \
+  "$ST_REV"
+assert_pin_red_under "#781: the final-pass PR-description line is labelled as the author's account" \
+  "PR description — the AUTHOR'S ACCOUNT of the change, not the specification" \
+  "s/^- PR description — the AUTHOR'S ACCOUNT of the change, not the specification.*\$//" \
+  "$ST_REV"
+assert_pin_red_under "#781: neither requirements line's absence suppresses the other" \
+  'an absent PR body never suppresses the acceptance-criteria line, and absent criteria never suppress the PR-description line' \
+  's/ The two lines are independent: an absent PR body never suppresses the acceptance-criteria line, and absent criteria never suppress the PR-description line\.//' \
+  "$ST_REV"
+
+# Defect restored: the Phase-4.4 verdict-post gate reads the RAW argument string, so
+# `"123 --issue 456"` fails the is-a-PR-number test, Phase 4.4 never runs, and the
+# merge-blocking `gh pr review --request-changes` post is silently skipped.
+assert_pin_red_under "#781: Phase 4.4's verdict-post gate reads the parsed \$PR_NUMBER" \
+  '**If — and only if — `$PR_NUMBER` is a PR number**' \
+  's/\*\*If — and only if — `\$PR_NUMBER` is a PR number\*\*/**If — and only if — `$ARGUMENTS` is a PR number**/' \
+  "$ST_REV"
+assert_pin_red_under "#781: the root's Phase-4.4 routing row reads the parsed \$PR_NUMBER" \
+  '**standalone only, PR mode only** (`$PR_NUMBER` is non-empty)' \
+  's/\*\*standalone only, PR mode only\*\* \(`\$PR_NUMBER` is non-empty\)/**standalone only, PR mode only** (`$ARGUMENTS` is a PR number)/' \
+  "$ST_REV"
+assert_pin_red_under "#781: the Phase-0.2 metadata fence reads the parsed \$PR_NUMBER" \
+  'gh pr view $PR_NUMBER --json headRefName,baseRefName,baseRefOid,headRefOid' \
+  's/gh pr view \$PR_NUMBER --json headRefName,baseRefName,baseRefOid,headRefOid/gh pr view $ARGUMENTS --json headRefName,baseRefName,baseRefOid,headRefOid/' \
+  "$ST_REV"
+# Defect restored: the quoted extended string reaches dismiss-stale-rejections.sh as
+# ONE argv element, matching no PR, so the stale-REJECT dismissal silently no-ops
+# after an APPROVE and the PR stays wedged at CHANGES_REQUESTED.
+assert_pin_red_under "#781: the stale-REJECT dismissal is passed the parsed \$PR_NUMBER" \
+  'the quoted form reaches `dismiss-stale-rejections.sh` as a single argv element' \
+  's/, so an extended argument string is handed over whole, matches no PR, and the stale-REJECT dismissal silently no-ops after an APPROVE//' \
+  "$ST_REV"
+
+# The three shadow-review reconciliations. Defect restored in each case: the shadow
+# fan-out carries the criteria while a rule still bars them, so every shadow prompt
+# is a non-permitted composition, records a prompt_addenda entry, and can never
+# return `shadow agreed, full coverage` — the only token clearing §3.3's re-review.
+assert_pin_red_under "#781: the shadow blind-every-prompt bullets do NOT withhold the criteria" \
+  'Carry the resolved acceptance criteria — they are not withheld.' \
+  's/^- \*\*Carry the resolved acceptance criteria — they are not withheld\.\*\*.*$//' \
+  "$RAF_SHADOW781"
+assert_pin_red_under "#781: the criteria block is a named permitted shadow-prompt class" \
+  'a further **named permitted class** of that composition' \
+  's/ Phase 0\.4.s resolved acceptance-criteria block is a further \*\*named permitted class\*\* of that composition, on the same footing as the verbatim per-agent prompt and the permitted diff artifacts\.//' \
+  "$RAF_SHADOW781"
+assert_pin_red_under "#781: the Blinding boundary excepts the criteria block, and only it" \
+  'is the single exception to that boundary' \
+  's/ \*\*Phase 0\.4.s resolved acceptance-criteria block is the single exception to that boundary\*\* — it is carried although it is workpad-sourced, because a specification is not loop state[^.]*\.//' \
+  "$RAF_SHADOW781"
+assert_pin_red_under "#781: the shadow exception is sound only because the block is box-neutralized" \
+  'shipping the box column would smuggle exactly the loop state this boundary bars' \
+  's/, so shipping the box column would smuggle exactly the loop state this boundary bars//' \
+  "$RAF_SHADOW781"
+
+# Defect restored at ONE of the two coupled implement-side invocation sites: the
+# engine is invoked with no issue number, so Phase 0.4 falls back to deriving one
+# and the run's own criteria are never handed over. The re-review's text says it
+# uses the "same args", so a single-site edit ships an inconsistency.
+assert_pin_red_under "#781: implement §3.3's initial review passes --issue" \
+  'and `args: "--push-each-iteration --issue $ISSUE_NUMBER"`' \
+  's/and `args: "--push-each-iteration --issue \$ISSUE_NUMBER"`/and `args: "--push-each-iteration"`/' \
+  "$IMPL_SKILL_BUNDLE"
+assert_pin_red_under "#781: implement §3.3's bounded re-review passes --issue at its own site" \
+  'same `args: "--push-each-iteration --issue $ISSUE_NUMBER"`' \
+  's/same `args: "--push-each-iteration --issue \$ISSUE_NUMBER"`/same `args: "--push-each-iteration"`/' \
+  "$IMPL_SKILL_BUNDLE"
+
+# Defect restored: a Phase-2 scope-decision record is never bound to the PR, so it
+# still reads pr=pending at review time, covers nothing, and every audited
+# narrowing is re-raised as an unexplained DROP finding.
+assert_pin_red_under "#781: implement §3.1 binds the pending scope-decision records to the draft PR" \
+  '--bind-scope-decisions <draft-pr-number>' \
+  's/ --bind-scope-decisions <draft-pr-number>//' \
+  "$IMPL_SKILL_BUNDLE"
+# Defect restored: §3.4's retroactive (post-merge) retag changes AC text with no
+# record, so the criterion it rewrote reaches the engine as an unexplained text
+# change — and the retag runs before the post-push standalone review.
+assert_pin_red_under "#781: implement §3.4's retag emits its own rewritten scope-decision record" \
+  'This retag is a text-changing writer exactly like §2.2.6, so it emits its own `--scope-decision-rewritten` record in the same call' \
+  's/\*\*This retag is a text-changing writer exactly like §2\.2\.6, so it emits its own `--scope-decision-rewritten` record in the same call — with this PR.s real number, never `pending`, since the PR exists by §3\.4\.\*\*//' \
+  "$IMPL_SKILL_BUNDLE"
+# Defect restored: the load-bearing assumption ships without its falsifier, so a
+# future writer that changes membership or text without a record silently makes the
+# whole comparand untrustworthy while every check still reads green.
+assert_pin_red_under "#781: the workpad-comparand assumption ships with its falsifier" \
+  'falsified if any writer path can change the set.s membership or a criterion.s text without emitting a scope-decision record' \
+  's/ The assumption is falsified if any writer path can change the set.s membership or a criterion.s text without emitting a scope-decision record\.//' \
+  "$IMPL_SKILL_BUNDLE"
+
+# Defect restored: rank 1 gains a real producer with no sub-cap, so an issue
+# carrying dozens of criteria consumes the whole 100-item cap and evicts the
+# absolute_claim / dependency_interaction / test_mock_alignment items §1.1.5 itself
+# calls the load-bearing signal.
+assert_pin_red_under "#781: §1.1.5 caps the rank-1 acceptance-criterion population" \
+  '`issue_acceptance` items occupy **at most 25** of the 100 kept items' \
+  's/`issue_acceptance` items occupy \*\*at most 25\*\* of the 100 kept items, and the remaining 75 are filled from ranks 2 through 6 in the order above\.//' \
+  "$ST_REV"
+assert_pin_red_under "#781: the sub-cap's action is announced, not merely inferred" \
+  'issue_acceptance kept: {A} of 25' \
+  's/ issue_acceptance kept: \{A\} of 25;//' \
+  "$ST_REV"
+# Defect restored: the criteria arrive as ordinary narrative, so the generator emits
+# no item tagged issue_acceptance and the rank-1 category stays empty — the exact
+# defect this issue names.
+assert_pin_red_under "#781: §1.2 injects the criteria as a labelled specification block" \
+  'The block below is this PR.s specification — not background, and not the narrative issue body' \
+  's/The block below is this PR.s specification — not background, and not the narrative issue body\.//' \
+  "$ST_REV"
+
+# The category enum lives in the agent definition, which is in NEITHER bundle.
+assert_pin_red_under "#781: the checklist-generator category enum carries issue_acceptance" \
+  'absolute_claim | issue_acceptance' \
+  's/absolute_claim \| issue_acceptance/absolute_claim/' \
+  "$LIB/../agents/checklist-generator.md"
+
 # ── issue #356: 💥 Failed terminal workpad status + dead-run flips ─────────────
 # A cloud run that dies (job failure/cancel/exhausted auto-resume) must stop its
 # Status-bearing comment lying. Two flips, one vocabulary each:

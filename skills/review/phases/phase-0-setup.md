@@ -33,16 +33,18 @@ fi
 # END CURRENT_BRANCH_BASE_CAPTURE
 ```
 
-**If `$ARGUMENTS` is a PR number:**
+**Every command in this file interpolates the parsed `$PR_NUMBER` — the numeric token the skill root extracted from `$ARGUMENTS` — and never the raw `$ARGUMENTS`, because an argument string carrying a further token (e.g. `--issue N`) makes `gh pr view` exit non-zero on the unknown flag and the Phase-0.2 failure arm below kills the run before any phase executes.**
+
+**If `$PR_NUMBER` is a PR number:**
 ```bash
-gh pr diff $ARGUMENTS
-gh pr view $ARGUMENTS --json headRefName,baseRefName,baseRefOid,headRefOid --jq '.'
+gh pr diff $PR_NUMBER
+gh pr view $PR_NUMBER --json headRefName,baseRefName,baseRefOid,headRefOid --jq '.'
 ```
 If either command fails (non-zero exit code), stop immediately and report: "Failed to retrieve diff. Verify the PR number exists and you have required permissions."
 
 Use the PR diff output for Phase 1. Store the head branch name, `baseRefOid` as `$PR_BASE_SHA`, `baseRefName` as `$PR_BASE_BRANCH` (the PR's own base ref, used by the head-override diff below; the name avoids the `BASE_REF` substring the `lib/test/run.sh` #424 grep-c pin forbids, mirroring `lib/fetch-pr-context.sh`), and `headRefOid` as `$PR_HEAD_SHA` — the head-override diff below, Phase 0.3.6's blocker-recheck fast path, and Phase 4's `Reviewed HEAD` line all need them. `$PR_BASE_SHA` (the immutable run-start `baseRefOid`) is retained as the deleted-base fallback below and the reviewer-prompt `Base SHA:` line.
 
-**Caller head-override (fix-loop reuse).** A wrapping skill (currently `/devflow:review-and-fix`) may pass `head_override = local`. When set, take the PR's head from the local working tree instead of the API: set `$PR_HEAD_SHA=$(git rev-parse HEAD)` and fetch the diff with `git diff "origin/$PR_BASE_BRANCH...HEAD"` (three-dot) instead of `gh pr diff $ARGUMENTS`. **The base is the PR's own base ref `$PR_BASE_BRANCH` (its current fetched tip), not the run-start `$PR_BASE_SHA`** — matching `gh pr diff`'s non-override semantics, so a base commit an in-loop Checkpoint-3 (`scripts/update-branch-checkpoint.sh`) merges into the PR head mid-loop is excluded, not attributed as PR-added content (issue #503: once the merge made the stale run-start `baseRefOid` an ancestor, `merge-base(baseRefOid, HEAD)` collapsed to `baseRefOid`, degenerating the three-dot diff to `baseRefOid..HEAD` and sweeping in every newer base commit as PR-added). This lets a fix loop review locally-committed but unpushed commits — the remote `headRefOid` would otherwise lag and re-review pre-fix code. It requires the PR's head branch checked out; the caller guarantees this (review-and-fix Step 0.5). When `head_override` is absent (standalone `/devflow:review`, the default) use the API head as above; do **not** diff against local `HEAD`, since a standalone review must reflect the pushed PR state, not a dirty or stale checkout.
+**Caller head-override (fix-loop reuse).** A wrapping skill (currently `/devflow:review-and-fix`) may pass `head_override = local`. When set, take the PR's head from the local working tree instead of the API: set `$PR_HEAD_SHA=$(git rev-parse HEAD)` and fetch the diff with `git diff "origin/$PR_BASE_BRANCH...HEAD"` (three-dot) instead of `gh pr diff $PR_NUMBER`. **The base is the PR's own base ref `$PR_BASE_BRANCH` (its current fetched tip), not the run-start `$PR_BASE_SHA`** — matching `gh pr diff`'s non-override semantics, so a base commit an in-loop Checkpoint-3 (`scripts/update-branch-checkpoint.sh`) merges into the PR head mid-loop is excluded, not attributed as PR-added content (issue #503: once the merge made the stale run-start `baseRefOid` an ancestor, `merge-base(baseRefOid, HEAD)` collapsed to `baseRefOid`, degenerating the three-dot diff to `baseRefOid..HEAD` and sweeping in every newer base commit as PR-added). This lets a fix loop review locally-committed but unpushed commits — the remote `headRefOid` would otherwise lag and re-review pre-fix code. It requires the PR's head branch checked out; the caller guarantees this (review-and-fix Step 0.5). When `head_override` is absent (standalone `/devflow:review`, the default) use the API head as above; do **not** diff against local `HEAD`, since a standalone review must reflect the pushed PR state, not a dirty or stale checkout.
 
 **Resolve the head-override base ref before diffing (mirrors `scripts/update-branch-checkpoint.sh`).** The checked arms below refresh the PR's base through an explicit refspec (including names with `/`), retry a shallow merge-base failure once after `--unshallow`, select the immutable run-start SHA only when the named base has disappeared, and make a retargeted/stacked PR's residual visible. Every terminal failure removes candidate and prior caches before stopping; the wrapping `/devflow:implement` run records that stop as **Blocked**, a standalone run stops and reports it.
 
@@ -126,7 +128,7 @@ If the diff is empty, report: "No changes to review. Branch is identical to $BAS
 
 **Cache the diff to disk.** Write the diff fetched above to `.devflow/tmp/review/<slug>/<run-id>/diff.patch` — **fetch once, do not re-run `gh pr diff` / `git diff`**. Compute `<slug>`:
 
-- **PR mode:** `pr-<N>` where `<N>` is the PR number from `$ARGUMENTS`.
+- **PR mode:** `pr-<N>` where `<N>` is the parsed `$PR_NUMBER`.
 - **Current-branch mode:** the current branch name sanitized for filesystem use — replace `/` with `-`, lowercase, drop any character that isn't `[a-z0-9._-]`. (Matches the workpad slug convention `/devflow:review-and-fix` already uses.)
 
 and `<run-id>` per "Caller run-id" above (caller-provided when wrapped, else computed once here).
@@ -135,7 +137,7 @@ Combine the fetch with the cache write in one shot using `tee` so the diff is ca
 
 ```bash
 mkdir -p .devflow/tmp/review/<slug>/<run-id>
-gh pr diff $ARGUMENTS | awk '/^diff --git/{in_logs=/ [ab]\/\.devflow\/logs\//} !in_logs' | tee .devflow/tmp/review/<slug>/<run-id>/diff.patch
+gh pr diff $PR_NUMBER | awk '/^diff --git/{in_logs=/ [ab]\/\.devflow\/logs\//} !in_logs' | tee .devflow/tmp/review/<slug>/<run-id>/diff.patch
 # or, in current-branch mode ($BASE from the guarded config-get capture above):
 # git diff "origin/$BASE...HEAD" | awk '/^diff --git/{in_logs=/ [ab]\/\.devflow\/logs\//} !in_logs' | tee .devflow/tmp/review/<slug>/<run-id>/diff.patch
 # In either local-diff mode, use this checked candidate/promote form.
@@ -189,15 +191,23 @@ In PR mode, and when `devflow_review.live_progress_comment_enabled` is `true` (r
 
 **Phase 0.3.6 runs at this seam — after 0.3.5, before 0.4 — when its gate is met**; on a hit it ends the run, so 0.4/0.5 never run.
 
-### 0.4 Discover related GitHub issue
+### 0.4 Discover related GitHub issue and resolve its acceptance criteria
 
-Attempt to find the related issue number using these methods in order:
+**Resolve the issue number in this precedence: a caller-supplied `--issue N` value (bound as `$ISSUE_OVERRIDE` by the two skill roots), then the PR body's `Resolves`/`Fixes`/`Closes` reference, then the `issue-{N}` branch-name pattern.** A caller-supplied value **suppresses** both derivations — it is not run alongside them and never compared against them:
+
+```bash
+if test -n "${ISSUE_OVERRIDE:-}"; then
+  ISSUE_NUM=$(printf '%s' "$ISSUE_OVERRIDE")
+fi
+```
+
+If `$ISSUE_NUM` is still empty, attempt the derivations below in order.
 
 **From PR body** (look for `Resolves #N`, `Fixes #N`, or `Closes #N`):
 
 If a PR number was provided:
 ```bash
-ISSUE_NUM=$(gh pr view $ARGUMENTS --json body --jq '.body' | grep -oiE '(resolves|fixes|closes)[[:space:]]+#[0-9]+' | grep -oE '[0-9]+' | head -1)
+ISSUE_NUM=$(gh pr view $PR_NUMBER --json body --jq '.body' | grep -oiE '(resolves|fixes|closes)[[:space:]]+#[0-9]+' | grep -oE '[0-9]+' | head -1)
 ```
 
 If no PR number:
@@ -220,9 +230,49 @@ If an issue number was found, fetch the issue:
 gh issue view $ISSUE_NUM --json title,body
 ```
 
-**Truncation rule:** Only use the **first 200 lines** of the issue body — the summary and desired behavior, skipping excessive implementation detail.
+**Truncation rule:** Only use the **first 200 lines** of the issue body for the narrative `issue_context` — the summary and desired behavior, skipping excessive implementation detail. **The 200-line truncation bounds `issue_context` alone and never the acceptance-criteria value, which `acs-resolve` locates structurally and carries in full however far into the body its section begins.**
 
-Store the issue title and truncated body as `issue_context`. If no issue was found, set `issue_context` to empty and note: "No related issue found — skipping issue compliance check."
+Store the issue title and truncated body as `issue_context`.
+
+#### Resolve the acceptance criteria
+
+`/devflow:implement`'s authoritative acceptance criteria live in the **workpad comment**, not the issue body — Phase 2.2.5 narrows them, Phase 2.2.6 rewrites their text, and Phase 3.4 retags them — so the criteria this engine judges against are resolved by `scripts/workpad.py acs-resolve`, never read off the issue body directly. That helper does all of the resolution deterministically in one process (it fetches the issue body itself, resolves both surfaces, retains the non-selected set as the divergence comparand, resolves the workpad section twice, runs the PR-identity guard, and selects the reviewer-facing value); do not re-derive any part of it here — its contract is its `--help` and its module docstring.
+
+When `$ISSUE_NUM` resolved, call it:
+
+```bash
+case "${ISSUE_NUM:-}" in
+  ''|*[!0-9]*)
+    # Non-numeric (or absent) issue number: argparse would exit 2, indistinguishable from a
+    # clean-absence exit. Refuse the call.
+    ACS_OUT=""
+    echo "::warning::devflow review: issue number '${ISSUE_NUM:-}' is not numeric — refusing the workpad.py acs-resolve call; continuing without resolved acceptance criteria" >&2 ;;
+  *)
+    if [ ! -r "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py ]; then
+      ACS_OUT=""
+      echo "::warning::devflow review: workpad.py is missing or unreadable — cannot resolve acceptance criteria; continuing without them" >&2
+    # In PR mode pass `--pr "$PR_NUMBER"`; in current-branch mode OMIT the flag
+    # entirely rather than passing an empty value (argparse would reject it, and
+    # there is no PR for a scope-decision record to bind to anyway — the guard
+    # then fails closed to pr-identity-mismatch on a narrowed workpad).
+    elif ACS_OUT=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py acs-resolve "$ISSUE_NUM" --pr "$PR_NUMBER" 2>.devflow/tmp/review/<slug>/<run-id>/acs.err); then
+      :                                   # rc 0 — a resolved state; the source token names which surface
+    else
+      ACS_OUT=""
+      echo "::warning::devflow review: acs-resolve rc≠0 (rc 3 = the issue body itself could not be read): $(cat .devflow/tmp/review/<slug>/<run-id>/acs.err 2>/dev/null); continuing without resolved acceptance criteria" >&2
+    fi ;;
+esac
+```
+
+**Discriminate a clean absence from a usage error by stderr: an exit 2 with EMPTY stderr is the helper's own clean-absence exit, while argparse's exit 2 on a malformed invocation always writes a diagnostic** — the same discrimination `skills/review/SKILL.md` applies to its own `workpad.py id` call (screens S1–S3 there), which is why the numeric guard and the readability pre-check above run *before* the call rather than after it. `acs-resolve` itself exits 0 on every resolvable state, including an absent or unreadable workpad, which it routes as an outcome carrying its own source token rather than as a run-ending error.
+
+Store the helper's three output blocks under exactly these run-scoped names, which later phases consume: `acceptance_criteria` (the reviewer-facing criteria block from the `criteria:` section), `acceptance_criteria_source` (the `source:` token), and `acceptance_criteria_divergence` (the `divergence:` lines). **The criteria are injected with box state neutralized — a tick is Phase 3.4's assertion by the author of the code under review that the criterion is satisfied, so shipping the box column would hand the merge-gating judge a specification pre-annotated by the party it is judging** (the helper has already applied both the post-merge filter and the box neutralization to this value; apply neither again).
+
+`acceptance_criteria_source` is exactly one of `workpad`, `issue-body`, `workpad-unmirrored`, `workpad-read-failed`, `pr-identity-mismatch`, or `none`, and **Phase 4 reports each of the six distinctly** — in particular `workpad-unmirrored` (Phase 1.2 mirroring never ran) is the *opposite* claim from a legitimately empty section and must never be reported in the wording used for a PR that simply has no workpad, and `workpad-read-failed` is a transport failure that must not present as a normal issue-body resolution.
+
+**On the local/interactive tier the permission classifier denies a helper invoked by path, so a desk run reaches the fallback arm above rather than the workpad — the same arm a non-DevFlow PR takes — and the degradation stays visible rather than silent because Phase 4 names the surface the criteria came from.**
+
+If **no issue number resolved at all**, set `issue_context` and `acceptance_criteria` to empty, set `acceptance_criteria_source` to `none`, and note: "No related issue found — skipping issue compliance check." If an issue **did** resolve but no criteria did (`acceptance_criteria_source` is `none` from the helper, or the call was refused above), keep `issue_context` and note instead: "Issue #$ISSUE_NUM resolved but no acceptance criteria were found on either surface — issue compliance is reported as a gap, not skipped." **These two states are distinct and the second one never claims the compliance check was skipped, because criteria-less is a reportable gap while issue-less is an absent subject** — Phase 4's `## Issue Compliance` arms are the coupled mirror of this distinction and are edited with it.
 
 ### 0.5 Classify the diff and decide the engine profile
 

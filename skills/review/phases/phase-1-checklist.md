@@ -35,14 +35,16 @@ Merge the resulting checklists by concatenating all items. If batching ran (>1 b
 ### 1.1.5 Cap and prioritize
 
 If the merged-and-deduped checklist exceeds **100** items, sort by priority and keep the top 100:
-1. Items whose claim cites an issue acceptance criterion (highest yield — these failing means the PR doesn't deliver the feature).
+1. `issue_acceptance` items — items whose claim cites an issue acceptance criterion (highest yield — these failing means the PR doesn't deliver the feature).
 2. `absolute_claim` items (a diff-added universal the reviewer must *falsify* by constructing the offending input — the highest-value target because reading it confirms nothing; see `agents/checklist-generator.md`).
 3. `dependency_interaction` items (cross-boundary contracts — highest drift risk).
 4. `test_mock_alignment` items (mocks-vs-real divergence, a classic PR-killer).
 5. `api_contract` items.
 6. `data_format_assumption` items.
 
-Drop items below the cap — a cost cap: every item triggers a verifier subagent in Phase 2. Medium PRs have produced 150+ items on doc-heavy diffs, but the load-bearing signal (cross-boundary contracts, mock-vs-real divergence, issue acceptance) is usually captured well within 100. Announce the cap in chat: `Capped checklist at 100 of {N} items (dropped {M} items by category: dependency_interaction: K1, api_contract: K2, ...; priority kept: issue-acceptance, dependency_interaction, ...).` so the reader sees which categories took the hit, not merely that coverage was truncated. (In `/devflow:review-and-fix` mode this data also lands in the workpad's `cap_drops` block and the report's `## Coverage` section; in standalone `/devflow:review` runs the chat announcement is the only surface.)
+**Sub-cap on rank 1:** `issue_acceptance` items occupy **at most 25** of the 100 kept items, and the remaining 75 are filled from ranks 2 through 6 in the order above. Without this sub-cap an issue carrying dozens of criteria lets rank 1 consume the whole cap and evict the `absolute_claim`, `dependency_interaction`, and `test_mock_alignment` items this section calls the load-bearing signal — rank 1 had no producer until Phase 1.2 gained its acceptance-criteria block, so the eviction is a new hazard, not a historical one. An `issue_acceptance` item dropped by this sub-cap is counted in the drop summary's `by_category` map under the `issue_acceptance` key exactly like any other drop.
+
+Drop items below the cap — a cost cap: every item triggers a verifier subagent in Phase 2. Medium PRs have produced 150+ items on doc-heavy diffs, but the load-bearing signal (cross-boundary contracts, mock-vs-real divergence, issue acceptance) is usually captured well within 100. Announce the cap in chat: `Capped checklist at 100 of {N} items (dropped {M} items by category: dependency_interaction: K1, api_contract: K2, ...; issue_acceptance kept: {A} of 25; priority kept: issue-acceptance, dependency_interaction, ...).` so the reader sees which categories took the hit, not merely that coverage was truncated. That announcement reports the `issue_acceptance kept: {A} of 25` count alongside the per-category drops, so a reader sees the sub-cap acting rather than inferring it. (In `/devflow:review-and-fix` mode this data also lands in the workpad's `cap_drops` block and the report's `## Coverage` section; in standalone `/devflow:review` runs the chat announcement is the only surface.)
 
 **Record what was dropped.** When the cap fires, return a per-category summary of dropped items so the orchestrator can surface coverage gaps (the fix-loop wrapper also records it in the workpad — see `cap_drops` in `/devflow:review-and-fix`'s workpad schema). Compute and return alongside the truncated checklist:
 
@@ -89,6 +91,16 @@ Title: {issue_title}
 Body (first 200 lines):
 {truncated_issue_body}
 </issue>
+```
+
+**If `acceptance_criteria` is not empty**, append this to the prompt as well — this block and the `issue_context` block above are gated independently, and neither block's absence suppresses the other:
+
+```
+The block below is this PR's specification — not background, and not the narrative issue body. It carries the acceptance criteria resolved for this run (Phase 0.4), already post-merge-filtered and rendered box-neutral. Emit one checklist item per criterion listed below, each tagged `"category": "issue_acceptance"`, with a claim that cites that criterion. The `<issue>` block above, when present, is background that orients you; this block is what the PR must deliver.
+
+<acceptance_criteria source="{acceptance_criteria_source}">
+{acceptance_criteria}
+</acceptance_criteria>
 ```
 
 **If the caller is `/devflow:review-and-fix` on iteration N≥2** (the fix-loop wrapper supplies `prior_checklist` from `iter-<N-1>.json`), append this to the prompt:

@@ -56,11 +56,15 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Shared section/checkbox parsing rules (issue #781). Imported IN-PROCESS from
-# the sibling module — `scripts/` is `sys.path[0]` when this file runs as a
-# script, so no path manipulation is needed, and never a `.sh`/subprocess hop
-# (Windows refuses that with [WinError 193] — issue #275).
-from section_parse import extract_section, parse_checkboxes
+# Shared section/checkbox parsing rules (issue #781), imported IN-PROCESS from
+# the sibling module — never a `.sh`/subprocess hop (Windows refuses that with
+# [WinError 193], issue #275). The explicit `sys.path` entry is load-bearing:
+# running this file as a script puts `scripts/` on the path for free, but a
+# consumer loading it through `importlib.util.spec_from_file_location` (how
+# `lib/test/test_python_scripts.py` drives this directory's helpers) does not.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from section_parse import extract_section, parse_checkboxes  # noqa: E402
 
 # The gh binary to shell out to. `DEVFLOW_GH` (the documented override the shell
 # helpers resolve via lib/resolve-gh.sh) wins when set and non-empty; else `gh`.

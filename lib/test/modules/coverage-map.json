@@ -407,6 +407,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/section_parse.py": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "scripts/stage-draft-write.py": {
       "note": "#705 helper unit tests: lib/test/test_python_scripts.py (stage/emit/apply modes) driven by run.sh",
       "owner": "unmodularized"
@@ -1554,6 +1558,10 @@
       "owner": "create-issue-contract"
     },
     "769": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "781": {
       "note": "",
       "owner": "unmodularized"
     },

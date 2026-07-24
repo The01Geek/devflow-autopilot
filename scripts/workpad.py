@@ -66,12 +66,19 @@ from pathlib import Path
 
 # Shared section/checkbox parsing rules (issue #781) — the SAME implementation
 # `scripts/parse-acs.py` uses to WRITE the workpad's `## Acceptance Criteria`
-# section, so the read-back here can never disagree with the mirror about what
-# a section or a checkbox is. Imported IN-PROCESS from the sibling module
-# (`scripts/` is `sys.path[0]` when this file runs as a script, so no path
-# manipulation), never through a `.sh`/subprocess hop — Windows refuses that
-# with [WinError 193] (issue #275).
-from section_parse import (
+# section, so the read-back here can never disagree with the mirror about what a
+# section or a checkbox is. Imported IN-PROCESS, never through a
+# `.sh`/subprocess hop — Windows refuses that with [WinError 193] (issue #275).
+#
+# The explicit `sys.path` entry is load-bearing, not belt-and-braces: running
+# this file as a script puts `scripts/` on the path for free, but a consumer that
+# loads it through `importlib.util.spec_from_file_location` — which is how
+# `lib/test/test_python_scripts.py` drives every helper in this directory — does
+# NOT, so the bare sibling import would raise `ModuleNotFoundError` there and
+# take down every subcommand, not only the two that need the module.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from section_parse import (  # noqa: E402  (must follow the sys.path entry above)
     extract_section,
     is_post_merge_tagged,
     normalize_criterion,
@@ -652,10 +659,17 @@ def cmd_acs_resolve(args):
             'acs-resolve', args.issue)
         state = _acs_workpad_state(section_lines, workpad_items)
     except SystemExit as e:
+        # Only the TWO exits `_acs_read_workpad` documents are routed here: 2
+        # (clean absence) and 3 (`_fail`'s read failure). Any other SystemExit is
+        # an unexpected shape this handler must not absorb — swallowing it would
+        # report an unrelated abort as a routine issue-body resolution, so it is
+        # re-raised.
         if e.code == 2:
             state = _ACS_SOURCE_ISSUE_BODY      # clean absence — no workpad at all
-        else:
+        elif e.code == 3:
             state = _ACS_SOURCE_WORKPAD_READ_FAILED
+        else:
+            raise
         section_lines = []
 
     decisions = _parse_scope_decisions(comment_body, args.pr)
@@ -809,7 +823,14 @@ def _unb64(blob: str) -> str | None:
     """
     try:
         return base64.b64decode(blob.encode('ascii'), validate=True).decode('utf-8')
-    except (ValueError, UnicodeDecodeError):
+    except (ValueError, UnicodeDecodeError) as e:
+        # Breadcrumb naming the specific payload that failed, so a corrupted
+        # record reads as a corrupted record rather than as an audited decision
+        # that silently stopped covering its criterion.
+        sys.stderr.write(
+            f"workpad.py: ignoring a scope-decision record whose payload is not "
+            f"decodable UTF-8 base64 ({e}); it covers no criterion\n"
+        )
         return None
 
 
@@ -821,15 +842,21 @@ def _render_scope_decision(pr: str, kind: str, text: str, new_text: str | None =
     return rec + ' -->'
 
 
-def _parse_scope_decisions(body: str, pr: int) -> list[dict]:
+def _parse_scope_decisions(body: str, pr: int | None) -> list[dict]:
     """Return the scope-decision records in `body` that bind to PR `pr`.
 
     A record whose `pr=` is `pending` (never bound by Phase 3.1) or names a
     DIFFERENT PR is excluded, as is one whose base64 payload does not decode —
     all three are records that establish nothing about this PR, and the
     membership check treats "no covering record" as a finding.
+
+    `pr` is None in current-branch mode, where there is no PR to bind to: no
+    record can be confirmed as this run's, so none is returned and the guard
+    fails closed rather than crediting a record it cannot attribute.
     """
     out = []
+    if pr is None:
+        return out
     for m in _SCOPE_DECISION_RE.finditer(body):
         rec_pr, kind, blob, new_blob = m.group(1), m.group(2), m.group(3), m.group(4)
         if rec_pr == _SCOPE_DECISION_PENDING_PR or int(rec_pr) != pr:
@@ -2707,10 +2734,14 @@ def main():
              'divergence. Used by the review engine Phase 0.4.',
     )
     s.add_argument('issue', type=int)
-    s.add_argument('--pr', type=int, required=True,
+    s.add_argument('--pr', type=int, default=None,
                    help='The PR under review. Scope-decision records must carry '
                         'this number to count; a record left at pr=pending, or '
-                        "naming another PR, covers nothing.")
+                        'naming another PR, covers nothing. Omit it in '
+                        'current-branch mode, where there is no PR to bind to: '
+                        'no record can then be confirmed as this run\'s, so a '
+                        'narrowed workpad fails closed to pr-identity-mismatch '
+                        'exactly as it does for an unbound record.')
     s.set_defaults(func=cmd_acs_resolve)
 
     s = sub.add_parser('patch', help='PATCH a workpad comment from a body file; prints new body.')
