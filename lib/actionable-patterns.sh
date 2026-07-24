@@ -45,6 +45,14 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
+# Scratch dir for corpus-sized jq operands routed through --slurpfile (issue #783):
+# a corpus-sized operand passed via --argjson (an argv slot) overflows the kernel
+# arg limit and aborts jq with "Argument list too long"; a --slurpfile file read
+# does not. Also holds the first-run overrides stub so a single EXIT trap cleans
+# everything up.
+_JQ_TMP="$(mktemp -d)"
+trap 'rm -rf "$_JQ_TMP"' EXIT
+
 # Source config helpers.
 # shellcheck source=lib/config-source.sh
 . "$HERE/config-source.sh"
@@ -63,12 +71,9 @@ COOLDOWN="$(devflow_conf '.devflow_retrospective.cooldown_days' 3)"
 
 # ── Stub overrides.json if absent or empty (first-run safety) ─────────────────
 _OVERRIDES_ACTUAL="$OVERRIDES_FILE"
-_OVERRIDES_TMP=""
 if [ ! -f "$OVERRIDES_FILE" ] || [ ! -s "$OVERRIDES_FILE" ]; then
-    _OVERRIDES_TMP="$(mktemp)"
-    trap 'rm -f "$_OVERRIDES_TMP"' EXIT
-    printf '{"schema_version":1,"dismissed":{}}' > "$_OVERRIDES_TMP"
-    _OVERRIDES_ACTUAL="$_OVERRIDES_TMP"
+    printf '{"schema_version":1,"dismissed":{}}' > "$_JQ_TMP/overrides.json"
+    _OVERRIDES_ACTUAL="$_JQ_TMP/overrides.json"
 fi
 
 # ── Compute pattern view ─────────────────────────────────────────────────────
@@ -162,13 +167,22 @@ COOLDOWN_EPOCH="$(python3 -c "import datetime as d; print(int((d.datetime.now(d.
 # For each tag in the pattern view where status is "open" or "regressed"
 # and occurrence_count >= MIN, emit an entry with cooldown_active resolved.
 
+# Route the two corpus-sized operands (pattern_view, open_issue_map) through
+# --slurpfile files rather than --argjson argv slots: both grow monotonically with
+# the corpus and, at scale, overflow the kernel arg limit (jq: "Argument list too
+# long") when passed as argv (issue #783). --slurpfile wraps the file in a
+# one-element array, so each reference dereferences [0].
+printf '%s' "$PATTERN_VIEW"   > "$_JQ_TMP/pattern_view.json"
+printf '%s' "$OPEN_ISSUE_MAP" > "$_JQ_TMP/open_issue_map.json"
 OUTPUT="$(
-  "$DEVFLOW_JQ" -n --argjson pattern_view    "$PATTERN_VIEW" \
-        --argjson open_issue_map  "$OPEN_ISSUE_MAP" \
+  # argjson-ok: min, cooldown_epoch are bounded scalars (a small int and an epoch
+  # int) — safe as argv; the corpus-sized operands above use --slurpfile.
+  "$DEVFLOW_JQ" -n --slurpfile pattern_view    "$_JQ_TMP/pattern_view.json" \
+        --slurpfile open_issue_map  "$_JQ_TMP/open_issue_map.json" \
         --argjson min             "$MIN" \
         --argjson cooldown_epoch  "$COOLDOWN_EPOCH" '
     [
-      $pattern_view
+      $pattern_view[0]
       | to_entries[]
       | select(.value.status == "open" or .value.status == "regressed")
       | select(.value.occurrence_count >= $min)
@@ -176,10 +190,10 @@ OUTPUT="$(
       | .value as $v
       # keys from compute-patterns.jq are already canonical slugs
       | $tag as $slug
-      | ($open_issue_map | has($slug)) as $has_issue
+      | ($open_issue_map[0] | has($slug)) as $has_issue
       | (
           if $has_issue then
-            (($open_issue_map[$slug]
+            (($open_issue_map[0][$slug]
               | strptime("%Y-%m-%dT%H:%M:%SZ")
               | mktime) >= $cooldown_epoch)
           else false
@@ -198,6 +212,6 @@ OUTPUT="$(
         }
     ]
   '
-)" || { echo "::error::actionable-patterns: failed to build the actionable-pattern output (cooldown comparison aborted?)" >&2; exit 1; }
+)" || { echo "::error::actionable-patterns: failed to build the actionable-pattern output (jq exited non-zero — e.g. an oversized operand overflowing the arg limit, now mitigated via --slurpfile, or a malformed pattern view)" >&2; exit 1; }
 
 printf '%s\n' "$OUTPUT"
