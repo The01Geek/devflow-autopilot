@@ -649,6 +649,33 @@ devflow_module_pin_unique "#709: Step 4 renders the steering marker on the audit
 devflow_module_pin_unique "#709: the withheld state routes through the existing re-audit offer" \
   'takes this same sanctioned path' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the behavioral gate is proven by the #709 state-owner rows
 
+# ── issue #768: the file-arm audit dispatch path is named exactly ──────────────
+# Each pin below asserts one new operative statement the #768 rewrite of the
+# instruction-generation / record-dispatch-output / dispatch-barrier paragraphs added.
+# These are structural contract-presence pins over skill prose: the transport itself
+# already has an executable proof in the tree (lib/test/run.sh's ias_instructions() runs
+# the redirect on every steering fixture), so removing any literal below breaks no
+# behavioral guarantee the suite otherwise proves — it removes the skill-side instruction
+# that makes the cheap path conforming, a prose-presence property.
+devflow_module_pin_unique "#768: the instruction write uses a shell redirect in the bash fence" \
+  'to the instruction path with a shell redirect in the bash fence itself' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the transport is proven by ias_instructions()
+devflow_module_pin_unique "#768: the redirect truncates the target before the generator runs" \
+  'The redirect truncates the target before the generator runs' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the transport is proven by ias_instructions()
+devflow_module_pin_unique "#768: the landed check is exit-zero plus a non-empty file" \
+  'The write has landed when the generator exits zero and the file at the instruction path is non-empty' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the transport is proven by ias_instructions()
+devflow_module_pin_unique "#768: the pointer is extracted with python3, never grep/sed/awk" \
+  'never `grep`, `sed`, or `awk`' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the non-preflight-PATH-tool rule is the CLAUDE.md guarantee
+devflow_module_pin_unique "#768: the extraction returns the pointer line byte-identically" \
+  'byte-identically to the line inside the written file' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose
+devflow_module_pin_unique "#768: record-dispatch output names dispatch_regeneration" \
+  'dispatch_regeneration=<verified|diverged>' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the field is printed by issue-audit-state.py
+devflow_module_pin_unique "#768: a diverged regeneration is surfaced in the same turn, before dispatch" \
+  'surface that value in chat in the same turn it is printed' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose
+devflow_module_pin_unique "#768: the skill arms no fallback wakeup" \
+  'This skill arms no fallback wakeup' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose
+devflow_module_pin_unique "#768: the instruction file lifetime is stated" \
+  'Instruction-file lifetime.' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose
+
 devflow_module_pin_unique "#600: SKILL states the positional two-marker delivery check" \
   'first line begins `render-status:`' "$CI_BUNDLE"
 devflow_module_pin_unique "#600: SKILL derives the appended flag from the auditor returned quote" \
