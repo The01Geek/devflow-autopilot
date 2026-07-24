@@ -8,7 +8,10 @@ once, deterministically, in code — replacing ~25 lines of skill prose that
 described the rules in English. The orchestrator still owns per-criterion
 override authority; this script just produces the heuristic starting point.
 
-Parsing rules:
+Parsing rules (owned by `scripts/section_parse.py`, imported below — issue
+#781 factored them there so `scripts/workpad.py`, which reads the same section
+back out of the workpad comment, shares one implementation instead of
+re-spelling the contract):
   - Match a heading whose text is "Acceptance Criteria" (case-insensitive,
     so `## Acceptance criteria` or `## ACCEPTANCE CRITERIA` all match). A
     trailing colon or other extra characters still do not match — only the
@@ -53,6 +56,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Shared section/checkbox parsing rules (issue #781). Imported IN-PROCESS from
+# the sibling module — `scripts/` is `sys.path[0]` when this file runs as a
+# script, so no path manipulation is needed, and never a `.sh`/subprocess hop
+# (Windows refuses that with [WinError 193] — issue #275).
+from section_parse import extract_section, parse_checkboxes
+
 # The gh binary to shell out to. `DEVFLOW_GH` (the documented override the shell
 # helpers resolve via lib/resolve-gh.sh) wins when set and non-empty; else `gh`.
 GH = os.environ.get("DEVFLOW_GH") or "gh"
@@ -92,9 +101,6 @@ POST_MERGE_TRIGGERS = (
     'workflow run', 'workflow runs', 'artifact link',
 )
 
-
-_CHECKBOX_RE = re.compile(r'^\s*[-*]\s+\[([ xX])\]\s+(.*)$')
-_HEADING_RE = re.compile(r'^(#{1,6})\s+(.*?)\s*$')
 
 # Word-boundary regex per trigger phrase. Built once at import time. The
 # boundary check stops short bare words like `click` / `monitor` / `manually`
@@ -141,56 +147,21 @@ def _fetch_body(issue: int) -> str:
     return r.stdout
 
 
-def _extract_section(body: str, name: str) -> list[str]:
-    """Return the list of lines inside the named section, or [] if not found.
-
-    Stops at the next heading whose level is equal to or higher than the
-    section's heading.
-    """
-    lines = body.splitlines()
-    out: list[str] = []
-    section_level = None
-    for line in lines:
-        m = _HEADING_RE.match(line)
-        if m:
-            level, heading = len(m.group(1)), m.group(2).strip()
-            if section_level is None:
-                if heading.lower() == name.lower() and level in (2, 3):
-                    section_level = level
-                continue
-            if level <= section_level:
-                break
-        elif section_level is not None:
-            out.append(line)
-    return out
-
-
 def _parse_checkboxes(section_lines: list[str]) -> list[dict]:
-    """Parse checkbox items, joining hard-wrapped continuation lines.
+    """Parse checkbox items (shared module), then classify each post-merge.
 
-    A criterion emitted by /devflow:create-issue at ~80 columns wraps across
-    several physical lines: the checkbox line followed by indented continuation
-    lines. Accumulate each item's continuation lines (indented, non-blank, and
-    not themselves a checkbox) into one criterion string so a wrapped criterion
-    round-trips verbatim — and so the post-merge scan sees a trigger phrase that
-    landed past the wrap. A blank line or a non-indented, non-checkbox line ends
-    the current item. (`_extract_section` already excludes heading lines.)
+    `section_parse.parse_checkboxes` owns the shared half: a criterion emitted
+    by /devflow:create-issue at ~80 columns wraps across several physical lines,
+    and it joins each item's continuation lines so a wrapped criterion
+    round-trips verbatim. Trigger-phrase classification stays HERE because it is
+    a mirror-time-only rule — `workpad.py` reads a tag already present in the
+    stored text and must never re-derive it, which would re-tag a criterion the
+    orchestrator had deliberately demoted.
+
+    Classifying on the fully-joined text is load-bearing: a trigger phrase that
+    landed past the wrap must still be caught.
     """
-    items = []
-    current = None
-    for line in section_lines:
-        m = _CHECKBOX_RE.match(line)
-        if m:
-            current = {'text': m.group(2).strip(), 'ticked': m.group(1).lower() == 'x'}
-            items.append(current)
-        elif current is not None and line[:1] in (' ', '\t') and line.strip():
-            # Indented, non-blank, non-checkbox line → continuation of `current`.
-            current['text'] = f"{current['text']} {line.strip()}".strip()
-        else:
-            # Blank line or a non-indented non-checkbox line closes the item.
-            current = None
-    # Classify on the fully-joined text so a trigger phrase anywhere in the
-    # wrapped criterion — not just its first physical line — is caught.
+    items = parse_checkboxes(section_lines)
     for item in items:
         item['post_merge'] = _is_post_merge(item['text'])
     return items
@@ -247,11 +218,11 @@ def main():
     else:
         body = Path(args.body_file).read_text()
 
-    ac_lines = _extract_section(body, 'Acceptance Criteria')
+    ac_lines = extract_section(body, 'Acceptance Criteria')
     criteria = _parse_checkboxes(ac_lines)
-    test_plan = _parse_checkboxes(_extract_section(body, 'Test Plan'))
+    test_plan = _parse_checkboxes(extract_section(body, 'Test Plan'))
 
-    # Heading match in _extract_section is case-insensitive but otherwise
+    # Heading match in section_parse.extract_section is case-insensitive but otherwise
     # exact. `## acceptance criteria` (any casing) now matches, but
     # `## Acceptance Criteria:` (trailing colon) or `## ACs` still produce zero
     # items — and the implement skill's post-merge-exempt gate would trivially
