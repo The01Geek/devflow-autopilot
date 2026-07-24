@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.21.10] — 2026-07-24
+
+### Changed
+- **Adopt a go-forward single-source-of-truth documentation/contract policy and redirect the retrospective remedy heuristic.** The `retrospective-audit` skill's proposal-selection step now prefers collapsing a drift/desync/coupled-mirror root cause to a single canonical source over adding a new pin plus a mirror copy, so the self-improvement loop stops proposing remedies that grow the redundancy apparatus that caused the drift. (#762)
+
 ## [2.21.9] — 2026-07-24
 
 ### Changed
