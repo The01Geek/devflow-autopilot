@@ -48,18 +48,23 @@ trap _rsb_cleanup EXIT
 # purpose. Both name the same directory at run time (LIB is already absolute), but
 # only this form is statically resolvable by pin-corpus-lint.py's path-variable
 # resolver, which understands a `$LIB/relative` assignment and cannot see through a
-# command substitution. Every pin below targets a var derived from REPO_ROOT, so
-# the substitution form would leave all 21 of them UNRESOLVED — surfaced on stderr
-# but never asserted, i.e. silently exempt from the meta-guard (the extraction
-# hazard issue #746 names). With this form they resolve and stay covered.
+# command substitution. Nearly every pin below targets a var derived from REPO_ROOT,
+# so the substitution form would leave those UNRESOLVED — surfaced on stderr but
+# never asserted, i.e. silently exempt from the meta-guard (the extraction hazard
+# issue #746 names). With this form they resolve and stay covered. The exception is
+# the REVIEW_SKILL408 pins, which target the runtime bundle temp below: no spelling
+# here can make those statically resolvable, so run.sh binds them explicitly through
+# RSB_MOD_VARS instead.
 REPO_ROOT="$LIB/.."
 REVIEW_BUNDLE="$_rsb_tmp_root/review-skill-bundle.md"
-_rsb_members=("$REPO_ROOT/skills/review/SKILL.md")
-for _rsb_phase in "$REPO_ROOT"/skills/review/phases/*.md; do
-  [ -r "$_rsb_phase" ] || continue
-  _rsb_members+=("$_rsb_phase")
-done
-devflow_module_build_bundle "review-skill" "$REVIEW_BUNDLE" "${_rsb_members[@]}"
+# The glob is passed straight through with no `[ -r ] || continue` prefilter: the
+# builder's contract is that an unusable member lands in the tally as a named RED
+# assertion, and a prefilter would drop exactly the member it exists to report. An
+# unmatched glob reaches the builder as its own literal and fails there by name too,
+# so a phases/ directory that has moved or emptied is a diagnosis rather than a
+# silently thinner bundle every survival pin then passes against for the wrong reason.
+devflow_module_build_bundle "review-skill" "$REVIEW_BUNDLE" \
+  "$REPO_ROOT/skills/review/SKILL.md" "$REPO_ROOT"/skills/review/phases/*.md
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "#408 cloud review no-verdict auto-resume backstop"

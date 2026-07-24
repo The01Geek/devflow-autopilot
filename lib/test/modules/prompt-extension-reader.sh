@@ -8,8 +8,8 @@
 # devflow_module_pin_red_under). This module uses assert_eq alone — it asserts the
 # observable behavior of scripts/load-prompt-extension.sh through recorded exit
 # codes and captured stdout, so it needs no pin primitive and references NO
-# monolith helper. Every path derives from LIB. The module owns its private
-# fixture root and cleanup; it never invokes the runner or the full-suite
+# monolith helper. Every path derives from LIB. It allocates no module-level
+# fixture root (see the note below); it never invokes the runner or the full-suite
 # boundary. The inventory in prompt-extension-reader.inventory.md maps the
 # extracted coverage to its former run.sh location. Modules may not self-skip.
 # No private fixture root and no EXIT trap here, deliberately: the extracted body

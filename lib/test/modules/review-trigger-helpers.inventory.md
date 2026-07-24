@@ -12,9 +12,9 @@ Source baseline: `2e9283f4` (`origin/main` after issue #745 landed).
 The extracted region was **11 consecutive box-comment sections** in
 `lib/test/run.sh` spanning 2,058 lines. It ran from the section
 `derive-review-verdict.sh (#249 HEAD-scoped, fail-closed verdict deriver)` through
-`resolve-command-trigger.sh` inclusive. **It stops there deliberately:** the very
-next section defines `react()`, which four later `run.sh` sections still call, so
-moving it would strand them. Its assertion floor is recorded once, in
+`resolve-command-trigger.sh` inclusive. **It stops there deliberately:** the tranche
+was scoped in advance to a measured set of low-risk sections, and the sections past
+`resolve-command-trigger.sh` were not part of it. Its assertion floor is recorded once, in
 `scripts/workflow-flight-recorder-registry.json`, and enforced on every run by
 `lib/test/run-module.sh`; `test_module_runner.py` reconciles that floor against the
 `lib/test/run.sh` call-site literal. This inventory deliberately states no exact

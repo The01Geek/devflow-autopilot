@@ -3955,8 +3955,18 @@ count_unallowlisted_raw_skill_guards() {  # file -> count of raw SKILL guard pin
     | grep -vF "# $RGOK_MARK:" \
     | grep -c . || true
 }
+# issue #746: the corpus is run.sh PLUS every module, not $SELF_SRC alone. Extraction moves
+# raw-guard sites out of this file, and a guard whose subject has left neither fails nor
+# warns — it keeps passing at a count that shrinks as modularization proceeds, while the
+# assertion name still claims repo-wide scope. Summing over the module corpus (the shape the
+# #591 pin-lint loop and the #666 mutation gate already use) makes the claimed scope the
+# real one, so a raw guard authored in a module is audited exactly like one authored here.
+_RSG_TOTAL=0
+for _rsg_src in "$SELF_SRC" "$LIB"/test/modules/*.sh; do
+  _RSG_TOTAL=$(( _RSG_TOTAL + $(count_unallowlisted_raw_skill_guards "$_rsg_src") ))
+done
 assert_eq "meta(#157 AC2): no single-line echo-driven raw SKILL guard pin escapes assert_pin_unique or an allowlist marker (repo-wide)" \
-  "0" "$(count_unallowlisted_raw_skill_guards "$SELF_SRC")"
+  "0" "$_RSG_TOTAL"
 # AC4 mutation proof: an UNMARKED raw guard written anywhere is detected (RED); the
 # SAME line carrying the allowlist marker is exempted (0). The fixture SOURCE lines
 # below carry the marker so the LIVE scan above skips them, while the string each
@@ -13013,7 +13023,7 @@ echo "load-prompt-extension.sh (consumer prompt-extension reader)"
 # module owns the whole former in-file section; see its .inventory.md for the
 # coverage map back to this location.
 if ! devflow_run_full_suite_module "$LIB/test/modules/prompt-extension-reader.sh" \
-  "prompt-extension-reader" 92; then
+  "prompt-extension-reader" 102; then
   printf 'ERROR: prompt-extension-reader boundary could not record its result\n'
   exit 1
 fi
@@ -16949,11 +16959,11 @@ echo "review/implement trigger helpers (derive-review-verdict.sh … resolve-com
 # ────────────────────────────────────────────────────────────────────────────
 # Extracted to lib/test/modules/review-trigger-helpers.sh (issue #746): the 11
 # consecutive former sections from "derive-review-verdict.sh" through
-# "resolve-command-trigger.sh". It stops there deliberately — the next section
-# defines react(), which four later sections in this file still call. See the
-# module's .inventory.md for the coverage map back to these locations.
+# "resolve-command-trigger.sh". It stops there deliberately — the tranche was scoped
+# in advance to a measured set of low-risk sections, and what follows was not in it.
+# See the module's .inventory.md for the coverage map back to these locations.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-trigger-helpers.sh" \
-  "review-trigger-helpers" 258; then
+  "review-trigger-helpers" 403; then
   printf 'ERROR: review-trigger-helpers boundary could not record its result\n'
   exit 1
 fi
@@ -32837,7 +32847,7 @@ echo "#408 cloud review no-verdict auto-resume backstop + #414 post-and-annotate
 # module re-derives REPO_ROOT and rebuilds the review-engine bundle itself;
 # see its .inventory.md for the coverage map back to this location.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-stall-backstop.sh" \
-  "review-stall-backstop" 124; then
+  "review-stall-backstop" 128; then
   printf 'ERROR: review-stall-backstop boundary could not record its result\n'
   exit 1
 fi
@@ -34048,16 +34058,19 @@ CI_MOD_VARS=(
   --var "CI_CLAUDE=CLAUDE.md"
   --var "CI_INVENTORY=lib/test/modules/create-issue-contract.inventory.md"
 )
-# issue #746: review-stall-backstop.sh is the second module whose pin TARGETS need
-# --var resolution. Its two #408 skill pins target the review-engine bundle, which the
+# issue #746: review-stall-backstop.sh is another module whose pin TARGETS need
+# --var resolution. Its #408 skill pins target the review-engine bundle, which the
 # module rebuilds into its OWN mktemp temp — a runtime path no static scanner can
 # resolve, exactly like create-issue's bundle temp above. Binding run.sh's own
-# $REVIEW_BUNDLE here gives the meta-guard a real rendered surface to check: both are
-# built from the same members (the thin root plus every skills/review/phases/*.md), so
-# the bundle the guard reads is the bundle the module pins. Without this the two pins
-# stay UNRESOLVED — surfaced on stderr but never asserted, i.e. silently exempt. The
-# module's other 19 pins resolve on their own, because it spells REPO_ROOT as a
-# $LIB-relative assignment the resolver understands rather than a command substitution.
+# $REVIEW_BUNDLE here gives the meta-guard a real rendered surface to check: both
+# cover the thin root plus the phase references, so the bundle the guard reads is
+# the bundle the module pins. (They are not built by the same RULE — run.sh composes
+# from the REVIEW_PHASE_STEMS list above, the module globs the tree — so a phase file
+# added without a stems-list entry would make the two surfaces diverge; the stems
+# list is the one to keep current.) Without this the pins stay UNRESOLVED — surfaced
+# on stderr but never asserted, i.e. silently exempt. The module's remaining pins
+# resolve on their own, because it spells REPO_ROOT as a $LIB-relative assignment the
+# resolver understands rather than a command substitution.
 RSB_MOD_VARS=(
   --var "REVIEW_BUNDLE=$REVIEW_BUNDLE"
   --var "REVIEW_SKILL408=$REVIEW_BUNDLE"
@@ -34102,6 +34115,30 @@ _CI_WRAP_RESOLVED="$(grep '^RESOLVED-COUNT' "$_CI_WRAP_ERR" 2>/dev/null | tail -
 assert_eq "#591 pin-corpus: create-issue module pin targets still resolve (>=150 for the wrapped meta-guard)" \
   "yes" "$({ [ -n "$_CI_WRAP_RESOLVED" ] && [ "$_CI_WRAP_RESOLVED" -ge 150 ]; } 2>/dev/null && echo yes || echo no)"
 rm -f "$_CI_WRAP_ERR"
+
+# issue #746: the same floor obligation for the tranche modules that CARRY pins. Without
+# it a resolution regression — the $LIB-relative REPO_ROOT spelling replaced by a command
+# substitution, or a dropped RSB_MOD_VARS binding — leaves every pin UNRESOLVED, and the
+# lint/wrapped assertions above still read rc=0 with empty output, i.e. green over a corpus
+# in which nothing was checked. The floor is derived from the module's own pin call sites
+# rather than transcribed, so adding or removing a pin moves the comparand with it and no
+# hand-maintained count can rot; the assertion is EQUALITY, so an unresolved pin is RED.
+# Only the two pin-carrying modules are listed: experiment-records.sh and
+# prompt-extension-reader.sh define no pin at all, so a resolution floor over them would
+# compare 0 against 0 and assert nothing.
+for _rmod in review-stall-backstop review-trigger-helpers; do
+  case "$_rmod" in
+    review-stall-backstop) _rmod_vars=("${RSB_MOD_VARS[@]}") ;;
+    *)                     _rmod_vars=() ;;
+  esac
+  _RM_PINS="$(grep -cE '^[[:space:]]*devflow_module_pin_' "$LIB/test/modules/$_rmod.sh")"
+  _RM_ERR="$(mktemp)"
+  python3 "$PCL" wrapped "$LIB/test/modules/$_rmod.sh" --lib "$LIB" "${_rmod_vars[@]}" >/dev/null 2>"$_RM_ERR" || true
+  _RM_RESOLVED="$(grep '^RESOLVED-COUNT' "$_RM_ERR" 2>/dev/null | tail -1)"; _RM_RESOLVED="${_RM_RESOLVED##*$'\t'}"
+  assert_eq "#746 pin-corpus: every $_rmod pin target resolves for the wrapped meta-guard" \
+    "$_RM_PINS" "$_RM_RESOLVED"
+  rm -f "$_RM_ERR"
+done
 
 # T-pinlint: a MODULE-file pin source carrying an off-line (wrapped) devflow_module_pin_*
 # pin is reported by the wrapped meta-guard — proving both that module sources join the
@@ -40445,7 +40482,7 @@ echo "#431 build-experiment-records.py — the unified experiment record (join)"
 # module header and its .inventory.md carry the rationale and the resulting
 # coverage-map decision; do not restate it here, so the two cannot drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/experiment-records.sh" \
-  "experiment-records" 130; then
+  "experiment-records" 132; then
   printf 'ERROR: experiment-records boundary could not record its result\n'
   exit 1
 fi

@@ -6,9 +6,9 @@
 # lib/test/module-harness.sh first (which defines the namespaced module pin API:
 # devflow_module_pin_count / devflow_module_pin_unique / devflow_module_pin_present /
 # devflow_module_pin_red_under). This module uses assert_eq plus that namespaced pin
-# API — it references NO monolith helper. Every path derives from LIB. The module
-# owns its private fixture root and cleanup; it never invokes the runner or the
-# full-suite boundary. The inventory in review-trigger-helpers.inventory.md maps
+# API — it references NO monolith helper. Every path derives from LIB. It allocates
+# no module-level fixture root (see the note below); it never invokes the runner or
+# the full-suite boundary. The inventory in review-trigger-helpers.inventory.md maps
 # the extracted coverage to its former run.sh locations. Modules may not self-skip.
 #
 # No private fixture root and no EXIT trap here, deliberately. The extracted sections
@@ -24,7 +24,7 @@
 
 
 # The one run.sh global the extracted sections read that a module does not
-# receive: the config resolver five #329/#409 key-read assertions invoke. The
+# receive: the config resolver the #329/#409 key-read assertions invoke. The
 # monolith binds it identically, from LIB. Left unbound it expands to the empty
 # string, so `"$CG" …` runs the empty command and every one of those assertions
 # compares against empty output — the failure this binding exists to prevent.

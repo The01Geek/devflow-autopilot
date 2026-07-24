@@ -11,7 +11,8 @@
 # substitution form and every pin targeting a REPO_ROOT-derived var silently becomes
 # UNRESOLVED — surfaced on that lint's stderr but never asserted, so the pins are
 # exempt from the pin-in-comment and wrapped-literal meta-guards while the suite stays
-# green. Teaching the resolver that one idiom is the deeper fix and is filed separately.
+# green. Teaching the resolver that one idiom would be the deeper fix (not filed — so
+# this note, not a tracked issue, is what keeps the spelling requirement discoverable).
 
 # ── Inherited-DEVFLOW_GH fixture isolation (issue #533 AC13, generalized #695) ─
 # The same clearing lib/test/run.sh performs in its preamble, performed here so

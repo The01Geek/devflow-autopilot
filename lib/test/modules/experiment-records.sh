@@ -7,9 +7,10 @@
 # devflow_module_pin_count / devflow_module_pin_unique / devflow_module_pin_present /
 # devflow_module_pin_red_under). This module uses assert_eq alone — the #431
 # producer pins stay in lib/test/run.sh because they target files this helper does
-# not own (see below), so nothing here needs a pin primitive and it references NO
-# monolith helper. Every path derives from LIB. The module owns its private fixture
-# root and cleanup; it never invokes the runner or the full-suite boundary. The
+# not own (see the DELIBERATELY PARTIAL EXTRACTION note below), so nothing here needs
+# a pin primitive and it references NO monolith helper. Every path derives from LIB.
+# It allocates no module-level fixture root (see the note below); it never invokes
+# the runner or the full-suite boundary. The
 # inventory in experiment-records.inventory.md maps the extracted coverage to its
 # former run.sh location. Modules may not self-skip.
 #

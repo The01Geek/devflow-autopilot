@@ -1845,7 +1845,7 @@ assert_eq "#614 T3: the root+references total is within +/-2% of the recorded co
 # `{:,}` is locale-independent, and python3 is a hard preflight prerequisite.
 ci614_grouped() { python3 -c 'import sys; print(f"{int(sys.argv[1]):,}")' "$1"; }
 assert_eq "#614 T3: the budget doc's recorded root measurement matches the live count" "yes" \
-  "$(grep -qF "| \`SKILL.md\` (root) | $(ci614_grouped "$CI614_ROOT_W") |" "$CI_ROOT/docs/create-issue-budget.md" && echo yes || echo no)"
+  "$(grep -qF "| \`SKILL.md\` (root) | $(ci614_grouped "$CI614_ROOT_W") |" "$CI_ROOT/docs/create-issue-budget.md" && echo yes || echo no)"  # raw-guard-ok: not a SKILL guard: the target is docs/create-issue-budget.md and "SKILL.md" appears only inside the searched table-row literal
 assert_eq "#614 T3: the budget doc's recorded root+references total matches the live count" "yes" \
   "$(grep -qF "**$(ci614_grouped "$CI614_TOTAL_W")**" "$CI_ROOT/docs/create-issue-budget.md" && echo yes || echo no)"
 unset -f ci614_grouped

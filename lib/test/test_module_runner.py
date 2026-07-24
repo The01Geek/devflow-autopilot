@@ -1499,6 +1499,59 @@ class ModuleRunnerTests(unittest.TestCase):
             )
             self.assertTrue(list(Path(log_dir).iterdir()))
 
+    def test_issue_746_tranche_modules_run_green_through_the_real_runner(self) -> None:
+        """Issue #746 step 8: each module of the first extraction tranche is driven
+        through its OWN runner (run-module.sh), the assertion issue #695 exists to make
+        and #719 restated as a checklist step. Written as one subTest loop rather than
+        four near-identical methods so a fifth module of the tranche cannot be added
+        with its smoke test forgotten — the omission #719 was filed about.
+
+        The floor is read from the registry and compared for EQUALITY, so this test
+        carries no second copy of any floor value: the registry entry, the module's
+        emitted tally, and the run.sh call-site floor are one coupled triple. Equality
+        (not `>=`) is what makes the floor detect assertion LOSS — a floor seeded below
+        the real count would let assertions vanish silently, which is exactly how this
+        tranche's floors were first (wrongly) seeded from the issue's estimates."""
+        registry = json.loads(
+            (ROOT / "scripts/workflow-flight-recorder-registry.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        for module_id in (
+            "prompt-extension-reader",
+            "review-trigger-helpers",
+            "review-stall-backstop",
+            "experiment-records",
+        ):
+            with self.subTest(module=module_id):
+                floor = registry["test_modules"][module_id]["minimum_assertions"]
+                environment = os.environ.copy()
+                environment.pop("DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE", None)
+                with tempfile.TemporaryDirectory() as log_dir:
+                    result = subprocess.run(
+                        ["bash", str(RUNNER_SOURCE), "--log-dir", log_dir, module_id],
+                        cwd=ROOT,
+                        env=environment,
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                    )
+
+                    self.assertEqual(
+                        result.returncode,
+                        0,
+                        result.stdout[-4000:] + result.stderr[-4000:],
+                    )
+                    # Membership in the LINE list, not a substring of the whole stdout —
+                    # a bare substring match would also accept a summary line that grew a
+                    # trailing clause (a skip tally, say; a skipped assertion is never a
+                    # clean pass, issue #456), so this pins the runner's exact format.
+                    self.assertIn(
+                        f"Module {module_id}: {floor} passed, 0 failed",
+                        result.stdout.splitlines(),
+                    )
+                    self.assertTrue(list(Path(log_dir).iterdir()))
+
     def test_create_issue_self_allocated_root_rejects_unsafe_mktemp_output(self) -> None:
         source = CREATE_ISSUE_MODULE_SOURCE.read_text(encoding="utf-8")
         boundary = "# The implement-skill bundle backs the #467 D2 Phase-2.4 leg"
