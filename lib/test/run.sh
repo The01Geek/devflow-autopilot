@@ -1462,10 +1462,10 @@ echo "review live-comment seeding: rc-2 arm screens an interpreter-level exit 2 
 # each so deleting one goes RED independently of the others — AC5's requirement that the
 # readable-path check and the stderr discriminator each fail on their own (and vice versa).
 # (S1) refuse a non-numeric $PR_NUMBER before the id call, so argparse's own rc 2 can't reach it:
-assert_pin_unique "#384 review-seed: non-numeric PR-number guard before the id call" "''|*[!0-9]*)" "$ST_REV"
+assert_pin_unique "#384 review-seed: non-numeric PR-number guard before the id call" "''|*[!0-9]*)" "$REVIEW_ROOT"
 # (S2) verify the workpad.py path is a readable file before exec — shares the consumer's own
 # operation as the guard rather than re-deriving python3's open contract. Deleting THIS alone → RED:
-assert_pin_unique "#384 review-seed: readable-path precheck on workpad.py before exec" '[ ! -r "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py ]' "$ST_REV"
+assert_pin_unique "#384 review-seed: readable-path precheck on workpad.py before exec" '[ ! -r "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py ]' "$REVIEW_ROOT"
 # (S3) stderr discriminator on the rc-2 arm: cmd_id's clean-absence exit is silent, so rc 2
 # with non-empty captured stderr is an interpreter-level exit, never a clean scan. Deleting
 # THIS alone → RED (the vice-versa half of AC5 relative to S2):
@@ -1778,7 +1778,7 @@ assert_pin_unique "347(AC4/consumer): an unparseable annotation region falls thr
 # (#249) and scripts/dismiss-stale-rejections.sh both paginate this exact endpoint — so the fix restores the
 # established idiom. Pin the paginated invocation AND the fail-direction rationale.
 assert_pin_unique "347(AC1): precondition 1 paginates the reviews read (no oldest-page truncation)" \
-  'gh api --paginate "repos/{owner}/{repo}/pulls/$ARGUMENTS/reviews?per_page=100"' "$ST_REV"
+  'gh api --paginate "repos/{owner}/{repo}/pulls/$PR_NUMBER/reviews?per_page=100"' "$ST_REV"
 assert_pin_unique "347(AC1): an unpaginated reviews read would select a stale chronologically-last review" \
   'an unpaginated read silently truncates to the oldest page' "$ST_REV"
 assert_pin_unique "347(AC1): a superseded REJECT behind a later-page APPROVE must never be rechecked" \

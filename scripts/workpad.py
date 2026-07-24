@@ -597,7 +597,14 @@ def _acs_diverge(issue_items: list[dict], workpad_items: list[dict],
 
 def _acs_pr_identity_ok(issue_items: list[dict], workpad_items: list[dict],
                         decisions: list[dict]) -> bool:
-    """True when the workpad's criteria can be trusted as THIS PR's.
+    """True when the workpad's criteria are safe to review THIS PR against.
+
+    Not the same as "provably authored by this PR's run", and the difference is
+    deliberate. The guard only rejects a workpad whose set is NARROWER than the
+    issue body's with nothing on record to explain the narrowing; a foreign
+    section that is a superset of the issue body is accepted, because reviewing
+    against a superset can only add criteria, never silently drop one — and
+    dropping is the failure this guard exists to prevent.
 
     A workpad is one comment per issue, and Phase 2.2.5 replaces its
     `## Acceptance Criteria` section WHOLESALE — so a second PR's run, or a
