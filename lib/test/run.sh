@@ -47553,6 +47553,86 @@ else
   printf '  FAIL  #720 test_python_scripts.py: could not capture its summary line to verify RESULTS_FILE contribution\n' >&2
 fi
 
+# ────────────────────────────────────────────────────────────────────────────
+# #783 argjson->slurpfile transport guard for the corpus-aggregating retrospective
+# helpers. A corpus-sized operand passed to jq via --argjson (an argv slot)
+# overflows the kernel arg limit at scale (jq: "Argument list too long"); the fix
+# routes such operands through --slurpfile (a file read). This block runs the
+# lint-argjson-transport.py scan over the real helpers (the live gate), proves the
+# scan catches the regression on synthetic + planted-defect fixtures (positive
+# control), pins each shipped --slurpfile conversion via assert_pin_red_under (a
+# mutation restoring --argjson turns the pin RED), and reproduces the E2BIG abort
+# vs the --slurpfile success on an oversized operand.
+echo "#783 argjson-transport guard: corpus-sized retrospective jq operands use --slurpfile, not --argjson"
+E783_LINT="$LIB/test/lint-argjson-transport.py"
+assert_eq "#783 lint helper exists" "yes" "$([ -f "$E783_LINT" ] && echo yes || echo no)"
+
+# Live gate: the three shipped aggregating helpers carry no unmarked --argjson.
+E783_OUT="$(python3 "$E783_LINT" 2>&1)"; E783_RC=$?
+assert_eq "#783 the three real aggregating helpers audit clean (no unmarked --argjson)" "rc=0" \
+  "$([ "$E783_RC" -eq 0 ] && printf 'rc=0' || printf 'rc=%s | %s' "$E783_RC" "$E783_OUT")"
+assert_eq "#783 the real-file run audited exactly the 3 in-scope files" "yes" \
+  "$(printf '%s' "$E783_OUT" | python3 -c 'import re,sys
+m=re.search(r"audited (\d+) of", sys.stdin.read()); print("yes" if m and int(m.group(1))==3 else "no")')"
+
+# Positive control: the lint MUST report RED on an unmarked --argjson (the E2BIG
+# regression) and GREEN on the marked / converted / block-marked / prose-mention
+# shapes — proving it fires on the defect it targets, not merely on its own line.
+E783_FX="$(probe_tmp '#783 argjson lint fixture')"
+if [ -n "$E783_FX" ] && [ "$E783_FX" != /dev/null ]; then
+  printf '%s\n' 'jq -n --argjson big "$BIG" ".x"' > "$E783_FX"
+  assert_eq "#783 positive control: an unmarked --argjson is RED" "1" \
+    "$(python3 "$E783_LINT" "$E783_FX" >/dev/null 2>&1; echo $?)"
+  printf '%s\n' 'jq -n --argjson n "$N" ".x"  # argjson-ok: n is a scalar' > "$E783_FX"
+  assert_eq "#783 positive control: a marked scalar --argjson is GREEN" "0" \
+    "$(python3 "$E783_LINT" "$E783_FX" >/dev/null 2>&1; echo $?)"
+  printf '%s\n' 'jq -n --slurpfile big "$f" "$big[0]"' > "$E783_FX"
+  assert_eq "#783 positive control: a --slurpfile line is GREEN" "0" \
+    "$(python3 "$E783_LINT" "$E783_FX" >/dev/null 2>&1; echo $?)"
+  printf '%s\n' '# argjson-ok: v is a scalar' 'jq -n --argjson v "$V" \' '  ".x"' > "$E783_FX"
+  assert_eq "#783 positive control: a block marker above a continuation covers it (GREEN)" "0" \
+    "$(python3 "$E783_LINT" "$E783_FX" >/dev/null 2>&1; echo $?)"
+  printf '%s\n' '# a comment that merely mentions --argjson is not a flag' 'echo hi' > "$E783_FX"
+  assert_eq "#783 positive control: --argjson in comment prose is not flagged (GREEN)" "0" \
+    "$(python3 "$E783_LINT" "$E783_FX" >/dev/null 2>&1; echo $?)"
+  rm -f "$E783_FX"
+fi
+
+# Planted-defect control (AC8): stripping an existing scalar's marker from a real
+# shipped helper makes the lint RED — the guard is coupled to the real files.
+E783_STRIP="$(probe_tmp '#783 marker-strip copy')"
+if [ -n "$E783_STRIP" ] && [ "$E783_STRIP" != /dev/null ]; then
+  sed -E 's/  # argjson-ok: cap is a scalar int//' "$LIB/scan.sh" > "$E783_STRIP"
+  assert_eq "#783 planted-defect: stripping a scalar's marker from scan.sh makes the lint RED" "1" \
+    "$(python3 "$E783_LINT" "$E783_STRIP" >/dev/null 2>&1; echo $?)"
+  rm -f "$E783_STRIP"
+fi
+
+# Behavioral-fix pins (AC7): each shipped --slurpfile conversion of a corpus-sized
+# operand is pinned so a mutation restoring the --argjson form turns the pin RED —
+# proving the pin guards the E2BIG regression, not merely its own line vanishing.
+assert_pin_red_under "#783 actionable-patterns.sh pattern_view routed via --slurpfile" \
+  '--slurpfile pattern_view' 's/--slurpfile pattern_view/--argjson pattern_view/' "$LIB/actionable-patterns.sh"
+assert_pin_red_under "#783 scan.sh EXISTING set routed via --slurpfile" \
+  '--slurpfile e "' 's/--slurpfile e "/--argjson e "/' "$LIB/scan.sh"
+assert_pin_red_under "#783 SKILL.md Step 9 patterns routed via --slurpfile" \
+  '--slurpfile patterns ' 's/--slurpfile patterns /--argjson patterns /' "$LIB/../skills/retrospective-weekly/SKILL.md"
+
+# Reproduction (bug-fix first-fail): an oversized operand aborts jq via --argjson
+# (the defect) and completes via --slurpfile (the fix) — same program, same input.
+# ~3 MB exceeds both Linux MAX_ARG_STRLEN (128 KB/arg) and macOS ARG_MAX (~1 MB).
+E783_BIGF="$(probe_tmp '#783 oversized operand')"
+if [ -n "$E783_BIGF" ] && [ "$E783_BIGF" != /dev/null ]; then
+  python3 -c 'import json,sys; json.dump({"k%d"%i:"x"*40 for i in range(60000)}, open(sys.argv[1],"w"))' "$E783_BIGF"
+  E783_BIG="$(cat "$E783_BIGF")"
+  assert_eq "#783 reproduction: an oversized operand via --argjson aborts jq (the defect)" "nonzero" \
+    "$(jq -n --argjson v "$E783_BIG" '$v | length' >/dev/null 2>&1 && echo zero || echo nonzero)"
+  assert_eq "#783 reproduction: the same oversized operand via --slurpfile completes (the fix)" "zero" \
+    "$(jq -n --slurpfile v "$E783_BIGF" '$v[0] | length' >/dev/null 2>&1 && echo zero || echo nonzero)"
+  rm -f "$E783_BIGF"
+fi
+# ────────────────────────────────────────────────────────────────────────────
+
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
 # SKIP tally (issue #456): derived with `grep -c` over SKIPS_FILE, the same mechanism as

@@ -167,11 +167,11 @@ COOLDOWN_EPOCH="$(python3 -c "import datetime as d; print(int((d.datetime.now(d.
 # For each tag in the pattern view where status is "open" or "regressed"
 # and occurrence_count >= MIN, emit an entry with cooldown_active resolved.
 
-# Route the two corpus-sized operands (pattern_view, open_issue_map) through
-# --slurpfile files rather than --argjson argv slots: both grow monotonically with
-# the corpus and, at scale, overflow the kernel arg limit (jq: "Argument list too
-# long") when passed as argv (issue #783). --slurpfile wraps the file in a
-# one-element array, so each reference dereferences [0].
+# Route the corpus-sized operands (the --slurpfile flags below) through files
+# rather than --argjson argv slots: they grow monotonically with the corpus and, at
+# scale, overflow the kernel arg limit (jq: "Argument list too long") when passed as
+# argv (issue #783). --slurpfile wraps each file in a one-element array, so each
+# reference dereferences [0].
 printf '%s' "$PATTERN_VIEW"   > "$_JQ_TMP/pattern_view.json"
 printf '%s' "$OPEN_ISSUE_MAP" > "$_JQ_TMP/open_issue_map.json"
 OUTPUT="$(
