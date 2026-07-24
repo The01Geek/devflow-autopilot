@@ -47,8 +47,22 @@ _DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # gh binary: resolved once via the single-source execution-verified resolver; an explicit
 # DEVFLOW_GH still wins with no probe, so the test suite's stubbing contract is preserved.
 # shellcheck source=../lib/resolve-gh.sh
-. "$_DIR/../lib/resolve-gh.sh"
-: "${DEVFLOW_GH:=$(devflow_resolve_gh)}"
+. "$_DIR/../lib/resolve-gh.sh" \
+  || echo "devflow: resolve-existing-pr.sh could not source ../lib/resolve-gh.sh (a partial deployment carrying scripts/ without lib/?)" >&2
+# Outcome check, not just sourceability — the same treatment the jq source below gets, and for
+# the same reason: a missing sibling leaves `devflow_resolve_gh` undefined, `DEVFLOW_GH` empty,
+# and the query then fails with a breadcrumb blaming GitHub for a broken install. Name the real
+# cause here instead of misdirecting the reader downstream.
+if ! type devflow_resolve_gh >/dev/null 2>&1; then
+    echo "devflow: resolve-existing-pr.sh: devflow_resolve_gh is not defined after sourcing ../lib/resolve-gh.sh — using bare 'gh' (set DEVFLOW_GH to override)" >&2
+    : "${DEVFLOW_GH:=gh}"
+else
+    : "${DEVFLOW_GH:=$(devflow_resolve_gh)}"
+fi
+if [ -z "${DEVFLOW_GH:-}" ]; then
+    echo "devflow: resolve-existing-pr.sh: gh resolution produced an empty value — using bare 'gh' (set DEVFLOW_GH to override)" >&2
+    DEVFLOW_GH=gh
+fi
 # jq likewise, through the .sh-helper-tier resolver — NOT scripts/run-jq.sh, whose whole
 # reason for existing is agent-composed jq inside SKILL.md bodies, where no resolved
 # DEVFLOW_JQ survives between an agent's separate Bash calls. Inside one .sh process the
@@ -65,11 +79,29 @@ if [ -z "${DEVFLOW_JQ:-}" ]; then
 fi
 
 ISSUE=""; BRANCH=""; BASE=""; BRANCH_SET=""
+# EVERY value-taking flag checks that its operand is PRESENT before `shift 2`. This is not
+# defensive tidiness: with one positional left, bash's `shift 2` FAILS and shifts NOTHING, and
+# because this helper deliberately runs without `set -e` the loop then re-matches the same flag
+# forever — an unbounded hang that prints no token, leaves no breadcrumb, and never exits. That
+# is strictly worse than any wrong answer: the caller's contract routes "no output at all" to
+# REFUSED only for a process that TERMINATES, so a hang burns the whole job budget instead.
+# The shape is reachable from the §3.1 fence, whose `--issue "$ISSUE_NUMBER"` collapses to a
+# bare `--issue` if that value is ever empty. Fail closed to REFUSED, like every other
+# unusable-operand path here.
 while [ "$#" -gt 0 ]; do
     case "$1" in
-        --issue)  ISSUE="${2:-}"; shift 2 ;;
-        --branch) BRANCH="${2:-}"; BRANCH_SET=1; shift 2 ;;
-        --base)   BASE="${2:-}"; shift 2 ;;
+        --issue|--branch|--base)
+            if [ "$#" -lt 2 ]; then
+                echo "devflow: resolve-existing-pr.sh: '$1' requires a value but none was given; refusing rather than looping on an unconsumable argument" >&2
+                printf '%s\n' REFUSED
+                exit 3
+            fi
+            case "$1" in
+                --issue)  ISSUE="$2" ;;
+                --branch) BRANCH="$2"; BRANCH_SET=1 ;;
+                --base)   BASE="$2" ;;
+            esac
+            shift 2 ;;
         *)
             echo "devflow: resolve-existing-pr.sh: unrecognized argument '$1'; refusing to guess" >&2
             printf '%s\n' REFUSED
@@ -140,25 +172,43 @@ fi
 # whichever the API happened to list first. Sort by createdAt and take the newest, exactly as
 # phase-1-setup.md §1.4's resume pre-check does.
 #
-# The filter emits ONE line — either the sentinel `NONE` or `<number> <baseRefName> <yes|no>`.
+# The filter emits ONE line — either the sentinel `NONE` or `<number> <yes|no> <baseRefName>`.
 # A sentinel rather than empty output is load-bearing: an empty line would be ambiguous
 # between "no open PR" (a clean CREATE) and "the filter failed" (a REFUSED), and collapsing
 # those two is the same fail-open the REFUSED/CREATE split exists to prevent.
+#
+# FIELD ORDER AND THE ABSENT-BASE SENTINEL ARE BOTH LOAD-BEARING. `read` splits on IFS and
+# COLLAPSES a run of whitespace, so an empty field does not hold its position — it vanishes and
+# every field after it shifts left. With the base emitted in the middle and defaulted to the
+# empty string, a PR whose `baseRefName` is null produced `11  yes`, `read` bound PR_BASE=yes
+# and PR_CLOSES="", and the helper then reported BOTH checks failed and named the PR's base as
+# literally 'yes' — a warning about a check that in fact held, written durably to the workpad.
+# Two changes make the split shift-proof: the fixed-vocabulary `yes|no` field moves ahead of the
+# free-form base (so nothing variable precedes it), and an absent base becomes the non-empty
+# sentinel `-` rather than "". The sentinel never equals a real base name, so the base-ref check
+# still fails — fail-safe — but the breadcrumb below can say the base was UNESTABLISHED rather
+# than misreporting it as an ordinary mismatch ("unknown is not zero").
+#
 # jq goes through the resolved $DEVFLOW_JQ, never a bare `jq` (the #247 rule); the JSON is fed
-# by here-string rather than a `printf |` pipeline, so no subshell and no extra process.
+# by here-string rather than a `printf |` pipeline, so no subshell and no extra process. jq's
+# own stderr is captured for the same reason gh's is: "jq failed" and "jq produced no line" are
+# different diagnoses, and a breadcrumb that cannot tell them apart misdirects the reader.
+JQ_ERR="$(mktemp 2>/dev/null)" || JQ_ERR=/dev/null
 PR_LINE="$("$DEVFLOW_JQ" -r --arg iss "$ISSUE" '
     sort_by(.createdAt) | last
     | if . == null then "NONE"
-      else "\(.number) \(.baseRefName // "") \(
+      else "\(.number) \(
              ((.closingIssuesReferences // []) | map(.number | tostring) | index($iss))
-             | if . == null then "no" else "yes" end)"
-      end' <<<"$PR_JSON" 2>/dev/null)" || PR_LINE=""
+             | if . == null then "no" else "yes" end) \(.baseRefName // "-")"
+      end' <<<"$PR_JSON" 2>"$JQ_ERR")" || PR_LINE=""
 
 if [ -z "$PR_LINE" ]; then
-    echo "devflow: resolve-existing-pr.sh: the open-PR listing for branch '$BRANCH' could not be parsed (jq failed or produced no line); could not establish whether an open PR exists" >&2
+    echo "devflow: resolve-existing-pr.sh: the open-PR listing for branch '$BRANCH' could not be parsed; could not establish whether an open PR exists: $([ -s "$JQ_ERR" ] && printf '%s' "$(<"$JQ_ERR")" || printf 'jq exited 0 but produced no line')" >&2
+    [ "$JQ_ERR" = /dev/null ] || rm -f "$JQ_ERR"
     printf '%s\n' REFUSED
     exit 3
 fi
+[ "$JQ_ERR" = /dev/null ] || rm -f "$JQ_ERR"
 if [ "$PR_LINE" = NONE ]; then
     echo "devflow: resolve-existing-pr.sh: no open PR on branch '$BRANCH' (queried cleanly); the caller should create one" >&2
     printf '%s\n' CREATE
@@ -170,7 +220,7 @@ fi
 # and CLAUDE.md's guard-class 2 forbids deriving either through a tool lib/preflight.sh does
 # not guarantee: a host missing that tool would yield an empty field, and the run would adopt
 # PR "" or report a clean validation it never performed.
-read -r PR_NUMBER PR_BASE PR_CLOSES <<<"$PR_LINE"
+read -r PR_NUMBER PR_CLOSES PR_BASE <<<"$PR_LINE"
 case "$PR_NUMBER" in
     ''|*[!0-9]*)
         echo "devflow: resolve-existing-pr.sh: the selected PR's number is not numeric ('$PR_NUMBER' from '$PR_LINE'); refusing to adopt an unidentified PR" >&2
@@ -203,12 +253,22 @@ fi
 
 # Both checks are written in ONE shape, so a third check is one more identical line and no
 # `a && b || c` chain (which silently takes the else-branch if the true-branch ever becomes
-# conditional). The `${FAILED:+$FAILED,}` join is what keeps the emitted order stable.
+# conditional). The ORDER OF THE TWO LINES BELOW is the emitted order that the `WARN:<checks>`
+# contract pins (`closes-issue` before `base-ref`); the `${FAILED:+$FAILED,}` form only supplies
+# the separator without a leading comma — it guarantees no ordering of its own.
 FAILED=""
 [ "$PR_CLOSES" = yes ]   || FAILED="${FAILED:+$FAILED,}closes-issue"
 [ "$PR_BASE" = "$BASE" ] || FAILED="${FAILED:+$FAILED,}base-ref"
 if [ -n "$FAILED" ]; then
-    echo "devflow: resolve-existing-pr.sh: adopting open PR #$PR_NUMBER on branch '$BRANCH', but validation failed ($FAILED): it lists closingIssuesReferences=$PR_CLOSES for issue #$ISSUE and targets base '$PR_BASE' (expected '$BASE')" >&2
+    # The base clause distinguishes an UNESTABLISHED base (the jq `-` sentinel: the API returned
+    # no baseRefName) from an ordinary mismatch. Both fail the check — fail-safe — but only one
+    # of them is a fact about the PR, and the durable note the caller writes quotes this text.
+    if [ "$PR_BASE" = - ]; then
+        _base_clause="its base ref could not be established (the listing carried no baseRefName; expected '$BASE')"
+    else
+        _base_clause="targets base '$PR_BASE' (expected '$BASE')"
+    fi
+    echo "devflow: resolve-existing-pr.sh: adopting open PR #$PR_NUMBER on branch '$BRANCH', but validation failed ($FAILED): it lists closingIssuesReferences=$PR_CLOSES for issue #$ISSUE and $_base_clause" >&2
     printf '%s\n' "ADOPT $PR_NUMBER WARN:$FAILED"
     exit 0
 fi

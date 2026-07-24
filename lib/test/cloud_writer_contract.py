@@ -219,6 +219,14 @@ REQUIRED_HELPER_HEADS = {
         ".devflow/vendor/devflow/scripts/parse-acs.py",
         ".devflow/vendor/devflow/scripts/branch-for-issue.py",
         ".devflow/vendor/devflow/scripts/update-branch-checkpoint.sh",
+        # Phase 3.1's existing-PR resolver (issue #782) — implement-only, like the
+        # label helpers below, since devflow.yml's command profile dispatches no
+        # implement phase. Registered for the same reason update-branch-checkpoint.sh
+        # above is: it is a bundled helper a §3.1 fence invokes as its leading token,
+        # so omitting it would let three guards fail open on it — its vendored grant
+        # unasserted by the grant-sync check, its leading-token boundary unaudited,
+        # and its bytes unpinned in the runtime manifest.
+        ".devflow/vendor/devflow/scripts/resolve-existing-pr.sh",
         ".devflow/vendor/devflow/scripts/file-deferrals.py",
         # Phase 4.0.5's discovery step, invoked in the SAME fence as
         # file-deferrals.py above (issue #555). Registered alongside it so the

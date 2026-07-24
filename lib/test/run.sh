@@ -7388,13 +7388,21 @@ printf '%s\n' '[{"number":33,"createdAt":"2026-01-01T00:00:00Z","baseRefName":"d
 # Each failing check must be nameable ALONE, not only in the both-failed pair.
 printf '%s\n' '[{"number":34,"createdAt":"2026-01-01T00:00:00Z","baseRefName":"develop","closingIssuesReferences":[{"number":782}]}]' > "$S782/base-only.json"
 printf '%s\n' '[{"number":35,"createdAt":"2026-01-01T00:00:00Z","baseRefName":"main","closingIssuesReferences":[{"number":999}]}]' > "$S782/closes-only.json"
+# An absent baseRefName is a real gh shape (a PR whose base ref was deleted, a projection that
+# omits it). It is the JSON boundary row the field-split must survive: an empty middle field
+# would collapse under `read` and shift the yes/no token into PR_BASE, so the helper would name
+# a check that in fact held. The `-` sentinel + fixed-vocabulary-field-first ordering fix that.
+printf '%s\n' '[{"number":41,"createdAt":"2026-01-01T00:00:00Z","baseRefName":null,"closingIssuesReferences":[{"number":782}]}]' > "$S782/nullbase.json"
+# Not a JSON array of PR objects — the external-format boundary row for the jq filter.
+printf '%s\n' '{"number":9}' > "$S782/malformed.json"
+printf '%s' '' > "$S782/empty-output.json"
 # rep782 <fixture> <gh-rc-or-empty> <args…> → prints "<stdout-token>|<exit-code>".
 # Both halves are asserted together on every row: the AC requires exactly one token per
 # outcome WITH a matching exit code, so a token asserted without its code would leave the
 # code free to drift (and vice versa).
 # Each invocation is made EXACTLY ONCE and its result captured, because the arm-order rows
-# below compare the same outcomes the matrix rows assert: re-invoking there would spawn six
-# more bash+stub+jq chains for answers already in hand. The helper's stderr is likewise kept
+# below compare the same outcomes the matrix rows assert: re-invoking there would spawn a
+# fresh bash+stub+jq chain per comparison for answers already in hand. The helper's stderr is likewise kept
 # for the breadcrumb row, and it is read from the FILE rather than from a shell variable set
 # inside rep782: every call site here is a `$(rep782 …)` command substitution, i.e. a
 # SUBSHELL, so an assignment made inside the function is discarded on return — the file
@@ -7423,9 +7431,12 @@ assert_eq "#782 arm: an empty result array -> CREATE (a clean 'no open PR', not 
 R782_ADOPT="$(rep782 "$S782/one.json" "" --issue 782 --base main --branch feature-x)"
 assert_eq "#782 arm: exactly one open PR -> ADOPT, validated" "ADOPT 11 OK|0" \
   "$R782_ADOPT"
-assert_eq "#782 arm: two open PRs on one head -> the NEWEST by createdAt is adopted" "ADOPT 22 OK|0" \
+# The DISCRIMINATING row: oldest-first, so a bare `.[0]` would return 21 and fail here.
+assert_eq "#782 arm: two open PRs on one head -> the newest is selected by createdAt, not by array position" "ADOPT 22 OK|0" \
   "$(rep782 "$S782/two-oldest-first.json" "" --issue 782 --base main --branch feature-x)"
-assert_eq "#782 arm: the newest is selected by createdAt, not by array position" "ADOPT 22 OK|0" \
+# Its CONTROL: newest-first, which a bare `.[0]` also passes — it proves the discriminating row
+# above is not an artifact of one array ordering, and cannot itself detect the `.[0]` regression.
+assert_eq "#782 arm: control — newest-first ordering still adopts the newest (passes under .[0] too)" "ADOPT 22 OK|0" \
   "$(rep782 "$S782/two-newest-first.json" "" --issue 782 --base main --branch feature-x)"
 R782_REFUSED_BRANCH="$(rep782 "$S782/one.json" "" --issue 782 --base main --branch "")"
 R782_ERR_BRANCH="$(cat "$S782/err")"
@@ -7444,14 +7455,66 @@ assert_eq "#782 validation: a base-only mismatch names base-ref alone" "ADOPT 34
   "$(rep782 "$S782/base-only.json" "" --issue 782 --base main --branch feature-x)"
 assert_eq "#782 validation: a closes-issue-only mismatch names closes-issue alone" "ADOPT 35 WARN:closes-issue|0" \
   "$(rep782 "$S782/closes-only.json" "" --issue 782 --base main --branch feature-x)"
-# ── ARM ORDER. Each ordered pair must differ; a reordered or collapsed arm makes two of
-# ── these identical, which is precisely what a per-row token assertion alone cannot see.
-assert_eq "#782 arm order: REFUSED and CREATE are distinct outcomes" "differ" \
-  "$([ "$R782_REFUSED_GH" != "$R782_CREATE" ] && echo differ || echo same)"
-assert_eq "#782 arm order: CREATE and ADOPT are distinct outcomes" "differ" \
-  "$([ "$R782_CREATE" != "$R782_ADOPT" ] && echo differ || echo same)"
-assert_eq "#782 arm order: REFUSED and ADOPT are distinct outcomes" "differ" \
-  "$([ "$R782_REFUSED_GH" != "$R782_ADOPT" ] && echo differ || echo same)"
+# ── The remaining REFUSED causes. The helper's header argues at length that these are
+# ── DIFFERENT diagnoses deserving separate breadcrumbs; an undriven arm can collapse onto a
+# ── sibling's message unnoticed, which would defeat exactly that design.
+#
+# A value-taking flag given no value. This row is the regression guard for a REAL defect the
+# review caught: `shift 2` with one positional left FAILS and shifts nothing, so the arg loop
+# re-matched the same flag forever — an unbounded hang emitting no token and no breadcrumb.
+# It is driven under `timeout` so a re-introduced hang fails THIS row instead of wedging the
+# whole suite; the timeout exit (124) is not 3, so the assertion goes RED either way.
+assert_eq "#782 arm: a value-taking flag with no value -> REFUSED, and does NOT hang" "REFUSED|3" \
+  "$(: > "$S782/ghlog"; _o="$(GHLOG="$S782/ghlog" REP_FIXTURE="$S782/one.json" REP_RC="" DEVFLOW_GH="$S782/gh" \
+      timeout 10 bash "$REP_SH" --issue 2>"$S782/err")" && _s=0 || _s=$?; printf '%s|%s\n' "$_o" "$_s")"
+assert_eq "#782 arm: a trailing --branch with no value -> REFUSED, and does NOT hang" "REFUSED|3" \
+  "$(: > "$S782/ghlog"; _o="$(GHLOG="$S782/ghlog" REP_FIXTURE="$S782/one.json" REP_RC="" DEVFLOW_GH="$S782/gh" \
+      timeout 10 bash "$REP_SH" --issue 782 --branch 2>"$S782/err")" && _s=0 || _s=$?; printf '%s|%s\n' "$_o" "$_s")"
+assert_eq "#782 arm: an unrecognized argument -> REFUSED (never a guess)" "REFUSED|3" \
+  "$(rep782 "$S782/one.json" "" --issue 782 --branch feature-x --bogus x)"
+assert_eq "#782 arm: a non-numeric --issue -> REFUSED (the closes-issue check cannot be established)" "REFUSED|3" \
+  "$(rep782 "$S782/one.json" "" --issue abc --base main --branch feature-x)"
+assert_eq "#782 arm: gh exits 0 but prints nothing -> REFUSED (an empty listing is '[]', never empty output)" "REFUSED|3" \
+  "$(rep782 "$S782/empty-output.json" "" --issue 782 --base main --branch feature-x)"
+assert_eq "#782 arm: an unparseable listing -> REFUSED (never a clean 'none found')" "REFUSED|3" \
+  "$(rep782 "$S782/malformed.json" "" --issue 782 --base main --branch feature-x)"
+# ── The JSON boundary row: an absent baseRefName must fail ONLY base-ref, and must not shift
+# ── the field split so that closes-issue is reported failed when it in fact held.
+assert_eq "#782 validation: an absent baseRefName fails base-ref ALONE (no field-shift into closes-issue)" \
+  "ADOPT 41 WARN:base-ref|0" \
+  "$(rep782 "$S782/nullbase.json" "" --issue 782 --base main --branch feature-x)"
+assert_eq "#782 validation: ... and the breadcrumb reports the base as UNESTABLISHED, not as a mismatch named 'yes'" "yes" \
+  "$(case "$(cat "$S782/err")" in *"could not be established"*) echo yes ;; *) echo no ;; esac)"
+# ── The query the helper actually issues, observed from the stub's argv log rather than only
+# ── pinned as source text: this survives a reformatting of the query line that a literal pin
+# ── would not, and it is what proves the four --json fields AC1 requires are really requested.
+assert_eq "#782 the issued query is open-scoped, branch-explicit, and requests the four AC1 fields" \
+  "pr list --head feature-x --state open --json number,createdAt,baseRefName,closingIssuesReferences" \
+  "$(rep782 "$S782/one.json" "" --issue 782 --base main --branch feature-x >/dev/null; cat "$S782/ghlog")"
+# ── ARM ORDER, driven by PRECEDENCE — inputs on which two arms' preconditions hold at once,
+# ── so the assertion records WHICH arm wins. (Pairwise distinctness of the rows above would be
+# ── a tautology: each was already asserted equal to a distinct literal, so no reordering of the
+# ── helper could make two of them equal while those rows still pass. Distinctness is asserted
+# ── by construction; precedence is what a per-row token assertion genuinely cannot see.)
+#
+# (1) Argument validation precedes the branch read: a non-numeric --issue AND an empty --branch
+#     both refuse, and the issue guard must be the one that fires — its breadcrumb names --issue.
+R782_PREC_ISSUE="$(rep782 "$S782/one.json" "" --issue abc --branch "")"
+R782_PREC_ISSUE_ERR="$(cat "$S782/err")"
+assert_eq "#782 arm order: a non-numeric --issue plus an empty --branch both refuse -> REFUSED" "REFUSED|3" \
+  "$R782_PREC_ISSUE"
+assert_eq "#782 arm order: ... and the --issue guard is the one that fired (it precedes the branch read)" "yes" \
+  "$(case "$R782_PREC_ISSUE_ERR" in *"--issue must be a number"*) echo yes ;; *) echo no ;; esac)"
+# (2) The empty-branch guard precedes the query: with BOTH an empty branch and a gh that would
+#     fail, the branch guard must win — and gh must never be invoked at all.
+R782_PREC_BRANCH="$(rep782 "$S782/one.json" 4 --issue 782 --base main --branch "")"
+R782_PREC_BRANCH_ERR="$(cat "$S782/err")"
+assert_eq "#782 arm order: an empty branch plus a failing gh -> REFUSED" "REFUSED|3" \
+  "$R782_PREC_BRANCH"
+assert_eq "#782 arm order: ... the empty-branch guard fired, not the gh-failure arm" "yes" \
+  "$(case "$R782_PREC_BRANCH_ERR" in *"the branch name is empty"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#782 arm order: ... and gh was never invoked (the guard truly precedes the query)" "yes" \
+  "$([ -s "$S782/ghlog" ] && echo no || echo yes)"
 # The empty-branch REFUSED and the gh-failure REFUSED are ONE outcome by design, but they
 # are two different causes — the helper must still say which fired (per-branch breadcrumbs).
 # Both stderr payloads were captured by the matrix rows above; no re-invocation is needed.
