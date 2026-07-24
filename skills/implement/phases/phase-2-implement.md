@@ -29,7 +29,7 @@ A stalled cloud run that `devflow_implement.stall_backstop` auto-resumes (a fres
 
 This gate covers the Phase 2 subagent dispatches only. Phase 3's inline review-engine subagents run under the Skill-tool `review-and-fix` and are already covered by the orchestrator's Skill-tool mid-phase re-anchor — out of scope here.
 
-**No fire → full discovery.** When either conjunct fails — a fresh run (`## Plan` holds only the `- [ ] _(planning in progress)_` seed), a run that died mid-§2.1 before §2.2.4's `--replace-plan-file` (no real Plan), or a terminal re-trigger (`resume-kind` is not `in-flight`) — this gate is a no-op and the full §2.1 discovery / §2.2 architecture pass below runs exactly as it did before this gate existed.
+**No fire → full discovery.** When either conjunct fails — a fresh run, a run that died mid-§2.1 before §2.2.4's `--replace-plan-file`, or a terminal re-trigger — this gate is a no-op and the full §2.1 discovery / §2.2 architecture pass below runs exactly as it did before this gate existed.
 
 ### 2.1 Discovery
 
@@ -164,7 +164,7 @@ Now implement the feature yourself. You have full context:
 - The architect's blueprint (if complex) or your own inline plan (if simple)
 - The original issue requirements
 
-**On a §2.0 gate-fire resume, the committed `## Plan` is the working context in place of the ephemeral explorer/architect output** — both dispatches were skipped, so neither the explorer's system understanding nor the architect's blueprint is in your context; the committed Plan (paired with the §2.0 fresh-tree re-verification of what is already implemented and what remains) is what you build on. This does not weaken the freshness rules: implement against a freshly-read tree per §2.1's #429 read-target and cross-pass-coherence rules, never against a stale Plan trusted blindly.
+**On a §2.0 gate-fire resume, the committed `## Plan` is the working context in place of the ephemeral explorer/architect output** — both dispatches were skipped, so neither the explorer's system understanding nor the architect's blueprint is in your context; the committed Plan (paired with the §2.0 fresh-tree re-verification of what is already implemented and what remains) is what you build on — under §2.0's unchanged freshness obligation, never a stale Plan trusted blindly.
 
 **Test-first gate (mandatory when the change is testable).** Before you write implementation code, decide whether the change adds or alters behavior an automated test (unit or integration) can exercise — a function's return value, an API or CLI contract, an exit code, a parser's handling of an input shape, a state transition, a raised error, or an end-to-end path an integration test drives. If it does, write the test **first**, run it, and confirm it **fails for the right reason** (the behavior doesn't exist yet), then implement until it passes. This is the 2.1.5 reproduce-first gate generalized from bugs to features — but mind what 2.1.5 actually captured: its reproduction signal is **any one of** a failing test, a quoted error log, *or* a recorded shell command. Only when that signal **was a failing test** does it already satisfy this gate (don't write a second one). If 2.1.5 reproduced the bug with a non-test signal (a log or a shell command), there is no failing test yet, so this gate **still applies**: write the failing test now, before implementing the fix. A test added *after* the code, never seen to fail, encodes whatever the code happens to do rather than what the issue requires — write it first.
 
