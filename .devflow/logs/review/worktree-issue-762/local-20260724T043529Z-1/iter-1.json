@@ -1,0 +1,117 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-24T04:35:29Z",
+  "fix_commit_sha": null,
+  "fix_files": [],
+  "loop_role": "fix",
+  "current_step": "2.6",
+  "current_substep": "run_shadow_fanout",
+  "pending_dispatch": null,
+  "sweep_defs_read": [
+    "phase-2-implement.md"
+  ],
+  "sweep_evidence": {
+    "status": "run"
+  },
+  "checklist": [],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": "intentional"
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:comment-analyzer",
+    "devflow:silent-failure-hunter",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "Surface-presence pin literal stops before the scoping qualifier clause; deleting the scoping clause would leave the pin GREEN. Genuinely not pin-testable (semantic); covered by Phase 4.1.8 cutover gate + writing-skills review by design.",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          48843,
+          48846
+        ],
+        "kind": "test_coverage_semantic"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "No test asserts the SSOT invariant negatively (a future duplicate copy in a second file). AC explicitly requires only that the pins not themselves assert a duplicate; negative enforcement left to review by design.",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          48843,
+          48846
+        ],
+        "kind": "test_coverage_negative"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "advisory"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "S-1",
+      "decision": "below-threshold",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "pin stops before scoping qualifier",
+      "skip_category": "below-threshold-parked",
+      "evidence": "parked-origin: below-threshold"
+    },
+    {
+      "finding_id": "S-2",
+      "decision": "below-threshold",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "no negative SSOT-duplicate guard",
+      "skip_category": "below-threshold-parked",
+      "evidence": "parked-origin: below-threshold"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 0,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "shadow": {
+    "ran_at": "2026-07-24T04:40:00Z",
+    "reviewed_sha": "abe601bd",
+    "verdict": "AGREE",
+    "coverage": "full",
+    "prompt_addenda": null,
+    "reviewers_dispatched": [
+      "general-purpose:shadow-adversarial"
+    ],
+    "expected_reviewers": [
+      "general-purpose:shadow-adversarial"
+    ],
+    "reason": "small prose+tests diff; independent adversarial shadow covering intra-diff contradiction, SSOT self-compliance, and correctness",
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 0,
+      "overlap_with_iter_N": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
+  "telemetry": "unavailable"
+}
