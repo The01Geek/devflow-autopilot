@@ -299,6 +299,11 @@ def _map_shape_error(map_value: object) -> "str | None":
     for key, entry in map_value["files"].items():
         if not isinstance(entry, dict) or not isinstance(entry.get("owner"), str):
             return f"coverage-map files entry {key!r} must be an object with a string 'owner'; {MAP_REMEDY}"
+        # `focused_test` (issue #789) is OPTIONAL — its absence is the ordinary case
+        # (no recorded focused Python test), so only a PRESENT-but-non-string value is a
+        # shape error. The semantic checks (tracked, test_*.py, executable) are arm 10's.
+        if "focused_test" in entry and not isinstance(entry["focused_test"], str):
+            return f"coverage-map files entry {key!r} 'focused_test' must be a string when present; {MAP_REMEDY}"
     for key, entry in map_value["run_sh_blocks"].items():
         if not isinstance(entry, dict) or not isinstance(entry.get("owner"), str):
             return f"coverage-map run_sh_blocks entry {key!r} must be an object with a string 'owner'; {MAP_REMEDY}"
@@ -321,6 +326,7 @@ def evaluate(
     run_sh_labels: "set[str] | None" = None,
     module_labels: "dict[str, set[str]] | None" = None,
     scan_read_errors: "list[str] | None" = None,
+    executable_files: "set[str] | None" = None,
 ):
     """Return a list of violation breadcrumbs (empty ⇒ clean). Never raises.
 
@@ -333,7 +339,13 @@ def evaluate(
     keywords, so this function performs no file access and its positional call
     contract is unchanged. Omitting them (every pre-existing caller) leaves arm 9
     stood down — it has no derivation to compare against, and inventing an empty one
-    would report every mapped label as stale."""
+    would report every mapped label as stale.
+
+    `executable_files` carries arm 10's input — the set of git-tracked paths whose
+    INDEX mode is executable (100755), produced by `main()` and injected the same way,
+    so this function still performs no file access. `None` means the mode set could not
+    be established; arm 10 then reports that unestablished measurement once and makes no
+    per-entry executability claim (unknown is not "executable" and not "absent")."""
     violations = []
 
     # ── Arm 8: registry absent/unreadable/wrong-shape (incl. non-object test_modules)
@@ -427,10 +439,85 @@ def evaluate(
         _arm9(run_sh_blocks, valid_ids, run_sh_labels, module_labels, scan_read_errors)
     )
 
+    # ── Arm 10: the recorded focused Python test of a `files` entry (issue #789)
+    violations.extend(_arm10(files, tracked, executable_files))
+
     return violations
 
 
 ARM9_REMEDY = f"run `python3 {GUARD_REL} . --fix` to repair {MAP_REL}"
+
+# ── Arm 10: focused-test credit for the Python layer (issue #789) ─────────────
+# The coverage map's `owner` field answers "which registered lib/test/run-module.sh
+# module carries this unit", so a `scripts/*.py` helper whose coverage lives in a
+# `lib/test/test_*.py` file has no shell module and is correctly `unmodularized` — which
+# used to leave the focused-verification policy with no focused target and route every
+# Python change to the ~10-minute full suite. `focused_test` is the ORTHOGONAL field that
+# records that Python target explicitly (never inferred from a filename heuristic, per the
+# repo's "changed files never auto-route" discipline), leaving `owner` semantics and arms
+# 3/8/9 untouched.
+#
+# A recorded target must be *usable as a focused run on both tiers*, which is what this arm
+# checks: git-tracked (it ships), named `test_*.py` (it is a test, not an arbitrary script),
+# and EXECUTABLE IN THE INDEX. The exec bit is load-bearing rather than cosmetic — the cloud
+# matcher denies the interpreter-head shape `python3 <script>` (issue #401) while granting a
+# direct leading token, so a non-executable target is a map entry promising a focused run the
+# cloud tier cannot make. The index mode (`git ls-files -s`) is the comparand, not the
+# working-tree mode, because the index mode is the one that ships.
+ARM10_REMEDY = (
+    "record a git-tracked, executable lib/test/test_*.py path (chmod +x it and stage the "
+    "mode change), or drop the 'focused_test' key"
+)
+
+
+def _focused_test_target(value: str) -> str:
+    """The file path of a `focused_test` value, dropping an optional `::selector` suffix.
+
+    A recorded value may narrow to a single test (`lib/test/test_module_harness.py::Cls.test`)
+    exactly like the flake isolation command; only the path before `::` names a file, so that
+    is what the tracked/naming/mode checks read."""
+    return value.split("::", 1)[0]
+
+
+def _arm10(files, tracked, executable_files):
+    """Validate every recorded `focused_test`. Pure — all inputs are injected."""
+    violations = []
+    recorded = [path for path in sorted(files) if files[path].get("focused_test")]
+    if not recorded:
+        return violations
+    if executable_files is None:
+        # An unestablished mode set is reported ONCE and never collapsed onto either
+        # answer: claiming "executable" would launder the failed measurement into a pass,
+        # and claiming "not executable" would report every recorded entry as broken on the
+        # strength of a measurement that never ran. The tracked/naming checks below do not
+        # read this set, so they still run.
+        violations.append(
+            "[arm10] the git index executable-mode set could not be established, so no "
+            f"'focused_test' entry's executability was checked; {ARM10_REMEDY}"
+        )
+    for path in recorded:
+        value = files[path]["focused_test"]
+        target = _focused_test_target(value)
+        if target not in tracked:
+            violations.append(
+                f"[arm10] coverage-map files entry {path!r} focused_test {value!r} is not a "
+                f"git-tracked file; {ARM10_REMEDY}"
+            )
+            continue
+        name = target.rsplit("/", 1)[-1]
+        if not (name.startswith("test_") and name.endswith(".py")):
+            violations.append(
+                f"[arm10] coverage-map files entry {path!r} focused_test {value!r} does not "
+                f"name a lib/test/test_*.py file; {ARM10_REMEDY}"
+            )
+            continue
+        if executable_files is not None and target not in executable_files:
+            violations.append(
+                f"[arm10] coverage-map files entry {path!r} focused_test {value!r} is not "
+                "executable in the git index — the cloud matcher denies the `python3 "
+                f"<script>` interpreter-head shape, so it is not focus-runnable there; {ARM10_REMEDY}"
+            )
+    return violations
 
 
 def _fully_extracted(run_sh_labels, module_labels):
@@ -526,6 +613,34 @@ def _git_tracked(repo_root: Path):
         check=True,
     )
     return [line for line in result.stdout.split("\n") if line]
+
+
+def _git_executable(repo_root: Path):
+    """git-tracked repo-relative paths whose INDEX mode is executable, or None.
+
+    `git ls-files -s` prints `<mode> <object> <stage>\\tpath`; mode 100755 is the
+    executable regular-file mode. Returning None on any failure (rather than an empty
+    set) keeps the unestablished case distinguishable from "nothing is executable" —
+    arm 10 reports the former once and makes no per-entry claim. Index mode, not the
+    working-tree mode, is the comparand: the index is what ships."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), "ls-files", "-s"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        return None
+    executable = set()
+    for line in result.stdout.split("\n"):
+        if not line:
+            continue
+        meta, tab, path = line.partition("\t")
+        if not tab or not meta.startswith("100755 "):
+            continue
+        executable.add(path)
+    return executable
 
 
 def _load_json(path: Path):
@@ -675,6 +790,7 @@ def main(argv):
         run_sh_labels=run_sh_labels,
         module_labels=module_labels,
         scan_read_errors=scan_read_errors,
+        executable_files=_git_executable(repo_root),
     )
     for line in violations:
         print(line)

@@ -60,7 +60,15 @@ class CoverageMapGuardTest(unittest.TestCase):
         tracked = subprocess.run(
             ["git", "-C", str(ROOT), "ls-files"], capture_output=True, text=True, check=True
         ).stdout.split()
-        self.assertEqual(guard.evaluate(tracked, map_value, registry_value), [])
+        # `executable_files` is passed from the real index (issue #789) because arm 10's
+        # unestablished-mode-set breadcrumb is a violation: omitting it here would grade the
+        # shipped tree against a measurement that never ran.
+        self.assertEqual(
+            guard.evaluate(
+                tracked, map_value, registry_value, executable_files=guard._git_executable(ROOT)
+            ),
+            [],
+        )
 
     # ── T-planted (arm 1): an unlisted depth-1 pattern unit records FAIL naming it. ──
     def test_planted_unlisted_depth1_unit(self):
@@ -99,6 +107,102 @@ class CoverageMapGuardTest(unittest.TestCase):
         blocks = {"561": _owned("bogus"), "unlabeled": _owned()}
         v = guard.evaluate(tracked, _map(files={"lib/real.sh": _owned()}, run_sh_blocks=blocks), _registry())
         self.assertEqual(self._arms(v), {"arm3"})
+
+    # ── T-focused (arm 10, issue #789): the recorded `focused_test` of a files entry. ──
+    # Five cases: absent (the ordinary entry — no arm 10 traffic), present+valid+executable,
+    # present-but-untracked, present-but-wrong-basename, present-but-not-executable. Each
+    # non-clean case must record arm10 ALONE, so the arm cannot be credited by another arm's
+    # noise. `_focused` builds the entry; `EXEC` is the injected index-mode set.
+    _EXEC = {"lib/test/test_thing.py"}
+
+    @staticmethod
+    def _focused(target, owner="unmodularized"):
+        return {"owner": owner, "note": "", "focused_test": target}
+
+    def test_focused_test_absent_is_clean(self):
+        tracked = ["lib/real.sh"]
+        v = guard.evaluate(
+            tracked, _map(files={"lib/real.sh": _owned()}), _registry(), executable_files=self._EXEC
+        )
+        self.assertEqual(v, [])
+
+    def test_focused_test_valid_executable_passes(self):
+        tracked = ["lib/real.sh", "lib/test/test_thing.py"]
+        v = guard.evaluate(
+            tracked,
+            _map(files={"lib/real.sh": self._focused("lib/test/test_thing.py")}),
+            _registry(),
+            executable_files=self._EXEC,
+        )
+        self.assertEqual(v, [])
+
+    def test_focused_test_selector_suffix_resolves_to_the_file(self):
+        # A `path::Class.test` selector narrows the run; only the path before `::` names a
+        # file, so a valid executable target with a selector must still pass.
+        tracked = ["lib/real.sh", "lib/test/test_thing.py"]
+        v = guard.evaluate(
+            tracked,
+            _map(files={"lib/real.sh": self._focused("lib/test/test_thing.py::Cls.test_x")}),
+            _registry(),
+            executable_files=self._EXEC,
+        )
+        self.assertEqual(v, [])
+
+    def test_focused_test_untracked_records_arm10(self):
+        tracked = ["lib/real.sh"]
+        v = guard.evaluate(
+            tracked,
+            _map(files={"lib/real.sh": self._focused("lib/test/test_gone.py")}),
+            _registry(),
+            executable_files=self._EXEC,
+        )
+        self.assertEqual(self._arms(v), {"arm10"})
+        self.assertIn("lib/test/test_gone.py", "".join(v))
+
+    def test_focused_test_wrong_basename_records_arm10(self):
+        tracked = ["lib/real.sh", "lib/test/helper.py"]
+        v = guard.evaluate(
+            tracked,
+            _map(files={"lib/real.sh": self._focused("lib/test/helper.py")}),
+            _registry(),
+            executable_files={"lib/test/helper.py"},
+        )
+        self.assertEqual(self._arms(v), {"arm10"})
+        self.assertIn("lib/test/helper.py", "".join(v))
+
+    def test_focused_test_not_executable_records_arm10(self):
+        tracked = ["lib/real.sh", "lib/test/test_thing.py"]
+        v = guard.evaluate(
+            tracked,
+            _map(files={"lib/real.sh": self._focused("lib/test/test_thing.py")}),
+            _registry(),
+            executable_files=set(),
+        )
+        self.assertEqual(self._arms(v), {"arm10"})
+        self.assertIn("not executable in the git index", "".join(v))
+
+    def test_focused_test_unestablished_mode_set_is_reported_once_not_laundered(self):
+        # `executable_files=None` is an UNESTABLISHED measurement, never "executable" and
+        # never "absent": exactly one breadcrumb, and no per-entry executability claim.
+        tracked = ["lib/real.sh", "lib/test/test_thing.py"]
+        v = guard.evaluate(
+            tracked,
+            _map(files={"lib/real.sh": self._focused("lib/test/test_thing.py")}),
+            _registry(),
+            executable_files=None,
+        )
+        self.assertEqual(self._arms(v), {"arm10"})
+        self.assertEqual(len(v), 1)
+        self.assertIn("could not be established", v[0])
+
+    def test_focused_test_non_string_is_a_shape_error(self):
+        tracked = ["lib/real.sh"]
+        entry = {"owner": "unmodularized", "note": "", "focused_test": 7}
+        v = guard.evaluate(
+            tracked, _map(files={"lib/real.sh": entry}), _registry(), executable_files=self._EXEC
+        )
+        self.assertEqual(self._arms(v), {"arm4"})
+        self.assertIn("focused_test", "".join(v))
 
     # ── T-shape (arm 4): the six governing shapes over the MAP input. ──
     def test_shape_matrix_map(self):

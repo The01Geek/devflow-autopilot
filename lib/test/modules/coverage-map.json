@@ -121,6 +121,7 @@
     },
     "scripts/analyze-workflow-runs.py": {
       "note": "",
+      "focused_test": "lib/test/test_workflow_analyzer.py",
       "owner": "unmodularized"
     },
     "scripts/apply-labels.sh": {
@@ -137,6 +138,7 @@
     },
     "scripts/branch-for-issue.py": {
       "note": "",
+      "focused_test": "lib/test/test_python_scripts.py",
       "owner": "unmodularized"
     },
     "scripts/build-experiment-records.py": {
@@ -145,10 +147,12 @@
     },
     "scripts/capture-implement-session.py": {
       "note": "",
+      "focused_test": "lib/test/test_workflow_flight_recorder.py",
       "owner": "unmodularized"
     },
     "scripts/capture-workflow-manifest.py": {
       "note": "",
+      "focused_test": "lib/test/test_workflow_flight_recorder.py",
       "owner": "unmodularized"
     },
     "scripts/check-completion-evidence.py": {
@@ -177,6 +181,7 @@
     },
     "scripts/create-issue-context-eval.py": {
       "note": "issue #767 create-issue runtime-context eval; tested directly by lib/test/test_create_issue_context_eval.py (serial)",
+      "focused_test": "lib/test/test_create_issue_context_eval.py",
       "owner": "unmodularized"
     },
     "scripts/dedupe-implement-run.sh": {
@@ -221,6 +226,7 @@
     },
     "scripts/discover-deferral-manifests.py": {
       "note": "",
+      "focused_test": "lib/test/test_python_scripts.py",
       "owner": "unmodularized"
     },
     "scripts/dismiss-stale-rejections.sh": {
@@ -237,6 +243,7 @@
     },
     "scripts/export-workflow-lifecycle-census.py": {
       "note": "",
+      "focused_test": "lib/test/test_verification_baseline.py",
       "owner": "unmodularized"
     },
     "scripts/extract-doc-needed-paths.sh": {
@@ -253,6 +260,7 @@
     },
     "scripts/file-deferrals.py": {
       "note": "",
+      "focused_test": "lib/test/test_python_scripts.py",
       "owner": "unmodularized"
     },
     "scripts/filter-runner-tools.sh": {
@@ -273,6 +281,7 @@
     },
     "scripts/import-workflow-transcript.py": {
       "note": "",
+      "focused_test": "lib/test/test_workflow_flight_recorder.py",
       "owner": "unmodularized"
     },
     "scripts/install-gh-wrapper.sh": {
@@ -281,10 +290,12 @@
     },
     "scripts/inventory-workflow-transcripts.py": {
       "note": "",
+      "focused_test": "lib/test/test_workflow_flight_recorder.py",
       "owner": "unmodularized"
     },
     "scripts/issue-audit-state.py": {
       "note": "",
+      "focused_test": "lib/test/test_python_scripts.py",
       "owner": "unmodularized"
     },
     "scripts/load-prompt-extension.sh": {
@@ -293,6 +304,7 @@
     },
     "scripts/match-deferrals.py": {
       "note": "",
+      "focused_test": "lib/test/test_python_scripts.py",
       "owner": "unmodularized"
     },
     "scripts/match-lint-adjudications.py": {
@@ -305,6 +317,7 @@
     },
     "scripts/parse-acs.py": {
       "note": "",
+      "focused_test": "lib/test/test_python_scripts.py",
       "owner": "unmodularized"
     },
     "scripts/parse-engine-error.sh": {
@@ -393,6 +406,7 @@
     },
     "scripts/resolve-review-overrides.py": {
       "note": "",
+      "focused_test": "lib/test/test_python_scripts.py",
       "owner": "unmodularized"
     },
     "scripts/run-jq.sh": {
@@ -413,6 +427,7 @@
     },
     "scripts/stale-prose-lint.py": {
       "note": "",
+      "focused_test": "lib/test/test_python_scripts.py",
       "owner": "unmodularized"
     },
     "scripts/stall-backstop-decide.sh": {
@@ -445,6 +460,7 @@
     },
     "scripts/validate-cloud-writer-contract.py": {
       "note": "",
+      "focused_test": "lib/test/test_python_scripts.py",
       "owner": "unmodularized"
     },
     "scripts/validate-telemetry-artifact.sh": {
@@ -461,10 +477,12 @@
     },
     "scripts/workflow_flight_recorder.py": {
       "note": "",
+      "focused_test": "lib/test/test_workflow_flight_recorder.py",
       "owner": "unmodularized"
     },
     "scripts/workpad.py": {
       "note": "",
+      "focused_test": "lib/test/test_python_scripts.py",
       "owner": "unmodularized"
     }
   },

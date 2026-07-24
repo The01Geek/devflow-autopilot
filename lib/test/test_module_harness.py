@@ -21,6 +21,8 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
+RUN_SH = ROOT / "lib/test/run.sh"
+SUMMARY_SH = ROOT / "lib/test/summary.sh"
 HARNESS = ROOT / "lib/test/module-harness.sh"
 RUNNER = ROOT / "lib/test/run-module.sh"
 CREATE_ISSUE_MODULE = ROOT / "lib/test/modules/create-issue-contract.sh"
@@ -1621,6 +1623,152 @@ class NamespacedModulePinHelperTests(unittest.TestCase):
             [],
             f"mutation scratch survived: {leftover}",
         )
+
+
+# ── Failure recap (issue #789) ────────────────────────────────────────────────
+# lib/test/run.sh's terminal `Failure recap` is driven here rather than by running the
+# ~10-minute suite: the two blocks under test — `record_fail` and the recap `if` at the
+# tail — are extracted VERBATIM from the shipped run.sh by source slice and evaluated in a
+# standalone bash driver. Extracting rather than restating is what keeps this from becoming
+# a copy that silently diverges: a rewrite of either block changes what these tests execute.
+_RECORD_FAIL_SLICE = ("/^record_fail() {/,/^}/p", "record_fail() {")
+_RECAP_SLICE = (
+    '/^if \\[ "\\$FAIL" -gt 0 \\] && \\[ -s "\\$RESULTS_FILE.names" \\]; then$/,/^fi$/p',
+    "Failure recap:",
+)
+
+
+def _slice_run_sh(program: str, sentinel: str) -> str:
+    """Return a `sed -n` slice of run.sh, failing loudly if it is empty or wrong.
+
+    An empty slice would make every assertion below vacuous — the driver would run no
+    recap code at all and a clean-looking `0 passed` would "prove" the recap is silent."""
+    text = subprocess.run(
+        ["sed", "-n", program, str(RUN_SH)], capture_output=True, text=True, check=True
+    ).stdout
+    if sentinel not in text:
+        raise AssertionError(
+            f"run.sh slice {program!r} did not yield the expected block "
+            f"(sentinel {sentinel!r} absent) — the extraction is stale, not the behavior"
+        )
+    return text
+
+
+class FailureRecapTests(unittest.TestCase):
+    """AC6/AC7: the recap re-lists every FAIL identifier, on both streams, without
+    disturbing a clean run's summary bytes or the suite's exit status."""
+
+    def _drive(self, seed: str):
+        """Run the extracted record_fail + recap over SEED, returning (rc, stdout, stderr)."""
+        record_fail = _slice_run_sh(*_RECORD_FAIL_SLICE)
+        recap = _slice_run_sh(*_RECAP_SLICE)
+        script = f"""
+set -u
+RESULTS_FILE="$(mktemp)"
+SKIPS_FILE="$(mktemp)"
+. "{SUMMARY_SH}"
+{record_fail}
+{seed}
+PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
+FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
+SKIP=$(grep -c . "$SKIPS_FILE" || true)
+echo
+devflow_render_test_summary "$PASS" "$FAIL" "$SKIP" "$SKIPS_FILE"
+{recap}
+rm -f "$RESULTS_FILE" "$RESULTS_FILE.names" "$SKIPS_FILE"
+[ "$FAIL" -eq 0 ]
+"""
+        proc = subprocess.run(
+            ["bash", "-c", script], capture_output=True, text=True, cwd=str(ROOT)
+        )
+        return proc.returncode, proc.stdout, proc.stderr
+
+    @staticmethod
+    def _recap_bullets(out: str) -> "list[str]":
+        """The recap's bullet lines, VERBATIM (leading indent included).
+
+        The indent is part of the asserted shape — it is what run-module.sh's recap uses
+        and what makes the bullets read as a nested list under the header — so the lines
+        are compared unstripped; only surrounding blank lines are dropped."""
+        body = out.split("Failure recap:", 1)[1]
+        return [line for line in body.split("\n") if line.strip()]
+
+    @staticmethod
+    def _fail(name: str, *, stderr: bool = False) -> str:
+        detail = (
+            f"printf '  FAIL  {name}\\n' >&2\n" if stderr else f"printf '  FAIL  {name}\\n'\n"
+        )
+        return f'echo FAIL >> "$RESULTS_FILE"\n{detail}record_fail "{name}"\n'
+
+    def test_zero_failures_prints_no_recap_and_the_pre_change_summary(self):
+        rc, out, _ = self._drive(":")
+        self.assertEqual(rc, 0)
+        self.assertNotIn("Failure recap", out)
+        # Byte-identical to the pre-#789 terminal output for a clean run: the blank line
+        # devflow_render_test_summary is called after, then its own single summary line.
+        self.assertEqual(out, "\n0 passed, 0 failed\n")
+
+    def test_one_failure_is_listed_by_its_identifier(self):
+        rc, out, _ = self._drive(self._fail("alpha assertion"))
+        self.assertEqual(rc, 1)
+        self.assertIn("Failure recap:", out)
+        self.assertIn("  - alpha assertion\n", out)
+
+    def test_many_failures_are_all_listed_in_order(self):
+        seed = "".join(self._fail(n) for n in ("alpha", "beta", "gamma"))
+        rc, out, _ = self._drive(seed)
+        self.assertEqual(rc, 1)
+        self.assertEqual(
+            self._recap_bullets(out), ["  - alpha", "  - beta", "  - gamma"]
+        )
+
+    def test_a_stderr_only_failure_is_still_recapped_on_stdout(self):
+        # The bi-stream case AC6 names: ~15 of run.sh's ~40 FAIL sites print their detail to
+        # stderr. The identifier record is stream-independent, so the recap must list a
+        # stderr failure exactly like a stdout one.
+        rc, out, err = self._drive(self._fail("stderr-only assertion", stderr=True))
+        self.assertEqual(rc, 1)
+        self.assertIn("  FAIL  stderr-only assertion", err)
+        self.assertNotIn("  FAIL  stderr-only assertion", out)
+        self.assertIn("  - stderr-only assertion\n", out)
+
+    def test_a_failing_run_still_exits_nonzero_through_the_recap(self):
+        # #528's verification-flight handle reads the suite's EXIT STATUS to record the
+        # terminal state, so a recap that masked it would record `passed` for a RED suite.
+        rc, out, _ = self._drive(self._fail("alpha"))
+        self.assertIn("Failure recap:", out)
+        self.assertNotEqual(rc, 0)
+
+    def test_delimiter_bearing_identifier_stays_one_line(self):
+        seed = (
+            'echo FAIL >> "$RESULTS_FILE"\n'
+            "record_fail \"$(printf 'tab\\there\\nand newline')\"\n"
+        )
+        rc, out, _ = self._drive(seed)
+        self.assertEqual(rc, 1)
+        self.assertEqual(self._recap_bullets(out), ["  - tab here and newline"])
+
+    def test_empty_identifier_degrades_to_the_named_placeholder(self):
+        rc, out, _ = self._drive('echo FAIL >> "$RESULTS_FILE"\nrecord_fail ""\n')
+        self.assertEqual(rc, 1)
+        self.assertIn("  - (unnamed check)\n", out)
+
+    def test_every_tallied_fail_site_in_run_sh_records_an_identifier(self):
+        """A FAIL site that increments the tally but records no identifier would make the
+        recap under-report — the recap would look complete while omitting the very failure
+        the reader is chasing. This walks the shipped run.sh and requires each non-comment
+        `echo FAIL >> "$RESULTS_FILE"` to carry a record_fail on its own or the next line."""
+        lines = RUN_SH.read_text(encoding="utf-8").split("\n")
+        missing = []
+        for index, line in enumerate(lines):
+            if 'echo FAIL >> "$RESULTS_FILE"' not in line:
+                continue
+            if line.lstrip().startswith("#"):
+                continue
+            following = lines[index + 1] if index + 1 < len(lines) else ""
+            if "record_fail" not in line and "record_fail" not in following:
+                missing.append(f"lib/test/run.sh:{index + 1}: {line.strip()}")
+        self.assertEqual(missing, [], "FAIL sites with no identifier record")
 
 
 if __name__ == "__main__":
