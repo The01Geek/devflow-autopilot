@@ -27261,10 +27261,11 @@ assert_eq "#404 trust: old PR-head resolution loop is gone" "0" \
   "$(grep -cF '.devflow/vendor/devflow/scripts/filter-runner-tools.sh scripts/filter-runner-tools.sh' "$RUNNER" || true)"
 assert_eq "#404 trust: FLOOR_HELPER wired to baseprovision floor_helper output" "1" \
   "$(grep -cF 'FLOOR_HELPER: ${{ steps.baseprovision.outputs.floor_helper }}' "$RUNNER" || true)"
-# VENDOR_SOURCE is wired to the same fresh-fetch gate at three sites: the tools
-# step's deny-floor (#404), the #458 harden-stop-hooks step, and the #505 compose
-# step (same trusted-source rank — the compose helper's rank-2 vendored fallback).
-assert_eq "#404 trust: VENDOR_SOURCE wired to vendor step output (tools + #458 harden + #505 compose)" "3" \
+# VENDOR_SOURCE is wired to the same fresh-fetch gate at every site whose rank-2
+# fallback is a vendored copy: the tools step's deny-floor (#404), the #458
+# harden-stop-hooks step, the #505 compose step, and the #700 F-4 applied-effort
+# composer. The count below is the pin — reconcile it when a site is added.
+assert_eq "#404 trust: VENDOR_SOURCE wired to vendor step output (every vendored rank-2 site)" "4" \
   "$(grep -cF 'VENDOR_SOURCE: ${{ steps.vendor.outputs.vendor_source }}' "$RUNNER" || true)"
 assert_eq "#404 trust: baseprovision materializes the floor from FETCH_HEAD" "1" \
   "$(grep -cF 'FETCH_HEAD:.devflow/vendor/devflow/scripts/filter-runner-tools.sh' "$RUNNER" || true)"
@@ -34005,6 +34006,47 @@ assert_pin_red_on_removal "#700 B1: baseprovision emits the materialized base-re
 # NOT carry the base-ref override (its presence there would be a coupled-mirror drift).
 assert_eq "#700 B1: the implement/command compose steps do NOT source base-ref config (working-tree read is legitimate there)" "0,0" \
   "$(printf '%s' "$(pin_count 'DEVFLOW_AE_CONFIG' "$IMPL_WF")"),$(printf '%s' "$(pin_count 'DEVFLOW_AE_CONFIG' "$LIGHT_WF")")"
+
+# #700 F-4 (trust boundary): the review tier reviews a PR-HEAD checkout, so the composer
+# and the resolver it execs must be read from a TRUSTED source, never the workspace — the
+# #402/#404 "a floor the PR controls is no floor" rule. Threading the base-ref config is
+# necessary but not sufficient: a PR that can edit these two files ignores the config it
+# was handed. Pin the whole ladder.
+assert_pin_red_under "#700 F-4: the review tier requires a TRUSTED composer+resolver (arms the ladder)" \
+  "DEVFLOW_AE_REQUIRE_TRUSTED: 'true'" \
+  "s/DEVFLOW_AE_REQUIRE_TRUSTED: 'true'/DEVFLOW_AE_REQUIRE_TRUSTED: 'false'/" "$RUNNER_WF"
+assert_pin_red_under "#700 F-4: the review tier consumes the base-ref materialized helper dir, not the workspace" \
+  'DEVFLOW_AE_TRUSTED_DIR: ${{ steps.baseprovision.outputs.ae_helper_dir }}' \
+  's|ae_helper_dir }}|ae_helper_dir_DISABLED }}|' "$RUNNER_WF"
+assert_pin_red_on_removal "#700 F-4: baseprovision emits the trusted applied-effort helper dir (removal-proof)" \
+  'ae_helper_dir=$AE_HELPER_DIR' "$RUNNER_WF"  # structural-pin-ok: producer-presence pin — the guarded regression is removal of the base-ref materialization emit; no in-place mutation reintroduces a missing output
+# Rank 2 must stay gated on a FRESH official-repo fetch: a committed/self vendored copy is
+# PR-editable, so accepting any vendor_source would re-open the boundary rank 1 closes.
+assert_pin_red_under "#700 F-4: rank 2 (vendored) is gated on vendor_source=fetch, never a committed copy" \
+  '[ "${VENDOR_SOURCE:-}" = "fetch" ] && [ -f .devflow/vendor/devflow/scripts/compose-applied-effort.sh ]' \
+  's/= "fetch" \]/!= "nonesuch" ]/' "$RUNNER_WF"
+# The trusted composer must also pin the RESOLVER it execs: a trusted composer running a
+# PR-editable resolver moves the hole one level down rather than closing it.
+assert_pin_red_on_removal "#700 F-4: the trusted arm pins DEVFLOW_RRO to the same trusted dir (removal-proof)" \
+  'export DEVFLOW_RRO="${DEVFLOW_AE_TRUSTED_DIR}/resolve-review-overrides.py"' "$RUNNER_WF"  # structural-pin-ok: presence pin — the guarded regression is dropping the resolver pin entirely, leaving the composer free to resolve a PR-editable resolver
+# The implement/command tiers run against their OWN trusted tree, so ARMING the ladder there
+# would be a coupled-mirror drift (and would fail closed on every run). Count the env-key
+# ARMING form, not the bare name: the shared run: body legitimately reads the variable in all
+# three tiers, so a bare-name count would measure the body, not the arming.
+assert_eq "#700 F-4: implement/command tiers do NOT arm the trusted-source ladder" "0,0" \
+  "$(printf '%s' "$(pin_count "DEVFLOW_AE_REQUIRE_TRUSTED: 'true'" "$IMPL_WF")"),$(printf '%s' "$(pin_count "DEVFLOW_AE_REQUIRE_TRUSTED: 'true'" "$LIGHT_WF")")"
+assert_eq "#700 F-4: the review tier IS armed (positive control for the row above)" "1" \
+  "$(pin_count "DEVFLOW_AE_REQUIRE_TRUSTED: 'true'" "$RUNNER_WF")"
+
+# #700 F-6 (stale-sidecar clear hoisted out of the helper): co-gating the clear on the
+# helper's existence meant the #502 vendor-skew state (no helper at either path) left a
+# PR-committed sidecar in place, and on the review tier that tree is the PR HEAD — so a
+# `git add -f` sidecar was read as genuine applied telemetry. The clear must run in the STEP,
+# unconditionally, in all three tiers.
+assert_eq "#700 F-6: the stale-sidecar clear is hoisted into the step body in all three tiers" "1,1,1" \
+  "$(pin_count 'AE_SIDECAR="${DEVFLOW_AE_SIDECAR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.devflow/tmp/agent-effort-applied.json}"' "$RUNNER_WF"),$(pin_count 'AE_SIDECAR="${DEVFLOW_AE_SIDECAR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.devflow/tmp/agent-effort-applied.json}"' "$IMPL_WF"),$(pin_count 'AE_SIDECAR="${DEVFLOW_AE_SIDECAR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.devflow/tmp/agent-effort-applied.json}"' "$LIGHT_WF")"
+assert_pin_red_under "#700 F-6: an unclearable sidecar blocks composition (never composes over unknown provenance)" \
+  'AE_BLOCKED=1' 's/AE_BLOCKED=1/AE_BLOCKED=0/' "$RUNNER_WF"
 
 # #700 F1 (deferral guard): the applied arm's blast radius — if `--agents` SHADOWS rather
 # than patches an installed agent, every merge-gating review agent degrades to a
