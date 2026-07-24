@@ -10,4 +10,4 @@ type: Changed
   claim classes — behavioral (comparand: the shipped code path), verification (comparand: the
   tests present in this diff), and artifact-existence (comparand: the artifact's own resolvable
   identifier) — resolving each failure by the same fix-or-rewrite rule §2.3.4a imposes, and
-  records one workpad outcome per class including an explicit clean-pass note. (#761)
+  records one workpad outcome per class including an explicit clean-pass note. (#761, PR #773)
