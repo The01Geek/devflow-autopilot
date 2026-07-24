@@ -6195,6 +6195,10 @@ assert_pin_red_under "#761: §4.2 artifact-existence class requires a resolvable
 # pre-#761 §4.2); a presence pin, not a behavioral-fix regression pin.
 assert_pin_unique "#761: §4.2 preserves the behavioral class and its shipped-code-path comparand" \
   "**Behavioral claims** — comparand: the actual shipped code path, followed into pre-existing code the diff calls." "$P4_FILE"  # structural-pin-ok: documentation-presence pin (asserts the preserved class-1 obligation exists; the narrowing mutation keeps behavioral, so a red_under form cannot express it)
+# The AC5 per-class-outcome contract: one note per class plus an explicit clean-pass note,
+# so a clean class is distinguishable from one that never ran.
+assert_pin_unique "#761: §4.2 records one outcome per class with an explicit clean-pass note (AC5)" \
+  "a class that found nothing records an **explicit clean-pass** note, so a class that ran clean is distinguishable from a class that never ran" "$P4_FILE"  # structural-pin-ok: documentation-presence pin (asserts the AC5 per-class clean-pass-note contract exists; no code regression guarded)
 
 # T7 — no-new-grants. The new prose (Phase 1.6 fresh-tree verification + Phase 2.1 code-wins
 # pass) executes during a /devflow:implement run, and `devflow-implement.yml` is the SINGLE
