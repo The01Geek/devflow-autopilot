@@ -38356,7 +38356,7 @@ assert_pin_unique "#529 AC4: the budget table disclaims any retained-context rea
 # (python3 str.split, host-independent), NEVER `wc -w` — the same reason the review bundle uses
 # it. The exact-byte census (`lib/test/prompt-mass-census.py`) is the sibling gate that forces a
 # baseline regen on ANY edit; this one additionally caps regrowth.
-CLAUDEMD_WORD_CEIL=9383  # audited raise (issue #762): the go-forward SSOT policy rewrite of the coupled-invariant bullet + the two-population enumeration adds load-bearing always-on prose no trim offsets; measured with _rb_words, recorded in the PR
+CLAUDEMD_WORD_CEIL=9393  # audited raise (issue #762): the go-forward SSOT policy rewrite of the coupled-invariant bullet + the two-population enumeration adds load-bearing always-on prose no trim offsets; measured with _rb_words, recorded in the PR
 _claudemd_w=$(_rb_words "$LIB/../CLAUDE.md")
 # Anti-vacuity: `_rb_words` on an unreadable/renamed path yields an empty or zero count, which
 # would clear a `-le` ceiling for free. Require a positive, word-bearing measurement so a moved

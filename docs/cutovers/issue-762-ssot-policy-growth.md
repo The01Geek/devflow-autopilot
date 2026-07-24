@@ -14,7 +14,7 @@ kind: growth
   redirects the retrospective remedy heuristic toward collapsing drift/desync/coupled-mirror
   root causes to a single canonical source. Both edited files are mandatory-byte census rows, so
   recording the new policy and the remedy-preference costs a baseline delta and this growth
-  artifact. Both rows move the same direction (growth: `CLAUDE.md` +1819 bytes,
+  artifact. Both rows move the same direction (growth: `CLAUDE.md` +1896 bytes,
   `skills/retrospective-audit/SKILL.md` +390 bytes), so one `growth` artifact covers both.
 - **`CLAUDE.md`** — the "Changing one site of a coupled invariant?" convention bullet is rewritten
   in place to a go-forward SSOT policy: the canonical statement is stated in go-forward normative
