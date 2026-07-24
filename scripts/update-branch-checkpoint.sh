@@ -187,9 +187,11 @@ _reject_restore() {  # message
 # Never a bare `git push` here. Two distinct shapes break it, and both are shapes the
 # checkpoint genuinely runs on:
 #
-#   (1) NO upstream. Phase 1.4's resume/adopt checkpoint fires on the adopted-branch arm —
-#       including the linked-worktree signal, a branch a local run created and has NOT pushed
-#       — and Phase 1.5's `git push -u origin HEAD` runs *after* it. `push.default=simple`
+#   (1) NO upstream. Phase 1.4's checkpoint fires on EVERY §1.4 arm (issue #779) — the
+#       adopted-branch arm including the linked-worktree signal, a branch a local run created
+#       and has NOT pushed; the new-branch arm, whose branch `git checkout -b` has only just
+#       cut and which has no upstream at all; and the landed-resume arm — and Phase 1.5's
+#       `git push -u origin HEAD` runs *after* it in every one of them. `push.default=simple`
 #       refuses without an upstream, the recovery arm then cannot fetch a remote ref that does
 #       not exist, and _reject_restore rolls the base merge back: a false PUSH_REJECTED that
 #       SILENTLY DISCARDS the merge — a no-op on the exact path the feature exists for.

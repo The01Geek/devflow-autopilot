@@ -434,7 +434,11 @@ if [ -n "$USE_CURRENT" ]; then
   # Freshness guard (adopted-branch arm). Mirrors the new-branch arm's breadcrumbed
   # fetch, but records-and-continues on failure instead of exit 1 — adoption does not
   # need the origin object, but downstream verification must know the tree is unvouched.
-  if git fetch origin "$BASE"; then
+  # The refspec is the FORCED, explicitly-destinationed form `scripts/update-branch-checkpoint.sh`
+  # uses. A bare fetch of the base with no destination honors the checkout's configured refspec,
+  # which on a feature-ref-scoped checkout can leave `refs/remotes/origin/$BASE` unadvanced — the rev-list
+  # below then counts against a stale tracking ref and reports a false behind-by 0 (issue #779).
+  if git fetch origin "+refs/heads/$BASE:refs/remotes/origin/$BASE"; then
     # behind-by via git (preflight-guaranteed); the count is compared with bash builtins,
     # never a non-preflight PATH tool (guard-class 2). A behind-by-0 note still records —
     # it proves freshness was checked, not assumed.
@@ -486,13 +490,9 @@ On a local runner that refuses the direct helper path, use the documented fallba
 
 The clean path is a Progress `--note`; the stop paths make **no history mutation** — they do not rebase, reset, force-push, delete a branch, checkpoint-merge, or push. **Cloud-emission discipline:** the state file is written with the Write tool into `.devflow/tmp/**` and the helper is invoked as the repo-relative vendored literal leading token — never behind a `VAR=value` prefix, a `bash <path>` wrapper, or a `>`-redirect (all denied cloud shapes, issues #363/#401). This section anchors back to the orchestrator's *Cloud helper-invocation form* and *Cloud command-shape discipline*.
 
-#### 1.4.1 Base-branch update checkpoint 1 (adopted-branch arm) — the canonical outcome-handling contract
+#### 1.4.1 Base-branch update checkpoint 1 (every §1.4 arm) — the canonical outcome-handling contract
 
-On the adopted-branch arm only (`USE_CURRENT` set — the arm every *resumed* run takes), and **only after** the freshness record above, bring the branch up to date with the base by invoking the shared checkpoint helper. This is **Checkpoint 1** of the four base-branch update checkpoints (issue #448); checkpoints 2 (Phase 3.1) and 4 (Phase 4.3) reuse the **implement-driven outcome-handling contract defined here**. Do **not** gate the call on the recorded behind-by value — the cloud allowlists do not grant an inline `git rev-list` (issue #363), which is why 1.4's own freshness derivation is record-only; the helper derives behind-by *internally* and no-ops with `UP_TO_DATE` when not behind:
-
-```bash
-"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/update-branch-checkpoint.sh
-```
+The invocation itself is **not** made here and is **not** gated on `USE_CURRENT`: it runs at the end of §1.4, on **every** arm — new branch, adopted branch, and landed resume alike — from the *Base-branch update checkpoint 1 — invocation* step below, after the create fence and after the `Branch` line is filled. This section is the **contract** that call site (and checkpoints 2 and 4) routes on. This is **Checkpoint 1** of the four base-branch update checkpoints (issue #448); checkpoints 2 (Phase 3.1) and 4 (Phase 4.3) reuse the **implement-driven outcome-handling contract defined here**. Do **not** gate the call on the recorded behind-by value — the cloud allowlists do not grant an inline `git rev-list` (issue #363), which is why 1.4's own freshness derivation is record-only; the helper derives behind-by *internally* and no-ops with `UP_TO_DATE` when not behind.
 
 The helper prints exactly one token on stdout with a matching exit code. Read it and act on it. **This is an *implement-driven* call site**, so outcomes are recorded on the **issue workpad** and the two hard stops flip it to **Blocked** (the context split: standalone `/devflow:review-and-fix` call sites record in the loop's own record and stop-and-report instead — see review-and-fix Step 3 / Loop Exit):
 
@@ -514,7 +514,11 @@ if [ -z "$USE_CURRENT" ]; then
   # Fetch the base explicitly with a DevFlow breadcrumb so a bad/offline base is
   # attributable here, not a bare git error downstream — most importantly when the
   # fallback 'main' isn't the consumer's real trunk (a master/develop repo).
-  git fetch origin "$BASE" || { echo "devflow: could not fetch base branch 'origin/$BASE' — if the base is correct, check network/auth; otherwise set base_branch in .devflow/config.json to the repo's real trunk (master/develop/…)" >&2; exit 1; }
+  # Same FORCED refspec as the adopted arm's freshness fetch and as
+  # `scripts/update-branch-checkpoint.sh`, so all three resolve the same base tip and the new
+  # branch is cut from a tip that was actually advanced rather than from a remote-tracking ref
+  # an unforced fetch left behind (issue #779).
+  git fetch origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" || { echo "devflow: could not fetch base branch 'origin/$BASE' — if the base is correct, check network/auth; otherwise set base_branch in .devflow/config.json to the repo's real trunk (master/develop/…)" >&2; exit 1; }
   BRANCH=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/branch-for-issue.py $ARGUMENTS --title-file /tmp/devflow-issue-$ARGUMENTS-title.txt) || { echo "devflow: branch-for-issue.py failed — could not derive a branch name for issue #$ARGUMENTS; check that the issue title file exists and the issue number is valid" >&2; exit 1; }
   [ -n "$BRANCH" ] || { echo "devflow: branch-for-issue.py returned an empty branch name for issue #$ARGUMENTS — cannot create a branch" >&2; exit 1; }
   git checkout -b "$BRANCH" "origin/$BASE"
@@ -525,6 +529,26 @@ fi
 ```bash
 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --branch "$(git branch --show-current)"
 ```
+
+#### Base-branch update checkpoint 1 — invocation (the last thing §1.4 does, on every arm)
+
+Now bring the branch up to date with the base by invoking the shared checkpoint helper. This invocation is **arm-independent**: it runs on the new-branch arm, on the adopted-branch arm, and on the **landed-resume** arm the `#### Resume pre-check` above returns from — the arm that skips both signals and therefore never binds `USE_CURRENT` at all (issue #779). The earlier design gated this call on `USE_CURRENT`, so the resumed run — the population most likely to be stale, because a resumed branch has by definition existed long enough to be resumed — was the one run that never reconciled with the base, and shipped a whole cycle's work adjudicated against a snapshot of the base that no longer existed. It is the **last** step of §1.4 so that §1.4.0.5's stop verdicts still precede every history-mutating step on the arm where they run.
+
+The call **reads no operand naming which arm was taken**, which is what makes this a relocation rather than a redesign: `scripts/update-branch-checkpoint.sh` resolves the base from `.devflow/config.json` (via `config-get.sh`) and the branch from `HEAD` inside its own process, so it needs no value the landed-resume path lacks. A branch already current takes the helper's `UP_TO_DATE` no-op — including the new-branch arm, which was just cut from the same base tip this fetch advanced. (`UPDATED <n>` there is legal too; its push is simply the branch's first publication, and §1.5's `git push -u origin HEAD` is idempotent against an already-pushed branch.)
+
+```bash
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/update-branch-checkpoint.sh
+```
+
+Route the printed token per the §1.4.1 contract above, with **one call-site-specific override**:
+
+- **`CONFLICT` at this call site routes to `Blocked` as needs-human-reconciliation on every arm** — it does **not** take §1.4.1's resolve-then-suite-then-commit bullet. Record `workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind blocked --reflection "Phase 1.4 checkpoint 1: base merge conflicted; this call site routes CONFLICT to needs-human-reconciliation on every arm because the landed-resume arm cannot be distinguished here — resolve the merge deliberately and re-run"`, emit the 👎 outcome reaction, remove the run marker, and stop.
+
+  **Why every arm, rather than only the landed-resume arm.** §1.4.1's resolve-it-yourself contract rests on the premise that *you hold full context of your own changes* — a premise that is false by construction on the landed-resume arm, whose ahead history this run never validated (§1.4.0.5's Verdict B runs on the adopted arm only and is deliberately not widened here). Splitting the routing would need a discriminator readable **at this call site**, and none exists: each fenced block may run as its own shell, so `USE_CURRENT` and the resume pre-check's `LANDED` do not survive to here, and the workpad cannot supply one either — `scripts/workpad.py`'s notes are append-only with no in-place marker writer, so a **prior** attempt's freshness or Verdict B note is indistinguishable from this run's and a landed resume would read itself as the adopted arm. With no establishable discriminator, this call site routes `CONFLICT` to `Blocked` on every arm rather than guessing. Checkpoints 2 (Phase 3.1), 3 (`/devflow:review-and-fix` loop exit) and 4 (Phase 4.3) are untouched and keep §1.4.1's inherited `CONFLICT` contract.
+
+Every other token — `UP_TO_DATE`, `UPDATED <n>`, `DISABLED`, `UNVERIFIED`, `PUSH_REJECTED`, `MERGE_IN_PROGRESS` — is handled exactly as §1.4.1 states, including the `PUSH_REJECTED` failed-restore hard stop.
+
+**Cloud-emission discipline:** invoke the helper as the repo-relative vendored literal leading token — never behind a `VAR=value` prefix, a `bash <path>` wrapper, or a redirect (denied cloud shapes, issues #363/#401). This step anchors back to the orchestrator's *Cloud helper-invocation form* and *Cloud command-shape discipline*.
 
 ### 1.5 Push Branch
 
