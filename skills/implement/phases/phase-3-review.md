@@ -135,7 +135,7 @@ Both helpers always exit 0 and need only the `repo` scope: `ensure-label.sh` alw
 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --bind-scope-decisions <draft-pr-number>
 ```
 
-The call is idempotent — it rewrites only records still reading `pr=pending` and leaves already-bound records untouched — so a resumed run re-entering §3.1 re-binds nothing, and a run that wrote no scope-decision records is a clean no-op.
+The call is idempotent — it rewrites only records still reading `pr=pending` and leaves already-bound records untouched — so a resumed run re-entering §3.1 re-binds nothing. When a run wrote **no** scope-decision records, no record changes — but the call is still a real mutation (`--bind-scope-decisions` is one of the flags `workpad.py` counts as a non-checkpoint mutation), so it refreshes `Last updated` and issues one PATCH. That is harmless, so run this step **unconditionally** — do not try to detect first whether any records exist.
 
 ### 3.2 Self-Review with /simplify
 
