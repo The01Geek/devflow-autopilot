@@ -28484,6 +28484,19 @@ assert_pin_red_under "#707 receiving-code-review.md makes a focused pass suffici
 assert_pin_red_under "#707 receiving-code-review.md keeps the final gate and parallelizes it" \
   'without gating the push on the local run finishing' \
   's/without gating the push on the local run finishing/after the local run has finished/' "$FDROOT/.devflow/prompt-extensions/receiving-code-review.md"
+# #789: this file ADAPTS rather than mirrors the source section, so the #789 loop above —
+# which iterates only implement.md and review-and-fix.md — does not reach it and its own
+# escape-hatch sentence needs a dedicated pin. The guarded regression is the pre-#789
+# behavior the sentence replaced: a covered Python unit sent to the full suite, and an
+# uncovered surface paying a full run on every cycle instead of extracting on the second.
+assert_pin_red_under "#789 receiving-code-review.md routes a covered Python unit to its recorded focused_test" \
+  'iterates on the `focused_test` its coverage-map entry names' \
+  's/iterates on the `focused_test` its coverage-map entry names/iterates on the full suite/' \
+  "$FDROOT/.devflow/prompt-extensions/receiving-code-review.md"
+assert_pin_red_under "#789 receiving-code-review.md coalesces its own uncovered-surface fallback" \
+  'a second cycle on it extracts a module instead' \
+  's/, and a second cycle on it extracts a module instead//' \
+  "$FDROOT/.devflow/prompt-extensions/receiving-code-review.md"
 # #707 absence guard: the retired convention text must survive on NO surface — every
 # extension and coupled mirror in the file list below (deliberately count-free: an
 # enumeration here rots the next time a surface joins the loop). A reintroduction anywhere
@@ -28892,9 +28905,39 @@ for _WSR_FOCUSED_POLICY in "$WSR_IMPL" "$WSR_RAF"; do
   assert_pin_red_under "#707 $_WSR_FOCUSED_NAME makes a focused pass sufficient for an intermediate commit or push" \
     'a focused pass covering the changed surface is sufficient for an intermediate commit or push.' \
     's/a focused pass covering the changed surface is sufficient for an intermediate commit or push\./a focused pass covering the changed surface is not sufficient for an intermediate commit or push./' "$_WSR_FOCUSED_POLICY"
-  assert_pin_red_under "#707 $_WSR_FOCUSED_NAME reserves the mid-iteration full suite for uncovered surfaces" \
-    'Run the full suite mid-iteration only when no registered module covers the changed surface' \
-    's/Run the full suite mid-iteration only when no registered module covers the changed surface/Run the full suite mid-iteration before each commit and push/' "$_WSR_FOCUSED_POLICY"
+  # #789 SUPERSEDES the #707 pin that stood here. Its sentence ("Run the full suite
+  # mid-iteration only when no registered module covers the changed surface") reserved the
+  # mid-iteration full suite for surfaces no registered SHELL MODULE covered — which sent
+  # every scripts/*.py and lib/*.py change to the ~10-minute suite even where a
+  # lib/test/test_*.py covers it in a fraction of the time. The tiered rule replaces that
+  # sentence, so the pin moves with it rather than being left asserting vanished text.
+  assert_pin_red_under "#789 $_WSR_FOCUSED_NAME routes to the covering focused test before the full suite" \
+    'When a covering focused test exists, iterate on it rather than the full suite.' \
+    's/When a covering focused test exists, iterate on it rather than the full suite\./Always iterate on the full suite./' "$_WSR_FOCUSED_POLICY"
+  assert_pin_red_under "#789 $_WSR_FOCUSED_NAME routes a covered Python unit to its focused_test as a direct leading token" \
+    'invoked as a **direct leading token**' \
+    's/invoked as a \*\*direct leading token\*\*/invoked as `python3 <path>`/' "$_WSR_FOCUSED_POLICY"
+  # Tier 2's whole value is the COALESCING boundary: a one-off fix pays one full run, and
+  # only a SECOND cycle on the same uncovered surface buys a durable module. Widening
+  # "second" back to "every" re-imposes the pre-#789 per-cycle full-suite cost.
+  assert_pin_red_under "#789 $_WSR_FOCUSED_NAME coalesces the uncovered-surface fallback (first cycle full suite, second cycle extraction)" \
+    'Only a **second** mid-iteration cycle on the same uncovered surface triggers a durable module extraction' \
+    's/Only a \*\*second\*\* mid-iteration cycle on the same uncovered surface triggers/Every mid-iteration cycle on an uncovered surface triggers/' "$_WSR_FOCUSED_POLICY"
+  # AC5: the fallback set is CLOSED and each taking of it is named in a Reflection bullet.
+  # Dropping "which" turns a case-naming obligation into an unattributable one, which is
+  # what makes the coverage gap invisible to the retrospective that mines these bullets.
+  assert_pin_red_under "#789 $_WSR_FOCUSED_NAME requires the full-suite fallback to name which closed-set case applied" \
+    'records a `## Devflow Reflection` bullet naming **which** case applied' \
+    's/naming \*\*which\*\* case applied/naming that it happened/' "$_WSR_FOCUSED_POLICY"
+  # AC10: the #434 dirty-tree skip is absorbed, NOT worked around by a second full run.
+  assert_pin_red_under "#789 $_WSR_FOCUSED_NAME does not re-run the full suite solely to clear a mid-iteration #434 skip" \
+    'never re-run the full suite mid-iteration solely to clear it' \
+    's/never re-run the full suite mid-iteration solely to clear it/re-run the full suite mid-iteration to clear it/' "$_WSR_FOCUSED_POLICY"
+  # AC11: the budget pointer routes diagnosis to the captured recap instead of a relaunch —
+  # the relaunch being the exact cost #789 removes.
+  assert_pin_red_under "#789 $_WSR_FOCUSED_NAME points diagnosis at the captured recap rather than a relaunch" \
+    'instead of relaunching, and mid-iteration prefer the covering focused test' \
+    's/instead of relaunching, and mid-iteration prefer the covering focused test/by relaunching the suite/' "$_WSR_FOCUSED_POLICY"
   assert_pin_red_under "#707 $_WSR_FOCUSED_NAME does not gate the push on the local final run" \
     'the push is NOT gated on the local run finishing' \
     's/the push is NOT gated on the local run finishing/the push waits for the local run to finish/' "$_WSR_FOCUSED_POLICY"

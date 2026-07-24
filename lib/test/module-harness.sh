@@ -96,7 +96,11 @@ probe_assert() {  # assertion-fn args... -> prints PASS or FAIL (the probed verd
   local probe; probe="$(mktemp)" || { echo "PROBE_MKTEMP_FAILED"; return 0; }
   RESULTS_FILE="$probe" DETAILS_FILE="$probe.details" "$@" >/dev/null 2>&1
   tail -n 1 "$probe"
-  rm -f "$probe" "$probe.details"
+  # `$probe.names` is run.sh's record_fail sibling (issue #789): because its path is derived
+  # from RESULTS_FILE, the diversion above sends the probed assertion's identifier there too
+  # — which is exactly the isolation wanted (a probed FAIL never reaches the real run's
+  # recap), but it means this cleanup owns the sibling as much as it owns `$probe.details`.
+  rm -f "$probe" "$probe.details" "$probe.names"
 }
 
 # ── Namespaced module pin/count/mutation helpers (issue #577) ────────────────
