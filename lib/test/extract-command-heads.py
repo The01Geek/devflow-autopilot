@@ -514,8 +514,7 @@ def _collect(text: str, heads: list[list[str]]) -> None:
 # portable `${CLAUDE_SKILL_DIR:-…}/../../scripts/x` source anchor normalizes to the
 # vendored literal `.devflow/vendor/devflow/scripts/x` (see `_ANCHOR`/`_normalize`),
 # so the sanctioned source form passes as its own cloud-emission equivalent — no
-# duplicate cloud fence, so the #275 portability contract and the review-bundle
-# word ceiling both hold. Every OTHER form that still names a bundled helper in
+# duplicate cloud fence, so the #275 portability contract holds. Every OTHER form that still names a bundled helper in
 # command position is a boundary escape and is classified: a malformed/unexpanded
 # anchor, an absolute path, a repo-root path, or a helper preceded by a granted
 # launcher head (`env`/`xargs`/interpreter/process-wrapper), which would match the

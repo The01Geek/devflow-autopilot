@@ -131,11 +131,6 @@ jobs:
             lib/test/modules/experiment-records.sh \
             lib/test/cloud-form-layout-test.sh \
             lib/test/path-portability-test.sh
-          # lib/test/describe-budget-delta.sh is the #529 budget-delta reporter the suite
-          # drives (a branch-selecting message composer, extracted per CLAUDE.md's
-          # inline-shell rule). Same carve-out: real shell, so it is linted even
-          # though lib/test/ is excluded above.
-          shellcheck --severity=warning -e SC1091 lib/test/describe-budget-delta.sh
 
       # lib/test/run.sh is the suite driver — the largest and most-edited shell
       # file in the repo, and the last one brought under the lint (issue #745).

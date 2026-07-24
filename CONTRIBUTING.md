@@ -368,9 +368,10 @@ fails the suite. The summary renderer lives in `lib/test/summary.sh`.
   its coverage are stated in
   [`docs/DEVFLOW_SYSTEM_OVERVIEW.md`](docs/DEVFLOW_SYSTEM_OVERVIEW.md) under *Extending
   skills with prompt extensions*.
-- Prompt cutovers, trims, relocations, and mandatory-surface growth follow the artifact
-  procedure in [`.devflow/prompt-extensions/implement.md`](.devflow/prompt-extensions/implement.md)
-  under **Prose cutover**.
+- Prompt cutovers, trims, and relocations follow the advisory sole-owner discipline in
+  [`CLAUDE.md`](CLAUDE.md)'s **Helper cutover** convention, with the lean-prose guidance in
+  [`.devflow/prompt-extensions/implement.md`](.devflow/prompt-extensions/implement.md)
+  under **Keeping prompt prose lean**.
 
 ## Cloud-tier workflows
 

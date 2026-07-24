@@ -3,8 +3,8 @@
 # SPDX-License-Identifier: MIT
 """One batched pass over the suite-owned generated artifacts (issue #619).
 
-A fix or implement loop that edits prompt surfaces, engine files, the capability
-manifest, or review-bundle prose induces drift in checked-in generated records.
+A fix or implement loop that edits prompt surfaces, engine files, or the capability
+manifest induces drift in checked-in generated records.
 Discovering that drift one full-suite run at a time is the dominant cost of a loop
 iteration, because the full suite is the slowest verification step in the repo. Run
 this helper once after applying edits and before each full-suite re-verify run: it
@@ -23,29 +23,25 @@ review convention of the same class as the capability manifest's `manifest_versi
 bump rule. The suite pins the current rows through `--list`.
 
 INCLUSION CRITERION for a row: a checked-in record whose suite gate goes RED on
-loop-induced edits AND whose state this helper can establish without writing it — either
-a standalone non-writing check command (a regeneration command, for a mechanical row) or
-an in-helper git-derived staleness check (a budget row, which launches no command).
+loop-induced edits AND whose state this helper can establish without writing it via a
+standalone non-writing check command (a regeneration command, for a mechanical row, or a
+non-writing checker for a judgment row).
 
-DELIBERATELY EXCLUDED as artifact rows, because they are REDUNDANT — not because they
-are uncovered: `scripts/workflow-flight-recorder-registry.json` and
-`lib/test/prompt-mass-manifest.json` are hand-maintained inventories with no
-*regeneration* command (nothing can rewrite them from the tree), and each is already
-checked by a command a row here runs — the census's `manifest completeness failure`
-arm covers the prompt-mass manifest, and the coverage guard's `[arm8]` arm covers the
-flight-recorder registry. A row of their own could only re-report what
-`prompt-mass-baseline` and `coverage-map-ratchet` already report.
+DELIBERATELY EXCLUDED as an artifact row, because it is REDUNDANT — not because it is
+uncovered: `scripts/workflow-flight-recorder-registry.json` is a hand-maintained
+inventory with no *regeneration* command (nothing can rewrite it from the tree), and it
+is already checked by a command a row here runs — the coverage guard's `[arm8]` arm
+covers the flight-recorder registry. A row of its own could only re-report what
+`coverage-map-ratchet` already reports.
 
 WRITE SCOPE: the only file under the target root this helper writes is
 `scripts/devflow-cloud-writer-contract.json` (the mechanical row's output). Every
 judgment row runs a non-writing check and never writes its artifact.
 
 EXIT CONTRACT (exactly three states):
-  0 — every row resolved in its declared clean state (for a command-backed row, its
-      command exited in that state; a command-less budget row has no command and
-      resolves clean, informational, or judgment on its own git-derived arms), the
-      mechanical regeneration changed nothing, and no exit-1-forcing judgment item
-      was printed.
+  0 — every row resolved in its declared clean state (its command exited in that
+      state), the mechanical regeneration changed nothing, and no exit-1-forcing
+      judgment item was printed.
   1 — at least one of {the manifest bytes changed, an exit-1-forcing judgment item
       was printed} holds, and no row hit the infrastructure state.
   2 — infrastructure failure. Exit 2 takes precedence over exit 1. It is reached from
@@ -65,8 +61,6 @@ EXIT CONTRACT (exactly three states):
         * the helper itself raised an unhandled exception (the top-level net at the
           bottom of this file — without it CPython would exit 1, aliasing an unchecked
           run onto the resolvable "action required" state).
-Informational lines (the budget row's resolved and `unestablished` arms) select no
-state by themselves.
 
 These three are the states main() itself selects. argparse also exits 2 on a usage
 error (an unknown flag) before any row runs — the same code as the infrastructure
@@ -79,44 +73,9 @@ import importlib.util
 import subprocess
 import sys
 import traceback
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 MECHANICAL_ARTIFACT = "scripts/devflow-cloud-writer-contract.json"
-
-# Sibling git worktrees the harness parks here. The budget rows below derive their
-# change set partly from `git ls-files --others`, whose `--others` leg sweeps every
-# such worktree on any clone whose machine-local `.git/info/exclude` lacks the harness
-# line — state no clone inherits. A worktree-nested phase-file copy
-# (`.claude/worktrees/<w>/skills/review/phases/x.md`) matches a budget row's
-# `watch_globs` pattern from the right (PurePosixPath.match), so without this exclusion a
-# review-phase edit in ANOTHER branch's checkout would be reported as stale-budget drift
-# on THIS one — the environment-dependent, CI-invisible red issue #711 exists to remove.
-# This helper takes the EXPLICIT-EXCLUSION form (issue #725), mirroring
-# lint-gh-api-repo-path.py's EXCLUDED_PREFIXES rather than lint-issue-body-refetch.py's
-# assertion-only form: the budget rows genuinely need the working-tree read, so the
-# exclusion lives in the helper and does not rest on the uninherited exclude line. It is
-# pinned by the `#725` block in lib/test/run.sh (exclude_worktree_paths keeps the real
-# path and drops the worktree copy).
-WORKTREE_PREFIX = ".claude/worktrees/"
-
-
-def exclude_worktree_paths(paths):
-    """Drop sibling-worktree paths from an untracked-file set (issue #711/#725).
-
-    See WORKTREE_PREFIX above for why: `git ls-files --others` sees every harness
-    worktree, and a phase-file copy under one matches a budget row's watch glob from
-    the right, so a change confined to another branch's checkout must not enter the
-    watch-list intersection here.
-
-    `None` — the unestablished set `_git_paths` returns when its git call failed — passes
-    through as `None` rather than raising or becoming an empty set. Collapsing it onto
-    `set()` here is the failure this pass-through exists to prevent: the caller's
-    `is None` check is what routes an unreadable leg to the `unestablished` arm, and an
-    emptied leg would instead report a clean record for a change set never read.
-    """
-    if paths is None:
-        return None
-    return {p for p in paths if not p.startswith(WORKTREE_PREFIX)}
 
 # The closed set of conflict-resolution classes (issue #655). A merge conflict in a
 # checked-in generated artifact must never be hand-merged: hand-merged bytes match no
@@ -131,29 +90,17 @@ def exclude_worktree_paths(paths):
 # rather than each consumer re-spelling the vocabulary.
 CONFLICT_CLASSES = ("regenerate", "reconcile-source", "by-hand")
 
-# A budget row's watch list is carried by the ROW (`record` / `watch_literals` /
-# `watch_globs`), not by module-level constants: with more than one such row the registry
-# stays the single enumeration point, which is the property issue #619 established and
-# issue #624 preserved when the second row landed. Each row's glob member joins its watch
-# list the moment the file lands on disk. `is_budget_row` keys on `watch_literals` as the
-# single spelling of that membership test — see its docstring for why the "has no argv"
-# proxy is not used.
-
 # Ordered registry. `argv` is resolved under the target root and run with that root as
 # the working directory, so a fixture root exercises the fixture's own generators.
 # `exits` is the row's declared exit-code set and `clean` its positive arm; an exit
 # outside `exits` is the infrastructure state, never a clean pass.
-# `check` is the row's own strategy callable: main() dispatches through it uniformly
-# rather than re-deciding per row. The binding lives in exactly one place (the loop
-# below the function definitions) and is keyed on whether the row declares an `argv`,
-# NOT on `kind` — `kind` is "judgment" for both callables, so a kind->callable mapping
-# does not exist. It is not branch-free: run_row still special-cases the mechanical kind.
+# Every row is command-backed: main() dispatches each through run_row uniformly rather than
+# re-deciding per row (run_row still special-cases the mechanical kind internally).
 ROWS = (
     {
         "name": "cloud-writer-manifest",
         "kind": "mechanical",
         "argv": ("python3", "lib/test/cloud_writer_contract.py", "generate"),
-        "check": None,  # bound to run_row below.
         "clean": (0,),
         "exits": (0, 1),
         "writes": MECHANICAL_ARTIFACT,
@@ -175,7 +122,6 @@ ROWS = (
         "name": "capability-profile-literals",
         "kind": "judgment",
         "argv": ("python3", "lib/generate-capability-profiles.py", "--check"),
-        "check": None,  # bound to run_row below.
         "clean": (0,),
         "exits": (0, 1),
         "policy": (
@@ -214,106 +160,9 @@ ROWS = (
         ),
     },
     {
-        "name": "prompt-mass-baseline",
-        "kind": "judgment",
-        "argv": ("python3", "lib/test/prompt-mass-census.py"),
-        "check": None,  # bound to run_row below.
-        "clean": (0,),
-        "exits": (0, 1),
-        # The recipe names `--write-baseline`, never the bare checker this row's `argv`
-        # holds: `argv` is the non-writing census run, which prints a drift report and
-        # writes nothing.
-        # #659 review follow-up (found by dogfooding this rule on a real conflict): despite
-        # its name, `--write-baseline` does NOT write the baseline — its own `help=` says it
-        # "print[s] canonical replacement baseline JSON", and it returns 0 after writing that
-        # JSON to stdout. A recipe stopping at the command therefore reads as complete, exits
-        # 0, and leaves the artifact byte-unchanged — the silent fail-open this whole rule
-        # exists to close, sitting in the rule's own recipe. So the recipe states the WRITE
-        # step explicitly and names the destination path, mirroring the canonical procedure in
-        # the census section of .devflow/prompt-extensions/implement.md ("Copy the printed JSON
-        # into lib/test/prompt-mass-baseline.json with the Write/Edit tool"). The Write/Edit
-        # phrasing is deliberate over a `>` redirect: a redirect is a denied command shape on
-        # the cloud tiers (issue #401), so a redirect-shaped recipe would be refused there.
-        "policy": (
-            "the mandatory-byte census section of .devflow/prompt-extensions/implement.md"
-            " — regenerate the baseline against the merged tree by running "
-            "`python3 lib/test/prompt-mass-census.py --write-baseline`, which PRINTS the "
-            "canonical replacement JSON without writing it, then writing that printed JSON "
-            "into lib/test/prompt-mass-baseline.json with the Write/Edit tool"
-        ),
-        "conflict_class": "regenerate",
-        "conflict_paths": ("lib/test/prompt-mass-baseline.json",),
-        # The census returns 1 for an unusable ROOT as well as for real drift. Without
-        # this discriminator an unmeasurable tree would be reported as a judgment item
-        # telling the agent to edit a baseline whose measurement never happened —
-        # unknown collapsed onto a real value, the very class this helper exists to
-        # avoid. The mechanical row got this reasoning first; it applies here too.
-        # The unambiguous input-failure shapes only. `CensusError` is documented as
-        # "an attributable, fail-closed input error" and `main` renders it as
-        # `prompt-mass census: {exc}` — the SAME prefix a real drift report carries, so
-        # the prefix cannot discriminate. These three sub-shapes can: a drift report
-        # states paths and byte counts and never says a file was unreadable, malformed,
-        # or absent. A completeness failure ("manifest completeness failure: …") is
-        # genuine drift and deliberately does NOT match — matching it would hide a real
-        # finding, the opposite and worse error.
-        # `manifest-listed file is unreadable:` is listed separately from `: unreadable:`
-        # and is NOT redundant with it: the census spells that arm
-        # "manifest-listed file is unreadable: <path>: <exc>" — "is unreadable:", with no
-        # colon before the word — so the `: unreadable:` literal (which matches the
-        # manifest/baseline JSON read arm) does not cover it. An unreadable CLAUDE.md or
-        # skill asset is the likeliest input failure of all, and without this row it was
-        # reported as baseline drift.
-        "infra_markers": (
-            "not found or not a directory",
-            ": malformed JSON:",
-            ": unreadable:",
-            "manifest-listed file is unreadable:",
-        ),
-    },
-    {
-        "name": "review-bundle-budget",
-        "kind": "judgment",
-        "check": None,  # bound to budget_row below (defined after this table).
-        "argv": None,  # git-derived staleness detection, not a launched command.
-        "policy": (
-            "docs/review-bundle-budget.md — re-measure with lib/test/run.sh's _rb_words "
-            "(python3, never wc -w) and update the record"
-        ),
-        # by-hand: no writer exists for a budget record — the figures are re-measured by
-        # the suite's own word counter and the record is edited by hand.
-        "conflict_class": "by-hand",
-        "record": "docs/review-bundle-budget.md",
-        "watch_literals": ("skills/review/SKILL.md", ".devflow/prompt-extensions/review.md"),
-        "watch_globs": ("skills/review/phases/*.md",),
-    },
-    {
-        "name": "review-and-fix-budget",
-        "kind": "judgment",
-        "check": None,  # bound to budget_row below (defined after this table).
-        "argv": None,  # git-derived staleness detection, not a launched command.
-        "policy": (
-            "docs/review-and-fix-budget.md — re-measure with lib/test/run.sh's _raf_words "
-            "(python3 bytes.split(), never wc -w) and update the record"
-        ),
-        # The sibling git-staleness row (issue #624). It meets the same inclusion criterion
-        # as review-bundle-budget: PR #622 showed that editing the review-and-fix root
-        # or its extension moves this record's suite-bound Measured/cumulative cells and
-        # turns the suite RED — the discover-drift-a-full-suite-run-later cost this helper
-        # exists to remove. Like its sibling it measures NOTHING: re-deriving `_raf_words`
-        # here would be a second implementation of a measurement the suite already owns.
-        "conflict_class": "by-hand",  # same reasoning as its sibling budget row above.
-        "record": "docs/review-and-fix-budget.md",
-        "watch_literals": (
-            "skills/review-and-fix/SKILL.md",
-            ".devflow/prompt-extensions/review-and-fix.md",
-        ),
-        "watch_globs": ("skills/review-and-fix/references/*.md",),
-    },
-    {
         "name": "coverage-map-ratchet",
         "kind": "judgment",
         "argv": ("python3", "lib/test/coverage_map_guard.py", "."),
-        "check": None,  # bound to run_row below.
         "clean": (0,),
         "exits": (0, 1),
         "policy": "add the missing coverage rows per the issue-591 ratchet in lib/test/modules/coverage-map.json (for a run_sh_blocks completeness/attribution item, `python3 lib/test/coverage_map_guard.py . --fix` is the hand-invoked repair)",
@@ -383,88 +232,6 @@ def default_repo_root():
     return here
 
 
-def watch_list(row, root):
-    """One budget row's watch list expanded against disk under `root`.
-
-    Returns `(members, missing)`. Expansion (rather than a literal glob string) is what
-    lets the suite compare this against the disk-derived bundle membership, so a new
-    reference cannot make the row silently fail open on ADDITIONS.
-
-    `missing` closes the opposite direction, for BOTH legs. Filtering by existence alone
-    is a guard standing in for membership: a renamed or moved member would simply vanish
-    from the list, and the row would then report "no bundle member changed" for the very
-    change that moved it. That holds for a literal (`is_file()` false) and equally for a
-    glob whose PARENT directory is gone — `Path.glob` over a nonexistent directory yields
-    nothing and raises nothing, so a renamed reference directory would empty the list in
-    silence. Both are reported as UNESTABLISHED, never silently dropped — the same
-    unknown-is-not-zero discipline the git legs follow.
-    """
-    members, missing = [], []
-    for rel in row["watch_literals"]:
-        (members if (root / rel).is_file() else missing).append(rel)
-    for pattern in row["watch_globs"]:
-        parent, _, leaf = pattern.rpartition("/")
-        if not (root / parent).is_dir():
-            missing.append(pattern)
-            continue
-        # `glob` walks the directory, so an unreadable one raises rather than yielding
-        # nothing. Report the pattern as missing (the UNESTABLISHED arm the caller
-        # already handles) instead of letting an OSError escape as a traceback.
-        try:
-            found = sorted(
-                p.relative_to(root).as_posix() for p in (root / parent).glob(leaf)  # tree-walk-ok: pattern comes from a registry row whose parent scopes it below the repository root
-            )
-        except OSError:
-            missing.append(pattern)
-            continue
-        members.extend(found)
-    return sorted(set(members)), sorted(missing)
-
-
-def _git_out(root, argv):
-    """One git call under `root`. Returns its stdout, or None if unestablished.
-
-    None means the measurement could not be established (git missing, a git error, a
-    shallow clone with no merge-base) — a caller must not read that as "no output".
-    Every git call in the CHANGE-SET DERIVATION goes through here, so the OSError guard
-    cannot be present at one derivation call site and forgotten at another.
-    (`default_repo_root` above is the one git call outside this helper — it runs before
-    a root exists to pass as `cwd`, and carries its own OSError guard.)
-    """
-    try:
-        out = subprocess.run(
-            argv, cwd=str(root), capture_output=True, text=True, check=False
-        )
-    except OSError:
-        return None
-    return out.stdout if out.returncode == 0 else None
-
-
-def _git_paths(root, argv):
-    """A git path-listing call as a set of repo-relative paths, or None (unestablished)."""
-    text = _git_out(root, argv)
-    return None if text is None else {line for line in text.splitlines() if line}
-
-
-def is_budget_row(row):
-    """Whether `row` is a git-staleness budget row.
-
-    ONE spelling of this predicate, used by both the check-strategy binding below and
-    `emit_list`. Keyed on the watch list the callers actually consume, never on the proxy
-    "has no argv": those coincide only because every command-less row today is a budget
-    row. Keying on the real property means a misregistered row is classified by what the
-    callers consume rather than by a stand-in: a command-less non-budget row (a pure-Python
-    check, a placeholder) is False here and reaches `run_row`, where `row["argv"][1:]` on
-    None raises TypeError — measured: the top-level net routes it to the INFRASTRUCTURE
-    exit-2 state, so it fails closed, though as a traceback naming the exception rather
-    than the row or the key. Under the proxy the same row would be True and handed to
-    `budget_row`/`watch_list` as if it carried a watch list it never declared. Neither
-    keying yields an attributed message, so the *named* catch is the module's A4b
-    registry-invariant arm, which pins both this coincidence and the budget-row key set.
-    """
-    return "watch_literals" in row
-
-
 def _capability_region_targets(root):
     """The generated workflow literal files, read from the GENERATOR's own region list.
 
@@ -508,113 +275,19 @@ def conflict_paths(row, root):
     """The generated artifact file path(s) a merge conflict in `row` can land in.
 
     Two sources, both keyed on a DECLARED FIELD — never on the row's name. Keying on a name
-    string is the "proxy instead of the real property" that `is_budget_row`'s docstring
-    argues against: a row rename is an ordinary registry edit, and under a
-    name check it would silently drop the generator-sourced workflow literals with no field
-    anywhere declaring that the name was load-bearing.
+    string is a "proxy instead of the real property": a row rename is an ordinary registry
+    edit, and under a name check it would silently drop the generator-sourced workflow
+    literals with no field anywhere declaring that the name was load-bearing.
 
-    * the row's static `conflict_paths`, defaulting to whatever field already states the
-      artifact (`writes` for the mechanical row, `record` for a budget row), so no row
-      restates a path the registry already carries; plus
+    * the row's static `conflict_paths`, defaulting to the `writes` field the mechanical
+      row already states, so no row restates a path the registry already carries; plus
     * `conflict_paths_extra`, an optional per-row callable taking the target root and
       returning additional paths derived at emit time. Bound below the function definitions
-      for the same forward-reference reason `check` is.
+      because the table is defined above the function it names.
     """
-    static = tuple(row["conflict_paths"]) if "conflict_paths" in row else (
-        (row["writes"],) if "writes" in row else (row["record"],)
-    )
+    static = tuple(row["conflict_paths"]) if "conflict_paths" in row else (row["writes"],)
     extra = row.get("conflict_paths_extra")
     return static + (tuple(extra(root)) if extra else ())
-
-
-def budget_row(row, root, report):
-    """Detect a stale budget record for whichever budget row is passed in.
-
-    Returns `(forces_exit_1, infrastructure)`, like every other row's check callable —
-    `budget_row` never selects the infrastructure state, so its second element is
-    always False, but the arity is the uniform one `main()` dispatches through.
-
-    Every record/watch-list value is read from `row`, never from module-level constants,
-    so a second budget row is a registry entry rather than a second copy of this
-    function. This row measures nothing: re-deriving the suite's word counter here would
-    be a second implementation of a measurement the suite already owns. It only answers
-    "did the bundle prose change while the record stayed untouched?", which is the
-    staleness a loop induces and the suite then discovers a full run later.
-    """
-    name = row["name"]
-    record = row["record"]
-    uncommitted = _git_paths(root, ("git", "diff", "--name-only", "HEAD"))
-    untracked = _git_paths(
-        root, ("git", "ls-files", "--others", "--exclude-standard")
-    )
-    # Drop sibling worktrees the `--others` leg sweeps in (issue #711/#725). Only the
-    # untracked leg can carry them: `git diff HEAD` and `origin/main...HEAD` are over
-    # tracked files, which never include a nested worktree's checkout.
-    if untracked is not None:
-        untracked = exclude_worktree_paths(untracked)
-    # Three-dot syntax IS the merge-base-then-diff composition, in one process rather
-    # than two — and it degrades identically (exit 128, hence None) when
-    # refs/remotes/origin/main is absent, which is what the `unestablished` arm keys on.
-    branch = _git_paths(root, ("git", "diff", "--name-only", "origin/main...HEAD"))
-
-    # Each of the three inputs is required. An unestablished one is never collapsed
-    # onto an empty set: that would silently report a clean record for a branch whose
-    # diff could not be read at all.
-    if uncommitted is None or untracked is None or branch is None:
-        report.append(
-            f"[{name}] INFO unestablished — the change set could not be derived "
-            "(no origin/main, a shallow clone, or a git error). The budget record was "
-            "NOT checked for staleness; this arm is unresolvable in-loop and forces no "
-            "exit state."
-        )
-        return False, False
-
-    members, missing = watch_list(row, root)
-    if missing:
-        report.append(
-            f"[{name}] INFO unestablished — watch-list member(s) absent from the tree: "
-            f"{', '.join(missing)}. A renamed or moved bundle member cannot be checked "
-            "for staleness, so this row reports no verdict rather than a false clean."
-        )
-        return False, False
-    union = uncommitted | untracked | branch
-    # Intersecting against the EXPANDED members alone fails open on a DELETED or renamed
-    # individual glob member: the parent still exists (so `missing` is empty and the
-    # unestablished arm never fires), the old path is gone from disk (so it is not in
-    # `members`), yet git reports it in the change set. The row would then print "no
-    # review-bundle member changed" for exactly the change that moved it. Matching the
-    # patterns themselves closes that leg — the same direction already closed for the
-    # renamed-literal and renamed-parent legs.
-    touched = sorted(
-        path
-        for path in union
-        if path in set(members)
-        # PurePosixPath.match, not fnmatch: fnmatch's `*` crosses `/`, so it would
-        # match a NESTED path (skills/review/phases/sub/x.md) that the disk-side
-        # Path.glob leg never yields. The two legs must accept the same set, or this
-        # one over-reports on a tree the other cannot produce.
-        or any(
-            PurePosixPath(path).match(pattern) for pattern in row["watch_globs"]
-        )
-    )
-    if not touched:
-        report.append(f"[{name}] clean — no bundle member changed in this change set")
-        return False, False
-    if record in union:
-        report.append(
-            f"[{name}] INFO bundle members changed ({', '.join(touched)}) and "
-            f"{record} is already in this change set — figure correctness is "
-            "deferred to the suite's own word measurement. No action forced."
-        )
-        return False, False
-    report.append(
-        f"[{name}] JUDGMENT bundle prose changed but the record is untouched.\n"
-        f"    changed members: {', '.join(touched)}\n"
-        f"    governing policy: {row['policy']}\n"
-        f"    Re-measure the affected figures in one pass and apply one edit to "
-        f"{record}."
-    )
-    return True, False
 
 
 def _marker_hit(markers, output):
@@ -625,13 +298,13 @@ def _marker_hit(markers, output):
     from two unrelated messages.
 
     Deliberately NOT anchored to the line start. The markers are not uniformly
-    line-leading — the census's `: malformed JSON:` and `: unreadable:` are mid-line
-    fragments of `prompt-mass census: <path>: malformed JSON: …`, while the
-    coverage-map guard's `[arm4] …` and `[input-error]` are line-leading. A
-    startswith() rule would silently stop matching every marker the census row declares
-    — they are all mid-line — and reopen exactly the fail-open this discriminator exists
-    to close, so the residual risk (a marker quoted inside a longer diagnostic on one
-    line) is accepted rather than traded for a worse one.
+    line-leading — the capability row's `manifest unreadable:` and `manifest malformed
+    JSON:` appear mid-line in a diagnostic such as `capability profiles: <path>: manifest
+    unreadable: …`, while the coverage-map guard's `[arm4] …` and `[input-error]` are
+    line-leading. A startswith() rule would silently stop matching every mid-line marker a
+    row declares and reopen exactly the fail-open this discriminator exists to close, so
+    the residual risk (a marker quoted inside a longer diagnostic on one line) is accepted
+    rather than traded for a worse one.
     """
     return next(
         (m for m in markers if any(m in line for line in output.splitlines())),
@@ -771,13 +444,10 @@ def _mechanical_outcome(row, proc, output, changed, after, report):
     return False, True
 
 
-# Bind each row's check strategy now that both callables exist. Done here rather than
-# in the table because the table is defined above the functions it names.
+# The capability row's extra paths come from the capability generator's own REGIONS. Bound
+# here rather than in the table (which is defined above the function it names), and as a
+# FIELD, so `conflict_paths` never keys on a row name.
 for _row in ROWS:
-    _row["check"] = budget_row if is_budget_row(_row) else run_row
-    # The capability row's extra paths come from the capability generator's own REGIONS.
-    # Bound here, not in the table, for the same forward-reference reason `check` is — and
-    # as a FIELD, so `conflict_paths` never keys on a row name.
     if _row.get("conflict_paths_extra", "unset") is None:
         _row["conflict_paths_extra"] = _capability_region_targets
 
@@ -808,7 +478,7 @@ def _validate_registry():
         # rather than left to KeyError inside emit_list: a row that reaches `--list` before
         # failing has already been handed to a consumer.
         # Membership is not enough: `"conflict_paths": ()` satisfies `in` and short-circuits the
-        # writes/record fallback, so the row resolves to NO path and the shipped rule routes its
+        # writes fallback, so the row resolves to NO path and the shipped rule routes its
         # artifact to the hand-merge default — the fail-open the rule exists to close, reached
         # through the one invariant #655 states and nothing enforced. Require a non-empty source.
         if "conflict_paths" in row:
@@ -817,10 +487,10 @@ def _validate_registry():
                     f"registry row {row['name']!r} declares an empty conflict_paths; "
                     "a row must resolve to at least one conflict path"
                 )
-        elif not any(k in row for k in ("writes", "record")):
+        elif "writes" not in row:
             raise ValueError(
                 f"registry row {row['name']!r} declares no conflict-path source "
-                "(needs one of conflict_paths / writes / record)"
+                "(needs one of conflict_paths / writes)"
             )
 
 
@@ -842,24 +512,11 @@ except ValueError as _bind_error:
 
 def emit_list(root):
     for row in ROWS:
-        command = " ".join(row["argv"]) if row["argv"] else "(git-derived staleness check)"
+        command = " ".join(row["argv"])
         print(f"artifact\t{row['name']}\t{row['kind']}\t{command}")
-    # Row-attributed since issue #624: with more than one budget row a bare
-    # `budget-watch\t<path>` line cannot say WHICH row's watch list a member belongs to,
-    # so a member silently migrating between rows — or a row losing its list entirely
-    # while the other still emits — would read identically. The row name is the second
-    # field precisely so a consumer keys on (row, member), never on the path alone.
-    for row in ROWS:
-        if not is_budget_row(row):
-            continue
-        members, missing = watch_list(row, root)
-        for member in members:
-            print(f"budget-watch\t{row['name']}\t{member}")
-        for absent in missing:
-            print(f"budget-watch-missing\t{row['name']}\t{absent}")
-    # The conflict-oracle lines (issue #655), emitted AFTER the two line kinds above so
-    # those formats stay byte-unchanged and every existing prefix-anchored consumer
-    # (`artifact\tNAME\t`, `^budget-watch`) parses exactly as before.
+    # The conflict-oracle lines (issue #655), emitted AFTER the artifact lines above so
+    # that format stays byte-unchanged and every existing prefix-anchored consumer
+    # (`artifact\tNAME\t`) parses exactly as before.
     #
     # A conflict rule matches a conflicted path against `conflict-path` and
     # `conflict-sibling`, then reads that row's `conflict-class` and `conflict-recipe`.
@@ -933,7 +590,7 @@ def main(argv=None):
     parser.add_argument(
         "--list",
         action="store_true",
-        help="Print the registered artifacts and the budget watch list; run no row.",
+        help="Print the registered artifacts; run no row.",
     )
     args = parser.parse_args(argv)
     root = Path(args.repo_root).resolve() if args.repo_root else default_repo_root()
@@ -953,7 +610,7 @@ def main(argv=None):
     # was established still prints; the top-level net below supplies the exit-2 state.
     try:
         for row in ROWS:
-            forced, infra = row["check"](row, root, report)
+            forced, infra = run_row(row, root, report)
             forces_one = forced or forces_one
             infrastructure = infra or infrastructure
     finally:
