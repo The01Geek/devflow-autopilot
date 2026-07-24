@@ -7318,10 +7318,14 @@ assert_pin_red_under "#755: §3.1 existing-PR guard queries OPEN-scoped (gh pr l
 # because an inner `$(git branch --show-current)` failure is invisible to the outer `||` and
 # git prints EMPTY on a detached HEAD — collapsing the query to an UNFILTERED repo-wide
 # `gh pr list --state open` that exits 0, so the run adopts an arbitrary unrelated PR. The
-# mutation inlines the branch read back into the query, re-introducing exactly that.
+# mutation INLINES the branch read back into the query — literally re-introducing the defect,
+# not merely deleting the pinned line: it rewrites `--head "$HEAD_BRANCH"` to the inlined
+# `--head "$(git branch --show-current)"` form, whose inner failure the outer `||` cannot see.
+# The pin literal is the query's guarded operand, so the mutation flips it RED by restoring
+# the regression rather than by blanking the target (the vacuity assert_pin_red_under rules out).
 assert_pin_red_under "#755: §3.1 reads the branch in its own statement and treats an empty read as REFUSED (never an unfiltered repo-wide query)" \
-  'HEAD_BRANCH=$(git branch --show-current) || HEAD_BRANCH=""' \
-  's@HEAD_BRANCH=\$\(git branch --show-current\)@HEAD_BRANCH=$(true)@' "$IMPL_PHASES_DIR/phase-3-review.md"
+  'gh pr list --head "$HEAD_BRANCH"' \
+  's@--head "\$HEAD_BRANCH"@--head "$(git branch --show-current)"@' "$IMPL_PHASES_DIR/phase-3-review.md"
 
 # ── Issue #493: Phase 1.4 §1.4 PR-body run-link refresh (cloud resume) ──
 # On a resumed cloud run that reaches §1.4 and finds an existing open PR, the

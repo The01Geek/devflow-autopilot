@@ -80,9 +80,10 @@ if [ -z "$HEAD_BRANCH" ]; then
 else
   EXISTING_PR=$(gh pr list --head "$HEAD_BRANCH" --state open --json number,createdAt --jq 'sort_by(.createdAt) | last | .number // empty') || EXISTING_PR=REFUSED
 fi
-# `${EXISTING_PR-REFUSED}` is the UNSET-only form (no colon): a clean "no open PR" is
-# the EMPTY string and must fall through to create, which the `:-` form would wrongly
-# capture, stranding every fresh run with no PR at all.
+# The UNSET-only `-` form (no colon) is belt-and-braces: both arms above assign, so the
+# default is not expected to fire — it is written this way because the `:-` form here
+# would be an ACTIVE BUG, firing on the EMPTY string that means "no open PR" and
+# stranding every fresh run with no PR at all. Keep the `-`; do not "simplify" to `:-`.
 if [ "${EXISTING_PR-REFUSED}" = REFUSED ]; then
   echo "devflow: §3.1 could not resolve whether an open PR exists for this branch (empty branch name, or gh pr list failed); NOT creating — a second PR would duplicate a prior attempt's." >&2
 elif [ -n "$EXISTING_PR" ]; then
@@ -96,11 +97,26 @@ fi
 
 - **REFUSED** (the fence printed the "could not resolve" line, **or printed nothing at all** — a matcher refusal of the fence answers nothing, exactly as the *draft PR number* exit below treats a silent fence): do **not** continue into the PR-link resolution, the label calls, or §3.2. Record the cause durably and stop — `workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind blocked --reflection "Phase 3.1: could not resolve whether an open PR already exists for this branch (empty branch name, gh pr list failure, or a refused fence); refusing to create a PR that may duplicate a prior attempt's — resolve and re-run"` — then emit the 👎 outcome reaction (see *Outcome reaction* in the Workpad Reference) and end the run at that terminal status.
 - **Adopt** (a PR number was printed): continue below, treating that number as the run's PR.
-- **Create**: continue below with the freshly-created PR.
+- **Create**: continue below with the freshly-created PR — **unless the create itself failed** (an auth expiry, an API 5xx, a `--base` that no longer resolves, a rate limit). `gh pr create`'s failure goes to stderr, which the REFUSED detector above does not match, so check it explicitly: if no PR was created, take the **same terminal stop as REFUSED** (durable `blocked` reflection naming the failed create, 👎 outcome reaction, end the run) rather than continuing into the PR-link resolution, which would write a broken `[#]()` link and run §3.2–§3.4 with no PR.
 
 **On the adopt arm, do NOT re-write the PR body** — the prior attempt's body (and its §1.4-refreshed `[View run]` line) stands; re-creating or re-bodying it would clobber a human's edits.
 
-Then populate the workpad's `PR` link from the resolved draft PR — **freshly created, or the one just adopted** — and **print the PR number** — you need it as a literal in the label call below, and a shell variable does not survive into a later separate command on the cloud runner. **On the adopt arm, substitute the adopted number you just printed rather than re-resolving:** the reads below are the unscoped `gh pr view` form this section's guard comment rejects, so re-resolving could select a *different* PR than the one adopted (a closed sibling, or another PR on the same head) — the two arms converge only when the adopt arm carries its own number forward.
+Then populate the workpad's `PR` link from the resolved draft PR — **freshly created, or the one just adopted** — and **print the PR number** — you need it as a literal in the label call below, and a shell variable does not survive into a later separate command on the cloud runner.
+
+**On the ADOPT arm, use this fence instead of the one below**, substituting the adopted digits for `<adopted-pr>`. Both values must come from one **explicitly-addressed** read: the bare `gh pr view` in the create-arm fence is the unscoped form this section's guard comment rejects, so re-resolving there could bind `PR_URL` to a *different* PR than the number just adopted (a closed sibling, or another PR on the same head) — producing a workpad link whose number and URL disagree, the exact failure the guard exists to prevent. Passing the number as a positional argument removes the branch-wide ambiguity entirely:
+
+```bash
+# ADOPT ARM ONLY — <adopted-pr> is the number the guard above printed, substituted
+# as a literal. The positional argument is what makes this read scoped; without it
+# `gh pr view` resolves by branch across OPEN/CLOSED/MERGED (see the guard comment).
+PR_URL=$(gh pr view <adopted-pr> --json url --jq '.url')
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --pr-link "[#<adopted-pr>]($PR_URL)"
+echo "draft PR number: [<adopted-pr>]"
+```
+
+An empty `PR_URL` here routes exactly like the create arm's failures below: record it durably (`--reflection-kind dropped-failed`) and apply no label.
+
+**On the CREATE arm**, use the original fence:
 ```bash
 PR_URL=$(gh pr view --json url --jq '.url')
 PR_NUM=$(gh pr view --json number --jq '.number')
