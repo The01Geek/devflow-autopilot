@@ -49,6 +49,20 @@ _DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../lib/resolve-gh.sh
 . "$_DIR/../lib/resolve-gh.sh"
 : "${DEVFLOW_GH:=$(devflow_resolve_gh)}"
+# jq likewise, through the .sh-helper-tier resolver — NOT scripts/run-jq.sh, whose whole
+# reason for existing is agent-composed jq inside SKILL.md bodies, where no resolved
+# DEVFLOW_JQ survives between an agent's separate Bash calls. Inside one .sh process the
+# sourced resolver is the established idiom (parse-engine-error.sh, fetch-pr-context.sh, …)
+# and costs no extra bash spawn.
+# shellcheck source=../lib/resolve-jq.sh
+. "$_DIR/../lib/resolve-jq.sh" \
+  || { echo "devflow: resolve-existing-pr.sh could not source ../lib/resolve-jq.sh — using bare 'jq' (set DEVFLOW_JQ to override)" >&2; : "${DEVFLOW_JQ:=jq}"; }
+# Outcome check, not just sourceability: a sibling that sources clean yet never assigns must
+# still leave a usable jq, never a bare `set -u` abort that breaks the one-token contract.
+if [ -z "${DEVFLOW_JQ:-}" ]; then
+  echo "devflow: resolve-existing-pr.sh: resolve-jq.sh sourced but did not assign DEVFLOW_JQ — using bare 'jq' (set DEVFLOW_JQ to override)" >&2
+  DEVFLOW_JQ=jq
+fi
 
 ISSUE=""; BRANCH=""; BASE=""; BRANCH_SET=""
 while [ "$#" -gt 0 ]; do
@@ -91,18 +105,6 @@ if [ -z "$BRANCH" ]; then
     exit 3
 fi
 
-# Re-derive the base when the caller did not pass one. config-get.sh prints its supplied
-# default on the SOFT paths (absent file / absent-or-empty key) and nothing on the HARD ones
-# (malformed config, missing python3), so the empty-read fallback covers only the latter —
-# behaviorally identical to the fallback Phase 1.4 and Phase 3.1's create arm perform.
-if [ -z "$BASE" ]; then
-    BASE="$("$_DIR/config-get.sh" .base_branch main)" || BASE=""
-    if [ -z "$BASE" ]; then
-        echo "devflow: resolve-existing-pr.sh: base_branch read failed (malformed config or missing python3); falling back to 'main' for the base-ref validation" >&2
-        BASE=main
-    fi
-fi
-
 # OPEN-SCOPED and branch-explicit, deliberately NOT `gh pr view`: that command takes no
 # --state filter and resolves "the pull request that belongs to the current branch" across
 # OPEN/CLOSED/MERGED, so a branch whose only PR was CLOSED would yield a non-empty capture,
@@ -115,9 +117,13 @@ fi
 # nothing" are different diagnoses, and a shared generic breadcrumb would point a reader at
 # the wrong one (the misdirected-breadcrumb class). The `2>` redirect targets a file rather
 # than a `2>&1` merge so the JSON capture stays uncontaminated by the diagnostic bytes.
-GH_ERR="$(mktemp)" || GH_ERR=/dev/null
+# The mktemp-or-/dev/null sentinel and its guarded cleanup are the established sibling idiom
+# (scripts/summarize-ci-checks.sh, scripts/derive-review-preconditions.sh): an unguarded
+# `rm -f` on the sentinel would target /dev/null. The captured bytes are read with the `$(<f)`
+# BUILTIN rather than `cat`, which lib/preflight.sh does not guarantee.
+GH_ERR="$(mktemp 2>/dev/null)" || GH_ERR=/dev/null
 if ! PR_JSON="$("$DEVFLOW_GH" pr list --head "$BRANCH" --state open --json number,createdAt,baseRefName,closingIssuesReferences 2>"$GH_ERR")"; then
-    echo "devflow: resolve-existing-pr.sh: 'gh pr list' exited non-zero for branch '$BRANCH'; could not establish whether an open PR exists: $(cat "$GH_ERR" 2>/dev/null)" >&2
+    echo "devflow: resolve-existing-pr.sh: 'gh pr list' exited non-zero for branch '$BRANCH'; could not establish whether an open PR exists: $([ -s "$GH_ERR" ] && printf '%s' "$(<"$GH_ERR")" || printf 'no error output captured')" >&2
     [ "$GH_ERR" = /dev/null ] || rm -f "$GH_ERR"
     printf '%s\n' REFUSED
     exit 3
@@ -138,14 +144,15 @@ fi
 # A sentinel rather than empty output is load-bearing: an empty line would be ambiguous
 # between "no open PR" (a clean CREATE) and "the filter failed" (a REFUSED), and collapsing
 # those two is the same fail-open the REFUSED/CREATE split exists to prevent.
-# jq goes through run-jq.sh, never a bare `jq` (the #247 execution-verified-resolver rule).
-PR_LINE="$(printf '%s' "$PR_JSON" | "$_DIR/run-jq.sh" -r --arg iss "$ISSUE" '
-    [ .[] ] | sort_by(.createdAt) | last
+# jq goes through the resolved $DEVFLOW_JQ, never a bare `jq` (the #247 rule); the JSON is fed
+# by here-string rather than a `printf |` pipeline, so no subshell and no extra process.
+PR_LINE="$("$DEVFLOW_JQ" -r --arg iss "$ISSUE" '
+    sort_by(.createdAt) | last
     | if . == null then "NONE"
       else "\(.number) \(.baseRefName // "") \(
              ((.closingIssuesReferences // []) | map(.number | tostring) | index($iss))
              | if . == null then "no" else "yes" end)"
-      end' 2>/dev/null)" || PR_LINE=""
+      end' <<<"$PR_JSON" 2>/dev/null)" || PR_LINE=""
 
 if [ -z "$PR_LINE" ]; then
     echo "devflow: resolve-existing-pr.sh: the open-PR listing for branch '$BRANCH' could not be parsed (jq failed or produced no line); could not establish whether an open PR exists" >&2
@@ -163,7 +170,6 @@ fi
 # and CLAUDE.md's guard-class 2 forbids deriving either through a tool lib/preflight.sh does
 # not guarantee: a host missing that tool would yield an empty field, and the run would adopt
 # PR "" or report a clean validation it never performed.
-PR_NUMBER=""; PR_BASE=""; PR_CLOSES=""
 read -r PR_NUMBER PR_BASE PR_CLOSES <<<"$PR_LINE"
 case "$PR_NUMBER" in
     ''|*[!0-9]*)
@@ -178,11 +184,29 @@ esac
 # hold is named individually (the conjunctive both-failed case is the union of the two), so
 # the caller's durable warning can say WHICH check failed. Adoption still proceeds: this is a
 # visibility obligation, not a new stop.
-FAILED=""
-[ "$PR_CLOSES" = yes ] || FAILED="closes-issue"
-if [ "$PR_BASE" != "$BASE" ]; then
-    [ -n "$FAILED" ] && FAILED="$FAILED,base-ref" || FAILED="base-ref"
+#
+# The base is re-derived HERE rather than at argument-parsing time, because it is read by
+# nothing but this validation: on the CREATE and REFUSED paths the run would otherwise pay a
+# config-get.sh (bash + python3) startup for a value it discards — and the CREATE path is the
+# common fresh-run case, where §3.1's create fence immediately performs the identical read
+# itself. config-get.sh prints its supplied default on the SOFT paths (absent file /
+# absent-or-empty key) and nothing on the HARD ones (malformed config, missing python3), so
+# the empty-read fallback below covers only the latter — behaviorally identical to the
+# fallback Phase 1.4 and Phase 3.1's create arm perform.
+if [ -z "$BASE" ]; then
+    BASE="$("$_DIR/config-get.sh" .base_branch main)" || BASE=""
+    if [ -z "$BASE" ]; then
+        echo "devflow: resolve-existing-pr.sh: base_branch read failed (malformed config or missing python3); falling back to 'main' for the base-ref validation" >&2
+        BASE=main
+    fi
 fi
+
+# Both checks are written in ONE shape, so a third check is one more identical line and no
+# `a && b || c` chain (which silently takes the else-branch if the true-branch ever becomes
+# conditional). The `${FAILED:+$FAILED,}` join is what keeps the emitted order stable.
+FAILED=""
+[ "$PR_CLOSES" = yes ]   || FAILED="${FAILED:+$FAILED,}closes-issue"
+[ "$PR_BASE" = "$BASE" ] || FAILED="${FAILED:+$FAILED,}base-ref"
 if [ -n "$FAILED" ]; then
     echo "devflow: resolve-existing-pr.sh: adopting open PR #$PR_NUMBER on branch '$BRANCH', but validation failed ($FAILED): it lists closingIssuesReferences=$PR_CLOSES for issue #$ISSUE and targets base '$PR_BASE' (expected '$BASE')" >&2
     printf '%s\n' "ADOPT $PR_NUMBER WARN:$FAILED"

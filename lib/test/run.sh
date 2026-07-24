@@ -7392,29 +7392,41 @@ printf '%s\n' '[{"number":35,"createdAt":"2026-01-01T00:00:00Z","baseRefName":"m
 # Both halves are asserted together on every row: the AC requires exactly one token per
 # outcome WITH a matching exit code, so a token asserted without its code would leave the
 # code free to drift (and vice versa).
+# Each invocation is made EXACTLY ONCE and its result captured, because the arm-order rows
+# below compare the same outcomes the matrix rows assert: re-invoking there would spawn six
+# more bash+stub+jq chains for answers already in hand. `_R_ERR` keeps that run's stderr so
+# the breadcrumb row need not re-run the helper either.
+_R_ERR=""
 rep782() {
   local fx="$1" rc="$2"; shift 2
   local out st
   : > "$S782/ghlog"
   out="$(GHLOG="$S782/ghlog" REP_FIXTURE="$fx" REP_RC="$rc" DEVFLOW_GH="$S782/gh" \
       bash "$REP_SH" "$@" 2>"$S782/err")" && st=0 || st=$?
+  _R_ERR="$(cat "$S782/err")"
   printf '%s|%s\n' "$out" "$st"
 }
 assert_eq "#782 resolve-existing-pr.sh exists and is executable" "yes" \
   "$([ -x "$REP_SH" ] && echo yes || echo no)"
 # ── The five input-matrix rows the issue enumerates, each asserting token AND exit code.
+R782_REFUSED_GH="$(rep782 "$S782/empty.json" 4 --issue 782 --base main --branch feature-x)"
+R782_ERR_GH="$_R_ERR"
 assert_eq "#782 arm: gh exits non-zero -> REFUSED (never a create, which could duplicate)" "REFUSED|3" \
-  "$(rep782 "$S782/empty.json" 4 --issue 782 --base main --branch feature-x)"
+  "$R782_REFUSED_GH"
+R782_CREATE="$(rep782 "$S782/empty.json" "" --issue 782 --base main --branch feature-x)"
 assert_eq "#782 arm: an empty result array -> CREATE (a clean 'no open PR', not a failure)" "CREATE|2" \
-  "$(rep782 "$S782/empty.json" "" --issue 782 --base main --branch feature-x)"
+  "$R782_CREATE"
+R782_ADOPT="$(rep782 "$S782/one.json" "" --issue 782 --base main --branch feature-x)"
 assert_eq "#782 arm: exactly one open PR -> ADOPT, validated" "ADOPT 11 OK|0" \
-  "$(rep782 "$S782/one.json" "" --issue 782 --base main --branch feature-x)"
+  "$R782_ADOPT"
 assert_eq "#782 arm: two open PRs on one head -> the NEWEST by createdAt is adopted" "ADOPT 22 OK|0" \
   "$(rep782 "$S782/two-oldest-first.json" "" --issue 782 --base main --branch feature-x)"
 assert_eq "#782 arm: the newest is selected by createdAt, not by array position" "ADOPT 22 OK|0" \
   "$(rep782 "$S782/two-newest-first.json" "" --issue 782 --base main --branch feature-x)"
+R782_REFUSED_BRANCH="$(rep782 "$S782/one.json" "" --issue 782 --base main --branch "")"
+R782_ERR_BRANCH="$_R_ERR"
 assert_eq "#782 arm: an empty branch name -> REFUSED" "REFUSED|3" \
-  "$(rep782 "$S782/one.json" "" --issue 782 --base main --branch "")"
+  "$R782_REFUSED_BRANCH"
 # The empty-branch arm's WHOLE POINT: the query is never reached. `gh pr list --head ""` is
 # an UNFILTERED repo-wide open-PR query that exits 0, so a helper that merely returned an
 # empty selection here would adopt an arbitrary unrelated PR on some other branch.
@@ -7431,20 +7443,20 @@ assert_eq "#782 validation: a closes-issue-only mismatch names closes-issue alon
 # ── ARM ORDER. Each ordered pair must differ; a reordered or collapsed arm makes two of
 # ── these identical, which is precisely what a per-row token assertion alone cannot see.
 assert_eq "#782 arm order: REFUSED and CREATE are distinct outcomes" "differ" \
-  "$([ "$(rep782 "$S782/empty.json" 4 --issue 782 --base main --branch feature-x)" \
-     != "$(rep782 "$S782/empty.json" "" --issue 782 --base main --branch feature-x)" ] && echo differ || echo same)"
+  "$([ "$R782_REFUSED_GH" != "$R782_CREATE" ] && echo differ || echo same)"
 assert_eq "#782 arm order: CREATE and ADOPT are distinct outcomes" "differ" \
-  "$([ "$(rep782 "$S782/empty.json" "" --issue 782 --base main --branch feature-x)" \
-     != "$(rep782 "$S782/one.json" "" --issue 782 --base main --branch feature-x)" ] && echo differ || echo same)"
+  "$([ "$R782_CREATE" != "$R782_ADOPT" ] && echo differ || echo same)"
 assert_eq "#782 arm order: REFUSED and ADOPT are distinct outcomes" "differ" \
-  "$([ "$(rep782 "$S782/empty.json" 4 --issue 782 --base main --branch feature-x)" \
-     != "$(rep782 "$S782/one.json" "" --issue 782 --base main --branch feature-x)" ] && echo differ || echo same)"
+  "$([ "$R782_REFUSED_GH" != "$R782_ADOPT" ] && echo differ || echo same)"
 # The empty-branch REFUSED and the gh-failure REFUSED are ONE outcome by design, but they
 # are two different causes — the helper must still say which fired (per-branch breadcrumbs).
+# Both stderr payloads were captured by the matrix rows above; no re-invocation is needed.
 assert_eq "#782 the two REFUSED causes carry distinct stderr breadcrumbs" "differ" \
-  "$(_r1="$(GHLOG="$S782/ghlog" REP_FIXTURE="$S782/one.json" REP_RC=4 DEVFLOW_GH="$S782/gh" bash "$REP_SH" --issue 782 --base main --branch feature-x 2>&1 >/dev/null)"
-     _r2="$(GHLOG="$S782/ghlog" REP_FIXTURE="$S782/one.json" REP_RC="" DEVFLOW_GH="$S782/gh" bash "$REP_SH" --issue 782 --base main --branch "" 2>&1 >/dev/null)"
-     [ "$_r1" != "$_r2" ] && echo differ || echo same)"
+  "$([ "$R782_ERR_GH" != "$R782_ERR_BRANCH" ] && echo differ || echo same)"
+assert_eq "#782 the gh-failure REFUSED breadcrumb is non-empty (the comparison above is not vacuous)" "yes" \
+  "$([ -n "$R782_ERR_GH" ] && echo yes || echo no)"
+assert_eq "#782 the empty-branch REFUSED breadcrumb is non-empty (the comparison above is not vacuous)" "yes" \
+  "$([ -n "$R782_ERR_BRANCH" ] && echo yes || echo no)"
 # The helper derives the base internally when --base is omitted (the §3.1 fence passes no
 # $BASE across the shell boundary), via the same config-get.sh read the create arm re-derives.
 assert_eq "#782 --base omitted: the base is re-derived internally (repo base_branch is main)" "ADOPT 11 OK|0" \
