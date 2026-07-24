@@ -6178,6 +6178,24 @@ assert_pin_red_under "429/T6: §4.0 annotation names the sibling PR AND its merg
 assert_pin_unique "429/T6: §4.0 aligned verbatim language names the parent's decided criteria as the unreworded source" \
   "parent's decided criteria are the unreworded semantic source" "$P4_FILE"
 
+# #761 — §4.2's PR-body reconciliation is a three-class claim audit (behavioral, verification,
+# artifact-existence), each with its own comparand. The mutations narrow the audit back to
+# behavioral-claims-only (the pre-#761 scope): the enumeration mutation rewrites the class list,
+# and the class-line delete mutation removes the verification and artifact-existence classes.
+assert_pin_red_under "#761: §4.2 audits three claim classes, not behavioral-only (narrow → RED)" \
+  'three claim classes — behavioral, verification, and artifact-existence' \
+  's/three claim classes — behavioral, verification, and artifact-existence/behavioral claims only/' "$P4_FILE"
+assert_pin_red_under "#761: §4.2 verification class binds Test-Plan/coverage rows to tests in the diff (narrow → RED)" \
+  "**Verification claims** — comparand: the tests actually present in this PR's diff." \
+  '/^2\. \*\*Verification claims\*\*/d;/^3\. \*\*Artifact-existence claims\*\*/d' "$P4_FILE"
+assert_pin_red_under "#761: §4.2 artifact-existence class requires a resolvable identifier (narrow → RED)" \
+  "**Artifact-existence claims** — comparand: the artifact's own resolvable identifier" \
+  '/^2\. \*\*Verification claims\*\*/d;/^3\. \*\*Artifact-existence claims\*\*/d' "$P4_FILE"
+# The behavioral class + its comparand are the preserved class-1 obligation (unchanged from the
+# pre-#761 §4.2); a presence pin, not a behavioral-fix regression pin.
+assert_pin_unique "#761: §4.2 preserves the behavioral class and its shipped-code-path comparand" \
+  "**Behavioral claims** — comparand: the actual shipped code path, followed into pre-existing code the diff calls." "$P4_FILE"  # structural-pin-ok: documentation-presence pin (asserts the preserved class-1 obligation exists; the narrowing mutation keeps behavioral, so a red_under form cannot express it)
+
 # T7 — no-new-grants. The new prose (Phase 1.6 fresh-tree verification + Phase 2.1 code-wins
 # pass) executes during a /devflow:implement run, and `devflow-implement.yml` is the SINGLE
 # workflow that runs /devflow:implement — both the automated pickup AND a manual bare
