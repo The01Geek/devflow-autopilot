@@ -1,7 +1,7 @@
 # Cloud allowlist & command-shape reference
 
 This is the detailed forensic record for the CLAUDE.md "cloud allowlist" gotchas
-(issues #363, #561, #484, #455). The **operative invariants and their enforcing
+(issues #363, #392, #401, #455, #484, #561). The **operative invariants and their enforcing
 pins stay in CLAUDE.md** — this doc carries the evidence, the war-stories, the
 probe tables, and the reasoning that would otherwise bloat those bullets. When
 CLAUDE.md says "see `docs/cloud-allowlist.md`", this is where it points.
