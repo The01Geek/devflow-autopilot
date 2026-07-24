@@ -61,9 +61,17 @@ def extract_section(body: str, name: str) -> list[str]:
     """Return the list of lines inside the named section, or [] if not found.
 
     Stops at the next heading whose level is equal to or higher than the
-    section's heading. When the body carries the heading more than once, the
-    FIRST occurrence wins and the rest are ordinary content of whatever section
-    they fall in — a duplicate heading never concatenates two sections.
+    section's heading. The FIRST matching heading opens the section, and
+    duplicates of it are not special-cased — they are just headings, so which
+    rule applies depends on their level:
+
+      * A second copy at the SAME (or a shallower) level ends the section like
+        any other such heading, and its own content is excluded entirely along
+        with everything after it. `## AC / one / ## Notes / ## AC / two` yields
+        only `one`'s lines — `two` is dropped.
+      * A DEEPER duplicate (e.g. `###` under a `##`) does not end the section,
+        so its lines are read as part of the first section. `## AC / one /
+        ### AC / two` yields both `one` and `two`.
     """
     lines = body.splitlines()
     out: list[str] = []

@@ -161,11 +161,15 @@ def _run(cmd, *, stdout=subprocess.PIPE, stdin=None):
 
 
 def _fail(prefix, exc, code=1):
-    # `code` defaults to 1 (the historical contract for every subcommand). Only
-    # cmd_status overrides it to 3 on its gh-api/transport/auth failure paths, so
-    # the cloud stall backstop can tell an auth/transport failure (the workpad
-    # may be healthy — the READ failed) apart from a genuinely unreadable
-    # workpad. Every other caller keeps exit 1 unchanged.
+    # `code` defaults to 1 (the historical contract for every subcommand). The
+    # callers that override it to 3 are cmd_status (its gh-api/transport/auth
+    # failure paths) and the acs surfaces — `_acs_read_workpad` (which passes
+    # api_fail_code=3) and `_acs_fetch_issue_body` (`_fail('acs-resolve', …,
+    # code=3)`). In every one of those the point is the same: the cloud stall
+    # backstop (and cmd_acs_resolve's SystemExit router) can tell an
+    # auth/transport READ failure — the workpad or issue may be perfectly
+    # healthy — apart from a genuinely unreadable/absent workpad. Callers that do
+    # not override keep exit 1 unchanged.
     msg = exc.stderr.strip() if isinstance(exc, subprocess.CalledProcessError) else str(exc)
     sys.stderr.write(f"workpad.py {prefix}: {msg}\n")
     sys.exit(code)
@@ -313,12 +317,14 @@ def _find_workpad_comment(cmd, repo, issue, marker, api_fail_code=1):
     """Scan an issue's comments (paginated) and return the first whose body
     starts with `marker`, or None when the scan completed and none matched.
 
-    Single source for the marker-scan that `cmd_id` and `cmd_status` share — the
-    `per_page=100`/`< 100` pagination boundary and the API/parse error handling
-    live here once. A `gh api` or JSON-parse failure exits via `_fail(cmd, …)`
-    with `api_fail_code` (default 1, so the caller's error prefix and historical
-    exit code are preserved; cmd_status passes 3 to distinguish a transport/auth
-    failure from an unreadable workpad); a clean scan with no match returns None
+    Single source for the marker-scan that `cmd_id`, `cmd_status` and the acs
+    surfaces (`_acs_read_workpad`, and so `cmd_acs`/`cmd_acs_resolve` through
+    it) share — the `per_page=100`/`< 100` pagination boundary and the API/parse
+    error handling live here once. A `gh api` or JSON-parse failure exits via
+    `_fail(cmd, …)` with `api_fail_code` (default 1, so the caller's error prefix
+    and historical exit code are preserved; cmd_status and `_acs_read_workpad`
+    both pass 3 to distinguish a transport/auth failure from an unreadable
+    workpad); a clean scan with no match returns None
     so the caller can apply its own "not found" contract (exit 2)."""
     page = 1
     while True:
@@ -649,12 +655,18 @@ def _acs_pr_identity_ok(issue_items: list[dict], workpad_items: list[dict],
     re-triggered /devflow:implement on the same issue, overwrites the criteria
     the first PR was reviewed against.
 
-    Fails CLOSED on an absent comparand: a workpad whose normalized set is a
-    proper subset of the issue body's yet which carries ZERO scope-decision
-    records for this PR is rejected. That is the shape a pre-change workpad
-    takes, and equally the shape a failed record write takes, so accepting it
-    would make this guard vacuously true on exactly the population it exists to
-    protect.
+    Fails CLOSED on an absent comparand, and does so PER CRITERION — never at
+    the level of the record set as a whole. Every criterion the issue body
+    carries and the workpad does not must be individually explained by a record
+    bound to this PR: a `deferred` record naming that criterion, or a
+    `rewritten` record naming it whose `new_text` is itself present in the
+    workpad (the criterion did not vanish, it was restated). One unexplained
+    criterion rejects the workpad, however many records exist — including the
+    zero-record shape a pre-change workpad and a failed record write both take.
+    An existential `bool(decisions)` test would instead let a single unrelated
+    record license dropping every other criterion: the vacuous-coverage shape
+    this guard forbids, and the same shape an empty base64 payload takes (which
+    is why `_parse_scope_decisions` drops those records outright).
     """
     issue_norm = {normalize_criterion(it['text']) for it in issue_items}
     workpad_norm = {normalize_criterion(it['text']) for it in workpad_items}
@@ -662,7 +674,16 @@ def _acs_pr_identity_ok(issue_items: list[dict], workpad_items: list[dict],
         return True
     if workpad_norm >= issue_norm:
         return True
-    return bool(decisions)
+    deferred = {d['text'] for d in decisions if d['kind'] == 'deferred'}
+    rewritten = {d['text']: d['new_text'] for d in decisions if d['kind'] == 'rewritten'}
+    for text in issue_norm - workpad_norm:
+        if text in deferred:
+            continue
+        new_text = rewritten.get(text)
+        if new_text is not None and new_text in workpad_norm:
+            continue
+        return False
+    return True
 
 
 def _acs_fetch_issue_body(issue: int) -> str:
@@ -689,8 +710,12 @@ def cmd_acs_resolve(args):
 
     Always exits 0 on a resolvable state: a workpad that is absent or unreadable
     is a ROUTED outcome carrying its own source token, not a run-ending error.
-    Exit 3 is reserved for a failure to read the issue body itself, without
-    which there is no comparand and nothing to resolve.
+    Exit 3 covers the two ways this command cannot even begin: a failure to read
+    the issue body itself (without which there is no comparand and nothing to
+    resolve), and the opening `_require_section_parse('acs-resolve')` when
+    `scripts/section_parse.py` was not deployed beside workpad.py — a real
+    partial-deployment shape this file's import block documents. Both are
+    "no basis to resolve", distinct from the ROUTED workpad outcomes above.
     """
     _require_section_parse('acs-resolve')
     issue_body = _acs_fetch_issue_body(args.issue)
@@ -883,6 +908,16 @@ def _unb64(blob: str) -> str | None:
         return None
 
 
+def _warn_empty_scope_payload(field: str) -> None:
+    # Same breadcrumb discipline as `_unb64`'s undecodable path: an empty payload
+    # is a corrupted record, and it must read as one rather than as an audited
+    # decision that silently stopped covering its criterion.
+    sys.stderr.write(
+        f"workpad.py: ignoring a scope-decision record whose {field}= payload is "
+        f"empty; it covers no criterion\n"
+    )
+
+
 def _render_scope_decision(pr: str, kind: str, text: str, new_text: str | None = None) -> str:
     rec = (f'<!-- devflow:scope-decision pr={pr} kind={kind} '
            f'text={_b64(normalize_criterion(text))}')
@@ -895,8 +930,12 @@ def _parse_scope_decisions(body: str, pr: int | None) -> list[dict]:
     """Return the scope-decision records in `body` that bind to PR `pr`.
 
     A record whose `pr=` is `pending` (never bound by Phase 3.1) or names a
-    DIFFERENT PR is excluded, as is one whose base64 payload does not decode —
-    all three are records that establish nothing about this PR, and the
+    DIFFERENT PR is excluded, as is one whose base64 payload does not decode, as
+    is one whose payload decodes to the EMPTY string. The regex's payload class
+    is `*`-quantified, so a truncated or hand-edited `text=` (or `newtext=`)
+    matches and decodes cleanly to `''` — a record that names no criterion and
+    can therefore cover none, so it is dropped in the undecodable case's same
+    fail-closed direction. All of these establish nothing about this PR, and the
     membership check treats "no covering record" as a finding.
 
     `pr` is None in current-branch mode, where there is no PR to bind to: no
@@ -913,8 +952,14 @@ def _parse_scope_decisions(body: str, pr: int | None) -> list[dict]:
         text = _unb64(blob)
         if text is None:
             continue
+        if not text:
+            _warn_empty_scope_payload('text')
+            continue
         new_text = _unb64(new_blob) if new_blob is not None else None
         if new_blob is not None and new_text is None:
+            continue
+        if new_blob is not None and not new_text:
+            _warn_empty_scope_payload('newtext')
             continue
         out.append({'kind': kind, 'text': text, 'new_text': new_text})
     return out
@@ -923,15 +968,41 @@ def _parse_scope_decisions(body: str, pr: int | None) -> list[dict]:
 def _bind_scope_decisions(body: str, pr: int) -> str:
     """Rewrite every `pr=pending` scope-decision record to `pr=<pr>`.
 
-    Idempotent: a record already carrying a numeric PR is left untouched, so a
-    re-run (or a resumed run re-entering Phase 3.1) never re-binds a record to a
-    different PR.
+    Idempotent WITHIN a run: a record already carrying a numeric PR is left
+    untouched, so a re-run (or a resumed run re-entering Phase 3.1) never
+    re-binds a record to a different PR.
+
+    KNOWN LIMITATION — that idempotence argument covers re-entry only, NOT
+    cross-run contamination. The workpad is one comment per ISSUE and survives
+    across runs, so an earlier /devflow:implement attempt that wrote
+    §2.2.5/§2.2.6 records and then died before reaching §3.1 leaves `pr=pending`
+    records behind; this rewrite is unconditional over the whole body, so the
+    NEXT run's §3.1 adopts those foreign records and binds them to ITS PR. The
+    record format carries no run stamp to tell them apart, and inventing one is
+    a larger design change than this function should make. The residual is made
+    OBSERVABLE instead: the number of records bound is written to stderr, so a
+    count higher than the run itself recorded is visible in the log rather than
+    silent.
     """
-    return re.sub(
+    bound = 0
+
+    def _sub(m):
+        nonlocal bound
+        bound += 1
+        return f'{m.group(1)}{pr}{m.group(2)}'
+
+    out = re.sub(
         r'(<!-- devflow:scope-decision pr=)pending( kind=)',
-        lambda m: f'{m.group(1)}{pr}{m.group(2)}',
+        _sub,
         body,
     )
+    if bound:
+        sys.stderr.write(
+            f"workpad.py: bound {bound} pending scope-decision record(s) to pr={pr}; "
+            f"a count higher than this run recorded means records left by an "
+            f"earlier run on this issue were adopted\n"
+        )
+    return out
 
 # The bug-only "reproduction captured" ## Progress sub-row. SINGLE SOURCE for the
 # row `cmd_new_body` renders AND the row `_reconcile_reproduction_row` (issue #449)

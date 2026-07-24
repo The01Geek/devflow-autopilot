@@ -8233,6 +8233,22 @@ assert_eq "#781: the pr-identity-mismatch arm falls back to the issue body's cri
   '- [ ] Criterion A|- [ ] Criterion B|- [ ] Criterion C' \
   "$(sed -n '/^criteria:$/,/^divergence:$/p' "$S781/out" | sed '1d;$d' | tr '\n' '|' | sed 's/|$//')"
 
+# Current-branch mode: `--pr` is OMITTED entirely (an EMPTY value is an argparse
+# type=int error, which is why Phase 0.4 has a separate arm rather than passing an
+# empty flag). With no PR to bind to, NO record can be credited — including one
+# bound to a real PR. Without these, the `pr=None` path is never EXECUTED and a
+# regression crediting records at `pr=None` would ship green underneath the prose
+# pin that guards the arm.
+run781 "$S781/wp-norecord.md" acs-resolve 999 >/dev/null
+assert_eq "#781: with --pr OMITTED (current-branch mode) a record-less workpad fails closed" \
+  "pr-identity-mismatch" "$(_src781)"
+assert_eq "#781: the --pr-omitted arm falls back to the issue body's criteria" \
+  '- [ ] Criterion A|- [ ] Criterion B|- [ ] Criterion C' \
+  "$(sed -n '/^criteria:$/,/^divergence:$/p' "$S781/out" | sed '1d;$d' | tr '\n' '|' | sed 's/|$//')"
+run781 "$S781/wp-real.md" acs-resolve 999 >/dev/null
+assert_eq "#781: a record BOUND to a real PR is NOT credited when --pr is omitted" \
+  "pr-identity-mismatch" "$(_src781)"
+
 run781 "$S781/wp-unmirrored.md" acs-resolve 999 --pr 143 >/dev/null
 assert_eq "#781: an un-mirrored workpad reports its own token, never the plain issue-body one" \
   "workpad-unmirrored" "$(_src781)"
@@ -8264,25 +8280,52 @@ assert_eq "#781: a criteria section beginning past line 200 resolves in full (no
 # ---- scope-decision record write path ----------------------------------------
 # `--bind-scope-decisions` is what makes a Phase-2 record usable at review time,
 # and its idempotency is what keeps a resumed run from re-binding to a new PR.
+# The undecodable fixtures are deliberately CHARSET-VALID (`[A-Za-z0-9+/=]*`), so
+# they match `_SCOPE_DECISION_RE` and actually REACH `_unb64` — that is the guard
+# under test. A charset-INVALID payload (`text=!!!!`) is rejected by the GRAMMAR
+# and never reaches `_unb64` at all, so asserting on it would prove nothing about
+# the decode guard; `charset-invalid-unmatched` pins that distinction so the two
+# rejection paths can never be confused again.
+#   /w== → valid base64 of 0xff, which is not valid UTF-8
+#   QQ=  → incorrect padding
+# The `rewritten` sibling covers `new_blob is not None and new_text is None` —
+# the shape that would otherwise emit a HALF-decoded record.
 assert_eq "#781: scope-decision helpers round-trip, fail closed, and bind idempotently" \
-  "pending-covers-nothing=0 bound=1 rebind-idempotent=143 undecodable=0 normalized=Criterion X" \
-  "$(python3 - "$WP_PY" <<'PY'
+  "pending-covers-nothing=0 bound=1 rebind-idempotent=143 undecodable-nonutf8=0 undecodable-padding=0 undecodable-newtext=0 charset-invalid-unmatched=yes normalized=Criterion X" \
+  "$(python3 - "$WP_PY" 2>"$S781/unb64err" <<'PY'
 import importlib.util, sys
 spec = importlib.util.spec_from_file_location('wp', sys.argv[1])
 wp = importlib.util.module_from_spec(spec); spec.loader.exec_module(wp)
 rec = wp._render_scope_decision('pending', 'deferred', '  Criterion   X (post-merge) ')
 bound = wp._bind_scope_decisions(rec, 143)
 rebound = wp._bind_scope_decisions(bound, 999)
-bad = '<!-- devflow:scope-decision pr=143 kind=deferred text=!!!! -->'
+nonutf8 = '<!-- devflow:scope-decision pr=143 kind=deferred text=/w== -->'
+padding = '<!-- devflow:scope-decision pr=143 kind=deferred text=QQ= -->'
+newtext = ('<!-- devflow:scope-decision pr=143 kind=rewritten '
+           'text=Q3JpdGVyaW9uIEM= newtext=/w== -->')
+charset_invalid = '<!-- devflow:scope-decision pr=143 kind=deferred text=!!!! -->'
 print(
     f"pending-covers-nothing={len(wp._parse_scope_decisions(rec, 143))} "
     f"bound={len(wp._parse_scope_decisions(bound, 143))} "
     f"rebind-idempotent={143 if wp._parse_scope_decisions(rebound, 143) else 0} "
-    f"undecodable={len(wp._parse_scope_decisions(bad, 143))} "
+    f"undecodable-nonutf8={len(wp._parse_scope_decisions(nonutf8, 143))} "
+    f"undecodable-padding={len(wp._parse_scope_decisions(padding, 143))} "
+    f"undecodable-newtext={len(wp._parse_scope_decisions(newtext, 143))} "
+    "charset-invalid-unmatched="
+    f"{'yes' if wp._SCOPE_DECISION_RE.search(charset_invalid) is None else 'no'} "
     f"normalized={wp._parse_scope_decisions(bound, 143)[0]['text']}"
 )
 PY
 )"
+# The count alone is weak: a `_unb64` that returned the raw blob instead of None
+# would still drop some of these. The BREADCRUMB is the contract — each payload
+# that REACHES the decoder must read as a corrupted record (3 reaching payloads).
+assert_eq "#781: each undecodable payload emits the not-decodable-UTF-8 breadcrumb (never a silent drop)" \
+  "3" "$(grep -c 'not decodable UTF-8 base64' "$S781/unb64err")"
+assert_eq "#781: the undecodable breadcrumb names the specific failure (non-UTF-8 byte AND bad padding)" "yes" \
+  "$(grep -q '0xff' "$S781/unb64err" && grep -q 'Incorrect padding' "$S781/unb64err" && echo yes || echo no)"
+assert_eq "#781: an undecodable payload states it covers no criterion" "yes" \
+  "$(grep -q 'it covers no criterion' "$S781/unb64err" && echo yes || echo no)"
 # A malformed PR value or an empty criterion text is STRUCTURAL — no record is
 # written at all, rather than one that silently covers the wrong row (or none).
 assert_eq "#781: a malformed scope-decision PR value aborts structurally" "yes" \
@@ -8399,6 +8442,35 @@ assert_pin_red_under "#781: the six source tokens are reported distinctly (read-
   '`workpad-read-failed` is a transport failure that must not present as a normal issue-body resolution' \
   's/, and `workpad-read-failed` is a transport failure that must not present as a normal issue-body resolution//' \
   "$ST_REV"
+# Defect restored: a refusal arm (non-numeric issue, absent/unreadable workpad.py,
+# any rc-nonzero, a classifier denial) leaves no source token, so Phase 4 collapses the
+# unestablished state onto `none` and reports that BOTH surfaces were checked and
+# carried nothing - a fabricated measurement on the merge-gating report line.
+assert_pin_red_under "#781: every refusal arm emits the resolver-unavailable source token" \
+  'sets `acceptance_criteria_source` to `resolver-unavailable`' \
+  's/sets .acceptance_criteria_source. to .resolver-unavailable./leaves `acceptance_criteria_source` unset/' \
+  "$ST_REV"
+assert_pin_red_under "#781: a refusal arm never substitutes none for the token the helper never produced" \
+  'it produced no `source:` token at all and `none` must never be substituted' \
+  's/On those arms the helper never ran, so it produced no .source:. token at all and .none. must never be substituted for the token it never produced\./Those arms report `none`./' \
+  "$ST_REV"
+assert_pin_red_under "#781: a refused resolver never reports either surface as examined" \
+  'neither surface was examined, so nothing is known about whether criteria exist' \
+  's/neither surface was examined, so nothing is known about whether criteria exist/no acceptance criteria were found on either surface/' \
+  "$ST_REV"
+assert_pin_red_under "#781: Phase 4 gives resolver-unavailable its own non-claiming wording" \
+  'the resolver never ran, so that is unknown, not zero' \
+  's/the resolver never ran, so that is unknown, not zero/the resolver may have run/' \
+  "$ST_REV"
+
+# Defect restored: the headline demands a scope value unconditionally while
+# not-applicable divergence supplies none, so a run that never read a workpad emits
+# `scope unchanged` - an observed-fact claim beside a sentence saying nothing was read.
+assert_pin_red_under "#781: not-applicable divergence renders scope not-established, never unchanged" \
+  '`scope not-established` is the REQUIRED value whenever `acceptance_criteria_divergence` is `not-applicable`' \
+  's/`scope not-established` is the REQUIRED value whenever/`scope not-established` is one acceptable value when/' \
+  "$ST_REV"
+
 assert_pin_red_under "#781: Phase 4 refuses to collapse two source wordings" \
   'each wording below is deliberately distinct and collapsing any two destroys the signal this section carries' \
   's/ — each wording below is deliberately distinct and collapsing any two destroys the signal this section carries//' \
@@ -35773,7 +35845,7 @@ assert_eq "#363 every already-pinned arm shape (incl. optional-leading-paren) st
 # alone would not catch a duplicate head silently gained (or lost). Whoever next adds
 # a command to a review-skill fence updates these two numbers in the same commit,
 # per CLAUDE.md's coupled-invariant rule.
-assert_eq "#363 the review-skill head set matches the reviewed count (occurrences over the whole bundle; last change: #781 added Phase 0.4's acs-resolve fence, whose case/test/echo/cat heads take 136 -> 142, then split that fence's call into PR-mode and current-branch arms, whose added `test` guard takes 142 -> 143; every one was already granted and already in the distinct set, so the distinct count is unchanged)" \
+assert_eq "#363 the review-skill head set matches the reviewed count (occurrences over the whole bundle; last change: #781 added Phase 0.4's acs-resolve fence, whose case/test/echo/cat heads take 136 -> 142, then split that fence's call into PR-mode and current-branch arms, whose added test guard takes 142 -> 143; every one was already granted and already in the distinct set, so the distinct count is unchanged)" \
   "143" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 print(len(m.extract_heads(open(sys.argv[2],encoding="utf-8").read())))' "$ECH" "$REVIEW_BUNDLE")"

@@ -209,8 +209,14 @@ def _render_md_line(item: dict) -> str:
     # Both the containment test and the appended tag read the SHARED
     # `POST_MERGE_TAG` constant rather than re-spelling the literal here. The
     # read side (`workpad.py`'s post-merge filter) already tests that constant,
-    # so a re-spelled writer literal would drift from it silently and stop the
-    # filter matching — the exact failure the constant exists to prevent.
+    # so the constant removes exactly one failure mode: LITERAL drift between
+    # the two sites. It does NOT make them agree on what counts as tagged — the
+    # PREDICATES are deliberately different. The writer suppresses on
+    # containment (`POST_MERGE_TAG.strip() not in text`), while the reader tests
+    # a suffix (`is_post_merge_tagged` -> `text.rstrip().endswith(...)`). So a
+    # criterion carrying the phrase mid-string ("Verify (post-merge) that the
+    # hook fires") is neither tagged by the writer nor excluded by the reader's
+    # filter. That mid-string residual survives the shared constant.
     text = item['text']
     if item['post_merge'] and POST_MERGE_TAG.strip() not in text:
         text = f'{text}{POST_MERGE_TAG}'
