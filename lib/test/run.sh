@@ -47709,7 +47709,7 @@ if [ -n "$E783_FX" ] && [ "$E783_FX" != /dev/null ]; then
   printf '%s\n' 'jq -n --slurpfile big "$f" "$big[0]"' > "$E783_FX"
   assert_eq "#783 positive control: a --slurpfile line is GREEN" "0" \
     "$(python3 "$E783_LINT" "$E783_FX" >/dev/null 2>&1; echo $?)"
-  printf '%s\n' '# argjson-ok: v is a scalar' 'jq -n --argjson v "$V" \' '  ".x"' > "$E783_FX"
+  printf '%s\n' '# argjson-ok: v -- a scalar' 'jq -n --argjson v "$V" \' '  ".x"' > "$E783_FX"
   assert_eq "#783 positive control: a block marker above a continuation covers it (GREEN)" "0" \
     "$(python3 "$E783_LINT" "$E783_FX" >/dev/null 2>&1; echo $?)"
   printf '%s\n' '# a comment that merely mentions --argjson is not a flag' 'echo hi' > "$E783_FX"
@@ -47724,7 +47724,9 @@ if [ -n "$E783_FX" ] && [ "$E783_FX" != /dev/null ]; then
     "$(python3 "$E783_LINT" "$E783_FX" >/dev/null 2>&1; echo $?)"
   # (b) a `# argjson-ok:` marker sitting inside a quoted literal (not a real comment) must
   #     NOT exempt the unmarked --argjson on that line → RED.
-  printf '%s\n' 'jq -n --argjson big "$BIG" --arg s "# argjson-ok: fake" ".x"' > "$E783_FX"
+  # (the marker inside the literal is WELL-FORMED and declares `big`, so a regression in
+  # the quote-aware split would flip this to GREEN — the assertion is attributable.)
+  printf '%s\n' 'jq -n --argjson big "$BIG" --arg s "# argjson-ok: big -- fake" ".x"' > "$E783_FX"
   assert_eq "#783 positive control: a # argjson-ok: marker inside a quoted literal does not exempt (RED)" "1" \
     "$(python3 "$E783_LINT" "$E783_FX" >/dev/null 2>&1; echo $?)"
   rm -f "$E783_FX"
@@ -47768,8 +47770,8 @@ assert_pin_red_under "#783 Step 9 inline-producer files fail loud when empty" \
   '[ -s "$_SUMMARY_TMP/$_op.json" ]' 's/\[ -s "\$_SUMMARY_TMP/[ -e "$_SUMMARY_TMP/' "$E783_SKILL"
 # The guard's population must cover every inline producer: all four operands are named
 # in the loop, so adding a fifth inline producer without extending it is visible here.
-assert_eq "#783 Step 9 empty-file guard covers all four inline-producer operands" "yes" \
-  "$(grep -qF 'for _op in skips intervention_issues cooldown_skipped blockers; do' "$E783_SKILL" && echo yes || echo no)"
+assert_pin_unique "#783 Step 9 empty-file guard covers all four inline-producer operands" \
+  'for _op in skips intervention_issues cooldown_skipped blockers; do' "$E783_SKILL"  # structural-pin-ok: population pin (asserts the guard's operand list, not a code regression the mutation-taking pins above already guard)
 
 # Guard delivers its guarantee (issue #783 review, per-operand-name scoping): the
 # grep-pins above only prove a LITERAL changed under mutation. This block proves the
