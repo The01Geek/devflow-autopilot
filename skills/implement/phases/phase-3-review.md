@@ -95,7 +95,9 @@ fi
 
 **Route the three arms — the REFUSED arm is a terminal stop, not a breadcrumb.** The fence's `echo` is transcript-only, and stderr is not a durable channel: on the cloud tier the workpad is the only record the stall backstop reads, so a REFUSED arm that merely printed would leave the workpad at an interim `🚀 Reviewing` with no `PR` link and let §3.2–§3.4 run with no PR — the wedged state this guard exists to prevent, and the one it would then cause. So:
 
-- **REFUSED** (the fence printed the "could not resolve" line, **or printed nothing at all** — a matcher refusal of the fence answers nothing, exactly as the *draft PR number* exit below treats a silent fence): do **not** continue into the PR-link resolution, the label calls, or §3.2. Record the cause durably and stop — `workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind blocked --reflection "Phase 3.1: could not resolve whether an open PR already exists for this branch (empty branch name, gh pr list failure, or a refused fence); refusing to create a PR that may duplicate a prior attempt's — resolve and re-run"` — then emit the 👎 outcome reaction (see *Outcome reaction* in the Workpad Reference) and end the run at that terminal status.
+- **REFUSED** (the fence printed the "could not resolve" line, **or printed nothing at all** — a matcher refusal of the fence answers nothing, exactly as the *draft PR number* exit below treats a silent fence). **Route this by whether the run is a resume, because the risk is asymmetric and only a resume carries it.** The run already holds that evidence without a further network call: §1.4's resume pre-check outcome (did it adopt an existing branch/PR?) and Phase 1.3's durable `resume-kind:` marker.
+  - **On a resume** (§1.4 adopted a PR or branch, or `resume-kind` is `in-flight`) a prior attempt's PR probably exists, so creating blind risks a duplicate: do **not** continue into the PR-link resolution, the label calls, or §3.2. Record the cause durably and stop — `workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind blocked --reflection "Phase 3.1: could not resolve whether an open PR already exists for this branch (empty branch name, gh pr list failure, or a refused fence) on a RESUME; refusing to create a PR that may duplicate a prior attempt's — resolve and re-run"` — then emit the 👎 outcome reaction (see *Outcome reaction* in the Workpad Reference) and end the run at that terminal status.
+  - **On a fresh run** there is no prior attempt to duplicate, so a transient `gh pr list` failure must **not** end the run: fall through to `gh pr create` — which fails loudly and harmlessly with "a pull request already exists" in the vanishingly rare case the query was wrong — and record the degraded query with `--reflection-kind note`. This asymmetry is deliberate: before this guard existed a fresh run simply created the PR, and gating the common path on a *second* network call succeeding would trade a real duplicate-PR risk that fresh runs do not have for a new Blocked-on-rate-limit failure they would.
 - **Adopt** (a PR number was printed): continue below, treating that number as the run's PR.
 - **Create**: continue below with the freshly-created PR — **unless the create itself failed** (an auth expiry, an API 5xx, a `--base` that no longer resolves, a rate limit). `gh pr create`'s failure goes to stderr, which the REFUSED detector above does not match, so check it explicitly: if no PR was created, take the **same terminal stop as REFUSED** (durable `blocked` reflection naming the failed create, 👎 outcome reaction, end the run) rather than continuing into the PR-link resolution, which would write a broken `[#]()` link and run §3.2–§3.4 with no PR.
 
@@ -109,12 +111,16 @@ Then populate the workpad's `PR` link from the resolved draft PR — **freshly c
 # ADOPT ARM ONLY — <adopted-pr> is the number the guard above printed, substituted
 # as a literal. The positional argument is what makes this read scoped; without it
 # `gh pr view` resolves by branch across OPEN/CLOSED/MERGED (see the guard comment).
-PR_URL=$(gh pr view <adopted-pr> --json url --jq '.url')
-"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --pr-link "[#<adopted-pr>]($PR_URL)"
+PR_URL=$(gh pr view <adopted-pr> --json url --jq '.url') || PR_URL=""
+# Guard the link write on a non-empty URL: writing first and remedying after would
+# already have PATCHed a broken `[#N]()` link that the remedy cannot undo.
+if [ -n "$PR_URL" ]; then
+  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --pr-link "[#<adopted-pr>]($PR_URL)"
+fi
 echo "draft PR number: [<adopted-pr>]"
 ```
 
-An empty `PR_URL` here routes exactly like the create arm's failures below: record it durably (`--reflection-kind dropped-failed`) and apply no label.
+An empty `PR_URL` writes no link (the guard above) and routes exactly like the create arm's failures below: record it durably (`--reflection-kind dropped-failed`) and apply no label. The `draft PR number` line still prints, because the adopted number is known regardless of whether its URL resolved.
 
 **On the CREATE arm**, use the original fence:
 ```bash
