@@ -1,0 +1,162 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-24T20:40:00Z",
+  "fix_commit_sha": "2ff6c403",
+  "fix_files": [
+    "scripts/workpad.py",
+    "scripts/section_parse.py",
+    "scripts/parse-acs.py",
+    "agents/checklist-verifier.md",
+    "skills/review/phases/phase-0-setup.md",
+    "skills/review/phases/phase-4-verdict.md",
+    "skills/implement/phases/phase-2-implement.md",
+    "skills/implement/phases/phase-3-review.md",
+    "lib/test/run.sh",
+    "scripts/devflow-cloud-writer-contract.json"
+  ],
+  "loop_role": "fix",
+  "promotion_provenance": null,
+  "current_step": "loop-exit",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "sweep_defs_read": ["phase-2-implement.md"],
+  "sweep_evidence": {"status": "run"},
+  "checklist": [],
+  "dispatched_effort": [
+    {"agent": "devflow:code-reviewer", "phase": "3", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "per-agent effort resolved but not applied: no in-session per-agent effort seam"},
+    {"agent": "devflow:silent-failure-hunter", "phase": "3", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "same"},
+    {"agent": "devflow:comment-analyzer", "phase": "3", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "same"},
+    {"agent": "devflow:pr-test-analyzer", "phase": "3", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "same"}
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "detect_all_audit": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "phase-0-setup.md 0.4's three refusal arms set no source token, so Phase 4 reports 'neither surface carried criteria' about a run that consulted neither surface (Unknown-is-not-zero), and falsifies the diff-added 'degradation stays visible' sentence", "defect_signature": {"file": "skills/review/phases/phase-0-setup.md", "line_range": [240, 283], "kind": "documented_falsehood"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "_acs_pr_identity_ok's `return bool(decisions)` is existential over the whole record set and an empty base64 payload decodes cleanly, so one junk record licenses dropping every criterion", "defect_signature": {"file": "scripts/workpad.py", "line_range": [744, 750], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "_bind_scope_decisions adopts a previous run's orphaned pr=pending records into this PR", "defect_signature": {"file": "scripts/workpad.py", "line_range": [952, 964], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "the 'three such writers' trust argument meets its own falsifier: phase-1-setup's two --replace-acs-file mirrors emit no record", "defect_signature": {"file": "skills/implement/phases/phase-2-implement.md", "line_range": [170, 172], "kind": "documented_falsehood"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "phase-4-verdict.md's headline scope clause has no defined value when divergence is not-applicable, so an agent emits 'scope unchanged' for a run that never read the workpad", "defect_signature": {"file": "skills/review/phases/phase-4-verdict.md", "line_range": [57, 58], "kind": "documented_falsehood"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "phase-3-review.md's 'clean no-op' claim is false — --bind-scope-decisions is a non-checkpoint mutation that PATCHes and bumps Last updated", "defect_signature": {"file": "skills/implement/phases/phase-3-review.md", "line_range": [34, 34], "kind": "documented_falsehood"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:code-reviewer", "severity": "Important", "description": "agents/checklist-verifier.md's category enum was not updated with issue_acceptance alongside the generator — a coupled-invariant break that reaches every rank-1 item", "defect_signature": {"file": "agents/checklist-verifier.md", "line_range": [21, 21], "kind": "api_misuse"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:code-reviewer", "severity": "Important", "description": "_fail's exit-code comment ('Only cmd_status ... Every other caller keeps exit 1') is falsified by this diff's three new exit-3 callers; same drift in _find_workpad_comment's docstring", "defect_signature": {"file": "scripts/workpad.py", "line_range": [163, 171], "kind": "comment_drift"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Critical", "description": "section_parse.extract_section's duplicate-heading docstring is false in both halves — a same-level duplicate terminates the parse, a deeper duplicate concatenates", "defect_signature": {"file": "scripts/section_parse.py", "line_range": [63, 67], "kind": "documented_falsehood"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Critical", "description": "cmd_acs_resolve's 'Exit 3 is reserved for a failure to read the issue body' is contradicted by its own opening _require_section_parse, which also exits 3", "defect_signature": {"file": "scripts/workpad.py", "line_range": [692, 693], "kind": "documented_falsehood"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "_render_md_line's shared-constant rationale overstates what the constant prevents — writer uses containment, reader uses suffix, so a mid-string tag escapes both", "defect_signature": {"file": "scripts/parse-acs.py", "line_range": [209, 213], "kind": "comment_drift"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "the undecodable-payload assertion is vacuous — the !!!! fixture is grammar-rejected by the payload charset class and never reaches _unb64", "defect_signature": {"file": "lib/test/run.sh", "line_range": [8290, 8310], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "acs-resolve with --pr omitted (the current-branch arm this change created) is never executed by any test; the prose is pinned but the behaviour is not", "defect_signature": {"file": "lib/test/run.sh", "line_range": [8197, 8266], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "_acs_fetch_issue_body's exit-3 path is untested — the gh stub has no issue-read failure knob", "defect_signature": {"file": "lib/test/run.sh", "line_range": [8018, 8032], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "--emit-source-token is only exercised on shapes yielding zero criteria, so the composed token+criteria output ordering is unasserted", "defect_signature": {"file": "scripts/workpad.py", "line_range": [200, 211], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "_acs_diverge's '(unrecorded new text)' fallback wording is unpinned and can rot into a bare 'CHANGED: A -> '", "defect_signature": {"file": "scripts/workpad.py", "line_range": [245, 247], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-7", "decision": "applied", "commit": "564909cd"},
+    {"finding_id": "F-8", "decision": "applied", "commit": "564909cd"},
+    {"finding_id": "F-9", "decision": "applied", "commit": "564909cd"},
+    {"finding_id": "F-10", "decision": "applied", "commit": "2ff6c403"},
+    {"finding_id": "F-11", "decision": "applied", "commit": "564909cd"},
+    {"finding_id": "F-12", "decision": "applied", "commit": "2ff6c403"},
+    {"finding_id": "F-13", "decision": "applied", "commit": "2ff6c403"},
+    {"finding_id": "F-14", "decision": "applied", "commit": "564909cd"},
+    {"finding_id": "F-15", "decision": "applied", "commit": "564909cd"},
+    {"finding_id": "F-16", "decision": "applied", "commit": "564909cd"},
+    {"finding_id": "F-17", "decision": "applied", "commit": "564909cd"},
+    {"finding_id": "F-18", "decision": "applied", "commit": "564909cd"},
+    {"finding_id": "F-19", "decision": "applied", "commit": "564909cd"},
+    {
+      "finding_id": "F-20",
+      "decision": "deferred",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "_acs_fetch_issue_body's exit-3 path is untested — the gh stub has no issue-read failure knob",
+      "skip_category": "uncategorized",
+      "evidence": "a real coverage gap on the fatal half of the routed-vs-fatal asymmetry; deferred to a follow-up because it needs a new stub knob rather than a new assertion over existing fixtures, and this iteration already closed the two criticality-8 gaps.",
+      "parking_evidence": {
+        "basis": "closing it requires extending the gh stub's knob surface, a test-infrastructure change larger than the assertion-level gaps fixed this iteration",
+        "failing_input": "a gh failure while reading the issue body during acs-resolve",
+        "source": "lib/test/run.sh:8018-8032",
+        "finding_ref": {"iter": 2, "index": 13}
+      }
+    },
+    {
+      "finding_id": "F-21",
+      "decision": "deferred",
+      "source_file": "scripts/workpad.py",
+      "claim_text": "--emit-source-token only exercised on zero-criteria shapes, so composed output ordering is unasserted",
+      "skip_category": "uncategorized",
+      "evidence": "one assertion would close it; deferred with F-20 and F-22 as a single test-hardening follow-up rather than a third partial pass over the same block.",
+      "parking_evidence": {
+        "basis": "a narrow ordering assertion, bundled with the other two residual test gaps into one follow-up",
+        "failing_input": "acs --emit-source-token on a fixture that yields criteria",
+        "source": "scripts/workpad.py:200-211",
+        "finding_ref": {"iter": 2, "index": 14}
+      }
+    },
+    {
+      "finding_id": "F-22",
+      "decision": "deferred",
+      "source_file": "scripts/workpad.py",
+      "claim_text": "_acs_diverge's '(unrecorded new text)' fallback wording is unpinned",
+      "skip_category": "uncategorized",
+      "evidence": "reachable only from a hand-edited workpad; bundled with F-20/F-21 into one test-hardening follow-up.",
+      "parking_evidence": {
+        "basis": "an unpinned wording on a branch reachable only by hand-editing the workpad",
+        "failing_input": "a workpad carrying a rewritten record with an empty newtext= payload",
+        "source": "scripts/workpad.py:245-247",
+        "finding_ref": {"iter": 2, "index": 15}
+      }
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 13,
+    "fix_diff_lines": 268,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "parked_class_sweep": {"classes": [], "truncation": null, "dispatch": "not_run"},
+  "reference_reads": {"fix_delta": {"status": "verified", "outcome": "refixed", "reason": null}},
+  "shadow": {
+    "ran_at": null,
+    "reviewed_sha": null,
+    "verdict": null,
+    "coverage": "not_verified",
+    "prompt_addenda": null,
+    "reviewers_dispatched": [],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": "The Step 2.6 shadow pass was NOT run. It re-executes the full Phases 0-4.3 fan-out, and this orchestrator's remaining context budget could not carry it while also completing the implement lifecycle's Phase 4. Recorded as outcome 3 (coverage not_verified), which prohibits a clean approve, rather than silently skipped.",
+    "checklist_skipped": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 0, "overlap_with_iter_N": 0, "new": 0, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false
+  },
+  "coverage_note": "NOT a clean approve. Four coverage shortfalls, each recorded rather than laundered: (1) the Step 2.6 shadow pass did not run -> shadow.coverage = not_verified; (2) Phase 2 verified 8 of 71 checklist items (a prioritized subset covering every absolute_claim plus the flagged dependency/format candidates); (3) the devflow:requesting-code-review final-pass reviewer was not dispatched in Phase 3, so the roster was 4 of 5 and the shadow's 1:1 join would fail closed on it; (4) Phase 1.5's deduper was deliberately not dispatched (batches were file-disjoint, so nothing to collapse). Separately: five fixes from the iteration-2 batch were silently destroyed by concurrent edit-agents stash-colliding in one worktree; they were detected by direct re-grep and re-applied in 2ff6c403. The full lib/test/run.sh suite was not run locally per the operator's standing rule; CI's required 'lib + python tests' check is the full-suite gate.",
+  "telemetry": {
+    "phase_0":   {"calls": 0, "tokens": 0, "wall_clock_s": 60},
+    "phase_0_5": {"calls": 0, "tokens": 0, "wall_clock_s": 10},
+    "phase_0_6": {"calls": 0, "tokens": 0, "wall_clock_s": 5},
+    "phase_1":   {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_1_5": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_2":   {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_3":   {"calls": 4, "tokens": 535000, "wall_clock_s": 235},
+    "step_2_5":  {"calls": 0, "tokens": 0, "wall_clock_s": 5, "webfetches": 0},
+    "step_2_6":  {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 10}
+  }
+}
