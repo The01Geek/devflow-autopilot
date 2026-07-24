@@ -7321,7 +7321,7 @@ assert_pin_red_under "#755: §3.1 existing-PR guard queries OPEN-scoped (gh pr l
 # mutation inlines the branch read back into the query, re-introducing exactly that.
 assert_pin_red_under "#755: §3.1 reads the branch in its own statement and treats an empty read as REFUSED (never an unfiltered repo-wide query)" \
   'HEAD_BRANCH=$(git branch --show-current) || HEAD_BRANCH=""' \
-  's|HEAD_BRANCH=\$\(git branch --show-current\) \|\| HEAD_BRANCH=""|:|' "$IMPL_PHASES_DIR/phase-3-review.md"
+  's@HEAD_BRANCH=\$\(git branch --show-current\)@HEAD_BRANCH=$(true)@' "$IMPL_PHASES_DIR/phase-3-review.md"
 
 # ── Issue #493: Phase 1.4 §1.4 PR-body run-link refresh (cloud resume) ──
 # On a resumed cloud run that reaches §1.4 and finds an existing open PR, the
