@@ -7409,7 +7409,7 @@ assert_pin_unique "#779: the checkpoint helper fetches the base with the same fo
 # validated.
 assert_pin_red_under "#779: a CONFLICT at the Phase 1 checkpoint routes to Blocked on every arm (override deleted → RED)" \
   'routes to `Blocked` as needs-human-reconciliation on every arm' \
-  '/routes to `Blocked` as needs-human-reconciliation on every arm/d' \
+  's#routes to `Blocked` as needs-human-reconciliation on every arm#follows §1.4.1'"'"'s resolve-then-suite-then-commit contract on every arm#' \
   "$P1_FILE"
 # The reason the fallback was taken is recorded in the shipped prose (AC5 makes selecting the
 # discriminator part of the deliverable), keyed on the append-only workpad property that makes a
@@ -7448,8 +7448,8 @@ assert_pin_red_under "#779: a CONFLICT at checkpoint 4 resolves and re-invokes r
 # alike, so a green run carries evidence of the comparison's result. §1.4.1's no-traffic rule
 # for checkpoints 1-3 is unchanged, which is why this had to be a checkpoint-4-specific addition.
 assert_pin_red_under "#779: checkpoint 4 records the observed token before publishing on every clean token" \
-  'clean, proceeding to the publish decision' \
-  '/clean, proceeding to the publish decision/d' \
+  'record a `--note` naming the observed token **before** publishing, on all three alike' \
+  's#, on all three alike#, on `UPDATED` only#' \
   "$P4_FILE"
 # The ORDERING clause is separately operative: without it the note can assert the run is
 # proceeding to publish on an UPDATED run the post-merge suite then routes to Blocked — a
@@ -7469,7 +7469,7 @@ assert_pin_red_under "#779: the no-token discriminator is stated observably (no 
 # with no escape, since the off-switch yields DISABLED only when the helper actually runs.
 assert_pin_red_under "#779: a tier-refused checkpoint-4 invocation records a degraded reflection and publishes" \
   'It does **not** route to `Blocked`: converting a permission boundary into a run-ending stop' \
-  '/It does \*\*not\*\* route to `Blocked`: converting a permission boundary/d' \
+  's#It does \*\*not\*\* route to `Blocked`#It routes to `Blocked`#' \
   "$P4_FILE"
 # The clean/non-clean partition is complete by construction against the helper's own header.
 assert_pin_unique "#779: checkpoint 4 names the clean set exactly" \
