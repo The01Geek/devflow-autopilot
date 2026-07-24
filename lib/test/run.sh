@@ -47941,6 +47941,213 @@ else
   printf '  FAIL  #720 test_python_scripts.py: could not capture its summary line to verify RESULTS_FILE contribution\n' >&2
 fi
 
+# ────────────────────────────────────────────────────────────────────────────
+# #783 argjson->slurpfile transport guard for the corpus-aggregating retrospective
+# helpers. A corpus-sized operand passed to jq via --argjson (an argv slot)
+# overflows the kernel arg limit at scale (jq: "Argument list too long"); the fix
+# routes such operands through --slurpfile (a file read). This block runs the
+# lint-argjson-transport.py scan over the real helpers (the live gate), proves the
+# scan catches the regression on synthetic + planted-defect fixtures (positive
+# control), pins each shipped --slurpfile conversion via assert_pin_red_under (a
+# mutation restoring --argjson turns the pin RED), and reproduces the E2BIG abort
+# vs the --slurpfile success on an oversized operand.
+echo "#783 argjson-transport guard: corpus-sized retrospective jq operands use --slurpfile, not --argjson"
+E783_LINT="$LIB/test/lint-argjson-transport.py"
+assert_eq "#783 lint helper exists" "yes" "$([ -f "$E783_LINT" ] && echo yes || echo no)"
+
+# Live gate: the three shipped aggregating helpers carry no unmarked --argjson.
+E783_OUT="$(python3 "$E783_LINT" 2>&1)"; E783_RC=$?
+assert_eq "#783 the three real aggregating helpers audit clean (no unmarked --argjson)" "rc=0" \
+  "$([ "$E783_RC" -eq 0 ] && printf 'rc=0' || printf 'rc=%s | %s' "$E783_RC" "$E783_OUT")"
+assert_eq "#783 the real-file run audited exactly the 3 in-scope files" "yes" \
+  "$(printf '%s' "$E783_OUT" | python3 -c 'import re,sys
+m=re.search(r"audited (\d+) of", sys.stdin.read()); print("yes" if m and int(m.group(1))==3 else "no")')"
+
+# Positive control: the lint MUST report RED on an unmarked --argjson (the E2BIG
+# regression) and GREEN on the marked / converted / block-marked / prose-mention
+# shapes — proving it fires on the defect it targets, not merely on its own line.
+E783_FX="$(probe_tmp '#783 argjson lint fixture')"
+if [ -n "$E783_FX" ] && [ "$E783_FX" != /dev/null ]; then
+  printf '%s\n' 'jq -n --argjson big "$BIG" ".x"' > "$E783_FX"
+  assert_eq "#783 positive control: an unmarked --argjson is RED" "1" \
+    "$(python3 "$E783_LINT" "$E783_FX" >/dev/null 2>&1; echo $?)"
+  printf '%s\n' 'jq -n --argjson n "$N" ".x"  # argjson-ok: n -- a scalar' > "$E783_FX"
+  assert_eq "#783 positive control: a marked scalar --argjson is GREEN" "0" \
+    "$(python3 "$E783_LINT" "$E783_FX" >/dev/null 2>&1; echo $?)"
+  # Delimiter grammar (issue #783 review, Important-2): only the pre-`--` segment
+  # declares names, so no rationale wording can widen the declared set — the hazard
+  # that left scan.sh's single-letter corpus operand `a` masked by prose containing a
+  # standalone "a". (c) a rationale naming another operand does NOT exempt it → RED.
+  printf '%s\n' 'jq -n --argjson n "$N" --argjson a "$A" ".x"  # argjson-ok: n -- a bounded scalar' > "$E783_FX"
+  assert_eq "#783 positive control: an operand named only in the marker's rationale is not declared (RED)" "1" \
+    "$(python3 "$E783_LINT" "$E783_FX" >/dev/null 2>&1; echo $?)"
+  # (d) a marker with no `--` delimiter is malformed and exempts nothing → RED.
+  printf '%s\n' 'jq -n --argjson n "$N" ".x"  # argjson-ok: n is a scalar' > "$E783_FX"
+  assert_eq "#783 positive control: a marker missing the '--' delimiter is malformed (RED)" "1" \
+    "$(python3 "$E783_LINT" "$E783_FX" >/dev/null 2>&1; echo $?)"
+  printf '%s\n' 'jq -n --slurpfile big "$f" "$big[0]"' > "$E783_FX"
+  assert_eq "#783 positive control: a --slurpfile line is GREEN" "0" \
+    "$(python3 "$E783_LINT" "$E783_FX" >/dev/null 2>&1; echo $?)"
+  printf '%s\n' '# argjson-ok: v -- a scalar' 'jq -n --argjson v "$V" \' '  ".x"' > "$E783_FX"
+  assert_eq "#783 positive control: a block marker above a continuation covers it (GREEN)" "0" \
+    "$(python3 "$E783_LINT" "$E783_FX" >/dev/null 2>&1; echo $?)"
+  printf '%s\n' '# a comment that merely mentions --argjson is not a flag' 'echo hi' > "$E783_FX"
+  assert_eq "#783 positive control: --argjson in comment prose is not flagged (GREEN)" "0" \
+    "$(python3 "$E783_LINT" "$E783_FX" >/dev/null 2>&1; echo $?)"
+  # Quote-awareness (pins the reused lint-tree-enumeration.py split — a naive first-`#`
+  # split would regress both these to GREEN, silently reopening the E2BIG hole):
+  # (a) a `#` inside a quoted literal must NOT truncate the code half — the real unmarked
+  #     --argjson after it stays visible → RED.
+  printf '%s\n' 'jq -n --arg note "count # of prs" --argjson big "$BIG" ".x"' > "$E783_FX"
+  assert_eq "#783 positive control: a quoted # before an unmarked --argjson is still RED" "1" \
+    "$(python3 "$E783_LINT" "$E783_FX" >/dev/null 2>&1; echo $?)"
+  # (b) a `# argjson-ok:` marker sitting inside a quoted literal (not a real comment) must
+  #     NOT exempt the unmarked --argjson on that line → RED.
+  # (the marker inside the literal is WELL-FORMED and declares `big`, so a regression in
+  # the quote-aware split would flip this to GREEN — the assertion is attributable.)
+  printf '%s\n' 'jq -n --argjson big "$BIG" --arg s "# argjson-ok: big -- fake" ".x"' > "$E783_FX"
+  assert_eq "#783 positive control: a # argjson-ok: marker inside a quoted literal does not exempt (RED)" "1" \
+    "$(python3 "$E783_LINT" "$E783_FX" >/dev/null 2>&1; echo $?)"
+  rm -f "$E783_FX"
+fi
+
+# Planted-defect control (AC8): stripping an existing scalar's marker from a real
+# shipped helper makes the lint RED — the guard is coupled to the real files.
+E783_STRIP="$(probe_tmp '#783 marker-strip copy')"
+if [ -n "$E783_STRIP" ] && [ "$E783_STRIP" != /dev/null ]; then
+  sed -E 's/  # argjson-ok: cap -- scalar int//' "$LIB/scan.sh" > "$E783_STRIP"
+  assert_eq "#783 planted-defect: stripping a scalar's marker from scan.sh makes the lint RED" "1" \
+    "$(python3 "$E783_LINT" "$E783_STRIP" >/dev/null 2>&1; echo $?)"
+  rm -f "$E783_STRIP"
+fi
+
+# Behavioral-fix pins (AC7): each shipped --slurpfile conversion of a corpus-sized
+# operand is pinned so a mutation restoring the --argjson form turns the pin RED —
+# proving the pin guards the E2BIG regression, not merely its own line vanishing.
+assert_pin_red_under "#783 actionable-patterns.sh pattern_view routed via --slurpfile" \
+  '--slurpfile pattern_view' 's/--slurpfile pattern_view/--argjson pattern_view/' "$LIB/actionable-patterns.sh"
+assert_pin_red_under "#783 scan.sh EXISTING set routed via --slurpfile" \
+  '--slurpfile e "' 's/--slurpfile e "/--argjson e "/' "$LIB/scan.sh"
+assert_pin_red_under "#783 SKILL.md Step 9 patterns routed via --slurpfile" \
+  '--slurpfile patterns ' 's/--slurpfile patterns /--argjson patterns /' "$LIB/../skills/retrospective-weekly/SKILL.md"
+
+# Fail-loud-on-empty pins (issue #783 review, Important-1 + Suggestion-1). --argjson
+# aborted loud on an empty operand; --slurpfile silently yields []→[0]=null. Step 9
+# restores the loud abort two ways — `${VAR:?}` for the three variable-carried producer
+# outputs, and a `[ -s ]` file check for the four inline producers whose output never
+# passes through a variable. Each is pinned under a mutation that drops exactly the
+# fail-loud element (`:?`→`:-`, `-s`→`-e`), so a future edit reopening the silent-null
+# regression turns these RED rather than shipping with the suite green.
+E783_SKILL="$LIB/../skills/retrospective-weekly/SKILL.md"
+assert_pin_red_under "#783 Step 9 ANALYZED_JSON fails loud when empty" \
+  '"${ANALYZED_JSON:?' 's/ANALYZED_JSON:\?/ANALYZED_JSON:-/' "$E783_SKILL"
+assert_pin_red_under "#783 Step 9 PATTERNS_JSON fails loud when empty" \
+  '"${PATTERNS_JSON:?' 's/PATTERNS_JSON:\?/PATTERNS_JSON:-/' "$E783_SKILL"
+assert_pin_red_under "#783 Step 9 RECURRING_TARGETS_JSON fails loud when empty" \
+  '"${RECURRING_TARGETS_JSON:?' 's/RECURRING_TARGETS_JSON:\?/RECURRING_TARGETS_JSON:-/' "$E783_SKILL"
+assert_pin_red_under "#783 Step 9 inline-producer files fail loud when empty" \
+  '[ -s "$_SUMMARY_TMP/$_op.json" ]' 's/\[ -s "\$_SUMMARY_TMP/[ -e "$_SUMMARY_TMP/' "$E783_SKILL"
+# The guard's population must cover every inline producer: all four operands are named
+# in the loop, so adding a fifth inline producer without extending it is visible here.
+assert_pin_unique "#783 Step 9 empty-file guard covers all four inline-producer operands" \
+  'for _op in skips intervention_issues cooldown_skipped blockers; do' "$E783_SKILL"  # structural-pin-ok: population pin (asserts the guard's operand list, not a code regression the mutation-taking pins above already guard)
+
+# Guard delivers its guarantee (issue #783 review, per-operand-name scoping): the
+# grep-pins above only prove a LITERAL changed under mutation. This block proves the
+# LINT ITSELF turns RED when a corpus operand is reverted from --slurpfile to --argjson
+# on a jq invocation that ALSO carries marked scalars — the block-marker must NOT exempt
+# the whole logical line (the vacuous-guard hole the review found: min/cooldown_epoch's
+# marker was masking a reverted --argjson pattern_view). Each reverts one real corpus
+# operand in a copy of the shipped file and asserts the lint reports RED.
+E783_REV="$(probe_tmp '#783 corpus-revert copy')"
+if [ -n "$E783_REV" ] && [ "$E783_REV" != /dev/null ]; then
+  sed 's/--slurpfile pattern_view/--argjson pattern_view/' "$LIB/actionable-patterns.sh" > "$E783_REV"
+  assert_eq "#783 lint catches a corpus operand (pattern_view) reverted beside marked scalars (RED)" "1" \
+    "$(python3 "$E783_LINT" "$E783_REV" >/dev/null 2>&1; echo $?)"
+  sed 's/--slurpfile a /--argjson a /' "$LIB/scan.sh" > "$E783_REV"
+  assert_eq "#783 lint catches scan.sh _add_candidates 'a' reverted beside marked scalar 'b' (RED)" "1" \
+    "$(python3 "$E783_LINT" "$E783_REV" >/dev/null 2>&1; echo $?)"
+  sed 's/--slurpfile analyzed /--argjson analyzed /' "$LIB/../skills/retrospective-weekly/SKILL.md" > "$E783_REV"
+  assert_eq "#783 lint catches SKILL.md Step 9 'analyzed' reverted beside the marked scalars (RED)" "1" \
+    "$(python3 "$E783_LINT" "$E783_REV" >/dev/null 2>&1; echo $?)"
+  rm -f "$E783_REV"
+fi
+
+# Temp-cleanup on the jq-abort path (issue #783 review, Suggestion-2). The two
+# --slurpfile conversions in scan.sh write a temp file and rely on a localized
+# `|| { rm -f …; return/exit 1; }` to clean it when jq aborts, because `set -e` would
+# otherwise skip the trailing `rm -f` and orphan the temp in $TMPDIR. Both branches were
+# unexercised. Drive the real scan.sh against a stub jq that fails ONLY the invocation
+# under test, with $TMPDIR pointed at an empty dir, and assert the run aborts AND leaves
+# that dir empty. Each carries a positive control on the same fixture (the identical run
+# under real jq exits 0), so an unrelated precondition failing the fixture cannot
+# masquerade as the abort under test.
+E783_AB="$(mktemp -d 2>/dev/null || true)"
+if [ -n "$E783_AB" ] && [ -d "$E783_AB" ]; then
+  cat > "$E783_AB/gh" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"pr list"*"author:claude"*)
+    echo '[{"number":1,"headRefName":"claude/issue-1-a","author":{"login":"claude"},"mergedAt":"2026-05-01T00:00:00Z"},
+           {"number":3,"headRefName":"claude/issue-3-c","author":{"login":"claude"},"mergedAt":"2026-05-03T00:00:00Z"}]' ;;
+  *"pr list"*) echo '[]' ;;
+  *"api"*"retrospectives.jsonl?ref=main"*)
+    BODY="$(printf '{"pr":1}\n' | base64 | tr -d "\n")"
+    printf 'HTTP/2.0 200 OK\r\n\r\n{"content":"%s"}\n' "$BODY" ;;
+  *) echo '[]' ;;
+esac
+STUB
+  chmod +x "$E783_AB/gh"
+  for _e783_op in a e; do
+    # Stub jq: abort (rc 5) only on the --slurpfile invocation whose cleanup branch is
+    # under test; delegate every other call to the real jq so the fixture stays valid.
+    printf '%s\n' '#!/usr/bin/env bash' \
+      "case \"\$*\" in *\"--slurpfile ${_e783_op} \"*) exit 5 ;; esac" \
+      'exec jq "$@"' > "$E783_AB/jq-fail"
+    chmod +x "$E783_AB/jq-fail"
+    rm -rf "$E783_AB/t"; mkdir -p "$E783_AB/t"
+    TMPDIR="$E783_AB/t" DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json" \
+      DEVFLOW_GH="$E783_AB/gh" DEVFLOW_JQ="$E783_AB/jq-fail" \
+      bash "$LIB/scan.sh" >/dev/null 2>&1
+    E783_AB_RC=$?
+    assert_eq "#783 scan.sh aborts when the --slurpfile $_e783_op jq fails" "nonzero" \
+      "$([ "$E783_AB_RC" -ne 0 ] && echo nonzero || echo zero)"
+    # The cleanup branch is what this pins: no temp survives the abort.
+    E783_AB_LEFT=0
+    for _f in "$E783_AB/t"/*; do [ -e "$_f" ] && E783_AB_LEFT=$((E783_AB_LEFT + 1)); done
+    assert_eq "#783 scan.sh leaves no orphan temp when the --slurpfile $_e783_op jq aborts" "0" \
+      "$E783_AB_LEFT"
+    # Positive control on the same fixture: under real jq the identical run succeeds, so
+    # the abort above is attributable to the stubbed jq failure, not a broken fixture.
+    rm -rf "$E783_AB/t"; mkdir -p "$E783_AB/t"
+    TMPDIR="$E783_AB/t" DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json" \
+      DEVFLOW_GH="$E783_AB/gh" bash "$LIB/scan.sh" >/dev/null 2>&1
+    assert_eq "#783 positive control: the same scan.sh fixture succeeds under real jq ($_e783_op)" "0" "$?"
+  done
+  rm -rf "$E783_AB"
+fi
+
+# Reproduction (bug-fix first-fail): an oversized operand aborts jq via --argjson
+# (the defect) and completes via --slurpfile (the fix) — same program, same input.
+# ~3 MB exceeds both Linux MAX_ARG_STRLEN (128 KB/arg) and macOS ARG_MAX (~1 MB).
+# NOTE (load-bearing environmental precondition): the "aborts via --argjson" assertion
+# below relies on that arg-limit ceiling. It holds across the CI + local matrix (Linux
+# 128 KB/arg is a hard per-arg cap; default macOS ARG_MAX ~1 MB), but a host with an
+# unusually large arg limit would let the oversized --argjson through and flip that
+# assertion to a spurious FAIL — an environmental artifact, not a real regression.
+E783_BIGF="$(probe_tmp '#783 oversized operand')"
+if [ -n "$E783_BIGF" ] && [ "$E783_BIGF" != /dev/null ]; then
+  python3 -c 'import json,sys; json.dump({"k%d"%i:"x"*40 for i in range(60000)}, open(sys.argv[1],"w"))' "$E783_BIGF"
+  E783_BIG="$(cat "$E783_BIGF")"
+  assert_eq "#783 reproduction: an oversized operand via --argjson aborts jq (the defect)" "nonzero" \
+    "$(jq -n --argjson v "$E783_BIG" '$v | length' >/dev/null 2>&1 && echo zero || echo nonzero)"
+  assert_eq "#783 reproduction: the same oversized operand via --slurpfile completes (the fix)" "zero" \
+    "$(jq -n --slurpfile v "$E783_BIGF" '$v[0] | length' >/dev/null 2>&1 && echo zero || echo nonzero)"
+  rm -f "$E783_BIGF"
+fi
+# ────────────────────────────────────────────────────────────────────────────
+
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
 # SKIP tally (issue #456): derived with `grep -c` over SKIPS_FILE, the same mechanism as
