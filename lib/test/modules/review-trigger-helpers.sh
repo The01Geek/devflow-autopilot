@@ -805,8 +805,12 @@ assert_eq "#353 existence idiom fails closed on a missing workflow file" "no" \
 # permanently-stuck signal (the #351 collapse now auto-resolves the superseded
 # cancelled-sibling case), so the phrase must be GONE (expected no). The
 # existence pin above closes the vacuous-pass hole (file present is proven).
+# This guard's grep targets devflow-review.yml, which carries no _SKILL/SKILL_/SKILL.md
+# token, so the #157 AC2 raw-guard scanner never matches this line — it needs no
+# `# raw-guard-ok:` marker. A former one here exempted nothing and read as coverage it did
+# not provide, so it was dropped (issue #758).
 assert_eq "#353 deferral SUMMARY no longer cites 'cancelled sibling run'" "no" \
-  "$(grep -qF 'cancelled sibling run' "$LIB/../.github/workflows/devflow-review.yml" && echo yes || echo no)"  # raw-guard-ok: absence pin: asserts the removed phrase is GONE (expected no)
+  "$(grep -qF 'cancelled sibling run' "$LIB/../.github/workflows/devflow-review.yml" && echo yes || echo no)"
 rm -f "$DRP_STUB"
 
 # ────────────────────────────────────────────────────────────────────────────
