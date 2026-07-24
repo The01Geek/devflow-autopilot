@@ -34153,45 +34153,40 @@ for _mod in "$LIB"/test/modules/*.sh; do
   assert_eq "#591 pin-corpus lint clean over module $(basename "$_mod")" "rc=0|" "rc=$_MOD_LINT_RC|$_MOD_LINT_OUT"
   _MOD_LINT_STRICT_OUT="$(python3 "$PCL" lint "$_mod" --lib "$LIB" "${_mod_vars[@]}" --strict 2>/dev/null)"; _MOD_LINT_STRICT_RC=$?
   assert_eq "#687 pin-corpus lint --strict exits 0 over clean module $(basename "$_mod")" "rc=0|" "rc=$_MOD_LINT_STRICT_RC|$_MOD_LINT_STRICT_OUT"
-  _MOD_WRAP_OUT="$(python3 "$PCL" wrapped "$_mod" --lib "$LIB" "${_mod_vars[@]}" 2>/dev/null)"; _MOD_WRAP_RC=$?
+  # The plain wrapped run's STDERR carries the RESOLVED-COUNT tally the #757 resolution
+  # floor below reads, so capture it to a temp rather than discarding it — one wrapped
+  # invocation serves both the clean-scan assertion and the floor (no second glob, no
+  # second subprocess).
+  _MOD_WRAP_ERR="$(mktemp)"
+  _MOD_WRAP_OUT="$(python3 "$PCL" wrapped "$_mod" --lib "$LIB" "${_mod_vars[@]}" 2>"$_MOD_WRAP_ERR")"; _MOD_WRAP_RC=$?
   assert_eq "#591 pin-corpus wrapped clean over module $(basename "$_mod")" "rc=0|" "rc=$_MOD_WRAP_RC|$_MOD_WRAP_OUT"
   _MOD_WRAP_STRICT_OUT="$(python3 "$PCL" wrapped "$_mod" --lib "$LIB" "${_mod_vars[@]}" --strict 2>/dev/null)"; _MOD_WRAP_STRICT_RC=$?
   assert_eq "#687 pin-corpus wrapped --strict exits 0 over clean module $(basename "$_mod")" "rc=0|" "rc=$_MOD_WRAP_STRICT_RC|$_MOD_WRAP_STRICT_OUT"
-done
-# Resolution floor (issue #757 — glob-derived, self-extending, equality). The meta-guards
-# only actually CHECK a pin whose target file resolves; an UNRESOLVED pin is surfaced on
-# stderr but never asserted, so a resolution regression (a dropped --var binding, a
-# $CI_ROOT/REPO_ROOT spelling the resolver cannot follow) would leave pins silently exempt
-# while the lint/wrapped assertions above still read rc=0 over a corpus in which nothing was
-# checked. This floor turns that RED. It supersedes the former hand-listed create-issue
-# (`>=150`) and tranche (#591/#746) floors: it GLOBS every module, derives the EXPECTED
-# resolved count as (its own devflow_module_pin_* call sites MINUS the pins it declares
-# genuinely unresolvable with a trailing `# runtime-pin-ok:` marker — runtime scratch-root
-# temps, loop-bound targets, function-positional literals), and asserts EQUALITY. Nothing
-# is transcribed, so adding or removing a pin moves the comparand with it and no
-# hand-maintained list or count can rot; a new pin-carrying module is covered the moment it
-# lands on disk. A module with zero pins contributes no floor (0 == 0 asserts nothing) and
-# is skipped. The per-module --var case mirrors the pin-lint loop above (create-issue and
-# review-stall-backstop need bindings; the others resolve against --lib alone).
-for _fmod in "$LIB"/test/modules/*.sh; do
-  _F_PINS="$(grep -cE '^[[:space:]]*devflow_module_pin_' "$_fmod")"
-  [ "$_F_PINS" -gt 0 ] || continue
-  case "$_fmod" in
-    */create-issue-contract.sh) _fmod_vars=( "${CI_MOD_VARS[@]}" ) ;;
-    */review-stall-backstop.sh) _fmod_vars=( "${RSB_MOD_VARS[@]}" ) ;;
-    *) _fmod_vars=() ;;
-  esac
-  # Declared-unresolvable pins: a `runtime-pin-ok:` marker on a NON-comment line (the pin's
-  # target/continuation line — never a wholly-comment line, so a header mentioning the
-  # convention is not miscounted). Each such pin is subtracted from the expected count.
-  _F_RUNTIME="$(grep -E 'runtime-pin-ok:' "$_fmod" | grep -cvE '^[[:space:]]*#')"
-  _F_EXPECTED=$(( _F_PINS - _F_RUNTIME ))
-  _F_ERR="$(mktemp)"
-  python3 "$PCL" wrapped "$_fmod" --lib "$LIB" "${_fmod_vars[@]}" >/dev/null 2>"$_F_ERR" || true
-  _F_RESOLVED="$(grep '^RESOLVED-COUNT' "$_F_ERR" 2>/dev/null | tail -1)"; _F_RESOLVED="${_F_RESOLVED##*$'\t'}"
-  assert_eq "#757 pin-corpus: every resolvable $(basename "$_fmod") pin target resolves for the wrapped meta-guard (call sites $_F_PINS − runtime-declared $_F_RUNTIME)" \
-    "$_F_EXPECTED" "$_F_RESOLVED"
-  rm -f "$_F_ERR"
+  # Resolution floor (issue #757 — glob-derived, self-extending, equality), folded into this
+  # same per-module loop. The meta-guards only actually CHECK a pin whose target file
+  # resolves; an UNRESOLVED pin is surfaced on stderr but never asserted, so a resolution
+  # regression (a dropped --var binding, a $CI_ROOT/REPO_ROOT spelling the resolver cannot
+  # follow) would leave pins silently exempt while the wrapped assertion above still reads
+  # rc=0 over a corpus in which nothing was checked. This floor turns that RED. It supersedes
+  # the former hand-listed create-issue (`>=150`) and tranche (#591/#746) floors: it derives
+  # the EXPECTED resolved count as (the module's own devflow_module_pin_* call sites MINUS the
+  # pins it declares genuinely unresolvable with a trailing `# runtime-pin-ok:` marker —
+  # runtime scratch-root temps, loop-bound targets, function-positional literals) and asserts
+  # EQUALITY against the RESOLVED-COUNT the wrapped run above emitted. Nothing is transcribed,
+  # so adding or removing a pin moves the comparand with it and no hand-maintained list or
+  # count can rot; a new pin-carrying module is covered the moment it lands on disk. A module
+  # with zero pins contributes no floor (0 == 0 asserts nothing) and is skipped.
+  _F_PINS="$(grep -cE '^[[:space:]]*devflow_module_pin_' "$_mod")"
+  if [ "$_F_PINS" -gt 0 ]; then
+    # Declared-unresolvable pins: a `runtime-pin-ok:` marker on a NON-comment line (the pin's
+    # target/continuation line — never a wholly-comment line, so a header mentioning the
+    # convention is not miscounted). Each such pin is subtracted from the expected count.
+    _F_RUNTIME="$(grep -E 'runtime-pin-ok:' "$_mod" | grep -cvE '^[[:space:]]*#')"
+    _F_RESOLVED="$(grep '^RESOLVED-COUNT' "$_MOD_WRAP_ERR" 2>/dev/null | tail -1)"; _F_RESOLVED="${_F_RESOLVED##*$'\t'}"
+    assert_eq "#757 pin-corpus: every resolvable $(basename "$_mod") pin target resolves for the wrapped meta-guard (call sites $_F_PINS − runtime-declared $_F_RUNTIME)" \
+      "$(( _F_PINS - _F_RUNTIME ))" "$_F_RESOLVED"
+  fi
+  rm -f "$_MOD_WRAP_ERR"
 done
 
 # T-pinlint: a MODULE-file pin source carrying an off-line (wrapped) devflow_module_pin_*

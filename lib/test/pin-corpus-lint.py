@@ -276,14 +276,12 @@ def _resolve_path_rhs(rhs, lib, path_vars):
     m = _VARREF.match(r)
     if m:
         return path_vars.get(m.group(1))
-    # `$LIB/relative...` or `${LIB}/...`
-    m = re.match(r"^\$\{?LIB\}?/(.*)$", r)
-    if m and lib is not None:
-        return os.path.normpath(os.path.join(lib, m.group(1)))
-    # `$OTHER/relative...`
-    m = re.match(r"^\$\{?(\w+)\}?/(.*)$", r)
-    if m and m.group(1) in path_vars:
-        return os.path.normpath(os.path.join(path_vars[m.group(1)], m.group(2)))
+    # `$LIB/rel` / `${LIB}/rel` / `$OTHER/rel` — the shared inline var-prefixed
+    # path grammar, so this and resolve_arg's inline target resolution stay one
+    # owner (issue #757).
+    inline = _resolve_inline_var_path(r, lib, path_vars)
+    if inline is not None:
+        return inline
     # A bare literal path (no `$`).
     if "$" not in r and "(" not in r and r:
         # Only treat as a path if it looks like one (has a slash or extension).
