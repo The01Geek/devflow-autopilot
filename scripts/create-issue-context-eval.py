@@ -30,8 +30,11 @@ Two redundant-addition metrics:
     returning content byte-identical to ANY content already seen for that path (a
     re-fetch of already-resident bytes). A repeated Read whose content is new for the
     path fetches new bytes (authoritative) and is NOT counted. FAIL CLOSED:
-    when a Read's `tool_result` content is absent or truncated for a record, that
-    occurrence is counted as authoritative, never folded into the redundant count.
+    when a Read's `tool_result` content is absent, truncated, or errored for a record
+    (the recognized non-authoritative markers — the exact transcript truncation shape
+    is not authoritatively established, so unrecognized encodings are an accepted
+    residual), that occurrence is counted as authoritative, never folded into the
+    redundant count.
 
   * re-emission: a large (>= LARGE_BLOCK_MIN_CHARS) assistant text block whose exact
     bytes were already produced earlier in the run (as assistant output or as a
@@ -102,11 +105,23 @@ def _usage_field(usage, key):
 
 def _tool_result_text(block):
     """Extract the resident string a tool_result carries, or None when it is
-    absent / truncated / not fully resident (fail-closed comparand)."""
+    absent / truncated / errored / not fully resident (fail-closed comparand).
+
+    The redundant-repeated-Read metric must fail CLOSED — an occurrence we are not
+    certain carries fully-resident, authoritative bytes is treated as authoritative
+    (returns None, counted as a fresh read), never folded into the redundant count.
+    We recognize the documented non-authoritative markers `truncated: true` and
+    `is_error: true`; the exact shape a Claude Code transcript uses to flag a
+    truncated Read result is NOT authoritatively established here, so any OTHER
+    truncation encoding is an accepted residual (documented, not silently assumed).
+    Because an unrecognized-but-truncated result that happened to repeat byte-for-byte
+    could inflate the redundant count, we keep this recognized-marker set conservative
+    and additive: a new confirmed marker is added here, never removed.
+    """
     if not isinstance(block, dict):
         return None
-    # An explicit truncation marker makes the content non-authoritative.
-    if block.get("truncated") is True:
+    # An explicit truncation or error marker makes the content non-authoritative.
+    if block.get("truncated") is True or block.get("is_error") is True:
         return None
     content = block.get("content")
     if isinstance(content, str):
@@ -131,10 +146,11 @@ def _tool_result_text(block):
 class RunAccumulator:
     """Streams one session file's records and accumulates one run's metrics.
 
-    Holds only bounded per-run state (token tallies, a set of seen large-block
-    hashes, a dict of path -> set of resident-content hashes, a pending
-    tool_use_id -> file_path map). It never retains full record bodies, so memory
-    stays bounded regardless of session length (the streaming property).
+    Holds only bounded per-record state — token tallies, sets of content/large-block
+    hashes (not the record bodies themselves), and a pending tool_use_id -> file_path
+    map. It never retains full record bodies (the streaming property); the hash/pending
+    structures still grow with the count of distinct session content, so this is
+    bounded-per-record, not constant memory.
     """
 
     def __init__(self, source, large_block_chars):
@@ -275,12 +291,22 @@ def eval_corpus(corpus_root, large_block_chars=LARGE_BLOCK_MIN_CHARS):
     skipped: dict of {reason: count} of malformed records the parser stepped over.
     """
     runs = []
-    skipped = {"non_json_line": 0, "not_object": 0, "no_type": 0}
+    skipped = {"non_json_line": 0, "not_object": 0, "no_type": 0, "unreadable_file": 0}
     for session_file in _iter_session_files(corpus_root):
         acc = RunAccumulator(os.path.basename(session_file), large_block_chars)
         try:
             handle = open(session_file, "r", encoding="utf-8", errors="replace")
-        except OSError:
+        except OSError as exc:
+            # A session file we enumerated but cannot open (permissions, a broken
+            # symlink, a vanished file) is a dropped run: tally it and breadcrumb so
+            # the aggregate is never silently computed over an under-counted corpus,
+            # mirroring the per-record skip discipline below.
+            skipped["unreadable_file"] += 1
+            sys.stderr.write(
+                "warning: skipping unreadable session file {}: {}\n".format(
+                    session_file, exc
+                )
+            )
             continue
         with handle:
             for line in handle:  # streaming: one record at a time, never buffered

@@ -58,9 +58,9 @@ whose real path escapes the supplied corpus directory.
 total output tokens; `compact_boundary` count; and the two redundant-addition metrics
 below.
 
-**Aggregate summary (exactly these fields, complete by construction):** median peak
-context, max peak context, count of runs exceeding 200K, count of runs exceeding 400K,
-median repeated-Read count, median re-emission count.
+**Aggregate summary (exactly these fields, complete by construction):** run count,
+median peak context, max peak context, count of runs exceeding 200K, count of runs
+exceeding 400K, median repeated-Read count, median re-emission count.
 
 ### The two redundant-addition metrics
 

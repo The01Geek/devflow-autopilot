@@ -183,8 +183,14 @@ the prose reads plausibly, the code compiles, and the author's tests assert the 
 than the code's *behavior* — so the engine reconciles every authored claim before commit: it traces each
 claim to the actual code path (following dispatch into pre-existing helpers the diff calls) and, on any
 divergence, **the code is the fact** — it fixes the code or rewrites the claim, and never commits the
-unreconciled pair. The **PR body** is reconciled the same way in Phase 4.2, where the body is authored
-(it does not exist at commit time). The sweep also carries a **clean-path-evidence** sub-check: for any
+unreconciled pair. The **PR body** is reconciled in Phase 4.2, where the body is authored
+(it does not exist at commit time) — there the sweep broadens into a **three-class claim audit**, each class
+naming its own comparand and recording its own workpad outcome (an explicit clean-pass note when a class
+finds nothing): **behavioral** claims traced to the shipped code path (the same trace 2.3.4a does),
+**verification** claims (`## Test Plan` rows and "covered by" / "pinned by" / suite-tally assertions) bound to
+the tests actually present in this diff, and **artifact-existence** claims (a follow-up issue, a filed
+deferral, a linked issue/PR, a changeset) bound to the artifact's own resolvable identifier. Each failing
+claim is fixed-or-rewritten under the same **code-is-the-fact** rule before finalize. The sweep also carries a **clean-path-evidence** sub-check: for any
 step the diff adds that claims to enumerate, verify, or scan a set, it confirms the step logs a summary
 (count, result) even when nothing needs changing — a silent no-op step is indistinguishable from one that
 never ran, so the human reviewing the run cannot tell it executed. It also carries a **mirror-fact

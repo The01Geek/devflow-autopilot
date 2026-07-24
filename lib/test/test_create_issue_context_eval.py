@@ -211,9 +211,9 @@ class BoundaryTest(_SingleSessionMixin, unittest.TestCase):
         ])
         self.assertEqual(runs[0]["repeated_read_count"], 1)
 
-    def test_truncated_toolresult_fails_closed(self):
-        # A repeated Read whose tool_result content is truncated is NOT folded into the
-        # redundant count (fail closed -> authoritative).
+    def _reread_second_result_block(self, second_result_block):
+        # Two Reads of the same path; the SECOND result carries `second_result_block`
+        # verbatim. Returns the run so a caller can assert repeated_read_count.
         runs, _ = self._run_one([
             '{"type":"assistant","attributionSkill":"devflow:create-issue",'
             '"message":{"usage":{"input_tokens":1},"content":['
@@ -223,9 +223,41 @@ class BoundaryTest(_SingleSessionMixin, unittest.TestCase):
             '{"type":"assistant","attributionSkill":"devflow:create-issue",'
             '"message":{"usage":{"input_tokens":1},"content":['
             '{"type":"tool_use","id":"u2","name":"Read","input":{"file_path":"/x"}}]}}',
-            '{"type":"user","message":{"content":['
-            '{"type":"tool_result","tool_use_id":"u2","content":"SAME","truncated":true}]}}',
+            '{"type":"user","message":{"content":[' + second_result_block + ']}}',
         ])
+        return runs
+
+    def test_truncated_toolresult_fails_closed(self):
+        # A repeated Read whose tool_result content is truncated is NOT folded into the
+        # redundant count (fail closed -> authoritative).
+        runs = self._reread_second_result_block(
+            '{"type":"tool_result","tool_use_id":"u2","content":"SAME","truncated":true}'
+        )
+        self.assertEqual(runs[0]["repeated_read_count"], 0)
+
+    def test_errored_toolresult_fails_closed(self):
+        # An errored tool_result (`is_error: true`) is non-authoritative: a repeat of
+        # its bytes must NOT be counted as a redundant repeated-Read.
+        runs = self._reread_second_result_block(
+            '{"type":"tool_result","tool_use_id":"u2","content":"SAME","is_error":true}'
+        )
+        self.assertEqual(runs[0]["repeated_read_count"], 0)
+
+    def test_absent_content_toolresult_fails_closed(self):
+        # A tool_result with no `content` key (missing/absent) yields None from the
+        # comparand extractor -> authoritative, never redundant.
+        runs = self._reread_second_result_block(
+            '{"type":"tool_result","tool_use_id":"u2"}'
+        )
+        self.assertEqual(runs[0]["repeated_read_count"], 0)
+
+    def test_nontext_content_toolresult_fails_closed(self):
+        # A tool_result whose content is a list containing a non-text (image) block
+        # cannot be asserted byte-identical -> fail closed (authoritative).
+        runs = self._reread_second_result_block(
+            '{"type":"tool_result","tool_use_id":"u2","content":['
+            '{"type":"image","source":{}}]}'
+        )
         self.assertEqual(runs[0]["repeated_read_count"], 0)
 
 
@@ -244,6 +276,28 @@ class AdversarialTest(_SingleSessionMixin, unittest.TestCase):
         self.assertEqual(skipped["non_json_line"], 2)  # 'not json' + truncated
         self.assertEqual(skipped["not_object"], 1)
         self.assertEqual(skipped["no_type"], 1)
+
+    def test_unreadable_session_file_is_tallied(self):
+        # A file the walker enumerates but cannot open (here a broken symlink whose
+        # target is inside the corpus root so it passes the escape guard, then fails
+        # to open) is tallied under `unreadable_file`, never silently dropped.
+        with tempfile.TemporaryDirectory() as corpus:
+            link = os.path.join(corpus, "broken.jsonl")
+            try:
+                os.symlink(os.path.join(corpus, "missing-target.jsonl"), link)
+            except (OSError, NotImplementedError):
+                self.skipTest("symlinks unavailable on this host")
+            err = io.StringIO()
+            import sys
+            saved = sys.stderr
+            sys.stderr = err
+            try:
+                runs, skipped = CICE.eval_corpus(corpus)
+            finally:
+                sys.stderr = saved
+            self.assertEqual(runs, [])
+            self.assertEqual(skipped["unreadable_file"], 1)
+            self.assertIn("broken.jsonl", err.getvalue())
 
     def test_determinism(self):
         # Re-running over the same corpus yields byte-identical output.
