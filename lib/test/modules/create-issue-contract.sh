@@ -668,7 +668,7 @@ devflow_module_pin_unique "#768: the pointer is extracted with python3, never gr
 devflow_module_pin_unique "#768: the extraction returns the pointer line byte-identically" \
   'byte-identically to the line inside the written file' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose
 devflow_module_pin_unique "#768: record-dispatch output names dispatch_regeneration" \
-  'dispatch_regeneration=<verified|diverged>' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the field is printed by issue-audit-state.py
+  'dispatch_regeneration=<verified|diverged|unverified>' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the field is printed by issue-audit-state.py
 devflow_module_pin_unique "#768: a diverged regeneration is surfaced in the same turn, before dispatch" \
   'surface that value in chat in the same turn it is printed' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose
 devflow_module_pin_unique "#768: the skill arms no fallback wakeup" \
