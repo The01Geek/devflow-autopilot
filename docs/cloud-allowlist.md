@@ -223,6 +223,35 @@ Multi-operation statements (`A; B`, `A && B`) are deliberately excluded from the
 probe: shipped implement phase fences already exercise them successfully, so
 another row would be redundant rather than new evidence.
 
+### Row 17 — an executable `.py` as a direct leading token (issue #789)
+
+Observed on the **implement** tier in run **30129638403** (branch
+`worktree-issue-789`), shape row **17** of `matcher-probe.yml`:
+
+| Row | Shape | Verdict |
+| --- | --- | --- |
+| **17** | an **executable** `.py` file invoked as a direct leading token (`lib/test/coverage_map_guard.py --iprobe17direct`) | **PERMITTED** (`denial=no; tool_use=yes; shape=ok`) |
+
+This is the `run.sh` / `run-module.sh` pattern applied to a Python helper: the file
+carries a `#!/usr/bin/env python3` shebang **plus the exec bit**, is granted as
+`Bash(lib/test/coverage_map_guard.py:*)`, and is invoked **by path**. The
+contrasting fact is the one already recorded under *Heads vs shapes* — `python3
+<script>`, the **interpreter-head shape**, is **denied even though `python3` is a
+granted head** (#401). So the exec bit plus a direct-token grant is what makes a
+Python helper cloud-invocable; adding `python3` in front of it un-does that.
+
+The row deliberately measures only whether the harness **let the command run**, not
+what it returned: `--iprobe17direct` is consumed as a repo-root path that does not
+exist, so the command exits 1 with an `[input-error] git ls-files failed`
+breadcrumb in a fraction of a second.
+
+**Consumer of this evidence.** Issue #789's focused-verification tiers depend on
+this shape: a `scripts/*.py` / `lib/*.py` change iterates on the covering
+`lib/test/test_*.py` named by its coverage-map `focused_test` field, invoked as a
+direct leading token so the *same* command works on the local and cloud tiers. Had
+the probe come back DENIED, the cloud tier would have kept the full-suite default
+and those tiers would have stayed local-only.
+
 ---
 
 ## Grants are per-HEAD across the whole pipeline (the `paste` war-story)
@@ -388,6 +417,40 @@ in lockstep — so the probe's baseline can never drift from the tier it is prob
 and the generator's `--check` (driven by
 `lib/test/modules/capability-profiles.sh`) enforces it. **Never hand-edit either
 workflow literal** to add such a grant.
+
+### Implement-tier repo-internal test grants (issue #789)
+
+The same one-edit flow covers a **repo-internal** helper the implement tier must
+run in-env — no vendored literal, because `lib/test/**` is not shipped to consumers
+by `install.sh`. Issue #789 added seven such direct-leading-token tokens to the
+`implement` profile only:
+
+```
+Bash(lib/test/test_python_scripts.py:*)
+Bash(lib/test/test_module_harness.py:*)
+Bash(lib/test/test_workflow_flight_recorder.py:*)
+Bash(lib/test/test_workflow_analyzer.py:*)
+Bash(lib/test/test_verification_baseline.py:*)
+Bash(lib/test/test_create_issue_context_eval.py:*)
+Bash(lib/test/coverage_map_guard.py:*)
+```
+
+`manifest_version` went 8 → 9 and the literals were regenerated with `python3
+lib/generate-capability-profiles.py`. Two invariants make this an **implement-only**
+widening, both asserted by the suite: `lib/review-profile.tokens` is
+**byte-unchanged**, and the generated `review` and `command` literals gained **no**
+token — only `devflow-implement.yml`'s baked `--allowed-tools` and
+`matcher-probe.yml`'s `IMPLEMENT` baseline moved. Each granted file must also carry
+the **exec bit in the git index**, or the direct-token form the grant describes
+cannot run; `lib/test/coverage_map_guard.py`'s arm 10 checks exactly that for every
+`focused_test` a coverage-map entry records, and reports an unestablished mode set
+or an unreadable manifest **as unestablished** rather than collapsing it onto a
+verdict.
+
+Grant timing is the usual one (#593): these are baked workflow literals rather than
+config keys, but the workflow the run executes is the default branch's, so a grant
+a PR ships is **inert for that PR's own implementing run** and live for subsequent
+cloud runs.
 
 ### The install.sh-vs-vendor-fetch skew warning
 

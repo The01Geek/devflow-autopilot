@@ -435,6 +435,57 @@ A passed probe only *narrows* the deferral to the genuinely-live residue; it nev
 contract lives in `skills/implement/phases/phase-3-review.md` and is the single source of truth for both
 the Phase 1.2 tag-time path (`skills/implement/phases/phase-1-setup.md`) and the Phase 3.4 retro-tag path.
 
+### Focused-vs-full selection and the run budget (issue #789)
+
+The two rules above answer *where* verification runs (in-env, #405) and *how often the
+same suite is launched* (single flight, #528). They say nothing about **which** command
+the run picks mid-iteration, and that gap is what made one run pay for the full suite
+repeatedly. The selection rule lives in the shared focused-verification policy — this
+repo's `.devflow/prompt-extensions/{implement,review-and-fix,receiving-code-review}.md`,
+mirrored in `CLAUDE.md`'s tiered-runner bullet, `CONTRIBUTING.md`, and
+[`DEVFLOW_SYSTEM_OVERVIEW.md`](DEVFLOW_SYSTEM_OVERVIEW.md)'s *Focused review-and-fix
+iteration* section (the canonical description of the tiers). In outline:
+
+- **Tier 1 — iterate on the covering focused test.** A shell surface with a registered
+  module uses `lib/test/run-module.sh <module-id>`; a `scripts/*.py` / `lib/*.py` unit
+  uses the `lib/test/test_*.py` file its `lib/test/modules/coverage-map.json` entry names
+  in an optional `focused_test` field. (`owner` is unchanged: it still names a registered
+  *shell* module or `unmodularized`, so `focused_test` is the orthogonal Python-layer
+  credit, not a redefinition.)
+- **Tier 2 — coalescing extraction.** A surface no focused test covers takes the full
+  suite for its **first** mid-iteration cycle; a **second** cycle on that same surface
+  extracts a durable module instead. A one-off fix pays one full run; an
+  iteratively-fixed surface extracts once.
+- **The full-suite fallback stays a closed set**, and a run that takes it records a
+  `## Devflow Reflection` bullet naming which case applied.
+
+**The same command must work on both tiers**, so a focused Python test is invoked as a
+**direct leading token** (`lib/test/test_python_scripts.py <selector>`) — never `python3
+lib/test/test_python_scripts.py`, which is the interpreter-head shape the cloud matcher
+denies (#401) even though `python3` is a granted head. That requires two things the
+selection cannot supply on its own: the file carries the **exec bit**, and its
+`Bash(lib/test/test_*.py:*)` token is granted in the **`implement` profile** of
+`lib/capability-profiles.json` (regenerated, never hand-edited). Note this is a
+*different* channel from the `devflow_implement.allowed_tools` config key described
+above: these are baked workflow literals generated from the manifest. The
+`.py`-as-direct-leading-token shape is probe-proven PERMITTED on the implement tier —
+see [`cloud-allowlist.md`](cloud-allowlist.md)'s row 17 for the run of record and the
+grant list.
+
+**None of this weakens the gate.** The final completion claim still runs the full suite,
+and the #456 skip accounting is unchanged — a nonempty skip tally is not clean, and a
+focused module may not self-skip. A mid-iteration #434 stale-prose `blocking-gate` skip
+on a dirty tree is expected and clears on commit; it is not a reason to relaunch.
+
+**Diagnosis reads the capture, not a relaunch.** On a failing run `lib/test/run.sh`
+prints a named `Failure recap` re-listing each failing assertion's identifier, built from
+an on-disk record every FAIL site appends to (so stderr-only failures are listed too).
+Recovering *which* assertion failed reads that recap plus the stderr-merged capture — the
+`2>&1` `.devflow/tmp/verification-<ISSUE>.log` redirect locally (#719; `>` redirects are
+matcher-denied on cloud, where the recap rides in the runner log instead). The recap
+preserves `run.sh`'s exit status, so `scripts/verification-flight.py` still records
+`failed` for a RED suite; on a clean run nothing extra prints.
+
 ## Phase 4.3 finalize: publish vs. draft (`implement_pr_state`)
 
 Phase 4.3 (*Finalize the PR and Finalize Workpad*) is where a run ends. It runs three things in order:
