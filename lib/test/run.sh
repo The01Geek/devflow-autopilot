@@ -7274,26 +7274,22 @@ assert_pin_red_under "#755: Phase 2 §2.0 gate skip-dispatch directive is operat
 # not the gate, the gate mis-fires on a fresh run. Bind both copies so a one-sided seed edit
 # goes RED here (in addition to the existing lib/test/test_python_scripts.py notebook consumer).
 WP755_PY="$LIB/../scripts/workpad.py"
-# structural-pin-ok: the guarded regression (a one-sided seed edit) is a DIVERGENCE between two
-# files, so no single-file mutation reproduces it — the guarantee is the pair's agreement, which
-# the two uniqueness pins below express jointly. Each is a plain unique presence pin, so
-# assert_pin_unique (not a bare grep) is the repo idiom: it also fails a DUPLICATED literal,
-# which a raw scan would let pass with the guarded sentence deleted (the PR #154 hole).
+# Each of the four pins below is a half of a CROSS-FILE coupling, so its guarded regression is a
+# two-file divergence that no single-file mutation reproduces — hence the structural declaration
+# rather than a mutation-taking helper. The gate's own operative behavior is pinned behaviorally
+# by the assert_pin_red_under above. assert_pin_unique (not a raw grep) is the repo idiom: it also
+# fails a DUPLICATED literal, which a raw scan would let pass with the guarded sentence deleted
+# (the PR #154 vacuous-guard hole).
 assert_pin_unique "#755: workpad.py new-body Plan seed literal present (producer of the §2.0 gate discriminator)" \
-  '- [ ] _(planning in progress)_' "$WP755_PY"
-# structural-pin-ok: consumer half of the same two-file seed coupling (see the marker above).
+  '- [ ] _(planning in progress)_' "$WP755_PY"  # structural-pin-ok: producer half of the two-file seed coupling; the guarded regression is a one-sided seed edit (a divergence), not a single-file deletion
 assert_pin_unique "#755: Phase 2 §2.0 gate carries the same Plan seed literal as workpad.py new-body (coupled discriminator)" \
-  '- [ ] _(planning in progress)_' "$P2_FILE"
+  '- [ ] _(planning in progress)_' "$P2_FILE"  # structural-pin-ok: consumer half of the same two-file seed coupling
 # resume-kind marker writer/reader coupling (conjunct a): Phase 1.3 writes it, the §2.0 gate
 # reads it. Bind the pair so neither half can be dropped without the other going RED.
-# structural-pin-ok: writer half of a cross-file writer/reader pair — the regression it guards
-# (writer dropped while the reader survives) is a two-file divergence no single-file mutation
-# reproduces; the gate's own operative behavior is pinned by the assert_pin_red_under above.
 assert_pin_unique "#755: Phase 1.3 writes the durable resume-kind marker (writer of §2.0 conjunct a)" \
-  'resume-kind: {in-flight|terminal-re-trigger|fresh}' "$P1_FILE"
-# structural-pin-ok: reader half of the same writer/reader pair (see the marker above).
+  'resume-kind: {in-flight|terminal-re-trigger|fresh}' "$P1_FILE"  # structural-pin-ok: writer half of a cross-file writer/reader pair; the guarded regression (writer dropped, reader surviving) is a two-file divergence
 assert_pin_unique "#755: Phase 2 §2.0 gate reads the resume-kind: in-flight marker (reader of conjunct a)" \
-  'resume-kind: in-flight' "$P2_FILE"
+  'resume-kind: in-flight' "$P2_FILE"  # structural-pin-ok: reader half of the same writer/reader pair
 
 # ── Issue #493: Phase 1.4 §1.4 PR-body run-link refresh (cloud resume) ──
 # On a resumed cloud run that reaches §1.4 and finds an existing open PR, the
