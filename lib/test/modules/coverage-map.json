@@ -391,6 +391,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/resolve-existing-pr.sh": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "scripts/resolve-review-overrides.py": {
       "note": "",
       "owner": "unmodularized"
@@ -1562,6 +1566,14 @@
       "owner": "unmodularized"
     },
     "781": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "782": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "783": {
       "note": "",
       "owner": "unmodularized"
     },

@@ -79,7 +79,22 @@ RETRO_PREDICATE='
 # Fold a batch of PR objects into the running CANDIDATES set, deduplicating by
 # number. Shared by every mode so the union/dedupe rule lives in one place.
 _add_candidates() {  # $1 = JSON array of PR objects
-    CANDIDATES="$("$DEVFLOW_JQ" -nc --argjson a "$CANDIDATES" --argjson b "$1" '$a + $b | unique_by(.number)')"
+    local _a_file
+    _a_file="$(mktemp)"
+    # Route the accumulating CANDIDATES set through --slurpfile: it grows with the
+    # scan window and, on a large first-run backlog, would overflow the kernel arg
+    # limit as an --argjson argv slot (jq: "Argument list too long", issue #783).
+    printf '%s' "$CANDIDATES" > "$_a_file"
+    # argjson-ok: b -- $1 is one bounded batch (a single PR or one <= per-page-limit
+    # page), safe as argv.
+    # Clean up on the jq-abort path too: under `set -e` a nonzero jq would skip the
+    # trailing `rm -f` and orphan the temp in $TMPDIR. A localized `|| { rm; return 1; }`
+    # cleans then re-raises (the function returns nonzero, so `set -e` still aborts the
+    # caller) — preferred here over a `trap` because this file uses sequential single-owner
+    # EXIT traps and a trap set in this function would clobber the active one.
+    CANDIDATES="$("$DEVFLOW_JQ" -nc --slurpfile a "$_a_file" --argjson b "$1" '$a[0] + $b | unique_by(.number)')" \
+      || { rm -f "$_a_file"; return 1; }
+    rm -f "$_a_file"
 }
 
 # ── _author_is_watched <login> ───────────────────────────────────────────────
@@ -128,6 +143,7 @@ if [ -n "$EXPLICIT_PRS" ]; then
         # degraded gate: --prs is the operator-named ad-hoc path, so a per-PR
         # breadcrumb on stderr is the right granularity rather than a hard exit.
         set +e
+        # argjson-ok: watched -- bounded scalar (boolean flag).
         _SEL="$(echo "$_PRJSON" | "$DEVFLOW_JQ" -c --arg impl "$IMPL_PREFIX" --argjson watched "$_WATCHED" \
             "select($RETRO_PREDICATE) | {number, headRefName, mergedAt}" 2>"$PRS_ERR")"
         _SEL_RC=$?
@@ -141,7 +157,7 @@ if [ -n "$EXPLICIT_PRS" ]; then
         _add_candidates "[$_SEL]"
     done
     rm -f "$PRS_ERR"
-    echo "$CANDIDATES" | "$DEVFLOW_JQ" -c --argjson cap "$MAX_PRS" 'sort_by(.mergedAt) | [.[0:$cap][] | {number, headRefName, mergedAt}]'
+    echo "$CANDIDATES" | "$DEVFLOW_JQ" -c --argjson cap "$MAX_PRS" 'sort_by(.mergedAt) | [.[0:$cap][] | {number, headRefName, mergedAt}]'  # argjson-ok: cap -- scalar int
     exit 0
 fi
 
@@ -199,6 +215,7 @@ else
                     --json number,headRefName,author,mergedAt,labels,closingIssuesReferences --limit 100 2>"$FETCH_ERR")"; then
                 # These are watched-author results, so $watched is true for the
                 # closes-issue path (b). Filter locally with the shared predicate.
+                # argjson-ok: watched -- bounded scalar literal (true).
                 BATCH="$(echo "$BATCH" | "$DEVFLOW_JQ" --arg impl "$IMPL_PREFIX" --argjson watched true \
                     "[.[] | select($RETRO_PREDICATE) | {number, headRefName, mergedAt}]" 2>"$FETCH_ERR")" \
                     || { echo "::warning::scan: jq reshape failed for author:${_form} ($(tr '\n' ' ' < "$FETCH_ERR" | cut -c1-300)); treating as empty" >&2; BATCH='[]'; DEGRADED=1; }
@@ -315,9 +332,21 @@ case "$HTTP" in
         ;;
 esac
 
-UNPROC="$(echo "$CANDIDATES" | "$DEVFLOW_JQ" --argjson e "$EXISTING" '[.[] | select(.number as $n | ($e | index($n) | not))] | sort_by(.mergedAt)')"
+# Route EXISTING (the full processed-PR set — genuinely monotonically corpus-growing)
+# through --slurpfile: as an --argjson argv slot it overflows the kernel arg limit at
+# scale (jq: "Argument list too long", issue #783). --slurpfile wraps in a one-element
+# array, so the reference dereferences $e[0].
+_e_file="$(mktemp)"
+printf '%s' "$EXISTING" > "$_e_file"
+# Clean up on the jq-abort path too: under `set -e` a nonzero jq (or the piped read)
+# would skip the trailing `rm -f` and orphan the temp. The localized `|| { rm; exit 1; }`
+# cleans then re-raises with the same rc the surrounding code uses on error (line above),
+# rather than a `trap` that would clobber the active RESP/ERR EXIT trap set earlier.
+UNPROC="$(echo "$CANDIDATES" | "$DEVFLOW_JQ" --slurpfile e "$_e_file" '[.[] | select(.number as $n | ($e[0] | index($n) | not))] | sort_by(.mergedAt)')" \
+  || { rm -f "$_e_file"; exit 1; }
+rm -f "$_e_file"
 N="$(echo "$UNPROC" | "$DEVFLOW_JQ" 'length')"
 if [ "$N" -gt "$MAX_PRS" ]; then
     echo "scan: $N unprocessed PRs, capping to $MAX_PRS" >&2
 fi
-echo "$UNPROC" | "$DEVFLOW_JQ" -c --argjson cap "$MAX_PRS" '[.[0:$cap][] | {number, headRefName, mergedAt}]'
+echo "$UNPROC" | "$DEVFLOW_JQ" -c --argjson cap "$MAX_PRS" '[.[0:$cap][] | {number, headRefName, mergedAt}]'  # argjson-ok: cap -- scalar int

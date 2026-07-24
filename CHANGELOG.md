@@ -4,6 +4,30 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.21.18] — 2026-07-24
+
+### Changed
+- **`/devflow:implement` §3.1 now resolves the existing-PR question through a tested helper, and validates the PR it adopts.** The three-arm resolution (refuse / adopt / create) moved out of inline skill shell into `scripts/resolve-existing-pr.sh`, which prints exactly one token — `ADOPT <n> OK`, `ADOPT <n> WARN:<checks>`, `CREATE`, or `REFUSED` — with a matching exit code, so the test suite drives every arm and its arm-order over the full input matrix (a `gh` failure, an empty listing, one PR, two PRs on one head, an empty branch name) rather than grep-pinning a message literal. The resolver also fetches `baseRefName` and `closingIssuesReferences` and names each validation that did not hold, so a resumed run that adopts an unrelated PR merely sharing its head branch records a durable warning instead of silently binding its workpad link, provenance label, description and publish step to the wrong PR. (#782, PR #787)
+
+## [2.21.17] — 2026-07-24
+
+### Fixed
+- **Fix the weekly retrospective loop crashing with `jq: Argument list too long` at corpus scale.**
+  The corpus-aggregating helpers (`lib/actionable-patterns.sh`, `lib/scan.sh`, and
+  `skills/retrospective-weekly/SKILL.md` Step 9) passed operands that grow with the corpus —
+  the pattern view, the open-issue map, the processed-PR set, the candidate set, and the Step 9
+  summary arrays — to `jq` through `--argjson` argv slots, which overflow the kernel argument
+  limit once the corpus is large enough. They now route those corpus-sized operands through
+  `--slurpfile <file>` (a file read) instead; bounded scalars keep `--argjson` under an inline
+  `# argjson-ok:` marker that declares the scalar operand names it vouches for. A new
+  `lib/test/lint-argjson-transport.py` guard (driven from `lib/test/run.sh`, with behavioral-fix
+  pins and planted-defect / corpus-revert positive controls) turns the suite RED if any of those
+  three helpers routes a corpus-sized operand through `--argjson` again — an `--argjson` with no
+  marker, or one whose operand name the marker does not declare (so a corpus operand cannot be
+  masked by a marked scalar sharing its jq invocation). The misleading
+  `actionable-patterns.sh` failure breadcrumb that blamed the cooldown comparison now names the
+  output-build / operand-size cause. (#783)
+
 ## [2.21.16] — 2026-07-24
 
 ### Added
