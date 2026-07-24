@@ -34,6 +34,7 @@ REGISTRY_REL = "scripts/workflow-flight-recorder-registry.json"
 RUN_SH_REL = "lib/test/run.sh"
 GUARD_REL = "lib/test/coverage_map_guard.py"
 MODULES_GLOB = "lib/test/modules/*.sh"
+PROFILES_REL = "lib/capability-profiles.json"
 
 # The synthetic aggregate key: no mechanical derivation ever produces it, so both
 # halves of arm 9 exempt it rather than reporting it as a stale entry.
@@ -327,6 +328,7 @@ def evaluate(
     module_labels: "dict[str, set[str]] | None" = None,
     scan_read_errors: "list[str] | None" = None,
     executable_files: "set[str] | None" = None,
+    implement_tokens: "set[str] | None" = None,
 ):
     """Return a list of violation breadcrumbs (empty ⇒ clean). Never raises.
 
@@ -440,7 +442,7 @@ def evaluate(
     )
 
     # ── Arm 10: the recorded focused Python test of a `files` entry (issue #789)
-    violations.extend(_arm10(files, tracked, executable_files))
+    violations.extend(_arm10(files, tracked, executable_files, implement_tokens))
 
     return violations
 
@@ -482,12 +484,50 @@ def _focused_test_target(value: str) -> str:
     return value.split("::", 1)[0]
 
 
-def _arm10(files, tracked, executable_files):
+def _implement_profile_tokens(manifest_value: object) -> "set[str] | None":
+    """The `implement` profile's literal Bash(...) grant tokens, or None if unestablished.
+
+    Group references (`@name`) are expanded one level — the manifest's own shape — so a token
+    granted through a group is seen. A malformed/absent manifest returns None so arm 10 can
+    report the measurement as unestablished rather than as an absent grant."""
+    if not isinstance(manifest_value, dict):
+        return None
+    profiles = manifest_value.get("profiles")
+    groups = manifest_value.get("groups")
+    if not isinstance(profiles, dict) or not isinstance(groups, dict):
+        return None
+    implement = profiles.get("implement")
+    if not isinstance(implement, list):
+        return None
+    tokens = set()
+    for entry in implement:
+        if not isinstance(entry, str):
+            continue
+        if entry.startswith("@"):
+            member = groups.get(entry[1:])
+            if isinstance(member, list):
+                tokens.update(t for t in member if isinstance(t, str))
+            continue
+        tokens.add(entry)
+    return tokens
+
+
+def _arm10(files, tracked, executable_files, implement_tokens=None):
     """Validate every recorded `focused_test`. Pure — all inputs are injected."""
     violations = []
-    recorded = [path for path in sorted(files) if files[path].get("focused_test")]
+    # Keyed on PRESENCE, not truthiness: a present-but-empty `"focused_test": ""` passes
+    # the shape check (it IS a string) and would be skipped as "absent" by a truthiness
+    # test, shipping a map entry the docs describe as naming a runnable test while it
+    # names nothing. Present-and-blank is a violation, not an omission.
+    recorded = [path for path in sorted(files) if "focused_test" in files[path]]
     if not recorded:
         return violations
+    if implement_tokens is None:
+        violations.append(
+            f"[arm10] the `implement` profile token list could not be established from "
+            f"{PROFILES_REL}, so no 'focused_test' entry's cloud grant was checked; "
+            "repair the manifest"
+        )
     if executable_files is None:
         # An unestablished mode set is reported ONCE and never collapsed onto either
         # answer: claiming "executable" would launder the failed measurement into a pass,
@@ -500,6 +540,12 @@ def _arm10(files, tracked, executable_files):
         )
     for path in recorded:
         value = files[path]["focused_test"]
+        if not value.strip():
+            violations.append(
+                f"[arm10] coverage-map files entry {path!r} carries a present-but-empty "
+                f"'focused_test' — record a target or drop the key; {ARM10_REMEDY}"
+            )
+            continue
         target = _focused_test_target(value)
         if target not in tracked:
             violations.append(
@@ -520,6 +566,19 @@ def _arm10(files, tracked, executable_files):
                 "executable in the git index — the cloud matcher denies the `python3 "
                 f"<script>` interpreter-head shape, so it is not focus-runnable there; {ARM10_REMEDY}"
             )
+            continue
+        # The exec bit is only HALF of cloud-runnability, and asserting the whole on the half
+        # is the fail-open this check exists to avoid: an executable, tracked target the
+        # `implement` profile does not grant is refused by the matcher SILENTLY (issue #363),
+        # so the map would promise a focused run that never happens and produces no signal.
+        # Verify the grant too, from the same manifest the workflow literals are generated
+        # from, and report an unestablished manifest as unestablished.
+        if implement_tokens is not None and f"Bash({target}:*)" not in implement_tokens:
+            violations.append(
+                f"[arm10] coverage-map files entry {path!r} focused_test {value!r} carries no "
+                f"`Bash({target}:*)` grant in the `implement` profile of {PROFILES_REL} — the "
+                "cloud matcher silently refuses an ungranted leading token, so the recorded "
+                f"focused run would produce no signal there; add the token and regenerate")
     return violations
 
 
@@ -794,6 +853,7 @@ def main(argv):
         module_labels=module_labels,
         scan_read_errors=scan_read_errors,
         executable_files=_git_executable(repo_root),
+        implement_tokens=_implement_profile_tokens(_load_json(repo_root / PROFILES_REL)[0]),
     )
     for line in violations:
         print(line)

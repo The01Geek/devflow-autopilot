@@ -65,7 +65,13 @@ class CoverageMapGuardTest(unittest.TestCase):
         # shipped tree against a measurement that never ran.
         self.assertEqual(
             guard.evaluate(
-                tracked, map_value, registry_value, executable_files=guard._git_executable(ROOT)
+                tracked,
+                map_value,
+                registry_value,
+                executable_files=guard._git_executable(ROOT),
+                implement_tokens=guard._implement_profile_tokens(
+                    guard._load_json(ROOT / guard.PROFILES_REL)[0]
+                ),
             ),
             [],
         )
@@ -114,6 +120,10 @@ class CoverageMapGuardTest(unittest.TestCase):
     # non-clean case must record arm10 ALONE, so the arm cannot be credited by another arm's
     # noise. `_focused` builds the entry; `EXEC` is the injected index-mode set.
     _EXEC = {"lib/test/test_thing.py"}
+    # The grant set arm 10 checks alongside the exec bit: an executable-but-ungranted
+    # target is refused by the cloud matcher SILENTLY, so the map would promise a
+    # focused run that never happens. Injected exactly like _EXEC.
+    _TOKENS = {"Bash(lib/test/test_thing.py:*)"}
 
     @staticmethod
     def _focused(target, owner="unmodularized"):
@@ -122,7 +132,7 @@ class CoverageMapGuardTest(unittest.TestCase):
     def test_focused_test_absent_is_clean(self):
         tracked = ["lib/real.sh"]
         v = guard.evaluate(
-            tracked, _map(files={"lib/real.sh": _owned()}), _registry(), executable_files=self._EXEC
+            tracked, _map(files={"lib/real.sh": _owned()}), _registry(), executable_files=self._EXEC, implement_tokens=self._TOKENS
         )
         self.assertEqual(v, [])
 
@@ -133,6 +143,7 @@ class CoverageMapGuardTest(unittest.TestCase):
             _map(files={"lib/real.sh": self._focused("lib/test/test_thing.py")}),
             _registry(),
             executable_files=self._EXEC,
+            implement_tokens=self._TOKENS,
         )
         self.assertEqual(v, [])
 
@@ -145,6 +156,7 @@ class CoverageMapGuardTest(unittest.TestCase):
             _map(files={"lib/real.sh": self._focused("lib/test/test_thing.py::Cls.test_x")}),
             _registry(),
             executable_files=self._EXEC,
+            implement_tokens=self._TOKENS,
         )
         self.assertEqual(v, [])
 
@@ -155,6 +167,7 @@ class CoverageMapGuardTest(unittest.TestCase):
             _map(files={"lib/real.sh": self._focused("lib/test/test_gone.py")}),
             _registry(),
             executable_files=self._EXEC,
+            implement_tokens=self._TOKENS,
         )
         self.assertEqual(self._arms(v), {"arm10"})
         self.assertIn("lib/test/test_gone.py", "".join(v))
@@ -166,6 +179,7 @@ class CoverageMapGuardTest(unittest.TestCase):
             _map(files={"lib/real.sh": self._focused("lib/test/helper.py")}),
             _registry(),
             executable_files={"lib/test/helper.py"},
+            implement_tokens={"Bash(lib/test/helper.py:*)"},
         )
         self.assertEqual(self._arms(v), {"arm10"})
         self.assertIn("lib/test/helper.py", "".join(v))
@@ -177,6 +191,7 @@ class CoverageMapGuardTest(unittest.TestCase):
             _map(files={"lib/real.sh": self._focused("lib/test/test_thing.py")}),
             _registry(),
             executable_files=set(),
+            implement_tokens=self._TOKENS,
         )
         self.assertEqual(self._arms(v), {"arm10"})
         self.assertIn("not executable in the git index", "".join(v))
@@ -190,6 +205,7 @@ class CoverageMapGuardTest(unittest.TestCase):
             _map(files={"lib/real.sh": self._focused("lib/test/test_thing.py")}),
             _registry(),
             executable_files=None,
+            implement_tokens=self._TOKENS,
         )
         self.assertEqual(self._arms(v), {"arm10"})
         self.assertEqual(len(v), 1)
@@ -199,10 +215,71 @@ class CoverageMapGuardTest(unittest.TestCase):
         tracked = ["lib/real.sh"]
         entry = {"owner": "unmodularized", "note": "", "focused_test": 7}
         v = guard.evaluate(
-            tracked, _map(files={"lib/real.sh": entry}), _registry(), executable_files=self._EXEC
+            tracked, _map(files={"lib/real.sh": entry}), _registry(), executable_files=self._EXEC, implement_tokens=self._TOKENS
         )
         self.assertEqual(self._arms(v), {"arm4"})
         self.assertIn("focused_test", "".join(v))
+
+    def test_focused_test_without_an_implement_grant_records_arm10(self):
+        # Executable and tracked is only HALF of cloud-runnability: an ungranted leading
+        # token is refused SILENTLY, so the map would record a focused run that produces no
+        # signal there. This is the fail-open the grant check closes.
+        tracked = ["lib/real.sh", "lib/test/test_thing.py"]
+        v = guard.evaluate(
+            tracked,
+            _map(files={"lib/real.sh": self._focused("lib/test/test_thing.py")}),
+            _registry(),
+            executable_files=self._EXEC,
+            implement_tokens=set(),
+        )
+        self.assertEqual(self._arms(v), {"arm10"})
+        self.assertIn("carries no `Bash(lib/test/test_thing.py:*)` grant", "".join(v))
+
+    def test_unestablished_implement_tokens_are_reported_once_not_laundered(self):
+        # Same "unknown is not zero" discipline as the mode set: a manifest that could not be
+        # read is reported as unestablished, never as an absent grant on every entry.
+        tracked = ["lib/real.sh", "lib/test/test_thing.py"]
+        v = guard.evaluate(
+            tracked,
+            _map(files={"lib/real.sh": self._focused("lib/test/test_thing.py")}),
+            _registry(),
+            executable_files=self._EXEC,
+            implement_tokens=None,
+        )
+        self.assertEqual(self._arms(v), {"arm10"})
+        self.assertEqual(len(v), 1)
+        self.assertIn("token list could not be established", v[0])
+
+    def test_present_but_empty_focused_test_records_arm10(self):
+        # A truthiness-keyed scan would treat "" as absent and ship an entry naming nothing
+        # while the docs describe it as naming a runnable test.
+        tracked = ["lib/real.sh"]
+        entry = {"owner": "unmodularized", "note": "", "focused_test": "   "}
+        v = guard.evaluate(
+            tracked,
+            _map(files={"lib/real.sh": entry}),
+            _registry(),
+            executable_files=self._EXEC,
+            implement_tokens=self._TOKENS,
+        )
+        self.assertEqual(self._arms(v), {"arm10"})
+        self.assertIn("present-but-empty", "".join(v))
+
+    def test_implement_profile_tokens_expands_group_references(self):
+        # The manifest expresses shared runs as `@group`; a token granted through a group is
+        # still granted, so resolving must expand one level or the check false-flags.
+        manifest = {
+            "groups": {"shared": ["Bash(lib/test/test_grouped.py:*)"]},
+            "profiles": {"implement": ["@shared", "Bash(lib/test/test_direct.py:*)"]},
+        }
+        self.assertEqual(
+            guard._implement_profile_tokens(manifest),
+            {"Bash(lib/test/test_grouped.py:*)", "Bash(lib/test/test_direct.py:*)"},
+        )
+
+    def test_implement_profile_tokens_is_none_on_a_malformed_manifest(self):
+        for bad in (None, [], {}, {"profiles": {}}, {"profiles": {"implement": "x"}, "groups": {}}):
+            self.assertIsNone(guard._implement_profile_tokens(bad), bad)
 
     # ── T-shape (arm 4): the six governing shapes over the MAP input. ──
     def test_shape_matrix_map(self):

@@ -89,9 +89,10 @@ _suite_cleanup() {
   # The `.names` sweep (issue #789) covers record_fail's identifier record, whose path is
   # DERIVED from whichever RESULTS_FILE was in scope rather than registered separately: a
   # probe that diverts the tally to its own registered temp gets a `<temp>.names` sibling it
-  # never registered, so sweeping the sibling of every registered file — instead of
-  # registering each one at its diversion site — is what keeps the coverage from depending
-  # on a per-site edit somebody can forget. `rm -f` on a path that was never created is a
+  # never registered, and this sweep covers it without a per-site edit. It is a backstop for
+  # REGISTERED files only, not a replacement for per-site cleanup: a probe whose temp comes
+  # from a bare `mktemp` and is removed by its own `rm -f` is outside the registry, so those
+  # sites remove their own sibling explicitly. `rm -f` on a path that was never created is a
   # silent no-op, so the sweep is free for every registered file that has no sibling.
   [ "${#_SUITE_TMP_FILES[@]}" -gt 0 ] && rm -f "${_SUITE_TMP_FILES[@]}" "${_SUITE_TMP_FILES[@]/%/.names}"
   [ "${#_SUITE_TMP_DIRS[@]}" -gt 0 ] && rm -rf "${_SUITE_TMP_DIRS[@]}"
@@ -103,7 +104,7 @@ _suite_tmp_file "$MODULE_FAILURES_FILE"
 _suite_tmp_file "$SKIPS_FILE"
 
 # record_fail (the failing assertion's IDENTIFIER record, issue #789) is defined in
-# lib/test/module-harness.sh, sourced just above. It lives THERE rather than here because the
+# lib/test/module-harness.sh, sourced a few lines below. It lives THERE rather than here because the
 # harness writes the suite tally at its own FAIL sites (the pool arms, probe_tmp's mktemp
 # failure): a definition private to run.sh would leave those failures tallied but absent from
 # the recap, which is worse than no recap — a "Failure recap:" header that reads complete and
@@ -448,8 +449,12 @@ git_sandbox() {  # assertion-name -> prints an isolated temp dir (rc 0); on mkte
                  # git -C / cd / mkdir fails CLOSED rather than hitting the real repo
   local d
   d="$(mktemp -d)" && [ -n "$d" ] && [ -d "$d" ] && { printf '%s\n' "$d"; return 0; }
+  # The recap bullet names the INFRASTRUCTURE cause, not just the assertion: read from the
+  # recap alone, a bare assertion name is indistinguishable from a genuine failure and sends
+  # the reader to debug an assertion that never ran. (probe_tmp does the same.) The two
+  # writes stay ADJACENT — the pairing the completeness guard scans for.
   echo FAIL >> "$RESULTS_FILE"
-  record_fail "$1"
+  record_fail "$1 — mktemp -d failed (git sandbox unavailable)"
   printf '  FAIL  %s — mktemp -d failed (git sandbox unavailable; git work aborted, not run in the real repo)\n' "$1" >&2
   printf '/dev/null/devflow-git-sandbox-unavailable\n'
   return 1
@@ -48347,8 +48352,10 @@ echo
 # "N passed, M failed, K skipped" + one line per skipped check otherwise. The exit
 # predicate below is unchanged — a skip never fails the suite.
 devflow_render_test_summary "$PASS" "$FAIL" "$SKIP" "$SKIPS_FILE"
-# Failure recap (issue #789) — one bullet per failing assertion, from the identifier record
-# record_fail appends to at every FAIL site (both streams). Rendered by summary.sh alongside
+# Failure recap (issue #789) — one bullet per failing assertion, from the on-disk sibling
+# record (`<results>.names`) record_fail appends to at every tally-writing site, on both
+# streams. On-disk rather than in-memory is load-bearing: it is what carries an identifier
+# out of a subshell, a redirected stream, and a module/pool worker's private tally. Rendered by summary.sh alongside
 # devflow_render_test_summary rather than inline here: that file already owns the
 # itemize-a-population-from-a-record-file shape, including the reconciliation that surfaces a
 # tally/record disagreement instead of printing a short list that reads complete. It prints

@@ -1652,6 +1652,9 @@ SKIPS_FILE="$(mktemp)"
 # module-harness.sh defines record_fail; source only that function so the harness's own
 # fixture-isolation preamble does not run in this micro-driver.
 eval "$(sed -n '/^record_fail() {{/,/^}}/p' "{HARNESS}")"
+# Fail loudly if the slice did not define the function: without this the zero-failure case
+# would pass off a fixture that was never established (a missing sed, a reindented body).
+type record_fail >/dev/null 2>&1 || {{ echo "record_fail was not defined by the slice" >&2; exit 99; }}
 {seed}
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
@@ -1749,19 +1752,39 @@ rm -f "$RESULTS_FILE" "$RESULTS_FILE.names" "$SKIPS_FILE"
         self.assertIn("recorded no identifier", out)
         self.assertIn("the recap is INCOMPLETE", out)
 
-    def test_an_absent_identifier_record_says_so_rather_than_printing_an_empty_recap(self):
+    def test_an_absent_identifier_record_is_quantified_not_called_unavailable(self):
+        # "Absent" and "unreadable" are different causes with different remedies, and a bare
+        # "unavailable" would send the reader to debug the recap machinery while hiding how
+        # much of the failure population went unnamed. Both arms state the count.
         seed = 'echo FAIL >> "$RESULTS_FILE"\nrm -f "$RESULTS_FILE.names"\n'
         rc, out, _ = self._drive(seed)
         self.assertEqual(rc, 1)
         self.assertIn("Failure recap:", out)
-        self.assertIn("absent or unreadable", out)
+        self.assertIn("0 of 1 failure(s) recorded an identifier", out)
+        self.assertIn("no record was written", out)
+
+    def test_an_unreadable_identifier_record_names_that_distinct_cause(self):
+        seed = (
+            'echo FAIL >> "$RESULTS_FILE"\n'
+            'record_fail "alpha"\n'
+            'chmod 000 "$RESULTS_FILE.names"\n'
+        )
+        rc, out, _ = self._drive(seed)
+        self.assertEqual(rc, 1)
+        if "could be named" not in out:
+            # A root-running environment can read a 000 file, so the arm is unreachable there
+            # — assert the reachable half rather than encoding a false expectation.
+            self.assertIn("  - alpha", out)
+            return
+        self.assertIn("0 of 1 failure(s) could be named", out)
+        self.assertIn("exists but is unreadable", out)
 
     def test_every_tallied_fail_site_records_an_identifier(self):
         """A FAIL site that increments the tally but records no identifier makes the recap
         under-report — it would look complete while omitting the very failure the reader is
         chasing. This walks BOTH shipped producers of the suite tally (run.sh and the harness
         the pool arms live in) and BOTH spellings of the tally write, because scanning only
-        run.sh for only the `echo` spelling is exactly how the harness's nine sites were
+        run.sh for only the `echo` spelling is exactly how the harness's own sites were
         missed in the first place."""
         missing = []
         for source in (RUN_SH, HARNESS):

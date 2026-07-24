@@ -11,8 +11,8 @@ bump: patch
   `test_*.py`-named, and executable in the index, and reports an unestablished mode set as
   unestablished rather than collapsing it onto either answer ([#789](https://github.com/The01Geek/devflow-autopilot/pull/791)).
 - `lib/test/run.sh` prints a named `Failure recap` after its terminal summary on a failing run,
-  re-listing each failing assertion's identifier from an in-process record every FAIL site
-  appends to. The record covers both output streams, so a failure whose detail went to stderr is
+  re-listing each failing assertion's identifier from an on-disk sibling record that every
+  tally-writing site appends to. The record covers both output streams, so a failure whose detail went to stderr is
   recapped exactly like one on stdout, and the suite's exit status is preserved through the
   recap. A clean run prints no recap and its summary line is byte-identical to before
   ([#789](https://github.com/The01Geek/devflow-autopilot/pull/791)).

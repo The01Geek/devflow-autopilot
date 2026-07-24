@@ -129,8 +129,8 @@ devflow_render_test_summary() {
 # devflow_render_failure_recap FAIL NAMES_FILE
 #
 # Print the suite's terminal `Failure recap` to stdout — one bullet per failing assertion
-# identifier, read from the record run.sh's `record_fail` appends to at every FAIL site
-# (issue #789). It lives here, beside devflow_render_test_summary, because this file already
+# identifier, read from the on-disk sibling record `record_fail` appends to at every
+# tally-writing site (issue #789). It lives here, beside devflow_render_test_summary, because this file already
 # IS the "itemize a population from a sibling record file" renderer: the SKIP half above does
 # exactly this job, down to the announced-tally-vs-itemized-lines reconciliation, and a second
 # inline copy at run.sh's tail would be a weaker one that nothing could unit-test directly.
@@ -156,8 +156,17 @@ devflow_render_failure_recap() {
   [ "$fail" -gt 0 ] || return 0
   echo
   echo "Failure recap:"
-  if [ -z "$names_file" ] || [ ! -f "$names_file" ] || [ ! -r "$names_file" ]; then
-    printf '  - (detail unavailable — the failure-identifier record is absent or unreadable)\n'
+  # Absent and unreadable are DIFFERENT causes with different remedies, and neither is "the
+  # recap machinery is broken": a record that was never created is the ordinary shape of a run
+  # whose failures all arrived through a channel that records no identifier, so say that and
+  # quantify it rather than sending the reader to debug the harness. The count is stated in
+  # both arms because a bare "unavailable" hides how much of the population went unnamed.
+  if [ -z "$names_file" ] || [ ! -e "$names_file" ]; then
+    printf '  - (0 of %s failure(s) recorded an identifier — no record was written; scan the captured output for `  FAIL ` lines)\n' "$fail"
+    return 0
+  fi
+  if [ ! -r "$names_file" ]; then
+    printf '  - (0 of %s failure(s) could be named — the identifier record exists but is unreadable: %s)\n' "$fail" "$names_file"
     return 0
   fi
   while IFS= read -r line || [ -n "$line" ]; do
@@ -170,11 +179,12 @@ devflow_render_failure_recap() {
   # exists to prevent. A shortfall means some FAIL site tallied a failure without recording an
   # identifier — the reader is shown a list that silently omits the failure they are chasing.
   #
-  # One shortfall source is STRUCTURAL and expected rather than a defect: a pooled or module
-  # suite records its verdicts to a PRIVATE tally that module-harness.sh folds in wholesale
-  # (`cat "$tally" >> "$RESULTS_FILE"`), so its failures raise the count without ever passing
-  # through record_fail. The honest report for that is exactly this line — the named failures
-  # plus a count of the unnamed — never a short list presented as the whole population.
+  # A module or pooled worker records to a PRIVATE tally, and module-harness.sh folds BOTH
+  # halves — the verdicts and the identifier sibling — so those failures are named like any
+  # other. This shortfall line is therefore not the expected steady state: it fires when a
+  # fold was skipped, a record could not be written, or a future channel raises the count
+  # without recording. The honest report is the named failures plus a count of the unnamed,
+  # never a short list presented as the whole population.
   if [ "$emitted" -lt "$fail" ]; then
     printf '  - (%s of %s failure(s) recorded no identifier — the recap is INCOMPLETE; scan the captured output for `  FAIL ` lines)\n' \
       "$((fail - emitted))" "$fail"
