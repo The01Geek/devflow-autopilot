@@ -3967,7 +3967,12 @@ count_unallowlisted_raw_skill_guards() {  # file -> count of raw SKILL guard pin
 REPO_ROOT_157="$LIB/.."
 _RSG_TOTAL=0
 _RSG_SOURCES=0
+# Accumulate the enumerated relative paths as we go, so the named-surface membership
+# control below reuses this SINGLE git ls-files pass instead of spawning a per-name
+# `--error-unmatch` subprocess (the whole tracked-.sh set is already in hand here).
+_RSG_ALL_REL=""
 while IFS= read -r -d '' _rsg_rel; do
+  _RSG_ALL_REL="$_RSG_ALL_REL $_rsg_rel"
   _rsg_src="$REPO_ROOT_157/$_rsg_rel"
   [ -r "$_rsg_src" ] || continue
   _RSG_SOURCES=$(( _RSG_SOURCES + 1 ))
@@ -3990,13 +3995,17 @@ done
 assert_eq "meta(#157 AC2): the repo-wide raw-guard corpus spans strictly more than run.sh + modules (widening is falsifiable)" \
   "yes" "$([ "$_RSG_SOURCES" -gt "$_RSG_RUNSH_MODULES" ] && echo yes || echo no)"
 # And prove the corpus actually reaches the surfaces #746 left out (module-harness.sh,
-# summary.sh, run-module.sh): each must be a tracked .sh the git-index enumeration includes, so
-# a future re-narrowing that drops them goes RED here BY NAME rather than silently shrinking the
-# repo-wide claim. (scripts/ coverage is inherent in the whole-tree enumeration above.)
+# summary.sh, run-module.sh): each must appear in the git-index enumeration above, so a future
+# re-narrowing that drops them goes RED here BY NAME rather than silently shrinking the repo-wide
+# claim. Membership is tested against the already-collected $_RSG_ALL_REL (the same disk⊇list
+# `case` idiom the review-and-fix-contract module uses), reusing the single ls-files pass rather
+# than re-querying git per name. (scripts/ coverage is inherent in the whole-tree enumeration.)
 _RSG_NAMED_MISSING=""
-for _rsg_named in module-harness.sh summary.sh run-module.sh; do
-  git -C "$REPO_ROOT_157" ls-files --error-unmatch "lib/test/$_rsg_named" >/dev/null 2>&1 \
-    || _RSG_NAMED_MISSING="$_RSG_NAMED_MISSING $_rsg_named"
+for _rsg_named in lib/test/module-harness.sh lib/test/summary.sh lib/test/run-module.sh; do
+  case " $_RSG_ALL_REL " in
+    *" $_rsg_named "*) : ;;
+    *) _RSG_NAMED_MISSING="$_RSG_NAMED_MISSING $_rsg_named" ;;
+  esac
 done
 assert_eq "meta(#157 AC2): the repo-wide corpus reaches the surfaces #746 left out (module-harness/summary/run-module)" \
   "" "$_RSG_NAMED_MISSING"
