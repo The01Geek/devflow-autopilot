@@ -53643,6 +53643,16 @@ assert_eq "#551 baseline carries no group-total rows" "0" \
 # proven by the T1–T18 fixtures above rather than by prose-removal assertions.
 assert_pin_unique "#551 CLAUDE helper-cutover operative sentence is present" \
   'When an executable helper becomes the sole tested owner of a workflow decision on every path that previously consumed the prose' "$PMC_CLAUDE"
+
+# ── #762 single-source-of-truth policy: the two new canonical statements ────────
+# Surface-presence pins on the single canonical home of each new convention (the go-forward
+# SSOT policy in CLAUDE.md, the retrospective remedy-preference in retrospective-audit/SKILL.md).
+# Per the policy they pin, each statement lives in exactly ONE file and neither pin asserts a
+# duplicate copy in a second file — so the ticket's own tests comply with the policy it introduces.
+assert_pin_unique "#762 CLAUDE.md go-forward SSOT canonical statement is present" \
+  'when new work introduces a fact, contract, or figure, it lives in exactly one canonical location and every other mention is a pointer, not a copy' "$PMC_CLAUDE"  # structural-pin-ok: single canonical statement of the SSOT policy convention (surface-presence; no code regression guarded)
+assert_pin_unique "#762 retrospective-audit §2 remedy-preference is present" \
+  'prefer the proposal that collapses those sites to a single canonical source over one that adds a new pin plus a mirror copy' "$RA_SKILL"  # structural-pin-ok: single canonical statement of the drift-remedy preference convention (surface-presence; no code regression guarded)
 assert_pin_unique "#551 implement extension carries the Prose cutover section" \
   '## Prose cutover' "$PMC_EXT_IMPL"
 assert_pin_unique "#551 extension carries the complete five-condition bar" \
