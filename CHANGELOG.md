@@ -4,6 +4,14 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.21.16] — 2026-07-24
+
+### Added
+- **Phase 2 resume-idempotency gate for auto-resumed `/devflow:implement` runs.** A stalled cloud run that `devflow_implement.stall_backstop` auto-resumes no longer re-dispatches the Phase 2 `code-explorer`/`code-architect` subagents from scratch. A new §2.0 gate at Phase 2 entry fires only when both (a) Phase 1.3 recorded a durable `resume-kind: in-flight` marker and (b) a committed non-placeholder `## Plan` is present, then skips the discovery/architecture re-dispatch and builds on the committed Plan and the §1.4-adopted branch — still running §2.2.5/§2.2.6 idempotently and re-verifying against a fresh tree, and adopting the already-open PR at §3.1 rather than erroring. This makes auto-resume cheaper and faithful to already-shipped work. (#755)
+
+### Changed
+Document and pin `engine_self_modifying` as a checklist-only Phase 0.5 override. The flag no longer reads as forcing the Phase 3 agent roster: the four always-on reviewers are roster members on every diff profile, and the structural-applicability gates plus the `iterations` exclusion decide the rest. `small_diff` is documented as scaling no part of the roster (its only effect is the Phase 1+2 skip in conjunction with `config_only`). New mutation-proven pins hold both signal definitions and the amended profile-table row at their §0.5 home, the always-on-roster guarantee moves to its Phase 3.1 home with its own pin, and the `#425(rev)` precedence pin is re-anchored onto the Phase 3.1 membership statement. No change to the dispatched roster or the persisted `diff_profile` shape.
+
 ## [2.21.15] — 2026-07-24
 
 ### Changed
