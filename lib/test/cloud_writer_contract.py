@@ -1017,7 +1017,7 @@ def check_shape_conformance():
 # measures the EMISSION-TIME normalized token — extract-command-heads.py's
 # `_normalize` reduces the well-formed anchor to the vendored literal, so the
 # sanctioned source form passes as its own cloud form with no duplicate fence
-# (holding the review-bundle word ceiling). AC2 ("emitted with a literal vendored
+# (avoiding a duplicate emitted fence). AC2 ("emitted with a literal vendored
 # leading token") and AC3 ("a raw-token guard rejecting unexpanded anchors,
 # absolute/repo-root paths, and launcher-prefixed helpers") are both discharged
 # against that emission surface.
