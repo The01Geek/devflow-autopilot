@@ -35055,6 +35055,25 @@ assert_pin_unique "#529 AC4: the budget table states the default-path formula's 
 assert_pin_unique "#529 AC4: the budget table disclaims any retained-context reading" \
   '**This metric makes no retained-context claim**' "$LIB/../docs/review-bundle-budget.md"
 
+# ── CLAUDE.md length ratchet (keep the always-on project memory lean) ──────────
+# CLAUDE.md is loaded into every session, so its length is a standing cost. This is a
+# ratchet-DOWN-only ceiling: only ever LOWER it (a prose trim tightens the budget). RAISING
+# it is an audited decision — a new load-bearing gotcha that no trim can offset — recorded in
+# the PR that raises it. The number lives HERE, never in CLAUDE.md prose, so it adds no new
+# pinned CLAUDE.md-resident figure and no stale-copy coupling. Counted with `_rb_words`
+# (python3 str.split, host-independent), NEVER `wc -w` — the same reason the review bundle uses
+# it. The exact-byte census (`lib/test/prompt-mass-census.py`) is the sibling gate that forces a
+# baseline regen on ANY edit; this one additionally caps regrowth.
+CLAUDEMD_WORD_CEIL=9200
+_claudemd_w=$(_rb_words "$LIB/../CLAUDE.md")
+# Anti-vacuity: `_rb_words` on an unreadable/renamed path yields an empty or zero count, which
+# would clear a `-le` ceiling for free. Require a positive, word-bearing measurement so a moved
+# CLAUDE.md REDs here instead of silently disarming the ratchet.
+assert_eq "CLAUDE.md length ratchet: the file was really measured (non-empty word count)" "yes" \
+  "$([ -n "$_claudemd_w" ] && [ "$_claudemd_w" -gt 0 ] 2>/dev/null && echo yes || echo no)"
+assert_eq "CLAUDE.md length ratchet: within the $CLAUDEMD_WORD_CEIL-word ceiling (ratchet-down-only; lower it on a trim, raising is audited)" "yes" \
+  "$([ "$_claudemd_w" -le "$CLAUDEMD_WORD_CEIL" ] 2>/dev/null && echo yes || echo no)"
+
 # ── #529 AC5 justified-growth reporter — every arm, and the ARM ORDER ─────────
 # Extracted to a helper per CLAUDE.md's inline-shell rule: a grep-pin on a message
 # literal is not coverage of the selection that chooses it.
