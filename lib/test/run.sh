@@ -3999,7 +3999,8 @@ assert_eq "meta(#157 AC2): the repo-wide raw-guard corpus spans strictly more th
 # re-narrowing that drops them goes RED here BY NAME rather than silently shrinking the repo-wide
 # claim. Membership is tested against the already-collected $_RSG_ALL_REL (the same disk⊇list
 # `case` idiom the review-and-fix-contract module uses), reusing the single ls-files pass rather
-# than re-querying git per name. (scripts/ coverage is inherent in the whole-tree enumeration.)
+# than re-querying git per name. (scripts/ — the fourth surface #746 left out — is pinned
+# separately just below.)
 _RSG_NAMED_MISSING=""
 for _rsg_named in lib/test/module-harness.sh lib/test/summary.sh lib/test/run-module.sh; do
   case " $_RSG_ALL_REL " in
@@ -4009,6 +4010,18 @@ for _rsg_named in lib/test/module-harness.sh lib/test/summary.sh lib/test/run-mo
 done
 assert_eq "meta(#157 AC2): the repo-wide corpus reaches the surfaces #746 left out (module-harness/summary/run-module)" \
   "" "$_RSG_NAMED_MISSING"
+# scripts/ is the fourth surface #746 left out, but naming a specific scripts/*.sh file would
+# transcribe a path a rename could rot; instead assert the enumeration includes AT LEAST ONE
+# top-level scripts/*.sh entry (the leading space in the pattern anchors to a top-level
+# `scripts/` path, not a nested `.../scripts/` one). A future re-narrowing that scopes the
+# corpus back to lib/test — dropping all of scripts/ — then goes RED here rather than silently
+# passing the two controls above, which name only lib/test surfaces (#758 review finding).
+_RSG_SCRIPTS_PRESENT=no
+case " $_RSG_ALL_REL " in
+  *" scripts/"*) _RSG_SCRIPTS_PRESENT=yes ;;
+esac
+assert_eq "meta(#157 AC2): the repo-wide corpus reaches scripts/ (a re-narrowing to lib/test goes RED)" \
+  "yes" "$_RSG_SCRIPTS_PRESENT"
 # AC4 mutation proof: an UNMARKED raw guard written anywhere is detected (RED); the
 # SAME line carrying the allowlist marker is exempted (0). The fixture SOURCE lines
 # below carry the marker so the LIVE scan above skips them, while the string each

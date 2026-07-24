@@ -45,7 +45,9 @@ trap _raf_cleanup EXIT
 # stable order, into a single .md the content pins grep. Members come from the FIXED
 # RAF_EXPECTED_REFS list (this module builds its member list from no glob — unlike run.sh's MAXI_BUNDLE).
 # The bundle is assembled through the shared devflow_module_build_bundle helper (#758,
-# retiring the last hand-rolled member-by-member loop): the helper is the deletion/emptiness
+# retiring the last hand-rolled member-by-member loop in any test module — run.sh's own
+# monolith `_build_skill_bundle` is deliberately kept, per that helper's own docstring):
+# the helper is the deletion/emptiness
 # guard, reporting a missing, empty, or unreadable member through the assertion channel as a
 # named-per-member RED (fail-closed) — a partial bundle would otherwise turn absence/count
 # pins into vacuous passes. The member-count assertion below is a lockstep self-consistency
