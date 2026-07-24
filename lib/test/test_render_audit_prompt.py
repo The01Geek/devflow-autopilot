@@ -1276,6 +1276,44 @@ class DeclaredDimensionKeys(unittest.TestCase):
                               "--template-file", str(p)])
         self.assertEqual(r.returncode, 0, r.stderr)
 
+    def test_a_dim_key_declaration_in_a_non_checklist_block_fails_closed(self):
+        # issue #735: `_assemble` strips `<!-- dim-key: … -->` from EVERY selected
+        # block, but only the checklist block is validated — so a declaration
+        # authored into a file/embed/inline/di block was silently stripped from the
+        # prose AND never enumerated while its bullet still rendered as a
+        # dimension-shaped instruction (the one authoring defect #729's arms miss).
+        # The fix rejects it on every render AND enumeration path, naming the block.
+        tmpl = self._shipped_template()
+        anchor = "<!-- render-block: file -->\n"
+        # Non-vacuity: the file-only (non-checklist) block really exists in the
+        # shipped template, so the injected declaration lands outside the checklist
+        # block — the exact gap this test exercises.
+        self.assertIn(anchor, tmpl)
+        poisoned = tmpl.replace(
+            anchor,
+            anchor
+            + "<!-- dim-key: smuggled-dimension -->\n"
+            + "- **Smuggled dimension** — never enumerated.\n",
+            1,
+        )
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "tmpl.md"
+            p.write_text(poisoned, encoding="utf-8")
+            # The render path (the arm that carries the poisoned block) and the
+            # enumeration path (the operand coverage totality is checked against)
+            # BOTH fail closed, so the two projections cannot silently drift.
+            rend = run_renderer(["file", "--slug", "x", "--draft-path", "/tmp/d.md",
+                                 "--template-file", str(p)])
+            enum = run_renderer(["enumerate-dimensions", "--template-file", str(p)])
+        for r in (rend, enum):
+            self.assertNotEqual(r.returncode, 0, r.stdout)
+            self.assertEqual(r.stdout, "")
+            # The breadcrumb names the file at fault and the block that carries the
+            # stray declaration, so an operator debugs the right block.
+            self.assertIn("template malformed", r.stderr)
+            self.assertIn("non-checklist render-block", r.stderr)
+            self.assertIn("file", r.stderr)
+
     # ---- Consumer-side declaration defects: symmetric with the generic arm.
     # The consumer extension is the one file in this contract a THIRD PARTY authors,
     # so before this table every shape below silently discarded the declaration and
