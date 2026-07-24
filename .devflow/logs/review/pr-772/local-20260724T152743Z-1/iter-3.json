@@ -1,0 +1,86 @@
+{
+  "iter": 3,
+  "started_at": "2026-07-24T16:50:00Z",
+  "fix_commit_sha": "5aa774e1",
+  "fix_files": [
+    "skills/implement/phases/phase-1-setup.md",
+    "skills/implement/phases/phase-2-implement.md",
+    "skills/implement/phases/phase-3-review.md",
+    "lib/test/run.sh",
+    "scripts/devflow-cloud-writer-contract.json"
+  ],
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "current_step": "loop-exit",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [],
+  "phase3_findings": [],
+  "fix_decisions": [
+    {
+      "finding_id": "S-1",
+      "decision": "applied",
+      "commit": "5aa774e1"
+    },
+    {
+      "finding_id": "S-2",
+      "decision": "applied",
+      "commit": "5aa774e1"
+    },
+    {
+      "finding_id": "S-3",
+      "decision": "applied",
+      "commit": "5aa774e1"
+    },
+    {
+      "finding_id": "S-4",
+      "decision": "applied",
+      "commit": "5aa774e1"
+    },
+    {
+      "finding_id": "S-5",
+      "decision": "applied",
+      "commit": "5aa774e1"
+    },
+    {
+      "finding_id": "S-6",
+      "decision": "applied",
+      "commit": "5aa774e1"
+    },
+    {
+      "finding_id": "S-7",
+      "decision": "applied",
+      "commit": "5aa774e1"
+    },
+    {
+      "finding_id": "S-8",
+      "decision": "applied",
+      "commit": "5aa774e1"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 8,
+    "fix_diff_lines": 57,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "reference_reads": {
+    "fix_delta": {
+      "status": "verified",
+      "outcome": "clean",
+      "reason": null
+    }
+  },
+  "loop_exit_note": "The iteration-2 shadow's findings were promoted into this iteration and all eight were applied. A SECOND shadow was NOT run over these post-shadow fixes, so the shadow coverage recorded on iter-2 attests to commit 5fded979, not to the final head 5aa774e1. Reported as APPROVE WITH CAVEAT, never a clean approve.",
+  "telemetry": "unavailable"
+}
