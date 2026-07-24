@@ -214,7 +214,13 @@ class RunAccumulator:
             return
         self.attributed = True
         self.turn_count += 1
-        usage = (record.get("message") or {}).get("usage")
+        # A truthy non-dict `message` (a JSON array/string) would make `.get()` raise;
+        # `(x or {})` only rescues a FALSY value, so guard with isinstance (mirroring
+        # observe_user) — a well-typed-but-wrong-shape record degrades cleanly.
+        message = record.get("message")
+        if not isinstance(message, dict):
+            message = {}
+        usage = message.get("usage")
         context = (
             _usage_field(usage, "input_tokens")
             + _usage_field(usage, "cache_read_input_tokens")
@@ -223,7 +229,7 @@ class RunAccumulator:
         self.per_turn_context.append(context)
         self.total_output_tokens += _usage_field(usage, "output_tokens")
 
-        content = (record.get("message") or {}).get("content")
+        content = message.get("content")
         if not isinstance(content, list):
             return
         for block in content:
@@ -231,7 +237,12 @@ class RunAccumulator:
                 continue
             btype = block.get("type")
             if btype == "tool_use" and block.get("name") == "Read":
-                file_path = (block.get("input") or {}).get("file_path")
+                # A Read block's `input` may be a non-dict (a list/string); `(x or {})`
+                # passes a truthy non-dict through to `.get()` and raises. isinstance-guard.
+                block_input = block.get("input")
+                if not isinstance(block_input, dict):
+                    block_input = {}
+                file_path = block_input.get("file_path")
                 tool_use_id = block.get("id")
                 if isinstance(file_path, str) and tool_use_id is not None:
                     self._pending_reads[tool_use_id] = file_path
@@ -323,6 +334,7 @@ def eval_corpus(corpus_root, large_block_chars=LARGE_BLOCK_MIN_CHARS):
         "unreadable_file": 0,
         "escaped_path": 0,
         "walk_error": 0,
+        "malformed_record": 0,
     }
     for session_file in _iter_session_files(corpus_root, skipped):
         acc = RunAccumulator(os.path.basename(session_file), large_block_chars)
@@ -358,12 +370,25 @@ def eval_corpus(corpus_root, large_block_chars=LARGE_BLOCK_MIN_CHARS):
                 if rtype is None:
                     skipped["no_type"] += 1
                     continue
-                if rtype == "assistant":
-                    acc.observe_assistant(record)
-                elif rtype == "user":
-                    acc.observe_user(record)
-                elif rtype == "system":
-                    acc.observe_system(record)
+                # Defensive backstop: the observers isinstance-guard their known field
+                # shapes, but a record shape not anticipated here must degrade per-record
+                # (tallied + breadcrumbed), never detonate the whole corpus walk. This is
+                # what makes the module docstring's "without detonating" guarantee true.
+                try:
+                    if rtype == "assistant":
+                        acc.observe_assistant(record)
+                    elif rtype == "user":
+                        acc.observe_user(record)
+                    elif rtype == "system":
+                        acc.observe_system(record)
+                except (AttributeError, TypeError, ValueError, KeyError) as exc:
+                    skipped["malformed_record"] += 1
+                    sys.stderr.write(
+                        "warning: skipping malformed record in {}: {}\n".format(
+                            session_file, exc
+                        )
+                    )
+                    continue
         if acc.attributed:
             runs.append(acc.result())
     runs.sort(key=lambda r: r["source"])

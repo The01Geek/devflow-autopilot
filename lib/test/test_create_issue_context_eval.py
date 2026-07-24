@@ -120,6 +120,22 @@ class HappyPathTest(unittest.TestCase):
         })
 
 
+class RealisticFixtureTest(unittest.TestCase):
+    def test_realistic_transcript_excerpt_is_processed(self):
+        # Issue #767 AC: the parser processes a real transcript excerpt. These values
+        # are the parser's actual output over the committed fixture (verified live), not
+        # hand-picked numbers.
+        runs, skipped = CICE.eval_corpus(os.path.join(_FIX, "realistic"))
+        self.assertEqual(len(runs), 1)
+        r = runs[0]
+        self.assertEqual(r["peak_context"], 125500)
+        self.assertEqual(r["compact_boundary_count"], 1)
+        self.assertEqual(r["repeated_read_count"], 0)
+        # The isSidechain assistant record is excluded from the attributed turn count.
+        self.assertEqual(r["turn_count"], 2)
+        self.assertEqual(sum(skipped.values()), 0)
+
+
 class ReductionDetectionTest(unittest.TestCase):
     def test_after_fixture_has_strictly_lower_peak_and_reemission(self):
         # Proves the eval DETECTS a modeled reduction (passes by construction; NOT a
@@ -277,6 +293,80 @@ class AdversarialTest(_SingleSessionMixin, unittest.TestCase):
         self.assertEqual(skipped["non_json_line"], 2)  # 'not json' + truncated
         self.assertEqual(skipped["not_object"], 1)
         self.assertEqual(skipped["no_type"], 1)
+
+    def test_message_wrong_shape_does_not_detonate(self):
+        # `message` as a truthy non-dict (a list here) must NOT raise AttributeError and
+        # abort the corpus walk: the isinstance guard degrades it cleanly and the
+        # following well-formed attributed record still processes.
+        import sys
+        saved = sys.stderr
+        sys.stderr = io.StringIO()
+        try:
+            runs, skipped = self._run_one([
+                '{"type":"assistant","attributionSkill":"devflow:create-issue",'
+                '"message":["not","a","dict"]}',
+                '{"type":"assistant","attributionSkill":"devflow:create-issue",'
+                '"message":{"usage":{"input_tokens":9}}}',
+            ])
+        finally:
+            sys.stderr = saved
+        self.assertEqual(len(runs), 1)
+        self.assertEqual(runs[0]["turn_count"], 2)
+        self.assertEqual(runs[0]["peak_context"], 9)
+        # No detonation: the isinstance guard handled the bad shape without a skip.
+        self.assertEqual(sum(skipped.values()), 0)
+
+    def test_read_block_input_wrong_shape_does_not_detonate(self):
+        # A Read tool_use whose `input` is a list (not a dict) must not raise; the block
+        # is skipped for path tracking and the walk completes with the record counted.
+        import sys
+        saved = sys.stderr
+        sys.stderr = io.StringIO()
+        try:
+            runs, skipped = self._run_one([
+                '{"type":"assistant","attributionSkill":"devflow:create-issue",'
+                '"message":{"usage":{"input_tokens":3},"content":['
+                '{"type":"tool_use","id":"u1","name":"Read","input":["not","a","dict"]}]}}',
+                '{"type":"assistant","attributionSkill":"devflow:create-issue",'
+                '"message":{"usage":{"input_tokens":5}}}',
+            ])
+        finally:
+            sys.stderr = saved
+        self.assertEqual(len(runs), 1)
+        self.assertEqual(runs[0]["turn_count"], 2)
+        self.assertEqual(sum(skipped.values()), 0)
+
+    def test_defensive_dispatch_tallies_malformed_record(self):
+        # Backstop for any record shape the isinstance guards do not anticipate: the
+        # per-record try/except in eval_corpus tallies `malformed_record` and the walk
+        # completes rather than aborting. We force the guarded path by monkeypatching an
+        # observer to raise on a specific record, proving the dispatch-level guard tallies
+        # and the following good record still processes.
+        import sys
+        original = CICE.RunAccumulator.observe_user
+
+        def _boom(self, record):
+            if record.get("boom"):
+                raise TypeError("synthetic malformed record")
+            return original(self, record)
+
+        saved_stderr = sys.stderr
+        sys.stderr = io.StringIO()
+        CICE.RunAccumulator.observe_user = _boom
+        try:
+            runs, skipped = self._run_one([
+                '{"type":"assistant","attributionSkill":"devflow:create-issue",'
+                '"message":{"usage":{"input_tokens":4}}}',
+                '{"type":"user","boom":true,"message":{"content":[]}}',
+                '{"type":"assistant","attributionSkill":"devflow:create-issue",'
+                '"message":{"usage":{"input_tokens":6}}}',
+            ])
+        finally:
+            CICE.RunAccumulator.observe_user = original
+            sys.stderr = saved_stderr
+        self.assertEqual(len(runs), 1)
+        self.assertEqual(runs[0]["turn_count"], 2)
+        self.assertEqual(skipped["malformed_record"], 1)
 
     def test_unreadable_session_file_is_tallied(self):
         # A file the walker enumerates but cannot open (here a broken symlink whose

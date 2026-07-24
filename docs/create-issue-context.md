@@ -152,7 +152,7 @@ weakened**:
    - **Check 3 (transcript-level reduction is detectable).** The eval's committed
      synthetic before/after fixture pair
      (`lib/test/fixtures/create-issue-eval/{before,after}`) reports a strictly lower
-     resident total and re-emission count on the after-fixture — demonstrating the eval
+     peak context and re-emission count on the after-fixture — demonstrating the eval
      *detects* a modeled reduction (a unit property that passes by construction). It is
      **not** claimed as proof that the shipped skill edit reduces real runs.
 
