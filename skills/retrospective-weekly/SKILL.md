@@ -585,6 +585,14 @@ Build the summary JSON and assign it to `$SUMMARY_JSON`:
 # kernel arg limit at scale (jq: "Argument list too long", issue #783). --slurpfile wraps
 # each file in a one-element array, so the jq program dereferences [0].
 _SUMMARY_TMP="$(mktemp -d)"
+trap 'rm -rf "$_SUMMARY_TMP"' EXIT
+# Preserve --argjson's fail-loud-on-empty semantics after the #783 --slurpfile switch:
+# an empty operand slurps to []→[0]=null (silent) where --argjson aborted loud. These
+# three are upstream producer output, valid JSON ([] at minimum) on success — an empty
+# string means that producer failed, so fail loud rather than emit analyzed/patterns:null.
+: "${ANALYZED_JSON:?devflow retrospective Step 9: ANALYZED_JSON is empty — upstream Stage-A analysis failed}"
+: "${PATTERNS_JSON:?devflow retrospective Step 9: PATTERNS_JSON is empty — Step 6 patterns.json missing/empty}"
+: "${RECURRING_TARGETS_JSON:?devflow retrospective Step 9: RECURRING_TARGETS_JSON is empty — recurring-targets.sh failed}"
 printf '%s\n' "${skip_records[@]:-}"        | $LIB/../scripts/run-jq.sh -sRc 'split("\n") | map(select(. != ""))' > "$_SUMMARY_TMP/skips.json"
 printf '%s' "$ANALYZED_JSON"                > "$_SUMMARY_TMP/analyzed.json"
 printf '%s' "$PATTERNS_JSON"                > "$_SUMMARY_TMP/patterns.json"
