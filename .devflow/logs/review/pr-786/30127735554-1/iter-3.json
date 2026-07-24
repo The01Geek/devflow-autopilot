@@ -1,0 +1,32 @@
+{
+  "iter": 3,
+  "fix_commit_sha": "ab81e53c276be0ef50ae6bf94fe173051726b296",
+  "fix_files": [
+    ".changeset/issue-709-audit-dispatch-instructions.md",
+    "docs/create-issue-budget.md",
+    "docs/cutovers/issue-709-audit-dispatch-instructions.md",
+    "lib/test/prompt-mass-baseline.json",
+    "lib/test/run.sh",
+    "lib/test/test_python_scripts.py",
+    "lib/test/test_render_audit_prompt.py",
+    "scripts/issue-audit-state.py",
+    "skills/create-issue/references/audit-prompt-template.md"
+  ],
+  "loop_role": "fix",
+  "synthesized": true,
+  "sweep_defs_read": {
+    "status": "unrecoverable",
+    "reason": "fix-commit-only synthesis: no iteration record was found for this run, and a fix commit carries no trace of which sweep definitions were read"
+  },
+  "sweep_evidence": {
+    "status": "unrecoverable",
+    "reason": "fix-commit-only synthesis: no iteration record was found for this run, and a fix commit carries no trace of the sweep outcomes"
+  },
+  "reference_reads": {
+    "fix_delta": {
+      "status": "unrecoverable",
+      "reason": "fix-commit-only synthesis: no iteration record was found for this run, and a fix commit carries no trace of whether the Step 3.5 fix-delta gate ran"
+    }
+  },
+  "telemetry": "unavailable"
+}
