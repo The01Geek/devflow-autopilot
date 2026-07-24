@@ -574,10 +574,16 @@ def _acs_read_workpad(cmd: str, issue: int):
 def cmd_acs(args):
     """Print the workpad's `## Acceptance Criteria` section.
 
-    Verbatim by default — every line's tick state preserved and every
-    ` (post-merge)` tag left as stored — because the unfiltered section is the
-    divergence comparand. The two flags produce the reviewer-facing value
-    instead.
+    Unfiltered by default — every criterion carried through with its tick state
+    preserved and its ` (post-merge)` tag left as stored — because the
+    unfiltered section is the divergence comparand. The two flags produce the
+    reviewer-facing value instead.
+
+    Not a byte copy of the stored section: the output is the PARSED checkbox
+    items re-rendered, so blank lines between them are dropped and a `* [ ]`
+    bullet normalizes to `- [ ]`. What is guaranteed is the content contract
+    above — no criterion filtered, no tick state or tag altered — which is what
+    the comparand and the reviewer-facing value both depend on.
 
     A pure read: no PATCH, no timestamp, nothing time-varying in the output, so
     re-running it against an unchanged workpad is byte-identical by
@@ -702,8 +708,10 @@ def cmd_acs_resolve(args):
     its first hit would leave that report unable to fire on the one population
     it matters for.
 
-    The workpad section is resolved TWICE, with different jobs: unfiltered (the
-    comparand) and post-merge-filtered (the reviewer-facing value). Filtering
+    The workpad section is parsed ONCE and that one item list is rendered TWICE,
+    for different jobs: unfiltered (the comparand) and post-merge-filtered (the
+    reviewer-facing value) — so the two can never disagree about membership,
+    only about the post-merge filter. Filtering
     the comparand instead would report every post-merge criterion as a workpad
     drop on every implement PR, because `parse-acs.py` synthesizes that tag at
     mirror time and the issue body carries those same criteria untagged.
@@ -2833,8 +2841,10 @@ def main():
     # together, so it is not a desync channel.
     s = sub.add_parser(
         'acs',
-        help="Print the workpad's ## Acceptance Criteria section verbatim "
-             '(tick state and (post-merge) tags preserved). Exit 2 with empty '
+        help="Print the workpad's ## Acceptance Criteria criteria unfiltered "
+             '(every criterion carried through, tick state and (post-merge) '
+             'tags preserved; the parsed items are re-rendered, so blank lines '
+             'are dropped and "* [ ]" normalizes to "- [ ]"). Exit 2 with empty '
              'stdout AND empty stderr when no workpad exists; exit 3 on a gh '
              'read failure.',
     )

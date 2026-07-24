@@ -236,7 +236,7 @@ Store the issue title and truncated body as `issue_context`.
 
 #### Resolve the acceptance criteria
 
-`/devflow:implement`'s authoritative acceptance criteria live in the **workpad comment**, not the issue body — Phase 2.2.5 narrows them, Phase 2.2.6 rewrites their text, and Phase 3.4 retags them — so the criteria this engine judges against are resolved by `scripts/workpad.py acs-resolve`, never read off the issue body directly. That helper does all of the resolution deterministically in one process (it fetches the issue body itself, resolves both surfaces, retains the non-selected set as the divergence comparand, resolves the workpad section twice, runs the PR-identity guard, and selects the reviewer-facing value); do not re-derive any part of it here — its contract is its `--help` and its module docstring.
+`/devflow:implement`'s authoritative acceptance criteria live in the **workpad comment**, not the issue body — Phase 2.2.5 narrows them, Phase 2.2.6 rewrites their text, and Phase 3.4 retags them — so the criteria this engine judges against are resolved by `scripts/workpad.py acs-resolve`, never read off the issue body directly. That helper does all of the resolution deterministically in one process (it fetches the issue body itself, resolves both surfaces, retains the non-selected set as the divergence comparand, renders the one parsed workpad section twice — unfiltered as the comparand, post-merge-filtered as the reviewer-facing value — runs the PR-identity guard, and selects the reviewer-facing value); do not re-derive any part of it here — its contract is its `--help` and its module docstring.
 
 When `$ISSUE_NUM` resolved, call it:
 

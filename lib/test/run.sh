@@ -8419,6 +8419,15 @@ _wp781_variant "$S781/wp-subheading.md" '- [ ] Test-plan item one' '### Sub
 - [ ] Criterion D'
 _wp781_variant "$S781/wp-norecord.md" \
   '<!-- devflow:scope-decision pr=143 kind=deferred text=Q3JpdGVyaW9uIEM= -->' 'no record here'
+# PARTIAL coverage: the workpad drops TWO of the issue body's criteria (B and C)
+# while the single bound record covers only C. This is the one shape that
+# separates the per-criterion guard from an existential one — `wp-norecord`
+# carries ZERO records, so `if decisions: return True` rejects it for the right
+# answer by accident, and every other fixture has full coverage. Here a mutant
+# that credits the record set as a whole would ACCEPT a workpad that silently
+# dropped Criterion B.
+_wp781_variant "$S781/wp-partial.md" '- [ ] Criterion B (post-merge)
+' ''
 # Duplicate `## Acceptance Criteria` heading: the FIRST section must win, never a
 # silent concatenation of both.
 { cat "$S781/wp-real.md"; printf '\n## Acceptance Criteria\n- [ ] Criterion Z\n'; } > "$S781/wp-dupe.md"
@@ -8436,11 +8445,14 @@ run781() {
 }
 
 # ---- `acs` extraction contract ------------------------------------------------
-# Verbatim by default: tick state preserved, the (post-merge) tag preserved, and
+# Unfiltered by default: tick state preserved, the (post-merge) tag preserved, and
 # the mirrored Test-Plan item carried through. This is the divergence comparand.
+# Not a byte copy — the parsed items are re-rendered (blank lines dropped, `* [ ]`
+# normalized), which is why the expectation below is the item sequence and not the
+# stored section's bytes.
 _c="$(run781 "$S781/wp-real.md" acs 999)"
 assert_eq "#781: acs exits 0 on a resolvable workpad" "0" "$_c"
-assert_eq "#781: acs prints the section VERBATIM (tick state + (post-merge) tag + mirrored Test-Plan item)" \
+assert_eq "#781: acs prints every criterion unfiltered (tick state + (post-merge) tag + mirrored Test-Plan item)" \
   '- [x] Criterion A|- [ ] Criterion B (post-merge)|- [ ] Test-plan item one' \
   "$(tr '\n' '|' < "$S781/out" | sed 's/|$//')"
 
@@ -8538,6 +8550,17 @@ assert_eq "#781: an UNCOVERED narrowing is reported as a DROP finding" 'DROP: Cr
 assert_eq "#781: a narrowed workpad carrying zero records fails CLOSED to pr-identity-mismatch" \
   "pr-identity-mismatch" "$(_src781)"
 
+# Per-criterion coverage, not existential: ONE record covering ONE of two dropped
+# criteria leaves the other unexplained, so the workpad is rejected. The divergence
+# report must still show BOTH — the covered drop as an audited DEFERRED decision and
+# the uncovered one as a DROP finding — so a regression cannot hide the unexplained
+# criterion behind the covered one.
+run781 "$S781/wp-partial.md" acs-resolve 999 --pr 143 >/dev/null
+assert_eq "#781: ONE record covering ONE of TWO dropped criteria still fails closed (per-criterion, not existential)" \
+  "pr-identity-mismatch" "$(_src781)"
+assert_eq "#781: the partially-covered narrowing reports the covered drop AND the uncovered one distinctly" \
+  'DROP: Criterion B|DEFERRED: Criterion C' "$(_div781)"
+
 run781 "$S781/wp-crosspr.md" acs-resolve 999 --pr 143 >/dev/null
 assert_eq "#781: a record naming ANOTHER PR routes to the issue body under pr-identity-mismatch" \
   "pr-identity-mismatch" "$(_src781)"
@@ -8606,7 +8629,7 @@ assert_eq "#781: a criteria section beginning past line 200 resolves in full (no
 # The `rewritten` sibling covers `new_blob is not None and new_text is None` —
 # the shape that would otherwise emit a HALF-decoded record.
 assert_eq "#781: scope-decision helpers round-trip, fail closed, and bind idempotently" \
-  "pending-covers-nothing=0 bound=1 rebind-idempotent=143 undecodable-nonutf8=0 undecodable-padding=0 undecodable-newtext=0 charset-invalid-unmatched=yes normalized=Criterion X" \
+  "pending-covers-nothing=0 bound=1 rebind-idempotent=143 undecodable-nonutf8=0 undecodable-padding=0 undecodable-newtext=0 empty-text=0 empty-newtext=0 charset-invalid-unmatched=yes normalized=Criterion X" \
   "$(python3 - "$WP_PY" 2>"$S781/unb64err" <<'PY'
 import importlib.util, sys
 spec = importlib.util.spec_from_file_location('wp', sys.argv[1])
@@ -8619,6 +8642,14 @@ padding = '<!-- devflow:scope-decision pr=143 kind=deferred text=QQ= -->'
 newtext = ('<!-- devflow:scope-decision pr=143 kind=rewritten '
            'text=Q3JpdGVyaW9uIEM= newtext=/w== -->')
 charset_invalid = '<!-- devflow:scope-decision pr=143 kind=deferred text=!!!! -->'
+# The EMPTY-payload half of the fail-closed drop path: the regex's payload class is
+# `*`-quantified, so a truncated or hand-edited `text=` (or `newtext=`) MATCHES and
+# decodes cleanly to `''` — it never reaches `_unb64`'s error arm, so the undecodable
+# fixtures above cannot cover it. A record naming no criterion can cover none, and
+# crediting it is exactly the vacuous-coverage shape `_acs_pr_identity_ok` forbids.
+empty_text = '<!-- devflow:scope-decision pr=143 kind=deferred text= -->'
+empty_newtext = ('<!-- devflow:scope-decision pr=143 kind=rewritten '
+                 'text=Q3JpdGVyaW9uIEM= newtext= -->')
 print(
     f"pending-covers-nothing={len(wp._parse_scope_decisions(rec, 143))} "
     f"bound={len(wp._parse_scope_decisions(bound, 143))} "
@@ -8626,6 +8657,8 @@ print(
     f"undecodable-nonutf8={len(wp._parse_scope_decisions(nonutf8, 143))} "
     f"undecodable-padding={len(wp._parse_scope_decisions(padding, 143))} "
     f"undecodable-newtext={len(wp._parse_scope_decisions(newtext, 143))} "
+    f"empty-text={len(wp._parse_scope_decisions(empty_text, 143))} "
+    f"empty-newtext={len(wp._parse_scope_decisions(empty_newtext, 143))} "
     "charset-invalid-unmatched="
     f"{'yes' if wp._SCOPE_DECISION_RE.search(charset_invalid) is None else 'no'} "
     f"normalized={wp._parse_scope_decisions(bound, 143)[0]['text']}"
@@ -8641,6 +8674,22 @@ assert_eq "#781: the undecodable breadcrumb names the specific failure (non-UTF-
   "$(grep -q '0xff' "$S781/unb64err" && grep -q 'Incorrect padding' "$S781/unb64err" && echo yes || echo no)"
 assert_eq "#781: an undecodable payload states it covers no criterion" "yes" \
   "$(grep -q 'it covers no criterion' "$S781/unb64err" && echo yes || echo no)"
+# The EMPTY-payload drop is a DIFFERENT breadcrumb from the undecodable one (it never
+# reaches `_unb64`), and it must NAME THE FIELD — a `newtext=` truncation and a `text=`
+# truncation are different corruptions, and a shared generic message would leave the
+# auditor unable to tell which half of a `rewritten` record was lost.
+assert_eq "#781: an empty text= payload emits its own field-naming breadcrumb" "1" \
+  "$(grep -c 'whose text= payload is empty' "$S781/unb64err")"
+assert_eq "#781: an empty newtext= payload emits its own field-naming breadcrumb" "1" \
+  "$(grep -c 'whose newtext= payload is empty' "$S781/unb64err")"
+assert_eq "#781: the empty-payload breadcrumb also states it covers no criterion" "2" \
+  "$(grep -c 'payload is empty; it covers no criterion' "$S781/unb64err")"
+# The cross-run adoption residual is only OBSERVABLE if the bind count is actually
+# emitted; without this the KNOWN LIMITATION's sole mitigation could be dropped silently.
+assert_eq "#781: binding a pending record emits the adoption count naming the target PR" "yes" \
+  "$(grep -q 'bound 1 pending scope-decision record(s) to pr=143' "$S781/unb64err" && echo yes || echo no)"
+assert_eq "#781: the adoption breadcrumb names the earlier-run contamination it exists to surface" "yes" \
+  "$(grep -q 'records left by an earlier run on this issue were adopted' "$S781/unb64err" && echo yes || echo no)"
 # A malformed PR value or an empty criterion text is STRUCTURAL — no record is
 # written at all, rather than one that silently covers the wrong row (or none).
 assert_eq "#781: a malformed scope-decision PR value aborts structurally" "yes" \
@@ -8656,6 +8705,96 @@ for args in (argparse.Namespace(scope_decision_deferred=[('not-a-pr', 'X')], sco
     except wp._UpdateError:
         ok.append(True)
 print('yes' if all(ok) else 'no')
+PY
+)"
+
+# ---- scope-decision records through the REAL `update` CLI ---------------------
+# The assertions above call the helpers directly against hand-written fixtures, so
+# nothing exercises the path a §2.2.5/§2.2.6 call actually takes: argparse → render
+# → the ## Progress note-append → PATCH. A record written to the wrong section, or
+# a rendered form the parser cannot read back, would leave every direct-call test
+# green while the live run silently recorded nothing the reviewer can credit. This
+# drives the write end-to-end and then reads it back with `_parse_scope_decisions`,
+# closing the loop on the same body the CLI PATCHed.
+S781U="$(mktemp -d)"
+cat > "$S781U/gh" <<'STUB'
+#!/usr/bin/env bash
+# gh stub for workpad.py update: repo view, comment lookup, body fetch, PATCH
+# (echoes the patched body so the test can read the written record back).
+j="$*"
+if [[ "$j" == *"repo view"* ]]; then echo "owner/repo"; exit 0; fi
+if [[ "$j" == *"-X PATCH"* ]]; then
+  for a in "$@"; do case "$a" in body=@*) cat "${a#body=@}";; esac; done
+  exit 0
+fi
+if [[ "$j" == *"issues/comments/7"* ]]; then cat "$WP_BODY"; exit 0; fi
+if [[ "$j" == *"issues/999/comments"* ]]; then echo '[{"id":7,"body":"<!-- devflow:workpad -->"}]'; exit 0; fi
+echo '[]'
+STUB
+chmod +x "$S781U/gh"
+cat > "$S781U/base.md" <<'WPMD'
+<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #999
+
+**Status:** 🚀 Implementing
+**Last updated:** 2026-05-15T00:00:00Z
+
+## Progress
+- [ ] **Implement**
+
+## Plan
+- [x] Plan step one
+
+## Acceptance Criteria
+- [ ] Criterion A
+- [ ] Criterion B
+
+## Devflow Reflection
+<details>
+<summary>Devflow Reflection (click to expand)</summary>
+
+</details>
+WPMD
+WP_BODY="$S781U/base.md" DEVFLOW_GH="$S781U/gh" python3 "$WP_PY" update 999 \
+  --note 'scope decision: this PR delivers A only' \
+  --scope-decision-deferred pending 'Criterion B' \
+  --scope-decision-rewritten pending 'Criterion A' 'Criterion A2' \
+  >"$S781U/out" 2>"$S781U/err"
+_c781u=$?
+assert_eq "#781: an update writing scope-decision records exits 0" "0" "$_c781u"
+# Placement: the records are ## Progress bullets, and they land AFTER the free-text
+# --note bullet (human narrative, then machine record) — the order workpad.py's own
+# note-append comment promises. Asserting on the SECTION and the ORDER is what a
+# refactor moving them into ## Plan, or ahead of the notes, has to go RED on.
+assert_eq "#781: both scope-decision records land in ## Progress, never another section" "2" \
+  "$(sed -n '/^## Progress$/,/^## Plan$/p' "$S781U/out" | grep -c 'devflow:scope-decision')"
+# Position-independent: reduce the Progress section's appended bullets to an ORDER
+# WORD per bullet, so the assertion pins the sequence itself rather than absolute
+# line numbers (which shift with any unrelated skeleton edit and would make this a
+# brittle pin that fails for the wrong reason).
+assert_eq "#781: the records append AFTER the free-text --note bullet (narrative, then record)" \
+  "note record record" \
+  "$(sed -n '/^## Progress$/,/^## Plan$/p' "$S781U/out" \
+     | grep 'this PR delivers A only\|devflow:scope-decision' \
+     | sed -e 's/.*devflow:scope-decision.*/record/' -e 's/.*delivers A only.*/note/' \
+     | tr '\n' ' ' | sed 's/ $//')"
+# Round-trip: the CLI-written records must be readable by the very parser the
+# reviewer runs — and they are written `pr=pending`, so they cover NOTHING until
+# Phase 3.1 binds them. Both halves matter: a `pending` record credited early is the
+# unbound-record fail-open, and a bound record the parser cannot read is a silent loss.
+assert_eq "#781: the CLI-written records read back as pending-covers-nothing, then bind and parse" \
+  "pending=0 bound=2 kinds=deferred,rewritten texts=Criterion B|Criterion A->Criterion A2" \
+  "$(python3 - "$WP_PY" "$S781U/out" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location('wp', sys.argv[1])
+wp = importlib.util.module_from_spec(spec); spec.loader.exec_module(wp)
+body = open(sys.argv[2]).read()
+bound = wp._bind_scope_decisions(body, 143)
+recs = wp._parse_scope_decisions(bound, 143)
+kinds = ','.join(r['kind'] for r in recs)
+texts = '|'.join(r['text'] + (f"->{r['new_text']}" if r['new_text'] else '') for r in recs)
+print(f"pending={len(wp._parse_scope_decisions(body, 143))} bound={len(recs)} "
+      f"kinds={kinds} texts={texts}")
 PY
 )"
 
