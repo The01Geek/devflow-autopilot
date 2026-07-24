@@ -7394,23 +7394,27 @@ printf '%s\n' '[{"number":35,"createdAt":"2026-01-01T00:00:00Z","baseRefName":"m
 # code free to drift (and vice versa).
 # Each invocation is made EXACTLY ONCE and its result captured, because the arm-order rows
 # below compare the same outcomes the matrix rows assert: re-invoking there would spawn six
-# more bash+stub+jq chains for answers already in hand. `_R_ERR` keeps that run's stderr so
-# the breadcrumb row need not re-run the helper either.
-_R_ERR=""
+# more bash+stub+jq chains for answers already in hand. The helper's stderr is likewise kept
+# for the breadcrumb row, and it is read from the FILE rather than from a shell variable set
+# inside rep782: every call site here is a `$(rep782 …)` command substitution, i.e. a
+# SUBSHELL, so an assignment made inside the function is discarded on return — the file
+# survives because the redirect writes it in the parent's filesystem, not its environment.
+# (The two non-vacuity assertions below exist because the variable form silently produced two
+# EMPTY strings that compared "same" — a guard that would have read as armed and could not
+# fail.) $S782/err is overwritten by each call, so a row that needs it copies it immediately.
 rep782() {
   local fx="$1" rc="$2"; shift 2
   local out st
   : > "$S782/ghlog"
   out="$(GHLOG="$S782/ghlog" REP_FIXTURE="$fx" REP_RC="$rc" DEVFLOW_GH="$S782/gh" \
       bash "$REP_SH" "$@" 2>"$S782/err")" && st=0 || st=$?
-  _R_ERR="$(cat "$S782/err")"
   printf '%s|%s\n' "$out" "$st"
 }
 assert_eq "#782 resolve-existing-pr.sh exists and is executable" "yes" \
   "$([ -x "$REP_SH" ] && echo yes || echo no)"
 # ── The five input-matrix rows the issue enumerates, each asserting token AND exit code.
 R782_REFUSED_GH="$(rep782 "$S782/empty.json" 4 --issue 782 --base main --branch feature-x)"
-R782_ERR_GH="$_R_ERR"
+R782_ERR_GH="$(cat "$S782/err")"
 assert_eq "#782 arm: gh exits non-zero -> REFUSED (never a create, which could duplicate)" "REFUSED|3" \
   "$R782_REFUSED_GH"
 R782_CREATE="$(rep782 "$S782/empty.json" "" --issue 782 --base main --branch feature-x)"
@@ -7424,7 +7428,7 @@ assert_eq "#782 arm: two open PRs on one head -> the NEWEST by createdAt is adop
 assert_eq "#782 arm: the newest is selected by createdAt, not by array position" "ADOPT 22 OK|0" \
   "$(rep782 "$S782/two-newest-first.json" "" --issue 782 --base main --branch feature-x)"
 R782_REFUSED_BRANCH="$(rep782 "$S782/one.json" "" --issue 782 --base main --branch "")"
-R782_ERR_BRANCH="$_R_ERR"
+R782_ERR_BRANCH="$(cat "$S782/err")"
 assert_eq "#782 arm: an empty branch name -> REFUSED" "REFUSED|3" \
   "$R782_REFUSED_BRANCH"
 # The empty-branch arm's WHOLE POINT: the query is never reached. `gh pr list --head ""` is
