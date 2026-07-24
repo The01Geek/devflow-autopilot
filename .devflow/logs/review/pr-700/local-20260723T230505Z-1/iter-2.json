@@ -4,7 +4,7 @@
   "loop_role": "promoted",
   "promotion_provenance": "shadow",
   "current_step": "3.5",
-  "current_substep": "fix_delta_recorded",
+  "current_substep": "fix_delta_regated_clean_pending_convergence_shadow",
   "diff_profile": {
     "small_diff": false,
     "config_only": false,
@@ -19,59 +19,187 @@
       "id": "G-1",
       "severity": "Important",
       "description": "The iteration-1 F3 fix closed only ONE route to the record-aborting shape. A MULTI-DOCUMENT sidecar still lost the entire telemetry record: jq streams N documents, filters each, and exits 0, so exit-status branching never fires, the capture is non-empty, and --argjson rejects the N-document string. Orchestrator-reproduced: rc=2, ZERO bytes of record. The comment added by that same fix claimed the concatenation shape was closed - false against HEAD.",
-      "defect_signature": {"file": "lib/efficiency-trace.sh", "line_range": [258, 292], "kind": "logic_error"},
+      "defect_signature": {
+        "file": "lib/efficiency-trace.sh",
+        "line_range": [
+          258,
+          292
+        ],
+        "kind": "logic_error"
+      },
       "orchestrator_verified": true
     },
     {
       "id": "G-2",
       "severity": "Important",
       "description": "The apply-gate comment tells a maintainer to 'restore the claude_args splice'; the splice was never removed. Corroborated independently by two shadow reviewers.",
-      "defect_signature": {"file": "scripts/compose-applied-effort.sh", "line_range": [87, 105], "kind": "documented_falsehood"},
+      "defect_signature": {
+        "file": "scripts/compose-applied-effort.sh",
+        "line_range": [
+          87,
+          105
+        ],
+        "kind": "documented_falsehood"
+      },
       "orchestrator_verified": true
     },
     {
       "id": "G-3",
       "severity": "Suggestion",
       "description": "compose-applied-effort.sh's contract header describes composition behavior that no default configuration reaches, because the numbered behavior list omits the new default-OFF gate entirely.",
-      "defect_signature": {"file": "scripts/compose-applied-effort.sh", "line_range": [13, 38], "kind": "comment_drift"}
+      "defect_signature": {
+        "file": "scripts/compose-applied-effort.sh",
+        "line_range": [
+          13,
+          38
+        ],
+        "kind": "comment_drift"
+      }
     },
     {
       "id": "G-4",
       "severity": "Suggestion",
       "description": "The F2 six-shape loop's 'null' row is VACUOUS - it passes identically with the guarded bug reintroduced, because a JSON null value already took the honest arm under the old top-level-only filter. The added comment presented it as a shape the fix rescued.",
-      "defect_signature": {"file": "lib/test/run.sh", "line_range": [21643, 21661], "kind": "test_gap"},
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          21643,
+          21661
+        ],
+        "kind": "test_gap"
+      },
       "orchestrator_verified": true
     },
     {
       "id": "G-5",
       "severity": "Suggestion",
       "description": "The effort enum is hardcoded in the jq program in lib/efficiency-trace.sh, duplicating VALID_EFFORTS in resolve-review-overrides.py (the producer) with no coupling pin - a new effort level would be emitted by the producer and silently dropped by the recorder.",
-      "defect_signature": {"file": "lib/efficiency-trace.sh", "line_range": [281, 288], "kind": "other"}
+      "defect_signature": {
+        "file": "lib/efficiency-trace.sh",
+        "line_range": [
+          281,
+          288
+        ],
+        "kind": "other"
+      }
     }
   ],
   "fix_decisions": [
-    {"finding_id": "G-1", "decision": "applied", "commit": "6a136c1a", "evidence": "jq -s + `length == 1` arity guard; reproduced before (rc=2, 0 bytes) and after (rc=0, record intact, session-fallback) across a 7-shape matrix with the valid single-document positive control still yielding agent-definition/low"},
-    {"finding_id": "G-2", "decision": "applied", "commit": "6a136c1a"},
-    {"finding_id": "G-3", "decision": "applied", "commit": "6a136c1a"},
-    {"finding_id": "G-4", "decision": "applied", "commit": "6a136c1a", "evidence": "row kept as a regression guard; the overclaiming comment replaced with an explicit not-vacuity caveat naming it as such"},
-    {"finding_id": "G-5", "decision": "deferred", "skip_category": "uncategorized", "evidence": "enum mirror still uncoupled; no pin added this iteration"},
-    {"finding_id": "S-docs-overrides", "decision": "applied", "commit": "6a136c1a", "evidence": "cloud tier row, application-point glossary row and the SHIPPED blockquote all restated as built-but-gated-off, naming the shape gap as the reason"},
-    {"finding_id": "S-changeset", "decision": "applied", "commit": "6a136c1a", "evidence": "rewritten so the public CHANGELOG describes the telemetry half shipping and the application half deferred"},
-    {"finding_id": "S-seam-probe-decision", "decision": "applied", "commit": "6a136c1a"},
-    {"finding_id": "S-workflow-comments", "decision": "applied", "commit": "6a136c1a", "evidence": "all three byte-identical copies updated together"},
-    {"finding_id": "S-runsh-21622", "decision": "applied", "commit": "6a136c1a"},
-    {"finding_id": "S-runsh-optin-framing", "decision": "applied", "commit": "6a136c1a"},
-    {"finding_id": "S-apply-gate-unpinned", "decision": "applied", "commit": "6a136c1a", "evidence": "#700 F1 pin at 0,0,0 across all three workflows; went RED on first run against my own explanatory comments, which proved the operand was wrong (a mention is not an arming) - resolved by rewording the pointer per CLAUDE.md, never by weakening the pin"},
-    {"finding_id": "S-helper-absent-silent-clear", "decision": "deferred", "skip_category": "uncategorized", "evidence": "workflow helper-absent branch still silent and still co-gates the stale-sidecar clear; needs a workflow edit alongside the F-4 trusted-source ladder"},
-    {"finding_id": "S-stub-json-spacing", "decision": "deferred", "skip_category": "uncategorized", "evidence": "no end-to-end row driving the real resolver through the composer"},
-    {"finding_id": "S-jq-required-arg", "decision": "deferred", "skip_category": "uncategorized", "evidence": "vendor-skew total-telemetry-loss path for lib/efficiency-trace.jq still uncovered"},
-    {"finding_id": "S-default-path-handoff", "decision": "deferred", "skip_category": "uncategorized", "evidence": "overlaps iter-1 F-11; still pinned by literals only"},
-    {"finding_id": "S-arming-needs-workflow-push", "decision": "deferred", "skip_category": "uncategorized", "evidence": "DEVFLOW_AE_APPLY not threaded from a trusted config key; design decision left to the operator"},
-    {"finding_id": "S-unrostered-key", "decision": "deferred", "skip_category": "uncategorized"},
-    {"finding_id": "S-docstring-pointer", "decision": "deferred", "skip_category": "uncategorized"},
-    {"finding_id": "F-4", "decision": "deferred", "skip_category": "uncategorized", "evidence": "trusted-source ladder: carried forward from iteration 1, still NOT implemented"}
+    {
+      "finding_id": "G-1",
+      "decision": "applied",
+      "commit": "6a136c1a",
+      "evidence": "jq -s + `length == 1` arity guard; reproduced before (rc=2, 0 bytes) and after (rc=0, record intact, session-fallback) across a 7-shape matrix with the valid single-document positive control still yielding agent-definition/low"
+    },
+    {
+      "finding_id": "G-2",
+      "decision": "applied",
+      "commit": "6a136c1a"
+    },
+    {
+      "finding_id": "G-3",
+      "decision": "applied",
+      "commit": "6a136c1a"
+    },
+    {
+      "finding_id": "G-4",
+      "decision": "applied",
+      "commit": "6a136c1a",
+      "evidence": "row kept as a regression guard; the overclaiming comment replaced with an explicit not-vacuity caveat naming it as such"
+    },
+    {
+      "finding_id": "G-5",
+      "decision": "deferred",
+      "skip_category": "uncategorized",
+      "evidence": "enum mirror still uncoupled; no pin added this iteration"
+    },
+    {
+      "finding_id": "S-docs-overrides",
+      "decision": "applied",
+      "commit": "6a136c1a",
+      "evidence": "cloud tier row, application-point glossary row and the SHIPPED blockquote all restated as built-but-gated-off, naming the shape gap as the reason"
+    },
+    {
+      "finding_id": "S-changeset",
+      "decision": "applied",
+      "commit": "6a136c1a",
+      "evidence": "rewritten so the public CHANGELOG describes the telemetry half shipping and the application half deferred"
+    },
+    {
+      "finding_id": "S-seam-probe-decision",
+      "decision": "applied",
+      "commit": "6a136c1a"
+    },
+    {
+      "finding_id": "S-workflow-comments",
+      "decision": "applied",
+      "commit": "6a136c1a",
+      "evidence": "all three byte-identical copies updated together"
+    },
+    {
+      "finding_id": "S-runsh-21622",
+      "decision": "applied",
+      "commit": "6a136c1a"
+    },
+    {
+      "finding_id": "S-runsh-optin-framing",
+      "decision": "applied",
+      "commit": "6a136c1a"
+    },
+    {
+      "finding_id": "S-apply-gate-unpinned",
+      "decision": "applied",
+      "commit": "6a136c1a",
+      "evidence": "#700 F1 pin at 0,0,0 across all three workflows; went RED on first run against my own explanatory comments, which proved the operand was wrong (a mention is not an arming) - resolved by rewording the pointer per CLAUDE.md, never by weakening the pin"
+    },
+    {
+      "finding_id": "S-helper-absent-silent-clear",
+      "decision": "deferred",
+      "skip_category": "uncategorized",
+      "evidence": "workflow helper-absent branch still silent and still co-gates the stale-sidecar clear; needs a workflow edit alongside the F-4 trusted-source ladder"
+    },
+    {
+      "finding_id": "S-stub-json-spacing",
+      "decision": "deferred",
+      "skip_category": "uncategorized",
+      "evidence": "no end-to-end row driving the real resolver through the composer"
+    },
+    {
+      "finding_id": "S-jq-required-arg",
+      "decision": "deferred",
+      "skip_category": "uncategorized",
+      "evidence": "vendor-skew total-telemetry-loss path for lib/efficiency-trace.jq still uncovered"
+    },
+    {
+      "finding_id": "S-default-path-handoff",
+      "decision": "deferred",
+      "skip_category": "uncategorized",
+      "evidence": "overlaps iter-1 F-11; still pinned by literals only"
+    },
+    {
+      "finding_id": "S-arming-needs-workflow-push",
+      "decision": "deferred",
+      "skip_category": "uncategorized",
+      "evidence": "DEVFLOW_AE_APPLY not threaded from a trusted config key; design decision left to the operator"
+    },
+    {
+      "finding_id": "S-unrostered-key",
+      "decision": "deferred",
+      "skip_category": "uncategorized"
+    },
+    {
+      "finding_id": "S-docstring-pointer",
+      "decision": "deferred",
+      "skip_category": "uncategorized"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "deferred",
+      "skip_category": "uncategorized",
+      "evidence": "trusted-source ladder: carried forward from iteration 1, still NOT implemented"
+    }
   ],
-  "fix_commit_sha": "6a136c1a",
+  "fix_commit_sha": "1267f9d1",
   "fix_files": [
     "lib/efficiency-trace.sh",
     "lib/test/run.sh",
@@ -88,21 +216,74 @@
     "command": "lib/test/run.sh",
     "result": "pass",
     "skipped_checks": [],
-    "capture_file": ".devflow/tmp/verification-700-final.log",
+    "capture_file": ".devflow/tmp/verification-700-final2.log",
     "totals": "13087 passed, 0 failed",
-    "note": "No skip tally line emitted, so nothing self-skipped. The prior run at 13085/1/1 was RED on the newly-added #700 F1 pin and carried a #434 blocking-gate skip from a dirty tree; both resolved before this run. shellcheck (non-lib/test) and ruff clean; regenerate-artifacts reconciled."
+    "note": "No skip tally line, so nothing self-skipped. shellcheck (non-lib/test) clean; regenerate-artifacts reconciled."
   },
   "convergence_inputs": {
-    "fixes_applied": 12,
+    "fixes_applied": 16,
     "fix_diff_lines": null,
     "new_corroborated_critical_count": 3
   },
-  "cap_drops": {"count": 0, "by_category": {}},
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
   "reference_reads": {
-    "fix_delta": {"status": "verified", "outcome": "refixed", "reason": null}
+    "fix_delta": {
+      "status": "verified",
+      "outcome": "refixed",
+      "reason": null
+    }
   },
   "telemetry": {
-    "step_2_6": {"calls": 7, "tokens": 664676, "wall_clock_s": 265},
-    "step_3_5": {"calls": 1, "tokens": 92307, "wall_clock_s": 183}
-  }
+    "step_2_6": {
+      "calls": 7,
+      "tokens": 664676,
+      "wall_clock_s": 265
+    },
+    "step_3_5": {
+      "calls": 1,
+      "tokens": 92307,
+      "wall_clock_s": 183
+    }
+  },
+  "fix_delta_gate_round_2": {
+    "span": "54eb698a..6a136c1a",
+    "findings": 4,
+    "outcome": "refixed",
+    "commit": "1267f9d1",
+    "note": "All four were self-contradictions introduced by the iteration-2 edits themselves (a false claim about the pre-fix failure shape in the new test's own comment; two stale doc mirrors where a rewritten head left a live-posture tail/table; and an arming instruction contradicted by the #700 F1 pin added in the same change). Inner re-fix attempt 1 of the 2 permitted; a third gate round has NOT been run over 6a136c1a..1267f9d1.",
+    "findings_detail": [
+      {
+        "id": "G2-1",
+        "severity": "Important",
+        "file": "lib/test/run.sh",
+        "kind": "documented_falsehood",
+        "decision": "applied"
+      },
+      {
+        "id": "G2-2",
+        "severity": "Important",
+        "file": "docs/review-agent-overrides.md",
+        "kind": "documented_falsehood",
+        "decision": "applied"
+      },
+      {
+        "id": "G2-3",
+        "severity": "Suggestion",
+        "file": "docs/agents-seam-probe.md",
+        "kind": "documented_falsehood",
+        "decision": "applied"
+      },
+      {
+        "id": "G2-4",
+        "severity": "Suggestion",
+        "file": "scripts/compose-applied-effort.sh",
+        "kind": "documented_falsehood",
+        "decision": "applied"
+      }
+    ]
+  },
+  "loop_status": "NOT CONVERGED \u2014 convergence-time shadow not yet run; outstanding Critical F-4 (trusted-source ladder) and the helper-absent silent stale-sidecar-clear path remain deferred, both requiring .github/workflows/ edits."
 }
