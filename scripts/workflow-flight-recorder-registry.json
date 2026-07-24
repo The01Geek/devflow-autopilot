@@ -35,6 +35,26 @@
       "path": "lib/test/modules/harness-python-guards.sh",
       "minimum_assertions": 33,
       "description": "Focused monolith-only Python guard drivers whose subject is a single code unit and whose verification is self-contained: the #600 render-audit-prompt renderer, the #527 verification-launch baseline analyzer, the #528 single-flight verification ledger, the #668 reception-identity producer, and the #591 coverage-map ratchet guard (live-tree invocation, unit test, and a planted coverage-map drift as the coverage-map guard's positive control)"
+    },
+    "prompt-extension-reader": {
+      "path": "lib/test/modules/prompt-extension-reader.sh",
+      "minimum_assertions": 102,
+      "description": "Focused load-prompt-extension.sh consumer prompt-extension reader contract: the present/absent/empty extension arms, skill-name validation and the path-traversal refusal, unreadable/symlinked/locked fixture arms, and the --section selector including its interaction with the pre-existing name guards"
+    },
+    "review-trigger-helpers": {
+      "path": "lib/test/modules/review-trigger-helpers.sh",
+      "minimum_assertions": 403,
+      "description": "Focused review and implement trigger-helper contracts: derive-review-verdict.sh (#249 HEAD-scoped fail-closed deriver), derive-review-preconditions.sh (#304 branch-freshness and other-CI-green gate), parse-engine-error.sh, surface-execution-diagnostics.sh (#329) with its workflow wiring (#331), the execution-transcript artifact config key and scrub/gate hardening (#409), resolve-implement-trigger.sh, dedupe-implement-run.sh, authorize-actor.sh, detect-standalone-command.sh and resolve-command-trigger.sh"
+    },
+    "review-stall-backstop": {
+      "path": "lib/test/modules/review-stall-backstop.sh",
+      "minimum_assertions": 128,
+      "description": "Focused cloud-review stall-backstop coverage: the #408 no-verdict auto-resume backstop (request-review-backstop.sh, its devflow-review.yml/devflow.yml wiring and grounding-block coupling) and the #414 post-and-annotate helper extraction (post-review-backstop-comment.sh plus the ScheduleWakeup and agents-seam probe verdict readers)"
+    },
+    "experiment-records": {
+      "path": "lib/test/modules/experiment-records.sh",
+      "minimum_assertions": 132,
+      "description": "Focused #431 build-experiment-records.py unified-experiment-record join: the DEVFLOW_GH-stubbed assembler driven over fixture stores with per-scenario repo roots, the joined record fields, and the config_fingerprint stamp with its partial-flag, None and canonical-hash arms"
     }
   },
   "workflows": {

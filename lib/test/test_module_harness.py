@@ -253,6 +253,144 @@ class FullSuiteModuleHarnessTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(result.stdout.splitlines(), ["FAIL", "PASS"])
 
+    def _run_bundle_driver(self, driver_body: str) -> subprocess.CompletedProcess[str]:
+        """Like _run_support_driver, but the assert_eq stub records each assertion's
+        LABEL. devflow_module_build_bundle's whole reason for existing over the
+        monolith's _build_skill_bundle is that a bad member lands as a *named* RED
+        assertion instead of an anonymous raw RESULTS_FILE write — a PASS/FAIL-only
+        stub cannot tell those apart, so it could not bind that property."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            driver = root / "driver.sh"
+            driver.write_text(
+                "#!/usr/bin/env bash\n"
+                f"RESULTS_FILE={root / 'results'}\n"
+                '> "$RESULTS_FILE"\n'
+                "assert_eq() {\n"
+                '  if [ "$2" = "$3" ]; then printf "PASS|%s\\n" "$1" >> "$RESULTS_FILE";\n'
+                '  else printf "FAIL|%s\\n" "$1" >> "$RESULTS_FILE"; fi\n'
+                "}\n"
+                f'. "{HARNESS}"\n'
+                + driver_body
+                + 'cat "$RESULTS_FILE"\n',
+                encoding="utf-8",
+            )
+            return subprocess.run(
+                ["bash", str(driver)],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+    def test_build_bundle_concatenates_usable_members_without_asserting(self) -> None:
+        """Issue #746: the clean path adds NO assertion — a module's registry floor is an
+        equality check, so a builder that emitted a per-member PASS would inflate every
+        bundle-building module's tally by its member count."""
+        result = self._run_bundle_driver(
+            'printf "alpha\\n" > a.md\n'
+            'printf "beta\\n" > b.md\n'
+            'devflow_module_build_bundle "fx" out.txt a.md b.md; echo "RC:$?"\n'
+            'printf "BUNDLE:"; tr "\\n" "," < out.txt; printf "\\n"\n'
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("RC:0", result.stdout)
+        self.assertIn("BUNDLE:alpha,,beta,,", result.stdout)
+        self.assertEqual(
+            [line for line in result.stdout.splitlines() if "|" in line],
+            [],
+            "the clean path must add no assertion",
+        )
+
+    def test_build_bundle_reports_each_bad_member_by_name_and_keeps_going(self) -> None:
+        """Issue #746: the failure channel is the reason this helper exists. Every
+        unusable member must produce its OWN named RED — so one missing reference cannot
+        mask the next — and the return must be non-zero. The unmatched-glob case arrives
+        as the glob's own literal and is reported the same way, which is what makes an
+        emptied phases/ directory a diagnosis rather than a silently thinner bundle."""
+        result = self._run_bundle_driver(
+            'printf "alpha\\n" > a.md\n'
+            'printf "" > empty.md\n'
+            'printf "omega\\n" > omega.md\n'
+            'devflow_module_build_bundle "fx" out.txt a.md missing.md empty.md '
+            'nomatch-*.md omega.md; echo "RC:$?"\n'
+            'printf "BUNDLE:"; tr "\\n" "," < out.txt; printf "\\n"\n'
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("RC:1", result.stdout)
+        failures = [
+            line for line in result.stdout.splitlines() if line.startswith("FAIL|")
+        ]
+        # Three distinct bad members, three distinct named REDs — not one aggregate.
+        self.assertEqual(len(failures), 3, result.stdout)
+        self.assertIn("FAIL|fx member usable: missing.md", failures)
+        self.assertIn("FAIL|fx member usable: empty.md", failures)
+        self.assertIn("FAIL|fx member usable: nomatch-*.md", failures)
+        # A good member placed AFTER every bad one still lands, so the whole ordered
+        # bundle is "alpha,,omega,,". This is what proves the loop runs to completion —
+        # rc=1 plus three named REDs alone cannot tell "kept going and appended a later
+        # good member" from "aborted after the last failure"; only a good member sitting
+        # downstream of the failures can.
+        self.assertIn("BUNDLE:alpha,,omega,,", result.stdout)
+
+    def test_build_bundle_reports_unreadable_present_member_distinctly(self) -> None:
+        """Issue #746: the `[ -r "$member" ]`-false-but-present case (a chmod 000 file)
+        is its OWN arm of the member guard, distinct from missing/empty. Exercise it on
+        its own so a regression dropping the readability check — while missing/empty still
+        rejected — cannot ship green. Root bypasses the permission bits (`[ -r ]` stays
+        true), so the file is readable there and this arm cannot fire; skip under root
+        rather than assert a rejection that will not happen, mirroring the module-side
+        locked-file arms."""
+        if os.geteuid() == 0:
+            self.skipTest("chmod 000 does not deny reads under root")
+        result = self._run_bundle_driver(
+            'printf "alpha\\n" > a.md\n'
+            'printf "locked\\n" > locked.md\n'
+            'chmod 000 locked.md\n'
+            'devflow_module_build_bundle "fx" out.txt a.md locked.md; echo "RC:$?"\n'
+            'chmod 644 locked.md\n'
+            'printf "BUNDLE:"; tr "\\n" "," < out.txt; printf "\\n"\n'
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("RC:1", result.stdout)
+        failures = [
+            line for line in result.stdout.splitlines() if line.startswith("FAIL|")
+        ]
+        # Present-but-unreadable is reported by name like any other unusable member —
+        # and only that member, so the readability arm is exercised in isolation.
+        self.assertEqual(failures, ["FAIL|fx member usable: locked.md"], result.stdout)
+        # The bundle is exactly the good member: the unreadable file's content never
+        # leaked in, and the earlier good member still landed.
+        bundle_line = next(
+            line for line in result.stdout.splitlines() if line.startswith("BUNDLE:")
+        )
+        self.assertEqual(bundle_line, "BUNDLE:alpha,,", result.stdout)
+
+    def test_build_bundle_reports_unwritable_output_file(self) -> None:
+        """Issue #746: the output-file-not-writable branch (`: > "$out"` fails) has its
+        own named assertion and an early `return 1` before the member loop. Pin both: a
+        directory can never be truncated as a file — not even by root — so this fixture is
+        permission-bit-independent and needs no root skip. A regression dropping the
+        `return 1` (letting the loop run against an unwritable target) or mislabeling the
+        assertion would otherwise ship green."""
+        result = self._run_bundle_driver(
+            'printf "alpha\\n" > a.md\n'
+            'mkdir out.dir\n'
+            'devflow_module_build_bundle "fx" out.dir a.md; echo "RC:$?"\n'
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("RC:1", result.stdout)
+        failures = [
+            line for line in result.stdout.splitlines() if line.startswith("FAIL|")
+        ]
+        # Exactly the writability assertion fires, and nothing else: the early return
+        # means the member loop never runs, so there is no per-member assertion.
+        self.assertEqual(failures, ["FAIL|fx output file writable"], result.stdout)
+
     def test_boundary_failure_is_folded_into_terminal_failure_count(self) -> None:
         result = self._run_support_driver(
             'MODULE="$RESULTS_FILE.missing"\n'
