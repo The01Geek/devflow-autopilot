@@ -29,6 +29,15 @@
 # rebound to stderr for the whole script and the token is emitted on the saved
 # real-stdout fd 3 via emit().
 #
+# HOW A CALLER MATCHES THE TOKEN (binding on every call site, issue #779): compare the
+# FIRST WHITESPACE-DELIMITED FIELD of the emitted line, never the line as a whole — `UPDATED`
+# is emitted as `UPDATED <behind>` (e.g. `UPDATED 3`), so a whole-line equality test against
+# `UPDATED` is false for every real merge and fails OPEN on exactly the runs that reconciled.
+# And "the helper reported nothing" is NOT observable as "no output at all": fd 1 is rebound to
+# stderr below, so git's own chatter interleaves with the token and a successful invocation is
+# never silent — the observable discriminator is that NO line's leading word is a member of the
+# token set enumerated here.
+#
 # Outcome contract — exactly one token on stdout, matching exit code:
 #   UP_TO_DATE         exit 0  behind-by 0; tree untouched
 #   UPDATED <behind>   exit 0  merged and pushed (incl. via push-race recovery)

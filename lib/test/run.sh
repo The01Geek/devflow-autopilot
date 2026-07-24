@@ -7386,7 +7386,7 @@ assert_eq "#779: the checkpoint invocation is the last §1.4 step (after the cre
 # unforced form that leaves refs/remotes/origin/$BASE unadvanced and reports a false behind-by 0.
 assert_pin_red_under "#779: the §1.4 create fence fetches the base with the forced refspec (unforced restore → RED)" \
   'git fetch origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" || { echo "devflow: could not fetch base branch' \
-  's#\+refs/heads/\$BASE:refs/remotes/origin/\$BASE#\$BASE#g' \
+  's#git fetch origin "\+refs/heads/\$BASE:refs/remotes/origin/\$BASE" \|\| \{ echo "devflow: could not fetch#git fetch origin "\$BASE" || { echo "devflow: could not fetch#' \
   "$P1_FILE"
 
 # (d) CONFLICT from the relocated Phase 1 checkpoint routes to Blocked on every arm — the AC's
@@ -40931,26 +40931,31 @@ assert_pin_unique "#448 ubc-failed-restore: review-and-fix keys the PUSH_REJECTE
 
 # ── #779 ubc-token-arms → every token the HELPER'S OWN HEADER enumerates maps to a decided
 # Phase 4.3 arm, and the complement of that set (an empty or unrecognized field) routes to the
-# same refusal. The token list is DERIVED from the header rather than transcribed, so the set is
-# complete by construction: a token added to the helper with no checkpoint-4 arm turns this RED
-# instead of falling through to publish. ────────────────────────────────────────────────────
-UBC_P4_DOC="$LIB/../skills/implement/phases/phase-4-documentation.md"
-# `LC_ALL=C` pins the collation so the expected order below is locale-independent.
-UBC_TOKENS=$(awk '/^# Outcome contract/,/^set -u/' "$UBC" | grep -oE '^#   [A-Z_]+' | sed -E 's/^#   //' | LC_ALL=C sort -u)
+# same refusal. The token list is READ FROM the header, so a token added to the helper with no
+# checkpoint-4 arm turns the mapping check RED instead of falling through to publish; the
+# expected-set equality below is a deliberate LOCK on the documented contract, so growing that
+# contract is a conscious reconciliation here rather than a silent widening.
+# ────────────────────────────────────────────────────────────────────────────
+# One awk pass extracts and strips the token words (`LC_ALL=C sort` pins the collation so the
+# expected order is locale-independent), and the phase-4 file is read ONCE into a variable that
+# bash-builtin matching then tests per token — no grep fork per token.
+UBC_TOKENS=$(awk '/^# Outcome contract/,/^set -u/ { if (match($0, /^#   [A-Z_]+/)) { print substr($0, 5, RLENGTH - 4) } }' "$UBC" | LC_ALL=C sort -u)
+UBC_TOKENS_ONELINE=$(printf '%s ' $UBC_TOKENS)
 assert_eq "#779 ubc-token-arms: the helper header enumerates the expected seven-token contract" \
   "CONFLICT DISABLED MERGE_IN_PROGRESS PUSH_REJECTED UNVERIFIED UPDATED UP_TO_DATE" \
-  "$(printf '%s ' $UBC_TOKENS | sed -E 's/ $//')"
+  "${UBC_TOKENS_ONELINE% }"
+UBC_P4_BODY=$(cat "$UBC_P4")
 UBC_UNMAPPED=""
 for _t in $UBC_TOKENS; do
-  grep -qF "\`$_t\`" "$UBC_P4_DOC" || UBC_UNMAPPED="$UBC_UNMAPPED $_t"
+  case "$UBC_P4_BODY" in *"\`$_t\`"*) ;; *) UBC_UNMAPPED="$UBC_UNMAPPED $_t" ;; esac
 done
 assert_eq "#779 ubc-token-arms: every helper token is named in a checkpoint-4 arm (none falls through to publish)" \
   "" "${UBC_UNMAPPED# }"
 # The complement — an empty or unrecognized first field — takes the SAME refusal arm as the
 # non-clean tokens, so a novel/degenerate output shape fails closed rather than publishing.
 assert_pin_unique "#779 ubc-token-arms: an empty or unrecognized first field takes the refusal arm" \
-  'or a first field that is empty or unrecognized' "$UBC_P4_DOC"  # structural-pin-ok: contract-presence pin for the complement of the derived token set; the refusal behavior itself is guarded by the #779 refusal-arm mutation pin
-unset _t UBC_TOKENS UBC_UNMAPPED UBC_P4_DOC
+  'or a first field that is empty or unrecognized' "$UBC_P4"  # structural-pin-ok: contract-presence pin for the complement of the derived token set; the refusal behavior itself is guarded by the #779 refusal-arm mutation pin
+unset _t UBC_TOKENS UBC_TOKENS_ONELINE UBC_P4_BODY UBC_UNMAPPED
 # ────────────────────────────────────────────────────────────────────────────
 echo "extract-execution-shape.sh (#437 execution-file shape probe: redaction + present/absent/unavailable + encoding)"
 # ────────────────────────────────────────────────────────────────────────────
