@@ -7538,12 +7538,17 @@ if mkdir -p "$R782_PARTIAL/scripts" && cp "$REP_SH" "$R782_PARTIAL/scripts/" 2>/
   _o="$(GHLOG="$S782/ghlog" REP_FIXTURE="$S782/one.json" REP_RC="" PATH="$S782:/usr/bin:/bin" \
       env -u DEVFLOW_GH -u DEVFLOW_JQ bash "$R782_PARTIAL/scripts/resolve-existing-pr.sh" \
       --issue 782 --base main --branch feature-x 2>"$S782/err")" && _s=0 || _s=$?
-  assert_eq "#782 partial deployment (scripts/ without lib/): still emits ONE well-formed token, never a set -u abort" "ADOPT 11 OK|0" \
+  # REFUSED, not a guessed bare `gh`: the #245 peer-completeness pin forbids a helper
+  # retaining a hardcoded `DEVFLOW_GH:=gh` default, and refusing is also the honest answer —
+  # with no resolver there is no established gh, and an unestablished tool is not licence to
+  # guess. The row asserts the fail-closed token AND that the process still terminates with
+  # one well-formed token rather than aborting under `set -u`.
+  assert_eq "#782 partial deployment (scripts/ without lib/): REFUSED with ONE well-formed token, never a set -u abort or a guessed bare gh" "REFUSED|3" \
     "$(printf '%s|%s\n' "$_o" "$_s")"
   assert_eq "#782 partial deployment: ... and breadcrumbs the real cause, naming resolve-gh.sh" "yes" \
     "$(case "$(cat "$S782/err")" in *"resolve-gh.sh"*) echo yes ;; *) echo no ;; esac)"
 else
-  skip "#782 partial deployment (scripts/ without lib/): still emits ONE well-formed token, never a set -u abort" host-capability \
+  skip "#782 partial deployment (scripts/ without lib/): REFUSED with ONE well-formed token, never a set -u abort or a guessed bare gh" host-capability \
     "could not stage a lib-less copy of the helper"
 fi
 rm -rf "$R782_PARTIAL"

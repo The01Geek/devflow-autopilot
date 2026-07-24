@@ -56,15 +56,26 @@ _DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # the same reason: a missing sibling leaves `devflow_resolve_gh` undefined, `DEVFLOW_GH` empty,
 # and the query then fails with a breadcrumb blaming GitHub for a broken install. Name the real
 # cause here instead of misdirecting the reader downstream.
-if ! type devflow_resolve_gh >/dev/null 2>&1; then
-    echo "devflow: resolve-existing-pr.sh: devflow_resolve_gh is not defined after sourcing ../lib/resolve-gh.sh — using bare 'gh' (set DEVFLOW_GH to override)" >&2
-    : "${DEVFLOW_GH:=gh}"
-else
-    : "${DEVFLOW_GH:=$(devflow_resolve_gh)}"
+# The resolver is the ONLY producer of this value when the caller supplied none: the #245
+# peer-completeness pin forbids any helper retaining a bare `DEVFLOW_GH:=gh` default, because
+# a hardcoded fallback is exactly the un-probed bare `gh` the execution-verified resolver
+# exists to replace (a present-but-unrunnable Windows/WSL shim). So the degraded arm does NOT
+# substitute one — it breadcrumbs the broken install and REFUSES, which is also the honest
+# answer: with no resolver there is no established gh, and an unestablished tool is not a
+# reason to guess ("unknown is not zero"). An explicit DEVFLOW_GH still wins ahead of this.
+if [ -z "${DEVFLOW_GH:-}" ]; then
+    if type devflow_resolve_gh >/dev/null 2>&1; then
+        DEVFLOW_GH="$(devflow_resolve_gh)"
+    else
+        echo "devflow: resolve-existing-pr.sh: devflow_resolve_gh is not defined after sourcing ../lib/resolve-gh.sh (a partial deployment carrying scripts/ without lib/); gh could not be resolved, so whether an open PR exists cannot be established" >&2
+        printf '%s\n' REFUSED
+        exit 3
+    fi
 fi
 if [ -z "${DEVFLOW_GH:-}" ]; then
-    echo "devflow: resolve-existing-pr.sh: gh resolution produced an empty value — using bare 'gh' (set DEVFLOW_GH to override)" >&2
-    DEVFLOW_GH=gh
+    echo "devflow: resolve-existing-pr.sh: gh resolution produced an empty value; whether an open PR exists cannot be established (set DEVFLOW_GH to override)" >&2
+    printf '%s\n' REFUSED
+    exit 3
 fi
 # jq likewise, through the .sh-helper-tier resolver — NOT scripts/run-jq.sh, whose whole
 # reason for existing is agent-composed jq inside SKILL.md bodies, where no resolved
