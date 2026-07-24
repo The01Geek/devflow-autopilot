@@ -1,0 +1,48 @@
+{
+  "iter": 1,
+  "source": "review",
+  "diff_profile": {
+    "engine_self_modifying": true,
+    "has_new_types": true,
+    "small_diff": false,
+    "config_only": false,
+    "detect_all_audit": false
+  },
+  "checklist": [],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:type-design-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "silent-failure-hunter",
+      "corroboration_count": 1,
+      "contributed_to_verdict": false
+    },
+    {
+      "agent": "type-design-analyzer",
+      "corroboration_count": 2,
+      "contributed_to_verdict": false
+    },
+    {
+      "agent": "pr-test-analyzer",
+      "corroboration_count": 1,
+      "contributed_to_verdict": false
+    },
+    {
+      "agent": "comment-analyzer",
+      "corroboration_count": 1,
+      "contributed_to_verdict": false
+    },
+    {
+      "agent": "requesting-code-review",
+      "corroboration_count": 1,
+      "contributed_to_verdict": false
+    }
+  ],
+  "telemetry": "unavailable"
+}
