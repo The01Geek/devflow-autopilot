@@ -158,12 +158,14 @@ Some ACs name specific identifiers (job names, file paths, function names, comma
 Reconciliation steps:
 ```bash
 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER \
-    --rewrite-ac "{OLD AC substring}" "{NEW AC text}" \
-    --scope-decision-rewritten pending "{OLD AC substring}" "{NEW AC text}" \
+    --rewrite-ac "{OLD AC substring}" "{NEW AC substring replacement}" \
+    --scope-decision-rewritten pending "{FULL OLD criterion text, verbatim}" "{FULL NEW criterion text, verbatim}" \
     --note "AC rewrite: {old verbatim} → {new}. Motivated by: {structural change}"
 ```
 
-**Pass `--scope-decision-rewritten pending "{OLD AC substring}" "{NEW AC text}"` in the same call as `--rewrite-ac`, so the text change and its machine-readable record land together.** The PR literal is `pending` for the same reason as in 2.2.5 — §3.1 binds it once the draft PR exists — and the review engine reads that record rather than the free-text `--note`, which carries no criterion identifier.
+**Pass `--scope-decision-rewritten pending "{FULL OLD criterion text, verbatim}" "{FULL NEW criterion text, verbatim}"` in the same call as `--rewrite-ac`, so the text change and its machine-readable record land together.** The PR literal is `pending` for the same reason as in 2.2.5 — §3.1 binds it once the draft PR exists — and the review engine reads that record rather than the free-text `--note`, which carries no criterion identifier.
+
+**The two flags deliberately take different text — never "simplify" them into the same value.** `--rewrite-ac` performs an *in-place substring replacement* inside the criterion, so its first argument may be any distinguishing fragment. `--scope-decision-rewritten`'s OLD value is stored normalized and is later matched by the review engine as a **whole-criterion equality lookup** against the full issue-body criterion — so a fragment there simply fails to match, and the criterion is reported to the merge-gating reviewer as an unexplained **dropped** criterion. Pass the criterion's *entire* text as it stands immediately before the rewrite, and its entire text as it will read after.
 
 **Why the workpad criterion set is trustworthy as a review comparand, and what falsifies it.** The review engine may treat the workpad's `## Acceptance Criteria` as authoritative **because** every writer that changes the set's **membership**, and every writer that changes a criterion's **text**, emits a scope-decision record — the three such writers being §2.2.5's `--replace-acs-file` and both `--rewrite-ac` call sites, this one and phase-3-review.md §3.4's retroactive `(post-merge)` retag. The assumption is falsified if any writer path can change the set's membership or a criterion's text without emitting a scope-decision record. `--tick-ac` and `--tick-ac-n` change only box state, which the engine's normalized comparison already ignores, so they need no record.
 

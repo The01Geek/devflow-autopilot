@@ -8367,6 +8367,22 @@ assert_pin_red_under "#781: the criteria value is exempt from the 200-line trunc
   's/The 200-line truncation bounds `issue_context` alone and never the acceptance-criteria value, which `acs-resolve` locates structurally and carries in full however far into the body its section begins\.//' \
   "$ST_REV"
 
+# Defect restored: `--pr` is passed UNCONDITIONALLY, so a current-branch run (empty
+# $PR_NUMBER) emits `--pr ''` — argparse rejects the empty value for a type=int flag
+# and exits 2, which the fence's generic rc≠0 arm absorbs into a warning, losing the
+# acceptance criteria entirely (observed live on a current-branch run).
+assert_pin_red_under "#781: Phase 0.4's acs-resolve fence gates --pr on a non-empty \$PR_NUMBER" \
+  'elif [ -n "${PR_NUMBER:-}" ] && ACS_OUT=$(' \
+  's/\[ -n "[^"]*" \] && //' \
+  "$ST_REV"
+
+# Defect restored: the current-branch arm passes the flag anyway, so the arm that
+# exists precisely to OMIT `--pr` re-introduces the empty-value argparse exit 2.
+assert_pin_red_under "#781: Phase 0.4's current-branch arm omits --pr entirely" \
+  'acs-resolve "$ISSUE_NUM" 2>.devflow/tmp/review/<slug>/<run-id>/acs.err' \
+  's/acs-resolve "\$ISSUE_NUM" 2>/acs-resolve "$ISSUE_NUM" --pr "$PR_NUMBER" 2>/' \
+  "$ST_REV"
+
 # Defect restored: the criteria reach the merge-gating judge carrying their tick
 # column — a specification pre-annotated by the party being judged, and (per the
 # shadow reference) a smuggled fix decision.
@@ -8384,8 +8400,8 @@ assert_pin_red_under "#781: the six source tokens are reported distinctly (read-
   's/, and `workpad-read-failed` is a transport failure that must not present as a normal issue-body resolution//' \
   "$ST_REV"
 assert_pin_red_under "#781: Phase 4 refuses to collapse two source wordings" \
-  'the six wordings are deliberately distinct and collapsing any two destroys the signal this section carries' \
-  's/ — the six wordings are deliberately distinct and collapsing any two destroys the signal this section carries//' \
+  'each wording below is deliberately distinct and collapsing any two destroys the signal this section carries' \
+  's/ — each wording below is deliberately distinct and collapsing any two destroys the signal this section carries//' \
   "$ST_REV"
 
 # Defect restored: divergence is compared over raw section text, so every implement
@@ -35757,8 +35773,8 @@ assert_eq "#363 every already-pinned arm shape (incl. optional-leading-paren) st
 # alone would not catch a duplicate head silently gained (or lost). Whoever next adds
 # a command to a review-skill fence updates these two numbers in the same commit,
 # per CLAUDE.md's coupled-invariant rule.
-assert_eq "#363 the review-skill head set matches the reviewed count (occurrences over the whole bundle; last change: #781 added Phase 0.4's acs-resolve fence, whose case/test/echo/cat heads take 136 -> 142; every one was already granted and already in the distinct set, so the distinct count is unchanged)" \
-  "142" "$(python3 -c 'import importlib.util,sys
+assert_eq "#363 the review-skill head set matches the reviewed count (occurrences over the whole bundle; last change: #781 added Phase 0.4's acs-resolve fence, whose case/test/echo/cat heads take 136 -> 142, then split that fence's call into PR-mode and current-branch arms, whose added `test` guard takes 142 -> 143; every one was already granted and already in the distinct set, so the distinct count is unchanged)" \
+  "143" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 print(len(m.extract_heads(open(sys.argv[2],encoding="utf-8").read())))' "$ECH" "$REVIEW_BUNDLE")"
 assert_eq "#363 the review-skill head set matches the reviewed count (32 distinct names over the whole bundle; #529 moved fences into references and added only already-counted heads (git hash-object, echo), so the distinct set is unchanged)" \

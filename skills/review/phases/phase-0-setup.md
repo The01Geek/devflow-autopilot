@@ -251,12 +251,19 @@ case "${ISSUE_NUM:-}" in
     if [ ! -r "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py ]; then
       ACS_OUT=""
       echo "::warning::devflow review: workpad.py is missing or unreadable — cannot resolve acceptance criteria; continuing without them" >&2
-    # In PR mode pass `--pr "$PR_NUMBER"`; in current-branch mode OMIT the flag
-    # entirely rather than passing an empty value (argparse would reject it, and
-    # there is no PR for a scope-decision record to bind to anyway — the guard
-    # then fails closed to pr-identity-mismatch on a narrowed workpad).
-    elif ACS_OUT=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py acs-resolve "$ISSUE_NUM" --pr "$PR_NUMBER" 2>.devflow/tmp/review/<slug>/<run-id>/acs.err); then
+    # Two sibling arms, selected on whether `$PR_NUMBER` is set: the PR-mode arm
+    # passes `--pr "$PR_NUMBER"`, and the current-branch arm OMITS the flag
+    # entirely rather than passing an empty value (`--pr` is `type=int`, so an
+    # empty value is an argparse exit 2 that the rc≠0 arm below would absorb into
+    # the generic warning, losing the criteria; and there is no PR for a
+    # scope-decision record to bind to anyway — the guard then fails closed to
+    # pr-identity-mismatch on a narrowed workpad). The `-z` guard on the second
+    # arm is what keeps a genuine PR-mode rc≠0 falling through to the warning
+    # instead of being retried without the flag.
+    elif [ -n "${PR_NUMBER:-}" ] && ACS_OUT=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py acs-resolve "$ISSUE_NUM" --pr "$PR_NUMBER" 2>.devflow/tmp/review/<slug>/<run-id>/acs.err); then
       :                                   # rc 0 — a resolved state; the source token names which surface
+    elif [ -z "${PR_NUMBER:-}" ] && ACS_OUT=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py acs-resolve "$ISSUE_NUM" 2>.devflow/tmp/review/<slug>/<run-id>/acs.err); then
+      :                                   # rc 0 — current-branch mode, same resolved-state contract
     else
       ACS_OUT=""
       echo "::warning::devflow review: acs-resolve rc≠0 (rc 3 = the issue body itself could not be read): $(cat .devflow/tmp/review/<slug>/<run-id>/acs.err 2>/dev/null); continuing without resolved acceptance criteria" >&2

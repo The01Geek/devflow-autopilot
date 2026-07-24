@@ -545,10 +545,14 @@ def _acs_read_workpad(cmd: str, issue: int):
     DIFFERENT non-zero shape so a transport blip is never routed as "this PR has
     no workpad".
 
-    The marker is always the DEFAULT implement marker: there is deliberately no
-    `--marker` flag on these subcommands, so `/devflow:review`'s own
-    `<!-- devflow:review-progress -->` marker has no channel through which it
-    could reach this read.
+    The marker is the DEFAULT implement marker: there is deliberately no
+    `--marker` flag on these subcommands, so a caller cannot point this read at
+    `/devflow:review`'s own `<!-- devflow:review-progress -->` comment
+    per-invocation. That closes the CALLER channel, not every channel —
+    `_workpad_marker(None)` still resolves through `DEVFLOW_WORKPAD_MARKER` and
+    `.devflow.workpad_marker`. Those are deliberately not closed: they are the
+    same value the implement workpad itself is written under, so repointing one
+    moves this read and the workpad together rather than desynchronizing them.
     """
     marker = _workpad_marker(None)
     c = _find_workpad_comment(
@@ -2752,8 +2756,10 @@ def main():
     # No `--marker` on either acs subcommand — deliberately. The review engine
     # drives its own `<!-- devflow:review-progress -->` comment through this same
     # helper, and the acceptance criteria live only on the IMPLEMENT workpad, so
-    # omitting the flag means there is no channel through which the wrong marker
-    # could reach this read.
+    # omitting the flag denies a CALLER any way to point this read at the wrong
+    # comment. The env/config precedence in `_workpad_marker` still applies (see
+    # `_acs_read_workpad`'s docstring) — it moves the workpad and this read
+    # together, so it is not a desync channel.
     s = sub.add_parser(
         'acs',
         help="Print the workpad's ## Acceptance Criteria section verbatim "

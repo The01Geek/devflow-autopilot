@@ -56,7 +56,7 @@ Construct the report in this format:
 
 ## Issue Compliance
 {Emit the headline as ONE line so a human merging the PR reads the compliance verdict and whether the run narrowed scope together: "Reviewed against issue #{number}: {title} — criteria from {surface}; scope {unchanged | narrowed: {d} deferred, {r} rewritten, {k} dropped without a record}. Requirement-based checklist items are included in the verification results below." When that line reports any narrowing, the reader's next action is to confirm the narrowed work was filed as a follow-up issue before merging.}
-{Name the surface that supplied the criteria on every run that resolved any, using the sentence below for the run's `acceptance_criteria_source` token — the six wordings are deliberately distinct and collapsing any two destroys the signal this section carries:}
+{Name the surface that supplied the criteria on every run that resolved any, using the sentence below for the run's `acceptance_criteria_source` token — each wording below is deliberately distinct and collapsing any two destroys the signal this section carries:}
 - `workpad` → "Criteria came from the `/devflow:implement` workpad comment — this run's authoritative set, possibly narrowed from the issue."
 - `issue-body` → "This PR has no workpad criteria to use, so the issue body's `## Acceptance Criteria` section supplied them."
 - `workpad-unmirrored` → "A workpad exists but its criteria were never mirrored from the issue — a DevFlow run's mirroring silently failed and the section still holds the seeded pending placeholder — so the issue body's `## Acceptance Criteria` section supplied them."
