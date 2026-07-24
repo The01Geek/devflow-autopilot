@@ -39,16 +39,44 @@ multiple physical lines via backslash-continuation, and shell forbids a ``#``
 comment mid-continuation, so a marker may not always sit inline on the
 ``--argjson`` line. A ``--argjson`` occurrence counts only when it appears in the
 *code* portion of a line (before any inline ``#`` comment) — a ``--argjson``
-mentioned inside explanatory comment prose is not a jq flag and is ignored. A real
-occurrence is COVERED when either the *logical line* that carries it (physical
-lines joined across backslash-continuations) contains a ``# argjson-ok:`` marker,
-or the contiguous comment block immediately preceding that logical line contains a
-``# argjson-ok:`` marker (the block-marker form placed directly above the jq head,
-which may itself span several comment lines). Anything else is a violation.
+mentioned inside explanatory comment prose is not a jq flag and is ignored.
+Symmetrically, a ``# argjson-ok:`` marker only exempts when it sits in the
+*comment* portion — a marker string appearing inside a quoted jq/shell literal
+does not. Both the code/comment split and the marker split are the family's
+quote- and escape-aware ``_comment_split`` (reused from ``lint-tree-enumeration.py``,
+not re-derived), so a ``#`` inside a string literal is not mistaken for a comment.
+A real occurrence is COVERED when either the *logical line* that carries it
+(physical lines joined across backslash-continuations) has a ``# argjson-ok:``
+marker in one of its comment tails, or the contiguous comment block immediately
+preceding that logical line contains a ``# argjson-ok:`` marker (the block-marker
+form placed directly above the jq head, which may itself span several comment
+lines). Anything else is a violation.
 """
 
+import importlib.util
+import os
 import sys
 from pathlib import Path
+
+# Reuse the declaration-marker family's quote- and escape-aware comment splitter
+# from its reference implementation rather than re-deriving a naive first-``#``
+# split here — the same import idiom `lint-issue-body-refetch.py` uses for
+# `extract-command-heads.py` (issue #783 /simplify reuse pass). Assert the names
+# this file uses at LOAD time so a rename in the sibling lint fails here naming the
+# dependency, not silently mid-scan.
+_TREE_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "lint-tree-enumeration.py"
+)
+_tree_spec = importlib.util.spec_from_file_location("lint_tree_enumeration", _TREE_PATH)
+_tree = importlib.util.module_from_spec(_tree_spec)
+_tree_spec.loader.exec_module(_tree)
+_REQUIRED_TREE_ATTRS = ("strip_comment", "_comment_split")
+_tree_missing = [name for name in _REQUIRED_TREE_ATTRS if not hasattr(_tree, name)]
+if _tree_missing:
+    raise SystemExit(
+        f"lint-argjson-transport: {_TREE_PATH} no longer provides "
+        f"{', '.join(_tree_missing)}; refusing to audit"
+    )
 
 FLAG = "--argjson"
 MARKER = "# argjson-ok:"
@@ -79,19 +107,18 @@ def _logical_lines(lines):
         i += 1
 
 
-def _code_before_comment(line):
-    """The portion of a physical line before its first ``#`` (an approximation of
-    the code vs. comment split — good enough here, where the audited jq flags never
-    embed a literal ``#``)."""
-    hashpos = line.find("#")
-    return line if hashpos < 0 else line[:hashpos]
-
-
 def _has_code_flag(joined):
     """True when ``--argjson`` appears in the CODE portion (before an inline ``#``)
     of any physical line of the logical line — i.e. an actual jq flag, not a
-    ``--argjson`` mentioned inside comment prose."""
-    return any(FLAG in _code_before_comment(pl) for pl in joined.split("\n"))
+    ``--argjson`` mentioned inside comment prose. Uses the family's quote-aware
+    splitter, so a ``#`` inside a string literal does not truncate the code half."""
+    return any(FLAG in _tree.strip_comment(pl) for pl in joined.split("\n"))
+
+
+def _marker_in_comment(line):
+    """True when the ``# argjson-ok:`` marker sits in the COMMENT tail of ``line``
+    (never inside a quoted literal), using the family's quote-aware split."""
+    return MARKER in _tree._comment_split(line)[1]
 
 
 def audit_text(text):
@@ -102,16 +129,16 @@ def audit_text(text):
     for start, joined in _logical_lines(lines):
         if not _has_code_flag(joined):
             continue
-        # Covered if the marker rides on the same logical line (inline form, valid
-        # for a single-line command with a trailing comment), ...
-        covered = MARKER in joined
+        # Covered if the marker rides in a comment tail of the same logical line
+        # (inline form, valid for a single-line command with a trailing comment), ...
+        covered = any(_marker_in_comment(pl) for pl in joined.split("\n"))
         if not covered:
             # ... or the contiguous comment/blank block immediately preceding this
             # logical line contains the marker (block-marker form above the jq
             # head, which may itself span several comment lines).
             j = start - 1
             while j >= 0 and (lines[j].strip() == "" or lines[j].lstrip().startswith("#")):
-                if MARKER in lines[j]:
+                if _marker_in_comment(lines[j]):
                     covered = True
                     break
                 j -= 1
