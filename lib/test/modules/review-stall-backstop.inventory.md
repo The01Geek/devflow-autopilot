@@ -42,8 +42,10 @@ re-derived in the module header rather than inherited:
   phase reference) that two `#408` pins target so their sentences may live in the
   root or in any reference. The module rebuilds it with
   `devflow_module_build_bundle`, promoted into `lib/test/module-harness.sh` by this
-  same change rather than hand-rolled a third time (`create-issue-contract.sh` and
-  `review-and-fix-contract.sh` each carried their own copy). Membership is derived
+  same change rather than hand-rolled a third time. `create-issue-contract.sh` was
+  converted onto the promoted helper in the same change;
+  `review-and-fix-contract.sh` still carries its own copy and is left for a
+  follow-up, so this change retires one duplicate rather than both. Membership is derived
   from the tree — every `skills/review/phases/*.md` — never transcribed, so a phase
   reference added later cannot be silently omitted from the bundle the survival
   pins assert against.

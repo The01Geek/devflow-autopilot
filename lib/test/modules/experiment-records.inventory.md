@@ -10,7 +10,8 @@ Source baseline: `2e9283f4` (`origin/main` after issue #745 landed).
 
 The extracted region was one box-comment section in `lib/test/run.sh` — `#431
 build-experiment-records.py — the unified experiment record (join)` — of which
-1,531 lines moved here. Its assertion floor is recorded once, in
+all but the deliberately-retained producer-pins tail moved here (see the partial-
+extraction note below). Its assertion floor is recorded once, in
 `scripts/workflow-flight-recorder-registry.json`, and enforced on every run by
 `lib/test/run-module.sh`; `test_module_runner.py` reconciles that floor against the
 `lib/test/run.sh` call-site literal. This inventory deliberately states no exact
@@ -51,6 +52,7 @@ missing/non-executable `build-experiment-records.py` with a raw
 `echo FAIL >> "$RESULTS_FILE"` write; the module reports that same arm through
 `assert_eq` instead, the module contract's only sanctioned failure channel, so the
 absence lands in the tally as a named RED assertion rather than an anonymous one.
-`TMPDIR` is redirected to the module's own owned root so its fixture tree is
-cleaned on the crash path too. Coverage-map ownership for the moved labels is
+The extracted body keeps allocating and removing its own fixture tree with a bare
+`mktemp -d`, exactly as it did inline; the module adds no private root and no EXIT
+trap, for the reasons its header records. Coverage-map ownership for the moved labels is
 recorded in `lib/test/modules/coverage-map.json`.

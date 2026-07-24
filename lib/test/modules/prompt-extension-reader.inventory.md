@@ -34,7 +34,8 @@ drift out of it silently.
 The generic test harness, registry validation, module registration, full-suite
 boundary, and module-runner tests stay global so deleting this module cannot also
 delete the checks that prove it is selected and executed. The module uses only
-`assert_eq` — it references no monolith `lib/test/run.sh` helper — and owns its
-private fixture root through a `trap _lpe_cleanup EXIT` installed inside the
-sourcing subshell. Coverage-map ownership for the moved labels is recorded in
+`assert_eq` — it references no monolith `lib/test/run.sh` helper. The extracted body
+keeps allocating and removing its own fixture trees with bare `mktemp -d`, exactly as
+it did inline; the module adds no private root and no EXIT trap, for the reasons its
+header records. Coverage-map ownership for the moved labels is recorded in
 `lib/test/modules/coverage-map.json`.

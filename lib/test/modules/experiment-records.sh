@@ -12,11 +12,6 @@
 # root and cleanup; it never invokes the runner or the full-suite boundary. The
 # inventory in experiment-records.inventory.md maps the extracted coverage to its
 # former run.sh location. Modules may not self-skip.
-# The `trap _exr_cleanup EXIT` below relies on a sourcing contract: both callers
-# (module-harness.sh's full-suite boundary and run-module.sh) source this module
-# inside a ( ... ) subshell, so the trap fires at subshell exit and cannot clobber
-# the runner's own EXIT handling. Do not source this module directly in a runner's
-# top-level shell without restoring the trap.
 #
 # DELIBERATELY PARTIAL EXTRACTION: the former section's trailing "#431 producer
 # pins" block stays in lib/test/run.sh. Those five pins assert against

@@ -10,11 +10,6 @@
 # owns its private fixture root and cleanup; it never invokes the runner or the
 # full-suite boundary. The inventory in review-trigger-helpers.inventory.md maps
 # the extracted coverage to its former run.sh locations. Modules may not self-skip.
-# The `trap _rth_cleanup EXIT` below relies on a sourcing contract: both callers
-# (module-harness.sh's full-suite boundary and run-module.sh) source this module
-# inside a ( ... ) subshell, so the trap fires at subshell exit and cannot clobber
-# the runner's own EXIT handling. Do not source this module directly in a runner's
-# top-level shell without restoring the trap.
 #
 # No private fixture root and no EXIT trap here, deliberately. The extracted sections
 # allocate their own fixture trees with bare `mktemp -d` and remove them on their own

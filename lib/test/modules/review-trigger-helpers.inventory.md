@@ -39,10 +39,11 @@ delete the checks that prove it is selected and executed.
 Rewrite performed during extraction: the 4 `assert_pin_unique` calls became
 `devflow_module_pin_unique` and the 2 `assert_pin_red_under` calls became
 `devflow_module_pin_red_under` — a mechanical 1:1 rename onto the namespaced module
-pin API, with the pinned literals, mutations and target paths unchanged. Two run.sh
-globals are re-derived in the module header rather than inherited: `TMPDIR` is
-redirected to the module's own owned root (the body allocates eleven fixture trees
-with bare `mktemp -d`), and `CG` — the `scripts/config-get.sh` resolver path that
-five `#329`/`#409` key-read assertions invoke — is bound from `LIB` exactly as the
-monolith binds it. Coverage-map ownership for the moved labels is recorded in
+pin API, with the pinned literals, mutations and target paths unchanged. One run.sh
+global is re-derived in the module header rather than inherited: `CG` — the
+`scripts/config-get.sh` resolver path that the `#329`/`#409` key-read assertions
+invoke — is bound from `LIB` exactly as the monolith binds it. The extracted body
+keeps allocating and removing its own fixture trees with bare `mktemp -d`, exactly
+as it did inline; the module adds no private root and no EXIT trap, for the reasons
+its header records. Coverage-map ownership for the moved labels is recorded in
 `lib/test/modules/coverage-map.json`.
