@@ -8428,6 +8428,25 @@ _wp781_variant "$S781/wp-norecord.md" \
 # dropped Criterion B.
 _wp781_variant "$S781/wp-partial.md" '- [ ] Criterion B (post-merge)
 ' ''
+# SUPERSET, zero records: the workpad carries every issue-body criterion (C added)
+# and one extra, with NO scope-decision record at all. It must be ACCEPTED —
+# reviewing against a superset can only ADD criteria, never silently drop one, and
+# dropping is the whole failure `_acs_pr_identity_ok` exists to prevent. This is the
+# resume-path / widening-re-mirror shape, and no other fixture covers it: every
+# other one is NARROWED and so exercises the rejection direction.
+#
+# What this does NOT pin, deliberately: `_acs_pr_identity_ok`'s
+# `if workpad_norm >= issue_norm: return True` early return. Deleting that line was
+# mutation-checked and the suite stayed GREEN — correctly, because on a superset
+# `issue_norm - workpad_norm` is empty, so the per-criterion loop falls through to
+# `return True` on its own. The early return is a pure short-circuit with no
+# behavioral effect, so no test can pin it and none should claim to.
+python3 - "$S781/wp-norecord.md" "$S781/wp-superset.md" <<'PY'
+import sys, pathlib
+src, dest = sys.argv[1], sys.argv[2]
+pathlib.Path(dest).write_text(pathlib.Path(src).read_text().replace(
+    '- [ ] Test-plan item one', '- [ ] Criterion C\n- [ ] Test-plan item one'))
+PY
 # Duplicate `## Acceptance Criteria` heading: the FIRST section must win, never a
 # silent concatenation of both.
 { cat "$S781/wp-real.md"; printf '\n## Acceptance Criteria\n- [ ] Criterion Z\n'; } > "$S781/wp-dupe.md"
@@ -8560,6 +8579,11 @@ assert_eq "#781: ONE record covering ONE of TWO dropped criteria still fails clo
   "pr-identity-mismatch" "$(_src781)"
 assert_eq "#781: the partially-covered narrowing reports the covered drop AND the uncovered one distinctly" \
   'DROP: Criterion B|DEFERRED: Criterion C' "$(_div781)"
+
+run781 "$S781/wp-superset.md" acs-resolve 999 --pr 143 >/dev/null
+assert_eq "#781: a SUPERSET workpad with ZERO records is accepted (widening is never a drop)" \
+  "workpad" "$(_src781)"
+assert_eq "#781: the accepted superset reports no divergence finding" "none" "$(_div781)"
 
 run781 "$S781/wp-crosspr.md" acs-resolve 999 --pr 143 >/dev/null
 assert_eq "#781: a record naming ANOTHER PR routes to the issue body under pr-identity-mismatch" \

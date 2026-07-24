@@ -616,7 +616,10 @@ def _acs_diverge(issue_items: list[dict], workpad_items: list[dict],
     tick state moves as the run proceeds — so a raw-text comparison would report
     divergence on every DevFlow PR and carry no signal.
 
-    Reports DROPS and TEXT CHANGES only. A criterion present in the workpad and
+    Reports DROPS, audited DEFERRALS, and TEXT CHANGES only — a criterion the
+    workpad no longer carries renders as `DEFERRED:` when a bound record
+    explains it and `DROP:` when nothing does, and a `rewritten` record renders
+    as `CHANGED:`. A criterion present in the workpad and
     absent from the issue body is never a finding: that is exactly what the
     mirrored `## Test Plan` items look like, and `_render_md` writes them into
     one flat block with no heading, label, or marker, so the section carries no
@@ -678,6 +681,12 @@ def _acs_pr_identity_ok(issue_items: list[dict], workpad_items: list[dict],
     workpad_norm = {normalize_criterion(it['text']) for it in workpad_items}
     if not issue_norm or not workpad_norm:
         return True
+    # Pure short-circuit, NOT a load-bearing guard: on a superset the loop below
+    # iterates an empty difference and returns True on its own. Deleting this line
+    # is behaviorally inert (mutation-checked green), so no test pins it and none
+    # should be added claiming to — a test named for a guard that cannot fail is a
+    # vacuous one. The superset ACCEPTANCE behavior itself is covered end-to-end by
+    # run.sh's `wp-superset.md` fixture.
     if workpad_norm >= issue_norm:
         return True
     deferred = {d['text'] for d in decisions if d['kind'] == 'deferred'}
@@ -2841,7 +2850,7 @@ def main():
     # together, so it is not a desync channel.
     s = sub.add_parser(
         'acs',
-        help="Print the workpad's ## Acceptance Criteria criteria unfiltered "
+        help="Print the workpad's ## Acceptance Criteria section unfiltered "
              '(every criterion carried through, tick state and (post-merge) '
              'tags preserved; the parsed items are re-rendered, so blank lines '
              'are dropped and "* [ ]" normalizes to "- [ ]"). Exit 2 with empty '
