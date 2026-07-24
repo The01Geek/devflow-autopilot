@@ -15268,10 +15268,14 @@ assert_pin_unique "#560 AC1: mandate names TaskCreate/TaskUpdate and update_plan
   '`TaskCreate`/`TaskUpdate` (newer Claude Code sessions), or `update_plan` (Codex CLI)' "$CI_SKILL_560"
 assert_pin_unique "#560 AC1: mandate routes to the inline fallback when no task tool is usable" \
   'when the runner exposes no task-tracking tool or the exposed one is disabled or unusable' "$CI_SKILL_560"
-# AC2: the Step 2 slug sentence is amended to reuse this invocation's checklist-bound slug
-# (per-site completeness — a revert of this out-of-section clause turns its own pin RED).
-assert_pin_unique "#560 AC2: Step 2 slug sentence reuses the invocation-bound checklist slug" \
-  'binding it here only when this invocation has bound none' "$CI_SKILL_560"
+# AC2: the Step 2 slug sentence binds no slug of its own. Issue #749 moved the binding to
+# Step 1 (which now runs before any other step can need a stem), so the guarded regression is
+# unchanged in KIND — a second, divergent slug bound inside one invocation — while the site
+# that must not bind one moved. The pin is retargeted onto the new deferral sentence rather
+# than dropped (per-site completeness: a revert of this out-of-section clause turns its own
+# pin RED, not a neighbor's).
+assert_pin_unique "#560 AC2/#749: the Step 2 slug sentence defers to Step 1's binding, never binding one" \
+  'which Step 1 bound before it dispatched anything' "$CI_SKILL_560"  # structural-pin-ok: surface-presence pin (the #560 A1/A2 class), retargeted by #749 onto the moved site
 # AC3: the status-transition sentence keeps in_progress/completed canonical + nearest-equivalents.
 assert_pin_unique "#560 AC3: status-transition sentence names the nearest-equivalents rule" \
   'a task tool whose status fields differ uses its nearest equivalents' "$CI_SKILL_560"
@@ -15294,8 +15298,9 @@ assert_pin_unique "#560 AC2: creation-time re-check confirms the item-6-in-progr
   'approved the rendered draft, and the active tracking mechanism shows item 6 in progress' "$CI_SKILL_560"
 # The fallback block carries the checklist-step half of the two-site slug-binding contract
 # (the Step 2 sentence carries the other half); pin this mirror so a one-sided revert goes RED.
-assert_pin_unique "#560 AC2: fallback block binds the slug scoped to the current invocation" \
-  'reusing the slug already bound by this skill invocation and binding a fresh one only when this invocation has bound none' "$CI_SKILL_560"
+# Retargeted with its sibling above by issue #749 — same guarded regression, moved site.
+assert_pin_unique "#560 AC2/#749: the fallback block binds no slug of its own, reusing Step 1's" \
+  'This fallback binds no slug of its own' "$CI_SKILL_560"  # structural-pin-ok: surface-presence pin (the #560 A1/A2 class), retargeted by #749 onto the moved site
 assert_pin_unique "#560 AC2: fail-closed arm treats a bad state file as pipeline-paused" \
   'an absent, foreign-content, or unparseable state file is treated as pipeline-paused' "$CI_SKILL_560"
 assert_pin_unique "#560 AC2: read-only sandbox degrades to the re-post-in-current-turn rule" \
@@ -45746,7 +45751,7 @@ fi
 # The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/create-issue-contract.sh" \
-  "create-issue-contract" 395; then
+  "create-issue-contract" 452; then
   printf 'ERROR: create-issue-contract boundary could not record its result\n'
   exit 1
 fi

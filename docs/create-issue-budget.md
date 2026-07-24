@@ -31,21 +31,24 @@ Both are asserted by `lib/test/modules/create-issue-contract.sh` (driven by the 
 
 | Ceiling | Operand | Measured | Enforced ceiling |
 | --- | --- | --- | --- |
-| **Root** | `skills/create-issue/SKILL.md` | 2,732 | Root ceiling: **2,754 words** |
-| **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 34,262 | Default-path ceiling: **34,800 words** |
+| **Root** | `skills/create-issue/SKILL.md` | 3,358 | Root ceiling: **3,527 words** |
+| **Default path** | root + `step-2-clarify.md` + `step-3-5-steelman.md` + `revision-delta.md` + `step-3-6-audit.md` + `step-4-present-create.md` + `references/issue-template.md` | 35,271 | Default-path ceiling: **38,042 words** |
 
-Each ceiling is at most the implement-time measured value plus **5% headroom** (the AC6 maximum). The root ceiling was set from an earlier measurement and deliberately **not re-raised** when review fixes grew the operand (shipped headroom ~0.8%). The default-path ceiling was renegotiated at the #743 merge — the advisory/invalid per-finding record + calibration prose (issue #743) moved the measured default path past the prior 33,917 ceiling — to **34,800** words, a conservative fixed margin (~1.6%) above the measured 34,262, deliberately **well under** the 5% legal maximum the suite enforces rather than the full-5% AC6 maximum (see the record below). The suite asserts that legality directly — a ceiling above measured+5% is RED — so a future raise needs a real measurement behind it. The
-default-path operand deliberately **excludes the four fallback references** — they load only when
+Each ceiling is at most the implement-time measured value plus **10% headroom**, widened from 5% by the issue-#749 renegotiation recorded below after successive intentional additions collided with the line on nearly every PR. The suite asserts that legality directly — a ceiling above measured+10% is RED — so a raise still needs a real measurement behind it, and the band bounds how much unmeasured growth a raise can pre-authorize. The
+default-path operand also deliberately **excludes `skills/docs-verify/SKILL.md`**, which Step 1 loads on every
+default-path run: it is *dispatched into a peer's context* and never read into the orchestrator's, so
+its words cost the caller's prompt nothing and counting them here would misreport the budget these
+ceilings exist to bound (its byte row is tracked instead by `lib/test/prompt-mass-baseline.json`). The
+operand deliberately **excludes the four fallback references** — they load only when
 their predicate fires, which is the whole point of the split. `revision-delta.md` is *retained* in the
 operand even though it too is predicate-gated (its trigger is any revise-and-re-gate site): a revision
 is the common case, so counting it keeps the ceiling conservative rather than flattering.
 
 **The ceilings are ratchet-down-only by default.** A measured *reduction* lowers the recorded ceiling to
-the new measured-plus-5% in the same change; ordinary growth is resolved by shedding prose or by moving
-it behind a load trigger, not by moving the line. A **raise** is legal only as an explicit
-issue-authorized departure recorded in the decision record below (the #614 AC6 entry that set 33,917 and
-the #743 entry that raised the default path to 34,800 for the calibration prose are the two such
-departures) — never a silent accommodation of growth.
+the new measured-plus-10% in the same change. Ordinary growth is resolved by shedding prose or by moving
+it behind a load trigger, not by moving the line: a raise is **never** an ordinary re-measure. It is an
+explicit human renegotiation, made only when the shedding arithmetic provably does not close, and it is
+recorded as its own decision-record entry below naming who authorized it.
 
 **Every figure on this page is a hand-recorded implement-time snapshot except the two the suite
 reconciles positionally** — the recorded **root** measurement and the recorded **root + all 9
@@ -68,24 +71,24 @@ the decision record below for when each was last re-measured:
 
 | File | Words | Loaded |
 | --- | --- | --- |
-| `SKILL.md` (root) | 2,732 | always |
-| `references/step-2-clarify.md` | 4,673 | Step 2 entry |
+| `SKILL.md` (root) | 3,358 | always |
+| `references/step-2-clarify.md` | 4,853 | Step 2 entry |
 | `references/step-3-5-steelman.md` | 2,237 | Step 3.5 entry |
 | `references/revision-delta.md` | 986 | every revision event |
-| `references/step-3-6-audit.md` | 10,890 | Step 3.6 entry |
-| `references/step-4-present-create.md` | 5,812 | Step 4 entry |
-| `references/fallback-no-task-tool.md` | 540 | no usable task-tracking tool |
-| `references/fallback-read-only-sandbox.md` | 628 | a `.devflow/tmp/` write is refused |
-| `references/fallback-audit-dispatch-arms.md` | 821 | a non-file audit arm, a retry escalation, or no subagent tool |
+| `references/step-3-6-audit.md` | 10,959 | Step 3.6 entry |
+| `references/step-4-present-create.md` | 5,873 | Step 4 entry |
+| `references/fallback-no-task-tool.md` | 592 | no usable task-tracking tool |
+| `references/fallback-read-only-sandbox.md` | 772 | a `.devflow/tmp/` write is refused |
+| `references/fallback-audit-dispatch-arms.md` | 827 | a non-file audit arm, a retry escalation, or no subagent tool |
 | `references/fallback-state-owner-unavailable.md` | 880 | the state owner stops answering |
-| **root + all 9 references** | **30,221** | — |
-| `references/issue-template.md` | 6,932 | Step 3 (unchanged by the split) |
-| `references/audit-prompt-template.md` | 3,110 | renderer-owned; carries the issue-#708 enumerate-dimensions checklist and the issue-#709 `di` dispatch-instruction blocks |
+| **root + all 9 references** | **31,337** | — |
+| `references/issue-template.md` | 7,005 | Step 3 (unchanged by the split) |
+| `references/audit-prompt-template.md` | 3,118 | renderer-owned; carries the issue-#708 enumerate-dimensions checklist and the issue-#709 `di` dispatch-instruction blocks |
 
 **What the default path sheds.** Before the split every run loaded all 24,473 words of the monolith.
 After it, a run on the default path — task tool usable, writable filesystem, file-arm dispatch, state
-owner available — never loads the four fallback references: **2,803 words** of predicate-gated prose,
-and the always-loaded surface drops from 24,473 to **2,732**.
+owner available — never loads the four fallback references: **3,059 words** of predicate-gated prose,
+and the always-loaded surface drops from 24,473 to **3,358**.
 
 ## Conservation check
 
@@ -302,6 +305,7 @@ the history of what the surface cost, and overwriting it loses exactly the drift
   +2,941 bytes); what reached a budgeted member is `step-3-6-audit.md`'s degraded-arm route for a
   non-zero `enumerate-dimensions` exit (+295 bytes), recorded in
   `docs/cutovers/issue-729-declared-dimension-keys-growth.md`.
+
 - **2026-07-23 (issue #743) — this-issue-authorized ceiling renegotiation.** The advisory/invalid
   per-finding record floor and calibration layer (issue #743) added operative obligation prose to
   `step-3-6-audit.md` (the per-finding-records paragraph, the calibration paragraph, the `query-triggers`
@@ -331,3 +335,55 @@ the history of what the surface cost, and overwriting it loses exactly the drift
   the root-plus-references total **30,199 → 30,221** (`CI614_TOTAL_RECORDED` re-anchored to 30,221). No
   ceiling renegotiation — the raise authorized above absorbs it; the `step-3-6-audit.md` growth-cutover
   artifact byte figure moved 78,098 → 78,210 in lockstep.
+
+- **2026-07-23 (issue #749) — BOTH ceilings renegotiated, and the legality band widened 5% → 10%.**
+  Right-sizing Step 1 into a two-arm, duty-floor-bounded pass put root-resident obligations on the
+  orchestrator that no reference can own: the arm-selection pre-pass, the disjoint-leg partition and
+  its reconciliation, the three `.docs.internal` degenerate cases, the unequal-return degradation, the
+  escalation-only verdict role, the slug binding and run pointer, and the degraded arm. Those cost
+  **627 words** written telegraphically and replaced **96**; genuinely superseded root prose totalled
+  only ~190, and the remainder is decision-owning prose with no sole tested owner, so the prose-cutover
+  convention forbids deleting it. The arithmetic did not close, and the run stopped Blocked rather than
+  pick a remedy silently. **The human requester authorized the raise** and, seeing that the previous
+  5% band had been consumed to the ~0.8% root and ~1.5% default-path headroom this record carries
+  as the pre-PR figures (22 words against 2,754; 516 against 34,800), widened the band itself to **10%** so the
+  ceiling stops being re-collided with on nearly every PR. Root **2,732 → 3,325** measured, ceiling
+  2,754 → **3,527**; default path **34,284 → 35,218** measured (the branch measured 33,768 → 34,584 before it was
+  rebased onto main's concurrently-landed #743 prose, which is where the 38,042 ceiling below was
+  derived), ceiling 34,800 → **38,042**. Both ceilings were set from the measurements taken when the
+  raise was authorized (root 3,207, default path 34,584); the in-PR review fix pass below then grew
+  both operands without moving either ceiling, so the shipped headroom is ~6.1% on the root and ~8.0%
+  on the default path rather than the full band.
+  `CI614_TOTAL_RECORDED` re-anchored 30,221 → **31,272**. The two ratchet
+  -legality assertions in the contract module move 105 → 110 in the same commit. The one-directional
+  rule binds again from here — a measured reduction lowers these figures.
+- **2026-07-24 (issue #749, in-PR review fix pass) — ordinary re-measure, no ceiling moved.** The
+  inline review pass REJECTed a self-contradicting `--search-space` flag-parse rule, an escalation
+  comparand tested for emptiness against a producer that always emits the non-empty sentinel
+  `none-observed` (which would have escalated every shallow arm to deep, defeating the split), an
+  unconditional on-entry-delete guarantee its own read-only fallback contradicts, an unstated
+  worktree anchoring for the run pointer, an incomplete-peer-return arm, and a shallow/deep partition
+  with a 3-of-6 hole. Qualifying those in `skills/create-issue/SKILL.md` added **+118 words**, moving
+  the root **3,207 → 3,325** and the measured default path **35,100 → 35,218**; the root-plus-references
+  total moved **31,154 → 31,272** (`CI614_TOTAL_RECORDED` re-anchored to 31,272). **No ceiling moved** —
+  both stay inside the 10% band on the new measurements, so this is an ordinary re-measure, not a
+  renegotiation, and `CLAUDE.md` is untouched. The same pass corrected this record's own transition
+  figures (they had been carried over from the pre-rebase branch state) and restored the two #743
+  entries a rebase resolution had dropped.
+
+- **2026-07-24 (issue #749, post-review reception pass) — ordinary re-measure, no ceiling moved.** The
+  standalone `/devflow:review` REJECT was addressed: the blocking finding was a changeset release-note
+  line claiming report-only mode returns a bearing observation for *every* duty, where the shipped
+  contract returns one only for `judged-not-engaged` duties. The same pass closed the run-pointer
+  valid-falsy fail-open (a present-but-empty or torn value read as an established slug, yielding an
+  artifact stem of `issue-step1-.md`) by declaring the pointer's single-slug shape in the root and in
+  all three readers, and added the missing mutation pins the review named — the escalation comparand's
+  `none-observed` exclusion, the incomplete-peer-return arm, the locate-documentation operand read, and
+  the drift-detail landing site. It also refused an unrecognized `--`-prefixed flag in
+  `skills/docs-verify/SKILL.md`, which had been stripped as a bare flag and dropped a mistyped
+  invocation into the default **write** mode. Root **3,325 → 3,358**, measured default path
+  **35,218 → 35,271**, root-plus-references total **31,272 → 31,337** (`CI614_TOTAL_RECORDED`
+  re-anchored to 31,337). **No ceiling moved** — 3,358 ≤ 3,527 and 35,271 ≤ 38,042, both inside the
+  10% band — so this is an ordinary re-measure, not a renegotiation, and `CLAUDE.md` is untouched. The
+  pass also corrected this record's untraceable "consumed to ~0.4%" narrative to the ~0.8% root /
+  ~1.5% default-path headroom the record actually carries, in both this file and the cutover artifact.
