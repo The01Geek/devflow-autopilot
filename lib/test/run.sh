@@ -34134,8 +34134,34 @@ assert_eq "#700 F-4: the review tier IS armed (positive control for the row abov
 # unconditionally, in all three tiers.
 assert_eq "#700 F-6: the stale-sidecar clear is hoisted into the step body in all three tiers" "1,1,1" \
   "$(pin_count 'AE_SIDECAR="${DEVFLOW_AE_SIDECAR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.devflow/tmp/agent-effort-applied.json}"' "$RUNNER_WF"),$(pin_count 'AE_SIDECAR="${DEVFLOW_AE_SIDECAR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.devflow/tmp/agent-effort-applied.json}"' "$IMPL_WF"),$(pin_count 'AE_SIDECAR="${DEVFLOW_AE_SIDECAR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.devflow/tmp/agent-effort-applied.json}"' "$LIGHT_WF")"
-assert_pin_red_under "#700 F-6: an unclearable sidecar blocks composition (never composes over unknown provenance)" \
-  'AE_BLOCKED=1' 's/AE_BLOCKED=1/AE_BLOCKED=0/' "$RUNNER_WF"
+# BOTH clear-failure arms (symlink refused; rm failed with the file still present) must set
+# the block flag — a arm that warned but composed anyway would apply over a sidecar of
+# unknown provenance, which is the whole defect. Count is the pin: it goes RED if an arm is
+# added without blocking, or if either existing arm stops blocking.
+assert_eq "#700 F-6: every clear-failure arm blocks composition (never composes over unknown provenance)" "2" \
+  "$(pin_count 'AE_BLOCKED=1' "$RUNNER_WF")"
+assert_pin_red_under "#700 F-6: an unclearable (non-symlink) sidecar refuses to compose" \
+  'refusing to compose this run (a surviving sidecar of unknown provenance would be recorded as applied effort this run never emitted).' \
+  's/refusing to compose this run (a surviving/composing anyway (a surviving/' "$RUNNER_WF"
+# The sidecar path lives inside the PR-HEAD checkout, so a committed symlink there would
+# turn the hoisted `rm` into an attacker-steerable delete of an arbitrary path (another
+# step's trusted RUNNER_TEMP material is reachable and is consumed by LATER steps). Refuse
+# a symlink instead of following it — in all three tiers, since all three run the clear.
+assert_eq "#700 F-6: the sidecar clear refuses a symlink rather than following it (all three tiers)" "1,1,1" \
+  "$(pin_count 'if [ -L "$AE_SIDECAR" ]; then' "$RUNNER_WF"),$(pin_count 'if [ -L "$AE_SIDECAR" ]; then' "$IMPL_WF"),$(pin_count 'if [ -L "$AE_SIDECAR" ]; then' "$LIGHT_WF")"
+assert_pin_red_under "#700 F-6: a symlinked sidecar BLOCKS composition (not merely skipped)" \
+  'refusing to remove it (following it would delete an attacker-chosen path) and refusing to compose this run.' \
+  's/refusing to compose this run\./continuing anyway./' "$RUNNER_WF"
+# #700 F-4 exec-closure completeness: resolve-review-overrides.py locates config-get.sh as a
+# SIBLING of its own __file__, so materializing only the composer+resolver leaves the trusted
+# arm unable to read ANY config — it degrades to the honest fallback on every run and the
+# hardening is silently inert. Reproduced at the desk. All three, or the arm is dead.
+assert_pin_red_under "#700 F-4: the trusted materialization copies the COMPLETE exec closure (incl. config-get.sh)" \
+  'for _a in compose-applied-effort.sh resolve-review-overrides.py config-get.sh; do' \
+  's/ config-get.sh; do/; do/' "$RUNNER_WF"
+assert_pin_red_under "#700 F-4: the trusted arm is accepted only when config-get.sh materialized too" \
+  '[ -f "$RUNNER_TEMP/devflow-trusted-applied-effort/config-get.sh" ]; then' \
+  's|\&\& \[ -f "\$RUNNER_TEMP/devflow-trusted-applied-effort/config-get.sh" \]; then|; then|' "$RUNNER_WF"
 
 # #700 F1 (deferral guard): the applied arm's blast radius — if `--agents` SHADOWS rather
 # than patches an installed agent, every merge-gating review agent degrades to a

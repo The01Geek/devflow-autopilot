@@ -843,12 +843,16 @@ jobs:
       # across all three tiers by lib/test/run.sh's `#700 F1` assertion). Kept as its OWN step (not the
       # cargs body) so the model/effort composition stays isolated. The branch logic
       # (resolver-absent fail-open, empty/`{}` short-circuit, JSON-object validation,
-      # unconditional stale-sidecar clear, sidecar-write-then-fallback) lives in the
-      # extracted helper scripts/compose-applied-effort.sh so the suite drives each branch
-      # directly (issue #700 findings #3/#4/#5). Best-effort, fail-OPEN: any failure yields
-      # an empty agents_args and no sidecar, and the honest fallback stands. Invoked at the
-      # vendored path (materialized by vendor-plugin), with the self-repo `scripts/` fallback
-      # for this repo's own runs.
+      # sidecar-write-then-fallback) lives in the extracted helper
+      # scripts/compose-applied-effort.sh so the suite drives each branch directly (issue
+      # #700 findings #3/#4/#5). TWO things do NOT live there and are inline below: the
+      # stale-sidecar clear (#700 F-6 — hoisted out, because the helper is exactly what may
+      # be missing) and the trusted-source ladder (#700 F-4). Best-effort, fail-OPEN in the
+      # sense that any failure yields an empty agents_args and the honest fallback stands —
+      # but on a tier that arms DEVFLOW_AE_REQUIRE_TRUSTED the ladder is fail-CLOSED about
+      # its SOURCE: the PR-head workspace copy is never executed there, so the self-repo
+      # `scripts/` fallback below applies only to the tiers running against their own
+      # trusted tree.
       - name: Compose applied per-agent effort (issue 669)
         id: applied_effort
         env:
@@ -864,9 +868,23 @@ jobs:
           # the recorder read author-chosen efforts as genuine applied telemetry. The clear
           # must therefore run unconditionally, before and independently of helper
           # resolution. Path rule mirrors the helper's own (repo-root-anchored, #700 S2).
+          #
+          # SCOPE, stated honestly: this closes the COMMITTED-file vector only. The review
+          # profile grants the reviewer Write(.devflow/tmp/**) and its context is filled with
+          # attacker-controlled PR text, so a successful prompt injection could recreate the
+          # sidecar AFTER this clear and the in-session recorder would read it. That residual
+          # is covered by the injection defenses in the grounding block, not by this line.
+          #
+          # A SYMLINK is refused rather than followed: the path lives inside the PR-head
+          # checkout, so a committed symlink here would turn this `rm` into an
+          # attacker-steerable delete of an arbitrary path (e.g. another step's trusted
+          # RUNNER_TEMP material). Only a regular file is removed.
           AE_SIDECAR="${DEVFLOW_AE_SIDECAR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.devflow/tmp/agent-effort-applied.json}"
           AE_BLOCKED=0
-          if ! rm -f "$AE_SIDECAR" 2>/dev/null && [ -e "$AE_SIDECAR" ]; then
+          if [ -L "$AE_SIDECAR" ]; then
+            echo "::warning::devflow applied-effort: the sidecar path ${AE_SIDECAR} is a SYMLINK; refusing to remove it (following it would delete an attacker-chosen path) and refusing to compose this run."
+            AE_BLOCKED=1
+          elif ! rm -f "$AE_SIDECAR" 2>/dev/null && [ -e "$AE_SIDECAR" ]; then
             echo "::warning::devflow applied-effort: could not clear a pre-existing sidecar at ${AE_SIDECAR}; refusing to compose this run (a surviving sidecar of unknown provenance would be recorded as applied effort this run never emitted)."
             AE_BLOCKED=1
           fi
