@@ -1,5 +1,5 @@
 {
-  "manifest_version": 7,
+  "manifest_version": 8,
   "readme": [
     "This manifest is the single source of truth for DevFlow's cloud capability policy:",
     "which tools/commands each execution tier (review, implement, command) may run.",
@@ -203,6 +203,7 @@
       "Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*)",
       "Bash(.devflow/vendor/devflow/scripts/apply-labels.sh:*)",
       "Bash(.devflow/vendor/devflow/scripts/ensure-label.sh:*)",
+      "Bash(.devflow/vendor/devflow/scripts/resolve-existing-pr.sh:*)",
       "Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*)",
       "Bash(.devflow/vendor/devflow/scripts/stale-prose-lint.py:*)",
       "Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*)",

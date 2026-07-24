@@ -14,7 +14,31 @@ Output: `Phase 3/4: Review & Fix — creating PR and running review...`
 
 Handle the printed token **per the implement-driven outcome-handling contract in phase-1-setup.md §1.4.1** (record on the issue workpad; `Blocked` on `MERGE_IN_PROGRESS` or a failed conflict resolution; resolve a `CONFLICT` and re-run the Phase 2.3.0 sweep before continuing; record-and-continue on `UNVERIFIED`/`PUSH_REJECTED`). **Do not open the draft PR on a tree the run has hard-stopped on**: `MERGE_IN_PROGRESS`, an unresolved (or suite-failed, aborted) `CONFLICT`, and a `PUSH_REJECTED` whose stderr carries the failed-restore `WARNING` (see §1.4.1's `PUSH_REJECTED` caveat) each stop the run instead. **Every other token proceeds to open the draft PR** — `UP_TO_DATE`, `UPDATED`, `DISABLED`, a *resolved* `CONFLICT`, and equally the record-and-continue outcomes `UNVERIFIED` and an ordinary (restore-succeeded) `PUSH_REJECTED`: those two are *degraded but non-fatal* by the §1.4.1 contract, and the branch is simply not vouched current (the #429 read-target rules stay in force). Withholding the PR on them would contradict the contract's own "record and continue" and would leave the run wedged at Phase 3.1 with no PR and no stop.
 
-Re-derive the base branch and open the draft PR against it **in one bash block**. Each phase's bash block runs as a **separate** shell, so the `$BASE` resolved in Phase 1.4 is **not** in scope here — re-read it (behaviorally identical to Phase 1.4: the `config-get.sh` read plus the fail-closed empty-read fallback to `main`) so `gh pr create` targets the **configured** `base_branch` rather than the repo default branch. Keep the re-derivation and `gh pr create` in the **same** block so `$BASE` cannot be lost to a shell boundary between them (an empty `--base ""` would mistarget silently — the very failure this fix prevents). Pass the re-derived base as the `--base` flag; do **not** pass `--head` — Phase 3.1 runs on the checked-out feature branch, so `gh pr create` defaults `--head` to it correctly:
+**Resolve whether this run ADOPTS an already-open PR or CREATES one — through the extracted resolver, emitted as its own leading-token command.** A §2.0 gate-fire resume — or any run whose §1.4 resume pre-check adopted an already-open PR — reaches §3.1 with the PR already created by a prior attempt, and a bare `gh pr create` would abort with "a pull request already exists". That decision is *branch-selecting* logic, so it is not inline shell here: it lives in a helper the suite drives arm-by-arm, whose header states the full contract (why the query is open-scoped rather than `gh pr view`, why an empty branch name never reaches the query, how the newest PR on a shared head is selected, and why an unresolvable query never collapses onto "none found"). Pass only the issue number — the helper re-derives the head branch and the base internally, because neither survives the shell boundary between this command and the next:
+
+```bash
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/resolve-existing-pr.sh --issue $ISSUE_NUMBER
+```
+
+The helper prints **exactly one token line**, with a matching exit code:
+
+| Printed token | Exit | Meaning |
+|---|---|---|
+| `ADOPT <n> OK` | 0 | an open PR was resolved and both validations passed — adopt PR `<n>` |
+| `ADOPT <n> WARN:<checks>` | 0 | adopt PR `<n>`, but `<checks>` (a comma-separated subset of `closes-issue`, `base-ref`) did not hold |
+| `CREATE` | 2 | the query ran cleanly and found no open PR |
+| `REFUSED` | 3 | the answer could not be established |
+| *nothing at all* | — | the fence was **refused by the harness**, which answers nothing: route it exactly as `REFUSED` (the helper breadcrumbs on every path it can take, so silence is never one of its own outcomes) |
+
+**Route the arms — the REFUSED arm is a terminal stop, not a breadcrumb.** stderr is not a durable channel: on the cloud tier the workpad is the only record the stall backstop reads, so a REFUSED arm that merely printed would leave the workpad at an interim `🚀 Reviewing` with no `PR` link and let §3.2–§3.4 run with no PR — the wedged state this guard exists to prevent, and the one it would then cause. So:
+
+- **REFUSED** (the token printed, **or the fence printed nothing at all**). **Route this by whether the run is a resume, because the risk is asymmetric and only a resume carries it.** The run already holds that evidence without a further network call: §1.4's resume pre-check outcome (did it adopt an existing branch/PR?) and Phase 1.3's durable `resume-kind:` marker.
+  - **On a resume** (§1.4 adopted a PR or branch, or `resume-kind` is `in-flight`) a prior attempt's PR probably exists, so creating blind risks a duplicate: do **not** continue into the PR-link resolution, the label calls, or §3.2. Record the cause durably and stop — `workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind blocked --reflection "Phase 3.1: could not resolve whether an open PR already exists for this branch (empty branch name, a gh pr list failure, or a refused fence) on a RESUME; refusing to create a PR that may duplicate a prior attempt's — resolve and re-run"` — then emit the 👎 outcome reaction (see *Outcome reaction* in the Workpad Reference) and end the run at that terminal status.
+  - **On a fresh run** there is no prior attempt to duplicate, so a transient failure must **not** end the run: fall through to the create fence below — which fails loudly and harmlessly with "a pull request already exists" in the vanishingly rare case the query was wrong — and record the degraded query with `--reflection-kind note`. This asymmetry is deliberate: before this guard existed a fresh run simply created the PR, and gating the common path on a *second* network call succeeding would trade a real duplicate-PR risk that fresh runs do not have for a new Blocked-on-rate-limit failure they would.
+- **ADOPT** (either form): continue below, treating `<n>` as the run's PR, and **skip the create fence entirely**. On the `WARN:<checks>` form adoption still proceeds — this is a visibility obligation, not a stop — but the named checks must not vanish into stderr: record them durably first with `workpad.py update $ISSUE_NUMBER --reflection-kind note --reflection "Phase 3.1 adopted open PR #<n> whose validation failed (<checks>): it may be an unrelated PR that merely shares this head branch."`
+- **CREATE**: run the fence below — **and check that the create itself succeeded** (an auth expiry, an API 5xx, a `--base` that no longer resolves, a rate limit). `gh pr create`'s failure goes to stderr, so check it explicitly: if no PR was created, take the **same terminal stop as REFUSED** (durable `blocked` reflection naming the failed create, 👎 outcome reaction, end the run) rather than continuing into the PR-link resolution, which would write a broken `[#]()` link and run §3.2–§3.4 with no PR.
+
+**The CREATE fence — re-derive the base branch and open the draft PR against it in ONE bash block.** Each phase's bash block runs as a **separate** shell, so the `$BASE` resolved in Phase 1.4 is **not** in scope here — re-read it (behaviorally identical to Phase 1.4: the `config-get.sh` read plus the fail-closed empty-read fallback to `main`) so `gh pr create` targets the **configured** `base_branch` rather than the repo default branch. Keep the re-derivation and `gh pr create` in the **same** block so `$BASE` cannot be lost to a shell boundary between them (an empty `--base ""` would mistarget silently — the very failure this fix prevents). Pass the re-derived base as the `--base` flag; do **not** pass `--head` — Phase 3.1 runs on the checked-out feature branch, so `gh pr create` defaults `--head` to it correctly.
 
 Derive the run link exactly the way Phase 1.3 §1.3 does — the same
 `$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID` form — so the draft PR
@@ -42,75 +66,20 @@ EOF
 # Local-tier run has no run URL: drop the broken "[View run]()" line rather than
 # leaving a placeholder link in the PR body.
 [ -n "$RUN_URL" ] || BODY=$(printf '%s\n' "$BODY" | grep -vF '[View run]()')
-# Existing-PR guard (resume path): a §2.0 gate-fire resume — or any run whose §1.4
-# resume pre-check adopted an already-open PR — reaches §3.1 with the PR already
-# created by the prior attempt, and a bare `gh pr create` would abort with "a pull
-# request already exists". Adopt that PR when present, create only when absent.
-#
-# The query is the OPEN-SCOPED, branch-explicit `gh pr list --head … --state open`
-# form §1.4's resume pre-check already uses — deliberately NOT `gh pr view`, which
-# takes no `--state` filter and resolves "the pull request that belongs to the
-# current branch" across OPEN/CLOSED/MERGED (`gh pr view --help`). With `gh pr
-# view`, a branch whose only PR was CLOSED yields a non-empty capture, the create
-# is skipped, and every consumer below — the workpad PR link, the DevFlow label,
-# Phase 4.2's description, Phase 4.3's publish — runs against a closed PR while
-# the run has no live PR at all. `phase-1-setup.md` forbids the same re-resolution
-# for the sibling reason (it cannot discriminate multiple PRs on one head branch).
-#
-# The branch is read in its OWN statement, and an empty read is a REFUSED, never a
-# query input. Inside `--head "$(git branch --show-current)"` the inner substitution's
-# failure is invisible to the outer `||` (only gh's status reaches it), and git prints
-# EMPTY on a detached HEAD, a broken worktree, or git < 2.22 — so `--head ""` degrades
-# to an UNFILTERED repo-wide `gh pr list --state open` that exits 0, and the run adopts
-# an arbitrary unrelated PR. §1.4 guards the same query the same way (`[ -n "$WP_BRANCH" ]`).
-#
-# Selection is deterministic: `gh pr list` documents no stable array order, so a head
-# carrying two open PRs (a reopened prior attempt, a stacked PR) would make a bare
-# `.[0]` nondeterministic — the very multiple-PRs-on-one-head hazard the paragraph
-# above cites. Sort by createdAt and take the newest, exactly as §1.4 does.
-#
-# An unresolvable query and a genuine "no open PR" must NOT collapse: `// empty`
-# prints empty for a clean "none found", and each `|| VAR=REFUSED` sits in the SAME
-# statement as the command whose failure it handles (never a `$?` read in a later
-# statement — issue #284). REFUSED takes neither arm: creating on an unresolved query
-# risks a second PR, and adopting is impossible.
-HEAD_BRANCH=$(git branch --show-current) || HEAD_BRANCH=""
-if [ -z "$HEAD_BRANCH" ]; then
-  EXISTING_PR=REFUSED
-else
-  EXISTING_PR=$(gh pr list --head "$HEAD_BRANCH" --state open --json number,createdAt --jq 'sort_by(.createdAt) | last | .number // empty') || EXISTING_PR=REFUSED
-fi
-# The UNSET-only `-` form (no colon) is belt-and-braces: both arms above assign, so the
-# default is not expected to fire — it is written this way because the `:-` form here
-# would be an ACTIVE BUG, firing on the EMPTY string that means "no open PR" and
-# stranding every fresh run with no PR at all. Keep the `-`; do not "simplify" to `:-`.
-if [ "${EXISTING_PR-REFUSED}" = REFUSED ]; then
-  echo "devflow: §3.1 could not resolve whether an open PR exists for this branch (empty branch name, or gh pr list failed); NOT creating — a second PR would duplicate a prior attempt's." >&2
-elif [ -n "$EXISTING_PR" ]; then
-  echo "devflow: §3.1 adopting the already-open PR #$EXISTING_PR for this branch (resume path); skipping gh pr create"
-else
-  gh pr create --base "$BASE" --draft --title "{issue title}" --body "$BODY"
-fi
+gh pr create --base "$BASE" --draft --title "{issue title}" --body "$BODY"
 ```
-
-**Route the three arms — the REFUSED arm is a terminal stop, not a breadcrumb.** The fence's `echo` is transcript-only, and stderr is not a durable channel: on the cloud tier the workpad is the only record the stall backstop reads, so a REFUSED arm that merely printed would leave the workpad at an interim `🚀 Reviewing` with no `PR` link and let §3.2–§3.4 run with no PR — the wedged state this guard exists to prevent, and the one it would then cause. So:
-
-- **REFUSED** (the fence printed the "could not resolve" line, **or printed nothing at all** — a matcher refusal of the fence answers nothing, exactly as the *draft PR number* exit below treats a silent fence). **Route this by whether the run is a resume, because the risk is asymmetric and only a resume carries it.** The run already holds that evidence without a further network call: §1.4's resume pre-check outcome (did it adopt an existing branch/PR?) and Phase 1.3's durable `resume-kind:` marker.
-  - **On a resume** (§1.4 adopted a PR or branch, or `resume-kind` is `in-flight`) a prior attempt's PR probably exists, so creating blind risks a duplicate: do **not** continue into the PR-link resolution, the label calls, or §3.2. Record the cause durably and stop — `workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind blocked --reflection "Phase 3.1: could not resolve whether an open PR already exists for this branch (empty branch name, gh pr list failure, or a refused fence) on a RESUME; refusing to create a PR that may duplicate a prior attempt's — resolve and re-run"` — then emit the 👎 outcome reaction (see *Outcome reaction* in the Workpad Reference) and end the run at that terminal status.
-  - **On a fresh run** there is no prior attempt to duplicate, so a transient `gh pr list` failure must **not** end the run: fall through to `gh pr create` — which fails loudly and harmlessly with "a pull request already exists" in the vanishingly rare case the query was wrong — and record the degraded query with `--reflection-kind note`. This asymmetry is deliberate: before this guard existed a fresh run simply created the PR, and gating the common path on a *second* network call succeeding would trade a real duplicate-PR risk that fresh runs do not have for a new Blocked-on-rate-limit failure they would.
-- **Adopt** (a PR number was printed): continue below, treating that number as the run's PR.
-- **Create**: continue below with the freshly-created PR — **unless the create itself failed** (an auth expiry, an API 5xx, a `--base` that no longer resolves, a rate limit). `gh pr create`'s failure goes to stderr, which the REFUSED detector above does not match, so check it explicitly: if no PR was created, take the **same terminal stop as REFUSED** (durable `blocked` reflection naming the failed create, 👎 outcome reaction, end the run) rather than continuing into the PR-link resolution, which would write a broken `[#]()` link and run §3.2–§3.4 with no PR.
 
 **On the adopt arm, do NOT re-write the PR body** — the prior attempt's body (and its §1.4-refreshed `[View run]` line) stands; re-creating or re-bodying it would clobber a human's edits.
 
 Then populate the workpad's `PR` link from the resolved draft PR — **freshly created, or the one just adopted** — and **print the PR number** — you need it as a literal in the label call below, and a shell variable does not survive into a later separate command on the cloud runner.
 
-**On the ADOPT arm, use this fence instead of the one below**, substituting the adopted digits for `<adopted-pr>`. Both values must come from one **explicitly-addressed** read: the bare `gh pr view` in the create-arm fence is the unscoped form this section's guard comment rejects, so re-resolving there could bind `PR_URL` to a *different* PR than the number just adopted (a closed sibling, or another PR on the same head) — producing a workpad link whose number and URL disagree, the exact failure the guard exists to prevent. Passing the number as a positional argument removes the branch-wide ambiguity entirely:
+**On the ADOPT arm, use this fence instead of the one below**, substituting the adopted digits for `<adopted-pr>`. Both values must come from one **explicitly-addressed** read: the bare `gh pr view` in the create-arm fence is the unscoped form the resolver's contract rejects, so re-resolving there could bind `PR_URL` to a *different* PR than the number just adopted (a closed sibling, or another PR on the same head) — producing a workpad link whose number and URL disagree, the exact failure the resolver exists to prevent. Passing the number as a positional argument removes the branch-wide ambiguity entirely:
 
 ```bash
-# ADOPT ARM ONLY — <adopted-pr> is the number the guard above printed, substituted
-# as a literal. The positional argument is what makes this read scoped; without it
-# `gh pr view` resolves by branch across OPEN/CLOSED/MERGED (see the guard comment).
+# ADOPT ARM ONLY — <adopted-pr> is the number from the resolver's `ADOPT <n>` token,
+# substituted as a literal. The positional argument is what makes this read scoped;
+# without it `gh pr view` resolves by branch across OPEN/CLOSED/MERGED (the unscoped
+# form the resolver's contract rejects).
 PR_URL=$(gh pr view <adopted-pr> --json url --jq '.url') || PR_URL=""
 # Guard the link write on a non-empty URL: writing first and remedying after would
 # already have PATCHed a broken `[#N]()` link that the remedy cannot undo.

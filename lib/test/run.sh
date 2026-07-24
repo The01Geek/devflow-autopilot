@@ -7344,28 +7344,134 @@ assert_pin_unique "#755: Phase 2 §2.0 gate reads the resume-kind: in-flight mar
 assert_pin_red_under "#755: §2.0 conjunct (a) compares by exact value, not containment (an unsubstituted template must not arm the gate)" \
   'Compare by exact value, never by containment' \
   's|Compare by exact value, never by containment|Compare by containment|' "$P2_FILE"
-# BEHAVIORAL-FIX PIN (§3.1 existing-PR guard): the guard is executable branch-selecting shell,
-# the class CLAUDE.md requires real coverage for. Reverting it to the `gh pr view` form
-# re-introduces the defect: that command takes no --state filter and resolves the branch's PR
-# across OPEN/CLOSED/MERGED, so a closed prior PR is silently adopted and the run proceeds with
-# no live PR. The mutation swaps the open-scoped list query back to the unscoped view form.
-# Target is spelled from IMPL_PHASES_DIR, which IS in scope here; $P3_FILE is not assigned
-# until far below this block, so using it would silently target the helper's default file.
-assert_pin_red_under "#755: §3.1 existing-PR guard queries OPEN-scoped (gh pr list --state open), never the unscoped gh pr view" \
-  'gh pr list --head "$HEAD_BRANCH" --state open --json number,createdAt' \
-  's|gh pr list --head "\$HEAD_BRANCH" --state open --json number,createdAt|gh pr view --json number|' "$IMPL_PHASES_DIR/phase-3-review.md"
-# BEHAVIORAL-FIX PIN (§3.1 empty-branch fail-closed): the branch is read in its OWN statement
-# because an inner `$(git branch --show-current)` failure is invisible to the outer `||` and
-# git prints EMPTY on a detached HEAD — collapsing the query to an UNFILTERED repo-wide
-# `gh pr list --state open` that exits 0, so the run adopts an arbitrary unrelated PR. The
-# mutation INLINES the branch read back into the query — literally re-introducing the defect,
-# not merely deleting the pinned line: it rewrites `--head "$HEAD_BRANCH"` to the inlined
-# `--head "$(git branch --show-current)"` form, whose inner failure the outer `||` cannot see.
-# The pin literal is the query's guarded operand, so the mutation flips it RED by restoring
-# the regression rather than by blanking the target (the vacuity assert_pin_red_under rules out).
-assert_pin_red_under "#755: §3.1 reads the branch in its own statement and treats an empty read as REFUSED (never an unfiltered repo-wide query)" \
-  'gh pr list --head "$HEAD_BRANCH"' \
-  's@--head "\$HEAD_BRANCH"@--head "$(git branch --show-current)"@' "$IMPL_PHASES_DIR/phase-3-review.md"
+# The two §3.1 existing-PR pins this block used to carry are re-anchored to the extracted
+# helper by the #782 block that follows — the extraction removed the inline text they
+# asserted, and both guarded regressions are preserved there, one arm each.
+
+# ── Issue #782: the §3.1 three-arm resolution is an EXTRACTED, DRIVEN helper ──
+# CLAUDE.md's inline-shell-extraction convention: shell that SELECTS A BRANCH is extracted
+# into a scripts/*.sh helper so the suite can drive each arm AND its arm-order, because a
+# grep-pin on a message literal is not coverage of the selection that chooses it.
+# scripts/describe-denial-count.sh is the reference extraction (its driver lives further
+# below, at the #363 block); this block is its analogue for the §3.1 existing-PR resolver.
+#
+# The two #755 pins that used to assert the INLINE query form in phase-3-review.md are
+# re-anchored here to helper behavior — the extraction removed the text they asserted, and a
+# pin left asserting vanished text is the stale-citation defect the 2.3.0 relocation sweep
+# exists to catch. Their guarded regressions are preserved verbatim, one arm each:
+#   * open-scoped query    -> the `gh pr view` unscoped form silently adopts a CLOSED PR.
+#   * empty-branch REFUSED -> an empty --head degrades to an UNFILTERED repo-wide query.
+REP_SH="$LIB/../scripts/resolve-existing-pr.sh"
+S782="$(mktemp -d)"
+# gh stub. Every invocation appends its argv to $GHLOG, which is what lets the empty-branch
+# row assert gh was never CALLED at all — the fail-closed property that arm exists for (a
+# query reached with an empty --head is the repo-wide degradation, not a narrower query).
+# REP_RC non-empty makes the stub exit with it (the `gh` non-zero row); otherwise it prints
+# the JSON fixture named by REP_FIXTURE.
+cat > "$S782/gh" <<'GH782'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$GHLOG"
+[ -n "${REP_RC:-}" ] && exit "$REP_RC"
+cat "$REP_FIXTURE"
+GH782
+chmod +x "$S782/gh"
+printf '%s\n' '[]' > "$S782/empty.json"
+printf '%s\n' '[{"number":11,"createdAt":"2026-01-01T00:00:00Z","baseRefName":"main","closingIssuesReferences":[{"number":782}]}]' > "$S782/one.json"
+# Two open PRs on ONE head, deliberately listed NEWEST-FIRST so a bare `.[0]` would also
+# pass: the row below asserts the newest is selected, and the reversed-order sibling row
+# proves the selection is by createdAt rather than by array position.
+printf '%s\n' '[{"number":22,"createdAt":"2026-02-02T00:00:00Z","baseRefName":"main","closingIssuesReferences":[{"number":782}]},{"number":21,"createdAt":"2026-01-01T00:00:00Z","baseRefName":"main","closingIssuesReferences":[{"number":782}]}]' > "$S782/two-newest-first.json"
+printf '%s\n' '[{"number":21,"createdAt":"2026-01-01T00:00:00Z","baseRefName":"main","closingIssuesReferences":[{"number":782}]},{"number":22,"createdAt":"2026-02-02T00:00:00Z","baseRefName":"main","closingIssuesReferences":[{"number":782}]}]' > "$S782/two-oldest-first.json"
+# An unrelated PR sharing the head branch: closes no issue AND targets another base — the
+# wrong-PR adoption #782 makes visible instead of silent.
+printf '%s\n' '[{"number":33,"createdAt":"2026-01-01T00:00:00Z","baseRefName":"develop","closingIssuesReferences":[]}]' > "$S782/unrelated.json"
+# Each failing check must be nameable ALONE, not only in the both-failed pair.
+printf '%s\n' '[{"number":34,"createdAt":"2026-01-01T00:00:00Z","baseRefName":"develop","closingIssuesReferences":[{"number":782}]}]' > "$S782/base-only.json"
+printf '%s\n' '[{"number":35,"createdAt":"2026-01-01T00:00:00Z","baseRefName":"main","closingIssuesReferences":[{"number":999}]}]' > "$S782/closes-only.json"
+# rep782 <fixture> <gh-rc-or-empty> <args…> → prints "<stdout-token>|<exit-code>".
+# Both halves are asserted together on every row: the AC requires exactly one token per
+# outcome WITH a matching exit code, so a token asserted without its code would leave the
+# code free to drift (and vice versa).
+rep782() {
+  local fx="$1" rc="$2"; shift 2
+  local out st
+  : > "$S782/ghlog"
+  out="$(GHLOG="$S782/ghlog" REP_FIXTURE="$fx" REP_RC="$rc" DEVFLOW_GH="$S782/gh" \
+      bash "$REP_SH" "$@" 2>"$S782/err")" && st=0 || st=$?
+  printf '%s|%s\n' "$out" "$st"
+}
+assert_eq "#782 resolve-existing-pr.sh exists and is executable" "yes" \
+  "$([ -x "$REP_SH" ] && echo yes || echo no)"
+# ── The five input-matrix rows the issue enumerates, each asserting token AND exit code.
+assert_eq "#782 arm: gh exits non-zero -> REFUSED (never a create, which could duplicate)" "REFUSED|3" \
+  "$(rep782 "$S782/empty.json" 4 --issue 782 --base main --branch feature-x)"
+assert_eq "#782 arm: an empty result array -> CREATE (a clean 'no open PR', not a failure)" "CREATE|2" \
+  "$(rep782 "$S782/empty.json" "" --issue 782 --base main --branch feature-x)"
+assert_eq "#782 arm: exactly one open PR -> ADOPT, validated" "ADOPT 11 OK|0" \
+  "$(rep782 "$S782/one.json" "" --issue 782 --base main --branch feature-x)"
+assert_eq "#782 arm: two open PRs on one head -> the NEWEST by createdAt is adopted" "ADOPT 22 OK|0" \
+  "$(rep782 "$S782/two-oldest-first.json" "" --issue 782 --base main --branch feature-x)"
+assert_eq "#782 arm: the newest is selected by createdAt, not by array position" "ADOPT 22 OK|0" \
+  "$(rep782 "$S782/two-newest-first.json" "" --issue 782 --base main --branch feature-x)"
+assert_eq "#782 arm: an empty branch name -> REFUSED" "REFUSED|3" \
+  "$(rep782 "$S782/one.json" "" --issue 782 --base main --branch "")"
+# The empty-branch arm's WHOLE POINT: the query is never reached. `gh pr list --head ""` is
+# an UNFILTERED repo-wide open-PR query that exits 0, so a helper that merely returned an
+# empty selection here would adopt an arbitrary unrelated PR on some other branch.
+assert_eq "#782 empty branch: gh is never invoked (no unfiltered repo-wide query is issued)" "yes" \
+  "$([ -s "$S782/ghlog" ] && echo no || echo yes)"
+# ── AC1 validation: the adopt arm names EACH failed check, so a wrong-PR adoption is visible.
+assert_eq "#782 validation: a PR that neither closes the issue nor targets the base names both checks" \
+  "ADOPT 33 WARN:closes-issue,base-ref|0" \
+  "$(rep782 "$S782/unrelated.json" "" --issue 782 --base main --branch feature-x)"
+assert_eq "#782 validation: a base-only mismatch names base-ref alone" "ADOPT 34 WARN:base-ref|0" \
+  "$(rep782 "$S782/base-only.json" "" --issue 782 --base main --branch feature-x)"
+assert_eq "#782 validation: a closes-issue-only mismatch names closes-issue alone" "ADOPT 35 WARN:closes-issue|0" \
+  "$(rep782 "$S782/closes-only.json" "" --issue 782 --base main --branch feature-x)"
+# ── ARM ORDER. Each ordered pair must differ; a reordered or collapsed arm makes two of
+# ── these identical, which is precisely what a per-row token assertion alone cannot see.
+assert_eq "#782 arm order: REFUSED and CREATE are distinct outcomes" "differ" \
+  "$([ "$(rep782 "$S782/empty.json" 4 --issue 782 --base main --branch feature-x)" \
+     != "$(rep782 "$S782/empty.json" "" --issue 782 --base main --branch feature-x)" ] && echo differ || echo same)"
+assert_eq "#782 arm order: CREATE and ADOPT are distinct outcomes" "differ" \
+  "$([ "$(rep782 "$S782/empty.json" "" --issue 782 --base main --branch feature-x)" \
+     != "$(rep782 "$S782/one.json" "" --issue 782 --base main --branch feature-x)" ] && echo differ || echo same)"
+assert_eq "#782 arm order: REFUSED and ADOPT are distinct outcomes" "differ" \
+  "$([ "$(rep782 "$S782/empty.json" 4 --issue 782 --base main --branch feature-x)" \
+     != "$(rep782 "$S782/one.json" "" --issue 782 --base main --branch feature-x)" ] && echo differ || echo same)"
+# The empty-branch REFUSED and the gh-failure REFUSED are ONE outcome by design, but they
+# are two different causes — the helper must still say which fired (per-branch breadcrumbs).
+assert_eq "#782 the two REFUSED causes carry distinct stderr breadcrumbs" "differ" \
+  "$(_r1="$(GHLOG="$S782/ghlog" REP_FIXTURE="$S782/one.json" REP_RC=4 DEVFLOW_GH="$S782/gh" bash "$REP_SH" --issue 782 --base main --branch feature-x 2>&1 >/dev/null)"
+     _r2="$(GHLOG="$S782/ghlog" REP_FIXTURE="$S782/one.json" REP_RC="" DEVFLOW_GH="$S782/gh" bash "$REP_SH" --issue 782 --base main --branch "" 2>&1 >/dev/null)"
+     [ "$_r1" != "$_r2" ] && echo differ || echo same)"
+# The helper derives the base internally when --base is omitted (the §3.1 fence passes no
+# $BASE across the shell boundary), via the same config-get.sh read the create arm re-derives.
+assert_eq "#782 --base omitted: the base is re-derived internally (repo base_branch is main)" "ADOPT 11 OK|0" \
+  "$(rep782 "$S782/one.json" "" --issue 782 --branch feature-x)"
+# ── The two re-anchored #755 behavioral-fix pins, now targeting the helper.
+# Guarded regression: `gh pr view` takes no --state filter and resolves the branch's PR
+# across OPEN/CLOSED/MERGED, so a closed prior PR is silently adopted and the run proceeds
+# with no live PR. The mutation swaps the open-scoped list query back to that unscoped form.
+assert_pin_red_under "#782 (re-anchors #755): the helper queries OPEN-scoped (gh pr list --state open), never the unscoped gh pr view" \
+  'pr list --head "$BRANCH" --state open --json number,createdAt,baseRefName,closingIssuesReferences' \
+  's|pr list --head "\$BRANCH" --state open --json number,createdAt,baseRefName,closingIssuesReferences|pr view --json number|' "$REP_SH"
+# Guarded regression: the branch is read in its OWN statement, so an empty read is caught by
+# the guard above the query rather than reaching `--head`. Inlining the read back into the
+# query re-introduces the #755 defect verbatim — the inner substitution's failure is invisible
+# to the outer `||` (only gh's status reaches it) and git prints EMPTY on a detached HEAD, so
+# `--head ""` degrades to an UNFILTERED repo-wide listing that exits 0. The mutation performs
+# exactly that inlining; it is a valid-shell regression, not a blanked target.
+# The empty-branch arm's OUTCOME (REFUSED, and gh never invoked at all) is driven above — this
+# pin guards the query's operand, the half a driven arm cannot see once the guard is bypassed.
+assert_pin_red_under "#782 (re-anchors #755): the helper reads the branch in its own statement, never inlined into the query" \
+  '--head "$BRANCH"' \
+  's@--head "\$BRANCH"@--head "$(git branch --show-current)"@' "$REP_SH"
+# The §3.1 fence must invoke the extracted helper as its own leading token — the extraction is
+# only real if the skill routes through it rather than keeping a second inline copy.
+assert_pin_unique "#782: §3.1 invokes the extracted resolver as a leading-token vendored-literal helper" \
+  'scripts/resolve-existing-pr.sh' "$IMPL_PHASES_DIR/phase-3-review.md"  # structural-pin-ok: surface-presence pin that the skill routes through the helper; the arm behavior it selects is driven above
+rm -rf "$S782"
 
 # ── Issue #493: Phase 1.4 §1.4 PR-body run-link refresh (cloud resume) ──
 # On a resumed cloud run that reaches §1.4 and finds an existing open PR, the
