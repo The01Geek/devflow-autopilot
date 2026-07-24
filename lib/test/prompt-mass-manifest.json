@@ -41,6 +41,7 @@
       "class": "mandatory",
       "files": [
         "skills/create-issue/SKILL.md",
+        "skills/docs-verify/SKILL.md",
         "skills/create-issue/references/step-2-clarify.md",
         "skills/create-issue/references/step-3-5-steelman.md",
         "skills/create-issue/references/step-3-6-audit.md",
