@@ -8317,6 +8317,21 @@ assert_eq "#781: parse-acs.py and workpad.py both import the shared section_pars
      && [ ! -s "$(mktemp)" ] && echo yes || echo no)"
 assert_eq "#781: parse-acs.py no longer carries its own copy of the section-extraction rule" "yes" \
   "$(grep -q 'def _extract_section' "$LIB/../scripts/parse-acs.py" && echo no || echo yes)"
+
+# workpad.py is deployed STANDALONE in two places that copy it without its
+# siblings — the Stop-hook trusted-copy closure and this suite's own guard
+# sandboxes — and `status`/`id`/`update` need nothing from section_parse. A hard
+# module-level import took every one of those down with a ModuleNotFoundError, so
+# the import is optional and only the surfaces that need it fail, loudly.
+S781X="$(mktemp -d)"; mkdir -p "$S781X/scripts"
+cp "$WP_PY" "$S781X/scripts/workpad.py"
+assert_eq "#781: workpad.py still loads with section_parse.py ABSENT (standalone deployment)" "yes" \
+  "$(python3 "$S781X/scripts/workpad.py" --help >/dev/null 2>&1 && echo yes || echo no)"
+python3 "$S781X/scripts/workpad.py" acs 1 >/dev/null 2>"$S781X/err"; _c781x=$?
+assert_eq "#781: with section_parse.py absent, acs fails CLOSED (exit 3), never a silent empty read" "3" "$_c781x"
+assert_eq "#781: the absent-sibling breadcrumb names section_parse.py specifically" "yes" \
+  "$(grep -q 'section_parse.py' "$S781X/err" && echo yes || echo no)"
+rm -rf "$S781X"
 rm -rf "$S781"
 
 # ── issue #781: workpad-sourced acceptance criteria — prompt-surface pins ─────

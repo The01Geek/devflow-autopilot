@@ -64,28 +64,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Shared section/checkbox parsing rules (issue #781) — the SAME implementation
-# `scripts/parse-acs.py` uses to WRITE the workpad's `## Acceptance Criteria`
-# section, so the read-back here can never disagree with the mirror about what a
-# section or a checkbox is. Imported IN-PROCESS, never through a
-# `.sh`/subprocess hop — Windows refuses that with [WinError 193] (issue #275).
-#
-# The explicit `sys.path` entry is load-bearing, not belt-and-braces: running
-# this file as a script puts `scripts/` on the path for free, but a consumer that
-# loads it through `importlib.util.spec_from_file_location` — which is how
-# `lib/test/test_python_scripts.py` drives every helper in this directory — does
-# NOT, so the bare sibling import would raise `ModuleNotFoundError` there and
-# take down every subcommand, not only the two that need the module.
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from section_parse import (  # noqa: E402  (must follow the sys.path entry above)
-    extract_section,
-    is_post_merge_tagged,
-    normalize_criterion,
-    parse_checkboxes,
-    render_line,
-)
-
 if sys.version_info < (3, 11):  # fail fast, before any PEP 604 annotation is evaluated below
     sys.stderr.write(
         "devflow: Python 3.11+ required (found %s.%s.%s). This helper requires"
@@ -94,6 +72,61 @@ if sys.version_info < (3, 11):  # fail fast, before any PEP 604 annotation is ev
         % sys.version_info[:3]
     )
     sys.exit(1)
+
+# Shared section/checkbox parsing rules (issue #781) — the SAME implementation
+# `scripts/parse-acs.py` uses to WRITE the workpad's `## Acceptance Criteria`
+# section, so the read-back here can never disagree with the mirror about what a
+# section or a checkbox is. Imported IN-PROCESS, never through a `.sh`/subprocess
+# hop — Windows refuses that with [WinError 193] (issue #275).
+#
+# Two properties of this block are load-bearing, and both were learned the
+# expensive way:
+#
+# 1. It sits BELOW the Python-version gate above. Placed higher it would run
+#    before the gate, so a 3.10 host would die on the import instead of printing
+#    the gate's floor/remedy message — defeating the fail-fast the gate exists
+#    for.
+# 2. The import is OPTIONAL. `workpad.py` is deployed as a standalone file in
+#    two places that copy it WITHOUT its siblings — the Stop-hook trusted-copy
+#    closure, and the suite's own guard sandboxes — and every subcommand those
+#    paths use (`status`, `id`, `update`) needs nothing from this module. A hard
+#    import would take all of them down with a `ModuleNotFoundError` for a module
+#    only `acs` / `acs-resolve` / the scope-decision flags require. So an absent
+#    sibling degrades to a targeted failure ON THOSE SURFACES ONLY, via
+#    `_require_section_parse()` below, rather than to a dead script.
+#
+# The explicit `sys.path` entry is likewise not belt-and-braces: running this
+# file as a script puts `scripts/` on the path for free, but a consumer that
+# loads it through `importlib.util.spec_from_file_location` — how
+# `lib/test/test_python_scripts.py` drives every helper in this directory — does
+# not.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+try:
+    from section_parse import (
+        extract_section,
+        is_post_merge_tagged,
+        normalize_criterion,
+        parse_checkboxes,
+        render_line,
+    )
+    _SECTION_PARSE_IMPORT_ERROR = None
+except ImportError as _e:      # standalone deployment — see (2) above
+    _SECTION_PARSE_IMPORT_ERROR = str(_e)
+
+
+def _require_section_parse(cmd: str) -> None:
+    """Fail closed, with a specific breadcrumb, on the surfaces that need the
+    shared parsing module when it was not deployed beside this file."""
+    if _SECTION_PARSE_IMPORT_ERROR is None:
+        return
+    sys.stderr.write(
+        f"workpad.py {cmd}: the shared parsing module scripts/section_parse.py "
+        f"could not be imported ({_SECTION_PARSE_IMPORT_ERROR}); it must be "
+        f"deployed alongside workpad.py. Refusing rather than guessing at the "
+        f"acceptance-criteria section's shape.\n"
+    )
+    sys.exit(3)
+
 
 # The gh binary to shell out to. `DEVFLOW_GH` (the documented override the shell
 # helpers resolve via lib/resolve-gh.sh) wins when set and non-empty; otherwise
@@ -540,6 +573,7 @@ def cmd_acs(args):
     re-running it against an unchanged workpad is byte-identical by
     construction.
     """
+    _require_section_parse('acs')
     _, section_lines, items = _acs_read_workpad('acs', args.issue)
     out = []
     if args.emit_source_token:
@@ -654,6 +688,7 @@ def cmd_acs_resolve(args):
     Exit 3 is reserved for a failure to read the issue body itself, without
     which there is no comparand and nothing to resolve.
     """
+    _require_section_parse('acs-resolve')
     issue_body = _acs_fetch_issue_body(args.issue)
     issue_items = parse_checkboxes(extract_section(issue_body, _ACS_SECTION))
 
@@ -2321,6 +2356,12 @@ def _validate_scope_decision_text(raw: str, flag: str, label: str) -> str:
 def _render_scope_decisions(args) -> list[str]:
     """Validate and render every `--scope-decision-*` request to a record line."""
     notes: list[str] = []
+    if getattr(args, 'scope_decision_deferred', None) or getattr(
+            args, 'scope_decision_rewritten', None):
+        # Normalizing the criterion text is what makes a record comparable to
+        # the review engine's normalized sets, so a record written without it
+        # would be silently uncomparable rather than merely unformatted.
+        _require_section_parse('update --scope-decision-*')
     for pr, text in getattr(args, 'scope_decision_deferred', None) or []:
         flag = '--scope-decision-deferred'
         notes.append(_render_scope_decision(
