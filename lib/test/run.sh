@@ -41551,6 +41551,42 @@ assert_eq "#438 exec-shape: observed.txt carries the emitter's structural-sectio
 # and the selector re-inlined (the #370 pin-in-comment class, flagged by the iter-2 gate).
 assert_eq "#438 describe-hook-probe: matcher-probe.yml routes the observation through the helper (invocation line)" "yes" \
   "$(grep -qF 'bash scripts/describe-hook-probe.sh "$MARKER"' "$REPO_ROOT/.github/workflows/matcher-probe.yml" && echo yes || echo no)"
+
+# #789: the implement-probe prompt's shape COUNT and its row table are a hand-maintained
+# coupled pair, and the named regression is silent under-measurement: the shape is listed in
+# the prompt but the preamble still says "attempt 1 through <old count> … then STOP", so the
+# probe never attempts the last row and its verdict table reports a value nobody measured.
+# Observed live while adding shape 17 — the row was present and the preamble still said 16.
+# DERIVED on both sides (never a transcribed literal) so adding an 18th shape cannot rot it:
+# the count is read from the preamble and compared against the row-tuple count.
+_MP789_YML="$REPO_ROOT/.github/workflows/matcher-probe.yml"
+# Both derivations are scoped to the IMPLEMENT-probe job: the file carries a second,
+# independent review-tier probe with its own rows list and its own count phrasings, and an
+# unscoped read would compare one job's table against the other's prose.
+_MP789_ROWS="$(python3 - "$_MP789_YML" <<'PY789'
+import re, sys
+text = open(sys.argv[1], encoding="utf-8").read()
+job = text[text.index("\n  implement-probe:"):]
+block = job[job.index("rows = ["):]
+block = block[: block.index("\n          ]")]
+print(len(re.findall(r"^\s*\(\s*\d+\s*,", block, re.M)))
+PY789
+)"
+_MP789_SAID="$(python3 - "$_MP789_YML" <<'PY789'
+import re, sys
+text = open(sys.argv[1], encoding="utf-8").read()
+job = text[text.index("\n  implement-probe:"):]
+found = set(re.findall(r"the (\d+) numbered command shapes", job)) \
+      | set(re.findall(r"1 through (\d+)\.", job)) \
+      | set(re.findall(r"attempting all (\d+),", job))
+print(",".join(sorted(found)) if found else "UNRESOLVED")
+PY789
+)"
+# The implement-probe prompt is the only one carrying all three count phrasings, so the
+# resolved set must be a single value equal to the row count; anything else is drift.
+assert_eq "#789 matcher-probe: the prompt's attempt-count matches its row table (a listed-but-unattempted shape is silently unmeasured)" \
+  "$_MP789_ROWS" "$_MP789_SAID"
+unset _MP789_YML _MP789_ROWS _MP789_SAID
 # #457: the docs AC6 record must state the observed FIRED result (with the run cited) and no
 # longer carry the stale 'unavailable (pending)' verdict.
 DHP_DOC="$REPO_ROOT/docs/execution-file-shape.md"

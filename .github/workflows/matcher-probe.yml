@@ -535,12 +535,12 @@ jobs:
           allowed_bots: "*"
           prompt: |
             You are a PERMISSION-MATCHER PROBE. Your ONLY task is to attempt each of
-            the 16 numbered command shapes below EXACTLY ONCE, each in its OWN single
+            the 17 numbered command shapes below EXACTLY ONCE, each in its OWN single
             tool call, VERBATIM — do not modify, wrap, quote-escape, split, or combine
             them, and do not add any command that is not listed. Attempt them in order
-            1 through 16. If a shape is DENIED or errors, do NOT retry it and do NOT try
+            1 through 17. If a shape is DENIED or errors, do NOT retry it and do NOT try
             a different formulation — move straight to the next number. After
-            attempting all 16, STOP and reply with the single word DONE.
+            attempting all 17, STOP and reply with the single word DONE.
 
             Your text output is not measured. Only the harness record of which tool
             calls the permission matcher allowed versus denied is measured. Attempt
