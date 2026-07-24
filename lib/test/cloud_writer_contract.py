@@ -219,14 +219,21 @@ REQUIRED_HELPER_HEADS = {
         ".devflow/vendor/devflow/scripts/parse-acs.py",
         ".devflow/vendor/devflow/scripts/branch-for-issue.py",
         ".devflow/vendor/devflow/scripts/update-branch-checkpoint.sh",
-        # Phase 3.1's existing-PR resolver (issue #782) — implement-only, like the
-        # label helpers below, since devflow.yml's command profile dispatches no
-        # implement phase. Registered for the same reason update-branch-checkpoint.sh
-        # above is: it is a bundled helper a §3.1 fence invokes as its leading token,
-        # so omitting it would let three guards fail open on it — its vendored grant
-        # unasserted by the grant-sync check, its leading-token boundary unaudited,
-        # and its bytes unpinned in the runtime manifest.
-        ".devflow/vendor/devflow/scripts/resolve-existing-pr.sh",
+        # NOT listed here: Phase 3.1's existing-PR resolver (scripts/resolve-existing-pr.sh,
+        # issue #782). A review pass asked for it, and the request is sound in isolation —
+        # membership would assert its vendored grant, audit its leading-token boundary, and
+        # byte-pin it in the runtime manifest. But this list is a REQUIRED SUBSET every
+        # SUPPORTED consumer workflow must grant, including the immediately-preceding one
+        # frozen at `LEGACY_PROFILE_BASELINE`, which predates the helper and cannot grant it.
+        # Adding a brand-new head therefore breaks the AC19 pairing-2 invariant (an N-1
+        # workflow paired with the current plugin still validates cleanly) — reproduced: the
+        # live manifest under the frozen legacy grants reports HEAD_ABSENT for exactly this
+        # path. A newly-added helper becomes required when the baseline advances past the
+        # release that ships it, not in the release that introduces it; registering it here
+        # is deferred to that baseline bump. The helper is still granted in the current
+        # `implement` profile (lib/capability-profiles.json + the generated literals), so a
+        # current-workflow consumer runs it — only the every-supported-workflow REQUIREMENT
+        # is deferred.
         ".devflow/vendor/devflow/scripts/file-deferrals.py",
         # Phase 4.0.5's discovery step, invoked in the SAME fence as
         # file-deferrals.py above (issue #555). Registered alongside it so the
