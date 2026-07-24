@@ -3954,37 +3954,74 @@ count_unallowlisted_raw_skill_guards() {  # file -> count of raw SKILL guard pin
     | grep -vF "# $RGOK_MARK:" \
     | grep -c . || true
 }
-# issue #746: the corpus is run.sh PLUS every module, not $SELF_SRC alone. Extraction moves
-# raw-guard sites out of this file, and a guard whose subject has left neither fails nor
-# warns — it keeps passing at a count that shrinks as modularization proceeds, while the
-# assertion name still claims repo-wide scope. Summing over the module corpus (the shape the
-# #591 pin-lint loop and the #666 mutation gate already use) makes the claimed scope the
-# real one, so a raw guard authored in a module is audited exactly like one authored here.
+# issue #758: the corpus is now genuinely REPO-WIDE — every tracked `.sh` file — so the
+# "(repo-wide)" assertion name below is the real scope, not an overclaim. #746 widened the
+# corpus from $SELF_SRC to run.sh + lib/test/modules/*.sh but left lib/test/module-harness.sh,
+# lib/test/summary.sh, lib/test/run-module.sh and all of scripts/ outside it, so a raw guard
+# authored in any of those was audited nowhere while the name still claimed repo-wide scope.
+# The population is read from git's INDEX (`git ls-files`, no `--others`, per issue #711), so
+# it is immune to the sibling worktrees under .claude/worktrees/ that a root-anchored recursive
+# walk would descend into, and it does not drift as sources are added — a raw SKILL guard
+# authored in ANY shell source is now audited exactly like one authored here. (`git` is neither
+# `find` nor `grep -r`, so this enumeration needs no `# tree-walk-ok:` marker.)
+REPO_ROOT_157="$LIB/.."
 _RSG_TOTAL=0
-for _rsg_src in "$SELF_SRC" "$LIB"/test/modules/*.sh; do
+_RSG_SOURCES=0
+# Accumulate the enumerated relative paths as we go, so the named-surface membership
+# control below reuses this SINGLE git ls-files pass instead of spawning a per-name
+# `--error-unmatch` subprocess (the whole tracked-.sh set is already in hand here).
+_RSG_ALL_REL=""
+while IFS= read -r -d '' _rsg_rel; do
+  _RSG_ALL_REL="$_RSG_ALL_REL $_rsg_rel"
+  _rsg_src="$REPO_ROOT_157/$_rsg_rel"
+  [ -r "$_rsg_src" ] || continue
+  _RSG_SOURCES=$(( _RSG_SOURCES + 1 ))
   _RSG_TOTAL=$(( _RSG_TOTAL + $(count_unallowlisted_raw_skill_guards "$_rsg_src") ))
-done
+done < <(git -C "$REPO_ROOT_157" ls-files -z '*.sh')
 assert_eq "meta(#157 AC2): no single-line echo-driven raw SKILL guard pin escapes assert_pin_unique or an allowlist marker (repo-wide)" \
   "0" "$_RSG_TOTAL"
-# Positive control for the WIDENING itself. The assertion above reads 0 whether the loop
-# scans the module corpus or $SELF_SRC alone — no tranche module authors a matching guard
-# today — so reverting the loop would turn nothing RED and the widening would be
-# unfalsifiable. Count the sources the glob actually resolved and compare against the
-# module files on disk: a glob that stops matching (modules moved into a subdirectory, a
-# typo'd path) collapses this to 1 and goes RED, and so does a revert to $SELF_SRC alone.
-# Derived from the tree rather than transcribed, so adding a module cannot rot it.
-_RSG_SOURCES=0
-for _rsg_src in "$SELF_SRC" "$LIB"/test/modules/*.sh; do
-  [ -r "$_rsg_src" ] && _RSG_SOURCES=$(( _RSG_SOURCES + 1 ))
-done
-_RSG_EXPECTED=1
+# Positive control for the WIDENING itself (#758). The assertion above reads 0 whether the
+# corpus is the whole tree or just run.sh + modules — no shell source authors a matching guard
+# today — so without a control a revert to a narrower corpus would turn nothing RED and the
+# widening would be unfalsifiable (the 0 == 0 the AC3 criterion warns against). Bind the corpus
+# size against the run.sh + modules baseline, both derived from the tree so adding a source
+# cannot rot them: the repo-wide scan must span STRICTLY MORE sources than run.sh +
+# lib/test/modules/*.sh alone (a revert to the #746 corpus, or a `git ls-files` that stops
+# resolving, collapses _RSG_SOURCES to the baseline and goes RED).
+_RSG_RUNSH_MODULES=1
 for _rsg_mod in "$LIB"/test/modules/*.sh; do
-  [ -r "$_rsg_mod" ] && _RSG_EXPECTED=$(( _RSG_EXPECTED + 1 ))
+  [ -r "$_rsg_mod" ] && _RSG_RUNSH_MODULES=$(( _RSG_RUNSH_MODULES + 1 ))
 done
-assert_eq "meta(#157 AC2): the raw-guard corpus really spans run.sh PLUS every module (widening is falsifiable)" \
-  "$_RSG_EXPECTED" "$_RSG_SOURCES"
-assert_eq "meta(#157 AC2): the raw-guard corpus is strictly larger than run.sh alone" \
-  "yes" "$([ "$_RSG_SOURCES" -gt 1 ] && echo yes || echo no)"
+assert_eq "meta(#157 AC2): the repo-wide raw-guard corpus spans strictly more than run.sh + modules (widening is falsifiable)" \
+  "yes" "$([ "$_RSG_SOURCES" -gt "$_RSG_RUNSH_MODULES" ] && echo yes || echo no)"
+# And prove the corpus actually reaches the surfaces #746 left out (module-harness.sh,
+# summary.sh, run-module.sh): each must appear in the git-index enumeration above, so a future
+# re-narrowing that drops them goes RED here BY NAME rather than silently shrinking the repo-wide
+# claim. Membership is tested against the already-collected $_RSG_ALL_REL (the same disk⊇list
+# `case` idiom the review-and-fix-contract module uses), reusing the single ls-files pass rather
+# than re-querying git per name. (scripts/ — the fourth surface #746 left out — is pinned
+# separately just below.)
+_RSG_NAMED_MISSING=""
+for _rsg_named in lib/test/module-harness.sh lib/test/summary.sh lib/test/run-module.sh; do
+  case " $_RSG_ALL_REL " in
+    *" $_rsg_named "*) : ;;
+    *) _RSG_NAMED_MISSING="$_RSG_NAMED_MISSING $_rsg_named" ;;
+  esac
+done
+assert_eq "meta(#157 AC2): the repo-wide corpus reaches the surfaces #746 left out (module-harness/summary/run-module)" \
+  "" "$_RSG_NAMED_MISSING"
+# scripts/ is the fourth surface #746 left out, but naming a specific scripts/*.sh file would
+# transcribe a path a rename could rot; instead assert the enumeration includes AT LEAST ONE
+# top-level scripts/*.sh entry (the leading space in the pattern anchors to a top-level
+# `scripts/` path, not a nested `.../scripts/` one). A future re-narrowing that scopes the
+# corpus back to lib/test — dropping all of scripts/ — then goes RED here rather than silently
+# passing the two controls above, which name only lib/test surfaces (#758 review finding).
+_RSG_SCRIPTS_PRESENT=no
+case " $_RSG_ALL_REL " in
+  *" scripts/"*) _RSG_SCRIPTS_PRESENT=yes ;;
+esac
+assert_eq "meta(#157 AC2): the repo-wide corpus reaches scripts/ (a re-narrowing to lib/test goes RED)" \
+  "yes" "$_RSG_SCRIPTS_PRESENT"
 # AC4 mutation proof: an UNMARKED raw guard written anywhere is detected (RED); the
 # SAME line carrying the allowlist marker is exempted (0). The fixture SOURCE lines
 # below carry the marker so the LIVE scan above skips them, while the string each
