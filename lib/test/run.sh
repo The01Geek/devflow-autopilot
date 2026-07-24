@@ -7457,6 +7457,22 @@ assert_pin_red_under "#779: the helper header states the first-field matching ru
   's#HOW A CALLER MATCHES THE TOKEN#how a caller may optionally match the token#' \
   "$LIB/../scripts/update-branch-checkpoint.sh"
 
+# (l) The silent-cloud-matcher-denial EXCLUSION: it is indistinguishable from an unrecognized
+# field, so it must take the refusal arm rather than the tier-refused publish arm. Without this
+# the publish arm reads as reachable on the cloud tier, where it is not.
+assert_pin_red_under "#779: a silent cloud matcher denial takes the refusal arm, not the tier-refused publish arm" \
+  'A silent cloud matcher denial is a disclosed residual' \
+  's#A silent cloud matcher denial is a disclosed residual, not a case this test can reach:#A silent cloud matcher denial is reached by this test exactly like a reported one:#' \
+  "$P4_FILE"
+
+# (m) The bounded re-invocation is scoped to the NON-MUTATING causes only. PUSH_REJECTED and
+# MERGE_IN_PROGRESS re-run fetch/merge/push and a second `git reset --hard`, so re-invoking them
+# compounds a failed restore instead of clearing a transient blip.
+assert_pin_red_under "#779: only UNVERIFIED/empty/unrecognized get the bounded re-invocation, never PUSH_REJECTED or MERGE_IN_PROGRESS" \
+  '**`PUSH_REJECTED` and `MERGE_IN_PROGRESS` get no re-invocation**' \
+  's#\*\*`PUSH_REJECTED` and `MERGE_IN_PROGRESS` get no re-invocation\*\*#`PUSH_REJECTED` and `MERGE_IN_PROGRESS` are re-invoked too#' \
+  "$P4_FILE"
+
 # (e) Negative controls — machinery this issue declares OUT of scope. `#168` already pins the
 # create-fence guard and the Signal-2 assignment and `#362` the resume pre-check clauses; these
 # two cover the remaining scope boundary, so a later change that quietly hoists the binding or
