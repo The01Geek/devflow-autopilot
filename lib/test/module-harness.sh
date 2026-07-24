@@ -2,6 +2,17 @@
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
 # Fail-closed boundary for sourceable modules used by the complete test suite.
+#
+# MODULE-AUTHORING NOTE (issue #746) — spell a re-derived repo root as the
+# $LIB-relative assignment `REPO_ROOT="$LIB/.."`, NOT as run.sh's
+# `REPO_ROOT="$(cd "$LIB/.." && pwd)"`. Both name the same directory at run time, but
+# lib/test/pin-corpus-lint.py's path resolver understands a `VAR="$LIB/relative"`
+# assignment and bails on anything containing a command substitution. Copy the
+# substitution form and every pin targeting a REPO_ROOT-derived var silently becomes
+# UNRESOLVED — surfaced on that lint's stderr but never asserted, so the pins are
+# exempt from the pin-in-comment and wrapped-literal meta-guards while the suite stays
+# green. Teaching the resolver that one idiom would be the deeper fix (not filed — so
+# this note, not a tracked issue, is what keeps the spelling requirement discoverable).
 
 # ── Inherited-DEVFLOW_GH fixture isolation (issue #533 AC13, generalized #695) ─
 # The same clearing lib/test/run.sh performs in its preamble, performed here so
@@ -343,6 +354,38 @@ _devflow_test_ensure_cleanup_marker() { # path marker owner
 
 _devflow_test_append_cleanup_marker() { # path
   _devflow_test_ensure_cleanup_marker "$1" "runner-cleanup" "runner"
+}
+
+# devflow_module_build_bundle LABEL OUTPUT_FILE MEMBER...
+#   Module-side skill-bundle builder (issue #746). Concatenates every MEMBER into
+#   OUTPUT_FILE, one trailing newline per member, so a content-survival pin can
+#   target the whole bundle rather than guessing which reference a sentence lives
+#   in. Deliberately NOT a relocation of the monolith's `_build_skill_bundle`:
+#   that one reports a bad member by writing `FAIL` straight into the caller's
+#   `$RESULTS_FILE`, a raw-tally side effect a module must not perform. Here an
+#   unusable member (missing, empty, unreadable, or a failed append) is reported
+#   through `assert_eq`, the module contract's only sanctioned failure channel, so
+#   the member's absence lands in the tally as a named RED assertion rather than
+#   an anonymous one. Fails LOUD per member and keeps going, so one missing
+#   reference does not mask the next; returns 1 when any member failed.
+devflow_module_build_bundle() { # label output-file member...
+  local label="$1" out="$2" member="" rc=0
+  shift 2
+  : > "$out" || {
+    assert_eq "$label output file writable" "yes" "no"
+    return 1
+  }
+  for member in "$@"; do
+    if [ -r "$member" ] && [ -s "$member" ] && cat "$member" >> "$out"; then
+      printf '\n' >> "$out"
+    else
+      # Named per member: a bare "bundle failed" cannot tell the reader WHICH
+      # reference vanished, which is the whole diagnostic value of failing loud.
+      assert_eq "$label member usable: $member" "usable" "missing-empty-or-unreadable"
+      rc=1
+    fi
+  done
+  return "$rc"
 }
 
 devflow_module_allocate_owned_directory() { # mktemp-template

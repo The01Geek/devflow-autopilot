@@ -171,35 +171,19 @@ trap _ci_cleanup_on_signal HUP INT TERM
 # survives in a different member. On the clean path no assertion is added (count
 # unchanged); a bad member adds exactly one FAIL.
 CI_IMPL_BUNDLE="$_ci_tmp_root/implement-skill-bundle.md"
-: > "$CI_IMPL_BUNDLE"
-for _ci_bundle_member in "$CI_ROOT/skills/implement/SKILL.md" "$CI_ROOT"/skills/implement/phases/*.md; do
-  if [ -r "$_ci_bundle_member" ] && [ -s "$_ci_bundle_member" ]; then
-    cat "$_ci_bundle_member" >> "$CI_IMPL_BUNDLE"
-    printf '\n' >> "$CI_IMPL_BUNDLE"
-  else
-    assert_eq "ci module: implement-bundle member usable: $_ci_bundle_member" \
-      "usable" "missing-empty-or-unreadable"
-  fi
-done
+devflow_module_build_bundle "ci module: implement-bundle" "$CI_IMPL_BUNDLE" \
+  "$CI_ROOT/skills/implement/SKILL.md" "$CI_ROOT"/skills/implement/phases/*.md
 
 # The review-and-fix bundle backs the #467 D2 review-and-fix leg. Since #530 the
 # skill is a thin SKILL.md root plus step references (phases in references/*.md),
 # so the widened fix-delta-gate sentence lives in a reference member, not the
-# root. Assemble root + references member by member with the SAME fail-LOUD-per-
+# root. Assembled through the same shared builder, with the SAME fail-LOUD-per-
 # member contract as the implement bundle above: a missing/empty/unreadable
 # member records a FAIL naming that member, so a corrupt engine file cannot pass
 # the pin green just because the pinned sentence survives elsewhere.
 CI_MAXI_BUNDLE="$_ci_tmp_root/review-and-fix-skill-bundle.md"
-: > "$CI_MAXI_BUNDLE"
-for _ci_maxi_member in "$CI_ROOT/skills/review-and-fix/SKILL.md" "$CI_ROOT"/skills/review-and-fix/references/*.md; do
-  if [ -r "$_ci_maxi_member" ] && [ -s "$_ci_maxi_member" ]; then
-    cat "$_ci_maxi_member" >> "$CI_MAXI_BUNDLE"
-    printf '\n' >> "$CI_MAXI_BUNDLE"
-  else
-    assert_eq "ci module: review-and-fix-bundle member usable: $_ci_maxi_member" \
-      "usable" "missing-empty-or-unreadable"
-  fi
-done
+devflow_module_build_bundle "ci module: review-and-fix-bundle" "$CI_MAXI_BUNDLE" \
+  "$CI_ROOT/skills/review-and-fix/SKILL.md" "$CI_ROOT"/skills/review-and-fix/references/*.md
 
 # The create-issue bundle (#614) backs every content-survival pin over the split
 # skill. run.sh hoists an identical build and binds it as the CI_BUNDLE --var so the
@@ -214,17 +198,13 @@ done
 # own dedicated targets ($CI_TMPL / $CI_TMPL_AUDIT) and are unchanged by the split, so
 # including them would only add uniqueness collisions for prose that never moved.
 CI_BUNDLE="$_ci_tmp_root/create-issue-skill-bundle.md"
-: > "$CI_BUNDLE"
-for _ci_bundle_ref in "$CI_SKILL" "$CI_ROOT"/skills/create-issue/references/*.md; do
+_ci_bundle_members=("$CI_SKILL")
+for _ci_bundle_ref in "$CI_ROOT"/skills/create-issue/references/*.md; do
   case "${_ci_bundle_ref##*/}" in issue-template.md|audit-prompt-template.md) continue ;; esac
-  if [ -r "$_ci_bundle_ref" ] && [ -s "$_ci_bundle_ref" ]; then
-    cat "$_ci_bundle_ref" >> "$CI_BUNDLE"
-    printf '\n' >> "$CI_BUNDLE"
-  else
-    assert_eq "ci module: create-issue-bundle member usable: $_ci_bundle_ref" \
-      "usable" "missing-empty-or-unreadable"
-  fi
+  _ci_bundle_members+=("$_ci_bundle_ref")
 done
+devflow_module_build_bundle "ci module: create-issue-bundle" "$CI_BUNDLE" \
+  "${_ci_bundle_members[@]}"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "create-issue contract: module surfaces and inventory"
@@ -1863,7 +1843,7 @@ assert_eq "#614 T3: the root+references total is within +/-2% of the recorded co
 # `{:,}` is locale-independent, and python3 is a hard preflight prerequisite.
 ci614_grouped() { python3 -c 'import sys; print(f"{int(sys.argv[1]):,}")' "$1"; }
 assert_eq "#614 T3: the budget doc's recorded root measurement matches the live count" "yes" \
-  "$(grep -qF "| \`SKILL.md\` (root) | $(ci614_grouped "$CI614_ROOT_W") |" "$CI_ROOT/docs/create-issue-budget.md" && echo yes || echo no)"
+  "$(grep -qF "| \`SKILL.md\` (root) | $(ci614_grouped "$CI614_ROOT_W") |" "$CI_ROOT/docs/create-issue-budget.md" && echo yes || echo no)"  # raw-guard-ok: not a SKILL guard: the target is docs/create-issue-budget.md and "SKILL.md" appears only inside the searched table-row literal
 assert_eq "#614 T3: the budget doc's recorded root+references total matches the live count" "yes" \
   "$(grep -qF "**$(ci614_grouped "$CI614_TOTAL_W")**" "$CI_ROOT/docs/create-issue-budget.md" && echo yes || echo no)"
 unset -f ci614_grouped
