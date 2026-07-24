@@ -512,7 +512,12 @@ assert_eq "#415 swv: helper exits 0 even on an absent execution file" "0" \
 # render()/main() (which under matcher-probe.yml's `set -euo pipefail` verdict step
 # yields a red step with NO verdict table, on exactly the degraded run the probe exists
 # to handle). Skipped only where chmod 000 does not actually deny reads (running as
-# root, or a filesystem ignoring the mode) so the suite stays green everywhere.
+# root, or a filesystem ignoring the mode). NOTE (issue #746): since extraction the
+# module's assertion floor is an EQUALITY check, so taking that arm now lowers the tally
+# and fails the boundary with a count mismatch rather than passing quietly. That is the
+# honest signal — a module may not self-skip, so a silent pass would be the worse
+# outcome — but it means this arm is a host requirement (non-root), not a portability
+# accommodation. Do not read the branch as "green everywhere".
 SWV_UNREAD="$(probe_tmp swv.unreadable)"
 printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/hosts"}},{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/os-release"}}]' > "$SWV_UNREAD"
 chmod 000 "$SWV_UNREAD"

@@ -1503,20 +1503,36 @@ class ModuleRunnerTests(unittest.TestCase):
         """Issue #746 step 8: each module of the first extraction tranche is driven
         through its OWN runner (run-module.sh), the assertion issue #695 exists to make
         and #719 restated as a checklist step. Written as one subTest loop rather than
-        four near-identical methods so a fifth module of the tranche cannot be added
-        with its smoke test forgotten — the omission #719 was filed about.
+        four near-identical methods so the four share one assertion shape instead of
+        four copies that can drift apart. (It does NOT make a fifth module unforgettable
+        — the module list below is hand-written, so adding one still means adding it
+        here. Nothing in the registry marks tranche membership to derive it from.)
 
         The floor is read from the registry and compared for EQUALITY, so this test
-        carries no second copy of any floor value: the registry entry, the module's
-        emitted tally, and the run.sh call-site floor are one coupled triple. Equality
-        (not `>=`) is what makes the floor detect assertion LOSS — a floor seeded below
-        the real count would let assertions vanish silently, which is exactly how this
-        tranche's floors were first (wrongly) seeded from the issue's estimates."""
+        carries no second copy of any floor value. Equality (not `>=`) is what makes the
+        floor detect assertion LOSS — a floor seeded below the real count would let
+        assertions vanish silently, which is exactly how this tranche's floors were
+        first (wrongly) seeded from the issue's estimates.
+
+        The run.sh call-site floor is reconciled here too, in the same loop. Without it
+        the "coupled triple" is only a pair: run-module.sh reads the REGISTRY, so a
+        call-site literal edited down in run.sh would leave this test green while the
+        full-suite boundary — the tier CI actually gates on — enforced a floor far below
+        the real count. That is the same silent-loss hole the floors exist to close, one
+        level up.
+
+        HOST ASSUMPTION: equality means the module must execute every assertion, so a
+        host that trips a conditional arm inside a module (running as root, where the
+        `chmod 000` denial arms do not deny; or a missing PyYAML) yields a lower tally
+        and fails here with a count mismatch. Those arms are pre-existing moved code and
+        modules may not self-skip, so the tally is the honest signal rather than a
+        silent pass; see the arms' own comments."""
         registry = json.loads(
             (ROOT / "scripts/workflow-flight-recorder-registry.json").read_text(
                 encoding="utf-8"
             )
         )
+        run_text = (ROOT / "lib/test/run.sh").read_text(encoding="utf-8")
         for module_id in (
             "prompt-extension-reader",
             "review-trigger-helpers",
@@ -1525,6 +1541,15 @@ class ModuleRunnerTests(unittest.TestCase):
         ):
             with self.subTest(module=module_id):
                 floor = registry["test_modules"][module_id]["minimum_assertions"]
+                self.assertIn(
+                    f'devflow_run_full_suite_module "$LIB/test/modules/{module_id}.sh"',
+                    run_text,
+                )
+                floor_match = re.search(rf'"{module_id}" ([0-9]+); then', run_text)
+                self.assertIsNotNone(
+                    floor_match, f"no run.sh call-site floor literal for {module_id}"
+                )
+                self.assertEqual(int(floor_match.group(1)), floor)
                 environment = os.environ.copy()
                 environment.pop("DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE", None)
                 with tempfile.TemporaryDirectory() as log_dir:

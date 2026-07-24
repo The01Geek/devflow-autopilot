@@ -3967,6 +3967,25 @@ for _rsg_src in "$SELF_SRC" "$LIB"/test/modules/*.sh; do
 done
 assert_eq "meta(#157 AC2): no single-line echo-driven raw SKILL guard pin escapes assert_pin_unique or an allowlist marker (repo-wide)" \
   "0" "$_RSG_TOTAL"
+# Positive control for the WIDENING itself. The assertion above reads 0 whether the loop
+# scans the module corpus or $SELF_SRC alone — no tranche module authors a matching guard
+# today — so reverting the loop would turn nothing RED and the widening would be
+# unfalsifiable. Count the sources the glob actually resolved and compare against the
+# module files on disk: a glob that stops matching (modules moved into a subdirectory, a
+# typo'd path) collapses this to 1 and goes RED, and so does a revert to $SELF_SRC alone.
+# Derived from the tree rather than transcribed, so adding a module cannot rot it.
+_RSG_SOURCES=0
+for _rsg_src in "$SELF_SRC" "$LIB"/test/modules/*.sh; do
+  [ -r "$_rsg_src" ] && _RSG_SOURCES=$(( _RSG_SOURCES + 1 ))
+done
+_RSG_EXPECTED=1
+for _rsg_mod in "$LIB"/test/modules/*.sh; do
+  [ -r "$_rsg_mod" ] && _RSG_EXPECTED=$(( _RSG_EXPECTED + 1 ))
+done
+assert_eq "meta(#157 AC2): the raw-guard corpus really spans run.sh PLUS every module (widening is falsifiable)" \
+  "$_RSG_EXPECTED" "$_RSG_SOURCES"
+assert_eq "meta(#157 AC2): the raw-guard corpus is strictly larger than run.sh alone" \
+  "yes" "$([ "$_RSG_SOURCES" -gt 1 ] && echo yes || echo no)"
 # AC4 mutation proof: an UNMARKED raw guard written anywhere is detected (RED); the
 # SAME line carrying the allowlist marker is exempted (0). The fixture SOURCE lines
 # below carry the marker so the LIVE scan above skips them, while the string each
