@@ -7297,8 +7297,10 @@ assert_pin_unique "#755: Phase 2 §2.0 gate reads the resume-kind: in-flight mar
 # BEHAVIORAL-FIX PIN (conjunct-a fail-open): the Phase 1.3 fence must emit a BARE token, never
 # the brace template — whose own text contains `in-flight`, so a containment-style read of an
 # unsubstituted template ARMS conjunct (a) on a terminal re-trigger and fires the gate over a
-# stale all-`- [x]` Plan. The mutation restores the template fence; the pin is the exact-value
-# rule that makes such a template inert, so removing it re-opens the fail-open.
+# stale all-`- [x]` Plan. The mutation flips the §2.0 READER's comparison rule to containment —
+# the exact state in which an unsubstituted template would arm conjunct (a) — so removing the
+# exact-value rule re-opens the fail-open. (The writer half is covered separately by the
+# assert_pin_unique on 'Emit the decided kind as a bare literal' in $P1_FILE above.)
 assert_pin_red_under "#755: §2.0 conjunct (a) compares by exact value, not containment (an unsubstituted template must not arm the gate)" \
   'Compare by exact value, never by containment' \
   's|Compare by exact value, never by containment|Compare by containment|' "$P2_FILE"
@@ -7310,8 +7312,16 @@ assert_pin_red_under "#755: §2.0 conjunct (a) compares by exact value, not cont
 # Target is spelled from IMPL_PHASES_DIR, which IS in scope here; $P3_FILE is not assigned
 # until far below this block, so using it would silently target the helper's default file.
 assert_pin_red_under "#755: §3.1 existing-PR guard queries OPEN-scoped (gh pr list --state open), never the unscoped gh pr view" \
-  'gh pr list --head "$(git branch --show-current)" --state open --json number' \
-  's|gh pr list --head .\$\(git branch --show-current\). --state open --json number|gh pr view --json number|' "$IMPL_PHASES_DIR/phase-3-review.md"
+  'gh pr list --head "$HEAD_BRANCH" --state open --json number,createdAt' \
+  's|gh pr list --head "\$HEAD_BRANCH" --state open --json number,createdAt|gh pr view --json number|' "$IMPL_PHASES_DIR/phase-3-review.md"
+# BEHAVIORAL-FIX PIN (§3.1 empty-branch fail-closed): the branch is read in its OWN statement
+# because an inner `$(git branch --show-current)` failure is invisible to the outer `||` and
+# git prints EMPTY on a detached HEAD — collapsing the query to an UNFILTERED repo-wide
+# `gh pr list --state open` that exits 0, so the run adopts an arbitrary unrelated PR. The
+# mutation inlines the branch read back into the query, re-introducing exactly that.
+assert_pin_red_under "#755: §3.1 reads the branch in its own statement and treats an empty read as REFUSED (never an unfiltered repo-wide query)" \
+  'HEAD_BRANCH=$(git branch --show-current) || HEAD_BRANCH=""' \
+  's|HEAD_BRANCH=\$\(git branch --show-current\) \|\| HEAD_BRANCH=""|:|' "$IMPL_PHASES_DIR/phase-3-review.md"
 
 # ── Issue #493: Phase 1.4 §1.4 PR-body run-link refresh (cloud resume) ──
 # On a resumed cloud run that reaches §1.4 and finds an existing open PR, the

@@ -57,23 +57,34 @@ EOF
 # the run has no live PR at all. `phase-1-setup.md` forbids the same re-resolution
 # for the sibling reason (it cannot discriminate multiple PRs on one head branch).
 #
-# An unresolvable query and a genuine "no open PR" must NOT collapse: `.[0].number
-# // empty` prints empty for a clean "none found", and the `|| EXISTING_PR=REFUSED`
-# in the SAME statement (never a `$?` read in a later one — issue #284) marks a
-# failed/refused query. REFUSED takes neither arm: creating on an unresolved query
-# risks a second PR, and adopting is impossible, so it stops with a breadcrumb.
-# This is also the arm a MATCHER REFUSAL of the capture shape lands in — the same
-# `VAR=$(gh pr view …)` capture this file calls unproven on the implement tier
-# below — so a refusal can never silently swallow the create path: a refused
-# capture prints no assignment at all, leaving EXISTING_PR unset, which the `-z`
-# test routes here rather than to a create the harness may also refuse.
-EXISTING_PR=$(gh pr list --head "$(git branch --show-current)" --state open --json number --jq '.[0].number // empty') || EXISTING_PR=REFUSED
-# `${EXISTING_PR-REFUSED}` is the UNSET-only form (no colon): a refused capture
-# leaves the variable unset and routes here, while a clean "no open PR" is the
-# EMPTY string and must fall through to create. The `:-` form would fire on empty
-# too and would strand every fresh run with no PR at all.
+# The branch is read in its OWN statement, and an empty read is a REFUSED, never a
+# query input. Inside `--head "$(git branch --show-current)"` the inner substitution's
+# failure is invisible to the outer `||` (only gh's status reaches it), and git prints
+# EMPTY on a detached HEAD, a broken worktree, or git < 2.22 — so `--head ""` degrades
+# to an UNFILTERED repo-wide `gh pr list --state open` that exits 0, and the run adopts
+# an arbitrary unrelated PR. §1.4 guards the same query the same way (`[ -n "$WP_BRANCH" ]`).
+#
+# Selection is deterministic: `gh pr list` documents no stable array order, so a head
+# carrying two open PRs (a reopened prior attempt, a stacked PR) would make a bare
+# `.[0]` nondeterministic — the very multiple-PRs-on-one-head hazard the paragraph
+# above cites. Sort by createdAt and take the newest, exactly as §1.4 does.
+#
+# An unresolvable query and a genuine "no open PR" must NOT collapse: `// empty`
+# prints empty for a clean "none found", and each `|| VAR=REFUSED` sits in the SAME
+# statement as the command whose failure it handles (never a `$?` read in a later
+# statement — issue #284). REFUSED takes neither arm: creating on an unresolved query
+# risks a second PR, and adopting is impossible.
+HEAD_BRANCH=$(git branch --show-current) || HEAD_BRANCH=""
+if [ -z "$HEAD_BRANCH" ]; then
+  EXISTING_PR=REFUSED
+else
+  EXISTING_PR=$(gh pr list --head "$HEAD_BRANCH" --state open --json number,createdAt --jq 'sort_by(.createdAt) | last | .number // empty') || EXISTING_PR=REFUSED
+fi
+# `${EXISTING_PR-REFUSED}` is the UNSET-only form (no colon): a clean "no open PR" is
+# the EMPTY string and must fall through to create, which the `:-` form would wrongly
+# capture, stranding every fresh run with no PR at all.
 if [ "${EXISTING_PR-REFUSED}" = REFUSED ]; then
-  echo "devflow: §3.1 could not resolve whether an open PR exists for this branch (gh pr list failed or was refused); refusing to create — a second PR would duplicate a prior attempt's. Resolve and re-run." >&2
+  echo "devflow: §3.1 could not resolve whether an open PR exists for this branch (empty branch name, or gh pr list failed); NOT creating — a second PR would duplicate a prior attempt's." >&2
 elif [ -n "$EXISTING_PR" ]; then
   echo "devflow: §3.1 adopting the already-open PR #$EXISTING_PR for this branch (resume path); skipping gh pr create"
 else
@@ -81,9 +92,15 @@ else
 fi
 ```
 
-**On the adopt arm, do NOT re-write the PR body** — the prior attempt's body (and its §1.4-refreshed `[View run]` line) stands; re-creating or re-bodying it would clobber a human's edits. The workpad `PR` link is (re-)populated from the resolved PR below either way, so the adopt and create arms converge.
+**Route the three arms — the REFUSED arm is a terminal stop, not a breadcrumb.** The fence's `echo` is transcript-only, and stderr is not a durable channel: on the cloud tier the workpad is the only record the stall backstop reads, so a REFUSED arm that merely printed would leave the workpad at an interim `🚀 Reviewing` with no `PR` link and let §3.2–§3.4 run with no PR — the wedged state this guard exists to prevent, and the one it would then cause. So:
 
-Then populate the workpad's `PR` link from the freshly-created draft PR, and **print the PR number** — you need it as a literal in the label call below, and a shell variable does not survive into a later separate command on the cloud runner:
+- **REFUSED** (the fence printed the "could not resolve" line, **or printed nothing at all** — a matcher refusal of the fence answers nothing, exactly as the *draft PR number* exit below treats a silent fence): do **not** continue into the PR-link resolution, the label calls, or §3.2. Record the cause durably and stop — `workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind blocked --reflection "Phase 3.1: could not resolve whether an open PR already exists for this branch (empty branch name, gh pr list failure, or a refused fence); refusing to create a PR that may duplicate a prior attempt's — resolve and re-run"` — then emit the 👎 outcome reaction (see *Outcome reaction* in the Workpad Reference) and end the run at that terminal status.
+- **Adopt** (a PR number was printed): continue below, treating that number as the run's PR.
+- **Create**: continue below with the freshly-created PR.
+
+**On the adopt arm, do NOT re-write the PR body** — the prior attempt's body (and its §1.4-refreshed `[View run]` line) stands; re-creating or re-bodying it would clobber a human's edits.
+
+Then populate the workpad's `PR` link from the resolved draft PR — **freshly created, or the one just adopted** — and **print the PR number** — you need it as a literal in the label call below, and a shell variable does not survive into a later separate command on the cloud runner. **On the adopt arm, substitute the adopted number you just printed rather than re-resolving:** the reads below are the unscoped `gh pr view` form this section's guard comment rejects, so re-resolving could select a *different* PR than the one adopted (a closed sibling, or another PR on the same head) — the two arms converge only when the adopt arm carries its own number forward.
 ```bash
 PR_URL=$(gh pr view --json url --jq '.url')
 PR_NUM=$(gh pr view --json number --jq '.number')
