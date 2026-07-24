@@ -690,7 +690,7 @@ devflow_module_pin_unique "#600: template owns the amended two-transport read-or
 # after a failed replace it holds bytes the canonical file does not. #749 widened it again
 # 6 → 7 (file arm 5 → 6): the Step 1 evidence artifact holds the drafter's own grounding.
 devflow_module_pin_unique "#522/#705/#749: embed arm out-of-bounds names exactly the 7 files (Step 1 evidence added)" \
-  'On this arm the out-of-bounds declaration names exactly these 7 files — `.devflow/tmp/issue-derivation-<slug>.md`, the Step 1 evidence artifact `.devflow/tmp/issue-step1-<slug>.md`, `.devflow/tmp/issue-draft-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, the **retired** `.devflow/tmp/issue-audit-state-<slug>.md`, and any staged canonical-draft artifact `.devflow/tmp/issue-draft-<slug>.*.staged.md`' "$CI_BUNDLE"  # structural-pin-ok: surface-presence pin on #705-widened enumeration prose, not a behavioral-fix pin
+  'On this arm the out-of-bounds declaration names exactly these 7 files — `.devflow/tmp/issue-derivation-<slug>.md`, the Step 1 evidence artifact `.devflow/tmp/issue-step1-<slug>.md`, `.devflow/tmp/issue-draft-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, the **retired** `.devflow/tmp/issue-audit-state-<slug>.md`, and any staged canonical-draft artifact `.devflow/tmp/issue-draft-<slug>.*.staged.md`' "$CI_BUNDLE"  # structural-pin-ok: surface-presence pin on the #749-widened enumeration prose (#705 widened it to 6; #749 added the Step 1 evidence artifact), not a behavioral-fix pin
 # ── #546 RECONCILIATION: the carriage COMPARE, the event log, the retry bounds, and T1/T2.
 #
 # The #522 block used to pin, as prose, the whole deterministic half of the carriage/identity
@@ -1847,7 +1847,7 @@ for _ci614_ref in $CI614_REFS; do
   CI614_TOTAL_SET+=("$CI_ROOT/skills/create-issue/references/$_ci614_ref.md")
 done
 CI614_TOTAL_W="$(ci614_words "${CI614_TOTAL_SET[@]}")"
-CI614_TOTAL_RECORDED=31154   # docs/create-issue-budget.md, root + all 9 references (issue #749 re-record)
+CI614_TOTAL_RECORDED=31272   # docs/create-issue-budget.md, root + all 9 references (issue #749 re-record)
 assert_eq "#614 T3: the root+references total is within +/-2% of the recorded conservation figure (a silent DROP is as RED as a rise)" \
   "yes" "$({ [ -n "$CI614_TOTAL_W" ] \
     && [ "$CI614_TOTAL_W" -ge "$(( CI614_TOTAL_RECORDED * 98 / 100 ))" ] \
@@ -1929,10 +1929,36 @@ ci749_iface() {  # <what it declares> <pin literal>
     "$2" "$CI_DV"  # structural-pin-ok: AC19 exempts AC13's surface-presence pins from the mutation obligation
 }
 ci749_iface '--report-only mode flag' '`--report-only`'
+ci749_iface 'discharged duty-status token' '`discharged` — carried out on this run.'
+ci749_iface 'unestablished duty-status token' '`unestablished` — engaged but could not be discharged.'
+ci749_iface 'judged-not-engaged duty-status token' '`judged-not-engaged` — judged not to bear on this topic.'
 ci749_iface 'DOCS ACCURATE verdict token' 'DOCS ACCURATE'
 ci749_iface 'DRIFT FOUND verdict token' 'DRIFT FOUND'
 ci749_iface 'DOCS MISSING verdict token' 'DOCS MISSING'
 unset -f ci749_iface
+# The count word '**all six**' is pinned above; ground it against the enumeration it counts, or a
+# dropped duty leaves the count self-contradicting while every #749 pin stays green (the #705
+# count-vs-list class, whose out-of-bounds pin is the precedent).
+devflow_module_pin_red_under "#749/AC1: the six-duty floor enumerates the duties its count word counts" \
+  'exactly these six duties: exact operand and population identity; code-versus-doc authority; reachability and writer classification; sibling consumer and output enumeration; coupled-doc and guard propagation; and reusable contradictions' \
+  's/; and reusable contradictions//' "$CI_DV"
+# AC19's comparative-evaluation list includes the code-versus-doc-disagreement case; the sentence it
+# rests on is the peer's own authority rule, which carried no pin.
+devflow_module_pin_red_under "#749/AC19: code is authoritative when documentation and code disagree" \
+  '**The codebase is the source of truth**' \
+  's/\*\*The codebase is the source of truth\*\*/**Documentation is the source of truth**/' "$CI_DV"
+# AC26's grammar extension is behavioral, not merely declarative: a value-taking flag must consume its
+# operand WITHOUT the topic test, or `--search-space docs/ …` absorbs the pathspec into the topic and
+# the peer silently surveys the unbounded default — the regression the operand exists to close.
+devflow_module_pin_red_under "#749/AC26: a value-taking flag consumes its operand without the topic test" \
+  'the single argument immediately after it is consumed as its value **without applying the topic test**' \
+  's/ \*\*without applying the topic test\*\*//' "$CI_DV"
+devflow_module_pin_red_under "#749/AC26: a --search-space with no following argument is refused, never parsed as empty" \
+  'is a malformed invocation: report it and refuse the run — never parse it as an empty value' \
+  's/ — never parse it as an empty value//' "$CI_DV"
+devflow_module_pin_red_under "#749/AC26: a supplied-but-empty operand is unestablished, never the no-operand default" \
+  'does **not** fall through to the no-operand default' \
+  's/does \*\*not\*\* fall through to the no-operand default/falls through to the no-operand default/' "$CI_DV"
 # One row per declared report-output field. Named individually rather than as one blob so a
 # dropped field is attributable — a report contract that loses a field silently is exactly
 # how Step 1's escalation comparands stop resolving.
@@ -2036,6 +2062,19 @@ devflow_module_pin_red_under "#749/AC22: the artifact reader is governed by the 
 devflow_module_pin_red_under "#749/AC22: empty-or-truncated, missing-or-duplicated marker, and non-canonical layout each re-run the pass" \
   'routes to **re-running the Step 1 pass**, never a partial parse' \
   's/, never a partial parse//' "$CI_REF_STEP2"
+# The routing clause above guards only the ROUTE. Each malformed shape that routes there needs its own
+# row, or deleting a shape from the enumeration leaves the routing literal present exactly once and the
+# pin GREEN — AC22 requires the shapes covered, not merely the destination. Same reasoning as
+# ci749_field's per-field rows: named individually so a dropped member is attributable.
+devflow_module_pin_red_under "#749/AC22: an empty-or-truncated artifact is one of the shapes that re-runs the pass" \
+  'An **empty or truncated** file' \
+  's/An \*\*empty or truncated\*\* file, //' "$CI_REF_STEP2"
+devflow_module_pin_red_under "#749/AC22: a missing-or-duplicated section marker is one of the shapes that re-runs the pass" \
+  'a **missing or duplicated** section marker' \
+  's/a \*\*missing or duplicated\*\* section marker, //' "$CI_REF_STEP2"
+devflow_module_pin_red_under "#749/AC22: a non-canonical layout is one of the shapes that re-runs the pass" \
+  'or a **non-canonical layout** routes to' \
+  's/or a \*\*non-canonical layout\*\* routes to/routes to/' "$CI_REF_STEP2"
 devflow_module_pin_red_under "#749/AC22: an ABSENT artifact after a completed Step 1 is unestablished, never a silent re-dispatch" \
   'is instead recorded `unestablished — Step 1 evidence artifact absent`' \
   's/is instead recorded `unestablished — Step 1 evidence artifact absent`/is instead re-derived by re-dispatching the deep arm/' "$CI_REF_STEP2"

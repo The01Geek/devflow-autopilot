@@ -17,10 +17,12 @@ If the invocation fails because the helper path does not exist (`No such file`, 
 
 ## **Mode**
 
-`$ARGUMENTS` is a **leading run of flags, then the topic**. Parse flags only while the next argument begins with `--`; the first argument that does not is where the **topic** begins, and everything from there on is the topic — so a topic is never mistaken for a flag value and a flag value is never absorbed into the topic. Strip the flags before treating the remainder as the topic.
+`$ARGUMENTS` is a **leading run of flags, then the topic**. Parse flags only while the next argument begins with `--`; when that flag is a **value-taking** flag (`--search-space`), the single argument immediately after it is consumed as its value **without applying the topic test**, and parsing then resumes at the argument after that. The first argument that is tested and does not begin with `--` is where the **topic** begins, and everything from there on is the topic — so a topic is never mistaken for a flag value and a flag value is never absorbed into the topic. Strip the flags before treating the remainder as the topic.
 
 - `--report-only` — a bare flag.
 - `--search-space <pathspec>` — takes exactly the **one** argument that follows it. That argument is the flag's value, never part of the topic.
+
+**Malformed invocations (both arms explicit).** `--search-space` with **no following argument** is a malformed invocation: report it and refuse the run — never parse it as an empty value. An operand supplied but **empty** (`--search-space ''`) does **not** fall through to the no-operand default: report `unestablished` for the *exact operand and population identity* duty. Silently coercing a real empty value onto the default would restore the whole-tracked-tree sweep and destroy the two legs' disjointness — this repo's documented off-switch-that-never-worked defect.
 
 Grammar: `[--report-only] [--search-space <pathspec>] <topic…>`.
 

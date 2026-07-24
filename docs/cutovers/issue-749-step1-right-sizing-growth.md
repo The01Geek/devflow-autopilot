@@ -5,17 +5,17 @@ kind: growth
 
 ## Files
 
-- `skills/create-issue/SKILL.md` — +3,089 bytes (17,926 → 21,015).
-- `skills/docs-verify/SKILL.md` — +3,014 bytes (12,284 → 15,298).
+- `skills/create-issue/SKILL.md` — +3,963 bytes (17,926 → 21,889).
+- `skills/docs-verify/SKILL.md` — +3,839 bytes (12,284 → 16,123).
 - `skills/create-issue/references/step-2-clarify.md` — +1,214 bytes (31,085 → 32,299).
 - `skills/create-issue/references/fallback-read-only-sandbox.md` — +960 bytes (4,099 → 5,059).
 - `skills/create-issue/references/issue-template.md` — +446 bytes (46,674 → 47,120).
-- `skills/create-issue/references/step-4-present-create.md` — +351 bytes (39,324 → 39,675).
-- `skills/create-issue/references/step-3-6-audit.md` — +320 bytes (74,760 → 75,080).
+- `skills/create-issue/references/step-4-present-create.md` — +351 bytes (40,282 → 40,633).
+- `skills/create-issue/references/step-3-6-audit.md` — +320 bytes (78,210 → 78,530).
 - `skills/create-issue/references/fallback-no-task-tool.md` — +295 bytes (3,693 → 3,988).
 - `skills/create-issue/references/audit-prompt-template.md` — +143 bytes (21,767 → 21,910).
 - `skills/create-issue/references/fallback-audit-dispatch-arms.md` — +67 bytes (6,083 → 6,150).
-- `CLAUDE.md` — +219 bytes (74,508 → 74,727).
+- `CLAUDE.md` — +219 bytes (75,804 → 76,023).
 
 The growth concentrates in two roots. `skills/create-issue/SKILL.md` gains Step 1's arm set,
 its pre-pass selection operand, the disjoint-leg partition with its reconciliation and three
