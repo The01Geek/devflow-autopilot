@@ -29301,20 +29301,16 @@ assert_pin_red_under "#789 the overview doc mirrors the failure recap and its pr
   'the suite'"'"'s exit status is preserved through the recap' \
   's/the suite'"'"'s exit status is preserved through the recap/the recap replaces the exit status/' \
   "$FDROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md"
-# AC8/AC9: the known-flaky set is EXACTLY this one test, and the isolation command is what
-# makes confirming non-reproduction cheap. The complement clause is the load-bearing half —
-# without it "known flake" generalizes into a licence to dismiss any red assertion, which is
-# strictly worse than having no flake documentation at all.
-assert_pin_unique "#789 CLAUDE.md names the single known-flaky test" \
-  'test_missing_supervisor_pid_rendezvous_fails_boundedly` in class `SignalCleanupMatrixTests' "$WSR_CLAUDE"  # structural-pin-ok: presence of the named test the rule is scoped to; the complement clause below carries the behavioral proof
-assert_pin_unique "#789 CLAUDE.md gives the direct-token flake isolation command" \
-  'lib/test/test_module_harness.py SignalCleanupMatrixTests.test_missing_supervisor_pid_rendezvous_fails_boundedly' "$WSR_CLAUDE"  # structural-pin-ok: presence of the runnable command; removing it re-introduces no named regression, only the cost of a full re-run
-assert_pin_red_under "#789 CLAUDE.md fail-closes the known-flaky complement" \
-  '**No other failing assertion is ever dismissed as a flake**' \
-  's/\*\*No other failing assertion is ever dismissed as a flake\*\* —/A failing assertion may be dismissed as a flake —/' "$WSR_CLAUDE"
-assert_pin_red_under "#789 CLAUDE.md scopes the flake confirmation to the sole-failure case" \
-  'applies **only** when this exact-named test is the *sole* failing assertion' \
-  's/applies \*\*only\*\* when this exact-named test is the \*sole\* failing assertion/applies whenever this test is among the failing assertions/' "$WSR_CLAUDE"
+# The former AC8/AC9 pins (the single-known-flaky-test name, its isolation command, and the two
+# complement clauses) are deleted with the apparatus they asserted: the flake was fixed at the
+# source (the load-sensitive upper-bound assertion in
+# SignalCleanupMatrixTests.test_missing_supervisor_pid_rendezvous_fails_boundedly), so there is no
+# known-flaky set left to scope. The guarded regression — "known flake" generalizing into a licence
+# to dismiss any red assertion — is now re-anchored to the no-flake-set clause below, which is a
+# strictly stronger statement than the complement clause it replaces.
+assert_pin_red_under "no known-flake set exists, so no FAIL may be dismissed" \
+  '**There is no known-flake set — every FAIL is a real failure to diagnose.**' \
+  's/\*\*There is no known-flake set — every FAIL is a real failure to diagnose\.\*\*/Some FAILs are known flakes and may be dismissed./' "$WSR_CLAUDE"
 
 # ── #719 Verification-evidence marker + undefined-disjunct deletion + cloud full-suite obligation ──
 # Finding 1 (unobservable claim gate): each of the three prompt extensions must state, on the
