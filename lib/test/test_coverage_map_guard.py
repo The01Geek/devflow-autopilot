@@ -60,7 +60,21 @@ class CoverageMapGuardTest(unittest.TestCase):
         tracked = subprocess.run(
             ["git", "-C", str(ROOT), "ls-files"], capture_output=True, text=True, check=True
         ).stdout.split()
-        self.assertEqual(guard.evaluate(tracked, map_value, registry_value), [])
+        # `executable_files` is passed from the real index (issue #789) because arm 10's
+        # unestablished-mode-set breadcrumb is a violation: omitting it here would grade the
+        # shipped tree against a measurement that never ran.
+        self.assertEqual(
+            guard.evaluate(
+                tracked,
+                map_value,
+                registry_value,
+                executable_files=guard._git_executable(ROOT),
+                implement_tokens=guard._implement_profile_tokens(
+                    guard._load_json(ROOT / guard.PROFILES_REL)[0]
+                ),
+            ),
+            [],
+        )
 
     # ── T-planted (arm 1): an unlisted depth-1 pattern unit records FAIL naming it. ──
     def test_planted_unlisted_depth1_unit(self):
@@ -99,6 +113,205 @@ class CoverageMapGuardTest(unittest.TestCase):
         blocks = {"561": _owned("bogus"), "unlabeled": _owned()}
         v = guard.evaluate(tracked, _map(files={"lib/real.sh": _owned()}, run_sh_blocks=blocks), _registry())
         self.assertEqual(self._arms(v), {"arm3"})
+
+    # ── T-focused (arm 10, issue #789): the recorded `focused_test` of a files entry. ──
+    # Five cases: absent (the ordinary entry — no arm 10 traffic), present+valid+executable,
+    # present-but-untracked, present-but-wrong-basename, present-but-not-executable. Each
+    # non-clean case must record arm10 ALONE, so the arm cannot be credited by another arm's
+    # noise. `_focused` builds the entry; `EXEC` is the injected index-mode set.
+    _EXEC = {"lib/test/test_thing.py"}
+    # The grant set arm 10 checks alongside the exec bit: an executable-but-ungranted
+    # target is refused by the cloud matcher SILENTLY, so the map would promise a
+    # focused run that never happens. Injected exactly like _EXEC.
+    _TOKENS = {"Bash(lib/test/test_thing.py:*)"}
+
+    @staticmethod
+    def _focused(target, owner="unmodularized"):
+        return {"owner": owner, "note": "", "focused_test": target}
+
+    def test_focused_test_absent_is_clean(self):
+        tracked = ["lib/real.sh"]
+        v = guard.evaluate(
+            tracked, _map(files={"lib/real.sh": _owned()}), _registry(), executable_files=self._EXEC, implement_tokens=self._TOKENS
+        )
+        self.assertEqual(v, [])
+
+    def test_focused_test_valid_executable_passes(self):
+        tracked = ["lib/real.sh", "lib/test/test_thing.py"]
+        v = guard.evaluate(
+            tracked,
+            _map(files={"lib/real.sh": self._focused("lib/test/test_thing.py")}),
+            _registry(),
+            executable_files=self._EXEC,
+            implement_tokens=self._TOKENS,
+        )
+        self.assertEqual(v, [])
+
+    def test_focused_test_selector_suffix_resolves_to_the_file(self):
+        # A `path::Class.test` selector narrows the run; only the path before `::` names a
+        # file, so a valid executable target with a selector must still pass.
+        tracked = ["lib/real.sh", "lib/test/test_thing.py"]
+        v = guard.evaluate(
+            tracked,
+            _map(files={"lib/real.sh": self._focused("lib/test/test_thing.py::Cls.test_x")}),
+            _registry(),
+            executable_files=self._EXEC,
+            implement_tokens=self._TOKENS,
+        )
+        self.assertEqual(v, [])
+
+    def test_focused_test_untracked_records_arm10(self):
+        tracked = ["lib/real.sh"]
+        v = guard.evaluate(
+            tracked,
+            _map(files={"lib/real.sh": self._focused("lib/test/test_gone.py")}),
+            _registry(),
+            executable_files=self._EXEC,
+            implement_tokens=self._TOKENS,
+        )
+        self.assertEqual(self._arms(v), {"arm10"})
+        self.assertIn("lib/test/test_gone.py", "".join(v))
+
+    def test_focused_test_wrong_basename_records_arm10(self):
+        tracked = ["lib/real.sh", "lib/test/helper.py"]
+        v = guard.evaluate(
+            tracked,
+            _map(files={"lib/real.sh": self._focused("lib/test/helper.py")}),
+            _registry(),
+            executable_files={"lib/test/helper.py"},
+            implement_tokens={"Bash(lib/test/helper.py:*)"},
+        )
+        self.assertEqual(self._arms(v), {"arm10"})
+        self.assertIn("lib/test/helper.py", "".join(v))
+
+    def test_focused_test_not_executable_records_arm10(self):
+        tracked = ["lib/real.sh", "lib/test/test_thing.py"]
+        v = guard.evaluate(
+            tracked,
+            _map(files={"lib/real.sh": self._focused("lib/test/test_thing.py")}),
+            _registry(),
+            executable_files=set(),
+            implement_tokens=self._TOKENS,
+        )
+        self.assertEqual(self._arms(v), {"arm10"})
+        self.assertIn("not executable in the git index", "".join(v))
+
+    def test_focused_test_unestablished_mode_set_is_reported_once_not_laundered(self):
+        # `executable_files=None` is an UNESTABLISHED measurement, never "executable" and
+        # never "absent": exactly one breadcrumb, and no per-entry executability claim.
+        tracked = ["lib/real.sh", "lib/test/test_thing.py"]
+        v = guard.evaluate(
+            tracked,
+            _map(files={"lib/real.sh": self._focused("lib/test/test_thing.py")}),
+            _registry(),
+            executable_files=None,
+            implement_tokens=self._TOKENS,
+        )
+        self.assertEqual(self._arms(v), {"arm10"})
+        self.assertEqual(len(v), 1)
+        self.assertIn("could not be established", v[0])
+
+    def test_focused_test_non_string_is_a_shape_error(self):
+        tracked = ["lib/real.sh"]
+        entry = {"owner": "unmodularized", "note": "", "focused_test": 7}
+        v = guard.evaluate(
+            tracked, _map(files={"lib/real.sh": entry}), _registry(), executable_files=self._EXEC, implement_tokens=self._TOKENS
+        )
+        self.assertEqual(self._arms(v), {"arm4"})
+        self.assertIn("focused_test", "".join(v))
+
+    def test_focused_test_without_an_implement_grant_records_arm10(self):
+        # Executable and tracked is only HALF of cloud-runnability: an ungranted leading
+        # token is refused SILENTLY, so the map would record a focused run that produces no
+        # signal there. This is the fail-open the grant check closes.
+        tracked = ["lib/real.sh", "lib/test/test_thing.py"]
+        v = guard.evaluate(
+            tracked,
+            _map(files={"lib/real.sh": self._focused("lib/test/test_thing.py")}),
+            _registry(),
+            executable_files=self._EXEC,
+            implement_tokens=set(),
+        )
+        self.assertEqual(self._arms(v), {"arm10"})
+        self.assertIn("carries no `Bash(lib/test/test_thing.py:*)` grant", "".join(v))
+
+    def test_unestablished_implement_tokens_are_reported_once_not_laundered(self):
+        # Same "unknown is not zero" discipline as the mode set: a manifest that could not be
+        # read is reported as unestablished, never as an absent grant on every entry.
+        tracked = ["lib/real.sh", "lib/test/test_thing.py"]
+        v = guard.evaluate(
+            tracked,
+            _map(files={"lib/real.sh": self._focused("lib/test/test_thing.py")}),
+            _registry(),
+            executable_files=self._EXEC,
+            implement_tokens=None,
+        )
+        self.assertEqual(self._arms(v), {"arm10"})
+        self.assertEqual(len(v), 1)
+        self.assertIn("token list could not be established", v[0])
+
+    def test_present_but_empty_focused_test_records_arm10(self):
+        # A truthiness-keyed scan would treat "" as absent and ship an entry naming nothing
+        # while the docs describe it as naming a runnable test.
+        tracked = ["lib/real.sh"]
+        entry = {"owner": "unmodularized", "note": "", "focused_test": "   "}
+        v = guard.evaluate(
+            tracked,
+            _map(files={"lib/real.sh": entry}),
+            _registry(),
+            executable_files=self._EXEC,
+            implement_tokens=self._TOKENS,
+        )
+        self.assertEqual(self._arms(v), {"arm10"})
+        self.assertIn("present-but-empty", "".join(v))
+
+    def test_implement_profile_tokens_expands_group_references(self):
+        # The manifest expresses shared runs as `@group`; a token granted through a group is
+        # still granted, so resolving must expand one level or the check false-flags.
+        manifest = {
+            "groups": {"shared": ["Bash(lib/test/test_grouped.py:*)"]},
+            "profiles": {"implement": ["@shared", "Bash(lib/test/test_direct.py:*)"]},
+        }
+        self.assertEqual(
+            guard._implement_profile_tokens(manifest),
+            {"Bash(lib/test/test_grouped.py:*)", "Bash(lib/test/test_direct.py:*)"},
+        )
+
+    def test_implement_profile_tokens_is_none_on_a_malformed_manifest(self):
+        for bad in (None, [], {}, {"profiles": {}}, {"profiles": {"implement": "x"}, "groups": {}}):
+            self.assertIsNone(guard._implement_profile_tokens(bad), bad)
+
+    def test_unestablished_breadcrumbs_are_emitted_ONCE_over_MULTIPLE_entries(self):
+        # Cardinality: with a single recorded entry, "once per run" and "once per entry" are
+        # indistinguishable, so the guarded property would be vacuously satisfied. Two entries
+        # is the smallest input that can tell them apart.
+        tracked = ["lib/a.sh", "lib/b.sh", "lib/test/test_thing.py"]
+        files = {
+            "lib/a.sh": self._focused("lib/test/test_thing.py"),
+            "lib/b.sh": self._focused("lib/test/test_thing.py"),
+        }
+        for kwargs in ({"executable_files": None, "implement_tokens": self._TOKENS},
+                       {"executable_files": self._EXEC, "implement_tokens": None}):
+            v = guard.evaluate(tracked, _map(files=files), _registry(), **kwargs)
+            self.assertEqual(self._arms(v), {"arm10"}, kwargs)
+            self.assertEqual(len(v), 1, f"expected ONE breadcrumb over two entries: {v}")
+
+    def test_multiple_bad_entries_each_report_in_sorted_order(self):
+        # The per-entry arm must scale with cardinality (one finding each) and be
+        # deterministic — `_arm10` iterates `sorted(files)`, which one entry never exercises.
+        tracked = ["lib/b.sh", "lib/a.sh"]
+        files = {
+            "lib/b.sh": self._focused("lib/test/test_gone_b.py"),
+            "lib/a.sh": self._focused("lib/test/test_gone_a.py"),
+        }
+        v = guard.evaluate(
+            tracked, _map(files=files), _registry(),
+            executable_files=self._EXEC, implement_tokens=self._TOKENS,
+        )
+        self.assertEqual(len(v), 2, v)
+        self.assertIn("'lib/a.sh'", v[0])
+        self.assertIn("'lib/b.sh'", v[1])
+
 
     # ── T-shape (arm 4): the six governing shapes over the MAP input. ──
     def test_shape_matrix_map(self):
@@ -311,6 +524,30 @@ class CoverageMapGuardTest(unittest.TestCase):
 
 # ── issue #695: arm 9 (run_sh_blocks completeness + fully-extracted attribution),
 # the shared label derivation, and the hand-invoked --fix repair. ──────────────
+class GitExecutableTest(unittest.TestCase):
+    """`_git_executable` is the PRODUCER of arm 10's mode set, including the `None` that the
+    whole unestablished-measurement design rests on. Driving it only through the shipped-tree
+    test would leave that contract asserted by no test that can fail for the right reason."""
+
+    def test_returns_none_when_git_cannot_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            # Not a git repository → CalledProcessError → the unestablished contract.
+            self.assertIsNone(guard._git_executable(Path(tmp) / "definitely-absent"))
+
+    def test_selects_only_the_executable_regular_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "plain.py").write_text("x", encoding="utf-8")
+            exe = root / "runnable.py"
+            exe.write_text("x", encoding="utf-8")
+            exe.chmod(0o755)
+            for args in (["init", "-q"], ["add", "-A"]):
+                subprocess.run(["git", "-C", str(root), *args], check=True,
+                               capture_output=True)
+            found = guard._git_executable(root)
+            self.assertEqual(found, {"runnable.py"}, found)
+
+
 class LabelDerivationTest(unittest.TestCase):
     def test_derives_from_the_monolith_assertion_heads(self):
         text = 'assert_eq "#123 something" "1" "$x"\nassert_true "#124 other" yes\n'

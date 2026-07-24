@@ -82,7 +82,33 @@ FAIL = 0
 _POOL_TALLY_FILE = os.environ.get("DEVFLOW_POOL_TALLY_FILE")
 
 
-def _pool_tally(verdict):
+def _pool_name_record(name):
+    """Append a failing assertion's identifier to the pool tally's `.names` sibling (#789).
+
+    `record_fail` is a shell function this process cannot call, so without this the suite's
+    LARGEST failure population would be counted by the tally fold and named by nothing — the
+    recap would print an unnamed-shortfall line covering ~1800 assertions. The contract is
+    the shell producer's: one identifier per line, tab/newline/CR collapsed to a space so one
+    failure is always one line, and an empty name degrades to the same placeholder.
+    Best-effort exactly like the tally write it accompanies — a naming failure must never
+    abort the suite, but it leaves a breadcrumb rather than vanishing."""
+    if not _POOL_TALLY_FILE:
+        return
+    flat = " ".join(str(name).split()) or "(unnamed check)"
+    try:
+        with open(_POOL_TALLY_FILE + ".names", "a", encoding="utf-8") as _fh:
+            _fh.write(flat + "\n")
+    except OSError as _e:
+        print(
+            f"devflow-pool: #789 identifier-record write failed for "
+            f"{_POOL_TALLY_FILE + '.names'!r} (name {flat!r}): {_e}",
+            file=sys.stderr,
+        )
+
+
+def _pool_tally(verdict, name=None):
+    if verdict == "FAIL":
+        _pool_name_record(name)
     if not _POOL_TALLY_FILE:
         return
     try:
@@ -111,7 +137,7 @@ def assert_eq(name, expected, actual):
         print(f"  PASS  {name}")
     else:
         FAIL += 1
-        _pool_tally("FAIL")
+        _pool_tally("FAIL", name)
         print(f"  FAIL  {name}\n         expected: {expected!r}\n         actual:   {actual!r}")
 
 
@@ -126,11 +152,11 @@ def assert_raises(name, exc_type, fn):
         return
     except Exception as e:
         FAIL += 1
-        _pool_tally("FAIL")
+        _pool_tally("FAIL", name)
         print(f"  FAIL  {name}\n         expected {exc_type.__name__}, got {type(e).__name__}: {e}")
         return
     FAIL += 1
-    _pool_tally("FAIL")
+    _pool_tally("FAIL", name)
     print(f"  FAIL  {name}\n         expected {exc_type.__name__}, no exception raised")
 
 

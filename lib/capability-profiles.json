@@ -1,5 +1,5 @@
 {
-  "manifest_version": 8,
+  "manifest_version": 9,
   "readme": [
     "This manifest is the single source of truth for DevFlow's cloud capability policy:",
     "which tools/commands each execution tier (review, implement, command) may run.",
@@ -223,6 +223,13 @@
       "Bash(ruff format:*)",
       "Bash(pytest:*)",
       "Bash(mypy:*)",
+      "Bash(lib/test/test_python_scripts.py:*)",
+      "Bash(lib/test/test_module_harness.py:*)",
+      "Bash(lib/test/test_workflow_flight_recorder.py:*)",
+      "Bash(lib/test/test_workflow_analyzer.py:*)",
+      "Bash(lib/test/test_verification_baseline.py:*)",
+      "Bash(lib/test/test_create_issue_context_eval.py:*)",
+      "Bash(lib/test/coverage_map_guard.py:*)",
       "@unix_text_common",
       "Bash(cmp:*)",
       "Bash(comm:*)",

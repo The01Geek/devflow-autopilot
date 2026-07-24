@@ -86,7 +86,15 @@ _suite_tmp_file() { _SUITE_TMP_FILES+=("$1"); }
 _suite_tmp_dir()  { _SUITE_TMP_DIRS+=("$1"); }
 _suite_cleanup() {
   # Length guards keep the empty-array "${arr[@]}" expansions off bash 4.0–4.3's set -u trap.
-  [ "${#_SUITE_TMP_FILES[@]}" -gt 0 ] && rm -f "${_SUITE_TMP_FILES[@]}"
+  # The `.names` sweep (issue #789) covers record_fail's identifier record, whose path is
+  # DERIVED from whichever RESULTS_FILE was in scope rather than registered separately: a
+  # probe that diverts the tally to its own registered temp gets a `<temp>.names` sibling it
+  # never registered, and this sweep covers it without a per-site edit. It is a backstop for
+  # REGISTERED files only, not a replacement for per-site cleanup: a probe whose temp comes
+  # from a bare `mktemp` and is removed by its own `rm -f` is outside the registry, so those
+  # sites remove their own sibling explicitly. `rm -f` on a path that was never created is a
+  # silent no-op, so the sweep is free for every registered file that has no sibling.
+  [ "${#_SUITE_TMP_FILES[@]}" -gt 0 ] && rm -f "${_SUITE_TMP_FILES[@]}" "${_SUITE_TMP_FILES[@]/%/.names}"
   [ "${#_SUITE_TMP_DIRS[@]}" -gt 0 ] && rm -rf "${_SUITE_TMP_DIRS[@]}"
   return 0
 }
@@ -94,6 +102,13 @@ trap _suite_cleanup EXIT
 _suite_tmp_file "$RESULTS_FILE"
 _suite_tmp_file "$MODULE_FAILURES_FILE"
 _suite_tmp_file "$SKIPS_FILE"
+
+# record_fail (the failing assertion's IDENTIFIER record, issue #789) is defined in
+# lib/test/module-harness.sh, sourced a few lines below. It lives THERE rather than here because the
+# harness writes the suite tally at its own FAIL sites (the pool arms, probe_tmp's mktemp
+# failure): a definition private to run.sh would leave those failures tallied but absent from
+# the recap, which is worse than no recap — a "Failure recap:" header that reads complete and
+# silently omits entries. One definition, both producers.
 # shellcheck source=lib/test/summary.sh disable=SC1091
 . "$LIB/test/summary.sh"
 # shellcheck source=lib/test/module-harness.sh disable=SC1091
@@ -176,6 +191,7 @@ _build_skill_bundle() {
     else
       printf '  FAIL  %s bundle member missing, empty, or unreadable: %s\n' "$_bsb_label" "$_bsb_m"
       echo FAIL >> "$RESULTS_FILE"
+      record_fail "$_bsb_label bundle member: $_bsb_m"
     fi
   done
 }
@@ -255,6 +271,7 @@ assert_eq() {
     printf '  PASS  %s\n' "$name"
   else
     echo FAIL >> "$RESULTS_FILE"
+    record_fail "$name"
     printf '  FAIL  %s\n         expected: %s\n         actual:   %s\n' \
       "$name" "$expected" "$actual"
   fi
@@ -367,6 +384,7 @@ assert_pin_unique() {  # name literal file
     printf '  PASS  %s\n' "$name"
   else
     echo FAIL >> "$RESULTS_FILE"
+    record_fail "$name"
     printf '  FAIL  %s\n         expected exactly 1 occurrence, got: %s\n         literal: %s\n         file: %s\n' \
       "$name" "$count" "$literal" "$file"
   fi
@@ -431,7 +449,12 @@ git_sandbox() {  # assertion-name -> prints an isolated temp dir (rc 0); on mkte
                  # git -C / cd / mkdir fails CLOSED rather than hitting the real repo
   local d
   d="$(mktemp -d)" && [ -n "$d" ] && [ -d "$d" ] && { printf '%s\n' "$d"; return 0; }
+  # The recap bullet names the INFRASTRUCTURE cause, not just the assertion: read from the
+  # recap alone, a bare assertion name is indistinguishable from a genuine failure and sends
+  # the reader to debug an assertion that never ran. (probe_tmp does the same.) The two
+  # writes stay ADJACENT — the pairing the completeness guard scans for.
   echo FAIL >> "$RESULTS_FILE"
+  record_fail "$1 — mktemp -d failed (git sandbox unavailable)"
   printf '  FAIL  %s — mktemp -d failed (git sandbox unavailable; git work aborted, not run in the real repo)\n' "$1" >&2
   printf '/dev/null/devflow-git-sandbox-unavailable\n'
   return 1
@@ -466,7 +489,7 @@ GS_PROBE="$(mktemp)"   # real mktemp, captured BEFORE the shadow below
 ) 2>/dev/null
 assert_eq "#161 git_sandbox: forced mktemp failure records a suite FAIL (RED, not vacuous)" \
   "FAIL" "$(tail -n 1 "$GS_PROBE")"
-rm -f "$GS_PROBE"
+rm -f "$GS_PROBE" "$GS_PROBE.names"   # .names: record_fail's #789 sibling of this diverted tally
 assert_eq "#161 git_sandbox: forced mktemp failure leaves the real-repo working tree unchanged" \
   "$GS_STATUS_BEFORE" "$(git -C "$GS_REPO_ROOT" status --porcelain 2>/dev/null)"
 assert_eq "#161 git_sandbox: forced mktemp failure leaves the real-repo HEAD unchanged" \
@@ -508,7 +531,7 @@ for GS_ARM in "rc-nonzero:mktemp() { return 1; }" \
     "yes" "$GS_ARM_VERDICT"
   assert_eq "#161 git_sandbox: ${GS_ARM_NAME} arm records the suite FAIL" \
     "FAIL" "$(tail -n 1 "$GS_ARM_PROBE")"
-  rm -f "$GS_ARM_PROBE"
+  rm -f "$GS_ARM_PROBE" "$GS_ARM_PROBE.names"
 done
 # Happy path: a normal call returns a real, isolated directory that is NEITHER the sentinel
 # NOR the repo root. The repo-root check is the success-side twin of the sentinel pin: it
@@ -2312,6 +2335,7 @@ assert_pin_red_under() {  # name literal mutation [file]   (file defaults to $MA
   # a FAIL naming the broken mutation instead — a mutation that cannot run is never a pass.
   if ! sed -E "$mutation" "$file" > "$t" 2>/dev/null; then
     echo FAIL >> "$RESULTS_FILE"
+    record_fail "$name"
     printf '  FAIL  %s\n         mutation sed program errored (not a valid regression) — a broken mutation is never a vacuous pass\n         mutation: %s\n         file: %s\n' \
       "$name" "$mutation" "$file"
     rm -f "$t"
@@ -2319,6 +2343,7 @@ assert_pin_red_under() {  # name literal mutation [file]   (file defaults to $MA
   fi
   if cmp -s "$file" "$t"; then
     echo FAIL >> "$RESULTS_FILE"
+    record_fail "$name"
     printf '  FAIL  %s\n         mutation was a NO-OP (mutated copy byte-identical to original) — a mutation that changes nothing is never a vacuous pass\n         mutation: %s\n         file: %s\n' \
       "$name" "$mutation" "$file"
     rm -f "$t"
@@ -2335,6 +2360,7 @@ assert_pin_red_under() {  # name literal mutation [file]   (file defaults to $MA
   # comparand never established — a broken count is never a silent pass of an overbroad mutation.
   if ! _nonws_count "$file" "$t"; then
     echo FAIL >> "$RESULTS_FILE"
+    record_fail "$name"
     printf '  FAIL  %s\n         OVERBREADTH-COUNT-UNESTABLISHED — the non-whitespace count derivation (python3) failed for the original or mutated artifact; the overbreadth bound is unestablished, not satisfied\n         mutation: %s\n         file: %s\n' \
       "$name" "$mutation" "$file"
     rm -f "$t"
@@ -2343,6 +2369,7 @@ assert_pin_red_under() {  # name literal mutation [file]   (file defaults to $MA
   _o="$_NONWS_1"; _m="$_NONWS_2"
   if [ "$_o" -gt 0 ] && [ "$(( _m * OVERBREADTH_MIN_DEN ))" -lt "$(( _o * OVERBREADTH_MIN_NUM ))" ]; then
     echo FAIL >> "$RESULTS_FILE"
+    record_fail "$name"
     printf '  FAIL  %s\n         mutation is OVERBROAD (mutated copy retains %s of %s non-whitespace chars, below the 1/%s bound) — a mutation that blanks the target proves nothing; narrow it to the operative change\n         mutation: %s\n         file: %s\n' \
       "$name" "$_m" "$_o" "$OVERBREADTH_MIN_DEN" "$mutation" "$file"
     rm -f "$t"
@@ -2557,6 +2584,15 @@ _int_cmp() {  # left op right -> 0 satisfied, 1 not satisfied, 2 invalid op / er
     *) return 2 ;;
   esac
 }
+# _acru_fail <token> <name>: the failure triple every assert_count_red_under arm writes —
+# the whole-line FAIL the tally counts, the arm's own diagnostic TOKEN (which the tally's
+# `^FAIL$` match deliberately ignores and the contract self-tests read), and the #789
+# identifier record. It exists because the arms below are ~20 copies of the same three
+# statements: adding the identifier record required touching every one of them, and two
+# drifted in the ordering before this helper collapsed them. One shape, one edit.
+_acru_fail() {  # token name
+  echo FAIL >> "$RESULTS_FILE"; echo "$1" >> "$RESULTS_FILE"; record_fail "$2"
+}
 assert_count_red_under() {  # name start end pattern op bound mutation [file]
   local name="$1" start="$2" end="$3" pattern="$4" op="$5" bound="$6" mutation="$7" file="${8:-$MAXI_SKILL}"
   local pat_rc anchor_rc breach_rc start_count start_match start_line ln m end_line
@@ -2569,13 +2605,13 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   # FAIL + token so the tally stays whole-line honest.
   case "$op" in
     -eq|-le|-lt|-ge|-gt) ;;
-    *) echo FAIL >> "$RESULTS_FILE"; echo INVALID-OP >> "$RESULTS_FILE"
+    *) _acru_fail INVALID-OP "$name"
        printf '  FAIL  %s\n         INVALID-OP — op must be one of -eq -le -lt -ge -gt (got: %s)\n' "$name" "$op" >&2
        return 0 ;;
   esac
   # BOUND is spliced into the same `[ ]` — require a non-negative integer.
   case "$bound" in
-    ''|*[!0-9]*) echo FAIL >> "$RESULTS_FILE"; echo INVALID-BOUND >> "$RESULTS_FILE"
+    ''|*[!0-9]*) _acru_fail INVALID-BOUND "$name"
        printf '  FAIL  %s\n         INVALID-BOUND — bound must be a non-negative integer (got: %s)\n' "$name" "$bound" >&2
        return 0 ;;
   esac
@@ -2590,13 +2626,13 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   # ANCHOR-UNESTABLISHED path — the pre-fix behavior — mis-diagnosed a malformed anchor).
   start_count="$(grep -cE -- "$start" "$file" 2>/dev/null)"; anchor_rc=$?
   if [ "$anchor_rc" -ge 2 ]; then
-    echo FAIL >> "$RESULTS_FILE"; echo ANCHOR-PATTERN-ERROR >> "$RESULTS_FILE"
+    _acru_fail ANCHOR-PATTERN-ERROR "$name"
     printf '  FAIL  %s\n         ANCHOR-PATTERN-ERROR — START anchor grep exited with status %s (a malformed or wrong-dialect ERE), not a match count\n         start: %s\n         file: %s\n' \
       "$name" "$anchor_rc" "$start" "$file" >&2
     return 0
   fi
   if [ "$start_count" != "1" ]; then
-    echo FAIL >> "$RESULTS_FILE"; echo ANCHOR-UNESTABLISHED >> "$RESULTS_FILE"
+    _acru_fail ANCHOR-UNESTABLISHED "$name"
     printf '  FAIL  %s\n         ANCHOR-UNESTABLISHED — START must match exactly one line (got: %s)\n         start: %s\n         file: %s\n' \
       "$name" "${start_count:-<unestablished>}" "$start" "$file" >&2
     return 0
@@ -2613,7 +2649,7 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   # a grep error and a genuine zero-match both yield no lines).
   grep -cE -- "$end" "$file" >/dev/null 2>&1; anchor_rc=$?
   if [ "$anchor_rc" -ge 2 ]; then
-    echo FAIL >> "$RESULTS_FILE"; echo ANCHOR-PATTERN-ERROR >> "$RESULTS_FILE"
+    _acru_fail ANCHOR-PATTERN-ERROR "$name"
     printf '  FAIL  %s\n         ANCHOR-PATTERN-ERROR — END anchor grep exited with status %s (a malformed or wrong-dialect ERE), not a match count\n         end: %s\n         file: %s\n' \
       "$name" "$anchor_rc" "$end" "$file" >&2
     return 0
@@ -2625,7 +2661,7 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
     [ "$m" -gt "$start_line" ] 2>/dev/null && { end_line="$m"; break; }
   done < <(grep -nE -- "$end" "$file" 2>/dev/null)
   if [ -z "$end_line" ]; then
-    echo FAIL >> "$RESULTS_FILE"; echo ANCHOR-UNESTABLISHED >> "$RESULTS_FILE"
+    _acru_fail ANCHOR-UNESTABLISHED "$name"
     printf '  FAIL  %s\n         ANCHOR-UNESTABLISHED — END must match at least one line after START (line %s)\n         end: %s\n         file: %s\n' \
       "$name" "$start_line" "$end" "$file" >&2
     return 0
@@ -2636,20 +2672,20 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   # scratch file — NO PIPE — so the counting grep's own rc survives. ──
   slice="$(probe_tmp "$name (slice setup)")" || return 0
   if ! sed -n "${start_line},${end_line}p" "$file" > "$slice" 2>/dev/null; then
-    echo FAIL >> "$RESULTS_FILE"; echo COUNT-UNESTABLISHED >> "$RESULTS_FILE"
+    _acru_fail COUNT-UNESTABLISHED "$name"
     printf '  FAIL  %s\n         COUNT-UNESTABLISHED — slice command (sed) exited non-zero; the count is unestablished, not zero\n         file: %s\n' "$name" "$file" >&2
     rm -f "$slice"; return 0
   fi
   count="$(grep -cE -- "$pattern" "$slice" 2>/dev/null)"; pat_rc=$?
   if [ "$pat_rc" -ge 2 ]; then
-    echo FAIL >> "$RESULTS_FILE"; echo PATTERN-ERROR >> "$RESULTS_FILE"
+    _acru_fail PATTERN-ERROR "$name"
     printf '  FAIL  %s\n         PATTERN-ERROR — counting grep exited with status %s (a malformed or wrong-dialect ERE), not zero matches\n         pattern: %s\n' \
       "$name" "$pat_rc" "$pattern" >&2
     rm -f "$slice"; return 0
   fi
   case "$count" in
     ''|*[!0-9]*)
-      echo FAIL >> "$RESULTS_FILE"; echo COUNT-UNESTABLISHED >> "$RESULTS_FILE"
+      _acru_fail COUNT-UNESTABLISHED "$name"
       printf '  FAIL  %s\n         COUNT-UNESTABLISHED — count is non-numeric or empty (got: %s)\n         pattern: %s\n' \
         "$name" "${count:-<empty>}" "$pattern" >&2
       rm -f "$slice"; return 0
@@ -2665,7 +2701,7 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   # one single-file _nonws_count invocation per measurement (reading `_NONWS_1`). A failed
   # derivation is recorded as COUNT-UNESTABLISHED, never compared against an unestablished bound.
   if ! _nonws_count "$slice"; then
-    echo FAIL >> "$RESULTS_FILE"; echo COUNT-UNESTABLISHED >> "$RESULTS_FILE"
+    _acru_fail COUNT-UNESTABLISHED "$name"
     printf '  FAIL  %s\n         COUNT-UNESTABLISHED — non-whitespace count derivation (python3) failed on the real slice; the overbreadth bound is unestablished, not satisfied\n         file: %s\n' "$name" "$file" >&2
     rm -f "$slice"; return 0
   fi
@@ -2678,7 +2714,7 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   # not-satisfied (rc 1) AND an errored/invalid-op comparison (rc >= 2) both route to the
   # BOUND-VIOLATED-ON-REAL-FILE arm — the same fail-closed direction the old `! [ ]` had. ──
   if ! _int_cmp "$count" "$op" "$bound" 2>/dev/null; then
-    echo FAIL >> "$RESULTS_FILE"; echo BOUND-VIOLATED-ON-REAL-FILE >> "$RESULTS_FILE"
+    _acru_fail BOUND-VIOLATED-ON-REAL-FILE "$name"
     printf '  FAIL  %s\n         BOUND-VIOLATED-ON-REAL-FILE — real count %s does not satisfy %s %s\n         file: %s\n' \
       "$name" "$count" "$op" "$bound" "$file" >&2
     rm -f "$slice"; return 0
@@ -2689,7 +2725,7 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   # would read as a spurious transition — record MUTATION-ERROR instead). ──
   mut="$(probe_tmp "$name (mutation setup)")" || { rm -f "$slice"; return 0; }
   if ! sed -E "$mutation" "$file" > "$mut" 2>/dev/null; then
-    echo FAIL >> "$RESULTS_FILE"; echo MUTATION-ERROR >> "$RESULTS_FILE"
+    _acru_fail MUTATION-ERROR "$name"
     printf '  FAIL  %s\n         MUTATION-ERROR — mutation sed program errored (not a valid regression)\n         mutation: %s\n         file: %s\n' \
       "$name" "$mutation" "$file" >&2
     rm -f "$slice" "$mut"; return 0
@@ -2697,7 +2733,7 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   # ── 5. No-op mutation: a byte-identical copy changes nothing, so EVERY pin would pass
   # vacuously — record MUTATION-NOOP (mirrors assert_pin_red_under's cmp -s guard). ──
   if cmp -s "$file" "$mut"; then
-    echo FAIL >> "$RESULTS_FILE"; echo MUTATION-NOOP >> "$RESULTS_FILE"
+    _acru_fail MUTATION-NOOP "$name"
     printf '  FAIL  %s\n         MUTATION-NOOP — mutated copy byte-identical to original (a mutation that changes nothing is never a vacuous pass)\n         mutation: %s\n' \
       "$name" "$mutation" >&2
     rm -f "$slice" "$mut"; return 0
@@ -2710,7 +2746,7 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   # after START on the mutated copy; if the mutation destroyed an anchor → ANCHOR-COLLAPSE. ──
   mut_start_count="$(grep -cE -- "$start" "$mut" 2>/dev/null)" || mut_start_count=""
   if [ "$mut_start_count" != "1" ]; then
-    echo FAIL >> "$RESULTS_FILE"; echo ANCHOR-COLLAPSE >> "$RESULTS_FILE"
+    _acru_fail ANCHOR-COLLAPSE "$name"
     printf '  FAIL  %s\n         ANCHOR-COLLAPSE — mutation destroyed the START anchor on the mutated copy (matches: %s); the regression is the collapse, not the operative change\n         mutation: %s\n' \
       "$name" "${mut_start_count:-<unestablished>}" "$mutation" >&2
     rm -f "$slice" "$mut"; return 0
@@ -2724,7 +2760,7 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
     [ "$m" -gt "$mut_start_line" ] 2>/dev/null && { mut_end_line="$m"; break; }
   done < <(grep -nE -- "$end" "$mut" 2>/dev/null)
   if [ -z "$mut_end_line" ]; then
-    echo FAIL >> "$RESULTS_FILE"; echo ANCHOR-COLLAPSE >> "$RESULTS_FILE"
+    _acru_fail ANCHOR-COLLAPSE "$name"
     printf '  FAIL  %s\n         ANCHOR-COLLAPSE — mutation destroyed the END anchor on the mutated copy (no END after START)\n         mutation: %s\n' \
       "$name" "$mutation" >&2
     rm -f "$slice" "$mut"; return 0
@@ -2732,21 +2768,21 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
 
   # ── 7. Slice + count on the MUTATED copy (same command/rc discipline as step 2). ──
   if ! sed -n "${mut_start_line},${mut_end_line}p" "$mut" > "$slice" 2>/dev/null; then
-    echo FAIL >> "$RESULTS_FILE"; echo COUNT-UNESTABLISHED >> "$RESULTS_FILE"
+    _acru_fail COUNT-UNESTABLISHED "$name"
     printf '  FAIL  %s\n         COUNT-UNESTABLISHED — mutated slice command (sed) exited non-zero; the count is unestablished, not zero\n         mutation: %s\n         file: %s\n' \
       "$name" "$mutation" "$file" >&2
     rm -f "$slice" "$mut"; return 0
   fi
   mut_count="$(grep -cE -- "$pattern" "$slice" 2>/dev/null)"; pat_rc=$?
   if [ "$pat_rc" -ge 2 ]; then
-    echo FAIL >> "$RESULTS_FILE"; echo PATTERN-ERROR >> "$RESULTS_FILE"
+    _acru_fail PATTERN-ERROR "$name"
     printf '  FAIL  %s\n         PATTERN-ERROR — counting grep exited with status %s on the mutated slice\n         pattern: %s\n' \
       "$name" "$pat_rc" "$pattern" >&2
     rm -f "$slice" "$mut"; return 0
   fi
   case "$mut_count" in
     ''|*[!0-9]*)
-      echo FAIL >> "$RESULTS_FILE"; echo COUNT-UNESTABLISHED >> "$RESULTS_FILE"
+      _acru_fail COUNT-UNESTABLISHED "$name"
       printf '  FAIL  %s\n         COUNT-UNESTABLISHED — mutated count is non-numeric or empty (got: %s)\n         mutation: %s\n         file: %s\n' \
         "$name" "${mut_count:-<empty>}" "$mutation" "$file" >&2
       rm -f "$slice" "$mut"; return 0
@@ -2759,13 +2795,13 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   # empties every line while leaving the line count identical, so sed's rc and cmp -s both
   # clear). Reports through this helper's own bare-FAIL + distinct-token shape.
   if ! _nonws_count "$slice"; then
-    echo FAIL >> "$RESULTS_FILE"; echo COUNT-UNESTABLISHED >> "$RESULTS_FILE"
+    _acru_fail COUNT-UNESTABLISHED "$name"
     printf '  FAIL  %s\n         COUNT-UNESTABLISHED — non-whitespace count derivation (python3) failed on the mutated slice; the overbreadth bound is unestablished, not satisfied\n         mutation: %s\n' "$name" "$mutation" >&2
     rm -f "$slice" "$mut"; return 0
   fi
   _mut_slice_nonws="$_NONWS_1"
   if [ "$_real_slice_nonws" -gt 0 ] && [ "$(( _mut_slice_nonws * OVERBREADTH_MIN_DEN ))" -lt "$(( _real_slice_nonws * OVERBREADTH_MIN_NUM ))" ]; then
-    echo FAIL >> "$RESULTS_FILE"; echo MUTATION-OVERBROAD >> "$RESULTS_FILE"
+    _acru_fail MUTATION-OVERBROAD "$name"
     printf '  FAIL  %s\n         MUTATION-OVERBROAD — mutated slice retains %s of %s non-whitespace chars (below the 1/%s bound); a mutation that blanks the counted slice proves nothing\n         mutation: %s\n' \
       "$name" "$_mut_slice_nonws" "$_real_slice_nonws" "$OVERBREADTH_MIN_DEN" "$mutation" >&2
     rm -f "$slice" "$mut"; return 0
@@ -2786,7 +2822,7 @@ assert_count_red_under() {  # name start end pattern op bound mutation [file]
   # (fail-open, worse), so the rc is captured explicitly and every value other than 1 fails. ──
   _int_cmp "$mut_count" "$op" "$bound" 2>/dev/null; breach_rc=$?
   if [ "$breach_rc" -ne 1 ]; then
-    echo FAIL >> "$RESULTS_FILE"; echo BOUND-NOT-BREACHED >> "$RESULTS_FILE"
+    _acru_fail BOUND-NOT-BREACHED "$name"
     printf '  FAIL  %s\n         BOUND-NOT-BREACHED — mutated count %s still satisfies %s %s (the mutation did not breach the bound)\n         mutation: %s\n' \
       "$name" "$mut_count" "$op" "$bound" "$mutation" >&2
     rm -f "$slice" "$mut"; return 0
@@ -2879,7 +2915,7 @@ ACRU_UNEST="$(probe_tmp '#536 unestablished-count probe')"
 { read -r _acru_v; read -r _acru_t; } < "$ACRU_UNEST"
 assert_eq "#536 COUNT-UNESTABLISHED: with sed unavailable the slice fails while the anchor gate still passes" \
   "FAIL|COUNT-UNESTABLISHED" "$_acru_v|$_acru_t"
-rm -f "$ACRU_UNEST"
+rm -f "$ACRU_UNEST" "$ACRU_UNEST.names"
 # COUNT-UNESTABLISHED at STEP 7 (the MUTATED-slice site, distinct code path from the step-2
 # arm above): the unest test above shadows sed to fail on EVERY call, so it returns at step 2
 # (the real-file slice) before step 7 ever runs. Drive the step-7 path directly with a
@@ -2901,7 +2937,7 @@ ACRU_SEDCTR="$(probe_tmp '#536 step7 sed-call counter')"; printf '0\n' > "$ACRU_
 { read -r _acru_v; read -r _acru_t; } < "$ACRU_STEP7"
 assert_eq "#536 COUNT-UNESTABLISHED (step 7): the MUTATED slice sed failing after a clean real-file slice is unestablished, not zero" \
   "FAIL|COUNT-UNESTABLISHED" "$_acru_v|$_acru_t"
-rm -f "$ACRU_STEP7" "$ACRU_SEDCTR"
+rm -f "$ACRU_STEP7" "$ACRU_STEP7.names" "$ACRU_SEDCTR"
 # DEFERRED (review PR #553, Suggestion 2): the step-7 PATTERN-ERROR and non-numeric-count arms
 # have no dedicated self-test. WHY: they mirror step 2 over the SAME pattern, which step 2
 # validates FIRST — a malformed/wrong-dialect pattern errors at step 2, and a numeric grep -c
@@ -2939,7 +2975,7 @@ assert_eq "#536 FAIL-tally (via probe_two_line): the ANCHOR-COLLAPSE verdict is 
 assert_eq "#536 FAIL-tally (via probe_two_line): the cause token is ANCHOR-COLLAPSE" "ANCHOR-COLLAPSE" "$ACRU_T_TOK"
 assert_eq "#536 the two-line protocol leaves exactly one ^FAIL$ line in the tally (the cause token on the next line does not swallow its verdict)" \
   "1" "$(grep -c '^FAIL$' "$ACRU_T_PATH")"
-rm -f "$ACRU_T_PATH"
+rm -f "$ACRU_T_PATH" "$ACRU_T_PATH.names"
 # ── ERE-vs-BRE migration contract: the silent-conversion hazard. A PATTERN whose parens
 # are LITERAL (`Devflow Review (auto-trigger)`) counts differently as a BRE (1, parens
 # literal) than as an ERE (0, parens open a group). The helper's PATTERN is an ERE, so an
@@ -17582,7 +17618,7 @@ assert_eq "actionable: malformed-createdAt open issue does not set cooldown_acti
 # Missing overrides.json → should still emit the actionable array, not error
 AP_NOOV="$(DEVFLOW_GH="$AP_TMP/gh" bash "$LIB/actionable-patterns.sh" "$AP_TMP/r.jsonl" "/tmp/devflow-nonexistent-overrides-$$-$RANDOM.json")" \
   && assert_eq "actionable: missing overrides → incomplete-edit still present" "true" "$(echo "$AP_NOOV" | jq 'any(.[]; .tag=="incomplete-edit")')" \
-  || { echo FAIL >> "$RESULTS_FILE"; printf '  FAIL  actionable: missing overrides → script errored\n'; }
+  || { echo FAIL >> "$RESULTS_FILE"; record_fail "actionable: missing overrides → script errored"; printf '  FAIL  actionable: missing overrides → script errored\n'; }
 # #152: the open-issue cooldown lookup must FAIL CLOSED, not fail open. A `gh issue
 # list` error (auth/rate-limit/network) that silently yielded an empty cooldown map
 # would re-file a duplicate for every pattern — the fail-open-where-it-claims-closed
@@ -19170,7 +19206,13 @@ assert_eq "#579 review re-trigger list covers every PR-gating workflow" "yes" \
   "$(python3 "$LIB/test/check-review-retrigger-coverage.py" "$WF" >/dev/null 2>&1 && echo yes || echo no)"
 if ! _r579_d="$(mktemp -d)"; then
   printf '  FAIL  #579 re-trigger coverage mutation — mktemp -d failed (behavioral proof not run)\n' >&2
-  FAIL=$((FAIL + 1))
+  # Records through RESULTS_FILE, not the in-memory `FAIL=$((FAIL + 1))` this line used to
+  # carry: the authoritative tally is RECOMPUTED from RESULTS_FILE at the tail, so the
+  # increment was discarded and this arm printed a FAIL the suite never counted (the same
+  # dead idiom the #683 comment below already names). Found while wiring #789's identifier
+  # record, which requires every FAIL site to be a real, tallied one.
+  echo FAIL >> "$RESULTS_FILE"
+  record_fail "#579 re-trigger coverage mutation — mktemp -d failed"
 else
   cp "$WF"/*.yml "$_r579_d"/
   sed -E 's/workflows: \[CI, Matcher probe\]/workflows: [CI]/' "$REVIEW_WF" > "$_r579_d/devflow-review.yml"
@@ -29337,9 +29379,14 @@ assert_pin_red_under "#707 review-and-fix extension keeps the full suite as the 
 # #707 the reflection obligation is implement-only: it is the audit trail that makes a
 # mid-iteration full-suite run a recorded decision rather than a silent reversion to the
 # retired default.
-assert_pin_red_under "#707 implement extension requires a reflection justifying a full-suite run" \
-  'record a `## Devflow Reflection` bullet stating why the full run was necessary' \
-  's/, and when you do, record a `## Devflow Reflection` bullet stating why the full run was necessary[^.]*\.$/./' "$WSR_IMPL"
+# #789 RE-SPANNED: #707's literal ('record a `## Devflow Reflection` bullet stating why the
+# full run was necessary') belonged to the sentence #789 replaced with the closed-set
+# fallback rule. The obligation survives and is STRONGER — the bullet must now name WHICH
+# closed-set case applied, not merely that a full run happened — so the pin follows the
+# obligation to its new sentence rather than being deleted with the old one.
+assert_pin_red_under "#789 implement extension requires a reflection naming the full-suite fallback case" \
+  'records a `## Devflow Reflection` bullet naming **which** case applied' \
+  's/A run that takes any of them records a `## Devflow Reflection` bullet naming \*\*which\*\* case applied\.//' "$WSR_IMPL"
 # #707 the reception/shepherd tier carries the same policy in its own adapted voice, so
 # it needs its own pins — it shares no sentence with the two files above.
 assert_pin_red_under "#707 receiving-code-review.md makes a focused pass sufficient for intermediate iteration" \
@@ -29348,6 +29395,19 @@ assert_pin_red_under "#707 receiving-code-review.md makes a focused pass suffici
 assert_pin_red_under "#707 receiving-code-review.md keeps the final gate and parallelizes it" \
   'without gating the push on the local run finishing' \
   's/without gating the push on the local run finishing/after the local run has finished/' "$FDROOT/.devflow/prompt-extensions/receiving-code-review.md"
+# #789: this file ADAPTS rather than mirrors the source section, so the #789 loop above —
+# which iterates only implement.md and review-and-fix.md — does not reach it and its own
+# escape-hatch sentence needs a dedicated pin. The guarded regression is the pre-#789
+# behavior the sentence replaced: a covered Python unit sent to the full suite, and an
+# uncovered surface paying a full run on every cycle instead of extracting on the second.
+assert_pin_red_under "#789 receiving-code-review.md routes a covered Python unit to its recorded focused_test" \
+  'iterates on the `focused_test` its coverage-map entry names' \
+  's/iterates on the `focused_test` its coverage-map entry names/iterates on the full suite/' \
+  "$FDROOT/.devflow/prompt-extensions/receiving-code-review.md"
+assert_pin_red_under "#789 receiving-code-review.md coalesces its own uncovered-surface fallback" \
+  'a second cycle on it extracts a module instead' \
+  's/, and a second cycle on it extracts a module instead//' \
+  "$FDROOT/.devflow/prompt-extensions/receiving-code-review.md"
 # #707 absence guard: the retired convention text must survive on NO surface — every
 # extension and coupled mirror in the file list below (deliberately count-free: an
 # enumeration here rots the next time a surface joins the loop). A reintroduction anywhere
@@ -29628,7 +29688,7 @@ assert_eq "#719 baseline-corpus control: a failed scratch allocation routes to s
   "yes" "$(grep -q '^host-capability	' "$_WSR_BCC_PS" && echo yes || echo no)"
 assert_eq "#719 baseline-corpus control: a failed scratch allocation records NO suite FAIL" \
   "no" "$(grep -q '^FAIL' "$_WSR_BCC_PR" && echo yes || echo no)"
-rm -f "$_WSR_BCC_PR" "$_WSR_BCC_PS"
+rm -f "$_WSR_BCC_PR" "$_WSR_BCC_PR.names" "$_WSR_BCC_PS"
 else
   skip "#719 baseline-corpus control: isolated positive controls 1-4" host-capability \
     "mktemp failed; the isolated results/skips pair the controls inspect could not be allocated"
@@ -29677,12 +29737,12 @@ if _WSR_BCC_SBX="$(git_sandbox '#719 baseline-corpus degraded-input sandbox')"; 
   RESULTS_FILE="$_WSR_BCC_R2" SKIPS_FILE="$_WSR_BCC_S0" _wsr_run_baseline_corpus_control '#719 idempotency probe' "$_WSR_BCC_SBX_REF" ok >/dev/null 2>&1
   assert_eq "#719 baseline-corpus control: re-running over the same input yields an identical tally" \
     "yes" "$(cmp -s "$_WSR_BCC_R1" "$_WSR_BCC_R2" && echo yes || echo no)"
-  rm -f "$_WSR_BCC_R1" "$_WSR_BCC_R2" "$_WSR_BCC_S0"
+  rm -f "$_WSR_BCC_R1" "$_WSR_BCC_R1.names" "$_WSR_BCC_R2" "$_WSR_BCC_R2.names" "$_WSR_BCC_S0"
   else
     skip "#719 baseline-corpus control: idempotency probe" host-capability \
       "mktemp failed; the isolated result files the probe compares could not be allocated"
   fi
-  rm -f "$_WSR_BCC_PR" "$_WSR_BCC_PS"
+  rm -f "$_WSR_BCC_PR" "$_WSR_BCC_PR.names" "$_WSR_BCC_PS"
   else
     skip "#719 baseline-corpus control: degraded-git-input controls 5-7" host-capability \
       "mktemp failed; the isolated results/skips pair the controls inspect could not be allocated"
@@ -29707,9 +29767,14 @@ assert_pin_red_under "#707 overview mirror gates the completion claim on reading
 # #707 CONTRIBUTING.md is the human-facing mirror. The absence sweep above only proves the
 # retired rule is gone there; this proves the new one arrived, so deleting its focused-default
 # block cannot pass green.
-assert_pin_red_under "#707 CONTRIBUTING.md makes the focused module the iteration default" \
-  'reach for `bash lib/test/run.sh` mid-iteration only when no registered' \
-  's/reach for `bash lib\/test\/run.sh` mid-iteration only when no registered/run `bash lib\/test\/run.sh` before every commit, and only when no registered/' "$FDROOT/CONTRIBUTING.md"
+# #789 RE-SPANNED (see the implement-extension pin above): #707's literal named a
+# *registered module* as the only thing that averts a full run; #789 widened that to any
+# covering focused test. The guarded regression is unchanged — a mirror that re-imposes the
+# run-the-full-suite-anyway default — so the pin moves to the sentence that now carries it.
+# The literal is line-local: CONTRIBUTING.md is hard-wrapped and a sed mutation is line-based.
+assert_pin_red_under "#789 CONTRIBUTING.md makes the covering focused test the iteration default" \
+  'only for a surface no focused test covers, and then only for its first cycle' \
+  's/only for a surface no focused test covers, and then only for its first cycle/before every commit/' "$FDROOT/CONTRIBUTING.md"
 assert_pin_red_under "#707 CONTRIBUTING.md gates calling the branch done on reading the local run" \
   'is: read the local run'"'"'s summary before you claim it' \
   's/is: read the local run'"'"'s summary before you claim it/is not/' "$FDROOT/CONTRIBUTING.md"
@@ -29756,9 +29821,39 @@ for _WSR_FOCUSED_POLICY in "$WSR_IMPL" "$WSR_RAF"; do
   assert_pin_red_under "#707 $_WSR_FOCUSED_NAME makes a focused pass sufficient for an intermediate commit or push" \
     'a focused pass covering the changed surface is sufficient for an intermediate commit or push.' \
     's/a focused pass covering the changed surface is sufficient for an intermediate commit or push\./a focused pass covering the changed surface is not sufficient for an intermediate commit or push./' "$_WSR_FOCUSED_POLICY"
-  assert_pin_red_under "#707 $_WSR_FOCUSED_NAME reserves the mid-iteration full suite for uncovered surfaces" \
-    'Run the full suite mid-iteration only when no registered module covers the changed surface' \
-    's/Run the full suite mid-iteration only when no registered module covers the changed surface/Run the full suite mid-iteration before each commit and push/' "$_WSR_FOCUSED_POLICY"
+  # #789 SUPERSEDES the #707 pin that stood here. Its sentence ("Run the full suite
+  # mid-iteration only when no registered module covers the changed surface") reserved the
+  # mid-iteration full suite for surfaces no registered SHELL MODULE covered — which sent
+  # every scripts/*.py and lib/*.py change to the ~10-minute suite even where a
+  # lib/test/test_*.py covers it in a fraction of the time. The tiered rule replaces that
+  # sentence, so the pin moves with it rather than being left asserting vanished text.
+  assert_pin_red_under "#789 $_WSR_FOCUSED_NAME routes to the covering focused test before the full suite" \
+    'When a covering focused test exists, iterate on it rather than the full suite.' \
+    's/When a covering focused test exists, iterate on it rather than the full suite\./Always iterate on the full suite./' "$_WSR_FOCUSED_POLICY"
+  assert_pin_red_under "#789 $_WSR_FOCUSED_NAME routes a covered Python unit to its focused_test as a direct leading token" \
+    'invoked as a **direct leading token**' \
+    's/invoked as a \*\*direct leading token\*\*/invoked as `python3 <path>`/' "$_WSR_FOCUSED_POLICY"
+  # Tier 2's whole value is the COALESCING boundary: a one-off fix pays one full run, and
+  # only a SECOND cycle on the same uncovered surface buys a durable module. Widening
+  # "second" back to "every" re-imposes the pre-#789 per-cycle full-suite cost.
+  assert_pin_red_under "#789 $_WSR_FOCUSED_NAME coalesces the uncovered-surface fallback (first cycle full suite, second cycle extraction)" \
+    'Only a **second** mid-iteration cycle on the same uncovered surface triggers a durable module extraction' \
+    's/Only a \*\*second\*\* mid-iteration cycle on the same uncovered surface triggers/Every mid-iteration cycle on an uncovered surface triggers/' "$_WSR_FOCUSED_POLICY"
+  # AC5: the fallback set is CLOSED and each taking of it is named in a Reflection bullet.
+  # Dropping "which" turns a case-naming obligation into an unattributable one, which is
+  # what makes the coverage gap invisible to the retrospective that mines these bullets.
+  assert_pin_red_under "#789 $_WSR_FOCUSED_NAME requires the full-suite fallback to name which closed-set case applied" \
+    'records a `## Devflow Reflection` bullet naming **which** case applied' \
+    's/naming \*\*which\*\* case applied/naming that it happened/' "$_WSR_FOCUSED_POLICY"
+  # AC10: the #434 dirty-tree skip is absorbed, NOT worked around by a second full run.
+  assert_pin_red_under "#789 $_WSR_FOCUSED_NAME does not re-run the full suite solely to clear a mid-iteration #434 skip" \
+    'never re-run the full suite mid-iteration solely to clear it' \
+    's/never re-run the full suite mid-iteration solely to clear it/re-run the full suite mid-iteration to clear it/' "$_WSR_FOCUSED_POLICY"
+  # AC11: the budget pointer routes diagnosis to the captured recap instead of a relaunch —
+  # the relaunch being the exact cost #789 removes.
+  assert_pin_red_under "#789 $_WSR_FOCUSED_NAME points diagnosis at the captured recap rather than a relaunch" \
+    'instead of relaunching, and mid-iteration prefer the covering focused test' \
+    's/instead of relaunching, and mid-iteration prefer the covering focused test/by relaunching the suite/' "$_WSR_FOCUSED_POLICY"
   assert_pin_red_under "#707 $_WSR_FOCUSED_NAME does not gate the push on the local final run" \
     'the push is NOT gated on the local run finishing' \
     's/the push is NOT gated on the local run finishing/the push waits for the local run to finish/' "$_WSR_FOCUSED_POLICY"
@@ -29808,6 +29903,52 @@ assert_pin_unique "#591 overview doc mirror carries the amended cloud focused-ru
   "$FDROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 assert_pin_unique "#591 CONTRIBUTING.md carries the module-authoring checklist heading" \
   '### Authoring a new focused module' "$FDROOT/CONTRIBUTING.md"
+
+# ── #789 coupled mirrors + the named-flake rule ──────────────────────────────
+# The three prompt extensions are the operative surface; CLAUDE.md, CONTRIBUTING.md and the
+# overview doc are their coupled mirrors, and a mirror that keeps the pre-#789 "no registered
+# MODULE covers it -> full suite" rule is the desync the coupled-invariant convention exists
+# to stop (the retired-literal sweep above only proves the #707-era text is gone, never that
+# the #789 rule arrived). Behavioral-fix pins: each mutation re-introduces the shell-module-only
+# routing that sent every covered Python change to the ~10-minute suite.
+assert_pin_red_under "#789 CLAUDE.md mirrors the covering-focused-test routing" \
+  'or, for a `scripts/*.py`/`lib/*.py` unit, the `lib/test/test_*.py` file its `lib/test/modules/coverage-map.json` entry names in a `focused_test` field' \
+  's/or, for a `scripts\/\*\.py`\/`lib\/\*\.py` unit, the `lib\/test\/test_\*\.py` file its `lib\/test\/modules\/coverage-map\.json` entry names in a `focused_test` field//' "$WSR_CLAUDE"
+assert_pin_red_under "#789 CLAUDE.md mirrors the coalescing uncovered-surface fallback" \
+  'a second mid-iteration cycle on that same uncovered surface extracts a durable module instead' \
+  's/a second mid-iteration cycle on that same uncovered surface extracts a durable module instead/every mid-iteration cycle on an uncovered surface uses the full suite/' "$WSR_CLAUDE"
+assert_pin_red_under "#789 CONTRIBUTING.md mirrors the covering-focused-test routing" \
+  'the `lib/test/test_*.py` file its coverage-map entry names in a' \
+  's/the `lib\/test\/test_\*\.py` file its coverage-map entry names in a/nothing, because only a shell module counts as a/' "$FDROOT/CONTRIBUTING.md"
+# CONTRIBUTING.md is HARD-WRAPPED, so a pin literal here must live on ONE physical line —
+# a `sed` mutation is line-based and a span crossing the wrap is a silent no-op, which
+# assert_pin_red_under reports rather than passing vacuously (the #375 wrapped-literal trap,
+# caught here at the desk). This literal is line-local by construction.
+assert_pin_red_under "#789 CONTRIBUTING.md mirrors the coalescing uncovered-surface fallback" \
+  'second mid-iteration cycle on that same uncovered surface extracts a durable' \
+  's/second mid-iteration cycle on that same uncovered surface extracts a durable/second mid-iteration cycle on that same uncovered surface also re-runs the complete/' "$FDROOT/CONTRIBUTING.md"
+assert_pin_red_under "#789 the overview doc mirrors the two-tier focused-test set" \
+  'Two tiers of focused test qualify (issue #789)' \
+  's/Two tiers of focused test qualify \(issue #789\)/Only a registered shell module qualifies/' \
+  "$FDROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+assert_pin_red_under "#789 the overview doc mirrors the failure recap and its preserved exit status" \
+  'the suite'"'"'s exit status is preserved through the recap' \
+  's/the suite'"'"'s exit status is preserved through the recap/the recap replaces the exit status/' \
+  "$FDROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+# AC8/AC9: the known-flaky set is EXACTLY this one test, and the isolation command is what
+# makes confirming non-reproduction cheap. The complement clause is the load-bearing half —
+# without it "known flake" generalizes into a licence to dismiss any red assertion, which is
+# strictly worse than having no flake documentation at all.
+assert_pin_unique "#789 CLAUDE.md names the single known-flaky test" \
+  'test_missing_supervisor_pid_rendezvous_fails_boundedly` in class `SignalCleanupMatrixTests' "$WSR_CLAUDE"  # structural-pin-ok: presence of the named test the rule is scoped to; the complement clause below carries the behavioral proof
+assert_pin_unique "#789 CLAUDE.md gives the direct-token flake isolation command" \
+  'lib/test/test_module_harness.py SignalCleanupMatrixTests.test_missing_supervisor_pid_rendezvous_fails_boundedly' "$WSR_CLAUDE"  # structural-pin-ok: presence of the runnable command; removing it re-introduces no named regression, only the cost of a full re-run
+assert_pin_red_under "#789 CLAUDE.md fail-closes the known-flaky complement" \
+  '**No other failing assertion is ever dismissed as a flake**' \
+  's/\*\*No other failing assertion is ever dismissed as a flake\*\* —/A failing assertion may be dismissed as a flake —/' "$WSR_CLAUDE"
+assert_pin_red_under "#789 CLAUDE.md scopes the flake confirmation to the sole-failure case" \
+  'applies **only** when this exact-named test is the *sole* failing assertion' \
+  's/applies \*\*only\*\* when this exact-named test is the \*sole\* failing assertion/applies whenever this test is among the failing assertions/' "$WSR_CLAUDE"
 
 # ── #719 Verification-evidence marker + undefined-disjunct deletion + cloud full-suite obligation ──
 # Finding 1 (unobservable claim gate): each of the three prompt extensions must state, on the
@@ -30900,6 +31041,7 @@ if [ -z "$REAL_PY" ]; then
   # section below runs under it), so this is unreachable in practice; record a FAIL rather
   # than silently skipping coverage if it ever happens.
   echo FAIL >> "$RESULTS_FILE"
+  record_fail "#225 fake-interpreter stubs: no python3"
   printf '  FAIL  #225: no python3 available to back the fake-interpreter stubs (cannot run resolution tests)\n'
 else
   # Populate DIR with coreutils symlinks + no-op git/gh/jq stubs, but deliberately NO python*
@@ -34587,6 +34729,7 @@ if _G342_DIR="$(mktemp -d 2>/dev/null)" && [ -n "$_G342_DIR" ] && [ -d "$_G342_D
   rm -rf "$_G342_DIR"
 else
   echo FAIL >> "$RESULTS_FILE"
+  record_fail "#342 meta-guard: mktemp -d failed"
   printf '  FAIL  #342 meta-guard: mktemp -d failed (negative-direction assertions could not run; not a vacuous pass)\n' >&2
 fi
 
@@ -34934,6 +35077,7 @@ if _F375="$(mktemp -d 2>/dev/null)" && [ -n "$_F375" ] && [ -d "$_F375" ]; then
   rm -rf "$_F375"
 else
   echo FAIL >> "$RESULTS_FILE"
+  record_fail "#375 pin-corpus self-tests: mktemp -d failed"
   printf '  FAIL  #375 pin-corpus self-tests: mktemp -d failed (guards could not be exercised; not a vacuous skip)\n' >&2
 fi
 
@@ -35038,6 +35182,7 @@ if _F687E="$(mktemp -d 2>/dev/null)" && [ -n "$_F687E" ] && [ -d "$_F687E" ]; th
   rm -rf "$_F687E"
 else
   echo FAIL >> "$RESULTS_FILE"
+  record_fail "#687 extract-command-heads --strict self-tests: mktemp -d failed"
   printf '  FAIL  #687 extract-command-heads --strict self-tests: mktemp -d failed (guards not exercised)\n' >&2
 fi
 
@@ -35158,6 +35303,7 @@ if _F661="$(mktemp -d 2>/dev/null)" && [ -n "$_F661" ] && [ -d "$_F661" ]; then
   rm -rf "$_F661"
 else
   echo FAIL >> "$RESULTS_FILE"
+  record_fail "#661 pin-corpus relocation self-tests: mktemp -d failed"
   printf '  FAIL  #661 pin-corpus relocation self-tests: mktemp -d failed (guards could not be exercised; not a vacuous skip)\n' >&2
 fi
 
@@ -35284,6 +35430,7 @@ if _FCP="$(mktemp -d 2>/dev/null)" && [ -n "$_FCP" ] && [ -d "$_FCP" ]; then
   rm -rf "$_FCP"
 else
   echo FAIL >> "$RESULTS_FILE"
+  record_fail "#591 T-pinlint: mktemp -d failed"
   printf '  FAIL  #591 T-pinlint: mktemp -d failed (module-corpus guard not exercised; not a vacuous skip)\n' >&2
 fi
 
@@ -35488,6 +35635,7 @@ if _F666="$(mktemp -d 2>/dev/null)" && [ -n "$_F666" ] && [ -d "$_F666" ]; then
   rm -rf "$_F666"
 else
   echo FAIL >> "$RESULTS_FILE"
+  record_fail "#666 mutation-routing self-tests: mktemp -d failed"
   printf '  FAIL  #666 mutation-routing self-tests: mktemp -d failed (gate not exercised; not a vacuous skip)\n' >&2
 fi
 
@@ -42037,6 +42185,42 @@ assert_eq "#438 exec-shape: observed.txt carries the emitter's structural-sectio
 # and the selector re-inlined (the #370 pin-in-comment class, flagged by the iter-2 gate).
 assert_eq "#438 describe-hook-probe: matcher-probe.yml routes the observation through the helper (invocation line)" "yes" \
   "$(grep -qF 'bash scripts/describe-hook-probe.sh "$MARKER"' "$REPO_ROOT/.github/workflows/matcher-probe.yml" && echo yes || echo no)"
+
+# #789: the implement-probe prompt's shape COUNT and its row table are a hand-maintained
+# coupled pair, and the named regression is silent under-measurement: the shape is listed in
+# the prompt but the preamble still says "attempt 1 through <old count> … then STOP", so the
+# probe never attempts the last row and its verdict table reports a value nobody measured.
+# Observed live while adding shape 17 — the row was present and the preamble still said 16.
+# DERIVED on both sides (never a transcribed literal) so adding an 18th shape cannot rot it:
+# the count is read from the preamble and compared against the row-tuple count.
+_MP789_YML="$REPO_ROOT/.github/workflows/matcher-probe.yml"
+# Both derivations are scoped to the IMPLEMENT-probe job: the file carries a second,
+# independent review-tier probe with its own rows list and its own count phrasings, and an
+# unscoped read would compare one job's table against the other's prose.
+_MP789_ROWS="$(python3 - "$_MP789_YML" <<'PY789'
+import re, sys
+text = open(sys.argv[1], encoding="utf-8").read()
+job = text[text.index("\n  implement-probe:"):]
+block = job[job.index("rows = ["):]
+block = block[: block.index("\n          ]")]
+print(len(re.findall(r"^\s*\(\s*\d+\s*,", block, re.M)))
+PY789
+)"
+_MP789_SAID="$(python3 - "$_MP789_YML" <<'PY789'
+import re, sys
+text = open(sys.argv[1], encoding="utf-8").read()
+job = text[text.index("\n  implement-probe:"):]
+found = set(re.findall(r"the (\d+) numbered command shapes", job)) \
+      | set(re.findall(r"1 through (\d+)\.", job)) \
+      | set(re.findall(r"attempting all (\d+),", job))
+print(",".join(sorted(found)) if found else "UNRESOLVED")
+PY789
+)"
+# The implement-probe prompt is the only one carrying all three count phrasings, so the
+# resolved set must be a single value equal to the row count; anything else is drift.
+assert_eq "#789 matcher-probe: the prompt's attempt-count matches its row table (a listed-but-unattempted shape is silently unmeasured)" \
+  "$_MP789_ROWS" "$_MP789_SAID"
+unset _MP789_YML _MP789_ROWS _MP789_SAID
 # #457: the docs AC6 record must state the observed FIRED result (with the run cited) and no
 # longer carry the stale 'unavailable (pending)' verdict.
 DHP_DOC="$REPO_ROOT/docs/execution-file-shape.md"
@@ -42770,7 +42954,7 @@ assert_eq "#456 e2e: a skip()-produced log renders with name and kind in the cor
 RESULTS_FILE="$S456_RES" assert_eq "#456 positive control (recorded to the isolated fixture)" "x" "x" >/dev/null
 assert_eq "#456 positive control: a normal assertion still records a PASS to the fixture (the zero above is real)" \
   "1" "$(grep -c '^PASS$' "$S456_RES")"
-rm -f "$S456_SK" "$S456_RES"
+rm -f "$S456_SK" "$S456_RES" "$S456_RES.names"
 #
 # Adversarial field shapes: skip() SANITIZES the log's own delimiters at the sole producer, so
 # the renderer's per-line tab-field split cannot be defeated by a field's content.
@@ -42830,7 +43014,7 @@ assert_eq "#456 summary: the name-empty line trips NO reconciliation breadcrumb 
   "$(devflow_render_test_summary 1 0 2 "$S456_ADV" | grep -cE 'could not be itemized|tally and log disagree')"
 assert_eq "#456 summary: positive control — the named sibling in the same log still renders normally" "1" \
   "$(devflow_render_test_summary 1 0 2 "$S456_ADV" | grep -cxF '  SKIP  named sibling [host-capability] — reason')"
-rm -f "$S456_ADV" "$S456_ADV_RES"
+rm -f "$S456_ADV" "$S456_ADV_RES" "$S456_ADV_RES.names"
 #
 # NOTE-emit meta-assertion. The SOLE `printf '  NOTE ` emit lives inside skip(), delimited by
 # the split-built markers below (split so these definition lines add no second occurrence).
@@ -46241,7 +46425,7 @@ _pool720_run() {  # width  -> prints the pool's failure output then "COUNTS <pas
       td "$POOL720_FIX/td.py" self-tally
     devflow_pool_join
     printf 'COUNTS %s %s\n' "$(grep -c '^PASS$' "$RESULTS_FILE")" "$(grep -c '^FAIL$' "$RESULTS_FILE")"
-    rm -f "$RESULTS_FILE"
+    rm -f "$RESULTS_FILE" "$RESULTS_FILE.names"
   )
 }
 # pa+pb = 2 PASS, fc = 1 FAIL, td (self-tally) = 3 PASS  ->  5 PASS, 1 FAIL.
@@ -46295,7 +46479,7 @@ _POOL720_RDV="$( (
   devflow_pool_open pa "$POOL720_FIX/pa.py" single-verdict pb "$POOL720_FIX/pb.py" single-verdict
   devflow_pool_join
   printf '%s %s\n' "$(grep -c '^PASS$' "$RESULTS_FILE")" "$(grep -c '^FAIL$' "$RESULTS_FILE")"
-  rm -f "$RESULTS_FILE"
+  rm -f "$RESULTS_FILE" "$RESULTS_FILE.names"
 ) 2>/dev/null | tail -1 )"
 assert_eq "#720 pool: a forced rendezvous timeout is absorbed by serial retry, tallies unchanged" "2 0" "$_POOL720_RDV"
 assert_eq "#720 pool: the serial-retry path actually RAN for the forced-timeout suite (not a vacuous pass)" "pa" "$(grep -m1 '^pa$' "$_POOL720_RMARK" 2>/dev/null || printf 'no-retry')"
@@ -46318,7 +46502,7 @@ _POOL720_ST_RDV="$( (
   printf 'COUNTS %s %s SUMMARY=%s LINES=%s\n' \
     "$(grep -c '^PASS$' "$RESULTS_FILE")" "$(grep -c '^FAIL$' "$RESULTS_FILE")" \
     "${_DEVFLOW_POOL_SELFTALLY_SUMMARY[td]:-MISSING}" "${_DEVFLOW_POOL_SELFTALLY_LINES[td]:-MISSING}"
-  rm -f "$RESULTS_FILE"
+  rm -f "$RESULTS_FILE" "$RESULTS_FILE.names"
 ) 2>/dev/null | tail -1 )"
 # td (self-tally, 3 PASS) + pb (single-verdict, 1 PASS) = 4 PASS, 0 FAIL; after the forced
 # timeout on td, its summary ("3 passed, 0 failed") is recaptured and its 3 tally lines are
@@ -46340,7 +46524,7 @@ _POOL720_TRAPS="$( (
   devflow_pool_join
   _ah="$(trap -p HUP)"; _ai="$(trap -p INT)"; _at="$(trap -p TERM)"
   if [ "$_bh" = "$_ah" ] && [ "$_bi" = "$_ai" ] && [ "$_bt" = "$_at" ] && [ "${#_DEVFLOW_LIVE_CHILD_PIDS[@]}" -eq 0 ]; then printf 'clean\n'; else printf 'DIRTY\n'; fi
-  rm -f "$RESULTS_FILE"
+  rm -f "$RESULTS_FILE" "$RESULTS_FILE.names"
 ) 2>/dev/null | tail -1 )"
 assert_eq "#720 pool: caller HUP/INT/TERM traps byte-identical and registry empty after join" "clean" "$_POOL720_TRAPS"
 unset -f _pool720_run
@@ -46453,6 +46637,7 @@ ias_instructions() {  # <sandbox-root> <slug> <draft-path> [PATH-override]
     # STDERR, not stdout: every call site is `X="$(ias_instructions …)"`, so a stdout
     # message is captured into the variable and never reaches the operator.
     echo FAIL >> "$RESULTS_FILE"
+    record_fail "ias_instructions($slug): dispatch-instruction generator produced no bytes"
     printf '  FAIL  ias_instructions(%s): the dispatch-instruction generator failed or wrote no bytes; every fixture using this slug would silently measure the steering gate instead of its own subject\n' "$slug" >&2
     echo 'GENERATOR-FAILED'
     return 1
@@ -48572,6 +48757,7 @@ else
   # Summary not captured (e.g. a rendezvous-retry emptied the captured output): record
   # a FAIL rather than silently skipping the coverage check.
   echo FAIL >> "$RESULTS_FILE"
+  record_fail "#720 test_python_scripts.py: summary line not captured"
   printf '  FAIL  #720 test_python_scripts.py: could not capture its summary line to verify RESULTS_FILE contribution\n' >&2
 fi
 
@@ -48836,4 +49022,13 @@ echo
 # "N passed, M failed, K skipped" + one line per skipped check otherwise. The exit
 # predicate below is unchanged — a skip never fails the suite.
 devflow_render_test_summary "$PASS" "$FAIL" "$SKIP" "$SKIPS_FILE"
+# Failure recap (issue #789) — one bullet per failing assertion, from the on-disk sibling
+# record (`<results>.names`) record_fail appends to at every tally-writing site, on both
+# streams. On-disk rather than in-memory is load-bearing: it is what carries an identifier
+# out of a subshell, a redirected stream, and a module/pool worker's private tally. Rendered by summary.sh alongside
+# devflow_render_test_summary rather than inline here: that file already owns the
+# itemize-a-population-from-a-record-file shape, including the reconciliation that surfaces a
+# tally/record disagreement instead of printing a short list that reads complete. It prints
+# NOTHING when FAIL is 0, so a clean run's terminal output is unchanged (the #456 contract).
+devflow_render_failure_recap "$FAIL" "$RESULTS_FILE.names"
 [ "$FAIL" -eq 0 ]
