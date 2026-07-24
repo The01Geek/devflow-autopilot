@@ -175,6 +175,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/create-issue-context-eval.py": {
+      "note": "issue #767 create-issue runtime-context eval; tested directly by lib/test/test_create_issue_context_eval.py (serial)",
+      "owner": "unmodularized"
+    },
     "scripts/dedupe-implement-run.sh": {
       "note": "",
       "owner": "unmodularized"
@@ -1529,9 +1533,25 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "757": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "761": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "762": {
       "note": "",
       "owner": "unmodularized"
+    },
+    "767": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "768": {
+      "note": "",
+      "owner": "create-issue-contract"
     },
     "88": {
       "note": "",

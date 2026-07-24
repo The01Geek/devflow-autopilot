@@ -43,33 +43,29 @@ trap _raf_cleanup EXIT
 
 # Build the shipped review-and-fix bundle (#539): thin root + every reference, in a
 # stable order, into a single .md the content pins grep. Members come from the FIXED
-# RAF_EXPECTED_REFS list (this module builds its member list from no glob — unlike run.sh's MAXI_BUNDLE),
-# so the deletion/emptiness guard is the per-member `[ -r ] && [ -s ]` check below,
-# which records a suite FAIL (fail-closed) when a named reference is missing, empty, or
-# unreadable — a partial bundle would otherwise turn absence/count pins into vacuous passes.
-# The member-count assertion is a lockstep self-consistency check on the RAF_EXPECTED_REFS
-# literal itself (it catches an accidental edit to that list); it is NOT the deletion guard.
+# RAF_EXPECTED_REFS list (this module builds its member list from no glob — unlike run.sh's MAXI_BUNDLE).
+# The bundle is assembled through the shared devflow_module_build_bundle helper (#758,
+# retiring the last hand-rolled member-by-member loop in any test module — run.sh's own
+# monolith `_build_skill_bundle` is deliberately kept, per that helper's own docstring):
+# the helper is the deletion/emptiness
+# guard, reporting a missing, empty, or unreadable member through the assertion channel as a
+# named-per-member RED (fail-closed) — a partial bundle would otherwise turn absence/count
+# pins into vacuous passes. The member-count assertion below is a lockstep self-consistency
+# check on the RAF_EXPECTED_REFS literal itself (it catches an accidental edit to that list);
+# it is NOT the deletion guard.
 RAF_SKILL="$_raf_tmp_root/review-and-fix-bundle.md"
-: > "$RAF_SKILL"
 RAF_EXPECTED_REFS="convergence.md error-handling.md fix-delta-gate.md fixing.md loop-control.md loop-exit.md pre-fix-gates.md shadow-review.md"
 _raf_bundle_members=("$RAF_SKILL_ROOT")
 for _rf in $RAF_EXPECTED_REFS; do _raf_bundle_members+=("$RAF_REFS_DIR/$_rf"); done
-for _rm in "${_raf_bundle_members[@]}"; do
-  if [ -r "$_rm" ] && [ -s "$_rm" ] && cat "$_rm" >> "$RAF_SKILL"; then
-    printf '\n' >> "$RAF_SKILL"
-  else
-    printf '  FAIL  review-and-fix contract bundle member missing, empty, or unreadable: %s\n' "$_rm"
-    echo FAIL >> "$RESULTS_FILE"
-  fi
-done
+devflow_module_build_bundle "raf module: review-and-fix-bundle" "$RAF_SKILL" "${_raf_bundle_members[@]}"
 # 9 = thin root + 8 references. run.sh's #530 budget block pins the SAME 8-name set in its own
 # `RAF_EXPECTED_REFS` variable. Rather than couple the two lists by prose lockstep, both verify
 # their set directly against the shipped `references/*.md` directory: run.sh via its per-`_r`
-# existence check + `_raf_unexpected` guard, and this module via the per-member `[ -r ] && [ -s ]`
-# check above (list⊇disk) plus the disk⊇list cross-check below. Neither list can silently drift
-# from disk, so the two cannot silently drift from each other. (run.sh's MAXI_BUNDLE assembles
-# its bundle via the glob; this module builds from the fixed list, so its deletion guard is the
-# per-member check, not a shrinking glob.)
+# existence check + `_raf_unexpected` guard, and this module via the shared builder's
+# per-member usability RED above (list⊇disk) plus the disk⊇list cross-check below. Neither list
+# can silently drift from disk, so the two cannot silently drift from each other. (run.sh's
+# MAXI_BUNDLE assembles its bundle via the glob; this module builds from the fixed list, so its
+# deletion guard is the builder's per-member RED, not a shrinking glob.)
 assert_eq "raf module: bundle assembled all 9 members (thin root + 8 references)" "9" \
   "${#_raf_bundle_members[@]}"
 # disk⊇list: an on-disk references/*.md not named in RAF_EXPECTED_REFS (mirrors run.sh's #530

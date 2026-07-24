@@ -3954,37 +3954,74 @@ count_unallowlisted_raw_skill_guards() {  # file -> count of raw SKILL guard pin
     | grep -vF "# $RGOK_MARK:" \
     | grep -c . || true
 }
-# issue #746: the corpus is run.sh PLUS every module, not $SELF_SRC alone. Extraction moves
-# raw-guard sites out of this file, and a guard whose subject has left neither fails nor
-# warns — it keeps passing at a count that shrinks as modularization proceeds, while the
-# assertion name still claims repo-wide scope. Summing over the module corpus (the shape the
-# #591 pin-lint loop and the #666 mutation gate already use) makes the claimed scope the
-# real one, so a raw guard authored in a module is audited exactly like one authored here.
+# issue #758: the corpus is now genuinely REPO-WIDE — every tracked `.sh` file — so the
+# "(repo-wide)" assertion name below is the real scope, not an overclaim. #746 widened the
+# corpus from $SELF_SRC to run.sh + lib/test/modules/*.sh but left lib/test/module-harness.sh,
+# lib/test/summary.sh, lib/test/run-module.sh and all of scripts/ outside it, so a raw guard
+# authored in any of those was audited nowhere while the name still claimed repo-wide scope.
+# The population is read from git's INDEX (`git ls-files`, no `--others`, per issue #711), so
+# it is immune to the sibling worktrees under .claude/worktrees/ that a root-anchored recursive
+# walk would descend into, and it does not drift as sources are added — a raw SKILL guard
+# authored in ANY shell source is now audited exactly like one authored here. (`git` is neither
+# `find` nor `grep -r`, so this enumeration needs no `# tree-walk-ok:` marker.)
+REPO_ROOT_157="$LIB/.."
 _RSG_TOTAL=0
-for _rsg_src in "$SELF_SRC" "$LIB"/test/modules/*.sh; do
+_RSG_SOURCES=0
+# Accumulate the enumerated relative paths as we go, so the named-surface membership
+# control below reuses this SINGLE git ls-files pass instead of spawning a per-name
+# `--error-unmatch` subprocess (the whole tracked-.sh set is already in hand here).
+_RSG_ALL_REL=""
+while IFS= read -r -d '' _rsg_rel; do
+  _RSG_ALL_REL="$_RSG_ALL_REL $_rsg_rel"
+  _rsg_src="$REPO_ROOT_157/$_rsg_rel"
+  [ -r "$_rsg_src" ] || continue
+  _RSG_SOURCES=$(( _RSG_SOURCES + 1 ))
   _RSG_TOTAL=$(( _RSG_TOTAL + $(count_unallowlisted_raw_skill_guards "$_rsg_src") ))
-done
+done < <(git -C "$REPO_ROOT_157" ls-files -z '*.sh')
 assert_eq "meta(#157 AC2): no single-line echo-driven raw SKILL guard pin escapes assert_pin_unique or an allowlist marker (repo-wide)" \
   "0" "$_RSG_TOTAL"
-# Positive control for the WIDENING itself. The assertion above reads 0 whether the loop
-# scans the module corpus or $SELF_SRC alone — no tranche module authors a matching guard
-# today — so reverting the loop would turn nothing RED and the widening would be
-# unfalsifiable. Count the sources the glob actually resolved and compare against the
-# module files on disk: a glob that stops matching (modules moved into a subdirectory, a
-# typo'd path) collapses this to 1 and goes RED, and so does a revert to $SELF_SRC alone.
-# Derived from the tree rather than transcribed, so adding a module cannot rot it.
-_RSG_SOURCES=0
-for _rsg_src in "$SELF_SRC" "$LIB"/test/modules/*.sh; do
-  [ -r "$_rsg_src" ] && _RSG_SOURCES=$(( _RSG_SOURCES + 1 ))
-done
-_RSG_EXPECTED=1
+# Positive control for the WIDENING itself (#758). The assertion above reads 0 whether the
+# corpus is the whole tree or just run.sh + modules — no shell source authors a matching guard
+# today — so without a control a revert to a narrower corpus would turn nothing RED and the
+# widening would be unfalsifiable (the 0 == 0 the AC3 criterion warns against). Bind the corpus
+# size against the run.sh + modules baseline, both derived from the tree so adding a source
+# cannot rot them: the repo-wide scan must span STRICTLY MORE sources than run.sh +
+# lib/test/modules/*.sh alone (a revert to the #746 corpus, or a `git ls-files` that stops
+# resolving, collapses _RSG_SOURCES to the baseline and goes RED).
+_RSG_RUNSH_MODULES=1
 for _rsg_mod in "$LIB"/test/modules/*.sh; do
-  [ -r "$_rsg_mod" ] && _RSG_EXPECTED=$(( _RSG_EXPECTED + 1 ))
+  [ -r "$_rsg_mod" ] && _RSG_RUNSH_MODULES=$(( _RSG_RUNSH_MODULES + 1 ))
 done
-assert_eq "meta(#157 AC2): the raw-guard corpus really spans run.sh PLUS every module (widening is falsifiable)" \
-  "$_RSG_EXPECTED" "$_RSG_SOURCES"
-assert_eq "meta(#157 AC2): the raw-guard corpus is strictly larger than run.sh alone" \
-  "yes" "$([ "$_RSG_SOURCES" -gt 1 ] && echo yes || echo no)"
+assert_eq "meta(#157 AC2): the repo-wide raw-guard corpus spans strictly more than run.sh + modules (widening is falsifiable)" \
+  "yes" "$([ "$_RSG_SOURCES" -gt "$_RSG_RUNSH_MODULES" ] && echo yes || echo no)"
+# And prove the corpus actually reaches the surfaces #746 left out (module-harness.sh,
+# summary.sh, run-module.sh): each must appear in the git-index enumeration above, so a future
+# re-narrowing that drops them goes RED here BY NAME rather than silently shrinking the repo-wide
+# claim. Membership is tested against the already-collected $_RSG_ALL_REL (the same disk⊇list
+# `case` idiom the review-and-fix-contract module uses), reusing the single ls-files pass rather
+# than re-querying git per name. (scripts/ — the fourth surface #746 left out — is pinned
+# separately just below.)
+_RSG_NAMED_MISSING=""
+for _rsg_named in lib/test/module-harness.sh lib/test/summary.sh lib/test/run-module.sh; do
+  case " $_RSG_ALL_REL " in
+    *" $_rsg_named "*) : ;;
+    *) _RSG_NAMED_MISSING="$_RSG_NAMED_MISSING $_rsg_named" ;;
+  esac
+done
+assert_eq "meta(#157 AC2): the repo-wide corpus reaches the surfaces #746 left out (module-harness/summary/run-module)" \
+  "" "$_RSG_NAMED_MISSING"
+# scripts/ is the fourth surface #746 left out, but naming a specific scripts/*.sh file would
+# transcribe a path a rename could rot; instead assert the enumeration includes AT LEAST ONE
+# top-level scripts/*.sh entry (the leading space in the pattern anchors to a top-level
+# `scripts/` path, not a nested `.../scripts/` one). A future re-narrowing that scopes the
+# corpus back to lib/test — dropping all of scripts/ — then goes RED here rather than silently
+# passing the two controls above, which name only lib/test surfaces (#758 review finding).
+_RSG_SCRIPTS_PRESENT=no
+case " $_RSG_ALL_REL " in
+  *" scripts/"*) _RSG_SCRIPTS_PRESENT=yes ;;
+esac
+assert_eq "meta(#157 AC2): the repo-wide corpus reaches scripts/ (a re-narrowing to lib/test goes RED)" \
+  "yes" "$_RSG_SCRIPTS_PRESENT"
 # AC4 mutation proof: an UNMARKED raw guard written anywhere is detected (RED); the
 # SAME line carrying the allowlist marker is exempted (0). The fixture SOURCE lines
 # below carry the marker so the LIVE scan above skips them, while the string each
@@ -6177,6 +6214,28 @@ assert_pin_red_under "429/T6: §4.0 annotation names the sibling PR AND its merg
   'name the sibling PR **and its merge state at filing time**' '/name the sibling PR/d' "$P4_FILE"
 assert_pin_unique "429/T6: §4.0 aligned verbatim language names the parent's decided criteria as the unreworded source" \
   "parent's decided criteria are the unreworded semantic source" "$P4_FILE"
+
+# #761 — §4.2's PR-body reconciliation is a three-class claim audit (behavioral, verification,
+# artifact-existence), each with its own comparand. The mutations narrow the audit back to
+# behavioral-claims-only (the pre-#761 scope): the enumeration mutation rewrites the class list,
+# and the class-line delete mutation removes the verification and artifact-existence classes.
+assert_pin_red_under "#761: §4.2 audits three claim classes, not behavioral-only (narrow → RED)" \
+  'three claim classes — behavioral, verification, and artifact-existence' \
+  's/three claim classes — behavioral, verification, and artifact-existence/behavioral claims only/' "$P4_FILE"
+assert_pin_red_under "#761: §4.2 verification class binds Test-Plan/coverage rows to tests in the diff (narrow → RED)" \
+  "**Verification claims** — comparand: the tests actually present in this PR's diff." \
+  '/^2\. \*\*Verification claims\*\*/d' "$P4_FILE"
+assert_pin_red_under "#761: §4.2 artifact-existence class requires a resolvable identifier (narrow → RED)" \
+  "**Artifact-existence claims** — comparand: the artifact's own resolvable identifier" \
+  '/^3\. \*\*Artifact-existence claims\*\*/d' "$P4_FILE"
+# The behavioral class + its comparand are the preserved class-1 obligation (unchanged from the
+# pre-#761 §4.2); a presence pin, not a behavioral-fix regression pin.
+assert_pin_unique "#761: §4.2 preserves the behavioral class and its shipped-code-path comparand" \
+  "**Behavioral claims** — comparand: the actual shipped code path, followed into pre-existing code the diff calls." "$P4_FILE"  # structural-pin-ok: documentation-presence pin (asserts the preserved class-1 obligation exists; the narrowing mutation keeps behavioral, so a red_under form cannot express it)
+# The AC5 per-class-outcome contract: one note per class plus an explicit clean-pass note,
+# so a clean class is distinguishable from one that never ran.
+assert_pin_unique "#761: §4.2 records one outcome per class with an explicit clean-pass note (AC5)" \
+  "a class that found nothing records an **explicit clean-pass** note, so a class that ran clean is distinguishable from a class that never ran" "$P4_FILE"  # structural-pin-ok: documentation-presence pin (asserts the AC5 per-class clean-pass-note contract exists; no code regression guarded)
 
 # T7 — no-new-grants. The new prose (Phase 1.6 fresh-tree verification + Phase 2.1 code-wins
 # pass) executes during a /devflow:implement run, and `devflow-implement.yml` is the SINGLE
@@ -34136,6 +34195,10 @@ CI_MOD_VARS=(
   --var "CI_OVERVIEW=docs/DEVFLOW_SYSTEM_OVERVIEW.md"
   --var "CI_CLAUDE=CLAUDE.md"
   --var "CI_INVENTORY=lib/test/modules/create-issue-contract.inventory.md"
+  # CI_ROOT lets the meta-guard resolve the module's own `$CI_ROOT/…` assignments
+  # (CI_CLOUD_SETUP, CI_IMPL_DOC, CI_DV) and inline `$CI_ROOT/…` pin targets; without
+  # it those pins stay unresolved — surfaced on stderr but never asserted (issue #757).
+  --var "CI_ROOT=$LIB/.."
 )
 # issue #746: review-stall-backstop.sh is another module whose pin TARGETS need
 # --var resolution. Its #408 skill pins target the review-engine bundle, which the
@@ -34176,47 +34239,40 @@ for _mod in "$LIB"/test/modules/*.sh; do
   assert_eq "#591 pin-corpus lint clean over module $(basename "$_mod")" "rc=0|" "rc=$_MOD_LINT_RC|$_MOD_LINT_OUT"
   _MOD_LINT_STRICT_OUT="$(python3 "$PCL" lint "$_mod" --lib "$LIB" "${_mod_vars[@]}" --strict 2>/dev/null)"; _MOD_LINT_STRICT_RC=$?
   assert_eq "#687 pin-corpus lint --strict exits 0 over clean module $(basename "$_mod")" "rc=0|" "rc=$_MOD_LINT_STRICT_RC|$_MOD_LINT_STRICT_OUT"
-  _MOD_WRAP_OUT="$(python3 "$PCL" wrapped "$_mod" --lib "$LIB" "${_mod_vars[@]}" 2>/dev/null)"; _MOD_WRAP_RC=$?
+  # The plain wrapped run's STDERR carries the RESOLVED-COUNT tally the #757 resolution
+  # floor below reads, so capture it to a temp rather than discarding it — one wrapped
+  # invocation serves both the clean-scan assertion and the floor (no second glob, no
+  # second subprocess).
+  _MOD_WRAP_ERR="$(mktemp)"
+  _MOD_WRAP_OUT="$(python3 "$PCL" wrapped "$_mod" --lib "$LIB" "${_mod_vars[@]}" 2>"$_MOD_WRAP_ERR")"; _MOD_WRAP_RC=$?
   assert_eq "#591 pin-corpus wrapped clean over module $(basename "$_mod")" "rc=0|" "rc=$_MOD_WRAP_RC|$_MOD_WRAP_OUT"
   _MOD_WRAP_STRICT_OUT="$(python3 "$PCL" wrapped "$_mod" --lib "$LIB" "${_mod_vars[@]}" --strict 2>/dev/null)"; _MOD_WRAP_STRICT_RC=$?
   assert_eq "#687 pin-corpus wrapped --strict exits 0 over clean module $(basename "$_mod")" "rc=0|" "rc=$_MOD_WRAP_STRICT_RC|$_MOD_WRAP_STRICT_OUT"
-done
-# Resolution floor: the meta-guards only actually CHECK a pin whose target file resolves.
-# create-issue-contract.sh carries the module corpus's namespaced pins whose targets need
-# --var resolution, so a regression breaking that resolution would leave every pin
-# UNRESOLVED (surfaced, not asserted) and the wrapped guard would scan nothing while still
-# reading clean. Pin a RESOLVED-COUNT floor over its wrapped scan (the module-internal
-# runtime bundle temps stay unresolved; $CI_BUNDLE is bound above so its pins do resolve)
-# so a resolution regression turns RED, not green.
-_CI_WRAP_ERR="$(mktemp)"
-python3 "$PCL" wrapped "$LIB/test/modules/create-issue-contract.sh" --lib "$LIB" "${CI_MOD_VARS[@]}" >/dev/null 2>"$_CI_WRAP_ERR" || true
-_CI_WRAP_RESOLVED="$(grep '^RESOLVED-COUNT' "$_CI_WRAP_ERR" 2>/dev/null | tail -1)"; _CI_WRAP_RESOLVED="${_CI_WRAP_RESOLVED##*$'\t'}"
-assert_eq "#591 pin-corpus: create-issue module pin targets still resolve (>=150 for the wrapped meta-guard)" \
-  "yes" "$({ [ -n "$_CI_WRAP_RESOLVED" ] && [ "$_CI_WRAP_RESOLVED" -ge 150 ]; } 2>/dev/null && echo yes || echo no)"
-rm -f "$_CI_WRAP_ERR"
-
-# issue #746: the same floor obligation for the tranche modules that CARRY pins. Without
-# it a resolution regression — the $LIB-relative REPO_ROOT spelling replaced by a command
-# substitution, or a dropped RSB_MOD_VARS binding — leaves every pin UNRESOLVED, and the
-# lint/wrapped assertions above still read rc=0 with empty output, i.e. green over a corpus
-# in which nothing was checked. The floor is derived from the module's own pin call sites
-# rather than transcribed, so adding or removing a pin moves the comparand with it and no
-# hand-maintained count can rot; the assertion is EQUALITY, so an unresolved pin is RED.
-# Only the two pin-carrying modules are listed: experiment-records.sh and
-# prompt-extension-reader.sh define no pin at all, so a resolution floor over them would
-# compare 0 against 0 and assert nothing.
-for _rmod in review-stall-backstop review-trigger-helpers; do
-  case "$_rmod" in
-    review-stall-backstop) _rmod_vars=("${RSB_MOD_VARS[@]}") ;;
-    *)                     _rmod_vars=() ;;
-  esac
-  _RM_PINS="$(grep -cE '^[[:space:]]*devflow_module_pin_' "$LIB/test/modules/$_rmod.sh")"
-  _RM_ERR="$(mktemp)"
-  python3 "$PCL" wrapped "$LIB/test/modules/$_rmod.sh" --lib "$LIB" "${_rmod_vars[@]}" >/dev/null 2>"$_RM_ERR" || true
-  _RM_RESOLVED="$(grep '^RESOLVED-COUNT' "$_RM_ERR" 2>/dev/null | tail -1)"; _RM_RESOLVED="${_RM_RESOLVED##*$'\t'}"
-  assert_eq "#746 pin-corpus: every $_rmod pin target resolves for the wrapped meta-guard" \
-    "$_RM_PINS" "$_RM_RESOLVED"
-  rm -f "$_RM_ERR"
+  # Resolution floor (issue #757 — glob-derived, self-extending, equality), folded into this
+  # same per-module loop. The meta-guards only actually CHECK a pin whose target file
+  # resolves; an UNRESOLVED pin is surfaced on stderr but never asserted, so a resolution
+  # regression (a dropped --var binding, a $CI_ROOT/REPO_ROOT spelling the resolver cannot
+  # follow) would leave pins silently exempt while the wrapped assertion above still reads
+  # rc=0 over a corpus in which nothing was checked. This floor turns that RED. It supersedes
+  # the former hand-listed create-issue (`>=150`) and tranche (#591/#746) floors: it derives
+  # the EXPECTED resolved count as (the module's own devflow_module_pin_* call sites MINUS the
+  # pins it declares genuinely unresolvable with a trailing `# runtime-pin-ok:` marker —
+  # runtime scratch-root temps, loop-bound targets, function-positional literals) and asserts
+  # EQUALITY against the RESOLVED-COUNT the wrapped run above emitted. Nothing is transcribed,
+  # so adding or removing a pin moves the comparand with it and no hand-maintained list or
+  # count can rot; a new pin-carrying module is covered the moment it lands on disk. A module
+  # with zero pins contributes no floor (0 == 0 asserts nothing) and is skipped.
+  _F_PINS="$(grep -cE '^[[:space:]]*devflow_module_pin_' "$_mod")"
+  if [ "$_F_PINS" -gt 0 ]; then
+    # Declared-unresolvable pins: a `runtime-pin-ok:` marker on a NON-comment line (the pin's
+    # target/continuation line — never a wholly-comment line, so a header mentioning the
+    # convention is not miscounted). Each such pin is subtracted from the expected count.
+    _F_RUNTIME="$(grep -E 'runtime-pin-ok:' "$_mod" | grep -cvE '^[[:space:]]*#')"
+    _F_RESOLVED="$(grep '^RESOLVED-COUNT' "$_MOD_WRAP_ERR" 2>/dev/null | tail -1)"; _F_RESOLVED="${_F_RESOLVED##*$'\t'}"
+    assert_eq "#757 pin-corpus: every resolvable $(basename "$_mod") pin target resolves for the wrapped meta-guard (call sites $_F_PINS − runtime-declared $_F_RUNTIME)" \
+      "$(( _F_PINS - _F_RUNTIME ))" "$_F_RESOLVED"
+  fi
+  rm -f "$_MOD_WRAP_ERR"
 done
 
 # T-pinlint: a MODULE-file pin source carrying an off-line (wrapped) devflow_module_pin_*
@@ -44600,7 +44656,7 @@ fi
 # The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/create-issue-contract.sh" \
-  "create-issue-contract" 436; then
+  "create-issue-contract" 445; then
   printf 'ERROR: create-issue-contract boundary could not record its result\n'
   exit 1
 fi
@@ -45331,6 +45387,21 @@ if ! MODULE_SIGNAL_MATRIX_CAPABILITY="$(python3 "$LIB/test/test_module_harness.p
   skip "test module signal cleanup matrix" host-capability \
     "${MODULE_SIGNAL_MATRIX_CAPABILITY:-POSIX signals and process groups are unavailable}"
 fi
+
+# issue #767: the create-issue runtime main-thread context eval
+# (scripts/create-issue-context-eval.py) and its committed synthetic fixtures.
+# Runs SERIALLY on the main shell, like test_module_harness.py above — a focused
+# unittest whose non-zero exit surfaces here with its own output. It witnesses every
+# #767 AC the eval/fixtures can (per-run + aggregate metrics, the synthetic
+# before/after reduction-detection, the CI-reconcilable fixture-derived figure, the
+# missing-corpus diagnostic, the no-transcript/no-owner-id scan with its planted
+# positive control, malformed-record degradation, determinism, and the symlink-escape
+# guard); the orchestrator-instruction reduction's preservation is a code-reading
+# obligation recorded in docs/create-issue-context.md, not a suite test.
+CICE_TEST_OUT="$(python3 "$LIB/test/test_create_issue_context_eval.py" 2>&1)"
+CICE_TEST_RC=$?
+assert_eq "issue #767: create-issue context eval focused tests pass" "0" "$CICE_TEST_RC"
+[ "$CICE_TEST_RC" -eq 0 ] || while IFS= read -r _cice_line || [ -n "$_cice_line" ]; do printf '    %s\n' "$_cice_line"; done <<< "$CICE_TEST_OUT"
 
 # harness-python-guards contract coverage (issue #707: extracted from this file's
 # #600 / #527 / #528 / #668 / #591 monolith-only Python guard blocks into a focused

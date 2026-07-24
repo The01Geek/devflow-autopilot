@@ -4,6 +4,68 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.21.15] — 2026-07-24
+
+### Changed
+Add a behavioral eval (`scripts/create-issue-context-eval.py`) that measures the
+runtime main-thread context cost of `/devflow:create-issue` runs from a transcript
+corpus, plus a determination doc (`docs/create-issue-context.md`) classifying which
+appended-content classes are authoritative versus safely-removable redundant
+additions. The create-issue skill now references already-resident/durable content by
+pointer instead of re-quoting it (removing the primary safely-removable re-emission),
+with no audit, evidence, decision, draft-identity, or state-machine guarantee weakened.
+The eval is maintainer-run and never on the skill's runtime path, so it adds no new
+cloud tool grant and no static word-count gate.
+
+## [2.21.14] — 2026-07-24
+
+### Changed
+Generalize the test-module pin RESOLVED-COUNT floor and add a reverse orphan-module check (#757).
+
+### Changed
+
+- The pin RESOLVED-COUNT floor in `lib/test/run.sh` is now glob-derived over every
+  module on disk and self-extending: it computes each module's own
+  `devflow_module_pin_*` call-site count, subtracts the pins a module explicitly
+  declares genuinely unresolvable with a trailing `# runtime-pin-ok:` marker, and
+  asserts equality against the wrapped meta-guard's emitted RESOLVED-COUNT. The former
+  hand-listed create-issue `>=150` floor and the `#591`/`#746` tranche loop over a
+  hardcoded module list are gone, so no hand-maintained list or count can rot and a new
+  pin-carrying module is covered the moment it lands.
+
+### Added
+
+- A single reverse orphan-module check in `lib/test/test_module_runner.py`
+  (`test_every_on_disk_module_is_fully_wired`) enumerates every `lib/test/modules/*.sh`
+  on disk and demands each is wired across all four couplings — registered, called from
+  run.sh's full-suite boundary at a floor matching the registry, listed in `ci.yml`'s
+  shellcheck set, and paired with an `*.inventory.md` — failing closed when any one is
+  removed. The per-module forward reconciliation tests it subsumes were removed in the
+  same change.
+
+## [2.21.13] — 2026-07-24
+
+### Changed
+- **Phase 4.2's PR-body reconciliation is now a three-class claim audit.** `/devflow:implement`
+  Phase 4.2 previously reconciled only *behavioral* claims about the shipped code, leaving a
+  generated body's `## Test Plan` coverage assertions and its "a follow-up issue tracks…"
+  artifact-existence claims checked by nothing. The step now audits the whole body against three
+  claim classes — behavioral (comparand: the shipped code path), verification (comparand: the
+  tests present in this diff), and artifact-existence (comparand: the artifact's own resolvable
+  identifier) — resolving each failure by the same fix-or-rewrite rule §2.3.4a imposes, and
+  records one workpad outcome per class including an explicit clean-pass note. (#761, PR #773)
+- **Named the file-arm audit dispatch path in the `create-issue` Step 3.6 procedure.** The
+  instruction-generation paragraph now names a shell redirect as the write transport (the
+  redirect truncates the target before the generator runs, so no delete-first step remains),
+  defines the landed check as an exit-zero generator plus a non-empty file, and names a
+  `python3`-headed extraction of the `dispatch-pointer:` line — never `grep`/`sed`/`awk`,
+  since that line becomes the entire Agent-tool prompt. The `record-dispatch` output
+  description now names `round=`, `arm=`, and `dispatch_regeneration=`, directing the
+  orchestrator to surface a `diverged` value in chat at the dispatch site. The dispatch
+  barrier is stated behaviorally with `run_in_background: false` as a dated example, and the
+  no-fallback-wakeup rule and the instruction file's lifetime are stated. Skill prose only —
+  no helper behavior changes. (#768)
+
 ## [2.21.12] — 2026-07-24
 
 ### Changed
