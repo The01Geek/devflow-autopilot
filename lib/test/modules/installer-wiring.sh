@@ -316,6 +316,7 @@ rm -f "$_t533k"
 # diagnostic naming that output; the full-success arm lands all seven.
 D533="$(mktemp -d "$_iw_tmp_root/d533.XXXXXX")" || {
   echo FAIL >> "$RESULTS_FILE"
+  record_fail "#533 AC14 fixture root — mktemp -d failed"
   printf '  FAIL  #533 AC14 fixture root — mktemp -d failed; the installer arms cannot run\n' >&2
   D533=/dev/null/unallocated-d533
 }
@@ -636,6 +637,7 @@ assert_eq "#533 AC13: suite launched with a failing-sentinel DEVFLOW_GH resolves
 # SURVIVES into the probe, i.e. the AC13 assertion above would go RED.
 _m533d="$(mktemp -d "$_iw_tmp_root/m533d.XXXXXX")" || {
   echo FAIL >> "$RESULTS_FILE"
+  record_fail "#533 AC22 mutated-harness fixture — mktemp -d failed"
   printf '  FAIL  #533 AC22 mutated-harness fixture — mktemp -d failed\n' >&2
   _m533d=/dev/null/unallocated-m533d
 }

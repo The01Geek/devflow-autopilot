@@ -281,6 +281,38 @@ class CoverageMapGuardTest(unittest.TestCase):
         for bad in (None, [], {}, {"profiles": {}}, {"profiles": {"implement": "x"}, "groups": {}}):
             self.assertIsNone(guard._implement_profile_tokens(bad), bad)
 
+    def test_unestablished_breadcrumbs_are_emitted_ONCE_over_MULTIPLE_entries(self):
+        # Cardinality: with a single recorded entry, "once per run" and "once per entry" are
+        # indistinguishable, so the guarded property would be vacuously satisfied. Two entries
+        # is the smallest input that can tell them apart.
+        tracked = ["lib/a.sh", "lib/b.sh", "lib/test/test_thing.py"]
+        files = {
+            "lib/a.sh": self._focused("lib/test/test_thing.py"),
+            "lib/b.sh": self._focused("lib/test/test_thing.py"),
+        }
+        for kwargs in ({"executable_files": None, "implement_tokens": self._TOKENS},
+                       {"executable_files": self._EXEC, "implement_tokens": None}):
+            v = guard.evaluate(tracked, _map(files=files), _registry(), **kwargs)
+            self.assertEqual(self._arms(v), {"arm10"}, kwargs)
+            self.assertEqual(len(v), 1, f"expected ONE breadcrumb over two entries: {v}")
+
+    def test_multiple_bad_entries_each_report_in_sorted_order(self):
+        # The per-entry arm must scale with cardinality (one finding each) and be
+        # deterministic — `_arm10` iterates `sorted(files)`, which one entry never exercises.
+        tracked = ["lib/b.sh", "lib/a.sh"]
+        files = {
+            "lib/b.sh": self._focused("lib/test/test_gone_b.py"),
+            "lib/a.sh": self._focused("lib/test/test_gone_a.py"),
+        }
+        v = guard.evaluate(
+            tracked, _map(files=files), _registry(),
+            executable_files=self._EXEC, implement_tokens=self._TOKENS,
+        )
+        self.assertEqual(len(v), 2, v)
+        self.assertIn("'lib/a.sh'", v[0])
+        self.assertIn("'lib/b.sh'", v[1])
+
+
     # ── T-shape (arm 4): the six governing shapes over the MAP input. ──
     def test_shape_matrix_map(self):
         tracked = ["lib/real.sh"]
@@ -492,6 +524,30 @@ class CoverageMapGuardTest(unittest.TestCase):
 
 # ── issue #695: arm 9 (run_sh_blocks completeness + fully-extracted attribution),
 # the shared label derivation, and the hand-invoked --fix repair. ──────────────
+class GitExecutableTest(unittest.TestCase):
+    """`_git_executable` is the PRODUCER of arm 10's mode set, including the `None` that the
+    whole unestablished-measurement design rests on. Driving it only through the shipped-tree
+    test would leave that contract asserted by no test that can fail for the right reason."""
+
+    def test_returns_none_when_git_cannot_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            # Not a git repository → CalledProcessError → the unestablished contract.
+            self.assertIsNone(guard._git_executable(Path(tmp) / "definitely-absent"))
+
+    def test_selects_only_the_executable_regular_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "plain.py").write_text("x", encoding="utf-8")
+            exe = root / "runnable.py"
+            exe.write_text("x", encoding="utf-8")
+            exe.chmod(0o755)
+            for args in (["init", "-q"], ["add", "-A"]):
+                subprocess.run(["git", "-C", str(root), *args], check=True,
+                               capture_output=True)
+            found = guard._git_executable(root)
+            self.assertEqual(found, {"runnable.py"}, found)
+
+
 class LabelDerivationTest(unittest.TestCase):
     def test_derives_from_the_monolith_assertion_heads(self):
         text = 'assert_eq "#123 something" "1" "$x"\nassert_true "#124 other" yes\n'

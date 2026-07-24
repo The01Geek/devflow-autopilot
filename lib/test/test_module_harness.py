@@ -1636,6 +1636,10 @@ class NamespacedModulePinHelperTests(unittest.TestCase):
 # a future scanner over the corpus.
 _TALLY_WRITE_ECHO = 'echo FAIL >> "$' + 'RESULTS_FILE"'
 _TALLY_WRITE_PRINTF = "printf 'FAIL" + chr(92) + 'n' + "' >> \"$" + 'RESULTS_FILE"'
+# The pooled worker's tally is a DIFFERENT target variable, so a scan keyed only on
+# RESULTS_FILE is blind to the parent-written verdicts there.
+_TALLY_WRITE_POOL = "printf 'FAIL" + chr(92) + 'n' + "' >> \"$" + 'tally"'
+_TALLY_WRITES = (_TALLY_WRITE_ECHO, _TALLY_WRITE_PRINTF, _TALLY_WRITE_POOL)
 
 
 class FailureRecapTests(unittest.TestCase):
@@ -1782,24 +1786,131 @@ rm -f "$RESULTS_FILE" "$RESULTS_FILE.names" "$SKIPS_FILE"
     def test_every_tallied_fail_site_records_an_identifier(self):
         """A FAIL site that increments the tally but records no identifier makes the recap
         under-report — it would look complete while omitting the very failure the reader is
-        chasing. This walks BOTH shipped producers of the suite tally (run.sh and the harness
-        the pool arms live in) and BOTH spellings of the tally write, because scanning only
-        run.sh for only the `echo` spelling is exactly how the harness's own sites were
-        missed in the first place."""
+        chasing. The scanned population is every SHELL producer that can reach the suite
+        tally, not just the two obvious files: `lib/test/modules/*.sh` write to the tally
+        directly (their private tally is folded), and the harness writes a parent verdict to
+        a pooled worker's `$tally`. Scanning one file for one spelling is precisely how the
+        harness's own sites were missed in the first place, so the set is widened rather than
+        the invariant narrowed. (`lib/test/test_python_scripts.py` is the one producer NOT
+        scanned here: it is Python, cannot call the shell `record_fail`, and writes its own
+        `.names` sibling — `test_python_pool_producer_records_identifiers` covers it.)"""
+        sources = [RUN_SH, HARNESS] + sorted((ROOT / "lib/test/modules").glob("*.sh"))
         missing = []
-        for source in (RUN_SH, HARNESS):
+        for source in sources:
             lines = source.read_text(encoding="utf-8").split("\n")
             for index, line in enumerate(lines):
-                writes_tally = (
-                    _TALLY_WRITE_ECHO in line or _TALLY_WRITE_PRINTF in line
-                )
+                writes_tally = any(spelling in line for spelling in _TALLY_WRITES)
                 if not writes_tally or line.lstrip().startswith("#"):
                     continue
+                # The invariant is "a tally write is PAIRED with an identifier write", not
+                # "calls record_fail": a site whose tally is a pooled worker's `$tally`
+                # writes the sibling directly, because record_fail derives its path from
+                # RESULTS_FILE and would put the name in the wrong file.
                 window = lines[index : index + 3]
-                if not any("record_fail" in candidate for candidate in window):
+                paired = any(
+                    "record_fail" in candidate or ".names" in candidate
+                    for candidate in window
+                )
+                if not paired:
                     rel = source.relative_to(ROOT)
                     missing.append(f"{rel}:{index + 1}: {line.strip()}")
         self.assertEqual(missing, [], "tally writes with no identifier record")
+
+    def test_python_pool_producer_records_identifiers(self):
+        # test_python_scripts.py is the suite's LARGEST failure population and tallies from
+        # Python, so it cannot call the shell record_fail. It writes the same `.names`
+        # sibling directly; without that, ~1800 assertions would be counted and none named.
+        source = (ROOT / "lib/test/test_python_scripts.py").read_text(encoding="utf-8")
+        self.assertIn('_POOL_TALLY_FILE + ".names"', source)
+        unnamed = [
+            f"lib/test/test_python_scripts.py:{i + 1}: {line.strip()}"
+            for i, line in enumerate(source.split("\n"))
+            if '_pool_tally("FAIL"' in line and '_pool_tally("FAIL", ' not in line
+        ]
+        self.assertEqual(unnamed, [], "FAIL tally writes that pass no identifier")
+
+    def test_a_module_failure_identifier_reaches_the_parent_recap(self):
+        """End-to-end over the fold: a module's private tally is written under a REBOUND
+        RESULTS_FILE, so its identifiers land in that private tally's sibling. Only the fold
+        puts them in front of the reader — delete it and every module failure is counted and
+        unnamed, which is the state this whole surface exists to remove."""
+        with tempfile.TemporaryDirectory() as tmp:
+            module = Path(tmp) / "sample.sh"
+            module.write_text(
+                'echo FAIL >> "$RESULTS_FILE"\n'
+                'record_fail "inner module assertion alpha"\n'
+                'echo FAIL >> "$RESULTS_FILE"\n'
+                'record_fail "inner module assertion beta"\n'
+                'echo PASS >> "$RESULTS_FILE"\n',
+                encoding="utf-8",
+            )
+            script = f"""
+set -u
+RESULTS_FILE="$(mktemp)"
+MODULE_FAILURES_FILE="$(mktemp)"
+SKIPS_FILE="$(mktemp)"
+. "{SUMMARY_SH}"
+. "{HARNESS}"
+devflow_run_full_suite_module "{module}" "sample" 1 >/dev/null 2>&1 || true
+FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
+devflow_render_failure_recap "$FAIL" "$RESULTS_FILE.names"
+rm -f "$RESULTS_FILE" "$RESULTS_FILE.names" "$MODULE_FAILURES_FILE" "$SKIPS_FILE"
+"""
+            proc = subprocess.run(
+                ["bash", "-c", script], capture_output=True, text=True, cwd=str(ROOT)
+            )
+            self.assertIn("  - inner module assertion alpha", proc.stdout, proc.stderr)
+            # Two failures, so the fold's APPEND (not overwrite) semantics are exercised.
+            self.assertIn("  - inner module assertion beta", proc.stdout, proc.stderr)
+            self.assertNotIn("recorded no identifier", proc.stdout)
+
+    def test_a_clean_module_produces_no_sibling_and_no_spurious_boundary_failure(self):
+        # The fold is guarded on a non-empty sibling; an unguarded `cat` of a missing file
+        # would make every CLEAN module emit a boundary FAIL.
+        with tempfile.TemporaryDirectory() as tmp:
+            module = Path(tmp) / "clean.sh"
+            module.write_text('echo PASS >> "$RESULTS_FILE"\n', encoding="utf-8")
+            script = f"""
+set -u
+RESULTS_FILE="$(mktemp)"
+MODULE_FAILURES_FILE="$(mktemp)"
+SKIPS_FILE="$(mktemp)"
+. "{SUMMARY_SH}"
+. "{HARNESS}"
+devflow_run_full_suite_module "{module}" "clean" 1 >/dev/null 2>&1 || true
+printf 'tally:%s names:%s boundary:%s\\n' \
+  "$(grep -c '^FAIL$' "$RESULTS_FILE" || true)" \
+  "$( [ -e "$RESULTS_FILE.names" ] && echo present || echo absent )" \
+  "$(grep -c '^FAIL$' "$MODULE_FAILURES_FILE" || true)"
+rm -f "$RESULTS_FILE" "$RESULTS_FILE.names" "$MODULE_FAILURES_FILE" "$SKIPS_FILE"
+"""
+            proc = subprocess.run(
+                ["bash", "-c", script], capture_output=True, text=True, cwd=str(ROOT)
+            )
+            self.assertIn("tally:0", proc.stdout, proc.stderr)
+            self.assertIn("boundary:0", proc.stdout, proc.stderr)
+
+    def test_acru_fail_writes_the_verdict_token_and_identifier_in_order(self):
+        # 20 call sites depend on this ORDER: the whole-line FAIL the tally counts, then the
+        # arm's diagnostic token (which the `^FAIL$` match ignores and the contract
+        # self-tests read positionally), then the identifier.
+        script = f"""
+set -u
+RESULTS_FILE="$(mktemp)"
+eval "$(sed -n '/^_acru_fail() {{/,/^}}/p' "{RUN_SH}")"
+eval "$(sed -n '/^record_fail() {{/,/^}}/p' "{HARNESS}")"
+type _acru_fail >/dev/null 2>&1 || {{ echo "slice failed" >&2; exit 99; }}
+name="the assertion name"
+_acru_fail INVALID-OP "$name"
+printf 'TALLY[%s] NAMES[%s]\\n' "$(cat "$RESULTS_FILE" | tr '\\n' ',')" "$(cat "$RESULTS_FILE.names")"
+rm -f "$RESULTS_FILE" "$RESULTS_FILE.names"
+"""
+        proc = subprocess.run(
+            ["bash", "-c", script], capture_output=True, text=True, cwd=str(ROOT)
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("TALLY[FAIL,INVALID-OP,]", proc.stdout)
+        self.assertIn("NAMES[the assertion name]", proc.stdout)
 
 
 if __name__ == "__main__":

@@ -2975,7 +2975,7 @@ assert_eq "#536 FAIL-tally (via probe_two_line): the ANCHOR-COLLAPSE verdict is 
 assert_eq "#536 FAIL-tally (via probe_two_line): the cause token is ANCHOR-COLLAPSE" "ANCHOR-COLLAPSE" "$ACRU_T_TOK"
 assert_eq "#536 the two-line protocol leaves exactly one ^FAIL$ line in the tally (the cause token on the next line does not swallow its verdict)" \
   "1" "$(grep -c '^FAIL$' "$ACRU_T_PATH")"
-rm -f "$ACRU_T_PATH"
+rm -f "$ACRU_T_PATH" "$ACRU_T_PATH.names"
 # ── ERE-vs-BRE migration contract: the silent-conversion hazard. A PATTERN whose parens
 # are LITERAL (`Devflow Review (auto-trigger)`) counts differently as a BRE (1, parens
 # literal) than as an ERE (0, parens open a group). The helper's PATTERN is an ERE, so an
@@ -45755,7 +45755,7 @@ _pool720_run() {  # width  -> prints the pool's failure output then "COUNTS <pas
       td "$POOL720_FIX/td.py" self-tally
     devflow_pool_join
     printf 'COUNTS %s %s\n' "$(grep -c '^PASS$' "$RESULTS_FILE")" "$(grep -c '^FAIL$' "$RESULTS_FILE")"
-    rm -f "$RESULTS_FILE"
+    rm -f "$RESULTS_FILE" "$RESULTS_FILE.names"
   )
 }
 # pa+pb = 2 PASS, fc = 1 FAIL, td (self-tally) = 3 PASS  ->  5 PASS, 1 FAIL.
@@ -45809,7 +45809,7 @@ _POOL720_RDV="$( (
   devflow_pool_open pa "$POOL720_FIX/pa.py" single-verdict pb "$POOL720_FIX/pb.py" single-verdict
   devflow_pool_join
   printf '%s %s\n' "$(grep -c '^PASS$' "$RESULTS_FILE")" "$(grep -c '^FAIL$' "$RESULTS_FILE")"
-  rm -f "$RESULTS_FILE"
+  rm -f "$RESULTS_FILE" "$RESULTS_FILE.names"
 ) 2>/dev/null | tail -1 )"
 assert_eq "#720 pool: a forced rendezvous timeout is absorbed by serial retry, tallies unchanged" "2 0" "$_POOL720_RDV"
 assert_eq "#720 pool: the serial-retry path actually RAN for the forced-timeout suite (not a vacuous pass)" "pa" "$(grep -m1 '^pa$' "$_POOL720_RMARK" 2>/dev/null || printf 'no-retry')"
@@ -45832,7 +45832,7 @@ _POOL720_ST_RDV="$( (
   printf 'COUNTS %s %s SUMMARY=%s LINES=%s\n' \
     "$(grep -c '^PASS$' "$RESULTS_FILE")" "$(grep -c '^FAIL$' "$RESULTS_FILE")" \
     "${_DEVFLOW_POOL_SELFTALLY_SUMMARY[td]:-MISSING}" "${_DEVFLOW_POOL_SELFTALLY_LINES[td]:-MISSING}"
-  rm -f "$RESULTS_FILE"
+  rm -f "$RESULTS_FILE" "$RESULTS_FILE.names"
 ) 2>/dev/null | tail -1 )"
 # td (self-tally, 3 PASS) + pb (single-verdict, 1 PASS) = 4 PASS, 0 FAIL; after the forced
 # timeout on td, its summary ("3 passed, 0 failed") is recaptured and its 3 tally lines are
@@ -45854,7 +45854,7 @@ _POOL720_TRAPS="$( (
   devflow_pool_join
   _ah="$(trap -p HUP)"; _ai="$(trap -p INT)"; _at="$(trap -p TERM)"
   if [ "$_bh" = "$_ah" ] && [ "$_bi" = "$_ai" ] && [ "$_bt" = "$_at" ] && [ "${#_DEVFLOW_LIVE_CHILD_PIDS[@]}" -eq 0 ]; then printf 'clean\n'; else printf 'DIRTY\n'; fi
-  rm -f "$RESULTS_FILE"
+  rm -f "$RESULTS_FILE" "$RESULTS_FILE.names"
 ) 2>/dev/null | tail -1 )"
 assert_eq "#720 pool: caller HUP/INT/TERM traps byte-identical and registry empty after join" "clean" "$_POOL720_TRAPS"
 unset -f _pool720_run

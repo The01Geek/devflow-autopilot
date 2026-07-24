@@ -73,10 +73,11 @@ _cap_wf_snap() { cat "$1/.github/workflows/"*.yml 2>/dev/null; }
 # AND (when <unchanged> is passed) the target workflow bytes are byte-unchanged.
 _cap_fail() {  # name mutation mode substr [unchanged]
   local name="$1" mut="$2" mode="$3" sub="$4" chk="${5:-}" root rc before after v=yes
-  root="$(mktemp -d "$_cap_tmp_root/fixture.XXXXXX")" || { echo FAIL >> "$RESULTS_FILE"; printf '  FAIL  %s (mktemp)\n' "$name"; return; }
+  root="$(mktemp -d "$_cap_tmp_root/fixture.XXXXXX")" || { echo FAIL >> "$RESULTS_FILE"; record_fail "$name (mktemp)"; printf '  FAIL  %s (mktemp)\n' "$name"; return; }
   _cap_fixture "$root"
   if ! python3 "$CAPMUT" "$root" "$mut" 2>"$root/.muterr"; then
     echo FAIL >> "$RESULTS_FILE"
+    record_fail "$name (mutation itself failed)"
     printf '  FAIL  %s (mutation itself failed: %s)\n' "$name" "$(cat "$root/.muterr")"
     rm -rf "$root"; return
   fi

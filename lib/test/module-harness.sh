@@ -1018,14 +1018,14 @@ devflow_run_full_suite_module() { # module-path module-name minimum-assertions
   module_results_file=""
 
   if [ "$module_rc" -ne 0 ]; then
-    _devflow_record_module_failure "test module $module_name — exited with status %s" || boundary_rc=1
+    _devflow_record_module_failure "test module $module_name — exited with status $module_rc" || boundary_rc=1
     printf '  FAIL  test module %s — exited with status %s\n' "$module_name" "$module_rc" >&2
   fi
   if [ "$tally_valid" -eq 1 ] && [ "$assertion_count" -eq 0 ]; then
     _devflow_record_module_failure "test module $module_name — executed zero assertions" || boundary_rc=1
     printf '  FAIL  test module %s — executed zero assertions\n' "$module_name" >&2
   elif [ "$tally_valid" -eq 1 ] && [ "$assertion_count" -lt "$minimum_assertions" ]; then
-    _devflow_record_module_failure "test module $module_name — executed %s assertions; minimum is %s" || boundary_rc=1
+    _devflow_record_module_failure "test module $module_name — executed $assertion_count assertions; minimum is $minimum_assertions" || boundary_rc=1
     printf '  FAIL  test module %s — executed %s assertions; minimum is %s\n' \
       "$module_name" "$assertion_count" "$minimum_assertions" >&2
   fi
@@ -1133,13 +1133,19 @@ _devflow_pool_run_one() { # name script mode tally
         while IFS= read -r _l || [ -n "$_l" ]; do
           [ "$_l" = "FAIL" ] && { _hasfail=1; break; }
         done < "$tally" 2>/dev/null
-        [ "$_hasfail" -eq 1 ] || printf 'FAIL\n' >> "$tally"
+        # Self-tally backstop: the worker exited non-zero but recorded no FAIL of its own.
+        # The identifier goes to the SAME sibling the fold below reads, so this parent-written
+        # verdict is named like a worker-written one (issue #789) — the tally and the record
+        # must always be written as a pair, whichever side writes them.
+        [ "$_hasfail" -eq 1 ] || { printf 'FAIL\n' >> "$tally"; printf '%s\n' "pool suite $name — worker exited $rc with no verdict recorded" >> "$tally.names"; }
       fi
       ;;
     *)
       PYTHON_COLORS=0 python3 "$script"
       rc=$?
-      if [ "$rc" -eq 0 ]; then printf 'PASS\n' >> "$tally"; else printf 'FAIL\n' >> "$tally"; fi
+      # single-verdict mode: the parent writes the suite's one verdict. A FAIL owes an
+      # identifier in the sibling the fold reads, same pairing rule as everywhere else.
+      if [ "$rc" -eq 0 ]; then printf 'PASS\n' >> "$tally"; else printf 'FAIL\n' >> "$tally"; printf '%s\n' "pool suite $name — exited $rc" >> "$tally.names"; fi
       ;;
   esac
   return "$rc"
