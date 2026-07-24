@@ -27,8 +27,9 @@ a run splitter or a remedy lever (the corpus shows it is a near-null population)
 Two redundant-addition metrics:
 
   * repeated-Read: a `Read` tool_use whose `input.file_path` repeats within the run
-    WITH byte-identical returned content. A repeated Read whose content CHANGED
-    between reads fetches new bytes (authoritative) and is NOT counted. FAIL CLOSED:
+    returning content byte-identical to ANY content already seen for that path (a
+    re-fetch of already-resident bytes). A repeated Read whose content is new for the
+    path fetches new bytes (authoritative) and is NOT counted. FAIL CLOSED:
     when a Read's `tool_result` content is absent or truncated for a record, that
     occurrence is counted as authoritative, never folded into the redundant count.
 
@@ -188,7 +189,7 @@ class RunAccumulator:
             # A large resident tool_result counts as already-produced content, so a
             # later assistant re-quotation of it is a re-emission.
             if len(text) >= self.large_block_chars:
-                self._produced_blocks.add(_digest(text))
+                self._produced_blocks.add(digest)
 
     def observe_assistant(self, record):
         if record.get("isSidechain") is True:
@@ -340,13 +341,10 @@ def render_text(runs, summary, skipped):
         )
     lines.append("")
     lines.append("## Aggregate summary")
-    lines.append("- run_count: {run_count}".format(**summary))
-    lines.append("- median_peak_context: {median_peak_context}".format(**summary))
-    lines.append("- max_peak_context: {max_peak_context}".format(**summary))
-    lines.append("- runs_over_200k: {runs_over_200k}".format(**summary))
-    lines.append("- runs_over_400k: {runs_over_400k}".format(**summary))
-    lines.append("- median_repeated_read_count: {median_repeated_read_count}".format(**summary))
-    lines.append("- median_reemission_count: {median_reemission_count}".format(**summary))
+    # aggregate() builds this dict in the canonical field order, so iterating it
+    # renders every field once with no per-field literal to keep in sync.
+    for key, value in summary.items():
+        lines.append("- {}: {}".format(key, value))
     lines.append("")
     total_skipped = sum(skipped.values())
     lines.append("## Skipped records: {}".format(total_skipped))

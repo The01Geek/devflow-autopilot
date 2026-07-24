@@ -65,9 +65,10 @@ median repeated-Read count, median re-emission count.
 ### The two redundant-addition metrics
 
 - **repeated-Read** — a `Read` tool_use whose `input.file_path` repeats within the run
-  **with byte-identical returned content** (a re-fetch of already-resident bytes). A
-  repeated Read whose content **changed** between reads fetches new bytes, is
-  authoritative, and is **not** counted. **Fail closed:** when a Read's `tool_result`
+  returning content **byte-identical to any content already seen for that path** (a
+  re-fetch of already-resident bytes). A repeated Read whose content is **new for the
+  path** fetches new bytes, is authoritative, and is **not** counted. **Fail closed:**
+  when a Read's `tool_result`
   content is absent or truncated for a record, that occurrence is counted as
   authoritative, never folded into the redundant count.
 - **re-emission** — a large (≥ 500-char) assistant text block whose exact bytes were
@@ -213,5 +214,7 @@ a modeled reduction.
   insurance whose safe removal would need a reliable in-run compaction-detection signal,
   which is out of scope per the problem statement. Recorded as a follow-up.
 
-Both follow-ups are filed as GitHub issues by the implementing run (see the PR that
-lands this document for the filed issue numbers).
+Both follow-ups are filed as GitHub issues by the implementing run:
+
+- **#774** — safe removal of the reference-body re-Read needs an in-run compaction-detection signal.
+- **#775** — LLM-assisted semantic-loss detection over transcripts (the mechanical escaped-information number is not deliverable from this corpus).

@@ -66,7 +66,7 @@ class SecretDetectorTest(unittest.TestCase):
         # The clean scan covers the eval, the determination doc, and every fixture,
         # excluding the positive-control file by name.
         targets = [_EVAL_PATH, os.path.join(_REPO, "docs", "create-issue-context.md")]
-        for dirpath, _dirs, files in os.walk(_FIX):
+        for dirpath, _dirs, files in os.walk(_FIX):  # tree-walk-ok: rooted at the fixed committed create-issue-eval fixtures subdir, not the repo root — never descends into sibling worktrees
             for f in sorted(files):
                 if f == "planted-owner-id.txt":
                     continue
@@ -132,12 +132,16 @@ class ReductionDetectionTest(unittest.TestCase):
         self.assertLess(after[0]["reemission_count"], before[0]["reemission_count"])
 
 
-class BoundaryTest(unittest.TestCase):
+class _SingleSessionMixin:
+    """Shared helper: run the eval over a one-session temp corpus built from `lines`."""
+
     def _run_one(self, lines):
         with tempfile.TemporaryDirectory() as d:
             _write(d, "s.jsonl", lines)
             return CICE.eval_corpus(d)
 
+
+class BoundaryTest(_SingleSessionMixin, unittest.TestCase):
     def test_zero_attributed_turns_emits_no_run(self):
         runs, _ = self._run_one([
             '{"type":"assistant","attributionSkill":"other","message":{"usage":{"input_tokens":5}}}',
@@ -225,12 +229,7 @@ class BoundaryTest(unittest.TestCase):
         self.assertEqual(runs[0]["repeated_read_count"], 0)
 
 
-class AdversarialTest(unittest.TestCase):
-    def _run_one(self, lines):
-        with tempfile.TemporaryDirectory() as d:
-            _write(d, "s.jsonl", lines)
-            return CICE.eval_corpus(d)
-
+class AdversarialTest(_SingleSessionMixin, unittest.TestCase):
     def test_malformed_records_degrade_and_are_reported(self):
         runs, skipped = self._run_one([
             'not json at all',
