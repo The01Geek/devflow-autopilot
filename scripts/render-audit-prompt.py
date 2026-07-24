@@ -439,12 +439,61 @@ def consumer_dimensions(ext_path: Path, heading: str) -> tuple[str, str]:
 # --------------------------------------------------------------------------
 # Template parsing / block selection.
 # --------------------------------------------------------------------------
+def _reject_stray_dim_key_declarations(
+    blocks: list[tuple[frozenset[str], str]],
+) -> None:
+    """Fail closed on a `<!-- dim-key: … -->` declaration outside the checklist block.
+
+    The declaration marker is machine data that `_assemble` strips from *every*
+    selected block body, but only the checklist block is *validated* (by
+    `_generic_dimensions`, and only on a render that emits it). A declaration
+    authored into a `file`/`embed`/`inline`/`di` block is therefore silently
+    stripped from the auditor-facing prose AND never enumerated, while the bullet
+    it was meant to key still renders as a dimension-shaped instruction — the one
+    authoring defect #729's fail-closed arms miss (issue #735). Reject it here,
+    naming the block that carries it, so the defect fails closed on every render
+    and enumeration path instead of reaching the auditor keyless.
+
+    Scope is what keeps this off the #729 exemptions: it sees only the template's
+    OWN parsed block bodies, never the substituted-last `{CONSUMER_DIMENSIONS}`
+    value or the consumer `## Evidence axes` section — both reach a render as slot
+    values *after* `_parse_blocks` runs and are validated (or deliberately
+    exempted) by their own dedicated code (`consumer_dimensions` /
+    `_consumer_section_raw`). Running at parse time is what structurally routes
+    this check away from those already-handled surfaces (the issue #735
+    Implementation-risk constraint), and skipping the checklist block leaves its
+    declarations to `_generic_dimensions`, their one legal home. A template with
+    no checklist block carries no declaration to reject, so it keeps rendering.
+    """
+    for arm_set, body in blocks:
+        if "checklist" in arm_set:
+            continue
+        # Fast path keyed on the single-sourced token spelling, mirroring
+        # `_strip_dim_key_markers`: the lines rejected here are exactly the lines
+        # that strip would have silently removed from this block.
+        if _DIM_KEY_TOKEN not in body:
+            continue
+        for raw in body.splitlines():
+            if _DIM_KEY_RE.match(raw.strip()):
+                raise RenderError(
+                    f"template malformed: a dim-key declaration appears in a "
+                    f"non-checklist render-block (arms: "
+                    f"{' '.join(sorted(arm_set))}); dimension-key declarations are "
+                    f"legal only inside the checklist block — a declaration here "
+                    f"is silently stripped from the rendered prose and never "
+                    f"enumerated"
+                )
+
+
 def _parse_blocks(template_text: str) -> list[tuple[frozenset[str], str]]:
     """Parse the template into (arm/mode set, body) blocks in file order.
 
     Text outside any block is ignored (it is the human-facing documentation of
     slots and the extraction rule, for the degraded manual arms). A missing
-    close marker is a template defect -> RenderError.
+    close marker is a template defect -> RenderError. A `<!-- dim-key: … -->`
+    declaration outside the checklist block is likewise a template defect
+    (issue #735) — rejected here so every render and enumeration path that parses
+    the template fails closed on it identically.
     """
     blocks: list[tuple[frozenset[str], str]] = []
     current_set: frozenset[str] | None = None
@@ -473,6 +522,7 @@ def _parse_blocks(template_text: str) -> list[tuple[frozenset[str], str]]:
             current_lines.append(line)
     if current_set is not None:
         raise RenderError("template malformed: unterminated render-block")
+    _reject_stray_dim_key_declarations(blocks)
     return blocks
 
 
