@@ -905,6 +905,105 @@ jobs:
           adelim="OUT_EOF_$(date +%s%N)_$$"
           { printf 'args<<%s\n' "$adelim"; printf '%s\n' "$ARGS"; printf '%s\n' "$adelim"; } >> "$GITHUB_OUTPUT"
 
+      # Applied arm (issue #669): compose the startup `--agents` per-agent effort block
+      # and write the applier->recorder sidecar the in-session recorder
+      # (lib/efficiency-trace.sh) reads.
+      #
+      # DEFERRED / INERT BY DEFAULT: the helper short-circuits unless the apply gate env var
+      # is set to 1, which this workflow deliberately does NOT do, so as shipped it always emits
+      # an EMPTY agents_args and writes no sidecar, and the honest session-fallback stands.
+      # The spike (docs/agents-seam-probe.md) proved the seam for a fully-defined NEW agent;
+      # the composer emits an effort-only entry keyed by an already-INSTALLED agent id — an
+      # unmeasured shape. See scripts/compose-applied-effort.sh section 1b. Arming it is a
+      # one-line env addition here, gated on a probe row for that shape (pinned at zero
+      # across all three tiers by lib/test/run.sh's `#700 F1` assertion). Kept as its OWN step (not the
+      # cargs body) so the model/effort composition stays isolated. The branch logic
+      # (resolver-absent fail-open, empty/`{}` short-circuit, JSON-object validation,
+      # sidecar-write-then-fallback) lives in the extracted helper
+      # scripts/compose-applied-effort.sh so the suite drives each branch directly (issue
+      # #700 findings #3/#4/#5). TWO things do NOT live there and are inline below: the
+      # stale-sidecar clear (#700 F-6 — hoisted out, because the helper is exactly what may
+      # be missing) and the trusted-source ladder (#700 F-4). Best-effort, fail-OPEN in the
+      # sense that any failure yields an empty agents_args and the honest fallback stands —
+      # but on a tier that arms DEVFLOW_AE_REQUIRE_TRUSTED the ladder is fail-CLOSED about
+      # its SOURCE: the PR-head workspace copy is never executed there, so the self-repo
+      # `scripts/` fallback below applies only to the tiers running against their own
+      # trusted tree.
+      - name: Compose applied per-agent effort (issue 669)
+        id: applied_effort
+        env:
+          EFFORT_SUPPORTED: ${{ steps.provider.outputs.effort_supported }}
+        run: |
+          set -euo pipefail
+          AGENTS_ARGS=""
+          # STALE-SIDECAR CLEAR (#700 F-6) — hoisted OUT of the helper, because the helper
+          # is exactly what may be missing. Co-gating the clear on the helper's existence
+          # meant that in the #502 vendor-skew state (neither helper path present) a sidecar
+          # committed into the checked-out tree was never cleared — and on the review tier
+          # that tree is the PR HEAD, so a PR author could `git add -f` a sidecar and have
+          # the recorder read author-chosen efforts as genuine applied telemetry. The clear
+          # must therefore run unconditionally, before and independently of helper
+          # resolution. Path rule mirrors the helper's own (repo-root-anchored, #700 S2).
+          #
+          # SCOPE, stated honestly: this closes the COMMITTED-file vector only. The review
+          # profile grants the reviewer Write(.devflow/tmp/**) and its context is filled with
+          # attacker-controlled PR text, so a successful prompt injection could recreate the
+          # sidecar AFTER this clear and the in-session recorder would read it. That residual
+          # is covered by the injection defenses in the grounding block, not by this line.
+          #
+          # A SYMLINK is refused rather than followed: the path lives inside the PR-head
+          # checkout, so a committed symlink here would turn this `rm` into an
+          # attacker-steerable delete of an arbitrary path (e.g. another step's trusted
+          # RUNNER_TEMP material). Only a regular file is removed.
+          AE_SIDECAR="${DEVFLOW_AE_SIDECAR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.devflow/tmp/agent-effort-applied.json}"
+          AE_BLOCKED=0
+          if [ -L "$AE_SIDECAR" ]; then
+            echo "::warning::devflow applied-effort: the sidecar path ${AE_SIDECAR} is a SYMLINK; refusing to remove it (following it would delete an attacker-chosen path) and refusing to compose this run."
+            AE_BLOCKED=1
+          elif ! rm -f "$AE_SIDECAR" 2>/dev/null && [ -e "$AE_SIDECAR" ]; then
+            echo "::warning::devflow applied-effort: could not clear a pre-existing sidecar at ${AE_SIDECAR}; refusing to compose this run (a surviving sidecar of unknown provenance would be recorded as applied effort this run never emitted)."
+            AE_BLOCKED=1
+          fi
+          # TRUSTED-SOURCE LADDER (#700 F-4). On a tier that reviews a PR HEAD checkout the
+          # composer and the resolver it execs are PR-author-editable, and code the PR
+          # controls is no trust boundary — the #402/#404 rule. Threading the base-ref
+          # config is necessary but NOT sufficient: a PR that can edit these two files just
+          # ignores the config it was handed. So when DEVFLOW_AE_REQUIRE_TRUSTED is set,
+          # rank 1 is the base-ref pair materialized into RUNNER_TEMP by baseprovision;
+          # rank 2 is the vendored copy ONLY when vendor-plugin fetched it fresh this run
+          # from the official repo at the pinned devflow_version (vendor_source=fetch);
+          # otherwise FAIL CLOSED — empty agents_args, no composition. The PR-head
+          # workspace copy is deliberately never consulted on that tier. Tiers that run
+          # against their OWN trusted tree (implement/command) leave the var unset and keep
+          # the ordinary vendored-then-self-repo resolution.
+          CAE=''
+          if [ "${DEVFLOW_AE_REQUIRE_TRUSTED:-}" = 'true' ]; then
+            if [ -n "${DEVFLOW_AE_TRUSTED_DIR:-}" ] && [ -f "${DEVFLOW_AE_TRUSTED_DIR}/compose-applied-effort.sh" ] && [ -f "${DEVFLOW_AE_TRUSTED_DIR}/resolve-review-overrides.py" ]; then
+              CAE="${DEVFLOW_AE_TRUSTED_DIR}/compose-applied-effort.sh"
+              # Pin the resolver to the SAME trusted directory: a trusted composer that
+              # execs a PR-editable resolver would re-open the boundary one level down.
+              export DEVFLOW_RRO="${DEVFLOW_AE_TRUSTED_DIR}/resolve-review-overrides.py"
+            elif [ "${VENDOR_SOURCE:-}" = "fetch" ] && [ -f .devflow/vendor/devflow/scripts/compose-applied-effort.sh ] && [ -f .devflow/vendor/devflow/scripts/resolve-review-overrides.py ]; then
+              CAE=.devflow/vendor/devflow/scripts/compose-applied-effort.sh
+              export DEVFLOW_RRO=.devflow/vendor/devflow/scripts/resolve-review-overrides.py
+            else
+              echo "::warning::devflow applied-effort: no TRUSTED composer+resolver pair available — neither materialized from the base ref (baseprovision) nor runtime-fetched at the pinned devflow_version (vendor_source='${VENDOR_SOURCE:-unknown}'); the PR-head checkout's own copy is deliberately not consulted, because a composer the PR can edit is no trust boundary. Failing closed: empty agents_args, no sidecar, honest session-fallback stands."
+            fi
+          else
+            CAE=.devflow/vendor/devflow/scripts/compose-applied-effort.sh
+            [ -f "$CAE" ] || CAE=scripts/compose-applied-effort.sh
+            if [ ! -f "$CAE" ]; then
+              echo "::warning::devflow applied-effort: composer helper found at neither the vendored nor the self-repo path (the #502 vendor-skew state); emitting empty agents_args and no sidecar — this is NOT 'nothing configured'."
+              CAE=''
+            fi
+          fi
+          if [ "$AE_BLOCKED" -eq 0 ] && [ -n "$CAE" ]; then
+            AGENTS_ARGS="$(bash "$CAE")"
+          fi
+          # Newline-safe heredoc output (mirrors the cargs step's scalar-output form).
+          aedelim="AEOUT_$(date +%s%N)_$$"
+          { printf 'agents_args<<%s\n' "$aedelim"; printf '%s\n' "$AGENTS_ARGS"; printf '%s\n' "$aedelim"; } >> "$GITHUB_OUTPUT"
+
       # Compose the plugins/plugin_marketplaces inputs (issue #505): the baked
       # baseline (byte-identical across the three call sites — run.sh pins it)
       # PLUS the entries this repo's trusted default-branch .claude/settings.json
@@ -1177,6 +1276,7 @@ jobs:
           # --allowed-tools tail is the steps.tools computed string (issue #363).
           claude_args: >-
             ${{ steps.cargs.outputs.args }}
+            ${{ steps.applied_effort.outputs.agents_args }}
             --allowed-tools "${{ steps.tools.outputs.tools }}"
 
       # Retire the detached credential refresher (issue #487). Best-effort,

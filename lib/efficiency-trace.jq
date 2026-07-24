@@ -220,18 +220,35 @@ def iter_view:
       # in scripts/resolve-review-overrides.py (a coupled pair, edit together);
       # `effective` is carried verbatim (null unless genuinely read back —
       # unknown is not zero). With multiple entries for one agent the last wins.
+      #
+      # Applied arm (issue #669, SEAM_PROVEN cloud seam): $applied_effort is the
+      # applier->recorder sidecar the pre-launch component wrote with the per-agent
+      # EMITTED effort (post-capability-gate). It is the SINGLE source of truth for
+      # `effective` and the applied `application_point` — when the sidecar carries a
+      # value for an agent, `effective` is that value and `application_point` is
+      # `agent-definition`. Absent the sidecar value the honest in-session fallback
+      # stands verbatim: `effective` stays null and `application_point` is never
+      # `agent-definition` (unknown is not zero — a missing sidecar is never coerced
+      # into an unearned applied value). `effective` here is a proxy grounded once by
+      # the seam spike, not a per-run measurement (docs/agents-seam-probe.md).
       agent_effort: [
         $effort_roster[] as $agent
         | ([$de[] | select(.agent == $agent)] | last) as $entry
+        | ($applied_effort[$agent]) as $applied
         | {
             agent: $agent,
             requested: $entry.requested,
             resolved: $entry.resolved,
             application_point:
-              (if $entry == null then "session-inheritance"
+              (if $applied != null then "agent-definition"
+               elif $entry == null then "session-inheritance"
                else $entry.application_point end),
-            effective: $entry.effective,
-            fallback_reason: $entry.fallback_reason
+            effective: (if $applied != null then $applied else $entry.effective end),
+            # The applied arm has no fallback: null the reason so the row never
+            # reads `application_point: agent-definition` AND a stale session-fallback
+            # reason at once (#700 finding #2). Only the honest-fallback arm carries a
+            # reason.
+            fallback_reason: (if $applied != null then null else $entry.fallback_reason end)
           }
       ],
       agent_verdicts: [

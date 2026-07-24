@@ -31,12 +31,12 @@ unit-tested helper [`scripts/agents-seam-probe-verdict.py`](../scripts/agents-se
 
 | Verdict | Meaning | Applied arm ships? |
 |---|---|---|
-| `SEAM_PROVEN` | Fact (i) forwarding proven **and** a human adjudicated fact (ii) as GOVERNED (passing `--adjudicated-governed`). | **Yes** — implement the applied arm; flip the cloud per-agent row off honest fallback. |
+| `SEAM_PROVEN` | Fact (i) forwarding proven **and** a human adjudicated fact (ii) as GOVERNED (passing `--adjudicated-governed`). | **Only for the shape the probe measured.** A verdict is evidence about the entry shape that was dispatched — here, a fully-defined NEW agent (`description` + `prompt` + `effort`). Composing a structurally different entry (e.g. effort-only, keyed by an already-installed agent id) is a separate, unmeasured shape and stays on honest fallback until its own row lands. See the Decision below. |
 | `SEAM_FORWARDED` | Fact (i) proven; fact (ii) not yet adjudicated. | No — honest fallback stays until a human adjudicates the recorded self-report. |
 | `SEAM_UNPROVEN` | The subagent type was dispatched but no seam marker appeared (the `--agents` block was not forwarded). | No — honest fallback stays. |
 | `INCONCLUSIVE` | Nothing conclusive was measured (execution file absent/unparseable, or no dispatch attempted). | No — re-run the probe. |
 
-**The applied arm ships only on `SEAM_PROVEN` — i.e. only when BOTH facts are proven.**
+**The applied arm ships only on `SEAM_PROVEN` — i.e. only when BOTH facts are proven, and then only for the entry shape that verdict was measured on.**
 This is issue #610 AC1's contingency: *"The per-agent applied arm is implemented only if
 the probe proves both facts; otherwise the cloud per-agent row is honest fallback
 identical to local, and no per-agent effort application code ships."*
@@ -57,13 +57,45 @@ summary** for the verdict table. A human then:
 
 ## Recorded result
 
-**NOT YET RUN — pending dispatch.** As of issue #610, the probe workflow and its
-deterministic verdict helper are authored, but the probe has not been dispatched in the
-real cloud action and no `SEAM_PROVEN` evidence exists. Therefore the seam is **unproven**,
-the cloud per-agent-effort row remains **honest fallback identical to local**, and **no
-per-agent effort application code ships** — exactly AC1's "otherwise" branch. When the
-probe is dispatched, append the run link and the adjudicated verdict here.
+**`SEAM_PROVEN` — adjudicated 2026-07-21.** The probe was dispatched **8 times** in the
+real cloud action (`anthropics/claude-code-action@v1`, `claude-haiku-4-5-20251001`,
+session `--effort high`, agent-definition `effort: low`). **Fact (i) forwarding is proven
+deterministically and unanimously:** every one of the 8 dispatches recognized and
+dispatched the `seam-probe-agent` subagent type — which is defined *only* in the startup
+`--agents` JSON — with **zero** permission denials and **never** a `dispatch refused:
+unknown subagent_type`; the deterministic `SEAM_PROBE_FORWARDED_OK` marker landed in 4 of
+the 8 execution files (the other 4 runs dispatched successfully but the Haiku top-level
+session skipped the final `printf` echo step, so the marker was not recorded — a
+model-compliance miss, not a seam failure; corroborated by the zero-denial /
+no-unknown-type signal on those runs). **Fact (ii) governance is adjudicated GOVERNED:**
+in all **4** runs that reached the subagent's self-report, the report was
+`SEAM_PROBE_EFFORT=low` — matching the agent-definition's `effort: low` and overriding the
+session's `--effort high` — with **zero** `high` self-reports (no counter-evidence). A
+human adjudicated the unanimous self-report as GOVERNED and re-ran the verdict helper with
+`--adjudicated-governed`, which yields `SEAM_PROVEN`.
+
+**Decision: the seam is PROVEN for the shape this probe measured; the applied arm is
+DEFERRED for the shape the composer emits** (issue #669). The eight runs establish the
+verdict for a **fully-defined new agent** — an entry carrying `description`, `prompt`, and
+`effort`. `scripts/compose-applied-effort.sh` emits something structurally different: an
+**effort-only** entry keyed by an **already-installed** plugin agent id. No row here
+measures that shape, so nothing establishes whether it patches the installed agent or
+defines/shadows it — and if it shadows, every merge-gating review agent degrades to a
+prompt-less stub. The applied arm therefore ships gated OFF behind `DEVFLOW_AE_APPLY`
+(unset in all three workflows) and the cloud per-agent row in
+`docs/review-agent-overrides.md` keeps the honest fallback. Arming it requires a probe row
+for the effort-only/installed-id shape. Fact (ii) also remains a model self-report, however
+consistent, so when the arm is armed it treats `effective` as a proxy grounded once by this
+spike, not a per-run measurement (issue #669 AC2).
 
 | Date | Run link | Verdict | Fact (i) | Fact (ii) self-report | Adjudication |
 |---|---|---|---|---|---|
-| _(pending)_ | _(pending)_ | `NOT YET RUN` | — | — | — |
+| 2026-07-21 | [29871350774](https://github.com/The01Geek/devflow-autopilot/actions/runs/29871350774) | `SEAM_UNPROVEN` | dispatched, no unknown-type refusal (echo skipped) | unobserved | — |
+| 2026-07-21 | [29871446151](https://github.com/The01Geek/devflow-autopilot/actions/runs/29871446151) | `SEAM_FORWARDED` | marker landed ✅ | `low` | GOVERNED |
+| 2026-07-21 | [29871519987](https://github.com/The01Geek/devflow-autopilot/actions/runs/29871519987) | `SEAM_UNPROVEN` | dispatched, no unknown-type refusal (echo skipped) | unobserved | — |
+| 2026-07-21 | [29872320341](https://github.com/The01Geek/devflow-autopilot/actions/runs/29872320341) | `SEAM_FORWARDED` | marker landed ✅ | `low` | GOVERNED |
+| 2026-07-21 | [29872398980](https://github.com/The01Geek/devflow-autopilot/actions/runs/29872398980) | `SEAM_UNPROVEN` | dispatched, no unknown-type refusal (echo skipped) | unobserved | — |
+| 2026-07-21 | [29872451024](https://github.com/The01Geek/devflow-autopilot/actions/runs/29872451024) | `SEAM_UNPROVEN` | dispatched, no unknown-type refusal (echo skipped) | unobserved | — |
+| 2026-07-21 | [29872503054](https://github.com/The01Geek/devflow-autopilot/actions/runs/29872503054) | `SEAM_FORWARDED` | marker landed ✅ | `low` | GOVERNED |
+| 2026-07-21 | [29872570287](https://github.com/The01Geek/devflow-autopilot/actions/runs/29872570287) | `SEAM_FORWARDED` | marker landed ✅ | `low` | GOVERNED |
+| **Summary** | 8 dispatches | **`SEAM_PROVEN`** | 8/8 forwarded (no unknown-type refusal) | **4/4 `low`, 0 `high`** | **GOVERNED** |

@@ -3456,6 +3456,92 @@ try:
 finally:
     _rro.read_raw = _saved_read_raw
 
+# ── build_applied_effort (#669): the SEAM_PROVEN cloud applied arm ────────────
+# The pure composition the pre-launch component runs: for every dispatched agent
+# whose resolved per-agent effort passes the capability gate (non-Haiku model AND
+# effort_supported), the emitted effort is that resolved effort; a
+# capability-restricted or absent effort emits nothing. Returns (agents_defs,
+# sidecar), both carrying EXACTLY the emitted-effort agents — no split-brain.
+_ap_resolved = {
+    "devflow:code-reviewer": {"effort": "low"},
+    "devflow:checklist-verifier": {"model": "claude-haiku-4-5-20251001",
+                                   "effort": "high"},
+    "devflow:silent-failure-hunter": {"effort": "max"},
+    "devflow:comment-analyzer": {"model": "claude-sonnet-5"},  # no effort
+}
+_ap_dispatched = ["devflow:code-reviewer", "devflow:checklist-verifier",
+                  "devflow:silent-failure-hunter", "devflow:comment-analyzer"]
+_ap_defs, _ap_side = _rro.build_applied_effort(_ap_resolved, _ap_dispatched)
+# AP1 (issue #669 AC1): a `low` override composes an agent-definition whose
+# `effort` field reads exactly the string `low`.
+assert_eq("applied(#669 AC1): code-reviewer agent-definition effort == 'low'",
+          "low", _ap_defs["devflow:code-reviewer"]["effort"])
+assert_eq("applied(#669): the agent-definition value is {'effort': ...} only",
+          {"effort": "low"}, _ap_defs["devflow:code-reviewer"])
+# AP2: capability gate — a Haiku-model entry is stripped (never emitted), and an
+# entry with no effort is absent. Mirrors the scaffold-config.sh Haiku strip.
+assert_eq("applied(#669): Haiku-model agent stripped from agents_defs",
+          False, "devflow:checklist-verifier" in _ap_defs)
+assert_eq("applied(#669): no-effort agent absent from agents_defs",
+          False, "devflow:comment-analyzer" in _ap_defs)
+assert_eq("applied(#669): only gated-in agents appear",
+          ["devflow:code-reviewer", "devflow:silent-failure-hunter"],
+          sorted(_ap_defs.keys()))
+# AP3 (issue #669 AC2): the sidecar (applier->recorder channel) is the same gate
+# pass — {agent: emitted_effort}, no split-brain vs. agents_defs.
+assert_eq("applied(#669 AC2): sidecar maps agent -> emitted effort",
+          {"devflow:code-reviewer": "low",
+           "devflow:silent-failure-hunter": "max"},
+          _ap_side)
+assert_eq("applied(#669 AC2): sidecar keys == agents_defs keys (no split-brain)",
+          sorted(_ap_defs.keys()), sorted(_ap_side.keys()))
+# AP4: effort_supported=false (a provider that rejects --effort, #313) strips
+# every entry — nothing is emitted, so the recorder keeps honest fallback.
+_ap_defs_ng, _ap_side_ng = _rro.build_applied_effort(
+    _ap_resolved, _ap_dispatched, effort_supported=False)
+assert_eq("applied(#669): effort_supported=false emits no agent-definitions",
+          {}, _ap_defs_ng)
+assert_eq("applied(#669): effort_supported=false emits no sidecar entries",
+          {}, _ap_side_ng)
+# AP5: the CLI seams — --applied-agents-json / --applied-sidecar-json print pure
+# JSON, and --known-roster resolves over KNOWN_AGENTS with no positional agents.
+_saved_read_raw2 = _rro.read_raw
+_rro.read_raw = lambda agents, config_get, config: (
+    {"devflow:code-reviewer": {"effort": "low"}}, [])
+try:
+    _ap_out, _ap_err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(_ap_out), \
+         contextlib.redirect_stderr(_ap_err):
+        _ap_rc = _rro.main(["--known-roster", "--applied-agents-json"])
+    _ap_map = _json.loads(_ap_out.getvalue())
+    assert_eq("applied(#669): --known-roster --applied-agents-json exits 0",
+              0, _ap_rc)
+    assert_eq("applied(#669): CLI composes code-reviewer effort 'low'",
+              "low", _ap_map["devflow:code-reviewer"]["effort"])
+    assert_eq("applied(#669): CLI applied mode does not re-emit #554 notices",
+              False, "::notice::" in _ap_err.getvalue())
+    _sc_out = io.StringIO()
+    with contextlib.redirect_stdout(_sc_out), \
+         contextlib.redirect_stderr(io.StringIO()):
+        _sc_rc = _rro.main(["--known-roster", "--applied-sidecar-json"])
+    assert_eq("applied(#669): --applied-sidecar-json exits 0", 0, _sc_rc)
+    assert_eq("applied(#669): sidecar CLI maps agent -> emitted effort",
+              {"devflow:code-reviewer": "low"},
+              _json.loads(_sc_out.getvalue()))
+finally:
+    _rro.read_raw = _saved_read_raw2
+# AP6: no roster and no --known-roster is a usage error (SystemExit != 0), never
+# a silent empty composition.
+_ap_err6 = io.StringIO()
+_ap_raised = False
+try:
+    with contextlib.redirect_stderr(_ap_err6):
+        _rro.main(["--applied-agents-json"])
+except SystemExit as _e:
+    _ap_raised = (_e.code not in (0, None))
+assert_eq("applied(#669): no roster + no --known-roster errors (not silent)",
+          True, _ap_raised)
+
 # read_raw integration (exercises the real config-get.sh I/O path, not just the
 # pure resolver). The empty-own-entry contract must hold END-TO-END: the leaf
 # reads alone can't tell {} from an absent key, so read_raw probes the entry

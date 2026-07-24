@@ -241,13 +241,83 @@ compute_config_fingerprint() {
 
 # Run the jq derivation over VALID_FILES for $1 mode ("trace"|"record") and the
 # slug $2, to stdout. A fresh GENERATED_AT is stamped per call.
+# Load the applied-arm sidecar (issue #669): the applier->recorder channel the
+# pre-launch workflow component writes with the per-agent EMITTED effort
+# (post-capability-gate) it composed into the startup `--agents` agent-definition.
+# The in-session recorder reads it here so `effective` and the applied
+# `application_point: agent-definition` have a single source of truth (AC2).
+# Best-effort and fail-CLOSED to `{}`: an absent/unreadable/malformed/non-object
+# sidecar — and any per-agent value that is not a valid effort enum string —
+# yields no applied entry, so the recorder keeps the honest `effective: null`
+# fallback and never records `agent-definition` — a missing or unusable sidecar is
+# never coerced into an unearned applied value (unknown is not zero). The path is
+# `DEVFLOW_APPLIED_EFFORT_FILE` when set, else `.devflow/tmp/agent-effort-applied.json`
+# under the repo root. jq is a hard preflight prerequisite, so this value that
+# decides an emitted field is derived through a preflight-guaranteed tool.
+#
+# TWO fail-closed properties this function owns, each with its own guarded regression:
+#
+#  (1) SINGLE-DOCUMENT output (#700 review, F3 + the fix-delta gate's multi-document
+#      follow-up). The caller's `--argjson` accepts exactly ONE JSON document, and this
+#      function must therefore emit exactly one on every input — otherwise the whole
+#      record aborts (rc=2, zero bytes: total telemetry loss, the opposite of
+#      fail-closed). TWO distinct malformed inputs reach that same shape, so both are
+#      guarded:
+#        - trailing garbage after a valid prefix: `jq` PRINTS the parsed prefix and THEN
+#          exits nonzero, so a `cmd || printf '{}'` fallback APPENDS a second document.
+#          Guarded by capturing into a variable and branching on the exit status —
+#          emitting EITHER the parsed object OR the `{}` fallback, never their
+#          concatenation.
+#        - a multi-document file (`{...}\n{...}`): jq streams it as N documents, filters
+#          each, and exits 0 — so exit-status branching alone does NOT catch it. Guarded
+#          by `-s` (slurp) plus the `length == 1` arity test below, which fails CLOSED on
+#          every arity but one (0 = empty file, >=2 = multi-document).
+#
+#  (2) VALUE-level enum validation (#700 review, F2). Validating only that the TOP LEVEL
+#      is an object leaves every per-agent VALUE unchecked, so a valid-falsy `""` (or a
+#      `0`, an object, or a non-enum string like `"turbo"`) is non-null and drives
+#      `application_point: agent-definition` with a junk `effective` — the unearned
+#      applied claim this contract exists to forbid, and the documented six-shape
+#      valid-falsy row. Keep only entries whose value is one of the effort enum
+#      strings; every other entry is dropped, so the agent falls back honestly.
+load_applied_effort() {
+  local file="${DEVFLOW_APPLIED_EFFORT_FILE:-}" out
+  if [ -z "$file" ]; then
+    file="$(devflow_repo_root)/.devflow/tmp/agent-effort-applied.json"
+  fi
+  [ -f "$file" ] || { printf '{}\n'; return 0; }
+  # `-s` (slurp) is load-bearing, not a style choice: without it jq streams a
+  # MULTI-DOCUMENT file (`{...}\n{...}`) as N successive documents, applies the
+  # filter to each, and exits 0 — so `out` holds N objects, the non-empty test
+  # passes, and `--argjson` then rejects the N-document string and aborts the
+  # WHOLE record (rc=2, zero bytes). That is the same total-telemetry-loss shape
+  # the trailing-garbage fix closed, reachable by a different malformed input, so
+  # the guard has to be against the arity, not against one way of breaking it.
+  # Slurping yields exactly ONE array, and a sidecar is well-formed only when that
+  # array holds exactly one object; every other arity (0 = empty file, >=2 =
+  # multi-document) is malformed and fails CLOSED to `{}`.
+  if out="$("$DEVFLOW_JQ" -c -s '
+        if length == 1 and (.[0] | type) == "object"
+        then .[0] | with_entries(select(.value | type == "string"
+               and (. == "low" or . == "medium" or . == "high"
+                    or . == "xhigh" or . == "max")))
+        else {} end' "$file" 2>/dev/null)" && [ -n "$out" ]; then
+    printf '%s\n' "$out"
+  else
+    printf '{}\n'
+  fi
+}
+
 emit_jq() {
-  local mode="$1" slug="$2" generated_at config_fingerprint
+  local mode="$1" slug="$2" generated_at config_fingerprint applied_effort
   generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   # Fingerprint the config that produced this run (issue #431). Guard the empty
   # case to a JSON null so --argjson never aborts jq (and the wrapper under set -e).
   config_fingerprint="$(compute_config_fingerprint "$_DEVFLOW_CONFIG")"
   [ -n "$config_fingerprint" ] || config_fingerprint="null"
+  # Applied-arm sidecar (issue #669), normalized to a JSON object (fail-closed {}).
+  applied_effort="$(load_applied_effort)"
+  [ -n "$applied_effort" ] || applied_effort="{}"
   # jq -s over zero files yields null, not []; feed an explicit empty array so the
   # filter (which expects an array) degrades to an empty trace / empty record.
   if [ "${#VALID_FILES[@]}" -eq 0 ]; then
@@ -255,13 +325,15 @@ emit_jq() {
       --arg mode "$mode" --arg slug "$slug" \
       --arg generated_at "$generated_at" \
       --argjson cut_candidate_min_dispatch "$THRESHOLD" \
-      --argjson config_fingerprint "$config_fingerprint"
+      --argjson config_fingerprint "$config_fingerprint" \
+      --argjson applied_effort "$applied_effort"
   else
     "$DEVFLOW_JQ" --raw-output --slurp -f "$HERE/efficiency-trace.jq" \
       --arg mode "$mode" --arg slug "$slug" \
       --arg generated_at "$generated_at" \
       --argjson cut_candidate_min_dispatch "$THRESHOLD" \
       --argjson config_fingerprint "$config_fingerprint" \
+      --argjson applied_effort "$applied_effort" \
       "${VALID_FILES[@]}"
   fi
 }

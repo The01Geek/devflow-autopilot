@@ -21571,6 +21571,289 @@ assert_eq "#609 agent_effort: scalar dispatched_effort degrades to roster-only b
   "$(echo "$AE_BAD_REC" | jq -r '.per_iteration[0].agent_effort[]? | select(.agent=="devflow:code-reviewer") | .application_point')"
 rm -rf "$AE_OLD" "$AE_BAD"
 
+# ── #669 applied arm: the applier->recorder sidecar governs effective/point ──
+# The SEAM_PROVEN cloud seam. The applier (pre-launch workflow component) writes
+# the per-agent EMITTED effort (post-capability-gate) to a sidecar the in-session
+# recorder reads. When the sidecar names an agent, that agent's `effective` is the
+# emitted effort and `application_point` is `agent-definition` (the single source
+# of truth, AC2). Absent the sidecar value the honest fallback stands: `effective`
+# is null and `application_point` is never `agent-definition` (unknown is not zero).
+AE669_DIR="$(mktemp -d)"
+cat > "$AE669_DIR/iter-1.json" <<'EOF'
+{"iter":1,"checklist":[],
+ "dispatched_effort":[{"agent":"devflow:code-reviewer","phase":"3","requested":"low","resolved":"low","application_point":"session-fallback","effective":null,"fallback_reason":"honest fallback"}],
+ "phase3_dispatched":["devflow:silent-failure-hunter"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":"unavailable"}
+EOF
+AE669_SIDE="$AE669_DIR/agent-effort-applied.json"
+printf '{"devflow:code-reviewer":"low"}' > "$AE669_SIDE"
+AE669_field() { echo "$1" | jq -r --arg a "$2" --arg f "$3" '.per_iteration[0].agent_effort[]? | select(.agent==$a) | .[$f]'; }
+AE669_type() { echo "$1" | jq -r --arg a "$2" --arg f "$3" '.per_iteration[0].agent_effort[]? | select(.agent==$a) | .[$f] | type'; }
+# With the sidecar present: code-reviewer flips to the applied arm.
+AE669_REC="$(DEVFLOW_APPLIED_EFFORT_FILE="$AE669_SIDE" bash "$LIB/efficiency-trace.sh" --workpad-dir "$AE669_DIR" --slug "pr-669" --mode record)"
+assert_eq "#669 applied: sidecar agent → application_point agent-definition" \
+  "agent-definition" "$(AE669_field "$AE669_REC" 'devflow:code-reviewer' 'application_point')"
+assert_eq "#669 applied: sidecar agent → effective is the emitted effort" \
+  "low" "$(AE669_field "$AE669_REC" 'devflow:code-reviewer' 'effective')"
+# #700 finding #2: the applied arm nulls fallback_reason — the record must not read
+# `application_point: agent-definition` AND carry a stale session-fallback reason at
+# once. The iter-1 seed above sets fallback_reason:"honest fallback" on this agent, so
+# an unconditional `fallback_reason: $entry.fallback_reason` would leave it non-null.
+assert_eq "#700 applied: sidecar agent → fallback_reason is nulled (no self-contradictory record)" \
+  "null" "$(AE669_type "$AE669_REC" 'devflow:code-reviewer' 'fallback_reason')"
+# An agent NOT named in the sidecar keeps its honest in-session fallback.
+assert_eq "#669 applied: non-sidecar agent stays session-inheritance" \
+  "session-inheritance" "$(AE669_field "$AE669_REC" 'devflow:silent-failure-hunter' 'application_point')"
+assert_eq "#669 applied: non-sidecar agent effective stays JSON null" \
+  "null" "$(AE669_type "$AE669_REC" 'devflow:silent-failure-hunter' 'effective')"
+# Absent sidecar file: the honest fallback stands verbatim (never coerced).
+AE669_NOFILE="$(DEVFLOW_APPLIED_EFFORT_FILE="$AE669_DIR/nope.json" bash "$LIB/efficiency-trace.sh" --workpad-dir "$AE669_DIR" --slug "pr-669" --mode record)"
+assert_eq "#669 applied: absent sidecar → code-reviewer stays session-fallback" \
+  "session-fallback" "$(AE669_field "$AE669_NOFILE" 'devflow:code-reviewer' 'application_point')"
+assert_eq "#669 applied: absent sidecar → effective JSON null (no agent-definition)" \
+  "null" "$(AE669_type "$AE669_NOFILE" 'devflow:code-reviewer' 'effective')"
+# Malformed sidecar (a JSON array, not an object): fail CLOSED to honest fallback,
+# never abort the record.
+printf '["not","an","object"]' > "$AE669_DIR/bad-sidecar.json"
+AE669_BAD="$(DEVFLOW_APPLIED_EFFORT_FILE="$AE669_DIR/bad-sidecar.json" bash "$LIB/efficiency-trace.sh" --workpad-dir "$AE669_DIR" --slug "pr-669" --mode record)"; AE669_BAD_RC=$?
+assert_eq "#669 applied: malformed sidecar never aborts the record" "0" "$AE669_BAD_RC"
+assert_eq "#669 applied: malformed sidecar → honest fallback (session-fallback)" \
+  "session-fallback" "$(AE669_field "$AE669_BAD" 'devflow:code-reviewer' 'application_point')"
+assert_eq "#669 applied: schema_version stays 1 (additive sidecar read, no bump)" \
+  "1" "$(echo "$AE669_REC" | jq -r '.schema_version')"
+# #700 M2: a NON-JSON / TRUNCATED sidecar (distinct from the wrong-type array above) exercises
+# the load_applied_effort jq parse-FAILURE branch (the capture-then-branch `{}` fallback),
+# not the type guard.
+# It must fail CLOSED to the honest fallback and never abort the record.
+printf '{"devflow:code-reviewer":"lo' > "$AE669_DIR/trunc-sidecar.json"   # truncated mid-token
+AE669_TRUNC="$(DEVFLOW_APPLIED_EFFORT_FILE="$AE669_DIR/trunc-sidecar.json" bash "$LIB/efficiency-trace.sh" --workpad-dir "$AE669_DIR" --slug "pr-669" --mode record)"; AE669_TRUNC_RC=$?
+assert_eq "#700 M2: truncated/non-JSON sidecar never aborts the record (parse-failure fallback)" "0" "$AE669_TRUNC_RC"
+assert_eq "#700 M2: truncated/non-JSON sidecar → honest fallback (session-fallback, not agent-definition)" \
+  "session-fallback" "$(AE669_field "$AE669_TRUNC" 'devflow:code-reviewer' 'application_point')"
+assert_eq "#700 M2: truncated/non-JSON sidecar → effective JSON null (unknown is not zero)" \
+  "null" "$(AE669_type "$AE669_TRUNC" 'devflow:code-reviewer' 'effective')"
+
+# ── #700 review F3: a sidecar whose VALID JSON PREFIX is followed by trailing garbage is a
+#    distinct shape from the truncated one above, and it used to ABORT THE WHOLE RECORD:
+#    jq PRINTS the parsed object and THEN exits nonzero, so the `|| printf '{}'` fallback
+#    APPENDED a second document and --argjson rejected the two-document string (rc=2, zero
+#    bytes of record output — total telemetry loss, the opposite of the documented
+#    "fail-CLOSED to {}" contract). The fix captures into a variable and branches on the
+#    exit status, emitting EITHER the parsed object OR the fallback, never both.
+printf '{"devflow:code-reviewer":"low"} garbage' > "$AE669_DIR/prefix-garbage.json"
+AE669_PG="$(DEVFLOW_APPLIED_EFFORT_FILE="$AE669_DIR/prefix-garbage.json" bash "$LIB/efficiency-trace.sh" --workpad-dir "$AE669_DIR" --slug "pr-669" --mode record)"; AE669_PG_RC=$?
+assert_eq "#700 F3: valid-prefix+trailing-garbage sidecar never aborts the record (single-document capture)" "0" "$AE669_PG_RC"
+assert_eq "#700 F3: valid-prefix+trailing-garbage sidecar still emits a record (not zero bytes)" \
+  "1" "$(printf '%s' "$AE669_PG" | grep -c 'schema_version' || true)"
+assert_eq "#700 F3: valid-prefix+trailing-garbage sidecar → honest fallback (session-fallback)" \
+  "session-fallback" "$(AE669_field "$AE669_PG" 'devflow:code-reviewer' 'application_point')"
+
+# ── #700 fix-delta gate: a MULTI-DOCUMENT sidecar (`{...}\n{...}`) reaches the SAME
+#    total-telemetry-loss shape as the trailing-garbage row above by a different route,
+#    and the exit-status branching that fixed F3 does NOT catch it: jq streams the file as
+#    N documents, filters each, and exits 0, so the capture is non-empty and `--argjson`
+#    then rejects the N-document string (rc=2, ZERO bytes of record). Guarded by `-s` plus
+#    the `length == 1` arity test. BOTH the rc row and the non-empty-record row below are
+#    load-bearing, and the rc row is the primary one: the pre-fix failure was rc=2 with zero
+#    bytes (jq: invalid JSON text passed to --argjson), so the rc assertion alone catches a
+#    re-regression. The non-empty-record row is kept because it pins the CONSEQUENCE the rc
+#    is a proxy for — a future refactor could swallow the nonzero rc while still losing the
+#    record, and that shape would pass an rc-only check.
+printf '{"devflow:code-reviewer":"low"}\n{"devflow:code-reviewer":"low"}\n' > "$AE669_DIR/multidoc.json"
+AE669_MD="$(DEVFLOW_APPLIED_EFFORT_FILE="$AE669_DIR/multidoc.json" bash "$LIB/efficiency-trace.sh" --workpad-dir "$AE669_DIR" --slug "pr-669" --mode record)"; AE669_MD_RC=$?
+assert_eq "#700 fix-delta: multi-document sidecar never aborts the record" "0" "$AE669_MD_RC"
+assert_eq "#700 fix-delta: multi-document sidecar still emits a record (not zero bytes)" \
+  "1" "$(printf '%s' "$AE669_MD" | grep -c 'schema_version' || true)"
+assert_eq "#700 fix-delta: multi-document sidecar → honest fallback (session-fallback)" \
+  "session-fallback" "$(AE669_field "$AE669_MD" 'devflow:code-reviewer' 'application_point')"
+assert_eq "#700 fix-delta: multi-document sidecar → effective JSON null (unknown is not zero)" \
+  "null" "$(AE669_type "$AE669_MD" 'devflow:code-reviewer' 'effective')"
+
+# ── #700 review F2: the sidecar's per-agent VALUE matrix. Validating only that the TOP
+#    LEVEL is an object left every value unchecked, so a valid-falsy "" (and 0, an object,
+#    and a non-enum string) was non-null and drove
+#    `application_point: agent-definition` with a junk `effective` — the unearned applied
+#    claim the contract forbids, and the documented six-shape valid-falsy row (#312/#304).
+#    Every non-enum value must now fall back honestly. The valid-enum row above is the
+#    positive control proving these assertions are not vacuous.
+#    NOT-VACUITY CAVEAT, stated so a reader does not over-credit this loop: the `null` row
+#    is a REGRESSION GUARD, not one of the shapes this fix rescued. A JSON null value
+#    already took the honest arm before the fix — the old top-level-only filter passed it
+#    through as null and lib/efficiency-trace.jq branches on `$applied != null` — so that
+#    row passes identically with the guarded bug reintroduced. It is kept to pin the
+#    behavior against a future filter change; the other five rows are the load-bearing ones.
+for AE669_SHAPE in '""' '0' '{"effort":"low"}' 'null' '"turbo"' '[ "low" ]'; do
+  printf '{"devflow:code-reviewer":%s}' "$AE669_SHAPE" > "$AE669_DIR/val.json"
+  AE669_VAL="$(DEVFLOW_APPLIED_EFFORT_FILE="$AE669_DIR/val.json" bash "$LIB/efficiency-trace.sh" --workpad-dir "$AE669_DIR" --slug "pr-669" --mode record)"
+  assert_eq "#700 F2: non-enum sidecar value $AE669_SHAPE → application_point stays session-fallback (no unearned applied claim)" \
+    "session-fallback" "$(AE669_field "$AE669_VAL" 'devflow:code-reviewer' 'application_point')"
+  assert_eq "#700 F2: non-enum sidecar value $AE669_SHAPE → effective stays JSON null (unknown is not zero)" \
+    "null" "$(AE669_type "$AE669_VAL" 'devflow:code-reviewer' 'effective')"
+done
+rm -rf "$AE669_DIR"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "compose-applied-effort.sh — applied-arm composer branches (issue #700 #3/#4/#5)"
+# ────────────────────────────────────────────────────────────────────────────
+# The applied-arm composer body (resolver-absent fail-open, empty/{} short-circuit,
+# JSON-object validation, UNCONDITIONAL stale-sidecar clear, sidecar-write-then-fallback)
+# was extracted from the triplicated workflow step into scripts/compose-applied-effort.sh
+# so the suite can drive each branch directly — a grep-pin on the workflow step is not
+# coverage of the SELECTION that chooses each arm (CLAUDE.md best-effort-parser rule).
+CAE_H="$LIB/../scripts/compose-applied-effort.sh"
+CAE_DIR="$(mktemp -d)"
+# A stub resolver whose applied-agents-json / applied-sidecar-json output is fixed, so the
+# branch under test is the HELPER's, not the real resolver's config-derivation.
+cat > "$CAE_DIR/stub-obj.py" <<'PY'
+import sys
+if "--applied-sidecar-json" in sys.argv:
+    print('{"devflow:code-reviewer":"low"}')
+else:
+    print('{"devflow:code-reviewer":{"effort":"low"}}')
+PY
+cat > "$CAE_DIR/stub-empty.py" <<'PY'
+print("{}")
+PY
+cat > "$CAE_DIR/stub-array.py" <<'PY'
+print("[1,2,3]")
+PY
+cat > "$CAE_DIR/stub-fail.py" <<'PY'
+import sys
+sys.stderr.write("boom\n")
+sys.exit(1)
+PY
+# 1. Composed effort → prints the --agents splice AND writes the sidecar.
+CAE_OUT="$(DEVFLOW_RRO="$CAE_DIR/stub-obj.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/s1.json" DEVFLOW_AE_APPLY=1 bash "$CAE_H")"; CAE_RC=$?
+assert_eq "#700 compose: composed effort → exit 0" "0" "$CAE_RC"
+assert_eq "#700 compose: composed effort → prints the --agents splice" \
+  "--agents '{\"devflow:code-reviewer\":{\"effort\":\"low\"}}'" "$CAE_OUT"
+assert_eq "#700 compose: composed effort → writes the applier->recorder sidecar" \
+  '{"devflow:code-reviewer":"low"}' "$(cat "$CAE_DIR/s1.json")"
+# 2. Resolver ABSENT → fail-open (empty output, exit 0) AND any stale sidecar is cleared (#3).
+printf '{"stale":"x"}' > "$CAE_DIR/s2.json"
+CAE_OUT="$(DEVFLOW_RRO="$CAE_DIR/nope.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/s2.json" DEVFLOW_AE_APPLY=1 bash "$CAE_H")"; CAE_RC=$?
+assert_eq "#700 compose: resolver absent → exit 0 (fail-open)" "0" "$CAE_RC"
+assert_eq "#700 compose: resolver absent → empty agents_args" "" "$CAE_OUT"
+assert_eq "#700 compose: resolver absent → stale sidecar unconditionally cleared (#3)" \
+  "absent" "$([ -f "$CAE_DIR/s2.json" ] && echo present || echo absent)"
+# 3. Resolver returns a NON-object (a JSON array) → validation rejects it (#5): no splice,
+#    no sidecar (never concatenated/spliced unvalidated).
+printf '{"stale":"y"}' > "$CAE_DIR/s3.json"
+CAE_OUT="$(DEVFLOW_RRO="$CAE_DIR/stub-array.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/s3.json" DEVFLOW_AE_APPLY=1 bash "$CAE_H")"
+assert_eq "#700 compose: non-object resolver output → empty agents_args (#5 validation)" "" "$CAE_OUT"
+assert_eq "#700 compose: non-object resolver output → stale sidecar cleared, none written" \
+  "absent" "$([ -f "$CAE_DIR/s3.json" ] && echo present || echo absent)"
+# 4. Resolver returns {} (no per-agent effort) → empty, no sidecar; a stale one is cleared (#3).
+printf '{"stale":"z"}' > "$CAE_DIR/s4.json"
+CAE_OUT="$(DEVFLOW_RRO="$CAE_DIR/stub-empty.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/s4.json" DEVFLOW_AE_APPLY=1 bash "$CAE_H")"
+assert_eq "#700 compose: {} result → empty agents_args" "" "$CAE_OUT"
+assert_eq "#700 compose: {} result → stale sidecar cleared (#3)" \
+  "absent" "$([ -f "$CAE_DIR/s4.json" ] && echo present || echo absent)"
+# 5. Resolver FAILS (rc≠0, partial/no stdout) → fail-open, no splice, no sidecar.
+CAE_OUT="$(DEVFLOW_RRO="$CAE_DIR/stub-fail.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/s5.json" DEVFLOW_AE_APPLY=1 bash "$CAE_H")"; CAE_RC=$?
+assert_eq "#700 compose: resolver failure → exit 0 (fail-open)" "0" "$CAE_RC"
+assert_eq "#700 compose: resolver failure → empty agents_args" "" "$CAE_OUT"
+assert_eq "#700 compose: resolver failure → no sidecar" \
+  "absent" "$([ -f "$CAE_DIR/s5.json" ] && echo present || echo absent)"
+
+# ── #700 review REJECT fixes (B1 trusted config source, S1 capability default, M1 unwritable
+#    sidecar). A stub that RECORDS its argv so the branch under test is the HELPER's
+#    argument-composition, not the real resolver.
+cat > "$CAE_DIR/stub-argv.py" <<'PY'
+import sys
+open(sys.argv[0] + ".argv", "a").write(" ".join(sys.argv[1:]) + "\n")
+print('{"devflow:code-reviewer":"low"}' if "--applied-sidecar-json" in sys.argv
+      else '{"devflow:code-reviewer":{"effort":"low"}}')
+PY
+# B1: DEVFLOW_AE_CONFIG set → the resolver is invoked with `--config <that file>` on BOTH
+# passes, so the review tier reads per-agent overrides from the trusted base ref, not the
+# PR-head working tree.
+rm -f "$CAE_DIR/stub-argv.py.argv"
+DEVFLOW_RRO="$CAE_DIR/stub-argv.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/b1.json" DEVFLOW_AE_CONFIG="$CAE_DIR/base-cfg.json" DEVFLOW_AE_APPLY=1 bash "$CAE_H" >/dev/null
+assert_eq "#700 B1 compose: DEVFLOW_AE_CONFIG threads --config to BOTH resolver passes" "2" \
+  "$(grep -c -- "--config $CAE_DIR/base-cfg.json" "$CAE_DIR/stub-argv.py.argv")"
+# B1: DEVFLOW_AE_CONFIG UNSET → no --config (working-tree read, legitimate off the review tier).
+rm -f "$CAE_DIR/stub-argv.py.argv"
+DEVFLOW_RRO="$CAE_DIR/stub-argv.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/b1b.json" DEVFLOW_AE_APPLY=1 bash "$CAE_H" >/dev/null
+assert_eq "#700 B1 compose: DEVFLOW_AE_CONFIG unset → no --config (working-tree read)" "0" \
+  "$(grep -c -- "--config" "$CAE_DIR/stub-argv.py.argv")"
+# S1: EFFORT_SUPPORTED explicit EMPTY → coerced to false (unknown is not zero), so the
+# resolver's capability gate fails closed to the honest fallback — NOT rewritten to true.
+rm -f "$CAE_DIR/stub-argv.py.argv"
+DEVFLOW_RRO="$CAE_DIR/stub-argv.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/s1e.json" EFFORT_SUPPORTED="" DEVFLOW_AE_APPLY=1 bash "$CAE_H" >/dev/null
+assert_eq "#700 S1 compose: explicit-empty EFFORT_SUPPORTED → --effort-supported false (fail closed)" "2" \
+  "$(grep -c -- "--effort-supported false" "$CAE_DIR/stub-argv.py.argv")"
+# S1: EFFORT_SUPPORTED UNSET → documented default true.
+rm -f "$CAE_DIR/stub-argv.py.argv"
+DEVFLOW_RRO="$CAE_DIR/stub-argv.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/s1u.json" DEVFLOW_AE_APPLY=1 bash "$CAE_H" >/dev/null
+assert_eq "#700 S1 compose: unset EFFORT_SUPPORTED → --effort-supported true (documented default)" "2" \
+  "$(grep -c -- "--effort-supported true" "$CAE_DIR/stub-argv.py.argv")"
+# S1: a NON-enum EFFORT_SUPPORTED (a garbage value) also fails closed to false.
+rm -f "$CAE_DIR/stub-argv.py.argv"
+DEVFLOW_RRO="$CAE_DIR/stub-argv.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/s1g.json" EFFORT_SUPPORTED="maybe" DEVFLOW_AE_APPLY=1 bash "$CAE_H" >/dev/null
+assert_eq "#700 S1 compose: non-enum EFFORT_SUPPORTED → --effort-supported false (fail closed)" "2" \
+  "$(grep -c -- "--effort-supported false" "$CAE_DIR/stub-argv.py.argv")"
+# M1: the sidecar-write-failure → honest-fallback else arm (applied ⟺ recorded invariant):
+# an UNWRITABLE sidecar path yields empty agents_args (no splice) at exit 0 — never applied.
+# A regular file at the parent position makes both `mkdir -p` and the `>` redirect fail, so
+# the write genuinely cannot succeed (a merely-absent dir would be created by mkdir -p).
+printf 'x' > "$CAE_DIR/blocker"
+CAE_OUT="$(DEVFLOW_RRO="$CAE_DIR/stub-obj.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/blocker/s.json" DEVFLOW_AE_APPLY=1 bash "$CAE_H" 2>/dev/null)"; CAE_RC=$?
+assert_eq "#700 M1 compose: unwritable sidecar → exit 0 (fail-open)" "0" "$CAE_RC"
+assert_eq "#700 M1 compose: unwritable sidecar → empty agents_args (no applied-but-unrecorded splice)" "" "$CAE_OUT"
+
+# ── #700 review F1: the applied arm is INERT BY DEFAULT. The spike proved a fully-defined
+#    NEW agent ({"seam-probe-agent":{description,prompt,effort}}); this composer emits an
+#    effort-only entry keyed by an ALREADY-INSTALLED plugin agent id. That shape is
+#    unmeasured, and under this repo's own agent_overrides.default.effort it would emit an
+#    entry for every non-Haiku roster member — so if --agents SHADOWS rather than patches,
+#    every merge-gating review agent degrades to a prompt-less stub. AC1 is therefore
+#    deferred behind DEVFLOW_AE_APPLY until a probe row measures THIS shape; AC2 (the
+#    telemetry half) ships. Inert must mean NO splice AND NO sidecar — a sidecar without a
+#    splice would make application_point: agent-definition an unearned claim.
+printf '{"stale":"inert"}' > "$CAE_DIR/inert.json"
+CAE_OUT="$(DEVFLOW_RRO="$CAE_DIR/stub-obj.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/inert.json" bash "$CAE_H" 2>/dev/null)"; CAE_RC=$?
+assert_eq "#700 F1 compose: applied arm inert by default → exit 0" "0" "$CAE_RC"
+assert_eq "#700 F1 compose: applied arm inert by default → NO --agents splice" "" "$CAE_OUT"
+assert_eq "#700 F1 compose: applied arm inert by default → NO sidecar (an unspliced sidecar would be an unearned applied claim)" \
+  "absent" "$([ -f "$CAE_DIR/inert.json" ] && echo present || echo absent)"
+# The gate is a deferral, not a removal — but "opt-in" here means opt-in FOR THIS SUITE, not
+# for an operator: no deployed tier sets DEVFLOW_AE_APPLY (pinned at zero across all three
+# workflows by the `#700 F1` assertion in the workflow-pin block), and there is no config key
+# that forwards it, so arming the arm is a `.github/workflows/` edit. What this row proves is
+# that the machinery below the gate is intact and re-arms cleanly once a probe row lands.
+# With the gate set the composer still composes (every arm
+# above runs under DEVFLOW_AE_APPLY=1), so the machinery stays live and tested.
+CAE_OUT="$(DEVFLOW_RRO="$CAE_DIR/stub-obj.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/optin.json" DEVFLOW_AE_APPLY=1 bash "$CAE_H" 2>/dev/null)"
+assert_eq "#700 F1 compose: DEVFLOW_AE_APPLY=1 re-enables the splice (gate is opt-in, not a removal)" \
+  "--agents '{\"devflow:code-reviewer\":{\"effort\":\"low\"}}'" "$CAE_OUT"
+# #700 review F12: the sidecar pass's OUTPUT is validated, not just its exit status. A pass
+# exiting 0 with `{}` must NOT emit the splice (applied-but-unrecorded).
+cat > "$CAE_DIR/stub-halfempty.py" <<'PY'
+import sys
+print("{}" if "--applied-sidecar-json" in sys.argv else '{"devflow:code-reviewer":{"effort":"low"}}')
+PY
+CAE_OUT="$(DEVFLOW_RRO="$CAE_DIR/stub-halfempty.py" DEVFLOW_AE_SIDECAR="$CAE_DIR/he.json" DEVFLOW_AE_APPLY=1 bash "$CAE_H" 2>/dev/null)"
+assert_eq "#700 F12 compose: sidecar pass exits 0 with {} → no splice (applied never exceeds recorded)" "" "$CAE_OUT"
+assert_eq "#700 F12 compose: sidecar pass exits 0 with {} → no sidecar left behind" \
+  "absent" "$([ -f "$CAE_DIR/he.json" ] && echo present || echo absent)"
+
+rm -rf "$CAE_DIR"
+
+# ── #700 S2: applier and recorder must derive the sidecar DEFAULT path by the SAME
+#    repo-root-anchored rule, or a subdir/working-directory invocation makes the composer
+#    write path A while the recorder reads path B (a stale sidecar read as fabricated
+#    telemetry). Coupling pin: both carry the identical repo-root-anchored default literal.
+# Behavioral-fix pin: mutation-routed so it proves it catches the GUARDED regression (a
+# revert to the cwd-relative default that diverges from the recorder), not merely its own
+# line vanishing. Mutation reintroduces the pre-fix cwd-relative literal → the repo-root
+# literal disappears → RED.
+assert_pin_red_under "#700 S2: composer default sidecar is repo-root-anchored — reverting to the cwd-relative default goes RED" \
+  '$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.devflow/tmp/agent-effort-applied.json' \
+  's#\$\(git rev-parse --show-toplevel 2>/dev/null \|\| pwd\)/\.devflow/tmp/agent-effort-applied\.json#.devflow/tmp/agent-effort-applied.json#' \
+  "$LIB/../scripts/compose-applied-effort.sh"
+assert_eq "#700 S2: recorder default (efficiency-trace.sh) is the coupled repo-root-anchored mirror" "1" \
+  "$(pin_count '$(devflow_repo_root)/.devflow/tmp/agent-effort-applied.json' "$LIB/efficiency-trace.sh")"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "efficiency-trace.sh --persist / --self-check (issue #80)"
 # ────────────────────────────────────────────────────────────────────────────
@@ -27017,10 +27300,11 @@ assert_eq "#404 trust: old PR-head resolution loop is gone" "0" \
   "$(grep -cF '.devflow/vendor/devflow/scripts/filter-runner-tools.sh scripts/filter-runner-tools.sh' "$RUNNER" || true)"
 assert_eq "#404 trust: FLOOR_HELPER wired to baseprovision floor_helper output" "1" \
   "$(grep -cF 'FLOOR_HELPER: ${{ steps.baseprovision.outputs.floor_helper }}' "$RUNNER" || true)"
-# VENDOR_SOURCE is wired to the same fresh-fetch gate at three sites: the tools
-# step's deny-floor (#404), the #458 harden-stop-hooks step, and the #505 compose
-# step (same trusted-source rank — the compose helper's rank-2 vendored fallback).
-assert_eq "#404 trust: VENDOR_SOURCE wired to vendor step output (tools + #458 harden + #505 compose)" "3" \
+# VENDOR_SOURCE is wired to the same fresh-fetch gate at every site whose rank-2
+# fallback is a vendored copy: the tools step's deny-floor (#404), the #458
+# harden-stop-hooks step, the #505 compose step, and the #700 F-4 applied-effort
+# composer. The count below is the pin — reconcile it when a site is added.
+assert_eq "#404 trust: VENDOR_SOURCE wired to vendor step output (every vendored rank-2 site)" "4" \
   "$(grep -cF 'VENDOR_SOURCE: ${{ steps.vendor.outputs.vendor_source }}' "$RUNNER" || true)"
 assert_eq "#404 trust: baseprovision materializes the floor from FETCH_HEAD" "1" \
   "$(grep -cF 'FETCH_HEAD:.devflow/vendor/devflow/scripts/filter-runner-tools.sh' "$RUNNER" || true)"
@@ -33743,6 +34027,23 @@ for R313_WF in "$IMPL_WF" "$RUNNER_WF" "$LIGHT_WF"; do
   # the per-section model override.
   assert_pin_unique "#313 defaults: $R313_TAG claude_args consumes the computed cargs head" \
     '${{ steps.cargs.outputs.args }}' "$R313_WF"
+  # #669 applied arm: claude_args must ALSO consume the applied-effort composer's
+  # output — otherwise the composed startup `--agents` block is built but never
+  # reaches the process, silently re-collapsing the cloud tier to honest fallback.
+  assert_pin_unique "#669 applied: $R313_TAG claude_args consumes the applied-effort agents_args" \
+    '${{ steps.applied_effort.outputs.agents_args }}' "$R313_WF"  # structural-pin-ok: producer→consumer wiring presence pin (mirrors the cargs pin above), not a guarded-content regression
+  # #669/#700 applied arm: the composer step's branch logic (resolver-absent fail-open,
+  # empty/{} short-circuit, JSON-object validation, stale-sidecar clear, sidecar write)
+  # was extracted into scripts/compose-applied-effort.sh (#700 finding #4) so the suite
+  # drives each branch directly (see the compose-applied-effort.sh branch block earlier in
+  # this suite). The step
+  # itself must INVOKE that helper (vendored-or-self-repo) and capture its output — pin
+  # that wiring so a revert that drops the call goes RED.
+  R669_APPLIED="$(mint_blk 'Compose applied per-agent effort (issue 669)' "$R313_WF")"
+  assert_eq "#700 applied: $R313_TAG composer invokes compose-applied-effort.sh (vendored-or-repo) and captures its output" "yes" \
+    "$(printf '%s' "$R669_APPLIED" | grep -qF '.devflow/vendor/devflow/scripts/compose-applied-effort.sh' \
+       && printf '%s' "$R669_APPLIED" | grep -qF 'scripts/compose-applied-effort.sh' \
+       && printf '%s' "$R669_APPLIED" | grep -qF 'AGENTS_ARGS="$(bash "$CAE")"' && echo yes || echo no)"
 done
 # AC 8 default-path fail-loud OAuth guard (runner-only): the runner relaxed
 # CLAUDE_CODE_OAUTH_TOKEN to an optional workflow_call secret, so it must fail loud when the
@@ -33772,6 +34073,113 @@ assert_pin_red_on_removal "#313 security: devflow-runner.yml resolves the provid
 assert_pin_unique "#313 defaults: devflow-runner.yml MODEL falls back to head claude_model when the base-resolved model is empty (bootstrap)" \
   "steps.provider.outputs.model != '' && steps.provider.outputs.model || steps.extract.outputs.claude_model" "$RUNNER_WF"
 
+# #700 B1 (review REJECT): the read-only review tier composes per-agent effort from the
+# TRUSTED BASE-ref config, never the PR-head working tree — else a PR author could lower the
+# merge-gating reviewer's reasoning effort of their own PR. Pinned removal-proof so a revert
+# to the working-tree source (dropping this env key) goes RED. This is the applied-effort
+# sibling of the provider C1 pin above. It lives in the applied_effort step's env: block,
+# which the run-body-identity check excludes (only the env differs across the three tiers),
+# so the "yes,yes,yes,yes" body-identity assertion stays green — B1 is fixed WITHOUT relaxing
+# it (the reviewer's B2 concern that the fix would force the runner body to differ does not
+# arise: env-only diff mirrors the provider step's CONFIG_JSON pattern).
+assert_pin_red_on_removal "#700 B1 security: devflow-runner.yml composes applied effort from the trusted base-ref config file, not PR-head (removal-proof)" \
+  "DEVFLOW_AE_CONFIG: \${{ steps.baseprovision.outputs.config_file }}" "$RUNNER_WF"  # structural-pin-ok: security-presence pin — the guarded regression is removal of the trusted-source env line (sibling of the #313 C1 removal-proof pin); no in-place mutation reintroduces PR-head sourcing
+# The producer half: baseprovision materializes the trusted BASE-ref config ($BASE_JSON,
+# which is {} on any fetch/parse failure) to a FIXED RUNNER_TEMP file and emits its path as
+# `config_file`, so the consumer above always threads a non-empty base-ref path (a missing
+# file resolves to no overrides — fail-closed — never a PR-head read). Removal-proof so a
+# drop of the emission goes RED.
+assert_pin_red_on_removal "#700 B1: baseprovision emits the materialized base-ref config_file output (applied-effort trusted source)" \
+  "config_file=\$AE_CONFIG_FILE" "$RUNNER_WF"  # structural-pin-ok: producer-presence pin — the guarded regression is removal of the base-ref materialization emit; no in-place mutation reintroduces the missing output
+# The implement/command tiers legitimately read their own trusted working tree, so they must
+# NOT carry the base-ref override (its presence there would be a coupled-mirror drift).
+assert_eq "#700 B1: the implement/command compose steps do NOT source base-ref config (working-tree read is legitimate there)" "0,0" \
+  "$(printf '%s' "$(pin_count 'DEVFLOW_AE_CONFIG' "$IMPL_WF")"),$(printf '%s' "$(pin_count 'DEVFLOW_AE_CONFIG' "$LIGHT_WF")")"
+
+# #700 F-4 (trust boundary): the review tier reviews a PR-HEAD checkout, so the composer
+# and the resolver it execs must be read from a TRUSTED source, never the workspace — the
+# #402/#404 "a floor the PR controls is no floor" rule. Threading the base-ref config is
+# necessary but not sufficient: a PR that can edit these two files ignores the config it
+# was handed. Pin the whole ladder.
+assert_pin_red_under "#700 F-4: the review tier requires a TRUSTED composer+resolver (arms the ladder)" \
+  "DEVFLOW_AE_REQUIRE_TRUSTED: 'true'" \
+  "s/DEVFLOW_AE_REQUIRE_TRUSTED: 'true'/DEVFLOW_AE_REQUIRE_TRUSTED: 'false'/" "$RUNNER_WF"
+assert_pin_red_under "#700 F-4: the review tier consumes the base-ref materialized helper dir, not the workspace" \
+  'DEVFLOW_AE_TRUSTED_DIR: ${{ steps.baseprovision.outputs.ae_helper_dir }}' \
+  's|ae_helper_dir }}|ae_helper_dir_DISABLED }}|' "$RUNNER_WF"
+assert_pin_red_on_removal "#700 F-4: baseprovision emits the trusted applied-effort helper dir (removal-proof)" \
+  'ae_helper_dir=$AE_HELPER_DIR' "$RUNNER_WF"  # structural-pin-ok: producer-presence pin — the guarded regression is removal of the base-ref materialization emit; no in-place mutation reintroduces a missing output
+# Rank 2 must stay gated on a FRESH official-repo fetch: a committed/self vendored copy is
+# PR-editable, so accepting any vendor_source would re-open the boundary rank 1 closes.
+assert_pin_red_under "#700 F-4: rank 2 (vendored) is gated on vendor_source=fetch, never a committed copy" \
+  '[ "${VENDOR_SOURCE:-}" = "fetch" ] && [ -f .devflow/vendor/devflow/scripts/compose-applied-effort.sh ]' \
+  's/= "fetch" \]/!= "nonesuch" ]/' "$RUNNER_WF"
+# The trusted composer must also pin the RESOLVER it execs: a trusted composer running a
+# PR-editable resolver moves the hole one level down rather than closing it.
+assert_pin_red_on_removal "#700 F-4: the trusted arm pins DEVFLOW_RRO to the same trusted dir (removal-proof)" \
+  'export DEVFLOW_RRO="${DEVFLOW_AE_TRUSTED_DIR}/resolve-review-overrides.py"' "$RUNNER_WF"  # structural-pin-ok: presence pin — the guarded regression is dropping the resolver pin entirely, leaving the composer free to resolve a PR-editable resolver
+# The implement/command tiers run against their OWN trusted tree, so ARMING the ladder there
+# would be a coupled-mirror drift (and would fail closed on every run). Count the env-key
+# ARMING form, not the bare name: the shared run: body legitimately reads the variable in all
+# three tiers, so a bare-name count would measure the body, not the arming.
+assert_eq "#700 F-4: implement/command tiers do NOT arm the trusted-source ladder" "0,0" \
+  "$(printf '%s' "$(pin_count "DEVFLOW_AE_REQUIRE_TRUSTED: 'true'" "$IMPL_WF")"),$(printf '%s' "$(pin_count "DEVFLOW_AE_REQUIRE_TRUSTED: 'true'" "$LIGHT_WF")")"
+assert_eq "#700 F-4: the review tier IS armed (positive control for the row above)" "1" \
+  "$(pin_count "DEVFLOW_AE_REQUIRE_TRUSTED: 'true'" "$RUNNER_WF")"
+
+# #700 F-6 (stale-sidecar clear hoisted out of the helper): co-gating the clear on the
+# helper's existence meant the #502 vendor-skew state (no helper at either path) left a
+# PR-committed sidecar in place, and on the review tier that tree is the PR HEAD — so a
+# `git add -f` sidecar was read as genuine applied telemetry. The clear must run in the STEP,
+# unconditionally, in all three tiers.
+assert_eq "#700 F-6: the stale-sidecar clear is hoisted into the step body in all three tiers" "1,1,1" \
+  "$(pin_count 'AE_SIDECAR="${DEVFLOW_AE_SIDECAR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.devflow/tmp/agent-effort-applied.json}"' "$RUNNER_WF"),$(pin_count 'AE_SIDECAR="${DEVFLOW_AE_SIDECAR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.devflow/tmp/agent-effort-applied.json}"' "$IMPL_WF"),$(pin_count 'AE_SIDECAR="${DEVFLOW_AE_SIDECAR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.devflow/tmp/agent-effort-applied.json}"' "$LIGHT_WF")"
+# BOTH clear-failure arms (symlink refused; rm failed with the file still present) must set
+# the block flag — a arm that warned but composed anyway would apply over a sidecar of
+# unknown provenance, which is the whole defect. Count is the pin: it goes RED if an arm is
+# added without blocking, or if either existing arm stops blocking.
+assert_eq "#700 F-6: every clear-failure arm blocks composition (never composes over unknown provenance)" "2" \
+  "$(pin_count 'AE_BLOCKED=1' "$RUNNER_WF")"
+assert_pin_red_under "#700 F-6: an unclearable (non-symlink) sidecar refuses to compose" \
+  'refusing to compose this run (a surviving sidecar of unknown provenance would be recorded as applied effort this run never emitted).' \
+  's/refusing to compose this run (a surviving/composing anyway (a surviving/' "$RUNNER_WF"
+# The sidecar path lives inside the PR-HEAD checkout, so a committed symlink there would
+# turn the hoisted `rm` into an attacker-steerable delete of an arbitrary path (another
+# step's trusted RUNNER_TEMP material is reachable and is consumed by LATER steps). Refuse
+# a symlink instead of following it — in all three tiers, since all three run the clear.
+assert_eq "#700 F-6: the sidecar clear refuses a symlink rather than following it (all three tiers)" "1,1,1" \
+  "$(pin_count 'if [ -L "$AE_SIDECAR" ]; then' "$RUNNER_WF"),$(pin_count 'if [ -L "$AE_SIDECAR" ]; then' "$IMPL_WF"),$(pin_count 'if [ -L "$AE_SIDECAR" ]; then' "$LIGHT_WF")"
+assert_pin_red_under "#700 F-6: a symlinked sidecar BLOCKS composition (not merely skipped)" \
+  'refusing to remove it (following it would delete an attacker-chosen path) and refusing to compose this run.' \
+  's/refusing to compose this run\./continuing anyway./' "$RUNNER_WF"
+# #700 F-4 exec-closure completeness: resolve-review-overrides.py locates config-get.sh as a
+# SIBLING of its own __file__, so materializing only the composer+resolver leaves the trusted
+# arm unable to read ANY config — it degrades to the honest fallback on every run and the
+# hardening is silently inert. Reproduced at the desk. All three, or the arm is dead.
+assert_pin_red_under "#700 F-4: the trusted materialization copies the COMPLETE exec closure (incl. config-get.sh)" \
+  'for _a in compose-applied-effort.sh resolve-review-overrides.py config-get.sh; do' \
+  's/ config-get.sh; do/; do/' "$RUNNER_WF"
+assert_pin_red_under "#700 F-4: the trusted arm is accepted only when config-get.sh materialized too" \
+  '[ -f "$RUNNER_TEMP/devflow-trusted-applied-effort/config-get.sh" ]; then' \
+  's|\&\& \[ -f "\$RUNNER_TEMP/devflow-trusted-applied-effort/config-get.sh" \]; then|; then|' "$RUNNER_WF"
+
+# #700 F1 (deferral guard): the applied arm's blast radius — if `--agents` SHADOWS rather
+# than patches an installed agent, every merge-gating review agent degrades to a
+# prompt-less stub on every cloud run — is currently held off by exactly one thing: no
+# shipped tier sets DEVFLOW_AE_APPLY. That deferral was otherwise guarded only by an env
+# var's ABSENCE, with nothing going RED if a future edit armed it. Pin all three tiers at
+# zero occurrences of the literal — deliberately the strictest form: not "no assignment" but
+# "the name does not appear at all", so any edit that so much as mentions it in these files
+# has to come past this assertion. That costs pointer purity — the workflow step comments
+# describe the gate WITHOUT naming the variable and defer to
+# scripts/compose-applied-effort.sh section 1b for the name — which is the documented
+# resolution (reword the pointer, never weaken the pin), not an oversight.
+# Relax this ONLY when an agents-seam-probe row measures the effort-only /
+# already-installed-agent-id `--agents` shape (see scripts/compose-applied-effort.sh
+# step 1b); flipping the gate without that probe row is the regression this pin exists for.
+assert_eq "#700 F1: no shipped tier arms the unproven --agents shape (DEVFLOW_AE_APPLY unset everywhere)" "0,0,0" \
+  "$(printf '%s' "$(pin_count 'DEVFLOW_AE_APPLY' "$RUNNER_WF")"),$(printf '%s' "$(pin_count 'DEVFLOW_AE_APPLY' "$IMPL_WF")"),$(printf '%s' "$(pin_count 'DEVFLOW_AE_APPLY' "$LIGHT_WF")")"
+
 # Single-sourcing widened past the jq body (issue #313 /simplify altitude finding):
 # with the section name env-parameterized, the Resolve / Inject / Build-claude_args-head
 # step `run:` BODIES are byte-identical across the three workflows too (only their `env:`
@@ -33784,7 +34192,14 @@ import sys, yaml
 files = sys.argv[1:]
 names = ["Resolve model provider",
          "Inject provider endpoint (provider-routed sections only)",
-         "Build claude_args head (model + conditional effort)"]
+         "Build claude_args head (model + conditional effort)",
+         # issue #669 applied arm: the per-agent effort composer is triplicated
+         # scaffolding too — identical `run:` BODIES across the three workflows,
+         # which is all this checker compares (it reads st["run"], never st["env"]).
+         # The env deliberately DIFFERS: devflow-runner.yml alone carries
+         # DEVFLOW_AE_CONFIG (the #700 B1 trusted base-ref source), pinned present
+         # on the runner and absent (0,0) on the implement/command tiers below.
+         "Compose applied per-agent effort (issue 669)"]
 bodies = {n: [] for n in names}
 for f in files:
     doc = yaml.safe_load(open(f))
@@ -33799,7 +34214,7 @@ for n in names:
 print(",".join(out))
 PY
 )"
-  assert_eq "#313 single-sourced: Resolve/Inject/cargs run: bodies byte-identical across the 3 workflows" "yes,yes,yes" "$R313_BODY_IDENT"
+  assert_eq "#313 single-sourced: Resolve/Inject/cargs/applied-effort run: bodies byte-identical across the 3 workflows" "yes,yes,yes,yes" "$R313_BODY_IDENT"
 
   # gh_kv normalizes a $GITHUB_ENV/$GITHUB_OUTPUT file written in GitHub's newline-safe
   # multiline-heredoc form (KEY<<DELIM\nvalue\nDELIM — the form this PR now uses everywhere)

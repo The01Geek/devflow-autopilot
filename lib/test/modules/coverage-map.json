@@ -163,6 +163,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/compose-applied-effort.sh": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "scripts/config-get.sh": {
       "note": "",
       "owner": "unmodularized"
@@ -1413,6 +1417,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "669": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "671": {
       "note": "",
       "owner": "unmodularized"
@@ -1442,6 +1450,10 @@
       "owner": "installer-wiring"
     },
     "693": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "700": {
       "note": "",
       "owner": "unmodularized"
     },

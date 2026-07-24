@@ -1,6 +1,6 @@
 {
   "files": {
-    "lib/efficiency-trace.sh": "8dfff79231d395e4ab0538edc4a1afc962b81d58c05f53c8eaf80e5d720d541b",
+    "lib/efficiency-trace.sh": "b95f0a088ce6b145accc8724e1e81df8af7f7c73ae62464337883abaad1587eb",
     "scripts/apply-labels.sh": "7ea8de21f888b038ab0d6a2324b197e6e865144caf51d8b7a765d06996ab3ad2",
     "scripts/branch-for-issue.py": "e44aa7e0d8e743c9ea6c0b650e39376b91cefb5ce7eaca22803f3f50f5a0f1a9",
     "scripts/config-get.sh": "a418b2e05a7a2205ae8f7495b3c05f65660694a96c580895048b4688b0fa195e",
@@ -14,7 +14,7 @@
     "scripts/match-lint-adjudications.py": "709cba5b935bf515a6d91c4d5697a8d66623bfb4cf13aa02312837596bd83608",
     "scripts/parse-acs.py": "9b2ed94e4d430beb5200f1b543e27e45b7a6e2f8fe63675a5fc47aeecfe7699a",
     "scripts/react-to-trigger.sh": "652b657c01693bb854bbdabb841ce08dd30f5f146d2b4dd25d13b9bf1d8b7802",
-    "scripts/resolve-review-overrides.py": "696933822bf5f8b62d664df3e84082878243e059516b4d4005ec38686a6e37c3",
+    "scripts/resolve-review-overrides.py": "4014713194a1692bd0e4d1ba931e76d7727feef43c73ba397a7f5722555a8d3b",
     "scripts/run-jq.sh": "1bcf3697f7fb24a50cbc246ef42ab9503be8fef4478103da0d183dcd971ad1fd",
     "scripts/stale-prose-lint.py": "30e65eb12ca02ee5c4239df1ebcfda3da58f3e585ce459e624d7a14ce69dd9da",
     "scripts/update-branch-checkpoint.sh": "65072a4c9d738b6f62b7f76a5c7d7517ac80162e6da0c06c92ddaf04e2a06af3",
