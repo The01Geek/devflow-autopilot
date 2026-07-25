@@ -42,7 +42,7 @@ This gate covers the Phase 2 subagent dispatches only. Phase 3's inline review-e
 
 ### 2.1 Discovery
 
-**Dispatch barrier.** Every subagent dispatch in this step is bound by the barrier statement in the engine root's *Cloud headless-wait discipline* block (`skills/implement/SKILL.md`) — read the requirement there; it is deliberately not restated here.
+**Dispatch barrier.** Every subagent dispatch described here is bound by the barrier statement in the engine root's *Cloud headless-wait discipline* block (`skills/implement/SKILL.md`) — read the requirement there; it is deliberately not restated here.
 
 Use the **Agent tool** with `subagent_type: devflow:code-explorer` to explore the codebase and understand the system as it relates to the issue.
 

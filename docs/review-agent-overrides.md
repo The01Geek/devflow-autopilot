@@ -240,7 +240,8 @@ background-dispatch semantics (issue #801).** Beyond `model`, the Agent tool car
 **per-dispatch background/foreground** property, and it is the property that decides whether a
 dispatch returns a result at all — so a survey of the surface that stops at "`model` yes, effort no"
 omits the one parameter a no-verdict run turns on. Upstream, **subagents run in the background by
-default** (since Claude Code v2.1.198), and a background subagent's results reach the caller as a
+default** (vendor-documented as of Claude Code v2.1.198; read from
+https://code.claude.com/docs/en/sub-agents on 2026-07-24 and not re-derived here), and a background subagent's results reach the caller as a
 completion notification **in a later turn** — which a headless `claude -p` cloud run never reaches,
 so the dispatched work is discarded and the run can end with no verdict. Two layers cover this:
 the cloud engine workflow steps set `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"`, documented upstream

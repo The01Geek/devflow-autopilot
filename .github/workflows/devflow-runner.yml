@@ -1684,7 +1684,8 @@ jobs:
         uses: anthropics/claude-code-action@v1
         env:
           # Harness floor for the dispatch barrier (issue #801). The vendor documents
-          # subagents as background-by-default since v2.1.198, with a background
+          # subagents as background-by-default as of v2.1.198 (read from the vendor docs on
+          # 2026-07-24; a past-time snapshot, not re-derived here), with a background
           # dispatch's results arriving as a completion notification IN A LATER TURN —
           # and this is a headless `claude -p` session, which ends at the first
           # tool-call-free turn, so that later turn never happens and the dispatched

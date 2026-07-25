@@ -204,8 +204,10 @@ ${ALLOWED_TOOLS}
 > An acknowledgment means the work STARTED, not that it finished, so never proceed
 > past a dispatch on one and never create a pending dispatch you cannot collect
 > within this turn. How that obligation is met is a per-runner detail, not the
-> requirement itself — keeping subagents in the foreground is the current mechanism
-> on this runner, named as an example rather than as the definition.
+> requirement itself — on this runner, keeping subagents in the foreground and passing
+> run_in_background: false on an individual dispatch are the current mechanisms, named as
+> examples rather than as the definition. The per-dispatch one is the lever YOU can pull;
+> reach for it rather than assuming the workflow-level one is in force.
 ${DISPLACED_SECTION}
 ---
 EOF
