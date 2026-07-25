@@ -10,6 +10,7 @@ from collections import Counter
 import importlib.util
 import io
 import json
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -139,6 +140,7 @@ assert_pin_unique() { :; }
         )
         self.assertEqual("plain", rows[0].assertion_name)
         self.assertEqual((2, 2), (rows[0].line_start, rows[0].line_end))
+        self.assertEqual("lib/a.md", rows[0].resolved_target)
         self.assertEqual((3, 5), (rows[1].line_start, rows[1].line_end))
         self.assertTrue(rows[1].target_defaulted)
         self.assertEqual("/__pin_corpus_runtime__/MAXI_SKILL", rows[1].resolved_target)
@@ -222,7 +224,7 @@ assert_pin_red_under "mutation" 'shared literal' 's/x/y/' "$LIB/a.md"
             (root / "docs").mkdir()
             (root / ".devflow/logs").mkdir(parents=True)
             (root / "skills/x").mkdir(parents=True)
-            source = root / "lib/test/source.sh"
+            source = root / "lib/test/run.sh"
             source.write_text(
                 """\
 MAXI_SKILL="/tmp/runtime-bundle"
@@ -241,7 +243,7 @@ assert_pin_red_on_removal "docs count" 'literal docs' "$MAXI_SKILL"
             tracked.write_text(
                 "\n".join(
                     [
-                        "lib/test/source.sh",
+                        "lib/test/run.sh",
                         "skills/x/SKILL.md",
                         ".devflow/logs/history.txt",
                         "skills/x/OTHER.md",
@@ -262,7 +264,7 @@ assert_pin_red_on_removal "docs count" 'literal docs' "$MAXI_SKILL"
                 "--repo-root",
                 str(root),
                 "--source",
-                "lib/test/source.sh",
+                "lib/test/run.sh",
                 "--tracked-files",
                 str(tracked),
                 "--adjudications",
@@ -290,12 +292,213 @@ assert_pin_red_on_removal "docs count" 'literal docs' "$MAXI_SKILL"
             self.assertEqual(
                 [
                     ".devflow/logs/history.txt",
-                    "lib/test/source.sh",
+                    "lib/test/run.sh",
                     "skills/x/SKILL.md",
                 ],
                 json.loads(rows[0]["homes"]),
             )
             self.assertIn("total_sites=2", result.stderr)
+
+    def test_cli_emits_all_four_entanglements_end_to_end(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            (root / "lib/test/modules").mkdir(parents=True)
+            (root / "docs").mkdir()
+            source = root / "lib/test/run.sh"
+            source.write_text(
+                """\
+# PARKCAL_GUARD_REGION_BEGIN
+assert_pin_unique "existence" 'shared literal' "$LIB/a.md"
+assert_pin_red_under "mutation" 'shared literal' 's/x/y/' "$LIB/a.md"
+assert_eq "nested count" 1 "$(printf '%s' "$(pin_count 'shared literal' "$LIB/a.md")")"
+# PARKCAL_GUARD_REGION_END
+""",
+                encoding="utf-8",
+            )
+            outside = root / "lib/test/modules/installer-wiring.sh"
+            outside.write_text(
+                """\
+devflow_module_pin_present "outside" 'shared literal' "$LIB/a.md"
+devflow_module_pin_red_under "outside mutation" 'shared literal' 's/x/y/' "$LIB/a.md"
+""",
+                encoding="utf-8",
+            )
+            (root / "docs/home.md").write_text("shared literal\n", encoding="utf-8")
+            tracked = root / "tracked.txt"
+            tracked.write_text(
+                "\n".join(
+                    [
+                        "docs/home.md",
+                        "lib/test/run.sh",
+                        "lib/test/modules/installer-wiring.sh",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            adjudications = root / "adjudications.tsv"
+            adjudications.write_text(
+                "adjudication_key\tbucket_final\trationale\n", encoding="utf-8"
+            )
+            output = root / "inventory.tsv"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(CLASSIFIER),
+                    "--repo-root",
+                    str(root),
+                    "--source",
+                    "lib/test/run.sh",
+                    "--tracked-files",
+                    str(tracked),
+                    "--adjudications",
+                    str(adjudications),
+                    "--output",
+                    str(output),
+                    "--revision",
+                    "a" * 40,
+                    "--expected-out-of-scope",
+                    "1",
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            data_lines = [
+                line
+                for line in output.read_text(encoding="utf-8").splitlines()
+                if not line.startswith("#")
+            ]
+            row = next(csv.DictReader(data_lines, delimiter="\t"))
+            self.assertEqual("2", row["mutation_pin_count"])
+            self.assertEqual("1", row["exact_count_pin_count"])
+            self.assertEqual("park-calibration", json.loads(row["registered_pin_region"]))
+            self.assertEqual("1", row["out_of_scope_pin_count"])
+
+    def test_revision_reads_git_tree_instead_of_live_worktree(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            (root / "lib/test").mkdir(parents=True)
+            (root / "docs").mkdir()
+            source = root / "lib/test/source.sh"
+            source.write_text(
+                "assert_pin_unique \"snapshot\" 'snapshot literal' \"$LIB/a.md\"\n",
+                encoding="utf-8",
+            )
+            (root / "docs/home.md").write_text("snapshot literal\n", encoding="utf-8")
+            adjudications = root / "adjudications.tsv"
+            adjudications.write_text(
+                "adjudication_key\tbucket_final\trationale\n", encoding="utf-8"
+            )
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "fixture@example.invalid"],
+                cwd=root,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Fixture"],
+                cwd=root,
+                check=True,
+            )
+            subprocess.run(["git", "add", "."], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "snapshot"], cwd=root, check=True)
+            revision = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=root,
+                text=True,
+                capture_output=True,
+                check=True,
+            ).stdout.strip()
+            source.write_text(
+                "assert_pin_unique \"working\" 'working literal' \"$LIB/a.md\"\n",
+                encoding="utf-8",
+            )
+            (root / "docs/home.md").write_text("working literal\n", encoding="utf-8")
+            output = root / "inventory.tsv"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(CLASSIFIER),
+                    "--repo-root",
+                    str(root),
+                    "--source",
+                    "lib/test/source.sh",
+                    "--adjudications",
+                    str(adjudications),
+                    "--output",
+                    str(output),
+                    "--revision",
+                    revision,
+                    "--expected-out-of-scope",
+                    "0",
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            data_lines = [
+                line
+                for line in output.read_text(encoding="utf-8").splitlines()
+                if not line.startswith("#")
+            ]
+            row = next(csv.DictReader(data_lines, delimiter="\t"))
+            self.assertEqual("snapshot literal", json.loads(row["literal"]))
+            self.assertEqual(["docs/home.md", "lib/test/source.sh"], json.loads(row["homes"]))
+
+    def test_failed_validation_does_not_replace_existing_inventory(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            (root / "lib/test").mkdir(parents=True)
+            (root / ".github/workflows").mkdir(parents=True)
+            (root / "lib/test/source.sh").write_text(
+                "assert_pin_unique \"boundary\" 'permissions: write' \"$LIB/a.md\"\n",
+                encoding="utf-8",
+            )
+            (root / ".github/workflows/example.yml").write_text(
+                "permissions: write\n", encoding="utf-8"
+            )
+            tracked = root / "tracked.txt"
+            tracked.write_text(
+                "lib/test/source.sh\n.github/workflows/example.yml\n",
+                encoding="utf-8",
+            )
+            adjudications = root / "adjudications.tsv"
+            adjudications.write_text(
+                "adjudication_key\tbucket_final\trationale\n", encoding="utf-8"
+            )
+            output = root / "inventory.tsv"
+            output.write_text("previous complete inventory\n", encoding="utf-8")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(CLASSIFIER),
+                    "--repo-root",
+                    str(root),
+                    "--source",
+                    "lib/test/source.sh",
+                    "--tracked-files",
+                    str(tracked),
+                    "--adjudications",
+                    str(adjudications),
+                    "--output",
+                    str(output),
+                    "--revision",
+                    "a" * 40,
+                    "--expected-out-of-scope",
+                    "0",
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(2, result.returncode)
+            self.assertEqual(
+                "previous complete inventory\n",
+                output.read_text(encoding="utf-8"),
+            )
 
     def test_frozen_inventory_matches_its_recorded_revision(self):
         repo_root = HERE.parent.parent
@@ -367,6 +570,41 @@ assert_pin_red_on_removal "docs count" 'literal docs' "$MAXI_SKILL"
             if literal is not None:
                 literal_buckets.setdefault(literal, set()).add(row["bucket_final"])
         self.assertTrue(all(len(buckets) == 1 for buckets in literal_buckets.values()))
+        for required_literal in (
+            "SPDX-FileCopyrightText: 2026 Daniel Radman",
+            "SPDX-License-Identifier: MIT",
+            "whether by a Phase-3 review finding **or by the issue",
+            (
+                '"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner '
+                'reports in context>}"/../../scripts/'
+            ),
+        ):
+            self.assertEqual({"required-copy"}, literal_buckets[required_literal])
+        self.assertNotIn(str(repo_root), inventory.read_text(encoding="utf-8"))
+
+        with tempfile.TemporaryDirectory() as raw:
+            reproduced = Path(raw) / "inventory.tsv"
+            command = shlex.split(metadata["producing-command"])
+            output_index = command.index("--output") + 1
+            command[output_index] = str(reproduced)
+            result = subprocess.run(
+                command,
+                cwd=repo_root,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            reproduced_lines = reproduced.read_text(encoding="utf-8").splitlines()
+            producing_index = next(
+                index
+                for index, line in enumerate(reproduced_lines)
+                if line.startswith("# producing-command: ")
+            )
+            reproduced_lines[producing_index] = (
+                f"# producing-command: {metadata['producing-command']}"
+            )
+            self.assertEqual(raw_lines, reproduced_lines)
 
 
 if __name__ == "__main__":

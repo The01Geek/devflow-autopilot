@@ -14,11 +14,15 @@ import argparse
 import csv
 import hashlib
 import importlib.util
+import io
 import json
+import os
 import re
 import shlex
 import subprocess
 import sys
+import tarfile
+import tempfile
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -169,6 +173,17 @@ def _raw_token(segments) -> str:
     return "".join(value for _, value in segments)
 
 
+def _portable_target(target: str | None, lib: str) -> str | None:
+    """Keep repo-owned resolved targets stable across clone locations."""
+    if target is None:
+        return None
+    repo_root = Path(lib).parent
+    try:
+        return Path(target).relative_to(repo_root).as_posix()
+    except ValueError:
+        return target
+
+
 def extract_existence_sites(
     text: str,
     source_file: str,
@@ -220,7 +235,7 @@ def extract_existence_sites(
                 line_start=lineno,
                 line_end=lineno + max(0, len(span) - 1),
                 literal=pin["literal"],
-                resolved_target=pin["file"],
+                resolved_target=_portable_target(pin["file"], lib),
                 target_defaulted=target_defaulted,
             )
         )
@@ -366,15 +381,15 @@ def parse_adjudications(text: str) -> dict[str, tuple[str, str]]:
     return result
 
 
-def _config_keys(repo_root: Path) -> frozenset[str]:
+def _config_keys(tracked: dict[str, bytes]) -> frozenset[str]:
     keys = set()
     for relative in (".devflow/config.schema.json", ".devflow/config.json"):
-        path = repo_root / relative
-        if not path.is_file():
+        raw = tracked.get(relative)
+        if raw is None:
             continue
         try:
-            value = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            value = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ValueError(f"cannot derive config keys from {relative}: {exc}") from exc
 
         def collect(node):
@@ -392,24 +407,10 @@ def _config_keys(repo_root: Path) -> frozenset[str]:
     return frozenset(keys)
 
 
-def _tracked_paths(repo_root: Path, explicit: Path | None) -> list[str]:
-    if explicit is not None:
-        raw = explicit.read_bytes()
-        separator = b"\0" if b"\0" in raw else b"\n"
-        paths = [part.decode("utf-8") for part in raw.split(separator) if part]
-    else:
-        result = subprocess.run(
-            ["git", "ls-files", "-z"],
-            cwd=repo_root,
-            capture_output=True,
-            check=False,
-        )
-        if result.returncode != 0:
-            raise ValueError(
-                f"git ls-files failed with rc {result.returncode}: "
-                f"{result.stderr.decode('utf-8', errors='replace')}"
-            )
-        paths = [part.decode("utf-8") for part in result.stdout.split(b"\0") if part]
+def _tracked_paths(explicit: Path) -> list[str]:
+    raw = explicit.read_bytes()
+    separator = b"\0" if b"\0" in raw else b"\n"
+    paths = [part.decode("utf-8") for part in raw.split(separator) if part]
     if not paths:
         raise ValueError("tracked-file population is empty")
     return sorted(set(paths))
@@ -423,6 +424,73 @@ def _file_bytes(repo_root: Path, paths: list[str]) -> dict[str, bytes]:
         except OSError as exc:
             raise ValueError(f"tracked file unreadable: {relative}: {exc}") from exc
     return result
+
+
+def _tracked_input(
+    repo_root: Path, path: Path, tracked: dict[str, bytes]
+) -> bytes:
+    candidate = path if path.is_absolute() else repo_root / path
+    try:
+        relative = candidate.resolve().relative_to(repo_root).as_posix()
+    except ValueError as exc:
+        raise ValueError(
+            f"revision-bound input must be inside the repository: {path}"
+        ) from exc
+    raw = tracked.get(relative)
+    if raw is None:
+        raise ValueError(f"revision-bound input missing at snapshot: {relative}")
+    return raw
+
+
+def _resolve_revision(repo_root: Path, revision: str | None) -> str:
+    candidate = revision or "HEAD"
+    result = subprocess.run(
+        ["git", "rev-parse", "--verify", f"{candidate}^{{commit}}"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    resolved = result.stdout.strip()
+    if result.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}", resolved):
+        detail = result.stderr.strip() or "not a commit"
+        raise ValueError(f"cannot resolve revision {candidate!r}: {detail}")
+    if revision is not None and resolved != revision:
+        raise ValueError(
+            f"revision must be the canonical 40-character commit SHA: {resolved}"
+        )
+    return resolved
+
+
+def _revision_files(repo_root: Path, revision: str) -> dict[str, bytes]:
+    """Read one immutable Git tree without consulting the live index/worktree."""
+    result = subprocess.run(
+        ["git", "archive", "--format=tar", revision],
+        cwd=repo_root,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise ValueError(
+            f"git archive failed with rc {result.returncode}: "
+            f"{result.stderr.decode('utf-8', errors='replace')}"
+        )
+    files = {}
+    try:
+        with tarfile.open(fileobj=io.BytesIO(result.stdout), mode="r:") as archive:
+            for member in archive:
+                if member.isfile():
+                    extracted = archive.extractfile(member)
+                    if extracted is None:
+                        raise ValueError(f"cannot read revision file: {member.name}")
+                    files[member.name] = extracted.read()
+                elif member.issym():
+                    files[member.name] = member.linkname.encode("utf-8")
+    except tarfile.TarError as exc:
+        raise ValueError(f"cannot read git archive for {revision}: {exc}") from exc
+    if not files:
+        raise ValueError(f"tracked-file population is empty at revision {revision}")
+    return files
 
 
 def _homes(literal: str | None, tracked: dict[str, bytes]) -> tuple[str, ...]:
@@ -447,7 +515,7 @@ def _mutation_counts(
 
 
 def _out_of_scope_counts(
-    repo_root: Path,
+    tracked: dict[str, bytes],
     lib: str,
     overrides: dict[str, str],
     expected: int,
@@ -455,10 +523,10 @@ def _out_of_scope_counts(
     result = Counter()
     sites = 0
     for relative in OUT_OF_SCOPE_MODULES:
-        path = repo_root / relative
-        if not path.is_file():
+        raw = tracked.get(relative)
+        if raw is None:
             continue
-        text = path.read_text(encoding="utf-8")
+        text = raw.decode("utf-8")
         for pin in PCL.extract_pins(text, lib, overrides):
             if pin["helper"] not in EXISTENCE_HELPERS:
                 continue
@@ -576,65 +644,83 @@ def _write_inventory(
         raise ValueError(f"unknown adjudication keys: {', '.join(sorted(unknown))}")
     final_by_literal = {}
     bucket_counts = Counter()
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with output.open("w", encoding="utf-8", newline="") as handle:
-        handle.write("# snapshot: frozen pin-corpus census; not a live index\n")
-        handle.write(f"# producing-command: {command}\n")
-        handle.write(f"# revision: {revision}\n")
-        handle.write(f"# in-scope: {';'.join(DEFAULT_SOURCES)}\n")
-        handle.write("# out-of-scope: 28 sites in five smaller modules\n")
-        handle.write(
-            f"# counted-file-exclusions: {COUNTED_EXCLUSION_HEADER}\n"
-        )
-        writer = csv.writer(handle, delimiter="\t", lineterminator="\n")
-        writer.writerow(TSV_COLUMNS)
-        for site in sites:
-            fact = facts[site.adjudication_key]
-            mechanical = fact["mechanical"]
-            adjudicated = adjudications.get(site.adjudication_key)
-            if adjudicated is not None:
-                final, rationale = adjudicated
-            elif mechanical == "unclear":
-                raise ValueError(
-                    f"missing adjudication for {site.adjudication_key} "
-                    f"({site.source_file}:{site.line_start})"
-                )
-            else:
-                final = mechanical
-                rationale = _mechanical_rationale(
-                    mechanical, len(fact["counted_homes"])
-                )
-            if final not in FINAL_BUCKETS:
-                raise ValueError(f"invalid final bucket {final!r}")
-            if site.literal is not None:
-                prior = final_by_literal.setdefault(site.literal, final)
-                if prior != final:
-                    raise ValueError(
-                        f"inconsistent final bucket for literal digest "
-                        f"{literal_adjudication_key(site.literal)}"
-                    )
-            bucket_counts[final] += 1
-            writer.writerow(
-                (
-                    encode_cell(site.source_file),
-                    encode_cell(site.assertion_name),
-                    site.helper,
-                    site.line_start,
-                    site.line_end,
-                    encode_cell(site.literal),
-                    encode_cell(site.resolved_target),
-                    "true" if site.target_defaulted else "false",
-                    encode_cell(list(fact["homes"])),
-                    len(fact["counted_homes"]),
-                    mutation_counts[site.literal],
-                    exact_counts[site.literal],
-                    encode_cell(_region_for(site, regions)),
-                    outside_counts[site.literal],
-                    mechanical,
-                    final,
-                    encode_cell(rationale),
-                )
+    rows = []
+    for site in sites:
+        fact = facts[site.adjudication_key]
+        mechanical = fact["mechanical"]
+        adjudicated = adjudications.get(site.adjudication_key)
+        if adjudicated is not None:
+            final, rationale = adjudicated
+        elif mechanical == "unclear":
+            raise ValueError(
+                f"missing adjudication for {site.adjudication_key} "
+                f"({site.source_file}:{site.line_start})"
             )
+        else:
+            final = mechanical
+            rationale = _mechanical_rationale(
+                mechanical, len(fact["counted_homes"])
+            )
+        if final not in FINAL_BUCKETS:
+            raise ValueError(f"invalid final bucket {final!r}")
+        if site.literal is not None:
+            prior = final_by_literal.setdefault(site.literal, final)
+            if prior != final:
+                raise ValueError(
+                    f"inconsistent final bucket for literal digest "
+                    f"{literal_adjudication_key(site.literal)}"
+                )
+        bucket_counts[final] += 1
+        rows.append(
+            (
+                encode_cell(site.source_file),
+                encode_cell(site.assertion_name),
+                site.helper,
+                site.line_start,
+                site.line_end,
+                encode_cell(site.literal),
+                encode_cell(site.resolved_target),
+                "true" if site.target_defaulted else "false",
+                encode_cell(list(fact["homes"])),
+                len(fact["counted_homes"]),
+                mutation_counts[site.literal],
+                exact_counts[site.literal],
+                encode_cell(_region_for(site, regions)),
+                outside_counts[site.literal],
+                mechanical,
+                final,
+                encode_cell(rationale),
+            )
+        )
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            newline="",
+            dir=output.parent,
+            prefix=f".{output.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary = Path(handle.name)
+            handle.write("# snapshot: frozen pin-corpus census; not a live index\n")
+            handle.write(f"# producing-command: {command}\n")
+            handle.write(f"# revision: {revision}\n")
+            handle.write(f"# in-scope: {';'.join(DEFAULT_SOURCES)}\n")
+            handle.write("# out-of-scope: 28 sites in five smaller modules\n")
+            handle.write(
+                f"# counted-file-exclusions: {COUNTED_EXCLUSION_HEADER}\n"
+            )
+            writer = csv.writer(handle, delimiter="\t", lineterminator="\n")
+            writer.writerow(TSV_COLUMNS)
+            writer.writerows(rows)
+        os.replace(temporary, output)
+    finally:
+        if temporary is not None and temporary.exists():
+            temporary.unlink()
     return bucket_counts
 
 
@@ -657,10 +743,26 @@ def main(argv=None) -> int:
     repo_root = Path(args.repo_root).resolve()
     sources = tuple(args.sources or DEFAULT_SOURCES)
     try:
-        source_texts = {
-            relative: (repo_root / relative).read_text(encoding="utf-8")
-            for relative in sources
-        }
+        if args.revision is not None and not re.fullmatch(
+            r"[0-9a-f]{40}", args.revision
+        ):
+            raise ValueError("revision must be a 40-character lowercase git SHA")
+        revision_bound = args.tracked_files is None
+        if revision_bound:
+            revision = _resolve_revision(repo_root, args.revision)
+            tracked = _revision_files(repo_root, revision)
+        else:
+            revision = args.revision
+            if revision is None:
+                revision = _resolve_revision(repo_root, None)
+            tracked_paths = _tracked_paths(args.tracked_files)
+            tracked = _file_bytes(repo_root, tracked_paths)
+        source_texts = {}
+        for relative in sources:
+            raw = tracked.get(relative)
+            if raw is None:
+                raise ValueError(f"in-scope source missing: {relative}")
+            source_texts[relative] = raw.decode("utf-8")
         overrides = {}
         for text in source_texts.values():
             overrides.update(recover_override_names(text))
@@ -668,9 +770,7 @@ def main(argv=None) -> int:
         sites = []
         for relative, text in source_texts.items():
             sites.extend(extract_existence_sites(text, relative, lib, overrides))
-        tracked_paths = _tracked_paths(repo_root, args.tracked_files)
-        tracked = _file_bytes(repo_root, tracked_paths)
-        config_keys = _config_keys(repo_root)
+        config_keys = _config_keys(tracked)
         facts = {}
         for site in sites:
             if site.adjudication_key in facts:
@@ -691,29 +791,28 @@ def main(argv=None) -> int:
             facts[site.adjudication_key] = fact
         if args.write_adjudication_template:
             _write_adjudication_template(args.adjudications, sites, facts)
-        adjudications = parse_adjudications(
-            args.adjudications.read_text(encoding="utf-8")
-        )
-        mutation_counts = _mutation_counts(source_texts, lib, overrides)
+        if revision_bound and not args.write_adjudication_template:
+            adjudication_text = _tracked_input(
+                repo_root, args.adjudications, tracked
+            ).decode("utf-8")
+        else:
+            adjudication_text = args.adjudications.read_text(encoding="utf-8")
+        adjudications = parse_adjudications(adjudication_text)
+        mutation_texts = {}
+        for relative, raw in tracked.items():
+            if relative == "lib/test/run.sh" or (
+                relative.startswith("lib/test/modules/")
+                and relative.endswith(".sh")
+            ):
+                mutation_texts[relative] = raw.decode("utf-8")
+        mutation_counts = _mutation_counts(mutation_texts, lib, overrides)
         exact_counts = Counter()
         for text in source_texts.values():
             exact_counts.update(extract_exact_count_literals(text, lib, overrides))
         outside_counts, outside_total = _out_of_scope_counts(
-            repo_root, lib, overrides, args.expected_out_of_scope
+            tracked, lib, overrides, args.expected_out_of_scope
         )
         regions = _region_ranges(source_texts.get("lib/test/run.sh", ""))
-        revision = args.revision
-        if revision is None:
-            result = subprocess.run(
-                ["git", "rev-parse", "HEAD"],
-                cwd=repo_root,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            if result.returncode != 0:
-                raise ValueError("cannot resolve revision; pass --revision")
-            revision = result.stdout.strip()
         if not re.fullmatch(r"[0-9a-f]{40}", revision):
             raise ValueError("revision must be a 40-character lowercase git SHA")
         command = shlex.join(["python3", "lib/test/pin-corpus-classifier.py", *raw_argv])
