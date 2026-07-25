@@ -16463,7 +16463,6 @@ assert_pin_unique "#272 AC10: overview §11 mirrors the visual-specification beh
 #    verified-config multi-shape block driving config-get.sh's fail-closed arm selection.
 CI446_TMPL="$LIB/../skills/create-issue/references/issue-template.md"
 CI446_SKILL="$CREATE_ISSUE_BUNDLE"   # #614: Step 2's DoR item and Step 4's offer gate now live in references/; the bundle is the content-survival target
-CI446_P4="$LIB/../skills/implement/phases/phase-4-documentation.md"
 CI446_OVERVIEW="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 # AC1/AC2 — the optional ## Dependencies section in BOTH the template's structure guidance
 # and its bottom skeleton (coupled mirror sites: a one-sided edit turns one of these RED).
@@ -28901,7 +28900,6 @@ echo "#628 code-explorer/code-architect quantitative-claim calibration + inert-g
 # plus live structural assertions computed against the tracked files (T5).
 CE_628="$FDROOT/agents/code-explorer.md"
 CA_628="$FDROOT/agents/code-architect.md"
-P2_628="$FDROOT/skills/implement/phases/phase-2-implement.md"
 
 # T1 (AC1): architect calibration sentence in its Output Guidance.
 assert_pin_unique "#628 architect Output Guidance carries the quantitative-claim calibration sentence" \
