@@ -61,10 +61,6 @@ CI_CLAUDE="$CI_ROOT/CLAUDE.md"
 # its pins silently exempt from the wrapped / pin-in-comment meta-guards.
 CI_CLOUD_SETUP="$CI_ROOT/docs/cloud-setup.md"
 CI_IMPL_DOC="$CI_ROOT/docs/implement-skill.md"
-# review-and-fix is a BUNDLE since #530 (thin SKILL.md root + phases in
-# references/*.md); the #467 D2 fix-delta-gate sentence now lives in a reference
-# member, so the leg pins against the assembled CI_MAXI_BUNDLE (built below,
-# after _ci_tmp_root exists) — never the root alone.
 CI_INVENTORY="$CI_ROOT/lib/test/modules/create-issue-contract.inventory.md"
 
 _ci_tmp_root_kind="self"
@@ -178,17 +174,6 @@ CI_IMPL_BUNDLE="$_ci_tmp_root/implement-skill-bundle.md"
 devflow_module_build_bundle "ci module: implement-bundle" "$CI_IMPL_BUNDLE" \
   "$CI_ROOT/skills/implement/SKILL.md" "$CI_ROOT"/skills/implement/phases/*.md
 
-# The review-and-fix bundle backs the #467 D2 review-and-fix leg. Since #530 the
-# skill is a thin SKILL.md root plus step references (phases in references/*.md),
-# so the widened fix-delta-gate sentence lives in a reference member, not the
-# root. Assembled through the same shared builder, with the SAME fail-LOUD-per-
-# member contract as the implement bundle above: a missing/empty/unreadable
-# member records a FAIL naming that member, so a corrupt engine file cannot pass
-# the pin green just because the pinned sentence survives elsewhere.
-CI_MAXI_BUNDLE="$_ci_tmp_root/review-and-fix-skill-bundle.md"
-devflow_module_build_bundle "ci module: review-and-fix-bundle" "$CI_MAXI_BUNDLE" \
-  "$CI_ROOT/skills/review-and-fix/SKILL.md" "$CI_ROOT"/skills/review-and-fix/references/*.md
-
 # The create-issue bundle (#614) backs every content-survival pin over the split
 # skill. run.sh hoists an identical build and binds it as the CI_BUNDLE --var so the
 # pin-corpus meta-guard resolves these targets; this in-module assembly is what the
@@ -265,7 +250,6 @@ devflow_module_pin_present "#443: Step 3.6 names the VERDICT: REVISE legal value
 devflow_module_pin_red_under "#443: audit prompt omits conversation, Step 1 findings, and the derivation artifact" \
   'omits the drafting conversation, the Step 1 findings report, and the Step 2 derivation artifact' \
   's/omits the drafting conversation//' "$CI_BUNDLE"
-devflow_module_pin_unique '#443: audit prompt refers to "the draft", never "your draft"' 'never "your draft"' "$CI_BUNDLE"
 # Out-of-bounds on-disk artifacts (maps to the information-diet AC): the void clause is what
 # stops repository read access from silently re-anchoring the auditor on the drafter's reasoning.
 devflow_module_pin_red_under "#443: on-disk drafting artifacts are declared out of bounds (findings void)" \
@@ -309,10 +293,6 @@ devflow_module_pin_red_under "#443/#600: consumer audit dimensions are re-loaded
 devflow_module_pin_unique "#443: live create-issue extension carries the exact ## Audit dimensions heading" \
   '## Audit dimensions' "$CI_EXT"
 # Generic dimension checklist is consumer-agnostic (maps to the dimension-checklist AC).
-devflow_module_pin_unique "#443: generic dimensions name host-OS variance without GNU coreutils" \
-  'hosts without GNU coreutils' "$CI_TMPL_AUDIT"
-devflow_module_pin_unique "#443: generic dimensions name execution-tier permission-allowlist variance" \
-  'including their differing permission allowlists' "$CI_TMPL_AUDIT"
 # Reconciliation absence pin (maps to the reconciliation AC): the stale literal must be GONE from
 # the skill (it legitimately remains in CHANGELOG.md's historical entry, so this pin is FILE-scoped).
 assert_eq "#443: SKILL no longer carries the stale 'no-subagent, all-inline model' literal" \
@@ -338,13 +318,6 @@ devflow_module_pin_red_under "#443: bounded re-audit never deadlocks filing" \
 devflow_module_pin_red_under "#443: audit summary line is the mandatory never-silent evidence" \
   'the summary line is the evidence the audit ran and which arm it took' \
   's/the evidence the audit ran and which arm it took//' "$CI_SKILL"
-# The two surviving halves of the same contract, pinned as surfaces (the AC requires the
-# summary-line contract sentence to survive the cutover): the line always renders, and a
-# skipped/degraded audit is never silent.
-devflow_module_pin_unique "#443: the audit summary line always renders (even on a clean zero-findings FILE)" \
-  '**The audit summary line is mandatory and always renders**' "$CI_SKILL"
-devflow_module_pin_unique "#443: a skipped or degraded audit is never silent" \
-  'A skipped or degraded audit is **never silent**' "$CI_SKILL"
 # Step 4 presentation gate (maps to the artifact-gate AC): the seam that makes Step 3.6
 # mandatory rather than skippable — removing the presence check lets an un-audited draft show.
 devflow_module_pin_red_under "#443: Step 4 presentation gate confirms this run's audit artifact exists" \
@@ -358,24 +331,8 @@ devflow_module_pin_red_under "#443: audit artifact deletes any same-slug leftove
 # pinned here). These are surface-PRESENCE contracts — the template must carry each named
 # element — so plain devflow_module_pin_unique is the honest primitive (a removed/duplicated surface
 # flips count away from 1 → RED); no operative-vs-framing distinction applies to a surface pin.
-devflow_module_pin_unique "#443: audit prompt carries the adversarial mandate (no credit for good intent)" \
-  'no credit for good intent' "$CI_TMPL_AUDIT"
-devflow_module_pin_unique "#443: audit prompt carries the pre-mortem frame (write the autopsy)" \
-  'write the autopsy' "$CI_TMPL_AUDIT"
-devflow_module_pin_unique "#443: per-finding bar requires quoting the exact draft line attacked" \
-  'quote the exact draft line it attacks' "$CI_TMPL_AUDIT"
-devflow_module_pin_unique "#443: per-finding bar reports an unverifiable claim as unverifiable" \
-  'report an unverifiable claim as unverifiable rather than asserting it' "$CI_TMPL_AUDIT"
-devflow_module_pin_unique "#443: scope exclusions judge the draft at issue altitude" \
-  'judge the draft at **issue altitude**' "$CI_TMPL_AUDIT"
-devflow_module_pin_unique "#443: scope exclusions require a concrete trigger scenario per finding" \
-  'no finding without a concrete trigger scenario' "$CI_TMPL_AUDIT"
-devflow_module_pin_unique "#443: audit prompt caps findings at five" \
-  'at most five findings' "$CI_TMPL_AUDIT"
 devflow_module_pin_unique "#443: audit prompt reserves exactly one Quiet Killer slot" \
   '"Quiet Killer"' "$CI_TMPL_AUDIT"
-devflow_module_pin_unique "#443: the empty 'no actionable findings' output is explicitly legal" \
-  'no actionable findings' "$CI_TMPL_AUDIT"
 # Audit-summary required contents (maps to the audit-summary AC — the observability contract's
 # operative fields, distinct from the never-silent rationale clause pinned above).
 devflow_module_pin_unique "#443: audit summary states whether a consumer audit-dimensions section was appended" \
@@ -434,26 +391,15 @@ devflow_module_pin_unique "#546: an illegal-transition rejection is not an unava
   '**An illegal-transition rejection is NOT an unavailability signal.**' "$CI_BUNDLE"
 devflow_module_pin_unique "#546: an illegal transition never routes to the state-owner-unavailable fallback" \
   'Never route an illegal transition to the `state-owner unavailable` fallback below' "$CI_BUNDLE"
-# The `state-owner unavailable` fallback: its DISTINCT marker (distinct from `degraded`, which
-# keeps meaning the inline arm — the two never substitute, so the breadcrumb stays honest:
-# CLAUDE.md guard-class 2), its closed 2-class entry set, and its one-round/one-question bound.
-# The bare marker string recurs (6x in the fallback's own prose), so the marker is pinned via
-# its unique defining sentence rather than a bare-literal devflow_module_pin_unique.
+# The `state-owner unavailable` fallback carries a marker distinct from `degraded`, which keeps
+# meaning the inline arm. The bare marker recurs in the fallback prose, so pin its defining
+# sentence and the explicit non-substitution rule rather than the bare literal.
 devflow_module_pin_unique "#546: the state-owner-unavailable fallback carries its own distinct summary marker" \
   'The audit summary line carries the distinct marker **`state-owner unavailable`**' "$CI_BUNDLE"
 devflow_module_pin_unique "#546: the state-owner-unavailable marker is distinct from the degraded marker" \
   'is **distinct from `degraded`**' "$CI_BUNDLE"
-devflow_module_pin_unique "#546: exactly 2 classes route to the state-owner-unavailable fallback" \
-  'Exactly **2 classes** route here, and nothing else' "$CI_BUNDLE"
-devflow_module_pin_unique "#546: the state-owner-unavailable fallback is bounded to one round and one question" \
-  'bounded to one round and one question' "$CI_BUNDLE"
 # The fallback is never silent either (the AC's "a fallback lifecycle is never silent"), and it
 # never reconstructs a round's findings from memory.
-devflow_module_pin_unique "#546: the state-owner-unavailable fallback still renders the mandatory summary line" \
-  'A fallback lifecycle is **never silent**' "$CI_REF_FB_STATEOWNER"
-devflow_module_pin_unique "#546: a memory-reconstructed findings summary is never a legal discharge" \
-  '**A findings summary reconstructed from memory and presented as a round'"'"'s real findings is never a legal discharge.**' \
-  "$CI_BUNDLE"
 # (1) Pre-dispatch canonical write — removing it re-opens the condensation-drift channel (the
 #     auditor audits a hand-condensed copy instead of the exact file the implementer reads).
 devflow_module_pin_red_under "#522: Step 3.6 writes the canonical draft file before every dispatch" \
@@ -495,9 +441,6 @@ devflow_module_pin_red_under "#522: a held trigger offers one more audit round a
 devflow_module_pin_unique "#522: the boundary offer names which trigger fired, and the unestablished state when unknown" \
   'naming the unestablished state when `reason=state-unestablished` — unknown is not zero' \
   "$CI_BUNDLE"
-devflow_module_pin_unique "#522: a silent non-response at the boundary offer never dispatches and never proceeds" \
-  '**pause and re-ask in the final chat message; never dispatch and never proceed on silence.**' \
-  "$CI_BUNDLE"
 # The per-run ceiling is the tool's (`record-offer` refuses an accepted offer past
 # `_USER_ROUND_CAP`; driven by this file's #546 user_round_cap_rows), so the old
 # "User-chosen rounds are capped at 3 per run" prose literal is gone. The prose obligation that
@@ -517,10 +460,6 @@ devflow_module_pin_unique "#546: the summary line's fields are read from query-s
   "$CI_BUNDLE"
 devflow_module_pin_unique "#522: audit summary carries the declined-further-audit phrase" \
   'user declined further audit' "$CI_BUNDLE"
-devflow_module_pin_unique "#522: Step 3.5 self-checks the draft against the audit dimensions" \
-  'Self-check the draft against the Step 3.6 audit dimensions' "$CI_BUNDLE"
-devflow_module_pin_unique "#522: Step 3.5 summary reports the dimension self-check (falsifiable zero)" \
-  'no dimension-checklist finding' "$CI_BUNDLE"
 # Template out-of-bounds ENUMERATION pin (closes the narration-vs-template drift the pin (3)
 # narration pin alone leaves open — a regression re-adding the draft to the audit-prompt
 # TEMPLATE's out-of-bounds list would keep pin (3)'s narration sentence GREEN; this pins the
@@ -594,13 +533,7 @@ done
 # the positional two-marker delivery check). Since issue #709 arm (i)'s transport is the
 # generated-instructions one and the renderer invocation itself lives in the generated
 # instructions, not in this prose — its pin moved with it, below.
-# Phase 0.6 tags the "complete by construction" consumption-categories sentence as a
-# count-locked claim, so bind the count to an assertion (the repo's pin-or-don't-write
-# policy): if a sixth consumption category is added without amending the enumeration,
-# or a category is dropped, the marker count moves and this goes RED rather than
-# leaving an unpinned completeness claim to rot.
-devflow_module_pin_unique "#600: the consumption-categories enumeration reaches its fifth member" \
-  '(v) The **`state-owner unavailable` fallback' "$CI_BUNDLE"
+# Guard the current closed enumeration against silently adding a sixth consumption category.
 assert_eq "#600: the consumption-categories enumeration has no sixth member (complete-by-construction claim stays true)" \
   "0" "$(devflow_module_pin_count '(vi)' "$CI_BUNDLE")"
 # issue #709 relocated this invocation out of the skill prose and into the canonical
@@ -635,10 +568,6 @@ devflow_module_pin_unique "#709: the closed regeneration inputs are forwarded at
   '--instructions-file "<instructions path>" --instructions-draft-path' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the behavioral gate is proven by the #709 state-owner rows
 devflow_module_pin_unique "#709: an absent auditor value is never invented" \
   'Omit either flag when the return carried no such line' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the behavioral gate is proven by the #709 state-owner rows
-devflow_module_pin_unique "#709: the residual is disclosed as narrowed, never proven clean" \
-  'The mechanism narrows the wrapper channel; it does not close it.' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the behavioral gate is proven by the #709 state-owner rows
-devflow_module_pin_unique "#709: a clean audit is never described as provably steering-free" \
-  'Never describe a clean audit as provably steering-free.' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the behavioral gate is proven by the #709 state-owner rows
 devflow_module_pin_unique "#709: withhold-then-disclose never blocks filing" \
   '**Filing is never blocked on any arm.**' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the behavioral gate is proven by the #709 state-owner rows
 # The Information-diet omission rule and the out-of-bounds declaration are PRESERVED by the
@@ -650,8 +579,6 @@ devflow_module_pin_unique "#709: the cutover preserved the out-of-bounds declara
   'reasoning artifacts out of bounds' "$CI_BUNDLE"  # structural-pin-ok: preservation pin over prose the #709 cutover must not remove
 devflow_module_pin_unique "#709: Step 4 renders the steering marker on the audit-summary line" \
   'audit independence unestablished' "$CI_ROOT/skills/create-issue/references/step-4-present-create.md"  # structural-pin-ok: contract-presence over skill prose; the behavioral gate is proven by the #709 state-owner rows
-devflow_module_pin_unique "#709: the withheld state routes through the existing re-audit offer" \
-  'takes this same sanctioned path' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the behavioral gate is proven by the #709 state-owner rows
 
 # ── issue #768: the file-arm audit dispatch path is named exactly ──────────────
 # Each pin below asserts one new operative statement the #768 rewrite of the
@@ -675,10 +602,6 @@ devflow_module_pin_unique "#768: record-dispatch output names dispatch_regenerat
   'dispatch_regeneration=<verified|diverged|unverified>' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the field is printed by issue-audit-state.py
 devflow_module_pin_unique "#768: a diverged regeneration is surfaced in the same turn, before dispatch" \
   'surface that value in chat in the same turn it is printed' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose
-devflow_module_pin_unique "#768: the skill arms no fallback wakeup" \
-  'This skill arms no fallback wakeup' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose
-devflow_module_pin_unique "#768: the instruction file lifetime is stated" \
-  'Instruction-file lifetime.' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose
 
 devflow_module_pin_unique "#600: SKILL states the positional two-marker delivery check" \
   'first line begins `render-status:`' "$CI_BUNDLE"
@@ -832,10 +755,6 @@ devflow_module_pin_unique "#546: the verdict token's absence is classified by th
 devflow_module_pin_unique "#546: query-next-action's answer is obeyed verbatim from its closed answer set" \
   '**Obey the answer verbatim** — it is one of `dispatch-embed-retry`, `dispatch-retry-same-arm`, `dispatch-inline-degraded`, `proceed`, `revise-and-reaudit`, `revise-then-evaluate-offer`, `round-open-awaiting-return`, or `round-closed-no-verdict`' \
   "$CI_BUNDLE"
-# A finding can be wrong: the run verifies each against the code before acting. No tool can do
-# this — it is the one step in the loop that requires reading the repository.
-devflow_module_pin_unique "#546: findings are verified against the code before any revise action" \
-  '**verify each finding against the code before acting** (a finding can be wrong)' "$CI_BUNDLE"
 
 # ── issue #462: three create-issue authoring-discipline rules (prose + pins). Reuses the
 #    #312/#443 create-issue file vars (CI_TMPL, CI_SKILL, CI_EXT). Each pinned literal
@@ -843,44 +762,16 @@ devflow_module_pin_unique "#546: findings are verified against the code before a
 #    (the #312 item-2 coupled-pair pattern). The template↔Step-3.5 coupled pair for the
 #    unstated-reliance class is pinned on BOTH sides so a one-sided edit goes RED.
 # Rule 1 — value-comparison type-semantics, template AC guidance + its checklist mirror.
-devflow_module_pin_unique "#462 rule1: template AC guidance states value-comparison in observed-output terms" \
-  "A value-comparison AC states its comparison in the producing surface's observed-output" "$CI_TMPL"
-devflow_module_pin_unique "#462 rule1: verified arm requires the probe exercise the distinguishing boundary fixture" \
-  'and a probe **silent on the distinguishing axis' "$CI_TMPL"
-devflow_module_pin_unique "#462 rule1: obligation arm carries the execution-tier constraint (governs rule 3 too)" \
-  'implement-tier verification commands (this governs this value-comparison AC and the Step 3.5' "$CI_TMPL"
-devflow_module_pin_unique "#462 rule1: quality-checklist mirror line for the value-comparison rule" \
-  "Value-comparison ACs/assertions state the comparison in the producing surface's observed-output terms" "$CI_TMPL"
 # Rule 1 also verified in the Step 3.5 steelman (the check that flags a non-conforming AC).
-devflow_module_pin_unique "#462 rule1: Step 3.5 checks value-comparison ACs for observed-output grounding" \
-  'Value-comparison ACs are checked for observed-output grounding' "$CI_BUNDLE"
 # Rule 2 — convention-matrix reconciliation + the `governing conventions consulted:` discharge
 # literal pinned in BOTH the Testing Strategy guidance AND its quality-checklist mirror.
-devflow_module_pin_unique "#462 rule2: template Testing Strategy carries the convention-matrix reconciliation rule" \
-  'Reconcile an enumerated case matrix against governing conventions' "$CI_TMPL"
-devflow_module_pin_unique "#462 rule2: discharge literal in the Testing Strategy guidance" \
-  'governing conventions consulted: <sources cited by path' "$CI_TMPL"
-devflow_module_pin_unique "#462 rule2: discharge literal mirrored in the quality checklist" \
-  'a `governing conventions consulted:` discharge line bounded to' "$CI_TMPL"
 # Rule 3 — unstated-mechanism-dependency, coupled template↔Step-3.5 pair + summary/zero arm.
-devflow_module_pin_unique "#462 rule3 (coupled/template): template names the unstated-reliance premise class" \
-  'Unstated mechanism dependencies are a premise class too' "$CI_TMPL"
-devflow_module_pin_unique "#462 rule3 (coupled/SKILL): Step 3.5 gains the mandatory mechanism-dependency hunt" \
-  "Sweep the draft's own unstated mechanism dependencies (mandatory)" "$CI_BUNDLE"
-devflow_module_pin_unique "#462 rule3: Step 3.5 summary reports both new sweeps" \
-  'The summary additionally reports both new sweeps' "$CI_BUNDLE"
 devflow_module_pin_unique "#462 rule3: zero arm states the falsifiable no-dependencies claim, not a count" \
   'the mechanism invokes no in-repo helpers, resolvers, or gates' "$CI_BUNDLE"
 # Rule 3's template quality-checklist mirror pinned too (symmetry with rule 1's checklist pin) —
 # closes the coupled-mirror drift gap the pr-test-analyzer flagged: the checklist line can no
 # longer silently drift out of agreement with the premise-class prose it mirrors.
-devflow_module_pin_unique "#462 rule3: quality-checklist mirror line for the unstated-mechanism-dependency rule" \
-  'are each resolved with a cited probe or an implementer-obligation AC' "$CI_TMPL"
 # Step 3.6 — one consolidated generic dimension + the growth policy.
-devflow_module_pin_unique "#462 dim: Step 3.6 generic checklist carries the consolidated authoring-discipline dimension" \
-  'Authoring-discipline defects** — three related shapes' "$CI_TMPL_AUDIT"
-devflow_module_pin_unique "#462 dim: Step 3.6 audit-prompt area states the finding-cap growth policy" \
-  'execution-blocking defect classes outrank authoring-discipline classes for the finding-cap slots' "$CI_BUNDLE"
 # Extension — one consolidated DevFlow-specific sharpening.
 devflow_module_pin_unique "#462 ext: live create-issue extension carries the consolidated DevFlow sharpening" \
   'Authoring-discipline defects (DevFlow specifics, issue #462)' "$CI_EXT"
@@ -895,33 +786,15 @@ devflow_module_pin_unique "#462 ext: live create-issue extension carries the con
 #    one-sided edit goes RED.
 # Cluster A — universal-claim rule (template AC guidance + checklist), Step 3.5 sweep + zero arm,
 # Step 3.6 dimension sharpening (generic checklist size guard-locked below).
-devflow_module_pin_unique "#467 A1: template AC guidance carries the universal-claim rule" \
-  'about the system under change is grounded' "$CI_TMPL"
-devflow_module_pin_unique "#467 A1: universal-claim rule carries the claim-level positive-control obligation" \
-  'positive-control obligation** on the' "$CI_TMPL"
-devflow_module_pin_unique "#467 A1: quality-checklist mirror for the universal-claim rule" \
-  'Every universal quantifier ("never/always/each/every/all/cannot")' "$CI_TMPL"
-devflow_module_pin_unique "#467 A2: Step 3.5 runs the universal-quantifier sweep (same carve-out)" \
-  'Universal-quantifier sweep (mandatory' "$CI_BUNDLE"
-devflow_module_pin_unique "#467 A2: Step 3.5 item-6 summary states the falsifiable zero arm" \
-  'the draft carries no ungrounded universal quantifier' "$CI_BUNDLE"
-devflow_module_pin_unique "#467 A3: Step 3.6 Load-bearing-assumptions dimension names universal quantifiers" \
-  'including any **universal quantifier** the draft asserts' "$CI_TMPL_AUDIT"
 # A3 count guard — the generic dimension checklist size is guard-locked (dimension-growth policy).
 # The count is 9 after issue #464 (merged) appended the "Adversarial third-party input" dimension;
 # #467 sharpened the "Load-bearing assumptions" dimension in place, adding no row (the growth-policy
-# carve-out #464 pins sanctions that single standalone addition). Pin BOTH sed anchors
-# present-and-unique so the count range stays bounded: a start-anchor drift already fails the count
-# RED (sed prints nothing -> count 0), but an *end*-anchor drift would let sed run to EOF while the
-# count coincidentally stays fixed, passing vacuously — these two pins turn either anchor's
-# rename/removal RED at the desk. The devflow_module_pin_unique pins are UNANCHORED substring matches,
-# though, while the sed range keys on the LINE-START shape /^\*\*.../ — so a position-only drift
-# (an indent or prefix that keeps the substring but breaks ^** ) would slip the substring pins and
-# still let sed run to EOF while the count stays 9. The two assert_eq below close that residual hole
-# by binding each anchor to the exact ^** column-0 predicate sed uses, so the range can never
-# silently un-bound (rename, removal, OR position drift all go RED at the desk).
-devflow_module_pin_unique "#467 A3: the generic-dimension-checklist sed START anchor is present and unique" \
-  '**Audit dimensions** (judge the draft against each):' "$CI_TMPL_AUDIT"
+# carve-out #464 pins sanctions that single standalone addition). Guard the sed range with an
+# existence pin for its END anchor plus exact line-start counts for both anchors below. A
+# start-anchor drift already fails the range count (sed prints nothing -> count 0), while an
+# end-anchor drift could let sed run to EOF and coincidentally preserve the count. The END pin
+# catches rename/removal; the two assert_eq checks bind both anchors to the exact column-0
+# predicates sed uses, so position drift also goes RED.
 devflow_module_pin_unique "#467 A3: the generic-dimension-checklist sed END anchor is present and unique" \
   '{CONSUMER_DIMENSIONS}' "$CI_TMPL_AUDIT"
 # Line-anchored anchor checks (close the position-drift hole the substring pins above cannot):
@@ -934,30 +807,8 @@ assert_eq "#467 A3: Step 3.6 generic dimension checklist is 9 bullets (8 base + 
   "$(sed -n '/^\*\*Audit dimensions/,/^{CONSUMER_DIMENSIONS}/p' "$CI_TMPL_AUDIT" | grep -c '^- \*\*')"
 # Cluster B — occurrence-count premise class (coupled template<->Step-3.5) + checklist mirror; AC
 # mutual-consistency check (Step 3.5 + template AC guidance + checklist mirror).
-devflow_module_pin_unique "#467 B1 (coupled/template): template names the occurrence-count/site-list premise class" \
-  'Occurrence counts and coupled-site lists are a premise class too' "$CI_TMPL"
-devflow_module_pin_unique "#467 B1 (coupled/SKILL): Step 3.5 mirrors the occurrence-count premise class" \
-  'Occurrence counts and coupled-site lists are checked the same way' "$CI_BUNDLE"
-devflow_module_pin_unique "#467 B1: quality-checklist mirror for the occurrence-count premise class" \
-  'Every in-repo occurrence count or coupled-site list is grounded by an executed whitespace-normalized search' "$CI_TMPL"
-devflow_module_pin_unique "#467 B2: Step 3.5 carries the AC mutual-consistency check" \
-  'AC mutual-consistency check (mandatory)' "$CI_BUNDLE"
-devflow_module_pin_unique "#467 B2: template AC guidance body carries the AC mutual-consistency rule" \
-  "No acceptance criterion forbids a surface another criterion's discharge must touch" "$CI_TMPL"
-devflow_module_pin_unique "#467 B2: quality-checklist mirror for the AC mutual-consistency check" \
-  'the ACs are mutually consistent' "$CI_TMPL"
 # Cluster C — conditional-path (coupled template<->Step-3.5), stated-but-unbound (Step 3.5's item-4 clause),
 # trust-boundary closure (template AC guidance + Step 3.5 omission hunt).
-devflow_module_pin_unique "#467 C1 (coupled/template): template premise method includes the gates on the path to X" \
-  'Verifying "the code does X" includes the gates on the path to X' "$CI_TMPL"
-devflow_module_pin_unique "#467 C1 (coupled/SKILL): Step 3.5 mirrors the conditional-path premise check" \
-  'A "code does X" premise is verified with its enclosing gates on the path to X' "$CI_BUNDLE"
-devflow_module_pin_unique "#467 C2: Step 3.5 unstated-dependency item extends to stated-but-unbound inputs" \
-  'Extend the sweep to stated-but-unbound inputs (mandatory)' "$CI_BUNDLE"
-devflow_module_pin_unique "#467 C3 (template): AC guidance carries the trust-boundary closure rule" \
-  'source / exec / import closure' "$CI_TMPL"
-devflow_module_pin_unique "#467 C3 (SKILL): Step 3.5 omission hunt carries the trust-boundary closure check" \
-  'trust-boundary closure check (mirroring the template' "$CI_BUNDLE"
 # C1/C3 quality-checklist mirrors — pinned for parity with the A1/B1/B2 checklist-mirror pins
 # above (AC-E1: every new contract sentence in a pinned surface is presence-pinned), so a future
 # edit can no longer silently drop or reword the conditional-path / trust-boundary checklist rows
@@ -972,16 +823,12 @@ devflow_module_pin_unique "#467 C3: quality-checklist mirror for the trust-bound
 # fix-delta gate); extension sharpening (whole-file dimension count held at 9 after the
 # deployment-variance dimension added on main; #467 added none, matching the D3 guard below). The six-shape
 # SIXSHAPE_SET lockstep pins above stay green — the widening references the set, never restates it.
-devflow_module_pin_unique "#467 D1: Move 2a carries the introduction trigger" \
-  'Move 2a also fires on *introduction*, not only on narrowing' "$CI_TMPL"
 devflow_module_pin_unique "#467 D1: introduction trigger names a blanket testing-scope waiver non-conforming" \
   'blanket testing-scope waiver' "$CI_TMPL"
 devflow_module_pin_unique "#467 D2 (CLAUDE.md leg): best-effort-parser gotcha widened to mutable-markdown/external-format" \
   'The governed surface is broader than config JSON' "$CI_CLAUDE"
 devflow_module_pin_unique "#467 D2 (Phase 2.4 leg): dry-trace rule widened to mutable-markdown/external-format" \
   'The governed surface is broader than config JSON' "$CI_IMPL_BUNDLE"  # runtime-pin-ok: target is the module-internal implement-skill bundle built under the runtime scratch root, unresolvable by the static meta-guard
-devflow_module_pin_unique "#467 D2 (review-and-fix leg): fix-delta matrix widened to mutable-markdown/external-format" \
-  'widens to a parser over agent- or human-mutable markdown and a reader of a new external structured format' "$CI_MAXI_BUNDLE"  # runtime-pin-ok: target is the module-internal review-and-fix bundle built under the runtime scratch root, unresolvable by the static meta-guard
 devflow_module_pin_unique "#467 D3: extension authoring-discipline dimension demands the input-type-appropriate matrix" \
   'input-type analogue** for the widened surfaces' "$CI_EXT"
 # D3 count guard — the extension's dimension-bullet count is guard-locked. Since issue #548
@@ -1039,24 +886,6 @@ devflow_module_pin_unique "#593: docs/implement-skill.md states in-PR grants tak
 #    behavioral-fix pins, so no devflow_module_pin_red_under mutation obligation attaches (matching the
 #    suite's precedent for this pin class; the #546/#548 state-owner behavior is covered
 #    behaviorally in lib/test/test_python_scripts.py and the CLI block below).
-devflow_module_pin_unique "#548: evidence-bundle axis floor sentence" \
-  'covering **at minimum** these generic axes: authoritative producers and the values they emit' "$CI_BUNDLE"
-devflow_module_pin_unique "#548: entry-form — an axis with no entry is not a legal bundle state" \
-  'an axis with no entry is not a legal bundle state' "$CI_BUNDLE"
-devflow_module_pin_unique "#548: proportionality scope-inference clause" \
-  'N/A — checked: scope inference' "$CI_BUNDLE"
-devflow_module_pin_unique "#548: self-describing header sentence" \
-  'opens with a compact fixed header restating the three entry forms' "$CI_BUNDLE"
-devflow_module_pin_unique "#548: bundle-coverage gate fires at the same two sites" \
-  'The bundle-coverage gate fires at the **same two sites**' "$CI_BUNDLE"
-devflow_module_pin_unique "#548: bundle-currency three-triggers sentence" \
-  'additionally re-checks bundle currency against **three triggers**' "$CI_BUNDLE"
-devflow_module_pin_unique "#548: approach-fork (Recommended)-citation sentence" \
-  'one-line why cites at least one bundle entry by axis name' "$CI_BUNDLE"
-devflow_module_pin_unique "#548: unestablished-axes disclosure sentence" \
-  'discloses by name every effective-list axis that is' "$CI_BUNDLE"
-devflow_module_pin_unique "#548: no-citation-grade arm withholds the marking visibly" \
-  'marking and its rationale states that no citation-grade evidence exists' "$CI_BUNDLE"
 devflow_module_pin_unique "#548/#600: heading-extraction rule owned by the renderer/template" \
   'duplicate same-heading sections are concatenated in file order' "$CI_TMPL_AUDIT"
 # (#600 cutover) retired: this extraction-rule / re-load-site prose pin is
@@ -1143,26 +972,10 @@ assert_eq "#611/#600 AC6: the surviving no-op sentence states the absent heading
 # string passes under any reworded restatement, so it polices nothing.
 # (#600 cutover) retired here: the "terminator precision is stated exactly once"
 # pin — superseded for the same reason; regression covered by R4's extraction matrix.
-devflow_module_pin_unique "#548: bounded actionability definitions (must-revise)" \
-  'a verified correctness, safety, implementability, unresolved-decision, or load-bearing-premise defect' "$CI_BUNDLE"
-devflow_module_pin_unique "#548: VERDICT: FILE may carry advisory findings" \
-  'may carry advisory findings' "$CI_BUNDLE"
-devflow_module_pin_unique "#548: VERDICT: REVISE requires a verified unresolved must-revise finding" \
-  'requires at least one verified unresolved must-revise finding' "$CI_BUNDLE"
-devflow_module_pin_unique "#548: Quiet-Killer becomes an assessed one-or-none slot" \
-  'report at most one qualifying Quiet Killer, or explicitly report' "$CI_TMPL_AUDIT"
-devflow_module_pin_unique "#603: effective-count T1 sentence (supersedes the #548 at-close wording)" \
-  'T1 consumes the RUN-WIDE EFFECTIVE unresolved must-revise count' "$CI_BUNDLE"
-devflow_module_pin_unique "#548: fail-closed T2 gains the unadjudicated-round arm" \
-  'T2 gains one new fail-closed arm (the `unadjudicated-round` arm)' "$CI_BUNDLE"
-devflow_module_pin_unique "#603: convergence-definition sentence (post-resolution semantics)" \
-  'a converged run is one with zero run-wide effective unresolved must-revise' "$CI_BUNDLE"
 # AC7: the definition no longer claims a budget clause evaluate_convergence never computed;
 # round funding is named as where budget legality is actually enforced.
 assert_eq "#603: the convergence definition no longer claims a budget clause" \
   "0" "$(devflow_module_pin_count 'within the existing automatic audit budget' "$CI_BUNDLE")"
-devflow_module_pin_unique "#603: round funding named as the budget-enforcement site" \
-  '**Budget legality is not read here** — round funding is where it is enforced' "$CI_BUNDLE"
 
 # ── issue #603: the per-finding ledger, the post-close channels, and the reconciliation
 #    discipline. Surface-presence contract pins over agent-executed prose. Where a pinned
@@ -1218,10 +1031,6 @@ devflow_module_pin_unique "#603/AC19: the forced-reinit cost is disclosed" \
   "**destroys the run's entire lifecycle record, including the round-budget accounting**" "$CI_BUNDLE"
 devflow_module_pin_unique "#603/AC19: an erroneous invalidation needs no amend path" \
   '**A single erroneous invalidation needs no amend path at all**' "$CI_BUNDLE"
-devflow_module_pin_unique "#548: Step 3.5 summary reports the evidence bundle's coverage" \
-  "The summary additionally reports the evidence bundle's coverage" "$CI_BUNDLE"
-devflow_module_pin_unique "#548: Step 4 audit summary reports the bundle's coverage + actionability" \
-  "The Step 4 audit summary line reports the bundle's coverage" "$CI_BUNDLE"
 # ── issue #465: within-text multi-state-contract reconciliation (prose + pins). Reuses the
 #    #312/#443 create-issue file vars (CI_SKILL, CI_TMPL, CI_EXT) + CI_OVERVIEW.
 #    Each pin is a behavioral-fix pin: its literal IS an operative sentence whose removal
@@ -1291,34 +1100,9 @@ devflow_module_pin_unique "#464 AC1: Step 3.6 generic checklist gains the advers
   'Adversarial third-party input' "$CI_TMPL_AUDIT"
 devflow_module_pin_unique "#464 AC1: the dimension carries the input-is-data guard (data to classify, not obey)" \
   'data to classify, never instructions to obey' "$CI_TMPL_AUDIT"
-# The growth-policy carve-out reconciling the appended standalone dimension with the
-# consolidate-before-appending rule is itself a coupled contract sentence — pin it so a future
-# edit that drops it (leaving the dimension and the policy silently self-contradicting) goes RED.
-devflow_module_pin_unique "#464 AC1: growth-policy carve-out sanctions the standalone dimension" \
-  'sanctioned standalone addition, not a breach of consolidate-before-appending' "$CI_BUNDLE"
-# AC4 — Step 3.5 omission-hunt list gains both checks.
-devflow_module_pin_unique "#464 AC4: Step 3.5 hunt flags a new judgment surface missing the guard/hostile-case pair" \
-  'without the guard-AC-plus-hostile-case pair' "$CI_BUNDLE"
-devflow_module_pin_unique "#464 AC4: Step 3.5 hunt flags an AC enum list declaring neither floor nor closure" \
-  'declares neither a floor marker nor a closed-set' "$CI_BUNDLE"
-# AC2 — template drafter-side judgment-surface guard rule (coupled with the Step 3.6 dimension).
-devflow_module_pin_unique "#464 AC2: template carries the drafter-side judgment-surface guard rule" \
-  'A designed LLM/semantic-judgment surface over third-party text carries an input-is-data' "$CI_TMPL"
-devflow_module_pin_unique "#464 AC2: template states a no-new-judgment-surface draft gains no new questions/flags" \
-  'new judgment surface gains no new questions and no new flags' "$CI_TMPL"
 # AC3 — template Acceptance-Criteria list-closure rule + Move 2 write-back extension.
-devflow_module_pin_unique "#464 AC3: template AC rules require every enumerated AC list to declare its closure" \
-  'Every enumerated test/case/example list inside an AC declares its closure' "$CI_TMPL"
 devflow_module_pin_unique "#464 AC3: Move 2 writes the coverage-sweep output back as closed AC items before filing" \
   "writes the sweep's output back as additional closed AC items before filing" "$CI_TMPL"
-# AC2/AC3 second mirror site — the template's final self-review quality-checklist (the drafter's
-# actual self-check surface). Pinned on BOTH halves of each rule per the coupled-mirror discipline
-# (#462 quality-checklist-mirror pattern), so the guidance-prose site and the checklist site cannot
-# silently drift out of agreement.
-devflow_module_pin_unique "#464 AC2: quality-checklist mirror line for the judgment-surface guard rule" \
-  'carries the input-is-data guard AC paired with a hostile-input' "$CI_TMPL"
-devflow_module_pin_unique "#464 AC3: quality-checklist mirror line for the enumerated-AC-list closure rule" \
-  'each floor-marked list has had Move 2' "$CI_TMPL"
 # AC5 — extension gains the mutation-evidence dimension, scoping surface-presence pins OUT.
 devflow_module_pin_unique "#464 AC5: extension gains the mutation-evidence dimension for behavioral-fix pins" \
   'Mutation evidence for behavioral-fix pins (issue #464)' "$CI_EXT"
@@ -1499,22 +1283,7 @@ rm -f "$CI559_BND"
 devflow_module_pin_red_under "#559: always-run trigger carries the at-every-revision-event qualifier" \
   'runs **at every revision event** — before any re-audit dispatch at that site and before any presentation of the revised draft' \
   's/at every revision event/sometimes/' "$CI_BUNDLE"
-# The remaining new load-bearing sentences carry surface-presence pins.
-devflow_module_pin_unique "#559: the Revision-delta verification procedure is stated once as a named block" \
-  '### Revision-delta verification (shared procedure — referenced by every revise-and-re-gate site)' "$CI_BUNDLE"
-devflow_module_pin_unique "#559: per-class walk records one entry per class, else a stated falsifiable zero" \
-  "one compact entry per class — the class's enumerated items, else a stated falsifiable zero" "$CI_BUNDLE"
-devflow_module_pin_unique "#559: an all-zeros walk ends the batch's work at the walk record" \
-  "An all-zeros walk ends the batch's work at the walk record." "$CI_BUNDLE"
-devflow_module_pin_unique "#559: the inline fix loop walks the fix and terminates on an all-zeros walk" \
-  'walk the fix as its own edit-batch; a batch whose walk is all-zeros ends the loop.' "$CI_BUNDLE"
-devflow_module_pin_unique "#559: closing evidence line — enumerated/verified/fixed format literal" \
-  'revision-delta check: <N> enumerated, <V> verified, <F> fixed' "$CI_BUNDLE"
-devflow_module_pin_unique "#559: closing evidence line — no-verifiable-delta format literal" \
-  'revision-delta check: no verifiable delta' "$CI_BUNDLE"
-devflow_module_pin_unique "#559: the five per-site evidence-line anchors are enumerated" \
-  "at Step 3.5's item 5, immediately after that item's gate re-run; at Step 3.5's item 6, immediately before the initial Step 3.6 dispatch's pre-dispatch draft write" "$CI_BUNDLE"
-# SYSTEM_OVERVIEW §11 documents the procedure in both revise-loop descriptions (AC 13).
+# SYSTEM_OVERVIEW §11 retains two Revision-delta procedure mirrors (AC 13).
 devflow_module_pin_unique "#559: overview §11 (Step 3.5 loop) documents the Revision-delta verification procedure" \
   "walks the revision's edit-batch delta across six classes" "$CI_OVERVIEW"
 devflow_module_pin_unique "#559: overview §11 (Step 3.6/Step 4 loop) documents the Revision-delta verification procedure" \
@@ -1856,13 +1625,11 @@ ci749_field() {  # <field label>
 ci749_field 'Verdict'
 ci749_field 'Relevant code files'
 ci749_field 'Current behavior'
-ci749_field 'Drift detail'
+# AC7 — one exact-count guard couples the report producer to its issue-template consumer.
+assert_eq "#749/AC7: Drift detail report field and Documentation Drift landing site remain coupled" \
+  "producer=1 consumer=1" \
+  "producer=$(devflow_module_pin_count '- **Drift detail:**' "$CI_DV") consumer=$(devflow_module_pin_count '- **Documentation Drift** —' "$CI_TMPL")"
 ci749_field 'Search space surveyed'
-# AC7 — the drift-detail field's declared landing site in the issue template. Its counterpart
-# producer field is pinned by `ci749_field 'Drift detail'` above; without this the consumer end
-# of that pair is unpinned and the landing site could be dropped green.
-devflow_module_pin_present "#749/AC7: the issue template declares the drift-detail landing site" \
-  '- **Documentation Drift** —' "$CI_TMPL"  # structural-pin-ok: surface-presence over a declared landing site, matching AC13's field pins
 ci749_field 'Duty statuses'
 ci749_field 'Bearing observations'
 unset -f ci749_field
