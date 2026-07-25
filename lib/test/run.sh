@@ -12028,8 +12028,8 @@ assert_pin_red_under "#547 AC10: a sed -E reorder placing the gate after §1.4 t
 # An issue stating it "must merge after #N" is verified deterministically: each
 # declared dependency's state is read via gh issue view; all-closed records a
 # confirmation note, an OPEN (or unresolvable) dependency routes to the Blocked
-# path with the 👎 outcome reaction. The heading and extracted helper invocation
-# remain covered here.
+# path with the 👎 outcome reaction. The heading, extracted helper invocation,
+# dependency-state arms, and landed-state recognition remain covered here.
 assert_pin_red_on_removal "#254: deleting the early dependency preflight heading turns its pin RED" \
   'Early declared-dependency preflight' "$IMPL_SKILL"
 assert_pin_unique "#254: Phase 1 invokes the extracted dependency preflight helper" \
@@ -12057,8 +12057,8 @@ assert_pin_unique "#254: helper recognizes CLOSED and MERGED as landed states" \
 # (cloud-tier AND DEVFLOW_APP_ID empty), never on tier alone.
 # The remaining assertions cover the all-blocked Phase 1 path and the coupled
 # Phase 2/Phase 4 behavior below.
-# Scoped to phase-1-setup.md (where Phase 1.6 lives) so the remaining assertion is
-# precise to the audit-pass surface AC7 names, not the whole bundle.
+# Scoped to phase-1-setup.md (where Phase 1.6 lives) so the remaining assertions
+# are precise to the audit-pass surface AC7 names, not the whole bundle.
 P1_FILE="$IMPL_PHASES_DIR/phase-1-setup.md"
 # #346's remaining all-blocked contract stays pinned below.
 assert_pin_red_under "#346/#350: capability routing never collapses to tier/path alone" \
@@ -12130,7 +12130,7 @@ assert_pin_unique "#346: Phase 2.5 commit guard also detects untracked new workf
 # `## Progress` --note the moment its pass completes. Only FINDINGS reflect now: a
 # wrong issue claim (issue-accuracy), punted work (deferred), or a hard stop
 # (blocked).
-# (a) Absence: §1.6 (the LAST section of phase-1-setup.md) carries ZERO
+# Absence: §1.6 (the LAST section of phase-1-setup.md) carries ZERO
 #     `--reflection-kind note` — that kind was the exclusive clean-arm marker, so a
 #     count of 0 proves every clean arm routed to `--note`. The 1.4
 #     freshness/resume/checkpoint `--reflection-kind note` arms live ABOVE §1.6 and
@@ -41768,15 +41768,16 @@ assert_pin_unique "#448 ubc-call-sites: phase-2-implement.md read-target sentenc
 # required to read that WARNING and hard-stop instead of taking the "record and continue" arm
 # (the divergence is in COMMITTED history, so no clean-tree backstop downstream can see it).
 # Reword the producer's echo and the guard silently loses its comparand and fails OPEN — the
-# exact unverified-assumption class CLAUDE.md names. The producer literal and the
-# remaining review-and-fix consumer stay coupled here.
+# exact unverified-assumption class CLAUDE.md names. The producer literal and its
+# two surviving consumers — review-and-fix and phase-1 — stay coupled here.
 UBC_WARN='WARNING push rejected AND the restore to pre-checkpoint SHA'
 assert_pin_unique "#448 ubc-failed-restore: the helper emits the failed-restore WARNING breadcrumb (the guard's producer)" \
   "$UBC_WARN" "$UBC"
 assert_pin_red_under "#448 ubc-failed-restore: the WARNING breadcrumb is what the hard-stop guard keys on (removing it defeats the guard)" \
   "$UBC_WARN" 's#WARNING push rejected AND the restore to pre-checkpoint SHA#push rejected; restore outcome unstated for#g' "$UBC"
-# The remaining review-and-fix consumer must name the failed-restore WARNING as the signal
-# that flips the record-and-continue arm into a hard stop.
+# The review-and-fix consumer must name the failed-restore WARNING as the signal
+# that flips record-and-continue into a hard stop; the phase-1 consumer below pins
+# that the restore remains attempted rather than guaranteed.
 assert_pin_unique "#448 ubc-failed-restore: review-and-fix keys the PUSH_REJECTED hard stop on the failed-restore WARNING" \
   'failed-restore `WARNING`' "$UBC_RAF"
 assert_pin_red_under "#448 ubc-failed-restore: phase-1 checkpoint treats restore as attempted, not guaranteed" \
