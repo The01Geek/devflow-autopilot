@@ -12663,10 +12663,8 @@ assert_eq "#380 W6A heading shape: heading-arm emitted-reset keeps a later prima
   "$(printf 'docs/a.md\ndocs/b.md')" \
   "$(printf '%s\n' "$fx_380_multiscope" | bash "$EXTRACT_HELPER")"
 
-# W6A coupled pair (AC6): the create-issue template canonically emits the bold-bullet
-# `**Documentation Needed**` form, and the extractor accepts all three shapes. Pin
-# BOTH sites with removal proofs so mutating EITHER alone turns the suite RED — the
-# producer/consumer coupling this issue exists to manage.
+# W6A extractor shape guard (AC6): retain the level-3 heading recognition pin. The
+# create-issue template wording is intentionally not existence-pinned in this tranche.
 assert_pin_red_on_removal "#380 W6A coupled pair: extractor opener accepts the ### Documentation Needed heading shape" \
   '^###[[:space:]]+\*{0,2}Documentation Needed' "$EXTRACT_HELPER"
 
@@ -12688,8 +12686,6 @@ assert_pin_red_on_removal "#380 W6A: phase-2 cross-references the doc-AC deferra
   'is why an acceptance criterion satisfied by a' "$P380_P2"
 assert_pin_red_on_removal "#380 W6A: create-issue SKILL.md drafting step mirrors the verified-or-obligation rule" \
   'A mechanical claim is verified-or-obligation, never a bare prediction' "$CI312_SKILL"
-# AC8 completeness (shadow-review pin): the Relevant Classes/Files line-anchor rule is a
-# distinct new operative sentence, so it earns its own removal proof in BOTH sites.
 # Extractor header names all three shapes and this issue (AC5 documentation clause).
 assert_pin_unique "#380 W6A: extractor header names the ### Documentation Needed shape and issue #380" \
   'a `### Documentation Needed` level-3 heading (issue #380)' "$EXTRACT_HELPER"
