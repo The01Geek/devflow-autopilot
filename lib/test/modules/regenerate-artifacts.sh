@@ -1077,9 +1077,8 @@ _ra_has "#624 A5o the unreadable registry is matched by its own arm8 marker" "$R
   "matched '[arm8] '"
 _ra_live_unchanged "#624 A5o live manifest byte-unchanged after the unreadable-registry run"
 
-# ── Helper-content contracts (the registration rule and the disclosed non-goals) ─
+# ── Behaviorally significant helper-content contracts ──────────────────────
 devflow_module_pin_unique "#619 the helper header carries the registration rule" 'A PR that adds a checked-in generated artifact gated by the suite adds a row to this registry in the same PR.' "$RA_HELPER"
-devflow_module_pin_unique "#619 the helper header discloses the excluded hand-maintained inventory" 'DELIBERATELY EXCLUDED as an artifact row, because it is REDUNDANT' "$RA_HELPER"  # structural-pin-ok: surface-presence pin on the helper-header disclosure sentence; removing it breaks no behavioral guarantee (its wording was updated when #765 dropped the prompt-mass inventory from the disclosure)
 assert_eq "#619 the helper is stdlib-only (imports no yaml module)" "0" \
   "$(devflow_module_pin_count 'import yaml' "$RA_HELPER")"
 devflow_module_pin_unique "#619 the helper states its single-file write scope" 'the only file under the target root this helper writes is' "$RA_HELPER"
