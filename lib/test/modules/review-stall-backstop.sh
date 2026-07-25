@@ -830,22 +830,18 @@ assert_eq "#414 post-issue-comment.sh absent -> post-helper-absent ::warning::" 
 assert_eq "#414 post-absent -> NEVER a fired-re-trigger ::notice::" "no" \
   "$(printf '%s\n' "$OUT_NOPOST" | grep -qF 'posted /devflow:review re-trigger' && echo yes || echo no)"
 
-# Helper-content pins (moved from the #408 workflow-inline pins — coupled-invariant
-# reconciliation): the literals the inline glue carried now live ONCE in the helper.
-devflow_module_pin_unique "#414 helper: re-trigger body carries the review stall-backstop header" \
-  "**DevFlow review stall backstop**" "$PRBC"
+# Behaviorally significant helper-content contract retained from the #408
+# workflow-inline reconciliation.
 devflow_module_pin_unique "#414 helper: success notice gated on the post-comment success breadcrumb" \
   'grep -qxF "devflow: posted comment on #$PR_NUMBER"' "$PRBC"
-devflow_module_pin_unique "#414 helper: mktemp guard breadcrumb present" \
-  'review stall backstop: mktemp failed; cannot compose the re-trigger comment' "$PRBC"
 assert_eq "#414 helper: calls the (unchanged-contract) request-review-backstop.sh decision helper" "yes" \
   "$(grep -qF "request-review-backstop.sh" "$PRBC" && echo yes || echo no)"
 assert_eq "#414 helper: posts via the best-effort post-issue-comment.sh REST helper" "yes" \
   "$(grep -qF "post-issue-comment.sh" "$PRBC" && echo yes || echo no)"
 
 # ── #435 AC-5: mktemp-failure arm behaviorally driven (PATH-shadowed failing mktemp) ─────
-# The mktemp guard (`BODY_FILE="$(mktemp)" || { ::warning::…; exit 0; }`) was previously
-# only presence-pinned (the breadcrumb literal above), so a regression that REACHES the arm
+# The mktemp guard (`BODY_FILE="$(mktemp)" || { ::warning::…; exit 0; }`) was once
+# only presence-pinned, so a regression that REACHES the arm
 # and then misbehaves — fires the success notice, exits non-zero, invokes the POST anyway —
 # would ship green. Drive it: with a fire decision reaching the compose step and `mktemp`
 # forced to fail, assert all four — exit 0; the mktemp-specific ::warning::; the POST sentinel
@@ -923,4 +919,3 @@ sed -E '/- name: Review stall backstop/,/bash "\$HELPER"/{/HEAD_SHA: \$\{\{ need
 assert_eq "#435 backstop auto path: dropping the step-scoped HEAD_SHA env line turns the scoped pin RED" \
   "no" "$(bstep_headsha "$T435WF")"
 rm -f "$T435WF"
-
