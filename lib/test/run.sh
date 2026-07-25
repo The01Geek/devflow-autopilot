@@ -3624,12 +3624,9 @@ assert_pin_red_on_removal "378(R6)-mp: deleting the receiving-code-review fail-o
 # Repo-agnostic guard: the R6 rule in the vendored body carries no DevFlow-internal strings.
 assert_eq "378(R6): receiving-code-review R6 rule stays repo-agnostic (no repo test path)" \
   "no" "$(grep -qF 'lib/test/run.sh' "$ST_RCV" && echo yes || echo no)"
-# ── R1 coupled invariant (review-finding follow-up): absolute_claim's priority RANK is
-# mirrored in the review engine's §1.1.5 cap-and-prioritize list AND the DEVFLOW_SYSTEM_OVERVIEW
-# priority ordering — the two must keep it at rank 2. Neither placement was pinned, so a reorder
-# in either file would silently desync them (the coupled-invariant-without-a-pin class). Pin the
-# rank-2 placement at both sites so a reorder/drop in either goes RED.
-assert_pin_unique "378(R1): overview priority ordering keeps absolute_claim above dependency_interaction (rank 2)" \
+# ── R1 overview ordering: keep the documented priority relation explicit. The review-engine
+# wording is intentionally not existence-pinned; this assertion guards only the overview order.
+assert_pin_unique "378(R1): overview priority ordering keeps absolute_claim above dependency_interaction" \
   'absolute_claim > dependency_interaction' "$OG_OVERVIEW_DOC"
 
 # ── Meta-test (#157, AC2): widen the raw-guard audit from the park-calibration
@@ -35659,11 +35656,6 @@ assert_pin_unique "#530 pressure(routing): root failure-map carries the error-ha
   '| `error-handling.md` | Contextual guidance' "$P530_ROOT"
 assert_eq "#530 pressure(routing): root names references/error-handling.md (contextual pointer)" "yes" \
   "$(grep_present "references/error-handling.md" "$P530_ROOT")"
-# #539 review (Suggestion, test_gap): error-handling.md's SET membership (the 8-name pin) and its
-# failure-map row are pinned above, but its GUIDANCE BODY had no content pin — a partial gutting of
-# the body (as opposed to a whole-file delete, which the 8-name set catches) shipped desk-green.
-# Pin one operative clause so the body cannot be silently emptied, symmetric with fixing.md's
-# P530_FIX content pin. (assert_pin_unique is non-vacuous: 0 matches → RED.)
 # #539 review (Important, test_gap): before this block ONLY the loop-control and error-handling
 # failure-map rows were pinned — the other six carried the load-bearing degradation outcomes
 # (STOP-before-mutation, not_verified, persistence backstop, non-convergence) with no operative

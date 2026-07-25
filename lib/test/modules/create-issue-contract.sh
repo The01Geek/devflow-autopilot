@@ -318,9 +318,6 @@ devflow_module_pin_red_under "#443: bounded re-audit never deadlocks filing" \
 devflow_module_pin_red_under "#443: audit summary line is the mandatory never-silent evidence" \
   'the summary line is the evidence the audit ran and which arm it took' \
   's/the evidence the audit ran and which arm it took//' "$CI_SKILL"
-# The two surviving halves of the same contract, pinned as surfaces (the AC requires the
-# summary-line contract sentence to survive the cutover): the line always renders, and a
-# skipped/degraded audit is never silent.
 # Step 4 presentation gate (maps to the artifact-gate AC): the seam that makes Step 3.6
 # mandatory rather than skippable — removing the presence check lets an un-audited draft show.
 devflow_module_pin_red_under "#443: Step 4 presentation gate confirms this run's audit artifact exists" \
@@ -758,8 +755,6 @@ devflow_module_pin_unique "#546: the verdict token's absence is classified by th
 devflow_module_pin_unique "#546: query-next-action's answer is obeyed verbatim from its closed answer set" \
   '**Obey the answer verbatim** — it is one of `dispatch-embed-retry`, `dispatch-retry-same-arm`, `dispatch-inline-degraded`, `proceed`, `revise-and-reaudit`, `revise-then-evaluate-offer`, `round-open-awaiting-return`, or `round-closed-no-verdict`' \
   "$CI_BUNDLE"
-# A finding can be wrong: the run verifies each against the code before acting. No tool can do
-# this — it is the one step in the loop that requires reading the repository.
 
 # ── issue #462: three create-issue authoring-discipline rules (prose + pins). Reuses the
 #    #312/#443 create-issue file vars (CI_TMPL, CI_SKILL, CI_EXT). Each pinned literal
@@ -794,16 +789,12 @@ devflow_module_pin_unique "#462 ext: live create-issue extension carries the con
 # A3 count guard — the generic dimension checklist size is guard-locked (dimension-growth policy).
 # The count is 9 after issue #464 (merged) appended the "Adversarial third-party input" dimension;
 # #467 sharpened the "Load-bearing assumptions" dimension in place, adding no row (the growth-policy
-# carve-out #464 pins sanctions that single standalone addition). Pin BOTH sed anchors
-# present-and-unique so the count range stays bounded: a start-anchor drift already fails the count
-# RED (sed prints nothing -> count 0), but an *end*-anchor drift would let sed run to EOF while the
-# count coincidentally stays fixed, passing vacuously — these two pins turn either anchor's
-# rename/removal RED at the desk. The devflow_module_pin_unique pins are UNANCHORED substring matches,
-# though, while the sed range keys on the LINE-START shape /^\*\*.../ — so a position-only drift
-# (an indent or prefix that keeps the substring but breaks ^** ) would slip the substring pins and
-# still let sed run to EOF while the count stays 9. The two assert_eq below close that residual hole
-# by binding each anchor to the exact ^** column-0 predicate sed uses, so the range can never
-# silently un-bound (rename, removal, OR position drift all go RED at the desk).
+# carve-out #464 pins sanctions that single standalone addition). Guard the sed range with an
+# existence pin for its END anchor plus exact line-start counts for both anchors below. A
+# start-anchor drift already fails the range count (sed prints nothing -> count 0), while an
+# end-anchor drift could let sed run to EOF and coincidentally preserve the count. The END pin
+# catches rename/removal; the two assert_eq checks bind both anchors to the exact column-0
+# predicates sed uses, so position drift also goes RED.
 devflow_module_pin_unique "#467 A3: the generic-dimension-checklist sed END anchor is present and unique" \
   '{CONSUMER_DIMENSIONS}' "$CI_TMPL_AUDIT"
 # Line-anchored anchor checks (close the position-drift hole the substring pins above cannot):
@@ -1634,7 +1625,10 @@ ci749_field() {  # <field label>
 ci749_field 'Verdict'
 ci749_field 'Relevant code files'
 ci749_field 'Current behavior'
-ci749_field 'Drift detail'
+# AC7 — one exact-count guard couples the report producer to its issue-template consumer.
+assert_eq "#749/AC7: Drift detail report field and Documentation Drift landing site remain coupled" \
+  "producer=1 consumer=1" \
+  "producer=$(devflow_module_pin_count '- **Drift detail:**' "$CI_DV") consumer=$(devflow_module_pin_count '- **Documentation Drift** —' "$CI_TMPL")"
 ci749_field 'Search space surveyed'
 ci749_field 'Duty statuses'
 ci749_field 'Bearing observations'
