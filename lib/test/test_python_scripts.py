@@ -4863,6 +4863,7 @@ _TRANSITION_ROWS = [
     ('final-byte', 'slot-refunded-verdictless-pass', True),
     ('final-byte', 'slot-already-spent-for-digest', False),
     ('final-byte', 'pass-cap-reached', False),
+    ('final-byte', 'grant-ceiling-reached', False),
 ]
 
 # table_test_lockstep_count — the exact-count lockstep. Derived from the module's own
@@ -15906,6 +15907,61 @@ def _row792_decline_clears_pending(r):
               "marked as the pass — a stale arm would silently exclude it from the coverage and "
               "calibration selectors and fire a refund on a slot it never drew from",
               False, bool(_state['rounds'][1].get('final_byte_pass')))
+
+
+# ITER-3 finding — a decline over an OUTSTANDING grant must RETRACT it. The grant funded no
+# round, so leaving it funds a phantom round no ceiling saw, no final_byte_pass flag marks, and
+# no refund could reach. Driven with NO other funding source, so the leak is observable (the
+# sibling row above funds its dispatch through record-offer, which would mask it).
+def _row792_decline_retracts_grant(r):
+    r.clean_round()
+    _acc = r.offer(accepted=True)
+    assert_eq("#792 iter3 precondition: the accept is a new grant",
+              True, 'grant=new' in _acc.stdout)
+    Path(r.draft).write_text('# A drafted issue title\n\n## Problem Statement\n\nedited\n',
+                             encoding='utf-8')
+    r('record-revision', r.slug, '--after-round', '1', nonce=True)
+    _dec = r.offer(accepted=False)
+    assert_eq("#792 iter3: the decline RETRACTS the outstanding grant",
+              True, 'grant=retracted' in _dec.stdout)
+    _d2 = r('record-dispatch', r.slug, '--round', '2', '--arm', 'file',
+            '--draft-file', r.draft, nonce=True)
+    assert_eq("#792 iter3: ... so no phantom round is funded — with no automatic budget, no "
+              "user round and no live grant, the dispatch is refused",
+              True, _d2.returncode != 0)
+    assert_eq("#792 iter3: ... with the existing named breadcrumb",
+              True, 'is not funded' in _d2.stderr)
+
+
+_with_run792(_row792_decline_retracts_grant)
+
+
+# ITER-3 finding (CRITICAL) — the grant ceiling must gate GRANTS ONLY. Gating the decline too
+# made the offer unrecordable at the ceiling: neither arm could be recorded, the slot was never
+# spent, and the trigger held again on every return to the approval election — removing the
+# user's exit from the very loop the ceiling exists to bound.
+def _row792_ceiling_still_permits_decline(r):
+    r.uncovered_round()
+    _p = Path(r.tmp, '.devflow', 'tmp', f'issue-audit-state-{r.slug}.json')
+    _d = _json.loads(_p.read_text(encoding='utf-8'))
+    _d['final_byte_passes_used'] = issue_audit_state._FINAL_BYTE_GRANT_CAP
+    _d['final_byte_refunds'] = issue_audit_state._FINAL_BYTE_GRANT_CAP
+    _p.write_text(_json.dumps(_d), encoding='utf-8')
+    assert_eq("#792 iter3 precondition: at the grant ceiling the trigger still HOLDS (the "
+              "refunds returned the honoured-pass headroom), so the offer does fire",
+              'hold', _field704(r.fb(), 'final_byte_trigger='))
+    assert_eq("#792 iter3: an ACCEPT at the grant ceiling is refused",
+              True, r.offer(accepted=True).returncode != 0)
+    _dec = r.offer(accepted=False)
+    assert_eq("#792 iter3: but a DECLINE is still recordable — it is the user's exit from the "
+              "loop, and the ceiling must not remove it",
+              0, _dec.returncode)
+    assert_eq("#792 iter3: ... and it spends the slot, so the offer does not re-fire against "
+              "unchanged bytes",
+              'not-hold', _field704(r.fb(), 'final_byte_trigger='))
+
+
+_with_run792(_row792_ceiling_still_permits_decline)
 
 
 _with_run792(_row792_decline_clears_pending)

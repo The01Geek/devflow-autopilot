@@ -115,13 +115,15 @@ already-audited bytes, not a new discovery round.
 `SCHEMA_VERSION` is **held at 3**. `_validate` treats a version mismatch as a hard refusal with no
 migration path, so a bump would strand every run in flight at upgrade time with `init --force` —
 which destroys the lifecycle record — as its only recovery. Every added field is additive and read
-with a default (`final_byte_passes_used`, `final_byte_slot_digest`, `final_byte_pending`, and the
-per-round `final_byte_pass` flag), none joins `_REQUIRED_TOP`, and `_validate` rejects no unknown
+with a default (`final_byte_passes_used`, `final_byte_refunds`, `final_byte_slot_digest`,
+`final_byte_pending`, and the per-round `final_byte_pass` / `final_byte_pass_digest` fields), none
+joins `_REQUIRED_TOP`, and `_validate` rejects no unknown
 extra key — so a state file written by the new build loads unchanged under the old one, and a run
-in flight across the upgrade reports the axis as `unestablished` rather than failing to load. The
-new counter joins the integer-shape check at the read boundary, so a wrong-typed value is refused
-before either of its two consumers — the coverage derivation and `record-dispatch`'s funding
-arithmetic — reads it.
+in flight across the upgrade reports the axis as `unestablished` rather than failing to load. Both
+new counters join the integer-shape check at the read boundary, so a wrong-typed value is refused
+before any of their consumers reads it, and the two new digest fields are shape-checked on the same
+rule as their siblings — a non-string would not crash the comparisons they feed, it would silently
+answer the wrong way.
 
 ## Coupled sites edited in the same change
 

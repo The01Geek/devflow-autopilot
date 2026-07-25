@@ -395,7 +395,7 @@ _PROTOCOL_TOKENS = (
     # auditor-derived ledger summary, invalidation reason, or claim key can never forge a
     # field of the tool's own printed surface.
     'final_byte_coverage', 'final_byte_exhausted', 'final_byte_passes',
-    'final_byte_reason', 'final_byte_trigger',
+    'final_byte_reason', 'final_byte_trigger', 'grant',
 )
 
 
@@ -688,6 +688,8 @@ TRANSITIONS = (
          result='illegal-final-byte', reason='final-byte-slot-already-spent'),
     _row('final-byte', 'pass-cap-reached', legal=False,
          result='illegal-final-byte', reason='final-byte-pass-cap-reached'),
+    _row('final-byte', 'grant-ceiling-reached', legal=False,
+         result='illegal-final-byte', reason='final-byte-grant-ceiling-reached'),
 )
 
 
@@ -745,6 +747,7 @@ _TRANSITION_REASONS = (
     'binding-tier-unknown', 'binding-nonbound-not-absolute',
     # issue #792 final-byte slot legality breadcrumbs
     'final-byte-slot-already-spent', 'final-byte-pass-cap-reached',
+    'final-byte-grant-ceiling-reached',
 )
 _ALL_REASONS = set(_ELIGIBILITY_REASONS) | set(_TRANSITION_REASONS)
 
@@ -4234,7 +4237,8 @@ def cmd_record_return(args):
             rnd['pending'] = 'dispatch-retry-same-arm'
     # issue #792: a final-byte pass that closes WITHOUT honouring the offer refunds the
     # dedicated slot, so the run keeps its safety pass rather than spending it on a
-    # degradation. The `max(0, ...)` floor pairs with the read-boundary non-negative check.
+    # degradation. `final_byte_passes` clamps the resulting effective count at 0, pairing with
+    # the read-boundary non-negative check on each term.
     if rnd.get('final_byte_pass') and _final_byte_honoured(rnd) is False:
         doc[_FINAL_BYTE_REFUNDS_KEY] = doc.get(_FINAL_BYTE_REFUNDS_KEY, 0) + 1
         # Re-arm the slot only for the bytes THIS pass was funded on. `record-final-byte-offer`
@@ -4245,7 +4249,8 @@ def cmd_record_return(args):
         # safety pass the refund just paid for, where failing the other way would bank a refund
         # the run could never spend — a self-contradicting state nothing detects.
         _pass_digest = rnd.get('final_byte_pass_digest')
-        _rearmed = _pass_digest is None or doc.get('final_byte_slot_digest') == _pass_digest
+        _matched = doc.get('final_byte_slot_digest') == _pass_digest
+        _rearmed = _pass_digest is None or _matched
         if _rearmed:
             doc['final_byte_slot_digest'] = None
         # ── C: the refund's two materially different outcomes are otherwise both SILENT and
@@ -4253,12 +4258,20 @@ def cmd_record_return(args):
         # stderr, not on the stdout line: that line is a closed contract with whole-line
         # comparands, and this repo's #611 precedent puts an additive diagnostic beside such a
         # line rather than in it.
+        if _matched:
+            _fb_note = 're-armed for the bytes the pass covered'
+        elif _rearmed:
+            # The two re-armed branches are NOT the same state, and the message says so: here
+            # the comparand is absent, so which bytes the pass covered is exactly what is
+            # unknown.
+            _fb_note = ('re-armed unconditionally — the pass recorded no digest to compare, so '
+                        'the bytes it covered could not be established')
+        else:
+            _fb_note = ('was NOT re-armed — a later offer moved it to other bytes, so the '
+                        'refunded headroom applies to those instead')
         sys.stderr.write(
             f'issue-audit-state.py record-return: final-byte-slot-refunded for round '
-            f'{rnd["round"]}; the slot '
-            + ('re-armed for the bytes the pass covered\n' if _rearmed else
-               'was NOT re-armed — a later offer moved it to other bytes, so the refunded '
-               'headroom applies to those instead\n'))
+            f'{rnd["round"]}; the slot {_fb_note}\n')
     # Evidence from a REFUSED completion (failed carriage / no parseable verdict) is
     # never recorded: an unproven findings tally must not leak into the summary via a
     # later clean retry that omits its own count.
@@ -5695,10 +5708,12 @@ def cmd_record_final_byte_offer(args):
               'no canonical draft digest is available (no recorded draft binding and no '
               '--draft-file); the final-byte slot is spent PER DIGEST and cannot be '
               'recorded without one')
-    # Both refusal arms read the SHARED derivations rather than open-coding their terms, so the
-    # producer and the read side can never disagree about whether the slot is spendable. The two
-    # are kept as separate arms only to name distinct causes in the breadcrumb, and each embeds
-    # its registered transition reason token so the message and the vocabulary agree.
+    # These two refusal arms read the SHARED derivations rather than open-coding their terms, so
+    # the producer and the read side can never disagree about whether the slot is spendable. They
+    # are kept separate only to name distinct causes in the breadcrumb. Every refusal in this
+    # command — including the grant-ceiling arm further down, which reads the monotonic grant
+    # count directly because no shared derivation exposes it — embeds its registered transition
+    # reason token, so the message and the closed vocabulary cannot drift apart.
     if final_byte_passes(doc)[1]:
         _fail('record-final-byte-offer',
               f'(final-byte-pass-cap-reached) final-byte passes are capped at '
@@ -5710,12 +5725,6 @@ def cmd_record_final_byte_offer(args):
               '(final-byte-slot-already-spent) the final-byte slot is already spent for '
               'these exact bytes; it re-arms only when a recorded revision changes the '
               'canonical digest')
-    if doc.get('final_byte_passes_used', 0) >= _FINAL_BYTE_GRANT_CAP:
-        _fail('record-final-byte-offer',
-              f'(final-byte-grant-ceiling-reached) this run has been granted '
-              f'{_FINAL_BYTE_GRANT_CAP} final-byte passes and none can be granted again; a '
-              f'refund returns cap headroom but the grant ceiling is absolute, so a host on '
-              f'which every pass degrades cannot loop here indefinitely')
     doc['final_byte_slot_digest'] = digest
     # `final_byte_pending` is a SINGLE armed grant that `record-dispatch` pops exactly once.
     # An accept while one is already outstanding therefore ABSORBS it — re-pointing the armed
@@ -5729,9 +5738,30 @@ def cmd_record_final_byte_offer(args):
         if doc.get('final_byte_pending'):
             grant = 'absorbed'
         else:
+            # The grant ceiling gates GRANTS ONLY — checked here, inside the accept arm, never
+            # above both arms. Gating the decline too would make the offer unrecordable at the
+            # ceiling: neither arm could be recorded, the slot would never be spent, and the
+            # trigger would hold again on every return to the approval election — removing the
+            # user's exit from the very loop this ceiling exists to bound, rather than
+            # backstopping it.
+            if doc.get('final_byte_passes_used', 0) >= _FINAL_BYTE_GRANT_CAP:
+                _fail('record-final-byte-offer',
+                      f'(final-byte-grant-ceiling-reached) this run has been granted '
+                      f'{_FINAL_BYTE_GRANT_CAP} final-byte passes and no further pass can be '
+                      f'granted; a refund returns honoured-pass headroom but the grant ceiling '
+                      f'is absolute, so a host on which every pass degrades cannot loop here '
+                      f'indefinitely. Decline the offer to proceed.')
             grant = 'new'
             doc['final_byte_passes_used'] = doc.get('final_byte_passes_used', 0) + 1
         doc['final_byte_pending'] = True
+    elif doc.get('final_byte_pending'):
+        # A decline over an OUTSTANDING grant retracts it. That grant funded no round — the
+        # accept armed it and no dispatch consumed it — so the monotonic-grant argument above
+        # does not apply here, and leaving it would fund a phantom round that no ceiling saw,
+        # that no `final_byte_pass` flag marks, and that no refund could ever reach.
+        grant = 'retracted'
+        doc['final_byte_passes_used'] = max(0, doc.get('final_byte_passes_used', 0) - 1)
+        doc['final_byte_pending'] = False
     else:
         doc['final_byte_pending'] = False
     try:
