@@ -7,7 +7,7 @@ Output: `Phase 4/4: Aggregating findings...`
 
 **Skip this step entirely in current-branch mode** (no PR → no body to read). On standalone branch reviews, there is no Scope-Acknowledged Findings block; jump straight to 4.1.
 
-When `$ARGUMENTS` is a PR number, the engine consults the **Scope-Acknowledged Findings** block in the PR body (delimited by `<!-- DEVFLOW_DEFERRED_FINDINGS_START -->` / `<!-- DEVFLOW_DEFERRED_FINDINGS_END -->`) and demotes any current finding matching a validated deferral entry to **Informational**. This is the consumer side of the contract /devflow:implement Phase 4.0.5 produces; without it, /devflow:review re-raises findings /devflow:implement already filed follow-up issues for. (See `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/match-deferrals.py` for the matcher's exact guard order and matching rule.)
+When `$PR_NUMBER` — the PR number the skill root parsed out of `$ARGUMENTS`, never the raw argument string — is a PR number, the engine consults the **Scope-Acknowledged Findings** block in the PR body (delimited by `<!-- DEVFLOW_DEFERRED_FINDINGS_START -->` / `<!-- DEVFLOW_DEFERRED_FINDINGS_END -->`) and demotes any current finding matching a validated deferral entry to **Informational**. This is the consumer side of the contract /devflow:implement Phase 4.0.5 produces; without it, /devflow:review re-raises findings /devflow:implement already filed follow-up issues for. (See `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/match-deferrals.py` for the matcher's exact guard order and matching rule.)
 
 Serialize the Phase 3 findings collected in 3.2 to a JSON array with one object per finding:
 
@@ -24,7 +24,7 @@ Pipe the JSON to the matcher via stdin (the `review` allowed-tools profile in `c
 
 ```bash
 printf '%s' "$FINDINGS_JSON" | "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/match-deferrals.py \
-    --pr $ARGUMENTS \
+    --pr $PR_NUMBER \
     --diff ".devflow/tmp/review/<slug>/<run-id>/diff.patch" \
     --findings -
 ```
@@ -55,8 +55,23 @@ Construct the report in this format:
 ## Verdict: {APPROVE | APPROVE with notes | APPROVE WITH CAVEAT | APPROVE WITH ADVISORY NOTES | REJECT} ({summary})
 
 ## Issue Compliance
-{If issue found: "Reviewed against issue #{number}: {title}. Requirement-based checklist items are included in the verification results below."}
-{If no issue found: "No related issue found — requirement compliance not checked."}
+{Emit the headline as ONE line so a human merging the PR reads the compliance verdict and whether the run narrowed scope together: "Reviewed against issue #{number}: {title} — criteria from {surface}; scope {unchanged | narrowed: {d} deferred, {r} rewritten, {k} dropped without a record | not-established}. Requirement-based checklist items are included in the verification results below." **`scope not-established` is the REQUIRED value whenever `acceptance_criteria_divergence` is `not-applicable` — no workpad was compared, so `unchanged` would assert as observed fact something this run could not establish.** When that line reports any narrowing, the reader's next action is to confirm the narrowed work was filed as a follow-up issue before merging.}
+{Name the surface that supplied the criteria on every run that resolved any, using the sentence below for the run's `acceptance_criteria_source` token — each wording below is deliberately distinct and collapsing any two destroys the signal this section carries:}
+- `workpad` → "Criteria came from the `/devflow:implement` workpad comment — this run's authoritative set, possibly narrowed from the issue."
+- `issue-body` → "This PR has no workpad criteria to use, so the issue body's `## Acceptance Criteria` section supplied them."
+- `workpad-unmirrored` → "A workpad exists but its criteria were never mirrored from the issue — a DevFlow run's mirroring silently failed and the section still holds the seeded pending placeholder — so the issue body's `## Acceptance Criteria` section supplied them."
+- `workpad-read-failed` → "The workpad read failed (a `gh` transport blip), so the issue body's `## Acceptance Criteria` section supplied them and the workpad's own criteria were never seen this run."
+- `pr-identity-mismatch` → "The workpad's criteria could not be confirmed as this PR's — another PR's run on the same issue may have overwritten that section — so the issue body's `## Acceptance Criteria` section supplied them."
+- `resolver-unavailable` → "The acceptance-criteria resolver could not be invoked ({reason}); neither the workpad nor the issue body was examined, so this PR was reviewed WITHOUT a resolved specification." **This wording never claims either surface was checked or that no criteria exist — the resolver never ran, so that is unknown, not zero.**
+- `none`, no issue number resolved → "No related issue found — requirement compliance not checked."
+- `none`, an issue resolved but no surface carried criteria → "Issue #{number} resolved, but neither the workpad nor the issue body carried any acceptance criteria — requirement compliance not checked."
+
+**`workpad-unmirrored` and `workpad-read-failed` each name the issue body as the surface that supplied the criteria, so on a run that resolved NO criteria at all that clause is false and must not be emitted. On those two tokens with an empty criteria list, drop the "supplied them" clause and state the fallback came up empty instead — keeping the token's own distinct reason:** `workpad-unmirrored` → "A workpad exists but its criteria were never mirrored from the issue, and the issue body carries no `## Acceptance Criteria` section either — so no specification was resolved."; `workpad-read-failed` → "The workpad read failed (a `gh` transport blip) and the issue body carries no `## Acceptance Criteria` section, so no specification was resolved — the workpad's own criteria were never seen this run, so whether criteria exist is unknown, not zero." (`pr-identity-mismatch` needs no such arm: it can only arise from a criterion the issue body carries and the workpad dropped, so its criteria list is never empty.) **This is why `acs-resolve` demotes to `none` only from the clean-absence state: `none` asserts both surfaces were examined and carried nothing, which is a fabricated measurement on a run whose workpad read failed, and the opposite claim on a run whose mirroring silently failed.**
+{Report divergence from `acceptance_criteria_divergence`, whose comparison Phase 0.4 made over NORMALIZED criterion sets — ` (post-merge)` tag stripped, tick state ignored, whitespace collapsed — and never over raw section text, because the two sections are structurally unequal on every DevFlow PR so a raw-text notice would carry no signal.}
+{`none` → "No divergence between the workpad's criteria and the issue body's."; `not-applicable` → omit the divergence lines entirely, since only one surface resolved and there is nothing to compare.}
+{Report divergence as membership and text change: each `DROP: <text>` line is a criterion the issue body carries that the workpad set dropped with no recorded decision behind it and IS a finding, rendered "- Dropped, no recorded decision: {text}".}
+{Each `DEFERRED: <text>` and `CHANGED: <old> -> <new>` line is an audited scope decision the run recorded and is NOT a finding, rendered "- Deferred by this run: {text}" and "- Rewritten by this run: {old} → {new}" — the check reads the delimited scope-decision record the run writes and never its free-text note.}
+{A criterion present in the workpad and absent from the issue body is never a finding and is never reported, because that is exactly what the mirrored `## Test Plan` items look like and the workpad section carries no discriminator that could exclude them.}
 
 ## Verification Checklist Results
 {a plain-text line, not a bullet, no surrounding parentheses:} {pass} passed, {fail} failed, {inconclusive} inconclusive — {lite_count} via lite probe, {agent_count} via agent.

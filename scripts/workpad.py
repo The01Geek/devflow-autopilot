@@ -20,6 +20,9 @@ with no config).
 
 Usage:
     workpad.py id        ISSUE [--marker M]
+    workpad.py acs       ISSUE [--exclude-post-merge] [--neutralize-boxes]
+                               [--emit-source-token]
+    workpad.py acs-resolve ISSUE [--pr N]
     workpad.py body      COMMENT_ID
     workpad.py patch     COMMENT_ID BODY_FILE
     workpad.py create    ISSUE BODY_FILE
@@ -52,6 +55,7 @@ sections are mutated in place rather than rewritten. See `workpad.py update
 """
 
 import argparse
+import base64
 import datetime
 import json
 import os
@@ -68,6 +72,61 @@ if sys.version_info < (3, 11):  # fail fast, before any PEP 604 annotation is ev
         % sys.version_info[:3]
     )
     sys.exit(1)
+
+# Shared section/checkbox parsing rules (issue #781) — the SAME implementation
+# `scripts/parse-acs.py` uses to WRITE the workpad's `## Acceptance Criteria`
+# section, so the read-back here can never disagree with the mirror about what a
+# section or a checkbox is. Imported IN-PROCESS, never through a `.sh`/subprocess
+# hop — Windows refuses that with [WinError 193] (issue #275).
+#
+# Two properties of this block are load-bearing, and both were learned the
+# expensive way:
+#
+# 1. It sits BELOW the Python-version gate above. Placed higher it would run
+#    before the gate, so a 3.10 host would die on the import instead of printing
+#    the gate's floor/remedy message — defeating the fail-fast the gate exists
+#    for.
+# 2. The import is OPTIONAL. `workpad.py` is deployed as a standalone file in
+#    two places that copy it WITHOUT its siblings — the Stop-hook trusted-copy
+#    closure, and the suite's own guard sandboxes — and every subcommand those
+#    paths use (`status`, `id`, `update`) needs nothing from this module. A hard
+#    import would take all of them down with a `ModuleNotFoundError` for a module
+#    only `acs` / `acs-resolve` / the scope-decision flags require. So an absent
+#    sibling degrades to a targeted failure ON THOSE SURFACES ONLY, via
+#    `_require_section_parse()` below, rather than to a dead script.
+#
+# The explicit `sys.path` entry is likewise not belt-and-braces: running this
+# file as a script puts `scripts/` on the path for free, but a consumer that
+# loads it through `importlib.util.spec_from_file_location` — how
+# `lib/test/test_python_scripts.py` drives every helper in this directory — does
+# not.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+try:
+    from section_parse import (
+        extract_section,
+        is_post_merge_tagged,
+        normalize_criterion,
+        parse_checkboxes,
+        render_line,
+    )
+    _SECTION_PARSE_IMPORT_ERROR = None
+except ImportError as _e:      # standalone deployment — see (2) above
+    _SECTION_PARSE_IMPORT_ERROR = str(_e)
+
+
+def _require_section_parse(cmd: str) -> None:
+    """Fail closed, with a specific breadcrumb, on the surfaces that need the
+    shared parsing module when it was not deployed beside this file."""
+    if _SECTION_PARSE_IMPORT_ERROR is None:
+        return
+    sys.stderr.write(
+        f"workpad.py {cmd}: the shared parsing module scripts/section_parse.py "
+        f"could not be imported ({_SECTION_PARSE_IMPORT_ERROR}); it must be "
+        f"deployed alongside workpad.py. Refusing rather than guessing at the "
+        f"acceptance-criteria section's shape.\n"
+    )
+    sys.exit(3)
+
 
 # The gh binary to shell out to. `DEVFLOW_GH` (the documented override the shell
 # helpers resolve via lib/resolve-gh.sh) wins when set and non-empty; otherwise
@@ -102,11 +161,15 @@ def _run(cmd, *, stdout=subprocess.PIPE, stdin=None):
 
 
 def _fail(prefix, exc, code=1):
-    # `code` defaults to 1 (the historical contract for every subcommand). Only
-    # cmd_status overrides it to 3 on its gh-api/transport/auth failure paths, so
-    # the cloud stall backstop can tell an auth/transport failure (the workpad
-    # may be healthy — the READ failed) apart from a genuinely unreadable
-    # workpad. Every other caller keeps exit 1 unchanged.
+    # `code` defaults to 1 (the historical contract for every subcommand). The
+    # callers that override it to 3 are cmd_status (its gh-api/transport/auth
+    # failure paths) and the acs surfaces — `_acs_read_workpad` (which passes
+    # api_fail_code=3) and `_acs_fetch_issue_body` (`_fail('acs-resolve', …,
+    # code=3)`). In every one of those the point is the same: the cloud stall
+    # backstop (and cmd_acs_resolve's SystemExit router) can tell an
+    # auth/transport READ failure — the workpad or issue may be perfectly
+    # healthy — apart from a genuinely unreadable/absent workpad. Callers that do
+    # not override keep exit 1 unchanged.
     msg = exc.stderr.strip() if isinstance(exc, subprocess.CalledProcessError) else str(exc)
     sys.stderr.write(f"workpad.py {prefix}: {msg}\n")
     sys.exit(code)
@@ -254,12 +317,14 @@ def _find_workpad_comment(cmd, repo, issue, marker, api_fail_code=1):
     """Scan an issue's comments (paginated) and return the first whose body
     starts with `marker`, or None when the scan completed and none matched.
 
-    Single source for the marker-scan that `cmd_id` and `cmd_status` share — the
-    `per_page=100`/`< 100` pagination boundary and the API/parse error handling
-    live here once. A `gh api` or JSON-parse failure exits via `_fail(cmd, …)`
-    with `api_fail_code` (default 1, so the caller's error prefix and historical
-    exit code are preserved; cmd_status passes 3 to distinguish a transport/auth
-    failure from an unreadable workpad); a clean scan with no match returns None
+    Single source for the marker-scan that `cmd_id`, `cmd_status` and the acs
+    surfaces (`_acs_read_workpad`, and so `cmd_acs`/`cmd_acs_resolve` through
+    it) share — the `per_page=100`/`< 100` pagination boundary and the API/parse
+    error handling live here once. A `gh api` or JSON-parse failure exits via
+    `_fail(cmd, …)` with `api_fail_code` (default 1, so the caller's error prefix
+    and historical exit code are preserved; cmd_status and `_acs_read_workpad`
+    both pass 3 to distinguish a transport/auth failure from an unreadable
+    workpad); a clean scan with no match returns None
     so the caller can apply its own "not found" contract (exit 2)."""
     page = 1
     while True:
@@ -409,6 +474,355 @@ def cmd_status(args):
     print(f"{cls} {glyph} {word}")
 
 
+# ---------------------------------------------------------------------------
+# Acceptance-criteria extraction and resolution (issue #781)
+# ---------------------------------------------------------------------------
+# The review engine sources the requirements it judges a PR against from the
+# GitHub issue BODY, while /devflow:implement's authoritative criteria have
+# moved to the workpad (Phase 2.2.5 narrows the set, Phase 2.2.6 rewrites text,
+# Phase 3.4 retags). `acs` reads the workpad's section back out; `acs-resolve`
+# resolves BOTH surfaces, applies the PR-identity guard, selects the
+# reviewer-facing value, and reports normalized divergence.
+#
+# Both live here rather than in `scripts/parse-acs.py` because the read-only
+# review profile grants `Bash(.devflow/vendor/devflow/scripts/workpad.py:*)` and
+# does NOT grant `parse-acs.py`: riding on workpad.py is what lets the cloud
+# auto-review tier reach this at all without widening the review
+# security-boundary lock.
+
+# The source token names WHICH surface supplied the reviewer-facing criteria, so
+# Phase 4's `## Issue Compliance` can report it. Each value is a state a reader
+# must be able to tell apart — collapsing any two of them would make a DevFlow
+# run whose workpad read silently failed, or whose mirroring never ran,
+# indistinguishable from an ordinary non-implement PR on the very report line
+# this mechanism adds.
+_ACS_SOURCE_WORKPAD = 'workpad'
+_ACS_SOURCE_ISSUE_BODY = 'issue-body'
+_ACS_SOURCE_WORKPAD_UNMIRRORED = 'workpad-unmirrored'
+_ACS_SOURCE_WORKPAD_READ_FAILED = 'workpad-read-failed'
+_ACS_SOURCE_PR_IDENTITY_MISMATCH = 'pr-identity-mismatch'
+_ACS_SOURCE_NONE = 'none'
+
+_ACS_SECTION = 'Acceptance Criteria'
+
+
+def _acs_render(items: list[dict], *, exclude_post_merge: bool,
+                neutralize_boxes: bool) -> str:
+    """Render parsed criteria back to checkbox lines.
+
+    `exclude_post_merge` drops every line already carrying the mirror-time
+    ` (post-merge)` tag. The tag is READ, never re-derived from
+    `parse-acs.py`'s trigger phrases: those criteria are work this PR is not
+    delivering, so handing them to the checklist generator unfiltered would mint
+    highest-priority items a Phase 2 verifier then FAILs — the exact failure
+    this mechanism exists to remove.
+    """
+    kept = [
+        it for it in items
+        if not (exclude_post_merge and is_post_merge_tagged(it['text']))
+    ]
+    return '\n'.join(render_line(it, neutralize_box=neutralize_boxes) for it in kept)
+
+
+def _acs_workpad_state(section_lines: list[str], items: list[dict]) -> str:
+    """Classify the workpad's `## Acceptance Criteria` section.
+
+    Distinguishes the two NON-EMPTY sentinels that both yield zero criteria,
+    because they make OPPOSITE claims: `parse-acs.py`'s
+    `_(none provided in issue body)_` says the issue authoritatively carries no
+    criteria, while `_AC_PENDING_PLACEHOLDER` says Phase 1.2 mirroring never
+    ran. Collapsing them would report a run whose mirroring silently failed as a
+    run that legitimately had nothing to mirror.
+    """
+    if items:
+        return _ACS_SOURCE_WORKPAD
+    if any(_AC_PENDING_PLACEHOLDER in ln for ln in section_lines):
+        return _ACS_SOURCE_WORKPAD_UNMIRRORED
+    return _ACS_SOURCE_ISSUE_BODY
+
+
+def _acs_read_workpad(cmd: str, issue: int):
+    """Locate the workpad and parse its `## Acceptance Criteria` section.
+
+    Returns `(comment_body, section_lines, items)`. Exits 2 (empty stdout AND
+    empty stderr) on a clean absence — the same benign exit `id` and `status`
+    already use, so Phase 0.4 can tell it from argparse's own exit 2 by the
+    empty stderr. A gh/transport/parse failure exits 3 via `_fail`, which is a
+    DIFFERENT non-zero shape so a transport blip is never routed as "this PR has
+    no workpad".
+
+    The marker is the DEFAULT implement marker: there is deliberately no
+    `--marker` flag on these subcommands, so a caller cannot point this read at
+    `/devflow:review`'s own `<!-- devflow:review-progress -->` comment
+    per-invocation. That closes the CALLER channel, not every channel —
+    `_workpad_marker(None)` still resolves through `DEVFLOW_WORKPAD_MARKER` and
+    `.devflow.workpad_marker`. Those are deliberately not closed: they are the
+    same value the implement workpad itself is written under, so repointing one
+    moves this read and the workpad together rather than desynchronizing them.
+    """
+    marker = _workpad_marker(None)
+    c = _find_workpad_comment(
+        cmd, _repo_full(api_fail_code=3), issue, marker, api_fail_code=3,
+    )
+    if c is None:
+        sys.exit(2)
+    body = c.get('body') or ''
+    section_lines = extract_section(body, _ACS_SECTION)
+    return body, section_lines, parse_checkboxes(section_lines)
+
+
+def cmd_acs(args):
+    """Print the workpad's `## Acceptance Criteria` section.
+
+    Unfiltered by default — every criterion carried through with its tick state
+    preserved and its ` (post-merge)` tag left as stored — because the
+    unfiltered section is the divergence comparand. The two flags produce the
+    reviewer-facing value instead.
+
+    Not a byte copy of the stored section: the output is the PARSED checkbox
+    items re-rendered, so blank lines between them are dropped and a `* [ ]`
+    bullet normalizes to `- [ ]`. What is guaranteed is the content contract
+    above — no criterion filtered, no tick state or tag altered — which is what
+    the comparand and the reviewer-facing value both depend on.
+
+    A pure read: no PATCH, no timestamp, nothing time-varying in the output, so
+    re-running it against an unchanged workpad is byte-identical by
+    construction.
+    """
+    _require_section_parse('acs')
+    _, section_lines, items = _acs_read_workpad('acs', args.issue)
+    out = []
+    if args.emit_source_token:
+        out.append(_acs_workpad_state(section_lines, items))
+    rendered = _acs_render(
+        items,
+        exclude_post_merge=args.exclude_post_merge,
+        neutralize_boxes=args.neutralize_boxes,
+    )
+    if rendered:
+        out.append(rendered)
+    if out:
+        print('\n'.join(out))
+
+
+def _acs_diverge(issue_items: list[dict], workpad_items: list[dict],
+                 decisions: list[dict]) -> list[str]:
+    """Compare the two criterion sets and describe how the workpad differs.
+
+    Defined over NORMALIZED sets (` (post-merge)` tag stripped, tick state
+    ignored, whitespace collapsed), never raw section text: `parse-acs.py`
+    writes the workpad section with post-merge tags the issue body does not
+    carry and mirrors the issue's `## Test Plan` items into the same block, and
+    tick state moves as the run proceeds — so a raw-text comparison would report
+    divergence on every DevFlow PR and carry no signal.
+
+    Reports DROPS, audited DEFERRALS, and TEXT CHANGES only — a criterion the
+    workpad no longer carries renders as `DEFERRED:` when a bound record
+    explains it and `DROP:` when nothing does, and a `rewritten` record renders
+    as `CHANGED:` — but only when that record actually carries a `newtext=`
+    payload; a `rewritten` record without one covers nothing and its criterion
+    routes to `DROP` like any other unexplained one. A criterion present in the workpad and
+    absent from the issue body is never a finding: that is exactly what the
+    mirrored `## Test Plan` items look like, and `_render_md` writes them into
+    one flat block with no heading, label, or marker, so the section carries no
+    discriminator an extractor could use to exclude them.
+
+    An uncovered text change is indistinguishable from a drop — the old text is
+    simply missing — so it is reported as `DROP`. That is the honest reading:
+    the issue body stays the authority on membership, and only a `rewritten`
+    record can license the workpad's text over it.
+    """
+    issue_norm = [normalize_criterion(it['text']) for it in issue_items]
+    workpad_norm = {normalize_criterion(it['text']) for it in workpad_items}
+    deferred = {d['text'] for d in decisions if d['kind'] == 'deferred'}
+    # A `rewritten` record with no `newtext=` field records nothing about what
+    # replaced the criterion, so it licenses no text change: it is excluded here
+    # and its criterion falls through to `DEFERRED`/`DROP` like any other
+    # uncovered one. Crediting it as an audited `CHANGED:` would report a scope
+    # narrowing as reviewed on a record that establishes nothing — the same
+    # fail-closed direction `_parse_scope_decisions` takes for an empty payload,
+    # and the direction `_acs_pr_identity_ok` already takes for the same shape
+    # (its `new_text is not None` conjunct), which this line was asymmetric with.
+    rewritten = {d['text']: d['new_text'] for d in decisions
+                 if d['kind'] == 'rewritten' and d['new_text']}
+
+    lines = []
+    for text in issue_norm:
+        if text in workpad_norm:
+            continue
+        if text in rewritten:
+            lines.append(f'CHANGED: {text} -> {rewritten[text]}')
+        elif text in deferred:
+            lines.append(f'DEFERRED: {text}')
+        else:
+            lines.append(f'DROP: {text}')
+    return lines
+
+
+def _acs_pr_identity_ok(issue_items: list[dict], workpad_items: list[dict],
+                        decisions: list[dict]) -> bool:
+    """True when the workpad's criteria are safe to review THIS PR against.
+
+    Not the same as "provably authored by this PR's run", and the difference is
+    deliberate. The guard only rejects a workpad whose set is NARROWER than the
+    issue body's with nothing on record to explain the narrowing; a foreign
+    section that is a superset of the issue body is accepted, because reviewing
+    against a superset can only add criteria, never silently drop one — and
+    dropping is the failure this guard exists to prevent.
+
+    A workpad is one comment per issue, and Phase 2.2.5 replaces its
+    `## Acceptance Criteria` section WHOLESALE — so a second PR's run, or a
+    re-triggered /devflow:implement on the same issue, overwrites the criteria
+    the first PR was reviewed against.
+
+    Fails CLOSED on an absent comparand, and does so PER CRITERION — never at
+    the level of the record set as a whole. Every criterion the issue body
+    carries and the workpad does not must be individually explained by a record
+    bound to this PR: a `deferred` record naming that criterion, or a
+    `rewritten` record naming it whose `new_text` is itself present in the
+    workpad (the criterion did not vanish, it was restated). One unexplained
+    criterion rejects the workpad, however many records exist — including the
+    zero-record shape a pre-change workpad and a failed record write both take.
+    An existential `bool(decisions)` test would instead let a single unrelated
+    record license dropping every other criterion: the vacuous-coverage shape
+    this guard forbids, and the same shape an empty base64 payload takes (which
+    is why `_parse_scope_decisions` drops those records outright).
+    """
+    issue_norm = {normalize_criterion(it['text']) for it in issue_items}
+    workpad_norm = {normalize_criterion(it['text']) for it in workpad_items}
+    if not issue_norm or not workpad_norm:
+        return True
+    # Pure short-circuit, NOT a load-bearing guard: on a superset the loop below
+    # iterates an empty difference and returns True on its own. Deleting this line
+    # is behaviorally inert (mutation-checked green), so no test pins it and none
+    # should be added claiming to — a test named for a guard that cannot fail is a
+    # vacuous one. The superset ACCEPTANCE behavior itself is covered end-to-end by
+    # run.sh's `wp-superset.md` fixture.
+    if workpad_norm >= issue_norm:
+        return True
+    deferred = {d['text'] for d in decisions if d['kind'] == 'deferred'}
+    rewritten = {d['text']: d['new_text'] for d in decisions if d['kind'] == 'rewritten'}
+    for text in issue_norm - workpad_norm:
+        if text in deferred:
+            continue
+        new_text = rewritten.get(text)
+        if new_text is not None and new_text in workpad_norm:
+            continue
+        return False
+    return True
+
+
+def _acs_fetch_issue_body(issue: int) -> str:
+    try:
+        r = _run([GH, 'issue', 'view', str(issue), '--json', 'body', '-q', '.body'])
+    except (subprocess.CalledProcessError, OSError) as e:
+        _fail('acs-resolve', e, code=3)
+    return r.stdout
+
+
+def cmd_acs_resolve(args):
+    """Resolve the reviewer-facing acceptance criteria and name their source.
+
+    Resolves BOTH surfaces — never a short-circuit chain — because the
+    non-selected set is the divergence comparand, and a fallback that stopped at
+    its first hit would leave that report unable to fire on the one population
+    it matters for.
+
+    The workpad section is parsed ONCE and that one item list is rendered TWICE,
+    for different jobs: unfiltered (the comparand) and post-merge-filtered (the
+    reviewer-facing value) — so the two can never disagree about membership,
+    only about the post-merge filter. Filtering
+    the comparand instead would report every post-merge criterion as a workpad
+    drop on every implement PR, because `parse-acs.py` synthesizes that tag at
+    mirror time and the issue body carries those same criteria untagged.
+
+    Always exits 0 on a resolvable state: a workpad that is absent or unreadable
+    is a ROUTED outcome carrying its own source token, not a run-ending error.
+    Exit 3 covers the two ways this command cannot even begin: a failure to read
+    the issue body itself (without which there is no comparand and nothing to
+    resolve), and the opening `_require_section_parse('acs-resolve')` when
+    `scripts/section_parse.py` was not deployed beside workpad.py — a real
+    partial-deployment shape this file's import block documents. Both are
+    "no basis to resolve", distinct from the ROUTED workpad outcomes above.
+
+    The `none` source is reached ONLY from the clean-absence state, because
+    `none` asserts both surfaces were examined and neither carried criteria. A
+    routed state whose issue-body fallback also comes up empty keeps its own
+    token: collapsing `workpad-read-failed` onto `none` would fabricate a
+    measurement of a surface this run never read, and collapsing
+    `workpad-unmirrored` onto it would report a silently-failed mirroring as an
+    ordinary criteria-less PR.
+    """
+    _require_section_parse('acs-resolve')
+    issue_body = _acs_fetch_issue_body(args.issue)
+    issue_items = parse_checkboxes(extract_section(issue_body, _ACS_SECTION))
+
+    # The workpad read is best-effort: each failure shape becomes a token, so a
+    # `gh` transport blip can never present as a normal issue-body resolution.
+    workpad_items: list[dict] = []
+    comment_body = ''
+    try:
+        comment_body, section_lines, workpad_items = _acs_read_workpad(
+            'acs-resolve', args.issue)
+        state = _acs_workpad_state(section_lines, workpad_items)
+    except SystemExit as e:
+        # Only the TWO exits `_acs_read_workpad` documents are routed here: 2
+        # (clean absence) and 3 (`_fail`'s read failure). Any other SystemExit is
+        # an unexpected shape this handler must not absorb — swallowing it would
+        # report an unrelated abort as a routine issue-body resolution, so it is
+        # re-raised.
+        if e.code == 2:
+            state = _ACS_SOURCE_ISSUE_BODY      # clean absence — no workpad at all
+        elif e.code == 3:
+            state = _ACS_SOURCE_WORKPAD_READ_FAILED
+        else:
+            raise
+
+    decisions = _parse_scope_decisions(comment_body, args.pr)
+
+    if state == _ACS_SOURCE_WORKPAD and not _acs_pr_identity_ok(
+            issue_items, workpad_items, decisions):
+        state = _ACS_SOURCE_PR_IDENTITY_MISMATCH
+
+    if state == _ACS_SOURCE_WORKPAD:
+        source = _ACS_SOURCE_WORKPAD
+        selected = workpad_items
+    else:
+        # Every non-workpad state falls back to the issue body; only the TOKEN
+        # differs, so Phase 4 reports the reason distinctly while the reviewer
+        # still gets a specification whenever one exists anywhere.
+        source = state
+        selected = issue_items
+        # The `none` demotion is gated on the CLEAN-ABSENCE state alone. `none`
+        # asserts that both surfaces were examined and neither carried criteria,
+        # which is true only when there was no workpad to read (`issue-body`).
+        # For every other routed state the workpad's criteria were either never
+        # read (`workpad-read-failed` — an unestablished measurement, never
+        # collapsed onto the real value `none`), never mirrored
+        # (`workpad-unmirrored` — the OPPOSITE claim from a legitimately empty
+        # section). Demoting either to `none` because the issue-body FALLBACK came
+        # up empty destroys the very signal each token exists to carry. Written as
+        # an allow-list of the ONE demoting state rather than a deny-list of the
+        # others, so it stays correct as states are added — `pr-identity-mismatch`
+        # cannot co-occur with an empty issue body today (`_acs_pr_identity_ok`
+        # returns True when there is no issue-side criterion to drop), and a
+        # deny-list would have to be revisited if that ever changed.
+        if not issue_items and state == _ACS_SOURCE_ISSUE_BODY:
+            source = _ACS_SOURCE_NONE
+
+    print(f'source: {source}')
+    print('criteria:')
+    rendered = _acs_render(selected, exclude_post_merge=True, neutralize_boxes=True)
+    if rendered:
+        print(rendered)
+    print('divergence:')
+    if state in (_ACS_SOURCE_WORKPAD, _ACS_SOURCE_PR_IDENTITY_MISMATCH):
+        for line in _acs_diverge(issue_items, workpad_items, decisions) or ['none']:
+            print(line)
+    else:
+        print('not-applicable')
+
+
 def cmd_patch(args):
     repo = _repo_full()
     body_path = Path(args.body_file)
@@ -480,6 +894,165 @@ def cmd_now(_args):
 # on this exact placeholder; a genuinely AC-less issue carries the DISTINCT sentinel
 # `_(none provided in issue body)_` parse-acs.py emits, so no warning fires there.
 _AC_PENDING_PLACEHOLDER = '_(pending — mirrored from the issue when the run begins)_'
+
+# ---------------------------------------------------------------------------
+# Scope-decision records (issue #781)
+# ---------------------------------------------------------------------------
+# A delimited, machine-readable record of every /devflow:implement decision that
+# changes the workpad `## Acceptance Criteria` set's MEMBERSHIP or a criterion's
+# TEXT. Three writers emit one: Phase 2.2.5's `--replace-acs-file` narrowing
+# (`deferred`), Phase 2.2.6's `--rewrite-ac` (`rewritten`), and Phase 3.4's
+# retroactive `(post-merge)` retag (`rewritten`). The review engine's Phase 0.4
+# reads them to tell an AUDITED narrowing from an unexplained one, and to
+# confirm the section belongs to the PR under review.
+#
+# It is written as an ordinary `## Progress` note, so it rides the existing
+# note-append path (no new section machinery) and sits entirely before
+# `## Devflow Reflection` — `lib/fetch-pr-context.sh`'s reflection parse
+# therefore never sees it.
+#
+# The criterion text is base64-encoded so a criterion containing `-->`, a
+# newline, or any delimiter this grammar uses cannot break the record or forge a
+# second one. `pr=` accepts the literal `pending` because Phase 2.2.5/2.2.6 run
+# BEFORE Phase 3.1 opens the draft PR: they write `pending` and Phase 3.1 binds
+# every pending record to the real number with `--bind-scope-decisions`. A
+# record still reading `pending` at review time deliberately covers NOTHING —
+# fail closed, so an unbound record can never vacuously satisfy the membership
+# check it exists to gate.
+_SCOPE_DECISION_KINDS = ('deferred', 'rewritten')
+_SCOPE_DECISION_PENDING_PR = 'pending'
+# The kind alternation is BUILT from `_SCOPE_DECISION_KINDS` rather than
+# re-spelled, so the constant is the single place a new kind is added — a
+# re-spelled alternation would silently keep matching only the old two.
+_SCOPE_DECISION_RE = re.compile(
+    r'<!-- devflow:scope-decision pr=(\d+|' + _SCOPE_DECISION_PENDING_PR + r') '
+    r'kind=(' + '|'.join(_SCOPE_DECISION_KINDS) + r') '
+    r'text=([A-Za-z0-9+/=]*)(?: newtext=([A-Za-z0-9+/=]*))? -->'
+)
+
+
+def _b64(text: str) -> str:
+    return base64.b64encode(text.encode('utf-8')).decode('ascii')
+
+
+def _unb64(blob: str) -> str | None:
+    """Decode a record's payload, or None when it is not decodable UTF-8.
+
+    Returns None rather than raising or falling back to the raw blob: a record
+    whose payload cannot be read is an UNESTABLISHED comparand, and the caller
+    drops it so it covers nothing (the same fail-closed direction the `pending`
+    PR value takes). Silently substituting the undecodable bytes would let a
+    corrupted record match no criterion while still counting as "a record
+    exists", which is exactly the vacuous-coverage shape the guard forbids.
+    """
+    try:
+        return base64.b64decode(blob.encode('ascii'), validate=True).decode('utf-8')
+    except (ValueError, UnicodeDecodeError) as e:
+        # Breadcrumb naming the specific payload that failed, so a corrupted
+        # record reads as a corrupted record rather than as an audited decision
+        # that silently stopped covering its criterion.
+        sys.stderr.write(
+            f"workpad.py: ignoring a scope-decision record whose payload is not "
+            f"decodable UTF-8 base64 ({e}); it covers no criterion\n"
+        )
+        return None
+
+
+def _warn_empty_scope_payload(field: str) -> None:
+    # Same breadcrumb discipline as `_unb64`'s undecodable path: an empty payload
+    # is a corrupted record, and it must read as one rather than as an audited
+    # decision that silently stopped covering its criterion.
+    sys.stderr.write(
+        f"workpad.py: ignoring a scope-decision record whose {field}= payload is "
+        f"empty; it covers no criterion\n"
+    )
+
+
+def _render_scope_decision(pr: str, kind: str, text: str, new_text: str | None = None) -> str:
+    rec = (f'<!-- devflow:scope-decision pr={pr} kind={kind} '
+           f'text={_b64(normalize_criterion(text))}')
+    if new_text is not None:
+        rec += f' newtext={_b64(normalize_criterion(new_text))}'
+    return rec + ' -->'
+
+
+def _parse_scope_decisions(body: str, pr: int | None) -> list[dict]:
+    """Return the scope-decision records in `body` that bind to PR `pr`.
+
+    A record whose `pr=` is `pending` (never bound by Phase 3.1) or names a
+    DIFFERENT PR is excluded, as is one whose base64 payload does not decode, as
+    is one whose payload decodes to the EMPTY string. The regex's payload class
+    is `*`-quantified, so a truncated or hand-edited `text=` (or `newtext=`)
+    matches and decodes cleanly to `''` — a record that names no criterion and
+    can therefore cover none, so it is dropped in the undecodable case's same
+    fail-closed direction. All of these establish nothing about this PR, and the
+    membership check treats "no covering record" as a finding.
+
+    `pr` is None in current-branch mode, where there is no PR to bind to: no
+    record can be confirmed as this run's, so none is returned and the guard
+    fails closed rather than crediting a record it cannot attribute.
+    """
+    out = []
+    if pr is None:
+        return out
+    for m in _SCOPE_DECISION_RE.finditer(body):
+        rec_pr, kind, blob, new_blob = m.group(1), m.group(2), m.group(3), m.group(4)
+        if rec_pr == _SCOPE_DECISION_PENDING_PR or int(rec_pr) != pr:
+            continue
+        text = _unb64(blob)
+        if text is None:
+            continue
+        if not text:
+            _warn_empty_scope_payload('text')
+            continue
+        new_text = _unb64(new_blob) if new_blob is not None else None
+        if new_blob is not None and new_text is None:
+            continue
+        if new_blob is not None and not new_text:
+            _warn_empty_scope_payload('newtext')
+            continue
+        out.append({'kind': kind, 'text': text, 'new_text': new_text})
+    return out
+
+
+def _bind_scope_decisions(body: str, pr: int) -> str:
+    """Rewrite every `pr=pending` scope-decision record to `pr=<pr>`.
+
+    Idempotent WITHIN a run: a record already carrying a numeric PR is left
+    untouched, so a re-run (or a resumed run re-entering Phase 3.1) never
+    re-binds a record to a different PR.
+
+    KNOWN LIMITATION — that idempotence argument covers re-entry only, NOT
+    cross-run contamination. The workpad is one comment per ISSUE and survives
+    across runs, so an earlier /devflow:implement attempt that wrote
+    §2.2.5/§2.2.6 records and then died before reaching §3.1 leaves `pr=pending`
+    records behind; this rewrite is unconditional over the whole body, so the
+    NEXT run's §3.1 adopts those foreign records and binds them to ITS PR. The
+    record format carries no run stamp to tell them apart, and inventing one is
+    a larger design change than this function should make. The residual is made
+    OBSERVABLE instead: the number of records bound is written to stderr, so a
+    count higher than the run itself recorded is visible in the log rather than
+    silent.
+    """
+    bound = 0
+
+    def _sub(m):
+        nonlocal bound
+        bound += 1
+        return f'{m.group(1)}{pr}{m.group(2)}'
+
+    out = re.sub(
+        r'(<!-- devflow:scope-decision pr=)pending( kind=)',
+        _sub,
+        body,
+    )
+    if bound:
+        sys.stderr.write(
+            f"workpad.py: bound {bound} pending scope-decision record(s) to pr={pr}; "
+            f"a count higher than this run recorded means records left by an "
+            f"earlier run on this issue were adopted\n"
+        )
+    return out
 
 # The bug-only "reproduction captured" ## Progress sub-row. SINGLE SOURCE for the
 # row `cmd_new_body` renders AND the row `_reconcile_reproduction_row` (issue #449)
@@ -1684,6 +2257,8 @@ def _has_non_checkpoint_mutation(args) -> bool:
         args.replace_plan_file, args.replace_acs_file, args.set_reproduction_file,
         args.note, args.reflection, args.reflection_file,
         args.record_classification, args.reconcile_reproduction,
+        args.scope_decision_deferred, args.scope_decision_rewritten,
+        args.bind_scope_decisions,
     ])
 
 
@@ -1874,6 +2449,65 @@ def cmd_write_handoff_record(args):
                    'origin': origin}, fh)
 
 
+def _validate_scope_decision_pr(raw: str, flag: str) -> str:
+    """Accept a decimal PR number or the literal `pending`, else abort.
+
+    Structural (no PATCH) rather than a coerced default: a mistyped PR value
+    would produce a record that binds to no PR at all, and a record that covers
+    nothing is exactly what makes the Phase 0.4 membership check report a drop
+    the run had in fact audited.
+    """
+    value = raw.strip()
+    if value == _SCOPE_DECISION_PENDING_PR or value.isdigit():
+        return value
+    raise _UpdateError(
+        f"{flag}: PR must be a decimal number or the literal "
+        f"'{_SCOPE_DECISION_PENDING_PR}', got {raw!r}. No PATCH was made."
+    )
+
+
+def _validate_scope_decision_text(raw: str, flag: str, label: str) -> str:
+    """Reject an empty/whitespace-only criterion text.
+
+    A record whose text normalizes to nothing matches every criterion or none
+    depending on the comparison, so it is never a usable comparand — fail closed
+    here instead of writing a record that silently covers the wrong row.
+    """
+    if not normalize_criterion(raw):
+        raise _UpdateError(
+            f"{flag}: {label} text is empty or whitespace-only; a scope-decision "
+            f"record must name the criterion it covers. No PATCH was made."
+        )
+    return raw
+
+
+def _render_scope_decisions(args) -> list[str]:
+    """Validate and render every `--scope-decision-*` request to a record line."""
+    notes: list[str] = []
+    if getattr(args, 'scope_decision_deferred', None) or getattr(
+            args, 'scope_decision_rewritten', None):
+        # Normalizing the criterion text is what makes a record comparable to
+        # the review engine's normalized sets, so a record written without it
+        # would be silently uncomparable rather than merely unformatted.
+        _require_section_parse('update --scope-decision-*')
+    for pr, text in getattr(args, 'scope_decision_deferred', None) or []:
+        flag = '--scope-decision-deferred'
+        notes.append(_render_scope_decision(
+            _validate_scope_decision_pr(pr, flag),
+            'deferred',
+            _validate_scope_decision_text(text, flag, 'criterion'),
+        ))
+    for pr, old, new in getattr(args, 'scope_decision_rewritten', None) or []:
+        flag = '--scope-decision-rewritten'
+        notes.append(_render_scope_decision(
+            _validate_scope_decision_pr(pr, flag),
+            'rewritten',
+            _validate_scope_decision_text(old, flag, 'OLD criterion'),
+            _validate_scope_decision_text(new, flag, 'NEW criterion'),
+        ))
+    return notes
+
+
 def _apply_mutations(body: str, args, failed_ticks) -> str:
     """Apply all mutations from args and return the new body.
 
@@ -1904,6 +2538,17 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
         checkpoint_inserts = _plan_checkpoints(body, checkpoint_reqs)
         if not checkpoint_inserts and not _has_non_checkpoint_mutation(args):
             raise _NoOpReplay()
+
+    # Scope-decision records (issue #781). Validate + render them BEFORE any body
+    # mutation, so a malformed PR value or an empty criterion text is a structural
+    # failure that changes nothing — the same all-or-nothing contract
+    # `--rewrite-ac` and `--checkpoint` hold. `--bind-scope-decisions` is a pure
+    # rewrite over the whole body and is idempotent, so it needs no validation
+    # beyond argparse's `type=int`.
+    scope_decision_notes = _render_scope_decisions(args)
+    bind_pr = getattr(args, 'bind_scope_decisions', None)
+    if bind_pr is not None:
+        body = _bind_scope_decisions(body, bind_pr)
 
     # Front-matter mutations.
     if args.status:
@@ -2087,7 +2732,11 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
     # text carries the hidden marker). `checkpoint_inserts` holds only absent keys
     # (replays were dropped during planning), nested under the current phase like any
     # note; args.note bullets append first, then the checkpoint rows.
-    progress_notes = list(args.note) + [
+    # Scope-decision records (issue #781) ride the note-append path: each is one
+    # ordinary Progress bullet whose text is the delimited marker. They append
+    # AFTER the free-text --note bullets so a 2.2.5/2.2.6 call reads
+    # human-narrative-then-machine-record in the rendered workpad.
+    progress_notes = list(args.note) + scope_decision_notes + [
         f'{text} {_checkpoint_marker(key)}' for key, text in checkpoint_inserts
     ]
     if progress_notes:
@@ -2225,6 +2874,57 @@ def main():
     s.add_argument('--marker', default=None, help=_marker_help)
     s.set_defaults(func=cmd_status)
 
+    # No `--marker` on either acs subcommand — deliberately. The review engine
+    # drives its own `<!-- devflow:review-progress -->` comment through this same
+    # helper, and the acceptance criteria live only on the IMPLEMENT workpad, so
+    # omitting the flag denies a CALLER any way to point this read at the wrong
+    # comment. The env/config precedence in `_workpad_marker` still applies (see
+    # `_acs_read_workpad`'s docstring) — it moves the workpad and this read
+    # together, so it is not a desync channel.
+    s = sub.add_parser(
+        'acs',
+        help="Print the workpad's ## Acceptance Criteria section unfiltered "
+             '(every criterion carried through, tick state and (post-merge) '
+             'tags preserved; the parsed items are re-rendered, so blank lines '
+             'are dropped and "* [ ]" normalizes to "- [ ]"). Exit 2 with empty '
+             'stdout AND empty stderr when no workpad exists; exit 3 on a gh '
+             'read failure or when scripts/section_parse.py was not deployed '
+             'beside workpad.py.',
+    )
+    s.add_argument('issue', type=int)
+    s.add_argument('--exclude-post-merge', action='store_true',
+                   help='Drop every criterion already tagged " (post-merge)". '
+                        'Phase 0.4 passes this for the reviewer-facing value; '
+                        'the unfiltered form is the divergence comparand.')
+    s.add_argument('--neutralize-boxes', action='store_true',
+                   help='Render every criterion unticked. A tick is the code '
+                        "author's own assertion that the criterion is "
+                        'satisfied, so the merge-gating judge is never handed a '
+                        'specification pre-annotated by the party it judges.')
+    s.add_argument('--emit-source-token', action='store_true',
+                   help='Prefix stdout with one token line naming the workpad '
+                        "section's state (workpad | workpad-unmirrored | "
+                        'issue-body), so the un-mirrored placeholder is '
+                        'distinguishable from a legitimately empty section.')
+    s.set_defaults(func=cmd_acs)
+
+    s = sub.add_parser(
+        'acs-resolve',
+        help='Resolve the reviewer-facing acceptance criteria from the workpad '
+             'and the issue body, name the source, and report normalized '
+             'divergence. Used by the review engine Phase 0.4.',
+    )
+    s.add_argument('issue', type=int)
+    s.add_argument('--pr', type=int, default=None,
+                   help='The PR under review. Scope-decision records must carry '
+                        'this number to count; a record left at pr=pending, or '
+                        'naming another PR, covers nothing. Omit it in '
+                        'current-branch mode, where there is no PR to bind to: '
+                        'no record can then be confirmed as this run\'s, so a '
+                        'narrowed workpad fails closed to pr-identity-mismatch '
+                        'exactly as it does for an unbound record.')
+    s.set_defaults(func=cmd_acs_resolve)
+
     s = sub.add_parser('patch', help='PATCH a workpad comment from a body file; prints new body.')
     s.add_argument('comment_id', type=int)
     s.add_argument('body_file')
@@ -2326,6 +3026,28 @@ def main():
                         'any PATCH. A pair targeting a row that already ends '
                         'with the tag, or that removes it, needs no note. Only '
                         '--note satisfies the rationale; a --reflection does not.')
+    u.add_argument('--scope-decision-deferred', nargs=2, metavar=('PR', 'TEXT'),
+                   action='append', default=[],
+                   help='Record that criterion TEXT was deferred out of the '
+                        'workpad Acceptance Criteria set by PR. PR is a number, '
+                        "or the literal 'pending' when the draft PR does not "
+                        'exist yet (Phase 2.2.5) — Phase 3.1 then binds it with '
+                        '--bind-scope-decisions. Repeatable. Written as a '
+                        'delimited ## Progress record the review engine reads; '
+                        'the free-text --note is never read as the source of '
+                        'truth.')
+    u.add_argument('--scope-decision-rewritten', nargs=3,
+                   metavar=('PR', 'OLD', 'NEW'), action='append', default=[],
+                   help='Record that criterion OLD was rewritten to NEW by PR '
+                        '(Phase 2.2.6, and Phase 3.4\'s retroactive '
+                        '(post-merge) retag). Same PR/pending semantics as '
+                        '--scope-decision-deferred. Repeatable.')
+    u.add_argument('--bind-scope-decisions', metavar='PR', type=int, default=None,
+                   help='Rewrite every scope-decision record still reading '
+                        'pr=pending to this PR number. Phase 3.1 runs it right '
+                        'after gh pr create, which is the first moment the '
+                        'number exists. Idempotent: a record already carrying a '
+                        'number is left untouched.')
     u.add_argument('--note', metavar='TEXT', action='append', default=[],
                    help='Append a note bullet, prefixed with a time-only '
                         'HH:MM:SS UTC timestamp and nested under the current '

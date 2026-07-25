@@ -1,14 +1,14 @@
 ---
 name: review-and-fix
 description: Use when you need findings on a PR or current branch to be auto-applied, not just reported.
-argument-hint: "[pr-number] [--push-each-iteration]"
+argument-hint: "[pr-number] [--push-each-iteration] [--issue N]"
 ---
 
 # /devflow:review-and-fix — Review, Fix, and Verify Loop
 
 You are the review-and-fix orchestrator. Run /devflow:review's review engine, fix the findings it surfaces, and re-run until the engine returns a clean verdict.
 
-**Input:** `$ARGUMENTS` may contain an optional PR number and/or the flag `--push-each-iteration`. Parse the two independently — either, both, or neither may be present. If no PR number is given, review and fix the current branch. The numeric token (if any) is `$PR_NUMBER`.
+**Input:** `$ARGUMENTS` may contain an optional PR number, the flag `--push-each-iteration`, and/or the flag `--issue N`. Parse the three independently — any, all, or none may be present. If no PR number is given, review and fix the current branch. The numeric token (if any) is `$PR_NUMBER`; the `--issue` value (if any) is `$ISSUE_OVERRIDE`. **Every later PR-mode predicate and every `gh` command reads `$PR_NUMBER` — never the raw `$ARGUMENTS` string**, which fails an is-a-PR-number test and leaks the flag tokens into any command it is interpolated into.
 
 **`--push-each-iteration` (default off).** When set, each fix and Loop Exit use the gated base checkpoint and push, keeping the PR and CI current. Otherwise fix commits stay local and the base is untouched. The flag never posts a GitHub verdict; mandatory telemetry persistence remains independent. Loop correctness uses local `HEAD` (with the PR head override), not pushed state.
 
@@ -37,7 +37,7 @@ That text governs how this loop applies those principles. Its references to stru
 
 ## Engine source of truth
 
-This skill wraps /devflow:review's four-phase engine in a fix loop. Phases 0 through 4.3 — setup, diff classification, checklist generation, checklist verification, review agents (with the exact per-agent prompts and the `defect_signature` contract), and aggregation — live in `/devflow:review`'s SKILL.md and are authoritative. Read them on every Step 1; never improvise the engine or paraphrase the Phase 3 prompts. Drift between the two is the biggest source of missed findings.
+This skill wraps /devflow:review's four-phase engine in a fix loop. Phases 0 through 4.3 — setup, diff classification, checklist generation, checklist verification, review agents (with the exact per-agent prompts and the `defect_signature` contract), and aggregation — live in `/devflow:review`'s SKILL.md and are authoritative. Read them on every Step 1; never improvise the engine or paraphrase the Phase 3 prompts. Pass `$ISSUE_OVERRIDE` through to the engine's Phase 0.4, which resolves the acceptance criteria from it. Drift between the two is the biggest source of missed findings.
 
 This skill **skips** /devflow:review's Phase 4.4 entirely — no GitHub post. The final report is emitted to chat only; the human reviewer decides whether to convert it into a formal merge signal by running `/devflow:review <PR>` separately. On top of the engine it adds the loop wrapper documented in the references: a **fix-delta handoff** (Step 0.9), a run-scoped **persistent workpad** (`.devflow/tmp/review/<slug>/<run-id>/iter-<N>.json`), a **shadow review pass** (Step 2.6), a **`## Coverage` section** and **per-phase telemetry summary** at Loop Exit.
 

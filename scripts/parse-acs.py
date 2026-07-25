@@ -8,7 +8,10 @@ once, deterministically, in code — replacing ~25 lines of skill prose that
 described the rules in English. The orchestrator still owns per-criterion
 override authority; this script just produces the heuristic starting point.
 
-Parsing rules:
+Parsing rules (owned by `scripts/section_parse.py`, imported below — issue
+#781 factored them there so `scripts/workpad.py`, which reads the same section
+back out of the workpad comment, shares one implementation instead of
+re-spelling the contract):
   - Match a heading whose text is "Acceptance Criteria" (case-insensitive,
     so `## Acceptance criteria` or `## ACCEPTANCE CRITERIA` all match). A
     trailing colon or other extra characters still do not match — only the
@@ -53,6 +56,21 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Shared section/checkbox parsing rules (issue #781), imported IN-PROCESS from
+# the sibling module — never a `.sh`/subprocess hop (Windows refuses that with
+# [WinError 193], issue #275). The explicit `sys.path` entry is load-bearing:
+# running this file as a script puts `scripts/` on the path for free, but a
+# consumer loading it through `importlib.util.spec_from_file_location` (how
+# `lib/test/test_python_scripts.py` drives this directory's helpers) does not.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from section_parse import (  # noqa: E402
+    POST_MERGE_TAG,
+    extract_section,
+    parse_checkboxes,
+    render_line,
+)
+
 # The gh binary to shell out to. `DEVFLOW_GH` (the documented override the shell
 # helpers resolve via lib/resolve-gh.sh) wins when set and non-empty; else `gh`.
 GH = os.environ.get("DEVFLOW_GH") or "gh"
@@ -92,9 +110,6 @@ POST_MERGE_TRIGGERS = (
     'workflow run', 'workflow runs', 'artifact link',
 )
 
-
-_CHECKBOX_RE = re.compile(r'^\s*[-*]\s+\[([ xX])\]\s+(.*)$')
-_HEADING_RE = re.compile(r'^(#{1,6})\s+(.*?)\s*$')
 
 # Word-boundary regex per trigger phrase. Built once at import time. The
 # boundary check stops short bare words like `click` / `monitor` / `manually`
@@ -141,56 +156,21 @@ def _fetch_body(issue: int) -> str:
     return r.stdout
 
 
-def _extract_section(body: str, name: str) -> list[str]:
-    """Return the list of lines inside the named section, or [] if not found.
-
-    Stops at the next heading whose level is equal to or higher than the
-    section's heading.
-    """
-    lines = body.splitlines()
-    out: list[str] = []
-    section_level = None
-    for line in lines:
-        m = _HEADING_RE.match(line)
-        if m:
-            level, heading = len(m.group(1)), m.group(2).strip()
-            if section_level is None:
-                if heading.lower() == name.lower() and level in (2, 3):
-                    section_level = level
-                continue
-            if level <= section_level:
-                break
-        elif section_level is not None:
-            out.append(line)
-    return out
-
-
 def _parse_checkboxes(section_lines: list[str]) -> list[dict]:
-    """Parse checkbox items, joining hard-wrapped continuation lines.
+    """Parse checkbox items (shared module), then classify each post-merge.
 
-    A criterion emitted by /devflow:create-issue at ~80 columns wraps across
-    several physical lines: the checkbox line followed by indented continuation
-    lines. Accumulate each item's continuation lines (indented, non-blank, and
-    not themselves a checkbox) into one criterion string so a wrapped criterion
-    round-trips verbatim — and so the post-merge scan sees a trigger phrase that
-    landed past the wrap. A blank line or a non-indented, non-checkbox line ends
-    the current item. (`_extract_section` already excludes heading lines.)
+    `section_parse.parse_checkboxes` owns the shared half: a criterion emitted
+    by /devflow:create-issue at ~80 columns wraps across several physical lines,
+    and it joins each item's continuation lines so a wrapped criterion
+    round-trips verbatim. Trigger-phrase classification stays HERE because it is
+    a mirror-time-only rule — `workpad.py` reads a tag already present in the
+    stored text and must never re-derive it, which would re-tag a criterion the
+    orchestrator had deliberately demoted.
+
+    Classifying on the fully-joined text is load-bearing: a trigger phrase that
+    landed past the wrap must still be caught.
     """
-    items = []
-    current = None
-    for line in section_lines:
-        m = _CHECKBOX_RE.match(line)
-        if m:
-            current = {'text': m.group(2).strip(), 'ticked': m.group(1).lower() == 'x'}
-            items.append(current)
-        elif current is not None and line[:1] in (' ', '\t') and line.strip():
-            # Indented, non-blank, non-checkbox line → continuation of `current`.
-            current['text'] = f"{current['text']} {line.strip()}".strip()
-        else:
-            # Blank line or a non-indented non-checkbox line closes the item.
-            current = None
-    # Classify on the fully-joined text so a trigger phrase anywhere in the
-    # wrapped criterion — not just its first physical line — is caught.
+    items = parse_checkboxes(section_lines)
     for item in items:
         item['post_merge'] = _is_post_merge(item['text'])
     return items
@@ -226,11 +206,21 @@ def _render_md(criteria: list[dict], test_plan: list[dict]) -> str:
 
 
 def _render_md_line(item: dict) -> str:
-    box = '[x]' if item['ticked'] else '[ ]'
+    # Both the containment test and the appended tag read the SHARED
+    # `POST_MERGE_TAG` constant rather than re-spelling the literal here. The
+    # read side (`workpad.py`'s post-merge filter) already tests that constant,
+    # so the constant removes exactly one failure mode: LITERAL drift between
+    # the two sites. It does NOT make them agree on what counts as tagged — the
+    # PREDICATES are deliberately different. The writer suppresses on
+    # containment (`POST_MERGE_TAG.strip() not in text`), while the reader tests
+    # a suffix (`is_post_merge_tagged` -> `text.rstrip().endswith(...)`). So a
+    # criterion carrying the phrase mid-string ("Verify (post-merge) that the
+    # hook fires") is neither tagged by the writer nor excluded by the reader's
+    # filter. That mid-string residual survives the shared constant.
     text = item['text']
-    if item['post_merge'] and '(post-merge)' not in text:
-        text = f'{text} (post-merge)'
-    return f'- {box} {text}'
+    if item['post_merge'] and POST_MERGE_TAG.strip() not in text:
+        text = f'{text}{POST_MERGE_TAG}'
+    return render_line({'text': text, 'ticked': item['ticked']})
 
 
 def main():
@@ -247,11 +237,11 @@ def main():
     else:
         body = Path(args.body_file).read_text()
 
-    ac_lines = _extract_section(body, 'Acceptance Criteria')
+    ac_lines = extract_section(body, 'Acceptance Criteria')
     criteria = _parse_checkboxes(ac_lines)
-    test_plan = _parse_checkboxes(_extract_section(body, 'Test Plan'))
+    test_plan = _parse_checkboxes(extract_section(body, 'Test Plan'))
 
-    # Heading match in _extract_section is case-insensitive but otherwise
+    # Heading match in section_parse.extract_section is case-insensitive but otherwise
     # exact. `## acceptance criteria` (any casing) now matches, but
     # `## Acceptance Criteria:` (trailing colon) or `## ACs` still produce zero
     # items — and the implement skill's post-merge-exempt gate would trivially

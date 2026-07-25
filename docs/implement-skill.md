@@ -48,7 +48,10 @@ by explicit hand-off.
   change a verdict. Every verdict-bearing reader keeps fetching live, because a human can amend the
   issue mid-run: §4.1's Documentation-Needed gate (a stale snapshot would read as "no deliverables"),
   the Phase 3.3 inline review's issue-compliance check (`skills/review/phases/phase-0-setup.md` §0.4,
-  which would otherwise judge the PR against superseded acceptance criteria), `/pr-description`
+  whose live fetch keeps the **narrative** `issue_context` current — the acceptance criteria that
+  check judges against are a separate resolution: §0.4 hands them to `scripts/workpad.py acs-resolve`,
+  which prefers the workpad comment's set over the issue body's and fetches the issue body itself, so
+  the live fetch here is not what keeps the criteria current), `/pr-description`
   (renders the acceptance criteria into the PR body), and `receiving-code-review`'s per-iteration
   re-read.
 - **Regression guard.** `lib/test/lint-issue-body-refetch.py` (driven from `lib/test/run.sh`) fails

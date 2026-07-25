@@ -1,14 +1,18 @@
 ---
 name: review
 description: Use when you need a code-review verdict on a PR or current branch, without auto-applying any fixes.
-argument-hint: pr-number
+argument-hint: "[pr-number] [--issue N]"
 ---
 
 # /devflow:review — Comprehensive PR Review
 
 You are the review engine orchestrator. Run a four-phase review and present an APPROVE/REJECT verdict.
 
-**Input:** Optional PR number as `$ARGUMENTS`. If omitted, review current branch vs its configured `base_branch`.
+**Input:** `$ARGUMENTS` may contain an optional PR number and/or the flag `--issue N`. Parse the two independently — either, both, or neither may be present. The numeric token (if any) is `$PR_NUMBER`; the flag's value (if any) is `$ISSUE_OVERRIDE`, the caller-supplied issue Phase 0.4 reads acceptance criteria from. If no PR number is given, review the current branch vs its configured `base_branch`.
+
+**Every later PR-mode predicate and every `gh` command reads `$PR_NUMBER` — never the raw `$ARGUMENTS` string.** An extended argument string fails an is-a-PR-number test, which silently disables the phases gated on it, and interpolating it into a command line leaks the flag tokens into that command.
+
+**The cloud comment tier is unchanged and out of scope.** `scripts/resolve-command-trigger.sh` synthesizes a two-token `command=/devflow:<cmd> <n>`, so a `--issue N` typed into a trigger comment is discarded before this skill runs and that path keeps today's derivation. Widening the trigger grammar is out of scope.
 
 **Engine sharing.** Phases 0 through 4.3 are executed verbatim by `/devflow:review-and-fix` (which wraps them in a fix loop and skips Phase 4.4 — its report goes to chat only). When modifying engine behavior here — Phase 3 agent prompts, Phase 1 batching, Phase 0.5 classification, Phase 4 verdict criteria — verify `/devflow:review-and-fix` still produces the same findings; that's where divergence has historically slipped in. Its SKILL.md keeps no paraphrase of these phases, so changes here propagate automatically as long as the file is reachable at `**/devflow/skills/review/SKILL.md`.
 
@@ -338,7 +342,7 @@ After the `Read`: **quote the body's literal first and last lines**, and let `S`
 | 3 | `phase-3-agents.md` | always | review agents, per-agent prompts, `defect_signature` contract |
 | 4 | `phase-4-verdict.md` | always | verdict, report, telemetry |
 | 4.1.7 | `phase-4-1-7-stale-adjudication.md` | **PR mode only**, and only over STALE findings from 0.6 being adjudicated false positives | stale-finding adjudication; runs after 4.1.6 and **before** 4.2 |
-| 4.4 | `phase-4-4-github-post.md` | **standalone only, PR mode only** (`$ARGUMENTS` is a PR number) | post the verdict to GitHub. `/devflow:review-and-fix` **skips 4.4 entirely** — shadow passes included |
+| 4.4 | `phase-4-4-github-post.md` | **standalone only, PR mode only** (`$PR_NUMBER` is non-empty) | post the verdict to GitHub. `/devflow:review-and-fix` **skips 4.4 entirely** — shadow passes included |
 
 A gated phase whose condition is unmet is neither loaded nor run; evaluate each gate from the state earlier phases established, never from a guess.
 

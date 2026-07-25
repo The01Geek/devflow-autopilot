@@ -18,7 +18,7 @@ You receive a JSON checklist item — the full delivered shape below (some field
 ```json
 {
   "id": "VC-1",
-  "category": "dependency_interaction | test_mock_alignment | data_format_assumption | api_contract | string_presence | absolute_claim",
+  "category": "dependency_interaction | test_mock_alignment | data_format_assumption | api_contract | string_presence | absolute_claim | issue_acceptance",
   "claim": "Description of what the code assumes",
   "claim_provenance": "generated_paraphrase | source_authored",
   "source_excerpt": "verbatim authored text under scrutiny (source_authored items only)",

@@ -1,7 +1,10 @@
 <!-- devflow:review-ref phase=4.4 file=skills/review/phases/phase-4-4-github-post.md start -->
 ### 4.4 Record the verdict as a formal GitHub review (PR mode only)
 
-**If — and only if — `$ARGUMENTS` is a PR number** (an actual PR, not the current branch), you MUST also submit the verdict as a formal GitHub Pull Request review, a visible merge signal. A REJECT that lives only in a comment or chat output is routinely missed — the PR gets marked ready and merged with the rejection outstanding. A `--request-changes` review blocks the merge button (or at minimum forces an explicit dismissal), the behavior we want.
+**If — and only if — `$PR_NUMBER` is a PR number** (an actual PR, not the current branch), you MUST also submit the verdict as a formal GitHub Pull Request review, a visible merge signal.
+
+**This gate, and every `gh` invocation in this phase, reads `$PR_NUMBER` — the PR number the skill root parsed out of `$ARGUMENTS` — and never the raw `$ARGUMENTS` string, because an extended argument string such as `123 --issue 456` fails the is-a-PR-number test, so a gate left reading the raw string silently skips the `gh pr review --request-changes` post and the merge-blocking signal this phase exists to guarantee is lost with no error.**
+ A REJECT that lives only in a comment or chat output is routinely missed — the PR gets marked ready and merged with the rejection outstanding. A `--request-changes` review blocks the merge button (or at minimum forces an explicit dismissal), the behavior we want.
 
 Map the verdict to a `gh pr review` action. **What goes in `--body` depends on whether a progress comment already carries the full report** — set `$BODY` accordingly. The discriminator is **did the skill author the live progress comment this run (`$WP` set)?** — NOT `$GITHUB_ACTIONS`. The skill is now the **sole** author of that comment in every context: `devflow-review.yml` no longer seeds one (it defers to Phase 0.3.5), and the skill authors it even in a standalone local PR-mode run. Keying on `$GITHUB_ACTIONS` would be wrong in two directions: it would double-post locally (false but the skill seeded), and, worse, in a cloud run with `live_progress_comment_enabled = false` (or a failed Phase 0.3.5 seed) it would be *true* while **no** comment carries the report, leaving the stub pointing at a nonexistent comment and the report posted nowhere. `$WP` is the single authoritative signal.
 
@@ -20,19 +23,21 @@ where `{VERDICT}` is the actual verdict line (e.g. `APPROVE`, `APPROVE with note
 
 | Verdict | Command |
 |---|---|
-| **REJECT** (any form) | `gh pr review $ARGUMENTS --request-changes --body "$BODY"` |
-| **APPROVE WITH CAVEAT** / **APPROVE with notes** | `gh pr review $ARGUMENTS --comment --body "$BODY"` |
-| **APPROVE** (clean, no findings) | `gh pr review $ARGUMENTS --approve --body "$BODY"` |
+| **REJECT** (any form) | `gh pr review $PR_NUMBER --request-changes --body "$BODY"` |
+| **APPROVE WITH CAVEAT** / **APPROVE with notes** | `gh pr review $PR_NUMBER --comment --body "$BODY"` |
+| **APPROVE** (clean, no findings) | `gh pr review $PR_NUMBER --approve --body "$BODY"` |
 
-A REJECT driven by the Phase 4.2 self-contradicting-diff carve-out is a **REJECT (any form)** like any other, mapping to `gh pr review $ARGUMENTS --request-changes` via the first row above — no separate branch for it.
+A REJECT driven by the Phase 4.2 self-contradicting-diff carve-out is a **REJECT (any form)** like any other, mapping to `gh pr review $PR_NUMBER --request-changes` via the first row above — no separate branch for it.
 
-If `gh pr review` fails (e.g. you cannot review your own PR as the same GitHub identity, or the token lacks permission), fall back to `gh pr comment $ARGUMENTS --body "$REPORT"` — use the full `$REPORT` (not `$STUB`), since this fallback comment is the only artifact in that path. Note in chat output that the formal review could not be posted. **Never silently skip this step on a REJECT** — the rejection must be impossible to miss.
+If `gh pr review` fails (e.g. you cannot review your own PR as the same GitHub identity, or the token lacks permission), fall back to `gh pr comment $PR_NUMBER --body "$REPORT"` — use the full `$REPORT` (not `$STUB`), since this fallback comment is the only artifact in that path. Note in chat output that the formal review could not be posted. **Never silently skip this step on a REJECT** — the rejection must be impossible to miss.
 
 **Then, on any APPROVE form only (APPROVE / APPROVE with notes / APPROVE WITH CAVEAT), clear a stale REJECT.** A prior REJECT's `--request-changes` review stays the PR's effective `reviewDecision` until *dismissed*; the APPROVE-with-notes `--comment` review never supersedes it, and the REJECT may be a different bot identity (auto path posts as `github-actions[bot]`, manual `@claude` as another), so no later review clears it either. Without this the PR is wedged at `reviewDecision: CHANGES_REQUESTED` forever, contradicting the green check and this APPROVE. The script dismisses **only Devflow Review's own reports** (body marker), never a human's `--request-changes`. On REJECT, **skip this** — the changes-request must stand. Run (re-run safe):
 
 ```bash
-"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/dismiss-stale-rejections.sh "$ARGUMENTS"
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/dismiss-stale-rejections.sh "$PR_NUMBER"
 ```
+
+**Pass `"$PR_NUMBER"` here, never `"$ARGUMENTS"`: the quoted form reaches `dismiss-stale-rejections.sh` as a single argv element, so an extended argument string is handed over whole, matches no PR, and the stale-REJECT dismissal silently no-ops after an APPROVE — leaving the PR wedged at `CHANGES_REQUESTED`.**
 
 If it exits non-zero (token scope), say so in chat output and that the PR stays blocked until dismissed manually. **A dismissal failure never downgrades the verdict** — it stands; only merge-gate housekeeping failed.
 <!-- devflow:review-ref phase=4.4 file=skills/review/phases/phase-4-4-github-post.md end -->

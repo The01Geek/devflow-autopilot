@@ -141,10 +141,13 @@ Steps when scoping down:
    ```bash
    "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER \
        --replace-acs-file /tmp/narrowed-acs-${ISSUE_NUMBER}.md \
+       --scope-decision-deferred pending "{the deferred criterion's text, verbatim}" \
        --note "scope decision: {which subset this PR delivers}. Deferred (verbatim): {list}. Will be tracked in follow-up issue(s) filed in Phase 4.0."
    ```
 
-This is not "inventing" criteria (forbidden by 1.4) — the deferred items are preserved verbatim in the workpad notes (`--note`) and carried forward by Phase 4.0.
+**Pass one `--scope-decision-deferred pending "<the deferred criterion's text, verbatim>"` per deferred criterion, in the same call as `--replace-acs-file`, so the narrowing and its machine-readable record land together.** The PR literal is `pending` here because §3.1 has not yet opened the draft PR, and §3.1 binds every `pending` record to the real number the moment it exists. **The review engine reads this machine-readable record and never the free-text `--note`** — an agent-authored note carries no criterion identifier, so matching one to a criterion would be an LLM judgment over third-party text driving an automated merge-gate selection.
+
+This is not "inventing" criteria (forbidden by 1.4) — the deferred items are preserved verbatim in the workpad notes (`--note`), which stays the human-readable record, and carried forward by Phase 4.0.
 
 If you are unsure whether to scope down, prefer a single fully-in-scope PR. Only re-scope when the issue body itself describes phased work, the diff would otherwise exceed reasonable PR size, or Phase 1.6 Pass 5 flagged a capability-blocked AC on a cloud-tier run (the credential-boundary trigger above).
 
@@ -155,9 +158,19 @@ Some ACs name specific identifiers (job names, file paths, function names, comma
 Reconciliation steps:
 ```bash
 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER \
-    --rewrite-ac "{OLD AC substring}" "{NEW AC text}" \
+    --rewrite-ac "{OLD AC substring}" "{NEW AC substring replacement}" \
+    --scope-decision-rewritten pending "{FULL OLD criterion text, verbatim}" "{FULL NEW criterion text, verbatim}" \
     --note "AC rewrite: {old verbatim} → {new}. Motivated by: {structural change}"
 ```
+
+**Pass `--scope-decision-rewritten pending "{FULL OLD criterion text, verbatim}" "{FULL NEW criterion text, verbatim}"` in the same call as `--rewrite-ac`, so the text change and its machine-readable record land together.** The PR literal is `pending` for the same reason as in 2.2.5 — §3.1 binds it once the draft PR exists — and the review engine reads that record rather than the free-text `--note`, which carries no criterion identifier.
+
+**The two flags deliberately take different text — never "simplify" them into the same value.** `--rewrite-ac` performs an *in-place substring replacement* inside the criterion, so its first argument may be any distinguishing fragment. `--scope-decision-rewritten`'s OLD value is stored normalized and is later matched by the review engine as a **whole-criterion equality lookup** against the full issue-body criterion — so a fragment there simply fails to match, and the criterion is reported to the merge-gating reviewer as an unexplained **dropped** criterion. Pass the criterion's *entire* text as it stands immediately before the rewrite, and its entire text as it will read after.
+
+**Why the workpad criterion set is trustworthy as a review comparand, and what falsifies it.** The review engine may treat the workpad's `## Acceptance Criteria` as authoritative **because** every writer that changes the set's **membership**, and every writer that changes a criterion's **text**, either emits a scope-decision record or can only ever **widen** the set — never narrow it. The record-emitting writers are §2.2.5's `--replace-acs-file` narrowing and the `--rewrite-ac` call sites (this one, and phase-3-review.md §3.4's retroactive `(post-merge)` retag). The widening-only writers are phase-1-setup.md §1.2's two `--replace-acs-file` mirrors — the fresh-workpad mirror and the resume-path mirror — which need no record because each sets the workpad's section **equal to the issue body's** criteria; that is never a narrowing, so `_acs_pr_identity_ok`'s superset early-return (`workpad_norm >= issue_norm`) accepts it with no record to explain. The assumption is falsified if any writer path can change the set's membership or a criterion's text without emitting a scope-decision record. `--tick-ac` and `--tick-ac-n` change only box state, which the engine's normalized comparison already ignores, so they need no record.
+
+**Known residual — the resume-path mirror.** A resumed run re-mirrors the issue's section wholesale while a prior run's §2.2.5 scope-decision records still sit in `## Progress`. The *set* stays safe (a superset of the issue body — nothing dropped), but those surviving records describe deferrals the live set no longer reflects. So a resumed run **re-derives its acceptance criteria from the issue** and re-applies any narrowing that still holds through §2.2.5 — never treating a stale record as a live description of the current set.
+
 `--rewrite-ac` preserves the box state (don't tick during the rewrite — Phase 3.4 will tick via `--tick-ac-n` later). This is **not** scope adjustment — the rewritten AC is still gated in 3.4.
 
 **When the rewrite records a design *deviation* (the plan intentionally diverges from what an AC prescribed), also leave an in-repo breadcrumb comment at the deviation site.** The workpad `--note`/AC-rewrite paper trail lives only on the issue — and blinded shadow reviewers (Phase 3.3's fix loop deliberately withholds loop history) never see it, so a signed-off deviation gets independently re-raised as a finding, iteration after iteration (on #304 the signed-off AC11 deviation was re-litigated by three separate blinded reviewers, one grading the PR "not ready to merge" over it). To make the sign-off travel in repo content the reviewer *does* see, add a short comment at the deviating code site naming the **parent issue** and pointing at the **workpad record** — e.g. `# Deviates from issue #<N>'s prescribed <X>: <one-line why>; see the workpad AC-rewrite note.` — so the deviation reads as a recorded decision, not an undiscovered defect. (A pure surface-identifier rewrite with no behavioral deviation needs no such comment; this obligation is scoped to a *deviation*.)

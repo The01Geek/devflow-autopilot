@@ -13,7 +13,7 @@ Covers areas that are silent-failure-class regressions if they drift:
   documented false-positive cases (`monitoring` substring, generic
   "errors swallowed" prose, `click` substring, `workflow runner` vs
   `workflow run`, and `commenting on a` previous-decision prose).
-- `parse_acs._extract_section` / `_parse_checkboxes` / `_render_md` — the
+- `section_parse.extract_section` (re-exported through `parse_acs`) / `parse_acs._parse_checkboxes` / `_render_md` — the
   case-insensitive, level-bounded heading match (a differently-cased heading
   still matches, but a trailing-colon / wrong-level heading must yield zero
   items, not a silent miss that trivially passes the implement skill's
@@ -58,6 +58,7 @@ def _load(modname: str, path: Path) -> types.ModuleType:
 
 workpad = _load('workpad', SCRIPTS / 'workpad.py')
 parse_acs = _load('parse_acs', SCRIPTS / 'parse-acs.py')
+section_parse = _load('section_parse', SCRIPTS / 'section_parse.py')
 file_deferrals = _load('file_deferrals', SCRIPTS / 'file-deferrals.py')
 match_deferrals = _load('match_deferrals', SCRIPTS / 'match-deferrals.py')
 resolve_review_overrides = _load(
@@ -171,6 +172,12 @@ def make_args(**overrides):
         marker=None,
         reconcile_reproduction=None, record_classification=None,
         checkpoint=[], expect_comment_id=None, expect_status=None,
+        # issue #781 scope-decision records — this fixture encodes cmd_update's
+        # arg shape, so every attribute `_apply_mutations` /
+        # `_has_non_checkpoint_mutation` reads must be present here or those
+        # reads raise AttributeError on every test that builds args this way.
+        scope_decision_deferred=[], scope_decision_rewritten=[],
+        bind_scope_decisions=None,
     )
     base.update(overrides)
     return argparse.Namespace(**base)
@@ -1870,7 +1877,7 @@ assert_eq("invariant: ## Acceptance Criteria still present and before Devflow Re
           True, '## Acceptance Criteria' in out
           and out.index('## Acceptance Criteria') < out.index('## Devflow Reflection'))
 _ac = parse_acs._parse_checkboxes(
-    parse_acs._extract_section(out, 'Acceptance Criteria'))
+    parse_acs.extract_section(out, 'Acceptance Criteria'))
 assert_eq("invariant: AC section parses to 2 checkboxes after mutation", 2, len(_ac))
 assert_eq("invariant: AC one ticked is visible to the parser", True,
           any(i['text'] == 'AC one' and i['ticked'] for i in _ac))
@@ -2235,7 +2242,7 @@ for phrase in [
     assert_eq(f"NOT post-merge: {phrase!r}", False, parse_acs._is_post_merge(phrase))
 
 
-print("parse_acs._extract_section / _parse_checkboxes / _render_md")
+print("parse_acs.extract_section / _parse_checkboxes / _render_md")
 
 AC_BODY = """## Summary
 intro text
@@ -2252,7 +2259,7 @@ not a checkbox line
 - [ ] should not appear
 """
 
-_items = parse_acs._parse_checkboxes(parse_acs._extract_section(AC_BODY, 'Acceptance Criteria'))
+_items = parse_acs._parse_checkboxes(parse_acs.extract_section(AC_BODY, 'Acceptance Criteria'))
 assert_eq("extract: 4 AC checkboxes (deeper heading does not terminate)", 4, len(_items))
 assert_eq("extract: first text", 'first', _items[0]['text'])
 assert_eq("extract: second ticked", True, _items[1]['ticked'])
@@ -2263,23 +2270,23 @@ assert_eq("extract: stops at sibling '## Notes' (excluded)", False,
 # Case-insensitive, level-bounded heading match — the silent-miss guards.
 # Casing is forgiven, but a trailing colon / wrong level still must not match.
 assert_eq("extract: lowercase heading → matches (case-insensitive)", 4,
-          len(parse_acs._parse_checkboxes(parse_acs._extract_section(
+          len(parse_acs._parse_checkboxes(parse_acs.extract_section(
               AC_BODY.replace('## Acceptance Criteria', '## acceptance criteria'),
               'Acceptance Criteria'))))
 assert_eq("extract: uppercase heading → matches (case-insensitive)", 4,
-          len(parse_acs._parse_checkboxes(parse_acs._extract_section(
+          len(parse_acs._parse_checkboxes(parse_acs.extract_section(
               AC_BODY.replace('## Acceptance Criteria', '## ACCEPTANCE CRITERIA'),
               'Acceptance Criteria'))))
 assert_eq("extract: trailing-colon heading → no section", [],
-          parse_acs._extract_section(
+          parse_acs.extract_section(
               AC_BODY.replace('## Acceptance Criteria', '## Acceptance Criteria:'),
               'Acceptance Criteria'))
 assert_eq("extract: level-3 heading matches", 1,
           len(parse_acs._parse_checkboxes(
-              parse_acs._extract_section("### Acceptance Criteria\n- [ ] x\n",
+              parse_acs.extract_section("### Acceptance Criteria\n- [ ] x\n",
                                          'Acceptance Criteria'))))
 assert_eq("extract: level-4 heading not matched (only ##/###)", 0,
-          len(parse_acs._extract_section("#### Acceptance Criteria\n- [ ] x\n",
+          len(parse_acs.extract_section("#### Acceptance Criteria\n- [ ] x\n",
                                          'Acceptance Criteria')))
 
 assert_eq("render_md: empty → sentinel", '_(none provided in issue body)_',
@@ -2301,6 +2308,29 @@ assert_eq("render_md: test plan appended after blank line", True,
               [{'text': 'a', 'ticked': False, 'post_merge': False}],
               [{'text': 'b', 'ticked': False, 'post_merge': False}]))
 
+# ── the documented mid-string `(post-merge)` residual (#781 review) ────────────
+# `_render_md_line`'s comment states the writer and the reader deliberately do NOT
+# share a predicate: the writer suppresses the append on CONTAINMENT, the reader
+# (`section_parse.is_post_merge_tagged` -> `_ends_with_post_merge`) tests a SUFFIX.
+# So a criterion carrying the phrase mid-string is neither tagged by the writer nor
+# excluded by the reader — a disclosed residual with no test, which meant a future
+# "unification" of the two predicates would silently change the shipped contract
+# with nothing red. These assert the residual as the comment describes it, in both
+# directions, so a unification in EITHER direction goes red.
+_MIDSTR = 'Verify (post-merge) that the hook fires'
+assert_eq("post-merge residual: the writer suppresses on containment, so a mid-string "
+          "phrase is left untagged even at post_merge=True", 1,
+          parse_acs._render_md(
+              [{'text': _MIDSTR, 'ticked': False, 'post_merge': True}], []
+          ).count('(post-merge)'))
+assert_eq("post-merge residual: the reader tests a SUFFIX, so the same mid-string "
+          "row is not excluded by the post-merge filter", False,
+          section_parse.is_post_merge_tagged(_MIDSTR))
+assert_eq("post-merge residual control: a TERMINAL tag is what the reader excludes",
+          True, section_parse.is_post_merge_tagged('Do X (post-merge)'))
+assert_eq("post-merge residual control: trailing whitespace cannot mask the terminal tag",
+          True, section_parse.is_post_merge_tagged('Do X (post-merge)  \n'))
+
 # ── issue #254: hard-wrapped criteria (the ~80-column format /devflow:create-issue
 # emits) must join indented continuation lines into ONE criterion, and a post-merge
 # trigger phrase sitting on a continuation line must still classify. The old parser
@@ -2313,7 +2343,7 @@ WRAPPED_AC = """## Acceptance Criteria
 - [ ] The deploy step is exercised and the result is confirmed
       in production after the release ships.
 """
-_w = parse_acs._parse_checkboxes(parse_acs._extract_section(WRAPPED_AC, 'Acceptance Criteria'))
+_w = parse_acs._parse_checkboxes(parse_acs.extract_section(WRAPPED_AC, 'Acceptance Criteria'))
 assert_eq("wrap: two items parsed", 2, len(_w))
 assert_eq("wrap: item1 continuation lines joined verbatim into one string",
           "The parser joins each checkbox item's indented continuation lines into "
@@ -2338,7 +2368,7 @@ Prose paragraph at column zero closes the item.
       This indented line belongs to the prose, not the ticked item.
 - [ ] Final standalone item.
 """
-_b = parse_acs._parse_checkboxes(parse_acs._extract_section(WRAPPED_AC_BOUNDARY, 'Acceptance Criteria'))
+_b = parse_acs._parse_checkboxes(parse_acs.extract_section(WRAPPED_AC_BOUNDARY, 'Acceptance Criteria'))
 assert_eq("over-join: only the two checkbox items are parsed (prose lines are not items)",
           2, len(_b))
 assert_eq("over-join: wrapped `- [x]` preserves ticked=True", True, _b[0]['ticked'])
@@ -2361,7 +2391,7 @@ WRAPPED_AC_BLANKSEP = """## Acceptance Criteria
       This indented line follows a BLANK line and must not join item 1.
 - [ ] Second standalone item.
 """
-_bs = parse_acs._parse_checkboxes(parse_acs._extract_section(WRAPPED_AC_BLANKSEP, 'Acceptance Criteria'))
+_bs = parse_acs._parse_checkboxes(parse_acs.extract_section(WRAPPED_AC_BLANKSEP, 'Acceptance Criteria'))
 assert_eq("blank-sep: only the two checkbox items are parsed (blank line closed item 1)",
           2, len(_bs))
 assert_eq("blank-sep: item1 joins only its pre-blank continuation",
@@ -2373,7 +2403,7 @@ assert_eq("blank-sep: an indented line after a blank line is NOT absorbed (bound
 # (the continuation guard is `line[:1] in (' ', '\t')`); prior fixtures used only space
 # indentation, leaving the `\t` branch unexercised.
 WRAPPED_AC_TAB = "## Acceptance Criteria\n- [ ] Tab-wrapped criterion first line\n\tand its tab-indented continuation.\n"
-_t = parse_acs._parse_checkboxes(parse_acs._extract_section(WRAPPED_AC_TAB, 'Acceptance Criteria'))
+_t = parse_acs._parse_checkboxes(parse_acs.extract_section(WRAPPED_AC_TAB, 'Acceptance Criteria'))
 assert_eq("tab-cont: one item parsed", 1, len(_t))
 assert_eq("tab-cont: tab-indented continuation is joined into the criterion",
           "Tab-wrapped criterion first line and its tab-indented continuation.", _t[0]['text'])
@@ -2385,7 +2415,7 @@ assert_eq("tab-cont: tab-indented continuation is joined into the criterion",
 WRAPPED_AC_SPLITTRIG = ("## Acceptance Criteria\n"
                         "- [ ] Update the changelog after\n"
                         "      merge so the entry reconciles.\n")
-_st = parse_acs._parse_checkboxes(parse_acs._extract_section(WRAPPED_AC_SPLITTRIG, 'Acceptance Criteria'))
+_st = parse_acs._parse_checkboxes(parse_acs.extract_section(WRAPPED_AC_SPLITTRIG, 'Acceptance Criteria'))
 assert_eq("split-trigger: one item parsed", 1, len(_st))
 assert_eq("split-trigger: 'after merge' split across the wrap still classifies post-merge",
           True, _st[0]['post_merge'])
@@ -8247,10 +8277,27 @@ assert_eq("#583 AC5: workpad.py's gh subprocess edge is external, authorized by 
 assert_eq("#583 AC5: workpad.py's git subprocess edge is external, git-preflight-authorized",
           (True, "external"),
           ("git" in _wp_exec, _wp_exec["git"].klass if "git" in _wp_exec else None))
+# Scoped to the EXTERNAL import edges: issue #781 gave workpad.py its first
+# repo-owned import (scripts/section_parse.py, the shared section-parsing rules
+# it and parse-acs.py both call), so an unscoped "every import is stdlib" claim
+# would now be false. The repo-owned edge gets its own assertion below rather
+# than being waved through by a loosened predicate.
 assert_eq("#583 AC5: workpad.py's standard-library imports are all external and preflight-authorized",
           True,
           all(e.klass == "external" and e.auth and "python3 standard library" in e.auth
-              for e in _cwd_edges("scripts/workpad.py", "import")))
+              for e in _cwd_edges("scripts/workpad.py", "import")
+              if e.klass == "external"))
+_wp_import_repo = {e.target for e in _cwd_edges("scripts/workpad.py", "import")
+                   if e.klass == "repo-owned"}
+assert_eq("#583 AC5: workpad.py's section_parse import is a repo-owned edge beneath the vendored tree",
+          (True, True),
+          ("scripts/section_parse.py" in _wp_import_repo,
+           cwd.resolves_beneath_vendor("scripts/section_parse.py")))
+assert_eq("#583 AC5: parse-acs.py imports the same repo-owned section_parse module",
+          True,
+          "scripts/section_parse.py" in {
+              e.target for e in _cwd_edges("scripts/parse-acs.py", "import")
+              if e.klass == "repo-owned"})
 
 # Positive fixture 2 — run-jq.sh: the sourced resolver (repo-owned, beneath the
 # vendored tree) and the jq delegation (external, jq-preflight-authorized).
